@@ -11,11 +11,13 @@ import type { Tx } from '../../db/db.service';
  */
 export const LINK_PURPOSES = ['trip_offer', 'pod', 'settlement_view', 'tracking'] as const;
 export type LinkPurpose = (typeof LINK_PURPOSES)[number];
+/** scope ที่ลิงก์ได้ — รถร่วมเห็นค่าจ้างของงานตัวเอง (A3 "ดูราคาซื้อรถร่วม: เฉพาะของตัวเอง") */
+export const LINK_SCOPES = ['prices.buy:read'];
 
 function key(): Buffer {
   const s =
-    process.env.MAGIC_LINK_SECRET ??
-    process.env.AUTH_JWT_SECRET ??
+    process.env.MAGIC_LINK_SECRET ||
+    process.env.AUTH_JWT_SECRET ||
     (isLocalEnv() ? process.env.AUTH_DEV_SECRET : undefined);
   if (!s || s.length < 32) throw new Error('MAGIC_LINK_SECRET (>= 32 chars) required');
   return createHmac('sha256', s).update('tms-magic-link-v1').digest();
@@ -75,6 +77,9 @@ export class MagicLinkService {
     if (input.actions.length === 0) throw new Error('magic link needs at least one action');
     if ((input.scopes ?? []).some((s) => s.startsWith('prices.sell')))
       throw new Error('magic link can never carry selling-price scopes');
+    // scope ของลิงก์จำกัดเฉพาะรายการนี้ (ไม่รับ `*` หรือสิทธิ์ภายใน)
+    const bad = (input.scopes ?? []).filter((s) => !LINK_SCOPES.includes(s));
+    if (bad.length) throw new Error(`scope not allowed on magic link: ${bad.join(', ')}`);
     const expiresAt = new Date(Date.now() + input.ttlSeconds * 1000);
     const row = await tx.magicLink.create({
       data: {
@@ -88,6 +93,21 @@ export class MagicLinkService {
         createdBy: input.createdBy ?? null,
       },
     });
+    await tx.auditLog.create({
+      data: {
+        tenantId,
+        actorId: input.createdBy ?? null,
+        action: 'magic_link.issued',
+        entityType: input.entityType,
+        entityId: input.entityId,
+        after: {
+          linkId: row.id,
+          purpose: input.purpose,
+          actions: input.actions,
+          expiresAt: expiresAt.toISOString(),
+        },
+      },
+    });
     return {
       id: row.id,
       token: encodeLinkToken(row.id, Math.floor(expiresAt.getTime() / 1000)),
@@ -95,11 +115,27 @@ export class MagicLinkService {
     };
   }
 
-  async revoke(tx: Tx, id: string, reason: string) {
-    await tx.magicLink.updateMany({
-      where: { id, revokedAt: null },
-      data: { revokedAt: new Date(), revokedReason: reason },
+  /** เพิกถอน (เหตุผลบังคับ + audit) — คืน false ถ้าไม่มีหรือเพิกถอนไปแล้ว */
+  async revoke(tx: Tx, id: string, reason: string, actorId?: string): Promise<boolean> {
+    if (!reason.trim()) throw new Error('revoke needs a reason');
+    const row = await tx.magicLink.findUnique({ where: { id } });
+    if (!row || row.revokedAt) return false;
+    await tx.magicLink.update({
+      where: { id },
+      data: { revokedAt: new Date(), revokedReason: reason.trim() },
     });
+    await tx.auditLog.create({
+      data: {
+        tenantId: row.tenantId,
+        actorId: actorId ?? null,
+        action: 'magic_link.revoked',
+        entityType: row.entityType,
+        entityId: row.entityId,
+        before: { linkId: id },
+        reason: reason.trim(),
+      },
+    });
+    return true;
   }
 
   /** ตรวจลิงก์สำหรับ action หนึ่ง — ไม่ผ่านด้วยเหตุใดก็คืน null (route ตอบ 404 เหมือนไม่มี — ไม่บอกใบ้) */
@@ -117,9 +153,17 @@ export class MagicLinkService {
       return null;
     // token ต้องตรงกับอายุในแถว (กันเอาลายเซ็นของอายุอื่นมาใช้)
     if (Math.floor(row.expiresAt.getTime() / 1000) !== t.exp) return null;
-    void this.prisma.platform.magicLink
-      .update({ where: { id: row.id }, data: { lastUsedAt: new Date() } })
-      .catch(() => undefined);
+    // tenant ถูกระงับ/ยกเลิก → ลิงก์ใช้ไม่ได้ (เหมือนผู้ใช้ — spec/01 PLT-001)
+    const tenant = await this.prisma.platform.tenant.findUnique({
+      where: { id: row.tenantId },
+      select: { status: true },
+    });
+    if (!tenant || (tenant.status !== 'TRIAL' && tenant.status !== 'ACTIVE')) return null;
+    // บันทึกการใช้ล่าสุดไม่เกินนาทีละครั้ง (ไม่เขียนฐานทุก request)
+    if (!row.lastUsedAt || Date.now() - row.lastUsedAt.getTime() > 60_000)
+      void this.prisma.platform.magicLink
+        .update({ where: { id: row.id }, data: { lastUsedAt: new Date() } })
+        .catch(() => undefined);
     return {
       id: row.id,
       tenantId: row.tenantId,

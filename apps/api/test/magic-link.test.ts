@@ -5,7 +5,7 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AppModule } from '../src/app.module';
 import { createApp } from '../src/bootstrap';
-import { LinkAction } from '../src/common/decorators';
+import { LinkAction, Public } from '../src/common/decorators';
 import { PriceField } from '../src/common/price-fields';
 import { requestContext } from '../src/common/request-context';
 import { PrismaService } from '../src/db/prisma.service';
@@ -43,7 +43,17 @@ class LinkTestController {
     return { ok: true };
   }
 }
-@Module({ imports: [AppModule], controllers: [LinkTestController] })
+/** @Public ระดับ class + @LinkAction ระดับ method ต้องยังตรวจลิงก์ (review T06) */
+@Public()
+@Controller('public/__test2')
+class PublicLinkController {
+  @Get(':token')
+  @LinkAction('view')
+  view() {
+    return { link: requestContext.require().link?.id ?? null };
+  }
+}
+@Module({ imports: [AppModule], controllers: [LinkTestController, PublicLinkController] })
 class TestModule {}
 
 /** ST1-T06: ลิงก์หมดอายุ/ถูกเพิกถอน/ทำ action นอกรายการ → 404; payload ไม่มี field ราคาขาย */
@@ -98,11 +108,8 @@ describe('magic link', () => {
     const both = await issue({ actions: ['view', 'accept'] });
     await request(app.getHttpServer()).post(`/v1/public/__test/${both.token}/accept`).expect(201);
 
-    const old = await issue();
-    await db.magicLink.update({
-      where: { id: old.id },
-      data: { expiresAt: new Date(Date.now() - 1000) },
-    });
+    const old = await issue({ ttlSeconds: 1 });
+    await new Promise((r) => setTimeout(r, 1100));
     expect((await get(old.token)).status).toBe(404);
     const past = Math.floor((Date.now() - 1000) / 1000);
     expect((await get(encodeLinkToken(old.id, past))).status).toBe(404);
@@ -133,6 +140,51 @@ describe('magic link', () => {
         await tx.$executeRaw`DELETE FROM magic_link WHERE id = ${l.id}::uuid`;
       }),
     ).rejects.toThrow(/permission denied/);
+  });
+
+  it('review: tenant ถูกระงับ → ลิงก์ใช้ไม่ได้; ออก/เพิกถอนลงทะเบียน audit; เพิกถอนแล้วคืนไม่ได้; scope `*` ไม่ได้', async () => {
+    const t2 = await createTenant(db, 'บริษัท ระงับ');
+    const l = await prisma.app.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.tenant_id', ${t2.id}, true)`;
+      return svc.issue(tx as never, t2.id, {
+        purpose: 'pod',
+        entityType: 'trip',
+        entityId: trip,
+        actions: ['view'],
+        ttlSeconds: 600,
+      });
+    });
+    await get(l.token).expect(200);
+    await db.tenant.update({ where: { id: t2.id }, data: { status: 'SUSPENDED' } });
+    expect((await get(l.token)).status).toBe(404);
+
+    const r = await issue();
+    await prisma.app.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
+      expect(await svc.revoke(tx as never, r.id, 'ยกเลิกงาน')).toBe(true);
+      expect(await svc.revoke(tx as never, r.id, 'ซ้ำ')).toBe(false);
+    });
+    const audit = await db.auditLog.findMany({
+      where: { tenantId, action: { startsWith: 'magic_link.' } },
+    });
+    expect(audit.some((a) => a.action === 'magic_link.revoked' && a.reason === 'ยกเลิกงาน')).toBe(
+      true,
+    );
+    expect(audit.some((a) => a.action === 'magic_link.issued')).toBe(true);
+    await expect(
+      db.magicLink.update({ where: { id: r.id }, data: { revokedAt: null } }),
+    ).rejects.toThrow(/permanent/);
+    await expect(
+      db.magicLink.update({ where: { id: r.id }, data: { actions: ['view', 'accept'] } }),
+    ).rejects.toThrow(/immutable/);
+    await expect(issue({ scopes: ['*'] })).rejects.toThrow(/not allowed/);
+    expect((await request(app.getHttpServer()).get('/v1/public/__test2/garbage')).status).toBe(404);
+    const ok = await issue();
+    const res = await request(app.getHttpServer())
+      .get(`/v1/public/__test2/${ok.token}`)
+      .expect(200);
+    expect(res.body.link).toBe(ok.id);
+    expect(res.headers['cache-control']).toBe('no-store');
   });
 
   it('route /public/* จำกัดอัตราต่อ IP → 429 + Retry-After', async () => {

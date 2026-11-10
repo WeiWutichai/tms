@@ -41,8 +41,7 @@ export class AuthGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const targets = [context.getHandler(), context.getClass()];
-    if (this.reflector.getAllAndOverride<boolean>(IS_PUBLIC, targets)) return true;
-
+    // ลิงก์ตรวจก่อน @Public เสมอ — ติดทั้งคู่ต้องไม่ทำให้ข้ามการตรวจลิงก์ (review T06)
     const linkAction = this.reflector.getAllAndOverride<string>(LINK_ACTION, targets);
     if (linkAction) {
       const req = context.switchToHttp().getRequest<Request>();
@@ -55,8 +54,13 @@ export class AuthGuard implements CanActivate {
       ctx.scopes = link.scopes;
       ctx.principalType = 'link';
       ctx.link = link;
+      // ฟีเจอร์ของแพ็กเกจใช้กับลิงก์ด้วย (เช่น ลิงก์รถร่วมเมื่อ tenant ไม่มีฟีเจอร์ sub)
+      const linkFeature = this.reflector.getAllAndOverride<string>(REQUIRED_FEATURE, targets);
+      if (linkFeature && !(await this.entitlements.enabled(link.tenantId, linkFeature)))
+        throw new ProblemException('not_found');
       return true;
     }
+    if (this.reflector.getAllAndOverride<boolean>(IS_PUBLIC, targets)) return true;
 
     const req = context.switchToHttp().getRequest<Request>();
     const header = req.header('authorization') ?? '';

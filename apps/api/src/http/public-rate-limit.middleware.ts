@@ -7,12 +7,27 @@ import type { NextFunction, Request, Response } from 'express';
  */
 export const PUBLIC_LIMIT_PER_MIN = Number(process.env.PUBLIC_RATE_LIMIT_PER_MIN ?? 120);
 const WINDOW_MS = 60_000;
+/** เพดานจำนวน key — เกินแล้วทิ้ง key เก่าสุด (Map เรียงตามลำดับใส่) ไม่วนทั้ง map ต่อ request */
+const MAX_KEYS = 50_000;
 const hits = new Map<string, number[]>();
+/** IPv6 นับต่อ /64 (ผู้ใช้หนึ่งคนเปลี่ยนเลขท้ายได้ทั้ง block) */
+export function rateKey(ip: string): string {
+  const v6 = ip.startsWith('::ffff:') ? null : ip.includes(':') ? ip : null;
+  if (!v6) return ip.replace(/^::ffff:/, '');
+  const parts = v6.split(':');
+  return `${parts.slice(0, 4).join(':')}::/64`;
+}
+// กวาด key ที่พ้นหน้าต่างทุก 1 นาที (ไม่ทำใน request)
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of hits) if (now - (v.at(-1) ?? 0) >= WINDOW_MS) hits.delete(k);
+}, WINDOW_MS).unref();
 
 @Injectable()
 export class PublicRateLimitMiddleware implements NestMiddleware {
   use(req: Request, res: Response, next: NextFunction): void {
-    const ip = req.ip ?? 'unknown';
+    // ⚠ req.ip เชื่อ X-Forwarded-For 1 ชั้น (trust proxy 1) — deployment ต้องมี proxy หน้า API พอดี 1 ชั้น
+    const ip = rateKey(req.ip ?? 'unknown');
     const now = Date.now();
     const list = (hits.get(ip) ?? []).filter((t) => now - t < WINDOW_MS);
     if (list.length >= PUBLIC_LIMIT_PER_MIN) {
@@ -29,9 +44,11 @@ export class PublicRateLimitMiddleware implements NestMiddleware {
       return;
     }
     list.push(now);
+    hits.delete(ip); // ย้ายไปท้าย (ใช้ล่าสุด)
     hits.set(ip, list);
-    if (hits.size > 50_000)
-      for (const [k, v] of hits) if (now - (v.at(-1) ?? 0) > WINDOW_MS) hits.delete(k);
+    if (hits.size > MAX_KEYS) hits.delete(hits.keys().next().value!);
+    // ข้อมูลที่เปิดด้วยลิงก์ห้าม cache (token อยู่ใน URL)
+    res.setHeader('Cache-Control', 'no-store');
     next();
   }
 }
