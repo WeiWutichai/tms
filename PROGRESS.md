@@ -60,7 +60,8 @@
 | T15 เลขเอกสาร | เสร็จ | ตาราง `document_series` (prefix/reset ต่อประเภท) + `document_sequence` (ตัวนับต่อสาขา×งวด, unique NULLS NOT DISTINCT); `issueNumber()` ล็อกแถวด้วย UPDATE…RETURNING · test 50 request พร้อมกันได้ 1–50 ไม่ซ้ำไม่ข้าม, rollback ไม่กินเลข; เอกสารภาษีต้องมี `{BR}`; หน้า ตั้งค่า → เลขที่เอกสาร |
 | T22 Audit log | เสร็จ (ส่วนแกน + API) | `AuditService` เขียนใน transaction เดียวกับการแก้ข้อมูล, diff เฉพาะ field ที่เปลี่ยน, ตัด field secret; trigger ปฏิเสธ UPDATE/DELETE ทุก role; `GET /v1/audit-logs` (Accounting เห็นเฉพาะ entity บัญชี) · **ยังไม่ทำ:** แท็บประวัติต่อ entity + หน้ารวมใน UI (ต้นแบบมีแท็บ "กิจกรรม" ใน drawer — ทำพร้อมหน้าเอกสาร ST2+), job ลบเมื่อครบ 5 ปี |
 | T05 2FA TOTP | เสร็จ (ยกเว้นหน้าตั้งเองของ role ที่ไม่บังคับ) | TOTP + backup 10 ชุด + จำอุปกรณ์ 30 วัน + step-up; บังคับ owner/admin/accounting; เปลี่ยน role (`PUT /v1/users/{id}/roles`) ต้อง step-up + bump tokenVersion + ห้ามเหลือ owner 0 · `test/mfa.test.ts` 8 ข้อ + E2E · ผู้ใช้เดโม owner/admin/accounting ใช้ secret `JBSWY3DPEHPK3PXP` ในแอป Authenticator · หน้า 2FA ยังไม่มีในต้นแบบ [OPEN] |
-| T02–T03, T06–T11, T13, T16–T21, T23–T24 | ยังไม่เริ่ม | ถัดไปที่เสนอ: T05 2FA (ปลด step-up ของ T12 และ T24) → T17 ตั้งค่าองค์กร → T16 routing → T13 field permission · T03/T07/T23 รอเลือกผู้ให้บริการอีเมล (ST0-T01) |
+| T17 ตั้งค่าองค์กร | เสร็จ | ตาราง `tenant_setting` + registry มี type (`apps/api/src/modules/settings/registry.ts`, 13 key: org/tax/billing/security); `GET/PATCH /v1/settings` (ค่าผิด type → 422 ทั้งก้อน, audit ต่อ key); auth อ่าน `security.require2faAll` และ idle timeout; หน้า องค์กร/ภาษี/ความปลอดภัย ตามต้นแบบ + ปุ่มบันทึกลอย · `test/settings.test.ts` 5 ข้อ + E2E · ภาพเทียบ `design/compare/st1-settings-{org,tax,sec}-1440.png` |
+| T02–T03, T06–T11, T13, T16, T18–T21, T23–T24 | ยังไม่เริ่ม | ถัดไปที่เสนอ: T05 2FA (ปลด step-up ของ T12 และ T24) → T17 ตั้งค่าองค์กร → T16 routing → T13 field permission · T03/T07/T23 รอเลือกผู้ให้บริการอีเมล (ST0-T01) |
 
 ## สัปดาห์นี้ (สัปดาห์ 10–14 พ.ย. 2569)
 
@@ -78,6 +79,8 @@
 | 5 | ส่งรอบแก้ต้นแบบ 3D (4 จุด) ใน Claude Design ไหม — เป็นการจำลองล้วน | 10 พ.ย. | ไม่ขวาง | รอ |
 | 12 | role บัญชี (Accounting) ดูหน้า "เลขที่เอกสาร"/ตั้งค่าภาษีได้ไหม — docs/04 A3 ให้เฉพาะ owner/admin แต่ spec/01 §12 ให้ Accounting ดู (ภาษีแก้ได้) · ตอนนี้ยึด docs (ไม่ได้) | 10 พ.ย. | หน้าตั้งค่าภาษี ST1-T17 | รอ |
 | 13 | รูปแบบเลขเอกสารรายปี: ตอนนี้ปี 2 หลัก (`CN-00000-69-0001` ตามหัวตารางต้นแบบ "{YY} = ปี พ.ศ. 2 หลัก") แต่ตัวอย่าง docs/04 A4 เป็น 4 หลัก (`INV-00001-2569-`) — ใช้แบบไหน | 10 พ.ย. | ก่อนออกเลขจริง ST5 | รอ |
+| 14 | ตั้ง "รูปแบบปีในเอกสาร" เป็น ค.ศ. แล้ววันที่บน header ของแอปเป็น ค.ศ. ด้วย ("11 พ.ย. 2026") — ต้องการให้มีผลเฉพาะเอกสาร หรือทั้งแอป | 11 พ.ย. | ไม่ขวาง | รอ |
+| 15 | ช่องตั้งค่า รอบวางบิล / free time / แยกเอกสาร VAT ไม่มีในต้นแบบ — ให้ Claude Design เพิ่มในหัวข้อไหน (spec/12 §3) | 11 พ.ย. | หน้าตั้งค่าครบตาม T17 | รอ |
 | 9 | ตารางต้องแสดงยอดรวม "จาก N" ไหม (ต้นแบบมี แต่ API เป็น cursor — `spec/12` §3) | 10 พ.ย. | ทุกหน้ารายการ ST1+ | รอ |
 | 10 | push ขึ้น `WeiWutichai/tms` — repo ตอนนี้เป็น **Public** รอ PO เปลี่ยนเป็น private ก่อน push; reviewer ยังไม่มี | 10 พ.ย. | T03 จบ, CI รันจริง | รอ PO |
 | 11 | footer หน้า public: ชื่อนิติบุคคลจริง + ข้อความที่ตั้งข้อมูล (D-16 ยังไม่ตัดสิน) | 10 พ.ย. | ก่อนเปิดให้ลูกค้าใช้ | รอ |

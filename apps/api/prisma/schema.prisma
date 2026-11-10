@@ -1172,3 +1172,16 @@ model TrustedDevice {
   @@index([userId])
   @@map("trusted_device")
 }
+
+/// ค่าตั้งองค์กร (ST1-T17) — key ต้องลงทะเบียนใน src/modules/settings/registry.ts (มี type + default); ไม่มีแถว = ใช้ default
+model TenantSetting {
+  tenantId  String   @map("tenant_id") @db.Uuid
+  key       String
+  value     Json
+  version   Int      @default(1)
+  updatedBy String?  @map("updated_by")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@id([tenantId, key])
+  @@map("tenant_setting")
+}

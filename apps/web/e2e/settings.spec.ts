@@ -1,4 +1,4 @@
-import { expect, test } from './fixtures';
+import { DEMO_TOTP_SECRET, expect, test, totp } from './fixtures';
 
 /** ST1-T12/T14/T15: หน้าตั้งค่า + ซ่อนเมนูตามสิทธิ์ */
 test.describe('ตั้งค่า (owner)', () => {
@@ -39,6 +39,39 @@ test.describe('ตั้งค่า (owner)', () => {
     await page.getByLabel('รหัสไปรษณีย์').fill('10100');
     await page.getByRole('button', { name: 'บันทึก' }).click();
     await expect(page.getByRole('cell', { name: code, exact: true })).toBeVisible();
+  });
+});
+
+test.describe('ตั้งค่า: องค์กร / ภาษี / ความปลอดภัย (owner)', () => {
+  test('แก้ค่าแล้วกดบันทึก → toast และค่าคงอยู่หลังโหลดใหม่', async ({ page }) => {
+    await page.goto('/settings?sec=sec');
+    await expect(page.getByRole('heading', { name: 'ความปลอดภัย' })).toBeVisible();
+    const save = page.getByRole('button', { name: 'บันทึก' });
+    await page.getByLabel('Session timeout').selectOption('60');
+    await save.click();
+    await expect(page.getByRole('status')).toHaveText('บันทึกการตั้งค่าความปลอดภัยแล้ว');
+    await page.reload();
+    await expect(page.getByLabel('Session timeout')).toHaveValue('60');
+    // ยืด timeout = ลดความปลอดภัย → ต้องยืนยัน 2FA อีกครั้ง
+    await page.getByLabel('Session timeout').selectOption('480');
+    await page.getByRole('button', { name: 'บันทึก' }).click();
+    const box = page.getByRole('group', { name: 'ยืนยันตัวตน 2 ชั้นอีกครั้ง' });
+    await expect(box).toBeVisible();
+    await box.getByLabel('รหัส 6 หลัก').fill(totp(DEMO_TOTP_SECRET, 1));
+    await box.getByRole('button', { name: 'ยืนยัน' }).click();
+    await expect(page.getByRole('status')).toHaveText('บันทึกการตั้งค่าความปลอดภัยแล้ว');
+
+    await page.goto('/settings?sec=tax');
+    await expect(page.getByRole('radio', { name: 'เลือกตามลูกค้า' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    await page.goto('/settings?sec=org');
+    await expect(page.getByLabel('เลขผู้เสียภาษี')).toHaveValue(/^0000000000/);
+    await expect(page.getByRole('radio', { name: /^พ\.ศ\./ })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
   });
 });
 

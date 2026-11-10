@@ -16,6 +16,7 @@
   gap: 2px;
 }
 .set-menu button {
+  font: inherit;
   height: 40px;
   display: flex;
   align-items: center;
@@ -30,7 +31,6 @@
   text-align: left;
   width: 100%;
   white-space: nowrap;
-  font: inherit;
 }
 .set-menu button:hover {
   background: #eef0ec;
@@ -77,6 +77,7 @@
   white-space: nowrap;
 }
 .set-btn2 {
+  font: inherit;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -86,7 +87,6 @@
   border-radius: 999px;
   background: #ffffff;
   color: #2257c4;
-  font: inherit;
   font-weight: 500;
   cursor: pointer;
   white-space: nowrap;
@@ -173,13 +173,13 @@
 }
 .set-input,
 .set-select {
+  font: inherit;
   height: 36px;
   padding: 0 10px;
   border: 1px solid #c9cdc3;
   border-radius: 8px;
   background: #ffffff;
   color: #101418;
-  font: inherit;
 }
 .set-input {
   width: 120px;
@@ -198,6 +198,7 @@
   gap: 24px;
 }
 .set-tabs button {
+  font: inherit;
   height: 40px;
   padding: 0;
   margin-bottom: -1px;
@@ -205,7 +206,6 @@
   border-bottom: 2px solid transparent;
   background: transparent;
   color: #3b424c;
-  font: inherit;
   font-weight: 500;
   cursor: pointer;
 }

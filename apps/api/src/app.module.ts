@@ -9,6 +9,8 @@ import { BranchesService } from './modules/branches/branches.service';
 import { SequencesController } from './modules/sequences/sequences.controller';
 import { SequencesService } from './modules/sequences/sequences.service';
 import { AuditController } from './audit/audit.controller';
+import { SettingsController } from './modules/settings/settings.controller';
+import { SettingsService } from './modules/settings/settings.service';
 import { AuthGuard } from './auth/auth.guard';
 import { AuthService } from './auth/auth.service';
 import { ProblemFilter } from './common/problem.filter';
@@ -38,6 +40,7 @@ import { StateService } from './state/state.service';
     BranchesController,
     SequencesController,
     AuditController,
+    SettingsController,
     JobsController,
   ],
   providers: [
@@ -52,6 +55,7 @@ import { StateService } from './state/state.service';
     AuditService,
     BranchesService,
     SequencesService,
+    SettingsService,
     { provide: APP_GUARD, useClass: AuthGuard },
     { provide: APP_FILTER, useClass: ProblemFilter },
     // ลำดับสำคัญ: idempotency (นอก) → transaction (ใน)

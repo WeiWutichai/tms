@@ -70,3 +70,39 @@ export function useSaveSequence() {
     onSettled: () => qc.invalidateQueries({ queryKey: ['sequences'] }),
   });
 }
+
+export type TenantSetting = Schemas['SettingDto'];
+
+export function useTenantSettings() {
+  return useQuery({
+    queryKey: ['tenant-settings'],
+    queryFn: () => unwrap(api.GET('/v1/settings')),
+  });
+}
+
+export function useSaveTenantSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: {
+      values: Record<string, unknown>;
+      versions: Record<string, number>;
+      stepUp?: string;
+    }) =>
+      unwrap(
+        api.PATCH('/v1/settings', {
+          body: { values: v.values, versions: v.versions },
+          params: { header: v.stepUp ? { 'X-Step-Up': v.stepUp } : {} } as never,
+        }),
+      ),
+    onSuccess: (data) => {
+      qc.setQueryData(['tenant-settings'], data);
+      void qc.invalidateQueries({ queryKey: ['me'] });
+    },
+  });
+}
+
+/** step-up 2FA (ST1-T05) — คืน token สำหรับ header X-Step-Up */
+export async function stepUp(otp: string): Promise<string> {
+  const r = await unwrap(api.POST('/v1/auth/step-up', { body: { otp } }));
+  return r.stepUpToken;
+}

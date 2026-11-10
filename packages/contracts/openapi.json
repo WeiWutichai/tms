@@ -1178,6 +1178,84 @@
         ]
       }
     },
+    "/v1/settings": {
+      "get": {
+        "operationId": "Settings_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingListDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "settings"
+        ]
+      },
+      "patch": {
+        "operationId": "Settings_update",
+        "parameters": [
+          {
+            "name": "x-step-up",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Step-Up",
+            "in": "header",
+            "description": "ต้องมีเมื่อแก้ที่ลดความปลอดภัย (ปิด 2FA ทั้งองค์กร / ปิดออกจากระบบอัตโนมัติ / ยืด idle timeout) — ไม่มี → 403 step_up_required",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSettingsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingListDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "settings"
+        ]
+      }
+    },
     "/v1/jobs/{id}": {
       "get": {
         "operationId": "Jobs_get",
@@ -2282,6 +2360,84 @@
           "data",
           "nextCursor",
           "hasMore"
+        ]
+      },
+      "SettingDto": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "example": "security.idleTimeoutMinutes"
+          },
+          "value": {
+            "type": "object",
+            "description": "ค่าปัจจุบัน (ชนิดตาม registry)",
+            "nullable": true
+          },
+          "default": {
+            "type": "object",
+            "nullable": true
+          },
+          "isDefault": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "number"
+          },
+          "updatedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "key",
+          "value",
+          "default",
+          "isDefault",
+          "version",
+          "updatedAt"
+        ]
+      },
+      "SettingListDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SettingDto"
+            }
+          }
+        },
+        "required": [
+          "data"
+        ]
+      },
+      "UpdateSettingsDto": {
+        "type": "object",
+        "properties": {
+          "values": {
+            "type": "object",
+            "additionalProperties": true,
+            "example": {
+              "org.yearStyle": "BE",
+              "security.idleTimeoutMinutes": 60
+            },
+            "description": "key → ค่าใหม่ (เฉพาะ key ที่จะแก้)"
+          },
+          "versions": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "example": {
+              "security.idleTimeoutMinutes": 2
+            },
+            "description": "version ของแต่ละ key จาก GET (optimistic lock) — ไม่ตรง → 412"
+          }
+        },
+        "required": [
+          "values"
         ]
       },
       "JobDto": {
