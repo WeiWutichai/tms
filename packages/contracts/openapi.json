@@ -267,6 +267,35 @@
         ]
       }
     },
+    "/v1/me/password": {
+      "post": {
+        "operationId": "Password_change",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangePasswordDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "auth"
+        ]
+      }
+    },
     "/v1/health": {
       "get": {
         "operationId": "Health_health",
@@ -1764,6 +1793,24 @@
         },
         "required": [
           "backupCodes"
+        ]
+      },
+      "ChangePasswordDto": {
+        "type": "object",
+        "properties": {
+          "currentPassword": {
+            "type": "string",
+            "format": "password"
+          },
+          "newPassword": {
+            "type": "string",
+            "format": "password",
+            "description": "≥ 12 ตัว, ไม่อยู่ในรายการรหัสที่รั่ว, ไม่ซ้ำ 5 ครั้งล่าสุด (ST1-T02)"
+          }
+        },
+        "required": [
+          "currentPassword",
+          "newPassword"
         ]
       },
       "MeTenantDto": {

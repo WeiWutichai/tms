@@ -1187,3 +1187,15 @@ model TenantSetting {
   @@id([tenantId, key])
   @@map("tenant_setting")
 }
+
+/// รหัสผ่านเดิม (ST1-T02: ห้ามซ้ำ 5 ครั้งล่าสุด) — เก็บ hash argon2id เท่านั้น; ใช้ผ่าน role platform
+model PasswordHistory {
+  id           String   @id @default(uuid()) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  passwordHash String   @map("password_hash")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([tenantId, userId, createdAt])
+  @@map("password_history")
+}
