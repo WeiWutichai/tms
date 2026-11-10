@@ -360,6 +360,7 @@ export const th = {
   'problem.invalid_state_transition': 'ทำรายการนี้ไม่ได้ในสถานะปัจจุบัน',
   'problem.unauthorized': 'ต้องเข้าสู่ระบบ',
   'problem.forbidden': 'ไม่มีสิทธิ์ทำรายการนี้',
+  'problem.permission_denied': 'ไม่มีสิทธิ์ทำรายการนี้',
   'problem.not_found': 'ไม่พบข้อมูล',
   'problem.internal_error': 'ระบบขัดข้อง',
   'field.thai_tax_id': 'เลขประจำตัวผู้เสียภาษีต้องเป็นตัวเลข 13 หลักที่ถูกต้อง',

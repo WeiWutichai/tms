@@ -185,11 +185,33 @@ export class AuthService {
     const now = new Date();
     if (!row || row.revokedAt) throw new ProblemException('invalid_grant');
     if (row.usedAt) {
-      // หลายแท็บ refresh พร้อมกันด้วย cookie เดียว: ใบที่เพิ่งหมุนไปไม่เกิน 30 วินาที → ปฏิเสธเฉย ๆ ไม่เพิกถอนทั้ง family
-      // (แท็บนั้นลองใหม่ด้วย cookie ใหม่ที่อีกแท็บได้รับ) — ใช้ซ้ำหลังจากนั้น = ถือว่าถูกขโมย เพิกถอนทั้ง family
-      if (now.getTime() - row.usedAt.getTime() > REFRESH_REUSE_GRACE_MS)
+      if (now.getTime() - row.usedAt.getTime() > REFRESH_REUSE_GRACE_MS) {
+        // ใช้ซ้ำหลังพ้น grace = ถือว่าถูกขโมย → เพิกถอนทั้ง family (A1)
         await this.revokeFamily(row.familyId);
-      throw new ProblemException('invalid_grant');
+        throw new ProblemException('invalid_grant');
+      }
+      // ภายใน 30 วินาที: browser เดิมที่ไม่ได้รับ cookie ใหม่ (หลายแท็บพร้อมกัน, reload ตัด response กลางทาง)
+      // → ออก token ใหม่ใน family เดียวกัน เฉพาะเมื่อ IP + User-Agent ตรงกับ request ที่หมุนไป; ไม่ตรง = ปฏิเสธเฉย ๆ
+      const successor = await this.db.refreshToken.findFirst({
+        where: { familyId: row.familyId, createdAt: { gte: row.usedAt }, id: { not: row.id } },
+        orderBy: { createdAt: 'asc' },
+      });
+      const sameClient =
+        !!successor &&
+        successor.ip === client.ip &&
+        successor.userAgent === (client.userAgent?.slice(0, 500) ?? null);
+      if (!sameClient || row.expiresAt <= now || row.idleExpiresAt <= now)
+        throw new ProblemException('invalid_grant');
+      if ((await this.currentTokenVersion(row.tenantId, row.userId)) === null)
+        throw new ProblemException('invalid_grant');
+      return this.issue(
+        row.tenantId,
+        row.userId,
+        row.familyId,
+        row.expiresAt,
+        client,
+        row.tokenVersion,
+      );
     }
     if (row.expiresAt <= now || row.idleExpiresAt <= now)
       throw new ProblemException('invalid_grant');

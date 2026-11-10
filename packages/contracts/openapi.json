@@ -1191,7 +1191,7 @@
           },
           "taxId": {
             "type": "string",
-            "example": "0105536000014",
+            "example": "0105536000011",
             "description": "เลขประจำตัวผู้เสียภาษี 13 หลัก"
           },
           "vatRegistered": {

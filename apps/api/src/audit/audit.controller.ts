@@ -120,7 +120,11 @@ export class AuditController {
     const scopes = requestContext.require().scopes ?? [];
     const accountingOnly = !scopeAllows(scopes, 'audit:read');
     if (accountingOnly && q.entityType && !ACCOUNTING_ENTITIES.includes(q.entityType))
-      throw new ProblemException('forbidden');
+      throw new ProblemException('permission_denied', undefined, undefined, {
+        module: 'audit',
+        action: 'read',
+        required: ['audit:read'],
+      });
     const limit = q.limit ?? 50;
     let entityId: string | undefined;
     if (q.entityId) {

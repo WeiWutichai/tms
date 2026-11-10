@@ -33,6 +33,11 @@ export const PROBLEMS = {
     th: 'Idempotency-Key นี้เคยใช้กับข้อมูลอื่น',
     en: 'Idempotency-Key reused with a different request body',
   },
+  permission_denied: {
+    status: 403,
+    th: 'ไม่มีสิทธิ์ทำรายการนี้',
+    en: 'You do not have permission for this action',
+  },
   rate_limited: { status: 429, th: 'เรียกถี่เกินไป', en: 'Too many requests' },
   invalid_credentials: {
     status: 401,

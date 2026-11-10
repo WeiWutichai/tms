@@ -89,7 +89,7 @@ export function UsersSection({ canWrite }: { canWrite: boolean }) {
             </tr>
           </thead>
           <tbody>
-            {(users.data?.data ?? []).map((u) => (
+            {sortUsers(users.data?.data ?? [], roles.data?.data ?? []).map((u) => (
               <tr key={u.id}>
                 <td>
                   <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.4 }}>
@@ -156,4 +156,17 @@ export function UsersSection({ canWrite }: { canWrite: boolean }) {
       )}
     </section>
   );
+}
+
+/** เรียงผู้ใช้ตามลำดับ role ใน A3 (เจ้าของก่อน) แล้วตามชื่อ */
+function sortUsers<U extends { name: string; roles: { code: string }[] }>(
+  users: U[],
+  roles: { code: string }[],
+): U[] {
+  const rank = (u: U) =>
+    Math.min(
+      ...u.roles.map((r) => roles.findIndex((x) => x.code === r.code)).filter((i) => i >= 0),
+      99,
+    );
+  return [...users].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name, 'th'));
 }

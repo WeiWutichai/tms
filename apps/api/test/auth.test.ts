@@ -198,13 +198,21 @@ describe('auth: login + Auth Code/PKCE + refresh', () => {
     expect((await refresh(next)).status).toBe(400);
   });
 
-  it('สองแท็บ refresh พร้อมกัน (ภายใน 30 วินาที) → ใบหนึ่งได้ 400 แต่ไม่หลุดทั้ง family', async () => {
+  it('ภายใน 30 วินาที: browser เดิมใช้ cookie เก่าได้ token ใหม่ (reload ตัด response); เครื่องอื่นได้ 400', async () => {
     await makeUser(tenantA, 'tabs@example.co.th');
     const { cookie } = await fullLogin('tabs@example.co.th');
     const r1 = await refresh(cookie);
     expect(r1.status).toBe(200);
     const next = (r1.headers['set-cookie'] as unknown as string[])[0]!.split(';')[0]!;
-    expect((await refresh(cookie)).status).toBe(400);
+    const same = await refresh(cookie);
+    expect(same.status).toBe(200);
+    const other = await request(app.getHttpServer())
+      .post('/v1/oauth/token')
+      .set('Cookie', cookie)
+      .set('User-Agent', 'attacker/1.0')
+      .send({ grantType: 'refresh_token' });
+    expect(other.status).toBe(400);
+    // family ไม่ถูกเพิกถอน: token ที่ออกให้ทั้งสองใบยังใช้ได้
     expect((await refresh(next)).status).toBe(200);
   });
 

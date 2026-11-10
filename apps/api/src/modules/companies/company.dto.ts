@@ -39,7 +39,7 @@ export class CreateCompanyDto {
   @MaxLength(200)
   legalNameEn?: string;
 
-  @ApiProperty({ example: '0105536000014', description: 'เลขประจำตัวผู้เสียภาษี 13 หลัก' })
+  @ApiProperty({ example: '0105536000011', description: 'เลขประจำตัวผู้เสียภาษี 13 หลัก' })
   @Validate(ThaiTaxIdConstraint)
   taxId!: string;
 
