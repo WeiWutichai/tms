@@ -125,6 +125,7 @@ export class UsersController {
     const userId = decodeIdOr404('user', id);
     const user = await tx.appUser.findUnique({ where: { id: userId } });
     if (!user) throw new ProblemException('not_found');
+    if (user.status === 'DELETED') throw new ProblemException('invalid_state_transition');
     const roles = await tx.role.findMany({ where: { code: { in: body.roles } } });
     const before = await tx.userRole.findMany({ where: { userId } });
     const beforeCodes = (

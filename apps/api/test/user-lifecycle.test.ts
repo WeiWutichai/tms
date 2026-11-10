@@ -103,6 +103,19 @@ describe('user lifecycle + login history', () => {
     expect(mine.actor.name).toBe('ผู้ใช้ที่ลบแล้ว');
     expect(JSON.stringify(audit.body)).not.toContain('d@life.test');
     expect((await act(admin, u, 'delete')).status).toBe(409);
+    // ประวัติ login ของคนที่ลบไม่เหลืออีเมลจริง (เวลา/IP/ผลยังอยู่)
+    const hist = await api(app, admin)
+      .get(`/v1/login-history?userId=${encodeId('user', u.id)}`)
+      .expect(200);
+    expect(hist.body.data.length).toBeGreaterThan(0);
+    expect(JSON.stringify(hist.body)).not.toContain('d@life.test');
+    // ให้ role กับผู้ใช้ที่ลบแล้วไม่ได้
+    const { signStepUpToken } = await import('../src/auth/tokens');
+    const res = await api(app, admin)
+      .put(`/v1/users/${encodeId('user', u.id)}/roles`)
+      .set('X-Step-Up', await signStepUpToken('user-test', tenantId))
+      .send({ roles: ['viewer'], reason: 'คืนสิทธิ์' });
+    expect(res.status).toBe(409);
   });
 
   it('ทำกับตัวเองไม่ได้; admin ระงับ/ลบ owner ไม่ได้ (owner ทำได้)', async () => {
@@ -123,7 +136,7 @@ describe('user lifecycle + login history', () => {
     expect((await act(mg.access, o2, 'activate')).status).toBe(403);
   });
 
-  it('ประวัติ login: สำเร็จ/ผิด/ล็อกของผู้ใช้ใน tenant, กรองตามผู้ใช้, tenant อื่นไม่เห็น, ไม่แสดงแถวภายใน', async () => {
+  it('ประวัติ login: สำเร็จ/ผิดของผู้ใช้ใน tenant, กรองตามผู้ใช้, tenant อื่นไม่เห็น, ไม่แสดงแถวภายใน', async () => {
     const u = await user('h@life.test');
     const hip = nextIp();
     await request(app.getHttpServer())
@@ -142,6 +155,7 @@ describe('user lifecycle + login history', () => {
     expect(reasons).toContain('invalid_credentials');
     expect(reasons).toContain('ok');
     expect(reasons).not.toContain('attempt');
+    expect(reasons).not.toContain('password_ok');
     expect(res.body.data[0]).toMatchObject({
       userId: encodeId('user', u.id),
       email: 'h@life.test',
@@ -151,6 +165,16 @@ describe('user lifecycle + login history', () => {
     const t2 = await createTenant(db);
     const other = await tokenFor(t2.id, 'users:read');
     expect((await api(app, other).get('/v1/login-history')).body.data).toEqual([]);
+    // id ผิดรูปแบบ → 422 (ไม่ใช่ 500)
+    expect((await api(app, admin).get('/v1/login-history?userId=garbage')).status).toBe(422);
+    expect(
+      (await api(app, admin).get('/v1/login-history?userId=cmp_00000000000000000000000000000000'))
+        .status,
+    ).toBe(422);
+    const badCursor = Buffer.from(
+      JSON.stringify({ a: new Date().toISOString(), i: 'zzz' }),
+    ).toString('base64url');
+    expect((await api(app, admin).get(`/v1/login-history?cursor=${badCursor}`)).status).toBe(422);
     const viewer = await tokenFor(tenantId, 'companies:read');
     expect((await api(app, viewer).get('/v1/login-history')).status).toBe(403);
   });

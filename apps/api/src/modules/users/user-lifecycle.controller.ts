@@ -139,6 +139,11 @@ export class UserLifecycleController {
     await this.prisma.platform.backupCode.deleteMany({
       where: { tenantId: user.tenantId, userId: user.id },
     });
+    // ประวัติ login ของคนที่ลบ: เก็บเวลา/IP/ผลไว้เป็นหลักฐานความปลอดภัย แต่ตัดอีเมลจริงออก (PDPA — review T10)
+    await this.prisma.platform.loginAttempt.updateMany({
+      where: { tenantId: user.tenantId, userId: user.id },
+      data: { email: `deleted-${user.id}@deleted.invalid` },
+    });
     return result;
   }
 
@@ -149,7 +154,11 @@ export class UserLifecycleController {
   async history(@Query() q: LoginHistoryQuery): Promise<LoginHistoryPageDto> {
     const tenantId = requestContext.require().tenantId!;
     const limit = q.limit ?? 50;
-    const userId = q.userId ? (tryDecodeId('user', q.userId) ?? '__none__') : undefined;
+    const userId = q.userId ? tryDecodeId('user', q.userId) : undefined;
+    if (q.userId && !userId)
+      throw new ProblemException('validation_failed', undefined, [
+        { field: 'userId', code: 'invalid_id', message: 'userId must be a usr_ id' },
+      ]);
     let cursor: { at: Date; id: string } | undefined;
     if (q.cursor) {
       try {
@@ -158,7 +167,8 @@ export class UserLifecycleController {
           i: string;
         };
         cursor = { at: new Date(v.a), id: v.i };
-        if (Number.isNaN(cursor.at.getTime())) throw new Error();
+        if (Number.isNaN(cursor.at.getTime()) || !/^[0-9a-f-]{36}$/i.test(String(v.i)))
+          throw new Error();
       } catch {
         throw new ProblemException('validation_failed', undefined, [
           { field: 'cursor', code: 'invalid_cursor', message: 'cursor is invalid' },
@@ -169,7 +179,8 @@ export class UserLifecycleController {
     const rows = await this.prisma.platform.loginAttempt.findMany({
       where: {
         tenantId,
-        reason: { not: 'attempt' },
+        // แถวภายใน: `attempt` (ตัวนับ) และ `password_ok` (ผ่านรหัสผ่าน รอ 2FA — ผลจริงคือแถว mfa_* ถัดไป)
+        reason: { notIn: ['attempt', 'password_ok'] },
         ...(userId ? { userId } : {}),
         ...(cursor
           ? {
