@@ -522,7 +522,7 @@ function Group({
                 n="lock"
                 s={12}
                 style={{ color: '#59606B', flexShrink: 0 }}
-                aria-label="locked"
+                aria-label={t('nav.locked')}
               />
             )}
             {hasKids && (
@@ -615,7 +615,7 @@ function Group({
                     n="lock"
                     s={12}
                     style={{ color: '#59606B', flexShrink: 0 }}
-                    aria-label="locked"
+                    aria-label={t('nav.locked')}
                   />
                 )}
               </button>

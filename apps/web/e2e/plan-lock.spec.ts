@@ -8,14 +8,14 @@ test.describe('แพ็กเกจเริ่มต้น (demo-b)', () => {
     await page.goto('/');
     const item = page.getByRole('button', { name: 'จ่ายงานรถร่วม' });
     await expect(item).toBeVisible();
-    await expect(item.getByLabel('locked')).toBeVisible();
+    await expect(item.getByLabel('ไม่รวมในแพ็กเกจ')).toBeVisible();
     await item.click();
     await expect(page.getByText('ไม่รวมในแพ็กเกจเริ่มต้น')).toBeVisible();
     await expect(page.getByRole('heading', { level: 2, name: 'จ่ายงานรถร่วม' })).toBeVisible();
     await expect(page.getByText('มาตรฐาน', { exact: true })).toBeVisible();
     // ฟีเจอร์ที่มีในแพ็กเกจไม่มี 🔒
     await expect(
-      page.getByRole('button', { name: 'ใบสั่งขนส่ง (SO)' }).getByLabel('locked'),
+      page.getByRole('button', { name: 'ใบสั่งขนส่ง (SO)' }).getByLabel('ไม่รวมในแพ็กเกจ'),
     ).toHaveCount(0);
   });
 });
