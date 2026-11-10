@@ -33,6 +33,31 @@ export const PROBLEMS = {
     th: 'Idempotency-Key นี้เคยใช้กับข้อมูลอื่น',
     en: 'Idempotency-Key reused with a different request body',
   },
+  mfa_required: {
+    status: 401,
+    th: 'กรอกรหัสยืนยันตัวตน 2 ชั้นจากแอป Authenticator',
+    en: 'Enter the code from your authenticator app',
+  },
+  mfa_enrollment_required: {
+    status: 401,
+    th: 'บัญชีนี้ต้องตั้งการยืนยันตัวตน 2 ชั้นก่อนเข้าใช้งาน',
+    en: 'Set up two-factor authentication to continue',
+  },
+  invalid_otp: {
+    status: 401,
+    th: 'รหัสยืนยันไม่ถูกต้องหรือหมดอายุ',
+    en: 'Invalid or expired code',
+  },
+  step_up_required: {
+    status: 403,
+    th: 'ยืนยันตัวตน 2 ชั้นอีกครั้งก่อนทำรายการนี้',
+    en: 'Confirm with two-factor authentication first',
+  },
+  two_factor_not_enabled: {
+    status: 409,
+    th: 'ยังไม่ได้ตั้งการยืนยันตัวตน 2 ชั้น',
+    en: 'Two-factor authentication is not set up',
+  },
   permission_denied: {
     status: 403,
     th: 'ไม่มีสิทธิ์ทำรายการนี้',

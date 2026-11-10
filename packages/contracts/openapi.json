@@ -27,7 +27,7 @@
             }
           },
           "401": {
-            "description": "invalid_credentials"
+            "description": "mfa_required / mfa_enrollment_required — มี `mfaToken` ใช้ต่อที่ /v1/auth/2fa/verify หรือ /v1/auth/2fa/enroll\n\ninvalid_credentials"
           },
           "409": {
             "description": "tenant_selection_required — มี `tenants: [{id, name, status}]`"
@@ -81,6 +81,187 @@
             "description": ""
           }
         },
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/v1/auth/2fa/verify": {
+      "post": {
+        "operationId": "Mfa_verify",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MfaVerifyDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthCodeDto"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/v1/auth/2fa/enroll": {
+      "post": {
+        "operationId": "Mfa_enrollStart",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MfaTokenDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnrollStartDto"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/v1/auth/2fa/enroll/confirm": {
+      "post": {
+        "operationId": "Mfa_enrollConfirm",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MfaEnrollConfirmDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EnrollDoneDto"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/v1/auth/step-up": {
+      "post": {
+        "operationId": "Mfa_stepUp",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SecondFactorDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StepUpDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/v1/me/2fa": {
+      "get": {
+        "operationId": "Mfa_status",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TwoFactorStatusDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/v1/me/2fa/backup-codes": {
+      "post": {
+        "operationId": "Mfa_regenerate",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BackupCodesDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
         "tags": [
           "auth"
         ]
@@ -454,6 +635,60 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/RoleListDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/v1/users/{id}/roles": {
+      "put": {
+        "operationId": "Users_setRoles",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Step-Up",
+            "in": "header",
+            "description": "stepUpToken จาก POST /v1/auth/step-up",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetRolesDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserDto"
                 }
               }
             }
@@ -1085,6 +1320,183 @@
           "expiresIn"
         ]
       },
+      "MfaVerifyDto": {
+        "type": "object",
+        "properties": {
+          "mfaToken": {
+            "type": "string",
+            "description": "mfaToken จาก problem mfa_required / mfa_enrollment_required"
+          },
+          "otp": {
+            "type": "string",
+            "example": "123456",
+            "description": "รหัส 6 หลักจากแอป"
+          },
+          "backupCode": {
+            "type": "string",
+            "example": "abcd-efgh",
+            "description": "backup code (ใช้แทน otp ได้ครั้งเดียว)"
+          },
+          "rememberDevice": {
+            "type": "boolean",
+            "default": false,
+            "description": "จำอุปกรณ์นี้ 30 วัน (cookie httpOnly `tms_td`)"
+          }
+        },
+        "required": [
+          "mfaToken"
+        ]
+      },
+      "AuthCodeDto": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "expiresIn": {
+            "type": "number",
+            "example": 60
+          }
+        },
+        "required": [
+          "code",
+          "expiresIn"
+        ]
+      },
+      "MfaTokenDto": {
+        "type": "object",
+        "properties": {
+          "mfaToken": {
+            "type": "string",
+            "description": "mfaToken จาก problem mfa_required / mfa_enrollment_required"
+          }
+        },
+        "required": [
+          "mfaToken"
+        ]
+      },
+      "EnrollStartDto": {
+        "type": "object",
+        "properties": {
+          "secret": {
+            "type": "string",
+            "description": "secret base32 (ให้พิมพ์เองถ้าสแกน QR ไม่ได้)"
+          },
+          "otpauthUri": {
+            "type": "string",
+            "example": "otpauth://totp/TMS:me@example.co.th?secret=…"
+          }
+        },
+        "required": [
+          "secret",
+          "otpauthUri"
+        ]
+      },
+      "MfaEnrollConfirmDto": {
+        "type": "object",
+        "properties": {
+          "mfaToken": {
+            "type": "string",
+            "description": "mfaToken จาก problem mfa_required / mfa_enrollment_required"
+          },
+          "otp": {
+            "type": "string",
+            "example": "123456"
+          }
+        },
+        "required": [
+          "mfaToken",
+          "otp"
+        ]
+      },
+      "EnrollDoneDto": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "expiresIn": {
+            "type": "number",
+            "example": 60
+          },
+          "backupCodes": {
+            "description": "backup code 10 ชุด — แสดงครั้งเดียว",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "code",
+          "expiresIn",
+          "backupCodes"
+        ]
+      },
+      "SecondFactorDto": {
+        "type": "object",
+        "properties": {
+          "otp": {
+            "type": "string",
+            "example": "123456"
+          },
+          "backupCode": {
+            "type": "string",
+            "example": "abcd-efgh"
+          }
+        }
+      },
+      "StepUpDto": {
+        "type": "object",
+        "properties": {
+          "stepUpToken": {
+            "type": "string",
+            "description": "ส่งใน header X-Step-Up ของ request ที่ต้อง step-up"
+          },
+          "expiresIn": {
+            "type": "number",
+            "example": 300
+          }
+        },
+        "required": [
+          "stepUpToken",
+          "expiresIn"
+        ]
+      },
+      "TwoFactorStatusDto": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "required": {
+            "type": "boolean",
+            "description": "role/องค์กรบังคับให้ใช้"
+          },
+          "backupCodesRemaining": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "enabled",
+          "required",
+          "backupCodesRemaining"
+        ]
+      },
+      "BackupCodesDto": {
+        "type": "object",
+        "properties": {
+          "backupCodes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "backupCodes"
+        ]
+      },
       "MeTenantDto": {
         "type": "object",
         "properties": {
@@ -1366,6 +1778,30 @@
         },
         "required": [
           "data"
+        ]
+      },
+      "SetRolesDto": {
+        "type": "object",
+        "properties": {
+          "roles": {
+            "example": [
+              "planner"
+            ],
+            "description": "role code ระบบ (ตาราง A3)",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "reason": {
+            "type": "string",
+            "example": "ย้ายไปฝ่ายวางแผน",
+            "description": "เหตุผล (ลง audit)"
+          }
+        },
+        "required": [
+          "roles",
+          "reason"
         ]
       },
       "UserRoleRefDto": {

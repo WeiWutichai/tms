@@ -54,3 +54,48 @@ export function api(app: NestExpressApplication, token?: string) {
     delete: (url: string) => withAuth(request(server).delete(url)),
   };
 }
+
+/**
+ * login ผ่าน API จริง (PKCE) และจัดการ 2FA อัตโนมัติ (ST1-T05): role ที่บังคับ 2FA จะถูกตั้ง TOTP ให้ตอน login แรก
+ * คืน access token + secret (ถ้าตั้งให้) เพื่อใช้ step-up ต่อ
+ */
+export async function loginFull(
+  app: NestExpressApplication,
+  email: string,
+  password: string,
+  ip: string,
+  totp?: { secret?: string },
+): Promise<{ access: string; cookie: string; secret?: string }> {
+  const { pkceChallenge } = await import('../src/auth/tokens');
+  const { hotp, currentStep } = await import('../src/auth/totp');
+  const { randomBytes } = await import('node:crypto');
+  const v = randomBytes(32).toString('base64url');
+  const srv = app.getHttpServer();
+  const r1 = await request(srv)
+    .post('/v1/auth/login')
+    .set('X-Forwarded-For', ip)
+    .send({ email, password, codeChallenge: pkceChallenge(v) });
+  let code: string;
+  let secret = totp?.secret;
+  if (r1.status === 200) code = r1.body.code;
+  else if (r1.body.code === 'mfa_enrollment_required') {
+    const s = await request(srv).post('/v1/auth/2fa/enroll').send({ mfaToken: r1.body.mfaToken });
+    secret = s.body.secret as string;
+    const c = await request(srv)
+      .post('/v1/auth/2fa/enroll/confirm')
+      .send({ mfaToken: r1.body.mfaToken, otp: hotp(secret, currentStep()) });
+    if (c.status !== 200) throw new Error(`enroll ${c.status} ${JSON.stringify(c.body)}`);
+    code = c.body.code;
+  } else if (r1.body.code === 'mfa_required' && secret) {
+    const c = await request(srv)
+      .post('/v1/auth/2fa/verify')
+      .send({ mfaToken: r1.body.mfaToken, otp: hotp(secret, currentStep() + 1) });
+    if (c.status !== 200) throw new Error(`verify ${c.status} ${JSON.stringify(c.body)}`);
+    code = c.body.code;
+  } else throw new Error(`login ${r1.status} ${JSON.stringify(r1.body)}`);
+  const r2 = await request(srv)
+    .post('/v1/oauth/token')
+    .send({ grantType: 'authorization_code', code, codeVerifier: v });
+  const cookie = ((r2.headers['set-cookie'] as unknown as string[]) ?? [])[0]?.split(';')[0] ?? '';
+  return { access: r2.body.accessToken as string, cookie, secret };
+}

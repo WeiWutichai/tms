@@ -1,9 +1,10 @@
 import { Injectable } from '@nestjs/common';
-import type { PrismaClient } from '@prisma/client';
+import type { AppUser, PrismaClient } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { encodeId } from '../common/ids';
 import { ProblemException } from '../common/problem';
 import { PrismaService } from '../db/prisma.service';
+import { MFA_CHALLENGE_TTL_MS, MfaService } from './mfa.service';
 import { dummyHash, verifyPassword } from './password';
 import {
   newOpaqueToken,
@@ -42,7 +43,10 @@ export interface TokenPair {
  */
 @Injectable()
 export class AuthService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly mfa: MfaService,
+  ) {}
 
   private get db() {
     return this.prisma.platform;
@@ -57,7 +61,13 @@ export class AuthService {
    * ความพยายามที่ยังไม่มีผล นับเป็นครั้งผิดไว้ก่อน (fail closed) จึงผ่านไปตรวจรหัสได้ไม่เกิน 5 ครั้งต่อหน้าต่าง
    */
   async login(
-    input: { email: string; password: string; codeChallenge: string; tenantId?: string },
+    input: {
+      email: string;
+      password: string;
+      codeChallenge: string;
+      tenantId?: string;
+      trustedDevice?: string;
+    },
     client: ClientInfo,
   ): Promise<{ code: string; expiresIn: number }> {
     const email = input.email.trim().toLowerCase();
@@ -93,10 +103,9 @@ export class AuthService {
   private async verifyAndIssueCode(
     db: PrismaClient,
     email: string,
-    input: { password: string; codeChallenge: string; tenantId?: string },
+    input: { password: string; codeChallenge: string; tenantId?: string; trustedDevice?: string },
     client: ClientInfo,
   ): Promise<{ code: string; expiresIn: number }> {
-    const now = Date.now();
     const users = await db.appUser.findMany({
       where: { email: { equals: email, mode: 'insensitive' }, status: 'ACTIVE' },
     });
@@ -135,17 +144,27 @@ export class AuthService {
     }
 
     const user = chosen[0]!;
-    const { token: code, hash } = newOpaqueToken();
-    await db.authCode.create({
-      data: {
-        codeHash: hash,
-        codeChallenge: input.codeChallenge,
+    // ST1-T05: รหัสผ่านถูกแล้ว → ขั้นที่ 2 (TOTP) ถ้าจำเป็น; อุปกรณ์ที่จำไว้ 30 วันข้ามได้
+    const need = await this.mfa.requirement(user);
+    if (
+      need !== 'none' &&
+      !(need === 'verify' && (await this.mfa.isTrusted(input.trustedDevice, user)))
+    ) {
+      await this.record(db, email, client, {
+        success: false,
+        reason: 'password_ok',
         tenantId: user.tenantId,
         userId: user.id,
-        expiresAt: new Date(now + CODE_TTL_MS),
-      },
-    });
-    await db.appUser.update({ where: { id: user.id }, data: { lastLoginAt: new Date(now) } });
+      });
+      const mfaToken = await this.mfa.createChallenge(user, need, input.codeChallenge);
+      throw new ProblemException(
+        need === 'verify' ? 'mfa_required' : 'mfa_enrollment_required',
+        undefined,
+        undefined,
+        { mfaToken, expiresIn: MFA_CHALLENGE_TTL_MS / 1000 },
+      );
+    }
+    const code = await this.issueAuthCode(user, input.codeChallenge);
     await this.record(db, email, client, {
       success: true,
       reason: 'ok',
@@ -153,6 +172,23 @@ export class AuthService {
       userId: user.id,
     });
     return { code, expiresIn: CODE_TTL_MS / 1000 };
+  }
+
+  /** ออก authorization code (ผูก PKCE) หลังผ่านทุกขั้น — ใช้ทั้ง login ปกติและหลังผ่าน 2FA */
+  async issueAuthCode(user: AppUser, codeChallenge: string): Promise<string> {
+    const now = Date.now();
+    const { token: code, hash } = newOpaqueToken();
+    await this.db.authCode.create({
+      data: {
+        codeHash: hash,
+        codeChallenge,
+        tenantId: user.tenantId,
+        userId: user.id,
+        expiresAt: new Date(now + CODE_TTL_MS),
+      },
+    });
+    await this.db.appUser.update({ where: { id: user.id }, data: { lastLoginAt: new Date(now) } });
+    return code;
   }
 
   /** grant_type=authorization_code — ตรวจ PKCE แล้วออก access + refresh */
@@ -337,7 +373,7 @@ export class AuthService {
     now: number,
   ): Promise<number> {
     const since = new Date(now - LOGIN_WINDOW_MS);
-    const OK = ['ok', 'tenant_selection_required'];
+    const OK = ['ok', 'tenant_selection_required', 'password_ok'];
     const until: number[] = [];
     for (const key of [{ email }, { ip }]) {
       const [attempts, oks] = await Promise.all([

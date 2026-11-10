@@ -77,7 +77,20 @@ export interface TenantChoice {
   status: string;
 }
 
-export type LoginResult = { ok: true } | { ok: false; code: string; tenants?: TenantChoice[] };
+export type LoginResult =
+  | { ok: true }
+  | {
+      ok: false;
+      code: string;
+      tenants?: TenantChoice[];
+      /** ขั้นที่ 2 (ST1-T05): ใช้ต่อกับ verifyMfa / startEnroll / confirmEnroll */
+      mfa?: MfaStep;
+    };
+
+export interface MfaStep {
+  mfaToken: string;
+  verifier: string;
+}
 
 /** login → code → token; ผลลัพธ์ผิดคืน code ของ problem+json ให้หน้าจอแปลเป็นข้อความ */
 export async function login(
@@ -90,16 +103,61 @@ export async function login(
     body: { email, password, codeChallenge: challenge, ...(tenantId ? { tenantId } : {}) },
   });
   if (!r1.data) {
-    const p = (r1.error ?? {}) as { code?: string; tenants?: TenantChoice[] };
-    return { ok: false, code: p.code ?? 'internal_error', tenants: p.tenants };
+    const p = (r1.error ?? {}) as { code?: string; tenants?: TenantChoice[]; mfaToken?: string };
+    return {
+      ok: false,
+      code: p.code ?? 'internal_error',
+      tenants: p.tenants,
+      ...(p.mfaToken ? { mfa: { mfaToken: p.mfaToken, verifier } } : {}),
+    };
   }
+  return exchange(r1.data.code, verifier);
+}
+
+async function exchange(code: string, verifier: string): Promise<LoginResult> {
   const r2 = await raw.POST('/v1/oauth/token', {
-    body: { grantType: 'authorization_code', code: r1.data.code, codeVerifier: verifier },
+    body: { grantType: 'authorization_code', code, codeVerifier: verifier },
   });
   if (!r2.data)
     return { ok: false, code: (r2.error as { code?: string })?.code ?? 'internal_error' };
   set(r2.data.accessToken, r2.data.expiresIn);
   return { ok: true };
+}
+
+const problemCode = (e: unknown) => (e as { code?: string } | undefined)?.code ?? 'internal_error';
+
+/** ขั้นที่ 2: รหัสจากแอป หรือ backup code */
+export async function verifyMfa(
+  step: MfaStep,
+  input: { otp?: string; backupCode?: string; rememberDevice?: boolean },
+): Promise<LoginResult> {
+  const r = await raw.POST('/v1/auth/2fa/verify', {
+    body: { mfaToken: step.mfaToken, ...input, rememberDevice: input.rememberDevice ?? false },
+  });
+  if (!r.data) return { ok: false, code: problemCode(r.error) };
+  return exchange(r.data.code, step.verifier);
+}
+
+export async function startEnroll(
+  step: MfaStep,
+): Promise<{ secret: string; otpauthUri: string } | { error: string }> {
+  const r = await raw.POST('/v1/auth/2fa/enroll', { body: { mfaToken: step.mfaToken } });
+  return r.data ?? { error: problemCode(r.error) };
+}
+
+/** ยืนยันรหัสแรก → ได้ backup code (ยังไม่เข้าระบบจนกว่าผู้ใช้กด "ดำเนินการต่อ" → finishEnroll) */
+export async function confirmEnroll(
+  step: MfaStep,
+  otp: string,
+): Promise<{ code: string; backupCodes: string[] } | { error: string }> {
+  const r = await raw.POST('/v1/auth/2fa/enroll/confirm', {
+    body: { mfaToken: step.mfaToken, otp },
+  });
+  return r.data ?? { error: problemCode(r.error) };
+}
+
+export function finishEnroll(step: MfaStep, code: string): Promise<LoginResult> {
+  return exchange(code, step.verifier);
 }
 
 export async function logout(): Promise<void> {

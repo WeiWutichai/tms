@@ -59,7 +59,8 @@
 | T14 นิติบุคคล + สาขา | เสร็จ (ยกเว้นโลโก้/ลายเซ็น) | `/v1/branches` CRUD (ไม่มีลบ), checksum เลขภาษี 422, รหัสสาขา 5 หลักไม่ซ้ำต่อนิติบุคคล, default 1 ต่อนิติบุคคล, "ใช้ออกใบกำกับ" = hq_prints_for_all ต่อสาขา (PO ตอบ); หน้า ตั้งค่า → นิติบุคคลและสาขา + drawer · โลโก้/ลายเซ็นรอ T08 ไฟล์แนบ |
 | T15 เลขเอกสาร | เสร็จ | ตาราง `document_series` (prefix/reset ต่อประเภท) + `document_sequence` (ตัวนับต่อสาขา×งวด, unique NULLS NOT DISTINCT); `issueNumber()` ล็อกแถวด้วย UPDATE…RETURNING · test 50 request พร้อมกันได้ 1–50 ไม่ซ้ำไม่ข้าม, rollback ไม่กินเลข; เอกสารภาษีต้องมี `{BR}`; หน้า ตั้งค่า → เลขที่เอกสาร |
 | T22 Audit log | เสร็จ (ส่วนแกน + API) | `AuditService` เขียนใน transaction เดียวกับการแก้ข้อมูล, diff เฉพาะ field ที่เปลี่ยน, ตัด field secret; trigger ปฏิเสธ UPDATE/DELETE ทุก role; `GET /v1/audit-logs` (Accounting เห็นเฉพาะ entity บัญชี) · **ยังไม่ทำ:** แท็บประวัติต่อ entity + หน้ารวมใน UI (ต้นแบบมีแท็บ "กิจกรรม" ใน drawer — ทำพร้อมหน้าเอกสาร ST2+), job ลบเมื่อครบ 5 ปี |
-| T02–T03, T05–T11, T13, T16–T21, T23–T24 | ยังไม่เริ่ม | ถัดไปที่เสนอ: T05 2FA (ปลด step-up ของ T12 และ T24) → T17 ตั้งค่าองค์กร → T16 routing → T13 field permission · T03/T07/T23 รอเลือกผู้ให้บริการอีเมล (ST0-T01) |
+| T05 2FA TOTP | เสร็จ (ยกเว้นหน้าตั้งเองของ role ที่ไม่บังคับ) | TOTP + backup 10 ชุด + จำอุปกรณ์ 30 วัน + step-up; บังคับ owner/admin/accounting; เปลี่ยน role (`PUT /v1/users/{id}/roles`) ต้อง step-up + bump tokenVersion + ห้ามเหลือ owner 0 · `test/mfa.test.ts` 8 ข้อ + E2E · ผู้ใช้เดโม owner/admin/accounting ใช้ secret `JBSWY3DPEHPK3PXP` ในแอป Authenticator · หน้า 2FA ยังไม่มีในต้นแบบ [OPEN] |
+| T02–T03, T06–T11, T13, T16–T21, T23–T24 | ยังไม่เริ่ม | ถัดไปที่เสนอ: T05 2FA (ปลด step-up ของ T12 และ T24) → T17 ตั้งค่าองค์กร → T16 routing → T13 field permission · T03/T07/T23 รอเลือกผู้ให้บริการอีเมล (ST0-T01) |
 
 ## สัปดาห์นี้ (สัปดาห์ 10–14 พ.ย. 2569)
 

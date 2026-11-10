@@ -119,6 +119,8 @@ export const zh: Partial<Record<MessageKey, string>> = {
   'login.required': '请输入邮箱和密码',
   'login.pickTitle': '选择公司',
   'login.back': '返回登录',
+  'mfa.submit': '确认',
+  'mfa.copied': '已复制',
   'tenantStatus.trial': '试用',
   'tenantStatus.active': '启用',
   'problem.invalid_credentials': '邮箱或密码错误',

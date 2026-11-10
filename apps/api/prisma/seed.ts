@@ -10,7 +10,10 @@ import { ROLE_CODES, type RoleCode } from '@tms/domain';
 import { signDevToken } from '../src/auth/auth.guard';
 import { hashPassword } from '../src/auth/password';
 import { isLocalEnv } from '../src/auth/tokens';
+import { FORCED_2FA_ROLES } from '../src/auth/mfa.service';
 import { ensureSystemRoles } from '../src/auth/system-roles';
+import { sha256 } from '../src/auth/tokens';
+import { FieldCipher } from '../src/common/crypto';
 import { ensureDefaultSeries } from '../src/modules/sequences/sequences.service';
 
 export const DEMO_A = '00000000-0000-4000-8000-00000000000a';
@@ -103,6 +106,13 @@ const BRANCHES = [
  * ทุกคนใช้รหัส DEMO_PASSWORD · id คงที่: ...0e0a0N (N = ลำดับ role)
  */
 export const DEMO_PASSWORD = 'demo-password-2569';
+/**
+ * 2FA ของผู้ใช้เดโมที่ role บังคับ (owner, admin, accounting — ST1-T05): เพิ่ม secret นี้ในแอป Authenticator
+ * (พิมพ์เอง: JBSW Y3DP EHPK 3PXP) เพื่อ login ด้วยมือ · E2E ใช้ cookie อุปกรณ์ที่จำไว้ DEMO_TRUSTED_DEVICE ข้ามขั้นนี้
+ * ข้อมูลเดโมเท่านั้น — production ไม่รัน seed
+ */
+export const DEMO_TOTP_SECRET = 'JBSWY3DPEHPK3PXP';
+export const DEMO_TRUSTED_DEVICE = 'demo-trusted-device-e2e-only-0000000000000';
 const DEMO_NAMES: Record<RoleCode, string> = {
   owner: 'เจ้าของ ตัวอย่าง',
   admin: 'ผู้ดูแล ตัวอย่าง',
@@ -154,6 +164,7 @@ async function main() {
   }
   for (const t of [DEMO_A, DEMO_B]) await ensureDefaultSeries(db, t);
   const passwordHash = await hashPassword(DEMO_PASSWORD);
+  const cipher = new FieldCipher();
   const roleIds: Record<string, Record<string, string>> = {};
   for (const t of [DEMO_A, DEMO_B]) roleIds[t] = await ensureSystemRoles(db, t);
   for (const u of USERS) {
@@ -172,6 +183,29 @@ async function main() {
       where: { tenantId: u.tenantId, userId: u.id, roleId },
     });
     if (!link) await db.userRole.create({ data: { tenantId: u.tenantId, userId: u.id, roleId } });
+    if (FORCED_2FA_ROLES.includes(role)) {
+      const cur = await db.appUser.update({
+        where: { id: u.id },
+        data: {
+          totpSecret: cipher.encrypt(DEMO_TOTP_SECRET),
+          totpEnabledAt: new Date('2026-11-10T00:00:00Z'),
+          totpLastStep: null,
+        },
+      });
+      const tokenHash = sha256(`${DEMO_TRUSTED_DEVICE}:${u.id}`);
+      await db.trustedDevice.upsert({
+        where: { tokenHash },
+        create: {
+          tokenHash,
+          tenantId: u.tenantId,
+          userId: u.id,
+          tokenVersion: cur.tokenVersion,
+          expiresAt: new Date('2099-01-01T00:00:00Z'),
+          userAgent: 'seed',
+        },
+        update: { tokenVersion: cur.tokenVersion, revokedAt: null },
+      });
+    }
   }
   const counts = {
     tenants: await db.tenant.count({ where: { id: { in: [DEMO_A, DEMO_B] } } }),

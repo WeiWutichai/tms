@@ -1,8 +1,12 @@
-import { Controller, Get, Query } from '@nestjs/common';
-import { ApiBearerAuth, ApiOkResponse, ApiProperty, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Get, Param, Put, Query } from '@nestjs/common';
+import { ApiBearerAuth, ApiHeader, ApiOkResponse, ApiProperty, ApiTags } from '@nestjs/swagger';
+import { ArrayMaxSize, ArrayMinSize, IsIn, IsString, MaxLength } from 'class-validator';
+import { ROLE_CODES } from '@tms/domain';
+import { AuditService } from '../../audit/audit.service';
+import { ProblemException } from '../../common/problem';
 import type { AppUser, Role } from '@prisma/client';
-import { RequireScope } from '../../common/decorators';
-import { encodeId } from '../../common/ids';
+import { RequireScope, RequireStepUp, TenantResource } from '../../common/decorators';
+import { decodeIdOr404, encodeId } from '../../common/ids';
 import { keysetArgs, ListQuery, toPage } from '../../common/pagination';
 import { DbService } from '../../db/db.service';
 
@@ -32,6 +36,19 @@ export class UserDto {
   @ApiProperty({ nullable: true, type: String, format: 'date-time' }) lastLoginAt!: string | null;
   @ApiProperty({ format: 'date-time' }) updatedAt!: string;
 }
+export class SetRolesDto {
+  @ApiProperty({ type: [String], example: ['planner'], description: 'role code ระบบ (ตาราง A3)' })
+  @ArrayMinSize(1)
+  @ArrayMaxSize(9)
+  @IsIn([...ROLE_CODES], { each: true })
+  roles!: string[];
+
+  @ApiProperty({ example: 'ย้ายไปฝ่ายวางแผน', description: 'เหตุผล (ลง audit)' })
+  @IsString()
+  @MaxLength(500)
+  reason!: string;
+}
+
 export class UserPageDto {
   @ApiProperty({ type: [UserDto] }) data!: UserDto[];
   @ApiProperty({ nullable: true, type: String }) nextCursor!: string | null;
@@ -71,7 +88,10 @@ function toRoleDto(r: Role): RoleDto {
 @ApiBearerAuth()
 @Controller()
 export class UsersController {
-  constructor(private readonly db: DbService) {}
+  constructor(
+    private readonly db: DbService,
+    private readonly audit: AuditService,
+  ) {}
 
   @Get('roles')
   @RequireScope('users:read')
@@ -80,6 +100,59 @@ export class UsersController {
     const rows = await this.db.tx.role.findMany();
     rows.sort((a, b) => rank(a.code) - rank(b.code) || a.code.localeCompare(b.code));
     return { data: rows.map(toRoleDto) };
+  }
+
+  /**
+   * เปลี่ยน role ของผู้ใช้ — ต้อง step-up 2FA (A3) · bump tokenVersion ให้ทุก session ของผู้ใช้นั้นหลุดทันที (A1)
+   * ห้ามเหลือ owner 0 คน
+   */
+  @Put('users/:id/roles')
+  @TenantResource('user')
+  @RequireScope('users:write')
+  @RequireStepUp()
+  @ApiHeader({
+    name: 'X-Step-Up',
+    required: true,
+    description: 'stepUpToken จาก POST /v1/auth/step-up',
+  })
+  @ApiOkResponse({ type: UserDto })
+  async setRoles(@Param('id') id: string, @Body() body: SetRolesDto): Promise<UserDto> {
+    const tx = this.db.tx;
+    const userId = decodeIdOr404('user', id);
+    const user = await tx.appUser.findUnique({ where: { id: userId } });
+    if (!user) throw new ProblemException('not_found');
+    const roles = await tx.role.findMany({ where: { code: { in: body.roles } } });
+    const before = await tx.userRole.findMany({ where: { userId } });
+    const beforeCodes = (
+      await tx.role.findMany({ where: { id: { in: before.map((b) => b.roleId) } } })
+    ).map((r) => r.code);
+    const owner = await tx.role.findFirst({ where: { code: 'owner' } });
+    if (owner && beforeCodes.includes('owner') && !body.roles.includes('owner')) {
+      // ล็อกแถวผู้ใช้ที่เป็น owner ทั้งหมด กันสองคนถอดกันเองพร้อมกันจนไม่เหลือ owner
+      await tx.$queryRaw`SELECT id FROM user_role WHERE role_id = ${owner.id}::uuid FOR UPDATE`;
+      const owners = await tx.userRole.count({ where: { roleId: owner.id } });
+      if (owners <= 1)
+        throw new ProblemException('validation_failed', undefined, [
+          { field: 'roles', code: 'last_owner', message: 'tenant must keep at least one owner' },
+        ]);
+    }
+    await tx.userRole.deleteMany({ where: { userId } });
+    await tx.userRole.createMany({
+      data: roles.map((r) => ({ tenantId: user.tenantId, userId, roleId: r.id })),
+    });
+    const updated = await tx.appUser.update({
+      where: { id: userId },
+      data: { tokenVersion: { increment: 1 }, version: { increment: 1 } },
+    });
+    await this.audit.record({
+      action: 'user.role_changed',
+      entityType: 'user',
+      entityId: userId,
+      before: { roles: [...beforeCodes].sort() },
+      after: { roles: [...body.roles].sort() },
+      reason: body.reason,
+    });
+    return (await this.toDtos([updated]))[0]!;
   }
 
   @Get('users')
@@ -92,6 +165,11 @@ export class UsersController {
       orderBy: k.orderBy as never,
       take: k.take,
     });
+    const dtos = new Map((await this.toDtos(rows)).map((d, i) => [rows[i]!.id, d]));
+    return toPage(rows, k.limit, (u) => dtos.get(u.id)!, q.fields);
+  }
+
+  private async toDtos(rows: AppUser[]): Promise<UserDto[]> {
     const links = await this.db.tx.userRole.findMany({
       where: { userId: { in: rows.map((u) => u.id) } },
     });
@@ -100,7 +178,7 @@ export class UsersController {
         (r) => [r.id, r],
       ),
     );
-    const map = (u: AppUser): UserDto => ({
+    return rows.map((u): UserDto => ({
       id: encodeId('user', u.id),
       name: u.name,
       email: u.email,
@@ -111,10 +189,9 @@ export class UsersController {
         .filter((r): r is Role => !!r)
         .sort((a, b) => rank(a.code) - rank(b.code))
         .map((r) => ({ id: encodeId('role', r.id), code: r.code, name: r.nameTh })),
-      twoFactorEnabled: !!u.totpSecret,
+      twoFactorEnabled: !!u.totpEnabledAt,
       lastLoginAt: u.lastLoginAt?.toISOString() ?? null,
       updatedAt: u.updatedAt.toISOString(),
-    });
-    return toPage(rows, k.limit, map, q.fields);
+    }));
   }
 }

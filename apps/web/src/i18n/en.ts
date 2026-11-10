@@ -119,6 +119,8 @@ export const en: Partial<Record<MessageKey, string>> = {
   'login.required': 'Enter email and password',
   'login.pickTitle': 'Choose company',
   'login.back': 'Back to sign in',
+  'mfa.submit': 'Confirm',
+  'mfa.copied': 'Copied',
   'tenantStatus.trial': 'Trial',
   'tenantStatus.active': 'Active',
   'problem.invalid_credentials': 'Incorrect email or password',

@@ -6,7 +6,15 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { hashPassword } from '../src/auth/password';
 import { ensureSystemRoles } from '../src/auth/system-roles';
 import { pkceChallenge } from '../src/auth/tokens';
-import { api, bootApp, createTenant, platform, truncateAll, validTaxId } from './helpers';
+import {
+  api,
+  bootApp,
+  createTenant,
+  loginFull,
+  platform,
+  truncateAll,
+  validTaxId,
+} from './helpers';
 
 /**
  * ST1-T12 — ตาราง A3 ระดับ endpoint: login จริงเป็นผู้ใช้ 1 คนต่อ role แล้วเรียก endpoint ตัวแทนของแต่ละแถว
@@ -17,6 +25,7 @@ describe('roles: A3 ผ่าน API จริง', () => {
   const db = platform();
   let tenantId: string;
   const tokens = {} as Record<RoleCode, string>;
+  const secrets = {} as Record<RoleCode, string | undefined>;
   const PW = 'role-test-password-2569';
 
   beforeAll(async () => {
@@ -32,17 +41,9 @@ describe('roles: A3 ผ่าน API จริง', () => {
         data: { tenantId, email, name: `ทดสอบ ${code}`, status: 'ACTIVE', passwordHash },
       });
       await db.userRole.create({ data: { tenantId, userId: u.id, roleId: ids[code]! } });
-      const v = randomBytes(32).toString('base64url');
-      const r1 = await request(app.getHttpServer())
-        .post('/v1/auth/login')
-        .set('X-Forwarded-For', `10.9.0.${++n}`)
-        .send({ email, password: PW, codeChallenge: pkceChallenge(v) })
-        .expect(200);
-      const r2 = await request(app.getHttpServer())
-        .post('/v1/oauth/token')
-        .send({ grantType: 'authorization_code', code: r1.body.code, codeVerifier: v })
-        .expect(200);
-      tokens[code] = r2.body.accessToken;
+      const r = await loginFull(app, email, PW, `10.9.0.${++n}`);
+      secrets[code] = r.secret;
+      tokens[code] = r.access;
     }
   }, 60_000);
 

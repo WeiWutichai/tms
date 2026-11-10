@@ -57,6 +57,7 @@ export async function verifyAccessToken(token: string): Promise<AccessClaims | n
   try {
     const { payload } = await jwtVerify(token, secret(), { algorithms: ['HS256'] });
     if (typeof payload.tid !== 'string' || !payload.sub) return null;
+    if (payload.pur !== undefined) return null; // token เฉพาะทาง (เช่น step-up) ใช้แทน access token ไม่ได้
     const pt: PrincipalType = payload.pt === 'user' ? 'user' : 'dev';
     if (pt === 'dev' && !isLocalEnv()) return null;
     if (pt === 'user' && typeof payload.tv !== 'number') return null;
@@ -85,4 +86,28 @@ export function sha256(v: string): string {
 /** PKCE S256: BASE64URL(SHA256(verifier)) — RFC 7636 */
 export function pkceChallenge(verifier: string): string {
   return sha256(verifier);
+}
+
+/** step-up 2FA (ST1-T05; A3 "เปลี่ยน role ต้อง step-up") — อายุ 5 นาที ส่งใน header `X-Step-Up` */
+export const STEP_UP_TTL_SECONDS = 5 * 60;
+
+export async function signStepUpToken(sub: string, tid: string): Promise<string> {
+  return new SignJWT({ tid, pur: 'step_up' })
+    .setProtectedHeader({ alg: 'HS256' })
+    .setSubject(sub)
+    .setIssuedAt()
+    .setExpirationTime(Math.floor(Date.now() / 1000) + STEP_UP_TTL_SECONDS)
+    .sign(secret());
+}
+
+export async function verifyStepUpToken(
+  token: string,
+): Promise<{ sub: string; tid: string } | null> {
+  try {
+    const { payload } = await jwtVerify(token, secret(), { algorithms: ['HS256'] });
+    if (payload.pur !== 'step_up' || typeof payload.tid !== 'string' || !payload.sub) return null;
+    return { sub: payload.sub, tid: payload.tid };
+  } catch {
+    return null;
+  }
 }

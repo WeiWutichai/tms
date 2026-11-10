@@ -16,3 +16,7 @@ export const REQUIRED_SCOPE = 'tms:requiredScope';
 /** scope แบบ `resource:verb` (docs/01 §5.1) — ส่งหลายตัว = มีตัวใดตัวหนึ่งก็พอ */
 export const RequireScope = (...scopes: [string, ...string[]]) =>
   SetMetadata(REQUIRED_SCOPE, scopes);
+
+export const REQUIRE_STEP_UP = 'tms:requireStepUp';
+/** ต้องยืนยัน 2FA ซ้ำภายใน 5 นาที (header `X-Step-Up` จาก POST /v1/auth/step-up) — A3 "เปลี่ยน role ต้อง step-up" */
+export const RequireStepUp = () => SetMetadata(REQUIRE_STEP_UP, true);

@@ -1,7 +1,8 @@
 import { Icon } from '@tms/ui';
 import { useState, type FormEvent } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { login, type TenantChoice } from '../auth/session';
+import { login, type MfaStep, type TenantChoice } from '../auth/session';
+import { MfaEnroll, MfaVerify } from './TwoFactor';
 import { useI18n } from '../i18n';
 import type { MessageKey } from '../i18n/th';
 import { PublicLayout } from './PublicLayout';
@@ -36,6 +37,7 @@ export function LoginPage() {
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   const [tenants, setTenants] = useState<TenantChoice[] | null>(null);
+  const [mfa, setMfa] = useState<{ step: MfaStep; enroll: boolean } | null>(null);
 
   const next = () => {
     const n = params.get('next');
@@ -47,6 +49,11 @@ export function LoginPage() {
     try {
       const r = await login(email.trim(), pw, tenantId);
       if (r.ok) return next();
+      if (r.mfa && (r.code === 'mfa_required' || r.code === 'mfa_enrollment_required')) {
+        setTenants(null);
+        setMfa({ step: r.mfa, enroll: r.code === 'mfa_enrollment_required' });
+        return;
+      }
       if (r.code === 'tenant_selection_required' && r.tenants?.length) {
         setTenants(r.tenants);
         return;
@@ -67,6 +74,23 @@ export function LoginPage() {
       return;
     }
     void attempt();
+  }
+
+  if (mfa) {
+    const back = () => {
+      setMfa(null);
+      setPw('');
+    };
+    const done = (r: { ok: boolean }) => (r.ok ? next() : back());
+    return (
+      <PublicLayout>
+        {mfa.enroll ? (
+          <MfaEnroll step={mfa.step} onDone={done} onBack={back} />
+        ) : (
+          <MfaVerify step={mfa.step} onDone={done} onBack={back} />
+        )}
+      </PublicLayout>
+    );
   }
 
   if (tenants)

@@ -6,6 +6,7 @@ import { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { IS_PUBLIC, TENANT_RESOURCE } from '../src/common/decorators';
 import { encodeId } from '../src/common/ids';
+import { signStepUpToken } from '../src/auth/tokens';
 import { api, bootApp, createTenant, platform, tokenFor, truncateAll, validTaxId } from './helpers';
 
 /**
@@ -56,6 +57,15 @@ const FIXTURES: Record<string, (db: PrismaClient, tenantId: string, n: number) =
       });
       return encodeId('sequence', s.id);
     },
+    user: async (db, tenantId, n) =>
+      encodeId(
+        'user',
+        (
+          await db.appUser.create({
+            data: { tenantId, email: `iso${n}@iso.test`, name: `iso ${n}`, status: 'ACTIVE' },
+          })
+        ).id,
+      ),
     job: async (db, tenantId) =>
       encodeId('job', (await db.job.create({ data: { tenantId, type: 'noop' } })).id),
   };
@@ -64,6 +74,7 @@ const FIXTURES: Record<string, (db: PrismaClient, tenantId: string, n: number) =
 const BODY_FOR_SUFFIX: Record<string, object> = {
   deactivate: { reason: 'isolation test' },
   activate: { reason: 'isolation test' },
+  roles: { roles: ['viewer'], reason: 'isolation test' },
 };
 
 interface RouteInfo {
@@ -111,6 +122,7 @@ describe('tenant isolation harness', () => {
   const plat = platform();
   let tenantA: string;
   let tokenB: string;
+  let stepUpB: string;
   let tokenA: string;
 
   beforeAll(async () => {
@@ -120,6 +132,7 @@ describe('tenant isolation harness', () => {
     const tenantB = (await createTenant(plat, 'B')).id;
     tokenA = await tokenFor(tenantA);
     tokenB = await tokenFor(tenantB);
+    stepUpB = await signStepUpToken('user-test', tenantB);
   });
   afterAll(async () => {
     await app.close();
@@ -158,9 +171,10 @@ describe('tenant isolation harness', () => {
       const id = await FIXTURES[r.resource!]!(plat, tenantA, n++);
       const url = r.path.replace(':id', id);
       const suffix = r.path.split('/').pop()!;
-      const call = api(app, tokenB)[
-        r.method.toLowerCase() as 'get' | 'post' | 'patch' | 'put' | 'delete'
-      ](url);
+      // route ที่ต้อง step-up: ส่ง step-up ที่ถูกต้องของ tenant B ไปด้วย ให้ไปถึงการหา resource จริง
+      const call = api(app, tokenB)
+        [r.method.toLowerCase() as 'get' | 'post' | 'patch' | 'put' | 'delete'](url)
+        .set('X-Step-Up', stepUpB);
       const res = await (['POST', 'PATCH', 'PUT'].includes(r.method)
         ? call.send(BODY_FOR_SUFFIX[suffix] ?? {})
         : call);
