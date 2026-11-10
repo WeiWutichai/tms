@@ -9,6 +9,7 @@ import { Dashboard } from './pages/Dashboard';
 import { DesignSystem } from './pages/DesignSystem';
 import { ErrorBoundary, ErrorPage, LockedPage, NoAccess, NotFound, NotReady } from './pages/Simple';
 import { LoginPage } from './public/Login';
+import { ForgotPasswordPage, ResetPasswordPage } from './public/Password';
 import { AppShell, useMe } from './shell/AppShell';
 import type { ReactNode } from 'react';
 
@@ -81,6 +82,8 @@ export function App() {
         <BrowserRouter>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/forgot" element={<ForgotPasswordPage />} />
+            <Route path="/reset-password" element={<ResetPasswordPage />} />
             <Route
               path="*"
               element={

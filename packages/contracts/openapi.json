@@ -296,6 +296,60 @@
         ]
       }
     },
+    "/v1/auth/password/forgot": {
+      "post": {
+        "operationId": "PasswordReset_forgot",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ForgotPasswordDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "รับคำขอแล้ว — ตอบแบบเดียวกันเสมอไม่ว่าอีเมลมีในระบบหรือไม่ ถ้ามีจะได้อีเมลลิงก์อายุ 30 นาที"
+          },
+          "429": {
+            "description": "rate_limited — ขอถี่เกินไป มี header Retry-After"
+          }
+        },
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/v1/auth/password/reset": {
+      "post": {
+        "operationId": "PasswordReset_reset",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResetPasswordDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "ตั้งรหัสใหม่แล้ว — ทุก session ของทุกบริษัทที่ใช้อีเมลนี้หลุด ต้องเข้าระบบใหม่"
+          },
+          "400": {
+            "description": "reset_link_invalid — ลิงก์ผิด หมดอายุ หรือใช้ไปแล้ว"
+          }
+        },
+        "tags": [
+          "auth"
+        ]
+      }
+    },
     "/v1/health": {
       "get": {
         "operationId": "Health_health",
@@ -2002,6 +2056,36 @@
         },
         "required": [
           "currentPassword",
+          "newPassword"
+        ]
+      },
+      "ForgotPasswordDto": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "example": "name@company.co.th"
+          }
+        },
+        "required": [
+          "email"
+        ]
+      },
+      "ResetPasswordDto": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "description": "token จากลิงก์ในอีเมล"
+          },
+          "newPassword": {
+            "type": "string",
+            "format": "password",
+            "description": "≥ 12 ตัว, ไม่อยู่ในรายการรหัสที่รั่ว, ไม่ซ้ำ 5 ครั้งล่าสุด (ST1-T02)"
+          }
+        },
+        "required": [
+          "token",
           "newPassword"
         ]
       },

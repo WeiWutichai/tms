@@ -94,6 +94,11 @@ export const PROBLEMS = {
     th: 'อีเมลนี้เป็นสมาชิกหลายบริษัท เลือกบริษัทที่ต้องการเข้า',
     en: 'This account belongs to several organisations; choose one',
   },
+  reset_link_invalid: {
+    status: 400,
+    th: 'ลิงก์ตั้งรหัสผ่านไม่ถูกต้อง หมดอายุ หรือใช้ไปแล้ว ขอลิงก์ใหม่อีกครั้ง',
+    en: 'This reset link is invalid, expired or already used',
+  },
   invalid_grant: { status: 400, th: 'รหัสยืนยันหมดอายุหรือไม่ถูกต้อง', en: 'Invalid grant' },
   internal_error: { status: 500, th: 'ระบบขัดข้อง', en: 'Internal error' },
 } as const;

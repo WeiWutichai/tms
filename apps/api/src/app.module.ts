@@ -8,6 +8,8 @@ import { PriceFieldInterceptor } from './common/price-fields';
 import { AuthController } from './auth/auth.controller';
 import { MfaController } from './auth/mfa.controller';
 import { PasswordController } from './auth/password.controller';
+import { PasswordResetController, PasswordResetService } from './auth/password-reset.controller';
+import { EmailDispatcher, EmailService } from './modules/email/email.service';
 import { PasswordPolicy } from './auth/password-policy';
 import { MfaService } from './auth/mfa.service';
 import { BranchesController } from './modules/branches/branches.controller';
@@ -43,6 +45,7 @@ import { StateService } from './state/state.service';
     AuthController,
     MfaController,
     PasswordController,
+    PasswordResetController,
     HealthController,
     MeController,
     ProfileController,
@@ -61,6 +64,9 @@ import { StateService } from './state/state.service';
     AuthService,
     MfaService,
     PasswordPolicy,
+    PasswordResetService,
+    EmailService,
+    EmailDispatcher,
     EntitlementService,
     MagicLinkService,
     DbService,

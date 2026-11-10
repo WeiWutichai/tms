@@ -1273,3 +1273,52 @@ model MagicLink {
   @@index([tenantId, entityType, entityId])
   @@map("magic_link")
 }
+
+enum EmailStatus {
+  PENDING
+  SENDING
+  SENT
+  FAILED
+}
+
+/// อีเมลขาออก (ST1-T03; docs/04 A1) — เขียนใน transaction ของงาน แล้ว worker ส่งผ่าน EmailTransport
+/// เนื้อหา (มีลิงก์/token) ถูกลบทันทีที่ส่งสำเร็จหรือเลิกส่ง — เก็บแค่หัวเรื่อง/ผู้รับ/สถานะไว้ตรวจย้อน
+model EmailOutbox {
+  id                String      @id @default(uuid()) @db.Uuid
+  tenantId          String?     @map("tenant_id") @db.Uuid /// null = อีเมลระบบที่ยังไม่รู้บริษัท (ลืมรหัสผ่าน)
+  toAddress         String      @map("to_address")
+  template          String
+  locale            String
+  subject           String
+  textBody          String?     @map("text_body")
+  htmlBody          String?     @map("html_body")
+  status            EmailStatus @default(PENDING)
+  attempts          Int         @default(0)
+  maxAttempts       Int         @default(5) @map("max_attempts")
+  runAt             DateTime    @default(dbgenerated("now()")) @map("run_at") @db.Timestamptz(6) /// นาฬิกาฐานข้อมูล — claim เทียบกับ now() (เหมือน job)
+  lockedUntil       DateTime?   @map("locked_until") @db.Timestamptz(6)
+  sentAt            DateTime?   @map("sent_at") @db.Timestamptz(6)
+  providerMessageId String?     @map("provider_message_id")
+  error             String?
+  createdAt         DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([status, runAt])
+  @@index([tenantId, createdAt])
+  @@map("email_outbox")
+}
+
+/// token ลืมรหัสผ่าน (ST1-T03; PLT-032) — อายุ 30 นาที ใช้ครั้งเดียว · ผูกกับอีเมล (ตัวตนเดียวข้ามบริษัท) · เก็บแค่ hash
+model PasswordResetToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  tokenHash String    @unique @map("token_hash")
+  email     String /// lower-case แล้ว
+  ip        String?
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(6)
+  usedAt    DateTime? @map("used_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([email, createdAt])
+  @@index([ip, createdAt])
+  @@map("password_reset_token")
+}
