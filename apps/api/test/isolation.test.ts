@@ -81,6 +81,21 @@ const FIXTURES: Record<string, (db: PrismaClient, tenantId: string, n: number) =
           })
         ).id,
       ),
+    invitation: async (db, tenantId, n) => {
+      const u = await db.appUser.create({
+        data: { tenantId, email: `inv${n}@iso.test`, name: `inv ${n}`, status: 'INVITED' },
+      });
+      const i = await db.userInvitation.create({
+        data: {
+          tenantId,
+          userId: u.id,
+          email: u.email,
+          tokenHash: `iso-${tenantId}-${n}`,
+          expiresAt: new Date(Date.now() + 86400_000),
+        },
+      });
+      return encodeId('invitation', i.id);
+    },
     job: async (db, tenantId) =>
       encodeId('job', (await db.job.create({ data: { tenantId, type: 'noop' } })).id),
   };
@@ -92,6 +107,7 @@ const BODY_FOR_SUFFIX: Record<string, object> = {
   roles: { roles: ['viewer'], reason: 'isolation test' },
   suspend: { reason: 'isolation test' },
   delete: { reason: 'isolation test' },
+  revoke: { reason: 'isolation test' },
 };
 
 interface RouteInfo {

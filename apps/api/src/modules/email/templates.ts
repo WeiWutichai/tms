@@ -31,12 +31,47 @@ function layout(
 
 export interface TemplateVars {
   password_reset: { link: string; minutes: number };
+  user_invitation: {
+    link: string;
+    days: number;
+    tenantName: string;
+    inviterName: string;
+    roles: string;
+  };
 }
 export type TemplateName = keyof TemplateVars;
 
 type Renderer<K extends TemplateName> = (v: TemplateVars[K]) => RenderedEmail;
 
 const TEMPLATES: { [K in TemplateName]: Record<EmailLocale, Renderer<K>> } = {
+  user_invitation: {
+    th: ({ link, days, tenantName, inviterName, roles }) => {
+      const title = `คำเชิญเข้าร่วม ${tenantName}`;
+      const paras = [
+        `${inviterName} เชิญคุณเข้าใช้งานระบบบริหารงานขนส่งของ ${tenantName} ในบทบาท ${roles}`,
+        `เปิดลิงก์ด้านล่างเพื่อรับคำเชิญ ลิงก์ใช้ได้ ${days} วันและใช้ได้ครั้งเดียว`,
+        'ถ้าคุณไม่รู้จักผู้เชิญ ไม่ต้องทำอะไร',
+      ];
+      return {
+        subject: `คำเชิญเข้าร่วม ${tenantName} — TMS`,
+        text: `${title}\n\n${paras.join('\n\n')}\n\n${link}\n`,
+        html: layout('th', title, paras, { href: link, label: 'รับคำเชิญ' }),
+      };
+    },
+    en: ({ link, days, tenantName, inviterName, roles }) => {
+      const title = `Invitation to join ${tenantName}`;
+      const paras = [
+        `${inviterName} invited you to the transport management system of ${tenantName} as ${roles}.`,
+        `Open the link below to accept. The link works once and expires in ${days} days.`,
+        'If you do not know the sender, ignore this email.',
+      ];
+      return {
+        subject: `Invitation to join ${tenantName} — TMS`,
+        text: `${title}\n\n${paras.join('\n\n')}\n\n${link}\n`,
+        html: layout('en', title, paras, { href: link, label: 'Accept invitation' }),
+      };
+    },
+  },
   password_reset: {
     th: ({ link, minutes }) => {
       const title = 'ตั้งรหัสผ่านใหม่';

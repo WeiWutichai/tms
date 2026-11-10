@@ -337,7 +337,7 @@ function useSaveFlow(section: MessageKey, d: ReturnType<typeof useDraft>) {
 }
 
 /** ยืนยัน 2FA อีกครั้งก่อนบันทึกค่าที่ลดความปลอดภัย — ต้นแบบไม่มี ([OPEN] spec/12) ใช้ช่อง/ปุ่มชุดเดียวกับหน้าตั้งค่า */
-function StepUpBox({
+export function StepUpBox({
   onConfirm,
   onCancel,
 }: {

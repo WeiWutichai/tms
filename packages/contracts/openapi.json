@@ -350,6 +350,213 @@
         ]
       }
     },
+    "/v1/auth/invitations/inspect": {
+      "post": {
+        "operationId": "InvitationAccept_inspect",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InvitationTokenDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvitationInfoDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invitation_invalid — ไม่มี/หมดอายุ/ใช้แล้ว/เพิกถอน"
+          }
+        },
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/v1/auth/invitations/accept": {
+      "post": {
+        "operationId": "InvitationAccept_accept",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptInvitationDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "เป็นสมาชิกแล้ว — เข้าสู่ระบบด้วยอีเมลนี้ (role ที่บังคับ 2FA จะถูกพาไปตั้ง 2FA ตอน login)"
+          },
+          "400": {
+            "description": "invitation_invalid"
+          }
+        },
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/v1/users/invitations": {
+      "post": {
+        "operationId": "Invitations_create",
+        "parameters": [
+          {
+            "name": "X-Step-Up",
+            "in": "header",
+            "description": "stepUpToken จาก POST /v1/auth/step-up",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateInvitationDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvitationDto"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "already_member / seat_limit_reached (มี `limit`)"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "users"
+        ]
+      },
+      "get": {
+        "operationId": "Invitations_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvitationListDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/v1/users/invitations/{id}/resend": {
+      "post": {
+        "operationId": "Invitations_resend",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvitationDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/v1/users/invitations/{id}/revoke": {
+      "post": {
+        "operationId": "Invitations_revoke",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "users"
+        ]
+      }
+    },
     "/v1/health": {
       "get": {
         "operationId": "Health_health",
@@ -2089,6 +2296,187 @@
           "newPassword"
         ]
       },
+      "InvitationTokenDto": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "description": "token จากลิงก์ในอีเมลเชิญ"
+          }
+        },
+        "required": [
+          "token"
+        ]
+      },
+      "InvitationInfoDto": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "tenantName": {
+            "type": "string"
+          },
+          "roles": {
+            "description": "ชื่อ role (ไทย)",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "existingAccount": {
+            "type": "boolean",
+            "description": "มีบัญชีในบริษัทอื่นแล้ว → รับคำเชิญด้วยรหัสผ่านเดิม (currentPassword) แทนการตั้งรหัสใหม่"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "email",
+          "name",
+          "tenantName",
+          "roles",
+          "existingAccount",
+          "expiresAt"
+        ]
+      },
+      "AcceptInvitationDto": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "description": "token จากลิงก์ในอีเมลเชิญ"
+          },
+          "name": {
+            "type": "string",
+            "example": "สมชาย ใจดี"
+          },
+          "password": {
+            "type": "string",
+            "format": "password",
+            "description": "ผู้ใช้ใหม่: รหัสผ่าน (นโยบาย ST1-T02)"
+          },
+          "currentPassword": {
+            "type": "string",
+            "format": "password",
+            "description": "มีบัญชีแล้ว: รหัสผ่านปัจจุบัน"
+          }
+        },
+        "required": [
+          "token"
+        ]
+      },
+      "CreateInvitationDto": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "example": "somchai@company.co.th"
+          },
+          "name": {
+            "type": "string",
+            "example": "สมชาย ใจดี",
+            "description": "ชื่อที่แสดง (ผู้รับแก้ได้ตอนรับคำเชิญ)"
+          },
+          "roles": {
+            "example": [
+              "planner"
+            ],
+            "description": "role code ระบบ (ตาราง A3)",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "email",
+          "name",
+          "roles"
+        ]
+      },
+      "InvitationDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "inv_…"
+          },
+          "userId": {
+            "type": "string",
+            "example": "usr_…"
+          },
+          "email": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "expired"
+            ]
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "userId",
+          "email",
+          "name",
+          "roles",
+          "status",
+          "expiresAt",
+          "createdAt"
+        ]
+      },
+      "InvitationListDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InvitationDto"
+            }
+          }
+        },
+        "required": [
+          "data"
+        ]
+      },
+      "ReasonDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "example": "พนักงานลาออก",
+            "description": "เหตุผล (บังคับ — ลง audit)"
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      },
       "MeTenantDto": {
         "type": "object",
         "properties": {
@@ -2650,19 +3038,6 @@
           "data",
           "nextCursor",
           "hasMore"
-        ]
-      },
-      "ReasonDto": {
-        "type": "object",
-        "properties": {
-          "reason": {
-            "type": "string",
-            "example": "พนักงานลาออก",
-            "description": "เหตุผล (บังคับ — ลง audit)"
-          }
-        },
-        "required": [
-          "reason"
         ]
       },
       "UserStatusDto": {

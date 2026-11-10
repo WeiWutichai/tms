@@ -16,6 +16,8 @@ import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService } from '../../db/db.service';
 import { PrismaService } from '../../db/prisma.service';
+import { EntitlementService } from '../entitlements/entitlement.service';
+import { assertSeat } from './invitations.controller';
 
 export class ReasonDto {
   @ApiProperty({ example: 'พนักงานลาออก', description: 'เหตุผล (บังคับ — ลง audit)' })
@@ -88,6 +90,7 @@ export class UserLifecycleController {
     private readonly db: DbService,
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly entitlements: EntitlementService,
   ) {}
 
   @Post('users/:id/suspend')
@@ -111,6 +114,8 @@ export class UserLifecycleController {
     const user = await this.target(id);
     if (user.status !== 'DISABLED') throw new ProblemException('invalid_state_transition');
     await this.guardOwner(user, false);
+    // เปิดใช้คืน = ใช้ seat (ST1-T07 — นับเหมือนเชิญ)
+    await assertSeat(this.db.tx, this.entitlements, user.tenantId);
     return this.apply(user, 'user.enabled', body.reason, { status: 'ACTIVE' });
   }
 
@@ -136,6 +141,11 @@ export class UserLifecycleController {
       deletedAt: new Date(),
     });
     await this.db.tx.userRole.deleteMany({ where: { userId: user.id } });
+    // อีเมลจริงในประวัติคำเชิญ (ST1-T07) ถูกแทนด้วย
+    await this.db.tx.userInvitation.updateMany({
+      where: { userId: user.id },
+      data: { email: `deleted-${user.id}@deleted.invalid` },
+    });
     await this.prisma.platform.backupCode.deleteMany({
       where: { tenantId: user.tenantId, userId: user.id },
     });

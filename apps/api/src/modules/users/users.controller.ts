@@ -1,7 +1,15 @@
 import { Body, Controller, Get, Param, Put, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiHeader, ApiOkResponse, ApiProperty, ApiTags } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import { ArrayMaxSize, ArrayMinSize, IsIn, IsNotEmpty, IsString, MaxLength } from 'class-validator';
+import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  ArrayUnique,
+  IsIn,
+  IsNotEmpty,
+  IsString,
+  MaxLength,
+} from 'class-validator';
 import { requestContext } from '../../common/request-context';
 import { ROLE_CODES } from '@tms/domain';
 import { AuditService } from '../../audit/audit.service';
@@ -42,6 +50,7 @@ export class SetRolesDto {
   @ApiProperty({ type: [String], example: ['planner'], description: 'role code ระบบ (ตาราง A3)' })
   @ArrayMinSize(1)
   @ArrayMaxSize(9)
+  @ArrayUnique()
   @IsIn([...ROLE_CODES], { each: true })
   roles!: string[];
 
