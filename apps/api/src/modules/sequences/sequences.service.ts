@@ -192,6 +192,29 @@ export class SequencesService {
     if (expected !== undefined && expected !== current.version)
       throw new ProblemException('precondition_failed');
     const prefix = input.prefix ?? current.prefix;
+    const nextPolicy = input.resetPolicy
+      ? (input.resetPolicy.toUpperCase() as ResetPolicy)
+      : current.resetPolicy;
+    // เอกสารภาษี: เลขต้องเรียงต่อเนื่องในงวด — งวดนี้ออกเลขไปแล้วห้ามเปลี่ยนรูปแบบ (review 10 พ.ย. 2569 ข้อ 8)
+    if (current.perBranch && (prefix !== current.prefix || nextPolicy !== current.resetPolicy)) {
+      const ys = await this.yearStyle();
+      const used = await tx.documentSequence.findFirst({
+        where: {
+          docType: current.docType,
+          periodKey: periodKey(current.resetPolicy, new Date(), ys),
+          nextValue: { gt: 1 },
+        },
+        select: { id: true },
+      });
+      if (used)
+        throw new ProblemException('validation_failed', undefined, [
+          {
+            field: input.resetPolicy ? 'resetPolicy' : 'prefix',
+            code: 'series_in_use',
+            message: 'numbers already issued in the current period; change after the period ends',
+          },
+        ]);
+    }
     if (current.perBranch && !prefix.includes('{BR}'))
       throw new ProblemException('validation_failed', undefined, [
         {

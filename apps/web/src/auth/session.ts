@@ -8,6 +8,7 @@ import { createTmsClient } from '@tms/contracts';
  */
 const raw = createTmsClient({ baseUrl: '', getToken: () => null });
 
+const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 let access: { token: string; exp: number } | null = null;
 let inflight: Promise<string | null> | null = null;
 /** unknown = ยังไม่ได้ลอง refresh ตั้งแต่โหลดหน้า */
@@ -35,8 +36,10 @@ export const sessionStore = {
 /** access token ที่ยังใช้ได้ (ต่ออายุด้วย refresh cookie เมื่อเหลือ < 60 วินาที) — null = ต้อง login */
 export async function getAccessToken(): Promise<string | null> {
   if (access && access.exp - Date.now() > 60_000) return access.token;
-  inflight ??= raw
-    .POST('/v1/oauth/token', { body: { grantType: 'refresh_token' } })
+  const once = () => raw.POST('/v1/oauth/token', { body: { grantType: 'refresh_token' } });
+  inflight ??= once()
+    // อีกแท็บเพิ่งหมุน refresh token ไปก่อน → cookie ใหม่มาถึงแล้ว ลองซ้ำ 1 ครั้ง (API ให้ grace 30 วินาที)
+    .then(async (r) => (r.data || r.response.status !== 400 ? r : (await wait(400), once())))
     .then(({ data }) => {
       set(data?.accessToken ?? null, data?.expiresIn);
       return data?.accessToken ?? null;

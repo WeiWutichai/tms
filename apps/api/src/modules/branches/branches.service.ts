@@ -51,6 +51,7 @@ export class BranchesService {
     const companyId = tryDecodeId('company', input.companyId);
     const company = companyId ? await tx.company.findUnique({ where: { id: companyId } }) : null;
     if (!company) throw field422('companyId', 'not_found', 'company not found');
+    await this.lockCompany(company.id);
     if (input.branchCode === HQ_CODE && input.issuesTaxInvoice === false)
       throw field422('issuesTaxInvoice', 'hq_always_issues', 'head office always issues');
     const dup = await tx.branch.findFirst({
@@ -68,6 +69,12 @@ export class BranchesService {
     // สาขาแรกของนิติบุคคลเป็นสาขาออกเอกสาร default อัตโนมัติ
     const first = (await tx.branch.count({ where: { companyId: company.id } })) === 0;
     const isDefault = input.isDefaultIssuer ?? first;
+    if (isDefault && input.issuesTaxInvoice === false && input.branchCode !== HQ_CODE)
+      throw field422(
+        'isDefaultIssuer',
+        'default_must_issue',
+        'default issuer must issue its own tax invoices',
+      );
     if (isDefault) await this.clearDefault(company.id);
     const b = await tx.branch.create({
       data: {
@@ -113,6 +120,16 @@ export class BranchesService {
       throw new ProblemException('precondition_failed');
     if (current.branchCode === HQ_CODE && input.issuesTaxInvoice === false)
       throw field422('issuesTaxInvoice', 'hq_always_issues', 'head office always issues');
+    await this.lockCompany(current.companyId);
+    const willDefault = input.isDefaultIssuer ?? current.isDefaultIssuer;
+    const willIssue =
+      current.branchCode === HQ_CODE || (input.issuesTaxInvoice ?? !current.hqPrintsForAll);
+    if (willDefault && !willIssue)
+      throw field422(
+        'isDefaultIssuer',
+        'default_must_issue',
+        'default issuer must issue its own tax invoices',
+      );
     if (current.isDefaultIssuer && input.isDefaultIssuer === false)
       throw field422(
         'isDefaultIssuer',
@@ -139,6 +156,11 @@ export class BranchesService {
       { ...toBranchDto(b) },
     );
     return b;
+  }
+
+  /** ล็อกแถวนิติบุคคล — กันสร้าง/ตั้ง default พร้อมกันจนได้ 2 สาขา (review 10 พ.ย. 2569 ข้อ 7; มี unique index กันอีกชั้น) */
+  private async lockCompany(companyId: string) {
+    await this.db.tx.$queryRaw`SELECT id FROM company WHERE id = ${companyId}::uuid FOR UPDATE`;
   }
 
   private async clearDefault(companyId: string, except?: string) {

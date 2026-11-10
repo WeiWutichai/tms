@@ -1,3 +1,4 @@
+import { isLocalEnv } from './tokens';
 import { Body, Controller, HttpCode, Post, Req, Res } from '@nestjs/common';
 import {
   ApiConflictResponse,
@@ -86,7 +87,7 @@ const COOKIE_PATH = '/v1/oauth';
 function cookieOptions(expires?: Date): CookieOptions {
   return {
     httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
+    secure: !isLocalEnv(),
     sameSite: 'strict',
     path: COOKIE_PATH,
     ...(expires ? { expires } : {}),

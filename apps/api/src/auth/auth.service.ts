@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import type { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { encodeId } from '../common/ids';
 import { ProblemException } from '../common/problem';
@@ -18,6 +19,8 @@ export const LOGIN_MAX_FAILURES = 5;
 const CODE_TTL_MS = 60 * 1000;
 export const REFRESH_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 /** idle 8 ชม. — ST1-T17 จะอ่านจาก tenant_setting */
+/** review 10 พ.ย. 2569 ข้อ 3 */
+export const REFRESH_REUSE_GRACE_MS = 30 * 1000;
 export const IDLE_TTL_MS = 8 * 60 * 60 * 1000;
 const LOGIN_TENANT_STATUSES = ['TRIAL', 'ACTIVE'] as const;
 
@@ -45,24 +48,56 @@ export class AuthService {
     return this.prisma.platform;
   }
 
-  /** ตรวจรหัสผ่าน → คืน authorization code (ผูก code_challenge) */
+  /**
+   * ตรวจรหัสผ่าน → คืน authorization code (ผูก code_challenge)
+   * ทั้งขั้น "ตรวจล็อก → ตรวจรหัส → บันทึกผล" อยู่ใน transaction เดียวที่ถือ advisory lock ต่ออีเมลและต่อ IP
+   * — request ที่ยิงพร้อมกันต้องรอคิว จึงเดารหัสได้ไม่เกิน 5 ครั้งต่อหน้าต่างจริง (review 10 พ.ย. 2569 ข้อ 1)
+   * ล็อกเรียง อีเมล → IP เสมอ กัน deadlock; รอคิวนานเกิน → 429 rate_limited
+   */
   async login(
     input: { email: string; password: string; codeChallenge: string; tenantId?: string },
     client: ClientInfo,
   ): Promise<{ code: string; expiresIn: number }> {
     const email = input.email.trim().toLowerCase();
+    try {
+      const result = await this.db.$transaction(
+        async (tx) => {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'login:e:' + email}))`;
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'login:i:' + client.ip}))`;
+          return this.loginLocked(tx as unknown as PrismaClient, email, input, client);
+        },
+        { maxWait: 5_000, timeout: 20_000 },
+      );
+      // ล้มเหลวต้อง commit แถว login_attempt ก่อน แล้วจึงโยน error (throw ใน transaction = rollback)
+      if (result instanceof ProblemException) throw result;
+      return result;
+    } catch (e) {
+      if (e instanceof ProblemException) throw e;
+      const code = (e as { code?: string }).code;
+      if (code === 'P2024' || code === 'P2028') throw new ProblemException('rate_limited');
+      throw e;
+    }
+  }
+
+  private async loginLocked(
+    db: PrismaClient,
+    email: string,
+    input: { password: string; codeChallenge: string; tenantId?: string },
+    client: ClientInfo,
+  ): Promise<{ code: string; expiresIn: number } | ProblemException> {
     const now = Date.now();
 
-    const lockedFor = await this.lockSeconds(email, client.ip, now);
+    const lockedFor = await this.lockSeconds(db, email, client.ip, now);
     if (lockedFor > 0) {
-      await this.record(email, client, { success: false, reason: 'locked' });
-      throw new ProblemException('account_locked', undefined, undefined, { retryAfter: lockedFor });
+      await this.record(db, email, client, { success: false, reason: 'locked' });
+      return new ProblemException('account_locked', undefined, undefined, {
+        retryAfter: lockedFor,
+      });
     }
-
-    const users = await this.db.appUser.findMany({
+    const users = await db.appUser.findMany({
       where: { email: { equals: email, mode: 'insensitive' }, status: 'ACTIVE' },
     });
-    const tenants = await this.db.tenant.findMany({
+    const tenants = await db.tenant.findMany({
       where: {
         id: { in: users.map((u) => u.tenantId) },
         status: { in: [...LOGIN_TENANT_STATUSES] },
@@ -80,12 +115,12 @@ export class AuthService {
 
     const chosen = input.tenantId ? matched.filter((u) => u.tenantId === input.tenantId) : matched;
     if (chosen.length === 0) {
-      await this.record(email, client, { success: false, reason: 'invalid_credentials' });
-      throw new ProblemException('invalid_credentials');
+      await this.record(db, email, client, { success: false, reason: 'invalid_credentials' });
+      return new ProblemException('invalid_credentials');
     }
     if (chosen.length > 1) {
-      await this.record(email, client, { success: false, reason: 'tenant_selection_required' });
-      throw new ProblemException('tenant_selection_required', undefined, undefined, {
+      await this.record(db, email, client, { success: false, reason: 'tenant_selection_required' });
+      return new ProblemException('tenant_selection_required', undefined, undefined, {
         tenants: chosen
           .map((u) => tenants.find((t) => t.id === u.tenantId)!)
           .map((t) => ({
@@ -98,19 +133,17 @@ export class AuthService {
 
     const user = chosen[0]!;
     const { token: code, hash } = newOpaqueToken();
-    await this.db.$transaction([
-      this.db.authCode.create({
-        data: {
-          codeHash: hash,
-          codeChallenge: input.codeChallenge,
-          tenantId: user.tenantId,
-          userId: user.id,
-          expiresAt: new Date(now + CODE_TTL_MS),
-        },
-      }),
-      this.db.appUser.update({ where: { id: user.id }, data: { lastLoginAt: new Date(now) } }),
-    ]);
-    await this.record(email, client, {
+    await db.authCode.create({
+      data: {
+        codeHash: hash,
+        codeChallenge: input.codeChallenge,
+        tenantId: user.tenantId,
+        userId: user.id,
+        expiresAt: new Date(now + CODE_TTL_MS),
+      },
+    });
+    await db.appUser.update({ where: { id: user.id }, data: { lastLoginAt: new Date(now) } });
+    await this.record(db, email, client, {
       success: true,
       reason: 'ok',
       tenantId: user.tenantId,
@@ -147,10 +180,15 @@ export class AuthService {
     const now = new Date();
     if (!row || row.revokedAt) throw new ProblemException('invalid_grant');
     if (row.usedAt) {
-      await this.revokeFamily(row.familyId);
+      // หลายแท็บ refresh พร้อมกันด้วย cookie เดียว: ใบที่เพิ่งหมุนไปไม่เกิน 30 วินาที → ปฏิเสธเฉย ๆ ไม่เพิกถอนทั้ง family
+      // (แท็บนั้นลองใหม่ด้วย cookie ใหม่ที่อีกแท็บได้รับ) — ใช้ซ้ำหลังจากนั้น = ถือว่าถูกขโมย เพิกถอนทั้ง family
+      if (now.getTime() - row.usedAt.getTime() > REFRESH_REUSE_GRACE_MS)
+        await this.revokeFamily(row.familyId);
       throw new ProblemException('invalid_grant');
     }
     if (row.expiresAt <= now || row.idleExpiresAt <= now)
+      throw new ProblemException('invalid_grant');
+    if ((await this.currentTokenVersion(row.tenantId, row.userId)) === null)
       throw new ProblemException('invalid_grant');
     const claimed = await this.db.refreshToken.updateMany({
       where: { id: row.id, usedAt: null, revokedAt: null },
@@ -181,11 +219,18 @@ export class AuthService {
 
   /** tokenVersion ปัจจุบันของผู้ใช้ (guard ใช้ตรวจทุก request) — null = ผู้ใช้ถูกระงับ/ไม่พบ */
   async currentTokenVersion(tenantId: string, userId: string): Promise<number | null> {
-    const u = await this.db.appUser.findFirst({
-      where: { id: userId, tenantId, status: 'ACTIVE' },
-      select: { tokenVersion: true },
-    });
-    return u?.tokenVersion ?? null;
+    // tenant ถูกระงับ/ยกเลิก → token เดิมใช้ไม่ได้ทันที (spec/01 PLT-001; review 10 พ.ย. 2569 ข้อ 2)
+    const [u, t] = await Promise.all([
+      this.db.appUser.findFirst({
+        where: { id: userId, tenantId, status: 'ACTIVE' },
+        select: { tokenVersion: true },
+      }),
+      this.db.tenant.findFirst({
+        where: { id: tenantId, status: { in: [...LOGIN_TENANT_STATUSES] } },
+        select: { id: true },
+      }),
+    ]);
+    return u && t ? u.tokenVersion : null;
   }
 
   private async issue(
@@ -255,16 +300,21 @@ export class AuthService {
   }
 
   /** วินาทีที่ยังถูกล็อก (0 = ไม่ล็อก) — นับเฉพาะครั้งที่รหัสผิด */
-  private async lockSeconds(email: string, ip: string, now: number): Promise<number> {
+  private async lockSeconds(
+    db: PrismaClient,
+    email: string,
+    ip: string,
+    now: number,
+  ): Promise<number> {
     const since = new Date(now - LOGIN_WINDOW_MS);
     const [byEmail, byIp] = await Promise.all([
-      this.db.loginAttempt.findMany({
+      db.loginAttempt.findMany({
         where: { email, reason: 'invalid_credentials', createdAt: { gt: since } },
         orderBy: { createdAt: 'desc' },
         take: LOGIN_MAX_FAILURES,
         select: { createdAt: true },
       }),
-      this.db.loginAttempt.findMany({
+      db.loginAttempt.findMany({
         where: { ip, reason: 'invalid_credentials', createdAt: { gt: since } },
         orderBy: { createdAt: 'desc' },
         take: LOGIN_MAX_FAILURES,
@@ -280,11 +330,12 @@ export class AuthService {
   }
 
   private async record(
+    db: PrismaClient,
     email: string,
     client: ClientInfo,
     r: { success: boolean; reason: string; tenantId?: string; userId?: string },
   ) {
-    await this.db.loginAttempt.create({
+    await db.loginAttempt.create({
       data: {
         email,
         ip: client.ip,

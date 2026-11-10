@@ -90,8 +90,9 @@ describe('องค์กร: นิติบุคคล สาขา เลข
     it('ตั้ง default ใหม่ → ตัวเดิมถูกปลด (1 ต่อนิติบุคคล); สำนักงานใหญ่ปิดการออกใบกำกับไม่ได้', async () => {
       const a = await newCompany('บริษัท ดี จำกัด');
       const hq = (await newBranch(a.id, '00000').expect(201)).body;
-      const br = (await newBranch(a.id, '00002', { issuesTaxInvoice: false }).expect(201)).body;
-      expect(br.issuesTaxInvoice).toBe(false);
+      const off = (await newBranch(a.id, '00003', { issuesTaxInvoice: false }).expect(201)).body;
+      expect(off.issuesTaxInvoice).toBe(false);
+      const br = (await newBranch(a.id, '00002').expect(201)).body;
       await api(app, admin)
         .patch(`/v1/branches/${br.id}`)
         .send({ isDefaultIssuer: true })
@@ -108,6 +109,39 @@ describe('องค์กร: นิติบุคคล สาขา เลข
         .set('If-Match', '"1"')
         .send({ branchLabel: 'สนญ.' });
       expect(stale.status).toBe(412);
+    });
+
+    it('ตั้ง default พร้อมกัน 2 สาขา → เหลือ default 1 สาขา', async () => {
+      const a = await newCompany('บริษัท พร้อมกัน จำกัด');
+      await newBranch(a.id, '00000').expect(201);
+      const b1 = (await newBranch(a.id, '00001').expect(201)).body;
+      const b2 = (await newBranch(a.id, '00002').expect(201)).body;
+      const res = await Promise.all(
+        [b1, b2].map((b) =>
+          api(app, admin).patch(`/v1/branches/${b.id}`).send({ isDefaultIssuer: true }),
+        ),
+      );
+      expect(res.map((r) => r.status).every((s) => s === 200 || s === 409 || s === 412)).toBe(true);
+      const list = await api(app, admin).get(`/v1/branches?companyId=${a.id}`).expect(200);
+      expect(
+        list.body.data.filter((x: { isDefaultIssuer: boolean }) => x.isDefaultIssuer),
+      ).toHaveLength(1);
+    });
+
+    it('สาขา default ต้องออกใบกำกับเอง', async () => {
+      const a = await newCompany('บริษัท ดีฟอลต์ จำกัด');
+      await newBranch(a.id, '00000').expect(201);
+      const bad = await newBranch(a.id, '00001', {
+        isDefaultIssuer: true,
+        issuesTaxInvoice: false,
+      });
+      expect(bad.status).toBe(422);
+      expect(bad.body.errors[0].code).toBe('default_must_issue');
+      const br = (await newBranch(a.id, '00002', { isDefaultIssuer: true }).expect(201)).body;
+      const off = await api(app, admin)
+        .patch(`/v1/branches/${br.id}`)
+        .send({ issuesTaxInvoice: false });
+      expect(off.status).toBe(422);
     });
 
     it('อ่านได้ด้วย companies:read แต่แก้ไม่ได้', async () => {
@@ -235,6 +269,29 @@ describe('องค์กร: นิติบุคคล สาขา เลข
       });
     });
 
+    it('เอกสารภาษีที่งวดนี้ออกเลขแล้ว เปลี่ยนรอบรีเซ็ต/prefix ไม่ได้; เอกสารทั่วไปเปลี่ยนได้', async () => {
+      const a = await newCompany('บริษัท งวด จำกัด');
+      const hq = (await newBranch(a.id, '00000').expect(201)).body;
+      const uuid = hq.id.replace('brn_', '').replace(/^(.{8})(.{4})(.{4})(.{4})/, '$1-$2-$3-$4-');
+      await inTenant((tx) => issueNumber(tx, tenantId, { docType: 'CN', branchId: uuid }));
+      const list = (await api(app, admin).get('/v1/document-sequences').expect(200)).body.data;
+      const cn = list.find((s: { docType: string }) => s.docType === 'CN');
+      const r = await api(app, admin)
+        .patch(`/v1/document-sequences/${cn.id}`)
+        .send({ resetPolicy: 'monthly' });
+      expect(r.status).toBe(422);
+      expect(r.body.errors[0].code).toBe('series_in_use');
+      const p = await api(app, admin)
+        .patch(`/v1/document-sequences/${cn.id}`)
+        .send({ prefix: 'CR-{BR}-' });
+      expect(p.status).toBe(422);
+      const dn = list.find((s: { docType: string }) => s.docType === 'DN');
+      await api(app, admin)
+        .patch(`/v1/document-sequences/${dn.id}`)
+        .send({ resetPolicy: 'monthly' })
+        .expect(200);
+    });
+
     it('แอปลบตัวนับไม่ได้', async () => {
       await expect(inTenant((tx) => tx.$executeRaw`DELETE FROM document_sequence`)).rejects.toThrow(
         /permission denied/,
@@ -270,6 +327,31 @@ describe('องค์กร: นิติบุคคล สาขา เลข
       expect(upd.actor.id).toBe('user-test');
       expect(deact).toMatchObject({ action: 'company.deactivated', reason: 'ปิดบริษัท' });
     });
+
+    it('แบ่งหน้าไม่ข้ามแถว แม้หลายแถวเขียนใน request เดียว (at เท่ากัน)', async () => {
+      const a = await newCompany('บริษัท หน้า จำกัด');
+      await newBranch(a.id, '00000').expect(201);
+      // ตั้ง default ใหม่ = 2 แถว audit ใน transaction เดียว (ปลดตัวเดิม + แก้ตัวใหม่)
+      const br = (await newBranch(a.id, '00001').expect(201)).body;
+      await api(app, admin)
+        .patch(`/v1/branches/${br.id}`)
+        .send({ isDefaultIssuer: true })
+        .expect(200);
+      const all = (await api(app, admin).get('/v1/audit-logs?limit=200').expect(200)).body.data;
+      const seen: string[] = [];
+      let cursor: string | null = null;
+      do {
+        const page: { body: { data: { id: string }[]; nextCursor: string | null } } = await api(
+          app,
+          admin,
+        )
+          .get(`/v1/audit-logs?limit=1${cursor ? `&cursor=${cursor}` : ''}`)
+          .expect(200);
+        seen.push(...page.body.data.map((x) => x.id));
+        cursor = page.body.nextCursor;
+      } while (cursor);
+      expect(seen).toEqual(all.map((x: { id: string }) => x.id));
+    }, 60_000);
 
     it('UPDATE/DELETE บนตาราง audit ถูก DB ปฏิเสธ (ทั้ง role แอปและเจ้าของฐาน)', async () => {
       const owner = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });

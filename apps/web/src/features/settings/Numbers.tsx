@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { ApiError } from '../../api';
 import { useI18n } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
 import { useSaveSequence, useSequences, type Sequence } from './useSettings';
@@ -38,7 +39,8 @@ function Row({ s, canWrite }: { s: Sequence; canWrite: boolean }) {
   const save = useSaveSequence();
   const [prefix, setPrefix] = useState(s.prefix);
   useEffect(() => setPrefix(s.prefix), [s.prefix]);
-  const err = save.error ? t('num.prefixInvalid') : '';
+  const code = save.error instanceof ApiError ? save.error.problem.errors?.[0]?.code : undefined;
+  const err = save.error ? t(code === 'series_in_use' ? 'num.inUse' : 'num.prefixInvalid') : '';
   const commit = (body: Record<string, unknown>) =>
     save.mutate({ id: s.id, version: s.version, body });
   return (
@@ -73,6 +75,8 @@ function Row({ s, canWrite }: { s: Sequence; canWrite: boolean }) {
           value={s.resetPolicy}
           disabled={!canWrite}
           aria-label={`${t('num.col.reset')} ${t(`doc.${s.docType}` as MessageKey)}`}
+          title={err || undefined}
+          style={err && code === 'series_in_use' ? { borderColor: '#B3322A' } : undefined}
           onChange={(e) => commit({ resetPolicy: e.target.value })}
         >
           {(['monthly', 'yearly', 'never'] as const).map((p) => (
