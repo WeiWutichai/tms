@@ -1040,18 +1040,24 @@ model StopEvent {
 
 /// ไฟล์ (POD, PDF, เอกสารรถ) — เนื้อไฟล์อยู่ใน FileStore แบบ immutable (T-09)
 model StoredDocument {
-  id         String   @id @default(uuid()) @db.Uuid
-  tenantId   String   @map("tenant_id") @db.Uuid
-  fileKey    String   @map("file_key")
-  sha256     String
-  mimeType   String   @map("mime_type")
-  sizeBytes  Int      @map("size_bytes")
-  kind       String /// POD_PHOTO / POD_SIGNATURE / PDF / VEHICLE_DOC / OTHER
-  entityType String?  @map("entity_type")
-  entityId   String?  @map("entity_id") @db.Uuid
-  createdBy  String?  @map("created_by")
-  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  id               String   @id @default(uuid()) @db.Uuid
+  tenantId         String   @map("tenant_id") @db.Uuid
+  /// ST1-T08: PENDING = จองแล้วรออัปโหลด, READY = ไฟล์ผ่านการตรวจแล้ว
+  status           String   @default("READY")
+  fileKey          String?  @map("file_key")
+  sha256           String?
+  mimeType         String   @map("mime_type")
+  sizeBytes        Int      @map("size_bytes")
+  filename         String?
+  clientDocumentId String?  @map("client_document_id") /// กันอัปโหลดซ้ำจากอุปกรณ์ (docs/01 §5.5)
+  metadata         Json?
+  kind             String /// POD_PHOTO / POD_SIGNATURE / PDF / VEHICLE_DOC / OTHER
+  entityType       String?  @map("entity_type")
+  entityId         String?  @map("entity_id") @db.Uuid
+  createdBy        String?  @map("created_by")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
+  @@unique([tenantId, clientDocumentId])
   @@index([tenantId, entityType, entityId])
   @@map("stored_document")
 }

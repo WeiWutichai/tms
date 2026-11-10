@@ -1398,6 +1398,128 @@
         ]
       }
     },
+    "/v1/documents": {
+      "post": {
+        "operationId": "Documents_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateDocumentDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "documents"
+        ]
+      }
+    },
+    "/v1/documents/{id}": {
+      "get": {
+        "operationId": "Documents_get",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "documents"
+        ]
+      }
+    },
+    "/v1/documents/{id}/content": {
+      "put": {
+        "operationId": "Documents_upload",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentDto"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "documents"
+        ]
+      },
+      "get": {
+        "operationId": "Documents_download",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "documents"
+        ]
+      }
+    },
     "/v1/settings": {
       "get": {
         "operationId": "Settings_list",
@@ -2751,6 +2873,117 @@
           "data",
           "nextCursor",
           "hasMore"
+        ]
+      },
+      "CreateDocumentDto": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "POD_PHOTO",
+              "POD_SIGNATURE",
+              "SIGNATURE",
+              "LOGO",
+              "PDF",
+              "VEHICLE_DOC",
+              "RECEIPT",
+              "WHT_CERT",
+              "CONTRACT",
+              "OTHER"
+            ]
+          },
+          "mime": {
+            "type": "string",
+            "enum": [
+              "application/pdf",
+              "image/png",
+              "image/jpeg",
+              "image/webp"
+            ],
+            "description": "ชนิดที่จะอัปโหลด — server ตรวจกับเนื้อไฟล์จริง"
+          },
+          "bytes": {
+            "type": "number",
+            "example": 182044,
+            "description": "ขนาดไฟล์ (byte) ไม่เกิน 10485760"
+          },
+          "filename": {
+            "type": "string",
+            "example": "pod-SO-2611-0001.jpg"
+          },
+          "clientDocumentId": {
+            "type": "string",
+            "description": "id ฝั่ง client (อุปกรณ์) — ส่งซ้ำได้ ไม่สร้างแถวใหม่ (docs/01 §5.5)"
+          },
+          "entityType": {
+            "type": "string",
+            "example": "trip_stop"
+          }
+        },
+        "required": [
+          "kind",
+          "mime",
+          "bytes"
+        ]
+      },
+      "DocumentDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "doc_…"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "ready"
+            ]
+          },
+          "kind": {
+            "type": "string"
+          },
+          "mime": {
+            "type": "string"
+          },
+          "bytes": {
+            "type": "number"
+          },
+          "filename": {
+            "type": "string",
+            "nullable": true
+          },
+          "sha256": {
+            "type": "string",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "uploadUrl": {
+            "type": "string",
+            "description": "สถานะ pending: PUT เนื้อไฟล์ไปที่นี่ (หมดอายุ 15 นาที)"
+          },
+          "downloadUrl": {
+            "type": "string",
+            "description": "สถานะ ready: ลิงก์ดาวน์โหลด (หมดอายุ 5 นาที)"
+          },
+          "urlExpiresAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "kind",
+          "mime",
+          "bytes",
+          "filename",
+          "sha256",
+          "createdAt"
         ]
       },
       "SettingDto": {

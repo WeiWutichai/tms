@@ -58,6 +58,19 @@ export class ProblemFilter implements ExceptionFilter {
     } else if (exception instanceof HttpException) {
       code = STATUS_TO_CODE[exception.getStatus()] ?? 'internal_error';
       if (exception.getStatus() === HttpStatus.NOT_FOUND) detail = undefined;
+    } else if (
+      typeof (exception as { type?: unknown })?.type === 'string' &&
+      String((exception as { type: string }).type).startsWith('entity.')
+    ) {
+      // error จากตัวอ่าน body (body-parser): ใหญ่เกิน / JSON เสีย
+      const t = (exception as { type: string }).type;
+      code = t === 'entity.too.large' ? 'payload_too_large' : 'bad_request';
+    } else if (
+      (exception as { expose?: unknown })?.expose === true &&
+      typeof (exception as { status?: unknown }).status === 'number'
+    ) {
+      // error อื่นของตัวอ่าน body (เช่น encoding ไม่รองรับ 415) → ส่งเป็น bad_request แทน 500
+      code = 'bad_request';
     } else {
       this.logger.error(exception instanceof Error ? exception.stack : String(exception));
     }

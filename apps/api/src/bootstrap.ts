@@ -3,6 +3,7 @@ import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule, type OpenAPIObject } from '@nestjs/swagger';
 import cookieParser from 'cookie-parser';
+import { isSignedUploadRequest } from './modules/documents/signed-url';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { Public } from './common/decorators';
@@ -42,6 +43,12 @@ export async function createApp(module: unknown = AppModule): Promise<NestExpres
     }),
   );
   app.use(cookieParser());
+  // ST1-T08: เนื้อไฟล์อัปโหลดเป็น raw body (สูงสุด 10 MB + เผื่อเล็กน้อย — ตรวจละเอียดใน controller)
+  app.useBodyParser('raw', {
+    limit: '10mb',
+    // อ่าน body เฉพาะเมื่อ URL มีลายเซ็นถูกต้อง — ลายเซ็นผิดไม่ต้องรับไฟล์ 10 MB ไว้ในหน่วยความจำ (review T08 S1)
+    type: (req: { url?: string; method?: string }) => isSignedUploadRequest(req),
+  });
   app.useBodyParser('json', { limit: '1mb' });
   app.setGlobalPrefix('v1');
   app.useGlobalPipes(createValidationPipe());

@@ -13,6 +13,7 @@ import { BranchesService } from './modules/branches/branches.service';
 import { SequencesController } from './modules/sequences/sequences.controller';
 import { SequencesService } from './modules/sequences/sequences.service';
 import { AuditController } from './audit/audit.controller';
+import { DocumentsController } from './modules/documents/documents.controller';
 import { SettingsController } from './modules/settings/settings.controller';
 import { SettingsService } from './modules/settings/settings.service';
 import { AuthGuard } from './auth/auth.guard';
@@ -47,6 +48,7 @@ import { StateService } from './state/state.service';
     BranchesController,
     SequencesController,
     AuditController,
+    DocumentsController,
     SettingsController,
     JobsController,
   ],

@@ -14,3 +14,4 @@ packages/contracts/src/schema.d.ts
 apps/web/e2e/.env.e2e
 apps/web/test-results/
 apps/web/playwright-report/
+.data/
