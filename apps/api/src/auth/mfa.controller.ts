@@ -131,12 +131,13 @@ export class MfaController {
     if (!body.otp && !body.backupCode) throw new ProblemException('invalid_otp');
     const client = clientOf(req);
     const { row, user } = await this.mfa.challenge(body.mfaToken, 'verify');
-    const pass = await this.mfa.serialized(user, async () => {
-      await this.throttle(user, client);
-      const ok = await this.mfa.checkSecondFactor(user, body);
-      if (!ok) await this.mfa.recordOtpFailure(user, client);
+    const pass = await this.mfa.serialized(user, async (db) => {
+      if (await this.isLocked(user, db)) return 'locked' as const;
+      const ok = await this.mfa.checkSecondFactor(user, body, db);
+      if (!ok) await this.mfa.recordOtpFailure(user, client, db);
       return ok;
     });
+    await this.rethrowLocked(pass, user);
     if (!pass) throw new ProblemException('invalid_otp');
     if (!(await this.mfa.consume(row.id))) throw new ProblemException('mfa_expired');
     await this.mfa.recordOtpSuccess(user, client, body.backupCode ? 'mfa_backup_ok' : 'mfa_ok');
@@ -171,13 +172,14 @@ export class MfaController {
   ): Promise<EnrollDoneDto> {
     const client = clientOf(req);
     const { row, user } = await this.mfa.challenge(body.mfaToken, 'enroll');
-    const codes = await this.mfa.serialized(user, async () => {
-      await this.throttle(user, client);
-      const c = await this.mfa.confirmEnroll(row.pendingSecret, user, body.otp);
-      if (!c) await this.mfa.recordOtpFailure(user, client);
+    const codes = await this.mfa.serialized(user, async (db) => {
+      if (await this.isLocked(user, db)) return 'locked' as const;
+      const c = await this.mfa.confirmEnroll(row.pendingSecret, user, body.otp, db);
+      if (!c) await this.mfa.recordOtpFailure(user, client, db);
       return c;
     });
-    if (!codes) throw new ProblemException('invalid_otp');
+    await this.rethrowLocked(codes, user);
+    if (!codes || codes === 'locked') throw new ProblemException('invalid_otp');
     if (!(await this.mfa.consume(row.id))) throw new ProblemException('mfa_expired');
     await this.mfa.recordOtpSuccess(user, client, 'mfa_enrolled');
     await this.mfa.audit(user, 'security.2fa_enabled', client.ip);
@@ -199,12 +201,13 @@ export class MfaController {
     if (!user.totpEnabledAt) throw new ProblemException('two_factor_not_enabled');
     if (!(body.otp || body.backupCode)) throw new ProblemException('invalid_otp');
     // ทีละ request ต่อผู้ใช้ + เพดานเดียวกับ login — กันเดารหัสด้วย access token ที่ขโมยมา (review T05 B3)
-    const ok = await this.mfa.serialized(user, async () => {
-      await this.throttle(user, client);
-      const pass = await this.mfa.checkSecondFactor(user, body);
-      if (!pass) await this.mfa.recordOtpFailure(user, client);
+    const ok = await this.mfa.serialized(user, async (db) => {
+      if (await this.isLocked(user, db)) return 'locked' as const;
+      const pass = await this.mfa.checkSecondFactor(user, body, db);
+      if (!pass) await this.mfa.recordOtpFailure(user, client, db);
       return pass;
     });
+    await this.rethrowLocked(ok, user);
     if (!ok) throw new ProblemException('invalid_otp');
     await this.mfa.audit(user, 'security.step_up', client.ip);
     return {
@@ -239,11 +242,23 @@ export class MfaController {
     return { backupCodes };
   }
 
-  /** ถูกล็อกจากความพยายามผิด (รหัสผ่าน + รหัส 2FA รวมกัน) → 429 เหมือน login */
-  private async throttle(user: Parameters<MfaService['lockedFor']>[0], client: { ip: string }) {
-    const locked = await this.mfa.lockedFor(user, client);
-    if (locked > 0)
-      throw new ProblemException('account_locked', undefined, undefined, { retryAfter: locked });
+  /**
+   * ตรวจล็อกภายใน transaction — คืนค่าแทนการ throw เพื่อให้แถวครั้งผิดที่เขียนใน transaction เดียวกัน commit ได้
+   * (throw ใน transaction = rollback)
+   */
+  private async isLocked(
+    user: Parameters<MfaService['lockedFor']>[0],
+    db: Parameters<MfaService['lockedFor']>[1],
+  ) {
+    return (await this.mfa.lockedFor(user, db)) > 0;
+  }
+
+  private async rethrowLocked(result: unknown, user: Parameters<MfaService['lockedFor']>[0]) {
+    if (result !== 'locked') return;
+    const locked = await this.mfa.lockedFor(user);
+    throw new ProblemException('account_locked', undefined, undefined, {
+      retryAfter: Math.max(1, locked),
+    });
   }
 
   private async currentUser() {

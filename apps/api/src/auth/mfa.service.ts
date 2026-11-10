@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import type { AppUser } from '@prisma/client';
+import type { AppUser, PrismaClient } from '@prisma/client';
 import { FieldCipher } from '../common/crypto';
 import { ProblemException } from '../common/problem';
 import { PrismaService } from '../db/prisma.service';
@@ -18,6 +18,7 @@ export const TRUSTED_DEVICE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 export const FORCED_2FA_ROLES = ['owner', 'admin', 'accounting'];
 
 export type MfaPurpose = 'verify' | 'enroll';
+type Db = PrismaClient;
 
 /** 2FA TOTP + backup code + จำอุปกรณ์ (ST1-T05) — ใช้ client platform เหมือน AuthService (ก่อนมี token) */
 @Injectable()
@@ -111,14 +112,13 @@ export class MfaService {
   }
 
   /** ล็อกจากความพยายามผิดของอีเมล/IP นี้ (รวมรหัสผ่านและรหัส 2FA) — 0 = ไม่ล็อก */
-  async lockedFor(user: AppUser, client: ClientInfo): Promise<number> {
-    void client;
-    return lockSeconds(this.db, user.email.toLowerCase(), null, Date.now());
+  async lockedFor(user: AppUser, db: Db = this.db): Promise<number> {
+    return lockSeconds(db, user.email.toLowerCase(), null, Date.now());
   }
 
   /** รหัส 2FA ผิด = ความพยายามผิด 1 ครั้งของอีเมล/IP (ไม่มีแถวสำเร็จมาหัก) — review T05 B2/B3 */
-  async recordOtpFailure(user: AppUser, client: ClientInfo) {
-    await recordAttempt(this.db, user.email.toLowerCase(), client, {
+  async recordOtpFailure(user: AppUser, client: ClientInfo, db: Db = this.db) {
+    await recordAttempt(db, user.email.toLowerCase(), client, {
       success: false,
       reason: OTP_FAILED,
       tenantId: user.tenantId,
@@ -130,15 +130,16 @@ export class MfaService {
    * ทำงานขั้น 2FA ทีละ request ต่อผู้ใช้ (advisory lock) — ตรวจล็อก → ตรวจรหัส → บันทึกครั้งผิด อยู่ในคิวเดียว
    * กันยิงพร้อมกันหลาย challenge จนผ่านเพดาน (re-review T05); มีอีก request ถืออยู่ → 429 rate_limited ทันที
    */
-  async serialized<T>(user: AppUser, fn: () => Promise<T>): Promise<T> {
+  async serialized<T>(user: AppUser, fn: (db: Db) => Promise<T>): Promise<T> {
     try {
       return await this.db.$transaction(
         async (tx) => {
           // try-lock: มี request 2FA ของผู้ใช้นี้ค้างอยู่ → ตอบ 429 ทันที ไม่ต่อคิวถือ connection (ผู้ใช้จริงไม่ยิงพร้อมกัน)
           const [r] = await tx.$queryRaw<{ ok: boolean }[]>`
-            SELECT pg_try_advisory_xact_lock(3, hashtext(${user.id})) AS ok`;
+            SELECT pg_try_advisory_xact_lock(3, hashtext(${user.email.toLowerCase()})) AS ok`;
           if (!r?.ok) throw new ProblemException('rate_limited');
-          return fn();
+          // ทุกอย่างใน fn ใช้ connection เดียวกับ lock (ไม่ขอ connection ที่ 2 — กัน pool ตันตอนคนเข้าพร้อมกัน)
+          return fn(tx as unknown as Db);
         },
         { maxWait: 2_000, timeout: 5_000 },
       );
@@ -186,14 +187,18 @@ export class MfaService {
    * ตรวจรหัสจากแอป (หรือ backup code) ของผู้ใช้ที่ตั้ง 2FA แล้ว
    * TOTP: บันทึก time-step ล่าสุดแบบมีเงื่อนไข (กันรหัสเดียวใช้ 2 ครั้งพร้อมกัน); backup: ใช้ได้ครั้งเดียว
    */
-  async checkSecondFactor(user: AppUser, input: { otp?: string; backupCode?: string }) {
+  async checkSecondFactor(
+    user: AppUser,
+    input: { otp?: string; backupCode?: string },
+    db: Db = this.db,
+  ) {
     if (!user.totpSecret || !user.totpEnabledAt) return false;
     if (input.otp) {
       const secret = this.cipher.decrypt(user.totpSecret);
       const last = user.totpLastStep == null ? null : Number(user.totpLastStep);
       const step = verifyTotp(secret, input.otp, last);
       if (step === null) return false;
-      const r = await this.db.appUser.updateMany({
+      const r = await db.appUser.updateMany({
         where: {
           id: user.id,
           OR: [{ totpLastStep: null }, { totpLastStep: { lt: BigInt(step) } }],
@@ -204,7 +209,7 @@ export class MfaService {
     }
     if (input.backupCode) {
       const hash = sha256(normalizeBackupCode(input.backupCode));
-      const r = await this.db.backupCode.updateMany({
+      const r = await db.backupCode.updateMany({
         where: { tenantId: user.tenantId, userId: user.id, codeHash: hash, usedAt: null },
         data: { usedAt: new Date() },
       });
@@ -224,12 +229,12 @@ export class MfaService {
   }
 
   /** ยืนยันรหัสแรกจากแอป → เปิด 2FA + ออก backup code 10 ชุด (แสดงครั้งเดียว) */
-  async confirmEnroll(pendingSecret: string | null, user: AppUser, otp: string) {
+  async confirmEnroll(pendingSecret: string | null, user: AppUser, otp: string, db: Db = this.db) {
     if (!pendingSecret) return null;
     const secret = this.cipher.decrypt(pendingSecret);
     const step = verifyTotp(secret, otp);
     if (step === null) return null;
-    const r = await this.db.appUser.updateMany({
+    const r = await db.appUser.updateMany({
       where: { id: user.id, totpEnabledAt: null },
       data: {
         totpSecret: this.cipher.encrypt(secret),
@@ -238,21 +243,23 @@ export class MfaService {
       },
     });
     if (r.count !== 1) return null;
-    return this.replaceBackupCodes(user);
+    return this.replaceBackupCodes(user, db);
   }
 
-  async replaceBackupCodes(user: Pick<AppUser, 'id' | 'tenantId'>): Promise<string[]> {
+  async replaceBackupCodes(user: Pick<AppUser, 'id' | 'tenantId'>, db?: Db): Promise<string[]> {
     const codes = newBackupCodes();
-    await this.db.$transaction([
-      this.db.backupCode.deleteMany({ where: { tenantId: user.tenantId, userId: user.id } }),
-      this.db.backupCode.createMany({
-        data: codes.map((c) => ({
+    const ops = (c: Db) => [
+      c.backupCode.deleteMany({ where: { tenantId: user.tenantId, userId: user.id } }),
+      c.backupCode.createMany({
+        data: codes.map((x) => ({
           tenantId: user.tenantId,
           userId: user.id,
-          codeHash: sha256(normalizeBackupCode(c)),
+          codeHash: sha256(normalizeBackupCode(x)),
         })),
       }),
-    ]);
+    ];
+    if (db) for (const op of ops(db)) await op;
+    else await this.db.$transaction(ops(this.db));
     return codes;
   }
 
