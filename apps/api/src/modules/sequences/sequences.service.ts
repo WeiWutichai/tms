@@ -99,6 +99,8 @@ export async function issueNumber(tx: Tx, tenantId: string, input: IssueInput): 
     where: { tenantId_docType: { tenantId, docType: input.docType } },
   });
   if (!series) throw new Error(`no document series for ${input.docType}`);
+  // FOR SHARE กันหน้าตั้งค่าเปลี่ยนรูปแบบระหว่างออกเลข (update ถือ FOR UPDATE)
+  await tx.$queryRaw`SELECT id FROM document_series WHERE id = ${series.id}::uuid FOR SHARE`;
   if (series.perBranch && !input.branchId) throw new Error(`${input.docType} requires branchId`);
   const branch = series.perBranch
     ? await tx.branch.findUnique({ where: { id: input.branchId! } })
@@ -188,6 +190,7 @@ export class SequencesService {
 
   async update(id: string, input: UpdateSequenceDto, expected?: number): Promise<DocumentSeries> {
     const tx = this.db.tx;
+    await tx.$queryRaw`SELECT id FROM document_series WHERE id = ${id}::uuid FOR UPDATE`;
     const current = await this.get(id);
     if (expected !== undefined && expected !== current.version)
       throw new ProblemException('precondition_failed');

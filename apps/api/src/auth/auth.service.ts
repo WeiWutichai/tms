@@ -50,50 +50,53 @@ export class AuthService {
 
   /**
    * ตรวจรหัสผ่าน → คืน authorization code (ผูก code_challenge)
-   * ทั้งขั้น "ตรวจล็อก → ตรวจรหัส → บันทึกผล" อยู่ใน transaction เดียวที่ถือ advisory lock ต่ออีเมลและต่อ IP
-   * — request ที่ยิงพร้อมกันต้องรอคิว จึงเดารหัสได้ไม่เกิน 5 ครั้งต่อหน้าต่างจริง (review 10 พ.ย. 2569 ข้อ 1)
-   * ล็อกเรียง อีเมล → IP เสมอ กัน deadlock; รอคิวนานเกิน → 429 rate_limited
+   * กันยิงพร้อมกัน (review 10 พ.ย. 2569): จองช่องก่อนตรวจรหัส —
+   *   1) transaction สั้น: advisory lock ต่ออีเมลและ IP → นับ → ถ้ายังไม่เกินเพดาน เขียนแถว `attempt` → commit
+   *   2) ตรวจ argon2 นอก transaction (ไม่ถือ connection ระหว่างคำนวณ)
+   *   3) เขียนผล (`ok` / `invalid_credentials` / …)
+   * ความพยายามที่ยังไม่มีผล นับเป็นครั้งผิดไว้ก่อน (fail closed) จึงผ่านไปตรวจรหัสได้ไม่เกิน 5 ครั้งต่อหน้าต่าง
    */
   async login(
     input: { email: string; password: string; codeChallenge: string; tenantId?: string },
     client: ClientInfo,
   ): Promise<{ code: string; expiresIn: number }> {
     const email = input.email.trim().toLowerCase();
+    const db = this.db;
+    let lockedFor = 0;
     try {
-      const result = await this.db.$transaction(
+      lockedFor = await db.$transaction(
         async (tx) => {
-          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'login:e:' + email}))`;
-          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'login:i:' + client.ip}))`;
-          return this.loginLocked(tx as unknown as PrismaClient, email, input, client);
+          // key 2 ตัว (namespace, hash) แยกอีเมลกับ IP ไม่ให้ชนกัน; ล็อกเรียง อีเมล → IP เสมอ กัน deadlock
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(1, hashtext(${email}))`;
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(2, hashtext(${client.ip}))`;
+          const t = tx as unknown as PrismaClient;
+          const locked = await this.lockSeconds(t, email, client.ip, Date.now());
+          await this.record(t, email, client, {
+            success: false,
+            reason: locked > 0 ? 'locked' : 'attempt',
+          });
+          return locked;
         },
-        { maxWait: 5_000, timeout: 20_000 },
+        { maxWait: 2_000, timeout: 5_000 },
       );
-      // ล้มเหลวต้อง commit แถว login_attempt ก่อน แล้วจึงโยน error (throw ใน transaction = rollback)
-      if (result instanceof ProblemException) throw result;
-      return result;
     } catch (e) {
-      if (e instanceof ProblemException) throw e;
       const code = (e as { code?: string }).code;
-      if (code === 'P2024' || code === 'P2028') throw new ProblemException('rate_limited');
+      if (code === 'P2024' || code === 'P2028' || code === 'P2010')
+        throw new ProblemException('rate_limited');
       throw e;
     }
+    if (lockedFor > 0)
+      throw new ProblemException('account_locked', undefined, undefined, { retryAfter: lockedFor });
+    return this.verifyAndIssueCode(db, email, input, client);
   }
 
-  private async loginLocked(
+  private async verifyAndIssueCode(
     db: PrismaClient,
     email: string,
     input: { password: string; codeChallenge: string; tenantId?: string },
     client: ClientInfo,
-  ): Promise<{ code: string; expiresIn: number } | ProblemException> {
+  ): Promise<{ code: string; expiresIn: number }> {
     const now = Date.now();
-
-    const lockedFor = await this.lockSeconds(db, email, client.ip, now);
-    if (lockedFor > 0) {
-      await this.record(db, email, client, { success: false, reason: 'locked' });
-      return new ProblemException('account_locked', undefined, undefined, {
-        retryAfter: lockedFor,
-      });
-    }
     const users = await db.appUser.findMany({
       where: { email: { equals: email, mode: 'insensitive' }, status: 'ACTIVE' },
     });
@@ -116,11 +119,11 @@ export class AuthService {
     const chosen = input.tenantId ? matched.filter((u) => u.tenantId === input.tenantId) : matched;
     if (chosen.length === 0) {
       await this.record(db, email, client, { success: false, reason: 'invalid_credentials' });
-      return new ProblemException('invalid_credentials');
+      throw new ProblemException('invalid_credentials');
     }
     if (chosen.length > 1) {
       await this.record(db, email, client, { success: false, reason: 'tenant_selection_required' });
-      return new ProblemException('tenant_selection_required', undefined, undefined, {
+      throw new ProblemException('tenant_selection_required', undefined, undefined, {
         tenants: chosen
           .map((u) => tenants.find((t) => t.id === u.tenantId)!)
           .map((t) => ({
@@ -158,6 +161,8 @@ export class AuthService {
     const now = new Date();
     if (!row || row.usedAt || row.expiresAt <= now || pkceChallenge(verifier) !== row.codeChallenge)
       throw new ProblemException('invalid_grant');
+    if ((await this.currentTokenVersion(row.tenantId, row.userId)) === null)
+      throw new ProblemException('invalid_grant');
     const claimed = await this.db.authCode.updateMany({
       where: { id: row.id, usedAt: null },
       data: { usedAt: now },
@@ -194,10 +199,9 @@ export class AuthService {
       where: { id: row.id, usedAt: null, revokedAt: null },
       data: { usedAt: now },
     });
-    if (claimed.count !== 1) {
-      await this.revokeFamily(row.familyId);
-      throw new ProblemException('invalid_grant');
-    }
+    // แพ้การแย่งกับ request ที่มาพร้อมกัน (เช่นหลายแท็บตอนเปิด browser) = เพิ่งหมุนไปเมื่อมิลลิวินาทีก่อน
+    // → ปฏิเสธเฉย ๆ ไม่เพิกถอน family (web ลองซ้ำด้วย cookie ใหม่) — review รอบ 2 ข้อ 1
+    if (claimed.count !== 1) throw new ProblemException('invalid_grant');
     return this.issue(
       row.tenantId,
       row.userId,
@@ -300,6 +304,10 @@ export class AuthService {
   }
 
   /** วินาทีที่ยังถูกล็อก (0 = ไม่ล็อก) — นับเฉพาะครั้งที่รหัสผิด */
+  /**
+   * วินาทีที่ยังล็อก — นับ "ความพยายามที่ไม่สำเร็จ" ใน 15 นาที แยกต่ออีเมลและต่อ IP
+   * = แถว `attempt` − แถวที่รหัสถูก (`ok`, `tenant_selection_required`); ถึง 5 → ล็อกจนครั้งที่ 5 นับย้อนหลังพ้นหน้าต่าง
+   */
   private async lockSeconds(
     db: PrismaClient,
     email: string,
@@ -307,24 +315,22 @@ export class AuthService {
     now: number,
   ): Promise<number> {
     const since = new Date(now - LOGIN_WINDOW_MS);
-    const [byEmail, byIp] = await Promise.all([
-      db.loginAttempt.findMany({
-        where: { email, reason: 'invalid_credentials', createdAt: { gt: since } },
-        orderBy: { createdAt: 'desc' },
-        take: LOGIN_MAX_FAILURES,
-        select: { createdAt: true },
-      }),
-      db.loginAttempt.findMany({
-        where: { ip, reason: 'invalid_credentials', createdAt: { gt: since } },
-        orderBy: { createdAt: 'desc' },
-        take: LOGIN_MAX_FAILURES,
-        select: { createdAt: true },
-      }),
-    ]);
-    // ล็อกจนกว่าครั้งที่ผิดเก่าสุดใน 5 ครั้งล่าสุดจะพ้นหน้าต่าง 15 นาที
-    const until = [byEmail, byIp]
-      .filter((rows) => rows.length >= LOGIN_MAX_FAILURES)
-      .map((rows) => rows[LOGIN_MAX_FAILURES - 1]!.createdAt.getTime() + LOGIN_WINDOW_MS);
+    const OK = ['ok', 'tenant_selection_required'];
+    const until: number[] = [];
+    for (const key of [{ email }, { ip }]) {
+      const [attempts, oks] = await Promise.all([
+        db.loginAttempt.findMany({
+          where: { ...key, reason: 'attempt', createdAt: { gt: since } },
+          orderBy: { createdAt: 'desc' },
+          take: 200,
+          select: { createdAt: true },
+        }),
+        db.loginAttempt.count({ where: { ...key, reason: { in: OK }, createdAt: { gt: since } } }),
+      ]);
+      const failures = attempts.length - oks;
+      if (failures >= LOGIN_MAX_FAILURES)
+        until.push(attempts[LOGIN_MAX_FAILURES - 1]!.createdAt.getTime() + LOGIN_WINDOW_MS);
+    }
     if (until.length === 0) return 0;
     return Math.max(1, Math.ceil((Math.max(...until) - now) / 1000));
   }

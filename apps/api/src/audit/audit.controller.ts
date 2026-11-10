@@ -97,7 +97,7 @@ export class AuditPageDto {
 function decodeCursor(c: string): bigint {
   try {
     const v = JSON.parse(Buffer.from(c, 'base64url').toString('utf8')) as { s: string };
-    if (typeof v.s !== 'string' || !/^\d{1,19}$/.test(v.s)) throw new Error();
+    if (typeof v.s !== 'string' || !/^\d{1,18}$/.test(v.s)) throw new Error();
     return BigInt(v.s);
   } catch {
     throw new ProblemException('validation_failed', undefined, [

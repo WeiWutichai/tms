@@ -13,12 +13,13 @@ import { jwtVerify, SignJWT } from 'jose';
 export const ACCESS_TTL_SECONDS = 15 * 60;
 
 /**
- * เครื่องนักพัฒนา/test เท่านั้น (NODE_ENV ไม่ตั้ง, development, test) — staging/production ไม่รับ token `dev`,
+ * เครื่องนักพัฒนา/test เท่านั้น (NODE_ENV = development หรือ test เท่านั้น) — staging/production ไม่รับ token `dev`,
  * ไม่ใช้ AUTH_DEV_SECRET และ cookie ต้อง Secure (review 10 พ.ย. 2569 ข้อ 4–5)
  */
 export function isLocalEnv(): boolean {
+  // ต้องตั้งชัด ๆ เท่านั้น — ลืมตั้ง NODE_ENV ตอน deploy = ถือว่าไม่ใช่เครื่อง dev (fail closed)
   const e = process.env.NODE_ENV;
-  return e === undefined || e === '' || e === 'development' || e === 'test';
+  return e === 'development' || e === 'test';
 }
 
 function secret(): Uint8Array {

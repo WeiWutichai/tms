@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "dev": "SWC_NODE_PROJECT=tsconfig.json node --watch -r @swc-node/register src/main.ts",
+    "dev": "NODE_ENV=development SWC_NODE_PROJECT=tsconfig.json node --watch -r @swc-node/register src/main.ts",
     "start": "node dist/main.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\" && node scripts/lint-dto.mjs",
@@ -13,10 +13,10 @@
     "db:migrate": "prisma migrate deploy",
     "db:migrate:dev": "prisma migrate dev",
     "db:reset": "prisma migrate reset --force --skip-seed",
-    "db:seed": "SWC_NODE_PROJECT=tsconfig.json node -r @swc-node/register prisma/seed.ts",
+    "db:seed": "NODE_ENV=${NODE_ENV:-development} SWC_NODE_PROJECT=tsconfig.json node -r @swc-node/register prisma/seed.ts",
     "openapi:export": "SWC_NODE_PROJECT=tsconfig.json node -r @swc-node/register scripts/export-openapi.ts",
     "openapi:diff": "SWC_NODE_PROJECT=tsconfig.json node -r @swc-node/register scripts/openapi-diff.ts",
-    "dev:worker": "SWC_NODE_PROJECT=tsconfig.json node -r @swc-node/register src/worker.ts",
+    "dev:worker": "NODE_ENV=development SWC_NODE_PROJECT=tsconfig.json node -r @swc-node/register src/worker.ts",
     "openapi:check": "SWC_NODE_PROJECT=tsconfig.json node -r @swc-node/register scripts/export-openapi.ts && git diff --exit-code -- ../../packages/contracts/openapi.json"
   },
   "dependencies": {

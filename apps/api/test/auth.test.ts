@@ -208,6 +208,19 @@ describe('auth: login + Auth Code/PKCE + refresh', () => {
     expect((await refresh(next)).status).toBe(200);
   });
 
+  it('สองแท็บ refresh พร้อมกันจริง (Promise.all) ซ้ำ 10 รอบ → ไม่มีรอบไหนหลุดทั้ง family', async () => {
+    await makeUser(tenantA, 'race@example.co.th');
+    let { cookie } = await fullLogin('race@example.co.th');
+    for (let i = 0; i < 10; i++) {
+      const [a, b] = await Promise.all([refresh(cookie), refresh(cookie)]);
+      const win = [a, b].find((r) => r.status === 200);
+      expect(win, `รอบ ${i}`).toBeTruthy();
+      cookie = (win!.headers['set-cookie'] as unknown as string[])[0]!.split(';')[0]!;
+      expect((await me(win!.body.accessToken)).status).toBe(200);
+    }
+    expect((await refresh(cookie)).status).toBe(200);
+  }, 60_000);
+
   it('ยิง login ผิดพร้อมกัน 20 ครั้ง → ตรวจรหัสจริงได้ไม่เกิน 5 ครั้ง ที่เหลือถูกล็อก', async () => {
     await makeUser(tenantA, 'burst@example.co.th');
     const res = await Promise.all(
@@ -222,9 +235,12 @@ describe('auth: login + Auth Code/PKCE + refresh', () => {
         ),
       ),
     );
-    const statuses = res.map((r) => r.status);
-    expect(statuses.filter((s) => s === 401).length).toBeLessThanOrEqual(5);
-    expect(statuses.filter((s) => s !== 401 && s !== 429)).toEqual([]);
+    const codes = res.map((r) => r.body.code as string);
+    // ตรวจรหัสจริงพอดี 5 ครั้ง ที่เหลือต้องเป็น "ถูกล็อก" (ไม่ใช่ rate_limited จาก transaction ล้ม)
+    expect(codes.filter((c) => c === 'invalid_credentials')).toHaveLength(5);
+    expect(codes.filter((c) => c !== 'invalid_credentials')).toEqual(
+      Array(15).fill('account_locked'),
+    );
   }, 60_000);
 
   it('token dev และ cookie ไม่ Secure ใช้ได้เฉพาะเครื่อง dev/test (staging ปฏิเสธ)', async () => {

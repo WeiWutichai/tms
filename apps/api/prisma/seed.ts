@@ -9,6 +9,7 @@ import { PrismaClient } from '@prisma/client';
 import { ROLE_CODES, type RoleCode } from '@tms/domain';
 import { signDevToken } from '../src/auth/auth.guard';
 import { hashPassword } from '../src/auth/password';
+import { isLocalEnv } from '../src/auth/tokens';
 import { ensureSystemRoles } from '../src/auth/system-roles';
 import { ensureDefaultSeries } from '../src/modules/sequences/sequences.service';
 
@@ -178,7 +179,7 @@ async function main() {
   };
   await db.$disconnect();
   console.log('seed ok', counts);
-  if (process.env.NODE_ENV !== 'production' && process.env.AUTH_DEV_SECRET) {
+  if (isLocalEnv() && process.env.AUTH_DEV_SECRET) {
     console.log('dev token A:', await signDevToken({ sub: 'demo-admin', tid: DEMO_A }, '12h'));
     console.log('dev token B:', await signDevToken({ sub: 'demo-admin', tid: DEMO_B }, '12h'));
   }
