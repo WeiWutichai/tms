@@ -1,9 +1,9 @@
 import { ROLE_CODES } from '@tms/domain';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
+  bootstrapSteps,
   bootstrapTenant,
   createTenantWithDefaults,
-  registerBootstrapStep,
 } from '../src/modules/tenants/bootstrap';
 import { readSettings } from '../src/modules/settings/settings.service';
 import { platform, truncateAll } from './helpers';
@@ -57,17 +57,22 @@ describe('tenant bootstrap', () => {
     ).toBe('MY-SO-');
   });
 
-  it('ขั้นไหนล้ม = ไม่มี tenant ครึ่ง ๆ (rollback ทั้งก้อน); stage ถัดไปเพิ่มขั้นได้', async () => {
-    registerBootstrapStep({
-      name: 'test-fail',
-      run: async () => {
-        throw new Error('boom');
-      },
-    });
-    await expect(createTenantWithDefaults(db, { name: 'บริษัท ล้ม' })).rejects.toThrow('boom');
-    expect(await db.tenant.count({ where: { name: 'บริษัท ล้ม' } })).toBe(0);
-    expect(() => registerBootstrapStep({ name: 'test-fail', run: async () => {} })).toThrow(
-      /exists/,
+  it('ขั้นไหนล้ม = ไม่มี tenant ครึ่ง ๆ (rollback ทั้งก้อน)', async () => {
+    const steps = [
+      ...bootstrapSteps(),
+      { name: 'test-fail', run: async () => Promise.reject(new Error('boom')) },
+    ];
+    await expect(createTenantWithDefaults(db, { name: 'บริษัท ล้ม' }, steps)).rejects.toThrow(
+      'boom',
     );
+    expect(await db.tenant.count({ where: { name: 'บริษัท ล้ม' } })).toBe(0);
+  });
+
+  it('รายการขั้นครบและเรียงตามที่ตั้งใจ (เพิ่มขั้นใหม่ = แก้ test นี้ด้วย)', () => {
+    expect(bootstrapSteps().map((s) => s.name)).toEqual([
+      'system-roles',
+      'document-series',
+      'tax-billing-defaults',
+    ]);
   });
 });

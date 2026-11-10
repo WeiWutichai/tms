@@ -169,6 +169,7 @@ async function main() {
   const roleIds: Record<string, Record<string, string>> = {};
   for (const t of [DEMO_A, DEMO_B]) {
     await bootstrapTenant(db, t);
+    // ensureSystemRoles คืน id ของ role (รันซ้ำได้ — bootstrap เรียกไปแล้ว)
     roleIds[t] = await ensureSystemRoles(db, t);
   }
   for (const u of USERS) {

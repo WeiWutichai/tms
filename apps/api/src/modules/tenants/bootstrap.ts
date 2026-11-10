@@ -7,8 +7,10 @@ type Db = PrismaClient | Prisma.TransactionClient;
 
 /**
  * ค่าเริ่มต้นภาษาไทยพร้อมใช้ตอนสร้าง tenant (ST1-T20; docs/04 A5, K5 "ห้ามให้เราตั้งให้")
- * ลำดับขั้นเป็น registry — stage ถัดไปเพิ่มขั้นของตัวเอง (ST2: ประเภทรถ, accessorial, reason) ด้วย `registerBootstrapStep`
- * ทุกขั้นรันซ้ำได้ (ไม่ทับค่าที่ tenant แก้แล้ว)
+ * ขั้นทั้งหมดอยู่ในรายการ STEPS ที่เดียว (ไม่ลงทะเบียนตอน import — กันผู้เรียกบางทางได้ขั้นไม่ครบ)
+ * stage ถัดไปเพิ่มขั้นของตัวเองที่นี่ (ST2: ประเภทรถ, accessorial, reason) + แก้ test/bootstrap.test.ts
+ * รันซ้ำได้: ชุดเลขและค่าภาษีไม่ทับค่าที่ tenant แก้แล้ว · role ระบบถูก sync กลับเป็นค่าในโค้ดเสมอ
+ * (role ระบบแก้จาก UI ไม่ได้ — spec/01 PLT-131)
  */
 export interface BootstrapStep {
   name: string;
@@ -23,7 +25,7 @@ const SNAPSHOT_KEYS = (Object.keys(SETTINGS) as SettingKey[]).filter(
   (k) => k.startsWith('tax.') || k.startsWith('billing.'),
 );
 
-const STEPS: BootstrapStep[] = [
+const STEPS: readonly BootstrapStep[] = [
   {
     name: 'system-roles',
     run: async (db, t) => void (await ensureSystemRoles(db as PrismaClient, t)),
@@ -47,25 +49,25 @@ const STEPS: BootstrapStep[] = [
   },
 ];
 
-export function registerBootstrapStep(step: BootstrapStep) {
-  if (STEPS.some((s) => s.name === step.name))
-    throw new Error(`bootstrap step '${step.name}' exists`);
-  STEPS.push(step);
-}
-
 export function bootstrapSteps(): readonly BootstrapStep[] {
   return STEPS;
 }
 
 /** ใส่ค่าเริ่มต้นทุกขั้นให้ tenant (ใช้ client platform — ก่อนมีผู้ใช้/สิทธิ์ใน tenant) */
-export async function bootstrapTenant(db: Db, tenantId: string): Promise<void> {
-  for (const s of STEPS) await s.run(db, tenantId);
+export async function bootstrapTenant(
+  db: Db,
+  tenantId: string,
+  steps: readonly BootstrapStep[] = STEPS,
+): Promise<void> {
+  for (const s of steps) await s.run(db, tenantId);
 }
 
 /** สร้าง tenant + ค่าเริ่มต้นใน transaction เดียว (ล้มกลางทาง = ไม่มี tenant ครึ่ง ๆ — spec/01 PLT-025) */
 export async function createTenantWithDefaults(
   db: PrismaClient,
   input: { name: string; status?: TenantStatus; yearStyle?: 'BE' | 'CE' },
+  /** สำหรับ test เท่านั้น */
+  steps: readonly BootstrapStep[] = STEPS,
 ) {
   return db.$transaction(
     async (tx) => {
@@ -76,7 +78,7 @@ export async function createTenantWithDefaults(
           yearStyle: input.yearStyle ?? 'BE',
         },
       });
-      await bootstrapTenant(tx, t.id);
+      await bootstrapTenant(tx, t.id, steps);
       return t;
     },
     { timeout: 30_000 },
