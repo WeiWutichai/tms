@@ -7,6 +7,8 @@ export interface RequestContext {
   tenantId?: string;
   actorId?: string;
   scopes?: string[];
+  /** ชนิด principal จาก token (`user` / `dev` / ภายหลัง `link` / `driver`) — ใช้กันราคาขายแบบเด็ดขาด (ST1-T13) */
+  principalType?: string;
   locale: 'th' | 'en';
   /** IP ผู้เรียก (trust proxy 1 ชั้น) — ลง audit log */
   ip?: string;

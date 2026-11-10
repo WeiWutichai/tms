@@ -65,7 +65,7 @@
 | T10 ระงับ/เปิดใช้/ลบผู้ใช้ | เสร็จ (ส่วน API) | `POST /v1/users/{id}/suspend` `/activate` `/delete` (เหตุผลบังคับ, audit): ระงับ = bump tokenVersion + เพิกถอน refresh → หลุดทันที; ลบ = anonymize (ชื่อ/อีเมล/เบอร์/รหัส/2FA) เก็บแถวให้ audit แสดง "ผู้ใช้ที่ลบแล้ว"; owner จัดการได้เฉพาะโดย owner; ทำกับตัวเองไม่ได้ · หน้าจอไม่มีในต้นแบบ [OPEN] |
 | T11 ประวัติ login | เสร็จ (ส่วน API) | `GET /v1/login-history?userId=` (users:read) สำเร็จ/ผิด/ล็อก + IP + อุปกรณ์; worker ลบที่เก่ากว่า 1 ปีวันละครั้ง (`src/auth/maintenance.ts`) · หน้าดูของ admin ไม่มีในต้นแบบ [OPEN] |
 | T13 Field permission ราคา | เสร็จ (โครงพื้นฐาน) | `@PriceField('sell'|'buy')` + `PriceFieldInterceptor` (global นอกสุด) ตัด field ราคาที่ serializer ตาม `prices.sell:read` / `prices.buy:read` รวม nested/array และ response ที่ replay จาก Idempotency-Key · principal ภายนอกไม่มี scope ราคาขาย · `src/common/price-fields.test.ts` + `test/price-fields.test.ts` · DTO ที่มีราคา (ST2+) ต้องติด decorator |
-| T02–T03, T06–T09, T18–T21, T23–T24 | ยังไม่เริ่ม | ถัดไปที่เสนอ: T05 2FA (ปลด step-up ของ T12 และ T24) → T17 ตั้งค่าองค์กร → T16 routing → T13 field permission · T03/T07/T23 รอเลือกผู้ให้บริการอีเมล (ST0-T01) |
+| T02–T03, T06–T09, T18–T21, T23–T24 | ยังไม่เริ่ม | ถัดไปที่เสนอ: T05 2FA (ปลด step-up ของ T12 และ T24) → T17 ตั้งค่าองค์กร → T16 routing  · T03/T07/T23 รอเลือกผู้ให้บริการอีเมล (ST0-T01) |
 
 ## สัปดาห์นี้ (สัปดาห์ 10–14 พ.ย. 2569)
 

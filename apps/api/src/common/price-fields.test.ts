@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { SYSTEM_ROLES } from '@tms/domain';
-import { PriceField, redactPrices } from './price-fields';
+import { findSellFields, PriceField, redactPrices } from './price-fields';
 
 class LineDto {
   description!: string;
@@ -54,5 +54,31 @@ describe('price field permission (ST1-T13)', () => {
       }
       void Bad;
     }).toThrow(/both sell and buy/);
+  });
+  it('ไม่แตะ object ที่ไม่ใช่ plain (Decimal/stream/class) และไม่ล้มกับ circular', () => {
+    class Money {
+      constructor(readonly v: string) {}
+    }
+    const m = new Money('12.50');
+    const circ: Record<string, unknown> = { id: 'x', sellAmount: '1.00' };
+    circ.self = circ;
+    const out = redactPrices({ m, at: new Date(0), circ }, []) as {
+      m: Money;
+      circ: Record<string, unknown>;
+    };
+    expect(out.m).toBe(m);
+    expect(out.circ.sellAmount).toBeUndefined();
+    expect(out.circ.self).toBe(out.circ);
+  });
+  it('principal ภายนอก (ลิงก์รถร่วม/คนขับ) ไม่เห็นราคาขายแม้ scope จะมี (ห้ามเด็ดขาด — A3)', () => {
+    const out = redactPrices(doc, ['*'], 'link') as typeof doc;
+    expect(JSON.stringify(out)).not.toMatch(/sell/);
+    expect(out.buyAmount).toBe('800.00');
+    expect(redactPrices(doc, ['*'], 'user')).toEqual(doc);
+  });
+  it('findSellFields หา field ราคาขายใน body ทุกชั้น', () => {
+    expect(findSellFields({ lines: [{ sellAmount: '1' }], buyAmount: '2' })).toEqual([
+      'lines[0].sellAmount',
+    ]);
   });
 });

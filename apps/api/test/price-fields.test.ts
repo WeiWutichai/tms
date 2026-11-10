@@ -75,4 +75,19 @@ describe('price field permission ผ่าน API จริง', () => {
     expect(again.headers['idempotent-replayed']).toBe('true');
     expect(again.body).toEqual({ id: 'trp_2', buyAmount: '400.00' });
   });
+  it('เขียนราคาขายโดยไม่มี prices.sell:write → 403 (Dispatcher); Invoicer ส่งได้', async () => {
+    const d = await api(app, await as('dispatcher'))
+      .post('/v1/__test/priced')
+      .send({ lines: [{ sellAmount: '9.00' }] });
+    expect(d.status).toBe(403);
+    expect(d.body).toMatchObject({
+      code: 'permission_denied',
+      module: 'prices.sell',
+      action: 'write',
+    });
+    await api(app, await as('invoicer'))
+      .post('/v1/__test/priced')
+      .send({ sellAmount: '9.00' })
+      .expect(201);
+  });
 });
