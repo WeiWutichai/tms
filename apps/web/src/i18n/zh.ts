@@ -136,6 +136,7 @@ export const zh: Partial<Record<MessageKey, string>> = {
   'set.menu.docalert': '证件提醒',
   'org.taxId': '税号',
   'org.address': '地址',
+  'lock.group': '套餐',
   'lock.inPlan': '已包含',
   'lock.note': '数据不丢失 · 随时更换套餐,无违约金',
   'lock.sub.t': '外包派单',

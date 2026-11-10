@@ -42,6 +42,12 @@ export async function createApp(module: unknown = AppModule): Promise<NestExpres
     }),
   );
   app.use(cookieParser());
+  // ST1-T08: เนื้อไฟล์อัปโหลดเป็น raw body (สูงสุด 10 MB + เผื่อเล็กน้อย — ตรวจละเอียดใน controller)
+  app.useBodyParser('raw', {
+    limit: '10mb',
+    type: (req: { url?: string; method?: string }) =>
+      req.method === 'PUT' && /^\/v1\/documents\/[^/]+\/content(\?|$)/.test(req.url ?? ''),
+  });
   app.useBodyParser('json', { limit: '1mb' });
   app.setGlobalPrefix('v1');
   app.useGlobalPipes(createValidationPipe());

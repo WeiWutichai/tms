@@ -66,6 +66,21 @@ const FIXTURES: Record<string, (db: PrismaClient, tenantId: string, n: number) =
           })
         ).id,
       ),
+    document: async (db, tenantId) =>
+      encodeId(
+        'document',
+        (
+          await db.storedDocument.create({
+            data: {
+              tenantId,
+              status: 'PENDING',
+              kind: 'OTHER',
+              mimeType: 'application/pdf',
+              sizeBytes: 10,
+            },
+          })
+        ).id,
+      ),
     job: async (db, tenantId) =>
       encodeId('job', (await db.job.create({ data: { tenantId, type: 'noop' } })).id),
   };

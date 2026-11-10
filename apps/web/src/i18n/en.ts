@@ -136,6 +136,7 @@ export const en: Partial<Record<MessageKey, string>> = {
   'set.menu.docalert': 'Document alerts',
   'org.taxId': 'Tax ID',
   'org.address': 'Address',
+  'lock.group': 'Plan',
   'lock.inPlan': 'Included',
   'lock.note': 'Your data stays · change plans anytime with no penalty',
   'lock.sub.t': 'Subcontract dispatch',

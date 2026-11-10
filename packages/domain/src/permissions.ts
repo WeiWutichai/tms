@@ -13,6 +13,8 @@ export const PERMISSIONS = [
   'settings:read',
   'settings:write',
   'companies:read',
+  'documents:read',
+  'documents:write',
   'master:read',
   'master:write',
   'prices.sell:read',
@@ -58,8 +60,12 @@ export const ROLE_CODES = [
 ] as const;
 export type RoleCode = (typeof ROLE_CODES)[number];
 
-/** ทุก role ภายในอ่านข้อมูลนิติบุคคล/สาขาได้ (หัวเอกสาร, ตัวเลือกสาขา) — แก้ได้เฉพาะ settings:write */
-const BASE: Permission[] = ['companies:read'];
+/**
+ * ทุก role ภายใน: อ่านนิติบุคคล/สาขา (หัวเอกสาร) และดูไฟล์แนบ; แนบไฟล์ได้ทุก role ยกเว้น Viewer (ST1-T08)
+ * ไฟล์แนบเป็นส่วนประกอบของโมดูลอื่น (POD, เอกสารรถ, 50 ทวิ) — สิทธิ์ของ entity นั้นตรวจซ้ำที่โมดูลเจ้าของ
+ */
+const READ_BASE: Permission[] = ['companies:read', 'documents:read'];
+const BASE: Permission[] = [...READ_BASE, 'documents:write'];
 const ALL = [...PERMISSIONS] as Permission[];
 
 export const SYSTEM_ROLES: Record<RoleCode, { th: string; en: string; permissions: Permission[] }> =
@@ -212,7 +218,7 @@ export const SYSTEM_ROLES: Record<RoleCode, { th: string; en: string; permission
       th: 'ดูอย่างเดียว',
       en: 'Viewer',
       permissions: [
-        ...BASE,
+        ...READ_BASE,
         'master:read',
         'orders:read',
         'trips:read',

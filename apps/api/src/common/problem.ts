@@ -73,6 +73,11 @@ export const PROBLEMS = {
     th: 'ไม่มีสิทธิ์ทำรายการนี้',
     en: 'You do not have permission for this action',
   },
+  payload_too_large: {
+    status: 413,
+    th: 'ไฟล์หรือข้อมูลมีขนาดใหญ่เกินกำหนด',
+    en: 'Payload too large',
+  },
   rate_limited: { status: 429, th: 'เรียกถี่เกินไป', en: 'Too many requests' },
   invalid_credentials: {
     status: 401,

@@ -283,6 +283,7 @@ export const th = {
   'problem.account_locked': 'ใส่รหัสผ่านผิดหลายครั้ง ลองใหม่อีกครั้งใน 15 นาที',
   'problem.invalid_grant': 'การเข้าสู่ระบบหมดเวลา ลองใหม่อีกครั้ง',
   'problem.tenant_selection_required': 'อีเมลนี้เป็นสมาชิกหลายบริษัท เลือกบริษัทที่ต้องการเข้า',
+  'problem.payload_too_large': 'ไฟล์หรือข้อมูลมีขนาดใหญ่เกินกำหนด',
   'problem.rate_limited': 'เรียกถี่เกินไป',
   // ตั้งค่า (vSet ในต้นแบบ) — ST1-T12/T14/T15
   'set.menu.org': 'องค์กร',
@@ -454,6 +455,9 @@ export const th = {
   'field.isNotEmpty': 'กรุณากรอกข้อมูล',
   'field.duplicate': 'มีอยู่แล้วในระบบ',
   'field.maxLength': 'ข้อความยาวเกินกำหนด',
+  'field.mime_mismatch': 'ชนิดไฟล์ไม่ตรงกับเนื้อไฟล์จริง',
+  'field.file_too_large': 'ไฟล์ใหญ่เกินกำหนด (สูงสุด 10 MB)',
+  'field.empty_file': 'ไฟล์ว่างเปล่า',
   'field.password_too_short': 'รหัสผ่านต้องยาวอย่างน้อย 12 ตัวอักษร',
   'field.password_too_long': 'รหัสผ่านยาวเกินไป',
   'field.password_breached': 'รหัสผ่านนี้เคยรั่วไหลในเหตุข้อมูลรั่ว เลือกรหัสอื่น',

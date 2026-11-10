@@ -14,6 +14,7 @@ export const ID_PREFIX = {
   branch: 'brn',
   sequence: 'seq',
   audit: 'aud',
+  document: 'doc',
 } as const;
 export type IdKind = keyof typeof ID_PREFIX;
 
