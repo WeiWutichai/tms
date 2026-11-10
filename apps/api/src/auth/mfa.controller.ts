@@ -128,16 +128,24 @@ export class MfaController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<AuthCodeDto> {
-    const { row, user } = await this.mfa.challenge(body.mfaToken, 'verify');
     if (!body.otp && !body.backupCode) throw new ProblemException('invalid_otp');
+    const client = clientOf(req);
+    const { row, user } = await this.mfa.challenge(body.mfaToken, 'verify');
+    await this.throttle(user, client);
     if (!(await this.mfa.checkSecondFactor(user, body))) {
-      await this.mfa.failAttempt(row.id);
+      await this.mfa.recordOtpFailure(user, client);
       throw new ProblemException('invalid_otp');
     }
     if (!(await this.mfa.consume(row.id))) throw new ProblemException('invalid_otp');
+    await this.mfa.recordOtpSuccess(user, client, body.backupCode ? 'mfa_backup_ok' : 'mfa_ok');
+    if (body.backupCode)
+      await this.mfa.audit(user, 'security.backup_code_used', client.ip, {
+        remaining: await this.mfa.remainingBackupCodes(user),
+      });
     if (body.rememberDevice) {
-      const d = await this.mfa.trustDevice(user, clientOf(req));
+      const d = await this.mfa.trustDevice(user, client);
       res.cookie(TRUSTED_COOKIE, d.token, trustedCookie(d.expiresAt));
+      await this.mfa.audit(user, 'security.device_trusted', client.ip, { expiresAt: d.expiresAt });
     }
     return { code: await this.auth.issueAuthCode(user, row.codeChallenge), expiresIn: CODE_TTL };
   }
@@ -147,7 +155,7 @@ export class MfaController {
   @HttpCode(200)
   @ApiOkResponse({ type: EnrollStartDto })
   async enrollStart(@Body() body: MfaTokenDto): Promise<EnrollStartDto> {
-    const { row, user } = await this.mfa.challenge(body.mfaToken, 'enroll');
+    const { row, user } = await this.mfa.challenge(body.mfaToken, 'enroll', false);
     return this.mfa.startEnroll(row.id, user);
   }
 
@@ -155,14 +163,21 @@ export class MfaController {
   @Post('auth/2fa/enroll/confirm')
   @HttpCode(200)
   @ApiOkResponse({ type: EnrollDoneDto })
-  async enrollConfirm(@Body() body: MfaEnrollConfirmDto): Promise<EnrollDoneDto> {
+  async enrollConfirm(
+    @Body() body: MfaEnrollConfirmDto,
+    @Req() req: Request,
+  ): Promise<EnrollDoneDto> {
+    const client = clientOf(req);
     const { row, user } = await this.mfa.challenge(body.mfaToken, 'enroll');
+    await this.throttle(user, client);
     const codes = await this.mfa.confirmEnroll(row.pendingSecret, user, body.otp);
     if (!codes) {
-      await this.mfa.failAttempt(row.id);
+      await this.mfa.recordOtpFailure(user, client);
       throw new ProblemException('invalid_otp');
     }
     if (!(await this.mfa.consume(row.id))) throw new ProblemException('invalid_otp');
+    await this.mfa.recordOtpSuccess(user, client, 'mfa_enrolled');
+    await this.mfa.audit(user, 'security.2fa_enabled', client.ip);
     return {
       code: await this.auth.issueAuthCode(user, row.codeChallenge),
       expiresIn: CODE_TTL,
@@ -175,11 +190,24 @@ export class MfaController {
   @HttpCode(200)
   @ApiBearerAuth()
   @ApiOkResponse({ type: StepUpDto })
-  async stepUp(@Body() body: SecondFactorDto): Promise<StepUpDto> {
+  async stepUp(@Body() body: SecondFactorDto, @Req() req: Request): Promise<StepUpDto> {
+    const client = clientOf(req);
     const user = await this.currentUser();
     if (!user.totpEnabledAt) throw new ProblemException('two_factor_not_enabled');
-    if (!(body.otp || body.backupCode) || !(await this.mfa.checkSecondFactor(user, body)))
-      throw new ProblemException('invalid_otp');
+    if (!(body.otp || body.backupCode)) throw new ProblemException('invalid_otp');
+    // ทีละ request ต่อผู้ใช้ (advisory lock) + เพดานเดียวกับ login — กันเดารหัสด้วย access token ที่ขโมยมา (review T05 B3)
+    const ok = await this.prisma.platform.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(3, hashtext(${user.id}))`;
+        await this.throttle(user, client);
+        const pass = await this.mfa.checkSecondFactor(user, body);
+        if (!pass) await this.mfa.recordOtpFailure(user, client, 'step_up_failed');
+        return pass;
+      },
+      { maxWait: 2_000, timeout: 5_000 },
+    );
+    if (!ok) throw new ProblemException('invalid_otp');
+    await this.mfa.audit(user, 'security.step_up', client.ip);
     return {
       stepUpToken: await signStepUpToken(user.id, user.tenantId),
       expiresIn: STEP_UP_TTL_SECONDS,
@@ -205,9 +233,18 @@ export class MfaController {
   @RequireStepUp()
   @ApiBearerAuth()
   @ApiOkResponse({ type: BackupCodesDto })
-  async regenerate(): Promise<BackupCodesDto> {
+  async regenerate(@Req() req: Request): Promise<BackupCodesDto> {
     const user = await this.currentUser();
-    return { backupCodes: await this.mfa.replaceBackupCodes(user) };
+    const backupCodes = await this.mfa.replaceBackupCodes(user);
+    await this.mfa.audit(user, 'security.backup_codes_regenerated', clientOf(req).ip);
+    return { backupCodes };
+  }
+
+  /** ถูกล็อกจากความพยายามผิด (รหัสผ่าน + รหัส 2FA รวมกัน) → 429 เหมือน login */
+  private async throttle(user: Parameters<MfaService['lockedFor']>[0], client: { ip: string }) {
+    const locked = await this.mfa.lockedFor(user, client);
+    if (locked > 0)
+      throw new ProblemException('account_locked', undefined, undefined, { retryAfter: locked });
   }
 
   private async currentUser() {

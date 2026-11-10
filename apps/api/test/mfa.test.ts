@@ -249,4 +249,98 @@ describe('2FA', () => {
     ).rejects.toThrow(/permission denied/);
     await ps.onModuleDestroy();
   });
+  describe('กันเดารหัส 6 หลัก (review T05)', () => {
+    it('B1: ยิงรหัสผิดพร้อมกัน 30 ครั้งบน challenge เดียว → ตรวจจริงไม่เกิน 5 ครั้ง แล้ว challenge ตาย', async () => {
+      const u = await user('race1@mfa.test', 'owner');
+      const first = await loginFull(app, 'race1@mfa.test', PW, nextIp());
+      const { res } = await start('race1@mfa.test');
+      await Promise.all(
+        Array.from({ length: 30 }, (_, i) =>
+          request(srv())
+            .post('/v1/auth/2fa/verify')
+            .send({ mfaToken: res.body.mfaToken, otp: String(100000 + i) }),
+        ),
+      );
+      const row = await db.mfaChallenge.findFirst({
+        where: { userId: u.id },
+        orderBy: { createdAt: 'desc' },
+      });
+      expect(row!.attempts).toBeLessThanOrEqual(5);
+      const ok = await request(srv())
+        .post('/v1/auth/2fa/verify')
+        .send({ mfaToken: res.body.mfaToken, otp: hotp(first.secret!, currentStep() + 1) });
+      expect(ok.status).toBe(401);
+    });
+
+    it('B2: login ใหม่ซ้ำ ๆ แล้วเดารหัสผิด → ครบ 5 ครั้งบัญชีถูกล็อกทั้ง login และ 2FA', async () => {
+      await user('loop@mfa.test', 'owner');
+      await loginFull(app, 'loop@mfa.test', PW, nextIp());
+      for (let i = 0; i < 5; i++) {
+        const { res } = await start('loop@mfa.test');
+        expect(res.body.code).toBe('mfa_required');
+        await request(srv())
+          .post('/v1/auth/2fa/verify')
+          .send({ mfaToken: res.body.mfaToken, otp: '000000' });
+      }
+      const locked = await start('loop@mfa.test');
+      expect(locked.res.status).toBe(429);
+      expect(locked.res.body.code).toBe('account_locked');
+    });
+
+    it('B3: step-up ผิด 5 ครั้ง → ครั้งที่ 6 ถูกล็อกแม้รหัสถูก', async () => {
+      await user('su@mfa.test', 'owner');
+      const o = await loginFull(app, 'su@mfa.test', PW, nextIp());
+      const suIp = nextIp();
+      const stepUp = (otp: string) =>
+        api(app, o.access).post('/v1/auth/step-up').set('X-Forwarded-For', suIp).send({ otp });
+      const res = await Promise.all(
+        Array.from({ length: 8 }, (_, i) => stepUp(String(200000 + i))),
+      );
+      expect(res.filter((r) => r.status === 401).length).toBeLessThanOrEqual(5);
+      const good = await stepUp(hotp(o.secret!, currentStep() + 1));
+      expect(good.status).toBe(429);
+    });
+
+    it('S1: enroll challenge ใช้กับผู้ใช้ที่ตั้ง 2FA แล้วไม่ได้ (กันเขียนทับ secret)', async () => {
+      const u = await user('ow@mfa.test', 'owner');
+      const { res } = await start('ow@mfa.test');
+      expect(res.body.code).toBe('mfa_enrollment_required');
+      // ผู้ใช้จริงตั้งเสร็จก่อน
+      await loginFull(app, 'ow@mfa.test', PW, nextIp());
+      const before = (await db.appUser.findUniqueOrThrow({ where: { id: u.id } })).totpSecret;
+      const s2 = await request(srv())
+        .post('/v1/auth/2fa/enroll')
+        .send({ mfaToken: res.body.mfaToken });
+      expect(s2.status).toBe(401);
+      expect((await db.appUser.findUniqueOrThrow({ where: { id: u.id } })).totpSecret).toBe(before);
+    });
+
+    it('S2: admin มอบ owner ไม่ได้; เหตุผลว่างไม่ได้', async () => {
+      await user('adm@mfa.test', 'admin');
+      const a = await loginFull(app, 'adm@mfa.test', PW, nextIp());
+      const target = await user('t2@mfa.test', 'viewer');
+      const su = await api(app, a.access)
+        .post('/v1/auth/step-up')
+        .set('X-Forwarded-For', nextIp())
+        .send({ otp: hotp(a.secret!, currentStep() + 1) })
+        .expect(200);
+      const url = `/v1/users/${encodeId('user', target.id)}/roles`;
+      const grant = await api(app, a.access)
+        .put(url)
+        .set('X-Step-Up', su.body.stepUpToken)
+        .send({ roles: ['owner'], reason: 'ยึดบริษัท' });
+      expect(grant.status).toBe(403);
+      expect(grant.body).toMatchObject({ code: 'permission_denied', action: 'grant_owner' });
+      const blank = await api(app, a.access)
+        .put(url)
+        .set('X-Step-Up', su.body.stepUpToken)
+        .send({ roles: ['planner'], reason: '   ' });
+      expect(blank.status).toBe(422);
+      await api(app, a.access)
+        .put(url)
+        .set('X-Step-Up', su.body.stepUpToken)
+        .send({ roles: ['planner'], reason: 'ย้ายฝ่าย' })
+        .expect(200);
+    });
+  });
 });

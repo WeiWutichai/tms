@@ -143,6 +143,8 @@ const USERS: Array<{ id: string; tenantId: string; email: string; name: string; 
   ];
 
 async function main() {
+  // seed มีรหัสผ่าน/secret 2FA/อุปกรณ์ที่จำไว้ของผู้ใช้เดโม — ห้ามรันนอกเครื่อง dev/test เด็ดขาด (review T05 S3)
+  if (!isLocalEnv()) throw new Error('seed runs only with NODE_ENV=development or test');
   const db = new PrismaClient({ datasources: { db: { url: process.env.PLATFORM_DATABASE_URL } } });
   for (const t of [
     { id: DEMO_A, name: 'ตัวอย่างขนส่ง (DEMO)' },

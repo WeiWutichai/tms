@@ -1,6 +1,8 @@
 import { Body, Controller, Get, Param, Put, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiHeader, ApiOkResponse, ApiProperty, ApiTags } from '@nestjs/swagger';
-import { ArrayMaxSize, ArrayMinSize, IsIn, IsString, MaxLength } from 'class-validator';
+import { Transform } from 'class-transformer';
+import { ArrayMaxSize, ArrayMinSize, IsIn, IsNotEmpty, IsString, MaxLength } from 'class-validator';
+import { requestContext } from '../../common/request-context';
 import { ROLE_CODES } from '@tms/domain';
 import { AuditService } from '../../audit/audit.service';
 import { ProblemException } from '../../common/problem';
@@ -43,8 +45,10 @@ export class SetRolesDto {
   @IsIn([...ROLE_CODES], { each: true })
   roles!: string[];
 
-  @ApiProperty({ example: 'ย้ายไปฝ่ายวางแผน', description: 'เหตุผล (ลง audit)' })
+  @ApiProperty({ example: 'ย้ายไปฝ่ายวางแผน', description: 'เหตุผล (บังคับ — ลง audit)' })
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString()
+  @IsNotEmpty()
   @MaxLength(500)
   reason!: string;
 }
@@ -127,10 +131,30 @@ export class UsersController {
       await tx.role.findMany({ where: { id: { in: before.map((b) => b.roleId) } } })
     ).map((r) => r.code);
     const owner = await tx.role.findFirst({ where: { code: 'owner' } });
+    // มอบ/ถอด owner ได้เฉพาะ owner (admin ยกตัวเองเป็น owner แล้วถอด owner จริงไม่ได้ — review T05 S2; [OPEN] ยืนยันกับ PO)
+    const touchesOwner = beforeCodes.includes('owner') !== body.roles.includes('owner');
+    if (touchesOwner && owner) {
+      const actor = requestContext.require().actorId ?? '';
+      const actorIsOwner = await tx.userRole
+        .findFirst({
+          where: { userId: actor, roleId: owner.id },
+        })
+        .catch(() => null);
+      if (!actorIsOwner)
+        throw new ProblemException('permission_denied', undefined, undefined, {
+          module: 'users',
+          action: 'grant_owner',
+          required: ['owner'],
+        });
+    }
     if (owner && beforeCodes.includes('owner') && !body.roles.includes('owner')) {
       // ล็อกแถวผู้ใช้ที่เป็น owner ทั้งหมด กันสองคนถอดกันเองพร้อมกันจนไม่เหลือ owner
       await tx.$queryRaw`SELECT id FROM user_role WHERE role_id = ${owner.id}::uuid FOR UPDATE`;
-      const owners = await tx.userRole.count({ where: { roleId: owner.id } });
+      const ownerLinks = await tx.userRole.findMany({ where: { roleId: owner.id } });
+      // นับเฉพาะ owner ที่ยังใช้งานได้ (ผู้ใช้ที่ถูกระงับไม่นับ — review T05 M4)
+      const owners = await tx.appUser.count({
+        where: { id: { in: ownerLinks.map((l) => l.userId) }, status: 'ACTIVE' },
+      });
       if (owners <= 1)
         throw new ProblemException('validation_failed', undefined, [
           { field: 'roles', code: 'last_owner', message: 'tenant must keep at least one owner' },

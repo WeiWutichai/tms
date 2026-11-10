@@ -5,6 +5,8 @@ import { encodeId } from '../common/ids';
 import { ProblemException } from '../common/problem';
 import { PrismaService } from '../db/prisma.service';
 import { MFA_CHALLENGE_TTL_MS, MfaService } from './mfa.service';
+import { lockSeconds, recordAttempt, type ClientInfo } from './throttle';
+export { LOGIN_MAX_FAILURES, LOGIN_WINDOW_MS, type ClientInfo } from './throttle';
 import { dummyHash, verifyPassword } from './password';
 import {
   newOpaqueToken,
@@ -14,9 +16,6 @@ import {
   ACCESS_TTL_SECONDS,
 } from './tokens';
 
-/** A1: ผิด 5 ครั้งใน 15 นาที (ต่อบัญชี และต่อ IP) → ครั้งที่ 6 ถูกล็อก 15 นาที */
-export const LOGIN_WINDOW_MS = 15 * 60 * 1000;
-export const LOGIN_MAX_FAILURES = 5;
 const CODE_TTL_MS = 60 * 1000;
 export const REFRESH_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 /** idle 8 ชม. — ST1-T17 จะอ่านจาก tenant_setting */
@@ -24,11 +23,6 @@ export const REFRESH_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 export const REFRESH_REUSE_GRACE_MS = 30 * 1000;
 export const IDLE_TTL_MS = 8 * 60 * 60 * 1000;
 const LOGIN_TENANT_STATUSES = ['TRIAL', 'ACTIVE'] as const;
-
-export interface ClientInfo {
-  ip: string;
-  userAgent?: string;
-}
 
 export interface TokenPair {
   accessToken: string;
@@ -80,8 +74,8 @@ export class AuthService {
           await tx.$executeRaw`SELECT pg_advisory_xact_lock(1, hashtext(${email}))`;
           await tx.$executeRaw`SELECT pg_advisory_xact_lock(2, hashtext(${client.ip}))`;
           const t = tx as unknown as PrismaClient;
-          const locked = await this.lockSeconds(t, email, client.ip, Date.now());
-          await this.record(t, email, client, {
+          const locked = await lockSeconds(t, email, client.ip, Date.now());
+          await recordAttempt(t, email, client, {
             success: false,
             reason: locked > 0 ? 'locked' : 'attempt',
           });
@@ -127,11 +121,14 @@ export class AuthService {
 
     const chosen = input.tenantId ? matched.filter((u) => u.tenantId === input.tenantId) : matched;
     if (chosen.length === 0) {
-      await this.record(db, email, client, { success: false, reason: 'invalid_credentials' });
+      await recordAttempt(db, email, client, { success: false, reason: 'invalid_credentials' });
       throw new ProblemException('invalid_credentials');
     }
     if (chosen.length > 1) {
-      await this.record(db, email, client, { success: false, reason: 'tenant_selection_required' });
+      await recordAttempt(db, email, client, {
+        success: false,
+        reason: 'tenant_selection_required',
+      });
       throw new ProblemException('tenant_selection_required', undefined, undefined, {
         tenants: chosen
           .map((u) => tenants.find((t) => t.id === u.tenantId)!)
@@ -150,7 +147,7 @@ export class AuthService {
       need !== 'none' &&
       !(need === 'verify' && (await this.mfa.isTrusted(input.trustedDevice, user)))
     ) {
-      await this.record(db, email, client, {
+      await recordAttempt(db, email, client, {
         success: false,
         reason: 'password_ok',
         tenantId: user.tenantId,
@@ -165,7 +162,7 @@ export class AuthService {
       );
     }
     const code = await this.issueAuthCode(user, input.codeChallenge);
-    await this.record(db, email, client, {
+    await recordAttempt(db, email, client, {
       success: true,
       reason: 'ok',
       tenantId: user.tenantId,
@@ -362,53 +359,4 @@ export class AuthService {
   }
 
   /** วินาทีที่ยังถูกล็อก (0 = ไม่ล็อก) — นับเฉพาะครั้งที่รหัสผิด */
-  /**
-   * วินาทีที่ยังล็อก — นับ "ความพยายามที่ไม่สำเร็จ" ใน 15 นาที แยกต่ออีเมลและต่อ IP
-   * = แถว `attempt` − แถวที่รหัสถูก (`ok`, `tenant_selection_required`); ถึง 5 → ล็อกจนครั้งที่ 5 นับย้อนหลังพ้นหน้าต่าง
-   */
-  private async lockSeconds(
-    db: PrismaClient,
-    email: string,
-    ip: string,
-    now: number,
-  ): Promise<number> {
-    const since = new Date(now - LOGIN_WINDOW_MS);
-    const OK = ['ok', 'tenant_selection_required', 'password_ok'];
-    const until: number[] = [];
-    for (const key of [{ email }, { ip }]) {
-      const [attempts, oks] = await Promise.all([
-        db.loginAttempt.findMany({
-          where: { ...key, reason: 'attempt', createdAt: { gt: since } },
-          orderBy: { createdAt: 'desc' },
-          take: 200,
-          select: { createdAt: true },
-        }),
-        db.loginAttempt.count({ where: { ...key, reason: { in: OK }, createdAt: { gt: since } } }),
-      ]);
-      const failures = attempts.length - oks;
-      if (failures >= LOGIN_MAX_FAILURES)
-        until.push(attempts[LOGIN_MAX_FAILURES - 1]!.createdAt.getTime() + LOGIN_WINDOW_MS);
-    }
-    if (until.length === 0) return 0;
-    return Math.max(1, Math.ceil((Math.max(...until) - now) / 1000));
-  }
-
-  private async record(
-    db: PrismaClient,
-    email: string,
-    client: ClientInfo,
-    r: { success: boolean; reason: string; tenantId?: string; userId?: string },
-  ) {
-    await db.loginAttempt.create({
-      data: {
-        email,
-        ip: client.ip,
-        userAgent: client.userAgent?.slice(0, 500),
-        success: r.success,
-        reason: r.reason,
-        tenantId: r.tenantId,
-        userId: r.userId,
-      },
-    });
-  }
 }

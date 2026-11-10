@@ -1796,7 +1796,7 @@
           "reason": {
             "type": "string",
             "example": "ย้ายไปฝ่ายวางแผน",
-            "description": "เหตุผล (ลง audit)"
+            "description": "เหตุผล (บังคับ — ลง audit)"
           }
         },
         "required": [

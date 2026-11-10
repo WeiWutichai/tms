@@ -5,6 +5,7 @@ import { ProblemException } from '../common/problem';
 import { PrismaService } from '../db/prisma.service';
 import { newBackupCodes, newTotpSecret, normalizeBackupCode, otpauthUri, verifyTotp } from './totp';
 import { newOpaqueToken, sha256 } from './tokens';
+import { lockSeconds, recordAttempt, type ClientInfo } from './throttle';
 
 export const MFA_CHALLENGE_TTL_MS = 5 * 60 * 1000;
 export const MFA_MAX_ATTEMPTS = 5;
@@ -50,7 +51,11 @@ export class MfaService {
   async orgRequires2fa(tenantId: string): Promise<boolean> {
     const rows = await this.db.$queryRaw<{ v: unknown }[]>`
       SELECT value AS v FROM tenant_setting WHERE tenant_id = ${tenantId}::uuid AND key = 'security.require2faAll'`.catch(
-      () => [],
+      (e: unknown) => {
+        // ยังไม่มีตาราง (ก่อน ST1-T17) เท่านั้นที่ถือว่า false — error อื่นต้องไม่ทำให้ข้ามการบังคับ 2FA
+        if (String((e as { message?: string }).message).includes('tenant_setting')) return [];
+        throw e;
+      },
     );
     return rows[0]?.v === true;
   }
@@ -70,22 +75,78 @@ export class MfaService {
     return token;
   }
 
-  /** challenge ที่ยังใช้ได้ (ไม่หมดอายุ ไม่ใช้แล้ว ผิดไม่เกินเพดาน) */
-  async challenge(token: string, purpose: MfaPurpose) {
-    const row = await this.db.mfaChallenge.findUnique({ where: { tokenHash: sha256(token) } });
-    if (
-      !row ||
-      row.purpose !== purpose ||
-      row.usedAt ||
-      row.expiresAt <= new Date() ||
-      row.attempts >= MFA_MAX_ATTEMPTS
-    )
-      throw new ProblemException('invalid_otp');
+  /**
+   * challenge ที่ยังใช้ได้ — `reserve` = จองความพยายาม 1 ครั้งแบบ atomic ก่อนตรวจรหัส
+   * (กันยิงพร้อมกันหลายร้อยครั้งต่อ challenge เดียว — review T05 B1); เพดาน 5 ครั้งต่อ challenge
+   */
+  async challenge(token: string, purpose: MfaPurpose, reserve = true) {
+    const tokenHash = sha256(token);
+    const live = {
+      tokenHash,
+      purpose,
+      usedAt: null,
+      attempts: { lt: MFA_MAX_ATTEMPTS },
+      expiresAt: { gt: new Date() },
+    };
+    if (reserve) {
+      const r = await this.db.mfaChallenge.updateMany({
+        where: live,
+        data: { attempts: { increment: 1 } },
+      });
+      if (r.count !== 1) throw new ProblemException('invalid_otp');
+    }
+    const row = await this.db.mfaChallenge.findFirst({
+      where: reserve ? { tokenHash, purpose, usedAt: null, expiresAt: { gt: new Date() } } : live,
+    });
+    if (!row) throw new ProblemException('invalid_otp');
     const user = await this.db.appUser.findFirst({
       where: { id: row.userId, tenantId: row.tenantId, status: 'ACTIVE' },
     });
     if (!user) throw new ProblemException('invalid_otp');
+    // enroll ใช้ได้เฉพาะผู้ใช้ที่ยังไม่ตั้ง 2FA — กันเขียนทับ secret ของคนที่ตั้งแล้ว (review T05 S1)
+    if (purpose === 'enroll' && user.totpEnabledAt) throw new ProblemException('invalid_otp');
     return { row, user };
+  }
+
+  /** ล็อกจากความพยายามผิดของอีเมล/IP นี้ (รวมรหัสผ่านและรหัส 2FA) — 0 = ไม่ล็อก */
+  async lockedFor(user: AppUser, client: ClientInfo): Promise<number> {
+    void client;
+    return lockSeconds(this.db, user.email.toLowerCase(), null, Date.now());
+  }
+
+  /** รหัส 2FA ผิด = ความพยายามผิด 1 ครั้งของอีเมล/IP (ไม่มีแถวสำเร็จมาหัก) — review T05 B2/B3 */
+  async recordOtpFailure(user: AppUser, client: ClientInfo, reason = 'invalid_otp') {
+    for (const r of ['attempt', reason])
+      await recordAttempt(this.db, user.email.toLowerCase(), client, {
+        success: false,
+        reason: r,
+        tenantId: user.tenantId,
+        userId: user.id,
+      });
+  }
+
+  async recordOtpSuccess(user: AppUser, client: ClientInfo, reason = 'mfa_ok') {
+    await recordAttempt(this.db, user.email.toLowerCase(), client, {
+      success: true,
+      reason,
+      tenantId: user.tenantId,
+      userId: user.id,
+    });
+  }
+
+  /** audit ของเหตุการณ์ความปลอดภัย (spec/01 §13.6 Event) — เขียนตรงด้วย client platform เพราะอยู่นอก transaction ของ request */
+  async audit(user: AppUser, action: string, ip: string, after?: object) {
+    await this.db.auditLog.create({
+      data: {
+        tenantId: user.tenantId,
+        actorId: user.id,
+        action,
+        entityType: 'user',
+        entityId: user.id,
+        after: after ?? undefined,
+        ip,
+      },
+    });
   }
 
   /** ใช้ challenge ครั้งเดียว — คืน false ถ้ามีคนใช้ไปก่อน */
@@ -95,10 +156,6 @@ export class MfaService {
       data: { usedAt: new Date() },
     });
     return r.count === 1;
-  }
-
-  async failAttempt(id: string) {
-    await this.db.mfaChallenge.update({ where: { id }, data: { attempts: { increment: 1 } } });
   }
 
   /**
@@ -148,14 +205,15 @@ export class MfaService {
     const secret = this.cipher.decrypt(pendingSecret);
     const step = verifyTotp(secret, otp);
     if (step === null) return null;
-    await this.db.appUser.update({
-      where: { id: user.id },
+    const r = await this.db.appUser.updateMany({
+      where: { id: user.id, totpEnabledAt: null },
       data: {
         totpSecret: this.cipher.encrypt(secret),
         totpEnabledAt: new Date(),
         totpLastStep: BigInt(step),
       },
     });
+    if (r.count !== 1) return null;
     return this.replaceBackupCodes(user);
   }
 

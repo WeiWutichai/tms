@@ -1,5 +1,5 @@
 import QRCode from 'qrcode';
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import {
   confirmEnroll,
   finishEnroll,
@@ -132,20 +132,19 @@ export function MfaEnroll({
   const [otp, setOtp] = useState('');
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState<{ code: string; backupCodes: string[] } | null>(null);
+  const [done, setDone] = useState<{ backupCodes: string[]; result: LoginResult } | null>(null);
   const [copied, setCopied] = useState(false);
+  const started = useRef<MfaStep | null>(null);
 
   useEffect(() => {
-    let live = true;
+    // เรียกครั้งเดียวต่อ challenge (StrictMode เรียก effect 2 รอบ → secret ไม่ตรงกับ QR — review T05 M5)
+    if (started.current === step) return;
+    started.current = step;
     void startEnroll(step).then(async (r) => {
-      if (!live) return;
       if ('error' in r) return setErr(t(`problem.${r.error}` as MessageKey));
       const qr = await QRCode.toDataURL(r.otpauthUri, { margin: 1, width: 176 });
-      if (live) setSetup({ secret: r.secret, qr });
+      setSetup({ secret: r.secret, qr });
     });
-    return () => {
-      live = false;
-    };
   }, [step]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function submit(e: FormEvent) {
@@ -153,9 +152,18 @@ export function MfaEnroll({
     if (otp.length !== 6) return setErr(t('mfa.required'));
     setBusy(true);
     const r = await confirmEnroll(step, otp).catch(() => ({ error: 'internal_error' }));
+    if ('error' in r) {
+      setBusy(false);
+      return setErr(t(`problem.${r.error}` as MessageKey));
+    }
+    // แลก code ทันที (อายุ 60 วินาที) — ผู้ใช้จดรหัสสำรองนานเท่าไรก็ได้โดย session ไม่หลุด (review T05 S4)
+    const result = await finishEnroll(step, r.code).catch((): LoginResult => ({
+      ok: false,
+      code: 'internal_error',
+    }));
     setBusy(false);
-    if ('error' in r) return setErr(t(`problem.${r.error}` as MessageKey));
-    setDone(r);
+    if (!result.ok) return setErr(t(`problem.${result.code}` as MessageKey));
+    setDone({ backupCodes: r.backupCodes, result });
   }
 
   if (done)
@@ -201,10 +209,7 @@ export function MfaEnroll({
           type="button"
           className="pub-btn"
           disabled={busy}
-          onClick={async () => {
-            setBusy(true);
-            onDone(await finishEnroll(step, done.code));
-          }}
+          onClick={() => onDone(done.result)}
         >
           {t('mfa.continue')}
         </button>
