@@ -15,6 +15,7 @@ import { ensureSystemRoles } from '../src/auth/system-roles';
 import { sha256 } from '../src/auth/tokens';
 import { FieldCipher } from '../src/common/crypto';
 import { bootstrapTenant } from '../src/modules/tenants/bootstrap';
+import { ensurePlanCatalog } from '../src/modules/entitlements/plan-catalog';
 
 export const DEMO_A = '00000000-0000-4000-8000-00000000000a';
 export const DEMO_B = '00000000-0000-4000-8000-00000000000b';
@@ -146,14 +147,16 @@ async function main() {
   // seed มีรหัสผ่าน/secret 2FA/อุปกรณ์ที่จำไว้ของผู้ใช้เดโม — ห้ามรันนอกเครื่อง dev/test เด็ดขาด (review T05 S3)
   if (!isLocalEnv()) throw new Error('seed runs only with NODE_ENV=development or test');
   const db = new PrismaClient({ datasources: { db: { url: process.env.PLATFORM_DATABASE_URL } } });
+  await ensurePlanCatalog(db);
   for (const t of [
     { id: DEMO_A, name: 'ตัวอย่างขนส่ง (DEMO)' },
-    { id: DEMO_B, name: 'ตัวอย่างบี (DEMO)' },
+    { id: DEMO_B, name: 'ตัวอย่างบี (DEMO)', planCode: 'start' },
   ]) {
+    // demo-b อยู่แพ็กเกจ "เริ่มต้น" ไว้เดโมเมนู 🔒 / หน้าไม่รวมในแพ็กเกจ (ST1-T18)
     await db.tenant.upsert({
       where: { id: t.id },
       create: { ...t, status: 'ACTIVE' },
-      update: { name: t.name },
+      update: { name: t.name, ...('planCode' in t ? { planCode: t.planCode } : {}) },
     });
   }
   for (const c of COMPANIES) {

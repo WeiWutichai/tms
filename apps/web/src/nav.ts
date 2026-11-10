@@ -16,6 +16,8 @@ export interface NavItem {
   stage: string;
   /** scope ที่ต้องมีอย่างน้อย 1 ตัว (ตาราง A3) — ไม่มี = ทุกคนเห็น */
   perm?: string[];
+  /** ฟีเจอร์ของแพ็กเกจที่ต้องเปิด (ST1-T18 — /v1/me features) */
+  feature?: string;
 }
 export interface NavGroup {
   key: string;
@@ -28,6 +30,7 @@ export interface NavGroup {
   sepBefore?: boolean;
   devOnly?: boolean;
   perm?: string[];
+  feature?: string;
 }
 
 export const NAV: NavGroup[] = [
@@ -102,6 +105,7 @@ export const NAV: NavGroup[] = [
       },
       {
         key: 'sub',
+        feature: 'sub',
         perm: ['trips:read'],
         page: 'sub',
         label: 'nav.ops.sub',
@@ -134,6 +138,7 @@ export const NAV: NavGroup[] = [
       },
       {
         key: 'settle',
+        feature: 'settle',
         perm: ['settlements:read'],
         page: 'settle',
         label: 'nav.acc.settle',
@@ -150,6 +155,7 @@ export const NAV: NavGroup[] = [
     kids: [
       {
         key: 'fveh',
+        feature: 'fleet',
         perm: ['master:read'],
         page: 'fveh',
         label: 'nav.fleet.fveh',
@@ -158,6 +164,7 @@ export const NAV: NavGroup[] = [
       },
       {
         key: 'fdoc',
+        feature: 'fleet',
         perm: ['master:read'],
         page: 'fdoc',
         label: 'nav.fleet.fdoc',
@@ -176,6 +183,7 @@ export const NAV: NavGroup[] = [
   },
   {
     key: 'report',
+    feature: 'report',
     perm: ['reports.ops:read', 'reports.finance:read'],
     page: 'report',
     label: 'nav.report',
@@ -282,3 +290,16 @@ export function permOf(pathname: string): string[] | undefined {
   }
   return undefined;
 }
+
+/** ฟีเจอร์ของแพ็กเกจที่ path นี้ต้องใช้ (ST1-T18) */
+export function featureOf(pathname: string): string | undefined {
+  for (const g of NAV) {
+    if (g.path && g.path === pathname) return g.feature;
+    for (const k of g.kids ?? []) if (k.path.split('?')[0] === pathname) return k.feature;
+  }
+  return undefined;
+}
+
+/** ฟีเจอร์ที่ยังไม่อยู่ในแพ็กเกจ → แสดงเมนูพร้อมไอคอน 🔒 (ไม่ซ่อน — spec/01 PLT-076, ต้นแบบ lockOf) */
+export const isLocked = (feature: string | undefined, features?: readonly string[]) =>
+  !!feature && !!features && !features.includes(feature);

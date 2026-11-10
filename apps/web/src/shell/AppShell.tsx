@@ -5,7 +5,7 @@ import { api, queryClient, unwrap } from '../api';
 import { logout } from '../auth/session';
 import { useI18n } from '../i18n';
 import type { MessageKey } from '../i18n/th';
-import { pageOf } from '../nav';
+import { featureOf, isLocked, pageOf } from '../nav';
 import { Header } from './Header';
 import { Sidebar } from './Sidebar';
 import './shell.css';
@@ -22,8 +22,19 @@ export function AppShell({ children }: { children: ReactNode }) {
   const me = useMe();
   const navigate = useNavigate();
   const page = pageOf(loc.pathname);
-  const groupLabel = page ? t(`page.${page}.group` as MessageKey) : t('shell.main');
-  const title = page ? t(`page.${page}.title` as MessageKey) : '';
+  // หน้าโมดูลนอกแพ็กเกจ: หัวหน้าเป็น "แพ็กเกจ > ชื่อโมดูล" ตาม META locked ของต้นแบบ (ST1-T18)
+  const feature = featureOf(loc.pathname);
+  const locked = isLocked(feature, me.data?.features);
+  const groupLabel = locked
+    ? t('lock.group')
+    : page
+      ? t(`page.${page}.group` as MessageKey)
+      : t('shell.main');
+  const title = locked
+    ? t(`lock.${feature}.t` as MessageKey)
+    : page
+      ? t(`page.${page}.title` as MessageKey)
+      : '';
   return (
     <div
       style={{
@@ -41,6 +52,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         actor={me.data?.user?.name ?? me.data?.actorId ?? '…'}
         role={me.data?.user?.roles[0]}
         scopes={me.data?.scopes ?? []}
+        features={me.data?.features}
         onLogout={() => {
           void logout().then(() => {
             queryClient.clear();

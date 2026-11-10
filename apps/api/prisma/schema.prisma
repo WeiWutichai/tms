@@ -31,6 +31,7 @@ enum JobStatus {
   RUNNING
   SUCCEEDED
   FAILED
+  SKIPPED /// ST1-T18: tenant ปิดฟีเจอร์ของงานนี้แล้ว — ไม่ได้รัน
 
   @@map("job_status")
 }
@@ -41,6 +42,8 @@ model Tenant {
   name      String
   status    TenantStatus @default(TRIAL)
   yearStyle String       @default("BE") @map("year_style") /// BE = พ.ศ., CE = ค.ศ. (D-30)
+  planCode  String       @default("std") @map("plan_code") /// ST1-T18 แพ็กเกจ (FK → plan.code, migration 0017) — ตั้งจาก Platform Console (T24)
+  plan      Plan         @relation(fields: [planCode], references: [code], onUpdate: Cascade, onDelete: Restrict)
   createdAt DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -163,22 +166,22 @@ enum UserStatus {
 
 /// ผู้ใช้ภายใน tenant (A2: ผู้ใช้หลายบริษัท = P1)
 model AppUser {
-  id           String     @id @default(uuid()) @db.Uuid
-  tenantId     String     @map("tenant_id") @db.Uuid
-  email        String
-  name         String
-  phone        String?
-  passwordHash String?    @map("password_hash") /// argon2id (T-04)
-  totpSecret   String?    @map("totp_secret") /// เข้ารหัสด้วย FieldCipher
-  totpEnabledAt DateTime? @map("totp_enabled_at") @db.Timestamptz(6) /// ตั้ง 2FA สำเร็จ (ST1-T05)
-  totpLastStep  BigInt?   @map("totp_last_step") /// time-step ล่าสุดที่ใช้แล้ว — กันใช้รหัสเดิมซ้ำ
-  tokenVersion Int        @default(0) @map("token_version")
-  status       UserStatus @default(INVITED)
-  lastLoginAt  DateTime?  @map("last_login_at") @db.Timestamptz(6)
-  deletedAt    DateTime?  @map("deleted_at") @db.Timestamptz(6)
-  version      Int        @default(1)
-  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt    DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id            String     @id @default(uuid()) @db.Uuid
+  tenantId      String     @map("tenant_id") @db.Uuid
+  email         String
+  name          String
+  phone         String?
+  passwordHash  String?    @map("password_hash") /// argon2id (T-04)
+  totpSecret    String?    @map("totp_secret") /// เข้ารหัสด้วย FieldCipher
+  totpEnabledAt DateTime?  @map("totp_enabled_at") @db.Timestamptz(6) /// ตั้ง 2FA สำเร็จ (ST1-T05)
+  totpLastStep  BigInt?    @map("totp_last_step") /// time-step ล่าสุดที่ใช้แล้ว — กันใช้รหัสเดิมซ้ำ
+  tokenVersion  Int        @default(0) @map("token_version")
+  status        UserStatus @default(INVITED)
+  lastLoginAt   DateTime?  @map("last_login_at") @db.Timestamptz(6)
+  deletedAt     DateTime?  @map("deleted_at") @db.Timestamptz(6)
+  version       Int        @default(1)
+  createdAt     DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@unique([tenantId, email])
   @@map("app_user")
@@ -1198,4 +1201,44 @@ model PasswordHistory {
 
   @@index([tenantId, userId, createdAt])
   @@map("password_history")
+}
+
+/// แพ็กเกจ (ST1-T18; spec/01 §6) — ข้อมูลตัวอย่างจาก design/prototype/plans.js (ราคา/โควตายังไม่สรุป)
+model Plan {
+  code         String            @id
+  nameTh       String            @map("name_th")
+  nameEn       String?           @map("name_en")
+  createdAt    DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  tenants      Tenant[]
+  entitlements PlanEntitlement[]
+
+  @@map("plan")
+}
+
+/// เซลล์ใน feature matrix: แพ็กเกจ × ฟีเจอร์ → mode included / addon / not_available + limit (null = ไม่จำกัด)
+model PlanEntitlement {
+  planCode   String @map("plan_code")
+  featureKey String @map("feature_key")
+  mode       String /// included | addon | not_available (CHECK — migration 0017)
+  limit      Int?
+  plan       Plan   @relation(fields: [planCode], references: [code], onUpdate: Cascade, onDelete: Cascade)
+
+  @@id([planCode, featureKey])
+  @@map("plan_entitlement")
+}
+
+/// override ต่อ tenant (spec/01 PLT-062): grant / revoke / set_limit + เหตุผล + วันหมดอายุ — แก้จาก Platform Console เท่านั้น
+model TenantEntitlementOverride {
+  id         String    @id @default(uuid()) @db.Uuid
+  tenantId   String    @map("tenant_id") @db.Uuid
+  featureKey String    @map("feature_key")
+  mode       String
+  limit      Int?
+  reason     String
+  approvedBy String?   @map("approved_by")
+  expiresAt  DateTime? @map("expires_at") @db.Timestamptz(6)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, featureKey])
+  @@map("tenant_entitlement_override")
 }

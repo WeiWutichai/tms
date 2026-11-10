@@ -2,7 +2,8 @@ import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { scopeAllows } from '@tms/domain';
 import type { Request } from 'express';
-import { IS_PUBLIC, REQUIRE_STEP_UP, REQUIRED_SCOPE } from '../common/decorators';
+import { IS_PUBLIC, REQUIRE_STEP_UP, REQUIRED_FEATURE, REQUIRED_SCOPE } from '../common/decorators';
+import { EntitlementService } from '../modules/entitlements/entitlement.service';
 import { ProblemException } from '../common/problem';
 import { requestContext } from '../common/request-context';
 import { AuthService } from './auth.service';
@@ -27,6 +28,7 @@ export class AuthGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
     private readonly auth: AuthService,
+    private readonly entitlements: EntitlementService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -45,6 +47,12 @@ export class AuthGuard implements CanActivate {
       const tv = await this.auth.currentTokenVersion(claims.tid, claims.sub);
       if (tv === null || tv !== claims.tv) throw new ProblemException('unauthorized');
     }
+    // spec/01 PLT-001 ลำดับ: สถานะ tenant (ตรวจกับ tokenVersion แล้ว) → entitlement → สิทธิ์ role
+    const feature = this.reflector.getAllAndOverride<string>(REQUIRED_FEATURE, targets);
+    if (feature && !(await this.entitlements.enabled(claims.tid, feature)))
+      throw new ProblemException('feature_not_in_plan', undefined, undefined, {
+        featureKey: feature,
+      }); // spec/01 PLT-078
     const scopes = claims.scope ? claims.scope.split(' ') : [];
     const required = this.reflector.getAllAndOverride<string[]>(REQUIRED_SCOPE, targets);
     // spec/01 PLT-132: 403 permission_denied พร้อม module/action ของสิทธิ์ที่ขาด
