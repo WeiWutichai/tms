@@ -1,6 +1,7 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { AuditService } from './audit/audit.service';
+import { PriceFieldInterceptor } from './common/price-fields';
 import { AuthController } from './auth/auth.controller';
 import { MfaController } from './auth/mfa.controller';
 import { MfaService } from './auth/mfa.service';
@@ -60,7 +61,10 @@ import { StateService } from './state/state.service';
     SettingsService,
     { provide: APP_GUARD, useClass: AuthGuard },
     { provide: APP_FILTER, useClass: ProblemFilter },
-    // ลำดับสำคัญ: idempotency (นอก) → transaction (ใน)
+    // ลำดับสำคัญ: ราคา (นอกสุด) → idempotency → transaction (ใน)
+    // ST1-T13: ตัด field ราคาตามสิทธิ์ของ "ผู้เรียกปัจจุบัน" — อยู่นอกสุด เพื่อให้ response ที่ replay จาก
+    // Idempotency-Key (เก็บแบบเต็ม) ถูกตัดตามคนที่เรียกซ้ำ ไม่ใช่ตามคนแรก
+    { provide: APP_INTERCEPTOR, useClass: PriceFieldInterceptor },
     { provide: APP_INTERCEPTOR, useClass: IdempotencyInterceptor },
     { provide: APP_INTERCEPTOR, useClass: TransactionInterceptor },
   ],

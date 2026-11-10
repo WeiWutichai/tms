@@ -24,8 +24,9 @@ export function buildOpenApi(app: NestExpressApplication): OpenAPIObject {
 }
 
 /** สร้างแอป (ใช้ร่วมกันระหว่าง main.ts และ test) */
-export async function createApp(): Promise<NestExpressApplication> {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+/** @param module สำหรับ test ที่ต้องเพิ่ม controller ชั่วคราว (ค่าเริ่ม = AppModule) */
+export async function createApp(module: unknown = AppModule): Promise<NestExpressApplication> {
+  const app = await NestFactory.create<NestExpressApplication>(module as typeof AppModule, {
     logger: process.env.NODE_ENV === 'test' ? ['error', 'warn'] : undefined,
   });
   app.disable('x-powered-by');
