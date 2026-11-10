@@ -1,5 +1,5 @@
 import { test as base, expect } from '@playwright/test';
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, createHmac, randomBytes } from 'node:crypto';
 
 /** ผู้ใช้เดโมจาก apps/api/prisma/seed.ts (ข้อมูลสมมติ ใช้เฉพาะ dev/e2e) */
 export const DEMO_EMAIL = 'owner@demo-a.test';
@@ -50,3 +50,25 @@ export const test = base.extend<{ loginEmail: string; loggedIn: void }>({
   ],
 });
 export { expect };
+
+/** RFC 6238 ในฝั่ง test (ไม่พึ่งโค้ดของแอป) */
+export function totp(secret: string, offset = 0): string {
+  const B32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  let bits = 0;
+  let val = 0;
+  const key: number[] = [];
+  for (const c of secret) {
+    val = (val << 5) | B32.indexOf(c);
+    bits += 5;
+    if (bits >= 8) {
+      key.push((val >>> (bits - 8)) & 255);
+      bits -= 8;
+    }
+  }
+  const msg = Buffer.alloc(8);
+  msg.writeBigUInt64BE(BigInt(Math.floor(Date.now() / 30000) + offset));
+  const h = createHmac('sha1', Buffer.from(key)).update(msg).digest();
+  const o = h[h.length - 1]! & 0xf;
+  const n = ((h[o]! & 0x7f) << 24) | (h[o + 1]! << 16) | (h[o + 2]! << 8) | h[o + 3]!;
+  return String(n % 1_000_000).padStart(6, '0');
+}

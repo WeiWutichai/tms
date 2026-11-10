@@ -7,6 +7,7 @@ import { Toggle } from './Settings';
 import {
   useBranches,
   useCompaniesAll,
+  stepUp,
   useSaveTenantSettings,
   useTenantSettings,
 } from './useSettings';
@@ -26,6 +27,10 @@ function useDraft(keys: string[]) {
     for (const s of q.data?.data ?? []) if (keys.includes(s.key)) out[s.key] = s.value;
     return out;
   }, [q.data]); // eslint-disable-line react-hooks/exhaustive-deps
+  const versions = useMemo(
+    () => Object.fromEntries((q.data?.data ?? []).map((s) => [s.key, s.version])),
+    [q.data],
+  );
   const [draft, setDraft] = useState<Values>({});
   useEffect(() => setDraft(server), [server]);
   const dirty = Object.fromEntries(
@@ -35,6 +40,7 @@ function useDraft(keys: string[]) {
     q,
     save,
     draft,
+    versions,
     set: (k: string, v: unknown) => setDraft((d) => ({ ...d, [k]: v })),
     dirty,
   };
@@ -254,6 +260,8 @@ function useSaveFlow(section: MessageKey, d: ReturnType<typeof useDraft>) {
   const { t } = useI18n();
   const [saved, setSaved] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** server ขอ step-up (ลดความปลอดภัย) → แสดงช่องกรอกรหัส 6 หลักในการ์ด */
+  const [needStepUp, setNeedStepUp] = useState(false);
   useEffect(() => {
     if (!saved && !error) return;
     const id = setTimeout(() => {
@@ -262,20 +270,98 @@ function useSaveFlow(section: MessageKey, d: ReturnType<typeof useDraft>) {
     }, 3600);
     return () => clearTimeout(id);
   }, [saved, error]);
+  const fail = (e: unknown) => {
+    const code = e instanceof ApiError ? e.problem.code : 'internal_error';
+    if (code === 'step_up_required') return setNeedStepUp(true);
+    if (code === 'precondition_failed') void d.q.refetch();
+    setError(t(`problem.${code}` as MessageKey));
+  };
+  const send = (stepUpToken?: string) =>
+    d.save.mutate(
+      {
+        values: d.dirty,
+        versions: Object.fromEntries(Object.keys(d.dirty).map((k) => [k, d.versions[k] ?? 0])),
+        stepUp: stepUpToken,
+      },
+      {
+        onSuccess: () => {
+          setNeedStepUp(false);
+          setSaved(t('set.saved', { section: t(section) }));
+        },
+        onError: fail,
+      },
+    );
   // ต้นแบบ: ปุ่มบันทึกกดได้เสมอ → ไม่มีอะไรเปลี่ยนก็แสดง toast เหมือนบันทึก (ไม่เรียก API)
   const onSave = () =>
-    Object.keys(d.dirty).length === 0
-      ? setSaved(t('set.saved', { section: t(section) }))
-      : d.save.mutate(d.dirty, {
-          onSuccess: () => setSaved(t('set.saved', { section: t(section) })),
-          onError: (e) =>
-            setError(
-              e instanceof ApiError
-                ? t(`problem.${e.problem.code}` as MessageKey)
-                : t('problem.internal_error'),
-            ),
-        });
-  return { saved, error, onSave };
+    Object.keys(d.dirty).length === 0 ? setSaved(t('set.saved', { section: t(section) })) : send();
+  const confirmStepUp = async (otp: string) => {
+    try {
+      send(await stepUp(otp));
+    } catch (e) {
+      fail(e);
+    }
+  };
+  return {
+    saved,
+    error,
+    onSave,
+    needStepUp,
+    cancelStepUp: () => setNeedStepUp(false),
+    confirmStepUp,
+  };
+}
+
+/** ยืนยัน 2FA อีกครั้งก่อนบันทึกค่าที่ลดความปลอดภัย — ต้นแบบไม่มี ([OPEN] spec/12) ใช้ช่อง/ปุ่มชุดเดียวกับหน้าตั้งค่า */
+function StepUpBox({
+  onConfirm,
+  onCancel,
+}: {
+  onConfirm: (otp: string) => void;
+  onCancel: () => void;
+}) {
+  const { t } = useI18n();
+  const [otp, setOtp] = useState('');
+  return (
+    <div
+      role="group"
+      aria-label={t('stepUp.title')}
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 10,
+        padding: '12px 14px',
+        background: '#F7F8F5',
+        border: '1px solid #E4E6E0',
+        borderRadius: 10,
+        maxWidth: 420,
+      }}
+    >
+      <span style={{ fontWeight: 600 }}>{t('stepUp.title')}</span>
+      <span style={{ color: '#3B424C' }}>{t('stepUp.desc')}</span>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <input
+          aria-label={t('mfa.codeLabel')}
+          inputMode="numeric"
+          autoComplete="one-time-code"
+          maxLength={6}
+          value={otp}
+          onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))}
+          style={{ ...inputStyle, width: 140, letterSpacing: '0.2em' }}
+        />
+        <button
+          type="button"
+          className="set-btn2"
+          disabled={otp.length !== 6}
+          onClick={() => onConfirm(otp)}
+        >
+          {t('mfa.submit')}
+        </button>
+        <button type="button" className="set-btn2" onClick={onCancel}>
+          {t('common.cancel')}
+        </button>
+      </div>
+    </div>
+  );
 }
 
 export function OrgSection({ canWrite }: { canWrite: boolean }) {
@@ -511,6 +597,9 @@ export function SecuritySection({ canWrite }: { canWrite: boolean }) {
           <option value="480">{t('sec.t480')}</option>
         </select>
       </label>
+      {flow.needStepUp && (
+        <StepUpBox onConfirm={(otp) => void flow.confirmStepUp(otp)} onCancel={flow.cancelStepUp} />
+      )}
       {canWrite && (
         <SaveBar
           dirty={Object.keys(d.dirty).length > 0}

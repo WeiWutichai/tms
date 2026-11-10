@@ -21,15 +21,17 @@ export async function readSettings(
   tenantId: string,
   keys: readonly SettingKey[] = SETTING_KEYS,
 ): Promise<Record<string, unknown>> {
+  const needTenant = keys.some((k) => 'store' in SETTINGS[k]);
   const [rows, tenant] = await Promise.all([
     db.tenantSetting.findMany({ where: { tenantId, key: { in: [...keys] } } }),
-    db.tenant.findUnique({ where: { id: tenantId } }),
+    needTenant ? db.tenant.findUnique({ where: { id: tenantId } }) : null,
   ]);
   const out: Record<string, unknown> = {};
   for (const k of keys) {
     const def = SETTINGS[k];
+    const row = rows.find((r) => r.key === k);
     if ('store' in def && def.store && tenant) out[k] = tenant[def.store.column];
-    else out[k] = rows.find((r) => r.key === k)?.value ?? def.default;
+    else out[k] = row ? row.value : def.default;
   }
   return out;
 }
@@ -56,7 +58,7 @@ export class SettingsService {
       const def = SETTINGS[key];
       const row = rows.find((r) => r.key === key);
       const stored = 'store' in def && def.store && tenant ? tenant[def.store.column] : undefined;
-      const value = stored !== undefined ? stored : (row?.value ?? def.default);
+      const value = stored !== undefined ? stored : row ? row.value : def.default;
       return {
         key,
         value,
@@ -71,7 +73,15 @@ export class SettingsService {
   }
 
   /** แก้หลาย key ใน transaction เดียว — key ไม่รู้จัก/ค่าผิด type → 422 ทั้งก้อน; ลง audit ต่อ key ที่เปลี่ยน */
-  async update(values: Record<string, unknown>): Promise<SettingValue[]> {
+  /**
+   * @param versions version ที่ client เห็นตอน GET ต่อ key (optimistic lock — ไม่ตรง → 412; key ที่เก็บในตาราง tenant ไม่มี version)
+   * @param steppedUp ผ่าน step-up 2FA แล้วหรือยัง — การลดความปลอดภัยต้อง step-up (review T17)
+   */
+  async update(
+    values: Record<string, unknown>,
+    versions: Record<string, number> = {},
+    steppedUp = false,
+  ): Promise<SettingValue[]> {
     const tx = this.db.tx;
     const tenantId = this.tenantId();
     const errors = Object.entries(values).flatMap(([key, v]) => {
@@ -83,7 +93,19 @@ export class SettingsService {
       return msg ? [{ field: `values.${key}`, code: 'invalid_setting', message: msg }] : [];
     });
     if (errors.length) throw new ProblemException('validation_failed', undefined, errors);
-    const before = await readSettings(tx, tenantId, Object.keys(values) as SettingKey[]);
+    for (const [k, v] of Object.entries(values)) if (typeof v === 'string') values[k] = v.trim();
+    const keys = Object.keys(values) as SettingKey[];
+    // ล็อกแถวของ key ที่จะแก้ก่อนตรวจ version (กันสองคนบันทึกพร้อมกัน)
+    await tx.$queryRaw`SELECT key FROM tenant_setting WHERE key = ANY(${keys}::text[]) FOR UPDATE`;
+    const rows = await tx.tenantSetting.findMany({ where: { key: { in: keys } } });
+    for (const [k, expected] of Object.entries(versions)) {
+      if (!(k in values) || 'store' in (SETTINGS[k as SettingKey] ?? {})) continue;
+      if ((rows.find((r) => r.key === k)?.version ?? 0) !== expected)
+        throw new ProblemException('precondition_failed');
+    }
+    const before = await readSettings(tx, tenantId, keys);
+    if (!steppedUp && weakensSecurity(before, values))
+      throw new ProblemException('step_up_required');
     const actor = requestContext.require().actorId ?? null;
     for (const [k, v] of Object.entries(values)) {
       const key = k as SettingKey;
@@ -117,4 +139,30 @@ export class SettingsService {
     }
     return this.list();
   }
+}
+
+/**
+ * การแก้ที่ลดความปลอดภัย (ปิดบังคับ 2FA ทั้งองค์กร, ปิดออกจากระบบอัตโนมัติ, ยืด idle timeout) ต้อง step-up 2FA
+ * — สอดคล้องกับ A3 "เปลี่ยน role ต้อง step-up" (review T17; [OPEN] ยืนยันกับ PO)
+ */
+export function weakensSecurity(before: Record<string, unknown>, after: Record<string, unknown>) {
+  const has = (k: string) => Object.prototype.hasOwnProperty.call(after, k);
+  if (
+    has('security.require2faAll') &&
+    before['security.require2faAll'] === true &&
+    after['security.require2faAll'] === false
+  )
+    return true;
+  if (
+    has('security.autoLogout') &&
+    before['security.autoLogout'] !== false &&
+    after['security.autoLogout'] === false
+  )
+    return true;
+  if (
+    has('security.idleTimeoutMinutes') &&
+    Number(after['security.idleTimeoutMinutes']) > Number(before['security.idleTimeoutMinutes'])
+  )
+    return true;
+  return false;
 }

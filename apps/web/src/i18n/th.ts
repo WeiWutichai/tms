@@ -295,6 +295,9 @@ export const th = {
   'set.menu.reason': 'เหตุผล',
   'set.menu.sec': 'ความปลอดภัย',
   'set.menu.docalert': 'แจ้งเตือนเอกสารรถ',
+  'stepUp.title': 'ยืนยันตัวตน 2 ชั้นอีกครั้ง',
+  'stepUp.desc':
+    'การเปลี่ยนนี้ลดความปลอดภัยของบัญชี กรอกรหัส 6 หลักจากแอป Authenticator เพื่อยืนยัน',
   'set.saved': 'บันทึกการตั้งค่า{section}แล้ว',
   'org.logo': 'โลโก้ (ใช้บนเอกสารและหน้าติดตามของผู้รับ)',
   'org.logoChange': 'เปลี่ยนโลโก้',

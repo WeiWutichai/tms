@@ -1205,7 +1205,25 @@
       },
       "patch": {
         "operationId": "Settings_update",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "x-step-up",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Step-Up",
+            "in": "header",
+            "description": "ต้องมีเมื่อแก้ที่ลดความปลอดภัย (ปิด 2FA ทั้งองค์กร / ปิดออกจากระบบอัตโนมัติ / ยืด idle timeout) — ไม่มี → 403 step_up_required",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -2406,6 +2424,16 @@
               "security.idleTimeoutMinutes": 60
             },
             "description": "key → ค่าใหม่ (เฉพาะ key ที่จะแก้)"
+          },
+          "versions": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "example": {
+              "security.idleTimeoutMinutes": 2
+            },
+            "description": "version ของแต่ละ key จาก GET (optimistic lock) — ไม่ตรง → 412"
           }
         },
         "required": [
