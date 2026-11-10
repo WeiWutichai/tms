@@ -70,3 +70,24 @@ export function useSaveSequence() {
     onSettled: () => qc.invalidateQueries({ queryKey: ['sequences'] }),
   });
 }
+
+export type TenantSetting = Schemas['SettingDto'];
+
+export function useTenantSettings() {
+  return useQuery({
+    queryKey: ['tenant-settings'],
+    queryFn: () => unwrap(api.GET('/v1/settings')),
+  });
+}
+
+export function useSaveTenantSettings() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (values: Record<string, unknown>) =>
+      unwrap(api.PATCH('/v1/settings', { body: { values } })),
+    onSuccess: (data) => {
+      qc.setQueryData(['tenant-settings'], data);
+      void qc.invalidateQueries({ queryKey: ['me'] });
+    },
+  });
+}

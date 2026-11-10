@@ -7,6 +7,7 @@ import { useMe } from '../../shell/AppShell';
 import { PageHeader } from '../../shell/Header';
 import { EntitiesSection } from './Entities';
 import { NumbersSection } from './Numbers';
+import { OrgSection, SecuritySection, TaxSection } from './OrgSections';
 import { UsersSection } from './Users';
 import './settings.css';
 
@@ -16,15 +17,15 @@ import './settings.css';
  * `stage` = งานที่ทำหัวข้อนั้น (หัวข้อที่ยังไม่ทำแสดง "ยังไม่เปิดใช้")
  */
 const SECTIONS: Array<{ k: string; icon: string; perm: string[]; stage?: string }> = [
-  { k: 'org', icon: 'building-2', perm: ['settings:read'], stage: 'ST1-T17' },
+  { k: 'org', icon: 'building-2', perm: ['settings:read'] },
   { k: 'ent', icon: 'landmark', perm: ['settings:read'] },
   { k: 'num', icon: 'hash', perm: ['settings:read'] },
   { k: 'users', icon: 'users', perm: ['users:read'] },
-  { k: 'tax', icon: 'percent', perm: ['settings:read'], stage: 'ST1-T17' },
+  { k: 'tax', icon: 'percent', perm: ['settings:read'] },
   { k: 'conn', icon: 'plug', perm: ['settings:read'], stage: 'ST7' },
   { k: 'noti', icon: 'bell', perm: ['settings:read'], stage: 'ST1-T23' },
   { k: 'reason', icon: 'list-checks', perm: ['settings:read'], stage: 'ST2' },
-  { k: 'sec', icon: 'shield', perm: ['settings:read'], stage: 'ST1-T05' },
+  { k: 'sec', icon: 'shield', perm: ['settings:read'] },
   { k: 'docalert', icon: 'bell-ring', perm: ['settings:read'], stage: 'ST2' },
 ];
 
@@ -55,6 +56,9 @@ export function SettingsPage() {
           ))}
         </nav>
         <div className="set-body">
+          {sec?.k === 'org' && <OrgSection canWrite={canWrite} />}
+          {sec?.k === 'tax' && <TaxSection canWrite={canWrite} />}
+          {sec?.k === 'sec' && <SecuritySection canWrite={canWrite} />}
           {sec?.k === 'ent' && <EntitiesSection canWrite={canWrite} />}
           {sec?.k === 'num' && <NumbersSection canWrite={canWrite} />}
           {sec?.k === 'users' && <UsersSection canWrite={can(scopes, 'users:write')} />}

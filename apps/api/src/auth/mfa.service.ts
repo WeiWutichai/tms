@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { AppUser, PrismaClient } from '@prisma/client';
 import { FieldCipher } from '../common/crypto';
+import { readSettings } from '../modules/settings/settings.service';
 import { ProblemException } from '../common/problem';
 import { PrismaService } from '../db/prisma.service';
 import { newBackupCodes, newTotpSecret, normalizeBackupCode, otpauthUri, verifyTotp } from './totp';
@@ -48,18 +49,10 @@ export class MfaService {
     return 'none';
   }
 
-  /** ค่า `security.require2faAll` ของ tenant — registry ค่าตั้งองค์กรมาใน ST1-T17 (จนกว่าจะมี = false) */
+  /** ค่า `security.require2faAll` ของ tenant (ST1-T17) */
   async orgRequires2fa(tenantId: string): Promise<boolean> {
-    const rows = await this.db.$queryRaw<{ v: unknown }[]>`
-      SELECT value AS v FROM tenant_setting WHERE tenant_id = ${tenantId}::uuid AND key = 'security.require2faAll'`.catch(
-      (e: unknown) => {
-        // ยังไม่มีตาราง (ก่อน ST1-T17) เท่านั้นที่ถือว่า false — error อื่นต้องไม่ทำให้ข้ามการบังคับ 2FA
-        const pg = (e as { meta?: { code?: string } }).meta?.code;
-        if (pg === '42P01') return []; // undefined_table เท่านั้น — error อื่น (สิทธิ์/RLS) ไม่ข้ามการบังคับ
-        throw e;
-      },
-    );
-    return rows[0]?.v === true;
+    const v = await readSettings(this.db, tenantId, ['security.require2faAll']);
+    return v['security.require2faAll'] === true;
   }
 
   async createChallenge(user: AppUser, purpose: MfaPurpose, codeChallenge: string) {

@@ -134,6 +134,8 @@ export const en: Partial<Record<MessageKey, string>> = {
   'set.menu.reason': 'Reasons',
   'set.menu.sec': 'Security',
   'set.menu.docalert': 'Document alerts',
+  'org.taxId': 'Tax ID',
+  'org.address': 'Address',
   'noAccess.title': "You don't have access to this page",
   'noAccess.back': 'Back to overview',
   'users.invite': 'Invite user',

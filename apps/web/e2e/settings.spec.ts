@@ -42,6 +42,34 @@ test.describe('ตั้งค่า (owner)', () => {
   });
 });
 
+test.describe('ตั้งค่า: องค์กร / ภาษี / ความปลอดภัย (owner)', () => {
+  test('แก้ค่าแล้วกดบันทึก → toast และค่าคงอยู่หลังโหลดใหม่', async ({ page }) => {
+    await page.goto('/settings?sec=sec');
+    await expect(page.getByRole('heading', { name: 'ความปลอดภัย' })).toBeVisible();
+    const save = page.getByRole('button', { name: 'บันทึก' });
+    await page.getByLabel('Session timeout').selectOption('60');
+    await save.click();
+    await expect(page.getByRole('status')).toHaveText('บันทึกการตั้งค่าความปลอดภัยแล้ว');
+    await page.reload();
+    await expect(page.getByLabel('Session timeout')).toHaveValue('60');
+    await page.getByLabel('Session timeout').selectOption('480');
+    await page.getByRole('button', { name: 'บันทึก' }).click();
+    await expect(page.getByRole('status')).toBeVisible();
+
+    await page.goto('/settings?sec=tax');
+    await expect(page.getByRole('radio', { name: 'เลือกตามลูกค้า' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    await page.goto('/settings?sec=org');
+    await expect(page.getByLabel('เลขผู้เสียภาษี')).toHaveValue(/^0000000000/);
+    await expect(page.getByRole('radio', { name: /^พ\.ศ\./ })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+  });
+});
+
 test.describe('ตั้งค่า (viewer)', () => {
   test.use({ loginEmail: 'viewer@demo-a.test' });
   test('เมนูตั้งค่าถูกซ่อน และเข้าทาง URL ได้หน้าไม่มีสิทธิ์', async ({ page }) => {

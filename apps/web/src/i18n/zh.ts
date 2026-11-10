@@ -134,6 +134,8 @@ export const zh: Partial<Record<MessageKey, string>> = {
   'set.menu.reason': '原因',
   'set.menu.sec': '安全',
   'set.menu.docalert': '证件提醒',
+  'org.taxId': '税号',
+  'org.address': '地址',
   'noAccess.title': '您无权访问此页面',
   'noAccess.back': '返回概览',
   'users.invite': '邀请用户',

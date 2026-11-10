@@ -6,6 +6,7 @@ import { ProblemException } from '../common/problem';
 import { PrismaService } from '../db/prisma.service';
 import { MFA_CHALLENGE_TTL_MS, MfaService } from './mfa.service';
 import { lockSeconds, recordAttempt, type ClientInfo } from './throttle';
+import { readSettings } from '../modules/settings/settings.service';
 export { LOGIN_MAX_FAILURES, LOGIN_WINDOW_MS, type ClientInfo } from './throttle';
 import { dummyHash, verifyPassword } from './password';
 import {
@@ -18,7 +19,7 @@ import {
 
 const CODE_TTL_MS = 60 * 1000;
 export const REFRESH_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-/** idle 8 ชม. — ST1-T17 จะอ่านจาก tenant_setting */
+/** idle 8 ชม. ค่าเริ่มต้น — tenant ตั้งเองได้ที่ `security.idleTimeoutMinutes` (ST1-T17) */
 /** review 10 พ.ย. 2569 ข้อ 3 */
 export const REFRESH_REUSE_GRACE_MS = 30 * 1000;
 export const IDLE_TTL_MS = 8 * 60 * 60 * 1000;
@@ -320,6 +321,7 @@ export class AuthService {
     });
     const { token, hash } = newOpaqueToken();
     const now = Date.now();
+    const idleMs = await this.idleMs(tenantId);
     await this.db.refreshToken.create({
       data: {
         tokenHash: hash,
@@ -328,7 +330,7 @@ export class AuthService {
         userId,
         tokenVersion: user.tokenVersion,
         expiresAt: absoluteExpiry,
-        idleExpiresAt: new Date(Math.min(now + IDLE_TTL_MS, absoluteExpiry.getTime())),
+        idleExpiresAt: new Date(Math.min(now + idleMs, absoluteExpiry.getTime())),
         userAgent: client.userAgent?.slice(0, 500),
         ip: client.ip,
       },
@@ -342,6 +344,20 @@ export class AuthService {
   }
 
   /** scope = permission ของทุก role ที่ผู้ใช้ถือ (ST1-T12 ขยายเป็นตาราง A3) */
+  /**
+   * idle timeout ของ tenant (ST1-T17 `security.idleTimeoutMinutes`, ปิด `security.autoLogout` = ไม่ตัดตามเวลาไม่ใช้งาน
+   * เหลือแค่อายุสูงสุด 7 วัน) — ไม่ตั้ง = 8 ชม. ตาม docs/04 A1
+   */
+  private async idleMs(tenantId: string): Promise<number> {
+    const v = await readSettings(this.db, tenantId, [
+      'security.autoLogout',
+      'security.idleTimeoutMinutes',
+    ]);
+    if (v['security.autoLogout'] === false) return REFRESH_TTL_MS;
+    const m = Number(v['security.idleTimeoutMinutes']);
+    return Number.isFinite(m) && m > 0 ? m * 60 * 1000 : IDLE_TTL_MS;
+  }
+
   private async scopeOf(tenantId: string, userId: string): Promise<string> {
     const links = await this.db.userRole.findMany({ where: { tenantId, userId } });
     if (links.length === 0) return '';
