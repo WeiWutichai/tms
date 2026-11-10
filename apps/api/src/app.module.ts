@@ -26,6 +26,7 @@ import { HealthController } from './modules/health/health.controller';
 import { JobsController } from './modules/jobs/jobs.controller';
 import { MeController } from './modules/me/me.controller';
 import { UsersController } from './modules/users/users.controller';
+import { UserLifecycleController } from './modules/users/user-lifecycle.controller';
 import { PdfRenderer } from './pdf/pdf-renderer';
 import { StateService } from './state/state.service';
 
@@ -37,6 +38,7 @@ import { StateService } from './state/state.service';
     MeController,
     CompaniesController,
     UsersController,
+    UserLifecycleController,
     BranchesController,
     SequencesController,
     AuditController,

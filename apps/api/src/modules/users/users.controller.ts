@@ -184,8 +184,9 @@ export class UsersController {
   @ApiOkResponse({ type: UserPageDto })
   async users(@Query() q: ListQuery) {
     const k = keysetArgs(q);
+    // ผู้ใช้ที่ลบแล้ว (anonymize) ไม่แสดงในรายการ — ยังอยู่ให้ audit อ้างถึง
     const rows = await this.db.tx.appUser.findMany({
-      where: k.where,
+      where: { ...k.where, status: { not: 'DELETED' } },
       orderBy: k.orderBy as never,
       take: k.take,
     });

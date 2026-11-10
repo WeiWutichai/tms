@@ -156,6 +156,7 @@ enum UserStatus {
   INVITED
   ACTIVE
   DISABLED
+  DELETED /// ST1-T10: ลบ = anonymize ข้อมูลส่วนตัว เก็บแถวไว้ให้ audit อ้างถึงได้ (ไม่มี hard delete)
 
   @@map("user_status")
 }
@@ -174,6 +175,7 @@ model AppUser {
   tokenVersion Int        @default(0) @map("token_version")
   status       UserStatus @default(INVITED)
   lastLoginAt  DateTime?  @map("last_login_at") @db.Timestamptz(6)
+  deletedAt    DateTime?  @map("deleted_at") @db.Timestamptz(6)
   version      Int        @default(1)
   createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt    DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)

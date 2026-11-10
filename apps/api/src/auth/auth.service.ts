@@ -122,7 +122,14 @@ export class AuthService {
 
     const chosen = input.tenantId ? matched.filter((u) => u.tenantId === input.tenantId) : matched;
     if (chosen.length === 0) {
-      await recordAttempt(db, email, client, { success: false, reason: 'invalid_credentials' });
+      // ประวัติ login (T11): ผูกกับผู้ใช้ที่อีเมลนี้มีอยู่ ให้ admin ของ tenant นั้นเห็นการลองรหัสผิด
+      const owners = candidates.length ? candidates : [null];
+      for (const u of owners)
+        await recordAttempt(db, email, client, {
+          success: false,
+          reason: 'invalid_credentials',
+          ...(u ? { tenantId: u.tenantId, userId: u.id } : {}),
+        });
       throw new ProblemException('invalid_credentials');
     }
     if (chosen.length > 1) {
