@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>body{margin:0;background:#E4E6E0;font-family:'IBM Plex Sans Thai',sans-serif;color:#101418;font-size:15px;line-height:1.55} a{color:#2257C4} a:hover{color:#1B479F} button{font-family:inherit} input,textarea,select{font-family:inherit;font-size:15px}</style>
+<script src="./i18n.js" data-float="1"></script>
+</helmet>
+<div style="min-height:100vh;display:flex;justify-content:center;padding:24px 0">
+  <div style="width:390px;min-height:844px;background:#F4F5F2;border-radius:32px;box-shadow:0 18px 44px rgba(10,23,52,.14);overflow:hidden;position:relative;display:flex;flex-direction:column">
+    <button onClick="{{ net.toggle }}" style="display:flex;align-items:center;gap:10px;padding:12px 18px;border:0;background:{{ net.bg }};color:{{ net.c }};font-weight:600;text-align:left;cursor:pointer;min-height:48px">
+      <span style="width:8px;height:8px;border-radius:50%;background:{{ net.c }};flex-shrink:0"></span><span style="flex:1">{{ net.l }}</span><span style="font-weight:500;font-size:14px">{{ net.act }}</span>
+    </button>
+
+    <sc-if value="{{ is.list }}" hint-placeholder-val="{{ true }}">
+      <div style="padding:20px 18px;display:flex;flex-direction:column;gap:16px">
+        <div style="display:flex;align-items:center;gap:12px"><div style="width:44px;height:44px;border-radius:50%;background:#13213F;color:#FFFFFF;display:flex;align-items:center;justify-content:center;font-weight:600">สช</div><div style="display:flex;flex-direction:column"><span style="font-size:12px;font-weight:600;color:#2257C4">อังคารที่ 3 พ.ย. 2569</span><span style="font-size:20px;font-weight:600;color:#13213F">สวัสดี สมชาย</span></div></div>
+        <span style="font-size:14px;font-weight:500;color:#3B424C">งานวันนี้</span>
+        <button onClick="{{ openJob }}" style="text-align:left;background:#FFFFFF;border:1px solid #D9DCD4;border-radius:18px;box-shadow:0 6px 20px rgba(10,23,52,.07);padding:16px;display:flex;flex-direction:column;gap:12px;cursor:pointer;color:#101418">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px"><span style="font-family:'IBM Plex Mono',monospace;font-size:14px;font-weight:600;color:#2257C4">TRP-2611-0041</span><span style="height:26px;padding:0 10px;border-radius:999px;background:{{ job.b.bg }};color:{{ job.b.c }};font-size:13px;font-weight:600;display:inline-flex;align-items:center">{{ job.b.l }}</span></div>
+          <div style="display:flex;flex-direction:column"><span style="font-size:17px;font-weight:600">กรุงเทพ → ชลบุรี</span><span style="color:#3B424C">3 จุด · 2 ใบส่งของ · เริ่ม 06:30</span></div>
+          <div style="display:flex;flex-direction:column;gap:4px"><div style="display:flex;justify-content:space-between;font-size:14px"><span style="color:#3B424C">ความคืบหน้า</span><span style="font-variant-numeric:tabular-nums">{{ job.prog }}</span></div><div style="height:6px;border-radius:3px;background:#EBEDE8;overflow:hidden"><div style="height:100%;width:{{ job.pct }};background:#2257C4"></div></div></div>
+          <div style="display:flex;gap:16px;font-size:14px;color:#3B424C"><span style="font-family:'IBM Plex Mono',monospace;font-size:14px;color:#101418">70-1234 กทม.</span><span>6 ล้อ</span><span>ไม่มีหาง</span></div>
+        </button>
+        <span style="font-size:14px;font-weight:500;color:#3B424C">พรุ่งนี้</span>
+        <div style="background:#FFFFFF;border:1px solid #D9DCD4;border-radius:18px;padding:16px;display:flex;flex-direction:column;gap:6px;opacity:.75">
+          <div style="display:flex;align-items:center;justify-content:space-between"><span style="font-family:'IBM Plex Mono',monospace;font-size:14px;font-weight:600">TRP-2611-0053</span><span style="height:26px;padding:0 10px;border-radius:999px;background:#ECEDEA;color:#3B424C;font-size:13px;font-weight:600;display:inline-flex;align-items:center">วางแผน</span></div>
+          <span>กรุงเทพ → ชลบุรี · 81-3390 กทม.</span><span style="font-size:14px;color:#3B424C">ผู้จ่ายงานจะปล่อยงานภายในคืนนี้</span>
+        </div>
+        <button onClick="{{ openIssue }}" style="height:52px;border:1px solid #D9DCD4;border-radius:999px;background:#FFFFFF;color:#B3322A;font-weight:600;cursor:pointer">แจ้งปัญหา</button>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ is.job }}" hint-placeholder-val="{{ false }}">
+      <div style="display:flex;align-items:center;gap:8px;padding:10px 10px 4px"><button onClick="{{ back }}" style="width:44px;height:44px;border:0;border-radius:999px;background:transparent;font-size:22px;cursor:pointer;color:#101418">‹</button><div style="display:flex;flex-direction:column"><span style="font-size:12px;font-weight:600;color:#2257C4">ใบคุมรถ</span><span style="font-family:'IBM Plex Mono',monospace;font-size:15px;font-weight:600">TRP-2611-0041</span></div></div>
+      <div style="padding:8px 18px 20px;display:flex;flex-direction:column;gap:14px;flex:1">
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+          <div style="background:#FFFFFF;border:1px solid #D9DCD4;border-radius:14px;padding:10px 12px;display:flex;flex-direction:column"><span style="font-size:12.5px;color:#3B424C">รถ</span><span style="font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:500">70-1234 กทม.</span></div>
+          <div style="background:#FFFFFF;border:1px solid #D9DCD4;border-radius:14px;padding:10px 12px;display:flex;flex-direction:column"><span style="font-size:12.5px;color:#3B424C">หาง</span><span>ไม่มี</span></div>
+          <div style="background:#FFFFFF;border:1px solid #D9DCD4;border-radius:14px;padding:10px 12px;display:flex;flex-direction:column"><span style="font-size:12.5px;color:#3B424C">เงินเบิก</span><span style="font-family:'IBM Plex Mono',monospace;font-size:13px">3,000.00</span></div>
+        </div>
+        <sc-if value="{{ job.notAcc }}">
+          <div style="background:#FFFFFF;border:1px solid #D9DCD4;border-radius:18px;padding:16px;display:flex;flex-direction:column;gap:10px">
+            <span style="font-weight:600">3 จุด ตามลำดับ</span>
+            <sc-for list="{{ stops }}" as="x"><div style="display:flex;align-items:center;gap:10px"><span style="width:24px;height:24px;border-radius:50%;border:1px solid #D9DCD4;font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center">{{ x.i }}</span><span style="height:24px;padding:0 9px;border-radius:999px;background:{{ x.kbg }};color:{{ x.kc }};font-size:13px;font-weight:600;display:inline-flex;align-items:center">{{ x.k }}</span><span style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ x.n }}</span></div></sc-for>
+          </div>
+          <button onClick="{{ accept }}" style="height:56px;border:0;border-radius:999px;background:#2257C4;color:#FFFFFF;font-size:17px;font-weight:600;cursor:pointer" style-hover="background:#1B479F">รับงาน</button>
+          <a href="tel:021184400" style="height:48px;border:1px solid #D9DCD4;border-radius:999px;background:#FFFFFF;display:flex;align-items:center;justify-content:center;font-weight:500;text-decoration:none">โทรหาผู้จ่ายงาน</a>
+        </sc-if>
+        <sc-if value="{{ job.acc }}">
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <sc-for list="{{ stops }}" as="x">
+              <div style="background:#FFFFFF;border:1px solid {{ x.bd }};box-shadow:{{ x.sh }};border-radius:18px;padding:14px;display:flex;flex-direction:column;gap:10px">
+                <div style="display:flex;align-items:center;gap:10px"><span style="width:28px;height:28px;border-radius:8px;background:{{ x.ibg }};color:{{ x.ic }};font-size:14px;font-weight:600;display:flex;align-items:center;justify-content:center;flex-shrink:0">{{ x.mark }}</span><span style="height:24px;padding:0 9px;border-radius:999px;background:{{ x.kbg }};color:{{ x.kc }};font-size:13px;font-weight:600;display:inline-flex;align-items:center">{{ x.k }}</span><span style="flex:1;font-weight:600;min-width:0">{{ x.n }}</span><span style="font-size:13px;color:#3B424C">{{ x.t }}</span></div>
+                <sc-if value="{{ x.cur }}">
+                  <div style="display:flex;flex-direction:column;gap:4px;color:#3B424C"><span>{{ x.a }}</span><span>{{ x.ct }}</span><sc-if value="{{ x.do }}"><span><span style="font-family:'IBM Plex Mono',monospace;font-size:13px;color:#2257C4">{{ x.do }}</span> · {{ x.qL }}</span></sc-if></div>
+                  <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;background:{{ geo.bg }}"><span style="width:10px;height:10px;border-radius:50%;background:{{ geo.c }};flex-shrink:0"></span><div style="flex:1;display:flex;flex-direction:column"><span style="font-weight:600;color:{{ geo.c }}">{{ geo.l }}</span><span style="font-size:13px;color:#3B424C">{{ geo.d }}</span></div><button onClick="{{ geo.toggle }}" style="height:32px;padding:0 10px;border:1px solid #D9DCD4;border-radius:999px;background:#FFFFFF;font-size:13px;cursor:pointer;color:#3B424C">จำลองระยะ</button></div>
+                  <div style="display:flex;gap:8px"><button onClick="{{ x.main }}" style="flex:1;height:52px;border:0;border-radius:999px;background:#2257C4;color:#FFFFFF;font-size:16px;font-weight:600;cursor:pointer" style-hover="background:#1B479F">{{ x.mainL }}</button><button onClick="{{ nav }}" style="width:52px;height:52px;border:1px solid #D9DCD4;border-radius:999px;background:#FFFFFF;cursor:pointer;font-weight:600;color:#2257C4;font-size:13px">นำทาง</button></div>
+                </sc-if>
+              </div>
+            </sc-for>
+            <sc-if value="{{ job.done }}"><div style="background:#E6F4EC;border-radius:18px;padding:16px;display:flex;flex-direction:column;gap:4px"><span style="font-weight:600;color:#17733F">ส่งครบทุกจุดแล้ว</span><span style="color:#3B424C">เคลียร์ค่าใช้จ่ายและแนบใบเสร็จเงินเบิก ADV-2611-0021 ก่อนจบวัน</span></div></sc-if>
+          </div>
+          <button onClick="{{ openIssue }}" style="height:48px;border:1px solid #D9DCD4;border-radius:999px;background:#FFFFFF;color:#B3322A;font-weight:600;cursor:pointer">แจ้งปัญหา</button>
+        </sc-if>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ is.pod }}" hint-placeholder-val="{{ false }}">
+      <div style="display:flex;align-items:center;gap:8px;padding:10px 10px 4px"><button onClick="{{ toJob }}" style="width:44px;height:44px;border:0;border-radius:999px;background:transparent;font-size:22px;cursor:pointer;color:#101418">‹</button><div style="display:flex;flex-direction:column"><span style="font-size:12px;font-weight:600;color:#2257C4">หลักฐานการส่ง (POD)</span><span style="font-family:'IBM Plex Mono',monospace;font-size:15px;font-weight:600">{{ pod.do }}</span></div></div>
+      <div style="padding:8px 18px 20px;display:flex;flex-direction:column;gap:14px">
+        <div style="background:#FFFFFF;border:1px solid #D9DCD4;border-radius:18px;padding:14px;display:flex;flex-direction:column;gap:10px">
+          <div style="display:flex;align-items:center;justify-content:space-between"><span style="font-weight:600">รูปถ่าย</span><span style="font-size:13px;font-weight:600;color:{{ pod.phReqC }}">{{ pod.phReq }}</span></div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px"><sc-for list="{{ pod.photos }}" as="p"><div style="aspect-ratio:1;border-radius:12px;background:#EBEDE8;display:flex;align-items:center;justify-content:center;font-size:13px;color:#3B424C">{{ p }}</div></sc-for><sc-if value="{{ pod.canAdd }}"><button onClick="{{ pod.addPh }}" style="aspect-ratio:1;border-radius:12px;border:1.5px dashed #C9CDC3;background:#FFFFFF;cursor:pointer;color:#2257C4;font-weight:600">+ ถ่ายรูป</button></sc-if></div>
+        </div>
+        <div style="background:#FFFFFF;border:1px solid #D9DCD4;border-radius:18px;padding:14px;display:flex;flex-direction:column;gap:10px">
+          <div style="display:flex;align-items:center;justify-content:space-between"><span style="font-weight:600">จำนวนที่ส่งจริง</span><span style="font-size:13px;font-weight:600;color:{{ pod.qReqC }}">{{ pod.qReq }}</span></div>
+          <div style="display:flex;align-items:center;gap:12px"><button onClick="{{ pod.dec }}" style="width:48px;height:48px;border:1px solid #D9DCD4;border-radius:999px;background:#FFFFFF;font-size:22px;cursor:pointer">−</button><div style="flex:1;text-align:center;display:flex;flex-direction:column"><span style="font-size:26px;font-weight:600;font-variant-numeric:tabular-nums">{{ pod.qty }}</span><span style="font-size:13px;color:#3B424C">จากใบสั่ง {{ pod.ord }}</span></div><button onClick="{{ pod.inc }}" style="width:48px;height:48px;border:1px solid #D9DCD4;border-radius:999px;background:#FFFFFF;font-size:22px;cursor:pointer">+</button></div>
+          <sc-if value="{{ pod.short }}"><label style="display:flex;flex-direction:column;gap:6px"><span style="font-size:13px;font-weight:500;color:#8F5500">ส่งไม่ครบ ระบุเหตุผล</span><select value="{{ pod.sr }}" onChange="{{ pod.onSr }}" style="height:48px;padding:0 12px;border:1px solid #C9CDC3;border-radius:12px;background:#FFFFFF"><option value="">— เลือกเหตุผล —</option><option value="ลูกค้าปฏิเสธรับบางรายการ">ลูกค้าปฏิเสธรับบางรายการ</option><option value="สินค้าเสียหายระหว่างขนส่ง">สินค้าเสียหายระหว่างขนส่ง</option><option value="จำนวนไม่ครบ">จำนวนไม่ครบ</option></select></label></sc-if>
+        </div>
+        <div style="background:#FFFFFF;border:1px solid #D9DCD4;border-radius:18px;padding:14px;display:flex;flex-direction:column;gap:10px">
+          <div style="display:flex;align-items:center;justify-content:space-between"><span style="font-weight:600">ลายเซ็นผู้รับ</span><span style="font-size:13px;font-weight:600;color:{{ pod.sReqC }}">{{ pod.sReq }}</span></div>
+          <input value="{{ pod.name }}" onChange="{{ pod.onName }}" placeholder="ชื่อผู้รับ" style="height:48px;padding:0 12px;border:1px solid #C9CDC3;border-radius:12px">
+          <button onClick="{{ pod.sign }}" style="height:96px;border:1.5px dashed {{ pod.sigBd }};border-radius:12px;background:{{ pod.sigBg }};cursor:pointer;color:{{ pod.sigC }};font-weight:600">{{ pod.sigL }}</button>
+        </div>
+        <sc-if value="{{ pod.err }}"><span style="color:#B3322A;font-weight:500">{{ pod.err }}</span></sc-if>
+        <button onClick="{{ pod.submit }}" style="height:56px;border:0;border-radius:999px;background:#2257C4;color:#FFFFFF;font-size:17px;font-weight:600;cursor:pointer;opacity:{{ pod.op }}" style-hover="background:#1B479F">ยืนยันส่งแล้ว</button>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ is.issue }}" hint-placeholder-val="{{ false }}">
+      <div style="display:flex;align-items:center;gap:8px;padding:10px 10px 4px"><button onClick="{{ back }}" style="width:44px;height:44px;border:0;border-radius:999px;background:transparent;font-size:22px;cursor:pointer;color:#101418">‹</button><div style="display:flex;flex-direction:column"><span style="font-size:12px;font-weight:600;color:#B3322A">แจ้งปัญหา</span><span style="font-size:16px;font-weight:600">TRP-2611-0041</span></div></div>
+      <div style="padding:8px 18px 20px;display:flex;flex-direction:column;gap:14px">
+        <span style="font-size:14px;font-weight:500;color:#3B424C">เกิดอะไรขึ้น</span>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px"><sc-for list="{{ iss.reasons }}" as="o"><button onClick="{{ o.fn }}" style="min-height:52px;padding:8px 12px;border:1px solid {{ o.bd }};border-radius:14px;background:{{ o.bg }};color:{{ o.c }};font-weight:{{ o.fw }};cursor:pointer;text-align:left">{{ o.l }}</button></sc-for></div>
+        <div style="display:flex;align-items:center;justify-content:space-between"><span style="font-size:14px;font-weight:500;color:#3B424C">รูปประกอบ</span><span style="font-size:13px;font-weight:600;color:{{ iss.phC }}">{{ iss.phL }}</span></div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px"><sc-for list="{{ iss.photos }}" as="p"><div style="aspect-ratio:1;border-radius:12px;background:#EBEDE8;display:flex;align-items:center;justify-content:center;font-size:13px;color:#3B424C">{{ p }}</div></sc-for><button onClick="{{ iss.addPh }}" style="aspect-ratio:1;border-radius:12px;border:1.5px dashed #C9CDC3;background:#FFFFFF;cursor:pointer;color:#2257C4;font-weight:600">+ ถ่ายรูป</button></div>
+        <textarea value="{{ iss.note }}" onChange="{{ iss.onNote }}" rows="3" placeholder="รายละเอียดเพิ่มเติม" style="padding:12px;border:1px solid #C9CDC3;border-radius:12px;resize:vertical"></textarea>
+        <sc-if value="{{ iss.err }}"><span style="color:#B3322A;font-weight:500">{{ iss.err }}</span></sc-if>
+        <button onClick="{{ iss.submit }}" style="height:56px;border:0;border-radius:999px;background:#2257C4;color:#FFFFFF;font-size:17px;font-weight:600;cursor:pointer" style-hover="background:#1B479F">ส่งแจ้งปัญหา</button>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ sheet.open }}" hint-placeholder-val="{{ false }}">
+      <div onClick="{{ sheet.close }}" style="position:absolute;inset:0;background:rgba(10,23,52,.32);display:flex;align-items:flex-end;z-index:5">
+        <div onClick="{{ sheet.stop }}" style="width:100%;background:#FFFFFF;border-radius:24px 24px 0 0;padding:18px 18px 24px;display:flex;flex-direction:column;gap:12px">
+          <div style="width:40px;height:4px;border-radius:2px;background:#C9CDC3;align-self:center"></div>
+          <span style="font-size:17px;font-weight:600;color:#13213F">อยู่นอกระยะจุด {{ sheet.dist }}</span>
+          <span style="color:#3B424C">ระบุเหตุผลเพื่อบันทึกการถึงจุดนอกพื้นที่ ผู้จ่ายงานจะเห็นข้อความนี้</span>
+          <sc-for list="{{ sheet.opts }}" as="o"><button onClick="{{ o.fn }}" style="min-height:48px;padding:0 14px;border:1px solid {{ o.bd }};border-radius:14px;background:{{ o.bg }};color:#101418;font-weight:{{ o.fw }};text-align:left;cursor:pointer">{{ o.l }}</button></sc-for>
+          <button onClick="{{ sheet.ok }}" style="height:52px;border:0;border-radius:999px;background:#2257C4;color:#FFFFFF;font-size:16px;font-weight:600;cursor:pointer;opacity:{{ sheet.op }}">ยืนยันถึงจุด</button>
+        </div>
+      </div>
+    </sc-if>
+    <sc-if value="{{ toast }}" hint-placeholder-val="{{ false }}"><div style="position:absolute;left:16px;right:16px;bottom:20px;background:#13213F;color:#FFFFFF;border-radius:14px;padding:12px 14px;z-index:6;box-shadow:0 18px 44px rgba(10,23,52,.2)">{{ toast }}</div></sc-if>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;online&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;สถานะ&quot;},&quot;podPhoto&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;POD บังคับ&quot;},&quot;podSign&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;POD บังคับ&quot;},&quot;podQty&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;POD บังคับ&quot;}}">
+class Component extends DCLogic {
+  S = [
+    { k: 'รับ', n: 'คลังสินค้ากรุงเทพ', a: '1120 ถ.พระราม 3 แขวงช่องนนทรี กรุงเทพ', t: '06:30', do: '', q: 0, ct: 'คุณประยุทธ · 081-224-5510' },
+    { k: 'ส่ง', n: 'บจก. สยามพลาสติก (โรงงานชลบุรี)', a: 'เขตประกอบการชลบุรี ซอย 3 อ.เมือง จ.ชลบุรี', t: '09:00', do: 'DO-2611-00060', q: 142, ct: 'คุณวิไล · 02-300-4100' },
+    { k: 'ส่ง', n: 'ศูนย์กระจายสินค้าชลบุรี', a: 'ถนนบายพาสชลบุรี อ.เมือง จ.ชลบุรี', t: '10:30', do: 'DO-2611-00080', q: 56, ct: 'คุณสมศรี · 089-551-2041' }
+  ];
+  state = { scr: 'list', online: false, queue: 3, acc: false, cur: 0, st: ['รอ', 'รอ', 'รอ'], inR: true, sheet: false, why: '', pod: { ph: 0, sig: false, name: '', qty: null, sr: '', err: '' }, iss: { r: '', ph: 0, note: '', err: '' }, toast: '' };
+  componentDidMount() { if (this.props.online) this.setState({ online: true, queue: 0 }); }
+  componentWillUnmount() { clearTimeout(this._t); }
+  say(m) { clearTimeout(this._t); this.setState({ toast: m }); this._t = setTimeout(() => this.setState({ toast: '' }), 3000); }
+  rec(m) { if (this.state.online) this.say(m + ' · ส่งเข้าระบบแล้ว'); else { this.setState(s => ({ queue: s.queue + 1 })); this.say(m + ' · บันทึกในเครื่อง จะส่งเมื่อมีสัญญาณ'); } }
+  setSt(i, v) { this.setState(s => { const st = s.st.slice(); st[i] = v; return { st }; }); }
+  arrive(why) { const i = this.state.cur; this.setSt(i, 'ถึงแล้ว'); this.setState({ sheet: false, why: '' }); this.rec('ถึงจุด ' + (i + 1) + (why ? ' (' + why + ')' : '')); }
+  next(i) { this.setSt(i, 'เสร็จ'); this.setState({ cur: i + 1, inR: i + 1 !== 1 ? true : false }); }
+  renderVals() {
+    const s = this.state, p = this.props, req = { ph: p.podPhoto ?? true, sig: p.podSign ?? true, qty: p.podQty ?? true };
+    const nDone = s.st.filter(x => x === 'เสร็จ').length, all = nDone === 3;
+    const KB = k => k === 'รับ' ? ['#2257C4', '#E9F0FA'] : ['#17733F', '#E6F4EC'];
+    const stops = this.S.map((x, i) => { const st = s.st[i], cur = s.acc && i === s.cur && !all, done = st === 'เสร็จ', kb = KB(x.k);
+      const main = x.k === 'รับ' ? (st === 'รอ' ? 'ถึงจุดรับ' : 'ออกจากจุด') : (st === 'รอ' ? 'ถึงจุดส่ง' : 'ถ่ายรูปและเซ็นรับ (POD)');
+      return { ...x, i: String(i + 1), kc: kb[0], kbg: kb[1], cur, mark: done ? '✓' : String(i + 1), ibg: done ? '#E9F0FA' : cur ? '#2257C4' : '#EBEDE8', ic: done ? '#2257C4' : cur ? '#FFFFFF' : '#3B424C', bd: cur ? '#2257C4' : '#D9DCD4', sh: cur ? '0 6px 20px #E9F0FA' : 'none', t: done ? 'เสร็จ' : x.t, qL: x.q + ' หน่วย', mainL: main,
+        main: () => { if (st === 'รอ') { if (s.inR) this.arrive(''); else this.setState({ sheet: true, why: '' }); } else if (x.k === 'รับ') { this.next(i); this.rec('ออกจากจุดรับ'); } else this.setState({ scr: 'pod', pod: { ph: 0, sig: false, name: '', qty: x.q, sr: '', err: '' } }); } };
+    });
+    const cs = this.S[Math.min(s.cur, 2)], pd = s.pod;
+    const podErr = () => { if (req.ph && pd.ph < 1) return 'ต้องถ่ายรูปอย่างน้อย 1 รูป'; if (req.sig && !pd.sig) return 'ต้องให้ผู้รับเซ็นชื่อ'; if (req.qty && pd.qty < cs.q && !pd.sr) return 'ระบุเหตุผลที่ส่งไม่ครบ'; return ''; };
+    const setPod = o => this.setState(z => ({ pod: { ...z.pod, ...o, err: '' } }));
+    const RS = ['รถเสีย', 'อุบัติเหตุ', 'ลูกค้าปิดทำการ', 'สินค้าเสียหาย', 'รถติดหนัก', 'อื่น ๆ'], iz = s.iss, setIss = o => this.setState(z => ({ iss: { ...z.iss, ...o, err: '' } }));
+    const WHY = ['GPS คลาดเคลื่อน', 'จุดรับส่งย้ายที่', 'ลูกค้าให้รอนอกพื้นที่', 'ทางเข้าปิดชั่วคราว'];
+    const jb = !s.acc ? ['รอรับงาน', '#FCF0DC', '#8F5500'] : all ? ['เสร็จแล้ว', '#E6F4EC', '#17733F'] : ['กำลังทำ', '#E9F0FA', '#2257C4'];
+    return {
+      is: { list: s.scr === 'list', job: s.scr === 'job', pod: s.scr === 'pod', issue: s.scr === 'issue' },
+      net: s.online ? { l: 'ออนไลน์ · ซิงก์แล้ว', act: s.queue ? 'รอส่ง ' + s.queue : 'แตะเพื่อจำลองออฟไลน์', bg: '#E6F4EC', c: '#17733F', toggle: () => this.setState({ online: false }) } : { l: 'ออฟไลน์ · รอส่ง ' + s.queue + ' รายการ', act: 'ลองส่ง', bg: '#FCF0DC', c: '#8F5500', toggle: () => { this.setState({ online: true, queue: 0 }); this.say('กลับมาออนไลน์ · ส่ง ' + s.queue + ' รายการเข้าระบบแล้ว'); } },
+      job: { b: { l: jb[0], bg: jb[1], c: jb[2] }, prog: nDone + '/3 จุด', pct: (nDone / 3 * 100) + '%', acc: s.acc, notAcc: !s.acc, done: all },
+      stops, openJob: () => this.setState({ scr: 'job' }), back: () => this.setState({ scr: s.scr === 'issue' && s.acc ? 'job' : 'list' }), toJob: () => this.setState({ scr: 'job' }),
+      accept: () => { this.setState({ acc: true, inR: true }); this.rec('รับงาน TRP-2611-0041'); },
+      nav: () => this.say('เปิดแผนที่นำทางไป ' + cs.n),
+      geo: s.inR ? { l: 'อยู่ในระยะจุด', d: 'ห่าง 0.2 กม. · รัศมีที่กำหนด 0.5 กม.', c: '#17733F', bg: '#E6F4EC', toggle: () => this.setState({ inR: false }) } : { l: 'อยู่นอกระยะจุด', d: 'ห่าง 3.4 กม. · ต้องระบุเหตุผลหากกดถึงจุด', c: '#8F5500', bg: '#FCF0DC', toggle: () => this.setState({ inR: true }) },
+      sheet: { open: s.sheet, dist: '3.4 กม.', opts: WHY.map(w => ({ l: w, bd: s.why === w ? '#2257C4' : '#D9DCD4', bg: s.why === w ? '#E9F0FA' : '#FFFFFF', fw: s.why === w ? 600 : 400, fn: () => this.setState({ why: w }) })), op: s.why ? 1 : .5, ok: () => s.why && this.arrive(s.why), close: () => this.setState({ sheet: false }), stop: e => e.stopPropagation() },
+      pod: { do: cs.do, photos: Array.from({ length: pd.ph }, (_, i) => 'รูปที่ ' + (i + 1)), canAdd: pd.ph < 6, addPh: () => setPod({ ph: pd.ph + 1 }), phReq: req.ph ? 'บังคับ' : 'ไม่บังคับ', phReqC: req.ph ? '#2257C4' : '#59606B',
+        qty: String(pd.qty == null ? cs.q : pd.qty), ord: String(cs.q), dec: () => setPod({ qty: Math.max(0, (pd.qty ?? cs.q) - 1) }), inc: () => setPod({ qty: Math.min(cs.q, (pd.qty ?? cs.q) + 1) }), short: (pd.qty ?? cs.q) < cs.q, sr: pd.sr, onSr: e => setPod({ sr: e.target.value }), qReq: req.qty ? 'บังคับ' : 'ไม่บังคับ', qReqC: req.qty ? '#2257C4' : '#59606B',
+        name: pd.name, onName: e => setPod({ name: e.target.value }), sign: () => setPod({ sig: true }), sigL: pd.sig ? 'เซ็นแล้ว ' + (pd.name || '') + ' · แตะเพื่อเซ็นใหม่' : 'แตะเพื่อให้ผู้รับเซ็นชื่อ', sigBd: pd.sig ? '#17733F' : '#C9CDC3', sigBg: pd.sig ? '#E6F4EC' : '#FFFFFF', sigC: pd.sig ? '#17733F' : '#2257C4', sReq: req.sig ? 'บังคับ' : 'ไม่บังคับ', sReqC: req.sig ? '#2257C4' : '#59606B',
+        err: pd.err, op: podErr() ? .6 : 1,
+        submit: () => { const e = podErr(); if (e) { setPod({}); this.setState(z => ({ pod: { ...z.pod, err: e } })); return; } const i = s.cur; this.next(i); this.setState({ scr: 'job' }); this.rec('ส่ง ' + cs.do + ' แล้ว ' + (pd.qty ?? cs.q) + '/' + cs.q + ' หน่วย'); } },
+      openIssue: () => this.setState({ scr: 'issue', iss: { r: '', ph: 0, note: '', err: '' } }),
+      iss: { reasons: RS.map(l => ({ l, bd: iz.r === l ? '#B3322A' : '#D9DCD4', bg: iz.r === l ? '#FBE9E7' : '#FFFFFF', c: iz.r === l ? '#B3322A' : '#101418', fw: iz.r === l ? 600 : 400, fn: () => setIss({ r: l }) })), photos: Array.from({ length: iz.ph }, (_, i) => 'รูปที่ ' + (i + 1)), addPh: () => setIss({ ph: Math.min(6, iz.ph + 1) }), phL: ['รถเสีย', 'อุบัติเหตุ', 'สินค้าเสียหาย'].includes(iz.r) ? 'บังคับตามเหตุผลนี้' : 'ไม่บังคับ', phC: ['รถเสีย', 'อุบัติเหตุ', 'สินค้าเสียหาย'].includes(iz.r) ? '#B3322A' : '#59606B', note: iz.note, onNote: e => setIss({ note: e.target.value }), err: iz.err,
+        submit: () => { const e = !iz.r ? 'เลือกเหตุผลก่อนส่ง' : ['รถเสีย', 'อุบัติเหตุ', 'สินค้าเสียหาย'].includes(iz.r) && !iz.ph ? 'เหตุผลนี้ต้องแนบรูปอย่างน้อย 1 รูป' : ''; if (e) { this.setState(z => ({ iss: { ...z.iss, err: e } })); return; } this.setState({ scr: s.acc ? 'job' : 'list' }); this.rec('แจ้งปัญหา "' + iz.r + '" ให้ผู้จ่ายงานแล้ว'); } },
+      toast: s.toast
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet><link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet"><style>body{margin:0;background:#F9FAFB;color:#111827;font-family:'IBM Plex Sans Thai',sans-serif;font-size:14px;line-height:1.6}a{color:#163A66}a:hover{color:#2457A0}*{box-sizing:border-box}button:disabled{opacity:.45;cursor:not-allowed!important}input,select,textarea,button{font-family:'IBM Plex Sans Thai',sans-serif}</style></helmet>
+<div style="display:flex;min-height:100vh">
+  <aside style="position:sticky;top:0;height:100vh;flex:none;width:{{ sbW }};background:#0B1F3A;color:#FFFFFF;display:flex;flex-direction:column;transition:width .15s;z-index:30">
+    <div style="height:56px;display:flex;align-items:center;padding:0 16px;border-bottom:1px solid #163A66;font-weight:600;font-size:16px;white-space:nowrap;overflow:hidden">{{ brand }}</div>
+    <nav style="display:flex;flex-direction:column;padding:8px 0;flex:1">
+      <sc-for list="{{ menu }}" as="m" hint-placeholder-count="4">
+        <button onClick="{{ m.go }}" title="{{ m.label }}" style="height:44px;display:flex;align-items:center;gap:8px;padding:0 12px 0 13px;border:none;border-left:3px solid {{ m.bar }};background:{{ m.bg }};color:{{ m.fg }};font-size:14px;font-weight:500;text-align:left;cursor:pointer;white-space:nowrap;overflow:hidden" style-hover="background:#163A66">
+          <span style="flex:1;overflow:hidden;text-overflow:ellipsis">{{ m.text }}</span>
+          <sc-if value="{{ m.hasCount }}"><span style="min-width:24px;height:24px;padding:0 6px;border-radius:4px;background:#FBEFDD;color:#92400E;font:500 13px 'IBM Plex Mono',monospace;display:inline-flex;align-items:center;justify-content:center">{{ m.count }}</span></sc-if>
+        </button>
+      </sc-for>
+    </nav>
+    <button onClick="{{ toggleSb }}" style="height:44px;border:none;border-top:1px solid #163A66;background:transparent;color:#E3EAF5;font-size:14px;cursor:pointer;white-space:nowrap;overflow:hidden" style-hover="background:#163A66">{{ sbToggleLabel }}</button>
+  </aside>
+
+  <div style="flex:1;min-width:0;display:flex;flex-direction:column">
+    <header style="position:sticky;top:0;z-index:25;height:56px;background:#0B1F3A;color:#FFFFFF;display:flex;align-items:center;gap:24px;padding:0 24px;border-bottom:1px solid #163A66">
+      <div style="font-weight:600;white-space:nowrap">บริษัท ไทยทรานส์ขนส่ง จำกัด</div>
+      <input value="{{ search }}" onChange="{{ setSearch }}" onKeyDown="{{ searchKey }}" placeholder="ค้นหาเลขเอกสาร เช่น SO-2610-0123 แล้วกด Enter" style="flex:1;max-width:420px;height:36px;border:1px solid #D1D5DB;border-radius:4px;padding:0 12px;font-size:14px;color:#111827;outline:none" style-focus="box-shadow:0 0 0 2px #2457A0;border-color:#2457A0">
+      <div style="margin-left:auto;display:flex;align-items:center;gap:8px;white-space:nowrap">
+        <span style="width:8px;height:8px;border-radius:50%;background:{{ krsDot }}"></span>
+        <span>{{ krsText }}</span>
+        <span style="font-size:12px;color:#D1D5DB">poll ล่าสุด 14 ต.ค. 2569 09:42</span>
+      </div>
+    </header>
+
+    <main style="width:100%;max-width:1440px;padding:24px;padding-right:{{ mainPR }};display:flex;flex-direction:column;gap:24px;transition:padding .15s">
+
+      <sc-if value="{{ isDash }}" hint-placeholder-val="{{ true }}">
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <h1 style="margin:0;font-size:22px;font-weight:600">ภาพรวมการเชื่อมต่อ KRS</h1>
+          <div style="color:#374151">ข้อมูล ณ <span style="font-size:12px;color:#6B7280">14 ต.ค. 2569 09:42</span></div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px">
+          <sc-for list="{{ stats }}" as="s" hint-placeholder-count="4">
+            <button onClick="{{ s.go }}" style="text-align:left;background:#FFFFFF;border:1px solid #E5E7EB;border-radius:4px;padding:16px;display:flex;flex-direction:column;gap:4px;cursor:pointer;font-size:14px;color:#111827" style-hover="border-color:#2457A0">
+              <span style="color:#374151">{{ s.label }}</span>
+              <span style="font-size:28px;font-weight:600;line-height:1.3;color:{{ s.color }}">{{ s.value }}</span>
+              <span style="color:#6B7280">{{ s.sub }}</span>
+            </button>
+          </sc-for>
+        </div>
+        <div style="display:grid;grid-template-columns:minmax(0,1fr) 400px;gap:24px;align-items:start">
+          <div style="background:#FFFFFF;border:1px solid #E5E7EB;border-radius:4px">
+            <div style="padding:16px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #E5E7EB"><h2 style="margin:0;font-size:18px;font-weight:600">คิว outbox</h2><span style="color:#6B7280">{{ outCount }} รายการ</span></div>
+            <table style="width:100%;border-collapse:collapse">
+              <thead><tr>
+                <th style="position:sticky;top:56px;z-index:1;height:44px;padding:0 16px;text-align:left;font-weight:600;color:#374151;background:#F3F4F6;border-bottom:1px solid #E5E7EB">เลขเอกสาร</th>
+                <th style="position:sticky;top:56px;z-index:1;height:44px;padding:0 16px;text-align:left;font-weight:600;color:#374151;background:#F3F4F6;border-bottom:1px solid #E5E7EB">ประเภท</th>
+                <th style="position:sticky;top:56px;z-index:1;height:44px;padding:0 16px;text-align:left;font-weight:600;color:#374151;background:#F3F4F6;border-bottom:1px solid #E5E7EB">สถานะ</th>
+                <th style="position:sticky;top:56px;z-index:1;height:44px;padding:0 16px;text-align:right;font-weight:600;color:#374151;background:#F3F4F6;border-bottom:1px solid #E5E7EB">ครั้งที่ส่ง</th>
+                <th style="position:sticky;top:56px;z-index:1;height:44px;padding:0 16px;text-align:left;font-weight:600;color:#374151;background:#F3F4F6;border-bottom:1px solid #E5E7EB">อัปเดตล่าสุด</th>
+              </tr></thead>
+              <tbody>
+                <sc-for list="{{ outRows }}" as="r" hint-placeholder-count="6">
+                  <tr onClick="{{ r.open }}" style="height:44px;cursor:pointer;background:{{ r.bg }}" style-hover="background:#F9FAFB">
+                    <td style="padding:0 16px;border-bottom:1px solid #E5E7EB;font:500 13px 'IBM Plex Mono',monospace;color:#163A66">{{ r.no }}</td>
+                    <td style="padding:0 16px;border-bottom:1px solid #E5E7EB">{{ r.type }}</td>
+                    <td style="padding:0 16px;border-bottom:1px solid #E5E7EB"><span style="height:24px;display:inline-flex;align-items:center;padding:0 8px;border-radius:4px;border:1px solid {{ r.b.bd }};background:{{ r.b.bg }};color:{{ r.b.fg }};font:500 13px 'IBM Plex Mono',monospace">{{ r.b.t }}</span></td>
+                    <td style="padding:0 16px;border-bottom:1px solid #E5E7EB;text-align:right;font:13px 'IBM Plex Mono',monospace">{{ r.tries }}</td>
+                    <td style="padding:0 16px;border-bottom:1px solid #E5E7EB;font-size:12px;color:#6B7280">{{ r.updated }}</td>
+                  </tr>
+                </sc-for>
+              </tbody>
+            </table>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:24px">
+            <div style="background:#FFFFFF;border:1px solid #E5E7EB;border-radius:4px;padding:16px;display:flex;flex-direction:column;gap:16px">
+              <div style="display:flex;justify-content:space-between;align-items:baseline"><h2 style="margin:0;font-size:18px;font-weight:600">อัตราส่งสำเร็จ 7 วัน</h2><span style="font:500 13px 'IBM Plex Mono',monospace">{{ rate7 }}</span></div>
+              <div style="display:flex;gap:16px;color:#374151"><span style="display:flex;align-items:center;gap:8px"><span style="width:12px;height:12px;background:#2457A0;border-radius:2px"></span>สำเร็จ</span><span style="display:flex;align-items:center;gap:8px"><span style="width:12px;height:12px;background:#D9821A;border-radius:2px"></span>ล้มเหลว</span></div>
+              <div style="height:200px;display:flex;align-items:flex-end;gap:12px;border-bottom:1px solid #D1D5DB">
+                <sc-for list="{{ chart }}" as="c" hint-placeholder-count="7">
+                  <div title="{{ c.tip }}" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px">
+                    <span style="font:13px 'IBM Plex Mono',monospace;color:#374151">{{ c.rate }}</span>
+                    <div style="width:100%;display:flex;flex-direction:column">
+                      <div style="height:{{ c.failH }};background:#D9821A"></div>
+                      <div style="height:{{ c.okH }};background:#2457A0"></div>
+                    </div>
+                  </div>
+                </sc-for>
+              </div>
+              <div style="display:flex;gap:12px;margin-top:-8px"><sc-for list="{{ chart }}" as="c" hint-placeholder-count="7"><span style="flex:1;text-align:center;color:#6B7280;white-space:nowrap">{{ c.d }}</span></sc-for></div>
+            </div>
+            <div style="background:#FFFFFF;border:1px solid #E5E7EB;border-radius:4px">
+              <div style="padding:16px;display:flex;justify-content:space-between;align-items:baseline;border-bottom:1px solid #E5E7EB"><h2 style="margin:0;font-size:18px;font-weight:600">MISMATCH ล่าสุด</h2><button onClick="{{ goMM }}" style="border:none;background:transparent;color:#163A66;font-size:14px;font-weight:500;cursor:pointer;padding:0" style-hover="color:#2457A0">ดูทั้งหมด</button></div>
+              <sc-if value="{{ hasMmRecent }}" hint-placeholder-val="{{ true }}">
+                <sc-for list="{{ mmRecent }}" as="r" hint-placeholder-count="3">
+                  <button onClick="{{ r.open }}" style="width:100%;text-align:left;border:none;border-bottom:1px solid #E5E7EB;background:#FFFFFF;padding:12px 16px;display:flex;flex-direction:column;gap:4px;cursor:pointer;font-size:14px;color:#111827" style-hover="background:#F9FAFB">
+                    <span style="display:flex;justify-content:space-between;gap:8px"><span style="font:500 13px 'IBM Plex Mono',monospace;color:#163A66">{{ r.no }}</span><span style="font-size:12px;color:#6B7280">{{ r.detected }}</span></span>
+                    <span style="color:#374151">{{ r.cust }} · {{ r.issue }}</span>
+                  </button>
+                </sc-for>
+              </sc-if>
+              <sc-if value="{{ noMmRecent }}" hint-placeholder-val="{{ false }}">
+                <div style="padding:24px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px"><span style="color:#374151">ไม่มีใบที่ไม่ตรงกับ KRS ค้างอยู่</span><button onClick="{{ goMM }}" style="height:36px;padding:0 16px;border-radius:4px;border:1px solid #163A66;background:#FFFFFF;color:#163A66;font-size:14px;font-weight:500;cursor:pointer">ดูประวัติ</button></div>
+              </sc-if>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isSO }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <h1 style="margin:0;font-size:22px;font-weight:600">ใบ SO รอกำหนดเส้นทาง</h1>
+          <div style="color:#374151">ค้าง {{ soPending }} ใบ · คลิกแถวเพื่อเลือกเส้นทางและกำหนดรถ</div>
+        </div>
+        <div style="background:#FFFFFF;border:1px solid #E5E7EB;border-radius:4px">
+          <div style="padding:16px;display:flex;gap:16px;align-items:flex-end;border-bottom:1px solid #E5E7EB;flex-wrap:wrap">
+            <label style="display:flex;flex-direction:column;gap:4px;width:240px"><span style="font-weight:500;color:#374151">เลข SO / ลูกค้า</span><input value="{{ soQ }}" onChange="{{ setSoQ }}" placeholder="พิมพ์เพื่อกรอง" style="height:36px;border:1px solid #D1D5DB;border-radius:4px;padding:0 12px;font-size:14px;outline:none" style-focus="border-color:#2457A0;box-shadow:0 0 0 2px #2457A0"></label>
+            <label style="display:flex;flex-direction:column;gap:4px;width:240px"><span style="font-weight:500;color:#374151">ลูกค้า</span><select value="{{ soCust }}" onChange="{{ setSoCust }}" style="height:36px;border:1px solid #D1D5DB;border-radius:4px;padding:0 8px;font-size:14px;background:#FFFFFF;outline:none" style-focus="border-color:#2457A0;box-shadow:0 0 0 2px #2457A0"><option value="all">ทั้งหมด</option><sc-for list="{{ custOpts }}" as="c"><option value="{{ c.id }}">{{ c.name }}</option></sc-for></select></label>
+            <label style="display:flex;flex-direction:column;gap:4px;width:220px"><span style="font-weight:500;color:#374151">เหตุผลที่ค้าง</span><select value="{{ soReason }}" onChange="{{ setSoReason }}" style="height:36px;border:1px solid #D1D5DB;border-radius:4px;padding:0 8px;font-size:14px;background:#FFFFFF;outline:none" style-focus="border-color:#2457A0;box-shadow:0 0 0 2px #2457A0"><option value="all">ทั้งหมด</option><option value="ROUTE_PENDING">ROUTE_PENDING</option><option value="CUSTOMER_UNMAPPED">CUSTOMER_UNMAPPED</option><option value="PLANNED">PLANNED</option></select></label>
+            <button onClick="{{ clearSo }}" style="height:36px;padding:0 12px;border:none;border-radius:4px;background:transparent;color:#163A66;font-size:14px;font-weight:500;cursor:pointer" style-hover="background:#F2F5FA">ล้างตัวกรอง</button>
+          </div>
+          <table style="width:100%;border-collapse:collapse">
+            <thead><tr>
+              <th style="position:sticky;top:56px;z-index:1;height:44px;padding:0 16px;text-align:left;font-weight:600;color:#374151;background:#F3F4F6;border-bottom:1px solid #E5E7EB">เลข SO</th>
+              <th style="position:sticky;top:56px;z-index:1;height:44px;padding:0 16px;text-align:left;font-weight:600;color:#374151;background:#F3F4F6;border-bottom:1px solid #E5E7EB">ลูกค้า</th>
+              <th style="position:sticky;top:56px;z-index:1;height:44px;padding:0 16px;text-align:left;font-weight:600;color:#374151;background:#F3F4F6;border-bottom:1px solid #E5E7EB">ต้นทาง → ปลายทาง</th>
+              <th style="position:sticky;top:56px;z-index:1;height:44px;padding:0 16px;text-align:left;font-weight:600;color:#374151;background:#F3F4F6;border-bottom:1px solid #E5E7EB">วันที่ต้องการ</th>
+              <th style="position:sticky;top:56px;z-index:1;height:44px;padding:0 16px;text-align:left;font-weight:600;color:#374151;background:#F3F4F6;border-bottom:1px solid #E5E7EB">เหตุผลที่ค้าง</th>
+              <th style="position:sticky;top:56px;z-index:1;height:44px;padding:0 16px;text-align:right;font-weight:600;color:#374151;background:#F3F4F6;border-bottom:1px solid #E5E7EB">อายุที่ค้าง</th>
+            </tr></thead>
+            <tbody>
+              <sc-for list="{{ soRows }}" as="r" hint-placeholder-count="6">
+                <tr onClick="{{ r.open }}" style="height:44px;cursor:pointer;background:{{ r.bg }}" style-hover="background:#F9FAFB">
+                  <td style="padding:0 16px;border-bottom:1px solid #E5E7EB;font:500 13px 'IBM Plex Mono',monospace;color:#163A66">{{ r.no }}</td>
+                  <td style="padding:0 16px;border-bottom:1px solid #E5E7EB">{{ r.cust }}</td>
+                  <td style="padding:0 16px;border-bottom:1px solid #E5E7EB">{{ r.from }} → {{ r.to }}</td>
+                  <td style="padding:0 16px;border-bottom:1px solid #E5E7EB">{{ r.need }}</td>
+                  <td style="padding:0 16px;border-bottom:1px solid #E5E7EB"><span style="height:24px;display:inline-flex;align-items:center;padding:0 8px;border-radius:4px;border:1px solid {{ r.b.bd }};background:{{ r.b.bg }};color:{{ r.b.fg }};font:500 13px 'IBM Plex Mono',monospace">{{ r.b.t }}</span></td>
+                  <td style="padding:0 16px;border-bottom:1px solid #E5E7EB;text-align:right;color:{{ r.ageColor }};font-weight:{{ r.ageW }}">{{ r.age }}</td>
+                </tr>
+              </sc-for>
+            </tbody>
+          </table>
+          <sc-if value="{{ soEmpty }}" hint-placeholder-val="{{ false }}">
+            <div style="padding:32px 16px;display:flex;align-items:center;justify-content:center;gap:16px"><span style="color:#374151">ไม่พบใบ SO ที่ตรงกับตัวกรอง</span><button onClick="{{ clearSo }}" style="height:36px;padding:0 16px;border-radius:4px;border:1px solid #163A66;background:#FFFFFF;color:#163A66;font-size:14px;font-weight:500;cursor:pointer">ล้างตัวกรอง</button></div>
+          </sc-if>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isBill }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:16px">
+          <div style="display:flex;flex-direction:column;gap:4px">
+            <h1 style="margin:0;font-size:22px;font-weight:600">วางบิล</h1>
+            <div style="display:flex;align-items:center;gap:8px;color:#374151"><span style="font:500 13px 'IBM Plex Mono',monospace">{{ billNo }}</span><span style="height:24px;display:inline-flex;align-items:center;padding:0 8px;border-radius:4px;border:1px solid {{ billB.bd }};background:{{ billB.bg }};color:{{ billB.fg }};font:500 13px 'IBM Plex Mono',monospace">{{ billB.t }}</span></div>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button onClick="{{ createDraft }}" disabled="{{ draftDisabled }}" style="height:36px;padding:0 16px;border-radius:4px;border:1px solid #163A66;background:#FFFFFF;color:#163A66;font-size:14px;font-weight:500;cursor:pointer" style-hover="background:#F2F5FA">สร้างร่าง</button>
+            <button onClick="{{ openApproveBill }}" disabled="{{ approveDisabled }}" style="height:36px;padding:0 16px;border-radius:4px;border:none;background:#B8690F;color:#FFFFFF;font-size:14px;font-weight:500;cursor:pointer" style-hover="background:#D9821A">อนุมัติและส่ง KRS</button>
+          </div>
+        </div>
+        <sc-if value="{{ hasLastBill }}" hint-placeholder-val="{{ false }}">
+          <div style="background:#DCFCE7;border:1px solid #86EFAC;border-radius:4px;padding:12px 16px;display:flex;align-items:center;gap:12px;color:#166534">
+            <span>ส่งเข้าคิว KRS แล้ว:</span><span style="font:500 13px 'IBM Plex Mono',monospace">{{ lastBill.no }}</span><span>{{ lastBill.count }} DO · ยอดสุทธิ</span><span style="font:500 13px 'IBM Plex Mono',monospace">{{ lastBill.total }}</span>
+            <button onClick="{{ goDash }}" style="margin-left:auto;border:none;background:transparent;color:#163A66;font-size:14px;font-weight:500;cursor:pointer">ดูคิว outbox</button>
+          </div>
+        </sc-if>
+        <div style="background:#FFFFFF;border:1px solid #E5E7EB;border-radius:4px;padding:16px;display:flex;gap:16px;align-items:flex-end">
+          <label style="display:flex;flex-direction:column;gap:4px;width:320px"><span style="font-weight:500;color:#374151">ลูกค้า</span><select value="{{ billCust }}" onChange="{{ setBillCust }}" style="height:36px;border:1px solid #D1D5DB;border-radius:4px;padding:0 8px;font-size:14px;background:#FFFFFF;outline:none" style-focus="border-color:#2457A0;box-shadow:0 0 0 2px #2457A0"><sc-for list="{{ custOpts }}" as="c"><option value="{{ c.id }}">{{ c.name }}</option></sc-for></select></label>
+          <label style="display:flex;flex-direction:column;gap:4px;width:320px"><span style="font-weight:500;color:#374151">ช่วงวันที่ส่งสินค้า</span><select value="{{ billRange }}" onChange="{{ setBillRange }}" style="height:36px;border:1px solid #D1D5DB;border-radius:4px;padding:0 8px;font-size:14px;background:#FFFFFF;outline:none" style-focus="border-color:#2457A0;box-shadow:0 0 0 2px #2457A0"><option value="r1">1 ต.ค. 2569 – 15 ต.ค. 2569</option><option value="r0">16 ก.ย. 2569 – 30 ก.ย. 2569</option></select></label>
+          <span style="margin-left:auto;color:#6B7280">รหัสลูกค้า KRS <span style="font:13px 'IBM Plex Mono',monospace;color:#111827">{{ billKrsCode }}</span></span>
+        </div>
+        <div style="display:grid;grid-template-columns:minmax(0,1fr) 400px;gap:24px;align-items:start">
+          <div style="background:#FFFFFF;border:1px solid #E5E7EB;border-radius:4px">
+            <div style="padding:16px;border-bottom:1px solid #E5E7EB;display:flex;justify-content:space-between;align-items:baseline"><h2 style="margin:0;font-size:18px;font-weight:600">DO ที่ยังไม่วางบิล</h2><span style="color:#6B7280">เลือก {{ selCount }} จาก {{ doCount }}</span></div>
+            <table style="width:100%;border-collapse:collapse">
+              <thead><tr>
+                <th style="position:sticky;top:56px;z-index:1;width:48px;height:44px;padding:0 16px;background:#F3F4F6;border-bottom:1px solid #E5E7EB"><input type="checkbox" checked="{{ allChecked }}" onChange="{{ toggleAll }}" style="width:16px;height:16px;accent-color:#163A66;cursor:pointer"></th>
+                <th style="position:sticky;top:56px;z-index:1;height:44px;padding:0 16px;text-align:left;font-weight:600;color:#374151;background:#F3F4F6;border-bottom:1px solid #E5E7EB">เลข DO</th>
+                <th style="position:sticky;top:56px;z-index:1;height:44px;padding:0 16px;text-align:left;font-weight:600;color:#374151;background:#F3F4F6;border-bottom:1px solid #E5E7EB">วันที่ส่ง</th>
+                <th style="position:sticky;top:56px;z-index:1;height:44px;padding:0 16px;text-align:left;font-weight:600;color:#374151;background:#F3F4F6;border-bottom:1px solid #E5E7EB">เส้นทาง</th>
+                <th style="position:sticky;top:56px;z-index:1;height:44px;padding:0 16px;text-align:left;font-weight:600;color:#374151;background:#F3F4F6;border-bottom:1px solid #E5E7EB">ทะเบียนรถ</th>
+                <th style="position:sticky;top:56px;z-index:1;height:44px;padding:0 16px;text-align:right;font-weight:600;color:#374151;background:#F3F4F6;border-bottom:1px solid #E5E7EB">ค่าขนส่ง (บาท)</th>
+              </tr></thead>
+              <tbody>
+                <sc-for list="{{ doRows }}" as="r" hint-placeholder-count="6">
+                  <tr onClick="{{ r.toggle }}" style="height:44px;cursor:pointer;background:{{ r.bg }}" style-hover="background:#F9FAFB">
+                    <td style="padding:0 16px;border-bottom:1px solid #E5E7EB"><input type="checkbox" checked="{{ r.checked }}" readOnly="{{ true }}" style="width:16px;height:16px;accent-color:#163A66;pointer-events:none"></td>
+                    <td style="padding:0 16px;border-bottom:1px solid #E5E7EB;font:500 13px 'IBM Plex Mono',monospace">{{ r.no }}</td>
+                    <td style="padding:0 16px;border-bottom:1px solid #E5E7EB">{{ r.date }}</td>
+                    <td style="padding:0 16px;border-bottom:1px solid #E5E7EB">{{ r.route }}</td>
+                    <td style="padding:0 16px;border-bottom:1px solid #E5E7EB;font:13px 'IBM Plex Mono',monospace;white-space:nowrap">{{ r.veh }}</td>
+                    <td style="padding:0 16px;border-bottom:1px solid #E5E7EB;text-align:right;font:13px 'IBM Plex Mono',monospace">{{ r.amt }}</td>
+                  </tr>
+                </sc-for>
+              </tbody>
+            </table>
+            <sc-if value="{{ doEmpty }}" hint-placeholder-val="{{ false }}">
+              <div style="padding:32px 16px;display:flex;align-items:center;justify-content:center;gap:16px"><span style="color:#374151">ไม่มี DO ที่ยังไม่วางบิลในช่วงวันที่นี้</span><button onClick="{{ resetRange }}" style="height:36px;padding:0 16px;border-radius:4px;border:1px solid #163A66;background:#FFFFFF;color:#163A66;font-size:14px;font-weight:500;cursor:pointer">เปลี่ยนช่วงวันที่</button></div>
+            </sc-if>
+          </div>
+          <div style="position:sticky;top:80px;display:flex;flex-direction:column;gap:16px">
+            <div style="background:#FFFFFF;border:1px solid #E5E7EB;border-radius:4px;padding:16px;display:flex;flex-direction:column;gap:8px">
+              <h3 style="margin:0 0 4px;font-size:16px;font-weight:600">ยอดรวม</h3>
+              <div style="display:flex;justify-content:space-between"><span style="color:#374151">จำนวน DO</span><span style="font:13px 'IBM Plex Mono',monospace">{{ selCount }}</span></div>
+              <div style="display:flex;justify-content:space-between"><span style="color:#374151">ค่าขนส่งก่อนภาษี</span><span style="font:13px 'IBM Plex Mono',monospace">{{ subtotal }}</span></div>
+              <div style="display:flex;justify-content:space-between"><span style="color:#374151">ภาษีมูลค่าเพิ่ม 7%</span><span style="font:13px 'IBM Plex Mono',monospace">{{ vat }}</span></div>
+              <div style="display:flex;justify-content:space-between;padding-top:8px;border-top:1px solid #E5E7EB"><span style="font-weight:600">ยอดสุทธิ</span><span style="font:600 16px 'IBM Plex Mono',monospace">{{ total }}</span></div>
+            </div>
+            <div style="background:#FFFFFF;border:1px solid #E5E7EB;border-radius:4px;display:flex;flex-direction:column">
+              <div style="padding:12px 16px;border-bottom:1px solid #E5E7EB;display:flex;justify-content:space-between;align-items:baseline"><h3 style="margin:0;font-size:16px;font-weight:600">Payload ที่จะส่ง KRS</h3><span style="font:13px 'IBM Plex Mono',monospace;color:#6B7280">POST /ar/invoices</span></div>
+              <pre style="margin:0;padding:16px;background:#F2F5FA;font:13px/1.6 'IBM Plex Mono',monospace;color:#111827;max-height:360px;overflow:auto;white-space:pre">{{ payload }}</pre>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isMM }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <h1 style="margin:0;font-size:22px;font-weight:600">ใบที่ไม่ตรงกับ KRS</h1>
+          <div style="color:#374151">เปิดอยู่ {{ mmOpen }} ใบ · คลิกแถวเพื่อเทียบ TMS กับ KRS</div>
+        </div>
+        <div style="background:#FFFFFF;border:1px solid #E5E7EB;border-radius:4px">
+          <table style="width:100%;border-collapse:collapse">
+            <thead><tr>
+              <th style="position:sticky;top:56px;z-index:1;height:44px;padding:0 16px;text-align:left;font-weight:600;color:#374151;background:#F3F4F6;border-bottom:1px solid #E5E7EB">เลขเอกสาร TMS</th>
+              <th style="position:sticky;top:56px;z-index:1;height:44px;padding:0 16px;text-align:left;font-weight:600;color:#374151;background:#F3F4F6;border-bottom:1px solid #E5E7EB">เลขเอกสาร KRS</th>
+              <th style="position:sticky;top:56px;z-index:1;height:44px;padding:0 16px;text-align:left;font-weight:600;color:#374151;background:#F3F4F6;border-bottom:1px solid #E5E7EB">ลูกค้า</th>
+              <th style="position:sticky;top:56px;z-index:1;height:44px;padding:0 16px;text-align:left;font-weight:600;color:#374151;background:#F3F4F6;border-bottom:1px solid #E5E7EB">ประเด็น</th>
+              <th style="position:sticky;top:56px;z-index:1;height:44px;padding:0 16px;text-align:right;font-weight:600;color:#374151;background:#F3F4F6;border-bottom:1px solid #E5E7EB">ส่วนต่างยอด (บาท)</th>
+              <th style="position:sticky;top:56px;z-index:1;height:44px;padding:0 16px;text-align:left;font-weight:600;color:#374151;background:#F3F4F6;border-bottom:1px solid #E5E7EB">สถานะ</th>
+              <th style="position:sticky;top:56px;z-index:1;height:44px;padding:0 16px;text-align:left;font-weight:600;color:#374151;background:#F3F4F6;border-bottom:1px solid #E5E7EB">ตรวจพบ</th>
+            </tr></thead>
+            <tbody>
+              <sc-for list="{{ mmRows }}" as="r" hint-placeholder-count="3">
+                <tr onClick="{{ r.open }}" style="height:44px;cursor:pointer;background:{{ r.bg }}" style-hover="background:#F9FAFB">
+                  <td style="padding:0 16px;border-bottom:1px solid #E5E7EB;font:500 13px 'IBM Plex Mono',monospace;color:#163A66">{{ r.no }}</td>
+                  <td style="padding:0 16px;border-bottom:1px solid #E5E7EB;font:13px 'IBM Plex Mono',monospace">{{ r.krs }}</td>
+                  <td style="padding:0 16px;border-bottom:1px solid #E5E7EB">{{ r.cust }}</td>
+                  <td style="padding:0 16px;border-bottom:1px solid #E5E7EB;color:#374151">{{ r.issue }}</td>
+                  <td style="padding:0 16px;border-bottom:1px solid #E5E7EB;text-align:right;font:13px 'IBM Plex Mono',monospace">{{ r.diffAmt }}</td>
+                  <td style="padding:0 16px;border-bottom:1px solid #E5E7EB"><span style="height:24px;display:inline-flex;align-items:center;padding:0 8px;border-radius:4px;border:1px solid {{ r.b.bd }};background:{{ r.b.bg }};color:{{ r.b.fg }};font:500 13px 'IBM Plex Mono',monospace">{{ r.b.t }}</span></td>
+                  <td style="padding:0 16px;border-bottom:1px solid #E5E7EB;font-size:12px;color:#6B7280">{{ r.detected }}</td>
+                </tr>
+              </sc-for>
+            </tbody>
+          </table>
+        </div>
+      </sc-if>
+    </main>
+  </div>
+
+  <sc-if value="{{ panelOpen }}" hint-placeholder-val="{{ false }}">
+    <div style="position:fixed;top:56px;right:0;bottom:0;width:480px;background:#FFFFFF;border-left:1px solid #D1D5DB;z-index:20;display:flex;flex-direction:column">
+      <div style="height:56px;flex:none;padding:0 16px 0 24px;display:flex;align-items:center;gap:12px;border-bottom:1px solid #E5E7EB">
+        <span style="font:500 13px 'IBM Plex Mono',monospace">{{ pTitle }}</span>
+        <span style="height:24px;display:inline-flex;align-items:center;padding:0 8px;border-radius:4px;border:1px solid {{ pB.bd }};background:{{ pB.bg }};color:{{ pB.fg }};font:500 13px 'IBM Plex Mono',monospace">{{ pB.t }}</span>
+        <button onClick="{{ closePanel }}" style="margin-left:auto;height:36px;padding:0 12px;border:none;border-radius:4px;background:transparent;color:#163A66;font-size:14px;font-weight:500;cursor:pointer" style-hover="background:#F2F5FA">ปิด</button>
+      </div>
+
+      <sc-if value="{{ pSO }}" hint-placeholder-val="{{ false }}">
+        <div style="flex:1;overflow:auto;padding:24px;display:flex;flex-direction:column;gap:24px">
+          <div style="display:grid;grid-template-columns:120px 1fr;gap:8px 12px">
+            <span style="color:#6B7280">ลูกค้า</span><span>{{ so.cust }}</span>
+            <span style="color:#6B7280">ต้นทาง</span><span>{{ so.from }}</span>
+            <span style="color:#6B7280">ปลายทาง</span><span>{{ so.to }}</span>
+            <span style="color:#6B7280">วันที่ต้องการ</span><span>{{ so.need }}</span>
+            <span style="color:#6B7280">สินค้า</span><span>{{ so.goods }}</span>
+          </div>
+          <sc-if value="{{ so.planned }}" hint-placeholder-val="{{ false }}">
+            <div style="background:#F2F5FA;border:1px solid #E5E7EB;border-radius:4px;padding:16px;display:grid;grid-template-columns:120px 1fr;gap:8px 12px">
+              <span style="color:#6B7280">เส้นทาง</span><span>{{ so.routeLabel }}</span>
+              <span style="color:#6B7280">ทะเบียนรถ</span><span style="font:13px 'IBM Plex Mono',monospace">{{ so.vehicle }}</span>
+            </div>
+          </sc-if>
+          <sc-if value="{{ so.editable }}" hint-placeholder-val="{{ false }}">
+            <sc-if value="{{ so.needMap }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;flex-direction:column;gap:8px">
+                <h3 style="margin:0;font-size:16px;font-weight:600">จับคู่ลูกค้ากับ KRS</h3>
+                <div style="color:#374151">ไม่พบรหัสลูกค้านี้ใน KRS เลือกรหัสที่ตรงกันก่อนกำหนดเส้นทาง</div>
+                <select value="{{ mapCode }}" onChange="{{ setMap }}" style="height:36px;border:1px solid #D1D5DB;border-radius:4px;padding:0 8px;font-size:14px;background:#FFFFFF;outline:none" style-focus="border-color:#2457A0;box-shadow:0 0 0 2px #2457A0"><option value="">เลือกรหัสลูกค้า KRS</option><sc-for list="{{ krsCustOpts }}" as="k"><option value="{{ k.code }}">{{ k.label }}</option></sc-for></select>
+              </div>
+            </sc-if>
+            <div style="display:flex;flex-direction:column;gap:12px">
+              <h3 style="margin:0;font-size:16px;font-weight:600">เส้นทาง</h3>
+              <div style="display:flex;border:1px solid #D1D5DB;border-radius:4px;overflow:hidden;width:max-content">
+                <button onClick="{{ setMaster }}" style="height:36px;padding:0 16px;border:none;background:{{ tabMasterBg }};color:{{ tabMasterFg }};font-size:14px;font-weight:500;cursor:pointer">เลือกจาก master</button>
+                <button onClick="{{ setNew }}" style="height:36px;padding:0 16px;border:none;border-left:1px solid #D1D5DB;background:{{ tabNewBg }};color:{{ tabNewFg }};font-size:14px;font-weight:500;cursor:pointer">สร้างเส้นทางใหม่</button>
+              </div>
+              <sc-if value="{{ isMaster }}" hint-placeholder-val="{{ true }}">
+                <div style="display:flex;flex-direction:column;gap:8px">
+                  <sc-for list="{{ routeOpts }}" as="o" hint-placeholder-count="3">
+                    <button onClick="{{ o.pick }}" style="text-align:left;padding:12px;border:1px solid {{ o.bd }};background:{{ o.bg }};border-radius:4px;display:flex;gap:12px;align-items:center;cursor:pointer;font-size:14px;color:#111827">
+                      <span style="width:16px;height:16px;flex:none;border-radius:50%;border:1px solid #6B7280;display:flex;align-items:center;justify-content:center"><span style="width:8px;height:8px;border-radius:50%;background:{{ o.dot }}"></span></span>
+                      <span style="flex:1;display:flex;flex-direction:column"><span>{{ o.label }}</span><span style="color:#6B7280">{{ o.meta }}</span></span>
+                      <span style="font:13px 'IBM Plex Mono',monospace;color:#374151">{{ o.id }}</span>
+                    </button>
+                  </sc-for>
+                </div>
+              </sc-if>
+              <sc-if value="{{ isNew }}" hint-placeholder-val="{{ false }}">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                  <label style="display:flex;flex-direction:column;gap:4px"><span style="font-weight:500;color:#374151">ต้นทาง</span><input value="{{ newFrom }}" onChange="{{ setNewFrom }}" style="height:36px;border:1px solid #D1D5DB;border-radius:4px;padding:0 12px;font-size:14px;outline:none" style-focus="border-color:#2457A0;box-shadow:0 0 0 2px #2457A0"></label>
+                  <label style="display:flex;flex-direction:column;gap:4px"><span style="font-weight:500;color:#374151">ปลายทาง</span><input value="{{ newTo }}" onChange="{{ setNewTo }}" style="height:36px;border:1px solid #D1D5DB;border-radius:4px;padding:0 12px;font-size:14px;outline:none" style-focus="border-color:#2457A0;box-shadow:0 0 0 2px #2457A0"></label>
+                  <label style="display:flex;flex-direction:column;gap:4px"><span style="font-weight:500;color:#374151">ระยะทาง (กม.)</span><input value="{{ newKm }}" onChange="{{ setNewKm }}" placeholder="0" style="height:36px;border:1px solid #D1D5DB;border-radius:4px;padding:0 12px;font:13px 'IBM Plex Mono',monospace;text-align:right;outline:none" style-focus="border-color:#2457A0;box-shadow:0 0 0 2px #2457A0"></label>
+                  <div style="display:flex;align-items:flex-end;color:#6B7280">บันทึกเข้า master อัตโนมัติ</div>
+                </div>
+              </sc-if>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:4px">
+              <h3 style="margin:0 0 4px;font-size:16px;font-weight:600">กำหนดรถ</h3>
+              <select value="{{ vehicle }}" onChange="{{ setVehicle }}" style="height:36px;border:1px solid #D1D5DB;border-radius:4px;padding:0 8px;font-size:14px;background:#FFFFFF;outline:none" style-focus="border-color:#2457A0;box-shadow:0 0 0 2px #2457A0"><option value="">เลือกทะเบียนรถ</option><sc-for list="{{ vehicles }}" as="v"><option value="{{ v.plate }}">{{ v.label }}</option></sc-for></select>
+            </div>
+          </sc-if>
+        </div>
+        <sc-if value="{{ so.editable }}" hint-placeholder-val="{{ false }}">
+          <div style="flex:none;padding:16px 24px;border-top:1px solid #E5E7EB;display:flex;justify-content:flex-end;gap:8px">
+            <button onClick="{{ closePanel }}" style="height:36px;padding:0 12px;border:none;border-radius:4px;background:transparent;color:#163A66;font-size:14px;font-weight:500;cursor:pointer" style-hover="background:#F2F5FA">ยกเลิก</button>
+            <button onClick="{{ confirmSO }}" disabled="{{ soDisabled }}" style="height:36px;padding:0 16px;border-radius:4px;border:none;background:#B8690F;color:#FFFFFF;font-size:14px;font-weight:500;cursor:pointer" style-hover="background:#D9821A">ยืนยันกำหนดเส้นทาง</button>
+          </div>
+        </sc-if>
+      </sc-if>
+
+      <sc-if value="{{ pOut }}" hint-placeholder-val="{{ false }}">
+        <div style="flex:1;overflow:auto;padding:24px;display:flex;flex-direction:column;gap:24px">
+          <div style="display:grid;grid-template-columns:120px 1fr;gap:8px 12px">
+            <span style="color:#6B7280">ประเภท</span><span>{{ out.type }}</span>
+            <span style="color:#6B7280">ลูกค้า</span><span>{{ out.cust }}</span>
+            <span style="color:#6B7280">Endpoint</span><span style="font:13px 'IBM Plex Mono',monospace">{{ out.endpoint }}</span>
+            <span style="color:#6B7280">ครั้งที่ส่ง</span><span style="font:13px 'IBM Plex Mono',monospace">{{ out.tries }}</span>
+            <span style="color:#6B7280">ส่งครั้งถัดไป</span><span>{{ out.next }}</span>
+          </div>
+          <sc-if value="{{ out.hasErr }}" hint-placeholder-val="{{ false }}">
+            <div style="background:#FEE2E2;border:1px solid #FCA5A5;border-radius:4px;padding:12px 16px;color:#991B1B;display:flex;flex-direction:column;gap:4px"><span style="font-weight:600">ข้อผิดพลาดล่าสุด</span><span style="font:13px 'IBM Plex Mono',monospace">{{ out.err }}</span></div>
+          </sc-if>
+          <div style="display:flex;flex-direction:column;gap:8px"><h3 style="margin:0;font-size:16px;font-weight:600">Payload</h3><pre style="margin:0;padding:16px;background:#F2F5FA;border-radius:4px;font:13px/1.6 'IBM Plex Mono',monospace;white-space:pre;overflow:auto">{{ out.payload }}</pre></div>
+        </div>
+        <div style="flex:none;padding:16px 24px;border-top:1px solid #E5E7EB;display:flex;justify-content:flex-end;gap:8px">
+          <button onClick="{{ closePanel }}" style="height:36px;padding:0 12px;border:none;border-radius:4px;background:transparent;color:#163A66;font-size:14px;font-weight:500;cursor:pointer" style-hover="background:#F2F5FA">ปิด</button>
+          <button onClick="{{ resend }}" disabled="{{ resendDisabled }}" style="height:36px;padding:0 16px;border-radius:4px;border:none;background:#B8690F;color:#FFFFFF;font-size:14px;font-weight:500;cursor:pointer" style-hover="background:#D9821A">ส่งใหม่ตอนนี้</button>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ pMM }}" hint-placeholder-val="{{ false }}">
+        <div style="flex:1;overflow:auto;padding:24px;display:flex;flex-direction:column;gap:16px">
+          <div style="display:grid;grid-template-columns:120px 1fr;gap:8px 12px">
+            <span style="color:#6B7280">ลูกค้า</span><span>{{ mm.cust }}</span>
+            <span style="color:#6B7280">เลข KRS</span><span style="font:13px 'IBM Plex Mono',monospace">{{ mm.krs }}</span>
+          </div>
+          <div style="border:1px solid #E5E7EB;border-radius:4px">
+            <div style="display:grid;grid-template-columns:1fr 128px 128px;background:#F3F4F6;border-bottom:1px solid #E5E7EB;height:44px;align-items:center;font-weight:600;color:#374151">
+              <span style="padding:0 12px">ฟิลด์</span><span style="padding:0 12px;text-align:right">TMS</span><span style="padding:0 12px;text-align:right">KRS</span>
+            </div>
+            <sc-for list="{{ cmp }}" as="c" hint-placeholder-count="6">
+              <div style="display:grid;grid-template-columns:1fr 128px 128px;min-height:44px;align-items:center;border-bottom:1px solid #E5E7EB;background:{{ c.bg }}">
+                <span style="padding:8px 12px;display:flex;align-items:center;gap:8px"><span>{{ c.label }}</span><sc-if value="{{ c.diff }}"><span style="height:24px;display:inline-flex;align-items:center;padding:0 8px;border-radius:4px;border:1px solid #FCA5A5;background:#FFFFFF;color:#991B1B;font-size:14px;font-weight:500">ต่าง</span></sc-if></span>
+                <span style="padding:8px 12px;text-align:right;font:13px 'IBM Plex Mono',monospace">{{ c.tms }}</span>
+                <span style="padding:8px 12px;text-align:right;font:13px 'IBM Plex Mono',monospace">{{ c.krs }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+        <div style="flex:none;padding:16px 24px;border-top:1px solid #E5E7EB;display:flex;justify-content:flex-end;gap:8px">
+          <button onClick="{{ openAccept }}" disabled="{{ mmDisabled }}" style="height:36px;padding:0 12px;border:none;border-radius:4px;background:transparent;color:#163A66;font-size:14px;font-weight:500;cursor:pointer" style-hover="background:#F2F5FA">ยอมรับพร้อมเหตุผล</button>
+          <button onClick="{{ editTMS }}" disabled="{{ mmDisabled }}" style="height:36px;padding:0 16px;border-radius:4px;border:1px solid #163A66;background:#FFFFFF;color:#163A66;font-size:14px;font-weight:500;cursor:pointer" style-hover="background:#F2F5FA">แก้ใน TMS</button>
+          <button onClick="{{ openOverwrite }}" disabled="{{ mmDisabled }}" style="height:36px;padding:0 16px;border-radius:4px;border:none;background:#B8690F;color:#FFFFFF;font-size:14px;font-weight:500;cursor:pointer" style-hover="background:#D9821A">ส่งทับ KRS</button>
+        </div>
+      </sc-if>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ dlgOpen }}" hint-placeholder-val="{{ false }}">
+    <div style="position:fixed;inset:0;background:rgba(11,31,58,.45);z-index:40;display:flex;align-items:center;justify-content:center">
+      <div style="width:560px;max-height:calc(100vh - 48px);background:#FFFFFF;border:1px solid #E5E7EB;border-radius:4px;display:flex;flex-direction:column">
+        <div style="padding:16px 24px;border-bottom:1px solid #E5E7EB;display:flex;flex-direction:column;gap:4px">
+          <h2 style="margin:0;font-size:18px;font-weight:600">{{ dlgTitle }}</h2>
+          <span style="color:#374151">{{ dlgDesc }}</span>
+        </div>
+        <div style="padding:24px;overflow:auto;display:flex;flex-direction:column;gap:16px">
+          <sc-if value="{{ dlgIsMM }}" hint-placeholder-val="{{ false }}">
+            <div style="border:1px solid #E5E7EB;border-radius:4px">
+              <div style="display:grid;grid-template-columns:1fr 140px 140px;height:44px;align-items:center;background:#F3F4F6;font-weight:600;color:#374151;border-bottom:1px solid #E5E7EB"><span style="padding:0 12px">ฟิลด์ที่ต่าง</span><span style="padding:0 12px;text-align:right">{{ dlgColA }}</span><span style="padding:0 12px;text-align:right">{{ dlgColB }}</span></div>
+              <sc-for list="{{ dlgDiff }}" as="c" hint-placeholder-count="3">
+                <div style="display:grid;grid-template-columns:1fr 140px 140px;min-height:44px;align-items:center;border-bottom:1px solid #E5E7EB;background:#FEE2E2"><span style="padding:8px 12px">{{ c.label }}</span><span style="padding:8px 12px;text-align:right;font:13px 'IBM Plex Mono',monospace">{{ c.a }}</span><span style="padding:8px 12px;text-align:right;font:13px 'IBM Plex Mono',monospace">{{ c.b }}</span></div>
+              </sc-for>
+            </div>
+          </sc-if>
+          <sc-if value="{{ dlgIsBill }}" hint-placeholder-val="{{ false }}">
+            <div style="background:#F2F5FA;border-radius:4px;padding:16px;display:grid;grid-template-columns:140px 1fr;gap:8px 12px">
+              <span style="color:#6B7280">ลูกค้า</span><span>{{ billCustName }}</span>
+              <span style="color:#6B7280">จำนวน DO</span><span style="font:13px 'IBM Plex Mono',monospace">{{ selCount }}</span>
+              <span style="color:#6B7280">ยอดสุทธิ</span><span style="font:500 13px 'IBM Plex Mono',monospace">{{ total }}</span>
+            </div>
+          </sc-if>
+          <label style="display:flex;flex-direction:column;gap:4px">
+            <span style="font-weight:500;color:#374151">{{ reasonLabel }}</span>
+            <textarea value="{{ reason }}" onChange="{{ setReason }}" rows="3" placeholder="ระบุเหตุผลให้ผู้อนุมัติเข้าใจ" style="border:1px solid {{ reasonBd }};border-radius:4px;padding:8px 12px;font-size:14px;line-height:1.6;resize:vertical;outline:none" style-focus="border-color:#2457A0;box-shadow:0 0 0 2px #2457A0"></textarea>
+            <sc-if value="{{ reasonErr }}"><span style="color:#991B1B">กรุณาระบุเหตุผลอย่างน้อย 10 ตัวอักษร</span></sc-if>
+          </label>
+        </div>
+        <div style="padding:16px 24px;border-top:1px solid #E5E7EB;display:flex;justify-content:flex-end;gap:8px">
+          <button onClick="{{ closeDlg }}" style="height:36px;padding:0 12px;border:none;border-radius:4px;background:transparent;color:#163A66;font-size:14px;font-weight:500;cursor:pointer" style-hover="background:#F2F5FA">ยกเลิก</button>
+          <button onClick="{{ submitDlg }}" style="height:36px;padding:0 16px;border-radius:4px;border:none;background:#B8690F;color:#FFFFFF;font-size:14px;font-weight:500;cursor:pointer" style-hover="background:#D9821A">{{ dlgPrimary }}</button>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <div style="position:fixed;top:68px;right:24px;z-index:50;display:flex;flex-direction:column;gap:8px;width:360px;pointer-events:none">
+    <sc-for list="{{ toasts }}" as="t">
+      <div style="pointer-events:auto;background:{{ t.bg }};border:1px solid {{ t.bd }};color:{{ t.fg }};border-radius:4px;padding:12px 16px;display:flex;flex-direction:column;gap:2px">
+        <span style="font-weight:500">{{ t.msg }}</span><span style="font-size:12px">{{ t.time }}</span>
+      </div>
+    </sc-for>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+const PAL={info:['#1E40AF','#DBEAFE','#93C5FD'],warn:['#92400E','#FEF3C7','#FCD34D'],err:['#991B1B','#FEE2E2','#FCA5A5'],ok:['#166534','#DCFCE7','#86EFAC'],off:['#374151','#F3F4F6','#D1D5DB']};
+const KIND={RECEIVED:'info',DRAFT:'info',READY:'info',ROUTE_PENDING:'warn',CUSTOMER_UNMAPPED:'warn',RETRY_WAIT:'warn',APPROVAL_PENDING:'warn',REJECTED:'err',FAILED:'err',MISMATCH:'err',PLANNED:'ok',DELIVERED:'ok',BILLED:'ok',ACCEPTED:'ok',POSTED:'ok',CANCELLED:'off'};
+const badge=s=>{const p=PAL[KIND[s]||'off'];return {t:s,fg:p[0],bg:p[1],bd:p[2]};};
+const fmt=n=>n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+const CUST={C1:{name:'บริษัท พีพี จำกัด',code:'CUS-00118'},C2:{name:'บริษัท สยามเคมีภัณฑ์ จำกัด',code:'CUS-00204'},C3:{name:'บริษัท นครไทยค้าเหล็ก จำกัด',code:'CUS-00137'},C4:{name:'ห้างหุ้นส่วนจำกัด เจริญพาณิชย์',code:'CUS-00311'}};
+const KRS_UNMAPPED=[{code:'CUS-00204',label:'CUS-00204 · สยามเคมีภัณฑ์'},{code:'CUS-00311',label:'CUS-00311 · เจริญพาณิชย์'},{code:'CUS-00290',label:'CUS-00290 · สยามเคมี (สาขาระยอง)'}];
+const VEH=[{plate:'70-1234 กรุงเทพมหานคร',label:'70-1234 กรุงเทพมหานคร · 6 ล้อ · ว่าง'},{plate:'71-5678 กรุงเทพมหานคร',label:'71-5678 กรุงเทพมหานคร · 10 ล้อ · ว่าง'},{plate:'82-4410 ชลบุรี',label:'82-4410 ชลบุรี · หัวลาก · ว่าง'},{plate:'70-9012 กรุงเทพมหานคร',label:'70-9012 กรุงเทพมหานคร · 4 ล้อ · ว่าง 16 ต.ค.'}];
+const ROUTES0=[{id:'RT-0012',from:'ลาดกระบัง',to:'แหลมฉบัง',km:118,hr:'2 ชม.'},{id:'RT-0015',from:'ลาดกระบัง',to:'นวนคร',km:64,hr:'1 ชม. 30 นาที'},{id:'RT-0021',from:'บางนา',to:'อมตะซิตี้',km:72,hr:'1 ชม. 40 นาที'},{id:'RT-0030',from:'บางพลี',to:'มาบตาพุด',km:168,hr:'3 ชม.'},{id:'RT-0031',from:'รังสิต',to:'โคราช',km:236,hr:'4 ชม.'}];
+const SOS0=[
+ {no:'SO-2610-0123',c:'C1',from:'ลาดกระบัง',to:'แหลมฉบัง',need:'16 ต.ค. 2569',status:'ROUTE_PENDING',ageH:52,goods:'ชิ้นส่วนยานยนต์ 12 พาเลท'},
+ {no:'SO-2610-0124',c:'C2',from:'บางพลี',to:'มาบตาพุด',need:'16 ต.ค. 2569',status:'CUSTOMER_UNMAPPED',ageH:30,goods:'เคมีภัณฑ์ 18 ถัง'},
+ {no:'SO-2610-0126',c:'C1',from:'ลาดกระบัง',to:'นวนคร',need:'17 ต.ค. 2569',status:'ROUTE_PENDING',ageH:20,goods:'บรรจุภัณฑ์ 6 พาเลท'},
+ {no:'SO-2610-0127',c:'C3',from:'บางนา',to:'อมตะซิตี้',need:'17 ต.ค. 2569',status:'ROUTE_PENDING',ageH:9,goods:'เหล็กแผ่น 8 ตัน'},
+ {no:'SO-2610-0129',c:'C4',from:'รังสิต',to:'โคราช',need:'18 ต.ค. 2569',status:'CUSTOMER_UNMAPPED',ageH:5,goods:'สินค้าอุปโภค 20 ลัง'},
+ {no:'SO-2610-0130',c:'C1',from:'ลาดกระบัง',to:'แหลมฉบัง',need:'18 ต.ค. 2569',status:'ROUTE_PENDING',ageH:2,goods:'ชิ้นส่วนยานยนต์ 10 พาเลท'}];
+const DOS0=[
+ ['DO-2610-00042','C1','1 ต.ค. 2569','RT-0012','70-1234 กรุงเทพมหานคร',18500,'SO-2610-0098','r1'],
+ ['DO-2610-00045','C1','3 ต.ค. 2569','RT-0015','71-5678 กรุงเทพมหานคร',9800,'SO-2610-0101','r1'],
+ ['DO-2610-00048','C1','6 ต.ค. 2569','RT-0012','70-1234 กรุงเทพมหานคร',18500,'SO-2610-0107','r1'],
+ ['DO-2610-00051','C1','8 ต.ค. 2569','RT-0012','82-4410 ชลบุรี',24750,'SO-2610-0110','r1'],
+ ['DO-2610-00055','C1','10 ต.ค. 2569','RT-0015','70-9012 กรุงเทพมหานคร',6420,'SO-2610-0114','r1'],
+ ['DO-2610-00058','C1','12 ต.ค. 2569','RT-0012','70-1234 กรุงเทพมหานคร',18500,'SO-2610-0117','r1'],
+ ['DO-2610-00044','C2','2 ต.ค. 2569','RT-0030','82-4410 ชลบุรี',32400,'SO-2610-0099','r1'],
+ ['DO-2610-00049','C2','7 ต.ค. 2569','RT-0030','82-4410 ชลบุรี',32400,'SO-2610-0108','r1'],
+ ['DO-2610-00046','C3','4 ต.ค. 2569','RT-0021','71-5678 กรุงเทพมหานคร',14200,'SO-2610-0103','r1'],
+ ['DO-2610-00052','C3','9 ต.ค. 2569','RT-0021','71-5678 กรุงเทพมหานคร',14200,'SO-2610-0112','r1']
+].map(d=>({no:d[0],c:d[1],date:d[2],route:d[3],veh:d[4],amt:d[5],so:d[6],range:d[7],billed:false}));
+const MMS0=[
+ {no:'TMS-INV-2610-0005',krs:'SA-S2610-0012',c:'C1',issue:'รายการหาย 1 · เกิน 1 · ฟิลด์ว่าง',diffAmt:12450,status:'MISMATCH',detected:'14 ต.ค. 2569 08:30',cmp:[
+  ['จำนวนรายการ','4','4'],['ยอดรวม (บาท)','71,550.00','59,100.00'],['DO-2610-00031','18,500.00','18,500.00'],['DO-2610-00033','9,800.00','9,800.00'],['DO-2610-00036','24,750.00','ไม่มี (หาย)'],['DO-2610-00038','18,500.00','18,500.00'],['DO-2610-00039','ไม่มี (เกิน)','12,300.00'],['ทะเบียนรถ DO-2610-00033','71-5678','ว่าง'],['เส้นทาง DO-2610-00033','RT-0015','ว่าง']]},
+ {no:'TMS-INV-2610-0002',krs:'SA-S2610-0009',c:'C3',issue:'ฟิลด์รถ/เส้นทางว่าง',diffAmt:0,status:'MISMATCH',detected:'13 ต.ค. 2569 16:05',cmp:[
+  ['จำนวนรายการ','2','2'],['ยอดรวม (บาท)','41,000.00','41,000.00'],['DO-2610-00027','20,500.00','20,500.00'],['DO-2610-00029','20,500.00','20,500.00'],['ทะเบียนรถ DO-2610-00029','82-4410','ว่าง'],['เส้นทาง DO-2610-00029','RT-0021','ว่าง']]},
+ {no:'TMS-INV-2610-0001',krs:'SA-S2610-0008',c:'C2',issue:'ยอดรายการไม่ตรง',diffAmt:180,status:'MISMATCH',detected:'12 ต.ค. 2569 11:20',cmp:[
+  ['จำนวนรายการ','3','3'],['ยอดรวม (บาท)','31,200.00','31,020.00'],['DO-2610-00021','10,400.00','10,400.00'],['DO-2610-00023','10,400.00','10,220.00'],['DO-2610-00025','10,400.00','10,400.00']]}];
+const OUT0=[
+ {no:'TMS-INV-2610-0006',type:'ใบแจ้งหนี้',c:'C1',status:'RETRY_WAIT',tries:3,next:'14 ต.ค. 2569 09:50',updated:'14 ต.ค. 2569 09:35',err:'HTTP 503 · KRS ไม่ตอบสนองภายใน 30 วินาที',endpoint:'POST /ar/invoices'},
+ {no:'TMS-INV-2610-0004',type:'ใบแจ้งหนี้',c:'C4',status:'FAILED',tries:5,next:'หยุดส่งอัตโนมัติ',updated:'14 ต.ค. 2569 08:12',err:'HTTP 422 · customerCode CUS-00311 ไม่พบใน KRS',endpoint:'POST /ar/invoices'},
+ {no:'DO-2610-00058',type:'ยืนยันการส่งสินค้า',c:'C1',status:'READY',tries:0,next:'ภายใน 1 นาที',updated:'14 ต.ค. 2569 09:40',err:'',endpoint:'POST /logistics/deliveries'},
+ {no:'DO-2610-00055',type:'ยืนยันการส่งสินค้า',c:'C1',status:'ACCEPTED',tries:1,next:'—',updated:'14 ต.ค. 2569 09:02',err:'',endpoint:'POST /logistics/deliveries'},
+ {no:'TMS-INV-2610-0003',type:'ใบแจ้งหนี้',c:'C3',status:'POSTED',tries:1,next:'—',updated:'13 ต.ค. 2569 17:48',err:'',endpoint:'POST /ar/invoices'},
+ {no:'SO-2610-0120',type:'สถานะ SO',c:'C1',status:'ACCEPTED',tries:2,next:'—',updated:'13 ต.ค. 2569 15:30',err:'',endpoint:'PATCH /sales/orders'}];
+const CHART=[['8 ต.ค.',138,2],['9 ต.ค.',151,4],['10 ต.ค.',126,9],['11 ต.ค.',64,1],['12 ต.ค.',58,0],['13 ต.ค.',147,6],['14 ต.ค.',72,3]];
+const nowStr=()=>{const d=new Date();return '14 ต.ค. 2569 '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');};
+const ageText=h=>h>=24?`${Math.floor(h/24)} วัน ${h%24} ชม.`:`${h} ชม.`;
+
+class Component extends DCLogic {
+  state={page:'dash',collapsed:false,panel:null,search:'',soQ:'',soCust:'all',soReason:'all',
+    sos:SOS0.map(s=>({...s})),routes:ROUTES0.slice(),dos:DOS0.map(d=>({...d})),mms:MMS0.map(m=>({...m})),outbox:OUT0.map(o=>({...o})),
+    routeMode:'master',routeId:'',vehicle:'',mapCode:'',newFrom:'',newTo:'',newKm:'',
+    billCust:'C1',billRange:'r1',checked:{},invSeq:7,billStatus:null,lastBill:null,
+    dlg:null,reason:'',reasonErr:false,toasts:[]};
+  toast(msg,kind='ok'){const id=Math.random();const p=PAL[kind];this.setState(s=>({toasts:[...s.toasts,{id,msg,fg:p[0],bg:p[1],bd:p[2],time:nowStr()}]}));setTimeout(()=>this.setState(s=>({toasts:s.toasts.filter(t=>t.id!==id)})),4000);}
+  go(page){this.setState({page,panel:null});}
+  openSO(no){const so=this.state.sos.find(s=>s.no===no);const r=this.state.routes.find(r=>r.from===so.from&&r.to===so.to);this.setState({page:'so',panel:{t:'so',id:no},routeMode:'master',routeId:r?r.id:'',vehicle:'',mapCode:'',newFrom:so.from,newTo:so.to,newKm:''});}
+  openMM(no){this.setState({page:'mm',panel:{t:'mm',id:no}});}
+  billNo(){return 'TMS-INV-2610-'+String(this.state.invSeq).padStart(4,'0');}
+  setMMStatus(no,status){this.setState(s=>({mms:s.mms.map(m=>m.no===no?{...m,status}:m)}));}
+  submitDlg(){
+    const s=this.state,d=s.dlg;const need=d.kind!=='bill';
+    if(need&&s.reason.trim().length<10){this.setState({reasonErr:true});return;}
+    if(d.kind==='overwrite'){this.setMMStatus(d.id,'READY');const m=s.mms.find(m=>m.no===d.id);
+      this.setState(st=>({outbox:[{no:d.id,type:'ส่งทับใบแจ้งหนี้',c:m.c,status:'READY',tries:0,next:'ภายใน 1 นาที',updated:nowStr(),err:'',endpoint:'PUT /ar/invoices/'+m.krs},...st.outbox]}));
+      this.toast(`${d.id} อนุมัติส่งทับ KRS แล้ว สถานะ READY`);}
+    else if(d.kind==='accept'){this.setMMStatus(d.id,'ACCEPTED');this.toast(`${d.id} ยอมรับความต่างแล้ว`);}
+    else{const sel=s.dos.filter(x=>s.checked[x.no]);const sub=sel.reduce((a,b)=>a+b.amt,0);const no=this.billNo();
+      this.setState(st=>({dos:st.dos.map(x=>st.checked[x.no]?{...x,billed:true}:x),checked:{},invSeq:st.invSeq+1,billStatus:null,
+        lastBill:{no,count:sel.length,total:fmt(sub*1.07)},
+        outbox:[{no,type:'ใบแจ้งหนี้',c:st.billCust,status:'READY',tries:0,next:'ภายใน 1 นาที',updated:nowStr(),err:'',endpoint:'POST /ar/invoices'},...st.outbox]}));
+      this.toast(`${no} อนุมัติแล้ว เข้าคิวส่ง KRS`);}
+    this.setState({dlg:null,reason:'',reasonErr:false});
+  }
+  renderVals(){
+    const s=this.state,P=s.panel;
+    const pendingSO=s.sos.filter(x=>x.status!=='PLANNED').length;
+    const unbilled=s.dos.filter(x=>!x.billed).length;
+    const mmOpen=s.mms.filter(m=>m.status==='MISMATCH').length;
+    const queue=s.outbox.filter(o=>o.status==='READY'||o.status==='RETRY_WAIT').length;
+    const failed=s.outbox.filter(o=>o.status==='FAILED').length;
+    const menu=[['dash','ภาพรวมการเชื่อมต่อ KRS','KRS',failed],['so','ใบ SO รอกำหนดเส้นทาง','SO',pendingSO],['bill','วางบิล','บิล',unbilled],['mm','ใบที่ไม่ตรงกับ KRS','ต่าง',mmOpen]].map(([k,label,short,count])=>{const a=s.page===k;
+      return {label,text:s.collapsed?short:label,count,hasCount:count>0&&!s.collapsed,bar:a?'#B8690F':'transparent',bg:a?'#163A66':'transparent',fg:a?'#FFFFFF':'#E3EAF5',go:()=>this.go(k)};});
+    const sel=(t,id)=>P&&P.t===t&&P.id===id?'#E3EAF5':'#FFFFFF';
+    // dashboard
+    const outRows=s.outbox.map(o=>({...o,b:badge(o.status),bg:sel('out',o.no),open:()=>this.setState({panel:{t:'out',id:o.no}})}));
+    const max=Math.max(...CHART.map(c=>c[1]+c[2]));
+    const chart=CHART.map(([d,ok,f])=>({d,okH:Math.round(ok/max*150)+'px',failH:Math.max(f?2:0,Math.round(f/max*150))+'px',rate:(ok/(ok+f)*100).toFixed(1)+'%',tip:`สำเร็จ ${ok} · ล้มเหลว ${f}`}));
+    const tOk=CHART.reduce((a,c)=>a+c[1],0),tAll=CHART.reduce((a,c)=>a+c[1]+c[2],0);
+    const mmRecent=s.mms.filter(m=>m.status==='MISMATCH').map(m=>({no:m.no,cust:CUST[m.c].name,issue:m.issue,detected:m.detected,open:()=>this.openMM(m.no)}));
+    const stats=[{label:'คิวรอส่ง',value:String(queue),sub:'READY และ RETRY_WAIT',color:'#111827',go:()=>this.go('dash')},{label:'ส่งล้มเหลว',value:String(failed),sub:'ต้องตรวจสอบด้วยมือ',color:failed?'#991B1B':'#111827',go:()=>this.go('dash')},{label:'MISMATCH เปิดอยู่',value:String(mmOpen),sub:'ดูใบที่ไม่ตรงกับ KRS',color:mmOpen?'#991B1B':'#111827',go:()=>this.go('mm')},{label:'SO poll ล่าสุด',value:'3 นาที',sub:'รอบถัดไปใน 2 นาที',color:'#111827',go:()=>this.go('so')}];
+    // SO
+    const q=s.soQ.trim().toLowerCase();
+    const soRows=s.sos.filter(x=>(s.soCust==='all'||x.c===s.soCust)&&(s.soReason==='all'||x.status===s.soReason)&&(!q||x.no.toLowerCase().includes(q)||CUST[x.c].name.includes(s.soQ.trim())))
+      .map(x=>{const pl=x.status==='PLANNED';return {...x,cust:CUST[x.c].name,b:badge(x.status),age:pl?'—':ageText(x.ageH),ageColor:!pl&&x.ageH>=24?'#92400E':'#374151',ageW:!pl&&x.ageH>=24?600:400,bg:sel('so',x.no),open:()=>this.openSO(x.no)};});
+    const soP=P&&P.t==='so'?s.sos.find(x=>x.no===P.id):null;
+    let so={},routeOpts=[],soDisabled=true;
+    if(soP){const planned=soP.status==='PLANNED';const rt=s.routes.find(r=>r.id===soP.routeId);
+      so={...soP,cust:CUST[soP.c].name,planned,editable:!planned,needMap:soP.status==='CUSTOMER_UNMAPPED',routeLabel:rt?`${rt.id} · ${rt.from} → ${rt.to}`:'',vehicle:soP.vehicle||''};
+      const match=s.routes.filter(r=>r.from===soP.from);const list=match.length?match:s.routes;
+      routeOpts=list.map(r=>{const on=s.routeId===r.id;return {id:r.id,label:`${r.from} → ${r.to}`,meta:`${r.km} กม. · ประมาณ ${r.hr}${r.to===soP.to?' · ตรงปลายทาง':''}`,bd:on?'#2457A0':'#D1D5DB',bg:on?'#E3EAF5':'#FFFFFF',dot:on?'#163A66':'transparent',pick:()=>this.setState({routeId:r.id})};});
+      const routeOk=s.routeMode==='master'?!!s.routeId:(s.newFrom.trim()&&s.newTo.trim()&&+s.newKm>0);
+      soDisabled=!(routeOk&&s.vehicle&&(!so.needMap||s.mapCode));}
+    const confirmSO=()=>{let rid=s.routeId,routes=s.routes;
+      if(s.routeMode==='new'){rid='RT-'+String(40+s.routes.length).padStart(4,'0');routes=[...routes,{id:rid,from:s.newFrom.trim(),to:s.newTo.trim(),km:+s.newKm,hr:'—'}];}
+      this.setState({routes,sos:s.sos.map(x=>x.no===soP.no?{...x,status:'PLANNED',routeId:rid,vehicle:s.vehicle}:x)});
+      this.toast(`${soP.no} กำหนดเส้นทาง ${rid} และรถ ${s.vehicle} แล้ว`);};
+    // bill
+    const doList=s.dos.filter(d=>!d.billed&&d.c===s.billCust&&d.range===s.billRange);
+    const selList=doList.filter(d=>s.checked[d.no]);
+    const sub=selList.reduce((a,b)=>a+b.amt,0),vat=Math.round(sub*7)/100;
+    const rmap=Object.fromEntries(s.routes.map(r=>[r.id,r]));
+    const doRows=doList.map(d=>({...d,amt:fmt(d.amt),route:rmap[d.route]?`${rmap[d.route].from} → ${rmap[d.route].to}`:d.route,checked:!!s.checked[d.no],bg:s.checked[d.no]?'#E3EAF5':'#FFFFFF',
+      toggle:()=>this.setState(st=>({checked:{...st.checked,[d.no]:!st.checked[d.no]}}))}));
+    const allChecked=doList.length>0&&selList.length===doList.length;
+    const payloadObj={docType:'AR_INVOICE',tmsRef:this.billNo(),customerCode:CUST[s.billCust].code,period:s.billRange==='r1'?{from:'2026-10-01',to:'2026-10-15'}:{from:'2026-09-16',to:'2026-09-30'},
+      lines:selList.map(d=>({doNo:d.no,soNo:d.so,routeCode:d.route,vehiclePlate:d.veh,amount:fmt(d.amt).replace(/,/g,'')})),subtotal:fmt(sub).replace(/,/g,''),vat:fmt(vat).replace(/,/g,''),total:fmt(sub+vat).replace(/,/g,'')};
+    const billStatus=s.billStatus;
+    // mm
+    const mmRows=s.mms.map(m=>({...m,cust:CUST[m.c].name,diffAmt:fmt(m.diffAmt),b:badge(m.status),bg:sel('mm',m.no),open:()=>this.openMM(m.no)}));
+    const mmP=P&&P.t==='mm'?s.mms.find(m=>m.no===P.id):null;
+    const cmp=mmP?mmP.cmp.map(([label,a,b])=>({label,tms:a,krs:b,diff:a!==b,bg:a!==b?'#FEE2E2':'#FFFFFF'})):[];
+    // out
+    const oP=P&&P.t==='out'?s.outbox.find(o=>o.no===P.id):null;
+    const out=oP?{...oP,cust:CUST[oP.c].name,hasErr:!!oP.err&&oP.status!=='ACCEPTED',payload:JSON.stringify({ref:oP.no,customerCode:CUST[oP.c].code,attempt:oP.tries+1,sentAt:'2026-10-14T09:42:00+07:00'},null,2)}:{};
+    // panel header
+    let pTitle='',pB=badge('DRAFT');
+    if(soP){pTitle=soP.no;pB=badge(soP.status);} else if(mmP){pTitle=mmP.no;pB=badge(mmP.status);} else if(oP){pTitle=oP.no;pB=badge(oP.status);}
+    // dialog
+    const d=s.dlg;let dlgTitle='',dlgDesc='',dlgDiff=[],dlgColA='',dlgColB='',dlgPrimary='';
+    if(d){const m=s.mms.find(x=>x.no===d.id);
+      if(d.kind==='overwrite'){dlgTitle='ขออนุมัติส่งทับ KRS';dlgDesc=`${d.id} จะเขียนทับ ${m.krs} ด้วยข้อมูลจาก TMS`;dlgColA='KRS ปัจจุบัน';dlgColB='TMS (ใหม่)';dlgPrimary='อนุมัติส่งทับ';dlgDiff=m.cmp.filter(c=>c[1]!==c[2]).map(c=>({label:c[0],a:c[2],b:c[1]}));}
+      else if(d.kind==='accept'){dlgTitle='ขออนุมัติยอมรับความต่าง';dlgDesc=`${d.id} จะคงข้อมูลตาม KRS ${m.krs} และปิดรายการ`;dlgColA='TMS';dlgColB='KRS (คงไว้)';dlgPrimary='อนุมัติยอมรับ';dlgDiff=m.cmp.filter(c=>c[1]!==c[2]).map(c=>({label:c[0],a:c[1],b:c[2]}));}
+      else{dlgTitle='อนุมัติและส่งใบแจ้งหนี้เข้า KRS';dlgDesc=`${this.billNo()} จะเข้าคิว outbox สถานะ READY`;dlgPrimary='อนุมัติและส่ง';}}
+    const openDlg=kind=>this.setState({dlg:{kind,id:mmP?mmP.no:null},reason:'',reasonErr:false});
+    const mmDisabled=!mmP||mmP.status!=='MISMATCH';
+    return {
+      brand:s.collapsed?'T':'ระบบ TMS',sbW:s.collapsed?'56px':'240px',menu,sbToggleLabel:s.collapsed?'»':'« ย่อเมนู',toggleSb:()=>this.setState({collapsed:!s.collapsed}),
+      search:s.search,setSearch:e=>this.setState({search:e.target.value}),
+      searchKey:e=>{if(e.key!=='Enter')return;const v=s.search.trim().toUpperCase();if(!v)return;
+        if(s.sos.find(x=>x.no===v))this.openSO(v);else if(s.mms.find(x=>x.no===v||x.krs===v))this.openMM(s.mms.find(x=>x.no===v||x.krs===v).no);
+        else if(s.outbox.find(x=>x.no===v))this.setState({page:'dash',panel:{t:'out',id:v}});
+        else if(s.dos.find(x=>x.no===v)){const x=s.dos.find(x=>x.no===v);this.setState({page:'bill',panel:null,billCust:x.c,billRange:x.range});}
+        else this.toast(`ไม่พบเอกสาร ${v}`,'err');},
+      krsDot:failed?'#D9821A':'#166534',krsText:failed?'เชื่อมต่อ KRS ได้ · มีรายการล้มเหลว':'เชื่อมต่อ KRS ปกติ',
+      mainPR:P?'504px':'24px',
+      isDash:s.page==='dash',isSO:s.page==='so',isBill:s.page==='bill',isMM:s.page==='mm',
+      stats,outRows,outCount:s.outbox.length,chart,rate7:(tOk/tAll*100).toFixed(1)+'%',mmRecent,hasMmRecent:mmRecent.length>0,noMmRecent:mmRecent.length===0,goMM:()=>this.go('mm'),goDash:()=>this.go('dash'),
+      soPending:pendingSO,soQ:s.soQ,setSoQ:e=>this.setState({soQ:e.target.value}),soCust:s.soCust,setSoCust:e=>this.setState({soCust:e.target.value}),soReason:s.soReason,setSoReason:e=>this.setState({soReason:e.target.value}),
+      clearSo:()=>this.setState({soQ:'',soCust:'all',soReason:'all'}),custOpts:Object.entries(CUST).map(([id,c])=>({id,name:c.name})),soRows,soEmpty:soRows.length===0,
+      so,routeOpts,isMaster:s.routeMode==='master',isNew:s.routeMode==='new',setMaster:()=>this.setState({routeMode:'master'}),setNew:()=>this.setState({routeMode:'new'}),
+      tabMasterBg:s.routeMode==='master'?'#163A66':'#FFFFFF',tabMasterFg:s.routeMode==='master'?'#FFFFFF':'#163A66',tabNewBg:s.routeMode==='new'?'#163A66':'#FFFFFF',tabNewFg:s.routeMode==='new'?'#FFFFFF':'#163A66',
+      newFrom:s.newFrom,newTo:s.newTo,newKm:s.newKm,setNewFrom:e=>this.setState({newFrom:e.target.value}),setNewTo:e=>this.setState({newTo:e.target.value}),setNewKm:e=>this.setState({newKm:e.target.value.replace(/[^0-9.]/g,'')}),
+      vehicles:VEH,vehicle:s.vehicle,setVehicle:e=>this.setState({vehicle:e.target.value}),mapCode:s.mapCode,setMap:e=>this.setState({mapCode:e.target.value}),krsCustOpts:KRS_UNMAPPED,soDisabled,confirmSO,
+      billNo:this.billNo(),billB:billStatus?badge(billStatus):{t:'ยังไม่สร้างร่าง',fg:'#374151',bg:'#F3F4F6',bd:'#D1D5DB'},
+      createDraft:()=>{this.setState({billStatus:'DRAFT'});this.toast(`สร้างร่าง ${this.billNo()} แล้ว`,'info');},draftDisabled:selList.length===0||billStatus==='DRAFT',
+      openApproveBill:()=>this.setState({dlg:{kind:'bill'},reason:'',reasonErr:false}),approveDisabled:selList.length===0,
+      hasLastBill:!!s.lastBill,lastBill:s.lastBill||{},
+      billCust:s.billCust,setBillCust:e=>this.setState({billCust:e.target.value,checked:{},billStatus:null}),billRange:s.billRange,setBillRange:e=>this.setState({billRange:e.target.value,checked:{},billStatus:null}),
+      resetRange:()=>this.setState({billRange:'r1'}),billKrsCode:CUST[s.billCust].code,billCustName:CUST[s.billCust].name,
+      doRows,doCount:doList.length,doEmpty:doList.length===0,selCount:selList.length,allChecked,
+      toggleAll:()=>this.setState({checked:allChecked?{}:Object.fromEntries(doList.map(d=>[d.no,true]))}),
+      subtotal:fmt(sub),vat:fmt(vat),total:fmt(sub+vat),payload:JSON.stringify(payloadObj,null,2),
+      mmOpen,mmRows,mm:mmP?{...mmP,cust:CUST[mmP.c].name}:{},cmp,mmDisabled,
+      editTMS:()=>{this.setMMStatus(mmP.no,'DRAFT');this.toast(`${mmP.no} เปิดกลับเป็นร่างเพื่อแก้ใน TMS`,'info');},
+      openOverwrite:()=>openDlg('overwrite'),openAccept:()=>openDlg('accept'),
+      out,resend:()=>{this.setState({outbox:s.outbox.map(o=>o.no===oP.no?{...o,status:'ACCEPTED',tries:o.tries+1,next:'—',updated:nowStr()}:o)});this.toast(`${oP.no} ส่งสำเร็จ KRS ตอบรับแล้ว`);},
+      resendDisabled:!oP||!['FAILED','RETRY_WAIT','READY'].includes(oP.status),
+      panelOpen:!!(soP||mmP||oP),pSO:!!soP,pMM:!!mmP,pOut:!!oP,pTitle,pB,closePanel:()=>this.setState({panel:null}),
+      dlgOpen:!!d,dlgTitle,dlgDesc,dlgDiff,dlgColA,dlgColB,dlgPrimary,dlgIsMM:!!d&&d.kind!=='bill',dlgIsBill:!!d&&d.kind==='bill',
+      reasonLabel:d&&d.kind==='bill'?'หมายเหตุ (ไม่บังคับ)':'เหตุผล (บังคับ)',reason:s.reason,setReason:e=>this.setState({reason:e.target.value,reasonErr:false}),reasonErr:s.reasonErr,reasonBd:s.reasonErr?'#991B1B':'#D1D5DB',
+      closeDlg:()=>this.setState({dlg:null}),submitDlg:()=>this.submitDlg(),
+      toasts:s.toasts
+    };
+  }
+}
+</script>
+</body>
+</html>

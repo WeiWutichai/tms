@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai+Looped:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>body{margin:0;background:#E4E6E0;font-family:'IBM Plex Sans Thai Looped','IBM Plex Sans',sans-serif;color:#101418;font-size:15px;line-height:1.55} a{color:#2257C4} a:hover{color:#1B479F} button{font-family:inherit} input,textarea,select{font-family:inherit;font-size:15px}</style>
+<script src="./i18n.js" data-float="1"></script>
+</helmet>
+<div style="min-height:100vh;display:flex;justify-content:center;padding:24px 0">
+  <div style="width:390px;min-height:844px;background:#F4F5F2;border-radius:32px;box-shadow:0 18px 44px rgba(10,23,52,.14);overflow:hidden;position:relative;display:flex;flex-direction:column">
+    <div style="padding:18px 18px 12px;display:flex;align-items:center;gap:12px;background:#FFFFFF;border-bottom:1px solid #E4E6E0">
+      <div style="width:40px;height:40px;border-radius:12px;background:#13213F;color:#FFFFFF;display:flex;align-items:center;justify-content:center;font-weight:600">ศท</div>
+      <div style="display:flex;flex-direction:column;flex:1;min-width:0"><span style="font-weight:600;color:#13213F">ศรีไทยขนส่ง · พอร์ทัลรถร่วม</span><span style="font-size:13px;color:#3B424C">หจก. ศรีราชาโลจิสติกส์ · เปิดจากลิงก์ LINE ไม่ต้องเข้าสู่ระบบ</span></div>
+    </div>
+    <div style="display:flex;gap:4px;padding:10px 14px;background:#FFFFFF;border-bottom:1px solid #E4E6E0"><sc-for list="{{ tabs }}" as="t"><button onClick="{{ t.fn }}" style="flex:1;height:44px;border:0;border-radius:999px;background:{{ t.bg }};color:{{ t.c }};font-weight:{{ t.fw }};cursor:pointer">{{ t.l }}</button></sc-for></div>
+
+    <sc-if value="{{ is.job }}" hint-placeholder-val="{{ true }}">
+      <div style="padding:16px 18px 24px;display:flex;flex-direction:column;gap:14px">
+        <div style="display:flex;align-items:center;justify-content:space-between"><span style="font-size:12px;font-weight:600;color:#2257C4">ใบสั่งงาน</span><span style="height:26px;padding:0 10px;border-radius:999px;background:{{ job.b.bg }};color:{{ job.b.c }};font-size:13px;font-weight:600;display:inline-flex;align-items:center">{{ job.b.l }}</span></div>
+        <div style="background:#FFFFFF;border:1px solid #CDD1C8;border-radius:12px;box-shadow:0 1px 2px rgba(16,20,24,.06),0 2px 6px rgba(16,20,24,.04);overflow:hidden">
+          <div style="padding:16px;display:flex;flex-direction:column;gap:4px;border-bottom:1px solid #E4E6E0"><span style="font-variant-numeric:tabular-nums;font-size:14px;font-weight:600;color:#2257C4">SO-2611-0125</span><span style="font-size:20px;font-weight:600;color:#13213F">บางปู → แหลมฉบัง</span><span style="color:#3B424C">รับสินค้า 4 พ.ย. 2569 เวลา 07:00</span></div>
+          <sc-for list="{{ job.rows }}" as="r"><div style="display:grid;grid-template-columns:120px minmax(0,1fr);gap:10px;padding:10px 16px;border-bottom:1px solid #E4E6E0"><span style="color:#3B424C">{{ r.k }}</span><span style="font-family:{{ r.ff }};font-size:{{ r.fs }};font-weight:{{ r.fw }}">{{ r.v }}</span></div></sc-for>
+          <div style="padding:12px 16px;background:#F4F5F2;display:flex;justify-content:space-between;align-items:baseline"><span style="font-weight:600">ราคาจ้าง</span><span style="font-variant-numeric:tabular-nums;font-size:22px;font-weight:600;color:#2257C4">5,600.00</span></div>
+        </div>
+        <sc-if value="{{ job.wait }}">
+          <div style="display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:12px;background:#FCF0DC"><span style="width:8px;height:8px;border-radius:50%;background:#8F5500"></span><span style="font-weight:500">ลิงก์หมดอายุใน 36 ชม. · หากไม่ตอบ งานจะส่งต่อให้ผู้รับเหมาลำดับถัดไป</span></div>
+          <sc-if value="{{ job.form }}">
+            <div style="background:#FFFFFF;border:1px solid #D9DCD4;border-radius:18px;padding:14px;display:flex;flex-direction:column;gap:10px">
+              <span style="font-weight:600">ข้อมูลรถที่จะมารับงาน</span>
+              <label style="display:flex;flex-direction:column;gap:6px"><span style="font-size:12.5px;font-weight:500;color:#3B424C">ทะเบียนรถ</span><input value="{{ f.plate }}" onChange="{{ f.onPlate }}" placeholder="เช่น 74-5521 ชบ." style="height:48px;padding:0 12px;border:1px solid #C9CDC3;border-radius:12px;font-variant-numeric:tabular-nums;"></label>
+              <label style="display:flex;flex-direction:column;gap:6px"><span style="font-size:12.5px;font-weight:500;color:#3B424C">ชื่อคนขับ</span><input value="{{ f.drv }}" onChange="{{ f.onDrv }}" placeholder="ชื่อ-นามสกุล" style="height:48px;padding:0 12px;border:1px solid #C9CDC3;border-radius:12px"></label>
+              <label style="display:flex;flex-direction:column;gap:6px"><span style="font-size:12.5px;font-weight:500;color:#3B424C">เบอร์คนขับ</span><input value="{{ f.ph }}" onChange="{{ f.onPh }}" placeholder="08x-xxx-xxxx" style="height:48px;padding:0 12px;border:1px solid #C9CDC3;border-radius:12px;font-variant-numeric:tabular-nums;"></label>
+              <sc-if value="{{ f.err }}"><span style="color:#B3322A;font-weight:500">{{ f.err }}</span></sc-if>
+              <button onClick="{{ f.ok }}" style="height:56px;border:0;border-radius:999px;background:#2257C4;color:#FFFFFF;font-size:17px;font-weight:600;cursor:pointer" style-hover="background:#1B479F">ยืนยันรับงาน</button>
+              <button onClick="{{ f.cancel }}" style="height:44px;border:0;background:transparent;color:#3B424C;font-weight:500;cursor:pointer">ย้อนกลับ</button>
+            </div>
+          </sc-if>
+          <sc-if value="{{ job.dec }}">
+            <div style="background:#FFFFFF;border:1px solid #D9DCD4;border-radius:18px;padding:14px;display:flex;flex-direction:column;gap:10px">
+              <span style="font-weight:600">เหตุผลที่ปฏิเสธ</span>
+              <sc-for list="{{ d.opts }}" as="o"><button onClick="{{ o.fn }}" style="min-height:48px;padding:0 14px;border:1px solid {{ o.bd }};border-radius:14px;background:{{ o.bg }};font-weight:{{ o.fw }};text-align:left;cursor:pointer;color:#101418">{{ o.l }}</button></sc-for>
+              <button onClick="{{ d.ok }}" style="height:52px;border:1px solid #B3322A;border-radius:999px;background:#FFFFFF;color:#B3322A;font-size:16px;font-weight:600;cursor:pointer;opacity:{{ d.op }}">ยืนยันปฏิเสธ</button>
+              <button onClick="{{ f.cancel }}" style="height:44px;border:0;background:transparent;color:#3B424C;font-weight:500;cursor:pointer">ย้อนกลับ</button>
+            </div>
+          </sc-if>
+          <sc-if value="{{ job.choose }}">
+            <button onClick="{{ job.goAcc }}" style="height:56px;border:0;border-radius:999px;background:#2257C4;color:#FFFFFF;font-size:17px;font-weight:600;cursor:pointer" style-hover="background:#1B479F">รับงาน</button>
+            <button onClick="{{ job.goDec }}" style="height:48px;border:1px solid #D9DCD4;border-radius:999px;background:#FFFFFF;color:#B3322A;font-weight:600;cursor:pointer">ปฏิเสธ</button>
+          </sc-if>
+        </sc-if>
+        <sc-if value="{{ job.accd }}"><div style="background:#E6F4EC;border-radius:18px;padding:16px;display:flex;flex-direction:column;gap:4px"><span style="font-weight:600;color:#17733F">รับงานแล้ว</span><span>รถ <span style="font-variant-numeric:tabular-nums;">{{ f.plate }}</span> · {{ f.drv }}</span><span style="color:#3B424C">หลังส่งงาน อัปโหลด POD ได้ที่แท็บ "ส่ง POD"</span></div></sc-if>
+        <sc-if value="{{ job.decd }}"><div style="background:#ECEDEA;border-radius:18px;padding:16px;display:flex;flex-direction:column;gap:4px"><span style="font-weight:600">ปฏิเสธงานแล้ว</span><span style="color:#3B424C">เหตุผล: {{ d.why }} · ขอบคุณที่แจ้งกลับ</span></div></sc-if>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ is.pod }}" hint-placeholder-val="{{ false }}">
+      <div style="padding:16px 18px 24px;display:flex;flex-direction:column;gap:14px">
+        <span style="font-size:12px;font-weight:600;color:#2257C4">อัปโหลดหลักฐานการส่ง</span>
+        <label style="display:flex;flex-direction:column;gap:6px"><span style="font-size:12.5px;font-weight:500;color:#3B424C">เลข DO</span><input value="{{ pod.q }}" onChange="{{ pod.onQ }}" placeholder="เช่น DO-2611-00069" style="height:52px;padding:0 14px;border:1px solid #C9CDC3;border-radius:12px;font-variant-numeric:tabular-nums;font-size:15px"></label>
+        <sc-if value="{{ pod.found }}">
+          <div style="background:#FFFFFF;border:1px solid #D9DCD4;border-radius:18px;padding:14px;display:flex;flex-direction:column;gap:4px"><span style="font-variant-numeric:tabular-nums;font-size:14px;font-weight:600;color:#2257C4">{{ pod.d.no }}</span><span style="font-weight:600">{{ pod.d.r }}</span><span style="color:#3B424C">{{ pod.d.c }} · {{ pod.d.dt }}</span></div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px"><sc-for list="{{ pod.photos }}" as="p"><div style="aspect-ratio:1;border-radius:12px;background:#EBEDE8;display:flex;align-items:center;justify-content:center;font-size:13px;color:#3B424C">{{ p }}</div></sc-for><button onClick="{{ pod.add }}" style="aspect-ratio:1;border-radius:12px;border:1.5px dashed #C9CDC3;background:#FFFFFF;cursor:pointer;color:#2257C4;font-weight:600">+ เพิ่มรูป</button></div>
+          <span style="color:#3B424C">แนบรูปใบส่งของที่มีลายเซ็นผู้รับ และรูปสินค้าที่ปลายทาง</span>
+          <button onClick="{{ pod.submit }}" style="height:56px;border:0;border-radius:999px;background:#2257C4;color:#FFFFFF;font-size:17px;font-weight:600;cursor:pointer;opacity:{{ pod.op }}" style-hover="background:#1B479F">ส่ง POD</button>
+        </sc-if>
+        <sc-if value="{{ pod.nf }}"><div style="padding:24px 12px;display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center"><span style="font-size:32px;color:#C9CDC3">⌕</span><span style="font-weight:600">{{ pod.nfT }}</span><span style="color:#3B424C">{{ pod.nfD }}</span></div></sc-if>
+        <sc-if value="{{ pod.hasSent }}"><div style="display:flex;flex-direction:column;gap:8px"><span style="font-size:14px;font-weight:500;color:#3B424C">ส่งแล้ว</span><sc-for list="{{ pod.sent }}" as="x"><div style="display:flex;align-items:center;justify-content:space-between;background:#FFFFFF;border:1px solid #D9DCD4;border-radius:14px;padding:12px 14px"><span style="font-variant-numeric:tabular-nums;font-size:14px">{{ x.no }}</span><span style="display:inline-flex;align-items:center;gap:6px;color:#17733F;font-weight:500"><span style="width:6px;height:6px;border-radius:50%;background:#17733F"></span>{{ x.n }} รูป · รอตรวจ</span></div></sc-for></div></sc-if>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ is.pay }}" hint-placeholder-val="{{ false }}">
+      <div style="padding:16px 18px 24px;display:flex;flex-direction:column;gap:14px">
+        <div style="background:#FFFFFF;border:1px solid #CDD1C8;border-radius:12px;box-shadow:0 1px 2px rgba(16,20,24,.06),0 2px 6px rgba(16,20,24,.04);padding:16px;display:flex;flex-direction:column;gap:2px"><span style="font-size:12.5px;font-weight:500;color:#3B424C">รอรับเงิน</span><span style="font-variant-numeric:tabular-nums;font-size:26px;font-weight:600;color:#2257C4">38,258.40</span><span style="color:#3B424C">2 งวด · จ่ายภายใน 15 วันหลังอนุมัติ</span></div>
+        <sc-for list="{{ pays }}" as="p">
+          <div style="background:#FFFFFF;border:1px solid #D9DCD4;border-radius:18px;padding:14px;display:flex;flex-direction:column;gap:10px">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px"><span style="font-variant-numeric:tabular-nums;font-size:14px;font-weight:600">{{ p.no }}</span><span style="height:26px;padding:0 10px;border-radius:999px;background:{{ p.bg }};color:{{ p.c }};font-size:13px;font-weight:600;display:inline-flex;align-items:center">{{ p.st }}</span></div>
+            <div style="display:flex;justify-content:space-between;color:#3B424C"><span>{{ p.per }} · {{ p.n }}</span><span style="font-variant-numeric:tabular-nums;font-size:14px;color:#101418;font-weight:600">{{ p.amt }}</span></div>
+            <sc-if value="{{ p.paid }}"><div style="display:flex;gap:8px"><a href="TMS Print.dc.html#pv" target="_blank" style="flex:1;height:44px;border:1px solid #2257C4;border-radius:999px;display:flex;align-items:center;justify-content:center;font-weight:500;text-decoration:none">ใบจ่ายเงิน</a><a href="TMS Print.dc.html#w50" target="_blank" style="flex:1;height:44px;border:1px solid #2257C4;border-radius:999px;display:flex;align-items:center;justify-content:center;font-weight:500;text-decoration:none">หนังสือ 50 ทวิ</a></div></sc-if>
+          </div>
+        </sc-for>
+      </div>
+    </sc-if>
+    <sc-if value="{{ toast }}" hint-placeholder-val="{{ false }}"><div style="position:absolute;left:16px;right:16px;bottom:20px;background:#13213F;color:#FFFFFF;border-radius:14px;padding:12px 14px;box-shadow:0 18px 44px rgba(10,23,52,.2)">{{ toast }}</div></sc-if>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  DOS = [{ no: 'DO-2611-00069', r: 'บางปู → แหลมฉบัง', c: 'บจก. เอ็นเอสเอฟ อินดัสทรี', dt: '3 พ.ย. 2569' }, { no: 'DO-2611-00066', r: 'อยุธยา → สระบุรี', c: 'บจก. ปูนไทยการค้า', dt: '3 พ.ย. 2569' }];
+  state = { tab: 'job', st: 'รอตอบ', mode: '', plate: '', drv: '', ph: '', err: '', why: '', q: '', ph2: 0, sent: [], toast: '' };
+  say(m) { clearTimeout(this._t); this.setState({ toast: m }); this._t = setTimeout(() => this.setState({ toast: '' }), 3000); }
+  componentWillUnmount() { clearTimeout(this._t); }
+  renderVals() {
+    const s = this.state, wait = s.st === 'รอตอบ';
+    const B = { 'รอตอบ': ['#FCF0DC', '#8F5500'], 'รับงาน': ['#E6F4EC', '#17733F'], 'ปฏิเสธ': ['#FBE9E7', '#B3322A'] }[s.st];
+    const q = s.q.trim().toUpperCase(), d = this.DOS.find(x => x.no === q), sent = s.sent.find(x => x.no === q);
+    const W = ['รถไม่ว่างวันที่รับงาน', 'ราคาไม่คุ้มต้นทุน', 'ไม่มีรถประเภทที่ต้องการ', 'เส้นทางไม่สะดวก'];
+    return {
+      tabs: [['job', 'งาน'], ['pod', 'ส่ง POD'], ['pay', 'การเงิน']].map(([k, l]) => ({ l, bg: s.tab === k ? '#E9F0FA' : 'transparent', c: s.tab === k ? '#2257C4' : '#3B424C', fw: s.tab === k ? 600 : 500, fn: () => this.setState({ tab: k }) })),
+      is: { job: s.tab === 'job', pod: s.tab === 'pod', pay: s.tab === 'pay' },
+      job: { b: { l: s.st, bg: B[0], c: B[1] }, wait, choose: wait && !s.mode, form: wait && s.mode === 'acc', dec: wait && s.mode === 'dec', accd: s.st === 'รับงาน', decd: s.st === 'ปฏิเสธ', goAcc: () => this.setState({ mode: 'acc' }), goDec: () => this.setState({ mode: 'dec' }),
+        rows: [['ลูกค้า', 'บจก. เอ็นเอสเอฟ อินดัสทรี'], ['ประเภทรถ', '6 ล้อ'], ['น้ำหนัก', '8,600 กก.'], ['ส่งที่', 'ท่าเรือแหลมฉบัง ประตู 3'], ['เงื่อนไข', 'ราคาไม่รวม VAT · หัก ณ ที่จ่าย 1% · จ่ายภายใน 15 วันหลังส่ง POD'], ['ผู้ติดต่อ', 'พรทิพย์ ศรีวงศ์ · 02-118-4400']].map(a => ({ k: a[0], v: a[1], ff: 'inherit', fs: '15px', fw: 400 })) },
+      f: { plate: s.plate, drv: s.drv, ph: s.ph, err: s.err, onPlate: e => this.setState({ plate: e.target.value, err: '' }), onDrv: e => this.setState({ drv: e.target.value, err: '' }), onPh: e => this.setState({ ph: e.target.value, err: '' }), cancel: () => this.setState({ mode: '', err: '' }),
+        ok: () => { if (!s.plate.trim() || !s.drv.trim()) { this.setState({ err: 'กรอกทะเบียนรถและชื่อคนขับ' }); return; } this.setState({ st: 'รับงาน', mode: '' }); this.say('รับงาน SO-2611-0125 แล้ว · ศรีไทยขนส่งได้รับข้อมูลรถแล้ว'); } },
+      d: { why: s.why, opts: W.map(w => ({ l: w, bd: s.why === w ? '#B3322A' : '#D9DCD4', bg: s.why === w ? '#FBE9E7' : '#FFFFFF', fw: s.why === w ? 600 : 400, fn: () => this.setState({ why: w }) })), op: s.why ? 1 : .5, ok: () => { if (!s.why) return; this.setState({ st: 'ปฏิเสธ', mode: '' }); this.say('แจ้งปฏิเสธงานแล้ว'); } },
+      pod: { q: s.q, onQ: e => this.setState({ q: e.target.value, ph2: 0 }), found: !!d && !sent, nf: !!q && (!d || !!sent), nfT: sent ? 'ส่ง POD ของ DO นี้แล้ว' : 'ไม่พบเลข DO นี้', nfD: sent ? 'รอศรีไทยขนส่งตรวจสอบ' : 'ตรวจเลขบนใบส่งของ หรือดู DO-2611-00069', d: d || {}, photos: Array.from({ length: s.ph2 }, (_, i) => 'รูปที่ ' + (i + 1)), add: () => this.setState({ ph2: Math.min(6, s.ph2 + 1) }), op: s.ph2 ? 1 : .5,
+        submit: () => { if (!s.ph2) { this.say('แนบรูปอย่างน้อย 1 รูป'); return; } this.setState({ sent: [...s.sent, { no: d.no, n: s.ph2 }], q: '', ph2: 0 }); this.say('ส่ง POD ' + d.no + ' แล้ว'); }, sent: s.sent.map(x => ({ no: x.no, n: String(x.n) })), hasSent: s.sent.length > 0 },
+      pays: [['SA-S2611-0010', 'อนุมัติแล้ว · รอจ่าย', '1–15 ต.ค. 2569', '4 เที่ยว', '22,846.40', 0], ['SA-S2611-0013', 'รอตรวจ', '16–31 ต.ค. 2569', '3 เที่ยว', '15,412.00', 0], ['SA-S2611-0007', 'จ่ายแล้ว', '16–30 ก.ย. 2569', '5 เที่ยว', '28,412.00', 1]].map(a => ({ no: a[0], st: a[1], per: a[2], n: a[3], amt: a[4], paid: !!a[5], bg: a[5] ? '#E6F4EC' : a[1] === 'รอตรวจ' ? '#FCF0DC' : '#E9F0FA', c: a[5] ? '#17733F' : a[1] === 'รอตรวจ' ? '#8F5500' : '#2257C4' })),
+      toast: s.toast
+    };
+  }
+}
+</script>
+</body>
+</html>

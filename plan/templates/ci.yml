@@ -1,0 +1,37 @@
+# ร่าง GitHub Actions สำหรับ ST0-T03 — ย้ายไป .github/workflows/ci.yml ตอนสร้าง repo
+name: ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env: { POSTGRES_USER: tms, POSTGRES_PASSWORD: tms, POSTGRES_DB: tms }
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U tms" --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      DATABASE_URL: postgresql://tms:tms@localhost:5432/tms
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test                      # unit + integration + tenant-isolation suite
+      - run: pnpm --filter @tms/api openapi:diff   # breaking-change gate (ST0-T09)
+      - run: pnpm build
+      - run: pnpm audit --audit-level=critical     # CVE gate (ST0-T03)
+  deploy-staging:
+    needs: verify
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - run: echo "build image + migrate + deploy (เติมตาม cloud ที่เลือกใน T-08)"

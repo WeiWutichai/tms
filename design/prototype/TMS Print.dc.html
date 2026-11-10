@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>doc-page:not(:defined){visibility:hidden} body{margin:0;font-family:'Sarabun',sans-serif;color:#101418} a{color:#2257C4} a:hover{color:#1B479F}</style>
+<script src="./doc-page.js"></script>
+</helmet>
+<doc-page size="a4">
+  <section class="page" id="do" data-screen-label="01 ใบส่งของ">
+    <div style="padding:44px 48px;display:flex;flex-direction:column;gap:20px;font-size:16px;line-height:1.6">
+      <div style="display:flex;justify-content:space-between;gap:24px;align-items:flex-start;padding-bottom:16px;border-bottom:2px solid #13213F">
+        <div style="display:flex;gap:12px"><div style="width:44px;height:44px;border-radius:10px;background:#13213F;color:#FFFFFF;display:flex;align-items:center;justify-content:center;font-weight:600;flex-shrink:0">ศท</div><div style="display:flex;flex-direction:column"><span style="font-weight:600;font-size:17px">บริษัท ศรีไทยขนส่ง จำกัด (สำนักงานใหญ่)</span><span style="font-size:14px;color:#3B424C">88/12 ถนนบางนา-ตราด กม. 12 ต.บางพลีใหญ่ อ.บางพลี จ.สมุทรปราการ 10540</span><span style="font-size:14px;color:#3B424C">เลขประจำตัวผู้เสียภาษี 0105556078912 · โทร 02-118-4400</span></div></div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex-shrink:0"><span style="font-size:24px;font-weight:600;color:#13213F">ใบส่งของ</span><span style="font-size:14px;font-weight:500;color:#3B424C;">DELIVERY ORDER</span><span style="font-variant-numeric:tabular-nums;font-size:15px;font-weight:500">DO-2611-00060</span><span style="font-size:15px">วันที่ 3 พ.ย. 2569</span></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div style="border:1px solid #D9DCD4;border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:2px"><span style="font-size:14px;font-weight:500;color:#3B424C">ผู้รับสินค้า / Consignee</span><span style="font-weight:600">บจก. สยามพลาสติก</span><span>โรงงานชลบุรี เขตประกอบการชลบุรี ซอย 3 อ.เมือง จ.ชลบุรี 20000</span><span>ผู้ติดต่อ คุณวิไล · 02-300-4100</span></div>
+        <div style="border:1px solid #D9DCD4;border-radius:10px;padding:12px 14px;display:grid;grid-template-columns:auto 1fr;gap:2px 14px"><span style="color:#3B424C">อ้างอิง SO</span><span style="font-variant-numeric:tabular-nums;font-size:15px">SO-2611-0123</span><span style="color:#3B424C">เที่ยว</span><span style="font-variant-numeric:tabular-nums;font-size:15px">TRP-2611-0041</span><span style="color:#3B424C">ทะเบียนรถ / Plate</span><span style="font-variant-numeric:tabular-nums;font-size:15px">70-1234 กทม. · 6 ล้อ</span><span style="color:#3B424C">พนักงานขับรถ / Driver</span><span>สมชาย ใจดี</span></div>
+      </div>
+      <sc-if value="{{ ref.do.has }}"><div style="border:1px solid #CDD1C8;border-radius:10px;padding:10px 14px;display:flex;flex-direction:column;gap:6px"><span style="font-size:14px;font-weight:600">ข้อมูลอ้างอิง</span><div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px"><sc-for list="{{ ref.do.items }}" as="x"><div style="display:flex;flex-direction:column"><span style="font-size:14px;color:#3B424C">{{ x.l }}</span><span style="font-size:15px;font-variant-numeric:tabular-nums">{{ x.v }}</span></div></sc-for></div></div></sc-if>
+      <table style="width:100%;border-collapse:collapse;font-size:16px">
+        <thead><tr style="background:#EBEDE8"><th style="padding:8px 10px;text-align:left;font-weight:600;border-bottom:1px solid #D9DCD4;width:56px">ลำดับ<div style="font-weight:400;font-size:13px;color:#3B424C">No.</div></th><th style="padding:8px 10px;text-align:left;font-weight:600;border-bottom:1px solid #D9DCD4">รายการสินค้า<div style="font-weight:400;font-size:13px;color:#3B424C">Description</div></th><th style="padding:8px 10px;text-align:right;font-weight:600;border-bottom:1px solid #D9DCD4">จำนวน<div style="font-weight:400;font-size:13px;color:#3B424C">Qty</div></th><th style="padding:8px 10px;text-align:right;font-weight:600;border-bottom:1px solid #D9DCD4">น้ำหนัก (กก.)<div style="font-weight:400;font-size:13px;color:#3B424C">Weight (kg)</div></th><th style="padding:8px 10px;text-align:right;font-weight:600;border-bottom:1px solid #D9DCD4">รับจริง<div style="font-weight:400;font-size:13px;color:#3B424C">Received</div></th></tr></thead>
+        <tbody>
+          <tr><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0">1</td><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0">เม็ดพลาสติก PP ล็อต A</td><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0;text-align:right">84 ถุง</td><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0;text-align:right;font-variant-numeric:tabular-nums;font-size:15px">2,100</td><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0"></td></tr>
+          <tr><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0">2</td><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0">เม็ดพลาสติก PP ล็อต B</td><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0;text-align:right">50 ถุง</td><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0;text-align:right;font-variant-numeric:tabular-nums;font-size:15px">1,250</td><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0"></td></tr>
+          <tr><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0">3</td><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0">พาเลทและบรรจุภัณฑ์</td><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0;text-align:right">8 ชิ้น</td><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0;text-align:right;font-variant-numeric:tabular-nums;font-size:15px">850</td><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0"></td></tr>
+          <tr><td style="padding:9px 10px" colspan="3"><b>รวมน้ำหนัก</b></td><td style="padding:9px 10px;text-align:right;font-variant-numeric:tabular-nums;font-size:15px;font-weight:600">4,200</td><td></td></tr>
+        </tbody>
+      </table>
+      <div style="border:1px solid #D9DCD4;border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:6px"><span style="font-weight:600">หมายเหตุการส่ง</span><span style="color:#3B424C">สินค้าตีกลับ / เสียหาย (ระบุรายการและจำนวน)</span><div style="height:44px;border-bottom:1px dashed #C9CDC3"></div></div>
+      <p style="margin:0">ได้รับสินค้าตามรายการข้างต้นไว้ถูกต้องและอยู่ในสภาพเรียบร้อย</p>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:20px;margin-top:auto;padding-top:28px">
+        <div style="display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center"><div style="width:100%;height:56px;border-bottom:1px solid #101418"></div><span>ผู้ส่งสินค้า / Shipper</span><span style="font-size:14px;color:#3B424C">วันที่ ...... / ...... / ......</span></div>
+        <div style="display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center"><div style="width:100%;height:56px;border-bottom:1px solid #101418"></div><span>พนักงานขับรถ / Driver</span><span style="font-size:14px;color:#3B424C">วันที่ ...... / ...... / ......</span></div>
+        <div style="display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center"><div style="width:100%;height:56px;border-bottom:1px solid #101418"></div><span>ผู้รับสินค้า / Consignee</span><span style="font-size:14px;color:#3B424C">วันที่ ...... เวลา ......</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="page" id="trip" data-screen-label="02 ใบคุมรถ">
+    <div style="padding:44px 48px;display:flex;flex-direction:column;gap:20px;font-size:16px;line-height:1.6">
+      <div style="display:flex;justify-content:space-between;gap:24px;align-items:flex-start;padding-bottom:16px;border-bottom:2px solid #13213F">
+        <div style="display:flex;gap:12px"><div style="width:44px;height:44px;border-radius:10px;background:#13213F;color:#FFFFFF;display:flex;align-items:center;justify-content:center;font-weight:600;flex-shrink:0">ศท</div><div style="display:flex;flex-direction:column"><span style="font-weight:600;font-size:17px">บริษัท ศรีไทยขนส่ง จำกัด</span><span style="font-size:14px;color:#3B424C">ฝ่ายวางแผนรถ · โทร 02-118-4400</span></div></div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex-shrink:0"><span style="font-size:24px;font-weight:600;color:#13213F">ใบคุมรถ</span><span style="font-size:14px;font-weight:500;color:#3B424C;">TRIP SHEET</span><span style="font-variant-numeric:tabular-nums;font-size:15px;font-weight:500">TRP-2611-0041</span><span style="font-size:15px">วันที่ 3 พ.ย. 2569</span></div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
+        <div style="border:1px solid #D9DCD4;border-radius:10px;padding:10px 12px;display:flex;flex-direction:column"><span style="font-size:14px;color:#3B424C">ทะเบียนรถ / Plate</span><span style="font-variant-numeric:tabular-nums;font-size:15px;font-weight:500">70-1234 กทม.</span></div>
+        <div style="border:1px solid #D9DCD4;border-radius:10px;padding:10px 12px;display:flex;flex-direction:column"><span style="font-size:14px;color:#3B424C">ประเภท / หาง / Type / trailer</span><span>6 ล้อ · ไม่มีหาง</span></div>
+        <div style="border:1px solid #D9DCD4;border-radius:10px;padding:10px 12px;display:flex;flex-direction:column"><span style="font-size:14px;color:#3B424C">พนักงานขับรถ / Driver</span><span>สมชาย ใจดี</span></div>
+        <div style="border:1px solid #D9DCD4;border-radius:10px;padding:10px 12px;display:flex;flex-direction:column"><span style="font-size:14px;color:#3B424C">เงินเบิกล่วงหน้า / Advance</span><span style="font-variant-numeric:tabular-nums;font-size:15px">3,000.00</span></div>
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:16px">
+        <thead><tr style="background:#EBEDE8"><th style="padding:8px 10px;text-align:left;font-weight:600;border-bottom:1px solid #D9DCD4;width:48px">จุด<div style="font-weight:400;font-size:13px;color:#3B424C">Stop</div></th><th style="padding:8px 10px;text-align:left;font-weight:600;border-bottom:1px solid #D9DCD4">ประเภท / สถานที่<div style="font-weight:400;font-size:13px;color:#3B424C">Type / location</div></th><th style="padding:8px 10px;text-align:left;font-weight:600;border-bottom:1px solid #D9DCD4">DO<div style="font-weight:400;font-size:13px;color:#3B424C">DO</div></th><th style="padding:8px 10px;text-align:left;font-weight:600;border-bottom:1px solid #D9DCD4;width:80px">ถึง<div style="font-weight:400;font-size:13px;color:#3B424C">Arrive</div></th><th style="padding:8px 10px;text-align:left;font-weight:600;border-bottom:1px solid #D9DCD4;width:80px">ออก<div style="font-weight:400;font-size:13px;color:#3B424C">Depart</div></th><th style="padding:8px 10px;text-align:left;font-weight:600;border-bottom:1px solid #D9DCD4;width:120px">ลงชื่อ<div style="font-weight:400;font-size:13px;color:#3B424C">Signature</div></th></tr></thead>
+        <tbody>
+          <tr><td style="padding:12px 10px;border-bottom:1px solid #E4E6E0">1</td><td style="padding:12px 10px;border-bottom:1px solid #E4E6E0"><b>รับ</b> · กรุงเทพ คลังต้นทาง</td><td style="padding:12px 10px;border-bottom:1px solid #E4E6E0">—</td><td style="padding:12px 10px;border-bottom:1px solid #E4E6E0"></td><td style="padding:12px 10px;border-bottom:1px solid #E4E6E0"></td><td style="padding:12px 10px;border-bottom:1px solid #E4E6E0"></td></tr>
+          <tr><td style="padding:12px 10px;border-bottom:1px solid #E4E6E0">2</td><td style="padding:12px 10px;border-bottom:1px solid #E4E6E0"><b>ส่ง</b> · ชลบุรี บจก. สยามพลาสติก</td><td style="padding:12px 10px;border-bottom:1px solid #E4E6E0;font-variant-numeric:tabular-nums;font-size:15px">DO-2611-00060</td><td style="padding:12px 10px;border-bottom:1px solid #E4E6E0"></td><td style="padding:12px 10px;border-bottom:1px solid #E4E6E0"></td><td style="padding:12px 10px;border-bottom:1px solid #E4E6E0"></td></tr>
+          <tr><td style="padding:12px 10px;border-bottom:1px solid #E4E6E0">3</td><td style="padding:12px 10px;border-bottom:1px solid #E4E6E0"><b>ส่ง</b> · ชลบุรี ศูนย์กระจายสินค้า</td><td style="padding:12px 10px;border-bottom:1px solid #E4E6E0;font-variant-numeric:tabular-nums;font-size:15px">DO-2611-00080</td><td style="padding:12px 10px;border-bottom:1px solid #E4E6E0"></td><td style="padding:12px 10px;border-bottom:1px solid #E4E6E0"></td><td style="padding:12px 10px;border-bottom:1px solid #E4E6E0"></td></tr>
+        </tbody>
+      </table>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div style="border:1px solid #D9DCD4;border-radius:10px;padding:12px 14px;display:grid;grid-template-columns:auto 1fr;gap:10px 14px;align-items:end"><span>เลขไมล์ออก</span><span style="border-bottom:1px dashed #C9CDC3;height:24px"></span><span>เลขไมล์กลับ</span><span style="border-bottom:1px dashed #C9CDC3;height:24px"></span><span>รวมระยะทาง (กม.)</span><span style="border-bottom:1px dashed #C9CDC3;height:24px"></span></div>
+        <div style="border:1px solid #D9DCD4;border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:6px"><span style="font-weight:600">ค่าใช้จ่ายระหว่างทาง</span><span style="color:#3B424C">แนบใบเสร็จทุกรายการเพื่อเคลียร์เงินเบิก ADV-2611-0021</span><div style="height:40px;border-bottom:1px dashed #C9CDC3"></div></div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:40px;margin-top:auto;padding-top:28px">
+        <div style="display:flex;flex-direction:column;align-items:center;gap:4px"><div style="width:100%;height:56px;border-bottom:1px solid #101418"></div><span>ผู้จ่ายงาน / Dispatcher</span></div>
+        <div style="display:flex;flex-direction:column;align-items:center;gap:4px"><div style="width:100%;height:56px;border-bottom:1px solid #101418"></div><span>พนักงานขับรถ / Driver</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="page" id="bill" data-screen-label="03 ใบวางบิล">
+    <div style="padding:44px 48px;display:flex;flex-direction:column;gap:20px;font-size:16px;line-height:1.6">
+      <div style="display:flex;justify-content:space-between;gap:24px;align-items:flex-start;padding-bottom:16px;border-bottom:2px solid #13213F">
+        <div style="display:flex;gap:12px"><div style="width:44px;height:44px;border-radius:10px;background:#13213F;color:#FFFFFF;display:flex;align-items:center;justify-content:center;font-weight:600;flex-shrink:0">ศท</div><div style="display:flex;flex-direction:column"><span style="font-weight:600;font-size:17px">บริษัท ศรีไทยขนส่ง จำกัด (สำนักงานใหญ่)</span><span style="font-size:14px;color:#3B424C">88/12 ถนนบางนา-ตราด กม. 12 ต.บางพลีใหญ่ อ.บางพลี จ.สมุทรปราการ 10540</span><span style="font-size:14px;color:#3B424C">เลขประจำตัวผู้เสียภาษี 0105556078912</span></div></div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex-shrink:0"><span style="font-size:24px;font-weight:600;color:#13213F">ใบวางบิล</span><span style="font-size:14px;font-weight:500;color:#3B424C;">BILLING NOTE</span><span style="font-variant-numeric:tabular-nums;font-size:15px;font-weight:500">BL-2611-0013</span><span style="font-size:15px">วันที่ 3 พ.ย. 2569</span></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:16px">
+        <div style="border:1px solid #D9DCD4;border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:2px"><span style="font-size:14px;font-weight:500;color:#3B424C">ลูกค้า / Customer</span><span style="font-weight:600">บริษัท สยามพลาสติก จำกัด (สำนักงานใหญ่)</span><span>11 หมู่ 2 ต.บางพลีใหญ่ อ.บางพลี จ.สมุทรปราการ 10540</span><span>เลขประจำตัวผู้เสียภาษี <span style="font-variant-numeric:tabular-nums;font-size:15px">0105536012345</span></span></div>
+        <div style="border:1px solid #D9DCD4;border-radius:10px;padding:12px 14px;display:grid;grid-template-columns:auto 1fr;gap:2px 14px"><span style="color:#3B424C">ใบแจ้งหนี้</span><span style="font-variant-numeric:tabular-nums;font-size:15px">TMS-INV-2611-0013</span><span style="color:#3B424C">งวด</span><span>16 ต.ค. – 3 พ.ย. 2569</span><span style="color:#3B424C">เครดิต</span><span>30 วัน</span><span style="color:#3B424C">ครบกำหนด</span><span>3 ธ.ค. 2569</span></div>
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:16px">
+        <thead><tr style="background:#EBEDE8"><th style="padding:8px 10px;text-align:left;font-weight:600;border-bottom:1px solid #D9DCD4;width:48px">ลำดับ<div style="font-weight:400;font-size:13px;color:#3B424C">No.</div></th><th style="padding:8px 10px;text-align:left;font-weight:600;border-bottom:1px solid #D9DCD4">เลข DO<div style="font-weight:400;font-size:13px;color:#3B424C">DO No.</div></th><th style="padding:8px 10px;text-align:left;font-weight:600;border-bottom:1px solid #D9DCD4">วันที่ส่ง<div style="font-weight:400;font-size:13px;color:#3B424C">Delivery date</div></th><th style="padding:8px 10px;text-align:left;font-weight:600;border-bottom:1px solid #D9DCD4">เส้นทาง<div style="font-weight:400;font-size:13px;color:#3B424C">Route</div></th><th style="padding:8px 10px;text-align:right;font-weight:600;border-bottom:1px solid #D9DCD4">ค่าขนส่ง<div style="font-weight:400;font-size:13px;color:#3B424C">Freight</div></th><th style="padding:8px 10px;text-align:right;font-weight:600;border-bottom:1px solid #D9DCD4">บริการประกอบ<div style="font-weight:400;font-size:13px;color:#3B424C">Ancillary</div></th></tr></thead>
+        <tbody>
+          <tr><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0">1</td><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0;font-variant-numeric:tabular-nums;font-size:15px">DO-2611-00020</td><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0">16 ต.ค. 2569</td><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0">กรุงเทพ → ชลบุรี</td><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0;text-align:right;font-variant-numeric:tabular-nums;font-size:15px">6,500.00</td><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0;text-align:right;font-variant-numeric:tabular-nums;font-size:15px">500.00</td></tr>
+          <tr><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0">2</td><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0;font-variant-numeric:tabular-nums;font-size:15px">DO-2611-00023</td><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0">21 ต.ค. 2569</td><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0">กรุงเทพ → ชลบุรี</td><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0;text-align:right;font-variant-numeric:tabular-nums;font-size:15px">6,500.00</td><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0;text-align:right;font-variant-numeric:tabular-nums;font-size:15px">—</td></tr>
+          <tr><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0">3</td><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0;font-variant-numeric:tabular-nums;font-size:15px">DO-2611-00026</td><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0">25 ต.ค. 2569</td><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0">บางปู → แหลมฉบัง</td><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0;text-align:right;font-variant-numeric:tabular-nums;font-size:15px">4,800.00</td><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0;text-align:right;font-variant-numeric:tabular-nums;font-size:15px">350.00</td></tr>
+          <tr><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0">4</td><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0;font-variant-numeric:tabular-nums;font-size:15px">DO-2611-00029</td><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0">30 ต.ค. 2569</td><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0">กรุงเทพ → ชลบุรี</td><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0;text-align:right;font-variant-numeric:tabular-nums;font-size:15px">6,500.00</td><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0;text-align:right;font-variant-numeric:tabular-nums;font-size:15px">500.00</td></tr>
+        </tbody>
+      </table>
+      <div style="display:flex;justify-content:space-between;gap:24px;align-items:flex-start">
+        <div style="flex:1;background:#EBEDE8;border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:2px"><span style="font-size:14px;color:#3B424C">จำนวนเงินตัวอักษร / Amount in words</span><span style="font-weight:600">สองหมื่นห้าพันเจ็ดร้อยสี่สิบสี่บาทห้าสิบสตางค์</span></div>
+        <div style="width:300px;display:grid;grid-template-columns:1fr auto;gap:4px 16px">
+          <span>ค่าขนส่ง (ยกเว้น VAT) / Freight (VAT exempt)</span><span style="font-variant-numeric:tabular-nums;font-size:15px;text-align:right">24,300.00</span>
+          <span>บริการประกอบ / Ancillary</span><span style="font-variant-numeric:tabular-nums;font-size:15px;text-align:right">1,350.00</span>
+          <span>VAT 7% บริการประกอบ / VAT 7%</span><span style="font-variant-numeric:tabular-nums;font-size:15px;text-align:right">94.50</span>
+          <span style="font-weight:600;padding-top:6px;border-top:1px solid #101418">รวมทั้งสิ้น / Grand total</span><span style="font-variant-numeric:tabular-nums;font-size:16px;font-weight:600;text-align:right;padding-top:6px;border-top:1px solid #101418">25,744.50</span>
+        </div>
+      </div>
+      <p style="margin:0;color:#3B424C">นัดรับเช็ค / โอนเงิน ภายในวันที่ 3 ธ.ค. 2569 · ลูกค้าหักภาษี ณ ที่จ่าย 1% ของค่าบริการก่อน VAT</p>
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:40px;margin-top:auto;padding-top:28px">
+        <div style="display:flex;flex-direction:column;align-items:center;gap:4px"><div style="width:100%;height:56px;border-bottom:1px solid #101418"></div><span>ผู้วางบิล / Biller</span><span style="font-size:14px;color:#3B424C">วันที่ ...... / ...... / ......</span></div>
+        <div style="display:flex;flex-direction:column;align-items:center;gap:4px"><div style="width:100%;height:56px;border-bottom:1px solid #101418"></div><span>ผู้รับวางบิล / Received by</span><span style="font-size:14px;color:#3B424C">วันที่ ...... / ...... / ......</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="page" id="inv" data-screen-label="04 ใบกำกับภาษี/ใบเสร็จ">
+    <div style="padding:44px 48px;display:flex;flex-direction:column;gap:20px;font-size:16px;line-height:1.6">
+      <div style="display:flex;justify-content:space-between;gap:24px;align-items:flex-start;padding-bottom:16px;border-bottom:2px solid #13213F">
+        <div style="display:flex;gap:12px"><div style="width:44px;height:44px;border-radius:10px;background:#13213F;color:#FFFFFF;display:flex;align-items:center;justify-content:center;font-weight:600;flex-shrink:0">ศท</div><div style="display:flex;flex-direction:column"><span style="font-weight:600;font-size:17px">บริษัท ศรีไทยขนส่ง จำกัด (สำนักงานใหญ่)</span><span style="font-size:14px;color:#3B424C">88/12 ถนนบางนา-ตราด กม. 12 ต.บางพลีใหญ่ อ.บางพลี จ.สมุทรปราการ 10540</span><span style="font-size:14px;color:#3B424C">เลขประจำตัวผู้เสียภาษี 0105556078912</span></div></div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex-shrink:0;text-align:right"><span style="font-size:22px;font-weight:600;color:#13213F">ใบเสร็จรับเงิน / ใบกำกับภาษี</span><span style="font-size:14px;font-weight:500;color:#3B424C;">RECEIPT / TAX INVOICE</span><span style="font-size:14px;color:#3B424C">ต้นฉบับ / Original</span><span style="font-variant-numeric:tabular-nums;font-size:15px;font-weight:500">RCT-2611-0040</span><span style="font-size:15px">วันที่ 3 พ.ย. 2569</span></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:16px">
+        <div style="border:1px solid #D9DCD4;border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:2px"><span style="font-size:14px;font-weight:500;color:#3B424C">ลูกค้า / Customer</span><span style="font-weight:600">บริษัท เอ็นเอสเอฟ อินดัสทรี จำกัด (สำนักงานใหญ่)</span><span>33 หมู่ 4 ต.บางพลีใหญ่ อ.บางพลี จ.สมุทรปราการ 10540</span><span>เลขประจำตัวผู้เสียภาษี <span style="font-variant-numeric:tabular-nums;font-size:15px">0105548076543</span> · สาขา 00000</span></div>
+        <div style="border:1px solid #D9DCD4;border-radius:10px;padding:12px 14px;display:grid;grid-template-columns:auto 1fr;gap:2px 14px"><span style="color:#3B424C">อ้างอิง</span><span style="font-variant-numeric:tabular-nums;font-size:15px">TMS-INV-2611-0005</span><span style="color:#3B424C">งวด</span><span>16–31 ต.ค. 2569</span><span style="color:#3B424C">รับชำระโดย</span><span>โอนเงิน</span><span style="color:#3B424C">เลขอ้างอิง</span><span style="font-variant-numeric:tabular-nums;font-size:15px">KBANK-0111-2234</span></div>
+      </div>
+      <sc-if value="{{ ref.inv.has }}"><div style="border:1px solid #CDD1C8;border-radius:10px;padding:10px 14px;display:flex;flex-direction:column;gap:6px"><span style="font-size:14px;font-weight:600">ข้อมูลอ้างอิง</span><div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px"><sc-for list="{{ ref.inv.items }}" as="x"><div style="display:flex;flex-direction:column"><span style="font-size:14px;color:#3B424C">{{ x.l }}</span><span style="font-size:15px;font-variant-numeric:tabular-nums">{{ x.v }}</span></div></sc-for></div></div></sc-if>
+      <table style="width:100%;border-collapse:collapse;font-size:16px">
+        <thead><tr style="background:#EBEDE8"><th style="padding:8px 10px;text-align:left;font-weight:600;border-bottom:1px solid #D9DCD4;width:48px">ลำดับ<div style="font-weight:400;font-size:13px;color:#3B424C">No.</div></th><th style="padding:8px 10px;text-align:left;font-weight:600;border-bottom:1px solid #D9DCD4">รายการ<div style="font-weight:400;font-size:13px;color:#3B424C">Description</div></th><th style="padding:8px 10px;text-align:right;font-weight:600;border-bottom:1px solid #D9DCD4">จำนวน<div style="font-weight:400;font-size:13px;color:#3B424C">Qty</div></th><th style="padding:8px 10px;text-align:left;font-weight:600;border-bottom:1px solid #D9DCD4">ภาษี<div style="font-weight:400;font-size:13px;color:#3B424C">VAT</div></th><th style="padding:8px 10px;text-align:right;font-weight:600;border-bottom:1px solid #D9DCD4">จำนวนเงิน<div style="font-weight:400;font-size:13px;color:#3B424C">Amount</div></th></tr></thead>
+        <tbody>
+          <tr><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0">1</td><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0">ค่าขนส่งสินค้า บางปู → แหลมฉบัง</td><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0;text-align:right">8 เที่ยว</td><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0">ยกเว้น</td><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0;text-align:right;font-variant-numeric:tabular-nums;font-size:15px">57,600.00</td></tr>
+          <tr><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0">2</td><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0">ค่าแรงลงสินค้า</td><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0;text-align:right">4 ครั้ง</td><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0">7%</td><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0;text-align:right;font-variant-numeric:tabular-nums;font-size:15px">2,000.00</td></tr>
+        </tbody>
+      </table>
+      <div style="display:flex;justify-content:space-between;gap:24px;align-items:flex-start">
+        <div style="flex:1;display:flex;flex-direction:column;gap:10px">
+          <div style="background:#EBEDE8;border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:2px"><span style="font-size:14px;color:#3B424C">จำนวนเงินตัวอักษร / Amount in words</span><span style="font-weight:600">ห้าหมื่นเก้าพันเจ็ดร้อยสี่สิบบาทถ้วน</span></div>
+          <span style="font-size:14px;color:#3B424C">ค่าขนส่งสินค้าได้รับยกเว้นภาษีมูลค่าเพิ่มตามมาตรา 81 (1) (ฒ) แห่งประมวลรัษฎากร</span>
+        </div>
+        <div style="width:300px;display:grid;grid-template-columns:1fr auto;gap:4px 16px">
+          <span>มูลค่ายกเว้นภาษี / Exempt amount</span><span style="font-variant-numeric:tabular-nums;font-size:15px;text-align:right">57,600.00</span>
+          <span>มูลค่าที่เสียภาษี / Taxable amount</span><span style="font-variant-numeric:tabular-nums;font-size:15px;text-align:right">2,000.00</span>
+          <span>ภาษีมูลค่าเพิ่ม 7% / VAT 7%</span><span style="font-variant-numeric:tabular-nums;font-size:15px;text-align:right">140.00</span>
+          <span style="font-weight:600;padding-top:6px;border-top:1px solid #101418">รวมทั้งสิ้น / Grand total</span><span style="font-variant-numeric:tabular-nums;font-size:16px;font-weight:600;text-align:right;padding-top:6px;border-top:1px solid #101418">59,740.00</span>
+          <span style="color:#3B424C">หัก ณ ที่จ่าย 1%</span><span style="font-variant-numeric:tabular-nums;font-size:15px;text-align:right">596.00</span>
+          <span style="color:#3B424C">รับเงินสุทธิ</span><span style="font-variant-numeric:tabular-nums;font-size:15px;text-align:right">59,144.00</span>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:40px;margin-top:auto;padding-top:28px">
+        <div style="display:flex;flex-direction:column;align-items:center;gap:4px"><div style="width:100%;height:56px;border-bottom:1px solid #101418"></div><span>ผู้รับเงิน / Collector</span></div>
+        <div style="display:flex;flex-direction:column;align-items:center;gap:4px"><div style="width:100%;height:56px;border-bottom:1px solid #101418"></div><span>ผู้มีอำนาจลงนาม / Authorized signatory</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="page" id="pv" data-screen-label="05 ใบสำคัญจ่ายรถร่วม">
+    <div style="padding:44px 48px;display:flex;flex-direction:column;gap:20px;font-size:16px;line-height:1.6">
+      <div style="display:flex;justify-content:space-between;gap:24px;align-items:flex-start;padding-bottom:16px;border-bottom:2px solid #13213F">
+        <div style="display:flex;gap:12px"><div style="width:44px;height:44px;border-radius:10px;background:#13213F;color:#FFFFFF;display:flex;align-items:center;justify-content:center;font-weight:600;flex-shrink:0">ศท</div><div style="display:flex;flex-direction:column"><span style="font-weight:600;font-size:17px">บริษัท ศรีไทยขนส่ง จำกัด (สำนักงานใหญ่)</span><span style="font-size:14px;color:#3B424C">เลขประจำตัวผู้เสียภาษี 0105556078912</span></div></div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex-shrink:0"><span style="font-size:24px;font-weight:600;color:#13213F">ใบสำคัญจ่าย</span><span style="font-size:14px;font-weight:500;color:#3B424C;">PAYMENT VOUCHER</span><span style="font-variant-numeric:tabular-nums;font-size:15px;font-weight:500">PV-2611-0008</span><span style="font-size:15px">วันที่ 29 ต.ค. 2569</span></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:16px">
+        <div style="border:1px solid #D9DCD4;border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:2px"><span style="font-size:14px;font-weight:500;color:#3B424C">จ่ายให้ / Pay to</span><span style="font-weight:600">ห้างหุ้นส่วนจำกัด ทรัพย์สมบูรณ์ขนส่ง</span><span>เลขประจำตัวผู้เสียภาษี <span style="font-variant-numeric:tabular-nums;font-size:15px">0103556012345</span></span><span>คนขับ ไพโรจน์ สายทอง</span></div>
+        <div style="border:1px solid #D9DCD4;border-radius:10px;padding:12px 14px;display:grid;grid-template-columns:auto 1fr;gap:2px 14px"><span style="color:#3B424C">Settlement</span><span style="font-variant-numeric:tabular-nums;font-size:15px">SA-S2611-0008</span><span style="color:#3B424C">งวด</span><span>1–15 ต.ค. 2569</span><span style="color:#3B424C">จ่ายโดย</span><span>โอนเงิน</span><span style="color:#3B424C">เลขอ้างอิง</span><span style="font-variant-numeric:tabular-nums;font-size:15px">KBANK-2610-8841</span></div>
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:16px">
+        <thead><tr style="background:#EBEDE8"><th style="padding:8px 10px;text-align:left;font-weight:600;border-bottom:1px solid #D9DCD4">เที่ยว<div style="font-weight:400;font-size:13px;color:#3B424C">Trip</div></th><th style="padding:8px 10px;text-align:left;font-weight:600;border-bottom:1px solid #D9DCD4">วันที่<div style="font-weight:400;font-size:13px;color:#3B424C">Date</div></th><th style="padding:8px 10px;text-align:left;font-weight:600;border-bottom:1px solid #D9DCD4">เส้นทาง<div style="font-weight:400;font-size:13px;color:#3B424C">Route</div></th><th style="padding:8px 10px;text-align:right;font-weight:600;border-bottom:1px solid #D9DCD4">ค่าเที่ยว<div style="font-weight:400;font-size:13px;color:#3B424C">Trip fee</div></th><th style="padding:8px 10px;text-align:right;font-weight:600;border-bottom:1px solid #D9DCD4">ค่าใช้จ่ายหน้างาน<div style="font-weight:400;font-size:13px;color:#3B424C">Site expenses</div></th></tr></thead>
+        <tbody>
+          <tr><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0;font-variant-numeric:tabular-nums;font-size:15px">TRP-2610-0300</td><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0">4 ต.ค. 2569</td><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0">กรุงเทพ → ชลบุรี</td><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0;text-align:right;font-variant-numeric:tabular-nums;font-size:15px">5,100.00</td><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0;text-align:right;font-variant-numeric:tabular-nums;font-size:15px">180.00</td></tr>
+          <tr><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0;font-variant-numeric:tabular-nums;font-size:15px">TRP-2610-0301</td><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0">6 ต.ค. 2569</td><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0">อยุธยา → สระบุรี</td><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0;text-align:right;font-variant-numeric:tabular-nums;font-size:15px">4,300.00</td><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0;text-align:right;font-variant-numeric:tabular-nums;font-size:15px">350.00</td></tr>
+          <tr><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0;font-variant-numeric:tabular-nums;font-size:15px">TRP-2610-0302</td><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0">8 ต.ค. 2569</td><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0">กรุงเทพ → ชลบุรี</td><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0;text-align:right;font-variant-numeric:tabular-nums;font-size:15px">5,100.00</td><td style="padding:9px 10px;border-bottom:1px solid #E4E6E0;text-align:right;font-variant-numeric:tabular-nums;font-size:15px">520.00</td></tr>
+        </tbody>
+      </table>
+      <div style="display:flex;justify-content:flex-end">
+        <div style="width:320px;display:grid;grid-template-columns:1fr auto;gap:4px 16px">
+          <span>ยอดซื้อรวม / Subtotal</span><span style="font-variant-numeric:tabular-nums;font-size:15px;text-align:right">15,550.00</span>
+          <span>หัก ณ ที่จ่าย 1% / WHT 1%</span><span style="font-variant-numeric:tabular-nums;font-size:15px;text-align:right">−155.50</span>
+          <span>หักเงินเบิกล่วงหน้า / Less advance</span><span style="font-variant-numeric:tabular-nums;font-size:15px;text-align:right">−2,000.00</span>
+          <span style="font-weight:600;padding-top:6px;border-top:1px solid #101418">จ่ายสุทธิ / Net paid</span><span style="font-variant-numeric:tabular-nums;font-size:16px;font-weight:600;text-align:right;padding-top:6px;border-top:1px solid #101418">13,394.50</span>
+        </div>
+      </div>
+      <div style="background:#EBEDE8;border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:2px"><span style="font-size:14px;color:#3B424C">จำนวนเงินตัวอักษร / Amount in words</span><span style="font-weight:600">หนึ่งหมื่นสามพันสามร้อยเก้าสิบสี่บาทห้าสิบสตางค์</span></div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:24px;margin-top:auto;padding-top:28px">
+        <div style="display:flex;flex-direction:column;align-items:center;gap:4px"><div style="width:100%;height:56px;border-bottom:1px solid #101418"></div><span>ผู้จัดทำ / Prepared by</span></div>
+        <div style="display:flex;flex-direction:column;align-items:center;gap:4px"><div style="width:100%;height:56px;border-bottom:1px solid #101418"></div><span>ผู้อนุมัติ / Approved by</span></div>
+        <div style="display:flex;flex-direction:column;align-items:center;gap:4px"><div style="width:100%;height:56px;border-bottom:1px solid #101418"></div><span>ผู้รับเงิน / Collector</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="page" id="w50" data-screen-label="06 หนังสือรับรอง 50 ทวิ">
+    <div style="padding:44px 48px;display:flex;flex-direction:column;gap:16px;font-size:16px;line-height:1.6">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px">
+        <div style="display:flex;flex-direction:column"><span style="font-size:20px;font-weight:600;color:#13213F">หนังสือรับรองการหักภาษี ณ ที่จ่าย</span><span style="font-size:14px;font-weight:500;color:#3B424C;">WITHHOLDING TAX CERTIFICATE</span><span>ตามมาตรา 50 ทวิ แห่งประมวลรัษฎากร</span></div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end"><span>เล่มที่ 11/2569</span><span>เลขที่ <span style="font-variant-numeric:tabular-nums;font-size:15px;font-weight:500">WHT-2611-0001</span></span></div>
+      </div>
+      <div style="border:1px solid #101418;border-radius:6px;padding:12px 14px;display:flex;flex-direction:column;gap:2px"><span style="font-weight:600">ผู้มีหน้าที่หักภาษี ณ ที่จ่าย / Withholding agent</span><span>ชื่อ บริษัท ศรีไทยขนส่ง จำกัด</span><span>เลขประจำตัวผู้เสียภาษีอากร <span style="font-variant-numeric:tabular-nums;font-size:15px">0105556078912</span></span><span>ที่อยู่ 88/12 ถนนบางนา-ตราด กม. 12 ต.บางพลีใหญ่ อ.บางพลี จ.สมุทรปราการ 10540</span></div>
+      <div style="border:1px solid #101418;border-radius:6px;padding:12px 14px;display:flex;flex-direction:column;gap:2px"><span style="font-weight:600">ผู้ถูกหักภาษี ณ ที่จ่าย / Payee</span><span>ชื่อ ห้างหุ้นส่วนจำกัด ทรัพย์สมบูรณ์ขนส่ง</span><span>เลขประจำตัวผู้เสียภาษีอากร <span style="font-variant-numeric:tabular-nums;font-size:15px">0103556012345</span></span><span>ที่อยู่ 45/7 หมู่ 3 ต.บ้านสวน อ.เมืองชลบุรี จ.ชลบุรี 20000</span></div>
+      <div style="display:flex;gap:22px;flex-wrap:wrap"><span>ลำดับที่ในแบบ</span><span>☐ ภ.ง.ด.1ก</span><span>☐ ภ.ง.ด.2</span><span>☐ ภ.ง.ด.3</span><span>☑ ภ.ง.ด.53</span></div>
+      <table style="width:100%;border-collapse:collapse;font-size:16px;border:1px solid #101418">
+        <thead><tr><th style="padding:8px 10px;text-align:left;font-weight:600;border:1px solid #101418">ประเภทเงินได้พึงประเมินที่จ่าย<div style="font-weight:400;font-size:13px;color:#3B424C">Type of income paid</div></th><th style="padding:8px 10px;text-align:left;font-weight:600;border:1px solid #101418;width:150px">วัน เดือน ปีที่จ่าย<div style="font-weight:400;font-size:13px;color:#3B424C">Date paid</div></th><th style="padding:8px 10px;text-align:right;font-weight:600;border:1px solid #101418;width:140px">จำนวนเงินที่จ่าย<div style="font-weight:400;font-size:13px;color:#3B424C">Amount paid</div></th><th style="padding:8px 10px;text-align:right;font-weight:600;border:1px solid #101418;width:130px">ภาษีที่หักไว้<div style="font-weight:400;font-size:13px;color:#3B424C">Tax withheld</div></th></tr></thead>
+        <tbody>
+          <tr><td style="padding:10px;border:1px solid #101418">6. อื่น ๆ ค่าขนส่ง (หักร้อยละ 1)</td><td style="padding:10px;border:1px solid #101418">29 ต.ค. 2569</td><td style="padding:10px;border:1px solid #101418;text-align:right;font-variant-numeric:tabular-nums;font-size:15px">15,550.00</td><td style="padding:10px;border:1px solid #101418;text-align:right;font-variant-numeric:tabular-nums;font-size:15px">155.50</td></tr>
+          <tr><td style="padding:10px;border:1px solid #101418;font-weight:600" colspan="2">รวมเงินที่จ่ายและภาษีที่หักนำส่ง</td><td style="padding:10px;border:1px solid #101418;text-align:right;font-variant-numeric:tabular-nums;font-size:15px;font-weight:600">15,550.00</td><td style="padding:10px;border:1px solid #101418;text-align:right;font-variant-numeric:tabular-nums;font-size:15px;font-weight:600">155.50</td></tr>
+        </tbody>
+      </table>
+      <div>รวมเงินภาษีที่หักนำส่ง (ตัวอักษร) <b>หนึ่งร้อยห้าสิบห้าบาทห้าสิบสตางค์</b></div>
+      <div style="display:flex;gap:22px;flex-wrap:wrap"><span>ผู้จ่ายเงิน</span><span>☑ หัก ณ ที่จ่าย</span><span>☐ ออกให้ตลอดไป</span><span>☐ ออกให้ครั้งเดียว</span><span>☐ อื่น ๆ</span></div>
+      <div style="display:grid;grid-template-columns:1fr 160px;gap:20px;align-items:end;margin-top:auto;padding-top:20px;border-top:1px solid #101418">
+        <div style="display:flex;flex-direction:column;gap:6px"><span>ขอรับรองว่าข้อความและตัวเลขดังกล่าวข้างต้นถูกต้องตรงกับความจริงทุกประการ</span><div style="height:52px;border-bottom:1px solid #101418;width:320px"></div><span>ลงชื่อ ผู้จ่ายเงิน · กมลวรรณ ทองดี</span><span>วันที่ 29 ต.ค. 2569</span></div>
+        <div style="height:120px;border:1.5px dashed #59606B;border-radius:50%;display:flex;align-items:center;justify-content:center;text-align:center;color:#3B424C;font-size:14px">ประทับตรา<br>นิติบุคคล</div>
+      </div>
+    </div>
+  </section>
+</doc-page>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { cf: null };
+  componentDidMount() { this.rd = () => { try { this.setState({ cf: JSON.parse(localStorage.getItem('tms_cf_v1') || 'null') }); } catch (e) {} }; this.rd(); window.addEventListener('storage', this.rd); window.addEventListener('focus', this.rd); }
+  componentWillUnmount() { window.removeEventListener('storage', this.rd); window.removeEventListener('focus', this.rd); }
+  renderVals() {
+    const x = this.state.cf, DEF = { customer_po: 'PO-45861', container_no: 'MSKU7654321', temp_range: 'dry', seal_no: 'SL448060' };
+    const F = x && x.cfields ? x.cfields : [{ ent: 'so', key: 'customer_po', th: 'เลข PO ลูกค้า', st: 'ใช้งาน', show: { print: true } }, { ent: 'so', key: 'container_no', th: 'เลขตู้คอนเทนเนอร์', st: 'ใช้งาน', show: { print: true } }, { ent: 'so', key: 'temp_range', th: 'อุณหภูมิที่ต้องคุม', type: 'sel', opts: [{ c: 'dry', l: 'แห้ง' }, { c: '2-8C', l: '2–8°C' }, { c: '-18C', l: '-18°C' }], st: 'ใช้งาน', show: { print: true } }, { ent: 'do', key: 'seal_no', th: 'เลขซีล', st: 'ใช้งาน', show: { print: true } }];
+    const V = x && x.cfv ? x.cfv : {};
+    const val = (ent, id, f) => { const m = (V[ent] || {})[id]; let v = m && f.key in m ? m[f.key] : DEF[f.key]; if (v == null || v === '') return '—'; if (f.type === 'sel' && f.opts) { const o = f.opts.find(z => z.c === v); if (o) v = o.l; } if (Array.isArray(v)) v = v.join(', '); return String(v); };
+    const pick = (ents) => F.filter(f => f.st === 'ใช้งาน' && f.show && f.show.print && ents.some(e => e[0] === f.ent)).map(f => { const e = ents.find(z => z[0] === f.ent); return { l: f.th, v: val(f.ent, e[1], f) }; });
+    const d = pick([['so', 'SO-2611-0123'], ['do', 'DO-2611-00060']]), i = pick([['inv', 'TMS-INV-2611-0005'], ['so', 'SO-2611-0123']]).slice(0, 4);
+    return { ref: { do: { has: d.length > 0, items: d.slice(0, 8) }, inv: { has: i.length > 0, items: i } } };
+  }
+}
+</script>
+</body>
+</html>

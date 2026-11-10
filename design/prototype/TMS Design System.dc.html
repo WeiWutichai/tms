@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet><link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet"><style>body{margin:0;background:#F9FAFB;color:#111827;font-family:'IBM Plex Sans Thai',sans-serif;font-size:14px;line-height:1.6}a{color:#163A66}a:hover{color:#2457A0}*{box-sizing:border-box}</style></helmet>
+<div style="max-width:1440px;margin:0 auto;padding:32px 24px 48px;display:flex;flex-direction:column;gap:24px">
+  <div style="display:flex;flex-direction:column;gap:4px">
+    <div style="font-size:28px;font-weight:600;line-height:1.3">ระบบ TMS — Design system</div>
+    <div style="color:#374151">ฝ่ายวางแผนรถและฝ่ายบัญชี · เดสก์ท็อป 1440px · IBM Plex Sans Thai / IBM Plex Mono</div>
+  </div>
+
+  <div style="background:#FFFFFF;border:1px solid #E5E7EB;border-radius:4px;padding:24px;display:flex;flex-direction:column;gap:16px">
+    <div style="font-size:18px;font-weight:600">สี</div>
+    <div style="display:grid;grid-template-columns:120px 1fr;gap:16px;align-items:start">
+      <div style="color:#374151;font-weight:500">Primary navy</div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap">
+        <sc-for list="{{ navy }}" as="c" hint-placeholder-count="5"><div style="width:148px;display:flex;flex-direction:column;gap:4px"><div style="height:56px;border-radius:4px;border:1px solid #E5E7EB;background:{{ c.hex }}"></div><div style="font-family:'IBM Plex Mono',monospace;font-size:13px">{{ c.hex }}</div><div style="color:#6B7280">{{ c.use }}</div></div></sc-for>
+      </div>
+      <div style="color:#374151;font-weight:500">Accent amber</div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap">
+        <sc-for list="{{ amber }}" as="c" hint-placeholder-count="3"><div style="width:148px;display:flex;flex-direction:column;gap:4px"><div style="height:56px;border-radius:4px;border:1px solid #E5E7EB;background:{{ c.hex }}"></div><div style="font-family:'IBM Plex Mono',monospace;font-size:13px">{{ c.hex }}</div><div style="color:#6B7280">{{ c.use }}</div></div></sc-for>
+      </div>
+      <div style="color:#374151;font-weight:500">Neutral</div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap">
+        <sc-for list="{{ neutral }}" as="c" hint-placeholder-count="8"><div style="width:148px;display:flex;flex-direction:column;gap:4px"><div style="height:56px;border-radius:4px;border:1px solid #E5E7EB;background:{{ c.hex }}"></div><div style="font-family:'IBM Plex Mono',monospace;font-size:13px">{{ c.hex }}</div><div style="color:#6B7280">{{ c.use }}</div></div></sc-for>
+      </div>
+      <div style="color:#374151;font-weight:500">กราฟ (≤ 4 series)</div>
+      <div style="display:flex;gap:12px">
+        <div style="width:72px;height:24px;border-radius:4px;background:#2457A0"></div><div style="width:72px;height:24px;border-radius:4px;background:#0B1F3A"></div><div style="width:72px;height:24px;border-radius:4px;background:#6B7280"></div><div style="width:72px;height:24px;border-radius:4px;background:#D9821A"></div>
+      </div>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:24px">
+    <div style="background:#FFFFFF;border:1px solid #E5E7EB;border-radius:4px;padding:24px;display:flex;flex-direction:column;gap:16px">
+      <div style="font-size:18px;font-weight:600">ตัวอักษร</div>
+      <div style="display:grid;grid-template-columns:140px 1fr;gap:12px;align-items:baseline">
+        <div style="color:#6B7280">Display 28/600</div><div style="font-size:28px;font-weight:600;line-height:1.3">ภาพรวมการเชื่อมต่อ KRS</div>
+        <div style="color:#6B7280">H1 22/600</div><div style="font-size:22px;font-weight:600">ใบ SO รอกำหนดเส้นทาง</div>
+        <div style="color:#6B7280">H2 18/600</div><div style="font-size:18px;font-weight:600">รายการ DO ที่ยังไม่วางบิล</div>
+        <div style="color:#6B7280">H3 16/600</div><div style="font-size:16px;font-weight:600">ข้อมูลเส้นทาง</div>
+        <div style="color:#6B7280">Body 14/400</div><div>ลูกค้าต้องการรับสินค้าภายในวันที่ 14 ต.ค. 2569 ที่คลังสินค้าบางนา</div>
+        <div style="color:#6B7280">Caption 12</div><div style="font-size:12px;color:#6B7280;font-family:'IBM Plex Mono',monospace">14 ต.ค. 2569 09:42</div>
+        <div style="color:#6B7280">Mono 13</div><div style="display:flex;flex-wrap:wrap;gap:8px 16px;font-family:'IBM Plex Mono',monospace;font-size:13px"><span>SO-2610-0123</span><span>DO-2610-00042</span><span>TMS-INV-2610-0007</span><span>SA-S2610-0012</span><span>70-1234 กรุงเทพมหานคร</span><span>128,450.00</span></div>
+      </div>
+    </div>
+    <div style="background:#FFFFFF;border:1px solid #E5E7EB;border-radius:4px;padding:24px;display:flex;flex-direction:column;gap:16px">
+      <div style="font-size:18px;font-weight:600">ปุ่ม และ input</div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap">
+        <button style="height:36px;padding:0 16px;border-radius:4px;border:none;background:#B8690F;color:#FFFFFF;font:500 14px 'IBM Plex Sans Thai';cursor:pointer" style-hover="background:#D9821A">สร้างร่างวางบิล</button>
+        <button style="height:36px;padding:0 16px;border-radius:4px;border:1px solid #163A66;background:#FFFFFF;color:#163A66;font:500 14px 'IBM Plex Sans Thai';cursor:pointer" style-hover="border-color:#2457A0;color:#2457A0;background:#F2F5FA">บันทึก</button>
+        <button style="height:36px;padding:0 12px;border-radius:4px;border:none;background:transparent;color:#163A66;font:500 14px 'IBM Plex Sans Thai';cursor:pointer" style-hover="color:#2457A0;background:#F2F5FA">ยกเลิก</button>
+        <button style="height:36px;padding:0 16px;border-radius:4px;border:1px solid #991B1B;background:#FFFFFF;color:#991B1B;font:500 14px 'IBM Plex Sans Thai';cursor:pointer" style-hover="background:#FEE2E2">ลบเอกสาร</button>
+      </div>
+      <div style="color:#6B7280">Primary · Secondary · Tertiary · Destructive — สูง 36px, Primary 1 ปุ่มต่อหน้า</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <label style="display:flex;flex-direction:column;gap:4px"><span style="font-weight:500;color:#374151">เลขเอกสาร</span><input placeholder="SO-2610-…" style="height:36px;border:1px solid #D1D5DB;border-radius:4px;padding:0 12px;font:14px 'IBM Plex Sans Thai';color:#111827;outline:none" style-focus="border-color:#2457A0;box-shadow:0 0 0 2px #2457A0"></label>
+        <label style="display:flex;flex-direction:column;gap:4px"><span style="font-weight:500;color:#374151">สถานะ focus</span><input value="บริษัท พีพี จำกัด" style="height:36px;border:1px solid #2457A0;box-shadow:0 0 0 2px #2457A0;border-radius:4px;padding:0 12px;font:14px 'IBM Plex Sans Thai';color:#111827;outline:none"></label>
+      </div>
+    </div>
+  </div>
+
+  <div style="background:#FFFFFF;border:1px solid #E5E7EB;border-radius:4px;padding:24px;display:flex;flex-direction:column;gap:16px">
+    <div style="font-size:18px;font-weight:600">Badge สถานะเอกสาร</div>
+    <sc-for list="{{ badgeGroups }}" as="g" hint-placeholder-count="5">
+      <div style="display:grid;grid-template-columns:120px 1fr;gap:16px;align-items:center">
+        <div style="color:#374151">{{ g.label }}</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap"><sc-for list="{{ g.items }}" as="b"><span style="height:24px;display:inline-flex;align-items:center;padding:0 8px;border-radius:4px;border:1px solid {{ g.bd }};background:{{ g.bg }};color:{{ g.fg }};font:500 13px 'IBM Plex Mono',monospace">{{ b }}</span></sc-for></div>
+      </div>
+    </sc-for>
+    <div style="display:grid;grid-template-columns:120px 1fr;gap:16px;align-items:center">
+      <div style="color:#374151">รอดำเนินการ</div>
+      <div style="display:flex;gap:8px"><span style="height:24px;display:inline-flex;align-items:center;padding:0 8px;border-radius:4px;background:#FBEFDD;color:#92400E;font-weight:500">รอดำเนินการ 12</span></div>
+    </div>
+  </div>
+
+  <div style="position:relative;background:#FFFFFF;border:1px solid #E5E7EB;border-radius:4px;overflow:hidden;height:520px;display:flex">
+    <div style="flex:1;min-width:0;display:flex;flex-direction:column">
+      <div style="padding:16px 24px;font-size:18px;font-weight:600;border-bottom:1px solid #E5E7EB">Data table + side panel</div>
+      <div style="overflow:auto;flex:1">
+        <table style="width:100%;border-collapse:collapse">
+          <thead><tr style="position:sticky;top:0;background:#F3F4F6">
+            <th style="height:44px;padding:0 16px;text-align:left;font-weight:600;color:#374151;border-bottom:1px solid #E5E7EB">เลข SO</th>
+            <th style="height:44px;padding:0 16px;text-align:left;font-weight:600;color:#374151;border-bottom:1px solid #E5E7EB">ลูกค้า</th>
+            <th style="height:44px;padding:0 16px;text-align:left;font-weight:600;color:#374151;border-bottom:1px solid #E5E7EB">วันที่ต้องการ</th>
+            <th style="height:44px;padding:0 16px;text-align:left;font-weight:600;color:#374151;border-bottom:1px solid #E5E7EB">สถานะ</th>
+            <th style="height:44px;padding:0 16px;text-align:right;font-weight:600;color:#374151;border-bottom:1px solid #E5E7EB">ยอดเงิน (บาท)</th>
+          </tr></thead>
+          <tbody>
+            <sc-for list="{{ rows }}" as="r" hint-placeholder-count="6">
+              <tr onClick="{{ r.open }}" style="height:44px;cursor:pointer;background:{{ r.bg }}" style-hover="background:#F9FAFB">
+                <td style="padding:0 16px;border-bottom:1px solid #E5E7EB;font-family:'IBM Plex Mono',monospace;font-size:13px;color:#163A66">{{ r.no }}</td>
+                <td style="padding:0 16px;border-bottom:1px solid #E5E7EB">{{ r.cust }}</td>
+                <td style="padding:0 16px;border-bottom:1px solid #E5E7EB">{{ r.date }}</td>
+                <td style="padding:0 16px;border-bottom:1px solid #E5E7EB"><span style="height:24px;display:inline-flex;align-items:center;padding:0 8px;border-radius:4px;border:1px solid {{ r.bd }};background:{{ r.bgb }};color:{{ r.fg }};font:500 13px 'IBM Plex Mono',monospace">{{ r.status }}</span></td>
+                <td style="padding:0 16px;border-bottom:1px solid #E5E7EB;text-align:right;font-family:'IBM Plex Mono',monospace;font-size:13px">{{ r.amt }}</td>
+              </tr>
+            </sc-for>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <sc-if value="{{ panelOpen }}" hint-placeholder-val="{{ true }}">
+      <div style="width:480px;flex:none;border-left:1px solid #E5E7EB;background:#FFFFFF;display:flex;flex-direction:column">
+        <div style="height:56px;padding:0 24px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #E5E7EB">
+          <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:500">{{ sel.no }}</div>
+          <button onClick="{{ close }}" style="height:36px;padding:0 12px;border:none;background:transparent;color:#163A66;font:500 14px 'IBM Plex Sans Thai';cursor:pointer">ปิด</button>
+        </div>
+        <div style="padding:24px;display:flex;flex-direction:column;gap:16px;flex:1">
+          <div style="font-size:16px;font-weight:600">{{ sel.cust }}</div>
+          <div style="display:grid;grid-template-columns:120px 1fr;gap:8px">
+            <div style="color:#6B7280">วันที่ต้องการ</div><div>{{ sel.date }}</div>
+            <div style="color:#6B7280">ยอดเงิน</div><div style="font-family:'IBM Plex Mono',monospace;font-size:13px">{{ sel.amt }}</div>
+            <div style="color:#6B7280">สถานะ</div><div>{{ sel.status }}</div>
+          </div>
+        </div>
+        <div style="padding:16px 24px;border-top:1px solid #E5E7EB;display:flex;justify-content:flex-end;gap:8px">
+          <button onClick="{{ close }}" style="height:36px;padding:0 16px;border-radius:4px;border:1px solid #163A66;background:#FFFFFF;color:#163A66;font:500 14px 'IBM Plex Sans Thai';cursor:pointer">ยกเลิก</button>
+          <button style="height:36px;padding:0 16px;border-radius:4px;border:none;background:#B8690F;color:#FFFFFF;font:500 14px 'IBM Plex Sans Thai';cursor:pointer" style-hover="background:#D9821A">บันทึก</button>
+        </div>
+      </div>
+    </sc-if>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { sel: 0, open: true };
+  renderVals() {
+    const S = { info:['#1E40AF','#DBEAFE','#93C5FD'], warn:['#92400E','#FEF3C7','#FCD34D'], err:['#991B1B','#FEE2E2','#FCA5A5'], ok:['#166534','#DCFCE7','#86EFAC'], off:['#374151','#F3F4F6','#D1D5DB'] };
+    const g = (label,k,items)=>({label,fg:S[k][0],bg:S[k][1],bd:S[k][2],items});
+    const data = [
+      ['SO-2610-0123','บริษัท พีพี จำกัด','14 ต.ค. 2569','ROUTE_PENDING','warn','128,450.00'],
+      ['SO-2610-0124','บริษัท ไทยเคมีภัณฑ์ จำกัด (มหาชน)','15 ต.ค. 2569','CUSTOMER_UNMAPPED','warn','42,300.00'],
+      ['SO-2610-0126','ห้างหุ้นส่วนจำกัด เจริญพาณิชย์','15 ต.ค. 2569','PLANNED','ok','8,920.50'],
+      ['SO-2610-0129','บริษัท อีสเทิร์นซีบอร์ด เทรดดิ้ง จำกัด','16 ต.ค. 2569','RECEIVED','info','215,000.00'],
+      ['SO-2610-0131','บริษัท นครหลวงค้าเหล็ก จำกัด','17 ต.ค. 2569','REJECTED','err','67,780.25'],
+      ['SO-2610-0132','บริษัท บางนาแพ็คเกจจิ้ง จำกัด','18 ต.ค. 2569','CANCELLED','off','0.00']];
+    const rows = data.map((d,i)=>({no:d[0],cust:d[1],date:d[2],status:d[3],fg:S[d[4]][0],bgb:S[d[4]][1],bd:S[d[4]][2],amt:d[5],
+      bg: this.state.open && this.state.sel===i ? '#E3EAF5' : '#FFFFFF', open:()=>this.setState({sel:i,open:true})}));
+    return {
+      navy:[{hex:'#0B1F3A',use:'Sidebar / top bar'},{hex:'#163A66',use:'ปุ่มรอง / ลิงก์'},{hex:'#2457A0',use:'Hover / focus'},{hex:'#E3EAF5',use:'แถวที่เลือก'},{hex:'#F2F5FA',use:'พื้น section'}],
+      amber:[{hex:'#B8690F',use:'ปุ่มหลัก'},{hex:'#D9821A',use:'Hover'},{hex:'#FBEFDD',use:'Badge รอดำเนินการ'}],
+      neutral:[{hex:'#111827',use:'ข้อความหลัก'},{hex:'#374151',use:'ข้อความรอง'},{hex:'#6B7280',use:'ข้อความช่วย'},{hex:'#D1D5DB',use:'เส้นขอบ'},{hex:'#E5E7EB',use:'เส้นแบ่ง'},{hex:'#F3F4F6',use:'หัวตาราง'},{hex:'#F9FAFB',use:'พื้นหน้า'},{hex:'#FFFFFF',use:'การ์ด'}],
+      badgeGroups:[g('ข้อมูล','info',['RECEIVED','DRAFT','READY']),g('เตือน','warn',['ROUTE_PENDING','CUSTOMER_UNMAPPED','RETRY_WAIT','APPROVAL_PENDING']),g('ผิดพลาด','err',['REJECTED','FAILED','MISMATCH']),g('สำเร็จ','ok',['PLANNED','DELIVERED','BILLED','ACCEPTED','POSTED']),g('ปิด','off',['CANCELLED'])],
+      rows, panelOpen:this.state.open, sel:rows[this.state.sel], close:()=>this.setState({open:false})
+    };
+  }
+}
+</script>
+</body>
+</html>

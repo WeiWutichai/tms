@@ -1,0 +1,247 @@
+งานขนส่ง|Transport jobs|运输作业
+สร้างร่างใบสั่งขนส่ง ราคาคำนวณจาก rate card|Create a draft sales order, priced from the rate card|创建运输单草稿,按费率卡计价
+ร่างจะไปอยู่ในกล่องรับงาน ต้องมีคนยืนยันใน TMS ก่อนเป็น SO|Drafts land in the order inbox and must be confirmed in TMS before becoming an SO|草稿进入收单箱,需在 TMS 确认后才成为运输单
+ชื่อหรือรหัสลูกค้า|Customer name or code|客户名称或编码
+จุดรับ: location_id หรือชื่อสถานที่|Pickup: location_id or place name|取货点:location_id 或地点名称
+วันเวลารับ ISO 8601|Pickup date-time, ISO 8601|取货日期时间 ISO 8601
+น้ำหนักรวม|Total weight|总重量
+เลข PO ลูกค้า|Customer PO|客户采购单号
+ลูกค้าเดิมบอกชื่อพอ ระบบจับคู่กับข้อมูลหลัก|For existing customers a name is enough; it is matched to master data|老客户只需名称,系统匹配主数据
+ระบบออกเลข SO ให้เมื่อยืนยัน|The SO number is issued on confirmation|确认后系统分配运输单号
+ถ้าจับคู่สถานที่ไม่ได้ AI จะถามกลับก่อนสร้าง|If a place can't be matched, the AI asks before creating|地点无法匹配时 AI 会先追问
+อ่าน|Read|读取
+ค้นหาใบสั่งขนส่งตามลูกค้า สถานะ วันที่ หรือ custom field|Search sales orders by customer, status, date or custom field|按客户、状态、日期或自定义字段搜索运输单
+สถานะ SO|SO status|运输单状态
+ค้นด้วย custom field ที่ตั้ง "ค้นหาได้"|Search by custom fields marked "searchable"|按标记为"可搜索"的自定义字段搜索
+ประเมินราคาจาก rate card ของลูกค้า|Quote a price from the customer's rate card|按客户费率卡报价
+ต้นทาง → ปลายทาง|Origin → destination|起点 → 终点
+ติดตาม / POD|Tracking / POD|跟踪 / POD
+ตำแหน่งรถและเวลาถึงโดยประมาณของ DO|Vehicle position and ETA for a DO|DO 的车辆位置与预计到达
+ดูหลักฐานการส่งและผลตรวจ POD|View proof of delivery and POD check result|查看签收证明与 POD 检查结果
+รูปส่งเป็นลิงก์อายุ 15 นาที|Photos are returned as links valid for 15 minutes|照片以 15 分钟有效链接返回
+เสนอรถที่เหมาะกับงานพร้อมเหตุผล|Suggest suitable vehicles with reasons|推荐合适车辆并说明理由
+ร่างการจัดรถและคนขับให้ SO|Draft a vehicle and driver assignment for an SO|为运输单起草派车与司机
+การจ่ายงานรถต้องยืนยันใน TMS|Dispatch must be confirmed in TMS|派车需在 TMS 中确认
+ตรวจน้ำหนัก ใบขับขี่ และเอกสารรถเหมือนการจัดในหน้าจอ|Checks weight, licence and vehicle documents like on-screen dispatch|与界面派车相同,检查重量、驾照和车辆证件
+จากเอกสาร / ข้อความ|From documents / messages|来自文件 / 消息
+อ่านข้อความแล้วสร้างร่าง SO หนึ่งหรือหลายใบ|Read a message and create one or more draft SOs|读取消息并创建一张或多张运输单草稿
+ข้อความจากลูกค้า|Message from customer|客户消息
+ถ้ารู้ลูกค้า|If the customer is known|如已知客户
+ใช้ AI credit 2 ต่อใบ|Uses 2 AI credits per order|每单消耗 2 个 AI 点数
+อ่าน PDF Excel หรือรูปใบสั่งงาน|Read a PDF, Excel or photo of an order|读取 PDF、Excel 或订单照片
+สร้าง SO จากไฟล์ที่แนบ|Create SOs from the attached file|从附件创建运输单
+ลิงก์ไฟล์|File link|文件链接
+อ่านใบเสร็จเป็นร่างค่าใช้จ่าย|Read a receipt into a draft expense|读取收据生成费用草稿
+ร่างใบแจ้งหนี้จาก DO ที่ส่งแล้ว|Draft invoices from delivered DOs|从已送达 DO 起草发票
+กระทบเงินและภาษี จึงเป็นร่างเสมอ|Affects money and tax, so always a draft|涉及金额与税务,始终为草稿
+ใช้ VAT ตามการตั้งค่าลูกค้า|Uses the customer's VAT setting|按客户增值税设置
+ลูกหนี้เกินกำหนดแยกตามอายุหนี้|Overdue receivables by age|按账龄列出逾期应收
+เอกสารรถที่จะหมดอายุ|Expiring vehicle documents|即将到期的车辆证件
+ค้นหาสถานที่ เวลาทำการ และข้อจำกัดรถ|Find places, opening hours and vehicle restrictions|查找地点、营业时间与车辆限制
+ขอลบสถานที่|Request to delete a place|申请删除地点
+การลบเป็นร่างเสมอ|Deletion is always a draft|删除始终为草稿
+OTIF ตามลูกค้าหรือเส้นทาง|OTIF by customer or route|按客户或线路的 OTIF
+ข้อยกเว้น|Exceptions|异常
+เหตุที่ยังไม่ปิดพร้อม SLA|Open incidents with SLA|未关闭事件及 SLA
+เขียน|Write|写入
+ปิดเหตุพร้อมเหตุผล|Close an incident with a reason|填写理由并关闭事件
+AI ต้องขอยืนยันจากผู้ใช้ก่อนเรียก|The AI must ask the user before calling|AI 调用前需获得用户确认
+อย่างน้อย 10 ตัวอักษร|At least 10 characters|至少 10 个字符
+ร่าง · ยืนยันใน TMS|Draft · confirm in TMS|草稿 · 在 TMS 确认
+เขียน · ยืนยันใน AI|Write · confirm in the AI app|写入 · 在 AI 中确认
+รันในเทอร์มินัล แล้วพิมพ์ /mcp เพื่อเข้าสู่ระบบ|Run in the terminal, then type /mcp to sign in|在终端运行,然后输入 /mcp 登录
+ทำได้โดยผู้ดูแลบัญชี Claude ของทีม|Done by your team's Claude admin|由团队 Claude 管理员操作
+ต้องเปิดโหมดนักพัฒนาในบัญชี ChatGPT|Developer mode must be enabled in ChatGPT|需在 ChatGPT 账户开启开发者模式
+ใช้กับโปรแกรมที่รองรับ MCP แบบ HTTP (Streamable HTTP)|For apps that support MCP over HTTP (Streamable HTTP)|适用于支持 HTTP MCP(Streamable HTTP)的应用
+อื่นๆ (JSON)|Other (JSON)|其他(JSON)
+REST เดือนนี้|REST this month|本月 REST
+MCP เดือนนี้|MCP this month|本月 MCP
+สร้าง / ร่าง|Create / draft|创建 / 草稿
+แก้ / อื่นๆ|Edit / other|修改 / 其他
+เพิกถอนการเชื่อมต่อ|Revoke connection|撤销连接
+· AI จะเรียก tool ไม่ได้ทันที ต้องเชื่อมต่อและอนุญาตใหม่|· the AI loses tool access immediately and must reconnect|· AI 立即无法调用工具,需重新连接授权
+อ่านข้อความ LINE อีเมล PDF Excel และรูปใบสั่งงาน เป็นร่าง SO|Reads LINE, email, PDF, Excel and order photos into draft SOs|读取 LINE、邮件、PDF、Excel 和订单照片生成运输单草稿
+อ่านเอกสาร (OCR)|Document reading (OCR)|文档识别(OCR)
+ใบเสร็จน้ำมัน ใบแจ้งหนี้อู่ กรมธรรม์ ภาษี ตรอ.|Fuel receipts, garage invoices, insurance, tax, inspections|加油收据、修理发票、保单、税单、车检
+ตรวจ POD|POD check|POD 检查
+ตรวจรูป ลายเซ็น จำนวน และความเสียหายจากหลักฐานส่ง|Checks photos, signature, quantity and damage in proof of delivery|检查签收照片、签名、数量和损坏
+แนะนำการจับคู่ฟิลด์|Field mapping suggestions|字段映射建议
+เสนอการจับคู่และการแปลงค่าใน Field mapping|Suggests mappings and value transforms in Field mapping|在字段映射中建议匹配与转换
+ถามข้อมูลด้วยภาษาพูด|Ask in natural language|自然语言提问
+ตอบจากข้อมูลตามสิทธิ์ผู้ใช้ อ่านอย่างเดียว|Answers from data the user can access · read-only|按用户权限回答 · 只读
+เปิดใช้ AI ทั้งบริษัท|AI enabled for the company|全公司启用 AI
+ปิด AI ทั้งบริษัท · ฟีเจอร์ทั้งหมดหยุดทำงาน|AI disabled company-wide · all features stopped|全公司关闭 AI · 所有功能停止
+ถามข้อมูล|Ask|提问
+ความแม่น|Accuracy|准确率
+ยังไม่มีประวัติ|No history yet|暂无记录
+credit / ครั้ง|credits / use|点数 / 次
+เปิด AI ทั้งบริษัทก่อน|Enable company-wide AI first|请先全公司启用 AI
+รีเซ็ต 1 ธ.ค. 2569|Resets 1 Dec 2026|2026年12月1日重置
+· โควตาตามแพ็กเกจ|· quota from plan|· 按套餐配额
+ข้อมูลประมวลผลบนเซิร์ฟเวอร์ในภูมิภาคเอเชียแปซิฟิก และลบภายใน 30 วัน|Data is processed on Asia-Pacific servers and deleted within 30 days|数据在亚太区服务器处理,30 天内删除
+ผู้ให้บริการ AI ไม่นำข้อมูลของบริษัทไปฝึกโมเดล|The AI provider does not train models on your company's data|AI 服务商不会用贵公司数据训练模型
+ผลลัพธ์ทุกครั้งเป็นร่าง ต้องมีคนยืนยันก่อนบันทึก|Every result is a draft and must be confirmed before saving|所有结果均为草稿,需确认后保存
+AI เห็นเฉพาะข้อมูลที่ผู้ใช้คนนั้นมีสิทธิ์|The AI sees only data the user is allowed to see|AI 仅能看到该用户有权限的数据
+ครั้งใน 30 วัน|uses in 30 days|30 天内次数
+ถามเป็นภาษาพูด เช่น ลูกหนี้เกิน 60 วันมีใครบ้าง แล้วกด Enter|Ask in plain words, e.g. "who is over 60 days overdue", then press Enter|用自然语言提问,如"哪些应收超过60天",按 Enter
+ค้นหาเอกสาร ลูกค้า รถ หน้า หรือคำสั่ง|Search documents, customers, vehicles, pages or commands|搜索单据、客户、车辆、页面或命令
+อ่านใบเสร็จน้ำมัน|Read fuel receipt|识别加油收据
+บันทึกร่างค่าน้ำมัน|Save fuel expense draft|保存油费草稿
+ปั๊ม|Station|加油站
+เลขผู้เสียภาษีผู้ขาย|Vendor tax ID|卖方税号
+ราคา / ลิตร (฿)|Price / L (฿)|单价 / 升 (฿)
+ยอดรวม (฿)|Total (฿)|合计 (฿)
+อ่านใบแจ้งหนี้อู่|Read garage invoice|识别修理厂发票
+บันทึกร่างรายการซ่อม|Save repair lines draft|保存维修明细草稿
+เลขที่ใบแจ้งหนี้|Invoice no.|发票号
+อ่านกรมธรรม์ประกันภัย|Read insurance policy|识别保单
+บันทึกร่างเอกสารรถ|Save vehicle document draft|保存车辆证件草稿
+เลขที่กรมธรรม์|Policy no.|保单号
+วันเริ่ม|Start date|开始日期
+วันหมดอายุ|Expiry date|到期日
+เบี้ยรวม (฿)|Total premium (฿)|总保费 (฿)
+เลือกใบสั่งซ่อมที่จะเติมรายการก่อน|Choose the work order to add lines to first|请先选择要添加明细的维修单
+เปิดรายการ|Open record|打开记录
+ปฏิเสธผล AI · กรอกเองได้ในฟอร์มปกติ|AI result rejected · enter it manually in the normal form|已拒绝 AI 结果 · 可在常规表单手动填写
+ตัวอย่างอีเมล 2 งาน|Sample email · 2 jobs|示例邮件 · 2 单
+ตัวอย่างข้อความ LINE|Sample LINE message|示例 LINE 消息
+ไม่พบในต้นฉบับ|Not found in source|原文中未找到
+ข้อความที่วาง|Pasted text|粘贴的文本
+สร้างแล้ว|Created|已创建
+ลงฟิลด์ custom_fields.|Goes to custom_fields.|写入 custom_fields.
+ไม่มีฟิลด์ปลายทาง · บันทึกในหมายเหตุ|No matching field · saved in notes|无对应字段 · 存入备注
+สร้างทั้งหมด|Create all|全部创建
+อีเมลรับงาน|Order email|收单邮箱
+เข้าเมื่อ|Received|收到时间
+AI พบ|AI found|AI 识别
+ตรวจและสร้าง SO|Review and create SO|检查并创建运输单
+ตอบกลับลูกค้า|Reply to customer|回复客户
+ชื่อลูกค้า|Customer name|客户名称
+มีลูกค้าชื่อนี้แล้ว|A customer with this name already exists|已有同名客户
+รหัสสาขา|Branch code|分支代码
+ต้องเป็นตัวเลข 5 หลัก|Must be 5 digits|须为 5 位数字
+น้ำหนักบรรทุก (กก.)|Payload (kg)|载重 (kg)
+สร้างใบสั่งขนส่ง|Create sales order|创建运输单
+สร้างใบส่งของ|Create delivery order|创建交货单
+เพิ่มลูกค้า|Add customer|新增客户
+เพิ่มรถ|Add vehicle|新增车辆
+เลขที่ถัดไป|Next number|下一个编号
+สร้าง DO|Create DO|创建 DO
+· ฟิลด์เพิ่มเติม|· custom fields|· 自定义字段
+AI อ่านใบเสร็จ|AI receipt reading|AI 识别收据
+รายการในใบสั่งซ่อม|lines to work order|条明细到维修单
+· หมดอายุใหม่|· new expiry|· 新到期日
+สร้างจากการจับคู่ฟิลด์|Created from field mapping|由字段映射创建
+(AI แนะนำ)|(AI suggested)|(AI 建议)
+จาก AI แนะนำในการจับคู่ฟิลด์|from an AI suggestion in field mapping|来自字段映射的 AI 建议
+สร้างฟิลด์เพิ่มเติม|Created custom field|已创建自定义字段
+และจับคู่แล้ว|and mapped it|并已映射
+วางตัวอย่าง JSON หรือ CSV ก่อนให้ AI แนะนำ|Paste a JSON or CSV sample before asking the AI|请先粘贴 JSON 或 CSV 示例再让 AI 建议
+ตัวอย่างเป็นวันที่ พ.ศ. แปลงเป็น ISO|Sample is a Buddhist-era date · convert to ISO|示例为佛历日期 · 转为 ISO
+ชื่อฟิลด์บอกหน่วยตัน แปลงเป็น กก.|Field name says tonnes · convert to kg|字段名为吨 · 转为公斤
+ปรับเป็นตัวพิมพ์ใหญ่ตามรูปแบบ|Uppercase to match the format|按格式转为大写
+ตัวเลข|Number|数字
+ชุดใหม่|New set|新映射
+AI แนะนำการจับคู่|AI suggested mappings|AI 建议映射
+· ตรวจแล้วกดบันทึก|· review and save|· 检查后保存
+ยอมรับทั้งหมด|Accept all|全部接受
+ยอมรับ|Accept|接受
+AI แนะนำ · สร้างฟิลด์เพิ่มเติมใหม่|AI suggestion · create a new custom field|AI 建议 · 新建自定义字段
+สร้างและจับคู่|Create and map|创建并映射
+ไม่ต้อง|No thanks|不需要
+คำอธิบายข้อมูล|Field reference|字段说明
+ตัวอย่างโค้ด|Code samples|代码示例
+ลองเรียก|Try it|试调用
+ความยาว|Length|长度
+ส่ง request ไป Sandbox|Send request to Sandbox|发送请求到 Sandbox
+ลองเรียกได้เฉพาะ Sandbox · ไม่กระทบข้อมูลจริง|Sandbox only · does not affect live data|仅限 Sandbox · 不影响正式数据
+endpoint นี้ไม่มีพารามิเตอร์|This endpoint has no parameters|此端点无参数
+แหล่ง|Source|来源
+เติมรายการลงใบสั่งซ่อม|Add lines to work order|添加明细到维修单
+กรอบคือตำแหน่งที่ AI อ่าน · กรอบส้ม = ไม่มั่นใจ|Boxes show where the AI read · orange = low confidence|方框为 AI 识别位置 · 橙色 = 不确定
+AI อ่านแล้วเติมฟอร์มเป็นร่าง · ไม่มีอะไรบันทึกจนกว่าคุณกดสร้าง|The AI fills a draft form · nothing is saved until you press Create|AI 填写草稿表单 · 点击创建前不会保存
+ลองใช้|Try|试用
+ลากไฟล์มาวาง หรือเลือกตัวอย่างด้านล่าง|Drop a file or choose a sample below|拖入文件或选择下方示例
+PDF · Excel · รูปถ่ายใบสั่งงาน ไม่เกิน 10 MB|PDF · Excel · order photo up to 10 MB|PDF · Excel · 订单照片,最大 10 MB
+ส่วนที่ไฮไลต์คือข้อความที่ AI ดึงไปเติมฟอร์ม · ชี้เพื่อดูว่าเป็นช่องไหน|Highlights show text the AI used · hover to see the field|高亮为 AI 提取的文字 · 悬停查看对应字段
+เปิด SO|Open SO|打开运输单
+ปฏิเสธร่างนี้แล้ว · ไม่สร้าง SO|Draft rejected · no SO created|已拒绝此草稿 · 未创建运输单
+พารามิเตอร์ · schema เดียวกับ REST API|Parameters · same schema as the REST API|参数 · 与 REST API 相同的 schema
+คำอธิบาย / ตัวอย่าง|Description / example|说明 / 示例
+tool อื่นในหมวดเดียวกัน|Other tools in this group|同组其他工具
+อ่านอย่างเดียว · ตอบตามสิทธิ์ของคุณ · ใช้ 1 AI credit ต่อคำถาม|Read-only · answers within your permissions · 1 AI credit per question|只读 · 按你的权限回答 · 每问 1 点
+REST API, MCP, webhook และเอกสาร ใช้ schema ชุดเดียวกัน รวมฟิลด์เพิ่มเติมของบริษัท|REST API, MCP, webhooks and docs share one schema, including company custom fields|REST API、MCP、webhook 和文档使用同一 schema,含公司自定义字段
+URL เดียวกันทุกบริษัท · ระบบรู้บริษัทและผู้ใช้จาก token หลังเข้าสู่ระบบ|Same URL for every company · company and user come from the token after sign-in|所有公司同一 URL · 登录后从 token 识别公司与用户
+เข้าสู่ระบบ TMS แล้วกด "อนุญาต"|Sign in to TMS and press "Allow"|登录 TMS 并点击"允许"
+ครั้งแรกที่ใช้ โปรแกรม AI จะเปิดหน้าเข้าสู่ระบบของ TMS ให้เลือก scope ที่อนุญาต AI ได้ token โดยไม่เห็นรหัสผ่าน|On first use the AI app opens the TMS sign-in page to choose scopes; the AI gets a token without seeing your password|首次使用时 AI 应用会打开 TMS 登录页选择授权范围,AI 获得 token 而看不到密码
+สิทธิ์ของ AI = สิทธิ์ตามบทบาทของผู้ใช้ ∩ scope ที่อนุญาตตอนเชื่อมต่อ|AI permissions = the user's role permissions ∩ scopes granted at connection|AI 权限 = 用户角色权限 ∩ 连接时授权的范围
+โปรแกรม|App|应用
+Scope ที่อนุญาต|Granted scopes|已授权范围
+เชื่อมเมื่อ|Connected|连接时间
+เรียก 7 วัน|Calls (7 days)|7 天调用
+ผลจาก AI เป็นร่างเสมอ ต้องมีคนกดยอมรับก่อนบันทึก|AI results are always drafts and must be accepted before saving|AI 结果始终为草稿,需接受后才保存
+ผู้ยืนยัน|Confirmed by|确认人
+ปิดบังเลขบัตรประชาชนและเบอร์โทรก่อนส่งให้ AI|Mask ID card and phone numbers before sending to AI|发送给 AI 前隐藏身份证号和电话
+ไม่จำกัด|Unlimited|不限
+รถ active เดือนนี้|Active vehicles this month|本月活跃车辆
+นับรถบริษัท + รถร่วมที่วิ่งจริงในเดือน|Company and subcontractor vehicles that ran this month|统计本月实际运行的自有车与外包车
+พื้นที่รูป POD|POD photo storage|POD 照片存储
+Connector บัญชี|Accounting connector|会计连接器
+แพ็กเกจนี้ส่งออกไฟล์ให้นักบัญชีได้|This plan can export files for your accountant|此套餐可导出文件给会计
+API calls เดือนนี้|API calls this month|本月 API 调用
+ไม่รวมในแพ็กเกจนี้|Not included in this plan|此套餐不含
+ฟิลด์เพิ่มเติม (entity ที่ใช้มากสุด)|Custom fields (most-used entity)|自定义字段(使用最多的实体)
+SMS / LINE แจ้งลูกค้า|SMS / LINE customer notifications|SMS / LINE 客户通知
+โควตา|Quota|配额
+add-on ที่ซื้อแล้ว|add-ons purchased|已购附加
+ซื้อเพิ่มได้|Can buy more|可加购
+ในแพ็กเกจ|In plan|套餐内
+ค้างชำระ|Outstanding|未付
+Onboarding มีคนช่วย|Assisted onboarding|协助上手
+บัตรเครดิต / เดบิต|Credit / debit card|信用卡 / 借记卡
+สแกนจ่ายทุกรอบบิล ไม่ตัดอัตโนมัติ|Scan to pay each cycle · no auto-charge|每期扫码支付 · 不自动扣款
+โอนเงิน + แนบสลิป|Bank transfer + slip|转账 + 上传凭证
+ทีมการเงินตรวจภายใน 1 วันทำการ|Finance checks within 1 business day|财务 1 个工作日内核对
+/ รถ / เดือน|/ vehicle / month|/ 车 / 月
+รายเดือน · ตัดรอบวันที่ 1|Monthly · billed on the 1st|按月 · 每月 1 日结算
+ทดลองใช้|Trial|试用
+เริ่มคิดเงิน 16 พ.ย. 2569|Billing starts 16 Nov 2026|2026年11月16日开始计费
+ยกเลิกเมื่อครบรอบ 30 พ.ย. 2569|Cancels at period end 30 Nov 2026|2026年11月30日周期结束取消
+ต่ออายุ 1 ธ.ค. 2569|Renews 1 Dec 2026|2026年12月1日续期
+ดาวน์โหลดใบกำกับภาษี / ใบเสร็จ|Download tax invoice / receipt|下载税务发票 / 收据
+ยกเลิกคำขอยกเลิกแล้ว · แพ็กเกจต่ออายุตามปกติ|Cancellation withdrawn · plan renews as usual|已撤回取消 · 套餐照常续期
+บริษัทที่คุณเป็นสมาชิก|Companies you belong to|你所属的公司
+สร้างบริษัทใหม่|Create new company|新建公司
+สถานะบัญชี|Account status|账户状态
+· ทุกการกระทำถูกบันทึกใน audit log|· every action is recorded in the audit log|· 所有操作记录在审计日志
+เริ่มต้นใช้งาน TMS|Getting started with TMS|TMS 入门
+ซ่อน|Hide|隐藏
+ซื้อ Add-on|Buy add-on|购买附加
+เทียบแพ็กเกจ|Compare plans|比较套餐
+มีในแพ็กเกจ|Included|已包含
+ข้อมูลเดิมไม่หาย · เปลี่ยนแพ็กเกจได้ทุกเมื่อ ไม่มีค่าปรับ|Your data stays · change plans anytime with no penalty|数据不丢失 · 随时更换套餐,无违约金
+แพ็กเกจปัจจุบัน|Current plan|当前套餐
+รอบบิล|Billing cycle|账单周期
+เปลี่ยนแพ็กเกจ|Change plan|更换套餐
+ชำระเงิน|Pay|付款
+ยกเลิกเมื่อครบรอบ|Cancel at period end|周期结束取消
+ไม่ยกเลิกแล้ว|Keep plan|不取消
+โมดูลในแพ็กเกจ|Modules in plan|套餐模块
+ไม่ล็อก POD และวางบิลไว้ที่แพ็กเกจสูง|POD and billing are never locked to higher plans|POD 和开票不限于高级套餐
+ซื้อเพิ่ม|Buy more|加购
+วิธีชำระ|Payment method|付款方式
+ใบกำกับภาษี / ใบเสร็จจากผู้ให้บริการ TMS|Tax invoices / receipts from the TMS provider|TMS 服务商的税务发票 / 收据
+ค่าบริการซอฟต์แวร์ที่เราเรียกเก็บจากบริษัทคุณ · แยกจากใบแจ้งหนี้ที่คุณออกให้ลูกค้าของคุณ|Software fees we charge your company · separate from invoices you issue to your customers|我们向贵公司收取的软件费 · 与你开给客户的发票分开
+แสดงรายการเริ่มต้นใช้งานอีกครั้ง|Show the getting-started checklist again|再次显示入门清单
+เต็มโควตา|Quota reached|配额已满
+ดูแพ็กเกจ|View plans|查看套餐
+ดูการอัปเกรด|View upgrade|查看升级
+ซื้อแล้ว|Purchased|已购买
+รวมต่อเดือน (ก่อน VAT)|Monthly total (before VAT)|每月合计(税前)
+เหตุผลที่ยกเลิก|Reason for cancelling|取消原因
+ยอดชำระ (รวม VAT 7%)|Amount due (incl. VAT 7%)|应付金额(含 7% 增值税)
+เปลี่ยนบัตร|Change card|更换卡
+สร้างเมื่อกดชำระจริง|Generated when you pay|付款时生成
+สแกนด้วยแอปธนาคาร|Scan with your banking app|用银行 App 扫码
+QR ใช้ได้ 15 นาที · ระบบยืนยันอัตโนมัติ|QR valid for 15 minutes · confirmed automatically|二维码 15 分钟有效 · 自动确认
+แนบสลิป|Attach slip|上传凭证

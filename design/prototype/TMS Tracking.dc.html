@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Thai+Looped:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+html,body{margin:0;background:#F4F6FA;color:#111827;font-family:'IBM Plex Sans Thai Looped','IBM Plex Sans',system-ui,sans-serif;font-size:14px;line-height:1.6;-webkit-font-smoothing:antialiased}
+*,*::before,*::after{box-sizing:border-box}
+a{color:#2257C4;text-decoration:none}a:hover{color:#2257C4;text-decoration:underline}
+button{font-family:inherit;font-size:14px}
+button:focus-visible{outline:2px solid #2257C4;outline-offset:2px}
+</style>
+<script>
+(function(){
+if(customElements.get('lu-i'))return;
+function pas(n){return n.split('-').map(function(w){return w.charAt(0).toUpperCase()+w.slice(1)}).join('')}
+class LuI extends HTMLElement{static get observedAttributes(){return['n','s']}connectedCallback(){this.r()}attributeChangedCallback(){this.r()}
+r(){var s=this.getAttribute('s')||'16';this.style.display='inline-flex';this.style.flexShrink='0';this.style.width=s+'px';this.style.height=s+'px';var root=this.shadowRoot||this.attachShadow({mode:'open'});if(!window.lucide||!window.lucide.icons)return;var node=window.lucide.icons[pas(this.getAttribute('n')||'')];if(!node){root.innerHTML='';return}var kids=node[0]==='svg'?node[2]:node;
+root.innerHTML='<svg style="display:block" xmlns="http://www.w3.org/2000/svg" width="'+s+'" height="'+s+'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'+kids.map(function(k){var a=k[1]||{};return'<'+k[0]+' '+Object.keys(a).map(function(x){return x+'="'+String(a[x]).replace(/"/g,'&quot;')+'"'}).join(' ')+'/>'}).join('')+'</svg>'}}
+customElements.define('lu-i',LuI);
+var sc=document.createElement('script');sc.src='https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js';sc.onload=function(){document.querySelectorAll('lu-i').forEach(function(e){e.r()})};document.head.appendChild(sc);
+})();
+</script>
+<script src="./i18n.js" data-float="top:16px;right:16px;"></script>
+</helmet>
+<div style="min-height:100vh;background:#F4F6FA;display:flex;justify-content:center">
+  <div style="width:100%;max-width:{{ L.max }};display:flex;flex-direction:column;gap:12px;padding:0 0 {{ L.pb }};min-height:100vh;box-sizing:border-box">
+    <header style="height:56px;display:flex;align-items:center;gap:10px;padding:0 16px;background:#FFFFFF;border-bottom:1px solid #E5E7EB">
+      <div style="width:30px;height:30px;border-radius:8px;background:#0B1F3A;color:#FFFFFF;display:flex;align-items:center;justify-content:center"><lu-i n="truck" s="16"></lu-i></div>
+      <span style="font-weight:600;color:#0B1F3A;font-size:15px">ศรีไทยขนส่ง</span>
+      <span style="margin-left:auto;font-size:13px;color:#6B7280">ติดตามการจัดส่ง</span>
+    </header>
+    <div style="padding:0 {{ L.px }};display:grid;grid-template-columns:{{ L.cols }};gap:{{ L.gap }};flex:1;min-height:0;align-items:start">
+    <div style="display:flex;flex-direction:column;gap:12px;min-width:0">
+      <section style="background:#FFFFFF;border:1px solid #E5E7EB;border-radius:10px;box-shadow:0 1px 2px rgba(16,24,40,.04),0 1px 3px rgba(16,24,40,.06);padding:16px;display:flex;flex-direction:column;gap:14px">
+        <div style="display:flex;flex-direction:column;gap:2px">
+          <span style="font-size:12.5px;font-weight:500;color:#6B7280">เลขใบส่งของ</span>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="font-variant-numeric:tabular-nums;font-size:18px;font-weight:600;color:#2257C4">{{ d.no }}</span><span style="display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 8px;border-radius:6px;background:{{ b.c }};color:#FFFFFF;font-size:12px;font-weight:600"><lu-i n="{{ b.i }}" s="12"></lu-i>{{ b.l }}</span></div>
+          <span style="color:#374151">{{ d.cust }}</span>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr))">
+          <sc-for list="{{ steps }}" as="s" hint-placeholder-count="4">
+            <div style="display:flex;flex-direction:column;align-items:center;gap:6px;position:relative">
+              <div style="width:100%;display:flex;align-items:center">
+                <span style="flex:1;height:2px;background:{{ s.lineL }}"></span>
+                <span style="width:26px;height:26px;border-radius:50%;border:2px solid {{ s.bd }};background:{{ s.bg }};color:{{ s.fg }};display:flex;align-items:center;justify-content:center;flex-shrink:0"><lu-i n="{{ s.icon }}" s="14"></lu-i></span>
+                <span style="flex:1;height:2px;background:{{ s.lineR }}"></span>
+              </div>
+              <span style="font-size:13px;font-weight:{{ s.fw }};color:{{ s.lc }};text-align:center;line-height:1.35">{{ s.l }}</span>
+              <span style="font-size:12px;color:#6B7280">{{ s.t }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </section>
+      <section style="background:#FFFFFF;border:1px solid #E5E7EB;border-radius:10px;box-shadow:0 1px 2px rgba(16,24,40,.04),0 1px 3px rgba(16,24,40,.06);overflow:hidden">
+        <div style="padding:16px;display:flex;flex-direction:column;gap:2px">
+          <span style="font-size:12.5px;font-weight:500;color:#6B7280">{{ etaLabel }}</span>
+          <span style="font-size:28px;font-weight:600;line-height:1.25;color:{{ etaColor }};font-variant-numeric:tabular-nums">{{ eta }}</span>
+          <span style="color:#374151">{{ etaSub }}</span>
+        </div>
+        <sc-if value="{{ L.narrow }}"><div style="position:relative;height:220px;border-top:1px solid #E5E7EB;isolation:isolate;z-index:0">
+          <div ref="{{ mapRef }}" style="position:absolute;inset:0;background:#F3F4F6"></div>
+          <span style="position:absolute;left:10px;bottom:10px;z-index:500;background:#FFFFFF;border:1px solid #E5E7EB;border-radius:6px;padding:2px 8px;font-size:12px;color:#374151">ตำแหน่งโดยประมาณ · อัปเดต {{ d.upd }} นาทีที่แล้ว</span>
+        </div></sc-if>
+      </section>
+      <section style="background:#FFFFFF;border:1px solid #E5E7EB;border-radius:10px;box-shadow:0 1px 2px rgba(16,24,40,.04),0 1px 3px rgba(16,24,40,.06);padding:16px;display:flex;flex-direction:column;gap:12px">
+        <h2 style="margin:0;font-size:15px;font-weight:600">รถและคนขับ</h2>
+        <div style="display:flex;align-items:center;gap:12px">
+          <div style="width:44px;height:44px;border-radius:50%;background:#E9F0FA;color:#2257C4;display:flex;align-items:center;justify-content:center;flex-shrink:0"><lu-i n="user" s="20"></lu-i></div>
+          <div style="display:flex;flex-direction:column;flex:1;min-width:0"><span style="font-weight:500">{{ d.drv }}</span><span style="color:#6B7280"><span style="font-variant-numeric:tabular-nums;font-size:13px;color:#111827">{{ d.plate }}</span> · {{ d.type }}</span></div>
+          <a href="{{ tel }}" style="height:44px;min-width:44px;padding:0 12px;border:1px solid #2257C4;border-radius:8px;color:#2257C4;display:inline-flex;align-items:center;gap:6px;font-weight:500;text-decoration:none"><lu-i n="phone" s="16"></lu-i><span style="font-variant-numeric:tabular-nums;font-size:13px">{{ d.phone }}</span></a>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px"><span style="display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 10px;border-radius:8px;background:#F3F4F6">{{ d.a }}<lu-i n="arrow-right" s="14" style="color:#6B7280"></lu-i>{{ d.b }}</span></div>
+      </section>
+      <sc-if value="{{ hasRefs }}" hint-placeholder-val="{{ false }}"><section style="background:#FFFFFF;border:1px solid #E5E7EB;border-radius:10px;box-shadow:0 1px 2px rgba(16,24,40,.04),0 1px 3px rgba(16,24,40,.06);padding:16px;display:flex;flex-direction:column;gap:4px">
+        <h2 style="margin:0 0 6px;font-size:15px;font-weight:600">ข้อมูลอ้างอิง</h2>
+        <div style="display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid #F3F4F6"><span style="color:#6B7280">เลขใบส่งของ</span><span style="font-variant-numeric:tabular-nums;font-weight:500">{{ d.no }}</span></div>
+        <sc-for list="{{ refs }}" as="x"><div style="display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid #F3F4F6"><span style="color:#6B7280">{{ x.l }}</span><span style="font-variant-numeric:tabular-nums;font-weight:500;text-align:right">{{ x.v }}</span></div></sc-for>
+      </section></sc-if>
+      <section style="background:#FFFFFF;border:1px solid #E5E7EB;border-radius:10px;box-shadow:0 1px 2px rgba(16,24,40,.04),0 1px 3px rgba(16,24,40,.06);padding:16px;display:flex;flex-direction:column;gap:4px">
+        <h2 style="margin:0 0 6px;font-size:15px;font-weight:600">รายการสินค้า</h2>
+        <sc-for list="{{ d.items }}" as="it" hint-placeholder-count="3">
+          <div style="display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid #F3F4F6"><div style="display:flex;flex-direction:column"><span>{{ it.n }}</span><span style="font-size:13px;color:#6B7280">{{ it.s }}</span></div><span style="white-space:nowrap;font-variant-numeric:tabular-nums">{{ it.q }}</span></div>
+        </sc-for>
+      </section>
+      <sc-if value="{{ delivered }}" hint-placeholder-val="{{ false }}">
+        <section style="background:#FFFFFF;border:1px solid #E5E7EB;border-radius:10px;box-shadow:0 1px 2px rgba(16,24,40,.04),0 1px 3px rgba(16,24,40,.06);padding:16px;display:flex;flex-direction:column;gap:10px">
+          <sc-if value="{{ notConfirmed }}">
+            <span style="color:#374151">ตรวจสินค้าครบแล้ว กดยืนยันเพื่อแจ้งผู้ส่ง</span>
+            <button onClick="{{ confirm }}" style="height:48px;border:1px solid #B8690F;border-radius:8px;background:#B8690F;color:#FFFFFF;font-weight:600;font-size:16px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px" style-hover="background:#D9821A;border-color:#D9821A"><lu-i n="package-check" s="18"></lu-i>ยืนยันรับของ</button>
+          </sc-if>
+          <sc-if value="{{ confirmed }}">
+            <div style="display:flex;align-items:center;gap:10px"><span style="width:32px;height:32px;border-radius:50%;background:#15803D;color:#FFFFFF;display:flex;align-items:center;justify-content:center"><lu-i n="check" s="18"></lu-i></span><div style="display:flex;flex-direction:column"><span style="font-weight:600">ยืนยันรับของแล้ว</span><span style="font-size:12px;color:#6B7280">3 พ.ย. 2569 {{ confirmedAt }}</span></div></div>
+          </sc-if>
+        </section>
+      </sc-if>
+      <p style="margin:4px 0 0;text-align:center;font-size:13px;color:#6B7280">มีคำถามเกี่ยวกับการจัดส่ง ติดต่อ 02-118-4400</p>
+    </div>
+    <sc-if value="{{ L.wide }}"><div style="position:sticky;top:12px;height:calc(100vh - 92px);min-height:480px;background:#FFFFFF;border:1px solid #E5E7EB;border-radius:10px;box-shadow:0 1px 2px rgba(16,24,40,.04),0 1px 3px rgba(16,24,40,.06);overflow:hidden;isolation:isolate;z-index:0">
+      <div ref="{{ mapRef }}" style="position:absolute;inset:0;background:#F3F4F6"></div>
+      <span style="position:absolute;left:12px;bottom:12px;z-index:500;background:#FFFFFF;border:1px solid #E5E7EB;border-radius:6px;padding:2px 8px;font-size:12px;color:#374151">ตำแหน่งโดยประมาณ · อัปเดต {{ d.upd }} นาทีที่แล้ว</span>
+    </div></sc-if>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:390,&quot;height&quot;:900},&quot;status&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;ตามลิงก์&quot;,&quot;รับงาน&quot;,&quot;ออกรถ&quot;,&quot;กำลังส่ง&quot;,&quot;ส่งแล้ว&quot;],&quot;default&quot;:&quot;ตามลิงก์&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+class Component extends DCLogic {
+  state = { confirmed: false, at: '' };
+  DATA = {
+    'DO-2611-00060': { so: 'SO-2611-0123', cf: { customer_po: 'PO-45861', temp_range: '2–8°C', seal_no: 'SL-884102' }, cust: 'บจก. สยามพลาสติก', drv: 'สมชาย ใจดี', plate: '70-1234 กทม.', type: 'รถ 6 ล้อ', phone: '081-xxx-4507', a: 'กรุงเทพ', b: 'ชลบุรี', rk: 'cbi', t: .55, eta: 42, st: 'กำลังส่ง', upd: 1, items: [['เม็ดพลาสติก PP เกรด 1102K', 'ล็อต 2611-A', '120 ถุง'], ['เม็ดพลาสติก HDPE', 'ล็อต 2611-C', '80 ถุง'], ['พาเลทไม้', 'คืนหลังส่ง', '8 ชิ้น']] },
+    'DO-2611-00062': { so: 'SO-2611-0118', cf: { customer_po: 'PO 45120098', temp_range: 'แห้ง', seal_no: 'SL-884077' }, cust: 'บจก. เอ็นเอสเอฟ อินดัสทรี', drv: 'สมศักดิ์ วงศ์ไทย', plate: '81-3390 กทม.', type: 'รถ 10 ล้อ', phone: '081-xxx-4521', a: 'กรุงเทพ', b: 'ชลบุรี', rk: 'cbi', t: 1, eta: 0, st: 'ส่งแล้ว', upd: 4, items: [['ชิ้นส่วนโลหะขึ้นรูป', 'PO 45120098', '36 ลัง'], ['แม่พิมพ์ขนาดกลาง', 'PO 45120101', '2 ชุด']] },
+    'DO-2611-00061': { so: 'SO-2611-0121', cf: { customer_po: 'CHM-2611-0042', temp_range: 'แห้ง' }, cust: 'บจก. เคมีภัณฑ์สากล', drv: 'สุรชัย พรหมมา', plate: '70-2281 กทม.', type: 'รถ 6 ล้อ', phone: '081-xxx-4514', a: 'กรุงเทพ', b: 'ระยอง', rk: 'ryg', t: .38, eta: 64, st: 'ออกรถ', upd: 2, items: [['สารเคมีอุตสาหกรรม', 'ถัง 200 ลิตร', '24 ถัง']] }
+  };
+  RG = { cbi: [[13.7563,100.5018],[13.72,100.61],[13.66,100.73],[13.53,100.85],[13.3611,100.9847]], ryg: [[13.7563,100.5018],[13.72,100.61],[13.66,100.73],[13.45,100.95],[13.1,101.03],[12.85,101.15],[12.6814,101.2816]] };
+  mapRef = el => { if (el) { this.el = el; this.initMap(); } else { if (this.map) this.map.remove(); this.map = null; } };
+  refs(d) {
+    const DEF = [{ ent: 'so', key: 'customer_po', th: 'เลข PO ลูกค้า', en: 'Customer PO', zh: '客户采购单号', st: 'ใช้งาน', show: { track: true } }, { ent: 'so', key: 'temp_range', th: 'อุณหภูมิที่ต้องคุม', en: 'Temperature range', zh: '温控范围', st: 'ใช้งาน', show: { track: true } }];
+    let F = DEF, V = {}; try { const x = JSON.parse(localStorage.getItem('tms_cf_v1') || 'null'); if (x && x.cfields) { F = x.cfields; V = x.cfv || {}; } } catch (e) {}
+    let L = 0; try { const l = localStorage.getItem('tms_lang'); L = l === 'en' ? 1 : l === 'zh' ? 2 : 0; } catch (e) {}
+    return F.filter(f => f.st === 'ใช้งาน' && f.show && f.show.track && (f.ent === 'so' || f.ent === 'do')).map(f => { const id = f.ent === 'so' ? d.so : d.no, m = (V[f.ent] || {})[id], raw = m && f.key in m ? m[f.key] : (d.cf || {})[f.key], val = Array.isArray(raw) ? raw.join(', ') : raw; return { l: [f.th, f.en || f.th, f.zh || f.en || f.th][L], v: val == null || val === '' ? '' : String(val) }; }).filter(x => x.v);
+  }
+  doc() {
+    let no = 'DO-2611-00060';
+    try { const q = new URLSearchParams(location.search).get('do'); if (q && this.DATA[q]) no = q; } catch (e) {}
+    const d = { no, ...this.DATA[no] };
+    const ov = this.props.status;
+    if (ov && ov !== 'ตามลิงก์') { d.st = ov; if (ov === 'ส่งแล้ว') { d.t = 1; d.eta = 0; } if (ov === 'ออกรถ' || ov === 'รับงาน') d.t = Math.min(d.t, .15); }
+    return d;
+  }
+  pos(pts, t) { let tot = 0; const seg = []; for (let i = 1; i < pts.length; i++) { const d = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); seg.push(d); tot += d; } let rem = t * tot; for (let i = 1; i < pts.length; i++) { if (rem <= seg[i - 1]) { const f = rem / seg[i - 1]; return [pts[i - 1][0] + (pts[i][0] - pts[i - 1][0]) * f, pts[i - 1][1] + (pts[i][1] - pts[i - 1][1]) * f]; } rem -= seg[i - 1]; } return pts[pts.length - 1]; }
+  initMap() {
+    const L = window.L; if (!this.el) return; if (!L) { setTimeout(() => this.initMap(), 300); return; }
+    if (this.map) this.map.remove();
+    const d = this.doc(), pts = this.RG[d.rk], p = this.pos(pts, d.t), end = pts[pts.length - 1];
+    this.map = L.map(this.el, { zoomControl: false, attributionControl: true, dragging: true, scrollWheelZoom: false });
+    L.tileLayer('https://tile.openstreetmap.de/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap contributors', maxZoom: 19 }).addTo(this.map);
+    L.circle(p, { radius: 1800, color: '#2257C4', weight: 1, fillColor: '#2257C4', fillOpacity: .12 }).addTo(this.map);
+    L.marker(p, { icon: L.divIcon({ className: '', iconSize: [30, 30], iconAnchor: [15, 15], html: '<div style="width:30px;height:30px;border-radius:50%;background:#2257C4;border:2px solid #fff;box-shadow:0 1px 4px rgba(16,24,40,.35);display:flex;align-items:center;justify-content:center;color:#fff"><lu-i n="truck" s="14"></lu-i></div>' }) }).addTo(this.map);
+    L.marker(end, { icon: L.divIcon({ className: '', iconSize: [0, 0], html: '<div style="position:absolute;transform:translate(-7px,-7px);display:flex;align-items:center;gap:6px;white-space:nowrap"><span style="width:14px;height:14px;border-radius:4px;background:#0B1F3A;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.3)"></span><span style="font:500 12px \'IBM Plex Sans Thai Looped\',\'IBM Plex Sans\',sans-serif;background:#fff;border:1px solid #E5E7EB;border-radius:6px;padding:1px 6px">' + d.b + ' · ปลายทาง</span></div>' }) }).addTo(this.map);
+    this.map.fitBounds([p, end], { padding: [40, 40], maxZoom: 11 });
+  }
+  componentDidMount() { this._rs = () => { const w = window.innerWidth >= 1024; if (w !== !!this.state.wide) this.setState({ wide: w }); if (this.map) setTimeout(() => this.map && this.map.invalidateSize(), 60); }; window.addEventListener('resize', this._rs); this._rs(); }
+  componentWillUnmount() { window.removeEventListener('resize', this._rs); }
+  componentDidUpdate(pp) { if (pp.status !== this.props.status) this.initMap(); }
+  renderVals() {
+    const d = this.doc(), S = ['รับงาน', 'ออกรถ', 'กำลังส่ง', 'ส่งแล้ว'], T = ['05:48', '06:10', '07:20', '09:32'];
+    const cur = Math.max(0, S.indexOf(d.st)), delivered = d.st === 'ส่งแล้ว';
+    const B = { 'รับงาน': ['#2257C4', 'inbox'], 'ออกรถ': ['#2257C4', 'truck'], 'กำลังส่ง': ['#2257C4', 'navigation'], 'ส่งแล้ว': ['#15803D', 'circle-check'] }[d.st];
+    const arr = new Date(2026, 10, 3, 10, 12 + d.eta);
+    const W = !!this.state.wide;
+    return {
+      L: W ? { wide: true, narrow: false, max: '100%', cols: 'minmax(360px,480px) minmax(0,1fr)', gap: '20px', px: '24px', pb: '24px' } : { wide: false, narrow: true, max: '480px', cols: 'minmax(0,1fr)', gap: '12px', px: '16px', pb: '32px' },
+      d: { ...d, items: d.items.map(i => ({ n: i[0], s: i[1], q: i[2] })) }, refs: this.refs(d), hasRefs: this.refs(d).length > 0,
+      b: { l: d.st, c: B[0], i: B[1] },
+      steps: S.map((l, i) => { const done = i < cur || (delivered && i === cur), on = i === cur && !delivered; return { l, t: i <= cur ? T[i] : '—', icon: done ? 'check' : ['inbox', 'truck', 'navigation', 'package-check'][i], bg: done ? '#2257C4' : on ? '#2257C4' : '#FFFFFF', bd: done || on ? '#2257C4' : '#D1D5DB', fg: done || on ? '#FFFFFF' : '#6B7280', lc: on ? '#2257C4' : done ? '#111827' : '#6B7280', fw: on ? 600 : 500, lineL: i === 0 ? 'transparent' : (i <= cur ? '#2257C4' : '#E5E7EB'), lineR: i === 3 ? 'transparent' : (i < cur ? '#2257C4' : '#E5E7EB') }; }),
+      etaLabel: delivered ? 'ส่งถึงแล้ว' : 'คาดว่าจะถึง',
+      eta: delivered ? '09:32 น.' : 'ใน ' + d.eta + ' นาที',
+      etaColor: delivered ? '#15803D' : '#111827',
+      etaSub: delivered ? 'ส่งถึง ' + d.b + ' วันที่ 3 พ.ย. 2569' : 'ประมาณ ' + arr.getHours() + ':' + String(arr.getMinutes()).padStart(2, '0') + ' น. วันที่ 3 พ.ย. 2569',
+      tel: 'tel:021184400', mapRef: this.mapRef,
+      delivered, confirmed: this.state.confirmed, notConfirmed: !this.state.confirmed, confirmedAt: this.state.at,
+      confirm: () => { const n = new Date(); this.setState({ confirmed: true, at: String(n.getHours()).padStart(2, '0') + ':' + String(n.getMinutes()).padStart(2, '0') }); }
+    };
+  }
+}
+</script>
+</body>
+</html>

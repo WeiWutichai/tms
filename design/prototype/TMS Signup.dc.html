@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Thai+Looped:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+html,body{margin:0;background:#F4F5F2;color:#101418;font-family:'IBM Plex Sans Thai Looped','IBM Plex Sans',system-ui,sans-serif;font-size:14px;line-height:1.6;-webkit-font-smoothing:antialiased}
+*,*::before,*::after{box-sizing:border-box}
+a{color:#2257C4;text-decoration:none}a:hover{color:#1B479F;text-decoration:underline}
+button,input,select,textarea{font-family:inherit;font-size:14px;line-height:1.5}
+input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-visible{outline:2px solid #2257C4;outline-offset:1px}
+</style>
+<script>
+(function(){
+if(customElements.get('lu-i'))return;
+function pas(n){return n.split('-').map(function(w){return w.charAt(0).toUpperCase()+w.slice(1)}).join('')}
+class LuI extends HTMLElement{
+static get observedAttributes(){return['n','s']}
+connectedCallback(){this.r()}attributeChangedCallback(){this.r()}
+r(){var s=this.getAttribute('s')||'16';this.style.display='inline-flex';this.style.flexShrink='0';this.style.width=s+'px';this.style.height=s+'px';this.style.lineHeight='0';
+var root=this.shadowRoot||this.attachShadow({mode:'open'});if(!window.lucide||!window.lucide.icons)return;var node=window.lucide.icons[pas(this.getAttribute('n')||'')];if(!node){root.innerHTML='';return}
+var kids=node[0]==='svg'?node[2]:node;
+root.innerHTML='<svg style="display:block" xmlns="http://www.w3.org/2000/svg" width="'+s+'" height="'+s+'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'+kids.map(function(k){var a=k[1]||{};return'<'+k[0]+' '+Object.keys(a).map(function(x){return x+'="'+String(a[x]).replace(/"/g,'&quot;')+'"'}).join(' ')+'/>'}).join('')+'</svg>'}}
+customElements.define('lu-i',LuI);
+var sc=document.createElement('script');sc.src='https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js';sc.onload=function(){document.querySelectorAll('lu-i').forEach(function(e){e.r()})};document.head.appendChild(sc);
+})();
+</script>
+<script src="./i18n.js"></script>
+<script src="./plans.js"></script>
+</helmet>
+<div style="min-height:100vh;display:flex;flex-direction:column;background:#F4F5F2">
+  <div data-demo="" style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:6px 32px;background:#EEF0EC;border-bottom:1px dashed #C9CDC3;font-size:13px">
+    <span style="font-size:12px;font-weight:600;color:#59606B;letter-spacing:.02em">DEMO</span>
+    <span style="font-size:12.5px;font-weight:500;color:#59606B">นโยบายการสมัคร</span>
+    <div style="display:inline-flex;gap:2px;padding:3px;background:#FFFFFF;border:1px solid #D9DCD4;border-radius:999px"><sc-for list="{{ policy }}" as="p"><button onClick="{{ p.fn }}" style="height:26px;padding:0 12px;border:0;border-radius:999px;background:{{ p.bg }};color:{{ p.c }};font-weight:{{ p.fw }};cursor:pointer;white-space:nowrap">{{ p.l }}</button></sc-for></div>
+    <span style="font-size:12.5px;color:#59606B">เลขผู้เสียภาษีตัวอย่าง: 0105556078912 มีในระบบแล้ว · ขึ้นต้น 9 ไม่พบใน DBD · OTP ที่ถูก 123456</span>
+  </div>
+  <header style="position:sticky;top:0;z-index:20;height:64px;background:{{ hd.bg }};border-bottom:1px solid {{ hd.bd }};transition:background 160ms,border-color 160ms;display:flex;align-items:center;gap:{{ hm.hGap }};padding:0 {{ hm.px }}">
+    <button onClick="{{ goHome }}" style="display:flex;align-items:center;gap:10px;border:0;background:transparent;padding:0;cursor:pointer;color:{{ hd.fg }};flex-shrink:0"><span style="width:34px;height:34px;border-radius:9px;background:{{ hd.logoBg }};color:#FFFFFF;display:flex;align-items:center;justify-content:center"><lu-i n="truck" s="18"></lu-i></span><span style="display:flex;flex-direction:column;line-height:1.2;text-align:left"><span style="font-weight:700;font-size:16px">TMS</span><sc-if value="{{ hm.desk }}"><span style="font-size:12px;color:{{ hd.sub }};white-space:nowrap">ระบบบริหารงานขนส่ง</span></sc-if></span></button>
+    <sc-if value="{{ hm.desk }}"><nav style="display:flex;gap:4px">
+      <sc-for list="{{ menu }}" as="m"><button onClick="{{ m.fn }}" style="height:36px;padding:0 12px;border:0;border-radius:999px;background:{{ m.bg }};color:{{ m.c }};font-weight:500;cursor:pointer;white-space:nowrap" style-hover="background:{{ hd.hov }}">{{ m.l }}</button></sc-for>
+    </nav></sc-if>
+    <div style="flex:1"></div>
+    <div data-noi18n="" style="display:inline-flex;gap:2px;padding:3px;background:{{ hd.lgBg }};border:1px solid {{ hd.lgBd }};border-radius:999px"><sc-for list="{{ langs }}" as="lg"><button onClick="{{ lg.fn }}" style="height:28px;min-width:42px;padding:0 10px;border:0;border-radius:999px;background:{{ lg.bg }};color:{{ lg.c }};font-weight:{{ lg.fw }};cursor:pointer;font-size:13px;white-space:nowrap">{{ lg.l }}</button></sc-for></div>
+    <sc-if value="{{ hm.desk }}"><button onClick="{{ goLogin }}" style="height:36px;padding:0 14px;border:0;border-radius:999px;background:transparent;color:{{ hd.fg }};font-weight:500;cursor:pointer;white-space:nowrap" style-hover="background:{{ hd.hov }}">เข้าสู่ระบบ</button>
+    <button onClick="{{ goSignup }}" style="height:38px;padding:0 18px;border:1px solid {{ hd.ctaBg }};border-radius:999px;background:{{ hd.ctaBg }};color:{{ hd.ctaC }};font-weight:600;cursor:pointer;white-space:nowrap">ทดลองใช้ฟรี 30 วัน</button></sc-if>
+    <sc-if value="{{ hm.mob }}"><button onClick="{{ hm.togMenu }}" title="เมนู" style="width:40px;height:40px;border:1px solid {{ hd.lgBd }};border-radius:999px;background:{{ hd.btnBg }};color:{{ hd.fg }};cursor:pointer;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;padding:0"><lu-i n="{{ hm.menuIc }}" s="20"></lu-i></button></sc-if>
+  </header>
+  <sc-if value="{{ hm.menuOpen }}" hint-placeholder-val="{{ false }}"><div style="position:sticky;top:64px;z-index:19;background:#FFFFFF;border-bottom:1px solid #E4E6E0;padding:8px 16px 16px;display:flex;flex-direction:column;gap:2px;box-shadow:0 8px 24px rgba(16,20,24,.08)">
+    <sc-for list="{{ menu }}" as="m"><button onClick="{{ m.fn }}" style="height:48px;padding:0 8px;border:0;border-bottom:1px solid #E4E6E0;background:transparent;color:#101418;font-weight:500;font-size:16px;cursor:pointer;text-align:left">{{ m.l }}</button></sc-for>
+    <button onClick="{{ goLogin }}" style="height:48px;padding:0 8px;border:0;background:transparent;color:#101418;font-weight:500;font-size:16px;cursor:pointer;text-align:left">เข้าสู่ระบบ</button>
+    <button onClick="{{ goSignup }}" style="display:inline-flex;align-items:center;justify-content:center;gap:8px;height:44px;padding:0 20px;border:1px solid #2257C4;border-radius:999px;background:#2257C4;color:#FFFFFF;font-weight:600;font-size:15px;cursor:pointer;white-space:nowrap;width:100%;margin-top:8px">ทดลองใช้ฟรี 30 วัน</button>
+  </div></sc-if>
+
+<sc-if value="{{ is.home }}" hint-placeholder-val="{{ false }}">
+    <main style="display:flex;flex-direction:column;background:#F4F5F2">
+      <section style="position:relative;margin-top:-64px;min-height:{{ hm.heroH }};overflow:hidden;color:#FFFFFF;display:flex;flex-direction:column">
+        <sc-if value="{{ hm.noHeroImg }}"><div style="position:absolute;inset:0;background:#DCE0D8;"><span style="position:absolute;top:72px;left:16px;max-width:calc(100% - 32px);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-sizing:border-box;font-size:12px;font-weight:600;color:#3B424C;background:rgba(255,255,255,.75);padding:3px 8px;border-radius:6px" data-noi18n="">ภาพ banner hero · 2400×1350 · รถบรรทุกจอดเรียง/บนทางหลวง</span></div></sc-if>
+        <sc-if value="{{ hm.hasHeroImg }}">{{ hm.heroEl }}</sc-if>
+        <div style="position:absolute;inset:0;background:{{ hm.heroOv }}"></div>
+        <div style="width:100%;max-width:1200px;margin:0 auto;box-sizing:border-box;padding-left:{{ hm.px }};padding-right:{{ hm.px }};position:relative;flex:1;display:grid;grid-template-columns:{{ hm.heroCols }};gap:40px;align-items:center;padding-top:{{ hm.heroPt }};padding-bottom:40px">
+          <div style="display:flex;flex-direction:column;gap:22px;min-width:0;container-type:inline-size">
+            <h1 style="margin:0;font-size:{{ hm.h1 }};line-height:1.2;font-weight:600;color:#FFFFFF;word-break:keep-all"><span style="display:{{ hm.h1d }};white-space:{{ hm.h1ws }}">จัดรถ ตามงาน เก็บ POD</span> <span style="display:{{ hm.h1d }};white-space:{{ hm.h1ws }}">วางบิล — จบในที่เดียว</span></h1>
+            <p style="margin:0;font-size:18px;line-height:1.65;color:rgba(255,255,255,.82);max-width:560px;text-wrap:pretty">สำหรับบริษัทขนส่ง 10–200 คัน ทั้งรถบริษัทและรถร่วม ใช้ได้ทันทีโดยไม่ต้องมี ERP</p>
+            <div style="display:flex;align-items:center;gap:22px;flex-wrap:wrap;margin-top:6px">
+              <button onClick="{{ goSignup }}" style="display:inline-flex;align-items:center;justify-content:center;gap:8px;height:48px;padding:0 22px;border:1px solid #2257C4;border-radius:999px;background:#2257C4;color:#FFFFFF;font-weight:600;font-size:16px;cursor:pointer;white-space:nowrap;background:#FFFFFF;color:#13213F;border-color:#FFFFFF" style-hover="background:#E9F0FA">ทดลองใช้ฟรี 30 วัน</button>
+              <a href="#pricing" style="color:#FFFFFF;font-weight:600;font-size:16px;text-decoration:none" style-hover="text-decoration:underline">ดูราคา →</a>
+            </div>
+            <span style="font-size:14px;color:rgba(255,255,255,.75)">ไม่ต้องใช้บัตร · ยกเลิกได้ทุกเมื่อ</span>
+          </div>
+          <div style="position:relative;min-width:0;perspective:1600px">
+            <div style="transform:{{ hm.shotTf }};transform-origin:left center;border-radius:12px;overflow:hidden;border:1px solid rgba(255,255,255,.22);box-shadow:0 30px 60px rgba(8,14,30,.45),0 4px 12px rgba(8,14,30,.25);background:#FFFFFF;width:{{ hm.shotW }}">
+              <img src="assets/landing/hero-plan-2x.png" width="2560" height="1680" alt="กระดานวางแผนรถ" fetchpriority="high" decoding="async" style="display:block;width:100%;height:auto">
+            </div>
+            <sc-if value="{{ hm.cards }}">
+              <div style="position:absolute;left:-36px;bottom:14%;background:#FFFFFF;border:1px solid #CDD1C8;border-radius:12px;box-shadow:0 12px 32px rgba(8,14,30,.28);padding:12px 14px;display:flex;flex-direction:column;gap:2px;color:#101418;min-width:220px">
+                <span style="display:flex;align-items:center;gap:8px;font-weight:600"><span style="width:8px;height:8px;border-radius:50%;background:#17733F"></span>POD ส่งแล้ว 13:25</span>
+                <span style="font-size:13px;color:#3B424C">DO-2611-00060 · ลายเซ็นครบ · 3 รูป</span>
+              </div>
+              <div style="position:absolute;right:{{ hm.card2R }};top:8%;background:#FFFFFF;border:1px solid #CDD1C8;border-radius:12px;box-shadow:0 12px 32px rgba(8,14,30,.28);padding:12px 14px;display:flex;flex-direction:column;gap:2px;color:#101418;min-width:210px">
+                <span style="font-weight:600">รถร่วมรับงานใน 3 นาที</span>
+                <span style="font-size:13px;color:#3B424C">ศรีราชาโลจิสติกส์ · 74-5521 ชบ.</span>
+              </div>
+            </sc-if>
+          </div>
+        </div>
+        <div style="position:relative;background:rgba(10,18,38,.55);border-top:1px solid rgba(255,255,255,.14)">
+          <div style="width:100%;max-width:1200px;margin:0 auto;box-sizing:border-box;padding-left:{{ hm.px }};padding-right:{{ hm.px }};display:flex;flex-wrap:wrap;gap:10px 0;padding-top:16px;padding-bottom:16px">
+            <sc-for list="{{ hm.facts }}" as="f"><span style="font-size:15px;color:#FFFFFF;white-space:nowrap;padding-right:24px;margin-right:24px;border-right:{{ f.bd }}">{{ f.l }}</span></sc-for>
+          </div>
+        </div>
+      </section>
+
+      <section style="background:#FFFFFF;border-bottom:1px solid #E4E6E0">
+        <p style="width:100%;max-width:1200px;margin:0 auto;box-sizing:border-box;padding-left:{{ hm.px }};padding-right:{{ hm.px }};margin:0 auto;padding-top:22px;padding-bottom:22px;font-size:16px;color:#3B424C">ใช้คู่กับ Express, FlowAccount, KRS, PEAK, SAP B1, LINE และ GPS ได้</p>
+      </section>
+
+      <section id="features" style="width:100%;max-width:1200px;margin:0 auto;box-sizing:border-box;padding-left:{{ hm.px }};padding-right:{{ hm.px }};padding-top:{{ hm.secPt }};padding-bottom:{{ hm.secPt }}">
+        <div style="display:grid;grid-template-columns:{{ hm.introCols }};gap:24px 40px;margin-bottom:56px;align-items:end">
+          <h2 style="margin:0;font-size:{{ hm.h2 }};line-height:1.3;font-weight:600;color:#101418;text-wrap:balance;word-break:keep-all">เช้าวันหนึ่งของฝ่ายจัดรถ</h2>
+          <p style="margin:0;font-size:17px;line-height:1.7;color:#3B424C;text-wrap:pretty">งานหนึ่งงานตั้งแต่ข้อความแรกของลูกค้าจนถึงใบแจ้งหนี้ ทุกช่วงด้านล่างเป็นหน้าจอจริงจากระบบ</p>
+        </div>
+        <div style="display:grid;grid-template-columns:{{ hm.tlCols }};gap:{{ hm.tlGap }};position:relative;padding-bottom:{{ hm.tlPb }}">
+          <div style="position:relative;display:flex;flex-direction:column;align-items:flex-start;gap:6px">
+            <span style="font-size:{{ hm.tmFs }};font-weight:600;color:#101418;font-variant-numeric:tabular-nums;line-height:1.1">06:30</span>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:18px;min-width:0;border-left:1px solid #CDD1C8;padding-left:{{ hm.tlPl }};position:relative">
+            <span style="position:absolute;left:-5px;top:12px;width:9px;height:9px;border-radius:50%;background:#2257C4;box-shadow:0 0 0 4px #F4F5F2"></span>
+            <div style="display:flex;flex-direction:column;gap:8px;max-width:640px"><h3 style="margin:0;font-size:22px;line-height:1.45;font-weight:600;color:#101418;text-wrap:balance;word-break:keep-all">ข้อความ LINE ลูกค้าเข้า AI ร่าง SO ให้</h3><p style="margin:0;font-size:17px;line-height:1.7;color:#3B424C;text-wrap:pretty">คุณวิไลจากสยามพลาสติกพิมพ์ใน LINE ว่าพรุ่งนี้รับเม็ดพลาสติก 12 ตันที่คลังบางนา ระบบอ่านเป็นร่างใบสั่งขนส่งพร้อมลูกค้า จุดรับส่ง น้ำหนัก และราคาจาก rate card รอให้คุณกดยืนยัน</p></div>
+            <div style="background:#FFFFFF;border:1px solid #CDD1C8;border-radius:12px;box-shadow:0 1px 2px rgba(16,20,24,.06),0 8px 24px rgba(16,20,24,.06);overflow-x:auto;overflow-y:hidden;"><img src="assets/landing/t-inbox-2x.png" width="1840" height="312" alt="ข้อความ LINE ลูกค้าเข้า AI ร่าง SO ให้" loading="lazy" decoding="async" style="display:block;width:100%;height:auto;min-width:{{ hm.imgMin }};"></div>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:{{ hm.tlCols }};gap:{{ hm.tlGap }};position:relative;padding-bottom:{{ hm.tlPb }}">
+          <div style="position:relative;display:flex;flex-direction:column;align-items:flex-start;gap:6px">
+            <span style="font-size:{{ hm.tmFs }};font-weight:600;color:#101418;font-variant-numeric:tabular-nums;line-height:1.1">07:10</span>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:18px;min-width:0;border-left:1px solid #CDD1C8;padding-left:{{ hm.tlPl }};position:relative">
+            <span style="position:absolute;left:-5px;top:12px;width:9px;height:9px;border-radius:50%;background:#2257C4;box-shadow:0 0 0 4px #F4F5F2"></span>
+            <div style="display:flex;flex-direction:column;gap:8px;max-width:640px"><h3 style="margin:0;font-size:22px;line-height:1.45;font-weight:600;color:#101418;text-wrap:balance;word-break:keep-all">ลากงานลงรถ ระบบเตือนก่อนจัดผิด</h3><p style="margin:0;font-size:17px;line-height:1.7;color:#3B424C;text-wrap:pretty">ลาก SO ลงแถวรถบนกระดานวางแผน รถ 71-0457 ตรวจสภาพไม่ผ่านและน้ำหนักเกินพิกัด 800 กก. แถวนั้นจึงถูกกันไว้ ระบบเสนอรถคันอื่นที่รับน้ำหนักได้แทน</p></div>
+            <div style="background:#FFFFFF;border:1px solid #CDD1C8;border-radius:12px;box-shadow:0 1px 2px rgba(16,20,24,.06),0 8px 24px rgba(16,20,24,.06);overflow-x:auto;overflow-y:hidden;max-width:600px"><img src="assets/landing/t-plan-2x.png" width="1198" height="1041" alt="ลากงานลงรถ ระบบเตือนก่อนจัดผิด" loading="lazy" decoding="async" style="display:block;width:100%;height:auto;min-width:{{ hm.imgMin }};"></div>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:{{ hm.tlCols }};gap:{{ hm.tlGap }};position:relative;padding-bottom:{{ hm.tlPb }}">
+          <div style="position:relative;display:flex;flex-direction:column;align-items:flex-start;gap:6px">
+            <span style="font-size:{{ hm.tmFs }};font-weight:600;color:#101418;font-variant-numeric:tabular-nums;line-height:1.1">07:40</span>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:18px;min-width:0;border-left:1px solid #CDD1C8;padding-left:{{ hm.tlPl }};position:relative">
+            <span style="position:absolute;left:-5px;top:12px;width:9px;height:9px;border-radius:50%;background:#2257C4;box-shadow:0 0 0 4px #F4F5F2"></span>
+            <div style="display:flex;flex-direction:column;gap:8px;max-width:640px"><h3 style="margin:0;font-size:22px;line-height:1.45;font-weight:600;color:#101418;text-wrap:balance;word-break:keep-all">ส่งงานให้รถร่วมผ่าน LINE รับงานใน 3 นาที</h3><p style="margin:0;font-size:17px;line-height:1.7;color:#3B424C;text-wrap:pretty">งานบางปูไปแหลมฉบังไม่มีรถบริษัทว่าง ส่งข้อเสนอราคา ฿5,800 ให้ศรีราชาโลจิสติกส์ทาง LINE ผู้รับเหมาเปิดลิงก์ กรอกทะเบียน 74-5521 ชบ. และชื่อคนขับ โดยไม่ต้องมีบัญชี</p></div>
+            <div style="background:#FFFFFF;border:1px solid #CDD1C8;border-radius:12px;box-shadow:0 1px 2px rgba(16,20,24,.06),0 8px 24px rgba(16,20,24,.06);overflow-x:auto;overflow-y:hidden;"><img src="assets/landing/t-sub-2x.png" width="1850" height="320" alt="ส่งงานให้รถร่วมผ่าน LINE รับงานใน 3 นาที" loading="lazy" decoding="async" style="display:block;width:100%;height:auto;min-width:{{ hm.imgMin }};"></div>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:{{ hm.tlCols }};gap:{{ hm.tlGap }};position:relative;padding-bottom:{{ hm.tlPb }}">
+          <div style="position:relative;display:flex;flex-direction:column;align-items:flex-start;gap:6px">
+            <span style="font-size:{{ hm.tmFs }};font-weight:600;color:#101418;font-variant-numeric:tabular-nums;line-height:1.1">13:25</span>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:18px;min-width:0;border-left:1px solid #CDD1C8;padding-left:{{ hm.tlPl }};position:relative">
+            <span style="position:absolute;left:-5px;top:12px;width:9px;height:9px;border-radius:50%;background:#2257C4;box-shadow:0 0 0 4px #F4F5F2"></span>
+            <div style="display:flex;flex-direction:column;gap:8px;max-width:640px"><h3 style="margin:0;font-size:22px;line-height:1.45;font-weight:600;color:#101418;text-wrap:balance;word-break:keep-all">คนขับถ่าย POD ในที่ไม่มีสัญญาณ</h3><p style="margin:0;font-size:17px;line-height:1.7;color:#3B424C;text-wrap:pretty">ที่โรงงานชลบุรีไม่มีสัญญาณ คนขับถ่ายรูปสินค้า ให้ผู้รับเซ็น และนับจำนวนในแอป ทุกอย่างบันทึกพร้อมเวลา 13:25 ในเครื่อง แล้วส่งขึ้นระบบเองเมื่อกลับมามีสัญญาณ</p></div>
+            <div style="width:{{ hm.phoneW }};max-width:100%;background:#101418;border-radius:34px;padding:8px;box-shadow:0 1px 2px rgba(16,20,24,.06),0 12px 32px rgba(16,20,24,.12)"><div style="border-radius:27px;overflow:hidden"><img src="assets/landing/pod-2x.png" width="780" height="1688" alt="คนขับถ่าย POD ในที่ไม่มีสัญญาณ" loading="lazy" decoding="async" style="display:block;width:100%;height:auto;"></div></div>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:{{ hm.tlCols }};gap:{{ hm.tlGap }};position:relative;padding-bottom:{{ hm.tlPb }}">
+          <div style="position:relative;display:flex;flex-direction:column;align-items:flex-start;gap:6px">
+            <span style="font-size:{{ hm.tmFs }};font-weight:600;color:#101418;font-variant-numeric:tabular-nums;line-height:1.1">17:00</span>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:18px;min-width:0;border-left:1px solid #CDD1C8;padding-left:{{ hm.tlPl }};position:relative">
+            <span style="position:absolute;left:-5px;top:12px;width:9px;height:9px;border-radius:50%;background:#2257C4;box-shadow:0 0 0 4px #F4F5F2"></span>
+            <div style="display:flex;flex-direction:column;gap:8px;max-width:640px"><h3 style="margin:0;font-size:22px;line-height:1.45;font-weight:600;color:#101418;text-wrap:balance;word-break:keep-all">วางบิล 12 ใบจาก DO ที่ POD ผ่าน</h3><p style="margin:0;font-size:17px;line-height:1.7;color:#3B424C;text-wrap:pretty">ฝ่ายบัญชีเลือกลูกค้าและงวด ติ๊ก DO ที่ส่งแล้วและ POD ผ่าน แล้วออกใบวางบิลและใบแจ้งหนี้/ใบกำกับภาษี ค่าขนส่งยกเว้น VAT ส่วนบริการประกอบคิด VAT 7% ตามเงื่อนไขลูกค้า</p></div>
+            <div style="background:#FFFFFF;border:1px solid #CDD1C8;border-radius:12px;box-shadow:0 1px 2px rgba(16,20,24,.06),0 8px 24px rgba(16,20,24,.06);overflow-x:auto;overflow-y:hidden;"><img src="assets/landing/t-bill-2x.png" width="1914" height="590" alt="วางบิล 12 ใบจาก DO ที่ POD ผ่าน" loading="lazy" decoding="async" style="display:block;width:100%;height:auto;min-width:{{ hm.imgMin }};"></div>
+          </div>
+        </div>
+      </section>
+
+      <section style="background:#FFFFFF;border-top:1px solid #E4E6E0;border-bottom:1px solid #E4E6E0">
+        <div style="width:100%;max-width:1200px;margin:0 auto;box-sizing:border-box;padding-left:{{ hm.px }};padding-right:{{ hm.px }};padding-top:{{ hm.secPt }};padding-bottom:{{ hm.secPt }};display:flex;flex-direction:column;gap:{{ hm.featGap }}">
+          <div style="display:grid;grid-template-columns:{{ hm.c84 }};gap:40px;align-items:center">
+            <div style="position:relative;min-width:0"><div style="background:#FFFFFF;border:1px solid #CDD1C8;border-radius:12px;box-shadow:0 1px 2px rgba(16,20,24,.06),0 8px 24px rgba(16,20,24,.06);overflow-x:auto;overflow-y:hidden;"><img src="assets/landing/f-settle-2x.png" width="1920" height="560" alt="ตาราง Settlement รถร่วม" loading="lazy" decoding="async" style="display:block;width:100%;height:auto;min-width:{{ hm.imgMin }};"></div><sc-if value="{{ hm.desk }}"><span style="position:absolute;left:69.5%;top:14%;transform:translate(-50%,-50%);width:26px;height:26px;border-radius:50%;background:#2257C4;color:#FFFFFF;font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 4px rgba(34,87,196,.18)">1</span><span style="position:absolute;left:77%;top:14%;transform:translate(-50%,-50%);width:26px;height:26px;border-radius:50%;background:#2257C4;color:#FFFFFF;font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 4px rgba(34,87,196,.18)">2</span><span style="position:absolute;left:84.5%;top:14%;transform:translate(-50%,-50%);width:26px;height:26px;border-radius:50%;background:#2257C4;color:#FFFFFF;font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 4px rgba(34,87,196,.18)">3</span></sc-if></div>
+            <div style="display:flex;flex-direction:column;gap:16px;min-width:0">
+              <h3 style="margin:0;font-size:26px;line-height:1.35;font-weight:600;text-wrap:balance;word-break:keep-all">จ่ายรถร่วมจาก Settlement ไม่ต้องทำ Excel</h3>
+              <p style="margin:0;font-size:17px;line-height:1.7;color:#3B424C;text-wrap:pretty">ระบบรวมเที่ยวของผู้รับเหมาแต่ละรายตามงวด ตรวจกับ POD และ rate card ขาซื้อ ก่อนส่งให้ผู้อนุมัติ</p>
+              <div style="display:flex;gap:12px;align-items:flex-start"><span style="width:24px;height:24px;border-radius:50%;background:#2257C4;color:#FFFFFF;font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:3px">1</span><span style="font-size:16px;line-height:1.65;color:#3B424C">หัก ณ ที่จ่าย 1% และเงินเบิกล่วงหน้าคนขับ คิดให้อัตโนมัติ</span></div>
+              <div style="display:flex;gap:12px;align-items:flex-start"><span style="width:24px;height:24px;border-radius:50%;background:#2257C4;color:#FFFFFF;font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:3px">2</span><span style="font-size:16px;line-height:1.65;color:#3B424C">ยอดสุทธิที่ต้องโอน ออกใบสำคัญจ่ายและหนังสือรับรอง 50 ทวิ ได้ทันที</span></div>
+              <div style="display:flex;gap:12px;align-items:flex-start"><span style="width:24px;height:24px;border-radius:50%;background:#2257C4;color:#FFFFFF;font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:3px">3</span><span style="font-size:16px;line-height:1.65;color:#3B424C">ทุกการแก้ยอดเก็บค่าก่อน–หลังและเหตุผล</span></div>
+            </div>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:28px">
+            <div style="display:grid;grid-template-columns:{{ hm.c66 }};gap:24px 40px;align-items:end">
+              <h3 style="margin:0;font-size:26px;line-height:1.35;font-weight:600;text-wrap:balance;word-break:keep-all">รถที่เอกสารหมดอายุ จ่ายงานไม่ได้</h3>
+              <p style="margin:0;font-size:17px;line-height:1.7;color:#3B424C;text-wrap:pretty">ประกัน ภาษี พ.ร.บ. ตรอ. และ GPS DLT ของทุกคันเรียงตามวันหมดอายุ แจ้งเตือนก่อน 30 วัน และรถที่หมดแล้วถูกกันบนกระดานวางแผนทันที</p>
+            </div>
+            <div style="display:grid;grid-template-columns:{{ hm.c66 }};gap:20px;align-items:start">
+              <div style="background:#FFFFFF;border:1px solid #CDD1C8;border-radius:12px;box-shadow:0 1px 2px rgba(16,20,24,.06),0 8px 24px rgba(16,20,24,.06);overflow-x:auto;overflow-y:hidden;"><img src="assets/landing/f-fdockpi-2x.png" width="1220" height="250" alt="สรุปเอกสารรถหมดอายุ" loading="lazy" decoding="async" style="display:block;width:100%;height:auto;min-width:{{ hm.imgMin }};"></div>
+              <div style="background:#FFFFFF;border:1px solid #CDD1C8;border-radius:12px;box-shadow:0 1px 2px rgba(16,20,24,.06),0 8px 24px rgba(16,20,24,.06);overflow-x:auto;overflow-y:hidden;"><img src="assets/landing/f-fdoc-2x.png" width="1180" height="560" alt="ตารางเอกสารรถ" loading="lazy" decoding="async" style="display:block;width:100%;height:auto;min-width:{{ hm.imgMin }};"></div>
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:{{ hm.c57 }};gap:48px;align-items:center">
+            <div style="display:flex;flex-direction:column;gap:16px;min-width:0">
+              <h3 style="margin:0;font-size:26px;line-height:1.35;font-weight:600;text-wrap:balance;word-break:keep-all">เอกสารภาษีออกจากระบบได้เอง</h3>
+              <p style="margin:0;font-size:17px;line-height:1.7;color:#3B424C;text-wrap:pretty">ออกใบกำกับภาษี ใบเสร็จ และหนังสือรับรองหัก ณ ที่จ่าย 50 ทวิ ได้เอง หรือส่งไป Express / FlowAccount เอกสารที่ออกแล้วถูกล็อก ปรับยอดผ่านใบลดหนี้หรือใบเพิ่มหนี้อ้างใบเดิม</p>
+              <p style="margin:0;font-size:17px;line-height:1.7;color:#3B424C;text-wrap:pretty">ใบกำกับภาษีแยกมูลค่ายกเว้นภาษีของค่าขนส่งออกจากบริการประกอบที่คิด VAT 7% และพิมพ์หัวเอกสารสองภาษา ไทย / อังกฤษ</p>
+            </div>
+            <div style="background:#EEF0EC;border:1px solid #E4E6E0;border-radius:12px;padding:{{ hm.a4Pad }};display:flex;justify-content:center;overflow:hidden">
+              <div style="width:{{ hm.a4W }};max-width:100%;transform:rotate(-2.5deg);box-shadow:0 2px 4px rgba(16,20,24,.08),0 18px 40px rgba(16,20,24,.16);background:#FFFFFF"><img src="assets/landing/a4-inv.png" width="910" height="1680" alt="ใบเสร็จรับเงิน / ใบกำกับภาษี จากระบบ" loading="lazy" decoding="async" style="display:block;width:100%;height:auto;"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="dev" style="background:#13213F;color:#FFFFFF">
+        <div style="width:100%;max-width:1200px;margin:0 auto;box-sizing:border-box;padding-left:{{ hm.px }};padding-right:{{ hm.px }};padding-top:{{ hm.secPt }};padding-bottom:{{ hm.secPt }};display:grid;grid-template-columns:{{ hm.c57 }};gap:48px;align-items:start">
+          <div style="display:flex;flex-direction:column;gap:18px;min-width:0">
+            <h2 style="margin:0;font-size:{{ hm.h2 }};line-height:1.3;font-weight:600;color:#101418;text-wrap:balance;word-break:keep-all;color:#FFFFFF">เชื่อมระบบของคุณด้วย Open API, Webhook และ MCP</h2>
+            <p style="margin:0;font-size:17px;line-height:1.7;color:#3B424C;text-wrap:pretty;color:rgba(255,255,255,.8)">สร้าง SO และดึงสถานะงานผ่าน REST มี sandbox และ API key แยกตาม scope รับ webhook ลงลายเซ็น HMAC เมื่อส่งของหรือออกใบแจ้งหนี้ ฟิลด์เพิ่มเติมที่คุณตั้งเองอยู่ใน API และ webhook ทันที</p>
+            <p style="margin:0;font-size:17px;line-height:1.7;color:#3B424C;text-wrap:pretty;color:rgba(255,255,255,.8)">เชื่อม Claude หรือ ChatGPT ผ่าน MCP แล้วสั่งงานเป็นภาษาไทย ผู้ช่วยใช้สิทธิ์เดียวกับผู้ใช้ และทุกงานที่สร้างเป็นร่างรอคนยืนยัน</p>
+            <div style="display:flex;gap:24px;flex-wrap:wrap"><a href="TMS v4.dc.html" target="_blank" style="color:#FFFFFF;font-weight:600">อ่านเอกสาร API →</a><a href="TMS v4.dc.html" target="_blank" style="color:#FFFFFF;font-weight:600">ตั้งค่า MCP →</a></div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:14px;min-width:0">
+            <div style="background:#0B1630;border:1px solid rgba(255,255,255,.12);border-radius:12px;overflow:hidden">
+              <div style="padding:10px 16px;border-bottom:1px solid rgba(255,255,255,.1);font-size:13px;color:rgba(255,255,255,.7)" data-noi18n="">POST /v1/orders</div>
+              <pre data-noi18n="" style="margin:0;padding:16px;overflow-x:auto;font-family:'IBM Plex Mono',monospace;font-size:13px;line-height:1.7;color:#E4E6E0">curl https://api.tms.co.th/v1/orders \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: 7f3c-2611-0126" \
+  -d '{
+    "customer_code": "C0006",
+    "pickup":  { "location_code": "LOC-AYT-01" },
+    "dropoff": { "location_code": "LOC-SRB-03" },
+    "vehicle_type": "TRAILER",
+    "weight_kg": "24000.00",
+    "due_at": "2026-11-06T14:00:00+07:00",
+    "custom_fields": { "customer_po": "45120098" }
+  }'</pre>
+              <div style="padding:10px 16px;border-top:1px solid rgba(255,255,255,.1);border-bottom:1px solid rgba(255,255,255,.1);font-size:13px;color:rgba(255,255,255,.7)" data-noi18n="">201 Created</div>
+              <pre data-noi18n="" style="margin:0;padding:16px;overflow-x:auto;font-family:'IBM Plex Mono',monospace;font-size:13px;line-height:1.7;color:#E4E6E0">{
+  "id": "SO-2611-0134",
+  "status": "received",
+  "price": { "freight": "15100.00", "vat": "0.00", "currency": "THB" },
+  "rate_card": "RC-S009"
+}</pre>
+            </div>
+            <div style="background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.14);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:12px">
+              <span style="font-size:13px;color:rgba(255,255,255,.7)">พิมพ์ใน Claude</span>
+              <p style="margin:0;font-size:16px;line-height:1.65;color:#FFFFFF">"พรุ่งนี้รับปูน 24 ตันที่อยุธยา ส่งสระบุรีซีเมนต์ก่อนบ่ายสอง ขอรถพ่วง PO 45120098"</p>
+              <div style="border-top:1px solid rgba(255,255,255,.14);padding-top:12px;font-size:15px;line-height:1.6;color:rgba(255,255,255,.85)">TMS สร้าง SO-2611-0134 เป็นร่างในกล่องรับงาน ราคา ฿15,100.00 ตาม rate card รอผู้วางแผนยืนยัน</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section style="width:100%;max-width:1200px;margin:0 auto;box-sizing:border-box;padding-left:{{ hm.px }};padding-right:{{ hm.px }};padding-top:40px;padding-bottom:40px">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;border-top:1px solid #CDD1C8;border-bottom:1px solid #CDD1C8;padding:24px 0">
+          <p style="margin:0;font-size:20px;line-height:1.5;color:#101418"><span style="font-weight:600">{{ hm.fromL }}</span><span style="color:#59606B"> · </span><span>ทดลองใช้ 30 วัน ไม่ใช้บัตร</span></p>
+          <a href="#pricing" style="font-weight:600;font-size:16px">ดูราคาทั้งหมด →</a>
+        </div>
+      </section>
+
+      <section style="width:100%;max-width:1200px;margin:0 auto;box-sizing:border-box;padding-left:{{ hm.px }};padding-right:{{ hm.px }};padding-top:24px;padding-bottom:{{ hm.secPt }};display:grid;grid-template-columns:{{ hm.c48 }};gap:24px 48px">
+        <h2 style="margin:0;font-size:{{ hm.h2 }};line-height:1.3;font-weight:600;color:#101418;text-wrap:balance;word-break:keep-all">คำถามที่พบบ่อย</h2>
+        <div style="display:flex;flex-direction:column;border-top:1px solid #CDD1C8;min-width:0">
+          <div style="border-bottom:1px solid #CDD1C8"><button onClick="{{ hm.f0.fn }}" style="width:100%;display:flex;align-items:center;gap:16px;padding:20px 0;border:0;background:transparent;cursor:pointer;text-align:left;color:#101418;font-size:17px;font-weight:600" style-hover="color:#2257C4"><span style="flex:1">ต้องมี ERP หรือโปรแกรมบัญชีก่อนไหม</span><span style="font-size:22px;font-weight:400;color:#59606B;width:20px;text-align:center">{{ hm.f0.sym }}</span></button><sc-if value="{{ hm.f0.open }}"><p style="margin:0 0 20px;font-size:16px;color:#3B424C;line-height:1.7;max-width:680px">ไม่ต้อง TMS ออกใบวางบิล ใบแจ้งหนี้ ใบกำกับภาษี และใบเสร็จได้เอง เมื่อพร้อมค่อยเชื่อม Express, PEAK, FlowAccount, KRS หรือ SAP B1 หรือส่งออกไฟล์ให้นักบัญชี</p></sc-if></div>
+          <div style="border-bottom:1px solid #CDD1C8"><button onClick="{{ hm.f1.fn }}" style="width:100%;display:flex;align-items:center;gap:16px;padding:20px 0;border:0;background:transparent;cursor:pointer;text-align:left;color:#101418;font-size:17px;font-weight:600" style-hover="color:#2257C4"><span style="flex:1">รถร่วมต้องลงแอปหรือมีบัญชีไหม</span><span style="font-size:22px;font-weight:400;color:#59606B;width:20px;text-align:center">{{ hm.f1.sym }}</span></button><sc-if value="{{ hm.f1.open }}"><p style="margin:0 0 20px;font-size:16px;color:#3B424C;line-height:1.7;max-width:680px">ไม่ต้อง ผู้รับเหมาได้ลิงก์ทาง LINE เปิดแล้วรับงาน กรอกทะเบียนและคนขับ และส่ง POD ได้เลย ลิงก์มีอายุ 48 ชั่วโมง</p></sc-if></div>
+          <div style="border-bottom:1px solid #CDD1C8"><button onClick="{{ hm.f2.fn }}" style="width:100%;display:flex;align-items:center;gap:16px;padding:20px 0;border:0;background:transparent;cursor:pointer;text-align:left;color:#101418;font-size:17px;font-weight:600" style-hover="color:#2257C4"><span style="flex:1">คนขับใช้แอปตอนไม่มีสัญญาณได้ไหม</span><span style="font-size:22px;font-weight:400;color:#59606B;width:20px;text-align:center">{{ hm.f2.sym }}</span></button><sc-if value="{{ hm.f2.open }}"><p style="margin:0 0 20px;font-size:16px;color:#3B424C;line-height:1.7;max-width:680px">ได้ ทุกขั้นบันทึกในเครื่องพร้อมเวลาที่ทำจริง แล้วส่งขึ้นระบบอัตโนมัติเมื่อมีสัญญาณ คนขับเห็นคิวที่รอส่งในแอป</p></sc-if></div>
+          <div style="border-bottom:1px solid #CDD1C8"><button onClick="{{ hm.f3.fn }}" style="width:100%;display:flex;align-items:center;gap:16px;padding:20px 0;border:0;background:transparent;cursor:pointer;text-align:left;color:#101418;font-size:17px;font-weight:600" style-hover="color:#2257C4"><span style="flex:1">ย้ายข้อมูลจาก Excel ได้ไหม</span><span style="font-size:22px;font-weight:400;color:#59606B;width:20px;text-align:center">{{ hm.f3.sym }}</span></button><sc-if value="{{ hm.f3.open }}"><p style="margin:0 0 20px;font-size:16px;color:#3B424C;line-height:1.7;max-width:680px">ได้ นำเข้ารถ คนขับ ลูกค้า สถานที่ และ rate card จาก Excel ระบบจับคู่คอลัมน์ให้และแสดงแถวที่ผิดก่อนนำเข้า</p></sc-if></div>
+          <div style="border-bottom:1px solid #CDD1C8"><button onClick="{{ hm.f4.fn }}" style="width:100%;display:flex;align-items:center;gap:16px;padding:20px 0;border:0;background:transparent;cursor:pointer;text-align:left;color:#101418;font-size:17px;font-weight:600" style-hover="color:#2257C4"><span style="flex:1">คิดเงินอย่างไร</span><span style="font-size:22px;font-weight:400;color:#59606B;width:20px;text-align:center">{{ hm.f4.sym }}</span></button><sc-if value="{{ hm.f4.open }}"><p style="margin:0 0 20px;font-size:16px;color:#3B424C;line-height:1.7;max-width:680px">คิดตามจำนวนรถ active ในเดือน คือรถที่มีงานอย่างน้อย 1 งาน ผู้ใช้ไม่จำกัด รายปีลด 2 เดือน ไม่ผูกสัญญา</p></sc-if></div>
+          <div style="border-bottom:1px solid #CDD1C8"><button onClick="{{ hm.f5.fn }}" style="width:100%;display:flex;align-items:center;gap:16px;padding:20px 0;border:0;background:transparent;cursor:pointer;text-align:left;color:#101418;font-size:17px;font-weight:600" style-hover="color:#2257C4"><span style="flex:1">AI ทำอะไรได้บ้าง และใครตัดสินใจ</span><span style="font-size:22px;font-weight:400;color:#59606B;width:20px;text-align:center">{{ hm.f5.sym }}</span></button><sc-if value="{{ hm.f5.open }}"><p style="margin:0 0 20px;font-size:16px;color:#3B424C;line-height:1.7;max-width:680px">AI ร่าง SO จากข้อความ อ่านใบเสร็จ และตรวจรูป POD ทุกอย่างเป็นร่างที่มีค่าความมั่นใจ คนในทีมต้องตรวจและยืนยันก่อนบันทึกเสมอ</p></sc-if></div>
+          <div style="border-bottom:1px solid #CDD1C8"><button onClick="{{ hm.f6.fn }}" style="width:100%;display:flex;align-items:center;gap:16px;padding:20px 0;border:0;background:transparent;cursor:pointer;text-align:left;color:#101418;font-size:17px;font-weight:600" style-hover="color:#2257C4"><span style="flex:1">ข้อมูลเก็บที่ไหน และขอข้อมูลคืนได้ไหม</span><span style="font-size:22px;font-weight:400;color:#59606B;width:20px;text-align:center">{{ hm.f6.sym }}</span></button><sc-if value="{{ hm.f6.open }}"><p style="margin:0 0 20px;font-size:16px;color:#3B424C;line-height:1.7;max-width:680px">เก็บบนเซิร์ฟเวอร์ในประเทศไทย เข้ารหัสทั้งระหว่างส่งและจัดเก็บ export ข้อมูลทั้งหมดได้ทุกเมื่อ หลังยกเลิกเก็บไว้ 90 วัน</p></sc-if></div>
+          <div style="border-bottom:1px solid #CDD1C8"><button onClick="{{ hm.f7.fn }}" style="width:100%;display:flex;align-items:center;gap:16px;padding:20px 0;border:0;background:transparent;cursor:pointer;text-align:left;color:#101418;font-size:17px;font-weight:600" style-hover="color:#2257C4"><span style="flex:1">เชื่อมกับระบบของเราเองได้ไหม</span><span style="font-size:22px;font-weight:400;color:#59606B;width:20px;text-align:center">{{ hm.f7.sym }}</span></button><sc-if value="{{ hm.f7.open }}"><p style="margin:0 0 20px;font-size:16px;color:#3B424C;line-height:1.7;max-width:680px">ได้ผ่าน Open API และ Webhook มีเอกสารและ sandbox ให้ทดสอบ และเชื่อมผู้ช่วย AI อย่าง Claude หรือ ChatGPT ผ่าน MCP ได้</p></sc-if></div>
+        </div>
+      </section>
+
+      <section style="position:relative;height:{{ hm.bandH }};overflow:hidden;display:flex;align-items:center">
+        <sc-if value="{{ hm.noBandImg }}"><div style="position:absolute;inset:0;background:#DCE0D8;"><span style="position:absolute;top:16px;left:16px;font-size:12px;font-weight:600;color:#3B424C;background:rgba(255,255,255,.75);padding:3px 8px;border-radius:6px" data-noi18n="">ภาพคั่น · 2400×720 · ถนนในไทย</span></div></sc-if>
+        <sc-if value="{{ hm.hasBandImg }}">{{ hm.bandEl }}</sc-if>
+        <div style="position:absolute;inset:0;background:rgba(19,33,63,.6)"></div>
+        <p style="width:100%;max-width:1200px;margin:0 auto;box-sizing:border-box;padding-left:{{ hm.px }};padding-right:{{ hm.px }};position:relative;margin:0 auto;font-size:{{ hm.bandFs }};line-height:1.35;font-weight:600;color:#FFFFFF;text-wrap:balance;word-break:keep-all">ทุกเส้นทางทั่วไทย ติดตามได้ในหน้าเดียว</p>
+      </section>
+
+      <section style="background:#FFFFFF">
+        <div style="width:100%;max-width:1200px;margin:0 auto;box-sizing:border-box;padding-left:{{ hm.px }};padding-right:{{ hm.px }};padding-top:64px;padding-bottom:64px;display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap">
+          <p style="margin:0;font-size:24px;line-height:1.4;font-weight:600;color:#101418;text-wrap:balance;word-break:keep-all">เริ่มจากรถ 1 คันและงานของพรุ่งนี้</p>
+          <button onClick="{{ goSignup }}" style="display:inline-flex;align-items:center;justify-content:center;gap:8px;height:48px;padding:0 22px;border:1px solid #2257C4;border-radius:999px;background:#2257C4;color:#FFFFFF;font-weight:600;font-size:16px;cursor:pointer;white-space:nowrap" style-hover="background:#1B479F">ทดลองใช้ฟรี 30 วัน</button>
+        </div>
+      </section>
+    </main>
+  </sc-if>
+  <sc-if value="{{ is.pricing }}" hint-placeholder-val="{{ false }}">
+    <main style="width:100%;max-width:1240px;margin:0 auto;padding:48px 32px 72px;display:flex;flex-direction:column;gap:40px">
+      <section style="display:flex;flex-direction:column;align-items:center;gap:14px;text-align:center">
+        <span style="display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 12px;border-radius:999px;background:#E7F3EC;color:#17733F;font-size:13px;font-weight:600"><lu-i n="badge-check" s="14"></lu-i>ทดลอง 30 วัน ไม่ต้องใช้บัตร</span>
+        <h1 style="margin:0;font-size:36px;line-height:1.45;font-weight:600;color:#13213F">จ่ายตามจำนวนรถที่วิ่งจริงในเดือน</h1>
+        <p style="margin:0;max-width:640px;color:#3B424C;font-size:16px;text-wrap:pretty">นับรถบริษัทและรถร่วมที่มีงานในเดือนนั้น ผู้ใช้ไม่จำกัดทุกแพ็กเกจ ไม่ผูกสัญญา ไม่มีค่าปรับ</p>
+        <div style="display:inline-flex;gap:2px;padding:4px;background:#FFFFFF;border:1px solid #CDD1C8;border-radius:999px;margin-top:6px"><sc-for list="{{ cycles }}" as="c"><button onClick="{{ c.fn }}" style="height:34px;padding:0 16px;border:0;border-radius:999px;background:{{ c.bg }};color:{{ c.c }};font-weight:{{ c.fw }};cursor:pointer;display:inline-flex;align-items:center;gap:8px;white-space:nowrap">{{ c.l }}<sc-if value="{{ c.tag }}"><span style="height:20px;padding:0 8px;border-radius:999px;background:#E7F3EC;color:#17733F;font-size:12px;font-weight:600;display:inline-flex;align-items:center">ลด 2 เดือน</span></sc-if></button></sc-for></div>
+      </section>
+      <section style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px;align-items:stretch">
+        <sc-for list="{{ cards }}" as="p" hint-placeholder-count="3">
+          <div style="position:relative;background:#FFFFFF;border:1px solid {{ p.bd }};box-shadow:{{ p.sh }};border-radius:16px;padding:24px;display:flex;flex-direction:column;gap:14px">
+            <sc-if value="{{ p.popular }}"><span style="position:absolute;top:-12px;left:24px;height:24px;padding:0 10px;border-radius:999px;background:#2257C4;color:#FFFFFF;font-size:12px;font-weight:600;display:inline-flex;align-items:center">นิยม</span></sc-if>
+            <div style="display:flex;flex-direction:column;gap:4px"><span style="font-size:18px;font-weight:600;color:#13213F">{{ p.name }}</span><span style="color:#3B424C">{{ p.blurb }}</span></div>
+            <div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;min-height:48px"><span style="font-size:34px;font-weight:600;color:#101418;font-variant-numeric:tabular-nums;line-height:1.2">{{ p.price }}</span><span style="color:#59606B">{{ p.unit }}</span></div>
+            <span style="font-size:13px;color:#59606B;min-height:21px">{{ p.note }}</span>
+            <sc-if value="{{ p.pri }}"><button onClick="{{ p.cta }}" style="height:44px;border:1px solid #2257C4;border-radius:999px;background:#2257C4;color:#FFFFFF;font-weight:600;cursor:pointer" style-hover="background:#1B479F">{{ p.ctaL }}</button></sc-if>
+            <sc-if value="{{ p.sec }}"><button onClick="{{ p.cta }}" style="height:44px;border:1px solid #9DB6E3;border-radius:999px;background:#FFFFFF;color:#2257C4;font-weight:600;cursor:pointer" style-hover="background:#F4F5F2">{{ p.ctaL }}</button></sc-if>
+            <div style="height:1px;background:#E4E6E0"></div>
+            <div style="display:flex;flex-direction:column;gap:8px"><sc-for list="{{ p.pts }}" as="x"><span style="display:flex;gap:8px;align-items:flex-start"><lu-i n="{{ x.ic }}" s="16" style="color:{{ x.icC }};margin-top:3px"></lu-i><span style="color:{{ x.tc }}">{{ x.t }}<sc-if value="{{ x.hasNl }}"><span style="color:#59606B"> · ไม่มีในแพ็กเกจนี้</span></sc-if></span></span></sc-for></div>
+          </div>
+        </sc-for>
+      </section>
+      <section style="background:#FFFFFF;border:1px solid #CDD1C8;border-radius:16px;box-shadow:0 1px 2px rgba(16,20,24,.06),0 2px 6px rgba(16,20,24,.04);padding:24px;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:32px;align-items:center">
+        <div style="display:flex;flex-direction:column;gap:12px">
+          <h2 style="margin:0;font-size:20px;font-weight:600;color:#13213F">คำนวณค่าใช้จ่าย</h2>
+          <label style="display:flex;flex-direction:column;gap:6px"><span style="font-size:12.5px;font-weight:500;color:#59606B">จำนวนรถ active ต่อเดือน (รวมรถร่วม)</span><div style="display:flex;align-items:center;gap:12px"><input type="range" min="1" max="150" value="{{ calc.n }}" onChange="{{ calc.onN }}" style="flex:1;accent-color:#2257C4"><input value="{{ calc.n }}" onChange="{{ calc.onN }}" inputmode="numeric" style="width:80px;height:40px;padding:0 10px;border:1px solid #CDD1C8;border-radius:8px;text-align:right;font-variant-numeric:tabular-nums"></div></label>
+          <div style="display:flex;flex-wrap:wrap;gap:8px"><sc-for list="{{ calc.plans }}" as="o"><button onClick="{{ o.fn }}" style="height:34px;padding:0 14px;border:1px solid {{ o.bd }};border-radius:999px;background:{{ o.bg }};color:{{ o.c }};font-weight:500;cursor:pointer">{{ o.l }}</button></sc-for></div>
+        </div>
+        <div style="background:#F7F8F5;border:1px solid #E4E6E0;border-radius:12px;padding:20px;display:flex;flex-direction:column;gap:6px">
+          <span style="font-size:12.5px;font-weight:500;color:#59606B">{{ calc.lbl }}</span>
+          <span style="font-size:32px;font-weight:600;color:#13213F;font-variant-numeric:tabular-nums">{{ calc.month }}</span><sc-if value="{{ calc.monthSub }}"><span style="font-size:13px;color:#59606B;margin-top:-6px">{{ calc.monthSub }}</span></sc-if>
+          <sc-for list="{{ calc.lines }}" as="l"><div style="display:flex;justify-content:space-between;gap:12px;color:#3B424C"><span>{{ l.k }}</span><span style="font-variant-numeric:tabular-nums">{{ l.v }}</span></div></sc-for>
+          <sc-if value="{{ calc.hint }}"><span style="font-size:13px;color:#8F5500;margin-top:4px">{{ calc.hint }}</span></sc-if>
+        </div>
+      </section>
+      <section style="background:#FFFFFF;border:1px solid #CDD1C8;border-radius:16px;box-shadow:0 1px 2px rgba(16,20,24,.06),0 2px 6px rgba(16,20,24,.04);overflow:hidden">
+        <div style="padding:20px 24px;border-bottom:1px solid #E4E6E0"><h2 style="margin:0;font-size:20px;font-weight:600;color:#13213F">เปรียบเทียบแพ็กเกจ</h2></div>
+        <table style="width:100%;border-collapse:separate;border-spacing:0">
+          <thead><tr><th style="position:sticky;top:64px;background:#F4F5F2;height:44px;padding:0 24px;text-align:left;font-size:12.5px;font-weight:500;color:#3B424C;border-bottom:1px solid #E4E6E0">ฟีเจอร์</th><sc-for list="{{ cmp.heads }}" as="h"><th style="position:sticky;top:64px;background:#F4F5F2;height:44px;padding:0 16px;text-align:center;font-weight:600;color:#13213F;border-bottom:1px solid #E4E6E0;width:180px">{{ h }}</th></sc-for></tr></thead>
+          <tbody><sc-for list="{{ cmp.cats }}" as="c">
+            <tr><td colspan="4" style="padding:14px 24px 6px;font-size:12.5px;font-weight:600;color:#59606B;border-bottom:1px solid #E4E6E0">{{ c.t }}</td></tr>
+            <sc-for list="{{ c.rows }}" as="r"><tr><td style="height:44px;padding:0 24px;border-bottom:1px solid #EBEDE8">{{ r.l }}</td><sc-for list="{{ r.cells }}" as="x"><td style="height:44px;padding:0 16px;border-bottom:1px solid #EBEDE8;text-align:center;font-variant-numeric:tabular-nums">
+              <sc-if value="{{ x.yes }}"><lu-i n="check" s="18" style="color:#17733F"></lu-i></sc-if><sc-if value="{{ x.no }}"><span style="color:#9AA0A6">—</span></sc-if><sc-if value="{{ x.add }}"><span style="height:22px;padding:0 8px;border-radius:999px;background:#EEF0EC;color:#3B424C;font-size:12px;font-weight:600;display:inline-flex;align-items:center">ซื้อเพิ่ม</span></sc-if><sc-if value="{{ x.txt }}"><span>{{ x.v }}</span></sc-if>
+            </td></sc-for></tr></sc-for>
+          </sc-for></tbody>
+        </table>
+        <div style="padding:16px 24px;display:flex;flex-wrap:wrap;gap:8px 24px;background:#F7F8F5;border-top:1px solid #E4E6E0"><span style="font-size:12.5px;font-weight:600;color:#59606B">Add-on</span><sc-for list="{{ adds }}" as="a"><span style="font-size:13px;color:#3B424C">{{ a.n }} <span style="font-variant-numeric:tabular-nums;color:#101418">{{ a.p }}</span> {{ a.u }}</span></sc-for></div>
+      </section>
+      <section style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);gap:32px">
+        <div style="display:flex;flex-direction:column;gap:10px"><h2 style="margin:0;font-size:20px;font-weight:600;color:#13213F">คำถามที่พบบ่อย</h2><span style="color:#3B424C">ไม่พบคำตอบ ติดต่อทีมงานได้ทาง LINE @tms-th หรือ 02-118-4400</span><sc-for list="{{ rules }}" as="x"><span style="display:flex;gap:8px;color:#3B424C"><lu-i n="check" s="16" style="color:#17733F;margin-top:3px"></lu-i>{{ x.t }}</span></sc-for></div>
+        <div style="background:#FFFFFF;border:1px solid #CDD1C8;border-radius:16px;overflow:hidden"><sc-for list="{{ faq }}" as="f">
+          <button onClick="{{ f.fn }}" style="width:100%;display:flex;align-items:center;gap:12px;padding:16px 20px;border:0;border-bottom:1px solid #E4E6E0;background:#FFFFFF;cursor:pointer;text-align:left;color:#101418;font-weight:600;font-size:15px"><span style="flex:1">{{ f.q }}</span><lu-i n="{{ f.ic }}" s="18" style="color:#59606B"></lu-i></button>
+          <sc-if value="{{ f.open }}"><div style="padding:0 20px 16px;border-bottom:1px solid #E4E6E0;color:#3B424C;text-wrap:pretty">{{ f.a }}</div></sc-if>
+        </sc-for></div>
+      </section>
+    </main>
+  </sc-if>
+
+  <sc-if value="{{ is.signup }}" hint-placeholder-val="{{ false }}">
+    <main style="width:100%;max-width:1120px;margin:0 auto;padding:32px 32px 64px;display:flex;flex-direction:column;gap:24px">
+      <div style="display:flex;align-items:center;gap:12px;justify-content:center"><sc-for list="{{ su.steps }}" as="st"><div style="display:flex;align-items:center;gap:10px"><span style="width:28px;height:28px;border-radius:50%;border:1.5px solid {{ st.bd }};background:{{ st.bg }};color:{{ st.c }};display:flex;align-items:center;justify-content:center;font-weight:600;font-size:13px"><sc-if value="{{ st.done }}"><lu-i n="check" s="14"></lu-i></sc-if><sc-if value="{{ st.todo }}">{{ st.n }}</sc-if></span><span style="font-weight:{{ st.fw }};color:{{ st.lc }};white-space:nowrap">{{ st.l }}</span><sc-if value="{{ st.line }}"><span style="width:56px;height:2px;background:{{ st.lineC }};border-radius:1px"></span></sc-if></div></sc-for></div>
+      <div style="display:grid;grid-template-columns:minmax(0,1.5fr) minmax(0,1fr);gap:24px;align-items:start">
+        <section style="background:#FFFFFF;border:1px solid #CDD1C8;border-radius:16px;box-shadow:0 1px 2px rgba(16,20,24,.06),0 2px 6px rgba(16,20,24,.04);padding:28px;display:flex;flex-direction:column;gap:18px">
+          <sc-if value="{{ su.s1 }}">
+            <div style="display:flex;flex-direction:column;gap:4px"><h1 style="margin:0;font-size:22px;font-weight:600;color:#13213F">สร้างบัญชี</h1><span style="color:#3B424C">ใช้อีเมลบริษัท เราจะส่งรหัสยืนยันไปที่มือถือ</span></div>
+            <sc-if value="{{ su.noOtp }}">
+              <button onClick="{{ su.google }}" style="height:44px;border:1px solid #CDD1C8;border-radius:999px;background:#FFFFFF;color:#101418;font-weight:500;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px" style-hover="background:#F4F5F2"><span style="width:18px;height:18px;border-radius:50%;border:2px solid #2257C4;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#2257C4">G</span>สมัครด้วย Google</button>
+              <div style="display:flex;align-items:center;gap:12px;color:#59606B;font-size:13px"><span style="flex:1;height:1px;background:#E4E6E0"></span>หรือกรอกข้อมูล<span style="flex:1;height:1px;background:#E4E6E0"></span></div>
+              <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px 16px">
+                <sc-for list="{{ su.f1 }}" as="f"><label style="display:flex;flex-direction:column;gap:6px;grid-column:{{ f.span }};min-width:0"><span style="font-size:12.5px;font-weight:500;color:#3B424C">{{ f.l }}<span style="color:#B3322A"> *</span></span><div style="display:flex;align-items:center;height:44px;border:1px solid {{ f.bd }};border-radius:8px;background:#FFFFFF;overflow:hidden"><sc-if value="{{ f.pre }}"><span style="padding:0 10px;height:100%;display:flex;align-items:center;background:#F4F5F2;border-right:1px solid #CDD1C8;color:#3B424C;font-variant-numeric:tabular-nums">{{ f.pre }}</span></sc-if><input type="{{ f.type }}" value="{{ f.v }}" onChange="{{ f.on }}" placeholder="{{ f.ph }}" inputmode="{{ f.im }}" style="flex:1;min-width:0;height:100%;border:0;padding:0 12px;outline:none;background:transparent;font-variant-numeric:tabular-nums"></div><sc-if value="{{ f.err }}"><span style="font-size:12.5px;color:#B3322A">{{ f.err }}</span></sc-if><sc-if value="{{ f.hint }}"><span style="font-size:12.5px;color:#59606B">{{ f.hint }}</span></sc-if></label></sc-for>
+              </div>
+            </sc-if>
+            <sc-if value="{{ su.otp }}">
+              <div style="display:flex;flex-direction:column;gap:10px;padding:16px;border:1px solid #E4E6E0;border-radius:12px;background:#F7F8F5">
+                <span style="font-weight:600">กรอกรหัส 6 หลักที่ส่งไปที่ {{ su.phone }}</span>
+                <input value="{{ su.code }}" onChange="{{ su.onCode }}" inputmode="numeric" maxlength="6" placeholder="••••••" style="width:240px;height:52px;padding:0 14px;border:1px solid {{ su.codeBd }};border-radius:10px;font-size:24px;letter-spacing:.4em;font-variant-numeric:tabular-nums;background:#FFFFFF">
+                <sc-if value="{{ su.codeErr }}"><span style="font-size:13px;color:#B3322A;font-weight:500">{{ su.codeErr }}</span></sc-if>
+                <div style="display:flex;align-items:center;gap:12px;font-size:13px;color:#3B424C"><sc-if value="{{ su.wait }}"><span style="font-variant-numeric:tabular-nums">ขอรหัสใหม่ได้ใน {{ su.sec }} วินาที</span></sc-if><sc-if value="{{ su.canResend }}"><button onClick="{{ su.resend }}" style="border:0;background:transparent;padding:0;color:#2257C4;font-weight:600;cursor:pointer">ขอรหัสใหม่</button></sc-if><button onClick="{{ su.editPhone }}" style="border:0;background:transparent;padding:0;color:#3B424C;cursor:pointer;text-decoration:underline">แก้เบอร์โทร</button></div>
+              </div>
+            </sc-if>
+          </sc-if>
+          <sc-if value="{{ su.s2 }}">
+            <div style="display:flex;flex-direction:column;gap:4px"><h1 style="margin:0;font-size:22px;font-weight:600;color:#13213F">ข้อมูลบริษัท</h1><span style="color:#3B424C">ใช้ออกใบกำกับภาษีค่าบริการ และตั้งค่าเอกสารของคุณ</span></div>
+            <label style="display:flex;flex-direction:column;gap:6px"><span style="font-size:12.5px;font-weight:500;color:#3B424C">เลขประจำตัวผู้เสียภาษี (13 หลัก)<span style="color:#B3322A"> *</span></span><div style="display:flex;gap:8px"><input value="{{ co.tax }}" onChange="{{ co.onTax }}" inputmode="numeric" maxlength="13" placeholder="0105556078912" style="flex:1;height:44px;padding:0 12px;border:1px solid {{ co.taxBd }};border-radius:8px;font-variant-numeric:tabular-nums;letter-spacing:.04em"><button onClick="{{ co.find }}" style="height:44px;padding:0 18px;border:1px solid #9DB6E3;border-radius:999px;background:#FFFFFF;color:#2257C4;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:6px;white-space:nowrap"><lu-i n="search" s="16"></lu-i>ค้นหา</button></div><sc-if value="{{ co.taxErr }}"><span style="font-size:12.5px;color:#B3322A">{{ co.taxErr }}</span></sc-if></label>
+            <sc-if value="{{ co.dup }}">
+              <div style="display:flex;flex-direction:column;gap:10px;padding:16px;border:1px solid #E9C98F;border-radius:12px;background:#FCF0DC">
+                <span style="display:flex;gap:8px;font-weight:600;color:#8F5500"><lu-i n="building-2" s="18"></lu-i>บริษัทนี้ใช้ TMS อยู่แล้ว · บจก. ศรีไทยขนส่ง (สำนักงานใหญ่)</span>
+                <span style="color:#3B424C">ขอเข้าร่วมบริษัทเดิมได้ ผู้ดูแลระบบของบริษัทจะได้รับคำขอและอนุมัติ หรือติดต่อเราถ้าคิดว่าข้อมูลไม่ถูกต้อง</span>
+                <div style="display:flex;gap:8px;flex-wrap:wrap"><button onClick="{{ co.join }}" style="height:40px;padding:0 16px;border:1px solid #2257C4;border-radius:999px;background:#2257C4;color:#FFFFFF;font-weight:600;cursor:pointer">ส่งคำขอเข้าร่วมบริษัท</button><button onClick="{{ co.contact }}" style="height:40px;padding:0 16px;border:1px solid #9DB6E3;border-radius:999px;background:#FFFFFF;color:#2257C4;font-weight:500;cursor:pointer">ติดต่อเรา</button></div>
+              </div>
+            </sc-if>
+            <sc-if value="{{ co.form }}">
+              <sc-if value="{{ co.found }}"><span style="display:inline-flex;align-self:flex-start;align-items:center;gap:6px;height:26px;padding:0 10px;border-radius:999px;background:#E7F3EC;color:#17733F;font-size:12.5px;font-weight:600"><lu-i n="database" s="12"></lu-i>ข้อมูลจากกรมพัฒนาธุรกิจการค้า · แก้ได้</span></sc-if>
+              <sc-if value="{{ co.nf }}"><div style="padding:12px 14px;border-radius:10px;background:#FCF0DC;color:#8F5500;display:flex;gap:8px"><lu-i n="info" s="16" style="margin-top:3px"></lu-i><span>ไม่พบเลขนี้ในฐานข้อมูลกรมพัฒนาธุรกิจการค้า กรอกเองได้ เราจะตรวจสอบภายหลังก่อนออกใบกำกับภาษีใบแรก</span></div></sc-if>
+              <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px 16px">
+                <label style="display:flex;flex-direction:column;gap:6px;grid-column:span 2"><span style="font-size:12.5px;font-weight:500;color:#3B424C">ชื่อนิติบุคคล<span style="color:#B3322A"> *</span></span><input value="{{ co.name }}" onChange="{{ co.onName }}" style="height:44px;padding:0 12px;border:1px solid #CDD1C8;border-radius:8px"></label>
+                <label style="display:flex;flex-direction:column;gap:6px;grid-column:span 2"><span style="font-size:12.5px;font-weight:500;color:#3B424C">ที่อยู่ออกใบกำกับภาษี<span style="color:#B3322A"> *</span></span><textarea value="{{ co.addr }}" onChange="{{ co.onAddr }}" rows="2" style="padding:10px 12px;border:1px solid #CDD1C8;border-radius:8px;resize:vertical"></textarea></label>
+                <div style="display:flex;flex-direction:column;gap:6px;grid-column:span 2"><span style="font-size:12.5px;font-weight:500;color:#3B424C">สาขา</span><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><sc-for list="{{ co.brs }}" as="b"><button onClick="{{ b.fn }}" style="height:36px;padding:0 14px;border:1px solid {{ b.bd }};border-radius:999px;background:{{ b.bg }};color:#101418;cursor:pointer">{{ b.l }}</button></sc-for><sc-if value="{{ co.isBr }}"><input value="{{ co.brNo }}" onChange="{{ co.onBr }}" maxlength="5" placeholder="00001" inputmode="numeric" style="width:110px;height:36px;padding:0 10px;border:1px solid #CDD1C8;border-radius:8px;font-variant-numeric:tabular-nums"></sc-if></div></div>
+                <label style="display:flex;flex-direction:column;gap:6px"><span style="font-size:12.5px;font-weight:500;color:#3B424C">รถบริษัท (โดยประมาณ)</span><input value="{{ co.own }}" onChange="{{ co.onOwn }}" inputmode="numeric" style="height:44px;padding:0 12px;border:1px solid #CDD1C8;border-radius:8px;font-variant-numeric:tabular-nums"></label>
+                <label style="display:flex;flex-direction:column;gap:6px"><span style="font-size:12.5px;font-weight:500;color:#3B424C">รถร่วม (โดยประมาณ)</span><input value="{{ co.sub }}" onChange="{{ co.onSub }}" inputmode="numeric" style="height:44px;padding:0 12px;border:1px solid #CDD1C8;border-radius:8px;font-variant-numeric:tabular-nums"></label>
+                <div style="display:flex;flex-direction:column;gap:6px;grid-column:span 2"><span style="font-size:12.5px;font-weight:500;color:#3B424C">โปรแกรมบัญชีที่ใช้</span><div style="display:flex;flex-wrap:wrap;gap:8px"><sc-for list="{{ co.accs }}" as="a"><button onClick="{{ a.fn }}" style="height:36px;padding:0 14px;border:1px solid {{ a.bd }};border-radius:999px;background:{{ a.bg }};color:#101418;cursor:pointer">{{ a.l }}</button></sc-for></div></div>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:8px;padding-top:6px;border-top:1px solid #E4E6E0"><sc-for list="{{ co.consent }}" as="c"><label style="display:flex;gap:10px;align-items:flex-start;cursor:pointer"><input type="checkbox" checked="{{ c.on }}" onChange="{{ c.fn }}" style="width:18px;height:18px;margin:3px 0 0;accent-color:#2257C4"><span>{{ c.l }}<sc-if value="{{ c.req }}"><span style="color:#B3322A"> *</span></sc-if></span></label></sc-for><sc-if value="{{ co.cErr }}"><span style="font-size:12.5px;color:#B3322A">{{ co.cErr }}</span></sc-if></div>
+            </sc-if>
+          </sc-if>
+          <sc-if value="{{ su.s3 }}">
+            <div style="display:flex;flex-direction:column;gap:4px"><h1 style="margin:0;font-size:22px;font-weight:600;color:#13213F">เลือกแพ็กเกจ</h1><span style="color:#3B424C">ทดลองใช้ 30 วัน ไม่ต้องใช้บัตร เปลี่ยนแพ็กเกจได้ทุกเมื่อ</span></div>
+            <div style="display:flex;flex-direction:column;gap:10px"><sc-for list="{{ su.plans }}" as="p"><button onClick="{{ p.fn }}" style="display:flex;align-items:center;gap:14px;padding:16px;border:1px solid {{ p.bd }};box-shadow:{{ p.sh }};border-radius:12px;background:#FFFFFF;cursor:pointer;text-align:left;color:#101418"><span style="width:18px;height:18px;border-radius:50%;border:1.5px solid {{ p.ring }};display:flex;align-items:center;justify-content:center;flex-shrink:0"><span style="width:9px;height:9px;border-radius:50%;background:{{ p.dot }}"></span></span><div style="flex:1;display:flex;flex-direction:column;min-width:0"><span style="font-weight:600">{{ p.t }}</span><span style="font-size:13px;color:#59606B">{{ p.d }}</span></div><span style="font-variant-numeric:tabular-nums;color:#3B424C;white-space:nowrap">{{ p.price }}</span></button></sc-for></div>
+            <span style="font-size:13px;color:#59606B">{{ su.est }}</span>
+          </sc-if>
+          <div style="display:flex;align-items:center;gap:12px;padding-top:8px;border-top:1px solid #E4E6E0">
+            <sc-if value="{{ su.canBack }}"><button onClick="{{ su.back }}" style="height:44px;padding:0 16px;border:0;border-radius:999px;background:transparent;color:#3B424C;font-weight:500;cursor:pointer;white-space:nowrap">ย้อนกลับ</button></sc-if>
+            <span style="flex:1;font-size:13px;color:#59606B">{{ su.foot }}</span>
+            <sc-if value="{{ su.showNext }}"><button onClick="{{ su.next }}" style="height:44px;padding:0 22px;border:1px solid {{ su.nBd }};border-radius:999px;background:{{ su.nBg }};color:{{ su.nC }};font-weight:600;cursor:pointer;white-space:nowrap">{{ su.nextL }}</button></sc-if>
+          </div>
+        </section>
+        <aside style="display:flex;flex-direction:column;gap:16px;position:sticky;top:96px">
+          <div style="background:#FFFFFF;border:1px solid #CDD1C8;border-radius:16px;padding:22px;display:flex;flex-direction:column;gap:14px">
+            <h2 style="margin:0;font-size:16px;font-weight:600;color:#13213F">เริ่มใช้งานได้ใน 3 ขั้น</h2>
+            <sc-for list="{{ su.side }}" as="x"><div style="display:flex;gap:12px"><span style="width:28px;height:28px;border-radius:8px;background:#E9F0FA;color:#2257C4;display:flex;align-items:center;justify-content:center;flex-shrink:0"><lu-i n="{{ x.i }}" s="16"></lu-i></span><div style="display:flex;flex-direction:column"><span style="font-weight:600">{{ x.t }}</span><span style="font-size:13px;color:#3B424C">{{ x.d }}</span></div></div></sc-for>
+          </div>
+          <div style="padding:0 4px;display:flex;flex-direction:column;gap:6px;color:#3B424C;font-size:13px"><span style="display:flex;gap:8px"><lu-i n="shield-check" s="16" style="color:#17733F;margin-top:2px"></lu-i>ข้อมูลเก็บในประเทศไทย เข้ารหัสทั้งระหว่างส่งและจัดเก็บ</span><span style="display:flex;gap:8px"><lu-i n="rotate-ccw" s="16" style="color:#17733F;margin-top:2px"></lu-i>ยกเลิกได้ทุกเมื่อ export ข้อมูลได้</span></div>
+        </aside>
+      </div>
+    </main>
+  </sc-if>
+
+  <sc-if value="{{ is.auth }}" hint-placeholder-val="{{ false }}">
+    <main style="flex:1;display:flex;align-items:flex-start;justify-content:center;padding:56px 24px">
+      <section style="width:440px;max-width:100%;background:#FFFFFF;border:1px solid #CDD1C8;border-radius:16px;box-shadow:0 1px 2px rgba(16,20,24,.06),0 8px 24px rgba(16,20,24,.06);padding:28px;display:flex;flex-direction:column;gap:16px">
+        <sc-if value="{{ au.login }}">
+          <div style="display:flex;flex-direction:column;gap:4px"><h1 style="margin:0;font-size:22px;font-weight:600;color:#13213F">เข้าสู่ระบบ</h1><span style="color:#3B424C">ยังไม่มีบัญชี <a href="#signup">ทดลองใช้ฟรี 30 วัน</a></span></div>
+          <button onClick="{{ au.google }}" style="height:44px;border:1px solid #CDD1C8;border-radius:999px;background:#FFFFFF;color:#101418;font-weight:500;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px"><span style="width:18px;height:18px;border-radius:50%;border:2px solid #2257C4;display:inline-flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#2257C4">G</span>เข้าสู่ระบบด้วย Google</button>
+          <label style="display:flex;flex-direction:column;gap:6px"><span style="font-size:12.5px;font-weight:500;color:#3B424C">อีเมล</span><input value="{{ au.email }}" onChange="{{ au.onEmail }}" placeholder="name@company.co.th" style="height:44px;padding:0 12px;border:1px solid #CDD1C8;border-radius:8px"></label>
+          <label style="display:flex;flex-direction:column;gap:6px"><span style="display:flex;justify-content:space-between;font-size:12.5px;font-weight:500;color:#3B424C">รหัสผ่าน<a href="#forgot" style="font-weight:600">ลืมรหัสผ่าน</a></span><input type="password" value="{{ au.pw }}" onChange="{{ au.onPw }}" style="height:44px;padding:0 12px;border:1px solid #CDD1C8;border-radius:8px"></label>
+          <sc-if value="{{ au.err }}"><span style="font-size:13px;color:#B3322A;font-weight:500">{{ au.err }}</span></sc-if>
+          <button onClick="{{ au.submit }}" style="height:44px;border:1px solid #2257C4;border-radius:999px;background:#2257C4;color:#FFFFFF;font-weight:600;cursor:pointer" style-hover="background:#1B479F">เข้าสู่ระบบ</button>
+        </sc-if>
+        <sc-if value="{{ au.forgot }}">
+          <div style="display:flex;flex-direction:column;gap:4px"><h1 style="margin:0;font-size:22px;font-weight:600;color:#13213F">ลืมรหัสผ่าน</h1><span style="color:#3B424C">เราจะส่งลิงก์ตั้งรหัสผ่านใหม่ไปที่อีเมล ลิงก์ใช้ได้ 30 นาที</span></div>
+          <sc-if value="{{ au.notSent }}"><label style="display:flex;flex-direction:column;gap:6px"><span style="font-size:12.5px;font-weight:500;color:#3B424C">อีเมล</span><input value="{{ au.email }}" onChange="{{ au.onEmail }}" placeholder="name@company.co.th" style="height:44px;padding:0 12px;border:1px solid #CDD1C8;border-radius:8px"></label><button onClick="{{ au.send }}" style="height:44px;border:1px solid #2257C4;border-radius:999px;background:#2257C4;color:#FFFFFF;font-weight:600;cursor:pointer">ส่งลิงก์</button></sc-if>
+          <sc-if value="{{ au.sent }}"><div style="padding:14px;border-radius:10px;background:#E7F3EC;color:#17733F;display:flex;gap:8px"><lu-i n="mail-check" s="18"></lu-i><span>ส่งลิงก์ไปที่ {{ au.email }} แล้ว ตรวจกล่องจดหมายและโฟลเดอร์ขยะ</span></div></sc-if>
+          <a href="#login" style="font-weight:600">กลับไปเข้าสู่ระบบ</a>
+        </sc-if>
+        <sc-if value="{{ au.pick }}">
+          <div style="display:flex;flex-direction:column;gap:4px"><h1 style="margin:0;font-size:22px;font-weight:600;color:#13213F">เลือกบริษัท</h1><span style="color:#3B424C">{{ au.email }} เป็นสมาชิก 3 บริษัท</span></div>
+          <div style="display:flex;flex-direction:column;border:1px solid #E4E6E0;border-radius:12px;overflow:hidden"><sc-for list="{{ au.cos }}" as="c"><a href="{{ c.href }}" style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-bottom:1px solid #E4E6E0;color:#101418;text-decoration:none"><span style="width:36px;height:36px;border-radius:9px;background:#EEF0EC;color:#3B424C;display:flex;align-items:center;justify-content:center;font-weight:600;flex-shrink:0">{{ c.ini }}</span><div style="flex:1;min-width:0;display:flex;flex-direction:column"><span style="font-weight:600">{{ c.n }}</span><span style="font-size:12.5px;color:#59606B">{{ c.sub }}</span></div><span style="display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 8px;border-radius:999px;background:{{ c.b.bg }};color:{{ c.b.c }};font-size:12px;font-weight:600;white-space:nowrap"><lu-i n="{{ c.b.i }}" s="12"></lu-i>{{ c.b.l }}</span><lu-i n="chevron-right" s="16" style="color:#59606B"></lu-i></a></sc-for></div>
+        </sc-if>
+        <sc-if value="{{ au.pending }}">
+          <span style="width:48px;height:48px;border-radius:12px;background:#E9F0FA;color:#2257C4;display:flex;align-items:center;justify-content:center"><lu-i n="hourglass" s="24"></lu-i></span>
+          <h1 style="margin:0;font-size:22px;font-weight:600;color:#13213F">{{ au.pT }}</h1>
+          <span style="color:#3B424C;text-wrap:pretty">{{ au.pD }}</span>
+          <div style="display:flex;flex-direction:column;border-top:1px solid #E4E6E0"><sc-for list="{{ au.pRows }}" as="r"><div style="display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid #EBEDE8"><span style="color:#59606B">{{ r.k }}</span><span style="text-align:right;font-variant-numeric:tabular-nums">{{ r.v }}</span></div></sc-for></div>
+          <a href="#pricing" style="font-weight:600">กลับหน้าหลัก</a>
+        </sc-if>
+        <sc-if value="{{ au.done }}">
+          <span style="width:48px;height:48px;border-radius:12px;background:#E7F3EC;color:#17733F;display:flex;align-items:center;justify-content:center"><lu-i n="circle-check" s="24"></lu-i></span>
+          <h1 style="margin:0;font-size:22px;font-weight:600;color:#13213F">พร้อมใช้งานแล้ว</h1>
+          <span style="color:#3B424C">{{ au.dD }}</span>
+          <a href="TMS v4.dc.html#dash" style="height:44px;border-radius:999px;background:#2257C4;color:#FFFFFF;font-weight:600;display:flex;align-items:center;justify-content:center;text-decoration:none">เข้าใช้งาน TMS</a>
+        </sc-if>
+      </section>
+    </main>
+  </sc-if>
+  <footer style="margin-top:auto;border-top:1px solid #E4E6E0;background:#FFFFFF">
+    <div style="width:100%;max-width:1200px;margin:0 auto;padding:36px {{ hm.px }} 24px;display:flex;flex-wrap:wrap;gap:32px 48px">
+      <div style="flex:1 1 220px;display:flex;flex-direction:column;gap:8px"><span style="font-weight:700;color:#13213F">TMS</span><span style="color:#3B424C;max-width:280px;line-height:1.6">ระบบจัดการขนส่งสำหรับบริษัทรถบรรทุกไทย</span><span style="color:#3B424C">LINE @tms-th · 02-118-4400</span></div>
+      <div style="display:flex;flex-direction:column;gap:8px;min-width:140px"><span style="font-size:13px;font-weight:600;color:#101418">ผลิตภัณฑ์</span><a href="#home" style="color:#3B424C">ฟีเจอร์</a><a href="#pricing" style="color:#3B424C">ราคา</a><a href="#signup" style="color:#3B424C">ทดลองใช้ฟรี</a><a href="#login" style="color:#3B424C">เข้าสู่ระบบ</a></div>
+      <div style="display:flex;flex-direction:column;gap:8px;min-width:140px"><span style="font-size:13px;font-weight:600;color:#101418">นักพัฒนา</span><a href="TMS v4.dc.html" style="color:#3B424C">เอกสาร API</a><a href="TMS v4.dc.html" style="color:#3B424C">MCP</a><a href="TMS v4.dc.html" style="color:#3B424C">Webhook</a></div>
+      <div style="display:flex;flex-direction:column;gap:8px;min-width:140px"><span style="font-size:13px;font-weight:600;color:#101418">บริษัท</span><a href="#home" style="color:#3B424C">เกี่ยวกับเรา</a><a href="#home" style="color:#3B424C">ติดต่อ</a><a href="#home" style="color:#3B424C">นโยบายความเป็นส่วนตัว</a><a href="#home" style="color:#3B424C">เงื่อนไขการใช้งาน</a></div>
+    </div>
+    <div style="width:100%;max-width:1200px;margin:0 auto;padding:16px {{ hm.px }} 24px;border-top:1px solid #E4E6E0;display:flex;gap:16px;flex-wrap:wrap;color:#59606B;font-size:13px"><span>© 2569 TMS · บจก. ทีเอ็มเอส แพลตฟอร์ม</span><span style="flex:1"></span><span>ข้อมูลเก็บในประเทศไทย · เป็นไปตาม PDPA</span></div>
+  </footer>
+  <sc-if value="{{ toast }}" hint-placeholder-val="{{ false }}"><div style="position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:90;background:#13213F;color:#FFFFFF;border-radius:12px;padding:12px 16px;box-shadow:0 8px 24px rgba(16,20,24,.24);max-width:560px">{{ toast }}</div></sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = { view: 'home', wf: 1, hfaq: 0, menuOpen: false, vw: typeof window !== 'undefined' ? window.innerWidth : 1280, yearly: false, faq: 0, calcN: 24, calcP: 'std', step: 1, otpSent: false, otpOk: false, sec: 0, code: '', codeErr: '', tries: 3, f1: { name: '', email: '', phone: '', pw: '' }, err1: {},
+    tax: '', taxSt: '', taxErr: '', cname: '', addr: '', br: 'hq', brNo: '', own: '20', sub: '8', acc: 'ไม่มี', cons: { terms: false, pdpa: false, mk: false }, cErr: '', plan: 'std', policy: 'auto', au: { email: 'porntip@srithai.co.th', pw: '', err: '', sent: false }, pend: null, toast: '', lang: 'th' };
+  componentDidMount() {
+    const rd = () => { const h = (location.hash || '#home').slice(1) || 'home'; if (['home', 'pricing', 'signup', 'login', 'forgot', 'pick', 'pending', 'done'].includes(h)) this.setState({ view: h }); };
+    rd(); this._h = rd; window.addEventListener('hashchange', rd); this._rs = () => { const w = window.innerWidth || document.documentElement.clientWidth || (document.body && document.body.clientWidth) || 0; if (w && w !== this.state.vw) this.setState({ vw: w }); return w; }; window.addEventListener('resize', this._rs); this._rs(); requestAnimationFrame(this._rs); let n = 0; this._rt = setInterval(() => { n++; if ((this._rs() && n > 3) || n > 50) clearInterval(this._rt); }, 100); if (window.ResizeObserver) { this._ro = new ResizeObserver(() => this._rs()); this._ro.observe(document.body); } this._sc = () => { const on = window.scrollY > 24; if (on !== !!this.state.hdrSolid) this.setState({ hdrSolid: on }); }; window.addEventListener('scroll', this._sc, { passive: true }); this._pl = () => this.forceUpdate(); window.addEventListener('tmsplans', this._pl);
+    if (!window.TMSPLANS) { const iv = setInterval(() => { if (window.TMSPLANS) { clearInterval(iv); this.forceUpdate(); } }, 100); }
+  }
+  componentWillUnmount() { clearInterval(this._rt); if (this._ro) this._ro.disconnect(); window.removeEventListener('hashchange', this._h); window.removeEventListener('resize', this._rs); window.removeEventListener('scroll', this._sc); clearInterval(this._t); clearTimeout(this._tt); }
+  nav(v, anchor) { location.hash = v; this.setState({ view: v, menuOpen: false }); setTimeout(() => { const el = anchor && document.getElementById(anchor); if (el) window.scrollTo(0, el.getBoundingClientRect().top + window.scrollY - 72); else window.scrollTo(0, 0); }, 30); }
+  toast(m) { clearTimeout(this._tt); this.setState({ toast: m }); this._tt = setTimeout(() => this.setState({ toast: '' }), 3200); }
+  startTimer() { clearInterval(this._t); this.setState({ sec: 60 }); this._t = setInterval(() => this.setState(z => { if (z.sec <= 1) { clearInterval(this._t); return { sec: 0 }; } return { sec: z.sec - 1 }; }), 1000); }
+  dbd(t) { if (t === '0105556078912') return 'dup'; if (t[0] === '9') return 'nf'; return 'found'; }
+  renderVals() {
+    const s = this.state, T = window.TMSPLANS, v = s.view;
+    if (!T) return { hm: { wf: [], trust: [], kpi: [], secu: [], desk: true, px: '32px' }, is: { home: true }, cards: [], cmp: { heads: [], cats: [] }, menu: [], langs: [], policy: [], calc: { plans: [], lines: [] }, adds: [], faq: [], rules: [], cycles: [], su: { steps: [], side: [] } };
+    const pri = p => T.priceL(p, s.yearly);
+    const cards = T.plans.map(p => ({ name: p.name, blurb: p.blurb, popular: !!p.popular, price: pri(p), unit: p.price ? '/ รถ / เดือน' : '', note: p.price ? (s.yearly ? 'จ่ายรายปี ฿' + T.num(p.price * 10) + ' / รถ · ลด 2 เดือน' : 'รถ active ' + T.lim(p.veh) + ' คัน · ผู้ใช้ไม่จำกัด') : 'รถไม่จำกัด · SLA และ onboarding เฉพาะ',
+      bd: p.popular ? '#2257C4' : '#CDD1C8', sh: p.popular ? '0 0 0 1px #2257C4, 0 8px 24px rgba(34,87,196,.10)' : '0 1px 2px rgba(16,20,24,.06)', pri: !!p.popular, sec: !p.popular, ctaL: p.price ? 'เริ่มทดลองใช้ 30 วัน' : 'ติดต่อฝ่ายขาย',
+      cta: () => { if (!p.price) { this.toast('ส่งคำขอ demo แล้ว · ฝ่ายขายจะติดต่อภายใน 1 วันทำการ'); return; } this.setState({ plan: p.k }); this.nav('signup'); },
+      pts: [p.mods, 'Connector บัญชี: ' + p.connL, 'Open API: ' + (p.api ? T.num(p.api) + ' req/นาที' : '—'), 'ฟิลด์เพิ่มเติม ' + T.lim(p.cf) + ' ต่อ entity', 'AI credit ' + (p.ai == null ? 'ตกลง' : T.num(p.ai)) + ' / เดือน · POD ' + (p.pod == null ? 'ตกลง' : p.pod + ' GB')].map(t => { const no = /: —$/.test(t); return { t: no ? t.replace(/: —$/, '') : t, ic: no ? 'minus' : 'check', icC: no ? '#9AA0A6' : '#17733F', tc: no ? '#59606B' : '#101418', nl: no ? 'ไม่มีในแพ็กเกจนี้' : '', hasNl: no }; }) }));
+    const cats = [...new Set(T.features.map(f => f[0]))].map(c => ({ t: c, rows: T.features.filter(f => f[0] === c).map(f => ({ l: f[1], cells: [3, 4, 5].map(i => { const x = f[i]; return { yes: x === true, no: x === false, add: x === 'add', txt: typeof x === 'number' || (typeof x === 'string' && x !== 'add'), v: typeof x === 'number' ? T.num(x) : x }; }) })) }));
+    const cp = T.get(s.calcP), n = Math.max(1, parseInt(s.calcN, 10) || 1), cc = T.calc(cp, n, s.yearly);
+    const calc = { n: String(n), onN: e => this.setState({ calcN: String(e.target.value).replace(/\D/g, '').slice(0, 4) }), lbl: 'แพ็กเกจ' + cp.name + ' · ' + n + ' คัน' + (s.yearly ? ' · จ่ายรายปี' : ''),
+      plans: T.plans.map(p => ({ l: p.name, bd: p.k === s.calcP ? '#2257C4' : '#CDD1C8', bg: p.k === s.calcP ? '#E9F0FA' : '#FFFFFF', c: p.k === s.calcP ? '#2257C4' : '#101418', fn: () => this.setState({ calcP: p.k }) })),
+      month: cc ? '฿' + T.fmt(cc.base + cc.ex) + ' / เดือน' : 'ติดต่อฝ่ายขาย', monthSub: cc ? 'ก่อน VAT · รวม VAT ฿' + T.fmt((cc.base + cc.ex) * 1.07) + ' / เดือน' : '',
+      lines: cc ? [['ค่าบริการ ' + Math.min(n, cp.veh) + ' คัน × ' + T.priceL(cp), '฿' + T.fmt(cc.base)], ...(cc.over ? [['รถเกินโควตา ' + cc.over + ' คัน × ฿' + T.num(T.addons[0].price), '฿' + T.fmt(cc.ex)]] : []), [s.yearly ? 'ต่อปี · จ่ายรายปี 10 เดือน (ลด 2 เดือน) · ก่อน VAT' : 'ต่อปี · รายเดือน × 12 · ก่อน VAT', '฿' + T.fmt(cc.year)], ['VAT 7% ของยอดต่อปี', '฿' + T.fmt(cc.year * 0.07)], ['ต่อปี รวม VAT', '฿' + T.fmt(cc.year * 1.07)]].map(a => ({ k: a[0], v: a[1] })) : [{ k: 'รถไม่จำกัด ราคาตามจำนวนรถและบริการ', v: '' }],
+      hint: cc && cc.over ? (() => { const nx = T.plans.find(p => p.veh === T.U || p.veh >= n); const nc = nx && T.calc(nx, n, s.yearly); return nc && nc.month < cc.month ? 'แพ็กเกจ' + nx.name + ' ถูกกว่าสำหรับ ' + n + ' คัน (฿' + T.fmt(nc.month) + ' / เดือน)' : 'เกินโควตา ' + cc.over + ' คัน คิดราคา add-on'; })() : '' };
+    const FAQ = [['คิดเงินยังไง', 'คิดตามจำนวนรถ active ในเดือน คือรถที่มีงาน (SO/DO หรือเที่ยว) อย่างน้อย 1 งานในเดือนนั้น รถที่จอดทั้งเดือนไม่ถูกนับ ตัดรอบทุกวันที่ 1 และออกใบกำกับภาษีให้อัตโนมัติ'], ['นับรถร่วมไหม', 'นับ ถ้ารถร่วมคันนั้นวิ่งงานของคุณในเดือน เพราะใช้แอปคนขับ POD และ Settlement เหมือนรถบริษัท ผู้รับเหมาเปิดลิงก์ LINE ได้โดยไม่ต้องมีบัญชี'], ['ยกเลิกได้ไหม', 'ยกเลิกได้ทุกเมื่อ มีผลเมื่อครบรอบบิล ไม่มีค่าปรับ หลังยกเลิกเป็นอ่านอย่างเดียวและเก็บข้อมูลไว้ ' + T.retainDays + ' วัน export ได้ตลอดช่วงนั้น'], ['ข้อมูลอยู่ที่ไหน', 'เก็บบนเซิร์ฟเวอร์ในประเทศไทย เข้ารหัสทั้งระหว่างส่งและจัดเก็บ สำรองทุกวัน และเป็นไปตาม พ.ร.บ. คุ้มครองข้อมูลส่วนบุคคล (PDPA)'], ['ใช้กับโปรแกรมบัญชีไหนได้', 'เชื่อมตรงกับ Express, PEAK, FlowAccount, KRS และ SAP B1 หรือส่งออกไฟล์ให้นักบัญชีได้ทุกแพ็กเกจ ระบบอื่นเชื่อมผ่าน Open API']];
+    const st = s.step, f = s.f1, e1 = s.err1;
+    const F1 = [['name', 'ชื่อ-นามสกุล', 'text', 'สมชาย ใจดี', '', '', 'span 2'], ['email', 'อีเมลบริษัท', 'email', 'name@company.co.th', '', 'ใช้อีเมลโดเมนบริษัท ไม่ใช้ gmail / hotmail', 'span 1'], ['phone', 'เบอร์มือถือ', 'tel', '81 234 5678', '+66', 'ใช้รับรหัส OTP', 'span 1'], ['pw', 'รหัสผ่าน', 'password', 'อย่างน้อย 8 ตัว มีตัวเลข', '', f.pw ? (f.pw.length >= 8 && /\d/.test(f.pw) ? 'รหัสผ่านใช้ได้' : 'อย่างน้อย 8 ตัวอักษรและมีตัวเลข') : '', 'span 2']];
+    const val1 = () => { const er = {}; if (f.name.trim().length < 3) er.name = 'กรอกชื่อ-นามสกุล'; if (!/^[^@\s]+@[^@\s]+\.[a-z]{2,}$/i.test(f.email)) er.email = 'อีเมลไม่ถูกต้อง'; else if (/@(gmail|hotmail|yahoo|outlook)\./i.test(f.email)) er.email = 'ใช้อีเมลบริษัท'; if (f.phone.replace(/\D/g, '').length !== 9) er.phone = 'เบอร์มือถือ 9 หลักหลัง +66'; if (!(f.pw.length >= 8 && /\d/.test(f.pw))) er.pw = 'อย่างน้อย 8 ตัวอักษรและมีตัวเลข'; return er; };
+    const setF = (k, x) => this.setState(z => { const er = { ...z.err1 }; delete er[k]; return { f1: { ...z.f1, [k]: x }, err1: er }; });
+    const taxOk = /^\d{13}$/.test(s.tax), form = s.taxSt === 'found' || s.taxSt === 'nf';
+    const ACCS = ['ไม่มี', 'Express', 'FlowAccount', 'KRS', 'PEAK', 'SAP B1', 'อื่นๆ'];
+    const CONS = [['terms', 'ยอมรับเงื่อนไขการใช้บริการ', true], ['pdpa', 'ยอมรับนโยบายความเป็นส่วนตัว และยินยอมให้ประมวลผลข้อมูลตาม PDPA', true], ['mk', 'รับข่าวสารและเคล็ดลับการใช้งาน (ไม่บังคับ)', false]];
+    const totV = (parseInt(s.own, 10) || 0) + (parseInt(s.sub, 10) || 0);
+    const next = () => {
+      if (st === 1) {
+        if (!s.otpSent) { const er = val1(); if (Object.keys(er).length) { this.setState({ err1: er }); return; } this.setState({ otpSent: true, code: '', codeErr: '', tries: 3 }); this.startTimer(); this.toast('ส่งรหัส OTP ไปที่ +66 ' + f.phone + ' แล้ว'); return; }
+        if (s.sec === 0) { this.setState({ codeErr: 'รหัสหมดอายุแล้ว กดขอรหัสใหม่' }); return; }
+        if (s.code !== '123456') { const t = s.tries - 1; this.setState({ tries: t, codeErr: t > 0 ? 'รหัสไม่ถูกต้อง เหลือ ' + t + ' ครั้ง' : 'ใส่รหัสผิดครบ 3 ครั้ง ขอรหัสใหม่', code: '' }); return; }
+        clearInterval(this._t); this.setState({ step: 2, otpOk: true }); return; }
+      if (st === 2) {
+        if (!taxOk) { this.setState({ taxErr: 'เลขผู้เสียภาษีต้องเป็นตัวเลข 13 หลัก' }); return; }
+        if (!s.taxSt) { this.setState({ taxErr: 'กดค้นหาเพื่อดึงข้อมูลบริษัท' }); return; }
+        if (s.taxSt === 'dup') return;
+        if (!s.cname.trim() || !s.addr.trim()) { this.toast('กรอกชื่อนิติบุคคลและที่อยู่'); return; }
+        if (s.br === 'br' && !/^\d{5}$/.test(s.brNo)) { this.toast('รหัสสาขา 5 หลัก เช่น 00001'); return; }
+        if (!s.cons.terms || !s.cons.pdpa) { this.setState({ cErr: 'ต้องยอมรับเงื่อนไขและนโยบายความเป็นส่วนตัว' }); return; }
+        this.setState({ step: 3, plan: totV > 80 ? 'ent' : s.plan }); return; }
+      if (s.plan === 'ent') { this.setState({ pend: { kind: 'demo' } }); this.nav('pending'); return; }
+      if (s.policy === 'review' || s.taxSt === 'nf') { this.setState({ pend: { kind: 'review' } }); this.nav('pending'); return; }
+      this.nav('done');
+    };
+    const SI = [['user', 'บัญชีผู้ใช้', 'อีเมลบริษัทและยืนยันเบอร์มือถือ'], ['building-2', 'ข้อมูลบริษัท', 'ดึงชื่อและที่อยู่จากเลขผู้เสียภาษี'], ['rocket', 'เริ่มทดลองใช้', 'ทดลองแพ็กเกจมาตรฐาน 30 วัน ไม่ใช้บัตร']];
+    const su = { s1: st === 1, s2: st === 2, s3: st === 3,
+      steps: ['บัญชี', 'บริษัท', 'แพ็กเกจ'].map((l, i) => { const k = i + 1, done = k < st, cur = k === st; return { n: String(k), l, done, todo: !done, bd: done || cur ? '#2257C4' : '#C9CDC3', bg: done ? '#2257C4' : '#FFFFFF', c: done ? '#FFFFFF' : cur ? '#2257C4' : '#59606B', fw: cur ? 600 : 500, lc: done || cur ? '#101418' : '#59606B', line: k < 3, lineC: k < st ? '#2257C4' : '#D9DCD4' }; }),
+      side: SI.map(x => ({ i: x[0], t: x[1], d: x[2] })),
+      noOtp: !s.otpSent, otp: s.otpSent, phone: '+66 ' + f.phone, code: s.code, onCode: e => this.setState({ code: e.target.value.replace(/\D/g, '').slice(0, 6), codeErr: '' }), codeErr: s.codeErr, codeBd: s.codeErr ? '#B3322A' : '#CDD1C8', wait: s.sec > 0, sec: String(s.sec), canResend: s.sec === 0,
+      resend: () => { this.setState({ code: '', codeErr: '', tries: 3 }); this.startTimer(); this.toast('ส่งรหัสใหม่แล้ว'); }, editPhone: () => { clearInterval(this._t); this.setState({ otpSent: false, sec: 0 }); },
+      google: () => { this.setState({ f1: { name: 'พรทิพย์ ศรีวงศ์', email: 'porntip@chaiyapruek.co.th', phone: '812345678', pw: 'google-sso-1' }, otpSent: true, code: '', codeErr: '', tries: 3 }); this.startTimer(); this.toast('เชื่อมบัญชี Google แล้ว · ยืนยันเบอร์มือถือเพื่อความปลอดภัย'); },
+      f1: F1.map(([k, l, type, ph, pre, hint, span]) => ({ k, l, type, ph, pre, span, v: f[k], on: e => setF(k, k === 'phone' ? e.target.value.replace(/[^\d ]/g, '').slice(0, 11) : e.target.value), err: e1[k] || '', hint: e1[k] ? '' : hint, bd: e1[k] ? '#B3322A' : '#CDD1C8', im: k === 'phone' ? 'numeric' : 'text' })),
+      plans: [['std', 'ทดลองใช้มาตรฐาน 30 วัน', 'แนะนำ · ครบทุกโมดูลหลักรวมรถร่วม ติดตามรถ และ connector บัญชี 1 ตัว'], ['start', 'ทดลองใช้เริ่มต้น 30 วัน', 'SO/DO วางแผน แอปคนขับ POD และวางบิล'], ['ent', 'องค์กร · นัด demo', 'มากกว่า 80 คัน หลายนิติบุคคล fleet เต็ม']].map(([k, t, d]) => { const p = T.get(k), on = s.plan === k; return { t, d, price: p.price ? 'หลังทดลอง ' + T.priceL(p) + ' / รถ' : 'ติดต่อฝ่ายขาย', bd: on ? '#2257C4' : '#CDD1C8', sh: on ? '0 0 0 1px #2257C4' : 'none', ring: on ? '#2257C4' : '#C9CDC3', dot: on ? '#2257C4' : 'transparent', fn: () => this.setState({ plan: k }) }; }),
+      est: (() => { const p = T.get(s.plan), c = T.calc(p, Math.max(1, totV), false); return c ? 'ประมาณการหลังทดลอง ' + totV + ' คัน · ฿' + T.fmt(c.month) + ' / เดือน ก่อน VAT · ไม่มีการตัดเงินระหว่างทดลอง' : 'ทีมขายจะนัด demo และเสนอราคาตามจำนวนรถ ' + totV + ' คัน'; })(),
+      canBack: st > 1 || s.otpSent, back: () => { if (st === 1) { clearInterval(this._t); this.setState({ otpSent: false, sec: 0 }); } else this.setState({ step: st - 1 }); },
+      foot: st === 1 ? (s.otpSent ? 'ขั้น 1 จาก 3 · ยืนยันเบอร์มือถือ' : 'ขั้น 1 จาก 3') : st === 2 ? 'ขั้น 2 จาก 3' : 'ขั้น 3 จาก 3', showNext: !(st === 2 && s.taxSt === 'dup'),
+      nextL: st === 1 ? (s.otpSent ? 'ยืนยันรหัส' : 'ขอรหัส OTP') : st === 2 ? 'ถัดไป' : s.plan === 'ent' ? 'นัด demo' : 'เริ่มใช้งาน', nBd: '#2257C4', nBg: '#2257C4', nC: '#FFFFFF', next };
+    const co = { tax: s.tax, onTax: e => this.setState({ tax: e.target.value.replace(/\D/g, '').slice(0, 13), taxErr: '', taxSt: '' }), taxBd: s.taxErr ? '#B3322A' : '#CDD1C8', taxErr: s.taxErr,
+      find: () => { if (!taxOk) { this.setState({ taxErr: 'เลขผู้เสียภาษีต้องเป็นตัวเลข 13 หลัก' }); return; } const r = this.dbd(s.tax); if (r === 'found') this.setState({ taxSt: r, cname: 'บริษัท ชัยพฤกษ์ทรานสปอร์ต จำกัด', addr: '45/9 หมู่ 6 ถ.เทพารักษ์ ต.บางพลีใหญ่ อ.บางพลี จ.สมุทรปราการ 10540' }); else this.setState({ taxSt: r, cname: '', addr: '' }); },
+      dup: s.taxSt === 'dup', form, found: s.taxSt === 'found', nf: s.taxSt === 'nf', name: s.cname, onName: e => this.setState({ cname: e.target.value }), addr: s.addr, onAddr: e => this.setState({ addr: e.target.value }),
+      brs: [['hq', 'สำนักงานใหญ่'], ['br', 'สาขา']].map(([k, l]) => ({ l, bd: s.br === k ? '#2257C4' : '#CDD1C8', bg: s.br === k ? '#E9F0FA' : '#FFFFFF', fn: () => this.setState({ br: k }) })), isBr: s.br === 'br', brNo: s.brNo, onBr: e => this.setState({ brNo: e.target.value.replace(/\D/g, '').slice(0, 5) }),
+      own: s.own, sub: s.sub, onOwn: e => this.setState({ own: e.target.value.replace(/\D/g, '') }), onSub: e => this.setState({ sub: e.target.value.replace(/\D/g, '') }),
+      accs: ACCS.map(a => ({ l: a, bd: s.acc === a ? '#2257C4' : '#CDD1C8', bg: s.acc === a ? '#E9F0FA' : '#FFFFFF', fn: () => this.setState({ acc: a }) })),
+      consent: CONS.map(([k, l, req]) => ({ l, req, on: !!s.cons[k], fn: () => this.setState(z => ({ cons: { ...z.cons, [k]: !z.cons[k] }, cErr: '' })) })), cErr: s.cErr,
+      join: () => { this.setState({ pend: { kind: 'join' } }); this.nav('pending'); }, contact: () => this.toast('ส่งข้อความถึงทีมงานแล้ว · เราจะติดต่อกลับภายใน 1 วันทำการ') };
+    const a = s.au, setA = o => this.setState(z => ({ au: { ...z.au, ...o } }));
+    const pk = (s.pend || {}).kind || 'review';
+    const au = { login: v === 'login', forgot: v === 'forgot', pick: v === 'pick', pending: v === 'pending', done: v === 'done', email: a.email, pw: a.pw, err: a.err, sent: a.sent, notSent: !a.sent,
+      onEmail: e => setA({ email: e.target.value, err: '' }), onPw: e => setA({ pw: e.target.value, err: '' }), google: () => this.nav('pick'),
+      submit: () => { if (!a.email || !a.pw) { setA({ err: 'กรอกอีเมลและรหัสผ่าน' }); return; } if (a.pw.length < 8) { setA({ err: 'อีเมลหรือรหัสผ่านไม่ถูกต้อง' }); return; } this.nav('pick'); },
+      send: () => { if (!/@/.test(a.email)) return; setA({ sent: true }); },
+      cos: [['บจก. ศรีไทยขนส่ง', 'สำนักงานใหญ่ · มาตรฐาน', 'ทดลองใช้', 'ศท', 'TMS v4.dc.html?acct=ทดลองใช้&plan=std#dash'], ['บจก. ศรีไทยโลจิสติกส์', 'สำนักงานใหญ่ · องค์กร', 'ใช้งาน', 'ศล', 'TMS v4.dc.html?acct=ใช้งาน&plan=ent#dash'], ['หจก. ชลบุรีคาร์โก้', 'สาขา 00001 · เริ่มต้น', 'อ่านอย่างเดียว', 'ชค', 'TMS v4.dc.html?acct=อ่านอย่างเดียว&plan=start#dash']].map(x => ({ n: x[0], sub: x[1], b: T.badge(x[2]), ini: x[3], href: x[4] })),
+      pT: pk === 'join' ? 'ส่งคำขอเข้าร่วมแล้ว' : pk === 'demo' ? 'เราได้รับคำขอ demo แล้ว' : 'เราได้รับข้อมูลแล้ว',
+      pD: pk === 'join' ? 'ผู้ดูแลระบบของ บจก. ศรีไทยขนส่ง จะได้รับคำขอทางอีเมล เมื่ออนุมัติคุณจะเข้าใช้งานได้ทันที' : pk === 'demo' ? 'ฝ่ายขายจะติดต่อเพื่อนัด demo และเสนอราคาภายใน 1 วันทำการ' : 'ทีมงานจะตรวจข้อมูลบริษัทและแจ้งผลทางอีเมลภายใน 1 วันทำการ ระหว่างนี้ยังไม่ต้องทำอะไรเพิ่ม',
+      pRows: [['ผู้สมัคร', f.name || 'พรทิพย์ ศรีวงศ์'], ['อีเมล', f.email || a.email], ['บริษัท', pk === 'join' ? 'บจก. ศรีไทยขนส่ง' : s.cname || '—'], ['เลขผู้เสียภาษี', s.tax || '—'], ['สถานะ', 'รอยืนยัน']].map(r => ({ k: r[0], v: r[1] })),
+      dD: (s.cname || 'บริษัทของคุณ') + ' เริ่มทดลองใช้แพ็กเกจ' + T.get(s.plan === 'ent' ? 'std' : s.plan).name + ' ถึง 4 ธ.ค. 2569 เราส่งอีเมลยืนยันไปที่ ' + (f.email || a.email) + ' แล้ว' };
+    return {
+      hm: (() => { const vw = s.vw || window.innerWidth || 1280, mob = vw < 1100, narrow = vw < 760, sm = vw < 1024, T2 = window.TMSPLANS;
+        // Photos (Unsplash License), swap in later by setting these two objects:
+        //   hero = https://images.unsplash.com/photo-1682033239487-30f076c82232
+        //   band = https://images.unsplash.com/photo-1704204613203-da423bf08269
+        const heroImage = null; // e.g. { src: '...?w=2400', srcset: '...?w=1200 1200w, ...?w=2400 2400w', alt: 'รถบรรทุกบนทางหลวง' }
+        const bandImage = null; // e.g. { src: '...?w=2400', srcset: '...?w=1200 1200w, ...?w=2400 2400w', alt: 'ถนนในไทย' }
+        const st = T2 && T2.get ? T2.get('start') : null, from = st && st.price ? st.price : 390;
+        const o = { mob, desk: !mob, narrow, px: narrow ? '20px' : '32px', hGap: narrow ? '10px' : '24px', h1: narrow ? '34px' : 'clamp(30px, calc(100cqi / 11.2), 56px)', h1d: narrow ? 'inline' : 'block', h1ws: narrow ? 'normal' : 'nowrap', h2: narrow ? '28px' : '40px', secPt: narrow ? '56px' : '104px', featGap: narrow ? '64px' : '112px',
+          menuOpen: mob && s.menuOpen, menuIc: s.menuOpen ? 'x' : 'menu', togMenu: () => this.setState({ menuOpen: !s.menuOpen }),
+          heroEl: heroImage ? React.createElement('img', { src: heroImage.src, srcSet: heroImage.srcset, sizes: '100vw', alt: heroImage.alt, fetchpriority: 'high', loading: 'eager', decoding: 'async', style: { position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' } }) : null, bandEl: bandImage ? React.createElement('img', { src: bandImage.src, srcSet: bandImage.srcset, sizes: '100vw', alt: bandImage.alt, loading: 'lazy', decoding: 'async', style: { position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' } }) : null, hasHeroImg: !!heroImage, noHeroImg: !heroImage, hasBandImg: !!bandImage, noBandImg: !bandImage,
+          heroH: narrow ? 'auto' : '88vh', heroPt: narrow ? '120px' : '136px', heroCols: narrow ? 'minmax(0,1fr)' : 'minmax(0,6fr) minmax(0,6fr)',
+          heroOv: narrow ? 'rgba(19,33,63,.86)' : 'linear-gradient(90deg, rgba(19,33,63,.88) 0%, rgba(19,33,63,.8) 42%, rgba(19,33,63,.2) 100%)',
+          shotTf: narrow ? 'none' : 'rotateY(-8deg) rotateX(2deg)', shotW: narrow ? '100%' : '128%', cards: !narrow, card2R: vw < 1300 ? '-8%' : '-24%',
+          facts: ['ใช้ได้ 3 ภาษา', 'ออก 50 ทวิ ได้เอง', 'แอปคนขับใช้งานออฟไลน์', 'เชื่อม 6 โปรแกรมบัญชี/ERP'].map((l, i, A) => ({ l, bd: narrow || i === A.length - 1 ? '0' : '1px solid rgba(255,255,255,.28)' })),
+          introCols: narrow ? 'minmax(0,1fr)' : 'minmax(0,5fr) minmax(0,7fr)', tlCols: narrow ? 'minmax(0,1fr)' : '120px minmax(0,1fr)', tlGap: narrow ? '8px' : '24px', tlPb: narrow ? '48px' : '72px', tlPl: narrow ? '20px' : '40px', tmFs: narrow ? '24px' : '28px', phoneW: narrow ? '260px' : '320px',
+          c84: narrow ? 'minmax(0,1fr)' : 'minmax(0,8fr) minmax(0,4fr)', c66: narrow ? 'minmax(0,1fr)' : 'minmax(0,1fr) minmax(0,1fr)', c57: narrow ? 'minmax(0,1fr)' : 'minmax(0,5fr) minmax(0,7fr)', c48: narrow ? 'minmax(0,1fr)' : 'minmax(0,4fr) minmax(0,8fr)',
+          a4W: narrow ? '280px' : '400px', imgMin: narrow ? '600px' : '0', a4Pad: narrow ? '28px 20px' : '48px 32px', bandH: narrow ? '240px' : '360px', bandFs: narrow ? '26px' : '36px',
+          fromL: 'เริ่ม ฿' + from + ' ต่อรถต่อเดือน' };
+        for (let i = 0; i < 8; i++) { const on = s.hfaq === i; o['f' + i] = { open: on, sym: on ? '−' : '+', fn: () => this.setState({ hfaq: on ? -1 : i }) }; }
+        return o; })(),
+      goHome: () => this.nav('home'),
+      is: { home: v === 'home', pricing: v === 'pricing', signup: v === 'signup', auth: ['login', 'forgot', 'pick', 'pending', 'done'].includes(v) },
+      menu: [['ฟีเจอร์', () => this.nav('home', 'features'), v === 'home'], ['ราคา', () => this.nav('pricing'), v === 'pricing'], ['สำหรับนักพัฒนา', () => this.nav('home', 'dev'), false], ['ติดต่อ', () => { this.setState({ menuOpen: false }); this.toast('LINE @tms-th · 02-118-4400 · sales@tms.co.th'); }, false]].map(([l, fn, on]) => { const dk = v === 'home' && !s.hdrSolid && !s.menuOpen; return { l, fn, bg: on && !dk ? '#E9F0FA' : 'transparent', c: dk ? '#FFFFFF' : on ? '#2257C4' : '#101418' }; }),
+      hd: (() => { const dark = v === 'home' && !s.hdrSolid && !s.menuOpen; return dark ? { bg: 'transparent', bd: 'transparent', fg: '#FFFFFF', sub: 'rgba(255,255,255,.75)', logoBg: 'rgba(255,255,255,.16)', hov: 'rgba(255,255,255,.12)', lgBg: 'rgba(255,255,255,.10)', lgBd: 'rgba(255,255,255,.24)', ctaBg: '#FFFFFF', ctaC: '#13213F', btnBg: 'transparent', dark } : { bg: '#FFFFFF', bd: '#E4E6E0', fg: '#101418', sub: '#59606B', logoBg: '#13213F', hov: '#F4F5F2', lgBg: '#EBEDE8', lgBd: '#D9DCD4', ctaBg: '#2257C4', ctaC: '#FFFFFF', btnBg: '#FFFFFF', dark }; })(),
+      langs: [['th', 'TH'], ['en', 'EN'], ['zh', '中文']].map(([k, l]) => { const on = s.lang === k, dk = v === 'home' && !s.hdrSolid && !s.menuOpen; return { l, bg: on ? '#FFFFFF' : 'transparent', c: on ? (dk ? '#13213F' : '#2257C4') : (dk ? 'rgba(255,255,255,.88)' : '#3B424C'), fw: on ? 600 : 500, fn: () => { this.setState({ lang: k }); if (window.TMSI18N) window.TMSI18N.set(k); } }; }),
+      policy: [['auto', 'อนุมัติอัตโนมัติ'], ['review', 'ต้องให้ทีมตรวจ']].map(([k, l]) => ({ l, bg: s.policy === k ? '#E9F0FA' : 'transparent', c: s.policy === k ? '#2257C4' : '#3B424C', fw: s.policy === k ? 600 : 500, fn: () => this.setState({ policy: k }) })),
+      goPricing: () => this.nav('pricing'), goLogin: () => this.nav('login'), goSignup: () => this.nav('signup'),
+      cycles: [[false, 'รายเดือน'], [true, 'รายปี']].map(([y, l]) => ({ l, tag: y, bg: s.yearly === y ? '#E9F0FA' : 'transparent', c: s.yearly === y ? '#2257C4' : '#3B424C', fw: s.yearly === y ? 600 : 500, fn: () => this.setState({ yearly: y }) })),
+      cards, cmp: { heads: T.plans.map(p => p.name), cats }, calc, adds: T.addons.map(x => ({ n: x.name, p: '฿' + T.num(x.price), u: x.unit })), rules: T.rules.map(t => ({ t })),
+      faq: FAQ.map((x, i) => ({ q: x[0], a: x[1], open: s.faq === i, ic: s.faq === i ? 'minus' : 'plus', fn: () => this.setState({ faq: s.faq === i ? -1 : i }) })),
+      su, co, au, toast: s.toast
+    };
+  }
+}
+</script>
+</body>
+</html>
