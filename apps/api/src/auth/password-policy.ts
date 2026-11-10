@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { ProblemException } from '../common/problem';
 import { PrismaService } from '../db/prisma.service';
 import { hashPassword, verifyPassword } from './password';
+import { isLocalEnv } from './tokens';
 
 /**
  * นโยบายรหัสผ่าน (ST1-T02; docs/04 A1): ≥ 12 ตัว, ไม่อยู่ในรายการรหัสที่รั่ว (HIBP k-anonymity),
@@ -69,8 +70,11 @@ export class LocalBreachChecker implements BreachChecker {
 
 @Injectable()
 export class PasswordPolicy {
+  /** HIBP เปิดเสมอนอกเครื่อง dev/test (ปิดได้ด้วย HIBP_ENABLED=false เท่านั้น) — ลืมตั้งค่าต้องไม่ทำให้ข้ามการตรวจ */
   readonly breach: BreachChecker =
-    process.env.HIBP_ENABLED === 'true' ? new HibpChecker() : new LocalBreachChecker();
+    process.env.HIBP_ENABLED === 'true' || (!isLocalEnv() && process.env.HIBP_ENABLED !== 'false')
+      ? new HibpChecker()
+      : new LocalBreachChecker();
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -106,19 +110,39 @@ export class PasswordPolicy {
   }
 
   /**
-   * ตั้งรหัสใหม่หลังผ่านนโยบาย — เก็บรหัสเดิมเข้าประวัติ และเพิกถอน refresh token ทั้งหมดของผู้ใช้
-   * (session อื่นต้อง login ใหม่; access token ที่ถืออยู่หมดอายุเองใน ≤ 15 นาที)
+   * ตั้งรหัสใหม่หลังผ่านนโยบาย — เก็บรหัสเดิมเข้าประวัติ, bump tokenVersion (ทุก session + อุปกรณ์ที่จำไว้หลุดทันที),
+   * เพิกถอน refresh token ทั้งหมด และลง audit ใน transaction เดียว
+   * เขียนแบบมีเงื่อนไข (hash เดิมต้องยังเหมือนตอนอ่าน) — เปลี่ยนพร้อมกันสองทาง ทางหลัง 409
    */
-  async setPassword(user: AppUser, password: string) {
+  async setPassword(
+    user: AppUser,
+    password: string,
+    meta: { ip?: string; requestId?: string } = {},
+  ) {
     await this.validate(password, user);
     const db = this.prisma.platform;
     const hash = await hashPassword(password);
     await db.$transaction(async (tx) => {
+      const r = await tx.appUser.updateMany({
+        where: { id: user.id, passwordHash: user.passwordHash },
+        data: { passwordHash: hash, tokenVersion: { increment: 1 } },
+      });
+      if (r.count !== 1) throw new ProblemException('precondition_failed');
       if (user.passwordHash)
         await tx.passwordHistory.create({
           data: { tenantId: user.tenantId, userId: user.id, passwordHash: user.passwordHash },
         });
-      await tx.appUser.update({ where: { id: user.id }, data: { passwordHash: hash } });
+      await tx.auditLog.create({
+        data: {
+          tenantId: user.tenantId,
+          actorId: user.id,
+          action: 'security.password_changed',
+          entityType: 'user',
+          entityId: user.id,
+          ip: meta.ip ?? null,
+          requestId: meta.requestId ?? null,
+        },
+      });
       await tx.refreshToken.updateMany({
         where: { tenantId: user.tenantId, userId: user.id, revokedAt: null },
         data: { revokedAt: new Date() },

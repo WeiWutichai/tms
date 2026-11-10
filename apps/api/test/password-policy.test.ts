@@ -35,8 +35,12 @@ describe('password policy', () => {
     await db.$disconnect();
   });
 
-  const change = (token: string, currentPassword: string, newPassword: string) =>
-    api(app, token).post('/v1/me/password').send({ currentPassword, newPassword });
+  let cip = 0;
+  const change = (token: string, currentPassword: string, newPassword: string, from?: string) =>
+    api(app, token)
+      .post('/v1/me/password')
+      .set('X-Forwarded-For', from ?? `10.52.${Math.floor(++cip / 250)}.${cip % 250}`)
+      .send({ currentPassword, newPassword });
   const code = (r: request.Response) => r.body.errors?.[0]?.code;
 
   it('สั้นกว่า 12 / อยู่ในรายการรั่ว / รหัสเดิมผิด → 422 พร้อม code', async () => {
@@ -88,6 +92,50 @@ describe('password policy', () => {
     await change(s.access, cur, 'second-password-2569').expect(204);
     const u = await db.appUser.findFirstOrThrow({ where: { email: 'pw@policy.test' } });
     expect(await db.passwordHistory.count({ where: { userId: u.id } })).toBeLessThanOrEqual(5);
+  });
+
+  it('เดารหัสเดิมผ่าน /me/password นับรวมเพดาน login: ผิด 5 ครั้ง → ถูกล็อก (429) แม้รหัสถูก', async () => {
+    const u = await db.appUser.create({
+      data: {
+        tenantId,
+        email: 'guess@policy.test',
+        name: 'ทดสอบ',
+        status: 'ACTIVE',
+        passwordHash: await hashPassword(PW),
+      },
+    });
+    void u;
+    const s = await loginFull(app, 'guess@policy.test', PW, `10.51.0.${++ip}`);
+    for (let i = 0; i < 5; i++)
+      expect(code(await change(s.access, `wrong-guess-${i}-2569`, 'brand-new-password-1'))).toBe(
+        'password_incorrect',
+      );
+    const locked = await change(s.access, PW, 'brand-new-password-1');
+    expect(locked.status).toBe(429);
+    expect(locked.body.code).toBe('account_locked');
+  });
+
+  it('เปลี่ยนรหัสแล้ว access token เดิมใช้ไม่ได้ทันที (tokenVersion) — ทุก session ต้องเข้าใหม่', async () => {
+    await db.appUser.create({
+      data: {
+        tenantId,
+        email: 'tv@policy.test',
+        name: 'ทดสอบ',
+        status: 'ACTIVE',
+        passwordHash: await hashPassword(PW),
+      },
+    });
+    const a = await loginFull(app, 'tv@policy.test', PW, `10.51.0.${++ip}`);
+    const b = await loginFull(app, 'tv@policy.test', PW, `10.51.0.${++ip}`);
+    await change(a.access, PW, 'changed-password-2569').expect(204);
+    expect((await api(app, b.access).get('/v1/me')).status).toBe(401);
+    expect((await api(app, a.access).get('/v1/me')).status).toBe(401);
+    const long = await change(
+      (await loginFull(app, 'tv@policy.test', 'changed-password-2569', `10.51.0.${++ip}`)).access,
+      'changed-password-2569',
+      'x'.repeat(300),
+    );
+    expect(code(long)).toBe('password_too_long');
   });
 
   it('HIBP: ส่งแค่ prefix 5 ตัวของ SHA-1; ตรง suffix → รั่ว; บริการล่ม → ปล่อยผ่าน', async () => {
