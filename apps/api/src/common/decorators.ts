@@ -24,3 +24,10 @@ export const RequireStepUp = () => SetMetadata(REQUIRE_STEP_UP, true);
 export const REQUIRED_FEATURE = 'tms:requiredFeature';
 /** ต้องเปิดฟีเจอร์นี้ในแพ็กเกจ/override ของ tenant (ST1-T18) — ปิด → 403 `feature_not_in_plan` + `featureKey` (spec/01 PLT-078) */
 export const RequireFeature = (feature: string) => SetMetadata(REQUIRED_FEATURE, feature);
+
+export const LINK_ACTION = 'tms:linkAction';
+/**
+ * route ที่ยืนยันตัวตนด้วย magic link (ST1-T06) แทน token — path ต้องมี `:token`
+ * ลิงก์หมดอายุ/ถูกเพิกถอน/ไม่มี action นี้ → 404 · principal = `link` (ไม่เห็นราคาขายเด็ดขาด)
+ */
+export const LinkAction = (action: string) => SetMetadata(LINK_ACTION, action);

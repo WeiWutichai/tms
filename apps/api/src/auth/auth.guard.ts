@@ -2,7 +2,14 @@ import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { scopeAllows } from '@tms/domain';
 import type { Request } from 'express';
-import { IS_PUBLIC, REQUIRE_STEP_UP, REQUIRED_FEATURE, REQUIRED_SCOPE } from '../common/decorators';
+import {
+  IS_PUBLIC,
+  LINK_ACTION,
+  REQUIRE_STEP_UP,
+  REQUIRED_FEATURE,
+  REQUIRED_SCOPE,
+} from '../common/decorators';
+import { MagicLinkService } from '../modules/links/magic-link.service';
 import { EntitlementService } from '../modules/entitlements/entitlement.service';
 import { ProblemException } from '../common/problem';
 import { requestContext } from '../common/request-context';
@@ -29,10 +36,30 @@ export class AuthGuard implements CanActivate {
     private readonly reflector: Reflector,
     private readonly auth: AuthService,
     private readonly entitlements: EntitlementService,
+    private readonly links: MagicLinkService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const targets = [context.getHandler(), context.getClass()];
+    // ลิงก์ตรวจก่อน @Public เสมอ — ติดทั้งคู่ต้องไม่ทำให้ข้ามการตรวจลิงก์ (review T06)
+    const linkAction = this.reflector.getAllAndOverride<string>(LINK_ACTION, targets);
+    if (linkAction) {
+      const req = context.switchToHttp().getRequest<Request>();
+      const token = String((req.params as Record<string, string>)?.token ?? '');
+      const link = await this.links.resolve(token, linkAction);
+      if (!link) throw new ProblemException('not_found');
+      const ctx = requestContext.require();
+      ctx.tenantId = link.tenantId;
+      ctx.actorId = `link:${link.id}`;
+      ctx.scopes = link.scopes;
+      ctx.principalType = 'link';
+      ctx.link = link;
+      // ฟีเจอร์ของแพ็กเกจใช้กับลิงก์ด้วย (เช่น ลิงก์รถร่วมเมื่อ tenant ไม่มีฟีเจอร์ sub)
+      const linkFeature = this.reflector.getAllAndOverride<string>(REQUIRED_FEATURE, targets);
+      if (linkFeature && !(await this.entitlements.enabled(link.tenantId, linkFeature)))
+        throw new ProblemException('not_found');
+      return true;
+    }
     if (this.reflector.getAllAndOverride<boolean>(IS_PUBLIC, targets)) return true;
 
     const req = context.switchToHttp().getRequest<Request>();

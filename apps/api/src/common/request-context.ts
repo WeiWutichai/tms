@@ -9,6 +9,8 @@ export interface RequestContext {
   scopes?: string[];
   /** ชนิด principal จาก token (`user` / `dev` / ภายหลัง `link` / `driver`) — ใช้กันราคาขายแบบเด็ดขาด (ST1-T13) */
   principalType?: string;
+  /** magic link ที่ยืนยันแล้ว (route ที่ติด @LinkAction) — โมดูลใช้ entityId จำกัดข้อมูลที่ส่งกลับ */
+  link?: { id: string; purpose: string; entityType: string; entityId: string; actions: string[] };
   locale: 'th' | 'en';
   /** IP ผู้เรียก (trust proxy 1 ชั้น) — ลง audit log */
   ip?: string;
