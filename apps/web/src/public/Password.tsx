@@ -1,5 +1,5 @@
 import { Icon } from '@tms/ui';
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { api } from '../api';
 import { useI18n } from '../i18n';
 import type { MessageKey } from '../i18n/th';
@@ -86,7 +86,10 @@ export function ForgotPasswordPage() {
 
 /** อ่าน token จาก fragment (#token=…) — fragment ไม่ถูกส่งไป server และไม่ติดไปกับ Referer */
 function tokenFromHash(): string {
-  return new URLSearchParams(window.location.hash.slice(1)).get('token') ?? '';
+  const t = new URLSearchParams(window.location.hash.slice(1)).get('token') ?? '';
+  // อ่านแล้วล้างออกจาก URL/ประวัติทันที (ไม่ค้างแม้ลิงก์ผิดหรือรหัสไม่ผ่าน)
+  if (t) window.history.replaceState(null, '', window.location.pathname);
+  return t;
 }
 
 /**
@@ -96,13 +99,29 @@ function tokenFromHash(): string {
 export function ResetPasswordPage() {
   const { t } = useI18n();
   const text = useProblemText();
-  const [token] = useState(tokenFromHash);
+  const [token, setToken] = useState(tokenFromHash);
   const [pw, setPw] = useState('');
   const [pw2, setPw2] = useState('');
   const [err, setErr] = useState('');
   const [invalid, setInvalid] = useState(!token);
   const [done, setDone] = useState(false);
   const [busy, setBusy] = useState(false);
+
+  // เปิดลิงก์ใหม่ในแท็บเดิม (hash เปลี่ยน ไม่ reload) → เริ่มใหม่ด้วย token นั้น
+  useEffect(() => {
+    const onHash = () => {
+      const t = tokenFromHash();
+      if (!t) return;
+      setToken(t);
+      setInvalid(false);
+      setDone(false);
+      setErr('');
+      setPw('');
+      setPw2('');
+    };
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -111,11 +130,8 @@ export function ResetPasswordPage() {
     setBusy(true);
     try {
       const r = await api.POST('/v1/auth/password/reset', { body: { token, newPassword: pw } });
-      if (r.response.status === 204) {
-        // ล้าง token ออกจาก URL/ประวัติ
-        window.history.replaceState(null, '', window.location.pathname);
-        setDone(true);
-      } else if ((r.error as { code?: string } | undefined)?.code === 'reset_link_invalid')
+      if (r.response.status === 204) setDone(true);
+      else if ((r.error as { code?: string } | undefined)?.code === 'reset_link_invalid')
         setInvalid(true);
       else setErr(text(r.error));
     } catch {

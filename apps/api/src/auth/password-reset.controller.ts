@@ -7,7 +7,7 @@ import {
   ApiTags,
   ApiTooManyRequestsResponse,
 } from '@nestjs/swagger';
-import type { AppUser } from '@prisma/client';
+import type { AppUser, Prisma } from '@prisma/client';
 import { Transform } from 'class-transformer';
 import { IsEmail, IsNotEmpty, IsString, MaxLength } from 'class-validator';
 import type { Request, Response } from 'express';
@@ -67,12 +67,21 @@ export class PasswordResetService {
     private readonly prisma: PrismaService,
     private readonly email: EmailService,
     private readonly policy: PasswordPolicy,
-  ) {}
+  ) {
+    // ตรวจตอนเริ่มระบบ — ถ้าไปพังตอนมีผู้ใช้จริงเท่านั้น จะกลายเป็นช่องบอกว่าอีเมลมีในระบบ (500 vs 202)
+    this.base = webBaseUrl();
+  }
+  private readonly base: string;
 
   /** ผู้ใช้ที่ตั้งรหัสใหม่ได้: ACTIVE ในบริษัทที่ยังใช้งานได้ (อีเมลเดียว = ตัวตนเดียวข้ามบริษัท — spec/01 §3) */
-  private async usersOf(email: string): Promise<AppUser[]> {
-    const db = this.prisma.platform;
-    const users = await db.appUser.findMany({ where: { email, status: 'ACTIVE' } });
+  private async usersOf(
+    email: string,
+    db: Pick<Prisma.TransactionClient, 'appUser' | 'tenant'> = this.prisma.platform,
+  ): Promise<AppUser[]> {
+    // ไม่สนตัวพิมพ์ — เหมือน login (อีเมลที่เก็บอาจมีตัวใหญ่)
+    const users = await db.appUser.findMany({
+      where: { email: { equals: email, mode: 'insensitive' }, status: 'ACTIVE' },
+    });
     if (!users.length) return [];
     const ok = await db.tenant.findMany({
       where: { id: { in: users.map((u) => u.tenantId) }, status: { in: ['TRIAL', 'ACTIVE'] } },
@@ -82,61 +91,70 @@ export class PasswordResetService {
   }
 
   /**
-   * ขอลิงก์ — ตอบเหมือนกันเสมอไม่ว่ามีอีเมลหรือไม่ (A1) · สร้างแถว token ทุกครั้ง (งานเท่ากันทั้งสองกรณี)
+   * ขอลิงก์ — ตอบเหมือนกันเสมอไม่ว่ามีอีเมลหรือไม่ (A1) · สร้างแถว token + ค้นผู้ใช้ + render ทุกครั้ง (ต่างกันแค่ insert outbox ~1 ms)
    * คืนวินาทีที่ต้องรอถ้าเกินเพดาน (0 = รับคำขอ)
    */
   async forgot(email: string, ip: string): Promise<number> {
     const now = Date.now();
     const since = new Date(now - RESET_WINDOW_MS);
-    return this.prisma.platform.$transaction(async (tx) => {
-      // ล็อกต่ออีเมลและต่อ IP — คำขอพร้อมกันนับเพดานถูก
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(4, hashtext(${email}))`;
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(5, hashtext(${ip}))`;
-      const [byEmail, byIp] = await Promise.all([
-        tx.passwordResetToken.findMany({
-          where: { email, createdAt: { gte: since } },
-          orderBy: { createdAt: 'asc' },
-          select: { createdAt: true },
-        }),
-        tx.passwordResetToken.findMany({
-          where: { ip, createdAt: { gte: since } },
-          orderBy: { createdAt: 'asc' },
-          select: { createdAt: true },
-        }),
-      ]);
-      const wait = (rows: { createdAt: Date }[], max: number) =>
-        rows.length >= max
-          ? Math.max(
-              1,
-              Math.ceil(
-                (rows[rows.length - max]!.createdAt.getTime() + RESET_WINDOW_MS - now) / 1000,
-              ),
-            )
-          : 0;
-      const retry = Math.max(wait(byEmail, RESET_MAX_PER_EMAIL), wait(byIp, RESET_MAX_PER_IP));
-      if (retry > 0) return retry;
-      const { token, hash } = newOpaqueToken();
-      await tx.passwordResetToken.create({
-        data: { tokenHash: hash, email, ip, expiresAt: new Date(now + RESET_TTL_MS) },
-      });
-      const users = await this.usersOf(email);
-      if (users.length) {
-        const latest = [...users].sort(
-          (a, b) => (b.lastLoginAt?.getTime() ?? 0) - (a.lastLoginAt?.getTime() ?? 0),
-        )[0]!;
-        await this.email.enqueue(tx, {
-          tenantId: null,
-          to: email,
-          template: 'password_reset',
-          locale: latest.locale,
-          vars: {
-            link: `${webBaseUrl()}/reset-password#token=${token}`,
-            minutes: RESET_TTL_MS / 60_000,
-          },
-        });
-      }
-      return 0;
-    });
+    // render ทุกครั้ง (งานเท่ากันไม่ว่าอีเมลมีหรือไม่)
+    const { token, hash } = newOpaqueToken();
+    const link = `${this.base}/reset-password#token=${token}`;
+    try {
+      return await this.prisma.platform.$transaction(
+        async (tx) => {
+          // ล็อกต่ออีเมล → IP (ลำดับเดียวกันเสมอ) — คำขอพร้อมกันนับเพดานถูก
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(4, hashtext(${email}))`;
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(5, hashtext(${ip}))`;
+          const [byEmail, byIp] = await Promise.all([
+            tx.passwordResetToken.findMany({
+              where: { email, createdAt: { gte: since } },
+              orderBy: { createdAt: 'asc' },
+              select: { createdAt: true },
+            }),
+            tx.passwordResetToken.findMany({
+              where: { ip, createdAt: { gte: since } },
+              orderBy: { createdAt: 'asc' },
+              select: { createdAt: true },
+            }),
+          ]);
+          const wait = (rows: { createdAt: Date }[], max: number) =>
+            rows.length >= max
+              ? Math.max(
+                  1,
+                  Math.ceil(
+                    (rows[rows.length - max]!.createdAt.getTime() + RESET_WINDOW_MS - now) / 1000,
+                  ),
+                )
+              : 0;
+          const retry = Math.max(wait(byEmail, RESET_MAX_PER_EMAIL), wait(byIp, RESET_MAX_PER_IP));
+          if (retry > 0) return retry;
+          await tx.passwordResetToken.create({
+            data: { tokenHash: hash, email, ip, expiresAt: new Date(now + RESET_TTL_MS) },
+          });
+          const users = await this.usersOf(email, tx);
+          const latest = [...users].sort(
+            (a, b) => (b.lastLoginAt?.getTime() ?? 0) - (a.lastLoginAt?.getTime() ?? 0),
+          )[0];
+          const mail = {
+            tenantId: null,
+            to: email,
+            template: 'password_reset' as const,
+            locale: latest?.locale ?? 'th',
+            vars: { link, minutes: RESET_TTL_MS / 60_000 },
+          };
+          if (latest) await this.email.enqueue(tx, mail);
+          else this.email.render(mail); // งานเท่ากัน — ไม่บันทึก
+          return 0;
+        },
+        { maxWait: 2_000, timeout: 5_000 },
+      );
+    } catch (e) {
+      // pool เต็ม/ล็อกนาน (ยิงถี่) → 429 แทน 500 (เหมือน login)
+      const code = (e as { code?: string }).code;
+      if (code === 'P2024' || code === 'P2028' || code === 'P2010') return 60;
+      throw e;
+    }
   }
 
   /** ตั้งรหัสใหม่ด้วย token — ใช้ครั้งเดียว; รหัสไม่ผ่านนโยบาย → 422 โดย token ยังใช้ต่อได้ */
@@ -197,7 +215,12 @@ export class PasswordResetController {
     description: 'ตั้งรหัสใหม่แล้ว — ทุก session ของทุกบริษัทที่ใช้อีเมลนี้หลุด ต้องเข้าระบบใหม่',
   })
   @ApiBadRequestResponse({ description: 'reset_link_invalid — ลิงก์ผิด หมดอายุ หรือใช้ไปแล้ว' })
-  async reset(@Body() body: ResetPasswordDto, @Req() req: Request): Promise<void> {
+  async reset(
+    @Body() body: ResetPasswordDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<void> {
+    res.setHeader('Cache-Control', 'no-store');
     const ctx = requestContext.get();
     await this.svc.reset(body.token, body.newPassword, {
       ip: req.ip ?? undefined,

@@ -42,7 +42,7 @@ const TEMPLATES: { [K in TemplateName]: Record<EmailLocale, Renderer<K>> } = {
       const title = 'ตั้งรหัสผ่านใหม่';
       const paras = [
         'มีคำขอตั้งรหัสผ่านใหม่สำหรับบัญชีที่ใช้อีเมลนี้',
-        `กดปุ่มด้านล่างเพื่อตั้งรหัสผ่านใหม่ ลิงก์ใช้ได้ ${minutes} นาทีและใช้ได้ครั้งเดียว`,
+        `เปิดลิงก์ด้านล่างเพื่อตั้งรหัสผ่านใหม่ ลิงก์ใช้ได้ ${minutes} นาทีและใช้ได้ครั้งเดียว`,
         'ถ้าคุณไม่ได้ขอ ไม่ต้องทำอะไร รหัสผ่านเดิมยังใช้ได้ตามปกติ',
       ];
       return {
@@ -55,7 +55,7 @@ const TEMPLATES: { [K in TemplateName]: Record<EmailLocale, Renderer<K>> } = {
       const title = 'Reset your password';
       const paras = [
         'We received a request to reset the password for the account using this email.',
-        `Use the button below to set a new password. The link works once and expires in ${minutes} minutes.`,
+        `Open the link below to set a new password. The link works once and expires in ${minutes} minutes.`,
         'If you did not ask for this, ignore this email — your current password still works.',
       ];
       return {

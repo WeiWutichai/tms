@@ -1,5 +1,5 @@
 import type { NestExpressApplication } from '@nestjs/platform-express';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, type Prisma } from '@prisma/client';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { purgeAuthData } from '../src/auth/maintenance';
@@ -8,7 +8,7 @@ import { RESET_MAX_PER_EMAIL, webBaseUrl } from '../src/auth/password-reset.cont
 import { ensureSystemRoles } from '../src/auth/system-roles';
 import { EmailDispatcher } from '../src/modules/email/email.service';
 import { renderEmail } from '../src/modules/email/templates';
-import { MemoryTransport, transportFromEnv } from '../src/modules/email/transport';
+import { maskEmail, MemoryTransport, transportFromEnv } from '../src/modules/email/transport';
 import { bootApp, createTenant, loginFull, platform, truncateAll } from './helpers';
 
 /** ST1-T03: ลืมรหัสผ่าน — อีเมลมี/ไม่มีได้ response เดียวกัน; ลิงก์ใช้ซ้ำหรือเกิน 30 นาทีใช้ไม่ได้ */
@@ -208,31 +208,105 @@ describe('password reset + email outbox', () => {
     await dispatcher.drain();
     let r = await db.emailOutbox.findUniqueOrThrow({ where: { id: row.id } });
     expect(r).toMatchObject({ status: 'PENDING', attempts: 1, error: 'smtp down' });
-    await db.emailOutbox.update({ where: { id: row.id }, data: { runAt: new Date() } });
+    // นาฬิกาฐานข้อมูล (claim เทียบกับ now() ของ Postgres)
+    await db.$executeRaw`UPDATE email_outbox SET run_at = now() WHERE id = ${row.id}::uuid`;
     await dispatcher.drain();
     r = await db.emailOutbox.findUniqueOrThrow({ where: { id: row.id } });
     expect(r).toMatchObject({ status: 'FAILED', attempts: 2, textBody: null, htmlBody: null });
   });
 
-  it('outbox แยก tenant: แอปเขียน/อ่านได้เฉพาะของ tenant ตัวเอง, แถวระบบ (null) มองไม่เห็น, แก้/ลบไม่ได้', async () => {
+  it('outbox: แอปเขียนได้เฉพาะ tenant ตัวเอง (RLS) และอ่าน/แก้/ลบไม่ได้ (มี token ในเนื้ออีเมล); token ลืมรหัสแตะไม่ได้', async () => {
     const app1 = new PrismaClient({ datasources: { db: { url: process.env.APP_DATABASE_URL } } });
-    const asTenant = <T>(tid: string, fn: (tx: any) => Promise<T>) =>
-      app1.$transaction(async (tx) => {
+    const asTenant = <T>(tid: string, fn: (tx: Prisma.TransactionClient) => Promise<T>) =>
+      app1.$transaction(async (tx): Promise<T> => {
         await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tid}, true)`;
         return fn(tx);
       });
-    const data = { toAddress: 'a@x.test', template: 'password_reset', locale: 'th', subject: 's' };
-    await asTenant(tA, (tx) => tx.emailOutbox.create({ data: { ...data, tenantId: tA } }));
+    const data = {
+      toAddress: 'rls@x.test',
+      template: 'password_reset',
+      locale: 'th',
+      subject: 's',
+    };
+    await asTenant(tA, (tx) => tx.emailOutbox.createMany({ data: [{ ...data, tenantId: tA }] }));
+    expect(await db.emailOutbox.count({ where: { toAddress: 'rls@x.test', tenantId: tA } })).toBe(
+      1,
+    );
     await expect(
-      asTenant(tA, (tx) => tx.emailOutbox.create({ data: { ...data, tenantId: tB } })),
+      asTenant(tA, (tx) => tx.emailOutbox.createMany({ data: [{ ...data, tenantId: tB }] })),
     ).rejects.toThrow();
-    const seen = await asTenant(tB, (tx) => tx.emailOutbox.findMany());
-    expect(seen).toHaveLength(0);
-    const seenA = await asTenant(tA, (tx) => tx.emailOutbox.findMany());
-    expect(seenA.every((r: { tenantId: string }) => r.tenantId === tA)).toBe(true);
+    await expect(asTenant(tA, (tx) => tx.emailOutbox.findMany())).rejects.toThrow();
     await expect(asTenant(tA, (tx) => tx.emailOutbox.deleteMany())).rejects.toThrow();
     await expect(asTenant(tA, (tx) => tx.passwordResetToken.findMany())).rejects.toThrow();
     await app1.$disconnect();
+  });
+
+  it('อีเมลที่เก็บเป็นตัวพิมพ์ใหญ่ยังได้ลิงก์ (ไม่สนตัวพิมพ์ เหมือน login)', async () => {
+    await user(tA, 'Mixed.Case@Reset.test');
+    await forgot('mixed.case@reset.test').expect(202);
+    const token = await latestToken('mixed.case@reset.test');
+    await reset(token, 'mixed-case-new-2569').expect(204);
+    expect(
+      (await loginFull(app, 'Mixed.Case@Reset.test', 'mixed-case-new-2569', ip())).access,
+    ).toBeTruthy();
+  });
+
+  it('access token เดิมใช้ไม่ได้ทันทีหลังตั้งรหัสใหม่ (401)', async () => {
+    const s = await loginFull(app, 'mixed.case@reset.test', 'mixed-case-new-2569', ip());
+    await request(app.getHttpServer())
+      .get('/v1/me')
+      .set('Authorization', `Bearer ${s.access}`)
+      .expect(200);
+    await forgot('mixed.case@reset.test').expect(202);
+    await reset(await latestToken('mixed.case@reset.test'), 'mixed-case-third-2569').expect(204);
+    await request(app.getHttpServer())
+      .get('/v1/me')
+      .set('Authorization', `Bearer ${s.access}`)
+      .expect(401);
+  });
+
+  it('ยิง reset พร้อมกันด้วย token เดียว → สำเร็จครั้งเดียว', async () => {
+    await forgot('one@reset.test').expect(202);
+    const token = await latestToken('one@reset.test');
+    const rs = await Promise.all([
+      reset(token, 'concurrent-a-pass-2569'),
+      reset(token, 'concurrent-b-pass-2569'),
+      reset(token, 'concurrent-c-pass-2569'),
+    ]);
+    expect(rs.filter((r) => r.status === 204)).toHaveLength(1);
+    for (const r of rs.filter((x) => x.status !== 204)) expect([400, 412]).toContain(r.status);
+  });
+
+  it('บริษัทที่ถูกระงับไม่ถูกนับ: ผู้ใช้อยู่แต่บริษัทระงับ → ไม่ได้อีเมล', async () => {
+    const tC = (await createTenant(db)).id;
+    await user(tC, 'suspended-co@reset.test');
+    await db.tenant.update({ where: { id: tC }, data: { status: 'SUSPENDED' } });
+    await forgot('suspended-co@reset.test').expect(202);
+    await dispatcher.drain();
+    expect(mail.sent.filter((m) => m.to === 'suspended-co@reset.test')).toHaveLength(0);
+  });
+
+  it('ส่งค้างสถานะ SENDING เกิน lease และครบจำนวนครั้ง → FAILED (ไม่วนไม่จบ)', async () => {
+    const row = await db.emailOutbox.create({
+      data: {
+        toAddress: 'stuck@reset.test',
+        template: 'password_reset',
+        locale: 'th',
+        subject: 's',
+        textBody: 't',
+        htmlBody: 'h',
+        status: 'SENDING',
+        attempts: 5,
+        maxAttempts: 5,
+      },
+    });
+    await db.$executeRaw`UPDATE email_outbox SET locked_until = now() - interval '1 minute' WHERE id = ${row.id}::uuid`;
+    await dispatcher.drain();
+    expect(await db.emailOutbox.findUniqueOrThrow({ where: { id: row.id } })).toMatchObject({
+      status: 'FAILED',
+      textBody: null,
+    });
+    expect(mail.sent).toHaveLength(0);
   });
 
   it('template escape HTML และ transport log ใช้นอก dev ไม่ได้', () => {
@@ -240,6 +314,7 @@ describe('password reset + email outbox', () => {
     expect(r.html).not.toContain('<b>');
     expect(r.html).toContain('&lt;b&gt;');
     expect(() => transportFromEnv({ EMAIL_TRANSPORT: 'smtp' })).toThrow(/EMAIL_SMTP_URL/);
+    expect(maskEmail('somchai@company.co.th')).toBe('s***@company.co.th');
     const prev = process.env.NODE_ENV;
     process.env.NODE_ENV = 'production';
     try {

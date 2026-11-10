@@ -16,6 +16,7 @@ async function main() {
   const ctx = await NestFactory.createApplicationContext(AppModule, { logger: ['error', 'warn'] });
   const queue = ctx.get(JobQueue);
   const mail = ctx.get(EmailDispatcher);
+  mail.init();
   let stopping = false;
   process.on('SIGTERM', () => (stopping = true));
   process.on('SIGINT', () => (stopping = true));

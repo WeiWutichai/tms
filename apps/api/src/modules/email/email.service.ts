@@ -22,9 +22,14 @@ export interface EnqueueEmail<K extends TemplateName> {
  */
 @Injectable()
 export class EmailService {
-  enqueue<K extends TemplateName>(tx: Writer, input: EnqueueEmail<K>) {
-    const r = renderEmail(input.template, input.locale, input.vars);
-    return tx.emailOutbox.create({
+  render<K extends TemplateName>(input: EnqueueEmail<K>) {
+    return renderEmail(input.template, input.locale, input.vars);
+  }
+
+  /** createMany (ไม่มี RETURNING) — role แอปมีสิทธิ์ INSERT อย่างเดียว อ่านเนื้ออีเมล (มี token) ไม่ได้ */
+  async enqueue<K extends TemplateName>(tx: Writer, input: EnqueueEmail<K>): Promise<void> {
+    const r = this.render(input);
+    await tx.emailOutbox.createMany({
       data: {
         tenantId: input.tenantId,
         toAddress: input.to,
@@ -39,7 +44,8 @@ export class EmailService {
   }
 }
 
-const LEASE_MS = 2 * 60_000;
+/** ต้องยาวกว่า timeout ของ SMTP รวมกัน (transport.ts: 20+20+60 วิ) — ไม่งั้น worker อื่นหยิบซ้ำระหว่างส่ง */
+const LEASE_MS = 5 * 60_000;
 
 /** ส่งอีเมลจาก outbox (รันใน worker) — หยิบด้วย FOR UPDATE SKIP LOCKED ข้าม tenant, ลองใหม่แบบ backoff */
 @Injectable()
@@ -49,17 +55,27 @@ export class EmailDispatcher {
 
   constructor(private readonly prisma: PrismaService) {}
 
+  /** ตรวจการตั้งค่าตอนเริ่ม worker — ผิดให้ล้มทันที ไม่ใช่ลองส่ง 5 ครั้งแล้ว FAILED เงียบ ๆ */
+  init() {
+    this.transport ??= transportFromEnv();
+  }
+
   /** test ใส่ MemoryTransport ได้ */
   use(transport: EmailTransport) {
     this.transport = transport;
   }
 
-  private claim(): Promise<EmailOutbox[]> {
+  private async claim(): Promise<EmailOutbox[]> {
+    // ค้าง SENDING เกิน lease และครบจำนวนครั้งแล้ว (worker ตายระหว่างส่ง) → FAILED ไม่วนไม่จบ
+    await this.prisma.platform.$executeRaw`
+      UPDATE email_outbox SET status = 'FAILED', locked_until = NULL, text_body = NULL, html_body = NULL,
+             error = coalesce(error, 'lease expired'), updated_at = now()
+       WHERE status = 'SENDING' AND locked_until < now() AND attempts >= max_attempts`;
     return this.prisma.platform.$queryRaw<EmailOutbox[]>`
       WITH c AS (
         SELECT id FROM email_outbox
          WHERE (status = 'PENDING' AND run_at <= now())
-            OR (status = 'SENDING' AND locked_until < now())
+            OR (status = 'SENDING' AND locked_until < now() AND attempts < max_attempts)
          ORDER BY run_at, created_at
          FOR UPDATE SKIP LOCKED
          LIMIT 1
@@ -75,7 +91,7 @@ export class EmailDispatcher {
   async runOnce(): Promise<boolean> {
     const [m] = await this.claim();
     if (!m) return false;
-    const db = this.prisma.platform.emailOutbox;
+    const db = this.prisma.platform;
     try {
       this.transport ??= transportFromEnv();
       if (!m.textBody || !m.htmlBody) throw new Error('email body missing');
@@ -85,34 +101,26 @@ export class EmailDispatcher {
         text: m.textBody,
         html: m.htmlBody,
       });
-      // ส่งแล้วลบเนื้อหา (มีลิงก์/token) — เก็บแค่ข้อมูลตรวจย้อน
-      await db.update({
-        where: { id: m.id },
-        data: {
-          status: 'SENT',
-          sentAt: new Date(),
-          lockedUntil: null,
-          providerMessageId: r.messageId ?? null,
-          textBody: null,
-          htmlBody: null,
-          error: null,
-        },
-      });
+      // ส่งแล้วลบเนื้อหา (มีลิงก์/token) — เขียนเฉพาะถ้ายังเป็นรอบที่เราหยิบ (worker อื่นอาจหยิบซ้ำหลัง lease หมด)
+      await db.$executeRaw`
+        UPDATE email_outbox SET status = 'SENT', sent_at = now(), locked_until = NULL,
+               provider_message_id = ${r.messageId ?? null}, text_body = NULL, html_body = NULL,
+               error = NULL, updated_at = now()
+         WHERE id = ${m.id}::uuid AND status = 'SENDING' AND attempts = ${m.attempts}`;
     } catch (err) {
-      const retry = m.attempts < m.maxAttempts;
       const msg = String((err as Error).message ?? err).slice(0, 500);
       this.logger.warn(`email ${m.id} (${m.template}) failed attempt ${m.attempts}: ${msg}`);
-      await db.update({
-        where: { id: m.id },
-        data: retry
-          ? {
-              status: 'PENDING',
-              runAt: new Date(Date.now() + 2 ** m.attempts * 1000),
-              lockedUntil: null,
-              error: msg,
-            }
-          : { status: 'FAILED', lockedUntil: null, error: msg, textBody: null, htmlBody: null },
-      });
+      // เวลาลองใหม่คิดด้วยนาฬิกาของฐานข้อมูล (เทียบกับ now() ตอนหยิบ)
+      if (m.attempts < m.maxAttempts)
+        await db.$executeRaw`
+          UPDATE email_outbox SET status = 'PENDING', locked_until = NULL, error = ${msg},
+                 run_at = now() + (${2 ** m.attempts}::int * interval '1 second'), updated_at = now()
+           WHERE id = ${m.id}::uuid AND status = 'SENDING' AND attempts = ${m.attempts}`;
+      else
+        await db.$executeRaw`
+          UPDATE email_outbox SET status = 'FAILED', locked_until = NULL, error = ${msg},
+                 text_body = NULL, html_body = NULL, updated_at = now()
+           WHERE id = ${m.id}::uuid AND status = 'SENDING' AND attempts = ${m.attempts}`;
     }
     return true;
   }

@@ -36,6 +36,9 @@ test('ลืมรหัสผ่าน → ส่งลิงก์ → ตั�
   ).toBeVisible();
   await page.getByRole('button', { name: 'ส่งลิงก์' }).click();
   await expect(page.getByRole('alert')).toHaveText('กรอกอีเมล');
+  await page.getByLabel('อีเมล').fill('abc');
+  await page.getByRole('button', { name: 'ส่งลิงก์' }).click();
+  await expect(page.getByRole('alert')).toHaveText('รูปแบบอีเมลไม่ถูกต้อง');
   await page.getByLabel('อีเมล').fill(email);
   await page.getByRole('button', { name: 'ส่งลิงก์' }).click();
   await expect(page.getByRole('status')).toHaveText(

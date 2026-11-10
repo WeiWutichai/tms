@@ -1295,7 +1295,7 @@ model EmailOutbox {
   status            EmailStatus @default(PENDING)
   attempts          Int         @default(0)
   maxAttempts       Int         @default(5) @map("max_attempts")
-  runAt             DateTime    @default(now()) @map("run_at") @db.Timestamptz(6)
+  runAt             DateTime    @default(dbgenerated("now()")) @map("run_at") @db.Timestamptz(6) /// นาฬิกาฐานข้อมูล — claim เทียบกับ now() (เหมือน job)
   lockedUntil       DateTime?   @map("locked_until") @db.Timestamptz(6)
   sentAt            DateTime?   @map("sent_at") @db.Timestamptz(6)
   providerMessageId String?     @map("provider_message_id")

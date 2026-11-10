@@ -475,6 +475,7 @@ export const th = {
   'field.mime_mismatch': 'ชนิดไฟล์ไม่ตรงกับเนื้อไฟล์จริง',
   'field.file_too_large': 'ไฟล์ใหญ่เกินกำหนด (สูงสุด 10 MB)',
   'field.empty_file': 'ไฟล์ว่างเปล่า',
+  'field.isEmail': 'รูปแบบอีเมลไม่ถูกต้อง',
   'field.password_too_short': 'รหัสผ่านต้องยาวอย่างน้อย 12 ตัวอักษร',
   'field.password_too_long': 'รหัสผ่านยาวเกินไป',
   'field.password_breached': 'รหัสผ่านนี้เคยรั่วไหลในเหตุข้อมูลรั่ว เลือกรหัสอื่น',

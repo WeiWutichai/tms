@@ -19,13 +19,16 @@ export interface EmailTransport {
   send(m: EmailMessage): Promise<{ messageId?: string }>;
 }
 
+/** อีเมลใน log นอก dev: เหลือตัวแรก + โดเมน (PDPA — ไม่เก็บข้อมูลส่วนบุคคลใน log เกินจำเป็น) */
+export const maskEmail = (e: string) => e.replace(/^(.)[^@]*/, '$1***');
+
 export class LogTransport implements EmailTransport {
   readonly name = 'log';
   private readonly log = new Logger('Email');
   async send(m: EmailMessage) {
     // นอกเครื่อง dev ห้ามเขียนเนื้อหา (มี token/ลิงก์) ลง log
     if (isLocalEnv()) this.log.log(`to=${m.to} subject=${m.subject}\n${m.text}`);
-    else this.log.log(`to=${m.to} subject=${m.subject} (body hidden)`);
+    else this.log.log(`to=${maskEmail(m.to)} subject=${m.subject} (body hidden)`);
     return {};
   }
 }
@@ -47,7 +50,13 @@ export class SmtpTransport implements EmailTransport {
     url: string,
     private readonly from: string,
   ) {
-    this.t = createTransport(url);
+    // timeout รวมต้องสั้นกว่า lease ของ outbox (5 นาที) — กันส่งซ้ำ
+    this.t = createTransport({
+      url,
+      connectionTimeout: 20_000,
+      greetingTimeout: 20_000,
+      socketTimeout: 60_000,
+    });
   }
   async send(m: EmailMessage) {
     const r = await this.t.sendMail({ from: this.from, ...m });
