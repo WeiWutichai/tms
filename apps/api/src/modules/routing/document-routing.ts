@@ -32,14 +32,25 @@ export interface RoutingResult {
   source: 'override' | 'party' | 'tenant' | 'only';
 }
 
-const fail = (code: string, message: string) =>
-  new ProblemException('validation_failed', undefined, [{ field: 'companyId', code, message }]);
+const fail = (code: string, message: string, field = 'companyId') =>
+  new ProblemException('validation_failed', undefined, [{ field, code, message }]);
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/**
+ * ⚠ taxBranch บอกแค่ "สาขาที่จะพิมพ์บนใบกำกับ" — ไม่ได้รับรองว่าออกใบกำกับภาษีได้:
+ * ขั้นออกเอกสาร (ST5) ต้องตรวจ `company.vatRegistered` ก่อนพิมพ์ "ใบกำกับภาษี" (docs/01 §3.1)
+ */
 export async function resolveDocumentEntity(
   tx: Tx,
   tenantId: string,
   input: RoutingInput,
 ): Promise<RoutingResult> {
+  for (const [field, v] of Object.entries({
+    companyId: input.companyId,
+    partyCompanyId: input.partyCompanyId,
+    branchId: input.branchId,
+  }))
+    if (v && !UUID.test(v)) throw fail('invalid_id', 'must be a uuid', field);
   let companyId: string | null = null;
   let source: RoutingResult['source'] = 'only';
   if (input.companyId) {
@@ -76,11 +87,12 @@ export async function resolveDocumentEntity(
   const branch = input.branchId
     ? await tx.branch.findFirst({ where: { id: input.branchId, companyId: company.id } })
     : await tx.branch.findFirst({ where: { companyId: company.id, isDefaultIssuer: true } });
-  if (!branch) throw fail('branch_unavailable', 'branch not found for this legal entity');
+  if (!branch)
+    throw fail('branch_unavailable', 'branch not found for this legal entity', 'branchId');
   const taxBranch =
     branch.branchCode === HQ_CODE || !branch.hqPrintsForAll
       ? branch
       : await tx.branch.findFirst({ where: { companyId: company.id, branchCode: HQ_CODE } });
-  if (!taxBranch) throw fail('branch_unavailable', 'head office branch missing');
+  if (!taxBranch) throw fail('branch_unavailable', 'head office branch missing', 'branchId');
   return { company, branch, taxBranch, source };
 }

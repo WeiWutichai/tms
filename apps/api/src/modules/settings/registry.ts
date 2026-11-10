@@ -134,7 +134,7 @@ export function validateSetting(key: SettingKey, value: unknown): string | null 
     case 'bool':
       return typeof value === 'boolean' ? null : 'must be boolean';
     case 'ref':
-      return value === null || (typeof value === 'string' && /^cmp_[0-9a-f]{32}$/.test(value))
+      return value === null || (typeof value === 'string' && /^cmp_[0-9a-f]{32}$/i.test(value))
         ? null
         : 'must be a company id (cmp_…) or null';
     case 'int':
