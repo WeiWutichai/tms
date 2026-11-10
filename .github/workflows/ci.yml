@@ -3,9 +3,12 @@
 # ยังไม่มี: deploy staging/production (รอบัญชี cloud — PLAN §1.1 ข้อ 10), error tracking
 name: ci
 on:
+  # แก้เฉพาะเอกสาร/ต้นแบบ ไม่ต้องรัน CI (ประหยัดนาที CI) — ก่อน push ให้รัน `pnpm ci:local` ให้เขียวก่อนเสมอ
   pull_request:
+    paths-ignore: ['**/*.md', 'docs/**', 'spec/**', 'plan/**', 'research/**', 'design/prototype/**', 'design/compare/**']
   push:
     branches: [main]
+    paths-ignore: ['**/*.md', 'docs/**', 'spec/**', 'plan/**', 'research/**', 'design/prototype/**', 'design/compare/**']
 
 concurrency:
   group: ci-${{ github.ref }}

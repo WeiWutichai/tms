@@ -15,7 +15,8 @@
     "db:up": "docker compose -f infra/docker-compose.yml up -d",
     "db:down": "docker compose -f infra/docker-compose.yml down",
     "format": "prettier --write .",
-    "e2e": "pnpm --filter @tms/web e2e"
+    "e2e": "pnpm --filter @tms/web e2e",
+    "ci:local": "bash scripts/ci-local.sh"
   },
   "devDependencies": {
     "@types/node": "^20.17.0",

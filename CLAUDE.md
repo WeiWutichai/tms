@@ -55,6 +55,7 @@
 
 | ทำอะไร | คำสั่ง |
 |---|---|
+| ก่อน push / เปิด PR | `pnpm ci:local` — ขั้นตอนเดียวกับ GitHub CI (lint, typecheck, test, OpenAPI check+diff, build, E2E, audit) **ต้องเขียวก่อน push ทุกครั้ง** (PO สั่ง 10 พ.ย. 2569 — ประหยัด CI) |
 | ทั้ง repo | `pnpm build` · `pnpm typecheck` · `pnpm lint` · `pnpm test` (ต้องมี PostgreSQL จาก `pnpm db:up`) · `pnpm e2e` (Playwright: API 4510 + web 4520 + ฐาน `tms_e2e`) |
 | API (พอร์ต 4410) | `pnpm --filter @tms/api dev` · worker: `pnpm --filter @tms/api dev:worker` |
 | Web (พอร์ต 4420, proxy `/v1` → 4410) | `pnpm --filter @tms/web dev` — login ด้วยผู้ใช้เดโมใน `apps/api/prisma/seed.ts` |
