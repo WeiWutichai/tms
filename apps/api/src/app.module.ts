@@ -4,6 +4,8 @@ import { AuditService } from './audit/audit.service';
 import { PriceFieldInterceptor } from './common/price-fields';
 import { AuthController } from './auth/auth.controller';
 import { MfaController } from './auth/mfa.controller';
+import { PasswordController } from './auth/password.controller';
+import { PasswordPolicy } from './auth/password-policy';
 import { MfaService } from './auth/mfa.service';
 import { BranchesController } from './modules/branches/branches.controller';
 import { BranchesService } from './modules/branches/branches.service';
@@ -35,6 +37,7 @@ import { StateService } from './state/state.service';
   controllers: [
     AuthController,
     MfaController,
+    PasswordController,
     HealthController,
     MeController,
     CompaniesController,
@@ -50,6 +53,7 @@ import { StateService } from './state/state.service';
     PrismaService,
     AuthService,
     MfaService,
+    PasswordPolicy,
     DbService,
     StateService,
     JobQueue,

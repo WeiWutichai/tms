@@ -164,10 +164,14 @@ describe('องค์กร: นิติบุคคล สาขา เลข
     afterAll(() => prisma.onModuleDestroy?.());
 
     const inTenant = <T>(fn: (tx: any) => Promise<T>) =>
-      prisma.app.$transaction(async (tx) => {
-        await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
-        return fn(tx);
-      });
+      prisma.app.$transaction(
+        async (tx) => {
+          await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
+          return fn(tx);
+        },
+        // 50 transaction พร้อมกันเกิน pool (CPU×2+1) → ต่อคิวรอ connection ได้นานกว่าค่าเริ่ม 2 วินาที
+        { maxWait: 30_000, timeout: 30_000 },
+      );
 
     it('งวดและรูปแบบเลขตามปี พ.ศ. เวลาไทย', () => {
       // 31 ต.ค. 2569 20:00 UTC = 1 พ.ย. 03:00 เวลาไทย → งวด 2611

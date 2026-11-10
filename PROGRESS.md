@@ -66,7 +66,8 @@
 | T11 ประวัติ login | เสร็จ (ส่วน API) | `GET /v1/login-history?userId=` (users:read) สำเร็จ/ผิด/ล็อก + IP + อุปกรณ์; worker ลบที่เก่ากว่า 1 ปีวันละครั้ง (`src/auth/maintenance.ts`) · หน้าดูของ admin ไม่มีในต้นแบบ [OPEN] |
 | T13 Field permission ราคา | เสร็จ (โครงพื้นฐาน) | `@PriceField('sell'|'buy')` + `PriceFieldInterceptor` (global นอกสุด) ตัด field ราคาที่ serializer ตาม `prices.sell:read` / `prices.buy:read` รวม nested/array และ response ที่ replay จาก Idempotency-Key · principal ภายนอกไม่มี scope ราคาขาย · `src/common/price-fields.test.ts` + `test/price-fields.test.ts` · DTO ที่มีราคา (ST2+) ต้องติด decorator |
 | T20 bootstrap ค่าเริ่มต้นไทย | เสร็จ | `createTenantWithDefaults()` / `bootstrapTenant()` (`apps/api/src/modules/tenants/bootstrap.ts`): role ระบบ + ชุดเลข 11 ประเภท + ค่าภาษี/วางบิลเป็นแถวจริง (snapshot) ใน transaction เดียว; registry ให้ ST2 เพิ่มขั้น (ประเภทรถ, accessorial, reason) · `test/bootstrap.test.ts` · รูปแบบเอกสาร PDF มาพร้อม ST5 |
-| T02–T03, T06–T09, T18–T19, T21, T23–T24 | ยังไม่เริ่ม | ถัดไปที่เสนอ: T05 2FA (ปลด step-up ของ T12 และ T24) → T17 ตั้งค่าองค์กร → T16 routing  · T03/T07/T23 รอเลือกผู้ให้บริการอีเมล (ST0-T01) |
+| T02 นโยบายรหัสผ่าน | เสร็จ (ส่วน API) | ≥ 12 ตัว, HIBP k-anonymity (`HIBP_ENABLED=true` ใน production; เรียกไม่ได้ = ปล่อยผ่าน + log), ห้ามซ้ำ 5 ครั้งล่าสุด (`password_history`); `POST /v1/me/password` (รู้รหัสเดิม, session อื่นหลุด, audit) · `PasswordPolicy` ใช้ซ้ำใน T03/T07 · `test/password-policy.test.ts` · หน้าเปลี่ยนรหัสไม่มีในต้นแบบ (รอ T09 โปรไฟล์) |
+| T03, T06–T09, T18–T19, T21, T23–T24 | ยังไม่เริ่ม | ถัดไปที่เสนอ: T05 2FA (ปลด step-up ของ T12 และ T24) → T17 ตั้งค่าองค์กร → T16 routing  · T03/T07/T23 รอเลือกผู้ให้บริการอีเมล (ST0-T01) |
 
 ## สัปดาห์นี้ (สัปดาห์ 10–14 พ.ย. 2569)
 

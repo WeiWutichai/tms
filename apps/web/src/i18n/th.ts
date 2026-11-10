@@ -426,6 +426,12 @@ export const th = {
   'field.thai_tax_id': 'เลขประจำตัวผู้เสียภาษีต้องเป็นตัวเลข 13 หลักที่ถูกต้อง',
   'field.isNotEmpty': 'กรุณากรอกข้อมูล',
   'field.duplicate': 'มีอยู่แล้วในระบบ',
+  'field.maxLength': 'ข้อความยาวเกินกำหนด',
+  'field.password_too_short': 'รหัสผ่านต้องยาวอย่างน้อย 12 ตัวอักษร',
+  'field.password_too_long': 'รหัสผ่านยาวเกินไป',
+  'field.password_breached': 'รหัสผ่านนี้เคยรั่วไหลในเหตุข้อมูลรั่ว เลือกรหัสอื่น',
+  'field.password_reused': 'ใช้รหัสผ่านซ้ำกับ 5 ครั้งล่าสุดไม่ได้',
+  'field.password_incorrect': 'รหัสผ่านปัจจุบันไม่ถูกต้อง',
 } as const;
 
 export type MessageKey = keyof typeof th;
