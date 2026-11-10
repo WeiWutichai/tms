@@ -86,10 +86,11 @@ export function ForgotPasswordPage() {
 
 /** อ่าน token จาก fragment (#token=…) — fragment ไม่ถูกส่งไป server และไม่ติดไปกับ Referer */
 function tokenFromHash(): string {
-  const t = new URLSearchParams(window.location.hash.slice(1)).get('token') ?? '';
-  // อ่านแล้วล้างออกจาก URL/ประวัติทันที (ไม่ค้างแม้ลิงก์ผิดหรือรหัสไม่ผ่าน)
-  if (t) window.history.replaceState(null, '', window.location.pathname);
-  return t;
+  return new URLSearchParams(window.location.hash.slice(1)).get('token') ?? '';
+}
+/** ล้าง token ออกจาก URL/ประวัติ (ไม่ค้างแม้ลิงก์ผิดหรือรหัสไม่ผ่าน) — เรียกใน effect ไม่ใช่ตอน render (StrictMode เรียก initializer 2 ครั้ง) */
+function clearHash() {
+  if (window.location.hash) window.history.replaceState(null, '', window.location.pathname);
 }
 
 /**
@@ -112,6 +113,7 @@ export function ResetPasswordPage() {
     const onHash = () => {
       const t = tokenFromHash();
       if (!t) return;
+      clearHash();
       setToken(t);
       setInvalid(false);
       setDone(false);
@@ -119,6 +121,7 @@ export function ResetPasswordPage() {
       setPw('');
       setPw2('');
     };
+    clearHash();
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
