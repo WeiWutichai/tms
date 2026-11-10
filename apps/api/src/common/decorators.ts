@@ -13,5 +13,6 @@ export const TENANT_RESOURCE = 'tms:tenantResource';
 export const TenantResource = (kind: string) => SetMetadata(TENANT_RESOURCE, kind);
 
 export const REQUIRED_SCOPE = 'tms:requiredScope';
-/** scope แบบ `resource:verb` (docs/01 §5.1) */
-export const RequireScope = (scope: string) => SetMetadata(REQUIRED_SCOPE, scope);
+/** scope แบบ `resource:verb` (docs/01 §5.1) — ส่งหลายตัว = มีตัวใดตัวหนึ่งก็พอ */
+export const RequireScope = (...scopes: [string, ...string[]]) =>
+  SetMetadata(REQUIRED_SCOPE, scopes);

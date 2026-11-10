@@ -47,7 +47,7 @@ export class CompaniesController {
   }
 
   @Post()
-  @RequireScope('companies:write')
+  @RequireScope('settings:write')
   @ApiHeader({ name: 'Idempotency-Key', required: false })
   @ApiCreatedResponse({ type: CompanyDto })
   async create(
@@ -81,7 +81,7 @@ export class CompaniesController {
 
   @Patch(':id')
   @TenantResource('company')
-  @RequireScope('companies:write')
+  @RequireScope('settings:write')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
   @ApiOkResponse({ type: CompanyDto })
   async update(
@@ -99,7 +99,7 @@ export class CompaniesController {
   @Post(':id/deactivate')
   @HttpCode(200)
   @TenantResource('company')
-  @RequireScope('companies:write')
+  @RequireScope('settings:write')
   @ApiOkResponse({ type: CompanyDto })
   async deactivate(
     @Param('id') id: string,
@@ -120,7 +120,7 @@ export class CompaniesController {
   @Post(':id/activate')
   @HttpCode(200)
   @TenantResource('company')
-  @RequireScope('companies:write')
+  @RequireScope('settings:write')
   @ApiOkResponse({ type: CompanyDto })
   async activate(
     @Param('id') id: string,

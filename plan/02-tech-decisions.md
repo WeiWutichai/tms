@@ -43,6 +43,7 @@
 - [ทำแล้ว] claim: `sub`, `tid`, `scope`, `pt` (`user`|`dev` — production ปฏิเสธ `dev`), `tv` (tokenVersion; guard ตรวจกับฐานข้อมูลทุก request ของ `pt=user`)
 - [ตัดสินระหว่างทำ — ให้ PO/tech lead ทบทวน] เซ็น access token แบบ **HS256** ด้วย `AUTH_JWT_SECRET` ไปก่อน (มีผู้ตรวจ token แค่ API เอง) — เปลี่ยนเป็น RS256 + JWKS ใน ST7-T01 เมื่อมี client ภายนอก/ตัวตรวจอื่น
 - [ตัดสินระหว่างทำ] ตาราง `login_attempt`, `auth_code`, `refresh_token` เป็นตาราง platform (ใช้ก่อนรู้ tenant): `tms_app` ไม่มีสิทธิ์, เปิด RLS ซ้อนไว้ตามกติกา; ล็อกนับ 5 ครั้งผิด/15 นาที **แยกต่อบัญชีและต่อ IP** ตามตัวอักษรของ docs/04 A1 — ⚠ ออฟฟิศที่ใช้ IP เดียวกัน (NAT) อาจโดนล็อกพร้อมกัน ถ้าเกิดจริงให้ปรับเพดานต่อ IP (ค่าคงที่ใน `auth.service.ts`)
+- [ทำแล้ว ST1-T12, 10 พ.ย.] สิทธิ์ของผู้ใช้ใช้รูปแบบ scope `resource:verb` เดียวกับ API key/OAuth (แปลง `{module}.{view|manage}` ของ docs/04 เป็น `:read`/`:write` + verb ของแถวที่แยกการกระทำ เช่น `invoices:finalize`); สิทธิ์ราคาเป็น `prices.sell:*`/`prices.buy:read`; token ของผู้ใช้ = union ของ role ไม่มี `*`; ตารางอยู่ที่ `packages/domain/src/permissions.ts` ที่เดียว
 - [เสนอ] ทำ auth เองใน NestJS (ไม่ใช้ IdP ภายนอกในเฟส 0) แต่แยกเป็นโมดูลที่เปลี่ยนเป็น IdP ได้ (SSO เป็น P1)
 
 ### T-05 Multi-tenant และ RLS [ตัดสินแล้ว + รายละเอียดที่เสนอ]
@@ -148,3 +149,8 @@
 - OpenAPI ที่ generate เป็น **3.0** (ข้อจำกัดของ @nestjs/swagger 11) ไม่ใช่ 3.1 ตาม docs — ใช้งานได้กับ generator/diff ทุกตัว; แปลงเป็น 3.1 เมื่อเปิด Open API สาธารณะ (เฟสขาย 2, D-05)
 - ID ใน API = `<prefix>_<uuid 32 hex>` (เช่น `cmp_…`) — ยาวกว่าตัวอย่างใน docs แต่ opaque ตามข้อกำหนด
 - ตาราง `idempotency_key` คืน 409 `idempotency_in_progress` เมื่อคำขอเดิมยังทำงาน (docs ไม่ระบุกรณีนี้)
+
+### T-21 เลขเอกสาร [ทำแล้ว ST1-T15, 10 พ.ย. 2569 — ให้ทบทวน]
+- ค่า prefix/รีเซ็ตตั้งต่อประเภทเอกสาร (`document_series`, ตรงกับตารางในต้นแบบ) · ตัวนับจริงต่อ (ประเภท × สาขา × งวด) ใน `document_sequence`; เอกสารที่ไม่ใช่ภาษีนับรวมทั้ง tenant (`branch_id` null)
+- เอกสารภาษี (INV, TXINV, RCP, CN, DN, WHT) นับแยกต่อสาขาผู้ออก และ prefix ต้องมี `{BR}` กันเลขซ้ำข้ามสาขา — ค่าเริ่มต้น `INV-{BR}-` + `{YY}{MM}-` + 4 หลัก (รอคำตอบนักบัญชีข้อ 4 ถ้าต้องการชุดเดียวทั้งบริษัท)
+- ออกเลขด้วย `INSERT … ON CONFLICT DO NOTHING` + `UPDATE … RETURNING` ใน transaction ของผู้เรียก (ล็อกแถวจนจบ transaction); งวดคิดตามเวลาไทย; ปีตาม `tenant.year_style`

@@ -27,6 +27,35 @@ const FIXTURES: Record<string, (db: PrismaClient, tenantId: string, n: number) =
           })
         ).id,
       ),
+    branch: async (db, tenantId, n) => {
+      const c = await db.company.create({
+        data: { tenantId, legalName: `Co b${n}`, taxId: validTaxId(700 + n) },
+      });
+      const b = await db.branch.create({
+        data: {
+          tenantId,
+          companyId: c.id,
+          branchCode: '00000',
+          branchLabel: 'HQ',
+          address: {
+            line1: 'x',
+            subdistrict: 'x',
+            district: 'x',
+            province: 'x',
+            postcode: '10000',
+          },
+        },
+      });
+      return encodeId('branch', b.id);
+    },
+    sequence: async (db, tenantId) => {
+      const s = await db.documentSeries.upsert({
+        where: { tenantId_docType: { tenantId, docType: 'SO' } },
+        create: { tenantId, docType: 'SO', prefix: 'SO-' },
+        update: {},
+      });
+      return encodeId('sequence', s.id);
+    },
     job: async (db, tenantId) =>
       encodeId('job', (await db.job.create({ data: { tenantId, type: 'noop' } })).id),
   };

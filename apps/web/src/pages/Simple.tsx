@@ -5,6 +5,25 @@ import { useI18n } from '../i18n';
 import type { MessageKey } from '../i18n/th';
 import { PageHeader } from '../shell/Header';
 
+/** ไม่มีสิทธิ์ (is.noacc ของต้นแบบ — ข้อความทั่วไปแทนข้อความเฉพาะเมนูนักพัฒนา) */
+export function NoAccess({ role }: { role: string }) {
+  const { t } = useI18n();
+  const nav = useNavigate();
+  return (
+    <EmptyState
+      variant="page"
+      icon="shield-x"
+      title={t('noAccess.title')}
+      description={t('noAccess.desc', { role })}
+      action={
+        <Button variant="secondary" onClick={() => nav('/')}>
+          {t('noAccess.back')}
+        </Button>
+      }
+    />
+  );
+}
+
 /** หน้าที่ยังไม่ถึง stage — ใช้รูปแบบ is.empty ของต้นแบบ (การ์ดเต็ม padding 72) */
 export function NotReady({ page, stage }: { page: string; stage: string }) {
   const { t } = useI18n();

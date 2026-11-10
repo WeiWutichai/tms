@@ -21,7 +21,7 @@
 | Stage | สถานะ | เริ่ม | จบ | หมายเหตุ |
 |---|---|---|---|---|
 | ST0 เตรียมการและ freeze | **กำลังทำ** 16/19 เสร็จ · T01, T03 บางส่วน (รอเลือกผู้ให้บริการ/cloud) · T18 รอ PO | 10 พ.ย. | — | ดูตารางงาน ST0 ด้านล่าง |
-| ST1 Platform และองค์กร | **กำลังทำ** 2/24 · T01 login, T04 session เสร็จ | 10 พ.ย. | — | ตารางงาน ST1 ด้านล่าง |
+| ST1 Platform และองค์กร | **กำลังทำ** 6/24 · T01, T04 (บางส่วน), T12 (ยกเว้น step-up), T14, T15, T22 เสร็จ | 10 พ.ย. | — | ตารางงาน ST1 ด้านล่าง |
 | ST2–ST9 | ยังไม่เริ่ม | | | |
 
 ### งาน ST0 (เกณฑ์ตรวจรับใน `plan/01-phase0-backlog.md`)
@@ -55,7 +55,11 @@
 |---|---|---|
 | T01 Login อีเมล + รหัสผ่าน | เสร็จ | argon2id; ผิด 5 ครั้ง/15 นาที (ต่อบัญชีและต่อ IP) → ครั้งที่ 6 ได้ 429 + Retry-After; อีเมลไม่มี/รหัสผิดตอบเหมือนกัน; อีเมลหลายบริษัท → 409 ให้เลือก; หน้า login + เลือกบริษัทตามต้นแบบ (`apps/web/src/public/`) · `test/auth.test.ts` 12 ข้อ + E2E 3 ข้อ |
 | T04 Session | เสร็จ (บางส่วน) | Auth Code + PKCE, access 15 นาที, refresh 7 วัน httpOnly หมุนทุกครั้ง + ตรวจใช้ซ้ำ, idle 8 ชม., `tokenVersion` ตรวจทุก request · **ยังไม่ทำ:** จำอุปกรณ์ 30 วัน (ผูกกับ 2FA — ทำใน T05), banner "เพิ่มสิทธิ์ให้ refresh" (ทำพร้อม T12), ค่า idle ตั้งได้ (T17) |
-| T02–T03, T05–T24 | ยังไม่เริ่ม | ลำดับถัดไปที่เสนอ: T12 role/permission → T14 company/branch → T15 เลขเอกสาร → T22 audit → T03 อีเมล + ลืมรหัสผ่าน (ต้องเลือกผู้ให้บริการอีเมลใน ST0-T01 ก่อนส่งจริง) |
+| T12 Role/permission | เสร็จ (ยกเว้น step-up) | 9 role ระบบ = A3 + manager (D-12) ใน `packages/domain/src/permissions.ts`; scope `resource:verb` ใน token = union ของ role; guard รับหลาย scope แบบ any-of; `GET /v1/users`, `GET /v1/roles`; เมนู/หน้า/ปุ่มซ่อนตามสิทธิ์ + หน้า "ไม่มีสิทธิ์"; seed ผู้ใช้ 1 คน/role (`<role>@demo-a.test`) · test: ตาราง A3 ระดับ scope 28 แถว + ระดับ endpoint ด้วย login จริง (`test/roles.test.ts`) · **ยังไม่ทำ:** เปลี่ยน role (ต้อง step-up 2FA → T05), banner เพิ่มสิทธิ์ (T04) |
+| T14 นิติบุคคล + สาขา | เสร็จ (ยกเว้นโลโก้/ลายเซ็น) | `/v1/branches` CRUD (ไม่มีลบ), checksum เลขภาษี 422, รหัสสาขา 5 หลักไม่ซ้ำต่อนิติบุคคล, default 1 ต่อนิติบุคคล, "ใช้ออกใบกำกับ" = hq_prints_for_all ต่อสาขา (PO ตอบ); หน้า ตั้งค่า → นิติบุคคลและสาขา + drawer · โลโก้/ลายเซ็นรอ T08 ไฟล์แนบ |
+| T15 เลขเอกสาร | เสร็จ | ตาราง `document_series` (prefix/reset ต่อประเภท) + `document_sequence` (ตัวนับต่อสาขา×งวด, unique NULLS NOT DISTINCT); `issueNumber()` ล็อกแถวด้วย UPDATE…RETURNING · test 50 request พร้อมกันได้ 1–50 ไม่ซ้ำไม่ข้าม, rollback ไม่กินเลข; เอกสารภาษีต้องมี `{BR}`; หน้า ตั้งค่า → เลขที่เอกสาร |
+| T22 Audit log | เสร็จ (ส่วนแกน + API) | `AuditService` เขียนใน transaction เดียวกับการแก้ข้อมูล, diff เฉพาะ field ที่เปลี่ยน, ตัด field secret; trigger ปฏิเสธ UPDATE/DELETE ทุก role; `GET /v1/audit-logs` (Accounting เห็นเฉพาะ entity บัญชี) · **ยังไม่ทำ:** แท็บประวัติต่อ entity + หน้ารวมใน UI (ต้นแบบมีแท็บ "กิจกรรม" ใน drawer — ทำพร้อมหน้าเอกสาร ST2+), job ลบเมื่อครบ 5 ปี |
+| T02–T03, T05–T11, T13, T16–T21, T23–T24 | ยังไม่เริ่ม | ถัดไปที่เสนอ: T05 2FA (ปลด step-up ของ T12 และ T24) → T17 ตั้งค่าองค์กร → T16 routing → T13 field permission · T03/T07/T23 รอเลือกผู้ให้บริการอีเมล (ST0-T01) |
 
 ## สัปดาห์นี้ (สัปดาห์ 10–14 พ.ย. 2569)
 
@@ -83,6 +87,15 @@
 ยังไม่มี (เริ่มใช้เมื่อมี staging)
 
 ## บันทึกรายวัน
+
+### 10 พ.ย. 2569 (ดึก — ST1-T12/T14/T15/T22)
+
+- **ทำ:** role + permission ตาม A3 (`packages/domain/src/permissions.ts`, `apps/api/src/auth/system-roles.ts`), `/v1/users`, `/v1/roles`, `/v1/branches`, `/v1/document-sequences`, `/v1/audit-logs`; migration `0007_st1_org` (document_series, unique ตัวนับแบบ NULLS NOT DISTINCT, trigger audit append-only, REVOKE DELETE ตัวนับ)
+- **Web:** หน้า "ตั้งค่า" (`apps/web/src/features/settings/`) — นิติบุคคลและสาขา, เลขที่เอกสาร, ผู้ใช้และสิทธิ์ (ผู้ใช้ + ตารางสิทธิ์ A3 อ่านอย่างเดียว); หัวข้ออื่นในเฟส 0 แสดง "ยังไม่เปิดใช้" พร้อม stage; ภาพเทียบ `design/compare/st1-settings-*-1440.png`
+- **PO ตอบ 3 ข้อ:** สวิตช์ "ใช้ออกใบกำกับ" = สาขาออกเอง/สำนักงานใหญ่ออกแทน · ฟอร์มสาขาเป็น drawer · ตารางสิทธิ์ตาม A3 อ่านอย่างเดียว (บันทึกใน `spec/12` §3)
+- **ตัดสินเองตามลำดับเอกสาร (ให้ทบทวน):** ชุด role ใช้ 9 role ตาม D-12 ("ชุด docs + manager" ซึ่งมี Approver) — `plan/11` ข้อ 11 เขียนไว้ 8 role (ไม่มี approver) แก้ให้ตรงแล้ว · ชุดเลขตั้ง prefix/รีเซ็ตต่อประเภทเอกสาร (ตามตารางต้นแบบ) แต่นับแยกต่อสาขาสำหรับเอกสารภาษี (`plan/02` T-21)
+- **ตรวจ:** lint/typecheck/build ผ่าน · test 147 (api 92, domain 39, ui 11, web 5) · E2E 15/15
+- **ค้าง:** เปลี่ยน role + step-up (T05), banner เพิ่มสิทธิ์, โลโก้/ลายเซ็นนิติบุคคล (T08), UI ประวัติการแก้ไข, ปุ่ม "บันทึก" ลอยของต้นแบบ (หน้าตั้งค่าบันทึกทันทีต่อช่อง — [OPEN] ใน spec/12)
 
 ### 10 พ.ย. 2569 (ค่ำ — ST1-T01/T04 login + session)
 

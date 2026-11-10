@@ -15,6 +15,6 @@ export class RequestContextMiddleware implements NestMiddleware {
       ? 'en'
       : 'th';
     res.setHeader('X-Request-Id', requestId);
-    requestContext.run({ requestId, locale }, () => next());
+    requestContext.run({ requestId, locale, ip: req.ip }, () => next());
   }
 }

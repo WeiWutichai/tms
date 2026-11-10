@@ -40,6 +40,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         tenantName={me.data?.tenant.name ?? '…'}
         actor={me.data?.user?.name ?? me.data?.actorId ?? '…'}
         role={me.data?.user?.roles[0]}
+        scopes={me.data?.scopes ?? []}
         onLogout={() => {
           void logout().then(() => {
             queryClient.clear();

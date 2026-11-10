@@ -9,6 +9,11 @@ export const ID_PREFIX = {
   job: 'job',
   event: 'evt',
   tenant: 'ten',
+  user: 'usr',
+  role: 'rol',
+  branch: 'brn',
+  sequence: 'seq',
+  audit: 'aud',
 } as const;
 export type IdKind = keyof typeof ID_PREFIX;
 

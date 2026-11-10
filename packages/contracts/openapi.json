@@ -443,6 +443,506 @@
         ]
       }
     },
+    "/v1/roles": {
+      "get": {
+        "operationId": "Users_roles",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoleListDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/v1/users": {
+      "get": {
+        "operationId": "Users_users",
+        "parameters": [
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "ค่า nextCursor จากหน้าก่อน",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "updatedAfter",
+            "required": false,
+            "in": "query",
+            "description": "คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sort",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "updatedAt",
+              "type": "string",
+              "enum": [
+                "updatedAt",
+                "-updatedAt"
+              ]
+            }
+          },
+          {
+            "name": "fields",
+            "required": false,
+            "in": "query",
+            "description": "รายชื่อ field คั่นด้วย , เช่น id,legalName",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserPageDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/v1/branches": {
+      "post": {
+        "operationId": "Branches_create",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateBranchDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BranchDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "branches"
+        ]
+      },
+      "get": {
+        "operationId": "Branches_list",
+        "parameters": [
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "ค่า nextCursor จากหน้าก่อน",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "updatedAfter",
+            "required": false,
+            "in": "query",
+            "description": "คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sort",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "updatedAt",
+              "type": "string",
+              "enum": [
+                "updatedAt",
+                "-updatedAt"
+              ]
+            }
+          },
+          {
+            "name": "fields",
+            "required": false,
+            "in": "query",
+            "description": "รายชื่อ field คั่นด้วย , เช่น id,legalName",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "companyId",
+            "required": false,
+            "in": "query",
+            "description": "กรองตามนิติบุคคล (cmp_…)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BranchPageDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "branches"
+        ]
+      }
+    },
+    "/v1/branches/{id}": {
+      "get": {
+        "operationId": "Branches_get",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BranchDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "branches"
+        ]
+      },
+      "patch": {
+        "operationId": "Branches_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateBranchDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BranchDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "branches"
+        ]
+      }
+    },
+    "/v1/document-sequences": {
+      "get": {
+        "operationId": "Sequences_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SequenceListDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "document-sequences"
+        ]
+      }
+    },
+    "/v1/document-sequences/{id}": {
+      "get": {
+        "operationId": "Sequences_get",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SequenceDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "document-sequences"
+        ]
+      },
+      "patch": {
+        "operationId": "Sequences_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSequenceDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SequenceDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "document-sequences"
+        ]
+      }
+    },
+    "/v1/audit-logs": {
+      "get": {
+        "operationId": "Audit_list",
+        "parameters": [
+          {
+            "name": "entityType",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "example": "company",
+              "type": "string"
+            }
+          },
+          {
+            "name": "entityId",
+            "required": false,
+            "in": "query",
+            "description": "id ของ entity (ใช้คู่กับ entityType)",
+            "schema": {
+              "example": "cmp_…",
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "ค่า nextCursor จากหน้าก่อน",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditPageDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "audit"
+        ]
+      }
+    },
     "/v1/jobs/{id}": {
       "get": {
         "operationId": "Jobs_get",
@@ -812,6 +1312,540 @@
         },
         "required": [
           "reason"
+        ]
+      },
+      "RoleDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "rol_…"
+          },
+          "code": {
+            "type": "string",
+            "example": "planner"
+          },
+          "name": {
+            "type": "string",
+            "example": "ผู้วางแผน"
+          },
+          "nameEn": {
+            "type": "string",
+            "nullable": true
+          },
+          "isSystem": {
+            "type": "boolean",
+            "description": "role ระบบ (ตาราง A3) — แก้/ลบไม่ได้"
+          },
+          "permissions": {
+            "description": "scope แบบ resource:verb",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "name",
+          "nameEn",
+          "isSystem",
+          "permissions"
+        ]
+      },
+      "RoleListDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RoleDto"
+            }
+          }
+        },
+        "required": [
+          "data"
+        ]
+      },
+      "UserRoleRefDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "name"
+        ]
+      },
+      "UserDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "usr_…"
+          },
+          "name": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "invited",
+              "active",
+              "disabled"
+            ]
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UserRoleRefDto"
+            }
+          },
+          "twoFactorEnabled": {
+            "type": "boolean",
+            "description": "ตั้ง 2FA (TOTP) แล้ว"
+          },
+          "lastLoginAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "email",
+          "status",
+          "roles",
+          "twoFactorEnabled",
+          "lastLoginAt",
+          "updatedAt"
+        ]
+      },
+      "UserPageDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UserDto"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor",
+          "hasMore"
+        ]
+      },
+      "AddressDto": {
+        "type": "object",
+        "properties": {
+          "line1": {
+            "type": "string",
+            "example": "88/12 ถนนบางนา-ตราด กม. 12"
+          },
+          "line2": {
+            "type": "string"
+          },
+          "subdistrict": {
+            "type": "string",
+            "example": "บางพลีใหญ่"
+          },
+          "district": {
+            "type": "string",
+            "example": "บางพลี"
+          },
+          "province": {
+            "type": "string",
+            "example": "สมุทรปราการ"
+          },
+          "postcode": {
+            "type": "string",
+            "example": "10540"
+          }
+        },
+        "required": [
+          "line1",
+          "subdistrict",
+          "district",
+          "province",
+          "postcode"
+        ]
+      },
+      "CreateBranchDto": {
+        "type": "object",
+        "properties": {
+          "companyId": {
+            "type": "string",
+            "example": "cmp_…",
+            "description": "นิติบุคคลเจ้าของสาขา"
+          },
+          "branchCode": {
+            "type": "string",
+            "example": "00000",
+            "description": "รหัสสาขา 5 หลัก (00000 = สำนักงานใหญ่)"
+          },
+          "branchLabel": {
+            "type": "string",
+            "example": "สำนักงานใหญ่",
+            "description": "ข้อความที่พิมพ์บนเอกสาร — ไม่ส่ง = \"สำนักงานใหญ่\" / \"สาขาที่ 00001\""
+          },
+          "address": {
+            "$ref": "#/components/schemas/AddressDto"
+          },
+          "issuesTaxInvoice": {
+            "type": "boolean",
+            "default": true,
+            "description": "สาขานี้ออกใบกำกับภาษีในนามตัวเอง — false = สำนักงานใหญ่ออกแทน (hq_prints_for_all ต่อสาขา)"
+          },
+          "isDefaultIssuer": {
+            "type": "boolean",
+            "default": false,
+            "description": "สาขาที่ใช้ออกเอกสารถ้าไม่ระบุ (1 ต่อนิติบุคคล)"
+          }
+        },
+        "required": [
+          "companyId",
+          "branchCode",
+          "address"
+        ]
+      },
+      "BranchDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "brn_…"
+          },
+          "companyId": {
+            "type": "string",
+            "example": "cmp_…"
+          },
+          "branchCode": {
+            "type": "string",
+            "example": "00000"
+          },
+          "branchLabel": {
+            "type": "string"
+          },
+          "address": {
+            "$ref": "#/components/schemas/AddressDto"
+          },
+          "issuesTaxInvoice": {
+            "type": "boolean",
+            "description": "ออกใบกำกับภาษีในนามสาขานี้ (สำนักงานใหญ่ = true เสมอ)"
+          },
+          "isDefaultIssuer": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "companyId",
+          "branchCode",
+          "branchLabel",
+          "address",
+          "issuesTaxInvoice",
+          "isDefaultIssuer",
+          "version",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "BranchPageDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BranchDto"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor",
+          "hasMore"
+        ]
+      },
+      "UpdateBranchDto": {
+        "type": "object",
+        "properties": {
+          "branchLabel": {
+            "type": "string"
+          },
+          "address": {
+            "$ref": "#/components/schemas/AddressDto"
+          },
+          "issuesTaxInvoice": {
+            "type": "boolean"
+          },
+          "isDefaultIssuer": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SequenceDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "seq_…"
+          },
+          "docType": {
+            "type": "string",
+            "enum": [
+              "SO",
+              "TRIP",
+              "DO",
+              "BN",
+              "INV",
+              "TXINV",
+              "RCP",
+              "CN",
+              "DN",
+              "STL",
+              "WHT",
+              "WO",
+              "INC"
+            ]
+          },
+          "prefix": {
+            "type": "string",
+            "example": "INV-{BR}-"
+          },
+          "resetPolicy": {
+            "type": "string",
+            "enum": [
+              "monthly",
+              "yearly",
+              "never"
+            ]
+          },
+          "padding": {
+            "type": "number"
+          },
+          "perBranch": {
+            "type": "boolean",
+            "description": "นับแยกต่อสาขาผู้ออก (เอกสารภาษี)"
+          },
+          "pattern": {
+            "type": "string",
+            "example": "{YYMM}-{NNNN}"
+          },
+          "nextNumber": {
+            "type": "string",
+            "nullable": true,
+            "example": "INV-00000-2611-0042",
+            "description": "เลขถัดไปของงวดนี้ (ไม่จอง) — null เมื่อยังไม่มีสาขาออกเอกสาร"
+          },
+          "version": {
+            "type": "number"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "docType",
+          "prefix",
+          "resetPolicy",
+          "padding",
+          "perBranch",
+          "pattern",
+          "nextNumber",
+          "version",
+          "updatedAt"
+        ]
+      },
+      "SequenceListDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SequenceDto"
+            }
+          }
+        },
+        "required": [
+          "data"
+        ]
+      },
+      "UpdateSequenceDto": {
+        "type": "object",
+        "properties": {
+          "prefix": {
+            "type": "string",
+            "example": "INV-{BR}-",
+            "description": "ตัวอักษร/ตัวเลข - _ / . และ {BR} (รหัสสาขา) ไม่เกิน 20 ตัว — เอกสารภาษีต้องมี {BR}"
+          },
+          "resetPolicy": {
+            "type": "string",
+            "enum": [
+              "monthly",
+              "yearly",
+              "never"
+            ],
+            "description": "มีผลกับงวดถัดไปที่ยังไม่เริ่ม"
+          }
+        }
+      },
+      "AuditActorDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ]
+      },
+      "AuditEntryDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "aud_…"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "actor": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AuditActorDto"
+              }
+            ]
+          },
+          "actAs": {
+            "type": "string",
+            "nullable": true,
+            "description": "ผู้ใช้ Innovera ที่ impersonate (claim act)"
+          },
+          "action": {
+            "type": "string",
+            "example": "company.updated"
+          },
+          "entityType": {
+            "type": "string"
+          },
+          "entityId": {
+            "type": "string",
+            "nullable": true
+          },
+          "before": {
+            "type": "object",
+            "nullable": true,
+            "description": "ค่าก่อนแก้ (เฉพาะ field ที่เปลี่ยน)"
+          },
+          "after": {
+            "type": "object",
+            "nullable": true
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "ip": {
+            "type": "string",
+            "nullable": true
+          },
+          "requestId": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "at",
+          "actor",
+          "actAs",
+          "action",
+          "entityType",
+          "entityId",
+          "before",
+          "after",
+          "reason",
+          "ip",
+          "requestId"
+        ]
+      },
+      "AuditPageDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AuditEntryDto"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor",
+          "hasMore"
         ]
       },
       "JobDto": {

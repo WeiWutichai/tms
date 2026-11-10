@@ -16,7 +16,7 @@
 | 8 | ความสามารถ KRS | ทำตาม docs/01 A.1–A.2: ไม่มี void/payment status/getMasters → `capabilities()` ของ KrsAdapter ไม่ประกาศ 3 อย่างนี้; framework รองรับ + DemoProvider | docs/01 Appendix A | ST7, ST8 | ★ คำตอบทีม KRS (`plan/08`) |
 | 9 | mapping ไม่ครบตอน finalize | ไม่บล็อกการออกเอกสาร (standalone-first); outbox เป็น `FAILED_FINAL` class `VALIDATION` + แสดงในคิวข้อผิดพลาด | docs/01 §7.4 | ST5, ST7 | — |
 | 10 | ขอบเขต Open API | เฟส 0 = endpoint ที่ UI + connector ใช้ + webhook; หน้า key/docs/sandbox/SDK สาธารณะ = เฟสขาย 2 | D-05 | ST7 | — |
-| 11 | ชุด role | 8 role ภายใน (owner, admin, manager, planner, dispatcher, invoicer, accounting, viewer) + principal รถร่วมผ่าน magic link; driver/customer portal ไม่มีในเฟส 0 | D-12 | ST1 | — |
+| 11 | ชุด role | 9 role ภายใน (owner, admin, manager, planner, dispatcher, invoicer, accounting, approver, viewer — แก้ 10 พ.ย. 2569 ให้ตรง D-12 "ชุด docs + manager" ซึ่งมี approver) + principal รถร่วมผ่าน magic link; driver/customer portal ไม่มีในเฟส 0 | D-12 | ST1 | — |
 | 12 | Admin portal | tenant list, connector status, health, impersonate (มีเหตุผล + audit) — ไม่มี allowlist | docs/02 §5, §7 | ST1 | — |
 | 13 | ส่งลิงก์รถร่วม / เปลี่ยน carrier | ปุ่มแชร์ลิงก์ + SMS (D-13); เปลี่ยน carrier = ยกเลิกการจ้างบน trip เดิม (ไม่มี parent/child trip) | D-13 + docs/04 D3 | ST3 | — |
 | 14 | เงินเบิก / ค่าเที่ยวคนขับ | บรรทัดหัก "เงินเบิกล่วงหน้า" กรอกมือใน settlement; ค่าเที่ยวคนขับไม่มีในเฟส 0 (รถร่วมเท่านั้น) | docs/04 F6/F7 P-level | ST6 | — |
