@@ -7,6 +7,7 @@
  */
 import { PrismaClient } from '@prisma/client';
 import { signDevToken } from '../src/auth/auth.guard';
+import { hashPassword } from '../src/auth/password';
 
 export const DEMO_A = '00000000-0000-4000-8000-00000000000a';
 export const DEMO_B = '00000000-0000-4000-8000-00000000000b';
@@ -45,6 +46,26 @@ const COMPANIES = [
   },
 ];
 
+/**
+ * ผู้ใช้เดโม (ST1-T01) — ใช้ login ในเครื่อง dev/e2e เท่านั้น; production ไม่รัน seed นี้
+ * role `owner` ชั่วคราวได้ทุกสิทธิ์ ('*') จนกว่า ST1-T12 จะ seed ตาราง A3 ครบ
+ */
+export const DEMO_PASSWORD = 'demo-password-2569';
+const USERS = [
+  {
+    id: '00000000-0000-4000-8000-0000000e0a01',
+    tenantId: DEMO_A,
+    email: 'owner@demo-a.test',
+    name: 'เจ้าของ ตัวอย่าง',
+  },
+  {
+    id: '00000000-0000-4000-8000-0000000e0b01',
+    tenantId: DEMO_B,
+    email: 'owner@demo-b.test',
+    name: 'เจ้าของ ตัวอย่างบี',
+  },
+];
+
 async function main() {
   const db = new PrismaClient({ datasources: { db: { url: process.env.PLATFORM_DATABASE_URL } } });
   for (const t of [
@@ -60,6 +81,31 @@ async function main() {
   for (const c of COMPANIES) {
     const { id, ...data } = c;
     await db.company.upsert({ where: { id }, create: c, update: data });
+  }
+  const passwordHash = await hashPassword(DEMO_PASSWORD);
+  for (const u of USERS) {
+    const role = await db.role.upsert({
+      where: { tenantId_code: { tenantId: u.tenantId, code: 'owner' } },
+      create: {
+        tenantId: u.tenantId,
+        code: 'owner',
+        nameTh: 'เจ้าของ',
+        nameEn: 'Owner',
+        permissions: ['*'],
+        isSystem: true,
+      },
+      update: {},
+    });
+    await db.appUser.upsert({
+      where: { id: u.id },
+      create: { ...u, status: 'ACTIVE', passwordHash },
+      update: { email: u.email, name: u.name, status: 'ACTIVE', passwordHash },
+    });
+    const link = await db.userRole.findFirst({
+      where: { tenantId: u.tenantId, userId: u.id, roleId: role.id },
+    });
+    if (!link)
+      await db.userRole.create({ data: { tenantId: u.tenantId, userId: u.id, roleId: role.id } });
   }
   const counts = {
     tenants: await db.tenant.count({ where: { id: { in: [DEMO_A, DEMO_B] } } }),

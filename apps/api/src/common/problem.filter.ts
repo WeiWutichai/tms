@@ -72,6 +72,8 @@ export class ProblemFilter implements ExceptionFilter {
       ...(errors?.length ? { errors } : {}),
       ...(extra ?? {}),
     };
+    if (typeof extra?.retryAfter === 'number')
+      res.setHeader('Retry-After', String(extra.retryAfter));
     res.status(def.status).type('application/problem+json').send(JSON.stringify(body));
   }
 }

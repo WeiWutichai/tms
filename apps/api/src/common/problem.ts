@@ -34,6 +34,22 @@ export const PROBLEMS = {
     en: 'Idempotency-Key reused with a different request body',
   },
   rate_limited: { status: 429, th: 'เรียกถี่เกินไป', en: 'Too many requests' },
+  invalid_credentials: {
+    status: 401,
+    th: 'อีเมลหรือรหัสผ่านไม่ถูกต้อง',
+    en: 'Invalid email or password',
+  },
+  account_locked: {
+    status: 429,
+    th: 'ใส่รหัสผ่านผิดหลายครั้ง ลองใหม่อีกครั้งใน 15 นาที',
+    en: 'Too many failed attempts, try again in 15 minutes',
+  },
+  tenant_selection_required: {
+    status: 409,
+    th: 'อีเมลนี้เป็นสมาชิกหลายบริษัท เลือกบริษัทที่ต้องการเข้า',
+    en: 'This account belongs to several organisations; choose one',
+  },
+  invalid_grant: { status: 400, th: 'รหัสยืนยันหมดอายุหรือไม่ถูกต้อง', en: 'Invalid grant' },
   internal_error: { status: 500, th: 'ระบบขัดข้อง', en: 'Internal error' },
 } as const;
 

@@ -1,0 +1,240 @@
+/* หน้า public (login, ลืมรหัสผ่าน) — ค่าจาก design/prototype/TMS Signup.dc.html (is.auth)
+   ตัดเมนูการตลาด/ปุ่มทดลองใช้/คอลัมน์ลิงก์ footer ตามคำตอบ PO 10 พ.ย. 2569 (spec/12 §3) */
+.pub {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: #f4f5f2;
+  color: #101418;
+  line-height: 1.6;
+  --px: 32px;
+}
+@media (max-width: 759px) {
+  .pub {
+    --px: 20px;
+  }
+}
+.pub a {
+  color: #2257c4;
+  text-decoration: none;
+}
+.pub a:hover {
+  color: #1b479f;
+  text-decoration: underline;
+}
+.pub input:focus-visible,
+.pub button:focus-visible {
+  outline: 2px solid #2257c4;
+  outline-offset: 1px;
+}
+
+.pub-hd {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  height: 64px;
+  background: #ffffff;
+  border-bottom: 1px solid #e4e6e0;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 0 var(--px);
+}
+.pub-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: #101418;
+  flex-shrink: 0;
+}
+.pub-logo__mark {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: #13213f;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.pub-logo__txt {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+  text-align: left;
+}
+.pub-logo__name {
+  font-weight: 700;
+  font-size: 16px;
+}
+.pub-logo__sub {
+  font-size: 12px;
+  color: #59606b;
+  white-space: nowrap;
+}
+@media (max-width: 1099px) {
+  .pub-logo__sub {
+    display: none;
+  }
+}
+
+.pub-main {
+  flex: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 56px 24px;
+}
+.pub-card {
+  width: 440px;
+  max-width: 100%;
+  background: #ffffff;
+  border: 1px solid #cdd1c8;
+  border-radius: 16px;
+  box-shadow:
+    0 1px 2px rgba(16, 20, 24, 0.06),
+    0 8px 24px rgba(16, 20, 24, 0.06);
+  padding: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.pub-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.pub-head h1 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+  color: #13213f;
+}
+.pub-head span {
+  color: #3b424c;
+}
+.pub-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.pub-field__l {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: #3b424c;
+}
+.pub-field__l a {
+  font-weight: 600;
+}
+.pub-input {
+  height: 44px;
+  padding: 0 12px;
+  border: 1px solid #cdd1c8;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.pub-err {
+  font-size: 13px;
+  color: #b3322a;
+  font-weight: 500;
+}
+.pub-btn {
+  height: 44px;
+  border: 1px solid #2257c4;
+  border-radius: 999px;
+  background: #2257c4;
+  color: #ffffff;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.pub-btn:hover {
+  background: #1b479f;
+}
+.pub-btn:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+.pub-link {
+  font-weight: 600;
+}
+
+/* au.pick — เลือกบริษัท */
+.pub-cos {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #e4e6e0;
+  border-radius: 12px;
+  overflow: hidden;
+}
+.pub-co {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 0;
+  border-bottom: 1px solid #e4e6e0;
+  background: #ffffff;
+  color: #101418;
+  text-align: left;
+  font-family: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+.pub-co__ini {
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+  background: #eef0ec;
+  color: #3b424c;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.pub-co__txt {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.pub-co__n {
+  font-weight: 600;
+}
+.pub-co__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.pub-ft {
+  margin-top: auto;
+  border-top: 1px solid #e4e6e0;
+  background: #ffffff;
+}
+.pub-ft__row {
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 16px var(--px) 24px;
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  color: #59606b;
+  font-size: 13px;
+}

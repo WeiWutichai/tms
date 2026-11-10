@@ -1,13 +1,14 @@
 import { createTmsClient, type Problem } from '@tms/contracts';
 import { QueryClient } from '@tanstack/react-query';
+import { dropAccessToken, getAccessToken } from './auth/session';
 
 /**
  * client เดียวที่ UI ใช้ — generate จาก OpenAPI ของ /v1 (API-first, ST0-T09)
- * ⚠ ST0: token มาจาก VITE_DEV_TOKEN (สร้างด้วย `pnpm --filter @tms/web dev:token`) — ST1 แทนด้วย login จริง
+ * token มาจาก session (login → Auth Code + PKCE — ST1-T01/T04)
  */
 export const api = createTmsClient({
   baseUrl: '',
-  getToken: () => import.meta.env.VITE_DEV_TOKEN ?? null,
+  getToken: getAccessToken,
   locale: () => (document.documentElement.lang === 'en' ? 'en' : 'th'),
 });
 
@@ -29,6 +30,7 @@ export async function unwrap<T>(
       title: '',
       type: '',
     }) as Problem;
+    if (r.response.status === 401) dropAccessToken();
     throw new ApiError(problem);
   }
   return r.data as T;

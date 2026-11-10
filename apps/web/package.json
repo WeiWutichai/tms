@@ -10,7 +10,6 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "lint": "node scripts/lint-i18n.mjs && prettier --check src",
-    "dev:token": "node scripts/dev-token.mjs",
     "i18n:build": "node scripts/build-i18n.mjs",
     "e2e": "node e2e/prepare.mjs && playwright test"
   },

@@ -1,6 +1,91 @@
 {
   "openapi": "3.0.0",
   "paths": {
+    "/v1/auth/login": {
+      "post": {
+        "operationId": "Auth_login",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginResultDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "invalid_credentials"
+          },
+          "409": {
+            "description": "tenant_selection_required — มี `tenants: [{id, name, status}]`"
+          },
+          "429": {
+            "description": "account_locked — มี header Retry-After"
+          }
+        },
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/v1/oauth/token": {
+      "post": {
+        "operationId": "Auth_token",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenRequestDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ตั้ง refresh token ใน cookie httpOnly `tms_rt`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenDto"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/v1/oauth/revoke": {
+      "post": {
+        "operationId": "Auth_revoke",
+        "parameters": [],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "auth"
+        ]
+      }
+    },
     "/v1/health": {
       "get": {
         "operationId": "Health_health",
@@ -411,6 +496,95 @@
       }
     },
     "schemas": {
+      "LoginDto": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "example": "owner@example.co.th"
+          },
+          "password": {
+            "type": "string",
+            "format": "password"
+          },
+          "codeChallenge": {
+            "type": "string",
+            "description": "PKCE S256: BASE64URL(SHA256(code_verifier))"
+          },
+          "tenantId": {
+            "type": "string",
+            "example": "ten_…",
+            "description": "ระบุเมื่อ API ตอบ tenant_selection_required (อีเมลเป็นสมาชิกหลายบริษัท)"
+          }
+        },
+        "required": [
+          "email",
+          "password",
+          "codeChallenge"
+        ]
+      },
+      "LoginResultDto": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "authorization code ใช้ครั้งเดียว อายุ 60 วินาที"
+          },
+          "expiresIn": {
+            "type": "number",
+            "example": 60
+          }
+        },
+        "required": [
+          "code",
+          "expiresIn"
+        ]
+      },
+      "TokenRequestDto": {
+        "type": "object",
+        "properties": {
+          "grantType": {
+            "type": "string",
+            "enum": [
+              "authorization_code",
+              "refresh_token"
+            ]
+          },
+          "code": {
+            "type": "string",
+            "description": "grantType=authorization_code"
+          },
+          "codeVerifier": {
+            "type": "string",
+            "description": "grantType=authorization_code (PKCE)"
+          }
+        },
+        "required": [
+          "grantType"
+        ]
+      },
+      "TokenDto": {
+        "type": "object",
+        "properties": {
+          "accessToken": {
+            "type": "string"
+          },
+          "tokenType": {
+            "type": "string",
+            "example": "Bearer"
+          },
+          "expiresIn": {
+            "type": "number",
+            "example": 900,
+            "description": "วินาที"
+          }
+        },
+        "required": [
+          "accessToken",
+          "tokenType",
+          "expiresIn"
+        ]
+      },
       "MeTenantDto": {
         "type": "object",
         "properties": {
@@ -446,6 +620,29 @@
           "yearStyle"
         ]
       },
+      "MeUserDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "roles": {
+            "description": "ชื่อ role (ไทย) ที่ผู้ใช้ถือ",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "name",
+          "email",
+          "roles"
+        ]
+      },
       "MeDto": {
         "type": "object",
         "properties": {
@@ -461,12 +658,23 @@
           },
           "tenant": {
             "$ref": "#/components/schemas/MeTenantDto"
+          },
+          "user": {
+            "nullable": true,
+            "description": "ผู้ใช้ที่ login (null เมื่อเรียกด้วย API key/token ที่ไม่ใช่ผู้ใช้)",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MeUserDto"
+              }
+            ]
           }
         },
         "required": [
           "actorId",
           "scopes",
-          "tenant"
+          "tenant",
+          "user"
         ]
       },
       "CreateCompanyDto": {

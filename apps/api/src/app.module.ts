@@ -1,6 +1,8 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { AuthController } from './auth/auth.controller';
 import { AuthGuard } from './auth/auth.guard';
+import { AuthService } from './auth/auth.service';
 import { ProblemFilter } from './common/problem.filter';
 import { DbService } from './db/db.service';
 import { PrismaService } from './db/prisma.service';
@@ -17,9 +19,16 @@ import { PdfRenderer } from './pdf/pdf-renderer';
 import { StateService } from './state/state.service';
 
 @Module({
-  controllers: [HealthController, MeController, CompaniesController, JobsController],
+  controllers: [
+    AuthController,
+    HealthController,
+    MeController,
+    CompaniesController,
+    JobsController,
+  ],
   providers: [
     PrismaService,
+    AuthService,
     DbService,
     StateService,
     JobQueue,
