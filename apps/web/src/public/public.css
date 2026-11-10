@@ -238,3 +238,24 @@
   color: #59606b;
   font-size: 13px;
 }
+
+/* au.sent — กล่องแจ้งส่งลิงก์แล้ว (TMS Signup: padding 14, radius 10, #E7F3EC / #17733F) */
+.pub-ok {
+  padding: 14px;
+  border-radius: 10px;
+  background: #e7f3ec;
+  color: #17733f;
+  display: flex;
+  gap: 8px;
+}
+.pub-btn--link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+.pub a.pub-btn--link,
+.pub a.pub-btn--link:hover {
+  color: #ffffff;
+  text-decoration: none;
+}

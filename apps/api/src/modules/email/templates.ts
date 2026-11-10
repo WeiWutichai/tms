@@ -1,0 +1,77 @@
+/**
+ * template อีเมล transactional (ST1-T03) — ไทย/อังกฤษ (D-11: จีนไม่บังคับ → ใช้อังกฤษ)
+ * ทุกค่าที่แทนลงใน HTML ผ่าน escape เสมอ · ข้อความยึด design/prototype/TMS Signup (au.forgot)
+ */
+export type EmailLocale = 'th' | 'en';
+export interface RenderedEmail {
+  subject: string;
+  text: string;
+  html: string;
+}
+
+const esc = (s: string) =>
+  s.replace(
+    /[&<>"']/g,
+    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!,
+  );
+
+/** โครง HTML เรียบ ๆ ที่ client อีเมลส่วนใหญ่แสดงได้ (inline style, ไม่มีรูป/สคริปต์) */
+function layout(
+  lang: EmailLocale,
+  title: string,
+  paras: string[],
+  cta?: { href: string; label: string },
+) {
+  const body = paras.map((p) => `<p style="margin:0 0 12px">${esc(p)}</p>`).join('');
+  const button = cta
+    ? `<p style="margin:20px 0"><a href="${esc(cta.href)}" style="display:inline-block;padding:12px 22px;border-radius:999px;background:#2257C4;color:#FFFFFF;font-weight:600;text-decoration:none">${esc(cta.label)}</a></p><p style="margin:0 0 12px;font-size:12.5px;color:#59606B;word-break:break-all">${esc(cta.href)}</p>`
+    : '';
+  return `<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><title>${esc(title)}</title></head><body style="margin:0;padding:24px;background:#F4F5F2;font-family:Sarabun,'Noto Sans Thai',Arial,sans-serif;color:#101418;font-size:15px;line-height:1.6"><div style="max-width:520px;margin:0 auto;background:#FFFFFF;border:1px solid #CDD1C8;border-radius:16px;padding:28px"><h1 style="margin:0 0 12px;font-size:20px;font-weight:600;color:#13213F">${esc(title)}</h1>${body}${button}</div></body></html>`;
+}
+
+export interface TemplateVars {
+  password_reset: { link: string; minutes: number };
+}
+export type TemplateName = keyof TemplateVars;
+
+type Renderer<K extends TemplateName> = (v: TemplateVars[K]) => RenderedEmail;
+
+const TEMPLATES: { [K in TemplateName]: Record<EmailLocale, Renderer<K>> } = {
+  password_reset: {
+    th: ({ link, minutes }) => {
+      const title = 'ตั้งรหัสผ่านใหม่';
+      const paras = [
+        'มีคำขอตั้งรหัสผ่านใหม่สำหรับบัญชีที่ใช้อีเมลนี้',
+        `กดปุ่มด้านล่างเพื่อตั้งรหัสผ่านใหม่ ลิงก์ใช้ได้ ${minutes} นาทีและใช้ได้ครั้งเดียว`,
+        'ถ้าคุณไม่ได้ขอ ไม่ต้องทำอะไร รหัสผ่านเดิมยังใช้ได้ตามปกติ',
+      ];
+      return {
+        subject: 'ตั้งรหัสผ่านใหม่ — TMS',
+        text: `${title}\n\n${paras.join('\n\n')}\n\n${link}\n`,
+        html: layout('th', title, paras, { href: link, label: title }),
+      };
+    },
+    en: ({ link, minutes }) => {
+      const title = 'Reset your password';
+      const paras = [
+        'We received a request to reset the password for the account using this email.',
+        `Use the button below to set a new password. The link works once and expires in ${minutes} minutes.`,
+        'If you did not ask for this, ignore this email — your current password still works.',
+      ];
+      return {
+        subject: 'Reset your password — TMS',
+        text: `${title}\n\n${paras.join('\n\n')}\n\n${link}\n`,
+        html: layout('en', title, paras, { href: link, label: title }),
+      };
+    },
+  },
+};
+
+export function renderEmail<K extends TemplateName>(
+  template: K,
+  locale: string,
+  vars: TemplateVars[K],
+): RenderedEmail {
+  const lang: EmailLocale = locale === 'th' ? 'th' : 'en';
+  return (TEMPLATES[template][lang] as Renderer<K>)(vars);
+}

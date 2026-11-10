@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import type { AppUser } from '@prisma/client';
+import type { AppUser, Prisma } from '@prisma/client';
 import { createHash } from 'node:crypto';
 import { ProblemException } from '../common/problem';
 import { PrismaService } from '../db/prisma.service';
@@ -120,42 +120,55 @@ export class PasswordPolicy {
     meta: { ip?: string; requestId?: string } = {},
   ) {
     await this.validate(password, user);
-    const db = this.prisma.platform;
     const hash = await hashPassword(password);
-    await db.$transaction(async (tx) => {
-      const r = await tx.appUser.updateMany({
-        where: { id: user.id, passwordHash: user.passwordHash },
-        data: { passwordHash: hash, tokenVersion: { increment: 1 } },
-      });
-      if (r.count !== 1) throw new ProblemException('precondition_failed');
-      if (user.passwordHash)
-        await tx.passwordHistory.create({
-          data: { tenantId: user.tenantId, userId: user.id, passwordHash: user.passwordHash },
-        });
-      await tx.auditLog.create({
-        data: {
-          tenantId: user.tenantId,
-          actorId: user.id,
-          action: 'security.password_changed',
-          entityType: 'user',
-          entityId: user.id,
-          ip: meta.ip ?? null,
-          requestId: meta.requestId ?? null,
-        },
-      });
-      await tx.refreshToken.updateMany({
-        where: { tenantId: user.tenantId, userId: user.id, revokedAt: null },
-        data: { revokedAt: new Date() },
-      });
-      // เก็บแค่ 5 ครั้งล่าสุด
-      const old = await tx.passwordHistory.findMany({
-        where: { tenantId: user.tenantId, userId: user.id },
-        orderBy: { createdAt: 'desc' },
-        skip: PASSWORD_HISTORY,
-        select: { id: true },
-      });
-      if (old.length)
-        await tx.passwordHistory.deleteMany({ where: { id: { in: old.map((o) => o.id) } } });
+    await this.prisma.platform.$transaction((tx) =>
+      this.apply(tx, user, hash, 'security.password_changed', meta),
+    );
+  }
+
+  /**
+   * เขียนรหัสใหม่ (hash แล้ว) ใน transaction ของผู้เรียก — ใช้ร่วมกับลืมรหัสผ่าน (T03) ที่ต้องใช้ token ใน transaction เดียวกัน
+   * เขียนแบบมีเงื่อนไข: hash เดิมต้องยังเหมือนตอนอ่าน ไม่งั้น 412
+   */
+  async apply(
+    tx: Prisma.TransactionClient,
+    user: AppUser,
+    hash: string,
+    action: 'security.password_changed' | 'auth.password_reset',
+    meta: { ip?: string; requestId?: string } = {},
+  ) {
+    const r = await tx.appUser.updateMany({
+      where: { id: user.id, passwordHash: user.passwordHash },
+      data: { passwordHash: hash, tokenVersion: { increment: 1 } },
     });
+    if (r.count !== 1) throw new ProblemException('precondition_failed');
+    if (user.passwordHash)
+      await tx.passwordHistory.create({
+        data: { tenantId: user.tenantId, userId: user.id, passwordHash: user.passwordHash },
+      });
+    await tx.auditLog.create({
+      data: {
+        tenantId: user.tenantId,
+        actorId: user.id,
+        action,
+        entityType: 'user',
+        entityId: user.id,
+        ip: meta.ip ?? null,
+        requestId: meta.requestId ?? null,
+      },
+    });
+    await tx.refreshToken.updateMany({
+      where: { tenantId: user.tenantId, userId: user.id, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+    // เก็บแค่ 5 ครั้งล่าสุด
+    const old = await tx.passwordHistory.findMany({
+      where: { tenantId: user.tenantId, userId: user.id },
+      orderBy: { createdAt: 'desc' },
+      skip: PASSWORD_HISTORY,
+      select: { id: true },
+    });
+    if (old.length)
+      await tx.passwordHistory.deleteMany({ where: { id: { in: old.map((o) => o.id) } } });
   }
 }
