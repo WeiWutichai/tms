@@ -14,7 +14,7 @@ import { FORCED_2FA_ROLES } from '../src/auth/mfa.service';
 import { ensureSystemRoles } from '../src/auth/system-roles';
 import { sha256 } from '../src/auth/tokens';
 import { FieldCipher } from '../src/common/crypto';
-import { ensureDefaultSeries } from '../src/modules/sequences/sequences.service';
+import { bootstrapTenant } from '../src/modules/tenants/bootstrap';
 
 export const DEMO_A = '00000000-0000-4000-8000-00000000000a';
 export const DEMO_B = '00000000-0000-4000-8000-00000000000b';
@@ -164,11 +164,13 @@ async function main() {
     const { id, ...data } = b;
     await db.branch.upsert({ where: { id }, create: b, update: data });
   }
-  for (const t of [DEMO_A, DEMO_B]) await ensureDefaultSeries(db, t);
   const passwordHash = await hashPassword(DEMO_PASSWORD);
   const cipher = new FieldCipher();
   const roleIds: Record<string, Record<string, string>> = {};
-  for (const t of [DEMO_A, DEMO_B]) roleIds[t] = await ensureSystemRoles(db, t);
+  for (const t of [DEMO_A, DEMO_B]) {
+    await bootstrapTenant(db, t);
+    roleIds[t] = await ensureSystemRoles(db, t);
+  }
   for (const u of USERS) {
     const { role, ...data } = u;
     const roleId = roleIds[u.tenantId]![role]!;
