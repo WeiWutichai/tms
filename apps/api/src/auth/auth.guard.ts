@@ -66,6 +66,7 @@ export class AuthGuard implements CanActivate {
     ctx.tenantId = claims.tid;
     ctx.actorId = claims.sub;
     ctx.scopes = scopes;
+    ctx.principalType = claims.pt;
     return true;
   }
 }
