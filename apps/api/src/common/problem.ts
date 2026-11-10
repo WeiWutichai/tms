@@ -99,6 +99,21 @@ export const PROBLEMS = {
     th: 'ลิงก์ตั้งรหัสผ่านไม่ถูกต้อง หมดอายุ หรือใช้ไปแล้ว ขอลิงก์ใหม่อีกครั้ง',
     en: 'This reset link is invalid, expired or already used',
   },
+  invitation_invalid: {
+    status: 400,
+    th: 'ลิงก์คำเชิญไม่ถูกต้อง หมดอายุ หรือใช้ไปแล้ว ขอให้ผู้ดูแลส่งคำเชิญใหม่',
+    en: 'This invitation is invalid, expired or already used',
+  },
+  already_member: {
+    status: 409,
+    th: 'อีเมลนี้เป็นสมาชิกของบริษัทแล้ว',
+    en: 'This email is already a member',
+  },
+  seat_limit_reached: {
+    status: 409,
+    th: 'จำนวนผู้ใช้ครบตามแพ็กเกจแล้ว',
+    en: 'User limit of your plan reached',
+  },
   invalid_grant: { status: 400, th: 'รหัสยืนยันหมดอายุหรือไม่ถูกต้อง', en: 'Invalid grant' },
   internal_error: { status: 500, th: 'ระบบขัดข้อง', en: 'Internal error' },
 } as const;

@@ -10,6 +10,11 @@ import { MfaController } from './auth/mfa.controller';
 import { PasswordController } from './auth/password.controller';
 import { PasswordResetController, PasswordResetService } from './auth/password-reset.controller';
 import { EmailDispatcher, EmailService } from './modules/email/email.service';
+import {
+  InvitationAcceptController,
+  InvitationAcceptService,
+} from './auth/invitation-accept.controller';
+import { InvitationsController } from './modules/users/invitations.controller';
 import { PasswordPolicy } from './auth/password-policy';
 import { MfaService } from './auth/mfa.service';
 import { BranchesController } from './modules/branches/branches.controller';
@@ -46,6 +51,8 @@ import { StateService } from './state/state.service';
     MfaController,
     PasswordController,
     PasswordResetController,
+    InvitationAcceptController,
+    InvitationsController,
     HealthController,
     MeController,
     ProfileController,
@@ -65,6 +72,7 @@ import { StateService } from './state/state.service';
     MfaService,
     PasswordPolicy,
     PasswordResetService,
+    InvitationAcceptService,
     EmailService,
     EmailDispatcher,
     EntitlementService,

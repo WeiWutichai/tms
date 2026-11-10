@@ -15,6 +15,7 @@ export const ID_PREFIX = {
   sequence: 'seq',
   audit: 'aud',
   document: 'doc',
+  invitation: 'inv',
 } as const;
 export type IdKind = keyof typeof ID_PREFIX;
 

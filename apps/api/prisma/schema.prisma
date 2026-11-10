@@ -186,6 +186,8 @@ model AppUser {
   createdAt           DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
+  invitations UserInvitation[]
+
   @@unique([tenantId, email])
   @@map("app_user")
 }
@@ -1321,4 +1323,24 @@ model PasswordResetToken {
   @@index([email, createdAt])
   @@index([ip, createdAt])
   @@map("password_reset_token")
+}
+
+/// คำเชิญผู้ใช้ (ST1-T07; docs/04 A2; spec/01 §3) — ลิงก์อีเมล 7 วัน ใช้ครั้งเดียว · ผูกกับแถว app_user สถานะ INVITED (role ตั้งตอนเชิญ)
+/// ส่งใหม่ = เพิกถอนแถวเดิม + ออกแถวใหม่ · เก็บแค่ hash ของ token
+model UserInvitation {
+  id            String    @id @default(uuid()) @db.Uuid
+  tenantId      String    @map("tenant_id") @db.Uuid
+  userId        String    @map("user_id") @db.Uuid
+  email         String /// lower-case แล้ว
+  tokenHash     String    @unique @map("token_hash")
+  expiresAt     DateTime  @map("expires_at") @db.Timestamptz(6)
+  invitedBy     String?   @map("invited_by") @db.Uuid
+  acceptedAt    DateTime? @map("accepted_at") @db.Timestamptz(6)
+  revokedAt     DateTime? @map("revoked_at") @db.Timestamptz(6)
+  revokedReason String?   @map("revoked_reason")
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  user          AppUser   @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, userId])
+  @@map("user_invitation")
 }
