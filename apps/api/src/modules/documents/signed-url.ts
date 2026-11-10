@@ -50,3 +50,18 @@ export function verifyDocumentUrl(
   const got = Buffer.from(q.sig);
   return want.length === got.length && timingSafeEqual(want, got) ? tenantId : null;
 }
+
+/** ใช้ใน body parser: PUT /v1/documents/{doc_id}/content ที่ลายเซ็นอัปโหลดยังใช้ได้ */
+export function isSignedUploadRequest(req: { url?: string; method?: string }): boolean {
+  if (req.method !== 'PUT') return false;
+  const m = /^\/v1\/documents\/doc_([0-9a-f]{32})\/content\?(.*)$/.exec(req.url ?? '');
+  if (!m) return false;
+  const hex = m[1]!;
+  const id = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  const q = Object.fromEntries(new URLSearchParams(m[2]));
+  try {
+    return verifyDocumentUrl('upload', id, q) !== null;
+  } catch {
+    return false;
+  }
+}

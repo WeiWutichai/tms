@@ -140,7 +140,11 @@ describe('documents (presigned upload/download)', () => {
       clientDocumentId: 'device-1:pod-0001',
     }).expect(201);
     expect(b.body.id).toBe(a.body.id);
-    const viewer = await tokenFor(tenantId, SYSTEM_ROLES.viewer.permissions.join(' '));
+    const viewer = await tokenFor(
+      tenantId,
+      SYSTEM_ROLES.viewer.permissions.join(' '),
+      'viewer-user',
+    );
     expect(
       (
         await api(app, viewer)
@@ -151,5 +155,71 @@ describe('documents (presigned upload/download)', () => {
     expect((await api(app, viewer).get(`/v1/documents/${a.body.id}`)).status).toBe(200);
     const other = await tokenFor((await createTenant(db)).id, 'documents:read');
     expect((await api(app, other).get(`/v1/documents/${a.body.id}`)).status).toBe(404);
+  });
+
+  it('review B1: คนอื่น/Viewer อ่านเอกสารที่ยัง pending ได้ แต่ไม่ได้ URL อัปโหลด', async () => {
+    const r = await reserve({
+      kind: 'WHT_CERT',
+      mime: 'application/pdf',
+      bytes: PDF.length,
+    }).expect(201);
+    const viewer = await tokenFor(
+      tenantId,
+      SYSTEM_ROLES.viewer.permissions.join(' '),
+      'viewer-user',
+    );
+    const v = await api(app, viewer).get(`/v1/documents/${r.body.id}`).expect(200);
+    expect(v.body.uploadUrl).toBeUndefined();
+    const otherWriter = await tokenFor(tenantId, 'documents:read documents:write', 'someone-else');
+    expect(
+      (await api(app, otherWriter).get(`/v1/documents/${r.body.id}`)).body.uploadUrl,
+    ).toBeUndefined();
+    expect((await api(app, token).get(`/v1/documents/${r.body.id}`)).body.uploadUrl).toBeTruthy();
+  });
+
+  it('review S2: ใช้ clientDocumentId ของคนอื่น หรือข้อมูลไม่ตรงของเดิม → 409', async () => {
+    await reserve({
+      kind: 'POD_PHOTO',
+      mime: 'image/png',
+      bytes: 100,
+      clientDocumentId: 'device-9:pod-0009',
+    }).expect(201);
+    const other = await tokenFor(tenantId, 'documents:read documents:write', 'someone-else');
+    const stolen = await api(app, other).post('/v1/documents').send({
+      kind: 'POD_PHOTO',
+      mime: 'image/png',
+      bytes: 100,
+      clientDocumentId: 'device-9:pod-0009',
+    });
+    expect(stolen.status).toBe(409);
+    const diff = await reserve({
+      kind: 'CONTRACT',
+      mime: 'application/pdf',
+      bytes: 50,
+      clientDocumentId: 'device-9:pod-0009',
+    });
+    expect(diff.status).toBe(409);
+  });
+
+  it('review S1: ลายเซ็นผิด → 404 โดยไม่อ่าน body (ไม่รอรับไฟล์ใหญ่)', async () => {
+    const r = await reserve({ kind: 'PDF', mime: 'application/pdf', bytes: PDF.length }).expect(
+      201,
+    );
+    const bad = path(r.body.uploadUrl).replace(/sig=[^&]+/, 'sig=x');
+    // server ตอบ 404 และปิดก่อน client ส่ง body ครบ = ไม่ได้อ่าน body (EPIPE ฝั่ง client คือผลที่ต้องการ)
+    const res = await request(app.getHttpServer())
+      .put(bad)
+      .set('Content-Type', 'application/octet-stream')
+      .send(Buffer.alloc(2 * 1024 * 1024, 1))
+      .then(
+        (r) => r.status,
+        (e: NodeJS.ErrnoException) => (e.code === 'EPIPE' || e.code === 'ECONNRESET' ? 404 : -1),
+      );
+    expect(res).toBe(404);
+    const small = await request(app.getHttpServer())
+      .put(bad)
+      .set('Content-Type', 'application/octet-stream')
+      .send(PDF);
+    expect(small.status).toBe(404);
   });
 });

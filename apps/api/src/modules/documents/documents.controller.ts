@@ -23,6 +23,7 @@ import type { StoredDocument } from '@prisma/client';
 import { IsIn, IsInt, IsOptional, IsString, Matches, Max, MaxLength, Min } from 'class-validator';
 import type { Request, Response } from 'express';
 import { join } from 'node:path';
+import { scopeAllows } from '@tms/domain';
 import { Public, RequireScope, TenantResource } from '../../common/decorators';
 import { decodeIdOr404, encodeId, tryDecodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
@@ -129,6 +130,17 @@ export class DocumentsController {
     const existing = body.clientDocumentId
       ? await tx.storedDocument.findFirst({ where: { clientDocumentId: body.clientDocumentId } })
       : null;
+    // ส่งซ้ำได้เฉพาะคนเดิมและข้อมูลเดิม (เหมือน Idempotency-Key) — กันคนอื่นเอา id มาขอ URL อัปโหลดของเขา
+    if (
+      existing &&
+      (existing.createdBy !== (ctx.actorId ?? null) ||
+        existing.kind !== body.kind ||
+        existing.mimeType !== body.mime ||
+        (existing.status === 'PENDING' && existing.sizeBytes !== body.bytes))
+    )
+      throw new ProblemException('duplicate', undefined, [
+        { field: 'clientDocumentId', code: 'duplicate', message: 'clientDocumentId already used' },
+      ]);
     const doc =
       existing ??
       (await tx.storedDocument.create({
@@ -219,16 +231,30 @@ export class DocumentsController {
       doc.filename ?? `${enc(doc.id)}.${EXT[doc.mimeType as AllowedMime] ?? 'bin'}`
     ).replace(/[^\w.\-]/g, '_');
     res.setHeader('Content-Type', doc.mimeType);
-    res.setHeader('Content-Disposition', `attachment; filename="${name}"`);
+    const utf8 = encodeURIComponent(doc.filename ?? name).replace(
+      /['()*]/g,
+      (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`,
+    );
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${name}"; filename*=UTF-8''${utf8}`,
+    );
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Cache-Control', 'private, no-store');
     return new StreamableFile(data);
   }
 
   private withUrl(doc: StoredDocument, req: Request): DocumentDto {
-    const base = `${req.protocol}://${req.get('host')}/v1/documents/${enc(doc.id)}/content`;
+    // ฐาน URL จากค่าตั้ง (ไม่เชื่อ Host / X-Forwarded-* ของ request) — dev ใช้ค่าจาก request
+    const origin = process.env.PUBLIC_API_BASE_URL ?? `${req.protocol}://${req.get('host')}`;
+    const base = `${origin.replace(/\/+$/, '')}/v1/documents/${enc(doc.id)}/content`;
     const dto = toDto(doc);
+    const ctx = requestContext.require();
+    const canUpload =
+      doc.createdBy === (ctx.actorId ?? null) && scopeAllows(ctx.scopes ?? [], 'documents:write');
     if (doc.status === 'PENDING') {
+      // URL อัปโหลดให้เฉพาะผู้จองที่มีสิทธิ์เขียน (review T08 B1 — Viewer/คนอื่นอ่านได้แต่เขียนทับไม่ได้)
+      if (!canUpload) return dto;
       const s = signDocumentUrl('upload', doc.tenantId, doc.id, UPLOAD_TTL_S);
       dto.uploadUrl = `${base}?${s.query}`;
       dto.urlExpiresAt = s.expiresAt.toISOString();
