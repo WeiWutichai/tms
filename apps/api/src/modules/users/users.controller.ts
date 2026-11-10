@@ -125,6 +125,7 @@ export class UsersController {
     const userId = decodeIdOr404('user', id);
     const user = await tx.appUser.findUnique({ where: { id: userId } });
     if (!user) throw new ProblemException('not_found');
+    if (user.status === 'DELETED') throw new ProblemException('invalid_state_transition');
     const roles = await tx.role.findMany({ where: { code: { in: body.roles } } });
     const before = await tx.userRole.findMany({ where: { userId } });
     const beforeCodes = (
@@ -184,8 +185,9 @@ export class UsersController {
   @ApiOkResponse({ type: UserPageDto })
   async users(@Query() q: ListQuery) {
     const k = keysetArgs(q);
+    // ผู้ใช้ที่ลบแล้ว (anonymize) ไม่แสดงในรายการ — ยังอยู่ให้ audit อ้างถึง
     const rows = await this.db.tx.appUser.findMany({
-      where: k.where,
+      where: { ...k.where, status: { not: 'DELETED' } },
       orderBy: k.orderBy as never,
       take: k.take,
     });

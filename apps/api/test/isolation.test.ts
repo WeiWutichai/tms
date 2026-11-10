@@ -75,6 +75,8 @@ const BODY_FOR_SUFFIX: Record<string, object> = {
   deactivate: { reason: 'isolation test' },
   activate: { reason: 'isolation test' },
   roles: { roles: ['viewer'], reason: 'isolation test' },
+  suspend: { reason: 'isolation test' },
+  delete: { reason: 'isolation test' },
 };
 
 interface RouteInfo {
