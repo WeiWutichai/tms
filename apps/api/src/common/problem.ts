@@ -43,6 +43,11 @@ export const PROBLEMS = {
     th: 'บัญชีนี้ต้องตั้งการยืนยันตัวตน 2 ชั้นก่อนเข้าใช้งาน',
     en: 'Set up two-factor authentication to continue',
   },
+  mfa_expired: {
+    status: 401,
+    th: 'หมดเวลายืนยันตัวตน เข้าสู่ระบบใหม่อีกครั้ง',
+    en: 'Verification expired, sign in again',
+  },
   invalid_otp: {
     status: 401,
     th: 'รหัสยืนยันไม่ถูกต้องหรือหมดอายุ',

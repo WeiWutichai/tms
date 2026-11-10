@@ -77,9 +77,10 @@ export function LoginPage() {
   }
 
   if (mfa) {
-    const back = () => {
+    const back = (message?: string) => {
       setMfa(null);
       setPw('');
+      setErr(message ?? '');
     };
     const done = (r: { ok: boolean }) => (r.ok ? next() : back());
     return (

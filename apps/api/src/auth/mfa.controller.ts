@@ -131,12 +131,14 @@ export class MfaController {
     if (!body.otp && !body.backupCode) throw new ProblemException('invalid_otp');
     const client = clientOf(req);
     const { row, user } = await this.mfa.challenge(body.mfaToken, 'verify');
-    await this.throttle(user, client);
-    if (!(await this.mfa.checkSecondFactor(user, body))) {
-      await this.mfa.recordOtpFailure(user, client);
-      throw new ProblemException('invalid_otp');
-    }
-    if (!(await this.mfa.consume(row.id))) throw new ProblemException('invalid_otp');
+    const pass = await this.mfa.serialized(user, async () => {
+      await this.throttle(user, client);
+      const ok = await this.mfa.checkSecondFactor(user, body);
+      if (!ok) await this.mfa.recordOtpFailure(user, client);
+      return ok;
+    });
+    if (!pass) throw new ProblemException('invalid_otp');
+    if (!(await this.mfa.consume(row.id))) throw new ProblemException('mfa_expired');
     await this.mfa.recordOtpSuccess(user, client, body.backupCode ? 'mfa_backup_ok' : 'mfa_ok');
     if (body.backupCode)
       await this.mfa.audit(user, 'security.backup_code_used', client.ip, {
@@ -169,13 +171,14 @@ export class MfaController {
   ): Promise<EnrollDoneDto> {
     const client = clientOf(req);
     const { row, user } = await this.mfa.challenge(body.mfaToken, 'enroll');
-    await this.throttle(user, client);
-    const codes = await this.mfa.confirmEnroll(row.pendingSecret, user, body.otp);
-    if (!codes) {
-      await this.mfa.recordOtpFailure(user, client);
-      throw new ProblemException('invalid_otp');
-    }
-    if (!(await this.mfa.consume(row.id))) throw new ProblemException('invalid_otp');
+    const codes = await this.mfa.serialized(user, async () => {
+      await this.throttle(user, client);
+      const c = await this.mfa.confirmEnroll(row.pendingSecret, user, body.otp);
+      if (!c) await this.mfa.recordOtpFailure(user, client);
+      return c;
+    });
+    if (!codes) throw new ProblemException('invalid_otp');
+    if (!(await this.mfa.consume(row.id))) throw new ProblemException('mfa_expired');
     await this.mfa.recordOtpSuccess(user, client, 'mfa_enrolled');
     await this.mfa.audit(user, 'security.2fa_enabled', client.ip);
     return {
@@ -195,17 +198,13 @@ export class MfaController {
     const user = await this.currentUser();
     if (!user.totpEnabledAt) throw new ProblemException('two_factor_not_enabled');
     if (!(body.otp || body.backupCode)) throw new ProblemException('invalid_otp');
-    // ทีละ request ต่อผู้ใช้ (advisory lock) + เพดานเดียวกับ login — กันเดารหัสด้วย access token ที่ขโมยมา (review T05 B3)
-    const ok = await this.prisma.platform.$transaction(
-      async (tx) => {
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(3, hashtext(${user.id}))`;
-        await this.throttle(user, client);
-        const pass = await this.mfa.checkSecondFactor(user, body);
-        if (!pass) await this.mfa.recordOtpFailure(user, client, 'step_up_failed');
-        return pass;
-      },
-      { maxWait: 2_000, timeout: 5_000 },
-    );
+    // ทีละ request ต่อผู้ใช้ + เพดานเดียวกับ login — กันเดารหัสด้วย access token ที่ขโมยมา (review T05 B3)
+    const ok = await this.mfa.serialized(user, async () => {
+      await this.throttle(user, client);
+      const pass = await this.mfa.checkSecondFactor(user, body);
+      if (!pass) await this.mfa.recordOtpFailure(user, client);
+      return pass;
+    });
     if (!ok) throw new ProblemException('invalid_otp');
     await this.mfa.audit(user, 'security.step_up', client.ip);
     return {

@@ -22,7 +22,7 @@ export function MfaVerify({
 }: {
   step: MfaStep;
   onDone: (r: LoginResult) => void;
-  onBack: () => void;
+  onBack: (message?: string) => void;
 }) {
   const { t } = useI18n();
   const [useBackup, setUseBackup] = useState(false);
@@ -43,6 +43,10 @@ export function MfaVerify({
     ).catch(() => ({ ok: false as const, code: 'internal_error' }));
     setBusy(false);
     if (r.ok) return onDone(r);
+    // หมดเวลา/ผิดครบ 5 ครั้ง/ถูกล็อก → กลับไปหน้าเข้าสู่ระบบพร้อมบอกเหตุ (QA T05)
+    if (r.code === 'mfa_expired' || r.code === 'account_locked')
+      return onBack(t(`problem.${r.code}` as MessageKey));
+    setValue('');
     setErr(t(`problem.${r.code}` as MessageKey));
   }
 
@@ -125,7 +129,7 @@ export function MfaEnroll({
 }: {
   step: MfaStep;
   onDone: (r: LoginResult) => void;
-  onBack: () => void;
+  onBack: (message?: string) => void;
 }) {
   const { t } = useI18n();
   const [setup, setSetup] = useState<{ secret: string; qr: string } | null>(null);
@@ -141,7 +145,7 @@ export function MfaEnroll({
     if (started.current === step) return;
     started.current = step;
     void startEnroll(step).then(async (r) => {
-      if ('error' in r) return setErr(t(`problem.${r.error}` as MessageKey));
+      if ('error' in r) return onBack(t(`problem.${r.error}` as MessageKey));
       const qr = await QRCode.toDataURL(r.otpauthUri, { margin: 1, width: 176 });
       setSetup({ secret: r.secret, qr });
     });
@@ -154,6 +158,9 @@ export function MfaEnroll({
     const r = await confirmEnroll(step, otp).catch(() => ({ error: 'internal_error' }));
     if ('error' in r) {
       setBusy(false);
+      if (r.error === 'mfa_expired' || r.error === 'account_locked')
+        return onBack(t(`problem.${r.error}` as MessageKey));
+      setOtp('');
       return setErr(t(`problem.${r.error}` as MessageKey));
     }
     // แลก code ทันที (อายุ 60 วินาที) — ผู้ใช้จดรหัสสำรองนานเท่าไรก็ได้โดย session ไม่หลุด (review T05 S4)
@@ -223,7 +230,7 @@ export function MfaEnroll({
         <span>{t('mfa.enrollSub')}</span>
       </div>
       {setup && (
-        <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
           <img
             src={setup.qr}
             alt={t('mfa.qrAlt')}
@@ -231,7 +238,7 @@ export function MfaEnroll({
             height={176}
             style={{ border: '1px solid #E4E6E0', borderRadius: 8, flexShrink: 0 }}
           />
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, minWidth: 160, flex: 1 }}>
             <span style={{ fontSize: 13, color: '#3B424C' }}>{t('mfa.manual')}</span>
             <code
               data-testid="totp-secret"

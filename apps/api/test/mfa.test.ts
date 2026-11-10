@@ -287,6 +287,39 @@ describe('2FA', () => {
       expect(locked.res.body.code).toBe('account_locked');
     });
 
+    it('re-review: login ผ่านรหัสผ่าน 210 ครั้งก่อน แล้วเดารหัสผิด 5 ครั้ง → ยังถูกล็อก (ไม่มีอะไรหักครั้งผิดของ 2FA ได้)', async () => {
+      await user('many@mfa.test', 'owner');
+      await loginFull(app, 'many@mfa.test', PW, nextIp());
+      const tokens: string[] = [];
+      for (let i = 0; i < 210; i++) tokens.push((await start('many@mfa.test')).res.body.mfaToken);
+      for (const t of tokens.slice(0, 5))
+        await request(srv()).post('/v1/auth/2fa/verify').send({ mfaToken: t, otp: '000000' });
+      const locked = await start('many@mfa.test');
+      expect(locked.res.body.code).toBe('account_locked');
+      const v = await request(srv())
+        .post('/v1/auth/2fa/verify')
+        .send({ mfaToken: tokens[6], otp: '000000' });
+      expect(v.body.code).toBe('account_locked');
+    }, 120_000);
+
+    it('re-review: ยิงรหัสผิดพร้อมกันข้าม 10 challenge (50 ครั้ง) → ตรวจผิดจริงได้ไม่เกิน 5 ครั้ง', async () => {
+      const u = await user('multi@mfa.test', 'owner');
+      await loginFull(app, 'multi@mfa.test', PW, nextIp());
+      const tokens: string[] = [];
+      for (let i = 0; i < 10; i++) tokens.push((await start('multi@mfa.test')).res.body.mfaToken);
+      await Promise.all(
+        tokens.flatMap((t) =>
+          Array.from({ length: 5 }, (_, i) =>
+            request(srv())
+              .post('/v1/auth/2fa/verify')
+              .send({ mfaToken: t, otp: String(300000 + i) }),
+          ),
+        ),
+      );
+      const fails = await db.loginAttempt.count({ where: { userId: u.id, reason: 'otp_failed' } });
+      expect(fails).toBeLessThanOrEqual(5);
+    }, 60_000);
+
     it('B3: step-up ผิด 5 ครั้ง → ครั้งที่ 6 ถูกล็อกแม้รหัสถูก', async () => {
       await user('su@mfa.test', 'owner');
       const o = await loginFull(app, 'su@mfa.test', PW, nextIp());
@@ -297,6 +330,9 @@ describe('2FA', () => {
         Array.from({ length: 8 }, (_, i) => stepUp(String(200000 + i))),
       );
       expect(res.filter((r) => r.status === 401).length).toBeLessThanOrEqual(5);
+      expect(res.every((r) => r.status === 401 || r.status === 429)).toBe(true);
+      // ทีละครั้งจนครบ 5 ครั้งผิด แล้วรหัสถูกก็ต้องถูกล็อก
+      for (let i = 0; i < 5; i++) await stepUp(String(210000 + i));
       const good = await stepUp(hotp(o.secret!, currentStep() + 1));
       expect(good.status).toBe(429);
     });

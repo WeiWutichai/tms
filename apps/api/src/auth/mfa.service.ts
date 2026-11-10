@@ -5,7 +5,7 @@ import { ProblemException } from '../common/problem';
 import { PrismaService } from '../db/prisma.service';
 import { newBackupCodes, newTotpSecret, normalizeBackupCode, otpauthUri, verifyTotp } from './totp';
 import { newOpaqueToken, sha256 } from './tokens';
-import { lockSeconds, recordAttempt, type ClientInfo } from './throttle';
+import { lockSeconds, OTP_FAILED, recordAttempt, type ClientInfo } from './throttle';
 
 export const MFA_CHALLENGE_TTL_MS = 5 * 60 * 1000;
 export const MFA_MAX_ATTEMPTS = 5;
@@ -53,7 +53,8 @@ export class MfaService {
       SELECT value AS v FROM tenant_setting WHERE tenant_id = ${tenantId}::uuid AND key = 'security.require2faAll'`.catch(
       (e: unknown) => {
         // ยังไม่มีตาราง (ก่อน ST1-T17) เท่านั้นที่ถือว่า false — error อื่นต้องไม่ทำให้ข้ามการบังคับ 2FA
-        if (String((e as { message?: string }).message).includes('tenant_setting')) return [];
+        const pg = (e as { meta?: { code?: string } }).meta?.code;
+        if (pg === '42P01') return []; // undefined_table เท่านั้น — error อื่น (สิทธิ์/RLS) ไม่ข้ามการบังคับ
         throw e;
       },
     );
@@ -78,6 +79,7 @@ export class MfaService {
   /**
    * challenge ที่ยังใช้ได้ — `reserve` = จองความพยายาม 1 ครั้งแบบ atomic ก่อนตรวจรหัส
    * (กันยิงพร้อมกันหลายร้อยครั้งต่อ challenge เดียว — review T05 B1); เพดาน 5 ครั้งต่อ challenge
+   * challenge ใช้ต่อไม่ได้ (หมดอายุ/ผิดครบ/ใช้แล้ว) → 401 `mfa_expired` ให้ UI พากลับไป login ใหม่
    */
   async challenge(token: string, purpose: MfaPurpose, reserve = true) {
     const tokenHash = sha256(token);
@@ -93,18 +95,18 @@ export class MfaService {
         where: live,
         data: { attempts: { increment: 1 } },
       });
-      if (r.count !== 1) throw new ProblemException('invalid_otp');
+      if (r.count !== 1) throw new ProblemException('mfa_expired');
     }
     const row = await this.db.mfaChallenge.findFirst({
       where: reserve ? { tokenHash, purpose, usedAt: null, expiresAt: { gt: new Date() } } : live,
     });
-    if (!row) throw new ProblemException('invalid_otp');
+    if (!row) throw new ProblemException('mfa_expired');
     const user = await this.db.appUser.findFirst({
       where: { id: row.userId, tenantId: row.tenantId, status: 'ACTIVE' },
     });
-    if (!user) throw new ProblemException('invalid_otp');
+    if (!user) throw new ProblemException('mfa_expired');
     // enroll ใช้ได้เฉพาะผู้ใช้ที่ยังไม่ตั้ง 2FA — กันเขียนทับ secret ของคนที่ตั้งแล้ว (review T05 S1)
-    if (purpose === 'enroll' && user.totpEnabledAt) throw new ProblemException('invalid_otp');
+    if (purpose === 'enroll' && user.totpEnabledAt) throw new ProblemException('mfa_expired');
     return { row, user };
   }
 
@@ -115,14 +117,36 @@ export class MfaService {
   }
 
   /** รหัส 2FA ผิด = ความพยายามผิด 1 ครั้งของอีเมล/IP (ไม่มีแถวสำเร็จมาหัก) — review T05 B2/B3 */
-  async recordOtpFailure(user: AppUser, client: ClientInfo, reason = 'invalid_otp') {
-    for (const r of ['attempt', reason])
-      await recordAttempt(this.db, user.email.toLowerCase(), client, {
-        success: false,
-        reason: r,
-        tenantId: user.tenantId,
-        userId: user.id,
-      });
+  async recordOtpFailure(user: AppUser, client: ClientInfo) {
+    await recordAttempt(this.db, user.email.toLowerCase(), client, {
+      success: false,
+      reason: OTP_FAILED,
+      tenantId: user.tenantId,
+      userId: user.id,
+    });
+  }
+
+  /**
+   * ทำงานขั้น 2FA ทีละ request ต่อผู้ใช้ (advisory lock) — ตรวจล็อก → ตรวจรหัส → บันทึกครั้งผิด อยู่ในคิวเดียว
+   * กันยิงพร้อมกันหลาย challenge จนผ่านเพดาน (re-review T05); มีอีก request ถืออยู่ → 429 rate_limited ทันที
+   */
+  async serialized<T>(user: AppUser, fn: () => Promise<T>): Promise<T> {
+    try {
+      return await this.db.$transaction(
+        async (tx) => {
+          // try-lock: มี request 2FA ของผู้ใช้นี้ค้างอยู่ → ตอบ 429 ทันที ไม่ต่อคิวถือ connection (ผู้ใช้จริงไม่ยิงพร้อมกัน)
+          const [r] = await tx.$queryRaw<{ ok: boolean }[]>`
+            SELECT pg_try_advisory_xact_lock(3, hashtext(${user.id})) AS ok`;
+          if (!r?.ok) throw new ProblemException('rate_limited');
+          return fn();
+        },
+        { maxWait: 2_000, timeout: 5_000 },
+      );
+    } catch (e) {
+      const code = (e as { code?: string }).code;
+      if (code === 'P2024' || code === 'P2028') throw new ProblemException('rate_limited');
+      throw e;
+    }
   }
 
   async recordOtpSuccess(user: AppUser, client: ClientInfo, reason = 'mfa_ok') {

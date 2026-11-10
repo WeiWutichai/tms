@@ -271,6 +271,7 @@ export const th = {
   'mfa.copy': 'คัดลอกรหัสทั้งหมด',
   'mfa.copied': 'คัดลอกแล้ว',
   'mfa.continue': 'บันทึกแล้ว ดำเนินการต่อ',
+  'problem.mfa_expired': 'หมดเวลายืนยันตัวตน เข้าสู่ระบบใหม่อีกครั้ง',
   'problem.invalid_otp': 'รหัสยืนยันไม่ถูกต้องหรือหมดอายุ',
   'problem.mfa_required': 'กรอกรหัสยืนยันตัวตน 2 ชั้น',
   'problem.mfa_enrollment_required': 'บัญชีนี้ต้องตั้งการยืนยันตัวตน 2 ชั้นก่อนเข้าใช้งาน',
