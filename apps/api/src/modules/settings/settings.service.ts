@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { Prisma, PrismaClient } from '@prisma/client';
 import { AuditService } from '../../audit/audit.service';
+import { tryDecodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
@@ -92,6 +93,25 @@ export class SettingsService {
       const msg = validateSetting(key as SettingKey, v);
       return msg ? [{ field: `values.${key}`, code: 'invalid_setting', message: msg }] : [];
     });
+    // ref ต้องชี้ entity ที่มีอยู่และใช้งานใน tenant นี้ (RLS กรองให้)
+    for (const [key, v] of Object.entries(values)) {
+      const def = SETTINGS[key as SettingKey];
+      if (
+        !def ||
+        def.type.kind !== 'ref' ||
+        typeof v !== 'string' ||
+        errors.some((e) => e.field === `values.${key}`)
+      )
+        continue;
+      const id = tryDecodeId('company', v);
+      const c = id ? await tx.company.findUnique({ where: { id } }) : null;
+      if (!c || c.status !== 'ACTIVE')
+        errors.push({
+          field: `values.${key}`,
+          code: 'invalid_setting',
+          message: 'company not found or inactive',
+        });
+    }
     if (errors.length) throw new ProblemException('validation_failed', undefined, errors);
     for (const [k, v] of Object.entries(values)) if (typeof v === 'string') values[k] = v.trim();
     const keys = Object.keys(values) as SettingKey[];
