@@ -1,0 +1,23 @@
+# PostgreSQL สำหรับ dev — ใช้ `pnpm db:up`
+# ตั้งชื่อโปรเจกต์ชัด ๆ: ถ้าไม่ตั้ง compose จะใช้ชื่อโฟลเดอร์ "infra" ซึ่งชนกับโปรเจกต์อื่นในเครื่อง (เคยเกิด 10 พ.ย.)
+name: tms
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: tms-postgres
+    environment:
+      POSTGRES_USER: tms
+      POSTGRES_PASSWORD: tms
+      POSTGRES_DB: tms
+    ports:
+      - "127.0.0.1:54329:5432"
+    volumes:
+      - tms-pgdata:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tms -d tms"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+volumes:
+  tms-pgdata:

@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tms.example/contracts/krs/invoice-response.schema.json",
+  "title": "KRS api-pueanphet — response ของ POST (201) / PUT (200) / GET /invoice/{transactionNo}",
+  "description": "ที่มา: docs/01 A.1 — KRS ออก transactionNo และ voucherNo (SA-S{YYMM}-{NNNN}). ฟิลด์อื่นของ GET ยังไม่ยืนยัน (plan/08) จึงยอมรับฟิลด์เพิ่ม",
+  "type": "object",
+  "required": ["transactionNo", "voucherNo"],
+  "properties": {
+    "transactionNo": { "type": "string", "minLength": 1 },
+    "voucherNo": { "type": "string", "pattern": "^SA-S\\d{4}-\\d{4}$" },
+    "tmsVoucherNo": { "type": "string" },
+    "lines": { "type": "array" }
+  }
+}

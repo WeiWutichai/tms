@@ -1,0 +1,38 @@
+{
+  "name": "@tms/web",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 4420 --strictPort",
+    "build": "tsc -p tsconfig.json --noEmit && vite build",
+    "preview": "vite preview --port 4421",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "lint": "node scripts/lint-i18n.mjs && prettier --check src",
+    "dev:token": "node scripts/dev-token.mjs",
+    "i18n:build": "node scripts/build-i18n.mjs",
+    "e2e": "node e2e/prepare.mjs && playwright test"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.62.0",
+    "@tms/contracts": "workspace:*",
+    "@tms/ui": "workspace:*",
+    "lucide-react": "^0.460.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.28.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.0",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.1.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.7.0",
+    "jsdom": "^25.0.1",
+    "typescript": "^5.6.3",
+    "vite": "^6.4.6",
+    "vitest": "^4.1.12"
+  }
+}

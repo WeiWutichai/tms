@@ -1,0 +1,10 @@
+docs/
+spec/
+plan/
+research/
+design/
+*.md
+pnpm-lock.yaml
+packages/contracts/openapi.json
+packages/contracts/src/schema.d.ts
+**/dist/

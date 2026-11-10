@@ -1,0 +1,26 @@
+{
+  "name": "@tms/contracts",
+  "version": "0.0.1",
+  "private": true,
+  "description": "OpenAPI ของ /v1 (สร้างจาก apps/api) + TypeScript client ที่ generate — web ต้องเรียก API ผ่าน client นี้เท่านั้น",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "openapi.json"
+  ],
+  "scripts": {
+    "generate": "openapi-typescript openapi.json -o src/schema.d.ts",
+    "build": "pnpm generate && tsc -p tsconfig.json && cp src/schema.d.ts dist/schema.d.ts",
+    "typecheck": "pnpm generate && tsc -p tsconfig.json --noEmit",
+    "lint": "echo ok",
+    "test": "echo 'no tests'"
+  },
+  "dependencies": {
+    "openapi-fetch": "^0.13.4"
+  },
+  "devDependencies": {
+    "openapi-typescript": "^7.4.4",
+    "typescript": "^5.6.3"
+  }
+}

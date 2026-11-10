@@ -1,0 +1,994 @@
+/*
+ * TMS UI — ค่าจากต้นแบบ design/prototype/TMS v4.dc.html (inline style + style-hover)
+ * class ชื่อ tms-* ; สถานะ hover/focus ตาม style-hover ของต้นแบบ
+ */
+html,
+body {
+  margin: 0;
+  background: #f4f5f2;
+  color: #101418;
+  font-family: 'IBM Plex Sans Thai Looped', 'IBM Plex Sans', system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+a {
+  color: #2257c4;
+  text-decoration: none;
+}
+a:hover {
+  color: #2257c4;
+  text-decoration: underline;
+}
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+}
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+button:focus-visible {
+  outline: 2px solid #2257c4;
+  outline-offset: 1px;
+}
+.tms-num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- ปุ่ม 4 แบบ (หัวข้อ "ปุ่ม · 4 แบบ ทุกสถานะ") ---------- */
+.tms-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tms-btn:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 2px #ffffff,
+    0 0 0 4px #2257c4;
+}
+.tms-btn--sm {
+  height: 32px;
+  padding: 0 12px;
+  gap: 6px;
+}
+.tms-btn--primary {
+  border-color: #2257c4;
+  background: #2257c4;
+  color: #ffffff;
+}
+.tms-btn--primary:hover:not(:disabled) {
+  border-color: #8f5500;
+  background: #8f5500;
+}
+.tms-btn--primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.tms-btn--secondary {
+  border-color: #9db6e3;
+  background: #ffffff;
+  color: #2257c4;
+}
+.tms-btn--secondary:hover:not(:disabled) {
+  border-color: #2257c4;
+  background: #eef0ec;
+}
+.tms-btn--secondary:disabled {
+  border-color: #c9cdc3;
+  color: #3b424c;
+  cursor: not-allowed;
+}
+.tms-btn--ghost {
+  padding: 0 12px;
+  background: transparent;
+  color: #3b424c;
+}
+.tms-btn--ghost:hover:not(:disabled) {
+  background: #eef0ec;
+  color: #2257c4;
+}
+.tms-btn--ghost:focus-visible {
+  box-shadow: 0 0 0 2px #2257c4;
+}
+.tms-btn--ghost:disabled {
+  color: #c9cdc3;
+  cursor: not-allowed;
+}
+.tms-btn--danger {
+  border-color: #b3322a;
+  background: #ffffff;
+  color: #b3322a;
+}
+.tms-btn--danger:hover:not(:disabled) {
+  background: #fbe9e7;
+}
+.tms-btn--danger:disabled {
+  border-color: #c9cdc3;
+  color: #c9cdc3;
+  cursor: not-allowed;
+}
+
+/* ปุ่มวงกลมไอคอน (header: กระดิ่ง / +) */
+.tms-iconbtn {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  border: 1px solid #d9dcd4;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #3b424c;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+.tms-iconbtn:hover {
+  background: #eef0ec;
+}
+.tms-iconbtn--accent {
+  border-color: #9db6e3;
+  color: #2257c4;
+}
+.tms-iconbtn--plain {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  background: transparent;
+}
+
+/* ---------- Input (หัวข้อ "Input") ---------- */
+.tms-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.tms-label {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: #3b424c;
+}
+.tms-input {
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid #c9cdc3;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #101418;
+}
+.tms-input:focus,
+.tms-input:focus-visible {
+  outline: none;
+  border-color: #2257c4;
+  box-shadow: 0 0 0 2px #e9f0fa;
+}
+.tms-input[aria-invalid='true'] {
+  border-color: #b3322a;
+}
+.tms-input:disabled {
+  border-color: #d9dcd4;
+  border-radius: 999px;
+  background: #ebede8;
+  color: #3b424c;
+}
+.tms-field-error {
+  font-size: 13px;
+  color: #b3322a;
+}
+.tms-field-hint {
+  font-size: 12.5px;
+  color: #59606b;
+}
+
+/* ---------- การ์ด ---------- */
+.tms-card {
+  background: #ffffff;
+  border: 1px solid #cdd1c8;
+  border-radius: 12px;
+  box-shadow:
+    0 1px 2px rgba(16, 20, 24, 0.06),
+    0 2px 6px rgba(16, 20, 24, 0.04);
+}
+.tms-card__h {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+/* ---------- Badge / chip ---------- */
+.tms-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.tms-route {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: #ebede8;
+  white-space: nowrap;
+}
+.tms-tag {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: #ebede8;
+  color: #3b424c;
+  font-size: 13px;
+  font-weight: 500;
+}
+.tms-filterchip {
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 4px 0 10px;
+  border-radius: 999px;
+  background: #e9f0fa;
+  color: #2257c4;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.tms-filterchip button {
+  width: 22px;
+  height: 22px;
+  border: 0;
+  background: transparent;
+  color: #2257c4;
+  border-radius: 50%;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+.tms-filterchip button:hover {
+  background: #ffffff;
+}
+
+/* ---------- Tab สถานะ ---------- */
+.tms-tabs {
+  display: flex;
+  gap: 24px;
+  border-bottom: 1px solid #e4e6e0;
+}
+.tms-tab {
+  height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  margin-bottom: -1px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: #3b424c;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tms-tab:hover {
+  color: #2257c4;
+}
+.tms-tab[aria-selected='true'] {
+  border-bottom-color: #2257c4;
+  color: #2257c4;
+  font-weight: 600;
+}
+.tms-tab__n {
+  color: #3b424c;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- KPI card (หน้าจริง: cur.kpis) ---------- */
+.tms-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+.tms-kpi {
+  position: relative;
+  overflow: hidden;
+  min-height: 112px;
+  text-align: left;
+  padding: 16px 20px;
+  border-radius: 12px;
+  border: 1px solid #cdd1c8;
+  background: #ffffff;
+  box-shadow:
+    0 1px 2px rgba(16, 20, 24, 0.06),
+    0 2px 6px rgba(16, 20, 24, 0.04);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  transition: border-color 120ms;
+  font: inherit;
+  color: inherit;
+}
+.tms-kpi--click {
+  cursor: pointer;
+}
+.tms-kpi--click:hover {
+  border-color: #9db6e3;
+}
+.tms-kpi[aria-pressed='true'] {
+  border-color: #2257c4;
+  box-shadow: 0 0 0 1px #9db6e3;
+}
+.tms-kpi__bar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+}
+.tms-kpi__label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: #3b424c;
+  min-width: 0;
+}
+.tms-kpi__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.tms-kpi__value {
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1.25;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.tms-kpi__sub {
+  font-size: 12.5px;
+  font-weight: 400;
+  color: #59606b;
+}
+.tms-kpi__on {
+  margin-left: auto;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: #e9f0fa;
+  color: #2257c4;
+  font-size: 12px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+/* ---------- Empty state ---------- */
+.tms-empty {
+  border: 1px dashed #c9cdc3;
+  border-radius: 14px;
+  padding: 28px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+}
+.tms-empty--page {
+  background: #ffffff;
+  border: 1px solid #cdd1c8;
+  border-radius: 12px;
+  box-shadow:
+    0 1px 2px rgba(16, 20, 24, 0.06),
+    0 2px 6px rgba(16, 20, 24, 0.04);
+  padding: 72px 24px;
+  gap: 8px;
+}
+.tms-empty__t {
+  font-size: 16px;
+  font-weight: 600;
+}
+.tms-empty__d {
+  color: #3b424c;
+  max-width: 420px;
+}
+
+/* ---------- ตาราง (template T.* ของหน้าจริง) ---------- */
+.tms-table-wrap {
+  background: #ffffff;
+  border: 1px solid #cdd1c8;
+  border-radius: 12px;
+  box-shadow:
+    0 1px 2px rgba(16, 20, 24, 0.06),
+    0 2px 6px rgba(16, 20, 24, 0.04);
+  display: flex;
+  overflow: clip;
+  min-height: 360px;
+  max-height: calc(100vh - 104px);
+}
+.tms-table-scroll {
+  overflow: auto;
+  flex: 1 1 0;
+  min-height: 0;
+}
+.tms-table {
+  width: 100%;
+  table-layout: auto;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.tms-table th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: #eef0ec;
+  height: 40px;
+  padding: 0 12px;
+  border-bottom: 1px solid #e4e6e0;
+  text-align: left;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: #3b424c;
+  white-space: nowrap;
+}
+.tms-table thead tr.tms-filters th {
+  top: 40px;
+  background: #ffffff;
+  height: auto;
+  padding: 6px;
+  font-weight: 400;
+}
+.tms-table td {
+  height: var(--row-h, 52px);
+  padding: 0 12px;
+  border-bottom: 1px solid #e4e6e0;
+}
+.tms-table tbody tr {
+  background: #ffffff;
+  cursor: pointer;
+}
+.tms-table tbody tr:hover {
+  background: #eef0ec;
+}
+.tms-table tbody tr[aria-selected='true'] {
+  background: #e9f0fa;
+}
+.tms-table .tms-check {
+  width: 44px;
+  padding: 0 0 0 16px;
+}
+.tms-table input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  accent-color: #2257c4;
+  cursor: pointer;
+  margin: 0;
+  vertical-align: middle;
+}
+.tms-filter-input {
+  width: 100%;
+  min-width: 90px;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid #c9cdc3;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #101418;
+}
+.tms-docno {
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  font-weight: 500;
+  color: #2257c4;
+}
+.tms-colrail {
+  width: 40px;
+  border-left: 1px solid #d9dcd4;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 0;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.tms-colrail button {
+  writing-mode: vertical-rl;
+  padding: 12px 0;
+  width: 30px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #3b424c;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.tms-colrail button[aria-pressed='true'] {
+  background: #e9f0fa;
+  color: #2257c4;
+}
+.tms-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  position: relative;
+  min-height: 32px;
+}
+.tms-pill {
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 1px solid #d9dcd4;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #101418;
+  cursor: pointer;
+  font-weight: 500;
+}
+.tms-pill:hover {
+  background: #eef0ec;
+}
+.tms-linkbtn {
+  height: 28px;
+  border: 0;
+  background: transparent;
+  color: #2257c4;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 0 6px;
+}
+.tms-linkbtn:hover {
+  text-decoration: underline;
+}
+
+/* ---------- Drawer (side panel 600px) ---------- */
+.tms-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(10, 23, 52, 0.18);
+}
+.tms-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 41;
+  width: 600px;
+  max-width: 100%;
+  background: #ffffff;
+  border-left: 1px solid #d9dcd4;
+  border-radius: 20px 0 0 20px;
+  overflow: hidden;
+  box-shadow: -18px 0 44px rgba(10, 23, 52, 0.1);
+  display: flex;
+  flex-direction: column;
+}
+.tms-drawer__head {
+  padding: 16px 20px 0;
+  border-bottom: 1px solid #e4e6e0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.tms-drawer__kind {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: #59606b;
+}
+.tms-drawer__no {
+  font-variant-numeric: tabular-nums;
+  font-size: 18px;
+  font-weight: 600;
+  color: #2257c4;
+  white-space: nowrap;
+}
+.tms-drawer__tabs {
+  display: flex;
+  gap: 20px;
+}
+.tms-drawer__tab {
+  height: 38px;
+  padding: 0;
+  margin-bottom: -1px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: #3b424c;
+  font-weight: 500;
+  cursor: pointer;
+}
+.tms-drawer__tab:hover {
+  color: #2257c4;
+}
+.tms-drawer__tab[aria-selected='true'] {
+  border-bottom-color: #2257c4;
+  color: #2257c4;
+  font-weight: 600;
+}
+.tms-drawer__body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+.tms-drawer__h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: #13213f;
+}
+.tms-drawer__foot {
+  border-top: 1px solid #d9dcd4;
+  padding: 12px 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #ffffff;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+.tms-drawer__acts {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+.tms-drawer__sec {
+  height: 40px;
+  padding: 0 16px;
+  border: 1px solid #9db6e3;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #2257c4;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tms-drawer__sec:hover {
+  background: #eef0ec;
+}
+.tms-drawer__pri {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 18px;
+  border: 1px solid #2257c4;
+  border-radius: 999px;
+  background: #2257c4;
+  color: #ffffff;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tms-drawer__pri:hover:not(:disabled) {
+  background: #1b479f;
+}
+.tms-drawer__pri:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.tms-drawer__iconbtn {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #3b424c;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+.tms-drawer__iconbtn:hover {
+  background: #eef0ec;
+}
+.tms-menu {
+  position: absolute;
+  z-index: 5;
+  min-width: 200px;
+  background: #ffffff;
+  border: 1px solid #cdd1c8;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(16, 20, 24, 0.12);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+}
+.tms-menu button {
+  height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #101418;
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+}
+.tms-menu button:hover {
+  background: #eef0ec;
+}
+.tms-kv {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid #e4e6e0;
+}
+.tms-kv__title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #3b424c;
+}
+.tms-kv__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px 20px;
+}
+.tms-kv__item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.tms-kv__k {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: #59606b;
+}
+.tms-kv__v {
+  color: #101418;
+  word-break: break-word;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- ตาราง: ส่วนเพิ่ม (template T.* หน้าจริง) ---------- */
+.tms-table td {
+  font-weight: 500;
+  white-space: nowrap;
+}
+.tms-table td.tms-act {
+  padding: 0 12px 0 0;
+  text-align: right;
+  position: relative;
+}
+.tms-rowmenu-btn {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #3b424c;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+.tms-rowmenu-btn:hover {
+  background: #e9f0fa;
+  color: #2257c4;
+}
+.tms-rowmenu {
+  position: absolute;
+  right: 12px;
+  z-index: 10;
+  width: 210px;
+  background: #ffffff;
+  border: 1px solid #d9dcd4;
+  border-radius: 14px;
+  box-shadow: 0 12px 32px rgba(16, 24, 40, 0.14);
+  padding: 4px;
+  text-align: left;
+}
+.tms-rowmenu button {
+  width: 100%;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #101418;
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+}
+.tms-rowmenu button:hover {
+  background: #eef0ec;
+}
+.tms-status-dot {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  font-weight: 500;
+}
+.tms-status-dot > span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.tms-bulk {
+  height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+  background: #e9f0fa;
+  border-bottom: 1px solid #e4e6e0;
+}
+.tms-bulk__n {
+  font-weight: 600;
+  color: #2257c4;
+  margin-right: 8px;
+}
+.tms-table-empty {
+  padding: 48px 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+}
+.tms-pager {
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 16px;
+  padding: 0 16px;
+  border-top: 1px solid #d9dcd4;
+  flex-shrink: 0;
+}
+.tms-pager label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #3b424c;
+}
+.tms-pager select {
+  height: 32px;
+  padding: 0 6px;
+  border: 1px solid #c9cdc3;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #101418;
+}
+.tms-pager__range {
+  font-size: 13px;
+  color: #3b424c;
+  font-variant-numeric: tabular-nums;
+}
+.tms-pager__nav {
+  width: 32px;
+  height: 32px;
+  border: 1px solid #d9dcd4;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #3b424c;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+.tms-pager__nav:disabled {
+  color: #c9cdc3;
+  cursor: default;
+}
+.tms-pager__page {
+  min-width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #3b424c;
+  font-weight: 400;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+.tms-pager__page[aria-current='page'] {
+  background: #e9f0fa;
+  color: #2257c4;
+  font-weight: 600;
+}
+.tms-sidepanel {
+  width: 240px;
+  flex-shrink: 0;
+  border-left: 1px solid #d9dcd4;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.tms-sidepanel__t {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.tms-sidepanel label {
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+.tms-sidepanel input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  accent-color: #2257c4;
+  margin: 0;
+}
+.tms-sidepanel__link {
+  margin-top: 8px;
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  border: 0;
+  background: transparent;
+  color: #2257c4;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 0;
+}
+.tms-sidepanel__link:hover {
+  text-decoration: underline;
+}
+.tms-colrail button:hover {
+  color: #2257c4;
+}

@@ -1,0 +1,668 @@
+{
+  "openapi": "3.0.0",
+  "paths": {
+    "/v1/health": {
+      "get": {
+        "operationId": "Health_health",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "example": {
+                    "status": "ok",
+                    "db": "ok"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "platform"
+        ]
+      }
+    },
+    "/v1/me": {
+      "get": {
+        "operationId": "Me_me",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform"
+        ]
+      }
+    },
+    "/v1/companies": {
+      "post": {
+        "operationId": "Companies_create",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCompanyDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompanyDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "companies"
+        ]
+      },
+      "get": {
+        "operationId": "Companies_list",
+        "parameters": [
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "ค่า nextCursor จากหน้าก่อน",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "updatedAfter",
+            "required": false,
+            "in": "query",
+            "description": "คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sort",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "updatedAt",
+              "type": "string",
+              "enum": [
+                "updatedAt",
+                "-updatedAt"
+              ]
+            }
+          },
+          {
+            "name": "fields",
+            "required": false,
+            "in": "query",
+            "description": "รายชื่อ field คั่นด้วย , เช่น id,legalName",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "description": "คั่นด้วย , เช่น active,inactive",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompanyPageDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "companies"
+        ]
+      }
+    },
+    "/v1/companies/{id}": {
+      "get": {
+        "operationId": "Companies_get",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompanyDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "companies"
+        ]
+      },
+      "patch": {
+        "operationId": "Companies_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCompanyDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompanyDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "companies"
+        ]
+      }
+    },
+    "/v1/companies/{id}/deactivate": {
+      "post": {
+        "operationId": "Companies_deactivate",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StatusChangeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompanyDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "companies"
+        ]
+      }
+    },
+    "/v1/companies/{id}/activate": {
+      "post": {
+        "operationId": "Companies_activate",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StatusChangeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompanyDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "companies"
+        ]
+      }
+    },
+    "/v1/jobs/{id}": {
+      "get": {
+        "operationId": "Jobs_get",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "jobs"
+        ]
+      }
+    }
+  },
+  "info": {
+    "title": "TMS API",
+    "description": "Open API ชุดเดียวกับที่ UI ใช้ (docs/01 §5) — error เป็น application/problem+json",
+    "version": "v1",
+    "contact": {}
+  },
+  "tags": [],
+  "servers": [],
+  "components": {
+    "securitySchemes": {
+      "bearer": {
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "type": "http"
+      }
+    },
+    "schemas": {
+      "MeTenantDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "ten_…"
+          },
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "trial",
+              "active",
+              "suspended",
+              "cancelled"
+            ]
+          },
+          "yearStyle": {
+            "type": "string",
+            "enum": [
+              "BE",
+              "CE"
+            ],
+            "description": "ปีบนเอกสาร: BE = พ.ศ., CE = ค.ศ."
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "status",
+          "yearStyle"
+        ]
+      },
+      "MeDto": {
+        "type": "object",
+        "properties": {
+          "actorId": {
+            "type": "string",
+            "description": "ผู้ใช้หรือ API key ที่เรียก (sub)"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "tenant": {
+            "$ref": "#/components/schemas/MeTenantDto"
+          }
+        },
+        "required": [
+          "actorId",
+          "scopes",
+          "tenant"
+        ]
+      },
+      "CreateCompanyDto": {
+        "type": "object",
+        "properties": {
+          "legalName": {
+            "type": "string",
+            "example": "บริษัท ศรีไทยขนส่ง จำกัด",
+            "description": "ชื่อตามจดทะเบียน (พิมพ์บนใบกำกับภาษี)"
+          },
+          "legalNameEn": {
+            "type": "string",
+            "example": "Srithai Transport Co., Ltd."
+          },
+          "taxId": {
+            "type": "string",
+            "example": "0105536000014",
+            "description": "เลขประจำตัวผู้เสียภาษี 13 หลัก"
+          },
+          "vatRegistered": {
+            "type": "boolean",
+            "default": true
+          },
+          "externalId": {
+            "type": "string",
+            "description": "รหัสฝั่งระบบภายนอก (ERP) — เรียกด้วย ext:{externalId} ได้"
+          }
+        },
+        "required": [
+          "legalName",
+          "taxId"
+        ]
+      },
+      "CompanyDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "cmp_3f2a…"
+          },
+          "legalName": {
+            "type": "string"
+          },
+          "legalNameEn": {
+            "type": "string",
+            "nullable": true
+          },
+          "taxId": {
+            "type": "string"
+          },
+          "vatRegistered": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          },
+          "externalId": {
+            "type": "string",
+            "nullable": true
+          },
+          "version": {
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "legalName",
+          "legalNameEn",
+          "taxId",
+          "vatRegistered",
+          "status",
+          "externalId",
+          "version",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "CompanyPageDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CompanyDto"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor",
+          "hasMore"
+        ]
+      },
+      "UpdateCompanyDto": {
+        "type": "object",
+        "properties": {
+          "legalName": {
+            "type": "string"
+          },
+          "legalNameEn": {
+            "type": "string"
+          },
+          "vatRegistered": {
+            "type": "boolean"
+          }
+        }
+      },
+      "StatusChangeDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "description": "เหตุผล (บังคับทุกการเปลี่ยนสถานะ — ลง audit)",
+            "example": "ปิดบริษัทในเครือ"
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      },
+      "JobDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "job_…"
+          },
+          "type": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "running",
+              "succeeded",
+              "failed"
+            ]
+          },
+          "progress": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "result": {
+            "type": "object",
+            "nullable": true
+          },
+          "error": {
+            "type": "object",
+            "nullable": true
+          },
+          "attempts": {
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "finishedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "status",
+          "progress",
+          "result",
+          "error",
+          "attempts",
+          "createdAt",
+          "finishedAt"
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,83 @@
+# CI — ทุก PR และ push เข้า main (ST0-T03)
+# job รันใน image ทางการของ Playwright 1.65 (amd64) เพื่อให้ภาพ golden ของ PDF (test/golden/*.linux.png) ตรงกับที่สร้างในเครื่อง
+# ยังไม่มี: deploy staging/production (รอบัญชี cloud — PLAN §1.1 ข้อ 10), error tracking
+name: ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container:
+      image: mcr.microsoft.com/playwright:v1.65.0-noble
+      options: --user root
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: tms
+          POSTGRES_PASSWORD: tms
+          POSTGRES_DB: tms
+        options: >-
+          --health-cmd "pg_isready -U tms -d tms" --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      CI: 'true'
+      DATABASE_URL: postgresql://tms:tms@postgres:5432/tms?schema=public
+      APP_DATABASE_URL: postgresql://tms_app:tms_app@postgres:5432/tms?schema=public
+      PLATFORM_DATABASE_URL: postgresql://tms_platform:tms_platform@postgres:5432/tms?schema=public
+      AUTH_DEV_SECRET: ci-only-secret-0123456789abcdef0123456789
+      FIELD_ENCRYPTION_KEYS: k1:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+      PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - run: git config --global --add safe.directory '*'
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - name: .env สำหรับ test/e2e (อ่านจาก .env แล้วสลับเป็น tms_test / tms_e2e)
+        run: env | grep -E '^(DATABASE_URL|APP_DATABASE_URL|PLATFORM_DATABASE_URL|AUTH_DEV_SECRET|FIELD_ENCRYPTION_KEYS)=' > .env
+      - name: role ฐานข้อมูล (เหมือน infra/postgres/init)
+        run: pnpm --filter @tms/api exec prisma db execute --file ../../infra/postgres/init/01-roles.sql --url "$DATABASE_URL"
+      - run: pnpm --filter @tms/api exec prisma generate
+      - run: pnpm --filter @tms/api db:migrate
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test # unit + integration + tenant-isolation harness + seed + PDF golden + KRS contract
+      - name: OpenAPI ต้องตรงกับโค้ด (ลืม export = แดง)
+        run: pnpm --filter @tms/api openapi:check
+      - name: OpenAPI breaking-change gate (เทียบกับ base branch)
+        if: github.event_name == 'pull_request'
+        run: |
+          git show origin/${{ github.base_ref }}:packages/contracts/openapi.json > /tmp/base-openapi.json 2>/dev/null || exit 0
+          pnpm --filter @tms/api openapi:diff /tmp/base-openapi.json
+      - run: pnpm build
+      - name: E2E (Playwright — API + web จริง บนฐาน tms_e2e)
+        run: pnpm e2e
+      - name: รายงาน E2E เมื่อแดง
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-report
+          path: |
+            apps/web/playwright-report
+            apps/web/test-results
+          if-no-files-found: ignore
+      - name: CVE gate (critical = แดง)
+        run: pnpm audit --audit-level=critical
+
+  deploy-staging:
+    needs: verify
+    if: github.ref == 'refs/heads/main' && vars.STAGING_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - run: echo "build image + prisma migrate deploy + deploy — เติมเมื่อเลือก cloud (plan/02 T-08)"

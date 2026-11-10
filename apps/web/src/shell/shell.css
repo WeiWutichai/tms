@@ -1,0 +1,11 @@
+/* hover ตาม style-hover ของ shell ในต้นแบบ */
+.tms-sb-item:hover {
+  background: #f4f5f2 !important;
+}
+.tms-sb-search:hover {
+  border-color: #c9cdc3 !important;
+}
+.tms-sb-foot:hover,
+.tms-sb-plain:hover {
+  background: #ebede8 !important;
+}

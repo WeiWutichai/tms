@@ -1,0 +1,26 @@
+import 'reflect-metadata';
+import { NestFactory } from '@nestjs/core';
+import { AppModule } from './app.module';
+import { createLogger } from './common/logger';
+import { JobQueue } from './jobs/job-queue.service';
+
+/**
+ * Worker process (outbox, webhook, job) — ใช้โค้ดร่วมกับ api (plan/02 T-01)
+ * ST0: วนหยิบ job; ST7 จะเพิ่ม outbox/webhook dispatcher ในลูปเดียวกัน
+ */
+async function main() {
+  const log = createLogger();
+  const ctx = await NestFactory.createApplicationContext(AppModule, { logger: ['error', 'warn'] });
+  const queue = ctx.get(JobQueue);
+  let stopping = false;
+  process.on('SIGTERM', () => (stopping = true));
+  process.on('SIGINT', () => (stopping = true));
+  log.info('worker started');
+  while (!stopping) {
+    const worked = await queue.runOnce().catch((e) => (log.error(e), false));
+    if (!worked) await new Promise((r) => setTimeout(r, 1000));
+  }
+  await ctx.close();
+}
+
+void main();

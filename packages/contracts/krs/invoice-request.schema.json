@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tms.example/contracts/krs/invoice-request.schema.json",
+  "title": "KRS api-pueanphet — POST /invoice และ PUT /invoice/{transactionNo} (body เดียวกัน)",
+  "description": "ที่มา: docs/01 Appendix A.1, A.3 ชื่อฟิลด์/ฟิลด์บังคับ = [KRS]; ส่งฟิลด์เกิน = 400 จึงห้ามมี key นอกรายการ (additionalProperties: false). ห้ามส่ง transactionNo/voucherNo (KRS ออกเอง). สถานะ: contract ปัจจุบัน — ยืนยันกับทีม KRS ใน plan/08 ก่อน ST8",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["tmsVoucherNo", "voucherDate", "dueDate", "paymentInDay", "custOrSuppCode", "custOrSuppName", "address", "deliveryAddress", "salePerson", "saleName", "entryBy", "lines"],
+  "properties": {
+    "tmsVoucherNo": { "type": "string", "minLength": 1, "description": "invoice_no ของ TMS — ส่งเลขเดิมทั้ง POST และ PUT (กันซ้ำ: 409 ถ้าซ้ำ)" },
+    "voucherDate": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+    "dueDate": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+    "paymentInDay": { "type": "integer", "minimum": 0 },
+    "custOrSuppCode": { "type": "string", "minLength": 1, "description": "รหัสลูกค้าของบริษัท PP (ยืนยันกับ KRS)" },
+    "custOrSuppName": { "type": "string", "minLength": 1 },
+    "address": { "type": "string" },
+    "deliveryAddress": { "type": "string" },
+    "salePerson": { "type": "string", "minLength": 1 },
+    "saleName": { "type": "string" },
+    "entryBy": { "type": "string", "minLength": 1 },
+    "lines": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["mainQuantity", "mainUnits", "unitPrice", "flowNo", "flowDate", "carId", "carPerson", "frWay", "toWay"],
+        "properties": {
+          "lineId": { "type": "integer" },
+          "mainQuantity": { "type": "number" },
+          "mainUnits": { "type": "string", "minLength": 1, "description": "ต้องตรง master KRS (เที่ยว/ตัน/กม.) ผ่าน erp_master_code" },
+          "unitPrice": { "type": "number" },
+          "flowNo": { "type": "string", "minLength": 1, "description": "เลข DO" },
+          "flowDate": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+          "carId": { "type": "string", "minLength": 1 },
+          "carPerson": { "type": "string", "minLength": 1 },
+          "frWay": { "type": "string", "minLength": 1 },
+          "toWay": { "type": "string", "minLength": 1 },
+          "itemCode": { "type": "string" },
+          "description": { "type": "string" },
+          "accountCode": { "type": "string" }
+        }
+      }
+    }
+  }
+}

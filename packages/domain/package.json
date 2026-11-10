@@ -1,0 +1,21 @@
+{
+  "name": "@tms/domain",
+  "version": "0.0.1",
+  "private": true,
+  "description": "กฎธุรกิจล้วน (ไม่มี I/O): เงิน, ภาษีต่อบรรทัด, state machine, enum",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "lint": "prettier --check src"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "vitest": "^4.1.12"
+  }
+}

@@ -1,0 +1,1044 @@
+// Prisma schema — ชื่อตาราง/คอลัมน์ snake_case ตาม docs/01 (T-15); model PascalCase; field camelCase
+// ทุกตาราง business มี tenant_id + RLS (migration เรียก tms_enable_tenant_rls) — harness ใน test/isolation ตรวจทุกตาราง
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum TenantStatus {
+  TRIAL
+  ACTIVE
+  SUSPENDED
+  CANCELLED
+
+  @@map("tenant_status")
+}
+
+enum CompanyStatus {
+  ACTIVE
+  INACTIVE
+
+  @@map("company_status")
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  SUCCEEDED
+  FAILED
+
+  @@map("job_status")
+}
+
+/// tenant = ลูกค้าของแพลตฟอร์ม 1 ราย (RLS: เห็นเฉพาะแถวของตัวเอง)
+model Tenant {
+  id        String       @id @default(uuid()) @db.Uuid
+  name      String
+  status    TenantStatus @default(TRIAL)
+  yearStyle String       @default("BE") @map("year_style") /// BE = พ.ศ., CE = ค.ศ. (D-30)
+  createdAt DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("tenant")
+}
+
+/// นิติบุคคลใน tenant (docs/01 §3.1) — ST0 ใช้เป็น resource ตัวอย่างของ plumbing; ST1 ขยายต่อ
+model Company {
+  id            String        @id @default(uuid()) @db.Uuid
+  tenantId      String        @map("tenant_id") @db.Uuid
+  legalName     String        @map("legal_name")
+  legalNameEn   String?       @map("legal_name_en")
+  taxId         String        @map("tax_id") @db.Char(13)
+  vatRegistered Boolean       @default(true) @map("vat_registered")
+  status        CompanyStatus @default(ACTIVE)
+  externalId    String?       @map("external_id")
+  version       Int           @default(1)
+  createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, taxId])
+  @@unique([tenantId, externalId])
+  @@index([tenantId, updatedAt, id])
+  @@map("company")
+}
+
+/// docs/01 §3.7 — (tenant_id, key, path) PK, เก็บ 24 ชม.
+model IdempotencyKey {
+  tenantId       String    @map("tenant_id") @db.Uuid
+  key            String
+  path           String
+  requestHash    String    @map("request_hash")
+  responseStatus Int?      @map("response_status")
+  responseBody   Json?     @map("response_body")
+  lockedUntil    DateTime? @map("locked_until") @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  expiresAt      DateTime  @map("expires_at") @db.Timestamptz(6)
+
+  @@id([tenantId, key, path])
+  @@index([expiresAt])
+  @@map("idempotency_key")
+}
+
+/// docs/01 §3.7 — ทุก transition ในหัวข้อ 4 เขียนที่นี่
+model DocStatusHistory {
+  id           String   @id @default(uuid()) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  docType      String   @map("doc_type")
+  docId        String   @map("doc_id") @db.Uuid
+  fromStatus   String   @map("from_status")
+  toStatus     String   @map("to_status")
+  event        String
+  actorId      String?  @map("actor_id")
+  reasonCodeId String?  @map("reason_code_id") @db.Uuid
+  note         String?
+  at           DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([tenantId, docType, docId, at])
+  @@map("doc_status_history")
+}
+
+/// docs/01 §3.7 — แหล่งเดียวของ webhook payload และ audit timeline
+model DomainEvent {
+  id                 String   @id @default(uuid()) @db.Uuid
+  tenantId           String   @map("tenant_id") @db.Uuid
+  type               String
+  version            Int      @default(1)
+  occurredAt         DateTime @default(now()) @map("occurred_at") @db.Timestamptz(6)
+  entityType         String   @map("entity_type")
+  localId            String   @map("local_id") @db.Uuid
+  snapshot           Json
+  previousAttributes Json?    @map("previous_attributes")
+  requestId          String?  @map("request_id")
+  actorId            String?  @map("actor_id")
+
+  @@index([tenantId, occurredAt])
+  @@index([tenantId, entityType, localId])
+  @@map("domain_event")
+}
+
+/// งาน async (ST0-T11) — worker หยิบแบบ round-robin ต่อ tenant
+model Job {
+  id          String    @id @default(uuid()) @db.Uuid
+  tenantId    String    @map("tenant_id") @db.Uuid
+  type        String
+  status      JobStatus @default(PENDING)
+  payload     Json      @default("{}")
+  progress    Int       @default(0) /// 0–100
+  result      Json?
+  error       Json?
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(3) @map("max_attempts")
+  runAt       DateTime  @default(dbgenerated("now()")) @map("run_at") @db.Timestamptz(6) /// ฐานข้อมูลใส่เอง — กันนาฬิกาเครื่อง app/DB ไม่ตรงกัน
+  startedAt   DateTime? @map("started_at") @db.Timestamptz(6)
+  finishedAt  DateTime? @map("finished_at") @db.Timestamptz(6)
+  lockedUntil DateTime? @map("locked_until") @db.Timestamptz(6)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([status, runAt])
+  @@index([tenantId, createdAt])
+  @@map("job")
+}
+
+// =====================================================================
+// Schema v0 (ST0-T19) — ตาม docs/01 §3 + plan/11-reconcile-decisions.md
+// ST1–ST2: freeze · ST3–ST4: ร่าง (รอ D-07, D-24) · ST5–ST6: ยังไม่ใส่ (รอนักบัญชี)
+// ทุกตารางมี tenant_id + RLS (migration 0004) — เงิน numeric(14,2), เวลา timestamptz
+// =====================================================================
+
+// ---------- ST1 Platform ----------
+enum UserStatus {
+  INVITED
+  ACTIVE
+  DISABLED
+
+  @@map("user_status")
+}
+
+/// ผู้ใช้ภายใน tenant (A2: ผู้ใช้หลายบริษัท = P1)
+model AppUser {
+  id           String     @id @default(uuid()) @db.Uuid
+  tenantId     String     @map("tenant_id") @db.Uuid
+  email        String
+  name         String
+  phone        String?
+  passwordHash String?    @map("password_hash") /// argon2id (T-04)
+  totpSecret   String?    @map("totp_secret") /// เข้ารหัสด้วย FieldCipher
+  tokenVersion Int        @default(0) @map("token_version")
+  status       UserStatus @default(INVITED)
+  lastLoginAt  DateTime?  @map("last_login_at") @db.Timestamptz(6)
+  version      Int        @default(1)
+  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, email])
+  @@map("app_user")
+}
+
+/// role ของ tenant (ชุดระบบ 8 role — plan/11 ข้อ 11) — permission แบบ `resource:verb`
+model Role {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  code        String
+  nameTh      String   @map("name_th")
+  nameEn      String?  @map("name_en")
+  permissions String[]
+  isSystem    Boolean  @default(false) @map("is_system")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, code])
+  @@map("role")
+}
+
+model UserRole {
+  tenantId  String   @map("tenant_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  roleId    String   @map("role_id") @db.Uuid
+  companyId String?  @map("company_id") @db.Uuid /// null = ทุกนิติบุคคล
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  id        String   @id @default(uuid()) @db.Uuid
+
+  @@unique([tenantId, userId, roleId, companyId])
+  @@map("user_role")
+}
+
+/// สถานประกอบการตาม ภ.พ.20 (docs/01 §3.1)
+model Branch {
+  id              String   @id @default(uuid()) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  companyId       String   @map("company_id") @db.Uuid
+  branchCode      String   @map("branch_code") @db.Char(5)
+  branchLabel     String   @map("branch_label")
+  address         Json
+  hqPrintsForAll  Boolean  @default(false) @map("hq_prints_for_all")
+  isDefaultIssuer Boolean  @default(false) @map("is_default_issuer")
+  version         Int      @default(1)
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, companyId, branchCode])
+  @@map("branch")
+}
+
+enum DocType {
+  SO
+  TRIP
+  DO
+  BN
+  INV
+  TXINV
+  RCP
+  CN
+  DN
+  STL
+  WHT
+  WO
+  INC
+
+  @@map("doc_type")
+}
+
+enum ResetPolicy {
+  MONTHLY
+  YEARLY
+  NEVER
+
+  @@map("reset_policy")
+}
+
+/// เลขรันต่อ (tenant, ประเภท, สาขา, งวด) — ออกเลขตอน finalize ด้วย FOR UPDATE (docs/01 §3.5)
+model DocumentSequence {
+  id             String      @id @default(uuid()) @db.Uuid
+  tenantId       String      @map("tenant_id") @db.Uuid
+  docType        DocType     @map("doc_type")
+  branchId       String?     @map("branch_id") @db.Uuid
+  periodKey      String      @map("period_key")
+  resetPolicy    ResetPolicy @default(MONTHLY) @map("reset_policy")
+  prefixTemplate String      @map("prefix_template")
+  padding        Int         @default(4)
+  nextValue      BigInt      @default(1) @map("next_value")
+  createdAt      DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, docType, branchId, periodKey])
+  @@map("document_sequence")
+}
+
+/// audit log (J: เก็บ 5 ปี) — append-only สำหรับ role แอป
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  at         DateTime @default(now()) @db.Timestamptz(6)
+  actorId    String?  @map("actor_id")
+  actAs      String?  @map("act_as") /// impersonate (claim act)
+  action     String
+  entityType String   @map("entity_type")
+  entityId   String?  @map("entity_id")
+  before     Json?
+  after      Json?
+  reason     String?
+  requestId  String?  @map("request_id")
+  ip         String?
+
+  @@index([tenantId, entityType, entityId, at])
+  @@index([tenantId, at])
+  @@map("audit_log")
+}
+
+// ---------- ST2 Master data + Fleet P0 ----------
+enum ActiveStatus {
+  ACTIVE
+  INACTIVE
+
+  @@map("active_status")
+}
+
+enum BillingCycle {
+  PER_DO
+  WEEKLY
+  MONTHLY
+  MANUAL
+
+  @@map("billing_cycle")
+}
+
+enum TaxInvoiceMode {
+  ON_PAYMENT
+  ON_ISSUE
+
+  @@map("tax_invoice_mode")
+}
+
+model Customer {
+  id                      String         @id @default(uuid()) @db.Uuid
+  tenantId                String         @map("tenant_id") @db.Uuid
+  code                    String
+  externalId              String?        @map("external_id")
+  legalName               String         @map("legal_name")
+  taxId                   String?        @map("tax_id") @db.Char(13)
+  branchCode              String?        @map("branch_code") @db.Char(5)
+  billingAddress          Json           @map("billing_address")
+  billingCycle            BillingCycle   @default(MONTHLY) @map("billing_cycle")
+  paymentTermDays         Int            @default(30) @map("payment_term_days")
+  taxInvoiceMode          TaxInvoiceMode @default(ON_PAYMENT) @map("tax_invoice_mode")
+  defaultVatType          VatType?       @map("default_vat_type") /// D-28 ค่าตั้งต้น — ค่าจริงอยู่ที่บรรทัด
+  whtExpectedRate         Decimal?       @map("wht_expected_rate") @db.Decimal(5, 2)
+  creditLimit             Decimal?       @map("credit_limit") @db.Decimal(14, 2)
+  podRequirements         Json           @default("{}") @map("pod_requirements")
+  defaultBillingCompanyId String?        @map("default_billing_company_id") @db.Uuid
+  status                  ActiveStatus   @default(ACTIVE)
+  version                 Int            @default(1)
+  createdAt               DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, code])
+  @@unique([tenantId, externalId])
+  @@index([tenantId, updatedAt, id])
+  @@map("customer")
+}
+
+enum GeocodeStatus {
+  OK
+  PENDING
+  FAILED
+
+  @@map("geocode_status")
+}
+
+/// จุดรับ/ส่ง (UI: "สถานที่ / จุดรับส่ง")
+model CustomerSite {
+  id                 String        @id @default(uuid()) @db.Uuid
+  tenantId           String        @map("tenant_id") @db.Uuid
+  customerId         String?       @map("customer_id") @db.Uuid /// null = จุดของบริษัทเอง (คลัง/ปั๊ม/จุดพัก)
+  name               String
+  address            Json
+  lat                Decimal?      @db.Decimal(9, 6)
+  lng                Decimal?      @db.Decimal(9, 6)
+  geocodeStatus      GeocodeStatus @default(PENDING) @map("geocode_status")
+  aliases            String[]
+  openTime           String?       @map("open_time")
+  closeTime          String?       @map("close_time")
+  vehicleTypeAllowed String[]      @map("vehicle_type_allowed")
+  avgDwellMin        Int?          @map("avg_dwell_min")
+  freeTimeMin        Int?          @map("free_time_min")
+  contact            Json?
+  externalId         String?       @map("external_id")
+  status             ActiveStatus  @default(ACTIVE)
+  version            Int           @default(1)
+  createdAt          DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, externalId])
+  @@index([tenantId, customerId])
+  @@index([tenantId, updatedAt, id])
+  @@map("customer_site")
+}
+
+enum CarrierEntityType {
+  INDIVIDUAL
+  JURISTIC
+
+  @@map("carrier_entity_type")
+}
+
+/// รถร่วม — แยกจาก driver เด็ดขาด
+model Carrier {
+  id              String            @id @default(uuid()) @db.Uuid
+  tenantId        String            @map("tenant_id") @db.Uuid
+  code            String
+  externalId      String?           @map("external_id")
+  legalName       String            @map("legal_name")
+  entityType      CarrierEntityType @map("entity_type")
+  taxIdEnc        String?           @map("tax_id_enc") /// บุคคลธรรมดา = เลขบัตร → FieldCipher
+  taxIdLast4      String?           @map("tax_id_last4")
+  branchCode      String?           @map("branch_code") @db.Char(5)
+  whtRateDefault  Decimal           @default(1.00) @map("wht_rate_default") @db.Decimal(5, 2)
+  bankAccountEnc  String?           @map("bank_account_enc") /// FieldCipher
+  paymentTermDays Int               @default(30) @map("payment_term_days")
+  requirePodToPay Boolean           @default(true) @map("require_pod_to_pay")
+  phone           String?
+  lineContact     String?           @map("line_contact")
+  score           Json              @default("{}")
+  status          ActiveStatus      @default(ACTIVE)
+  version         Int               @default(1)
+  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, code])
+  @@unique([tenantId, externalId])
+  @@index([tenantId, updatedAt, id])
+  @@map("carrier")
+}
+
+/// ประเภทรถ (master — D-29 ผสม: docs ใช้ enum, UI มีหน้าประเภทรถ)
+model VehicleType {
+  id              String       @id @default(uuid()) @db.Uuid
+  tenantId        String       @map("tenant_id") @db.Uuid
+  code            String /// PICKUP / 6W / 10W / TRAILER / REEFER …
+  nameTh          String       @map("name_th")
+  capacityKg      Decimal?     @map("capacity_kg") @db.Decimal(10, 2)
+  capacityCbm     Decimal?     @map("capacity_cbm") @db.Decimal(10, 2)
+  minLicenceClass String?      @map("min_licence_class") /// ท.2 / ท.3 / ท.4 (LEG-17 รอตาราง)
+  status          ActiveStatus @default(ACTIVE)
+  createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, code])
+  @@map("vehicle_type")
+}
+
+enum Ownership {
+  OWN
+  SUBCONTRACT
+
+  @@map("ownership")
+}
+
+enum VehicleStatus {
+  READY
+  MAINTENANCE
+  PARKED
+  RETIRED
+
+  @@map("vehicle_status")
+}
+
+model Vehicle {
+  id              String        @id @default(uuid()) @db.Uuid
+  tenantId        String        @map("tenant_id") @db.Uuid
+  plate           String
+  plateProvince   String        @map("plate_province")
+  vehicleTypeId   String        @map("vehicle_type_id") @db.Uuid
+  ownership       Ownership
+  carrierId       String?       @map("carrier_id") @db.Uuid /// บังคับเมื่อ SUBCONTRACT (CHECK ใน migration)
+  capacityKg      Decimal?      @map("capacity_kg") @db.Decimal(10, 2)
+  capacityCbm     Decimal?      @map("capacity_cbm") @db.Decimal(10, 2)
+  gpsProvider     String?       @map("gps_provider")
+  gpsDeviceId     String?       @map("gps_device_id")
+  chassisNo       String?       @map("chassis_no")
+  engineNo        String?       @map("engine_no")
+  brand           String?
+  model           String?
+  year            Int?
+  color           String?
+  fuelType        String?       @map("fuel_type")
+  odometerKm      Decimal?      @map("odometer_km") @db.Decimal(10, 1)
+  pairedVehicleId String?       @map("paired_vehicle_id") @db.Uuid /// หัวลาก ↔ หาง
+  purchaseCost    Decimal?      @map("purchase_cost") @db.Decimal(14, 2)
+  purchasedOn     DateTime?     @map("purchased_on") @db.Date
+  status          VehicleStatus @default(READY)
+  externalId      String?       @map("external_id")
+  version         Int           @default(1)
+  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, plate, plateProvince])
+  @@unique([tenantId, externalId])
+  @@index([tenantId, updatedAt, id])
+  @@map("vehicle")
+}
+
+enum EmploymentType {
+  EMPLOYEE_SALARIED
+  EMPLOYEE_PER_TRIP
+  CARRIER_DRIVER
+
+  @@map("employment_type")
+}
+
+model Driver {
+  id               String         @id @default(uuid()) @db.Uuid
+  tenantId         String         @map("tenant_id") @db.Uuid
+  name             String
+  phone            String?
+  licenceNo        String?        @map("licence_no")
+  licenceClass     String?        @map("licence_class")
+  licenceExpiresAt DateTime?      @map("licence_expires_at") @db.Date
+  employmentType   EmploymentType @map("employment_type")
+  carrierId        String?        @map("carrier_id") @db.Uuid /// บังคับเมื่อ CARRIER_DRIVER
+  defaultVehicleId String?        @map("default_vehicle_id") @db.Uuid
+  status           ActiveStatus   @default(ACTIVE)
+  externalId       String?        @map("external_id")
+  version          Int            @default(1)
+  createdAt        DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, externalId])
+  @@index([tenantId, updatedAt, id])
+  @@map("driver")
+}
+
+enum VehicleDocType {
+  INSURANCE
+  ACT
+  ANNUAL_TAX
+  INSPECTION
+  OPERATING_LICENCE
+  GPS_DLT
+  OTHER
+
+  @@map("vehicle_doc_type")
+}
+
+/// เอกสารรถ — ต่ออายุ = แถวใหม่อ้างฉบับเก่า (ST2-T17)
+model VehicleDocument {
+  id            String         @id @default(uuid()) @db.Uuid
+  tenantId      String         @map("tenant_id") @db.Uuid
+  vehicleId     String         @map("vehicle_id") @db.Uuid
+  docType       VehicleDocType @map("doc_type")
+  issuer        String?
+  refNo         String?        @map("ref_no")
+  coverageClass String?        @map("coverage_class")
+  sumInsured    Decimal?       @map("sum_insured") @db.Decimal(14, 2)
+  premium       Decimal?       @db.Decimal(14, 2)
+  startsOn      DateTime?      @map("starts_on") @db.Date
+  expiresOn     DateTime       @map("expires_on") @db.Date
+  fileKey       String?        @map("file_key")
+  renewsId      String?        @map("renews_id") @db.Uuid
+  createdAt     DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([tenantId, vehicleId, docType, expiresOn])
+  @@map("vehicle_document")
+}
+
+/// ledger ต้นทุนต่อคัน (plan/11 ข้อ 15) — append-only
+model VehicleCost {
+  id         String   @id @default(uuid()) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  vehicleId  String   @map("vehicle_id") @db.Uuid
+  category   String /// DOCUMENT / DEPRECIATION / FUEL / REPAIR / OTHER
+  amount     Decimal  @db.Decimal(14, 2)
+  occurredOn DateTime @map("occurred_on") @db.Date
+  sourceType String?  @map("source_type")
+  sourceId   String?  @map("source_id") @db.Uuid
+  note       String?
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([tenantId, vehicleId, occurredOn])
+  @@map("vehicle_cost")
+}
+
+enum VatType {
+  VAT_7
+  EXEMPT_TRANSPORT
+  ZERO_RATED
+
+  @@map("vat_type")
+}
+
+/// catalog รายการบนเอกสาร — vat_type/wht_rate ถูก snapshot ลงบรรทัดเอกสาร
+model ServiceItem {
+  id                 String       @id @default(uuid()) @db.Uuid
+  tenantId           String       @map("tenant_id") @db.Uuid
+  code               String
+  nameTh             String       @map("name_th")
+  nameEn             String?      @map("name_en")
+  vatType            VatType      @map("vat_type")
+  whtRate            Decimal      @map("wht_rate") @db.Decimal(5, 2)
+  unitLabel          String       @map("unit_label")
+  isSurcharge        Boolean      @default(false) @map("is_surcharge")
+  defaultAccountCode String?      @map("default_account_code")
+  status             ActiveStatus @default(ACTIVE)
+  createdAt          DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, code])
+  @@map("service_item")
+}
+
+enum RateSide {
+  SELL
+  BUY
+
+  @@map("rate_side")
+}
+
+enum PricingModel {
+  PER_TRIP
+  PER_KM
+  PER_TON
+  PER_CBM
+  PER_UNIT
+  PER_DAY
+
+  @@map("pricing_model")
+}
+
+enum RateStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  RETIRED
+
+  @@map("rate_status")
+}
+
+model RateCard {
+  id               String       @id @default(uuid()) @db.Uuid
+  tenantId         String       @map("tenant_id") @db.Uuid
+  side             RateSide
+  customerId       String?      @map("customer_id") @db.Uuid
+  carrierId        String?      @map("carrier_id") @db.Uuid
+  originSiteId     String?      @map("origin_site_id") @db.Uuid
+  destSiteId       String?      @map("dest_site_id") @db.Uuid
+  originZone       String?      @map("origin_zone")
+  destZone         String?      @map("dest_zone")
+  vehicleTypeId    String?      @map("vehicle_type_id") @db.Uuid
+  pricingModel     PricingModel @map("pricing_model")
+  unitPrice        Decimal      @map("unit_price") @db.Decimal(14, 2)
+  minCharge        Decimal?     @map("min_charge") @db.Decimal(14, 2)
+  extraStopPrice   Decimal?     @map("extra_stop_price") @db.Decimal(14, 2)
+  includedStops    Int          @default(1) @map("included_stops")
+  fuelSurchargePct Decimal?     @map("fuel_surcharge_pct") @db.Decimal(5, 2)
+  serviceItemId    String       @map("service_item_id") @db.Uuid
+  validFrom        DateTime     @map("valid_from") @db.Date
+  validTo          DateTime?    @map("valid_to") @db.Date
+  status           RateStatus   @default(DRAFT)
+  version          Int          @default(1)
+  createdAt        DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([tenantId, side, customerId, carrierId])
+  @@map("rate_card")
+}
+
+enum ReasonCategory {
+  ORDER_HOLD
+  DELIVERY_FAILED
+  REJECTED_BY_RECEIVER
+  POD_MISSING
+  CREDIT_NOTE
+  DEBIT_NOTE
+  SETTLEMENT_DISPUTE
+  OVERRIDE
+  CANCEL
+
+  @@map("reason_category")
+}
+
+model ReasonCode {
+  id             String         @id @default(uuid()) @db.Uuid
+  tenantId       String         @map("tenant_id") @db.Uuid
+  category       ReasonCategory
+  code           String
+  labelTh        String         @map("label_th")
+  labelEn        String?        @map("label_en")
+  requiresNote   Boolean        @default(false) @map("requires_note")
+  requiresPhoto  Boolean        @default(false) @map("requires_photo")
+  autoReschedule Boolean        @default(false) @map("auto_reschedule")
+  showOnTracking Boolean        @default(false) @map("show_on_tracking")
+  etdaCode       String?        @map("etda_code")
+  isSystem       Boolean        @default(false) @map("is_system")
+  status         ActiveStatus   @default(ACTIVE)
+  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, category, code])
+  @@map("reason_code")
+}
+
+// ---------- ST3 Orders / Planning (ร่าง — รอ D-07, D-24) ----------
+enum OrderSource {
+  MANUAL
+  IMPORT
+  API
+  PORTAL
+  CONNECTOR
+
+  @@map("order_source")
+}
+
+enum SoStatus {
+  DRAFT /// D-21
+  RECEIVED
+  ON_HOLD
+  PLANNED
+  IN_TRANSIT
+  PARTIALLY_DELIVERED
+  DELIVERED
+  CLOSED
+  CANCELLED
+
+  @@map("so_status")
+}
+
+model SalesOrder {
+  id                     String      @id @default(uuid()) @db.Uuid
+  tenantId               String      @map("tenant_id") @db.Uuid
+  soNo                   String?     @map("so_no") /// ออกเลขเมื่อพ้น DRAFT
+  source                 OrderSource
+  externalId             String?     @map("external_id")
+  customerId             String?     @map("customer_id") @db.Uuid
+  billingCompanyId       String      @map("billing_company_id") @db.Uuid
+  customerRef            String?     @map("customer_ref")
+  requestedDate          DateTime    @map("requested_date") @db.Date
+  vehicleTypeId          String?     @map("vehicle_type_id") @db.Uuid
+  status                 SoStatus    @default(DRAFT)
+  holdReasonCodeId       String?     @map("hold_reason_code_id") @db.Uuid
+  holdNote               String?     @map("hold_note")
+  sourceChangedAfterPlan Boolean     @default(false) @map("source_changed_after_plan")
+  sourceDiff             Json?       @map("source_diff")
+  lockedBy               String?     @map("locked_by")
+  lockedAt               DateTime?   @map("locked_at") @db.Timestamptz(6)
+  rawPayload             Json?       @map("raw_payload")
+  version                Int         @default(1)
+  createdAt              DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, soNo])
+  @@unique([tenantId, externalId])
+  @@index([tenantId, status, requestedDate])
+  @@index([tenantId, updatedAt, id])
+  @@map("sales_order")
+}
+
+enum StopType {
+  PICKUP
+  DELIVERY
+  RETURN
+
+  @@map("stop_type")
+}
+
+/// จุดรับ-ส่งของ SO หลายจุด (D-22)
+model SalesOrderStop {
+  id           String    @id @default(uuid()) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  salesOrderId String    @map("sales_order_id") @db.Uuid
+  sequence     Int
+  type         StopType
+  siteId       String?   @map("site_id") @db.Uuid /// ว่างจนกว่าจะ map จาก text
+  siteText     String    @map("site_text")
+  windowStart  DateTime? @map("window_start") @db.Timestamptz(6)
+  windowEnd    DateTime? @map("window_end") @db.Timestamptz(6)
+
+  @@unique([tenantId, salesOrderId, sequence])
+  @@map("sales_order_stop")
+}
+
+model SalesOrderLine {
+  id           String   @id @default(uuid()) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  salesOrderId String   @map("sales_order_id") @db.Uuid
+  lineNo       Int      @map("line_no")
+  itemCode     String?  @map("item_code")
+  description  String
+  qtyOrdered   Decimal  @map("qty_ordered") @db.Decimal(14, 3)
+  unit         String
+  weightKg     Decimal? @map("weight_kg") @db.Decimal(14, 3)
+  cbm          Decimal? @db.Decimal(14, 3)
+  isDangerous  Boolean  @default(false) @map("is_dangerous")
+  tempMin      Decimal? @map("temp_min") @db.Decimal(5, 1)
+  tempMax      Decimal? @map("temp_max") @db.Decimal(5, 1)
+
+  @@unique([tenantId, salesOrderId, lineNo])
+  @@map("sales_order_line")
+}
+
+enum TripStatus {
+  PLANNING
+  OFFERED
+  ASSIGNED
+  DISPATCHED
+  IN_PROGRESS
+  COMPLETED
+  COSTED
+  SETTLED
+  CANCELLED
+
+  @@map("trip_status")
+}
+
+enum AssignmentStatus {
+  OFFERED
+  ACCEPTED
+  REJECTED
+  EXPIRED
+
+  @@map("assignment_status")
+}
+
+model Trip {
+  id                   String            @id @default(uuid()) @db.Uuid
+  tenantId             String            @map("tenant_id") @db.Uuid
+  tripNo               String?           @map("trip_no")
+  tripDate             DateTime          @map("trip_date") @db.Date
+  vehicleId            String?           @map("vehicle_id") @db.Uuid
+  vehiclePlateSnapshot String?           @map("vehicle_plate_snapshot")
+  vehicleTypeSnapshot  String?           @map("vehicle_type_snapshot")
+  driverId             String?           @map("driver_id") @db.Uuid
+  driverNameSnapshot   String?           @map("driver_name_snapshot")
+  driverPhoneSnapshot  String?           @map("driver_phone_snapshot")
+  driverAcceptedAt     DateTime?         @map("driver_accepted_at") @db.Timestamptz(6) /// D-24 "คนขับรับงาน" เป็นธง (★ รอยืนยัน)
+  carrierId            String?           @map("carrier_id") @db.Uuid
+  carrierNameSnapshot  String?           @map("carrier_name_snapshot")
+  buyRateSnapshot      Json?             @map("buy_rate_snapshot")
+  assignmentStatus     AssignmentStatus? @map("assignment_status")
+  assignmentTokenHash  String?           @map("assignment_token_hash")
+  assignmentExpiresAt  DateTime?         @map("assignment_expires_at") @db.Timestamptz(6)
+  plannedDistanceKm    Decimal?          @map("planned_distance_km") @db.Decimal(10, 1)
+  plannedRoute         Json?             @map("planned_route") /// GeoJSON LineString (T-18)
+  actualDistanceKm     Decimal?          @map("actual_distance_km") @db.Decimal(10, 1)
+  ruleWarnings         Json              @default("[]") @map("rule_warnings") /// กฎตอนจัดงาน + เหตุผล override (★ D-07)
+  status               TripStatus        @default(PLANNING)
+  costAllocationMethod String            @default("BY_WEIGHT") @map("cost_allocation_method")
+  dispatchedAt         DateTime?         @map("dispatched_at") @db.Timestamptz(6)
+  completedAt          DateTime?         @map("completed_at") @db.Timestamptz(6)
+  version              Int               @default(1)
+  createdAt            DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, tripNo])
+  @@index([tenantId, tripDate, status])
+  @@index([tenantId, updatedAt, id])
+  @@map("trip")
+}
+
+enum StopStatus {
+  PENDING
+  ARRIVED
+  COMPLETED
+  FAILED
+  SKIPPED
+
+  @@map("stop_status")
+}
+
+model TripStop {
+  id               String     @id @default(uuid()) @db.Uuid
+  tenantId         String     @map("tenant_id") @db.Uuid
+  tripId           String     @map("trip_id") @db.Uuid
+  sequence         Int
+  type             StopType
+  siteId           String     @map("site_id") @db.Uuid
+  plannedArrival   DateTime?  @map("planned_arrival") @db.Timestamptz(6)
+  plannedDeparture DateTime?  @map("planned_departure") @db.Timestamptz(6)
+  arrivedAt        DateTime?  @map("arrived_at") @db.Timestamptz(6)
+  departedAt       DateTime?  @map("departed_at") @db.Timestamptz(6)
+  status           StopStatus @default(PENDING)
+  outcome          String?
+  failReasonCodeId String?    @map("fail_reason_code_id") @db.Uuid
+  detentionMin     Int?       @map("detention_min")
+  pod              Json?
+  lastEventId      String?    @map("last_event_id") @db.Uuid
+
+  @@unique([tenantId, tripId, sequence])
+  @@map("trip_stop")
+}
+
+enum DoStatus {
+  DRAFT
+  PLANNED
+  PICKED_UP /// D-23
+  DISPATCHED
+  DELIVERED
+  FAILED
+  RETURNED
+  POD_PENDING
+  UNBILLED
+  BILLED
+  CANCELLED
+
+  @@map("do_status")
+}
+
+model DeliveryOrder {
+  id                  String   @id @default(uuid()) @db.Uuid
+  tenantId            String   @map("tenant_id") @db.Uuid
+  doNo                String?  @map("do_no")
+  doDate              DateTime @map("do_date") @db.Date
+  salesOrderId        String   @map("sales_order_id") @db.Uuid
+  customerId          String   @map("customer_id") @db.Uuid
+  tripId              String?  @map("trip_id") @db.Uuid
+  tripStopId          String?  @map("trip_stop_id") @db.Uuid
+  originSiteId        String   @map("origin_site_id") @db.Uuid
+  destSiteId          String   @map("dest_site_id") @db.Uuid
+  weightKg            Decimal? @map("weight_kg") @db.Decimal(14, 3)
+  cbm                 Decimal? @db.Decimal(14, 3)
+  sellRateSnapshot    Json?    @map("sell_rate_snapshot")
+  revenueAmount       Decimal? @map("revenue_amount") @db.Decimal(14, 2)
+  allocatedCostAmount Decimal? @map("allocated_cost_amount") @db.Decimal(14, 2)
+  status              DoStatus @default(DRAFT)
+  podStatus           String   @default("NONE") @map("pod_status")
+  billingHold         Boolean  @default(false) @map("billing_hold")
+  redeliveryOfId      String?  @map("redelivery_of_id") @db.Uuid /// D-23 ส่งใหม่ = DO ใบใหม่
+  customerRef         String?  @map("customer_ref")
+  publicTokenHash     String?  @map("public_token_hash") /// tracking link (ST4-T14)
+  version             Int      @default(1)
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, doNo])
+  @@index([tenantId, status])
+  @@index([tenantId, tripId])
+  @@index([tenantId, updatedAt, id])
+  @@map("delivery_order")
+}
+
+model DeliveryOrderLine {
+  id                 String   @id @default(uuid()) @db.Uuid
+  tenantId           String   @map("tenant_id") @db.Uuid
+  deliveryOrderId    String   @map("delivery_order_id") @db.Uuid
+  salesOrderLineId   String?  @map("sales_order_line_id") @db.Uuid
+  qtyPlanned         Decimal  @map("qty_planned") @db.Decimal(14, 3)
+  qtyActual          Decimal? @map("qty_actual") @db.Decimal(14, 3)
+  rejectQty          Decimal? @map("reject_qty") @db.Decimal(14, 3)
+  rejectReasonCodeId String?  @map("reject_reason_code_id") @db.Uuid
+  unit               String
+
+  @@index([tenantId, deliveryOrderId])
+  @@map("delivery_order_line")
+}
+
+/// ค่าใช้จ่ายหน้างานที่จะเป็นบรรทัดเพิ่มในใบแจ้งหนี้ (snapshot vat_type/wht_rate)
+model DoSurcharge {
+  id              String   @id @default(uuid()) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  deliveryOrderId String   @map("delivery_order_id") @db.Uuid
+  serviceItemId   String   @map("service_item_id") @db.Uuid
+  vatType         VatType  @map("vat_type")
+  whtRate         Decimal  @map("wht_rate") @db.Decimal(5, 2)
+  qty             Decimal  @db.Decimal(14, 3)
+  unitPrice       Decimal  @map("unit_price") @db.Decimal(14, 2)
+  amount          Decimal  @db.Decimal(14, 2)
+  evidenceFileKey String?  @map("evidence_file_key")
+  approvedBy      String?  @map("approved_by")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([tenantId, deliveryOrderId])
+  @@map("do_surcharge")
+}
+
+model TripCost {
+  id               String   @id @default(uuid()) @db.Uuid
+  tenantId         String   @map("tenant_id") @db.Uuid
+  tripId           String   @map("trip_id") @db.Uuid
+  costType         String   @map("cost_type") /// FUEL / TOLL / DRIVER_WAGE / CARRIER_FEE / ALLOWANCE / REPAIR / OTHER
+  amount           Decimal  @db.Decimal(14, 2)
+  vatAmount        Decimal  @default(0) @map("vat_amount") @db.Decimal(14, 2)
+  source           String /// RATE_CARD / MANUAL / GPS / ADVANCE
+  carrierId        String?  @map("carrier_id") @db.Uuid
+  settlementLineId String?  @unique @map("settlement_line_id") @db.Uuid
+  allocated        Json     @default("{}")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([tenantId, tripId])
+  @@map("trip_cost")
+}
+
+// ---------- ST4 Execution (ร่าง) ----------
+enum StopEventType {
+  ARRIVE
+  DEPART
+  COMPLETE
+  FAIL
+
+  @@map("stop_event_type")
+}
+
+/// event ต่อจุดแวะ (append-only; idempotent ด้วย client_event_id) — docs/01 §3.9
+model StopEvent {
+  id            String        @id @default(uuid()) @db.Uuid
+  tenantId      String        @map("tenant_id") @db.Uuid
+  tripStopId    String        @map("trip_stop_id") @db.Uuid
+  type          StopEventType
+  outcome       String?
+  reasonCodeId  String?       @map("reason_code_id") @db.Uuid
+  clientEventId String        @map("client_event_id") @db.Uuid
+  source        String /// APP / WEB / LINK / API
+  actor         String?
+  lat           Decimal?      @db.Decimal(9, 6)
+  lng           Decimal?      @db.Decimal(9, 6)
+  accuracyM     Int?          @map("accuracy_m")
+  occurredAt    DateTime      @map("occurred_at") @db.Timestamptz(6)
+  receivedAt    DateTime      @default(now()) @map("received_at") @db.Timestamptz(6)
+  payload       Json?
+
+  @@unique([tenantId, clientEventId])
+  @@index([tenantId, tripStopId, occurredAt])
+  @@map("stop_event")
+}
+
+/// ไฟล์ (POD, PDF, เอกสารรถ) — เนื้อไฟล์อยู่ใน FileStore แบบ immutable (T-09)
+model StoredDocument {
+  id         String   @id @default(uuid()) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  fileKey    String   @map("file_key")
+  sha256     String
+  mimeType   String   @map("mime_type")
+  sizeBytes  Int      @map("size_bytes")
+  kind       String /// POD_PHOTO / POD_SIGNATURE / PDF / VEHICLE_DOC / OTHER
+  entityType String?  @map("entity_type")
+  entityId   String?  @map("entity_id") @db.Uuid
+  createdBy  String?  @map("created_by")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([tenantId, entityType, entityId])
+  @@map("stored_document")
+}
+
+/// ตำแหน่งรถ — schema เตรียมไว้ (T-18) ยังไม่มีตัวป้อนในเฟส 0; เก็บ 90 วัน
+model VehiclePosition {
+  id         BigInt   @id @default(autoincrement())
+  tenantId   String   @map("tenant_id") @db.Uuid
+  vehicleId  String   @map("vehicle_id") @db.Uuid
+  tripId     String?  @map("trip_id") @db.Uuid
+  source     String
+  lat        Decimal  @db.Decimal(9, 6)
+  lng        Decimal  @db.Decimal(9, 6)
+  speedKmh   Decimal? @map("speed_kmh") @db.Decimal(5, 1)
+  heading    Int?
+  accuracyM  Int?     @map("accuracy_m")
+  occurredAt DateTime @map("occurred_at") @db.Timestamptz(6)
+  receivedAt DateTime @default(now()) @map("received_at") @db.Timestamptz(6)
+
+  @@index([tenantId, vehicleId, occurredAt])
+  @@map("vehicle_position")
+}
