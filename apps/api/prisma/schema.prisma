@@ -166,22 +166,25 @@ enum UserStatus {
 
 /// ผู้ใช้ภายใน tenant (A2: ผู้ใช้หลายบริษัท = P1)
 model AppUser {
-  id            String     @id @default(uuid()) @db.Uuid
-  tenantId      String     @map("tenant_id") @db.Uuid
-  email         String
-  name          String
-  phone         String?
-  passwordHash  String?    @map("password_hash") /// argon2id (T-04)
-  totpSecret    String?    @map("totp_secret") /// เข้ารหัสด้วย FieldCipher
-  totpEnabledAt DateTime?  @map("totp_enabled_at") @db.Timestamptz(6) /// ตั้ง 2FA สำเร็จ (ST1-T05)
-  totpLastStep  BigInt?    @map("totp_last_step") /// time-step ล่าสุดที่ใช้แล้ว — กันใช้รหัสเดิมซ้ำ
-  tokenVersion  Int        @default(0) @map("token_version")
-  status        UserStatus @default(INVITED)
-  lastLoginAt   DateTime?  @map("last_login_at") @db.Timestamptz(6)
-  deletedAt     DateTime?  @map("deleted_at") @db.Timestamptz(6)
-  version       Int        @default(1)
-  createdAt     DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt     DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id                  String     @id @default(uuid()) @db.Uuid
+  tenantId            String     @map("tenant_id") @db.Uuid
+  email               String
+  name                String
+  phone               String?
+  passwordHash        String?    @map("password_hash") /// argon2id (T-04)
+  totpSecret          String?    @map("totp_secret") /// เข้ารหัสด้วย FieldCipher
+  totpEnabledAt       DateTime?  @map("totp_enabled_at") @db.Timestamptz(6) /// ตั้ง 2FA สำเร็จ (ST1-T05)
+  totpLastStep        BigInt?    @map("totp_last_step") /// time-step ล่าสุดที่ใช้แล้ว — กันใช้รหัสเดิมซ้ำ
+  tokenVersion        Int        @default(0) @map("token_version")
+  status              UserStatus @default(INVITED)
+  lastLoginAt         DateTime?  @map("last_login_at") @db.Timestamptz(6)
+  deletedAt           DateTime?  @map("deleted_at") @db.Timestamptz(6)
+  locale              String     @default("th") /// ST1-T09 ภาษา UI: th / en / zh
+  timezone            String     @default("Asia/Bangkok")
+  signatureDocumentId String?    @map("signature_document_id") @db.Uuid /// ลายเซ็นบนเอกสาร/50 ทวิ (stored_document kind SIGNATURE)
+  version             Int        @default(1)
+  createdAt           DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@unique([tenantId, email])
   @@map("app_user")

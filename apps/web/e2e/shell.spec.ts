@@ -39,6 +39,22 @@ test.describe('shell', () => {
     await expect(page.getByRole('button', { name: 'กระดานวางแผน', exact: true })).toBeVisible();
   });
 
+  test('ST1-T09: ภาษาเก็บในโปรไฟล์ — เปิดเครื่องใหม่ (ไม่มี localStorage) ก็ได้ภาษาเดิม', async ({
+    page,
+  }) => {
+    await page.goto('/');
+    await page.getByRole('button', { name: 'EN', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Planning board', exact: true })).toBeVisible();
+    await page.waitForResponse(
+      (r) => r.url().includes('/v1/me/profile') && r.request().method() === 'PATCH',
+    );
+    await page.evaluate(() => localStorage.clear());
+    await page.reload();
+    await expect(page.getByRole('button', { name: 'Planning board', exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'TH', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'กระดานวางแผน', exact: true })).toBeVisible();
+  });
+
   test('ย่อ/ขยาย sidebar', async ({ page }) => {
     await page.goto('/');
     await page.getByRole('button', { name: 'ย่อเมนู' }).click();
