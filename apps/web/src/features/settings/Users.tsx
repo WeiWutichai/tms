@@ -7,6 +7,7 @@ import { formatDateTime, useI18n } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
 import { can } from '../../nav';
 import { TwoFaBadge } from './Settings';
+import { useMe } from '../../shell/AppShell';
 import { StepUpBox } from './OrgSections';
 import { stepUp, useRoles, useUsers } from './useSettings';
 
@@ -214,8 +215,15 @@ function InviteDrawer({
 }) {
   const { t } = useI18n();
   const qc = useQueryClient();
+  const me = useMe();
+  // มอบ owner ได้เฉพาะ owner (API ตอบ 403 อยู่แล้ว) — ไม่แสดงตัวเลือกให้คนที่มอบไม่ได้
+  const ownerName = roles.find((r) => r.code === 'owner')?.name;
+  const isOwner = !!ownerName && !!me.data?.user?.roles.includes(ownerName);
+  const choices = roles.filter((r) => r.code !== 'owner' || isOwner);
   const [form, setForm] = useState({ email: '', name: '', roles: [] as string[] });
   const [needStepUp, setNeedStepUp] = useState(false);
+  // token step-up อายุ 5 นาที — เก็บไว้ใช้ซ้ำ (เชิญไม่สำเร็จแล้วแก้ข้อมูลส่งใหม่ไม่ต้องรอรหัสรอบถัดไป — QA T07 D3)
+  const [su, setSu] = useState<{ token: string; at: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const errs = fieldErrors(error, t);
@@ -226,11 +234,16 @@ function InviteDrawer({
         ? t('problem.internal_error')
         : null;
 
-  const send = async (otp: string) => {
+  const send = async (otp?: string) => {
     setBusy(true);
     setError(null);
     try {
-      const token = await stepUp(otp);
+      let token = su && Date.now() - su.at < 4 * 60_000 ? su.token : null;
+      if (!token) {
+        if (!otp) return setNeedStepUp(true);
+        token = await stepUp(otp);
+        setSu({ token, at: Date.now() });
+      }
       await unwrap(
         api.POST('/v1/users/invitations', {
           body: { email: form.email.trim(), name: form.name.trim(), roles: form.roles },
@@ -242,6 +255,7 @@ function InviteDrawer({
     } catch (e) {
       setError(e);
       setNeedStepUp(false);
+      if (e instanceof ApiError && e.problem.code === 'step_up_required') setSu(null);
     } finally {
       setBusy(false);
     }
@@ -249,7 +263,8 @@ function InviteDrawer({
   const submit = (e: FormEvent) => {
     e.preventDefault();
     setError(null);
-    setNeedStepUp(true);
+    if (su && Date.now() - su.at < 4 * 60_000) void send();
+    else setNeedStepUp(true);
   };
 
   return (
@@ -309,7 +324,7 @@ function InviteDrawer({
             {t('users.col.role')}
           </legend>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {roles.map((r) => (
+            {choices.map((r) => (
               <label key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                 <input
                   type="checkbox"

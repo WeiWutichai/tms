@@ -14,6 +14,7 @@ import { Transform } from 'class-transformer';
 import {
   ArrayMaxSize,
   ArrayMinSize,
+  ArrayUnique,
   IsEmail,
   IsIn,
   IsNotEmpty,
@@ -34,6 +35,38 @@ import { ReasonDto } from './user-lifecycle.controller';
 
 /** docs/04 A2: ลิงก์เชิญ 7 วัน */
 export const INVITE_TTL_DAYS = 7;
+/** กันใช้ระบบเป็นช่องส่งอีเมลขยะ/ฟิชชิง: เชิญ+ส่งใหม่ได้ 50 ฉบับ/วัน/บริษัท, ส่งใหม่ฉบับเดิมห่างกัน ≥ 60 วิ */
+export const INVITES_PER_DAY = 50;
+export const RESEND_COOLDOWN_S = 60;
+
+/** นับ seat (ACTIVE + INVITED) เทียบ entitlement `users` — ล็อกต่อ tenant ให้นับพร้อมกันถูก (ใช้ทั้งเชิญและเปิดใช้คืน) */
+export async function assertSeat(tx: Tx, entitlements: EntitlementService, tenantId: string) {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(6, hashtext(${tenantId}))`;
+  const limit = (await entitlements.resolve(tenantId)).users?.limit ?? null;
+  if (limit === null) return;
+  const used = await tx.appUser.count({ where: { status: { in: ['ACTIVE', 'INVITED'] } } });
+  if (used >= limit)
+    throw new ProblemException('seat_limit_reached', undefined, undefined, { limit });
+}
+
+/** อีเมลจริงของผู้ใช้ที่ลบ/เพิกถอน → ค่า anonymize (PDPA) — ใช้ร่วมกับ users/:id/delete */
+export const anonymizedEmail = (userId: string) => `deleted-${userId}@deleted.invalid`;
+/**
+ * ชื่อที่ tenant กรอกเองลงในอีเมล — ตัด URL/โดเมนออก (client อีเมลทำลิงก์อัตโนมัติ → ฟิชชิงด้วยโดเมนเรา; review T07 #2)
+ */
+export function safeName(s: string): string {
+  return s
+    .replace(/[a-z][a-z0-9+.-]*:\/\/\S*/gi, '')
+    .replace(/\bwww\.\S*/gi, '')
+    .replace(
+      /\b[\w-]+(\.[\w-]+)*\.(com|net|org|co|io|me|th|xyz|info|app|link|ly|ru|cn|top|site|online|dev|biz|us|uk|asia|shop|click)\b\S*/gi,
+      '',
+    )
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 120);
+}
+
 const trim = ({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value);
 
 export class CreateInvitationDto {
@@ -53,6 +86,7 @@ export class CreateInvitationDto {
   @ApiProperty({ type: [String], example: ['planner'], description: 'role code ระบบ (ตาราง A3)' })
   @ArrayMinSize(1)
   @ArrayMaxSize(9)
+  @ArrayUnique()
   @IsIn([...ROLE_CODES], { each: true })
   roles!: string[];
 }
@@ -101,8 +135,9 @@ export class InvitationsController {
     const tx = this.db.tx;
     const ctx = requestContext.require();
     const tenantId = ctx.tenantId!;
-    // ล็อกต่อ tenant — นับ seat และกันเชิญอีเมลเดียวกันพร้อมกัน
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(6, hashtext(${tenantId}))`;
+    // ล็อกต่อ tenant (ใน assertSeat) — นับ seat และกันเชิญอีเมลเดียวกันพร้อมกัน
+    await assertSeat(tx, this.entitlements, tenantId);
+    await this.assertDailyCap(tx);
     const existing = await tx.appUser.findFirst({
       where: { email: { equals: body.email, mode: 'insensitive' }, status: { not: 'DELETED' } },
     });
@@ -113,12 +148,6 @@ export class InvitationsController {
       });
     const roles = await tx.role.findMany({ where: { code: { in: body.roles } } });
     await this.guardOwnerGrant(tx, roles);
-    const limit = (await this.entitlements.resolve(tenantId)).users?.limit ?? null;
-    if (limit !== null) {
-      const used = await tx.appUser.count({ where: { status: { in: ['ACTIVE', 'INVITED'] } } });
-      if (used >= limit)
-        throw new ProblemException('seat_limit_reached', undefined, undefined, { limit });
-    }
     const user = await tx.appUser.create({
       data: { tenantId, email: body.email, name: body.name, status: 'INVITED', locale: 'th' },
     });
@@ -130,7 +159,8 @@ export class InvitationsController {
       action: 'user.invited',
       entityType: 'user',
       entityId: user.id,
-      after: { email: body.email, roles: [...body.roles].sort(), invitationId: inv.id },
+      // ไม่เก็บอีเมลใน audit (append-only ลบไม่ได้ — PDPA); อ้างผู้ใช้ด้วย entityId
+      after: { roles: [...body.roles].sort(), invitationId: inv.id },
     });
     return this.toDto(inv, user, roles);
   }
@@ -169,6 +199,10 @@ export class InvitationsController {
   async resend(@Param('id') id: string): Promise<InvitationDto> {
     const tx = this.db.tx;
     const { inv, user } = await this.open(id);
+    const wait = Math.ceil(RESEND_COOLDOWN_S - (Date.now() - inv.createdAt.getTime()) / 1000);
+    if (wait > 0)
+      throw new ProblemException('rate_limited', undefined, undefined, { retryAfter: wait });
+    await this.assertDailyCap(tx);
     await tx.userInvitation.update({
       where: { id: inv.id },
       data: { revokedAt: new Date(), revokedReason: 'resent' },
@@ -192,21 +226,29 @@ export class InvitationsController {
   @RequireScope('users:write')
   async revoke(@Param('id') id: string, @Body() body: ReasonDto): Promise<void> {
     const tx = this.db.tx;
-    const { inv, user } = await this.open(id, true);
+    const { inv, user } = await this.open(id);
+    // คำเชิญที่มอบ owner เพิกถอนได้เฉพาะ owner (เหมือนลบ owner — users/:id/delete)
+    await this.guardOwnerGrant(tx, await this.rolesOf(tx, user.id));
     await tx.userInvitation.update({
       where: { id: inv.id },
       data: { revokedAt: new Date(), revokedReason: body.reason },
     });
     await tx.userRole.deleteMany({ where: { userId: user.id } });
-    await tx.appUser.update({
-      where: { id: user.id },
+    const r = await tx.appUser.updateMany({
+      where: { id: user.id, status: 'INVITED' },
       data: {
         status: 'DELETED',
         name: 'ผู้ใช้ที่ลบแล้ว',
-        email: `deleted-${user.id}@deleted.invalid`,
+        email: anonymizedEmail(user.id),
         deletedAt: new Date(),
         tokenVersion: { increment: 1 },
       },
+    });
+    if (r.count !== 1) throw new ProblemException('invalid_state_transition');
+    // อีเมลจริงในประวัติคำเชิญถูกแทนด้วยค่า anonymize ด้วย
+    await tx.userInvitation.updateMany({
+      where: { userId: user.id },
+      data: { email: anonymizedEmail(user.id) },
     });
     await this.audit.record({
       action: 'user.invitation_revoked',
@@ -218,18 +260,27 @@ export class InvitationsController {
   }
 
   /** คำเชิญที่ยังเปิดอยู่ (ไม่รับ/ไม่เพิกถอน, ผู้ใช้ยัง INVITED) — หมดอายุแล้วส่งใหม่/เพิกถอนได้ */
-  private async open(id: string, allowExpired = true) {
+  private async open(id: string) {
     const tx = this.db.tx;
+    const invId = decodeIdOr404('invitation', id);
+    // ล็อกแถวคำเชิญก่อนอ่าน — รับคำเชิญ (claim แถวเดียวกัน) กับส่งใหม่/เพิกถอนทำทีละราย (review T07 #1)
+    await tx.$queryRaw`SELECT id FROM user_invitation WHERE id = ${invId}::uuid FOR UPDATE`;
     const inv = await tx.userInvitation.findUnique({
-      where: { id: decodeIdOr404('invitation', id) },
+      where: { id: invId },
       include: { user: true },
     });
     if (!inv) throw new ProblemException('not_found');
     if (inv.acceptedAt || inv.revokedAt || inv.user.status !== 'INVITED')
       throw new ProblemException('invalid_state_transition');
-    if (!allowExpired && inv.expiresAt.getTime() <= Date.now())
-      throw new ProblemException('invalid_state_transition');
     return { inv, user: inv.user };
+  }
+
+  /** เชิญ + ส่งใหม่ไม่เกิน 50 ฉบับ/24 ชม./บริษัท */
+  private async assertDailyCap(tx: Tx) {
+    const since = new Date(Date.now() - 86400_000);
+    const sent = await tx.userInvitation.count({ where: { createdAt: { gte: since } } });
+    if (sent >= INVITES_PER_DAY)
+      throw new ProblemException('rate_limited', undefined, undefined, { retryAfter: 3600 });
   }
 
   private async rolesOf(tx: Tx, userId: string): Promise<Role[]> {
@@ -280,8 +331,8 @@ export class InvitationsController {
       vars: {
         link: `${webBaseUrl()}/invite#token=${token}`,
         days: INVITE_TTL_DAYS,
-        tenantName: tenant?.name ?? '',
-        inviterName: inviter?.name ?? tenant?.name ?? '',
+        tenantName: safeName(tenant?.name ?? ''),
+        inviterName: safeName(inviter?.name ?? tenant?.name ?? ''),
         roles: roles.map((r) => r.nameTh).join(', '),
       },
     });

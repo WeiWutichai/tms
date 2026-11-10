@@ -46,6 +46,12 @@ describe('user invitations', () => {
     if (!t) throw new Error(`no invite mail for ${to}`);
     return t;
   }
+  /** ย้อนเวลาสร้างคำเชิญ (ข้าม cooldown ส่งใหม่) */
+  const backdate = (email: string) =>
+    db.userInvitation.updateMany({
+      where: { email },
+      data: { createdAt: new Date(Date.now() - 120_000) },
+    });
   const pub = (path: string, body: object) =>
     request(app.getHttpServer())
       .post(`/v1/auth/invitations/${path}`)
@@ -229,6 +235,11 @@ describe('user invitations', () => {
     const o = await as(tA, ownerA);
     const inv = (await o.invite({ email: 'resend@inv.test', name: 'r', roles: ['viewer'] })).body;
     const first = await tokenOf('resend@inv.test');
+    // ส่งใหม่ทันทีไม่ได้ (cooldown 60 วิ)
+    const early = await o.resend(inv.id);
+    expect(early.status).toBe(429);
+    expect(Number(early.headers['retry-after'])).toBeGreaterThan(0);
+    await backdate('resend@inv.test');
     const again = await o.resend(inv.id);
     expect(again.status).toBe(200);
     const second = await tokenOf('resend@inv.test');
@@ -246,6 +257,12 @@ describe('user invitations', () => {
     expect(
       (await o.users()).body.data.some((x: { email: string }) => x.email === 'resend@inv.test'),
     ).toBe(false);
+    // อีเมลจริงไม่เหลือในประวัติคำเชิญ/audit (PDPA)
+    expect(await db.userInvitation.count({ where: { email: 'resend@inv.test' } })).toBe(0);
+    const audits = await db.auditLog.findMany({ where: { tenantId: tA } });
+    expect(JSON.stringify(audits.map((a) => [a.before, a.after, a.reason]))).not.toContain(
+      'resend@inv.test',
+    );
     // เพิกถอนแล้วเชิญอีเมลเดิมใหม่ได้
     await o.invite({ email: 'resend@inv.test', name: 'r', roles: ['viewer'] }).expect(201);
     // เพิกถอนต้องมีเหตุผล / ทำซ้ำไม่ได้
@@ -267,6 +284,7 @@ describe('user invitations', () => {
     expect((await o.list()).body.data.find((x: { id: string }) => x.id === inv.id).status).toBe(
       'expired',
     );
+    await backdate('late@inv.test');
     await o.resend(inv.id).expect(200);
     await pub('accept', {
       token: await tokenOf('late@inv.test'),
@@ -295,5 +313,87 @@ describe('user invitations', () => {
       false,
     );
     expect((await pub('inspect', { token: 'nope' })).body.code).toBe('invitation_invalid');
+  });
+
+  it('owner invitation: admin เพิกถอนไม่ได้, owner ทำได้', async () => {
+    const o = await as(tA, ownerA);
+    const inv = (await o.invite({ email: 'co-owner@inv.test', name: 'co', roles: ['owner'] })).body;
+    const a = await as(tA, adminA);
+    expect((await a.revoke(inv.id)).status).toBe(403);
+    await o.revoke(inv.id).expect(204);
+  });
+
+  it('เพิกถอนหลังผู้รับกดรับแล้ว → 409 ผู้ใช้ไม่ถูกลบ', async () => {
+    const o = await as(tA, ownerA);
+    const inv = (await o.invite({ email: 'late-revoke@inv.test', name: 'lr', roles: ['viewer'] }))
+      .body;
+    await pub('accept', {
+      token: await tokenOf('late-revoke@inv.test'),
+      password: 'late-revoke-pass-2569',
+    }).expect(204);
+    expect((await o.revoke(inv.id)).status).toBe(409);
+    expect((await db.appUser.findFirst({ where: { email: 'late-revoke@inv.test' } }))?.status).toBe(
+      'ACTIVE',
+    );
+  });
+
+  it('role ซ้ำในรายการ → 422; ชื่อที่มี URL ถูกตัดออกจากอีเมล', async () => {
+    const o = await as(tA, ownerA);
+    expect(
+      (await o.invite({ email: 'dup@inv.test', name: 'd', roles: ['viewer', 'viewer'] })).status,
+    ).toBe(422);
+    const { safeName } = await import('../src/modules/users/invitations.controller');
+    expect(safeName('บริษัท ดี ยืนยันที่ https://evil.example/x ด่วน')).toBe(
+      'บริษัท ดี ยืนยันที่ ด่วน',
+    );
+    expect(safeName('กดที่ www.evil.com เลย')).toBe('กดที่ เลย');
+    expect(safeName('ไปที่ evil.co.th/login')).toBe('ไปที่');
+    expect(safeName('ABC Co.,Ltd.')).toBe('ABC Co.,Ltd.');
+  });
+
+  it('เชิญ+ส่งใหม่เกิน 50 ฉบับ/วัน → 429; เปิดใช้คืนเกิน seat → 409', async () => {
+    const o = await as(tA, ownerA);
+    const fakeUser = await db.appUser.create({
+      data: { tenantId: tA, email: 'cap-filler@inv.test', name: 'f', status: 'DISABLED' },
+    });
+    const count = await db.userInvitation.count({ where: { tenantId: tA } });
+    await db.userInvitation.createMany({
+      data: Array.from({ length: Math.max(0, 50 - count) }, (_, i) => ({
+        tenantId: tA,
+        userId: fakeUser.id,
+        email: 'cap-filler@inv.test',
+        tokenHash: `cap-${i}-${Date.now()}`,
+        expiresAt: new Date(Date.now() + 86400_000),
+        revokedAt: new Date(),
+      })),
+    });
+    const r = await o.invite({ email: 'over-cap@inv.test', name: 'o', roles: ['viewer'] });
+    expect(r.status).toBe(429);
+    // seat ตอนเปิดใช้คืน
+    const used = await db.appUser.count({
+      where: { tenantId: tA, status: { in: ['ACTIVE', 'INVITED'] } },
+    });
+    await db.tenantEntitlementOverride.create({
+      data: {
+        tenantId: tA,
+        featureKey: 'users',
+        mode: 'set_limit',
+        limit: used,
+        reason: 'ทดสอบจำนวนผู้ใช้',
+      },
+    });
+    app.get(EntitlementService).invalidate(tA);
+    try {
+      const act = await api(app, await tokenFor(tA, '*', ownerA))
+        .post(`/v1/users/usr_${fakeUser.id.replace(/-/g, '')}/activate`)
+        .send({ reason: 'กลับมาทำงาน' });
+      expect(act.status).toBe(409);
+      expect(act.body.code).toBe('seat_limit_reached');
+    } finally {
+      await db.tenantEntitlementOverride.deleteMany({
+        where: { tenantId: tA, featureKey: 'users' },
+      });
+      app.get(EntitlementService).invalidate(tA);
+    }
   });
 });

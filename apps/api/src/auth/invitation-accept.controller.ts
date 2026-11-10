@@ -7,7 +7,7 @@ import {
   ApiPropertyOptional,
   ApiTags,
 } from '@nestjs/swagger';
-import type { AppUser } from '@prisma/client';
+import type { AppUser, PrismaClient } from '@prisma/client';
 import { Transform } from 'class-transformer';
 import { IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
 import type { Request, Response } from 'express';
@@ -140,17 +140,48 @@ export class InvitationAcceptService {
         throw new ProblemException('validation_failed', undefined, [
           { field: 'currentPassword', code: 'isNotEmpty', message: 'currentPassword is required' },
         ]);
-      const locked = await lockSeconds(db, email, client.ip, Date.now());
+      // จองช่องแบบเดียวกับ login: ล็อกต่ออีเมล → IP แล้วตรวจเพดาน + เขียน attempt ใน transaction สั้น (กันยิงขนานเลี่ยงเพดาน)
+      const who = { tenantId: inv.tenantId, userId: inv.userId };
+      let locked = 0;
+      try {
+        locked = await db.$transaction(
+          async (tx) => {
+            await tx.$executeRaw`SELECT pg_advisory_xact_lock(1, hashtext(${email}))`;
+            await tx.$executeRaw`SELECT pg_advisory_xact_lock(2, hashtext(${client.ip}))`;
+            const t = tx as unknown as PrismaClient;
+            const l = await lockSeconds(t, email, client.ip, Date.now());
+            await recordAttempt(t, email, client, {
+              success: false,
+              reason: l > 0 ? 'locked' : 'attempt',
+              ...who,
+            });
+            return l;
+          },
+          { maxWait: 2_000, timeout: 5_000 },
+        );
+      } catch (e) {
+        const code = (e as { code?: string }).code;
+        if (code === 'P2024' || code === 'P2028' || code === 'P2010')
+          throw new ProblemException('rate_limited');
+        throw e;
+      }
       if (locked > 0)
         throw new ProblemException('account_locked', undefined, undefined, { retryAfter: locked });
-      await recordAttempt(db, email, client, { success: false, reason: 'attempt' });
       let match: AppUser | undefined;
       for (const u of existing)
         if (await verifyPassword(u.passwordHash!, body.currentPassword)) {
           match = u;
           break;
         }
-      if (!match)
+      if (!match) {
+        // ให้เห็นในประวัติ login ของบริษัทเจ้าของบัญชีด้วย (เหมือน login ผิด)
+        for (const u of existing)
+          await recordAttempt(db, email, client, {
+            success: false,
+            reason: 'invalid_credentials',
+            tenantId: u.tenantId,
+            userId: u.id,
+          });
         throw new ProblemException('validation_failed', undefined, [
           {
             field: 'currentPassword',
@@ -158,7 +189,8 @@ export class InvitationAcceptService {
             message: 'password is incorrect',
           },
         ]);
-      await recordAttempt(db, email, client, { success: true, reason: 'password_ok' });
+      }
+      await recordAttempt(db, email, client, { success: true, reason: 'password_ok', ...who });
       hash = match.passwordHash!;
     } else {
       if (!body.password)

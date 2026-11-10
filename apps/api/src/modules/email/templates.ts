@@ -31,7 +31,13 @@ function layout(
 
 export interface TemplateVars {
   password_reset: { link: string; minutes: number };
-  user_invitation: { link: string; days: number; tenantName: string; inviterName: string; roles: string };
+  user_invitation: {
+    link: string;
+    days: number;
+    tenantName: string;
+    inviterName: string;
+    roles: string;
+  };
 }
 export type TemplateName = keyof TemplateVars;
 
