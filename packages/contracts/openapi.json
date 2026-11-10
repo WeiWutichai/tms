@@ -346,6 +346,76 @@
         ]
       }
     },
+    "/v1/me/profile": {
+      "get": {
+        "operationId": "Profile_get",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform"
+        ]
+      },
+      "patch": {
+        "operationId": "Profile_update",
+        "parameters": [
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProfileDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform"
+        ]
+      }
+    },
     "/v1/companies": {
       "post": {
         "operationId": "Companies_create",
@@ -1985,12 +2055,22 @@
             "items": {
               "type": "string"
             }
+          },
+          "locale": {
+            "type": "string",
+            "enum": [
+              "th",
+              "en",
+              "zh"
+            ],
+            "description": "ภาษา UI ที่ผู้ใช้เลือก (ST1-T09)"
           }
         },
         "required": [
           "name",
           "email",
-          "roles"
+          "roles",
+          "locale"
         ]
       },
       "MePlanDto": {
@@ -2076,6 +2156,108 @@
           "plan",
           "lockedIn"
         ]
+      },
+      "ProfileSignatureDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "doc_…"
+          },
+          "mime": {
+            "type": "string"
+          },
+          "downloadUrl": {
+            "type": "string",
+            "description": "ลิงก์ดาวน์โหลด (หมดอายุ 5 นาที)"
+          }
+        },
+        "required": [
+          "id",
+          "mime",
+          "downloadUrl"
+        ]
+      },
+      "ProfileDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "phone": {
+            "type": "string",
+            "nullable": true
+          },
+          "locale": {
+            "type": "string",
+            "enum": [
+              "th",
+              "en",
+              "zh"
+            ]
+          },
+          "timezone": {
+            "type": "string",
+            "enum": [
+              "Asia/Bangkok"
+            ]
+          },
+          "signature": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ProfileSignatureDto"
+              }
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "email",
+          "phone",
+          "locale",
+          "timezone",
+          "signature"
+        ]
+      },
+      "UpdateProfileDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "สมชาย ใจดี"
+          },
+          "phone": {
+            "type": "object",
+            "example": "0812345678",
+            "nullable": true,
+            "description": "เบอร์ไทย 0xxxxxxxxx หรือ +66… · null = ลบ"
+          },
+          "locale": {
+            "type": "string",
+            "enum": [
+              "th",
+              "en",
+              "zh"
+            ]
+          },
+          "timezone": {
+            "type": "string",
+            "enum": [
+              "Asia/Bangkok"
+            ]
+          },
+          "signatureDocumentId": {
+            "type": "object",
+            "example": "doc_…",
+            "nullable": true,
+            "description": "ลายเซ็น: เอกสาร kind SIGNATURE (PNG/JPEG/WebP) ที่ผู้ใช้อัปโหลดเองและ ready แล้ว · null = ลบ"
+          }
+        }
       },
       "CreateCompanyDto": {
         "type": "object",

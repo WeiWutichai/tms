@@ -20,6 +20,8 @@ export class MeUserDto {
   @ApiProperty() name!: string;
   @ApiProperty() email!: string;
   @ApiProperty({ type: [String], description: 'ชื่อ role (ไทย) ที่ผู้ใช้ถือ' }) roles!: string[];
+  @ApiProperty({ enum: ['th', 'en', 'zh'], description: 'ภาษา UI ที่ผู้ใช้เลือก (ST1-T09)' })
+  locale!: string;
 }
 export class MePlanDto {
   @ApiProperty({ example: 'std' }) code!: string;
@@ -106,7 +108,9 @@ export class MeController {
       features,
       plan: { code: t.planCode, name: name(t.planCode) },
       lockedIn,
-      user: u ? { name: u.name, email: u.email, roles: roles.map((r) => r.nameTh) } : null,
+      user: u
+        ? { name: u.name, email: u.email, roles: roles.map((r) => r.nameTh), locale: u.locale }
+        : null,
       actorId: ctx.actorId!,
       scopes: ctx.scopes ?? [],
       tenant: {

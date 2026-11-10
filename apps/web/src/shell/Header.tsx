@@ -1,4 +1,5 @@
 import { Icon } from '@tms/ui';
+import { api, queryClient } from '../api';
 import { formatLongDate, useI18n, type Lang } from '../i18n';
 
 /** แถบบน — <header> สูง 56 ใน TMS v4: breadcrumb, วันที่, สลับภาษา, กระดิ่ง, ปุ่ม + */
@@ -77,7 +78,25 @@ export function Header({
               key={k}
               type="button"
               aria-pressed={on}
-              onClick={() => setLang(k)}
+              onClick={() => {
+                setLang(k);
+                // ST1-T09: เก็บภาษาในโปรไฟล์ — เข้าระบบจากเครื่องอื่นได้ภาษาเดิม
+                void api
+                  .PATCH('/v1/me/profile', { body: { locale: k } })
+                  .then((r) => {
+                    // cache ของ /me ต้องรู้ภาษาใหม่ด้วย — กันค่าเก่าทับตอน login ใหม่ในแท็บเดิม
+                    if (r.data)
+                      queryClient.setQueryData(['me'], (m: unknown) =>
+                        m && typeof m === 'object' && 'user' in m && (m as { user: unknown }).user
+                          ? {
+                              ...(m as object),
+                              user: { ...(m as { user: object }).user, locale: k },
+                            }
+                          : m,
+                      );
+                  })
+                  .catch(() => undefined);
+              }}
               style={{
                 height: 28,
                 minWidth: 42,

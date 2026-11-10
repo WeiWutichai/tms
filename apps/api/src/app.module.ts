@@ -30,6 +30,7 @@ import { CompaniesService } from './modules/companies/companies.service';
 import { HealthController } from './modules/health/health.controller';
 import { JobsController } from './modules/jobs/jobs.controller';
 import { MeController } from './modules/me/me.controller';
+import { ProfileController } from './modules/me/profile.controller';
 import { UsersController } from './modules/users/users.controller';
 import { UserLifecycleController } from './modules/users/user-lifecycle.controller';
 import { PdfRenderer } from './pdf/pdf-renderer';
@@ -42,6 +43,7 @@ import { StateService } from './state/state.service';
     PasswordController,
     HealthController,
     MeController,
+    ProfileController,
     CompaniesController,
     UsersController,
     UserLifecycleController,

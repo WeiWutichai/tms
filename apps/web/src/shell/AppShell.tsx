@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { api, queryClient, unwrap } from '../api';
 import { logout } from '../auth/session';
@@ -20,6 +20,16 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [mini, setMini] = useState(false);
   const loc = useLocation();
   const me = useMe();
+  // ST1-T09: ใช้ภาษาจากโปรไฟล์ของผู้ใช้หลัง login (ครั้งเดียวต่อการโหลดหน้า)
+  const { setLang, lang } = useI18n();
+  // ใช้ค่าที่ดึงจาก server แล้วเท่านั้น (ไม่ใช่ cache เก่า) และครั้งเดียวต่อผู้ใช้ (เปลี่ยนคน = ใช้ภาษาของคนใหม่)
+  const appliedFor = useRef<string | null>(null);
+  useEffect(() => {
+    const l = me.data?.user?.locale as 'th' | 'en' | 'zh' | undefined;
+    if (!l || me.isFetching || appliedFor.current === me.data!.actorId) return;
+    appliedFor.current = me.data!.actorId;
+    if (l !== lang) setLang(l);
+  }, [me.data, me.isFetching, lang, setLang]);
   const navigate = useNavigate();
   const page = pageOf(loc.pathname);
   // หน้าโมดูลนอกแพ็กเกจ: หัวหน้าเป็น "แพ็กเกจ > ชื่อโมดูล" ตาม META locked ของต้นแบบ (ST1-T18)
