@@ -31,6 +31,7 @@ enum JobStatus {
   RUNNING
   SUCCEEDED
   FAILED
+  SKIPPED /// ST1-T18: tenant ปิดฟีเจอร์ของงานนี้แล้ว — ไม่ได้รัน
 
   @@map("job_status")
 }
@@ -41,6 +42,7 @@ model Tenant {
   name      String
   status    TenantStatus @default(TRIAL)
   yearStyle String       @default("BE") @map("year_style") /// BE = พ.ศ., CE = ค.ศ. (D-30)
+  planCode  String       @default("std") @map("plan_code") /// ST1-T18 แพ็กเกจ (plan.code) — ตั้งจาก Platform Console (T24)
   createdAt DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -1198,4 +1200,41 @@ model PasswordHistory {
 
   @@index([tenantId, userId, createdAt])
   @@map("password_history")
+}
+
+/// แพ็กเกจ (ST1-T18; spec/01 §6) — ข้อมูลตัวอย่างจาก design/prototype/plans.js (ราคา/โควตายังไม่สรุป)
+model Plan {
+  code      String   @id
+  nameTh    String   @map("name_th")
+  nameEn    String?  @map("name_en")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("plan")
+}
+
+/// เซลล์ใน feature matrix: แพ็กเกจ × ฟีเจอร์ → mode included / addon / not_available + limit (null = ไม่จำกัด)
+model PlanEntitlement {
+  planCode   String  @map("plan_code")
+  featureKey String  @map("feature_key")
+  mode       String
+  limit      Int?
+
+  @@id([planCode, featureKey])
+  @@map("plan_entitlement")
+}
+
+/// override ต่อ tenant (spec/01 PLT-062): grant / revoke / set_limit + เหตุผล + วันหมดอายุ — แก้จาก Platform Console เท่านั้น
+model TenantEntitlementOverride {
+  id         String    @id @default(uuid()) @db.Uuid
+  tenantId   String    @map("tenant_id") @db.Uuid
+  featureKey String    @map("feature_key")
+  mode       String
+  limit      Int?
+  reason     String
+  approvedBy String?   @map("approved_by")
+  expiresAt  DateTime? @map("expires_at") @db.Timestamptz(6)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, featureKey])
+  @@map("tenant_entitlement_override")
 }

@@ -16,6 +16,8 @@ export interface NavItem {
   stage: string;
   /** scope ที่ต้องมีอย่างน้อย 1 ตัว (ตาราง A3) — ไม่มี = ทุกคนเห็น */
   perm?: string[];
+  /** ฟีเจอร์ของแพ็กเกจที่ต้องเปิด (ST1-T18 — /v1/me features) */
+  feature?: string;
 }
 export interface NavGroup {
   key: string;
@@ -28,6 +30,7 @@ export interface NavGroup {
   sepBefore?: boolean;
   devOnly?: boolean;
   perm?: string[];
+  feature?: string;
 }
 
 export const NAV: NavGroup[] = [
@@ -102,6 +105,7 @@ export const NAV: NavGroup[] = [
       },
       {
         key: 'sub',
+        feature: 'sub',
         perm: ['trips:read'],
         page: 'sub',
         label: 'nav.ops.sub',
@@ -134,6 +138,7 @@ export const NAV: NavGroup[] = [
       },
       {
         key: 'settle',
+        feature: 'settle',
         perm: ['settlements:read'],
         page: 'settle',
         label: 'nav.acc.settle',
@@ -150,6 +155,7 @@ export const NAV: NavGroup[] = [
     kids: [
       {
         key: 'fveh',
+        feature: 'fleet',
         perm: ['master:read'],
         page: 'fveh',
         label: 'nav.fleet.fveh',
@@ -158,6 +164,7 @@ export const NAV: NavGroup[] = [
       },
       {
         key: 'fdoc',
+        feature: 'fleet',
         perm: ['master:read'],
         page: 'fdoc',
         label: 'nav.fleet.fdoc',
@@ -176,6 +183,7 @@ export const NAV: NavGroup[] = [
   },
   {
     key: 'report',
+    feature: 'report',
     perm: ['reports.ops:read', 'reports.finance:read'],
     page: 'report',
     label: 'nav.report',
@@ -268,9 +276,12 @@ export const canAny = (scopes: readonly string[], perm?: string[]) =>
   !perm || perm.some((p) => can(scopes, p));
 
 /** เมนูที่ผู้ใช้เห็นตามสิทธิ์ (PLT-132: ซ่อนที่ UI + API ตอบ 403 — UI ไม่ใช่ด่านเดียว) */
-export function navFor(scopes: readonly string[]): NavGroup[] {
-  return NAV.filter((g) => canAny(scopes, g.perm))
-    .map((g) => (g.kids ? { ...g, kids: g.kids.filter((k) => canAny(scopes, k.perm)) } : g))
+export function navFor(scopes: readonly string[], features?: readonly string[]): NavGroup[] {
+  const on = (f?: string) => !f || !features || features.includes(f);
+  return NAV.filter((g) => canAny(scopes, g.perm) && on(g.feature))
+    .map((g) =>
+      g.kids ? { ...g, kids: g.kids.filter((k) => canAny(scopes, k.perm) && on(k.feature)) } : g,
+    )
     .filter((g) => !g.kids || g.kids.length > 0);
 }
 

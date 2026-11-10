@@ -4,6 +4,7 @@ import { encodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService } from '../../db/db.service';
+import { EntitlementService } from '../entitlements/entitlement.service';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -29,6 +30,13 @@ export class MeDto {
     description: 'ผู้ใช้ที่ login (null เมื่อเรียกด้วย API key/token ที่ไม่ใช่ผู้ใช้)',
   })
   user!: MeUserDto | null;
+
+  @ApiProperty({
+    type: [String],
+    example: ['so', 'bill', 'sub'],
+    description: 'ฟีเจอร์ที่เปิดในแพ็กเกจ/override ของ tenant (ST1-T18) — UI ซ่อนเมนูที่ปิด',
+  })
+  features!: string[];
 }
 
 /** ข้อมูลของ credential ที่เรียกอยู่ (docs/01 §5.2 #15) — UI ใช้แสดง shell */
@@ -36,7 +44,10 @@ export class MeDto {
 @ApiBearerAuth()
 @Controller('me')
 export class MeController {
-  constructor(private readonly db: DbService) {}
+  constructor(
+    private readonly db: DbService,
+    private readonly entitlements: EntitlementService,
+  ) {}
 
   @Get()
   @ApiOkResponse({ type: MeDto })
@@ -59,7 +70,12 @@ export class MeController {
           orderBy: { code: 'asc' },
         })
       : [];
+    const ent = await this.entitlements.resolve(ctx.tenantId!);
     return {
+      features: Object.entries(ent)
+        .filter(([, e]) => e.enabled)
+        .map(([k]) => k)
+        .sort(),
       user: u ? { name: u.name, email: u.email, roles: roles.map((r) => r.nameTh) } : null,
       actorId: ctx.actorId!,
       scopes: ctx.scopes ?? [],

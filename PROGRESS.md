@@ -67,7 +67,8 @@
 | T13 Field permission ราคา | เสร็จ (โครงพื้นฐาน) | `@PriceField('sell'|'buy')` + `PriceFieldInterceptor` (global นอกสุด) ตัด field ราคาที่ serializer ตาม `prices.sell:read` / `prices.buy:read` รวม nested/array และ response ที่ replay จาก Idempotency-Key · principal ภายนอกไม่มี scope ราคาขาย · `src/common/price-fields.test.ts` + `test/price-fields.test.ts` · DTO ที่มีราคา (ST2+) ต้องติด decorator |
 | T20 bootstrap ค่าเริ่มต้นไทย | เสร็จ | `createTenantWithDefaults()` / `bootstrapTenant()` (`apps/api/src/modules/tenants/bootstrap.ts`): role ระบบ + ชุดเลข 11 ประเภท + ค่าภาษี/วางบิลเป็นแถวจริง (snapshot) ใน transaction เดียว; registry ให้ ST2 เพิ่มขั้น (ประเภทรถ, accessorial, reason) · `test/bootstrap.test.ts` · รูปแบบเอกสาร PDF มาพร้อม ST5 |
 | T02 นโยบายรหัสผ่าน | เสร็จ (ส่วน API) | ≥ 12 ตัว, HIBP k-anonymity (`HIBP_ENABLED=true` ใน production; เรียกไม่ได้ = ปล่อยผ่าน + log), ห้ามซ้ำ 5 ครั้งล่าสุด (`password_history`); `POST /v1/me/password` (รู้รหัสเดิม, session อื่นหลุด, audit) · `PasswordPolicy` ใช้ซ้ำใน T03/T07 · `test/password-policy.test.ts` · หน้าเปลี่ยนรหัสไม่มีในต้นแบบ (รอ T09 โปรไฟล์) |
-| T03, T06–T09, T18–T19, T21, T23–T24 | ยังไม่เริ่ม | ถัดไปที่เสนอ: T05 2FA (ปลด step-up ของ T12 และ T24) → T17 ตั้งค่าองค์กร → T16 routing  · T03/T07/T23 รอเลือกผู้ให้บริการอีเมล (ST0-T01) |
+| T18 Feature flag ตามแพ็กเกจ | เสร็จ | ตาราง `plan`, `plan_entitlement` (ข้อมูลตัวอย่างจาก `design/prototype/plans.js` — ราคา/โควตายังไม่สรุป), `tenant.plan_code`, `tenant_entitlement_override` (grant/revoke/set_limit + หมดอายุ); `EntitlementService` (cache 60 วิ) + `@RequireFeature()` → 403 `feature_not_enabled`; job ที่ผูกฟีเจอร์ถูกข้าม (`SKIPPED`) + `tenantsWith()` สำหรับ cron; `/v1/me` คืน `features` และเมนูซ่อนตามฟีเจอร์ · แอปแก้แพ็กเกจ/override ไม่ได้ (Console T24) · `test/entitlements.test.ts` |
+| T03, T06–T09, T19, T21, T23–T24 | ยังไม่เริ่ม | ถัดไปที่เสนอ: T05 2FA (ปลด step-up ของ T12 และ T24) → T17 ตั้งค่าองค์กร → T16 routing  · T03/T07/T23 รอเลือกผู้ให้บริการอีเมล (ST0-T01) |
 
 ## สัปดาห์นี้ (สัปดาห์ 10–14 พ.ย. 2569)
 
@@ -87,6 +88,7 @@
 | 13 | รูปแบบเลขเอกสารรายปี: ตอนนี้ปี 2 หลัก (`CN-00000-69-0001` ตามหัวตารางต้นแบบ "{YY} = ปี พ.ศ. 2 หลัก") แต่ตัวอย่าง docs/04 A4 เป็น 4 หลัก (`INV-00001-2569-`) — ใช้แบบไหน | 10 พ.ย. | ก่อนออกเลขจริง ST5 | รอ |
 | 14 | ตั้ง "รูปแบบปีในเอกสาร" เป็น ค.ศ. แล้ววันที่บน header ของแอปเป็น ค.ศ. ด้วย ("11 พ.ย. 2026") — ต้องการให้มีผลเฉพาะเอกสาร หรือทั้งแอป | 11 พ.ย. | ไม่ขวาง | รอ |
 | 15 | ช่องตั้งค่า รอบวางบิล / free time / แยกเอกสาร VAT ไม่มีในต้นแบบ — ให้ Claude Design เพิ่มในหัวข้อไหน (spec/12 §3) | 11 พ.ย. | หน้าตั้งค่าครบตาม T17 | รอ |
+| 16 | แพ็กเกจ/feature matrix ใช้ข้อมูลตัวอย่างจากต้นแบบ (`plans.js`: เริ่มต้น/มาตรฐาน/องค์กร) — ยืนยันรายการฟีเจอร์ต่อแพ็กเกจและโควตาสำหรับนำร่อง; tenant ใหม่ตั้งเป็น "มาตรฐาน" ไว้ก่อน | 11 พ.ย. | ก่อนเปิดขาย | รอ |
 | 9 | ตารางต้องแสดงยอดรวม "จาก N" ไหม (ต้นแบบมี แต่ API เป็น cursor — `spec/12` §3) | 10 พ.ย. | ทุกหน้ารายการ ST1+ | รอ |
 | 10 | push ขึ้น `WeiWutichai/tms` — repo ตอนนี้เป็น **Public** รอ PO เปลี่ยนเป็น private ก่อน push; reviewer ยังไม่มี | 10 พ.ย. | T03 จบ, CI รันจริง | รอ PO |
 | 11 | footer หน้า public: ชื่อนิติบุคคลจริง + ข้อความที่ตั้งข้อมูล (D-16 ยังไม่ตัดสิน) | 10 พ.ย. | ก่อนเปิดให้ลูกค้าใช้ | รอ |

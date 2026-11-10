@@ -1,4 +1,5 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
+import { EntitlementService } from '../modules/entitlements/entitlement.service';
 import type { Job } from '@prisma/client';
 import { PrismaService } from '../db/prisma.service';
 import { DbService, type Tx } from '../db/db.service';
@@ -23,15 +24,19 @@ export type JobHandler = (ctx: JobContext) => Promise<unknown>;
 export class JobQueue {
   private readonly logger = new Logger('JobQueue');
   private readonly handlers = new Map<string, JobHandler>();
+  /** งานที่ต้องเปิดฟีเจอร์ของ tenant (ST1-T18) — tenant ที่ปิดฟีเจอร์ถูกข้าม (A5 "ตรวจซ้ำใน cron job") */
+  private readonly features = new Map<string, string>();
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly db: DbService,
+    @Optional() private readonly entitlements?: EntitlementService,
   ) {}
 
-  register(type: string, handler: JobHandler): void {
+  register(type: string, handler: JobHandler, opts: { feature?: string } = {}): void {
     if (this.handlers.has(type)) throw new Error(`job handler '${type}' already registered`);
     this.handlers.set(type, handler);
+    if (opts.feature) this.features.set(type, opts.feature);
   }
 
   enqueue(
@@ -77,6 +82,20 @@ export class JobQueue {
     const job = await this.claim();
     if (!job) return false;
     const handler = this.handlers.get(job.type);
+    const feature = this.features.get(job.type);
+    if (feature && this.entitlements && !(await this.entitlements.enabled(job.tenantId, feature))) {
+      // ฟีเจอร์ถูกปิดหลังสร้างงาน (เช่น หมดแพ็กเกจ) → ข้าม ไม่ทำงานให้ tenant นั้น
+      await this.prisma.platform.job.update({
+        where: { id: job.id },
+        data: {
+          status: 'SKIPPED',
+          finishedAt: new Date(),
+          lockedUntil: null,
+          error: { code: 'feature_not_enabled', feature },
+        },
+      });
+      return true;
+    }
     try {
       if (!handler) throw new Error(`no handler for job type '${job.type}'`);
       const result = await this.db.withTenant(job.tenantId, (tx) =>

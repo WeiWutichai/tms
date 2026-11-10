@@ -1,6 +1,7 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { AuditService } from './audit/audit.service';
+import { EntitlementService } from './modules/entitlements/entitlement.service';
 import { PriceFieldInterceptor } from './common/price-fields';
 import { AuthController } from './auth/auth.controller';
 import { MfaController } from './auth/mfa.controller';
@@ -54,6 +55,7 @@ import { StateService } from './state/state.service';
     AuthService,
     MfaService,
     PasswordPolicy,
+    EntitlementService,
     DbService,
     StateService,
     JobQueue,

@@ -1896,13 +1896,26 @@
                 "$ref": "#/components/schemas/MeUserDto"
               }
             ]
+          },
+          "features": {
+            "example": [
+              "so",
+              "bill",
+              "sub"
+            ],
+            "description": "ฟีเจอร์ที่เปิดในแพ็กเกจ/override ของ tenant (ST1-T18) — UI ซ่อนเมนูที่ปิด",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
         "required": [
           "actorId",
           "scopes",
           "tenant",
-          "user"
+          "user",
+          "features"
         ]
       },
       "CreateCompanyDto": {
@@ -2797,7 +2810,8 @@
               "pending",
               "running",
               "succeeded",
-              "failed"
+              "failed",
+              "skipped"
             ]
           },
           "progress": {

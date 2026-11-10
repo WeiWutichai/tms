@@ -12,6 +12,7 @@ export function Sidebar({
   actor,
   role,
   scopes,
+  features,
   onLogout,
 }: {
   mini: boolean;
@@ -21,6 +22,8 @@ export function Sidebar({
   role?: string;
   /** scope ของผู้ใช้จาก /me — เมนูที่ไม่มีสิทธิ์ถูกซ่อน */
   scopes: readonly string[];
+  /** ฟีเจอร์ของแพ็กเกจ (ST1-T18) — เมนูของฟีเจอร์ที่ปิดถูกซ่อน */
+  features?: readonly string[];
   onLogout: () => void;
 }) {
   const { t } = useI18n();
@@ -251,7 +254,7 @@ export function Sidebar({
             gap: 2,
           }}
         >
-          {navFor(scopes)
+          {navFor(scopes, features)
             .filter((g) => !g.devOnly || import.meta.env.DEV)
             .map((g) => (
               <Group

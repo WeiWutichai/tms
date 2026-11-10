@@ -63,6 +63,11 @@ export const PROBLEMS = {
     th: 'ยังไม่ได้ตั้งการยืนยันตัวตน 2 ชั้น',
     en: 'Two-factor authentication is not set up',
   },
+  feature_not_enabled: {
+    status: 403,
+    th: 'แพ็กเกจปัจจุบันยังไม่มีฟีเจอร์นี้',
+    en: 'This feature is not included in your plan',
+  },
   permission_denied: {
     status: 403,
     th: 'ไม่มีสิทธิ์ทำรายการนี้',

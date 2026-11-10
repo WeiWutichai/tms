@@ -15,6 +15,7 @@ import { ensureSystemRoles } from '../src/auth/system-roles';
 import { sha256 } from '../src/auth/tokens';
 import { FieldCipher } from '../src/common/crypto';
 import { bootstrapTenant } from '../src/modules/tenants/bootstrap';
+import { ensurePlanCatalog } from '../src/modules/entitlements/plan-catalog';
 
 export const DEMO_A = '00000000-0000-4000-8000-00000000000a';
 export const DEMO_B = '00000000-0000-4000-8000-00000000000b';
@@ -166,6 +167,7 @@ async function main() {
   }
   const passwordHash = await hashPassword(DEMO_PASSWORD);
   const cipher = new FieldCipher();
+  await ensurePlanCatalog(db);
   const roleIds: Record<string, Record<string, string>> = {};
   for (const t of [DEMO_A, DEMO_B]) {
     await bootstrapTenant(db, t);

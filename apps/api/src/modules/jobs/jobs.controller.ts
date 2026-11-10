@@ -8,7 +8,7 @@ import { DbService } from '../../db/db.service';
 export class JobDto {
   @ApiProperty({ example: 'job_…' }) id!: string;
   @ApiProperty() type!: string;
-  @ApiProperty({ enum: ['pending', 'running', 'succeeded', 'failed'] }) status!: string;
+  @ApiProperty({ enum: ['pending', 'running', 'succeeded', 'failed', 'skipped'] }) status!: string;
   @ApiProperty({ minimum: 0, maximum: 100 }) progress!: number;
   @ApiProperty({ nullable: true, type: Object }) result!: unknown;
   @ApiProperty({ nullable: true, type: Object }) error!: unknown;

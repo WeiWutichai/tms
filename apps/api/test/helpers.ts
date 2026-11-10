@@ -8,11 +8,14 @@ import { createApp } from '../src/bootstrap';
 export const platform = () =>
   new PrismaClient({ datasources: { db: { url: process.env.PLATFORM_DATABASE_URL } } });
 
+/** ข้อมูลอ้างอิงที่มากับ migration (ไม่ใช่ข้อมูลของ tenant) — ห้ามล้าง */
+const REFERENCE_TABLES = ['_prisma_migrations', 'plan', 'plan_entitlement'];
+
 /** ลบข้อมูลทุกตาราง business (ใช้ role owner เพื่อ TRUNCATE ได้) */
 export async function truncateAll(): Promise<void> {
   const owner = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
   const tables = await owner.$queryRaw<{ tablename: string }[]>`
-    SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename <> '_prisma_migrations'`;
+    SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename <> ALL(${REFERENCE_TABLES})`;
   if (tables.length) {
     await owner.$executeRawUnsafe(
       `TRUNCATE ${tables.map((t) => `"${t.tablename}"`).join(', ')} CASCADE`,
