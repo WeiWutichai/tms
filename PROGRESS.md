@@ -21,7 +21,8 @@
 | Stage | สถานะ | เริ่ม | จบ | หมายเหตุ |
 |---|---|---|---|---|
 | ST0 เตรียมการและ freeze | **กำลังทำ** 16/19 เสร็จ · T01, T03 บางส่วน (รอเลือกผู้ให้บริการ/cloud) · T18 รอ PO | 10 พ.ย. | — | ดูตารางงาน ST0 ด้านล่าง |
-| ST1–ST9 | ยังไม่เริ่ม | | | |
+| ST1 Platform และองค์กร | **กำลังทำ** 2/24 · T01 login, T04 session เสร็จ | 10 พ.ย. | — | ตารางงาน ST1 ด้านล่าง |
+| ST2–ST9 | ยังไม่เริ่ม | | | |
 
 ### งาน ST0 (เกณฑ์ตรวจรับใน `plan/01-phase0-backlog.md`)
 
@@ -48,6 +49,14 @@
 | E2E (plan/03 §3) | เริ่มแล้ว | `apps/web/e2e`: shell/เมนู/ภาษา/404/ย่อเมนู + นิติบุคคล list→drawer→form ผ่าน API จริง 9 ข้อ (ฐาน `tms_e2e`) — เส้นทาง E2E 8 เส้นของ plan/03 เพิ่มตาม stage |
 | T19 Reconcile + schema v0 | เสร็จ (ST1–ST2 freeze, ST3–ST4 ร่าง) | ตารางตัดสิน 21 ข้อ (`plan/11`, 5 ข้อ ★ รอ PO/นักบัญชี/KRS) · migration `0004_schema_v0` 29 ตาราง + RLS ครบ + CHECK constraint (`test/schema-v0.test.ts`) · contract KRS `packages/contracts/krs/*.schema.json` + test |
 
+### งาน ST1 (เกณฑ์ตรวจรับใน `plan/01-phase0-backlog.md`)
+
+| งาน | สถานะ | หลักฐาน / ที่ยังขาด |
+|---|---|---|
+| T01 Login อีเมล + รหัสผ่าน | เสร็จ | argon2id; ผิด 5 ครั้ง/15 นาที (ต่อบัญชีและต่อ IP) → ครั้งที่ 6 ได้ 429 + Retry-After; อีเมลไม่มี/รหัสผิดตอบเหมือนกัน; อีเมลหลายบริษัท → 409 ให้เลือก; หน้า login + เลือกบริษัทตามต้นแบบ (`apps/web/src/public/`) · `test/auth.test.ts` 12 ข้อ + E2E 3 ข้อ |
+| T04 Session | เสร็จ (บางส่วน) | Auth Code + PKCE, access 15 นาที, refresh 7 วัน httpOnly หมุนทุกครั้ง + ตรวจใช้ซ้ำ, idle 8 ชม., `tokenVersion` ตรวจทุก request · **ยังไม่ทำ:** จำอุปกรณ์ 30 วัน (ผูกกับ 2FA — ทำใน T05), banner "เพิ่มสิทธิ์ให้ refresh" (ทำพร้อม T12), ค่า idle ตั้งได้ (T17) |
+| T02–T03, T05–T24 | ยังไม่เริ่ม | ลำดับถัดไปที่เสนอ: T12 role/permission → T14 company/branch → T15 เลขเอกสาร → T22 audit → T03 อีเมล + ลืมรหัสผ่าน (ต้องเลือกผู้ให้บริการอีเมลใน ST0-T01 ก่อนส่งจริง) |
+
 ## สัปดาห์นี้ (สัปดาห์ 10–14 พ.ย. 2569)
 
 งานที่หยิบ: ยังไม่มี task โค้ด · งานเอกสาร: เสร็จตามบันทึกด้านล่าง
@@ -63,7 +72,8 @@
 | 4 | ใครเป็น TL / Dev กี่คน / เริ่มวันไหน | 10 พ.ย. | ทุกอย่าง | รอ |
 | 5 | ส่งรอบแก้ต้นแบบ 3D (4 จุด) ใน Claude Design ไหม — เป็นการจำลองล้วน | 10 พ.ย. | ไม่ขวาง | รอ |
 | 9 | ตารางต้องแสดงยอดรวม "จาก N" ไหม (ต้นแบบมี แต่ API เป็น cursor — `spec/12` §3) | 10 พ.ย. | ทุกหน้ารายการ ST1+ | รอ |
-| 10 | commit/push โค้ด: ใช้ GitHub org ไหน, ชื่อ repo, ใครเป็น reviewer | 10 พ.ย. | T03 จบ, ทีมทำงานร่วม | รอ |
+| 10 | push ขึ้น `WeiWutichai/tms` — repo ตอนนี้เป็น **Public** รอ PO เปลี่ยนเป็น private ก่อน push; reviewer ยังไม่มี | 10 พ.ย. | T03 จบ, CI รันจริง | รอ PO |
+| 11 | footer หน้า public: ชื่อนิติบุคคลจริง + ข้อความที่ตั้งข้อมูล (D-16 ยังไม่ตัดสิน) | 10 พ.ย. | ก่อนเปิดให้ลูกค้าใช้ | รอ |
 | 6 | คำถามนักบัญชี 33 ข้อ (`plan/06`) | ยังไม่ส่ง | ST5 | รอ PO ส่ง |
 | 7 | คำถามทนาย/PDPA (`plan/07`) | ยังไม่ส่ง | ST1 ข้อความ consent, T-08 | รอ PO ส่ง |
 | 8 | คำถามทีม KRS (`plan/08`) | ยังไม่ส่ง | ST8 | รอ PO ส่ง |
@@ -73,6 +83,15 @@
 ยังไม่มี (เริ่มใช้เมื่อมี staging)
 
 ## บันทึกรายวัน
+
+### 10 พ.ย. 2569 (ค่ำ — ST1-T01/T04 login + session)
+
+- **ทำ:** API `POST /v1/auth/login` → `POST /v1/oauth/token` (authorization_code/refresh_token) → `POST /v1/oauth/revoke`; guard ตรวจ `tokenVersion` ทุก request; migration `0005_auth_login` + `0006_auth_rls` (ตาราง platform `login_attempt`, `auth_code`, `refresh_token`); `/v1/me` มี `user {name, email, roles}`; seed ผู้ใช้เดโม `owner@demo-a.test` / `owner@demo-b.test` (รหัสใน `apps/api/prisma/seed.ts`)
+- **Web:** หน้า login/เลือกบริษัทตาม `TMS Signup.dc.html` (`apps/web/src/public/`), session ในหน่วยความจำ + refresh cookie (`src/auth/session.ts`), ทุกหน้าในระบบต้อง login (`RequireAuth`), ปุ่มออกจากระบบ + ชื่อ/role ใน sidebar; ลบ `dev:token`/`VITE_DEV_TOKEN` แล้ว — E2E login ผ่าน API จริงทุก test (`e2e/fixtures.ts`)
+- **PO ตอบ (10 พ.ย.):** ซ่อนปุ่ม Google, ซ่อน "ทดลองใช้ฟรี 30 วัน", header เหลือโลโก้/footer เหลือแถวล่าง — บันทึกใน `spec/12` §3 แล้ว
+- **ตัดสินระหว่างทำ (ให้ทบทวน):** access token HS256 ไปก่อน RS256 ใน ST7 (`plan/02` T-04); ล็อกต่อ IP ตามตัวอักษร docs อาจล็อกทั้งออฟฟิศที่ใช้ NAT
+- **ผล:** lint/typecheck/build ผ่าน, test 95 ข้อ (api 70, ui 11, domain 9, web 5), E2E 12 ข้อผ่าน
+- **ค้าง:** footer มีชื่อนิติบุคคล placeholder + "ข้อมูลเก็บในประเทศไทย" ที่ยังไม่ตัดสิน (`spec/12` §3 [OPEN]); ลิงก์ "ลืมรหัสผ่าน" ยังไปหน้า 404 จนกว่าจะทำ T03; ยังไม่ push GitHub (รอเปลี่ยน repo เป็น private)
 
 ### 10 พ.ย. 2569 (เย็น — ปิดงานรอบแรก + ขึ้น GitHub)
 - T19: แก้ตาราง `plan/11` ข้อ 5–6 ให้ตรง docs/01 §4.3–4.4 (ร่างแรกตั้งชื่อสถานะเอง ผิดหลัก docs ชนะ) · schema v0 29 ตาราง · contract KRS

@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 /** E2E ST0: shell ตามต้นแบบ + routing + ภาษา (เส้นทางหลักตาม plan/03 §3 จะเพิ่มทีละ stage) */
 test.describe('shell', () => {

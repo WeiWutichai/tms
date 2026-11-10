@@ -1,7 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
-import { useLocation } from 'react-router-dom';
-import { api, unwrap } from '../api';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { api, queryClient, unwrap } from '../api';
+import { logout } from '../auth/session';
 import { useI18n } from '../i18n';
 import type { MessageKey } from '../i18n/th';
 import { pageOf } from '../nav';
@@ -19,6 +20,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [mini, setMini] = useState(false);
   const loc = useLocation();
   const me = useMe();
+  const navigate = useNavigate();
   const page = pageOf(loc.pathname);
   const groupLabel = page ? t(`page.${page}.group` as MessageKey) : t('shell.main');
   const title = page ? t(`page.${page}.title` as MessageKey) : '';
@@ -36,7 +38,14 @@ export function AppShell({ children }: { children: ReactNode }) {
         mini={mini}
         onToggle={() => setMini((m) => !m)}
         tenantName={me.data?.tenant.name ?? '…'}
-        actor={me.data?.actorId ?? '…'}
+        actor={me.data?.user?.name ?? me.data?.actorId ?? '…'}
+        role={me.data?.user?.roles[0]}
+        onLogout={() => {
+          void logout().then(() => {
+            queryClient.clear();
+            navigate('/login', { replace: true });
+          });
+        }}
       />
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
         <Header

@@ -57,7 +57,7 @@
 |---|---|
 | ทั้ง repo | `pnpm build` · `pnpm typecheck` · `pnpm lint` · `pnpm test` (ต้องมี PostgreSQL จาก `pnpm db:up`) · `pnpm e2e` (Playwright: API 4510 + web 4520 + ฐาน `tms_e2e`) |
 | API (พอร์ต 4410) | `pnpm --filter @tms/api dev` · worker: `pnpm --filter @tms/api dev:worker` |
-| Web (พอร์ต 4420, proxy `/v1` → 4410) | `pnpm --filter @tms/web dev:token` (ครั้งแรก/ทุก 12 ชม.) แล้ว `pnpm --filter @tms/web dev` |
+| Web (พอร์ต 4420, proxy `/v1` → 4410) | `pnpm --filter @tms/web dev` — login ด้วยผู้ใช้เดโมใน `apps/api/prisma/seed.ts` |
 | test ไฟล์เดียว | `cd apps/api && npx vitest run test/isolation.test.ts` |
 | migration ใหม่ | แก้ `apps/api/prisma/schema.prisma` → สร้างโฟลเดอร์ `prisma/migrations/NNNN_name/migration.sql` จาก `prisma migrate diff` → **ต่อท้ายด้วย `SELECT tms_enable_tenant_rls('<table>');` ทุกตารางที่มี tenant_id** → `pnpm --filter @tms/api db:migrate` |
 | OpenAPI | `pnpm --filter @tms/api openapi:export` (ต้องรันทุกครั้งที่ API เปลี่ยน แล้ว commit `packages/contracts/openapi.json`) |

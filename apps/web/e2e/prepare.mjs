@@ -1,4 +1,4 @@
-// เตรียมฐานข้อมูล tms_e2e (สร้าง → migrate → seed) และ token ของ tenant เดโม A ก่อนรัน Playwright
+// เตรียมฐานข้อมูล tms_e2e (สร้าง → migrate → seed ผู้ใช้เดโม) ก่อนรัน Playwright — test login ผ่าน API จริง
 // แยกจากฐาน dev (tms) และ test (tms_test) — รันซ้ำได้: ล้างข้อมูลแล้ว seed ใหม่ทุกครั้ง
 import { execSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -40,9 +40,6 @@ if (tables.length)
   );
 await owner.$disconnect();
 sh('pnpm -s db:seed');
-const token = sh(
-  `SWC_NODE_PROJECT=tsconfig.json node -r @swc-node/register -e "require('./src/auth/auth.guard').signDevToken({sub:'e2e-admin',tid:'00000000-0000-4000-8000-00000000000a'},'2h').then(t=>console.log(t))"`,
-).trim();
 writeFileSync(
   new URL('./.env.e2e', import.meta.url),
   [
@@ -53,6 +50,6 @@ writeFileSync(
     'FIELD_ENCRYPTION_KEYS',
   ]
     .map((k) => `${k}=${env[k]}`)
-    .join('\n') + `\nVITE_DEV_TOKEN=${token}\n`,
+    .join('\n') + '\n',
 );
-console.log('e2e: database tms_e2e ready, token written');
+console.log('e2e: database tms_e2e ready (ผู้ใช้เดโมจาก seed)');

@@ -1,4 +1,5 @@
-import { expect, test, type Page } from '@playwright/test';
+import type { Page } from '@playwright/test';
+import { expect, test } from './fixtures';
 
 /**
  * E2E ST0-T14: รายการ → drawer → ฟอร์ม ผ่าน API จริง (ฐาน tms_e2e ที่ seed ใหม่ทุกครั้ง)

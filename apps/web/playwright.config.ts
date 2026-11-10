@@ -44,7 +44,7 @@ export default defineConfig({
     {
       command: 'npx vite --port 4520 --strictPort',
       url: 'http://localhost:4520',
-      env: { VITE_DEV_TOKEN: env.VITE_DEV_TOKEN ?? '', VITE_API_TARGET: 'http://localhost:4510' },
+      env: { VITE_API_TARGET: 'http://localhost:4510' },
       reuseExistingServer: false,
       timeout: 60_000,
     },

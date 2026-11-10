@@ -63,7 +63,7 @@ pnpm db:up                                   # PostgreSQL 16 ที่ 127.0.0.1
 pnpm --filter @tms/api db:migrate && pnpm --filter @tms/api db:seed
 pnpm test                                    # ทุก package
 pnpm --filter @tms/api dev                   # API http://localhost:4410/v1  (openapi: /v1/openapi.json)
-pnpm --filter @tms/web dev:token && pnpm --filter @tms/web dev   # Web http://localhost:4420
+pnpm --filter @tms/web dev   # Web http://localhost:4420 — login: owner@demo-a.test / demo-password-2569 (seed)
 ```
 
 โครง: `apps/api` (NestJS + Prisma, worker อยู่ใน `src/worker.ts`) · `apps/web` (React + Vite) · `packages/domain` (เงิน/ภาษี/state machine ไม่มี I/O) · `packages/ui` (design system จากต้นแบบ) · `packages/contracts` (OpenAPI + client ที่ generate) · `infra/` (docker compose + role ฐานข้อมูล) — รายละเอียดคำสั่งใน `CLAUDE.md`

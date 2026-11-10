@@ -1042,3 +1042,58 @@ model VehiclePosition {
   @@index([tenantId, vehicleId, occurredAt])
   @@map("vehicle_position")
 }
+
+// ───────────────────────── ST1-T01/T04 Auth (ตาราง platform: ใช้ก่อนรู้ tenant จึงไม่มี RLS และ tms_app เข้าไม่ได้) ─────────────────────────
+
+/// ทุกครั้งที่พยายาม login (สำเร็จ/ล้มเหลว) — ใช้ทั้ง rate limit/ล็อก (A1) และประวัติ login (A2, ST1-T11; เก็บ 1 ปี)
+model LoginAttempt {
+  id        String   @id @default(uuid()) @db.Uuid
+  email     String /// lower-case แล้ว
+  ip        String
+  userAgent String?  @map("user_agent")
+  tenantId  String?  @map("tenant_id") @db.Uuid
+  userId    String?  @map("user_id") @db.Uuid
+  success   Boolean
+  reason    String? /// invalid_credentials | locked | tenant_selection_required | ok
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([email, createdAt])
+  @@index([ip, createdAt])
+  @@index([tenantId, createdAt])
+  @@map("login_attempt")
+}
+
+/// authorization code ของ flow Auth Code + PKCE (T-04) — อายุ 60 วินาที ใช้ครั้งเดียว
+model AuthCode {
+  id            String    @id @default(uuid()) @db.Uuid
+  codeHash      String    @unique @map("code_hash") /// sha256 base64url
+  codeChallenge String    @map("code_challenge") /// S256
+  tenantId      String    @map("tenant_id") @db.Uuid
+  userId        String    @map("user_id") @db.Uuid
+  expiresAt     DateTime  @map("expires_at") @db.Timestamptz(6)
+  usedAt        DateTime? @map("used_at") @db.Timestamptz(6)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("auth_code")
+}
+
+/// refresh token (httpOnly cookie) — หมุนทุกครั้งที่ใช้; ใช้ token เก่าซ้ำ = ถูกขโมย → เพิกถอนทั้ง family
+model RefreshToken {
+  id            String    @id @default(uuid()) @db.Uuid
+  tokenHash     String    @unique @map("token_hash")
+  familyId      String    @map("family_id") @db.Uuid
+  tenantId      String    @map("tenant_id") @db.Uuid
+  userId        String    @map("user_id") @db.Uuid
+  tokenVersion  Int       @map("token_version")
+  expiresAt     DateTime  @map("expires_at") @db.Timestamptz(6) /// 7 วันนับจาก login (ไม่ต่ออายุตอนหมุน)
+  idleExpiresAt DateTime  @map("idle_expires_at") @db.Timestamptz(6) /// idle 8 ชม. (ตั้งได้ใน ST1-T17)
+  usedAt        DateTime? @map("used_at") @db.Timestamptz(6)
+  revokedAt     DateTime? @map("revoked_at") @db.Timestamptz(6)
+  userAgent     String?   @map("user_agent")
+  ip            String?
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([familyId])
+  @@index([userId])
+  @@map("refresh_token")
+}

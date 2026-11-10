@@ -1,14 +1,16 @@
 import { QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
+import { RequireAuth } from './auth/RequireAuth';
 import { queryClient } from './api';
 import { I18nProvider } from './i18n';
 import { NAV } from './nav';
 import { Dashboard } from './pages/Dashboard';
 import { DesignSystem } from './pages/DesignSystem';
 import { ErrorBoundary, ErrorPage, NotFound, NotReady } from './pages/Simple';
+import { LoginPage } from './public/Login';
 import { AppShell } from './shell/AppShell';
 
-function Routed() {
+function Inside() {
   const pending = NAV.flatMap((g) =>
     (g.kids ?? [])
       .filter(() => g.key !== 'fav')
@@ -40,7 +42,17 @@ export function App() {
     <QueryClientProvider client={queryClient}>
       <I18nProvider>
         <BrowserRouter>
-          <Routed />
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+            <Route
+              path="*"
+              element={
+                <RequireAuth>
+                  <Inside />
+                </RequireAuth>
+              }
+            />
+          </Routes>
         </BrowserRouter>
       </I18nProvider>
     </QueryClientProvider>

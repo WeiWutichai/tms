@@ -48,3 +48,12 @@ describe('i18n', () => {
     expect(screen.getByText(/ST3/)).toBeInTheDocument();
   });
 });
+
+describe('login', () => {
+  it('ตัวย่อบริษัทตัดคำนำหน้านิติบุคคลและสระ', async () => {
+    const { initials } = await import('./public/Login');
+    expect(initials('บจก. ศรีไทยขนส่ง')).toBe('ศร');
+    expect(initials('บริษัท ตัวอย่างขนส่ง จำกัด')).toBe('ตว');
+    expect(initials('Example Co., Ltd.')).toBe('EX');
+  });
+});

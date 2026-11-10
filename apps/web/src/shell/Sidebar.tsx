@@ -10,11 +10,15 @@ export function Sidebar({
   onToggle,
   tenantName,
   actor,
+  role,
+  onLogout,
 }: {
   mini: boolean;
   onToggle: () => void;
   tenantName: string;
   actor: string;
+  role?: string;
+  onLogout: () => void;
 }) {
   const { t } = useI18n();
   const loc = useLocation();
@@ -22,7 +26,12 @@ export function Sidebar({
   const here = loc.pathname + loc.search;
   const [open, setOpen] = useState<Record<string, boolean>>({ ops: true, acc: true });
   const isOn = (path: string) => (path.includes('?') ? here === path : loc.pathname === path);
-  const initials = actor.slice(0, 2).toUpperCase();
+  // ตัวย่อ = พยัญชนะ/ตัวอักษรแรกของชื่อ + ของนามสกุล (ต้นแบบ: พรทิพย์ ศรีวงศ์ → พศ; ข้ามสระนำ เ แ โ ใ ไ)
+  const first = (w: string) => [...w].find((ch) => /[\u0E01-\u0E2EA-Za-z0-9]/.test(ch)) ?? '';
+  const words = actor.trim().split(/\s+/);
+  const initials = (
+    words.length > 1 ? first(words[0]!) + first(words[words.length - 1]!) : actor.slice(0, 2)
+  ).toUpperCase();
 
   return (
     <aside
@@ -365,13 +374,23 @@ export function Sidebar({
                   >
                     {actor}
                   </span>
+                  {role && <span style={{ fontSize: 13, color: '#3B424C' }}>{role}</span>}
                 </div>
-                <Icon
-                  n="log-out"
-                  s={16}
-                  style={{ color: '#59606B' }}
+                <button
+                  type="button"
+                  onClick={onLogout}
+                  title={t('shell.logout')}
                   aria-label={t('shell.logout')}
-                />
+                  style={{
+                    border: 0,
+                    background: 'transparent',
+                    padding: 0,
+                    cursor: 'pointer',
+                    display: 'inline-flex',
+                  }}
+                >
+                  <Icon n="log-out" s={16} style={{ color: '#59606B' }} />
+                </button>
               </div>
             </>
           )}

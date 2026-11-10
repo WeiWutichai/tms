@@ -35,11 +35,14 @@
 - ไม่ใช้ SSR ในแอปหลัก (เป็นแอปหลัง login); หน้า landing/ราคา แยกเป็น static site ภายหลัง
 
 ### T-04 Auth [ตัดสินแล้ว — docs/04 A, G]
-- UI: OIDC + PKCE; JWT access 15 นาที + refresh 7 วัน (httpOnly); `tokenVersion` ต่อ user; argon2id; 2FA TOTP
+- UI: Authorization Code + PKCE (เซิร์ฟเวอร์ auth อยู่ใน NestJS เอง); JWT access 15 นาที + refresh 7 วัน (httpOnly); `tokenVersion` ต่อ user; argon2id; 2FA TOTP
 - API: OAuth2 client credentials → JWT RS256 1 ชม. scope `resource:verb`; static key `tk_live_` / `tk_test_`
 - Magic link เซ็น HMAC + หมดอายุ สำหรับรถร่วม/ผู้รับ
 - [เปิด] ชื่อ prefix ของ key: docs ใช้ `tk_`, ดีไซน์รอบ 11 ใช้ `tms_` — ยึด docs (`tk_`) จนกว่าจะตั้งชื่อผลิตภัณฑ์
-- [ST0 ชั่วคราว] `apps/api/src/auth/auth.guard.ts` ตรวจ JWT HS256 จาก `AUTH_DEV_SECRET` (claim `sub`, `tid`, `scope`) — ST1 แทนด้วย login/OIDC/API key ตามข้อนี้ โดยคง claim เดิม
+- [ทำแล้ว ST1-T01/T04, 10 พ.ย.] login อีเมล+รหัสผ่าน → `POST /v1/auth/login` (คืน authorization code ผูก PKCE S256) → `POST /v1/oauth/token` (`authorization_code` / `refresh_token`) → `POST /v1/oauth/revoke`; refresh หมุนทุกครั้ง ใช้ซ้ำ = เพิกถอนทั้ง family; cookie `tms_rt` httpOnly SameSite=Strict path `/v1/oauth`; access token เก็บในหน่วยความจำของ UI
+- [ทำแล้ว] claim: `sub`, `tid`, `scope`, `pt` (`user`|`dev` — production ปฏิเสธ `dev`), `tv` (tokenVersion; guard ตรวจกับฐานข้อมูลทุก request ของ `pt=user`)
+- [ตัดสินระหว่างทำ — ให้ PO/tech lead ทบทวน] เซ็น access token แบบ **HS256** ด้วย `AUTH_JWT_SECRET` ไปก่อน (มีผู้ตรวจ token แค่ API เอง) — เปลี่ยนเป็น RS256 + JWKS ใน ST7-T01 เมื่อมี client ภายนอก/ตัวตรวจอื่น
+- [ตัดสินระหว่างทำ] ตาราง `login_attempt`, `auth_code`, `refresh_token` เป็นตาราง platform (ใช้ก่อนรู้ tenant): `tms_app` ไม่มีสิทธิ์, เปิด RLS ซ้อนไว้ตามกติกา; ล็อกนับ 5 ครั้งผิด/15 นาที **แยกต่อบัญชีและต่อ IP** ตามตัวอักษรของ docs/04 A1 — ⚠ ออฟฟิศที่ใช้ IP เดียวกัน (NAT) อาจโดนล็อกพร้อมกัน ถ้าเกิดจริงให้ปรับเพดานต่อ IP (ค่าคงที่ใน `auth.service.ts`)
 - [เสนอ] ทำ auth เองใน NestJS (ไม่ใช้ IdP ภายนอกในเฟส 0) แต่แยกเป็นโมดูลที่เปลี่ยนเป็น IdP ได้ (SSO เป็น P1)
 
 ### T-05 Multi-tenant และ RLS [ตัดสินแล้ว + รายละเอียดที่เสนอ]

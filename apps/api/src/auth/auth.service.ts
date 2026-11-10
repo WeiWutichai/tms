@@ -1,0 +1,299 @@
+import { Injectable } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
+import { encodeId } from '../common/ids';
+import { ProblemException } from '../common/problem';
+import { PrismaService } from '../db/prisma.service';
+import { dummyHash, verifyPassword } from './password';
+import {
+  newOpaqueToken,
+  pkceChallenge,
+  sha256,
+  signAccessToken,
+  ACCESS_TTL_SECONDS,
+} from './tokens';
+
+/** A1: ผิด 5 ครั้งใน 15 นาที (ต่อบัญชี และต่อ IP) → ครั้งที่ 6 ถูกล็อก 15 นาที */
+export const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+export const LOGIN_MAX_FAILURES = 5;
+const CODE_TTL_MS = 60 * 1000;
+export const REFRESH_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+/** idle 8 ชม. — ST1-T17 จะอ่านจาก tenant_setting */
+export const IDLE_TTL_MS = 8 * 60 * 60 * 1000;
+const LOGIN_TENANT_STATUSES = ['TRIAL', 'ACTIVE'] as const;
+
+export interface ClientInfo {
+  ip: string;
+  userAgent?: string;
+}
+
+export interface TokenPair {
+  accessToken: string;
+  expiresIn: number;
+  refreshToken: string;
+  refreshExpiresAt: Date;
+}
+
+/**
+ * Login + Auth Code/PKCE + refresh (ST1-T01, T04)
+ * ทำงานก่อนรู้ tenant จึงใช้ client `platform` (BYPASSRLS) — จำกัดเฉพาะตาราง auth และการค้นผู้ใช้ด้วยอีเมล
+ */
+@Injectable()
+export class AuthService {
+  constructor(private readonly prisma: PrismaService) {}
+
+  private get db() {
+    return this.prisma.platform;
+  }
+
+  /** ตรวจรหัสผ่าน → คืน authorization code (ผูก code_challenge) */
+  async login(
+    input: { email: string; password: string; codeChallenge: string; tenantId?: string },
+    client: ClientInfo,
+  ): Promise<{ code: string; expiresIn: number }> {
+    const email = input.email.trim().toLowerCase();
+    const now = Date.now();
+
+    const lockedFor = await this.lockSeconds(email, client.ip, now);
+    if (lockedFor > 0) {
+      await this.record(email, client, { success: false, reason: 'locked' });
+      throw new ProblemException('account_locked', undefined, undefined, { retryAfter: lockedFor });
+    }
+
+    const users = await this.db.appUser.findMany({
+      where: { email: { equals: email, mode: 'insensitive' }, status: 'ACTIVE' },
+    });
+    const tenants = await this.db.tenant.findMany({
+      where: {
+        id: { in: users.map((u) => u.tenantId) },
+        status: { in: [...LOGIN_TENANT_STATUSES] },
+      },
+    });
+    const candidates = users.filter(
+      (u) => u.passwordHash && tenants.some((t) => t.id === u.tenantId),
+    );
+
+    const matched = [];
+    for (const u of candidates) {
+      if (await verifyPassword(u.passwordHash!, input.password)) matched.push(u);
+    }
+    if (candidates.length === 0) await verifyPassword(await dummyHash(), input.password);
+
+    const chosen = input.tenantId ? matched.filter((u) => u.tenantId === input.tenantId) : matched;
+    if (chosen.length === 0) {
+      await this.record(email, client, { success: false, reason: 'invalid_credentials' });
+      throw new ProblemException('invalid_credentials');
+    }
+    if (chosen.length > 1) {
+      await this.record(email, client, { success: false, reason: 'tenant_selection_required' });
+      throw new ProblemException('tenant_selection_required', undefined, undefined, {
+        tenants: chosen
+          .map((u) => tenants.find((t) => t.id === u.tenantId)!)
+          .map((t) => ({
+            id: encodeId('tenant', t.id),
+            name: t.name,
+            status: t.status.toLowerCase(),
+          })),
+      });
+    }
+
+    const user = chosen[0]!;
+    const { token: code, hash } = newOpaqueToken();
+    await this.db.$transaction([
+      this.db.authCode.create({
+        data: {
+          codeHash: hash,
+          codeChallenge: input.codeChallenge,
+          tenantId: user.tenantId,
+          userId: user.id,
+          expiresAt: new Date(now + CODE_TTL_MS),
+        },
+      }),
+      this.db.appUser.update({ where: { id: user.id }, data: { lastLoginAt: new Date(now) } }),
+    ]);
+    await this.record(email, client, {
+      success: true,
+      reason: 'ok',
+      tenantId: user.tenantId,
+      userId: user.id,
+    });
+    return { code, expiresIn: CODE_TTL_MS / 1000 };
+  }
+
+  /** grant_type=authorization_code — ตรวจ PKCE แล้วออก access + refresh */
+  async exchangeCode(code: string, verifier: string, client: ClientInfo): Promise<TokenPair> {
+    const row = await this.db.authCode.findUnique({ where: { codeHash: sha256(code) } });
+    const now = new Date();
+    if (!row || row.usedAt || row.expiresAt <= now || pkceChallenge(verifier) !== row.codeChallenge)
+      throw new ProblemException('invalid_grant');
+    const claimed = await this.db.authCode.updateMany({
+      where: { id: row.id, usedAt: null },
+      data: { usedAt: now },
+    });
+    if (claimed.count !== 1) throw new ProblemException('invalid_grant');
+    return this.issue(
+      row.tenantId,
+      row.userId,
+      randomUUID(),
+      new Date(now.getTime() + REFRESH_TTL_MS),
+      client,
+    );
+  }
+
+  /** grant_type=refresh_token — หมุน token; ใช้ token เก่าซ้ำ = เพิกถอนทั้ง family */
+  async refresh(refreshToken: string, client: ClientInfo): Promise<TokenPair> {
+    const row = await this.db.refreshToken.findUnique({
+      where: { tokenHash: sha256(refreshToken) },
+    });
+    const now = new Date();
+    if (!row || row.revokedAt) throw new ProblemException('invalid_grant');
+    if (row.usedAt) {
+      await this.revokeFamily(row.familyId);
+      throw new ProblemException('invalid_grant');
+    }
+    if (row.expiresAt <= now || row.idleExpiresAt <= now)
+      throw new ProblemException('invalid_grant');
+    const claimed = await this.db.refreshToken.updateMany({
+      where: { id: row.id, usedAt: null, revokedAt: null },
+      data: { usedAt: now },
+    });
+    if (claimed.count !== 1) {
+      await this.revokeFamily(row.familyId);
+      throw new ProblemException('invalid_grant');
+    }
+    return this.issue(
+      row.tenantId,
+      row.userId,
+      row.familyId,
+      row.expiresAt,
+      client,
+      row.tokenVersion,
+    );
+  }
+
+  /** ออกจากระบบ: เพิกถอน refresh token ทั้ง family (ไม่บอกว่ามี token หรือไม่) */
+  async logout(refreshToken: string | undefined): Promise<void> {
+    if (!refreshToken) return;
+    const row = await this.db.refreshToken.findUnique({
+      where: { tokenHash: sha256(refreshToken) },
+    });
+    if (row) await this.revokeFamily(row.familyId);
+  }
+
+  /** tokenVersion ปัจจุบันของผู้ใช้ (guard ใช้ตรวจทุก request) — null = ผู้ใช้ถูกระงับ/ไม่พบ */
+  async currentTokenVersion(tenantId: string, userId: string): Promise<number | null> {
+    const u = await this.db.appUser.findFirst({
+      where: { id: userId, tenantId, status: 'ACTIVE' },
+      select: { tokenVersion: true },
+    });
+    return u?.tokenVersion ?? null;
+  }
+
+  private async issue(
+    tenantId: string,
+    userId: string,
+    familyId: string,
+    absoluteExpiry: Date,
+    client: ClientInfo,
+    expectedTokenVersion?: number,
+  ): Promise<TokenPair> {
+    const user = await this.db.appUser.findFirst({
+      where: { id: userId, tenantId, status: 'ACTIVE' },
+    });
+    if (
+      !user ||
+      (expectedTokenVersion !== undefined && user.tokenVersion !== expectedTokenVersion)
+    ) {
+      await this.revokeFamily(familyId);
+      throw new ProblemException('invalid_grant');
+    }
+    const scope = await this.scopeOf(tenantId, userId);
+    const accessToken = await signAccessToken({
+      sub: userId,
+      tid: tenantId,
+      scope,
+      pt: 'user',
+      tv: user.tokenVersion,
+    });
+    const { token, hash } = newOpaqueToken();
+    const now = Date.now();
+    await this.db.refreshToken.create({
+      data: {
+        tokenHash: hash,
+        familyId,
+        tenantId,
+        userId,
+        tokenVersion: user.tokenVersion,
+        expiresAt: absoluteExpiry,
+        idleExpiresAt: new Date(Math.min(now + IDLE_TTL_MS, absoluteExpiry.getTime())),
+        userAgent: client.userAgent?.slice(0, 500),
+        ip: client.ip,
+      },
+    });
+    return {
+      accessToken,
+      expiresIn: ACCESS_TTL_SECONDS,
+      refreshToken: token,
+      refreshExpiresAt: absoluteExpiry,
+    };
+  }
+
+  /** scope = permission ของทุก role ที่ผู้ใช้ถือ (ST1-T12 ขยายเป็นตาราง A3) */
+  private async scopeOf(tenantId: string, userId: string): Promise<string> {
+    const links = await this.db.userRole.findMany({ where: { tenantId, userId } });
+    if (links.length === 0) return '';
+    const roles = await this.db.role.findMany({
+      where: { tenantId, id: { in: links.map((l) => l.roleId) } },
+    });
+    return [...new Set(roles.flatMap((r) => r.permissions))].sort().join(' ');
+  }
+
+  private async revokeFamily(familyId: string) {
+    await this.db.refreshToken.updateMany({
+      where: { familyId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+  }
+
+  /** วินาทีที่ยังถูกล็อก (0 = ไม่ล็อก) — นับเฉพาะครั้งที่รหัสผิด */
+  private async lockSeconds(email: string, ip: string, now: number): Promise<number> {
+    const since = new Date(now - LOGIN_WINDOW_MS);
+    const [byEmail, byIp] = await Promise.all([
+      this.db.loginAttempt.findMany({
+        where: { email, reason: 'invalid_credentials', createdAt: { gt: since } },
+        orderBy: { createdAt: 'desc' },
+        take: LOGIN_MAX_FAILURES,
+        select: { createdAt: true },
+      }),
+      this.db.loginAttempt.findMany({
+        where: { ip, reason: 'invalid_credentials', createdAt: { gt: since } },
+        orderBy: { createdAt: 'desc' },
+        take: LOGIN_MAX_FAILURES,
+        select: { createdAt: true },
+      }),
+    ]);
+    // ล็อกจนกว่าครั้งที่ผิดเก่าสุดใน 5 ครั้งล่าสุดจะพ้นหน้าต่าง 15 นาที
+    const until = [byEmail, byIp]
+      .filter((rows) => rows.length >= LOGIN_MAX_FAILURES)
+      .map((rows) => rows[LOGIN_MAX_FAILURES - 1]!.createdAt.getTime() + LOGIN_WINDOW_MS);
+    if (until.length === 0) return 0;
+    return Math.max(1, Math.ceil((Math.max(...until) - now) / 1000));
+  }
+
+  private async record(
+    email: string,
+    client: ClientInfo,
+    r: { success: boolean; reason: string; tenantId?: string; userId?: string },
+  ) {
+    await this.db.loginAttempt.create({
+      data: {
+        email,
+        ip: client.ip,
+        userAgent: client.userAgent?.slice(0, 500),
+        success: r.success,
+        reason: r.reason,
+        tenantId: r.tenantId,
+        userId: r.userId,
+      },
+    });
+  }
+}

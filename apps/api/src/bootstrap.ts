@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule, type OpenAPIObject } from '@nestjs/swagger';
+import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { Public } from './common/decorators';
@@ -39,6 +40,7 @@ export async function createApp(): Promise<NestExpressApplication> {
       crossOriginResourcePolicy: { policy: 'same-site' },
     }),
   );
+  app.use(cookieParser());
   app.useBodyParser('json', { limit: '1mb' });
   app.setGlobalPrefix('v1');
   app.useGlobalPipes(createValidationPipe());
