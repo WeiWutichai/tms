@@ -1,4 +1,14 @@
+import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures';
+
+/** กดสลับภาษาแล้วรอให้บันทึกลงโปรไฟล์เสร็จ (ภาษาอยู่ฝั่ง server — ไม่รอ = test ถัดไปอาจเริ่มด้วยภาษาผิด) */
+async function setLangAndWait(page: Page, label: 'EN' | 'TH') {
+  const saved = page.waitForResponse(
+    (r) => r.url().includes('/v1/me/profile') && r.request().method() === 'PATCH',
+  );
+  await page.getByRole('button', { name: label, exact: true }).click();
+  expect((await saved).status()).toBe(200);
+}
 
 /** E2E ST0: shell ตามต้นแบบ + routing + ภาษา (เส้นทางหลักตาม plan/03 §3 จะเพิ่มทีละ stage) */
 test.describe('shell', () => {
@@ -31,11 +41,11 @@ test.describe('shell', () => {
 
   test('สลับภาษาเป็น EN แล้วยังคงอยู่หลังโหลดใหม่', async ({ page }) => {
     await page.goto('/');
-    await page.getByRole('button', { name: 'EN', exact: true }).click();
+    await setLangAndWait(page, 'EN');
     await expect(page.getByRole('button', { name: 'Planning board', exact: true })).toBeVisible();
     await page.reload();
     await expect(page.getByRole('button', { name: 'Planning board', exact: true })).toBeVisible();
-    await page.getByRole('button', { name: 'TH', exact: true }).click();
+    await setLangAndWait(page, 'TH');
     await expect(page.getByRole('button', { name: 'กระดานวางแผน', exact: true })).toBeVisible();
   });
 
@@ -43,15 +53,12 @@ test.describe('shell', () => {
     page,
   }) => {
     await page.goto('/');
-    await page.getByRole('button', { name: 'EN', exact: true }).click();
+    await setLangAndWait(page, 'EN');
     await expect(page.getByRole('button', { name: 'Planning board', exact: true })).toBeVisible();
-    await page.waitForResponse(
-      (r) => r.url().includes('/v1/me/profile') && r.request().method() === 'PATCH',
-    );
     await page.evaluate(() => localStorage.clear());
     await page.reload();
     await expect(page.getByRole('button', { name: 'Planning board', exact: true })).toBeVisible();
-    await page.getByRole('button', { name: 'TH', exact: true }).click();
+    await setLangAndWait(page, 'TH');
     await expect(page.getByRole('button', { name: 'กระดานวางแผน', exact: true })).toBeVisible();
   });
 

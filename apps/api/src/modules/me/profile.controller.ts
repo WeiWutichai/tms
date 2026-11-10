@@ -1,6 +1,7 @@
-import { Body, Controller, Get, Patch, Req } from '@nestjs/common';
+import { Body, Controller, Get, Patch, Req, Res } from '@nestjs/common';
 import {
   ApiBearerAuth,
+  ApiHeader,
   ApiOkResponse,
   ApiProperty,
   ApiPropertyOptional,
@@ -17,7 +18,8 @@ import {
   MaxLength,
   ValidateIf,
 } from 'class-validator';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
+import { expectedVersion, setEtag } from '../../common/etag';
 import { AuditService } from '../../audit/audit.service';
 import { encodeId, tryDecodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
@@ -98,15 +100,25 @@ export class ProfileController {
 
   @Get()
   @ApiOkResponse({ type: ProfileDto })
-  async get(@Req() req: Request): Promise<ProfileDto> {
-    return this.toDto(await this.me(), req);
+  async get(@Req() req: Request, @Res({ passthrough: true }) res: Response): Promise<ProfileDto> {
+    const u = await this.me();
+    setEtag(res, u.version);
+    return this.toDto(u, req);
   }
 
   @Patch()
+  @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
   @ApiOkResponse({ type: ProfileDto })
-  async update(@Body() body: UpdateProfileDto, @Req() req: Request): Promise<ProfileDto> {
+  async update(
+    @Body() body: UpdateProfileDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<ProfileDto> {
     const tx = this.db.tx;
     const user = await this.me();
+    const expected = expectedVersion(req);
+    if (expected !== undefined && expected !== user.version)
+      throw new ProblemException('precondition_failed');
     let signatureId: string | null | undefined = undefined;
     if (body.signatureDocumentId === null) signatureId = null;
     else if (body.signatureDocumentId !== undefined) {
@@ -135,10 +147,13 @@ export class ProfileController {
       ...(body.timezone !== undefined ? { timezone: body.timezone } : {}),
       ...(signatureId !== undefined ? { signatureDocumentId: signatureId } : {}),
     };
-    const updated = await tx.appUser.update({
-      where: { id: user.id },
+    const r = await tx.appUser.updateMany({
+      where: { id: user.id, version: user.version },
       data: { ...data, version: { increment: 1 } },
     });
+    if (r.count !== 1) throw new ProblemException('precondition_failed');
+    const updated = (await tx.appUser.findUnique({ where: { id: user.id } }))!;
+    setEtag(res, updated.version);
     await this.audit.changed(
       'user.profile_updated',
       'user',

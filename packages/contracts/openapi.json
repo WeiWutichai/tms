@@ -373,7 +373,17 @@
       },
       "patch": {
         "operationId": "Profile_update",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {

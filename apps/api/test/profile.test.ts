@@ -86,6 +86,18 @@ describe('profile', () => {
         (await api(app, access).patch('/v1/me/profile').send(bad)).status,
         JSON.stringify(bad),
       ).toBe(422);
+    // ETag / If-Match (docs/01): ค่าเก่า → 412
+    const g = await api(app, access).get('/v1/me/profile').expect(200);
+    const etag = g.headers.etag as string;
+    await api(app, access)
+      .patch('/v1/me/profile')
+      .set('If-Match', etag)
+      .send({ timezone: 'Asia/Bangkok' })
+      .expect(200);
+    expect(
+      (await api(app, access).patch('/v1/me/profile').set('If-Match', etag).send({ name: 'ชนกัน' }))
+        .status,
+    ).toBe(412);
     const audit = await db.auditLog.findFirst({ where: { action: 'user.profile_updated' } });
     expect(audit?.after).toMatchObject({ locale: 'en', name: 'สมชาย ใจดี' });
   });
