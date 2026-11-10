@@ -4,7 +4,8 @@ import { randomBytes } from 'node:crypto';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { hashPassword } from '../src/auth/password';
-import { pkceChallenge } from '../src/auth/tokens';
+import { signDevToken } from '../src/auth/auth.guard';
+import { isLocalEnv, pkceChallenge, verifyAccessToken } from '../src/auth/tokens';
 import { encodeId } from '../src/common/ids';
 import { bootApp, createTenant, platform, truncateAll } from './helpers';
 
@@ -187,9 +188,92 @@ describe('auth: login + Auth Code/PKCE + refresh', () => {
     expect((await me(r1.body.accessToken)).status).toBe(200);
     const next = (r1.headers['set-cookie'] as unknown as string[])[0]!.split(';')[0]!;
     expect(next).not.toBe(cookie);
+    // ใช้ซ้ำหลังพ้น grace 30 วินาที = ถูกขโมย → เพิกถอนทั้ง family
+    await db.refreshToken.updateMany({
+      where: { usedAt: { not: null } },
+      data: { usedAt: new Date(Date.now() - 60_000) },
+    });
     const reuse = await refresh(cookie);
     expect(reuse.status).toBe(400);
     expect((await refresh(next)).status).toBe(400);
+  });
+
+  it('ภายใน 30 วินาที: browser เดิมใช้ cookie เก่าได้ token ใหม่ (reload ตัด response); เครื่องอื่นได้ 400', async () => {
+    await makeUser(tenantA, 'tabs@example.co.th');
+    const { cookie } = await fullLogin('tabs@example.co.th');
+    const r1 = await refresh(cookie);
+    expect(r1.status).toBe(200);
+    const next = (r1.headers['set-cookie'] as unknown as string[])[0]!.split(';')[0]!;
+    const same = await refresh(cookie);
+    expect(same.status).toBe(200);
+    const other = await request(app.getHttpServer())
+      .post('/v1/oauth/token')
+      .set('Cookie', cookie)
+      .set('User-Agent', 'attacker/1.0')
+      .send({ grantType: 'refresh_token' });
+    expect(other.status).toBe(400);
+    // family ไม่ถูกเพิกถอน: token ที่ออกให้ทั้งสองใบยังใช้ได้
+    expect((await refresh(next)).status).toBe(200);
+  });
+
+  it('สองแท็บ refresh พร้อมกันจริง (Promise.all) ซ้ำ 10 รอบ → ไม่มีรอบไหนหลุดทั้ง family', async () => {
+    await makeUser(tenantA, 'race@example.co.th');
+    let { cookie } = await fullLogin('race@example.co.th');
+    for (let i = 0; i < 10; i++) {
+      const [a, b] = await Promise.all([refresh(cookie), refresh(cookie)]);
+      const win = [a, b].find((r) => r.status === 200);
+      expect(win, `รอบ ${i}`).toBeTruthy();
+      cookie = (win!.headers['set-cookie'] as unknown as string[])[0]!.split(';')[0]!;
+      expect((await me(win!.body.accessToken)).status).toBe(200);
+    }
+    expect((await refresh(cookie)).status).toBe(200);
+  }, 60_000);
+
+  it('ยิง login ผิดพร้อมกัน 20 ครั้ง → ตรวจรหัสจริงได้ไม่เกิน 5 ครั้ง ที่เหลือถูกล็อก', async () => {
+    await makeUser(tenantA, 'burst@example.co.th');
+    const res = await Promise.all(
+      Array.from({ length: 20 }, () =>
+        login(
+          {
+            email: 'burst@example.co.th',
+            password: 'wrong-password-x',
+            codeChallenge: pkceChallenge(verifier()),
+          },
+          nextIp(),
+        ),
+      ),
+    );
+    const codes = res.map((r) => r.body.code as string);
+    // ตรวจรหัสจริงพอดี 5 ครั้ง ที่เหลือต้องเป็น "ถูกล็อก" (ไม่ใช่ rate_limited จาก transaction ล้ม)
+    expect(codes.filter((c) => c === 'invalid_credentials')).toHaveLength(5);
+    expect(codes.filter((c) => c !== 'invalid_credentials')).toEqual(
+      Array(15).fill('account_locked'),
+    );
+  }, 60_000);
+
+  it('token dev และ cookie ไม่ Secure ใช้ได้เฉพาะเครื่อง dev/test (staging ปฏิเสธ)', async () => {
+    const dev = await signDevToken({ sub: 'x', tid: tenantA });
+    const env = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'staging';
+    process.env.AUTH_JWT_SECRET = 'staging-secret-0123456789abcdef0123456789';
+    try {
+      expect(await verifyAccessToken(dev)).toBeNull();
+      expect(isLocalEnv()).toBe(false);
+    } finally {
+      process.env.NODE_ENV = env;
+      delete process.env.AUTH_JWT_SECRET;
+    }
+    expect(await verifyAccessToken(dev)).not.toBeNull();
+  });
+
+  it('tenant ถูกระงับ → access token เดิม 401 และ refresh ใช้ไม่ได้', async () => {
+    const t = await createTenant(db);
+    await makeUser(t.id, 'suspend@example.co.th');
+    const { access, cookie } = await fullLogin('suspend@example.co.th');
+    expect((await me(access)).status).toBe(200);
+    await db.tenant.update({ where: { id: t.id }, data: { status: 'SUSPENDED' } });
+    expect((await me(access)).status).toBe(401);
+    expect((await refresh(cookie)).status).toBe(400);
   });
 
   it('bump tokenVersion → access token เดิม 401 ทันที และ refresh ใช้ไม่ได้', async () => {

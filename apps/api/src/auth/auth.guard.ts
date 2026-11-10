@@ -47,8 +47,15 @@ export class AuthGuard implements CanActivate {
     }
     const scopes = claims.scope ? claims.scope.split(' ') : [];
     const required = this.reflector.getAllAndOverride<string[]>(REQUIRED_SCOPE, targets);
-    if (required && !required.some((r) => scopeAllows(scopes, r)))
-      throw new ProblemException('forbidden');
+    // spec/01 PLT-132: 403 permission_denied พร้อม module/action ของสิทธิ์ที่ขาด
+    if (required && !required.some((r) => scopeAllows(scopes, r))) {
+      const [module, action] = required[0]!.split(':');
+      throw new ProblemException('permission_denied', undefined, undefined, {
+        module,
+        action,
+        required,
+      });
+    }
 
     const ctx = requestContext.require();
     ctx.tenantId = claims.tid;

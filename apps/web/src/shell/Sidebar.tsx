@@ -1,8 +1,8 @@
 import { Icon } from '@tms/ui';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useI18n } from '../i18n';
-import { navFor, type NavGroup } from '../nav';
+import { canAny, navFor, NAV, type NavGroup } from '../nav';
 
 /** Sidebar — markup/ค่าจาก <aside> ใน TMS v4 (กว้าง 272 / ย่อ 88, แผงลอยขาว radius 16) */
 export function Sidebar({
@@ -29,6 +29,15 @@ export function Sidebar({
   const here = loc.pathname + loc.search;
   const [open, setOpen] = useState<Record<string, boolean>>({ ops: true, acc: true });
   const isOn = (path: string) => (path.includes('?') ? here === path : loc.pathname === path);
+  // อยู่หน้าลูกของกลุ่มไหน → กางกลุ่มนั้นให้เห็นเมนูที่ active (ต้นแบบ: ตั้งค่า ▾ › ตั้งค่าระบบ •)
+  useEffect(() => {
+    const g = NAV.find(
+      (x) => x.key !== 'fav' && x.kids?.some((k) => k.path.split('?')[0] === loc.pathname),
+    );
+    if (g) setOpen((o) => (o[g.key] ? o : { ...o, [g.key]: true }));
+  }, [loc.pathname]);
+  const settingsPerm = NAV.find((g) => g.key === 'setg')?.kids?.[0]?.perm;
+  const canSettings = canAny(scopes, settingsPerm);
   // ตัวย่อ = พยัญชนะ/ตัวอักษรแรกของชื่อ + ของนามสกุล (ต้นแบบ: พรทิพย์ ศรีวงศ์ → พศ; ข้ามสระนำ เ แ โ ใ ไ)
   const first = (w: string) => [...w].find((ch) => /[\u0E01-\u0E2EA-Za-z0-9]/.test(ch)) ?? '';
   const words = actor.trim().split(/\s+/);
@@ -318,7 +327,8 @@ export function Sidebar({
             <>
               <button
                 type="button"
-                onClick={() => nav('/settings')}
+                onClick={canSettings ? () => nav('/settings') : undefined}
+                disabled={!canSettings}
                 className="tms-sb-foot"
                 style={{
                   display: 'flex',
@@ -329,7 +339,7 @@ export function Sidebar({
                   border: 0,
                   background: 'transparent',
                   borderRadius: 8,
-                  cursor: 'pointer',
+                  cursor: canSettings ? 'pointer' : 'default',
                   color: '#3B424C',
                   fontWeight: 500,
                 }}
@@ -338,7 +348,9 @@ export function Sidebar({
                 <span style={{ flex: 1, textAlign: 'left', whiteSpace: 'nowrap' }}>
                   {t('shell.erpOff')}
                 </span>
-                <span style={{ color: '#2257C4', fontWeight: 600 }}>{t('shell.erpSetup')}</span>
+                {canSettings && (
+                  <span style={{ color: '#2257C4', fontWeight: 600 }}>{t('shell.erpSetup')}</span>
+                )}
               </button>
               <div style={{ height: 1, background: '#E4E6E0', margin: '2px 4px' }} />
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '4px 6px' }}>

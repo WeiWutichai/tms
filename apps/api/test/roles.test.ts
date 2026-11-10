@@ -115,6 +115,12 @@ describe('roles: A3 ผ่าน API จริง', () => {
     expect(JSON.stringify(res.body)).not.toMatch(/passwordHash|totpSecret|argon2/);
   });
 
+  it('ไม่มีสิทธิ์ → 403 permission_denied พร้อม module/action (spec/01 PLT-132)', async () => {
+    const res = await api(app, tokens.viewer).get('/v1/users');
+    expect(res.status).toBe(403);
+    expect(res.body).toMatchObject({ code: 'permission_denied', module: 'users', action: 'read' });
+  });
+
   it('GET /roles เรียงตาม A3 และเป็น role ระบบทั้งหมด', async () => {
     const res = await api(app, tokens.admin).get('/v1/roles').expect(200);
     expect(res.body.data.map((r: { code: string }) => r.code)).toEqual([...ROLE_CODES]);

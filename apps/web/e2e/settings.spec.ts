@@ -5,6 +5,11 @@ test.describe('ตั้งค่า (owner)', () => {
   test('นิติบุคคลและสาขา / เลขที่เอกสาร / ผู้ใช้และสิทธิ์', async ({ page }) => {
     await page.goto('/settings?sec=ent');
     await expect(page.getByRole('heading', { name: 'นิติบุคคลและสาขา' })).toBeVisible();
+    // กลุ่มเมนู "ตั้งค่า" กางอยู่ และเห็นเมนูย่อยที่ active (ต้นแบบ)
+    await expect(page.getByRole('button', { name: 'ตั้งค่า', exact: true })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    );
     await expect(
       page.getByRole('cell', { name: 'บริษัท ตัวอย่างขนส่ง จำกัด (สำนักงานใหญ่)' }),
     ).toBeVisible();
@@ -45,5 +50,7 @@ test.describe('ตั้งค่า (viewer)', () => {
     await page.goto('/settings');
     await expect(page.getByText('ไม่มีสิทธิ์เข้าถึงหน้านี้')).toBeVisible();
     await expect(page.getByText('บทบาท "ดูอย่างเดียว"')).toBeVisible();
+    // ลิงก์ "ตั้งค่า" ที่ท้าย sidebar ไม่พาไปหน้าที่ไม่มีสิทธิ์
+    await expect(page.getByRole('button', { name: /ไม่ได้เชื่อมระบบบัญชี/ })).toBeDisabled();
   });
 });

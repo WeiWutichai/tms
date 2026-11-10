@@ -71,6 +71,12 @@ flowchart LR
 
 ## 3. Review (gate ก่อนเข้า QA)
 
+> **วิธีทำงานกับ AI agent (PO อนุมัติ 10 พ.ย. 2569):** ทุก task ทำตามลำดับ dev → review → QA → แก้ → merge
+> - **Review** = agent ใหม่ที่ไม่เห็นความคิดของคนเขียน เห็นแค่ diff + กติกาใน CLAUDE.md/docs — รายงานเป็น blocker / should-fix / minor พร้อมสถานการณ์ที่พังจริง
+> - **QA** = agent อีกตัวทดสอบกับแอปที่รันจริงตามเกณฑ์ตรวจรับใน `plan/01` + ตารางสิทธิ์ + เทียบหน้าจอกับต้นแบบ โดยไม่อาศัย test ของคนเขียน
+> - แก้ blocker และ should-fix ทุกข้อก่อนเปิด PR/merge; minor ลงบันทึกใน PROGRESS; merge เมื่อ CI เขียว
+> - หลายคนเขียนพร้อมกัน (หลาย worktree) ใช้เมื่อ task ไม่พึ่งกัน (ตั้งแต่ ST2) และ PO สั่ง workflow
+
 **3.1 Definition of Done ของ PR** (เป็น checklist ใน PR template `plan/templates/pull-request.md`)
 - [ ] CI เขียวทั้งหมด: lint, typecheck, unit, integration, tenant-isolation suite, OpenAPI diff gate, build, CVE scan
 - [ ] เกณฑ์ตรวจรับของ task มี test อัตโนมัติรองรับ (ชี้ไฟล์ test ใน PR)

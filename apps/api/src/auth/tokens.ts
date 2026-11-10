@@ -4,17 +4,26 @@ import { jwtVerify, SignJWT } from 'jose';
 /**
  * Access token ของ TMS (T-04) — claim:
  * - `sub` ผู้ใช้ (uuid) หรือ principal อื่น, `tid` tenant uuid, `scope` "resource:verb ..."
- * - `pt` ชนิด principal: `user` (login จริง ตรวจ `tv` กับฐานข้อมูลทุก request) | `dev` (token สำหรับพัฒนา/test — production ปฏิเสธ)
+ * - `pt` ชนิด principal: `user` (login จริง ตรวจ `tv` กับฐานข้อมูลทุก request) | `dev` (token สำหรับพัฒนา/test — นอกเครื่อง dev/test ปฏิเสธ)
  * - `tv` tokenVersion ของผู้ใช้ตอนออก token (bump แล้ว token เก่าใช้ไม่ได้ทันที — A1)
  *
- * เซ็นแบบ HS256 ด้วย `AUTH_JWT_SECRET` (fallback `AUTH_DEV_SECRET` นอก production)
+ * เซ็นแบบ HS256 ด้วย `AUTH_JWT_SECRET` (fallback `AUTH_DEV_SECRET` เฉพาะเครื่อง dev/test)
  * RS256 + JWKS สำหรับ client ภายนอกมาใน ST7-T01 (ตอนนั้นมีผู้ตรวจ token นอกระบบ) — plan/02 T-04
  */
 export const ACCESS_TTL_SECONDS = 15 * 60;
 
+/**
+ * เครื่องนักพัฒนา/test เท่านั้น (NODE_ENV = development หรือ test เท่านั้น) — staging/production ไม่รับ token `dev`,
+ * ไม่ใช้ AUTH_DEV_SECRET และ cookie ต้อง Secure (review 10 พ.ย. 2569 ข้อ 4–5)
+ */
+export function isLocalEnv(): boolean {
+  // ต้องตั้งชัด ๆ เท่านั้น — ลืมตั้ง NODE_ENV ตอน deploy = ถือว่าไม่ใช่เครื่อง dev (fail closed)
+  const e = process.env.NODE_ENV;
+  return e === 'development' || e === 'test';
+}
+
 function secret(): Uint8Array {
-  const prod = process.env.NODE_ENV === 'production';
-  const s = process.env.AUTH_JWT_SECRET ?? (prod ? undefined : process.env.AUTH_DEV_SECRET);
+  const s = process.env.AUTH_JWT_SECRET ?? (isLocalEnv() ? process.env.AUTH_DEV_SECRET : undefined);
   if (!s || s.length < 32) throw new Error('AUTH_JWT_SECRET (>= 32 chars) required');
   return new TextEncoder().encode(s);
 }
@@ -49,7 +58,7 @@ export async function verifyAccessToken(token: string): Promise<AccessClaims | n
     const { payload } = await jwtVerify(token, secret(), { algorithms: ['HS256'] });
     if (typeof payload.tid !== 'string' || !payload.sub) return null;
     const pt: PrincipalType = payload.pt === 'user' ? 'user' : 'dev';
-    if (pt === 'dev' && process.env.NODE_ENV === 'production') return null;
+    if (pt === 'dev' && !isLocalEnv()) return null;
     if (pt === 'user' && typeof payload.tv !== 'number') return null;
     return {
       sub: payload.sub,

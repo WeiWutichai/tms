@@ -159,6 +159,8 @@ function BranchDrawer({
   const topError =
     save.error instanceof ApiError ? t(`problem.${save.error.problem.code}` as MessageKey) : null;
   const isHq = form.branchCode === HQ;
+  // เปิด drawer ก่อนรายการนิติบุคคลโหลดเสร็จ → ใช้ตัวแรกที่โหลดมาแทนค่าว่าง (QA พบ 10 พ.ย. 2569)
+  const companyId = form.companyId || companies[0]?.id || '';
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -171,7 +173,7 @@ function BranchDrawer({
       ...(form.branchLabel ? { branchLabel: form.branchLabel } : {}),
     };
     if (!branch?.isDefaultIssuer) body.isDefaultIssuer = form.isDefaultIssuer;
-    if (!branch) Object.assign(body, { companyId: form.companyId, branchCode: form.branchCode });
+    if (!branch) Object.assign(body, { companyId, branchCode: form.branchCode });
     save.mutate(branch ? { id: branch.id, version: branch.version, body } : { body }, {
       onSuccess: onClose,
     });
@@ -273,7 +275,7 @@ function BranchDrawer({
               <select
                 {...a}
                 className="tms-input"
-                value={form.companyId}
+                value={companyId}
                 disabled={!!branch}
                 onChange={(e) => setForm({ ...form, companyId: e.target.value })}
               >

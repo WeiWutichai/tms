@@ -222,6 +222,7 @@ model Branch {
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
+  /// + partial unique `branch_one_default_issuer_per_company` (company_id) WHERE is_default_issuer (migration 0008)
   @@unique([tenantId, companyId, branchCode])
   @@map("branch")
 }
@@ -266,6 +267,7 @@ model DocumentSequence {
   createdAt      DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
+  /// ⚠ index จริงเป็น NULLS NOT DISTINCT (migration 0007) — Prisma แสดงไม่ได้; ห้ามให้ migrate diff สร้างใหม่ทับ (test/schema-constraints.test.ts)
   @@unique([tenantId, docType, branchId, periodKey])
   @@map("document_sequence")
 }
@@ -304,9 +306,13 @@ model AuditLog {
   reason     String?
   requestId  String?  @map("request_id")
   ip         String?
+  /// ลำดับเขียน (bigserial) — ใช้เรียง/แบ่งหน้า เพราะ at ของแถวใน transaction เดียวเท่ากัน
+  seq        BigInt   @default(autoincrement())
 
   @@index([tenantId, entityType, entityId, at])
   @@index([tenantId, at])
+  @@index([tenantId, seq])
+  @@index([tenantId, entityType, entityId, seq])
   @@map("audit_log")
 }
 

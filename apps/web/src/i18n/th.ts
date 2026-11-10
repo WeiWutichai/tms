@@ -338,6 +338,8 @@ export const th = {
   'num.reset.never': 'ไม่รีเซ็ต',
   'num.prefixInvalid':
     'Prefix ใช้ได้เฉพาะ A–Z 0–9 - _ / . ไม่เกิน 20 ตัว และเอกสารภาษีต้องมี {BR} (รหัสสาขา)',
+  'num.inUse': 'งวดนี้ออกเลขเอกสารภาษีไปแล้ว เปลี่ยน Prefix หรือรอบรีเซ็ตได้เมื่อขึ้นงวดใหม่',
+  'field.default_must_issue': 'สาขาออกเอกสารเริ่มต้นต้องออกใบกำกับภาษีในนามตัวเอง',
   'doc.SO': 'ใบสั่งขนส่ง',
   'doc.TRIP': 'เที่ยวรถ',
   'doc.DO': 'ใบส่งของ',
@@ -358,6 +360,7 @@ export const th = {
   'problem.invalid_state_transition': 'ทำรายการนี้ไม่ได้ในสถานะปัจจุบัน',
   'problem.unauthorized': 'ต้องเข้าสู่ระบบ',
   'problem.forbidden': 'ไม่มีสิทธิ์ทำรายการนี้',
+  'problem.permission_denied': 'ไม่มีสิทธิ์ทำรายการนี้',
   'problem.not_found': 'ไม่พบข้อมูล',
   'problem.internal_error': 'ระบบขัดข้อง',
   'field.thai_tax_id': 'เลขประจำตัวผู้เสียภาษีต้องเป็นตัวเลข 13 หลักที่ถูกต้อง',

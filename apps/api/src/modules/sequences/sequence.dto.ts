@@ -13,7 +13,11 @@ export class UpdateSequenceDto {
   @Matches(/^(?:[A-Za-z0-9\-_/.]|\{BR\}){1,20}$/)
   prefix?: string;
 
-  @ApiPropertyOptional({ enum: RESET_POLICIES, description: 'มีผลกับงวดถัดไปที่ยังไม่เริ่ม' })
+  @ApiPropertyOptional({
+    enum: RESET_POLICIES,
+    description:
+      'มีผลทันที — เอกสารภาษีที่งวดนี้ออกเลขไปแล้วเปลี่ยน prefix/รีเซ็ตไม่ได้ (422 series_in_use) จนกว่าจะขึ้นงวดใหม่',
+  })
   @IsOptional()
   @IsIn(RESET_POLICIES)
   resetPolicy?: (typeof RESET_POLICIES)[number];

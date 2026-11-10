@@ -94,12 +94,11 @@ export class AuditPageDto {
   @ApiProperty() hasMore!: boolean;
 }
 
-function decodeCursor(c: string): { at: Date; id: string } {
+function decodeCursor(c: string): bigint {
   try {
-    const v = JSON.parse(Buffer.from(c, 'base64url').toString('utf8')) as { a: string; i: string };
-    const at = new Date(v.a);
-    if (Number.isNaN(at.getTime()) || typeof v.i !== 'string') throw new Error();
-    return { at, id: v.i };
+    const v = JSON.parse(Buffer.from(c, 'base64url').toString('utf8')) as { s: string };
+    if (typeof v.s !== 'string' || !/^\d{1,18}$/.test(v.s)) throw new Error();
+    return BigInt(v.s);
   } catch {
     throw new ProblemException('validation_failed', undefined, [
       { field: 'cursor', code: 'invalid_cursor', message: 'cursor is invalid' },
@@ -121,7 +120,11 @@ export class AuditController {
     const scopes = requestContext.require().scopes ?? [];
     const accountingOnly = !scopeAllows(scopes, 'audit:read');
     if (accountingOnly && q.entityType && !ACCOUNTING_ENTITIES.includes(q.entityType))
-      throw new ProblemException('forbidden');
+      throw new ProblemException('permission_denied', undefined, undefined, {
+        module: 'audit',
+        action: 'read',
+        required: ['audit:read'],
+      });
     const limit = q.limit ?? 50;
     let entityId: string | undefined;
     if (q.entityId) {
@@ -132,13 +135,11 @@ export class AuditController {
     if (q.entityType) and.push({ entityType: q.entityType });
     else if (accountingOnly) and.push({ entityType: { in: ACCOUNTING_ENTITIES } });
     if (entityId) and.push({ entityId });
-    if (q.cursor) {
-      const c = decodeCursor(q.cursor);
-      and.push({ OR: [{ at: { lt: c.at } }, { at: c.at, id: { lt: c.id } }] });
-    }
+    // เรียงด้วย seq (ลำดับเขียน) — at ของแถวใน transaction เดียวเท่ากันจึงใช้แบ่งหน้าไม่ได้ (review 10 พ.ย. 2569 ข้อ 6)
+    if (q.cursor) and.push({ seq: { lt: decodeCursor(q.cursor) } });
     const rows = await this.db.tx.auditLog.findMany({
       where: and.length ? { AND: and } : {},
-      orderBy: [{ at: 'desc' }, { id: 'desc' }],
+      orderBy: { seq: 'desc' },
       take: limit + 1,
     });
     const hasMore = rows.length > limit;
@@ -176,9 +177,7 @@ export class AuditController {
       })),
       nextCursor:
         hasMore && last
-          ? Buffer.from(JSON.stringify({ a: last.at.toISOString(), i: last.id })).toString(
-              'base64url',
-            )
+          ? Buffer.from(JSON.stringify({ s: String(last.seq) })).toString('base64url')
           : null,
       hasMore,
     };
