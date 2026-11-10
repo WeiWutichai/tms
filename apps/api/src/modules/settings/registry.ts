@@ -7,13 +7,15 @@ export type SettingType =
   | { kind: 'string'; max: number }
   | { kind: 'enum'; values: readonly (string | number)[] }
   | { kind: 'bool' }
-  | { kind: 'int'; min: number; max: number; nullable?: boolean };
+  | { kind: 'int'; min: number; max: number; nullable?: boolean }
+  /** id ของ entity อื่น (เช่น `cmp_…`) — ตรวจว่ามีอยู่จริงที่ service */
+  | { kind: 'ref'; entity: 'company'; nullable: true };
 
 export interface SettingDef {
   type: SettingType;
   default: unknown;
   /** กลุ่มในหน้า ตั้งค่า (org / tax / sec / billing) */
-  group: 'org' | 'tax' | 'sec' | 'billing';
+  group: 'org' | 'tax' | 'sec' | 'billing' | 'routing';
   store?: { table: 'tenant'; column: 'name' | 'yearStyle' };
   description: string;
 }
@@ -82,6 +84,20 @@ export const SETTINGS = {
     default: null,
     description: 'free time ค่ารอเริ่มต้น (นาที) — null = ไม่ตั้ง (จุดส่ง/ลูกค้ากำหนดเอง)',
   },
+  'routing.invoiceAsCompanyId': {
+    group: 'routing',
+    type: { kind: 'ref', entity: 'company', nullable: true },
+    default: null,
+    description:
+      'ออกบิลในนาม (Invoice As) ค่าเริ่มต้นของ tenant — ลูกค้า override ได้ (ST2-T01); null = นิติบุคคลเดียวที่มี',
+  },
+  'routing.tenderAsCompanyId': {
+    group: 'routing',
+    type: { kind: 'ref', entity: 'company', nullable: true },
+    default: null,
+    description:
+      'จ้างในนาม (Tender As) ค่าเริ่มต้นของ tenant — รถร่วม override ได้ (ST2-T05); null = นิติบุคคลเดียวที่มี',
+  },
   'security.require2faAll': {
     group: 'sec',
     type: { kind: 'bool' },
@@ -117,6 +133,10 @@ export function validateSetting(key: SettingKey, value: unknown): string | null 
       return t.values.includes(value as never) ? null : `must be one of ${t.values.join(', ')}`;
     case 'bool':
       return typeof value === 'boolean' ? null : 'must be boolean';
+    case 'ref':
+      return value === null || (typeof value === 'string' && /^cmp_[0-9a-f]{32}$/.test(value))
+        ? null
+        : 'must be a company id (cmp_…) or null';
     case 'int':
       if (value === null && t.nullable) return null;
       return Number.isInteger(value) && (value as number) >= t.min && (value as number) <= t.max
