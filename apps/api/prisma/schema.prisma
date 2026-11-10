@@ -270,6 +270,25 @@ model DocumentSequence {
   @@map("document_sequence")
 }
 
+/// ชุดเลขเอกสารต่อประเภท (ST1-T15) — ค่าที่ผู้ใช้ตั้งในหน้า "เลขที่เอกสาร"; ตัวนับจริงอยู่ที่ document_sequence ต่อ (สาขา × งวด)
+/// prefix รองรับ {BR} = รหัสสาขา; ส่วนงวดต่อท้ายตาม reset_policy (MONTHLY = {YY}{MM}-, YEARLY = {YY}-)
+model DocumentSeries {
+  id          String      @id @default(uuid()) @db.Uuid
+  tenantId    String      @map("tenant_id") @db.Uuid
+  docType     DocType     @map("doc_type")
+  prefix      String
+  resetPolicy ResetPolicy @default(MONTHLY) @map("reset_policy")
+  padding     Int         @default(4)
+  /// เอกสารภาษี: ตัวนับแยกต่อสาขาผู้ออก (บังคับมีสาขา)
+  perBranch   Boolean     @default(false) @map("per_branch")
+  version     Int         @default(1)
+  createdAt   DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, docType])
+  @@map("document_series")
+}
+
 /// audit log (J: เก็บ 5 ปี) — append-only สำหรับ role แอป
 model AuditLog {
   id         String   @id @default(uuid()) @db.Uuid

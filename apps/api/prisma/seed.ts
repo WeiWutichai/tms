@@ -6,8 +6,11 @@
  * stage ถัดไปเพิ่ม seed ของตัวเองในไฟล์ prisma/seed/*.ts แล้วเรียกจากที่นี่
  */
 import { PrismaClient } from '@prisma/client';
+import { ROLE_CODES, type RoleCode } from '@tms/domain';
 import { signDevToken } from '../src/auth/auth.guard';
 import { hashPassword } from '../src/auth/password';
+import { ensureSystemRoles } from '../src/auth/system-roles';
+import { ensureDefaultSeries } from '../src/modules/sequences/sequences.service';
 
 export const DEMO_A = '00000000-0000-4000-8000-00000000000a';
 export const DEMO_B = '00000000-0000-4000-8000-00000000000b';
@@ -46,25 +49,87 @@ const COMPANIES = [
   },
 ];
 
-/**
- * ผู้ใช้เดโม (ST1-T01) — ใช้ login ในเครื่อง dev/e2e เท่านั้น; production ไม่รัน seed นี้
- * role `owner` ชั่วคราวได้ทุกสิทธิ์ ('*') จนกว่า ST1-T12 จะ seed ตาราง A3 ครบ
- */
-export const DEMO_PASSWORD = 'demo-password-2569';
-const USERS = [
+/** สาขาเดโม (ST1-T14) — ที่อยู่สมมติ */
+const ADDR = (line1: string) => ({
+  line1,
+  subdistrict: 'ตัวอย่าง',
+  district: 'เมืองตัวอย่าง',
+  province: 'กรุงเทพมหานคร',
+  postcode: '10000',
+});
+const BRANCHES = [
   {
-    id: '00000000-0000-4000-8000-0000000e0a01',
+    id: '00000000-0000-4000-8000-0000000b0a01',
     tenantId: DEMO_A,
-    email: 'owner@demo-a.test',
-    name: 'เจ้าของ ตัวอย่าง',
+    companyId: '00000000-0000-4000-8000-0000000c0a01',
+    branchCode: '00000',
+    branchLabel: 'สำนักงานใหญ่',
+    address: ADDR('1/1 ถนนตัวอย่าง'),
+    isDefaultIssuer: true,
   },
   {
-    id: '00000000-0000-4000-8000-0000000e0b01',
+    id: '00000000-0000-4000-8000-0000000b0a02',
+    tenantId: DEMO_A,
+    companyId: '00000000-0000-4000-8000-0000000c0a01',
+    branchCode: '00001',
+    branchLabel: 'สาขาที่ 00001',
+    address: ADDR('2/2 ถนนตัวอย่าง'),
+    isDefaultIssuer: false,
+  },
+  {
+    id: '00000000-0000-4000-8000-0000000b0a03',
+    tenantId: DEMO_A,
+    companyId: '00000000-0000-4000-8000-0000000c0a02',
+    branchCode: '00000',
+    branchLabel: 'สำนักงานใหญ่',
+    address: ADDR('3/3 ถนนตัวอย่าง'),
+    isDefaultIssuer: true,
+  },
+  {
+    id: '00000000-0000-4000-8000-0000000b0b01',
     tenantId: DEMO_B,
-    email: 'owner@demo-b.test',
-    name: 'เจ้าของ ตัวอย่างบี',
+    companyId: '00000000-0000-4000-8000-0000000c0b01',
+    branchCode: '00000',
+    branchLabel: 'สำนักงานใหญ่',
+    address: ADDR('4/4 ถนนตัวอย่าง'),
+    isDefaultIssuer: true,
   },
 ];
+
+/**
+ * ผู้ใช้เดโม (ST1-T01, T12) — ใช้ login ในเครื่อง dev/e2e เท่านั้น; production ไม่รัน seed นี้
+ * demo-a มีผู้ใช้ 1 คนต่อ role มาตรฐาน (`<role>@demo-a.test`) ไว้ลองสิทธิ์ตามตาราง A3
+ * ทุกคนใช้รหัส DEMO_PASSWORD · id คงที่: ...0e0a0N (N = ลำดับ role)
+ */
+export const DEMO_PASSWORD = 'demo-password-2569';
+const DEMO_NAMES: Record<RoleCode, string> = {
+  owner: 'เจ้าของ ตัวอย่าง',
+  admin: 'ผู้ดูแล ตัวอย่าง',
+  manager: 'ผู้จัดการ ตัวอย่าง',
+  planner: 'วางแผน ตัวอย่าง',
+  dispatcher: 'จ่ายงาน ตัวอย่าง',
+  invoicer: 'วางบิล ตัวอย่าง',
+  accounting: 'บัญชี ตัวอย่าง',
+  approver: 'อนุมัติ ตัวอย่าง',
+  viewer: 'ดูอย่างเดียว ตัวอย่าง',
+};
+const USERS: Array<{ id: string; tenantId: string; email: string; name: string; role: RoleCode }> =
+  [
+    ...ROLE_CODES.map((role, i) => ({
+      id: `00000000-0000-4000-8000-0000000e0a${String(i + 1).padStart(2, '0')}`,
+      tenantId: DEMO_A,
+      email: `${role}@demo-a.test`,
+      name: DEMO_NAMES[role],
+      role,
+    })),
+    {
+      id: '00000000-0000-4000-8000-0000000e0b01',
+      tenantId: DEMO_B,
+      email: 'owner@demo-b.test',
+      name: 'เจ้าของ ตัวอย่างบี',
+      role: 'owner',
+    },
+  ];
 
 async function main() {
   const db = new PrismaClient({ datasources: { db: { url: process.env.PLATFORM_DATABASE_URL } } });
@@ -82,30 +147,30 @@ async function main() {
     const { id, ...data } = c;
     await db.company.upsert({ where: { id }, create: c, update: data });
   }
+  for (const b of BRANCHES) {
+    const { id, ...data } = b;
+    await db.branch.upsert({ where: { id }, create: b, update: data });
+  }
+  for (const t of [DEMO_A, DEMO_B]) await ensureDefaultSeries(db, t);
   const passwordHash = await hashPassword(DEMO_PASSWORD);
+  const roleIds: Record<string, Record<string, string>> = {};
+  for (const t of [DEMO_A, DEMO_B]) roleIds[t] = await ensureSystemRoles(db, t);
   for (const u of USERS) {
-    const role = await db.role.upsert({
-      where: { tenantId_code: { tenantId: u.tenantId, code: 'owner' } },
-      create: {
-        tenantId: u.tenantId,
-        code: 'owner',
-        nameTh: 'เจ้าของ',
-        nameEn: 'Owner',
-        permissions: ['*'],
-        isSystem: true,
-      },
-      update: {},
-    });
+    const { role, ...data } = u;
+    const roleId = roleIds[u.tenantId]![role]!;
     await db.appUser.upsert({
       where: { id: u.id },
-      create: { ...u, status: 'ACTIVE', passwordHash },
+      create: { ...data, status: 'ACTIVE', passwordHash },
       update: { email: u.email, name: u.name, status: 'ACTIVE', passwordHash },
     });
-    const link = await db.userRole.findFirst({
-      where: { tenantId: u.tenantId, userId: u.id, roleId: role.id },
+    // ผู้ใช้เดโมถือ role เดียวตามชื่ออีเมล (ล้าง role อื่นที่ test อาจเพิ่มไว้)
+    await db.userRole.deleteMany({
+      where: { tenantId: u.tenantId, userId: u.id, roleId: { not: roleId } },
     });
-    if (!link)
-      await db.userRole.create({ data: { tenantId: u.tenantId, userId: u.id, roleId: role.id } });
+    const link = await db.userRole.findFirst({
+      where: { tenantId: u.tenantId, userId: u.id, roleId },
+    });
+    if (!link) await db.userRole.create({ data: { tenantId: u.tenantId, userId: u.id, roleId } });
   }
   const counts = {
     tenants: await db.tenant.count({ where: { id: { in: [DEMO_A, DEMO_B] } } }),

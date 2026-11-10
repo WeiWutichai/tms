@@ -168,7 +168,7 @@ export function tableLabels(t: T) {
 }
 
 /** ข้อความ error ราย field จาก problem+json errors[] → แปลจาก code (plan/02 T-11) */
-function fieldErrors(err: unknown, t: T): Record<string, string> {
+export function fieldErrors(err: unknown, t: T): Record<string, string> {
   if (!(err instanceof ApiError)) return {};
   const out: Record<string, string> = {};
   for (const e of err.problem.errors ?? []) {
@@ -178,7 +178,7 @@ function fieldErrors(err: unknown, t: T): Record<string, string> {
   return out;
 }
 
-function CompanyDrawer({
+export function CompanyDrawer({
   company,
   mode,
   setMode,

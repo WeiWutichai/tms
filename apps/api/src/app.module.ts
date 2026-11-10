@@ -1,6 +1,12 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { AuditService } from './audit/audit.service';
 import { AuthController } from './auth/auth.controller';
+import { BranchesController } from './modules/branches/branches.controller';
+import { BranchesService } from './modules/branches/branches.service';
+import { SequencesController } from './modules/sequences/sequences.controller';
+import { SequencesService } from './modules/sequences/sequences.service';
+import { AuditController } from './audit/audit.controller';
 import { AuthGuard } from './auth/auth.guard';
 import { AuthService } from './auth/auth.service';
 import { ProblemFilter } from './common/problem.filter';
@@ -15,6 +21,7 @@ import { CompaniesService } from './modules/companies/companies.service';
 import { HealthController } from './modules/health/health.controller';
 import { JobsController } from './modules/jobs/jobs.controller';
 import { MeController } from './modules/me/me.controller';
+import { UsersController } from './modules/users/users.controller';
 import { PdfRenderer } from './pdf/pdf-renderer';
 import { StateService } from './state/state.service';
 
@@ -24,6 +31,10 @@ import { StateService } from './state/state.service';
     HealthController,
     MeController,
     CompaniesController,
+    UsersController,
+    BranchesController,
+    SequencesController,
+    AuditController,
     JobsController,
   ],
   providers: [
@@ -34,6 +45,9 @@ import { StateService } from './state/state.service';
     JobQueue,
     PdfRenderer,
     CompaniesService,
+    AuditService,
+    BranchesService,
+    SequencesService,
     { provide: APP_GUARD, useClass: AuthGuard },
     { provide: APP_FILTER, useClass: ProblemFilter },
     // ลำดับสำคัญ: idempotency (นอก) → transaction (ใน)

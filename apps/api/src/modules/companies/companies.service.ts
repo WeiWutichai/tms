@@ -4,6 +4,7 @@ import type { TransitionTable } from '@tms/domain';
 import { encodeId } from '../../common/ids';
 import { keysetArgs, toPage } from '../../common/pagination';
 import { ProblemException } from '../../common/problem';
+import { AuditService } from '../../audit/audit.service';
 import { DbService } from '../../db/db.service';
 import { StateService } from '../../state/state.service';
 import type {
@@ -39,6 +40,7 @@ export class CompaniesService {
   constructor(
     private readonly db: DbService,
     private readonly state: StateService,
+    private readonly audit: AuditService,
   ) {}
 
   async create(input: CreateCompanyDto): Promise<Company> {
@@ -49,7 +51,14 @@ export class CompaniesService {
         { field: 'taxId', code: 'duplicate', message: 'taxId already exists in this tenant' },
       ]);
     }
-    return tx.company.create({ data: { ...input } as any });
+    const c = await tx.company.create({ data: { ...input } as any });
+    await this.audit.record({
+      action: 'company.created',
+      entityType: 'company',
+      entityId: c.id,
+      after: toCompanyDto(c),
+    });
+    return c;
   }
 
   async list(q: CompanyListQuery) {
@@ -79,7 +88,15 @@ export class CompaniesService {
     const current = await this.get(id);
     if (expected !== undefined && expected !== current.version)
       throw new ProblemException('precondition_failed');
-    return this.bumpVersion(current, { ...input });
+    const c = await this.bumpVersion(current, { ...input });
+    await this.audit.changed(
+      'company.updated',
+      'company',
+      c.id,
+      { ...toCompanyDto(current) },
+      { ...toCompanyDto(c) },
+    );
+    return c;
   }
 
   async changeStatus(id: string, event: CompanyEvent, reason: string, expected?: number) {
@@ -98,6 +115,14 @@ export class CompaniesService {
       eventType: event === 'deactivate' ? 'company.deactivated' : 'company.activated',
       apply: async (to) => {
         updated = await this.bumpVersion(current, { status: to });
+        await this.audit.changed(
+          `company.${event}d`,
+          'company',
+          id,
+          { ...toCompanyDto(current) },
+          { ...toCompanyDto(updated) },
+          reason,
+        );
         return toCompanyDto(updated) as unknown as Record<string, unknown>;
       },
     });

@@ -8,6 +8,8 @@ export interface RequestContext {
   actorId?: string;
   scopes?: string[];
   locale: 'th' | 'en';
+  /** IP ผู้เรียก (trust proxy 1 ชั้น) — ลง audit log */
+  ip?: string;
   tx?: Prisma.TransactionClient;
 }
 

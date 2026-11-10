@@ -1,5 +1,6 @@
 import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
+import { scopeAllows } from '@tms/domain';
 import type { Request } from 'express';
 import { IS_PUBLIC, REQUIRED_SCOPE } from '../common/decorators';
 import { ProblemException } from '../common/problem';
@@ -19,12 +20,6 @@ export async function signDevToken(
     { sub: claims.sub, tid: claims.tid, scope: claims.scope ?? '*', pt: 'dev' },
     ttl,
   );
-}
-
-function scopeAllows(granted: string[], required: string): boolean {
-  if (granted.includes('*') || granted.includes(required)) return true;
-  const [resource] = required.split(':');
-  return granted.includes(`${resource}:*`);
 }
 
 @Injectable()
@@ -51,8 +46,9 @@ export class AuthGuard implements CanActivate {
       if (tv === null || tv !== claims.tv) throw new ProblemException('unauthorized');
     }
     const scopes = claims.scope ? claims.scope.split(' ') : [];
-    const required = this.reflector.getAllAndOverride<string>(REQUIRED_SCOPE, targets);
-    if (required && !scopeAllows(scopes, required)) throw new ProblemException('forbidden');
+    const required = this.reflector.getAllAndOverride<string[]>(REQUIRED_SCOPE, targets);
+    if (required && !required.some((r) => scopeAllows(scopes, r)))
+      throw new ProblemException('forbidden');
 
     const ctx = requestContext.require();
     ctx.tenantId = claims.tid;

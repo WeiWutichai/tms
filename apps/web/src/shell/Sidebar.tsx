@@ -2,7 +2,7 @@ import { Icon } from '@tms/ui';
 import { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useI18n } from '../i18n';
-import { NAV, type NavGroup } from '../nav';
+import { navFor, type NavGroup } from '../nav';
 
 /** Sidebar — markup/ค่าจาก <aside> ใน TMS v4 (กว้าง 272 / ย่อ 88, แผงลอยขาว radius 16) */
 export function Sidebar({
@@ -11,6 +11,7 @@ export function Sidebar({
   tenantName,
   actor,
   role,
+  scopes,
   onLogout,
 }: {
   mini: boolean;
@@ -18,6 +19,8 @@ export function Sidebar({
   tenantName: string;
   actor: string;
   role?: string;
+  /** scope ของผู้ใช้จาก /me — เมนูที่ไม่มีสิทธิ์ถูกซ่อน */
+  scopes: readonly string[];
   onLogout: () => void;
 }) {
   const { t } = useI18n();
@@ -239,21 +242,23 @@ export function Sidebar({
             gap: 2,
           }}
         >
-          {NAV.filter((g) => !g.devOnly || import.meta.env.DEV).map((g) => (
-            <Group
-              key={g.key}
-              g={g}
-              mini={mini}
-              open={!!open[g.key] && !mini}
-              isOn={isOn}
-              onToggle={() =>
-                mini
-                  ? (onToggle(), setOpen((o) => ({ ...o, [g.key]: true })))
-                  : setOpen((o) => ({ ...o, [g.key]: !o[g.key] }))
-              }
-              go={(p) => nav(p)}
-            />
-          ))}
+          {navFor(scopes)
+            .filter((g) => !g.devOnly || import.meta.env.DEV)
+            .map((g) => (
+              <Group
+                key={g.key}
+                g={g}
+                mini={mini}
+                open={!!open[g.key] && !mini}
+                isOn={isOn}
+                onToggle={() =>
+                  mini
+                    ? (onToggle(), setOpen((o) => ({ ...o, [g.key]: true })))
+                    : setOpen((o) => ({ ...o, [g.key]: !o[g.key] }))
+                }
+                go={(p) => nav(p)}
+              />
+            ))}
         </nav>
         <div
           style={{

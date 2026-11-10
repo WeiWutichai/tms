@@ -9,13 +9,15 @@ export const DEMO_PASSWORD = 'demo-password-2569';
  * login ผ่าน API จริง (Auth Code + PKCE) ด้วย request ของ context เดียวกับหน้า → ได้ refresh cookie httpOnly
  * ทำใหม่ทุก test เพราะ refresh token หมุนทุกครั้ง (ใช้ซ้ำข้าม test ไม่ได้ — ตรงกับกติกา ST1-T04)
  */
-export const test = base.extend<{ loggedIn: void }>({
+export const test = base.extend<{ loginEmail: string; loggedIn: void }>({
+  /** เปลี่ยนผู้ใช้ด้วย test.use({ loginEmail: 'viewer@demo-a.test' }) — มี 1 คนต่อ role ใน seed */
+  loginEmail: [DEMO_EMAIL, { option: true }],
   loggedIn: [
-    async ({ page }, use) => {
+    async ({ page, loginEmail }, use) => {
       const verifier = randomBytes(32).toString('base64url');
       const challenge = createHash('sha256').update(verifier).digest('base64url');
       const r1 = await page.request.post('/v1/auth/login', {
-        data: { email: DEMO_EMAIL, password: DEMO_PASSWORD, codeChallenge: challenge },
+        data: { email: loginEmail, password: DEMO_PASSWORD, codeChallenge: challenge },
       });
       expect(r1.status(), await r1.text()).toBe(200);
       const { code } = (await r1.json()) as { code: string };

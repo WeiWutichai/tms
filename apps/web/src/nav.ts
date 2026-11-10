@@ -14,6 +14,8 @@ export interface NavItem {
   label: MessageKey;
   path: string;
   stage: string;
+  /** scope ที่ต้องมีอย่างน้อย 1 ตัว (ตาราง A3) — ไม่มี = ทุกคนเห็น */
+  perm?: string[];
 }
 export interface NavGroup {
   key: string;
@@ -25,6 +27,7 @@ export interface NavGroup {
   kids?: NavItem[];
   sepBefore?: boolean;
   devOnly?: boolean;
+  perm?: string[];
 }
 
 export const NAV: NavGroup[] = [
@@ -33,9 +36,17 @@ export const NAV: NavGroup[] = [
     label: 'nav.fav',
     icon: 'star',
     kids: [
-      { key: 'fav-so', page: 'so', label: 'nav.fav.soRoute', path: '/so?tab=route', stage: 'ST3' },
+      {
+        key: 'fav-so',
+        perm: ['orders:read'],
+        page: 'so',
+        label: 'nav.fav.soRoute',
+        path: '/so?tab=route',
+        stage: 'ST3',
+      },
       {
         key: 'fav-inv',
+        perm: ['invoices:read'],
         page: 'pay',
         label: 'nav.fav.invOver',
         path: '/pay?tab=over',
@@ -57,11 +68,46 @@ export const NAV: NavGroup[] = [
     icon: 'truck',
     sepBefore: true,
     kids: [
-      { key: 'plan', page: 'plan', label: 'nav.ops.plan', path: '/plan', stage: 'ST3' },
-      { key: 'trips', page: 'trips', label: 'nav.ops.trips', path: '/trips', stage: 'ST3' },
-      { key: 'so', page: 'so', label: 'nav.ops.so', path: '/so', stage: 'ST3' },
-      { key: 'do', page: 'do', label: 'nav.ops.do', path: '/do', stage: 'ST3' },
-      { key: 'sub', page: 'sub', label: 'nav.ops.sub', path: '/sub', stage: 'ST3' },
+      {
+        key: 'plan',
+        perm: ['trips:read'],
+        page: 'plan',
+        label: 'nav.ops.plan',
+        path: '/plan',
+        stage: 'ST3',
+      },
+      {
+        key: 'trips',
+        perm: ['trips:read'],
+        page: 'trips',
+        label: 'nav.ops.trips',
+        path: '/trips',
+        stage: 'ST3',
+      },
+      {
+        key: 'so',
+        perm: ['orders:read'],
+        page: 'so',
+        label: 'nav.ops.so',
+        path: '/so',
+        stage: 'ST3',
+      },
+      {
+        key: 'do',
+        perm: ['orders:read'],
+        page: 'do',
+        label: 'nav.ops.do',
+        path: '/do',
+        stage: 'ST3',
+      },
+      {
+        key: 'sub',
+        perm: ['trips:read'],
+        page: 'sub',
+        label: 'nav.ops.sub',
+        path: '/sub',
+        stage: 'ST3',
+      },
     ],
   },
   {
@@ -70,9 +116,30 @@ export const NAV: NavGroup[] = [
     icon: 'receipt',
     sepBefore: true,
     kids: [
-      { key: 'bill', page: 'bill', label: 'nav.acc.bill', path: '/bill', stage: 'ST5' },
-      { key: 'pay', page: 'pay', label: 'nav.acc.pay', path: '/pay', stage: 'ST5' },
-      { key: 'settle', page: 'settle', label: 'nav.acc.settle', path: '/settle', stage: 'ST6' },
+      {
+        key: 'bill',
+        perm: ['invoices:read'],
+        page: 'bill',
+        label: 'nav.acc.bill',
+        path: '/bill',
+        stage: 'ST5',
+      },
+      {
+        key: 'pay',
+        perm: ['invoices:read'],
+        page: 'pay',
+        label: 'nav.acc.pay',
+        path: '/pay',
+        stage: 'ST5',
+      },
+      {
+        key: 'settle',
+        perm: ['settlements:read'],
+        page: 'settle',
+        label: 'nav.acc.settle',
+        path: '/settle',
+        stage: 'ST6',
+      },
     ],
   },
   {
@@ -81,19 +148,35 @@ export const NAV: NavGroup[] = [
     icon: 'car-front',
     sepBefore: true,
     kids: [
-      { key: 'fveh', page: 'fveh', label: 'nav.fleet.fveh', path: '/fleet/vehicles', stage: 'ST2' },
+      {
+        key: 'fveh',
+        perm: ['master:read'],
+        page: 'fveh',
+        label: 'nav.fleet.fveh',
+        path: '/fleet/vehicles',
+        stage: 'ST2',
+      },
       {
         key: 'fdoc',
+        perm: ['master:read'],
         page: 'fdoc',
         label: 'nav.fleet.fdoc',
         path: '/fleet/documents',
         stage: 'ST2',
       },
-      { key: 'veh', page: 'veh', label: 'nav.fleet.veh', path: '/fleet/drivers', stage: 'ST2' },
+      {
+        key: 'veh',
+        perm: ['master:read'],
+        page: 'veh',
+        label: 'nav.fleet.veh',
+        path: '/fleet/drivers',
+        stage: 'ST2',
+      },
     ],
   },
   {
     key: 'report',
+    perm: ['reports.ops:read', 'reports.finance:read'],
     page: 'report',
     label: 'nav.report',
     icon: 'chart-column',
@@ -108,14 +191,23 @@ export const NAV: NavGroup[] = [
     kids: [
       {
         key: 'cust',
+        perm: ['master:read'],
         page: 'cust',
         label: 'nav.master.cust',
         path: '/master/customers',
         stage: 'ST2',
       },
-      { key: 'loc', page: 'loc', label: 'nav.master.loc', path: '/master/locations', stage: 'ST2' },
+      {
+        key: 'loc',
+        perm: ['master:read'],
+        page: 'loc',
+        label: 'nav.master.loc',
+        path: '/master/locations',
+        stage: 'ST2',
+      },
       {
         key: 'vtype',
+        perm: ['master:read'],
         page: 'vtype',
         label: 'nav.master.vtype',
         path: '/master/vehicle-types',
@@ -123,6 +215,7 @@ export const NAV: NavGroup[] = [
       },
       {
         key: 'accsr',
+        perm: ['master:read'],
         page: 'accsr',
         label: 'nav.master.accsr',
         path: '/master/accessorials',
@@ -130,6 +223,7 @@ export const NAV: NavGroup[] = [
       },
       {
         key: 'rate',
+        perm: ['master:read'],
         page: 'rate',
         label: 'nav.master.rate',
         path: '/master/rate-cards',
@@ -144,6 +238,7 @@ export const NAV: NavGroup[] = [
     kids: [
       {
         key: 'settings',
+        perm: ['settings:read', 'settings:write', 'users:read'],
         page: 'settings',
         label: 'nav.setg.settings',
         path: '/settings',
@@ -160,6 +255,30 @@ export function pageOf(pathname: string): string | undefined {
     if (g.path && g.path === pathname) return g.page;
     for (const k of g.kids ?? [])
       if (k.path.split('?')[0] === pathname && g.key !== 'fav') return k.page;
+  }
+  return undefined;
+}
+
+/** scope ที่ได้รับครอบ scope ที่ต้องการไหม — ตรรกะเดียวกับ scopeAllows ใน packages/domain/src/permissions.ts */
+export function can(scopes: readonly string[], required: string): boolean {
+  if (scopes.includes('*') || scopes.includes(required)) return true;
+  return scopes.includes(`${required.split(':')[0]}:*`);
+}
+export const canAny = (scopes: readonly string[], perm?: string[]) =>
+  !perm || perm.some((p) => can(scopes, p));
+
+/** เมนูที่ผู้ใช้เห็นตามสิทธิ์ (PLT-132: ซ่อนที่ UI + API ตอบ 403 — UI ไม่ใช่ด่านเดียว) */
+export function navFor(scopes: readonly string[]): NavGroup[] {
+  return NAV.filter((g) => canAny(scopes, g.perm))
+    .map((g) => (g.kids ? { ...g, kids: g.kids.filter((k) => canAny(scopes, k.perm)) } : g))
+    .filter((g) => !g.kids || g.kids.length > 0);
+}
+
+/** สิทธิ์ที่ต้องใช้ของ path (ใช้กันเข้าทาง URL ตรง) */
+export function permOf(pathname: string): string[] | undefined {
+  for (const g of NAV) {
+    if (g.path && g.path === pathname) return g.perm;
+    for (const k of g.kids ?? []) if (k.path.split('?')[0] === pathname) return k.perm;
   }
   return undefined;
 }
