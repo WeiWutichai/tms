@@ -1251,3 +1251,25 @@ model TenantEntitlementOverride {
   @@unique([tenantId, featureKey])
   @@map("tenant_entitlement_override")
 }
+
+/// ลิงก์เข้าถึงโดยไม่ login (ST1-T06; docs/04 A1/J) — token เซ็น HMAC + หมดอายุ; action ที่ทำได้และการเพิกถอนอยู่ที่แถวนี้
+model MagicLink {
+  id            String    @id @default(uuid()) @db.Uuid
+  tenantId      String    @map("tenant_id") @db.Uuid
+  /// trip_offer / pod / settlement_view / tracking
+  purpose       String
+  entityType    String    @map("entity_type")
+  entityId      String    @map("entity_id") @db.Uuid
+  actions       String[]
+  /// scope ที่ลิงก์ได้ (เช่น รถร่วมเห็นราคาซื้อของตัวเอง `prices.buy:read`) — ราคาขายไม่มีทางได้ (principal `link`)
+  scopes        String[]
+  expiresAt     DateTime  @map("expires_at") @db.Timestamptz(6)
+  revokedAt     DateTime? @map("revoked_at") @db.Timestamptz(6)
+  revokedReason String?   @map("revoked_reason")
+  createdBy     String?   @map("created_by")
+  lastUsedAt    DateTime? @map("last_used_at") @db.Timestamptz(6)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([tenantId, entityType, entityId])
+  @@map("magic_link")
+}

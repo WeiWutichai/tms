@@ -1,6 +1,8 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { AuditService } from './audit/audit.service';
+import { MagicLinkService } from './modules/links/magic-link.service';
+import { PublicRateLimitMiddleware } from './http/public-rate-limit.middleware';
 import { EntitlementService } from './modules/entitlements/entitlement.service';
 import { PriceFieldInterceptor } from './common/price-fields';
 import { AuthController } from './auth/auth.controller';
@@ -60,6 +62,7 @@ import { StateService } from './state/state.service';
     MfaService,
     PasswordPolicy,
     EntitlementService,
+    MagicLinkService,
     DbService,
     StateService,
     JobQueue,
@@ -82,5 +85,7 @@ import { StateService } from './state/state.service';
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
     consumer.apply(RequestContextMiddleware).forRoutes('{*path}');
+    // ST1-T06: ลิงก์สาธารณะ (ไม่ login) จำกัดอัตราต่อ IP
+    consumer.apply(PublicRateLimitMiddleware).forRoutes('public/{*path}');
   }
 }
