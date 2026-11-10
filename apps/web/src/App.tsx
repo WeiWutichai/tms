@@ -3,20 +3,26 @@ import { BrowserRouter, Route, Routes } from 'react-router-dom';
 import { RequireAuth } from './auth/RequireAuth';
 import { queryClient } from './api';
 import { I18nProvider } from './i18n';
-import { canAny, NAV } from './nav';
+import { canAny, featureOf, isLocked, NAV } from './nav';
 import { SettingsPage } from './features/settings/Settings';
 import { Dashboard } from './pages/Dashboard';
 import { DesignSystem } from './pages/DesignSystem';
-import { ErrorBoundary, ErrorPage, NoAccess, NotFound, NotReady } from './pages/Simple';
+import { ErrorBoundary, ErrorPage, LockedPage, NoAccess, NotFound, NotReady } from './pages/Simple';
 import { LoginPage } from './public/Login';
 import { AppShell, useMe } from './shell/AppShell';
 import type { ReactNode } from 'react';
 
 /** กันเข้าทาง URL ตรง — ไม่มีสิทธิ์ตามเมนู → หน้า "ไม่มีสิทธิ์" (API ยังตอบ 403 เองอีกชั้น) */
-function Guard({ perm, children }: { perm?: string[]; children: ReactNode }) {
+function Guard({ perm, path, children }: { perm?: string[]; path?: string; children: ReactNode }) {
   const me = useMe();
   if (!me.data) return null;
   if (!canAny(me.data.scopes, perm)) return <NoAccess role={me.data.user?.roles[0] ?? '—'} />;
+  // ฟีเจอร์ไม่อยู่ในแพ็กเกจ → หน้า "ไม่รวมในแพ็กเกจ" (ST1-T18; PLT-076)
+  const feature = path ? featureOf(path) : undefined;
+  if (feature && isLocked(feature, me.data.features))
+    return (
+      <LockedPage feature={feature} plan={me.data.plan.name} need={me.data.lockedIn[feature]} />
+    );
   return <>{children}</>;
 }
 
@@ -37,7 +43,7 @@ function Inside() {
           <Route
             path="/reports"
             element={
-              <Guard perm={NAV.find((g) => g.key === 'report')?.perm}>
+              <Guard perm={NAV.find((g) => g.key === 'report')?.perm} path="/reports">
                 <NotReady page="report" stage="ST9" />
               </Guard>
             }
@@ -55,7 +61,7 @@ function Inside() {
               key={p.path}
               path={p.path}
               element={
-                <Guard perm={p.perm}>
+                <Guard perm={p.perm} path={p.path}>
                   <NotReady page={p.page} stage={p.stage} />
                 </Guard>
               }

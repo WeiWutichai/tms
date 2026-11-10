@@ -50,7 +50,9 @@ export class AuthGuard implements CanActivate {
     // spec/01 PLT-001 ลำดับ: สถานะ tenant (ตรวจกับ tokenVersion แล้ว) → entitlement → สิทธิ์ role
     const feature = this.reflector.getAllAndOverride<string>(REQUIRED_FEATURE, targets);
     if (feature && !(await this.entitlements.enabled(claims.tid, feature)))
-      throw new ProblemException('feature_not_enabled', undefined, undefined, { feature });
+      throw new ProblemException('feature_not_in_plan', undefined, undefined, {
+        featureKey: feature,
+      }); // spec/01 PLT-078
     const scopes = claims.scope ? claims.scope.split(' ') : [];
     const required = this.reflector.getAllAndOverride<string[]>(REQUIRED_SCOPE, targets);
     // spec/01 PLT-132: 403 permission_denied พร้อม module/action ของสิทธิ์ที่ขาด

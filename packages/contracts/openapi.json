@@ -1871,6 +1871,23 @@
           "roles"
         ]
       },
+      "MePlanDto": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "example": "std"
+          },
+          "name": {
+            "type": "string",
+            "example": "มาตรฐาน"
+          }
+        },
+        "required": [
+          "code",
+          "name"
+        ]
+      },
       "MeDto": {
         "type": "object",
         "properties": {
@@ -1908,6 +1925,24 @@
             "items": {
               "type": "string"
             }
+          },
+          "plan": {
+            "description": "แพ็กเกจปัจจุบัน",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MePlanDto"
+              }
+            ]
+          },
+          "lockedIn": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "example": {
+              "multi": "องค์กร"
+            },
+            "description": "ฟีเจอร์ที่ยังไม่มี → ชื่อแพ็กเกจแรกที่รวมไว้ (หน้า \"ไม่รวมในแพ็กเกจ\" — spec/01 PLT-076)"
           }
         },
         "required": [
@@ -1915,7 +1950,9 @@
           "scopes",
           "tenant",
           "user",
-          "features"
+          "features",
+          "plan",
+          "lockedIn"
         ]
       },
       "CreateCompanyDto": {

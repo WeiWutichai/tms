@@ -11,6 +11,7 @@ const DEMO_IDS: Record<string, string> = {
   'owner@demo-a.test': '00000000-0000-4000-8000-0000000e0a01',
   'admin@demo-a.test': '00000000-0000-4000-8000-0000000e0a02',
   'accounting@demo-a.test': '00000000-0000-4000-8000-0000000e0a07',
+  'owner@demo-b.test': '00000000-0000-4000-8000-0000000e0b01',
 };
 
 /**

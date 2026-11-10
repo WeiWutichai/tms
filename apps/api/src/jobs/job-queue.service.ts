@@ -91,7 +91,7 @@ export class JobQueue {
           status: 'SKIPPED',
           finishedAt: new Date(),
           lockedUntil: null,
-          error: { code: 'feature_not_enabled', feature },
+          error: { code: 'feature_not_in_plan', featureKey: feature },
         },
       });
       return true;

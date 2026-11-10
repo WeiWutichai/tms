@@ -48,10 +48,49 @@ describe('feature flag ตามแพ็กเกจ + override', () => {
     await api(app, std.token).get('/v1/__test/sub').expect(200);
     const res = await api(app, start.token).get('/v1/__test/sub');
     expect(res.status).toBe(403);
-    expect(res.body).toMatchObject({ code: 'feature_not_enabled', feature: 'sub' });
+    expect(res.body).toMatchObject({ code: 'feature_not_in_plan', featureKey: 'sub' });
     const me = await api(app, start.token).get('/v1/me').expect(200);
     expect(me.body.features).toContain('so');
     expect(me.body.features).not.toContain('sub');
+    expect(me.body.plan).toEqual({ code: 'start', name: 'เริ่มต้น' });
+    expect(me.body.lockedIn.sub).toBe('มาตรฐาน');
+    expect(me.body.lockedIn.multi).toBe('องค์กร');
+    expect(me.body.lockedIn.so).toBeUndefined();
+  });
+
+  it('tenant ถูกระงับ → ไม่มีฟีเจอร์ใดทำงาน (job ข้ามหมด); grant ฟีเจอร์โควตาโดยไม่ระบุ limit ไม่กลายเป็นไม่จำกัด', async () => {
+    const t = await tenant('std');
+    await db.tenant.update({ where: { id: t.id }, data: { status: 'SUSPENDED' } });
+    ent.invalidate(t.id);
+    expect(await ent.resolve(t.id)).toEqual({});
+    const s = await tenant('start');
+    await db.tenantEntitlementOverride.create({
+      data: {
+        tenantId: s.id,
+        featureKey: 'webhook',
+        mode: 'grant',
+        reason: 'ทดลอง webhook ให้ลูกค้า',
+      },
+    });
+    ent.invalidate(s.id);
+    expect((await ent.resolve(s.id)).webhook).toEqual({ enabled: true, limit: 3 });
+  });
+
+  it('ฐานข้อมูลปฏิเสธข้อมูลแพ็กเกจที่ผิด: plan ไม่มีจริง, mode พิมพ์ผิด, เหตุผลสั้นเกิน', async () => {
+    const t = await tenant('std');
+    await expect(
+      db.tenant.update({ where: { id: t.id }, data: { planCode: 'nope' } }),
+    ).rejects.toThrow();
+    await expect(
+      db.tenantEntitlementOverride.create({
+        data: { tenantId: t.id, featureKey: 'sub', mode: 'grant ', reason: 'เหตุผลยาวพอสมควร' },
+      }),
+    ).rejects.toThrow();
+    await expect(
+      db.tenantEntitlementOverride.create({
+        data: { tenantId: t.id, featureKey: 'sub', mode: 'grant', reason: 'สั้น' },
+      }),
+    ).rejects.toThrow();
   });
 
   it('override: revoke ปิดของแพ็กเกจ, grant เปิดให้, หมดอายุแล้วไม่มีผล, set_limit เปลี่ยนโควตา', async () => {
@@ -61,7 +100,7 @@ describe('feature flag ตามแพ็กเกจ + override', () => {
         tenantId: std.id,
         featureKey: 'sub',
         mode: 'revoke',
-        reason: 'ค้างชำระ add-on รถร่วม',
+        reason: 'ค้างชำระ add-on รถร่วมเกินกำหนด',
       },
     });
     ent.invalidate(std.id);

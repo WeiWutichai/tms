@@ -276,12 +276,9 @@ export const canAny = (scopes: readonly string[], perm?: string[]) =>
   !perm || perm.some((p) => can(scopes, p));
 
 /** เมนูที่ผู้ใช้เห็นตามสิทธิ์ (PLT-132: ซ่อนที่ UI + API ตอบ 403 — UI ไม่ใช่ด่านเดียว) */
-export function navFor(scopes: readonly string[], features?: readonly string[]): NavGroup[] {
-  const on = (f?: string) => !f || !features || features.includes(f);
-  return NAV.filter((g) => canAny(scopes, g.perm) && on(g.feature))
-    .map((g) =>
-      g.kids ? { ...g, kids: g.kids.filter((k) => canAny(scopes, k.perm) && on(k.feature)) } : g,
-    )
+export function navFor(scopes: readonly string[]): NavGroup[] {
+  return NAV.filter((g) => canAny(scopes, g.perm))
+    .map((g) => (g.kids ? { ...g, kids: g.kids.filter((k) => canAny(scopes, k.perm)) } : g))
     .filter((g) => !g.kids || g.kids.length > 0);
 }
 
@@ -293,3 +290,16 @@ export function permOf(pathname: string): string[] | undefined {
   }
   return undefined;
 }
+
+/** ฟีเจอร์ของแพ็กเกจที่ path นี้ต้องใช้ (ST1-T18) */
+export function featureOf(pathname: string): string | undefined {
+  for (const g of NAV) {
+    if (g.path && g.path === pathname) return g.feature;
+    for (const k of g.kids ?? []) if (k.path.split('?')[0] === pathname) return k.feature;
+  }
+  return undefined;
+}
+
+/** ฟีเจอร์ที่ยังไม่อยู่ในแพ็กเกจ → แสดงเมนูพร้อมไอคอน 🔒 (ไม่ซ่อน — spec/01 PLT-076, ต้นแบบ lockOf) */
+export const isLocked = (feature: string | undefined, features?: readonly string[]) =>
+  !!feature && !!features && !features.includes(feature);

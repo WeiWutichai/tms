@@ -2,7 +2,7 @@ import { Icon } from '@tms/ui';
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useI18n } from '../i18n';
-import { canAny, navFor, NAV, type NavGroup } from '../nav';
+import { canAny, isLocked, navFor, NAV, type NavGroup } from '../nav';
 
 /** Sidebar — markup/ค่าจาก <aside> ใน TMS v4 (กว้าง 272 / ย่อ 88, แผงลอยขาว radius 16) */
 export function Sidebar({
@@ -254,7 +254,7 @@ export function Sidebar({
             gap: 2,
           }}
         >
-          {navFor(scopes, features)
+          {navFor(scopes)
             .filter((g) => !g.devOnly || import.meta.env.DEV)
             .map((g) => (
               <Group
@@ -269,6 +269,7 @@ export function Sidebar({
                     : setOpen((o) => ({ ...o, [g.key]: !o[g.key] }))
                 }
                 go={(p) => nav(p)}
+                features={features}
               />
             ))}
         </nav>
@@ -427,7 +428,9 @@ function Group({
   isOn,
   onToggle,
   go,
+  features,
 }: {
+  features?: readonly string[];
   g: NavGroup;
   mini: boolean;
   open: boolean;
@@ -514,6 +517,14 @@ function Group({
             >
               {label}
             </span>
+            {isLocked(g.feature, features) && (
+              <Icon
+                n="lock"
+                s={12}
+                style={{ color: '#59606B', flexShrink: 0 }}
+                aria-label="locked"
+              />
+            )}
             {hasKids && (
               <Icon
                 n={open ? 'chevron-down' : 'chevron-right'}
@@ -599,6 +610,14 @@ function Group({
                 >
                   {t(k.label)}
                 </span>
+                {isLocked(k.feature, features) && (
+                  <Icon
+                    n="lock"
+                    s={12}
+                    style={{ color: '#59606B', flexShrink: 0 }}
+                    aria-label="locked"
+                  />
+                )}
               </button>
             );
           })}

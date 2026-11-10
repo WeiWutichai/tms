@@ -22,5 +22,5 @@ export const REQUIRE_STEP_UP = 'tms:requireStepUp';
 export const RequireStepUp = () => SetMetadata(REQUIRE_STEP_UP, true);
 
 export const REQUIRED_FEATURE = 'tms:requiredFeature';
-/** ต้องเปิดฟีเจอร์นี้ในแพ็กเกจ/override ของ tenant (ST1-T18) — ปิด → 403 `feature_not_enabled` */
+/** ต้องเปิดฟีเจอร์นี้ในแพ็กเกจ/override ของ tenant (ST1-T18) — ปิด → 403 `feature_not_in_plan` + `featureKey` (spec/01 PLT-078) */
 export const RequireFeature = (feature: string) => SetMetadata(REQUIRED_FEATURE, feature);
