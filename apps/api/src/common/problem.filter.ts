@@ -52,6 +52,8 @@ export class ProblemFilter implements ExceptionFilter {
     } else if (exception instanceof Prisma.PrismaClientKnownRequestError) {
       if (exception.code === 'P2002') code = 'duplicate';
       else if (exception.code === 'P2025') code = 'not_found';
+      // connection pool เต็ม / transaction รอนานเกิน → ให้ client ลองใหม่ แทน 500
+      else if (exception.code === 'P2024' || exception.code === 'P2028') code = 'rate_limited';
       else this.logger.error(exception);
     } else if (exception instanceof HttpException) {
       code = STATUS_TO_CODE[exception.getStatus()] ?? 'internal_error';

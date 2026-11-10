@@ -31,7 +31,8 @@ describe('auth: login + Auth Code/PKCE + refresh', () => {
         passwordHash: await hashPassword(PW),
       },
     });
-    for (const code of opts.roles ?? ['owner']) {
+    // role ทดสอบที่ไม่บังคับ 2FA (owner/admin/accounting บังคับ — ทดสอบใน mfa.test.ts)
+    for (const code of opts.roles ?? ['tester']) {
       const role = await db.role.upsert({
         where: { tenantId_code: { tenantId, code } },
         create: { tenantId, code, nameTh: code, permissions: ['*'], isSystem: true },

@@ -2,11 +2,11 @@ import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { scopeAllows } from '@tms/domain';
 import type { Request } from 'express';
-import { IS_PUBLIC, REQUIRED_SCOPE } from '../common/decorators';
+import { IS_PUBLIC, REQUIRE_STEP_UP, REQUIRED_SCOPE } from '../common/decorators';
 import { ProblemException } from '../common/problem';
 import { requestContext } from '../common/request-context';
 import { AuthService } from './auth.service';
-import { signAccessToken, verifyAccessToken } from './tokens';
+import { signAccessToken, verifyAccessToken, verifyStepUpToken } from './tokens';
 
 /**
  * token สำหรับพัฒนา/test (`pt=dev`) — production ปฏิเสธ (ดู tokens.ts)
@@ -57,6 +57,11 @@ export class AuthGuard implements CanActivate {
       });
     }
 
+    if (this.reflector.getAllAndOverride<boolean>(REQUIRE_STEP_UP, targets)) {
+      const su = await verifyStepUpToken(req.header('x-step-up') ?? '');
+      if (!su || su.sub !== claims.sub || su.tid !== claims.tid)
+        throw new ProblemException('step_up_required');
+    }
     const ctx = requestContext.require();
     ctx.tenantId = claims.tid;
     ctx.actorId = claims.sub;

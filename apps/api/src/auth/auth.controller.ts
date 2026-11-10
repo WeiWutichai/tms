@@ -117,10 +117,20 @@ export class AuthController {
     description: 'tenant_selection_required — มี `tenants: [{id, name, status}]`',
   })
   @ApiTooManyRequestsResponse({ description: 'account_locked — มี header Retry-After' })
+  @ApiUnauthorizedResponse({
+    description:
+      'mfa_required / mfa_enrollment_required — มี `mfaToken` ใช้ต่อที่ /v1/auth/2fa/verify หรือ /v1/auth/2fa/enroll',
+  })
   async login(@Body() body: LoginDto, @Req() req: Request): Promise<LoginResultDto> {
     const tenantId = body.tenantId ? decodeIdOr404('tenant', body.tenantId) : undefined;
     return this.auth.login(
-      { email: body.email, password: body.password, codeChallenge: body.codeChallenge, tenantId },
+      {
+        email: body.email,
+        password: body.password,
+        codeChallenge: body.codeChallenge,
+        tenantId,
+        trustedDevice: req.cookies?.['tms_td'] as string | undefined,
+      },
       clientOf(req),
     );
   }

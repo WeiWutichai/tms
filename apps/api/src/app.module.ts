@@ -2,6 +2,8 @@ import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { AuditService } from './audit/audit.service';
 import { AuthController } from './auth/auth.controller';
+import { MfaController } from './auth/mfa.controller';
+import { MfaService } from './auth/mfa.service';
 import { BranchesController } from './modules/branches/branches.controller';
 import { BranchesService } from './modules/branches/branches.service';
 import { SequencesController } from './modules/sequences/sequences.controller';
@@ -28,6 +30,7 @@ import { StateService } from './state/state.service';
 @Module({
   controllers: [
     AuthController,
+    MfaController,
     HealthController,
     MeController,
     CompaniesController,
@@ -40,6 +43,7 @@ import { StateService } from './state/state.service';
   providers: [
     PrismaService,
     AuthService,
+    MfaService,
     DbService,
     StateService,
     JobQueue,
