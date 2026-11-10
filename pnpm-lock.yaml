@@ -69,8 +69,8 @@ importers:
         specifier: ^5.9.6
         version: 5.10.0
       nodemailer:
-        specifier: ^7.0.13
-        version: 7.0.13
+        specifier: ^10.5.0
+        version: 10.5.0
       pino:
         specifier: ^9.5.0
         version: 9.14.0
@@ -2249,9 +2249,9 @@ packages:
     resolution: {integrity: sha512-6li2QanLsAXpIH2R6j77MzRyvOyrvdTqlKtO4CgBdHGNvN99ZZfyxszHc5o5+IZBWD5u6Hzwg83JoGXmqZNG9Q==}
     engines: {node: '>=18'}
 
-  nodemailer@7.0.13:
-    resolution: {integrity: sha512-PNDFSJdP+KFgdsG3ZzMXCgquO7I6McjY2vlqILjtJd0hy8wEvtugS9xKRF2NWlPNGxvLCXlTNIae4serI7dinw==}
-    engines: {node: '>=6.0.0'}
+  nodemailer@10.5.0:
+    resolution: {integrity: sha512-L/w/HH5MqpzMDuZD7fQdt/+KqymuvrpaApaIjAH2XA3ILePwlcvXCVVvP75xVrXCEt2ggK2marrrHHFB5Qu0kA==}
+    engines: {node: '>=20.0.0'}
 
   nwsapi@2.2.28:
     resolution: {integrity: sha512-IlVB7OS7qrOsVYlpnFIkETjMwT9jwvmocJmmM+GZU/PAB3uGi9Ezd7vcWhWBUnSc0ya4ppmQITOyP1ez9gg8cg==}
@@ -4696,7 +4696,7 @@ snapshots:
 
   node-releases@2.0.63: {}
 
-  nodemailer@7.0.13: {}
+  nodemailer@10.5.0: {}
 
   nwsapi@2.2.28: {}
 
