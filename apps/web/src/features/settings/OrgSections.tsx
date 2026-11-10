@@ -178,7 +178,9 @@ function SaveBar({
   busy,
   saved,
   error,
+  onDismiss,
 }: {
+  onDismiss: () => void;
   dirty: boolean;
   onSave: () => void;
   busy: boolean;
@@ -223,6 +225,25 @@ function SaveBar({
             <Icon n={error ? 'x' : 'check'} s={14} />
           </span>
           <span>{error ?? saved}</span>
+          <button
+            type="button"
+            aria-label={t('drawer.close')}
+            onClick={onDismiss}
+            style={{
+              width: 28,
+              height: 28,
+              border: 0,
+              borderRadius: 8,
+              background: 'transparent',
+              color: '#59606B',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Icon n="x" s={16} />
+          </button>
         </div>
       ) : (
         <div style={{ position: 'fixed', right: 24, bottom: 24, zIndex: 25 }}>
@@ -308,6 +329,10 @@ function useSaveFlow(section: MessageKey, d: ReturnType<typeof useDraft>) {
     needStepUp,
     cancelStepUp: () => setNeedStepUp(false),
     confirmStepUp,
+    dismiss: () => {
+      setSaved(null);
+      setError(null);
+    },
   };
 }
 
@@ -491,6 +516,7 @@ export function OrgSection({ canWrite }: { canWrite: boolean }) {
           onSave={flow.onSave}
           saved={flow.saved}
           error={flow.error}
+          onDismiss={flow.dismiss}
         />
       )}
     </Card>
@@ -553,6 +579,7 @@ export function TaxSection({ canWrite }: { canWrite: boolean }) {
           onSave={flow.onSave}
           saved={flow.saved}
           error={flow.error}
+          onDismiss={flow.dismiss}
         />
       )}
     </Card>
@@ -607,6 +634,7 @@ export function SecuritySection({ canWrite }: { canWrite: boolean }) {
           onSave={flow.onSave}
           saved={flow.saved}
           error={flow.error}
+          onDismiss={flow.dismiss}
         />
       )}
     </Card>
