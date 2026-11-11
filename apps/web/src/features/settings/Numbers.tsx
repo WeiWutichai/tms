@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { markReviewed } from '../setup/SetupChecklist';
 import { ApiError } from '../../api';
 import { useI18n } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
@@ -8,6 +9,10 @@ import { useSaveSequence, useSequences, type Sequence } from './useSettings';
 export function NumbersSection({ canWrite }: { canWrite: boolean }) {
   const { t } = useI18n();
   const q = useSequences();
+  // ST1-T21: ผู้ตั้งค่าเปิดดูชุดเลขเอกสารแล้ว = ยืนยันรูปแบบเริ่มต้น (หน้านี้ไม่มีปุ่มบันทึก — แก้แล้วบันทึกทันที)
+  useEffect(() => {
+    if (canWrite && q.data) void markReviewed('numbering');
+  }, [canWrite, !!q.data]);
   return (
     <section className="set-card">
       <div className="set-card__hd set-card__hd--col">

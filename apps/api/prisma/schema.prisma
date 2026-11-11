@@ -1422,3 +1422,17 @@ model ImportJob {
   @@index([tenantId, createdAt])
   @@map("import_job")
 }
+
+/// สถานะ setup checklist ต่อ tenant (ST1-T21; spec/01 §4) — ขั้นต่าง ๆ คำนวณจากข้อมูลจริง (PLT-040)
+/// เก็บเฉพาะสิ่งที่คำนวณไม่ได้: ข้ามขั้นเชื่อมระบบบัญชี, ครบแล้ว (การ์ดหายถาวร — PLT-041), ผู้ใช้ที่กดซ่อน
+model SetupChecklistState {
+  tenantId           String    @id @map("tenant_id") @db.Uuid
+  connectorSkippedAt DateTime? @map("connector_skipped_at") @db.Timestamptz(6)
+  completedAt        DateTime? @map("completed_at") @db.Timestamptz(6)
+  hiddenFor          String[]  @default([]) @map("hidden_for") @db.Uuid
+  /// ขั้นที่ผู้ใช้ยืนยันค่าเริ่มต้นแล้ว (org / tax / numbering) — กดบันทึกโดยไม่เปลี่ยนค่า หรือเปิดหน้าเลขเอกสาร
+  reviewedSteps      String[]  @default([]) @map("reviewed_steps")
+  updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("setup_checklist_state")
+}

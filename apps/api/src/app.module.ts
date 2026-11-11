@@ -15,6 +15,7 @@ import { NotificationsController } from './modules/notifications/notifications.c
 import { ImportRegistry } from './modules/imports/import-spec';
 import { ImportService } from './modules/imports/import.service';
 import { ImportsController } from './modules/imports/imports.controller';
+import { SetupChecklistController } from './modules/setup/setup.controller';
 import {
   InvitationAcceptController,
   InvitationAcceptService,
@@ -60,6 +61,7 @@ import { StateService } from './state/state.service';
     InvitationsController,
     NotificationsController,
     ImportsController,
+    SetupChecklistController,
     HealthController,
     MeController,
     ProfileController,

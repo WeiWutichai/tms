@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsBoolean,
   IsNotEmpty,
@@ -12,8 +12,12 @@ import {
 import { ListQuery } from '../../common/pagination';
 
 /** ที่อยู่ตาม ภ.พ.20 (docs/01 §3.1 branch.address) */
+const trimStr = ({ value }: { value: unknown }) =>
+  typeof value === 'string' ? value.trim() : value;
+
 export class AddressDto {
   @ApiProperty({ example: '88/12 ถนนบางนา-ตราด กม. 12' })
+  @Transform(trimStr)
   @IsString()
   @IsNotEmpty()
   @MaxLength(200)
@@ -26,18 +30,21 @@ export class AddressDto {
   line2?: string;
 
   @ApiProperty({ example: 'บางพลีใหญ่' })
+  @Transform(trimStr)
   @IsString()
   @IsNotEmpty()
   @MaxLength(100)
   subdistrict!: string;
 
   @ApiProperty({ example: 'บางพลี' })
+  @Transform(trimStr)
   @IsString()
   @IsNotEmpty()
   @MaxLength(100)
   district!: string;
 
   @ApiProperty({ example: 'สมุทรปราการ' })
+  @Transform(trimStr)
   @IsString()
   @IsNotEmpty()
   @MaxLength(100)

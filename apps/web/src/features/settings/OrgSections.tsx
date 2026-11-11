@@ -1,6 +1,7 @@
 import { Icon } from '@tms/ui';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ApiError } from '../../api';
+import { markReviewed } from '../setup/SetupChecklist';
 import { useI18n } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
 import { Toggle } from './Settings';
@@ -277,6 +278,11 @@ function SaveBar({
   );
 }
 
+const REVIEW_STEP: Partial<Record<MessageKey, 'org' | 'tax'>> = {
+  'set.menu.org': 'org',
+  'set.menu.tax': 'tax',
+};
+
 function useSaveFlow(section: MessageKey, d: ReturnType<typeof useDraft>) {
   const { t } = useI18n();
   const [saved, setSaved] = useState<string | null>(null);
@@ -312,9 +318,14 @@ function useSaveFlow(section: MessageKey, d: ReturnType<typeof useDraft>) {
         onError: fail,
       },
     );
-  // ต้นแบบ: ปุ่มบันทึกกดได้เสมอ → ไม่มีอะไรเปลี่ยนก็แสดง toast เหมือนบันทึก (ไม่เรียก API)
-  const onSave = () =>
-    Object.keys(d.dirty).length === 0 ? setSaved(t('set.saved', { section: t(section) })) : send();
+  // ต้นแบบ: ปุ่มบันทึกกดได้เสมอ → ไม่มีอะไรเปลี่ยนก็แสดง toast เหมือนบันทึก
+  // (ST1-T21: บันทึกค่าเดิม = ยืนยันค่าเริ่มต้น → ขั้น "องค์กร"/"ภาษี" ของ setup checklist เสร็จ)
+  const onSave = () => {
+    if (Object.keys(d.dirty).length) return send();
+    setSaved(t('set.saved', { section: t(section) }));
+    const step = REVIEW_STEP[section];
+    if (step) void markReviewed(step);
+  };
   const confirmStepUp = async (otp: string) => {
     try {
       send(await stepUp(otp));

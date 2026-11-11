@@ -1016,6 +1016,156 @@
         ]
       }
     },
+    "/v1/setup-checklist": {
+      "get": {
+        "operationId": "SetupChecklist_get",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupChecklistDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform"
+        ]
+      }
+    },
+    "/v1/setup-checklist/reviewed": {
+      "post": {
+        "operationId": "SetupChecklist_reviewed",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewStepDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupChecklistDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform"
+        ]
+      }
+    },
+    "/v1/setup-checklist/connector-skip": {
+      "post": {
+        "operationId": "SetupChecklist_skipConnector",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SkipConnectorDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupChecklistDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform"
+        ]
+      }
+    },
+    "/v1/setup-checklist/hide": {
+      "post": {
+        "operationId": "SetupChecklist_hide",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupChecklistDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform"
+        ]
+      }
+    },
+    "/v1/setup-checklist/show": {
+      "post": {
+        "operationId": "SetupChecklist_show",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupChecklistDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform"
+        ]
+      }
+    },
     "/v1/health": {
       "get": {
         "operationId": "Health_health",
@@ -3370,6 +3520,100 @@
           "reason": {
             "type": "string",
             "example": "อัปโหลดไฟล์ผิด"
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      },
+      "SetupStepDto": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "enum": [
+              "org",
+              "branch",
+              "numbering",
+              "tax",
+              "import",
+              "team",
+              "connector"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "todo",
+              "done",
+              "skipped"
+            ]
+          },
+          "required": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "key",
+          "status",
+          "required"
+        ]
+      },
+      "SetupChecklistDto": {
+        "type": "object",
+        "properties": {
+          "steps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SetupStepDto"
+            }
+          },
+          "done": {
+            "type": "number",
+            "description": "จำนวนขั้นที่เสร็จหรือข้ามแล้ว"
+          },
+          "total": {
+            "type": "number"
+          },
+          "completed": {
+            "type": "boolean",
+            "description": "ครบทุกขั้นบังคับแล้ว (การ์ดหายถาวร — PLT-041)"
+          },
+          "hidden": {
+            "type": "boolean",
+            "description": "ผู้ใช้คนนี้กดซ่อนการ์ด"
+          }
+        },
+        "required": [
+          "steps",
+          "done",
+          "total",
+          "completed",
+          "hidden"
+        ]
+      },
+      "ReviewStepDto": {
+        "type": "object",
+        "properties": {
+          "step": {
+            "type": "string",
+            "enum": [
+              "org",
+              "tax",
+              "numbering"
+            ]
+          }
+        },
+        "required": [
+          "step"
+        ]
+      },
+      "SkipConnectorDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "example": "ใช้ TMS ออกเอกสารเอง ไม่เชื่อมระบบบัญชี"
           }
         },
         "required": [
