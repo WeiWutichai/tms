@@ -50,6 +50,20 @@ const FIXTURES: Record<string, (db: PrismaClient, tenantId: string, n: number) =
       });
       return encodeId('branch', b.id);
     },
+    customer: async (db, tenantId, n) =>
+      encodeId(
+        'customer',
+        (
+          await db.customer.create({
+            data: {
+              tenantId,
+              code: `ISO-${n}`,
+              legalName: `Cust ${n}`,
+              taxId: validTaxId(900 + n),
+            },
+          })
+        ).id,
+      ),
     sequence: async (db, tenantId) => {
       const s = await db.documentSeries.upsert({
         where: { tenantId_docType: { tenantId, docType: 'SO' } },
@@ -145,11 +159,11 @@ const FIXTURES: Record<string, (db: PrismaClient, tenantId: string, n: number) =
 
 /** body ขั้นต่ำที่ผ่าน validation ของ action แต่ละแบบ (ให้ไปถึง handler แล้วได้ 404 จริง) */
 const BODY_FOR_SUFFIX: Record<string, object> = {
-  deactivate: { reason: 'isolation test' },
+  deactivate: { reason: 'isolation test reason' },
   activate: { reason: 'isolation test' },
   roles: { roles: ['viewer'], reason: 'isolation test' },
   suspend: { reason: 'isolation test' },
-  delete: { reason: 'isolation test' },
+  delete: { reason: 'isolation test reason' },
   revoke: { reason: 'isolation test' },
   cancel: { reason: 'isolation test' },
 };

@@ -129,6 +129,11 @@ export const PROBLEMS = {
     th: 'ผลตรวจไฟล์หมดอายุแล้ว (24 ชั่วโมง) อัปโหลดไฟล์ใหม่',
     en: 'The validation result expired after 24 hours — upload the file again',
   },
+  in_use: {
+    status: 409,
+    th: 'ลบไม่ได้ เพราะมีเอกสารหรือข้อมูลอื่นอ้างถึงแล้ว — ใช้ "ปิดใช้" แทน',
+    en: 'Referenced by other records — deactivate it instead',
+  },
   invalid_grant: { status: 400, th: 'รหัสยืนยันหมดอายุหรือไม่ถูกต้อง', en: 'Invalid grant' },
   internal_error: { status: 500, th: 'ระบบขัดข้อง', en: 'Internal error' },
 } as const;

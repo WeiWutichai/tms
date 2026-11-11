@@ -143,6 +143,8 @@ test.describe('Platform Console', () => {
     await app.getByRole('button', { name: 'ตั้งค่าระบบ' }).click();
     await expect(app).toHaveURL(/\/settings/);
     await expect(banner).toBeVisible();
+    // รอค่าจาก API โหลดเข้าฟอร์มก่อน (ไม่งั้นค่าที่พิมพ์ถูกทับตอนโหลดเสร็จ — flaky)
+    await expect(app.getByLabel('ชื่อองค์กร')).not.toHaveValue('');
     await app.getByLabel('ชื่อองค์กร').fill('เปลี่ยนชื่อระหว่างใช้งานแทน');
     await app.getByRole('button', { name: 'บันทึก' }).click();
     await expect(app.getByRole('status').filter({ hasText: 'อ่านอย่างเดียว' })).toHaveText(

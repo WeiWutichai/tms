@@ -361,7 +361,14 @@ model Customer {
   legalName               String         @map("legal_name")
   taxId                   String?        @map("tax_id") @db.Char(13)
   branchCode              String?        @map("branch_code") @db.Char(5)
-  billingAddress          Json           @map("billing_address")
+  billingAddress          Json?          @map("billing_address") /// null = ยังไม่กรอก (ออกใบกำกับภาษีไม่ได้จนกว่าจะกรอก — ST5 ตรวจ)
+  contacts                Json           @default("[]") /// [{name, phone, email, isPrimary}] — ST2-T01
+  vatRegistered           Boolean        @default(true) @map("vat_registered") /// ลูกค้าจด VAT หรือไม่ (docs/04 B)
+  etaxCapable             Boolean        @default(false) @map("etax_capable") /// รับ e-Tax Invoice ได้ไหม (docs/04 B)
+  freeTimeMin             Int?           @map("free_time_min") /// free time ค่ารอ (นาที) — null = ใช้ค่าตั้งองค์กร
+  salesOwnerUserId        String?        @map("sales_owner_user_id") @db.Uuid
+  deletedAt               DateTime?      @map("deleted_at") @db.Timestamptz(6) /// MD-004 soft delete (เฉพาะรายการที่ไม่เคยถูกอ้างอิง)
+  deletedExternalId       String?        @map("deleted_external_id") /// externalId เดิมของรายการที่ลบ (ปล่อย externalId ให้ระบบต้นทางส่งใหม่ได้)
   billingCycle            BillingCycle   @default(MONTHLY) @map("billing_cycle")
   paymentTermDays         Int            @default(30) @map("payment_term_days")
   taxInvoiceMode          TaxInvoiceMode @default(ON_PAYMENT) @map("tax_invoice_mode")

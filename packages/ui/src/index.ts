@@ -4,3 +4,4 @@ export * from './status-map';
 export * from './Icon';
 export * from './components';
 export * from './DataTable';
+export * from './master';

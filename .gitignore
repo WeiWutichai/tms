@@ -15,3 +15,4 @@ apps/web/e2e/.env.e2e
 apps/web/test-results/
 apps/web/playwright-report/
 .data/
+.claude/worktrees/

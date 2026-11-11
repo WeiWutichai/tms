@@ -2997,6 +2997,775 @@
           "jobs"
         ]
       }
+    },
+    "/v1/customers": {
+      "get": {
+        "operationId": "Customers_list",
+        "parameters": [
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "ค่า nextCursor จากหน้าก่อน (ใช้กับ sort เดิมเท่านั้น)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "updatedAfter",
+            "required": false,
+            "in": "query",
+            "description": "คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull — ใช้คู่ includeDeleted=true เพื่อรับรายการที่ถูกลบ)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sort",
+            "required": false,
+            "in": "query",
+            "description": "code = เรียงตามรหัส (ค่าเริ่มต้นของหน้าจอ) · updatedAt/-updatedAt สำหรับ sync",
+            "schema": {
+              "default": "code",
+              "type": "string",
+              "enum": [
+                "code",
+                "updatedAt",
+                "-updatedAt"
+              ]
+            }
+          },
+          {
+            "name": "fields",
+            "required": false,
+            "in": "query",
+            "description": "รายชื่อ field คั่นด้วย , เช่น id,legalName",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "required": false,
+            "in": "query",
+            "description": "ค้นหา — รหัส ชื่อ เลขผู้เสียภาษี หรือ externalId (ไม่สนตัวพิมพ์)",
+            "schema": {
+              "maxLength": 100,
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "description": "คั่นด้วย , เช่น active,inactive",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "externalId",
+            "required": false,
+            "in": "query",
+            "description": "externalId ตรงตัว (ใช้ตรวจว่ามีในระบบแล้วหรือยัง)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "includeDeleted",
+            "required": false,
+            "in": "query",
+            "description": "true = รวมรายการที่ถูกลบ (tombstone มี `deletedAt`) — ให้ระบบที่ดึงแบบ incremental รู้ว่ารายการถูกลบ",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "billingCycle",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "PER_DO",
+                "WEEKLY",
+                "MONTHLY",
+                "MANUAL"
+              ]
+            }
+          },
+          {
+            "name": "code",
+            "required": false,
+            "in": "query",
+            "description": "รหัสขึ้นต้นด้วย/มีคำนี้",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "required": false,
+            "in": "query",
+            "description": "ชื่อมีคำนี้",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerPageDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "customers"
+        ]
+      },
+      "post": {
+        "operationId": "Customers_create",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCustomerDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "customers"
+        ]
+      }
+    },
+    "/v1/customers/summary": {
+      "get": {
+        "operationId": "Customers_summary",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerSummaryDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "customers"
+        ]
+      }
+    },
+    "/v1/customers/next-code": {
+      "get": {
+        "operationId": "Customers_nextCode",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "รหัสที่ระบบจะออกให้ลูกค้าใหม่ (ค่าเสนอ — MD-002)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NextCodeDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "customers"
+        ]
+      }
+    },
+    "/v1/customers/export": {
+      "get": {
+        "operationId": "Customers_export",
+        "parameters": [
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "ค่า nextCursor จากหน้าก่อน (ใช้กับ sort เดิมเท่านั้น)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "updatedAfter",
+            "required": false,
+            "in": "query",
+            "description": "คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull — ใช้คู่ includeDeleted=true เพื่อรับรายการที่ถูกลบ)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sort",
+            "required": false,
+            "in": "query",
+            "description": "code = เรียงตามรหัส (ค่าเริ่มต้นของหน้าจอ) · updatedAt/-updatedAt สำหรับ sync",
+            "schema": {
+              "default": "code",
+              "type": "string",
+              "enum": [
+                "code",
+                "updatedAt",
+                "-updatedAt"
+              ]
+            }
+          },
+          {
+            "name": "fields",
+            "required": false,
+            "in": "query",
+            "description": "รายชื่อ field คั่นด้วย , เช่น id,legalName",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "required": false,
+            "in": "query",
+            "description": "ค้นหา — รหัส ชื่อ เลขผู้เสียภาษี หรือ externalId (ไม่สนตัวพิมพ์)",
+            "schema": {
+              "maxLength": 100,
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "description": "คั่นด้วย , เช่น active,inactive",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "externalId",
+            "required": false,
+            "in": "query",
+            "description": "externalId ตรงตัว (ใช้ตรวจว่ามีในระบบแล้วหรือยัง)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "includeDeleted",
+            "required": false,
+            "in": "query",
+            "description": "true = รวมรายการที่ถูกลบ (tombstone มี `deletedAt`) — ให้ระบบที่ดึงแบบ incremental รู้ว่ารายการถูกลบ",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "billingCycle",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "PER_DO",
+                "WEEKLY",
+                "MONTHLY",
+                "MANUAL"
+              ]
+            }
+          },
+          {
+            "name": "code",
+            "required": false,
+            "in": "query",
+            "description": "รหัสขึ้นต้นด้วย/มีคำนี้",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "required": false,
+            "in": "query",
+            "description": "ชื่อมีคำนี้",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "format",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "xlsx",
+              "type": "string",
+              "enum": [
+                "xlsx",
+                "csv"
+              ]
+            }
+          },
+          {
+            "name": "ids",
+            "required": false,
+            "in": "query",
+            "description": "ส่งออกเฉพาะ id เหล่านี้ (คั่นด้วย ,) — แถวที่เลือกในตาราง",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ไฟล์ .xlsx หรือ .csv ตามตัวกรองเดียวกับรายการ (สูงสุด 10,000 แถว)"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "customers"
+        ]
+      }
+    },
+    "/v1/customers/external/{externalId}": {
+      "put": {
+        "operationId": "Customers_upsertExternal",
+        "parameters": [
+          {
+            "name": "externalId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag — ใช้เมื่อแถวมีอยู่แล้ว",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertCustomerDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "มีอยู่แล้ว → อัปเดต (ส่งซ้ำได้ ไม่เกิดแถวใหม่)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerDto"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "ยังไม่มี → สร้าง",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "customers"
+        ]
+      }
+    },
+    "/v1/customers/{id}": {
+      "get": {
+        "operationId": "Customers_get",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "customers"
+        ]
+      },
+      "patch": {
+        "operationId": "Customers_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCustomerDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "customers"
+        ]
+      }
+    },
+    "/v1/customers/{id}/history": {
+      "get": {
+        "operationId": "Customers_history",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "ค่า nextCursor จากหน้าก่อน",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ประวัติการแก้จาก audit log ใหม่สุดก่อน",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditPageDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "customers"
+        ]
+      }
+    },
+    "/v1/customers/{id}/deactivate": {
+      "post": {
+        "operationId": "Customers_deactivate",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MasterReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "customers"
+        ]
+      }
+    },
+    "/v1/customers/{id}/activate": {
+      "post": {
+        "operationId": "Customers_activate",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MasterOptionalReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "customers"
+        ]
+      }
+    },
+    "/v1/customers/{id}/delete": {
+      "post": {
+        "operationId": "Customers_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MasterReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "customers"
+        ]
+      }
     }
   },
   "info": {
@@ -5702,6 +6471,662 @@
           "createdAt",
           "finishedAt"
         ]
+      },
+      "CustomerAddressDto": {
+        "type": "object",
+        "properties": {
+          "line1": {
+            "type": "string",
+            "example": "22 หมู่ 3 ต.บางพลีใหญ่ อ.บางพลี จ.สมุทรปราการ 10540"
+          },
+          "line2": {
+            "type": "string"
+          },
+          "subdistrict": {
+            "type": "string"
+          },
+          "district": {
+            "type": "string"
+          },
+          "province": {
+            "type": "string"
+          },
+          "postcode": {
+            "type": "string",
+            "example": "10540"
+          }
+        },
+        "required": [
+          "line1"
+        ]
+      },
+      "CustomerContactDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "คุณธีรพงษ์"
+          },
+          "phone": {
+            "type": "string",
+            "example": "02-317-4133"
+          },
+          "email": {
+            "type": "string",
+            "example": "ap@example.co.th"
+          },
+          "isPrimary": {
+            "type": "boolean",
+            "description": "ผู้ติดต่อหลัก (ค่าเริ่มต้น false)"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "CustomerRefDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ]
+      },
+      "CustomerDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "cus_3f2a…"
+          },
+          "code": {
+            "type": "string",
+            "example": "CUS-0001"
+          },
+          "externalId": {
+            "type": "string",
+            "nullable": true
+          },
+          "legalName": {
+            "type": "string"
+          },
+          "taxId": {
+            "type": "string",
+            "nullable": true
+          },
+          "branchCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "billingAddress": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CustomerAddressDto"
+              }
+            ]
+          },
+          "contacts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CustomerContactDto"
+            }
+          },
+          "creditTermDays": {
+            "type": "number"
+          },
+          "billingCycle": {
+            "type": "string",
+            "enum": [
+              "PER_DO",
+              "WEEKLY",
+              "MONTHLY",
+              "MANUAL"
+            ]
+          },
+          "taxInvoiceMode": {
+            "type": "string",
+            "enum": [
+              "ON_PAYMENT",
+              "ON_ISSUE"
+            ]
+          },
+          "defaultVatType": {
+            "type": "string",
+            "enum": [
+              "EXEMPT_TRANSPORT",
+              "VAT_7",
+              "ZERO_RATED"
+            ],
+            "nullable": true
+          },
+          "whtExpectedRate": {
+            "type": "string",
+            "nullable": true,
+            "example": "1.00"
+          },
+          "creditLimit": {
+            "type": "string",
+            "nullable": true
+          },
+          "vatRegistered": {
+            "type": "boolean"
+          },
+          "etaxCapable": {
+            "type": "boolean"
+          },
+          "freeTimeMin": {
+            "type": "number",
+            "nullable": true
+          },
+          "billingCompanyId": {
+            "type": "string",
+            "nullable": true,
+            "description": "ออกบิลในนาม (cmp_…)"
+          },
+          "salesOwner": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CustomerRefDto"
+              }
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          },
+          "deletedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "มีค่าเฉพาะเมื่อขอ includeDeleted=true และรายการถูกลบแล้ว (tombstone)"
+          },
+          "version": {
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "externalId",
+          "legalName",
+          "taxId",
+          "branchCode",
+          "billingAddress",
+          "contacts",
+          "creditTermDays",
+          "billingCycle",
+          "taxInvoiceMode",
+          "defaultVatType",
+          "whtExpectedRate",
+          "creditLimit",
+          "vatRegistered",
+          "etaxCapable",
+          "freeTimeMin",
+          "billingCompanyId",
+          "salesOwner",
+          "status",
+          "version",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "CustomerPageDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CustomerDto"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor",
+          "hasMore"
+        ]
+      },
+      "CustomerSummaryDto": {
+        "type": "object",
+        "properties": {
+          "total": {
+            "type": "number"
+          },
+          "active": {
+            "type": "number"
+          },
+          "inactive": {
+            "type": "number"
+          },
+          "noTaxId": {
+            "type": "number",
+            "description": "ไม่มีเลขผู้เสียภาษี (ออกใบกำกับภาษีเต็มรูปไม่ได้ — MD-021)"
+          }
+        },
+        "required": [
+          "total",
+          "active",
+          "inactive",
+          "noTaxId"
+        ]
+      },
+      "NextCodeDto": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "example": "CUS-0010"
+          }
+        },
+        "required": [
+          "code"
+        ]
+      },
+      "CreateCustomerDto": {
+        "type": "object",
+        "properties": {
+          "taxId": {
+            "type": "string",
+            "example": "0105536012451",
+            "nullable": true,
+            "description": "เลขผู้เสียภาษี 13 หลัก (ตรวจ check digit — ผิด → 422)"
+          },
+          "branchCode": {
+            "type": "string",
+            "example": "00000",
+            "description": "รหัสสาขา 5 หลัก (00000 = สำนักงานใหญ่)"
+          },
+          "billingAddress": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CustomerAddressDto"
+              }
+            ]
+          },
+          "contacts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CustomerContactDto"
+            }
+          },
+          "creditTermDays": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 365,
+            "description": "เครดิต (วัน) — ค่าเริ่มต้น 30"
+          },
+          "billingCycle": {
+            "type": "string",
+            "enum": [
+              "PER_DO",
+              "WEEKLY",
+              "MONTHLY",
+              "MANUAL"
+            ],
+            "description": "ค่าเริ่มต้น MONTHLY"
+          },
+          "taxInvoiceMode": {
+            "type": "string",
+            "enum": [
+              "ON_PAYMENT",
+              "ON_ISSUE"
+            ],
+            "description": "ออกใบกำกับภาษีเมื่อรับชำระ (tax point = รับเงิน — ค่าเริ่มต้น) / พร้อมใบแจ้งหนี้"
+          },
+          "defaultVatType": {
+            "type": "string",
+            "enum": [
+              "EXEMPT_TRANSPORT",
+              "VAT_7"
+            ],
+            "nullable": true,
+            "description": "VAT ค่าเริ่มต้นของบรรทัดใหม่ — ค่าจริงอยู่ที่บรรทัด (D-28)"
+          },
+          "whtExpectedRate": {
+            "type": "string",
+            "enum": [
+              "1.00",
+              "0.00"
+            ],
+            "nullable": true,
+            "description": "อัตราหัก ณ ที่จ่ายที่ลูกค้าคาดว่าจะหักเรา: 1.00 = หัก 1% (ค่าขนส่ง), 0.00 = ไม่หัก, null = ยังไม่ระบุ"
+          },
+          "creditLimit": {
+            "type": "string",
+            "example": "500000.00",
+            "nullable": true
+          },
+          "vatRegistered": {
+            "type": "boolean",
+            "description": "ลูกค้าจดทะเบียน VAT (ค่าเริ่มต้น true)"
+          },
+          "etaxCapable": {
+            "type": "boolean",
+            "description": "ลูกค้ารับใบกำกับภาษีอิเล็กทรอนิกส์ (e-Tax) ได้ (ค่าเริ่มต้น false)"
+          },
+          "freeTimeMin": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1440,
+            "nullable": true,
+            "description": "free time ค่ารอ (นาที) — null = ใช้ค่าตั้งองค์กร `billing.freeTimeMinutes`"
+          },
+          "billingCompanyId": {
+            "type": "string",
+            "example": "cmp_…",
+            "nullable": true,
+            "description": "ออกบิลในนาม (Invoice As) — null = ใช้ค่าเริ่มต้นขององค์กร (docs/04 A4)"
+          },
+          "salesOwnerUserId": {
+            "type": "string",
+            "example": "usr_…",
+            "nullable": true,
+            "description": "พนักงานขาย"
+          },
+          "legalName": {
+            "type": "string",
+            "example": "บจก. สยามพลาสติก"
+          },
+          "code": {
+            "type": "string",
+            "example": "CUS-0001",
+            "description": "รหัสลูกค้า — ไม่ส่ง = ระบบออกเลขถัดไป (MD-002)"
+          },
+          "externalId": {
+            "type": "string",
+            "description": "รหัสในระบบต้นทาง (ERP/ระบบของลูกค้า) — เรียกด้วย ext:{externalId} ได้"
+          }
+        },
+        "required": [
+          "legalName"
+        ]
+      },
+      "UpsertCustomerDto": {
+        "type": "object",
+        "properties": {
+          "taxId": {
+            "type": "string",
+            "example": "0105536012451",
+            "nullable": true,
+            "description": "เลขผู้เสียภาษี 13 หลัก (ตรวจ check digit — ผิด → 422)"
+          },
+          "branchCode": {
+            "type": "string",
+            "example": "00000",
+            "description": "รหัสสาขา 5 หลัก (00000 = สำนักงานใหญ่)"
+          },
+          "billingAddress": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CustomerAddressDto"
+              }
+            ]
+          },
+          "contacts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CustomerContactDto"
+            }
+          },
+          "creditTermDays": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 365,
+            "description": "เครดิต (วัน) — ค่าเริ่มต้น 30"
+          },
+          "billingCycle": {
+            "type": "string",
+            "enum": [
+              "PER_DO",
+              "WEEKLY",
+              "MONTHLY",
+              "MANUAL"
+            ],
+            "description": "ค่าเริ่มต้น MONTHLY"
+          },
+          "taxInvoiceMode": {
+            "type": "string",
+            "enum": [
+              "ON_PAYMENT",
+              "ON_ISSUE"
+            ],
+            "description": "ออกใบกำกับภาษีเมื่อรับชำระ (tax point = รับเงิน — ค่าเริ่มต้น) / พร้อมใบแจ้งหนี้"
+          },
+          "defaultVatType": {
+            "type": "string",
+            "enum": [
+              "EXEMPT_TRANSPORT",
+              "VAT_7"
+            ],
+            "nullable": true,
+            "description": "VAT ค่าเริ่มต้นของบรรทัดใหม่ — ค่าจริงอยู่ที่บรรทัด (D-28)"
+          },
+          "whtExpectedRate": {
+            "type": "string",
+            "enum": [
+              "1.00",
+              "0.00"
+            ],
+            "nullable": true,
+            "description": "อัตราหัก ณ ที่จ่ายที่ลูกค้าคาดว่าจะหักเรา: 1.00 = หัก 1% (ค่าขนส่ง), 0.00 = ไม่หัก, null = ยังไม่ระบุ"
+          },
+          "creditLimit": {
+            "type": "string",
+            "example": "500000.00",
+            "nullable": true
+          },
+          "vatRegistered": {
+            "type": "boolean",
+            "description": "ลูกค้าจดทะเบียน VAT (ค่าเริ่มต้น true)"
+          },
+          "etaxCapable": {
+            "type": "boolean",
+            "description": "ลูกค้ารับใบกำกับภาษีอิเล็กทรอนิกส์ (e-Tax) ได้ (ค่าเริ่มต้น false)"
+          },
+          "freeTimeMin": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1440,
+            "nullable": true,
+            "description": "free time ค่ารอ (นาที) — null = ใช้ค่าตั้งองค์กร `billing.freeTimeMinutes`"
+          },
+          "billingCompanyId": {
+            "type": "string",
+            "example": "cmp_…",
+            "nullable": true,
+            "description": "ออกบิลในนาม (Invoice As) — null = ใช้ค่าเริ่มต้นขององค์กร (docs/04 A4)"
+          },
+          "salesOwnerUserId": {
+            "type": "string",
+            "example": "usr_…",
+            "nullable": true,
+            "description": "พนักงานขาย"
+          },
+          "legalName": {
+            "type": "string",
+            "example": "บจก. สยามพลาสติก"
+          },
+          "code": {
+            "type": "string",
+            "example": "CUS-0001",
+            "description": "ใช้ตอนสร้างเท่านั้น"
+          }
+        },
+        "required": [
+          "legalName"
+        ]
+      },
+      "UpdateCustomerDto": {
+        "type": "object",
+        "properties": {
+          "taxId": {
+            "type": "string",
+            "example": "0105536012451",
+            "nullable": true,
+            "description": "เลขผู้เสียภาษี 13 หลัก (ตรวจ check digit — ผิด → 422)"
+          },
+          "branchCode": {
+            "type": "string",
+            "example": "00000",
+            "description": "รหัสสาขา 5 หลัก (00000 = สำนักงานใหญ่)"
+          },
+          "billingAddress": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CustomerAddressDto"
+              }
+            ]
+          },
+          "contacts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CustomerContactDto"
+            }
+          },
+          "creditTermDays": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 365,
+            "description": "เครดิต (วัน) — ค่าเริ่มต้น 30"
+          },
+          "billingCycle": {
+            "type": "string",
+            "enum": [
+              "PER_DO",
+              "WEEKLY",
+              "MONTHLY",
+              "MANUAL"
+            ],
+            "description": "ค่าเริ่มต้น MONTHLY"
+          },
+          "taxInvoiceMode": {
+            "type": "string",
+            "enum": [
+              "ON_PAYMENT",
+              "ON_ISSUE"
+            ],
+            "description": "ออกใบกำกับภาษีเมื่อรับชำระ (tax point = รับเงิน — ค่าเริ่มต้น) / พร้อมใบแจ้งหนี้"
+          },
+          "defaultVatType": {
+            "type": "string",
+            "enum": [
+              "EXEMPT_TRANSPORT",
+              "VAT_7"
+            ],
+            "nullable": true,
+            "description": "VAT ค่าเริ่มต้นของบรรทัดใหม่ — ค่าจริงอยู่ที่บรรทัด (D-28)"
+          },
+          "whtExpectedRate": {
+            "type": "string",
+            "enum": [
+              "1.00",
+              "0.00"
+            ],
+            "nullable": true,
+            "description": "อัตราหัก ณ ที่จ่ายที่ลูกค้าคาดว่าจะหักเรา: 1.00 = หัก 1% (ค่าขนส่ง), 0.00 = ไม่หัก, null = ยังไม่ระบุ"
+          },
+          "creditLimit": {
+            "type": "string",
+            "example": "500000.00",
+            "nullable": true
+          },
+          "vatRegistered": {
+            "type": "boolean",
+            "description": "ลูกค้าจดทะเบียน VAT (ค่าเริ่มต้น true)"
+          },
+          "etaxCapable": {
+            "type": "boolean",
+            "description": "ลูกค้ารับใบกำกับภาษีอิเล็กทรอนิกส์ (e-Tax) ได้ (ค่าเริ่มต้น false)"
+          },
+          "freeTimeMin": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1440,
+            "nullable": true,
+            "description": "free time ค่ารอ (นาที) — null = ใช้ค่าตั้งองค์กร `billing.freeTimeMinutes`"
+          },
+          "billingCompanyId": {
+            "type": "string",
+            "example": "cmp_…",
+            "nullable": true,
+            "description": "ออกบิลในนาม (Invoice As) — null = ใช้ค่าเริ่มต้นขององค์กร (docs/04 A4)"
+          },
+          "salesOwnerUserId": {
+            "type": "string",
+            "example": "usr_…",
+            "nullable": true,
+            "description": "พนักงานขาย"
+          },
+          "legalName": {
+            "type": "string",
+            "example": "บจก. สยามพลาสติก",
+            "description": "ชื่อตามจดทะเบียน (พิมพ์บนเอกสารภาษี)"
+          },
+          "externalId": {
+            "type": "string",
+            "nullable": true,
+            "description": "null = ลบการผูก"
+          }
+        }
+      },
+      "MasterReasonDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 10,
+            "maxLength": 500,
+            "example": "เลิกใช้บริการตั้งแต่ ธ.ค. 2569"
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      },
+      "MasterOptionalReasonDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "maxLength": 500
+          }
+        }
       }
     }
   }

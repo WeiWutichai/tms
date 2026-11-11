@@ -1,27 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import {
-  IsBoolean,
-  IsNotEmpty,
-  IsOptional,
-  IsString,
-  Matches,
-  MaxLength,
-  Validate,
-  ValidatorConstraint,
-  type ValidatorConstraintInterface,
-} from 'class-validator';
+import { IsBoolean, IsNotEmpty, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
 import { ListQuery } from '../../common/pagination';
-import { isValidThaiTaxId } from '../../common/thai-tax-id';
-
-@ValidatorConstraint({ name: 'thai_tax_id' })
-class ThaiTaxIdConstraint implements ValidatorConstraintInterface {
-  validate(v: unknown) {
-    return typeof v === 'string' && isValidThaiTaxId(v);
-  }
-  defaultMessage() {
-    return 'taxId must be a valid 13-digit Thai tax ID';
-  }
-}
+import { IsThaiTaxId } from '../../common/thai-tax-id';
 
 export class CreateCompanyDto {
   @ApiProperty({
@@ -40,7 +20,7 @@ export class CreateCompanyDto {
   legalNameEn?: string;
 
   @ApiProperty({ example: '0105536000011', description: 'เลขประจำตัวผู้เสียภาษี 13 หลัก' })
-  @Validate(ThaiTaxIdConstraint)
+  @IsThaiTaxId()
   taxId!: string;
 
   @ApiPropertyOptional({ default: true })

@@ -40,6 +40,8 @@ export interface TableLabels {
   prev: string;
   next: string;
   range: (from: number, to: number) => string;
+  /** "x–y จาก N" เมื่อรู้ยอดรวม (page.total) */
+  rangeOf?: (from: number, to: number, total: number) => string;
   none: string;
 }
 
@@ -57,7 +59,20 @@ export interface DataTableProps<R> {
   empty?: ReactNode;
   loading?: boolean;
   /** paging แบบ cursor */
-  page: { index: number; size: number; hasNext: boolean; visited: number; rowsOnPage: number };
+  page: {
+    index: number;
+    size: number;
+    hasNext: boolean;
+    visited: number;
+    rowsOnPage: number;
+    /** ยอดรวมทั้งหมด (ถ้ารู้ — เช่นจาก summary) แสดง "จาก N" */
+    total?: number;
+  };
+  /**
+   * ส่งออก CSV ในแผง "ตัวเลือก": ไม่ส่ง = ส่งออกแถวในหน้านี้จากฝั่งเบราว์เซอร์,
+   * ฟังก์ชัน = ให้หน้าเรียก API ส่งออกเอง (ครบทุกแถว + ตรวจสิทธิ์ export), false = ซ่อน (ไม่มีสิทธิ์)
+   */
+  onExportCsv?: (() => void) | false;
   onPageSize?: (n: number) => void;
   onPrev?: () => void;
   onNext?: () => void;
@@ -102,7 +117,12 @@ export function DataTable<R>(p: DataTableProps<R>) {
   const to = p.page.index * p.page.size + p.page.rowsOnPage;
 
   const exportCsv = () => {
-    const esc = (v: string) => (/[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
+    if (p.onExportCsv) return p.onExportCsv();
+    // กัน formula injection (ค่าเริ่มด้วย = + - @ tab CR → เติม ') เหมือน export ฝั่ง API
+    const esc = (raw: string) => {
+      const v = /^[=+\-@\t\r]/.test(raw) ? `'${raw}` : raw;
+      return /[",\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+    };
     const lines = [visible.map((c) => esc(c.label)).join(',')];
     for (const r of p.rows)
       lines.push(visible.map((c) => esc(c.csv ? c.csv(r) : String(c.render(r) ?? ''))).join(','));
@@ -111,7 +131,7 @@ export function DataTable<R>(p: DataTableProps<R>) {
     a.href = URL.createObjectURL(blob);
     a.download = 'export.csv';
     a.click();
-    URL.revokeObjectURL(a.href);
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   };
 
   return (
@@ -271,7 +291,11 @@ export function DataTable<R>(p: DataTableProps<R>) {
             </select>
           </label>
           <span className="tms-pager__range">
-            {p.page.rowsOnPage ? p.labels.range(from, to) : p.labels.none}
+            {p.page.rowsOnPage
+              ? p.page.total !== undefined && p.labels.rangeOf
+                ? p.labels.rangeOf(from, to, p.page.total)
+                : p.labels.range(from, to)
+              : p.labels.none}
           </span>
           <div style={{ display: 'flex', gap: 4 }}>
             <button
@@ -347,10 +371,12 @@ export function DataTable<R>(p: DataTableProps<R>) {
             <input type="checkbox" checked={dense} onChange={() => setDense((v) => !v)} />
             {p.labels.dense}
           </label>
-          <button type="button" className="tms-sidepanel__link" onClick={exportCsv}>
-            <Icon n="download" s={16} />
-            {p.labels.exportCsv}
-          </button>
+          {p.onExportCsv !== false && (
+            <button type="button" className="tms-sidepanel__link" onClick={exportCsv}>
+              <Icon n="download" s={16} />
+              {p.labels.exportCsv}
+            </button>
+          )}
         </div>
       )}
       <div className="tms-colrail">

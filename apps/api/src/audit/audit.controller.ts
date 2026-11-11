@@ -6,15 +6,15 @@ import {
   ApiPropertyOptional,
   ApiTags,
 } from '@nestjs/swagger';
-import type { AuditLog } from '@prisma/client';
 import { scopeAllows } from '@tms/domain';
 import { Type } from 'class-transformer';
 import { IsInt, IsOptional, IsString, Matches, Max, Min } from 'class-validator';
 import { RequireScope } from '../common/decorators';
-import { encodeId, tryDecodeId, type IdKind } from '../common/ids';
+import { tryDecodeId } from '../common/ids';
 import { ProblemException } from '../common/problem';
 import { requestContext } from '../common/request-context';
 import { DbService } from '../db/db.service';
+import { AUDIT_ID_KIND as KIND, decodeAuditCursor, toAuditPage } from './audit-page';
 
 /** entity ฝั่งบัญชีที่ role Accounting อ่าน audit ได้ (A3 "อ่านของบัญชี") — stage การเงินเพิ่มชนิดของตัวเอง */
 export const ACCOUNTING_ENTITIES = [
@@ -29,15 +29,6 @@ export const ACCOUNTING_ENTITIES = [
   'settlement',
   'wht_certificate',
 ];
-
-/** entity_type → prefix ของ id ใน API (ตารางที่ไม่มี prefix คืน uuid ตามเดิม) */
-const KIND: Record<string, IdKind> = {
-  company: 'company',
-  branch: 'branch',
-  document_series: 'sequence',
-  user: 'user',
-  role: 'role',
-};
 
 export class AuditQuery {
   @ApiPropertyOptional({ example: 'company' })
@@ -94,18 +85,6 @@ export class AuditPageDto {
   @ApiProperty() hasMore!: boolean;
 }
 
-function decodeCursor(c: string): bigint {
-  try {
-    const v = JSON.parse(Buffer.from(c, 'base64url').toString('utf8')) as { s: string };
-    if (typeof v.s !== 'string' || !/^\d{1,18}$/.test(v.s)) throw new Error();
-    return BigInt(v.s);
-  } catch {
-    throw new ProblemException('validation_failed', undefined, [
-      { field: 'cursor', code: 'invalid_cursor', message: 'cursor is invalid' },
-    ]);
-  }
-}
-
 /** Audit log (ST1-T22; docs/04 A7) — อ่านอย่างเดียว ใหม่สุดก่อน; ไม่มี API แก้/ลบ (PLT-126) */
 @ApiTags('audit')
 @ApiBearerAuth()
@@ -136,50 +115,12 @@ export class AuditController {
     else if (accountingOnly) and.push({ entityType: { in: ACCOUNTING_ENTITIES } });
     if (entityId) and.push({ entityId });
     // เรียงด้วย seq (ลำดับเขียน) — at ของแถวใน transaction เดียวเท่ากันจึงใช้แบ่งหน้าไม่ได้ (review 10 พ.ย. 2569 ข้อ 6)
-    if (q.cursor) and.push({ seq: { lt: decodeCursor(q.cursor) } });
+    if (q.cursor) and.push({ seq: { lt: decodeAuditCursor(q.cursor) } });
     const rows = await this.db.tx.auditLog.findMany({
       where: and.length ? { AND: and } : {},
       orderBy: { seq: 'desc' },
       take: limit + 1,
     });
-    const hasMore = rows.length > limit;
-    const page = rows.slice(0, limit);
-    const actorIds = [...new Set(page.map((r) => r.actorId).filter((x): x is string => !!x))];
-    const uuid = /^[0-9a-f-]{36}$/i;
-    const users = await this.db.tx.appUser.findMany({
-      where: { id: { in: actorIds.filter((a) => uuid.test(a)) } },
-      select: { id: true, name: true },
-    });
-    const names = new Map(users.map((u) => [u.id, u.name]));
-    const last = page[page.length - 1];
-    return {
-      data: page.map((r: AuditLog) => ({
-        id: encodeId('audit', r.id),
-        at: r.at.toISOString(),
-        actor: r.actorId
-          ? {
-              id: uuid.test(r.actorId) ? encodeId('user', r.actorId) : r.actorId,
-              name: names.get(r.actorId) ?? null,
-            }
-          : null,
-        actAs: r.actAs,
-        action: r.action,
-        entityType: r.entityType,
-        entityId:
-          r.entityId && KIND[r.entityType] && uuid.test(r.entityId)
-            ? encodeId(KIND[r.entityType]!, r.entityId)
-            : r.entityId,
-        before: r.before ?? null,
-        after: r.after ?? null,
-        reason: r.reason,
-        ip: r.ip,
-        requestId: r.requestId,
-      })),
-      nextCursor:
-        hasMore && last
-          ? Buffer.from(JSON.stringify({ s: String(last.seq) })).toString('base64url')
-          : null,
-      hasMore,
-    };
+    return toAuditPage(this.db.tx, rows, limit);
   }
 }
