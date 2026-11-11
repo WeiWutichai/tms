@@ -36,6 +36,16 @@ export function CustomerCreateDrawer({
   // 1 การเปิดฟอร์ม = 1 Idempotency-Key — กดซ้ำ/เน็ตช้าส่งซ้ำได้ลูกค้ารายเดียว
   const [idemKey, setIdemKey] = useState(() => crypto.randomUUID());
   const submitting = useRef(false);
+  // ล้างฟอร์มตั้งแต่ render แรกที่เปิด (ไม่รอ effect) — กันค่าเก่าค้างแล้วถูกล้างทับสิ่งที่เพิ่งพิมพ์ (QA ST2-T04/T05)
+  const openKey = open ? 'new' : null;
+  const [shownFor, setShownFor] = useState<string | null>(null);
+  if (openKey !== shownFor) {
+    setShownFor(openKey);
+    if (openKey !== null) {
+      setF(EMPTY);
+      setTried(false);
+    }
+  }
   useEffect(() => {
     if (open) {
       setF(EMPTY);
@@ -96,7 +106,11 @@ export function CustomerCreateDrawer({
         {...p}
         {...extra}
         value={f[k]}
-        onChange={(e) => setF((x) => ({ ...x, [k]: e.target.value }))}
+        onChange={(e) => {
+          // อ่านค่าทันที — updater ทำงานทีหลังได้ (มีงาน render ค้าง) ตอนนั้น React คืนค่า input เป็นค่าเดิมแล้ว
+          const v = e.target.value;
+          setF((x) => ({ ...x, [k]: v }));
+        }}
       />
     );
 

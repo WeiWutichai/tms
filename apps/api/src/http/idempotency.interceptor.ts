@@ -80,6 +80,9 @@ export class IdempotencyInterceptor implements NestInterceptor {
 
   private async reserve(tenantId: string, key: string, path: string, requestHash: string) {
     return this.db.withTenant(tenantId, async (tx) => {
+      // claim แบบ atomic: คำขอพร้อมกันที่ key เดียวกันรอกันที่ lock นี้ — คนแรกจองแถว (locked_until)
+      // คนถัดไปเห็นแถวที่จองแล้ว → 409 idempotency_in_progress หรือ replay (SELECT … FOR UPDATE ของแถวที่ยังไม่มีล็อกอะไรไม่ได้)
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(11, hashtext(${`${tenantId}:${path}:${key}`}))`;
       const now = new Date();
       const rows = await tx.$queryRaw<
         {

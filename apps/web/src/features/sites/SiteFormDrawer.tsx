@@ -135,6 +135,16 @@ export function SiteFormDrawer({
   /** ชื่อที่ผู้ให้บริการจับคู่ได้ เมื่อพิกัดในช่องมาจากปุ่มประมาณ (แก้ช่องเอง = ล้าง) */
   const [estimated, setEstimated] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  // ล้างฟอร์มตั้งแต่ render แรกที่เปิด (ไม่รอ effect) — กันค่าเก่าค้างแล้วถูกล้างทับสิ่งที่เพิ่งพิมพ์ (QA ST2-T04/T05)
+  const openKey = open ? (site?.id ?? `new:${presetCustomer?.id ?? ''}`) : null;
+  const [shownFor, setShownFor] = useState<string | null>(null);
+  if (openKey !== shownFor) {
+    setShownFor(openKey);
+    if (openKey !== null) {
+      setF(site ? toForm(site) : { ...EMPTY, cust: presetCustomer ?? null });
+      setTried(false);
+    }
+  }
   useEffect(() => {
     if (open) {
       setF(site ? toForm(site) : { ...EMPTY, cust: presetCustomer ?? null });
@@ -311,7 +321,11 @@ export function SiteFormDrawer({
         {...p}
         {...extra}
         value={f[k]}
-        onChange={(e) => setF((x) => ({ ...x, [k]: e.target.value }))}
+        onChange={(e) => {
+          // อ่านค่าทันที — updater ทำงานทีหลังได้ (มีงาน render ค้าง) ตอนนั้น React คืนค่า input เป็นค่าเดิมแล้ว
+          const v = e.target.value;
+          setF((x) => ({ ...x, [k]: v }));
+        }}
       />
     );
   const label = editing ? t('common.save') : t('loc.add');

@@ -168,6 +168,24 @@ describe('API plumbing (ST0-T06 – T10)', () => {
       ).toBe(422);
     });
 
+    it('คำขอพร้อมกัน 3 ครั้ง key เดียวกัน → ทำจริงครั้งเดียว (ที่เหลือ replay หรือ 409 in_progress)', async () => {
+      const body = newCompany();
+      const rs = await Promise.all(
+        [1, 2, 3].map(() =>
+          api(app, token).post('/v1/companies').set('Idempotency-Key', 'k-race').send(body),
+        ),
+      );
+      for (const r of rs) {
+        if (r.status === 201) continue;
+        expect(r.status).toBe(409);
+        expect(r.body.code).toBe('idempotency_in_progress');
+      }
+      expect(rs.filter((r) => r.status === 201 && !r.headers['idempotent-replayed'])).toHaveLength(
+        1,
+      );
+      expect(await plat.company.count({ where: { tenantId, taxId: body.taxId } })).toBe(1);
+    });
+
     it('key เดียวกันคนละ tenant ไม่ชนกัน', async () => {
       const other = await tokenFor((await createTenant(plat)).id);
       const body = newCompany();

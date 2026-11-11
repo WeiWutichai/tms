@@ -37,6 +37,7 @@ jobs:
       PLATFORM_DATABASE_URL: postgresql://tms_platform:tms_platform@postgres:5432/tms?schema=public
       AUTH_DEV_SECRET: ci-only-secret-0123456789abcdef0123456789
       FIELD_ENCRYPTION_KEYS: k1:MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+      BLIND_INDEX_KEY: YmxpbmQtaW5kZXgtZGV2LW9ubHktMDEyMzQ1Njc4OWE=
       PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
     steps:
       - uses: actions/checkout@v4
@@ -47,7 +48,7 @@ jobs:
         with: { node-version: 20, cache: pnpm }
       - run: pnpm install --frozen-lockfile
       - name: .env สำหรับ test/e2e (อ่านจาก .env แล้วสลับเป็น tms_test / tms_e2e)
-        run: env | grep -E '^(DATABASE_URL|APP_DATABASE_URL|PLATFORM_DATABASE_URL|AUTH_DEV_SECRET|FIELD_ENCRYPTION_KEYS)=' > .env
+        run: env | grep -E '^(DATABASE_URL|APP_DATABASE_URL|PLATFORM_DATABASE_URL|AUTH_DEV_SECRET|FIELD_ENCRYPTION_KEYS|BLIND_INDEX_KEY)=' > .env
       - name: role ฐานข้อมูล (เหมือน infra/postgres/init)
         run: pnpm --filter @tms/api exec prisma db execute --file ../../infra/postgres/init/01-roles.sql --url "$DATABASE_URL"
       - run: pnpm --filter @tms/api exec prisma generate

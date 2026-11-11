@@ -2,7 +2,10 @@ import { api } from '../../api';
 
 /** path ส่งออกของ master ที่มี (เพิ่มเมื่อ master ใหม่มี `GET /{master}/export`) */
 export type ExportPath =
-  '/v1/customers/export' | '/v1/customer-sites/export' | '/v1/vehicle-types/export';
+  | '/v1/customers/export'
+  | '/v1/customer-sites/export'
+  | '/v1/vehicle-types/export'
+  | '/v1/carriers/export';
 
 /**
  * ดาวน์โหลดไฟล์จาก endpoint ส่งออก — ผ่าน client เดียวกับ UI (token, ภาษา, การใช้งานแทน) แบบ blob

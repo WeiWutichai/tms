@@ -134,6 +134,11 @@ export const PROBLEMS = {
     th: 'ลบไม่ได้ เพราะมีเอกสารหรือข้อมูลอื่นอ้างถึงแล้ว — ใช้ "ปิดใช้" แทน',
     en: 'Referenced by other records — deactivate it instead',
   },
+  secret_unreadable: {
+    status: 409,
+    th: 'อ่านข้อมูลลับเดิมไม่ได้ (กุญแจเข้ารหัสเดิมถูกถอดออกแล้ว) — กรอกเลขใหม่แทน',
+    en: 'Stored secret cannot be decrypted (retired key) — provide a new value',
+  },
   in_use_active: {
     status: 409,
     th: 'ปิดใช้ไม่ได้ เพราะยังมีข้อมูลที่ใช้งานอยู่อ้างถึง — ดูจำนวนใน references',

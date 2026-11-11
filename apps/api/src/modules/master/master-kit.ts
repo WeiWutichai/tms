@@ -316,15 +316,32 @@ export interface ReferenceCheck {
   count: () => Promise<number>;
 }
 
-/** MD-004: ลบได้เฉพาะรายการที่ไม่เคยถูกอ้างอิง — มีการอ้างอิง → 409 `in_use` + จำนวนต่อชนิด */
-export async function assertNotReferenced(checks: ReferenceCheck[]): Promise<void> {
+/**
+ * MD-004: ลบได้เฉพาะรายการที่ไม่เคยถูกอ้างอิง — มีการอ้างอิง → 409 `in_use` + จำนวนต่อชนิด
+ * `instead` = การกระทำที่ให้ใช้แทนการลบของ master นั้น (ค่าเริ่มต้น "ปิดใช้"; รถร่วม = "ระงับชั่วคราว") → หัวข้อความ + `instead` ใน problem
+ */
+export async function assertNotReferenced(
+  checks: ReferenceCheck[],
+  instead?: { action: string; th: string; en: string },
+): Promise<void> {
   const refs: Record<string, number> = {};
   for (const c of checks) {
     const n = await c.count();
     if (n > 0) refs[c.name] = n;
   }
   if (Object.keys(refs).length)
-    throw new ProblemException('in_use', undefined, undefined, { references: refs });
+    throw new ProblemException('in_use', undefined, undefined, {
+      references: refs,
+      ...(instead
+        ? {
+            instead: instead.action,
+            title: {
+              th: `ลบไม่ได้ เพราะมีเอกสารหรือข้อมูลอื่นอ้างถึงแล้ว — ใช้ "${instead.th}" แทน`,
+              en: `Referenced by other records — ${instead.en} it instead`,
+            },
+          }
+        : {}),
+    });
 }
 
 /**
