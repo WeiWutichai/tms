@@ -1,4 +1,5 @@
 import type { T } from '../../i18n';
+import { tempRange } from '../master/format';
 import type { MessageKey } from '../../i18n/th';
 import type { Product, Special, Unit } from './useProducts';
 
@@ -26,10 +27,8 @@ export const specialText = (t: T, p: Product) =>
     .map((s) => t(`prd.sp.${s}` as MessageKey))
     .join(', ');
 
-export const tempText = (t: T, p: Product) =>
-  p.tempMinC !== null && p.tempMaxC !== null
-    ? t('prd.temp', { a: num(p.tempMinC, 1), b: num(p.tempMaxC, 1) })
-    : '';
+export const tempText = (_t: T, p: Product) =>
+  p.tempMinC !== null && p.tempMaxC !== null ? tempRange(p.tempMinC, p.tempMaxC) : '';
 
 export const unText = (t: T, p: Product) =>
   p.unNumber && p.hazardClass ? t('prd.un', { u: p.unNumber, c: p.hazardClass }) : '';

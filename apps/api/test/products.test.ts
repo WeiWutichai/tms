@@ -490,6 +490,130 @@ describe('สินค้าและหน่วย (products, units)', () => {
     expect(again.body.id).not.toBe(a.body.id);
   });
 
+  it('review: ตัวแปลงหน่วยทศนิยมจำกัด (กก. ≤ 3, ลบ.ม. ≤ 4) + error ชี้ช่องแรกที่ต่าง', async () => {
+    const u = api(app, admin);
+    for (const body of [
+      { code: 'MG', name: 'มิลลิกรัม', kind: 'WEIGHT', toKg: 0.0005 },
+      { code: 'G1', name: 'กรัมเศษ', kind: 'WEIGHT', toKg: 1.2345 },
+      { code: 'ML', name: 'มิลลิลิตร', kind: 'VOLUME', toCbm: 0.00001 },
+    ])
+      await u.post('/v1/units').send(body).expect(422);
+    await u
+      .post('/v1/units')
+      .send({ code: 'G', name: 'กรัม', kind: 'WEIGHT', toKg: 0.001 })
+      .expect(201);
+    const ton = units.TON!;
+    const r = await u.patch(`/v1/units/${ton.id}`).send({ name: 'ตัน', toKg: 900 }).expect(422);
+    expect(r.body.errors[0]).toMatchObject({ field: 'toKg', code: 'system_unit' });
+    const c = await u
+      .patch(`/v1/units/${ton.id}`)
+      .send({ code: 'TON', kind: 'VOLUME', toCbm: 1 })
+      .expect(422);
+    expect(c.body.errors[0]).toMatchObject({ field: 'kind', code: 'system_unit' });
+  });
+
+  it('review: เปลี่ยนหน่วยหลักไม่พาค่าที่ได้จากหน่วยเดิมไปด้วย + มีหน่วยแปลงต้องส่งหน่วยแปลงใหม่', async () => {
+    const p = await newProduct({
+      unitId: units.TON!.id,
+      weightPerUnitKg: undefined,
+      volumePerUnitCbm: 0.13,
+    });
+    expect(p.weightPerUnitKg).toBe(1000);
+    // ตัน → กล่อง (นับ) โดยไม่ส่งน้ำหนัก → 422 required (ไม่ใช้ 1,000 กก. ของตันต่อ)
+    const r = await api(app, admin)
+      .patch(`/v1/products/${p.id}`)
+      .send({ unitId: units.BOX!.id })
+      .expect(422);
+    expect(r.body.errors[0]).toMatchObject({ field: 'weightPerUnitKg', code: 'required' });
+    const ok = await api(app, admin)
+      .patch(`/v1/products/${p.id}`)
+      .send({ unitId: units.BOX!.id, weightPerUnitKg: 20 })
+      .expect(200);
+    expect(ok.body).toMatchObject({ weightPerUnitKg: 20, volumePerUnitCbm: 0.13 });
+    // ลิตร → ชิ้น: ปริมาตรจากตัวแปลงลิตรถูกล้าง
+    const oil = await newProduct({ unitId: units.L!.id, weightPerUnitKg: 0.9 });
+    const pcs = await api(app, admin)
+      .put(`/v1/products/external/OIL-${oil.code}`)
+      .send({ name: 'x', unitId: units.L!.id, weightPerUnitKg: 0.9 })
+      .expect(201);
+    const moved = await api(app, admin)
+      .put(`/v1/products/external/OIL-${oil.code}`)
+      .send({ name: 'x', unitId: units.PCS!.id, weightPerUnitKg: 0.9 })
+      .expect(200);
+    expect(pcs.body.volumePerUnitCbm).toBe(0.001);
+    expect(moved.body.volumePerUnitCbm).toBeNull();
+    // มีหน่วยแปลง: เปลี่ยนหน่วยหลักโดยไม่ส่ง altUnits → 422 alt_units_required
+    const q = await newProduct({ altUnits: [{ unitId: 'code:PLT', factorToBase: 40 }] });
+    const need = await api(app, admin)
+      .patch(`/v1/products/${q.id}`)
+      .send({ unitId: units.BOX!.id, weightPerUnitKg: 1 })
+      .expect(422);
+    expect(need.body.errors[0]).toMatchObject({ field: 'altUnits', code: 'alt_units_required' });
+    await api(app, admin)
+      .patch(`/v1/products/${q.id}`)
+      .send({
+        unitId: units.BOX!.id,
+        weightPerUnitKg: 1,
+        altUnits: [{ unitId: 'code:PLT', factorToBase: 20 }],
+      })
+      .expect(200);
+  });
+
+  it('review: Class อันตรายรับเฉพาะ class/division ของ UN; เปิดใช้ตรวจ transition ก่อนแล้วตรวจหน่วยแปลง', async () => {
+    for (const cls of ['1', '2.4', '4', '6.3', '10'])
+      await create({
+        name: 'x',
+        unitId: units.PCS!.id,
+        weightPerUnitKg: 1,
+        hazardous: true,
+        unNumber: '1993',
+        hazardClass: cls,
+      }).expect(422);
+    await newProduct({ hazardous: true, unNumber: '1203', hazardClass: '1.4' });
+    const p = await newProduct();
+    const tr = await api(app, admin).post(`/v1/products/${p.id}/activate`).send({}).expect(409);
+    expect(tr.body.code).toBe('invalid_state_transition');
+    const cr = (
+      await api(app, admin)
+        .post('/v1/units')
+        .send({ code: 'CRT', name: 'ลังไม้', kind: 'COUNT' })
+        .expect(201)
+    ).body;
+    const q = await newProduct({ altUnits: [{ unitId: cr.id, factorToBase: 6 }] });
+    await api(app, admin)
+      .post(`/v1/products/${q.id}/deactivate`)
+      .send({ reason: 'ทดสอบปิดใช้สินค้า' })
+      .expect(200);
+    await api(app, admin)
+      .post(`/v1/units/${cr.id}/deactivate`)
+      .send({ reason: 'ทดสอบปิดใช้ลังไม้' })
+      .expect(200);
+    const re = await api(app, admin).post(`/v1/products/${q.id}/activate`).send({}).expect(422);
+    expect(re.body.errors[0]).toMatchObject({ field: 'altUnits.0.unitId', code: 'unit_inactive' });
+  });
+
+  it('review: แก้ตัวแปลงหน่วยพร้อมสร้างสินค้า → น้ำหนักสินค้าตรงกับตัวแปลงสุดท้ายเสมอ (ล็อกก่อนอ่าน)', async () => {
+    for (let i = 0; i < 6; i++) {
+      const u = (
+        await api(app, admin)
+          .post('/v1/units')
+          .send({ code: `RC${i}`, name: `หน่วยแข่ง ${i}`, kind: 'WEIGHT', toKg: 10 })
+          .expect(201)
+      ).body;
+      const [patch, prod] = await Promise.all([
+        api(app, admin).patch(`/v1/units/${u.id}`).send({ toKg: 20 }),
+        create({ name: `แข่ง ${i}`, unitId: u.id }),
+      ]);
+      expect(prod.status).toBe(201);
+      if (patch.status === 200) expect(prod.body.weightPerUnitKg).toBe(20);
+      else {
+        expect(patch.status).toBe(422);
+        expect(patch.body.errors[0].code).toBe('unit_in_use');
+        expect(prod.body.weightPerUnitKg).toBe(10);
+      }
+    }
+  });
+
   it('ปิดใช้/เปิดใช้ (เหตุผล ≥ 10) + ลบ soft delete + เปิดใช้คืนตรวจหน่วยยังใช้งาน', async () => {
     const crate = (
       await api(app, admin)

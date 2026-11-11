@@ -192,7 +192,7 @@ export function DataTable<R>(p: DataTableProps<R>) {
                     {c.label}
                   </th>
                 ))}
-                <th style={{ width: 52 }} />
+                <th className="tms-act" style={{ width: 52 }} />
               </tr>
               {showFilters && (
                 <tr className="tms-filters">
@@ -225,7 +225,7 @@ export function DataTable<R>(p: DataTableProps<R>) {
                       )}
                     </th>
                   ))}
-                  <th />
+                  <th className="tms-act" />
                 </tr>
               )}
             </thead>
@@ -250,7 +250,11 @@ export function DataTable<R>(p: DataTableProps<R>) {
                         {c.render(r)}
                       </td>
                     ))}
-                    <td className="tms-act" onClick={(e) => e.stopPropagation()}>
+                    <td
+                      className="tms-act"
+                      style={menuFor === id ? { zIndex: 4 } : undefined}
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       {menu.length > 0 && (
                         <button
                           type="button"

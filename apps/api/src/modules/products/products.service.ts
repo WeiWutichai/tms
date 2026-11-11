@@ -276,26 +276,32 @@ export class ProductsService {
 
   // ---------- write ----------
 
-  /** `unt_…` หรือ `code:BAG` → แถวหน่วย (ยังไม่ล็อก) · ไม่พบ/ลบแล้ว → 422 `reference_not_found` */
-  private async findUnit(ref: string, field: string): Promise<Unit> {
-    const tx = this.db.tx;
-    const u = ref.startsWith('code:')
-      ? await tx.unit.findFirst({ where: { code: iEquals(ref.slice(5)), deletedAt: null } })
-      : await tx.unit.findFirst({
-          where: { id: tryDecodeId('unit', ref) ?? undefined, deletedAt: null },
-        });
+  /** `unt_…` หรือ `code:BAG` → uuid ของหน่วย (ยังไม่ล็อก — ค่าตัวแปลงอ่านหลังล็อก) · ไม่พบ/ลบแล้ว → 422 */
+  private async unitIdOf(ref: string, field: string): Promise<string> {
+    if (!ref.startsWith('code:')) {
+      const id = tryDecodeId('unit', ref);
+      if (!id) throw field422(field, 'reference_not_found', 'unit not found');
+      return id;
+    }
+    const u = await this.db.tx.unit.findFirst({
+      where: { code: iEquals(ref.slice(5)), deletedAt: null },
+      select: { id: true },
+    });
     if (!u) throw field422(field, 'reference_not_found', 'unit not found');
-    return u;
+    return u.id;
   }
 
   /**
-   * ล็อก (FOR SHARE) หน่วย/ลูกค้าที่จะอ้างใหม่ — กันถูกลบระหว่างบันทึก แล้วตรวจว่ายังใช้งานอยู่
-   * ลำดับล็อกทั้งระบบ: ext → แถวที่อ้าง (ลูกค้า → หน่วย) → code
+   * ล็อก (FOR SHARE) ลูกค้า + หน่วยทุกตัวที่สินค้าอ้าง (หน่วยหลัก + หน่วยแปลง) แล้วอ่านแถวหน่วยหลังล็อก
+   * → ชนิด/ตัวแปลงที่ใช้คำนวณเป็นค่าที่ commit แล้วและเปลี่ยนไม่ได้จนจบ transaction (review ST2-T10 #1:
+   * แก้ตัวแปลงหน่วยพร้อมสร้างสินค้า — ฝั่งแก้หน่วยล็อก FOR UPDATE ก่อนนับสินค้า)
+   * `fresh` = ที่อ้างใหม่ → ต้องใช้งานอยู่ (ค่าเดิมที่ปิดใช้ไปแล้วคงไว้ได้)
+   * ลำดับล็อกทั้งระบบ: ext → ลูกค้า → หน่วย → code
    */
   private async lockRefs(
     customer: string | null | undefined,
-    units: { id: string; field: string }[],
-  ): Promise<void> {
+    units: { id: string; field: string; fresh: boolean }[],
+  ): Promise<Map<string, Unit>> {
     const tx = this.db.tx;
     if (customer) {
       const [c] = await lockReferenced(tx, 'customer', [customer]);
@@ -303,31 +309,35 @@ export class ProductsService {
       if (c.status !== 'ACTIVE')
         throw field422('customerId', 'customer_inactive', 'customer is inactive');
     }
-    if (!units.length) return;
-    const rows = await lockReferenced(
+    const out = new Map<string, Unit>();
+    if (!units.length) return out;
+    const locked = await lockReferenced(
       tx,
       'unit',
       units.map((u) => u.id),
     );
     for (const u of units) {
-      const r = rows.find((x) => x.id === u.id);
+      const r = locked.find((x) => x.id === u.id);
       if (!r) throw field422(u.field, 'reference_not_found', 'unit not found');
-      if (r.status !== 'ACTIVE') throw field422(u.field, 'unit_inactive', 'unit is inactive');
+      if (u.fresh && r.status !== 'ACTIVE')
+        throw field422(u.field, 'unit_inactive', 'unit is inactive');
     }
+    for (const r of await tx.unit.findMany({ where: { id: { in: locked.map((x) => x.id) } } }))
+      out.set(r.id, r);
+    return out;
   }
 
   /**
    * รวมค่าที่ส่งมากับค่าเดิม → คอลัมน์ + กฎ spec/02 §3 + หน่วยแปลงชุดใหม่ (undefined = ไม่เปลี่ยน)
-   * ค่าที่ต้องล็อกคืนใน `lock` (เฉพาะที่อ้างใหม่ — ค่าเดิมที่ปิดใช้ไปแล้วคงไว้ได้)
+   * เรียกหลังล็อก externalId (ล็อกลูกค้า/หน่วยภายใน) และก่อนล็อก code
    */
   private async build(input: UpdateProductDto | CreateProductDto, current?: ProductFull) {
     const data: Prisma.ProductUncheckedUpdateInput = {};
-    const lockUnits: { id: string; field: string }[] = [];
-    let lockCustomer: string | null | undefined;
     if (input.name !== undefined) data.nameTh = input.name;
-    if (input.code !== undefined && 'code' in input && current) data.code = input.code;
+    if (input.code !== undefined && current) data.code = input.code;
 
-    // ---- ลูกค้า ----
+    // ---- อ้างอิง (ยังไม่อ่านค่า) ----
+    let lockCustomer: string | null | undefined;
     if (input.customerId !== undefined) {
       const cid = input.customerId === null ? null : tryDecodeId('customer', input.customerId);
       if (input.customerId !== null && !cid)
@@ -335,26 +345,58 @@ export class ProductsService {
       if (cid !== (current?.customerId ?? null)) lockCustomer = cid;
       data.customerId = cid;
     }
+    const baseId =
+      input.unitId !== undefined
+        ? await this.unitIdOf(input.unitId, 'unitId')
+        : current!.baseUnitId;
+    const unitChanged = baseId !== current?.baseUnitId;
+    if (unitChanged) data.baseUnitId = baseId;
+    // เปลี่ยนหน่วยหลักของสินค้าที่มีหน่วยแปลง → ต้องส่งหน่วยแปลงชุดใหม่มาด้วย (factor เทียบหน่วยหลักเดิม — review #3)
+    if (current && unitChanged && current.altUnits.length && input.altUnits === undefined)
+      throw field422(
+        'altUnits',
+        'alt_units_required',
+        'base unit changed — send altUnits again (factors are relative to the base unit)',
+      );
+    const currentAlt = new Set(current?.altUnits.map((a) => a.unitId) ?? []);
+    const altRefs: { id: string; field: string; factorToBase: number }[] = [];
+    if (input.altUnits !== undefined)
+      for (const [i, a] of (input.altUnits as AltUnitInputDto[]).entries()) {
+        const field = `altUnits.${i}.unitId`;
+        const id = await this.unitIdOf(a.unitId, field);
+        if (id === baseId)
+          throw field422(field, 'same_as_base', 'alternative unit equals the base unit');
+        if (altRefs.some((x) => x.id === id))
+          throw field422(field, 'duplicate', 'duplicate alternative unit');
+        altRefs.push({ id, field, factorToBase: a.factorToBase });
+      }
 
-    // ---- หน่วยหลัก ----
-    let base: Pick<Unit, 'id' | 'kind' | 'toKg' | 'toCbm'>;
-    if (input.unitId !== undefined) {
-      const u = await this.findUnit(input.unitId, 'unitId');
-      if (u.id !== current?.baseUnitId) lockUnits.push({ id: u.id, field: 'unitId' });
-      data.baseUnitId = u.id;
-      base = u;
-    } else {
-      base = (await this.db.tx.unit.findUniqueOrThrow({ where: { id: current!.baseUnitId } }))!;
-    }
+    // ---- ล็อกแล้วอ่านหน่วย ----
+    const units = await this.lockRefs(lockCustomer, [
+      { id: baseId, field: 'unitId', fresh: unitChanged },
+      ...altRefs.map((a) => ({ id: a.id, field: a.field, fresh: !currentAlt.has(a.id) })),
+    ]);
+    const base = units.get(baseId)!;
 
-    // ---- น้ำหนัก/ปริมาตรต่อหน่วย (MD-070 ใช้คำนวณ) ----
-    const pick = <T>(v: T | undefined, cur: T | null | undefined) =>
-      v !== undefined ? v : (cur ?? null);
-    let weight = pick(input.weightPerUnitKg, num(current?.weightPerUnitKg ?? null));
-    let volume = pick(input.volumePerUnitCbm, num(current?.volumePerUnitCbm ?? null));
-    const unitChanged = data.baseUnitId !== undefined && data.baseUnitId !== current?.baseUnitId;
+    // ---- น้ำหนัก/ปริมาตรต่อหน่วย (MD-070) ----
+    // เปลี่ยนหน่วย: ค่าที่ได้จากตัวแปลงของหน่วยเดิม (หน่วยน้ำหนัก/ปริมาตร) ไม่ติดไปหน่วยใหม่ (review #2)
+    const oldKind = current?.baseUnit.kind;
+    const carryW = !unitChanged || oldKind !== 'WEIGHT';
+    const carryV = !unitChanged || oldKind !== 'VOLUME';
+    let weight =
+      input.weightPerUnitKg !== undefined
+        ? input.weightPerUnitKg
+        : carryW
+          ? num(current?.weightPerUnitKg ?? null)
+          : null;
+    let volume =
+      input.volumePerUnitCbm !== undefined
+        ? input.volumePerUnitCbm
+        : carryV
+          ? num(current?.volumePerUnitCbm ?? null)
+          : null;
     if (base.kind === 'WEIGHT') {
-      const fixed = new Prisma.Decimal(base.toKg!).toDecimalPlaces(3).toNumber();
+      const fixed = Number(base.toKg); // ตัวแปลงทศนิยม ≤ 3 (DTO หน่วย) — ตรงกับ numeric(12,3)
       if (input.weightPerUnitKg != null && input.weightPerUnitKg !== fixed)
         throw field422(
           'weightPerUnitKg',
@@ -363,7 +405,7 @@ export class ProductsService {
         );
       weight = fixed;
     } else if (base.kind === 'VOLUME') {
-      const fixed = new Prisma.Decimal(base.toCbm!).toDecimalPlaces(4).toNumber();
+      const fixed = Number(base.toCbm); // ทศนิยม ≤ 4 — ตรงกับ numeric(12,4)
       if (input.volumePerUnitCbm != null && input.volumePerUnitCbm !== fixed)
         throw field422(
           'volumePerUnitCbm',
@@ -372,7 +414,7 @@ export class ProductsService {
         );
       volume = fixed;
     }
-    if (base.kind === 'COUNT' && (weight === null || weight === undefined))
+    if (base.kind === 'COUNT' && weight === null)
       throw field422('weightPerUnitKg', 'required', 'weightPerUnitKg is required for COUNT units');
     if (weight !== null && !(weight > 0))
       throw field422('weightPerUnitKg', 'min', 'weightPerUnitKg must be > 0');
@@ -382,6 +424,8 @@ export class ProductsService {
       data.volumePerUnitCbm = volume;
 
     // ---- อันตราย ----
+    const pick = <T>(v: T | undefined, cur: T | null | undefined) =>
+      v !== undefined ? v : (cur ?? null);
     const hazardous = input.hazardous ?? current?.hazardous ?? false;
     let un = pick(input.unNumber, current?.unNumber);
     let cls = pick(input.hazardClass, current?.hazardClass);
@@ -444,29 +488,11 @@ export class ProductsService {
     if (input.stackable !== undefined) data.stackable = input.stackable;
     if (input.barcode !== undefined) data.barcode = input.barcode === '' ? null : input.barcode;
 
-    // ---- หน่วยแปลง ----
-    const baseId = (data.baseUnitId as string | undefined) ?? current!.baseUnitId;
-    let alt: { unitId: string; factorToBase: number }[] | undefined;
-    if (input.altUnits !== undefined) {
-      alt = [];
-      const currentAlt = new Set(current?.altUnits.map((a) => a.unitId) ?? []);
-      for (const [i, a] of (input.altUnits as AltUnitInputDto[]).entries()) {
-        const field = `altUnits.${i}.unitId`;
-        const u = await this.findUnit(a.unitId, field);
-        if (u.id === baseId)
-          throw field422(field, 'same_as_base', 'alternative unit equals the base unit');
-        if (alt.some((x) => x.unitId === u.id))
-          throw field422(field, 'duplicate', 'duplicate alternative unit');
-        if (!currentAlt.has(u.id)) lockUnits.push({ id: u.id, field });
-        alt.push({ unitId: u.id, factorToBase: a.factorToBase });
-      }
-    } else if (current && current.altUnits.some((a) => a.unitId === baseId))
-      throw field422(
-        'unitId',
-        'same_as_base',
-        'base unit is already an alternative unit — update altUnits too',
-      );
-    return { data, alt, lockCustomer, lockUnits };
+    const alt =
+      input.altUnits !== undefined
+        ? altRefs.map((a) => ({ unitId: a.id, factorToBase: a.factorToBase }))
+        : undefined;
+    return { data, alt };
   }
 
   private async assertUniqueExternal(externalId: string, exceptId?: string) {
@@ -514,13 +540,12 @@ export class ProductsService {
 
   async create(input: CreateProductDto | (UpsertProductDto & { externalId: string })) {
     const tx = this.db.tx;
-    const { data, alt, lockCustomer, lockUnits } = await this.build(input);
     if (input.externalId) {
       // POST ที่มี externalId ใช้ lock เดียวกับ PUT external (กันสร้างซ้ำพร้อมกัน)
       await lockKey(tx, `${ENTITY}.ext:${input.externalId}`);
       await this.assertUniqueExternal(input.externalId);
     }
-    await this.lockRefs(lockCustomer, lockUnits);
+    const { data, alt } = await this.build(input);
     await lockKey(tx, `${ENTITY}.code`);
     let code = input.code;
     if (code) await this.assertUniqueCode(code);
@@ -549,18 +574,15 @@ export class ProductsService {
     const current = await this.get(id);
     if (expected !== undefined && expected !== current.version)
       throw new ProblemException('precondition_failed');
-    const { data, alt, lockCustomer, lockUnits } = await this.build(input, current);
-    if (input.externalId !== undefined) {
-      if (input.externalId) {
-        await lockKey(tx, `${ENTITY}.ext:${input.externalId}`);
-        await this.assertUniqueExternal(input.externalId, current.id);
-      }
-      data.externalId = input.externalId;
+    if (input.externalId) {
+      await lockKey(tx, `${ENTITY}.ext:${input.externalId}`);
+      await this.assertUniqueExternal(input.externalId, current.id);
     }
+    const { data, alt } = await this.build(input, current);
+    if (input.externalId !== undefined) data.externalId = input.externalId;
     const altSame = alt === undefined || altKey(alt) === altKey(current.altUnits);
     if (isNoopUpdate(current, data as Record<string, unknown>, DECIMAL_FIELDS) && altSame)
       return current; // ส่งซ้ำค่าเดิมไม่เพิ่ม version
-    await this.lockRefs(lockCustomer, lockUnits);
     if (data.code !== undefined && String(data.code) !== current.code) {
       await lockKey(tx, `${ENTITY}.code`);
       await this.assertUniqueCode(String(data.code), current.id);
@@ -604,9 +626,19 @@ export class ProductsService {
     const current = await this.get(id);
     if (expected !== undefined && expected !== current.version)
       throw new ProblemException('precondition_failed');
-    // เปิดใช้อีกครั้ง: หน่วยหลักต้องยังใช้งานอยู่ (สินค้าที่ใช้งานต้องเลือกใช้ใน SO ได้ทั้งชุด)
+    // ตรวจ transition ก่อน (เปิดใช้ซ้ำ = 409 invalid_state_transition ไม่ใช่ 422 หน่วย) — review #6
+    if (!PRODUCT_TRANSITIONS[current.status]?.[event])
+      throw new ProblemException('invalid_state_transition');
+    // เปิดใช้อีกครั้ง: หน่วยหลัก + หน่วยแปลงต้องยังใช้งานอยู่ (สินค้าที่ใช้งานต้องเลือกใช้ใน SO ได้ทั้งชุด)
     if (event === 'activate')
-      await this.lockRefs(undefined, [{ id: current.baseUnitId, field: 'unitId' }]);
+      await this.lockRefs(undefined, [
+        { id: current.baseUnitId, field: 'unitId', fresh: true },
+        ...current.altUnits.map((a, i) => ({
+          id: a.unitId,
+          field: `altUnits.${i}.unitId`,
+          fresh: true,
+        })),
+      ]);
     let updated!: ProductFull;
     await this.state.transition(tx, {
       docType: ENTITY,

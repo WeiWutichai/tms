@@ -8,7 +8,9 @@ import { fieldErrors, isStale, problemText } from '../master/problems';
 import { searchCustomers } from '../sites/useSites';
 import { num } from './productFormat';
 import {
+  HAZARD_CLASSES,
   SPECIALS,
+  type HazardClass,
   useCreateProduct,
   useNextProductCode,
   useUnits,
@@ -116,6 +118,7 @@ export function ProductFormDrawer({
   const next = useNextProductCode(open && !editing);
   const [f, setF] = useState<Form>(EMPTY);
   const [tried, setTried] = useState(false);
+  const [altRecheck, setAltRecheck] = useState(false);
   const [idemKey, setIdemKey] = useState(() => crypto.randomUUID());
   const submitting = useRef(false);
   const codeTouched = useRef(false);
@@ -133,6 +136,7 @@ export function ProductFormDrawer({
     if (openKey !== null) {
       setF(product ? toForm(product) : { ...EMPTY, unitId: defaultUnit() });
       setTried(false);
+      setAltRecheck(false);
       codeTouched.current = false;
     }
   }
@@ -155,6 +159,21 @@ export function ProductFormDrawer({
   }, [open, next.data?.code]);
 
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setF((x) => ({ ...x, [k]: v }));
+  /**
+   * เปลี่ยนหน่วยหลัก (review ST2-T10 #2/#3): ล้างค่าที่ได้จากตัวแปลงของหน่วยเดิม (น้ำหนัก/ปริมาตร)
+   * และล้างอัตราแปลงทุกแถว — อัตราเทียบหน่วยหลักเดิม ผู้ใช้ต้องกรอกยืนยันใหม่
+   */
+  const changeUnit = (id: string) => {
+    const old = all.find((u) => u.id === f.unitId);
+    if (f.alt.length) setAltRecheck(true);
+    setF((x) => ({
+      ...x,
+      unitId: id,
+      w: old?.kind === 'WEIGHT' ? '' : x.w,
+      vol: old?.kind === 'VOLUME' ? '' : x.vol,
+      alt: x.alt.map((a) => ({ ...a, factor: '' })),
+    }));
+  };
   const unit: Unit | undefined = all.find((u) => u.id === f.unitId);
   const kind = unit?.kind ?? 'COUNT';
   const fixedW = kind === 'WEIGHT' && unit?.toKg != null ? Number(unit.toKg.toFixed(3)) : null;
@@ -188,7 +207,8 @@ export function ProductFormDrawer({
   const un = f.un.replace(/^\s*UN\s*/i, '').trim();
   if (haz) {
     if (!/^\d{4}$/.test(un)) local.unNumber = t('prd.v.un');
-    if (!/^[1-9](\.[1-6])?$/.test(f.cls.trim())) local.hazardClass = t('prd.v.cls');
+    if (!(HAZARD_CLASSES as readonly string[]).includes(f.cls.trim()))
+      local.hazardClass = t('prd.v.cls');
   }
   f.alt.forEach((a, i) => {
     if (!a.unitId || a.unitId === f.unitId || f.alt.findIndex((x) => x.unitId === a.unitId) !== i)
@@ -221,7 +241,7 @@ export function ProductFormDrawer({
     fragile: hasSp('fragile'),
     hazardous: haz,
     unNumber: haz ? un : null,
-    hazardClass: haz ? f.cls.trim() : null,
+    hazardClass: haz ? (f.cls.trim() as HazardClass) : null,
     tempControlled: cold,
     tempMinC: cold ? tmin : null,
     tempMaxC: cold ? tmax : null,
@@ -367,7 +387,7 @@ export function ProductFormDrawer({
                 className="tms-select"
                 style={SEL}
                 value={f.unitId}
-                onChange={(e) => set('unitId', e.target.value)}
+                onChange={(e) => changeUnit(e.target.value)}
               >
                 {!f.unitId && <option value="" disabled />}
                 {unitOptions.map((u) => (
@@ -479,7 +499,12 @@ export function ProductFormDrawer({
         </div>
       </section>
       <FormSection title={t('prd.sec.extra')}>
-        <FormField label={t('prd.f.alt')} span={2} error={errs.altUnits}>
+        <FormField
+          label={t('prd.f.alt')}
+          span={2}
+          error={errs.altUnits}
+          hint={altRecheck ? t('prd.f.altRecheck') : undefined}
+        >
           {(p) => (
             <div id={p.id} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {f.alt.map((a, i) => (

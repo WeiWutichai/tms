@@ -33,8 +33,8 @@ class UnitFieldsDto {
     description: 'WEIGHT: 1 หน่วย = ? กก. (บังคับเมื่อ kind=WEIGHT, ตัน = 1000) · ชนิดอื่นต้องว่าง',
   })
   @IsNullable()
-  @IsDecimal(6)
-  @Min(0.000001)
+  @IsDecimal(3) // ≤ 3 ตำแหน่ง = ความละเอียดของน้ำหนักสินค้า numeric(12,3) (review ST2-T10 #4)
+  @Min(0.001)
   @Max(99_999_999)
   toKg?: number | null;
 
@@ -46,8 +46,8 @@ class UnitFieldsDto {
       'VOLUME: 1 หน่วย = ? ลบ.ม. (บังคับเมื่อ kind=VOLUME, ลิตร = 0.001) · ชนิดอื่นต้องว่าง',
   })
   @IsNullable()
-  @IsDecimal(6)
-  @Min(0.000001)
+  @IsDecimal(4) // ≤ 4 ตำแหน่ง = ความละเอียดของปริมาตรสินค้า numeric(12,4)
+  @Min(0.0001)
   @Max(99_999_999)
   toCbm?: number | null;
 }

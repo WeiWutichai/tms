@@ -12,6 +12,30 @@ export type UnitKind = Unit['kind'];
 export type UnitCreate = Schemas['CreateUnitDto'];
 export type UnitInput = Schemas['UpdateUnitDto'];
 
+export type HazardClass = NonNullable<ProductCreate['hazardClass']>;
+/** class/division UN ที่รับ (ตรงกับ API — review ST2-T10 #7) */
+export const HAZARD_CLASSES: HazardClass[] = [
+  '1.1',
+  '1.2',
+  '1.3',
+  '1.4',
+  '1.5',
+  '1.6',
+  '2.1',
+  '2.2',
+  '2.3',
+  '3',
+  '4.1',
+  '4.2',
+  '4.3',
+  '5.1',
+  '5.2',
+  '6.1',
+  '6.2',
+  '7',
+  '8',
+  '9',
+];
 export const UNIT_KINDS: UnitKind[] = ['COUNT', 'WEIGHT', 'VOLUME'];
 /** ประเภทพิเศษ (ต้นแบบ specProd: เปราะบาง / อันตราย / ควบคุมอุณหภูมิ) */
 export const SPECIALS = ['fragile', 'hazardous', 'temp'] as const;
@@ -39,13 +63,36 @@ export function useProductSummary() {
   });
 }
 
-/** หน่วยทั้งหมดของ tenant (มีไม่มาก — โหลดครั้งเดียว 200 รายการ) ใช้ในตัวเลือก/ตัวกรองและหน้าจัดการหน่วย */
+/**
+ * หน่วยทั้งหมดของ tenant สำหรับตัวเลือก/ตัวกรอง — เดินทุกหน้าของ cursor (ไม่ตัดที่ 200 — review ST2-T10 #8)
+ * เรียงตามชื่อไทย (localeCompare 'th')
+ */
 export function useUnits() {
   return useQuery({
-    queryKey: [UNITS],
-    queryFn: () => unwrap(api.GET('/v1/units', { params: { query: { limit: 200 } } })),
-    select: (r) => r.data,
+    queryKey: [UNITS, 'all'],
+    queryFn: async () => {
+      const out: Unit[] = [];
+      let cursor: string | undefined;
+      for (let i = 0; i < 50; i++) {
+        const r = await unwrap(
+          api.GET('/v1/units', {
+            params: { query: { limit: 200, ...(cursor ? { cursor } : {}) } },
+          }),
+        );
+        out.push(...(r.data as Unit[]));
+        if (!r.hasMore || !r.nextCursor) break;
+        cursor = r.nextCursor;
+      }
+      return out.sort((a, b) => a.name.localeCompare(b.name, 'th'));
+    },
   });
+}
+
+/** รายการหน่วยแบบแบ่งหน้า (drawer จัดการหน่วย) */
+export function useUnitList() {
+  return useCursorList<Unit>(UNITS, {}, (query) =>
+    unwrap(api.GET('/v1/units', { params: { query: query as never } })),
+  );
 }
 
 export function useNextProductCode(enabled: boolean) {

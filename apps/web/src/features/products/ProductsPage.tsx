@@ -43,10 +43,21 @@ const DIALOG = {
 const cell = { color: '#101418', whiteSpace: 'nowrap' } as const;
 
 /** ข้อความสองบรรทัดของต้นแบบ (cW): บรรทัดบน 14px, บรรทัดล่างสีรอง — ยาวเกินตัด … */
-function TwoLine({ top, sub, muted }: { top: string; sub: string; muted?: string | undefined }) {
+function TwoLine({
+  top,
+  sub,
+  muted,
+  max = 320,
+}: {
+  top: string;
+  sub: string;
+  muted?: string | undefined;
+  /** ความกว้างสูงสุด — ชื่อยาวตัด … ไม่ดันคอลัมน์อื่นออกนอกจอ (review ST2-T10 #10) */
+  max?: number;
+}) {
   const clip = {
     display: 'block',
-    maxWidth: 440,
+    maxWidth: max,
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
@@ -170,7 +181,7 @@ export function ProductsPage() {
       render: (r) => {
         const sp = specialText(t, r);
         return sp ? (
-          <TwoLine top={sp} sub={specialSub(t, r)} />
+          <TwoLine top={sp} sub={specialSub(t, r)} max={220} />
         ) : (
           <span style={{ color: '#59606B' }}>—</span>
         );

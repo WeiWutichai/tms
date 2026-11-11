@@ -31,8 +31,32 @@ const EXT_RE = /^[\x21-\x7e]{1,100}$/;
 export const UNIT_REF_RE = /^(unt_[0-9a-f]{32}|code:[A-Za-z0-9][A-Za-z0-9_\-.]{0,9})$/;
 /** เลข UN 4 หลัก — รับ "UN1993" / "un 1993" แล้วเก็บ "1993" */
 const UN_RE = /^\d{4}$/;
-/** class 1–9 (+ division เช่น 2.1, 4.3) ตามระบบ UN [spec/02 §3 class 1–9] */
-const HAZARD_CLASS_RE = /^[1-9](\.[1-6])?$/;
+/**
+ * class/division ตามระบบ UN (spec/02 §3 class 1–9): 1.1–1.6, 2.1–2.3, 3, 4.1–4.3, 5.1–5.2, 6.1–6.2, 7, 8, 9
+ * (review ST2-T10 #7 — CHECK เดียวกันใน migration 0049)
+ */
+export const HAZARD_CLASSES = [
+  '1.1',
+  '1.2',
+  '1.3',
+  '1.4',
+  '1.5',
+  '1.6',
+  '2.1',
+  '2.2',
+  '2.3',
+  '3',
+  '4.1',
+  '4.2',
+  '4.3',
+  '5.1',
+  '5.2',
+  '6.1',
+  '6.2',
+  '7',
+  '8',
+  '9',
+] as const;
 export const TEMP_MIN = -40;
 export const TEMP_MAX = 30;
 export const ALT_UNITS_MAX = 10;
@@ -139,11 +163,12 @@ export class ProductFieldsDto {
     nullable: true,
     type: String,
     example: '3',
-    description: 'class 1–9 (division เช่น 2.1 ได้)',
+    enum: HAZARD_CLASSES,
+    description: 'class/division UN เช่น 3, 2.1, 4.3',
   })
   @IsNullable()
   @IsString()
-  @Matches(HAZARD_CLASS_RE)
+  @IsIn(HAZARD_CLASSES)
   hazardClass?: string | null;
 
   @ApiPropertyOptional({

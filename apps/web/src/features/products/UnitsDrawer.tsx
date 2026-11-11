@@ -4,22 +4,23 @@ import {
   EmptyState,
   FormDrawer,
   FormField,
-  Icon,
+  DataTable,
   ReasonDialog,
-  StatusDot,
   Tag,
   TextInput,
+  type Column,
 } from '@tms/ui';
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { useI18n } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
+import { tableLabels } from '../companies/CompanySample';
 import { fieldErrors, isStale, problemText } from '../master/problems';
 import { num, unitConvText, unitKindLabel } from './productFormat';
 import {
   UNIT_KINDS,
   useSaveUnit,
   useUnitAction,
-  useUnits,
+  useUnitList,
   type Unit,
   type UnitKind,
 } from './useProducts';
@@ -27,7 +28,9 @@ import {
 const SEL: CSSProperties = { height: 40, padding: '0 12px', borderColor: '#CDD1C8', width: '100%' };
 const NUM = { textAlign: 'right', fontVariantNumeric: 'tabular-nums' } as const;
 const CODE_RE = /^[A-Z0-9][A-Z0-9_\-.]{0,9}$/;
-const decOf = (s: string) => (/^\d{1,8}(\.\d{1,6})?$/.test(s.trim()) ? Number(s) : NaN);
+/** ตัวแปลง: กก. ทศนิยม ≤ 3, ลบ.ม. ≤ 4 (ตรงกับความละเอียดน้ำหนัก/ปริมาตรสินค้า — API ตรวจซ้ำ) */
+const decOf = (s: string, places: number) =>
+  new RegExp(`^\\d{1,8}(\\.\\d{1,${places}})?$`).test(s.trim()) ? Number(s) : NaN;
 
 const DIALOG = {
   deactivate: { title: 'unit.dlg.offT', desc: 'unit.dlg.offD', ok: 'prd.menu.off' },
@@ -49,11 +52,57 @@ export function UnitsDrawer({
   onToast: (msg: string) => void;
 }) {
   const { t } = useI18n();
-  const units = useUnits();
+  const list = useUnitList();
   const action = useUnitAction();
   const [form, setForm] = useState<{ u: Unit | null } | null>(null);
   const [dialog, setDialog] = useState<{ kind: 'deactivate' | 'delete'; u: Unit } | null>(null);
-  const rows = units.data ?? [];
+
+  const columns: Column<Unit>[] = [
+    {
+      key: 'name',
+      label: t('unit.col.name'),
+      render: (u) => (
+        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.4 }}>
+          <span style={{ color: '#101418', whiteSpace: 'nowrap' }}>
+            {u.name}
+            {u.status !== 'active' && (
+              <span style={{ marginLeft: 8, color: '#59606B', fontSize: 12.5 }}>
+                {t('prd.st.inactive')}
+              </span>
+            )}
+            {u.system && (
+              <span style={{ marginLeft: 8 }}>
+                <Tag>{t('unit.system')}</Tag>
+              </span>
+            )}
+          </span>
+          <span style={{ color: '#3B424C' }}>{u.code}</span>
+        </div>
+      ),
+      csv: (u) => `${u.name}${u.status !== 'active' ? ` (${t('prd.st.inactive')})` : ''}`,
+    },
+    {
+      key: 'kind',
+      label: t('unit.col.kind'),
+      render: (u) => (
+        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.4 }}>
+          <span style={{ color: '#101418' }}>{unitKindLabel(t, u.kind)}</span>
+          {u.kind !== 'COUNT' && <span style={{ color: '#3B424C' }}>{unitConvText(t, u)}</span>}
+        </div>
+      ),
+      csv: (u) => unitKindLabel(t, u.kind),
+    },
+    {
+      key: 'used',
+      label: t('unit.col.used'),
+      align: 'right',
+      width: '1%',
+      render: (u) => (
+        <span style={{ whiteSpace: 'nowrap' }}>{t('unit.items', { n: num(u.products, 0) })}</span>
+      ),
+      csv: (u) => String(u.products),
+    },
+  ];
 
   const toggle = (u: Unit) => {
     if (u.status === 'active') return setDialog({ kind: 'deactivate', u });
@@ -83,97 +132,48 @@ export function UnitsDrawer({
             </Button>
           )}
         </div>
-        {units.isError ? (
+        {list.q.isError ? (
           <EmptyState
             icon="circle-alert"
             title={t('unit.loadError')}
-            description={problemText(units.error, t) ?? ''}
+            description={problemText(list.q.error, t) ?? ''}
           />
         ) : (
-          <div className="tms-table-wrap">
-            <div className="tms-table-scroll">
-              <table className="tms-table" aria-label={t('unit.title')}>
-                <thead>
-                  <tr>
-                    <th>{t('unit.col.name')}</th>
-                    <th>{t('unit.col.kind')}</th>
-                    <th style={{ textAlign: 'right' }}>{t('unit.col.used')}</th>
-                    <th>{t('unit.col.st')}</th>
-                    {canWrite && <th aria-hidden />}
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((u) => (
-                    <tr key={u.id}>
-                      <td>
-                        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.4 }}>
-                          <span style={{ color: '#101418' }}>
-                            {u.name}
-                            {u.system && (
-                              <span style={{ marginLeft: 8 }}>
-                                <Tag>{t('unit.system')}</Tag>
-                              </span>
-                            )}
-                          </span>
-                          <span style={{ color: '#3B424C' }}>{u.code}</span>
-                        </div>
-                      </td>
-                      <td style={{ whiteSpace: 'nowrap' }}>
-                        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.4 }}>
-                          <span style={{ color: '#101418' }}>{unitKindLabel(t, u.kind)}</span>
-                          {u.kind !== 'COUNT' && (
-                            <span style={{ color: '#3B424C' }}>{unitConvText(t, u)}</span>
-                          )}
-                        </div>
-                      </td>
-                      <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                        {t('unit.items', { n: num(u.products, 0) })}
-                      </td>
-                      <td>
-                        <StatusDot
-                          label={t(u.status === 'active' ? 'prd.st.active' : 'prd.st.inactive')}
-                          tone={u.status === 'active' ? 'ok' : 'off'}
-                        />
-                      </td>
-                      {canWrite && (
-                        <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
-                          <button
-                            type="button"
-                            className="tms-iconbtn tms-iconbtn--plain"
-                            title={t('prd.menu.edit')}
-                            aria-label={`${t('prd.menu.edit')} ${u.name}`}
-                            onClick={() => setForm({ u })}
-                          >
-                            <Icon n="pencil" s={16} />
-                          </button>
-                          <button
-                            type="button"
-                            className="tms-iconbtn tms-iconbtn--plain"
-                            title={t(u.status === 'active' ? 'prd.menu.off' : 'prd.menu.on')}
-                            aria-label={`${t(u.status === 'active' ? 'prd.menu.off' : 'prd.menu.on')} ${u.name}`}
-                            onClick={() => toggle(u)}
-                          >
-                            <Icon n={u.status === 'active' ? 'ban' : 'circle-check'} s={16} />
-                          </button>
-                          {!u.system && (
-                            <button
-                              type="button"
-                              className="tms-iconbtn tms-iconbtn--plain"
-                              title={t('prd.menu.delete')}
-                              aria-label={`${t('prd.menu.delete')} ${u.name}`}
-                              onClick={() => setDialog({ kind: 'delete', u })}
-                            >
-                              <Icon n="trash-2" s={16} />
-                            </button>
-                          )}
-                        </td>
-                      )}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+          <DataTable
+            columns={columns}
+            rows={list.rows}
+            rowId={(r) => r.id}
+            loading={list.loading}
+            labels={tableLabels(t)}
+            onExportCsv={false}
+            {...(canWrite ? { onRowClick: (r: Unit) => setForm({ u: r }) } : {})}
+            rowMenu={(u) =>
+              canWrite
+                ? [
+                    { label: t('prd.menu.edit'), icon: 'pencil', run: () => setForm({ u }) },
+                    {
+                      label: t(u.status === 'active' ? 'prd.menu.off' : 'prd.menu.on'),
+                      icon: 'ban',
+                      run: () => toggle(u),
+                    },
+                    ...(u.system
+                      ? []
+                      : [
+                          {
+                            label: t('prd.menu.delete'),
+                            icon: 'trash-2',
+                            run: () => setDialog({ kind: 'delete', u }),
+                          },
+                        ]),
+                  ]
+                : []
+            }
+            page={list.page}
+            onPageSize={list.setSize}
+            onNext={list.next}
+            onPrev={list.prev}
+            onGoto={list.goto}
+          />
         )}
       </Drawer>
       <UnitFormDrawer
@@ -276,9 +276,10 @@ function UnitFormDrawer({
   const code = f.code.trim().toUpperCase();
   if (!CODE_RE.test(code)) local.code = t('unit.v.code');
   if (!f.name.trim()) local.name = t('unit.v.name');
-  const factor = f.kind === 'COUNT' ? null : decOf(f.factor);
+  const places = f.kind === 'WEIGHT' ? 3 : 4;
+  const factor = f.kind === 'COUNT' ? null : decOf(f.factor, places);
   if (factor !== null && !(factor > 0))
-    local[f.kind === 'WEIGHT' ? 'toKg' : 'toCbm'] = t('unit.v.factor');
+    local[f.kind === 'WEIGHT' ? 'toKg' : 'toCbm'] = t('unit.v.factor', { n: places });
   const server = fieldErrors(save.error, t);
   const errs = { ...(tried ? local : {}), ...server };
   const topErr =
@@ -303,9 +304,18 @@ function UnitFormDrawer({
       },
     };
     if (unit) {
-      const body = locked
-        ? { name: f.name.trim() }
-        : { code, name: f.name.trim(), kind: f.kind, ...conv };
+      // แก้: ส่งเฉพาะช่องที่เปลี่ยน — ไม่เปลี่ยนอะไร = ปิดฟอร์มเฉย ๆ (ไม่มี toast — เหมือนฟอร์มสินค้า)
+      const body: Record<string, unknown> = {};
+      if (f.name.trim() !== unit.name) body.name = f.name.trim();
+      if (!locked) {
+        if (code !== unit.code) body.code = code;
+        if (f.kind !== unit.kind || conv.toKg !== unit.toKg || conv.toCbm !== unit.toCbm)
+          Object.assign(body, { kind: f.kind, ...conv });
+      }
+      if (!Object.keys(body).length) {
+        submitting.current = false;
+        return onClose();
+      }
       save.mutate(
         { id: unit.id, version: unit.version, body },
         { ...done, onSuccess: (u) => onSaved(u, false) },

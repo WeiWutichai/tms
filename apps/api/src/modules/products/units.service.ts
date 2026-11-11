@@ -217,28 +217,19 @@ export class UnitsService {
     }
     if (input.code !== undefined) data.code = input.code;
     if (isNoopUpdate(current, data as Record<string, unknown>, DECIMAL_FIELDS)) return current;
-    const definitionChanged = !isNoopUpdate(
-      current,
-      {
-        code: data.code ?? current.code,
-        kind: data.kind ?? current.kind,
-        toKg: data.toKg ?? current.toKg,
-        toCbm: data.toCbm ?? current.toCbm,
-      },
-      DECIMAL_FIELDS,
+    // ช่องนิยามที่เปลี่ยนจริง (เรียงตามลำดับฟอร์ม) — error ชี้ช่องแรกที่ต่าง (review ST2-T10 #5)
+    const changedDef = (['code', 'kind', 'toKg', 'toCbm'] as const).filter(
+      (k) => k in data && !isNoopUpdate(current, { [k]: data[k] }, DECIMAL_FIELDS),
     );
-    if (definitionChanged) {
+    if (changedDef.length) {
       // หน่วยมาตรฐานของระบบ: รหัส/ชนิด/ตัวแปลงคงที่ (spec/02 §3 ชุดเริ่มต้น)
       if (current.systemKey !== null)
-        throw field422(
-          input.code !== undefined && input.code !== current.code ? 'code' : 'kind',
-          'system_unit',
-          'system unit: only the name can be changed',
-        );
+        throw field422(changedDef[0]!, 'system_unit', 'system unit: only the name can be changed');
       // หน่วยที่สินค้าใช้อยู่: เปลี่ยนนิยามแล้วน้ำหนัก/ปริมาตรของสินค้าเดิมจะผิด → 422
       await lockForRemoval(tx, 'unit', current.id);
       const used = (await unitUsage(tx, [current.id])).get(current.id) ?? 0;
-      if (used > 0) throw field422('kind', 'unit_in_use', `unit is used by ${used} product(s)`);
+      if (used > 0)
+        throw field422(changedDef[0]!, 'unit_in_use', `unit is used by ${used} product(s)`);
     }
     if (
       data.nameTh !== undefined &&

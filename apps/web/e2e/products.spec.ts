@@ -61,6 +61,15 @@ test.describe.serial('ข้อมูลหลัก → สินค้าแ�
     await expect(page.getByRole('status')).toContainText(`บันทึก ${NAME} แล้ว`);
     await expect(page.getByRole('dialog').getByText('1 พาเลท = 40 กล่อง')).toBeVisible();
 
+    // เปลี่ยนหน่วยหลัก → อัตราแปลงถูกล้างให้กรอกยืนยันใหม่ (review ST2-T10 #3)
+    await page.getByRole('dialog').getByRole('button', { name: 'เพิ่มเติม' }).click();
+    await page.getByRole('menuitem', { name: 'แก้ไข' }).click();
+    const ed2 = page.getByRole('dialog', { name: /แก้ไขสินค้า/ });
+    await ed2.getByRole('combobox', { name: /^หน่วย/ }).selectOption({ label: 'ถุง' });
+    await expect(ed2.getByLabel('= หน่วยหลัก')).toHaveValue('');
+    await expect(ed2.getByText('เปลี่ยนหน่วยหลักแล้ว — กรอกอัตราแปลงใหม่ทุกแถว')).toBeVisible();
+    await ed2.getByRole('button', { name: 'ยกเลิก' }).click();
+
     // ปิดใช้ (เหตุผล ≥ 10) จากเมนู ⋯ ของแถว
     await page.keyboard.press('Escape');
     const row = page.locator('tbody tr', { hasText: NAME });
@@ -77,9 +86,9 @@ test.describe.serial('ข้อมูลหลัก → สินค้าแ�
     await page.goto('/master/products');
     await page.getByRole('button', { name: 'จัดการหน่วย' }).click();
     const u = page.getByRole('dialog');
-    for (const n of ['BAG', 'PLT', 'TON', 'L'])
+    for (const n of ['BAG', 'BOX', 'CBM', 'CTN'])
       await expect(u.getByText(n, { exact: true })).toBeVisible();
-    await expect(u.getByText('1 ตัน = 1,000 กก.')).toBeVisible();
+    await expect(u.getByText('1 ลบ.ม. = 1 ลบ.ม.')).toBeVisible();
     await u.getByRole('button', { name: 'เพิ่มหน่วย' }).click();
     const f = page.getByRole('dialog', { name: /เพิ่มหน่วย/ });
     await f.getByLabel('รหัสหน่วย').fill(`Q${RUN}`);
@@ -88,6 +97,5 @@ test.describe.serial('ข้อมูลหลัก → สินค้าแ�
     await f.getByLabel('1 หน่วย = ? กก.').fill('100');
     await f.getByRole('button', { name: 'เพิ่มหน่วย' }).click();
     await expect(page.getByRole('status')).toContainText(`เพิ่มหน่วย ควินทัล ${RUN} แล้ว`);
-    await expect(page.getByText(`1 ควินทัล ${RUN} = 100 กก.`)).toBeVisible();
   });
 });

@@ -147,7 +147,29 @@ await W.getByRole('button', { name: 'จัดการหน่วย' }).click
 await W.waitForTimeout(900);
 c.units = await W.screenshot();
 
-for (const tag of ['list', 'drawer', 'create', 'invalid', 'act', 'units']) {
+// ชื่อยาวมาก (กรณีขอบ — review ST2-T10 #10): ชื่อตัด … คอลัมน์ ⋯ ยังอยู่ในจอ
+await W.keyboard.press('Escape');
+await W.waitForTimeout(300);
+const LONG = `ZZ-${Date.now().toString(36).toUpperCase()}`;
+const lr = await W.request.post('/v1/products', {
+  headers: H,
+  data: {
+    code: LONG,
+    name: 'สินค้าทดสอบชื่อยาวมาก '.repeat(8).trim(),
+    unitId: 'code:PCS',
+    weightPerUnitKg: 1,
+  },
+});
+await W.getByRole('columnheader').getByPlaceholder('ค้นหา').first().fill(LONG);
+await W.waitForTimeout(1200);
+c.long = await W.screenshot();
+// ลบทิ้ง (soft delete) — ไม่ให้ค้างในข้อมูลตัวอย่างรอบถัดไป
+await W.request.post(`/v1/products/${(await lr.json()).id}/delete`, {
+  headers: H,
+  data: { reason: 'ลบสินค้าทดสอบชื่อยาวของสคริปต์ภาพเทียบ' },
+});
+
+for (const tag of ['list', 'drawer', 'create', 'invalid', 'act', 'units', 'long']) {
   const M = await (await b.newContext({ viewport: { width: 2900, height: 960 } })).newPage();
   const left = a[tag] ?? a.list;
   await M.setContent(
