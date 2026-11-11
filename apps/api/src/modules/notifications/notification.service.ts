@@ -30,47 +30,52 @@ export interface PreparedNotification {
  */
 export interface NotificationChannel {
   readonly name: ChannelName;
-  deliver(tx: Tx, n: PreparedNotification): Promise<void>;
+  /** ผู้รับทั้งหมดของการแจ้งครั้งนี้ในครั้งเดียว (INSERT เป็นชุด — ไม่วนทีละคนใน transaction ของงานหลัก) */
+  deliver(tx: Tx, items: PreparedNotification[]): Promise<void>;
 }
 
 /** กระดิ่งในเว็บ — แถวเดียวจบ (SENT ทันที, READ เมื่อผู้ใช้เปิดอ่าน) */
 export class InAppChannel implements NotificationChannel {
   readonly name = 'in_app' as const;
-  async deliver(tx: Tx, n: PreparedNotification) {
-    await tx.notification.create({
-      data: {
-        ...base(n),
-        channel: 'in_app',
-        status: 'SENT',
-        sentAt: new Date(),
-      },
+  async deliver(tx: Tx, items: PreparedNotification[]) {
+    const now = new Date();
+    await tx.notification.createMany({
+      data: items.map((n) => ({ ...base(n), channel: 'in_app', status: 'SENT', sentAt: now })),
     });
   }
 }
 
-/** อีเมลผ่าน outbox (ST1-T03) — worker อัปเดตสถานะแถวนี้ตามผลส่ง (EmailDispatcher.syncNotifications) */
+/** อีเมลผ่าน outbox (ST1-T03) — worker อัปเดตสถานะแถวนี้ตามผลส่ง (EmailDispatcher) */
 export class EmailChannel implements NotificationChannel {
   readonly name = 'email' as const;
   constructor(
     private readonly email: EmailService,
     private readonly webBase: () => string,
   ) {}
-  async deliver(tx: Tx, n: PreparedNotification) {
-    const outboxId = randomUUID();
-    await this.email.enqueue(tx, {
-      id: outboxId,
-      tenantId: n.tenantId,
-      to: n.recipient.email,
-      template: 'notification',
-      locale: n.recipient.locale,
-      vars: {
-        title: n.title,
-        body: n.body,
-        ...(n.link ? { link: `${this.webBase()}${n.link}` } : {}),
-      },
-    });
-    await tx.notification.create({
-      data: { ...base(n), channel: 'email', status: 'QUEUED', emailOutboxId: outboxId },
+  async deliver(tx: Tx, items: PreparedNotification[]) {
+    const rows = items.map((n) => ({ n, outboxId: randomUUID() }));
+    await this.email.enqueueMany(
+      tx,
+      rows.map(({ n, outboxId }) => ({
+        id: outboxId,
+        tenantId: n.tenantId,
+        to: n.recipient.email,
+        template: 'notification' as const,
+        locale: n.recipient.locale,
+        vars: {
+          title: n.title,
+          body: n.body,
+          ...(n.link ? { link: `${this.webBase()}${n.link}` } : {}),
+        },
+      })),
+    );
+    await tx.notification.createMany({
+      data: rows.map(({ n, outboxId }) => ({
+        ...base(n),
+        channel: 'email',
+        status: 'QUEUED' as const,
+        emailOutboxId: outboxId,
+      })),
     });
   }
 }
@@ -128,7 +133,8 @@ export class NotificationService {
 
   /** คืนจำนวนผู้รับ */
   async notify<K extends NotificationTemplate>(tx: Tx, input: NotifyInput<K>): Promise<number> {
-    if (input.link !== undefined && !/^\/(?!\/)[^\s]*$/.test(input.link))
+    // path ภายในเท่านั้น — ห้าม `//x` และ `/\x` (เบราว์เซอร์ตีความเป็น host อื่น) และห้าม backslash ทุกที่
+    if (input.link !== undefined && !/^\/(?![/\\])[^\s\\]*$/.test(input.link))
       throw new Error('notification link must be an internal path starting with /');
     const wanted = input.channels ?? ['in_app', 'email'];
     const channels = wanted.map((c) => {
@@ -139,9 +145,9 @@ export class NotificationService {
     const recipients = await this.resolve(tx, input.tenantId, input.to);
     if (recipients.length > MAX_RECIPIENTS)
       throw new Error(`too many notification recipients (${recipients.length})`);
-    for (const r of recipients) {
+    const items: PreparedNotification[] = recipients.map((r) => {
       const text = renderNotification(input.template, r.locale, input.vars);
-      const n: PreparedNotification = {
+      return {
         tenantId: input.tenantId,
         recipient: r,
         template: input.template,
@@ -151,8 +157,8 @@ export class NotificationService {
         payload: input.vars as unknown as Prisma.InputJsonValue,
         entity: input.entity ?? null,
       };
-      for (const ch of channels) await ch.deliver(tx, n);
-    }
+    });
+    if (items.length) for (const ch of channels) await ch.deliver(tx, items);
     if (!recipients.length)
       this.logger.debug(`notify ${input.template}: no active recipients in tenant`);
     return recipients.length;

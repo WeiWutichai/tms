@@ -67,6 +67,8 @@ export class ReadAllDto {
 /**
  * กระดิ่งแจ้งเตือนของผู้ใช้ที่ login (ST1-T23) — เห็นเฉพาะของตัวเอง ช่อง in_app เท่านั้น
  * (แถวช่องอีเมลเป็นประวัติการส่ง ไม่แสดงในกระดิ่ง)
+ * ข้อยกเว้นมาตรฐาน list (docs/01 §5.1): เรียงใหม่ → เก่าด้วย (createdAt, id) และไม่มี updatedAfter/sort
+ * เพราะเป็นกล่องข้อความส่วนตัว ไม่ใช่ข้อมูลที่ระบบอื่น sync — limit ค่าเริ่มต้น 20 สูงสุด 100
  */
 @ApiTags('platform')
 @ApiBearerAuth()
@@ -153,7 +155,11 @@ export class NotificationsController {
 
   /** ผู้ใช้จริงเท่านั้น (API key/client credentials ไม่มีกล่องแจ้งเตือน) */
   private me(): string {
-    const actor = requestContext.require().actorId;
+    const ctx = requestContext.require();
+    const actor = ctx.actorId;
+    // principal ที่ไม่ใช่ผู้ใช้ (client credentials/link/driver ในอนาคต) ไม่มีกล่องแจ้งเตือน — dev token ใช้ใน test
+    if (ctx.principalType !== 'user' && ctx.principalType !== 'dev')
+      throw new ProblemException('not_found');
     if (!actor || !/^[0-9a-f-]{36}$/i.test(actor)) throw new ProblemException('not_found');
     return actor;
   }

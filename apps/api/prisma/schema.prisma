@@ -1372,7 +1372,7 @@ model Notification {
   failedReason      String?            @map("failed_reason")
   relatedEntityType String?            @map("related_entity_type")
   relatedEntityId   String?            @map("related_entity_id")
-  createdAt         DateTime           @default(dbgenerated("now()")) @map("created_at") @db.Timestamptz(6)
+  createdAt         DateTime           @default(dbgenerated("now()")) @map("created_at") @db.Timestamptz(3) /// ms — ตรงกับ cursor (JS Date) ไม่ข้ามแถวที่ต่างกันระดับ µs
   updatedAt         DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@index([tenantId, recipientId, channel, createdAt])

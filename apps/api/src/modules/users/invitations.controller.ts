@@ -22,6 +22,7 @@ import {
   MaxLength,
 } from 'class-validator';
 import { AuditService } from '../../audit/audit.service';
+import { safeName } from '../../common/safe-text';
 import { webBaseUrl } from '../../auth/password-reset.controller';
 import { newOpaqueToken } from '../../auth/tokens';
 import { RequireScope, RequireStepUp, TenantResource } from '../../common/decorators';
@@ -51,22 +52,6 @@ export async function assertSeat(tx: Tx, entitlements: EntitlementService, tenan
 
 /** อีเมลจริงของผู้ใช้ที่ลบ/เพิกถอน → ค่า anonymize (PDPA) — ใช้ร่วมกับ users/:id/delete */
 export const anonymizedEmail = (userId: string) => `deleted-${userId}@deleted.invalid`;
-/**
- * ชื่อที่ tenant กรอกเองลงในอีเมล — ตัด URL/โดเมนออก (client อีเมลทำลิงก์อัตโนมัติ → ฟิชชิงด้วยโดเมนเรา; review T07 #2)
- */
-export function safeName(s: string): string {
-  return s
-    .replace(/[a-z][a-z0-9+.-]*:\/\/\S*/gi, '')
-    .replace(/\bwww\.\S*/gi, '')
-    .replace(
-      /\b[\w-]+(\.[\w-]+)*\.(com|net|org|co|io|me|th|xyz|info|app|link|ly|ru|cn|top|site|online|dev|biz|us|uk|asia|shop|click)\b\S*/gi,
-      '',
-    )
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 120);
-}
-
 const trim = ({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value);
 
 export class CreateInvitationDto {

@@ -154,6 +154,19 @@ export class UserLifecycleController {
       where: { tenantId: user.tenantId, userId: user.id },
       data: { email: `deleted-${user.id}@deleted.invalid` },
     });
+    // ST1-T23: อีเมลที่ยังรอส่งถึงคนที่ถูกลบ → ยกเลิก; ทุกแถวของบริษัทนี้ตัดที่อยู่อีเมลจริงออก
+    // (แถว notification ไม่มีอีเมล — ช่องอีเมลที่ค้าง QUEUED ปิดเป็น FAILED ในคำสั่งเดียวกัน)
+    await this.prisma.platform.$executeRaw`
+      WITH e AS (
+        UPDATE email_outbox
+           SET status = CASE WHEN status IN ('PENDING', 'SENDING') THEN 'FAILED'::"EmailStatus" ELSE status END,
+               error = CASE WHEN status IN ('PENDING', 'SENDING') THEN 'recipient deleted' ELSE error END,
+               to_address = ${`deleted-${user.id}@deleted.invalid`}, text_body = NULL, html_body = NULL,
+               locked_until = NULL, updated_at = now()
+         WHERE tenant_id = ${user.tenantId}::uuid AND lower(to_address) = lower(${user.email})
+        RETURNING id, status)
+      UPDATE notification n SET status = 'FAILED', failed_reason = 'recipient_deleted', updated_at = now()
+        FROM e WHERE n.email_outbox_id = e.id AND n.status = 'QUEUED' AND e.status = 'FAILED'`;
     return result;
   }
 

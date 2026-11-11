@@ -342,7 +342,7 @@ describe('user invitations', () => {
     expect(
       (await o.invite({ email: 'dup@inv.test', name: 'd', roles: ['viewer', 'viewer'] })).status,
     ).toBe(422);
-    const { safeName } = await import('../src/modules/users/invitations.controller');
+    const { safeName } = await import('../src/common/safe-text');
     expect(safeName('บริษัท ดี ยืนยันที่ https://evil.example/x ด่วน')).toBe(
       'บริษัท ดี ยืนยันที่ ด่วน',
     );

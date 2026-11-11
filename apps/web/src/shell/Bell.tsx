@@ -9,7 +9,7 @@ const UNREAD = ['notifications', 'unread'] as const;
 /**
  * กระดิ่งแจ้งเตือน (ST1-T23) — ต้นแบบ TMS v4: ปุ่มกลม 36 + จุดน้ำเงิน, กดแล้ว toast
  * "แจ้งเตือนใหม่ N รายการ: …" (ต้นแบบยังไม่มีรายการ/แผงแจ้งเตือน — [OPEN] spec/12 §3)
- * จุดแสดงเฉพาะเมื่อมีที่ยังไม่อ่าน (ต้นแบบเป็นข้อมูลตัวอย่างที่มีเสมอ) · กดแล้วทำเครื่องหมายว่าอ่านแล้ว
+ * จุดแสดงเฉพาะเมื่อมีที่ยังไม่อ่าน (ต้นแบบเป็นข้อมูลตัวอย่างที่มีเสมอ) · กดแล้วทำเครื่องหมายอ่านเฉพาะ ≤ 5 รายการที่แสดง
  */
 export function Bell() {
   const { t } = useI18n();
@@ -30,15 +30,24 @@ export function Bell() {
     const r = await api.GET('/v1/me/notifications', {
       params: { query: { unread: true, limit: 5 } },
     });
-    const items = r.data?.data ?? [];
+    if (r.error || !r.data) return; // เรียกไม่สำเร็จ — ไม่บอกว่า "ไม่มี" ทั้งที่อาจมี
+    const items = r.data.data;
     if (!items.length) {
       setToast(t('notify.none'));
+      queryClient.setQueryData(UNREAD, 0);
       return;
     }
-    const n = unread.data && unread.data > items.length ? unread.data : items.length;
+    const n = Math.max(unread.data ?? 0, items.length);
     setToast(t('notify.new', { n, list: items.map((x) => x.body).join(', ') }));
-    await api.POST('/v1/me/notifications/read-all').catch(() => undefined);
-    queryClient.setQueryData(UNREAD, 0);
+    // อ่านแล้วเฉพาะที่แสดงใน toast — ที่เหลือ (ยังไม่มีแผงรายการ) ยังขึ้นจุดให้กดดูต่อ
+    await Promise.all(
+      items.map((x) =>
+        api
+          .POST('/v1/me/notifications/{id}/read', { params: { path: { id: x.id } } })
+          .catch(() => undefined),
+      ),
+    );
+    await queryClient.invalidateQueries({ queryKey: UNREAD });
   }
 
   const has = (unread.data ?? 0) > 0;
@@ -84,7 +93,7 @@ export function Bell() {
             display: 'flex',
             alignItems: 'center',
             gap: 10,
-            maxWidth: 440,
+            maxWidth: 'min(440px, calc(100vw - 48px))',
           }}
         >
           <span
@@ -102,7 +111,17 @@ export function Bell() {
           >
             <Icon n="check" s={14} />
           </span>
-          <span>{toast}</span>
+          <span
+            style={{
+              display: '-webkit-box',
+              WebkitLineClamp: 4,
+              WebkitBoxOrient: 'vertical',
+              overflow: 'hidden',
+              overflowWrap: 'anywhere',
+            }}
+          >
+            {toast}
+          </span>
           <button
             type="button"
             aria-label={t('notify.close')}
