@@ -97,6 +97,13 @@ export class AuthGuard implements CanActivate {
         s.platformUser.status !== 'ACTIVE'
       )
         throw new ProblemException('unauthorized');
+      // ผู้ใช้ที่สวมต้องยังใช้งานอยู่ และใช้สิทธิ์ปัจจุบันของเขา (ไม่ใช่ที่ฝังไว้ตอนเริ่ม) — tenant ถูกระงับยังอ่านได้ (spec/01 §11.8)
+      const asUser = await this.prisma.platform.appUser.findFirst({
+        where: { id: claims.sub, tenantId: claims.tid, status: 'ACTIVE' },
+        select: { id: true },
+      });
+      if (!asUser) throw new ProblemException('unauthorized');
+      claims.scope = await this.auth.scopeOf(claims.tid, claims.sub);
       const method = req.method.toUpperCase();
       if (method !== 'GET' && method !== 'HEAD' && req.path !== END_IMPERSONATION_PATH) {
         // บันทึกความพยายามแก้ข้อมูล (spec/01 §11.9) แล้วปฏิเสธ

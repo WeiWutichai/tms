@@ -1,4 +1,5 @@
-import { Body, Controller, Get, HttpCode, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Patch, Post, Query, Req } from '@nestjs/common';
+import type { Request } from 'express';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -333,14 +334,20 @@ export class PlatformTenantsController {
   async impersonate(
     @Param('id') id: string,
     @Body() body: ImpersonateDto,
+    @Req() req: Request,
   ): Promise<ImpersonationStartDto> {
     const db = this.prisma.platform;
     const ctx = requestContext.require();
     const staff = await db.platformUser.findUniqueOrThrow({ where: { id: ctx.platformUser!.id } });
     const t = await this.tenant(id);
     if (t.status === 'CANCELLED') throw new ProblemException('invalid_state_transition');
-    const owners = await this.owners(t.id);
-    let asUserId = owners[0]?.id;
+    // owner ทุกคน (รวมที่ยังรับคำเชิญไม่เสร็จ) ต้องได้อีเมลแจ้งทุกครั้ง (docs/04 A6) — ไม่มี owner = ห้ามเข้า
+    const owners = await this.owners(t.id, ['ACTIVE', 'INVITED']);
+    if (!owners.length)
+      throw new ProblemException('validation_failed', undefined, [
+        { field: 'asUserId', code: 'no_owner', message: 'tenant has no owner to notify' },
+      ]);
+    let asUserId = owners.find((o) => o.status === 'ACTIVE')?.id;
     if (body.asUserId) {
       const uid = tryDecodeId('user', body.asUserId);
       const u = uid
@@ -376,7 +383,7 @@ export class PlatformTenantsController {
           ticketRef: body.ticketRef ?? null,
           expiresAt,
           ip: ctx.ip ?? null,
-          userAgent: null,
+          userAgent: req.header('user-agent')?.slice(0, 500) ?? null,
         },
       });
       await this.audit(
@@ -421,7 +428,7 @@ export class PlatformTenantsController {
     const scope = await this.auth.scopeOf(t.id, asUserId);
     const accessToken = await signAccessToken(
       { sub: asUserId, tid: t.id, scope, pt: 'imp', act: staff.id, sid: session.id },
-      Math.floor(expiresAt.getTime() / 1000),
+      IMPERSONATION_MINUTES * 60, // อายุนับจากตอนนี้ (ตรงกับ session)
     );
     return {
       sessionId: session.id,
@@ -469,13 +476,13 @@ export class PlatformTenantsController {
     return t;
   }
 
-  private async owners(tenantId: string) {
+  private async owners(tenantId: string, statuses: ('ACTIVE' | 'INVITED')[] = ['ACTIVE']) {
     const db = this.prisma.platform;
     const role = await db.role.findFirst({ where: { tenantId, code: 'owner' } });
     if (!role) return [];
     const links = await db.userRole.findMany({ where: { tenantId, roleId: role.id } });
     return db.appUser.findMany({
-      where: { tenantId, id: { in: links.map((l) => l.userId) }, status: 'ACTIVE' },
+      where: { tenantId, id: { in: links.map((l) => l.userId) }, status: { in: statuses } },
       orderBy: { createdAt: 'asc' },
     });
   }

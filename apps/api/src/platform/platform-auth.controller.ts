@@ -68,9 +68,11 @@ export class PlatformAuthController {
       await verifyPassword(await dummyHash(), body.password); // เวลาตอบเท่ากัน
       throw new ProblemException('invalid_credentials');
     }
-    if (u.lockedUntil && u.lockedUntil > new Date()) throw new ProblemException('account_locked');
     const ok = await verifyPassword(u.passwordHash, body.password);
-    if (!ok || u.status !== 'ACTIVE') {
+    // บอกว่าถูกล็อกเฉพาะเมื่อรหัสถูก — ไม่ให้ใช้การล็อกแยกอีเมลที่มีจริงออกจากที่ไม่มี
+    if (ok && u.lockedUntil && u.lockedUntil > new Date())
+      throw new ProblemException('account_locked');
+    if (!ok || u.status !== 'ACTIVE' || (u.lockedUntil && u.lockedUntil > new Date())) {
       await this.fail(u.id);
       throw new ProblemException('invalid_credentials');
     }
@@ -132,10 +134,17 @@ export class PlatformAuthController {
   @ApiBearerAuth()
   async logout(): Promise<void> {
     const id = requestContext.require().platformUser!.id;
-    await this.prisma.platform.platformUser.update({
-      where: { id },
-      data: { tokenVersion: { increment: 1 } },
-    });
+    await this.prisma.platform.$transaction([
+      this.prisma.platform.platformUser.update({
+        where: { id },
+        data: { tokenVersion: { increment: 1 } },
+      }),
+      // การเข้าใช้งานแทนที่คนนี้เปิดไว้จบด้วย (ไม่ค้างถึง 60 นาที)
+      this.prisma.platform.impersonationSession.updateMany({
+        where: { platformUserId: id, endedAt: null },
+        data: { endedAt: new Date(), endReason: 'revoked' },
+      }),
+    ]);
   }
 
   private async fail(id: string) {

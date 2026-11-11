@@ -324,4 +324,50 @@ describe('platform console (ST1-T24)', () => {
       .set('Authorization', `Bearer ${await tokenFor(t.id, '*', owner.id)}`)
       .expect(404);
   });
+
+  it('เข้าใช้งานแทน (review): JWT หมดอายุพร้อม session, ไม่ได้ URL อัปโหลด, ผู้ใช้ที่สวมถูกปิด/ทีมงาน logout → ใช้ไม่ได้', async () => {
+    const t = await createTenantWithDefaults(db, { name: 'รีวิว', status: 'ACTIVE' });
+    const roles = await ensureSystemRoles(db, t.id);
+    const owner = await db.appUser.create({
+      data: { tenantId: t.id, email: 'o@review.test', name: 'o', status: 'ACTIVE' },
+    });
+    await db.userRole.create({ data: { tenantId: t.id, userId: owner.id, roleId: roles.owner! } });
+    const id = encodeId('tenant', t.id);
+    const supportToken = await signIn('SUPPORT');
+    const sp = as(supportToken);
+    const start = async () =>
+      (
+        await sp
+          .post(`/v1/platform/tenants/${id}/impersonate`, { reason: 'ตรวจสอบปัญหาของลูกค้า' })
+          .expect(200)
+      ).body;
+    const r = await start();
+    const exp = JSON.parse(Buffer.from(r.accessToken.split('.')[1], 'base64url').toString()).exp;
+    expect(exp * 1000).toBeLessThanOrEqual(new Date(r.expiresAt).getTime() + 2000);
+    // เอกสาร PENDING ของผู้ใช้ที่สวม → ไม่ได้ uploadUrl (PUT เป็น public — ข้ามด่าน read-only)
+    const doc = await db.storedDocument.create({
+      data: {
+        tenantId: t.id,
+        status: 'PENDING',
+        kind: 'OTHER',
+        mimeType: 'application/pdf',
+        sizeBytes: 10,
+        createdBy: owner.id,
+      },
+    });
+    const g = await http()
+      .get(`/v1/documents/${encodeId('document', doc.id)}`)
+      .set('Authorization', `Bearer ${r.accessToken}`)
+      .expect(200);
+    expect(g.body.uploadUrl).toBeUndefined();
+    // ผู้ใช้ที่สวมถูกปิด → token ใช้ไม่ได้ทันที
+    await db.appUser.update({ where: { id: owner.id }, data: { status: 'DISABLED' } });
+    await http().get('/v1/me').set('Authorization', `Bearer ${r.accessToken}`).expect(401);
+    await db.appUser.update({ where: { id: owner.id }, data: { status: 'ACTIVE' } });
+    // ทีมงาน logout → session ที่เปิดไว้จบ
+    const r2 = await start();
+    await http().get('/v1/me').set('Authorization', `Bearer ${r2.accessToken}`).expect(200);
+    await sp.post('/v1/platform/auth/logout').expect(204);
+    await http().get('/v1/me').set('Authorization', `Bearer ${r2.accessToken}`).expect(401);
+  });
 });
