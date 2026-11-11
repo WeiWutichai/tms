@@ -1,4 +1,4 @@
-import { useEffect, useId, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { Icon } from './Icon';
 import { tone as toneColors, type Tone } from './tokens';
 
@@ -11,6 +11,24 @@ import { tone as toneColors, type Tone } from './tokens';
  * - ReasonDialog: กล่องยืนยันพร้อมเหตุผล (ต้นแบบ CN — ทุกการปิดใช้/ลบต้องมีเหตุผล)
  * - Toast: แจ้งผลมุมขวาล่าง (ต้นแบบ toast())
  */
+
+/** ref ของ callback ล่าสุด — ให้ effect ไม่ผูกกับ callback ที่สร้างใหม่ทุก render (กัน state รีเซ็ตเอง) */
+function useLatest<T>(v: T) {
+  const r = useRef(v);
+  r.current = v;
+  return r;
+}
+
+/** ปิดด้วย Esc ขณะเปิดอยู่ */
+function useEscape(open: boolean, onClose: () => void) {
+  const cb = useLatest(onClose);
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && cb.current();
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, cb]);
+}
 
 export interface SummaryItem {
   value: ReactNode;
@@ -62,12 +80,7 @@ export function FormDrawer({
   children: ReactNode;
   onSubmit?: () => void;
 }) {
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
+  useEscape(open, onClose);
   if (!open) return null;
   return (
     <div className="tms-fdrawer__scrim" onClick={onClose}>
@@ -284,13 +297,11 @@ export function ReasonDialog({
 }) {
   const [reason, setReason] = useState('');
   const id = useId();
+  // ล้างเหตุผลเฉพาะตอนเปิดใหม่ (ไม่ผูกกับ onClose ที่ parent สร้างใหม่ทุก render)
   useEffect(() => {
-    if (!open) return;
-    setReason('');
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
+    if (open) setReason('');
+  }, [open]);
+  useEscape(open, onClose);
   if (!open) return null;
   const ok = reason.trim().length >= minLength && !busy;
   return (
@@ -365,11 +376,12 @@ export function Toast({
   onClose: () => void;
   closeLabel: string;
 }) {
+  const cb = useLatest(onClose);
   useEffect(() => {
     if (!message) return;
-    const h = setTimeout(onClose, 3600);
+    const h = setTimeout(() => cb.current(), 3600);
     return () => clearTimeout(h);
-  }, [message, onClose]);
+  }, [message, cb]);
   if (!message) return null;
   return (
     <div role="status" className="tms-toast">
