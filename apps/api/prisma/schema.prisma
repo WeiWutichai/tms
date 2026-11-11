@@ -382,6 +382,7 @@ model Customer {
   createdAt               DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt               DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   sites                   CustomerSite[]
+  products                Product[]
 
   @@unique([tenantId, code])
   @@unique([tenantId, externalId])
@@ -575,6 +576,89 @@ model VehicleType {
   @@unique([tenantId, systemKey])
   @@index([tenantId, updatedAt, id])
   @@map("vehicle_type")
+}
+
+/// หน่วยนับ (ST2-T10; docs/04 B สินค้า/หน่วย, spec/02 §3 Unit) — master ต่อ tenant
+/// kind COUNT (ชิ้น ถุง พาเลท …) / WEIGHT (to_kg บังคับ) / VOLUME (to_cbm บังคับ)
+/// ชุดเริ่มต้นของระบบ (`system_key`) ลบไม่ได้ แก้รหัส/ชนิด/ตัวแปลงไม่ได้ — ปิดใช้ได้ (spec/02 §3)
+model Unit {
+  id        String       @id @default(uuid()) @db.Uuid
+  tenantId  String       @map("tenant_id") @db.Uuid
+  code      String /// PCS / BAG / PLT / TON … — เก็บตัวใหญ่, unique ไม่สนตัวพิมพ์
+  nameTh    String       @map("name_th") /// ชื่อที่ผู้ใช้เห็น (ถุง พาเลท ตัน …) — ห้ามซ้ำ (ไม่สนตัวพิมพ์, ไม่นับที่ลบ)
+  kind      String /// COUNT / WEIGHT / VOLUME
+  toKg      Decimal?     @map("to_kg") @db.Decimal(14, 6) /// WEIGHT: 1 หน่วย = ? กก. (ตัน = 1000)
+  toCbm     Decimal?     @map("to_cbm") @db.Decimal(14, 6) /// VOLUME: 1 หน่วย = ? ลบ.ม. (ลิตร = 0.001)
+  systemKey String?      @map("system_key") /// th.pcs … — แถวค่าเริ่มต้นของระบบ
+  status    ActiveStatus @default(ACTIVE)
+  deletedAt DateTime?    @map("deleted_at") @db.Timestamptz(6)
+  version   Int          @default(1)
+  createdAt DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  products Product[]
+  altUnits ProductAltUnit[]
+
+  @@unique([tenantId, code])
+  @@unique([tenantId, systemKey])
+  @@index([tenantId, updatedAt, id])
+  @@map("unit")
+}
+
+/// สินค้า (ST2-T10; docs/04 B สินค้า/หน่วย, spec/02 §3 Product) — ใช้คำนวณ load และ compatibility (ST2-T16)
+/// น้ำหนัก/ปริมาตรต่อ "หน่วยหลัก"; อุณหภูมิเทียบกับ vehicle_type.temp_min_c/temp_max_c (MD-072), อันตรายเทียบป้าย HAZMAT (MD-071)
+model Product {
+  id                String       @id @default(uuid()) @db.Uuid
+  tenantId          String       @map("tenant_id") @db.Uuid
+  code              String /// P-0001 หรือรหัสสินค้าของลูกค้า (MD-002) — เก็บตัวใหญ่, unique ไม่สนตัวพิมพ์
+  nameTh            String       @map("name_th")
+  customerId        String?      @map("customer_id") @db.Uuid /// null = สินค้าใช้ได้ทุกลูกค้า
+  customer          Customer?    @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  baseUnitId        String       @map("base_unit_id") @db.Uuid
+  baseUnit          Unit         @relation(fields: [baseUnitId], references: [id], onDelete: Restrict)
+  weightPerUnitKg   Decimal?     @map("weight_per_unit_kg") @db.Decimal(12, 3) /// บังคับเมื่อหน่วยเป็น COUNT
+  volumePerUnitCbm  Decimal?     @map("volume_per_unit_cbm") @db.Decimal(12, 4)
+  fragile           Boolean      @default(false)
+  hazardous         Boolean      @default(false)
+  unNumber          String?      @map("un_number") /// 4 หลัก (บังคับเมื่อ hazardous)
+  hazardClass       String?      @map("hazard_class") /// 1–9 (+ division เช่น 2.1)
+  tempControlled    Boolean      @default(false) @map("temp_controlled")
+  tempMinC          Decimal?     @map("temp_min_c") @db.Decimal(4, 1) /// บังคับเมื่อ temp_controlled, −40…+30, min < max
+  tempMaxC          Decimal?     @map("temp_max_c") @db.Decimal(4, 1)
+  stackable         Boolean      @default(true)
+  barcode           String?
+  externalId        String?      @map("external_id")
+  deletedExternalId String?      @map("deleted_external_id")
+  status            ActiveStatus @default(ACTIVE)
+  deletedAt         DateTime?    @map("deleted_at") @db.Timestamptz(6)
+  version           Int          @default(1)
+  createdAt         DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  altUnits ProductAltUnit[]
+
+  @@unique([tenantId, code])
+  @@unique([tenantId, externalId])
+  @@index([tenantId, customerId])
+  @@index([tenantId, baseUnitId])
+  @@index([tenantId, updatedAt, id])
+  @@map("product")
+}
+
+/// หน่วยแปลงของสินค้า (spec/02 §3 altUnits: 1 พาเลท = 40 ถุง → factor_to_base 40)
+model ProductAltUnit {
+  id           String   @id @default(uuid()) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  productId    String   @map("product_id") @db.Uuid
+  product      Product  @relation(fields: [productId], references: [id], onDelete: Restrict)
+  unitId       String   @map("unit_id") @db.Uuid
+  unit         Unit     @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  factorToBase Decimal  @map("factor_to_base") @db.Decimal(14, 6)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([productId, unitId])
+  @@index([tenantId, unitId])
+  @@map("product_alt_unit")
 }
 
 /// ค่าเริ่มต้นของ tenant ที่ bootstrap จัดการแล้ว 1 แถวต่อรายการ (ST2-T04) — กันใส่ซ้ำ/ใส่ภายหลัง

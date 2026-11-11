@@ -42,7 +42,7 @@ test.describe.serial('ข้อมูลหลัก → ประเภทร�
     await d.getByRole('button', { name: 'เพิ่มประเภทรถ' }).click();
     await expect(page.getByRole('status')).toContainText(`เพิ่ม ${NAME} แล้ว`);
     const drawer = page.getByRole('dialog');
-    await expect(drawer.getByText('-2 ถึง 2 °C')).toBeVisible();
+    await expect(drawer.getByText('−2 ถึง 2 °C')).toBeVisible();
     await expect(drawer.getByText('12,000 กก.', { exact: true })).toBeVisible();
     await page.keyboard.press('Escape');
 

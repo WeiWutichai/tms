@@ -12,6 +12,7 @@ import {
   emitMasterEvent,
   isNoopUpdate,
   likeEscape,
+  lockForRemoval,
   lockKey,
   masterKeyset,
   nextCode,
@@ -402,6 +403,7 @@ export class CustomersService {
     const current = await this.get(id);
     if (expected !== undefined && expected !== current.version)
       throw new ProblemException('precondition_failed');
+    await lockForRemoval(tx, 'customer', id); // กันสร้างสถานที่/สินค้าที่อ้างลูกค้าระหว่างลบ (lockReferenced)
     await assertNotReferenced([
       { name: 'salesOrders', count: () => tx.salesOrder.count({ where: { customerId: id } }) },
       {
@@ -412,6 +414,11 @@ export class CustomersService {
       {
         name: 'sites',
         count: () => tx.customerSite.count({ where: { customerId: id, deletedAt: null } }),
+      },
+      // ST2-T10: สินค้าของลูกค้ารายนี้ (ไม่นับที่ลบ)
+      {
+        name: 'products',
+        count: () => tx.product.count({ where: { customerId: id, deletedAt: null } }),
       },
     ]);
     // ปล่อย externalId ให้ระบบต้นทางส่งรายการใหม่ได้ — เก็บค่าเดิมไว้ใน deleted_external_id (ตรวจย้อนได้)

@@ -830,7 +830,15 @@ button:focus-visible {
 .tms-table td.tms-act {
   padding: 0 12px 0 0;
   text-align: right;
-  position: relative;
+  /* คอลัมน์ ⋯ ติดขอบขวาเสมอ — ข้อความยาวทำตารางกว้างเกินจอแล้วเมนูไม่หลุดจอ (review ST2-T10 #10) */
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  background: inherit;
+}
+.tms-table th.tms-act {
+  right: 0;
+  z-index: 4;
 }
 .tms-rowmenu-btn {
   width: 32px;

@@ -2,6 +2,7 @@ import type { Prisma, PrismaClient, TenantStatus } from '@prisma/client';
 import { ensureSystemRoles } from '../../auth/system-roles';
 import { ensureDefaultSeries } from '../sequences/sequences.service';
 import { SETTINGS, type SettingKey } from '../settings/registry';
+import { ensureDefaultUnits } from '../products/unit-defaults';
 import { ensureDefaultVehicleTypes } from '../vehicle-types/defaults';
 
 type Db = PrismaClient | Prisma.TransactionClient;
@@ -51,6 +52,8 @@ const STEPS: readonly BootstrapStep[] = [
   },
   // ST2-T04: ประเภทรถภาษาไทย 6 แบบ (spec/02 §4) — จำแถวด้วย system_key ไม่สร้างซ้ำ/ไม่ทับที่ผู้ใช้แก้
   { name: 'vehicle-types', run: (db, t) => ensureDefaultVehicleTypes(db, t) },
+  // ST2-T10: หน่วยนับ 9 หน่วย (spec/02 §3) — ลบไม่ได้ ปิดใช้ได้
+  { name: 'units', run: (db, t) => ensureDefaultUnits(db, t) },
 ];
 
 export function bootstrapSteps(): readonly BootstrapStep[] {

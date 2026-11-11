@@ -2,6 +2,7 @@ import { Badge, Drawer } from '@tms/ui';
 import { useState, type ReactNode } from 'react';
 import { useI18n, type T } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
+import { signedNum } from '../master/format';
 import { HistoryTab } from '../master/HistoryTab';
 import type { VehicleType } from './useVehicleTypes';
 
@@ -113,7 +114,10 @@ export function VehicleTypeDrawer({
               <Kv k={t('vt.f.class')} v={t(`vt.vc.${v.vehicleClass}` as MessageKey)} />
               <Kv k={t('vt.f.tags')} v={tagsText(t, v) || '—'} />
               {v.tempMinC !== null && v.tempMaxC !== null && (
-                <Kv k={t('vt.f.temp')} v={t('vt.temp', { a: v.tempMinC, b: v.tempMaxC })} />
+                <Kv
+                  k={t('vt.f.temp')}
+                  v={t('vt.temp', { a: signedNum(v.tempMinC), b: signedNum(v.tempMaxC) })}
+                />
               )}
               <Kv k={t('vt.f.ext')} v={v.externalId ?? '—'} />
             </div>

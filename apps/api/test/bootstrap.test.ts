@@ -81,6 +81,7 @@ describe('tenant bootstrap', () => {
       'document-series',
       'tax-billing-defaults',
       'vehicle-types',
+      'units',
     ]);
   });
   it('สคริปต์ tenants:bootstrap บนฐาน tms_test: tenant เดิม 2 รายได้ค่าเริ่มต้น + audit/event, รันซ้ำไม่เปลี่ยน', async () => {
@@ -95,7 +96,16 @@ describe('tenant bootstrap', () => {
     expect(run()).toMatch(/tenant OK \([^:]+:\d+\/tms_test\)/);
     for (const t of [a, b]) {
       expect(await db.vehicleType.count({ where: { tenantId: t } })).toBe(6);
-      expect(await db.tenantDefault.count({ where: { tenantId: t, outcome: 'INSERTED' } })).toBe(6);
+      expect(
+        await db.tenantDefault.count({
+          where: { tenantId: t, outcome: 'INSERTED', key: { startsWith: 'vehicle_type:' } },
+        }),
+      ).toBe(6);
+      // ST2-T10: หน่วยนับ 9 หน่วย (ระบบ) + audit
+      expect(await db.unit.count({ where: { tenantId: t, systemKey: { not: null } } })).toBe(9);
+      expect(
+        await db.auditLog.count({ where: { tenantId: t, action: 'unit.created', actorId: null } }),
+      ).toBe(9);
       expect(
         await db.auditLog.count({
           where: { tenantId: t, action: 'vehicle_type.created', actorId: null },

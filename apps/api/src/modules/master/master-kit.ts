@@ -304,6 +304,8 @@ const CODE_TABLES = [
   'service_item',
   'driver',
   'route',
+  'unit',
+  'product',
 ] as const;
 export type CodeTable = (typeof CODE_TABLES)[number];
 
