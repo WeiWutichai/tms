@@ -1042,6 +1042,42 @@
         ]
       }
     },
+    "/v1/setup-checklist/reviewed": {
+      "post": {
+        "operationId": "SetupChecklist_reviewed",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviewStepDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetupChecklistDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform"
+        ]
+      }
+    },
     "/v1/setup-checklist/connector-skip": {
       "post": {
         "operationId": "SetupChecklist_skipConnector",
@@ -3554,6 +3590,22 @@
           "total",
           "completed",
           "hidden"
+        ]
+      },
+      "ReviewStepDto": {
+        "type": "object",
+        "properties": {
+          "step": {
+            "type": "string",
+            "enum": [
+              "org",
+              "tax",
+              "numbering"
+            ]
+          }
+        },
+        "required": [
+          "step"
         ]
       },
       "SkipConnectorDto": {

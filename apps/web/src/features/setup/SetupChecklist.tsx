@@ -1,11 +1,19 @@
 import { useQuery } from '@tanstack/react-query';
 import { Icon } from '@tms/ui';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api, queryClient } from '../../api';
+import { api, queryClient, unwrap } from '../../api';
+import { can } from '../../nav';
 import { useI18n } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
 
 const KEY = ['setup-checklist'] as const;
+
+/** ยืนยันค่าเริ่มต้นของขั้น (เรียกจากหน้าตั้งค่า) — ครั้งต่อไปที่เปิดหน้าภาพรวมได้สถานะใหม่ */
+export async function markReviewed(step: 'org' | 'tax' | 'numbering') {
+  const r = await api.POST('/v1/setup-checklist/reviewed', { body: { step } }).catch(() => null);
+  if (r?.data) queryClient.setQueryData(KEY, r.data);
+}
 
 /** ปลายทางของแต่ละขั้น — import/connector ยังไม่มีหน้า (ST2-T23 / ST7) [OPEN spec/12 §3] */
 const GO: Record<string, string | null> = {
@@ -26,8 +34,21 @@ const GO: Record<string, string | null> = {
 export function SetupChecklist() {
   const { t } = useI18n();
   const nav = useNavigate();
+  const [toast, setToast] = useState<string | null>(null);
+  useEffect(() => {
+    if (!toast) return;
+    const h = setTimeout(() => setToast(null), 3600);
+    return () => clearTimeout(h);
+  }, [toast]);
+  // เฉพาะผู้ตั้งค่าบริษัท (settings:write) — คนอื่นไม่เรียก API เลย (ไม่ยิง 403 ทุกครั้งที่เปิดหน้า)
+  const me = useQuery({
+    queryKey: ['me'],
+    queryFn: () => unwrap(api.GET('/v1/me')),
+  });
+  const allowed = can(me.data?.scopes ?? [], 'settings:write');
   const q = useQuery({
     queryKey: KEY,
+    enabled: allowed,
     queryFn: async () => (await api.GET('/v1/setup-checklist')).data ?? null,
     staleTime: 0,
     refetchOnMount: 'always',
@@ -35,6 +56,8 @@ export function SetupChecklist() {
     retry: false,
   });
   const c = q.data;
+  // ต้นแบบ: กดซ่อนแล้วมี toast — ส่วน "เปิดอีกครั้งได้ที่ …" ยังไม่มีหน้า [OPEN spec/12 §3]
+  if (toast) return <Toast text={toast} onClose={() => setToast(null)} />;
   if (!c || c.completed || c.hidden) return null;
   const pct = `${Math.round((c.done / c.total) * 100)}%`;
   return (
@@ -82,8 +105,11 @@ export function SetupChecklist() {
         <button
           type="button"
           onClick={async () => {
-            const r = await api.POST('/v1/setup-checklist/hide');
-            if (r.data) queryClient.setQueryData(KEY, r.data);
+            const r = await api.POST('/v1/setup-checklist/hide').catch(() => null);
+            if (r?.data) {
+              queryClient.setQueryData(KEY, r.data);
+              setToast(t('setup.hidden'));
+            } else setToast(t('problem.internal_error'));
           }}
           style={{
             border: 0,
@@ -115,6 +141,7 @@ export function SetupChecklist() {
               data-step={s.key}
               data-status={s.status}
               onClick={() => to && nav(to)}
+              aria-disabled={to ? undefined : true}
               className="tms-setup-step"
               style={{
                 display: 'flex',
@@ -132,7 +159,7 @@ export function SetupChecklist() {
             >
               {done ? (
                 <span
-                  aria-label={t('setup.done')}
+                  aria-hidden="true"
                   style={{
                     width: 24,
                     height: 24,
@@ -167,7 +194,13 @@ export function SetupChecklist() {
                 </span>
               )}
               <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-                <span style={{ fontWeight: 600 }}>{t(`setup.${s.key}` as MessageKey)}</span>
+                <span style={{ fontWeight: 600 }}>
+                  {t(`setup.${s.key}` as MessageKey)}
+                  <span className="tms-sr-only">
+                    {' · '}
+                    {done ? t('setup.done') : t('setup.todo')}
+                  </span>
+                </span>
                 <span style={{ fontSize: 12.5, color: '#59606B' }}>
                   {t(`setup.${s.key}.d` as MessageKey)}
                 </span>
@@ -177,5 +210,66 @@ export function SetupChecklist() {
         })}
       </div>
     </section>
+  );
+}
+
+/** toast มาตรฐานของต้นแบบ (มุมขวาล่าง) */
+function Toast({ text, onClose }: { text: string; onClose: () => void }) {
+  const { t } = useI18n();
+  return (
+    <div
+      role="status"
+      style={{
+        position: 'fixed',
+        right: 24,
+        bottom: 24,
+        zIndex: 80,
+        background: '#FFFFFF',
+        border: '1px solid #D9DCD4',
+        borderRadius: 14,
+        boxShadow: '0 12px 32px rgba(16,24,40,.16)',
+        padding: '12px 12px 12px 16px',
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+        maxWidth: 'min(440px, calc(100vw - 48px))',
+      }}
+    >
+      <span
+        style={{
+          width: 24,
+          height: 24,
+          borderRadius: 6,
+          background: '#17733F',
+          color: '#FFFFFF',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flexShrink: 0,
+        }}
+      >
+        <Icon n="check" s={14} />
+      </span>
+      <span>{text}</span>
+      <button
+        type="button"
+        aria-label={t('notify.close')}
+        onClick={onClose}
+        style={{
+          width: 28,
+          height: 28,
+          border: 0,
+          borderRadius: 999,
+          background: 'transparent',
+          color: '#3B424C',
+          cursor: 'pointer',
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <Icon n="x" s={16} />
+      </button>
+    </div>
   );
 }

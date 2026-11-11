@@ -1430,6 +1430,8 @@ model SetupChecklistState {
   connectorSkippedAt DateTime? @map("connector_skipped_at") @db.Timestamptz(6)
   completedAt        DateTime? @map("completed_at") @db.Timestamptz(6)
   hiddenFor          String[]  @default([]) @map("hidden_for") @db.Uuid
+  /// ขั้นที่ผู้ใช้ยืนยันค่าเริ่มต้นแล้ว (org / tax / numbering) — กดบันทึกโดยไม่เปลี่ยนค่า หรือเปิดหน้าเลขเอกสาร
+  reviewedSteps      String[]  @default([]) @map("reviewed_steps")
   updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@map("setup_checklist_state")

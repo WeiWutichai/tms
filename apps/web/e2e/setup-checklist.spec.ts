@@ -34,6 +34,7 @@ test('การ์ด setup checklist: เห็นความคืบหน�
   await page.goto('/');
   await card.getByRole('button', { name: 'ซ่อน' }).click();
   await expect(card).toHaveCount(0);
+  await expect(page.getByRole('status')).toHaveText('ซ่อนรายการตั้งค่าแล้ว');
   await page.reload();
   await expect(page.getByRole('heading', { name: 'ภาพรวม' })).toBeVisible();
   await expect(card).toHaveCount(0);

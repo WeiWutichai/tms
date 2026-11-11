@@ -84,11 +84,19 @@ describe('setup checklist (ST1-T21)', () => {
     await a.patch(`/v1/document-sequences/${seq.id}`).send({ prefix: 'NEW-SO-' }).expect(200);
     expect((await status()).map.numbering).toBe('done');
 
+    // บันทึกค่าเดิม (ค่าเริ่มต้น) ไม่เปลี่ยนอะไร → ยังไม่นับ; หน้าตั้งค่ายืนยันผ่าน /reviewed แทน
     await a
       .patch('/v1/settings')
       .send({ values: { 'tax.vatDefault': 'VAT_7' } })
       .expect(200);
+    expect((await status()).map.tax).toBe('todo');
+    await a.post('/v1/setup-checklist/reviewed').send({ step: 'branch' }).expect(422);
+    await a.post('/v1/setup-checklist/reviewed').send({ step: 'tax' }).expect(200);
+    await a.post('/v1/setup-checklist/reviewed').send({ step: 'tax' }).expect(200);
     expect((await status()).map.tax).toBe('done');
+    expect(
+      await db.auditLog.count({ where: { tenantId: tA, action: 'setup.step_reviewed' } }),
+    ).toBe(1);
 
     await db.customer.create({
       data: { tenantId: tA, code: 'C1', legalName: 'ลูกค้า', billingAddress: ADDR },
@@ -96,8 +104,11 @@ describe('setup checklist (ST1-T21)', () => {
     expect((await status()).map.import).toBe('done');
 
     await db.appUser.create({
-      data: { tenantId: tA, email: 'b@setup.test', name: 'b', status: 'INVITED' },
+      data: { tenantId: tA, email: 'b@setup.test', name: 'b', status: 'ACTIVE' },
     });
+    // หลายคนเปิดหน้าภาพรวมพร้อมกันตอนครบ → audit setup.completed ครั้งเดียว
+    const all = await Promise.all(Array.from({ length: 6 }, () => status()));
+    expect(all.every((x) => x.completed)).toBe(true);
     const s6 = await status();
     expect(s6.map.team).toBe('done');
     expect(s6).toMatchObject({ done: 6, completed: true });
@@ -128,6 +139,12 @@ describe('setup checklist (ST1-T21)', () => {
       .get('/v1/setup-checklist')
       .expect(403);
     const tB = (await createTenant(db, 'บี')).id;
+    // tenant ใหม่เปิดพร้อมกันหลายแท็บ (ยังไม่มีแถวสถานะ) → ทุก request ได้ 200
+    const tok = await tokenFor(tB, '*');
+    const par = await Promise.all(
+      Array.from({ length: 12 }, () => api(app, tok).get('/v1/setup-checklist')),
+    );
+    expect(par.map((r) => r.status)).toEqual(Array(12).fill(200));
     const b = (
       await api(app, await tokenFor(tB, '*'))
         .get('/v1/setup-checklist')
