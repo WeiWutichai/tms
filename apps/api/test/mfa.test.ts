@@ -7,7 +7,7 @@ import { ensureSystemRoles } from '../src/auth/system-roles';
 import { pkceChallenge } from '../src/auth/tokens';
 import { currentStep, hotp } from '../src/auth/totp';
 import { encodeId } from '../src/common/ids';
-import { api, bootApp, createTenant, loginFull, platform, truncateAll } from './helpers';
+import { api, bootApp, createTenant, freshOtp, loginFull, platform, truncateAll } from './helpers';
 
 /** ST1-T05 2FA TOTP + backup code + จำอุปกรณ์ + step-up; ST1-T12 เปลี่ยน role ต้อง step-up */
 describe('2FA', () => {
@@ -82,7 +82,7 @@ describe('2FA', () => {
     expect(bad.status).toBe(401);
     const ok = await request(srv())
       .post('/v1/auth/2fa/enroll/confirm')
-      .send({ mfaToken: res.body.mfaToken, otp: hotp(s.body.secret, currentStep()) })
+      .send({ mfaToken: res.body.mfaToken, otp: await freshOtp(s.body.secret) })
       .expect(200);
     expect(ok.body.backupCodes).toHaveLength(10);
     expect(new Set(ok.body.backupCodes).size).toBe(10);
@@ -94,7 +94,7 @@ describe('2FA', () => {
     // mfaToken ใช้ซ้ำไม่ได้
     const again = await request(srv())
       .post('/v1/auth/2fa/enroll/confirm')
-      .send({ mfaToken: res.body.mfaToken, otp: hotp(s.body.secret, currentStep() + 1) });
+      .send({ mfaToken: res.body.mfaToken, otp: await freshOtp(s.body.secret) });
     expect(again.status).toBe(401);
   });
 
@@ -103,7 +103,7 @@ describe('2FA', () => {
     const first = await loginFull(app, 'acc@mfa.test', PW, nextIp());
     const { res, v } = await start('acc@mfa.test');
     expect(res.body.code).toBe('mfa_required');
-    const otp = hotp(first.secret!, currentStep() + 1);
+    const otp = await freshOtp(first.secret!);
     const ok = await request(srv())
       .post('/v1/auth/2fa/verify')
       .send({ mfaToken: res.body.mfaToken, otp })
@@ -132,7 +132,7 @@ describe('2FA', () => {
       .send({ mfaToken: res.body.mfaToken });
     const done = await request(srv())
       .post('/v1/auth/2fa/enroll/confirm')
-      .send({ mfaToken: res.body.mfaToken, otp: hotp(s.body.secret, currentStep()) });
+      .send({ mfaToken: res.body.mfaToken, otp: await freshOtp(s.body.secret) });
     await exchange(done.body.code, v).expect(200);
     const bc = done.body.backupCodes[0] as string;
     const a = await start('admin@mfa.test');
@@ -158,7 +158,7 @@ describe('2FA', () => {
       .post('/v1/auth/2fa/verify')
       .send({
         mfaToken: res.body.mfaToken,
-        otp: hotp(first.secret!, currentStep() + 1),
+        otp: await freshOtp(first.secret!),
         rememberDevice: true,
       })
       .expect(200);
@@ -188,7 +188,7 @@ describe('2FA', () => {
     expect(bad.status).toBe(401);
     const su = await api(app, o.access)
       .post('/v1/auth/step-up')
-      .send({ otp: hotp(o.secret!, currentStep() + 1) })
+      .send({ otp: await freshOtp(o.secret!) })
       .expect(200);
     const done = await api(app, o.access)
       .put(url)
@@ -225,7 +225,7 @@ describe('2FA', () => {
     const o = await loginFull(app, 'solo@mfa.test', PW, nextIp());
     const su = await api(app, o.access)
       .post('/v1/auth/step-up')
-      .send({ otp: hotp(o.secret!, currentStep() + 1) })
+      .send({ otp: await freshOtp(o.secret!) })
       .expect(200);
     const res = await api(app, o.access)
       .put(`/v1/users/${encodeId('user', u.id)}/roles`)
@@ -268,7 +268,7 @@ describe('2FA', () => {
       expect(row!.attempts).toBeLessThanOrEqual(5);
       const ok = await request(srv())
         .post('/v1/auth/2fa/verify')
-        .send({ mfaToken: res.body.mfaToken, otp: hotp(first.secret!, currentStep() + 1) });
+        .send({ mfaToken: res.body.mfaToken, otp: await freshOtp(first.secret!) });
       expect(ok.status).toBe(401);
     });
 
@@ -333,7 +333,7 @@ describe('2FA', () => {
       expect(res.every((r) => r.status === 401 || r.status === 429)).toBe(true);
       // ทีละครั้งจนครบ 5 ครั้งผิด แล้วรหัสถูกก็ต้องถูกล็อก
       for (let i = 0; i < 5; i++) await stepUp(String(210000 + i));
-      const good = await stepUp(hotp(o.secret!, currentStep() + 1));
+      const good = await stepUp(await freshOtp(o.secret!));
       expect(good.status).toBe(429);
     });
 
@@ -358,7 +358,7 @@ describe('2FA', () => {
       const su = await api(app, a.access)
         .post('/v1/auth/step-up')
         .set('X-Forwarded-For', nextIp())
-        .send({ otp: hotp(a.secret!, currentStep() + 1) })
+        .send({ otp: await freshOtp(a.secret!) })
         .expect(200);
       const url = `/v1/users/${encodeId('user', target.id)}/roles`;
       const grant = await api(app, a.access)

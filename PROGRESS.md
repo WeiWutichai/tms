@@ -156,6 +156,7 @@
 - ทำ ST2-T11 บน branch `st2/t11-service-items` (ดูแถว T11 ในตารางงาน ST2) — migration `0050_service_item`, โมดูล `apps/api/src/modules/service-items/` (DTO, service, controller, `snapshot.ts`, `defaults.ts`), กฎคู่ VAT × หัก ณ ที่จ่ายใน `packages/domain/src/tax.ts`, web `apps/web/src/features/service-items/`, เมนู `/master/accessorials`
 - ธงภาษีของค่าน้ำมัน/ทางด่วน/ค่ารอ/ค้างคืน/จุดเพิ่ม ยังรอนักบัญชี (ข้อ 2 / ACC-3) → ใช้ค่าตั้งต้นตาม ACC-3 (ค่าขนส่ง ยกเว้น VAT หัก 1%) แก้ได้ต่อบริษัท — คำถามค้าง #33, spec/12 §3
 - แก้ร่วม: `test/schema-v0.test.ts` (service_item ต้องมี `calc_unit`), `HistoryPath`/`ExportPath` ของเว็บ, bootstrap ขั้นใหม่ `service-items`
+- แก้ test 2FA flaky (commit แยก): `test/mfa.test.ts` + `loginFull` เคยคำนวณรหัส TOTP จากนาฬิกาจริงด้วย `currentStep()` / `currentStep() + 1` — ขึ้นกับว่าคำขอข้ามขอบ time-step 30 วินาทีหรือไม่ และ step ที่ผู้ใช้เดิมใช้ไปแล้ว (server ไม่รับ step ≤ ล่าสุด) · เปลี่ยนเป็น `freshOtp(secret)` ใน `test/helpers.ts`: ไม่ออกรหัสใน 3 วินาทีสุดท้ายของ step, จำ step ที่ใช้ต่อ secret แล้วออก step ถัดไปเสมอ (≤ step ปัจจุบัน + 1) — ทำซ้ำความล้มเหลวเดิมไม่ได้ในเครื่อง (รันเดี่ยว 3 รอบใต้ CPU load + ทั้งชุด) จึงแก้ที่ต้นเหตุด้านเวลาที่ test พึ่งพา · หลังแก้ API ทั้งชุด 3 รอบติด 51 ไฟล์ 451 ผ่านทุกรอบ
 - ทดสอบ: `cd apps/api && npx vitest run` ทั้งชุด 51 ไฟล์ 451 ผ่าน (service-items 8), `pnpm e2e` ทั้งชุด 58 ผ่าน (service-items 2), domain tax test 6 ผ่าน, `pnpm lint`, `pnpm typecheck`
 
 ### 12 พ.ย. 2569 (ST2-T10 สินค้า / หน่วย)

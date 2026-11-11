@@ -59,6 +59,30 @@ export function api(app: NestExpressApplication, token?: string) {
 }
 
 /**
+ * รหัส TOTP ที่ server รับแน่นอนโดยไม่ขึ้นกับจังหวะนาฬิกา (กัน test 2FA flaky — ST2-T11 fix):
+ * - ไม่ออกรหัสในช่วง 3 วินาทีสุดท้ายของ time-step (รอข้ามขอบก่อน) → server ซึ่งอ่านนาฬิกาเครื่องเดียวกันอยู่ step เดียวกัน
+ * - จำ step ที่ใช้ไปแล้วต่อ secret แล้วออก step ถัดไปเสมอ (server ไม่รับ step ≤ ที่ใช้ล่าสุด — กันใช้รหัสซ้ำ)
+ *   แต่ไม่เกิน step ปัจจุบัน + 1 (หน้าต่างที่ server ยอม) — เกินแล้วรอ step ถัดไป
+ * ใช้แทน `hotp(secret, currentStep())` / `currentStep() + 1` ที่ขึ้นกับเวลาและลำดับ test
+ */
+const usedTotpStep = new Map<string, number>();
+export async function freshOtp(secret: string): Promise<string> {
+  const { hotp, currentStep, TOTP_PERIOD } = await import('../src/auth/totp');
+  const period = TOTP_PERIOD * 1000;
+  for (;;) {
+    const now = Date.now();
+    const step = currentStep(now);
+    const msLeft = period - (now % period);
+    const next = Math.max(step, (usedTotpStep.get(secret) ?? -Infinity) + 1);
+    if (msLeft > 3000 && next <= step + 1) {
+      usedTotpStep.set(secret, next);
+      return hotp(secret, next);
+    }
+    await new Promise((r) => setTimeout(r, Math.min(msLeft + 50, 1000)));
+  }
+}
+
+/**
  * login ผ่าน API จริง (PKCE) และจัดการ 2FA อัตโนมัติ (ST1-T05): role ที่บังคับ 2FA จะถูกตั้ง TOTP ให้ตอน login แรก
  * คืน access token + secret (ถ้าตั้งให้) เพื่อใช้ step-up ต่อ
  */
@@ -70,7 +94,6 @@ export async function loginFull(
   totp?: { secret?: string },
 ): Promise<{ access: string; cookie: string; secret?: string }> {
   const { pkceChallenge } = await import('../src/auth/tokens');
-  const { hotp, currentStep } = await import('../src/auth/totp');
   const { randomBytes } = await import('node:crypto');
   const v = randomBytes(32).toString('base64url');
   const srv = app.getHttpServer();
@@ -86,13 +109,13 @@ export async function loginFull(
     secret = s.body.secret as string;
     const c = await request(srv)
       .post('/v1/auth/2fa/enroll/confirm')
-      .send({ mfaToken: r1.body.mfaToken, otp: hotp(secret, currentStep()) });
+      .send({ mfaToken: r1.body.mfaToken, otp: await freshOtp(secret) });
     if (c.status !== 200) throw new Error(`enroll ${c.status} ${JSON.stringify(c.body)}`);
     code = c.body.code;
   } else if (r1.body.code === 'mfa_required' && secret) {
     const c = await request(srv)
       .post('/v1/auth/2fa/verify')
-      .send({ mfaToken: r1.body.mfaToken, otp: hotp(secret, currentStep() + 1) });
+      .send({ mfaToken: r1.body.mfaToken, otp: await freshOtp(secret) });
     if (c.status !== 200) throw new Error(`verify ${c.status} ${JSON.stringify(c.body)}`);
     code = c.body.code;
   } else throw new Error(`login ${r1.status} ${JSON.stringify(r1.body)}`);
