@@ -48,6 +48,8 @@ import { CustomersController } from './modules/customers/customers.controller';
 import { CustomersService } from './modules/customers/customers.service';
 import { SitesController } from './modules/sites/sites.controller';
 import { SitesService } from './modules/sites/sites.service';
+import { VehicleTypesController } from './modules/vehicle-types/vehicle-types.controller';
+import { VehicleTypesService } from './modules/vehicle-types/vehicle-types.service';
 import { GeoService } from './modules/geo/geo.service';
 import { CompaniesService } from './modules/companies/companies.service';
 import { HealthController } from './modules/health/health.controller';
@@ -87,6 +89,7 @@ import { StateService } from './state/state.service';
     JobsController,
     CustomersController,
     SitesController,
+    VehicleTypesController,
   ],
   providers: [
     PrismaService,
@@ -109,6 +112,7 @@ import { StateService } from './state/state.service';
     CompaniesService,
     CustomersService,
     SitesService,
+    VehicleTypesService,
     GeoService,
     AuditService,
     BranchesService,

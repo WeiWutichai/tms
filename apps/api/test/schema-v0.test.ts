@@ -12,7 +12,11 @@ describe('schema v0 constraints', () => {
   beforeAll(async () => {
     await truncateAll();
     t = (await createTenant(db)).id;
-    vt = (await db.vehicleType.create({ data: { tenantId: t, code: '6W', nameTh: '6 ล้อ' } })).id;
+    vt = (
+      await db.vehicleType.create({
+        data: { tenantId: t, code: '6W', nameTh: '6 ล้อ', vehicleClass: '6W' },
+      })
+    ).id;
   });
   afterAll(async () => {
     await db.$disconnect();

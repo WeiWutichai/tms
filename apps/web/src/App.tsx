@@ -8,6 +8,7 @@ import { canAny, featureOf, isLocked, NAV } from './nav';
 import { SettingsPage } from './features/settings/Settings';
 import { CustomersPage } from './features/customers/CustomersPage';
 import { SitesPage } from './features/sites/SitesPage';
+import { VehicleTypesPage } from './features/vehicle-types/VehicleTypesPage';
 import { Dashboard } from './pages/Dashboard';
 import { DesignSystem } from './pages/DesignSystem';
 import { ErrorBoundary, ErrorPage, LockedPage, NoAccess, NotFound, NotReady } from './pages/Simple';
@@ -37,6 +38,7 @@ function Guard({ perm, path, children }: { perm?: string[]; path?: string; child
 const READY: Record<string, () => ReactNode> = {
   '/master/customers': () => <CustomersPage />,
   '/master/locations': () => <SitesPage />,
+  '/master/vehicle-types': () => <VehicleTypesPage />,
 };
 
 function Inside() {

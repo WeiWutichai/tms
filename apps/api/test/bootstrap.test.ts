@@ -8,7 +8,7 @@ import {
 import { readSettings } from '../src/modules/settings/settings.service';
 import { platform, truncateAll } from './helpers';
 
-/** ST1-T20: สร้าง tenant ใหม่แล้วมีชุดเลขและค่าภาษี default ครบโดยไม่ต้องตั้ง */
+/** ST1-T20: สร้าง tenant ใหม่แล้วมีชุดเลขและค่าภาษี default ครบโดยไม่ต้องตั้ง (+ ประเภทรถ ST2-T04) */
 describe('tenant bootstrap', () => {
   const db = platform();
   beforeAll(() => truncateAll());
@@ -34,6 +34,9 @@ describe('tenant bootstrap', () => {
     );
     const v = await readSettings(db, t.id, ['tax.vatDefault', 'tax.invoiceModePolicy']);
     expect(v).toEqual({ 'tax.vatDefault': 'VAT_7', 'tax.invoiceModePolicy': 'PER_CUSTOMER' });
+    // ST2-T04: ประเภทรถภาษาไทยพร้อมใช้
+    const types = await db.vehicleType.findMany({ where: { tenantId: t.id } });
+    expect(types.map((x) => x.code).sort()).toEqual(['10W', '4W', '6W', 'REF6', 'TRC', 'TRL']);
   });
 
   it('รันซ้ำไม่ทับค่าที่ tenant แก้แล้ว', async () => {
@@ -73,6 +76,7 @@ describe('tenant bootstrap', () => {
       'system-roles',
       'document-series',
       'tax-billing-defaults',
+      'vehicle-types',
     ]);
   });
 });
