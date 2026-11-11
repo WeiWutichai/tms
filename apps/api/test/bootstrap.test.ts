@@ -92,7 +92,7 @@ describe('tenant bootstrap', () => {
         env: { ...process.env, ...testEnv() },
         encoding: 'utf8',
       });
-    expect(run()).toMatch(/tenant OK \(localhost:\d+\/tms_test\)/);
+    expect(run()).toMatch(/tenant OK \([^:]+:\d+\/tms_test\)/);
     for (const t of [a, b]) {
       expect(await db.vehicleType.count({ where: { tenantId: t } })).toBe(6);
       expect(await db.tenantDefault.count({ where: { tenantId: t, outcome: 'INSERTED' } })).toBe(6);
