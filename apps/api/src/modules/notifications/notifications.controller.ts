@@ -160,7 +160,8 @@ export class NotificationsController {
     // principal ที่ไม่ใช่ผู้ใช้ (client credentials/link/driver ในอนาคต) ไม่มีกล่องแจ้งเตือน — dev token ใช้ใน test
     if (ctx.principalType !== 'user' && ctx.principalType !== 'dev')
       throw new ProblemException('not_found');
-    if (!actor || !/^[0-9a-f-]{36}$/i.test(actor)) throw new ProblemException('not_found');
+    if (!actor || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(actor))
+      throw new ProblemException('not_found');
     return actor;
   }
 }
@@ -183,7 +184,11 @@ function decodeCursor(c: string): { at: Date; id: string } {
   try {
     const v = JSON.parse(Buffer.from(c, 'base64url').toString('utf8')) as { a: string; i: string };
     const at = new Date(v.a);
-    if (Number.isNaN(at.getTime()) || !/^[0-9a-f-]{36}$/i.test(String(v.i))) throw new Error();
+    if (
+      Number.isNaN(at.getTime()) ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(v.i))
+    )
+      throw new Error();
     return { at, id: v.i };
   } catch {
     throw new ProblemException('validation_failed', undefined, [

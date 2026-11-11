@@ -80,7 +80,10 @@ test.describe.serial('สถานที่ → geocode (ST2-T03)', () => {
   test('drawer "รอยืนยันพิกัด" → ยืนยันพิกัด → ปักหมุดแล้ว', async ({ page }) => {
     const name = await siteWithProposal(page, `จุดรอยืนยัน ${RUN}`);
     await page.goto('/master/locations');
-    const row = page.getByRole('row', { name: new RegExp(name) });
+    // ตารางแบ่งหน้า 10 แถวเรียงตามรหัส — ฐาน E2E สะสมสถานที่ข้ามรอบ แถวใหม่อาจไปหน้า 2 → ค้นด้วยชื่อก่อน (flaky เดิม)
+    await page.getByRole('columnheader').getByPlaceholder('ค้นหา').first().fill(name);
+    // tbody: แถวหัวตารางมีช่องค้นหาที่พิมพ์ชื่อไว้ (ตรงกับ name ของ role row ด้วย)
+    const row = page.locator('tbody tr', { hasText: name });
     await expect(row).toContainText('รอยืนยันพิกัด');
     await row.click();
     const drawer = page.getByRole('dialog');
@@ -101,7 +104,8 @@ test.describe.serial('สถานที่ → geocode (ST2-T03)', () => {
   test('ไม่ใช่ตำแหน่งนี้ (เหตุผล ≥ 10) → หาพิกัดไม่พบ + ตัวกรองคอลัมน์พิกัด', async ({ page }) => {
     const name = await siteWithProposal(page, `จุดพิกัดผิด ${RUN}`);
     await page.goto('/master/locations');
-    await page.getByRole('row', { name: new RegExp(name) }).click();
+    await page.getByRole('columnheader').getByPlaceholder('ค้นหา').first().fill(name);
+    await page.locator('tbody tr', { hasText: name }).click();
     const drawer = page.getByRole('dialog');
     await drawer
       .getByTestId('geo-review')
@@ -121,10 +125,10 @@ test.describe.serial('สถานที่ → geocode (ST2-T03)', () => {
     ).toBeVisible();
     await page.keyboard.press('Escape');
     await page.getByRole('columnheader').getByLabel('พิกัด').selectOption('FAILED');
-    await expect(page.getByRole('row', { name: new RegExp(name) })).toContainText('หาพิกัดไม่พบ');
-    await expect(page.getByRole('row', { name: new RegExp(`จุดรอยืนยัน ${RUN}`) })).toHaveCount(0);
+    await expect(page.locator('tbody tr', { hasText: name })).toContainText('หาพิกัดไม่พบ');
+    await expect(page.locator('tbody tr', { hasText: `จุดรอยืนยัน ${RUN}` })).toHaveCount(0);
     // ลองหาพิกัดอีกครั้ง (ต้นแบบไม่มี — ST2-T03 review)
-    await page.getByRole('row', { name: new RegExp(name) }).click();
+    await page.locator('tbody tr', { hasText: name }).click();
     const d3 = page.getByRole('dialog');
     await d3.getByTestId('geo-review').getByRole('button', { name: 'ลองหาพิกัดอีกครั้ง' }).click();
     await expect(page.getByRole('status')).toContainText(`กำลังหาพิกัดของ ${name} อีกครั้ง`);

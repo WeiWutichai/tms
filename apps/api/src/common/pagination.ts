@@ -48,7 +48,12 @@ export function encodeCursor(row: { updatedAt: Date; id: string }): string {
 function decodeCursor(cursor: string): CursorKey {
   try {
     const v = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as CursorKey;
-    if (typeof v.u !== 'string' || typeof v.i !== 'string' || Number.isNaN(Date.parse(v.u)))
+    if (
+      typeof v.u !== 'string' ||
+      typeof v.i !== 'string' ||
+      Number.isNaN(Date.parse(v.u)) ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v.i)
+    )
       throw new Error();
     return v;
   } catch {

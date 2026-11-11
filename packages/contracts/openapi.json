@@ -14756,7 +14756,7 @@
             "type": "string",
             "example": "2026-11-30",
             "format": "date",
-            "description": "วันเริ่มมีผล"
+            "description": "วันเริ่มมีผล (1980-01-01 – 2100-12-31)"
           },
           "expiresOn": {
             "type": "string",
@@ -14873,7 +14873,7 @@
             "type": "string",
             "example": "2026-11-30",
             "format": "date",
-            "description": "วันเริ่มมีผล"
+            "description": "วันเริ่มมีผล (1980-01-01 – 2100-12-31)"
           },
           "expiresOn": {
             "type": "string",
@@ -14919,6 +14919,10 @@
             "type": "string",
             "nullable": true,
             "maxLength": 500
+          },
+          "title": {
+            "type": "string",
+            "description": "ชื่อเอกสารใหม่ — เฉพาะ OTHER (ไม่ส่ง = ชื่อเดิม)"
           }
         },
         "required": [

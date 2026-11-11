@@ -7,6 +7,7 @@ import {
   type InputHTMLAttributes,
   type ReactNode,
 } from 'react';
+import { useEscapeLayer } from './escape';
 import { Icon } from './Icon';
 import { statusOf } from './status-map';
 import { tone as toneColors, type Tone } from './tokens';
@@ -327,12 +328,7 @@ export function Drawer({
   labels: { close: string; more: string };
   children: ReactNode;
 }) {
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
+  useEscapeLayer(open, onClose);
   if (!open) return null;
   return (
     <>

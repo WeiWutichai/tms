@@ -72,7 +72,11 @@ class VehicleDocumentBaseInput {
   @MaxLength(120)
   issuer?: string | null;
 
-  @ApiProperty({ example: '2026-11-30', format: 'date', description: 'วันเริ่มมีผล' })
+  @ApiProperty({
+    example: '2026-11-30',
+    format: 'date',
+    description: 'วันเริ่มมีผล (1980-01-01 – 2100-12-31)',
+  })
   @Matches(DATE_RE)
   startsOn!: string;
 
@@ -172,8 +176,18 @@ export class CreateVehicleDocumentDto extends VehicleDocumentBaseInput {
   isRequiredForDispatch?: boolean;
 }
 
-/** ต่ออายุ = ฉบับใหม่อ้างฉบับเดิม (FLT-043) — ช่องที่ไม่ส่ง (ผู้ออก ชั้น ทุน) คัดลอกจากฉบับเดิม */
-export class RenewVehicleDocumentDto extends VehicleDocumentBaseInput {}
+/** ต่ออายุ = ฉบับใหม่อ้างฉบับเดิม (FLT-043) — ช่องที่ไม่ส่ง (ผู้ออก ชั้น ทุน ชื่อเอกสาร) คัดลอกจากฉบับเดิม */
+export class RenewVehicleDocumentDto extends VehicleDocumentBaseInput {
+  @ApiPropertyOptional({
+    description: 'ชื่อเอกสารใหม่ — เฉพาะ OTHER (ไม่ส่ง = ชื่อเดิม)',
+  })
+  @IsOptionalNotNull()
+  @CleanText()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(80)
+  title?: string;
+}
 
 export class CancelVehicleDocumentDto {
   @ApiProperty({ minLength: 10, maxLength: 500, description: 'เหตุผล (ลง audit)' })

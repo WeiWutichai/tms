@@ -1,5 +1,5 @@
-import { Icon, Toast } from '@tms/ui';
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { Icon, Toast, useEscapeLayer } from '@tms/ui';
+import { useId, useRef, useState, type ReactNode } from 'react';
 import { ApiError } from '../../api';
 import { formatDate, formatMoney, useI18n, type T } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
@@ -260,11 +260,8 @@ function Dialog({
 }) {
   const { t } = useI18n();
   const id = useId();
-  useEffect(() => {
-    const h = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
-    window.addEventListener('keydown', h);
-    return () => window.removeEventListener('keydown', h);
-  }, [onClose]);
+  // Esc ปิดเฉพาะ modal นี้ (ไม่ปิด drawer ข้างหลัง)
+  useEscapeLayer(true, onClose);
   return (
     <div className="tms-dialog__scrim" onClick={onClose}>
       <div
@@ -347,8 +344,11 @@ function FilePick({
     try {
       onFile({ id: await uploadDocFile(f), name: f.name });
     } catch (e) {
+      // ไฟล์ไม่ผ่าน (ชนิดไม่ตรงเนื้อไฟล์ / ใหญ่เกิน / ว่าง) → ข้อความเดียวที่บอกเงื่อนไขไฟล์
       setFail(
-        e instanceof ApiError ? (problemText(e, t) ?? t('vdoc.v.badFile')) : t('vdoc.v.badFile'),
+        e instanceof ApiError && e.problem.code !== 'validation_failed'
+          ? (problemText(e, t) ?? t('vdoc.v.badFile'))
+          : t('vdoc.v.badFile'),
       );
     } finally {
       setBusy(false);
@@ -402,19 +402,59 @@ const newKey = () =>
     ? crypto.randomUUID()
     : `${Date.now()}-${Math.random()}`;
 
-/** ข้อผิดพลาดจาก server → ข้อความใต้ช่อง */
-function serverErrs(err: unknown, t: T, d?: { t: string }): Record<string, string> {
+/**
+ * กดบันทึกครั้งเดียว + Idempotency-Key ต่อการเปิดฟอร์ม (review ST2-T17)
+ * - กันกดซ้ำแบบ synchronous (ref) ก่อน state isPending จะเปลี่ยน
+ * - เปลี่ยน key เฉพาะเมื่อ server ตอบปฏิเสธชัดเจน (4xx) — เน็ตหลุด/5xx/ยังประมวลผล ใช้ key เดิมส่งซ้ำ (ได้ผลเดิม ไม่สร้างซ้ำ)
+ */
+function useSubmitOnce() {
+  const busy = useRef(false);
+  const key = useRef(newKey());
+  return {
+    start: () => {
+      if (busy.current) return null;
+      busy.current = true;
+      return key.current;
+    },
+    done: (err?: unknown) => {
+      busy.current = false;
+      if (
+        err instanceof ApiError &&
+        err.problem.status >= 400 &&
+        err.problem.status < 500 &&
+        err.problem.code !== 'idempotency_in_progress'
+      )
+        key.current = newKey();
+    },
+  };
+}
+
+/** วันที่ที่รับ (API ตรวจซ้ำ 1980–2100) */
+const DATE_MIN = '1980-01-01';
+const DATE_MAX = '2100-12-31';
+
+/** ข้อผิดพลาดจาก server → ข้อความใต้ช่อง · ช่องที่ฟอร์มนี้ไม่มี → ข้อความรวมด้านบน (`top`) */
+function serverErrs(
+  err: unknown,
+  t: T,
+  known: string[],
+  d?: { t: string },
+): Record<string, string> {
   if (!(err instanceof ApiError)) return {};
   const out: Record<string, string> = {};
   for (const e of err.problem.errors ?? []) {
     const f = e.field ?? '';
     if (e.code === 'expires_before_start') out.expiresOn = t('vdoc.v.period');
     else if (e.code === 'not_after_previous') out.expiresOn = t('vdoc.v.afterPrev');
+    else if (e.code === 'out_of_range' && known.includes(f)) out[f] = t('vdoc.v.dateRange');
     else if (e.code === 'current_exists') out.docType = t('vdoc.v.exists', { t: d?.t ?? '' });
     else if (e.code === 'already_renewed') out.top = t('vdoc.v.renewed');
+    else if (e.code === 'file_in_use') out.file = t('vdoc.v.fileInUse');
     else if (f === 'fileDocumentIds') out.file = t('vdoc.v.badFile');
-    else if (f) out[f] = e.message ?? t('vdoc.v.required');
+    else if (f && known.includes(f)) out[f] = t('vdoc.v.invalid');
+    else out.top ??= problemText(err, t) ?? t('vdoc.v.invalid');
   }
+  if (!err.problem.errors?.length) out.top = problemText(err, t) ?? t('vdoc.v.invalid');
   return out;
 }
 
@@ -441,7 +481,7 @@ function RenewDialog({
   const [cost, setCost] = useState(d.costAmount ? formatMoney(d.costAmount) : '');
   const [issuer, setIssuer] = useState(d.issuer ?? '');
   const [file, setFile] = useState<{ id: string; name: string } | null>(null);
-  const key = useRef(newKey());
+  const once = useSubmitOnce();
   const local: Record<string, string> = {};
   if (from && to && to <= from) local.expiresOn = t('vdoc.v.period');
   else if (to && to <= d.expiresOn) local.expiresOn = t('vdoc.v.afterPrev');
@@ -453,18 +493,25 @@ function RenewDialog({
     !!to &&
     !Object.keys(local).length &&
     !renew.isPending;
-  const srv = serverErrs(renew.error, t);
+  const srv = serverErrs(renew.error, t, [
+    'docNo',
+    'startsOn',
+    'expiresOn',
+    'costAmount',
+    'issuer',
+  ]);
   const errs = { ...srv, ...local };
-  const top =
-    srv.top ?? (renew.error && !Object.keys(srv).length ? problemText(renew.error, t) : null);
+  const top = srv.top ?? null;
   const badge = d.daysToExpiry < 0 ? 'err' : d.daysToExpiry <= 30 ? 'warn' : 'ok';
 
   const submit = () => {
     if (!ok) return;
+    const idempotencyKey = once.start();
+    if (!idempotencyKey) return;
     renew.mutate(
       {
         id: d.id,
-        idempotencyKey: key.current,
+        idempotencyKey,
         body: {
           ...(no.trim() ? { docNo: no.trim() } : {}),
           startsOn: from,
@@ -476,10 +523,11 @@ function RenewDialog({
         },
       },
       {
-        onSuccess: (r) => onDone(r.document),
-        onError: () => {
-          key.current = newKey();
+        onSuccess: (r) => {
+          once.done();
+          onDone(r.document);
         },
+        onError: (e) => once.done(e),
       },
     );
   };
@@ -545,6 +593,8 @@ function RenewDialog({
               id={id}
               name="startsOn"
               type="date"
+              min={DATE_MIN}
+              max={DATE_MAX}
               className="tms-input"
               value={from}
               onChange={(e) => setFrom(e.target.value)}
@@ -557,6 +607,8 @@ function RenewDialog({
               id={id}
               name="expiresOn"
               type="date"
+              min={DATE_MIN}
+              max={DATE_MAX}
               className="tms-input"
               value={to}
               aria-invalid={!!errs.expiresOn}
@@ -621,7 +673,7 @@ function AddDialog({
   const [klass, setKlass] = useState('');
   const [sum, setSum] = useState('');
   const [file, setFile] = useState<{ id: string; name: string } | null>(null);
-  const key = useRef(newKey());
+  const once = useSubmitOnce();
   const ins = type === 'INSURANCE';
   const other = type === 'OTHER';
   const local: Record<string, string> = {};
@@ -635,16 +687,33 @@ function AddDialog({
     !!to &&
     !Object.keys(local).length &&
     !create.isPending;
-  const srv = serverErrs(create.error, t, { t: typeLabel(t, type) });
+  const srv = serverErrs(
+    create.error,
+    t,
+    [
+      'docType',
+      'title',
+      'docNo',
+      'startsOn',
+      'expiresOn',
+      'costAmount',
+      'issuer',
+      'insuranceClass',
+      'sumInsured',
+    ],
+    { t: typeLabel(t, type) },
+  );
   const errs = { ...srv, ...local };
-  const top = create.error && !Object.keys(srv).length ? problemText(create.error, t) : null;
+  const top = srv.top ?? null;
 
   const submit = () => {
     if (!ok) return;
     const money = (s: string) => (s ? moneyIn(s) : null);
+    const idempotencyKey = once.start();
+    if (!idempotencyKey) return;
     create.mutate(
       {
-        idempotencyKey: key.current,
+        idempotencyKey,
         body: {
           docType: type,
           ...(other ? { title: title.trim() } : {}),
@@ -664,10 +733,11 @@ function AddDialog({
         },
       },
       {
-        onSuccess: onDone,
-        onError: () => {
-          key.current = newKey();
+        onSuccess: (n) => {
+          once.done();
+          onDone(n);
         },
+        onError: (e) => once.done(e),
       },
     );
   };
@@ -756,6 +826,8 @@ function AddDialog({
               id={id}
               name="startsOn"
               type="date"
+              min={DATE_MIN}
+              max={DATE_MAX}
               className="tms-input"
               value={from}
               onChange={(e) => setFrom(e.target.value)}
@@ -768,6 +840,8 @@ function AddDialog({
               id={id}
               name="expiresOn"
               type="date"
+              min={DATE_MIN}
+              max={DATE_MAX}
               className="tms-input"
               value={to}
               aria-invalid={!!errs.expiresOn}

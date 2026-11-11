@@ -62,8 +62,12 @@ test.describe.serial('รถ → ทะเบียนรถ', () => {
       await page.keyboard.press('Escape');
     }
     await page.getByRole('columnheader').getByPlaceholder('ค้นหา').first().fill(RUN);
-    await expect(page.getByRole('row', { name: new RegExp(`${HEAD}.*หัวลาก \\+ ${TRL}`) })).toBeVisible();
-    await expect(page.getByRole('row', { name: new RegExp(`${TRL}.*หาง \\+ ${HEAD}`) })).toBeVisible();
+    await expect(
+      page.getByRole('row', { name: new RegExp(`${HEAD}.*หัวลาก \\+ ${TRL}`) }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('row', { name: new RegExp(`${TRL}.*หาง \\+ ${HEAD}`) }),
+    ).toBeVisible();
   });
 
   test('เลขไมล์ถอยหลังถูกปฏิเสธ → เปลี่ยนสถานะเป็นซ่อมพร้อมเหตุผล', async ({ page }) => {

@@ -49,8 +49,33 @@ const REQUIRED_BY_DEFAULT: VehicleDocTypeKey[] = ['INSURANCE', 'COMPULSORY_ACT']
 const INSURANCE_ONLY = ['insuranceClass', 'sumInsured', 'premiumAmount'] as const;
 const FILE_MIME = ['application/pdf', 'image/png', 'image/jpeg', 'image/webp'];
 
+/** ชื่อประเภทภาษาไทย (หมายเหตุใน vehicle_cost — ต้นแบบ) */
+const DOC_TYPE_TH: Record<VehicleDocTypeKey, string> = {
+  INSURANCE: 'ประกันภัย',
+  COMPULSORY_ACT: 'พ.ร.บ.',
+  ANNUAL_TAX: 'ภาษี',
+  INSPECTION: 'ตรวจสภาพ ตรอ.',
+  TRANSPORT_LICENSE: 'ใบอนุญาตขนส่ง',
+  GPS_DLT_CERT: 'GPS DLT',
+  OTHER: 'เอกสารอื่น',
+};
+const costNote = (verb: string, d: VehicleDocument) =>
+  `${verb}${d.docType === 'OTHER' && d.title ? d.title : DOC_TYPE_TH[d.docType]} ${d.refNo ?? ''}`.trim();
+/** วันที่ที่รับ (กันพิมพ์ปีผิด เช่น 0026 / 25690) */
+const DATE_MIN = '1980-01-01';
+const DATE_MAX = '2100-12-31';
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/** สถานะที่เก็บในฐานของฉบับปัจจุบัน ตามวันหมด ณ วันนี้ (job ST2-T18 ตั้งซ้ำรายวัน) */
+export function currentDbStatus(expiresOn: string, today = bangkokToday()): string {
+  const s = expiryStatus('ACTIVE', expiresOn, today).status;
+  return s === 'expired' ? 'EXPIRED' : s === 'expiring' ? 'EXPIRING' : 'ACTIVE';
+}
+
 const field422 = (field: string, code: string, message: string) =>
   new ProblemException('validation_failed', undefined, [{ field, code, message }]);
+const fileInUse = () =>
+  field422('fileDocumentIds', 'file_in_use', 'file is already attached to another document');
 const money = (d: Prisma.Decimal | null) => (d === null ? null : d.toFixed(2));
 const day = (d: Date) => d.toISOString().slice(0, 10);
 const asDate = (s: string) => new Date(`${s}T00:00:00Z`);
@@ -210,7 +235,8 @@ export class VehicleDocumentsService {
       let c: { k: string; i: string };
       try {
         c = JSON.parse(Buffer.from(q.cursor, 'base64url').toString('utf8')) as typeof c;
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(c.k) || typeof c.i !== 'string') throw new Error();
+        if (!isRealDate(String(c.k)) || typeof c.i !== 'string' || !UUID_RE.test(c.i))
+          throw new Error();
       } catch {
         throw field422('cursor', 'invalid_cursor', 'cursor is invalid');
       }
@@ -259,15 +285,25 @@ export class VehicleDocumentsService {
         'invalid_file',
         'files must be uploaded VEHICLE_DOC PDF/image documents',
       );
+    if (
+      docs.some(
+        (d) => d.entityId !== null || (d.entityType ?? 'vehicle_document') !== 'vehicle_document',
+      )
+    )
+      throw fileInUse();
     return uuids as string[];
   }
 
-  /** ผูกไฟล์กับเอกสารรถ (stored_document.entity_*) — เฉพาะไฟล์ที่ยังไม่ผูกกับอะไร */
+  /**
+   * ผูกไฟล์กับเอกสารรถ (stored_document.entity_*) — 1 ไฟล์ = 1 ฉบับ (ต่ออายุต้องแนบไฟล์ใหม่ของฉบับใหม่;
+   * ไฟล์ของฉบับเดิมอยู่กับฉบับเดิมในประวัติ) · updateMany มีเงื่อนไข entity_id IS NULL → คำขอพร้อมกันที่ใช้ไฟล์เดียวกัน ได้ฉบับเดียว
+   */
   private async linkFiles(fileIds: string[], docId: string) {
-    await this.db.tx.storedDocument.updateMany({
+    const r = await this.db.tx.storedDocument.updateMany({
       where: { id: { in: fileIds }, entityId: null },
       data: { entityType: 'vehicle_document', entityId: docId },
     });
+    if (r.count !== fileIds.length) throw fileInUse();
   }
 
   private checkFields(
@@ -276,6 +312,8 @@ export class VehicleDocumentsService {
   ) {
     for (const k of ['startsOn', 'expiresOn'] as const)
       if (!isRealDate(input[k])) throw field422(k, 'invalid_date', `${k} is not a valid date`);
+      else if (input[k] < DATE_MIN || input[k] > DATE_MAX)
+        throw field422(k, 'out_of_range', `${k} must be between ${DATE_MIN} and ${DATE_MAX}`);
     if (input.expiresOn <= input.startsOn)
       throw field422('expiresOn', 'expires_before_start', 'expiresOn must be after startsOn');
     if (docType !== 'OTHER' && !input.docNo)
@@ -310,7 +348,7 @@ export class VehicleDocumentsService {
         occurredOn: asDate(bangkokToday()),
         sourceType: 'vehicle_document',
         sourceId: d.id,
-        note: `${kind === 'renewed' ? 'ต่ออายุ' : 'เพิ่ม'} ${d.docType} ${d.refNo ?? d.title ?? ''}`.trim(),
+        note: costNote(kind === 'renewed' ? 'ต่ออายุ' : 'เพิ่ม', d),
         createdBy: ctx.actorId ?? null,
       },
     });
@@ -360,6 +398,7 @@ export class VehicleDocumentsService {
         fileDocumentIds: fileIds,
         isRequiredForDispatch:
           input.isRequiredForDispatch ?? REQUIRED_BY_DEFAULT.includes(input.docType),
+        status: currentDbStatus(input.expiresOn),
         note: input.note ?? null,
         createdBy: ctx.actorId ?? null,
       },
@@ -404,6 +443,8 @@ export class VehicleDocumentsService {
       );
     const merged = {
       ...input,
+      // OTHER: ชื่อเอกสารคัดลอกจากฉบับเดิม (ส่ง title มาแทนได้) · ประเภทอื่นไม่มี title
+      title: old.docType === 'OTHER' ? (input.title ?? old.title ?? undefined) : input.title,
       issuer: input.issuer !== undefined ? input.issuer : old.issuer,
       insuranceClass: input.insuranceClass !== undefined ? input.insuranceClass : old.coverageClass,
       sumInsured: input.sumInsured !== undefined ? input.sumInsured : money(old.sumInsured),
@@ -424,7 +465,7 @@ export class VehicleDocumentsService {
         tenantId: ctx.tenantId!,
         vehicleId: old.vehicleId,
         docType: old.docType,
-        title: old.title,
+        title: merged.title ?? null,
         refNo: merged.docNo ?? null,
         issuer: merged.issuer ?? null,
         coverageClass: merged.insuranceClass ?? null,
@@ -436,6 +477,7 @@ export class VehicleDocumentsService {
         fileDocumentIds: fileIds,
         renewsId: old.id,
         isRequiredForDispatch: old.isRequiredForDispatch,
+        status: currentDbStatus(input.expiresOn),
         note: input.note ?? null,
         createdBy: ctx.actorId ?? null,
       },
@@ -481,12 +523,25 @@ export class VehicleDocumentsService {
       where: { id: d.id },
       data: { status: 'CANCELLED', cancelledAt: now, cancelReason: reason },
     });
-    // ฉบับที่ถูกต่ออายุโดยฉบับนี้ → กลับเป็นฉบับปัจจุบัน
-    if (d.renewsId)
-      await tx.vehicleDocument.updateMany({
-        where: { id: d.renewsId, status: 'SUPERSEDED' },
-        data: { status: 'ACTIVE' },
-      });
+    // ฉบับที่ถูกต่ออายุโดยฉบับนี้ → กลับเป็นฉบับปัจจุบัน (สถานะตามวันหมด) + audit ของฉบับนั้นด้วยเหตุผลเดียวกัน
+    let restored: VehicleDocument | null = null;
+    if (d.renewsId) {
+      const prev = await tx.vehicleDocument.findUnique({ where: { id: d.renewsId } });
+      if (prev?.status === 'SUPERSEDED') {
+        restored = await tx.vehicleDocument.update({
+          where: { id: prev.id },
+          data: { status: currentDbStatus(day(prev.expiresOn)) },
+        });
+        await this.audit.changed(
+          'vehicle_document.restored',
+          'vehicle_document',
+          prev.id,
+          auditView(prev),
+          auditView(restored),
+          reason,
+        );
+      }
+    }
     // ledger append-only: ค่าใช้จ่ายของฉบับนี้ → แถวกลับรายการ
     const costs = await tx.vehicleCost.findMany({
       where: { sourceType: 'vehicle_document', sourceId: d.id },
@@ -503,7 +558,7 @@ export class VehicleDocumentsService {
           occurredOn: asDate(bangkokToday()),
           sourceType: 'vehicle_document',
           sourceId: d.id,
-          note: `ยกเลิก ${d.docType} ${d.refNo ?? d.title ?? ''}`.trim(),
+          note: costNote('ยกเลิก', d),
           createdBy: ctx.actorId ?? null,
         },
       });
@@ -518,7 +573,14 @@ export class VehicleDocumentsService {
       reason,
     );
     const [dto] = await this.toDtos([after]);
-    await emitMasterEvent(tx, 'vehicle.document_cancelled', 'vehicle_document', d.id, dto);
+    await emitMasterEvent(
+      tx,
+      'vehicle.document_cancelled',
+      'vehicle_document',
+      d.id,
+      dto,
+      restored ? { restoredDocumentId: enc(restored.id) } : undefined,
+    );
     return after;
   }
 }

@@ -1,6 +1,6 @@
 import type { Schemas } from '@tms/contracts';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, unwrap } from '../../api';
+import { api, idempotent, unwrap } from '../../api';
 import { refetchOnStale } from '../master/problems';
 import { useCursorList } from '../master/useCursorList';
 
@@ -53,7 +53,7 @@ export function useCreateCustomer() {
   return useMutation({
     /** idempotencyKey ต่อการเปิดฟอร์ม 1 ครั้ง — กดซ้ำ/ส่งซ้ำได้ลูกค้ารายเดียว (ST0-T07) */
     mutationFn: (v: { body: CustomerCreate; idempotencyKey: string }) =>
-      unwrap(
+      idempotent(() =>
         api.POST('/v1/customers', {
           body: v.body,
           headers: { 'Idempotency-Key': v.idempotencyKey },

@@ -41,7 +41,8 @@ test('เอกสารรถ: เพิ่ม + ต่ออายุจาก
   await add.getByLabel('เบี้ย / ค่าใช้จ่าย (฿)').fill('1,830');
   await add.getByTestId('vdoc-file').setInputFiles(PDF);
   await expect(add.getByText(PDF.name)).toBeVisible();
-  await add.getByRole('button', { name: 'บันทึกเอกสาร' }).click();
+  // กดบันทึกรัว ๆ → ได้เอกสารฉบับเดียว (review ST2-T17)
+  await add.getByRole('button', { name: 'บันทึกเอกสาร' }).dblclick();
   await expect(page.getByRole('status').filter({ hasText: 'เพิ่มพ.ร.บ.' })).toContainText(
     `เพิ่มพ.ร.บ. ${PLATE} กทม. แล้ว`,
   );
@@ -58,6 +59,14 @@ test('เอกสารรถ: เพิ่ม + ต่ออายุจาก
   await dup.getByRole('button', { name: 'บันทึกเอกสาร' }).click();
   await expect(dup.getByText('รถคันนี้มีพ.ร.บ.ฉบับปัจจุบันแล้ว — ใช้ "ต่ออายุ" แทน')).toBeVisible();
   await dup.getByRole('button', { name: 'ยกเลิก' }).click();
+
+  // Esc ใน modal ปิดเฉพาะ modal — drawer ยังอยู่
+  await list.getByRole('button', { name: 'ต่ออายุ' }).click();
+  await expect(page.getByRole('dialog', { name: 'ต่ออายุพ.ร.บ.' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog', { name: 'ต่ออายุพ.ร.บ.' })).toHaveCount(0);
+  await expect(page.getByRole('tab', { name: 'เอกสารแนบ' })).toBeVisible();
+  await expect(list.getByText(`พ.ร.บ. · CMI-${RUN}-1`)).toHaveCount(1);
 
   // ต่ออายุ
   await list.getByRole('button', { name: 'ต่ออายุ' }).click();
@@ -83,4 +92,9 @@ test('เอกสารรถ: เพิ่ม + ต่ออายุจาก
   await expect(hist.getByText(`พ.ร.บ. · CMI-${RUN}-1`)).toBeVisible();
   await expect(hist.getByText('ต่ออายุแล้ว')).toBeVisible();
   await expect(hist.getByText('15 ม.ค. 2569 – 15 ม.ค. 2570')).toBeVisible();
+
+  // แท็บกิจกรรมของรถแสดงประวัติเอกสาร
+  await page.getByRole('tab', { name: 'กิจกรรม' }).click();
+  await expect(page.getByText(`ต่ออายุ พ.ร.บ. CMI-${RUN}-2`)).toBeVisible();
+  await expect(page.getByText(`เพิ่มเอกสาร พ.ร.บ. CMI-${RUN}-1`)).toBeVisible();
 });

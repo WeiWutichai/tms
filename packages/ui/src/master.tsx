@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useEscapeLayer } from './escape';
 import { Icon } from './Icon';
 import { tone as toneColors, type Tone } from './tokens';
 
@@ -19,16 +20,8 @@ function useLatest<T>(v: T) {
   return r;
 }
 
-/** ปิดด้วย Esc ขณะเปิดอยู่ */
-function useEscape(open: boolean, onClose: () => void) {
-  const cb = useLatest(onClose);
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && cb.current();
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [open, cb]);
-}
+/** ปิดด้วย Esc ขณะเปิดอยู่ — ชั้นบนสุดเท่านั้น */
+const useEscape = useEscapeLayer;
 
 export interface SummaryItem {
   value: ReactNode;

@@ -1,6 +1,6 @@
 import type { Schemas } from '@tms/contracts';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, unwrap } from '../../api';
+import { api, idempotent, unwrap } from '../../api';
 import type { T } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
 import { refetchOnStale } from '../master/problems';
@@ -168,7 +168,7 @@ export function useCreateVehicle() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (v: { body: VehicleCreate; idempotencyKey: string }) =>
-      unwrap(
+      idempotent(() =>
         api.POST('/v1/vehicles', {
           body: v.body,
           headers: { 'Idempotency-Key': v.idempotencyKey },

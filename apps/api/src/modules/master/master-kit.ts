@@ -137,6 +137,8 @@ export class MasterListQuery {
   includeDeleted?: 'true' | 'false';
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 interface MasterCursor {
   s: string; // sort
   k: string; // ค่า key (code หรือ updatedAt ISO)
@@ -146,7 +148,10 @@ interface MasterCursor {
 function decodeMasterCursor(cursor: string, sort: string): MasterCursor {
   try {
     const v = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as MasterCursor;
-    if (v.s !== sort || typeof v.k !== 'string' || typeof v.i !== 'string') throw new Error();
+    // review ST2-T17: cursor ที่แต่งขึ้น (id ไม่ใช่ uuid / เวลาไม่ใช่วันที่) เคยหลุดถึง DB → 500
+    if (v.s !== sort || typeof v.k !== 'string' || typeof v.i !== 'string' || !UUID_RE.test(v.i))
+      throw new Error();
+    if (sort !== 'code' && Number.isNaN(Date.parse(v.k))) throw new Error();
     return v;
   } catch {
     throw new ProblemException('validation_failed', undefined, [

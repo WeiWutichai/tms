@@ -233,14 +233,22 @@ export class VehiclesController {
     return this.send(res, await this.resolve(id));
   }
 
-  /** ประวัติการแก้ (audit) — ราคาซื้อ/ค่าเสื่อมถูกตัดออกถ้าไม่มี reports.finance:read */
+  /** ประวัติการแก้ (audit) รวมเอกสารรถของคัน — ราคาซื้อ/ค่าเสื่อมถูกตัดออกถ้าไม่มี reports.finance:read */
   @Get(':id/history')
   @TenantResource('vehicle')
   @RequireScope('master:read')
   @ApiOkResponse({ type: AuditPageDto, description: 'ประวัติการแก้จาก audit log ใหม่สุดก่อน' })
   async history(@Param('id') id: string, @Query() q: HistoryQuery): Promise<AuditPageDto> {
     const v = await this.resolve(id);
-    const page = (await entityHistory(this.db.tx, 'vehicle', v.id, q)) as AuditPageDto;
+    // รวมประวัติเอกสารรถของคันนี้ (เพิ่ม/ต่ออายุ/ยกเลิก — ST2-T17)
+    const docs = await this.db.tx.vehicleDocument.findMany({
+      where: { vehicleId: v.id },
+      select: { id: true },
+    });
+    const page = (await entityHistory(this.db.tx, 'vehicle', v.id, q, {
+      entityType: 'vehicle_document',
+      ids: docs.map((d) => d.id),
+    })) as AuditPageDto;
     if (canSeeFinance()) return page;
     const strip = (o: unknown) => {
       if (!o || typeof o !== 'object') return o;

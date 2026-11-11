@@ -1,6 +1,6 @@
 import type { Schemas } from '@tms/contracts';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, ApiError, unwrap } from '../../api';
+import { api, ApiError, idempotent, unwrap } from '../../api';
 
 export type VehicleDoc = Schemas['VehicleDocumentDto'];
 export type VehicleDocCreate = Schemas['CreateVehicleDocumentDto'];
@@ -64,7 +64,7 @@ export function useCreateVehicleDoc(vehicleId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (v: { body: VehicleDocCreate; idempotencyKey: string }) =>
-      unwrap(
+      idempotent(() =>
         api.POST('/v1/vehicles/{id}/documents', {
           params: { path: { id: vehicleId } },
           body: v.body,
@@ -79,7 +79,7 @@ export function useRenewVehicleDoc() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (v: { id: string; body: VehicleDocRenew; idempotencyKey: string }) =>
-      unwrap(
+      idempotent(() =>
         api.POST('/v1/vehicle-documents/{id}/renew', {
           params: { path: { id: v.id } },
           body: v.body,

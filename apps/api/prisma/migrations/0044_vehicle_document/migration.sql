@@ -2,6 +2,11 @@
 -- ต่ออายุ = แถวใหม่ที่ renews_id ชี้ฉบับเก่า (ฉบับเก่า → SUPERSEDED ไม่ถูกเขียนทับ/ไม่ลบ)
 -- ชื่อคอลัมน์คงตาม schema v0; ค่า enum เปลี่ยนตาม docs/01 §3.8 (plan/00a: "ตาม docs")
 
+-- RLS: ตาราง FORCE ROW LEVEL SECURITY — ถ้า migrator ไม่ใช่ superuser/BYPASSRLS การ SELECT ใน pre-check จะถูกกรองเงียบ ๆ
+-- (ไม่เจอแถวผิด → ผ่านทั้งที่ข้อมูลผิด) · row_security = off ทำให้ query ที่ RLS จะกรอง "error" แทน → pre-check ไม่หลอกว่าผ่าน
+-- (migrator ต้องเป็น owner ที่ BYPASSRLS หรือ superuser — ถ้าไม่ใช่ migration หยุดพร้อม error ชัดเจน)
+SET row_security = off;
+
 -- ตรวจก่อน: แถวเดิมจาก schema v0 (ยังไม่มีหน้าจอสร้างก่อน ST2-T17) ที่จะทำให้ข้อจำกัดด้านล่างล้ม → หยุดพร้อมข้อความ
 DO $$
 DECLARE r record;
@@ -45,6 +50,22 @@ ADD COLUMN     "reminder_sent" JSONB NOT NULL DEFAULT '{}',
 ADD COLUMN     "status" TEXT NOT NULL DEFAULT 'ACTIVE',
 ADD COLUMN     "title" TEXT,
 ALTER COLUMN "starts_on" SET NOT NULL;
+
+-- แถวเดิม (schema v0): ฉบับที่ถูกต่ออายุแล้ว (มีแถวอื่นชี้มาที่ renews_id) → SUPERSEDED ก่อนสร้าง unique "ฉบับปัจจุบัน"
+UPDATE "vehicle_document" o SET "status" = 'SUPERSEDED'
+  WHERE EXISTS (SELECT 1 FROM "vehicle_document" n WHERE n.renews_id = o.id);
+
+DO $$
+DECLARE r record;
+BEGIN
+  SELECT tenant_id, vehicle_id, doc_type, count(*) AS n INTO r FROM "vehicle_document"
+    WHERE status IN ('ACTIVE', 'EXPIRING', 'EXPIRED') AND doc_type <> 'OTHER'
+    GROUP BY 1, 2, 3 HAVING count(*) > 1 LIMIT 1;
+  IF FOUND THEN RAISE EXCEPTION '0044: รถมีเอกสารฉบับปัจจุบันประเภทเดียวกันหลายฉบับ (tenant %, vehicle %, %, % ฉบับ) — ตั้ง renews_id ให้ฉบับใหม่ชี้ฉบับเก่าก่อน migrate', r.tenant_id, r.vehicle_id, r.doc_type, r.n; END IF;
+  SELECT tenant_id, renews_id, count(*) AS n INTO r FROM "vehicle_document"
+    WHERE renews_id IS NOT NULL GROUP BY 1, 2 HAVING count(*) > 1 LIMIT 1;
+  IF FOUND THEN RAISE EXCEPTION '0044: เอกสารฉบับเดียวถูกต่ออายุหลายครั้ง (tenant %, renews_id %, % ฉบับ)', r.tenant_id, r.renews_id, r.n; END IF;
+END $$;
 
 -- CHECK: วันหมด > วันเริ่ม (spec/06 FLT-C "expiry > start"), เงิน ≥ 0, สถานะที่รู้จัก, ยกเลิกต้องมีเหตุผล
 ALTER TABLE "vehicle_document"
@@ -91,3 +112,5 @@ END $$;
 -- RLS (ตารางเดิมเปิดแล้วใน 0004 — เรียกซ้ำได้)
 SELECT tms_enable_tenant_rls('vehicle_document');
 SELECT tms_enable_tenant_rls('vehicle_cost');
+
+RESET row_security;

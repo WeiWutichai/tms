@@ -1,6 +1,6 @@
 import type { Schemas } from '@tms/contracts';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, unwrap } from '../../api';
+import { api, idempotent, unwrap } from '../../api';
 import { refetchOnStale } from '../master/problems';
 import { useCursorList } from '../master/useCursorList';
 
@@ -71,7 +71,7 @@ export function useCreateCarrier() {
   return useMutation({
     /** idempotencyKey ต่อการเปิดฟอร์ม 1 ครั้ง — กดซ้ำ/ส่งซ้ำได้รายการเดียว (ST0-T07) */
     mutationFn: (v: { body: CarrierCreate; idempotencyKey: string }) =>
-      unwrap(
+      idempotent(() =>
         api.POST('/v1/carriers', {
           body: v.body,
           headers: { 'Idempotency-Key': v.idempotencyKey },

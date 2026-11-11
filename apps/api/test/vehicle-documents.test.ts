@@ -364,6 +364,28 @@ describe('เอกสารรถ (vehicle documents)', () => {
       where: { tenantId, action: 'vehicle_document.cancelled' },
     });
     expect(a?.reason).toBe('บันทึกเลขกรมธรรม์ผิดฉบับ');
+    // ฉบับเดิมที่กลับมา: audit ของตัวเอง (เหตุผลเดียวกัน) + event อ้างถึง
+    const restored = await db.auditLog.findFirst({
+      where: {
+        tenantId,
+        action: 'vehicle_document.restored',
+        entityId: tryDecodeId('vehicleDocument', first.id)!,
+      },
+    });
+    expect(restored).toMatchObject({ reason: 'บันทึกเลขกรมธรรม์ผิดฉบับ' });
+    expect((restored!.before as { status: string }).status).toBe('SUPERSEDED');
+    expect((restored!.after as { status: string }).status).toBe('ACTIVE');
+    const ev = await db.domainEvent.findFirst({
+      where: { tenantId, type: 'vehicle.document_cancelled' },
+      orderBy: { occurredAt: 'desc' },
+    });
+    expect(ev?.previousAttributes).toMatchObject({ restoredDocumentId: first.id });
+    // หมายเหตุใน ledger เป็นภาษาไทย (ไม่ใช่รหัส enum)
+    expect((await costs(v.id)).map((c) => c.note)).toEqual([
+      'เพิ่มประกันภัย POL-26-00001',
+      'ต่ออายุประกันภัย POL-WRONG',
+      'ยกเลิกประกันภัย POL-WRONG',
+    ]);
     // ยกเลิกซ้ำ → 409 · ต่ออายุฉบับเดิมใหม่ได้
     await api(app, admin)
       .post(`/v1/vehicle-documents/${renewed.id}/cancel`)
@@ -378,6 +400,181 @@ describe('เอกสารรถ (vehicle documents)', () => {
         fileDocumentIds: [await upload()],
       })
       .expect(201);
+  });
+
+  it('review: ต่ออายุเอกสาร OTHER (ชื่อเดิมติดไป / เปลี่ยนชื่อได้) · ยกเลิกฉบับที่ต่อจากฉบับใกล้หมด → สถานะในฐานตามวันหมด', async () => {
+    const v = await vehicle();
+    const other = (
+      await api(app, admin)
+        .post(`/v1/vehicles/${v.id}/documents`)
+        .send({
+          docType: 'OTHER',
+          title: 'สัญญาเช่าที่จอด',
+          startsOn: addDays(today, -340),
+          expiresOn: addDays(today, 25),
+          fileDocumentIds: [await upload()],
+        })
+        .expect(201)
+    ).body;
+    expect(other.status).toBe('expiring');
+    const row = (id: string) =>
+      db.vehicleDocument.findUnique({ where: { id: tryDecodeId('vehicleDocument', id)! } });
+    expect((await row(other.id))?.status).toBe('EXPIRING');
+    const r = await api(app, admin)
+      .post(`/v1/vehicle-documents/${other.id}/renew`)
+      .send({
+        startsOn: addDays(today, 25),
+        expiresOn: addDays(today, 390),
+        fileDocumentIds: [await upload()],
+      })
+      .expect(201);
+    expect(r.body.document).toMatchObject({ docType: 'OTHER', title: 'สัญญาเช่าที่จอด' });
+    const r2 = await api(app, admin)
+      .post(`/v1/vehicle-documents/${r.body.document.id}/renew`)
+      .send({
+        title: 'สัญญาเช่าที่จอด (ฉบับแก้ไข)',
+        startsOn: addDays(today, 390),
+        expiresOn: addDays(today, 755),
+        fileDocumentIds: [await upload()],
+      })
+      .expect(201);
+    expect(r2.body.document.title).toBe('สัญญาเช่าที่จอด (ฉบับแก้ไข)');
+    // title ในประเภทอื่น → 422
+    const tax = (
+      await api(app, admin)
+        .post(`/v1/vehicles/${v.id}/documents`)
+        .send({
+          docType: 'ANNUAL_TAX',
+          docNo: 'TAX-R',
+          startsOn: addDays(today, -350),
+          expiresOn: addDays(today, 15),
+          fileDocumentIds: [await upload()],
+        })
+        .expect(201)
+    ).body;
+    await api(app, admin)
+      .post(`/v1/vehicle-documents/${tax.id}/renew`)
+      .send({
+        title: 'x',
+        docNo: 'TAX-R2',
+        startsOn: addDays(today, 15),
+        expiresOn: addDays(today, 380),
+        fileDocumentIds: [await upload()],
+      })
+      .expect(422);
+    // ยกเลิกฉบับต่ออายุ → ฉบับเดิม (เหลือ 15 วัน) กลับเป็น EXPIRING ไม่ใช่ ACTIVE
+    const rt = (
+      await api(app, admin)
+        .post(`/v1/vehicle-documents/${tax.id}/renew`)
+        .send({
+          docNo: 'TAX-R2',
+          startsOn: addDays(today, 15),
+          expiresOn: addDays(today, 380),
+          fileDocumentIds: [await upload()],
+        })
+        .expect(201)
+    ).body.document;
+    await api(app, admin)
+      .post(`/v1/vehicle-documents/${rt.id}/cancel`)
+      .send({ reason: 'ต่ออายุผิดคัน ทดสอบ' })
+      .expect(200);
+    expect((await row(tax.id))?.status).toBe('EXPIRING');
+  });
+
+  it('review: ไฟล์เดียวแนบได้เอกสารเดียว (ข้ามรถ/ต่ออายุใช้ไฟล์เดิมไม่ได้) · วันที่นอกช่วง 1980–2100 → 422', async () => {
+    const v1 = await vehicle();
+    const v2 = await vehicle();
+    const f = await upload();
+    const d1 = (
+      await api(app, admin)
+        .post(`/v1/vehicles/${v1.id}/documents`)
+        .send(await insurance({ fileDocumentIds: [f] }))
+        .expect(201)
+    ).body;
+    const dup = await api(app, admin)
+      .post(`/v1/vehicles/${v2.id}/documents`)
+      .send(await insurance({ fileDocumentIds: [f] }))
+      .expect(422);
+    expect(dup.body.errors[0]).toMatchObject({ field: 'fileDocumentIds', code: 'file_in_use' });
+    const re = await api(app, admin)
+      .post(`/v1/vehicle-documents/${d1.id}/renew`)
+      .send({
+        docNo: 'POL-R',
+        startsOn: addDays(today, 65),
+        expiresOn: addDays(today, 430),
+        fileDocumentIds: [f],
+      })
+      .expect(422);
+    expect(re.body.errors[0].code).toBe('file_in_use');
+    // ไฟล์ที่ระบุ entity อื่นตอนอัปโหลด (เช่น trip_stop) ใช้ไม่ได้
+    const foreign = (
+      await api(app, admin)
+        .post('/v1/documents')
+        .send({
+          kind: 'VEHICLE_DOC',
+          mime: 'application/pdf',
+          bytes: PDF.length,
+          entityType: 'trip_stop',
+        })
+        .expect(201)
+    ).body;
+    await request(app.getHttpServer())
+      .put(path(foreign.uploadUrl))
+      .set('Content-Type', 'application/octet-stream')
+      .send(PDF)
+      .expect(200);
+    expect(
+      (
+        await api(app, admin)
+          .post(`/v1/vehicles/${v2.id}/documents`)
+          .send(await insurance({ fileDocumentIds: [foreign.id] }))
+          .expect(422)
+      ).body.errors[0].code,
+    ).toBe('file_in_use');
+    for (const [startsOn, expiresOn] of [
+      ['1979-12-31', '2027-01-01'],
+      ['2026-01-01', '2101-01-01'],
+    ])
+      expect(
+        (
+          await api(app, admin)
+            .post(`/v1/vehicles/${v2.id}/documents`)
+            .send(await insurance({ startsOn, expiresOn }))
+            .expect(422)
+        ).body.errors[0].code,
+      ).toBe('out_of_range');
+  });
+
+  it('review: กิจกรรมของรถรวมประวัติเอกสาร (เพิ่ม/ต่ออายุ)', async () => {
+    const v = await vehicle();
+    const d = (
+      await api(app, admin)
+        .post(`/v1/vehicles/${v.id}/documents`)
+        .send(await insurance())
+        .expect(201)
+    ).body;
+    await api(app, admin)
+      .post(`/v1/vehicle-documents/${d.id}/renew`)
+      .send({
+        docNo: 'POL-H2',
+        startsOn: addDays(today, 65),
+        expiresOn: addDays(today, 430),
+        fileDocumentIds: [await upload()],
+      })
+      .expect(201);
+    const h = (await api(app, viewer).get(`/v1/vehicles/${v.id}/history`).expect(200)).body.data;
+    const acts = h.map((r: { action: string }) => r.action);
+    expect(acts).toEqual(
+      expect.arrayContaining([
+        'vehicle.created',
+        'vehicle_document.created',
+        'vehicle_document.renewed',
+        'vehicle_document.superseded',
+      ]),
+    );
+    expect(
+      h.find((r: { action: string }) => r.action === 'vehicle_document.created').entityId,
+    ).toBe(d.id);
   });
 
   it('รถร่วม: เก็บค่าใช้จ่ายในเอกสารแต่ไม่ลง vehicle_cost · รถปลดระวาง → 409 · ไม่มีสิทธิ์เขียน → 403', async () => {
@@ -473,6 +670,24 @@ describe('เอกสารรถ (vehicle documents)', () => {
       .expect(200);
     expect(ids(p2)).toEqual([d30.id, d45.id]);
     await api(app, admin).get('/v1/vehicle-documents?cursor=xyz').expect(422);
+    // cursor ที่แต่งขึ้น (id ไม่ใช่ uuid / วันที่ไม่มีจริง) → 422 ไม่ใช่ 500
+    const forge = (o: object) => Buffer.from(JSON.stringify(o)).toString('base64url');
+    for (const c of [
+      { k: '2026-01-01', i: 'not-a-uuid' },
+      { k: '2026-02-31', i: '00000000-0000-4000-8000-000000000000' },
+    ])
+      await api(app, admin)
+        .get(`/v1/vehicle-documents?cursor=${forge(c)}`)
+        .expect(422);
+    // kit ร่วมของ master ทุกตัว (รถ = sort ทะเบียน, ลูกค้า = updatedAt)
+    await api(app, admin)
+      .get(`/v1/vehicles?cursor=${forge({ s: 'code', k: 'x', i: '---' })}`)
+      .expect(422);
+    await api(app, admin)
+      .get(
+        `/v1/customers?sort=updatedAt&cursor=${forge({ s: 'updatedAt', k: 'nope', i: '00000000-0000-4000-8000-000000000000' })}`,
+      )
+      .expect(422);
     // ประวัติ (superseded) ไม่อยู่ในค่าเริ่มต้น แต่ขอได้
     await api(app, admin)
       .post(`/v1/vehicle-documents/${expired.id}/renew`)

@@ -11,6 +11,7 @@ export const AUDIT_ID_KIND: Record<string, IdKind> = {
   user: 'user',
   role: 'role',
   customer: 'customer',
+  vehicle_document: 'vehicleDocument',
 };
 
 export interface AuditEntryShape {

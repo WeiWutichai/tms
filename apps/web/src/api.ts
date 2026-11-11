@@ -36,6 +36,31 @@ export async function unwrap<T>(
   return r.data as T;
 }
 
+/**
+ * คำขอเขียนที่ส่ง Idempotency-Key (review ST2-T17): ถ้า server ตอบ 409 `idempotency_in_progress`
+ * (คำขอเดิมด้วย key เดียวกันยังทำไม่เสร็จ — เช่นกดซ้ำ/เน็ตช้า) → รอแล้วส่งซ้ำด้วย key เดิม จนได้ผลของคำขอแรก
+ * ผู้เรียกต้องไม่เปลี่ยน key ระหว่างนี้ (ส่งซ้ำ = ได้ผลเดิม ไม่สร้างซ้ำ)
+ */
+export async function idempotent<T>(
+  call: () => Promise<{ data?: T; error?: unknown; response: Response }>,
+  waitMs = [300, 600, 1000, 1500, 2000, 3000, 4000, 5000],
+): Promise<T> {
+  for (let i = 0; ; i++) {
+    try {
+      return await unwrap(call());
+    } catch (e) {
+      const ms = waitMs[i];
+      if (
+        !(e instanceof ApiError) ||
+        e.problem.code !== 'idempotency_in_progress' ||
+        ms === undefined
+      )
+        throw e;
+      await new Promise((r) => setTimeout(r, ms));
+    }
+  }
+}
+
 export const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 30_000, refetchOnWindowFocus: false } },
 });
