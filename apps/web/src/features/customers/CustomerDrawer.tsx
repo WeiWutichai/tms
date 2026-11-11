@@ -1,6 +1,6 @@
 import { Badge, ChoiceGroup, Drawer, DrawerFooterButtons, TextInput } from '@tms/ui';
 import { useQuery } from '@tanstack/react-query';
-import { useId, useState, type ReactNode } from 'react';
+import { useEffect, useId, useState, type ReactNode } from 'react';
 import { api, ApiError, unwrap } from '../../api';
 import { useI18n } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
@@ -27,8 +27,9 @@ interface Form {
   billingCycle: Customer['billingCycle'];
   salesOwnerUserId: string;
   externalId: string;
-  vat: 'EXEMPT_TRANSPORT' | 'VAT_7';
-  wht: '1.00' | 'none';
+  /** '' = ยังไม่ระบุ (null ใน API) — ไม่แสดงเป็นค่าเริ่มต้นที่ทำให้เข้าใจผิด */
+  vat: 'EXEMPT_TRANSPORT' | 'VAT_7' | '';
+  wht: '1.00' | '0.00' | '';
   taxInvoiceMode: Customer['taxInvoiceMode'];
   billingCompanyId: string;
   vatRegistered: 'yes' | 'no';
@@ -49,8 +50,11 @@ function toForm(c: Customer): Form {
     billingCycle: c.billingCycle,
     salesOwnerUserId: c.salesOwner?.id ?? '',
     externalId: c.externalId ?? '',
-    vat: c.defaultVatType === 'VAT_7' ? 'VAT_7' : 'EXEMPT_TRANSPORT',
-    wht: c.whtExpectedRate ? '1.00' : 'none',
+    vat:
+      c.defaultVatType === 'VAT_7' || c.defaultVatType === 'EXEMPT_TRANSPORT'
+        ? c.defaultVatType
+        : '',
+    wht: c.whtExpectedRate === '1.00' || c.whtExpectedRate === '0.00' ? c.whtExpectedRate : '',
     taxInvoiceMode: c.taxInvoiceMode,
     billingCompanyId: c.billingCompanyId ?? '',
     vatRegistered: c.vatRegistered ? 'yes' : 'no',
@@ -70,12 +74,18 @@ function diffBody(c: Customer, a: Form, b: Form): CustomerInput {
       ? { ...(c.billingAddress ?? {}), line1: b.addr.trim() }
       : null;
   if (a.contact !== b.contact || a.phone !== b.phone) {
-    const rest = c.contacts.filter(
-      (x, i) => !(x.isPrimary || (i === 0 && !c.contacts.some((y) => y.isPrimary))),
+    // ผู้ติดต่อหลักเดิม (คงอีเมล/ช่องอื่นไว้ — แก้ได้แค่ชื่อ/เบอร์ในหน้านี้)
+    const pIdx = Math.max(
+      0,
+      c.contacts.findIndex((x) => x.isPrimary),
     );
+    const old = c.contacts[pIdx];
+    const rest = c.contacts.filter((_, i) => i !== pIdx || !old);
+    const { phone: _p, ...keep } = old ?? { name: '' };
     out.contacts = b.contact.trim()
       ? [
           {
+            ...keep,
             name: b.contact.trim(),
             ...(b.phone.trim() ? { phone: b.phone.trim() } : {}),
             isPrimary: true,
@@ -88,8 +98,8 @@ function diffBody(c: Customer, a: Form, b: Form): CustomerInput {
   if (a.billingCycle !== b.billingCycle) out.billingCycle = b.billingCycle;
   if (a.salesOwnerUserId !== b.salesOwnerUserId) out.salesOwnerUserId = b.salesOwnerUserId || null;
   if (a.externalId !== b.externalId) out.externalId = b.externalId.trim() || null;
-  if (a.vat !== b.vat) out.defaultVatType = b.vat;
-  if (a.wht !== b.wht) out.whtExpectedRate = b.wht === 'none' ? null : b.wht;
+  if (a.vat !== b.vat) out.defaultVatType = b.vat || null;
+  if (a.wht !== b.wht) out.whtExpectedRate = b.wht || null;
   if (a.taxInvoiceMode !== b.taxInvoiceMode) out.taxInvoiceMode = b.taxInvoiceMode;
   if (a.billingCompanyId !== b.billingCompanyId) out.billingCompanyId = b.billingCompanyId || null;
   if (a.vatRegistered !== b.vatRegistered) out.vatRegistered = b.vatRegistered === 'yes';
@@ -97,6 +107,16 @@ function diffBody(c: Customer, a: Form, b: Form): CustomerInput {
   if (a.freeTimeMin !== b.freeTimeMin)
     out.freeTimeMin = b.freeTimeMin.trim() === '' ? null : Number(b.freeTimeMin);
   return out;
+}
+
+/** หัวตัวเลือก + "ยังไม่ระบุ" เมื่อค่าเป็น null */
+function Unset({ label, unset, hint }: { label: string; unset: boolean; hint: string }) {
+  return (
+    <>
+      {label}
+      {unset && <span style={{ marginLeft: 8, color: '#8F5500', fontWeight: 400 }}>· {hint}</span>}
+    </>
+  );
 }
 
 /** ช่องใน drawer (label 12.5/500 + input 36px — ต้นแบบ this.fld()) */
@@ -154,6 +174,9 @@ export function CustomerDrawer({
   const { t } = useI18n();
   const [tab, setTab] = useState<Tab>('sum');
   const [base, setBase] = useState<Form>(() => toForm(c));
+  // version ที่ฟอร์มโหลดมา — ส่งเป็น If-Match (ไม่ใช้ version ล่าสุดจากรายการ ไม่งั้นทับงานคนอื่นเงียบ ๆ)
+  const [baseVersion, setBaseVersion] = useState(c.version);
+  const stale = c.version !== baseVersion;
   const [f, setF] = useState<Form>(base);
   const [editExt, setEditExt] = useState(false);
   const save = useUpdateCustomer();
@@ -174,18 +197,37 @@ export function CustomerDrawer({
       ? (save.error.problem as { existing?: { code: string; legalName: string } }).existing
       : undefined;
   if (dup) errs.taxId = t('cust.v.dup', { code: dup.code, name: dup.legalName });
-  const top = save.error && !Object.keys(errs).length ? problemText(save.error, t) : null;
+  const creditBad = f.credit.trim() === '' || Number(f.credit) > 365;
+  if (creditBad) errs.creditTermDays = t('cust.v.credit');
+  const top =
+    save.error && !Object.keys(fieldErrors(save.error, t)).length && !dup
+      ? problemText(save.error, t)
+      : null;
   const ro = !canWrite;
+  const reload = () => {
+    const nf = toForm(c);
+    setBase(nf);
+    setF(nf);
+    setBaseVersion(c.version);
+    save.reset();
+  };
+
+  // รายการถูกแก้ (เช่น ปิดใช้จากเมนู/ผู้อื่นแก้) ระหว่างที่ฟอร์มยังไม่ได้แก้อะไร → โหลดค่าใหม่เงียบ ๆ
+  // ถ้าแก้ค้างอยู่ → แสดงแถบ "ถูกแก้โดยผู้อื่น" ให้กดโหลดใหม่ (ไม่ทับงานกัน)
+  useEffect(() => {
+    if (c.version !== baseVersion && !dirty) reload();
+  }, [c.version]);
 
   const submit = () => {
-    if (!dirty) return;
+    if (!dirty || creditBad || stale) return;
     save.mutate(
-      { id: c.id, version: c.version, body },
+      { id: c.id, version: baseVersion, body },
       {
         onSuccess: (u) => {
           const nf = toForm(u);
           setBase(nf);
           setF(nf);
+          setBaseVersion(u.version);
           setEditExt(false);
           onSaved(u);
         },
@@ -252,7 +294,19 @@ export function CustomerDrawer({
         ) : undefined
       }
     >
-      {top && <div className="tms-alert">{top}</div>}
+      {(stale ||
+        (save.error instanceof ApiError && save.error.problem.code === 'precondition_failed')) && (
+        <div className="tms-alert" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span style={{ flex: 1 }}>{t('cust.stale')}</span>
+          <button type="button" className="tms-textlink" onClick={reload}>
+            {t('cust.reload')}
+          </button>
+        </div>
+      )}
+      {top &&
+        !(save.error instanceof ApiError && save.error.problem.code === 'precondition_failed') && (
+          <div className="tms-alert">{top}</div>
+        )}
       {tab === 'sum' && (
         <>
           <section className="tms-kv">
@@ -408,7 +462,7 @@ export function CustomerDrawer({
       {tab === 'cond' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <ChoiceGroup
-            label={t('cust.c.vat')}
+            label={<Unset label={t('cust.c.vat')} unset={f.vat === ''} hint={t('cust.c.unset')} />}
             disabled={ro}
             value={f.vat}
             onChange={(v) => set('vat', v)}
@@ -418,13 +472,13 @@ export function CustomerDrawer({
             ]}
           />
           <ChoiceGroup
-            label={t('cust.c.wht')}
+            label={<Unset label={t('cust.c.wht')} unset={f.wht === ''} hint={t('cust.c.unset')} />}
             disabled={ro}
             value={f.wht}
             onChange={(v) => set('wht', v)}
             options={[
               { value: '1.00', label: t('cust.c.wht.1') },
-              { value: 'none', label: t('cust.c.wht.none') },
+              { value: '0.00', label: t('cust.c.wht.none') },
             ]}
           />
           <ChoiceGroup

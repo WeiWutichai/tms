@@ -270,4 +270,133 @@ describe('ลูกค้า (customers)', () => {
     const none = await tokenFor(tenantId, 'orders:read');
     await api(app, none).get('/v1/customers').expect(403);
   });
+  it('review: รหัสตัวเลขยาวเกินไม่ทำ next-code พัง (ไม่ overflow) + รหัสไม่สนตัวพิมพ์', async () => {
+    const t = (await createTenant(db)).id;
+    const tok = await tokenFor(t);
+    await create({ legalName: 'บจก. รหัสยาว', code: 'CUS-99999999999' }, tok).expect(201);
+    await create({ legalName: 'บจก. รหัสเล็ก', code: 'cus-0007' }, tok)
+      .expect(201)
+      .expect((r) => expect(r.body.code).toBe('CUS-0007'));
+    const n = await api(app, tok).get('/v1/customers/next-code').expect(200);
+    expect(n.body.code).toBe('CUS-0008');
+    const dup = await create({ legalName: 'ซ้ำ', code: 'Cus-0007' }, tok);
+    expect(dup.status).toBe(409);
+    const auto = await create({ legalName: 'บจก. อัตโนมัติ' }, tok).expect(201);
+    expect(auto.body.code).toBe('CUS-0008');
+  });
+
+  it('review: null ในช่องที่ห้ามว่าง → 422 (ไม่ใช่ 500)', async () => {
+    const c = await newCustomer();
+    for (const body of [
+      { legalName: null },
+      { billingCycle: null },
+      { creditTermDays: null },
+      { taxInvoiceMode: null },
+      { vatRegistered: null },
+      { etaxCapable: null },
+      { contacts: null },
+      { branchCode: null },
+    ]) {
+      const r = await api(app, admin).patch(`/v1/customers/${c.id}`).send(body);
+      expect(r.status, JSON.stringify(body)).toBe(422);
+    }
+    expect((await create({ legalName: 'บจก. ว่าง', billingCycle: null })).status).toBe(422);
+    const put = await api(app, admin)
+      .put('/v1/customers/external/NULL-1')
+      .send({ legalName: 'x', vatRegistered: null });
+    expect(put.status).toBe(422);
+    // ช่องที่ล้างได้ยังส่ง null ได้
+    await api(app, admin).patch(`/v1/customers/${c.id}`).send({ taxId: null }).expect(200);
+  });
+
+  it('review: PUT external ซ้ำด้วยที่อยู่เต็ม/ผู้ติดต่อ/วงเงิน "500000" ไม่เพิ่ม version', async () => {
+    const body = {
+      legalName: 'บจก. ข้อมูลเต็ม',
+      taxId: validTaxId(950),
+      billingAddress: {
+        postcode: '10540',
+        line1: '1 ถนนตัวอย่าง',
+        subdistrict: 'บางพลีใหญ่',
+        district: 'บางพลี',
+        province: 'สมุทรปราการ',
+      },
+      contacts: [
+        { name: 'คุณเอ', phone: '+66812345678', email: 'a@example.com', isPrimary: true },
+        { name: 'คุณบี', email: 'b@example.com' },
+      ],
+      creditLimit: '500000',
+      whtExpectedRate: '1.00',
+    };
+    const r1 = await api(app, admin).put('/v1/customers/external/FULL-1').send(body).expect(201);
+    const r2 = await api(app, admin).put('/v1/customers/external/FULL-1').send(body).expect(200);
+    expect(r2.body.version).toBe(r1.body.version);
+    expect(r2.body.creditLimit).toBe('500000.00');
+  });
+
+  it('review: ลบแล้วปล่อย externalId — ERP ส่งซ้ำได้รายการใหม่; includeDeleted เห็น tombstone', async () => {
+    const r1 = await api(app, admin)
+      .put('/v1/customers/external/DEL-1')
+      .send({ legalName: 'บจก. จะถูกลบ' })
+      .expect(201);
+    const since = new Date(Date.now() - 1000).toISOString();
+    await api(app, admin)
+      .post(`/v1/customers/${r1.body.id}/delete`)
+      .send({ reason: 'ทดสอบลบแล้วส่งใหม่' })
+      .expect(204);
+    const r2 = await api(app, admin)
+      .put('/v1/customers/external/DEL-1')
+      .send({ legalName: 'บจก. ส่งใหม่' })
+      .expect(201);
+    expect(r2.body.id).not.toBe(r1.body.id);
+    const row = await db.customer.findUnique({
+      where: { id: tryDecodeId('customer', r1.body.id)! },
+    });
+    expect(row).toMatchObject({ externalId: null, deletedExternalId: 'DEL-1' });
+    const pull = await api(app, admin)
+      .get(`/v1/customers?includeDeleted=true&sort=updatedAt&updatedAfter=${since}`)
+      .expect(200);
+    const tomb = pull.body.data.find((c: { id: string }) => c.id === r1.body.id);
+    expect(tomb.deletedAt).toBeTruthy();
+    const normal = await api(app, admin).get(`/v1/customers?updatedAfter=${since}&sort=updatedAt`);
+    expect(normal.body.data.find((c: { id: string }) => c.id === r1.body.id)).toBeUndefined();
+  });
+
+  it('review: ค้นหา % / _ ไม่ใช่ wildcard; ตัดอักขระมองไม่เห็นในชื่อ', async () => {
+    const t = (await createTenant(db)).id;
+    const tok = await tokenFor(t);
+    const c = await create({ legalName: 'บจก.​ทดสอบ\tตัด\nอักขระ' }, tok).expect(201);
+    expect(c.body.legalName).toBe('บจก. ทดสอบ ตัด อักขระ');
+    await create({ legalName: 'บจก. 100% จริง' }, tok).expect(201);
+    const pct = await api(app, tok)
+      .get(`/v1/customers?q=${encodeURIComponent('%')}`)
+      .expect(200);
+    expect(pct.body.data.map((x: { legalName: string }) => x.legalName)).toEqual([
+      'บจก. 100% จริง',
+    ]);
+    const us = await api(app, tok)
+      .get(`/v1/customers?q=${encodeURIComponent('_')}`)
+      .expect(200);
+    expect(us.body.data).toEqual([]);
+  });
+
+  it('review: ประวัติไม่ส่ง ip/requestId ให้ผู้ไม่มี audit:read; ปิดใช้ส่ง ETag', async () => {
+    const c = await newCustomer();
+    const off = await api(app, admin)
+      .post(`/v1/customers/${c.id}/deactivate`)
+      .set('If-Match', `"${c.version}"`)
+      .send({ reason: 'ทดสอบ etag ปิดใช้' })
+      .expect(200);
+    expect(off.headers.etag).toBe(`"${c.version + 1}"`);
+    await api(app, admin)
+      .post(`/v1/customers/${c.id}/activate`)
+      .set('If-Match', `"${c.version}"`)
+      .send({})
+      .expect(412);
+    const viewer = await tokenFor(tenantId, 'master:read');
+    const h = await api(app, viewer).get(`/v1/customers/${c.id}/history`).expect(200);
+    expect(h.body.data[0].ip).toBeNull();
+    expect(h.body.data[0].requestId).toBeNull();
+    const full = await api(app, admin).get(`/v1/customers/${c.id}/history`).expect(200);
+    expect(full.body.data[0].requestId).not.toBeNull();
+  });
 });

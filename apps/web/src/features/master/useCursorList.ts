@@ -26,8 +26,10 @@ export function useCursorList<R>(
   key: string,
   filters: Record<string, string>,
   fetchPage: (q: Record<string, string | number>) => Promise<CursorPage<R>>,
+  opts: { size?: number; sort?: string } = {},
 ) {
-  const [size, setSize] = useState(20);
+  // ค่าเริ่มต้นตามต้นแบบ: 10 แถวต่อหน้า, เรียงตามรหัส
+  const [size, setSize] = useState(opts.size ?? 10);
   const [cursors, setCursors] = useState<(string | undefined)[]>([undefined]);
   const [index, setIndex] = useState(0);
   const debounced = useDebounced(filters);
@@ -43,7 +45,7 @@ export function useCursorList<R>(
     queryFn: () =>
       fetchPage({
         limit: size,
-        sort: '-updatedAt',
+        sort: opts.sort ?? 'code',
         ...clean,
         ...(cursors[index] ? { cursor: cursors[index]! } : {}),
       }),

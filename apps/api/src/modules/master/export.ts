@@ -29,7 +29,12 @@ function csvCell(v: string | number | null | undefined): string {
   return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
-/** CSV UTF-8 + BOM (Excel ไทยเปิดได้ถูก) หรือ .xlsx หนึ่ง sheet — ตั้ง header ดาวน์โหลดให้ */
+/**
+ * CSV UTF-8 + BOM หรือ .xlsx หนึ่ง sheet — ตั้ง header ดาวน์โหลดให้
+ * **แนะนำ .xlsx** (ค่าเริ่มต้น): เลขผู้เสียภาษี/รหัสสาขาเป็นข้อความ เลข 0 นำหน้าไม่หาย
+ * CSV ใช้กับระบบอื่น/นำเข้ากลับ — ค่าเป็นข้อความดิบ (Excel ที่เปิด CSV ตรง ๆ อาจตัด 0 นำหน้า; [OPEN spec/12 §3])
+ * กัน formula injection เฉพาะ CSV (ขึ้นต้นด้วย = + - @ tab CR → เติม ')
+ */
 export async function sendExport<R>(
   res: Response,
   format: 'xlsx' | 'csv',
@@ -52,8 +57,9 @@ export async function sendExport<R>(
   for (const r of rows)
     ws.addRow(
       columns.map((c) => {
+        // .xlsx เก็บเป็นเซลล์ชนิดข้อความ (ไม่ถูกตีความเป็นสูตร) — ไม่ต้องเติม ' (ไม่งั้นเบอร์ +66… มี ' ติด)
         const v = c.value(r);
-        return typeof v === 'string' ? safe(v) : (v ?? null);
+        return v ?? null;
       }),
     );
   ws.columns.forEach((col) => (col.width = 20));

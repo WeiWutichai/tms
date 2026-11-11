@@ -3017,7 +3017,7 @@
             "name": "cursor",
             "required": false,
             "in": "query",
-            "description": "ค่า nextCursor จากหน้าก่อน",
+            "description": "ค่า nextCursor จากหน้าก่อน (ใช้กับ sort เดิมเท่านั้น)",
             "schema": {
               "type": "string"
             }
@@ -3026,7 +3026,7 @@
             "name": "updatedAfter",
             "required": false,
             "in": "query",
-            "description": "คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull)",
+            "description": "คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull — ใช้คู่ includeDeleted=true เพื่อรับรายการที่ถูกลบ)",
             "schema": {
               "type": "string"
             }
@@ -3035,10 +3035,12 @@
             "name": "sort",
             "required": false,
             "in": "query",
+            "description": "code = เรียงตามรหัส (ค่าเริ่มต้นของหน้าจอ) · updatedAt/-updatedAt สำหรับ sync",
             "schema": {
-              "default": "updatedAt",
+              "default": "code",
               "type": "string",
               "enum": [
+                "code",
                 "updatedAt",
                 "-updatedAt"
               ]
@@ -3077,6 +3079,15 @@
             "required": false,
             "in": "query",
             "description": "externalId ตรงตัว (ใช้ตรวจว่ามีในระบบแล้วหรือยัง)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "includeDeleted",
+            "required": false,
+            "in": "query",
+            "description": "true = รวมรายการที่ถูกลบ (tombstone มี `deletedAt`) — ให้ระบบที่ดึงแบบ incremental รู้ว่ารายการถูกลบ",
             "schema": {
               "type": "string"
             }
@@ -3250,7 +3261,7 @@
             "name": "cursor",
             "required": false,
             "in": "query",
-            "description": "ค่า nextCursor จากหน้าก่อน",
+            "description": "ค่า nextCursor จากหน้าก่อน (ใช้กับ sort เดิมเท่านั้น)",
             "schema": {
               "type": "string"
             }
@@ -3259,7 +3270,7 @@
             "name": "updatedAfter",
             "required": false,
             "in": "query",
-            "description": "คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull)",
+            "description": "คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull — ใช้คู่ includeDeleted=true เพื่อรับรายการที่ถูกลบ)",
             "schema": {
               "type": "string"
             }
@@ -3268,10 +3279,12 @@
             "name": "sort",
             "required": false,
             "in": "query",
+            "description": "code = เรียงตามรหัส (ค่าเริ่มต้นของหน้าจอ) · updatedAt/-updatedAt สำหรับ sync",
             "schema": {
-              "default": "updatedAt",
+              "default": "code",
               "type": "string",
               "enum": [
+                "code",
                 "updatedAt",
                 "-updatedAt"
               ]
@@ -3310,6 +3323,15 @@
             "required": false,
             "in": "query",
             "description": "externalId ตรงตัว (ใช้ตรวจว่ามีในระบบแล้วหรือยัง)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "includeDeleted",
+            "required": false,
+            "in": "query",
+            "description": "true = รวมรายการที่ถูกลบ (tombstone มี `deletedAt`) — ให้ระบบที่ดึงแบบ incremental รู้ว่ารายการถูกลบ",
             "schema": {
               "type": "string"
             }
@@ -3601,6 +3623,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -3646,6 +3677,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -3688,6 +3728,15 @@
             "name": "id",
             "required": true,
             "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
             "schema": {
               "type": "string"
             }
@@ -6600,6 +6649,12 @@
               "inactive"
             ]
           },
+          "deletedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "มีค่าเฉพาะเมื่อขอ includeDeleted=true และรายการถูกลบแล้ว (tombstone)"
+          },
           "version": {
             "type": "number"
           },
@@ -6762,10 +6817,11 @@
           "whtExpectedRate": {
             "type": "string",
             "enum": [
-              "1.00"
+              "1.00",
+              "0.00"
             ],
             "nullable": true,
-            "description": "อัตราหัก ณ ที่จ่ายที่ลูกค้าคาดว่าจะหักเรา (null = ไม่หัก) — ใช้ประมาณยอดรับสุทธิ"
+            "description": "อัตราหัก ณ ที่จ่ายที่ลูกค้าคาดว่าจะหักเรา: 1.00 = หัก 1% (ค่าขนส่ง), 0.00 = ไม่หัก, null = ยังไม่ระบุ"
           },
           "creditLimit": {
             "type": "string",
@@ -6882,10 +6938,11 @@
           "whtExpectedRate": {
             "type": "string",
             "enum": [
-              "1.00"
+              "1.00",
+              "0.00"
             ],
             "nullable": true,
-            "description": "อัตราหัก ณ ที่จ่ายที่ลูกค้าคาดว่าจะหักเรา (null = ไม่หัก) — ใช้ประมาณยอดรับสุทธิ"
+            "description": "อัตราหัก ณ ที่จ่ายที่ลูกค้าคาดว่าจะหักเรา: 1.00 = หัก 1% (ค่าขนส่ง), 0.00 = ไม่หัก, null = ยังไม่ระบุ"
           },
           "creditLimit": {
             "type": "string",
@@ -6998,10 +7055,11 @@
           "whtExpectedRate": {
             "type": "string",
             "enum": [
-              "1.00"
+              "1.00",
+              "0.00"
             ],
             "nullable": true,
-            "description": "อัตราหัก ณ ที่จ่ายที่ลูกค้าคาดว่าจะหักเรา (null = ไม่หัก) — ใช้ประมาณยอดรับสุทธิ"
+            "description": "อัตราหัก ณ ที่จ่ายที่ลูกค้าคาดว่าจะหักเรา: 1.00 = หัก 1% (ค่าขนส่ง), 0.00 = ไม่หัก, null = ยังไม่ระบุ"
           },
           "creditLimit": {
             "type": "string",

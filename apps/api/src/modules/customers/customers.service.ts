@@ -3,14 +3,17 @@ import { Prisma, type ActiveStatus, type Customer } from '@prisma/client';
 import type { TransitionTable } from '@tms/domain';
 import { AuditService } from '../../audit/audit.service';
 import { encodeId, tryDecodeId } from '../../common/ids';
-import { keysetArgs, toPage } from '../../common/pagination';
 import { ProblemException } from '../../common/problem';
 import { DbService } from '../../db/db.service';
 import { StateService } from '../../state/state.service';
 import {
   assertNotReferenced,
+  deletedFilter,
   emitMasterEvent,
+  isNoopUpdate,
+  likeEscape,
   lockKey,
+  masterKeyset,
   nextCode,
   statusFilter,
   upsertByExternalId,
@@ -28,6 +31,7 @@ import type {
 } from './customer.dto';
 
 export const CUSTOMER_CODE_PREFIX = 'CUS';
+const DECIMAL_FIELDS = ['whtExpectedRate', 'creditLimit'] as const;
 type CustomerEvent = 'activate' | 'deactivate';
 export const CUSTOMER_TRANSITIONS: TransitionTable<ActiveStatus, CustomerEvent> = {
   ACTIVE: { deactivate: 'INACTIVE' },
@@ -63,26 +67,11 @@ export function toCustomerDto(c: Customer, salesOwnerName?: string | null): Cust
       ? { id: encodeId('user', c.salesOwnerUserId), name: salesOwnerName ?? null }
       : null,
     status: c.status.toLowerCase() as CustomerDto['status'],
+    ...(c.deletedAt ? { deletedAt: c.deletedAt.toISOString() } : {}),
     version: c.version,
     createdAt: c.createdAt.toISOString(),
     updatedAt: c.updatedAt.toISOString(),
   };
-}
-
-/** ค่าที่จะเขียนเท่ากับค่าเดิมทุกช่อง? (Decimal/Json/DbNull เทียบแบบค่า) */
-function isNoop(current: Customer, data: Prisma.CustomerUncheckedUpdateInput): boolean {
-  const norm = (v: unknown): unknown =>
-    v === Prisma.DbNull
-      ? null
-      : v instanceof Prisma.Decimal
-        ? v.toFixed(2)
-        : typeof v === 'string' && /^\d+(\.\d+)?$/.test(v) && v.includes('.')
-          ? Number(v).toFixed(2)
-          : v;
-  return Object.entries(data).every(
-    ([k, v]) =>
-      JSON.stringify(norm((current as Record<string, unknown>)[k])) === JSON.stringify(norm(v)),
-  );
 }
 
 /** snapshot สำหรับ audit/event — ไม่มี updatedAt/version (diff ไม่นับ) */
@@ -106,20 +95,21 @@ export class CustomersService {
   // ---------- read ----------
 
   private where(q: CustomerListQuery): Prisma.CustomerWhereInput {
-    const and: Prisma.CustomerWhereInput[] = [{ deletedAt: null }];
+    const and: Prisma.CustomerWhereInput[] = [deletedFilter(q)];
     const status = statusFilter(q.status);
     if (status) and.push({ status });
     if (q.billingCycle) and.push({ billingCycle: q.billingCycle });
     if (q.externalId) and.push({ externalId: q.externalId });
-    if (q.code) and.push({ code: { contains: q.code, mode: 'insensitive' } });
-    if (q.name) and.push({ legalName: { contains: q.name, mode: 'insensitive' } });
+    const like = (v: string) => ({ contains: likeEscape(v), mode: 'insensitive' as const });
+    if (q.code) and.push({ code: like(q.code) });
+    if (q.name) and.push({ legalName: like(q.name) });
     if (q.q) {
       const digits = q.q.replace(/\D/g, '');
       and.push({
         OR: [
-          { code: { contains: q.q, mode: 'insensitive' } },
-          { legalName: { contains: q.q, mode: 'insensitive' } },
-          { externalId: { contains: q.q, mode: 'insensitive' } },
+          { code: like(q.q) },
+          { legalName: like(q.q) },
+          { externalId: like(q.q) },
           ...(digits.length >= 3 ? [{ taxId: { contains: digits } }] : []),
         ],
       });
@@ -128,19 +118,14 @@ export class CustomersService {
   }
 
   async list(q: CustomerListQuery) {
-    const k = keysetArgs(q);
+    const k = masterKeyset(q);
     const rows = await this.db.tx.customer.findMany({
       where: { AND: [this.where(q), k.where] },
-      orderBy: k.orderBy as never,
+      orderBy: k.orderBy,
       take: k.take,
     });
     const names = await this.ownerNames(rows);
-    return toPage(
-      rows,
-      k.limit,
-      (r) => toCustomerDto(r, names.get(r.salesOwnerUserId ?? '')),
-      q.fields,
-    );
+    return k.page(rows, (r) => toCustomerDto(r, names.get(r.salesOwnerUserId ?? '')));
   }
 
   /** แถวสำหรับส่งออก (ตามตัวกรองเดียวกับ list หรือ id ที่เลือก) — เกินเพดาน → 422 */
@@ -153,7 +138,11 @@ export class CustomersService {
       take: EXPORT_MAX_ROWS + 1,
     });
     if (rows.length > EXPORT_MAX_ROWS)
-      throw field422('limit', 'too_many_rows', `export is limited to ${EXPORT_MAX_ROWS} rows`);
+      throw field422(
+        'query',
+        'too_many_rows',
+        `export is limited to ${EXPORT_MAX_ROWS} rows — narrow the filter`,
+      );
     const names = await this.ownerNames(rows);
     return rows.map((r) => toCustomerDto(r, names.get(r.salesOwnerUserId ?? '')));
   }
@@ -347,7 +336,7 @@ export class CustomersService {
       if (input.externalId) await this.assertUniqueExternal(input.externalId, current.id);
       data.externalId = input.externalId;
     }
-    if (isNoop(current, data)) return current; // ส่งซ้ำค่าเดิม (เช่น PUT external) ไม่เพิ่ม version
+    if (isNoopUpdate(current, data as Record<string, unknown>, DECIMAL_FIELDS)) return current; // ส่งซ้ำค่าเดิม (เช่น PUT external) ไม่เพิ่ม version
     const c = await this.bumpVersion(current, data);
     const before = auditView(current);
     const after = auditView(c);
@@ -366,12 +355,8 @@ export class CustomersService {
   async upsertExternal(externalId: string, input: UpsertCustomerDto, expected?: number) {
     const tx = this.db.tx;
     return upsertByExternalId(tx, 'customer', externalId, {
-      find: async () => {
-        const c = await tx.customer.findFirst({ where: { externalId } });
-        if (c?.deletedAt)
-          throw new ProblemException('conflict', 'customer with this externalId was deleted');
-        return c;
-      },
+      // รายการที่ลบแล้วย้าย externalId ไป deleted_external_id → ERP ส่งซ้ำได้ (สร้างใหม่)
+      find: () => tx.customer.findFirst({ where: { externalId, deletedAt: null } }),
       create: () => this.create({ ...input, externalId }),
       update: (cur) => {
         const { code: _code, ...rest } = input;
@@ -425,7 +410,12 @@ export class CustomersService {
       { name: 'rateCards', count: () => tx.rateCard.count({ where: { customerId: id } }) },
       { name: 'sites', count: () => tx.customerSite.count({ where: { customerId: id } }) },
     ]);
-    await this.bumpVersion(current, { deletedAt: new Date() });
+    // ปล่อย externalId ให้ระบบต้นทางส่งรายการใหม่ได้ — เก็บค่าเดิมไว้ใน deleted_external_id (ตรวจย้อนได้)
+    await this.bumpVersion(current, {
+      deletedAt: new Date(),
+      externalId: null,
+      deletedExternalId: current.externalId,
+    });
     await this.audit.record({
       action: 'customer.deleted',
       entityType: 'customer',

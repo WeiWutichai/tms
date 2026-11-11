@@ -1,7 +1,21 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Transform } from 'class-transformer';
-import { IsNotEmpty, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
-import { ListQuery } from '../../common/pagination';
+import { Prisma } from '@prisma/client';
+import { Transform, Type } from 'class-transformer';
+import {
+  IsIn,
+  IsInt,
+  IsISO8601,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  Matches,
+  Max,
+  MaxLength,
+  Min,
+  MinLength,
+  ValidateIf,
+} from 'class-validator';
+import { pickFields } from '../../common/pagination';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import type { Tx } from '../../db/db.service';
@@ -19,15 +33,89 @@ import type { Tx } from '../../db/db.service';
  * ประวัติ (audit) อยู่ที่ `history.ts`, ส่งออก Excel/CSV อยู่ที่ `export.ts`
  */
 
-const trim = ({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value);
+/**
+ * ตัดอักขระที่มองไม่เห็น/ควบคุม (zero-width, bidi override, BOM, control รวม tab/ขึ้นบรรทัด) → ช่องว่าง แล้วยุบช่องว่างซ้อน
+ * ใช้กับข้อความบรรทัดเดียวของข้อมูลหลักทุกตัว (ชื่อ ที่อยู่ ผู้ติดต่อ คำค้น) — กันชื่อ "ดูเหมือนกัน" แต่ไม่ซ้ำ และกันพิมพ์เพี้ยนบนเอกสาร
+ */
+export function cleanLine(v: string): string {
+  return v
+    .replace(
+      /[\u0000-\u001F\u007F-\u009F\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]/g,
+      ' ',
+    )
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
-export class MasterListQuery extends ListQuery {
+/** class-transformer: ข้อความบรรทัดเดียว (ค่าที่ไม่ใช่ string ส่งต่อให้ validator ตัดสิน) */
+export const CleanText = () =>
+  Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? cleanLine(value) : value,
+  );
+
+/**
+ * ช่องไม่บังคับแต่ห้ามเป็น null (เช่น ชื่อ, รอบวางบิล, boolean) — `@IsOptional()` ปล่อย null ผ่านไปถึง DB → 500
+ * ใช้ตัวนี้แทน: ไม่ส่ง = ข้าม, ส่ง null = 422 จาก validator ตัวถัดไป
+ */
+export const IsOptionalNotNull = () => ValidateIf((_, v) => v !== undefined);
+
+/** ช่องที่ล้างค่าได้ด้วย null (เช่น taxId, billingCompanyId) — ไม่ส่ง/null = ข้าม validator */
+export const IsNullable = () => ValidateIf((_, v) => v !== undefined && v !== null);
+
+/** escape `%` `_` `\` สำหรับ LIKE (Prisma `contains` ไม่ escape ให้) */
+export function likeEscape(v: string): string {
+  return v.replace(/[\\%_]/g, (c) => `\\${c}`);
+}
+
+export const MASTER_SORTS = ['code', 'updatedAt', '-updatedAt'] as const;
+
+/**
+ * query มาตรฐานของรายการข้อมูลหลัก — cursor แบบ keyset (ST0-T08) เรียงตามรหัสได้ (ตามต้นแบบ)
+ * แยกจาก `ListQuery` เพราะต้องเพิ่ม `sort=code` (class-validator รวม decorator ของคลาสแม่ จึง override ไม่ได้)
+ */
+export class MasterListQuery {
+  @ApiPropertyOptional({ minimum: 1, maximum: 200, default: 50 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(200)
+  limit?: number;
+
+  @ApiPropertyOptional({ description: 'ค่า nextCursor จากหน้าก่อน (ใช้กับ sort เดิมเท่านั้น)' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  cursor?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull — ใช้คู่ includeDeleted=true เพื่อรับรายการที่ถูกลบ)',
+  })
+  @IsOptional()
+  @IsISO8601()
+  updatedAfter?: string;
+
+  @ApiPropertyOptional({
+    enum: MASTER_SORTS,
+    default: 'code',
+    description: 'code = เรียงตามรหัส (ค่าเริ่มต้นของหน้าจอ) · updatedAt/-updatedAt สำหรับ sync',
+  })
+  @IsOptional()
+  @IsIn(MASTER_SORTS)
+  sort?: (typeof MASTER_SORTS)[number];
+
+  @ApiPropertyOptional({ description: 'รายชื่อ field คั่นด้วย , เช่น id,legalName' })
+  @IsOptional()
+  @Matches(/^[a-zA-Z]+(,[a-zA-Z]+)*$/)
+  fields?: string;
+
   @ApiPropertyOptional({
     description: 'ค้นหา — รหัส ชื่อ เลขผู้เสียภาษี หรือ externalId (ไม่สนตัวพิมพ์)',
     maxLength: 100,
   })
   @IsOptional()
-  @Transform(trim)
+  @CleanText()
   @IsString()
   @MaxLength(100)
   q?: string;
@@ -42,6 +130,81 @@ export class MasterListQuery extends ListQuery {
   @IsString()
   @MaxLength(100)
   externalId?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'true = รวมรายการที่ถูกลบ (tombstone มี `deletedAt`) — ให้ระบบที่ดึงแบบ incremental รู้ว่ารายการถูกลบ',
+  })
+  @IsOptional()
+  @IsIn(['true', 'false'])
+  includeDeleted?: 'true' | 'false';
+}
+
+interface MasterCursor {
+  s: string; // sort
+  k: string; // ค่า key (code หรือ updatedAt ISO)
+  i: string; // id
+}
+
+function decodeMasterCursor(cursor: string, sort: string): MasterCursor {
+  try {
+    const v = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as MasterCursor;
+    if (v.s !== sort || typeof v.k !== 'string' || typeof v.i !== 'string') throw new Error();
+    return v;
+  } catch {
+    throw new ProblemException('validation_failed', undefined, [
+      { field: 'cursor', code: 'invalid_cursor', message: 'cursor is invalid' },
+    ]);
+  }
+}
+
+/**
+ * keyset pagination ของข้อมูลหลัก: (code, id) หรือ (updatedAt, id) — เสถียรแม้ค่าซ้ำ
+ * คืน where/orderBy/take สำหรับ findMany และ `page()` สร้าง response + nextCursor
+ */
+export function masterKeyset(q: MasterListQuery) {
+  const limit = q.limit ?? 50;
+  const sort = q.sort ?? 'code';
+  const desc = sort === '-updatedAt';
+  const op = desc ? 'lt' : 'gt';
+  const dir = desc ? 'desc' : 'asc';
+  const key = sort === 'code' ? 'code' : 'updatedAt';
+  const and: Record<string, unknown>[] = [];
+  if (q.updatedAfter) and.push({ updatedAt: { gt: new Date(q.updatedAfter) } });
+  if (q.cursor) {
+    const c = decodeMasterCursor(q.cursor, sort);
+    const k = key === 'code' ? c.k : new Date(c.k);
+    and.push({ OR: [{ [key]: { [op]: k } }, { [key]: k, id: { [op]: c.i } }] });
+  }
+  return {
+    where: and.length ? { AND: and } : {},
+    orderBy: [{ [key]: dir }, { id: dir }] as never,
+    take: limit + 1,
+    page<R extends { id: string; code?: string; updatedAt: Date }, T>(
+      rows: R[],
+      map: (r: R) => T,
+    ): { data: Partial<T>[]; nextCursor: string | null; hasMore: boolean } {
+      const hasMore = rows.length > limit;
+      const slice = hasMore ? rows.slice(0, limit) : rows;
+      const last = slice[slice.length - 1];
+      const cur = (r: R): MasterCursor => ({
+        s: sort,
+        k: key === 'code' ? String(r.code) : r.updatedAt.toISOString(),
+        i: r.id,
+      });
+      return {
+        data: slice.map((r) => pickFields(map(r), q.fields)),
+        nextCursor:
+          hasMore && last ? Buffer.from(JSON.stringify(cur(last))).toString('base64url') : null,
+        hasMore,
+      };
+    },
+  };
+}
+
+/** `includeDeleted` ไม่ส่ง/false → ซ่อนรายการที่ลบ */
+export function deletedFilter(q: { includeDeleted?: string }) {
+  return q.includeDeleted === 'true' ? {} : { deletedAt: null };
 }
 
 /** แปลง `?status=active,inactive` → enum ของ Prisma (ACTIVE/INACTIVE) */
@@ -50,10 +213,43 @@ export function statusFilter(status?: string): { in: ('ACTIVE' | 'INACTIVE')[] }
   return { in: status.split(',').map((s) => s.toUpperCase() as 'ACTIVE' | 'INACTIVE') };
 }
 
+/** JSON แบบเรียง key (jsonb ใน Postgres เรียง key ใหม่ — เทียบค่าด้วย key ที่เรียงแล้ว) */
+export function stableStringify(v: unknown): string {
+  if (v === undefined) return 'null';
+  if (v === null || typeof v !== 'object') return JSON.stringify(v);
+  if (Array.isArray(v)) return `[${v.map(stableStringify).join(',')}]`;
+  const o = v as Record<string, unknown>;
+  return `{${Object.keys(o)
+    .filter((k) => o[k] !== undefined)
+    .sort()
+    .map((k) => `${JSON.stringify(k)}:${stableStringify(o[k])}`)
+    .join(',')}}`;
+}
+
+/**
+ * ค่าที่จะเขียน (data ของ Prisma update) เท่ากับแถวเดิมทุกช่องหรือไม่ — ใช้ข้ามการเพิ่ม version เมื่อส่งซ้ำค่าเดิม
+ * Decimal เทียบเป็นตัวเลข (`500000` = `500000.00`), jsonb เทียบแบบ key เรียง, DbNull = null
+ */
+export function isNoopUpdate(
+  current: Record<string, unknown>,
+  data: Record<string, unknown>,
+  decimalFields: readonly string[] = [],
+): boolean {
+  const norm = (k: string, v: unknown): unknown => {
+    if (v === Prisma.DbNull || v === Prisma.JsonNull) return null;
+    if (decimalFields.includes(k) && v !== null && v !== undefined)
+      return new Prisma.Decimal(v as Prisma.Decimal.Value).toFixed(6);
+    return v;
+  };
+  return Object.entries(data).every(
+    ([k, v]) => stableStringify(norm(k, current[k])) === stableStringify(norm(k, v)),
+  );
+}
+
 /** เหตุผลบังคับ ≥ 10 ตัวอักษร (spec/02 §1.6 ปิดใช้, MD-004 ลบ) */
 export class MasterReasonDto {
   @ApiProperty({ minLength: 10, maxLength: 500, example: 'เลิกใช้บริการตั้งแต่ ธ.ค. 2569' })
-  @Transform(trim)
+  @CleanText()
   @IsString()
   @MinLength(10)
   @MaxLength(500)
@@ -64,7 +260,7 @@ export class MasterReasonDto {
 export class MasterOptionalReasonDto {
   @ApiPropertyOptional({ maxLength: 500 })
   @IsOptional()
-  @Transform(trim)
+  @CleanText()
   @IsString()
   @IsNotEmpty()
   @MaxLength(500)
@@ -88,7 +284,8 @@ export type CodeTable = (typeof CODE_TABLES)[number];
 
 /**
  * รหัสถัดไป `PREFIX-0001` (MD-002 ค่าเสนอ เช่น `CUS-0001`) — นับจากรหัสรูปแบบเดียวกันที่มีใน tenant
- * (รวมที่ลบแล้ว เพราะ unique ครอบทุกแถว) · ต้องเรียกหลัง `lockKey(tx, '<table>.code')` เมื่อจะใช้สร้างจริง
+ * (รวมที่ลบแล้ว เพราะ unique ครอบทุกแถว) ไม่สนตัวพิมพ์ (รหัสเก็บเป็นตัวใหญ่ — `normalizeCode`)
+ * ตัวเลขเกิน 9 หลักไม่นับ (กัน overflow ทำทั้ง tenant พัง) · เรียกหลัง `lockKey(tx, '<table>.code')` เมื่อจะสร้างจริง
  */
 export async function nextCode(
   tx: Tx,
@@ -97,14 +294,20 @@ export async function nextCode(
   width = 4,
 ): Promise<string> {
   if (!CODE_TABLES.includes(table)) throw new Error(`nextCode: table ${table} not allowed`);
-  const pattern = `^${prefix.replace(/[^A-Z]/g, '')}-([0-9]+)$`;
-  const rows = await tx.$queryRawUnsafe<{ n: number | null }[]>(
-    `SELECT max((substring(code from $1))::int) AS n FROM "${table}"`,
-    pattern,
+  const p = prefix.replace(/[^A-Z]/g, '');
+  const rows = await tx.$queryRawUnsafe<{ n: bigint | number | null }[]>(
+    `SELECT max((substring(upper(code) from $1))::bigint) AS n FROM "${table}"`,
+    `^${p}-([0-9]{1,9})$`,
   );
-  const n = (rows[0]?.n ?? 0) + 1;
-  return `${prefix}-${String(n).padStart(width, '0')}`;
+  const n = Number(rows[0]?.n ?? 0) + 1;
+  return `${p}-${String(n).padStart(width, '0')}`;
 }
+
+/** รหัสที่ผู้ใช้กรอก: ตัดช่องว่าง + ตัวใหญ่ (unique ไม่สนตัวพิมพ์ตาม MD-002) */
+export const NormalizeCode = () =>
+  Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' ? cleanLine(value).toUpperCase() : value,
+  );
 
 export interface ReferenceCheck {
   /** ชื่อที่ส่งกลับใน problem (เช่น `salesOrders`) */

@@ -47,6 +47,7 @@ export async function toAuditPage(
   tx: Tx,
   rows: AuditLog[],
   limit: number,
+  opts: { redactNetwork?: boolean } = {},
 ): Promise<{ data: AuditEntryShape[]; nextCursor: string | null; hasMore: boolean }> {
   const hasMore = rows.length > limit;
   const page = rows.slice(0, limit);
@@ -77,8 +78,9 @@ export async function toAuditPage(
       before: r.before ?? null,
       after: r.after ?? null,
       reason: r.reason,
-      ip: r.ip,
-      requestId: r.requestId,
+      // ip/requestId เป็นข้อมูลของหน้า audit รวม (audit:read) — แท็บประวัติของ master ส่ง null
+      ip: opts.redactNetwork ? null : r.ip,
+      requestId: opts.redactNetwork ? null : r.requestId,
     })),
     nextCursor:
       hasMore && last

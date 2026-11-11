@@ -163,6 +163,7 @@ export function tableLabels(t: T) {
     prev: t('table.prev'),
     next: t('table.next'),
     range: (from: number, to: number) => t('table.range', { from, to }),
+    rangeOf: (from: number, to: number, n: number) => t('table.rangeOf', { from, to, n }),
     none: t('table.none'),
   };
 }

@@ -18,16 +18,20 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { IsThaiTaxId } from '../../common/thai-tax-id';
-import { MasterListQuery } from '../master/master-kit';
-
-const trim = ({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value);
+import {
+  CleanText,
+  IsNullable,
+  IsOptionalNotNull,
+  MasterListQuery,
+  NormalizeCode,
+} from '../master/master-kit';
 
 export const BILLING_CYCLES = ['PER_DO', 'WEEKLY', 'MONTHLY', 'MANUAL'] as const;
 export const TAX_INVOICE_MODES = ['ON_PAYMENT', 'ON_ISSUE'] as const;
 /** VAT ค่าเริ่มต้นของบรรทัดใหม่ของลูกค้านี้ (D-28: ค่าจริงอยู่ที่บรรทัด) */
 export const CUSTOMER_VAT_DEFAULTS = ['EXEMPT_TRANSPORT', 'VAT_7'] as const;
 /** อัตราหัก ณ ที่จ่ายที่ลูกค้าคาดว่าจะหักเรา — ค่าขนส่ง 1% (ท.ป.4/2528 ข้อ 12/4) */
-export const WHT_EXPECTED_RATES = ['1.00'] as const;
+export const WHT_EXPECTED_RATES = ['1.00', '0.00'] as const;
 
 /**
  * ที่อยู่ออกใบกำกับ — `line1` บังคับ (ต้นแบบกรอกเป็นข้อความเดียว), แยกตำบล/อำเภอ/จังหวัด/รหัสไปรษณีย์ได้ (MD-009)
@@ -35,41 +39,64 @@ export const WHT_EXPECTED_RATES = ['1.00'] as const;
  */
 export class CustomerAddressDto {
   @ApiProperty({ example: '22 หมู่ 3 ต.บางพลีใหญ่ อ.บางพลี จ.สมุทรปราการ 10540' })
-  @Transform(trim)
+  @CleanText()
   @IsString()
   @IsNotEmpty()
   @MaxLength(400)
   line1!: string;
 
-  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(200) line2?: string;
-  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(100) subdistrict?: string;
-  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(100) district?: string;
-  @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(100) province?: string;
-  @ApiPropertyOptional({ example: '10540' }) @IsOptional() @Matches(/^\d{5}$/) postcode?: string;
+  @ApiPropertyOptional()
+  @IsOptionalNotNull()
+  @CleanText()
+  @IsString()
+  @MaxLength(200)
+  line2?: string;
+  @ApiPropertyOptional()
+  @IsOptionalNotNull()
+  @CleanText()
+  @IsString()
+  @MaxLength(100)
+  subdistrict?: string;
+  @ApiPropertyOptional()
+  @IsOptionalNotNull()
+  @CleanText()
+  @IsString()
+  @MaxLength(100)
+  district?: string;
+  @ApiPropertyOptional()
+  @IsOptionalNotNull()
+  @CleanText()
+  @IsString()
+  @MaxLength(100)
+  province?: string;
+  @ApiPropertyOptional({ example: '10540' })
+  @IsOptionalNotNull()
+  @Matches(/^\d{5}$/)
+  postcode?: string;
 }
 
 export class CustomerContactDto {
   @ApiProperty({ example: 'คุณธีรพงษ์' })
-  @Transform(trim)
+  @CleanText()
   @IsString()
   @IsNotEmpty()
   @MaxLength(100)
   name!: string;
 
   @ApiPropertyOptional({ example: '02-317-4133' })
-  @IsOptional()
-  @Transform(trim)
+  @IsOptionalNotNull()
+  @CleanText()
   @Matches(/^\+?[0-9][0-9 \-]{5,24}$/)
   phone?: string;
 
   @ApiPropertyOptional({ example: 'ap@example.co.th' })
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsEmail()
   @MaxLength(200)
   email?: string;
 
   @ApiPropertyOptional({ description: 'ผู้ติดต่อหลัก (ค่าเริ่มต้น false)' })
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsBoolean()
   isPrimary?: boolean;
 }
@@ -82,25 +109,23 @@ export class CustomerFieldsDto {
     type: String,
     description: 'เลขผู้เสียภาษี 13 หลัก (ตรวจ check digit — ผิด → 422)',
   })
-  @IsOptional()
-  @ValidateIf((_, v) => v !== null)
+  @IsNullable()
   @IsThaiTaxId()
   taxId?: string | null;
 
   @ApiPropertyOptional({ example: '00000', description: 'รหัสสาขา 5 หลัก (00000 = สำนักงานใหญ่)' })
-  @IsOptional()
+  @IsOptionalNotNull()
   @Matches(/^\d{5}$/)
   branchCode?: string;
 
   @ApiPropertyOptional({ type: CustomerAddressDto, nullable: true })
-  @IsOptional()
-  @ValidateIf((_, v) => v !== null)
+  @IsNullable()
   @ValidateNested()
   @Type(() => CustomerAddressDto)
   billingAddress?: CustomerAddressDto | null;
 
   @ApiPropertyOptional({ type: [CustomerContactDto] })
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsArray()
   @ArrayMaxSize(20)
   @ValidateNested({ each: true })
@@ -108,14 +133,14 @@ export class CustomerFieldsDto {
   contacts?: CustomerContactDto[];
 
   @ApiPropertyOptional({ minimum: 0, maximum: 365, description: 'เครดิต (วัน) — ค่าเริ่มต้น 30' })
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsInt()
   @Min(0)
   @Max(365)
   creditTermDays?: number;
 
   @ApiPropertyOptional({ enum: BILLING_CYCLES, description: 'ค่าเริ่มต้น MONTHLY' })
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsIn(BILLING_CYCLES)
   billingCycle?: (typeof BILLING_CYCLES)[number];
 
@@ -123,7 +148,7 @@ export class CustomerFieldsDto {
     enum: TAX_INVOICE_MODES,
     description: 'ออกใบกำกับภาษีเมื่อรับชำระ (tax point = รับเงิน — ค่าเริ่มต้น) / พร้อมใบแจ้งหนี้',
   })
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsIn(TAX_INVOICE_MODES)
   taxInvoiceMode?: (typeof TAX_INVOICE_MODES)[number];
 
@@ -132,36 +157,34 @@ export class CustomerFieldsDto {
     nullable: true,
     description: 'VAT ค่าเริ่มต้นของบรรทัดใหม่ — ค่าจริงอยู่ที่บรรทัด (D-28)',
   })
-  @IsOptional()
-  @ValidateIf((_, v) => v !== null)
+  @IsNullable()
   @IsIn(CUSTOMER_VAT_DEFAULTS)
   defaultVatType?: (typeof CUSTOMER_VAT_DEFAULTS)[number] | null;
 
   @ApiPropertyOptional({
     enum: WHT_EXPECTED_RATES,
     nullable: true,
-    description: 'อัตราหัก ณ ที่จ่ายที่ลูกค้าคาดว่าจะหักเรา (null = ไม่หัก) — ใช้ประมาณยอดรับสุทธิ',
+    description:
+      'อัตราหัก ณ ที่จ่ายที่ลูกค้าคาดว่าจะหักเรา: 1.00 = หัก 1% (ค่าขนส่ง), 0.00 = ไม่หัก, null = ยังไม่ระบุ',
   })
-  @IsOptional()
-  @ValidateIf((_, v) => v !== null)
+  @IsNullable()
   @IsIn(WHT_EXPECTED_RATES)
   whtExpectedRate?: (typeof WHT_EXPECTED_RATES)[number] | null;
 
   @ApiPropertyOptional({ example: '500000.00', nullable: true, type: String })
-  @IsOptional()
-  @ValidateIf((_, v) => v !== null)
+  @IsNullable()
   @Matches(/^\d{1,12}(\.\d{1,2})?$/)
   creditLimit?: string | null;
 
   @ApiPropertyOptional({ description: 'ลูกค้าจดทะเบียน VAT (ค่าเริ่มต้น true)' })
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsBoolean()
   vatRegistered?: boolean;
 
   @ApiPropertyOptional({
     description: 'ลูกค้ารับใบกำกับภาษีอิเล็กทรอนิกส์ (e-Tax) ได้ (ค่าเริ่มต้น false)',
   })
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsBoolean()
   etaxCapable?: boolean;
 
@@ -172,8 +195,7 @@ export class CustomerFieldsDto {
     type: Number,
     description: 'free time ค่ารอ (นาที) — null = ใช้ค่าตั้งองค์กร `billing.freeTimeMinutes`',
   })
-  @IsOptional()
-  @ValidateIf((_, v) => v !== null)
+  @IsNullable()
   @IsInt()
   @Min(0)
   @Max(1440)
@@ -185,8 +207,7 @@ export class CustomerFieldsDto {
     type: String,
     description: 'ออกบิลในนาม (Invoice As) — null = ใช้ค่าเริ่มต้นขององค์กร (docs/04 A4)',
   })
-  @IsOptional()
-  @ValidateIf((_, v) => v !== null)
+  @IsNullable()
   @IsString()
   billingCompanyId?: string | null;
 
@@ -196,15 +217,14 @@ export class CustomerFieldsDto {
     type: String,
     description: 'พนักงานขาย',
   })
-  @IsOptional()
-  @ValidateIf((_, v) => v !== null)
+  @IsNullable()
   @IsString()
   salesOwnerUserId?: string | null;
 }
 
 export class CreateCustomerDto extends CustomerFieldsDto {
   @ApiProperty({ example: 'บจก. สยามพลาสติก' })
-  @Transform(trim)
+  @CleanText()
   @IsString()
   @IsNotEmpty()
   @MaxLength(200)
@@ -214,15 +234,15 @@ export class CreateCustomerDto extends CustomerFieldsDto {
     example: 'CUS-0001',
     description: 'รหัสลูกค้า — ไม่ส่ง = ระบบออกเลขถัดไป (MD-002)',
   })
-  @IsOptional()
-  @Transform(trim)
-  @Matches(/^[A-Za-z0-9][A-Za-z0-9_\-./]{0,19}$/)
+  @IsOptionalNotNull()
+  @NormalizeCode()
+  @Matches(/^[A-Z0-9][A-Z0-9_\-./]{0,19}$/)
   code?: string;
 
   @ApiPropertyOptional({
     description: 'รหัสในระบบต้นทาง (ERP/ระบบของลูกค้า) — เรียกด้วย ext:{externalId} ได้',
   })
-  @IsOptional()
+  @IsOptionalNotNull()
   @Matches(/^[\x21-\x7e]{1,100}$/)
   externalId?: string;
 }
@@ -232,16 +252,15 @@ export class UpdateCustomerDto extends CustomerFieldsDto {
     example: 'บจก. สยามพลาสติก',
     description: 'ชื่อตามจดทะเบียน (พิมพ์บนเอกสารภาษี)',
   })
-  @IsOptional()
-  @Transform(trim)
+  @IsOptionalNotNull()
+  @CleanText()
   @IsString()
   @IsNotEmpty()
   @MaxLength(200)
   legalName?: string;
 
   @ApiPropertyOptional({ nullable: true, type: String, description: 'null = ลบการผูก' })
-  @IsOptional()
-  @ValidateIf((_, v) => v !== null)
+  @IsNullable()
   @Matches(/^[\x21-\x7e]{1,100}$/)
   externalId?: string | null;
 }
@@ -249,16 +268,16 @@ export class UpdateCustomerDto extends CustomerFieldsDto {
 /** `PUT /customers/external/{externalId}` — ข้อมูลเต็มของลูกค้า (ฟิลด์ที่ไม่ส่งตอนอัปเดต = คงเดิม) */
 export class UpsertCustomerDto extends CustomerFieldsDto {
   @ApiProperty({ example: 'บจก. สยามพลาสติก' })
-  @Transform(trim)
+  @CleanText()
   @IsString()
   @IsNotEmpty()
   @MaxLength(200)
   legalName!: string;
 
   @ApiPropertyOptional({ example: 'CUS-0001', description: 'ใช้ตอนสร้างเท่านั้น' })
-  @IsOptional()
-  @Transform(trim)
-  @Matches(/^[A-Za-z0-9][A-Za-z0-9_\-./]{0,19}$/)
+  @IsOptionalNotNull()
+  @NormalizeCode()
+  @Matches(/^[A-Z0-9][A-Z0-9_\-./]{0,19}$/)
   code?: string;
 }
 
@@ -270,14 +289,14 @@ export class CustomerListQuery extends MasterListQuery {
 
   @ApiPropertyOptional({ description: 'รหัสขึ้นต้นด้วย/มีคำนี้' })
   @IsOptional()
-  @Transform(trim)
+  @CleanText()
   @IsString()
   @MaxLength(50)
   code?: string;
 
   @ApiPropertyOptional({ description: 'ชื่อมีคำนี้' })
   @IsOptional()
-  @Transform(trim)
+  @CleanText()
   @IsString()
   @MaxLength(100)
   name?: string;
@@ -324,6 +343,13 @@ export class CustomerDto {
   billingCompanyId!: string | null;
   @ApiProperty({ type: CustomerRefDto, nullable: true }) salesOwner!: CustomerRefDto | null;
   @ApiProperty({ enum: ['active', 'inactive'] }) status!: 'active' | 'inactive';
+  @ApiPropertyOptional({
+    format: 'date-time',
+    nullable: true,
+    type: String,
+    description: 'มีค่าเฉพาะเมื่อขอ includeDeleted=true และรายการถูกลบแล้ว (tombstone)',
+  })
+  deletedAt?: string | null;
   @ApiProperty() version!: number;
   @ApiProperty({ format: 'date-time' }) createdAt!: string;
   @ApiProperty({ format: 'date-time' }) updatedAt!: string;

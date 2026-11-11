@@ -214,6 +214,7 @@ export class CustomersController {
   }
 
   @Post(':id/deactivate')
+  @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
   @HttpCode(200)
   @TenantResource('customer')
   @RequireScope('master:write')
@@ -222,19 +223,21 @@ export class CustomersController {
     @Param('id') id: string,
     @Body() body: MasterReasonDto,
     @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
   ): Promise<CustomerDto> {
     const current = await this.resolve(id);
-    return this.customers.dto(
-      await this.customers.changeStatus(
-        current.id,
-        'deactivate',
-        body.reason,
-        expectedVersion(req),
-      ),
+    const c = await this.customers.changeStatus(
+      current.id,
+      'deactivate',
+      body.reason,
+      expectedVersion(req),
     );
+    setEtag(res, c.version);
+    return this.customers.dto(c);
   }
 
   @Post(':id/activate')
+  @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
   @HttpCode(200)
   @TenantResource('customer')
   @RequireScope('master:write')
@@ -243,15 +246,22 @@ export class CustomersController {
     @Param('id') id: string,
     @Body() body: MasterOptionalReasonDto,
     @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
   ): Promise<CustomerDto> {
     const current = await this.resolve(id);
-    return this.customers.dto(
-      await this.customers.changeStatus(current.id, 'activate', body.reason, expectedVersion(req)),
+    const c = await this.customers.changeStatus(
+      current.id,
+      'activate',
+      body.reason,
+      expectedVersion(req),
     );
+    setEtag(res, c.version);
+    return this.customers.dto(c);
   }
 
   /** "ลบ" (MD-004) — เฉพาะลูกค้าที่ไม่เคยถูกอ้างอิง → soft delete; ถูกอ้างอิง → 409 `in_use` */
   @Post(':id/delete')
+  @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
   @HttpCode(204)
   @TenantResource('customer')
   @RequireScope('master:write')

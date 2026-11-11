@@ -368,6 +368,7 @@ model Customer {
   freeTimeMin             Int?           @map("free_time_min") /// free time ค่ารอ (นาที) — null = ใช้ค่าตั้งองค์กร
   salesOwnerUserId        String?        @map("sales_owner_user_id") @db.Uuid
   deletedAt               DateTime?      @map("deleted_at") @db.Timestamptz(6) /// MD-004 soft delete (เฉพาะรายการที่ไม่เคยถูกอ้างอิง)
+  deletedExternalId       String?        @map("deleted_external_id") /// externalId เดิมของรายการที่ลบ (ปล่อย externalId ให้ระบบต้นทางส่งใหม่ได้)
   billingCycle            BillingCycle   @default(MONTHLY) @map("billing_cycle")
   paymentTermDays         Int            @default(30) @map("payment_term_days")
   taxInvoiceMode          TaxInvoiceMode @default(ON_PAYMENT) @map("tax_invoice_mode")

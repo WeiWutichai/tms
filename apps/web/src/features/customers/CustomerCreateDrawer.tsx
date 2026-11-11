@@ -1,5 +1,5 @@
 import { FormDrawer, FormField, FormSection, TextInput } from '@tms/ui';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ApiError } from '../../api';
 import { useI18n } from '../../i18n';
 import { fieldErrors, problemText } from '../master/problems';
@@ -33,10 +33,15 @@ export function CustomerCreateDrawer({
   const create = useCreateCustomer();
   const [f, setF] = useState<Form>(EMPTY);
   const [tried, setTried] = useState(false);
+  // 1 การเปิดฟอร์ม = 1 Idempotency-Key — กดซ้ำ/เน็ตช้าส่งซ้ำได้ลูกค้ารายเดียว
+  const [idemKey, setIdemKey] = useState(() => crypto.randomUUID());
+  const submitting = useRef(false);
   useEffect(() => {
     if (open) {
       setF(EMPTY);
       setTried(false);
+      setIdemKey(crypto.randomUUID());
+      submitting.current = false;
       create.reset();
     }
   }, [open]);
@@ -45,6 +50,10 @@ export function CustomerCreateDrawer({
   if (f.name.trim().length < 3) local.legalName = t('cust.v.name');
   if (!/^\d{13}$/.test(f.tax.trim())) local.taxId = t('cust.v.tax');
   if (f.branch && !/^\d{5}$/.test(f.branch.trim())) local.branchCode = t('cust.v.branch');
+  // ว่าง = ค่าเริ่มต้น 30 วัน (ตามต้นแบบ); ไม่ใช่ตัวเลข/เกิน 365 = แจ้ง ไม่ส่ง 0 เงียบ ๆ
+  const credit =
+    f.credit.trim() === '' ? 30 : /^\d{1,3}$/.test(f.credit.trim()) ? Number(f.credit) : NaN;
+  if (!(credit >= 0 && credit <= 365)) local.creditTermDays = t('cust.v.credit');
   const server = fieldErrors(create.error, t);
   const dup =
     create.error instanceof ApiError && create.error.problem.code === 'duplicate'
@@ -56,16 +65,27 @@ export function CustomerCreateDrawer({
 
   const submit = () => {
     setTried(true);
-    if (Object.keys(local).length) return;
+    if (Object.keys(local).length || submitting.current) return;
+    submitting.current = true;
     create.mutate(
       {
-        legalName: f.name.trim(),
-        taxId: f.tax.trim(),
-        branchCode: f.branch.trim() || '00000',
-        creditTermDays: Number(f.credit) || 0,
-        ...(f.ext.trim() ? { externalId: f.ext.trim() } : {}),
+        idempotencyKey: idemKey,
+        body: {
+          legalName: f.name.trim(),
+          taxId: f.tax.trim(),
+          branchCode: f.branch.trim() || '00000',
+          creditTermDays: credit,
+          ...(f.ext.trim() ? { externalId: f.ext.trim() } : {}),
+        },
       },
-      { onSuccess: (c) => onCreated(c) },
+      {
+        onSuccess: (c) => onCreated(c),
+        // ข้อมูลถูกปฏิเสธ → แก้แล้วส่งใหม่เป็นคำขอใหม่ (key เดิมผูกกับ body เดิม)
+        onError: () => setIdemKey(crypto.randomUUID()),
+        onSettled: () => {
+          submitting.current = false;
+        },
+      },
     );
   };
 

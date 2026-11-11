@@ -50,11 +50,12 @@ export function useCompanyOptions() {
 export function useCreateCustomer() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (body: CustomerCreate) =>
+    /** idempotencyKey ต่อการเปิดฟอร์ม 1 ครั้ง — กดซ้ำ/ส่งซ้ำได้ลูกค้ารายเดียว (ST0-T07) */
+    mutationFn: (v: { body: CustomerCreate; idempotencyKey: string }) =>
       unwrap(
         api.POST('/v1/customers', {
-          body,
-          headers: { 'Idempotency-Key': crypto.randomUUID() },
+          body: v.body,
+          headers: { 'Idempotency-Key': v.idempotencyKey },
         }),
       ),
     onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
@@ -83,10 +84,14 @@ export function useCustomerAction() {
   return useMutation({
     mutationFn: async (v: {
       id: string;
+      version: number;
       action: 'activate' | 'deactivate' | 'delete';
       reason?: string;
     }): Promise<Customer | null> => {
-      const p = { params: { path: { id: v.id } } };
+      // If-Match: กันเปลี่ยนสถานะ/ลบรายการที่ผู้อื่นเพิ่งแก้ (412 → แจ้งให้โหลดใหม่)
+      const p = {
+        params: { path: { id: v.id }, header: { 'If-Match': `"${v.version}"` } as never },
+      };
       if (v.action === 'activate')
         return unwrap(api.POST('/v1/customers/{id}/activate', { ...p, body: {} }));
       if (v.action === 'deactivate')

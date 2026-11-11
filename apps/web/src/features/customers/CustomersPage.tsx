@@ -66,10 +66,16 @@ export function CustomersPage() {
     setSelected(c);
   };
 
+  const exportFile = (query: Record<string, string>, n?: number) =>
+    downloadFile('/v1/customers/export', query).then(
+      () => n !== undefined && setToast(t('cust.toast.exported', { n })),
+      () => setToast(t('cust.exportFailed')),
+    );
+
   const toggleStatus = (c: Customer) => {
     if (c.status === 'active') return setDialog({ kind: 'deactivate', c });
     action.mutate(
-      { id: c.id, action: 'activate' },
+      { id: c.id, version: c.version, action: 'activate' },
       { onSuccess: () => setToast(t('cust.toast.status', { n: c.legalName })) },
     );
   };
@@ -87,7 +93,22 @@ export function CustomersPage() {
       key: 'name',
       label: t('cust.col.name'),
       filter: { type: 'text', placeholder: t('table.search') },
-      render: (r) => <span style={{ color: '#101418' }}>{r.legalName}</span>,
+      // ชื่อยาวตัด … (ไม่ให้ตารางกว้างเกินจอ) + tooltip ชื่อเต็ม
+      render: (r) => (
+        <span
+          title={r.legalName}
+          style={{
+            color: '#101418',
+            display: 'inline-block',
+            maxWidth: 480,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            verticalAlign: 'bottom',
+          }}
+        >
+          {r.legalName}
+        </span>
+      ),
       csv: (r) => r.legalName,
     },
     {
@@ -164,6 +185,7 @@ export function CustomersPage() {
         ? s?.inactive
         : s?.total;
   const onlyStatus = !filters.code && !filters.name && !filters.billingCycle;
+  const filtered = !!(filters.status || !onlyStatus);
 
   return (
     <>
@@ -273,8 +295,27 @@ export function CustomersPage() {
                   ],
                 }
               : {})}
-            empty={<EmptyState title={t('cust.emptyTitle')} description={t('cust.emptyDesc')} />}
-            page={list.page}
+            // ส่งออก CSV จากแผงตัวเลือก = ส่งออกจาก API ตามตัวกรอง (ครบทุกแถว, ตรวจสิทธิ์ export:run)
+            onExportCsv={canExport ? () => void exportFile({ format: 'csv', ...filters }) : false}
+            empty={
+              filtered ? (
+                <EmptyState
+                  icon="search-x"
+                  title={t('table.emptyTitle')}
+                  description={t('table.noMatch')}
+                />
+              ) : (
+                <EmptyState
+                  icon="building-2"
+                  title={t('cust.emptyTitle')}
+                  description={t('cust.emptyDesc')}
+                />
+              )
+            }
+            page={{
+              ...list.page,
+              ...(onlyStatus && tabCount !== undefined ? { total: tabCount } : {}),
+            }}
             onPageSize={list.setSize}
             onNext={list.next}
             onPrev={list.prev}
@@ -334,7 +375,7 @@ export function CustomersPage() {
           if (!dialog) return;
           const c = dialog.c;
           action.mutate(
-            { id: c.id, action: dialog.kind, reason },
+            { id: c.id, version: c.version, action: dialog.kind, reason },
             {
               onSuccess: (updated) => {
                 setDialog(null);

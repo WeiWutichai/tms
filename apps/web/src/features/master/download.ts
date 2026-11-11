@@ -1,21 +1,24 @@
-import { getAccessToken } from '../../auth/session';
+import { api } from '../../api';
+
+/** path ส่งออกของ master ที่มี (เพิ่มเมื่อ master ใหม่มี `GET /{master}/export`) */
+export type ExportPath = '/v1/customers/export';
 
 /**
- * ดาวน์โหลดไฟล์จาก endpoint ส่งออก (`GET /v1/{master}/export`) — ใช้ token เดียวกับ client
- * (ไฟล์ binary จึงไม่ผ่าน openapi-fetch ที่ parse JSON)
+ * ดาวน์โหลดไฟล์จาก endpoint ส่งออก — ผ่าน client เดียวกับ UI (token, ภาษา, การใช้งานแทน) แบบ blob
+ * error → throw (หน้าแสดง toast) · revoke URL หลังเบราว์เซอร์เริ่มดาวน์โหลดแล้ว
  */
-export async function downloadFile(path: string, query: Record<string, string>): Promise<void> {
-  const qs = new URLSearchParams(Object.entries(query).filter(([, v]) => v !== '')).toString();
-  const token = await getAccessToken();
-  const res = await fetch(`${path}${qs ? `?${qs}` : ''}`, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
-  if (!res.ok) throw new Error(`export failed: ${res.status}`);
+export async function downloadFile(path: ExportPath, query: Record<string, string>): Promise<void> {
+  const q = Object.fromEntries(Object.entries(query).filter(([, v]) => v !== ''));
+  const r = await api.GET(path, { params: { query: q as never }, parseAs: 'blob' });
+  if (!r.response.ok || !r.data) throw new Error(`export failed: ${r.response.status}`);
   const name =
-    /filename="([^"]+)"/.exec(res.headers.get('content-disposition') ?? '')?.[1] ?? 'export.xlsx';
+    /filename="([^"]+)"/.exec(r.response.headers.get('content-disposition') ?? '')?.[1] ??
+    'export.xlsx';
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(await res.blob());
+  a.href = URL.createObjectURL(r.data as Blob);
   a.download = name;
+  document.body.appendChild(a);
   a.click();
-  URL.revokeObjectURL(a.href);
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
