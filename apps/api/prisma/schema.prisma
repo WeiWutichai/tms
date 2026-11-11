@@ -38,15 +38,15 @@ enum JobStatus {
 
 /// tenant = ลูกค้าของแพลตฟอร์ม 1 ราย (RLS: เห็นเฉพาะแถวของตัวเอง)
 model Tenant {
-  id        String       @id @default(uuid()) @db.Uuid
-  name      String
-  status    TenantStatus @default(TRIAL)
-  yearStyle String       @default("BE") @map("year_style") /// BE = พ.ศ., CE = ค.ศ. (D-30)
-  vehicleQuota Int?      @map("vehicle_quota") /// ST1-T24 จำนวนรถตามสัญญา (ตั้งจาก Console; null = ยังไม่กำหนด) — บังคับใช้ใน ST2
-  planCode  String       @default("std") @map("plan_code") /// ST1-T18 แพ็กเกจ (FK → plan.code, migration 0017) — ตั้งจาก Platform Console (T24)
-  plan      Plan         @relation(fields: [planCode], references: [code], onUpdate: Cascade, onDelete: Restrict)
-  createdAt DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id           String       @id @default(uuid()) @db.Uuid
+  name         String
+  status       TenantStatus @default(TRIAL)
+  yearStyle    String       @default("BE") @map("year_style") /// BE = พ.ศ., CE = ค.ศ. (D-30)
+  vehicleQuota Int?         @map("vehicle_quota") /// ST1-T24 จำนวนรถตามสัญญา (ตั้งจาก Console; null = ยังไม่กำหนด) — บังคับใช้ใน ST2
+  planCode     String       @default("std") @map("plan_code") /// ST1-T18 แพ็กเกจ (FK → plan.code, migration 0017) — ตั้งจาก Platform Console (T24)
+  plan         Plan         @relation(fields: [planCode], references: [code], onUpdate: Cascade, onDelete: Restrict)
+  createdAt    DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@map("tenant")
 }
@@ -431,8 +431,8 @@ model CustomerSite {
   addressSearch      String        @default("") @map("address_search") /// ที่อยู่ตัวเล็ก — trigger ในฐานข้อมูลเขียนเอง (0036)
   openTime           String?       @map("open_time") /// HH:MM (ว่าง = 24 ชม.)
   closeTime          String?       @map("close_time") /// HH:MM (< open = ข้ามเที่ยงคืน)
-  vehicleTypeAllowed String[]      @default([]) @map("vehicle_type_allowed") /// รหัส vehicle_type ที่เข้าได้ (ยังไม่ใช้ — รอ ST2-T04)
-  maxVehicleClass    String?       @map("max_vehicle_class") /// รถเข้าได้สูงสุด 6W/10W/TRAILER/SEMI_TRAILER (null = ไม่จำกัด)
+  vehicleTypeAllowed String[]      @default([]) @map("vehicle_type_allowed") /// (ไม่ใช้ — ST2-T04 เลือกจำกัดด้วย max_vehicle_class เทียบ vehicle_type.vehicle_class)
+  maxVehicleClass    String?       @map("max_vehicle_class") /// รถเข้าได้สูงสุด 6W/10W/TRAILER/SEMI_TRAILER (null = ไม่จำกัด) — เทียบลำดับกับ vehicle_type.vehicle_class (ST2-T04)
   avgDwellMin        Int?          @map("avg_dwell_min") /// service time (นาที)
   freeTimeMin        Int?          @map("free_time_min")
   contact            Json?
@@ -491,20 +491,47 @@ model Carrier {
 }
 
 /// ประเภทรถ (master — D-29 ผสม: docs ใช้ enum, UI มีหน้าประเภทรถ)
+/// ประเภทรถ (UI: "ประเภทรถ") — ST2-T04; spec/02 §4 + plan/00a (master ตาม spec, ชั้นรถตาม enum ของ docs)
+/// ค่าเริ่มต้นภาษาไทยเขียนตอนสร้าง tenant (`ensureDefaultVehicleTypes` — bootstrap ขั้น vehicle-types)
 model VehicleType {
-  id              String       @id @default(uuid()) @db.Uuid
-  tenantId        String       @map("tenant_id") @db.Uuid
-  code            String /// PICKUP / 6W / 10W / TRAILER / REEFER …
-  nameTh          String       @map("name_th")
-  capacityKg      Decimal?     @map("capacity_kg") @db.Decimal(10, 2)
-  capacityCbm     Decimal?     @map("capacity_cbm") @db.Decimal(10, 2)
-  minLicenceClass String?      @map("min_licence_class") /// ท.2 / ท.3 / ท.4 (LEG-17 รอตาราง)
-  status          ActiveStatus @default(ACTIVE)
-  createdAt       DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt       DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id                String       @id @default(uuid()) @db.Uuid
+  tenantId          String       @map("tenant_id") @db.Uuid
+  code              String /// 4W / 6W / 10W / TRL / TRC / REF6 / VT-0001 (MD-002) — เก็บตัวใหญ่, unique ไม่สนตัวพิมพ์
+  nameTh            String       @map("name_th") /// ชื่อที่ผู้ใช้เห็น — ห้ามซ้ำใน tenant (ไม่สนตัวพิมพ์, ไม่นับที่ลบ)
+  vehicleClass      String       @map("vehicle_class") /// ชั้นรถ 4W/6W/10W/TRAILER/SEMI_TRAILER — เทียบกับ customer_site.max_vehicle_class
+  capacityKg        Decimal?     @map("capacity_kg") @db.Decimal(10, 2) /// น้ำหนักบรรทุกมาตรฐาน (กก.) — API บังคับ (spec payloadKg)
+  capacityCbm       Decimal?     @map("capacity_cbm") @db.Decimal(10, 2) /// ปริมาตร (ลบ.ม.)
+  minLicenceClass   String?      @map("min_licence_class") /// PERSONAL/T1/T2/T3/T4 (OPEN-MD-4 / LEG-17 รอตารางกฎหมาย) — API บังคับ
+  capabilityTags    String[]     @default([]) @map("capability_tags") /// REFRIGERATED/CRANE/CONTAINER/HAZMAT (docs/04 B capability tags)
+  tempMinC          Decimal?     @map("temp_min_c") @db.Decimal(4, 1) /// ห้องเย็น: อุณหภูมิต่ำสุด/สูงสุด (มีเฉพาะเมื่อมีป้าย REFRIGERATED)
+  tempMaxC          Decimal?     @map("temp_max_c") @db.Decimal(4, 1)
+  systemKey         String?      @map("system_key") /// แถวค่าเริ่มต้นของระบบ (th.4w …) — กัน bootstrap สร้างซ้ำเมื่อผู้ใช้แก้รหัส/ชื่อ/ลบ
+  externalId        String?      @map("external_id")
+  deletedExternalId String?      @map("deleted_external_id")
+  status            ActiveStatus @default(ACTIVE)
+  deletedAt         DateTime?    @map("deleted_at") @db.Timestamptz(6) /// MD-004 soft delete (เฉพาะที่ไม่เคยถูกอ้างอิง)
+  version           Int          @default(1)
+  createdAt         DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@unique([tenantId, code])
+  @@unique([tenantId, externalId])
+  @@unique([tenantId, systemKey])
+  @@index([tenantId, updatedAt, id])
   @@map("vehicle_type")
+}
+
+/// ค่าเริ่มต้นของ tenant ที่ bootstrap จัดการแล้ว 1 แถวต่อรายการ (ST2-T04) — กันใส่ซ้ำ/ใส่ภายหลัง
+/// INSERTED = สร้างแล้ว (ผู้ใช้ลบ/แก้ภายหลังก็ไม่สร้างใหม่) · SKIPPED = ข้ามเพราะชนรหัส/ชื่อที่ tenant มีอยู่ (ไม่ใส่ภายหลัง)
+model TenantDefault {
+  tenantId  String   @map("tenant_id") @db.Uuid
+  key       String /// เช่น vehicle_type:th.4w
+  outcome   String /// INSERTED / SKIPPED
+  detail    String?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@id([tenantId, key])
+  @@map("tenant_default")
 }
 
 enum Ownership {
@@ -1431,30 +1458,30 @@ enum ImportStatus {
 /// งานนำเข้า 1 ไฟล์ (ST1-T19; docs/04 A5, spec/02 §11) — ไฟล์อยู่ใน stored_document (kind IMPORT)
 /// ขั้นตรวจ (dry-run) ไม่เขียนข้อมูลจริง; ยืนยันแล้วตรวจซ้ำก่อนเขียน
 model ImportJob {
-  id            String       @id @default(uuid()) @db.Uuid
-  tenantId      String       @map("tenant_id") @db.Uuid
-  kind          String /// entity ที่นำเข้า (ImportSpec.kind)
-  documentId    String       @map("document_id") @db.Uuid
-  fileName      String?      @map("file_name")
-  status        ImportStatus @default(VALIDATING)
-  mode          String       @default("create_only") /// create_only · upsert_by_code · update_only
-  errorPolicy   String       @default("all_or_nothing") @map("error_policy") /// all_or_nothing · skip_invalid_rows
-  headers       Json         @default("[]") /// หัวคอลัมน์ในไฟล์
-  mapping       Json         @default("{}") /// field key → หัวคอลัมน์ในไฟล์
-  totalRows     Int          @default(0) @map("total_rows")
-  okRows        Int          @default(0) @map("ok_rows")
-  errorRows     Int          @default(0) @map("error_rows")
-  importedRows  Int          @default(0) @map("imported_rows")
+  id           String       @id @default(uuid()) @db.Uuid
+  tenantId     String       @map("tenant_id") @db.Uuid
+  kind         String /// entity ที่นำเข้า (ImportSpec.kind)
+  documentId   String       @map("document_id") @db.Uuid
+  fileName     String?      @map("file_name")
+  status       ImportStatus @default(VALIDATING)
+  mode         String       @default("create_only") /// create_only · upsert_by_code · update_only
+  errorPolicy  String       @default("all_or_nothing") @map("error_policy") /// all_or_nothing · skip_invalid_rows
+  headers      Json         @default("[]") /// หัวคอลัมน์ในไฟล์
+  mapping      Json         @default("{}") /// field key → หัวคอลัมน์ในไฟล์
+  totalRows    Int          @default(0) @map("total_rows")
+  okRows       Int          @default(0) @map("ok_rows")
+  errorRows    Int          @default(0) @map("error_rows")
+  importedRows Int          @default(0) @map("imported_rows")
   /// ผลตรวจรายแถว [{row, column, value, code, message}] (เฉพาะแถวผิด/เตือน; สูงสุด 5,000 รายการ)
-  issues        Json         @default("[]")
+  issues       Json         @default("[]")
   /// 3 แถวแรก (ค่าตามฟิลด์) ไว้แสดงตัวอย่างในขั้นจับคู่คอลัมน์
-  sample        Json         @default("[]")
-  fileError     String?      @map("file_error") /// ผิดทั้งไฟล์ (เช่น เกิน 5,000 แถว, ไม่มีหัวคอลัมน์)
-  jobId         String?      @map("job_id") @db.Uuid
-  expiresAt     DateTime     @map("expires_at") @db.Timestamptz(6) /// ผลตรวจหมดอายุ 24 ชม.
-  createdBy     String?      @map("created_by")
-  createdAt     DateTime     @default(dbgenerated("now()")) @map("created_at") @db.Timestamptz(3) /// ms — ตรงกับ cursor
-  updatedAt     DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  sample       Json         @default("[]")
+  fileError    String?      @map("file_error") /// ผิดทั้งไฟล์ (เช่น เกิน 5,000 แถว, ไม่มีหัวคอลัมน์)
+  jobId        String?      @map("job_id") @db.Uuid
+  expiresAt    DateTime     @map("expires_at") @db.Timestamptz(6) /// ผลตรวจหมดอายุ 24 ชม.
+  createdBy    String?      @map("created_by")
+  createdAt    DateTime     @default(dbgenerated("now()")) @map("created_at") @db.Timestamptz(3) /// ms — ตรงกับ cursor
+  updatedAt    DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@index([tenantId, createdAt])
   @@map("import_job")
@@ -1482,21 +1509,21 @@ enum PlatformRole {
 }
 
 model PlatformUser {
-  id             String       @id @default(uuid()) @db.Uuid
-  email          String       @unique
+  id             String                 @id @default(uuid()) @db.Uuid
+  email          String                 @unique
   name           String
   role           PlatformRole
-  passwordHash   String       @map("password_hash")
+  passwordHash   String                 @map("password_hash")
   /// TOTP (เข้ารหัสด้วย FieldCipher) — บังคับทุกคน ตั้งตอนสร้างบัญชี
-  totpSecret     String       @map("totp_secret")
-  totpLastStep   BigInt?      @map("totp_last_step")
-  status         String       @default("ACTIVE") /// ACTIVE · DISABLED
-  tokenVersion   Int          @default(0) @map("token_version")
-  failedLogins   Int          @default(0) @map("failed_logins")
-  lockedUntil    DateTime?    @map("locked_until") @db.Timestamptz(6)
-  lastLoginAt    DateTime?    @map("last_login_at") @db.Timestamptz(6)
-  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt      DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  totpSecret     String                 @map("totp_secret")
+  totpLastStep   BigInt?                @map("totp_last_step")
+  status         String                 @default("ACTIVE") /// ACTIVE · DISABLED
+  tokenVersion   Int                    @default(0) @map("token_version")
+  failedLogins   Int                    @default(0) @map("failed_logins")
+  lockedUntil    DateTime?              @map("locked_until") @db.Timestamptz(6)
+  lastLoginAt    DateTime?              @map("last_login_at") @db.Timestamptz(6)
+  createdAt      DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime               @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   impersonations ImpersonationSession[]
 
   @@map("platform_user")

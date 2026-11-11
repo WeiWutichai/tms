@@ -70,12 +70,15 @@ export function FormDrawer({
   closeLabel,
   children,
   onSubmit,
+  alert,
 }: {
   open: boolean;
   title: ReactNode;
   subtitle?: ReactNode;
   onClose: () => void;
   footer: ReactNode;
+  /** ข้อความสรุปสีแดงซ้ายของแถบปุ่ม เช่น "กรอกข้อมูลให้ครบ 2 ช่อง" (ต้นแบบ cfOpen msg) */
+  alert?: ReactNode;
   closeLabel: string;
   children: ReactNode;
   onSubmit?: () => void;
@@ -114,6 +117,12 @@ export function FormDrawer({
         </div>
         <div className="tms-fdrawer__body">{children}</div>
         <div className="tms-fdrawer__foot">
+          {alert && (
+            <span className="tms-fdrawer__alert" role="alert">
+              <Icon n="circle-alert" s={16} />
+              {alert}
+            </span>
+          )}
           <span style={{ flex: 1 }} />
           {footer}
         </div>

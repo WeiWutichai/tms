@@ -323,6 +323,9 @@ export function SiteFormDrawer({
       subtitle={editing ? site?.code : t('loc.create.sub')}
       onClose={onClose}
       closeLabel={t('drawer.close')}
+      {...(tried && Object.keys(local).length
+        ? { alert: t('form.incomplete', { n: Object.keys(local).length }) }
+        : {})}
       onSubmit={submit}
       footer={
         <>

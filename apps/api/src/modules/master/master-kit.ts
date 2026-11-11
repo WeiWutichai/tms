@@ -62,10 +62,7 @@ export const IsOptionalNotNull = () => ValidateIf((_, v) => v !== undefined);
 /** ช่องที่ล้างค่าได้ด้วย null (เช่น taxId, billingCompanyId) — ไม่ส่ง/null = ข้าม validator */
 export const IsNullable = () => ValidateIf((_, v) => v !== undefined && v !== null);
 
-/** escape `%` `_` `\` สำหรับ LIKE (Prisma `contains` ไม่ escape ให้) */
-export function likeEscape(v: string): string {
-  return v.replace(/[\\%_]/g, (c) => `\\${c}`);
-}
+export { iEquals, likeEscape } from '../../common/ilike';
 
 export const MASTER_SORTS = ['code', 'updatedAt', '-updatedAt'] as const;
 
@@ -328,6 +325,20 @@ export async function assertNotReferenced(checks: ReferenceCheck[]): Promise<voi
   }
   if (Object.keys(refs).length)
     throw new ProblemException('in_use', undefined, undefined, { references: refs });
+}
+
+/**
+ * ปิดใช้ได้เฉพาะเมื่อไม่มีข้อมูลที่ใช้งานอยู่อ้างถึง (เช่น MD-094 ประเภทรถที่ยังมีรถในทะเบียน)
+ * → 409 `in_use_active` (คนละ code/ข้อความกับ `in_use` ของการลบ) + จำนวนต่อชนิดใน `references`
+ */
+export async function assertNotActivelyUsed(checks: ReferenceCheck[]): Promise<void> {
+  const refs: Record<string, number> = {};
+  for (const c of checks) {
+    const n = await c.count();
+    if (n > 0) refs[c.name] = n;
+  }
+  if (Object.keys(refs).length)
+    throw new ProblemException('in_use_active', undefined, undefined, { references: refs });
 }
 
 /**

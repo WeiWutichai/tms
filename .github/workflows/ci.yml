@@ -51,6 +51,8 @@ jobs:
       - name: role ฐานข้อมูล (เหมือน infra/postgres/init)
         run: pnpm --filter @tms/api exec prisma db execute --file ../../infra/postgres/init/01-roles.sql --url "$DATABASE_URL"
       - run: pnpm --filter @tms/api exec prisma generate
+      - name: build workspace packages ที่ API ใช้ (bootstrap หลัง migrate ต้องใช้)
+        run: pnpm --filter "@tms/api^..." build
       - run: pnpm --filter @tms/api db:migrate
       - run: pnpm lint
       - run: pnpm typecheck
@@ -83,4 +85,4 @@ jobs:
     runs-on: ubuntu-latest
     environment: staging
     steps:
-      - run: echo "build image + prisma migrate deploy + deploy — เติมเมื่อเลือก cloud (plan/02 T-08)"
+      - run: echo "build image + pnpm --filter @tms/api db:migrate:prod (prisma migrate deploy + node dist/cli/bootstrap-tenants.js) + deploy — เติมเมื่อเลือก cloud (plan/02 T-08)"

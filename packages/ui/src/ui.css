@@ -1425,3 +1425,20 @@ button:focus-visible {
 .tms-listbody > .tms-table-wrap {
   flex: 1 1 auto;
 }
+
+/* ช่องผิดในฟอร์มข้อมูลหลัก (ต้นแบบ cfOpen: ขอบ #B3322A) — ชนะ .tms-fgrid--create .tms-input และ style ขอบแบบ inline ของ select */
+.tms-ffield [aria-invalid='true'] {
+  border-color: #b3322a !important;
+}
+.tms-ffield .tms-field-error {
+  font-size: 12.5px;
+  font-weight: 500;
+}
+/* สรุปท้ายฟอร์ม "ⓘ กรอกข้อมูลให้ครบ N ช่อง" (ต้นแบบ CF.msg) */
+.tms-fdrawer__alert {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #b3322a;
+  font-weight: 500;
+}

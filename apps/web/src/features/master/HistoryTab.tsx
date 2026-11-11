@@ -9,7 +9,10 @@ type AuditEntry = Schemas['AuditEntryDto'];
 type AuditPage = Schemas['AuditPageDto'];
 
 /** path ประวัติของ master ที่มี (เพิ่มเมื่อ master ใหม่มี `GET /{master}/{id}/history`) */
-export type HistoryPath = '/v1/customers/{id}/history' | '/v1/customer-sites/{id}/history';
+export type HistoryPath =
+  | '/v1/customers/{id}/history'
+  | '/v1/customer-sites/{id}/history'
+  | '/v1/vehicle-types/{id}/history';
 
 const VERB: Record<
   string,
@@ -34,6 +37,7 @@ function show(v: unknown): string {
   // พิกัดที่ geocode เสนอ {lat, lng, …} → "lat, lng"
   if (typeof v === 'object' && 'lat' in v && 'lng' in v)
     return `${(v as { lat: number }).lat}, ${(v as { lng: number }).lng}`;
+  if (Array.isArray(v)) return v.length ? v.map(show).join(', ') : '—';
   if (typeof v === 'object') return JSON.stringify(v);
   return String(v);
 }
@@ -47,11 +51,14 @@ export function HistoryTab({
   path,
   id,
   fieldLabel,
+  fieldValue,
 }: {
   path: HistoryPath;
   id: string;
   /** ชื่อฟิลด์ภาษาไทย (key ของ DTO → ข้อความ) — ไม่มี = แสดง key */
   fieldLabel: (k: string) => string;
+  /** ค่าภาษาไทยของฟิลด์ที่เป็นรหัส (เช่น ชั้นรถ/ป้าย) — คืน undefined = แสดงค่าดิบ */
+  fieldValue?: (k: string, v: unknown) => string | undefined;
 }) {
   const { t, lang } = useI18n();
   const q = useInfiniteQuery({
@@ -88,7 +95,9 @@ export function HistoryTab({
     const lines: string[] = [];
     if (DIFF_ACTIONS.includes(act))
       for (const k of Object.keys(after))
-        lines.push(`${fieldLabel(k)}: ${show(before[k])} → ${show(after[k])}`);
+        lines.push(
+          `${fieldLabel(k)}: ${fieldValue?.(k, before[k]) ?? show(before[k])} → ${fieldValue?.(k, after[k]) ?? show(after[k])}`,
+        );
     if (r.reason) lines.push(t('hist.reason', { r: r.reason }));
     return {
       key: r.id,

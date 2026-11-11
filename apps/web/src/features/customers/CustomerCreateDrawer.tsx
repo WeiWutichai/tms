@@ -107,6 +107,9 @@ export function CustomerCreateDrawer({
       subtitle={next.data ? t('cust.nextCode', { code: next.data.code }) : undefined}
       onClose={onClose}
       closeLabel={t('drawer.close')}
+      {...(tried && Object.keys(local).length
+        ? { alert: t('form.incomplete', { n: Object.keys(local).length }) }
+        : {})}
       onSubmit={submit}
       footer={
         <>

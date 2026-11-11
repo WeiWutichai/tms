@@ -19,6 +19,7 @@ import { Public } from '../common/decorators';
 import { hashPassword } from './password';
 import { PasswordPolicy } from './password-policy';
 import { isLocalEnv, newOpaqueToken, sha256 } from './tokens';
+import { iEquals } from '../common/ilike';
 
 /** PLT-032: ลิงก์อายุ 30 นาที ใช้ครั้งเดียว */
 export const RESET_TTL_MS = 30 * 60 * 1000;
@@ -80,7 +81,7 @@ export class PasswordResetService {
   ): Promise<AppUser[]> {
     // ไม่สนตัวพิมพ์ — เหมือน login (อีเมลที่เก็บอาจมีตัวใหญ่)
     const users = await db.appUser.findMany({
-      where: { email: { equals: email, mode: 'insensitive' }, status: 'ACTIVE' },
+      where: { email: iEquals(email), status: 'ACTIVE' },
     });
     if (!users.length) return [];
     const ok = await db.tenant.findMany({

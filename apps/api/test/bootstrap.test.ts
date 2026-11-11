@@ -6,9 +6,13 @@ import {
   createTenantWithDefaults,
 } from '../src/modules/tenants/bootstrap';
 import { readSettings } from '../src/modules/settings/settings.service';
-import { platform, truncateAll } from './helpers';
+import { execSync } from 'node:child_process';
+import { resolve } from 'node:path';
+import { ensureSystemRoles } from '../src/auth/system-roles';
+import { platform, createTenant, truncateAll } from './helpers';
+import { testEnv } from './env';
 
-/** ST1-T20: สร้าง tenant ใหม่แล้วมีชุดเลขและค่าภาษี default ครบโดยไม่ต้องตั้ง */
+/** ST1-T20: สร้าง tenant ใหม่แล้วมีชุดเลขและค่าภาษี default ครบโดยไม่ต้องตั้ง (+ ประเภทรถ ST2-T04) */
 describe('tenant bootstrap', () => {
   const db = platform();
   beforeAll(() => truncateAll());
@@ -34,6 +38,9 @@ describe('tenant bootstrap', () => {
     );
     const v = await readSettings(db, t.id, ['tax.vatDefault', 'tax.invoiceModePolicy']);
     expect(v).toEqual({ 'tax.vatDefault': 'VAT_7', 'tax.invoiceModePolicy': 'PER_CUSTOMER' });
+    // ST2-T04: ประเภทรถภาษาไทยพร้อมใช้
+    const types = await db.vehicleType.findMany({ where: { tenantId: t.id } });
+    expect(types.map((x) => x.code).sort()).toEqual(['10W', '4W', '6W', 'REF6', 'TRC', 'TRL']);
   });
 
   it('รันซ้ำไม่ทับค่าที่ tenant แก้แล้ว', async () => {
@@ -73,6 +80,73 @@ describe('tenant bootstrap', () => {
       'system-roles',
       'document-series',
       'tax-billing-defaults',
+      'vehicle-types',
     ]);
+  });
+  it('สคริปต์ tenants:bootstrap บนฐาน tms_test: tenant เดิม 2 รายได้ค่าเริ่มต้น + audit/event, รันซ้ำไม่เปลี่ยน', async () => {
+    const a = (await createTenant(db)).id; // tenant เก่า (ก่อนมีขั้นใหม่)
+    const b = (await createTenant(db)).id;
+    const run = () =>
+      execSync('pnpm -s tenants:bootstrap', {
+        cwd: resolve(__dirname, '..'),
+        env: { ...process.env, ...testEnv() },
+        encoding: 'utf8',
+      });
+    expect(run()).toMatch(/tenant OK \([^:]+:\d+\/tms_test\)/);
+    for (const t of [a, b]) {
+      expect(await db.vehicleType.count({ where: { tenantId: t } })).toBe(6);
+      expect(await db.tenantDefault.count({ where: { tenantId: t, outcome: 'INSERTED' } })).toBe(6);
+      expect(
+        await db.auditLog.count({
+          where: { tenantId: t, action: 'vehicle_type.created', actorId: null },
+        }),
+      ).toBe(6);
+      expect(
+        await db.domainEvent.count({ where: { tenantId: t, type: 'vehicle_type.created' } }),
+      ).toBe(6);
+      expect(await db.role.count({ where: { tenantId: t, isSystem: true } })).toBe(
+        ROLE_CODES.length,
+      );
+    }
+    run();
+    expect(await db.vehicleType.count({ where: { tenantId: a } })).toBe(6);
+    expect(
+      await db.auditLog.count({ where: { tenantId: a, action: 'vehicle_type.created' } }),
+    ).toBe(6);
+  });
+
+  it('ค่าเริ่มต้นที่เคยข้าม (ชนชื่อ) ไม่ถูกใส่ภายหลังแม้ต่อมาไม่ชนแล้ว (บันทึก SKIPPED)', async () => {
+    const t = (await createTenant(db)).id;
+    const mine = await db.vehicleType.create({
+      data: { tenantId: t, code: 'MY6', nameTh: '6 ล้อ', vehicleClass: '6W' },
+    });
+    await bootstrapTenant(db, t);
+    expect(
+      await db.tenantDefault.findUnique({
+        where: { tenantId_key: { tenantId: t, key: 'vehicle_type:th.6w' } },
+      }),
+    ).toMatchObject({ outcome: 'SKIPPED', detail: 'code_or_name_taken' });
+    await db.vehicleType.update({ where: { id: mine.id }, data: { nameTh: 'หกล้อของเรา' } });
+    await bootstrapTenant(db, t);
+    expect(await db.vehicleType.count({ where: { tenantId: t, systemKey: 'th.6w' } })).toBe(0);
+  });
+
+  it('role กำหนดเองที่ใช้รหัสของ role ระบบ ไม่ถูกยึดมาทับ', async () => {
+    const t = (await createTenant(db)).id;
+    await db.role.create({
+      data: {
+        tenantId: t,
+        code: 'viewer',
+        nameTh: 'ผู้ดูของเรา',
+        permissions: [],
+        isSystem: false,
+      },
+    });
+    const ids = await ensureSystemRoles(db, t);
+    expect(ids.viewer).toBeUndefined();
+    const r = await db.role.findUniqueOrThrow({
+      where: { tenantId_code: { tenantId: t, code: 'viewer' } },
+    });
+    expect([r.nameTh, r.isSystem, r.permissions]).toEqual(['ผู้ดูของเรา', false, []]);
   });
 });

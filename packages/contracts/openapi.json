@@ -4826,6 +4826,819 @@
           "customer-sites"
         ]
       }
+    },
+    "/v1/vehicle-types": {
+      "get": {
+        "operationId": "VehicleTypes_list",
+        "parameters": [
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "ค่า nextCursor จากหน้าก่อน (ใช้กับ sort เดิมเท่านั้น)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "updatedAfter",
+            "required": false,
+            "in": "query",
+            "description": "คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull — ใช้คู่ includeDeleted=true เพื่อรับรายการที่ถูกลบ)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sort",
+            "required": false,
+            "in": "query",
+            "description": "code = เรียงตามรหัส (ค่าเริ่มต้นของหน้าจอ) · updatedAt/-updatedAt สำหรับ sync",
+            "schema": {
+              "default": "code",
+              "type": "string",
+              "enum": [
+                "code",
+                "updatedAt",
+                "-updatedAt"
+              ]
+            }
+          },
+          {
+            "name": "fields",
+            "required": false,
+            "in": "query",
+            "description": "รายชื่อ field คั่นด้วย , เช่น id,legalName",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "required": false,
+            "in": "query",
+            "description": "ค้นหา — รหัส ชื่อ เลขผู้เสียภาษี หรือ externalId (ไม่สนตัวพิมพ์)",
+            "schema": {
+              "maxLength": 100,
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "description": "คั่นด้วย , เช่น active,inactive",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "externalId",
+            "required": false,
+            "in": "query",
+            "description": "externalId ตรงตัว (ใช้ตรวจว่ามีในระบบแล้วหรือยัง)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "includeDeleted",
+            "required": false,
+            "in": "query",
+            "description": "true = รวมรายการที่ถูกลบ (tombstone มี `deletedAt`) — ให้ระบบที่ดึงแบบ incremental รู้ว่ารายการถูกลบ",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "required": false,
+            "in": "query",
+            "description": "ชื่อมีคำนี้",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "vehicleClass",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "4W",
+                "6W",
+                "10W",
+                "TRAILER",
+                "SEMI_TRAILER"
+              ]
+            }
+          },
+          {
+            "name": "minLicenceClass",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "PERSONAL",
+                "T1",
+                "T2",
+                "T3",
+                "T4"
+              ]
+            }
+          },
+          {
+            "name": "capability",
+            "required": false,
+            "in": "query",
+            "description": "มีป้ายนี้",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "REFRIGERATED",
+                "CRANE",
+                "CONTAINER",
+                "HAZMAT"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VehicleTypePageDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "vehicle-types"
+        ]
+      },
+      "post": {
+        "operationId": "VehicleTypes_create",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateVehicleTypeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VehicleTypeDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "vehicle-types"
+        ]
+      }
+    },
+    "/v1/vehicle-types/summary": {
+      "get": {
+        "operationId": "VehicleTypes_summary",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VehicleTypeSummaryDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "vehicle-types"
+        ]
+      }
+    },
+    "/v1/vehicle-types/next-code": {
+      "get": {
+        "operationId": "VehicleTypes_nextCode",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "รหัสที่ระบบจะออกให้ประเภทรถใหม่ (`VT-0001`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NextCodeDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "vehicle-types"
+        ]
+      }
+    },
+    "/v1/vehicle-types/export": {
+      "get": {
+        "operationId": "VehicleTypes_export",
+        "parameters": [
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "ค่า nextCursor จากหน้าก่อน (ใช้กับ sort เดิมเท่านั้น)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "updatedAfter",
+            "required": false,
+            "in": "query",
+            "description": "คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull — ใช้คู่ includeDeleted=true เพื่อรับรายการที่ถูกลบ)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sort",
+            "required": false,
+            "in": "query",
+            "description": "code = เรียงตามรหัส (ค่าเริ่มต้นของหน้าจอ) · updatedAt/-updatedAt สำหรับ sync",
+            "schema": {
+              "default": "code",
+              "type": "string",
+              "enum": [
+                "code",
+                "updatedAt",
+                "-updatedAt"
+              ]
+            }
+          },
+          {
+            "name": "fields",
+            "required": false,
+            "in": "query",
+            "description": "รายชื่อ field คั่นด้วย , เช่น id,legalName",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "required": false,
+            "in": "query",
+            "description": "ค้นหา — รหัส ชื่อ เลขผู้เสียภาษี หรือ externalId (ไม่สนตัวพิมพ์)",
+            "schema": {
+              "maxLength": 100,
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "description": "คั่นด้วย , เช่น active,inactive",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "externalId",
+            "required": false,
+            "in": "query",
+            "description": "externalId ตรงตัว (ใช้ตรวจว่ามีในระบบแล้วหรือยัง)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "includeDeleted",
+            "required": false,
+            "in": "query",
+            "description": "true = รวมรายการที่ถูกลบ (tombstone มี `deletedAt`) — ให้ระบบที่ดึงแบบ incremental รู้ว่ารายการถูกลบ",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "required": false,
+            "in": "query",
+            "description": "ชื่อมีคำนี้",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "vehicleClass",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "4W",
+                "6W",
+                "10W",
+                "TRAILER",
+                "SEMI_TRAILER"
+              ]
+            }
+          },
+          {
+            "name": "minLicenceClass",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "PERSONAL",
+                "T1",
+                "T2",
+                "T3",
+                "T4"
+              ]
+            }
+          },
+          {
+            "name": "capability",
+            "required": false,
+            "in": "query",
+            "description": "มีป้ายนี้",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "REFRIGERATED",
+                "CRANE",
+                "CONTAINER",
+                "HAZMAT"
+              ]
+            }
+          },
+          {
+            "name": "format",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "xlsx",
+              "type": "string",
+              "enum": [
+                "xlsx",
+                "csv"
+              ]
+            }
+          },
+          {
+            "name": "ids",
+            "required": false,
+            "in": "query",
+            "description": "ส่งออกเฉพาะ id เหล่านี้ (คั่นด้วย ,) — แถวที่เลือกในตาราง",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ไฟล์ .xlsx หรือ .csv ตามตัวกรองเดียวกับรายการ (สูงสุด 10,000 แถว)"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "vehicle-types"
+        ]
+      }
+    },
+    "/v1/vehicle-types/external/{externalId}": {
+      "put": {
+        "operationId": "VehicleTypes_upsertExternal",
+        "parameters": [
+          {
+            "name": "externalId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag — ใช้เมื่อแถวมีอยู่แล้ว",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertVehicleTypeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "มีอยู่แล้ว → อัปเดต (ส่งซ้ำได้ ไม่เกิดแถวใหม่)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VehicleTypeDto"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "ยังไม่มี → สร้าง",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VehicleTypeDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "vehicle-types"
+        ]
+      }
+    },
+    "/v1/vehicle-types/{id}": {
+      "get": {
+        "operationId": "VehicleTypes_get",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VehicleTypeDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "vehicle-types"
+        ]
+      },
+      "patch": {
+        "operationId": "VehicleTypes_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateVehicleTypeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VehicleTypeDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "vehicle-types"
+        ]
+      }
+    },
+    "/v1/vehicle-types/{id}/history": {
+      "get": {
+        "operationId": "VehicleTypes_history",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "ค่า nextCursor จากหน้าก่อน",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ประวัติการแก้จาก audit log ใหม่สุดก่อน",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditPageDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "vehicle-types"
+        ]
+      }
+    },
+    "/v1/vehicle-types/{id}/deactivate": {
+      "post": {
+        "operationId": "VehicleTypes_deactivate",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MasterReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VehicleTypeDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "vehicle-types"
+        ]
+      }
+    },
+    "/v1/vehicle-types/{id}/activate": {
+      "post": {
+        "operationId": "VehicleTypes_activate",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MasterOptionalReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VehicleTypeDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "vehicle-types"
+        ]
+      }
+    },
+    "/v1/vehicle-types/{id}/delete": {
+      "post": {
+        "operationId": "VehicleTypes_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MasterReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "vehicle-types"
+        ]
+      }
     }
   },
   "info": {
@@ -8969,6 +9782,433 @@
             "type": "string",
             "maxLength": 500,
             "example": "ตรวจกับ Street View แล้ว ตรงประตูทางเข้า"
+          }
+        }
+      },
+      "VehicleTypeUsageDto": {
+        "type": "object",
+        "properties": {
+          "vehicles": {
+            "type": "number",
+            "description": "รถในทะเบียนที่ใช้ประเภทนี้ (ไม่นับที่ปลดระวาง)"
+          },
+          "rateCards": {
+            "type": "number",
+            "description": "rate card ที่อ้างประเภทนี้"
+          }
+        },
+        "required": [
+          "vehicles",
+          "rateCards"
+        ]
+      },
+      "VehicleTypeDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "vty_3f2a…"
+          },
+          "code": {
+            "type": "string",
+            "example": "10W"
+          },
+          "externalId": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "example": "10 ล้อ"
+          },
+          "vehicleClass": {
+            "type": "string",
+            "enum": [
+              "4W",
+              "6W",
+              "10W",
+              "TRAILER",
+              "SEMI_TRAILER"
+            ]
+          },
+          "sizeRank": {
+            "type": "number",
+            "description": "ขนาดเทียบข้อจำกัดสถานที่ (spec/02 §4 sizeRank) — คำนวณจากชั้นรถ"
+          },
+          "payloadKg": {
+            "type": "number",
+            "nullable": true,
+            "example": 15000
+          },
+          "volumeCbm": {
+            "type": "number",
+            "nullable": true,
+            "example": 40
+          },
+          "minLicenceClass": {
+            "type": "string",
+            "enum": [
+              "PERSONAL",
+              "T1",
+              "T2",
+              "T3",
+              "T4"
+            ],
+            "nullable": true
+          },
+          "capabilityTags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "REFRIGERATED",
+                "CRANE",
+                "CONTAINER",
+                "HAZMAT"
+              ]
+            }
+          },
+          "tempMinC": {
+            "type": "number",
+            "nullable": true,
+            "example": 0
+          },
+          "tempMaxC": {
+            "type": "number",
+            "nullable": true,
+            "example": 8
+          },
+          "system": {
+            "type": "boolean",
+            "description": "แถวค่าเริ่มต้นที่ระบบสร้างให้ (แก้/ปิดใช้/ลบได้เหมือนแถวอื่น)"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/VehicleTypeUsageDto"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          },
+          "deletedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "มีค่าเฉพาะเมื่อขอ includeDeleted=true และรายการถูกลบแล้ว (tombstone)"
+          },
+          "version": {
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "externalId",
+          "name",
+          "vehicleClass",
+          "sizeRank",
+          "payloadKg",
+          "volumeCbm",
+          "minLicenceClass",
+          "capabilityTags",
+          "tempMinC",
+          "tempMaxC",
+          "system",
+          "usage",
+          "status",
+          "version",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "VehicleTypePageDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VehicleTypeDto"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor",
+          "hasMore"
+        ]
+      },
+      "VehicleTypeSummaryDto": {
+        "type": "object",
+        "properties": {
+          "total": {
+            "type": "number",
+            "description": "ประเภทรถทั้งหมด (ไม่รวมที่ลบ)"
+          },
+          "active": {
+            "type": "number"
+          },
+          "inactive": {
+            "type": "number"
+          },
+          "vehicles": {
+            "type": "number",
+            "description": "รถในทะเบียน (ไม่นับที่ปลดระวาง)"
+          },
+          "rateCards": {
+            "type": "number",
+            "description": "rate card ที่อ้างประเภทรถ"
+          }
+        },
+        "required": [
+          "total",
+          "active",
+          "inactive",
+          "vehicles",
+          "rateCards"
+        ]
+      },
+      "CreateVehicleTypeDto": {
+        "type": "object",
+        "properties": {
+          "volumeCbm": {
+            "type": "number",
+            "example": 40,
+            "nullable": true,
+            "description": "ปริมาตร (ลบ.ม.)"
+          },
+          "capabilityTags": {
+            "type": "array",
+            "description": "ความสามารถพิเศษ: REFRIGERATED = ห้องเย็น (ต้องมี tempMinC/tempMaxC), CRANE = ติดเครน, CONTAINER = ลากตู้คอนเทนเนอร์, HAZMAT = ขนสินค้าอันตรายได้",
+            "items": {
+              "type": "string",
+              "enum": [
+                "REFRIGERATED",
+                "CRANE",
+                "CONTAINER",
+                "HAZMAT"
+              ]
+            }
+          },
+          "tempMinC": {
+            "type": "number",
+            "example": 0,
+            "nullable": true,
+            "description": "ห้องเย็น: อุณหภูมิต่ำสุด (°C) — ส่งคู่กับ tempMaxC และ min < max"
+          },
+          "tempMaxC": {
+            "type": "number",
+            "example": 8,
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "example": "10 ล้อ ตู้แห้ง",
+            "description": "ชื่อประเภทรถ — ห้ามซ้ำ (ไม่สนตัวพิมพ์)"
+          },
+          "vehicleClass": {
+            "type": "string",
+            "enum": [
+              "4W",
+              "6W",
+              "10W",
+              "TRAILER",
+              "SEMI_TRAILER"
+            ],
+            "description": "ชั้นรถ: 4W = 4 ล้อ, 6W = 6 ล้อ, 10W = 10 ล้อ, TRAILER = พ่วง, SEMI_TRAILER = หัวลาก + หางเทรลเลอร์ — เทียบกับ \"รถเข้าได้สูงสุด\" ของสถานที่"
+          },
+          "payloadKg": {
+            "type": "number",
+            "example": 15000,
+            "description": "น้ำหนักบรรทุกมาตรฐาน (กก.) > 0"
+          },
+          "minLicenceClass": {
+            "type": "string",
+            "enum": [
+              "PERSONAL",
+              "T1",
+              "T2",
+              "T3",
+              "T4"
+            ],
+            "description": "ใบขับขี่ขั้นต่ำ: PERSONAL = ส่วนบุคคล, T1–T4 = ท.1–ท.4"
+          },
+          "code": {
+            "type": "string",
+            "example": "10W-DRY",
+            "description": "รหัส — ไม่ส่ง = ระบบออกเลขถัดไป `VT-0001` (MD-002)"
+          },
+          "externalId": {
+            "type": "string",
+            "description": "รหัสในระบบต้นทาง — เรียกด้วย ext:{externalId} ได้"
+          }
+        },
+        "required": [
+          "name",
+          "vehicleClass",
+          "payloadKg",
+          "minLicenceClass"
+        ]
+      },
+      "UpsertVehicleTypeDto": {
+        "type": "object",
+        "properties": {
+          "volumeCbm": {
+            "type": "number",
+            "example": 40,
+            "nullable": true,
+            "description": "ปริมาตร (ลบ.ม.)"
+          },
+          "capabilityTags": {
+            "type": "array",
+            "description": "ความสามารถพิเศษ: REFRIGERATED = ห้องเย็น (ต้องมี tempMinC/tempMaxC), CRANE = ติดเครน, CONTAINER = ลากตู้คอนเทนเนอร์, HAZMAT = ขนสินค้าอันตรายได้",
+            "items": {
+              "type": "string",
+              "enum": [
+                "REFRIGERATED",
+                "CRANE",
+                "CONTAINER",
+                "HAZMAT"
+              ]
+            }
+          },
+          "tempMinC": {
+            "type": "number",
+            "example": 0,
+            "nullable": true,
+            "description": "ห้องเย็น: อุณหภูมิต่ำสุด (°C) — ส่งคู่กับ tempMaxC และ min < max"
+          },
+          "tempMaxC": {
+            "type": "number",
+            "example": 8,
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "example": "10 ล้อ ตู้แห้ง",
+            "description": "ชื่อประเภทรถ — ห้ามซ้ำ (ไม่สนตัวพิมพ์)"
+          },
+          "vehicleClass": {
+            "type": "string",
+            "enum": [
+              "4W",
+              "6W",
+              "10W",
+              "TRAILER",
+              "SEMI_TRAILER"
+            ],
+            "description": "ชั้นรถ: 4W = 4 ล้อ, 6W = 6 ล้อ, 10W = 10 ล้อ, TRAILER = พ่วง, SEMI_TRAILER = หัวลาก + หางเทรลเลอร์ — เทียบกับ \"รถเข้าได้สูงสุด\" ของสถานที่"
+          },
+          "payloadKg": {
+            "type": "number",
+            "example": 15000,
+            "description": "น้ำหนักบรรทุกมาตรฐาน (กก.) > 0"
+          },
+          "minLicenceClass": {
+            "type": "string",
+            "enum": [
+              "PERSONAL",
+              "T1",
+              "T2",
+              "T3",
+              "T4"
+            ],
+            "description": "ใบขับขี่ขั้นต่ำ: PERSONAL = ส่วนบุคคล, T1–T4 = ท.1–ท.4"
+          },
+          "code": {
+            "type": "string",
+            "example": "10W-DRY",
+            "description": "ใช้ตอนสร้างเท่านั้น"
+          }
+        },
+        "required": [
+          "name",
+          "vehicleClass",
+          "payloadKg",
+          "minLicenceClass"
+        ]
+      },
+      "UpdateVehicleTypeDto": {
+        "type": "object",
+        "properties": {
+          "volumeCbm": {
+            "type": "number",
+            "example": 40,
+            "nullable": true,
+            "description": "ปริมาตร (ลบ.ม.)"
+          },
+          "capabilityTags": {
+            "type": "array",
+            "description": "ความสามารถพิเศษ: REFRIGERATED = ห้องเย็น (ต้องมี tempMinC/tempMaxC), CRANE = ติดเครน, CONTAINER = ลากตู้คอนเทนเนอร์, HAZMAT = ขนสินค้าอันตรายได้",
+            "items": {
+              "type": "string",
+              "enum": [
+                "REFRIGERATED",
+                "CRANE",
+                "CONTAINER",
+                "HAZMAT"
+              ]
+            }
+          },
+          "tempMinC": {
+            "type": "number",
+            "example": 0,
+            "nullable": true,
+            "description": "ห้องเย็น: อุณหภูมิต่ำสุด (°C) — ส่งคู่กับ tempMaxC และ min < max"
+          },
+          "tempMaxC": {
+            "type": "number",
+            "example": 8,
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "example": "10 ล้อ ตู้แห้ง"
+          },
+          "vehicleClass": {
+            "type": "string",
+            "enum": [
+              "4W",
+              "6W",
+              "10W",
+              "TRAILER",
+              "SEMI_TRAILER"
+            ]
+          },
+          "payloadKg": {
+            "type": "number",
+            "example": 15000
+          },
+          "minLicenceClass": {
+            "type": "string",
+            "enum": [
+              "PERSONAL",
+              "T1",
+              "T2",
+              "T3",
+              "T4"
+            ]
+          },
+          "externalId": {
+            "type": "string",
+            "nullable": true,
+            "description": "null = ลบการผูก"
           }
         }
       }

@@ -20,6 +20,7 @@ export const ID_PREFIX = {
   import: 'imp',
   customer: 'cus',
   site: 'loc',
+  vehicleType: 'vty',
 } as const;
 export type IdKind = keyof typeof ID_PREFIX;
 
