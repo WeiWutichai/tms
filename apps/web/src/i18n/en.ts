@@ -412,6 +412,7 @@ export const en: Partial<Record<MessageKey, string>> = {
   'vdoc.type.OTHER': 'Other',
   'vdoc.st.cancelled': 'Cancel',
   'vdoc.renew': 'Renew',
+  'vdoc.cancel': 'Cancel document',
   'vdoc.rnw.ok': 'Save renewal',
   'vdoc.f.type': 'Document type',
   'vdoc.f.no': 'No.',

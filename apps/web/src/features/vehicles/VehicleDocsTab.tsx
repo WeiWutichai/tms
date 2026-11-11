@@ -1,4 +1,4 @@
-import { Icon, Toast, useEscapeLayer } from '@tms/ui';
+import { Icon, ReasonDialog, Toast, useEscapeLayer } from '@tms/ui';
 import { useId, useRef, useState, type ReactNode } from 'react';
 import { ApiError } from '../../api';
 import { formatDate, formatMoney, useI18n, type T } from '../../i18n';
@@ -12,6 +12,7 @@ import {
   openDocFile,
   todayTh,
   uploadDocFile,
+  useCancelVehicleDoc,
   useCreateVehicleDoc,
   useRenewVehicleDoc,
   useVehicleDocs,
@@ -91,6 +92,8 @@ export function VehicleDocsTab({
   const dt = useDate();
   const q = useVehicleDocs(v.id);
   const [renewing, setRenewing] = useState<VehicleDoc | null>(null);
+  const [cancelling, setCancelling] = useState<VehicleDoc | null>(null);
+  const cancel = useCancelVehicleDoc();
   const [adding, setAdding] = useState(false);
   const [showHist, setShowHist] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -119,12 +122,24 @@ export function VehicleDocsTab({
   const hist = all.filter((d) => d.status === 'superseded' || d.status === 'cancelled');
   const download = (id: string) => openDocFile(id).catch(() => setToast(t('vdoc.downloadFailed')));
 
+  // ต่ออายุ + ยกเลิกเอกสาร (บันทึกผิด / เอกสาร "อื่น ๆ" ที่ไม่ต้องต่อแล้ว — ต้นแบบไม่มีปุ่มนี้ [OPEN spec/12 §3])
   const renewBtn = (d: VehicleDoc) =>
     writable ? (
-      <button type="button" className="tms-vdoc__renew" onClick={() => setRenewing(d)}>
-        <Icon n="refresh-cw" s={14} />
-        {t('vdoc.renew')}
-      </button>
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+        <button type="button" className="tms-vdoc__renew" onClick={() => setRenewing(d)}>
+          <Icon n="refresh-cw" s={14} />
+          {t('vdoc.renew')}
+        </button>
+        <button
+          type="button"
+          className="tms-vdoc__dl"
+          title={t('vdoc.cancel')}
+          aria-label={t('vdoc.cancel')}
+          onClick={() => setCancelling(d)}
+        >
+          <Icon n="ban" s={16} />
+        </button>
+      </span>
     ) : undefined;
 
   return (
@@ -182,6 +197,41 @@ export function VehicleDocsTab({
           ))}
         </div>
       )}
+      <ReasonDialog
+        open={!!cancelling}
+        title={
+          cancelling
+            ? t('vdoc.cancelT', {
+                t: [docName(t, cancelling), cancelling.docNo].filter(Boolean).join(' '),
+              })
+            : ''
+        }
+        description={t('vdoc.cancelD')}
+        label={t('veh.dlg.reason')}
+        placeholder={t('veh.dlg.reasonPh')}
+        okLabel={t('vdoc.cancel')}
+        cancelLabel={t('common.cancel')}
+        closeLabel={t('drawer.close')}
+        busy={cancel.isPending}
+        error={problemText(cancel.error, t)}
+        onClose={() => {
+          setCancelling(null);
+          cancel.reset();
+        }}
+        onOk={(reason) => {
+          if (!cancelling) return;
+          const d = cancelling;
+          cancel.mutate(
+            { id: d.id, reason },
+            {
+              onSuccess: () => {
+                setCancelling(null);
+                setToast(t('vdoc.cancelDone', { t: docName(t, d), p: vehPlate(t, v) }));
+              },
+            },
+          );
+        }}
+      />
       {renewing && (
         <RenewDialog
           d={renewing}

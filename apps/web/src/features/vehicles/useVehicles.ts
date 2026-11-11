@@ -139,12 +139,12 @@ export function vehicleQuery(tab: VehTabKey, f: VehicleFilters): Record<string, 
   return q;
 }
 
-export function useVehicleList(query: Record<string, string> | null) {
+export function useVehicleList(query: Record<string, string> | null, persist?: string) {
   return useCursorList<Vehicle>(
     KEY,
     query ?? {},
     (q) => unwrap(api.GET('/v1/vehicles', { params: { query: q as never } })),
-    { sort: 'plate', enabled: query !== null },
+    { sort: 'plate', enabled: query !== null, ...(persist ? { persist } : {}) },
   );
 }
 

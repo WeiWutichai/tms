@@ -412,6 +412,7 @@ export const zh: Partial<Record<MessageKey, string>> = {
   'vdoc.type.OTHER': '其他',
   'vdoc.st.cancelled': '取消',
   'vdoc.renew': '续期',
+  'vdoc.cancel': '取消单据',
   'vdoc.rnw.ok': '保存续期',
   'vdoc.f.type': '单据类型',
   'vdoc.f.no': '编号',

@@ -90,9 +90,11 @@ button:focus-visible {
   border-color: #2257c4;
   background: #eef0ec;
 }
+/* ต้นแบบ TMS v4: ปุ่มรองที่กดไม่ได้ = ขอบ/ตัวอักษร #C9CDC3 พื้นขาว */
 .tms-btn--secondary:disabled {
   border-color: #c9cdc3;
-  color: #3b424c;
+  background: #ffffff;
+  color: #c9cdc3;
   cursor: not-allowed;
 }
 .tms-btn--ghost {
@@ -954,6 +956,10 @@ button:focus-visible {
   font-weight: 400;
   cursor: pointer;
   font-variant-numeric: tabular-nums;
+}
+.tms-pager__page:disabled {
+  color: #c9cdc3;
+  cursor: not-allowed;
 }
 .tms-pager__page[aria-current='page'] {
   background: #e9f0fa;

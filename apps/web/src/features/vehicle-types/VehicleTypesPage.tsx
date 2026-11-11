@@ -20,6 +20,7 @@ import { useMe } from '../../shell/AppShell';
 import { tableLabels } from '../companies/CompanySample';
 import { downloadFile } from '../master/download';
 import { problemText } from '../master/problems';
+import { listTotal } from '../master/useCursorList';
 import { VehicleTypeDrawer, cbmText, kgText, licLabel } from './VehicleTypeDrawer';
 import { VehicleTypeFormDrawer } from './VehicleTypeFormDrawer';
 import {
@@ -180,7 +181,7 @@ export function VehicleTypesPage() {
   ];
 
   const filtered = Object.values(filters).some((v) => v !== '');
-  const shownTotal = !filtered && sum ? sum.total : list.page.total;
+  const shownTotal = listTotal(list, filters, [], sum?.total);
 
   return (
     <>
@@ -234,7 +235,7 @@ export function VehicleTypesPage() {
             rows={list.rows}
             rowId={(r) => r.id}
             activeId={openId}
-            loading={list.q.isLoading}
+            loading={list.loading}
             labels={tableLabels(t)}
             filters={{ ...filters }}
             onFilterChange={(k, v) => setF(k as keyof VehicleTypeFilters, v)}

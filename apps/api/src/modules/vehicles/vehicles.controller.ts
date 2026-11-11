@@ -111,6 +111,10 @@ function exportColumns(finance: boolean): ExportColumn<VehicleDto>[] {
           { header: 'มูลค่าซาก', value: (r) => r.salvageValue ?? null },
         ] as ExportColumn<VehicleDto>[])
       : []),
+    {
+      header: 'เอกสารใกล้หมด (ฉบับ)',
+      value: (r) => (r.docAlert?.count ? r.docAlert.count : null),
+    },
     { header: 'รหัสในระบบต้นทาง', value: (r) => r.externalId },
     { header: 'สถานะ', value: (r) => STATUS_TH[r.status] },
   ];

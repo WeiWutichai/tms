@@ -1265,6 +1265,11 @@ export const th = {
   'vdoc.historyHide': 'ซ่อนประวัติ',
   'vdoc.period': '{from} – {to}',
   'vdoc.cancelledWhy': 'ยกเลิก: {r}',
+  'vdoc.cancel': 'ยกเลิกเอกสาร',
+  'vdoc.cancelT': 'ยกเลิกเอกสาร {t}',
+  'vdoc.cancelD':
+    'ใช้เมื่อบันทึกผิดหรือไม่ต้องใช้เอกสารนี้แล้ว — ไม่ลบข้อมูล เอกสารย้ายไปอยู่ในประวัติ ถ้าเป็นฉบับต่ออายุ ฉบับเดิมจะกลับมาเป็นฉบับปัจจุบัน',
+  'vdoc.cancelDone': 'ยกเลิก{t} {p} แล้ว',
   'vdoc.rnw.title': 'ต่ออายุ{t}',
   'vdoc.rnw.sub': '{p} · เลขเดิม {no} · หมด {to}',
   'vdoc.rnw.no': 'เลขที่ใหม่',

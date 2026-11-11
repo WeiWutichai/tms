@@ -375,7 +375,14 @@ export class VehiclesService {
         `export is limited to ${EXPORT_MAX_ROWS} rows — narrow the filter`,
       );
     const finance = canSeeFinance();
-    return rows.map((r) => toVehicleDto(r, finance));
+    // ป้ายเอกสารใกล้หมด (คอลัมน์ "เอกสารใกล้หมด" ในไฟล์) — ทีละ 1,000 คัน ไม่ N+1
+    const alerts = new Map<string, VehicleDocAlertDto>();
+    for (let i = 0; i < rows.length; i += 1000)
+      for (const [k, v] of await this.docAlerts(rows.slice(i, i + 1000))) alerts.set(k, v);
+    return rows.map((r) => ({
+      ...toVehicleDto(r, finance),
+      docAlert: alerts.get(r.id) ?? NO_ALERT,
+    }));
   }
 
   /** แถบสรุป + โควตารถ (soft limit — PLT-080 [OPEN O-PLT-4]; นับคันที่ยังไม่ปลดระวางจนกว่าจะมี metering รายเดือน) */

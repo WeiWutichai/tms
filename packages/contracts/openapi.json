@@ -6612,7 +6612,7 @@
             "name": "docAlert",
             "required": false,
             "in": "query",
-            "description": "true = มีเอกสารฉบับปัจจุบันหมดภายใน 30 วันหรือหมดแล้ว (ไม่นับรถปลดระวาง) · false = ไม่มี",
+            "description": "true = มีเอกสารฉบับปัจจุบันหมดภายใน 30 วันหรือหมดแล้ว (ไม่นับรถปลดระวาง) · false = ไม่มี — คำนวณตามวันนี้ (ไม่สัมพันธ์กับ updatedAt)",
             "schema": {
               "type": "string",
               "enum": [
@@ -6872,7 +6872,7 @@
             "name": "docAlert",
             "required": false,
             "in": "query",
-            "description": "true = มีเอกสารฉบับปัจจุบันหมดภายใน 30 วันหรือหมดแล้ว (ไม่นับรถปลดระวาง) · false = ไม่มี",
+            "description": "true = มีเอกสารฉบับปัจจุบันหมดภายใน 30 วันหรือหมดแล้ว (ไม่นับรถปลดระวาง) · false = ไม่มี — คำนวณตามวันนี้ (ไม่สัมพันธ์กับ updatedAt)",
             "schema": {
               "type": "string",
               "enum": [
@@ -13491,7 +13491,7 @@
             "description": "มีเฉพาะในผลการสร้าง: true = รถที่นับโควตา (ยังไม่ปลดระวาง) เกินโควตาของ tenant แล้ว — soft limit ยังสร้างได้ (header `Warning: 299` ด้วย)"
           },
           "docAlert": {
-            "description": "มีเฉพาะในรายการ (GET /vehicles): เอกสารใกล้หมด 30 วัน/หมดแล้วของคันนี้ (รถปลดระวาง = 0) — ST2-T07",
+            "description": "มีเฉพาะในรายการ (GET /vehicles): เอกสารใกล้หมด 30 วัน/หมดแล้วของคันนี้ (รถปลดระวาง = 0) — ST2-T07 · คำนวณจากเอกสารและวันนี้ทุกครั้ง **ไม่ทำให้ `updatedAt` ของรถเปลี่ยน** — ผู้ที่ sync แบบ `updatedAfter` ให้ดึงเอกสารจาก `GET /vehicle-documents` แทน",
             "allOf": [
               {
                 "$ref": "#/components/schemas/VehicleDocAlertDto"

@@ -810,6 +810,7 @@ describe('เอกสารรถ (vehicle documents)', () => {
     const csv = await api(app, tok).get('/v1/vehicles/export?format=csv&docAlert=true').expect(200);
     expect(csv.text).toContain('71-0002');
     expect(csv.text).not.toContain('71-0001');
+    expect(csv.text).toContain('เอกสารใกล้หมด (ฉบับ)');
     // tenant อื่นไม่เห็นตัวนับของ tenant นี้
     expect((await api(app, otherTenantToken).get('/v1/vehicles/summary')).body.docAlert).toBe(0);
   });

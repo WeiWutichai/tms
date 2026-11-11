@@ -18,6 +18,7 @@ import { useMe } from '../../shell/AppShell';
 import { tableLabels } from '../companies/CompanySample';
 import { downloadFile } from '../master/download';
 import { problemText } from '../master/problems';
+import { listTotal } from '../master/useCursorList';
 import { SiteDrawer, geoState, hoursText } from './SiteDrawer';
 import { SiteFormDrawer } from './SiteFormDrawer';
 import { formatContact } from './siteFormat';
@@ -255,10 +256,8 @@ export function SitesPage() {
   ];
 
   const kinds = sum?.byKind;
-  const onlyKind = !filters.q && !filters.customerName && !filters.maxVehicleClass;
-  const tabCount = !onlyKind
-    ? undefined
-    : filters.pinned === 'false'
+  const tabCount =
+    filters.pinned === 'false'
       ? filters.kind
         ? undefined
         : sum?.unpinned
@@ -266,7 +265,8 @@ export function SitesPage() {
         ? kinds?.[filters.kind as keyof typeof kinds]
         : sum?.total;
   const filtered = Object.values(filters).some((v) => v !== '');
-  const shownTotal = tabCount ?? list.page.total;
+  // ตัวนับของแท็บครอบเฉพาะ ประเภท + ยังไม่ปักหมุด — ตัวกรองอื่น (รวม พิกัด/ลูกค้า) = ยอดจากรายการ (review ST2-T07)
+  const shownTotal = listTotal(list, filters, ['kind', 'pinned'], tabCount);
 
   return (
     <>
@@ -344,7 +344,7 @@ export function SitesPage() {
             rows={list.rows}
             rowId={(r) => r.id}
             activeId={openId}
-            loading={list.q.isLoading}
+            loading={list.loading}
             labels={tableLabels(t)}
             filters={{ ...filters }}
             onFilterChange={(k, v) => setF(k as keyof SiteFilters, v)}

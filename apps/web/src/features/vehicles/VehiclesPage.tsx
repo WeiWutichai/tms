@@ -18,6 +18,7 @@ import { useMe } from '../../shell/AppShell';
 import { tableLabels } from '../companies/CompanySample';
 import { downloadFile } from '../master/download';
 import { problemText } from '../master/problems';
+import { listTotal, useSessionState } from '../master/useCursorList';
 import { VehicleActionDialog, type VehicleDialog } from './VehicleActionDialog';
 import { VehBadge, VehicleDrawer } from './VehicleDrawer';
 import { VehicleFormDrawer } from './VehicleFormDrawer';
@@ -78,10 +79,11 @@ export function VehiclesPage() {
   const finance = can(scopes, 'reports.finance:read');
   const tenantName = me.data?.tenant.name ?? '';
   const navigate = useNavigate();
-  const [filters, setFilters] = useState<VehicleFilters>(EMPTY_FILTERS);
-  const [tab, setTab] = useState<VehTabKey>('all');
+  // แท็บ/ตัวกรอง/หน้า จำใน sessionStorage — ไปโปรไฟล์รถแล้วกลับมาอยู่ที่เดิม (review ST2-T07)
+  const [filters, setFilters] = useSessionState<VehicleFilters>('tms.fveh.filters', EMPTY_FILTERS);
+  const [tab, setTab] = useSessionState<VehTabKey>('tms.fveh.tab', 'all');
   const query = vehicleQuery(tab, filters);
-  const list = useVehicleList(query);
+  const list = useVehicleList(query, 'tms.fveh.page');
   const summary = useVehicleSummary();
   const types = useVehicleTypeOptions();
   // drawer รถเปิดจากที่นี่เฉพาะหลังเพิ่มรถ (แก้ไขอยู่ในโปรไฟล์รถ — ต้นแบบ pr.edit)
@@ -111,11 +113,10 @@ export function VehiclesPage() {
       width: '1%',
       filter: { type: 'text', placeholder: t('table.search') },
       render: (r) => (
-        <span className="tms-num" style={{ ...cell, fontWeight: 500 }}>
+        <span className="tms-num" style={{ ...cell, color: '#2257C4', fontWeight: 500 }}>
           {vehPlate(t, r)}
         </span>
       ),
-      csv: (r) => vehPlate(t, r),
     },
     {
       key: 'model',
@@ -131,7 +132,6 @@ export function VehiclesPage() {
           </div>
         );
       },
-      csv: (r) => [r.brand, r.model, r.year].filter(Boolean).join(' '),
     },
     {
       key: 'vehicleTypeId',
@@ -145,7 +145,6 @@ export function VehiclesPage() {
         ],
       },
       render: (r) => <Tag>{r.vehicleType.name}</Tag>,
-      csv: (r) => r.vehicleType.name,
     },
     {
       key: 'pair',
@@ -154,7 +153,6 @@ export function VehiclesPage() {
         const s = pairText(r);
         return <span style={s === '—' ? sub : cell}>{s}</span>;
       },
-      csv: (r) => pairText(r),
     },
     {
       key: 'odo',
@@ -166,7 +164,6 @@ export function VehiclesPage() {
           {r.odometerKm === null ? '—' : num(r.odometerKm)}
         </span>
       ),
-      csv: (r) => (r.odometerKm === null ? '' : String(r.odometerKm)),
     },
     {
       key: 'ownership',
@@ -193,14 +190,12 @@ export function VehiclesPage() {
           </div>
         );
       },
-      csv: (r) => (r.ownership === 'OWN' ? tenantName : (r.carrier?.name ?? '')),
     },
     {
       key: 'pm',
       label: t('veh.col.pm'),
       // PM = P1 (docs/04 B2.1 ส่วน 3) — ต้นแบบมีคอลัมน์ แสดง "—" [OPEN spec/12 §3]
       render: () => <span style={sub}>—</span>,
-      csv: () => '',
     },
     {
       key: 'docAlert',
@@ -215,7 +210,6 @@ export function VehiclesPage() {
         ],
       },
       render: (r) => <DocAlertCell v={r} t={t} />,
-      csv: (r) => (r.docAlert?.count ? t('veh.doc.n', { n: r.docAlert.count }) : ''),
     },
     {
       key: 'status',
@@ -229,15 +223,18 @@ export function VehiclesPage() {
         ],
       },
       render: (r) => <VehBadge v={r} t={t} />,
-      csv: (r) => t(`veh.st.${r.status}`),
     },
   ];
 
   const filtered = Object.values(filters).some((v) => v !== '');
   const tabCount = (k: VehTabKey): number | undefined =>
     !sum ? undefined : k === 'all' ? sum.total : k === 'sub' ? sum.subcontract : sum[k];
-  // จำนวนรายการ: ไม่กรองคอลัมน์ = ตัวนับของแท็บ · กรองเพิ่ม = รู้เมื่อถึงหน้าสุดท้ายเท่านั้น (API ไม่มี count)
-  const shownTotal = !filtered ? tabCount(tab) : list.page.total;
+  // จำนวนรายการ: ไม่กรองคอลัมน์ = ตัวนับของแท็บ · แท็บทั้งหมด + เฉพาะ "มีเอกสารใกล้หมด" = ตัวนับการ์ดเอกสาร
+  // · กรองอื่น = รู้เมื่อถึงหน้าสุดท้ายเท่านั้น (API ไม่มี count)
+  const docOnly = tab === 'all' && filters.docAlert === 'true';
+  const shownTotal = docOnly
+    ? listTotal(list, filters, ['docAlert'], sum?.docAlert)
+    : listTotal(list, filters, [], tabCount(tab));
   const toggleTab = (k: VehTabKey) => setTab((x) => (x === k ? 'all' : k));
   const today = formatDate(new Date(), lang, (me.data?.tenant.yearStyle as 'BE' | 'CE') ?? 'BE');
 
@@ -339,7 +336,7 @@ export function VehiclesPage() {
             rows={list.rows}
             rowId={(r) => r.id}
             activeId={null}
-            loading={list.q.isLoading}
+            loading={list.loading}
             labels={tableLabels(t)}
             filters={{ ...filters }}
             onFilterChange={(k, v) => setF(k as keyof VehicleFilters, v)}

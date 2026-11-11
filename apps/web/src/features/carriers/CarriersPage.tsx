@@ -21,6 +21,7 @@ import { useMe } from '../../shell/AppShell';
 import { tableLabels } from '../companies/CompanySample';
 import { downloadFile } from '../master/download';
 import { problemText } from '../master/problems';
+import { listTotal } from '../master/useCursorList';
 import { CarrierDrawer, taxText } from './CarrierDrawer';
 import {
   useCarrierAction,
@@ -281,7 +282,7 @@ export function CarriersPage() {
   const onlyStatus = !filters.name && !filters.entityType;
   const filtered = !!(filters.status || !onlyStatus);
   // ยอดรวม: ไม่กรองอื่น = ตัวนับของแท็บ · กรองอื่น = รู้เมื่อถึงหน้าสุดท้ายเท่านั้น (ไม่ใช่จำนวนแถวในหน้า)
-  const shownTotal = onlyStatus && tabCount !== undefined ? tabCount : list.page.total;
+  const shownTotal = listTotal(list, filters, ['status'], tabCount);
 
   return (
     <>
@@ -396,7 +397,7 @@ export function CarriersPage() {
                 rows={list.rows}
                 rowId={(r) => r.id}
                 activeId={openId}
-                loading={list.q.isLoading}
+                loading={list.loading}
                 labels={tableLabels(t)}
                 filters={{ ...filters }}
                 onFilterChange={(k, v) => setF(k as keyof CarrierFilters, v)}

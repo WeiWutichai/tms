@@ -97,6 +97,21 @@ export function useRenewVehicleDoc() {
   });
 }
 
+/** ยกเลิกเอกสารที่บันทึกผิด (เหตุผล ≥ 10 — API ลง audit, ฉบับเดิมที่ถูกต่ออายุกลับเป็นปัจจุบัน) — review ST2-T07 */
+export function useCancelVehicleDoc() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { id: string; reason: string }) =>
+      unwrap(
+        api.POST('/v1/vehicle-documents/{id}/cancel', {
+          params: { path: { id: v.id } },
+          body: { reason: v.reason },
+        }),
+      ),
+    onSuccess: () => invalidate(qc),
+  });
+}
+
 /** YYYY-MM-DD วันนี้ตามเวลาไทย */
 export const todayTh = () => new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10);
 /** + n ปี (29 ก.พ. → 28 ก.พ.) */

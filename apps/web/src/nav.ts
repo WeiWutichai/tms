@@ -261,7 +261,7 @@ export const NAV: NavGroup[] = [
 const SUBPAGES: { re: RegExp; page: string; parent: string }[] = [
   { re: /^\/fleet\/vehicles\/[^/]+$/, page: 'fprof', parent: '/fleet/vehicles' },
 ];
-const parentOf = (pathname: string) =>
+export const parentOf = (pathname: string) =>
   SUBPAGES.find((x) => x.re.test(pathname))?.parent ?? pathname;
 
 /** หา key ของหน้า (META) จาก path */

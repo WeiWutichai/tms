@@ -537,7 +537,7 @@ export class VehicleListQuery {
   @ApiPropertyOptional({
     enum: ['true', 'false'],
     description:
-      'true = มีเอกสารฉบับปัจจุบันหมดภายใน 30 วันหรือหมดแล้ว (ไม่นับรถปลดระวาง) · false = ไม่มี',
+      'true = มีเอกสารฉบับปัจจุบันหมดภายใน 30 วันหรือหมดแล้ว (ไม่นับรถปลดระวาง) · false = ไม่มี — คำนวณตามวันนี้ (ไม่สัมพันธ์กับ updatedAt)',
   })
   @IsOptional()
   @IsIn(['true', 'false'])
@@ -646,7 +646,8 @@ export class VehicleDto {
   @ApiPropertyOptional({
     type: VehicleDocAlertDto,
     description:
-      'มีเฉพาะในรายการ (GET /vehicles): เอกสารใกล้หมด 30 วัน/หมดแล้วของคันนี้ (รถปลดระวาง = 0) — ST2-T07',
+      'มีเฉพาะในรายการ (GET /vehicles): เอกสารใกล้หมด 30 วัน/หมดแล้วของคันนี้ (รถปลดระวาง = 0) — ST2-T07 · ' +
+      'คำนวณจากเอกสารและวันนี้ทุกครั้ง **ไม่ทำให้ `updatedAt` ของรถเปลี่ยน** — ผู้ที่ sync แบบ `updatedAfter` ให้ดึงเอกสารจาก `GET /vehicle-documents` แทน',
   })
   docAlert?: VehicleDocAlertDto;
 }

@@ -75,6 +75,15 @@ test.describe.serial('รถ → ทะเบียนรถ + โปรไฟ�
     await page.getByRole('tab', { name: /^จอด/ }).click();
     await expect(page.getByRole('row', { name: new RegExp(`${A} กทม.*จอด`) })).toBeVisible();
     await expect(page.getByText(`${parked0 + 1} รายการ`, { exact: true })).toBeVisible();
+    // ไปโปรไฟล์แล้วกลับ → แท็บ/ตัวกรองเดิมยังอยู่ (review ST2-T07)
+    await page.getByRole('columnheader').getByPlaceholder('ค้นหา').first().fill(A);
+    await page.getByRole('row', { name: new RegExp(`${A} กทม`) }).click();
+    await expect(page.getByRole('heading', { name: 'โปรไฟล์รถ', level: 1 })).toBeVisible();
+    await page.getByRole('main').getByRole('button', { name: 'ทะเบียนรถ' }).click();
+    await expect(page.getByRole('tab', { name: /^จอด/ })).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByRole('columnheader').getByPlaceholder('ค้นหา').first()).toHaveValue(A);
+    await expect(page.getByRole('row', { name: new RegExp(`${A} กทม.*จอด`) })).toBeVisible();
+    await page.getByRole('columnheader').getByPlaceholder('ค้นหา').first().fill('');
     // การ์ด "พร้อมใช้" = แท็บพร้อมใช้ → รถจอดไม่อยู่
     await page
       .getByRole('button', { name: /พร้อมใช้/ })
@@ -135,5 +144,18 @@ test.describe.serial('รถ → ทะเบียนรถ + โปรไฟ�
     await expect(page.getByTestId('vprof-head')).toContainText(`${A} กทม.`);
     await expect(page.getByText('ไม่มีเอกสารสำหรับรถคันนี้')).toBeVisible();
     await expect(page.getByText(`INS-${RUN}`)).toHaveCount(0);
+
+    // ยกเลิกเอกสาร (เหตุผล ≥ 10) → ป้ายในทะเบียนหาย (review ST2-T07)
+    await page.getByRole('main').getByRole('button', { name: 'ทะเบียนรถ' }).click();
+    await page.getByRole('columnheader').getByPlaceholder('ค้นหา').first().fill(B);
+    await page.getByRole('row', { name: new RegExp(`${B} กทม`) }).click();
+    await page.getByRole('tab', { name: 'เอกสาร', exact: true }).click();
+    await page.getByTestId('vdoc-list').getByRole('button', { name: 'ยกเลิกเอกสาร' }).click();
+    const c = page.getByRole('dialog', { name: /ยกเลิกเอกสาร/ });
+    await c.getByLabel('เหตุผล').fill('บันทึกผิดคัน ทดสอบยกเลิก');
+    await c.getByRole('button', { name: 'ยกเลิกเอกสาร' }).click();
+    await expect(page.getByText('ไม่มีเอกสารสำหรับรถคันนี้')).toBeVisible();
+    await page.getByRole('main').getByRole('button', { name: 'ทะเบียนรถ' }).click();
+    await expect(page.getByRole('row', { name: new RegExp(`${B} กทม`) })).not.toContainText('ฉบับ');
   });
 });

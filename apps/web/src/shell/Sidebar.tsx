@@ -2,7 +2,7 @@ import { Icon } from '@tms/ui';
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useI18n } from '../i18n';
-import { canAny, isLocked, navFor, NAV, type NavGroup } from '../nav';
+import { canAny, isLocked, navFor, NAV, parentOf, type NavGroup } from '../nav';
 
 /** Sidebar — markup/ค่าจาก <aside> ใน TMS v4 (กว้าง 272 / ย่อ 88, แผงลอยขาว radius 16) */
 export function Sidebar({
@@ -33,9 +33,11 @@ export function Sidebar({
   const [open, setOpen] = useState<Record<string, boolean>>({ ops: true, acc: true });
   const isOn = (path: string) => (path.includes('?') ? here === path : loc.pathname === path);
   // อยู่หน้าลูกของกลุ่มไหน → กางกลุ่มนั้นให้เห็นเมนูที่ active (ต้นแบบ: ตั้งค่า ▾ › ตั้งค่าระบบ •)
+  // หน้าย่อย (เช่น โปรไฟล์รถ /fleet/vehicles/:id) → กางกลุ่มของเมนูแม่ (review ST2-T07)
   useEffect(() => {
+    const path = parentOf(loc.pathname);
     const g = NAV.find(
-      (x) => x.key !== 'fav' && x.kids?.some((k) => k.path.split('?')[0] === loc.pathname),
+      (x) => x.key !== 'fav' && x.kids?.some((k) => k.path.split('?')[0] === path),
     );
     if (g) setOpen((o) => (o[g.key] ? o : { ...o, [g.key]: true }));
   }, [loc.pathname]);
