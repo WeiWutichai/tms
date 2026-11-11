@@ -151,6 +151,7 @@ const BODY_FOR_SUFFIX: Record<string, object> = {
   suspend: { reason: 'isolation test' },
   delete: { reason: 'isolation test' },
   revoke: { reason: 'isolation test' },
+  cancel: { reason: 'isolation test' },
 };
 
 interface RouteInfo {

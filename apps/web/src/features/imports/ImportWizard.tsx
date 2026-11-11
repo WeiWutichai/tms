@@ -2,12 +2,14 @@ import { Icon } from '@tms/ui';
 import { useEffect, useRef, useState } from 'react';
 import { api, ApiError, unwrap } from '../../api';
 import { useI18n } from '../../i18n';
+import { th } from '../../i18n/th';
 import type { MessageKey } from '../../i18n/th';
 import type { components } from '@tms/contracts';
 
 type ImportDto = components['schemas']['ImportDto'];
 type KindDto = components['schemas']['ImportKindDto'];
 
+const has = (k: string) => k in th;
 const XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 const MAX_BYTES = 10 * 1024 * 1024;
 const BLUE = '#2257C4';
@@ -34,18 +36,27 @@ export function ImportWizard({
   const [error, setError] = useState<string | null>(null);
   const [drag, setDrag] = useState(false);
   const input = useRef<HTMLInputElement>(null);
+  const dialog = useRef<HTMLDivElement>(null);
+  useEffect(() => dialog.current?.focus(), []);
 
-  const problem = (e: unknown) =>
-    e instanceof ApiError
-      ? (e.problem.errors?.[0]?.message ?? t(`problem.${e.problem.code}` as MessageKey))
-      : t('problem.internal_error');
+  // ข้อความไทยจาก code (message ของ API เป็นภาษาอังกฤษ)
+  const problem = (e: unknown) => {
+    if (!(e instanceof ApiError)) return t('problem.internal_error');
+    const f = e.problem.errors?.[0]?.code;
+    return f && has(`field.${f}`)
+      ? t(`field.${f}` as MessageKey)
+      : t(`problem.${e.problem.code}` as MessageKey);
+  };
 
   // งานใหญ่วิ่งเป็น job — ถามสถานะทุก 1.5 วินาทีจนเสร็จ
   useEffect(() => {
     if (!imp || (imp.status !== 'validating' && imp.status !== 'importing')) return;
     const h = setTimeout(async () => {
-      const r = await api.GET('/v1/imports/{id}', { params: { path: { id: imp.id } } });
-      if (r.data) setImp(r.data);
+      const r = await api
+        .GET('/v1/imports/{id}', { params: { path: { id: imp.id } } })
+        .catch(() => null);
+      // เรียกไม่สำเร็จ → ลองใหม่รอบหน้า (object ใหม่ให้ effect ตั้งเวลาอีกครั้ง)
+      setImp(r?.data ?? { ...imp });
     }, 1500);
     return () => clearTimeout(h);
   }, [imp]);
@@ -106,10 +117,13 @@ export function ImportWizard({
     setBusy(true);
     setError(null);
     try {
-      setImp(
-        await unwrap(api.POST('/v1/imports/{id}/commit', { params: { path: { id: imp.id } } })),
+      const r = await unwrap(
+        api.POST('/v1/imports/{id}/commit', { params: { path: { id: imp.id } } }),
       );
-      setStep(3);
+      setImp(r);
+      // ตรวจซ้ำแล้วพบแถวผิด (ข้อมูลเปลี่ยนระหว่างรอ) → ไม่ได้นำเข้า อยู่ขั้น 2 ต่อ
+      if (r.status === 'validated') setError(t('problem.import_has_errors'));
+      else setStep(3);
     } catch (e) {
       setError(problem(e));
     } finally {
@@ -136,17 +150,18 @@ export function ImportWizard({
         ? `${t('imp.template')}-${kind.label}.xlsx`
         : `${t('imp.downloadErrors')}-${kind.label}.xlsx`;
     a.click();
-    URL.revokeObjectURL(a.href);
+    setTimeout(() => URL.revokeObjectURL(a.href), 30_000);
   }
-
-  const close = () => {
-    if (imp && imp.status === 'validated' && step < 3)
-      void api.POST('/v1/imports/{id}/cancel', { params: { path: { id: imp.id } } });
-    onClose(step === 3 && imp ? imp.importedRows : null);
-  };
 
   const ready = !!imp && imp.status === 'validated';
   const done = !!imp && (imp.status === 'completed' || imp.status === 'completed_with_errors');
+  // ปิดระหว่างทำงานไม่ได้ · ปิดก่อนนำเข้า = ทิ้งผลตรวจไว้ (หมดอายุเองใน 24 ชม.; ยกเลิกต้องมีเหตุผล)
+  const close = () => {
+    if (busy) return;
+    // นำเข้าเสร็จแล้วเท่านั้นจึงบอกจำนวน (ปิดระหว่าง job ยังวิ่ง = งานทำต่อ + แจ้งเตือนเมื่อเสร็จ)
+    onClose(done ? imp!.importedRows : null);
+  };
+
   const canNext =
     step === 1 ? ready && !busy : step === 2 ? ready && !busy && imp!.okRows > 0 : done;
   const next = () => {
@@ -160,10 +175,15 @@ export function ImportWizard({
     step === 1
       ? t('imp.next')
       : step === 2
-        ? t('imp.importN', { n: imp?.totalRows ?? 0 })
+        ? t('imp.importN', { n: imp?.okRows ?? 0 })
         : t('imp.finish');
   const errRows = imp ? groupErrors(imp) : [];
-  const fileErr = imp?.status === 'failed' ? (imp.fileError ?? t('problem.internal_error')) : null;
+  const fileErr =
+    imp?.status === 'failed'
+      ? (imp.fileError ?? t('problem.internal_error'))
+      : imp?.status === 'expired'
+        ? t('problem.import_expired')
+        : null;
 
   return (
     <div
@@ -180,6 +200,11 @@ export function ImportWizard({
       }}
     >
       <div
+        ref={dialog}
+        tabIndex={-1}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') close();
+        }}
         role="dialog"
         aria-modal="true"
         aria-labelledby="imp-title"
@@ -368,7 +393,9 @@ export function ImportWizard({
                           n: imp!.totalRows.toLocaleString('th-TH'),
                           kb: Math.max(1, Math.round(file.size / 1024)),
                         })
-                      : t('imp.checking')}
+                      : busy || imp?.status === 'validating'
+                        ? t('imp.checking')
+                        : ''}
                   </span>
                   {ready && <Icon n="check" s={16} style={{ color: '#17733F' }} />}
                 </div>

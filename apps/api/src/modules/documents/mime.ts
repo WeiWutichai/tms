@@ -45,6 +45,9 @@ export function sniffMime(buf: Buffer): AllowedMime | null {
   }
   // csv = ข้อความล้วน (ไม่มี byte 0 และไม่มีอักขระควบคุมนอกจาก tab/CR/LF) — UTF-8 หรือ TIS-620
   const probe = buf.subarray(0, Math.min(buf.length, 64 * 1024));
+  // ไม่รับเอกสาร markup (HTML/SVG/XML) ที่ปลอมเป็น CSV
+  const lead = probe.subarray(0, 256).toString('latin1').trimStart();
+  if (lead.startsWith('<')) return null;
   if (probe.length && !probe.some((b) => b < 0x09 || (b > 0x0d && b < 0x20) || b === 0x7f))
     return 'text/csv';
   return null;

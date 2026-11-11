@@ -6,6 +6,15 @@ import { encodeId } from '../common/ids';
 import { DbService, type Tx } from '../db/db.service';
 import { NotificationService } from '../modules/notifications/notification.service';
 
+export interface JobTypeOptions {
+  /** งานที่ต้องเปิดฟีเจอร์ของ tenant */
+  feature?: string;
+  /** อายุ transaction ของ handler (ค่าเริ่มต้น 15 วิ — งานใหญ่ เช่น นำเข้า 5,000 แถว ตั้งยาวขึ้น) */
+  timeoutMs?: number;
+  /** เรียกเมื่อล้มครั้งสุดท้าย (transaction แยก — งานหลัก rollback ไปแล้ว) ให้โมดูลเจ้าของปิดสถานะของตัวเอง */
+  onFinalFailure?: (ctx: { tenantId: string; job: Job; tx: Tx; error: unknown }) => Promise<void>;
+}
+
 /** แจ้งผู้สั่งงานเมื่อจบ (ST1-T23; docs/04 I "งานใหญ่ background + แจ้งเมื่อเสร็จ") — เก็บใน payload._notify */
 export interface JobNotify {
   userId: string;
@@ -37,6 +46,7 @@ export class JobQueue {
   private readonly handlers = new Map<string, JobHandler>();
   /** งานที่ต้องเปิดฟีเจอร์ของ tenant (ST1-T18) — tenant ที่ปิดฟีเจอร์ถูกข้าม (A5 "ตรวจซ้ำใน cron job") */
   private readonly features = new Map<string, string>();
+  private readonly opts = new Map<string, JobTypeOptions>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -45,10 +55,11 @@ export class JobQueue {
     @Optional() private readonly notifications?: NotificationService,
   ) {}
 
-  register(type: string, handler: JobHandler, opts: { feature?: string } = {}): void {
+  register(type: string, handler: JobHandler, opts: JobTypeOptions = {}): void {
     if (this.handlers.has(type)) throw new Error(`job handler '${type}' already registered`);
     this.handlers.set(type, handler);
     if (opts.feature) this.features.set(type, opts.feature);
+    this.opts.set(type, opts);
   }
 
   async enqueue(
@@ -129,8 +140,16 @@ export class JobQueue {
     }
     try {
       if (!handler) throw new Error(`no handler for job type '${job.type}'`);
-      const result = await this.db.withTenant(job.tenantId, (tx) =>
-        handler({ tenantId: job.tenantId, job, tx, progress: (p) => this.setProgress(job.id, p) }),
+      const result = await this.db.withTenant(
+        job.tenantId,
+        (tx) =>
+          handler({
+            tenantId: job.tenantId,
+            job,
+            tx,
+            progress: (p) => this.setProgress(job.id, p),
+          }),
+        this.opts.get(job.type)?.timeoutMs,
       );
       // เขียนผลเฉพาะถ้ายังเป็นรอบที่เราหยิบ (lease หมดแล้ว worker อื่นหยิบซ้ำได้) — กันแจ้งเตือนซ้ำ/ทับผลกัน
       const done = await this.prisma.platform.job.updateMany({
@@ -165,7 +184,16 @@ export class JobQueue {
               error: { message: String(err) },
             },
       });
-      if (!retry && done.count === 1) await this.notifyDone(job, 'job.failed');
+      if (!retry && done.count === 1) {
+        const onFail = this.opts.get(job.type)?.onFinalFailure;
+        if (onFail)
+          await this.db
+            .withTenant(job.tenantId, (tx) =>
+              onFail({ tenantId: job.tenantId, job, tx, error: err }),
+            )
+            .catch((e) => this.logger.warn(`job ${job.id} onFinalFailure failed: ${String(e)}`));
+        await this.notifyDone(job, 'job.failed');
+      }
     }
     return true;
   }

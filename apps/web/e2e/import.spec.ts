@@ -27,7 +27,7 @@ test('นำเข้าจาก Excel: dry-run แสดงแถวผิด 
   await dlg.getByRole('combobox', { name: 'ชื่อ', exact: true }).selectOption('Name');
   await expect(dlg.locator('tbody tr[data-error]')).toHaveCount(1);
 
-  await dlg.getByRole('button', { name: 'นำเข้า 3 แถว' }).click();
+  await dlg.getByRole('button', { name: 'นำเข้า 2 แถว' }).click();
   await expect(dlg.getByText('นำเข้าสำเร็จ')).toBeVisible();
   await expect(dlg.getByText('แถว 3', { exact: true })).toBeVisible();
   await expect(dlg.getByText('เลขผู้เสียภาษี: เลขผู้เสียภาษีต้องเป็นตัวเลข 13 หลัก')).toBeVisible();

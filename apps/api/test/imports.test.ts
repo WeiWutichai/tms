@@ -306,10 +306,154 @@ describe('imports (ST1-T19)', () => {
     const n = await db.notification.findMany({ where: { recipientId: admin, channel: 'in_app' } });
     expect(n.map((x) => x.body)).toEqual(
       expect.arrayContaining([
-        'ตรวจไฟล์รายการทดสอบ (ลูกค้า.xlsx) เสร็จเรียบร้อย',
-        'นำเข้ารายการทดสอบ (ลูกค้า.xlsx) เสร็จเรียบร้อย',
+        'รายการทดสอบ (ลูกค้า.xlsx): ผ่าน 1,500 แถว ผิด 0 แถว — เปิดเพื่อยืนยันนำเข้า',
+        'รายการทดสอบ (ลูกค้า.xlsx): นำเข้า 1,500 แถว',
       ]),
     );
+  });
+
+  it('job นำเข้าล้ม (ระบบขัดข้อง) → งานนำเข้าเป็น failed พร้อมเหตุผล ไม่ค้าง', async () => {
+    const a = await as(tA, admin);
+    const rows: unknown[][] = [['Code', 'Tax ID']];
+    for (let i = 1; i <= 1200; i++) rows.push([`F${i}`, '0000000000001']);
+    const doc = await upload(a, await xlsxOf(rows));
+    const r = (
+      await a.post('/v1/imports').send({ kind: 'test_items', documentId: doc }).expect(201)
+    ).body;
+    const queue = app.get(JobQueue);
+    while (await queue.runOnce());
+    await a.post(`/v1/imports/${r.id}/commit`).expect(200);
+    const orig = TEST_SPEC.commit;
+    TEST_SPEC.commit = async () => {
+      throw new Error('db down');
+    };
+    try {
+      while (await queue.runOnce());
+    } finally {
+      TEST_SPEC.commit = orig;
+    }
+    const g = (await a.get(`/v1/imports/${r.id}`).expect(200)).body;
+    expect(g.status).toBe('failed');
+    expect(g.fileError).toContain('ระบบขัดข้อง');
+  });
+
+  it('ยืนยันแล้วตรวจซ้ำพบแถวผิด (all_or_nothing) → ไม่เขียน คืน validated พร้อมผลใหม่', async () => {
+    written.length = 0;
+    const a = await as(tA, admin);
+    const doc = await upload(
+      a,
+      await xlsxOf([
+        ['Code', 'Tax ID'],
+        ['R1', '0000000000001'],
+      ]),
+    );
+    const r = (
+      await a.post('/v1/imports').send({ kind: 'test_items', documentId: doc }).expect(201)
+    ).body;
+    const orig = TEST_SPEC.validate;
+    TEST_SPEC.validate = async (_c, rows) =>
+      rows.map(() => ({ issues: [{ code: 'duplicate_in_db', message: 'มีแล้วในระบบ' }] }));
+    try {
+      const c = (await a.post(`/v1/imports/${r.id}/commit`).expect(200)).body;
+      expect(c).toMatchObject({ status: 'validated', errorRows: 1, importedRows: 0 });
+      expect((await a.get(`/v1/imports/${r.id}`)).body.errorRows).toBe(1);
+    } finally {
+      TEST_SPEC.validate = orig;
+    }
+    expect(written).toHaveLength(0);
+  });
+
+  it('ยกเลิกต้องมีเหตุผลและลง audit', async () => {
+    const a = await as(tA, admin);
+    const doc = await upload(
+      a,
+      await xlsxOf([
+        ['Code', 'Tax ID'],
+        ['K1', '0000000000001'],
+      ]),
+    );
+    const r = (
+      await a.post('/v1/imports').send({ kind: 'test_items', documentId: doc }).expect(201)
+    ).body;
+    await a.post(`/v1/imports/${r.id}/cancel`).send({}).expect(422);
+    expect(
+      (await a.post(`/v1/imports/${r.id}/cancel`).send({ reason: 'ไฟล์ผิด' }).expect(200)).body
+        .status,
+    ).toBe('cancelled');
+    const au = await db.auditLog.findFirst({ where: { action: 'import.cancelled' } });
+    expect(au?.reason).toBe('ไฟล์ผิด');
+    await a.post(`/v1/imports/${r.id}/commit`).expect(409);
+  });
+
+  it('CSV: บรรทัดว่างไม่นับเพดาน 5,000 แต่เกินจริงถูกปฏิเสธ; เลขแถวตาม record (newline ในเซลล์)', async () => {
+    const { parseImportFile } = await import('../src/modules/imports/parse');
+    const lines = ['Code,Tax ID'];
+    for (let i = 1; i <= 5000; i++) {
+      lines.push(`C${i},0000000000001`);
+      if (i % 500 === 0) lines.push(',,');
+    }
+    const ok = await parseImportFile(Buffer.from(lines.join('\n')), 'text/csv');
+    expect(ok.rows).toHaveLength(5000);
+    await expect(
+      parseImportFile(Buffer.from([...lines, 'X,1'].join('\n')), 'text/csv'),
+    ).rejects.toThrow(/5,000/);
+    const q = await parseImportFile(Buffer.from('a,b\n"x\ny",1\nz,2'), 'text/csv');
+    expect(q.rowNumbers).toEqual([2, 3]);
+    expect(q.rows[0]![0]).toBe('x\ny');
+    // xlsx เกิน 5,000 แถว
+    const big: unknown[][] = [['Code']];
+    for (let i = 0; i < 5001; i++) big.push([`B${i}`]);
+    await expect(
+      parseImportFile(
+        await xlsxOf(big),
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      ),
+    ).rejects.toThrow(/5,000/);
+  });
+
+  it('ไฟล์ผิดรูปแบบอื่น: มีแต่หัวคอลัมน์, เครื่องหมายคำพูดไม่ปิด, สูตรไม่มีค่า, จับคู่ซ้ำ', async () => {
+    const { parseImportFile } = await import('../src/modules/imports/parse');
+    await expect(parseImportFile(Buffer.from('Code,Tax ID\n'), 'text/csv')).rejects.toThrow(
+      /ไม่มีแถวข้อมูล/,
+    );
+    await expect(parseImportFile(Buffer.from('a,b\nA1,"open\nA2,y\n'), 'text/csv')).rejects.toThrow(
+      /ไม่ปิด/,
+    );
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('a');
+    ws.addRow(['Code', 'Name']);
+    ws.addRow(['F1', { formula: '1+1' } as unknown as ExcelJS.CellValue]);
+    const p = await parseImportFile(
+      Buffer.from(await wb.xlsx.writeBuffer()),
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    expect(p.rows[0]).toEqual(['F1', '']);
+    const a = await as(tA, admin);
+    const doc = await upload(
+      a,
+      await xlsxOf([
+        ['Code', 'Tax ID'],
+        ['M1', '0000000000001'],
+      ]),
+    );
+    const r = (
+      await a.post('/v1/imports').send({ kind: 'test_items', documentId: doc }).expect(201)
+    ).body;
+    await a
+      .patch(`/v1/imports/${r.id}`)
+      .send({ mapping: { code: 'Code', taxId: 'Code' } })
+      .expect(422);
+    await db.importJob.updateMany({ data: { expiresAt: new Date(Date.now() - 1000) } });
+    await a.patch(`/v1/imports/${r.id}`).send({ errorPolicy: 'skip_invalid_rows' }).expect(409);
+    expect((await a.get(`/v1/imports/${r.id}`)).body.status).toBe('expired');
+  });
+
+  it('xlsx: ขนาดหลังแตก zip อ่านจาก central directory (กัน zip bomb)', async () => {
+    const { zipUncompressedSize } = await import('../src/modules/imports/parse');
+    const buf = await xlsxOf([['a'], ['b']]);
+    const n = zipUncompressedSize(buf);
+    expect(n).toBeGreaterThan(buf.length);
+    expect(zipUncompressedSize(Buffer.from('not a zip'))).toBeNull();
   });
 
   it('วันที่: ปี > 2400 = พ.ศ.; วันที่ไม่มีจริง → null', () => {

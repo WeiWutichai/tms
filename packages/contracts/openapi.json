@@ -765,7 +765,7 @@
           }
         },
         "responses": {
-          "200": {
+          "201": {
             "description": "",
             "content": {
               "application/json": {
@@ -956,6 +956,16 @@
             }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelImportDto"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "",
@@ -3248,10 +3258,15 @@
             "type": "number"
           },
           "issues": {
+            "description": "ปัญหารายแถว (GET /{id} ไม่เกิน 1,000 รายการแรก; รายการใน GET /imports ว่างเสมอ) — ครบทุกแถวใน /{id}/errors",
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ImportIssueDto"
             }
+          },
+          "issuesTruncated": {
+            "type": "boolean",
+            "description": "มีปัญหามากกว่าที่ส่งใน issues"
           },
           "sample": {
             "type": "array",
@@ -3291,6 +3306,7 @@
           "errorRows",
           "importedRows",
           "issues",
+          "issuesTruncated",
           "sample",
           "fileError",
           "jobId",
@@ -3347,6 +3363,18 @@
             "description": "ฟิลด์ → หัวคอลัมน์ในไฟล์ (ไม่มี key = ไม่จับคู่)"
           }
         }
+      },
+      "CancelImportDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "example": "อัปโหลดไฟล์ผิด"
+          }
+        },
+        "required": [
+          "reason"
+        ]
       },
       "MeTenantDto": {
         "type": "object",

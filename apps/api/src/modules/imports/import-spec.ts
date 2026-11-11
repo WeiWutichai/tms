@@ -66,6 +66,8 @@ export interface ImportSpec<T = unknown> {
   columns: ImportColumn[];
   /** mode ที่รองรับ (ค่าเริ่มต้น create_only อย่างเดียว) */
   modes?: ImportMode[];
+  /** ตรวจระดับไฟล์ก่อนตรวจรายแถว (เช่น โควตาจำนวนรถ — MD-289) — คืนข้อความไทย = ปฏิเสธทั้งไฟล์ */
+  checkFile?(ctx: ImportContext, rows: RowInput[]): Promise<string | null>;
   /** ตรวจทุกแถวโดยไม่เขียนข้อมูล (dry-run) — ต้องคืนผลยาวเท่า rows และตามลำดับเดิม */
   validate(ctx: ImportContext, rows: RowInput[]): Promise<RowResult<T>[]>;
   /** เขียนแถวที่ผ่าน (ใน transaction เดียวกับการยืนยัน) — คืนจำนวนที่เขียน */
