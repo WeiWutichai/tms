@@ -1,5 +1,6 @@
 import { QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
+import { DevImportPage } from './features/imports/DevImportPage';
 import { RequireAuth } from './auth/RequireAuth';
 import { queryClient } from './api';
 import { I18nProvider } from './i18n';
@@ -42,6 +43,7 @@ function Inside() {
         <Routes>
           <Route path="/" element={<Dashboard />} />
           <Route path="/design-system" element={<DesignSystem />} />
+          {import.meta.env.DEV && <Route path="/dev/import" element={<DevImportPage />} />}
           <Route
             path="/reports"
             element={

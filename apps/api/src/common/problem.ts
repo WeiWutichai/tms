@@ -114,6 +114,16 @@ export const PROBLEMS = {
     th: 'จำนวนผู้ใช้ครบตามแพ็กเกจแล้ว',
     en: 'User limit of your plan reached',
   },
+  import_has_errors: {
+    status: 409,
+    th: 'ไฟล์มีแถวที่ตรวจไม่ผ่าน — แก้ไฟล์หรือเลือกนำเข้าเฉพาะแถวที่ผ่าน',
+    en: 'The file has invalid rows — fix them or import valid rows only',
+  },
+  import_expired: {
+    status: 409,
+    th: 'ผลตรวจไฟล์หมดอายุแล้ว (24 ชั่วโมง) อัปโหลดไฟล์ใหม่',
+    en: 'The validation result expired after 24 hours — upload the file again',
+  },
   invalid_grant: { status: 400, th: 'รหัสยืนยันหมดอายุหรือไม่ถูกต้อง', en: 'Invalid grant' },
   internal_error: { status: 500, th: 'ระบบขัดข้อง', en: 'Internal error' },
 } as const;

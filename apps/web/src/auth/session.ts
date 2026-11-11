@@ -38,8 +38,15 @@ export async function getAccessToken(): Promise<string | null> {
   if (access && access.exp - Date.now() > 60_000) return access.token;
   const once = () => raw.POST('/v1/oauth/token', { body: { grantType: 'refresh_token' } });
   inflight ??= once()
-    // อีกแท็บเพิ่งหมุน refresh token ไปก่อน → cookie ใหม่มาถึงแล้ว ลองซ้ำ 1 ครั้ง (API ให้ grace 30 วินาที)
-    .then(async (r) => (r.data || r.response.status !== 400 ? r : (await wait(400), once())))
+    // อีกแท็บ/หน้าก่อนเพิ่งหมุน refresh token (อาจยังทำไม่เสร็จ) → ลองซ้ำสูงสุด 3 ครั้ง (API ให้ grace 30 วินาที)
+    .then(async (r) => {
+      for (const ms of [400, 1000, 2000]) {
+        if (r.data || r.response.status !== 400) break;
+        await wait(ms);
+        r = await once();
+      }
+      return r;
+    })
     .then(({ data }) => {
       set(data?.accessToken ?? null, data?.expiresIn);
       return data?.accessToken ?? null;

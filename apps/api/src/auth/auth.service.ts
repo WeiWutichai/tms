@@ -237,10 +237,10 @@ export class AuthService {
         where: { familyId: row.familyId, createdAt: { gte: row.usedAt }, id: { not: row.id } },
         orderBy: { createdAt: 'asc' },
       });
+      // ยังไม่มี successor = request ที่หมุนยังทำไม่เสร็จ (เช่น ถูกตัดกลางทางตอนเปลี่ยนหน้า) → เทียบกับเครื่องเจ้าของ token เดิม
+      const ref = successor ?? row;
       const sameClient =
-        !!successor &&
-        successor.ip === client.ip &&
-        successor.userAgent === (client.userAgent?.slice(0, 500) ?? null);
+        ref.ip === client.ip && ref.userAgent === (client.userAgent?.slice(0, 500) ?? null);
       if (!sameClient || row.expiresAt <= now || row.idleExpiresAt <= now)
         throw new ProblemException('invalid_grant');
       if ((await this.currentTokenVersion(row.tenantId, row.userId)) === null)

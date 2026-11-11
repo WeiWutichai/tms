@@ -12,6 +12,9 @@ import { PasswordResetController, PasswordResetService } from './auth/password-r
 import { EmailDispatcher, EmailService } from './modules/email/email.service';
 import { NotificationService } from './modules/notifications/notification.service';
 import { NotificationsController } from './modules/notifications/notifications.controller';
+import { ImportRegistry } from './modules/imports/import-spec';
+import { ImportService } from './modules/imports/import.service';
+import { ImportsController } from './modules/imports/imports.controller';
 import {
   InvitationAcceptController,
   InvitationAcceptService,
@@ -56,6 +59,7 @@ import { StateService } from './state/state.service';
     InvitationAcceptController,
     InvitationsController,
     NotificationsController,
+    ImportsController,
     HealthController,
     MeController,
     ProfileController,
@@ -79,6 +83,8 @@ import { StateService } from './state/state.service';
     EmailService,
     EmailDispatcher,
     NotificationService,
+    ImportRegistry,
+    ImportService,
     EntitlementService,
     MagicLinkService,
     DbService,

@@ -18,13 +18,17 @@ export class DbService {
   }
 
   /** เปิด transaction ใหม่ภายใต้ tenant ที่ระบุ (ใช้นอก HTTP เช่น worker, test, seed) */
-  async withTenant<T>(tenantId: string, fn: (tx: Tx) => Promise<T>): Promise<T> {
+  async withTenant<T>(
+    tenantId: string,
+    fn: (tx: Tx) => Promise<T>,
+    timeoutMs = 15_000,
+  ): Promise<T> {
     return this.prisma.app.$transaction(
       async (tx) => {
         await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
         return fn(tx as unknown as Tx);
       },
-      { timeout: 15_000 },
+      { timeout: timeoutMs },
     );
   }
 }

@@ -693,6 +693,329 @@
         ]
       }
     },
+    "/v1/imports/kinds": {
+      "get": {
+        "operationId": "Imports_kinds",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ImportKindDto"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "imports"
+        ]
+      }
+    },
+    "/v1/imports/kinds/{kind}/template": {
+      "get": {
+        "operationId": "Imports_template",
+        "parameters": [
+          {
+            "name": "kind",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ไฟล์ template .xlsx"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "imports"
+        ]
+      }
+    },
+    "/v1/imports": {
+      "post": {
+        "operationId": "Imports_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateImportDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "imports"
+        ]
+      },
+      "get": {
+        "operationId": "Imports_list",
+        "parameters": [
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportPageDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "imports"
+        ]
+      }
+    },
+    "/v1/imports/{id}": {
+      "get": {
+        "operationId": "Imports_get",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "imports"
+        ]
+      },
+      "patch": {
+        "operationId": "Imports_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateImportDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "imports"
+        ]
+      }
+    },
+    "/v1/imports/{id}/commit": {
+      "post": {
+        "operationId": "Imports_commit",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "imports"
+        ]
+      }
+    },
+    "/v1/imports/{id}/cancel": {
+      "post": {
+        "operationId": "Imports_cancel",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelImportDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "imports"
+        ]
+      }
+    },
+    "/v1/imports/{id}/errors": {
+      "get": {
+        "operationId": "Imports_errors",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ไฟล์ .xlsx แถวที่ผิด"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "imports"
+        ]
+      }
+    },
     "/v1/health": {
       "get": {
         "operationId": "Health_health",
@@ -2711,6 +3034,348 @@
           "updated"
         ]
       },
+      "ImportColumnDto": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "header": {
+            "type": "string"
+          },
+          "required": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "key",
+          "header",
+          "required"
+        ]
+      },
+      "ImportKindDto": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "example": "customer"
+          },
+          "label": {
+            "type": "string",
+            "example": "ลูกค้า"
+          },
+          "columns": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ImportColumnDto"
+            }
+          },
+          "modes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "create_only",
+                "upsert_by_code",
+                "update_only"
+              ]
+            }
+          }
+        },
+        "required": [
+          "kind",
+          "label",
+          "columns",
+          "modes"
+        ]
+      },
+      "CreateImportDto": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "example": "customer"
+          },
+          "documentId": {
+            "type": "string",
+            "example": "doc_…",
+            "description": "ไฟล์ .xlsx/.csv ที่อัปโหลดแล้ว (POST /v1/documents kind IMPORT)"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "create_only",
+              "upsert_by_code",
+              "update_only"
+            ],
+            "description": "ค่าเริ่มต้น create_only"
+          },
+          "errorPolicy": {
+            "type": "string",
+            "enum": [
+              "all_or_nothing",
+              "skip_invalid_rows"
+            ],
+            "description": "ค่าเริ่มต้น all_or_nothing"
+          },
+          "mapping": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "ฟิลด์ → หัวคอลัมน์ในไฟล์ (ไม่ส่ง = จับคู่อัตโนมัติ)",
+            "example": {
+              "taxId": "Tax ID"
+            }
+          }
+        },
+        "required": [
+          "kind",
+          "documentId"
+        ]
+      },
+      "ImportIssueDto": {
+        "type": "object",
+        "properties": {
+          "row": {
+            "type": "number",
+            "description": "เลขแถวในไฟล์ (ตรงกับ Excel)"
+          },
+          "column": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string",
+            "example": "required"
+          },
+          "message": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "error",
+              "warning"
+            ]
+          }
+        },
+        "required": [
+          "row",
+          "code",
+          "message",
+          "severity"
+        ]
+      },
+      "ImportSampleDto": {
+        "type": "object",
+        "properties": {
+          "row": {
+            "type": "number"
+          },
+          "values": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "error": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "row",
+          "values",
+          "error"
+        ]
+      },
+      "ImportDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "imp_…"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "validating",
+              "validated",
+              "expired",
+              "importing",
+              "completed",
+              "completed_with_errors",
+              "failed",
+              "cancelled"
+            ]
+          },
+          "fileName": {
+            "type": "string",
+            "nullable": true
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "create_only",
+              "upsert_by_code",
+              "update_only"
+            ]
+          },
+          "errorPolicy": {
+            "type": "string",
+            "enum": [
+              "all_or_nothing",
+              "skip_invalid_rows"
+            ]
+          },
+          "headers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "mapping": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "totalRows": {
+            "type": "number"
+          },
+          "okRows": {
+            "type": "number"
+          },
+          "errorRows": {
+            "type": "number"
+          },
+          "importedRows": {
+            "type": "number"
+          },
+          "issues": {
+            "description": "ปัญหารายแถว (GET /{id} ไม่เกิน 1,000 รายการแรก; รายการใน GET /imports ว่างเสมอ) — ครบทุกแถวใน /{id}/errors",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ImportIssueDto"
+            }
+          },
+          "issuesTruncated": {
+            "type": "boolean",
+            "description": "มีปัญหามากกว่าที่ส่งใน issues"
+          },
+          "sample": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ImportSampleDto"
+            }
+          },
+          "fileError": {
+            "type": "string",
+            "nullable": true,
+            "description": "ผิดทั้งไฟล์"
+          },
+          "jobId": {
+            "type": "string",
+            "nullable": true
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "status",
+          "fileName",
+          "mode",
+          "errorPolicy",
+          "headers",
+          "mapping",
+          "totalRows",
+          "okRows",
+          "errorRows",
+          "importedRows",
+          "issues",
+          "issuesTruncated",
+          "sample",
+          "fileError",
+          "jobId",
+          "expiresAt",
+          "createdAt"
+        ]
+      },
+      "ImportPageDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ImportDto"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor",
+          "hasMore"
+        ]
+      },
+      "UpdateImportDto": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "create_only",
+              "upsert_by_code",
+              "update_only"
+            ]
+          },
+          "errorPolicy": {
+            "type": "string",
+            "enum": [
+              "all_or_nothing",
+              "skip_invalid_rows"
+            ]
+          },
+          "mapping": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "ฟิลด์ → หัวคอลัมน์ในไฟล์ (ไม่มี key = ไม่จับคู่)"
+          }
+        }
+      },
+      "CancelImportDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "example": "อัปโหลดไฟล์ผิด"
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      },
       "MeTenantDto": {
         "type": "object",
         "properties": {
@@ -3765,6 +4430,7 @@
               "RECEIPT",
               "WHT_CERT",
               "CONTRACT",
+              "IMPORT",
               "OTHER"
             ]
           },
@@ -3774,7 +4440,9 @@
               "application/pdf",
               "image/png",
               "image/jpeg",
-              "image/webp"
+              "image/webp",
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+              "text/csv"
             ],
             "description": "ชนิดที่จะอัปโหลด — server ตรวจกับเนื้อไฟล์จริง"
           },

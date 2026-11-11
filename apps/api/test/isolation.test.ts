@@ -6,6 +6,7 @@ import { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { IS_PUBLIC, TENANT_RESOURCE } from '../src/common/decorators';
 import { encodeId } from '../src/common/ids';
+import { store } from '../src/modules/documents/documents.controller';
 import { signStepUpToken } from '../src/auth/tokens';
 import { api, bootApp, createTenant, platform, tokenFor, truncateAll, validTaxId } from './helpers';
 
@@ -114,6 +115,30 @@ const FIXTURES: Record<string, (db: PrismaClient, tenantId: string, n: number) =
       });
       return encodeId('notification', x.id);
     },
+    import: async (db, tenantId) => {
+      const f = await store().put(tenantId, Buffer.from('a,b\n1,2\n'), 'csv');
+      const d = await db.storedDocument.create({
+        data: {
+          tenantId,
+          status: 'READY',
+          kind: 'IMPORT',
+          mimeType: 'text/csv',
+          sizeBytes: f.size,
+          fileKey: f.key,
+          sha256: f.sha256,
+        },
+      });
+      const i = await db.importJob.create({
+        data: {
+          tenantId,
+          kind: 'sample',
+          documentId: d.id,
+          status: 'VALIDATED',
+          expiresAt: new Date(Date.now() + 86400_000),
+        },
+      });
+      return encodeId('import', i.id);
+    },
     job: async (db, tenantId) =>
       encodeId('job', (await db.job.create({ data: { tenantId, type: 'noop' } })).id),
   };
@@ -126,6 +151,7 @@ const BODY_FOR_SUFFIX: Record<string, object> = {
   suspend: { reason: 'isolation test' },
   delete: { reason: 'isolation test' },
   revoke: { reason: 'isolation test' },
+  cancel: { reason: 'isolation test' },
 };
 
 interface RouteInfo {

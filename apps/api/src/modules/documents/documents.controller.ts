@@ -30,7 +30,7 @@ import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
 import { LocalFileStore } from '../../pdf/file-store';
-import { ALLOWED_MIME, EXT, sniffMime, type AllowedMime } from './mime';
+import { ALLOWED_MIME, EXT, IMPORT_MIME, sniffMime, type AllowedMime } from './mime';
 import { DOWNLOAD_TTL_S, signDocumentUrl, UPLOAD_TTL_S, verifyDocumentUrl } from './signed-url';
 
 /** docs/04 I "10 MB/ไฟล์" (POD ของแอปคนขับมีเพดานเล็กกว่า — กำหนดตอน ST4) */
@@ -45,6 +45,7 @@ export const DOCUMENT_KINDS = [
   'RECEIPT',
   'WHT_CERT',
   'CONTRACT',
+  'IMPORT',
   'OTHER',
 ] as const;
 
@@ -94,7 +95,7 @@ export class DocumentDto {
   @ApiPropertyOptional({ format: 'date-time' }) urlExpiresAt?: string;
 }
 
-const store = () =>
+export const store = () =>
   new LocalFileStore(process.env.FILES_ROOT ?? join(process.cwd(), '.data', 'files'));
 const enc = (id: string) => encodeId('document', id);
 
@@ -127,6 +128,11 @@ export class DocumentsController {
   async create(@Body() body: CreateDocumentDto, @Req() req: Request): Promise<DocumentDto> {
     const ctx = requestContext.require();
     const tx = this.db.tx;
+    // ไฟล์ตาราง (.xlsx/.csv) ใช้ได้กับ kind IMPORT เท่านั้น และ IMPORT รับแค่ไฟล์ตาราง (ST1-T19)
+    if ((body.kind === 'IMPORT') !== IMPORT_MIME.includes(body.mime))
+      throw new ProblemException('validation_failed', undefined, [
+        { field: 'mime', code: 'mime_not_allowed', message: 'mime is not allowed for this kind' },
+      ]);
     const existing = body.clientDocumentId
       ? await tx.storedDocument.findFirst({ where: { clientDocumentId: body.clientDocumentId } })
       : null;
