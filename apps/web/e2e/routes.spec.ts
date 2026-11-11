@@ -93,6 +93,18 @@ test.describe.serial('ข้อมูลหลัก → เส้นทาง',
     await dlg.getByRole('textbox').fill('เลิกวิ่งเส้นทางนี้ทดสอบ');
     await dlg.getByRole('button', { name: 'ปิดใช้' }).click();
     await expect(page.getByRole('row', { name: new RegExp(code) })).toContainText('ปิดใช้');
+
+    // สร้างคู่เดิมซ้ำขณะเส้นทางเดิมปิดใช้ → บอกว่าปิดใช้อยู่ + ปุ่ม "เปิดใช้เส้นทางเดิม"
+    await page.getByRole('button', { name: 'เพิ่มเส้นทาง' }).click();
+    const d3 = page.getByRole('dialog');
+    await pickSite(d3, 'ต้นทาง', DEPOT);
+    await pickSite(d3, 'ปลายทาง', DROP);
+    await d3.getByLabel('ระยะทาง (กม.)').fill('90');
+    await d3.getByRole('button', { name: 'เพิ่มเส้นทาง' }).click();
+    await expect(d3.getByText(`มีเส้นทางนี้แล้วแต่ปิดใช้อยู่: ${code}`)).toBeVisible();
+    await d3.getByRole('button', { name: 'เปิดใช้เส้นทางเดิม' }).click();
+    await expect(page.getByRole('status')).toContainText(`เปิดใช้เส้นทาง ${code} แล้ว`);
+    await expect(page.getByRole('row', { name: new RegExp(code) })).toContainText('ใช้งาน');
   });
 
   test('คลัง: สถานที่ชนิดคลังแสดงช่องโหลด', async ({ page }) => {
@@ -102,5 +114,16 @@ test.describe.serial('ข้อมูลหลัก → เส้นทาง',
     const drawer = page.getByRole('dialog');
     await expect(drawer.getByText('ช่องโหลด')).toBeVisible();
     await expect(drawer.getByText('8', { exact: true })).toBeVisible();
+    await page.keyboard.press('Escape');
+
+    // ปิดใช้จุดส่งที่มีเส้นทางใช้อยู่ → ปิดได้ + toast บอกจำนวนเส้นทาง
+    await page.getByRole('columnheader').getByPlaceholder('ค้นหา').first().fill(DROP);
+    const row = page.locator('tbody tr').filter({ hasText: DROP }).first();
+    await row.getByRole('button').last().click();
+    await page.getByRole('menuitem', { name: 'ปิดใช้' }).click();
+    const dlg = page.getByRole('dialog', { name: /ปิดใช้/ });
+    await dlg.getByRole('textbox').fill('ปิดจุดส่งทดสอบเส้นทาง');
+    await dlg.getByRole('button', { name: 'ปิดใช้' }).click();
+    await expect(page.getByRole('status')).toContainText('มีเส้นทางใช้อยู่ 1 เส้น');
   });
 });

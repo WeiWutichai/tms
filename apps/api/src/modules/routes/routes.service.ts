@@ -16,6 +16,7 @@ import {
   isNoopUpdate,
   likeEscape,
   lockKey,
+  lockReferenced,
   masterKeyset,
   nextCode,
   statusFilter,
@@ -216,8 +217,11 @@ export class RoutesService {
   }
 
   /**
-   * ระยะทางของคู่ต้นทาง→ปลายทาง (uuid ของ customer_site) — เฉพาะเส้นทางที่ใช้งานและไม่ถูกลบ · ไม่มี = null
-   * ใช้โดย pricing (ST2-T15: PER_DISTANCE = rate × distanceKm) — ส่ง `tx` เมื่อเรียกนอก request (worker/test)
+   * ระยะทางของคู่ต้นทาง→ปลายทาง (uuid ของ customer_site) · ไม่มี = null
+   * คืนเฉพาะเมื่อเส้นทางใช้งาน + ไม่ถูกลบ **และ** ต้นทาง/ปลายทางใช้งาน + ไม่ถูกลบ (review ST2-T09 — spec/12 §3)
+   * ใช้โดย pricing (ST2-T15: PER_DISTANCE = rate × distanceKm)
+   * **`tx` ต้องเป็น transaction ที่ตั้ง tenant แล้ว** (ค่าเริ่มต้น = transaction ของ request, นอก request ใช้
+   * `DbService.withTenant()`) — ห้ามส่ง platform client (ข้าม RLS → เห็นเส้นทางของทุก tenant)
    */
   async getRouteDistance(
     originSiteId: string,
@@ -225,7 +229,14 @@ export class RoutesService {
     tx: Tx = this.db.tx,
   ): Promise<RouteDistance | null> {
     const r = await tx.route.findFirst({
-      where: { originSiteId, destSiteId, deletedAt: null, status: 'ACTIVE' },
+      where: {
+        originSiteId,
+        destSiteId,
+        deletedAt: null,
+        status: 'ACTIVE',
+        origin: { status: 'ACTIVE', deletedAt: null },
+        dest: { status: 'ACTIVE', deletedAt: null },
+      },
       select: { id: true, code: true, distanceKm: true, standardMinutes: true, tollAmount: true },
     });
     if (!r) return null;
@@ -250,13 +261,17 @@ export class RoutesService {
     const sites = await this.db.withTenant(tenantId, (tx) =>
       tx.customerSite.findMany({
         where: { id: { in: [o, d] }, deletedAt: null },
-        select: { id: true, lat: true, lng: true },
+        select: { id: true, lat: true, lng: true, status: true },
       }),
     );
     const so = sites.find((s) => s.id === o);
     const sd = sites.find((s) => s.id === d);
     if (!so) throw field422('originId', 'reference_not_found', 'origin site not found');
     if (!sd) throw field422('destinationId', 'reference_not_found', 'destination site not found');
+    // กฎเดียวกับการสร้างเส้นทาง: สถานที่ปิดใช้ → 422
+    if (so.status !== 'ACTIVE') throw field422('originId', 'site_inactive', 'site is inactive');
+    if (sd.status !== 'ACTIVE')
+      throw field422('destinationId', 'site_inactive', 'site is inactive');
     const none = (result: RouteEstimateDto['result']): RouteEstimateDto => ({
       result,
       distanceKm: null,
@@ -285,18 +300,30 @@ export class RoutesService {
 
   // ---------- write ----------
 
-  /** id สถานที่จาก API → uuid · ไม่พบ/ข้าม tenant/ลบแล้ว → 422 · สร้าง/เปลี่ยนเป็นจุดที่ปิดใช้ → 422 */
-  private async resolveSite(value: string, field: string): Promise<string> {
+  /** id สถานที่จาก API → uuid (ยังไม่อ่านฐาน) · รูปแบบผิด → 422 */
+  private siteId(value: string, field: string): string {
     const id = tryDecodeId('site', value);
-    const s = id
-      ? await this.db.tx.customerSite.findFirst({
-          where: { id, deletedAt: null },
-          select: { id: true, status: true },
-        })
-      : null;
-    if (!s) throw field422(field, 'reference_not_found', 'site not found');
-    if (s.status !== 'ACTIVE') throw field422(field, 'site_inactive', 'site is inactive');
-    return s.id;
+    if (!id) throw field422(field, 'reference_not_found', 'site not found');
+    return id;
+  }
+
+  /**
+   * ล็อกสถานที่ที่จะอ้าง (`FOR SHARE` — กันถูกลบระหว่างสร้าง/แก้เส้นทาง, review ST2-T09) แล้วตรวจ:
+   * ไม่พบ/ข้าม tenant/ลบแล้ว → 422 `reference_not_found` · ปิดใช้ → 422 `site_inactive`
+   * ลำดับล็อกทั้งระบบ: ext → od → แถวสถานที่ → code (ลด deadlock)
+   */
+  private async lockSites(checks: { id: string; field: string }[]): Promise<void> {
+    if (!checks.length) return;
+    const rows = await lockReferenced(
+      this.db.tx,
+      'customer_site',
+      checks.map((c) => c.id),
+    );
+    for (const c of checks) {
+      const s = rows.find((x) => x.id === c.id);
+      if (!s) throw field422(c.field, 'reference_not_found', 'site not found');
+      if (s.status !== 'ACTIVE') throw field422(c.field, 'site_inactive', 'site is inactive');
+    }
   }
 
   /** เกณฑ์ตรวจรับ: คู่ต้นทาง→ปลายทางเดิมสร้างซ้ำไม่ได้ → 409 `duplicate` พร้อมเส้นทางเดิม */
@@ -358,14 +385,20 @@ export class RoutesService {
 
   async create(input: CreateRouteDto | (UpsertRouteDto & { externalId: string })) {
     const tx = this.db.tx;
-    const origin = await this.resolveSite(input.originId, 'originId');
-    const dest = await this.resolveSite(input.destinationId, 'destinationId');
-    await this.assertUniqueOD(origin, dest);
+    const origin = this.siteId(input.originId, 'originId');
+    const dest = this.siteId(input.destinationId, 'destinationId');
+    if (origin === dest)
+      throw field422('destinationId', 'same_site', 'origin and destination must differ');
+    // ลำดับล็อกเดียวกับ PUT external (upsertByExternalId ล็อก ext ก่อน): ext → od → สถานที่ → code (review ST2-T09: deadlock)
     if (input.externalId) {
-      // POST ที่มี externalId ใช้ lock เดียวกับ PUT external (กันสร้างซ้ำพร้อมกัน)
       await lockKey(tx, `route.ext:${input.externalId}`);
       await this.assertUniqueExternal(input.externalId);
     }
+    await this.assertUniqueOD(origin, dest);
+    await this.lockSites([
+      { id: origin, field: 'originId' },
+      { id: dest, field: 'destinationId' },
+    ]);
     await lockKey(tx, 'route.code');
     let code = input.code;
     if (code) {
@@ -409,20 +442,24 @@ export class RoutesService {
     const sameDest =
       input.destinationId === undefined ||
       tryDecodeId('site', input.destinationId) === current.destSiteId;
-    const origin = sameOrigin
-      ? current.originSiteId
-      : await this.resolveSite(input.originId!, 'originId');
-    const dest = sameDest
-      ? current.destSiteId
-      : await this.resolveSite(input.destinationId!, 'destinationId');
+    const origin = sameOrigin ? current.originSiteId : this.siteId(input.originId!, 'originId');
+    const dest = sameDest ? current.destSiteId : this.siteId(input.destinationId!, 'destinationId');
+    // ลำดับล็อก ext → od → สถานที่ (เหมือน create / PUT external)
+    if (input.externalId !== undefined) {
+      if (input.externalId) {
+        await lockKey(this.db.tx, `route.ext:${input.externalId}`);
+        await this.assertUniqueExternal(input.externalId, current.id);
+      }
+      data.externalId = input.externalId;
+    }
     if (!sameOrigin || !sameDest) {
       await this.assertUniqueOD(origin, dest, current.id);
+      await this.lockSites([
+        ...(sameOrigin ? [] : [{ id: origin, field: 'originId' }]),
+        ...(sameDest ? [] : [{ id: dest, field: 'destinationId' }]),
+      ]);
       data.originSiteId = origin;
       data.destSiteId = dest;
-    }
-    if (input.externalId !== undefined) {
-      if (input.externalId) await this.assertUniqueExternal(input.externalId, current.id);
-      data.externalId = input.externalId;
     }
     if (isNoopUpdate(current, data as Record<string, unknown>, DECIMAL_FIELDS)) return current; // ส่งซ้ำค่าเดิมไม่เพิ่ม version
     const r = await this.bumpVersion(current, data);
@@ -457,6 +494,12 @@ export class RoutesService {
     const current = await this.get(id);
     if (expected !== undefined && expected !== current.version)
       throw new ProblemException('precondition_failed');
+    // เปิดใช้ได้เมื่อต้นทาง/ปลายทางยังใช้งานอยู่ (review ST2-T09 — spec/12 §3) → ไม่งั้น 422 `site_inactive`
+    if (event === 'activate')
+      await this.lockSites([
+        { id: current.originSiteId, field: 'originId' },
+        { id: current.destSiteId, field: 'destinationId' },
+      ]);
     let updated!: RouteWithSites;
     await this.state.transition(tx, {
       docType: ENTITY,

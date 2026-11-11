@@ -24,6 +24,24 @@ const STATUS_TO_CODE: Record<number, ProblemCode> = {
   429: 'rate_limited',
 };
 
+/** SQLSTATE ที่ลองใหม่ได้: 40P01 deadlock_detected, 40001 serialization_failure */
+const RETRYABLE_SQLSTATE = /\b(40P01|40001)\b|deadlock detected|could not serialize access/i;
+
+/** error ของฐานข้อมูลที่ส่งคำขอซ้ำแล้วน่าจะผ่าน (Prisma P2034 หรือ SQLSTATE 40P01/40001 จาก raw query/driver) */
+export function isRetryableDbError(e: unknown): boolean {
+  if (e instanceof Prisma.PrismaClientKnownRequestError) {
+    if (e.code === 'P2034') return true;
+    const meta = JSON.stringify(e.meta ?? {});
+    return (
+      RETRYABLE_SQLSTATE.test(meta) || (e.code === 'P2010' && RETRYABLE_SQLSTATE.test(e.message))
+    );
+  }
+  if (e instanceof Prisma.PrismaClientUnknownRequestError)
+    return RETRYABLE_SQLSTATE.test(e.message);
+  const c = (e as { code?: unknown } | null)?.code;
+  return c === '40P01' || c === '40001';
+}
+
 /** แปลงทุก error เป็น application/problem+json ที่มี code + requestId (ST0-T06) */
 @Catch()
 export class ProblemFilter implements ExceptionFilter {
@@ -49,6 +67,11 @@ export class ProblemFilter implements ExceptionFilter {
     } else if (exception instanceof InvalidTransitionError) {
       code = 'invalid_state_transition';
       detail = `${exception.entity}: '${exception.event}' from '${String(exception.from).toLowerCase()}'`;
+    } else if (isRetryableDbError(exception)) {
+      // deadlock / serialization failure — ไม่ใช่บั๊กของคำขอ ให้ client ส่งซ้ำ (review ST2-T09)
+      code = 'concurrent_update';
+      extra = { retryAfter: 1, retryable: true };
+      this.logger.warn(`retryable db error: ${(exception as Error).message?.slice(0, 200)}`);
     } else if (exception instanceof Prisma.PrismaClientKnownRequestError) {
       if (exception.code === 'P2002') code = 'duplicate';
       else if (exception.code === 'P2025') code = 'not_found';

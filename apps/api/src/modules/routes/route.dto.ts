@@ -1,16 +1,7 @@
+import { IsDecimal } from '../../common/validation';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import {
-  IsIn,
-  IsInt,
-  IsNumber,
-  IsOptional,
-  IsString,
-  Matches,
-  Max,
-  MaxLength,
-  Min,
-} from 'class-validator';
+import { IsIn, IsInt, IsOptional, IsString, Matches, Max, MaxLength, Min } from 'class-validator';
 import {
   CleanText,
   IsNullable,
@@ -83,7 +74,7 @@ class RequiredRouteFields extends RouteFieldsDto {
     example: 95,
     description: 'ระยะทางอ้างอิง (กม.) > 0 ทศนิยม ≤ 1 ตำแหน่ง — ราคาแบบต่อ กม. ใช้ค่านี้',
   })
-  @IsNumber({ maxDecimalPlaces: 1, allowNaN: false, allowInfinity: false })
+  @IsDecimal(1)
   @Min(0.1)
   @Max(MAX_DISTANCE_KM)
   distanceKm!: number;
@@ -127,7 +118,7 @@ export class UpdateRouteDto extends RouteFieldsDto {
 
   @ApiPropertyOptional({ example: 95 })
   @IsOptionalNotNull()
-  @IsNumber({ maxDecimalPlaces: 1, allowNaN: false, allowInfinity: false })
+  @IsDecimal(1)
   @Min(0.1)
   @Max(MAX_DISTANCE_KM)
   distanceKm?: number;

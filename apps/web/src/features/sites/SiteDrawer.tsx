@@ -208,7 +208,9 @@ export function SiteDrawer({
                 k={t('loc.f.svc')}
                 v={s.serviceTimeMin === null ? '—' : String(s.serviceTimeMin)}
               />
-              <Kv k={t('loc.f.dock')} v={s.dockCount === null ? '—' : String(s.dockCount)} />
+              {s.kind === 'WAREHOUSE' && (
+                <Kv k={t('loc.f.dock')} v={s.dockCount === null ? '—' : String(s.dockCount)} />
+              )}
               <Kv k={t('loc.f.ext')} v={s.externalId ?? '—'} />
               <Kv k={t('loc.f.notes')} v={s.notes ?? '—'} />
             </div>

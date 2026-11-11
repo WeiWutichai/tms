@@ -194,7 +194,12 @@ export function SiteFormDrawer({
   else if (f.open && f.open === f.close) local.openTime = t('field.same_time');
   const svc = f.svc.trim() === '' ? null : /^\d{1,3}$/.test(f.svc.trim()) ? Number(f.svc) : NaN;
   if (svc !== null && !(svc >= 0 && svc <= 720)) local.serviceTimeMin = t('loc.v.svc');
-  const dock = f.dock.trim() === '' ? null : /^\d{1,3}$/.test(f.dock.trim()) ? Number(f.dock) : NaN;
+  const dock =
+    f.kind !== 'WAREHOUSE' || f.dock.trim() === ''
+      ? null
+      : /^\d{1,3}$/.test(f.dock.trim())
+        ? Number(f.dock)
+        : NaN;
   if (dock !== null && !(dock >= 0 && dock <= 999)) local.dockCount = t('loc.v.dock');
   const contact = parseContact(f.ct);
   // พิกัดนอกกรอบไทย → เตือน (ไม่บล็อก) + ปุ่มสลับถ้าสลับแล้วเข้ากรอบ
@@ -377,7 +382,11 @@ export function SiteFormDrawer({
                 className="tms-select"
                 style={SEL}
                 value={f.kind}
-                onChange={(e) => set('kind', e.target.value as SiteKind)}
+                onChange={(e) => {
+                  // ช่องโหลดมีเฉพาะคลัง — เปลี่ยนชนิดออกจากคลังล้างค่า (review ST2-T09)
+                  const k = e.target.value as SiteKind;
+                  setF((x) => ({ ...x, kind: k, dock: k === 'WAREHOUSE' ? x.dock : '' }));
+                }}
               >
                 {/* ลำดับตามต้นแบบ: ปลายทาง, ต้นทาง, คลัง / ศูนย์กระจาย */}
                 {(['DROPOFF', 'PICKUP', 'WAREHOUSE'] as const)
@@ -562,13 +571,15 @@ export function SiteFormDrawer({
             style: { textAlign: 'right', fontVariantNumeric: 'tabular-nums' },
           })}
         </FormField>
-        {/* ช่องโหลด — คลัง/ต้นทาง (ST2-T09, docs/04 B คลัง) ต้นแบบไม่มี [OPEN spec/12 §3] */}
-        <FormField label={t('loc.f.dock')} hint={t('loc.f.dockHint')} error={errs.dockCount}>
-          {input('dock', {
-            inputMode: 'numeric',
-            style: { textAlign: 'right', fontVariantNumeric: 'tabular-nums' },
-          })}
-        </FormField>
+        {/* ช่องโหลด — เฉพาะคลัง (ST2-T09, docs/04 B คลัง) ต้นแบบไม่มี [OPEN spec/12 §3] */}
+        {f.kind === 'WAREHOUSE' && (
+          <FormField label={t('loc.f.dock')} hint={t('loc.f.dockHint')} error={errs.dockCount}>
+            {input('dock', {
+              inputMode: 'numeric',
+              style: { textAlign: 'right', fontVariantNumeric: 'tabular-nums' },
+            })}
+          </FormField>
+        )}
         <FormField label={t('loc.f.ext')} error={errs.externalId}>
           {input('ext')}
         </FormField>

@@ -12,6 +12,12 @@ export const PROBLEMS = {
   not_found: { status: 404, th: 'ไม่พบข้อมูล', en: 'Not found' },
   method_not_allowed: { status: 405, th: 'ไม่รองรับวิธีเรียกนี้', en: 'Method not allowed' },
   conflict: { status: 409, th: 'ข้อมูลขัดแย้งกับที่มีอยู่', en: 'Conflict' },
+  /** deadlock / serialization failure ของฐานข้อมูล (40P01/40001, Prisma P2034) — ลองส่งใหม่ได้ (มี Retry-After) */
+  concurrent_update: {
+    status: 409,
+    th: 'มีการแก้ไขข้อมูลเดียวกันพร้อมกัน กรุณาลองใหม่อีกครั้ง',
+    en: 'Concurrent update — please retry',
+  },
   duplicate: { status: 409, th: 'ข้อมูลซ้ำกับที่มีอยู่', en: 'Duplicate' },
   invalid_state_transition: {
     status: 409,

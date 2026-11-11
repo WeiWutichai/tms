@@ -12,6 +12,7 @@ import { StateService } from '../../state/state.service';
 import { EXPORT_MAX_ROWS } from '../master/export';
 import {
   assertNotReferenced,
+  lockForRemoval,
   deletedFilter,
   emitMasterEvent,
   isNoopUpdate,
@@ -333,6 +334,12 @@ export class SitesService implements OnModuleInit {
     if (input.serviceTimeMin !== undefined) data.avgDwellMin = input.serviceTimeMin;
     if (input.freeTimeMin !== undefined) data.freeTimeMin = input.freeTimeMin;
     if (input.dockCount !== undefined) data.dockCount = input.dockCount;
+    // ช่องโหลดมีเฉพาะคลัง (review ST2-T09): ชนิดอื่นส่งค่ามา = 422 · เปลี่ยนชนิดออกจากคลัง = ล้างค่าเดิมให้เอง
+    if ((input.kind ?? current?.kind ?? 'DROPOFF') !== 'WAREHOUSE') {
+      if (input.dockCount !== undefined && input.dockCount !== null)
+        throw field422('dockCount', 'warehouse_only', 'dockCount applies to WAREHOUSE only');
+      if (current?.dockCount !== null && current?.dockCount !== undefined) data.dockCount = null;
+    }
     if (input.contact !== undefined)
       data.contact = input.contact === null ? Prisma.DbNull : ({ ...input.contact } as object);
     if (input.notes !== undefined) data.notes = input.notes === '' ? null : input.notes;
@@ -509,6 +516,8 @@ export class SitesService implements OnModuleInit {
   /** MD-004: ลบได้เฉพาะจุดที่ไม่เคยถูกอ้างอิง → soft delete; ถูกอ้างอิง (SO/DO/เที่ยว/rate card) → 409 `in_use` */
   async remove(id: string, reason: string, expected?: number): Promise<void> {
     const tx = this.db.tx;
+    // ล็อกแถวก่อนนับการอ้างอิง — เส้นทางที่กำลังสร้างพร้อมกัน (lockReferenced FOR SHARE) รอจนลบเสร็จ (review ST2-T09)
+    await lockForRemoval(tx, 'customer_site', id);
     const current = await this.get(id);
     if (expected !== undefined && expected !== current.version)
       throw new ProblemException('precondition_failed');

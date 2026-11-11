@@ -429,6 +429,21 @@ export class SiteDto {
   @ApiProperty({ format: 'date-time' }) updatedAt!: string;
 }
 
+export class SiteWarningDto {
+  @ApiProperty({
+    enum: ['routes_active'],
+    description:
+      'routes_active = ยังมีเส้นทางที่ใช้งานอ้างจุดนี้ (เส้นทางเหล่านั้นไม่ถูกใช้คิดราคาจนกว่าจะเปิดใช้จุดนี้อีกครั้ง)',
+  })
+  code!: 'routes_active';
+  @ApiProperty({ example: 2 }) count!: number;
+}
+
+/** ผลการปิดใช้สถานที่ — ปิดได้เสมอ แต่แจ้งผลกระทบ (review ST2-T09) */
+export class SiteDeactivateResultDto extends SiteDto {
+  @ApiProperty({ type: [SiteWarningDto] }) warnings!: SiteWarningDto[];
+}
+
 export class SitePageDto {
   @ApiProperty({ type: [SiteDto] }) data!: SiteDto[];
   @ApiProperty({ nullable: true, type: String }) nextCursor!: string | null;

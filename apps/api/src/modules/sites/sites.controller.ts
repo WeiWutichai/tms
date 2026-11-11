@@ -43,6 +43,7 @@ import {
   SiteDto,
   SiteExportQuery,
   SiteListQuery,
+  SiteDeactivateResultDto,
   SitePageDto,
   SiteSummaryDto,
   UpdateSiteDto,
@@ -260,13 +261,17 @@ export class SitesController {
   @HttpCode(200)
   @TenantResource('site')
   @RequireScope('master:write')
-  @ApiOkResponse({ type: SiteDto })
+  @ApiOkResponse({
+    type: SiteDeactivateResultDto,
+    description:
+      'ปิดใช้ได้เสมอ · `warnings` บอกจำนวนเส้นทางที่ใช้งานอ้างจุดนี้ (ไม่ถูกใช้คิดราคาระหว่างจุดปิดใช้)',
+  })
   async deactivate(
     @Param('id') id: string,
     @Body() body: MasterReasonDto,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<SiteDto> {
+  ): Promise<SiteDeactivateResultDto> {
     const current = await this.resolve(id);
     const s = await this.sites.changeStatus(
       current.id,
@@ -275,7 +280,17 @@ export class SitesController {
       expectedVersion(req),
     );
     setEtag(res, s.version);
-    return this.sites.dto(s);
+    const routes = await this.db.tx.route.count({
+      where: {
+        status: 'ACTIVE',
+        deletedAt: null,
+        OR: [{ originSiteId: s.id }, { destSiteId: s.id }],
+      },
+    });
+    return {
+      ...(await this.sites.dto(s)),
+      warnings: routes ? [{ code: 'routes_active', count: routes }] : [],
+    };
   }
 
   @Post(':id/activate')

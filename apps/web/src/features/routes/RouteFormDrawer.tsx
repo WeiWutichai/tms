@@ -68,12 +68,15 @@ export function RouteFormDrawer({
   route,
   onClose,
   onSaved,
+  onActivateExisting,
 }: {
   open: boolean;
   /** มีค่า = แก้ไข */
   route?: Route | null;
   onClose: () => void;
   onSaved: (r: Route, created: boolean) => void;
+  /** คู่ซ้ำกับเส้นทางที่ปิดใช้อยู่ → ปุ่ม "เปิดใช้เส้นทางเดิม" (หน้ารายการเปิดใช้แล้วเปิด drawer) */
+  onActivateExisting?: (id: string) => void;
 }) {
   const { t } = useI18n();
   const editing = !!route;
@@ -124,9 +127,11 @@ export function RouteFormDrawer({
   const server = fieldErrors(m.error, t);
   const dupErr =
     m.error instanceof ApiError && m.error.problem.code === 'duplicate'
-      ? (m.error.problem as { existing?: { code?: string } }).existing
+      ? (m.error.problem as { existing?: { id?: string; code?: string; status?: string } }).existing
       : undefined;
-  if (dupErr?.code) server.destinationId = t('rt.v.dup', { c: dupErr.code });
+  const dupOff = dupErr?.status === 'inactive';
+  if (dupErr?.code)
+    server.destinationId = t(dupOff ? 'rt.v.dupOff' : 'rt.v.dup', { c: dupErr.code });
   const errs = { ...(tried ? local : {}), ...server };
   const topErr =
     m.error && !Object.keys(server).length
@@ -238,6 +243,9 @@ export function RouteFormDrawer({
       onChange={(v) => {
         set(k, v);
         setEstMsg(null);
+        // เปลี่ยนต้นทาง/ปลายทาง = ข้อความ "มีเส้นทางนี้แล้ว" ของคู่เดิมไม่ใช้แล้ว (review ST2-T09)
+        create.reset();
+        update.reset();
       }}
       search={searchSites}
       placeholder={t('rt.f.pick')}
@@ -280,7 +288,21 @@ export function RouteFormDrawer({
             {sitePicker('origin')}
           </FormField>
           <FormField label={t('rt.f.dest')} required span={2} error={errs.destinationId}>
-            {sitePicker('dest')}
+            {(p) => (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {sitePicker('dest')(p)}
+                {dupOff && dupErr?.id && onActivateExisting && (
+                  <button
+                    type="button"
+                    className="tms-textlink"
+                    style={{ alignSelf: 'flex-start' }}
+                    onClick={() => onActivateExisting(dupErr.id!)}
+                  >
+                    {t('rt.openExisting')}
+                  </button>
+                )}
+              </div>
+            )}
           </FormField>
           <FormField
             label={t('rt.f.km')}

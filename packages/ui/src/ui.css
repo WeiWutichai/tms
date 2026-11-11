@@ -259,6 +259,8 @@ button:focus-visible {
 }
 .tms-route-cell .tms-route > .tms-ellipsis {
   min-width: 0;
+  /* ตัดสมดุล: แต่ละฝั่งไม่เกินราวครึ่งหนึ่งของเซลล์ (520 px) — ชื่อยาวฝั่งเดียวไม่บีบอีกฝั่งจนหาย (review ST2-T09) */
+  max-width: 240px;
 }
 .tms-tag {
   display: inline-flex;

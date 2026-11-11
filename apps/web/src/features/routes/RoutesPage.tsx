@@ -12,6 +12,7 @@ import {
   type Column,
 } from '@tms/ui';
 import { useState } from 'react';
+import { api, unwrap } from '../../api';
 import { useI18n } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
 import { can } from '../../nav';
@@ -82,6 +83,26 @@ export function RoutesPage() {
         onError: (e) => setToast(problemText(e, t)),
       },
     );
+  };
+
+  /** ฟอร์มเพิ่มชนคู่ที่ปิดใช้อยู่ → เปิดใช้เส้นทางเดิม (version ล่าสุดจาก GET) แล้วเปิด drawer */
+  const activateExisting = async (id: string) => {
+    try {
+      const r = await unwrap(api.GET('/v1/routes/{id}', { params: { path: { id } } }));
+      action.mutate(
+        { id: r.id, version: r.version, action: 'activate' },
+        {
+          onSuccess: (u) => {
+            setForm(null);
+            if (u) open(u);
+            setToast(t('rt.toast.reactivated', { n: r.code }));
+          },
+          onError: (e) => setToast(problemText(e, t)),
+        },
+      );
+    } catch (e) {
+      setToast(problemText(e, t));
+    }
   };
 
   const columns: Column<Route>[] = [
@@ -307,6 +328,7 @@ export function RoutesPage() {
           setToast(t(created ? 'rt.toast.created' : 'rt.toast.saved', { n: r.code }));
           open(r);
         }}
+        onActivateExisting={(id) => void activateExisting(id)}
       />
       <ReasonDialog
         open={!!dialog}

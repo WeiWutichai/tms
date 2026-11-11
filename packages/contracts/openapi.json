@@ -4554,11 +4554,11 @@
         },
         "responses": {
           "200": {
-            "description": "",
+            "description": "ปิดใช้ได้เสมอ · `warnings` บอกจำนวนเส้นทางที่ใช้งานอ้างจุดนี้ (ไม่ถูกใช้คิดราคาระหว่างจุดปิดใช้)",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SiteDto"
+                  "$ref": "#/components/schemas/SiteDeactivateResultDto"
                 }
               }
             }
@@ -13531,6 +13531,205 @@
             "description": "null = ลบการผูก"
           }
         }
+      },
+      "SiteWarningDto": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "routes_active"
+            ],
+            "description": "routes_active = ยังมีเส้นทางที่ใช้งานอ้างจุดนี้ (เส้นทางเหล่านั้นไม่ถูกใช้คิดราคาจนกว่าจะเปิดใช้จุดนี้อีกครั้ง)"
+          },
+          "count": {
+            "type": "number",
+            "example": 2
+          }
+        },
+        "required": [
+          "code",
+          "count"
+        ]
+      },
+      "SiteDeactivateResultDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "loc_3f2a…"
+          },
+          "code": {
+            "type": "string",
+            "example": "LOC-00001"
+          },
+          "externalId": {
+            "type": "string",
+            "nullable": true
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "PICKUP",
+              "DROPOFF",
+              "WAREHOUSE"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "address": {
+            "$ref": "#/components/schemas/SiteAddressDto"
+          },
+          "customer": {
+            "nullable": true,
+            "description": "null = จุดของบริษัทเอง",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SiteCustomerRefDto"
+              }
+            ]
+          },
+          "lat": {
+            "type": "number",
+            "nullable": true
+          },
+          "lng": {
+            "type": "number",
+            "nullable": true
+          },
+          "geocodeStatus": {
+            "type": "string",
+            "enum": [
+              "OK",
+              "PENDING",
+              "FAILED"
+            ],
+            "description": "OK = มีพิกัดแล้ว (กรอกเอง/ยืนยันแล้ว) · PENDING = ยังไม่ปักหมุด (รอ geocode หรือรอคนยืนยัน geocodeProposal) · FAILED = geocode ไม่พบ/คนปฏิเสธพิกัดที่เสนอ → ต้องปักหมุดเอง"
+          },
+          "geocodeProposal": {
+            "nullable": true,
+            "description": "พิกัดที่ geocode อัตโนมัติเสนอ รอคนยืนยัน (มีค่าเฉพาะเมื่อ geocodeStatus = PENDING) — ยืนยันด้วย POST /customer-sites/{id}/geocode/confirm, ปฏิเสธด้วย /geocode/reject",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SiteGeocodeProposalDto"
+              }
+            ]
+          },
+          "geofenceRadiusM": {
+            "type": "number"
+          },
+          "aliases": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "openTime": {
+            "type": "string",
+            "nullable": true
+          },
+          "closeTime": {
+            "type": "string",
+            "nullable": true
+          },
+          "maxVehicleClass": {
+            "type": "string",
+            "enum": [
+              "6W",
+              "10W",
+              "TRAILER",
+              "SEMI_TRAILER"
+            ],
+            "nullable": true
+          },
+          "serviceTimeMin": {
+            "type": "number",
+            "nullable": true
+          },
+          "freeTimeMin": {
+            "type": "number",
+            "nullable": true
+          },
+          "dockCount": {
+            "type": "number",
+            "nullable": true,
+            "description": "ช่องโหลด (คลัง/ต้นทาง)"
+          },
+          "contact": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SiteContactDto"
+              }
+            ]
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          },
+          "deletedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "มีค่าเฉพาะเมื่อขอ includeDeleted=true และรายการถูกลบแล้ว (tombstone)"
+          },
+          "version": {
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SiteWarningDto"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "externalId",
+          "kind",
+          "name",
+          "address",
+          "customer",
+          "lat",
+          "lng",
+          "geocodeStatus",
+          "geocodeProposal",
+          "geofenceRadiusM",
+          "aliases",
+          "openTime",
+          "closeTime",
+          "maxVehicleClass",
+          "serviceTimeMin",
+          "freeTimeMin",
+          "dockCount",
+          "contact",
+          "notes",
+          "status",
+          "version",
+          "createdAt",
+          "updatedAt",
+          "warnings"
+        ]
       },
       "ConfirmGeocodeDto": {
         "type": "object",

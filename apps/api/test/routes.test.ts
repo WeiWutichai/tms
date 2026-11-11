@@ -5,6 +5,8 @@ import { GeoService } from '../src/modules/geo/geo.service';
 import { MockGeoProvider } from '../src/modules/geo/providers/mock.provider';
 import { RoutesService } from '../src/modules/routes/routes.service';
 import { DbService } from '../src/db/db.service';
+import { RoutesController } from '../src/modules/routes/routes.controller';
+import { TenantRateLimiter } from '../src/modules/geo/rate-limit';
 import { api, bootApp, createTenant, platform, tokenFor, truncateAll } from './helpers';
 
 /** ST2-T09 เส้นทาง (OD pair) + คลัง/ต้นทาง — docs/04 B เส้นทาง, B คลัง/ต้นทาง */
@@ -362,5 +364,145 @@ describe('เส้นทาง (routes) + คลัง', () => {
     expect(s.body.withToll).toBeGreaterThanOrEqual(1);
     const nc = await api(app, admin).get('/v1/routes/next-code').expect(200);
     expect(nc.body.code).toMatch(/^RT-\d{4}$/);
+  });
+
+  // ---------- review/QA ST2-T09 ----------
+
+  it('PUT external + POST (externalId เดียวกัน, คู่เดิม) พร้อมกัน → ไม่ deadlock/500: แถวเดียว', async () => {
+    for (let round = 0; round < 5; round++) {
+      const a = await newSite();
+      const b = await newSite();
+      const ext = `ERP-RACE-${round}`;
+      const body = { originId: a.id, destinationId: b.id, distanceKm: 20 };
+      const res = await Promise.all([
+        api(app, admin).put(`/v1/routes/external/${ext}`).send(body),
+        create({ ...body, externalId: ext }),
+        api(app, admin).put(`/v1/routes/external/${ext}`).send(body),
+        create({ ...body, externalId: ext }),
+      ]);
+      for (const r of res) expect([200, 201, 409], JSON.stringify(r.body)).toContain(r.status);
+      expect(res.filter((r) => r.status === 201)).toHaveLength(1);
+      expect(
+        await db.route.count({
+          where: { originSiteId: tryDecodeId('site', a.id)!, deletedAt: null },
+        }),
+      ).toBe(1);
+    }
+  });
+
+  it('สถานที่ปิดใช้: getRouteDistance = null, เปิดใช้เส้นทาง 422, estimate 422, ปิดใช้สถานที่ได้ + warnings', async () => {
+    const a = await newSite({ lat: 13.75, lng: 100.5 });
+    const b = await newSite({ lat: 13.36, lng: 100.98 });
+    const r = (await create({ originId: a.id, destinationId: b.id, distanceKm: 95 }).expect(201))
+      .body;
+    const off = await api(app, admin)
+      .post(`/v1/customer-sites/${b.id}/deactivate`)
+      .send({ reason: 'ทดสอบปิดใช้สถานที่ปลายทาง' })
+      .expect(200);
+    expect(off.body.warnings).toEqual([{ code: 'routes_active', count: 1 }]);
+    const svc = app.get(RoutesService);
+    const dbs = app.get(DbService);
+    const oa = tryDecodeId('site', a.id)!;
+    const ob = tryDecodeId('site', b.id)!;
+    expect(await dbs.withTenant(tenantId, (tx) => svc.getRouteDistance(oa, ob, tx))).toBeNull();
+    const e = await api(app, admin)
+      .post('/v1/routes/estimate')
+      .send({ originId: a.id, destinationId: b.id })
+      .expect(422);
+    expect(e.body.errors[0]).toMatchObject({ field: 'destinationId', code: 'site_inactive' });
+    await api(app, admin)
+      .post(`/v1/routes/${r.id}/deactivate`)
+      .send({ reason: 'ทดสอบปิดใช้เส้นทาง' })
+      .expect(200);
+    const act = await api(app, admin).post(`/v1/routes/${r.id}/activate`).send({}).expect(422);
+    expect(act.body.errors[0]).toMatchObject({ field: 'destinationId', code: 'site_inactive' });
+    await api(app, admin).post(`/v1/customer-sites/${b.id}/activate`).send({}).expect(200);
+    await api(app, admin).post(`/v1/routes/${r.id}/activate`).send({}).expect(200);
+    expect((await dbs.withTenant(tenantId, (tx) => svc.getRouteDistance(oa, ob, tx)))?.code).toBe(
+      r.code,
+    );
+    // ปิดใช้สถานที่ที่ไม่มีเส้นทาง → warnings ว่าง
+    const c = await newSite();
+    const offC = await api(app, admin)
+      .post(`/v1/customer-sites/${c.id}/deactivate`)
+      .send({ reason: 'ทดสอบปิดใช้สถานที่ว่าง' })
+      .expect(200);
+    expect(offC.body.warnings).toEqual([]);
+  });
+
+  it('ลบสถานที่พร้อมกับสร้างเส้นทางที่อ้างสถานที่นั้น → ไม่มีเส้นทางชี้สถานที่ที่ลบแล้ว', async () => {
+    for (let round = 0; round < 5; round++) {
+      const a = await newSite();
+      const b = await newSite();
+      const [del, cr] = await Promise.all([
+        api(app, admin)
+          .post(`/v1/customer-sites/${b.id}/delete`)
+          .send({ reason: 'ทดสอบลบพร้อมสร้างเส้นทาง' }),
+        create({ originId: a.id, destinationId: b.id, distanceKm: 5 }),
+      ]);
+      // ผลได้แค่: ลบสำเร็จ + สร้างไม่ได้ (422) หรือ สร้างสำเร็จ + ลบไม่ได้ (409 in_use)
+      expect([`${del.status}/${cr.status}`]).toContain(del.status === 204 ? '204/422' : '409/201');
+      const orphan = await db.route.count({
+        where: { deletedAt: null, dest: { deletedAt: { not: null } } },
+      });
+      expect(orphan).toBe(0);
+    }
+  });
+
+  it('ช่องโหลดมีเฉพาะคลัง: ชนิดอื่น 422, เปลี่ยนชนิดออกจากคลังล้างค่า', async () => {
+    const bad = await api(app, admin)
+      .post('/v1/customer-sites')
+      .send({ name: `จุดส่ง ${++seed}`, kind: 'DROPOFF', address: ADDR, dockCount: 3 })
+      .expect(422);
+    expect(bad.body.errors[0]).toMatchObject({ field: 'dockCount', code: 'warehouse_only' });
+    const w = await newSite({ kind: 'WAREHOUSE', dockCount: 4 });
+    const p = await api(app, admin)
+      .patch(`/v1/customer-sites/${w.id}`)
+      .set('If-Match', `"${w.version}"`)
+      .send({ kind: 'PICKUP' })
+      .expect(200);
+    expect(p.body).toMatchObject({ kind: 'PICKUP', dockCount: null });
+  });
+
+  it('ตัวเลขแบบ exponent (1e-7) → 422 ไม่ใช่ 500 (เส้นทาง/ประเภทรถ)', async () => {
+    const a = await newSite();
+    const b = await newSite();
+    for (const km of [1e-7, 1.5e-1, 1e21]) {
+      const r = await create({ originId: a.id, destinationId: b.id, distanceKm: km });
+      expect(r.status, JSON.stringify(r.body)).toBe(422);
+      expect(r.body.errors[0]).toMatchObject({ field: 'distanceKm' });
+    }
+    // 1.5e1 = 15 ใช้ได้
+    await create({ originId: a.id, destinationId: b.id, distanceKm: 1.5e1 }).expect(201);
+    const vt = await api(app, admin)
+      .post('/v1/vehicle-types')
+      .send({
+        name: `ประเภท exp ${++seed}`,
+        vehicleClass: '6W',
+        payloadKg: 1000,
+        minLicenceClass: 'T2',
+        volumeCbm: 1e-7,
+      });
+    expect(vt.status).toBe(422);
+    expect(vt.body.errors[0]).toMatchObject({ field: 'volumeCbm', code: 'isNumber' });
+  });
+
+  it('คำนวณจากพิกัดถี่เกินเพดาน → 429 + Retry-After', async () => {
+    const ctl = app.get(RoutesController);
+    const original = ctl.estimateLimiter;
+    ctl.estimateLimiter = new TenantRateLimiter(2);
+    try {
+      const a = await newSite({ lat: 13.75, lng: 100.5 });
+      const b = await newSite({ lat: 13.36, lng: 100.98 });
+      const send = () =>
+        api(app, admin).post('/v1/routes/estimate').send({ originId: a.id, destinationId: b.id });
+      await send().expect(200);
+      await send().expect(200);
+      const r = await send().expect(429);
+      expect(r.body.code).toBe('rate_limited');
+      expect(Number(r.headers['retry-after'])).toBeGreaterThan(0);
+    } finally {
+      ctl.estimateLimiter = original;
+    }
   });
 });

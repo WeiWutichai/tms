@@ -1,3 +1,4 @@
+import { IsDecimal } from '../../common/validation';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   ArrayMaxSize,
@@ -5,7 +6,6 @@ import {
   IsIn,
   IsInt,
   IsNotEmpty,
-  IsNumber,
   IsOptional,
   IsString,
   Matches,
@@ -59,7 +59,7 @@ export class VehicleTypeFieldsDto {
     description: 'ปริมาตร (ลบ.ม.)',
   })
   @IsNullable()
-  @IsNumber({ maxDecimalPlaces: 2 })
+  @IsDecimal(2)
   @Min(0)
   @Max(99_999_999)
   volumeCbm?: number | null;
@@ -83,14 +83,14 @@ export class VehicleTypeFieldsDto {
     description: 'ห้องเย็น: อุณหภูมิต่ำสุด (°C) — ส่งคู่กับ tempMaxC และ min < max',
   })
   @IsNullable()
-  @IsNumber({ maxDecimalPlaces: 1 })
+  @IsDecimal(1)
   @Min(-99)
   @Max(99)
   tempMinC?: number | null;
 
   @ApiPropertyOptional({ example: 8, nullable: true, type: Number })
   @IsNullable()
-  @IsNumber({ maxDecimalPlaces: 1 })
+  @IsDecimal(1)
   @Min(-99)
   @Max(99)
   tempMaxC?: number | null;
