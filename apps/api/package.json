@@ -17,7 +17,8 @@
     "openapi:export": "SWC_NODE_PROJECT=tsconfig.json node -r @swc-node/register scripts/export-openapi.ts",
     "openapi:diff": "SWC_NODE_PROJECT=tsconfig.json node -r @swc-node/register scripts/openapi-diff.ts",
     "dev:worker": "NODE_ENV=development SWC_NODE_PROJECT=tsconfig.json node -r @swc-node/register src/worker.ts",
-    "openapi:check": "SWC_NODE_PROJECT=tsconfig.json node -r @swc-node/register scripts/export-openapi.ts && git diff --exit-code -- ../../packages/contracts/openapi.json"
+    "openapi:check": "SWC_NODE_PROJECT=tsconfig.json node -r @swc-node/register scripts/export-openapi.ts && git diff --exit-code -- ../../packages/contracts/openapi.json",
+    "platform:user": "SWC_NODE_PROJECT=tsconfig.json node -r @swc-node/register scripts/platform-user.ts"
   },
   "dependencies": {
     "@fontsource/sarabun": "^5.3.0",

@@ -256,8 +256,11 @@ export class DocumentsController {
     const base = `${origin.replace(/\/+$/, '')}/v1/documents/${enc(doc.id)}/content`;
     const dto = toDto(doc);
     const ctx = requestContext.require();
+    // เข้าใช้งานแทน (อ่านอย่างเดียว — ST1-T24) ไม่ได้ URL อัปโหลด: PUT content เป็น @Public จึงไม่ผ่านด่าน read-only
     const canUpload =
-      doc.createdBy === (ctx.actorId ?? null) && scopeAllows(ctx.scopes ?? [], 'documents:write');
+      ctx.principalType !== 'imp' &&
+      doc.createdBy === (ctx.actorId ?? null) &&
+      scopeAllows(ctx.scopes ?? [], 'documents:write');
     if (doc.status === 'PENDING') {
       // URL อัปโหลดให้เฉพาะผู้จองที่มีสิทธิ์เขียน (review T08 B1 — Viewer/คนอื่นอ่านได้แต่เขียนทับไม่ได้)
       if (!canUpload) return dto;

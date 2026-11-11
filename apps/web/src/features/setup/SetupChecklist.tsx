@@ -109,7 +109,14 @@ export function SetupChecklist() {
             if (r?.data) {
               queryClient.setQueryData(KEY, r.data);
               setToast(t('setup.hidden'));
-            } else setToast(t('problem.internal_error'));
+            } else {
+              const code = (r?.error as { code?: string } | undefined)?.code;
+              setToast(
+                code === 'impersonation_read_only'
+                  ? t('problem.impersonation_read_only')
+                  : t('problem.internal_error'),
+              );
+            }
           }}
           style={{
             border: 0,

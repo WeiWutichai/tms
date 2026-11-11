@@ -149,7 +149,8 @@ export class AuthController {
       pair = await this.auth.exchangeCode(body.code, body.codeVerifier, clientOf(req));
     } else {
       const rt = req.cookies?.[REFRESH_COOKIE] as string | undefined;
-      if (!rt) throw new ProblemException('invalid_grant');
+      // ไม่มี cookie เลย = ไม่ได้ login (401 — เว็บไม่ต้องลองซ้ำ; 400 สงวนไว้สำหรับ cookie ที่เพิ่งถูกหมุน)
+      if (!rt) throw new ProblemException('unauthorized');
       try {
         pair = await this.auth.refresh(rt, clientOf(req));
       } catch (e) {

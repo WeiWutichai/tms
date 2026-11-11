@@ -28,7 +28,8 @@ function secret(): Uint8Array {
   return new TextEncoder().encode(s);
 }
 
-export type PrincipalType = 'user' | 'dev';
+/** `imp` = ทีม Innovera เข้าใช้งานแทนผู้ใช้ของลูกค้า (ST1-T24) — sub = ผู้ใช้ที่สวม, act = platform user */
+export type PrincipalType = 'user' | 'dev' | 'imp';
 
 export interface AccessClaims {
   sub: string;
@@ -36,6 +37,10 @@ export interface AccessClaims {
   scope: string;
   pt: PrincipalType;
   tv?: number;
+  /** ผู้กระทำจริงเมื่อ impersonate (platform user id — docs/01 §5.4 claim `act`) */
+  act?: string;
+  /** impersonation session id */
+  sid?: string;
 }
 
 export async function signAccessToken(c: AccessClaims, ttl: string | number = ACCESS_TTL_SECONDS) {
@@ -45,6 +50,8 @@ export async function signAccessToken(c: AccessClaims, ttl: string | number = AC
     scope: c.scope,
     pt: c.pt,
     ...(c.tv !== undefined ? { tv: c.tv } : {}),
+    ...(c.act ? { act: { sub: c.act } } : {}),
+    ...(c.sid ? { sid: c.sid } : {}),
   })
     .setProtectedHeader({ alg: 'HS256' })
     .setSubject(c.sub)
@@ -58,15 +65,18 @@ export async function verifyAccessToken(token: string): Promise<AccessClaims | n
     const { payload } = await jwtVerify(token, secret(), { algorithms: ['HS256'] });
     if (typeof payload.tid !== 'string' || !payload.sub) return null;
     if (payload.pur !== undefined) return null; // token เฉพาะทาง (เช่น step-up) ใช้แทน access token ไม่ได้
-    const pt: PrincipalType = payload.pt === 'user' ? 'user' : 'dev';
+    const pt: PrincipalType = payload.pt === 'user' ? 'user' : payload.pt === 'imp' ? 'imp' : 'dev';
     if (pt === 'dev' && !isLocalEnv()) return null;
     if (pt === 'user' && typeof payload.tv !== 'number') return null;
+    const act = (payload.act as { sub?: unknown } | undefined)?.sub;
+    if (pt === 'imp' && (typeof act !== 'string' || typeof payload.sid !== 'string')) return null;
     return {
       sub: payload.sub,
       tid: payload.tid,
       scope: typeof payload.scope === 'string' ? payload.scope : '',
       pt,
       tv: typeof payload.tv === 'number' ? payload.tv : undefined,
+      ...(pt === 'imp' ? { act: act as string, sid: payload.sid as string } : {}),
     };
   } catch {
     return null;
@@ -107,6 +117,53 @@ export async function verifyStepUpToken(
     const { payload } = await jwtVerify(token, secret(), { algorithms: ['HS256'] });
     if (payload.pur !== 'step_up' || typeof payload.tid !== 'string' || !payload.sub) return null;
     return { sub: payload.sub, tid: payload.tid };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * token ของ Platform Console (ST1-T24) — คนละชนิดกับ token ของลูกค้า (`pur: platform` → verifyAccessToken ปฏิเสธ)
+ * อายุ 8 ชม. เก็บในหน่วยความจำเท่านั้น (reload = login + 2FA ใหม่) · `tv` = tokenVersion ของ platform user
+ */
+export const PLATFORM_TTL_SECONDS = 8 * 60 * 60;
+export interface PlatformClaims {
+  sub: string;
+  role: string;
+  tv: number;
+}
+export async function signPlatformToken(c: PlatformClaims, ttl = PLATFORM_TTL_SECONDS) {
+  return new SignJWT({ pur: 'platform', role: c.role, tv: c.tv })
+    .setProtectedHeader({ alg: 'HS256' })
+    .setSubject(c.sub)
+    .setIssuedAt()
+    .setExpirationTime(Math.floor(Date.now() / 1000) + ttl)
+    .sign(secret());
+}
+export async function verifyPlatformToken(token: string): Promise<PlatformClaims | null> {
+  try {
+    const { payload } = await jwtVerify(token, secret(), { algorithms: ['HS256'] });
+    if (payload.pur !== 'platform' || !payload.sub || typeof payload.role !== 'string') return null;
+    if (typeof payload.tv !== 'number') return null;
+    return { sub: payload.sub, role: payload.role, tv: payload.tv };
+  } catch {
+    return null;
+  }
+}
+
+/** ขั้นกลางของ login Console (รหัสผ่านผ่านแล้ว รอ TOTP) — อายุ 5 นาที ใช้แทน token อื่นไม่ได้ */
+export async function signPlatformChallenge(sub: string) {
+  return new SignJWT({ pur: 'platform_mfa' })
+    .setProtectedHeader({ alg: 'HS256' })
+    .setSubject(sub)
+    .setIssuedAt()
+    .setExpirationTime(Math.floor(Date.now() / 1000) + 300)
+    .sign(secret());
+}
+export async function verifyPlatformChallenge(token: string): Promise<string | null> {
+  try {
+    const { payload } = await jwtVerify(token, secret(), { algorithms: ['HS256'] });
+    return payload.pur === 'platform_mfa' && payload.sub ? payload.sub : null;
   } catch {
     return null;
   }

@@ -1,8 +1,9 @@
 import { useQuery } from '@tanstack/react-query';
+import { Icon } from '@tms/ui';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { api, queryClient, unwrap } from '../api';
-import { logout } from '../auth/session';
+import { dropAccessToken, endImpersonation, logout } from '../auth/session';
 import { useI18n } from '../i18n';
 import type { MessageKey } from '../i18n/th';
 import { featureOf, isLocked, pageOf } from '../nav';
@@ -91,6 +92,101 @@ export function AppShell({ children }: { children: ReactNode }) {
           {children}
         </main>
       </div>
+      {me.data?.impersonation && (
+        <ImpersonationBanner
+          tenant={me.data.tenant.name}
+          user={me.data.user?.name ?? me.data.actorId}
+          expiresAt={me.data.impersonation.expiresAt}
+          onExit={() => {
+            void endImpersonation().then(() => {
+              queryClient.clear();
+              window.close(); // แท็บที่ Console เปิดให้ — ปิดได้; ปิดไม่ได้ก็ไปหน้าเข้าสู่ระบบ
+              navigate('/login', { replace: true });
+            });
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * แถบส้มระหว่างเข้าใช้งานแทน (ST1-T24) — หน้าตาตาม bn.imp ของ TMS v4 (ปุ่มลอยกลางล่าง #8F5500)
+ * ข้อความเพิ่ม "ในนาม {ผู้ใช้} · เหลือ {mm} นาที" ตาม spec/01 §11 — [OPEN spec/12 §3] ต้นแบบลอยล่าง / spec ว่า "ติดบนสุด"
+ */
+function ImpersonationBanner({
+  tenant,
+  user,
+  expiresAt,
+  onExit,
+}: {
+  tenant: string;
+  user: string;
+  expiresAt: string;
+  onExit: () => void;
+}) {
+  const { t } = useI18n();
+  const left = () => Math.max(0, Math.floor((Date.parse(expiresAt) - Date.now()) / 60_000));
+  const [mins, setMins] = useState(left);
+  useEffect(() => {
+    const id = setInterval(() => {
+      setMins(left());
+      // หมดเวลา → token ใช้ไม่ได้แล้ว: ออกจาก session (guard พาไปหน้าเข้าสู่ระบบ)
+      if (Date.parse(expiresAt) <= Date.now()) dropAccessToken();
+    }, 15_000);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expiresAt]);
+  return (
+    <div
+      role="status"
+      aria-label={t('imp.label')}
+      style={{
+        position: 'fixed',
+        left: '50%',
+        bottom: 16,
+        transform: 'translateX(-50%)',
+        zIndex: 95,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 12,
+        height: 40,
+        padding: '0 8px 0 16px',
+        borderRadius: 999,
+        background: '#8F5500',
+        color: '#FFFFFF',
+        boxShadow: '0 8px 24px rgba(16,20,24,.24)',
+        // จอแคบ: ไม่ล้นจอ ปุ่ม "ออก" ต้องเห็นเสมอ
+        maxWidth: 'calc(100vw - 32px)',
+        overflow: 'hidden',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      <Icon n="user-cog" s={16} />
+      <span style={{ fontWeight: 600, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        {t('imp.banner', { tenant, user })}
+      </span>
+      <span style={{ opacity: 0.85, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        {t('imp.bannerSub', { m: mins })}
+      </span>
+      <button
+        type="button"
+        onClick={onExit}
+        style={{
+          height: 28,
+          padding: '0 12px',
+          border: 0,
+          borderRadius: 999,
+          background: '#FFFFFF',
+          color: '#8F5500',
+          cursor: 'pointer',
+          font: 'inherit',
+          fontWeight: 600,
+          flexShrink: 0,
+        }}
+      >
+        {t('imp.exit')}
+      </button>
     </div>
   );
 }

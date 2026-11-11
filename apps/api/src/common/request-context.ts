@@ -9,6 +9,12 @@ export interface RequestContext {
   scopes?: string[];
   /** ชนิด principal จาก token (`user` / `dev` / ภายหลัง `link` / `driver`) — ใช้กันราคาขายแบบเด็ดขาด (ST1-T13) */
   principalType?: string;
+  /** ผู้กระทำจริงเมื่อเข้าใช้งานแทน (ST1-T24) — ลง audit_log.act_as */
+  actAs?: string;
+  /** impersonation session (ST1-T24) */
+  impersonationSessionId?: string;
+  /** ทีม Innovera ที่ login Console (ST1-T24) */
+  platformUser?: { id: string; role: string };
   /** magic link ที่ยืนยันแล้ว (route ที่ติด @LinkAction) — โมดูลใช้ entityId จำกัดข้อมูลที่ส่งกลับ */
   link?: { id: string; purpose: string; entityType: string; entityId: string; actions: string[] };
   locale: 'th' | 'en';

@@ -365,7 +365,8 @@ export class AuthService {
     return Number.isFinite(m) && m > 0 ? m * 60 * 1000 : IDLE_TTL_MS;
   }
 
-  private async scopeOf(tenantId: string, userId: string): Promise<string> {
+  /** scope ของผู้ใช้ — ใช้ตอนออก token และตอนทีม Innovera เข้าใช้งานแทน (ST1-T24) */
+  async scopeOf(tenantId: string, userId: string): Promise<string> {
     const links = await this.db.userRole.findMany({ where: { tenantId, userId } });
     if (links.length === 0) return '';
     const roles = await this.db.role.findMany({

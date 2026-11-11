@@ -1166,6 +1166,431 @@
         ]
       }
     },
+    "/v1/platform/auth/login": {
+      "post": {
+        "operationId": "PlatformAuth_login",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlatformLoginDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlatformChallengeDto"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "platform-console"
+        ]
+      }
+    },
+    "/v1/platform/auth/mfa": {
+      "post": {
+        "operationId": "PlatformAuth_mfa",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlatformMfaDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlatformTokenDto"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "platform-console"
+        ]
+      }
+    },
+    "/v1/platform/auth/me": {
+      "get": {
+        "operationId": "PlatformAuth_me",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlatformMeDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform-console"
+        ]
+      }
+    },
+    "/v1/platform/auth/logout": {
+      "post": {
+        "operationId": "PlatformAuth_logout",
+        "parameters": [],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform-console"
+        ]
+      }
+    },
+    "/v1/platform/tenants": {
+      "get": {
+        "operationId": "PlatformTenants_list",
+        "parameters": [
+          {
+            "name": "q",
+            "required": false,
+            "in": "query",
+            "description": "ค้นชื่อบริษัท",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PlatformTenantDto"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform-console"
+        ]
+      },
+      "post": {
+        "operationId": "PlatformTenants_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePlatformTenantDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlatformTenantDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform-console"
+        ]
+      }
+    },
+    "/v1/platform/tenants/{id}": {
+      "get": {
+        "operationId": "PlatformTenants_get",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlatformTenantDetailDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform-console"
+        ]
+      }
+    },
+    "/v1/platform/tenants/{id}/suspend": {
+      "post": {
+        "operationId": "PlatformTenants_suspend",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TenantReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlatformTenantDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform-console"
+        ]
+      }
+    },
+    "/v1/platform/tenants/{id}/reactivate": {
+      "post": {
+        "operationId": "PlatformTenants_reactivate",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TenantReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlatformTenantDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform-console"
+        ]
+      }
+    },
+    "/v1/platform/tenants/{id}/plan": {
+      "patch": {
+        "operationId": "PlatformTenants_plan",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdatePlanDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlatformTenantDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform-console"
+        ]
+      }
+    },
+    "/v1/platform/tenants/{id}/impersonate": {
+      "post": {
+        "operationId": "PlatformTenants_impersonate",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImpersonateDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImpersonationStartDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform-console"
+        ]
+      }
+    },
+    "/v1/me/impersonation/end": {
+      "post": {
+        "operationId": "Impersonation_end",
+        "parameters": [],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform"
+        ]
+      }
+    },
     "/v1/health": {
       "get": {
         "operationId": "Health_health",
@@ -3620,6 +4045,364 @@
           "reason"
         ]
       },
+      "PlatformLoginDto": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "example": "admin@innovera.test"
+          },
+          "password": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ]
+      },
+      "PlatformChallengeDto": {
+        "type": "object",
+        "properties": {
+          "challenge": {
+            "type": "string",
+            "description": "ส่งต่อไป POST /v1/platform/auth/mfa (อายุ 5 นาที)"
+          }
+        },
+        "required": [
+          "challenge"
+        ]
+      },
+      "PlatformMfaDto": {
+        "type": "object",
+        "properties": {
+          "challenge": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string",
+            "example": "123456"
+          }
+        },
+        "required": [
+          "challenge",
+          "code"
+        ]
+      },
+      "PlatformTokenDto": {
+        "type": "object",
+        "properties": {
+          "accessToken": {
+            "type": "string"
+          },
+          "expiresIn": {
+            "type": "number",
+            "example": 28800
+          }
+        },
+        "required": [
+          "accessToken",
+          "expiresIn"
+        ]
+      },
+      "PlatformMeDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "SUPER_ADMIN",
+              "SUPPORT",
+              "BILLING"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "name",
+          "role"
+        ]
+      },
+      "PlatformTenantDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "ten_…"
+          },
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "trial",
+              "active",
+              "suspended",
+              "cancelled"
+            ]
+          },
+          "planCode": {
+            "type": "string"
+          },
+          "vehicleQuota": {
+            "type": "number",
+            "nullable": true
+          },
+          "users": {
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "status",
+          "planCode",
+          "vehicleQuota",
+          "users",
+          "createdAt"
+        ]
+      },
+      "PlatformTenantUserDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "email",
+          "status",
+          "roles"
+        ]
+      },
+      "PlatformTenantDetailDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "ten_…"
+          },
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "trial",
+              "active",
+              "suspended",
+              "cancelled"
+            ]
+          },
+          "planCode": {
+            "type": "string"
+          },
+          "vehicleQuota": {
+            "type": "number",
+            "nullable": true
+          },
+          "users": {
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PlatformTenantUserDto"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "status",
+          "planCode",
+          "vehicleQuota",
+          "users",
+          "createdAt",
+          "members"
+        ]
+      },
+      "CreatePlatformTenantDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "example": "ลูกค้าขอระงับชั่วคราวระหว่างย้ายระบบ",
+            "minLength": 10
+          },
+          "name": {
+            "type": "string",
+            "example": "บริษัท ตัวอย่างขนส่ง จำกัด"
+          },
+          "ownerEmail": {
+            "type": "string",
+            "example": "owner@example.co.th"
+          },
+          "ownerName": {
+            "type": "string",
+            "example": "สมชาย ใจดี"
+          },
+          "planCode": {
+            "type": "string",
+            "example": "std"
+          },
+          "vehicleQuota": {
+            "type": "number",
+            "example": 30,
+            "nullable": true
+          }
+        },
+        "required": [
+          "reason",
+          "name",
+          "ownerEmail",
+          "ownerName"
+        ]
+      },
+      "TenantReasonDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "example": "ลูกค้าขอระงับชั่วคราวระหว่างย้ายระบบ",
+            "minLength": 10
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      },
+      "UpdatePlanDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "example": "ลูกค้าขอระงับชั่วคราวระหว่างย้ายระบบ",
+            "minLength": 10
+          },
+          "planCode": {
+            "type": "string",
+            "example": "ent"
+          },
+          "vehicleQuota": {
+            "type": "number",
+            "example": 40,
+            "nullable": true,
+            "description": "null = ล้างค่า"
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      },
+      "ImpersonateDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "example": "ลูกค้าขอระงับชั่วคราวระหว่างย้ายระบบ",
+            "minLength": 10
+          },
+          "asUserId": {
+            "type": "string",
+            "example": "usr_…",
+            "description": "ผู้ใช้ที่จะสวม (ไม่ส่ง = owner คนแรก)"
+          },
+          "ticketRef": {
+            "type": "string",
+            "example": "#4412"
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      },
+      "ImpersonationStartDto": {
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string"
+          },
+          "accessToken": {
+            "type": "string",
+            "description": "access token ของผู้ใช้ที่สวม (อ่านอย่างเดียว) — ส่งให้แอปลูกค้าทาง URL fragment"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "url": {
+            "type": "string",
+            "description": "ลิงก์เปิดแอปลูกค้าในแท็บใหม่"
+          }
+        },
+        "required": [
+          "sessionId",
+          "accessToken",
+          "expiresAt",
+          "url"
+        ]
+      },
+      "MeImpersonationDto": {
+        "type": "object",
+        "properties": {
+          "staffName": {
+            "type": "string",
+            "description": "ชื่อทีมงาน TMS ที่เข้าใช้งานแทน"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "read_only"
+            ]
+          }
+        },
+        "required": [
+          "staffName",
+          "expiresAt",
+          "mode"
+        ]
+      },
       "MeTenantDto": {
         "type": "object",
         "properties": {
@@ -3708,6 +4491,16 @@
       "MeDto": {
         "type": "object",
         "properties": {
+          "impersonation": {
+            "nullable": true,
+            "description": "กำลังเข้าใช้งานแทน (ST1-T24) — UI แสดงแถบส้มตลอดเวลา (spec/01 §5 banner)",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MeImpersonationDto"
+              }
+            ]
+          },
           "actorId": {
             "type": "string",
             "description": "ผู้ใช้หรือ API key ที่เรียก (sub)"
@@ -3763,6 +4556,7 @@
           }
         },
         "required": [
+          "impersonation",
           "actorId",
           "scopes",
           "tenant",
