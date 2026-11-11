@@ -2,7 +2,18 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { EntitlementService } from '../modules/entitlements/entitlement.service';
 import type { Job } from '@prisma/client';
 import { PrismaService } from '../db/prisma.service';
+import { encodeId } from '../common/ids';
 import { DbService, type Tx } from '../db/db.service';
+import { NotificationService } from '../modules/notifications/notification.service';
+
+/** แจ้งผู้สั่งงานเมื่อจบ (ST1-T23; docs/04 I "งานใหญ่ background + แจ้งเมื่อเสร็จ") — เก็บใน payload._notify */
+export interface JobNotify {
+  userId: string;
+  /** ชื่องานที่ผู้ใช้อ่านเข้าใจ เช่น "นำเข้าลูกค้า (ลูกค้า.xlsx)" */
+  label: string;
+  /** path ภายในเว็บที่ไปดูผล */
+  link?: string;
+}
 
 export interface JobContext {
   tenantId: string;
@@ -31,6 +42,7 @@ export class JobQueue {
     private readonly prisma: PrismaService,
     private readonly db: DbService,
     @Optional() private readonly entitlements?: EntitlementService,
+    @Optional() private readonly notifications?: NotificationService,
   ) {}
 
   register(type: string, handler: JobHandler, opts: { feature?: string } = {}): void {
@@ -39,15 +51,33 @@ export class JobQueue {
     if (opts.feature) this.features.set(type, opts.feature);
   }
 
-  enqueue(
+  async enqueue(
     tx: Tx,
-    input: { tenantId: string; type: string; payload?: object; runAt?: Date; maxAttempts?: number },
+    input: {
+      tenantId: string;
+      type: string;
+      payload?: object;
+      runAt?: Date;
+      maxAttempts?: number;
+      notify?: JobNotify;
+    },
   ) {
+    // `_notify` มาจากตัวเลือก notify เท่านั้น (payload จากผู้ใช้ปลอมผู้รับไม่ได้) และตรวจตั้งแต่ตอนสั่งงาน
+    const rest: Record<string, unknown> = { ...(input.payload ?? {}) };
+    delete rest._notify;
+    if (input.notify) {
+      const n = input.notify;
+      if (!/^[0-9a-f-]{36}$/i.test(n.userId)) throw new Error('job notify.userId must be a uuid');
+      if (!n.label.trim()) throw new Error('job notify.label is required');
+      if (n.link !== undefined && !/^\/(?![/\\])[^\s\\]*$/.test(n.link))
+        throw new Error('job notify.link must be an internal path starting with /');
+    }
+    const payload = { ...rest, ...(input.notify ? { _notify: input.notify } : {}) };
     return tx.job.create({
       data: {
         tenantId: input.tenantId,
         type: input.type,
-        payload: (input.payload ?? {}) as any,
+        payload: payload as any,
         ...(input.runAt ? { runAt: input.runAt } : {}),
         maxAttempts: input.maxAttempts ?? 3,
       },
@@ -85,8 +115,8 @@ export class JobQueue {
     const feature = this.features.get(job.type);
     if (feature && this.entitlements && !(await this.entitlements.enabled(job.tenantId, feature))) {
       // ฟีเจอร์ถูกปิดหลังสร้างงาน (เช่น หมดแพ็กเกจ) → ข้าม ไม่ทำงานให้ tenant นั้น
-      await this.prisma.platform.job.update({
-        where: { id: job.id },
+      const r = await this.prisma.platform.job.updateMany({
+        where: { id: job.id, status: 'RUNNING', attempts: job.attempts },
         data: {
           status: 'SKIPPED',
           finishedAt: new Date(),
@@ -94,6 +124,7 @@ export class JobQueue {
           error: { code: 'feature_not_in_plan', featureKey: feature },
         },
       });
+      if (r.count === 1) await this.notifyDone(job, 'job.skipped');
       return true;
     }
     try {
@@ -101,8 +132,9 @@ export class JobQueue {
       const result = await this.db.withTenant(job.tenantId, (tx) =>
         handler({ tenantId: job.tenantId, job, tx, progress: (p) => this.setProgress(job.id, p) }),
       );
-      await this.prisma.platform.job.update({
-        where: { id: job.id },
+      // เขียนผลเฉพาะถ้ายังเป็นรอบที่เราหยิบ (lease หมดแล้ว worker อื่นหยิบซ้ำได้) — กันแจ้งเตือนซ้ำ/ทับผลกัน
+      const done = await this.prisma.platform.job.updateMany({
+        where: { id: job.id, status: 'RUNNING', attempts: job.attempts },
         data: {
           status: 'SUCCEEDED',
           progress: 100,
@@ -111,13 +143,14 @@ export class JobQueue {
           lockedUntil: null,
         },
       });
+      if (done.count === 1) await this.notifyDone(job, 'job.succeeded');
     } catch (err) {
       const retry = job.attempts < job.maxAttempts;
       this.logger.warn(
         `job ${job.id} (${job.type}) failed attempt ${job.attempts}: ${String(err)}`,
       );
-      await this.prisma.platform.job.update({
-        where: { id: job.id },
+      const done = await this.prisma.platform.job.updateMany({
+        where: { id: job.id, status: 'RUNNING', attempts: job.attempts },
         data: retry
           ? {
               status: 'PENDING',
@@ -132,8 +165,32 @@ export class JobQueue {
               error: { message: String(err) },
             },
       });
+      if (!retry && done.count === 1) await this.notifyDone(job, 'job.failed');
     }
     return true;
+  }
+
+  /** แจ้งผลแยก transaction — แจ้งไม่สำเร็จไม่ทำให้สถานะงานเปลี่ยน */
+  private async notifyDone(
+    job: Job,
+    template: 'job.succeeded' | 'job.failed' | 'job.skipped',
+  ): Promise<void> {
+    const n = (job.payload as { _notify?: JobNotify } | null)?._notify;
+    if (!n || !this.notifications || typeof n.userId !== 'string' || typeof n.label !== 'string')
+      return;
+    const svc = this.notifications;
+    await this.db
+      .withTenant(job.tenantId, (tx) =>
+        svc.notify(tx, {
+          tenantId: job.tenantId,
+          to: { userIds: [n.userId] },
+          template,
+          vars: { label: n.label },
+          ...(n.link ? { link: n.link } : {}),
+          entity: { type: 'job', id: encodeId('job', job.id) },
+        }),
+      )
+      .catch((e) => this.logger.warn(`job ${job.id} notify failed: ${String(e)}`));
   }
 
   private async setProgress(id: string, pct: number): Promise<void> {

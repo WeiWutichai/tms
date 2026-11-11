@@ -74,6 +74,7 @@ export const en: Partial<Record<MessageKey, string>> = {
   'shell.erpSetup': 'Settings',
   'shell.logout': 'Log out',
   'shell.notifications': 'Notifications',
+  'notify.close': 'Close',
   'shell.main': 'Main',
   'table.columns': 'Columns',
   'table.options': 'Options',

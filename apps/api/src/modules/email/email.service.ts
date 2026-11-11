@@ -14,6 +14,8 @@ export interface EnqueueEmail<K extends TemplateName> {
   locale: string;
   vars: TemplateVars[K];
   runAt?: Date;
+  /** กำหนด id เอง (ST1-T23: แถว notification ช่องอีเมลอ้างถึงแถว outbox — role แอปไม่มี RETURNING) */
+  id?: string;
 }
 
 /**
@@ -28,18 +30,27 @@ export class EmailService {
 
   /** createMany (ไม่มี RETURNING) — role แอปมีสิทธิ์ INSERT อย่างเดียว อ่านเนื้ออีเมล (มี token) ไม่ได้ */
   async enqueue<K extends TemplateName>(tx: Writer, input: EnqueueEmail<K>): Promise<void> {
-    const r = this.render(input);
+    await this.enqueueMany(tx, [input]);
+  }
+
+  /** หลายฉบับใน INSERT เดียว (ST1-T23 แจ้งเตือนหลายผู้รับ) */
+  async enqueueMany<K extends TemplateName>(tx: Writer, inputs: EnqueueEmail<K>[]): Promise<void> {
+    if (!inputs.length) return;
     await tx.emailOutbox.createMany({
-      data: {
-        tenantId: input.tenantId,
-        toAddress: input.to,
-        template: input.template,
-        locale: input.locale,
-        subject: r.subject,
-        textBody: r.text,
-        htmlBody: r.html,
-        ...(input.runAt ? { runAt: input.runAt } : {}),
-      },
+      data: inputs.map((input) => {
+        const r = this.render(input);
+        return {
+          ...(input.id ? { id: input.id } : {}),
+          tenantId: input.tenantId,
+          toAddress: input.to,
+          template: input.template,
+          locale: input.locale,
+          subject: r.subject,
+          textBody: r.text,
+          htmlBody: r.html,
+          ...(input.runAt ? { runAt: input.runAt } : {}),
+        };
+      }),
     });
   }
 }
@@ -67,10 +78,15 @@ export class EmailDispatcher {
 
   private async claim(): Promise<EmailOutbox[]> {
     // ค้าง SENDING เกิน lease และครบจำนวนครั้งแล้ว (worker ตายระหว่างส่ง) → FAILED ไม่วนไม่จบ
+    // ST1-T23: แถว notification ช่องอีเมลเปลี่ยนสถานะในคำสั่งเดียวกับ outbox (ไม่ค้าง QUEUED ถ้าล้มกลางทาง)
     await this.prisma.platform.$executeRaw`
-      UPDATE email_outbox SET status = 'FAILED', locked_until = NULL, text_body = NULL, html_body = NULL,
-             error = coalesce(error, 'lease expired'), updated_at = now()
-       WHERE status = 'SENDING' AND locked_until < now() AND attempts >= max_attempts`;
+      WITH e AS (
+        UPDATE email_outbox SET status = 'FAILED', locked_until = NULL, text_body = NULL, html_body = NULL,
+               error = coalesce(error, 'lease expired'), updated_at = now()
+         WHERE status = 'SENDING' AND locked_until < now() AND attempts >= max_attempts
+        RETURNING id)
+      UPDATE notification n SET status = 'FAILED', failed_reason = 'email_failed', updated_at = now()
+        FROM e WHERE n.email_outbox_id = e.id AND n.status = 'QUEUED'`;
     return this.prisma.platform.$queryRaw<EmailOutbox[]>`
       WITH c AS (
         SELECT id FROM email_outbox
@@ -103,10 +119,14 @@ export class EmailDispatcher {
       });
       // ส่งแล้วลบเนื้อหา (มีลิงก์/token) — เขียนเฉพาะถ้ายังเป็นรอบที่เราหยิบ (worker อื่นอาจหยิบซ้ำหลัง lease หมด)
       await db.$executeRaw`
-        UPDATE email_outbox SET status = 'SENT', sent_at = now(), locked_until = NULL,
-               provider_message_id = ${r.messageId ?? null}, text_body = NULL, html_body = NULL,
-               error = NULL, updated_at = now()
-         WHERE id = ${m.id}::uuid AND status = 'SENDING' AND attempts = ${m.attempts}`;
+        WITH e AS (
+          UPDATE email_outbox SET status = 'SENT', sent_at = now(), locked_until = NULL,
+                 provider_message_id = ${r.messageId ?? null}, text_body = NULL, html_body = NULL,
+                 error = NULL, updated_at = now()
+           WHERE id = ${m.id}::uuid AND status = 'SENDING' AND attempts = ${m.attempts}
+          RETURNING id, sent_at)
+        UPDATE notification n SET status = 'SENT', sent_at = e.sent_at, updated_at = now()
+          FROM e WHERE n.email_outbox_id = e.id AND n.status = 'QUEUED'`;
     } catch (err) {
       const msg = String((err as Error).message ?? err).slice(0, 500);
       this.logger.warn(`email ${m.id} (${m.template}) failed attempt ${m.attempts}: ${msg}`);
@@ -118,9 +138,13 @@ export class EmailDispatcher {
            WHERE id = ${m.id}::uuid AND status = 'SENDING' AND attempts = ${m.attempts}`;
       else
         await db.$executeRaw`
-          UPDATE email_outbox SET status = 'FAILED', locked_until = NULL, error = ${msg},
-                 text_body = NULL, html_body = NULL, updated_at = now()
-           WHERE id = ${m.id}::uuid AND status = 'SENDING' AND attempts = ${m.attempts}`;
+          WITH e AS (
+            UPDATE email_outbox SET status = 'FAILED', locked_until = NULL, error = ${msg},
+                   text_body = NULL, html_body = NULL, updated_at = now()
+             WHERE id = ${m.id}::uuid AND status = 'SENDING' AND attempts = ${m.attempts}
+            RETURNING id)
+          UPDATE notification n SET status = 'FAILED', failed_reason = 'email_failed', updated_at = now()
+            FROM e WHERE n.email_outbox_id = e.id AND n.status = 'QUEUED'`;
     }
     return true;
   }

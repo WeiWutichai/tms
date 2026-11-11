@@ -3,6 +3,8 @@ import { expect, test } from './fixtures';
 
 /** กดสลับภาษาแล้วรอให้บันทึกลงโปรไฟล์เสร็จ (ภาษาอยู่ฝั่ง server — ไม่รอ = test ถัดไปอาจเริ่มด้วยภาษาผิด) */
 async function setLangAndWait(page: Page, label: 'EN' | 'TH') {
+  // รอ /v1/me โหลดก่อน (ภาษาจากโปรไฟล์) — ไม่งั้นคลิกเร็วกว่าแล้วถูกค่าจากโปรไฟล์ทับ
+  await expect(page.getByText('ตัวอย่างขนส่ง (DEMO)')).toBeVisible();
   const saved = page.waitForResponse(
     (r) => r.url().includes('/v1/me/profile') && r.request().method() === 'PATCH',
   );

@@ -96,6 +96,24 @@ const FIXTURES: Record<string, (db: PrismaClient, tenantId: string, n: number) =
       });
       return encodeId('invitation', i.id);
     },
+    notification: async (db, tenantId, n) => {
+      const u = await db.appUser.create({
+        data: { tenantId, email: `ntf${n}@iso.test`, name: `ntf ${n}`, status: 'ACTIVE' },
+      });
+      const x = await db.notification.create({
+        data: {
+          tenantId,
+          recipientId: u.id,
+          channel: 'in_app',
+          templateCode: 'job.succeeded',
+          locale: 'th',
+          title: 'iso',
+          body: 'iso',
+          status: 'SENT',
+        },
+      });
+      return encodeId('notification', x.id);
+    },
     job: async (db, tenantId) =>
       encodeId('job', (await db.job.create({ data: { tenantId, type: 'noop' } })).id),
   };
