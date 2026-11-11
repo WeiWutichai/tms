@@ -4283,7 +4283,7 @@
             "example": "std"
           },
           "vehicleQuota": {
-            "type": "object",
+            "type": "number",
             "example": 30,
             "nullable": true
           }
@@ -4321,7 +4321,7 @@
             "example": "ent"
           },
           "vehicleQuota": {
-            "type": "object",
+            "type": "number",
             "example": 40,
             "nullable": true,
             "description": "null = ล้างค่า"

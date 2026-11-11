@@ -72,7 +72,7 @@ export class CreatePlatformTenantDto extends ReasonBody {
   @IsString()
   @Matches(/^[a-z0-9_]{1,20}$/)
   planCode?: string;
-  @ApiPropertyOptional({ example: 30, nullable: true })
+  @ApiPropertyOptional({ example: 30, nullable: true, type: Number })
   @IsOptional()
   @ValidateIf((_o, v) => v !== null)
   @Type(() => Number)
@@ -87,7 +87,7 @@ export class UpdatePlanDto extends ReasonBody {
   @IsString()
   @Matches(/^[a-z0-9_]{1,20}$/)
   planCode?: string;
-  @ApiPropertyOptional({ example: 40, nullable: true, description: 'null = ล้างค่า' })
+  @ApiPropertyOptional({ example: 40, nullable: true, type: Number, description: 'null = ล้างค่า' })
   @IsOptional()
   @ValidateIf((_o, v) => v !== null)
   @Type(() => Number)

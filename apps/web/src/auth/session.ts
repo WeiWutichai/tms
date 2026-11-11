@@ -10,6 +10,11 @@ const raw = createTmsClient({ baseUrl: '', getToken: () => null });
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 let access: { token: string; exp: number } | null = null;
+/**
+ * เข้าใช้งานแทน (ST1-T24): token อ่านอย่างเดียวจาก Platform Console อยู่ในหน่วยความจำของแท็บนี้เท่านั้น
+ * ห้ามต่ออายุด้วย refresh cookie (อาจเป็น session จริงของผู้ใช้อื่นในเบราว์เซอร์เดียวกัน) — หมดอายุ = ออก
+ */
+let impersonating = false;
 let inflight: Promise<string | null> | null = null;
 /** unknown = ยังไม่ได้ลอง refresh ตั้งแต่โหลดหน้า */
 export type SessionStatus = 'unknown' | 'in' | 'out';
@@ -35,6 +40,11 @@ export const sessionStore = {
 
 /** access token ที่ยังใช้ได้ (ต่ออายุด้วย refresh cookie เมื่อเหลือ < 60 วินาที) — null = ต้อง login */
 export async function getAccessToken(): Promise<string | null> {
+  if (impersonating) {
+    if (access && access.exp > Date.now()) return access.token;
+    set(null);
+    return null;
+  }
   if (access && access.exp - Date.now() > 60_000) return access.token;
   const once = () => raw.POST('/v1/oauth/token', { body: { grantType: 'refresh_token' } });
   inflight ??= once()
@@ -127,6 +137,7 @@ async function exchange(code: string, verifier: string): Promise<LoginResult> {
   });
   if (!r2.data)
     return { ok: false, code: (r2.error as { code?: string })?.code ?? 'internal_error' };
+  impersonating = false;
   set(r2.data.accessToken, r2.data.expiresIn);
   return { ok: true };
 }
@@ -168,6 +179,42 @@ export function finishEnroll(step: MfaStep, code: string): Promise<LoginResult> 
 }
 
 export async function logout(): Promise<void> {
+  if (impersonating) return endImpersonation();
   await raw.POST('/v1/oauth/revoke').catch(() => undefined);
+  set(null);
+}
+
+/** วันหมดอายุจาก claim `exp` ของ JWT (ใช้แค่ตั้งเวลาฝั่ง UI — server ตรวจเอง) */
+function jwtExp(token: string): number | null {
+  try {
+    const part = token.split('.')[1] ?? '';
+    const json = atob(part.replace(/-/g, '+').replace(/_/g, '/'));
+    const exp = (JSON.parse(json) as { exp?: unknown }).exp;
+    return typeof exp === 'number' ? exp * 1000 : null;
+  } catch {
+    return null;
+  }
+}
+
+/** เริ่มเข้าใช้งานแทนด้วย token จากลิงก์ของ Console (#token=…) — false = token ใช้ไม่ได้/หมดอายุ */
+export function startImpersonation(token: string): boolean {
+  const exp = jwtExp(token);
+  if (!exp || exp <= Date.now()) return false;
+  impersonating = true;
+  access = { token, exp };
+  if (status !== 'in') {
+    status = 'in';
+    listeners.forEach((l) => l());
+  }
+  return true;
+}
+
+/** ปุ่ม "ออก" บนแถบส้ม: ปิด session ฝั่ง server แล้วทิ้ง token (ยังไม่ใช้ refresh cookie ในแท็บนี้) */
+export async function endImpersonation(): Promise<void> {
+  const token = access?.token;
+  if (token)
+    await raw
+      .POST('/v1/me/impersonation/end', { headers: { Authorization: `Bearer ${token}` } })
+      .catch(() => undefined);
   set(null);
 }

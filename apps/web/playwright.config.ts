@@ -37,7 +37,13 @@ export default defineConfig({
       command: 'SWC_NODE_PROJECT=tsconfig.json node -r @swc-node/register src/main.ts',
       cwd: '../api',
       url: 'http://localhost:4510/v1/health',
-      env: { ...env, API_PORT: '4510', NODE_ENV: 'test' },
+      // ลิงก์ในอีเมล/เข้าใช้งานแทน (ST1-T24) ต้องชี้ web ของ E2E (4520) ไม่ใช่ web dev (4420)
+      env: {
+        ...env,
+        API_PORT: '4510',
+        NODE_ENV: 'test',
+        PUBLIC_WEB_BASE_URL: 'http://localhost:4520',
+      },
       reuseExistingServer: false,
       timeout: 60_000,
     },
