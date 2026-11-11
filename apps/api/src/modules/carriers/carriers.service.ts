@@ -198,7 +198,7 @@ export class CarriersService {
       }),
       tx.driver.groupBy({
         by: ['carrierId'],
-        where: { carrierId: { in: ids } },
+        where: { carrierId: { in: ids }, deletedAt: null, status: { not: 'INACTIVE' } },
         _count: { _all: true },
       }),
       tx.carrier.groupBy({

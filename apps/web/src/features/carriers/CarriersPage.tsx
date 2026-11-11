@@ -21,6 +21,8 @@ import { useMe } from '../../shell/AppShell';
 import { tableLabels } from '../companies/CompanySample';
 import { downloadFile } from '../master/download';
 import { problemText } from '../master/problems';
+import { DriversTab } from '../drivers/DriversTab';
+import { useDriverSummary } from '../drivers/useDrivers';
 import { listTotal } from '../master/useCursorList';
 import { CarrierDrawer, taxText } from './CarrierDrawer';
 import {
@@ -37,11 +39,8 @@ const DIALOG = {
 } as const satisfies Record<string, Record<'title' | 'desc' | 'ok', MessageKey>>;
 
 type Seg = 'drv' | 'con';
-/**
- * แท็บเริ่มต้นของหน้า: ต้นแบบเริ่มที่ "คนขับ" แต่หน้าคนขับยังไม่ทำ (ST2-T08) → เริ่มที่ผู้รับเหมาไปก่อน
- * [OPEN spec/12 §3] เปลี่ยนกลับเป็น 'drv' เมื่อ ST2-T08 เสร็จ
- */
-const DEFAULT_SEG: Seg = 'con';
+/** แท็บเริ่มต้นของหน้า = "คนขับ" ตามต้นแบบ (vehTab: 'drv') */
+const DEFAULT_SEG: Seg = 'drv';
 
 const cell = { color: '#101418', whiteSpace: 'nowrap' } as const;
 
@@ -107,7 +106,7 @@ function SegSwitch({
 }
 
 /**
- * รถ → คนขับและผู้รับเหมา (ST2-T05 ผู้รับเหมา; คนขับ = ST2-T08) — ต้นแบบ TMS v4 specVeh() con + kpisX('veh' con) + vPanel con
+ * รถ → คนขับและผู้รับเหมา (ST2-T05 ผู้รับเหมา; ST2-T08 คนขับ — `DriversTab`) — ต้นแบบ TMS v4 specVeh() con + kpisX('veh' con) + vPanel con
  * โครงหน้าเดียวกับข้อมูลหลักอื่น (หัว + ปุ่มสลับ + แถบสรุป + แท็บสถานะ + ตาราง + drawer)
  * ตรงเวลา/ตีกลับ ยังไม่มีข้อมูล (คำนวณจากเที่ยว — ST3/ST9) → "—" [OPEN spec/12 §3]
  */
@@ -124,6 +123,8 @@ export function CarriersPage() {
   const [filters, setFilters] = useState<CarrierFilters>({ status: '', name: '', entityType: '' });
   const list = useCarrierList(filters);
   const summary = useCarrierSummary();
+  const drvSummary = useDriverSummary();
+  const [drvCreating, setDrvCreating] = useState(false);
   const action = useCarrierAction();
   const [openId, setOpenId] = useState<string | null>(null);
   const [selected, setSelected] = useState<Carrier | null>(null);
@@ -290,52 +291,47 @@ export function CarriersPage() {
         title={t('page.veh.title')}
         sub={t('page.veh.sub')}
         actions={
-          seg === 'con' && (
-            <>
-              {/* นำเข้า Excel = ST2-T23 — แสดงตามต้นแบบแต่ยังกดไม่ได้ [OPEN spec/12 §3] */}
+          <>
+            {/* นำเข้า Excel = ST2-T23 — แสดงตามต้นแบบแต่ยังกดไม่ได้ [OPEN spec/12 §3] */}
+            <Button
+              variant="secondary"
+              icon="file-spreadsheet"
+              disabled
+              title={t(seg === 'drv' ? 'drv.importSoon' : 'car.importSoon')}
+            >
+              {t('car.import')}
+            </Button>
+            {canWrite && (
               <Button
                 variant="secondary"
-                icon="file-spreadsheet"
-                disabled
-                title={t('car.importSoon')}
+                icon="plus"
+                onClick={() => {
+                  if (seg === 'drv') return setDrvCreating(true);
+                  setOpenId(null);
+                  setSelected(null);
+                  setCreating(true);
+                }}
               >
-                {t('car.import')}
+                {t(seg === 'drv' ? 'drv.add' : 'car.add')}
               </Button>
-              {canWrite && (
-                <Button
-                  variant="secondary"
-                  icon="plus"
-                  onClick={() => {
-                    setOpenId(null);
-                    setSelected(null);
-                    setCreating(true);
-                  }}
-                >
-                  {t('car.add')}
-                </Button>
-              )}
-            </>
-          )
+            )}
+          </>
         }
       />
       <SegSwitch
         value={seg}
         onChange={(k) => {
           closeDrawer();
+          setDrvCreating(false);
           setParams(k === DEFAULT_SEG ? {} : { tab: k }, { replace: true });
         }}
         items={[
-          { key: 'drv', label: t('car.seg.drv') },
+          { key: 'drv', label: t('car.seg.drv'), count: drvSummary.data?.total },
           { key: 'con', label: t('car.seg.con'), count: s?.total },
         ]}
       />
       {seg === 'drv' ? (
-        <EmptyState
-          variant="page"
-          icon="construction"
-          title={t('empty.notReady.title')}
-          description={t('empty.notReady.desc', { stage: 'ST2-T08' })}
-        />
+        <DriversTab creating={drvCreating} onCloseCreate={() => setDrvCreating(false)} />
       ) : (
         <>
           <SummaryStrip

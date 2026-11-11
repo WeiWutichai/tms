@@ -20,13 +20,12 @@ test.describe.serial('รถ → คนขับและผู้รับเ�
   test('เปิดหน้า → แท็บผู้รับเหมา คอลัมน์ตามต้นแบบ', async ({ page }) => {
     await page.goto('/fleet/drivers');
     await expect(page.getByRole('heading', { name: 'คนขับและผู้รับเหมา', level: 1 })).toBeVisible();
+    // แท็บเริ่มต้น = คนขับ (ST2-T08) → สลับไปผู้รับเหมา
+    await expect(page.getByRole('tab', { name: /^คนขับ/, selected: true })).toBeVisible();
+    await page.getByRole('tab', { name: /ผู้รับเหมา/ }).click();
     await expect(page.getByRole('tab', { name: /ผู้รับเหมา/, selected: true })).toBeVisible();
     for (const c of ['ชื่อ', 'เลขผู้เสียภาษี', 'บุคคล / นิติบุคคล', 'จำนวนรถ', 'หัก ณ ที่จ่าย'])
       await expect(page.getByRole('columnheader', { name: c, exact: true })).toBeVisible();
-    // แท็บคนขับยังไม่เปิดใช้ (ST2-T08)
-    await page.getByRole('tab', { name: 'คนขับ' }).click();
-    await expect(page.getByText('หน้านี้ยังไม่เปิดใช้')).toBeVisible();
-    await page.getByRole('tab', { name: /ผู้รับเหมา/ }).click();
     await expect(page.getByRole('button', { name: 'เพิ่มผู้รับเหมา' })).toBeVisible();
   });
 

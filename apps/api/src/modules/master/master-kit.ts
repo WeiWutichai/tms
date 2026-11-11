@@ -292,6 +292,7 @@ const CODE_TABLES = [
   'carrier',
   'vehicle_type',
   'service_item',
+  'driver',
 ] as const;
 export type CodeTable = (typeof CODE_TABLES)[number];
 
