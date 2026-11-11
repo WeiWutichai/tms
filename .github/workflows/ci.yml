@@ -83,4 +83,4 @@ jobs:
     runs-on: ubuntu-latest
     environment: staging
     steps:
-      - run: echo "build image + prisma migrate deploy + deploy — เติมเมื่อเลือก cloud (plan/02 T-08)"
+      - run: echo "build image + pnpm --filter @tms/api db:migrate:prod (prisma migrate deploy + node dist/cli/bootstrap-tenants.js) + deploy — เติมเมื่อเลือก cloud (plan/02 T-08)"

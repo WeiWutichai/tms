@@ -29,7 +29,7 @@ if (
 )
   await admin.$executeRawUnsafe('CREATE DATABASE tms_e2e');
 await admin.$disconnect();
-sh('npx prisma migrate deploy');
+sh('pnpm -s db:migrate'); // ทางเดียวกับทุกที่: migrate + bootstrap tenant
 const owner = new PrismaClient({ datasources: { db: { url: env.DATABASE_URL } } });
 const tables = await owner.$queryRawUnsafe(
   "SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename <> '_prisma_migrations'",

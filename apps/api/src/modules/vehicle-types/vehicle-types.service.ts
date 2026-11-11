@@ -20,6 +20,7 @@ import {
   upsertByExternalId,
 } from '../master/master-kit';
 import {
+  VEHICLE_CAPABILITIES,
   VEHICLE_CLASS_RANK,
   type CreateVehicleTypeDto,
   type LicenceClass,
@@ -73,7 +74,7 @@ export function toVehicleTypeDto(v: VehicleType, usage: Usage = NO_USAGE): Vehic
 }
 
 /** snapshot สำหรับ audit — ไม่มี updatedAt/version/usage/sizeRank (diff ไม่นับ; sizeRank ตามชั้นรถ) */
-function auditView(v: VehicleType): Record<string, unknown> {
+export function auditView(v: VehicleType): Record<string, unknown> {
   const { updatedAt: _u, version: _v, usage: _x, sizeRank: _r, ...rest } = toVehicleTypeDto(v);
   return rest;
 }
@@ -223,7 +224,7 @@ export class VehicleTypesService {
     if (input.minLicenceClass !== undefined) data.minLicenceClass = input.minLicenceClass;
     const tags =
       input.capabilityTags !== undefined
-        ? [...new Set(input.capabilityTags)]
+        ? VEHICLE_CAPABILITIES.filter((c) => input.capabilityTags!.includes(c)) // ลำดับมาตรฐาน: สลับลำดับ = ไม่เปลี่ยน
         : ((current?.capabilityTags ?? []) as VehicleCapability[]);
     if (input.capabilityTags !== undefined) data.capabilityTags = tags;
     const cold = tags.includes('REFRIGERATED');

@@ -10,7 +10,7 @@ type Db = PrismaClient | Prisma.TransactionClient;
  * ค่าเริ่มต้นภาษาไทยพร้อมใช้ตอนสร้าง tenant (ST1-T20; docs/04 A5, K5 "ห้ามให้เราตั้งให้")
  * ขั้นทั้งหมดอยู่ในรายการ STEPS ที่เดียว (ไม่ลงทะเบียนตอน import — กันผู้เรียกบางทางได้ขั้นไม่ครบ)
  * stage ถัดไปเพิ่มขั้นของตัวเองที่นี่ (ST2: accessorial, reason) + แก้ test/bootstrap.test.ts
- * tenant ที่มีอยู่แล้วได้ขั้นใหม่จาก `pnpm --filter @tms/api db:migrate` (เรียก scripts/bootstrap-tenants.ts หลัง migrate)
+ * tenant ที่มีอยู่แล้วได้ขั้นใหม่จาก `pnpm --filter @tms/api db:migrate` (เรียก src/cli/bootstrap-tenants.ts หลัง migrate)
  * รันซ้ำได้: ชุดเลขและค่าภาษีไม่ทับค่าที่ tenant แก้แล้ว · role ระบบถูก sync กลับเป็นค่าในโค้ดเสมอ
  * (role ระบบแก้จาก UI ไม่ได้ — spec/01 PLT-131)
  */

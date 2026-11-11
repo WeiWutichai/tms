@@ -284,4 +284,13 @@ describe('ประเภทรถ (vehicle-types)', () => {
     const none = await tokenFor(tenantId, 'orders:read');
     await api(app, none).get('/v1/vehicle-types').expect(403);
   });
+  it('ป้ายเก็บตามลำดับมาตรฐาน: ส่งสลับลำดับ = ไม่เปลี่ยน version', async () => {
+    const v = await newType({ capabilityTags: ['HAZMAT', 'CRANE'] });
+    expect(v.capabilityTags).toEqual(['CRANE', 'HAZMAT']);
+    const r = await api(app, admin)
+      .patch(`/v1/vehicle-types/${v.id}`)
+      .send({ capabilityTags: ['HAZMAT', 'CRANE', 'CRANE'] })
+      .expect(200);
+    expect(r.body.version).toBe(v.version);
+  });
 });

@@ -2,6 +2,21 @@
 -- spec/02 §4 + plan/00a (master ตาม spec, คง enum ของ docs เป็นชั้นรถ), docs/04 B (capability tags: ห้องเย็น ติดเครน ลากตู้)
 -- ค่าเริ่มต้นภาษาไทยไม่อยู่ใน migration — เขียนโดย bootstrap (src/modules/tenants/bootstrap.ts) ซึ่ง `db:migrate` เรียกต่อท้ายให้ทุก tenant
 
+-- ตรวจก่อน (แถวเดิมจาก schema v0 ถ้ามี): ข้อมูลที่จะทำให้ index/CHECK ด้านล่างล้ม → หยุดพร้อมข้อความชัด ให้แก้ข้อมูลก่อน
+DO $$
+DECLARE r record;
+BEGIN
+  SELECT tenant_id, upper(code) AS c, count(*) AS n INTO r FROM "vehicle_type"
+    GROUP BY tenant_id, upper(code) HAVING count(*) > 1 LIMIT 1;
+  IF FOUND THEN RAISE EXCEPTION '0039: vehicle_type มีรหัสซ้ำเมื่อไม่สนตัวพิมพ์ (tenant %, รหัส %, % แถว) — แก้รหัสให้ไม่ซ้ำก่อน migrate', r.tenant_id, r.c, r.n; END IF;
+  SELECT tenant_id, lower(name_th) AS c, count(*) AS n INTO r FROM "vehicle_type"
+    GROUP BY tenant_id, lower(name_th) HAVING count(*) > 1 LIMIT 1;
+  IF FOUND THEN RAISE EXCEPTION '0039: vehicle_type มีชื่อซ้ำเมื่อไม่สนตัวพิมพ์ (tenant %, ชื่อ "%", % แถว) — เปลี่ยนชื่อให้ไม่ซ้ำก่อน migrate', r.tenant_id, r.c, r.n; END IF;
+  SELECT tenant_id, code, capacity_kg, capacity_cbm INTO r FROM "vehicle_type"
+    WHERE capacity_kg <= 0 OR capacity_cbm < 0 LIMIT 1;
+  IF FOUND THEN RAISE EXCEPTION '0039: vehicle_type น้ำหนัก/ปริมาตรผิด (tenant %, รหัส %, น้ำหนัก %, ปริมาตร %) — น้ำหนักต้อง > 0 ปริมาตร ≥ 0', r.tenant_id, r.code, r.capacity_kg, r.capacity_cbm; END IF;
+END $$;
+
 ALTER TABLE "vehicle_type" ADD COLUMN     "capability_tags" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
 ADD COLUMN     "deleted_at" TIMESTAMPTZ(6),
 ADD COLUMN     "deleted_external_id" TEXT,
@@ -51,5 +66,22 @@ SELECT tms_enable_tenant_rls('vehicle_type');
 DO $$ BEGIN
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'tms_app') THEN
     EXECUTE 'REVOKE DELETE ON "vehicle_type" FROM tms_app';
+  END IF;
+END $$;
+
+-- ค่าเริ่มต้นที่ bootstrap จัดการแล้วต่อ tenant (INSERTED/SKIPPED) — กันใส่ซ้ำหรือใส่ภายหลังเมื่อเคยข้าม
+CREATE TABLE "tenant_default" (
+    "tenant_id" UUID NOT NULL,
+    "key" TEXT NOT NULL,
+    "outcome" TEXT NOT NULL,
+    "detail" TEXT,
+    "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "tenant_default_pkey" PRIMARY KEY ("tenant_id","key"),
+    CONSTRAINT "tenant_default_outcome" CHECK ("outcome" IN ('INSERTED', 'SKIPPED'))
+);
+SELECT tms_enable_tenant_rls('tenant_default');
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'tms_app') THEN
+    EXECUTE 'REVOKE UPDATE, DELETE ON "tenant_default" FROM tms_app';
   END IF;
 END $$;

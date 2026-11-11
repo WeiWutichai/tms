@@ -13,7 +13,7 @@ step "ไม่มีไฟล์ค้างที่ยังไม่ commit 
 if [ -n "$(git status --porcelain)" ]; then git status --short; echo "✘ มีไฟล์ยังไม่ commit"; exit 1; fi
 
 step "migrate ฐาน dev ให้ล่าสุด"
-(set -a; . ./.env; set +a; pnpm -s --filter @tms/api exec prisma migrate deploy >/dev/null)
+(set -a; . ./.env; set +a; pnpm -s --filter @tms/api db:migrate >/dev/null) # migrate + bootstrap tenant (ทางเดียวกับ CI/test/e2e)
 pnpm -s --filter @tms/api exec prisma generate >/dev/null
 
 step "lint";        pnpm -s lint

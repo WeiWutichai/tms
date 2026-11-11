@@ -521,6 +521,19 @@ model VehicleType {
   @@map("vehicle_type")
 }
 
+/// ค่าเริ่มต้นของ tenant ที่ bootstrap จัดการแล้ว 1 แถวต่อรายการ (ST2-T04) — กันใส่ซ้ำ/ใส่ภายหลัง
+/// INSERTED = สร้างแล้ว (ผู้ใช้ลบ/แก้ภายหลังก็ไม่สร้างใหม่) · SKIPPED = ข้ามเพราะชนรหัส/ชื่อที่ tenant มีอยู่ (ไม่ใส่ภายหลัง)
+model TenantDefault {
+  tenantId  String   @map("tenant_id") @db.Uuid
+  key       String /// เช่น vehicle_type:th.4w
+  outcome   String /// INSERTED / SKIPPED
+  detail    String?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@id([tenantId, key])
+  @@map("tenant_default")
+}
+
 enum Ownership {
   OWN
   SUBCONTRACT
