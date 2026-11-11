@@ -19,6 +19,7 @@ import { hashPassword, verifyPassword } from './password';
 import { PasswordPolicy } from './password-policy';
 import { lockSeconds, recordAttempt } from './throttle';
 import { sha256 } from './tokens';
+import { iEquals } from '../common/ilike';
 
 export class InvitationTokenDto {
   @ApiProperty({ description: 'token จากลิงก์ในอีเมลเชิญ' })
@@ -98,7 +99,7 @@ export class InvitationAcceptService {
     const db = this.prisma.platform;
     const users = await db.appUser.findMany({
       where: {
-        email: { equals: email, mode: 'insensitive' },
+        email: iEquals(email),
         status: 'ACTIVE',
         passwordHash: { not: null },
         tenantId: { not: exceptTenant },

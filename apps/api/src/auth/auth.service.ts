@@ -16,6 +16,7 @@ import {
   signAccessToken,
   ACCESS_TTL_SECONDS,
 } from './tokens';
+import { iEquals } from '../common/ilike';
 
 const CODE_TTL_MS = 60 * 1000;
 export const REFRESH_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -102,7 +103,7 @@ export class AuthService {
     client: ClientInfo,
   ): Promise<{ code: string; expiresIn: number }> {
     const users = await db.appUser.findMany({
-      where: { email: { equals: email, mode: 'insensitive' }, status: 'ACTIVE' },
+      where: { email: iEquals(email), status: 'ACTIVE' },
     });
     const tenants = await db.tenant.findMany({
       where: {

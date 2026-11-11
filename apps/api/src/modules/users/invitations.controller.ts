@@ -33,6 +33,7 @@ import { DbService, type Tx } from '../../db/db.service';
 import { EmailService } from '../email/email.service';
 import { EntitlementService } from '../entitlements/entitlement.service';
 import { ReasonDto } from './user-lifecycle.controller';
+import { iEquals } from '../../common/ilike';
 
 /** docs/04 A2: ลิงก์เชิญ 7 วัน */
 export const INVITE_TTL_DAYS = 7;
@@ -124,7 +125,7 @@ export class InvitationsController {
     await assertSeat(tx, this.entitlements, tenantId);
     await this.assertDailyCap(tx);
     const existing = await tx.appUser.findFirst({
-      where: { email: { equals: body.email, mode: 'insensitive' }, status: { not: 'DELETED' } },
+      where: { email: iEquals(body.email), status: { not: 'DELETED' } },
     });
     if (existing)
       throw new ProblemException('already_member', undefined, undefined, {
