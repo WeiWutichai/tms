@@ -8,6 +8,7 @@ import { canAny, featureOf, isLocked, NAV, permOf } from './nav';
 import { SettingsPage } from './features/settings/Settings';
 import { CustomersPage } from './features/customers/CustomersPage';
 import { SitesPage } from './features/sites/SitesPage';
+import { ProductsPage } from './features/products/ProductsPage';
 import { RoutesPage } from './features/routes/RoutesPage';
 import { VehicleTypesPage } from './features/vehicle-types/VehicleTypesPage';
 import { CarriersPage } from './features/carriers/CarriersPage';
@@ -43,6 +44,7 @@ const READY: Record<string, () => ReactNode> = {
   '/master/customers': () => <CustomersPage />,
   '/master/locations': () => <SitesPage />,
   '/master/routes': () => <RoutesPage />,
+  '/master/products': () => <ProductsPage />,
   '/master/vehicle-types': () => <VehicleTypesPage />,
   '/fleet/drivers': () => <CarriersPage />,
   '/fleet/vehicles': () => <VehiclesPage />,

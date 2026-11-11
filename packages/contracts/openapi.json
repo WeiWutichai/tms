@@ -5643,6 +5643,1267 @@
         ]
       }
     },
+    "/v1/products": {
+      "get": {
+        "operationId": "Products_list",
+        "parameters": [
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "ค่า nextCursor จากหน้าก่อน (ใช้กับ sort เดิมเท่านั้น)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "updatedAfter",
+            "required": false,
+            "in": "query",
+            "description": "คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull — ใช้คู่ includeDeleted=true เพื่อรับรายการที่ถูกลบ)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sort",
+            "required": false,
+            "in": "query",
+            "description": "code = เรียงตามรหัส (ค่าเริ่มต้นของหน้าจอ) · updatedAt/-updatedAt สำหรับ sync",
+            "schema": {
+              "default": "code",
+              "type": "string",
+              "enum": [
+                "code",
+                "updatedAt",
+                "-updatedAt"
+              ]
+            }
+          },
+          {
+            "name": "fields",
+            "required": false,
+            "in": "query",
+            "description": "รายชื่อ field คั่นด้วย , เช่น id,legalName",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "required": false,
+            "in": "query",
+            "description": "ค้นหา — รหัส ชื่อ เลขผู้เสียภาษี หรือ externalId (ไม่สนตัวพิมพ์)",
+            "schema": {
+              "maxLength": 100,
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "description": "คั่นด้วย , เช่น active,inactive",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "externalId",
+            "required": false,
+            "in": "query",
+            "description": "externalId ตรงตัว (ใช้ตรวจว่ามีในระบบแล้วหรือยัง)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "includeDeleted",
+            "required": false,
+            "in": "query",
+            "description": "true = รวมรายการที่ถูกลบ (tombstone มี `deletedAt`) — ให้ระบบที่ดึงแบบ incremental รู้ว่ารายการถูกลบ",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "required": false,
+            "in": "query",
+            "description": "ชื่อหรือรหัสมีคำนี้ (ช่องกรองคอลัมน์ \"สินค้า / รหัส\")",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "unitId",
+            "required": false,
+            "in": "query",
+            "description": "หน่วยหลัก (`unt_…`)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "special",
+            "required": false,
+            "in": "query",
+            "description": "none = ทั่วไป, any = มีประเภทพิเศษ, fragile/hazardous/temp = เปราะบาง/อันตราย/ควบคุมอุณหภูมิ",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "none",
+                "any",
+                "fragile",
+                "hazardous",
+                "temp"
+              ]
+            }
+          },
+          {
+            "name": "customerId",
+            "required": false,
+            "in": "query",
+            "description": "`cus_…` = สินค้าของลูกค้ารายนี้ · `none` = สินค้าที่ใช้ได้ทุกลูกค้า",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductPageDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "products"
+        ]
+      },
+      "post": {
+        "operationId": "Products_create",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateProductDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "products"
+        ]
+      }
+    },
+    "/v1/products/summary": {
+      "get": {
+        "operationId": "Products_summary",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductSummaryDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "products"
+        ]
+      }
+    },
+    "/v1/products/next-code": {
+      "get": {
+        "operationId": "Products_nextCode",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "รหัสที่ระบบจะออกให้สินค้าใหม่ (`P-0001`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NextCodeDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "products"
+        ]
+      }
+    },
+    "/v1/products/export": {
+      "get": {
+        "operationId": "Products_export",
+        "parameters": [
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "ค่า nextCursor จากหน้าก่อน (ใช้กับ sort เดิมเท่านั้น)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "updatedAfter",
+            "required": false,
+            "in": "query",
+            "description": "คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull — ใช้คู่ includeDeleted=true เพื่อรับรายการที่ถูกลบ)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sort",
+            "required": false,
+            "in": "query",
+            "description": "code = เรียงตามรหัส (ค่าเริ่มต้นของหน้าจอ) · updatedAt/-updatedAt สำหรับ sync",
+            "schema": {
+              "default": "code",
+              "type": "string",
+              "enum": [
+                "code",
+                "updatedAt",
+                "-updatedAt"
+              ]
+            }
+          },
+          {
+            "name": "fields",
+            "required": false,
+            "in": "query",
+            "description": "รายชื่อ field คั่นด้วย , เช่น id,legalName",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "required": false,
+            "in": "query",
+            "description": "ค้นหา — รหัส ชื่อ เลขผู้เสียภาษี หรือ externalId (ไม่สนตัวพิมพ์)",
+            "schema": {
+              "maxLength": 100,
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "description": "คั่นด้วย , เช่น active,inactive",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "externalId",
+            "required": false,
+            "in": "query",
+            "description": "externalId ตรงตัว (ใช้ตรวจว่ามีในระบบแล้วหรือยัง)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "includeDeleted",
+            "required": false,
+            "in": "query",
+            "description": "true = รวมรายการที่ถูกลบ (tombstone มี `deletedAt`) — ให้ระบบที่ดึงแบบ incremental รู้ว่ารายการถูกลบ",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "required": false,
+            "in": "query",
+            "description": "ชื่อหรือรหัสมีคำนี้ (ช่องกรองคอลัมน์ \"สินค้า / รหัส\")",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "unitId",
+            "required": false,
+            "in": "query",
+            "description": "หน่วยหลัก (`unt_…`)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "special",
+            "required": false,
+            "in": "query",
+            "description": "none = ทั่วไป, any = มีประเภทพิเศษ, fragile/hazardous/temp = เปราะบาง/อันตราย/ควบคุมอุณหภูมิ",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "none",
+                "any",
+                "fragile",
+                "hazardous",
+                "temp"
+              ]
+            }
+          },
+          {
+            "name": "customerId",
+            "required": false,
+            "in": "query",
+            "description": "`cus_…` = สินค้าของลูกค้ารายนี้ · `none` = สินค้าที่ใช้ได้ทุกลูกค้า",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "format",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "xlsx",
+              "type": "string",
+              "enum": [
+                "xlsx",
+                "csv"
+              ]
+            }
+          },
+          {
+            "name": "ids",
+            "required": false,
+            "in": "query",
+            "description": "ส่งออกเฉพาะ id เหล่านี้ (คั่นด้วย ,) — แถวที่เลือกในตาราง",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ไฟล์ .xlsx หรือ .csv ตามตัวกรองเดียวกับรายการ (สูงสุด 10,000 แถว)"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "products"
+        ]
+      }
+    },
+    "/v1/products/external/{externalId}": {
+      "put": {
+        "operationId": "Products_upsertExternal",
+        "parameters": [
+          {
+            "name": "externalId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag — ใช้เมื่อแถวมีอยู่แล้ว",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertProductDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "มีอยู่แล้ว → อัปเดต (ส่งซ้ำได้ ไม่เกิดแถวใหม่)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductDto"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "ยังไม่มี → สร้าง",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "products"
+        ]
+      }
+    },
+    "/v1/products/{id}": {
+      "get": {
+        "operationId": "Products_get",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "products"
+        ]
+      },
+      "patch": {
+        "operationId": "Products_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProductDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "products"
+        ]
+      }
+    },
+    "/v1/products/{id}/history": {
+      "get": {
+        "operationId": "Products_history",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "ค่า nextCursor จากหน้าก่อน",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ประวัติการแก้จาก audit log ใหม่สุดก่อน",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditPageDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "products"
+        ]
+      }
+    },
+    "/v1/products/{id}/deactivate": {
+      "post": {
+        "operationId": "Products_deactivate",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MasterReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "products"
+        ]
+      }
+    },
+    "/v1/products/{id}/activate": {
+      "post": {
+        "operationId": "Products_activate",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MasterOptionalReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "products"
+        ]
+      }
+    },
+    "/v1/products/{id}/delete": {
+      "post": {
+        "operationId": "Products_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MasterReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "products"
+        ]
+      }
+    },
+    "/v1/units": {
+      "get": {
+        "operationId": "Units_list",
+        "parameters": [
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "ค่า nextCursor จากหน้าก่อน (ใช้กับ sort เดิมเท่านั้น)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "updatedAfter",
+            "required": false,
+            "in": "query",
+            "description": "คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull — ใช้คู่ includeDeleted=true เพื่อรับรายการที่ถูกลบ)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sort",
+            "required": false,
+            "in": "query",
+            "description": "code = เรียงตามรหัส (ค่าเริ่มต้นของหน้าจอ) · updatedAt/-updatedAt สำหรับ sync",
+            "schema": {
+              "default": "code",
+              "type": "string",
+              "enum": [
+                "code",
+                "updatedAt",
+                "-updatedAt"
+              ]
+            }
+          },
+          {
+            "name": "fields",
+            "required": false,
+            "in": "query",
+            "description": "รายชื่อ field คั่นด้วย , เช่น id,legalName",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "required": false,
+            "in": "query",
+            "description": "ค้นหา — รหัส ชื่อ เลขผู้เสียภาษี หรือ externalId (ไม่สนตัวพิมพ์)",
+            "schema": {
+              "maxLength": 100,
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "description": "คั่นด้วย , เช่น active,inactive",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "externalId",
+            "required": false,
+            "in": "query",
+            "description": "externalId ตรงตัว (ใช้ตรวจว่ามีในระบบแล้วหรือยัง)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "includeDeleted",
+            "required": false,
+            "in": "query",
+            "description": "true = รวมรายการที่ถูกลบ (tombstone มี `deletedAt`) — ให้ระบบที่ดึงแบบ incremental รู้ว่ารายการถูกลบ",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "kind",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "COUNT",
+                "WEIGHT",
+                "VOLUME"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnitPageDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "units"
+        ]
+      },
+      "post": {
+        "operationId": "Units_create",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateUnitDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnitDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "units"
+        ]
+      }
+    },
+    "/v1/units/{id}": {
+      "get": {
+        "operationId": "Units_get",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnitDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "units"
+        ]
+      },
+      "patch": {
+        "operationId": "Units_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateUnitDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnitDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "units"
+        ]
+      }
+    },
+    "/v1/units/{id}/history": {
+      "get": {
+        "operationId": "Units_history",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "ค่า nextCursor จากหน้าก่อน",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ประวัติการแก้จาก audit log ใหม่สุดก่อน",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditPageDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "units"
+        ]
+      }
+    },
+    "/v1/units/{id}/deactivate": {
+      "post": {
+        "operationId": "Units_deactivate",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MasterReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "สินค้าเดิมใช้หน่วยต่อได้ แต่เลือกในสินค้าใหม่ไม่ได้",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnitDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "units"
+        ]
+      }
+    },
+    "/v1/units/{id}/activate": {
+      "post": {
+        "operationId": "Units_activate",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MasterOptionalReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnitDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "units"
+        ]
+      }
+    },
+    "/v1/units/{id}/delete": {
+      "post": {
+        "operationId": "Units_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MasterReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "units"
+        ]
+      }
+    },
     "/v1/vehicle-types": {
       "get": {
         "operationId": "VehicleTypes_list",
@@ -14104,6 +15365,767 @@
             "type": "string",
             "nullable": true,
             "description": "null = ลบการผูก"
+          }
+        }
+      },
+      "ProductCustomerRefDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "cus_3f2a…"
+          },
+          "code": {
+            "type": "string",
+            "example": "CUS-0001"
+          },
+          "name": {
+            "type": "string",
+            "example": "บริษัท ตัวอย่าง จำกัด"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "name"
+        ]
+      },
+      "ProductUnitRefDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "unt_3f2a…"
+          },
+          "code": {
+            "type": "string",
+            "example": "BAG"
+          },
+          "name": {
+            "type": "string",
+            "example": "ถุง"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "COUNT",
+              "WEIGHT",
+              "VOLUME"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "name",
+          "kind",
+          "status"
+        ]
+      },
+      "ProductAltUnitDto": {
+        "type": "object",
+        "properties": {
+          "unit": {
+            "$ref": "#/components/schemas/ProductUnitRefDto"
+          },
+          "factorToBase": {
+            "type": "number",
+            "example": 40
+          }
+        },
+        "required": [
+          "unit",
+          "factorToBase"
+        ]
+      },
+      "ProductDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "prd_3f2a…"
+          },
+          "code": {
+            "type": "string",
+            "example": "P-0001"
+          },
+          "externalId": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "example": "ปูนซีเมนต์ถุง 50 กก."
+          },
+          "customer": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ProductCustomerRefDto"
+              }
+            ]
+          },
+          "unit": {
+            "description": "หน่วยหลัก",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ProductUnitRefDto"
+              }
+            ]
+          },
+          "weightPerUnitKg": {
+            "type": "number",
+            "nullable": true,
+            "example": 50
+          },
+          "volumePerUnitCbm": {
+            "type": "number",
+            "nullable": true,
+            "example": 0.035
+          },
+          "altUnits": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProductAltUnitDto"
+            }
+          },
+          "fragile": {
+            "type": "boolean"
+          },
+          "hazardous": {
+            "type": "boolean"
+          },
+          "unNumber": {
+            "type": "string",
+            "nullable": true,
+            "example": "1993"
+          },
+          "hazardClass": {
+            "type": "string",
+            "nullable": true,
+            "example": "3"
+          },
+          "tempControlled": {
+            "type": "boolean"
+          },
+          "tempMinC": {
+            "type": "number",
+            "nullable": true,
+            "example": 2
+          },
+          "tempMaxC": {
+            "type": "number",
+            "nullable": true,
+            "example": 8
+          },
+          "stackable": {
+            "type": "boolean"
+          },
+          "barcode": {
+            "type": "string",
+            "nullable": true
+          },
+          "requiredCapabilities": {
+            "type": "array",
+            "description": "ป้ายความสามารถของประเภทรถที่ต้องใช้ (คำนวณ): ควบคุมอุณหภูมิ → REFRIGERATED (ช่วงอุณหภูมิรถต้องครอบคลุม), อันตราย → HAZMAT",
+            "items": {
+              "type": "string",
+              "enum": [
+                "REFRIGERATED",
+                "HAZMAT"
+              ]
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          },
+          "deletedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "มีค่าเฉพาะเมื่อขอ includeDeleted=true และรายการถูกลบแล้ว (tombstone)"
+          },
+          "version": {
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "externalId",
+          "name",
+          "customer",
+          "unit",
+          "weightPerUnitKg",
+          "volumePerUnitCbm",
+          "altUnits",
+          "fragile",
+          "hazardous",
+          "unNumber",
+          "hazardClass",
+          "tempControlled",
+          "tempMinC",
+          "tempMaxC",
+          "stackable",
+          "barcode",
+          "requiredCapabilities",
+          "status",
+          "version",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "ProductPageDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProductDto"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor",
+          "hasMore"
+        ]
+      },
+      "ProductSummaryDto": {
+        "type": "object",
+        "properties": {
+          "total": {
+            "type": "number",
+            "description": "สินค้าทั้งหมด (ไม่รวมที่ลบ)"
+          },
+          "active": {
+            "type": "number"
+          },
+          "inactive": {
+            "type": "number"
+          },
+          "general": {
+            "type": "number",
+            "description": "สินค้าทั่วไป (ไม่มีประเภทพิเศษ)"
+          },
+          "special": {
+            "type": "number",
+            "description": "สินค้าประเภทพิเศษ (เปราะบาง/อันตราย/ควบคุมอุณหภูมิ อย่างน้อยหนึ่งอย่าง)"
+          },
+          "unitsUsed": {
+            "type": "number",
+            "description": "จำนวนหน่วยหลักที่สินค้าใช้ (ไม่ซ้ำ)"
+          }
+        },
+        "required": [
+          "total",
+          "active",
+          "inactive",
+          "general",
+          "special",
+          "unitsUsed"
+        ]
+      },
+      "AltUnitInputDto": {
+        "type": "object",
+        "properties": {
+          "unitId": {
+            "type": "string",
+            "example": "code:PLT",
+            "description": "หน่วยแปลง: `unt_…` หรือ `code:{รหัสหน่วย}`"
+          },
+          "factorToBase": {
+            "type": "number",
+            "example": 40,
+            "description": "1 หน่วยนี้ = ? หน่วยหลัก (> 0) เช่น 1 พาเลท = 40 ถุง"
+          }
+        },
+        "required": [
+          "unitId",
+          "factorToBase"
+        ]
+      },
+      "CreateProductDto": {
+        "type": "object",
+        "properties": {
+          "customerId": {
+            "type": "string",
+            "nullable": true,
+            "example": "cus_3f2a…",
+            "description": "สินค้าของลูกค้ารายเดียว — null/ไม่ส่ง = ใช้ได้ทุกลูกค้า"
+          },
+          "weightPerUnitKg": {
+            "type": "number",
+            "example": 50,
+            "nullable": true,
+            "description": "น้ำหนักต่อหน่วยหลัก (กก.) > 0 ทศนิยม 3 — บังคับเมื่อหน่วยเป็นชนิดนับ (COUNT); หน่วยน้ำหนัก = ตัวแปลงของหน่วย (ไม่ส่งได้)"
+          },
+          "volumePerUnitCbm": {
+            "type": "number",
+            "example": 0.035,
+            "nullable": true,
+            "description": "ปริมาตรต่อหน่วยหลัก (ลบ.ม.) ≥ 0 ทศนิยม 4 — หน่วยปริมาตร = ตัวแปลงของหน่วย"
+          },
+          "altUnits": {
+            "description": "หน่วยแปลง (แทนทั้งชุด) ≤ 10 — ห้ามซ้ำ ห้ามเป็นหน่วยหลัก",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AltUnitInputDto"
+            }
+          },
+          "fragile": {
+            "type": "boolean",
+            "description": "เปราะบาง"
+          },
+          "hazardous": {
+            "type": "boolean",
+            "description": "สินค้าอันตราย — ต้องมี unNumber + hazardClass (ต้องใช้รถป้าย HAZMAT)"
+          },
+          "unNumber": {
+            "type": "string",
+            "nullable": true,
+            "example": "1993",
+            "description": "เลข UN 4 หลัก (รับ \"UN1993\")"
+          },
+          "hazardClass": {
+            "type": "string",
+            "nullable": true,
+            "example": "3",
+            "description": "class 1–9 (division เช่น 2.1 ได้)"
+          },
+          "tempControlled": {
+            "type": "boolean",
+            "description": "ควบคุมอุณหภูมิ — ต้องมี tempMinC/tempMaxC (ต้องใช้รถห้องเย็นที่ช่วงอุณหภูมิครอบคลุม)"
+          },
+          "tempMinC": {
+            "type": "number",
+            "example": 2,
+            "nullable": true,
+            "description": "°C -40…30, min < max"
+          },
+          "tempMaxC": {
+            "type": "number",
+            "example": 8,
+            "nullable": true
+          },
+          "stackable": {
+            "type": "boolean",
+            "description": "วางซ้อนได้ (ค่าเริ่มต้น true)"
+          },
+          "barcode": {
+            "type": "string",
+            "nullable": true,
+            "example": "8851234567890"
+          },
+          "name": {
+            "type": "string",
+            "example": "ปูนซีเมนต์ถุง 50 กก."
+          },
+          "unitId": {
+            "type": "string",
+            "example": "code:BAG",
+            "description": "หน่วยหลัก: `unt_…` หรือ `code:{รหัสหน่วย}` (หน่วยต้องใช้งานอยู่)"
+          },
+          "code": {
+            "type": "string",
+            "example": "P-0001",
+            "description": "รหัส — ไม่ส่ง = ระบบออกเลขถัดไป `P-0001` (MD-002)"
+          },
+          "externalId": {
+            "type": "string",
+            "description": "รหัสในระบบต้นทาง — เรียกด้วย ext:{externalId} ได้"
+          }
+        },
+        "required": [
+          "name",
+          "unitId"
+        ]
+      },
+      "UpsertProductDto": {
+        "type": "object",
+        "properties": {
+          "customerId": {
+            "type": "string",
+            "nullable": true,
+            "example": "cus_3f2a…",
+            "description": "สินค้าของลูกค้ารายเดียว — null/ไม่ส่ง = ใช้ได้ทุกลูกค้า"
+          },
+          "weightPerUnitKg": {
+            "type": "number",
+            "example": 50,
+            "nullable": true,
+            "description": "น้ำหนักต่อหน่วยหลัก (กก.) > 0 ทศนิยม 3 — บังคับเมื่อหน่วยเป็นชนิดนับ (COUNT); หน่วยน้ำหนัก = ตัวแปลงของหน่วย (ไม่ส่งได้)"
+          },
+          "volumePerUnitCbm": {
+            "type": "number",
+            "example": 0.035,
+            "nullable": true,
+            "description": "ปริมาตรต่อหน่วยหลัก (ลบ.ม.) ≥ 0 ทศนิยม 4 — หน่วยปริมาตร = ตัวแปลงของหน่วย"
+          },
+          "altUnits": {
+            "description": "หน่วยแปลง (แทนทั้งชุด) ≤ 10 — ห้ามซ้ำ ห้ามเป็นหน่วยหลัก",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AltUnitInputDto"
+            }
+          },
+          "fragile": {
+            "type": "boolean",
+            "description": "เปราะบาง"
+          },
+          "hazardous": {
+            "type": "boolean",
+            "description": "สินค้าอันตราย — ต้องมี unNumber + hazardClass (ต้องใช้รถป้าย HAZMAT)"
+          },
+          "unNumber": {
+            "type": "string",
+            "nullable": true,
+            "example": "1993",
+            "description": "เลข UN 4 หลัก (รับ \"UN1993\")"
+          },
+          "hazardClass": {
+            "type": "string",
+            "nullable": true,
+            "example": "3",
+            "description": "class 1–9 (division เช่น 2.1 ได้)"
+          },
+          "tempControlled": {
+            "type": "boolean",
+            "description": "ควบคุมอุณหภูมิ — ต้องมี tempMinC/tempMaxC (ต้องใช้รถห้องเย็นที่ช่วงอุณหภูมิครอบคลุม)"
+          },
+          "tempMinC": {
+            "type": "number",
+            "example": 2,
+            "nullable": true,
+            "description": "°C -40…30, min < max"
+          },
+          "tempMaxC": {
+            "type": "number",
+            "example": 8,
+            "nullable": true
+          },
+          "stackable": {
+            "type": "boolean",
+            "description": "วางซ้อนได้ (ค่าเริ่มต้น true)"
+          },
+          "barcode": {
+            "type": "string",
+            "nullable": true,
+            "example": "8851234567890"
+          },
+          "name": {
+            "type": "string",
+            "example": "ปูนซีเมนต์ถุง 50 กก."
+          },
+          "unitId": {
+            "type": "string",
+            "example": "code:BAG",
+            "description": "หน่วยหลัก: `unt_…` หรือ `code:{รหัสหน่วย}` (หน่วยต้องใช้งานอยู่)"
+          },
+          "code": {
+            "type": "string",
+            "example": "P-0001",
+            "description": "ใช้ตอนสร้างเท่านั้น"
+          }
+        },
+        "required": [
+          "name",
+          "unitId"
+        ]
+      },
+      "UpdateProductDto": {
+        "type": "object",
+        "properties": {
+          "customerId": {
+            "type": "string",
+            "nullable": true,
+            "example": "cus_3f2a…",
+            "description": "สินค้าของลูกค้ารายเดียว — null/ไม่ส่ง = ใช้ได้ทุกลูกค้า"
+          },
+          "weightPerUnitKg": {
+            "type": "number",
+            "example": 50,
+            "nullable": true,
+            "description": "น้ำหนักต่อหน่วยหลัก (กก.) > 0 ทศนิยม 3 — บังคับเมื่อหน่วยเป็นชนิดนับ (COUNT); หน่วยน้ำหนัก = ตัวแปลงของหน่วย (ไม่ส่งได้)"
+          },
+          "volumePerUnitCbm": {
+            "type": "number",
+            "example": 0.035,
+            "nullable": true,
+            "description": "ปริมาตรต่อหน่วยหลัก (ลบ.ม.) ≥ 0 ทศนิยม 4 — หน่วยปริมาตร = ตัวแปลงของหน่วย"
+          },
+          "altUnits": {
+            "description": "หน่วยแปลง (แทนทั้งชุด) ≤ 10 — ห้ามซ้ำ ห้ามเป็นหน่วยหลัก",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AltUnitInputDto"
+            }
+          },
+          "fragile": {
+            "type": "boolean",
+            "description": "เปราะบาง"
+          },
+          "hazardous": {
+            "type": "boolean",
+            "description": "สินค้าอันตราย — ต้องมี unNumber + hazardClass (ต้องใช้รถป้าย HAZMAT)"
+          },
+          "unNumber": {
+            "type": "string",
+            "nullable": true,
+            "example": "1993",
+            "description": "เลข UN 4 หลัก (รับ \"UN1993\")"
+          },
+          "hazardClass": {
+            "type": "string",
+            "nullable": true,
+            "example": "3",
+            "description": "class 1–9 (division เช่น 2.1 ได้)"
+          },
+          "tempControlled": {
+            "type": "boolean",
+            "description": "ควบคุมอุณหภูมิ — ต้องมี tempMinC/tempMaxC (ต้องใช้รถห้องเย็นที่ช่วงอุณหภูมิครอบคลุม)"
+          },
+          "tempMinC": {
+            "type": "number",
+            "example": 2,
+            "nullable": true,
+            "description": "°C -40…30, min < max"
+          },
+          "tempMaxC": {
+            "type": "number",
+            "example": 8,
+            "nullable": true
+          },
+          "stackable": {
+            "type": "boolean",
+            "description": "วางซ้อนได้ (ค่าเริ่มต้น true)"
+          },
+          "barcode": {
+            "type": "string",
+            "nullable": true,
+            "example": "8851234567890"
+          },
+          "name": {
+            "type": "string",
+            "example": "ปูนซีเมนต์ถุง 50 กก."
+          },
+          "code": {
+            "type": "string",
+            "example": "P-0001",
+            "description": "แก้รหัส (MD-002)"
+          },
+          "unitId": {
+            "type": "string",
+            "example": "code:BAG"
+          },
+          "externalId": {
+            "type": "string",
+            "nullable": true,
+            "description": "null = ลบการผูก"
+          }
+        }
+      },
+      "UnitDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "unt_3f2a…"
+          },
+          "code": {
+            "type": "string",
+            "example": "BAG"
+          },
+          "name": {
+            "type": "string",
+            "example": "ถุง"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "COUNT",
+              "WEIGHT",
+              "VOLUME"
+            ]
+          },
+          "toKg": {
+            "type": "number",
+            "nullable": true,
+            "example": null
+          },
+          "toCbm": {
+            "type": "number",
+            "nullable": true,
+            "example": null
+          },
+          "system": {
+            "type": "boolean",
+            "description": "หน่วยมาตรฐานของระบบ (ชุดเริ่มต้น) — ลบไม่ได้ แก้ได้เฉพาะชื่อ ปิดใช้ได้"
+          },
+          "products": {
+            "type": "number",
+            "description": "จำนวนสินค้าที่ใช้หน่วยนี้ (หน่วยหลักหรือหน่วยแปลง, ไม่นับที่ลบ)"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          },
+          "deletedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "version": {
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "name",
+          "kind",
+          "toKg",
+          "toCbm",
+          "system",
+          "products",
+          "status",
+          "version",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "UnitPageDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UnitDto"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor",
+          "hasMore"
+        ]
+      },
+      "CreateUnitDto": {
+        "type": "object",
+        "properties": {
+          "toKg": {
+            "type": "number",
+            "example": 1000,
+            "nullable": true,
+            "description": "WEIGHT: 1 หน่วย = ? กก. (บังคับเมื่อ kind=WEIGHT, ตัน = 1000) · ชนิดอื่นต้องว่าง"
+          },
+          "toCbm": {
+            "type": "number",
+            "example": 0.001,
+            "nullable": true,
+            "description": "VOLUME: 1 หน่วย = ? ลบ.ม. (บังคับเมื่อ kind=VOLUME, ลิตร = 0.001) · ชนิดอื่นต้องว่าง"
+          },
+          "code": {
+            "type": "string",
+            "example": "DRUM",
+            "description": "รหัสหน่วย ≤ 10 ตัว (ไม่สนตัวพิมพ์ — เก็บตัวใหญ่)"
+          },
+          "name": {
+            "type": "string",
+            "example": "ถัง",
+            "description": "ชื่อหน่วย — ห้ามซ้ำ (ไม่สนตัวพิมพ์)"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "COUNT",
+              "WEIGHT",
+              "VOLUME"
+            ],
+            "description": "COUNT = นับจำนวน (ชิ้น ถุง พาเลท), WEIGHT = น้ำหนัก (ต้องมี toKg), VOLUME = ปริมาตร (ต้องมี toCbm)"
+          }
+        },
+        "required": [
+          "code",
+          "name",
+          "kind"
+        ]
+      },
+      "UpdateUnitDto": {
+        "type": "object",
+        "properties": {
+          "toKg": {
+            "type": "number",
+            "example": 1000,
+            "nullable": true,
+            "description": "WEIGHT: 1 หน่วย = ? กก. (บังคับเมื่อ kind=WEIGHT, ตัน = 1000) · ชนิดอื่นต้องว่าง"
+          },
+          "toCbm": {
+            "type": "number",
+            "example": 0.001,
+            "nullable": true,
+            "description": "VOLUME: 1 หน่วย = ? ลบ.ม. (บังคับเมื่อ kind=VOLUME, ลิตร = 0.001) · ชนิดอื่นต้องว่าง"
+          },
+          "code": {
+            "type": "string",
+            "example": "DRUM"
+          },
+          "name": {
+            "type": "string",
+            "example": "ถัง"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "COUNT",
+              "WEIGHT",
+              "VOLUME"
+            ]
           }
         }
       },

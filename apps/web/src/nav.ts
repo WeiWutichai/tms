@@ -223,6 +223,14 @@ export const NAV: NavGroup[] = [
         stage: 'ST2',
       },
       {
+        key: 'prod',
+        perm: ['master:read'],
+        page: 'prod',
+        label: 'nav.master.prod',
+        path: '/master/products',
+        stage: 'ST2',
+      },
+      {
         key: 'vtype',
         perm: ['master:read'],
         page: 'vtype',

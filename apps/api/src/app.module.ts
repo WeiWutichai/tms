@@ -47,6 +47,10 @@ import { CompaniesController } from './modules/companies/companies.controller';
 import { CustomersController } from './modules/customers/customers.controller';
 import { CustomersService } from './modules/customers/customers.service';
 import { SitesController } from './modules/sites/sites.controller';
+import { ProductsController } from './modules/products/products.controller';
+import { ProductsService } from './modules/products/products.service';
+import { UnitsController } from './modules/products/units.controller';
+import { UnitsService } from './modules/products/units.service';
 import { RoutesController } from './modules/routes/routes.controller';
 import { RoutesService } from './modules/routes/routes.service';
 import { SitesService } from './modules/sites/sites.service';
@@ -100,6 +104,8 @@ import { StateService } from './state/state.service';
     CustomersController,
     SitesController,
     RoutesController,
+    ProductsController,
+    UnitsController,
     VehicleTypesController,
     CarriersController,
     VehiclesController,
@@ -128,6 +134,8 @@ import { StateService } from './state/state.service';
     CustomersService,
     SitesService,
     RoutesService,
+    ProductsService,
+    UnitsService,
     VehicleTypesService,
     CarriersService,
     VehiclesService,

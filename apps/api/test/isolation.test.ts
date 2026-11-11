@@ -94,6 +94,34 @@ const FIXTURES: Record<string, (db: PrismaClient, tenantId: string, n: number) =
         ).id,
       );
     },
+    unit: async (db, tenantId, n) =>
+      encodeId(
+        'unit',
+        (
+          await db.unit.create({
+            data: { tenantId, code: `ISO${n}`, nameTh: `หน่วย ${n}`, kind: 'COUNT' },
+          })
+        ).id,
+      ),
+    product: async (db, tenantId, n) => {
+      const u = await db.unit.create({
+        data: { tenantId, code: `ISP${n}`, nameTh: `หน่วยสินค้า ${n}`, kind: 'COUNT' },
+      });
+      return encodeId(
+        'product',
+        (
+          await db.product.create({
+            data: {
+              tenantId,
+              code: `ISO-${n}`,
+              nameTh: `Product ${n}`,
+              baseUnitId: u.id,
+              weightPerUnitKg: 1,
+            },
+          })
+        ).id,
+      );
+    },
     vehicleType: async (db, tenantId, n) =>
       encodeId(
         'vehicleType',

@@ -27,6 +27,8 @@ export const ID_PREFIX = {
   vehicleDocument: 'vdoc',
   driver: 'drv',
   route: 'rte',
+  unit: 'unt',
+  product: 'prd',
 } as const;
 export type IdKind = keyof typeof ID_PREFIX;
 
