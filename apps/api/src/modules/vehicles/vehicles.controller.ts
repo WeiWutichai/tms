@@ -141,6 +141,13 @@ export class VehiclesController {
     return toVehicleDto(v);
   }
 
+  /** ผลการสร้าง + สัญญาณโควตา (soft limit PLT-080): `quotaExceeded` + header `Warning: 299` */
+  private async created(res: Response, v: VehicleFull): Promise<VehicleDto> {
+    const over = await this.vehicles.quotaExceeded();
+    if (over) res.setHeader('Warning', '299 tms "vehicle quota exceeded"');
+    return { ...this.send(res, v), quotaExceeded: over };
+  }
+
   @Get()
   @RequireScope('master:read')
   @ApiOkResponse({ type: VehiclePageDto })
@@ -172,12 +179,16 @@ export class VehiclesController {
   @Post()
   @RequireScope('master:write')
   @ApiHeader({ name: 'Idempotency-Key', required: false })
-  @ApiCreatedResponse({ type: VehicleDto })
+  @ApiCreatedResponse({
+    type: VehicleDto,
+    description:
+      'สร้างแล้ว — เกินโควตารถ: `quotaExceeded: true` + header `Warning: 299` (ยังสร้างได้)',
+  })
   async create(
     @Body() body: CreateVehicleDto,
     @Res({ passthrough: true }) res: Response,
   ): Promise<VehicleDto> {
-    return this.send(res, await this.vehicles.create(body));
+    return this.created(res, await this.vehicles.create(body));
   }
 
   @Put('external/:externalId')
@@ -208,7 +219,7 @@ export class VehiclesController {
       expectedVersion(req),
     );
     res.status(created ? 201 : 200);
-    return this.send(res, row);
+    return created ? this.created(res, row) : this.send(res, row);
   }
 
   @Get(':id')
@@ -239,9 +250,15 @@ export class VehiclesController {
     };
     return {
       ...page,
-      data: page.data.map(
-        (r) => ({ ...r, before: strip(r.before), after: strip(r.after) }) as typeof r,
-      ),
+      // แก้เฉพาะข้อมูลการเงิน → ผู้ไม่มีสิทธิ์ไม่เห็นแถวนั้นเลย
+      data: page.data
+        .map((r) => ({ ...r, before: strip(r.before), after: strip(r.after) }) as typeof r)
+        .filter(
+          (r) =>
+            r.action !== 'vehicle.updated' ||
+            Object.keys((r.after as object | null) ?? {}).length > 0 ||
+            Object.keys((r.before as object | null) ?? {}).length > 0,
+        ),
     };
   }
 

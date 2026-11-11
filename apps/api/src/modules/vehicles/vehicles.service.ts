@@ -27,6 +27,7 @@ import {
   masterKeyset,
   upsertByExternalId,
 } from '../master/master-kit';
+import { PROVINCES } from './provinces';
 import type {
   CreateVehicleDto,
   FuelType,
@@ -97,25 +98,63 @@ const RUNNING_TRIP = ['DISPATCHED', 'IN_PROGRESS'] as const;
 
 const field422 = (field: string, code: string, message: string) =>
   new ProblemException('validation_failed', undefined, [{ field, code, message }]);
+/** รถปลดระวางแล้วอ่านอย่างเดียว (แก้/บันทึกเลขไมล์ → 409) */
+const retired409 = () =>
+  new ProblemException('conflict', 'vehicle is retired (read-only)', [
+    { field: 'status', code: 'vehicle_retired', message: 'a retired vehicle cannot be changed' },
+  ]);
 
 const num = (d: Prisma.Decimal | null) => (d === null ? null : Number(d));
 const money = (d: Prisma.Decimal | null) => (d === null ? null : d.toFixed(2));
 const day = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null);
 
-/** ทะเบียน normalize: ตัดช่องว่าง/ขีด/จุด + ตัวใหญ่ + จังหวัด (สูตรเดียวกับ migration 0042) */
-export function plateKey(plate: string, province: string): string {
-  return `${plate.replace(/[\s\-.]/g, '').toUpperCase()}|${province}`;
+// ---------- ทะเบียน (normalize + ตรวจรูปแบบ) ----------
+
+const THAI_DIGITS = '๐๑๒๓๔๕๖๗๘๙';
+/** เลขไทย ๐-๙ → 0-9 */
+export const arabicDigits = (s: string) =>
+  s.replace(/[๐-๙]/g, (c) => String(THAI_DIGITS.indexOf(c)));
+/** ทะเบียนอย่างเดียว normalize: เลขไทย → อารบิก, ตัดช่องว่าง/ขีด/จุด, ตัวใหญ่ (สูตรเดียวกับ migration 0043) */
+export function plateNorm(plate: string): string {
+  return arabicDigits(plate)
+    .replace(/[\s\-.]/g, '')
+    .toUpperCase();
 }
-/** ทะเบียนไทย: เลขหมวด/อักษร/เลข 2–10 ตัวหลังตัดช่องว่าง/ขีด ต้องมีตัวเลข (เช่น 70-1234, 1กข 1234, 72-11) */
-function assertPlate(plate: string) {
-  const k = plate.replace(/[\s\-.]/g, '').toUpperCase();
-  if (!/^[0-9A-Zก-ฮ]{2,10}$/.test(k) || !/\d/.test(k))
+export function plateKey(plate: string, province: string): string {
+  return `${plateNorm(plate)}|${province}`;
+}
+/** เลขตัวถัง normalize: ตัดช่องว่าง/ขีด/จุด/ทับ ตัวใหญ่ (MNT-123ABC = MNT123ABC) */
+export const chassisNorm = (v: string) => v.replace(/[\s\-./]/g, '').toUpperCase();
+
+/** ชื่อ/อักษรย่อจังหวัด (ไม่มีจุด) — ตรวจว่าผู้ใช้พิมพ์จังหวัดมาในช่องทะเบียน */
+const PROVINCE_WORDS = new Set(PROVINCES.flatMap((p) => [p[1], p[2].replace(/\./g, '')]));
+/**
+ * รูปแบบทะเบียนไทย (หลัง normalize):
+ * - รถบรรทุก/รถสาธารณะ: เลขหมวด 2 หลัก + เลข 1–4 หลัก เช่น 70-1234, 72-11 (หาง/พ่วงใช้รูปแบบเดียวกัน)
+ * - รถส่วนบุคคล/กระบะ: (เลข 1 หลัก) + อักษรไทย 1–3 ตัว + เลข 1–4 หลัก เช่น 1กข 1234, กข 1234
+ * ไม่รับอักษรละติน, เลขล้วนเกิน 6 หลัก, จังหวัดต่อท้าย (ให้ใส่ในช่องจังหวัด)
+ */
+const PLATE_RE = /^(\d{2}\d{1,4}|\d?[ก-ฮ]{1,3}\d{1,4})$/;
+export function assertPlate(plate: string) {
+  const raw = arabicDigits(plate).trim();
+  const tail = raw.match(/[ก-ฮ.]+$/)?.[0]?.replace(/\./g, '');
+  const afterDigit = /\d[\s\-.]*[ก-ฮ.]+$/.test(raw);
+  if ((tail && afterDigit) || PROVINCE_WORDS.has(raw.replace(/[\s.]/g, '')))
+    throw field422(
+      'plate',
+      'plate_has_province',
+      'put the province in plateProvince, not in plate (e.g. "70-1234" + TH-10)',
+    );
+  if (!PLATE_RE.test(plateNorm(plate)))
     throw field422(
       'plate',
       'plate_format',
       'plate must be a Thai plate such as 70-1234 or 1กข 1234',
     );
 }
+
+/** วันนี้ตามเวลาไทย (YYYY-MM-DD) */
+const todayTh = () => new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10);
 
 export function canSeeFinance(): boolean {
   return scopeAllows(requestContext.get()?.scopes ?? [], FINANCE_SCOPE);
@@ -210,8 +249,8 @@ type Input = CreateVehicleDto | UpdateVehicleDto | UpsertVehicleDto;
  * - รถร่วม (SUBCONTRACT) ต้องมี carrier ที่ใช้งานอยู่ → ไม่ส่ง 422 · รถบริษัทห้ามมี carrier
  * - ทะเบียน + จังหวัด normalize ห้ามซ้ำกับคันที่ยังไม่ปลดระวาง (FLT-001)
  * - หัวลาก ↔ หาง เขียนทั้งสองฝั่งใน transaction เดียว (lock `vehicle.pair`) — หางที่พ่วงหัวอื่นอยู่ → 409
- * - เลขไมล์: ค่าใหม่ต้องไม่น้อยกว่าเดิม (422 `odometer_backwards`) — แก้ค่าผิดผ่าน `correct` พร้อมเหตุผล (FLT-285)
- * - สถานะผ่าน state machine (ST0-T10) + เหตุผลทุกครั้ง · ปลดระวาง = ปลดคู่หัวลาก-หางให้เอง
+ * - เลขไมล์: lock `vehicle.odometer:{id}` แล้วตรวจกับค่าก่อน/หลังตามเวลา (422 `odometer_backwards`) — แก้ค่าผิดผ่าน `correct` (FLT-285)
+ * - สถานะผ่าน state machine (ST0-T10) + เหตุผลทุกครั้ง · ปลดระวาง = ปลดคู่หัวลาก-หางให้เอง + อ่านอย่างเดียว
  * - ข้อมูลการเงิน (ราคาซื้อ/ค่าเสื่อม) อ่าน/แก้ได้เฉพาะ reports.finance:read
  */
 @Injectable()
@@ -241,15 +280,16 @@ export class VehiclesService {
       and.push({ vehicleTypeId: tryDecodeId('vehicleType', q.vehicleTypeId) ?? undefined });
     if (q.carrierId) and.push({ carrierId: tryDecodeId('carrier', q.carrierId) ?? undefined });
     const like = (v: string) => ({ contains: likeEscape(v), mode: 'insensitive' as const });
+    // ค้นทะเบียนใน plate_norm (ไม่มีรหัสจังหวัด) — "TH" / "10" ไม่ไปตรงกับจังหวัด
     if (q.plate) {
-      const k = q.plate.replace(/[\s\-.]/g, '').toUpperCase();
-      if (k) and.push({ plateKey: { contains: likeEscape(k) } });
+      const k = plateNorm(q.plate);
+      if (k) and.push({ plateNorm: { contains: likeEscape(k) } });
     }
     if (q.q) {
-      const k = q.q.replace(/[\s\-.]/g, '').toUpperCase();
+      const k = plateNorm(q.q);
       and.push({
         OR: [
-          ...(k ? [{ plateKey: { contains: likeEscape(k) } }] : []),
+          ...(k ? [{ plateNorm: { contains: likeEscape(k) } }] : []),
           { brand: like(q.q) },
           { model: like(q.q) },
           { chassisNo: like(q.q) },
@@ -329,6 +369,16 @@ export class VehiclesService {
     return (await this.entitlements.resolve(tenantId)).veh?.limit ?? null;
   }
 
+  /** รถที่นับโควตาเกิน limit แล้วหรือยัง (soft limit — เพิ่มได้ แต่ส่งสัญญาณให้ผู้เรียก) */
+  async quotaExceeded(): Promise<boolean> {
+    const limit = await this.quotaLimit();
+    if (limit === null) return false;
+    const used = await this.db.tx.vehicle.count({
+      where: { deletedAt: null, status: { not: 'RETIRED' } },
+    });
+    return used > limit;
+  }
+
   async get(id: string): Promise<VehicleFull> {
     const v = await this.db.tx.vehicle.findFirst({
       where: { id, deletedAt: null },
@@ -380,15 +430,23 @@ export class VehiclesService {
       );
   }
 
-  /** แปลง DTO → คอลัมน์ + กฎที่ดูหลายช่องพร้อมกัน (ค่าที่ไม่ส่ง = ค่าเดิม) */
-  private toData(input: Input, current?: VehicleFull): Prisma.VehicleUncheckedUpdateInput {
+  /**
+   * แปลง DTO → คอลัมน์ + กฎที่ดูหลายช่องพร้อมกัน (ค่าที่ไม่ส่ง = ค่าเดิม)
+   * `defaultPayload` = น้ำหนักบรรทุกของประเภทรถ (ตอนสร้างไม่ส่งน้ำหนัก) — ตรวจกับน้ำหนักรวม − เปล่าด้วยค่าหลังเติม
+   */
+  private toData(
+    input: Input,
+    current?: VehicleFull,
+    defaultPayload: number | null = null,
+  ): Prisma.VehicleUncheckedUpdateInput {
     const data: Prisma.VehicleUncheckedUpdateInput = {};
-    const pick = <K extends keyof Input & keyof Vehicle>(k: K, col: keyof Vehicle = k) => {
-      if (input[k] !== undefined) (data as Record<string, unknown>)[col] = input[k];
+    const pick = <K extends keyof Input & keyof Vehicle>(k: K) => {
+      if (input[k] !== undefined) (data as Record<string, unknown>)[k] = input[k];
     };
     if (input.plate !== undefined) {
       assertPlate(input.plate);
-      data.plate = input.plate;
+      data.plate = arabicDigits(input.plate);
+      data.plateNorm = plateNorm(input.plate);
     }
     pick('plateProvince');
     pick('unitRole');
@@ -399,7 +457,10 @@ export class VehiclesService {
     pick('grossWeightKg');
     pick('gpsProvider');
     pick('gpsDeviceId');
-    pick('chassisNo');
+    if (input.chassisNo !== undefined) {
+      data.chassisNo = input.chassisNo;
+      data.chassisNorm = input.chassisNo === null ? null : chassisNorm(input.chassisNo);
+    }
     pick('engineNo');
     pick('brand');
     pick('model');
@@ -408,20 +469,26 @@ export class VehiclesService {
     pick('fuelType');
     pick('tankCapacityL');
     if (input.purchaseCost !== undefined) data.purchaseCost = input.purchaseCost;
-    if (input.purchasedOn !== undefined)
+    if (input.purchasedOn !== undefined) {
+      if (input.purchasedOn && input.purchasedOn > todayTh())
+        throw field422('purchasedOn', 'future', 'purchasedOn must not be in the future');
       data.purchasedOn = input.purchasedOn ? new Date(`${input.purchasedOn}T00:00:00Z`) : null;
+    }
     pick('depreciationMethod');
     pick('depreciationYears');
     if (input.salvageValue !== undefined) data.salvageValue = input.salvageValue;
     if (input.photoDocumentIds !== undefined)
       data.photoDocumentIds = input.photoDocumentIds.map((d) => tryDecodeId('document', d)!);
 
-    // ---- กฎข้ามช่อง (ค่าหลังแก้) ----
+    // ---- กฎข้ามช่อง (ค่าหลังแก้ / หลังเติมค่าตั้งต้น) ----
     const eff = <T>(v: T | undefined, cur: T) => (v !== undefined ? v : cur);
     const year = eff(input.year, current?.year ?? null);
     if (year !== null && year > new Date().getUTCFullYear() + 1)
       throw field422('year', 'year_range', 'year must not be later than next year');
-    const payload = eff<number | null>(input.payloadKg, num(current?.capacityKg ?? null));
+    const payload = eff<number | null>(
+      input.payloadKg,
+      current ? num(current.capacityKg) : defaultPayload,
+    );
     const tare = eff(input.tareWeightKg, num(current?.tareWeightKg ?? null));
     const gross = eff(input.grossWeightKg, num(current?.grossWeightKg ?? null));
     if (tare !== null && gross !== null) {
@@ -458,64 +525,39 @@ export class VehiclesService {
     return data;
   }
 
+  private dupProblem(field: string, msg: string, dup: Vehicle) {
+    return new ProblemException(
+      'duplicate',
+      undefined,
+      [{ field, code: 'duplicate', message: msg }],
+      {
+        existing: {
+          id: encodeId('vehicle', dup.id),
+          plate: dup.plate,
+          plateProvince: dup.plateProvince,
+        },
+      },
+    );
+  }
+
   private async assertUnique(data: Prisma.VehicleUncheckedUpdateInput, self?: VehicleFull) {
     const tx = this.db.tx;
     const not = self ? { id: { not: self.id } } : {};
-    const plate = (data.plate as string | undefined) ?? self?.plate;
-    const prov = (data.plateProvince as string | undefined) ?? self?.plateProvince;
-    const key = plateKey(plate!, prov!);
-    if (!self || key !== self.plateKey || self.status === 'RETIRED') {
+    const key = data.plateKey as string | undefined;
+    if (key !== undefined && (!self || key !== self.plateKey)) {
       await lockKey(tx, `vehicle.plate:${key}`);
       const dup = await tx.vehicle.findFirst({
         where: { plateKey: key, deletedAt: null, status: { not: 'RETIRED' }, ...not },
       });
-      if (dup && !(self?.status === 'RETIRED' && key === self.plateKey))
-        throw new ProblemException(
-          'duplicate',
-          undefined,
-          [
-            {
-              field: 'plate',
-              code: 'duplicate',
-              message: `plate already registered: ${dup.plate}`,
-            },
-          ],
-          {
-            existing: {
-              id: encodeId('vehicle', dup.id),
-              plate: dup.plate,
-              plateProvince: dup.plateProvince,
-            },
-          },
-        );
+      if (dup) throw this.dupProblem('plate', `plate already registered: ${dup.plate}`, dup);
     }
-    if (
-      typeof data.chassisNo === 'string' &&
-      data.chassisNo.toUpperCase() !== self?.chassisNo?.toUpperCase()
-    ) {
-      await lockKey(tx, `vehicle.chassis:${data.chassisNo.toUpperCase()}`);
+    const cn = data.chassisNorm as string | null | undefined;
+    if (cn && cn !== self?.chassisNorm) {
+      await lockKey(tx, `vehicle.chassis:${cn}`);
       const dup = await tx.vehicle.findFirst({
-        where: { chassisNo: iEquals(data.chassisNo), deletedAt: null, ...not },
+        where: { chassisNorm: cn, deletedAt: null, ...not },
       });
-      if (dup)
-        throw new ProblemException(
-          'duplicate',
-          undefined,
-          [
-            {
-              field: 'chassisNo',
-              code: 'duplicate',
-              message: `chassis number used by ${dup.plate}`,
-            },
-          ],
-          {
-            existing: {
-              id: encodeId('vehicle', dup.id),
-              plate: dup.plate,
-              plateProvince: dup.plateProvince,
-            },
-          },
-        );
+      if (dup) throw this.dupProblem('chassisNo', `chassis number used by ${dup.plate}`, dup);
     }
     const gpsP = (data.gpsProvider as string | null | undefined) ?? self?.gpsProvider ?? null;
     const gpsD = (data.gpsDeviceId as string | null | undefined) ?? self?.gpsDeviceId ?? null;
@@ -530,10 +572,7 @@ export class VehiclesService {
           ...not,
         },
       });
-      if (dup)
-        throw new ProblemException('duplicate', undefined, [
-          { field: 'gpsDeviceId', code: 'duplicate', message: `GPS device used by ${dup.plate}` },
-        ]);
+      if (dup) throw this.dupProblem('gpsDeviceId', `GPS device used by ${dup.plate}`, dup);
     }
   }
 
@@ -548,7 +587,7 @@ export class VehiclesService {
       ]);
   }
 
-  /** รูปรถต้องเป็นไฟล์ของ tenant นี้ (RLS) ที่ยังไม่ถูกลบ */
+  /** รูปรถต้องเป็นไฟล์ของ tenant นี้ (RLS) */
   private async assertPhotos(ids: string[] | undefined) {
     if (!ids?.length) return;
     const uuids = ids.map((d) => tryDecodeId('document', d));
@@ -560,17 +599,11 @@ export class VehiclesService {
   }
 
   /**
-   * ตรวจคู่หัวลาก ↔ หาง ก่อนเขียน (ถือ lock `vehicle.pair` ทั้ง tenant จนจบ transaction)
-   * คืนคันคู่ (หรือ null = ปลดคู่) — คันคู่ที่จับกับคันอื่นอยู่ → 409 `already_paired`
+   * ตรวจคู่หัวลาก ↔ หาง ก่อนเขียน (ผู้เรียกถือ lock `vehicle.pair` แล้ว)
+   * คืนคันคู่ — คันคู่ที่จับกับคันอื่นอยู่ → 409 `already_paired`
    */
-  private async checkPair(
-    partnerRef: string | null,
-    role: string,
-    selfId?: string,
-  ): Promise<Vehicle | null> {
+  private async checkPair(partnerRef: string, role: string, selfId?: string): Promise<Vehicle> {
     const tx = this.db.tx;
-    await lockKey(tx, 'vehicle.pair');
-    if (partnerRef === null) return null;
     const pid = tryDecodeId('vehicle', partnerRef);
     if (pid && pid === selfId)
       throw field422('pairedVehicleId', 'pair_self', 'a vehicle cannot pair with itself');
@@ -613,15 +646,23 @@ export class VehiclesService {
     return p;
   }
 
-  /** ตั้ง/ล้างคู่ของคันอื่น (อีกฝั่งของการจับคู่) — เพิ่ม version + audit ของคันนั้นด้วย */
-  private async setPartnerSide(vehicleId: string, pairedVehicleId: string | null) {
+  /**
+   * อีกฝั่งของการจับคู่: ตั้ง/ล้าง `paired_vehicle_id` ของคันอื่น — เฉพาะเมื่อค่าปัจจุบันยังเป็น `expect`
+   * (ล้างคู่ = ล้างเฉพาะแถวที่ชี้กลับมาที่คันนี้จริง) · เพิ่ม version + audit + event ของคันนั้น
+   */
+  private async setPartnerSide(
+    vehicleId: string,
+    pairedVehicleId: string | null,
+    expect: string | null,
+  ) {
     const tx = this.db.tx;
     const before = await tx.vehicle.findUnique({ where: { id: vehicleId }, include: INCLUDE });
-    if (!before || before.pairedVehicleId === pairedVehicleId) return;
-    await tx.vehicle.update({
-      where: { id: vehicleId },
+    if (!before || before.pairedVehicleId !== expect || expect === pairedVehicleId) return;
+    const r = await tx.vehicle.updateMany({
+      where: { id: vehicleId, pairedVehicleId: expect },
       data: { pairedVehicleId, version: { increment: 1 } },
     });
+    if (r.count !== 1) return;
     const after = (await tx.vehicle.findUnique({ where: { id: vehicleId }, include: INCLUDE }))!;
     await this.audit.changed(
       'vehicle.updated',
@@ -646,7 +687,8 @@ export class VehiclesService {
       carrierId = (await this.resolveCarrier(input.carrierId)).id;
     } else if (input.carrierId)
       throw field422('carrierId', 'not_allowed', 'OWN vehicles have no carrier');
-    const data = this.toData(input);
+    const data = this.toData(input, undefined, num(vt.capacityKg));
+    data.plateKey = plateKey(input.plate, input.plateProvince);
     await this.assertPhotos(input.photoDocumentIds);
     await this.assertUnique(data);
     if (input.externalId) {
@@ -654,15 +696,15 @@ export class VehiclesService {
       await this.assertUniqueExternal(input.externalId);
     }
     const role = input.unitRole ?? 'SINGLE';
-    const partner =
-      input.pairedVehicleId !== undefined && input.pairedVehicleId !== null
-        ? await this.checkPair(input.pairedVehicleId, role)
-        : null;
+    let partner: Vehicle | null = null;
+    if (input.pairedVehicleId) {
+      await lockKey(tx, 'vehicle.pair');
+      partner = await this.checkPair(input.pairedVehicleId, role);
+    }
     const now = new Date();
     const created = await tx.vehicle.create({
       data: {
         ...(data as object),
-        plateKey: plateKey(input.plate, input.plateProvince),
         vehicleTypeId: vt.id,
         carrierId,
         // ไม่ส่งน้ำหนัก/ปริมาตร = ค่าของประเภทรถ (spec/06 FLT-A "ค่าตั้งต้นจากประเภทรถ แก้ต่อคันได้")
@@ -677,7 +719,7 @@ export class VehiclesService {
     });
     if (input.odometerKm !== undefined)
       await this.insertReading(created.id, input.odometerKm, now, 'MANUAL');
-    if (partner) await this.setPartnerSide(partner.id, created.id);
+    if (partner) await this.setPartnerSide(partner.id, created.id, null);
     const v = await this.get(created.id);
     await this.audit.record({
       action: 'vehicle.created',
@@ -691,9 +733,14 @@ export class VehiclesService {
 
   async update(id: string, input: UpdateVehicleDto, expected?: number): Promise<VehicleFull> {
     const tx = this.db.tx;
+    // เลขไมล์ผ่านทางเดียวกับ POST /odometer: lock ก่อนอ่านแถว (กันบันทึกพร้อมกัน)
+    if (input.odometerKm !== undefined) await lockKey(tx, `vehicle.odometer:${id}`);
+    const pairing = input.pairedVehicleId !== undefined || input.unitRole !== undefined;
+    if (pairing) await lockKey(tx, 'vehicle.pair');
     const current = await this.get(id);
     if (expected !== undefined && expected !== current.version)
       throw new ProblemException('precondition_failed');
+    if (current.status === 'RETIRED') throw retired409();
     this.assertFinanceAllowed(input);
     const data = this.toData(input, current);
 
@@ -740,7 +787,7 @@ export class VehiclesService {
       );
     if (
       data.plateKey !== undefined ||
-      data.chassisNo !== undefined ||
+      data.chassisNorm !== undefined ||
       data.gpsProvider !== undefined ||
       data.gpsDeviceId !== undefined
     )
@@ -750,18 +797,11 @@ export class VehiclesService {
       data.externalId = input.externalId;
     }
 
-    // ---- เลขไมล์: ห้ามถอยหลัง (acceptance ST2-T06) ----
+    // ---- เลขไมล์: ตรวจกับค่าก่อน/หลังตามเวลา (เหมือน POST /odometer) ----
+    const now = new Date();
     let odo: number | undefined;
     if (input.odometerKm !== undefined && input.odometerKm !== num(current.odometerKm)) {
-      const cur = num(current.odometerKm);
-      if (cur !== null && input.odometerKm < cur)
-        throw new ProblemException('validation_failed', undefined, [
-          {
-            field: 'odometerKm',
-            code: 'odometer_backwards',
-            message: `odometer cannot go backwards (current ${cur} km) — use POST /vehicles/{id}/odometer/correct`,
-          },
-        ]);
+      await this.assertTimeline(id, input.odometerKm, now, 'odometerKm');
       odo = input.odometerKm;
     }
 
@@ -775,42 +815,39 @@ export class VehiclesService {
         : current.pairedVehicleId;
     let partner: Vehicle | null | undefined; // undefined = ไม่เปลี่ยนคู่
     if (input.pairedVehicleId !== undefined && wantPair !== current.pairedVehicleId)
-      partner = await this.checkPair(input.pairedVehicleId, role, current.id);
-    else if (
-      input.unitRole !== undefined &&
-      input.unitRole !== current.unitRole &&
-      current.paired
-    ) {
+      partner = input.pairedVehicleId
+        ? await this.checkPair(input.pairedVehicleId, role, current.id)
+        : null;
+    else if (input.unitRole !== undefined && input.unitRole !== current.unitRole && current.paired)
       // เปลี่ยนบทบาทขณะจับคู่อยู่ → ต้องปลดคู่ก่อน (หรือส่ง pairedVehicleId: null มาพร้อมกัน)
       throw field422(
         'unitRole',
         'paired',
         `unpair from ${current.paired.plate} before changing unitRole`,
       );
-    }
     if (partner !== undefined) data.pairedVehicleId = partner?.id ?? null;
-    if (current.status === 'RETIRED' && partner)
-      throw field422('pairedVehicleId', 'retired', 'a retired vehicle cannot be paired');
 
     const changed = !isNoopUpdate(current, data as Record<string, unknown>, DECIMAL_FIELDS);
     if (!changed && odo === undefined) return current; // ส่งซ้ำค่าเดิมไม่เพิ่ม version
-    const now = new Date();
     if (odo !== undefined) {
       data.odometerKm = odo;
       data.odometerSource = 'MANUAL';
       data.odometerUpdatedAt = now;
     }
-    // ปลดคู่เดิมก่อน (unique ของ paired_vehicle_id)
+    // ปลดคู่เดิมก่อน (unique ของ paired_vehicle_id) — เฉพาะแถวที่ยังชี้มาที่คันนี้
     if (partner !== undefined && current.pairedVehicleId)
-      await this.setPartnerSide(current.pairedVehicleId, null);
+      await this.setPartnerSide(current.pairedVehicleId, null, current.id);
     const v = await this.bumpVersion(current, data);
-    if (partner) await this.setPartnerSide(partner.id, v.id);
+    if (partner) await this.setPartnerSide(partner.id, v.id, null);
     if (odo !== undefined) await this.insertReading(v.id, odo, now, 'MANUAL');
     const after = partner !== undefined ? await this.get(v.id) : v;
     const b = auditView(current);
     const a = auditView(after);
     await this.audit.changed('vehicle.updated', 'vehicle', v.id, b, a);
-    const fields = Object.keys(a).filter((k) => JSON.stringify(b[k]) !== JSON.stringify(a[k]));
+    // แก้เฉพาะข้อมูลการเงิน → ไม่ออก event (ผู้รับ webhook ไม่เห็นข้อมูลการเงิน — review ST2-T06)
+    const fields = Object.keys(a).filter(
+      (k) => JSON.stringify(b[k]) !== JSON.stringify(a[k]) && !FINANCE_AUDIT_KEYS.includes(k),
+    );
     if (fields.length)
       await emitMasterEvent(tx, 'vehicle.updated', 'vehicle', v.id, toVehicleDto(after, false), {
         changedFields: fields,
@@ -832,10 +869,11 @@ export class VehiclesService {
   /** เปลี่ยนสถานะ (state machine ST0-T10 + doc_status_history) — เหตุผลบังคับ */
   async changeStatus(id: string, status: VehicleStatusKey, reason: string, expected?: number) {
     const tx = this.db.tx;
+    const retire = status === 'retired';
+    if (retire) await lockKey(tx, 'vehicle.pair'); // ปลดคู่สองฝั่งโดยไม่ชนการจับคู่ที่ทำพร้อมกัน
     const current = await this.get(id);
     if (expected !== undefined && expected !== current.version)
       throw new ProblemException('precondition_failed');
-    const retire = status === 'retired';
     if (retire)
       await assertNotActivelyUsed([
         {
@@ -853,9 +891,8 @@ export class VehiclesService {
       note: reason,
       eventType: retire ? 'vehicle.retired' : 'vehicle.status_changed',
       apply: async (to) => {
-        // ปลดระวาง = ปลดคู่หัวลาก-หาง (ทั้งสองฝั่ง)
         if (retire && current.pairedVehicleId)
-          await this.setPartnerSide(current.pairedVehicleId, null);
+          await this.setPartnerSide(current.pairedVehicleId, null, current.id);
         const v = await this.bumpVersion(current, {
           status: to,
           statusReason: reason,
@@ -880,6 +917,7 @@ export class VehiclesService {
   /** FLT-008: ลบได้เฉพาะรถที่ไม่เคยมีเที่ยว/เอกสาร/ค่าใช้จ่าย → soft delete; ไม่งั้น 409 `in_use` (ให้ปลดระวางแทน) */
   async remove(id: string, reason: string, expected?: number): Promise<void> {
     const tx = this.db.tx;
+    await lockKey(tx, 'vehicle.pair');
     const current = await this.get(id);
     if (expected !== undefined && expected !== current.version)
       throw new ProblemException('precondition_failed');
@@ -899,10 +937,8 @@ export class VehiclesService {
       ],
       { action: 'retire', th: 'ปลดระวาง', en: 'retire' },
     );
-    if (current.pairedVehicleId) {
-      await lockKey(tx, 'vehicle.pair');
-      await this.setPartnerSide(current.pairedVehicleId, null);
-    }
+    if (current.pairedVehicleId)
+      await this.setPartnerSide(current.pairedVehicleId, null, current.id);
     await this.bumpVersion(current, {
       deletedAt: new Date(),
       externalId: null,
@@ -940,6 +976,53 @@ export class VehiclesService {
     });
   }
 
+  /**
+   * ค่าใหม่ต้องไม่น้อยกว่าค่า ACCEPTED ก่อนหน้า และไม่มากกว่าค่าหลังจากนั้น (เทียบตามเวลา — FLT-O ข้อ 8)
+   * `except` = แถวที่กำลังถูกแก้ (ไม่นับเป็นเพื่อนบ้าน) · คืนค่าก่อนหน้า (ใช้คำนวณ Δ)
+   */
+  private async assertTimeline(
+    vehicleId: string,
+    km: number,
+    readAt: Date,
+    field: string,
+    except?: string,
+  ): Promise<number | null> {
+    const tx = this.db.tx;
+    const base = {
+      vehicleId,
+      status: 'ACCEPTED',
+      ...(except ? { id: { not: except } } : {}),
+    };
+    const [prev, next] = await Promise.all([
+      tx.vehicleOdometerReading.findFirst({
+        where: { ...base, readAt: { lte: readAt } },
+        orderBy: [{ readAt: 'desc' }, { createdAt: 'desc' }],
+      }),
+      tx.vehicleOdometerReading.findFirst({
+        where: { ...base, readAt: { gt: readAt } },
+        orderBy: [{ readAt: 'asc' }, { createdAt: 'asc' }],
+      }),
+    ]);
+    const floor = prev ? Number(prev.readingKm) : null;
+    if (floor !== null && km < floor)
+      throw new ProblemException('validation_failed', undefined, [
+        {
+          field,
+          code: 'odometer_backwards',
+          message: `odometer cannot go backwards (previous ${floor} km) — use POST /vehicles/{id}/odometer/correct`,
+        },
+      ]);
+    if (next && km > Number(next.readingKm))
+      throw new ProblemException('validation_failed', undefined, [
+        {
+          field,
+          code: 'odometer_after_later',
+          message: `reading is higher than a later reading (${Number(next.readingKm)} km)`,
+        },
+      ]);
+    return floor;
+  }
+
   /** เลขไมล์ปัจจุบัน = reading ACCEPTED ล่าสุดตาม readAt (FLT-280) → เขียนกลับที่รถ */
   private async syncOdometer(current: VehicleFull, source: string): Promise<VehicleFull> {
     const last = await this.db.tx.vehicleOdometerReading.findFirst({
@@ -970,45 +1053,26 @@ export class VehiclesService {
   }
 
   /**
-   * บันทึกเลขไมล์ (แหล่ง MANUAL) — ต้องไม่น้อยกว่าค่าก่อนหน้าตามเวลา และไม่มากกว่าค่าหลังจากนั้น
-   * (reading ย้อนหลังเทียบตามเวลา ไม่ใช่ค่าล่าสุดเสมอ — FLT-O ข้อ 8) ไม่ผ่าน → 422 `odometer_backwards`
+   * lock `vehicle.odometer:{id}` ก่อนแล้วอ่านแถวใหม่ — คำขอพร้อมกันเข้าคิว ไม่เกิด 412 ปลอม
+   * 412 เฉพาะเมื่อส่ง If-Match มาแล้วไม่ตรง · รถปลดระวาง → 409
    */
-  async record(id: string, input: OdometerReadingInput, expected?: number) {
-    const tx = this.db.tx;
+  private async lockOdometer(id: string, expected?: number): Promise<VehicleFull> {
+    await lockKey(this.db.tx, `vehicle.odometer:${id}`);
     const current = await this.get(id);
     if (expected !== undefined && expected !== current.version)
       throw new ProblemException('precondition_failed');
-    await lockKey(tx, `vehicle.odometer:${id}`);
+    if (current.status === 'RETIRED') throw retired409();
+    return current;
+  }
+
+  /** บันทึกเลขไมล์ (แหล่ง MANUAL) — ผิดลำดับเวลา → 422 `odometer_backwards` / `odometer_after_later` */
+  async record(id: string, input: OdometerReadingInput, expected?: number) {
+    const tx = this.db.tx;
+    const current = await this.lockOdometer(id, expected);
     const readAt = input.readAt ? new Date(input.readAt) : new Date();
     if (readAt.getTime() > Date.now() + 5 * 60_000)
       throw field422('readAt', 'future', 'readAt must not be in the future');
-    const [prev, next] = await Promise.all([
-      tx.vehicleOdometerReading.findFirst({
-        where: { vehicleId: id, status: 'ACCEPTED', readAt: { lte: readAt } },
-        orderBy: [{ readAt: 'desc' }, { createdAt: 'desc' }],
-      }),
-      tx.vehicleOdometerReading.findFirst({
-        where: { vehicleId: id, status: 'ACCEPTED', readAt: { gt: readAt } },
-        orderBy: [{ readAt: 'asc' }, { createdAt: 'asc' }],
-      }),
-    ]);
-    const floor = prev ? Number(prev.readingKm) : null;
-    if (floor !== null && input.readingKm < floor)
-      throw new ProblemException('validation_failed', undefined, [
-        {
-          field: 'readingKm',
-          code: 'odometer_backwards',
-          message: `odometer cannot go backwards (previous ${floor} km)`,
-        },
-      ]);
-    if (next && input.readingKm > Number(next.readingKm))
-      throw new ProblemException('validation_failed', undefined, [
-        {
-          field: 'readingKm',
-          code: 'odometer_after_later',
-          message: `reading is higher than a later reading (${Number(next.readingKm)} km)`,
-        },
-      ]);
+    const floor = await this.assertTimeline(id, input.readingKm, readAt, 'readingKm');
     const r = await this.insertReading(id, input.readingKm, readAt, 'MANUAL');
     const v = await this.syncOdometer(current, 'MANUAL');
     await this.audit.changed(
@@ -1025,33 +1089,34 @@ export class VehiclesService {
     };
   }
 
-  /** แก้เลขไมล์ที่ผิด (FLT-285): ไม่ทับค่าเดิม — แถวใหม่อ้างแถวเดิม + แถวเดิม SUPERSEDED · เหตุผลบังคับ + audit */
+  /**
+   * แก้เลขไมล์ที่ผิด (FLT-285): ไม่ทับค่าเดิม — แถวใหม่ (source MANUAL + `originalReadingId`) + แถวเดิม SUPERSEDED
+   * แก้แถวไหน = `readingId` (ไม่ส่ง = ล่าสุด) · ค่าใหม่ต้องอยู่ระหว่างค่าก่อน/หลังตามเวลา ยกเว้น METER_REPLACED
+   */
   async correct(id: string, input: OdometerCorrectionInput, expected?: number) {
     const tx = this.db.tx;
-    const current = await this.get(id);
-    if (expected !== undefined && expected !== current.version)
-      throw new ProblemException('precondition_failed');
-    await lockKey(tx, `vehicle.odometer:${id}`);
-    const last = await tx.vehicleOdometerReading.findFirst({
-      where: { vehicleId: id, status: 'ACCEPTED' },
+    const current = await this.lockOdometer(id, expected);
+    const rid = input.readingId ? tryDecodeId('odometerReading', input.readingId) : null;
+    if (input.readingId && !rid) throw field422('readingId', 'not_found', 'reading not found');
+    const target = await tx.vehicleOdometerReading.findFirst({
+      where: { vehicleId: id, status: 'ACCEPTED', ...(rid ? { id: rid } : {}) },
       orderBy: [{ readAt: 'desc' }, { createdAt: 'desc' }],
     });
-    if (last)
+    if (rid && !target)
+      throw field422('readingId', 'not_found', 'reading not found or already superseded');
+    const readAt = target?.readAt ?? new Date();
+    if (input.reasonType !== 'METER_REPLACED')
+      await this.assertTimeline(id, input.readingKm, readAt, 'readingKm', target?.id);
+    if (target)
       await tx.vehicleOdometerReading.update({
-        where: { id: last.id },
+        where: { id: target.id },
         data: { status: 'SUPERSEDED' },
       });
-    const r = await this.insertReading(
-      id,
-      input.readingKm,
-      last?.readAt ?? new Date(),
-      'CORRECTION',
-      {
-        reasonType: input.reasonType,
-        note: input.note,
-        originalReadingId: last?.id ?? null,
-      },
-    );
+    const r = await this.insertReading(id, input.readingKm, readAt, 'MANUAL', {
+      reasonType: input.reasonType,
+      note: input.note,
+      originalReadingId: target?.id ?? null,
+    });
     const v = await this.syncOdometer(current, 'MANUAL');
     await this.audit.changed(
       'vehicle.odometer_corrected',
@@ -1062,7 +1127,7 @@ export class VehiclesService {
       input.note,
     );
     await emitMasterEvent(tx, 'odometer.corrected', 'vehicle', id, toReadingDto(r, null), {
-      originalReadingId: last ? encodeId('odometerReading', last.id) : null,
+      originalReadingId: target ? encodeId('odometerReading', target.id) : null,
     });
     return { reading: toReadingDto(r, null), vehicle: v };
   }

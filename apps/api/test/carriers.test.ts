@@ -473,6 +473,7 @@ describe('รถร่วม / ผู้รับเหมา (carriers)', () =>
         plate: `71-${seed}`,
         plateProvince: 'TH-20',
         plateKey: `71${seed}|TH-20`,
+        plateNorm: `71${seed}`,
         vehicleTypeId: vt.id,
         ownership: 'SUBCONTRACT',
         carrierId: tryDecodeId('carrier', c.id)!,

@@ -84,13 +84,20 @@ export const EMPTY_FORM: VehicleForm = {
 
 const s = (v: string | number | null | undefined) =>
   v === null || v === undefined ? '' : String(v);
+/** ตัวเลขในช่องแสดงแบบมีคั่นหลักพัน (ต้นแบบ "6,000") — ตอนอ่านค่าตัด , ออก */
+export const fmtNum = (v: string | number | null | undefined) => {
+  if (v === null || v === undefined || v === '') return '';
+  const [i, d] = String(v).split('.');
+  return `${Number(i).toLocaleString('en-US')}${d !== undefined ? `.${d}` : ''}`;
+};
+const strip = (x: string) => x.replace(/,/g, '').trim();
 
 export function toForm(v: Vehicle, t: T): VehicleForm {
   return {
     plate: v.plate,
     prov: v.plateProvince as Province,
     typeId: v.vehicleType.id,
-    cap: s(v.payloadKg),
+    cap: fmtNum(v.payloadKg),
     own: v.ownership,
     carrier: v.carrier ? { id: v.carrier.id, label: v.carrier.name, sub: v.carrier.code } : null,
     gps: s(v.gpsProvider),
@@ -104,31 +111,43 @@ export function toForm(v: Vehicle, t: T): VehicleForm {
     color: s(v.color),
     vin: s(v.chassisNo),
     eng: s(v.engineNo),
-    tare: s(v.tareWeightKg),
-    gross: s(v.grossWeightKg),
-    vol: s(v.volumeCbm),
+    tare: fmtNum(v.tareWeightKg),
+    gross: fmtNum(v.grossWeightKg),
+    vol: fmtNum(v.volumeCbm),
     fuel: v.fuelType ?? '',
-    tank: s(v.tankCapacityL),
-    odo: s(v.odometerKm),
+    tank: fmtNum(v.tankCapacityL),
+    odo: fmtNum(v.odometerKm),
     buyOn: s(v.purchasedOn),
-    cost: s(v.purchaseCost),
+    cost: fmtNum(v.purchaseCost),
     life: s(v.depreciationYears),
-    salvage: s(v.salvageValue),
+    salvage: fmtNum(v.salvageValue),
   };
 }
 
-const PLATE_RE = /^[0-9A-Z\u0E01-\u0E2E]{2,10}$/;
-const dec = (x: string, places: number) =>
+/** ทะเบียนไทย (สูตรเดียวกับ API assertPlate): 2 หลัก + 1–4 หลัก (70-1234) หรือ (เลข) + อักษร 1–3 ตัว + 1–4 หลัก (1กข 1234) */
+const PLATE_RE = /^(\d{2}\d{1,4}|\d?[\u0E01-\u0E2E]{1,3}\d{1,4})$/;
+const arabic = (x: string) =>
+  x.replace(/[\u0E50-\u0E59]/g, (c) => String(c.charCodeAt(0) - 0x0e50));
+const dec = (raw: string, places: number, x = strip(raw)) =>
   new RegExp(`^\\d{1,8}(\\.\\d{1,${places}})?$`).test(x.trim()) ? Number(x) : NaN;
-const int = (x: string) => (/^\d{1,8}$/.test(x.trim()) ? Number(x) : NaN);
+const int = (raw: string, x = strip(raw)) => (/^\d{1,8}$/.test(x) ? Number(x) : NaN);
 const MONEY = /^\d{1,12}(\.\d{1,2})?$/;
 
 /** ตรวจในฟอร์ม (กฎเดียวกับ API ที่ตรวจได้ทันที) — คืน { ช่อง API: ข้อความ } */
 export function validate(f: VehicleForm, t: T): Record<string, string> {
   const e: Record<string, string> = {};
-  const pk = f.plate.replace(/[\s\-.]/g, '').toUpperCase();
+  const raw = arabic(f.plate).trim();
+  const pk = raw.replace(/[\s\-.]/g, '').toUpperCase();
+  const provWords = new Set(
+    PROVINCES.flatMap((c) => [
+      t(`prov.${c}` as MessageKey),
+      t(`provAbbr.${c}` as MessageKey).replace(/\./g, ''),
+    ]),
+  );
   if (!f.plate.trim()) e.plate = t('veh.v.plate');
-  else if (!PLATE_RE.test(pk) || !/\d/.test(pk)) e.plate = t('veh.v.plateBad');
+  else if (/\d[\s\-.]*[\u0E01-\u0E2E.]+$/.test(raw) || provWords.has(raw.replace(/[\s.]/g, '')))
+    e.plate = t('field.plate_has_province');
+  else if (!PLATE_RE.test(pk)) e.plate = t('veh.v.plateBad');
   if (!f.prov) e.plateProvince = t('veh.v.prov');
   if (!f.typeId) e.vehicleTypeId = t('veh.v.type');
   if (!(dec(f.cap, 2) > 0)) e.payloadKg = t('veh.v.cap');
@@ -146,13 +165,14 @@ export function validate(f: VehicleForm, t: T): Record<string, string> {
   optInt('year', f.year);
   optInt('tankCapacityL', f.tank);
   optInt('depreciationYears', f.life);
-  if (f.cost.trim() && !MONEY.test(f.cost.trim())) e.purchaseCost = t('veh.v.money');
-  if (f.salvage.trim() && !MONEY.test(f.salvage.trim())) e.salvageValue = t('veh.v.money');
+  if (f.cost.trim() && !MONEY.test(strip(f.cost))) e.purchaseCost = t('veh.v.money');
+  if (f.salvage.trim() && !MONEY.test(strip(f.salvage))) e.salvageValue = t('veh.v.money');
   if ((f.life.trim() || f.salvage.trim()) && !f.cost.trim()) e.purchaseCost = t('veh.v.lifeCost');
   return e;
 }
 
-const nOrNull = (x: string) => (x.trim() ? Number(x) : null);
+const nOrNull = (x: string) => (strip(x) ? Number(strip(x)) : null);
+const mOrNull = (x: string) => (strip(x) ? strip(x) : null);
 const tOrNull = (x: string) => (x.trim() ? x.trim() : null);
 
 /** ฟอร์ม → body ของ API (ข้อมูลการเงินส่งเฉพาะผู้มีสิทธิ์) */
@@ -163,7 +183,7 @@ export function toBody(f: VehicleForm, finance: boolean): VehicleCreate {
     vehicleTypeId: f.typeId,
     ownership: f.own,
     carrierId: f.own === 'SUBCONTRACT' ? (f.carrier?.id ?? null) : null,
-    payloadKg: Number(f.cap),
+    payloadKg: Number(strip(f.cap)),
     gpsProvider: tOrNull(f.gps),
     gpsDeviceId: tOrNull(f.gpsId),
     unitRole: f.role,
@@ -179,14 +199,14 @@ export function toBody(f: VehicleForm, finance: boolean): VehicleCreate {
     volumeCbm: nOrNull(f.vol),
     fuelType: f.fuel || null,
     tankCapacityL: nOrNull(f.tank),
-    ...(f.odo.trim() ? { odometerKm: Number(f.odo) } : {}),
+    ...(strip(f.odo) ? { odometerKm: Number(strip(f.odo)) } : {}),
     ...(finance
       ? {
           purchasedOn: tOrNull(f.buyOn),
-          purchaseCost: tOrNull(f.cost),
+          purchaseCost: mOrNull(f.cost),
           depreciationMethod: f.life.trim() ? 'STRAIGHT_LINE' : null,
           depreciationYears: nOrNull(f.life),
-          salvageValue: tOrNull(f.salvage),
+          salvageValue: mOrNull(f.salvage),
         }
       : {}),
   };
@@ -402,7 +422,12 @@ export function VehicleFields({
         </FormField>
       )}
       <FormField label={t('veh.f.gpsId')} error={errs.gpsDeviceId} hint={t('veh.f.gpsIdHint')}>
-        {text('gpsId', { placeholder: t('veh.f.gpsIdPh'), maxLength: 50, className: 'tms-num' })}
+        {text('gpsId', {
+          placeholder: t('veh.f.gpsIdPh'),
+          maxLength: 50,
+          className: 'tms-num',
+          name: 'gpsId',
+        })}
       </FormField>
       <FormField label={t('veh.f.role')} error={errs.unitRole}>
         {select(

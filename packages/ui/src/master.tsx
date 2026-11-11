@@ -306,14 +306,21 @@ export function ReasonDialog({
   onClose: () => void;
 }) {
   const [reason, setReason] = useState('');
+  /** กดยืนยันแล้ว รอผล — กันกดซ้ำก่อน `busy` ของ parent จะเปลี่ยน (QA ST2-T06) */
+  const [sent, setSent] = useState(false);
   const id = useId();
+  // ปลดล็อกปุ่มเมื่อคำขอจบ (busy กลับเป็น false) หรือมี error ใหม่
+  useEffect(() => {
+    if (!busy) setSent(false);
+  }, [busy, error]);
   // ล้างเหตุผลเฉพาะตอนเปิดใหม่ (ไม่ผูกกับ onClose ที่ parent สร้างใหม่ทุก render)
   useEffect(() => {
+    if (open) setSent(false);
     if (open) setReason('');
   }, [open]);
   useEscape(open, onClose);
   if (!open) return null;
-  const ok = reason.trim().length >= minLength && !busy;
+  const ok = reason.trim().length >= minLength && !busy && !sent;
   return (
     <div className="tms-dialog__scrim" onClick={onClose}>
       <div
@@ -366,7 +373,12 @@ export function ReasonDialog({
             className="tms-drawer__pri"
             style={{ height: 36, padding: '0 16px' }}
             disabled={!ok}
-            onClick={() => onOk(reason.trim())}
+            aria-busy={busy || sent}
+            onClick={() => {
+              if (!ok) return;
+              setSent(true);
+              onOk(reason.trim());
+            }}
           >
             {okIcon && <Icon n={okIcon} s={16} />}
             {okLabel}

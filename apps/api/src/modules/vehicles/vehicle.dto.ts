@@ -174,11 +174,11 @@ export class VehicleFieldsDto {
     example: 2021,
     nullable: true,
     type: Number,
-    description: 'ปีผลิต (ค.ศ.) 1950 – ปีหน้า',
+    description: 'ปีผลิต (ค.ศ.) 1980 – ปีหน้า (spec/06 FLT-A)',
   })
   @IsNullable()
   @IsInt()
-  @Min(1950)
+  @Min(1980)
   @Max(2200)
   year?: number | null;
 
@@ -397,6 +397,14 @@ export class OdometerReadingInput {
 
 /** แก้เลขไมล์ที่ผิด (FLT-285) — ค่าน้อยกว่าได้ ต้องมีชนิดเหตุผล + คำอธิบาย ≥ 10 ตัวอักษร (audit) */
 export class OdometerCorrectionInput {
+  @ApiPropertyOptional({
+    example: 'odo_…',
+    description: 'แถวที่จะแก้ (ต้องยังเป็น ACCEPTED) — ไม่ส่ง = แถวล่าสุด',
+  })
+  @IsOptional()
+  @Matches(/^odo_[0-9a-f]{32}$/)
+  readingId?: string;
+
   @ApiProperty({ example: 148200 })
   @IsNumber({ maxDecimalPlaces: 1 })
   @Min(0)
@@ -613,6 +621,11 @@ export class VehicleDto {
   @ApiProperty() version!: number;
   @ApiProperty({ format: 'date-time' }) createdAt!: string;
   @ApiProperty({ format: 'date-time' }) updatedAt!: string;
+  @ApiPropertyOptional({
+    description:
+      'มีเฉพาะในผลการสร้าง: true = รถที่นับโควตา (ยังไม่ปลดระวาง) เกินโควตาของ tenant แล้ว — soft limit ยังสร้างได้ (header `Warning: 299` ด้วย)',
+  })
+  quotaExceeded?: boolean;
 }
 
 export class VehiclePageDto {

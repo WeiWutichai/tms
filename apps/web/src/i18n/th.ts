@@ -1453,6 +1453,10 @@ export const th = {
   'hist.retired': 'ปลดระวาง',
   'hist.odometerRecorded': 'บันทึกเลขไมล์',
   'hist.odometerCorrected': 'แก้เลขไมล์',
+  'field.plate_has_province':
+    'ใส่จังหวัดในช่องจังหวัด — ช่องทะเบียนกรอกเฉพาะเลขทะเบียน เช่น 70-1234',
+  'field.future': 'วันที่ต้องไม่เป็นวันในอนาคต',
+  'field.vehicle_retired': 'รถปลดระวางแล้ว แก้ไขไม่ได้',
 } as const;
 
 export type MessageKey = keyof typeof th;

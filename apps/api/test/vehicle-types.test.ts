@@ -37,6 +37,7 @@ describe('ประเภทรถ (vehicle-types)', () => {
         plate: `70-${String(++seed).padStart(4, '0')}`,
         plateProvince: 'TH-10',
         plateKey: `70${String(seed).padStart(4, '0')}|TH-10`,
+        plateNorm: `70${String(seed).padStart(4, '0')}`,
         vehicleTypeId: tryDecodeId('vehicleType', vehicleTypeId)!,
         ownership: 'OWN',
         status,

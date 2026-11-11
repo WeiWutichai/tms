@@ -208,6 +208,16 @@ export function VehiclesPage() {
   ];
 
   const filtered = Object.values(filters).some((v) => v !== '');
+  // จำนวนรายการ: ไม่กรอง = ทั้งหมด · กรองเฉพาะสถานะ (การ์ด/คอลัมน์สถานะ) = ตัวนับจาก summary · กรองอื่น = ไม่แสดง (รู้แค่หน้านี้ — QA ST2-T06)
+  const statusOnly =
+    !!filters.status && !filters.plate && !filters.vehicleTypeId && !filters.ownership;
+  const shownTotal = !sum
+    ? undefined
+    : !filtered
+      ? sum.total
+      : statusOnly
+        ? sum[filters.status as VehicleStatus]
+        : undefined;
   const today = formatDate(new Date(), lang, (me.data?.tenant.yearStyle as 'BE' | 'CE') ?? 'BE');
 
   return (
@@ -270,7 +280,7 @@ export function VehiclesPage() {
         />
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 32 }}>
           <span style={{ marginLeft: 'auto', color: '#3B424C', fontSize: 13 }}>
-            {t('table.total', { n: !filtered && sum ? sum.total : list.page.rowsOnPage })}
+            {shownTotal !== undefined && t('table.total', { n: shownTotal })}
           </span>
         </div>
         {list.q.isError ? (
@@ -345,7 +355,7 @@ export function VehiclesPage() {
                 />
               )
             }
-            page={{ ...list.page, ...(!filtered && sum ? { total: sum.total } : {}) }}
+            page={{ ...list.page, ...(shownTotal !== undefined ? { total: shownTotal } : {}) }}
             onPageSize={list.setSize}
             onNext={list.next}
             onPrev={list.prev}

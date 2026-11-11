@@ -579,6 +579,7 @@ model Vehicle {
   plate              String /// ทะเบียนตามที่กรอก (ตัดช่องว่างซ้อน) เช่น "70-1234"
   plateProvince      String                   @map("plate_province") /// รหัสจังหวัด ISO 3166-2 (TH-10 = กรุงเทพมหานคร)
   plateKey           String                   @map("plate_key") /// normalize: ทะเบียนไม่มีช่องว่าง/ขีด/จุด + "|" + จังหวัด
+  plateNorm          String                   @map("plate_norm") /// ทะเบียนอย่างเดียว normalize (เลขไทย → อารบิก, ตัดช่องว่าง/ขีด/จุด) — ใช้ค้นหา
   vehicleTypeId      String                   @map("vehicle_type_id") @db.Uuid
   vehicleType        VehicleType              @relation(fields: [vehicleTypeId], references: [id], onDelete: Restrict)
   unitRole           String                   @default("SINGLE") @map("unit_role") /// SINGLE / TRACTOR (หัวลาก) / TRAILER (หาง)
@@ -592,6 +593,7 @@ model Vehicle {
   gpsProvider        String?                  @map("gps_provider")
   gpsDeviceId        String?                  @map("gps_device_id")
   chassisNo          String?                  @map("chassis_no") /// เลขตัวถัง (vin) — unique ต่อ tenant (ไม่สนตัวพิมพ์)
+  chassisNorm        String?                  @map("chassis_norm") /// เลขตัวถัง normalize (ตัดช่องว่าง/ขีด/จุด/ทับ ตัวใหญ่) — unique ต่อ tenant
   engineNo           String?                  @map("engine_no")
   brand              String?
   model              String?
@@ -625,6 +627,7 @@ model Vehicle {
   @@unique([tenantId, externalId])
   @@index([tenantId, updatedAt, id])
   @@index([tenantId, plateKey, id])
+  @@index([tenantId, plateNorm])
   @@index([tenantId, vehicleTypeId])
   @@index([tenantId, carrierId])
   @@map("vehicle")

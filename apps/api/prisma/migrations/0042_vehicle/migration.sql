@@ -15,6 +15,24 @@ BEGIN
   IF FOUND THEN RAISE EXCEPTION '0042: รถบริษัทมี carrier_id (tenant %, ทะเบียน %) — ล้าง carrier_id ก่อน migrate', r.tenant_id, r.plate; END IF;
   SELECT tenant_id, plate INTO r FROM "vehicle" WHERE paired_vehicle_id IS NOT NULL LIMIT 1;
   IF FOUND THEN RAISE EXCEPTION '0042: มีรถที่จับคู่หัวลาก-หางไว้ก่อน (tenant %, ทะเบียน %) — ล้าง paired_vehicle_id ก่อน migrate', r.tenant_id, r.plate; END IF;
+  -- ข้อมูลที่จะชน unique/CHECK ด้านล่าง (review ST2-T06)
+  SELECT tenant_id, upper(regexp_replace(plate, '[\s\-.]', '', 'g')) AS p, plate_province, count(*) AS n INTO r FROM "vehicle"
+    WHERE status <> 'RETIRED' GROUP BY 1, 2, 3 HAVING count(*) > 1 LIMIT 1;
+  IF FOUND THEN RAISE EXCEPTION '0042: ทะเบียนซ้ำเมื่อตัดช่องว่าง/ขีด (tenant %, ทะเบียน % จังหวัด %, % คัน) — ปลดระวาง/แก้ทะเบียนก่อน migrate', r.tenant_id, r.p, r.plate_province, r.n; END IF;
+  SELECT tenant_id, upper(chassis_no) AS c, count(*) AS n INTO r FROM "vehicle"
+    WHERE chassis_no IS NOT NULL GROUP BY 1, 2 HAVING count(*) > 1 LIMIT 1;
+  IF FOUND THEN RAISE EXCEPTION '0042: เลขตัวถังซ้ำ (ไม่สนตัวพิมพ์) (tenant %, เลข %, % คัน)', r.tenant_id, r.c, r.n; END IF;
+  SELECT tenant_id, lower(gps_provider) AS g, gps_device_id, count(*) AS n INTO r FROM "vehicle"
+    WHERE gps_device_id IS NOT NULL AND status <> 'RETIRED' GROUP BY 1, 2, 3 HAVING count(*) > 1 LIMIT 1;
+  IF FOUND THEN RAISE EXCEPTION '0042: เลขอุปกรณ์ GPS ซ้ำ (tenant %, ค่าย %, เลข %, % คัน)', r.tenant_id, r.g, r.gps_device_id, r.n; END IF;
+  SELECT tenant_id, plate, fuel_type INTO r FROM "vehicle"
+    WHERE fuel_type IS NOT NULL AND fuel_type NOT IN ('DIESEL', 'GASOLINE', 'NGV', 'LPG', 'EV', 'HYBRID') LIMIT 1;
+  IF FOUND THEN RAISE EXCEPTION '0042: ชนิดเชื้อเพลิงไม่รู้จัก (tenant %, ทะเบียน %, ค่า %) — ใช้ DIESEL/GASOLINE/NGV/LPG/EV/HYBRID', r.tenant_id, r.plate, r.fuel_type; END IF;
+  SELECT tenant_id, plate, year INTO r FROM "vehicle" WHERE year IS NOT NULL AND year NOT BETWEEN 1950 AND 2200 LIMIT 1;
+  IF FOUND THEN RAISE EXCEPTION '0042: ปีผลิตผิด (tenant %, ทะเบียน %, ปี %)', r.tenant_id, r.plate, r.year; END IF;
+  SELECT tenant_id, plate, capacity_kg, capacity_cbm INTO r FROM "vehicle"
+    WHERE capacity_kg <= 0 OR capacity_cbm < 0 OR purchase_cost < 0 LIMIT 1;
+  IF FOUND THEN RAISE EXCEPTION '0042: น้ำหนัก/ปริมาตร/ราคาซื้อผิด (tenant %, ทะเบียน %, น้ำหนัก %, ปริมาตร %)', r.tenant_id, r.plate, r.capacity_kg, r.capacity_cbm; END IF;
 END $$;
 
 -- DropIndex (แทนด้วย unique แบบ normalize ด้านล่าง)

@@ -3,7 +3,14 @@ import { useEffect, useRef, useState } from 'react';
 import { ApiError } from '../../api';
 import { useI18n } from '../../i18n';
 import { fieldErrors, problemText } from '../master/problems';
-import { EMPTY_FORM, VehicleFields, toBody, validate, type VehicleForm } from './VehicleFields';
+import {
+  EMPTY_FORM,
+  VehicleFields,
+  fmtNum,
+  toBody,
+  validate,
+  type VehicleForm,
+} from './VehicleFields';
 import { useCreateVehicle, useVehicleTypeOptions, type Vehicle } from './useVehicles';
 
 /**
@@ -134,8 +141,8 @@ export function VehicleFormDrawer({
                 ...x,
                 typeId: id,
                 cap:
-                  !x.cap || opts.some((o) => String(o.payloadKg ?? '') === x.cap)
-                    ? String(vt?.payloadKg ?? '')
+                  !x.cap || opts.some((o) => fmtNum(o.payloadKg) === x.cap)
+                    ? fmtNum(vt?.payloadKg)
                     : x.cap,
               }));
             }}

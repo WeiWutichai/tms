@@ -120,7 +120,7 @@ export class VehicleTypesService {
     const [veh, rc] = await Promise.all([
       tx.vehicle.groupBy({
         by: ['vehicleTypeId'],
-        where: { vehicleTypeId: { in: ids }, status: { not: 'RETIRED' } },
+        where: { vehicleTypeId: { in: ids }, status: { not: 'RETIRED' }, deletedAt: null },
         _count: { _all: true },
       }),
       tx.rateCard.groupBy({
@@ -178,7 +178,7 @@ export class VehicleTypesService {
     });
     const n = (s: ActiveStatus) => g.find((x) => x.status === s)?._count._all ?? 0;
     const [vehicles, rateCards] = await Promise.all([
-      tx.vehicle.count({ where: { status: { not: 'RETIRED' } } }),
+      tx.vehicle.count({ where: { status: { not: 'RETIRED' }, deletedAt: null } }),
       tx.rateCard.count({ where: { vehicleTypeId: { not: null } } }),
     ]);
     return {
@@ -387,7 +387,9 @@ export class VehicleTypesService {
         {
           name: 'vehicles',
           count: () =>
-            tx.vehicle.count({ where: { vehicleTypeId: id, status: { not: 'RETIRED' } } }),
+            tx.vehicle.count({
+              where: { vehicleTypeId: id, status: { not: 'RETIRED' }, deletedAt: null },
+            }),
         },
       ]);
     let updated!: VehicleType;
@@ -422,7 +424,10 @@ export class VehicleTypesService {
     if (expected !== undefined && expected !== current.version)
       throw new ProblemException('precondition_failed');
     await assertNotReferenced([
-      { name: 'vehicles', count: () => tx.vehicle.count({ where: { vehicleTypeId: id } }) },
+      {
+        name: 'vehicles',
+        count: () => tx.vehicle.count({ where: { vehicleTypeId: id, deletedAt: null } }),
+      },
       { name: 'rateCards', count: () => tx.rateCard.count({ where: { vehicleTypeId: id } }) },
       {
         name: 'salesOrders',

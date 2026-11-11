@@ -262,9 +262,9 @@ export class SetupChecklistController {
         })
         .then(Boolean),
       Promise.all([
-        tx.customer.findFirst({ select: { id: true } }),
-        tx.carrier.findFirst({ select: { id: true } }),
-        tx.vehicle.findFirst({ select: { id: true } }),
+        tx.customer.findFirst({ where: { deletedAt: null }, select: { id: true } }),
+        tx.carrier.findFirst({ where: { deletedAt: null }, select: { id: true } }),
+        tx.vehicle.findFirst({ where: { deletedAt: null }, select: { id: true } }),
         tx.driver.findFirst({ select: { id: true } }),
       ]).then((r) => r.some(Boolean)),
       // ทีม = ผู้ใช้ที่ใช้งานอยู่ + ผู้ถูกเชิญที่คำเชิญยังใช้ได้ (หมดอายุ/เพิกถอนแล้วไม่นับ)

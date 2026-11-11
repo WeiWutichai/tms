@@ -109,6 +109,7 @@ const FIXTURES: Record<string, (db: PrismaClient, tenantId: string, n: number) =
           plate: `70-${1000 + n}`,
           plateProvince: 'TH-10',
           plateKey: `70${1000 + n}|TH-10`,
+          plateNorm: `70${1000 + n}`,
           vehicleTypeId: vt.id,
           ownership: 'OWN',
         },

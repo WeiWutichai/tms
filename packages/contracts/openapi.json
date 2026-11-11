@@ -6654,7 +6654,7 @@
         },
         "responses": {
           "201": {
-            "description": "",
+            "description": "สร้างแล้ว — เกินโควตารถ: `quotaExceeded: true` + header `Warning: 299` (ยังสร้างได้)",
             "content": {
               "application/json": {
                 "schema": {
@@ -13120,6 +13120,10 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "quotaExceeded": {
+            "type": "boolean",
+            "description": "มีเฉพาะในผลการสร้าง: true = รถที่นับโควตา (ยังไม่ปลดระวาง) เกินโควตาของ tenant แล้ว — soft limit ยังสร้างได้ (header `Warning: 299` ด้วย)"
           }
         },
         "required": [
@@ -13315,7 +13319,7 @@
             "type": "number",
             "example": 2021,
             "nullable": true,
-            "description": "ปีผลิต (ค.ศ.) 1950 – ปีหน้า"
+            "description": "ปีผลิต (ค.ศ.) 1980 – ปีหน้า (spec/06 FLT-A)"
           },
           "color": {
             "type": "string",
@@ -13586,7 +13590,7 @@
             "type": "number",
             "example": 2021,
             "nullable": true,
-            "description": "ปีผลิต (ค.ศ.) 1950 – ปีหน้า"
+            "description": "ปีผลิต (ค.ศ.) 1980 – ปีหน้า (spec/06 FLT-A)"
           },
           "color": {
             "type": "string",
@@ -13853,7 +13857,7 @@
             "type": "number",
             "example": 2021,
             "nullable": true,
-            "description": "ปีผลิต (ค.ศ.) 1950 – ปีหน้า"
+            "description": "ปีผลิต (ค.ศ.) 1980 – ปีหน้า (spec/06 FLT-A)"
           },
           "color": {
             "type": "string",
@@ -14177,6 +14181,11 @@
       "OdometerCorrectionInput": {
         "type": "object",
         "properties": {
+          "readingId": {
+            "type": "string",
+            "example": "odo_…",
+            "description": "แถวที่จะแก้ (ต้องยังเป็น ACCEPTED) — ไม่ส่ง = แถวล่าสุด"
+          },
           "readingKm": {
             "type": "number",
             "example": 148200

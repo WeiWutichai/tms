@@ -535,4 +535,188 @@ describe('รถ (vehicles)', () => {
     expect((await api(app, admin).get('/v1/vehicles?plate=7077')).body.data).toHaveLength(0);
     await create({ vehicleTypeId: vt }).expect(422);
   });
+
+  it('review: รถที่ลบ (soft) ไม่นับเป็นรถที่ใช้งาน — ปิดใช้ประเภทรถ/ลบผู้รับเหมา/usage/setup checklist', async () => {
+    const vt = (
+      await api(app, admin)
+        .post('/v1/vehicle-types')
+        .send({ name: 'ประเภทลบแล้ว', vehicleClass: '6W', payloadKg: 5000, minLicenceClass: 'T2' })
+        .expect(201)
+    ).body;
+    const c = (
+      await api(app, admin)
+        .post('/v1/carriers')
+        .send({ legalName: 'หจก. รถลบแล้ว', entityType: 'JURISTIC', taxId: jurTax(9) })
+        .expect(201)
+    ).body.id;
+    const v = (
+      await create({ vehicleTypeId: vt.id, ownership: 'SUBCONTRACT', carrierId: c }).expect(201)
+    ).body;
+    await api(app, admin)
+      .post(`/v1/vehicles/${v.id}/delete`)
+      .send({ reason: 'กรอกซ้ำโดยไม่ตั้งใจ' })
+      .expect(204);
+    expect((await api(app, admin).get(`/v1/vehicle-types/${vt.id}`)).body.usage.vehicles).toBe(0);
+    expect((await api(app, admin).get(`/v1/carriers/${c}`)).body.usage.vehicles).toBe(0);
+    await api(app, admin)
+      .post(`/v1/vehicle-types/${vt.id}/deactivate`)
+      .send({ reason: 'ทดสอบปิดใช้หลังลบรถ' })
+      .expect(200);
+    await api(app, admin)
+      .post(`/v1/carriers/${c}/delete`)
+      .send({ reason: 'ทดสอบลบผู้รับเหมาหลังลบรถ' })
+      .expect(204);
+  });
+
+  it('review: ทะเบียน — เลขไทย, จังหวัดในช่องทะเบียน, ละติน/เลขล้วน, ค้นไม่ตรงรหัสจังหวัด', async () => {
+    const a = (await create({ plate: '74-8801', plateProvince: 'TH-10' }).expect(201)).body;
+    const dup = await create({ plate: '๗๔-๘๘๐๑', plateProvince: 'TH-10' }).expect(409);
+    expect(dup.body.existing.id).toBe(a.id);
+    const th = (await create({ plate: '๗๔-๘๘๐๒' }).expect(201)).body;
+    expect(th.plate).toBe('74-8802');
+    for (const bad of ['80-1234 กทม', '80-1234 กทม.', 'กทม.', 'ชลบุรี'])
+      expect((await create({ plate: bad }).expect(422)).body.errors[0].code).toBe(
+        'plate_has_province',
+      );
+    for (const bad of ['AB-1234', '0812345678', '12'])
+      expect((await create({ plate: bad }).expect(422)).body.errors[0].code).toBe('plate_format');
+    await create({ plate: '1กข 1234' }).expect(201);
+    await create({ plate: '72-11' }).expect(201);
+    // ค้นทะเบียนไม่ไปตรงกับรหัสจังหวัด TH-10
+    expect((await api(app, admin).get('/v1/vehicles?plate=TH')).body.data).toHaveLength(0);
+    expect((await api(app, admin).get('/v1/vehicles?q=TH-10')).body.data).toHaveLength(0);
+    expect((await api(app, admin).get('/v1/vehicles?plate=๗๔๘๘๐๑')).body.data).toHaveLength(1);
+    // เลขตัวถัง normalize: MNT-123ABC = MNT123ABC
+    await create({ chassisNo: 'MNT-123ABC' }).expect(201);
+    expect((await create({ chassisNo: 'mnt 123abc' }).expect(409)).body.errors[0].field).toBe(
+      'chassisNo',
+    );
+  });
+
+  it('review: น้ำหนักบรรทุกจากประเภทรถถูกตรวจกับน้ำหนักรวม − เปล่า · ปี ≥ 1980 · วันซื้อไม่เป็นอนาคต', async () => {
+    // ประเภท 6 ล้อ 6,000 กก. แต่รวม − เปล่า = 5,700
+    const r = await create({ tareWeightKg: 3300, grossWeightKg: 9000 }).expect(422);
+    expect(r.body.errors[0]).toMatchObject({ field: 'payloadKg', code: 'payload_over_gvw' });
+    await create({ year: 1979 }).expect(422);
+    await create({ year: 1980 }).expect(201);
+    const next = new Date(Date.now() + 3 * 86400_000).toISOString().slice(0, 10);
+    expect((await create({ purchasedOn: next }).expect(422)).body.errors[0].code).toBe('future');
+  });
+
+  it('review: เลขไมล์ 5 ค่าพร้อมกัน (ไม่ส่ง If-Match) รับครบและเรียงถูก · ส่ง If-Match ผิด → 412', async () => {
+    const base = Date.now() - 10 * 60_000;
+    const w = (await create().expect(201)).body;
+    const res2 = await Promise.all(
+      [5, 3, 1, 4, 2].map((i) =>
+        api(app, admin)
+          .post(`/v1/vehicles/${w.id}/odometer`)
+          .send({ readingKm: 1000 + i * 100, readAt: new Date(base + i * 60_000).toISOString() }),
+      ),
+    );
+    expect(res2.map((r) => r.status)).toEqual([201, 201, 201, 201, 201]);
+    const list = (await api(app, admin).get(`/v1/vehicles/${w.id}/odometer`)).body.data;
+    expect(list.map((x: { readingKm: number }) => x.readingKm)).toEqual([
+      1500, 1400, 1300, 1200, 1100,
+    ]);
+    const g = await api(app, admin).get(`/v1/vehicles/${w.id}`).expect(200);
+    expect(g.body.odometerKm).toBe(1500);
+    await api(app, admin)
+      .post(`/v1/vehicles/${w.id}/odometer`)
+      .set('If-Match', `"${g.body.version - 1}"`)
+      .send({ readingKm: 1600 })
+      .expect(412);
+  });
+
+  it('review: แก้เลขไมล์ — เลือกแถว, ตรวจกับค่าก่อน/หลัง เว้นแต่เปลี่ยนเรือนไมล์ · source MANUAL', async () => {
+    const w = (await create().expect(201)).body;
+    const t0 = Date.now() - 3 * 3600_000;
+    const ids: string[] = [];
+    for (const [i, km] of [
+      [0, 10000],
+      [1, 10500],
+      [2, 11000],
+    ] as const)
+      ids.push(
+        (
+          await api(app, admin)
+            .post(`/v1/vehicles/${w.id}/odometer`)
+            .send({ readingKm: km, readAt: new Date(t0 + i * 3600_000).toISOString() })
+            .expect(201)
+        ).body.reading.id,
+      );
+    const note = 'กรอกเลขผิดจากใบเสร็จน้ำมัน';
+    // แก้แถวกลางให้ต่ำกว่าแถวแรก → 422
+    await api(app, admin)
+      .post(`/v1/vehicles/${w.id}/odometer/correct`)
+      .send({ readingId: ids[1], readingKm: 9000, reasonType: 'TYPO', note })
+      .expect(422);
+    const ok = await api(app, admin)
+      .post(`/v1/vehicles/${w.id}/odometer/correct`)
+      .send({ readingId: ids[1], readingKm: 10400, reasonType: 'TYPO', note })
+      .expect(200);
+    expect(ok.body.reading).toMatchObject({ source: 'MANUAL', originalReadingId: ids[1] });
+    expect(ok.body.vehicle.odometerKm).toBe(11000);
+    // แถวที่ถูกแทนแล้วแก้ซ้ำไม่ได้
+    await api(app, admin)
+      .post(`/v1/vehicles/${w.id}/odometer/correct`)
+      .send({ readingId: ids[1], readingKm: 10450, reasonType: 'TYPO', note })
+      .expect(422);
+    // เปลี่ยนเรือนไมล์: ค่าล่าสุดลดได้
+    const m = await api(app, admin)
+      .post(`/v1/vehicles/${w.id}/odometer/correct`)
+      .send({ readingKm: 5, reasonType: 'METER_REPLACED', note: 'เปลี่ยนเรือนไมล์ใหม่ที่อู่' })
+      .expect(200);
+    expect(m.body.vehicle.odometerKm).toBe(5);
+  });
+
+  it('review: รถปลดระวางอ่านอย่างเดียว (PATCH/เลขไมล์ → 409) · แก้เฉพาะข้อมูลการเงินไม่ออก event/ไม่เห็นในประวัติของผู้ไม่มีสิทธิ์', async () => {
+    const v = (await create({ purchaseCost: '1000000.00' }).expect(201)).body;
+    const ev0 = await db.domainEvent.count({
+      where: { localId: tryDecodeId('vehicle', v.id)!, type: 'vehicle.updated' },
+    });
+    await api(app, admin)
+      .patch(`/v1/vehicles/${v.id}`)
+      .send({ purchaseCost: '1200000.00' })
+      .expect(200);
+    expect(
+      await db.domainEvent.count({
+        where: { localId: tryDecodeId('vehicle', v.id)!, type: 'vehicle.updated' },
+      }),
+    ).toBe(ev0);
+    const ph = await api(app, planner).get(`/v1/vehicles/${v.id}/history`).expect(200);
+    expect(ph.body.data.map((x: { action: string }) => x.action)).toEqual(['vehicle.created']);
+    const ah = await api(app, admin).get(`/v1/vehicles/${v.id}/history`).expect(200);
+    expect(ah.body.data[0].action).toBe('vehicle.updated');
+
+    await api(app, admin)
+      .post(`/v1/vehicles/${v.id}/status`)
+      .send({ status: 'retired', reason: 'ขายรถให้บริษัทอื่นแล้ว' })
+      .expect(200);
+    await api(app, admin).patch(`/v1/vehicles/${v.id}`).send({ color: 'แดง' }).expect(409);
+    await api(app, admin).post(`/v1/vehicles/${v.id}/odometer`).send({ readingKm: 10 }).expect(409);
+  });
+
+  it('review: สร้างรถเกินโควตา → quotaExceeded + Warning header (ยังสร้างได้)', async () => {
+    const t3 = (await createTenant(db)).id;
+    const tok = await tokenFor(t3);
+    const vt = (
+      await api(app, tok)
+        .post('/v1/vehicle-types')
+        .send({ name: '6 ล้อ', vehicleClass: '6W', payloadKg: 6000, minLicenceClass: 'T2' })
+        .expect(201)
+    ).body.id;
+    await db.tenant.update({ where: { id: t3 }, data: { vehicleQuota: 1 } });
+    const body = (p: string) => ({
+      plate: p,
+      plateProvince: 'TH-10',
+      vehicleTypeId: vt,
+      ownership: 'OWN',
+    });
+    const a = await api(app, tok).post('/v1/vehicles').send(body('70-0001')).expect(201);
+    expect(a.body.quotaExceeded).toBe(false);
+    expect(a.headers.warning).toBeUndefined();
+    const b = await api(app, tok).post('/v1/vehicles').send(body('70-0002')).expect(201);
+    expect(b.body.quotaExceeded).toBe(true);
+    expect(b.headers.warning).toContain('quota');
+  });
 });

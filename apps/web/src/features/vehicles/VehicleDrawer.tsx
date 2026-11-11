@@ -172,6 +172,32 @@ export function VehicleDrawer({
       {top && <div className="tms-alert">{top}</div>}
       {tab === 'info' && (
         <>
+          {/* ต้นแบบ vPanel veh: สรุป "ข้อมูลเพิ่มเติม" (ฟิลด์เพิ่มเติม) + ลิงก์ "แก้ไข" ไปที่ช่องในฟอร์ม */}
+          <section className="tms-kv">
+            <span
+              className="tms-kv__title"
+              style={{ display: 'flex', justifyContent: 'space-between' }}
+            >
+              {t('veh.sec.extra')}
+              {!ro && (
+                <button
+                  type="button"
+                  className="tms-textlink"
+                  onClick={() =>
+                    document.querySelector<HTMLInputElement>('input[name="gpsId"]')?.focus()
+                  }
+                >
+                  {t('common.edit')}
+                </button>
+              )}
+            </span>
+            <div className="tms-kv__grid">
+              <div className="tms-kv__item">
+                <span className="tms-kv__k">{t('veh.f.gpsId')}</span>
+                <span className="tms-kv__v tms-num">{v.gpsDeviceId ?? '—'}</span>
+              </div>
+            </div>
+          </section>
           <div className="tms-fgrid">
             <VehicleFields
               t={t}

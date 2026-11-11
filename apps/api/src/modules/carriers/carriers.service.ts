@@ -193,7 +193,7 @@ export class CarriersService {
     const [veh, drv, kids] = await Promise.all([
       tx.vehicle.groupBy({
         by: ['carrierId'],
-        where: { carrierId: { in: ids }, status: { not: 'RETIRED' } },
+        where: { carrierId: { in: ids }, status: { not: 'RETIRED' }, deletedAt: null },
         _count: { _all: true },
       }),
       tx.driver.groupBy({
@@ -697,12 +697,16 @@ export class CarriersService {
       [
         {
           name: 'vehicles',
-          count: () => tx.vehicle.count({ where: { carrierId: id, status: { not: 'RETIRED' } } }),
+          count: () =>
+            tx.vehicle.count({
+              where: { carrierId: id, status: { not: 'RETIRED' }, deletedAt: null },
+            }),
         },
         {
           // รถปลดระวางไม่นับใน "จำนวนรถ" แต่ยังอ้างถึงอยู่ — แยกให้ข้อความอธิบายได้ (QA ST2-T05)
           name: 'retiredVehicles',
-          count: () => tx.vehicle.count({ where: { carrierId: id, status: 'RETIRED' } }),
+          count: () =>
+            tx.vehicle.count({ where: { carrierId: id, status: 'RETIRED', deletedAt: null } }),
         },
         { name: 'drivers', count: () => tx.driver.count({ where: { carrierId: id } }) },
         { name: 'rateCards', count: () => tx.rateCard.count({ where: { carrierId: id } }) },
