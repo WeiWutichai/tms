@@ -247,6 +247,19 @@ button:focus-visible {
   background: #ebede8;
   white-space: nowrap;
 }
+/* route chip ในเซลล์ตาราง: ชื่อยาวตัด … ทั้งสองฝั่ง (ข้อความเต็มใน title) — หน้าเส้นทาง ST2-T09 */
+.tms-route-cell {
+  display: inline-flex;
+  max-width: 520px;
+  min-width: 0;
+}
+.tms-route-cell .tms-route {
+  max-width: 100%;
+  min-width: 0;
+}
+.tms-route-cell .tms-route > .tms-ellipsis {
+  min-width: 0;
+}
 .tms-tag {
   display: inline-flex;
   align-items: center;

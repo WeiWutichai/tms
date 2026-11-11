@@ -435,6 +435,7 @@ model CustomerSite {
   maxVehicleClass    String?       @map("max_vehicle_class") /// รถเข้าได้สูงสุด 6W/10W/TRAILER/SEMI_TRAILER (null = ไม่จำกัด) — เทียบลำดับกับ vehicle_type.vehicle_class (ST2-T04)
   avgDwellMin        Int?          @map("avg_dwell_min") /// service time (นาที)
   freeTimeMin        Int?          @map("free_time_min")
+  dockCount          Int?          @map("dock_count") /// ช่องโหลด (spec/02 §2 dockCount ≥ 0) — ใช้กับคลัง/ต้นทาง (ST2-T09)
   contact            Json?
   notes              String?
   externalId         String?       @map("external_id")
@@ -445,6 +446,9 @@ model CustomerSite {
   createdAt          DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt          DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
+  routesFrom Route[] @relation("RouteOrigin")
+  routesTo   Route[] @relation("RouteDestination")
+
   @@unique([tenantId, externalId])
   @@unique([tenantId, code])
   @@index([tenantId, customerId])
@@ -452,6 +456,37 @@ model CustomerSite {
   @@index([tenantId, kind], map: "customer_site_tenant_kind_idx")
   @@index([tenantId, geocodeStatus], map: "customer_site_tenant_geocode_idx")
   @@map("customer_site")
+}
+
+/// เส้นทาง (OD pair) — ST2-T09; docs/04 B เส้นทาง "key สำหรับ rate card และจับคู่ order"
+/// ต้นทาง/ปลายทางอ้าง customer_site (key เดียวกับ rate_card.origin_site_id/dest_site_id) · ทิศทางมีผล (A→B ≠ B→A)
+/// คู่ต้นทาง–ปลายทางห้ามซ้ำใน tenant (ไม่นับที่ลบ — partial unique index ใน migration 0046)
+model Route {
+  id                String       @id @default(uuid()) @db.Uuid
+  tenantId          String       @map("tenant_id") @db.Uuid
+  code              String /// RT-0001 (MD-002) — เก็บตัวใหญ่, unique ไม่สนตัวพิมพ์
+  originSiteId      String       @map("origin_site_id") @db.Uuid
+  origin            CustomerSite @relation("RouteOrigin", fields: [originSiteId], references: [id], onDelete: Restrict)
+  destSiteId        String       @map("dest_site_id") @db.Uuid
+  dest              CustomerSite @relation("RouteDestination", fields: [destSiteId], references: [id], onDelete: Restrict)
+  distanceKm        Decimal      @map("distance_km") @db.Decimal(8, 1) /// ระยะทางอ้างอิง (กม.) — pricing ต่อ กม. ใช้ค่านี้ (ST2-T15)
+  standardMinutes   Int?         @map("standard_minutes") /// เวลาเดินทางมาตรฐาน (นาที)
+  tollAmount        Decimal?     @map("toll_amount") @db.Decimal(14, 2) /// ค่าผ่านทางต่อเที่ยว (บาท)
+  notes             String?
+  externalId        String?      @map("external_id")
+  deletedExternalId String?      @map("deleted_external_id")
+  status            ActiveStatus @default(ACTIVE)
+  deletedAt         DateTime?    @map("deleted_at") @db.Timestamptz(6) /// MD-004 soft delete
+  version           Int          @default(1)
+  createdAt         DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, code])
+  @@unique([tenantId, externalId])
+  @@index([tenantId, originSiteId])
+  @@index([tenantId, destSiteId])
+  @@index([tenantId, updatedAt, id])
+  @@map("route")
 }
 
 enum CarrierEntityType {

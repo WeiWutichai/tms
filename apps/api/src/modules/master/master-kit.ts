@@ -303,6 +303,7 @@ const CODE_TABLES = [
   'vehicle_type',
   'service_item',
   'driver',
+  'route',
 ] as const;
 export type CodeTable = (typeof CODE_TABLES)[number];
 

@@ -73,6 +73,27 @@ const FIXTURES: Record<string, (db: PrismaClient, tenantId: string, n: number) =
           })
         ).id,
       ),
+    route: async (db, tenantId, n) => {
+      const site = (k: string) =>
+        db.customerSite.create({
+          data: { tenantId, code: `ISO-R${k}${n}`, name: `Site ${k}${n}`, address: { line1: 'x' } },
+        });
+      const [a, b] = [await site('A'), await site('B')];
+      return encodeId(
+        'route',
+        (
+          await db.route.create({
+            data: {
+              tenantId,
+              code: `ISO-${n}`,
+              originSiteId: a.id,
+              destSiteId: b.id,
+              distanceKm: 10,
+            },
+          })
+        ).id,
+      );
+    },
     vehicleType: async (db, tenantId, n) =>
       encodeId(
         'vehicleType',

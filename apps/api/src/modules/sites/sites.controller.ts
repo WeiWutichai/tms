@@ -91,6 +91,7 @@ const EXPORT_COLUMNS: ExportColumn<SiteDto>[] = [
     value: (r) => (r.maxVehicleClass ? CLASS_TH[r.maxVehicleClass] : null),
   },
   { header: 'เวลาให้บริการ (นาที)', value: (r) => r.serviceTimeMin },
+  { header: 'ช่องโหลด', value: (r) => r.dockCount },
   { header: 'ผู้ติดต่อ', value: (r) => r.contact?.name },
   { header: 'เบอร์โทร', value: (r) => r.contact?.phone },
   { header: 'ชื่อเรียกอื่น', value: (r) => r.aliases.join(' | ') },

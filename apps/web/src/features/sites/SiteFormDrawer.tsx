@@ -42,6 +42,7 @@ interface Form {
   ct: string;
   aliases: string;
   svc: string;
+  dock: string;
   notes: string;
   ext: string;
 }
@@ -60,6 +61,7 @@ const EMPTY: Form = {
   ct: '',
   aliases: '',
   svc: '',
+  dock: '',
   notes: '',
   ext: '',
 };
@@ -78,6 +80,7 @@ function toForm(s: Site): Form {
     ct: formatContact(s.contact),
     aliases: s.aliases.join('\n'),
     svc: s.serviceTimeMin === null ? '' : String(s.serviceTimeMin),
+    dock: s.dockCount === null ? '' : String(s.dockCount),
     notes: s.notes ?? '',
     ext: s.externalId ?? '',
   };
@@ -191,6 +194,8 @@ export function SiteFormDrawer({
   else if (f.open && f.open === f.close) local.openTime = t('field.same_time');
   const svc = f.svc.trim() === '' ? null : /^\d{1,3}$/.test(f.svc.trim()) ? Number(f.svc) : NaN;
   if (svc !== null && !(svc >= 0 && svc <= 720)) local.serviceTimeMin = t('loc.v.svc');
+  const dock = f.dock.trim() === '' ? null : /^\d{1,3}$/.test(f.dock.trim()) ? Number(f.dock) : NaN;
+  if (dock !== null && !(dock >= 0 && dock <= 999)) local.dockCount = t('loc.v.dock');
   const contact = parseContact(f.ct);
   // พิกัดนอกกรอบไทย → เตือน (ไม่บล็อก) + ปุ่มสลับถ้าสลับแล้วเข้ากรอบ
   const swapped = ll && !inThaiBox(ll) && inThaiBox({ lat: ll.lng, lng: ll.lat });
@@ -228,6 +233,7 @@ export function SiteFormDrawer({
     contact: contact,
     aliases: parseAliases(f.aliases),
     serviceTimeMin: svc,
+    dockCount: dock,
     notes: f.notes.trim() || null,
   });
 
@@ -257,6 +263,7 @@ export function SiteFormDrawer({
         : null;
     if (a.aliases !== f.aliases) out.aliases = b.aliases!;
     if (a.svc !== f.svc) out.serviceTimeMin = b.serviceTimeMin ?? null;
+    if (a.dock !== f.dock) out.dockCount = b.dockCount ?? null;
     if (a.notes !== f.notes) out.notes = b.notes ?? null;
     if (a.ext !== f.ext) out.externalId = f.ext.trim() || null;
     return out;
@@ -551,6 +558,13 @@ export function SiteFormDrawer({
         </FormField>
         <FormField label={t('loc.f.svc')} hint={t('loc.f.svcHint')} error={errs.serviceTimeMin}>
           {input('svc', {
+            inputMode: 'numeric',
+            style: { textAlign: 'right', fontVariantNumeric: 'tabular-nums' },
+          })}
+        </FormField>
+        {/* ช่องโหลด — คลัง/ต้นทาง (ST2-T09, docs/04 B คลัง) ต้นแบบไม่มี [OPEN spec/12 §3] */}
+        <FormField label={t('loc.f.dock')} hint={t('loc.f.dockHint')} error={errs.dockCount}>
+          {input('dock', {
             inputMode: 'numeric',
             style: { textAlign: 'right', fontVariantNumeric: 'tabular-nums' },
           })}

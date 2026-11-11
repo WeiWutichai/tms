@@ -194,6 +194,20 @@ export class SiteFieldsDto {
   @Max(1440)
   freeTimeMin?: number | null;
 
+  @ApiPropertyOptional({
+    minimum: 0,
+    maximum: 999,
+    nullable: true,
+    type: Number,
+    description:
+      'ช่องโหลด (loading bays) — ใช้กับคลัง/ต้นทาง (docs/04 B คลัง, spec/02 §2 dockCount) · null = ไม่ระบุ',
+  })
+  @IsNullable()
+  @IsInt()
+  @Min(0)
+  @Max(999)
+  dockCount?: number | null;
+
   @ApiPropertyOptional({ type: SiteContactDto, nullable: true })
   @IsNullable()
   @ValidateNested()
@@ -398,6 +412,8 @@ export class SiteDto {
   maxVehicleClass!: (typeof VEHICLE_CLASSES)[number] | null;
   @ApiProperty({ nullable: true, type: Number }) serviceTimeMin!: number | null;
   @ApiProperty({ nullable: true, type: Number }) freeTimeMin!: number | null;
+  @ApiProperty({ nullable: true, type: Number, description: 'ช่องโหลด (คลัง/ต้นทาง)' })
+  dockCount!: number | null;
   @ApiProperty({ type: SiteContactDto, nullable: true }) contact!: SiteContactDto | null;
   @ApiProperty({ nullable: true, type: String }) notes!: string | null;
   @ApiProperty({ enum: ['active', 'inactive'] }) status!: 'active' | 'inactive';

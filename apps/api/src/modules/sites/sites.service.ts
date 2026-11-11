@@ -95,6 +95,7 @@ export function toSiteDto(s: CustomerSite, customer?: CustomerRef | null): SiteD
     maxVehicleClass: s.maxVehicleClass as SiteDto['maxVehicleClass'],
     serviceTimeMin: s.avgDwellMin,
     freeTimeMin: s.freeTimeMin,
+    dockCount: s.dockCount,
     contact: (s.contact as unknown as SiteContactDto | null) ?? null,
     notes: s.notes,
     status: s.status.toLowerCase() as SiteDto['status'],
@@ -331,6 +332,7 @@ export class SitesService implements OnModuleInit {
     if (input.maxVehicleClass !== undefined) data.maxVehicleClass = input.maxVehicleClass;
     if (input.serviceTimeMin !== undefined) data.avgDwellMin = input.serviceTimeMin;
     if (input.freeTimeMin !== undefined) data.freeTimeMin = input.freeTimeMin;
+    if (input.dockCount !== undefined) data.dockCount = input.dockCount;
     if (input.contact !== undefined)
       data.contact = input.contact === null ? Prisma.DbNull : ({ ...input.contact } as object);
     if (input.notes !== undefined) data.notes = input.notes === '' ? null : input.notes;
@@ -522,6 +524,14 @@ export class SitesService implements OnModuleInit {
         name: 'rateCards',
         count: () =>
           tx.rateCard.count({ where: { OR: [{ originSiteId: id }, { destSiteId: id }] } }),
+      },
+      {
+        // ST2-T09: เส้นทางที่ยังไม่ลบอ้างจุดนี้เป็นต้นทาง/ปลายทาง (FK RESTRICT ด้วย)
+        name: 'routes',
+        count: () =>
+          tx.route.count({
+            where: { deletedAt: null, OR: [{ originSiteId: id }, { destSiteId: id }] },
+          }),
       },
     ]);
     await this.bumpVersion(current, {

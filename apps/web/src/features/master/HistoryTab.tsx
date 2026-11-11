@@ -15,7 +15,8 @@ export type HistoryPath =
   | '/v1/vehicle-types/{id}/history'
   | '/v1/carriers/{id}/history'
   | '/v1/vehicles/{id}/history'
-  | '/v1/drivers/{id}/history';
+  | '/v1/drivers/{id}/history'
+  | '/v1/routes/{id}/history';
 
 const VERB: Record<
   string,

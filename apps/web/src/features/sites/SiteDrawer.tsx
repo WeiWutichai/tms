@@ -208,6 +208,7 @@ export function SiteDrawer({
                 k={t('loc.f.svc')}
                 v={s.serviceTimeMin === null ? '—' : String(s.serviceTimeMin)}
               />
+              <Kv k={t('loc.f.dock')} v={s.dockCount === null ? '—' : String(s.dockCount)} />
               <Kv k={t('loc.f.ext')} v={s.externalId ?? '—'} />
               <Kv k={t('loc.f.notes')} v={s.notes ?? '—'} />
             </div>
@@ -241,6 +242,7 @@ const FIELD_KEYS: Record<string, MessageKey> = {
   contact: 'loc.f.ct',
   aliases: 'loc.f.alias',
   serviceTimeMin: 'loc.f.svc',
+  dockCount: 'loc.f.dock',
   notes: 'loc.f.notes',
   externalId: 'loc.f.ext',
   status: 'cust.col.status',
