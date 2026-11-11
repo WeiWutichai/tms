@@ -44,6 +44,8 @@ import { RequestContextMiddleware } from './http/request-id.middleware';
 import { TransactionInterceptor } from './http/transaction.interceptor';
 import { JobQueue } from './jobs/job-queue.service';
 import { CompaniesController } from './modules/companies/companies.controller';
+import { CustomersController } from './modules/customers/customers.controller';
+import { CustomersService } from './modules/customers/customers.service';
 import { CompaniesService } from './modules/companies/companies.service';
 import { HealthController } from './modules/health/health.controller';
 import { JobsController } from './modules/jobs/jobs.controller';
@@ -80,6 +82,7 @@ import { StateService } from './state/state.service';
     DocumentsController,
     SettingsController,
     JobsController,
+    CustomersController,
   ],
   providers: [
     PrismaService,
@@ -100,6 +103,7 @@ import { StateService } from './state/state.service';
     JobQueue,
     PdfRenderer,
     CompaniesService,
+    CustomersService,
     AuditService,
     BranchesService,
     SequencesService,

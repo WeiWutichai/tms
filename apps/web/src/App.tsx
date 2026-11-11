@@ -6,6 +6,7 @@ import { queryClient } from './api';
 import { I18nProvider } from './i18n';
 import { canAny, featureOf, isLocked, NAV } from './nav';
 import { SettingsPage } from './features/settings/Settings';
+import { CustomersPage } from './features/customers/CustomersPage';
 import { Dashboard } from './pages/Dashboard';
 import { DesignSystem } from './pages/DesignSystem';
 import { ErrorBoundary, ErrorPage, LockedPage, NoAccess, NotFound, NotReady } from './pages/Simple';
@@ -30,6 +31,11 @@ function Guard({ perm, path, children }: { perm?: string[]; path?: string; child
     );
   return <>{children}</>;
 }
+
+/** หน้าที่ทำแล้ว (path → หน้า) — เมนูอื่นที่ยังไม่ทำแสดง "ยังไม่เปิดใช้" */
+const READY: Record<string, () => ReactNode> = {
+  '/master/customers': () => <CustomersPage />,
+};
 
 function Inside() {
   const pending = NAV.flatMap((g) =>
@@ -68,7 +74,7 @@ function Inside() {
               path={p.path}
               element={
                 <Guard perm={p.perm} path={p.path}>
-                  <NotReady page={p.page} stage={p.stage} />
+                  {READY[p.path]?.() ?? <NotReady page={p.page} stage={p.stage} />}
                 </Guard>
               }
             />

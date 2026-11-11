@@ -992,3 +992,427 @@ button:focus-visible {
 .tms-colrail button:hover {
   color: #2257c4;
 }
+
+/* ---------- ชิ้นส่วนหน้าข้อมูลหลัก (master.tsx — ST2-T01) ---------- */
+/* แถบสรุปบรรทัดเดียว (ต้นแบบ tpl 191) */
+.tms-strip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  align-self: flex-start;
+  background: #ffffff;
+  border: 1px solid #d9dcd4;
+  border-radius: 999px;
+  padding: 5px;
+  box-shadow:
+    0 1px 2px rgba(16, 20, 24, 0.06),
+    0 2px 6px rgba(16, 20, 24, 0.04);
+}
+.tms-strip__item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  height: 32px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  cursor: pointer;
+  white-space: nowrap;
+  line-height: 32px;
+}
+.tms-strip__item:disabled {
+  cursor: default;
+  color: inherit;
+}
+.tms-strip__item:hover:not(:disabled),
+.tms-strip__item[aria-pressed='true'] {
+  background: #eef0ec;
+}
+.tms-strip__v {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.tms-strip__l {
+  font-size: 13px;
+  color: #3b424c;
+}
+
+/* drawer ฟอร์มสร้างรายการใหม่ (ต้นแบบ cfOpen tpl 4107) */
+.tms-fdrawer__scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  background: rgba(10, 23, 52, 0.32);
+  display: flex;
+  justify-content: flex-end;
+}
+.tms-fdrawer {
+  width: 600px;
+  max-width: 100%;
+  height: 100%;
+  margin: 0;
+  background: #ffffff;
+  border-left: 1px solid #cdd1c8;
+  box-shadow: -18px 0 44px rgba(10, 23, 52, 0.1);
+  display: flex;
+  flex-direction: column;
+}
+.tms-fdrawer__head {
+  padding: 18px 24px 14px;
+  border-bottom: 1px solid #e4e6e0;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  flex-shrink: 0;
+}
+.tms-fdrawer__title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #13213f;
+}
+.tms-fdrawer__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 24px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.tms-fdrawer__foot {
+  padding: 14px 24px;
+  border-top: 1px solid #e4e6e0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.tms-fdrawer__cancel {
+  height: 40px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #3b424c;
+  font-weight: 500;
+  cursor: pointer;
+}
+.tms-fsec {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.tms-fsec__h {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: #13213f;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e4e6e0;
+}
+.tms-fgrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px 16px;
+}
+.tms-fgrid--create {
+  gap: 12px 16px;
+}
+.tms-ffield {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.tms-fgrid--create .tms-input {
+  height: 40px;
+  padding: 0 12px;
+  border-color: #cdd1c8;
+  width: 100%;
+  box-sizing: border-box;
+}
+.tms-textarea {
+  border: 1px solid #c9cdc3;
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: #101418;
+  resize: vertical;
+  font-family: inherit;
+}
+.tms-textarea:focus {
+  outline: none;
+  border-color: #2257c4;
+  box-shadow: 0 0 0 2px #e9f0fa;
+}
+.tms-textarea[aria-invalid='true'] {
+  border-color: #b3322a;
+}
+.tms-select {
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid #c9cdc3;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #101418;
+}
+
+/* ตัวเลือกแบบปุ่ม (ต้นแบบ radio() แท็บ "เงื่อนไข") */
+.tms-choice {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.tms-choice__opts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.tms-choice__opt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid #d9dcd4;
+  background: #ffffff;
+  border-radius: 14px;
+  cursor: pointer;
+  color: #101418;
+  text-align: left;
+}
+.tms-choice__opt[aria-checked='true'] {
+  border-color: #2257c4;
+  background: #eef0ec;
+}
+.tms-choice__opt:disabled {
+  cursor: default;
+}
+.tms-choice__dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1.5px solid #c9cdc3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+.tms-choice__dot > span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: transparent;
+}
+.tms-choice__opt[aria-checked='true'] .tms-choice__dot {
+  border-color: #2257c4;
+}
+.tms-choice__opt[aria-checked='true'] .tms-choice__dot > span {
+  background: #2257c4;
+}
+
+/* แท็บ "กิจกรรม" (ต้นแบบ P.isLog) */
+.tms-tl {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 12px;
+}
+.tms-tl__rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.tms-tl__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-top: 7px;
+  flex-shrink: 0;
+}
+.tms-tl__line {
+  flex: 1;
+  width: 2px;
+  margin-top: 4px;
+}
+.tms-tl__body {
+  padding-bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.tms-tl__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+  color: #101418;
+  width: 100%;
+}
+.tms-tl__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.tms-tl__sub {
+  font-size: 12px;
+  color: #3b424c;
+}
+.tms-tl__detail {
+  margin: 4px 0 0;
+  padding: 12px;
+  background: #ebede8;
+  border-radius: 8px;
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  line-height: 1.55;
+  color: #101418;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* กล่องยืนยันพร้อมเหตุผล (ต้นแบบ CN modal) */
+.tms-dialog__scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 75;
+  background: rgba(10, 23, 52, 0.32);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.tms-dialog {
+  width: 560px;
+  max-width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  background: #ffffff;
+  border: 1px solid #d9dcd4;
+  border-radius: 20px;
+  box-shadow: 0 18px 44px rgba(10, 23, 52, 0.1);
+  display: flex;
+  flex-direction: column;
+}
+.tms-dialog__head {
+  padding: 20px 24px 0;
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+.tms-dialog__title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+.tms-dialog__desc {
+  margin: 4px 0 0;
+  color: #3b424c;
+}
+.tms-dialog__body {
+  padding: 16px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.tms-dialog__foot {
+  padding: 14px 24px;
+  border-top: 1px solid #d9dcd4;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.tms-dialog__cancel {
+  height: 36px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: #3b424c;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+/* toast (ต้นแบบ toast()) */
+.tms-toast {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 80;
+  background: #ffffff;
+  border: 1px solid #d9dcd4;
+  border-radius: 14px;
+  box-shadow: 0 12px 32px rgba(16, 24, 40, 0.16);
+  padding: 12px 12px 12px 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(440px, calc(100vw - 48px));
+}
+.tms-toast__ic {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  background: #17733f;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.tms-toast__x {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #59606b;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* error บนสุดของ drawer/ฟอร์ม */
+.tms-alert {
+  padding: 10px 16px;
+  background: #fbe9e7;
+  border: 1px solid #b3322a;
+  border-radius: 12px;
+  color: #b3322a;
+  font-weight: 600;
+}
+/* ลิงก์ข้อความในหัว section ของ drawer (ต้นแบบ "แก้ไข" ข้างหัว ข้อมูลเพิ่มเติม) */
+.tms-textlink {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: #2257c4;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  font-size: 13px;
+}
+/* ส่วนรายการของหน้าข้อมูลหลัก: แท็บ + ตาราง เต็มความสูงที่เหลือ (ต้นแบบ tpl 2257/2283) */
+.tms-listbody {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 1;
+  min-height: 0;
+}
+.tms-listbody > .tms-table-wrap {
+  flex: 1 1 auto;
+}
