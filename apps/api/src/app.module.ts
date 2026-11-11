@@ -46,6 +46,8 @@ import { JobQueue } from './jobs/job-queue.service';
 import { CompaniesController } from './modules/companies/companies.controller';
 import { CustomersController } from './modules/customers/customers.controller';
 import { CustomersService } from './modules/customers/customers.service';
+import { SitesController } from './modules/sites/sites.controller';
+import { SitesService } from './modules/sites/sites.service';
 import { CompaniesService } from './modules/companies/companies.service';
 import { HealthController } from './modules/health/health.controller';
 import { JobsController } from './modules/jobs/jobs.controller';
@@ -83,6 +85,7 @@ import { StateService } from './state/state.service';
     SettingsController,
     JobsController,
     CustomersController,
+    SitesController,
   ],
   providers: [
     PrismaService,
@@ -104,6 +107,7 @@ import { StateService } from './state/state.service';
     PdfRenderer,
     CompaniesService,
     CustomersService,
+    SitesService,
     AuditService,
     BranchesService,
     SequencesService,

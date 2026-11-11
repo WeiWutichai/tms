@@ -9,7 +9,7 @@ type AuditEntry = Schemas['AuditEntryDto'];
 type AuditPage = Schemas['AuditPageDto'];
 
 /** path ประวัติของ master ที่มี (เพิ่มเมื่อ master ใหม่มี `GET /{master}/{id}/history`) */
-export type HistoryPath = '/v1/customers/{id}/history';
+export type HistoryPath = '/v1/customers/{id}/history' | '/v1/customer-sites/{id}/history';
 
 const VERB: Record<
   string,

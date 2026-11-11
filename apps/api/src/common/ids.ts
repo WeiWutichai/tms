@@ -19,6 +19,7 @@ export const ID_PREFIX = {
   notification: 'ntf',
   import: 'imp',
   customer: 'cus',
+  site: 'loc',
 } as const;
 export type IdKind = keyof typeof ID_PREFIX;
 

@@ -408,7 +408,10 @@ export class CustomersService {
         count: () => tx.deliveryOrder.count({ where: { customerId: id } }),
       },
       { name: 'rateCards', count: () => tx.rateCard.count({ where: { customerId: id } }) },
-      { name: 'sites', count: () => tx.customerSite.count({ where: { customerId: id } }) },
+      {
+        name: 'sites',
+        count: () => tx.customerSite.count({ where: { customerId: id, deletedAt: null } }),
+      },
     ]);
     // ปล่อย externalId ให้ระบบต้นทางส่งรายการใหม่ได้ — เก็บค่าเดิมไว้ใน deleted_external_id (ตรวจย้อนได้)
     await this.bumpVersion(current, {

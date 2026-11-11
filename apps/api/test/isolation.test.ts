@@ -64,6 +64,15 @@ const FIXTURES: Record<string, (db: PrismaClient, tenantId: string, n: number) =
           })
         ).id,
       ),
+    site: async (db, tenantId, n) =>
+      encodeId(
+        'site',
+        (
+          await db.customerSite.create({
+            data: { tenantId, code: `ISO-${n}`, name: `Site ${n}`, address: { line1: 'x' } },
+          })
+        ).id,
+      ),
     sequence: async (db, tenantId) => {
       const s = await db.documentSeries.upsert({
         where: { tenantId_docType: { tenantId, docType: 'SO' } },
