@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEscapeLayer } from './escape';
 import { Icon } from './Icon';
 import { tone as toneColors, type Tone } from './tokens';
 import { statusOf } from './status-map';
@@ -109,14 +110,10 @@ export function DataTable<R>(p: DataTableProps<R>) {
   useEffect(() => {
     if (!menuFor) return;
     const close = () => setMenuFor(null);
-    const esc = (e: KeyboardEvent) => e.key === 'Escape' && close();
     window.addEventListener('click', close);
-    window.addEventListener('keydown', esc);
-    return () => {
-      window.removeEventListener('click', close);
-      window.removeEventListener('keydown', esc);
-    };
+    return () => window.removeEventListener('click', close);
   }, [menuFor]);
+  useEscapeLayer(!!menuFor, () => setMenuFor(null));
 
   const from = p.page.rowsOnPage ? p.page.index * p.page.size + 1 : 0;
   const to = p.page.index * p.page.size + p.page.rowsOnPage;

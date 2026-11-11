@@ -190,7 +190,10 @@ export class UserLifecycleController {
           i: string;
         };
         cursor = { at: new Date(v.a), id: v.i };
-        if (Number.isNaN(cursor.at.getTime()) || !/^[0-9a-f-]{36}$/i.test(String(v.i)))
+        if (
+          Number.isNaN(cursor.at.getTime()) ||
+          !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(v.i))
+        )
           throw new Error();
       } catch {
         throw new ProblemException('validation_failed', undefined, [

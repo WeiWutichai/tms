@@ -32,12 +32,18 @@ export async function entityHistory(
   entityType: string,
   entityUuid: string,
   q: HistoryQuery,
+  /** ประวัติของรายการลูกที่แสดงรวม (เช่น เอกสารของรถ — ST2-T17) */
+  children?: { entityType: string; ids: string[] },
 ) {
   const limit = q.limit ?? 50;
   const rows = await tx.auditLog.findMany({
     where: {
-      entityType,
-      entityId: entityUuid,
+      OR: [
+        { entityType, entityId: entityUuid },
+        ...(children?.ids.length
+          ? [{ entityType: children.entityType, entityId: { in: children.ids } }]
+          : []),
+      ],
       ...(q.cursor ? { seq: { lt: decodeAuditCursor(q.cursor) } } : {}),
     },
     orderBy: { seq: 'desc' },

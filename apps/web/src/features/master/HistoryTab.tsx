@@ -70,6 +70,7 @@ export function HistoryTab({
   id,
   fieldLabel,
   fieldValue,
+  describe,
 }: {
   path: HistoryPath;
   id: string;
@@ -77,6 +78,10 @@ export function HistoryTab({
   fieldLabel: (k: string) => string;
   /** ค่าภาษาไทยของฟิลด์ที่เป็นรหัส (เช่น ชั้นรถ/ป้าย) — คืน undefined = แสดงค่าดิบ */
   fieldValue?: (k: string, v: unknown) => string | undefined;
+  /** หัวรายการเฉพาะของ action บางชนิด (เช่น ประวัติเอกสารของรถ) — คืน undefined = ใช้ค่ามาตรฐาน */
+  describe?: (
+    r: AuditEntry,
+  ) => { title: string; tone: 'ok' | 'info' | 'warn' | 'off' | 'err'; icon: string } | undefined;
 }) {
   const { t, lang } = useI18n();
   const q = useInfiniteQuery({
@@ -108,10 +113,11 @@ export function HistoryTab({
       tone: 'ok' as const,
       icon: 'check',
     };
+    const custom = describe?.(r);
     const before = (r.before ?? {}) as Record<string, unknown>;
     const after = (r.after ?? {}) as Record<string, unknown>;
     const lines: string[] = [];
-    if (DIFF_ACTIONS.includes(act))
+    if (!custom && DIFF_ACTIONS.includes(act))
       for (const k of Object.keys(after))
         lines.push(
           `${fieldLabel(k)}: ${fieldValue?.(k, before[k]) ?? show(before[k])} → ${fieldValue?.(k, after[k]) ?? show(after[k])}`,
@@ -119,9 +125,13 @@ export function HistoryTab({
     if (r.reason) lines.push(t('hist.reason', { r: r.reason }));
     return {
       key: r.id,
-      title: t(verb.key),
+      title: custom?.title ?? t(verb.key),
       sub: `${formatDateTime(r.at, lang)} · ${r.actor?.name ?? r.actor?.id ?? t('hist.system')}`,
-      badge: { label: t('hist.ok'), tone: verb.tone, icon: verb.icon },
+      badge: {
+        label: t('hist.ok'),
+        tone: custom?.tone ?? verb.tone,
+        icon: custom?.icon ?? verb.icon,
+      },
       ...(lines.length ? { detail: lines.join('\n') } : {}),
     };
   });

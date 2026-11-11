@@ -1,7 +1,7 @@
 import type { Schemas } from '@tms/contracts';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import { api, unwrap } from '../../api';
+import { api, idempotent, unwrap } from '../../api';
 
 export type Company = Schemas['CompanyDto'];
 
@@ -66,6 +66,7 @@ export function useSaveCompany() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (v: { id?: string; version?: number; body: Record<string, unknown> }) => {
+      const key = crypto.randomUUID(); // key เดียวตลอดการส่งซ้ำของคำขอนี้
       if (v.id) {
         return unwrap(
           api.PATCH('/v1/companies/{id}', {
@@ -74,10 +75,10 @@ export function useSaveCompany() {
           }),
         );
       }
-      return unwrap(
+      return idempotent(() =>
         api.POST('/v1/companies', {
           body: v.body as never,
-          headers: { 'Idempotency-Key': crypto.randomUUID() },
+          headers: { 'Idempotency-Key': key },
         }),
       );
     },

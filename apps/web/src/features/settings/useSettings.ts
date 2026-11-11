@@ -1,6 +1,6 @@
 import type { Schemas } from '@tms/contracts';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, unwrap } from '../../api';
+import { api, idempotent, unwrap } from '../../api';
 
 export type Branch = Schemas['BranchDto'];
 export type Sequence = Schemas['SequenceDto'];
@@ -39,20 +39,22 @@ export function useRoles() {
 export function useSaveBranch() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (v: { id?: string; version?: number; body: Record<string, unknown> }) =>
-      v.id
+    mutationFn: async (v: { id?: string; version?: number; body: Record<string, unknown> }) => {
+      const key = crypto.randomUUID(); // key เดียวตลอดการส่งซ้ำของคำขอนี้
+      return v.id
         ? unwrap(
             api.PATCH('/v1/branches/{id}', {
               params: { path: { id: v.id }, header: { 'If-Match': `"${v.version}"` } as never },
               body: v.body as never,
             }),
           )
-        : unwrap(
+        : idempotent(() =>
             api.POST('/v1/branches', {
               body: v.body as never,
-              headers: { 'Idempotency-Key': crypto.randomUUID() },
+              headers: { 'Idempotency-Key': key },
             }),
-          ),
+          );
+    },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['branches'] }),
   });
 }

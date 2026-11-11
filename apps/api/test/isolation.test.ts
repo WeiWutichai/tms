@@ -116,6 +116,33 @@ const FIXTURES: Record<string, (db: PrismaClient, tenantId: string, n: number) =
       });
       return encodeId('vehicle', v.id);
     },
+    vehicleDocument: async (db, tenantId, n) => {
+      const vt = await db.vehicleType.create({
+        data: { tenantId, code: `ISOD-${n}`, nameTh: `Type d${n}`, vehicleClass: '6W' },
+      });
+      const v = await db.vehicle.create({
+        data: {
+          tenantId,
+          plate: `71-${1000 + n}`,
+          plateProvince: 'TH-10',
+          plateKey: `71${1000 + n}|TH-10`,
+          plateNorm: `71${1000 + n}`,
+          vehicleTypeId: vt.id,
+          ownership: 'OWN',
+        },
+      });
+      const d = await db.vehicleDocument.create({
+        data: {
+          tenantId,
+          vehicleId: v.id,
+          docType: 'ANNUAL_TAX',
+          refNo: `TAX-${n}`,
+          startsOn: new Date('2026-01-01'),
+          expiresOn: new Date('2027-01-01'),
+        },
+      });
+      return encodeId('vehicleDocument', d.id);
+    },
     sequence: async (db, tenantId) => {
       const s = await db.documentSeries.upsert({
         where: { tenantId_docType: { tenantId, docType: 'SO' } },
@@ -223,6 +250,20 @@ const BODY_FOR_SUFFIX: Record<string, object> = {
   status: { status: 'parked', reason: 'isolation test reason' }, // ST2-T06 /vehicles/:id/status
   odometer: { readingKm: 1 }, // ST2-T06 /vehicles/:id/odometer
   correct: { readingKm: 1, reasonType: 'TYPO', note: 'isolation test reason' }, // ST2-T06 odometer/correct
+  // ST2-T17 POST /vehicles/:id/documents และ /vehicle-documents/:id/renew
+  documents: {
+    docType: 'ANNUAL_TAX',
+    docNo: 'ISO-1',
+    startsOn: '2026-01-01',
+    expiresOn: '2027-01-01',
+    fileDocumentIds: [`doc_${'0'.repeat(32)}`],
+  },
+  renew: {
+    docNo: 'ISO-2',
+    startsOn: '2027-01-01',
+    expiresOn: '2028-01-01',
+    fileDocumentIds: [`doc_${'0'.repeat(32)}`],
+  },
 };
 
 interface RouteInfo {

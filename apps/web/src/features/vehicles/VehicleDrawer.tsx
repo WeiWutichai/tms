@@ -1,10 +1,11 @@
-import { Badge, Drawer, DrawerFooterButtons, EmptyState } from '@tms/ui';
+import { Badge, Drawer, DrawerFooterButtons } from '@tms/ui';
 import { useEffect, useRef, useState } from 'react';
 import { ApiError } from '../../api';
 import { useI18n, type T } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
 import { HistoryTab } from '../master/HistoryTab';
 import { fieldErrors, isStale, problemText } from '../master/problems';
+import { VehicleDocsTab } from './VehicleDocsTab';
 import { VehicleFields, toDiff, toForm, validate, type VehicleForm } from './VehicleFields';
 import {
   useUpdateVehicle,
@@ -29,7 +30,7 @@ export function VehBadge({ v, t }: { v: Pick<Vehicle, 'status'>; t: T }) {
 /**
  * Drawer รถ (แก้ไข) — ต้นแบบ TMS v4 vPanel veh: หัว "รถ · {ประเภท}" + ทะเบียน + ป้ายสถานะ, แท็บ ข้อมูลรถ / เอกสารแนบ / กิจกรรม,
  * ฟอร์ม ทะเบียน · ประเภทรถ · เจ้าของ · ชื่อเจ้าของ · น้ำหนักบรรทุก · GPS · สถานะ + ปุ่มบันทึก
- * ช่องวันหมดอายุประกัน/ภาษี/พ.ร.บ. ของต้นแบบ = เอกสารรถ ST2-T17 (ยังไม่แสดง) [OPEN spec/12 §3]
+ * ช่องวันหมดอายุประกัน/ภาษี/พ.ร.บ. ของต้นแบบ = เอกสารรถ (ST2-T17) อยู่ในแท็บ "เอกสารแนบ" — ไม่ซ้ำในฟอร์ม [OPEN spec/12 §3]
  * เปลี่ยนสถานะผ่านช่อง "สถานะ" → dialog เหตุผล (POST /status — state machine)
  */
 export function VehicleDrawer({
@@ -250,19 +251,14 @@ export function VehicleDrawer({
           )}
         </>
       )}
-      {tab === 'docs' && (
-        <EmptyState
-          icon="file-text"
-          title={t('veh.docs.empty')}
-          description={t('veh.docs.emptyD')}
-        />
-      )}
+      {tab === 'docs' && <VehicleDocsTab v={v} canWrite={canWrite} />}
       {tab === 'act' && (
         <HistoryTab
           path="/v1/vehicles/{id}/history"
           id={v.id}
           fieldLabel={(k) => fieldLabel(t, k)}
           fieldValue={(k, val) => fieldValue(t, k, val)}
+          describe={(r) => describeDoc(t, r)}
         />
       )}
     </Drawer>
@@ -315,4 +311,29 @@ function fieldValue(t: T, k: string, v: unknown): string | undefined {
   if (k === 'fuelType') return t(`veh.fuel.${v as 'DIESEL'}`);
   if (k === 'plateProvince') return t(`prov.${String(v)}` as MessageKey);
   return undefined;
+}
+
+/** ประวัติเอกสารรถในแท็บกิจกรรมของรถ (ST2-T17): "ต่ออายุ พ.ร.บ. CMI-…" */
+const DOC_ACT: Record<string, { tone: 'ok' | 'info' | 'warn' | 'off'; icon: string }> = {
+  created: { tone: 'ok', icon: 'file-plus' },
+  renewed: { tone: 'ok', icon: 'refresh-cw' },
+  superseded: { tone: 'info', icon: 'history' },
+  cancelled: { tone: 'warn', icon: 'x' },
+  restored: { tone: 'info', icon: 'undo-2' },
+};
+function describeDoc(t: T, r: { action: string; after: unknown; before: unknown }) {
+  const [kind, act = ''] = r.action.split('.');
+  const m = DOC_ACT[act];
+  if (kind !== 'vehicle_document' || !m) return undefined;
+  const d = (r.after ?? r.before ?? {}) as { docType?: string; docNo?: string; title?: string };
+  const name =
+    d.docType === 'OTHER' && d.title
+      ? d.title
+      : d.docType
+        ? t(`vdoc.type.${d.docType}` as MessageKey)
+        : '';
+  return {
+    title: t(`vdoc.hist.${act}` as MessageKey, { t: [name, d.docNo].filter(Boolean).join(' ') }),
+    ...m,
+  };
 }

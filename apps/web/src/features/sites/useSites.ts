@@ -1,6 +1,6 @@
 import type { Schemas } from '@tms/contracts';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, unwrap } from '../../api';
+import { api, idempotent, unwrap } from '../../api';
 import { refetchOnStale } from '../master/problems';
 import type { RefOption } from '../master/RefPicker';
 import { useCursorList } from '../master/useCursorList';
@@ -79,7 +79,7 @@ export function useCreateSite() {
   return useMutation({
     /** idempotencyKey ต่อการเปิดฟอร์ม 1 ครั้ง — กดซ้ำ/ส่งซ้ำได้สถานที่เดียว (ST0-T07) */
     mutationFn: (v: { body: SiteCreate; idempotencyKey: string }) =>
-      unwrap(
+      idempotent(() =>
         api.POST('/v1/customer-sites', {
           body: v.body,
           headers: { 'Idempotency-Key': v.idempotencyKey },
