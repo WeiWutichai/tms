@@ -3,6 +3,9 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { useId, useRef, useState, type CSSProperties } from 'react';
 import { useDebounced } from './useCursorList';
 
+/** ความยาวสูงสุดของคำค้น (ตรงกับ `q` maxLength ของ API ข้อมูลหลัก) */
+const Q_MAX = 100;
+
 export interface RefOption {
   id: string;
   label: string;
@@ -46,17 +49,19 @@ export function RefPicker({
   const [open, setOpen] = useState(false);
   const [text, setText] = useState('');
   const [hi, setHi] = useState(0);
-  const q = useDebounced(text.trim(), 250);
+  // API ค้นได้ไม่เกิน 100 ตัวอักษร (MasterListQuery.q) — ตัดก่อนส่ง ไม่ให้ได้ 422 (review ST2-T09)
+  const q = useDebounced(text.trim().slice(0, Q_MAX), 250);
   const res = useQuery({
     queryKey: ['ref-picker', queryKey, q],
     enabled: open,
     placeholderData: keepPreviousData,
+    retry: false,
     queryFn: () => search(q),
   });
   const blurT = useRef<ReturnType<typeof setTimeout>>(undefined);
   const opts: (RefOption | null)[] = [
     ...(clearLabel !== undefined ? [null] : []),
-    ...(res.data ?? []),
+    ...(res.isError ? [] : (res.data ?? [])),
   ];
   const pick = (o: RefOption | null) => {
     onChange(o);
@@ -76,6 +81,7 @@ export function RefPicker({
         aria-invalid={invalid}
         disabled={disabled}
         autoComplete="off"
+        maxLength={open ? Q_MAX : undefined}
         placeholder={value ? value.label : (clearLabel ?? placeholder)}
         value={open ? text : (value?.label ?? '')}
         onFocus={() => {
@@ -172,7 +178,7 @@ export function RefPicker({
               {o?.sub && <span style={{ fontSize: 12.5, color: '#59606B' }}>{o.sub}</span>}
             </li>
           ))}
-          {!res.isFetching && res.data && res.data.length === 0 && (
+          {!res.isFetching && (res.isError || (res.data && res.data.length === 0)) && (
             <li style={{ padding: '8px 10px', color: '#59606B' }}>{noResult}</li>
           )}
         </ul>

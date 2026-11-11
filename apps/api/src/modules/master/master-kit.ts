@@ -303,6 +303,7 @@ const CODE_TABLES = [
   'vehicle_type',
   'service_item',
   'driver',
+  'route',
 ] as const;
 export type CodeTable = (typeof CODE_TABLES)[number];
 
@@ -424,4 +425,35 @@ export async function emitMasterEvent(
       actorId: ctx.actorId ?? null,
     },
   });
+}
+
+/** ตารางข้อมูลหลักที่ถูกอ้างอิงได้ (whitelist กัน SQL injection ใน lockReferenced/lockForRemoval) */
+const REF_TABLES = [...CODE_TABLES, 'vehicle'] as const;
+export type RefTable = (typeof REF_TABLES)[number];
+
+/**
+ * ล็อกแถวข้อมูลหลักที่กำลังจะถูกอ้างอิง (`FOR SHARE`) ภายใน transaction — กันแถวถูกลบ (soft delete) ระหว่างสร้างตัวอ้างอิง
+ * (review ST2-T09: สร้างเส้นทางพร้อมกับลบสถานที่ → เส้นทางชี้สถานที่ที่ลบแล้ว)
+ * คู่กับ `lockForRemoval()` ที่ฝั่งลบเรียกก่อนนับการอ้างอิง · เรียง id ก่อนล็อก (ลำดับเดียวกันทุกคำขอ — ลด deadlock)
+ * คืนเฉพาะแถวที่ยังไม่ถูกลบ พร้อมสถานะ (ข้อความตัวใหญ่ เช่น ACTIVE/INACTIVE)
+ */
+export async function lockReferenced(
+  tx: Tx,
+  table: RefTable,
+  ids: string[],
+): Promise<{ id: string; status: string }[]> {
+  if (!REF_TABLES.includes(table)) throw new Error(`lockReferenced: table ${table} not allowed`);
+  const uniq = [...new Set(ids)].sort();
+  if (!uniq.length) return [];
+  return tx.$queryRawUnsafe<{ id: string; status: string }[]>(
+    `SELECT id::text AS id, status::text AS status FROM "${table}"
+      WHERE id = ANY($1::uuid[]) AND deleted_at IS NULL ORDER BY id FOR SHARE`,
+    uniq,
+  );
+}
+
+/** ฝั่งลบ: ล็อกแถว (`FOR UPDATE`) ก่อนนับการอ้างอิง — ตัวอ้างอิงที่กำลังสร้าง (lockReferenced) รอจนลบเสร็จแล้วเห็นว่าแถวถูกลบ */
+export async function lockForRemoval(tx: Tx, table: RefTable, id: string): Promise<void> {
+  if (!REF_TABLES.includes(table)) throw new Error(`lockForRemoval: table ${table} not allowed`);
+  await tx.$queryRawUnsafe(`SELECT 1 FROM "${table}" WHERE id = $1::uuid FOR UPDATE`, id);
 }

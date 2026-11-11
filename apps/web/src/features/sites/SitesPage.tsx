@@ -505,7 +505,16 @@ export function SitesPage() {
                   setToast(t('loc.toast.deleted', { n: s.name }));
                 } else {
                   if (updated && openId === s.id) setSelected(updated);
-                  setToast(t('loc.toast.status', { n: s.name }));
+                  // ปิดใช้จุดที่มีเส้นทางใช้อยู่ → บอกจำนวน (review ST2-T09)
+                  const routes =
+                    (
+                      updated as { warnings?: { code: string; count: number }[] } | null
+                    )?.warnings?.find((w) => w.code === 'routes_active')?.count ?? 0;
+                  setToast(
+                    routes
+                      ? t('loc.toast.offRoutes', { n: s.name, c: routes })
+                      : t('loc.toast.status', { n: s.name }),
+                  );
                 }
               },
             },

@@ -213,6 +213,15 @@ export const NAV: NavGroup[] = [
         path: '/master/locations',
         stage: 'ST2',
       },
+      // ST2-T09: ต้นแบบไม่มีหน้าเส้นทาง (docs/03 รวม "จุดส่ง+เส้นทาง") → หน้าแยกต่อจากสถานที่ [OPEN spec/12 §3]
+      {
+        key: 'route',
+        perm: ['master:read'],
+        page: 'route',
+        label: 'nav.master.route',
+        path: '/master/routes',
+        stage: 'ST2',
+      },
       {
         key: 'vtype',
         perm: ['master:read'],

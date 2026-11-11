@@ -1,3 +1,4 @@
+import { IsDecimal } from '../../common/validation';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import {
@@ -7,7 +8,6 @@ import {
   IsInt,
   IsISO8601,
   IsNotEmpty,
-  IsNumber,
   IsOptional,
   IsString,
   Matches,
@@ -72,7 +72,7 @@ export class VehicleFieldsDto {
     description: 'น้ำหนักบรรทุก (กก.) > 0 — ไม่ส่งตอนสร้าง = ค่าของประเภทรถ',
   })
   @IsOptionalNotNull()
-  @IsNumber({ maxDecimalPlaces: 2 })
+  @IsDecimal(2)
   @Min(0.01)
   @Max(99_999_999)
   payloadKg?: number;
@@ -84,7 +84,7 @@ export class VehicleFieldsDto {
     description: 'ปริมาตร (ลบ.ม.)',
   })
   @IsNullable()
-  @IsNumber({ maxDecimalPlaces: 2 })
+  @IsDecimal(2)
   @Min(0)
   @Max(99_999_999)
   volumeCbm?: number | null;
@@ -96,7 +96,7 @@ export class VehicleFieldsDto {
     description: 'น้ำหนักรถเปล่า (กก.)',
   })
   @IsNullable()
-  @IsNumber({ maxDecimalPlaces: 2 })
+  @IsDecimal(2)
   @Min(0.01)
   @Max(99_999_999)
   tareWeightKg?: number | null;
@@ -108,7 +108,7 @@ export class VehicleFieldsDto {
     description: 'น้ำหนักรวมตามทะเบียน (กก.) — น้ำหนักบรรทุก ≤ น้ำหนักรวม − น้ำหนักเปล่า',
   })
   @IsNullable()
-  @IsNumber({ maxDecimalPlaces: 2 })
+  @IsDecimal(2)
   @Min(0.01)
   @Max(99_999_999)
   grossWeightKg?: number | null;
@@ -214,7 +214,7 @@ export class VehicleFieldsDto {
       'เลขไมล์ (กม.) — สร้าง = ค่าเริ่มต้น · แก้ = บันทึกค่าใหม่ (น้อยกว่าเดิม → 422 `odometer_backwards`; แก้ค่าผิดใช้ POST /{id}/odometer/correct)',
   })
   @IsOptionalNotNull()
-  @IsNumber({ maxDecimalPlaces: 1 })
+  @IsDecimal(1)
   @Min(0)
   @Max(99_999_999)
   odometerKm?: number;
@@ -381,7 +381,7 @@ export class VehicleStatusDto {
 /** บันทึกเลขไมล์ (spec/06 FLT-O, แหล่ง MANUAL) — น้อยกว่าค่าปัจจุบัน → 422 `odometer_backwards` */
 export class OdometerReadingInput {
   @ApiProperty({ example: 150120.5 })
-  @IsNumber({ maxDecimalPlaces: 1 })
+  @IsDecimal(1)
   @Min(0)
   @Max(99_999_999)
   readingKm!: number;
@@ -406,7 +406,7 @@ export class OdometerCorrectionInput {
   readingId?: string;
 
   @ApiProperty({ example: 148200 })
-  @IsNumber({ maxDecimalPlaces: 1 })
+  @IsDecimal(1)
   @Min(0)
   @Max(99_999_999)
   readingKm!: number;
