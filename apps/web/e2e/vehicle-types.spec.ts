@@ -26,7 +26,9 @@ test.describe.serial('ข้อมูลหลัก → ประเภทร�
     await page.getByRole('button', { name: 'เพิ่มประเภทรถ' }).click();
     const d = page.getByRole('dialog');
     await d.getByRole('button', { name: 'เพิ่มประเภทรถ' }).click();
-    await expect(d.getByText('กรอกชื่อประเภทรถ')).toBeVisible();
+    await expect(d.getByText('กรุณากรอกชื่อประเภทรถ')).toBeVisible();
+    await expect(d.getByRole('alert')).toContainText('กรอกข้อมูลให้ครบ 3 ช่อง');
+    await expect(d.getByLabel('ชื่อประเภทรถ')).toHaveCSS('border-color', 'rgb(179, 50, 42)');
     await d.getByLabel('ชื่อประเภทรถ').fill(NAME);
     await d.getByLabel('น้ำหนักบรรทุก (กก.)').fill('12000');
     await d.getByLabel('ปริมาตร (ลบ.ม.)').fill('36.5');
@@ -66,9 +68,12 @@ test.describe.serial('ข้อมูลหลัก → ประเภทร�
     await expect(page.getByRole('status')).toContainText(`บันทึกข้อมูล ${NAME} แล้ว`);
     await expect(page.getByRole('dialog').getByText('ห้องเย็น, ติดเครน')).toBeVisible();
 
-    // ปิดใช้ (เหตุผล ≥ 10)
-    await page.getByRole('dialog').getByRole('button', { name: 'เพิ่มเติม' }).click();
+    // ปิดใช้ (เหตุผล ≥ 10) จากเมนู ⋯ ของแถว — เมนูต้องปิดเมื่อ dialog เปิด
+    await page.keyboard.press('Escape');
+    const row = page.locator('tbody tr', { hasText: NAME });
+    await row.getByRole('button', { name: 'การกระทำ' }).click();
     await page.getByRole('menuitem', { name: 'ปิดใช้' }).click();
+    await expect(page.getByRole('menu')).toHaveCount(0);
     const dlg = page.getByRole('dialog', { name: /ปิดใช้ประเภทรถ/ });
     await dlg.getByLabel('เหตุผล').fill('ทดสอบปิดใช้ประเภทรถ');
     await dlg.getByRole('button', { name: 'ปิดใช้' }).click();

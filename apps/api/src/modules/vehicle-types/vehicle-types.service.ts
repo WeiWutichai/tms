@@ -8,6 +8,7 @@ import { DbService } from '../../db/db.service';
 import { StateService } from '../../state/state.service';
 import { EXPORT_MAX_ROWS } from '../master/export';
 import {
+  assertNotActivelyUsed,
   assertNotReferenced,
   deletedFilter,
   emitMasterEvent,
@@ -382,7 +383,7 @@ export class VehicleTypesService {
       throw new ProblemException('precondition_failed');
     // MD-094: ปิดใช้ประเภทรถที่ยังมีรถ (ไม่ปลดระวาง) ในทะเบียนไม่ได้
     if (event === 'deactivate')
-      await assertNotReferenced([
+      await assertNotActivelyUsed([
         {
           name: 'vehicles',
           count: () =>

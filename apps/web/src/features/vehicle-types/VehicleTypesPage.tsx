@@ -84,10 +84,10 @@ export function VehicleTypesPage() {
       },
     );
   };
-  /** ปิดใช้ไม่ได้เพราะยังมีรถในทะเบียน (MD-094) → ข้อความเฉพาะ แทน "ลบไม่ได้…" ของ problem.in_use */
+  /** ปิดใช้ไม่ได้เพราะยังมีรถในทะเบียน (MD-094, 409 `in_use_active`) → ข้อความพร้อมจำนวนรถ */
   const actionError = (): string | null => {
     const e = action.error;
-    if (dialog?.kind === 'deactivate' && e instanceof ApiError && e.problem.code === 'in_use') {
+    if (e instanceof ApiError && e.problem.code === 'in_use_active') {
       const refs = (e.problem as { references?: { vehicles?: number } }).references;
       return t('vt.offInUse', { n: num(refs?.vehicles ?? 0) });
     }
@@ -99,18 +99,23 @@ export function VehicleTypesPage() {
       key: 'name',
       label: t('vt.col.name'),
       filter: { type: 'text', placeholder: t('table.search') },
+      // ชื่อบรรทัดบน (ยาวตัด …) + ป้ายความสามารถบรรทัดล่าง (ขึ้นบรรทัดได้) — ชื่อไม่ถูกป้ายบีบ
       render: (r) => (
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, maxWidth: 420 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxWidth: 420 }}>
           <span
             title={r.name}
-            style={{ ...cell, overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}
+            style={{ ...cell, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis' }}
           >
             {r.name}
           </span>
-          {r.capabilityTags.map((c) => (
-            <Tag key={c}>{t(`vt.tag.${c}` as MessageKey)}</Tag>
-          ))}
-        </span>
+          {r.capabilityTags.length > 0 && (
+            <span style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+              {r.capabilityTags.map((c) => (
+                <Tag key={c}>{t(`vt.tag.${c}` as MessageKey)}</Tag>
+              ))}
+            </span>
+          )}
+        </div>
       ),
       csv: (r) => r.name,
     },

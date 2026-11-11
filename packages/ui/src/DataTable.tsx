@@ -109,8 +109,13 @@ export function DataTable<R>(p: DataTableProps<R>) {
   useEffect(() => {
     if (!menuFor) return;
     const close = () => setMenuFor(null);
+    const esc = (e: KeyboardEvent) => e.key === 'Escape' && close();
     window.addEventListener('click', close);
-    return () => window.removeEventListener('click', close);
+    window.addEventListener('keydown', esc);
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('keydown', esc);
+    };
   }, [menuFor]);
 
   const from = p.page.rowsOnPage ? p.page.index * p.page.size + 1 : 0;
@@ -261,7 +266,17 @@ export function DataTable<R>(p: DataTableProps<R>) {
                       {menuFor === id && (
                         <div className="tms-rowmenu" style={{ top: 44 }} role="menu">
                           {menu.map((m) => (
-                            <button key={m.label} type="button" role="menuitem" onClick={m.run}>
+                            <button
+                              key={m.label}
+                              type="button"
+                              role="menuitem"
+                              onClick={(e) => {
+                                // ปิดเมนูก่อนทำงาน (เช่น เปิด dialog) — ไม่ให้เมนูค้างทับ dialog
+                                e.stopPropagation();
+                                setMenuFor(null);
+                                m.run();
+                              }}
+                            >
                               <Icon n={m.icon} s={16} style={{ color: '#59606B' }} />
                               {m.label}
                             </button>

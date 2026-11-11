@@ -66,6 +66,8 @@ test.describe.serial('นิติบุคคล (ตัวอย่าง list
     await drawer.getByRole('menuitem', { name: 'ปิดใช้งาน' }).click();
     await drawer.getByLabel('เหตุผล').fill('ทดสอบ E2E');
     await drawer.getByRole('button', { name: 'ปิดใช้งาน' }).click();
+    // รอให้บันทึกเสร็จจริง (ช่องเหตุผลหายไป) — ข้อความ "ปิดใช้งาน" มีบนปุ่มอยู่แล้ว ใช้รอไม่ได้ (race กับ Escape)
+    await expect(drawer.getByLabel('เหตุผล')).toHaveCount(0);
     await expect(drawer.getByText('ปิดใช้งาน', { exact: true }).first()).toBeVisible();
     await page.keyboard.press('Escape');
 

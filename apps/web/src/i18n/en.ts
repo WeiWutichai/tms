@@ -326,6 +326,7 @@ export const en: Partial<Record<MessageKey, string>> = {
   'vt.f.cap': 'Payload (kg)',
   'vt.f.lic': 'Min. licence',
   'vt.f.code': 'Code',
+  'vt.v.cap': 'Enter a number greater than 0',
   'vt.create.title': 'Add vehicle type',
   'vt.bulk.export': 'Export Excel',
   'vt.dlg.reason': 'Reasons',

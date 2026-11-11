@@ -108,7 +108,8 @@ export function VehicleTypeFormDrawer({
   const local: Record<string, string> = {};
   if (!f.name.trim()) local.name = t('vt.v.name');
   const cap = intOf(f.cap);
-  if (!(cap > 0)) local.payloadKg = t('vt.v.cap');
+  if (!f.cap.trim()) local.payloadKg = t('vt.v.cap');
+  else if (!(cap > 0)) local.payloadKg = t('vt.v.capBad');
   const vol = f.vol.trim() === '' ? null : decOf(f.vol, 2);
   if (vol !== null && !(vol >= 0)) local.volumeCbm = t('vt.v.vol');
   if (!f.vc) local.vehicleClass = t('vt.v.class');
@@ -218,6 +219,9 @@ export function VehicleTypeFormDrawer({
       subtitle={editing ? vt?.code : t('vt.create.sub')}
       onClose={onClose}
       closeLabel={t('drawer.close')}
+      {...(tried && Object.keys(local).length
+        ? { alert: t('form.incomplete', { n: Object.keys(local).length }) }
+        : {})}
       onSubmit={submit}
       footer={
         <>

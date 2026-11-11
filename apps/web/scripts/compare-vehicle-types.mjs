@@ -52,6 +52,9 @@ await close(P);
 await P.getByText('เพิ่มประเภทรถ', { exact: true }).filter({ visible: true }).first().click();
 await P.waitForTimeout(900);
 a.create = await P.screenshot();
+await P.getByText('เพิ่มประเภทรถ', { exact: true }).filter({ visible: true }).last().click();
+await P.waitForTimeout(400);
+a.invalid = await P.screenshot();
 
 if (process.env.PROTO_ONLY) {
   for (const [k, v] of Object.entries(a)) writeFileSync(`${process.env.PROTO_ONLY}/proto-${k}.png`, v);
@@ -97,8 +100,12 @@ await W.waitForTimeout(300);
 await W.getByRole('button', { name: 'เพิ่มประเภทรถ' }).click();
 await W.waitForTimeout(900);
 c.create = await W.screenshot();
+// ฟอร์มว่างกดเพิ่ม → ขอบแดง + "กรอกข้อมูลให้ครบ N ช่อง" (เทียบกับต้นแบบที่กดแบบเดียวกัน)
+await W.getByRole('dialog').getByRole('button', { name: 'เพิ่มประเภทรถ' }).click();
+await W.waitForTimeout(400);
+c.invalid = await W.screenshot();
 
-for (const tag of ['list', 'drawer', 'create', 'act']) {
+for (const tag of ['list', 'drawer', 'create', 'invalid', 'act']) {
   const M = await (await b.newContext({ viewport: { width: 2900, height: 960 } })).newPage();
   const left = a[tag] ?? a.drawer;
   await M.setContent(

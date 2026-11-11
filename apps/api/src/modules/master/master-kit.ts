@@ -328,6 +328,20 @@ export async function assertNotReferenced(checks: ReferenceCheck[]): Promise<voi
 }
 
 /**
+ * ปิดใช้ได้เฉพาะเมื่อไม่มีข้อมูลที่ใช้งานอยู่อ้างถึง (เช่น MD-094 ประเภทรถที่ยังมีรถในทะเบียน)
+ * → 409 `in_use_active` (คนละ code/ข้อความกับ `in_use` ของการลบ) + จำนวนต่อชนิดใน `references`
+ */
+export async function assertNotActivelyUsed(checks: ReferenceCheck[]): Promise<void> {
+  const refs: Record<string, number> = {};
+  for (const c of checks) {
+    const n = await c.count();
+    if (n > 0) refs[c.name] = n;
+  }
+  if (Object.keys(refs).length)
+    throw new ProblemException('in_use_active', undefined, undefined, { references: refs });
+}
+
+/**
  * upsert ด้วย externalId (docs/01 §5.2 `PUT /{master}/external/{id}`) — idempotent:
  * ส่งซ้ำ = อัปเดตแถวเดิม (200) ไม่เกิดแถวใหม่; ยังไม่มี = สร้าง (201)
  * lock ต่อ externalId กันคำขอพร้อมกันสร้างซ้ำ

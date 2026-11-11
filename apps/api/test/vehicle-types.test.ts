@@ -184,7 +184,8 @@ describe('ประเภทรถ (vehicle-types)', () => {
       .post(`/v1/vehicle-types/${v.id}/deactivate`)
       .send({ reason: 'เลิกใช้รถประเภทนี้แล้ว' })
       .expect(409);
-    expect(off.body).toMatchObject({ code: 'in_use', references: { vehicles: 1 } });
+    expect(off.body).toMatchObject({ code: 'in_use_active', references: { vehicles: 1 } });
+    expect(off.body.title).toMatch(/^ปิดใช้ไม่ได้/);
     await db.vehicle.update({ where: { id: car.id }, data: { status: 'RETIRED' } });
     await api(app, admin)
       .post(`/v1/vehicle-types/${v.id}/deactivate`)

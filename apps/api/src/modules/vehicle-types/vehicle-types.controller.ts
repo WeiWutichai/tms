@@ -226,7 +226,7 @@ export class VehicleTypesController {
     return this.types.dto(v);
   }
 
-  /** ปิดใช้ (เหตุผล ≥ 10) — ยังมีรถในทะเบียนที่ใช้ประเภทนี้ → 409 `in_use` (MD-094) */
+  /** ปิดใช้ (เหตุผล ≥ 10) — ยังมีรถในทะเบียนที่ใช้ประเภทนี้ → 409 `in_use_active` (MD-094) */
   @Post(':id/deactivate')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
   @HttpCode(200)

@@ -326,6 +326,7 @@ export const zh: Partial<Record<MessageKey, string>> = {
   'vt.f.cap': '载重 (kg)',
   'vt.f.lic': '最低驾照',
   'vt.f.code': '代码',
+  'vt.v.cap': '请输入大于 0 的数字',
   'vt.create.title': '新增车型',
   'vt.bulk.export': '导出 Excel',
   'vt.dlg.reason': '原因',
