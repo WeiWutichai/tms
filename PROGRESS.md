@@ -107,6 +107,7 @@
 
 ## Defect / Incident
 
+- (11 พ.ย., พบจาก E2E ล้มบางครั้งระหว่าง T19 — แก้แล้วใน PR T19) **เปลี่ยนหน้าเร็วแล้วหลุด login** — request ต่ออายุ token ถูกตัดกลางทางตอนเปลี่ยนหน้า: server บันทึกว่าใช้ token เก่าแล้วแต่ยังสร้าง token ใหม่ไม่เสร็จ → หน้าถัดไปใช้ cookie เก่าภายใน grace 30 วิ แต่หา token ใหม่ไม่เจอจึงตอบ 400 · แก้: ระหว่างนั้นเทียบ IP + User-Agent กับเจ้าของ token เดิม (`auth.service.ts`) + เว็บลองซ้ำ 3 ครั้ง (0.4/1/2 วิ) · test `auth.test.ts` กรณี mid-rotation
 - (11 พ.ย., พบระหว่าง T19) **role ระบบของ tenant ที่มีอยู่ไม่ได้สิทธิ์ใหม่อัตโนมัติ** — `ensureSystemRoles` รันแค่ตอนสร้าง tenant/seed; เมื่อโค้ดเพิ่ม permission (เช่น `documents:write` ใน T08) tenant เดิมไม่ได้ จนกว่าจะรัน seed · ฐาน dev แก้ด้วย seed แล้ว · ต้องมี sync ตอน deploy/บูต ก่อนมี tenant จริง (เสนอทำใน T24 admin portal หรือ migration step) 
 
 ## บันทึกรายวัน

@@ -217,6 +217,23 @@ describe('auth: login + Auth Code/PKCE + refresh', () => {
     expect((await refresh(next)).status).toBe(200);
   });
 
+  it('ภายใน 30 วินาที ระหว่าง request ที่หมุนยังทำไม่เสร็จ (ยังไม่มี token ใหม่) → เครื่องเดิมได้ token; เครื่องอื่น 400', async () => {
+    const u = await makeUser(tenantA, 'midrotate@example.co.th');
+    const { cookie } = await fullLogin('midrotate@example.co.th');
+    // จำลอง: request แรกบันทึกว่าใช้แล้ว แต่ยังไม่ทันสร้าง token ใบใหม่ (ถูกตัดตอนเปลี่ยนหน้า)
+    await db.refreshToken.updateMany({
+      where: { userId: typeof u === 'string' ? u : u.id, usedAt: null },
+      data: { usedAt: new Date() },
+    });
+    const other = await request(app.getHttpServer())
+      .post('/v1/oauth/token')
+      .set('Cookie', cookie)
+      .set('User-Agent', 'attacker/1.0')
+      .send({ grantType: 'refresh_token' });
+    expect(other.status).toBe(400);
+    expect((await refresh(cookie)).status).toBe(200);
+  });
+
   it('สองแท็บ refresh พร้อมกันจริง (Promise.all) ซ้ำ 10 รอบ → ไม่มีรอบไหนหลุดทั้ง family', async () => {
     await makeUser(tenantA, 'race@example.co.th');
     let { cookie } = await fullLogin('race@example.co.th');
