@@ -502,4 +502,17 @@ describe('คนขับ (drivers)', () => {
     const nc = await api(app, admin).get('/v1/drivers/next-code').expect(200);
     expect(nc.body.code).toMatch(/^DRV-\d{4}$/);
   });
+
+  it('Defect ST2-T08 review: แก้เฉพาะวันหมดอายุใบขับขี่ต้องบันทึก (PATCH และ PUT external)', async () => {
+    const d = await newDriver({ licenceExpiresOn: '2028-03-31' });
+    const r = await patch(d, { licenceExpiresOn: '2029-03-31' }).expect(200);
+    expect(r.body).toMatchObject({ licenceExpiresOn: '2029-03-31', version: d.version + 1 });
+    const b = body({ licenceExpiresOn: '2028-01-01' });
+    await api(app, admin).put('/v1/drivers/external/HR-DATE').send(b).expect(201);
+    const u = await api(app, admin)
+      .put('/v1/drivers/external/HR-DATE')
+      .send({ ...b, licenceExpiresOn: '2028-06-30' })
+      .expect(200);
+    expect(u.body.licenceExpiresOn).toBe('2028-06-30');
+  });
 });

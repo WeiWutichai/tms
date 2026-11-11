@@ -719,4 +719,20 @@ describe('รถ (vehicles)', () => {
     expect(b.body.quotaExceeded).toBe(true);
     expect(b.headers.warning).toContain('quota');
   });
+
+  it('Defect ST2-T08 review: แก้เฉพาะวันที่ซื้อ (purchasedOn) ต้องบันทึก — ไม่ใช่ no-op', async () => {
+    const v = (await create({ purchasedOn: '2021-11-04', purchaseCost: '1500000.00' }).expect(201)).body;
+    const r = await api(app, admin)
+      .patch(`/v1/vehicles/${v.id}`)
+      .set('If-Match', `"${v.version}"`)
+      .send({ purchasedOn: '2021-12-01' })
+      .expect(200);
+    expect(r.body.purchasedOn).toBe('2021-12-01');
+    expect(r.body.version).toBe(v.version + 1);
+    const same = await api(app, admin)
+      .patch(`/v1/vehicles/${v.id}`)
+      .send({ purchasedOn: '2021-12-01' })
+      .expect(200);
+    expect(same.body.version).toBe(r.body.version);
+  });
 });
