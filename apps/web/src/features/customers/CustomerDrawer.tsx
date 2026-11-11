@@ -541,7 +541,9 @@ export function CustomerDrawer({
           </div>
         </div>
       )}
-      {tab === 'addr' && <CustomerSitesTab customerId={c.id} canWrite={canWrite} />}
+      {tab === 'addr' && (
+        <CustomerSitesTab customerId={c.id} customerName={c.legalName} canWrite={canWrite} />
+      )}
       {tab === 'act' && (
         <HistoryTab
           path="/v1/customers/{id}/history"

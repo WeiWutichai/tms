@@ -343,7 +343,12 @@ export function Drawer({
             <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, gap: 2 }}>
               <span className="tms-drawer__kind">{kind}</span>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                <span className="tms-drawer__no">{title}</span>
+                <span
+                  className="tms-drawer__no"
+                  title={typeof title === 'string' ? title : undefined}
+                >
+                  {title}
+                </span>
                 {badge}
               </div>
               {subtitle && (

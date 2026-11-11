@@ -50,4 +50,8 @@ CREATE INDEX "customer_site_tenant_kind_idx" ON "customer_site"("tenant_id", "ki
 SELECT tms_enable_tenant_rls('customer_site');
 
 -- ไม่มีการลบจริง (D7 / MD-004): "ลบ" = ตั้ง deleted_at
-REVOKE DELETE ON "customer_site" FROM tms_app;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'tms_app') THEN
+    EXECUTE 'REVOKE DELETE ON "customer_site" FROM tms_app';
+  END IF;
+END $$;

@@ -4,6 +4,7 @@ import { ApiError } from '../../api';
 import { useI18n } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
 import { fieldErrors, problemText } from '../master/problems';
+import { RefPicker, type RefOption } from '../master/RefPicker';
 import {
   formatContact,
   formatLatLng,
@@ -16,7 +17,7 @@ import {
   SITE_KINDS,
   VEHICLE_CLASSES,
   useCreateSite,
-  useCustomerOptions,
+  searchCustomers,
   useUpdateSite,
   type Site,
   type SiteCreate,
@@ -28,7 +29,7 @@ import {
 interface Form {
   name: string;
   kind: SiteKind;
-  customerId: string;
+  cust: RefOption | null;
   addr: string;
   ll: string;
   r: string;
@@ -46,7 +47,7 @@ interface Form {
 const EMPTY: Form = {
   name: '',
   kind: 'DROPOFF',
-  customerId: '',
+  cust: null,
   addr: '',
   ll: '',
   r: '300',
@@ -64,7 +65,7 @@ function toForm(s: Site): Form {
   return {
     name: s.name,
     kind: s.kind,
-    customerId: s.customer?.id ?? '',
+    cust: s.customer ? { id: s.customer.id, label: s.customer.name, sub: s.customer.code } : null,
     addr: s.address.line1,
     ll: formatLatLng(s.lat, s.lng),
     r: String(s.geofenceRadiusM),
@@ -105,7 +106,7 @@ const PILL: CSSProperties = {
 export function SiteFormDrawer({
   open,
   site,
-  presetCustomerId,
+  presetCustomer,
   onClose,
   onSaved,
 }: {
@@ -113,13 +114,12 @@ export function SiteFormDrawer({
   /** มีค่า = แก้ไข */
   site?: Site | null;
   /** เปิดจากแท็บ "ที่อยู่ส่ง" ของลูกค้า */
-  presetCustomerId?: string;
+  presetCustomer?: RefOption;
   onClose: () => void;
   onSaved: (s: Site, created: boolean) => void;
 }) {
   const { t } = useI18n();
   const editing = !!site;
-  const customers = useCustomerOptions(open);
   const create = useCreateSite();
   const update = useUpdateSite();
   const m = editing ? update : create;
@@ -129,7 +129,7 @@ export function SiteFormDrawer({
   const submitting = useRef(false);
   useEffect(() => {
     if (open) {
-      setF(site ? toForm(site) : { ...EMPTY, customerId: presetCustomerId ?? '' });
+      setF(site ? toForm(site) : { ...EMPTY, cust: presetCustomer ?? null });
       setTried(false);
       setIdemKey(crypto.randomUUID());
       submitting.current = false;
@@ -145,16 +145,20 @@ export function SiteFormDrawer({
   if (!f.addr.trim()) local.address = t('loc.v.addr');
   const ll = parseLatLng(f.ll);
   if (f.ll.trim() && !ll) local.lat = t('loc.v.ll');
-  else if (ll && Math.abs(ll.lat) > 90) local.lat = t('loc.v.llSwap');
+
   const r = /^\d{1,4}$/.test(f.r.trim()) ? Number(f.r) : NaN;
   if (!(r >= 50 && r <= 2000)) local.geofenceRadiusM = t('loc.v.r');
   if (!!f.open !== !!f.close) local.openTime = t('loc.v.hrs');
+  else if (f.open && f.open === f.close) local.openTime = t('field.same_time');
   const svc = f.svc.trim() === '' ? null : /^\d{1,3}$/.test(f.svc.trim()) ? Number(f.svc) : NaN;
   if (svc !== null && !(svc >= 0 && svc <= 720)) local.serviceTimeMin = t('loc.v.svc');
   const contact = parseContact(f.ct);
   // พิกัดนอกกรอบไทย → เตือน (ไม่บล็อก) + ปุ่มสลับถ้าสลับแล้วเข้ากรอบ
   const swapped = ll && !inThaiBox(ll) && inThaiBox({ lat: ll.lng, lng: ll.lat });
+  // นอกกรอบไทย: สลับแล้วเข้ากรอบ = "อาจสลับกัน" + ปุ่มสลับ; ไม่งั้น = "อยู่นอกประเทศไทย…" (ไม่บล็อก)
   const llWarn = ll && !inThaiBox(ll) ? t(swapped ? 'loc.v.llSwap' : 'loc.v.llOut') : undefined;
+  // lat เกิน ±90 ส่งไม่ได้ (API 422) — บอกให้สลับถ้าช่วยได้ ไม่งั้นรูปแบบผิด
+  if (ll && Math.abs(ll.lat) > 90) local.lat = t(swapped ? 'loc.v.llSwap' : 'loc.v.ll');
 
   const server = fieldErrors(m.error, t);
   for (const [k, v] of Object.entries(server)) {
@@ -174,7 +178,7 @@ export function SiteFormDrawer({
   const body = (): SiteCreate => ({
     name: f.name.trim(),
     kind: f.kind,
-    customerId: f.customerId || null,
+    customerId: f.cust?.id ?? null,
     address: { ...(site?.address ?? {}), line1: f.addr.trim() },
     lat: ll ? ll.lat : null,
     lng: ll ? ll.lng : null,
@@ -195,7 +199,7 @@ export function SiteFormDrawer({
     const out: SiteInput = {};
     if (a.name !== f.name) out.name = b.name;
     if (a.kind !== f.kind) out.kind = b.kind!;
-    if (a.customerId !== f.customerId) out.customerId = b.customerId ?? null;
+    if (a.cust?.id !== f.cust?.id) out.customerId = b.customerId ?? null;
     if (a.addr !== f.addr) out.address = b.address;
     if (a.ll !== f.ll) {
       out.lat = b.lat ?? null;
@@ -207,7 +211,11 @@ export function SiteFormDrawer({
       out.openTime = b.openTime ?? null;
       out.closeTime = b.closeTime ?? null;
     }
-    if (a.ct !== f.ct) out.contact = b.contact ?? null;
+    // คงช่องที่ฟอร์มนี้ไม่มี (เช่น อีเมลที่ตั้งผ่าน API) — แก้ได้แค่ชื่อ/เบอร์
+    if (a.ct !== f.ct)
+      out.contact = b.contact
+        ? { ...(s.contact?.email ? { email: s.contact.email } : {}), ...b.contact }
+        : null;
     if (a.aliases !== f.aliases) out.aliases = b.aliases!;
     if (a.svc !== f.svc) out.serviceTimeMin = b.serviceTimeMin ?? null;
     if (a.notes !== f.notes) out.notes = b.notes ?? null;
@@ -246,7 +254,10 @@ export function SiteFormDrawer({
   };
 
   const input =
-    (k: keyof Form, extra: Partial<React.InputHTMLAttributes<HTMLInputElement>> = {}) =>
+    (
+      k: Exclude<keyof Form, 'cust'>,
+      extra: Partial<React.InputHTMLAttributes<HTMLInputElement>> = {},
+    ) =>
     (p: { id: string; 'aria-invalid': boolean }) => (
       <TextInput
         {...p}
@@ -255,7 +266,6 @@ export function SiteFormDrawer({
         onChange={(e) => setF((x) => ({ ...x, [k]: e.target.value }))}
       />
     );
-  const custOpts = customers.data?.data ?? [];
   const label = editing ? t('common.save') : t('loc.add');
 
   return (
@@ -310,23 +320,17 @@ export function SiteFormDrawer({
           </FormField>
           <FormField label={t('loc.f.cust')} error={errs.customerId}>
             {(p) => (
-              <select
-                {...p}
-                className="tms-select"
-                style={SEL}
-                value={f.customerId}
-                onChange={(e) => set('customerId', e.target.value)}
-              >
-                <option value="">{t('loc.f.custPick')}</option>
-                {custOpts.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.legalName}
-                  </option>
-                ))}
-                {site?.customer && !custOpts.some((c) => c.id === site.customer!.id) && (
-                  <option value={site.customer.id}>{site.customer.name}</option>
-                )}
-              </select>
+              <RefPicker
+                id={p.id}
+                invalid={p['aria-invalid']}
+                queryKey="customers"
+                value={f.cust}
+                onChange={(v) => set('cust', v)}
+                search={searchCustomers}
+                clearLabel={t('loc.f.custPick')}
+                placeholder={t('table.search')}
+                noResult={t('table.emptyTitle')}
+              />
             )}
           </FormField>
           <FormField label={t('loc.f.addr')} required span={2} error={errs.address}>

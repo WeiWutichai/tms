@@ -381,6 +381,7 @@ model Customer {
   version                 Int            @default(1)
   createdAt               DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt               DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  sites                   CustomerSite[]
 
   @@unique([tenantId, code])
   @@unique([tenantId, externalId])
@@ -411,6 +412,7 @@ model CustomerSite {
   tenantId           String        @map("tenant_id") @db.Uuid
   code               String /// LOC-00001 (MD-002) — unique ไม่สนตัวพิมพ์
   customerId         String?       @map("customer_id") @db.Uuid /// null = จุดของบริษัทเอง (คลัง/ปั๊ม/จุดพัก)
+  customer           Customer?     @relation(fields: [customerId], references: [id], onDelete: Restrict)
   kind               SiteKind      @default(DROPOFF)
   name               String
   address            Json
@@ -419,7 +421,8 @@ model CustomerSite {
   geocodeStatus      GeocodeStatus @default(PENDING) @map("geocode_status") /// OK = มีพิกัด (กรอกเอง/ยืนยันแล้ว) · geocode อัตโนมัติ = ST2-T03
   geofenceRadiusM    Int           @default(200) @map("geofence_radius_m") /// 50–2,000 ม.
   aliases            String[]      @default([]) /// ข้อความที่ใช้เรียกจุดนี้ (จับคู่อัตโนมัติ ST3-T06)
-  aliasSearch        String        @default("") @map("alias_search") /// aliases ตัวเล็กคั่นด้วย \n (ค้นแบบ contains) — ระบบเขียนเอง
+  aliasSearch        String        @default("") @map("alias_search") /// aliases ตัวเล็กครอบ/คั่นด้วย \n — trigger ในฐานข้อมูลเขียนเอง (0036) ห้ามเขียนจากแอป
+  addressSearch      String        @default("") @map("address_search") /// ที่อยู่ตัวเล็ก — trigger ในฐานข้อมูลเขียนเอง (0036)
   openTime           String?       @map("open_time") /// HH:MM (ว่าง = 24 ชม.)
   closeTime          String?       @map("close_time") /// HH:MM (< open = ข้ามเที่ยงคืน)
   vehicleTypeAllowed String[]      @default([]) @map("vehicle_type_allowed") /// รหัส vehicle_type ที่เข้าได้ (ยังไม่ใช้ — รอ ST2-T04)

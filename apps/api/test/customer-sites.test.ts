@@ -371,4 +371,68 @@ describe('สถานที่ (customer-sites)', () => {
     const none = await tokenFor(tenantId, 'orders:read');
     await api(app, none).get('/v1/customer-sites').expect(403);
   });
+  it('review: ส่งซ้ำลูกค้าเดิมที่ปิดใช้แล้ว = ไม่เปลี่ยน (200 no-op); เปลี่ยนไปลูกค้าที่ปิดใช้ → 422', async () => {
+    const c = await newCustomer();
+    const body = { name: `จุด ext ${++seed}`, address: ADDR, customerId: c.id };
+    const a = await api(app, admin).put('/v1/customer-sites/external/ERP-LOC-OFF').send(body);
+    expect(a.status).toBe(201);
+    await api(app, admin)
+      .post(`/v1/customers/${c.id}/deactivate`)
+      .send({ reason: 'เลิกใช้บริการ ทดสอบ review' })
+      .expect(200);
+    const b = await api(app, admin).put('/v1/customer-sites/external/ERP-LOC-OFF').send(body);
+    expect(b.status).toBe(200);
+    expect(b.body.version).toBe(a.body.version);
+    await api(app, admin)
+      .patch(`/v1/customer-sites/${a.body.id}`)
+      .send({ customerId: c.id })
+      .expect(200);
+    const other = await newSite();
+    const bad = await api(app, admin)
+      .patch(`/v1/customer-sites/${other.id}`)
+      .send({ customerId: c.id });
+    expect(bad.status).toBe(422);
+    expect(bad.body.errors[0]).toMatchObject({ field: 'customerId', code: 'not_found' });
+  });
+
+  it('review: alias_search/address_search มาจาก trigger — แก้ aliases ด้วย SQL ตรงแล้วค้นเจอ; ค้นที่อยู่ไม่สนตัวพิมพ์', async () => {
+    const s = await newSite({ address: { line1: '9 Bangna-Trad Road ต.ตัวอย่าง' } });
+    await db.$executeRaw`UPDATE customer_site SET aliases = ARRAY['Raw Alias X'] WHERE id = ${tryDecodeId('site', s.id)!}::uuid`;
+    const byAlias = await api(app, admin).get('/v1/customer-sites').query({ alias: 'raw alias x' });
+    expect(byAlias.body.data.map((x: { id: string }) => x.id)).toEqual([s.id]);
+    const byAddr = await api(app, admin).get('/v1/customer-sites').query({ q: 'BANGNA-TRAD' });
+    expect(byAddr.body.data.map((x: { id: string }) => x.id)).toContain(s.id);
+  });
+
+  it('review: พิกัดส่งช่องเดียว (แม้ null) → 422; เวลาเปิด = ปิด → 422', async () => {
+    const s = await newSite({ lat: 13.6, lng: 100.6 });
+    const r = await api(app, admin).patch(`/v1/customer-sites/${s.id}`).send({ lat: null });
+    expect(r.status).toBe(422);
+    expect(r.body.errors[0]).toMatchObject({ field: 'lng', code: 'pair_required' });
+    const g = await api(app, admin).get(`/v1/customer-sites/${s.id}`).expect(200);
+    expect(g.body.lat).toBe(13.6);
+    const same = await create({
+      name: 'เวลาเท่ากัน',
+      address: ADDR,
+      openTime: '08:00',
+      closeTime: '08:00',
+    });
+    expect(same.status).toBe(422);
+    expect(same.body.errors[0]).toMatchObject({ field: 'closeTime', code: 'same_time' });
+  });
+
+  it('review: กรองชื่อลูกค้าด้วยชื่อบริษัทเอง → เห็นจุดของบริษัท (ไม่มีลูกค้า)', async () => {
+    const t = (await createTenant(db)).id;
+    const tok = await tokenFor(t);
+    const tenant = await db.tenant.findUniqueOrThrow({ where: { id: t } });
+    const own = await api(app, tok)
+      .post('/v1/customer-sites')
+      .send({ name: 'คลังของบริษัท', address: ADDR })
+      .expect(201);
+    const r = await api(app, tok)
+      .get('/v1/customer-sites')
+      .query({ customerName: tenant.name.slice(0, 4) })
+      .expect(200);
+    expect(r.body.data.map((x: { id: string }) => x.id)).toEqual([own.body.id]);
+  });
 });

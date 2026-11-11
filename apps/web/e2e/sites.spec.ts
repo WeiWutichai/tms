@@ -119,7 +119,15 @@ test.describe.serial('ข้อมูลหลัก → สถานที่ /
     await expect(drawer.getByText('ยังไม่มีที่อยู่ส่ง')).toBeVisible();
     await drawer.getByRole('button', { name: 'เพิ่มที่อยู่ส่ง' }).click();
     const f = page.getByRole('dialog', { name: /เพิ่มสถานที่/ });
-    await expect(f.getByLabel('ลูกค้า')).toHaveValue(/^cus_/);
+    await expect(f.getByLabel('ลูกค้า')).toHaveValue(cust);
+    // ช่องลูกค้าค้นได้ (RefPicker → API q): ล้าง → พิมพ์ชื่อ → เลือก
+    await f.getByLabel('ลูกค้า').click();
+    await f.getByRole('option', { name: '— เลือก —' }).click();
+    await expect(f.getByLabel('ลูกค้า')).toHaveValue('');
+    await f.getByLabel('ลูกค้า').click();
+    await f.getByLabel('ลูกค้า').fill(`จุดส่งอีทูอี ${RUN}`);
+    await f.getByRole('option', { name: new RegExp(cust) }).click();
+    await expect(f.getByLabel('ลูกค้า')).toHaveValue(cust);
     await f.getByLabel('ชื่อสถานที่').fill(`โรงงานลูกค้า ${RUN}`);
     await f.getByLabel('ที่อยู่').fill('99 นิคมตัวอย่าง จ.ชลบุรี 20000');
     await f.getByRole('button', { name: 'เพิ่มสถานที่' }).click();

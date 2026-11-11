@@ -4,6 +4,7 @@ import type { TransitionTable } from '@tms/domain';
 import { AuditService } from '../../audit/audit.service';
 import { encodeId, tryDecodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
+import { requestContext } from '../../common/request-context';
 import { DbService } from '../../db/db.service';
 import { StateService } from '../../state/state.service';
 import { EXPORT_MAX_ROWS } from '../master/export';
@@ -47,11 +48,6 @@ type CustomerRef = { id: string; code: string; legalName: string };
 
 const field422 = (field: string, code: string, message: string) =>
   new ProblemException('validation_failed', undefined, [{ field, code, message }]);
-
-/** ค่าค้นหา alias: ตัวเล็ก คั่น/ครอบด้วย \n → contains `\nค่า\n` = ตรงตัว, contains `ค่า` = บางส่วน */
-export function aliasSearchText(aliases: string[]): string {
-  return aliases.length ? `\n${aliases.map((a) => a.toLowerCase()).join('\n')}\n` : '';
-}
 
 export function toSiteDto(s: CustomerSite, customer?: CustomerRef | null): SiteDto {
   return {
@@ -119,12 +115,18 @@ export class SitesService {
     else if (q.customerId) and.push({ customerId: tryDecodeId('customer', q.customerId) });
     const like = (v: string) => ({ contains: likeEscape(v), mode: 'insensitive' as const });
     if (q.customerName) {
-      const ids = await this.db.tx.customer.findMany({
-        where: { legalName: like(q.customerName) },
+      // ตามต้นแบบ: จุดของบริษัทเอง (ไม่มีลูกค้า) แสดงชื่อบริษัท — ค้นชื่อบริษัทแล้วเจอจุดเหล่านั้นด้วย
+      const tenantId = requestContext.require().tenantId!;
+      const own = await this.db.tx.tenant.findFirst({
+        where: { id: tenantId, name: like(q.customerName) },
         select: { id: true },
-        take: 1000,
       });
-      and.push({ customerId: { in: ids.map((c) => c.id) } });
+      and.push({
+        OR: [
+          { customer: { legalName: like(q.customerName) } },
+          ...(own ? [{ customerId: null }] : []),
+        ],
+      });
     }
     if (q.alias)
       and.push({ aliasSearch: { contains: `\n${likeEscape(q.alias.toLowerCase())}\n` } });
@@ -135,7 +137,7 @@ export class SitesService {
           { name: like(q.q) },
           { externalId: like(q.q) },
           { aliasSearch: { contains: likeEscape(q.q.toLowerCase()) } },
-          { address: { path: ['line1'], string_contains: likeEscape(q.q) } },
+          { addressSearch: { contains: likeEscape(q.q.toLowerCase()) } },
         ],
       });
     return { AND: and };
@@ -238,9 +240,10 @@ export class SitesService {
     if (input.lat === undefined && input.lng === undefined) return;
     const lat = input.lat ?? null;
     const lng = input.lng ?? null;
-    if ((lat === null) !== (lng === null))
+    // ส่งมาช่องเดียว (แม้เป็น null) หรือค่าหนึ่งว่างอีกค่ามี → 422 (กันล้าง/แก้พิกัดครึ่งเดียว)
+    if (input.lat === undefined || input.lng === undefined || (lat === null) !== (lng === null))
       throw field422(
-        lat === null ? 'lat' : 'lng',
+        input.lat === undefined || (lat === null && input.lng !== undefined) ? 'lat' : 'lng',
         'pair_required',
         'lat and lng must be sent together',
       );
@@ -250,17 +253,17 @@ export class SitesService {
   }
 
   /** แปลง DTO → คอลัมน์ + ตรวจลูกค้าที่อ้างถึง (ต้องมีใน tenant และใช้งานอยู่) */
-  private async toData(input: SiteFieldsDto & { name?: string; address?: SiteAddressDto }) {
+  private async toData(
+    input: SiteFieldsDto & { name?: string; address?: SiteAddressDto },
+    current?: CustomerSite,
+  ) {
     const data: Prisma.CustomerSiteUncheckedUpdateInput = {};
     if (input.name !== undefined) data.name = input.name;
     if (input.address !== undefined) data.address = { ...input.address } as object;
     if (input.kind !== undefined) data.kind = input.kind;
     this.applyCoords(input, data);
     if (input.geofenceRadiusM !== undefined) data.geofenceRadiusM = input.geofenceRadiusM;
-    if (input.aliases !== undefined) {
-      data.aliases = input.aliases;
-      data.aliasSearch = aliasSearchText(input.aliases);
-    }
+    if (input.aliases !== undefined) data.aliases = input.aliases; // alias_search/address_search = trigger (0036)
     if (input.openTime !== undefined) data.openTime = input.openTime;
     if (input.closeTime !== undefined) data.closeTime = input.closeTime;
     if (input.maxVehicleClass !== undefined) data.maxVehicleClass = input.maxVehicleClass;
@@ -279,7 +282,9 @@ export class SitesService {
               select: { id: true, status: true },
             })
           : null;
-        if (!c || c.status !== 'ACTIVE')
+        // ต้องมีใน tenant และยังไม่ลบเสมอ; ต้อง "ใช้งาน" เฉพาะเมื่อเปลี่ยนไปผูกลูกค้าใหม่
+        // (ส่งซ้ำลูกค้าเดิมที่ปิดใช้ไปแล้ว เช่น PUT external ทั้งก้อน = ไม่เปลี่ยน → ผ่าน)
+        if (!c || (c.status !== 'ACTIVE' && c.id !== current?.customerId))
           throw field422('customerId', 'not_found', 'customer not found or inactive');
         data.customerId = c.id;
       }
@@ -287,7 +292,7 @@ export class SitesService {
     return data;
   }
 
-  /** เวลาเปิด-ปิดต้องมาคู่กัน (ว่างทั้งคู่ = 24 ชม.) */
+  /** เวลาเปิด-ปิดต้องมาคู่กัน (ว่างทั้งคู่ = 24 ชม.) และไม่เท่ากัน (ปิด < เปิด = ข้ามเที่ยงคืน) */
   private assertHours(openTime: string | null, closeTime: string | null) {
     if ((openTime === null) !== (closeTime === null))
       throw field422(
@@ -295,6 +300,8 @@ export class SitesService {
         'pair_required',
         'openTime and closeTime must be set together',
       );
+    if (openTime !== null && openTime === closeTime)
+      throw field422('closeTime', 'same_time', 'closeTime must differ from openTime');
   }
 
   private async assertUniqueExternal(externalId: string, exceptId?: string) {
@@ -314,7 +321,11 @@ export class SitesService {
     const tx = this.db.tx;
     const data = await this.toData(input);
     this.assertHours(input.openTime ?? null, input.closeTime ?? null);
-    if (input.externalId) await this.assertUniqueExternal(input.externalId);
+    if (input.externalId) {
+      // lock เดียวกับ PUT external — POST พร้อม PUT ด้วย externalId เดียวกันไม่สร้างซ้ำ
+      await lockKey(tx, `${ENTITY}.ext:${input.externalId}`);
+      await this.assertUniqueExternal(input.externalId);
+    }
     await lockKey(tx, 'customer_site.code');
     let code = input.code;
     if (code) {
@@ -350,7 +361,7 @@ export class SitesService {
     const current = await this.get(id);
     if (expected !== undefined && expected !== current.version)
       throw new ProblemException('precondition_failed');
-    const data = await this.toData(input);
+    const data = await this.toData(input, current);
     if (input.openTime !== undefined || input.closeTime !== undefined)
       this.assertHours(
         input.openTime !== undefined ? input.openTime : current.openTime,

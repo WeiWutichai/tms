@@ -1,6 +1,7 @@
 import type { Schemas } from '@tms/contracts';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, unwrap } from '../../api';
+import type { RefOption } from '../master/RefPicker';
 import { useCursorList } from '../master/useCursorList';
 
 export type Site = Schemas['SiteDto'];
@@ -37,28 +38,37 @@ export function useSiteSummary() {
   });
 }
 
-/** สถานที่ของลูกค้ารายเดียว (แท็บ "ที่อยู่ส่ง" ใน drawer ลูกค้า) */
+/** สถานที่ของลูกค้ารายเดียว (แท็บ "ที่อยู่ส่ง" ใน drawer ลูกค้า) — ทีละ 20 รายการ กด "ดูเพิ่ม" */
 export function useCustomerSites(customerId: string, enabled: boolean) {
-  return useQuery({
+  return useInfiniteQuery({
     queryKey: [KEY, 'by-customer', customerId],
     enabled,
-    queryFn: () =>
+    initialPageParam: undefined as string | undefined,
+    queryFn: ({ pageParam }) =>
       unwrap(
         api.GET('/v1/customer-sites', {
-          params: { query: { customerId, limit: 200, sort: 'code' } },
+          params: {
+            query: {
+              customerId,
+              limit: 20,
+              sort: 'code',
+              ...(pageParam ? { cursor: pageParam } : {}),
+            },
+          },
         }),
       ),
+    getNextPageParam: (p) => p.nextCursor ?? undefined,
   });
 }
 
-/** ลูกค้าที่ใช้งาน — ตัวเลือก "ลูกค้า" ในฟอร์มสถานที่ */
-export function useCustomerOptions(enabled: boolean) {
-  return useQuery({
-    queryKey: ['customers', 'options'],
-    enabled,
-    queryFn: () =>
-      unwrap(api.GET('/v1/customers', { params: { query: { status: 'active', limit: 200 } } })),
-  });
+/** ค้นลูกค้าที่ใช้งาน (ช่อง "ลูกค้า" ในฟอร์มสถานที่ — RefPicker) ทีละ 20 รายการด้วย `q` */
+export async function searchCustomers(q: string): Promise<RefOption[]> {
+  const r = await unwrap(
+    api.GET('/v1/customers', {
+      params: { query: { status: 'active', limit: 20, ...(q ? { q } : {}) } },
+    }),
+  );
+  return r.data.map((c) => ({ id: c.id, label: c.legalName, sub: c.code }));
 }
 
 export function useCreateSite() {

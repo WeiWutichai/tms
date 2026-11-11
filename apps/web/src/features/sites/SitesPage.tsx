@@ -265,7 +265,6 @@ export function SitesPage() {
           {
             value: sum ? num(sum.total) : '—',
             label: t('loc.sum.total'),
-            onClick: () => setFilters(EMPTY_FILTERS),
           },
           { value: sum ? num(sum.pinned) : '—', label: t('loc.sum.pinned'), color: '#17733F' },
           {

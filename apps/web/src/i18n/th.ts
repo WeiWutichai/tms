@@ -778,6 +778,7 @@ export const th = {
   'field.not_found': 'ไม่พบข้อมูลที่เลือก',
   'field.one_primary': 'ผู้ติดต่อหลักมีได้คนเดียว',
   'field.pair_required': 'ต้องกรอกคู่กัน',
+  'field.same_time': 'เวลาปิดต้องไม่เท่ากับเวลาเปิด',
   // ข้อมูลหลัก → สถานที่ / จุดรับส่ง (ST2-T02) — ต้นแบบ TMS v4 specLoc() / cfLoc() / vPanelApi loc
   'loc.kind': 'สถานที่',
   'loc.add': 'เพิ่มสถานที่',

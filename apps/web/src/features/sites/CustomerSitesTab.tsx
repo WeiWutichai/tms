@@ -11,16 +11,18 @@ import { useCustomerSites } from './useSites';
  */
 export function CustomerSitesTab({
   customerId,
+  customerName,
   canWrite,
 }: {
   customerId: string;
+  customerName: string;
   canWrite: boolean;
 }) {
   const { t } = useI18n();
   const q = useCustomerSites(customerId, true);
   const [adding, setAdding] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
-  const rows = q.data?.data ?? [];
+  const rows = q.data?.pages.flatMap((p) => p.data) ?? [];
   const pin = rows.find((r) => r.lat !== null);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -83,6 +85,17 @@ export function CustomerSitesTab({
           <div style={{ padding: 16, color: '#3B424C' }}>{t('cust.addr.none')}</div>
         )}
       </div>
+      {q.hasNextPage && (
+        <button
+          type="button"
+          className="tms-textlink"
+          style={{ alignSelf: 'flex-start' }}
+          disabled={q.isFetchingNextPage}
+          onClick={() => void q.fetchNextPage()}
+        >
+          {t('hist.more')}
+        </button>
+      )}
       {canWrite && (
         <button
           type="button"
@@ -109,7 +122,7 @@ export function CustomerSitesTab({
       )}
       <SiteFormDrawer
         open={adding}
-        presetCustomerId={customerId}
+        presetCustomer={{ id: customerId, label: customerName }}
         onClose={() => setAdding(false)}
         onSaved={(s) => {
           setAdding(false);
