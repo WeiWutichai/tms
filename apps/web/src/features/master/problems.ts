@@ -20,3 +20,22 @@ export function problemText(err: unknown, t: T): string | null {
   const key = `problem.${err.problem.code}` as MessageKey;
   return t(key) === key ? err.problem.title || err.problem.code : t(key);
 }
+
+/** 412 (ข้อมูลเปลี่ยนแล้ว — คนอื่นหรือระบบแก้) */
+export const isStale = (err: unknown) =>
+  err instanceof ApiError && err.problem.code === 'precondition_failed';
+
+/**
+ * onError ร่วมของ mutation ที่ส่ง If-Match: 412 → โหลดรายการ/drawer ใหม่ ให้กดครั้งถัดไปใช้ version ล่าสุด
+ * (ST2-T03 review — ใช้กับลูกค้า/สถานที่ และ master ถัดไป)
+ */
+export function refetchOnStale(
+  qc: { invalidateQueries: (f: { queryKey: unknown[] }) => unknown },
+  key: string,
+) {
+  return (err: unknown) => {
+    if (!isStale(err)) return;
+    qc.invalidateQueries({ queryKey: [key] });
+    qc.invalidateQueries({ queryKey: ['history'] });
+  };
+}

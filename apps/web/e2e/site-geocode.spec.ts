@@ -94,6 +94,8 @@ test.describe.serial('สถานที่ → geocode (ST2-T03)', () => {
     await expect(drawer.getByTestId('geo-review')).toHaveCount(0);
     await expect(drawer.getByText('13.17123, 100.93145', { exact: true })).toBeVisible();
     await expect(row).toContainText('13.1712, 100.931');
+    await drawer.getByRole('tab', { name: 'กิจกรรม' }).click();
+    await expect(drawer.getByText('ยืนยันพิกัด', { exact: true })).toBeVisible();
   });
 
   test('ไม่ใช่ตำแหน่งนี้ (เหตุผล ≥ 10) → หาพิกัดไม่พบ + ตัวกรองคอลัมน์พิกัด', async ({ page }) => {
@@ -121,5 +123,12 @@ test.describe.serial('สถานที่ → geocode (ST2-T03)', () => {
     await page.getByRole('columnheader').getByLabel('พิกัด').selectOption('FAILED');
     await expect(page.getByRole('row', { name: new RegExp(name) })).toContainText('หาพิกัดไม่พบ');
     await expect(page.getByRole('row', { name: new RegExp(`จุดรอยืนยัน ${RUN}`) })).toHaveCount(0);
+    // ลองหาพิกัดอีกครั้ง (ต้นแบบไม่มี — ST2-T03 review)
+    await page.getByRole('row', { name: new RegExp(name) }).click();
+    const d3 = page.getByRole('dialog');
+    await d3.getByTestId('geo-review').getByRole('button', { name: 'ลองหาพิกัดอีกครั้ง' }).click();
+    await expect(page.getByRole('status')).toContainText(`กำลังหาพิกัดของ ${name} อีกครั้ง`);
+    await expect(d3.getByTestId('geo-review')).toHaveCount(0);
+    await expect(d3.getByText('ยังไม่ปักหมุด').first()).toBeVisible();
   });
 });

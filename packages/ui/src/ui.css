@@ -1095,6 +1095,10 @@ button:focus-visible {
   gap: 8px;
   flex-shrink: 0;
 }
+/* toast ที่เปิดจากในฟอร์ม (เช่น "ประมาณจากที่อยู่" ST2-T03) — ยกขึ้นเหนือแถบปุ่มท้ายฟอร์ม ไม่บังปุ่มบันทึก */
+.tms-fdrawer .tms-toast {
+  bottom: 88px;
+}
 .tms-fdrawer__cancel {
   height: 40px;
   padding: 0 14px;

@@ -434,6 +434,18 @@ export function SitesPage() {
             )
           }
           onRejectGeo={() => setDialog({ kind: 'geoReject', s: current })}
+          onRetryGeo={() =>
+            geoDecision.mutate(
+              { id: current.id, version: current.version, action: 'retry' },
+              {
+                onSuccess: (u) => {
+                  setSelected(u);
+                  setToast(t('loc.toast.geoRetried', { n: current.name }));
+                },
+                onError: (e) => setToast(problemText(e, t) ?? t('loc.stale')),
+              },
+            )
+          }
           onClose={() => {
             setOpenId(null);
             setSelected(null);

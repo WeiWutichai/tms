@@ -23,15 +23,20 @@ export interface DistanceResult {
   minutes: number;
 }
 
+/** ทุกการเรียกผู้ให้บริการมีเส้นตาย — adapter ต้องส่ง `signal` ต่อให้ HTTP client (fetch) เพื่อยกเลิกจริง */
+export interface GeoCallOptions {
+  signal?: AbortSignal;
+}
+
 export interface GeoProvider {
   /** ชื่อผู้ให้บริการ — เก็บคู่กับพิกัดที่เสนอ (ตรวจย้อนหลังได้ว่ามาจากไหน) */
   readonly name: string;
   /** ใช้ geocode ได้ไหม (`none` = ไม่ได้ → ไม่สั่งงาน geocode อัตโนมัติ) */
   readonly enabled: boolean;
   /** ที่อยู่ → ตำแหน่งที่เป็นไปได้ เรียงความมั่นใจมาก → น้อย · หาไม่พบ = [] · ผู้ให้บริการล่ม = throw */
-  geocode(address: string): Promise<GeocodeCandidate[]>;
+  geocode(address: string, opts?: GeoCallOptions): Promise<GeocodeCandidate[]>;
   /** ระยะทาง/เวลาขับรถ · ไม่รองรับ = null (ผู้ใช้กรอกระยะเอง — backlog ST2-T03 "กรอกพิกัด/ระยะมือได้") */
-  distance(origin: GeoPoint, dest: GeoPoint): Promise<DistanceResult | null>;
+  distance(origin: GeoPoint, dest: GeoPoint, opts?: GeoCallOptions): Promise<DistanceResult | null>;
 }
 
 /** ระยะเส้นตรงบนผิวโลก (กม.) — ใช้ใน provider จำลอง และตรวจจุดซ้ำ (MD-050) ภายหลัง */

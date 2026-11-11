@@ -19,11 +19,14 @@ import {
   ApiNoContentResponse,
   ApiOkResponse,
   ApiProduces,
+  ApiTooManyRequestsResponse,
   ApiTags,
 } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { AuditPageDto } from '../../audit/audit.controller';
-import { RequireScope, TenantResource } from '../../common/decorators';
+import { NoTransaction, RequireScope, TenantResource } from '../../common/decorators';
+import { requestContext } from '../../common/request-context';
+import { TenantRateLimiter } from '../geo/rate-limit';
 import { expectedVersion, setEtag } from '../../common/etag';
 import { decodeIdOr404 } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
@@ -58,6 +61,9 @@ const CLASS_TH: Record<NonNullable<SiteDto['maxVehicleClass']>, string> = {
   TRAILER: 'พ่วง',
   SEMI_TRAILER: 'เทรลเลอร์',
 };
+
+/** เพดานปุ่ม "ประมาณจากที่อยู่" ต่อ tenant ต่อนาที (`GEOCODE_RATE_PER_MIN`, ค่าเริ่มต้น 60) */
+const GEOCODE_RATE_PER_MIN = Number(process.env.GEOCODE_RATE_PER_MIN) || 60;
 
 /** สถานะพิกัดในไฟล์ส่งออก (ST2-T03) — ตรงกับป้ายในหน้ารายการ */
 function geocodeLabel(r: SiteDto): string {
@@ -101,6 +107,9 @@ const EXPORT_COLUMNS: ExportColumn<SiteDto>[] = [
 @ApiBearerAuth()
 @Controller('customer-sites')
 export class SitesController {
+  /** จำกัด `POST /customer-sites/geocode` ต่อ tenant (ในหน่วยความจำ — ทบทวนเมื่อมีผู้ให้บริการจริง) */
+  geocodeLimiter = new TenantRateLimiter(GEOCODE_RATE_PER_MIN);
+
   constructor(
     private readonly sites: SitesService,
     private readonly db: DbService,
@@ -152,9 +161,18 @@ export class SitesController {
    */
   @Post('geocode')
   @HttpCode(200)
+  @NoTransaction() // ไม่ถือ transaction ระหว่างรอผู้ให้บริการ (เส้นตาย GEO_TIMEOUT_MS)
   @RequireScope('master:write')
   @ApiOkResponse({ type: GeocodeResultDto })
+  @ApiTooManyRequestsResponse({
+    description: 'rate_limited — เกินเพดานต่อบริษัท มี header Retry-After',
+  })
   geocode(@Body() body: GeocodeRequestDto): Promise<GeocodeResultDto> {
+    const wait = this.geocodeLimiter.take(requestContext.require().tenantId!);
+    if (wait)
+      throw new ProblemException('rate_limited', 'geocode rate limit', undefined, {
+        retryAfter: wait,
+      });
     return this.sites.estimate(body.address);
   }
 
@@ -297,6 +315,24 @@ export class SitesController {
   ): Promise<SiteDto> {
     const current = await this.resolve(id);
     const s = await this.sites.confirmGeocode(current.id, body.reason, expectedVersion(req));
+    setEtag(res, s.version);
+    return this.sites.dto(s);
+  }
+
+  /** ลองหาพิกัดอีกครั้ง (FAILED / ยังไม่มีพิกัดและข้อเสนอ) → PENDING + สั่ง geocode ใหม่ */
+  @Post(':id/geocode/retry')
+  @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
+  @HttpCode(200)
+  @TenantResource('site')
+  @RequireScope('master:write')
+  @ApiOkResponse({ type: SiteDto })
+  async retryGeocode(
+    @Param('id') id: string,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<SiteDto> {
+    const current = await this.resolve(id);
+    const s = await this.sites.retryGeocode(current.id, expectedVersion(req));
     setEtag(res, s.version);
     return this.sites.dto(s);
   }

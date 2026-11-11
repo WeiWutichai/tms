@@ -1,6 +1,7 @@
 import type { Schemas } from '@tms/contracts';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, unwrap } from '../../api';
+import { refetchOnStale } from '../master/problems';
 import type { RefOption } from '../master/RefPicker';
 import { useCursorList } from '../master/useCursorList';
 
@@ -98,6 +99,7 @@ export function useUpdateSite() {
           body: v.body,
         }),
       ),
+    onError: refetchOnStale(qc, KEY),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: [KEY] });
       qc.invalidateQueries({ queryKey: ['history'] });
@@ -132,6 +134,7 @@ export function useSiteAction() {
       );
       return null;
     },
+    onError: refetchOnStale(qc, KEY),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: [KEY] });
       qc.invalidateQueries({ queryKey: ['history'] });
@@ -154,12 +157,13 @@ export function useGeocodeDecision() {
     mutationFn: (v: {
       id: string;
       version: number;
-      action: 'confirm' | 'reject';
+      action: 'confirm' | 'reject' | 'retry';
       reason?: string;
     }) => {
       const p = {
         params: { path: { id: v.id }, header: { 'If-Match': `"${v.version}"` } as never },
       };
+      if (v.action === 'retry') return unwrap(api.POST('/v1/customer-sites/{id}/geocode/retry', p));
       return v.action === 'confirm'
         ? unwrap(api.POST('/v1/customer-sites/{id}/geocode/confirm', { ...p, body: {} }))
         : unwrap(
@@ -169,9 +173,27 @@ export function useGeocodeDecision() {
             }),
           );
     },
+    onError: refetchOnStale(qc, KEY),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: [KEY] });
       qc.invalidateQueries({ queryKey: ['history'] });
     },
   });
+}
+
+/** อ่านสถานที่ล่าสุด (ใช้หลัง 412) */
+export function fetchSite(id: string): Promise<Site> {
+  return unwrap(api.GET('/v1/customer-sites/{id}', { params: { path: { id } } }));
+}
+
+/** ต่างกันเฉพาะผลงาน geocode อัตโนมัติ (สถานะ/ข้อเสนอ/version) — ช่องที่ผู้ใช้แก้ในฟอร์มไม่ถูกคนอื่นเปลี่ยน */
+export function onlyGeocodeChanged(a: Site, b: Site): boolean {
+  const skip = new Set(['geocodeStatus', 'geocodeProposal', 'version', 'updatedAt']);
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  return [...keys].every(
+    (k) =>
+      skip.has(k) ||
+      JSON.stringify((a as Record<string, unknown>)[k]) ===
+        JSON.stringify((b as Record<string, unknown>)[k]),
+  );
 }

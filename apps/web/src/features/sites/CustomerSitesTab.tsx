@@ -75,7 +75,11 @@ export function CustomerSitesTab({
               <span style={{ color: '#3B424C', overflowWrap: 'anywhere' }}>{s.address.line1}</span>
               <span
                 className="tms-num"
-                style={{ fontSize: 12, color: s.lat === null ? '#8F5500' : '#3B424C' }}
+                style={{
+                  fontSize: 12,
+                  color:
+                    s.lat !== null ? '#3B424C' : geoState(s) === 'FAILED' ? '#B42318' : '#8F5500',
+                }}
               >
                 {s.lat !== null
                   ? formatLatLng(s.lat, s.lng, 4)

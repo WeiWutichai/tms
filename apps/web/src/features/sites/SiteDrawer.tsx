@@ -58,6 +58,7 @@ export function SiteDrawer({
   onDelete,
   onConfirmGeo,
   onRejectGeo,
+  onRetryGeo,
   geoBusy,
   onClose,
 }: {
@@ -72,6 +73,8 @@ export function SiteDrawer({
   onConfirmGeo: () => void;
   /** ปฏิเสธพิกัดที่เสนอ → เปิด dialog เหตุผล */
   onRejectGeo: () => void;
+  /** ลองหาพิกัดอีกครั้ง (หาไม่พบ) */
+  onRetryGeo: () => void;
   geoBusy?: boolean;
   onClose: () => void;
 }) {
@@ -161,6 +164,17 @@ export function SiteDrawer({
                 <Button variant="secondary" icon="map-pin" onClick={onEdit}>
                   {t('loc.geo.pin')}
                 </Button>
+                {/* ลองหาพิกัดอีกครั้ง — ต้นแบบไม่มี [OPEN spec/12 §3] */}
+                {g === 'FAILED' && (
+                  <Button
+                    variant="secondary"
+                    icon="refresh-cw"
+                    onClick={onRetryGeo}
+                    disabled={geoBusy}
+                  >
+                    {t('loc.geo.retry')}
+                  </Button>
+                )}
                 {g === 'REVIEW' && (
                   <Button variant="secondary" icon="x" onClick={onRejectGeo} disabled={geoBusy}>
                     {t('loc.geo.reject')}

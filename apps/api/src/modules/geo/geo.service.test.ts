@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { haversineKm } from './geo-provider';
 import { addressText, GeoService, providerFromEnv } from './geo.service';
 import { MockGeoProvider } from './providers/mock.provider';
+import { TenantRateLimiter } from './rate-limit';
 
 /** ST2-T03: provider จำลอง + การเลือกผู้ให้บริการจาก config */
 describe('geo provider', () => {
@@ -49,6 +50,7 @@ describe('geo provider', () => {
     process.env.NODE_ENV = 'test';
     expect(providerFromEnv({}).name).toBe('mock');
     expect(providerFromEnv({ GEO_PROVIDER: 'none' }).name).toBe('none');
+    expect(providerFromEnv({ GEO_PROVIDER: '' }).name).toBe('mock'); // ค่าว่าง = ไม่ได้ตั้ง
     process.env.NODE_ENV = 'production';
     expect(providerFromEnv({}).name).toBe('none');
     expect(() => providerFromEnv({ GEO_PROVIDER: 'mock' })).toThrow(/only allowed/);
@@ -83,5 +85,35 @@ describe('geo provider', () => {
       }),
     ).toBe('99 ถ.ตัวอย่าง อ.เมือง ชลบุรี 20000');
     expect(addressText(null)).toBe('');
+  });
+
+  it('เส้นตาย: ผู้ให้บริการช้า → throw + ส่ง abort signal', async () => {
+    const svc = new GeoService();
+    svc.timeoutMs = 20;
+    let aborted = false;
+    svc.use({
+      name: 'slow',
+      enabled: true,
+      geocode: (_a, o) =>
+        new Promise((resolve) => {
+          o?.signal?.addEventListener('abort', () => {
+            aborted = true;
+            resolve([]);
+          });
+        }),
+      distance: async () => null,
+    });
+    await expect(svc.geocode('จ.ชลบุรี')).rejects.toThrow('geo provider timeout');
+    expect(aborted).toBe(true);
+  });
+
+  it('TenantRateLimiter: เพดานต่อ key + เติมคืนตามเวลา', () => {
+    let now = 0;
+    const l = new TenantRateLimiter(60, () => now);
+    for (let i = 0; i < 60; i++) expect(l.take('a')).toBe(0);
+    expect(l.take('a')).toBe(1);
+    expect(l.take('b')).toBe(0);
+    now += 1_000;
+    expect(l.take('a')).toBe(0);
   });
 });

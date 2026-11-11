@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { ApiError } from '../../api';
 import { useI18n } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
-import { fieldErrors, problemText } from '../master/problems';
+import { fieldErrors, isStale, problemText } from '../master/problems';
 import { RefPicker, type RefOption } from '../master/RefPicker';
 import {
   formatContact,
@@ -16,6 +16,8 @@ import {
 import {
   SITE_KINDS,
   VEHICLE_CLASSES,
+  fetchSite,
+  onlyGeocodeChanged,
   useCreateSite,
   useGeocodeEstimate,
   searchCustomers,
@@ -152,6 +154,7 @@ export function SiteFormDrawer({
   const runEstimate = () => {
     const address = f.addr.trim();
     if (!address) return setToast(t('loc.geo.needAddr'));
+    setToast(null);
     estimate.mutate(address, {
       onSuccess: (r) => {
         const c = r.candidates[0];
@@ -159,6 +162,7 @@ export function SiteFormDrawer({
           return setToast(t(r.provider === 'none' ? 'loc.geo.noProvider' : 'loc.geo.notFound'));
         set('ll', formatLatLng(c.lat, c.lng));
         setEstimated(c.label);
+        setToast(null); // ล้าง "ไม่พบ…" ของครั้งก่อน
       },
       onError: () => setToast(t('loc.geo.error')),
     });
@@ -264,10 +268,29 @@ export function SiteFormDrawer({
         submitting.current = false;
         return onClose();
       }
-      update.mutate(
-        { id: site.id, version: site.version, body: d },
-        { ...done, onSuccess: (s) => onSaved(s, false) },
-      );
+      const save = (version: number, retried: boolean) =>
+        update.mutate(
+          { id: site.id, version, body: d },
+          {
+            ...done,
+            onSuccess: (s) => onSaved(s, false),
+            onError: (e) => {
+              if (retried || !isStale(e)) return;
+              // 412 เพราะงาน geocode อัตโนมัติเพิ่งเขียนผล (DM-013 เพิ่ม version) → ข้อมูลที่ผู้ใช้เห็นไม่ได้เปลี่ยน
+              // → บันทึกซ้ำด้วย version ล่าสุดเอง · คนอื่นแก้ช่องอื่น → แสดง "ถูกแก้โดยผู้อื่น" ตามเดิม
+              void fetchSite(site.id).then(
+                (fresh) => {
+                  if (onlyGeocodeChanged(site, fresh)) {
+                    submitting.current = true;
+                    save(fresh.version, true);
+                  }
+                },
+                () => undefined,
+              );
+            },
+          },
+        );
+      save(site.version, false);
     } else
       create.mutate(
         {

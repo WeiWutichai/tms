@@ -424,6 +424,7 @@ model CustomerSite {
   geocodeConfidence  Decimal?      @map("geocode_confidence") @db.Decimal(3, 2) /// 0–1
   geocodeProvider    String?       @map("geocode_provider") /// ผู้ให้บริการที่เสนอ (mock/none/…)
   geocodedAt         DateTime?     @map("geocoded_at") @db.Timestamptz(6) /// เวลาที่ geocode ครั้งล่าสุด (สำเร็จหรือไม่พบ)
+  geocodeSeq         Int           @default(0) @map("geocode_seq") /// เลขคำขอ geocode ล่าสุด — job เขียนผลได้เฉพาะเมื่อเลขตรง (กัน job เก่าทับผล/การปฏิเสธของคน)
   geofenceRadiusM    Int           @default(200) @map("geofence_radius_m") /// 50–2,000 ม.
   aliases            String[]      @default([]) /// ข้อความที่ใช้เรียกจุดนี้ (จับคู่อัตโนมัติ ST3-T06)
   aliasSearch        String        @default("") @map("alias_search") /// aliases ตัวเล็กครอบ/คั่นด้วย \n — trigger ในฐานข้อมูลเขียนเอง (0036) ห้ามเขียนจากแอป

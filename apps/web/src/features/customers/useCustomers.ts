@@ -1,6 +1,7 @@
 import type { Schemas } from '@tms/contracts';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, unwrap } from '../../api';
+import { refetchOnStale } from '../master/problems';
 import { useCursorList } from '../master/useCursorList';
 
 export type Customer = Schemas['CustomerDto'];
@@ -72,6 +73,7 @@ export function useUpdateCustomer() {
           body: v.body,
         }),
       ),
+    onError: refetchOnStale(qc, KEY),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: [KEY] });
       qc.invalidateQueries({ queryKey: ['history'] });
@@ -103,6 +105,7 @@ export function useCustomerAction() {
       );
       return null;
     },
+    onError: refetchOnStale(qc, KEY),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: [KEY] });
       qc.invalidateQueries({ queryKey: ['history'] });

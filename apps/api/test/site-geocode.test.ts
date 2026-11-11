@@ -4,6 +4,8 @@ import { tryDecodeId } from '../src/common/ids';
 import { JobQueue } from '../src/jobs/job-queue.service';
 import { GeoService } from '../src/modules/geo/geo.service';
 import { MockGeoProvider } from '../src/modules/geo/providers/mock.provider';
+import { TenantRateLimiter } from '../src/modules/geo/rate-limit';
+import { SitesController } from '../src/modules/sites/sites.controller';
 import { api, bootApp, createTenant, platform, tokenFor, truncateAll } from './helpers';
 
 const REAL = { line1: '99 ถ.สุขุมวิท ต.ศรีราชา อ.ศรีราชา จ.ชลบุรี 20110' };
@@ -63,8 +65,8 @@ describe('สถานที่: geocode (ST2-T03)', () => {
     expect(g.lat).toBeNull();
     expect(g.geocodeProposal).toMatchObject({ provider: 'mock', confidence: 0.9 });
     expect(Math.abs(g.geocodeProposal.lat - 13.17)).toBeLessThanOrEqual(0.02);
-    // ระบบเขียนข้อเสนอโดยไม่เพิ่ม version (ไม่ทำให้ฟอร์มที่คนเปิดค้างอยู่ 412)
-    expect(g.version).toBe(s.version);
+    // DM-013: ระบบเขียนผลแล้วเพิ่ม version (ETag เปลี่ยน — ฟอร์มที่เปิดค้างได้ 412 แล้วโหลดใหม่)
+    expect(g.version).toBe(s.version + 1);
     // ตัวกรอง + สรุป "รอยืนยัน"
     const review = await api(app, admin).get('/v1/customer-sites').query({ geocode: 'REVIEW' });
     expect(review.body.data.map((x: { id: string }) => x.id)).toContain(s.id);
@@ -223,5 +225,179 @@ describe('สถานที่: geocode (ST2-T03)', () => {
       .post('/v1/customer-sites/geocode')
       .send({ address: REAL.line1 })
       .expect(403);
+  });
+  /** เลื่อนงาน geocode ที่รออยู่ของสถานที่นี้ (ตาม seq) ไปอนาคต/กลับมาตอนนี้ */
+  const setRunAt = async (id: string, seq: number, runAt: Date, maxAttempts?: number) => {
+    const [j] = (await jobsFor(id)).filter((x) => (x.payload as { seq: number }).seq === seq);
+    await db.job.update({
+      where: { id: j!.id },
+      data: { runAt, ...(maxAttempts ? { maxAttempts } : {}) },
+    });
+  };
+  const FUTURE = new Date(Date.now() + 3_600_000);
+
+  it('job เก่า (ที่อยู่ A→B→A) ไม่ทับการปฏิเสธของคน', async () => {
+    const s = await newSite();
+    await api(app, admin)
+      .patch(`/v1/customer-sites/${s.id}`)
+      .send({ address: GARBAGE })
+      .expect(200);
+    await api(app, admin).patch(`/v1/customer-sites/${s.id}`).send({ address: REAL }).expect(200);
+    expect(await jobsFor(s.id)).toHaveLength(3);
+    await setRunAt(s.id, 1, FUTURE); // job แรก (ที่อยู่ A เดียวกัน) ค้างไว้
+    await drain();
+    expect((await get(s.id)).geocodeProposal).not.toBeNull();
+    await api(app, admin)
+      .post(`/v1/customer-sites/${s.id}/geocode/reject`)
+      .send({ reason: 'หมุดอยู่คนละฝั่งถนนกับประตูโรงงาน' })
+      .expect(200);
+    await setRunAt(s.id, 1, new Date(0));
+    await drain();
+    expect(await get(s.id)).toMatchObject({ geocodeStatus: 'FAILED', geocodeProposal: null });
+  });
+
+  it('ปัก→ล้างพิกัด: job ของคำขอเดิมข้าม, job ใหม่เสนอพิกัด', async () => {
+    const s = await newSite();
+    await api(app, admin)
+      .patch(`/v1/customer-sites/${s.id}`)
+      .send({ lat: 13.2, lng: 100.9 })
+      .expect(200);
+    await api(app, admin)
+      .patch(`/v1/customer-sites/${s.id}`)
+      .send({ lat: null, lng: null })
+      .expect(200);
+    await drain();
+    const jobs = await jobsFor(s.id);
+    expect(
+      jobs.map((j) => (j.result as { skipped?: boolean } | null)?.skipped ?? false).sort(),
+    ).toEqual([false, true]);
+    expect((await get(s.id)).geocodeProposal).not.toBeNull();
+  });
+
+  it('onFinalFailure ของ job ที่ไม่ใช่คำขอล่าสุดแล้ว ไม่ตั้ง FAILED ทับ (ที่อยู่ถูกแก้ระหว่างเรียกผู้ให้บริการ)', async () => {
+    const s = await newSite();
+    const [j1] = await jobsFor(s.id);
+    await db.job.update({ where: { id: j1!.id }, data: { maxAttempts: 1 } });
+    geo.use({
+      name: 'flaky',
+      enabled: true,
+      // ระหว่างรอผู้ให้บริการ (นอก transaction) ผู้ใช้แก้ที่อยู่ → คำขอใหม่ แล้วผู้ให้บริการล่ม
+      geocode: async () => {
+        geo.use(new MockGeoProvider());
+        await api(app, admin)
+          .patch(`/v1/customer-sites/${s.id}`)
+          .send({ address: { line1: `${REAL.line1} (อาคาร 2)` } })
+          .expect(200);
+        throw new Error('provider down');
+      },
+      distance: async () => null,
+    });
+    try {
+      await drain();
+    } finally {
+      geo.use(new MockGeoProvider());
+    }
+    expect((await db.job.findUnique({ where: { id: j1!.id } }))!.status).toBe('FAILED');
+    const g = await get(s.id);
+    expect(g.geocodeStatus).toBe('PENDING');
+    expect(g.geocodeProposal).not.toBeNull();
+  });
+
+  it('ปิดผู้ให้บริการหลังสั่งงาน → worker ข้าม (คง PENDING ไม่ตั้ง FAILED)', async () => {
+    const s = await newSite();
+    geo.use({ name: 'none', enabled: false, geocode: async () => [], distance: async () => null });
+    try {
+      await drain();
+    } finally {
+      geo.use(new MockGeoProvider());
+    }
+    const g = await get(s.id);
+    expect(g).toMatchObject({
+      geocodeStatus: 'PENDING',
+      geocodeProposal: null,
+      version: s.version,
+    });
+    const [j] = await jobsFor(s.id);
+    expect(j!.status).toBe('SUCCEEDED');
+    expect(j!.result).toMatchObject({ skipped: true });
+  });
+
+  it('ลองหาพิกัดอีกครั้ง: FAILED → PENDING + job ใหม่ · มีงานรออยู่ไม่สั่งซ้ำ · มีข้อเสนอ → 409 · ไม่มีผู้ให้บริการ → 409', async () => {
+    const s = await newSite({ address: GARBAGE });
+    await drain();
+    const f = await get(s.id);
+    expect(f.geocodeStatus).toBe('FAILED');
+    await api(app, admin)
+      .post(`/v1/customer-sites/${s.id}/geocode/retry`)
+      .set('If-Match', `"${f.version + 3}"`)
+      .expect(412);
+    const r = await api(app, admin)
+      .post(`/v1/customer-sites/${s.id}/geocode/retry`)
+      .set('If-Match', `"${f.version}"`)
+      .expect(200);
+    expect(r.body).toMatchObject({ geocodeStatus: 'PENDING', version: f.version + 1 });
+    expect(await jobsFor(s.id)).toHaveLength(2);
+    // งานของคำขอนี้ยังรอ → กดซ้ำไม่สั่งเพิ่ม
+    await api(app, admin).post(`/v1/customer-sites/${s.id}/geocode/retry`).expect(200);
+    expect(await jobsFor(s.id)).toHaveLength(2);
+    const h = await api(app, admin).get(`/v1/customer-sites/${s.id}/history`).expect(200);
+    expect(h.body.data.map((x: { action: string }) => x.action)).toContain(
+      'location.geocode_retried',
+    );
+
+    const ok = await newSite();
+    await drain();
+    await api(app, admin).post(`/v1/customer-sites/${ok.id}/geocode/retry`).expect(409);
+    geo.use({ name: 'none', enabled: false, geocode: async () => [], distance: async () => null });
+    try {
+      await api(app, admin).post(`/v1/customer-sites/${s.id}/geocode/retry`).expect(409);
+    } finally {
+      geo.use(new MockGeoProvider());
+    }
+  });
+
+  it('ผู้ให้บริการช้าเกินเส้นตาย → ล้ม (ไม่ค้าง) · ปุ่มประมาณ → 500 ไม่ถือ transaction', async () => {
+    geo.timeoutMs = 50;
+    geo.use({
+      name: 'slow',
+      enabled: true,
+      geocode: (_a, o) =>
+        new Promise((resolve) => {
+          const t = setTimeout(() => resolve([]), 5_000);
+          o?.signal?.addEventListener('abort', () => clearTimeout(t));
+        }),
+      distance: async () => null,
+    });
+    try {
+      await expect(geo.geocode('จ.ชลบุรี')).rejects.toThrow(/timeout/);
+      await api(app, admin)
+        .post('/v1/customer-sites/geocode')
+        .send({ address: REAL.line1 })
+        .expect(500);
+    } finally {
+      geo.timeoutMs = 5_000;
+      geo.use(new MockGeoProvider());
+    }
+  });
+
+  it('ปุ่มประมาณจำกัดต่อบริษัท → 429 + Retry-After (บริษัทอื่นไม่โดน)', async () => {
+    const t2 = (await createTenant(db)).id;
+    const other = await tokenFor(t2);
+    const ctl = app.get(SitesController);
+    const original = ctl.geocodeLimiter;
+    (ctl as { geocodeLimiter: TenantRateLimiter }).geocodeLimiter = new TenantRateLimiter(2);
+    try {
+      for (let i = 0; i < 2; i++)
+        await api(app, admin).post('/v1/customer-sites/geocode').send({ address: 'x' }).expect(200);
+      const r = await api(app, admin)
+        .post('/v1/customer-sites/geocode')
+        .send({ address: 'x' })
+        .expect(429);
+      expect(Number(r.headers['retry-after'])).toBeGreaterThanOrEqual(1);
+      expect(r.body.code).toBe('rate_limited');
+      await api(app, other).post('/v1/customer-sites/geocode').send({ address: 'x' }).expect(200);
+    } finally {
+      (ctl as { geocodeLimiter: TenantRateLimiter }).geocodeLimiter = original;
+    }
   });
 });

@@ -4299,6 +4299,9 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "rate_limited — เกินเพดานต่อบริษัท มี header Retry-After"
           }
         },
         "security": [
@@ -4657,6 +4660,50 @@
             }
           }
         },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SiteDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "customer-sites"
+        ]
+      }
+    },
+    "/v1/customer-sites/{id}/geocode/retry": {
+      "post": {
+        "operationId": "Sites_retryGeocode",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "",
