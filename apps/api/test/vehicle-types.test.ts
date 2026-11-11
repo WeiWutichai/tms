@@ -35,10 +35,13 @@ describe('ประเภทรถ (vehicle-types)', () => {
       data: {
         tenantId,
         plate: `70-${String(++seed).padStart(4, '0')}`,
-        plateProvince: 'กรุงเทพมหานคร',
+        plateProvince: 'TH-10',
+        plateKey: `70${String(seed).padStart(4, '0')}|TH-10`,
+        plateNorm: `70${String(seed).padStart(4, '0')}`,
         vehicleTypeId: tryDecodeId('vehicleType', vehicleTypeId)!,
         ownership: 'OWN',
         status,
+        retiredAt: status === 'RETIRED' ? new Date() : null,
       },
     });
 
@@ -186,7 +189,10 @@ describe('ประเภทรถ (vehicle-types)', () => {
       .expect(409);
     expect(off.body).toMatchObject({ code: 'in_use_active', references: { vehicles: 1 } });
     expect(off.body.title).toMatch(/^ปิดใช้ไม่ได้/);
-    await db.vehicle.update({ where: { id: car.id }, data: { status: 'RETIRED' } });
+    await db.vehicle.update({
+      where: { id: car.id },
+      data: { status: 'RETIRED', retiredAt: new Date() },
+    });
     await api(app, admin)
       .post(`/v1/vehicle-types/${v.id}/deactivate`)
       .send({ reason: 'เลิกใช้รถประเภทนี้แล้ว' })

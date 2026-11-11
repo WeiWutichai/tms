@@ -471,7 +471,9 @@ describe('รถร่วม / ผู้รับเหมา (carriers)', () =>
       data: {
         tenantId,
         plate: `71-${seed}`,
-        plateProvince: 'ชลบุรี',
+        plateProvince: 'TH-20',
+        plateKey: `71${seed}|TH-20`,
+        plateNorm: `71${seed}`,
         vehicleTypeId: vt.id,
         ownership: 'SUBCONTRACT',
         carrierId: tryDecodeId('carrier', c.id)!,
@@ -488,7 +490,7 @@ describe('รถร่วม / ผู้รับเหมา (carriers)', () =>
     expect(del.body.title).toContain('ระงับชั่วคราว');
     await db.vehicle.updateMany({
       where: { carrierId: tryDecodeId('carrier', c.id)! },
-      data: { status: 'RETIRED' },
+      data: { status: 'RETIRED', retiredAt: new Date() },
     });
     const g2 = await api(app, admin).get(`/v1/carriers/${c.id}`).expect(200);
     expect(g2.body.usage.vehicles).toBe(0);

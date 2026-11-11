@@ -29,7 +29,9 @@ describe('schema v0 constraints', () => {
         data: {
           tenantId: t,
           plate: '70-1234',
-          plateProvince: 'กรุงเทพมหานคร',
+          plateProvince: 'TH-10',
+          plateKey: '701234|TH-10',
+          plateNorm: '701234',
           vehicleTypeId: vt,
           ownership: 'SUBCONTRACT',
         },
@@ -40,7 +42,9 @@ describe('schema v0 constraints', () => {
         data: {
           tenantId: t,
           plate: '70-1234',
-          plateProvince: 'กรุงเทพมหานคร',
+          plateProvince: 'TH-10',
+          plateKey: '701234|TH-10',
+          plateNorm: '701234',
           vehicleTypeId: vt,
           ownership: 'OWN',
         },

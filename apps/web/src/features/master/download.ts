@@ -5,7 +5,8 @@ export type ExportPath =
   | '/v1/customers/export'
   | '/v1/customer-sites/export'
   | '/v1/vehicle-types/export'
-  | '/v1/carriers/export';
+  | '/v1/carriers/export'
+  | '/v1/vehicles/export';
 
 /**
  * ดาวน์โหลดไฟล์จาก endpoint ส่งออก — ผ่าน client เดียวกับ UI (token, ภาษา, การใช้งานแทน) แบบ blob

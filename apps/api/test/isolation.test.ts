@@ -99,6 +99,23 @@ const FIXTURES: Record<string, (db: PrismaClient, tenantId: string, n: number) =
           })
         ).id,
       ),
+    vehicle: async (db, tenantId, n) => {
+      const vt = await db.vehicleType.create({
+        data: { tenantId, code: `ISOV-${n}`, nameTh: `Type v${n}`, vehicleClass: '6W' },
+      });
+      const v = await db.vehicle.create({
+        data: {
+          tenantId,
+          plate: `70-${1000 + n}`,
+          plateProvince: 'TH-10',
+          plateKey: `70${1000 + n}|TH-10`,
+          plateNorm: `70${1000 + n}`,
+          vehicleTypeId: vt.id,
+          ownership: 'OWN',
+        },
+      });
+      return encodeId('vehicle', v.id);
+    },
     sequence: async (db, tenantId) => {
       const s = await db.documentSeries.upsert({
         where: { tenantId_docType: { tenantId, docType: 'SO' } },
@@ -203,6 +220,9 @@ const BODY_FOR_SUFFIX: Record<string, object> = {
   cancel: { reason: 'isolation test' },
   reject: { reason: 'isolation test reason' }, // ST2-T03 /customer-sites/:id/geocode/reject
   reveal: { field: 'bankAccountNo', reason: 'isolation test reason' }, // ST2-T05 /carriers/:id/reveal
+  status: { status: 'parked', reason: 'isolation test reason' }, // ST2-T06 /vehicles/:id/status
+  odometer: { readingKm: 1 }, // ST2-T06 /vehicles/:id/odometer
+  correct: { readingKm: 1, reasonType: 'TYPO', note: 'isolation test reason' }, // ST2-T06 odometer/correct
 };
 
 interface RouteInfo {

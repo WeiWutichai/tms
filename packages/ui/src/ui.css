@@ -189,6 +189,15 @@ button:focus-visible {
   background: #ebede8;
   color: #3b424c;
 }
+/* อ่านอย่างเดียว (ผู้ไม่มีสิทธิ์แก้ / รายการปลดระวาง) — ดูต่างจากช่องที่แก้ได้ (QA ST2-T06) */
+.tms-input[readonly],
+.tms-select:disabled,
+.tms-textarea[readonly] {
+  background: #f4f5f2;
+  border-color: #d9dcd4;
+  color: #3b424c;
+  cursor: default;
+}
 .tms-field-error {
   font-size: 13px;
   color: #b3322a;

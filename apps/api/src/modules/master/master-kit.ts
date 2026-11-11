@@ -159,25 +159,29 @@ function decodeMasterCursor(cursor: string, sort: string): MasterCursor {
  * keyset pagination ของข้อมูลหลัก: (code, id) หรือ (updatedAt, id) — เสถียรแม้ค่าซ้ำ
  * คืน where/orderBy/take สำหรับ findMany และ `page()` สร้าง response + nextCursor
  */
-export function masterKeyset(q: MasterListQuery) {
+export function masterKeyset(
+  q: Pick<MasterListQuery, 'limit' | 'cursor' | 'updatedAfter' | 'fields'> & { sort?: string },
+  /** คอลัมน์ "รหัส" ที่ใช้เรียงเมื่อ sort=code (รถใช้ `plateKey`) */
+  codeField = 'code',
+) {
   const limit = q.limit ?? 50;
   const sort = q.sort ?? 'code';
   const desc = sort === '-updatedAt';
   const op = desc ? 'lt' : 'gt';
   const dir = desc ? 'desc' : 'asc';
-  const key = sort === 'code' ? 'code' : 'updatedAt';
+  const key = sort === 'code' ? codeField : 'updatedAt';
   const and: Record<string, unknown>[] = [];
   if (q.updatedAfter) and.push({ updatedAt: { gt: new Date(q.updatedAfter) } });
   if (q.cursor) {
     const c = decodeMasterCursor(q.cursor, sort);
-    const k = key === 'code' ? c.k : new Date(c.k);
+    const k = key === codeField ? c.k : new Date(c.k);
     and.push({ OR: [{ [key]: { [op]: k } }, { [key]: k, id: { [op]: c.i } }] });
   }
   return {
     where: and.length ? { AND: and } : {},
     orderBy: [{ [key]: dir }, { id: dir }] as never,
     take: limit + 1,
-    page<R extends { id: string; code?: string; updatedAt: Date }, T>(
+    page<R extends { id: string; updatedAt: Date }, T>(
       rows: R[],
       map: (r: R) => T,
     ): { data: Partial<T>[]; nextCursor: string | null; hasMore: boolean } {
@@ -186,7 +190,10 @@ export function masterKeyset(q: MasterListQuery) {
       const last = slice[slice.length - 1];
       const cur = (r: R): MasterCursor => ({
         s: sort,
-        k: key === 'code' ? String(r.code) : r.updatedAt.toISOString(),
+        k:
+          key === codeField
+            ? String((r as Record<string, unknown>)[codeField])
+            : r.updatedAt.toISOString(),
         i: r.id,
       });
       return {
