@@ -721,7 +721,8 @@ describe('รถ (vehicles)', () => {
   });
 
   it('Defect ST2-T08 review: แก้เฉพาะวันที่ซื้อ (purchasedOn) ต้องบันทึก — ไม่ใช่ no-op', async () => {
-    const v = (await create({ purchasedOn: '2021-11-04', purchaseCost: '1500000.00' }).expect(201)).body;
+    const v = (await create({ purchasedOn: '2021-11-04', purchaseCost: '1500000.00' }).expect(201))
+      .body;
     const r = await api(app, admin)
       .patch(`/v1/vehicles/${v.id}`)
       .set('If-Match', `"${v.version}"`)

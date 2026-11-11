@@ -70,6 +70,31 @@ export class AuditService {
     });
   }
 
+  /**
+   * audit ที่ต้องคงอยู่แม้คำขอล้มเหลว (เช่น เลขบัตรซ้ำ → 409 แล้ว transaction ของคำขอ rollback)
+   * เขียนใน transaction แยกของ tenant เดียวกัน (ST2-T08 review: บันทึกการเดาเลขบัตรซ้ำ)
+   */
+  async recordDetached(e: AuditEntry): Promise<void> {
+    const ctx = requestContext.require();
+    await this.db.withTenant(ctx.tenantId!, (tx) =>
+      tx.auditLog.create({
+        data: {
+          tenantId: ctx.tenantId!,
+          actorId: ctx.actorId ?? null,
+          actAs: ctx.actAs ?? null,
+          action: e.action,
+          entityType: e.entityType,
+          entityId: e.entityId ?? null,
+          before: clean(e.before),
+          after: clean(e.after),
+          reason: e.reason ?? null,
+          requestId: ctx.requestId,
+          ip: ctx.ip ?? null,
+        },
+      }),
+    );
+  }
+
   /** บันทึกการแก้ไข: เก็บเฉพาะ field ที่เปลี่ยน; ไม่มีอะไรเปลี่ยน = ไม่บันทึก */
   async changed(
     action: string,

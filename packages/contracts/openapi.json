@@ -15681,7 +15681,7 @@
           },
           "inactive": {
             "type": "number",
-            "description": "ปิดใช้งาน"
+            "description": "ปิดใช้"
           },
           "licenceAlert": {
             "type": "number",
@@ -15971,7 +15971,7 @@
               "on_leave",
               "inactive"
             ],
-            "description": "active = พร้อมใช้, on_leave = ลาพัก (ไม่เสนอในการจัดรถ), inactive = ปิดใช้งาน (พ้นสภาพ — เบอร์/เลขบัตรนำไปใช้กับ record ใหม่ได้)"
+            "description": "active = พร้อมใช้, on_leave = ลาพัก (ไม่เสนอในการจัดรถ), inactive = ปิดใช้ (พ้นสภาพ — เบอร์/เลขบัตรนำไปใช้กับ record ใหม่ได้)"
           },
           "reason": {
             "type": "string",

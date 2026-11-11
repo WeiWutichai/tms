@@ -90,9 +90,12 @@ function validNid(v: string): boolean {
 }
 /** เบอร์ไทย (ตัด +66/ขีด/ช่องว่าง) — เหมือน phoneNorm ของ API */
 function phoneOk(v: string): boolean {
+  if (!/^(\+66|0)[0-9 -]{8,16}$/.test(v.trim())) return false;
   const d = v.replace(/\D/g, '');
-  const n = /^66\d{8,9}$/.test(d) ? `0${d.slice(2)}` : d;
-  return /^(\+66|0)[0-9 -]{8,16}$/.test(v.trim()) && /^0\d{8,9}$/.test(n);
+  const n =
+    d.startsWith('66') && d.length >= 10 ? (d[2] === '0' ? d.slice(2) : `0${d.slice(2)}`) : d;
+  // มือถือ 0[689] + 8 หลัก · บ้าน/สำนักงาน 0[2-7] + 7 หลัก
+  return /^0[689]\d{8}$/.test(n) || /^0[2-7]\d{7}$/.test(n);
 }
 
 /** ค่าที่แสดงแทนเลขลับ (spec/11 NFR-304) */
@@ -125,12 +128,7 @@ const BADGE: Record<DriverStatus, MessageKey> = {
 };
 export function DriverBadge({ d, t }: { d: Pick<Driver, 'status'> | null; t: T }) {
   if (!d) return <Badge label={t('car.st.draft')} />;
-  return (
-    <Badge
-      label={t(BADGE[d.status])}
-      {...(d.status === 'inactive' ? { tone: 'off' as const, icon: 'circle-slash' } : {})}
-    />
-  );
+  return <Badge label={t(BADGE[d.status])} />;
 }
 
 /** ช่องใน drawer (label 12.5/500 + input 36px — ต้นแบบ this.fld()) */
@@ -239,6 +237,9 @@ export function DriverDrawer({
     m.error instanceof ApiError && m.error.problem.code === 'duplicate'
       ? (m.error.problem as { existing?: { code: string; name: string } }).existing
       : undefined;
+  // เลขบัตรซ้ำโดยผู้ไม่มีสิทธิ์ดูเลขเต็ม: API ไม่บอกว่าเป็นของใคร
+  if (!dup && errs0.some((e) => e.field === 'nationalId' && e.code === 'duplicate'))
+    server.nationalId = t('drv.v.dupNidAnon');
   if (dup) {
     const fld = errs0[0]?.field;
     if (fld === 'phone') server.phone = t('drv.v.dupPhone', { code: dup.code, name: dup.name });
@@ -561,7 +562,7 @@ export function DriverDrawer({
             <Fld
               label={t('drv.f.nid')}
               error={errs.nationalId}
-              hint={d?.nationalIdLast4 ? t('drv.f.nidKeep') : undefined}
+              hint={d?.nationalIdLast4 && !ro ? t('drv.f.nidKeep') : undefined}
             >
               {text('nationalId', {
                 inputMode: 'numeric',

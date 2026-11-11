@@ -59,7 +59,7 @@ const TYPE_TH = {
   CARRIER_DRIVER: 'รถร่วม',
 } as const;
 const LIC_TH = { PERSONAL: 'ส่วนบุคคล', T1: 'ท.1', T2: 'ท.2', T3: 'ท.3', T4: 'ท.4' } as const;
-const STATUS_TH = { active: 'พร้อมใช้', on_leave: 'ลาพัก', inactive: 'ปิดใช้งาน' } as const;
+const STATUS_TH = { active: 'พร้อมใช้', on_leave: 'ลาพัก', inactive: 'ปิดใช้' } as const;
 const PROV_ABBR = new Map<string, string>(PROVINCES.map((p) => [p[0], p[2]]));
 
 /**

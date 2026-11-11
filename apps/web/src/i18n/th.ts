@@ -1087,6 +1087,7 @@ export const th = {
   'car.ref.vehicles': 'รถ {n} คัน',
   'car.ref.retiredVehicles': 'รถปลดระวาง {n} คัน',
   'car.ref.drivers': 'คนขับ {n} คน',
+  'car.ref.inactiveDrivers': 'คนขับปิดใช้งาน {n} คน',
   'car.ref.rateCards': 'rate card {n} รายการ',
   'car.ref.trips': 'เที่ยว {n} เที่ยว',
   'car.ref.tripCosts': 'ต้นทุนเที่ยว {n} รายการ',
@@ -1569,7 +1570,7 @@ export const th = {
   'drv.type.CARRIER_DRIVER': 'รถร่วม',
   'drv.st.active': 'พร้อมใช้',
   'drv.st.on_leave': 'ลาพัก',
-  'drv.st.inactive': 'ปิดใช้งาน',
+  'drv.st.inactive': 'ปิดใช้',
   'drv.sum.total': 'คนขับทั้งหมด',
   'drv.sum.active': 'พร้อมใช้',
   'drv.sum.lic': 'ใบขับขี่ใกล้หมดอายุ 30 วัน',
@@ -1626,8 +1627,9 @@ export const th = {
   'drv.v.vehNotOwn': 'รถประจำของคนขับบริษัทต้องเป็นรถบริษัท',
   'drv.v.dupPhone': 'เบอร์นี้เป็นของคนขับ {code} {name} อยู่แล้ว',
   'drv.v.dupNid': 'เลขบัตรนี้เป็นของคนขับ {code} {name} อยู่แล้ว',
+  'drv.v.dupNidAnon': 'เลขบัตรนี้มีในคนขับที่ใช้งานอยู่แล้ว',
   'drv.v.dupReactivate': 'เปิดใช้ไม่ได้ เบอร์หรือเลขบัตรซ้ำกับคนขับ {code} {name} ที่ใช้งานอยู่',
-  'drv.delInUse': 'ลบไม่ได้ เพราะมีเที่ยวรถอ้างถึงคนขับนี้แล้ว — ใช้ "ปิดใช้งาน" แทน',
+  'drv.delInUse': 'ลบไม่ได้ เพราะมีเที่ยวรถอ้างถึงคนขับนี้แล้ว — ใช้ "ปิดใช้" แทน',
   'drv.dlg.statusT': 'เปลี่ยนสถานะ {n} เป็น "{s}"',
   'drv.dlg.statusD': 'ระบุเหตุผล ระบบจะบันทึกไว้ในประวัติของคนขับ',
   'drv.dlg.offD':
@@ -1638,7 +1640,7 @@ export const th = {
   'drv.dlg.ok': 'ยืนยัน',
   'field.carrier_required': 'คนขับรถร่วมต้องเลือกผู้รับเหมา',
   'field.carrier_not_allowed': 'คนขับบริษัทไม่มีผู้รับเหมา',
-  'field.driver_inactive': 'คนขับนี้ปิดใช้งานแล้ว เปิดใช้ก่อนแก้ไข',
+  'field.driver_inactive': 'คนขับนี้ปิดใช้แล้ว เปิดใช้ก่อนแก้ไข',
 } as const;
 
 export type MessageKey = keyof typeof th;

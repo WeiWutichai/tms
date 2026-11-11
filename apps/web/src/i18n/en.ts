@@ -444,6 +444,7 @@ export const en: Partial<Record<MessageKey, string>> = {
   'drv.type.CARRIER_DRIVER': 'Subcontractors',
   'drv.st.active': 'Available',
   'drv.st.on_leave': 'On leave',
+  'drv.st.inactive': 'Inactive',
   'drv.sum.active': 'Available',
   'drv.col.name': 'Name',
   'drv.col.phone': 'Phone',

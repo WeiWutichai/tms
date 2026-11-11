@@ -504,15 +504,37 @@ export class CarriersService {
           ...(current ? { id: { not: current.id } } : {}),
         },
       });
-      if (dup)
+      if (dup) {
+        // เลขบัตรประชาชนซ้ำ: บอกรายการเดิมเฉพาะผู้ดูเลขเต็มได้ (settlements:pay) + บันทึก audit แยก transaction
+        // กันใช้การสร้างผู้รับเหมาเดาเลขบัตรของคนอื่น (review ST2-T08 — แบบเดียวกับคนขับ)
+        await this.audit.recordDetached({
+          action: 'carrier.tax_id_duplicate',
+          entityType: 'carrier',
+          entityId: dup.id,
+          after: { field: 'taxId' },
+        });
+        const showWho = scopeAllows(requestContext.require().scopes ?? [], 'settlements:pay');
         throw new ProblemException(
           'duplicate',
           undefined,
-          [{ field: 'taxId', code: 'duplicate', message: `carrier already exists: ${dup.code}` }],
-          {
-            existing: { id: encodeId('carrier', dup.id), code: dup.code, legalName: dup.legalName },
-          },
+          [
+            {
+              field: 'taxId',
+              code: 'duplicate',
+              message: showWho ? `carrier already exists: ${dup.code}` : 'already exists',
+            },
+          ],
+          showWho
+            ? {
+                existing: {
+                  id: encodeId('carrier', dup.id),
+                  code: dup.code,
+                  legalName: dup.legalName,
+                },
+              }
+            : undefined,
         );
+      }
     }
     if (!taxId) return;
     if (current && taxId === current.taxId && branch === current.branchCode) return;
@@ -708,7 +730,19 @@ export class CarriersService {
           count: () =>
             tx.vehicle.count({ where: { carrierId: id, status: 'RETIRED', deletedAt: null } }),
         },
-        { name: 'drivers', count: () => tx.driver.count({ where: { carrierId: id } }) },
+        {
+          name: 'drivers',
+          count: () =>
+            tx.driver.count({
+              where: { carrierId: id, deletedAt: null, status: { not: 'INACTIVE' } },
+            }),
+        },
+        {
+          // คนขับปิดใช้งานยังอ้างถึงผู้รับเหมา (ประวัติ) — แยกให้ข้อความอธิบายได้ (review ST2-T08, แบบเดียวกับรถปลดระวาง)
+          name: 'inactiveDrivers',
+          count: () =>
+            tx.driver.count({ where: { carrierId: id, deletedAt: null, status: 'INACTIVE' } }),
+        },
         { name: 'rateCards', count: () => tx.rateCard.count({ where: { carrierId: id } }) },
         { name: 'trips', count: () => tx.trip.count({ where: { carrierId: id } }) },
         { name: 'tripCosts', count: () => tx.tripCost.count({ where: { carrierId: id } }) },

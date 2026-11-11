@@ -30,7 +30,7 @@ export const EMPLOYMENT_TYPES = [
 ] as const;
 export type EmploymentTypeKey = (typeof EMPLOYMENT_TYPES)[number];
 
-/** active = พร้อมใช้ · on_leave = ลาพัก · inactive = ปิดใช้งาน (พ้นสภาพ/เลิกจ้าง) */
+/** active = พร้อมใช้ · on_leave = ลาพัก · inactive = ปิดใช้ (พ้นสภาพ/เลิกจ้าง) */
 export const DRIVER_STATUSES = ['active', 'on_leave', 'inactive'] as const;
 export type DriverStatusKey = (typeof DRIVER_STATUSES)[number];
 
@@ -196,7 +196,7 @@ export class DriverStatusDto {
   @ApiProperty({
     enum: DRIVER_STATUSES,
     description:
-      'active = พร้อมใช้, on_leave = ลาพัก (ไม่เสนอในการจัดรถ), inactive = ปิดใช้งาน (พ้นสภาพ — เบอร์/เลขบัตรนำไปใช้กับ record ใหม่ได้)',
+      'active = พร้อมใช้, on_leave = ลาพัก (ไม่เสนอในการจัดรถ), inactive = ปิดใช้ (พ้นสภาพ — เบอร์/เลขบัตรนำไปใช้กับ record ใหม่ได้)',
   })
   @IsIn(DRIVER_STATUSES)
   status!: DriverStatusKey;
@@ -419,7 +419,7 @@ export class DriverSummaryDto {
   @ApiProperty({ description: 'คนขับทั้งหมด (ไม่รวมที่ลบ — รวมปิดใช้งาน)' }) total!: number;
   @ApiProperty({ description: 'พร้อมใช้' }) active!: number;
   @ApiProperty({ description: 'ลาพัก' }) onLeave!: number;
-  @ApiProperty({ description: 'ปิดใช้งาน' }) inactive!: number;
+  @ApiProperty({ description: 'ปิดใช้' }) inactive!: number;
   @ApiProperty({
     description: 'คนขับ (ไม่ปิดใช้งาน) ที่ใบขับขี่หมดภายใน 30 วันหรือหมดแล้ว',
   })

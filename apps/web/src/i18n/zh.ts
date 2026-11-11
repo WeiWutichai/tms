@@ -444,6 +444,7 @@ export const zh: Partial<Record<MessageKey, string>> = {
   'drv.type.CARRIER_DRIVER': '外包车',
   'drv.st.active': '可用',
   'drv.st.on_leave': '休假',
+  'drv.st.inactive': '停用',
   'drv.sum.active': '可用',
   'drv.col.name': '名称',
   'drv.col.phone': '电话',

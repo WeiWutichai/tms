@@ -203,6 +203,13 @@ describe('คนขับ (drivers)', () => {
     const d = await create(body({ phone: '+66895550001' })).expect(409);
     expect(d.body.errors[0]).toMatchObject({ field: 'phone', code: 'duplicate' });
     await create(body({ phone: '12345' })).expect(422);
+    // review: +66 ตามด้วย 0 ซ้ำ → ตัด 0 ที่เกิน · มือถือ 10 หลัก / บ้าน 9 หลัก
+    expect(phoneNorm('+6602 123 4567')).toBe('021234567');
+    const land = await newDriver({ phone: '+6602 123 4567' });
+    expect((await raw(land.id)).phone_norm).toBe('021234567');
+    await create(body({ phone: '081-234-567' })).expect(422); // 08 + 7 หลัก = 9 หลัก
+    await create(body({ phone: '02-123-45678' })).expect(422); // บ้าน 10 หลัก
+    await create(body({ phone: '0112345678' })).expect(422); // 01 ไม่ใช่เบอร์ไทย
     await create(body({ phone: '0812' })).expect(422);
     const { phone: _p, ...noPhone } = body();
     await create(noPhone).expect(422);
@@ -514,5 +521,150 @@ describe('คนขับ (drivers)', () => {
       .send({ ...b, licenceExpiresOn: '2028-06-30' })
       .expect(200);
     expect(u.body.licenceExpiresOn).toBe('2028-06-30');
+  });
+
+  it('review: ลบ/ปิดใช้คนขับ → ล้างรถประจำ (ลบรถได้) · ผู้รับเหมาแยกนับคนขับปิดใช้', async () => {
+    const vt = (await api(app, admin).get('/v1/vehicles').query({ limit: 1 }).expect(200)).body
+      .data[0].vehicleType.id;
+    const mk = async (plate: string) =>
+      (
+        await api(app, admin)
+          .post('/v1/vehicles')
+          .send({ plate, plateProvince: 'TH-10', vehicleTypeId: vt, ownership: 'OWN' })
+          .expect(201)
+      ).body.id as string;
+    const v1 = await mk('70-2001');
+    const v2 = await mk('70-2002');
+    const a = await newDriver({ defaultVehicleId: v1 });
+    await api(app, admin)
+      .post(`/v1/drivers/${a.id}/delete`)
+      .send({ reason: 'กรอกผิด สร้างซ้ำ' })
+      .expect(204);
+    await api(app, admin)
+      .post(`/v1/vehicles/${v1}/delete`)
+      .send({ reason: 'ลบรถที่กรอกผิด' })
+      .expect(204);
+    const b = await newDriver({ defaultVehicleId: v2 });
+    const off = await api(app, admin)
+      .post(`/v1/drivers/${b.id}/status`)
+      .send({ status: 'inactive', reason: 'พ้นสภาพพนักงานแล้ว' })
+      .expect(200);
+    expect(off.body.defaultVehicle).toBeNull();
+    await api(app, admin)
+      .post(`/v1/vehicles/${v2}/delete`)
+      .send({ reason: 'ลบรถที่กรอกผิด' })
+      .expect(204);
+    // ผู้รับเหมาที่มีแต่คนขับปิดใช้ → 409 แยกเป็น inactiveDrivers
+    const car = (
+      await api(app, admin)
+        .post('/v1/carriers')
+        .send({ legalName: 'หจก. ทดสอบคนขับปิดใช้', entityType: 'JURISTIC', taxId: jur(50) })
+        .expect(201)
+    ).body.id;
+    const c = await newDriver({ employmentType: 'CARRIER_DRIVER', carrierId: car });
+    await api(app, admin)
+      .post(`/v1/drivers/${c.id}/status`)
+      .send({ status: 'inactive', reason: 'เลิกวิ่งงานให้บริษัทแล้ว' })
+      .expect(200);
+    const r = await api(app, admin)
+      .post(`/v1/carriers/${car}/delete`)
+      .send({ reason: 'ลบผู้รับเหมาทดสอบ' })
+      .expect(409);
+    expect(r.body.references).toEqual({ inactiveDrivers: 1 });
+    // ลบคนขับแล้ว → ลบผู้รับเหมาได้
+    await api(app, admin)
+      .post(`/v1/drivers/${c.id}/delete`)
+      .send({ reason: 'ลบคนขับทดสอบออก' })
+      .expect(204);
+    await api(app, admin)
+      .post(`/v1/carriers/${car}/delete`)
+      .send({ reason: 'ลบผู้รับเหมาทดสอบ' })
+      .expect(204);
+  });
+
+  it('review: PUT external คนขับปิดใช้ — ค่าเดิม 200 ไม่เพิ่ม version · ค่าใหม่ 409', async () => {
+    const b = body({ nationalId: nid(60) });
+    const a = await api(app, admin).put('/v1/drivers/external/HR-OFF').send(b).expect(201);
+    const off = await api(app, admin)
+      .post(`/v1/drivers/${a.body.id}/status`)
+      .send({ status: 'inactive', reason: 'พ้นสภาพพนักงานแล้ว' })
+      .expect(200);
+    const same = await api(app, admin).put('/v1/drivers/external/HR-OFF').send(b).expect(200);
+    expect(same.body.version).toBe(off.body.version);
+    const ch = await api(app, admin)
+      .put('/v1/drivers/external/HR-OFF')
+      .send({ ...b, name: 'ชื่อใหม่' })
+      .expect(409);
+    expect(ch.body.errors[0].code).toBe('driver_inactive');
+  });
+
+  it('review: licenceAlert=false รวมคนขับที่ไม่มีวันหมด', async () => {
+    const d = await newDriver();
+    await db.driver.update({
+      where: { id: tryDecodeId('driver', d.id)! },
+      data: { licenceExpiresAt: null },
+    });
+    const f = await api(app, admin)
+      .get('/v1/drivers')
+      .query({ licenceAlert: 'false', q: d.code })
+      .expect(200);
+    expect(f.body.data.map((x: { id: string }) => x.id)).toEqual([d.id]);
+    expect(f.body.data[0].licenceStatus).toBe('missing');
+  });
+
+  it('review: เปิดใช้คืน — transition ผิด 409 ก่อน · ผู้รับเหมาถูกระงับ → 422', async () => {
+    const car = (
+      await api(app, admin)
+        .post('/v1/carriers')
+        .send({ legalName: 'หจก. ทดสอบเปิดใช้คืน', entityType: 'JURISTIC', taxId: jur(51) })
+        .expect(201)
+    ).body;
+    const d = await newDriver({ employmentType: 'CARRIER_DRIVER', carrierId: car.id });
+    await api(app, admin)
+      .post(`/v1/drivers/${d.id}/status`)
+      .send({ status: 'inactive', reason: 'หยุดวิ่งงานชั่วคราว' })
+      .expect(200);
+    await api(app, admin)
+      .post(`/v1/drivers/${d.id}/status`)
+      .send({ status: 'on_leave', reason: 'ลองเปลี่ยนเป็นลาพัก' })
+      .expect(409);
+    await api(app, admin)
+      .post(`/v1/carriers/${car.id}/deactivate`)
+      .send({ reason: 'ระงับชั่วคราวเพื่อทดสอบ' })
+      .expect(200);
+    const r = await api(app, admin)
+      .post(`/v1/drivers/${d.id}/status`)
+      .send({ status: 'active', reason: 'กลับมาวิ่งงานแล้ว' })
+      .expect(422);
+    expect(r.body.errors[0]).toMatchObject({ field: 'carrierId', code: 'inactive' });
+  });
+
+  it('review: เลขบัตรซ้ำ — ผู้ไม่มี users:write ไม่เห็นว่าเป็นของใคร + ลง audit แม้คำขอล้มเหลว', async () => {
+    const a = await newDriver({ nationalId: nid(70) });
+    const planner = await tokenFor(tenantId, 'master:read master:write', 'user-guess');
+    const r = await create(body({ nationalId: nid(70) }), planner).expect(409);
+    expect(r.body.existing).toBeUndefined();
+    expect(JSON.stringify(r.body)).not.toContain(a.code);
+    expect(JSON.stringify(r.body)).not.toContain(a.name);
+    const hit = await db.auditLog.findFirst({
+      where: { action: 'driver.national_id_duplicate', entityId: tryDecodeId('driver', a.id)! },
+    });
+    expect(hit).toMatchObject({ actorId: 'user-guess' });
+    // ผู้รับเหมาบุคคลธรรมดา: แบบเดียวกัน (ไม่มี settlements:pay)
+    const ind = validTaxId(3_100_600_900);
+    await api(app, admin)
+      .post('/v1/carriers')
+      .send({ legalName: 'นายผู้รับเหมา ทดสอบ', entityType: 'INDIVIDUAL', taxId: ind })
+      .expect(201);
+    const c = await api(app, planner)
+      .post('/v1/carriers')
+      .send({ legalName: 'นายเดาเลข ทดสอบ', entityType: 'INDIVIDUAL', taxId: ind })
+      .expect(409);
+    expect(c.body.existing).toBeUndefined();
+    expect(
+      await db.auditLog.count({
+        where: { action: 'carrier.tax_id_duplicate', actorId: 'user-guess' },
+      }),
+    ).toBe(1);
   });
 });
