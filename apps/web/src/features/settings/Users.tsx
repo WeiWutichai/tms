@@ -2,6 +2,7 @@ import { Badge, Drawer, DrawerFooterButtons, Field, Icon, TextInput } from '@tms
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState, type FormEvent } from 'react';
 import { api, ApiError, unwrap } from '../../api';
+import { isImpersonating } from '../../auth/session';
 import { fieldErrors } from '../companies/CompanySample';
 import { formatDateTime, useI18n } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
@@ -235,6 +236,16 @@ function InviteDrawer({
         : null;
 
   const send = async (otp?: string) => {
+    // เข้าใช้งานแทนแบบอ่านอย่างเดียว: ไม่ขอรหัส 2FA ของลูกค้า (ทีมงานไม่มี) — แจ้งทันที
+    if (isImpersonating())
+      return setError(
+        new ApiError({
+          code: 'impersonation_read_only',
+          status: 403,
+          title: '',
+          type: '',
+        } as never),
+      );
     setBusy(true);
     setError(null);
     try {

@@ -156,12 +156,19 @@ function ImpersonationBanner({
         background: '#8F5500',
         color: '#FFFFFF',
         boxShadow: '0 8px 24px rgba(16,20,24,.24)',
+        // จอแคบ: ไม่ล้นจอ ปุ่ม "ออก" ต้องเห็นเสมอ
+        maxWidth: 'calc(100vw - 32px)',
+        overflow: 'hidden',
         whiteSpace: 'nowrap',
       }}
     >
       <Icon n="user-cog" s={16} />
-      <span style={{ fontWeight: 600 }}>{t('imp.banner', { tenant, user })}</span>
-      <span style={{ opacity: 0.85 }}>{t('imp.bannerSub', { m: mins })}</span>
+      <span style={{ fontWeight: 600, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        {t('imp.banner', { tenant, user })}
+      </span>
+      <span style={{ opacity: 0.85, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+        {t('imp.bannerSub', { m: mins })}
+      </span>
       <button
         type="button"
         onClick={onExit}
@@ -175,6 +182,7 @@ function ImpersonationBanner({
           cursor: 'pointer',
           font: 'inherit',
           fontWeight: 600,
+          flexShrink: 0,
         }}
       >
         {t('imp.exit')}

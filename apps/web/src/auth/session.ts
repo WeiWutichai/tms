@@ -218,3 +218,8 @@ export async function endImpersonation(): Promise<void> {
       .catch(() => undefined);
   set(null);
 }
+
+/** กำลังเข้าใช้งานแทน (อ่านอย่างเดียว — ST1-T24) — UI เลี่ยงขั้นที่ทำไม่ได้ เช่น ยืนยัน 2FA ของลูกค้า */
+export function isImpersonating(): boolean {
+  return impersonating;
+}

@@ -88,6 +88,14 @@ export class AuthGuard implements CanActivate {
         where: { id: claims.sid! },
         include: { platformUser: { select: { status: true } } },
       });
+      // หมดเวลาแล้วแต่ยังไม่ปิด → บันทึกว่าจบเพราะ timeout (ครั้งเดียว)
+      if (s && !s.endedAt && s.expiresAt <= new Date())
+        await this.prisma.platform.impersonationSession
+          .updateMany({
+            where: { id: s.id, endedAt: null },
+            data: { endedAt: s.expiresAt, endReason: 'timeout' },
+          })
+          .catch(() => undefined);
       if (
         !s ||
         s.endedAt ||
@@ -118,6 +126,7 @@ export class AuthGuard implements CanActivate {
               entityId: s.id,
               after: { method, path: req.path },
               requestId: requestContext.get()?.requestId ?? null,
+              ip: requestContext.get()?.ip ?? null,
             },
           })
           .catch(() => undefined);
