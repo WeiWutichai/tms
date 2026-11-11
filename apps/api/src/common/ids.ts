@@ -17,6 +17,7 @@ export const ID_PREFIX = {
   document: 'doc',
   invitation: 'inv',
   notification: 'ntf',
+  import: 'imp',
 } as const;
 export type IdKind = keyof typeof ID_PREFIX;
 
