@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeDocumentTax } from './tax';
+import { computeDocumentTax, serviceItemTaxProblem, toCalcVatType } from './tax';
 import { decimalFromSatang, satangFromDecimal as d } from './money';
 
 /**
@@ -47,5 +47,22 @@ describe('computeDocumentTax', () => {
     expect(decimalFromSatang(r.vatableBase)).toBe('900.00');
     expect(decimalFromSatang(r.vat)).toBe('63.00');
     expect(decimalFromSatang(r.wht)).toBe('27.00');
+  });
+});
+
+describe('serviceItemTaxProblem (ST2-T11)', () => {
+  it('ค่าขนส่งยกเว้น VAT + 1% และค่าบริการ 7% + 3% ผ่าน; คู่ขัดกันไม่ผ่าน', () => {
+    expect(serviceItemTaxProblem('EXEMPT_TRANSPORT', '1.00')).toBeNull();
+    expect(serviceItemTaxProblem('VAT_7', '3.00')).toBeNull();
+    expect(serviceItemTaxProblem('EXEMPT_TRANSPORT', '0.00')).toBeNull();
+    expect(serviceItemTaxProblem('VAT_7', '0.00')).toBeNull();
+    expect(serviceItemTaxProblem('ZERO_RATED', '1.00')).toBeNull();
+    expect(serviceItemTaxProblem('EXEMPT_TRANSPORT', '3.00')).toBe('transport_wht_3');
+    expect(serviceItemTaxProblem('VAT_7', '1.00')).toBe('service_wht_1');
+  });
+  it('toCalcVatType', () => {
+    expect(toCalcVatType('VAT_7')).toBe('VAT7');
+    expect(toCalcVatType('EXEMPT_TRANSPORT')).toBe('EXEMPT');
+    expect(toCalcVatType('ZERO_RATED')).toBe('ZERO');
   });
 });

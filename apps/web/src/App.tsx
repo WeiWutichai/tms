@@ -10,6 +10,7 @@ import { CustomersPage } from './features/customers/CustomersPage';
 import { SitesPage } from './features/sites/SitesPage';
 import { ProductsPage } from './features/products/ProductsPage';
 import { RoutesPage } from './features/routes/RoutesPage';
+import { ServiceItemsPage } from './features/service-items/ServiceItemsPage';
 import { VehicleTypesPage } from './features/vehicle-types/VehicleTypesPage';
 import { CarriersPage } from './features/carriers/CarriersPage';
 import { VehiclesPage } from './features/vehicles/VehiclesPage';
@@ -46,6 +47,7 @@ const READY: Record<string, () => ReactNode> = {
   '/master/routes': () => <RoutesPage />,
   '/master/products': () => <ProductsPage />,
   '/master/vehicle-types': () => <VehicleTypesPage />,
+  '/master/accessorials': () => <ServiceItemsPage />,
   '/fleet/drivers': () => <CarriersPage />,
   '/fleet/vehicles': () => <VehiclesPage />,
 };

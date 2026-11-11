@@ -76,3 +76,37 @@ export function computeDocumentTax(lines: readonly TaxableLine[]): DocumentTaxSu
     lines: outLines,
   };
 }
+
+// ---------------------------------------------------------------------------
+// ค่าตั้งต้นภาษีของรายการใน catalog (service_item — ST2-T11) — ที่เดียวของกฎคู่ VAT × หัก ณ ที่จ่าย
+// ชื่อ enum ตาม DB/API (docs/01 §3.2) ซึ่งต่างจาก VatType ด้านบน (ใช้คำนวณ) — แปลงด้วย toCalcVatType
+// ---------------------------------------------------------------------------
+
+export const SERVICE_ITEM_VAT_TYPES = ['EXEMPT_TRANSPORT', 'VAT_7', 'ZERO_RATED'] as const;
+export type ServiceItemVatType = (typeof SERVICE_ITEM_VAT_TYPES)[number];
+/** อัตราหัก ณ ที่จ่าย (%) เป็นสตริง numeric(5,2): ไม่หัก / 1% ค่าขนส่ง (ท.ป.4/2528 ข้อ 12/4) / 3% ค่าบริการ (ข้อ 12/1) */
+export const SERVICE_ITEM_WHT_RATES = ['0.00', '1.00', '3.00'] as const;
+export type ServiceItemWhtRate = (typeof SERVICE_ITEM_WHT_RATES)[number];
+
+/**
+ * คู่ VAT × หัก ณ ที่จ่ายที่ขัดกันเอง → คืนรหัสปัญหา (ไม่มีปัญหา = null)
+ * - `EXEMPT_TRANSPORT` + 3% → `transport_wht_3`: รายการ "ค่าขนส่ง" ยกเว้น VAT ตาม ม.81(1)(ณ) และหัก 1% ตามข้อ 12/4
+ *   [FACT research/thai-tax-docs-research.md §1.8, §3.1] ถ้าเป็นค่าบริการ (3%) ต้องไม่ใช่รายการยกเว้นแบบค่าขนส่ง
+ * - `VAT_7` + 1% → `service_wht_1`: อัตรา 1% คือค่าขนส่ง ซึ่งยกเว้น VAT; การคิด VAT บนค่าขนส่งยังไม่เปิด
+ *   (ACC-2 ยังไม่ได้คำตอบ — plan/06 "ไม่เปิดให้คิด VAT บนค่าขนส่ง")
+ * - ไม่หัก (0) ใช้ได้กับทุกแบบ (ผู้จ่ายไม่มีหน้าที่หัก/เงินทดรองจ่าย — ACC-3 ยังเปิด) · `ZERO_RATED` ไม่จำกัด (ไม่พบข้อมูล)
+ * [OPEN — รอนักบัญชีข้อ 2 / ACC-3] เปลี่ยนกฎที่นี่ที่เดียว (DB ไม่มี CHECK คู่นี้)
+ */
+export function serviceItemTaxProblem(
+  vatType: ServiceItemVatType,
+  whtRate: ServiceItemWhtRate,
+): 'transport_wht_3' | 'service_wht_1' | null {
+  if (vatType === 'EXEMPT_TRANSPORT' && whtRate === '3.00') return 'transport_wht_3';
+  if (vatType === 'VAT_7' && whtRate === '1.00') return 'service_wht_1';
+  return null;
+}
+
+/** แปลง vat_type ของบรรทัด (DB/API) → ชนิดที่ computeDocumentTax ใช้ */
+export function toCalcVatType(v: ServiceItemVatType): VatType {
+  return v === 'VAT_7' ? 'VAT7' : v === 'ZERO_RATED' ? 'ZERO' : 'EXEMPT';
+}

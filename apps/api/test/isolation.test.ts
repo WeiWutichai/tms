@@ -122,6 +122,23 @@ const FIXTURES: Record<string, (db: PrismaClient, tenantId: string, n: number) =
         ).id,
       );
     },
+    serviceItem: async (db, tenantId, n) =>
+      encodeId(
+        'serviceItem',
+        (
+          await db.serviceItem.create({
+            data: {
+              tenantId,
+              code: `ISO-${n}`,
+              nameTh: `Service ${n}`,
+              vatType: 'VAT_7',
+              whtRate: '3.00',
+              calcUnit: 'PER_TRIP',
+              unitLabel: 'เที่ยว',
+            },
+          })
+        ).id,
+      ),
     vehicleType: async (db, tenantId, n) =>
       encodeId(
         'vehicleType',

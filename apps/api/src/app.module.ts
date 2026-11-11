@@ -54,6 +54,8 @@ import { UnitsService } from './modules/products/units.service';
 import { RoutesController } from './modules/routes/routes.controller';
 import { RoutesService } from './modules/routes/routes.service';
 import { SitesService } from './modules/sites/sites.service';
+import { ServiceItemsController } from './modules/service-items/service-items.controller';
+import { ServiceItemsService } from './modules/service-items/service-items.service';
 import { VehicleTypesController } from './modules/vehicle-types/vehicle-types.controller';
 import { VehicleTypesService } from './modules/vehicle-types/vehicle-types.service';
 import { CarriersController } from './modules/carriers/carriers.controller';
@@ -107,6 +109,7 @@ import { StateService } from './state/state.service';
     ProductsController,
     UnitsController,
     VehicleTypesController,
+    ServiceItemsController,
     CarriersController,
     VehiclesController,
     DriversController,
@@ -137,6 +140,7 @@ import { StateService } from './state/state.service';
     ProductsService,
     UnitsService,
     VehicleTypesService,
+    ServiceItemsService,
     CarriersService,
     VehiclesService,
     DriversService,
