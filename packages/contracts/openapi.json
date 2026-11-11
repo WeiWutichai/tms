@@ -3766,6 +3766,845 @@
           "customers"
         ]
       }
+    },
+    "/v1/customer-sites": {
+      "get": {
+        "operationId": "Sites_list",
+        "parameters": [
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "ค่า nextCursor จากหน้าก่อน (ใช้กับ sort เดิมเท่านั้น)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "updatedAfter",
+            "required": false,
+            "in": "query",
+            "description": "คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull — ใช้คู่ includeDeleted=true เพื่อรับรายการที่ถูกลบ)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sort",
+            "required": false,
+            "in": "query",
+            "description": "code = เรียงตามรหัส (ค่าเริ่มต้นของหน้าจอ) · updatedAt/-updatedAt สำหรับ sync",
+            "schema": {
+              "default": "code",
+              "type": "string",
+              "enum": [
+                "code",
+                "updatedAt",
+                "-updatedAt"
+              ]
+            }
+          },
+          {
+            "name": "fields",
+            "required": false,
+            "in": "query",
+            "description": "รายชื่อ field คั่นด้วย , เช่น id,legalName",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "required": false,
+            "in": "query",
+            "description": "ค้นหา — รหัส ชื่อ เลขผู้เสียภาษี หรือ externalId (ไม่สนตัวพิมพ์)",
+            "schema": {
+              "maxLength": 100,
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "description": "คั่นด้วย , เช่น active,inactive",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "externalId",
+            "required": false,
+            "in": "query",
+            "description": "externalId ตรงตัว (ใช้ตรวจว่ามีในระบบแล้วหรือยัง)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "includeDeleted",
+            "required": false,
+            "in": "query",
+            "description": "true = รวมรายการที่ถูกลบ (tombstone มี `deletedAt`) — ให้ระบบที่ดึงแบบ incremental รู้ว่ารายการถูกลบ",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "kind",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "PICKUP",
+                "DROPOFF",
+                "WAREHOUSE"
+              ]
+            }
+          },
+          {
+            "name": "customerId",
+            "required": false,
+            "in": "query",
+            "description": "กรองตามลูกค้า (cus_…) หรือ `none` = เฉพาะจุดของบริษัทเอง",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "customerName",
+            "required": false,
+            "in": "query",
+            "description": "ชื่อลูกค้ามีคำนี้",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "alias",
+            "required": false,
+            "in": "query",
+            "description": "alias ตรงตัว (ไม่สนตัวพิมพ์) — ใช้จับคู่ข้อความปลายทางกับสถานที่",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "pinned",
+            "required": false,
+            "in": "query",
+            "description": "true = มีพิกัด, false = ยังไม่ปักหมุด",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          },
+          {
+            "name": "maxVehicleClass",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "6W",
+                "10W",
+                "TRAILER",
+                "SEMI_TRAILER"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SitePageDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "customer-sites"
+        ]
+      },
+      "post": {
+        "operationId": "Sites_create",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSiteDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SiteDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "customer-sites"
+        ]
+      }
+    },
+    "/v1/customer-sites/summary": {
+      "get": {
+        "operationId": "Sites_summary",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SiteSummaryDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "customer-sites"
+        ]
+      }
+    },
+    "/v1/customer-sites/next-code": {
+      "get": {
+        "operationId": "Sites_nextCode",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "รหัสที่ระบบจะออกให้สถานที่ใหม่ (MD-002)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NextCodeDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "customer-sites"
+        ]
+      }
+    },
+    "/v1/customer-sites/export": {
+      "get": {
+        "operationId": "Sites_export",
+        "parameters": [
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "ค่า nextCursor จากหน้าก่อน (ใช้กับ sort เดิมเท่านั้น)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "updatedAfter",
+            "required": false,
+            "in": "query",
+            "description": "คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull — ใช้คู่ includeDeleted=true เพื่อรับรายการที่ถูกลบ)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sort",
+            "required": false,
+            "in": "query",
+            "description": "code = เรียงตามรหัส (ค่าเริ่มต้นของหน้าจอ) · updatedAt/-updatedAt สำหรับ sync",
+            "schema": {
+              "default": "code",
+              "type": "string",
+              "enum": [
+                "code",
+                "updatedAt",
+                "-updatedAt"
+              ]
+            }
+          },
+          {
+            "name": "fields",
+            "required": false,
+            "in": "query",
+            "description": "รายชื่อ field คั่นด้วย , เช่น id,legalName",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "required": false,
+            "in": "query",
+            "description": "ค้นหา — รหัส ชื่อ เลขผู้เสียภาษี หรือ externalId (ไม่สนตัวพิมพ์)",
+            "schema": {
+              "maxLength": 100,
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "description": "คั่นด้วย , เช่น active,inactive",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "externalId",
+            "required": false,
+            "in": "query",
+            "description": "externalId ตรงตัว (ใช้ตรวจว่ามีในระบบแล้วหรือยัง)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "includeDeleted",
+            "required": false,
+            "in": "query",
+            "description": "true = รวมรายการที่ถูกลบ (tombstone มี `deletedAt`) — ให้ระบบที่ดึงแบบ incremental รู้ว่ารายการถูกลบ",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "kind",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "PICKUP",
+                "DROPOFF",
+                "WAREHOUSE"
+              ]
+            }
+          },
+          {
+            "name": "customerId",
+            "required": false,
+            "in": "query",
+            "description": "กรองตามลูกค้า (cus_…) หรือ `none` = เฉพาะจุดของบริษัทเอง",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "customerName",
+            "required": false,
+            "in": "query",
+            "description": "ชื่อลูกค้ามีคำนี้",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "alias",
+            "required": false,
+            "in": "query",
+            "description": "alias ตรงตัว (ไม่สนตัวพิมพ์) — ใช้จับคู่ข้อความปลายทางกับสถานที่",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "pinned",
+            "required": false,
+            "in": "query",
+            "description": "true = มีพิกัด, false = ยังไม่ปักหมุด",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          },
+          {
+            "name": "maxVehicleClass",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "6W",
+                "10W",
+                "TRAILER",
+                "SEMI_TRAILER"
+              ]
+            }
+          },
+          {
+            "name": "format",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "xlsx",
+              "type": "string",
+              "enum": [
+                "xlsx",
+                "csv"
+              ]
+            }
+          },
+          {
+            "name": "ids",
+            "required": false,
+            "in": "query",
+            "description": "ส่งออกเฉพาะ id เหล่านี้ (คั่นด้วย ,) — แถวที่เลือกในตาราง",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ไฟล์ .xlsx หรือ .csv ตามตัวกรองเดียวกับรายการ (สูงสุด 10,000 แถว)"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "customer-sites"
+        ]
+      }
+    },
+    "/v1/customer-sites/external/{externalId}": {
+      "put": {
+        "operationId": "Sites_upsertExternal",
+        "parameters": [
+          {
+            "name": "externalId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag — ใช้เมื่อแถวมีอยู่แล้ว",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertSiteDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "มีอยู่แล้ว → อัปเดต (ส่งซ้ำได้ ไม่เกิดแถวใหม่)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SiteDto"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "ยังไม่มี → สร้าง",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SiteDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "customer-sites"
+        ]
+      }
+    },
+    "/v1/customer-sites/{id}": {
+      "get": {
+        "operationId": "Sites_get",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SiteDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "customer-sites"
+        ]
+      },
+      "patch": {
+        "operationId": "Sites_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSiteDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SiteDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "customer-sites"
+        ]
+      }
+    },
+    "/v1/customer-sites/{id}/history": {
+      "get": {
+        "operationId": "Sites_history",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "ค่า nextCursor จากหน้าก่อน",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ประวัติการแก้จาก audit log ใหม่สุดก่อน",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditPageDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "customer-sites"
+        ]
+      }
+    },
+    "/v1/customer-sites/{id}/deactivate": {
+      "post": {
+        "operationId": "Sites_deactivate",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MasterReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SiteDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "customer-sites"
+        ]
+      }
+    },
+    "/v1/customer-sites/{id}/activate": {
+      "post": {
+        "operationId": "Sites_activate",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MasterOptionalReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SiteDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "customer-sites"
+        ]
+      }
+    },
+    "/v1/customer-sites/{id}/delete": {
+      "post": {
+        "operationId": "Sites_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MasterReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "customer-sites"
+        ]
+      }
     }
   },
   "info": {
@@ -7125,6 +7964,663 @@
           "reason": {
             "type": "string",
             "maxLength": 500
+          }
+        }
+      },
+      "SiteAddressDto": {
+        "type": "object",
+        "properties": {
+          "line1": {
+            "type": "string",
+            "example": "22 หมู่ 3 ต.บางพลีใหญ่ อ.บางพลี จ.สมุทรปราการ 10540"
+          },
+          "line2": {
+            "type": "string"
+          },
+          "subdistrict": {
+            "type": "string"
+          },
+          "district": {
+            "type": "string"
+          },
+          "province": {
+            "type": "string"
+          },
+          "postcode": {
+            "type": "string",
+            "example": "10540"
+          }
+        },
+        "required": [
+          "line1"
+        ]
+      },
+      "SiteCustomerRefDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "cus_…"
+          },
+          "code": {
+            "type": "string",
+            "example": "CUS-0001"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "name"
+        ]
+      },
+      "SiteContactDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "คุณวิไล"
+          },
+          "phone": {
+            "type": "string",
+            "example": "02-300-4100"
+          },
+          "email": {
+            "type": "string",
+            "example": "receiving@example.co.th"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "SiteDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "loc_3f2a…"
+          },
+          "code": {
+            "type": "string",
+            "example": "LOC-00001"
+          },
+          "externalId": {
+            "type": "string",
+            "nullable": true
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "PICKUP",
+              "DROPOFF",
+              "WAREHOUSE"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "address": {
+            "$ref": "#/components/schemas/SiteAddressDto"
+          },
+          "customer": {
+            "nullable": true,
+            "description": "null = จุดของบริษัทเอง",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SiteCustomerRefDto"
+              }
+            ]
+          },
+          "lat": {
+            "type": "number",
+            "nullable": true
+          },
+          "lng": {
+            "type": "number",
+            "nullable": true
+          },
+          "geocodeStatus": {
+            "type": "string",
+            "enum": [
+              "OK",
+              "PENDING",
+              "FAILED"
+            ],
+            "description": "OK = มีพิกัดแล้ว · PENDING = ยังไม่ปักหมุด/รอ geocode · FAILED = geocode ไม่พบ (ST2-T03)"
+          },
+          "geofenceRadiusM": {
+            "type": "number"
+          },
+          "aliases": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "openTime": {
+            "type": "string",
+            "nullable": true
+          },
+          "closeTime": {
+            "type": "string",
+            "nullable": true
+          },
+          "maxVehicleClass": {
+            "type": "string",
+            "enum": [
+              "6W",
+              "10W",
+              "TRAILER",
+              "SEMI_TRAILER"
+            ],
+            "nullable": true
+          },
+          "serviceTimeMin": {
+            "type": "number",
+            "nullable": true
+          },
+          "freeTimeMin": {
+            "type": "number",
+            "nullable": true
+          },
+          "contact": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SiteContactDto"
+              }
+            ]
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          },
+          "deletedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "มีค่าเฉพาะเมื่อขอ includeDeleted=true และรายการถูกลบแล้ว (tombstone)"
+          },
+          "version": {
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "externalId",
+          "kind",
+          "name",
+          "address",
+          "customer",
+          "lat",
+          "lng",
+          "geocodeStatus",
+          "geofenceRadiusM",
+          "aliases",
+          "openTime",
+          "closeTime",
+          "maxVehicleClass",
+          "serviceTimeMin",
+          "freeTimeMin",
+          "contact",
+          "notes",
+          "status",
+          "version",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "SitePageDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SiteDto"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor",
+          "hasMore"
+        ]
+      },
+      "SiteKindCountDto": {
+        "type": "object",
+        "properties": {
+          "PICKUP": {
+            "type": "number"
+          },
+          "DROPOFF": {
+            "type": "number"
+          },
+          "WAREHOUSE": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "PICKUP",
+          "DROPOFF",
+          "WAREHOUSE"
+        ]
+      },
+      "SiteSummaryDto": {
+        "type": "object",
+        "properties": {
+          "total": {
+            "type": "number",
+            "description": "ทั้งหมด (ไม่รวมที่ลบ)"
+          },
+          "pinned": {
+            "type": "number",
+            "description": "มีพิกัดแล้ว"
+          },
+          "unpinned": {
+            "type": "number",
+            "description": "ยังไม่ปักหมุด"
+          },
+          "restricted": {
+            "type": "number",
+            "description": "จำกัดประเภทรถ (เข้าได้สูงสุด 6 ล้อ/10 ล้อ)"
+          },
+          "byKind": {
+            "$ref": "#/components/schemas/SiteKindCountDto"
+          },
+          "active": {
+            "type": "number"
+          },
+          "inactive": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "total",
+          "pinned",
+          "unpinned",
+          "restricted",
+          "byKind",
+          "active",
+          "inactive"
+        ]
+      },
+      "CreateSiteDto": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "PICKUP",
+              "DROPOFF",
+              "WAREHOUSE"
+            ],
+            "description": "PICKUP = ต้นทาง, DROPOFF = ปลายทาง (ค่าเริ่มต้น), WAREHOUSE = คลัง / ศูนย์กระจาย"
+          },
+          "customerId": {
+            "type": "string",
+            "example": "cus_…",
+            "nullable": true,
+            "description": "ลูกค้าเจ้าของจุด — null = จุดของบริษัทเอง (คลัง/ลานจอด) ใช้ได้กับทุกลูกค้า"
+          },
+          "lat": {
+            "type": "number",
+            "example": 13.417,
+            "nullable": true,
+            "description": "ละติจูด (ส่งคู่กับ lng) — มีพิกัด → geocodeStatus OK, null ทั้งคู่ → PENDING"
+          },
+          "lng": {
+            "type": "number",
+            "example": 101.001,
+            "nullable": true
+          },
+          "geofenceRadiusM": {
+            "type": "number",
+            "minimum": 50,
+            "maximum": 2000,
+            "description": "รัศมี geofence (เมตร) — ค่าเริ่มต้น 200 (spec/02 §2)"
+          },
+          "aliases": {
+            "maxItems": 50,
+            "example": [
+              "โรงงานสยามพลาสติก",
+              "SPC ชลบุรี"
+            ],
+            "description": "ชื่อเรียกอื่น — ค้นหา `q` เจอด้วย alias และใช้จับคู่ข้อความปลายทางอัตโนมัติ (ST3-T06)",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "openTime": {
+            "type": "string",
+            "example": "08:00",
+            "nullable": true,
+            "description": "HH:MM"
+          },
+          "closeTime": {
+            "type": "string",
+            "example": "17:00",
+            "nullable": true,
+            "description": "HH:MM — น้อยกว่า openTime = ปิดวันถัดไป (ข้ามเที่ยงคืน); ว่างทั้งคู่ = 24 ชม."
+          },
+          "maxVehicleClass": {
+            "type": "string",
+            "enum": [
+              "6W",
+              "10W",
+              "TRAILER",
+              "SEMI_TRAILER"
+            ],
+            "nullable": true,
+            "description": "รถเข้าได้สูงสุด: 6W = 6 ล้อ, 10W = 10 ล้อ, TRAILER = พ่วง, SEMI_TRAILER = เทรลเลอร์ · null = ไม่จำกัด"
+          },
+          "serviceTimeMin": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 720,
+            "nullable": true,
+            "description": "service time — เวลาขึ้น/ลงของโดยประมาณ (นาที)"
+          },
+          "freeTimeMin": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1440,
+            "nullable": true,
+            "description": "free time ค่ารอที่จุดนี้ (นาที) — null = ใช้ค่าของลูกค้า/องค์กร"
+          },
+          "contact": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SiteContactDto"
+              }
+            ]
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 1000,
+            "description": "หมายเหตุ"
+          },
+          "name": {
+            "type": "string",
+            "example": "โรงงานสยามพลาสติก ชลบุรี",
+            "maxLength": 150
+          },
+          "address": {
+            "$ref": "#/components/schemas/SiteAddressDto"
+          },
+          "code": {
+            "type": "string",
+            "example": "LOC-00001",
+            "description": "รหัสสถานที่ — ไม่ส่ง = ระบบออกเลขถัดไป (MD-002)"
+          },
+          "externalId": {
+            "type": "string",
+            "description": "รหัสในระบบต้นทาง — เรียกด้วย ext:{externalId} ได้"
+          }
+        },
+        "required": [
+          "name",
+          "address"
+        ]
+      },
+      "UpsertSiteDto": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "PICKUP",
+              "DROPOFF",
+              "WAREHOUSE"
+            ],
+            "description": "PICKUP = ต้นทาง, DROPOFF = ปลายทาง (ค่าเริ่มต้น), WAREHOUSE = คลัง / ศูนย์กระจาย"
+          },
+          "customerId": {
+            "type": "string",
+            "example": "cus_…",
+            "nullable": true,
+            "description": "ลูกค้าเจ้าของจุด — null = จุดของบริษัทเอง (คลัง/ลานจอด) ใช้ได้กับทุกลูกค้า"
+          },
+          "lat": {
+            "type": "number",
+            "example": 13.417,
+            "nullable": true,
+            "description": "ละติจูด (ส่งคู่กับ lng) — มีพิกัด → geocodeStatus OK, null ทั้งคู่ → PENDING"
+          },
+          "lng": {
+            "type": "number",
+            "example": 101.001,
+            "nullable": true
+          },
+          "geofenceRadiusM": {
+            "type": "number",
+            "minimum": 50,
+            "maximum": 2000,
+            "description": "รัศมี geofence (เมตร) — ค่าเริ่มต้น 200 (spec/02 §2)"
+          },
+          "aliases": {
+            "maxItems": 50,
+            "example": [
+              "โรงงานสยามพลาสติก",
+              "SPC ชลบุรี"
+            ],
+            "description": "ชื่อเรียกอื่น — ค้นหา `q` เจอด้วย alias และใช้จับคู่ข้อความปลายทางอัตโนมัติ (ST3-T06)",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "openTime": {
+            "type": "string",
+            "example": "08:00",
+            "nullable": true,
+            "description": "HH:MM"
+          },
+          "closeTime": {
+            "type": "string",
+            "example": "17:00",
+            "nullable": true,
+            "description": "HH:MM — น้อยกว่า openTime = ปิดวันถัดไป (ข้ามเที่ยงคืน); ว่างทั้งคู่ = 24 ชม."
+          },
+          "maxVehicleClass": {
+            "type": "string",
+            "enum": [
+              "6W",
+              "10W",
+              "TRAILER",
+              "SEMI_TRAILER"
+            ],
+            "nullable": true,
+            "description": "รถเข้าได้สูงสุด: 6W = 6 ล้อ, 10W = 10 ล้อ, TRAILER = พ่วง, SEMI_TRAILER = เทรลเลอร์ · null = ไม่จำกัด"
+          },
+          "serviceTimeMin": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 720,
+            "nullable": true,
+            "description": "service time — เวลาขึ้น/ลงของโดยประมาณ (นาที)"
+          },
+          "freeTimeMin": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1440,
+            "nullable": true,
+            "description": "free time ค่ารอที่จุดนี้ (นาที) — null = ใช้ค่าของลูกค้า/องค์กร"
+          },
+          "contact": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SiteContactDto"
+              }
+            ]
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 1000,
+            "description": "หมายเหตุ"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 150
+          },
+          "address": {
+            "$ref": "#/components/schemas/SiteAddressDto"
+          },
+          "code": {
+            "type": "string",
+            "example": "LOC-00001",
+            "description": "ใช้ตอนสร้างเท่านั้น"
+          }
+        },
+        "required": [
+          "name",
+          "address"
+        ]
+      },
+      "UpdateSiteDto": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "PICKUP",
+              "DROPOFF",
+              "WAREHOUSE"
+            ],
+            "description": "PICKUP = ต้นทาง, DROPOFF = ปลายทาง (ค่าเริ่มต้น), WAREHOUSE = คลัง / ศูนย์กระจาย"
+          },
+          "customerId": {
+            "type": "string",
+            "example": "cus_…",
+            "nullable": true,
+            "description": "ลูกค้าเจ้าของจุด — null = จุดของบริษัทเอง (คลัง/ลานจอด) ใช้ได้กับทุกลูกค้า"
+          },
+          "lat": {
+            "type": "number",
+            "example": 13.417,
+            "nullable": true,
+            "description": "ละติจูด (ส่งคู่กับ lng) — มีพิกัด → geocodeStatus OK, null ทั้งคู่ → PENDING"
+          },
+          "lng": {
+            "type": "number",
+            "example": 101.001,
+            "nullable": true
+          },
+          "geofenceRadiusM": {
+            "type": "number",
+            "minimum": 50,
+            "maximum": 2000,
+            "description": "รัศมี geofence (เมตร) — ค่าเริ่มต้น 200 (spec/02 §2)"
+          },
+          "aliases": {
+            "maxItems": 50,
+            "example": [
+              "โรงงานสยามพลาสติก",
+              "SPC ชลบุรี"
+            ],
+            "description": "ชื่อเรียกอื่น — ค้นหา `q` เจอด้วย alias และใช้จับคู่ข้อความปลายทางอัตโนมัติ (ST3-T06)",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "openTime": {
+            "type": "string",
+            "example": "08:00",
+            "nullable": true,
+            "description": "HH:MM"
+          },
+          "closeTime": {
+            "type": "string",
+            "example": "17:00",
+            "nullable": true,
+            "description": "HH:MM — น้อยกว่า openTime = ปิดวันถัดไป (ข้ามเที่ยงคืน); ว่างทั้งคู่ = 24 ชม."
+          },
+          "maxVehicleClass": {
+            "type": "string",
+            "enum": [
+              "6W",
+              "10W",
+              "TRAILER",
+              "SEMI_TRAILER"
+            ],
+            "nullable": true,
+            "description": "รถเข้าได้สูงสุด: 6W = 6 ล้อ, 10W = 10 ล้อ, TRAILER = พ่วง, SEMI_TRAILER = เทรลเลอร์ · null = ไม่จำกัด"
+          },
+          "serviceTimeMin": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 720,
+            "nullable": true,
+            "description": "service time — เวลาขึ้น/ลงของโดยประมาณ (นาที)"
+          },
+          "freeTimeMin": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1440,
+            "nullable": true,
+            "description": "free time ค่ารอที่จุดนี้ (นาที) — null = ใช้ค่าของลูกค้า/องค์กร"
+          },
+          "contact": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SiteContactDto"
+              }
+            ]
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 1000,
+            "description": "หมายเหตุ"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 150
+          },
+          "address": {
+            "$ref": "#/components/schemas/SiteAddressDto"
+          },
+          "externalId": {
+            "type": "string",
+            "nullable": true,
+            "description": "null = ลบการผูก"
           }
         }
       }

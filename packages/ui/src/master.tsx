@@ -88,6 +88,7 @@ export function FormDrawer({
         className="tms-fdrawer"
         role="dialog"
         aria-modal="true"
+        aria-label={typeof title === 'string' ? title : undefined}
         onClick={(e) => e.stopPropagation()}
         onSubmit={(e) => {
           e.preventDefault();

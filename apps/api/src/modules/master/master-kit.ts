@@ -267,9 +267,13 @@ export class MasterOptionalReasonDto {
   reason?: string;
 }
 
-/** advisory lock ภายใน transaction ของ request (ปล่อยเองเมื่อ commit/rollback) */
+/**
+ * advisory lock ภายใน transaction ของ request (ปล่อยเองเมื่อ commit/rollback)
+ * key ผูกกับ tenant ของ request เสมอ — tenant ต่างกันไม่รอกัน (เช่น `customer.code` ของแต่ละบริษัท)
+ */
 export async function lockKey(tx: Tx, key: string): Promise<void> {
-  await tx.$executeRaw`SELECT pg_advisory_xact_lock(7, hashtext(${key}))`;
+  const tenantId = requestContext.get()?.tenantId ?? '-';
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(7, hashtext(${`${tenantId}:${key}`}))`;
 }
 
 /** ตารางข้อมูลหลักที่มีคอลัมน์ `code` — whitelist กัน SQL injection ใน nextCode */

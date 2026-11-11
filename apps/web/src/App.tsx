@@ -7,6 +7,7 @@ import { I18nProvider } from './i18n';
 import { canAny, featureOf, isLocked, NAV } from './nav';
 import { SettingsPage } from './features/settings/Settings';
 import { CustomersPage } from './features/customers/CustomersPage';
+import { SitesPage } from './features/sites/SitesPage';
 import { Dashboard } from './pages/Dashboard';
 import { DesignSystem } from './pages/DesignSystem';
 import { ErrorBoundary, ErrorPage, LockedPage, NoAccess, NotFound, NotReady } from './pages/Simple';
@@ -35,6 +36,7 @@ function Guard({ perm, path, children }: { perm?: string[]; path?: string; child
 /** หน้าที่ทำแล้ว (path → หน้า) — เมนูอื่นที่ยังไม่ทำแสดง "ยังไม่เปิดใช้" */
 const READY: Record<string, () => ReactNode> = {
   '/master/customers': () => <CustomersPage />,
+  '/master/locations': () => <SitesPage />,
 };
 
 function Inside() {

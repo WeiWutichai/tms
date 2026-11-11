@@ -381,6 +381,7 @@ model Customer {
   version                 Int            @default(1)
   createdAt               DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt               DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  sites                   CustomerSite[]
 
   @@unique([tenantId, code])
   @@unique([tenantId, externalId])
@@ -396,32 +397,53 @@ enum GeocodeStatus {
   @@map("geocode_status")
 }
 
-/// จุดรับ/ส่ง (UI: "สถานที่ / จุดรับส่ง")
+/// ประเภทสถานที่ (ต้นแบบ TMS v4: ต้นทาง / ปลายทาง / คลัง / ศูนย์กระจาย — ST2-T02)
+enum SiteKind {
+  PICKUP
+  DROPOFF
+  WAREHOUSE
+
+  @@map("site_kind")
+}
+
+/// จุดรับ/ส่ง (UI: "สถานที่ / จุดรับส่ง") — ST2-T02; docs/01 §3.2, spec/02 §2
 model CustomerSite {
   id                 String        @id @default(uuid()) @db.Uuid
   tenantId           String        @map("tenant_id") @db.Uuid
+  code               String /// LOC-00001 (MD-002) — unique ไม่สนตัวพิมพ์
   customerId         String?       @map("customer_id") @db.Uuid /// null = จุดของบริษัทเอง (คลัง/ปั๊ม/จุดพัก)
+  customer           Customer?     @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  kind               SiteKind      @default(DROPOFF)
   name               String
   address            Json
   lat                Decimal?      @db.Decimal(9, 6)
   lng                Decimal?      @db.Decimal(9, 6)
-  geocodeStatus      GeocodeStatus @default(PENDING) @map("geocode_status")
-  aliases            String[]
-  openTime           String?       @map("open_time")
-  closeTime          String?       @map("close_time")
-  vehicleTypeAllowed String[]      @map("vehicle_type_allowed")
-  avgDwellMin        Int?          @map("avg_dwell_min")
+  geocodeStatus      GeocodeStatus @default(PENDING) @map("geocode_status") /// OK = มีพิกัด (กรอกเอง/ยืนยันแล้ว) · geocode อัตโนมัติ = ST2-T03
+  geofenceRadiusM    Int           @default(200) @map("geofence_radius_m") /// 50–2,000 ม.
+  aliases            String[]      @default([]) /// ข้อความที่ใช้เรียกจุดนี้ (จับคู่อัตโนมัติ ST3-T06)
+  aliasSearch        String        @default("") @map("alias_search") /// aliases ตัวเล็กครอบ/คั่นด้วย \n — trigger ในฐานข้อมูลเขียนเอง (0036) ห้ามเขียนจากแอป
+  addressSearch      String        @default("") @map("address_search") /// ที่อยู่ตัวเล็ก — trigger ในฐานข้อมูลเขียนเอง (0036)
+  openTime           String?       @map("open_time") /// HH:MM (ว่าง = 24 ชม.)
+  closeTime          String?       @map("close_time") /// HH:MM (< open = ข้ามเที่ยงคืน)
+  vehicleTypeAllowed String[]      @default([]) @map("vehicle_type_allowed") /// รหัส vehicle_type ที่เข้าได้ (ยังไม่ใช้ — รอ ST2-T04)
+  maxVehicleClass    String?       @map("max_vehicle_class") /// รถเข้าได้สูงสุด 6W/10W/TRAILER/SEMI_TRAILER (null = ไม่จำกัด)
+  avgDwellMin        Int?          @map("avg_dwell_min") /// service time (นาที)
   freeTimeMin        Int?          @map("free_time_min")
   contact            Json?
+  notes              String?
   externalId         String?       @map("external_id")
+  deletedExternalId  String?       @map("deleted_external_id")
   status             ActiveStatus  @default(ACTIVE)
+  deletedAt          DateTime?     @map("deleted_at") @db.Timestamptz(6) /// MD-004 soft delete (เฉพาะที่ไม่เคยถูกอ้างอิง)
   version            Int           @default(1)
   createdAt          DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt          DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@unique([tenantId, externalId])
+  @@unique([tenantId, code])
   @@index([tenantId, customerId])
   @@index([tenantId, updatedAt, id])
+  @@index([tenantId, kind], map: "customer_site_tenant_kind_idx")
   @@map("customer_site")
 }
 

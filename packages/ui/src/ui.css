@@ -622,6 +622,11 @@ button:focus-visible {
   font-weight: 600;
   color: #2257c4;
   white-space: nowrap;
+  /* ชื่อยาว (เช่น ชื่อสถานที่) ตัด … ไม่ดันหัว drawer ล้น — ชื่อเต็มอยู่ใน title */
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .tms-drawer__tabs {
   display: flex;
