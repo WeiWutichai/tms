@@ -475,6 +475,7 @@ model Carrier {
   taxId             String?           @map("tax_id") @db.Char(13) /// นิติบุคคลเท่านั้น (เลขเปิดเผยได้) — บุคคลธรรมดาเก็บที่ tax_id_enc
   taxIdEnc          String?           @map("tax_id_enc") /// บุคคลธรรมดา = เลขบัตรประชาชน → FieldCipher (DM-018)
   taxIdLast4        String?           @map("tax_id_last4") @db.Char(4)
+  taxIdHash         String?           @map("tax_id_hash") /// blind index (HMAC — BLIND_INDEX_KEY) ของเลขบัตรบุคคลธรรมดา ใช้กันซ้ำ
   branchCode        String?           @map("branch_code") @db.Char(5)
   address           Json? /// ที่อยู่ (ใช้บน 50 ทวิ) {line1, …} — null = ยังไม่กรอก
   whtRateDefault    Decimal           @default(1.00) @map("wht_rate_default") @db.Decimal(5, 2) /// ค่าตั้งต้น — ค่าจริงอยู่ที่บรรทัด settlement

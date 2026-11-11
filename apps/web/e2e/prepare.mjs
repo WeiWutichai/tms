@@ -48,6 +48,7 @@ writeFileSync(
     'PLATFORM_DATABASE_URL',
     'AUTH_DEV_SECRET',
     'FIELD_ENCRYPTION_KEYS',
+    'BLIND_INDEX_KEY',
   ]
     .map((k) => `${k}=${env[k]}`)
     .join('\n') + '\n',

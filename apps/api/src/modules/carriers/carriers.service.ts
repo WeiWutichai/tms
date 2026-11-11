@@ -2,7 +2,10 @@ import { Injectable } from '@nestjs/common';
 import { Prisma, type ActiveStatus, type Carrier } from '@prisma/client';
 import type { TransitionTable } from '@tms/domain';
 import { AuditService } from '../../audit/audit.service';
+import { scopeAllows } from '@tms/domain';
+import { BlindIndex } from '../../common/blind-index';
 import { FieldCipher } from '../../common/crypto';
+import { requestContext } from '../../common/request-context';
 import { encodeId, tryDecodeId } from '../../common/ids';
 import { iEquals } from '../../common/ilike';
 import { ProblemException } from '../../common/problem';
@@ -34,6 +37,8 @@ import type {
 } from './carrier.dto';
 
 export const CARRIER_CODE_PREFIX = 'SUB';
+/** ความลึกสูงสุดของสายสังกัด (กันข้อมูลวน/เสียทำให้เดินไม่จบ) */
+const MAX_DEPTH = 50;
 const DECIMAL_FIELDS = ['whtRateDefault'] as const;
 /** ค่าที่แสดงแทนเลขลับ (NFR-304: `•••• 1234`) */
 export const mask = (last4: string | null | undefined) => (last4 ? `•••• ${last4}` : null);
@@ -127,6 +132,7 @@ export function auditView(c: Carrier, parent?: Ref | null): Record<string, unkno
 @Injectable()
 export class CarriersService {
   private cipherInstance?: FieldCipher;
+  private blindInstance?: BlindIndex;
   constructor(
     private readonly db: DbService,
     private readonly state: StateService,
@@ -135,6 +141,21 @@ export class CarriersService {
 
   private get cipher(): FieldCipher {
     return (this.cipherInstance ??= new FieldCipher());
+  }
+
+  private get blind(): BlindIndex {
+    return (this.blindInstance ??= new BlindIndex());
+  }
+
+  /** ถอดรหัส — กุญแจเดิมถูกถอดออกแล้ว → 409 `secret_unreadable` (ไม่ใช่ 500) */
+  private decrypt(value: string, field: string): string {
+    try {
+      return this.cipher.decrypt(value);
+    } catch {
+      throw new ProblemException('secret_unreadable', `${field} cannot be decrypted`, [
+        { field, code: 'secret_unreadable', message: 'stored value cannot be decrypted' },
+      ]);
+    }
   }
 
   // ---------- read ----------
@@ -198,7 +219,7 @@ export class CarriersService {
     const ids = [...new Set(rows.map((r) => r.parentCarrierId).filter((x): x is string => !!x))];
     if (!ids.length) return new Map();
     const ps = await this.db.tx.carrier.findMany({
-      where: { id: { in: ids } },
+      where: { id: { in: ids }, deletedAt: null },
       select: { id: true, code: true, legalName: true },
     });
     return new Map(ps.map((p) => [p.id, p]));
@@ -280,8 +301,9 @@ export class CarriersService {
   /** ค่าเต็มของเลขลับ (ถอดรหัส) — ลง audit `carrier.pii_revealed` (spec/11 NFR-153) */
   async reveal(c: Carrier, field: RevealField, reason?: string): Promise<string | null> {
     let value: string | null;
-    if (field === 'taxId') value = c.taxId ?? (c.taxIdEnc ? this.cipher.decrypt(c.taxIdEnc) : null);
-    else value = c.bankAccountEnc ? this.cipher.decrypt(c.bankAccountEnc) : null;
+    if (field === 'taxId')
+      value = c.taxId ?? (c.taxIdEnc ? this.decrypt(c.taxIdEnc, 'taxId') : null);
+    else value = c.bankAccountEnc ? this.decrypt(c.bankAccountEnc, 'bankAccount') : null;
     await this.audit.record({
       action: 'carrier.pii_revealed',
       entityType: 'carrier',
@@ -294,9 +316,13 @@ export class CarriersService {
 
   // ---------- write ----------
 
-  /** id ของ carrier ที่จะเป็นสังกัด: อยู่ใน tenant, ไม่ถูกลบ, ใช้งานอยู่, ไม่ใช่ตัวเอง, ไม่วน */
+  /**
+   * id ของ carrier ที่จะเป็นสังกัด: อยู่ใน tenant, ไม่ถูกลบ, ใช้งานอยู่, ไม่ใช่ตัวเอง, ไม่วน
+   * lock ทั้งต้นไม้ของ tenant ก่อนอ่าน (คำขอพร้อมกัน A→B / B→A ต้องรอกัน แล้วอ่านข้อมูลใหม่) · เดินขึ้นไม่เกิน 50 ชั้น
+   */
   private async resolveParent(value: string, selfId?: string): Promise<string> {
     const tx = this.db.tx;
+    await lockKey(tx, 'carrier.tree');
     const id = tryDecodeId('carrier', value);
     const p = id ? await tx.carrier.findFirst({ where: { id, deletedAt: null } }) : null;
     if (!p) throw field422('parentCarrierId', 'not_found', 'parent carrier not found');
@@ -305,13 +331,13 @@ export class CarriersService {
     if (selfId) {
       if (p.id === selfId)
         throw field422('parentCarrierId', 'parent_cycle', 'cannot be own parent');
-      // เดินขึ้นจาก parent ใหม่ — เจอตัวเอง = วน (lock ทั้งต้นไม้ของ tenant กันแก้พร้อมกันจนวน)
-      await lockKey(tx, 'carrier.tree');
-      const seen = new Set<string>();
+      const seen = new Set<string>([p.id]);
       let cur: string | null = p.parentCarrierId;
-      while (cur && !seen.has(cur)) {
+      while (cur) {
         if (cur === selfId)
           throw field422('parentCarrierId', 'parent_cycle', 'parent chain would loop');
+        if (seen.has(cur) || seen.size >= MAX_DEPTH)
+          throw field422('parentCarrierId', 'parent_depth', 'parent chain too deep or broken');
         seen.add(cur);
         const up: { parentCarrierId: string | null } | null = await tx.carrier.findUnique({
           where: { id: cur },
@@ -321,6 +347,27 @@ export class CarriersService {
       }
     }
     return p.id;
+  }
+
+  /** เขียนเลขผู้เสียภาษี: นิติบุคคลเก็บตรง · บุคคลธรรมดาเข้ารหัส + blind index (เขียนใหม่ทุกครั้งที่ส่งมา) */
+  private writeTax(
+    data: Prisma.CarrierUncheckedUpdateInput,
+    type: 'INDIVIDUAL' | 'JURISTIC',
+    tax: string,
+  ) {
+    if (type === 'JURISTIC') {
+      // เลขนิติบุคคลขึ้นต้นด้วย 0 (เลขบัตรประชาชนขึ้นต้น 1–8) — กันกรอกเลขบัตรลงช่องที่เก็บแบบเปิด [DECISION spec/12 §3]
+      if (!tax.startsWith('0'))
+        throw field422('taxId', 'juristic_prefix', 'juristic taxId must start with 0');
+      data.taxId = tax;
+      data.taxIdEnc = null;
+      data.taxIdHash = null;
+    } else {
+      data.taxId = null;
+      data.taxIdEnc = this.cipher.encrypt(tax);
+      data.taxIdHash = this.blind.of(tax);
+    }
+    data.taxIdLast4 = tax.slice(-4);
   }
 
   /**
@@ -337,27 +384,30 @@ export class CarriersService {
     const secrets: string[] = [];
     if (input.legalName !== undefined) data.legalName = input.legalName;
 
-    // ---- เลขผู้เสียภาษี: นิติบุคคลเก็บตรง · บุคคลธรรมดาเข้ารหัส (เปลี่ยนประเภท = ย้ายที่เก็บให้) ----
-    const type = input.entityType ?? current?.entityType;
+    // ---- เลขผู้เสียภาษี ----
+    // ไม่ถอดรหัสเลขเดิมเพื่อย้ายไปเก็บแบบเปิด: เปลี่ยนประเภทต้องส่งเลขใหม่มาด้วย (กันเลขบัตรรั่ว — review ST2-T05)
+    const type = (input.entityType ?? current?.entityType) as 'INDIVIDUAL' | 'JURISTIC';
     if (input.entityType !== undefined) data.entityType = input.entityType;
-    const oldTax = current
-      ? (current.taxId ?? (current.taxIdEnc ? this.cipher.decrypt(current.taxIdEnc) : null))
-      : null;
-    const tax = input.taxId ?? oldTax;
-    if (!tax) throw field422('taxId', 'required', 'taxId is required');
     const typeChanged =
       !!current && input.entityType !== undefined && input.entityType !== current.entityType;
-    if (!current || typeChanged || tax !== oldTax) {
-      if (type === 'JURISTIC') {
-        data.taxId = tax;
-        data.taxIdEnc = null;
-      } else {
-        data.taxId = null;
-        data.taxIdEnc = this.cipher.encrypt(tax);
-      }
-      data.taxIdLast4 = tax.slice(-4);
-      if (current && tax !== oldTax) secrets.push('taxId');
-    }
+    if (input.taxId !== undefined) {
+      this.writeTax(data, type, input.taxId);
+      if (current && (type === 'INDIVIDUAL' || current.entityType === 'INDIVIDUAL'))
+        secrets.push('taxId');
+    } else if (!current) throw field422('taxId', 'required', 'taxId is required');
+    else if (typeChanged && (current.taxId || current.taxIdEnc))
+      throw field422(
+        'taxId',
+        'required_on_type_change',
+        'changing entityType requires taxId in the same request',
+      );
+    else if (
+      input.entityType !== undefined &&
+      current.taxIdEnc &&
+      this.cipher.needsRotation(current.taxIdEnc)
+    )
+      // หมุน key: ส่งช่องเลขภาษีมา (ประเภทเดิม) → เข้ารหัสใหม่ด้วย key ปัจจุบัน
+      data.taxIdEnc = this.cipher.encrypt(this.decrypt(current.taxIdEnc, 'taxId'));
 
     // ---- สาขา: นิติบุคคลไม่ส่ง = 00000 · บุคคลธรรมดาไม่มีสาขา ----
     let branch = input.branchCode !== undefined ? input.branchCode : (current?.branchCode ?? null);
@@ -372,8 +422,10 @@ export class CarriersService {
       data.address = input.address === null ? Prisma.DbNull : ({ ...input.address } as object);
     if (input.whtRate !== undefined) data.whtRateDefault = input.whtRate;
 
-    // ---- บัญชีธนาคาร: เลขบัญชีเข้ารหัส + 4 หลักท้าย ----
+    // ---- บัญชีธนาคาร: เลขบัญชีเข้ารหัส + 4 หลักท้าย · แก้ได้เฉพาะ settlements:pay (ชั่วคราวจนกว่าจะตัดสิน step-up NFR-107) ----
     if (input.bankAccount !== undefined) {
+      if (!scopeAllows(requestContext.require().scopes ?? [], 'settlements:pay'))
+        throw new ProblemException('forbidden', 'changing bankAccount requires settlements:pay');
       const b = input.bankAccount;
       if (b === null) {
         data.bankCode = null;
@@ -382,16 +434,29 @@ export class CarriersService {
         data.bankAccountName = null;
         if (current?.bankAccountEnc) secrets.push('bankAccount');
       } else {
-        const oldNo = current?.bankAccountEnc ? this.cipher.decrypt(current.bankAccountEnc) : null;
-        const no = b.accountNo ?? oldNo;
-        if (!no) throw field422('bankAccount.accountNo', 'required', 'accountNo is required');
         data.bankCode = b.bankCode;
         data.bankAccountName = b.accountName;
-        if (no !== oldNo) {
-          data.bankAccountEnc = this.cipher.encrypt(no);
-          data.bankAccountLast4 = no.slice(-4);
-          if (current) secrets.push('bankAccount');
-        }
+        if (b.accountNo) {
+          // เทียบเลขเดิมได้ (ผู้แก้บัญชีมีสิทธิ์ settlements:pay = ดูเลขเต็มได้อยู่แล้ว จึงไม่เป็นช่องเดาเลข)
+          // ส่งซ้ำเลขเดิม = ไม่เขียน (PUT external ส่งซ้ำไม่เพิ่ม version) · ถอดเลขเดิมไม่ได้/ต้องหมุน key = เขียนใหม่
+          let same = false;
+          if (current?.bankAccountEnc && !this.cipher.needsRotation(current.bankAccountEnc))
+            try {
+              same = this.cipher.decrypt(current.bankAccountEnc) === b.accountNo;
+            } catch {
+              same = false;
+            }
+          if (!same) {
+            data.bankAccountEnc = this.cipher.encrypt(b.accountNo);
+            data.bankAccountLast4 = b.accountNo.slice(-4);
+            if (current) secrets.push('bankAccount');
+          }
+        } else if (!current?.bankAccountEnc)
+          throw field422('bankAccount.accountNo', 'required', 'accountNo is required');
+        else if (this.cipher.needsRotation(current.bankAccountEnc))
+          data.bankAccountEnc = this.cipher.encrypt(
+            this.decrypt(current.bankAccountEnc, 'bankAccount'),
+          );
       }
     }
     if (input.paymentTermDays !== undefined) data.paymentTermDays = input.paymentTermDays;
@@ -429,6 +494,26 @@ export class CarriersService {
     const taxId = (data.taxId !== undefined ? data.taxId : current?.taxId) as string | null;
     const branch = (data.branchCode !== undefined ? data.branchCode : current?.branchCode) as
       string | null;
+    const hash = data.taxIdHash as string | null | undefined;
+    if (hash) {
+      await lockKey(this.db.tx, `carrier.taxhash:${hash}`);
+      const dup = await this.db.tx.carrier.findFirst({
+        where: {
+          taxIdHash: hash,
+          deletedAt: null,
+          ...(current ? { id: { not: current.id } } : {}),
+        },
+      });
+      if (dup)
+        throw new ProblemException(
+          'duplicate',
+          undefined,
+          [{ field: 'taxId', code: 'duplicate', message: `carrier already exists: ${dup.code}` }],
+          {
+            existing: { id: encodeId('carrier', dup.id), code: dup.code, legalName: dup.legalName },
+          },
+        );
+    }
     if (!taxId) return;
     if (current && taxId === current.taxId && branch === current.branchCode) return;
     await lockKey(this.db.tx, `carrier.tax:${taxId}:${branch ?? ''}`);
@@ -529,6 +614,12 @@ export class CarriersService {
     const [pBefore, pAfter] = await Promise.all([this.parentOf(current), this.parentOf(c)]);
     const before = auditView(current, pBefore);
     const after = auditView(c, pAfter);
+    // ข้างใดข้างหนึ่งเป็นบุคคลธรรมดา (เลขเข้ารหัส) → ปิดบังทั้งก่อน/หลัง
+    const encPath = current.entityType === 'INDIVIDUAL' || c.entityType === 'INDIVIDUAL';
+    if (encPath) {
+      before.taxId = mask(current.taxIdLast4);
+      after.taxId = mask(c.taxIdLast4);
+    }
     // เลขลับเปลี่ยนแต่ 4 หลักท้ายเท่าเดิม → ค่าก่อนเป็น •••• (ให้ประวัติเห็นว่าเปลี่ยน โดยไม่มีเลขเต็ม)
     for (const k of secrets)
       if (JSON.stringify(before[k]) === JSON.stringify(after[k])) before[k] = '••••';
@@ -542,7 +633,9 @@ export class CarriersService {
         'carrier.updated',
         'carrier',
         c.id,
-        toCarrierDto(c, NO_USAGE, pAfter),
+        encPath
+          ? { ...toCarrierDto(c, NO_USAGE, pAfter), taxId: null }
+          : toCarrierDto(c, NO_USAGE, pAfter),
         { changedFields: changed },
       );
     return c;
@@ -599,17 +692,29 @@ export class CarriersService {
     const current = await this.get(id);
     if (expected !== undefined && expected !== current.version)
       throw new ProblemException('precondition_failed');
-    await assertNotReferenced([
-      { name: 'vehicles', count: () => tx.vehicle.count({ where: { carrierId: id } }) },
-      { name: 'drivers', count: () => tx.driver.count({ where: { carrierId: id } }) },
-      { name: 'rateCards', count: () => tx.rateCard.count({ where: { carrierId: id } }) },
-      { name: 'trips', count: () => tx.trip.count({ where: { carrierId: id } }) },
-      { name: 'tripCosts', count: () => tx.tripCost.count({ where: { carrierId: id } }) },
-      {
-        name: 'children',
-        count: () => tx.carrier.count({ where: { parentCarrierId: id, deletedAt: null } }),
-      },
-    ]);
+    await lockKey(tx, 'carrier.tree'); // กันมี carrier ลูกเพิ่มระหว่างตรวจ
+    await assertNotReferenced(
+      [
+        {
+          name: 'vehicles',
+          count: () => tx.vehicle.count({ where: { carrierId: id, status: { not: 'RETIRED' } } }),
+        },
+        {
+          // รถปลดระวางไม่นับใน "จำนวนรถ" แต่ยังอ้างถึงอยู่ — แยกให้ข้อความอธิบายได้ (QA ST2-T05)
+          name: 'retiredVehicles',
+          count: () => tx.vehicle.count({ where: { carrierId: id, status: 'RETIRED' } }),
+        },
+        { name: 'drivers', count: () => tx.driver.count({ where: { carrierId: id } }) },
+        { name: 'rateCards', count: () => tx.rateCard.count({ where: { carrierId: id } }) },
+        { name: 'trips', count: () => tx.trip.count({ where: { carrierId: id } }) },
+        { name: 'tripCosts', count: () => tx.tripCost.count({ where: { carrierId: id } }) },
+        {
+          name: 'children',
+          count: () => tx.carrier.count({ where: { parentCarrierId: id, deletedAt: null } }),
+        },
+      ],
+      { action: 'deactivate', th: 'ระงับชั่วคราว', en: 'suspend' },
+    );
     const parent = await this.parentOf(current);
     await this.bumpVersion(current, {
       deletedAt: new Date(),

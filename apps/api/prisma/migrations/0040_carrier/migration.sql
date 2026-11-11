@@ -15,6 +15,14 @@ BEGIN
   SELECT tenant_id, code INTO r FROM "carrier"
     WHERE bank_account_enc IS NOT NULL OR (tax_id_enc IS NOT NULL AND entity_type = 'JURISTIC') LIMIT 1;
   IF FOUND THEN RAISE EXCEPTION '0040: carrier มีข้อมูลเข้ารหัสจาก schema v0 (tenant %, รหัส %) — ต้องย้ายข้อมูลด้วยมือ (ไม่มีหน้าจอสร้างมาก่อน จึงไม่ควรมี)', r.tenant_id, r.code; END IF;
+  -- tax_id_last4 ต้องเป็นตัวเลข 4 หลักคู่กับเลขที่เข้ารหัส (ALTER เป็น CHAR(4) + CHECK carrier_tax_last4 ด้านล่าง)
+  SELECT tenant_id, code, tax_id_last4 INTO r FROM "carrier"
+    WHERE tax_id_last4 IS NOT NULL AND (tax_id_enc IS NULL OR tax_id_last4 !~ '^[0-9]{4}$') LIMIT 1;
+  IF FOUND THEN RAISE EXCEPTION '0040: carrier tax_id_last4 ผิด (tenant %, รหัส %, ค่า "%") — ต้องเป็นตัวเลข 4 หลักและมี tax_id_enc คู่กัน', r.tenant_id, r.code, r.tax_id_last4; END IF;
+  SELECT tenant_id, code INTO r FROM "carrier"
+    WHERE tax_id_enc IS NOT NULL AND tax_id_last4 IS NULL LIMIT 1;
+  IF FOUND THEN RAISE EXCEPTION '0040: carrier มี tax_id_enc แต่ไม่มี tax_id_last4 (tenant %, รหัส %) — เติม 4 หลักท้ายก่อน migrate', r.tenant_id, r.code; END IF;
+  -- นิติบุคคลจาก v0 ที่ไม่มีเลขผู้เสียภาษี: ผ่านได้ (CHECK อนุญาตว่างทั้งชุด) — API ให้แก้ช่องอื่นได้โดยไม่บังคับใส่เลข
 END $$;
 
 ALTER TABLE "carrier" ADD COLUMN     "address" JSONB,

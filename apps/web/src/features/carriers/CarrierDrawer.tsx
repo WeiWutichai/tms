@@ -159,6 +159,7 @@ export function CarrierBadge({ c, t }: { c: Carrier | null; t: T }) {
 export function CarrierDrawer({
   carrier: c,
   canWrite,
+  canBank,
   onSaved,
   onStatusChange,
   onDelete,
@@ -167,6 +168,8 @@ export function CarrierDrawer({
   /** null = เพิ่มผู้รับเหมาใหม่ */
   carrier: Carrier | null;
   canWrite: boolean;
+  /** แก้บัญชีรับเงินได้ (settlements:pay — ชั่วคราวจนกว่าจะตัดสิน step-up NFR-107) */
+  canBank: boolean;
   onSaved: (c: Carrier, created: boolean) => void;
   /** เปลี่ยนสถานะ (ระงับ → page เปิด dialog เหตุผล) */
   onStatusChange: (c: Carrier) => void;
@@ -196,14 +199,17 @@ export function CarrierDrawer({
   const local: Record<string, string> = {};
   if (!f.legalName.trim()) local.legalName = t('car.v.name');
   const tax = digits(f.taxId);
-  const keepTax = !!c && c.entityType === 'INDIVIDUAL' && tax === '';
+  // แก้รายการเดิมโดยไม่เปลี่ยนประเภท + ช่องว่าง = คงเลขเดิม · เปลี่ยนประเภทต้องกรอกเลขใหม่ (เลขบัตรไม่ย้ายไปเก็บแบบเปิด)
+  const typeChanged = !!c && f.entityType !== c.entityType;
+  const keepTax = !!c && !typeChanged && tax === '';
   if (!keepTax) {
-    if (!tax) local.taxId = t('car.v.tax');
+    if (!tax) local.taxId = t(typeChanged ? 'car.v.taxRetype' : 'car.v.tax');
     else if (!/^\d{13}$/.test(tax)) local.taxId = t('field.thai_tax_id');
+    else if (juristic && !tax.startsWith('0')) local.taxId = t('field.juristic_prefix');
   }
   const acc = digits(f.accountNo);
   const hasBank = !!(f.bankCode || acc || f.accountName.trim());
-  if (hasBank) {
+  if (hasBank && canBank) {
     if (!f.bankCode) local['bankAccount.bankCode'] = t('car.v.bank');
     if (!acc && !c?.bankAccount) local['bankAccount.accountNo'] = t('car.v.accountNo');
     else if (acc && !/^\d{10,15}$/.test(acc))
@@ -243,7 +249,7 @@ export function CarrierDrawer({
     taxId: tax,
     whtRate: f.whtRate,
     lineContact: f.lineContact.trim() || null,
-    bankAccount: bankBody(),
+    ...(canBank ? { bankAccount: bankBody() } : {}),
     ...(juristic ? { branchCode: f.branchCode.trim() || null } : {}),
     address: f.address.trim() ? { line1: f.address.trim() } : null,
     phone: f.phone.trim() || null,
@@ -261,10 +267,13 @@ export function CarrierDrawer({
     const out: CarrierInput = {};
     if (a.legalName !== f.legalName) out.legalName = b.legalName;
     if (a.entityType !== f.entityType) out.entityType = b.entityType;
-    if (a.taxId !== f.taxId && tax) out.taxId = tax;
+    if ((a.taxId !== f.taxId || a.entityType !== f.entityType) && tax) out.taxId = tax;
     if (a.whtRate !== f.whtRate) out.whtRate = b.whtRate!;
     if (a.lineContact !== f.lineContact) out.lineContact = b.lineContact ?? null;
-    if (a.bankCode !== f.bankCode || f.accountNo !== '' || a.accountName !== f.accountName)
+    if (
+      canBank &&
+      (a.bankCode !== f.bankCode || f.accountNo !== '' || a.accountName !== f.accountName)
+    )
       out.bankAccount = b.bankAccount ?? null;
     if (juristic && a.branchCode !== f.branchCode) out.branchCode = b.branchCode ?? null;
     if (a.address !== f.address)
@@ -460,6 +469,8 @@ export function CarrierDrawer({
                     setF((x) => ({
                       ...x,
                       entityType: v,
+                      // เปลี่ยนประเภท = กรอกเลขใหม่ (ไม่ใช้เลขเดิม) · กลับเป็นประเภทเดิม = คืนค่าเดิม
+                      taxId: c && v === c.entityType ? base.taxId : '',
                       branchCode: v === 'JURISTIC' ? x.branchCode || '00000' : '',
                     }));
                   }}
@@ -492,14 +503,20 @@ export function CarrierDrawer({
               error={
                 errs['bankAccount.bankCode'] ?? errs['bankAccount.accountNo'] ?? errs.bankAccount
               }
-              hint={c?.bankAccount ? t('car.f.accountKeep') : undefined}
+              hint={
+                !canBank
+                  ? t('car.f.bankLocked')
+                  : c?.bankAccount
+                    ? t('car.f.accountKeep')
+                    : undefined
+              }
             >
               {(id) => (
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
                   <select
                     id={id}
                     className="tms-select"
-                    disabled={ro}
+                    disabled={ro || !canBank}
                     aria-label={t('car.f.bankName')}
                     aria-invalid={!!errs['bankAccount.bankCode']}
                     value={f.bankCode}
@@ -517,6 +534,7 @@ export function CarrierDrawer({
                     maxLength: 20,
                     className: 'tms-num',
                     'aria-label': t('car.f.accountNo'),
+                    readOnly: ro || !canBank,
                     placeholder: c?.bankAccount
                       ? masked(c.bankAccount.last4)
                       : t('car.f.accountNoPh'),
@@ -525,7 +543,7 @@ export function CarrierDrawer({
               )}
             </Fld>
             <Fld label={t('car.f.accountName')} span={2} error={errs['bankAccount.accountName']}>
-              {input('accountName', { maxLength: 200 })}
+              {input('accountName', { maxLength: 200, readOnly: ro || !canBank })}
             </Fld>
             <Fld label={t('car.f.status')}>
               {(id) => (

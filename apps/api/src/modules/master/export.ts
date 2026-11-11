@@ -18,9 +18,12 @@ export interface ExportColumn<R> {
   value: (r: R) => string | number | null | undefined;
 }
 
-/** กัน CSV/formula injection: ค่าที่ขึ้นต้นด้วย = + - @ tab CR ใส่ ' นำหน้า (OWASP) */
-function safe(v: string): string {
-  return /^[=+\-@\t\r]/.test(v) ? `'${v}` : v;
+/**
+ * กัน CSV/formula injection: ขึ้นต้นด้วย = + - tab CR → ใส่ ' นำหน้า (OWASP)
+ * `@` นำหน้าเฉพาะค่าที่ดูเป็นสูตร (`@ชื่อฟังก์ชัน(` เช่น `@SUM(`) — LINE ID `@sapsomboon` ไม่ถูกแก้ (ST2-T05 QA)
+ */
+export function safe(v: string): string {
+  return /^[=+\-\t\r]/.test(v) || /^@[^\s(]*\(/.test(v) ? `'${v}` : v;
 }
 
 function csvCell(v: string | number | null | undefined): string {

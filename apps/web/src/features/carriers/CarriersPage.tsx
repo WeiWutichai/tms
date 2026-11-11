@@ -12,6 +12,7 @@ import {
 } from '@tms/ui';
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { ApiError } from '../../api';
 import { useI18n } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
 import { can } from '../../nav';
@@ -115,6 +116,7 @@ export function CarriersPage() {
   const scopes = me.data?.scopes ?? [];
   const canWrite = can(scopes, 'master:write');
   const canExport = can(scopes, 'export:run');
+  const canBank = can(scopes, 'settlements:pay');
   const [params, setParams] = useSearchParams();
   const seg: Seg =
     params.get('tab') === 'drv' ? 'drv' : params.get('tab') === 'con' ? 'con' : DEFAULT_SEG;
@@ -155,6 +157,19 @@ export function CarriersPage() {
         onError: (e) => setToast(problemText(e, t)),
       },
     );
+  };
+
+  /** ลบไม่ได้ (409 in_use) → บอกว่ามีอะไรอ้างถึง รวมรถปลดระวาง (ไม่นับใน "จำนวนรถ") และให้ใช้ "ระงับชั่วคราว" แทน */
+  const actionError = (): string | null => {
+    const e = action.error;
+    if (e instanceof ApiError && e.problem.code === 'in_use') {
+      const refs = (e.problem as { references?: Record<string, number> }).references ?? {};
+      const parts = Object.entries(refs)
+        .filter(([, n]) => n > 0)
+        .map(([k, n]) => t(`car.ref.${k}` as MessageKey, { n }));
+      return t('car.delInUse', { refs: parts.join(' · ') });
+    }
+    return problemText(e, t);
   };
 
   const columns: Column<Carrier>[] = [
@@ -458,6 +473,7 @@ export function CarriersPage() {
           key={current?.id ?? 'new'}
           carrier={creating ? null : current}
           canWrite={canWrite}
+          canBank={canBank}
           onSaved={(c, created) => {
             setToast(t(created ? 'car.toast.created' : 'car.toast.saved', { n: c.legalName }));
             if (created) open(c);
@@ -478,7 +494,7 @@ export function CarriersPage() {
         cancelLabel={t('common.cancel')}
         closeLabel={t('drawer.close')}
         busy={action.isPending}
-        error={problemText(action.error, t)}
+        error={actionError()}
         onClose={() => {
           setDialog(null);
           action.reset();

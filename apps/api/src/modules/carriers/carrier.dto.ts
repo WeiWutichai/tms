@@ -11,6 +11,7 @@ import {
   Max,
   MaxLength,
   Min,
+  MinLength,
   ValidateNested,
 } from 'class-validator';
 import { IsThaiTaxId } from '../../common/thai-tax-id';
@@ -337,13 +338,16 @@ export class RevealCarrierDto {
   @IsIn(REVEAL_FIELDS)
   field!: RevealField;
 
-  @ApiPropertyOptional({ maxLength: 500, description: 'เหตุผล (ลง audit log)' })
-  @IsOptional()
+  @ApiProperty({
+    minLength: 10,
+    maxLength: 500,
+    description: 'เหตุผล ≥ 10 ตัวอักษร (ลง audit log)',
+  })
   @CleanText()
   @IsString()
-  @IsNotEmpty()
+  @MinLength(10)
   @MaxLength(500)
-  reason?: string;
+  reason!: string;
 }
 
 export class RevealCarrierResultDto {

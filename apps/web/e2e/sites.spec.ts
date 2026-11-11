@@ -70,6 +70,8 @@ test.describe.serial('ข้อมูลหลัก → สถานที่ /
 
   test('แก้ไขจากเมนู ⋯ ใน drawer: รัศมี geofence → บันทึก → ตาราง + กิจกรรม', async ({ page }) => {
     await page.goto('/master/locations');
+    // ค้นด้วยชื่อก่อน — ฐาน e2e มีสถานที่สะสมจากรอบก่อน (แถวนี้อาจไม่อยู่หน้าแรก)
+    await page.getByRole('columnheader').getByPlaceholder('ค้นหา').first().fill(RUN);
     await page.getByRole('row', { name: new RegExp(NAME) }).click();
     const drawer = page.getByRole('dialog');
     await drawer.getByRole('button', { name: 'เพิ่มเติม' }).click();
@@ -90,6 +92,7 @@ test.describe.serial('ข้อมูลหลัก → สถานที่ /
 
   test('ปิดใช้ต้องมีเหตุผล ≥ 10 ตัว → ป้าย "ปิดใช้"', async ({ page }) => {
     await page.goto('/master/locations');
+    await page.getByRole('columnheader').getByPlaceholder('ค้นหา').first().fill(RUN);
     const row = page.getByRole('row', { name: new RegExp(NAME) });
     await row.getByRole('button', { name: 'การกระทำ' }).click();
     await page.getByRole('menuitem', { name: 'ปิดใช้' }).click();

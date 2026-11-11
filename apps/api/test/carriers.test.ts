@@ -5,7 +5,15 @@ import { tryDecodeId } from '../src/common/ids';
 import { api, bootApp, createTenant, platform, tokenFor, truncateAll, validTaxId } from './helpers';
 
 const ACCOUNT = '1234567891';
-const NATIONAL_ID = validTaxId(3_100_500_123); // เลขบัตรประชาชน (checksum ถูก) — ข้อมูลสมมติ
+/** เลขผู้เสียภาษีนิติบุคคล (ขึ้นต้น 0, checksum ถูก) — ข้อมูลสมมติ */
+function jurTax(n: number): string {
+  const base = `0105${String(n).padStart(8, '0')}`;
+  let sum = 0;
+  for (let i = 0; i < 12; i++) sum += Number(base[i]) * (13 - i);
+  return base + String((11 - (sum % 11)) % 10);
+}
+const NATIONAL_ID = validTaxId(3_100_500_123);
+const HIST_ID = validTaxId(3_100_500_124); // เลขบัตรประชาชน (checksum ถูก) — ข้อมูลสมมติ
 
 /** ST2-T05 รถร่วม / ผู้รับเหมา — docs/04 B Carrier + A3, docs/01 §3.2, spec/11 NFR-153/304 */
 describe('รถร่วม / ผู้รับเหมา (carriers)', () => {
@@ -30,7 +38,7 @@ describe('รถร่วม / ผู้รับเหมา (carriers)', () =>
   const juristic = (extra: object = {}) => ({
     legalName: `หจก. ขนส่งทดสอบ ${++seed}`,
     entityType: 'JURISTIC',
-    taxId: validTaxId(10_000 + seed),
+    taxId: jurTax(10_000 + seed),
     ...extra,
   });
   const newCarrier = async (extra: object = {}) => (await create(juristic(extra)).expect(201)).body;
@@ -112,25 +120,125 @@ describe('รถร่วม / ผู้รับเหมา (carriers)', () =>
     expect(b.body.errors[0]).toMatchObject({ field: 'branchCode', code: 'individual' });
   });
 
-  it('เปลี่ยนประเภท นิติบุคคล ↔ บุคคล: ย้ายที่เก็บเลขให้เอง (ไม่ต้องกรอกใหม่)', async () => {
-    const c = await newCarrier();
-    const taxId = c.taxId as string;
-    const p = await api(app, admin)
-      .patch(`/v1/carriers/${c.id}`)
-      .set('If-Match', `"${c.version}"`)
-      .send({ entityType: 'INDIVIDUAL' })
-      .expect(200);
-    expect(p.body).toMatchObject({ entityType: 'INDIVIDUAL', taxId: null, branchCode: null });
-    let row = await raw(c.id);
-    expect(row.tax_id).toBeNull();
-    expect(new FieldCipher().decrypt(row.tax_id_enc!)).toBe(taxId);
-    const back = await api(app, admin)
-      .patch(`/v1/carriers/${c.id}`)
+  it('เปลี่ยนประเภท: ต้องส่งเลขใหม่มาด้วย — บุคคล → นิติบุคคล ไม่รั่วเลขบัตร', async () => {
+    const ind = (
+      await create({
+        legalName: 'นายเปลี่ยน ประเภท',
+        entityType: 'INDIVIDUAL',
+        taxId: validTaxId(3_100_500_321),
+      }).expect(201)
+    ).body;
+    const nid = validTaxId(3_100_500_321);
+    // ไม่ส่งเลข → 422 (ไม่ย้ายเลขบัตรไปเก็บแบบเปิดเอง)
+    const no = await api(app, admin)
+      .patch(`/v1/carriers/${ind.id}`)
       .send({ entityType: 'JURISTIC' })
+      .expect(422);
+    expect(no.body.errors[0]).toMatchObject({ field: 'taxId', code: 'required_on_type_change' });
+    // เลขบัตร (ขึ้นต้น 1–8) ลงช่องนิติบุคคลไม่ได้
+    const pre = await api(app, admin)
+      .patch(`/v1/carriers/${ind.id}`)
+      .send({ entityType: 'JURISTIC', taxId: nid })
+      .expect(422);
+    expect(pre.body.errors[0]).toMatchObject({ field: 'taxId', code: 'juristic_prefix' });
+    const newTax = jurTax(77_001);
+    const p = await api(app, admin)
+      .patch(`/v1/carriers/${ind.id}`)
+      .send({ entityType: 'JURISTIC', taxId: newTax })
       .expect(200);
-    expect(back.body).toMatchObject({ taxId, branchCode: '00000' });
-    row = await raw(c.id);
+    expect(p.body).toMatchObject({ entityType: 'JURISTIC', taxId: newTax, branchCode: '00000' });
+    const row = await raw(ind.id);
     expect(row.tax_id_enc).toBeNull();
+    // response / ประวัติ / audit / event ไม่มีเลขบัตรเดิม
+    const h = await api(app, admin).get(`/v1/carriers/${ind.id}/history`).expect(200);
+    const audits = await db.auditLog.findMany({
+      where: { entityId: tryDecodeId('carrier', ind.id)! },
+    });
+    const events = await db.domainEvent.findMany({
+      where: { localId: tryDecodeId('carrier', ind.id)! },
+    });
+    const all = JSON.stringify([p.body, h.body, audits, events], (_k, v) =>
+      typeof v === 'bigint' ? String(v) : v,
+    );
+    expect(all).not.toContain(nid);
+    // ประวัติ/audit/event ปิดบังทั้งก่อน/หลัง (ฝั่งหนึ่งมาจากเลขเข้ารหัส)
+    const logs = JSON.stringify([h.body, audits, events], (_k, v) =>
+      typeof v === 'bigint' ? String(v) : v,
+    );
+    expect(logs).not.toContain(newTax);
+    // นิติบุคคล → บุคคล ก็ต้องส่งเลข
+    await api(app, admin)
+      .patch(`/v1/carriers/${ind.id}`)
+      .send({ entityType: 'INDIVIDUAL' })
+      .expect(422);
+  });
+
+  it('นิติบุคคลต้องขึ้นต้นด้วย 0 · บุคคลธรรมดาซ้ำ (blind index) → 409 · ส่งเลขเดิมก็เขียนใหม่ (ไม่บอกว่าตรงไหม)', async () => {
+    const bad = await create(juristic({ taxId: validTaxId(55) })).expect(422);
+    expect(bad.body.errors[0].code).toBe('juristic_prefix');
+    const nid = validTaxId(3_100_500_444);
+    const a = (
+      await create({ legalName: 'นายซ้ำ หนึ่ง', entityType: 'INDIVIDUAL', taxId: nid }).expect(201)
+    ).body;
+    const d = await create({
+      legalName: 'นายซ้ำ สอง',
+      entityType: 'INDIVIDUAL',
+      taxId: nid,
+    }).expect(409);
+    expect(d.body.existing).toMatchObject({ id: a.id });
+    const raw2 = await db.$queryRaw<
+      { tax_id_hash: string }[]
+    >`SELECT tax_id_hash FROM carrier WHERE id = ${tryDecodeId('carrier', a.id)!}::uuid`;
+    expect(raw2[0]!.tax_id_hash).toMatch(/^v1:[0-9a-f]{64}$/);
+    expect(raw2[0]!.tax_id_hash).not.toContain(nid);
+    const same = await api(app, admin)
+      .patch(`/v1/carriers/${a.id}`)
+      .send({ taxId: nid })
+      .expect(200);
+    const other = await api(app, admin)
+      .patch(`/v1/carriers/${a.id}`)
+      .send({ taxId: validTaxId(3_100_500_445) })
+      .expect(200);
+    expect(same.body.version).toBe(a.version + 1);
+    expect(other.body.version).toBe(a.version + 2);
+  });
+
+  it('แก้บัญชีธนาคารต้องมี settlements:pay · กุญแจเดิมถูกถอดออก → 409 ไม่พัง PATCH อื่น', async () => {
+    const w = await tokenFor(tenantId, 'master:read master:write');
+    const f = await create(
+      juristic({ bankAccount: { bankCode: 'KBANK', accountNo: ACCOUNT, accountName: 'x' } }),
+      w,
+    ).expect(403);
+    expect(f.body.code).toBe('forbidden');
+    const c = await newCarrier({
+      bankAccount: { bankCode: 'KBANK', accountNo: ACCOUNT, accountName: 'x' },
+    });
+    await api(app, w)
+      .patch(`/v1/carriers/${c.id}`)
+      .send({ bankAccount: { bankCode: 'SCB', accountName: 'y' } })
+      .expect(403);
+    await api(app, w).patch(`/v1/carriers/${c.id}`).send({ phone: '081-111-2222' }).expect(200);
+    // จำลองเลขที่เข้ารหัสด้วย key ที่ถอดออกแล้ว
+    await db.$executeRaw`UPDATE carrier SET bank_account_enc = 'v1.k0.AAAA.BBBB.CCCC' WHERE id = ${tryDecodeId('carrier', c.id)!}::uuid`;
+    await api(app, admin)
+      .patch(`/v1/carriers/${c.id}`)
+      .send({ legalName: 'หจก. กุญแจเก่า' })
+      .expect(200);
+    const pay = await tokenFor(tenantId, 'settlements:pay', 'user-rot');
+    const r = await api(app, pay)
+      .post(`/v1/carriers/${c.id}/reveal`)
+      .send({ field: 'bankAccountNo', reason: 'ตรวจเลขบัญชีก่อนโอน' })
+      .expect(409);
+    expect(r.body.code).toBe('secret_unreadable');
+    await api(app, admin)
+      .patch(`/v1/carriers/${c.id}`)
+      .send({ bankAccount: { bankCode: 'KBANK', accountName: 'x' } })
+      .expect(409);
+    // ส่งเลขใหม่มาแทน = เขียนใหม่ได้
+    await api(app, admin)
+      .patch(`/v1/carriers/${c.id}`)
+      .send({ bankAccount: { bankCode: 'KBANK', accountNo: ACCOUNT, accountName: 'x' } })
+      .expect(200);
   });
 
   it('เลขผู้เสียภาษี/บัตร checksum ผิด → 422 · ไม่ส่ง → 422 · เลขบัญชีผิดรูป → 422', async () => {
@@ -200,6 +308,26 @@ describe('รถร่วม / ผู้รับเหมา (carriers)', () =>
     expect(del.body.references).toMatchObject({ children: 1 });
   });
 
+  it('parent: แก้พร้อมกัน A→B และ B→A ไม่เกิดวน · parent ที่ลบแล้วเลือกไม่ได้', async () => {
+    const a = await newCarrier();
+    const b = await newCarrier();
+    const rs = await Promise.all([
+      api(app, admin).patch(`/v1/carriers/${a.id}`).send({ parentCarrierId: b.id }),
+      api(app, admin).patch(`/v1/carriers/${b.id}`).send({ parentCarrierId: a.id }),
+    ]);
+    expect(rs.map((r) => r.status).sort()).toEqual([200, 422]);
+    const del = await newCarrier();
+    await api(app, admin)
+      .post(`/v1/carriers/${del.id}/delete`)
+      .send({ reason: 'สร้างผิด ไม่เคยใช้งาน' })
+      .expect(204);
+    const x = await api(app, admin)
+      .patch(`/v1/carriers/${a.id}`)
+      .send({ parentCarrierId: del.id })
+      .expect(422);
+    expect(x.body.errors[0].code).toBe('not_found');
+  });
+
   it('ประวัติ/audit/event ไม่มีเลขเต็ม — เปลี่ยนเลขบัญชีเห็นเป็น ••••', async () => {
     const c = await newCarrier({
       bankAccount: { bankCode: 'KBANK', accountNo: ACCOUNT, accountName: 'บัญชีเดิม' },
@@ -207,7 +335,7 @@ describe('รถร่วม / ผู้รับเหมา (carriers)', () =>
     const ind = await create({
       legalName: 'นางสาวทดสอบ ประวัติ',
       entityType: 'INDIVIDUAL',
-      taxId: NATIONAL_ID,
+      taxId: HIST_ID,
     }).expect(201);
     const newNo = '9990004567891'; // 4 หลักท้ายเท่าเดิม
     await api(app, admin)
@@ -228,7 +356,7 @@ describe('รถร่วม / ผู้รับเหมา (carriers)', () =>
     const all = JSON.stringify([audits, events], (_k, v) =>
       typeof v === 'bigint' ? String(v) : v,
     );
-    for (const secret of [ACCOUNT, newNo, NATIONAL_ID]) expect(all).not.toContain(secret);
+    for (const secret of [ACCOUNT, newNo, NATIONAL_ID, HIST_ID]) expect(all).not.toContain(secret);
   });
 
   it('ส่งออก: เลขบัตร/เลขบัญชีปิดบัง · ต้องมี export:run', async () => {
@@ -241,6 +369,8 @@ describe('รถร่วม / ผู้รับเหมา (carriers)', () =>
     const r = await api(app, admin).get('/v1/carriers/export?format=csv').expect(200);
     expect(r.text).toContain('เลขผู้เสียภาษี');
     expect(r.text).toContain('•••• 1112');
+    // LINE ID ขึ้นต้น @ ไม่ถูกเติม ' (กันสูตรเฉพาะ @ฟังก์ชัน( )
+    expect(r.text).toMatch(/(^|,)@sapsomboon(,|\r?$)/m);
     expect(r.text).not.toContain('5550001112');
     expect(r.text).not.toContain(validTaxId(3_100_500_777));
     const ro = await tokenFor(tenantId, 'master:read');
@@ -254,9 +384,10 @@ describe('รถร่วม / ผู้รับเหมา (carriers)', () =>
     const ro = await tokenFor(tenantId, 'master:read master:write');
     await api(app, ro)
       .post(`/v1/carriers/${c.id}/reveal`)
-      .send({ field: 'bankAccountNo' })
+      .send({ field: 'bankAccountNo', reason: 'ตรวจเลขบัญชีก่อนโอน' })
       .expect(403);
-    const pay = await tokenFor(tenantId, 'settlements:pay');
+    const pay = await tokenFor(tenantId, 'settlements:pay', 'user-pay');
+    await api(app, pay).post(`/v1/carriers/${c.id}/reveal`).send({ field: 'taxId' }).expect(422); // เหตุผลบังคับ
     const r = await api(app, pay)
       .post(`/v1/carriers/${c.id}/reveal`)
       .send({ field: 'bankAccountNo', reason: 'ตรวจเลขบัญชีก่อนโอน' })
@@ -271,8 +402,25 @@ describe('รถร่วม / ผู้รับเหมา (carriers)', () =>
     await api(app, pay)
       .post(`/v1/carriers/${c.id}/reveal`)
       .set('Idempotency-Key', 'reveal-key-0001')
-      .send({ field: 'taxId' })
+      .send({ field: 'taxId', reason: 'ตรวจเลขผู้เสียภาษี' })
       .expect(400);
+    // จำกัด 20 ครั้ง/นาที/ผู้ใช้ (ผู้ใช้อื่นไม่โดน)
+    const burst = await tokenFor(tenantId, 'settlements:pay', 'user-burst');
+    const codes: number[] = [];
+    for (let i = 0; i < 21; i++)
+      codes.push(
+        (
+          await api(app, burst)
+            .post(`/v1/carriers/${c.id}/reveal`)
+            .send({ field: 'taxId', reason: 'ตรวจเลขผู้เสียภาษี' })
+        ).status,
+      );
+    expect(codes.slice(0, 20).every((x) => x === 200)).toBe(true);
+    expect(codes[20]).toBe(429);
+    await api(app, pay)
+      .post(`/v1/carriers/${c.id}/reveal`)
+      .send({ field: 'taxId', reason: 'ตรวจเลขผู้เสียภาษี' })
+      .expect(200);
   });
 
   it('PUT external: ครั้งแรก 201 ส่งซ้ำ 200 ไม่เพิ่ม version (รวมเลขบัญชีเดิม)', async () => {
@@ -336,6 +484,19 @@ describe('รถร่วม / ผู้รับเหมา (carriers)', () =>
       .send({ reason: 'ทดสอบลบผู้รับเหมาที่มีรถ' })
       .expect(409);
     expect(del.body.references).toMatchObject({ vehicles: 1 });
+    expect(del.body.instead).toBe('deactivate');
+    expect(del.body.title).toContain('ระงับชั่วคราว');
+    await db.vehicle.updateMany({
+      where: { carrierId: tryDecodeId('carrier', c.id)! },
+      data: { status: 'RETIRED' },
+    });
+    const g2 = await api(app, admin).get(`/v1/carriers/${c.id}`).expect(200);
+    expect(g2.body.usage.vehicles).toBe(0);
+    const del2 = await api(app, admin)
+      .post(`/v1/carriers/${c.id}/delete`)
+      .send({ reason: 'ทดสอบลบผู้รับเหมาที่มีรถ' })
+      .expect(409);
+    expect(del2.body.references).toEqual({ retiredVehicles: 1 });
 
     const d = await newCarrier({ externalId: 'DEL-1' });
     await api(app, admin)

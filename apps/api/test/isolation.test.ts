@@ -202,7 +202,7 @@ const BODY_FOR_SUFFIX: Record<string, object> = {
   revoke: { reason: 'isolation test' },
   cancel: { reason: 'isolation test' },
   reject: { reason: 'isolation test reason' }, // ST2-T03 /customer-sites/:id/geocode/reject
-  reveal: { field: 'bankAccountNo' }, // ST2-T05 /carriers/:id/reveal
+  reveal: { field: 'bankAccountNo', reason: 'isolation test reason' }, // ST2-T05 /carriers/:id/reveal
 };
 
 interface RouteInfo {

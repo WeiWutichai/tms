@@ -20,6 +20,7 @@ import {
   ApiOkResponse,
   ApiProduces,
   ApiTags,
+  ApiTooManyRequestsResponse,
 } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { AuditPageDto } from '../../audit/audit.controller';
@@ -27,6 +28,8 @@ import { RequireScope, TenantResource } from '../../common/decorators';
 import { expectedVersion, setEtag } from '../../common/etag';
 import { decodeIdOr404 } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
+import { requestContext } from '../../common/request-context';
+import { TenantRateLimiter } from '../geo/rate-limit';
 import { DbService } from '../../db/db.service';
 import { NextCodeDto } from '../customers/customer.dto';
 import { sendExport, type ExportColumn } from '../master/export';
@@ -45,6 +48,8 @@ import {
   UpsertCarrierDto,
 } from './carrier.dto';
 import { CarriersService, mask } from './carriers.service';
+
+export const REVEAL_PER_MIN = 20;
 
 const ENTITY_TH = { INDIVIDUAL: 'บุคคล', JURISTIC: 'นิติบุคคล' } as const;
 
@@ -87,6 +92,9 @@ export class CarriersController {
     private readonly carriers: CarriersService,
     private readonly db: DbService,
   ) {}
+
+  /** ดูเลขเต็มได้ไม่เกิน 20 ครั้ง/นาที/ผู้ใช้ (กันดึงเลขทั้งตาราง) — ต่อ process เหมือน geocode limiter */
+  revealLimiter = new TenantRateLimiter(REVEAL_PER_MIN);
 
   private async resolve(id: string) {
     if (id.startsWith('ext:')) return this.carriers.getByExternalId(id.slice(4));
@@ -208,6 +216,9 @@ export class CarriersController {
   @TenantResource('carrier')
   @RequireScope('settlements:pay')
   @ApiOkResponse({ type: RevealCarrierResultDto })
+  @ApiTooManyRequestsResponse({
+    description: 'rate_limited — เกิน 20 ครั้ง/นาที/ผู้ใช้ (Retry-After)',
+  })
   async reveal(
     @Param('id') id: string,
     @Body() body: RevealCarrierDto,
@@ -216,6 +227,12 @@ export class CarriersController {
   ): Promise<RevealCarrierResultDto> {
     if (req.header('idempotency-key'))
       throw new ProblemException('bad_request', 'Idempotency-Key is not allowed on reveal');
+    const ctx = requestContext.require();
+    const wait = this.revealLimiter.take(`${ctx.tenantId}:${ctx.actorId ?? '-'}`);
+    if (wait)
+      throw new ProblemException('rate_limited', 'reveal rate limit', undefined, {
+        retryAfter: wait,
+      });
     const c = await this.resolve(id);
     res.setHeader('Cache-Control', 'no-store');
     return { field: body.field, value: await this.carriers.reveal(c, body.field, body.reason) };

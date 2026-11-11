@@ -76,16 +76,20 @@ export class ProblemFilter implements ExceptionFilter {
     }
 
     const def = PROBLEMS[code];
+    // ข้อความหัวเฉพาะ master (เช่น in_use ของรถร่วม "ใช้ ระงับชั่วคราว แทน") — extra.title = {th, en}
+    const { title: titleOverride, ...extraRest } = (extra ?? {}) as {
+      title?: { th: string; en: string };
+    } & Record<string, unknown>;
     const body = {
       type: `https://docs.tms.example/problems/${code}`,
-      title: def[locale],
+      title: titleOverride?.[locale as 'th' | 'en'] ?? def[locale],
       status: def.status,
       code,
       ...(detail ? { detail } : {}),
       instance: req.originalUrl,
       requestId: ctx?.requestId,
       ...(errors?.length ? { errors } : {}),
-      ...(extra ?? {}),
+      ...extraRest,
     };
     if (typeof extra?.retryAfter === 'number')
       res.setHeader('Retry-After', String(extra.retryAfter));
