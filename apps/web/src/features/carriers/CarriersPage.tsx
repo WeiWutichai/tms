@@ -21,6 +21,7 @@ import { useMe } from '../../shell/AppShell';
 import { tableLabels } from '../companies/CompanySample';
 import { downloadFile } from '../master/download';
 import { problemText } from '../master/problems';
+import { listTotal } from '../master/useCursorList';
 import { CarrierDrawer, taxText } from './CarrierDrawer';
 import {
   useCarrierAction,
@@ -280,6 +281,8 @@ export function CarriersPage() {
         : s?.total;
   const onlyStatus = !filters.name && !filters.entityType;
   const filtered = !!(filters.status || !onlyStatus);
+  // ยอดรวม: ไม่กรองอื่น = ตัวนับของแท็บ · กรองอื่น = รู้เมื่อถึงหน้าสุดท้ายเท่านั้น (ไม่ใช่จำนวนแถวในหน้า)
+  const shownTotal = listTotal(list, filters, ['status'], tabCount);
 
   return (
     <>
@@ -374,9 +377,7 @@ export function CarriersPage() {
             />
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 32 }}>
               <span style={{ marginLeft: 'auto', color: '#3B424C', fontSize: 13 }}>
-                {t('table.total', {
-                  n: onlyStatus && tabCount !== undefined ? tabCount : list.page.rowsOnPage,
-                })}
+                {shownTotal !== undefined && t('table.total', { n: shownTotal })}
               </span>
             </div>
             {list.q.isError ? (
@@ -396,7 +397,7 @@ export function CarriersPage() {
                 rows={list.rows}
                 rowId={(r) => r.id}
                 activeId={openId}
-                loading={list.q.isLoading}
+                loading={list.loading}
                 labels={tableLabels(t)}
                 filters={{ ...filters }}
                 onFilterChange={(k, v) => setF(k as keyof CarrierFilters, v)}
@@ -457,7 +458,7 @@ export function CarriersPage() {
                 }
                 page={{
                   ...list.page,
-                  ...(onlyStatus && tabCount !== undefined ? { total: tabCount } : {}),
+                  ...(shownTotal !== undefined ? { total: shownTotal } : {}),
                 }}
                 onPageSize={list.setSize}
                 onNext={list.next}

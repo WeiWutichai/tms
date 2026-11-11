@@ -90,9 +90,11 @@ button:focus-visible {
   border-color: #2257c4;
   background: #eef0ec;
 }
+/* ต้นแบบ TMS v4: ปุ่มรองที่กดไม่ได้ = ขอบ/ตัวอักษร #C9CDC3 พื้นขาว */
 .tms-btn--secondary:disabled {
   border-color: #c9cdc3;
-  color: #3b424c;
+  background: #ffffff;
+  color: #c9cdc3;
   cursor: not-allowed;
 }
 .tms-btn--ghost {
@@ -955,6 +957,10 @@ button:focus-visible {
   cursor: pointer;
   font-variant-numeric: tabular-nums;
 }
+.tms-pager__page:disabled {
+  color: #c9cdc3;
+  cursor: not-allowed;
+}
 .tms-pager__page[aria-current='page'] {
   background: #e9f0fa;
   color: #2257c4;
@@ -1554,6 +1560,200 @@ button:focus-visible {
   font-weight: 500;
   cursor: pointer;
   white-space: nowrap;
+}
+/* โปรไฟล์รถ (ST2-T07) — ต้นแบบ TMS v4 `is.fprof` */
+.tms-vprof__back {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #2257c4;
+  font-weight: 500;
+  cursor: pointer;
+  margin-top: -8px;
+}
+.tms-vprof__back:hover {
+  background: #e9f0fa;
+}
+.tms-vprof__card {
+  background: #ffffff;
+  border: 1px solid #cdd1c8;
+  border-radius: 12px;
+  box-shadow:
+    0 1px 2px rgba(16, 20, 24, 0.06),
+    0 2px 6px rgba(16, 20, 24, 0.04);
+}
+.tms-vprof__head {
+  padding: 20px;
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr) auto;
+  gap: 24px;
+  align-items: center;
+}
+.tms-vprof__photo {
+  height: 132px;
+  border-radius: 12px;
+  background: #f4f5f2;
+  border: 1.5px dashed #c9cdc3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: #3b424c;
+  font-size: 13px;
+}
+.tms-vprof__title {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.tms-vprof__plate {
+  font-variant-numeric: tabular-nums;
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: #13213f;
+}
+.tms-vprof__body {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-height: 420px;
+}
+.tms-vprof__tabs {
+  padding: 0 20px;
+  border-bottom: 1px solid #e4e6e0;
+  display: flex;
+  gap: 24px;
+  flex-shrink: 0;
+}
+.tms-vprof__tab {
+  height: 48px;
+  padding: 0;
+  margin-bottom: -1px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: #3b424c;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tms-vprof__tab[aria-selected='true'] {
+  border-bottom-color: #2257c4;
+  color: #2257c4;
+  font-weight: 600;
+}
+.tms-vprof__info {
+  padding: 20px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+.tms-vprof__grp {
+  border: 1px solid #e4e6e0;
+  border-radius: 12px;
+  overflow: hidden;
+}
+.tms-vprof__grpt {
+  padding: 10px 14px;
+  background: #f4f5f2;
+  font-weight: 600;
+  color: #13213f;
+}
+.tms-vprof__kv {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: 10px;
+  padding: 9px 14px;
+  border-top: 1px solid #eef0ec;
+}
+.tms-vprof__kv > :first-child {
+  color: #3b424c;
+}
+.tms-vprof__kv > :last-child {
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.tms-vprof__table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.tms-vprof__table th {
+  background: #f4f5f2;
+  height: 40px;
+  padding: 0 12px;
+  border-bottom: 1px solid #e4e6e0;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: #3b424c;
+  white-space: nowrap;
+  text-align: left;
+}
+.tms-vprof__table td {
+  height: 48px;
+  padding: 0 12px;
+  border-bottom: 1px solid #e4e6e0;
+}
+.tms-vprof__table td.tms-num {
+  font-size: 13px;
+}
+.tms-vprof__table th:first-child,
+.tms-vprof__table td:first-child {
+  padding-left: 20px;
+}
+.tms-vprof__table th:last-child,
+.tms-vprof__table td:last-child {
+  padding-right: 20px;
+}
+.tms-vprof__file {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #2257c4;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.tms-vprof__skel {
+  height: 16px;
+  border-radius: 4px;
+  background: #eef0ec;
+}
+.tms-vdoc__bar--pad {
+  padding: 16px 20px;
+}
+/* คอลัมน์ "เอกสารใกล้หมด" ในทะเบียนรถ (ต้นแบบ cell isIco) */
+.tms-icocell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.tms-icocell__i {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 .tms-vdoc__grid {
   display: grid;

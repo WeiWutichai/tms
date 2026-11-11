@@ -1,4 +1,4 @@
-import { Icon, Toast, useEscapeLayer } from '@tms/ui';
+import { Icon, ReasonDialog, Toast, useEscapeLayer } from '@tms/ui';
 import { useId, useRef, useState, type ReactNode } from 'react';
 import { ApiError } from '../../api';
 import { formatDate, formatMoney, useI18n, type T } from '../../i18n';
@@ -12,6 +12,7 @@ import {
   openDocFile,
   todayTh,
   uploadDocFile,
+  useCancelVehicleDoc,
   useCreateVehicleDoc,
   useRenewVehicleDoc,
   useVehicleDocs,
@@ -77,16 +78,28 @@ function StatusPill({ d, t }: { d: VehicleDoc; t: T }) {
  * + ป้ายสถานะ/ปุ่ม "ต่ออายุ" จากตารางเอกสารในโปรไฟล์รถ (`pr.docs`) + modal ต่ออายุ (`RNW`)
  * ปุ่ม "+ เพิ่มเอกสาร" (spec/06 FLT-C) และประวัติการต่ออายุ ไม่มีในต้นแบบ drawer → [OPEN spec/12 §3]
  */
-export function VehicleDocsTab({ v, canWrite }: { v: Vehicle; canWrite: boolean }) {
+export function VehicleDocsTab({
+  v,
+  canWrite,
+  layout = 'cards',
+}: {
+  v: Vehicle;
+  canWrite: boolean;
+  /** cards = drawer รถ (`P.docs`) · table = โปรไฟล์รถแท็บ "เอกสาร" (`pr.docs` — ST2-T07) */
+  layout?: 'cards' | 'table';
+}) {
   const { t } = useI18n();
   const dt = useDate();
   const q = useVehicleDocs(v.id);
   const [renewing, setRenewing] = useState<VehicleDoc | null>(null);
+  const [cancelling, setCancelling] = useState<VehicleDoc | null>(null);
+  const cancel = useCancelVehicleDoc();
   const [adding, setAdding] = useState(false);
   const [showHist, setShowHist] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const writable = canWrite && v.status !== 'retired';
 
+  if (q.isLoading && layout === 'table') return <DocTable loading t={t} rows={[]} dt={dt} />;
   if (q.isLoading)
     return (
       <div className="tms-vdoc__list" aria-busy="true">
@@ -109,30 +122,47 @@ export function VehicleDocsTab({ v, canWrite }: { v: Vehicle; canWrite: boolean 
   const hist = all.filter((d) => d.status === 'superseded' || d.status === 'cancelled');
   const download = (id: string) => openDocFile(id).catch(() => setToast(t('vdoc.downloadFailed')));
 
+  // ต่ออายุ + ยกเลิกเอกสาร (บันทึกผิด / เอกสาร "อื่น ๆ" ที่ไม่ต้องต่อแล้ว — ต้นแบบไม่มีปุ่มนี้ [OPEN spec/12 §3])
+  const renewBtn = (d: VehicleDoc) =>
+    writable ? (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+        <button type="button" className="tms-vdoc__renew" onClick={() => setRenewing(d)}>
+          <Icon n="refresh-cw" s={14} />
+          {t('vdoc.renew')}
+        </button>
+        <button
+          type="button"
+          className="tms-vdoc__dl"
+          title={t('vdoc.cancel')}
+          aria-label={t('vdoc.cancel')}
+          onClick={() => setCancelling(d)}
+        >
+          <Icon n="ban" s={16} />
+        </button>
+      </span>
+    ) : undefined;
+
   return (
     <>
-      <div className="tms-vdoc__list" data-testid="vdoc-list">
-        {current.map((d) => (
-          <DocRow
-            key={d.id}
-            d={d}
-            t={t}
-            sub={t('vdoc.expires', { d: dt(d.expiresOn) })}
-            onDownload={download}
-            action={
-              writable ? (
-                <button type="button" className="tms-vdoc__renew" onClick={() => setRenewing(d)}>
-                  <Icon n="refresh-cw" s={14} />
-                  {t('vdoc.renew')}
-                </button>
-              ) : undefined
-            }
-          />
-        ))}
-        {!current.length && <div className="tms-vdoc__empty">{t('vdoc.empty')}</div>}
-      </div>
+      {layout === 'table' ? (
+        <DocTable t={t} rows={current} dt={dt} action={renewBtn} onDownload={download} />
+      ) : (
+        <div className="tms-vdoc__list" data-testid="vdoc-list">
+          {current.map((d) => (
+            <DocRow
+              key={d.id}
+              d={d}
+              t={t}
+              sub={t('vdoc.expires', { d: dt(d.expiresOn) })}
+              onDownload={download}
+              action={renewBtn(d)}
+            />
+          ))}
+          {!current.length && <div className="tms-vdoc__empty">{t('vdoc.empty')}</div>}
+        </div>
+      )}
       {(writable || hist.length > 0) && (
-        <div className="tms-vdoc__bar">
+        <div className={`tms-vdoc__bar${layout === 'table' ? ' tms-vdoc__bar--pad' : ''}`}>
           {writable && (
             <button type="button" className="tms-vdoc__add" onClick={() => setAdding(true)}>
               <Icon n="plus" s={16} />
@@ -147,7 +177,10 @@ export function VehicleDocsTab({ v, canWrite }: { v: Vehicle; canWrite: boolean 
         </div>
       )}
       {showHist && (
-        <div className="tms-vdoc__list" data-testid="vdoc-history">
+        <div
+          className={`tms-vdoc__list${layout === 'table' ? ' tms-vdoc__bar--pad' : ''}`}
+          data-testid="vdoc-history"
+        >
           {hist.map((d) => (
             <DocRow
               key={d.id}
@@ -164,6 +197,41 @@ export function VehicleDocsTab({ v, canWrite }: { v: Vehicle; canWrite: boolean 
           ))}
         </div>
       )}
+      <ReasonDialog
+        open={!!cancelling}
+        title={
+          cancelling
+            ? t('vdoc.cancelT', {
+                t: [docName(t, cancelling), cancelling.docNo].filter(Boolean).join(' '),
+              })
+            : ''
+        }
+        description={t('vdoc.cancelD')}
+        label={t('veh.dlg.reason')}
+        placeholder={t('veh.dlg.reasonPh')}
+        okLabel={t('vdoc.cancel')}
+        cancelLabel={t('common.cancel')}
+        closeLabel={t('drawer.close')}
+        busy={cancel.isPending}
+        error={problemText(cancel.error, t)}
+        onClose={() => {
+          setCancelling(null);
+          cancel.reset();
+        }}
+        onOk={(reason) => {
+          if (!cancelling) return;
+          const d = cancelling;
+          cancel.mutate(
+            { id: d.id, reason },
+            {
+              onSuccess: () => {
+                setCancelling(null);
+                setToast(t('vdoc.cancelDone', { t: docName(t, d), p: vehPlate(t, v) }));
+              },
+            },
+          );
+        }}
+      />
       {renewing && (
         <RenewDialog
           d={renewing}
@@ -192,6 +260,92 @@ export function VehicleDocsTab({ v, canWrite }: { v: Vehicle; canWrite: boolean 
         />
       )}
       <Toast message={toast} onClose={() => setToast(null)} closeLabel={t('drawer.close')} />
+    </>
+  );
+}
+
+/**
+ * ตารางเอกสารในโปรไฟล์รถ (ST2-T07) — ต้นแบบ TMS v4 `pr.docs`:
+ * ประเภท · เลขที่ · บริษัท / หน่วยงาน · เริ่ม – หมด · เบี้ย / ค่าใช้จ่าย (฿) · ไฟล์แนบ · สถานะ · [ต่ออายุ]
+ */
+function DocTable({
+  t,
+  rows,
+  dt,
+  loading,
+  action,
+  onDownload,
+}: {
+  t: T;
+  rows: VehicleDoc[];
+  dt: (iso: string) => string;
+  loading?: boolean;
+  action?: (d: VehicleDoc) => ReactNode;
+  onDownload?: (id: string) => void;
+}) {
+  return (
+    <>
+      <table className="tms-vprof__table" data-testid="vdoc-list" aria-busy={loading || undefined}>
+        <thead>
+          <tr>
+            <th>{t('vprof.doc.type')}</th>
+            <th>{t('vprof.doc.no')}</th>
+            <th>{t('vprof.doc.issuer')}</th>
+            <th>{t('vprof.doc.period')}</th>
+            <th style={{ textAlign: 'right' }}>{t('vprof.doc.cost')}</th>
+            <th>{t('vprof.doc.file')}</th>
+            <th>{t('vprof.doc.status')}</th>
+            <th style={{ width: '1%' }} />
+          </tr>
+        </thead>
+        <tbody>
+          {loading
+            ? [0, 1, 2].map((i) => (
+                <tr key={i}>
+                  <td colSpan={8}>
+                    <div className="tms-vprof__skel" />
+                  </td>
+                </tr>
+              ))
+            : rows.map((d) => {
+                const f = d.files[0];
+                const cost = d.premiumAmount ?? d.costAmount;
+                return (
+                  <tr key={d.id} data-doc-type={d.docType}>
+                    <td style={{ fontWeight: 500, whiteSpace: 'nowrap' }}>{docName(t, d)}</td>
+                    <td className="tms-num">{d.docNo ?? '—'}</td>
+                    <td>{d.issuer ?? '—'}</td>
+                    <td style={{ whiteSpace: 'nowrap' }}>
+                      {`${dt(d.startsOn)} – ${dt(d.expiresOn)}`}
+                    </td>
+                    <td className="tms-num" style={{ textAlign: 'right' }}>
+                      {cost ? formatMoney(cost) : '—'}
+                    </td>
+                    <td>
+                      {f ? (
+                        <button
+                          type="button"
+                          className="tms-vprof__file"
+                          title={t('vdoc.download')}
+                          onClick={() => onDownload?.(f.id)}
+                        >
+                          <Icon n="paperclip" s={14} />
+                          {f.filename ?? t('vdoc.download')}
+                        </button>
+                      ) : (
+                        '—'
+                      )}
+                    </td>
+                    <td>
+                      <StatusPill d={d} t={t} />
+                    </td>
+                    <td>{action?.(d)}</td>
+                  </tr>
+                );
+              })}
+        </tbody>
+      </table>
+      {!loading && !rows.length && <div className="tms-vdoc__empty">{t('vdoc.empty')}</div>}
     </>
   );
 }

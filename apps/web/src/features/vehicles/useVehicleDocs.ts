@@ -60,6 +60,13 @@ export async function openDocFile(id: string): Promise<void> {
   a.remove();
 }
 
+/** เอกสารเปลี่ยน → รายการเอกสาร + ทะเบียนรถ (ป้ายเอกสารใกล้หมด / การ์ด summary — ST2-T07) + กิจกรรมของรถ */
+function invalidate(qc: ReturnType<typeof useQueryClient>) {
+  void qc.invalidateQueries({ queryKey: [KEY] });
+  void qc.invalidateQueries({ queryKey: ['vehicles'] });
+  void qc.invalidateQueries({ queryKey: ['history'] });
+}
+
 export function useCreateVehicleDoc(vehicleId: string) {
   const qc = useQueryClient();
   return useMutation({
@@ -71,7 +78,7 @@ export function useCreateVehicleDoc(vehicleId: string) {
           headers: { 'Idempotency-Key': v.idempotencyKey },
         }),
       ),
-    onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
+    onSuccess: () => invalidate(qc),
   });
 }
 
@@ -86,7 +93,22 @@ export function useRenewVehicleDoc() {
           headers: { 'Idempotency-Key': v.idempotencyKey },
         }),
       ),
-    onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
+    onSuccess: () => invalidate(qc),
+  });
+}
+
+/** ยกเลิกเอกสารที่บันทึกผิด (เหตุผล ≥ 10 — API ลง audit, ฉบับเดิมที่ถูกต่ออายุกลับเป็นปัจจุบัน) — review ST2-T07 */
+export function useCancelVehicleDoc() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { id: string; reason: string }) =>
+      unwrap(
+        api.POST('/v1/vehicle-documents/{id}/cancel', {
+          params: { path: { id: v.id } },
+          body: { reason: v.reason },
+        }),
+      ),
+    onSuccess: () => invalidate(qc),
   });
 }
 

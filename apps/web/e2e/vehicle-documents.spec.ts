@@ -21,9 +21,7 @@ test('เอกสารรถ: เพิ่ม + ต่ออายุจาก
   await c.getByLabel('ประเภทรถ').selectOption({ label: '6 ล้อ' });
   await c.getByRole('button', { name: 'เพิ่มรถ' }).click();
   await expect(page.getByRole('status')).toContainText(`เพิ่มรถ ${PLATE} กทม. แล้ว`);
-  await page.keyboard.press('Escape');
-
-  await page.locator('tbody tr', { hasText: PLATE }).first().click();
+  // หลังเพิ่มรถ drawer รถเปิดค้างไว้ (คลิกแถวในตาราง = โปรไฟล์รถ ST2-T07)
   await page.getByRole('tab', { name: 'เอกสารแนบ' }).click();
   await expect(page.getByText('ไม่มีเอกสารสำหรับรถคันนี้')).toBeVisible();
 

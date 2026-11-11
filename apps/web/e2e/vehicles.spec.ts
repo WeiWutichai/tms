@@ -73,7 +73,10 @@ test.describe.serial('รถ → ทะเบียนรถ', () => {
   test('เลขไมล์ถอยหลังถูกปฏิเสธ → เปลี่ยนสถานะเป็นซ่อมพร้อมเหตุผล', async ({ page }) => {
     await page.goto('/fleet/vehicles');
     await page.getByRole('columnheader').getByPlaceholder('ค้นหา').first().fill(P1);
+    // คลิกแถว → โปรไฟล์รถ (ST2-T07) → "แก้ไข" เปิด drawer รถ
     await page.getByRole('row', { name: new RegExp(`${P1} กทม`) }).click();
+    await expect(page.getByRole('heading', { name: 'โปรไฟล์รถ', level: 1 })).toBeVisible();
+    await page.getByRole('button', { name: 'แก้ไข', exact: true }).click();
     const d = page.getByRole('dialog');
     await d.getByLabel('เลขไมล์ปัจจุบัน (กม.)').fill('149000');
     await d.getByRole('button', { name: 'บันทึก' }).click();
@@ -85,6 +88,9 @@ test.describe.serial('รถ → ทะเบียนรถ', () => {
     await r.getByLabel('เหตุผล').fill('เข้าอู่เปลี่ยนคลัตช์ 3 วัน');
     await r.getByRole('button', { name: 'ยืนยัน' }).click();
     await expect(page.getByRole('status')).toContainText(`เปลี่ยนสถานะ ${P1} กทม. แล้ว`);
+    await page.keyboard.press('Escape');
+    await page.getByRole('main').getByRole('button', { name: 'ทะเบียนรถ' }).click();
+    await page.getByRole('columnheader').getByPlaceholder('ค้นหา').first().fill(P1);
     await expect(page.getByRole('row', { name: new RegExp(`${P1}.*150,250.*ซ่อม`) })).toBeVisible();
   });
 });

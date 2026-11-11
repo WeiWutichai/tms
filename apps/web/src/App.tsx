@@ -4,13 +4,14 @@ import { DevImportPage } from './features/imports/DevImportPage';
 import { RequireAuth } from './auth/RequireAuth';
 import { queryClient } from './api';
 import { I18nProvider } from './i18n';
-import { canAny, featureOf, isLocked, NAV } from './nav';
+import { canAny, featureOf, isLocked, NAV, permOf } from './nav';
 import { SettingsPage } from './features/settings/Settings';
 import { CustomersPage } from './features/customers/CustomersPage';
 import { SitesPage } from './features/sites/SitesPage';
 import { VehicleTypesPage } from './features/vehicle-types/VehicleTypesPage';
 import { CarriersPage } from './features/carriers/CarriersPage';
 import { VehiclesPage } from './features/vehicles/VehiclesPage';
+import { VehicleProfilePage } from './features/vehicles/VehicleProfilePage';
 import { Dashboard } from './pages/Dashboard';
 import { DesignSystem } from './pages/DesignSystem';
 import { ErrorBoundary, ErrorPage, LockedPage, NoAccess, NotFound, NotReady } from './pages/Simple';
@@ -73,6 +74,15 @@ function Inside() {
             element={
               <Guard perm={settingsPerm}>
                 <SettingsPage />
+              </Guard>
+            }
+          />
+          {/* โปรไฟล์รถ (ST2-T07) — หน้าย่อยของทะเบียนรถ: สิทธิ์/แพ็กเกจเดียวกัน */}
+          <Route
+            path="/fleet/vehicles/:id"
+            element={
+              <Guard perm={permOf('/fleet/vehicles')} path="/fleet/vehicles">
+                <VehicleProfilePage />
               </Guard>
             }
           />

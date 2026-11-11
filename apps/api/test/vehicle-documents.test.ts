@@ -709,4 +709,109 @@ describe('เอกสารรถ (vehicle documents)', () => {
       (await api(app, otherTenantToken).get('/v1/vehicle-documents').expect(200)).body.data,
     ).toEqual([]);
   });
+  it('ST2-T07 ทะเบียนรถ: ตัวนับสถานะเปลี่ยนตามสถานะรถ · ป้ายเอกสารใกล้หมด 30 วันในรายการ · กรอง docAlert · การ์ดเอกสาร', async () => {
+    const tid = (await createTenant(db)).id;
+    const tok = await tokenFor(tid);
+    const vt2 = (
+      await api(app, tok)
+        .post('/v1/vehicle-types')
+        .send({ name: '6 ล้อ ทะเบียน', vehicleClass: '6W', payloadKg: 6000, minLicenceClass: 'T2' })
+        .expect(201)
+    ).body.id as string;
+    const mk = async (plate: string) =>
+      (
+        await api(app, tok)
+          .post('/v1/vehicles')
+          .send({ plate, plateProvince: 'TH-10', vehicleTypeId: vt2, ownership: 'OWN' })
+          .expect(201)
+      ).body as { id: string; version: number };
+    const doc = async (vid: string, docType: string, expiresOn: string) =>
+      (
+        await api(app, tok)
+          .post(`/v1/vehicles/${vid}/documents`)
+          .send({
+            docType,
+            docNo: `${docType}-${expiresOn}`,
+            startsOn: addDays(expiresOn, -365),
+            expiresOn,
+            fileDocumentIds: [await upload(tok)],
+          })
+          .expect(201)
+      ).body as { id: string };
+    const setStatus = (vid: string, status: string) =>
+      api(app, tok)
+        .post(`/v1/vehicles/${vid}/status`)
+        .send({ status, reason: 'เปลี่ยนสถานะเพื่อทดสอบตัวนับ' })
+        .expect(200);
+    const a = await mk('71-0001'); // หมดแล้ว
+    const b = await mk('71-0002'); // ใกล้หมด 2 ฉบับ
+    const c = await mk('71-0003'); // หมดใน 45 วัน → ไม่ขึ้นป้าย (เกณฑ์ 30 วันของต้นแบบ)
+    const d = await mk('71-0004'); // ไม่มีเอกสาร
+    const e = await mk('71-0005'); // ปลดระวาง (เอกสารหมดแล้ว ไม่นับ)
+    const aDoc = await doc(a.id, 'ANNUAL_TAX', addDays(today, -3));
+    await doc(b.id, 'COMPULSORY_ACT', addDays(today, 20));
+    await doc(b.id, 'INSPECTION', addDays(today, 10));
+    await doc(c.id, 'COMPULSORY_ACT', addDays(today, 45));
+    await doc(e.id, 'COMPULSORY_ACT', addDays(today, -10));
+    await setStatus(d.id, 'maintenance');
+    await setStatus(e.id, 'retired');
+
+    const sum = async () => (await api(app, tok).get('/v1/vehicles/summary').expect(200)).body;
+    expect(await sum()).toMatchObject({
+      total: 5,
+      ready: 3,
+      maintenance: 1,
+      parked: 0,
+      retired: 1,
+      docAlert: 2,
+    });
+    // เปลี่ยนสถานะ → ตัวนับเปลี่ยน
+    await setStatus(c.id, 'parked');
+    await setStatus(d.id, 'ready');
+    expect(await sum()).toMatchObject({ total: 5, ready: 3, maintenance: 0, parked: 1 });
+
+    const list = await api(app, tok).get('/v1/vehicles').expect(200);
+    const by = Object.fromEntries(
+      list.body.data.map((x: { plate: string; docAlert: unknown }) => [x.plate, x.docAlert]),
+    );
+    expect(by['71-0001']).toEqual({ count: 1, expired: 1, nextExpiresOn: addDays(today, -3) });
+    expect(by['71-0002']).toEqual({ count: 2, expired: 0, nextExpiresOn: addDays(today, 10) });
+    expect(by['71-0003']).toEqual({ count: 0, expired: 0, nextExpiresOn: null });
+    expect(by['71-0004']).toEqual({ count: 0, expired: 0, nextExpiresOn: null });
+    expect(by['71-0005']).toEqual({ count: 0, expired: 0, nextExpiresOn: null });
+    // รายการคันเดียว (GET /:id) ไม่มี docAlert — โปรไฟล์อ่านเอกสารจาก /documents
+    expect((await api(app, tok).get(`/v1/vehicles/${a.id}`).expect(200)).body.docAlert).toBe(
+      undefined,
+    );
+
+    const plates = async (qs: string) =>
+      (await api(app, tok).get(`/v1/vehicles?${qs}`).expect(200)).body.data.map(
+        (x: { plate: string }) => x.plate,
+      );
+    expect(await plates('docAlert=true')).toEqual(['71-0001', '71-0002']);
+    expect(await plates('docAlert=false')).toEqual(['71-0003', '71-0004', '71-0005']);
+    expect(await plates('docAlert=true&status=retired')).toEqual([]);
+    expect(await plates('docAlert=true&status=ready&limit=1')).toEqual(['71-0001']);
+    await api(app, tok).get('/v1/vehicles?docAlert=yes').expect(422);
+
+    // ต่ออายุฉบับที่หมดแล้ว → ป้ายหาย / การ์ดลดลง
+    await api(app, tok)
+      .post(`/v1/vehicle-documents/${aDoc.id}/renew`)
+      .send({
+        docNo: 'TAX-NEW',
+        startsOn: today,
+        expiresOn: addDays(today, 365),
+        fileDocumentIds: [await upload(tok)],
+      })
+      .expect(201);
+    expect(await plates('docAlert=true')).toEqual(['71-0002']);
+    expect((await sum()).docAlert).toBe(1);
+    // export ใช้ตัวกรองเดียวกัน
+    const csv = await api(app, tok).get('/v1/vehicles/export?format=csv&docAlert=true').expect(200);
+    expect(csv.text).toContain('71-0002');
+    expect(csv.text).not.toContain('71-0001');
+    expect(csv.text).toContain('เอกสารใกล้หมด (ฉบับ)');
+    // tenant อื่นไม่เห็นตัวนับของ tenant นี้
+    expect((await api(app, otherTenantToken).get('/v1/vehicles/summary')).body.docAlert).toBe(0);
+  });
 });

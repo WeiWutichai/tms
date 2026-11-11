@@ -117,6 +117,11 @@ export function DataTable<R>(p: DataTableProps<R>) {
 
   const from = p.page.rowsOnPage ? p.page.index * p.page.size + 1 : 0;
   const to = p.page.index * p.page.size + p.page.rowsOnPage;
+  const pageCount = Math.max(
+    p.page.visited,
+    p.page.index + 1,
+    p.page.total !== undefined ? Math.ceil(p.page.total / p.page.size) : 0,
+  );
 
   const exportCsv = () => {
     if (p.onExportCsv) return p.onExportCsv();
@@ -319,17 +324,24 @@ export function DataTable<R>(p: DataTableProps<R>) {
             >
               <Icon n="chevron-left" s={16} />
             </button>
-            {Array.from({ length: Math.max(p.page.visited, p.page.index + 1) }, (_, i) => (
-              <button
-                key={i}
-                type="button"
-                className="tms-pager__page"
-                aria-current={i === p.page.index ? 'page' : undefined}
-                onClick={() => p.onGoto?.(i)}
-              >
-                {i + 1}
-              </button>
-            ))}
+            {/* รู้ยอดรวม → แสดงเลขหน้าครบตามต้นแบบ · API เป็น cursor (ไม่มี offset) จึงกระโดดได้เฉพาะหน้าที่เคยเปิด + หน้าถัดไป
+                หน้าที่ยังไปไม่ได้แสดงแต่กดไม่ได้ [OPEN spec/12 §3] */}
+            {Array.from({ length: pageCount }, (_, i) => {
+              const nextOne = i === p.page.index + 1 && p.page.hasNext;
+              const reachable = i < p.page.visited || nextOne;
+              return (
+                <button
+                  key={i}
+                  type="button"
+                  className="tms-pager__page"
+                  aria-current={i === p.page.index ? 'page' : undefined}
+                  disabled={!reachable}
+                  onClick={() => (i < p.page.visited ? p.onGoto?.(i) : p.onNext?.())}
+                >
+                  {i + 1}
+                </button>
+              );
+            })}
             <button
               type="button"
               className="tms-pager__nav"

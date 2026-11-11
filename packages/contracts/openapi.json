@@ -6607,6 +6607,19 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "docAlert",
+            "required": false,
+            "in": "query",
+            "description": "true = มีเอกสารฉบับปัจจุบันหมดภายใน 30 วันหรือหมดแล้ว (ไม่นับรถปลดระวาง) · false = ไม่มี — คำนวณตามวันนี้ (ไม่สัมพันธ์กับ updatedAt)",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
           }
         ],
         "responses": {
@@ -6853,6 +6866,19 @@
             "description": "true = เฉพาะที่ยังไม่จับคู่หัวลาก-หาง",
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "name": "docAlert",
+            "required": false,
+            "in": "query",
+            "description": "true = มีเอกสารฉบับปัจจุบันหมดภายใน 30 วันหรือหมดแล้ว (ไม่นับรถปลดระวาง) · false = ไม่มี — คำนวณตามวันนี้ (ไม่สัมพันธ์กับ updatedAt)",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
             }
           },
           {
@@ -13154,6 +13180,30 @@
           "unitRole"
         ]
       },
+      "VehicleDocAlertDto": {
+        "type": "object",
+        "properties": {
+          "count": {
+            "type": "number",
+            "description": "เอกสารฉบับปัจจุบันที่หมดภายใน 30 วัน (รวมที่หมดแล้ว)"
+          },
+          "expired": {
+            "type": "number",
+            "description": "ในจำนวนนั้น หมดแล้วกี่ฉบับ"
+          },
+          "nextExpiresOn": {
+            "type": "string",
+            "nullable": true,
+            "format": "date",
+            "description": "วันหมดที่ใกล้สุด"
+          }
+        },
+        "required": [
+          "count",
+          "expired",
+          "nextExpiresOn"
+        ]
+      },
       "VehicleDto": {
         "type": "object",
         "properties": {
@@ -13439,6 +13489,14 @@
           "quotaExceeded": {
             "type": "boolean",
             "description": "มีเฉพาะในผลการสร้าง: true = รถที่นับโควตา (ยังไม่ปลดระวาง) เกินโควตาของ tenant แล้ว — soft limit ยังสร้างได้ (header `Warning: 299` ด้วย)"
+          },
+          "docAlert": {
+            "description": "มีเฉพาะในรายการ (GET /vehicles): เอกสารใกล้หมด 30 วัน/หมดแล้วของคันนี้ (รถปลดระวาง = 0) — ST2-T07 · คำนวณจากเอกสารและวันนี้ทุกครั้ง **ไม่ทำให้ `updatedAt` ของรถเปลี่ยน** — ผู้ที่ sync แบบ `updatedAfter` ให้ดึงเอกสารจาก `GET /vehicle-documents` แทน",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/VehicleDocAlertDto"
+              }
+            ]
           }
         },
         "required": [
@@ -13541,6 +13599,10 @@
             "type": "number",
             "description": "รถร่วม (ไม่นับปลดระวาง)"
           },
+          "docAlert": {
+            "type": "number",
+            "description": "รถ (ไม่ปลดระวาง) ที่มีเอกสารฉบับปัจจุบันหมดภายใน 30 วันหรือหมดแล้ว"
+          },
           "quota": {
             "$ref": "#/components/schemas/VehicleQuotaDto"
           }
@@ -13552,6 +13614,7 @@
           "parked",
           "retired",
           "subcontract",
+          "docAlert",
           "quota"
         ]
       },

@@ -18,6 +18,7 @@ import { useMe } from '../../shell/AppShell';
 import { tableLabels } from '../companies/CompanySample';
 import { downloadFile } from '../master/download';
 import { problemText } from '../master/problems';
+import { listTotal } from '../master/useCursorList';
 import { SiteDrawer, geoState, hoursText } from './SiteDrawer';
 import { SiteFormDrawer } from './SiteFormDrawer';
 import { formatContact } from './siteFormat';
@@ -255,10 +256,8 @@ export function SitesPage() {
   ];
 
   const kinds = sum?.byKind;
-  const onlyKind = !filters.q && !filters.customerName && !filters.maxVehicleClass;
-  const tabCount = !onlyKind
-    ? undefined
-    : filters.pinned === 'false'
+  const tabCount =
+    filters.pinned === 'false'
       ? filters.kind
         ? undefined
         : sum?.unpinned
@@ -266,6 +265,8 @@ export function SitesPage() {
         ? kinds?.[filters.kind as keyof typeof kinds]
         : sum?.total;
   const filtered = Object.values(filters).some((v) => v !== '');
+  // ตัวนับของแท็บครอบเฉพาะ ประเภท + ยังไม่ปักหมุด — ตัวกรองอื่น (รวม พิกัด/ลูกค้า) = ยอดจากรายการ (review ST2-T07)
+  const shownTotal = listTotal(list, filters, ['kind', 'pinned'], tabCount);
 
   return (
     <>
@@ -323,7 +324,7 @@ export function SitesPage() {
         />
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 32 }}>
           <span style={{ marginLeft: 'auto', color: '#3B424C', fontSize: 13 }}>
-            {t('table.total', { n: tabCount ?? list.page.rowsOnPage })}
+            {shownTotal !== undefined && t('table.total', { n: shownTotal })}
           </span>
         </div>
         {list.q.isError ? (
@@ -343,7 +344,7 @@ export function SitesPage() {
             rows={list.rows}
             rowId={(r) => r.id}
             activeId={openId}
-            loading={list.q.isLoading}
+            loading={list.loading}
             labels={tableLabels(t)}
             filters={{ ...filters }}
             onFilterChange={(k, v) => setF(k as keyof SiteFilters, v)}
@@ -403,7 +404,7 @@ export function SitesPage() {
                 />
               )
             }
-            page={{ ...list.page, ...(tabCount !== undefined ? { total: tabCount } : {}) }}
+            page={{ ...list.page, ...(shownTotal !== undefined ? { total: shownTotal } : {}) }}
             onPageSize={list.setSize}
             onNext={list.next}
             onPrev={list.prev}

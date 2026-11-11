@@ -20,6 +20,7 @@ import { useMe } from '../../shell/AppShell';
 import { tableLabels } from '../companies/CompanySample';
 import { downloadFile } from '../master/download';
 import { problemText } from '../master/problems';
+import { listTotal } from '../master/useCursorList';
 import { VehicleTypeDrawer, cbmText, kgText, licLabel } from './VehicleTypeDrawer';
 import { VehicleTypeFormDrawer } from './VehicleTypeFormDrawer';
 import {
@@ -180,6 +181,7 @@ export function VehicleTypesPage() {
   ];
 
   const filtered = Object.values(filters).some((v) => v !== '');
+  const shownTotal = listTotal(list, filters, [], sum?.total);
 
   return (
     <>
@@ -213,9 +215,7 @@ export function VehicleTypesPage() {
         />
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 32 }}>
           <span style={{ marginLeft: 'auto', color: '#3B424C', fontSize: 13 }}>
-            {t('table.total', {
-              n: !filtered && sum ? sum.total : list.page.rowsOnPage,
-            })}
+            {shownTotal !== undefined && t('table.total', { n: shownTotal })}
           </span>
         </div>
         {list.q.isError ? (
@@ -235,7 +235,7 @@ export function VehicleTypesPage() {
             rows={list.rows}
             rowId={(r) => r.id}
             activeId={openId}
-            loading={list.q.isLoading}
+            loading={list.loading}
             labels={tableLabels(t)}
             filters={{ ...filters }}
             onFilterChange={(k, v) => setF(k as keyof VehicleTypeFilters, v)}
@@ -295,7 +295,7 @@ export function VehicleTypesPage() {
                 />
               )
             }
-            page={{ ...list.page, ...(!filtered && sum ? { total: sum.total } : {}) }}
+            page={{ ...list.page, ...(shownTotal !== undefined ? { total: shownTotal } : {}) }}
             onPageSize={list.setSize}
             onNext={list.next}
             onPrev={list.prev}
