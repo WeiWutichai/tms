@@ -321,6 +321,8 @@ describe('สถานที่ (customer-sites)', () => {
       pinned: 2,
       unpinned: 2,
       restricted: 2,
+      geocodeReview: 0, // ST2-T03 — job geocode ยังไม่รัน
+      geocodeFailed: 0,
       byKind: { PICKUP: 1, DROPOFF: 2, WAREHOUSE: 1 },
       active: 4,
       inactive: 0,

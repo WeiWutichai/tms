@@ -23,6 +23,8 @@ export interface SiteFilters {
   maxVehicleClass: string;
   pinned: string;
   customerId: string;
+  /** สถานะพิกัด OK/REVIEW/PENDING/FAILED (ST2-T03) */
+  geocode: string;
 }
 
 export function useSiteList(filters: SiteFilters) {
@@ -129,6 +131,43 @@ export function useSiteAction() {
         api.POST('/v1/customer-sites/{id}/delete', { ...p, body: { reason: v.reason ?? '' } }),
       );
       return null;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: [KEY] });
+      qc.invalidateQueries({ queryKey: ['history'] });
+    },
+  });
+}
+
+/** ปุ่ม "ประมาณจากที่อยู่" (ST2-T03) — geocode ทันทีโดยไม่บันทึก */
+export function useGeocodeEstimate() {
+  return useMutation({
+    mutationFn: (address: string) =>
+      unwrap(api.POST('/v1/customer-sites/geocode', { body: { address } })),
+  });
+}
+
+/** ยืนยัน/ปฏิเสธพิกัดที่ geocode อัตโนมัติเสนอ (ST2-T03) */
+export function useGeocodeDecision() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: {
+      id: string;
+      version: number;
+      action: 'confirm' | 'reject';
+      reason?: string;
+    }) => {
+      const p = {
+        params: { path: { id: v.id }, header: { 'If-Match': `"${v.version}"` } as never },
+      };
+      return v.action === 'confirm'
+        ? unwrap(api.POST('/v1/customer-sites/{id}/geocode/confirm', { ...p, body: {} }))
+        : unwrap(
+            api.POST('/v1/customer-sites/{id}/geocode/reject', {
+              ...p,
+              body: { reason: v.reason ?? '' },
+            }),
+          );
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: [KEY] });

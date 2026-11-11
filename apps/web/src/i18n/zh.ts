@@ -305,5 +305,6 @@ export const zh: Partial<Record<MessageKey, string>> = {
   'loc.f.notes': '备注',
   'loc.sec.extra': '附加信息',
   'loc.dlg.reason': '原因',
+  'loc.geo.f.PENDING': '未标记',
   'cust.tab.addr': '收货地址',
 };

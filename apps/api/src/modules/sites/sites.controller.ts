@@ -33,7 +33,10 @@ import { sendExport, type ExportColumn } from '../master/export';
 import { entityHistory, HistoryQuery } from '../master/history';
 import { MasterOptionalReasonDto, MasterReasonDto } from '../master/master-kit';
 import {
+  ConfirmGeocodeDto,
   CreateSiteDto,
+  GeocodeRequestDto,
+  GeocodeResultDto,
   SiteDto,
   SiteExportQuery,
   SiteListQuery,
@@ -56,6 +59,13 @@ const CLASS_TH: Record<NonNullable<SiteDto['maxVehicleClass']>, string> = {
   SEMI_TRAILER: 'เทรลเลอร์',
 };
 
+/** สถานะพิกัดในไฟล์ส่งออก (ST2-T03) — ตรงกับป้ายในหน้ารายการ */
+function geocodeLabel(r: SiteDto): string {
+  if (r.geocodeStatus === 'OK') return 'ปักหมุดแล้ว';
+  if (r.geocodeStatus === 'FAILED') return 'หาพิกัดไม่พบ';
+  return r.geocodeProposal ? 'รอยืนยันพิกัด' : 'ยังไม่ปักหมุด';
+}
+
 /** คอลัมน์ไฟล์ส่งออก — หัวคอลัมน์ไทยตรงกับ template นำเข้า (ST2-T23) */
 const EXPORT_COLUMNS: ExportColumn<SiteDto>[] = [
   { header: 'รหัส', value: (r) => r.code },
@@ -66,6 +76,7 @@ const EXPORT_COLUMNS: ExportColumn<SiteDto>[] = [
   { header: 'ที่อยู่', value: (r) => r.address.line1 },
   { header: 'ละติจูด', value: (r) => r.lat },
   { header: 'ลองจิจูด', value: (r) => r.lng },
+  { header: 'สถานะพิกัด', value: (r) => geocodeLabel(r) },
   { header: 'รัศมี geofence (เมตร)', value: (r) => r.geofenceRadiusM },
   { header: 'เวลาเปิด', value: (r) => r.openTime },
   { header: 'เวลาปิด', value: (r) => r.closeTime },
@@ -133,6 +144,18 @@ export class SitesController {
   ): Promise<StreamableFile> {
     const rows = await this.sites.exportRows(q);
     return sendExport(res, q.format ?? 'xlsx', 'customer-sites', EXPORT_COLUMNS, rows);
+  }
+
+  /**
+   * ปุ่ม "ประมาณจากที่อยู่" (ST2-T03) — geocode ทันทีด้วยผู้ให้บริการที่ตั้งค่า (`GEO_PROVIDER`) ไม่บันทึกอะไร
+   * ผู้ใช้ตรวจพิกัดแล้วบันทึกฟอร์ม = คนยืนยัน (geocodeStatus OK)
+   */
+  @Post('geocode')
+  @HttpCode(200)
+  @RequireScope('master:write')
+  @ApiOkResponse({ type: GeocodeResultDto })
+  geocode(@Body() body: GeocodeRequestDto): Promise<GeocodeResultDto> {
+    return this.sites.estimate(body.address);
   }
 
   @Post()
@@ -255,6 +278,44 @@ export class SitesController {
       body.reason,
       expectedVersion(req),
     );
+    setEtag(res, s.version);
+    return this.sites.dto(s);
+  }
+
+  /** ยืนยันพิกัดที่ geocode อัตโนมัติเสนอ (ST2-T03) → lat/lng + OK · ไม่มีข้อเสนอ → 409 */
+  @Post(':id/geocode/confirm')
+  @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
+  @HttpCode(200)
+  @TenantResource('site')
+  @RequireScope('master:write')
+  @ApiOkResponse({ type: SiteDto })
+  async confirmGeocode(
+    @Param('id') id: string,
+    @Body() body: ConfirmGeocodeDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<SiteDto> {
+    const current = await this.resolve(id);
+    const s = await this.sites.confirmGeocode(current.id, body.reason, expectedVersion(req));
+    setEtag(res, s.version);
+    return this.sites.dto(s);
+  }
+
+  /** ปฏิเสธพิกัดที่เสนอ (ผิดตำแหน่ง) → FAILED ให้ปักหมุดเอง — เหตุผล ≥ 10 ตัวอักษร */
+  @Post(':id/geocode/reject')
+  @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
+  @HttpCode(200)
+  @TenantResource('site')
+  @RequireScope('master:write')
+  @ApiOkResponse({ type: SiteDto })
+  async rejectGeocode(
+    @Param('id') id: string,
+    @Body() body: MasterReasonDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<SiteDto> {
+    const current = await this.resolve(id);
+    const s = await this.sites.rejectGeocode(current.id, body.reason, expectedVersion(req));
     setEtag(res, s.version);
     return this.sites.dto(s);
   }

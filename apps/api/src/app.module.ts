@@ -48,6 +48,7 @@ import { CustomersController } from './modules/customers/customers.controller';
 import { CustomersService } from './modules/customers/customers.service';
 import { SitesController } from './modules/sites/sites.controller';
 import { SitesService } from './modules/sites/sites.service';
+import { GeoService } from './modules/geo/geo.service';
 import { CompaniesService } from './modules/companies/companies.service';
 import { HealthController } from './modules/health/health.controller';
 import { JobsController } from './modules/jobs/jobs.controller';
@@ -108,6 +109,7 @@ import { StateService } from './state/state.service';
     CompaniesService,
     CustomersService,
     SitesService,
+    GeoService,
     AuditService,
     BranchesService,
     SequencesService,

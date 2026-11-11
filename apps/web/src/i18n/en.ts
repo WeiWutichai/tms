@@ -305,5 +305,6 @@ export const en: Partial<Record<MessageKey, string>> = {
   'loc.f.notes': 'Notes',
   'loc.sec.extra': 'Additional info',
   'loc.dlg.reason': 'Reasons',
+  'loc.geo.f.PENDING': 'No pin',
   'cust.tab.addr': 'Delivery addresses',
 };

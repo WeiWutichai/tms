@@ -28,6 +28,8 @@ import {
 
 /** ประเภทสถานที่ — ต้นแบบ TMS v4: ต้นทาง / ปลายทาง / คลัง / ศูนย์กระจาย [OPEN spec/12 §3: spec/02 `type` 8 ค่า] */
 export const SITE_KINDS = ['PICKUP', 'DROPOFF', 'WAREHOUSE'] as const;
+/** ตัวกรองสถานะพิกัด (ST2-T03) — REVIEW = PENDING ที่มีพิกัดเสนอรอคนยืนยัน */
+export const GEOCODE_FILTERS = ['OK', 'REVIEW', 'PENDING', 'FAILED'] as const;
 /** รถเข้าได้สูงสุด (เรียงจากเล็กไปใหญ่) — ต้นแบบ: 6 ล้อ / 10 ล้อ / พ่วง / เทรลเลอร์ · ผูก vehicle_type ใน ST2-T04 */
 export const VEHICLE_CLASSES = ['6W', '10W', 'TRAILER', 'SEMI_TRAILER'] as const;
 const HHMM = /^([01][0-9]|2[0-3]):[0-5][0-9]$/;
@@ -315,6 +317,15 @@ export class SiteListQuery extends MasterListQuery {
   @IsIn(['true', 'false'])
   pinned?: 'true' | 'false';
 
+  @ApiPropertyOptional({
+    enum: GEOCODE_FILTERS,
+    description:
+      'สถานะพิกัด: OK = มีพิกัด · REVIEW = รอยืนยันพิกัดที่ geocode เสนอ · PENDING = ยังไม่มีพิกัดและไม่มีข้อเสนอ · FAILED = หาพิกัดไม่พบ',
+  })
+  @IsOptional()
+  @IsIn(GEOCODE_FILTERS)
+  geocode?: (typeof GEOCODE_FILTERS)[number];
+
   @ApiPropertyOptional({ enum: VEHICLE_CLASSES })
   @IsOptional()
   @IsIn(VEHICLE_CLASSES)
@@ -339,6 +350,16 @@ export class SiteCustomerRefDto {
   @ApiProperty() name!: string;
 }
 
+/** พิกัดที่ geocode เสนอ รอคนยืนยัน (ST2-T03) — ยืนยันแล้วย้ายไป lat/lng + geocodeStatus OK */
+export class SiteGeocodeProposalDto {
+  @ApiProperty({ example: 13.3612 }) lat!: number;
+  @ApiProperty({ example: 100.9847 }) lng!: number;
+  @ApiProperty({ minimum: 0, maximum: 1, example: 0.8, description: 'ความมั่นใจ 0–1' })
+  confidence!: number;
+  @ApiProperty({ example: 'mock', description: 'ผู้ให้บริการที่เสนอ' }) provider!: string;
+  @ApiProperty({ format: 'date-time' }) at!: string;
+}
+
 export class SiteDto {
   @ApiProperty({ example: 'loc_3f2a…' }) id!: string;
   @ApiProperty({ example: 'LOC-00001' }) code!: string;
@@ -357,9 +378,18 @@ export class SiteDto {
   @ApiProperty({
     enum: ['OK', 'PENDING', 'FAILED'],
     description:
-      'OK = มีพิกัดแล้ว · PENDING = ยังไม่ปักหมุด/รอ geocode · FAILED = geocode ไม่พบ (ST2-T03)',
+      'OK = มีพิกัดแล้ว (กรอกเอง/ยืนยันแล้ว) · PENDING = ยังไม่ปักหมุด (รอ geocode หรือรอคนยืนยัน geocodeProposal) · ' +
+      'FAILED = geocode ไม่พบ/คนปฏิเสธพิกัดที่เสนอ → ต้องปักหมุดเอง',
   })
   geocodeStatus!: 'OK' | 'PENDING' | 'FAILED';
+  @ApiProperty({
+    type: SiteGeocodeProposalDto,
+    nullable: true,
+    description:
+      'พิกัดที่ geocode อัตโนมัติเสนอ รอคนยืนยัน (มีค่าเฉพาะเมื่อ geocodeStatus = PENDING) — ' +
+      'ยืนยันด้วย POST /customer-sites/{id}/geocode/confirm, ปฏิเสธด้วย /geocode/reject',
+  })
+  geocodeProposal!: SiteGeocodeProposalDto | null;
   @ApiProperty() geofenceRadiusM!: number;
   @ApiProperty({ type: [String] }) aliases!: string[];
   @ApiProperty({ nullable: true, type: String }) openTime!: string | null;
@@ -400,7 +430,52 @@ export class SiteSummaryDto {
   @ApiProperty({ description: 'มีพิกัดแล้ว' }) pinned!: number;
   @ApiProperty({ description: 'ยังไม่ปักหมุด' }) unpinned!: number;
   @ApiProperty({ description: 'จำกัดประเภทรถ (เข้าได้สูงสุด 6 ล้อ/10 ล้อ)' }) restricted!: number;
+  @ApiProperty({ description: 'รอยืนยันพิกัดที่ geocode เสนอ (ST2-T03)' }) geocodeReview!: number;
+  @ApiProperty({ description: 'หาพิกัดจากที่อยู่ไม่พบ — ต้องปักหมุดเอง (ST2-T03)' })
+  geocodeFailed!: number;
   @ApiProperty({ type: SiteKindCountDto }) byKind!: SiteKindCountDto;
   @ApiProperty() active!: number;
   @ApiProperty() inactive!: number;
+}
+
+/** ยืนยันพิกัดที่ geocode เสนอ — เหตุผล/บันทึกไม่บังคับ (ลง audit) */
+export class ConfirmGeocodeDto {
+  @ApiPropertyOptional({ maxLength: 500, example: 'ตรวจกับ Street View แล้ว ตรงประตูทางเข้า' })
+  @IsOptional()
+  @CleanText()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(500)
+  reason?: string;
+}
+
+/** ประมาณพิกัดจากที่อยู่ (ปุ่ม "ประมาณจากที่อยู่" ในฟอร์มสถานที่) */
+export class GeocodeRequestDto {
+  @ApiProperty({ maxLength: 500, example: '99 ถ.สุขุมวิท ต.ศรีราชา อ.ศรีราชา จ.ชลบุรี 20110' })
+  @CleanText()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(500)
+  address!: string;
+}
+
+export class GeocodeCandidateDto {
+  @ApiProperty() lat!: number;
+  @ApiProperty() lng!: number;
+  @ApiProperty({ minimum: 0, maximum: 1 }) confidence!: number;
+  @ApiProperty({ description: 'ข้อความที่ผู้ให้บริการจับคู่ได้' }) label!: string;
+}
+
+export class GeocodeResultDto {
+  @ApiProperty({
+    example: 'mock',
+    description:
+      'ผู้ให้บริการที่ใช้ (`none` = ยังไม่ได้ตั้งค่า → candidates ว่างเสมอ ให้ปักหมุดเอง)',
+  })
+  provider!: string;
+  @ApiProperty({
+    type: [GeocodeCandidateDto],
+    description: 'เรียงความมั่นใจมาก → น้อย · ว่าง = หาไม่พบ',
+  })
+  candidates!: GeocodeCandidateDto[];
 }

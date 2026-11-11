@@ -175,6 +175,7 @@ const BODY_FOR_SUFFIX: Record<string, object> = {
   delete: { reason: 'isolation test reason' },
   revoke: { reason: 'isolation test' },
   cancel: { reason: 'isolation test' },
+  reject: { reason: 'isolation test reason' }, // ST2-T03 /customer-sites/:id/geocode/reject
 };
 
 interface RouteInfo {
