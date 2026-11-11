@@ -9,6 +9,7 @@ import { SettingsPage } from './features/settings/Settings';
 import { CustomersPage } from './features/customers/CustomersPage';
 import { SitesPage } from './features/sites/SitesPage';
 import { VehicleTypesPage } from './features/vehicle-types/VehicleTypesPage';
+import { CarriersPage } from './features/carriers/CarriersPage';
 import { Dashboard } from './pages/Dashboard';
 import { DesignSystem } from './pages/DesignSystem';
 import { ErrorBoundary, ErrorPage, LockedPage, NoAccess, NotFound, NotReady } from './pages/Simple';
@@ -39,6 +40,7 @@ const READY: Record<string, () => ReactNode> = {
   '/master/customers': () => <CustomersPage />,
   '/master/locations': () => <SitesPage />,
   '/master/vehicle-types': () => <VehicleTypesPage />,
+  '/fleet/drivers': () => <CarriersPage />,
 };
 
 function Inside() {

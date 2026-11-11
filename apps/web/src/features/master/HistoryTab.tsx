@@ -12,7 +12,8 @@ type AuditPage = Schemas['AuditPageDto'];
 export type HistoryPath =
   | '/v1/customers/{id}/history'
   | '/v1/customer-sites/{id}/history'
-  | '/v1/vehicle-types/{id}/history';
+  | '/v1/vehicle-types/{id}/history'
+  | '/v1/carriers/{id}/history';
 
 const VERB: Record<
   string,
@@ -28,6 +29,8 @@ const VERB: Record<
   geocode_confirmed: { key: 'hist.geocodeConfirmed', tone: 'ok', icon: 'check' },
   geocode_rejected: { key: 'hist.geocodeRejected', tone: 'warn', icon: 'x' },
   geocode_retried: { key: 'hist.geocodeRetried', tone: 'info', icon: 'refresh-cw' },
+  // ST2-T05 ดูเลขบัตร/เลขบัญชีเต็ม (spec/11 NFR-153)
+  pii_revealed: { key: 'hist.piiRevealed', tone: 'warn', icon: 'eye' },
 };
 /** action ที่แสดงรายการช่องที่เปลี่ยน (ก่อน → หลัง) */
 const DIFF_ACTIONS = ['updated', 'geocoded', 'geocode_confirmed', 'geocode_rejected'];

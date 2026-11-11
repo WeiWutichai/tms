@@ -82,6 +82,23 @@ const FIXTURES: Record<string, (db: PrismaClient, tenantId: string, n: number) =
           })
         ).id,
       ),
+    carrier: async (db, tenantId, n) =>
+      encodeId(
+        'carrier',
+        (
+          await db.carrier.create({
+            data: {
+              tenantId,
+              code: `ISO-${n}`,
+              legalName: `Carrier ${n}`,
+              entityType: 'JURISTIC',
+              taxId: validTaxId(700 + n),
+              taxIdLast4: validTaxId(700 + n).slice(-4),
+              branchCode: '00000',
+            },
+          })
+        ).id,
+      ),
     sequence: async (db, tenantId) => {
       const s = await db.documentSeries.upsert({
         where: { tenantId_docType: { tenantId, docType: 'SO' } },
@@ -185,6 +202,7 @@ const BODY_FOR_SUFFIX: Record<string, object> = {
   revoke: { reason: 'isolation test' },
   cancel: { reason: 'isolation test' },
   reject: { reason: 'isolation test reason' }, // ST2-T03 /customer-sites/:id/geocode/reject
+  reveal: { field: 'bankAccountNo' }, // ST2-T05 /carriers/:id/reveal
 };
 
 interface RouteInfo {

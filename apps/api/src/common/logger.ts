@@ -36,6 +36,10 @@ export const REDACT_PATHS = [
   '*.nationalId',
   'bankAccount',
   '*.bankAccount',
+  'accountNo',
+  '*.accountNo',
+  'taxId',
+  '*.taxId',
 ];
 
 /** structured log มี requestId + tenantId ทุกบรรทัด (ST0-T03) */

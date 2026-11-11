@@ -5639,6 +5639,816 @@
           "vehicle-types"
         ]
       }
+    },
+    "/v1/carriers": {
+      "get": {
+        "operationId": "Carriers_list",
+        "parameters": [
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "ค่า nextCursor จากหน้าก่อน (ใช้กับ sort เดิมเท่านั้น)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "updatedAfter",
+            "required": false,
+            "in": "query",
+            "description": "คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull — ใช้คู่ includeDeleted=true เพื่อรับรายการที่ถูกลบ)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sort",
+            "required": false,
+            "in": "query",
+            "description": "code = เรียงตามรหัส (ค่าเริ่มต้นของหน้าจอ) · updatedAt/-updatedAt สำหรับ sync",
+            "schema": {
+              "default": "code",
+              "type": "string",
+              "enum": [
+                "code",
+                "updatedAt",
+                "-updatedAt"
+              ]
+            }
+          },
+          {
+            "name": "fields",
+            "required": false,
+            "in": "query",
+            "description": "รายชื่อ field คั่นด้วย , เช่น id,legalName",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "required": false,
+            "in": "query",
+            "description": "ค้นหา — รหัส ชื่อ เลขผู้เสียภาษี หรือ externalId (ไม่สนตัวพิมพ์)",
+            "schema": {
+              "maxLength": 100,
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "description": "คั่นด้วย , เช่น active,inactive",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "externalId",
+            "required": false,
+            "in": "query",
+            "description": "externalId ตรงตัว (ใช้ตรวจว่ามีในระบบแล้วหรือยัง)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "includeDeleted",
+            "required": false,
+            "in": "query",
+            "description": "true = รวมรายการที่ถูกลบ (tombstone มี `deletedAt`) — ให้ระบบที่ดึงแบบ incremental รู้ว่ารายการถูกลบ",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "required": false,
+            "in": "query",
+            "description": "ชื่อมีคำนี้",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "entityType",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "INDIVIDUAL",
+                "JURISTIC"
+              ]
+            }
+          },
+          {
+            "name": "parentCarrierId",
+            "required": false,
+            "in": "query",
+            "description": "เฉพาะที่สังกัด carrier นี้ (car_…)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CarrierPageDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "carriers"
+        ]
+      },
+      "post": {
+        "operationId": "Carriers_create",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCarrierDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CarrierDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "carriers"
+        ]
+      }
+    },
+    "/v1/carriers/summary": {
+      "get": {
+        "operationId": "Carriers_summary",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CarrierSummaryDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "carriers"
+        ]
+      }
+    },
+    "/v1/carriers/next-code": {
+      "get": {
+        "operationId": "Carriers_nextCode",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "รหัสที่ระบบจะออกให้ผู้รับเหมาใหม่ (`SUB-0001`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NextCodeDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "carriers"
+        ]
+      }
+    },
+    "/v1/carriers/export": {
+      "get": {
+        "operationId": "Carriers_export",
+        "parameters": [
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "ค่า nextCursor จากหน้าก่อน (ใช้กับ sort เดิมเท่านั้น)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "updatedAfter",
+            "required": false,
+            "in": "query",
+            "description": "คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull — ใช้คู่ includeDeleted=true เพื่อรับรายการที่ถูกลบ)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sort",
+            "required": false,
+            "in": "query",
+            "description": "code = เรียงตามรหัส (ค่าเริ่มต้นของหน้าจอ) · updatedAt/-updatedAt สำหรับ sync",
+            "schema": {
+              "default": "code",
+              "type": "string",
+              "enum": [
+                "code",
+                "updatedAt",
+                "-updatedAt"
+              ]
+            }
+          },
+          {
+            "name": "fields",
+            "required": false,
+            "in": "query",
+            "description": "รายชื่อ field คั่นด้วย , เช่น id,legalName",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "required": false,
+            "in": "query",
+            "description": "ค้นหา — รหัส ชื่อ เลขผู้เสียภาษี หรือ externalId (ไม่สนตัวพิมพ์)",
+            "schema": {
+              "maxLength": 100,
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "description": "คั่นด้วย , เช่น active,inactive",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "externalId",
+            "required": false,
+            "in": "query",
+            "description": "externalId ตรงตัว (ใช้ตรวจว่ามีในระบบแล้วหรือยัง)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "includeDeleted",
+            "required": false,
+            "in": "query",
+            "description": "true = รวมรายการที่ถูกลบ (tombstone มี `deletedAt`) — ให้ระบบที่ดึงแบบ incremental รู้ว่ารายการถูกลบ",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "required": false,
+            "in": "query",
+            "description": "ชื่อมีคำนี้",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "entityType",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "INDIVIDUAL",
+                "JURISTIC"
+              ]
+            }
+          },
+          {
+            "name": "parentCarrierId",
+            "required": false,
+            "in": "query",
+            "description": "เฉพาะที่สังกัด carrier นี้ (car_…)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "format",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "xlsx",
+              "type": "string",
+              "enum": [
+                "xlsx",
+                "csv"
+              ]
+            }
+          },
+          {
+            "name": "ids",
+            "required": false,
+            "in": "query",
+            "description": "ส่งออกเฉพาะ id เหล่านี้ (คั่นด้วย ,) — แถวที่เลือกในตาราง",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ไฟล์ .xlsx หรือ .csv ตามตัวกรองเดียวกับรายการ (สูงสุด 10,000 แถว) — เลขบัตร/เลขบัญชีปิดบังเสมอ"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "carriers"
+        ]
+      }
+    },
+    "/v1/carriers/external/{externalId}": {
+      "put": {
+        "operationId": "Carriers_upsertExternal",
+        "parameters": [
+          {
+            "name": "externalId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag — ใช้เมื่อแถวมีอยู่แล้ว",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertCarrierDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "มีอยู่แล้ว → อัปเดต (ส่งซ้ำได้ ไม่เกิดแถวใหม่)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CarrierDto"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "ยังไม่มี → สร้าง",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CarrierDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "carriers"
+        ]
+      }
+    },
+    "/v1/carriers/{id}": {
+      "get": {
+        "operationId": "Carriers_get",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CarrierDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "carriers"
+        ]
+      },
+      "patch": {
+        "operationId": "Carriers_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCarrierDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CarrierDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "carriers"
+        ]
+      }
+    },
+    "/v1/carriers/{id}/history": {
+      "get": {
+        "operationId": "Carriers_history",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "ค่า nextCursor จากหน้าก่อน",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ประวัติการแก้จาก audit log ใหม่สุดก่อน",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditPageDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "carriers"
+        ]
+      }
+    },
+    "/v1/carriers/{id}/reveal": {
+      "post": {
+        "operationId": "Carriers_reveal",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RevealCarrierDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevealCarrierResultDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "carriers"
+        ]
+      }
+    },
+    "/v1/carriers/{id}/deactivate": {
+      "post": {
+        "operationId": "Carriers_deactivate",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MasterReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CarrierDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "carriers"
+        ]
+      }
+    },
+    "/v1/carriers/{id}/activate": {
+      "post": {
+        "operationId": "Carriers_activate",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MasterOptionalReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CarrierDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "carriers"
+        ]
+      }
+    },
+    "/v1/carriers/{id}/delete": {
+      "post": {
+        "operationId": "Carriers_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MasterReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "carriers"
+        ]
+      }
     }
   },
   "info": {
@@ -10204,6 +11014,760 @@
               "T3",
               "T4"
             ]
+          },
+          "externalId": {
+            "type": "string",
+            "nullable": true,
+            "description": "null = ลบการผูก"
+          }
+        }
+      },
+      "CarrierAddressDto": {
+        "type": "object",
+        "properties": {
+          "line1": {
+            "type": "string",
+            "example": "22 หมู่ 3 ต.บางพลีใหญ่ อ.บางพลี จ.สมุทรปราการ 10540"
+          },
+          "line2": {
+            "type": "string"
+          },
+          "subdistrict": {
+            "type": "string"
+          },
+          "district": {
+            "type": "string"
+          },
+          "province": {
+            "type": "string"
+          },
+          "postcode": {
+            "type": "string",
+            "example": "10540"
+          }
+        },
+        "required": [
+          "line1"
+        ]
+      },
+      "CarrierBankAccountDto": {
+        "type": "object",
+        "properties": {
+          "bankCode": {
+            "type": "string",
+            "enum": [
+              "KBANK",
+              "SCB",
+              "BBL",
+              "KTB",
+              "BAY",
+              "TTB",
+              "GSB",
+              "BAAC",
+              "GHB",
+              "KKP",
+              "CIMBT",
+              "UOBT",
+              "TISCO",
+              "LHFG",
+              "ICBCT",
+              "TCRB",
+              "IBANK"
+            ]
+          },
+          "last4": {
+            "type": "string",
+            "example": "7891",
+            "description": "4 หลักท้ายของเลขบัญชี (แสดง •••• 7891)"
+          },
+          "accountName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "bankCode",
+          "last4",
+          "accountName"
+        ]
+      },
+      "CarrierRefDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "car_…"
+          },
+          "code": {
+            "type": "string"
+          },
+          "legalName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "legalName"
+        ]
+      },
+      "CarrierUsageDto": {
+        "type": "object",
+        "properties": {
+          "vehicles": {
+            "type": "number",
+            "description": "รถในสังกัด (ไม่นับที่ปลดระวาง)"
+          },
+          "drivers": {
+            "type": "number",
+            "description": "คนขับในสังกัด"
+          },
+          "children": {
+            "type": "number",
+            "description": "รถร่วมที่สังกัดรายนี้ (child)"
+          }
+        },
+        "required": [
+          "vehicles",
+          "drivers",
+          "children"
+        ]
+      },
+      "CarrierDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "car_3f2a…"
+          },
+          "code": {
+            "type": "string",
+            "example": "SUB-0001"
+          },
+          "externalId": {
+            "type": "string",
+            "nullable": true
+          },
+          "legalName": {
+            "type": "string",
+            "example": "หจก. ทรัพย์สมบูรณ์ขนส่ง"
+          },
+          "entityType": {
+            "type": "string",
+            "enum": [
+              "INDIVIDUAL",
+              "JURISTIC"
+            ]
+          },
+          "whtForm": {
+            "type": "string",
+            "enum": [
+              "PND3",
+              "PND53"
+            ],
+            "description": "แบบยื่นภาษีหัก ณ ที่จ่าย (คำนวณจากประเภท)"
+          },
+          "taxId": {
+            "type": "string",
+            "nullable": true,
+            "description": "เลขผู้เสียภาษีเต็ม — เฉพาะนิติบุคคล; บุคคลธรรมดา = null (ดู taxIdLast4)"
+          },
+          "taxIdLast4": {
+            "type": "string",
+            "nullable": true,
+            "example": "2345",
+            "description": "4 หลักท้าย"
+          },
+          "branchCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "address": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CarrierAddressDto"
+              }
+            ]
+          },
+          "whtRate": {
+            "type": "string",
+            "enum": [
+              "1.00",
+              "3.00"
+            ]
+          },
+          "bankAccount": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CarrierBankAccountDto"
+              }
+            ]
+          },
+          "paymentTermDays": {
+            "type": "number"
+          },
+          "requirePodToPay": {
+            "type": "boolean"
+          },
+          "phone": {
+            "type": "string",
+            "nullable": true
+          },
+          "lineContact": {
+            "type": "string",
+            "nullable": true
+          },
+          "parent": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CarrierRefDto"
+              }
+            ]
+          },
+          "billingCompanyId": {
+            "type": "string",
+            "nullable": true,
+            "description": "จ้างในนาม (cmp_…)"
+          },
+          "maxTripsPerDay": {
+            "type": "number",
+            "nullable": true
+          },
+          "priority": {
+            "type": "number",
+            "nullable": true
+          },
+          "usage": {
+            "$ref": "#/components/schemas/CarrierUsageDto"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ],
+            "description": "inactive = ระงับชั่วคราว"
+          },
+          "deletedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "มีค่าเฉพาะเมื่อขอ includeDeleted=true และรายการถูกลบแล้ว (tombstone)"
+          },
+          "version": {
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "externalId",
+          "legalName",
+          "entityType",
+          "whtForm",
+          "taxId",
+          "taxIdLast4",
+          "branchCode",
+          "address",
+          "whtRate",
+          "bankAccount",
+          "paymentTermDays",
+          "requirePodToPay",
+          "phone",
+          "lineContact",
+          "parent",
+          "billingCompanyId",
+          "maxTripsPerDay",
+          "priority",
+          "usage",
+          "status",
+          "version",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "CarrierPageDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CarrierDto"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor",
+          "hasMore"
+        ]
+      },
+      "CarrierSummaryDto": {
+        "type": "object",
+        "properties": {
+          "total": {
+            "type": "number",
+            "description": "ผู้รับเหมาทั้งหมด (ไม่รวมที่ลบ)"
+          },
+          "active": {
+            "type": "number"
+          },
+          "inactive": {
+            "type": "number",
+            "description": "ระงับชั่วคราว"
+          },
+          "individual": {
+            "type": "number"
+          },
+          "juristic": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "total",
+          "active",
+          "inactive",
+          "individual",
+          "juristic"
+        ]
+      },
+      "CarrierBankAccountInputDto": {
+        "type": "object",
+        "properties": {
+          "bankCode": {
+            "type": "string",
+            "enum": [
+              "KBANK",
+              "SCB",
+              "BBL",
+              "KTB",
+              "BAY",
+              "TTB",
+              "GSB",
+              "BAAC",
+              "GHB",
+              "KKP",
+              "CIMBT",
+              "UOBT",
+              "TISCO",
+              "LHFG",
+              "ICBCT",
+              "TCRB",
+              "IBANK"
+            ],
+            "example": "KBANK",
+            "description": "รหัสธนาคาร"
+          },
+          "accountNo": {
+            "type": "string",
+            "example": "1234567891",
+            "description": "เลขบัญชี 10–15 หลัก (ขีด/ช่องว่างตัดให้) — ตอนแก้ไม่ส่ง = คงเลขเดิม (ต้องมีบัญชีอยู่แล้ว)"
+          },
+          "accountName": {
+            "type": "string",
+            "example": "หจก. ทรัพย์สมบูรณ์ขนส่ง",
+            "description": "ชื่อบัญชี"
+          }
+        },
+        "required": [
+          "bankCode",
+          "accountName"
+        ]
+      },
+      "CreateCarrierDto": {
+        "type": "object",
+        "properties": {
+          "branchCode": {
+            "type": "string",
+            "example": "00000",
+            "nullable": true,
+            "description": "รหัสสาขา 5 หลัก — นิติบุคคลไม่ส่ง = 00000 (สำนักงานใหญ่); บุคคลธรรมดาไม่มีสาขา"
+          },
+          "address": {
+            "nullable": true,
+            "description": "ที่อยู่ (พิมพ์บน 50 ทวิ)",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CarrierAddressDto"
+              }
+            ]
+          },
+          "whtRate": {
+            "type": "string",
+            "enum": [
+              "1.00",
+              "3.00"
+            ],
+            "description": "อัตราหัก ณ ที่จ่ายตั้งต้น (ค่าเริ่มต้น 1.00 = ค่าขนส่ง) — ค่าจริงอยู่ที่บรรทัด settlement"
+          },
+          "bankAccount": {
+            "nullable": true,
+            "description": "บัญชีรับเงิน — null = ลบบัญชี",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CarrierBankAccountInputDto"
+              }
+            ]
+          },
+          "paymentTermDays": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 365,
+            "description": "เงื่อนไขจ่าย (วัน) — ค่าเริ่มต้น 30"
+          },
+          "requirePodToPay": {
+            "type": "boolean",
+            "description": "ไม่มี POD ไม่จ่าย (ค่าเริ่มต้น true)"
+          },
+          "phone": {
+            "type": "string",
+            "example": "081-234-5678",
+            "nullable": true
+          },
+          "lineContact": {
+            "type": "string",
+            "example": "@sapsomboon",
+            "nullable": true,
+            "description": "LINE ID สำหรับส่งใบสั่งงาน"
+          },
+          "parentCarrierId": {
+            "type": "string",
+            "example": "car_…",
+            "nullable": true,
+            "description": "สังกัด (parent carrier) — ต้องอยู่ใน tenant เดียวกัน ห้ามวน"
+          },
+          "billingCompanyId": {
+            "type": "string",
+            "example": "cmp_…",
+            "nullable": true,
+            "description": "จ้างในนาม (Tender As — docs/04 A4) — null = ใช้ค่าเริ่มต้นขององค์กร"
+          },
+          "maxTripsPerDay": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 999,
+            "nullable": true,
+            "description": "เพดานเที่ยว/วัน — null = ไม่จำกัด"
+          },
+          "priority": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 999,
+            "nullable": true,
+            "description": "ลำดับใน cascade (1 = เสนองานก่อน) — null = ไม่จัดลำดับ"
+          },
+          "legalName": {
+            "type": "string",
+            "example": "หจก. ทรัพย์สมบูรณ์ขนส่ง",
+            "description": "ชื่อผู้รับเหมา (ตามบัตร/จดทะเบียน)"
+          },
+          "entityType": {
+            "type": "string",
+            "enum": [
+              "INDIVIDUAL",
+              "JURISTIC"
+            ],
+            "description": "INDIVIDUAL = บุคคลธรรมดา (ภ.ง.ด.3), JURISTIC = นิติบุคคล (ภ.ง.ด.53)"
+          },
+          "taxId": {
+            "type": "string",
+            "example": "0103556012345",
+            "description": "เลขผู้เสียภาษี 13 หลัก (ตรวจ check digit — ผิด → 422) · บุคคลธรรมดา = เลขบัตรประชาชน (เก็บแบบเข้ารหัส ไม่คืนใน response)"
+          },
+          "code": {
+            "type": "string",
+            "example": "SUB-0001",
+            "description": "รหัส — ไม่ส่ง = ระบบออกเลขถัดไป (MD-002)"
+          },
+          "externalId": {
+            "type": "string",
+            "description": "รหัสในระบบต้นทาง — เรียกด้วย ext:{externalId} ได้"
+          }
+        },
+        "required": [
+          "legalName",
+          "entityType",
+          "taxId"
+        ]
+      },
+      "UpsertCarrierDto": {
+        "type": "object",
+        "properties": {
+          "branchCode": {
+            "type": "string",
+            "example": "00000",
+            "nullable": true,
+            "description": "รหัสสาขา 5 หลัก — นิติบุคคลไม่ส่ง = 00000 (สำนักงานใหญ่); บุคคลธรรมดาไม่มีสาขา"
+          },
+          "address": {
+            "nullable": true,
+            "description": "ที่อยู่ (พิมพ์บน 50 ทวิ)",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CarrierAddressDto"
+              }
+            ]
+          },
+          "whtRate": {
+            "type": "string",
+            "enum": [
+              "1.00",
+              "3.00"
+            ],
+            "description": "อัตราหัก ณ ที่จ่ายตั้งต้น (ค่าเริ่มต้น 1.00 = ค่าขนส่ง) — ค่าจริงอยู่ที่บรรทัด settlement"
+          },
+          "bankAccount": {
+            "nullable": true,
+            "description": "บัญชีรับเงิน — null = ลบบัญชี",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CarrierBankAccountInputDto"
+              }
+            ]
+          },
+          "paymentTermDays": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 365,
+            "description": "เงื่อนไขจ่าย (วัน) — ค่าเริ่มต้น 30"
+          },
+          "requirePodToPay": {
+            "type": "boolean",
+            "description": "ไม่มี POD ไม่จ่าย (ค่าเริ่มต้น true)"
+          },
+          "phone": {
+            "type": "string",
+            "example": "081-234-5678",
+            "nullable": true
+          },
+          "lineContact": {
+            "type": "string",
+            "example": "@sapsomboon",
+            "nullable": true,
+            "description": "LINE ID สำหรับส่งใบสั่งงาน"
+          },
+          "parentCarrierId": {
+            "type": "string",
+            "example": "car_…",
+            "nullable": true,
+            "description": "สังกัด (parent carrier) — ต้องอยู่ใน tenant เดียวกัน ห้ามวน"
+          },
+          "billingCompanyId": {
+            "type": "string",
+            "example": "cmp_…",
+            "nullable": true,
+            "description": "จ้างในนาม (Tender As — docs/04 A4) — null = ใช้ค่าเริ่มต้นขององค์กร"
+          },
+          "maxTripsPerDay": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 999,
+            "nullable": true,
+            "description": "เพดานเที่ยว/วัน — null = ไม่จำกัด"
+          },
+          "priority": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 999,
+            "nullable": true,
+            "description": "ลำดับใน cascade (1 = เสนองานก่อน) — null = ไม่จัดลำดับ"
+          },
+          "legalName": {
+            "type": "string",
+            "example": "หจก. ทรัพย์สมบูรณ์ขนส่ง",
+            "description": "ชื่อผู้รับเหมา (ตามบัตร/จดทะเบียน)"
+          },
+          "entityType": {
+            "type": "string",
+            "enum": [
+              "INDIVIDUAL",
+              "JURISTIC"
+            ],
+            "description": "INDIVIDUAL = บุคคลธรรมดา (ภ.ง.ด.3), JURISTIC = นิติบุคคล (ภ.ง.ด.53)"
+          },
+          "taxId": {
+            "type": "string",
+            "example": "0103556012345",
+            "description": "เลขผู้เสียภาษี 13 หลัก (ตรวจ check digit — ผิด → 422) · บุคคลธรรมดา = เลขบัตรประชาชน (เก็บแบบเข้ารหัส ไม่คืนใน response)"
+          },
+          "code": {
+            "type": "string",
+            "example": "SUB-0001",
+            "description": "ใช้ตอนสร้างเท่านั้น"
+          }
+        },
+        "required": [
+          "legalName",
+          "entityType",
+          "taxId"
+        ]
+      },
+      "RevealCarrierDto": {
+        "type": "object",
+        "properties": {
+          "field": {
+            "type": "string",
+            "enum": [
+              "taxId",
+              "bankAccountNo"
+            ],
+            "description": "taxId = เลขผู้เสียภาษี/เลขบัตรประชาชนเต็ม · bankAccountNo = เลขบัญชีเต็ม"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500,
+            "description": "เหตุผล (ลง audit log)"
+          }
+        },
+        "required": [
+          "field"
+        ]
+      },
+      "RevealCarrierResultDto": {
+        "type": "object",
+        "properties": {
+          "field": {
+            "type": "string",
+            "enum": [
+              "taxId",
+              "bankAccountNo"
+            ]
+          },
+          "value": {
+            "type": "string",
+            "nullable": true,
+            "description": "ค่าเต็ม — null = ไม่มีข้อมูล"
+          }
+        },
+        "required": [
+          "field",
+          "value"
+        ]
+      },
+      "UpdateCarrierDto": {
+        "type": "object",
+        "properties": {
+          "branchCode": {
+            "type": "string",
+            "example": "00000",
+            "nullable": true,
+            "description": "รหัสสาขา 5 หลัก — นิติบุคคลไม่ส่ง = 00000 (สำนักงานใหญ่); บุคคลธรรมดาไม่มีสาขา"
+          },
+          "address": {
+            "nullable": true,
+            "description": "ที่อยู่ (พิมพ์บน 50 ทวิ)",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CarrierAddressDto"
+              }
+            ]
+          },
+          "whtRate": {
+            "type": "string",
+            "enum": [
+              "1.00",
+              "3.00"
+            ],
+            "description": "อัตราหัก ณ ที่จ่ายตั้งต้น (ค่าเริ่มต้น 1.00 = ค่าขนส่ง) — ค่าจริงอยู่ที่บรรทัด settlement"
+          },
+          "bankAccount": {
+            "nullable": true,
+            "description": "บัญชีรับเงิน — null = ลบบัญชี",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CarrierBankAccountInputDto"
+              }
+            ]
+          },
+          "paymentTermDays": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 365,
+            "description": "เงื่อนไขจ่าย (วัน) — ค่าเริ่มต้น 30"
+          },
+          "requirePodToPay": {
+            "type": "boolean",
+            "description": "ไม่มี POD ไม่จ่าย (ค่าเริ่มต้น true)"
+          },
+          "phone": {
+            "type": "string",
+            "example": "081-234-5678",
+            "nullable": true
+          },
+          "lineContact": {
+            "type": "string",
+            "example": "@sapsomboon",
+            "nullable": true,
+            "description": "LINE ID สำหรับส่งใบสั่งงาน"
+          },
+          "parentCarrierId": {
+            "type": "string",
+            "example": "car_…",
+            "nullable": true,
+            "description": "สังกัด (parent carrier) — ต้องอยู่ใน tenant เดียวกัน ห้ามวน"
+          },
+          "billingCompanyId": {
+            "type": "string",
+            "example": "cmp_…",
+            "nullable": true,
+            "description": "จ้างในนาม (Tender As — docs/04 A4) — null = ใช้ค่าเริ่มต้นขององค์กร"
+          },
+          "maxTripsPerDay": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 999,
+            "nullable": true,
+            "description": "เพดานเที่ยว/วัน — null = ไม่จำกัด"
+          },
+          "priority": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 999,
+            "nullable": true,
+            "description": "ลำดับใน cascade (1 = เสนองานก่อน) — null = ไม่จัดลำดับ"
+          },
+          "legalName": {
+            "type": "string",
+            "example": "หจก. ทรัพย์สมบูรณ์ขนส่ง"
+          },
+          "entityType": {
+            "type": "string",
+            "enum": [
+              "INDIVIDUAL",
+              "JURISTIC"
+            ],
+            "description": "เปลี่ยนประเภท: เลขเดิมย้ายที่เก็บให้เอง (นิติบุคคล ↔ เข้ารหัส)"
+          },
+          "taxId": {
+            "type": "string",
+            "example": "0103556012345",
+            "description": "ไม่ส่ง = คงเลขเดิม"
           },
           "externalId": {
             "type": "string",

@@ -21,6 +21,7 @@ export const ID_PREFIX = {
   customer: 'cus',
   site: 'loc',
   vehicleType: 'vty',
+  carrier: 'car',
 } as const;
 export type IdKind = keyof typeof ID_PREFIX;
 
