@@ -222,10 +222,20 @@ export function statusFilter(status?: string): { in: ('ACTIVE' | 'INACTIVE')[] }
   return { in: status.split(',').map((s) => s.toUpperCase() as 'ACTIVE' | 'INACTIVE') };
 }
 
-/** JSON แบบเรียง key (jsonb ใน Postgres เรียง key ใหม่ — เทียบค่าด้วย key ที่เรียงแล้ว) */
+/**
+ * JSON แบบเรียง key (jsonb ใน Postgres เรียง key ใหม่ — เทียบค่าด้วย key ที่เรียงแล้ว)
+ * ค่าที่ไม่ใช่ JSON ล้วนแปลงเป็นข้อความที่เทียบได้ (Defect ST2-T08 review: Date เคยกลายเป็น `{}` → แก้แค่วันที่ = no-op):
+ * Date → ISO (เวลา UTC), Prisma.Decimal → ตัวเลขปกติ (`500000.00` = `500000`), BigInt → `123n`, Buffer/Uint8Array → base64
+ */
 export function stableStringify(v: unknown): string {
   if (v === undefined) return 'null';
+  if (typeof v === 'bigint') return JSON.stringify(`${v.toString()}n`);
   if (v === null || typeof v !== 'object') return JSON.stringify(v);
+  if (v instanceof Date)
+    return JSON.stringify(Number.isNaN(v.getTime()) ? 'Invalid Date' : `D:${v.toISOString()}`);
+  if (Prisma.Decimal.isDecimal(v))
+    return JSON.stringify(`N:${new Prisma.Decimal(v as Prisma.Decimal).toString()}`);
+  if (v instanceof Uint8Array) return JSON.stringify(`B:${Buffer.from(v).toString('base64')}`);
   if (Array.isArray(v)) return `[${v.map(stableStringify).join(',')}]`;
   const o = v as Record<string, unknown>;
   return `{${Object.keys(o)
@@ -292,6 +302,7 @@ const CODE_TABLES = [
   'carrier',
   'vehicle_type',
   'service_item',
+  'driver',
 ] as const;
 export type CodeTable = (typeof CODE_TABLES)[number];
 

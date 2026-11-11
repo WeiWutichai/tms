@@ -988,7 +988,11 @@ export class VehiclesService {
           name: 'positions',
           count: () => tx.vehiclePosition.count({ where: { vehicleId: id } }),
         },
-        { name: 'drivers', count: () => tx.driver.count({ where: { defaultVehicleId: id } }) },
+        {
+          // คนขับที่ลบแล้วไม่นับ · ปิดใช้งานคนขับ = ล้างรถประจำ (ST2-T08 review) จึงเหลือเฉพาะคนขับที่ใช้งาน
+          name: 'drivers',
+          count: () => tx.driver.count({ where: { defaultVehicleId: id, deletedAt: null } }),
+        },
       ],
       { action: 'retire', th: 'ปลดระวาง', en: 'retire' },
     );

@@ -371,7 +371,7 @@ export class CarrierRefDto {
 
 export class CarrierUsageDto {
   @ApiProperty({ description: 'รถในสังกัด (ไม่นับที่ปลดระวาง)' }) vehicles!: number;
-  @ApiProperty({ description: 'คนขับในสังกัด' }) drivers!: number;
+  @ApiProperty({ description: 'คนขับในสังกัด (ไม่นับปิดใช้งาน)' }) drivers!: number;
   @ApiProperty({ description: 'รถร่วมที่สังกัดรายนี้ (child)' }) children!: number;
 }
 

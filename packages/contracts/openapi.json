@@ -7386,6 +7386,859 @@
         ]
       }
     },
+    "/v1/drivers": {
+      "get": {
+        "operationId": "Drivers_list",
+        "parameters": [
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "ค่า nextCursor จากหน้าก่อน (ใช้กับ sort เดิมเท่านั้น)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "updatedAfter",
+            "required": false,
+            "in": "query",
+            "description": "คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sort",
+            "required": false,
+            "in": "query",
+            "description": "code = เรียงตามรหัส (ค่าเริ่มต้นของหน้าจอ) · updatedAt/-updatedAt สำหรับ sync",
+            "schema": {
+              "default": "code",
+              "type": "string",
+              "enum": [
+                "code",
+                "updatedAt",
+                "-updatedAt"
+              ]
+            }
+          },
+          {
+            "name": "fields",
+            "required": false,
+            "in": "query",
+            "description": "รายชื่อ field คั่นด้วย , เช่น id,name",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "required": false,
+            "in": "query",
+            "description": "ค้นหา — รหัส ชื่อ เบอร์ เลขที่ใบขับขี่ externalId หรือ 4 หลักท้ายเลขบัตรประชาชน (ไม่สนตัวพิมพ์)",
+            "schema": {
+              "maxLength": 100,
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "description": "คั่นด้วย , เช่น active,on_leave",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "externalId",
+            "required": false,
+            "in": "query",
+            "description": "externalId ตรงตัว",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "includeDeleted",
+            "required": false,
+            "in": "query",
+            "description": "true = รวมรายการที่ถูกลบ (tombstone มี `deletedAt`)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "required": false,
+            "in": "query",
+            "description": "ชื่อมีคำนี้",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "employmentType",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "EMPLOYEE_SALARIED",
+                "EMPLOYEE_PER_TRIP",
+                "CARRIER_DRIVER"
+              ]
+            }
+          },
+          {
+            "name": "licenceClass",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "PERSONAL",
+                "T1",
+                "T2",
+                "T3",
+                "T4"
+              ]
+            }
+          },
+          {
+            "name": "carrierId",
+            "required": false,
+            "in": "query",
+            "description": "เฉพาะคนขับของผู้รับเหมานี้ (car_…)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "affiliation",
+            "required": false,
+            "in": "query",
+            "description": "สังกัดมีคำนี้ — ชื่อผู้รับเหมา (คนขับรถร่วม) หรือชื่อบริษัทของ tenant (คนขับบริษัท)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "defaultVehicleId",
+            "required": false,
+            "in": "query",
+            "description": "เฉพาะคนขับที่มีรถประจำคันนี้ (veh_…)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "licenceAlert",
+            "required": false,
+            "in": "query",
+            "description": "true = ใบขับขี่หมดภายใน 30 วันหรือหมดแล้ว (ไม่นับคนขับปิดใช้งาน — ต้นแบบ \"ใบขับขี่ใกล้หมดอายุ 30 วัน\") · false = ไม่ใช่",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DriverPageDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "drivers"
+        ]
+      },
+      "post": {
+        "operationId": "Drivers_create",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateDriverDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DriverDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "drivers"
+        ]
+      }
+    },
+    "/v1/drivers/summary": {
+      "get": {
+        "operationId": "Drivers_summary",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DriverSummaryDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "drivers"
+        ]
+      }
+    },
+    "/v1/drivers/next-code": {
+      "get": {
+        "operationId": "Drivers_nextCode",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "รหัสที่ระบบจะออกให้คนขับใหม่ (`DRV-0001`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NextCodeDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "drivers"
+        ]
+      }
+    },
+    "/v1/drivers/export": {
+      "get": {
+        "operationId": "Drivers_export",
+        "parameters": [
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "ค่า nextCursor จากหน้าก่อน (ใช้กับ sort เดิมเท่านั้น)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "updatedAfter",
+            "required": false,
+            "in": "query",
+            "description": "คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sort",
+            "required": false,
+            "in": "query",
+            "description": "code = เรียงตามรหัส (ค่าเริ่มต้นของหน้าจอ) · updatedAt/-updatedAt สำหรับ sync",
+            "schema": {
+              "default": "code",
+              "type": "string",
+              "enum": [
+                "code",
+                "updatedAt",
+                "-updatedAt"
+              ]
+            }
+          },
+          {
+            "name": "fields",
+            "required": false,
+            "in": "query",
+            "description": "รายชื่อ field คั่นด้วย , เช่น id,name",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "required": false,
+            "in": "query",
+            "description": "ค้นหา — รหัส ชื่อ เบอร์ เลขที่ใบขับขี่ externalId หรือ 4 หลักท้ายเลขบัตรประชาชน (ไม่สนตัวพิมพ์)",
+            "schema": {
+              "maxLength": 100,
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "description": "คั่นด้วย , เช่น active,on_leave",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "externalId",
+            "required": false,
+            "in": "query",
+            "description": "externalId ตรงตัว",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "includeDeleted",
+            "required": false,
+            "in": "query",
+            "description": "true = รวมรายการที่ถูกลบ (tombstone มี `deletedAt`)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "required": false,
+            "in": "query",
+            "description": "ชื่อมีคำนี้",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "employmentType",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "EMPLOYEE_SALARIED",
+                "EMPLOYEE_PER_TRIP",
+                "CARRIER_DRIVER"
+              ]
+            }
+          },
+          {
+            "name": "licenceClass",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "PERSONAL",
+                "T1",
+                "T2",
+                "T3",
+                "T4"
+              ]
+            }
+          },
+          {
+            "name": "carrierId",
+            "required": false,
+            "in": "query",
+            "description": "เฉพาะคนขับของผู้รับเหมานี้ (car_…)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "affiliation",
+            "required": false,
+            "in": "query",
+            "description": "สังกัดมีคำนี้ — ชื่อผู้รับเหมา (คนขับรถร่วม) หรือชื่อบริษัทของ tenant (คนขับบริษัท)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "defaultVehicleId",
+            "required": false,
+            "in": "query",
+            "description": "เฉพาะคนขับที่มีรถประจำคันนี้ (veh_…)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "licenceAlert",
+            "required": false,
+            "in": "query",
+            "description": "true = ใบขับขี่หมดภายใน 30 วันหรือหมดแล้ว (ไม่นับคนขับปิดใช้งาน — ต้นแบบ \"ใบขับขี่ใกล้หมดอายุ 30 วัน\") · false = ไม่ใช่",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          },
+          {
+            "name": "format",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "xlsx",
+              "type": "string",
+              "enum": [
+                "xlsx",
+                "csv"
+              ]
+            }
+          },
+          {
+            "name": "ids",
+            "required": false,
+            "in": "query",
+            "description": "ส่งออกเฉพาะ id เหล่านี้ (คั่นด้วย ,) — แถวที่เลือกในตาราง",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ไฟล์ .xlsx หรือ .csv ตามตัวกรองเดียวกับรายการ (สูงสุด 10,000 แถว) — เลขบัตรประชาชนปิดบังเสมอ"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "drivers"
+        ]
+      }
+    },
+    "/v1/drivers/external/{externalId}": {
+      "put": {
+        "operationId": "Drivers_upsertExternal",
+        "parameters": [
+          {
+            "name": "externalId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag — ใช้เมื่อแถวมีอยู่แล้ว",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertDriverDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "มีอยู่แล้ว → อัปเดต (ส่งซ้ำได้ ไม่เกิดแถวใหม่)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DriverDto"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "ยังไม่มี → สร้าง",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DriverDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "drivers"
+        ]
+      }
+    },
+    "/v1/drivers/{id}": {
+      "get": {
+        "operationId": "Drivers_get",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DriverDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "drivers"
+        ]
+      },
+      "patch": {
+        "operationId": "Drivers_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateDriverDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DriverDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "drivers"
+        ]
+      }
+    },
+    "/v1/drivers/{id}/history": {
+      "get": {
+        "operationId": "Drivers_history",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "ค่า nextCursor จากหน้าก่อน",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ประวัติการแก้จาก audit log ใหม่สุดก่อน",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditPageDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "drivers"
+        ]
+      }
+    },
+    "/v1/drivers/{id}/reveal": {
+      "post": {
+        "operationId": "Drivers_reveal",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RevealDriverDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevealDriverResultDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "rate_limited — เกิน 20 ครั้ง/นาที/ผู้ใช้ (Retry-After)"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "drivers"
+        ]
+      }
+    },
+    "/v1/drivers/{id}/status": {
+      "post": {
+        "operationId": "Drivers_status",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DriverStatusDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DriverDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "drivers"
+        ]
+      }
+    },
+    "/v1/drivers/{id}/delete": {
+      "post": {
+        "operationId": "Drivers_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MasterReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "drivers"
+        ]
+      }
+    },
     "/v1/vehicles/{id}/documents": {
       "get": {
         "operationId": "VehicleDocuments_listForVehicle",
@@ -12370,7 +13223,7 @@
           },
           "drivers": {
             "type": "number",
-            "description": "คนขับในสังกัด"
+            "description": "คนขับในสังกัด (ไม่นับปิดใช้งาน)"
           },
           "children": {
             "type": "number",
@@ -14590,6 +15443,546 @@
           "readingKm",
           "reasonType",
           "note"
+        ]
+      },
+      "DriverCarrierRefDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "car_…"
+          },
+          "code": {
+            "type": "string"
+          },
+          "legalName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "legalName"
+        ]
+      },
+      "DriverVehicleRefDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "veh_…"
+          },
+          "plate": {
+            "type": "string",
+            "example": "70-1234"
+          },
+          "plateProvince": {
+            "type": "string",
+            "example": "TH-10"
+          },
+          "vehicleTypeName": {
+            "type": "string",
+            "example": "รถ 6 ล้อ"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "maintenance",
+              "parked",
+              "retired"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "plate",
+          "plateProvince",
+          "vehicleTypeName",
+          "status"
+        ]
+      },
+      "DriverDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "drv_3f2a…"
+          },
+          "code": {
+            "type": "string",
+            "example": "DRV-0001"
+          },
+          "externalId": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "example": "สมชาย ใจดี"
+          },
+          "phone": {
+            "type": "string",
+            "example": "081-234-5678"
+          },
+          "nationalIdLast4": {
+            "type": "string",
+            "nullable": true,
+            "example": "3457",
+            "description": "4 หลักท้ายเลขบัตรประชาชน (แสดง •••• 3457) — เลขเต็มไม่มีใน API ดูได้ทาง reveal"
+          },
+          "licenceNo": {
+            "type": "string",
+            "nullable": true
+          },
+          "licenceClass": {
+            "type": "string",
+            "enum": [
+              "PERSONAL",
+              "T1",
+              "T2",
+              "T3",
+              "T4"
+            ],
+            "nullable": true
+          },
+          "licenceExpiresOn": {
+            "type": "string",
+            "nullable": true,
+            "format": "date"
+          },
+          "licenceStatus": {
+            "type": "string",
+            "enum": [
+              "valid",
+              "expiring",
+              "expired",
+              "missing"
+            ]
+          },
+          "licenceDaysToExpiry": {
+            "type": "number",
+            "nullable": true,
+            "description": "จำนวนวันถึงวันหมด (ติดลบ = หมดมาแล้ว) ตามวันนี้เวลาไทย"
+          },
+          "employmentType": {
+            "type": "string",
+            "enum": [
+              "EMPLOYEE_SALARIED",
+              "EMPLOYEE_PER_TRIP",
+              "CARRIER_DRIVER"
+            ]
+          },
+          "carrier": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/DriverCarrierRefDto"
+              }
+            ]
+          },
+          "defaultVehicle": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/DriverVehicleRefDto"
+              }
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "on_leave",
+              "inactive"
+            ]
+          },
+          "statusReason": {
+            "type": "string",
+            "nullable": true,
+            "description": "เหตุผลการเปลี่ยนสถานะล่าสุด"
+          },
+          "deletedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "มีเฉพาะรายการที่ถูกลบ (tombstone)"
+          },
+          "version": {
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "externalId",
+          "name",
+          "phone",
+          "nationalIdLast4",
+          "licenceNo",
+          "licenceClass",
+          "licenceExpiresOn",
+          "licenceStatus",
+          "licenceDaysToExpiry",
+          "employmentType",
+          "carrier",
+          "defaultVehicle",
+          "status",
+          "statusReason",
+          "version",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "DriverPageDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DriverDto"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor",
+          "hasMore"
+        ]
+      },
+      "DriverSummaryDto": {
+        "type": "object",
+        "properties": {
+          "total": {
+            "type": "number",
+            "description": "คนขับทั้งหมด (ไม่รวมที่ลบ — รวมปิดใช้งาน)"
+          },
+          "active": {
+            "type": "number",
+            "description": "พร้อมใช้"
+          },
+          "onLeave": {
+            "type": "number",
+            "description": "ลาพัก"
+          },
+          "inactive": {
+            "type": "number",
+            "description": "ปิดใช้"
+          },
+          "licenceAlert": {
+            "type": "number",
+            "description": "คนขับ (ไม่ปิดใช้งาน) ที่ใบขับขี่หมดภายใน 30 วันหรือหมดแล้ว"
+          },
+          "carrierDrivers": {
+            "type": "number",
+            "description": "คนขับรถร่วม (ไม่ปิดใช้งาน)"
+          }
+        },
+        "required": [
+          "total",
+          "active",
+          "onLeave",
+          "inactive",
+          "licenceAlert",
+          "carrierDrivers"
+        ]
+      },
+      "CreateDriverDto": {
+        "type": "object",
+        "properties": {
+          "nationalId": {
+            "type": "string",
+            "example": "3100500123457",
+            "nullable": true,
+            "description": "เลขบัตรประชาชน 13 หลัก (ตรวจ check digit) — เก็บแบบเข้ารหัส ไม่คืนใน response (คืน `nationalIdLast4`) · null = ลบ"
+          },
+          "licenceNo": {
+            "type": "string",
+            "example": "58001234",
+            "nullable": true
+          },
+          "carrierId": {
+            "type": "string",
+            "example": "car_…",
+            "nullable": true,
+            "description": "รถร่วม/ผู้รับเหมาต้นสังกัด (car_… — บังคับเมื่อ CARRIER_DRIVER, ห้ามมีเมื่อเป็นคนขับบริษัท)"
+          },
+          "defaultVehicleId": {
+            "type": "string",
+            "example": "veh_…",
+            "nullable": true,
+            "description": "รถประจำ (veh_…) — ไม่ปลดระวาง ไม่ใช่หาง; คนขับรถร่วมต้องเป็นรถของผู้รับเหมาเดียวกัน, คนขับบริษัทต้องเป็นรถบริษัท · null = ไม่มี"
+          },
+          "name": {
+            "type": "string",
+            "example": "สมชาย ใจดี",
+            "description": "ชื่อ-นามสกุล"
+          },
+          "phone": {
+            "type": "string",
+            "example": "081-234-5678",
+            "description": "เบอร์โทร (ไทย) — ห้ามซ้ำกับคนขับที่ยังไม่ปิดใช้งาน (ใช้ login แอปคนขับภายหลัง)"
+          },
+          "employmentType": {
+            "type": "string",
+            "enum": [
+              "EMPLOYEE_SALARIED",
+              "EMPLOYEE_PER_TRIP",
+              "CARRIER_DRIVER"
+            ]
+          },
+          "licenceClass": {
+            "type": "string",
+            "enum": [
+              "PERSONAL",
+              "T1",
+              "T2",
+              "T3",
+              "T4"
+            ],
+            "description": "PERSONAL = ส่วนบุคคล, T1–T4 = ท.1–ท.4"
+          },
+          "licenceExpiresOn": {
+            "type": "string",
+            "example": "2028-03-31",
+            "format": "date",
+            "description": "วันหมดอายุใบขับขี่ (ใช้ได้ถึงสิ้นวัน; 2000-01-01 – 2100-12-31)"
+          },
+          "code": {
+            "type": "string",
+            "example": "DRV-0001",
+            "description": "รหัส — ไม่ส่ง = ระบบออกเลขถัดไป"
+          },
+          "externalId": {
+            "type": "string",
+            "description": "รหัสในระบบต้นทาง — เรียกด้วย ext:{externalId} ได้"
+          }
+        },
+        "required": [
+          "name",
+          "phone",
+          "employmentType",
+          "licenceClass",
+          "licenceExpiresOn"
+        ]
+      },
+      "UpsertDriverDto": {
+        "type": "object",
+        "properties": {
+          "nationalId": {
+            "type": "string",
+            "example": "3100500123457",
+            "nullable": true,
+            "description": "เลขบัตรประชาชน 13 หลัก (ตรวจ check digit) — เก็บแบบเข้ารหัส ไม่คืนใน response (คืน `nationalIdLast4`) · null = ลบ"
+          },
+          "licenceNo": {
+            "type": "string",
+            "example": "58001234",
+            "nullable": true
+          },
+          "carrierId": {
+            "type": "string",
+            "example": "car_…",
+            "nullable": true,
+            "description": "รถร่วม/ผู้รับเหมาต้นสังกัด (car_… — บังคับเมื่อ CARRIER_DRIVER, ห้ามมีเมื่อเป็นคนขับบริษัท)"
+          },
+          "defaultVehicleId": {
+            "type": "string",
+            "example": "veh_…",
+            "nullable": true,
+            "description": "รถประจำ (veh_…) — ไม่ปลดระวาง ไม่ใช่หาง; คนขับรถร่วมต้องเป็นรถของผู้รับเหมาเดียวกัน, คนขับบริษัทต้องเป็นรถบริษัท · null = ไม่มี"
+          },
+          "name": {
+            "type": "string",
+            "example": "สมชาย ใจดี",
+            "description": "ชื่อ-นามสกุล"
+          },
+          "phone": {
+            "type": "string",
+            "example": "081-234-5678",
+            "description": "เบอร์โทร (ไทย) — ห้ามซ้ำกับคนขับที่ยังไม่ปิดใช้งาน (ใช้ login แอปคนขับภายหลัง)"
+          },
+          "employmentType": {
+            "type": "string",
+            "enum": [
+              "EMPLOYEE_SALARIED",
+              "EMPLOYEE_PER_TRIP",
+              "CARRIER_DRIVER"
+            ]
+          },
+          "licenceClass": {
+            "type": "string",
+            "enum": [
+              "PERSONAL",
+              "T1",
+              "T2",
+              "T3",
+              "T4"
+            ],
+            "description": "PERSONAL = ส่วนบุคคล, T1–T4 = ท.1–ท.4"
+          },
+          "licenceExpiresOn": {
+            "type": "string",
+            "example": "2028-03-31",
+            "format": "date",
+            "description": "วันหมดอายุใบขับขี่ (ใช้ได้ถึงสิ้นวัน; 2000-01-01 – 2100-12-31)"
+          },
+          "code": {
+            "type": "string",
+            "example": "DRV-0001",
+            "description": "ใช้ตอนสร้างเท่านั้น"
+          }
+        },
+        "required": [
+          "name",
+          "phone",
+          "employmentType",
+          "licenceClass",
+          "licenceExpiresOn"
+        ]
+      },
+      "RevealDriverDto": {
+        "type": "object",
+        "properties": {
+          "field": {
+            "type": "string",
+            "enum": [
+              "nationalId"
+            ],
+            "default": "nationalId"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 10,
+            "maxLength": 500,
+            "description": "เหตุผล ≥ 10 ตัวอักษร (ลง audit log)"
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      },
+      "RevealDriverResultDto": {
+        "type": "object",
+        "properties": {
+          "field": {
+            "type": "string",
+            "enum": [
+              "nationalId"
+            ]
+          },
+          "value": {
+            "type": "string",
+            "nullable": true,
+            "description": "ค่าเต็ม — null = ไม่มีข้อมูล"
+          }
+        },
+        "required": [
+          "field",
+          "value"
+        ]
+      },
+      "UpdateDriverDto": {
+        "type": "object",
+        "properties": {
+          "nationalId": {
+            "type": "string",
+            "example": "3100500123457",
+            "nullable": true,
+            "description": "เลขบัตรประชาชน 13 หลัก (ตรวจ check digit) — เก็บแบบเข้ารหัส ไม่คืนใน response (คืน `nationalIdLast4`) · null = ลบ"
+          },
+          "licenceNo": {
+            "type": "string",
+            "example": "58001234",
+            "nullable": true
+          },
+          "carrierId": {
+            "type": "string",
+            "example": "car_…",
+            "nullable": true,
+            "description": "รถร่วม/ผู้รับเหมาต้นสังกัด (car_… — บังคับเมื่อ CARRIER_DRIVER, ห้ามมีเมื่อเป็นคนขับบริษัท)"
+          },
+          "defaultVehicleId": {
+            "type": "string",
+            "example": "veh_…",
+            "nullable": true,
+            "description": "รถประจำ (veh_…) — ไม่ปลดระวาง ไม่ใช่หาง; คนขับรถร่วมต้องเป็นรถของผู้รับเหมาเดียวกัน, คนขับบริษัทต้องเป็นรถบริษัท · null = ไม่มี"
+          },
+          "name": {
+            "type": "string",
+            "example": "สมชาย ใจดี"
+          },
+          "phone": {
+            "type": "string",
+            "example": "081-234-5678"
+          },
+          "employmentType": {
+            "type": "string",
+            "enum": [
+              "EMPLOYEE_SALARIED",
+              "EMPLOYEE_PER_TRIP",
+              "CARRIER_DRIVER"
+            ],
+            "description": "เปลี่ยนเป็น/จาก CARRIER_DRIVER ต้องส่ง carrierId (หรือ null) ในคำขอเดียวกัน"
+          },
+          "licenceClass": {
+            "type": "string",
+            "enum": [
+              "PERSONAL",
+              "T1",
+              "T2",
+              "T3",
+              "T4"
+            ]
+          },
+          "licenceExpiresOn": {
+            "type": "string",
+            "example": "2028-03-31",
+            "format": "date"
+          },
+          "externalId": {
+            "type": "string",
+            "nullable": true,
+            "description": "null = ลบการผูก"
+          }
+        }
+      },
+      "DriverStatusDto": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "on_leave",
+              "inactive"
+            ],
+            "description": "active = พร้อมใช้, on_leave = ลาพัก (ไม่เสนอในการจัดรถ), inactive = ปิดใช้ (พ้นสภาพ — เบอร์/เลขบัตรนำไปใช้กับ record ใหม่ได้)"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 10,
+            "maxLength": 500,
+            "example": "ลาพักร้อน 3 วัน 12–14 พ.ย."
+          }
+        },
+        "required": [
+          "status",
+          "reason"
         ]
       },
       "VehicleDocumentVehicleDto": {

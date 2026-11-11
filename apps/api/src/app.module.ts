@@ -54,6 +54,8 @@ import { CarriersController } from './modules/carriers/carriers.controller';
 import { CarriersService } from './modules/carriers/carriers.service';
 import { VehicleDocumentsController } from './modules/vehicle-documents/vehicle-documents.controller';
 import { VehicleDocumentsService } from './modules/vehicle-documents/vehicle-documents.service';
+import { DriversController } from './modules/drivers/drivers.controller';
+import { DriversService } from './modules/drivers/drivers.service';
 import { VehiclesController } from './modules/vehicles/vehicles.controller';
 import { VehiclesService } from './modules/vehicles/vehicles.service';
 import { GeoService } from './modules/geo/geo.service';
@@ -98,6 +100,7 @@ import { StateService } from './state/state.service';
     VehicleTypesController,
     CarriersController,
     VehiclesController,
+    DriversController,
     VehicleDocumentsController,
   ],
   providers: [
@@ -124,6 +127,7 @@ import { StateService } from './state/state.service';
     VehicleTypesService,
     CarriersService,
     VehiclesService,
+    DriversService,
     VehicleDocumentsService,
     GeoService,
     AuditService,

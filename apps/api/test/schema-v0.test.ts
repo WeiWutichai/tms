@@ -54,7 +54,16 @@ describe('schema v0 constraints', () => {
 
   it('คนขับรถร่วมต้องมี carrier', async () => {
     await expect(
-      db.driver.create({ data: { tenantId: t, name: 'สมชาย', employmentType: 'CARRIER_DRIVER' } }),
+      db.driver.create({
+        data: {
+          tenantId: t,
+          code: 'DRV-0001',
+          name: 'สมชาย',
+          phone: '0812345678',
+          phoneNorm: '0812345678',
+          employmentType: 'CARRIER_DRIVER',
+        },
+      }),
     ).rejects.toThrow(/driver_carrier_driver_needs_carrier/);
   });
 

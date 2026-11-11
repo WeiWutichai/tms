@@ -500,6 +500,7 @@ model Carrier {
   createdAt         DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   vehicles          Vehicle[]
+  drivers           Driver[]
 
   @@unique([tenantId, code])
   @@unique([tenantId, externalId])
@@ -625,6 +626,7 @@ model Vehicle {
   odometerReadings   VehicleOdometerReading[]
   documents          VehicleDocument[]
   costs              VehicleCost[]
+  defaultDrivers     Driver[]                 @relation("DriverDefaultVehicle")
 
   @@unique([tenantId, externalId])
   @@index([tenantId, updatedAt, id])
@@ -664,25 +666,49 @@ enum EmploymentType {
   @@map("employment_type")
 }
 
+/// สถานะคนขับ (ST2-T08): ACTIVE = พร้อมใช้ · ON_LEAVE = ลาพัก (ต้นแบบ) · INACTIVE = ปิดใช้งาน (พ้นสภาพ/เลิกจ้าง — spec/06 FLT-P resigned/suspended)
+enum DriverStatus {
+  ACTIVE
+  ON_LEAVE
+  INACTIVE
+
+  @@map("driver_status")
+}
+
+/// คนขับ (ST2-T08; docs/01 §3.2, docs/04 B คนขับ, spec/06 FLT-P) — ไม่ใช่ผู้ใช้/seat (แอปคนขับ = เฟส 2)
 model Driver {
-  id               String         @id @default(uuid()) @db.Uuid
-  tenantId         String         @map("tenant_id") @db.Uuid
-  name             String
-  phone            String?
-  licenceNo        String?        @map("licence_no")
-  licenceClass     String?        @map("licence_class")
-  licenceExpiresAt DateTime?      @map("licence_expires_at") @db.Date
-  employmentType   EmploymentType @map("employment_type")
-  carrierId        String?        @map("carrier_id") @db.Uuid /// บังคับเมื่อ CARRIER_DRIVER
-  defaultVehicleId String?        @map("default_vehicle_id") @db.Uuid
-  status           ActiveStatus   @default(ACTIVE)
-  externalId       String?        @map("external_id")
-  version          Int            @default(1)
-  createdAt        DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt        DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id                String         @id @default(uuid()) @db.Uuid
+  tenantId          String         @map("tenant_id") @db.Uuid
+  code              String /// DRV-0001 (MD-002) — เก็บตัวใหญ่, unique ต่อ tenant
+  name              String
+  phone             String /// เบอร์ตามที่กรอก (ใช้ login แอปคนขับภายหลัง — M1)
+  phoneNorm         String         @map("phone_norm") /// 0XXXXXXXXX (ตัด +66/ขีด/ช่องว่าง) — ห้ามซ้ำในคนขับที่ยังไม่ปิดใช้งาน
+  nationalIdEnc     String?        @map("national_id_enc") /// เลขบัตรประชาชน → FieldCipher (docs/04 B "บัตรประชาชน (เข้ารหัส)")
+  nationalIdLast4   String?        @map("national_id_last4") @db.Char(4)
+  nationalIdHash    String?        @map("national_id_hash") /// blind index (HMAC — BLIND_INDEX_KEY) กันคนขับซ้ำ
+  licenceNo         String?        @map("licence_no")
+  licenceClass      String?        @map("licence_class") /// PERSONAL / T1–T4 (ท.1–ท.4) — ชุดเดียวกับ vehicle_type.min_licence_class
+  licenceExpiresAt  DateTime?      @map("licence_expires_at") @db.Date
+  employmentType    EmploymentType @map("employment_type")
+  carrierId         String?        @map("carrier_id") @db.Uuid /// บังคับเมื่อ CARRIER_DRIVER (CHECK ทั้งสองทาง)
+  carrier           Carrier?       @relation(fields: [carrierId], references: [id], onDelete: Restrict)
+  defaultVehicleId  String?        @map("default_vehicle_id") @db.Uuid /// รถประจำ = ค่าเริ่มต้นตอนจัดรถเท่านั้น (เที่ยวเก็บ snapshot เอง — FLT-305)
+  defaultVehicle    Vehicle?       @relation("DriverDefaultVehicle", fields: [defaultVehicleId], references: [id], onDelete: Restrict)
+  status            DriverStatus   @default(ACTIVE)
+  statusReason      String?        @map("status_reason")
+  externalId        String?        @map("external_id")
+  deletedExternalId String?        @map("deleted_external_id")
+  deletedAt         DateTime?      @map("deleted_at") @db.Timestamptz(6) /// soft delete เฉพาะที่ไม่เคยถูกอ้างอิง (MD-004)
+  version           Int            @default(1)
+  createdAt         DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@unique([tenantId, externalId])
+  @@unique([tenantId, code])
   @@index([tenantId, updatedAt, id])
+  @@index([tenantId, carrierId])
+  @@index([tenantId, defaultVehicleId])
+  @@index([tenantId, licenceExpiresAt])
   @@map("driver")
 }
 
