@@ -1,7 +1,7 @@
 import { CallHandler, ExecutionContext, Injectable, NestInterceptor } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { from, lastValueFrom, Observable } from 'rxjs';
-import { IS_PUBLIC } from '../common/decorators';
+import { IS_PUBLIC, NO_TRANSACTION } from '../common/decorators';
 import { requestContext } from '../common/request-context';
 import { PrismaService } from '../db/prisma.service';
 
@@ -21,8 +21,12 @@ export class TransactionInterceptor implements NestInterceptor {
       context.getHandler(),
       context.getClass(),
     ]);
+    const noTx = this.reflector.getAllAndOverride<boolean>(NO_TRANSACTION, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
     const ctx = requestContext.get();
-    if (isPublic || !ctx?.tenantId) return next.handle();
+    if (isPublic || noTx || !ctx?.tenantId) return next.handle();
     const tenantId = ctx.tenantId;
     return from(
       this.prisma.app.$transaction(

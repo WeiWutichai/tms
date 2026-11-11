@@ -1,11 +1,13 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { Prisma, type ActiveStatus, type CustomerSite } from '@prisma/client';
 import type { TransitionTable } from '@tms/domain';
 import { AuditService } from '../../audit/audit.service';
 import { encodeId, tryDecodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
-import { DbService } from '../../db/db.service';
+import { DbService, type Tx } from '../../db/db.service';
+import { JobQueue, type JobContext } from '../../jobs/job-queue.service';
+import { addressText, GeoService } from '../geo/geo.service';
 import { StateService } from '../../state/state.service';
 import { EXPORT_MAX_ROWS } from '../master/export';
 import {
@@ -22,6 +24,7 @@ import {
 } from '../master/master-kit';
 import type {
   CreateSiteDto,
+  GeocodeResultDto,
   SiteAddressDto,
   SiteContactDto,
   SiteDto,
@@ -46,6 +49,17 @@ const ENTITY = 'customer_site';
 
 type CustomerRef = { id: string; code: string; legalName: string };
 
+/** งาน geocode อัตโนมัติ (ST2-T03) — payload เก็บข้อความที่อยู่ตอนสั่ง: ที่อยู่เปลี่ยนก่อนงานรัน = ข้าม (มีงานใหม่แล้ว) */
+export const GEOCODE_JOB = 'site.geocode';
+interface GeocodeJobPayload {
+  siteId: string;
+  address: string;
+  /** `customer_site.geocode_seq` ตอนสั่ง — ไม่ตรงแล้ว = job เก่า เขียนผลไม่ได้ */
+  seq: number;
+}
+/** ล้างพิกัดที่เสนอ (ยืนยัน/ปักเอง/ที่อยู่เปลี่ยน) — เก็บ provider/geocodedAt ไว้เป็นประวัติ */
+const NO_PROPOSAL = { geocodeLat: null, geocodeLng: null, geocodeConfidence: null } as const;
+
 const field422 = (field: string, code: string, message: string) =>
   new ProblemException('validation_failed', undefined, [{ field, code, message }]);
 
@@ -63,6 +77,16 @@ export function toSiteDto(s: CustomerSite, customer?: CustomerRef | null): SiteD
     lat: s.lat === null ? null : Number(s.lat),
     lng: s.lng === null ? null : Number(s.lng),
     geocodeStatus: s.geocodeStatus,
+    geocodeProposal:
+      s.geocodeLat !== null && s.geocodeLng !== null
+        ? {
+            lat: Number(s.geocodeLat),
+            lng: Number(s.geocodeLng),
+            confidence: s.geocodeConfidence === null ? 0 : Number(s.geocodeConfidence),
+            provider: s.geocodeProvider ?? '',
+            at: (s.geocodedAt ?? s.updatedAt).toISOString(),
+          }
+        : null,
     geofenceRadiusM: s.geofenceRadiusM,
     aliases: s.aliases,
     openTime: s.openTime,
@@ -93,12 +117,28 @@ function auditView(s: CustomerSite): Record<string, unknown> {
  * (T03 เสียบที่ `applyCoords()` — ตั้ง lat/lng + สถานะจากผู้ให้บริการ)
  */
 @Injectable()
-export class SitesService {
+export class SitesService implements OnModuleInit {
+  private readonly logger = new Logger('SitesService');
   constructor(
     private readonly db: DbService,
     private readonly state: StateService,
     private readonly audit: AuditService,
+    private readonly queue: JobQueue,
+    private readonly geo: GeoService,
   ) {}
+
+  onModuleInit() {
+    // เรียกผู้ให้บริการนอก transaction · ล่ม/เกินเวลา → ลองใหม่ (3 ครั้ง) · ล้มครั้งสุดท้าย = FAILED
+    // (เฉพาะเมื่อยังเป็นคำขอล่าสุด — job เก่าล้มไม่ทับผล/การตัดสินของคน)
+    this.queue.register(GEOCODE_JOB, (ctx) => this.runGeocodeJob(ctx), {
+      outsideTransaction: true,
+      onFinalFailure: async ({ tx, tenantId, job }) => {
+        if (!this.geo.enabled) return;
+        const p = job.payload as unknown as GeocodeJobPayload;
+        await this.inJobContext(tx, tenantId, job.id, () => this.saveGeocodeResult(p, null));
+      },
+    });
+  }
 
   // ---------- read ----------
 
@@ -111,6 +151,10 @@ export class SitesService {
     if (q.maxVehicleClass) and.push({ maxVehicleClass: q.maxVehicleClass });
     if (q.pinned === 'true') and.push({ lat: { not: null } });
     if (q.pinned === 'false') and.push({ lat: null });
+    if (q.geocode === 'OK') and.push({ geocodeStatus: 'OK' });
+    if (q.geocode === 'FAILED') and.push({ geocodeStatus: 'FAILED' });
+    if (q.geocode === 'REVIEW') and.push({ geocodeStatus: 'PENDING', geocodeLat: { not: null } });
+    if (q.geocode === 'PENDING') and.push({ geocodeStatus: 'PENDING', geocodeLat: null });
     if (q.customerId === 'none') and.push({ customerId: null });
     else if (q.customerId) and.push({ customerId: tryDecodeId('customer', q.customerId) });
     const like = (v: string) => ({ contains: likeEscape(v), mode: 'insensitive' as const });
@@ -186,11 +230,15 @@ export class SitesService {
   async summary(): Promise<SiteSummaryDto> {
     const tx = this.db.tx;
     const live = { deletedAt: null };
-    const [byStatus, byKind, pinned, restricted] = await Promise.all([
+    const [byStatus, byKind, pinned, restricted, geocodeReview, geocodeFailed] = await Promise.all([
       tx.customerSite.groupBy({ by: ['status'], where: live, _count: { _all: true } }),
       tx.customerSite.groupBy({ by: ['kind'], where: live, _count: { _all: true } }),
       tx.customerSite.count({ where: { ...live, lat: { not: null } } }),
       tx.customerSite.count({ where: { ...live, maxVehicleClass: { in: ['6W', '10W'] } } }),
+      tx.customerSite.count({
+        where: { ...live, geocodeStatus: 'PENDING', geocodeLat: { not: null } },
+      }),
+      tx.customerSite.count({ where: { ...live, geocodeStatus: 'FAILED' } }),
     ]);
     const st = (s: ActiveStatus) => byStatus.find((x) => x.status === s)?._count._all ?? 0;
     const kd = (k: string) => byKind.find((x) => x.kind === k)?._count._all ?? 0;
@@ -200,6 +248,8 @@ export class SitesService {
       pinned,
       unpinned: total - pinned,
       restricted,
+      geocodeReview,
+      geocodeFailed,
       byKind: { PICKUP: kd('PICKUP'), DROPOFF: kd('DROPOFF'), WAREHOUSE: kd('WAREHOUSE') },
       active: st('ACTIVE'),
       inactive: st('INACTIVE'),
@@ -230,12 +280,14 @@ export class SitesService {
   // ---------- write ----------
 
   /**
-   * พิกัด → คอลัมน์ + geocodeStatus (จุดเสียบของ ST2-T03)
-   * ส่งคู่ lat/lng เสมอ (ส่งข้างเดียว → 422) · มีค่า = OK (คนกรอก), null = PENDING (รอปักหมุด/geocode)
+   * พิกัด → คอลัมน์ + geocodeStatus (ST2-T03)
+   * ส่งคู่ lat/lng เสมอ (ส่งข้างเดียว → 422) · มีค่า = OK (คนกรอก/ปักเอง = คนยืนยันแล้ว) + ล้างพิกัดที่เสนอ
+   * null = PENDING — ล้างพิกัดที่เคยมี → geocode อัตโนมัติใหม่ (`geocodeNeeded`); ส่ง null ซ้ำตอนยังไม่มีพิกัด = ไม่เปลี่ยน
    */
   private applyCoords(
     input: { lat?: number | null; lng?: number | null },
     data: Prisma.CustomerSiteUncheckedUpdateInput,
+    current?: CustomerSite,
   ) {
     if (input.lat === undefined && input.lng === undefined) return;
     const lat = input.lat ?? null;
@@ -247,9 +299,18 @@ export class SitesService {
         'pair_required',
         'lat and lng must be sent together',
       );
-    data.lat = lat === null ? null : new Prisma.Decimal(lat.toFixed(6));
-    data.lng = lng === null ? null : new Prisma.Decimal(lng.toFixed(6));
-    data.geocodeStatus = lat === null ? 'PENDING' : 'OK';
+    if (lat === null || lng === null) {
+      if (current && current.lat === null) return; // ยังไม่มีพิกัดอยู่แล้ว — คงสถานะ/ข้อเสนอเดิม
+      data.lat = null;
+      data.lng = null;
+      data.geocodeStatus = 'PENDING';
+      Object.assign(data, NO_PROPOSAL);
+      return;
+    }
+    data.lat = new Prisma.Decimal(lat.toFixed(6));
+    data.lng = new Prisma.Decimal(lng.toFixed(6));
+    data.geocodeStatus = 'OK';
+    Object.assign(data, NO_PROPOSAL);
   }
 
   /** แปลง DTO → คอลัมน์ + ตรวจลูกค้าที่อ้างถึง (ต้องมีใน tenant และใช้งานอยู่) */
@@ -261,7 +322,7 @@ export class SitesService {
     if (input.name !== undefined) data.name = input.name;
     if (input.address !== undefined) data.address = { ...input.address } as object;
     if (input.kind !== undefined) data.kind = input.kind;
-    this.applyCoords(input, data);
+    this.applyCoords(input, data, current);
     if (input.geofenceRadiusM !== undefined) data.geofenceRadiusM = input.geofenceRadiusM;
     if (input.aliases !== undefined) data.aliases = input.aliases; // alias_search/address_search = trigger (0036)
     if (input.openTime !== undefined) data.openTime = input.openTime;
@@ -354,6 +415,7 @@ export class SitesService {
       after: auditView(s),
     });
     await emitMasterEvent(tx, `${EVENT}.created`, ENTITY, s.id, await this.dto(s));
+    await this.enqueueGeocode(s);
     return s;
   }
 
@@ -372,6 +434,14 @@ export class SitesService {
       data.externalId = input.externalId;
     }
     if (isNoopUpdate(current, data as Record<string, unknown>, DECIMAL_FIELDS)) return current;
+    // ที่อยู่เปลี่ยนตอนยังไม่มีพิกัด → ข้อเสนอเดิม/ผล FAILED ใช้ไม่ได้แล้ว → PENDING แล้ว geocode ใหม่
+    const addressChanged =
+      input.address !== undefined && addressText(input.address) !== addressText(current.address);
+    const willHaveCoords = data.lat !== undefined ? data.lat !== null : current.lat !== null;
+    if (addressChanged && !willHaveCoords) {
+      data.geocodeStatus = 'PENDING';
+      Object.assign(data, NO_PROPOSAL);
+    }
     const s = await this.bumpVersion(current, data);
     const before = auditView(current);
     const after = auditView(s);
@@ -383,6 +453,8 @@ export class SitesService {
       await emitMasterEvent(this.db.tx, `${EVENT}.updated`, ENTITY, s.id, await this.dto(s), {
         changedFields: changed,
       });
+    // geocode ใหม่เมื่อ: ที่อยู่เปลี่ยนตอนไม่มีพิกัด หรือคนล้างพิกัดที่มีอยู่
+    if (s.lat === null && (addressChanged || current.lat !== null)) await this.enqueueGeocode(s);
     return s;
   }
 
@@ -464,6 +536,202 @@ export class SitesService {
       reason,
     });
     await emitMasterEvent(tx, `${EVENT}.deleted`, ENTITY, id, await this.dto(current));
+  }
+
+  // ---------- geocode (ST2-T03) ----------
+
+  /**
+   * สั่ง geocode อัตโนมัติ (job ใน transaction เดียวกับการบันทึก) — ไม่มีผู้ให้บริการ/ที่อยู่ว่าง/มีพิกัดแล้ว = ไม่สั่ง
+   * เพิ่ม `geocode_seq` ทุกครั้ง: job ที่สั่งก่อนหน้า (ที่อยู่ A→B→A, ปัก→ล้าง) เขียนผลไม่ได้อีก
+   */
+  private async enqueueGeocode(s: CustomerSite): Promise<void> {
+    const address = addressText(s.address);
+    if (!this.geo.enabled || s.lat !== null || !address) return;
+    const tx = this.db.tx;
+    const { geocodeSeq: seq } = await tx.customerSite.update({
+      where: { id: s.id },
+      data: { geocodeSeq: { increment: 1 } },
+      select: { geocodeSeq: true },
+    });
+    const payload: GeocodeJobPayload = { siteId: s.id, address, seq };
+    await this.queue.enqueue(tx, { tenantId: s.tenantId, type: GEOCODE_JOB, payload });
+  }
+
+  /** job ยังเป็นคำขอล่าสุดของสถานที่นี้ และสถานที่ยังรอผล (ไม่มีพิกัด/ข้อเสนอ, ไม่ถูกคนตัดสินไปแล้ว) */
+  private isCurrentRequest(s: CustomerSite | null, p: GeocodeJobPayload): s is CustomerSite {
+    return (
+      !!s &&
+      s.deletedAt === null &&
+      s.geocodeSeq === p.seq &&
+      s.lat === null &&
+      s.geocodeStatus === 'PENDING' &&
+      s.geocodeLat === null &&
+      addressText(s.address) === p.address
+    );
+  }
+
+  /** job ไม่มี request context — ตั้งให้ audit/event/db.tx ทำงาน (ผู้กระทำ = ระบบ, requestId = job) */
+  private inJobContext<T>(tx: Tx, tenantId: string, jobId: string, fn: () => Promise<T>) {
+    return requestContext.run({ requestId: `job:${jobId}`, tenantId, locale: 'th', tx }, fn);
+  }
+
+  /**
+   * งาน geocode (outsideTransaction): อ่านใน transaction สั้น → เรียกผู้ให้บริการนอก transaction (มีเส้นตาย)
+   * → transaction สั้นเขียนผลแบบมีเงื่อนไข · ปิดผู้ให้บริการแล้ว = ข้าม (คงสถานะเดิม ไม่ตั้ง FAILED)
+   */
+  private async runGeocodeJob(ctx: JobContext) {
+    const p = ctx.job.payload as unknown as GeocodeJobPayload;
+    if (!this.geo.enabled) return { skipped: true, reason: 'provider_disabled' };
+    const s = await ctx.withTx((tx) =>
+      tx.customerSite.findFirst({ where: { id: p.siteId, deletedAt: null } }),
+    );
+    if (!this.isCurrentRequest(s, p)) return { skipped: true };
+    // ผู้ให้บริการล่ม/เกินเวลา = throw → JobQueue ลองใหม่ (ไม่ใช่ "หาไม่พบ")
+    const [best] = await this.geo.geocode(p.address);
+    const r = await ctx.withTx((tx) =>
+      this.inJobContext(tx, ctx.tenantId, ctx.job.id, () =>
+        this.saveGeocodeResult(p, best ?? null),
+      ),
+    );
+    return { siteId: encodeId('site', p.siteId), result: r };
+  }
+
+  /**
+   * บันทึกผล geocode ลงสถานที่ — เพิ่ม version (DM-013: ETag/ลำดับ event ตาม version)
+   * เขียนเฉพาะเมื่อยังเป็นคำขอล่าสุด (`isCurrentRequest`): พบ = เสนอพิกัด (PENDING รอคนยืนยัน), ไม่พบ = FAILED
+   */
+  private async saveGeocodeResult(
+    p: GeocodeJobPayload,
+    best: { lat: number; lng: number; confidence: number } | null,
+  ): Promise<'proposed' | 'failed' | 'skipped'> {
+    const tx = this.db.tx;
+    const s = await tx.customerSite.findFirst({ where: { id: p.siteId, deletedAt: null } });
+    if (!this.isCurrentRequest(s, p)) return 'skipped';
+    const data: Prisma.CustomerSiteUncheckedUpdateInput = best
+      ? {
+          geocodeLat: new Prisma.Decimal(best.lat.toFixed(6)),
+          geocodeLng: new Prisma.Decimal(best.lng.toFixed(6)),
+          geocodeConfidence: new Prisma.Decimal(best.confidence.toFixed(2)),
+          geocodeProvider: this.geo.name,
+          geocodedAt: new Date(),
+        }
+      : { geocodeStatus: 'FAILED', geocodeProvider: this.geo.name, geocodedAt: new Date() };
+    const r = await tx.customerSite.updateMany({
+      where: { id: s.id, version: s.version, geocodeSeq: p.seq, lat: null, deletedAt: null },
+      data: { ...data, version: { increment: 1 } },
+    });
+    if (r.count !== 1) return 'skipped';
+    const after = (await tx.customerSite.findUnique({ where: { id: s.id } }))!;
+    await this.audit.changed(`${EVENT}.geocoded`, ENTITY, s.id, auditView(s), auditView(after));
+    // ใบค้าง (ST3-T07): SO ที่ใช้จุด FAILED → ON_HOLD `GEOCODE_FAILED` (docs/01 §4.1) — ตอนนี้ส่ง event ให้ผู้ฟัง
+    await emitMasterEvent(tx, `${EVENT}.updated`, ENTITY, s.id, await this.dto(after), {
+      changedFields: best ? ['geocodeProposal'] : ['geocodeStatus'],
+    });
+    if (!best) this.logger.log(`site ${s.id} geocode failed`);
+    return best ? 'proposed' : 'failed';
+  }
+
+  /**
+   * ปุ่ม "ประมาณจากที่อยู่" — geocode ทันที ไม่บันทึกอะไร (ผู้ใช้ตรวจแล้วกดบันทึกฟอร์ม = ยืนยัน)
+   * route นี้ไม่เปิด transaction (`@NoTransaction`) — ห้ามแตะ `db.tx`
+   */
+  async estimate(address: string): Promise<GeocodeResultDto> {
+    return { provider: this.geo.name, candidates: await this.geo.geocode(address) };
+  }
+
+  /**
+   * ลองหาพิกัดอีกครั้ง (FAILED หรือ PENDING ที่ยังไม่มีข้อเสนอ) → PENDING + สั่ง job ใหม่
+   * มีงานของคำขอปัจจุบันรออยู่แล้ว = ไม่สั่งซ้ำ · มีพิกัด/มีข้อเสนอรอยืนยัน → 409 · ไม่มีผู้ให้บริการ → 409
+   */
+  async retryGeocode(id: string, expected?: number): Promise<CustomerSite> {
+    const tx = this.db.tx;
+    const current = await this.get(id);
+    if (expected !== undefined && expected !== current.version)
+      throw new ProblemException('precondition_failed');
+    if (current.lat !== null || current.geocodeLat !== null)
+      throw new ProblemException(
+        'invalid_state_transition',
+        'site already has coordinates or a proposal waiting for confirmation',
+      );
+    if (!this.geo.enabled || !addressText(current.address))
+      throw new ProblemException('conflict', 'no geocode provider configured or address empty');
+    if (current.geocodeStatus === 'PENDING') {
+      const queued = await tx.job.findFirst({
+        where: {
+          type: GEOCODE_JOB,
+          status: { in: ['PENDING', 'RUNNING'] },
+          AND: [
+            { payload: { path: ['siteId'], equals: current.id } },
+            { payload: { path: ['seq'], equals: current.geocodeSeq } },
+          ],
+        },
+        select: { id: true },
+      });
+      if (queued) return current;
+    }
+    const s = await this.bumpVersion(current, { geocodeStatus: 'PENDING', ...NO_PROPOSAL });
+    await this.audit.changed(
+      `${EVENT}.geocode_retried`,
+      ENTITY,
+      s.id,
+      auditView(current),
+      auditView(s),
+    );
+    if (current.geocodeStatus !== 'PENDING')
+      await emitMasterEvent(tx, `${EVENT}.updated`, ENTITY, s.id, await this.dto(s), {
+        changedFields: ['geocodeStatus'],
+      });
+    await this.enqueueGeocode(s);
+    return s;
+  }
+
+  /** คนยืนยันพิกัดที่ geocode เสนอ → lat/lng + OK (audit + event) · ไม่มีข้อเสนอ → 409 `invalid_state_transition` */
+  async confirmGeocode(id: string, reason?: string, expected?: number): Promise<CustomerSite> {
+    const current = await this.get(id);
+    if (expected !== undefined && expected !== current.version)
+      throw new ProblemException('precondition_failed');
+    if (current.geocodeLat === null || current.geocodeLng === null || current.lat !== null)
+      throw new ProblemException('invalid_state_transition', 'no geocode proposal to confirm');
+    const s = await this.bumpVersion(current, {
+      lat: current.geocodeLat,
+      lng: current.geocodeLng,
+      geocodeStatus: 'OK',
+      ...NO_PROPOSAL,
+    });
+    await this.audit.changed(
+      `${EVENT}.geocode_confirmed`,
+      ENTITY,
+      s.id,
+      auditView(current),
+      auditView(s),
+      reason,
+    );
+    await emitMasterEvent(this.db.tx, `${EVENT}.updated`, ENTITY, s.id, await this.dto(s), {
+      changedFields: ['lat', 'lng', 'geocodeStatus', 'geocodeProposal'],
+    });
+    return s;
+  }
+
+  /** คนปฏิเสธพิกัดที่เสนอ (ผิดตำแหน่ง) → FAILED ให้ปักหมุดเอง — ต้องมีเหตุผล (audit) */
+  async rejectGeocode(id: string, reason: string, expected?: number): Promise<CustomerSite> {
+    const current = await this.get(id);
+    if (expected !== undefined && expected !== current.version)
+      throw new ProblemException('precondition_failed');
+    if (current.geocodeLat === null || current.lat !== null)
+      throw new ProblemException('invalid_state_transition', 'no geocode proposal to reject');
+    const s = await this.bumpVersion(current, { geocodeStatus: 'FAILED', ...NO_PROPOSAL });
+    await this.audit.changed(
+      `${EVENT}.geocode_rejected`,
+      ENTITY,
+      s.id,
+      auditView(current),
+      auditView(s),
+      reason,
+    );
+    await emitMasterEvent(this.db.tx, `${EVENT}.updated`, ENTITY, s.id, await this.dto(s), {
+      changedFields: ['geocodeStatus', 'geocodeProposal'],
+    });
+    return s;
   }
 
   /** optimistic lock: update เฉพาะเมื่อ version ยังเท่าเดิม ไม่งั้น 412 */

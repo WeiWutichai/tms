@@ -18,12 +18,13 @@ import { useMe } from '../../shell/AppShell';
 import { tableLabels } from '../companies/CompanySample';
 import { downloadFile } from '../master/download';
 import { problemText } from '../master/problems';
-import { SiteDrawer, hoursText } from './SiteDrawer';
+import { SiteDrawer, geoState, hoursText } from './SiteDrawer';
 import { SiteFormDrawer } from './SiteFormDrawer';
 import { formatContact } from './siteFormat';
 import {
   SITE_KINDS,
   VEHICLE_CLASSES,
+  useGeocodeDecision,
   useSiteAction,
   useSiteList,
   useSiteSummary,
@@ -38,7 +39,17 @@ const EMPTY_FILTERS: SiteFilters = {
   maxVehicleClass: '',
   pinned: '',
   customerId: '',
+  geocode: '',
 };
+
+const GEO_STATES = ['OK', 'REVIEW', 'PENDING', 'FAILED'] as const;
+
+/** ข้อความ dialog เหตุผล (ปิดใช้/ลบ = ST2-T02, ปฏิเสธพิกัดที่ประมาณ = ST2-T03) */
+const DIALOG = {
+  deactivate: { title: 'loc.dlg.offT', desc: 'loc.dlg.offD', ok: 'loc.menu.off' },
+  delete: { title: 'loc.dlg.delT', desc: 'loc.dlg.delD', ok: 'loc.menu.delete' },
+  geoReject: { title: 'loc.geo.rejectT', desc: 'loc.geo.rejectD', ok: 'loc.geo.reject' },
+} as const satisfies Record<string, Record<'title' | 'desc' | 'ok', MessageKey>>;
 
 /** ข้อความสองบรรทัดของต้นแบบ (cW): บรรทัดบน 14px, บรรทัดล่างสีรอง — ยาวเกินตัด … */
 function TwoLine({ top, sub, muted }: { top: string; sub: string; muted?: string | undefined }) {
@@ -77,10 +88,14 @@ export function SitesPage() {
   const list = useSiteList(filters);
   const summary = useSiteSummary();
   const action = useSiteAction();
+  const geoDecision = useGeocodeDecision();
   const [openId, setOpenId] = useState<string | null>(null);
   const [selected, setSelected] = useState<Site | null>(null);
   const [form, setForm] = useState<{ site: Site | null } | null>(null);
-  const [dialog, setDialog] = useState<{ kind: 'deactivate' | 'delete'; s: Site } | null>(null);
+  const [dialog, setDialog] = useState<{
+    kind: 'deactivate' | 'delete' | 'geoReject';
+    s: Site;
+  } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const current = openId ? (list.rows.find((r) => r.id === openId) ?? selected) : null;
   const sum = summary.data;
@@ -158,19 +173,35 @@ export function SitesPage() {
       csv: (r) => r.customer?.name ?? ownerName,
     },
     {
-      key: 'll',
+      // ST2-T03: ตัวกรองสถานะพิกัด (ปักแล้ว/รอยืนยัน/ยังไม่ปัก/หาไม่พบ) — ต้นแบบไม่มีตัวกรองคอลัมน์นี้ [OPEN spec/12 §3]
+      key: 'geocode',
       label: t('loc.col.ll'),
       width: '1%',
-      render: (r) => (
-        <span
-          className="tms-num"
-          style={{ color: r.lat === null ? '#8F5500' : '#101418', whiteSpace: 'nowrap' }}
-        >
-          {r.lat === null || r.lng === null
-            ? t('loc.noPin')
-            : `${r.lat.toFixed(4)}, ${r.lng.toFixed(4)}`}
-        </span>
-      ),
+      filter: {
+        type: 'select',
+        options: [
+          { value: '', label: t('table.all') },
+          ...GEO_STATES.map((k) => ({ value: k, label: t(`loc.geo.f.${k}` as MessageKey) })),
+        ],
+      },
+      render: (r) => {
+        const g = geoState(r);
+        return (
+          <span
+            className="tms-num"
+            style={{
+              color: g === 'OK' ? '#101418' : g === 'FAILED' ? '#B42318' : '#8F5500',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {g === 'OK' && r.lat !== null && r.lng !== null
+              ? `${r.lat.toFixed(4)}, ${r.lng.toFixed(4)}`
+              : g === 'PENDING'
+                ? t('loc.noPin')
+                : t(`loc.geo.f.${g}` as MessageKey)}
+          </span>
+        );
+      },
       csv: (r) => (r.lat === null ? '' : `${r.lat}, ${r.lng}`),
     },
     {
@@ -389,6 +420,32 @@ export function SitesPage() {
           onEdit={() => setForm({ site: current })}
           onToggleStatus={() => toggleStatus(current)}
           onDelete={() => setDialog({ kind: 'delete', s: current })}
+          geoBusy={geoDecision.isPending}
+          onConfirmGeo={() =>
+            geoDecision.mutate(
+              { id: current.id, version: current.version, action: 'confirm' },
+              {
+                onSuccess: (u) => {
+                  setSelected(u);
+                  setToast(t('loc.toast.geoConfirmed', { n: current.name }));
+                },
+                onError: (e) => setToast(problemText(e, t) ?? t('loc.stale')),
+              },
+            )
+          }
+          onRejectGeo={() => setDialog({ kind: 'geoReject', s: current })}
+          onRetryGeo={() =>
+            geoDecision.mutate(
+              { id: current.id, version: current.version, action: 'retry' },
+              {
+                onSuccess: (u) => {
+                  setSelected(u);
+                  setToast(t('loc.toast.geoRetried', { n: current.name }));
+                },
+                onError: (e) => setToast(problemText(e, t) ?? t('loc.stale')),
+              },
+            )
+          }
           onClose={() => {
             setOpenId(null);
             setSelected(null);
@@ -407,32 +464,41 @@ export function SitesPage() {
       />
       <ReasonDialog
         open={!!dialog}
-        title={
-          dialog
-            ? t(dialog.kind === 'delete' ? 'loc.dlg.delT' : 'loc.dlg.offT', { n: dialog.s.name })
-            : ''
-        }
-        description={dialog ? t(dialog.kind === 'delete' ? 'loc.dlg.delD' : 'loc.dlg.offD') : ''}
+        title={dialog ? t(DIALOG[dialog.kind].title, { n: dialog.s.name }) : ''}
+        description={dialog ? t(DIALOG[dialog.kind].desc) : ''}
         label={t('loc.dlg.reason')}
-        placeholder={t('loc.dlg.reasonPh')}
-        okLabel={dialog?.kind === 'delete' ? t('loc.menu.delete') : t('loc.menu.off')}
+        placeholder={t(dialog?.kind === 'geoReject' ? 'loc.geo.rejectPh' : 'loc.dlg.reasonPh')}
+        okLabel={dialog ? t(DIALOG[dialog.kind].ok) : ''}
         cancelLabel={t('common.cancel')}
         closeLabel={t('drawer.close')}
-        busy={action.isPending}
-        error={problemText(action.error, t)}
+        busy={action.isPending || geoDecision.isPending}
+        error={problemText(dialog?.kind === 'geoReject' ? geoDecision.error : action.error, t)}
         onClose={() => {
           setDialog(null);
           action.reset();
+          geoDecision.reset();
         }}
         onOk={(reason) => {
           if (!dialog) return;
           const s = dialog.s;
+          if (dialog.kind === 'geoReject')
+            return geoDecision.mutate(
+              { id: s.id, version: s.version, action: 'reject', reason },
+              {
+                onSuccess: (u) => {
+                  setDialog(null);
+                  if (openId === s.id) setSelected(u);
+                  setToast(t('loc.toast.geoRejected', { n: s.name }));
+                },
+              },
+            );
+          const kind = dialog.kind;
           action.mutate(
-            { id: s.id, version: s.version, action: dialog.kind, reason },
+            { id: s.id, version: s.version, action: kind, reason },
             {
               onSuccess: (updated) => {
                 setDialog(null);
-                if (dialog.kind === 'delete') {
+                if (kind === 'delete') {
                   setOpenId(null);
                   setSelected(null);
                   setToast(t('loc.toast.deleted', { n: s.name }));

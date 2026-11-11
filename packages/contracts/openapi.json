@@ -3915,6 +3915,21 @@
             }
           },
           {
+            "name": "geocode",
+            "required": false,
+            "in": "query",
+            "description": "สถานะพิกัด: OK = มีพิกัด · REVIEW = รอยืนยันพิกัดที่ geocode เสนอ · PENDING = ยังไม่มีพิกัดและไม่มีข้อเสนอ · FAILED = หาพิกัดไม่พบ",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "OK",
+                "REVIEW",
+                "PENDING",
+                "FAILED"
+              ]
+            }
+          },
+          {
             "name": "maxVehicleClass",
             "required": false,
             "in": "query",
@@ -4194,6 +4209,21 @@
             }
           },
           {
+            "name": "geocode",
+            "required": false,
+            "in": "query",
+            "description": "สถานะพิกัด: OK = มีพิกัด · REVIEW = รอยืนยันพิกัดที่ geocode เสนอ · PENDING = ยังไม่มีพิกัดและไม่มีข้อเสนอ · FAILED = หาพิกัดไม่พบ",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "OK",
+                "REVIEW",
+                "PENDING",
+                "FAILED"
+              ]
+            }
+          },
+          {
             "name": "maxVehicleClass",
             "required": false,
             "in": "query",
@@ -4233,6 +4263,45 @@
         "responses": {
           "200": {
             "description": "ไฟล์ .xlsx หรือ .csv ตามตัวกรองเดียวกับรายการ (สูงสุด 10,000 แถว)"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "customer-sites"
+        ]
+      }
+    },
+    "/v1/customer-sites/geocode": {
+      "post": {
+        "operationId": "Sites_geocode",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GeocodeRequestDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GeocodeResultDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "rate_limited — เกินเพดานต่อบริษัท มี header Retry-After"
           }
         },
         "security": [
@@ -4533,6 +4602,158 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/MasterOptionalReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SiteDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "customer-sites"
+        ]
+      }
+    },
+    "/v1/customer-sites/{id}/geocode/confirm": {
+      "post": {
+        "operationId": "Sites_confirmGeocode",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmGeocodeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SiteDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "customer-sites"
+        ]
+      }
+    },
+    "/v1/customer-sites/{id}/geocode/retry": {
+      "post": {
+        "operationId": "Sites_retryGeocode",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SiteDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "customer-sites"
+        ]
+      }
+    },
+    "/v1/customer-sites/{id}/geocode/reject": {
+      "post": {
+        "operationId": "Sites_rejectGeocode",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MasterReasonDto"
               }
             }
           }
@@ -8016,6 +8237,42 @@
           "name"
         ]
       },
+      "SiteGeocodeProposalDto": {
+        "type": "object",
+        "properties": {
+          "lat": {
+            "type": "number",
+            "example": 13.3612
+          },
+          "lng": {
+            "type": "number",
+            "example": 100.9847
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "example": 0.8,
+            "description": "ความมั่นใจ 0–1"
+          },
+          "provider": {
+            "type": "string",
+            "example": "mock",
+            "description": "ผู้ให้บริการที่เสนอ"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "lat",
+          "lng",
+          "confidence",
+          "provider",
+          "at"
+        ]
+      },
       "SiteContactDto": {
         "type": "object",
         "properties": {
@@ -8090,7 +8347,17 @@
               "PENDING",
               "FAILED"
             ],
-            "description": "OK = มีพิกัดแล้ว · PENDING = ยังไม่ปักหมุด/รอ geocode · FAILED = geocode ไม่พบ (ST2-T03)"
+            "description": "OK = มีพิกัดแล้ว (กรอกเอง/ยืนยันแล้ว) · PENDING = ยังไม่ปักหมุด (รอ geocode หรือรอคนยืนยัน geocodeProposal) · FAILED = geocode ไม่พบ/คนปฏิเสธพิกัดที่เสนอ → ต้องปักหมุดเอง"
+          },
+          "geocodeProposal": {
+            "nullable": true,
+            "description": "พิกัดที่ geocode อัตโนมัติเสนอ รอคนยืนยัน (มีค่าเฉพาะเมื่อ geocodeStatus = PENDING) — ยืนยันด้วย POST /customer-sites/{id}/geocode/confirm, ปฏิเสธด้วย /geocode/reject",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SiteGeocodeProposalDto"
+              }
+            ]
           },
           "geofenceRadiusM": {
             "type": "number"
@@ -8176,6 +8443,7 @@
           "lat",
           "lng",
           "geocodeStatus",
+          "geocodeProposal",
           "geofenceRadiusM",
           "aliases",
           "openTime",
@@ -8252,6 +8520,14 @@
             "type": "number",
             "description": "จำกัดประเภทรถ (เข้าได้สูงสุด 6 ล้อ/10 ล้อ)"
           },
+          "geocodeReview": {
+            "type": "number",
+            "description": "รอยืนยันพิกัดที่ geocode เสนอ (ST2-T03)"
+          },
+          "geocodeFailed": {
+            "type": "number",
+            "description": "หาพิกัดจากที่อยู่ไม่พบ — ต้องปักหมุดเอง (ST2-T03)"
+          },
           "byKind": {
             "$ref": "#/components/schemas/SiteKindCountDto"
           },
@@ -8267,9 +8543,71 @@
           "pinned",
           "unpinned",
           "restricted",
+          "geocodeReview",
+          "geocodeFailed",
           "byKind",
           "active",
           "inactive"
+        ]
+      },
+      "GeocodeRequestDto": {
+        "type": "object",
+        "properties": {
+          "address": {
+            "type": "string",
+            "maxLength": 500,
+            "example": "99 ถ.สุขุมวิท ต.ศรีราชา อ.ศรีราชา จ.ชลบุรี 20110"
+          }
+        },
+        "required": [
+          "address"
+        ]
+      },
+      "GeocodeCandidateDto": {
+        "type": "object",
+        "properties": {
+          "lat": {
+            "type": "number"
+          },
+          "lng": {
+            "type": "number"
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "label": {
+            "type": "string",
+            "description": "ข้อความที่ผู้ให้บริการจับคู่ได้"
+          }
+        },
+        "required": [
+          "lat",
+          "lng",
+          "confidence",
+          "label"
+        ]
+      },
+      "GeocodeResultDto": {
+        "type": "object",
+        "properties": {
+          "provider": {
+            "type": "string",
+            "example": "mock",
+            "description": "ผู้ให้บริการที่ใช้ (`none` = ยังไม่ได้ตั้งค่า → candidates ว่างเสมอ ให้ปักหมุดเอง)"
+          },
+          "candidates": {
+            "description": "เรียงความมั่นใจมาก → น้อย · ว่าง = หาไม่พบ",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GeocodeCandidateDto"
+            }
+          }
+        },
+        "required": [
+          "provider",
+          "candidates"
         ]
       },
       "CreateSiteDto": {
@@ -8621,6 +8959,16 @@
             "type": "string",
             "nullable": true,
             "description": "null = ลบการผูก"
+          }
+        }
+      },
+      "ConfirmGeocodeDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "maxLength": 500,
+            "example": "ตรวจกับ Street View แล้ว ตรงประตูทางเข้า"
           }
         }
       }

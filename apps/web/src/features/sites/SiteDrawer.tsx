@@ -1,16 +1,31 @@
-import { Badge, Drawer } from '@tms/ui';
+import { Badge, Button, Drawer, Icon } from '@tms/ui';
 import { useState, type ReactNode } from 'react';
 import { useI18n } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
 import { HistoryTab } from '../master/HistoryTab';
+import { MapBox } from './SiteFormDrawer';
 import { formatContact, formatLatLng } from './siteFormat';
 import type { Site } from './useSites';
 
 type Tab = 'info' | 'act';
 
-/** ป้ายสถานะตามต้นแบบ: ปักหมุดแล้ว = "ใช้งาน", ยังไม่ปัก = "ยังไม่ปักหมุด" (เตือน) · ปิดใช้ = "ปิดใช้" */
+/** สถานะพิกัดของสถานที่ (ST2-T03): ปักแล้ว / รอยืนยันพิกัดที่ geocode เสนอ / หาไม่พบ / ยังไม่ปัก */
+export function geoState(s: Site): 'OK' | 'REVIEW' | 'FAILED' | 'PENDING' {
+  if (s.lat !== null) return 'OK';
+  if (s.geocodeStatus === 'FAILED') return 'FAILED';
+  return s.geocodeProposal ? 'REVIEW' : 'PENDING';
+}
+
+/**
+ * ป้ายสถานะตามต้นแบบ: ปักหมุดแล้ว = "ใช้งาน", ยังไม่ปัก = "ยังไม่ปักหมุด" (เตือน) · ปิดใช้ = "ปิดใช้"
+ * ST2-T03 เพิ่ม "รอยืนยันพิกัด" (เตือน) และ "หาพิกัดไม่พบ" (ผิดพลาด) — ต้นแบบไม่มี [OPEN spec/12 §3]
+ */
 export function SiteBadge({ s, t }: { s: Site; t: (k: MessageKey) => string }) {
   if (s.status === 'inactive') return <Badge label={t('loc.st.inactive')} tone="off" icon="ban" />;
+  const g = geoState(s);
+  if (g === 'REVIEW')
+    return <Badge label={t('loc.geo.f.REVIEW')} tone="warn" icon="circle-alert" />;
+  if (g === 'FAILED') return <Badge label={t('loc.geo.f.FAILED')} tone="err" icon="circle-alert" />;
   if (s.lat === null) return <Badge label={t('loc.noPin')} tone="warn" icon="circle-alert" />;
   return <Badge label={t('loc.st.active')} tone="ok" icon="check" />;
 }
@@ -41,6 +56,10 @@ export function SiteDrawer({
   onEdit,
   onToggleStatus,
   onDelete,
+  onConfirmGeo,
+  onRejectGeo,
+  onRetryGeo,
+  geoBusy,
   onClose,
 }: {
   site: Site;
@@ -50,11 +69,28 @@ export function SiteDrawer({
   onEdit: () => void;
   onToggleStatus: () => void;
   onDelete: () => void;
+  /** ยืนยันพิกัดที่ geocode เสนอ (ST2-T03) */
+  onConfirmGeo: () => void;
+  /** ปฏิเสธพิกัดที่เสนอ → เปิด dialog เหตุผล */
+  onRejectGeo: () => void;
+  /** ลองหาพิกัดอีกครั้ง (หาไม่พบ) */
+  onRetryGeo: () => void;
+  geoBusy?: boolean;
   onClose: () => void;
 }) {
   const { t } = useI18n();
   const [tab, setTab] = useState<Tab>('info');
   const cust = s.customer?.name ?? ownerName;
+  const g = geoState(s);
+  const p = s.geocodeProposal;
+  const llText =
+    g === 'OK'
+      ? formatLatLng(s.lat, s.lng)
+      : g === 'REVIEW' && p
+        ? t('loc.geo.proposed', { ll: formatLatLng(p.lat, p.lng) })
+        : g === 'FAILED'
+          ? t('loc.geo.f.FAILED')
+          : t('loc.noPin');
   const vc = s.maxVehicleClass ? t(`loc.vc.${s.maxVehicleClass}` as MessageKey) : t('loc.vc.none');
   return (
     <Drawer
@@ -87,13 +123,73 @@ export function SiteDrawer({
     >
       {tab === 'info' && (
         <>
+          {/* ST2-T03 รอยืนยัน/หาไม่พบ — กล่องเตือนแบบเดียวกับ SO "ไม่พบลูกค้า" ของต้นแบบ (P.so.unmatched) */}
+          {canWrite && s.status === 'active' && (g === 'REVIEW' || g === 'FAILED') && (
+            <div
+              data-testid="geo-review"
+              style={{
+                background: '#FCF0DC',
+                borderRadius: 8,
+                padding: '12px 14px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 10,
+              }}
+            >
+              <div style={{ display: 'flex', gap: 8 }}>
+                <span style={{ color: '#8F5500', marginTop: 3, display: 'inline-flex' }}>
+                  <Icon n="triangle-alert" s={16} />
+                </span>
+                <span>
+                  {g === 'REVIEW' && p
+                    ? t('loc.geo.reviewMsg', { p: Math.round(p.confidence * 100) })
+                    : t('loc.geo.failedMsg')}
+                </span>
+              </div>
+              {g === 'REVIEW' && p && (
+                <MapBox
+                  lat={p.lat}
+                  lng={p.lng}
+                  offLabel={t('loc.f.mapOff')}
+                  height={160}
+                  background="#FFFFFF"
+                />
+              )}
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {g === 'REVIEW' && (
+                  <Button variant="primary" icon="check" onClick={onConfirmGeo} disabled={geoBusy}>
+                    {t('loc.geo.confirm')}
+                  </Button>
+                )}
+                <Button variant="secondary" icon="map-pin" onClick={onEdit}>
+                  {t('loc.geo.pin')}
+                </Button>
+                {/* ลองหาพิกัดอีกครั้ง — ต้นแบบไม่มี [OPEN spec/12 §3] */}
+                {g === 'FAILED' && (
+                  <Button
+                    variant="secondary"
+                    icon="refresh-cw"
+                    onClick={onRetryGeo}
+                    disabled={geoBusy}
+                  >
+                    {t('loc.geo.retry')}
+                  </Button>
+                )}
+                {g === 'REVIEW' && (
+                  <Button variant="secondary" icon="x" onClick={onRejectGeo} disabled={geoBusy}>
+                    {t('loc.geo.reject')}
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
           <section className="tms-kv">
             <span className="tms-kv__title">{t('loc.sec.info')}</span>
             <div className="tms-kv__grid">
               <Kv k={t('loc.f.code')} v={s.code} />
               <Kv k={t('loc.f.addr')} v={s.address.line1} />
               <Kv k={t('loc.f.cust')} v={cust} />
-              <Kv k={t('loc.f.ll')} v={formatLatLng(s.lat, s.lng) || t('loc.noPin')} />
+              <Kv k={t('loc.f.ll')} v={llText} />
               <Kv
                 k={t('loc.col.r')}
                 v={t('loc.meters', { n: s.geofenceRadiusM.toLocaleString('th-TH') })}
@@ -137,6 +233,7 @@ const FIELD_KEYS: Record<string, MessageKey> = {
   lat: 'loc.f.ll',
   lng: 'loc.f.ll',
   geocodeStatus: 'loc.f.ll',
+  geocodeProposal: 'loc.f.ll',
   geofenceRadiusM: 'loc.f.r',
   maxVehicleClass: 'loc.f.mx',
   openTime: 'loc.f.open',

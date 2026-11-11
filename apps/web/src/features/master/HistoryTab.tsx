@@ -20,10 +20,20 @@ const VERB: Record<
   deactivated: { key: 'hist.deactivated', tone: 'ok', icon: 'check' },
   reactivated: { key: 'hist.reactivated', tone: 'ok', icon: 'check' },
   deleted: { key: 'hist.deleted', tone: 'ok', icon: 'check' },
+  // ST2-T03 geocode สถานที่
+  geocoded: { key: 'hist.geocoded', tone: 'info', icon: 'map-pin' },
+  geocode_confirmed: { key: 'hist.geocodeConfirmed', tone: 'ok', icon: 'check' },
+  geocode_rejected: { key: 'hist.geocodeRejected', tone: 'warn', icon: 'x' },
+  geocode_retried: { key: 'hist.geocodeRetried', tone: 'info', icon: 'refresh-cw' },
 };
+/** action ที่แสดงรายการช่องที่เปลี่ยน (ก่อน → หลัง) */
+const DIFF_ACTIONS = ['updated', 'geocoded', 'geocode_confirmed', 'geocode_rejected'];
 
 function show(v: unknown): string {
   if (v === null || v === undefined || v === '') return '—';
+  // พิกัดที่ geocode เสนอ {lat, lng, …} → "lat, lng"
+  if (typeof v === 'object' && 'lat' in v && 'lng' in v)
+    return `${(v as { lat: number }).lat}, ${(v as { lng: number }).lng}`;
   if (typeof v === 'object') return JSON.stringify(v);
   return String(v);
 }
@@ -63,7 +73,12 @@ export function HistoryTab({
     return <EmptyState icon="history" title={t('hist.empty')} description="" />;
 
   const items: TimelineItem[] = rows.map((r) => {
-    const verb = VERB[r.action.split('.').pop() ?? ''] ?? {
+    const act = r.action.split('.').pop() ?? '';
+    const failed =
+      act === 'geocoded' && (r.after as Record<string, unknown> | null)?.geocodeStatus === 'FAILED';
+    const verb = (failed
+      ? { key: 'hist.geocodeFailed' as MessageKey, tone: 'warn' as const, icon: 'circle-alert' }
+      : VERB[act]) ?? {
       key: 'hist.updated' as MessageKey,
       tone: 'ok' as const,
       icon: 'check',
@@ -71,7 +86,7 @@ export function HistoryTab({
     const before = (r.before ?? {}) as Record<string, unknown>;
     const after = (r.after ?? {}) as Record<string, unknown>;
     const lines: string[] = [];
-    if (r.action.endsWith('.updated'))
+    if (DIFF_ACTIONS.includes(act))
       for (const k of Object.keys(after))
         lines.push(`${fieldLabel(k)}: ${show(before[k])} → ${show(after[k])}`);
     if (r.reason) lines.push(t('hist.reason', { r: r.reason }));

@@ -4,6 +4,13 @@ export const IS_PUBLIC = 'tms:isPublic';
 /** route ที่ไม่ต้องมี credential (health, openapi.json) */
 export const Public = () => SetMetadata(IS_PUBLIC, true);
 
+export const NO_TRANSACTION = 'tms:noTransaction';
+/**
+ * route ที่ไม่ต้องเปิด transaction ของ request (ไม่แตะฐานข้อมูล แต่เรียกระบบภายนอกที่อาจช้า เช่น geocode ST2-T03)
+ * ห้ามใช้ `DbService.tx` ใน route นี้ — ยังผ่าน AuthGuard/ตรวจสิทธิ์ตามปกติ
+ */
+export const NoTransaction = () => SetMetadata(NO_TRANSACTION, true);
+
 export const TENANT_RESOURCE = 'tms:tenantResource';
 /**
  * ประกาศว่า route ที่มี `:id` นี้อ้าง resource ชนิดไหน — harness ทดสอบแยก tenant (ST0-T05)

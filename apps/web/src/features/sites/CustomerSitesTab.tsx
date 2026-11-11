@@ -1,6 +1,7 @@
 import { Icon, Toast } from '@tms/ui';
 import { useState } from 'react';
 import { useI18n } from '../../i18n';
+import { geoState } from './SiteDrawer';
 import { MapBox, SiteFormDrawer } from './SiteFormDrawer';
 import { formatLatLng } from './siteFormat';
 import { useCustomerSites } from './useSites';
@@ -74,9 +75,17 @@ export function CustomerSitesTab({
               <span style={{ color: '#3B424C', overflowWrap: 'anywhere' }}>{s.address.line1}</span>
               <span
                 className="tms-num"
-                style={{ fontSize: 12, color: s.lat === null ? '#8F5500' : '#3B424C' }}
+                style={{
+                  fontSize: 12,
+                  color:
+                    s.lat !== null ? '#3B424C' : geoState(s) === 'FAILED' ? '#B42318' : '#8F5500',
+                }}
               >
-                {s.lat === null ? t('loc.noPin') : formatLatLng(s.lat, s.lng, 4)}
+                {s.lat !== null
+                  ? formatLatLng(s.lat, s.lng, 4)
+                  : geoState(s) === 'PENDING'
+                    ? t('loc.noPin')
+                    : t(geoState(s) === 'FAILED' ? 'loc.geo.f.FAILED' : 'loc.geo.f.REVIEW')}
               </span>
             </div>
           </div>

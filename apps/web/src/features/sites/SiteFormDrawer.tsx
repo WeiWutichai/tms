@@ -1,9 +1,9 @@
-import { FormDrawer, FormField, FormSection, Icon, TextInput } from '@tms/ui';
+import { FormDrawer, FormField, FormSection, Icon, TextInput, Toast } from '@tms/ui';
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { ApiError } from '../../api';
 import { useI18n } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
-import { fieldErrors, problemText } from '../master/problems';
+import { fieldErrors, isStale, problemText } from '../master/problems';
 import { RefPicker, type RefOption } from '../master/RefPicker';
 import {
   formatContact,
@@ -16,7 +16,10 @@ import {
 import {
   SITE_KINDS,
   VEHICLE_CLASSES,
+  fetchSite,
+  onlyGeocodeChanged,
   useCreateSite,
+  useGeocodeEstimate,
   searchCustomers,
   useUpdateSite,
   type Site,
@@ -101,7 +104,8 @@ const PILL: CSSProperties = {
  * "เพิ่มสถานที่ / จุดรับส่ง" (ต้นแบบ TMS v4 cfLoc) และ "แก้ไข" (ฟอร์มเดียวกัน — ต้นแบบไม่มีฟอร์มแก้ [OPEN spec/12 §3])
  * ช่องตามต้นแบบ: ชื่อ, ประเภท, ลูกค้า, ที่อยู่, พิกัด + แผนที่, รัศมี geofence, รถเข้าได้สูงสุด, เวลาทำการ, ผู้ติดต่อ
  * ข้อมูลเพิ่มเติม (ไม่มีในต้นแบบ — ตาม backlog ST2-T02): ชื่อเรียกอื่น, เวลาให้บริการ, หมายเหตุ, รหัสในระบบต้นทาง
- * แผนที่: ยังไม่เลือกผู้ให้บริการ (Q-D3) → แสดงกรอบแผนที่ว่าง + กรอกพิกัดเอง · "ประมาณจากที่อยู่" = ST2-T03
+ * แผนที่: ยังไม่เลือกผู้ให้บริการ (Q-D3) → แสดงกรอบแผนที่ว่าง + กรอกพิกัดเอง
+ * "ประมาณจากที่อยู่" (ST2-T03): เรียก geocode ของผู้ให้บริการที่ตั้งค่า → เติมพิกัดให้ตรวจ — กดบันทึก = คนยืนยัน (OK)
  */
 export function SiteFormDrawer({
   open,
@@ -127,10 +131,17 @@ export function SiteFormDrawer({
   const [tried, setTried] = useState(false);
   const [idemKey, setIdemKey] = useState(() => crypto.randomUUID());
   const submitting = useRef(false);
+  const estimate = useGeocodeEstimate();
+  /** ชื่อที่ผู้ให้บริการจับคู่ได้ เมื่อพิกัดในช่องมาจากปุ่มประมาณ (แก้ช่องเอง = ล้าง) */
+  const [estimated, setEstimated] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
   useEffect(() => {
     if (open) {
       setF(site ? toForm(site) : { ...EMPTY, cust: presetCustomer ?? null });
       setTried(false);
+      setEstimated(null);
+      setToast(null);
+      estimate.reset();
       setIdemKey(crypto.randomUUID());
       submitting.current = false;
       create.reset();
@@ -138,6 +149,24 @@ export function SiteFormDrawer({
     }
   }, [open, site?.id]);
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setF((x) => ({ ...x, [k]: v }));
+
+  /** ต้นแบบ cfLoc gps(): หาไม่พบ → toast ให้ปักหมุดเอง · พบ → เติมพิกัดในช่อง (ยังไม่บันทึก) */
+  const runEstimate = () => {
+    const address = f.addr.trim();
+    if (!address) return setToast(t('loc.geo.needAddr'));
+    setToast(null);
+    estimate.mutate(address, {
+      onSuccess: (r) => {
+        const c = r.candidates[0];
+        if (!c)
+          return setToast(t(r.provider === 'none' ? 'loc.geo.noProvider' : 'loc.geo.notFound'));
+        set('ll', formatLatLng(c.lat, c.lng));
+        setEstimated(c.label);
+        setToast(null); // ล้าง "ไม่พบ…" ของครั้งก่อน
+      },
+      onError: () => setToast(t('loc.geo.error')),
+    });
+  };
 
   // ---------- ตรวจในฟอร์ม (กฎจาก spec/02 §2; ข้อความตามต้นแบบ) ----------
   const local: Record<string, string> = {};
@@ -239,10 +268,29 @@ export function SiteFormDrawer({
         submitting.current = false;
         return onClose();
       }
-      update.mutate(
-        { id: site.id, version: site.version, body: d },
-        { ...done, onSuccess: (s) => onSaved(s, false) },
-      );
+      const save = (version: number, retried: boolean) =>
+        update.mutate(
+          { id: site.id, version, body: d },
+          {
+            ...done,
+            onSuccess: (s) => onSaved(s, false),
+            onError: (e) => {
+              if (retried || !isStale(e)) return;
+              // 412 เพราะงาน geocode อัตโนมัติเพิ่งเขียนผล (DM-013 เพิ่ม version) → ข้อมูลที่ผู้ใช้เห็นไม่ได้เปลี่ยน
+              // → บันทึกซ้ำด้วย version ล่าสุดเอง · คนอื่นแก้ช่องอื่น → แสดง "ถูกแก้โดยผู้อื่น" ตามเดิม
+              void fetchSite(site.id).then(
+                (fresh) => {
+                  if (onlyGeocodeChanged(site, fresh)) {
+                    submitting.current = true;
+                    save(fresh.version, true);
+                  }
+                },
+                () => undefined,
+              );
+            },
+          },
+        );
+      save(site.version, false);
     } else
       create.mutate(
         {
@@ -350,7 +398,13 @@ export function SiteFormDrawer({
             label={t('loc.f.ll')}
             span={2}
             error={errs.lat}
-            hint={llWarn ? undefined : t('loc.f.llHint')}
+            hint={
+              llWarn
+                ? undefined
+                : estimated !== null
+                  ? t('loc.geo.estimated', { label: estimated })
+                  : t('loc.f.llHint')
+            }
           >
             {(p) => (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -360,15 +414,22 @@ export function SiteFormDrawer({
                     style={{ flex: 1, minWidth: 0 }}
                     placeholder={t('loc.f.llPh')}
                     value={f.ll}
-                    onChange={(e) => set('ll', e.target.value)}
+                    onChange={(e) => {
+                      set('ll', e.target.value);
+                      setEstimated(null);
+                    }}
                     onBlur={() => ll && set('ll', formatLatLng(ll.lat, ll.lng))}
                   />
-                  {/* geocode จากที่อยู่ = ST2-T03 (ผู้ให้บริการยังไม่เลือก) — แสดงตามต้นแบบแต่กดไม่ได้ */}
                   <button
                     type="button"
-                    style={{ ...PILL, opacity: 0.55, cursor: 'not-allowed' }}
-                    disabled
-                    title={t('loc.f.geocodeSoon')}
+                    style={{
+                      ...PILL,
+                      cursor: estimate.isPending ? 'progress' : 'pointer',
+                      opacity: estimate.isPending ? 0.7 : 1,
+                    }}
+                    disabled={estimate.isPending}
+                    aria-busy={estimate.isPending}
+                    onClick={runEstimate}
                   >
                     <Icon n="map-pin" s={16} />
                     {t('loc.f.geocode')}
@@ -494,6 +555,7 @@ export function SiteFormDrawer({
           )}
         </FormField>
       </FormSection>
+      <Toast message={toast} onClose={() => setToast(null)} closeLabel={t('drawer.close')} />
     </FormDrawer>
   );
 }

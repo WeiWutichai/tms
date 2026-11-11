@@ -19,11 +19,14 @@ import {
   ApiNoContentResponse,
   ApiOkResponse,
   ApiProduces,
+  ApiTooManyRequestsResponse,
   ApiTags,
 } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { AuditPageDto } from '../../audit/audit.controller';
-import { RequireScope, TenantResource } from '../../common/decorators';
+import { NoTransaction, RequireScope, TenantResource } from '../../common/decorators';
+import { requestContext } from '../../common/request-context';
+import { TenantRateLimiter } from '../geo/rate-limit';
 import { expectedVersion, setEtag } from '../../common/etag';
 import { decodeIdOr404 } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
@@ -33,7 +36,10 @@ import { sendExport, type ExportColumn } from '../master/export';
 import { entityHistory, HistoryQuery } from '../master/history';
 import { MasterOptionalReasonDto, MasterReasonDto } from '../master/master-kit';
 import {
+  ConfirmGeocodeDto,
   CreateSiteDto,
+  GeocodeRequestDto,
+  GeocodeResultDto,
   SiteDto,
   SiteExportQuery,
   SiteListQuery,
@@ -56,6 +62,16 @@ const CLASS_TH: Record<NonNullable<SiteDto['maxVehicleClass']>, string> = {
   SEMI_TRAILER: 'เทรลเลอร์',
 };
 
+/** เพดานปุ่ม "ประมาณจากที่อยู่" ต่อ tenant ต่อนาที (`GEOCODE_RATE_PER_MIN`, ค่าเริ่มต้น 60) */
+const GEOCODE_RATE_PER_MIN = Number(process.env.GEOCODE_RATE_PER_MIN) || 60;
+
+/** สถานะพิกัดในไฟล์ส่งออก (ST2-T03) — ตรงกับป้ายในหน้ารายการ */
+function geocodeLabel(r: SiteDto): string {
+  if (r.geocodeStatus === 'OK') return 'ปักหมุดแล้ว';
+  if (r.geocodeStatus === 'FAILED') return 'หาพิกัดไม่พบ';
+  return r.geocodeProposal ? 'รอยืนยันพิกัด' : 'ยังไม่ปักหมุด';
+}
+
 /** คอลัมน์ไฟล์ส่งออก — หัวคอลัมน์ไทยตรงกับ template นำเข้า (ST2-T23) */
 const EXPORT_COLUMNS: ExportColumn<SiteDto>[] = [
   { header: 'รหัส', value: (r) => r.code },
@@ -66,6 +82,7 @@ const EXPORT_COLUMNS: ExportColumn<SiteDto>[] = [
   { header: 'ที่อยู่', value: (r) => r.address.line1 },
   { header: 'ละติจูด', value: (r) => r.lat },
   { header: 'ลองจิจูด', value: (r) => r.lng },
+  { header: 'สถานะพิกัด', value: (r) => geocodeLabel(r) },
   { header: 'รัศมี geofence (เมตร)', value: (r) => r.geofenceRadiusM },
   { header: 'เวลาเปิด', value: (r) => r.openTime },
   { header: 'เวลาปิด', value: (r) => r.closeTime },
@@ -90,6 +107,9 @@ const EXPORT_COLUMNS: ExportColumn<SiteDto>[] = [
 @ApiBearerAuth()
 @Controller('customer-sites')
 export class SitesController {
+  /** จำกัด `POST /customer-sites/geocode` ต่อ tenant (ในหน่วยความจำ — ทบทวนเมื่อมีผู้ให้บริการจริง) */
+  geocodeLimiter = new TenantRateLimiter(GEOCODE_RATE_PER_MIN);
+
   constructor(
     private readonly sites: SitesService,
     private readonly db: DbService,
@@ -133,6 +153,27 @@ export class SitesController {
   ): Promise<StreamableFile> {
     const rows = await this.sites.exportRows(q);
     return sendExport(res, q.format ?? 'xlsx', 'customer-sites', EXPORT_COLUMNS, rows);
+  }
+
+  /**
+   * ปุ่ม "ประมาณจากที่อยู่" (ST2-T03) — geocode ทันทีด้วยผู้ให้บริการที่ตั้งค่า (`GEO_PROVIDER`) ไม่บันทึกอะไร
+   * ผู้ใช้ตรวจพิกัดแล้วบันทึกฟอร์ม = คนยืนยัน (geocodeStatus OK)
+   */
+  @Post('geocode')
+  @HttpCode(200)
+  @NoTransaction() // ไม่ถือ transaction ระหว่างรอผู้ให้บริการ (เส้นตาย GEO_TIMEOUT_MS)
+  @RequireScope('master:write')
+  @ApiOkResponse({ type: GeocodeResultDto })
+  @ApiTooManyRequestsResponse({
+    description: 'rate_limited — เกินเพดานต่อบริษัท มี header Retry-After',
+  })
+  geocode(@Body() body: GeocodeRequestDto): Promise<GeocodeResultDto> {
+    const wait = this.geocodeLimiter.take(requestContext.require().tenantId!);
+    if (wait)
+      throw new ProblemException('rate_limited', 'geocode rate limit', undefined, {
+        retryAfter: wait,
+      });
+    return this.sites.estimate(body.address);
   }
 
   @Post()
@@ -255,6 +296,62 @@ export class SitesController {
       body.reason,
       expectedVersion(req),
     );
+    setEtag(res, s.version);
+    return this.sites.dto(s);
+  }
+
+  /** ยืนยันพิกัดที่ geocode อัตโนมัติเสนอ (ST2-T03) → lat/lng + OK · ไม่มีข้อเสนอ → 409 */
+  @Post(':id/geocode/confirm')
+  @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
+  @HttpCode(200)
+  @TenantResource('site')
+  @RequireScope('master:write')
+  @ApiOkResponse({ type: SiteDto })
+  async confirmGeocode(
+    @Param('id') id: string,
+    @Body() body: ConfirmGeocodeDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<SiteDto> {
+    const current = await this.resolve(id);
+    const s = await this.sites.confirmGeocode(current.id, body.reason, expectedVersion(req));
+    setEtag(res, s.version);
+    return this.sites.dto(s);
+  }
+
+  /** ลองหาพิกัดอีกครั้ง (FAILED / ยังไม่มีพิกัดและข้อเสนอ) → PENDING + สั่ง geocode ใหม่ */
+  @Post(':id/geocode/retry')
+  @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
+  @HttpCode(200)
+  @TenantResource('site')
+  @RequireScope('master:write')
+  @ApiOkResponse({ type: SiteDto })
+  async retryGeocode(
+    @Param('id') id: string,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<SiteDto> {
+    const current = await this.resolve(id);
+    const s = await this.sites.retryGeocode(current.id, expectedVersion(req));
+    setEtag(res, s.version);
+    return this.sites.dto(s);
+  }
+
+  /** ปฏิเสธพิกัดที่เสนอ (ผิดตำแหน่ง) → FAILED ให้ปักหมุดเอง — เหตุผล ≥ 10 ตัวอักษร */
+  @Post(':id/geocode/reject')
+  @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
+  @HttpCode(200)
+  @TenantResource('site')
+  @RequireScope('master:write')
+  @ApiOkResponse({ type: SiteDto })
+  async rejectGeocode(
+    @Param('id') id: string,
+    @Body() body: MasterReasonDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<SiteDto> {
+    const current = await this.resolve(id);
+    const s = await this.sites.rejectGeocode(current.id, body.reason, expectedVersion(req));
     setEtag(res, s.version);
     return this.sites.dto(s);
   }

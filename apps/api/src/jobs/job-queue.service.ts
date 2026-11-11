@@ -13,6 +13,11 @@ export interface JobTypeOptions {
   timeoutMs?: number;
   /** เรียกเมื่อล้มครั้งสุดท้าย (transaction แยก — งานหลัก rollback ไปแล้ว) ให้โมดูลเจ้าของปิดสถานะของตัวเอง */
   onFinalFailure?: (ctx: { tenantId: string; job: Job; tx: Tx; error: unknown }) => Promise<void>;
+  /**
+   * true = handler ไม่ได้อยู่ใน transaction (ctx.tx ใช้ไม่ได้) — เปิด transaction สั้น ๆ เองด้วย `ctx.withTx`
+   * ใช้กับงานที่เรียกระบบภายนอก (เช่น geocode ST2-T03) เพื่อไม่ถือ connection/lock ระหว่างรอ
+   */
+  outsideTransaction?: boolean;
 }
 
 /** แจ้งผู้สั่งงานเมื่อจบ (ST1-T23; docs/04 I "งานใหญ่ background + แจ้งเมื่อเสร็จ") — เก็บใน payload._notify */
@@ -30,8 +35,17 @@ export interface JobContext {
   tx: Tx;
   /** อัปเดตความคืบหน้า 0–100 (เขียนด้วย connection แยก ผู้ใช้เห็นทันทีแม้งานยังไม่ commit) */
   progress: (pct: number) => Promise<void>;
+  /** เปิด transaction ใหม่ของ tenant นี้ (RLS ตั้งแล้ว) — สำหรับงาน `outsideTransaction` */
+  withTx: <T>(fn: (tx: Tx) => Promise<T>) => Promise<T>;
 }
 export type JobHandler = (ctx: JobContext) => Promise<unknown>;
+
+/** ctx.tx ของงาน `outsideTransaction` — ใช้แล้วล้มทันที (กันเผลอ query นอก transaction ที่ไม่มี RLS context) */
+const NO_TX = new Proxy({} as Tx, {
+  get() {
+    throw new Error('job runs outsideTransaction — use ctx.withTx()');
+  },
+});
 
 /**
  * Job framework (ST0-T11, plan/02 T-06): ใช้ PostgreSQL เป็นคิว ไม่มี Redis
@@ -140,17 +154,17 @@ export class JobQueue {
     }
     try {
       if (!handler) throw new Error(`no handler for job type '${job.type}'`);
-      const result = await this.db.withTenant(
-        job.tenantId,
-        (tx) =>
-          handler({
-            tenantId: job.tenantId,
-            job,
-            tx,
-            progress: (p) => this.setProgress(job.id, p),
-          }),
-        this.opts.get(job.type)?.timeoutMs,
-      );
+      const o = this.opts.get(job.type);
+      const base = {
+        tenantId: job.tenantId,
+        job,
+        progress: (p: number) => this.setProgress(job.id, p),
+        withTx: <T>(fn: (tx: Tx) => Promise<T>) =>
+          this.db.withTenant(job.tenantId, fn, o?.timeoutMs),
+      };
+      const result = o?.outsideTransaction
+        ? await handler({ ...base, tx: NO_TX })
+        : await this.db.withTenant(job.tenantId, (tx) => handler({ ...base, tx }), o?.timeoutMs);
       // เขียนผลเฉพาะถ้ายังเป็นรอบที่เราหยิบ (lease หมดแล้ว worker อื่นหยิบซ้ำได้) — กันแจ้งเตือนซ้ำ/ทับผลกัน
       const done = await this.prisma.platform.job.updateMany({
         where: { id: job.id, status: 'RUNNING', attempts: job.attempts },
