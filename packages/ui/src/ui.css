@@ -1451,3 +1451,145 @@ button:focus-visible {
   color: #b3322a;
   font-weight: 500;
 }
+/* เอกสารรถในแท็บ "เอกสารแนบ" ของ drawer รถ (ST2-T17) — ต้นแบบ TMS v4 vPanel `P.docs` + ปุ่ม/ป้ายจาก `pr.docs` + modal `RNW` */
+.tms-vdoc__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.tms-vdoc__item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid #d9dcd4;
+  border-radius: 8px;
+  min-width: 0;
+}
+.tms-vdoc__item.tms-skel {
+  background: #f4f5f2;
+  border-color: #e4e6e0;
+}
+.tms-vdoc__text {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+.tms-ellipsis {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tms-vdoc__sub {
+  font-size: 12px;
+  color: #3b424c;
+}
+.tms-vdoc__pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.tms-vdoc__renew {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid #9db6e3;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #2257c4;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+.tms-vdoc__dl {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #3b424c;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.tms-vdoc__dl:hover {
+  background: #eef0ec;
+  color: #2257c4;
+}
+.tms-vdoc__empty {
+  padding: 40px;
+  text-align: center;
+  color: #3b424c;
+}
+.tms-vdoc__bar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.tms-vdoc__add {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid #9db6e3;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #2257c4;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tms-vdoc__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+}
+.tms-vdoc__grid .tms-input,
+.tms-vdoc__grid .tms-select {
+  width: 100%;
+  box-sizing: border-box;
+}
+.tms-vdoc__grid .tms-num {
+  font-size: 13px;
+}
+.tms-vdoc__file {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid #e4e6e0;
+  border-radius: 10px;
+  min-width: 0;
+}
+.tms-vdoc__pick {
+  height: 52px;
+  border: 1.5px dashed #c9cdc3;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #2257c4;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.tms-vdoc__pick[aria-invalid='true'] {
+  border-color: #b3322a;
+}

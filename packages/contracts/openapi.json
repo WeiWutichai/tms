@@ -7359,6 +7359,321 @@
           "vehicles"
         ]
       }
+    },
+    "/v1/vehicles/{id}/documents": {
+      "get": {
+        "operationId": "VehicleDocuments_listForVehicle",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "เอกสารทั้งหมดของรถคันนี้ — ฉบับปัจจุบันและประวัติ (superseded/cancelled)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VehicleDocumentListDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "vehicle-documents"
+        ]
+      },
+      "post": {
+        "operationId": "VehicleDocuments_create",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateVehicleDocumentDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "เพิ่มเอกสาร — มีฉบับปัจจุบันประเภทเดียวกันอยู่แล้ว → 409 `current_exists` (ใช้ต่ออายุ) · รถปลดระวาง → 409",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VehicleDocumentDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "vehicle-documents"
+        ]
+      }
+    },
+    "/v1/vehicle-documents": {
+      "get": {
+        "operationId": "VehicleDocuments_list",
+        "parameters": [
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "ค่า nextCursor จากหน้าก่อน",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "docType",
+            "required": false,
+            "in": "query",
+            "description": "คั่นด้วย , เช่น INSURANCE,COMPULSORY_ACT",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "description": "คั่นด้วย , (active, expiring, expired, superseded, cancelled) — ไม่ส่ง = ฉบับปัจจุบัน (active,expiring,expired)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "expiresWithinDays",
+            "required": false,
+            "in": "query",
+            "description": "หมดภายใน N วันนับจากวันนี้ (ไม่รวมที่หมดแล้ว) เช่น 30 = หมดวันนี้ถึงอีก 30 วัน",
+            "schema": {
+              "minimum": 0,
+              "maximum": 3650,
+              "type": "number"
+            }
+          },
+          {
+            "name": "vehicleId",
+            "required": false,
+            "in": "query",
+            "description": "เฉพาะรถคันนี้",
+            "schema": {
+              "example": "veh_…",
+              "type": "string"
+            }
+          },
+          {
+            "name": "plate",
+            "required": false,
+            "in": "query",
+            "description": "ค้นหาทะเบียน (ไม่สนช่องว่าง/ขีด)",
+            "schema": {
+              "maxLength": 20,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "เอกสารรถทั้งหมด เรียงวันหมดใกล้สุดก่อน — กรองประเภท/สถานะ/หมดภายใน N วัน/ทะเบียน",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VehicleDocumentPageDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "vehicle-documents"
+        ]
+      }
+    },
+    "/v1/vehicle-documents/{id}": {
+      "get": {
+        "operationId": "VehicleDocuments_get",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VehicleDocumentDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "vehicle-documents"
+        ]
+      }
+    },
+    "/v1/vehicle-documents/{id}/renew": {
+      "post": {
+        "operationId": "VehicleDocuments_renew",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenewVehicleDocumentDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VehicleDocumentRenewResultDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "vehicle-documents"
+        ]
+      }
+    },
+    "/v1/vehicle-documents/{id}/cancel": {
+      "post": {
+        "operationId": "VehicleDocuments_cancel",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelVehicleDocumentDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VehicleDocumentDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "vehicle-documents"
+        ]
+      }
     }
   },
   "info": {
@@ -14212,6 +14527,443 @@
           "readingKm",
           "reasonType",
           "note"
+        ]
+      },
+      "VehicleDocumentVehicleDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "veh_…"
+          },
+          "plate": {
+            "type": "string",
+            "example": "70-1234"
+          },
+          "plateProvince": {
+            "type": "string",
+            "example": "TH-10"
+          },
+          "ownership": {
+            "type": "string",
+            "enum": [
+              "OWN",
+              "SUBCONTRACT"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "plate",
+          "plateProvince",
+          "ownership"
+        ]
+      },
+      "VehicleDocumentFileDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "doc_…"
+          },
+          "filename": {
+            "type": "string",
+            "nullable": true
+          },
+          "mime": {
+            "type": "string"
+          },
+          "bytes": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "filename",
+          "mime",
+          "bytes"
+        ]
+      },
+      "VehicleDocumentDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "vdoc_…"
+          },
+          "vehicle": {
+            "$ref": "#/components/schemas/VehicleDocumentVehicleDto"
+          },
+          "docType": {
+            "type": "string",
+            "enum": [
+              "INSURANCE",
+              "COMPULSORY_ACT",
+              "ANNUAL_TAX",
+              "INSPECTION",
+              "TRANSPORT_LICENSE",
+              "GPS_DLT_CERT",
+              "OTHER"
+            ]
+          },
+          "title": {
+            "type": "string",
+            "nullable": true,
+            "description": "ชื่อเอกสาร (OTHER)"
+          },
+          "docNo": {
+            "type": "string",
+            "nullable": true
+          },
+          "issuer": {
+            "type": "string",
+            "nullable": true
+          },
+          "startsOn": {
+            "type": "string",
+            "format": "date"
+          },
+          "expiresOn": {
+            "type": "string",
+            "format": "date"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "expiring",
+              "expired",
+              "superseded",
+              "cancelled"
+            ]
+          },
+          "daysToExpiry": {
+            "type": "number",
+            "description": "จำนวนวันจากวันนี้ (เวลาไทย) ถึงวันหมด — 0 = หมดวันนี้ (ยังใช้ได้), ติดลบ = หมดแล้ว"
+          },
+          "insuranceClass": {
+            "type": "string",
+            "nullable": true
+          },
+          "sumInsured": {
+            "type": "string",
+            "nullable": true
+          },
+          "premiumAmount": {
+            "type": "string",
+            "nullable": true
+          },
+          "costAmount": {
+            "type": "string",
+            "nullable": true
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VehicleDocumentFileDto"
+            }
+          },
+          "isRequiredForDispatch": {
+            "type": "boolean"
+          },
+          "renewsDocumentId": {
+            "type": "string",
+            "nullable": true,
+            "description": "ฉบับก่อนหน้า (ที่ฉบับนี้ต่ออายุ)"
+          },
+          "renewedByDocumentId": {
+            "type": "string",
+            "nullable": true,
+            "description": "ฉบับที่ต่ออายุจากฉบับนี้"
+          },
+          "note": {
+            "type": "string",
+            "nullable": true
+          },
+          "cancelReason": {
+            "type": "string",
+            "nullable": true
+          },
+          "cancelledAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "vehicle",
+          "docType",
+          "title",
+          "docNo",
+          "issuer",
+          "startsOn",
+          "expiresOn",
+          "status",
+          "daysToExpiry",
+          "insuranceClass",
+          "sumInsured",
+          "premiumAmount",
+          "costAmount",
+          "files",
+          "isRequiredForDispatch",
+          "renewsDocumentId",
+          "renewedByDocumentId",
+          "note",
+          "cancelReason",
+          "cancelledAt",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "VehicleDocumentListDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VehicleDocumentDto"
+            }
+          }
+        },
+        "required": [
+          "data"
+        ]
+      },
+      "CreateVehicleDocumentDto": {
+        "type": "object",
+        "properties": {
+          "docNo": {
+            "type": "string",
+            "example": "POL-27-10431",
+            "description": "เลขกรมธรรม์ / เลขใบอนุญาต / เลขที่เอกสาร — บังคับ ยกเว้น OTHER"
+          },
+          "issuer": {
+            "type": "string",
+            "example": "วิริยะประกันภัย",
+            "nullable": true,
+            "description": "บริษัทประกัน / หน่วยงานที่ออก"
+          },
+          "startsOn": {
+            "type": "string",
+            "example": "2026-11-30",
+            "format": "date",
+            "description": "วันเริ่มมีผล"
+          },
+          "expiresOn": {
+            "type": "string",
+            "example": "2027-11-30",
+            "format": "date",
+            "description": "วันหมดอายุ (ใช้ได้ถึงสิ้นวัน) — ต้องหลังวันเริ่ม"
+          },
+          "insuranceClass": {
+            "type": "string",
+            "example": "1",
+            "nullable": true,
+            "description": "ชั้นประกัน — เฉพาะ INSURANCE"
+          },
+          "sumInsured": {
+            "type": "string",
+            "example": "800000.00",
+            "nullable": true,
+            "description": "ทุนประกัน — เฉพาะ INSURANCE"
+          },
+          "premiumAmount": {
+            "type": "string",
+            "example": "28500.00",
+            "nullable": true,
+            "description": "เบี้ยประกัน — เฉพาะ INSURANCE"
+          },
+          "costAmount": {
+            "type": "string",
+            "example": "28500.00",
+            "nullable": true,
+            "description": "ค่าใช้จ่ายของฉบับนี้ (เบี้ย / ค่าธรรมเนียม) — รถบริษัท: เขียน vehicle_cost หมวด DOCUMENT 1 แถว"
+          },
+          "fileDocumentIds": {
+            "example": [
+              "doc_…"
+            ],
+            "description": "ไฟล์แนบ (PDF/รูป) จาก POST /v1/documents kind=VEHICLE_DOC ที่อัปโหลดเสร็จแล้ว — อย่างน้อย 1 ไฟล์ (spec/06 FLT-C)",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "note": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 500
+          },
+          "docType": {
+            "type": "string",
+            "enum": [
+              "INSURANCE",
+              "COMPULSORY_ACT",
+              "ANNUAL_TAX",
+              "INSPECTION",
+              "TRANSPORT_LICENSE",
+              "GPS_DLT_CERT",
+              "OTHER"
+            ]
+          },
+          "title": {
+            "type": "string",
+            "example": "สัญญาเช่าที่จอด",
+            "description": "ชื่อเอกสาร — บังคับเมื่อ docType = OTHER"
+          },
+          "isRequiredForDispatch": {
+            "type": "boolean",
+            "description": "หมดอายุแล้วห้ามจ่ายงาน (ใช้ใน ST3) — ไม่ส่ง = true สำหรับ INSURANCE / COMPULSORY_ACT (docs/01 §3.8)"
+          }
+        },
+        "required": [
+          "startsOn",
+          "expiresOn",
+          "fileDocumentIds",
+          "docType"
+        ]
+      },
+      "VehicleDocumentPageDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VehicleDocumentDto"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor",
+          "hasMore"
+        ]
+      },
+      "RenewVehicleDocumentDto": {
+        "type": "object",
+        "properties": {
+          "docNo": {
+            "type": "string",
+            "example": "POL-27-10431",
+            "description": "เลขกรมธรรม์ / เลขใบอนุญาต / เลขที่เอกสาร — บังคับ ยกเว้น OTHER"
+          },
+          "issuer": {
+            "type": "string",
+            "example": "วิริยะประกันภัย",
+            "nullable": true,
+            "description": "บริษัทประกัน / หน่วยงานที่ออก"
+          },
+          "startsOn": {
+            "type": "string",
+            "example": "2026-11-30",
+            "format": "date",
+            "description": "วันเริ่มมีผล"
+          },
+          "expiresOn": {
+            "type": "string",
+            "example": "2027-11-30",
+            "format": "date",
+            "description": "วันหมดอายุ (ใช้ได้ถึงสิ้นวัน) — ต้องหลังวันเริ่ม"
+          },
+          "insuranceClass": {
+            "type": "string",
+            "example": "1",
+            "nullable": true,
+            "description": "ชั้นประกัน — เฉพาะ INSURANCE"
+          },
+          "sumInsured": {
+            "type": "string",
+            "example": "800000.00",
+            "nullable": true,
+            "description": "ทุนประกัน — เฉพาะ INSURANCE"
+          },
+          "premiumAmount": {
+            "type": "string",
+            "example": "28500.00",
+            "nullable": true,
+            "description": "เบี้ยประกัน — เฉพาะ INSURANCE"
+          },
+          "costAmount": {
+            "type": "string",
+            "example": "28500.00",
+            "nullable": true,
+            "description": "ค่าใช้จ่ายของฉบับนี้ (เบี้ย / ค่าธรรมเนียม) — รถบริษัท: เขียน vehicle_cost หมวด DOCUMENT 1 แถว"
+          },
+          "fileDocumentIds": {
+            "example": [
+              "doc_…"
+            ],
+            "description": "ไฟล์แนบ (PDF/รูป) จาก POST /v1/documents kind=VEHICLE_DOC ที่อัปโหลดเสร็จแล้ว — อย่างน้อย 1 ไฟล์ (spec/06 FLT-C)",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "note": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "startsOn",
+          "expiresOn",
+          "fileDocumentIds"
+        ]
+      },
+      "VehicleDocumentRenewResultDto": {
+        "type": "object",
+        "properties": {
+          "document": {
+            "description": "ฉบับใหม่",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/VehicleDocumentDto"
+              }
+            ]
+          },
+          "previous": {
+            "description": "ฉบับเดิม (superseded)",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/VehicleDocumentDto"
+              }
+            ]
+          }
+        },
+        "required": [
+          "document",
+          "previous"
+        ]
+      },
+      "CancelVehicleDocumentDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 10,
+            "maxLength": 500,
+            "description": "เหตุผล (ลง audit)"
+          }
+        },
+        "required": [
+          "reason"
         ]
       }
     }

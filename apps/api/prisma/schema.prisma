@@ -623,6 +623,8 @@ model Vehicle {
   createdAt          DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt          DateTime                 @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   odometerReadings   VehicleOdometerReading[]
+  documents          VehicleDocument[]
+  costs              VehicleCost[]
 
   @@unique([tenantId, externalId])
   @@index([tenantId, updatedAt, id])
@@ -684,54 +686,76 @@ model Driver {
   @@map("driver")
 }
 
+/// docs/01 §3.8 (ST2-T17 เปลี่ยนชื่อจาก schema v0: ACT → COMPULSORY_ACT, OPERATING_LICENCE → TRANSPORT_LICENSE, GPS_DLT → GPS_DLT_CERT)
 enum VehicleDocType {
   INSURANCE
-  ACT
+  COMPULSORY_ACT
   ANNUAL_TAX
   INSPECTION
-  OPERATING_LICENCE
-  GPS_DLT
+  TRANSPORT_LICENSE
+  GPS_DLT_CERT
   OTHER
 
   @@map("vehicle_doc_type")
 }
 
-/// เอกสารรถ — ต่ออายุ = แถวใหม่อ้างฉบับเก่า (ST2-T17)
+/// เอกสารรถ — ต่ออายุ = แถวใหม่อ้างฉบับเก่า (ST2-T17; docs/01 §3.8, spec/06 FLT-C)
+/// ชื่อคอลัมน์คงตาม schema v0 (ref_no = doc_no, starts_on/expires_on = valid_from/valid_to, renews_id = renews_document_id)
 model VehicleDocument {
-  id            String         @id @default(uuid()) @db.Uuid
-  tenantId      String         @map("tenant_id") @db.Uuid
-  vehicleId     String         @map("vehicle_id") @db.Uuid
-  docType       VehicleDocType @map("doc_type")
-  issuer        String?
-  refNo         String?        @map("ref_no")
-  coverageClass String?        @map("coverage_class")
-  sumInsured    Decimal?       @map("sum_insured") @db.Decimal(14, 2)
-  premium       Decimal?       @db.Decimal(14, 2)
-  startsOn      DateTime?      @map("starts_on") @db.Date
-  expiresOn     DateTime       @map("expires_on") @db.Date
-  fileKey       String?        @map("file_key")
-  renewsId      String?        @map("renews_id") @db.Uuid
-  createdAt     DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt     DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id                    String            @id @default(uuid()) @db.Uuid
+  tenantId              String            @map("tenant_id") @db.Uuid
+  vehicleId             String            @map("vehicle_id") @db.Uuid
+  vehicle               Vehicle           @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
+  docType               VehicleDocType    @map("doc_type")
+  /// ชื่อเอกสาร — ใช้กับ OTHER (ตั้งชื่อเอง)
+  title                 String?
+  issuer                String?
+  refNo                 String?           @map("ref_no")
+  coverageClass         String?           @map("coverage_class")
+  sumInsured            Decimal?          @map("sum_insured") @db.Decimal(14, 2)
+  premium               Decimal?          @db.Decimal(14, 2)
+  /// ค่าใช้จ่ายของฉบับนี้ → vehicle_cost category DOCUMENT (รถบริษัท)
+  costAmount            Decimal?          @map("cost_amount") @db.Decimal(14, 2)
+  startsOn              DateTime          @map("starts_on") @db.Date
+  expiresOn             DateTime          @map("expires_on") @db.Date
+  fileDocumentIds       String[]          @default([]) @map("file_document_ids") @db.Uuid
+  renewsId              String?           @map("renews_id") @db.Uuid
+  renews                VehicleDocument?  @relation("VehicleDocRenewal", fields: [renewsId], references: [id], onDelete: Restrict)
+  renewedBy             VehicleDocument[] @relation("VehicleDocRenewal")
+  /// ACTIVE / EXPIRING / EXPIRED (job รายวัน ST2-T18 ตั้ง — API คำนวณจากวันหมดเสมอ) / SUPERSEDED / CANCELLED
+  status                String            @default("ACTIVE")
+  isRequiredForDispatch Boolean           @default(false) @map("is_required_for_dispatch")
+  /// {d60, d30, d7: timestamptz} กันเตือนซ้ำ (ST2-T18)
+  reminderSent          Json              @default("{}") @map("reminder_sent")
+  note                  String?
+  cancelReason          String?           @map("cancel_reason")
+  cancelledAt           DateTime?         @map("cancelled_at") @db.Timestamptz(6)
+  createdBy             String?           @map("created_by")
+  createdAt             DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@index([tenantId, vehicleId, docType, expiresOn])
+  @@index([tenantId, expiresOn, id])
   @@map("vehicle_document")
 }
 
-/// ledger ต้นทุนต่อคัน (plan/11 ข้อ 15) — append-only
+/// ledger ต้นทุนต่อคัน (plan/11 ข้อ 15) — append-only (แก้ = แถวกลับรายการ)
 model VehicleCost {
   id         String   @id @default(uuid()) @db.Uuid
   tenantId   String   @map("tenant_id") @db.Uuid
   vehicleId  String   @map("vehicle_id") @db.Uuid
-  category   String /// DOCUMENT / DEPRECIATION / FUEL / REPAIR / OTHER
+  vehicle    Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
+  category   String /// DOCUMENT / DEPRECIATION / FUEL / REPAIR / INCIDENT / OTHER
   amount     Decimal  @db.Decimal(14, 2)
   occurredOn DateTime @map("occurred_on") @db.Date
-  sourceType String?  @map("source_type")
+  sourceType String?  @map("source_type") /// vehicle_document (ST2-T17)
   sourceId   String?  @map("source_id") @db.Uuid
   note       String?
+  createdBy  String?  @map("created_by")
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   @@index([tenantId, vehicleId, occurredOn])
+  @@index([tenantId, sourceType, sourceId])
   @@map("vehicle_cost")
 }
 
