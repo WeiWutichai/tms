@@ -499,6 +499,7 @@ model Carrier {
   version           Int               @default(1)
   createdAt         DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  vehicles          Vehicle[]
 
   @@unique([tenantId, code])
   @@unique([tenantId, externalId])
@@ -530,6 +531,8 @@ model VehicleType {
   version           Int          @default(1)
   createdAt         DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  vehicles Vehicle[]
 
   @@unique([tenantId, code])
   @@unique([tenantId, externalId])
@@ -567,39 +570,85 @@ enum VehicleStatus {
   @@map("vehicle_status")
 }
 
+/// รถ (ST2-T06; docs/01 §3.2 + §3.8, docs/04 B รถ + B2.1 ส่วน 1, spec/06 FLT-A)
+/// ทะเบียน unique ต่อ tenant แบบ normalize (`plate_key` = ทะเบียนตัดช่องว่าง/ขีด/จุด + จังหวัด) เฉพาะคันที่ยังไม่ปลดระวาง/ลบ (FLT-001)
+/// หัวลาก ↔ หาง เก็บสองฝั่ง (`paired_vehicle_id` ชี้หากัน) — service เขียนพร้อมกันใน transaction เดียว
 model Vehicle {
-  id              String        @id @default(uuid()) @db.Uuid
-  tenantId        String        @map("tenant_id") @db.Uuid
-  plate           String
-  plateProvince   String        @map("plate_province")
-  vehicleTypeId   String        @map("vehicle_type_id") @db.Uuid
-  ownership       Ownership
-  carrierId       String?       @map("carrier_id") @db.Uuid /// บังคับเมื่อ SUBCONTRACT (CHECK ใน migration)
-  capacityKg      Decimal?      @map("capacity_kg") @db.Decimal(10, 2)
-  capacityCbm     Decimal?      @map("capacity_cbm") @db.Decimal(10, 2)
-  gpsProvider     String?       @map("gps_provider")
-  gpsDeviceId     String?       @map("gps_device_id")
-  chassisNo       String?       @map("chassis_no")
-  engineNo        String?       @map("engine_no")
-  brand           String?
-  model           String?
-  year            Int?
-  color           String?
-  fuelType        String?       @map("fuel_type")
-  odometerKm      Decimal?      @map("odometer_km") @db.Decimal(10, 1)
-  pairedVehicleId String?       @map("paired_vehicle_id") @db.Uuid /// หัวลาก ↔ หาง
-  purchaseCost    Decimal?      @map("purchase_cost") @db.Decimal(14, 2)
-  purchasedOn     DateTime?     @map("purchased_on") @db.Date
-  status          VehicleStatus @default(READY)
-  externalId      String?       @map("external_id")
-  version         Int           @default(1)
-  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt       DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id                 String                   @id @default(uuid()) @db.Uuid
+  tenantId           String                   @map("tenant_id") @db.Uuid
+  plate              String /// ทะเบียนตามที่กรอก (ตัดช่องว่างซ้อน) เช่น "70-1234"
+  plateProvince      String                   @map("plate_province") /// รหัสจังหวัด ISO 3166-2 (TH-10 = กรุงเทพมหานคร)
+  plateKey           String                   @map("plate_key") /// normalize: ทะเบียนไม่มีช่องว่าง/ขีด/จุด + "|" + จังหวัด
+  vehicleTypeId      String                   @map("vehicle_type_id") @db.Uuid
+  vehicleType        VehicleType              @relation(fields: [vehicleTypeId], references: [id], onDelete: Restrict)
+  unitRole           String                   @default("SINGLE") @map("unit_role") /// SINGLE / TRACTOR (หัวลาก) / TRAILER (หาง)
+  ownership          Ownership
+  carrierId          String?                  @map("carrier_id") @db.Uuid /// บังคับเมื่อ SUBCONTRACT (CHECK ใน migration)
+  carrier            Carrier?                 @relation(fields: [carrierId], references: [id], onDelete: Restrict)
+  capacityKg         Decimal?                 @map("capacity_kg") @db.Decimal(10, 2) /// น้ำหนักบรรทุก (payload) — ไม่ส่ง = ค่าของประเภทรถ
+  capacityCbm        Decimal?                 @map("capacity_cbm") @db.Decimal(10, 2)
+  tareWeightKg       Decimal?                 @map("tare_weight_kg") @db.Decimal(10, 2) /// น้ำหนักรถเปล่า
+  grossWeightKg      Decimal?                 @map("gross_weight_kg") @db.Decimal(10, 2) /// น้ำหนักรวมตามทะเบียน
+  gpsProvider        String?                  @map("gps_provider")
+  gpsDeviceId        String?                  @map("gps_device_id")
+  chassisNo          String?                  @map("chassis_no") /// เลขตัวถัง (vin) — unique ต่อ tenant (ไม่สนตัวพิมพ์)
+  engineNo           String?                  @map("engine_no")
+  brand              String?
+  model              String?
+  year               Int?
+  color              String?
+  fuelType           String?                  @map("fuel_type") /// DIESEL / GASOLINE / NGV / LPG / EV / HYBRID
+  tankCapacityL      Int?                     @map("tank_capacity_l")
+  odometerKm         Decimal?                 @map("odometer_km") @db.Decimal(10, 1) /// เลขไมล์ปัจจุบัน = reading ACCEPTED ล่าสุด
+  odometerSource     String?                  @map("odometer_source") /// MANUAL / TRIP / GPS / FUEL_LOG / WORK_ORDER
+  odometerUpdatedAt  DateTime?                @map("odometer_updated_at") @db.Timestamptz(6)
+  pairedVehicleId    String?                  @unique @map("paired_vehicle_id") @db.Uuid /// หัวลาก ↔ หาง (ชี้หากันทั้งสองฝั่ง)
+  paired             Vehicle?                 @relation("VehiclePair", fields: [pairedVehicleId], references: [id], onDelete: Restrict)
+  pairedBy           Vehicle?                 @relation("VehiclePair")
+  purchaseCost       Decimal?                 @map("purchase_cost") @db.Decimal(14, 2)
+  purchasedOn        DateTime?                @map("purchased_on") @db.Date
+  depreciationMethod String?                  @map("depreciation_method") /// STRAIGHT_LINE (เฟสแรกวิธีเดียว — job ST2-T22)
+  depreciationYears  Int?                     @map("depreciation_years")
+  salvageValue       Decimal?                 @map("salvage_value") @db.Decimal(14, 2)
+  photoDocumentIds   String[]                 @default([]) @map("photo_document_ids") @db.Uuid /// รูปรถ (stored_document ST1-T08)
+  status             VehicleStatus            @default(READY)
+  statusReason       String?                  @map("status_reason")
+  retiredAt          DateTime?                @map("retired_at") @db.Timestamptz(6)
+  externalId         String?                  @map("external_id")
+  deletedExternalId  String?                  @map("deleted_external_id")
+  deletedAt          DateTime?                @map("deleted_at") @db.Timestamptz(6) /// soft delete เฉพาะที่ไม่เคยถูกอ้างอิง (FLT-008)
+  version            Int                      @default(1)
+  createdAt          DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime                 @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  odometerReadings   VehicleOdometerReading[]
 
-  @@unique([tenantId, plate, plateProvince])
   @@unique([tenantId, externalId])
   @@index([tenantId, updatedAt, id])
+  @@index([tenantId, plateKey, id])
+  @@index([tenantId, vehicleTypeId])
+  @@index([tenantId, carrierId])
   @@map("vehicle")
+}
+
+/// ประวัติเลขไมล์ (spec/06 FLT-O; ST2-T06 = บันทึกมือ/แก้ไข — แหล่งอื่น (เที่ยว/GPS/น้ำมัน) ใช้ตารางเดียวกันใน ST4+)
+/// แก้ไม่ทับค่าเดิม: แถวใหม่ `originalReadingId` + แถวเดิม SUPERSEDED (FLT-285)
+model VehicleOdometerReading {
+  id                String   @id @default(uuid()) @db.Uuid
+  tenantId          String   @map("tenant_id") @db.Uuid
+  vehicleId         String   @map("vehicle_id") @db.Uuid
+  vehicle           Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
+  readingKm         Decimal  @map("reading_km") @db.Decimal(10, 1)
+  readAt            DateTime @map("read_at") @db.Timestamptz(6) /// เวลาที่อ่านเลขไมล์ (occurredAt)
+  source            String /// MANUAL / CORRECTION (ST2-T06) · TRIP / GPS / FUEL_LOG / WORK_ORDER / PRETRIP / IMPORT ภายหลัง
+  status            String   @default("ACCEPTED") /// ACCEPTED / SUPERSEDED
+  reasonType        String?  @map("reason_type") /// แก้ไข: TYPO / METER_REPLACED / GPS_ERROR / MISSED_ENTRY / OTHER
+  note              String?
+  originalReadingId String?  @map("original_reading_id") @db.Uuid
+  createdBy         String?  @map("created_by")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6) /// receivedAt
+
+  @@index([tenantId, vehicleId, readAt])
+  @@map("vehicle_odometer_reading")
 }
 
 enum EmploymentType {

@@ -13,7 +13,8 @@ export type HistoryPath =
   | '/v1/customers/{id}/history'
   | '/v1/customer-sites/{id}/history'
   | '/v1/vehicle-types/{id}/history'
-  | '/v1/carriers/{id}/history';
+  | '/v1/carriers/{id}/history'
+  | '/v1/vehicles/{id}/history';
 
 const VERB: Record<
   string,
@@ -31,9 +32,23 @@ const VERB: Record<
   geocode_retried: { key: 'hist.geocodeRetried', tone: 'info', icon: 'refresh-cw' },
   // ST2-T05 ดูเลขบัตร/เลขบัญชีเต็ม (spec/11 NFR-153)
   pii_revealed: { key: 'hist.piiRevealed', tone: 'warn', icon: 'eye' },
+  // ST2-T06 รถ: สถานะ / ปลดระวาง / เลขไมล์
+  status_changed: { key: 'hist.statusChanged', tone: 'info', icon: 'refresh-cw' },
+  retired: { key: 'hist.retired', tone: 'off', icon: 'archive' },
+  odometer_recorded: { key: 'hist.odometerRecorded', tone: 'ok', icon: 'gauge' },
+  odometer_corrected: { key: 'hist.odometerCorrected', tone: 'warn', icon: 'gauge' },
 };
 /** action ที่แสดงรายการช่องที่เปลี่ยน (ก่อน → หลัง) */
-const DIFF_ACTIONS = ['updated', 'geocoded', 'geocode_confirmed', 'geocode_rejected'];
+const DIFF_ACTIONS = [
+  'updated',
+  'geocoded',
+  'geocode_confirmed',
+  'geocode_rejected',
+  'status_changed',
+  'retired',
+  'odometer_recorded',
+  'odometer_corrected',
+];
 
 function show(v: unknown): string {
   if (v === null || v === undefined || v === '') return '—';
