@@ -127,6 +127,14 @@ export class SettingsService {
     if (!steppedUp && weakensSecurity(before, values))
       throw new ProblemException('step_up_required');
     const actor = requestContext.require().actorId ?? null;
+    // กดบันทึกโดยไม่เปลี่ยนค่า = ยืนยันว่าตรวจแล้ว (ST1-T21 checklist นับขั้น "องค์กร"/"ภาษี" จากบันทึกนี้)
+    if (keys.length && keys.every((k) => JSON.stringify(before[k]) === JSON.stringify(values[k])))
+      await this.audit.record({
+        action: 'tenant_setting.reviewed',
+        entityType: 'tenant_setting',
+        entityId: keys[0]!,
+        after: { keys },
+      });
     for (const [k, v] of Object.entries(values)) {
       const key = k as SettingKey;
       if (JSON.stringify(before[key]) === JSON.stringify(v)) continue;

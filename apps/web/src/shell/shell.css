@@ -9,3 +9,8 @@
 .tms-sb-plain:hover {
   background: #ebede8 !important;
 }
+
+/* ST1-T21 การ์ดขั้น setup checklist — ต้นแบบ style-hover border-color #9DB6E3 */
+.tms-setup-step:hover {
+  border-color: #9db6e3 !important;
+}
