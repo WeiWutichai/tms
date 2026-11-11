@@ -14,6 +14,8 @@ export interface EnqueueEmail<K extends TemplateName> {
   locale: string;
   vars: TemplateVars[K];
   runAt?: Date;
+  /** กำหนด id เอง (ST1-T23: แถว notification ช่องอีเมลอ้างถึงแถว outbox — role แอปไม่มี RETURNING) */
+  id?: string;
 }
 
 /**
@@ -31,6 +33,7 @@ export class EmailService {
     const r = this.render(input);
     await tx.emailOutbox.createMany({
       data: {
+        ...(input.id ? { id: input.id } : {}),
         tenantId: input.tenantId,
         toAddress: input.to,
         template: input.template,
@@ -67,10 +70,11 @@ export class EmailDispatcher {
 
   private async claim(): Promise<EmailOutbox[]> {
     // ค้าง SENDING เกิน lease และครบจำนวนครั้งแล้ว (worker ตายระหว่างส่ง) → FAILED ไม่วนไม่จบ
-    await this.prisma.platform.$executeRaw`
+    const stale = await this.prisma.platform.$executeRaw`
       UPDATE email_outbox SET status = 'FAILED', locked_until = NULL, text_body = NULL, html_body = NULL,
              error = coalesce(error, 'lease expired'), updated_at = now()
        WHERE status = 'SENDING' AND locked_until < now() AND attempts >= max_attempts`;
+    if (stale > 0) await this.syncNotifications();
     return this.prisma.platform.$queryRaw<EmailOutbox[]>`
       WITH c AS (
         SELECT id FROM email_outbox
@@ -85,6 +89,22 @@ export class EmailDispatcher {
         FROM c WHERE e.id = c.id
       RETURNING e.id, e.to_address AS "toAddress", e.subject, e.text_body AS "textBody",
                 e.html_body AS "htmlBody", e.attempts, e.max_attempts AS "maxAttempts", e.template`;
+  }
+
+  /**
+   * ST1-T23: สถานะแถว notification ช่องอีเมลตามผลใน outbox (SENT/FAILED) — ไม่ระบุ id = ไล่ทุกแถวที่ค้าง
+   * (เช่น outbox ถูกตั้ง FAILED เพราะ lease หมด) · เขียนด้วย role platform; error ไม่ใส่ (อาจมีชื่อ host SMTP)
+   */
+  private async syncNotifications(outboxId?: string): Promise<void> {
+    await this.prisma.platform.$executeRaw`
+      UPDATE notification n
+         SET status = CASE WHEN e.status = 'SENT' THEN 'SENT'::"NotificationStatus" ELSE 'FAILED'::"NotificationStatus" END,
+             sent_at = CASE WHEN e.status = 'SENT' THEN e.sent_at ELSE n.sent_at END,
+             failed_reason = CASE WHEN e.status = 'FAILED' THEN 'email_failed' ELSE NULL END,
+             updated_at = now()
+        FROM email_outbox e
+       WHERE n.email_outbox_id = e.id AND n.status = 'QUEUED' AND e.status IN ('SENT', 'FAILED')
+         AND (${outboxId ?? null}::uuid IS NULL OR e.id = ${outboxId ?? null}::uuid)`;
   }
 
   /** ส่ง 1 ฉบับ — คืน true ถ้ามีงาน */
@@ -107,6 +127,7 @@ export class EmailDispatcher {
                provider_message_id = ${r.messageId ?? null}, text_body = NULL, html_body = NULL,
                error = NULL, updated_at = now()
          WHERE id = ${m.id}::uuid AND status = 'SENDING' AND attempts = ${m.attempts}`;
+      await this.syncNotifications(m.id);
     } catch (err) {
       const msg = String((err as Error).message ?? err).slice(0, 500);
       this.logger.warn(`email ${m.id} (${m.template}) failed attempt ${m.attempts}: ${msg}`);
@@ -121,6 +142,7 @@ export class EmailDispatcher {
           UPDATE email_outbox SET status = 'FAILED', locked_until = NULL, error = ${msg},
                  text_body = NULL, html_body = NULL, updated_at = now()
            WHERE id = ${m.id}::uuid AND status = 'SENDING' AND attempts = ${m.attempts}`;
+      await this.syncNotifications(m.id);
     }
     return true;
   }

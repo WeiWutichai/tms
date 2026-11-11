@@ -1,6 +1,7 @@
 import { Icon } from '@tms/ui';
 import { api, queryClient } from '../api';
 import { formatLongDate, useI18n, type Lang } from '../i18n';
+import { Bell } from './Bell';
 
 /** แถบบน — <header> สูง 56 ใน TMS v4: breadcrumb, วันที่, สลับภาษา, กระดิ่ง, ปุ่ม + */
 export function Header({
@@ -116,14 +117,7 @@ export function Header({
           );
         })}
       </div>
-      <button
-        type="button"
-        className="tms-iconbtn"
-        title={t('shell.notifications')}
-        aria-label={t('shell.notifications')}
-      >
-        <Icon n="bell" s={16} />
-      </button>
+      <Bell />
       <button
         type="button"
         className="tms-iconbtn tms-iconbtn--accent"

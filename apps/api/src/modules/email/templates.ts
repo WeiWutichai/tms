@@ -30,6 +30,8 @@ function layout(
 }
 
 export interface TemplateVars {
+  /** ST1-T23 ช่องอีเมลของแจ้งเตือน — title/body render ตามภาษาผู้รับแล้ว; link = URL เต็มของเว็บ */
+  notification: { title: string; body: string; link?: string };
   password_reset: { link: string; minutes: number };
   user_invitation: {
     link: string;
@@ -44,6 +46,18 @@ export type TemplateName = keyof TemplateVars;
 type Renderer<K extends TemplateName> = (v: TemplateVars[K]) => RenderedEmail;
 
 const TEMPLATES: { [K in TemplateName]: Record<EmailLocale, Renderer<K>> } = {
+  notification: {
+    th: ({ title, body, link }) => ({
+      subject: `${title} — TMS`,
+      text: `${title}\n\n${body}\n${link ? `\n${link}\n` : ''}`,
+      html: layout('th', title, [body], link ? { href: link, label: 'เปิดในระบบ' } : undefined),
+    }),
+    en: ({ title, body, link }) => ({
+      subject: `${title} — TMS`,
+      text: `${title}\n\n${body}\n${link ? `\n${link}\n` : ''}`,
+      html: layout('en', title, [body], link ? { href: link, label: 'Open in TMS' } : undefined),
+    }),
+  },
   user_invitation: {
     th: ({ link, days, tenantName, inviterName, roles }) => {
       const title = `คำเชิญเข้าร่วม ${tenantName}`;

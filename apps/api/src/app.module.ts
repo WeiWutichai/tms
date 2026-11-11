@@ -10,6 +10,8 @@ import { MfaController } from './auth/mfa.controller';
 import { PasswordController } from './auth/password.controller';
 import { PasswordResetController, PasswordResetService } from './auth/password-reset.controller';
 import { EmailDispatcher, EmailService } from './modules/email/email.service';
+import { NotificationService } from './modules/notifications/notification.service';
+import { NotificationsController } from './modules/notifications/notifications.controller';
 import {
   InvitationAcceptController,
   InvitationAcceptService,
@@ -53,6 +55,7 @@ import { StateService } from './state/state.service';
     PasswordResetController,
     InvitationAcceptController,
     InvitationsController,
+    NotificationsController,
     HealthController,
     MeController,
     ProfileController,
@@ -75,6 +78,7 @@ import { StateService } from './state/state.service';
     InvitationAcceptService,
     EmailService,
     EmailDispatcher,
+    NotificationService,
     EntitlementService,
     MagicLinkService,
     DbService,

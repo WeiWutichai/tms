@@ -74,6 +74,7 @@ export const zh: Partial<Record<MessageKey, string>> = {
   'shell.erpSetup': '设置',
   'shell.logout': '退出登录',
   'shell.notifications': '通知',
+  'notify.close': '关闭',
   'shell.main': '主要',
   'table.columns': '列',
   'table.options': '选项',

@@ -108,6 +108,10 @@ export const th = {
   'shell.erpStatus': 'สถานะระบบบัญชี',
   'shell.logout': 'ออกจากระบบ',
   'shell.notifications': 'การแจ้งเตือน',
+  'notify.new': 'แจ้งเตือนใหม่ {n} รายการ: {list}',
+  'notify.none': 'ไม่มีแจ้งเตือนใหม่',
+  'notify.unread': 'การแจ้งเตือน (มีรายการที่ยังไม่อ่าน)',
+  'notify.close': 'ปิด',
   'shell.create': 'สร้าง',
   'shell.main': 'หลัก',
   // หน้าที่ยังไม่เปิด (is.empty ในต้นแบบ)

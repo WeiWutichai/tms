@@ -1344,3 +1344,38 @@ model UserInvitation {
   @@index([tenantId, userId])
   @@map("user_invitation")
 }
+
+/// ช่องทางแจ้งเตือน (ST1-T23; docs/04 I, spec/10 Notification) — push/line/sms เสียบภายหลัง (ST3-T21, เฟส 2)
+enum NotificationStatus {
+  QUEUED
+  SENT
+  READ
+  FAILED
+}
+
+/// แจ้งเตือน 1 แถว = ผู้รับ 1 คน × ช่องทาง 1 ช่อง (ST1-T23) — เนื้อหา render ตอนสร้างตามภาษาของผู้รับ
+model Notification {
+  id                String             @id @default(uuid()) @db.Uuid
+  tenantId          String             @map("tenant_id") @db.Uuid
+  recipientId       String             @map("recipient_id") @db.Uuid /// app_user.id
+  channel           String /// in_app · email (· push · line · sms ภายหลัง)
+  templateCode      String             @map("template_code")
+  locale            String
+  title             String
+  body              String
+  link              String? /// path ภายในเว็บ เช่น /settings/users
+  payload           Json               @default("{}")
+  status            NotificationStatus @default(QUEUED)
+  emailOutboxId     String?            @map("email_outbox_id") @db.Uuid
+  sentAt            DateTime?          @map("sent_at") @db.Timestamptz(6)
+  readAt            DateTime?          @map("read_at") @db.Timestamptz(6)
+  failedReason      String?            @map("failed_reason")
+  relatedEntityType String?            @map("related_entity_type")
+  relatedEntityId   String?            @map("related_entity_id")
+  createdAt         DateTime           @default(dbgenerated("now()")) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([tenantId, recipientId, channel, createdAt])
+  @@index([emailOutboxId])
+  @@map("notification")
+}

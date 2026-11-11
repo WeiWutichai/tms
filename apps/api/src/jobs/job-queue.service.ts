@@ -2,7 +2,18 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { EntitlementService } from '../modules/entitlements/entitlement.service';
 import type { Job } from '@prisma/client';
 import { PrismaService } from '../db/prisma.service';
+import { encodeId } from '../common/ids';
 import { DbService, type Tx } from '../db/db.service';
+import { NotificationService } from '../modules/notifications/notification.service';
+
+/** แจ้งผู้สั่งงานเมื่อจบ (ST1-T23; docs/04 I "งานใหญ่ background + แจ้งเมื่อเสร็จ") — เก็บใน payload._notify */
+export interface JobNotify {
+  userId: string;
+  /** ชื่องานที่ผู้ใช้อ่านเข้าใจ เช่น "นำเข้าลูกค้า (ลูกค้า.xlsx)" */
+  label: string;
+  /** path ภายในเว็บที่ไปดูผล */
+  link?: string;
+}
 
 export interface JobContext {
   tenantId: string;
@@ -31,6 +42,7 @@ export class JobQueue {
     private readonly prisma: PrismaService,
     private readonly db: DbService,
     @Optional() private readonly entitlements?: EntitlementService,
+    @Optional() private readonly notifications?: NotificationService,
   ) {}
 
   register(type: string, handler: JobHandler, opts: { feature?: string } = {}): void {
@@ -41,13 +53,24 @@ export class JobQueue {
 
   enqueue(
     tx: Tx,
-    input: { tenantId: string; type: string; payload?: object; runAt?: Date; maxAttempts?: number },
+    input: {
+      tenantId: string;
+      type: string;
+      payload?: object;
+      runAt?: Date;
+      maxAttempts?: number;
+      notify?: JobNotify;
+    },
   ) {
+    const payload = {
+      ...(input.payload ?? {}),
+      ...(input.notify ? { _notify: input.notify } : {}),
+    };
     return tx.job.create({
       data: {
         tenantId: input.tenantId,
         type: input.type,
-        payload: (input.payload ?? {}) as any,
+        payload: payload as any,
         ...(input.runAt ? { runAt: input.runAt } : {}),
         maxAttempts: input.maxAttempts ?? 3,
       },
@@ -111,6 +134,7 @@ export class JobQueue {
           lockedUntil: null,
         },
       });
+      await this.notifyDone(job, 'job.succeeded');
     } catch (err) {
       const retry = job.attempts < job.maxAttempts;
       this.logger.warn(
@@ -132,8 +156,29 @@ export class JobQueue {
               error: { message: String(err) },
             },
       });
+      if (!retry) await this.notifyDone(job, 'job.failed');
     }
     return true;
+  }
+
+  /** แจ้งผลแยก transaction — แจ้งไม่สำเร็จไม่ทำให้สถานะงานเปลี่ยน */
+  private async notifyDone(job: Job, template: 'job.succeeded' | 'job.failed'): Promise<void> {
+    const n = (job.payload as { _notify?: JobNotify } | null)?._notify;
+    if (!n || !this.notifications || typeof n.userId !== 'string' || typeof n.label !== 'string')
+      return;
+    const svc = this.notifications;
+    await this.db
+      .withTenant(job.tenantId, (tx) =>
+        svc.notify(tx, {
+          tenantId: job.tenantId,
+          to: { userIds: [n.userId] },
+          template,
+          vars: { label: n.label },
+          ...(n.link ? { link: n.link } : {}),
+          entity: { type: 'job', id: encodeId('job', job.id) },
+        }),
+      )
+      .catch((e) => this.logger.warn(`job ${job.id} notify failed: ${String(e)}`));
   }
 
   private async setProgress(id: string, pct: number): Promise<void> {
