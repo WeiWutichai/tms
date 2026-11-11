@@ -266,6 +266,7 @@ export function SitesPage() {
         ? kinds?.[filters.kind as keyof typeof kinds]
         : sum?.total;
   const filtered = Object.values(filters).some((v) => v !== '');
+  const shownTotal = tabCount ?? list.page.total;
 
   return (
     <>
@@ -323,7 +324,7 @@ export function SitesPage() {
         />
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 32 }}>
           <span style={{ marginLeft: 'auto', color: '#3B424C', fontSize: 13 }}>
-            {t('table.total', { n: tabCount ?? list.page.rowsOnPage })}
+            {shownTotal !== undefined && t('table.total', { n: shownTotal })}
           </span>
         </div>
         {list.q.isError ? (
@@ -403,7 +404,7 @@ export function SitesPage() {
                 />
               )
             }
-            page={{ ...list.page, ...(tabCount !== undefined ? { total: tabCount } : {}) }}
+            page={{ ...list.page, ...(shownTotal !== undefined ? { total: shownTotal } : {}) }}
             onPageSize={list.setSize}
             onNext={list.next}
             onPrev={list.prev}

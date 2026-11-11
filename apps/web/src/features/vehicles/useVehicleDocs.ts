@@ -60,6 +60,13 @@ export async function openDocFile(id: string): Promise<void> {
   a.remove();
 }
 
+/** เอกสารเปลี่ยน → รายการเอกสาร + ทะเบียนรถ (ป้ายเอกสารใกล้หมด / การ์ด summary — ST2-T07) + กิจกรรมของรถ */
+function invalidate(qc: ReturnType<typeof useQueryClient>) {
+  void qc.invalidateQueries({ queryKey: [KEY] });
+  void qc.invalidateQueries({ queryKey: ['vehicles'] });
+  void qc.invalidateQueries({ queryKey: ['history'] });
+}
+
 export function useCreateVehicleDoc(vehicleId: string) {
   const qc = useQueryClient();
   return useMutation({
@@ -71,7 +78,7 @@ export function useCreateVehicleDoc(vehicleId: string) {
           headers: { 'Idempotency-Key': v.idempotencyKey },
         }),
       ),
-    onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
+    onSuccess: () => invalidate(qc),
   });
 }
 
@@ -86,7 +93,7 @@ export function useRenewVehicleDoc() {
           headers: { 'Idempotency-Key': v.idempotencyKey },
         }),
       ),
-    onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
+    onSuccess: () => invalidate(qc),
   });
 }
 

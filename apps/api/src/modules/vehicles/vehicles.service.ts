@@ -27,6 +27,7 @@ import {
   masterKeyset,
   upsertByExternalId,
 } from '../master/master-kit';
+import { addDays, bangkokToday, CURRENT_DB_STATUSES } from '../vehicle-documents/expiry';
 import { PROVINCES } from './provinces';
 import type {
   CreateVehicleDto,
@@ -38,6 +39,7 @@ import type {
   UnitRole,
   UpdateVehicleDto,
   UpsertVehicleDto,
+  VehicleDocAlertDto,
   VehicleDto,
   VehicleListQuery,
   VehicleStatusKey,
@@ -152,6 +154,19 @@ export function assertPlate(plate: string) {
       'plate must be a Thai plate such as 70-1234 or 1กข 1234',
     );
 }
+
+/**
+ * ป้ายเอกสารในทะเบียนรถ (ST2-T07; ต้นแบบ specFVeh คอลัมน์ "เอกสารใกล้หมด" + การ์ด "เอกสารใกล้หมด 30 วัน")
+ * = เอกสารฉบับปัจจุบันที่หมดภายใน 30 วัน (รวมที่หมดแล้ว) — ไม่นับรถปลดระวาง
+ */
+export const DOC_ALERT_DAYS = 30;
+function docAlertWhere(today = bangkokToday()): Prisma.VehicleDocumentWhereInput {
+  return {
+    status: { in: [...CURRENT_DB_STATUSES] },
+    expiresOn: { lte: new Date(`${addDays(today, DOC_ALERT_DAYS)}T00:00:00Z`) },
+  };
+}
+const NO_ALERT: VehicleDocAlertDto = { count: 0, expired: 0, nextExpiresOn: null };
 
 /** วันนี้ตามเวลาไทย (YYYY-MM-DD) */
 const todayTh = () => new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10);
@@ -276,6 +291,10 @@ export class VehiclesService {
     if (q.ownership) and.push({ ownership: q.ownership });
     if (q.unitRole) and.push({ unitRole: q.unitRole });
     if (q.unpaired === 'true') and.push({ pairedVehicleId: null });
+    if (q.docAlert === 'true')
+      and.push({ status: { not: 'RETIRED' }, documents: { some: docAlertWhere() } });
+    if (q.docAlert === 'false')
+      and.push({ OR: [{ status: 'RETIRED' }, { documents: { none: docAlertWhere() } }] });
     if (q.vehicleTypeId)
       and.push({ vehicleTypeId: tryDecodeId('vehicleType', q.vehicleTypeId) ?? undefined });
     if (q.carrierId) and.push({ carrierId: tryDecodeId('carrier', q.carrierId) ?? undefined });
@@ -312,7 +331,32 @@ export class VehiclesService {
       include: INCLUDE,
     });
     const finance = canSeeFinance();
-    return k.page(rows, (r) => toVehicleDto(r, finance));
+    const alerts = await this.docAlerts(rows);
+    return k.page(rows, (r) => ({
+      ...toVehicleDto(r, finance),
+      docAlert: alerts.get(r.id) ?? NO_ALERT,
+    }));
+  }
+
+  /** สรุปเอกสารใกล้หมดของรถหลายคันใน query เดียว (ไม่ N+1) — ใช้กับรายการ */
+  private async docAlerts(rows: Vehicle[]): Promise<Map<string, VehicleDocAlertDto>> {
+    const ids = rows.filter((r) => r.status !== 'RETIRED').map((r) => r.id);
+    const out = new Map<string, VehicleDocAlertDto>();
+    if (!ids.length) return out;
+    const today = bangkokToday();
+    const docs = await this.db.tx.vehicleDocument.findMany({
+      where: { vehicleId: { in: ids }, ...docAlertWhere(today) },
+      select: { vehicleId: true, expiresOn: true },
+    });
+    for (const d of docs) {
+      const on = d.expiresOn.toISOString().slice(0, 10);
+      const a = out.get(d.vehicleId) ?? { count: 0, expired: 0, nextExpiresOn: null };
+      a.count += 1;
+      if (on < today) a.expired += 1;
+      if (!a.nextExpiresOn || on < a.nextExpiresOn) a.nextExpiresOn = on;
+      out.set(d.vehicleId, a);
+    }
+    return out;
   }
 
   async exportRows(q: VehicleListQuery & { ids?: string }) {
@@ -347,6 +391,9 @@ export class VehiclesService {
       where: { deletedAt: null, ownership: 'SUBCONTRACT', status: { not: 'RETIRED' } },
     });
     const used = n('READY') + n('MAINTENANCE') + n('PARKED');
+    const docAlert = await tx.vehicle.count({
+      where: { deletedAt: null, status: { not: 'RETIRED' }, documents: { some: docAlertWhere() } },
+    });
     return {
       total: used + n('RETIRED'),
       ready: n('READY'),
@@ -354,6 +401,7 @@ export class VehiclesService {
       parked: n('PARKED'),
       retired: n('RETIRED'),
       subcontract,
+      docAlert,
       quota: { limit: await this.quotaLimit(), used },
     };
   }

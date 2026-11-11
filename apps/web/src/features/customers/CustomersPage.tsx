@@ -186,6 +186,8 @@ export function CustomersPage() {
         : s?.total;
   const onlyStatus = !filters.code && !filters.name && !filters.billingCycle;
   const filtered = !!(filters.status || !onlyStatus);
+  // ยอดรวม: ไม่กรองอื่น = ตัวนับของแท็บ · กรองอื่น = รู้เมื่อถึงหน้าสุดท้ายเท่านั้น (ไม่ใช่จำนวนแถวในหน้า)
+  const shownTotal = onlyStatus && tabCount !== undefined ? tabCount : list.page.total;
 
   return (
     <>
@@ -241,9 +243,7 @@ export function CustomersPage() {
         />
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 32 }}>
           <span style={{ marginLeft: 'auto', color: '#3B424C', fontSize: 13 }}>
-            {t('table.total', {
-              n: onlyStatus && tabCount !== undefined ? tabCount : list.page.rowsOnPage,
-            })}
+            {shownTotal !== undefined && t('table.total', { n: shownTotal })}
           </span>
         </div>
         {list.q.isError ? (
@@ -314,7 +314,7 @@ export function CustomersPage() {
             }
             page={{
               ...list.page,
-              ...(onlyStatus && tabCount !== undefined ? { total: tabCount } : {}),
+              ...(shownTotal !== undefined ? { total: shownTotal } : {}),
             }}
             onPageSize={list.setSize}
             onNext={list.next}

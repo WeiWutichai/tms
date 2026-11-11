@@ -180,6 +180,7 @@ export function VehicleTypesPage() {
   ];
 
   const filtered = Object.values(filters).some((v) => v !== '');
+  const shownTotal = !filtered && sum ? sum.total : list.page.total;
 
   return (
     <>
@@ -213,9 +214,7 @@ export function VehicleTypesPage() {
         />
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 32 }}>
           <span style={{ marginLeft: 'auto', color: '#3B424C', fontSize: 13 }}>
-            {t('table.total', {
-              n: !filtered && sum ? sum.total : list.page.rowsOnPage,
-            })}
+            {shownTotal !== undefined && t('table.total', { n: shownTotal })}
           </span>
         </div>
         {list.q.isError ? (
@@ -295,7 +294,7 @@ export function VehicleTypesPage() {
                 />
               )
             }
-            page={{ ...list.page, ...(!filtered && sum ? { total: sum.total } : {}) }}
+            page={{ ...list.page, ...(shownTotal !== undefined ? { total: shownTotal } : {}) }}
             onPageSize={list.setSize}
             onNext={list.next}
             onPrev={list.prev}

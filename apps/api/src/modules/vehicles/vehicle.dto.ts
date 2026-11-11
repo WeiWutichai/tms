@@ -533,6 +533,15 @@ export class VehicleListQuery {
   @IsOptional()
   @IsIn(['true', 'false'])
   unpaired?: 'true' | 'false';
+
+  @ApiPropertyOptional({
+    enum: ['true', 'false'],
+    description:
+      'true = มีเอกสารฉบับปัจจุบันหมดภายใน 30 วันหรือหมดแล้ว (ไม่นับรถปลดระวาง) · false = ไม่มี',
+  })
+  @IsOptional()
+  @IsIn(['true', 'false'])
+  docAlert?: 'true' | 'false';
 }
 
 export class VehicleExportQuery extends VehicleListQuery {
@@ -560,6 +569,14 @@ export class PairedVehicleDto {
   @ApiProperty({ example: '72-1111' }) plate!: string;
   @ApiProperty({ enum: PROVINCE_CODES }) plateProvince!: string;
   @ApiProperty({ enum: UNIT_ROLES }) unitRole!: UnitRole;
+}
+
+export class VehicleDocAlertDto {
+  @ApiProperty({ description: 'เอกสารฉบับปัจจุบันที่หมดภายใน 30 วัน (รวมที่หมดแล้ว)' })
+  count!: number;
+  @ApiProperty({ description: 'ในจำนวนนั้น หมดแล้วกี่ฉบับ' }) expired!: number;
+  @ApiProperty({ nullable: true, type: String, format: 'date', description: 'วันหมดที่ใกล้สุด' })
+  nextExpiresOn!: string | null;
 }
 
 export class VehicleDto {
@@ -626,6 +643,12 @@ export class VehicleDto {
       'มีเฉพาะในผลการสร้าง: true = รถที่นับโควตา (ยังไม่ปลดระวาง) เกินโควตาของ tenant แล้ว — soft limit ยังสร้างได้ (header `Warning: 299` ด้วย)',
   })
   quotaExceeded?: boolean;
+  @ApiPropertyOptional({
+    type: VehicleDocAlertDto,
+    description:
+      'มีเฉพาะในรายการ (GET /vehicles): เอกสารใกล้หมด 30 วัน/หมดแล้วของคันนี้ (รถปลดระวาง = 0) — ST2-T07',
+  })
+  docAlert?: VehicleDocAlertDto;
 }
 
 export class VehiclePageDto {
@@ -653,6 +676,10 @@ export class VehicleSummaryDto {
   @ApiProperty() parked!: number;
   @ApiProperty() retired!: number;
   @ApiProperty({ description: 'รถร่วม (ไม่นับปลดระวาง)' }) subcontract!: number;
+  @ApiProperty({
+    description: 'รถ (ไม่ปลดระวาง) ที่มีเอกสารฉบับปัจจุบันหมดภายใน 30 วันหรือหมดแล้ว',
+  })
+  docAlert!: number;
   @ApiProperty({ type: VehicleQuotaDto }) quota!: VehicleQuotaDto;
 }
 

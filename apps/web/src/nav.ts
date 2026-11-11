@@ -257,8 +257,17 @@ export const NAV: NavGroup[] = [
   { key: 'ds', page: 'ds', label: 'nav.ds', icon: 'palette', path: '/design-system', stage: 'ST0' },
 ];
 
+/** หน้าย่อยที่ไม่อยู่ในเมนู → key ของหน้า (META) + path ของเมนูแม่ (สิทธิ์/แพ็กเกจเดียวกัน) */
+const SUBPAGES: { re: RegExp; page: string; parent: string }[] = [
+  { re: /^\/fleet\/vehicles\/[^/]+$/, page: 'fprof', parent: '/fleet/vehicles' },
+];
+const parentOf = (pathname: string) =>
+  SUBPAGES.find((x) => x.re.test(pathname))?.parent ?? pathname;
+
 /** หา key ของหน้า (META) จาก path */
 export function pageOf(pathname: string): string | undefined {
+  const subpage = SUBPAGES.find((x) => x.re.test(pathname));
+  if (subpage) return subpage.page;
   for (const g of NAV) {
     if (g.path && g.path === pathname) return g.page;
     for (const k of g.kids ?? [])
@@ -283,7 +292,8 @@ export function navFor(scopes: readonly string[]): NavGroup[] {
 }
 
 /** สิทธิ์ที่ต้องใช้ของ path (ใช้กันเข้าทาง URL ตรง) */
-export function permOf(pathname: string): string[] | undefined {
+export function permOf(path: string): string[] | undefined {
+  const pathname = parentOf(path);
   for (const g of NAV) {
     if (g.path && g.path === pathname) return g.perm;
     for (const k of g.kids ?? []) if (k.path.split('?')[0] === pathname) return k.perm;
@@ -292,7 +302,8 @@ export function permOf(pathname: string): string[] | undefined {
 }
 
 /** ฟีเจอร์ของแพ็กเกจที่ path นี้ต้องใช้ (ST1-T18) */
-export function featureOf(pathname: string): string | undefined {
+export function featureOf(path: string): string | undefined {
+  const pathname = parentOf(path);
   for (const g of NAV) {
     if (g.path && g.path === pathname) return g.feature;
     for (const k of g.kids ?? []) if (k.path.split('?')[0] === pathname) return k.feature;

@@ -1,6 +1,6 @@
 import type { Schemas } from '@tms/contracts';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api, idempotent, unwrap } from '../../api';
+import { api, ApiError, idempotent, unwrap } from '../../api';
 import type { T } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
 import { refetchOnStale } from '../master/problems';
@@ -114,15 +114,47 @@ export interface VehicleFilters {
   vehicleTypeId: string;
   ownership: string;
   status: string;
+  /** '' | 'true' (มีเอกสารใกล้หมด) | 'false' (ปกติ) */
+  docAlert: string;
 }
 
-export function useVehicleList(filters: VehicleFilters) {
+/** แท็บของทะเบียนรถ (ต้นแบบ specFVeh tabs): ทั้งหมด · สถานะ 4 แบบ · รถร่วม */
+export type VehTabKey = 'all' | VehicleStatus | 'sub';
+const NOT_RETIRED = 'ready,maintenance,parked';
+
+/**
+ * query ของรายการ = แท็บ ∩ ตัวกรองคอลัมน์ — ขัดกันเอง (แท็บ "ซ่อม" + คอลัมน์สถานะ "จอด") → null = ไม่มีแถว
+ * แท็บรถร่วม = SUBCONTRACT ที่ไม่ปลดระวาง (ตรงกับตัวนับ summary.subcontract)
+ */
+export function vehicleQuery(tab: VehTabKey, f: VehicleFilters): Record<string, string> | null {
+  const q: Record<string, string> = { ...f };
+  if (tab === 'sub') {
+    if ((f.ownership && f.ownership !== 'SUBCONTRACT') || f.status === 'retired') return null;
+    q.ownership = 'SUBCONTRACT';
+    q.status = f.status || NOT_RETIRED;
+  } else if (tab !== 'all') {
+    if (f.status && f.status !== tab) return null;
+    q.status = tab;
+  }
+  return q;
+}
+
+export function useVehicleList(query: Record<string, string> | null) {
   return useCursorList<Vehicle>(
     KEY,
-    { ...filters },
-    (query) => unwrap(api.GET('/v1/vehicles', { params: { query: query as never } })),
-    { sort: 'plate' },
+    query ?? {},
+    (q) => unwrap(api.GET('/v1/vehicles', { params: { query: q as never } })),
+    { sort: 'plate', enabled: query !== null },
   );
+}
+
+/** รถคันเดียว (โปรไฟล์รถ ST2-T07) — key ใต้ 'vehicles' จึงโหลดใหม่เมื่อแก้/เปลี่ยนสถานะ */
+export function useVehicle(id: string) {
+  return useQuery({
+    queryKey: [KEY, 'one', id],
+    queryFn: () => unwrap(api.GET('/v1/vehicles/{id}', { params: { path: { id } } })),
+    retry: (n, e) => !(e instanceof ApiError && e.problem.status === 404) && n < 2,
+  });
 }
 
 export function useVehicleSummary() {
