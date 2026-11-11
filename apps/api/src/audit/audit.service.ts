@@ -57,6 +57,7 @@ export class AuditService {
       data: {
         tenantId: ctx.tenantId!,
         actorId: ctx.actorId ?? null,
+        actAs: ctx.actAs ?? null,
         action: e.action,
         entityType: e.entityType,
         entityId: e.entityId ?? null,

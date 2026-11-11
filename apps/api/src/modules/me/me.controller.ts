@@ -4,6 +4,7 @@ import { encodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService } from '../../db/db.service';
+import { PrismaService } from '../../db/prisma.service';
 import { cheapestPlanWith, EntitlementService } from '../entitlements/entitlement.service';
 import { PLANS } from '../entitlements/plan-catalog';
 
@@ -28,7 +29,20 @@ export class MePlanDto {
   @ApiProperty({ example: 'มาตรฐาน' }) name!: string;
 }
 
+export class MeImpersonationDto {
+  @ApiProperty({ description: 'ชื่อทีมงาน TMS ที่เข้าใช้งานแทน' }) staffName!: string;
+  @ApiProperty({ format: 'date-time' }) expiresAt!: string;
+  @ApiProperty({ enum: ['read_only'] }) mode!: string;
+}
+
 export class MeDto {
+  @ApiProperty({
+    type: () => MeImpersonationDto,
+    nullable: true,
+    description: 'กำลังเข้าใช้งานแทน (ST1-T24) — UI แสดงแถบส้มตลอดเวลา (spec/01 §5 banner)',
+  })
+  impersonation!: MeImpersonationDto | null;
+
   @ApiProperty({ description: 'ผู้ใช้หรือ API key ที่เรียก (sub)' }) actorId!: string;
   @ApiProperty({ type: [String] }) scopes!: string[];
   @ApiProperty({ type: MeTenantDto }) tenant!: MeTenantDto;
@@ -67,6 +81,7 @@ export class MeController {
   constructor(
     private readonly db: DbService,
     private readonly entitlements: EntitlementService,
+    private readonly prisma: PrismaService,
   ) {}
 
   @Get()
@@ -104,7 +119,20 @@ export class MeController {
         .filter(([f]) => !features.includes(f))
         .map(([f, code]) => [f, name(code)]),
     );
+    const imp = ctx.impersonationSessionId
+      ? await this.prisma.platform.impersonationSession.findUnique({
+          where: { id: ctx.impersonationSessionId },
+          include: { platformUser: { select: { name: true } } },
+        })
+      : null;
     return {
+      impersonation: imp
+        ? {
+            staffName: imp.platformUser.name,
+            expiresAt: imp.expiresAt.toISOString(),
+            mode: imp.mode,
+          }
+        : null,
       features,
       plan: { code: t.planCode, name: name(t.planCode) },
       lockedIn,

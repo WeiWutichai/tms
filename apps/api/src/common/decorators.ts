@@ -31,3 +31,11 @@ export const LINK_ACTION = 'tms:linkAction';
  * ลิงก์หมดอายุ/ถูกเพิกถอน/ไม่มี action นี้ → 404 · principal = `link` (ไม่เห็นราคาขายเด็ดขาด)
  */
 export const LinkAction = (action: string) => SetMetadata(LINK_ACTION, action);
+
+export const PLATFORM_ROLES = 'tms:platformRoles';
+/**
+ * route ของ Platform Console (ST1-T24) — ต้องใช้ token ของทีม Innovera (login แยก + 2FA) ไม่ใช่ token ลูกค้า
+ * ระบุ role ที่ทำได้ (docs/04 A6: SUPER_ADMIN / SUPPORT / BILLING) — ไม่ระบุ = ทุก role
+ */
+export const PlatformAuth = (...roles: ('SUPER_ADMIN' | 'SUPPORT' | 'BILLING')[]) =>
+  SetMetadata(PLATFORM_ROLES, roles);

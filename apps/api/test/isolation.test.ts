@@ -4,7 +4,7 @@ import { ModulesContainer } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { IS_PUBLIC, TENANT_RESOURCE } from '../src/common/decorators';
+import { IS_PUBLIC, PLATFORM_ROLES, TENANT_RESOURCE } from '../src/common/decorators';
 import { encodeId } from '../src/common/ids';
 import { store } from '../src/modules/documents/documents.controller';
 import { signStepUpToken } from '../src/auth/tokens';
@@ -184,8 +184,12 @@ function collectRoutes(app: NestExpressApplication): RouteInfo[] {
           resource:
             Reflect.getMetadata(TENANT_RESOURCE, handler) ??
             Reflect.getMetadata(TENANT_RESOURCE, cls),
+          // route ของ Platform Console ไม่รับ token ลูกค้าเลย (ทดสอบใน platform.test.ts) — นับเหมือน public
           isPublic: Boolean(
-            Reflect.getMetadata(IS_PUBLIC, handler) ?? Reflect.getMetadata(IS_PUBLIC, cls),
+            Reflect.getMetadata(IS_PUBLIC, handler) ??
+            Reflect.getMetadata(IS_PUBLIC, cls) ??
+            Reflect.getMetadata(PLATFORM_ROLES, handler) ??
+            Reflect.getMetadata(PLATFORM_ROLES, cls),
           ),
         });
       }

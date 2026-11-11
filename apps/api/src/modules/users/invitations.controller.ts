@@ -293,35 +293,8 @@ export class InvitationsController {
   /** ออก token + ส่งอีเมล (outbox ใน transaction เดียวกัน — rollback = ไม่ส่ง) */
   private async issue(tx: Tx, user: AppUser, roles: Role[]): Promise<UserInvitation> {
     const ctx = requestContext.require();
-    const { token, hash } = newOpaqueToken();
-    const inv = await tx.userInvitation.create({
-      data: {
-        tenantId: user.tenantId,
-        userId: user.id,
-        email: user.email,
-        tokenHash: hash,
-        expiresAt: new Date(Date.now() + INVITE_TTL_DAYS * 86400_000),
-        invitedBy: ctx.actorId && /^[0-9a-f-]{36}$/i.test(ctx.actorId) ? ctx.actorId : null,
-      },
-    });
-    const [tenant, inviter] = await Promise.all([
-      tx.tenant.findUnique({ where: { id: user.tenantId }, select: { name: true } }),
-      inv.invitedBy ? tx.appUser.findUnique({ where: { id: inv.invitedBy } }) : null,
-    ]);
-    await this.email.enqueue(tx, {
-      tenantId: user.tenantId,
-      to: user.email,
-      template: 'user_invitation',
-      locale: inviter?.locale ?? 'th',
-      vars: {
-        link: `${webBaseUrl()}/invite#token=${token}`,
-        days: INVITE_TTL_DAYS,
-        tenantName: safeName(tenant?.name ?? ''),
-        inviterName: safeName(inviter?.name ?? tenant?.name ?? ''),
-        roles: roles.map((r) => r.nameTh).join(', '),
-      },
-    });
-    return inv;
+    const by = ctx.actorId && /^[0-9a-f-]{36}$/i.test(ctx.actorId) ? ctx.actorId : null;
+    return issueInvitation(tx, this.email, user, roles, by);
   }
 
   private toDto(inv: UserInvitation, user: AppUser, roles: Role[]): InvitationDto {
@@ -336,4 +309,46 @@ export class InvitationsController {
       createdAt: inv.createdAt.toISOString(),
     };
   }
+}
+
+/**
+ * ออกลิงก์คำเชิญ + อีเมล (ST1-T07) — ใช้ร่วมกับ Platform Console (ST1-T24 สร้าง tenant แล้วเชิญ owner)
+ * invitedBy = ผู้ใช้ใน tenant (null = ทีม Innovera/ระบบ → อีเมลใช้ชื่อบริษัทเป็นผู้เชิญ)
+ */
+export async function issueInvitation(
+  tx: Tx,
+  email: EmailService,
+  user: AppUser,
+  roles: Role[],
+  invitedBy: string | null,
+): Promise<UserInvitation> {
+  const { token, hash } = newOpaqueToken();
+  const inv = await tx.userInvitation.create({
+    data: {
+      tenantId: user.tenantId,
+      userId: user.id,
+      email: user.email,
+      tokenHash: hash,
+      expiresAt: new Date(Date.now() + INVITE_TTL_DAYS * 86400_000),
+      invitedBy,
+    },
+  });
+  const [tenant, inviter] = await Promise.all([
+    tx.tenant.findUnique({ where: { id: user.tenantId }, select: { name: true } }),
+    invitedBy ? tx.appUser.findUnique({ where: { id: invitedBy } }) : null,
+  ]);
+  await email.enqueue(tx, {
+    tenantId: user.tenantId,
+    to: user.email,
+    template: 'user_invitation',
+    locale: inviter?.locale ?? 'th',
+    vars: {
+      link: `${webBaseUrl()}/invite#token=${token}`,
+      days: INVITE_TTL_DAYS,
+      tenantName: safeName(tenant?.name ?? ''),
+      inviterName: safeName(inviter?.name ?? tenant?.name ?? ''),
+      roles: roles.map((r) => r.nameTh).join(', '),
+    },
+  });
+  return inv;
 }

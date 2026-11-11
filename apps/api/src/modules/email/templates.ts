@@ -30,6 +30,15 @@ function layout(
 }
 
 export interface TemplateVars {
+  /** ST1-T24 แจ้ง owner ทุกครั้งที่ทีม Innovera เข้าใช้งานแทน (docs/04 A6) */
+  impersonation_started: {
+    tenantName: string;
+    staffName: string;
+    asUserName: string;
+    reason: string;
+    minutes: number;
+    at: string;
+  };
   /** ST1-T23 ช่องอีเมลของแจ้งเตือน — title/body render ตามภาษาผู้รับแล้ว; link = URL เต็มของเว็บ */
   notification: { title: string; body: string; link?: string };
   password_reset: { link: string; minutes: number };
@@ -46,6 +55,34 @@ export type TemplateName = keyof TemplateVars;
 type Renderer<K extends TemplateName> = (v: TemplateVars[K]) => RenderedEmail;
 
 const TEMPLATES: { [K in TemplateName]: Record<EmailLocale, Renderer<K>> } = {
+  impersonation_started: {
+    th: (v) => {
+      const title = `ทีมงาน TMS เข้าใช้งานบัญชี ${v.tenantName}`;
+      const paras = [
+        `${v.staffName} จากทีมงาน TMS เริ่มเข้าใช้งานแทนในนาม ${v.asUserName} เมื่อ ${v.at} (อ่านอย่างเดียว ไม่เกิน ${v.minutes} นาที)`,
+        `เหตุผล: ${v.reason}`,
+        'ทุกการกระทำถูกบันทึกในประวัติการใช้งาน ถ้าคุณไม่ได้ติดต่อทีมงาน กรุณาแจ้งกลับทันที',
+      ];
+      return {
+        subject: `${title} — TMS`,
+        text: `${title}\n\n${paras.join('\n\n')}\n`,
+        html: layout('th', title, paras),
+      };
+    },
+    en: (v) => {
+      const title = `TMS staff accessed ${v.tenantName}`;
+      const paras = [
+        `${v.staffName} from the TMS team started a read-only session as ${v.asUserName} at ${v.at} (up to ${v.minutes} minutes).`,
+        `Reason: ${v.reason}`,
+        'Every action is recorded in the audit log. If you did not contact our team, reply immediately.',
+      ];
+      return {
+        subject: `${title} — TMS`,
+        text: `${title}\n\n${paras.join('\n\n')}\n`,
+        html: layout('en', title, paras),
+      };
+    },
+  },
   notification: {
     th: ({ title, body, link }) => ({
       subject: `${title} — TMS`,

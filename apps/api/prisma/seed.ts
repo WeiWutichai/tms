@@ -215,6 +215,23 @@ async function main() {
       });
     }
   }
+  // ST1-T24 ทีม Innovera เดโม (Platform Console) — 1 คนต่อ role · TOTP เดียวกับผู้ใช้เดโม (dev/test เท่านั้น)
+  for (const [i, role] of (['SUPER_ADMIN', 'SUPPORT', 'BILLING'] as const).entries()) {
+    const email = `${role.toLowerCase().replace('_', '-')}@platform.test`;
+    const id = `00000000-0000-4000-8000-0000000f0a0${i + 1}`;
+    await db.platformUser.upsert({
+      where: { id },
+      create: {
+        id,
+        email,
+        name: `ทีมงาน ${role}`,
+        role,
+        passwordHash,
+        totpSecret: cipher.encrypt(DEMO_TOTP_SECRET),
+      },
+      update: { email, role, passwordHash, status: 'ACTIVE', failedLogins: 0, lockedUntil: null },
+    });
+  }
   const counts = {
     tenants: await db.tenant.count({ where: { id: { in: [DEMO_A, DEMO_B] } } }),
     companies: await db.company.count({ where: { tenantId: { in: [DEMO_A, DEMO_B] } } }),

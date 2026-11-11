@@ -16,6 +16,9 @@ import { ImportRegistry } from './modules/imports/import-spec';
 import { ImportService } from './modules/imports/import.service';
 import { ImportsController } from './modules/imports/imports.controller';
 import { SetupChecklistController } from './modules/setup/setup.controller';
+import { PlatformAuthController } from './platform/platform-auth.controller';
+import { PlatformTenantsController } from './platform/platform-tenants.controller';
+import { ImpersonationController } from './platform/impersonation.controller';
 import {
   InvitationAcceptController,
   InvitationAcceptService,
@@ -62,6 +65,9 @@ import { StateService } from './state/state.service';
     NotificationsController,
     ImportsController,
     SetupChecklistController,
+    PlatformAuthController,
+    PlatformTenantsController,
+    ImpersonationController,
     HealthController,
     MeController,
     ProfileController,

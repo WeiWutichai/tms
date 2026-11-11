@@ -68,6 +68,11 @@ export const PROBLEMS = {
     th: 'แพ็กเกจปัจจุบันยังไม่มีฟีเจอร์นี้',
     en: 'This feature is not included in your plan',
   },
+  impersonation_read_only: {
+    status: 403,
+    th: 'กำลังเข้าใช้งานแทนแบบอ่านอย่างเดียว — แก้ไขข้อมูลไม่ได้',
+    en: 'Impersonation is read-only',
+  },
   permission_denied: {
     status: 403,
     th: 'ไม่มีสิทธิ์ทำรายการนี้',
