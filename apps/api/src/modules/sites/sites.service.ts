@@ -34,6 +34,7 @@ import type {
   UpdateSiteDto,
   UpsertSiteDto,
 } from './site.dto';
+import { iEquals } from '../../common/ilike';
 
 export const SITE_CODE_PREFIX = 'LOC';
 const SITE_CODE_WIDTH = 5; // spec/02 §2 `LOC-00001`
@@ -391,7 +392,7 @@ export class SitesService implements OnModuleInit {
     let code = input.code;
     if (code) {
       const taken = await tx.customerSite.findFirst({
-        where: { code: { equals: code, mode: 'insensitive' } },
+        where: { code: iEquals(code) },
         select: { id: true },
       });
       if (taken)

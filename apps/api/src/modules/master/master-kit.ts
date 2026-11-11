@@ -62,10 +62,7 @@ export const IsOptionalNotNull = () => ValidateIf((_, v) => v !== undefined);
 /** ช่องที่ล้างค่าได้ด้วย null (เช่น taxId, billingCompanyId) — ไม่ส่ง/null = ข้าม validator */
 export const IsNullable = () => ValidateIf((_, v) => v !== undefined && v !== null);
 
-/** escape `%` `_` `\` สำหรับ LIKE (Prisma `contains` ไม่ escape ให้) */
-export function likeEscape(v: string): string {
-  return v.replace(/[\\%_]/g, (c) => `\\${c}`);
-}
+export { iEquals, likeEscape } from '../../common/ilike';
 
 export const MASTER_SORTS = ['code', 'updatedAt', '-updatedAt'] as const;
 

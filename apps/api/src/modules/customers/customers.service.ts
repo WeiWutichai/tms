@@ -29,6 +29,7 @@ import type {
   UpdateCustomerDto,
   UpsertCustomerDto,
 } from './customer.dto';
+import { iEquals } from '../../common/ilike';
 
 export const CUSTOMER_CODE_PREFIX = 'CUS';
 const DECIMAL_FIELDS = ['whtExpectedRate', 'creditLimit'] as const;
@@ -294,7 +295,7 @@ export class CustomersService {
     let code = input.code;
     if (code) {
       const taken = await tx.customer.findFirst({
-        where: { code: { equals: code, mode: 'insensitive' } },
+        where: { code: iEquals(code) },
         select: { id: true },
       });
       if (taken)

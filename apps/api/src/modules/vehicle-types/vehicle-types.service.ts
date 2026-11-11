@@ -30,6 +30,7 @@ import {
   type VehicleTypeDto,
   type VehicleTypeListQuery,
 } from './vehicle-type.dto';
+import { iEquals } from '../../common/ilike';
 
 export const VEHICLE_TYPE_CODE_PREFIX = 'VT';
 const DECIMAL_FIELDS = ['capacityKg', 'capacityCbm', 'tempMinC', 'tempMaxC'] as const;
@@ -263,7 +264,7 @@ export class VehicleTypesService {
     await lockKey(this.db.tx, `vehicle_type.name:${name.toLowerCase()}`);
     const dup = await this.db.tx.vehicleType.findFirst({
       where: {
-        nameTh: { equals: name, mode: 'insensitive' },
+        nameTh: iEquals(name),
         deletedAt: null,
         ...(exceptId ? { id: { not: exceptId } } : {}),
       },
@@ -303,7 +304,7 @@ export class VehicleTypesService {
     let code = input.code;
     if (code) {
       const taken = await tx.vehicleType.findFirst({
-        where: { code: { equals: code, mode: 'insensitive' } },
+        where: { code: iEquals(code) },
         select: { id: true },
       });
       if (taken)
