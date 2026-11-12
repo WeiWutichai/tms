@@ -59,7 +59,7 @@ export class UploadLinkDto {
 export class IssuedUploadLinkDto extends UploadLinkDto {
   @ApiProperty({
     description:
-      'URL หน้าอัปโหลดสำหรับรถร่วม (เปิดบนมือถือได้โดยไม่ login) — แสดงครั้งเดียวตอนสร้าง ระบบไม่ส่งข้อความให้เอง',
+      'URL หน้าอัปโหลดสำหรับรถร่วม (เปิดบนมือถือได้โดยไม่ login) — แสดงครั้งเดียวตอนสร้าง · ส่งต่อด้วย POST /v1/messages/send-link หรือคัดลอกไปส่งเอง',
   })
   url!: string;
   @ApiProperty({ description: 'token ของลิงก์ (อยู่ใน url แล้ว)' }) token!: string;
