@@ -13457,6 +13457,398 @@
           "vehicle-documents"
         ]
       }
+    },
+    "/v1/carriers/{id}/upload-links": {
+      "post": {
+        "operationId": "CarrierDocs_issue",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateUploadLinkDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "ออกลิงก์อัปโหลดเอกสารให้ผู้รับเหมา (ไม่ส่งข้อความเอง — คัดลอก url ไปส่ง)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssuedUploadLinkDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "carrier-docs"
+        ]
+      },
+      "get": {
+        "operationId": "CarrierDocs_links",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ลิงก์ที่เคยออก (ไม่มี token) ใหม่สุดก่อน",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadLinkListDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "carrier-docs"
+        ]
+      }
+    },
+    "/v1/carrier-upload-links/{id}/revoke": {
+      "post": {
+        "operationId": "CarrierDocs_revoke",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MasterReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "เพิกถอน (เหตุผล ≥ 10 + audit) — คืนไม่ได้",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadLinkDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "carrier-docs"
+        ]
+      }
+    },
+    "/v1/carrier-doc-submissions": {
+      "get": {
+        "operationId": "CarrierDocs_list",
+        "parameters": [
+          {
+            "name": "carrierId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "example": "car_…",
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "pending_review",
+                "approved",
+                "rejected"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "ไม่ส่ง = 100",
+            "schema": {
+              "minimum": 1,
+              "maximum": 200,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "เอกสารที่รถร่วมส่งผ่านลิงก์ — รอตรวจขึ้นก่อน แล้วใหม่สุดก่อน",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CarrierDocSubmissionListDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "carrier-docs"
+        ]
+      }
+    },
+    "/v1/carrier-doc-submissions/{id}/approve": {
+      "post": {
+        "operationId": "CarrierDocs_approve",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MasterReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "อนุมัติ (เหตุผล ≥ 10 + audit) → เอกสารรถฉบับใหม่/ต่ออายุ หรืออัปเดตใบขับขี่ · ตรวจแล้ว → 409 · รถ/คนขับไม่อยู่กับผู้รับเหมาแล้ว → 409 `target_changed`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CarrierDocSubmissionDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "carrier-docs"
+        ]
+      }
+    },
+    "/v1/carrier-doc-submissions/{id}/reject": {
+      "post": {
+        "operationId": "CarrierDocs_reject",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MasterReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ไม่อนุมัติ (เหตุผล ≥ 10 บังคับ + audit)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CarrierDocSubmissionDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "carrier-docs"
+        ]
+      }
+    },
+    "/v1/public/carrier-docs/{token}": {
+      "get": {
+        "operationId": "CarrierDocsPublic_view",
+        "parameters": [
+          {
+            "name": "token",
+            "required": true,
+            "in": "path",
+            "description": "token ของลิงก์ (ml1.…)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CarrierDocsLinkViewDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "เรียกถี่เกินไป (ต่อ IP)"
+          }
+        },
+        "tags": [
+          "public"
+        ]
+      }
+    },
+    "/v1/public/carrier-docs/{token}/files": {
+      "post": {
+        "operationId": "CarrierDocsPublic_files",
+        "parameters": [
+          {
+            "name": "token",
+            "required": true,
+            "in": "path",
+            "description": "token ของลิงก์ (ml1.…)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LinkFileReserveDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "จองไฟล์ (PDF/รูป ≤ 10 MB) → PUT เนื้อไฟล์ที่ uploadUrl · เกินเพดานต่อลิงก์ → 429",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LinkFileDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "เรียกถี่เกินไป"
+          }
+        },
+        "tags": [
+          "public"
+        ]
+      }
+    },
+    "/v1/public/carrier-docs/{token}/submissions": {
+      "post": {
+        "operationId": "CarrierDocsPublic_submit",
+        "parameters": [
+          {
+            "name": "token",
+            "required": true,
+            "in": "path",
+            "description": "token ของลิงก์ (ml1.…)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSubmissionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "ส่งเอกสาร → รอ admin ตรวจ (pending_review) · รถ/คนขับไม่ใช่ของผู้รับเหมานี้ → 404 · รอตรวจอยู่แล้ว → 409 `pending_exists`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LinkSubmissionResultDto"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "public"
+        ]
+      }
     }
   },
   "info": {
@@ -24808,6 +25200,704 @@
         },
         "required": [
           "reason"
+        ]
+      },
+      "CreateUploadLinkDto": {
+        "type": "object",
+        "properties": {
+          "ttlDays": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 30,
+            "description": "อายุลิงก์ (วัน) — ไม่ส่ง = 7 วัน"
+          }
+        }
+      },
+      "IssuedUploadLinkDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "mlk_…"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "expired",
+              "revoked"
+            ]
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "lastUsedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "revokedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "revokedReason": {
+            "type": "string",
+            "nullable": true
+          },
+          "url": {
+            "type": "string",
+            "description": "URL หน้าอัปโหลดสำหรับรถร่วม (เปิดบนมือถือได้โดยไม่ login) — แสดงครั้งเดียวตอนสร้าง ระบบไม่ส่งข้อความให้เอง"
+          },
+          "token": {
+            "type": "string",
+            "description": "token ของลิงก์ (อยู่ใน url แล้ว)"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "expiresAt",
+          "createdAt",
+          "lastUsedAt",
+          "revokedAt",
+          "revokedReason",
+          "url",
+          "token"
+        ]
+      },
+      "UploadLinkDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "mlk_…"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "expired",
+              "revoked"
+            ]
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "lastUsedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "revokedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "revokedReason": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "expiresAt",
+          "createdAt",
+          "lastUsedAt",
+          "revokedAt",
+          "revokedReason"
+        ]
+      },
+      "UploadLinkListDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UploadLinkDto"
+            }
+          }
+        },
+        "required": [
+          "data"
+        ]
+      },
+      "SubjectCarrierDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "legalName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "legalName"
+        ]
+      },
+      "SubjectVehicleDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "plate": {
+            "type": "string"
+          },
+          "plateProvince": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "plate",
+          "plateProvince"
+        ]
+      },
+      "SubjectDriverDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ]
+      },
+      "SubmissionFileDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "doc_…"
+          },
+          "filename": {
+            "type": "string",
+            "nullable": true
+          },
+          "mime": {
+            "type": "string"
+          },
+          "bytes": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "filename",
+          "mime",
+          "bytes"
+        ]
+      },
+      "CarrierDocSubmissionDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "cds_…"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending_review",
+              "approved",
+              "rejected"
+            ]
+          },
+          "carrier": {
+            "$ref": "#/components/schemas/SubjectCarrierDto"
+          },
+          "vehicle": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SubjectVehicleDto"
+              }
+            ]
+          },
+          "driver": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SubjectDriverDto"
+              }
+            ]
+          },
+          "docType": {
+            "type": "string",
+            "enum": [
+              "INSURANCE",
+              "COMPULSORY_ACT",
+              "ANNUAL_TAX",
+              "INSPECTION",
+              "TRANSPORT_LICENSE",
+              "GPS_DLT_CERT",
+              "OTHER",
+              "DRIVER_LICENCE"
+            ]
+          },
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "targetDocumentId": {
+            "type": "string",
+            "nullable": true,
+            "description": "เอกสารรถฉบับที่จะต่ออายุ (OTHER)"
+          },
+          "docNo": {
+            "type": "string",
+            "nullable": true
+          },
+          "issuer": {
+            "type": "string",
+            "nullable": true
+          },
+          "startsOn": {
+            "type": "string",
+            "nullable": true,
+            "format": "date"
+          },
+          "expiresOn": {
+            "type": "string",
+            "format": "date"
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SubmissionFileDto"
+            }
+          },
+          "note": {
+            "type": "string",
+            "nullable": true
+          },
+          "submittedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "reviewedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "reviewReason": {
+            "type": "string",
+            "nullable": true,
+            "description": "เหตุผลที่อนุมัติ/ไม่อนุมัติ"
+          },
+          "resultDocumentId": {
+            "type": "string",
+            "nullable": true,
+            "description": "เอกสารรถที่เกิดจากการอนุมัติ (vdoc_…)"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "carrier",
+          "vehicle",
+          "driver",
+          "docType",
+          "title",
+          "targetDocumentId",
+          "docNo",
+          "issuer",
+          "startsOn",
+          "expiresOn",
+          "files",
+          "note",
+          "submittedAt",
+          "reviewedAt",
+          "reviewReason",
+          "resultDocumentId"
+        ]
+      },
+      "CarrierDocSubmissionListDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CarrierDocSubmissionDto"
+            }
+          }
+        },
+        "required": [
+          "data"
+        ]
+      },
+      "LinkItemDto": {
+        "type": "object",
+        "properties": {
+          "docType": {
+            "type": "string",
+            "enum": [
+              "INSURANCE",
+              "COMPULSORY_ACT",
+              "ANNUAL_TAX",
+              "INSPECTION",
+              "TRANSPORT_LICENSE",
+              "GPS_DLT_CERT",
+              "OTHER",
+              "DRIVER_LICENCE"
+            ]
+          },
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "targetDocumentId": {
+            "type": "string",
+            "nullable": true,
+            "description": "OTHER: ฉบับที่ต่ออายุ"
+          },
+          "currentExpiresOn": {
+            "type": "string",
+            "nullable": true,
+            "format": "date"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "missing",
+              "expired",
+              "expiring",
+              "ok",
+              "pending_review"
+            ],
+            "description": "ok/expiring/expired ตามวันหมดฉบับปัจจุบัน (expiring = ≤ 30 วัน) · pending_review = ส่งแล้วรอตรวจ"
+          },
+          "pendingSince": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "docType",
+          "title",
+          "targetDocumentId",
+          "currentExpiresOn",
+          "state",
+          "pendingSince"
+        ]
+      },
+      "LinkVehicleDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "plate": {
+            "type": "string"
+          },
+          "plateProvince": {
+            "type": "string",
+            "nullable": true
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LinkItemDto"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "plate",
+          "plateProvince",
+          "items"
+        ]
+      },
+      "LinkDriverDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "licence": {
+            "$ref": "#/components/schemas/LinkItemDto"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "licence"
+        ]
+      },
+      "LinkSubmissionDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string",
+            "description": "ทะเบียนรถ หรือชื่อคนขับ"
+          },
+          "docType": {
+            "type": "string",
+            "enum": [
+              "INSURANCE",
+              "COMPULSORY_ACT",
+              "ANNUAL_TAX",
+              "INSPECTION",
+              "TRANSPORT_LICENSE",
+              "GPS_DLT_CERT",
+              "OTHER",
+              "DRIVER_LICENCE"
+            ]
+          },
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "expiresOn": {
+            "type": "string",
+            "format": "date"
+          },
+          "fileCount": {
+            "type": "number"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending_review",
+              "approved",
+              "rejected"
+            ]
+          },
+          "rejectReason": {
+            "type": "string",
+            "nullable": true,
+            "description": "เหตุผลที่ไม่อนุมัติ"
+          },
+          "submittedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "subject",
+          "docType",
+          "title",
+          "expiresOn",
+          "fileCount",
+          "status",
+          "rejectReason",
+          "submittedAt"
+        ]
+      },
+      "CarrierDocsLinkViewDto": {
+        "type": "object",
+        "properties": {
+          "company": {
+            "type": "string",
+            "description": "ชื่อบริษัทขนส่ง (tenant)"
+          },
+          "carrierName": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "vehicles": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LinkVehicleDto"
+            }
+          },
+          "drivers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LinkDriverDto"
+            }
+          },
+          "submissions": {
+            "description": "ส่งล่าสุด 30 รายการ",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LinkSubmissionDto"
+            }
+          }
+        },
+        "required": [
+          "company",
+          "carrierName",
+          "expiresAt",
+          "vehicles",
+          "drivers",
+          "submissions"
+        ]
+      },
+      "LinkFileReserveDto": {
+        "type": "object",
+        "properties": {
+          "mime": {
+            "type": "string",
+            "enum": [
+              "application/pdf",
+              "image/png",
+              "image/jpeg",
+              "image/webp"
+            ]
+          },
+          "bytes": {
+            "type": "number",
+            "example": 182044,
+            "description": "ขนาดไฟล์ (byte) ไม่เกิน 10 MB"
+          },
+          "filename": {
+            "type": "string",
+            "example": "กรมธรรม์.pdf"
+          }
+        },
+        "required": [
+          "mime",
+          "bytes"
+        ]
+      },
+      "LinkFileDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "doc_…"
+          },
+          "uploadUrl": {
+            "type": "string",
+            "description": "PUT เนื้อไฟล์ไปที่นี่ (หมดอายุ 15 นาที)"
+          },
+          "urlExpiresAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "uploadUrl",
+          "urlExpiresAt"
+        ]
+      },
+      "CreateSubmissionDto": {
+        "type": "object",
+        "properties": {
+          "vehicleId": {
+            "type": "string",
+            "example": "veh_…",
+            "description": "เอกสารรถ — ส่งอย่างใดอย่างหนึ่งกับ driverId"
+          },
+          "driverId": {
+            "type": "string",
+            "example": "drv_…",
+            "description": "ใบขับขี่ — docType = DRIVER_LICENCE"
+          },
+          "docType": {
+            "type": "string",
+            "enum": [
+              "INSURANCE",
+              "COMPULSORY_ACT",
+              "ANNUAL_TAX",
+              "INSPECTION",
+              "TRANSPORT_LICENSE",
+              "GPS_DLT_CERT",
+              "OTHER",
+              "DRIVER_LICENCE"
+            ]
+          },
+          "targetDocumentId": {
+            "type": "string",
+            "example": "vdoc_…",
+            "description": "OTHER: ฉบับที่จะต่ออายุ"
+          },
+          "docNo": {
+            "type": "string",
+            "example": "POL-27-10431",
+            "description": "เลขที่เอกสาร / เลขใบขับขี่"
+          },
+          "issuer": {
+            "type": "string",
+            "nullable": true,
+            "example": "วิริยะประกันภัย"
+          },
+          "startsOn": {
+            "type": "string",
+            "format": "date",
+            "description": "วันเริ่มมีผล — บังคับสำหรับเอกสารรถ"
+          },
+          "expiresOn": {
+            "type": "string",
+            "format": "date"
+          },
+          "fileDocumentIds": {
+            "description": "ไฟล์จาก POST /v1/public/carrier-docs/{token}/files ที่อัปโหลดเสร็จแล้ว (1–5 ไฟล์)",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "note": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "docType",
+          "expiresOn",
+          "fileDocumentIds"
+        ]
+      },
+      "LinkSubmissionResultDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "cds_…"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending_review",
+              "approved",
+              "rejected"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "status"
         ]
       }
     }
