@@ -10,9 +10,36 @@ import { addDays } from '../rate-cards/rateFormat';
  * - เทมเพลต: payload รูปเดียวกับ body ของ POST /v1/orders — ใช้แล้วเลื่อนวันที่ทั้งใบไปวันที่เลือก (คงเวลา/ระยะห่างวัน)
  */
 export type Order = Schemas['OrderDto'];
-export type OrderBody = Schemas['CreateOrderDto'];
-export type TemplatePayload = Schemas['OrderTemplatePayloadDto'];
 export type StopType = 'PICKUP' | 'DELIVERY' | 'RETURN';
+
+/**
+ * payload ตามสายจริง (ค่าเป็นสตริง/null) — ใช้แทนชนิดที่ generate จาก OpenAPI ของ input DTO
+ * (ช่อง nullable ของ `OrderStopInputDto`/`OrderLineInputDto` ใน OpenAPI ไม่มี `type: string` → generate เป็น object; [OPEN] spec/12 §3)
+ */
+export interface PayloadStop {
+  type: StopType;
+  siteId: string | null;
+  siteText: string | null;
+  windowStart: string | null;
+  windowEnd: string | null;
+}
+export interface PayloadLine {
+  description: string;
+  qty: string;
+  unitId: string | null;
+  unit: string | null;
+  productId: string | null;
+  weightKg: string | null;
+}
+export interface TemplatePayload {
+  customer: { id?: string | null; externalId?: string | null; name?: string | null };
+  customerRef: string | null;
+  requestedDate: string;
+  vehicleTypeId: string | null;
+  stops: PayloadStop[];
+  lines: PayloadLine[];
+}
+export type OrderBody = TemplatePayload & { draft: boolean };
 
 export interface StopForm {
   key: string;
@@ -236,11 +263,11 @@ export function toPayload(f: OrderForm): TemplatePayload {
     vehicleTypeId: f.vehicleTypeId || null,
     stops: stopsBody(f),
     lines: linesBody(f),
-  } as TemplatePayload;
+  };
 }
 
 export function toCreateBody(f: OrderForm, draft: boolean): OrderBody {
-  return { ...toPayload(f), draft } as OrderBody;
+  return { ...toPayload(f), draft };
 }
 
 /** กลุ่มช่องของ API (`editableFields`) ที่แต่ละส่วนของ PATCH อยู่ */
@@ -257,11 +284,7 @@ const GROUP: Record<string, string> = {
  * PATCH ของการแก้ไข: ส่งเฉพาะช่องที่เปลี่ยนจากค่าเดิม (ช่องที่ไม่ส่ง server คงค่าเดิม — ข้อความลูกค้าตามต้นทางไม่หาย)
  * `stops` ส่งได้เมื่อแก้จุดได้ หรือแก้ได้เฉพาะช่วงเวลา (`stops.window`) — server ตรวจซ้ำ (409 ถ้าเปลี่ยนสถานที่)
  */
-export function toPatch(
-  original: Order,
-  f: OrderForm,
-  submit: boolean,
-): Record<string, unknown> {
+export function toPatch(original: Order, f: OrderForm, submit: boolean): Record<string, unknown> {
   const a = toPayload(fromOrder(original)) as unknown as Record<string, unknown>;
   const b = toPayload(f) as unknown as Record<string, unknown>;
   const out: Record<string, unknown> = {};
@@ -311,7 +334,8 @@ export function validate(f: OrderForm, draft: boolean): Record<string, string> {
     if (!l.description.trim()) e[`lines[${i}].description`] = 'required';
     if (!QTY.test(l.qty.trim()) || !/[1-9]/.test(l.qty)) e[`lines[${i}].qty`] = 'must_be_positive';
     if (!l.unit && !l.unitText.trim()) e[`lines[${i}].unit`] = 'required';
-    if (l.weightKg.trim() && !QTY.test(l.weightKg.trim())) e[`lines[${i}].weightKg`] = 'invalid_decimal';
+    if (l.weightKg.trim() && !QTY.test(l.weightKg.trim()))
+      e[`lines[${i}].weightKg`] = 'invalid_decimal';
   });
   return e;
 }

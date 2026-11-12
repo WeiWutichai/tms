@@ -3,9 +3,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, idempotent, unwrap } from '../../api';
 import { refetchOnStale } from '../master/problems';
 import { useCursorList } from '../master/useCursorList';
-import type { Order, OrderBody } from './orderForm';
+import type { Order, OrderBody, TemplatePayload } from './orderForm';
 
-export type OrderTemplate = Schemas['OrderTemplateDto'];
+/** payload ของเทมเพลตใช้ชนิดตามสายจริง (ดู TemplatePayload) */
+export type OrderTemplate = Omit<Schemas['OrderTemplateDto'], 'payload'> & {
+  payload: TemplatePayload;
+};
 export type OrderSummary = Schemas['OrderSummaryDto'];
 
 const KEY = 'orders';
@@ -54,7 +57,7 @@ export function useCreateOrder() {
     mutationFn: (v: { body: OrderBody; idempotencyKey: string }) =>
       idempotent(() =>
         api.POST('/v1/orders', {
-          body: v.body,
+          body: v.body as never,
           headers: { 'Idempotency-Key': v.idempotencyKey },
         }),
       ) as Promise<Order>,
@@ -88,17 +91,17 @@ export function useTemplates(q: string, enabled: boolean) {
         api.GET('/v1/order-templates', {
           params: { query: { limit: 200, sort: '-updatedAt', ...(q ? { q } : {}) } as never },
         }),
-      ),
+      ) as unknown as Promise<{ data: OrderTemplate[]; hasMore: boolean }>,
   });
 }
 
 export function useCreateTemplate() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (v: { body: Schemas['CreateOrderTemplateDto']; idempotencyKey: string }) =>
+    mutationFn: (v: { body: { name: string; payload: TemplatePayload }; idempotencyKey: string }) =>
       idempotent(() =>
         api.POST('/v1/order-templates', {
-          body: v.body,
+          body: v.body as never,
           headers: { 'Idempotency-Key': v.idempotencyKey },
         }),
       ),
@@ -151,7 +154,9 @@ export const searchSites = (customerId: string | null) => async (q: string) => {
   const get = (extra: Record<string, string>) =>
     unwrap(
       api.GET('/v1/customer-sites', {
-        params: { query: { status: 'active', limit: PICK, ...(q ? { q } : {}), ...extra } as never },
+        params: {
+          query: { status: 'active', limit: PICK, ...(q ? { q } : {}), ...extra } as never,
+        },
       }),
     ).then((r) => r.data);
   const mine = customerId ? await get({ customerId }) : [];

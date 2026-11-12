@@ -5,7 +5,12 @@ import { useI18n } from '../../i18n';
 import { problemText } from '../master/problems';
 import { useDebounced } from '../master/useCursorList';
 import type { TemplatePayload } from './orderForm';
-import { useCreateTemplate, useDeleteTemplate, useTemplates, type OrderTemplate } from './useOrders';
+import {
+  useCreateTemplate,
+  useDeleteTemplate,
+  useTemplates,
+  type OrderTemplate,
+} from './useOrders';
 
 /**
  * เทมเพลตงานประจำ (ST3-T02) — ต้นแบบไม่มีหน้าจอเทมเพลต [OPEN spec/12 §3] จึงประกอบจากชิ้นของต้นแบบ:
@@ -90,7 +95,9 @@ export function TemplatesDrawer({
                   gap: 12,
                 }}
               >
-                <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <div
+                  style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}
+                >
                   <span style={{ fontWeight: 600, overflowWrap: 'anywhere' }}>{r.name}</span>
                   <span style={{ color: '#3B424C', overflowWrap: 'anywhere' }}>
                     {r.customer?.legalName ?? t('tpl.noCustomer')}

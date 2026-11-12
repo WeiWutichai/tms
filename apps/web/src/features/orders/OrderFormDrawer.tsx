@@ -71,7 +71,7 @@ const card: CSSProperties = {
 function msg(t: T, code: string | undefined): string | undefined {
   if (!code) return undefined;
   const k = `ord.v.${code}` as MessageKey;
-  return t(k) === k ? code : t(k);
+  return t(k) === k ? undefined : t(k);
 }
 
 /** ช่องวันที่แบบต้นแบบ (ไอคอนปฏิทิน + วันที่ไทย, input date โปร่งใสทับ) */
@@ -193,7 +193,14 @@ export function OrderFormDrawer({
 
   const local = tried ? validate(f, tried === 'draft') : {};
   const server = fieldErrors(err, t);
-  const e = (k: string) => server[k] ?? msg(t, local[k]);
+  const serverCodes = Object.fromEntries(
+    (err instanceof ApiError ? (err.problem.errors ?? []) : []).map((x) => [x.field, x.code]),
+  );
+  const used = new Set<string>();
+  const e = (k: string) => {
+    used.add(k);
+    return server[k] ?? msg(t, local[k]);
+  };
   const nLocal = Object.keys(local).length;
   const stale = isStale(err);
   const locked = err instanceof ApiError && err.problem.code === 'order_locked_for_update';
@@ -206,8 +213,10 @@ export function OrderFormDrawer({
     setF((x) => ({ ...x, lines: x.lines.map((l, j) => (j === i ? { ...l, ...p } : l)) }));
 
   const save = (draft: boolean) => {
-    setTried(draft ? 'draft' : 'submit');
-    if (Object.keys(validate(f, draft)).length || submitting.current) return;
+    // แก้ใบที่พ้นร่างแล้ว (เช่นใบค้างจาก connector ที่ยังไม่มีลูกค้า) ตรวจแค่รูปแบบ — กติกาครบถ้วนของการส่งใช้ตอนสร้าง/ยืนยันร่าง
+    const loose = draft || (mode === 'edit' && order?.status !== 'draft');
+    setTried(loose ? 'draft' : 'submit');
+    if (Object.keys(validate(f, loose)).length || submitting.current) return;
     submitting.current = true;
     const done = {
       onSettled: () => {
@@ -266,96 +275,8 @@ export function OrderFormDrawer({
     <FormSection title={title}>{children}</FormSection>
   );
 
-  return (
-    <FormDrawer
-      open
-      title={title}
-      subtitle={subtitle}
-      onClose={onClose}
-      closeLabel={t('drawer.close')}
-      {...(tried && nLocal ? { alert: t('form.incomplete', { n: nLocal }) } : {})}
-      onSubmit={() => save(primaryDraft)}
-      footer={
-        <>
-          <button type="button" className="tms-fdrawer__cancel" onClick={onClose}>
-            {t('common.cancel')}
-          </button>
-          {isDraft && !primaryDraft && (
-            <button
-              type="button"
-              className="tms-drawer__sec"
-              style={{ height: 40, padding: '0 16px' }}
-              disabled={busy}
-              onClick={() => save(true)}
-            >
-              {t('ord.form.saveDraft')}
-            </button>
-          )}
-          <button
-            type="submit"
-            className="tms-drawer__pri"
-            style={{ height: 40, padding: '0 18px' }}
-            disabled={busy || (mode === 'edit' && !ed.any)}
-          >
-            {primary}
-          </button>
-        </>
-      }
-    >
-      {stale ? (
-        <div className="tms-alert" role="alert">
-          <span style={{ flex: 1 }}>{t('problem.precondition_failed')}</span>
-          {onReload && (
-            <button type="button" className="tms-linkbtn" onClick={onReload}>
-              {t('ord.form.reload')}
-            </button>
-          )}
-        </div>
-      ) : (
-        top && (
-          <div className="tms-alert" role="alert">
-            {top}
-          </div>
-        )
-      )}
-      {mode === 'edit' && order && (!ed.customer || locked) && (
-        <div
-          role="note"
-          style={{
-            background: '#EEF0EC',
-            borderRadius: 8,
-            padding: '10px 14px',
-            display: 'flex',
-            gap: 8,
-          }}
-        >
-          <Icon n="lock" s={16} style={{ color: '#2257C4', marginTop: 4, flexShrink: 0 }} />
-          <span>
-            {ed.any
-              ? t('ord.form.lockedSome', { st: t(`ord.st.${order.status}` as MessageKey) })
-              : t('ord.form.lockedAll', { st: t(`ord.st.${order.status}` as MessageKey) })}
-          </span>
-        </div>
-      )}
-      {mode === 'edit' && order?.holdReason && (
-        <div
-          role="note"
-          style={{
-            background: '#FCF0DC',
-            borderRadius: 8,
-            padding: '12px 14px',
-            display: 'flex',
-            gap: 8,
-          }}
-        >
-          <Icon n="triangle-alert" s={16} style={{ color: '#8F5500', marginTop: 3, flexShrink: 0 }} />
-          <span>
-            {t('ord.hold', { r: order.holdReason.label })}
-            {order.holdReason.note ? ` — ${order.holdReason.note}` : ''}
-          </span>
-        </div>
-      )}
-
+  const body = (
+    <>
       {section(
         t('ord.sec.main'),
         <>
@@ -426,7 +347,9 @@ export function OrderFormDrawer({
           {e('stops') && <span className="tms-field-error">{e('stops')}</span>}
           {f.stops.map((s, i) => (
             <div key={s.key} style={card} data-testid="so-stop">
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
+              >
                 <span style={{ fontWeight: 600, color: STOP_COLOR[s.type] }}>
                   {t('ord.stopN', { n: i + 1, k: t(`ord.stop.${s.type}` as MessageKey) })}
                 </span>
@@ -435,14 +358,24 @@ export function OrderFormDrawer({
                     type="button"
                     className="tms-linkbtn"
                     style={{ color: '#B3322A' }}
-                    onClick={() => set('stops', f.stops.filter((_, j) => j !== i))}
+                    onClick={() =>
+                      set(
+                        'stops',
+                        f.stops.filter((_, j) => j !== i),
+                      )
+                    }
                   >
                     {t('ord.remove')}
                   </button>
                 )}
               </div>
               <div className="tms-fgrid tms-fgrid--create">
-                <FormField label={t('ord.f.site')} required span={2} error={e(`stops[${i}].siteId`)}>
+                <FormField
+                  label={t('ord.f.site')}
+                  required
+                  span={2}
+                  error={e(`stops[${i}].siteId`)}
+                >
                   {(p) => (
                     <RefPicker
                       id={p.id}
@@ -533,14 +466,21 @@ export function OrderFormDrawer({
           {!f.lines.length && <span style={{ color: '#59606B' }}>{t('ord.noItems')}</span>}
           {f.lines.map((l, i) => (
             <div key={l.key} style={card} data-testid="so-line">
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
+              >
                 <span style={{ fontWeight: 600 }}>{t('ord.lineN', { n: i + 1 })}</span>
                 {ed.lines && (
                   <button
                     type="button"
                     className="tms-linkbtn"
                     style={{ color: '#B3322A' }}
-                    onClick={() => set('lines', f.lines.filter((_, j) => j !== i))}
+                    onClick={() =>
+                      set(
+                        'lines',
+                        f.lines.filter((_, j) => j !== i),
+                      )
+                    }
                   >
                     {t('ord.remove')}
                   </button>
@@ -553,7 +493,8 @@ export function OrderFormDrawer({
                       id={p.id}
                       value={l.product}
                       onChange={(v) => {
-                        const pv = v as (typeof v & { unit?: { id: string; label: string } | null }) | null;
+                        const pv = v as
+                          (typeof v & { unit?: { id: string; label: string } | null }) | null;
                         setLine(i, {
                           product: v,
                           ...(v && !l.description.trim() ? { description: v.label } : {}),
@@ -569,7 +510,12 @@ export function OrderFormDrawer({
                     />
                   )}
                 </FormField>
-                <FormField label={t('ord.f.desc')} required span={2} error={e(`lines[${i}].description`)}>
+                <FormField
+                  label={t('ord.f.desc')}
+                  required
+                  span={2}
+                  error={e(`lines[${i}].description`)}
+                >
                   {(p) => (
                     <TextInput
                       {...p}
@@ -593,7 +539,11 @@ export function OrderFormDrawer({
                     />
                   )}
                 </FormField>
-                <FormField label={t('ord.f.unit')} required error={e(`lines[${i}].unit`) ?? e(`lines[${i}].unitId`)}>
+                <FormField
+                  label={t('ord.f.unit')}
+                  required
+                  error={e(`lines[${i}].unit`) ?? e(`lines[${i}].unitId`)}
+                >
                   {(p) => (
                     <RefPicker
                       id={p.id}
@@ -625,7 +575,11 @@ export function OrderFormDrawer({
             </div>
           ))}
           {ed.lines && f.lines.length < 200 && (
-            <button type="button" style={pill} onClick={() => set('lines', [...f.lines, emptyLine()])}>
+            <button
+              type="button"
+              style={pill}
+              onClick={() => set('lines', [...f.lines, emptyLine()])}
+            >
               <Icon n="package-plus" s={16} />
               {t('ord.addLine')}
             </button>
@@ -658,11 +612,7 @@ export function OrderFormDrawer({
 
       {section(
         t('ord.sec.extra'),
-        <FormField
-          label={t('ord.f.po')}
-          error={e('customerRef')}
-          hint={t('ord.f.poHint')}
-        >
+        <FormField label={t('ord.f.po')} error={e('customerRef')} hint={t('ord.f.poHint')}>
           {(p) => (
             <TextInput
               {...p}
@@ -675,6 +625,110 @@ export function OrderFormDrawer({
           )}
         </FormField>,
       )}
+    </>
+  );
+  // error จาก server ของช่องที่ไม่มีในฟอร์ม (เช่น companyId routing_not_configured) → แสดงด้านบน
+  const orphan = Object.entries(server).filter(([k]) => !used.has(k));
+
+  return (
+    <FormDrawer
+      open
+      title={title}
+      subtitle={subtitle}
+      onClose={onClose}
+      closeLabel={t('drawer.close')}
+      {...(tried && nLocal ? { alert: t('form.incomplete', { n: nLocal }) } : {})}
+      onSubmit={() => save(primaryDraft)}
+      footer={
+        <>
+          <button type="button" className="tms-fdrawer__cancel" onClick={onClose}>
+            {t('common.cancel')}
+          </button>
+          {isDraft && !primaryDraft && (
+            <button
+              type="button"
+              className="tms-drawer__sec"
+              style={{ height: 40, padding: '0 16px' }}
+              disabled={busy}
+              onClick={() => save(true)}
+            >
+              {t('ord.form.saveDraft')}
+            </button>
+          )}
+          <button
+            type="submit"
+            className="tms-drawer__pri"
+            style={{ height: 40, padding: '0 18px' }}
+            disabled={busy || (mode === 'edit' && !ed.any)}
+          >
+            {primary}
+          </button>
+        </>
+      }
+    >
+      {stale ? (
+        <div
+          className="tms-alert"
+          role="alert"
+          style={{ display: 'flex', alignItems: 'center', gap: 8 }}
+        >
+          <span style={{ flex: 1 }}>{t('problem.precondition_failed')}</span>
+          {onReload && (
+            <button type="button" className="tms-linkbtn" onClick={onReload}>
+              {t('ord.form.reload')}
+            </button>
+          )}
+        </div>
+      ) : (
+        (top || orphan.length > 0) && (
+          <div className="tms-alert" role="alert">
+            {top ?? orphan.map(([k, v]) => <div key={k}>{msg(t, serverCodes[k]) ?? v}</div>)}
+          </div>
+        )
+      )}
+      {mode === 'edit' && order && (!ed.customer || locked) && (
+        <div
+          role="note"
+          style={{
+            background: '#EEF0EC',
+            borderRadius: 8,
+            padding: '10px 14px',
+            display: 'flex',
+            gap: 8,
+          }}
+        >
+          <Icon n="lock" s={16} style={{ color: '#2257C4', marginTop: 4, flexShrink: 0 }} />
+          <span>
+            {ed.any
+              ? t('ord.form.lockedSome', { st: t(`ord.st.${order.status}` as MessageKey) })
+              : t('ord.form.lockedAll', { st: t(`ord.st.${order.status}` as MessageKey) })}
+          </span>
+        </div>
+      )}
+      {mode === 'edit' && order?.holdReason && (
+        <div
+          role="note"
+          style={{
+            background: '#FCF0DC',
+            borderRadius: 8,
+            padding: '12px 14px',
+            display: 'flex',
+            gap: 8,
+          }}
+        >
+          <Icon
+            n="triangle-alert"
+            s={16}
+            style={{ color: '#8F5500', marginTop: 3, flexShrink: 0 }}
+          />
+          <span>
+            {t('ord.hold', { r: order.holdReason.label })}
+            {order.holdReason.note ? ` — ${order.holdReason.note}` : ''}
+          </span>
+        </div>
+      )}
+
+      {body}
     </FormDrawer>
   );
 }

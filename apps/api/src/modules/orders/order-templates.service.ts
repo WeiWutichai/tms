@@ -247,7 +247,8 @@ export function toTemplateDto(
     id: encodeId('orderTemplate', t.id),
     name: t.name,
     payload: t.payload as unknown as OrderTemplatePayloadDto,
-    customer: c && cu ? { id: encodeId('customer', cu), code: c.code, legalName: c.legalName } : null,
+    customer:
+      c && cu ? { id: encodeId('customer', cu), code: c.code, legalName: c.legalName } : null,
     version: t.version,
     createdAt: t.createdAt.toISOString(),
     updatedAt: t.updatedAt.toISOString(),

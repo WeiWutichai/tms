@@ -662,6 +662,8 @@ export const en: Partial<Record<MessageKey, string>> = {
   'ord.tab.match': 'Customer unmatched',
   'ord.tab.done': 'Vehicle assigned',
   'ord.kpi.over': 'Overdue',
+  'ord.hold.LOCATION_UNMAPPED': 'Awaiting route',
+  'ord.hold.CUSTOMER_UNMAPPED': 'Customer unmatched',
   'ord.st.draft': 'Draft',
   'ord.st.received': 'Order received',
   'ord.st.planned': 'Vehicle assigned',

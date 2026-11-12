@@ -662,6 +662,8 @@ export const zh: Partial<Record<MessageKey, string>> = {
   'ord.tab.match': '客户未匹配',
   'ord.tab.done': '已派车',
   'ord.kpi.over': '逾期',
+  'ord.hold.LOCATION_UNMAPPED': '待定路线',
+  'ord.hold.CUSTOMER_UNMAPPED': '客户未匹配',
   'ord.st.draft': '草稿',
   'ord.st.received': '已接单',
   'ord.st.planned': '已派车',

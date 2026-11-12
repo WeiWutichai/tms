@@ -1,11 +1,4 @@
-import {
-  ActivityTimeline,
-  Badge,
-  Drawer,
-  DrawerFooterButtons,
-  EmptyState,
-  Icon,
-} from '@tms/ui';
+import { ActivityTimeline, Badge, Drawer, DrawerFooterButtons, EmptyState, Icon } from '@tms/ui';
 import { useState, type ReactNode } from 'react';
 import { formatDateTime, useI18n, type T } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
@@ -18,7 +11,11 @@ import { useOrder, useUpdateOrder, useVehicleTypeOptions } from './useOrders';
 
 /** ป้ายสถานะของใบ: ค้าง = เหตุค้าง (ต้นแบบคอลัมน์ "เหตุผล / สถานะ") · อื่น ๆ = ชื่อสถานะไทย */
 export function orderStatusLabel(t: T, o: Pick<Order, 'status' | 'holdReason'>): string {
-  if (o.status === 'on_hold' && o.holdReason) return o.holdReason.label;
+  if (o.status === 'on_hold' && o.holdReason) {
+    // ป้ายสั้นตามต้นแบบ (รอกำหนดเส้นทาง / ยังไม่จับคู่ลูกค้า …) — รหัสอื่นใช้ชื่อจากรหัสเหตุผล (master)
+    const k = `ord.hold.${o.holdReason.code}` as MessageKey;
+    return t(k) === k ? o.holdReason.label : t(k);
+  }
   return t(`ord.st.${o.status}` as MessageKey);
 }
 export const statusTone = (o: Pick<Order, 'status'>) =>
@@ -45,7 +42,17 @@ export function overdueDays(o: Order, today = bangkokToday()): number {
   return d < today ? Math.round((Date.parse(today) - Date.parse(d)) / 86_400_000) : 0;
 }
 
-function Sec({ title, action, last, children }: { title: ReactNode; action?: ReactNode; last?: boolean; children: ReactNode }) {
+function Sec({
+  title,
+  action,
+  last,
+  children,
+}: {
+  title: ReactNode;
+  action?: ReactNode;
+  last?: boolean;
+  children: ReactNode;
+}) {
   return (
     <section
       style={{
@@ -56,7 +63,9 @@ function Sec({ title, action, last, children }: { title: ReactNode; action?: Rea
         borderBottom: last ? 0 : '1px solid #E4E6E0',
       }}
     >
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+      <div
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}
+      >
         <span style={{ fontSize: 12.5, fontWeight: 600, color: '#3B424C' }}>{title}</span>
         {action}
       </div>
@@ -150,7 +159,9 @@ export function OrderDrawer({
   };
   const menu = canWrite
     ? [
-        ...(ed.any ? [{ label: t('ord.menu.edit'), icon: 'pencil', onClick: () => onEdit(o) }] : []),
+        ...(ed.any
+          ? [{ label: t('ord.menu.edit'), icon: 'pencil', onClick: () => onEdit(o) }]
+          : []),
         { label: t('ord.menu.copy'), icon: 'copy', onClick: () => onCopy(o) },
         { label: t('ord.menu.template'), icon: 'bookmark-plus', onClick: () => onSaveTemplate(o) },
       ]
@@ -185,7 +196,7 @@ export function OrderDrawer({
             <div style={{ display: 'flex', flexDirection: 'column' }}>
               <span style={{ fontSize: 12.5, color: '#59606B' }}>{t('ord.footTotal')}</span>
               <span className="tms-num" style={{ fontSize: 20, fontWeight: 600 }}>
-                {o.sellTotal ? `฿${money(o.sellTotal)}` : '—'}
+                {o.sellTotal ? t('ord.baht', { n: money(o.sellTotal) }) : '—'}
               </span>
             </div>
           )}
@@ -213,9 +224,19 @@ export function OrderDrawer({
           {o.status === 'on_hold' && o.holdReason && (
             <div
               role="note"
-              style={{ background: '#FCF0DC', borderRadius: 8, padding: '12px 14px', display: 'flex', gap: 8 }}
+              style={{
+                background: '#FCF0DC',
+                borderRadius: 8,
+                padding: '12px 14px',
+                display: 'flex',
+                gap: 8,
+              }}
             >
-              <Icon n="triangle-alert" s={16} style={{ color: '#8F5500', marginTop: 3, flexShrink: 0 }} />
+              <Icon
+                n="triangle-alert"
+                s={16}
+                style={{ color: '#8F5500', marginTop: 3, flexShrink: 0 }}
+              />
               <span>
                 {t('ord.hold', { r: o.holdReason.label })}
                 {o.holdReason.note ? ` — ${o.holdReason.note}` : ''}
@@ -259,7 +280,10 @@ export function OrderDrawer({
               {o.stops.map((s, i) => {
                 const c = STOP_COLOR[s.type] ?? '#2257C4';
                 return (
-                  <div key={s.sequence} style={{ display: 'grid', gridTemplateColumns: '28px minmax(0,1fr)', gap: 12 }}>
+                  <div
+                    key={s.sequence}
+                    style={{ display: 'grid', gridTemplateColumns: '28px minmax(0,1fr)', gap: 12 }}
+                  >
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
                       <span
                         style={{
@@ -283,14 +307,26 @@ export function OrderDrawer({
                         <span style={{ flex: 1, width: 1, background: '#CDD1C8', minHeight: 16 }} />
                       )}
                     </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2, paddingBottom: 14, minWidth: 0 }}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 2,
+                        paddingBottom: 14,
+                        minWidth: 0,
+                      }}
+                    >
                       <span style={{ fontSize: 12.5, fontWeight: 600, color: c }}>
                         {t('ord.stopN', { n: i + 1, k: t(`ord.stop.${s.type}` as MessageKey) })}
                       </span>
                       <span style={{ fontWeight: 500 }}>{s.siteText}</span>
-                      <span className="tms-num" style={{ color: '#3B424C' }}>{win(s)}</span>
+                      <span className="tms-num" style={{ color: '#3B424C' }}>
+                        {win(s)}
+                      </span>
                       {!s.siteId && (
-                        <span style={{ display: 'flex', gap: 6, color: '#B3322A', fontWeight: 500 }}>
+                        <span
+                          style={{ display: 'flex', gap: 6, color: '#B3322A', fontWeight: 500 }}
+                        >
                           <Icon n="triangle-alert" s={16} style={{ marginTop: 3, flexShrink: 0 }} />
                           {t('ord.siteUnmapped')}
                         </span>
@@ -310,13 +346,24 @@ export function OrderDrawer({
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column' }}>
                 {o.pricingStatus !== 'AVAILABLE' && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#8F5500', paddingBottom: 6 }}>
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 10,
+                      color: '#8F5500',
+                      paddingBottom: 6,
+                    }}
+                  >
                     <Icon n="triangle-alert" s={16} />
                     <span style={{ flex: 1 }}>{t('ord.noRate')}</span>
                   </div>
                 )}
                 {(o.sellCharges ?? []).map((c) => (
-                  <div key={c.lineNo} style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '6px 0' }}>
+                  <div
+                    key={c.lineNo}
+                    style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '6px 0' }}
+                  >
                     <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
                       <span>{c.description}</span>
                       {c.rateCardCode && (
@@ -343,7 +390,9 @@ export function OrderDrawer({
                     {o.sellTotal ? money(o.sellTotal) : '—'}
                   </span>
                 </div>
-                <span style={{ fontSize: 12.5, color: '#59606B', paddingTop: 6 }}>{t('ord.vatNote')}</span>
+                <span style={{ fontSize: 12.5, color: '#59606B', paddingTop: 6 }}>
+                  {t('ord.vatNote')}
+                </span>
               </div>
             )}
           </Sec>
@@ -387,7 +436,14 @@ export function OrderDrawer({
               </span>
             </div>
           ))}
-          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) 110px', gap: 12, padding: '10px 0' }}>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'minmax(0,1fr) 110px',
+              gap: 12,
+              padding: '10px 0',
+            }}
+          >
             <span style={{ fontWeight: 600 }}>{t('ord.it.total')}</span>
             <span className="tms-num" style={{ textAlign: 'right', fontWeight: 600 }}>
               {weight ? t('ord.kg', { n: Number(weight).toLocaleString('th-TH') }) : '—'}
@@ -423,4 +479,3 @@ export function OrderDrawer({
     </Drawer>
   );
 }
-

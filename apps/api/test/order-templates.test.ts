@@ -113,12 +113,14 @@ describe('order templates + form API (ST3-T02)', () => {
     expect(created.headers.etag).toBe('"1"');
     const t = created.body;
     expect(t.id).toMatch(/^otp_[0-9a-f]{32}$/);
-    expect(t.customer).toEqual({ id: customer.id, code: customer.code, legalName: customer.legalName });
+    expect(t.customer).toEqual({
+      id: customer.id,
+      code: customer.code,
+      legalName: customer.legalName,
+    });
     // รูปมาตรฐาน: ทศนิยมตัด 0 นำหน้า เวลาเป็น UTC
     expect(t.payload.lines[0].qty).toBe('12.5');
-    expect(t.payload.stops[0].windowStart).toBe(
-      new Date(`${today}T07:00:00+07:00`).toISOString(),
-    );
+    expect(t.payload.stops[0].windowStart).toBe(new Date(`${today}T07:00:00+07:00`).toISOString());
     expect(t.payload.stops[1].siteText).toBe(body.stops[1]!.siteText);
     expect(t.payload).not.toHaveProperty('draft');
 
@@ -126,9 +128,9 @@ describe('order templates + form API (ST3-T02)', () => {
     expect(got.body).toEqual(t);
     const list = await api(app, admin).get('/v1/order-templates?q=ทุกจันทร์').expect(200);
     expect(list.body.data.map((x: { id: string }) => x.id)).toEqual([t.id]);
-    expect((await api(app, admin).get('/v1/order-templates?q=ไม่มี').expect(200)).body.data).toEqual(
-      [],
-    );
+    expect(
+      (await api(app, admin).get('/v1/order-templates?q=ไม่มี').expect(200)).body.data,
+    ).toEqual([]);
 
     await api(app, admin)
       .patch(`/v1/order-templates/${t.id}`)
@@ -154,7 +156,9 @@ describe('order templates + form API (ST3-T02)', () => {
       .send({ reason: 'ลูกค้าเลิกส่งงานประจำนี้แล้ว' })
       .expect(204);
     await api(app, admin).get(`/v1/order-templates/${t.id}`).expect(404);
-    const row = await db.orderTemplate.findUnique({ where: { id: tryDecodeId('orderTemplate', t.id)! } });
+    const row = await db.orderTemplate.findUnique({
+      where: { id: tryDecodeId('orderTemplate', t.id)! },
+    });
     expect(row?.deletedAt).not.toBeNull();
     expect(row?.deletedReason).toBe('ลูกค้าเลิกส่งงานประจำนี้แล้ว');
     const audit = await db.auditLog.findMany({
@@ -254,7 +258,10 @@ describe('order templates + form API (ST3-T02)', () => {
     // ชื่อซ้ำข้ามบริษัทได้ (unique ต่อบริษัท)
     await api(app, other)
       .post('/v1/order-templates')
-      .send({ name: 'สิทธิ์', payload: { requestedDate: today, stops: [{ type: 'PICKUP', siteText: 'คลัง' }] } })
+      .send({
+        name: 'สิทธิ์',
+        payload: { requestedDate: today, stops: [{ type: 'PICKUP', siteText: 'คลัง' }] },
+      })
       .expect(201);
   });
 
@@ -304,7 +311,12 @@ describe('order templates + form API (ST3-T02)', () => {
     expect(copy.id).not.toBe(src.id);
     expect(copy.externalId).toBeNull();
     expect(copy.customerRef).toBeNull();
-    const strip = (o: { stops: unknown[]; lines: unknown[]; customer: unknown; vehicleTypeId: unknown }) => ({
+    const strip = (o: {
+      stops: unknown[];
+      lines: unknown[];
+      customer: unknown;
+      vehicleTypeId: unknown;
+    }) => ({
       customer: o.customer,
       vehicleTypeId: o.vehicleTypeId,
       stops: o.stops,
@@ -327,9 +339,9 @@ describe('order templates + form API (ST3-T02)', () => {
       where: { id: tryDecodeId('salesOrder', o.id)! },
       data: { status: 'CANCELLED', holdReasonCodeId: null },
     });
-    expect((await api(app, admin).get(`/v1/orders/${o.id}`).expect(200)).body.editableFields).toEqual(
-      [],
-    );
+    expect(
+      (await api(app, admin).get(`/v1/orders/${o.id}`).expect(200)).body.editableFields,
+    ).toEqual([]);
     // ไม่อยู่ในรายการ
     const list = (await api(app, admin).get('/v1/orders?limit=5').expect(200)).body.data;
     expect(list[0]).not.toHaveProperty('editableFields');
@@ -343,7 +355,10 @@ describe('order templates + form API (ST3-T02)', () => {
       .post('/v1/orders')
       .send({ ...body, customer: { externalId: 'NO-SUCH', name: 'ลูกค้าไม่รู้จัก' } })
       .expect(201);
-    await api(app, admin).post('/v1/orders').send({ ...body, draft: true }).expect(201);
+    await api(app, admin)
+      .post('/v1/orders')
+      .send({ ...body, draft: true })
+      .expect(201);
     const s = (await api(app, admin).get('/v1/orders/summary').expect(200)).body;
     const all = await db.salesOrder.groupBy({ by: ['status'], where: { tenantId }, _count: true });
     const n = (st: string) => all.find((x) => x.status === st)?._count ?? 0;
@@ -355,6 +370,8 @@ describe('order templates + form API (ST3-T02)', () => {
     expect(s.planned).toBe(n('PLANNED'));
     expect(typeof s.overdue).toBe('number');
     expect((await api(app, other).get('/v1/orders/summary').expect(200)).body.total).toBe(0);
-    await api(app, await tokenFor(tenantId, 'customers:read')).get('/v1/orders/summary').expect(403);
+    await api(app, await tokenFor(tenantId, 'customers:read'))
+      .get('/v1/orders/summary')
+      .expect(403);
   });
 });

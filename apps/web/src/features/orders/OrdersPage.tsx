@@ -81,12 +81,15 @@ export function OrdersPage() {
   const [overdue, setOverdue] = useSessionState('so.over', false);
   const [col, setCol] = useSessionState('so.cols', { q: '', st: '', source: '' });
   const today = bangkokToday();
-  const filters: OrderFilters = {
+  const base: OrderFilters = {
     status: '',
     holdReason: '',
     q: col.q,
     source: col.source,
     requestedTo: '',
+  };
+  const filters: OrderFilters = {
+    ...base,
     ...TAB_FILTER[tab],
     ...(col.st && tab === 'all'
       ? col.st.startsWith('hold:')
@@ -107,9 +110,7 @@ export function OrdersPage() {
 
   const openForm = (f: Omit<FormState, 'key'>) => setForm({ ...f, key: Date.now() });
   const reloadEdit = async (id: string) => {
-    const o = (await unwrap(
-      api.GET('/v1/orders/{id}', { params: { path: { id } } }),
-    )) as Order;
+    const o = (await unwrap(api.GET('/v1/orders/{id}', { params: { path: { id } } }))) as Order;
     qc.setQueryData(['orders', 'one', id], o);
     openForm({ mode: 'edit', initial: fromOrder(o), order: o, subtitle: t('ord.kind') });
   };
@@ -125,7 +126,12 @@ export function OrdersPage() {
       label: t('ord.col.no'),
       width: '1%',
       filter: { type: 'text', placeholder: t('table.search') },
-      render: (r) => (r.soNo ? <DocNo>{r.soNo}</DocNo> : <span style={{ color: '#59606B' }}>{t('ord.draftNo')}</span>),
+      render: (r) =>
+        r.soNo ? (
+          <DocNo>{r.soNo}</DocNo>
+        ) : (
+          <span style={{ color: '#59606B' }}>{t('ord.draftNo')}</span>
+        ),
       csv: (r) => r.soNo ?? '',
     },
     {
@@ -139,7 +145,7 @@ export function OrdersPage() {
             style={{
               color: '#101418',
               display: 'inline-block',
-              maxWidth: 320,
+              maxWidth: 240,
               overflow: 'hidden',
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',
@@ -155,10 +161,30 @@ export function OrdersPage() {
     {
       key: 'route',
       label: t('ord.col.route'),
+      width: '1%',
       render: (r) => {
         const a = r.stops.find((x) => x.type === 'PICKUP') ?? r.stops[0];
-        const b = [...r.stops].reverse().find((x) => x.type === 'DELIVERY') ?? r.stops[r.stops.length - 1];
-        return a && b && a !== b ? <RouteChip from={a.siteText} to={b.siteText} /> : (a?.siteText ?? '—');
+        const b =
+          [...r.stops].reverse().find((x) => x.type === 'DELIVERY') ?? r.stops[r.stops.length - 1];
+        return a && b && a !== b ? (
+          // ชื่อยาวตัด … (ข้อความเต็มใน title) — ไม่ให้ดันคอลัมน์สถานะ/ที่มาพ้นจอ
+          <span className="tms-route-cell" title={`${a.siteText} → ${b.siteText}`}>
+            <RouteChip
+              from={
+                <span className="tms-ellipsis" style={{ maxWidth: 110 }}>
+                  {a.siteText}
+                </span>
+              }
+              to={
+                <span className="tms-ellipsis" style={{ maxWidth: 110 }}>
+                  {b.siteText}
+                </span>
+              }
+            />
+          </span>
+        ) : (
+          (a?.siteText ?? '—')
+        );
       },
       csv: (r) => r.stops.map((x) => x.siteText).join(' → '),
     },
@@ -181,7 +207,10 @@ export function OrdersPage() {
         const d = dueOf(r);
         const late = overdueDays(r, today) > 0;
         return (
-          <span className="tms-num" style={{ color: late ? '#B3322A' : '#101418', whiteSpace: 'nowrap' }}>
+          <span
+            className="tms-num"
+            style={{ color: late ? '#B3322A' : '#101418', whiteSpace: 'nowrap' }}
+          >
             {dateText(d.date)}
             {late && <span style={{ marginLeft: 6, fontWeight: 500 }}>{t('ord.over')}</span>}
           </span>
@@ -362,9 +391,17 @@ export function OrdersPage() {
             ]}
             empty={
               colFiltered || tab !== 'all' || overdue ? (
-                <EmptyState icon="search-x" title={t('table.emptyTitle')} description={t('table.noMatch')} />
+                <EmptyState
+                  icon="search-x"
+                  title={t('table.emptyTitle')}
+                  description={t('table.noMatch')}
+                />
               ) : (
-                <EmptyState icon="clipboard-list" title={t('ord.emptyTitle')} description={t('ord.emptyDesc')} />
+                <EmptyState
+                  icon="clipboard-list"
+                  title={t('ord.emptyTitle')}
+                  description={t('ord.emptyDesc')}
+                />
               )
             }
             page={{ ...list.page, ...(shownTotal !== undefined ? { total: shownTotal } : {}) }}
@@ -382,7 +419,9 @@ export function OrdersPage() {
           canWrite={canWrite}
           canSeePrice={canSeePrice}
           onClose={() => setOpenId(null)}
-          onEdit={(o) => openForm({ mode: 'edit', initial: fromOrder(o), order: o, subtitle: t('ord.kind') })}
+          onEdit={(o) =>
+            openForm({ mode: 'edit', initial: fromOrder(o), order: o, subtitle: t('ord.kind') })
+          }
           onCopy={(o) =>
             openForm({
               mode: 'copy',
@@ -435,7 +474,10 @@ export function OrdersPage() {
       {saveTpl && (
         <SaveTemplateDialog
           payload={{ ...toPayload(fromOrder(saveTpl)), customerRef: null }}
-          defaultName={[saveTpl.customer.legalName, saveTpl.stops.map((x) => x.siteText).join(' → ')]
+          defaultName={[
+            saveTpl.customer.legalName,
+            saveTpl.stops.map((x) => x.siteText).join(' → '),
+          ]
             .filter(Boolean)
             .join(' · ')
             .slice(0, 100)}
