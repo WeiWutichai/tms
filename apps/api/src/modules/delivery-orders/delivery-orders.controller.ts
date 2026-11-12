@@ -14,6 +14,7 @@ import { decodeIdOr404, encodeId, tryDecodeId } from '../../common/ids';
 import { toPage } from '../../common/pagination';
 import { ProblemException } from '../../common/problem';
 import { DbService } from '../../db/db.service';
+import { isRealDate } from '../vehicle-documents/expiry';
 import {
   CancelDeliveryOrderDto,
   CreateDeliveryOrderDto,
@@ -85,6 +86,13 @@ export class DeliveryOrdersController {
   @RequireScope('orders:read')
   @ApiOkResponse({ type: DeliveryOrderPageDto })
   async list(@Query() q: DeliveryOrderListQuery) {
+    // รูปแบบผ่าน DTO แล้ว — วันที่ต้องมีจริง (2026-02-31 / 2026-13-45 → 422 ไม่ปัดเป็นเดือนถัดไป)
+    const badDates = (['dateFrom', 'dateTo'] as const).flatMap((f) =>
+      q[f] !== undefined && !isRealDate(q[f]!)
+        ? [{ field: f, code: 'invalid_date', message: 'must be a real date (YYYY-MM-DD)' }]
+        : [],
+    );
+    if (badDates.length) throw new ProblemException('validation_failed', undefined, badDates);
     const decode = (kind: 'salesOrder' | 'customer', v?: string) =>
       v === undefined
         ? undefined

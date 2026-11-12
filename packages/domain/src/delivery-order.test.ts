@@ -250,6 +250,36 @@ describe('แยก DO (ORD-084) — ปริมาณรวมเท่าเ�
     ]);
   });
 
+  it('เศษน้ำหนัก/ปริมาตรไปส่วนสุดท้ายเสมอ (100.06 กก. / 10.005 cbm แบ่ง 3 และ 2 ส่วน)', () => {
+    const src3 = planAllocation([line('a', 1, '3', { weightKg: '100.06', cbm: '10.005' })], []);
+    const three = planSplit(src3, [
+      [{ salesOrderLineId: 'a', qty: '1' }],
+      [{ salesOrderLineId: 'a', qty: '1' }],
+      [{ salesOrderLineId: 'a', qty: '1' }],
+    ]);
+    expect(three.map((p) => [p[0]!.weightKg, p[0]!.cbm])).toEqual([
+      ['33.353', '3.335'],
+      ['33.353', '3.335'],
+      ['33.354', '3.335'],
+    ]);
+    const src2 = planAllocation([line('a', 1, '2', { weightKg: '100.06', cbm: '10.005' })], []);
+    const two = planSplit(src2, [
+      [{ salesOrderLineId: 'a', qty: '1' }],
+      [{ salesOrderLineId: 'a', qty: '1' }],
+    ]);
+    expect(two.map((p) => [p[0]!.weightKg, p[0]!.cbm])).toEqual([
+      ['50.03', '5.003'],
+      ['50.03', '5.002'],
+    ]);
+    // ปัดครึ่งขึ้นหลายส่วนจนเกินรวม → ส่วนท้าย ๆ ได้เท่าที่เหลือ ไม่ติดลบ
+    const tiny = planAllocation([line('a', 1, '0.006', { weightKg: '0.003' })], []);
+    const six = planSplit(
+      tiny,
+      Array.from({ length: 6 }, () => [{ salesOrderLineId: 'a', qty: '0.001' }]),
+    );
+    expect(six.map((p) => p[0]!.weightKg)).toEqual(['0.001', '0.001', '0.001', '0', '0', '0']);
+  });
+
   it('เศษปัดไปส่วนสุดท้าย: 1 ตัน (0.001 cbm) แบ่ง 3 ส่วน → น้ำหนักรวมเท่าเดิม', () => {
     const one = planAllocation([line('a', 1, '1', { weightKg: '1000', cbm: '0.001' })], []);
     const parts = planSplit(one, [

@@ -950,6 +950,91 @@ describe('delivery orders (ST3-T09)', () => {
     ).toEqual([]);
   });
 
+  it('QA B1: แยกแล้วเปลี่ยนจุดส่งแล้วเปลี่ยนกลับ → มี DO 1 ใบ (ใบที่ถูกแยก/รวม/ระบบยกเลิกไม่กันการสร้าง)', async () => {
+    const k = await key();
+    const other = await newSite();
+    const { order: so } = await upsert(order(k));
+    const [d] = await activeDos(so.id);
+    const [l1, l2] = await lineIds(so.id);
+    const [a, b] = await run(() =>
+      svc().split(d!.id, [
+        [{ salesOrderLineId: l1!, qty: '12' }],
+        [
+          { salesOrderLineId: l1!, qty: '12' },
+          { salesOrderLineId: l2!, qty: '10' },
+        ],
+      ]),
+    );
+    await run(() => svc().merge([a!.id, b!.id]));
+    const moved = {
+      ...order(k),
+      id: so.id,
+      stops: [
+        { type: 'PICKUP' as const, siteId: k.origin },
+        { type: 'DELIVERY' as const, siteId: other },
+      ],
+    };
+    await upsert(moved);
+    expect((await activeDos(so.id)).map((x) => x.destSiteId)).toEqual([other]);
+    await upsert({ ...order(k), id: so.id });
+    const back = await activeDos(so.id);
+    expect(back).toHaveLength(1);
+    expect(back[0]!.destSiteId).toBe(k.dest);
+    expect(back[0]!.lines.map((l) => l.qtyPlanned.toFixed())).toEqual(['24', '10']);
+  });
+
+  it('QA B2: ต้นทางลดบรรทัดสินค้า → DO ถูกยกเลิกก่อน sync แต่ยังได้ event rebuild_required (หลายจุดส่ง / ลูกค้าปิดใช้)', async () => {
+    const k = await key();
+    const drop2 = await newSite();
+    const multi = order(k, {
+      stops: [
+        { type: 'PICKUP', siteId: k.origin },
+        { type: 'DELIVERY', siteId: k.dest },
+        { type: 'DELIVERY', siteId: drop2 },
+      ],
+    });
+    const { order: so } = await upsert(multi);
+    const x = await run(() => svc().createFromOrder(so.id, { destStopSeq: 2 }));
+    await upsert({ ...multi, id: so.id, lines: [multi.lines![0]!] });
+    expect(await activeDos(so.id)).toEqual([]);
+    expect(
+      (
+        await db.domainEvent.findFirstOrThrow({
+          where: { type: 'delivery_order.rebuild_required', localId: so.id },
+        })
+      ).snapshot,
+    ).toEqual({ cancelled: [x.doNo], reason: 'MULTI_DROP' });
+
+    const k2 = await key();
+    const { order: so2 } = await upsert(order(k2));
+    const [y] = await activeDos(so2.id);
+    await db.customer.update({ where: { id: k2.customer }, data: { status: 'INACTIVE' } });
+    const r = await upsert({ ...order(k2), id: so2.id, lines: [order(k2).lines![0]!] });
+    expect(r.order.holdReasonCode?.code).toBe('CUSTOMER_UNMAPPED');
+    expect(await activeDos(so2.id)).toEqual([]);
+    expect(
+      (
+        await db.domainEvent.findFirstOrThrow({
+          where: { type: 'delivery_order.rebuild_required', localId: so2.id },
+        })
+      ).snapshot,
+    ).toEqual({ cancelled: [y!.doNo], reason: 'ORDER_NOT_READY' });
+    await db.customer.update({ where: { id: k2.customer }, data: { status: 'ACTIVE' } });
+  });
+
+  it('QA B3: list วันที่ที่ไม่มีจริง → 422 (ไม่ใช่ 500/ปัดเดือน)', async () => {
+    for (const v of ['2026-13-45', '0000-00-00', '2026-02-31']) {
+      const r = await api(app, admin).get(`/v1/delivery-orders?dateFrom=${v}`).expect(422);
+      expect(
+        r.body.errors.map((e: { field: string; code: string }) => `${e.field}:${e.code}`),
+      ).toEqual(['dateFrom:invalid_date']);
+    }
+    await api(app, admin).get('/v1/delivery-orders?dateTo=2026-02-30').expect(422);
+    await api(app, admin)
+      .get('/v1/delivery-orders?dateFrom=2028-02-29&dateTo=2028-03-01')
+      .expect(200);
+  });
+
   it('call path: เขียน delivery_order* ได้จาก DeliveryOrderService ที่เดียว', () => {
     const root = resolve(__dirname, '../src');
     const allowed = new Set(['modules/delivery-orders/delivery-order.service.ts']);

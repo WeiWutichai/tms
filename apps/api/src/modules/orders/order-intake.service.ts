@@ -206,18 +206,20 @@ export class OrderIntakeService {
       await tx.salesOrder.update({ where: { id }, data: { ...header, version: { increment: 1 } } });
     }
     // สินค้าลดลง: DO ที่อ้างบรรทัดที่จะลบต้องยกเลิก/ปลดก่อน (FK RESTRICT บรรทัด DO → บรรทัด SO) — สร้างใหม่ตอน sync
-    if (current)
-      await this.deliveryOrders.releaseOrderLines(
-        tx,
-        id,
-        current.lines.filter((l) => l.lineNo > n.lines.length).map((l) => l.id),
-      );
+    const releasedDos = current
+      ? await this.deliveryOrders.releaseOrderLines(
+          tx,
+          id,
+          current.lines.filter((l) => l.lineNo > n.lines.length).map((l) => l.id),
+        )
+      : [];
     await this.writeChildren(tx, tenantId, id, n);
     const loaded = await tx.salesOrder.findUniqueOrThrow({ where: { id }, include: INCLUDE });
     return this.evaluate(tx, loaded, {
       draft: n.draft,
       created: !current,
       dataChanged: true,
+      releasedDos,
       before,
     });
   }
@@ -259,6 +261,8 @@ export class OrderIntakeService {
       created: boolean;
       dataChanged: boolean;
       before?: Record<string, unknown> | null;
+      /** DO ที่ถูกยกเลิกก่อนลบบรรทัด SO ในคำขอนี้ (ส่งต่อให้ sync แจ้ง rebuild_required) */
+      releasedDos?: string[];
     },
   ): Promise<UpsertOrderResult> {
     const ctx = requestContext.require();
@@ -463,7 +467,7 @@ export class OrderIntakeService {
       await tx.salesOrder.update({ where: { id }, data: { version: { increment: 1 } } });
 
     // ใบส่งของตาม SO (ST3-T09): 1 DO = ทั้ง SO เมื่อพร้อม · SO แก้ข้อมูลที่ DO ใช้ → สร้างชุดใหม่ (ORD-085)
-    await this.deliveryOrders.syncWithOrder(tx, id);
+    await this.deliveryOrders.syncWithOrder(tx, id, opts.releasedDos ?? []);
 
     const changed =
       opts.created || opts.dataChanged || pricingChanged || plan.events.length > 0 || noteChanged;

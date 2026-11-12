@@ -242,9 +242,14 @@ export class DeliveryOrderService {
    * - ข้อมูลหัวที่ไม่กระทบการจัดสรร (PO ลูกค้า, วันที่, ชื่อสินค้า) → แก้ใน DO เดิม (ไม่ยกเลิกใบที่คนแยกไว้)
    * - SO ไม่พร้อม (ค้างเพราะข้อมูลหลักปิดใช้/ต้นทางผิด) แต่ข้อมูลเดิม → **คง DO ไว้** (ไม่สร้างใหม่ — `isOrderReady` = false)
    * - สร้าง 1 DO = ทั้ง SO อัตโนมัติ **ครั้งเดียวต่อ hash**: มี DO ใดเคยใช้ hash นี้ (รวมใบที่คนยกเลิก/แยก/รวม) → ไม่สร้างซ้ำ
-   *   (ใบที่ระบบยกเลิกตอน rebuild ล้าง source_hash จึงไม่นับ) — คนยกเลิกแล้วส่งซ้ำค่าเดิม DO ไม่ฟื้น
+   *   (ใบที่ระบบยกเลิก/ถูกแยก/ถูกรวม ล้าง source_hash จึงไม่นับ — นับเฉพาะใบที่ยังใช้และใบที่คนยกเลิก) — คนยกเลิกแล้วส่งซ้ำค่าเดิม DO ไม่ฟื้น
    */
-  async syncWithOrder(tx: Tx, salesOrderId: string): Promise<void> {
+  async syncWithOrder(
+    tx: Tx,
+    salesOrderId: string,
+    /** เลข DO ที่ `releaseOrderLines` ยกเลิกไปแล้วในคำขอเดียวกัน (นับเป็น rebuild เพื่อแจ้ง event) */
+    alreadyCancelled: string[] = [],
+  ): Promise<void> {
     const so = await this.lockOrder(tx, salesOrderId);
     if (!so) throw new ProblemException('not_found');
     const active = await this.lockActive(tx, salesOrderId);
@@ -252,17 +257,19 @@ export class DeliveryOrderService {
     const hash = allocationHash(so);
     const drops = so.stops.filter((s) => s.type === 'DELIVERY');
     let remaining = active;
+    const rebuilt = [...alreadyCancelled];
     if (active.some((d) => d.sourceHash !== hash)) {
       for (const d of active) await this.systemCancel(tx, d, SYSTEM_NOTE.rebuilt);
+      rebuilt.push(...active.map((d) => d.doNo!));
       remaining = [];
-      if (active.length && (drops.length !== 1 || !isReady(so)))
-        await this.emitOrderEvent(tx, so.id, REBUILD_REQUIRED_EVENT, {
-          cancelled: active.map((d) => d.doNo),
-          reason: drops.length !== 1 ? 'MULTI_DROP' : 'ORDER_NOT_READY',
-        });
     } else {
       for (const d of active) await this.refreshHeader(tx, so, d);
     }
+    if (rebuilt.length && remaining.length === 0 && (drops.length !== 1 || !isReady(so)))
+      await this.emitOrderEvent(tx, so.id, REBUILD_REQUIRED_EVENT, {
+        cancelled: rebuilt,
+        reason: drops.length !== 1 ? 'MULTI_DROP' : 'ORDER_NOT_READY',
+      });
     if (!isReady(so) || remaining.length > 0 || drops.length !== 1) return;
     const used = await tx.deliveryOrder.count({ where: { salesOrderId, sourceHash: hash } });
     if (used > 0) return;
@@ -280,8 +287,8 @@ export class DeliveryOrderService {
    * ก่อน upsertOrder ลบบรรทัด SO (สินค้าลดลง): DO ที่ยังไม่ยกเลิกของ SO ถูกยกเลิก (จะสร้างใหม่ใน `syncWithOrder`)
    * แล้วปลดการอ้างของบรรทัด DO ที่ยกเลิกแล้ว (เหลือ snapshot so_line_no/description) — FK RESTRICT กันลบบรรทัดที่ DO ใช้อยู่
    */
-  async releaseOrderLines(tx: Tx, salesOrderId: string, lineIds: string[]): Promise<void> {
-    if (!lineIds.length) return;
+  async releaseOrderLines(tx: Tx, salesOrderId: string, lineIds: string[]): Promise<string[]> {
+    if (!lineIds.length) return [];
     await this.lockOrder(tx, salesOrderId);
     const active = await this.lockActive(tx, salesOrderId);
     if (active.some((d) => !isDoEditable(d.status as DoStatus) || isOnActiveTrip(d)))
@@ -291,6 +298,7 @@ export class DeliveryOrderService {
       where: { salesOrderLineId: { in: lineIds }, deliveryOrder: { status: 'CANCELLED' } },
       data: { salesOrderLineId: null },
     });
+    return active.map((d) => d.doNo!);
   }
 
   // ---------------------------------------------------------------------------------------------
@@ -488,7 +496,8 @@ export class DeliveryOrderService {
       if (!rc) throw field422('reasonCodeId', 'invalid_reference', 'reason code not found');
     }
     const d = await this.lockEditable(tx, deliveryOrderId, expectedVersion);
-    await this.cancelOne(tx, d, 'cancel', input.reasonCodeId ?? null, note);
+    // คนยกเลิก: คง source_hash ไว้ → ระบบไม่สร้าง DO คืนจากข้อมูลชุดเดิม (M1)
+    await this.cancelOne(tx, d, 'cancel', input.reasonCodeId ?? null, note, true);
     const final = await this.get(d.id, tx);
     await this.audit.record({
       action: `${ENTITY}.cancelled`,
@@ -600,8 +609,6 @@ export class DeliveryOrderService {
   /** ยกเลิกโดยระบบ (SO แก้/ไม่พร้อม) — เหตุผลเป็นข้อความระบบ + audit */
   private async systemCancel(tx: Tx, d: DeliveryOrderRecord, note: string) {
     await this.cancelOne(tx, d, 'cancel', null, note);
-    // ใบที่ระบบยกเลิกตอน rebuild ไม่นับเป็น "เคยสร้างจาก hash นี้" (SO กลับเป็นค่าเดิม → สร้างให้ใหม่ได้)
-    await tx.deliveryOrder.update({ where: { id: d.id }, data: { sourceHash: null } });
     await this.audit.record({
       action: `${ENTITY}.cancelled`,
       entityType: ENTITY,
@@ -668,13 +675,17 @@ export class DeliveryOrderService {
     return row;
   }
 
-  /** DRAFT → CANCELLED ด้วย event cancel/split/merge (กันชน where status = DRAFT) */
+  /**
+   * DRAFT → CANCELLED ด้วย event cancel/split/merge (กันชน where status = DRAFT)
+   * source_hash ถูกล้าง **ยกเว้นคนยกเลิก** (`keepHash`) — ใบที่ถูกแยก/รวม/ระบบยกเลิก ไม่กันการสร้าง DO อัตโนมัติจากข้อมูลชุดนั้น
+   */
   private async cancelOne(
     tx: Tx,
     d: DeliveryOrderRecord,
     event: Extract<DoEvent, 'cancel' | 'split' | 'merge'>,
     reasonCodeId: string | null,
     note: string,
+    keepHash = false,
   ) {
     await this.state.transition<DoStatus, DoEvent>(tx, {
       docType: ENTITY,
@@ -688,7 +699,11 @@ export class DeliveryOrderService {
       apply: async (to) => {
         const r = await tx.deliveryOrder.updateMany({
           where: { id: d.id, status: d.status as DbDoStatus },
-          data: { status: to as DbDoStatus, version: { increment: 1 } },
+          data: {
+            status: to as DbDoStatus,
+            version: { increment: 1 },
+            ...(keepHash ? {} : { sourceHash: null }),
+          },
         });
         if (r.count === 0) throw new ProblemException('concurrent_update');
         return eventView(await this.get(d.id, tx));

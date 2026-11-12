@@ -358,14 +358,24 @@ export function planSplit(
   const out: DoLinePlan[][] = parts.map(() => []);
   for (const l of source) {
     const total = parseMilli(l.qty)!;
+    const totW = milliOrNull(l.weightKg);
+    const totC = milliOrNull(l.cbm);
     let leftQty = total;
-    let leftW = milliOrNull(l.weightKg);
-    let leftC = milliOrNull(l.cbm);
+    let leftW = totW;
+    let leftC = totC;
+    // ส่วนที่ไม่ใช่ส่วนสุดท้าย = สัดส่วนของ "ทั้งบรรทัด" ปัดครึ่งขึ้น (ไม่เกินที่เหลือ) · ส่วนสุดท้าย = ที่เหลือทั้งหมด
+    const part = (tot: bigint | null, left: bigint | null, q: bigint, last: boolean) => {
+      if (tot === null || left === null) return null;
+      if (last) return left;
+      const v = mulDiv(tot, q, total);
+      return v > left ? left : v;
+    };
     asked.forEach((m, i) => {
       const q = m.get(l.salesOrderLineId);
       if (q === undefined) return;
-      const w = share(leftW, q, leftQty);
-      const c = share(leftC, q, leftQty);
+      const last = q === leftQty;
+      const w = part(totW, leftW, q, last);
+      const c = part(totC, leftC, q, last);
       leftQty -= q;
       if (leftW !== null && w !== null) leftW -= w;
       if (leftC !== null && c !== null) leftC -= c;
