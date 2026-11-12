@@ -3817,7 +3817,7 @@
             "name": "fields",
             "required": false,
             "in": "query",
-            "description": "รายชื่อ field คั่นด้วย , เช่น id,soNo,status",
+            "description": "รายชื่อ field ของ Order คั่นด้วย , เช่น id,soNo,status (ไม่รู้จัก → 422) — id คืนเสมอ",
             "schema": {
               "type": "string"
             }
@@ -3835,7 +3835,7 @@
             "name": "holdReason",
             "required": false,
             "in": "query",
-            "description": "รหัสเหตุค้าง คั่นด้วย , เช่น RATE_MISSING,CUSTOMER_UNMAPPED",
+            "description": "รหัสเหตุค้าง คั่นด้วย , เช่น RATE_MISSING,CUSTOMER_UNMAPPED — ตรงกับเหตุใดก็ได้ (OR) ของ `holdCodes` (เหตุทั้งหมดของการรับงานครั้งล่าสุด รวมเหตุรอง) หรือ `holdReason.code` (เหตุหลักบนใบ)",
             "schema": {
               "type": "string"
             }
@@ -4002,7 +4002,7 @@
           {
             "name": "Idempotency-Key",
             "in": "header",
-            "description": "ส่งซ้ำ key เดิม = ผลเดิม (24 ชม.)",
+            "description": "ส่งซ้ำ key เดิม + body เดิม = ผลเดิม (สถานะ + ETag เดิม, header `Idempotent-Replayed: true`; body เท่ากันเชิง JSON — ลำดับ key อาจต่าง) เก็บ 24 ชม.",
             "required": false,
             "schema": {
               "type": "string"
@@ -4020,12 +4020,45 @@
           }
         },
         "responses": {
+          "200": {
+            "description": "มี externalId ของใบเดิม (ช่องทางเดียวกัน) → อัปเดตใบเดิม",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderDto"
+                }
+              }
+            }
+          },
           "201": {
             "description": "สร้างใบใหม่ (ข้อมูลไม่ครบ/จับคู่ไม่ได้ = ยังรับเข้าเป็น ON_HOLD + holdReason) · มี externalId ของใบเดิม = 200 อัปเดตใบเดิม",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/OrderDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "JSON เสีย / Idempotency-Key ผิดรูป (ต้องเป็น ASCII 1–255 ตัว)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "bad_request": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/bad_request",
+                      "title": "คำขอไม่ถูกต้อง",
+                      "status": 400,
+                      "code": "bad_request",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "detail": "Idempotency-Key must be 1-255 visible ASCII chars"
+                    }
+                  }
                 }
               }
             }
@@ -4103,6 +4136,16 @@
                       "existingConnector": "krs"
                     }
                   },
+                  "idempotency_in_progress": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_in_progress",
+                      "title": "คำขอเดียวกันกำลังประมวลผลอยู่",
+                      "status": 409,
+                      "code": "idempotency_in_progress",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  },
                   "invalid_state_transition": {
                     "value": {
                       "type": "https://docs.tms.example/problems/invalid_state_transition",
@@ -4113,6 +4156,28 @@
                       "requestId": "b6a1c2d3-…",
                       "from": "RECEIVED",
                       "event": "save_draft"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "body ใหญ่เกินกำหนด",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "payload_too_large": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/payload_too_large",
+                      "title": "ไฟล์หรือข้อมูลมีขนาดใหญ่เกินกำหนด",
+                      "status": 413,
+                      "code": "payload_too_large",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…"
                     }
                   }
                 }
@@ -4181,6 +4246,7 @@
     },
     "/v1/orders/external/{externalId}": {
       "put": {
+        "description": "**แทนทั้งใบ (full replace):** ช่องที่ไม่ส่ง = ว่าง/ค่าตั้งต้น (เช่น ไม่ส่ง customerRef = ล้างเลข PO, ไม่ส่ง lines = ไม่มีสินค้า) — ใบที่วางแผน/ออกรถแล้ว การล้างช่องที่ล็อกนับเป็นการแก้ → 409 `order_locked_for_update` · ยกเว้น `billingCompanyId` ไม่ส่ง = คงของเดิม · แก้บางช่องใช้ PATCH · ส่งซ้ำค่าเดิม = ไม่เปลี่ยน version",
         "operationId": "Orders_upsertExternal",
         "parameters": [
           {
@@ -4228,6 +4294,28 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/OrderDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "JSON เสีย",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "bad_request": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/bad_request",
+                      "title": "คำขอไม่ถูกต้อง",
+                      "status": 400,
+                      "code": "bad_request",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
                 }
               }
             }
@@ -4343,6 +4431,28 @@
               }
             }
           },
+          "413": {
+            "description": "body ใหญ่เกินกำหนด",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "payload_too_large": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/payload_too_large",
+                      "title": "ไฟล์หรือข้อมูลมีขนาดใหญ่เกินกำหนด",
+                      "status": 413,
+                      "code": "payload_too_large",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
           "422": {
             "description": "รูปแบบผิด — `errors[]` รวมทุกช่อง (path แบบ `stops[0].siteId`)",
             "content": {
@@ -4398,6 +4508,7 @@
             "bearer": []
           }
         ],
+        "summary": "สร้าง/แทนทั้งใบด้วย externalId (idempotent)",
         "tags": [
           "orders"
         ]
@@ -4528,6 +4639,28 @@
               }
             }
           },
+          "400": {
+            "description": "JSON เสีย",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "bad_request": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/bad_request",
+                      "title": "คำขอไม่ถูกต้อง",
+                      "status": 400,
+                      "code": "bad_request",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
           "403": {
             "description": "ไม่มีสิทธิ์ (`orders:read` / `orders:write`)",
             "content": {
@@ -4641,6 +4774,28 @@
                       "title": "ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่",
                       "status": 412,
                       "code": "precondition_failed",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "body ใหญ่เกินกำหนด",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "payload_too_large": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/payload_too_large",
+                      "title": "ไฟล์หรือข้อมูลมีขนาดใหญ่เกินกำหนด",
+                      "status": 413,
+                      "code": "payload_too_large",
                       "instance": "/v1/orders/ord_3f2a…",
                       "requestId": "b6a1c2d3-…"
                     }

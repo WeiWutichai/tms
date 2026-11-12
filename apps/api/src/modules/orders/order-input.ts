@@ -131,6 +131,8 @@ const QTY = /^\d{1,11}(\.\d{1,3})?$/;
 /** numeric(5,1) */
 const TEMP = /^-?\d{1,4}(\.\d)?$/;
 const STOP_TYPES: readonly OrderStopType[] = ['PICKUP', 'DELIVERY', 'RETURN'];
+export const ORDER_DATE_MIN = '1980-01-01';
+export const ORDER_DATE_MAX = '2100-12-31';
 export const ORDER_LIMITS = { stops: 50, lines: 200, text: 500, ref: 100, rawBytes: 256 * 1024 };
 
 /**
@@ -209,10 +211,19 @@ export function normalizeOrderInput(input: UpsertOrderInput): NormalizedOrder {
     err('source', 'invalid_source', 'must be MANUAL, EXCEL, API, PORTAL or ERP:{connector}');
 
   const externalId = text(input.externalId, 'externalId', ORDER_LIMITS.ref);
+  // ช่วงวันที่เดียวกับโมดูลอื่น (เอกสารรถ ST2-T17) — กันปีพิมพ์ผิด (พ.ศ./ค.ศ.)
   const requestedDate =
-    typeof input.requestedDate === 'string' && isRealDate(input.requestedDate)
+    typeof input.requestedDate === 'string' &&
+    isRealDate(input.requestedDate) &&
+    input.requestedDate >= ORDER_DATE_MIN &&
+    input.requestedDate <= ORDER_DATE_MAX
       ? input.requestedDate
-      : (err('requestedDate', 'invalid_date', 'must be YYYY-MM-DD'), '');
+      : (err(
+          'requestedDate',
+          'invalid_date',
+          `must be YYYY-MM-DD between ${ORDER_DATE_MIN} and ${ORDER_DATE_MAX}`,
+        ),
+        '');
 
   const c = input.customer ?? {};
   const customer = {

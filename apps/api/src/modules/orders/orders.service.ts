@@ -34,6 +34,33 @@ const READ_INCLUDE = {
 
 type OrderRow = Prisma.SalesOrderGetPayload<{ include: typeof READ_INCLUDE }>;
 
+/** ชื่อ field ของ OrderDto ที่ `?fields=` เลือกได้ */
+const ORDER_FIELDS = new Set([
+  'id',
+  'soNo',
+  'status',
+  'source',
+  'sourceType',
+  'connector',
+  'externalId',
+  'customer',
+  'billingCompanyId',
+  'customerRef',
+  'requestedDate',
+  'vehicleTypeId',
+  'holdReason',
+  'holdCodes',
+  'pricingStatus',
+  'pricingReasons',
+  'sellTotal',
+  'sellCharges',
+  'stops',
+  'lines',
+  'version',
+  'createdAt',
+  'updatedAt',
+]);
+
 const dec = (v: Prisma.Decimal | null) => (v === null ? null : v.toFixed());
 
 export function toOrderDto(o: OrderRow): OrderDto {
@@ -165,13 +192,33 @@ export class OrdersService {
     return o;
   }
 
-  private where(q: OrderListQuery): Prisma.SalesOrderWhereInput {
+  /** ใบที่เหตุค้างของการรับงานครั้งล่าสุด (`pricing_detail.holds[].code`) มีรหัสใดรหัสหนึ่ง (RLS จำกัด tenant) */
+  private async heldIds(codes: string[]): Promise<string[]> {
+    const rows = await this.db.tx.$queryRaw<{ id: string }[]>`
+      SELECT o.id FROM sales_order o
+       WHERE EXISTS (SELECT 1 FROM jsonb_array_elements(COALESCE(o.pricing_detail->'holds', '[]'::jsonb)) h
+                      WHERE h->>'code' = ANY(${codes}::text[]))`;
+    return rows.map((r) => r.id);
+  }
+
+  private async where(q: OrderListQuery): Promise<Prisma.SalesOrderWhereInput> {
     const and: Prisma.SalesOrderWhereInput[] = [];
     if (q.status)
       and.push({
         status: { in: q.status.split(',').map((s) => s.toUpperCase()) as OrderRow['status'][] },
       });
-    if (q.holdReason) and.push({ holdReasonCode: { code: { in: q.holdReason.split(',') } } });
+    // เหตุค้าง: ตรงกับเหตุใดก็ได้ของการรับงานครั้งล่าสุด (`holdCodes` — เหตุหลัก + เหตุรอง) หรือเหตุหลักบนใบ
+    // (เหตุที่ flow อื่นตั้ง เช่น CARRIER_REJECTED) — หน้าใบค้าง (ST3-T07) กรองเหตุรองได้
+    // เหตุค้าง: เหตุหลักบนใบ (รวมเหตุที่ flow อื่นตั้ง) หรือเหตุใดก็ได้ของ `holdCodes` (เหตุรอง) — หน้าใบค้าง ST3-T07
+    if (q.holdReason) {
+      const codes = q.holdReason.split(',');
+      and.push({
+        OR: [
+          { holdReasonCode: { code: { in: codes } } },
+          { id: { in: await this.heldIds(codes) } },
+        ],
+      });
+    }
     if (q.customerId) and.push({ customerId: tryDecodeId('customer', q.customerId)! });
     if (q.source) {
       const or: Prisma.SalesOrderWhereInput[] = q.source.split(',').map((v) => {
@@ -210,14 +257,19 @@ export class OrdersService {
   }
 
   async list(q: OrderListQuery) {
+    const unknown = q.fields?.split(',').filter((f) => !ORDER_FIELDS.has(f)) ?? [];
+    if (unknown.length)
+      throw new ProblemException('validation_failed', undefined, [
+        { field: 'fields', code: 'unknown_field', message: `unknown field: ${unknown.join(', ')}` },
+      ]);
     const k = keysetArgs(q);
     const rows = await this.db.tx.salesOrder.findMany({
-      where: { AND: [this.where(q), k.where as Prisma.SalesOrderWhereInput] },
+      where: { AND: [await this.where(q), k.where as Prisma.SalesOrderWhereInput] },
       orderBy: k.orderBy as unknown as Prisma.SalesOrderOrderByWithRelationInput[],
       take: k.take,
       include: READ_INCLUDE,
     });
-    return toPage(rows, k.limit, toOrderDto, q.fields);
+    return toPage(rows, k, toOrderDto, q.fields);
   }
 
   // ---------- write (ผ่าน upsertOrder เท่านั้น) ----------

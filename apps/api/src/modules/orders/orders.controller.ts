@@ -4,6 +4,7 @@ import {
   ApiCreatedResponse,
   ApiHeader,
   ApiOkResponse,
+  ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
@@ -99,7 +100,24 @@ const LOCKED_EX = P(
     editableFields: ['customerRef'],
   },
 );
-const E409 = (withConflict: boolean) => ({
+const E400 = (idem: boolean) => ({
+  status: 400,
+  description: idem ? 'JSON เสีย / Idempotency-Key ผิดรูป (ต้องเป็น ASCII 1–255 ตัว)' : 'JSON เสีย',
+  examples: {
+    bad_request: P(
+      'bad_request',
+      400,
+      'คำขอไม่ถูกต้อง',
+      idem ? { detail: 'Idempotency-Key must be 1-255 visible ASCII chars' } : {},
+    ),
+  },
+});
+const E413 = {
+  status: 413,
+  description: 'body ใหญ่เกินกำหนด',
+  examples: { payload_too_large: P('payload_too_large', 413, 'ไฟล์หรือข้อมูลมีขนาดใหญ่เกินกำหนด') },
+};
+const E409 = (withConflict: boolean, idem = false) => ({
   status: 409,
   description: LOCKED_DOC,
   examples: {
@@ -111,6 +129,15 @@ const E409 = (withConflict: boolean) => ({
             409,
             'เลขอ้างอิงต้นทางนี้ถูกใช้กับใบสั่งขนส่งจากช่องทางอื่นแล้ว',
             { existingSource: 'CONNECTOR', existingConnector: 'krs' },
+          ),
+        }
+      : {}),
+    ...(idem
+      ? {
+          idempotency_in_progress: P(
+            'idempotency_in_progress',
+            409,
+            'คำขอเดียวกันกำลังประมวลผลอยู่',
           ),
         }
       : {}),
@@ -161,14 +188,19 @@ export class OrdersController {
   @ApiHeader({
     name: 'Idempotency-Key',
     required: false,
-    description: 'ส่งซ้ำ key เดิม = ผลเดิม (24 ชม.)',
+    description:
+      'ส่งซ้ำ key เดิม + body เดิม = ผลเดิม (สถานะ + ETag เดิม, header `Idempotent-Replayed: true`; body เท่ากันเชิง JSON — ลำดับ key อาจต่าง) เก็บ 24 ชม.',
   })
   @ApiCreatedResponse({
     type: OrderDto,
     description:
       'สร้างใบใหม่ (ข้อมูลไม่ครบ/จับคู่ไม่ได้ = ยังรับเข้าเป็น ON_HOLD + holdReason) · มี externalId ของใบเดิม = 200 อัปเดตใบเดิม',
   })
-  @ApiProblems(E403, E409(true), E422)
+  @ApiOkResponse({
+    type: OrderDto,
+    description: 'มี externalId ของใบเดิม (ช่องทางเดียวกัน) → อัปเดตใบเดิม',
+  })
+  @ApiProblems(E400(true), E403, E409(true, true), E413, E422)
   async create(
     @Body() body: CreateOrderDto,
     @Res({ passthrough: true }) res: Response,
@@ -181,9 +213,16 @@ export class OrdersController {
   @Put('external/:externalId')
   @RequireScope('orders:write')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag — ใช้เมื่อใบมีอยู่แล้ว' })
+  @ApiOperation({
+    summary: 'สร้าง/แทนทั้งใบด้วย externalId (idempotent)',
+    description:
+      '**แทนทั้งใบ (full replace):** ช่องที่ไม่ส่ง = ว่าง/ค่าตั้งต้น (เช่น ไม่ส่ง customerRef = ล้างเลข PO, ไม่ส่ง lines = ไม่มีสินค้า) — ' +
+      'ใบที่วางแผน/ออกรถแล้ว การล้างช่องที่ล็อกนับเป็นการแก้ → 409 `order_locked_for_update` · ยกเว้น `billingCompanyId` ไม่ส่ง = คงของเดิม · ' +
+      'แก้บางช่องใช้ PATCH · ส่งซ้ำค่าเดิม = ไม่เปลี่ยน version',
+  })
   @ApiOkResponse({ type: OrderDto, description: 'มีอยู่แล้ว → อัปเดต (ส่งซ้ำได้ ไม่เกิดใบใหม่)' })
   @ApiCreatedResponse({ type: OrderDto, description: 'ยังไม่มี → สร้าง (ที่มา API)' })
-  @ApiProblems(E403, E409(true), E412, E422)
+  @ApiProblems(E400(false), E403, E409(true), E412, E413, E422)
   async upsertExternal(
     @Param('externalId') externalId: string,
     @Body() body: UpsertOrderDto,
@@ -219,7 +258,7 @@ export class OrdersController {
   @RequireScope('orders:write')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
   @ApiOkResponse({ type: OrderDto })
-  @ApiProblems(E403, E404, E409(false), E412, E422)
+  @ApiProblems(E400(false), E403, E404, E409(false), E412, E413, E422)
   async update(
     @Param('id') id: string,
     @Body() body: UpdateOrderDto,

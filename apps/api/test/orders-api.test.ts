@@ -498,9 +498,17 @@ describe('orders API (ST3-T03)', () => {
     expect((await get('q=LISTPO&status=on_hold')).data.map((x) => x.id).sort()).toEqual(
       [held.id, encodeId('salesOrder', krs.order.id)].sort(),
     );
-    expect((await get('q=LISTPO&holdReason=RATE_MISSING')).data.map((x) => x.id)).toEqual([
-      held.id,
+    // เหตุค้าง = เหตุใดก็ได้ของ holdCodes (ใบ KRS ค้างหลัก CUSTOMER_UNMAPPED แต่มี RATE_MISSING เป็นเหตุรอง)
+    const krsId = encodeId('salesOrder', krs.order.id);
+    expect((await get('q=LISTPO&holdReason=RATE_MISSING')).data.map((x) => x.id).sort()).toEqual(
+      [held.id, krsId].sort(),
+    );
+    expect((await get('q=LISTPO&holdReason=LOCATION_UNMAPPED')).data.map((x) => x.id)).toEqual([
+      krsId,
     ]);
+    expect(
+      (await get('q=LISTPO&holdReason=SOURCE_ERROR,LOCATION_UNMAPPED')).data.map((x) => x.id),
+    ).toEqual([krsId]);
     expect((await get(`customerId=${k.customer}`)).data).toHaveLength(5);
     expect((await get('q=LISTPO&source=ERP:krs')).data.map((x) => x.id)).toEqual([
       encodeId('salesOrder', krs.order.id),
@@ -524,6 +532,46 @@ describe('orders API (ST3-T03)', () => {
     await api(app, admin).get('/v1/orders?status=bogus').expect(422);
     await api(app, admin).get('/v1/orders?requestedFrom=2026-02-30').expect(422);
     await api(app, admin).get('/v1/orders?cursor=xxx').expect(422);
+    // cursor ผูกกับ sort — ใช้กับ sort อื่น → 422
+    const asc = await get('q=LISTPO&limit=2');
+    const bad = await api(app, admin)
+      .get(`/v1/orders?q=LISTPO&limit=2&sort=-updatedAt&cursor=${asc.nextCursor}`)
+      .expect(422);
+    expect(bad.body.errors[0]).toMatchObject({ field: 'cursor', code: 'invalid_cursor' });
+    // field ไม่รู้จัก → 422
+    const f = await api(app, admin).get('/v1/orders?fields=soNo,bogus').expect(422);
+    expect(f.body.errors[0]).toMatchObject({ field: 'fields', code: 'unknown_field' });
+  });
+
+  it('วันรับของ 1980–2100 · ส่งร่าง (submit) = version +1 ครั้งเดียว + audit 1 แถวที่มีสถานะเปลี่ยน', async () => {
+    const k = await key();
+    await approveRate(k);
+    for (const d of ['1979-12-31', '2101-01-01']) {
+      const r = await api(app, admin)
+        .post('/v1/orders')
+        .send(body(k, { requestedDate: d }))
+        .expect(422);
+      expect(r.body.errors[0]).toMatchObject({ field: 'requestedDate', code: 'invalid_date' });
+    }
+    const d = (
+      await api(app, admin)
+        .post('/v1/orders')
+        .send(body(k, { draft: true }))
+        .expect(201)
+    ).body;
+    expect(d).toMatchObject({ status: 'draft', soNo: null, version: 1 });
+    const sub = (
+      await api(app, admin).patch(`/v1/orders/${d.id}`).send({ draft: false }).expect(200)
+    ).body;
+    expect(sub.status).toBe('received');
+    expect(sub.soNo).toMatch(/^SO-/);
+    expect(sub.version).toBe(2);
+    const audits = await db.auditLog.findMany({
+      where: { entityType: 'sales_order', entityId: tryDecodeId('salesOrder', d.id)! },
+      orderBy: { seq: 'asc' },
+    });
+    expect(audits.map((a) => a.action)).toEqual(['sales_order.created', 'sales_order.updated']);
+    expect(JSON.stringify({ ...audits[1], seq: undefined })).toContain('RECEIVED');
   });
 
   it('null ใน customer / stops / lines (และสมาชิก array) → 422 ทุกทาง (POST / PUT / PATCH) ไม่ใช่ 500', async () => {

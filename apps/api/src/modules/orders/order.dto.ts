@@ -411,7 +411,10 @@ export class OrderListQuery {
   @IsIn(['updatedAt', '-updatedAt'])
   sort?: 'updatedAt' | '-updatedAt';
 
-  @ApiPropertyOptional({ description: 'รายชื่อ field คั่นด้วย , เช่น id,soNo,status' })
+  @ApiPropertyOptional({
+    description:
+      'รายชื่อ field ของ Order คั่นด้วย , เช่น id,soNo,status (ไม่รู้จัก → 422) — id คืนเสมอ',
+  })
   @IsOptional()
   @Matches(/^[a-zA-Z]+(,[a-zA-Z]+)*$/)
   fields?: string;
@@ -422,7 +425,9 @@ export class OrderListQuery {
   status?: string;
 
   @ApiPropertyOptional({
-    description: 'รหัสเหตุค้าง คั่นด้วย , เช่น RATE_MISSING,CUSTOMER_UNMAPPED',
+    description:
+      'รหัสเหตุค้าง คั่นด้วย , เช่น RATE_MISSING,CUSTOMER_UNMAPPED — ตรงกับเหตุใดก็ได้ (OR) ของ `holdCodes` ' +
+      '(เหตุทั้งหมดของการรับงานครั้งล่าสุด รวมเหตุรอง) หรือ `holdReason.code` (เหตุหลักบนใบ)',
   })
   @IsOptional()
   @Matches(/^[A-Z][A-Z0-9_]{0,49}(,[A-Z][A-Z0-9_]{0,49}){0,19}$/)

@@ -535,8 +535,6 @@ export class OrderIntakeService {
       !opts.created
     )
       await tx.salesOrder.update({ where: { id }, data: { version: { increment: 1 } } });
-    if (plan.events.length && !opts.dataChanged && !pricingChanged && !opts.created)
-      await tx.salesOrder.update({ where: { id }, data: { version: { increment: 1 } } });
 
     const changed =
       opts.created || opts.dataChanged || pricingChanged || plan.events.length > 0 || noteChanged;
