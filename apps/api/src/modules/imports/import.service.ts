@@ -312,6 +312,11 @@ export class ImportService implements OnModuleInit {
     const spec = this.registry.get(imp.kind);
     if (!spec) throw new ImportFileError('unreadable', `ไม่รู้จักชนิดข้อมูล ${imp.kind}`);
     const sheet = await this.load(imp, tx);
+    if (spec.maxRows && sheet.rows.length > spec.maxRows)
+      throw new ImportFileError(
+        'too_many_rows',
+        `ไฟล์${spec.label}มี ${sheet.rows.length.toLocaleString('en-US')} แถว เกินกำหนด ${spec.maxRows.toLocaleString('en-US')} แถวต่อไฟล์ — แบ่งเป็นหลายไฟล์`,
+      );
     if (sheet.rows.length > maxRows) return 'too_big';
     let mapping = imp.mapping as Record<string, string>;
     // จับคู่อัตโนมัติเฉพาะการตรวจครั้งแรก (ยังไม่เคยอ่านหัวคอลัมน์) และผู้เรียกไม่ได้ส่ง mapping มา
@@ -461,6 +466,10 @@ export class ImportService implements OnModuleInit {
           mapping: c.mapping,
           totalRows: c.results.length,
           okRows: c.results.length - s.errorRows,
+          okEntities: entities(
+            spec,
+            c.results.filter((r) => !s.bad(r)),
+          ),
           errorRows: s.errorRows,
           issues: s.issues as unknown as Prisma.InputJsonValue,
           sample: s.sample as unknown as Prisma.InputJsonValue,
@@ -508,6 +517,7 @@ export class ImportService implements OnModuleInit {
     const counts = {
       totalRows: c.results.length,
       okRows: ok.length,
+      okEntities: entities(spec, ok),
       errorRows: s.errorRows,
       issues: s.issues as unknown as Prisma.InputJsonValue,
       sample: s.sample as unknown as Prisma.InputJsonValue,
@@ -559,6 +569,7 @@ export class ImportService implements OnModuleInit {
       data: {
         status: s.errorRows ? 'COMPLETED_WITH_ERRORS' : 'COMPLETED',
         importedRows: n,
+        importedEntities: n ? entities(spec, ok) : spec.countEntities ? 0 : null,
         ...counts,
       },
     });
@@ -660,6 +671,11 @@ export class ImportService implements OnModuleInit {
     help.getColumn(4).width = 48;
     return Buffer.from(await wb.xlsx.writeBuffer());
   }
+}
+
+/** จำนวนรายการของแถวที่ผ่าน (spec ที่ 1 รายการมีหลายแถว) · null = 1 แถว = 1 รายการ */
+function entities(spec: ImportSpec<unknown>, ok: { value?: unknown }[]): number | null {
+  return spec.countEntities ? spec.countEntities(ok.map((r) => r.value)) : null;
 }
 
 export type { ErrorPolicy, ImportMode };

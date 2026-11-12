@@ -57,6 +57,7 @@ async function importVia(
 test('นำเข้าใบสั่งขนส่ง: ใบหลายแถว + แถวผิด → ใบที่ผิดไม่ถูกนำเข้าทั้งใบ, ใบที่ผ่านนำเข้า', async ({
   page,
 }) => {
+  test.setTimeout(120_000); // นำเข้า 3 ไฟล์ (ลูกค้า สถานที่ ใบสั่ง) — ใบสั่งคิดราคา + DO ต่อใบ
   // ข้อมูลหลักที่ใบสั่งอ้างถึง (นำเข้าด้วย wizard เดียวกัน)
   await importVia(
     page,
@@ -71,6 +72,16 @@ test('นำเข้าใบสั่งขนส่ง: ใบหลายแ
     ),
     1,
   );
+  // บริษัทเดโมมีหลายนิติบุคคลและยังไม่ตั้งค่านิติบุคคลออกบิลตั้งต้น → กำหนดที่ลูกค้า (ทางเดียวกับหน้าลูกค้า)
+  const cus = await db.customer.findFirst({ where: { code: `OC${RUN}` } });
+  const issuer = await db.branch.findFirst({
+    where: { tenantId: cus.tenantId, isDefaultIssuer: true },
+    orderBy: { createdAt: 'asc' },
+  });
+  await db.customer.update({
+    where: { id: cus.id },
+    data: { defaultBillingCompanyId: issuer.companyId },
+  });
   await importVia(
     page,
     '/master/locations',
@@ -114,7 +125,7 @@ test('นำเข้าใบสั่งขนส่ง: ใบหลายแ
   await expect(dlg.getByText('แถว 4', { exact: true })).toBeVisible();
   await expect(dlg.getByText(/จุดส่ง: ไม่พบสถานที่ "ไม่มีจุดนี้" ในข้อมูลหลัก/)).toBeVisible();
   await dlg.getByRole('button', { name: 'เสร็จสิ้น' }).click();
-  await expect(page.getByRole('status')).toHaveText('นำเข้าใบสั่งขนส่ง สำเร็จ 2 แถว');
+  await expect(page.getByRole('status')).toHaveText('นำเข้าใบสั่งขนส่ง สำเร็จ 1 ใบ (2 แถว)');
 
   // ใบที่นำเข้า: ที่มา EXCEL (IMPORT), 3 จุด (รับ 1 ส่ง 2) · ใบที่มีแถวผิดไม่ถูกนำเข้า
   const o = await db.salesOrder.findFirst({

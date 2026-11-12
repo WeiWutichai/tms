@@ -26,7 +26,8 @@ export function ImportWizard({
 }: {
   kind: KindDto;
   /** done = นำเข้าแล้วกี่แถว (null = ยกเลิก) */
-  onClose: (done: number | null) => void;
+  /** done = แถวที่นำเข้า (null = ยังไม่นำเข้า) · entities = จำนวนรายการเมื่อ 1 รายการมีหลายแถว (order: ใบ) */
+  onClose: (done: number | null, entities?: number | null) => void;
 }) {
   const { t } = useI18n();
   const [step, setStep] = useState(1);
@@ -159,7 +160,7 @@ export function ImportWizard({
   const close = () => {
     if (busy) return;
     // นำเข้าเสร็จแล้วเท่านั้นจึงบอกจำนวน (ปิดระหว่าง job ยังวิ่ง = งานทำต่อ + แจ้งเตือนเมื่อเสร็จ)
-    onClose(done ? imp!.importedRows : null);
+    onClose(done ? imp!.importedRows : null, done ? imp!.importedEntities : null);
   };
 
   const canNext =
@@ -168,7 +169,7 @@ export function ImportWizard({
     if (!canNext) return;
     if (step === 1) setStep(2);
     else if (step === 2) void commit();
-    else onClose(imp!.importedRows);
+    else onClose(imp!.importedRows, imp!.importedEntities);
   };
   const steps = [t('imp.step1'), t('imp.step2'), t('imp.step3')];
   const priL =

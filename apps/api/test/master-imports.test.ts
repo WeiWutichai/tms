@@ -134,14 +134,15 @@ describe('นำเข้าข้อมูลหลัก (ST2-T23)', () => {
         'rate_card_buy',
       ]),
     );
-    for (const k of kinds.filter((x: string) => x !== 'sample')) {
+    // ชนิดข้อมูลหลัก (order มีตัวอย่างหลายแถว — test/order-import.test.ts)
+    for (const k of kinds.filter((x: string) => x !== 'sample' && x !== 'order')) {
       const t = await binary(a.get(`/v1/imports/kinds/${k}/template`)).expect(200);
       const wb = new ExcelJS.Workbook();
       await wb.xlsx.load(t.body);
       expect(wb.worksheets[0]!.actualRowCount, k).toBe(1); // sheet ที่ระบบอ่านมีแต่หัวคอลัมน์
       const head = (wb.worksheets[0]!.getRow(1).values as string[]).slice(1);
       for (const h of head) expect(h, k).toMatch(/[฀-๿]|LINE ID|VAT/);
-      expect(wb.getWorksheet('ตัวอย่าง')!.actualRowCount, k).toBeGreaterThanOrEqual(2);
+      expect(wb.getWorksheet('ตัวอย่าง')!.actualRowCount, k).toBe(2);
       expect(wb.getWorksheet('คำอธิบาย')).toBeTruthy();
     }
     const t = await binary(a.get('/v1/imports/kinds/customer/template')).expect(200);

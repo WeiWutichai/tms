@@ -95,6 +95,18 @@ export interface ImportSpec<T = unknown> {
   columns: ImportColumn[];
   /** mode ที่รองรับ (ค่าเริ่มต้น create_only อย่างเดียว) */
   modes?: ImportMode[];
+  /** mode เมื่อผู้เรียกไม่ส่ง (ค่าเริ่มต้น create_only) — ต้องอยู่ใน modes */
+  defaultMode?: ImportMode;
+  /**
+   * เพดานแถวต่อไฟล์ของชนิดนี้ (ต่ำกว่าเพดานรวม 5,000) — เกิน = ปฏิเสธทั้งไฟล์ `too_many_rows` พร้อมข้อความไทย
+   * (เช่น order: ทุกใบคิดราคา + DO ใน transaction เดียวของ job — MD-286)
+   */
+  maxRows?: number;
+  /**
+   * จำนวนรายการ (entity) จากค่าของแถวที่ผ่าน — เมื่อ 1 รายการมีหลายแถว (order) · ไม่ระบุ = 1 แถว = 1 รายการ
+   * (`okEntities` / `importedEntities` ของงานนำเข้า)
+   */
+  countEntities?(values: T[]): number;
   /**
    * ไฟล์เกินจำนวนแถวนี้ตรวจ/นำเข้าเป็น job (ค่าเริ่มต้น SYNC_MAX_ROWS = 1,000) — spec ที่ตรวจแต่ละแถวด้วยกฎของ API
    * (หลาย query ต่อแถว) ตั้งต่ำกว่านี้ให้คำขอเสร็จทันเวลา transaction ของ request

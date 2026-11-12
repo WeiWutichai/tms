@@ -73,12 +73,16 @@ export function ImportExcelButton({
       {open && (
         <ImportWizard
           kind={k}
-          onClose={(n) => {
+          onClose={(n, entities) => {
             setOpen(false);
             if (n === null) return;
             for (const key of [...(AFFECTS[kind] ?? []), 'history'])
               void qc.invalidateQueries({ queryKey: [key] });
-            onDone(t('imp.done', { kind: k.label, n }));
+            onDone(
+              entities != null
+                ? t('imp.doneEntities', { kind: k.label, n, m: entities })
+                : t('imp.done', { kind: k.label, n }),
+            );
           }}
         />
       )}

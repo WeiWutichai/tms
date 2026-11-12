@@ -42,9 +42,14 @@ export function DevImportPage() {
       {open && kind && (
         <ImportWizard
           kind={kind}
-          onClose={(n) => {
+          onClose={(n, entities) => {
             setOpen(false);
-            if (n !== null) setMsg(t('imp.done', { kind: kind.label, n }));
+            if (n !== null)
+              setMsg(
+                entities != null
+                  ? t('imp.doneEntities', { kind: kind.label, n, m: entities })
+                  : t('imp.done', { kind: kind.label, n }),
+              );
           }}
         />
       )}

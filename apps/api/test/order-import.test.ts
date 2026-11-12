@@ -5,7 +5,9 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { tryDecodeId } from '../src/common/ids';
 import { JobQueue } from '../src/jobs/job-queue.service';
 import { OrderIntakeService } from '../src/modules/orders/order-intake.service';
+import { ProblemException } from '../src/common/problem';
 import { parseImportDate } from '../src/modules/imports/import-spec';
+import { issuesFromError } from '../src/modules/imports/reasons';
 import { parseWindow } from '../src/modules/orders/order.import';
 import { createTenantWithDefaults } from '../src/modules/tenants/bootstrap';
 import { addDays, bangkokToday } from '../src/modules/vehicle-documents/expiry';
@@ -245,7 +247,12 @@ describe('นำเข้าใบสั่งขนส่งจาก Excel (ST
     const k = (await a.get('/v1/imports/kinds').expect(200)).body.find(
       (x: { kind: string }) => x.kind === 'order',
     );
-    expect(k).toMatchObject({ label: 'ใบสั่งขนส่ง', modes: ['upsert_by_code', 'create_only'] });
+    expect(k).toMatchObject({
+      label: 'ใบสั่งขนส่ง',
+      modes: ['upsert_by_code', 'create_only'],
+      defaultMode: 'upsert_by_code',
+      maxRows: 500,
+    });
     const t = await binary(a.get('/v1/imports/kinds/order/template')).expect(200);
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(t.body);
@@ -270,7 +277,7 @@ describe('นำเข้าใบสั่งขนส่งจาก Excel (ST
     rows[149] = one('AC-0150', { จำนวน: '0' }); // แถว 151
     const before = await footprint();
     const r = await dry(a, rows);
-    expect(r).toMatchObject({ status: 'validated', totalRows: 200, errorRows: 2 });
+    expect(r).toMatchObject({ status: 'validated', totalRows: 200, errorRows: 2, okEntities: 198 });
     expect(errorsOf(r)).toEqual([
       expect.objectContaining({
         row: 51,
@@ -284,7 +291,12 @@ describe('นำเข้าใบสั่งขนส่งจาก Excel (ST
     expect(await footprint()).toEqual(before);
 
     const c = await commit(a, r.id);
-    expect(c).toMatchObject({ status: 'completed_with_errors', importedRows: 198 });
+    expect(c).toMatchObject({
+      status: 'completed_with_errors',
+      importedRows: 198,
+      importedEntities: 198,
+      mode: 'upsert_by_code',
+    });
     const so = await orders({ externalId: { startsWith: 'AC-' } });
     expect(so).toHaveLength(198);
     expect(new Set(so.map((o) => o.source))).toEqual(new Set(['IMPORT']));
@@ -344,9 +356,17 @@ describe('นำเข้าใบสั่งขนส่งจาก Excel (ST
       one('G-4'),
       { เลขอ้างอิงใบสั่ง: 'G-4', ลูกค้า: 'C-0002', จุดส่ง: 'L-0003' },
       { เลขอ้างอิงใบสั่ง: 'G-4' },
+      one('G-5'),
+      // หัวใบเขียนต่างรูปแต่ค่าเดียวกัน (ชื่อลูกค้าแทนรหัส, วันที่ ค.ศ.) = ไม่ถือว่าไม่ตรง
+      {
+        เลขอ้างอิงใบสั่ง: 'G-5',
+        ลูกค้า: 'บจก. ลูกค้าทดสอบ',
+        วันรับสินค้า: today,
+        จุดส่ง: 'L-0003',
+      },
     ]);
     // G-1, G-2 ผ่าน (แถว 2,3,4,5,6) · G-3 แถว 8 หน่วยผิด → แถว 7 ผิดตาม · G-4 ลูกค้าไม่ตรง + แถวว่าง
-    expect(r).toMatchObject({ totalRows: 10, errorRows: 5 });
+    expect(r).toMatchObject({ totalRows: 12, errorRows: 5, okEntities: 3 });
     expect(at(r, 8)).toEqual([
       expect.objectContaining({ column: 'หน่วย', code: 'reference_not_found' }),
     ]);
@@ -366,7 +386,11 @@ describe('นำเข้าใบสั่งขนส่งจาก Excel (ST
     expect(at(r, 11)[0]).toMatchObject({ code: 'required' });
     expect(at(r, 9)[0]).toMatchObject({ code: 'group_has_errors' });
     const c = await commit(a, r.id);
-    expect(c).toMatchObject({ status: 'completed_with_errors', importedRows: 5 });
+    expect(c).toMatchObject({
+      status: 'completed_with_errors',
+      importedRows: 7,
+      importedEntities: 3,
+    });
     const [g1] = await orders({ externalId: 'G-1' });
     expect(g1!.stops.map((s) => s.type)).toEqual(['PICKUP', 'DELIVERY', 'DELIVERY', 'RETURN']);
     expect(g1!.stops[2]!.windowEnd!.toISOString()).toBe(
@@ -442,6 +466,14 @@ describe('นำเข้าใบสั่งขนส่งจาก Excel (ST
       one('HOLD-1', { ประเภทรถ: '', 'เวลาส่ง ถึง': '25:00' }),
       one('HOLD-2', { ประเภทรถ: '' }),
       one('', {}),
+      one('WIN-1', { 'เวลาส่ง ตั้งแต่': '18:00', 'เวลาส่ง ถึง': '08:00' }),
+    ]);
+    expect(at(r, 7)).toEqual([
+      expect.objectContaining({
+        column: 'เวลาส่ง ถึง',
+        code: 'window_order',
+        message: expect.stringContaining('ข้ามวันให้ใส่วันที่ด้วย (DD/MM/YYYY HH:mm)'),
+      }),
     ]);
     expect(at(r, 2)).toEqual([
       expect.objectContaining({
@@ -529,6 +561,21 @@ describe('นำเข้าใบสั่งขนส่งจาก Excel (ST
     }
   });
 
+  it('เพดาน 500 แถวต่อไฟล์: เกิน = ปฏิเสธทั้งไฟล์พร้อมเหตุผลไทย (ไม่สร้าง job)', async () => {
+    const rows: Row[] = [];
+    for (let i = 1; i <= 501; i++) rows.push(one(`MAX-${i}`));
+    const r = await dry(a, rows);
+    expect(r).toMatchObject({
+      status: 'failed',
+      fileErrorCode: 'too_many_rows',
+      fileError: 'ไฟล์ใบสั่งขนส่งมี 501 แถว เกินกำหนด 500 แถวต่อไฟล์ — แบ่งเป็นหลายไฟล์',
+      jobId: null,
+    });
+    expect(
+      await db.salesOrder.count({ where: { tenantId: tA, externalId: { startsWith: 'MAX-' } } }),
+    ).toBe(0);
+  });
+
   it('parseWindow: HH:mm (วันรับสินค้า), HH.mm, วันที่ พ.ศ. + เวลา, ผิดรูป', () => {
     expect(parseWindow('08:00', '2026-11-15')).toBe('2026-11-15T08:00:00+07:00');
     expect(parseWindow('8.30', '2026-11-15')).toBe('2026-11-15T08:30:00+07:00');
@@ -537,6 +584,15 @@ describe('นำเข้าใบสั่งขนส่งจาก Excel (ST
     expect(parseWindow('08:00', undefined)).toBe('no_base');
     expect(parseWindow('25:00', '2026-11-15')).toBeNull();
     expect(parseWindow('พรุ่งนี้', '2026-11-15')).toBeNull();
+    // เซลล์ตัวเลข (General) ของ Excel: เศษของวัน และ serial วันเวลา (ระบบ 1900)
+    expect(parseWindow('0.333333333333333', '2026-11-15')).toBe('2026-11-15T08:00:00+07:00');
+    expect(parseWindow('46341.75', undefined)).toBe('2026-11-15T18:00:00+07:00');
+    expect(parseWindow('0.5', '2026-11-15')).toBeNull();
+    // บริษัทหลายนิติบุคคลยังไม่ตั้งค่าออกบิล (routing ST1-T16) → เหตุผลไทยที่บอกวิธีแก้
+    const e = new ProblemException('validation_failed', undefined, [
+      { field: 'companyId', code: 'routing_not_configured', message: 'several legal entities' },
+    ]);
+    expect(issuesFromError(e, () => undefined)![0]!.message).toMatch(/นิติบุคคลออกบิลตั้งต้น/);
     // เซลล์วันเวลาของ Excel ในคอลัมน์วันที่ (เช่น วันรับสินค้า) = ใช้เฉพาะวันที่
     expect(parseImportDate('2026-11-16 08:00')).toBe('2026-11-16');
     expect(parseImportDate('16/11/2569 8.30')).toBe('2026-11-16');

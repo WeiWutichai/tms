@@ -42,7 +42,7 @@ import { DbService, type Tx } from '../../db/db.service';
 import { AuditService } from '../../audit/audit.service';
 import { IMPORT_MIME, type AllowedMime } from '../documents/mime';
 import { ERROR_POLICIES, IMPORT_MODES, type ImportSpec } from './import-spec';
-import { ImportFileError } from './parse';
+import { ImportFileError, MAX_IMPORT_ROWS } from './parse';
 import { ImportService, type SampleRow, type StoredIssue } from './import.service';
 
 export class ImportColumnDto {
@@ -55,6 +55,9 @@ export class ImportKindDto {
   @ApiProperty({ example: 'ลูกค้า' }) label!: string;
   @ApiProperty({ type: [ImportColumnDto] }) columns!: ImportColumnDto[];
   @ApiProperty({ enum: IMPORT_MODES, isArray: true }) modes!: string[];
+  @ApiProperty({ enum: IMPORT_MODES, description: 'mode เมื่อไม่ส่ง mode ตอนสร้างงานนำเข้า' })
+  defaultMode!: string;
+  @ApiProperty({ example: 5000, description: 'เพดานแถวต่อไฟล์ของชนิดนี้' }) maxRows!: number;
 }
 
 export class CreateImportDto {
@@ -68,7 +71,7 @@ export class CreateImportDto {
   @ApiPropertyOptional({
     enum: IMPORT_MODES,
     description:
-      'ค่าเริ่มต้น = mode แรกของชนิดนั้น (`GET /imports/kinds` → modes[0]; ข้อมูลหลัก = create_only, order = upsert_by_code)',
+      'ค่าเริ่มต้น = `defaultMode` ของชนิดนั้น (`GET /imports/kinds`; ข้อมูลหลัก = create_only, order = upsert_by_code)',
   })
   @IsOptional()
   @IsIn(IMPORT_MODES)
@@ -165,6 +168,19 @@ export class ImportDto {
   @ApiProperty() errorRows!: number;
   @ApiProperty() importedRows!: number;
   @ApiProperty({
+    nullable: true,
+    type: Number,
+    description:
+      'จำนวนรายการที่ผ่านการตรวจ เมื่อ 1 รายการมีหลายแถว (order: จำนวนใบ) · null = 1 แถว = 1 รายการ',
+  })
+  okEntities!: number | null;
+  @ApiProperty({
+    nullable: true,
+    type: Number,
+    description: 'จำนวนรายการที่นำเข้า (order: จำนวนใบ) · null = เท่ากับ importedRows',
+  })
+  importedEntities!: number | null;
+  @ApiProperty({
     type: [ImportIssueDto],
     description:
       'ปัญหารายแถว (GET /{id} ไม่เกิน 1,000 รายการแรก; รายการใน GET /imports ว่างเสมอ) — ครบทุกแถวใน /{id}/errors',
@@ -223,6 +239,8 @@ export class ImportsController {
       label: s.label,
       columns: s.columns.map((c) => ({ key: c.key, header: c.header, required: !!c.required })),
       modes: s.modes ?? ['create_only'],
+      defaultMode: s.defaultMode ?? 'create_only',
+      maxRows: s.maxRows ?? MAX_IMPORT_ROWS,
     }));
   }
 
@@ -268,7 +286,7 @@ export class ImportsController {
         kind: spec.kind,
         documentId: doc.id,
         fileName: doc.filename,
-        mode: body.mode ?? spec.modes?.[0] ?? 'create_only',
+        mode: body.mode ?? spec.defaultMode ?? 'create_only',
         errorPolicy: body.errorPolicy ?? 'all_or_nothing',
         mapping: cleanMapping(spec, body.mapping),
         expiresAt: new Date(Date.now() + 24 * 3600_000),
@@ -521,6 +539,8 @@ function toDto(i: ImportJob, jobStatus?: string, maxIssues = ISSUES_IN_RESPONSE)
     okRows: i.okRows,
     errorRows: i.errorRows,
     importedRows: i.importedRows,
+    okEntities: i.okEntities,
+    importedEntities: i.importedEntities,
     issues: all.slice(0, maxIssues).map((x) => ({ ...x, severity: x.severity ?? 'error' })),
     issuesTruncated: all.length > maxIssues || (maxIssues > 0 && all.length >= 5000),
     sample: maxIssues ? (i.sample as unknown as SampleRow[]) : [],

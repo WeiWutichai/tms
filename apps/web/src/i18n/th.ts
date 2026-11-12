@@ -175,6 +175,8 @@ export const th = {
   'field.mime_not_allowed': 'รองรับเฉพาะไฟล์ .xlsx และ .csv',
   'field.mode_not_supported': 'ข้อมูลชนิดนี้ไม่รองรับรูปแบบการนำเข้านี้',
   'imp.done': 'นำเข้า{kind} สำเร็จ {n} แถว',
+  /** ชนิดที่ 1 รายการมีหลายแถว (ใบสั่งขนส่ง — ST3-T04) */
+  'imp.doneEntities': 'นำเข้า{kind} สำเร็จ {m} ใบ ({n} แถว)',
   'problem.import_has_errors': 'ไฟล์มีแถวที่ตรวจไม่ผ่าน — แก้ไฟล์หรือเลือกนำเข้าเฉพาะแถวที่ผ่าน',
   'problem.import_expired': 'ผลตรวจไฟล์หมดอายุแล้ว (24 ชั่วโมง) อัปโหลดไฟล์ใหม่',
   'shell.create': 'สร้าง',

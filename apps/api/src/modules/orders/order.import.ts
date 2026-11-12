@@ -32,7 +32,7 @@ import { OrderIntakeService } from './order-intake.service';
  *   `issueNumber` เขียน document_sequence ใน transaction เดียวกัน) · ยืนยัน = ตรวจซ้ำแล้วเก็บการเขียน (เหมือน ST2-T23)
  * - ใบที่มีแถวผิดแม้แถวเดียว = ไม่นำเข้าทั้งใบ (แถวอื่นของใบแจ้ง "ใบสั่งเดียวกับแถว N ที่ผิด")
  * - นำเข้าซ้ำ (เลขอ้างอิงเดิม): โหมด upsert_by_code (ค่าเริ่มต้น) = อัปเดตใบเดิม / ข้อมูลเท่าเดิม = ไม่เปลี่ยน ·
- *   create_only = เลขที่มีในระบบแล้วเป็นแถวผิด · แถวไม่มีเลขอ้างอิง = ใบใหม่ทุกครั้ง (เตือน)
+ *   create_only = เลขที่มีในระบบแล้วเป็นแถวผิด (ตรวจใน upsertOrder หลังล็อก) · แถวไม่มีเลขอ้างอิง = ใบใหม่ทุกครั้ง (เตือน)
  */
 
 export interface OrderImportValue {
@@ -213,7 +213,17 @@ const HELP_NOTES = [
   'แถวของใบเดียวกัน: ข้อมูลหัวใบ (ลูกค้า วันรับสินค้า ประเภทรถ เลข PO) กรอกในแถวแรก แถวถัดไปเว้นว่างได้ · ลำดับจุด = ลำดับแถว (ในแถวเดียว จุดรับ → จุดส่ง → จุดคืน)',
   'ใบที่มีแถวผิดแม้แถวเดียว จะไม่ถูกนำเข้าทั้งใบ — แก้ไฟล์แล้วนำเข้าใหม่ได้ (ใบที่นำเข้าแล้วไม่ซ้ำ เพราะใช้เลขอ้างอิงเดิม)',
   'ราคาไม่ต้องกรอก — ระบบคิดจาก rate card ของลูกค้า (ไม่พบ rate = ใบค้าง "รอกำหนดราคา")',
+  'เวลา: HH:mm = วันรับสินค้า · ช่วงเวลาข้ามวัน (เช่น ส่งถึงวันถัดไป) ให้ใส่วันที่ด้วย DD/MM/YYYY HH:mm · เวลาประเทศไทย',
+  'ไฟล์ละไม่เกิน 500 แถว — มากกว่านี้ให้แบ่งเป็นหลายไฟล์',
 ];
+
+/** ข้อความของรายงานนำเข้าที่ต่างจากเหตุผลทั่วไป (แนะวิธีแก้ในไฟล์) */
+const IMPORT_MESSAGE: Record<string, string> = {
+  window_order:
+    'เวลาสิ้นสุดต้องไม่ก่อนเวลาเริ่ม — ช่วงเวลาข้ามวันให้ใส่วันที่ด้วย (DD/MM/YYYY HH:mm)',
+  duplicate_in_db:
+    'มีใบสั่งเลขอ้างอิงนี้ในระบบแล้ว (โหมดเพิ่มใหม่อย่างเดียว) — ใช้โหมดเพิ่มใหม่และแก้ไขของเดิมเพื่ออัปเดต',
+};
 
 const ID_OF: Partial<Record<RefKind, IdKind>> = {
   customer: 'customer',
@@ -226,6 +236,21 @@ const ID_OF: Partial<Record<RefKind, IdKind>> = {
 /** วันเวลาในไฟล์ → ISO (+07:00) · รับ `HH:mm` / `HH.mm` (= วันรับสินค้า) หรือ วันที่ + เวลา · null = อ่านไม่ได้ */
 export function parseWindow(v: string, baseDate: string | undefined): string | null | 'no_base' {
   const t = v.trim();
+  // เซลล์ตัวเลข (รูปแบบ General) ที่เป็นเวลา/วันเวลาของ Excel: เศษของวัน (0.3333…) หรือ serial (46341.5) ระบบวันที่ 1900
+  // — ทศนิยม 2 ตำแหน่ง (8.30) = ชั่วโมง.นาที ไม่ใช่ serial
+  if (/^\d*\.\d{3,}$/.test(t) || /^\d{5}(\.\d+)?$/.test(t)) {
+    const n = Number(t);
+    const days = Math.floor(n);
+    let minutes = Math.round((n - days) * 1440);
+    let d = days;
+    if (minutes === 1440) [d, minutes] = [d + 1, 0];
+    const date = d
+      ? new Date(Date.UTC(1899, 11, 30) + d * 86_400_000).toISOString().slice(0, 10)
+      : baseDate;
+    if (!date) return 'no_base';
+    const hh = String(Math.floor(minutes / 60)).padStart(2, '0');
+    return `${date}T${hh}:${String(minutes % 60).padStart(2, '0')}:00+07:00`;
+  }
   const m = /^(?:(.+?)[ T])?(\d{1,2})[:.](\d{2})(?::\d{2})?$/.exec(t);
   if (!m) return null;
   const [hh, mm] = [Number(m[2]), Number(m[3])];
@@ -277,39 +302,50 @@ export function orderImportSpec(intake: OrderIntakeService): ImportSpec<OrderImp
       return typeof pub === 'string' ? tryDecodeId(ID_OF[kind]!, pub) : null;
     };
 
-    // หัวใบ: แถวแรกที่มีค่า · แถวอื่นของใบเดียวกันต้องว่างหรือเท่ากัน
+    // หัวใบ: แถวแรกที่มีค่า · แถวอื่นของใบเดียวกันต้องว่างหรือเท่ากัน — เทียบค่าหลังแปลง (id ที่อ้าง/วันที่)
+    // เช่น "C-0001" กับชื่อลูกค้าเดียวกัน หรือ "15/11/2569" กับ "2026-11-15" = เท่ากัน
+    const resolve = async (r: RowInput, k: (typeof HEADER_KEYS)[number]) => {
+      switch (k) {
+        case 'customer':
+          return ref(r, 'customer', 'customer');
+        case 'vehicleType':
+          return ref(r, 'vehicleType', 'vehicleType');
+        case 'requestedDate': {
+          const d = readers.get(r.row)!.date('requestedDate');
+          return typeof d === 'string' ? d : null;
+        }
+        case 'customerRef':
+          return cleanLine(r.values.customerRef!);
+      }
+    };
     const lead: Partial<Record<(typeof HEADER_KEYS)[number], RowInput>> = {};
+    const val: Partial<Record<(typeof HEADER_KEYS)[number], string | null>> = {};
     for (const k of HEADER_KEYS)
       for (const r of rows) {
-        const v = r.values[k];
-        if (!v) continue;
+        if (!r.values[k]) continue;
+        const v = await resolve(r, k);
         const l = lead[k];
-        if (!l) lead[k] = r;
-        else if (cleanLine(v).toLowerCase() !== cleanLine(l.values[k]!).toLowerCase())
+        if (!l) {
+          lead[k] = r;
+          val[k] = v;
+        } else if (v !== null && val[k] !== null && v !== val[k])
           add(r.row, {
             column: k,
             code: 'group_mismatch',
             message: `ไม่ตรงกับแถว ${l.row} ของใบสั่งเดียวกัน — กรอกเฉพาะแถวแรก หรือกรอกให้เหมือนกัน`,
           });
       }
-    let customerId: string | null = null;
     if (!lead.customer)
       add(first.row, { column: 'customer', code: 'required', message: 'ต้องกรอก "ลูกค้า"' });
-    else customerId = await ref(lead.customer, 'customer', 'customer');
-    let requestedDate: string | undefined;
     if (!lead.requestedDate)
       add(first.row, {
         column: 'requestedDate',
         code: 'required',
         message: 'ต้องกรอก "วันรับสินค้า"',
       });
-    else {
-      const d = readers.get(lead.requestedDate.row)!.date('requestedDate');
-      if (typeof d === 'string') requestedDate = d;
-    }
-    const vehicleTypeId = lead.vehicleType
-      ? await ref(lead.vehicleType, 'vehicleType', 'vehicleType')
-      : null;
+    const customerId = val.customer ?? null;
+    const requestedDate = val.requestedDate ?? undefined;
+    const vehicleTypeId = val.vehicleType ?? null;
     const customerRef = lead.customerRef?.values.customerRef ?? null;
 
     // จุด + สินค้า ตามลำดับแถว
@@ -390,24 +426,12 @@ export function orderImportSpec(intake: OrderIntakeService): ImportSpec<OrderImp
     const isErr = (x: RowIssue) => (x.severity ?? 'error') === 'error';
     const failed = () => [...issues.values()].some((xs) => xs.some(isErr));
 
-    if (!failed() && externalId && ctx.mode === 'create_only') {
-      const hit = await ctx.tx.salesOrder.findUnique({
-        where: { tenantId_externalId: { tenantId: ctx.tenantId, externalId } },
-        select: { id: true },
-      });
-      if (hit)
-        add(first.row, {
-          column: 'externalId',
-          code: 'duplicate_in_db',
-          message:
-            'มีใบสั่งเลขอ้างอิงนี้ในระบบแล้ว (โหมดเพิ่มใหม่อย่างเดียว) — ใช้โหมดเพิ่มใหม่และแก้ไขของเดิมเพื่ออัปเดต',
-        });
-    }
-
     if (!failed()) {
       const input: UpsertOrderInput = {
         source: 'EXCEL',
         externalId,
+        // create_only: ตรวจ "มีเลขนี้แล้ว" ใน upsertOrder หลังล็อก externalId (กันสองงานนำเข้าพร้อมกัน)
+        ...(ctx.mode === 'create_only' ? { createOnly: true } : {}),
         customer: { id: customerId },
         customerRef,
         requestedDate: requestedDate!,
@@ -455,7 +479,11 @@ export function orderImportSpec(intake: OrderIntakeService): ImportSpec<OrderImp
         for (const x of raw) {
           const { field, ...rest } = x;
           const at = place(field, x.code);
-          add(at.row, { ...rest, ...(at.column ? { column: at.column } : {}) });
+          add(at.row, {
+            ...rest,
+            ...(at.column ? { column: at.column } : {}),
+            ...(IMPORT_MESSAGE[x.code] ? { message: IMPORT_MESSAGE[x.code] } : {}),
+          });
         }
       }
     }
@@ -536,6 +564,9 @@ export function orderImportSpec(intake: OrderIntakeService): ImportSpec<OrderImp
     columns: ORDER_IMPORT_COLUMNS,
     // ค่าเริ่มต้น = upsert ตามเลขอ้างอิง (กติกาเดียวกับ API `POST /orders` ที่มี externalId)
     modes: ['upsert_by_code', 'create_only'],
+    defaultMode: 'upsert_by_code',
+    maxRows: ORDER_MAX_ROWS,
+    countEntities: (values) => new Set(values.map((v) => v.group)).size,
     // ตรวจทุกใบด้วย upsertOrder จริง (คิดราคา + DO) — ไฟล์ใหญ่กว่านี้เป็น job (ST2-T23)
     syncMaxRows: ORDER_SYNC_MAX_ROWS,
     sampleRows: SAMPLE_ROWS,
@@ -600,6 +631,13 @@ export function orderImportSpec(intake: OrderIntakeService): ImportSpec<OrderImp
  * transaction ของ request (15 วินาที) ทั้งขั้นตรวจและขั้นยืนยัน — 30 ใบ ≈ 9 วินาทีในกรณีช้า
  */
 export const ORDER_SYNC_MAX_ROWS = 30;
+
+/**
+ * เพดานแถวต่อไฟล์ order — ยืนยันเขียนทุกใบใน transaction เดียวของ job (MD-286 all-or-nothing; timeout 5 นาที)
+ * วัด ≈ 80–300 ms/ใบ (ตรวจซ้ำ + เขียน) → 500 ใบ ≈ 40–150 วินาที · ระหว่างนั้นถือ lock แถว `document_sequence` ของ SO/DO
+ * (การสร้าง SO/DO ทางอื่นของบริษัทเดียวกันต้องรอ — spec/12 §3, #52)
+ */
+export const ORDER_MAX_ROWS = 500;
 
 /** ลงทะเบียน spec `order` (ST3-T04) — แยกจาก MasterImports (ข้อมูลหลัก) */
 @Injectable()
