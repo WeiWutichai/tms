@@ -32,6 +32,7 @@ import {
   type Site,
   type SiteFilters,
 } from './useSites';
+import { ImportExcelButton } from '../imports/ImportExcelButton';
 
 const EMPTY_FILTERS: SiteFilters = {
   kind: '',
@@ -275,15 +276,8 @@ export function SitesPage() {
         sub={t('page.loc.sub')}
         actions={
           <>
-            {/* นำเข้า Excel = ST2-T23 — แสดงตามต้นแบบแต่ยังกดไม่ได้ [OPEN spec/12 §3] */}
-            <Button
-              variant="secondary"
-              icon="file-spreadsheet"
-              disabled
-              title={t('loc.importSoon')}
-            >
-              {t('loc.import')}
-            </Button>
+            {/* นำเข้า Excel (ST2-T23) */}
+            <ImportExcelButton kind="customer_site" label={t('loc.import')} onDone={setToast} />
             {canWrite && (
               <Button variant="primary" icon="plus" onClick={() => setForm({ site: null })}>
                 {t('loc.add')}

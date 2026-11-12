@@ -24,6 +24,15 @@ export interface ImportColumn {
   example?: string;
   /** คำอธิบายสั้น ๆ ใน template */
   hint?: string;
+  /**
+   * ข้อมูลอ่อนไหว (เลขบัตรประชาชน เลขบัญชี — ST2-T23): ค่าในรายงานตรวจ/ตัวอย่าง/ไฟล์แถวผิดแสดงเฉพาะ 4 หลักท้าย
+   * (ไม่เก็บค่าเต็มใน import_job และไม่เขียนลงไฟล์ที่ดาวน์โหลด)
+   */
+  sensitive?: boolean;
+  /** ค่าที่เลือกได้ — template ใส่ data validation แบบรายการ (dropdown) ให้คอลัมน์นี้ */
+  options?: string[];
+  /** บังคับตามเงื่อนไข เช่น "เมื่อเจ้าของเป็นรถร่วม" — แสดงใน sheet คำอธิบาย และใช้ในเหตุผล "ต้องกรอก … เมื่อ …" */
+  requiredWhen?: string;
 }
 
 /** ปัญหาของแถว — code ตาม spec/02 §11.4 (required, invalid_format, duplicate_in_file, duplicate_in_db, reference_not_found …) */
@@ -33,6 +42,8 @@ export interface RowIssue {
   /** ข้อความไทยที่ผู้ใช้อ่านแล้วแก้ไฟล์ได้ */
   message: string;
   severity?: 'error' | 'warning';
+  /** path ใน body ของ API ที่ผิด (ใช้ภายใน spec — ไม่เก็บใน import_job) */
+  field?: string;
 }
 
 export interface ImportContext {
@@ -41,6 +52,18 @@ export interface ImportContext {
   actorId: string | null;
   importJobId: string;
   mode: ImportMode;
+  /** scope ของผู้สั่ง (ตรวจสิทธิ์ระดับฟิลด์ เช่น บัญชีธนาคาร/ราคา — เท่ากับเรียก API ตรง) */
+  scopes: string[];
+  /**
+   * มีเฉพาะการตรวจซ้ำตอนยืนยัน: spec ที่ตรวจด้วยการเขียนจริงใน savepoint (ข้อมูลหลัก) เก็บผลไว้ได้เลยแทนการเขียนซ้ำใน commit
+   * — ต้องย้อนทิ้งทั้งหมดเมื่อ `all_or_nothing` และมีแถวผิด (รวม `rejectedRows` ที่ framework ตัดไปก่อนถึง spec)
+   */
+  apply?: {
+    errorPolicy: ErrorPolicy;
+    rejectedRows: number;
+    /** spec ตั้ง true เมื่อเก็บการเขียนไว้แล้ว — framework ไม่เรียก commit (นับแถวที่ผ่านเป็นแถวที่นำเข้า) */
+    written?: boolean;
+  };
 }
 
 export interface RowInput {
@@ -55,6 +78,12 @@ export interface RowResult<T> {
   issues: RowIssue[];
 }
 
+/** ค่าอ่อนไหวที่แสดงได้: 4 หลักท้าย (เหมือน `•••• 1234` ของ export/response) */
+export function maskSensitive(v: string): string {
+  const t = v.replace(/[\s-]/g, '');
+  return t.length > 4 ? `•••• ${t.slice(-4)}` : '••••';
+}
+
 export interface ImportSpec<T = unknown> {
   kind: string;
   /** ชื่อที่แสดง เช่น "ลูกค้า" (หัว wizard "นำเข้า{label}จาก Excel") */
@@ -66,8 +95,21 @@ export interface ImportSpec<T = unknown> {
   columns: ImportColumn[];
   /** mode ที่รองรับ (ค่าเริ่มต้น create_only อย่างเดียว) */
   modes?: ImportMode[];
+  /**
+   * ไฟล์เกินจำนวนแถวนี้ตรวจ/นำเข้าเป็น job (ค่าเริ่มต้น SYNC_MAX_ROWS = 1,000) — spec ที่ตรวจแต่ละแถวด้วยกฎของ API
+   * (หลาย query ต่อแถว) ตั้งต่ำกว่านี้ให้คำขอเสร็จทันเวลา transaction ของ request
+   */
+  syncMaxRows?: number;
+  /**
+   * โหมด upsert_by_code/update_only: ช่องบังคับใช้เฉพาะแถวที่จะสร้างใหม่ (แถวเดิม — ช่องว่าง = ไม่แก้, MD-284)
+   * framework ข้ามการตรวจช่องบังคับในโหมดนั้น และ spec ตรวจเองเฉพาะแถวที่สร้าง
+   */
+  requiredOnCreateOnly?: boolean;
   /** ตรวจระดับไฟล์ก่อนตรวจรายแถว (เช่น โควตาจำนวนรถ — MD-289) — คืนข้อความไทย = ปฏิเสธทั้งไฟล์ */
-  checkFile?(ctx: ImportContext, rows: RowInput[]): Promise<string | null>;
+  checkFile?(
+    ctx: ImportContext,
+    rows: RowInput[],
+  ): Promise<string | { code: 'quota_exceeded' | 'file_rejected'; message: string } | null>;
   /** ตรวจทุกแถวโดยไม่เขียนข้อมูล (dry-run) — ต้องคืนผลยาวเท่า rows และตามลำดับเดิม */
   validate(ctx: ImportContext, rows: RowInput[]): Promise<RowResult<T>[]>;
   /** เขียนแถวที่ผ่าน (ใน transaction เดียวกับการยืนยัน) — คืนจำนวนที่เขียน */
