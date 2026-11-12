@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { NestExpressApplication } from '@nestjs/platform-express';
+import { Prisma } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Clock } from '../src/common/clock';
 import { tryDecodeId } from '../src/common/ids';
@@ -454,7 +455,12 @@ describe('connector intake (pullOrders)', () => {
     const real = intake.upsertOrder.bind(intake);
     let n = 0;
     const spy = vi.spyOn(intake, 'upsertOrder').mockImplementation(async (input, tx) => {
-      if (++n === 6) throw new Error('db hiccup'); // ใบที่ 6 (หน้า 2)
+      // ใบที่ 6 (หน้า 2): ฐานข้อมูลขัดข้องชั่วคราว (deadlock/serialization) = error ไม่ใช่ข้อมูล
+      if (++n === 6)
+        throw new Prisma.PrismaClientKnownRequestError('deadlock', {
+          code: 'P2034',
+          clientVersion: 'test',
+        });
       return real(input, tx);
     });
     try {
@@ -626,11 +632,87 @@ describe('connector intake (pullOrders)', () => {
         const r = await svc.pull(t, 'mock', { pageSize: 1 });
         expect(r.sourceError).toContain(msg);
         expect((await cursorRow(t))!.cursor).toBe('1');
+        expect((await cursorRow(t))!.lastResult).toMatchObject({ ok: false });
       }
     } finally {
       spy.mockRestore();
     }
     expect(await db.salesOrder.count({ where: { tenantId: t } })).toBe(1);
+  });
+
+  it('QA: NUL / surrogate ไม่มีคู่ในข้อมูลต้นทาง → ตัดทิ้ง + ใบเข้าเป็น SOURCE_ERROR (ไม่ใช่ error, cursor ไม่ค้าง)', async () => {
+    const t = (await createTenantWithDefaults(db, { name: 'บริษัท อักขระเสีย' })).id;
+    await company(t);
+    mock.push(
+      t,
+      ext('NUL-1', { raw: { note: 'a\u0000b' } }),
+      ext('SUR-1', { customer: { code: 'C-001', name: 'a\ud800b' } }),
+      ext('SUR-2', { requestedDate: '\ud800' }),
+      ext('NUL\u0000-KEY', { lines: [{ description: 'ปูน\udc00', qty: '1', unit: 'TON\u0000' }] }),
+    );
+    const r = await svc.pull(t, 'mock');
+    expect(r.counts).toMatchObject({ error: 0, created: 4 });
+    expect((await cursorRow(t))!.cursor).toBe('4');
+    const rows = await orders(t);
+    const by = new Map(rows.map((o) => [o.externalId, o]));
+    expect([...by.keys()].sort()).toEqual(['NUL-1', 'NUL-KEY', 'SUR-1', 'SUR-2']);
+    expect(by.get('NUL-1')!.rawPayload).toEqual({ note: 'ab' });
+    expect(by.get('SUR-1')!.customerText).toBe('ab');
+    expect(by.get('NUL-KEY')!.lines.map((l) => [l.description, l.unit])).toEqual([['ปูน', 'TON']]);
+    for (const o of rows) {
+      expect(o.status).toBe('ON_HOLD');
+      expect(o.sourceIssues as string[]).toContain(
+        'ตัดอักขระที่บันทึกไม่ได้ (NUL / อักขระเสีย) ออกจากข้อมูลต้นทาง',
+      );
+    }
+    expect((by.get('SUR-2')!.sourceIssues as string[]).join('|')).toContain(
+      'ไม่มีวันรับของจากต้นทาง', // เหลือแต่อักขระเสีย = ไม่มีวันที่
+    );
+  });
+
+  it('QA: ข้อผิดพลาดอื่นตอนบันทึก (ไม่ใช่ฐานข้อมูลล่ม) → ใบสำรอง SOURCE_ERROR ไม่เป็น error', async () => {
+    const t = (await createTenantWithDefaults(db, { name: 'บริษัท บันทึกล้ม' })).id;
+    await company(t);
+    const intake = app.get(OrderIntakeService);
+    const spy = vi
+      .spyOn(intake, 'upsertOrder')
+      .mockRejectedValueOnce(new Error('invalid byte sequence for encoding "UTF8": 0x00'));
+    try {
+      mock.push(t, ext('REJ-1'));
+      const r = await svc.pull(t, 'mock');
+      expect(r.results[0]).toMatchObject({ outcome: 'created', fallback: true, status: 'ON_HOLD' });
+      const o = await db.salesOrder.findFirstOrThrow({
+        where: { tenantId: t, externalId: 'REJ-1' },
+      });
+      expect(o.sourceIssues).toEqual([
+        'รับข้อมูลไม่ได้: invalid byte sequence for encoding "UTF8": 0x00',
+      ]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('QA: เลขแทน (ไม่มีเลขอ้างอิง) hash ข้อมูลธุรกิจ ไม่ใช่ raw — ใบต่างกันที่ raw เดียวกันไม่รวมกัน', async () => {
+    const t = (await createTenantWithDefaults(db, { name: 'บริษัท ไม่มีเลข' })).id;
+    await company(t);
+    const base = { externalId: null, customer: { code: 'C-9' }, raw: { same: true } };
+    mock.push(
+      t,
+      { ...base, customerRef: 'A' },
+      { ...base, customerRef: 'B' }, // ใบต่างกัน raw เหมือนกัน → 2 ใบ
+      { ...base, customerRef: 'A', raw: { other: 1 } }, // ใบเดียวกับใบแรก raw ต่าง → ใบเดิม
+    );
+    const r = await svc.pull(t, 'mock');
+    expect(r.results.map((x) => x.outcome)).toEqual(['created', 'created', 'unchanged']);
+    expect(r.results[2]!.externalId).toBe(r.results[0]!.externalId);
+    expect(r.results[1]!.externalId).not.toBe(r.results[0]!.externalId);
+    expect(await db.salesOrder.count({ where: { tenantId: t } })).toBe(2);
+  });
+
+  it('QA: pull ของ tenant ที่ไม่มี/ถูกระงับ → ปฏิเสธ ไม่สร้างแถว cursor', async () => {
+    const ghost = randomUUID();
+    await expect(svc.pull(ghost, 'mock')).rejects.toThrow(/not active/);
+    expect(await cursorRow(ghost)).toBeNull();
   });
 
   it('production ไม่รับต้นทางจำลอง (เหมือน GEO_PROVIDER=mock)', () => {

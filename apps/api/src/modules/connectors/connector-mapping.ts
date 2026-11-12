@@ -53,7 +53,8 @@ export function externalKey(
     };
   let basis: unknown;
   try {
-    basis = ext?.raw ?? { ...ext, externalId: null };
+    // ข้อมูลธุรกิจของใบ (ไม่รวม raw — ใบต่างกันที่ raw เหมือนกันต้องไม่รวมเป็นใบเดียว)
+    basis = { ...ext, externalId: null, raw: null };
   } catch {
     basis = null;
   }
@@ -87,9 +88,53 @@ const MAX_ISSUES = 50;
 /** ข้อความแทนเมื่อต้นทางไม่ให้ชื่อสถานที่ (ช่องบังคับของ SO) — คนแก้จากหน้าใบค้าง */
 const NO_SITE_TEXT = '(ต้นทางไม่ระบุสถานที่)';
 
+/**
+ * อักขระที่ PostgreSQL เก็บไม่ได้ (text/jsonb): NUL `\u0000` และ UTF-16 surrogate ที่ไม่มีคู่
+ * (ข้อมูล ERP พัง/ตัดกลางอักขระ) — เก็บไม่ได้ = ทั้งใบล้ม (22P05) จึงตัดทิ้งเสมอ
+ */
+const UNSTORABLE = /\u0000|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
+export function scrub(s: string): string {
+  return s.replace(UNSTORABLE, '');
+}
+/** ตัดความยาวแล้วล้างอีกรอบ (ตัดกลางคู่ surrogate ได้) */
+const cut = (s: string, n: number) => scrub(s.slice(0, n));
+
+/**
+ * ล้างทุกสตริง (ค่าและชื่อช่อง) ใน object/array ธรรมดาแบบลึก — กันวนซ้ำ (WeakMap) · ค่าที่ไม่ใช่ object ธรรมดา
+ * (Date, bigint, instance ของ class) คงไว้ · `changed` = มีการตัดอักขระ
+ */
+export function scrubDeep<T>(v: T): { value: T; changed: boolean } {
+  let changed = false;
+  const seen = new WeakMap<object, unknown>();
+  const walk = (x: unknown): unknown => {
+    if (typeof x === 'string') {
+      const c = scrub(x);
+      if (c !== x) changed = true;
+      return c;
+    }
+    if (!x || typeof x !== 'object') return x;
+    if (seen.has(x)) return seen.get(x);
+    if (Array.isArray(x)) {
+      const out: unknown[] = [];
+      seen.set(x, out);
+      for (const y of x) out.push(walk(y));
+      return out;
+    }
+    const proto = Object.getPrototypeOf(x);
+    if (proto !== Object.prototype && proto !== null) return x;
+    const out: Record<string, unknown> = {};
+    seen.set(x, out);
+    for (const k of Object.keys(x))
+      out[walk(k) as string] = walk((x as Record<string, unknown>)[k]);
+    return out;
+  };
+  const value = walk(v) as T;
+  return { value, changed };
+}
+
 /** ค่าเดี่ยวจากต้นทาง (string / number จำกัด / bigint) → สตริง · อย่างอื่น = null */
 function scalar(v: unknown): string | null {
-  if (typeof v === 'string') return v;
+  if (typeof v === 'string') return scrub(v);
   if (typeof v === 'number' && Number.isFinite(v)) return String(v);
   if (typeof v === 'bigint') return v.toString();
   return null;
@@ -100,7 +145,7 @@ function code(v: unknown): string | null {
   const s = scalar(v);
   if (s === null) return null;
   const c = cleanLine(s);
-  return c ? c.slice(0, ORDER_LIMITS.ref) : null;
+  return c ? cut(c, ORDER_LIMITS.ref) : null;
 }
 
 /** แสดงค่าในข้อความปัญหา — ไม่ล้มกับค่าใด ๆ (bigint / วนซ้ำ / getter ที่ throw / toString เสีย) */
@@ -122,7 +167,8 @@ export function show(v: unknown): string {
       s = '[unprintable]';
     }
   }
-  return s.length > 40 ? `${s.slice(0, 40)}…` : s;
+  s = scrub(s);
+  return s.length > 40 ? `${cut(s, 40)}…` : s;
 }
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
@@ -153,6 +199,9 @@ export function mapExternalOrder(
   const issues: string[] = [];
   const warnings: string[] = [];
   const issue = (m: string) => issues.push(m);
+  const scrubbed = scrubDeep(ext);
+  ext = scrubbed.value;
+  if (scrubbed.changed) issue('ตัดอักขระที่บันทึกไม่ได้ (NUL / อักขระเสีย) ออกจากข้อมูลต้นทาง');
   const text = (v: unknown, max: number, label: string): string | null => {
     if (v === undefined || v === null) return null;
     const sv = scalar(v);
@@ -164,7 +213,7 @@ export function mapExternalOrder(
     if (!c) return null;
     if (c.length > max) {
       issue(`${label}: ยาวเกิน ${max} ตัวอักษร — ตัดเหลือ ${max}`);
-      return c.slice(0, max);
+      return cut(c, max);
     }
     return c;
   };
@@ -318,7 +367,7 @@ export function mapExternalOrder(
   if (Array.isArray(ext.issues))
     for (const x of ext.issues) {
       const t = typeof x === 'string' ? cleanLine(x) : '';
-      fromSource.push(t ? t.slice(0, ORDER_LIMITS.text) : `ต้นทางแจ้งปัญหา (${show(x)})`);
+      fromSource.push(t ? cut(t, ORDER_LIMITS.text) : `ต้นทางแจ้งปัญหา (${show(x)})`);
     }
   else if (ext.issues !== undefined && ext.issues !== null)
     fromSource.push(`ต้นทางแจ้งปัญหา (${show(ext.issues)})`);
@@ -338,6 +387,12 @@ export function mapExternalOrder(
     } else if (Buffer.byteLength(json) > ORDER_LIMITS.rawBytes) {
       issue(`ข้อมูลดิบจากต้นทางใหญ่เกิน ${ORDER_LIMITS.rawBytes} ไบต์ — ไม่ได้เก็บ`);
       rawPayload = { truncated: true, bytes: Buffer.byteLength(json) };
+    } else {
+      // ผ่าน JSON แล้ว (toJSON ของ class อาจคืนสตริงที่ยังมี NUL) → ล้างอีกรอบเป็นข้อมูลธรรมดา
+      const r = scrubDeep(JSON.parse(json) as unknown);
+      rawPayload = r.value;
+      if (r.changed && !scrubbed.changed)
+        issue('ตัดอักขระที่บันทึกไม่ได้ (NUL / อักขระเสีย) ออกจากข้อมูลต้นทาง');
     }
   }
 
@@ -385,7 +440,7 @@ export function fallbackInput(m: MappedOrder, errors: string[]): UpsertOrderInpu
     sourceIssues:
       issues.length > MAX_ISSUES
         ? [...issues.slice(0, MAX_ISSUES - 1), `…และอีก ${issues.length - MAX_ISSUES + 1} ปัญหา`]
-        : issues.map((x) => x.slice(0, ORDER_LIMITS.text)),
+        : issues.map((x) => cut(x, ORDER_LIMITS.text)),
     rawPayload: i.rawPayload ?? null,
   };
 }

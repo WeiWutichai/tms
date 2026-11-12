@@ -74,6 +74,24 @@ export interface PullRunResult {
   sourceError?: string;
 }
 
+/** Prisma: ต่อฐานไม่ได้ / pool เต็ม / transaction หมดเวลา / deadlock-serialization */
+const TRANSIENT_CODES = new Set(['P1001', 'P1002', 'P1008', 'P1017', 'P2024', 'P2028', 'P2034']);
+
+/** ข้อผิดพลาดชั่วคราวของระบบ (ไม่ใช่ข้อมูล) — ใบนั้นได้ผล `error` ไม่เลื่อน cursor รอบหน้าลองใหม่ */
+export function isTransient(e: unknown): boolean {
+  if (e instanceof ProblemException) return e.code === 'concurrent_update';
+  if (
+    e instanceof Prisma.PrismaClientInitializationError ||
+    e instanceof Prisma.PrismaClientRustPanicError
+  )
+    return true;
+  if (e instanceof Prisma.PrismaClientKnownRequestError) return TRANSIENT_CODES.has(e.code);
+  const msg = e instanceof Error ? e.message : '';
+  return /ECONNREFUSED|ECONNRESET|Connection terminated|Can't reach database|deadlock detected|could not serialize/i.test(
+    msg,
+  );
+}
+
 /** ตรวจรูปหน้าที่ adapter คืน — null = ใช้ได้ */
 export function pageShapeError(page: unknown, cursor: string | null, limit: number): string | null {
   const p = page as Partial<PullPage> | null | undefined;
@@ -161,8 +179,12 @@ export class ConnectorIntakeService implements OnModuleInit {
     connector: string,
     opts: { pageSize?: number; maxPages?: number } = {},
   ): Promise<PullRunResult> {
+    if (!CONNECTOR_KEY_RE.test(connector)) throw new Error('invalid connector key');
     const port = this.registry.get(connector);
     if (!port) throw new Error(`connector '${connector}' is not registered`);
+    // ไม่มี tenant / ถูกระงับ → ไม่ดึง (ไม่สร้างแถว cursor ให้ tenant ที่ไม่มี)
+    if (!(await this.tenantActive(tenantId)))
+      throw new Error(`tenant ${tenantId} is not active — pull refused`);
     const pageSize = opts.pageSize ?? PULL_PAGE_SIZE;
     const maxPages = opts.maxPages ?? PULL_MAX_PAGES;
     const leaseId = randomUUID();
@@ -240,7 +262,8 @@ export class ConnectorIntakeService implements OnModuleInit {
   ): Promise<PullItemResult> {
     let mapped: MappedOrder | null = null;
     const label = () => mapped?.input.externalId ?? String(ext?.externalId ?? '');
-    const attempt = (fallback: string[] | null) =>
+    /** `recover` = ข้อผิดพลาดของรอบแรก → รับเป็นใบสำรอง (หัวใบ + จุดข้อความ + ปัญหา) */
+    const attempt = (recover: { errors: string[]; cause: unknown } | null) =>
       this.db.withTenant(tenantId, (tx) =>
         requestContext.run(
           {
@@ -254,12 +277,20 @@ export class ConnectorIntakeService implements OnModuleInit {
             tx,
           },
           async () => {
-            if (!mapped) {
+            let m = mapped;
+            if (!m && !recover) {
+              // จับคู่รหัส (อ่านฐานข้อมูล — ล้ม = ข้อผิดพลาดของระบบ ไม่ใช่ข้อมูล)
+              let refs: MappedRefs | null = null;
               try {
-                mapped = mapExternalOrder(
+                refs = await this.refs(tx, ext ?? ({} as ExternalOrder));
+              } catch (e) {
+                if (isTransient(e)) throw e;
+              }
+              try {
+                m = mapExternalOrder(
                   ext ?? ({} as ExternalOrder),
                   connector,
-                  await this.refs(tx, ext ?? ({} as ExternalOrder)),
+                  refs ?? { customerId: null, sites: new Map(), vehicleTypes: new Map() },
                   today,
                 );
               } catch (e) {
@@ -269,20 +300,21 @@ export class ConnectorIntakeService implements OnModuleInit {
                     e instanceof Error ? e.message : e,
                   )})`,
                 );
-                mapped = minimalOrder(ext ?? ({} as ExternalOrder), connector, today, e);
-              }
-              // ต้นทางยังไม่ให้วันรับของ → ใบเดิมคงวันที่เดิม (ไม่เลื่อนเป็นวันที่ดึงทุกรอบ)
-              if (mapped.dateFallback) {
-                const cur = await tx.salesOrder.findUnique({
-                  where: {
-                    tenantId_externalId: { tenantId, externalId: mapped.input.externalId! },
-                  },
-                  select: { requestedDate: true },
-                });
-                if (cur) mapped.input.requestedDate = cur.requestedDate.toISOString().slice(0, 10);
+                m = minimalOrder(ext ?? ({} as ExternalOrder), connector, today, e);
               }
             }
-            const input = fallback ? fallbackInput(mapped, fallback) : mapped.input;
+            if (!m)
+              m = minimalOrder(ext ?? ({} as ExternalOrder), connector, today, recover?.cause);
+            mapped = m;
+            // ต้นทางยังไม่ให้วันรับของ → ใบเดิมคงวันที่เดิม (ไม่เลื่อนเป็นวันที่ดึงทุกรอบ)
+            if (m.dateFallback) {
+              const cur = await tx.salesOrder.findUnique({
+                where: { tenantId_externalId: { tenantId, externalId: m.input.externalId! } },
+                select: { requestedDate: true },
+              });
+              if (cur) m.input.requestedDate = cur.requestedDate.toISOString().slice(0, 10);
+            }
+            const input = recover ? fallbackInput(m, recover.errors) : m.input;
             return this.intake.upsertOrder(input, tx);
           },
         ),
@@ -322,31 +354,41 @@ export class ConnectorIntakeService implements OnModuleInit {
           };
         }
       }
+      const msg = (e instanceof Error ? e.message : show(e)).slice(0, 300);
       this.logger.error(
-        `tenant ${tenantId} connector ${connector}: order ${label()} failed — ${String(e)}`,
+        `tenant ${tenantId} connector ${connector}: order ${label()} failed — ${msg}`,
       );
       return {
         externalId: label(),
         outcome: 'error',
-        error: {
-          code: e instanceof ProblemException ? e.code : 'internal_error',
-          message: String(e instanceof Error ? e.message : e).slice(0, 300),
-        },
+        error: { code: e instanceof ProblemException ? e.code : 'internal_error', message: msg },
       };
     };
 
     try {
       return done(await attempt(null), false);
     } catch (e) {
-      if (!(e instanceof ProblemException) || e.code !== 'validation_failed' || !mapped)
+      // ผลสุดท้ายที่ไม่ทับข้อมูล (conflict/locked) และฐานข้อมูลใช้ไม่ได้ชั่วคราว (ลองใหม่รอบหน้า) → ไม่รับเป็นใบสำรอง
+      if (
+        (e instanceof ProblemException &&
+          (e.code === 'external_id_conflict' || e.code === 'order_locked_for_update')) ||
+        isTransient(e)
+      )
         return failed(e);
-      // กฎรูปแบบของ upsert ยังไม่ผ่าน (ไม่ควรเกิด) → รับเป็นใบสำรองพร้อมข้อผิดพลาดเป็น sourceIssues — ไม่ทิ้งใบ
-      const errs = (e.errors ?? []).map((x) => `${x.field} ${x.code}`);
+      // อย่างอื่น (422 ของ upsert, ข้อมูลที่ฐานข้อมูลปฏิเสธ ฯลฯ) → ใบสำรอง SOURCE_ERROR พร้อมข้อผิดพลาด — ไม่ทิ้งใบ
+      const errs =
+        e instanceof ProblemException && e.code === 'validation_failed' && e.errors?.length
+          ? e.errors.map((x) => `${x.field} ${x.code}`)
+          : [
+              e instanceof ProblemException
+                ? e.code
+                : (e instanceof Error ? e.message : show(e)).slice(0, 200),
+            ];
       this.logger.warn(
         `tenant ${tenantId} connector ${connector}: order ${label()} rejected (${errs.join(', ')}) — fallback`,
       );
       try {
-        return done(await attempt(errs.length ? errs : ['validation_failed']), true);
+        return done(await attempt({ errors: errs, cause: e }), true);
       } catch (e2) {
         return failed(e2);
       }

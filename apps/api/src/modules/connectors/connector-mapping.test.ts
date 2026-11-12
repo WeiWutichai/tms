@@ -6,6 +6,8 @@ import {
   fallbackInput,
   mapExternalOrder,
   minimalOrder,
+  scrub,
+  scrubDeep,
   show,
   type MappedRefs,
 } from './connector-mapping';
@@ -152,5 +154,18 @@ describe('mapExternalOrder (ST3-T05)', () => {
     const m = minimalOrder({ externalId: 'P' }, 'k', '2026-11-13', new Error('boom'));
     expect(() => normalizeOrderInput(m.input)).not.toThrow();
     expect(m.issues).toEqual(['ข้อมูลจากต้นทางอ่านไม่ได้ (boom)']);
+  });
+
+  it('scrub: ตัด NUL + surrogate ไม่มีคู่ (คงคู่ที่ถูก) · scrubDeep กันวนซ้ำ + ล้างชื่อช่อง · show ตัดกลางคู่ไม่ทิ้ง surrogate เดี่ยว', () => {
+    expect(scrub('a\u0000b\ud800c\udc00d😀')).toBe('abcd😀');
+    const c: Record<string, unknown> = { 'k\u0000': 'v\ud800' };
+    c.self = c;
+    const r = scrubDeep(c);
+    expect(r.changed).toBe(true);
+    expect(r.value.k).toBe('v');
+    expect(r.value.self).toBe(r.value);
+    expect(scrubDeep({ a: ['ok'] }).changed).toBe(false);
+    const s40 = show(`${'x'.repeat(39)}😀tail`);
+    expect(/[\ud800-\udfff]/.test(s40.replace(/😀/g, ''))).toBe(false);
   });
 });
