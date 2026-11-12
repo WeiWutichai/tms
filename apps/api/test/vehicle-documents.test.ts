@@ -814,4 +814,187 @@ describe('เอกสารรถ (vehicle documents)', () => {
     // tenant อื่นไม่เห็นตัวนับของ tenant นี้
     expect((await api(app, otherTenantToken).get('/v1/vehicles/summary')).body.docAlert).toBe(0);
   });
+
+  it('ST2-T19 หน้าเอกสารรถรวม: หมดใน 30/60 วัน (ขอบวัน 30/31) · หมดแล้ว · ตัวนับ · รถปลดระวาง · ต่ออายุจากรายการ · export · แยก tenant', async () => {
+    const tid = (await createTenant(db)).id;
+    const tok = await tokenFor(tid);
+    const view = await tokenFor(tid, 'master:read documents:read', 'user-view19');
+    const vt3 = (
+      await api(app, tok)
+        .post('/v1/vehicle-types')
+        .send({ name: '6 ล้อ รวม', vehicleClass: '6W', payloadKg: 6000, minLicenceClass: 'T2' })
+        .expect(201)
+    ).body.id as string;
+    let n = 0;
+    const car = async () =>
+      (
+        await api(app, tok)
+          .post('/v1/vehicles')
+          .send({
+            plate: `73-${String(++n).padStart(4, '0')}`,
+            plateProvince: 'TH-10',
+            vehicleTypeId: vt3,
+            ownership: 'OWN',
+          })
+          .expect(201)
+      ).body as { id: string };
+    const [a, b, c] = [await car(), await car(), await car()];
+    const add = async (v: string, docType: string, days: number, docNo = `${docType}-${days}`) =>
+      (
+        await api(app, tok)
+          .post(`/v1/vehicles/${v}/documents`)
+          .send({
+            docType,
+            docNo,
+            issuer: docType === 'INSURANCE' ? 'วิริยะประกันภัย' : null,
+            startsOn: addDays(today, days - 365),
+            expiresOn: addDays(today, days),
+            costAmount: '1000.00',
+            fileDocumentIds: [await upload(tok)],
+          })
+          .expect(201)
+      ).body as { id: string; docNo: string };
+    const dm1 = await add(a.id, 'ANNUAL_TAX', -1);
+    const d0 = await add(a.id, 'INSURANCE', 0);
+    const d7 = await add(a.id, 'COMPULSORY_ACT', 7);
+    const d8 = await add(a.id, 'INSPECTION', 8, '=HYPERLINK("x")');
+    const d30 = await add(b.id, 'ANNUAL_TAX', 30);
+    const d31 = await add(b.id, 'INSURANCE', 31);
+    const d60 = await add(b.id, 'COMPULSORY_ACT', 60);
+    const d61 = await add(b.id, 'INSPECTION', 61);
+    const ret = await add(c.id, 'ANNUAL_TAX', 5);
+    const ids = async (qs: string, t = tok) =>
+      (await api(app, t).get(`/v1/vehicle-documents?${qs}`).expect(200)).body.data.map(
+        (d: { id: string }) => d.id,
+      );
+
+    // รถคัน c ปลดระวาง → เอกสารไม่อยู่ในหน้ารวม/ตัวนับ (ค่าเริ่มต้น) แต่ขอดูได้
+    expect(await ids('expiresWithinDays=30')).toContain(ret.id);
+    await api(app, tok)
+      .post(`/v1/vehicles/${c.id}/status`)
+      .send({ status: 'retired', reason: 'ขายรถออกไปแล้ว ทดสอบ T19' })
+      .expect(200);
+
+    // เกณฑ์ตรวจรับ: filter 30 วัน = หมดวันนี้ถึงอีก 30 วัน (รวมวันที่ 30, ไม่รวมวันที่ 31 และที่หมดแล้ว) เรียงวันหมด
+    expect(await ids('expiresWithinDays=30')).toEqual([d0.id, d7.id, d8.id, d30.id]);
+    expect(await ids('expiresWithinDays=60')).toEqual([
+      d0.id,
+      d7.id,
+      d8.id,
+      d30.id,
+      d31.id,
+      d60.id,
+    ]);
+    expect(await ids('expiresWithinDays=7')).toEqual([d0.id, d7.id]);
+    expect(await ids('status=expired')).toEqual([dm1.id]);
+    // สถานะ "ปกติ" ของหน้า = เหลือมากกว่า 30 วัน
+    expect(await ids('expiresBeyondDays=30')).toEqual([d31.id, d60.id, d61.id]);
+    expect(await ids('expiresWithinDays=60&expiresBeyondDays=30')).toEqual([d31.id, d60.id]);
+    expect(await ids('expiresWithinDays=30&docType=ANNUAL_TAX')).toEqual([d30.id]);
+    expect(await ids(`expiresWithinDays=30&vehicleId=${b.id}`)).toEqual([d30.id]);
+    expect(await ids('')).toEqual([dm1.id, d0.id, d7.id, d8.id, d30.id, d31.id, d60.id, d61.id]);
+    expect(await ids('includeRetired=true&expiresWithinDays=7')).toEqual([d0.id, ret.id, d7.id]);
+    // ถึงกำหนดต่อ (หมดแล้ว + ภายใน N วัน) · ค้นเลขที่/บริษัท (บางส่วน, % _ เป็นตัวอักษร)
+    expect(await ids('dueWithinDays=7')).toEqual([dm1.id, d0.id, d7.id]);
+    expect(await ids('docNo=insurance-3')).toEqual([d31.id]);
+    expect(await ids('docNo=%25')).toEqual([]);
+    expect(await ids('issuer=x')).toEqual([]);
+    expect(await ids(`issuer=${encodeURIComponent('วิริยะ')}`)).toEqual([d0.id, d31.id]);
+    await api(app, tok).get('/v1/vehicle-documents?expiresBeyondDays=-1').expect(422);
+    await api(app, tok).get('/v1/vehicle-documents?includeRetired=yes').expect(422);
+
+    const sum = async (t = tok) =>
+      (await api(app, t).get('/v1/vehicle-documents/summary').expect(200)).body;
+    expect(await sum()).toEqual({ total: 8, expired: 1, within7: 2, within30: 4, within60: 6 });
+    expect(await sum(view)).toEqual(await sum());
+
+    // ต่ออายุจากหน้ารวม: แถวจากรายการ → endpoint ต่ออายุเดิม (T17) → หายจาก "30 วัน" + ตัวนับลด, ฉบับเดิมอยู่ในประวัติ
+    const row = (
+      await api(app, tok).get('/v1/vehicle-documents?expiresWithinDays=30&limit=10').expect(200)
+    ).body.data.find((d: { id: string }) => d.id === d30.id);
+    await api(app, view)
+      .post(`/v1/vehicle-documents/${row.id}/renew`)
+      .send({
+        docNo: 'TAX-T19',
+        startsOn: row.expiresOn,
+        expiresOn: addDays(row.expiresOn, 365),
+        fileDocumentIds: [await upload(tok)],
+      })
+      .expect(403);
+    const renewed = await api(app, tok)
+      .post(`/v1/vehicle-documents/${row.id}/renew`)
+      .set('Idempotency-Key', 'rnw-t19-1')
+      .send({
+        docNo: 'TAX-T19',
+        startsOn: row.expiresOn,
+        expiresOn: addDays(row.expiresOn, 365),
+        costAmount: '1200.00',
+        fileDocumentIds: [await upload(tok)],
+      })
+      .expect(201);
+    expect(renewed.body.previous.status).toBe('superseded');
+    expect(await ids('expiresWithinDays=30')).toEqual([d0.id, d7.id, d8.id]);
+    expect(await ids('expiresBeyondDays=60')).toContain(renewed.body.document.id);
+    expect(await ids('status=superseded')).toEqual([d30.id]);
+    expect(await sum()).toEqual({ total: 8, expired: 1, within7: 2, within30: 3, within60: 5 });
+
+    // export: ตัวกรองเดียวกับรายการ · เฉพาะแถวที่เลือก · CSV กันสูตร · ต้องมี export:run
+    const due = await api(app, tok)
+      .get('/v1/vehicle-documents/export?format=csv&dueWithinDays=30')
+      .expect(200);
+    expect(due.text.trim().split('\r\n')).toHaveLength(5);
+    expect(due.text).toContain('ANNUAL_TAX--1');
+    const csv = await api(app, tok)
+      .get('/v1/vehicle-documents/export?format=csv&expiresWithinDays=30')
+      .expect(200);
+    expect(csv.headers['content-type']).toContain('text/csv');
+    const lines = csv.text
+      .replace(/^\uFEFF/, '')
+      .trim()
+      .split('\r\n');
+    expect(lines[0]).toBe(
+      'ทะเบียน,จังหวัด,เจ้าของ,ประเภทเอกสาร,ชื่อเอกสาร,เลขที่,บริษัท / หน่วยงาน,เริ่ม,หมดอายุ,เบี้ย / ค่าใช้จ่าย (฿),ไฟล์แนบ,วันคงเหลือ,สถานะ',
+    );
+    expect(lines).toHaveLength(4);
+    expect(lines[1]).toContain('INSURANCE-0');
+    expect(lines[1]).toContain('ใกล้หมดอายุ');
+    expect(lines[3]).toContain(`"'=HYPERLINK(""x"")"`);
+    expect(csv.text).not.toContain('INSURANCE-31');
+    expect(csv.text).not.toContain('ANNUAL_TAX-5');
+    const sel = await api(app, tok)
+      .get(`/v1/vehicle-documents/export?format=csv&ids=${dm1.id},${d61.id}`)
+      .expect(200);
+    expect(sel.text).toContain('ANNUAL_TAX--1');
+    expect(sel.text).toContain('หมดอายุ');
+    expect(sel.text).toContain('INSPECTION-61');
+    expect(sel.text).toContain('ปกติ');
+    expect(sel.text.trim().split('\r\n')).toHaveLength(3);
+    const xlsx = await api(app, tok).get('/v1/vehicle-documents/export').expect(200);
+    expect(xlsx.headers['content-type']).toContain('spreadsheetml');
+    await api(app, view).get('/v1/vehicle-documents/export').expect(403);
+    await api(app, tok).get('/v1/vehicle-documents/export?ids=veh_x').expect(422);
+
+    // แยก tenant: ตัวนับ/รายการ/export ว่าง · ต่ออายุเอกสารของ tenant อื่น → 404
+    expect(await sum(otherTenantToken)).toEqual({
+      total: 0,
+      expired: 0,
+      within7: 0,
+      within30: 0,
+      within60: 0,
+    });
+    expect(await ids('expiresWithinDays=30', otherTenantToken)).toEqual([]);
+    const ox = await api(app, otherTenantToken)
+      .get(`/v1/vehicle-documents/export?format=csv&ids=${d0.id}`)
+      .expect(200);
+    expect(ox.text.trim().split('\r\n')).toHaveLength(1);
+    await api(app, otherTenantToken)
+      .post(`/v1/vehicle-documents/${d0.id}/renew`)
+      .send({
+        docNo: 'X-1',
+        startsOn: today,
+        expiresOn: addDays(today, 365),
+        fileDocumentIds: [await upload(otherTenantToken)],
+      })
+      .expect(404);
+  });
 });

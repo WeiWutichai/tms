@@ -1,6 +1,7 @@
 import type { Schemas } from '@tms/contracts';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, ApiError, idempotent, unwrap } from '../../api';
+import { useCursorList } from '../master/useCursorList';
 
 export type VehicleDoc = Schemas['VehicleDocumentDto'];
 export type VehicleDocCreate = Schemas['CreateVehicleDocumentDto'];
@@ -29,6 +30,64 @@ export function useVehicleDocs(vehicleId: string) {
     queryFn: () =>
       unwrap(api.GET('/v1/vehicles/{id}/documents', { params: { path: { id: vehicleId } } })),
     select: (r) => r.data,
+  });
+}
+
+/** ตัวกรองหน้าเอกสารรถรวม (ST2-T19) — ช่องคอลัมน์ของตาราง */
+export interface FleetDocFilters {
+  plate: string;
+  docType: string;
+  docNo: string;
+  issuer: string;
+  /** '' | 'expired' (หมดอายุ) | 'soon' (ใกล้หมดอายุ ≤ 30 วัน) | 'ok' (ปกติ > 30 วัน) — ป้ายของต้นแบบ specFDoc */
+  st: string;
+}
+/** แท็บ/การ์ดของต้นแบบ: ทั้งหมด · หมดแล้ว · ภายใน 7 / 30 / 60 วัน */
+export const FDOC_TABS = ['all', 'exp', 'd7', 'd30', 'd60'] as const;
+export type FleetDocTab = (typeof FDOC_TABS)[number];
+const TAB_DAYS: Partial<Record<FleetDocTab, number>> = { d7: 7, d30: 30, d60: 60 };
+/** เกณฑ์ "ใกล้หมดอายุ" ของหน้า (ต้นแบบ ≤ 30 วัน; สถานะ API expiring = ≤ 60 วัน) */
+export const SOON_DAYS = 30;
+
+/**
+ * แท็บ ∩ ตัวกรองสถานะ → query ของ GET /v1/vehicle-documents · ขัดกันเอง (เช่น แท็บหมดแล้ว + ปกติ) → null = ตารางว่าง
+ */
+export function fleetDocQuery(tab: FleetDocTab, f: FleetDocFilters): Record<string, string> | null {
+  const { st, ...rest } = f;
+  const q: Record<string, string> = { ...rest };
+  const tabDays = TAB_DAYS[tab];
+  if (tab === 'exp') {
+    if (st && st !== 'expired') return null;
+    q.status = 'expired';
+  } else if (st === 'expired') {
+    if (tabDays !== undefined) return null;
+    q.status = 'expired';
+  }
+  let within = tabDays;
+  if (st === 'soon') within = Math.min(within ?? SOON_DAYS, SOON_DAYS);
+  if (st === 'ok') {
+    if (within !== undefined && within <= SOON_DAYS) return null;
+    q.expiresBeyondDays = String(SOON_DAYS);
+  }
+  if (within !== undefined) q.expiresWithinDays = String(within);
+  return q;
+}
+
+export function useFleetDocList(query: Record<string, string> | null, persist?: string) {
+  return useCursorList<VehicleDoc>(
+    KEY,
+    query ?? {},
+    // รายการนี้เรียงวันหมดเสมอ (API ไม่มี sort)
+    ({ sort: _sort, ...q }) =>
+      unwrap(api.GET('/v1/vehicle-documents', { params: { query: q as never } })),
+    { enabled: query !== null, ...(persist ? { persist } : {}) },
+  );
+}
+
+export function useFleetDocSummary() {
+  return useQuery({
+    queryKey: [KEY, 'summary'],
+    queryFn: () => unwrap(api.GET('/v1/vehicle-documents/summary')),
   });
 }
 

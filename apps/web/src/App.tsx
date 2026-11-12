@@ -15,6 +15,7 @@ import { ServiceItemsPage } from './features/service-items/ServiceItemsPage';
 import { VehicleTypesPage } from './features/vehicle-types/VehicleTypesPage';
 import { CarriersPage } from './features/carriers/CarriersPage';
 import { VehiclesPage } from './features/vehicles/VehiclesPage';
+import { FleetDocsPage } from './features/vehicles/FleetDocsPage';
 import { VehicleProfilePage } from './features/vehicles/VehicleProfilePage';
 import { Dashboard } from './pages/Dashboard';
 import { DesignSystem } from './pages/DesignSystem';
@@ -52,6 +53,7 @@ const READY: Record<string, () => ReactNode> = {
   '/master/rate-cards': () => <RateCardsPage />,
   '/fleet/drivers': () => <CarriersPage />,
   '/fleet/vehicles': () => <VehiclesPage />,
+  '/fleet/documents': () => <FleetDocsPage />,
 };
 
 function Inside() {
