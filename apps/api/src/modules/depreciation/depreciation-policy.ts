@@ -4,9 +4,15 @@
  * [DECISION — ย้อนได้, spec/12 §3 #43]
  * - ฐาน = ราคาซื้อ − มูลค่าซาก (ไม่กรอกซาก = 0 → ค่าเสื่อม/เดือน = ราคาซื้อ ÷ (N × 12) ตามเกณฑ์ตรวจรับ backlog;
  *   มีซาก = (ราคาซื้อ − ซาก) ÷ เดือน ตาม spec/06 FLT-004)
- * - ค่าเสื่อม/เดือน = ฐาน ÷ (N × 12) ปัดครึ่งขึ้นเป็นสตางค์ · **เดือนสุดท้ายของอายุ = ฐาน − ที่ลงไปแล้ว** (เศษรวมที่เดือนสุดท้าย
- *   → รวมทุกเดือน = ฐานพอดี) · ทุกเดือนไม่เกินยอดคงเหลือ (ยอดรวมไม่เกินฐานแม้แก้ราคา/อายุภายหลัง)
+ * - **วิธีไปข้างหน้า (prospective)**: เดือน m ลง = ยอดคงเหลือ ÷ จำนวนเดือนที่เหลือ (m … เดือนสุดท้ายของอายุ) ปัดครึ่งขึ้นเป็นสตางค์
+ *   — ยกเว้นเมื่อยอดคงเหลือ "ตรงตามตาราง" (ไม่มีการแก้) ใช้ค่าคงที่ ฐาน ÷ (N × 12) ปัดครึ่งขึ้น ทุกเดือนเท่ากัน (เกณฑ์ตรวจรับ)
+ *   · เดือนสุดท้ายของอายุ = ยอดคงเหลือทั้งหมด → รวม = ฐานพอดี
+ *   · แก้ราคา/อายุ/วันซื้อกลางอายุ → เกลี่ยยอดคงเหลือใหม่ให้เดือนที่เหลือ (ไม่ตกหล่น ไม่ลงก้อนเดียว)
+ *   · อายุจบไปแล้วแต่ยังมียอดคงเหลือ (เช่น ลดอายุ) → ลงยอดคงเหลือทั้งก้อนในเดือนที่ปิดแล้วเดือนแรกที่ยังไม่ได้ลง (`catchUp`)
+ *   · ยอดที่ปัดได้ 0.00 → ไม่ลงแถว (ยอดไปรวมเดือนถัดไป/เดือนสุดท้าย)
+ *   · ลงไปเกินฐานแล้ว (ลดราคาซื้อภายหลัง) → ไม่ลงเพิ่ม และ**ไม่กลับรายการ**ส่วนเกิน
  * - เริ่มเดือนที่ซื้อ (เต็มเดือน ไม่เฉลี่ยตามวัน) · จบเดือนที่ N × 12 · รถปลดระวาง: คิดถึงเดือนที่ปลด (รวมเดือนนั้น) แล้วหยุด
+ *   (ยอดคงเหลือตอนปลด/ขายไม่ตัดจำหน่าย = P1)
  * - คิดเฉพาะเดือนที่ปิดแล้ว (≤ `through`) · เดือนที่ขาด (job รันช้า/กรอกวันซื้อย้อนหลัง) ลงย้อนให้ครบ — จำกัดโดยอายุ (≤ 360 เดือน)
  */
 
@@ -79,6 +85,8 @@ export interface DepreciationLine {
   index: number;
   total: number;
   amount: string;
+  /** อายุจบไปแล้ว — ลงยอดคงเหลือทั้งก้อน (เช่น ลดอายุกลางทาง) */
+  catchUp: boolean;
 }
 
 /** ค่าเสื่อม/เดือน (ก่อนเดือนสุดท้าย) — null ถ้าไม่มีฐานให้คิด */
@@ -106,17 +114,30 @@ export function dueLines(
   const monthly = divHalfUp(base, BigInt(total));
   const start = monthOf(i.purchasedOn);
   const end = addMonths(start, total - 1);
-  let last = end;
-  if (i.retiredMonth && i.retiredMonth < last) last = i.retiredMonth;
-  if (through < last) last = through;
+  // เดือนท้ายสุดที่ลงได้: เดือนที่ปิดแล้ว และไม่เกินเดือนที่ปลดระวาง (เกินอายุได้ — ไว้ลงยอดคงเหลือ catchUp)
+  const last = i.retiredMonth && i.retiredMonth < through ? i.retiredMonth : through;
   let remaining = base;
   for (const a of posted.values()) remaining -= toSatang(a);
   const out: DepreciationLine[] = [];
   for (let m = start; m <= last && remaining > 0n; m = addMonths(m, 1)) {
     if (posted.has(m)) continue;
-    const amount = m === end ? remaining : monthly < remaining ? monthly : remaining;
+    const k = monthsBetween(start, m) + 1; // เดือนที่ k ของอายุ
+    const left = total - k + 1; // จำนวนเดือนที่เหลือรวมเดือนนี้ (≤ 0 = อายุจบแล้ว)
+    let amount: bigint;
+    if (left <= 1) amount = remaining;
+    else if (remaining === base - monthly * BigInt(k - 1))
+      amount = monthly; // ตรงตามตาราง
+    else amount = divHalfUp(remaining, BigInt(left));
+    if (amount > remaining) amount = remaining;
+    if (amount <= 0n) continue;
     remaining -= amount;
-    out.push({ month: m, index: monthsBetween(start, m) + 1, total, amount: fromSatang(amount) });
+    out.push({
+      month: m,
+      index: Math.min(k, total),
+      total,
+      amount: fromSatang(amount),
+      catchUp: left < 1,
+    });
   }
   return out;
 }

@@ -17,6 +17,8 @@ export const DEPRECIATION_JOB = 'depreciation.monthly';
 export const RUN_FROM_HOUR_BKK = 2;
 /** advisory lock namespace 9 (1–5 auth, 8 เตือนต่ออายุ ST2-T18, 11 idempotency) — เขียนเป็นตัวเลขตรงใน SQL (พารามิเตอร์จะเป็น bigint) */
 export const DEPRECIATION_SOURCE = 'depreciation';
+/** job เดือนที่ล้มถาวร (FAILED) สร้างใหม่ได้ไม่เกินวันละครั้ง (worker เรียก scheduleDue ทุก 10 นาที) */
+export const FAILED_RETRY_COOLDOWN_MS = 24 * 3600_000;
 
 export interface DepreciationRunResult {
   through: Month;
@@ -94,18 +96,23 @@ export class DepreciationService implements OnModuleInit {
         orderBy: { createdAt: 'asc' },
       });
       if (!tenants.length) return 0;
-      // created_at เป็นเวลาจริงของฐาน — จำกัด 70 วันล่าสุดให้ใช้ดัชนี; job ที่ล้มถาวร (FAILED) สร้างใหม่ได้
+      // created_at เป็นเวลาจริงของฐาน — จำกัด 70 วันล่าสุดให้ใช้ดัชนี
       const existing = await db.job.findMany({
         where: {
           tenantId: { in: tenants.map((t) => t.id) },
           type: DEPRECIATION_JOB,
-          status: { not: 'FAILED' },
           createdAt: { gte: new Date(Date.now() - 70 * 86_400_000) },
           payload: { path: ['through'], equals: through },
         },
-        select: { tenantId: true },
+        select: { tenantId: true, status: true, createdAt: true },
       });
-      const done = new Set(existing.map((j) => j.tenantId));
+      // มี job ของเดือนนี้ที่ยังไม่ล้มถาวร = ไม่ต้องสร้าง · ล้มถาวร (FAILED) สร้างใหม่ได้วันละครั้ง (cooldown 24 ชม. จาก job ล่าสุด)
+      const cooldown = Date.now() - FAILED_RETRY_COOLDOWN_MS;
+      const done = new Set(
+        existing
+          .filter((j) => j.status !== 'FAILED' || j.createdAt.getTime() > cooldown)
+          .map((j) => j.tenantId),
+      );
       const todo = tenants.filter((t) => !done.has(t.id));
       for (const t of todo)
         await this.queue.enqueue(db as unknown as Tx, {
@@ -211,6 +218,10 @@ export class DepreciationService implements OnModuleInit {
       new Map(posted.map((r) => [day(r.periodMonth!).slice(0, 7), r.amount.toFixed(2)])),
     );
     if (!lines.length) return 0;
+    for (const l of lines.filter((x) => x.catchUp))
+      this.logger.warn(
+        `tenant ${tenantId}: vehicle ${vehicleId} useful life ended with ${l.amount} undepreciated — posted in ${l.month}`,
+      );
     const r = await tx.vehicleCost.createMany({
       data: lines.map((l) => ({
         tenantId,
@@ -220,7 +231,9 @@ export class DepreciationService implements OnModuleInit {
         periodMonth: asDate(`${l.month}-01`),
         occurredOn: asDate(lastDayOf(l.month)),
         sourceType: DEPRECIATION_SOURCE,
-        note: `ค่าเสื่อมเส้นตรง เดือนที่ ${l.index}/${l.total}`,
+        note: l.catchUp
+          ? `ค่าเสื่อมคงเหลือหลังครบอายุ ${l.total} เดือน`
+          : `ค่าเสื่อมเส้นตรง เดือนที่ ${l.index}/${l.total}`,
         createdBy: null,
       })),
       skipDuplicates: true, // ON CONFLICT DO NOTHING (unique tenant + รถ + หมวด + เดือน)

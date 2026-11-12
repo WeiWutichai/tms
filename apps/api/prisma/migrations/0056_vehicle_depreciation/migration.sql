@@ -2,6 +2,9 @@
 -- เดือนที่คิด = period_month (วันที่ 1 ของเดือน) · unique ต่อ tenant + รถ + หมวด + เดือน → รัน job ซ้ำ/พร้อมกันไม่เกิดแถวซ้ำ (ON CONFLICT DO NOTHING)
 -- หมวดอื่น period_month = NULL (NULL ไม่ชนกันใน unique index) — แถว DOCUMENT ของ ST2-T17 ไม่กระทบ
 
+-- RLS: ตาราง FORCE ROW LEVEL SECURITY — row_security = off ให้ pre-check "error" แทนการถูกกรองเงียบ ๆ (แบบเดียวกับ 0044)
+SET row_security = off;
+
 -- กันข้อมูลเดิมที่ขัด CHECK (ยังไม่มีผู้เขียนหมวด DEPRECIATION ก่อน T22 — ถ้ามีให้หยุดและตรวจด้วยมือ)
 DO $$
 DECLARE r record;
@@ -25,3 +28,5 @@ ALTER TABLE "vehicle_cost"
 
 -- ตารางเดิม (RLS เปิดแล้วใน 0004/0044) — เรียกซ้ำได้ (idempotent) ตามกติกา migration
 SELECT tms_enable_tenant_rls('vehicle_cost');
+
+RESET row_security;

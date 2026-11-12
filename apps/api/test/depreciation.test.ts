@@ -71,18 +71,62 @@ describe('ค่าเสื่อมเส้นตรง: กติกา (ST2
     expect(lines.map((l) => l.month)).toEqual(['2026-01', '2026-02', '2026-03', '2026-04']);
     expect(lines.every((l) => l.amount === '20000.00')).toBe(true);
   });
-  it('เดือนที่ลงแล้วไม่ลงซ้ำ · เดือนที่ขาดตรงกลางลงย้อน · ยอดรวมไม่เกินฐานแม้แก้ราคาลดภายหลัง', () => {
+  it('เดือนที่ลงแล้วไม่ลงซ้ำ · เดือนที่ขาดตรงกลางลงย้อน · ลดราคาซื้อ → เกลี่ยยอดคงเหลือ รวม = ฐานใหม่', () => {
     const posted = new Map([
       ['2026-01', '20000.00'],
       ['2026-03', '20000.00'],
     ]);
     expect(dueLines(base, '2026-04', posted).map((l) => l.month)).toEqual(['2026-02', '2026-04']);
-    // ราคาซื้อแก้เหลือ 50,000 หลังลงไป 2 เดือน (40,000) → เหลือคิดได้ 10,000 เท่านั้น
-    const cut = dueLines({ ...base, purchaseCost: '50000.00' }, '2030-12', posted);
+    // ราคาซื้อแก้เหลือ 50,000 หลังลงไป 2 เดือน (40,000) → เหลือ 10,000 เกลี่ยให้ 58 เดือนที่เหลือ
+    const cut = dueLines({ ...base, purchaseCost: '50000.00' }, '2035-12', posted);
+    expect(cut).toHaveLength(58);
+    expect(cut[0]!.amount).toBe('169.49'); // 10,000 ÷ 59 เดือนที่เหลือ (ก.พ. 2026 … ธ.ค. 2030)
+    expect(cut.at(-1)!.month).toBe('2030-12');
     expect(sum(cut.map((l) => l.amount))).toBe('10000.00');
-    expect(cut).toHaveLength(13); // 12 × 833.33 = 9,999.96 แล้วเศษ 0.04
-    expect(cut.slice(0, 12).every((l) => l.amount === '833.33')).toBe(true);
-    expect(cut.at(-1)!.amount).toBe('0.04');
+    // ลงไปเกินฐานใหม่แล้ว → ไม่ลงเพิ่ม (ไม่กลับรายการส่วนเกิน)
+    expect(dueLines({ ...base, purchaseCost: '30000.00' }, '2035-12', posted)).toEqual([]);
+  });
+  const firstYear = new Map(
+    Array.from({ length: 12 }, (_, k) => [addMonths('2026-01', k), '20000.00'] as const),
+  );
+  it('แก้กลางอายุ — ลดอายุ: เกลี่ยยอดคงเหลือให้เดือนที่เหลือ · อายุจบไปแล้ว → ลงยอดคงเหลือก้อนเดียวในเดือนแรกที่ยังไม่ลง', () => {
+    // 5 ปี → 2 ปี หลังลงไป 12 เดือน (240,000): เหลือ 960,000 ÷ 12 เดือน = 80,000
+    const two = dueLines({ ...base, years: 2 }, '2028-12', firstYear);
+    expect(two).toHaveLength(12);
+    expect(two.every((l) => l.amount === '80000.00' && !l.catchUp)).toBe(true);
+    expect(two.at(-1)!.month).toBe('2027-12');
+    // 5 ปี → 1 ปี: อายุจบ ธ.ค. 2026 แล้ว → 960,000 ลง ม.ค. 2027 (catchUp) แถวเดียว
+    const one = dueLines({ ...base, years: 1 }, '2027-03', firstYear);
+    expect(one).toEqual([
+      { month: '2027-01', index: 12, total: 12, amount: '960000.00', catchUp: true },
+    ]);
+  });
+  it('แก้กลางอายุ — ขึ้นราคาซื้อ: ส่วนเพิ่มเกลี่ยให้เดือนที่เหลือ รวม = ฐานใหม่', () => {
+    const up = dueLines({ ...base, purchaseCost: '1440000.00' }, '2035-12', firstYear);
+    expect(up).toHaveLength(48);
+    expect(up.every((l) => l.amount === '25000.00')).toBe(true); // 1,200,000 ÷ 48
+    expect(sum(up.map((l) => l.amount))).toBe('1200000.00');
+  });
+  it('แก้กลางอายุ — เลื่อนวันซื้อเร็วขึ้น: ลงย้อนเดือนก่อนหน้า + เกลี่ยใหม่ จบเดือนสุดท้ายของอายุใหม่ รวม = ฐาน', () => {
+    const six = new Map(
+      Array.from({ length: 6 }, (_, k) => [addMonths('2026-01', k), '20000.00'] as const),
+    );
+    const early = dueLines({ ...base, purchasedOn: '2025-07-01' }, '2035-12', six);
+    expect(early.slice(0, 6).map((l) => [l.month, l.amount])).toEqual(
+      ['2025-07', '2025-08', '2025-09', '2025-10', '2025-11', '2025-12'].map((m) => [
+        m,
+        '18000.00',
+      ]),
+    );
+    expect(early.at(-1)!.month).toBe('2030-06');
+    expect(early.some((l) => l.catchUp)).toBe(false);
+    expect(sum([...six.values(), ...early.map((l) => l.amount)])).toBe('1200000.00');
+  });
+  it('ยอด/เดือนปัดได้ 0.00 → ไม่ลงแถว ยอดไปลงเดือนสุดท้าย', () => {
+    const tiny = dueLines({ ...base, purchaseCost: '0.05', years: 1 }, '2030-01', new Map());
+    expect(tiny).toEqual([
+      { month: '2026-12', index: 12, total: 12, amount: '0.05', catchUp: false },
+    ]);
   });
   it('เดือนที่ปิดล่าสุด: ก่อนวันที่ 1 เวลา 02:00 น. ไทย ยังเป็นเดือนก่อนหน้านั้น', () => {
     expect(closedMonth(new Date('2026-11-30T18:59:00Z'))).toBe('2026-10'); // 1 ธ.ค. 01:59 ไทย
@@ -400,6 +444,59 @@ describe('ค่าเสื่อม: job รายเดือน (ST2-T22)', 
       }),
     );
     await expect(cross).rejects.toThrow();
+  });
+
+  it('แก้กลางอายุ (เลื่อนเวลา): ขึ้นราคา → เกลี่ยเดือนที่เหลือ · ลดอายุจนจบแล้ว → ลงยอดคงเหลือก้อนเดียว รวม = ฐานใหม่', async () => {
+    const v = await vehicle(tA, vtA);
+    await runMonth('2026-06'); // ม.ค.–มิ.ย. × 20,000
+    await db.vehicle.update({ where: { id: v.id }, data: { purchaseCost: '1440000.00' } });
+    await runMonth('2026-07');
+    let r = await rows(v.id);
+    expect(r.at(-1)!.amount.toFixed(2)).toBe('24444.44'); // (1,440,000 − 120,000) ÷ 54
+    await db.vehicle.update({ where: { id: v.id }, data: { depreciationYears: 1 } }); // อายุจบ ธ.ค. 2026
+    await runMonth('2026-12');
+    await runMonth('2027-01');
+    r = await rows(v.id);
+    expect(r.map((x) => x.periodMonth!.toISOString().slice(0, 7)).at(-1)).toBe('2026-12');
+    expect(r.at(-1)!.note).toBe('ค่าเสื่อมเส้นตรง เดือนที่ 12/12');
+    expect(sum(r.map((x) => x.amount.toFixed(2)))).toBe('1440000.00');
+    // ลดอายุหลังอายุใหม่จบไปแล้ว → เดือนแรกที่ยังไม่ลงรับยอดคงเหลือทั้งก้อน
+    const w = await vehicle(tA, vtA);
+    await runMonth('2027-02'); // ลงครบ 14 เดือน (280,000)
+    await db.vehicle.update({ where: { id: w.id }, data: { depreciationYears: 1 } });
+    await runMonth('2027-03');
+    const rw = await rows(w.id);
+    expect(rw).toHaveLength(15);
+    expect(rw.at(-1)).toMatchObject({ note: 'ค่าเสื่อมคงเหลือหลังครบอายุ 12 เดือน' });
+    expect(rw.at(-1)!.amount.toFixed(2)).toBe('920000.00');
+    expect(rw.at(-1)!.periodMonth!.toISOString().slice(0, 7)).toBe('2027-03');
+  });
+
+  it('job ของเดือนที่ล้มถาวร (FAILED) สร้างใหม่ได้ไม่เกินวันละครั้ง', async () => {
+    clock.set(runAt('2026-05'));
+    const failed = await db.job.create({
+      data: {
+        tenantId: tA,
+        type: DEPRECIATION_JOB,
+        payload: { through: '2026-05' },
+        status: 'FAILED',
+      },
+    });
+    await db.job.create({
+      data: {
+        tenantId: tB,
+        type: DEPRECIATION_JOB,
+        payload: { through: '2026-05' },
+        status: 'SUCCEEDED',
+      },
+    });
+    expect(await svc.scheduleDue()).toBe(0); // ล้มเมื่อครู่ → ยังไม่สร้างใหม่
+    await db.job.update({
+      where: { id: failed.id },
+      data: { createdAt: new Date(Date.now() - 25 * 3600_000) },
+    });
+    expect(await svc.scheduleDue()).toBe(1); // เกิน 24 ชม. → สร้างใหม่ 1 ชิ้น (tenant ก)
+    expect(await svc.scheduleDue()).toBe(0);
   });
 
   it('รถคันหนึ่งล้ม → คันอื่นยังลง · job ล้มเพื่อให้ลองใหม่ (คันที่ลงแล้วไม่ซ้ำ)', async () => {
