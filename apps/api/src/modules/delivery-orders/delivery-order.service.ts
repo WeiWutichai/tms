@@ -31,8 +31,12 @@ import { DbService, type Tx } from '../../db/db.service';
 import { StateService } from '../../state/state.service';
 import { cleanLine, stableStringify } from '../master/master-kit';
 import { issueNumber } from '../sequences/sequences.service';
+import { keysetArgs, type ListQuery } from '../../common/pagination';
 
-export type DeliveryOrderRecord = DeliveryOrder & { lines: DeliveryOrderLine[] };
+export type DeliveryOrderRecord = DeliveryOrder & {
+  lines: DeliveryOrderLine[];
+  trip: { status: string } | null;
+};
 
 type OrderForDo = SalesOrder & {
   stops: SalesOrderStop[];
@@ -47,6 +51,15 @@ export interface CreateFromOrderInput {
   originStopSeq?: number | null;
   /** ปริมาณต่อบรรทัด SO — ไม่ระบุ = คงเหลือทั้งหมด (ห้ามเกินคงเหลือ) */
   lines?: DoLineRequest[] | null;
+}
+
+export interface DeliveryOrderFilter extends ListQuery {
+  salesOrderId?: string;
+  customerId?: string;
+  statuses?: DoStatus[];
+  /** YYYY-MM-DD */
+  dateFrom?: string;
+  dateTo?: string;
 }
 
 export interface CancelInput {
@@ -70,15 +83,40 @@ const EVENT_TYPE = 'delivery_order.status_changed';
 const CREATE_FROM = 'NONE';
 const INCLUDE = {
   lines: { orderBy: { lineNo: 'asc' } },
+  trip: { select: { status: true } },
 } as const satisfies Prisma.DeliveryOrderInclude;
+
+/**
+ * **"DO อยู่ในเที่ยวที่ยังใช้งาน"** — นิยามเดียวที่ทุกจุดใช้ (ล็อกทางเข้า SO, แยก/รวม/ยกเลิก, sync):
+ * DO ไม่ยกเลิก + มี trip_id + trip ไม่ CANCELLED · สัญญากับ ST3-T11: ยกเลิก trip ต้องล้าง trip_id ของ DO ที่ยังไม่ส่ง
+ * (นิยามนี้ยังถูกแม้ trip_id ค้าง) — `ON_ACTIVE_TRIP_WHERE` (query) กับ `isOnActiveTrip` (แถวที่โหลดแล้ว) ต้องตรงกันเสมอ
+ */
+export const ON_ACTIVE_TRIP_WHERE = {
+  status: { not: 'CANCELLED' },
+  tripId: { not: null },
+  trip: { is: { status: { not: 'CANCELLED' } } },
+} as const satisfies Prisma.DeliveryOrderWhereInput;
+export function isOnActiveTrip(d: {
+  status: string;
+  tripId: string | null;
+  trip: { status: string } | null;
+}): boolean {
+  return (
+    d.status !== 'CANCELLED' &&
+    d.tripId !== null &&
+    d.trip !== null &&
+    d.trip.status !== 'CANCELLED'
+  );
+}
 /** SO ที่สร้าง/คง DO ได้: พ้นร่างและยังไม่วางแผน (หลังวางแผน DO เป็นของเที่ยว — ST3-T10/T11) */
 const SO_DO_STATUSES = ['RECEIVED', 'ON_HOLD'] as const;
-/** ใบค้างที่แปลว่าข้อมูลไม่พอสร้าง DO (ลูกค้า/สถานที่) */
-const UNMAPPED_HOLDS = new Set(['CUSTOMER_UNMAPPED', 'LOCATION_UNMAPPED']);
+/** ใบค้างที่ห้าม **สร้าง** DO ใหม่ (ลูกค้า/สถานที่ใช้ไม่ได้, ข้อมูลต้นทางไม่ครบ) — DO ที่มีอยู่แล้วคงไว้ */
+const NOT_READY_HOLDS = new Set(['CUSTOMER_UNMAPPED', 'LOCATION_UNMAPPED', 'SOURCE_ERROR']);
 const SYSTEM_NOTE = {
   rebuilt: 'ใบสั่งขนส่งถูกแก้ไข — สร้างใบส่งของใหม่ทั้งชุด (ORD-085)',
-  notReady: 'ใบสั่งขนส่งยังไม่พร้อมจัดส่ง (ร่าง/ยังจับคู่ลูกค้าหรือสถานที่ไม่ครบ) — ยกเลิกใบส่งของ',
 };
+/** event เมื่อ DO ชุดเดิมถูกยกเลิกเพราะ SO แก้ แต่ระบบสร้างใหม่ให้ไม่ได้ (หลายจุดส่ง/ยังไม่พร้อม) — ผู้จัดรถต้องสร้างเอง */
+const REBUILD_REQUIRED_EVENT = 'delivery_order.rebuild_required';
 
 const rule422 = (e: DoRuleError) => new ProblemException('validation_failed', undefined, e.issues);
 const field422 = (field: string, code: string, message: string) =>
@@ -113,15 +151,16 @@ export class DeliveryOrderService {
    * — เที่ยวเกิดใน ST3-T11 ก่อนหน้านั้นเป็น false เสมอ
    */
   async hasDoOnTrip(tx: Tx, salesOrderId: string): Promise<boolean> {
-    return (
-      (await tx.deliveryOrder.count({
-        where: {
-          salesOrderId,
-          status: { not: 'CANCELLED' },
-          trip: { is: { status: { not: 'CANCELLED' } } },
-        },
-      })) > 0
-    );
+    return (await tx.deliveryOrder.count({ where: { salesOrderId, ...ON_ACTIVE_TRIP_WHERE } })) > 0;
+  }
+
+  /** SO พร้อมให้สร้าง DO ใหม่ไหม (T11/T12 ใช้ตรวจก่อนวางแผน DO ของ SO ที่ค้าง — DO เดิมคงอยู่แม้ SO ไม่พร้อม) */
+  async isOrderReady(salesOrderId: string, tx: Tx = this.db.tx): Promise<boolean> {
+    const so = await tx.salesOrder.findUnique({
+      where: { id: salesOrderId },
+      include: { stops: true, lines: true, holdReasonCode: { select: { code: true } } },
+    });
+    return !!so && isReady(so);
   }
 
   async listForOrder(
@@ -134,6 +173,28 @@ export class DeliveryOrderService {
       include: INCLUDE,
       orderBy: [{ createdAt: 'asc' }, { doNo: 'asc' }],
     });
+  }
+
+  /** รายการ DO (keyset บน updatedAt,id — docs/01 §5.1) กรองตาม SO / ลูกค้า / สถานะ / ช่วงวันที่ DO */
+  async list(q: DeliveryOrderFilter, tx: Tx = this.db.tx) {
+    const k = keysetArgs(q);
+    const where: Prisma.DeliveryOrderWhereInput = {
+      AND: [
+        k.where as Prisma.DeliveryOrderWhereInput,
+        q.salesOrderId ? { salesOrderId: q.salesOrderId } : {},
+        q.customerId ? { customerId: q.customerId } : {},
+        q.statuses?.length ? { status: { in: q.statuses as DbDoStatus[] } } : {},
+        q.dateFrom ? { doDate: { gte: new Date(`${q.dateFrom}T00:00:00Z`) } } : {},
+        q.dateTo ? { doDate: { lte: new Date(`${q.dateTo}T00:00:00Z`) } } : {},
+      ],
+    };
+    const rows = await tx.deliveryOrder.findMany({
+      where,
+      include: INCLUDE,
+      orderBy: [...k.orderBy],
+      take: k.take,
+    });
+    return { rows, limit: k.limit };
   }
 
   async get(id: string, tx: Tx = this.db.tx): Promise<DeliveryOrderRecord> {
@@ -174,35 +235,45 @@ export class DeliveryOrderService {
   // ใช้จาก OrderIntakeService (ภายใต้ล็อก SO เดียวกัน)
 
   /**
-   * ให้ DO ตรงกับ SO หลัง upsert/reevaluate: SO พร้อม (RECEIVED/ON_HOLD + ลูกค้า/สถานที่ครบ) จุดส่งเดียวและยังไม่มี DO →
-   * สร้าง 1 DO = ทั้ง SO · ข้อมูล SO ที่ DO ใช้เปลี่ยน → ยกเลิกชุดเดิมแล้วสร้างใหม่ (ORD-085) · SO ไม่พร้อม → ยกเลิก DO ที่มี
-   * DO ใดเข้าเที่ยว/พ้น DRAFT แล้ว → ไม่แตะ (ทางเข้าถูกล็อกด้วย `order_locked_for_update` อยู่แล้ว — ST3-T10 จัดการ diff)
+   * ให้ DO ตรงกับ SO หลัง upsert/reevaluate (ภายใต้ล็อก SO):
+   * - DO ใดเข้าเที่ยว/พ้น DRAFT แล้ว → ไม่แตะ (ทางเข้าถูกล็อก `order_locked_for_update` — ST3-T10 จัดการ diff)
+   * - ข้อมูลที่ใช้จัดสรรเปลี่ยน (ลูกค้า จุดรับ-ส่ง สินค้า — `allocationHash`) → DO ชุดเดิม CANCELLED ทั้งชุด (ORD-085)
+   *   ถ้าระบบสร้างใหม่ให้ไม่ได้ (หลายจุดส่ง/ยังไม่พร้อม) → event `delivery_order.rebuild_required` ให้ผู้จัดรถรู้
+   * - ข้อมูลหัวที่ไม่กระทบการจัดสรร (PO ลูกค้า, วันที่, ชื่อสินค้า) → แก้ใน DO เดิม (ไม่ยกเลิกใบที่คนแยกไว้)
+   * - SO ไม่พร้อม (ค้างเพราะข้อมูลหลักปิดใช้/ต้นทางผิด) แต่ข้อมูลเดิม → **คง DO ไว้** (ไม่สร้างใหม่ — `isOrderReady` = false)
+   * - สร้าง 1 DO = ทั้ง SO อัตโนมัติ **ครั้งเดียวต่อ hash**: มี DO ใดเคยใช้ hash นี้ (รวมใบที่คนยกเลิก/แยก/รวม) → ไม่สร้างซ้ำ
+   *   (ใบที่ระบบยกเลิกตอน rebuild ล้าง source_hash จึงไม่นับ) — คนยกเลิกแล้วส่งซ้ำค่าเดิม DO ไม่ฟื้น
    */
   async syncWithOrder(tx: Tx, salesOrderId: string): Promise<void> {
     const so = await this.lockOrder(tx, salesOrderId);
     if (!so) throw new ProblemException('not_found');
     const active = await this.lockActive(tx, salesOrderId);
-    if (active.some((d) => d.status !== 'DRAFT' || d.tripId !== null)) return;
-    const hash = sourceHash(so);
-    if (!isReady(so)) {
-      for (const d of active) await this.systemCancel(tx, d, SYSTEM_NOTE.notReady);
-      return;
-    }
+    if (active.some((d) => d.status !== 'DRAFT' || isOnActiveTrip(d))) return;
+    const hash = allocationHash(so);
+    const drops = so.stops.filter((s) => s.type === 'DELIVERY');
     let remaining = active;
     if (active.some((d) => d.sourceHash !== hash)) {
       for (const d of active) await this.systemCancel(tx, d, SYSTEM_NOTE.rebuilt);
       remaining = [];
+      if (active.length && (drops.length !== 1 || !isReady(so)))
+        await this.emitOrderEvent(tx, so.id, REBUILD_REQUIRED_EVENT, {
+          cancelled: active.map((d) => d.doNo),
+          reason: drops.length !== 1 ? 'MULTI_DROP' : 'ORDER_NOT_READY',
+        });
+    } else {
+      for (const d of active) await this.refreshHeader(tx, so, d);
     }
-    const drops = so.stops.filter((s) => s.type === 'DELIVERY');
-    if (remaining.length === 0 && drops.length === 1)
-      await this.createOne(
-        tx,
-        so,
-        so.lines.length ? this.plan(() => planAllocation(soLines(so), [])) : [],
-        resolveStops(so, {}),
-        hash,
-        'auto',
-      );
+    if (!isReady(so) || remaining.length > 0 || drops.length !== 1) return;
+    const used = await tx.deliveryOrder.count({ where: { salesOrderId, sourceHash: hash } });
+    if (used > 0) return;
+    await this.createOne(
+      tx,
+      so,
+      so.lines.length ? this.plan(() => planAllocation(soLines(so), [])) : [],
+      resolveStops(so, {}),
+      hash,
+      'auto',
+    );
   }
 
   /**
@@ -213,7 +284,7 @@ export class DeliveryOrderService {
     if (!lineIds.length) return;
     await this.lockOrder(tx, salesOrderId);
     const active = await this.lockActive(tx, salesOrderId);
-    if (active.some((d) => !isDoEditable(d.status as DoStatus) || d.tripId !== null))
+    if (active.some((d) => !isDoEditable(d.status as DoStatus) || isOnActiveTrip(d)))
       throw new ProblemException('order_locked_for_update');
     for (const d of active) await this.systemCancel(tx, d, SYSTEM_NOTE.rebuilt);
     await tx.deliveryOrderLine.updateMany({
@@ -248,7 +319,7 @@ export class DeliveryOrderService {
       // SO ไม่มีสินค้า: ไม่มีอะไรให้แบ่ง — 1 DO ต่อจุดส่ง
       throw field422('destStopSeq', 'fully_allocated', 'this drop already has a delivery order');
     }
-    return this.createOne(tx, so, lines, stops, sourceHash(so), 'manual');
+    return this.createOne(tx, so, lines, stops, allocationHash(so), 'manual');
   }
 
   /**
@@ -259,8 +330,9 @@ export class DeliveryOrderService {
     deliveryOrderId: string,
     parts: DoLineRequest[][],
     tx: Tx = this.db.tx,
+    expectedVersion?: number,
   ): Promise<DeliveryOrderRecord[]> {
-    const src = await this.lockEditable(tx, deliveryOrderId);
+    const src = await this.lockEditable(tx, deliveryOrderId, expectedVersion);
     const so = (await this.lockOrder(tx, src.salesOrderId))!;
     const plans = this.plan(() => planSplit(src.lines.filter(linked).map(linePlan), parts));
     const root = src.splitRootNo ?? src.doNo!;
@@ -304,13 +376,19 @@ export class DeliveryOrderService {
    * รวม DO (ORD-086): ใบ DRAFT ของ SO และจุดส่งเดียวกัน ที่ยังไม่อยู่ในเที่ยว → รวมเข้าใบแรกของรายการ
    * ใบอื่น CANCELLED (event merge) · ปริมาณ/น้ำหนักรวมเท่าเดิม
    */
-  async merge(deliveryOrderIds: string[], tx: Tx = this.db.tx): Promise<DeliveryOrderRecord> {
+  async merge(
+    deliveryOrderIds: string[],
+    tx: Tx = this.db.tx,
+    /** If-Match ของใบปลายทาง (ใบแรก) */
+    expectedVersion?: number,
+  ): Promise<DeliveryOrderRecord> {
     if (new Set(deliveryOrderIds).size !== deliveryOrderIds.length || deliveryOrderIds.length < 2)
       throw field422(
         'deliveryOrderIds',
         'too_few',
         'merge needs at least 2 distinct delivery orders',
       );
+    // อ่านก่อนล็อกเพื่อหา SO เท่านั้น — ทุกใบถูกอ่านใหม่ภายใต้ล็อก (SO → DO) ใน lockEditable ก่อนตัดสินใจใด ๆ
     const heads = await tx.deliveryOrder.findMany({
       where: { id: { in: deliveryOrderIds } },
       select: { id: true, salesOrderId: true },
@@ -334,7 +412,10 @@ export class DeliveryOrderService {
       );
     await this.lockOrder(tx, soIds[0]!);
     const dos: DeliveryOrderRecord[] = [];
-    for (const id of [...deliveryOrderIds].sort()) dos.push(await this.lockEditable(tx, id));
+    for (const id of [...deliveryOrderIds].sort())
+      dos.push(
+        await this.lockEditable(tx, id, id === deliveryOrderIds[0] ? expectedVersion : undefined),
+      );
     const ordered = deliveryOrderIds.map((id) => dos.find((d) => d.id === id)!);
     this.plan(() =>
       checkMergeable(
@@ -395,6 +476,7 @@ export class DeliveryOrderService {
     deliveryOrderId: string,
     input: CancelInput,
     tx: Tx = this.db.tx,
+    expectedVersion?: number,
   ): Promise<DeliveryOrderRecord> {
     const note = cleanLine(String(input.note ?? '')).trim();
     if ([...note].length < 10)
@@ -405,7 +487,7 @@ export class DeliveryOrderService {
       });
       if (!rc) throw field422('reasonCodeId', 'invalid_reference', 'reason code not found');
     }
-    const d = await this.lockEditable(tx, deliveryOrderId);
+    const d = await this.lockEditable(tx, deliveryOrderId, expectedVersion);
     await this.cancelOne(tx, d, 'cancel', input.reasonCodeId ?? null, note);
     const final = await this.get(d.id, tx);
     await this.audit.record({
@@ -464,7 +546,11 @@ export class DeliveryOrderService {
   }
 
   /** ล็อก SO ของ DO ก่อน แล้วล็อก DO → ต้องเป็น DRAFT และไม่อยู่ในเที่ยว */
-  private async lockEditable(tx: Tx, id: string): Promise<DeliveryOrderRecord> {
+  private async lockEditable(
+    tx: Tx,
+    id: string,
+    expectedVersion?: number,
+  ): Promise<DeliveryOrderRecord> {
     const head = await tx.deliveryOrder.findUnique({
       where: { id },
       select: { salesOrderId: true },
@@ -473,7 +559,9 @@ export class DeliveryOrderService {
     await this.lockOrder(tx, head.salesOrderId);
     await tx.$queryRaw`SELECT id FROM delivery_order WHERE id = ${id}::uuid FOR UPDATE`;
     const d = await this.get(id, tx);
-    if (d.tripId !== null && d.status !== 'CANCELLED')
+    if (expectedVersion !== undefined && d.version !== expectedVersion)
+      throw new ProblemException('precondition_failed');
+    if (isOnActiveTrip(d))
       throw new ProblemException('delivery_order_on_trip', undefined, undefined, {
         status: d.status,
       });
@@ -512,6 +600,8 @@ export class DeliveryOrderService {
   /** ยกเลิกโดยระบบ (SO แก้/ไม่พร้อม) — เหตุผลเป็นข้อความระบบ + audit */
   private async systemCancel(tx: Tx, d: DeliveryOrderRecord, note: string) {
     await this.cancelOne(tx, d, 'cancel', null, note);
+    // ใบที่ระบบยกเลิกตอน rebuild ไม่นับเป็น "เคยสร้างจาก hash นี้" (SO กลับเป็นค่าเดิม → สร้างให้ใหม่ได้)
+    await tx.deliveryOrder.update({ where: { id: d.id }, data: { sourceHash: null } });
     await this.audit.record({
       action: `${ENTITY}.cancelled`,
       entityType: ENTITY,
@@ -602,6 +692,65 @@ export class DeliveryOrderService {
         });
         if (r.count === 0) throw new ProblemException('concurrent_update');
         return eventView(await this.get(d.id, tx));
+      },
+    });
+  }
+
+  /** แก้ข้อมูลหัว/ชื่อสินค้าของ DO ตาม SO (ไม่กระทบปริมาณ) — ใบ DRAFT นอกเที่ยวเท่านั้น */
+  private async refreshHeader(tx: Tx, so: OrderForDo, d: DeliveryOrderRecord) {
+    const head = { customerRef: so.customerRef, doDate: so.requestedDate };
+    const names = new Map(so.lines.map((l) => [l.id, l.description]));
+    const stale = d.lines.filter(
+      (l) => l.salesOrderLineId !== null && names.get(l.salesOrderLineId) !== l.description,
+    );
+    const headChanged =
+      d.customerRef !== head.customerRef || d.doDate.getTime() !== head.doDate.getTime();
+    if (!headChanged && !stale.length) return;
+    for (const l of stale)
+      await tx.deliveryOrderLine.update({
+        where: { id: l.id },
+        data: { description: names.get(l.salesOrderLineId!)! },
+      });
+    await tx.deliveryOrder.update({
+      where: { id: d.id },
+      data: { ...head, version: { increment: 1 } },
+    });
+    const desc = (l: DeliveryOrderLine) =>
+      l.salesOrderLineId ? (names.get(l.salesOrderLineId) ?? l.description) : l.description;
+    await this.audit.changed(
+      `${ENTITY}.updated`,
+      ENTITY,
+      d.id,
+      {
+        customerRef: d.customerRef,
+        doDate: d.doDate.toISOString().slice(0, 10),
+        lines: d.lines.map((l) => l.description),
+      },
+      {
+        customerRef: head.customerRef,
+        doDate: head.doDate.toISOString().slice(0, 10),
+        lines: d.lines.map(desc),
+      },
+    );
+  }
+
+  private async emitOrderEvent(
+    tx: Tx,
+    salesOrderId: string,
+    type: string,
+    snapshot: Record<string, unknown>,
+  ) {
+    const ctx = requestContext.require();
+    await tx.domainEvent.create({
+      data: {
+        tenantId: ctx.tenantId!,
+        type,
+        entityType: 'sales_order',
+        localId: salesOrderId,
+        snapshot: JSON.parse(JSON.stringify(snapshot)) as Prisma.InputJsonValue,
+        previousAttributes: {},
+        requestId: ctx.requestId ?? null,
+        actorId: ctx.actorId ?? null,
       },
     });
   }
@@ -712,8 +861,16 @@ function resolveStops(
   return { origin: origin.sequence, dest: dest.sequence };
 }
 
-/** SO พร้อมมี DO: พ้นร่าง ยังไม่วางแผน ลูกค้า + ทุกจุดจับคู่แล้ว และไม่ได้ค้างเพราะลูกค้า/สถานที่ */
-function isReady(so: OrderForDo): boolean {
+/**
+ * SO พร้อมให้ **สร้าง** DO: พ้นร่าง ยังไม่วางแผน ลูกค้า + ทุกจุดจับคู่แล้ว และไม่ได้ค้างเพราะลูกค้า/สถานที่/ข้อมูลต้นทาง
+ * (ค้าง RATE_MISSING ยังสร้างได้ — ข้อมูลส่งของครบ)
+ */
+function isReady(so: {
+  status: string;
+  customerId: string | null;
+  stops: { siteId: string | null; type: string }[];
+  holdReasonCode: { code: string } | null;
+}): boolean {
   return (
     (SO_DO_STATUSES as readonly string[]).includes(so.status) &&
     so.customerId !== null &&
@@ -721,29 +878,25 @@ function isReady(so: OrderForDo): boolean {
     so.stops.every((s) => s.siteId !== null) &&
     so.stops.some((s) => s.type === 'PICKUP') &&
     so.stops.some((s) => s.type === 'DELIVERY') &&
-    !(so.status === 'ON_HOLD' && UNMAPPED_HOLDS.has(so.holdReasonCode?.code ?? ''))
+    !(so.status === 'ON_HOLD' && NOT_READY_HOLDS.has(so.holdReasonCode?.code ?? ''))
   );
 }
 
-/** ลายนิ้วมือข้อมูล SO ที่ DO ใช้ (ไม่รวมราคา/หมายเหตุ/raw) — เปลี่ยน = DO ชุดเดิมไม่ตรงแล้ว (ORD-085) */
-function sourceHash(so: OrderForDo): string {
+/**
+ * ลายนิ้วมือข้อมูล SO **ที่ใช้จัดสรร** (ลูกค้า จุดรับ-ส่ง สินค้า/ปริมาณ/หน่วย/น้ำหนัก) — เปลี่ยน = DO ชุดเดิมใช้ไม่ได้ (ORD-085)
+ * ข้อมูลหัว (PO ลูกค้า วันที่ ช่วงเวลา ชื่อสินค้า) ไม่อยู่ใน hash — แก้ใน DO เดิม (`refreshHeader`)
+ * หมายเหตุ: บรรทัดของ DO ที่ยกเลิกเพราะ rebuild ยังอ้างบรรทัด SO เดิม (ค่าในบรรทัด DO เป็น snapshot ณ ตอนนั้น) —
+ * ปลดการอ้างเฉพาะเมื่อบรรทัด SO ถูกลบ (`releaseOrderLines`)
+ */
+function allocationHash(so: OrderForDo): string {
   return createHash('sha256')
     .update(
       stableStringify({
         customerId: so.customerId,
-        customerRef: so.customerRef,
-        requestedDate: so.requestedDate.toISOString().slice(0, 10),
-        stops: so.stops.map((s) => [
-          s.sequence,
-          s.type,
-          s.siteId,
-          s.windowStart?.toISOString() ?? null,
-          s.windowEnd?.toISOString() ?? null,
-        ]),
+        stops: so.stops.map((s) => [s.sequence, s.type, s.siteId]),
         lines: so.lines.map((l) => [
           l.id,
           l.lineNo,
-          l.description,
           dec(l.qtyOrdered),
           l.unit,
           dec(l.weightKg),

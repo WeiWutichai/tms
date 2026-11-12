@@ -687,11 +687,274 @@ describe('delivery orders (ST3-T09)', () => {
     );
   });
 
+  it('คนยกเลิก DO แล้วต้นทางส่งซ้ำค่าเดิม / reevaluate → DO ไม่ฟื้น · ข้อมูลจัดสรรเปลี่ยน → ชุดใหม่', async () => {
+    const k = await key();
+    const input = order(k, { source: 'API', externalId: `RESEND-${randomUUID().slice(0, 8)}` });
+    const { order: so } = await upsert(input);
+    const [d] = await activeDos(so.id);
+    await run(() => svc().cancel(d!.id, { note: 'ลูกค้าแจ้งยกเลิกรอบนี้' }));
+    await upsert(input);
+    await run((tx) => app.get(OrderIntakeService).reevaluate(so.id, tx));
+    expect(await activeDos(so.id)).toEqual([]);
+    expect(await db.deliveryOrder.count({ where: { salesOrderId: so.id } })).toBe(1);
+    // ปริมาณเปลี่ยน = ข้อมูลชุดใหม่ → สร้าง DO ให้ใหม่
+    await upsert({
+      ...input,
+      lines: [{ description: 'ปูนซีเมนต์', qty: '20', unitId: unitTon, weightKg: '20000' }],
+    });
+    const now = await activeDos(so.id);
+    expect(now.map((x) => x.lines.map((l) => l.qtyPlanned.toFixed()))).toEqual([['20']]);
+  });
+
+  it('ข้อมูลหัว (PO ลูกค้า วันที่ ชื่อสินค้า) เปลี่ยน → แก้ใน DO เดิม ไม่ยกเลิกใบที่แยกไว้', async () => {
+    const k = await key();
+    const { order: so } = await upsert(order(k, { customerRef: 'PO-A' }));
+    const [d] = await activeDos(so.id);
+    const [l1, l2] = await lineIds(so.id);
+    const kids = await run(() =>
+      svc().split(d!.id, [
+        [{ salesOrderLineId: l1!, qty: '24' }],
+        [{ salesOrderLineId: l2!, qty: '10' }],
+      ]),
+    );
+    const next = new Date(Date.parse(`${today}T00:00:00Z`) + 86400_000).toISOString().slice(0, 10);
+    const base = order(k);
+    await upsert({
+      ...base,
+      id: so.id,
+      customerRef: 'PO-B',
+      requestedDate: next,
+      stops: [
+        { type: 'PICKUP', siteId: k.origin, windowStart: `${next}T08:00:00+07:00` },
+        { type: 'DELIVERY', siteId: k.dest },
+      ],
+      lines: [{ ...base.lines![0]!, description: 'ปูนซีเมนต์ถุง' }, base.lines![1]!],
+    });
+    const now = await activeDos(so.id);
+    expect(now.map((x) => x.id).sort()).toEqual(kids.map((x) => x.id).sort());
+    for (const x of now) {
+      expect(x.customerRef).toBe('PO-B');
+      expect(x.doDate.toISOString().slice(0, 10)).toBe(next);
+      expect(x.version).toBe(2);
+    }
+    expect(now.flatMap((x) => x.lines.map((l) => l.description)).sort()).toEqual([
+      'ปูนซีเมนต์ถุง',
+      'พาเลทไม้',
+    ]);
+    expect(
+      await db.auditLog.count({
+        where: { action: 'delivery_order.updated', entityId: { in: kids.map((x) => x.id) } },
+      }),
+    ).toBe(2);
+  });
+
+  it('SO หลายจุดส่งถูกแก้จนต้องสร้าง DO ใหม่ → ยกเลิกชุดเดิม + event delivery_order.rebuild_required', async () => {
+    const k = await key();
+    const drop2 = await newSite();
+    const input = order(k, {
+      stops: [
+        { type: 'PICKUP', siteId: k.origin },
+        { type: 'DELIVERY', siteId: k.dest },
+        { type: 'DELIVERY', siteId: drop2 },
+      ],
+    });
+    const { order: so } = await upsert(input);
+    const a = await run(() => svc().createFromOrder(so.id, { destStopSeq: 2 }));
+    await upsert({
+      ...input,
+      id: so.id,
+      lines: [{ description: 'ปูนซีเมนต์', qty: '30', unitId: unitTon }, input.lines![1]!],
+    });
+    expect(await activeDos(so.id)).toEqual([]);
+    const ev = await db.domainEvent.findFirstOrThrow({
+      where: { type: 'delivery_order.rebuild_required', localId: so.id },
+    });
+    expect(ev).toMatchObject({ entityType: 'sales_order' });
+    expect(ev.snapshot).toEqual({ cancelled: [a.doNo], reason: 'MULTI_DROP' });
+  });
+
+  it('ข้อมูลหลักปิดใช้ (ค้าง CUSTOMER_UNMAPPED) → คง DO ที่คนแยกไว้ แต่สร้างใหม่ไม่ได้ · ค้าง SOURCE_ERROR ไม่สร้าง DO', async () => {
+    const k = await key();
+    const { order: so } = await upsert(order(k));
+    const [d] = await activeDos(so.id);
+    const [l1, l2] = await lineIds(so.id);
+    const kids = await run(() =>
+      svc().split(d!.id, [
+        [{ salesOrderLineId: l1!, qty: '24' }],
+        [{ salesOrderLineId: l2!, qty: '10' }],
+      ]),
+    );
+    await db.customer.update({ where: { id: k.customer }, data: { status: 'INACTIVE' } });
+    const r = await run((tx) => app.get(OrderIntakeService).reevaluate(so.id, tx));
+    expect(r.order.holdReasonCode?.code).toBe('CUSTOMER_UNMAPPED');
+    expect((await activeDos(so.id)).map((x) => x.id).sort()).toEqual(kids.map((x) => x.id).sort());
+    expect(await run(() => svc().isOrderReady(so.id))).toBe(false);
+    await run(() => svc().cancel(kids[1]!.id, { note: 'ทดสอบสร้างใหม่ตอนค้าง' }));
+    expect(await errOf(run(() => svc().createFromOrder(so.id)))).toMatchObject({
+      code: 'order_not_ready_for_delivery',
+    });
+    await db.customer.update({ where: { id: k.customer }, data: { status: 'ACTIVE' } });
+
+    const k2 = await key();
+    const { order: bad } = await upsert(
+      order(k2, {
+        source: 'ERP:krs',
+        externalId: `SRCERR-${randomUUID().slice(0, 8)}`,
+        sourceIssues: ['ไม่มีน้ำหนักสินค้า'],
+      }),
+    );
+    expect(bad.holdReasonCode?.code).toBe('SOURCE_ERROR');
+    expect(await activeDos(bad.id)).toEqual([]);
+  });
+
+  it('trip ที่ยกเลิกแล้วแม้ trip_id ค้าง = ไม่อยู่ในเที่ยว (นิยามเดียวกันทุกจุด) → แยก/ยกเลิกได้', async () => {
+    const k = await key();
+    const { order: so } = await upsert(order(k));
+    const [d] = await activeDos(so.id);
+    const [l1, l2] = await lineIds(so.id);
+    const trip = await db.trip.create({
+      data: { tenantId, tripDate: new Date(`${today}T00:00:00Z`), status: 'CANCELLED' },
+    });
+    await db.deliveryOrder.update({ where: { id: d!.id }, data: { tripId: trip.id } });
+    expect(await run((tx) => svc().hasDoOnTrip(tx, so.id))).toBe(false);
+    // ทางเข้าแก้ SO ได้ (ไม่ถูกล็อก) และ sync ไม่ข้าม DO ใบนี้
+    await upsert({ ...order(k), id: so.id, customerRef: 'PO-TRIP' });
+    expect((await activeDos(so.id))[0]!.customerRef).toBe('PO-TRIP');
+    const kids = await run(() =>
+      svc().split(d!.id, [
+        [{ salesOrderLineId: l1!, qty: '24' }],
+        [{ salesOrderLineId: l2!, qty: '10' }],
+      ]),
+    );
+    expect(kids).toHaveLength(2);
+  });
+
+  it('API /v1/delivery-orders: list (กรอง SO/สถานะ/ลูกค้า/วันที่) · get + ETag · สร้าง · แยก (If-Match) · รวม · ยกเลิก · สิทธิ์', async () => {
+    const k = await key();
+    const { order: so } = await upsert(order(k));
+    const ord = `ord_${so.id.replace(/-/g, '')}`;
+    const cus = `cus_${k.customer.replace(/-/g, '')}`;
+    const list = await api(app, admin)
+      .get(
+        `/v1/delivery-orders?orderId=${ord}&status=DRAFT&customerId=${cus}&dateFrom=${today}&dateTo=${today}`,
+      )
+      .expect(200);
+    expect(list.body.data).toHaveLength(1);
+    const d = list.body.data[0];
+    expect(d).toMatchObject({ orderId: ord, customerId: cus, status: 'DRAFT', destStopSeq: 2 });
+    expect(d.id).toMatch(/^do_[0-9a-f]{32}$/);
+    expect(JSON.stringify(d)).not.toMatch(/revenue|sellRate|amount/i);
+    expect(
+      (await api(app, admin).get(`/v1/delivery-orders?orderId=${ord}&status=CANCELLED`).expect(200))
+        .body.data,
+    ).toEqual([]);
+    const one = await api(app, admin).get(`/v1/delivery-orders/${d.id}`).expect(200);
+    expect(one.headers.etag).toBe(`"${d.version}"`);
+    expect(
+      one.body.lines.map((l: { soLineNo: number; qtyPlanned: string }) => [
+        l.soLineNo,
+        l.qtyPlanned,
+      ]),
+    ).toEqual([
+      [1, '24'],
+      [2, '10'],
+    ]);
+
+    const parts = {
+      parts: [
+        {
+          lines: [
+            { soLineNo: 1, qty: '12' },
+            { soLineNo: 2, qty: '4' },
+          ],
+        },
+        {
+          lines: [
+            { soLineNo: 1, qty: '12' },
+            { soLineNo: 2, qty: '6' },
+          ],
+        },
+      ],
+    };
+    await api(app, admin)
+      .post(`/v1/delivery-orders/${d.id}/split`)
+      .set('If-Match', '"99"')
+      .send(parts)
+      .expect(412);
+    const bad = await api(app, admin)
+      .post(`/v1/delivery-orders/${d.id}/split`)
+      .send({
+        parts: [{ lines: [{ soLineNo: 1, qty: '12' }] }, { lines: [{ soLineNo: 9, qty: 1 }] }],
+      })
+      .expect(422);
+    expect(bad.body.code).toBe('validation_failed');
+    const split = await api(app, admin)
+      .post(`/v1/delivery-orders/${d.id}/split`)
+      .set('If-Match', `"${d.version}"`)
+      .send(parts)
+      .expect(200);
+    const [a, b] = split.body.data;
+    expect([a.doNo, b.doNo]).toEqual([`${d.doNo}-1`, `${d.doNo}-2`]);
+    expect(a.splitFromId).toBe(d.id);
+
+    const merged = await api(app, admin)
+      .post(`/v1/delivery-orders/${a.id}/merge`)
+      .send({ deliveryOrderIds: [b.id] })
+      .expect(200);
+    expect(merged.body.lines.map((l: { qtyPlanned: string }) => l.qtyPlanned)).toEqual([
+      '24',
+      '10',
+    ]);
+    expect(merged.headers.etag).toBe(`"${merged.body.version}"`);
+
+    await api(app, admin)
+      .post(`/v1/delivery-orders/${a.id}/cancel`)
+      .send({ reason: 'สั้น' })
+      .expect(422);
+    const viewer = await tokenFor(tenantId, 'orders:read');
+    await api(app, viewer)
+      .post(`/v1/delivery-orders/${a.id}/cancel`)
+      .send({ reason: 'ลูกค้ายกเลิกรอบนี้' })
+      .expect(403);
+    await api(app, viewer).post(`/v1/delivery-orders/${a.id}/split`).send(parts).expect(403);
+    await api(app, viewer).get(`/v1/delivery-orders/${a.id}`).expect(200);
+    const cancelled = await api(app, admin)
+      .post(`/v1/delivery-orders/${a.id}/cancel`)
+      .send({ reason: 'ลูกค้ายกเลิกรอบนี้' })
+      .expect(200);
+    expect(cancelled.body.status).toBe('CANCELLED');
+    await api(app, admin)
+      .post(`/v1/delivery-orders/${a.id}/cancel`)
+      .send({ reason: 'ลูกค้ายกเลิกรอบนี้' })
+      .expect(409);
+
+    // สร้างจาก SO: ห้ามเกินคงเหลือ · SO ไม่พบ → 422
+    const over = await api(app, admin)
+      .post('/v1/delivery-orders')
+      .send({ orderId: ord, lines: [{ soLineNo: 1, qty: '25' }] })
+      .expect(422);
+    expect(over.body.errors.map((e: { code: string }) => e.code)).toEqual(['over_allocated']);
+    const created = await api(app, admin)
+      .post('/v1/delivery-orders')
+      .send({ orderId: ord, lines: [{ soLineNo: 1, qty: '20' }] })
+      .expect(201);
+    expect(created.body.lines.map((l: { qtyPlanned: string }) => l.qtyPlanned)).toEqual(['20']);
+    await api(app, admin)
+      .post('/v1/delivery-orders')
+      .send({ orderId: `ord_${'0'.repeat(32)}` })
+      .expect(422);
+    const otherTok = await tokenFor(otherId);
+    await api(app, otherTok).post('/v1/delivery-orders').send({ orderId: ord }).expect(422);
+    expect(
+      (await api(app, otherTok).get(`/v1/delivery-orders?orderId=${ord}`).expect(200)).body.data,
+    ).toEqual([]);
+  });
+
   it('call path: เขียน delivery_order* ได้จาก DeliveryOrderService ที่เดียว', () => {
     const root = resolve(__dirname, '../src');
     const allowed = new Set(['modules/delivery-orders/delivery-order.service.ts']);
     const WRITE =
-      /\b(deliveryOrder|deliveryOrderLine)\s*\.\s*(create|createMany|createManyAndReturn|update|updateMany|upsert|delete|deleteMany)\b|\b(INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+"?delivery_order/i;
+      /\b(deliveryOrder|deliveryOrderLine)\s*\.\s*(create|createMany|createManyAndReturn|update|updateMany|upsert|delete|deleteMany)\b|\b(INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+"?delivery_order|\b(deliveryOrders|deliveryOrderLines|redeliveries|splitChildren|doOrigins|doDests|doLineRejects)\s*:\s*\{\s*(create|createMany|connectOrCreate|update|updateMany|upsert|delete|deleteMany|set|connect)\b/i;
     const offenders: string[] = [];
     const walk = (dir: string) => {
       for (const f of readdirSync(dir)) {
