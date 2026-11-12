@@ -1,10 +1,19 @@
 import { Prisma } from '@prisma/client';
 import { describe, expect, it, vi } from 'vitest';
 import { ProblemException } from '../common/problem';
-import { AUTH_TX_OPTIONS, authTransaction, isTxAcquireTimeout } from './auth-tx';
+import { AUTH_TX_OPTIONS, authTransaction, isLockTimeout, isTxAcquireTimeout } from './auth-tx';
 
-const known = (code: string, message: string) =>
-  new Prisma.PrismaClientKnownRequestError(message, { code, clientVersion: 'test' });
+const known = (code: string, message: string, meta?: Record<string, unknown>) =>
+  new Prisma.PrismaClientKnownRequestError(message, { code, clientVersion: 'test', meta });
+const lockTimeout = () =>
+  known(
+    'P2010',
+    'Raw query failed. Code: `55P03`. Message: `canceling statement due to lock timeout`',
+    {
+      code: '55P03',
+      message: 'canceling statement due to lock timeout',
+    },
+  );
 const startTimeout = () =>
   known('P2028', 'Transaction API error: Unable to start a transaction in the given time.');
 const expired = () =>
@@ -55,11 +64,40 @@ describe('authTransaction (login/2FA ภายใต้ DB โหลดหนั
     expect($transaction).toHaveBeenCalledTimes(1);
   });
 
-  it('error อื่น (เช่น P2010 lock_timeout ระหว่างรอ advisory lock) → ส่งต่อให้ผู้เรียก (429 กันยิงถี่)', async () => {
-    const $transaction = vi.fn().mockRejectedValue(known('P2010', 'Raw query failed. 55P03'));
+  it('lockWait: รอ advisory lock เกิน lock_timeout (P2010 + 55P03) → 429 rate_limited ไม่ลองใหม่', async () => {
+    expect(isLockTimeout(lockTimeout())).toBe(true);
+    const $transaction = vi.fn().mockRejectedValue(lockTimeout());
     await expect(
-      authTransaction({ $transaction } as never, async () => 1, { retryDelayMs: 0 }),
-    ).rejects.toMatchObject({ code: 'P2010' });
+      authTransaction({ $transaction } as never, async () => 1, {
+        lockWait: true,
+        retryDelayMs: 0,
+      }),
+    ).rejects.toMatchObject({ code: 'rate_limited' });
     expect($transaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('P2010 อื่น (ไม่ใช่ 55P03) → ไม่กลบเป็น 429 ส่ง error เดิมต่อ (ProblemFilter → 500)', async () => {
+    const other = known('P2010', 'Raw query failed. Code: `42601`. Message: `syntax error`', {
+      code: '42601',
+      message: 'syntax error',
+    });
+    expect(isLockTimeout(other)).toBe(false);
+    const $transaction = vi.fn().mockRejectedValue(other);
+    await expect(
+      authTransaction({ $transaction } as never, async () => 1, {
+        lockWait: true,
+        retryDelayMs: 0,
+      }),
+    ).rejects.toBe(other);
+    expect($transaction).toHaveBeenCalledTimes(1);
+  });
+
+  it('ไม่มี lockWait (2FA ใช้ try-lock) → ไม่ตั้ง lock_timeout', async () => {
+    const tx = { $executeRawUnsafe: vi.fn() };
+    const $transaction = vi.fn(async (fn: (t: unknown) => Promise<number>) => fn(tx));
+    await authTransaction({ $transaction } as never, async () => 1);
+    expect(tx.$executeRawUnsafe).not.toHaveBeenCalled();
+    await authTransaction({ $transaction } as never, async () => 1, { lockWait: true });
+    expect(tx.$executeRawUnsafe).toHaveBeenCalledWith("SET LOCAL lock_timeout = '2s'");
   });
 });

@@ -2038,6 +2038,7 @@ export const th = {
   'rsn.na': 'ใช้กับหมวดนี้ไม่ได้',
   'rsn.otherNote': 'รายการ "อื่น ๆ" ต้องบังคับโน้ตเสมอ',
   'rsn.loadError': 'โหลดเหตุผลไม่สำเร็จ',
+  'set.loadError': 'โหลดการตั้งค่าไม่สำเร็จ',
   'rsn.loading': 'กำลังโหลด…',
   'rsn.retry': 'ลองอีกครั้ง',
   'rsn.emptyTitle': 'ยังไม่มีเหตุผล',

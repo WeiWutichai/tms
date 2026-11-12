@@ -18,7 +18,7 @@ import { PrismaService } from '../db/prisma.service';
 import { hashPassword, verifyPassword } from './password';
 import { PasswordPolicy } from './password-policy';
 import { lockSeconds, recordAttempt } from './throttle';
-import { authTransaction } from './auth-tx';
+import { ApiServiceBusyResponse, authTransaction } from './auth-tx';
 import { sha256 } from './tokens';
 import { iEquals } from '../common/ilike';
 
@@ -144,10 +144,10 @@ export class InvitationAcceptService {
         ]);
       // จองช่องแบบเดียวกับ login: ล็อกต่ออีเมล → IP แล้วตรวจเพดาน + เขียน attempt ใน transaction สั้น (กันยิงขนานเลี่ยงเพดาน)
       const who = { tenantId: inv.tenantId, userId: inv.userId };
-      let locked = 0;
-      try {
-        // เริ่ม transaction ไม่ทัน → ลองใหม่ 1 ครั้ง แล้ว 503 service_busy (เหมือน login)
-        locked = await authTransaction(db, async (tx) => {
+      // เริ่ม transaction ไม่ทัน → ลองใหม่ 1 ครั้ง แล้ว 503 service_busy; รอ lock เกิน lock_timeout → 429 (เหมือน login)
+      const locked = await authTransaction(
+        db,
+        async (tx) => {
           await tx.$executeRaw`SELECT pg_advisory_xact_lock(1, hashtext(${email}))`;
           await tx.$executeRaw`SELECT pg_advisory_xact_lock(2, hashtext(${client.ip}))`;
           const t = tx as unknown as PrismaClient;
@@ -158,12 +158,9 @@ export class InvitationAcceptService {
             ...who,
           });
           return l;
-        });
-      } catch (e) {
-        // รอ advisory lock เกิน lock_timeout (ยิงพร้อมกัน) → 429 ตามเดิม
-        if ((e as { code?: string }).code === 'P2010') throw new ProblemException('rate_limited');
-        throw e;
-      }
+        },
+        { lockWait: true },
+      );
       if (locked > 0)
         throw new ProblemException('account_locked', undefined, undefined, { retryAfter: locked });
       let match: AppUser | undefined;
@@ -252,6 +249,7 @@ export class InvitationAcceptController {
   }
 
   @Post('accept')
+  @ApiServiceBusyResponse()
   @HttpCode(204)
   @ApiNoContentResponse({
     description:

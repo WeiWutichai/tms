@@ -69,10 +69,11 @@ export class AuthService {
   ): Promise<{ code: string; expiresIn: number }> {
     const email = input.email.trim().toLowerCase();
     const db = this.db;
-    let lockedFor = 0;
-    try {
-      // เริ่ม transaction ไม่ทัน (pool เต็ม/DB ช้า) → ลองใหม่ 1 ครั้ง แล้ว 503 service_busy — ไม่ตอบ 429 ให้ผู้ใช้จริง
-      lockedFor = await authTransaction(db, async (tx) => {
+    // เริ่ม transaction ไม่ทัน (pool เต็ม/DB ช้า) → ลองใหม่ 1 ครั้ง แล้ว 503 service_busy — ไม่ตอบ 429 ให้ผู้ใช้จริง
+    // รอ advisory lock ของอีเมล/IP เดียวกันเกิน lock_timeout (55P03) = ยิงพร้อมกันจำนวนมาก → 429 rate_limited ตามเดิม
+    const lockedFor = await authTransaction(
+      db,
+      async (tx) => {
         // key 2 ตัว (namespace, hash) แยกอีเมลกับ IP ไม่ให้ชนกัน; ล็อกเรียง อีเมล → IP เสมอ กัน deadlock
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(1, hashtext(${email}))`;
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(2, hashtext(${client.ip}))`;
@@ -83,12 +84,9 @@ export class AuthService {
           reason: locked > 0 ? 'locked' : 'attempt',
         });
         return locked;
-      });
-    } catch (e) {
-      // รอ advisory lock ของอีเมล/IP เดียวกันเกิน lock_timeout (P2010/55P03) = ยิงพร้อมกันจำนวนมาก → 429 ตามเดิม
-      if ((e as { code?: string }).code === 'P2010') throw new ProblemException('rate_limited');
-      throw e;
-    }
+      },
+      { lockWait: true },
+    );
     if (lockedFor > 0)
       throw new ProblemException('account_locked', undefined, undefined, { retryAfter: lockedFor });
     return this.verifyAndIssueCode(db, email, input, client);

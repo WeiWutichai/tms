@@ -34,6 +34,17 @@
           },
           "429": {
             "description": "account_locked — มี header Retry-After"
+          },
+          "503": {
+            "description": "service_busy — ระบบ/ฐานข้อมูลรับงานไม่ทัน ลองใหม่หลังเวลาใน header Retry-After",
+            "headers": {
+              "Retry-After": {
+                "description": "วินาทีที่ควรรอก่อนลองใหม่",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -110,6 +121,17 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "service_busy — ระบบ/ฐานข้อมูลรับงานไม่ทัน ลองใหม่หลังเวลาใน header Retry-After",
+            "headers": {
+              "Retry-After": {
+                "description": "วินาทีที่ควรรอก่อนลองใหม่",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -172,6 +194,17 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "service_busy — ระบบ/ฐานข้อมูลรับงานไม่ทัน ลองใหม่หลังเวลาใน header Retry-After",
+            "headers": {
+              "Retry-After": {
+                "description": "วินาทีที่ควรรอก่อนลองใหม่",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "tags": [
@@ -200,6 +233,17 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/StepUpDto"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "service_busy — ระบบ/ฐานข้อมูลรับงานไม่ทัน ลองใหม่หลังเวลาใน header Retry-After",
+            "headers": {
+              "Retry-After": {
+                "description": "วินาทีที่ควรรอก่อนลองใหม่",
+                "schema": {
+                  "type": "integer"
                 }
               }
             }
@@ -404,6 +448,17 @@
           },
           "400": {
             "description": "invitation_invalid"
+          },
+          "503": {
+            "description": "service_busy — ระบบ/ฐานข้อมูลรับงานไม่ทัน ลองใหม่หลังเวลาใน header Retry-After",
+            "headers": {
+              "Retry-After": {
+                "description": "วินาทีที่ควรรอก่อนลองใหม่",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
           }
         },
         "tags": [
