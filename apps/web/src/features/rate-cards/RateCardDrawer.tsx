@@ -813,7 +813,11 @@ export function RateCardDrawer({
                         width: '100%',
                         height: 32,
                         padding: '0 8px',
-                        border: `1px solid ${errs[`acc:${a.id}`] ? '#B3322A' : '#C9CDC3'}`,
+                        // อ่านอย่างเดียว (ไม่มีสิทธิ์/ตามจริง/rate ยกเลิก) = พื้นเทาแบบ .tms-input[readonly] (QA ST2-T13)
+                        border: `1px solid ${errs[`acc:${a.id}`] ? '#B3322A' : priceRo || a.actual ? '#D9DCD4' : '#C9CDC3'}`,
+                        background: priceRo || a.actual ? '#F4F5F2' : '#FFFFFF',
+                        color: priceRo || a.actual ? '#3B424C' : '#101418',
+                        cursor: priceRo || a.actual ? 'default' : 'text',
                         borderRadius: 6,
                         fontVariantNumeric: 'tabular-nums',
                         fontSize: 13,

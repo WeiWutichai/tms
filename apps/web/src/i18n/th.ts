@@ -207,6 +207,7 @@ export const th = {
   'table.next': 'ถัดไป',
   'table.range': '{from}–{to}',
   'table.none': '0 รายการ',
+  'table.loading': 'กำลังโหลด…',
   'table.total': '{n} รายการ',
   'table.search': 'ค้นหา',
   'table.all': 'ทั้งหมด',

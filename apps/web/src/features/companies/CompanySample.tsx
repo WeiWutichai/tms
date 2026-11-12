@@ -165,6 +165,7 @@ export function tableLabels(t: T) {
     range: (from: number, to: number) => t('table.range', { from, to }),
     rangeOf: (from: number, to: number, n: number) => t('table.rangeOf', { from, to, n }),
     none: t('table.none'),
+    loading: t('table.loading'),
   };
 }
 
