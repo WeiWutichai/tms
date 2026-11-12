@@ -201,6 +201,11 @@ describe('DataTable', () => {
     fireEvent.click(screen.getByRole('button', { name: /ส่งออก/ }));
     expect(run).toHaveBeenCalledWith(['a', 'b']);
   });
+
+  it('selectable=false → ไม่มีช่องเลือกแถว (ผู้ใช้ไม่มี bulk action — QA ST2-T19)', () => {
+    render(<DataTable {...base} selectable={false} />);
+    expect(screen.queryAllByRole('checkbox')).toHaveLength(0);
+  });
 });
 
 describe('FormField ใน FormDrawer (QA ST2-T11)', () => {

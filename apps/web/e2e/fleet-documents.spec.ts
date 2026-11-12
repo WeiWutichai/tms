@@ -24,9 +24,9 @@ async function addDoc(page: Page, type: string, no: string, expiresIn: number) {
   await add.getByLabel('เริ่ม').fill(day(expiresIn - 365));
   await add.getByLabel('หมดอายุ').fill(day(expiresIn));
   await add.getByTestId('vdoc-file').setInputFiles(PDF(`${no}.pdf`));
-  await expect(add.getByText(`${no}.pdf`)).toBeVisible();
+  await expect(add.getByText(`${no}.pdf`, { exact: true })).toBeVisible();
   await add.getByRole('button', { name: 'บันทึกเอกสาร' }).click();
-  await expect(page.getByTestId('vdoc-list').getByText(no)).toBeVisible();
+  await expect(page.getByTestId('vdoc-list').getByText(no, { exact: true })).toBeVisible();
 }
 
 test.describe.serial('รถ → เอกสารรถ (ST2-T19)', () => {
@@ -86,7 +86,7 @@ test.describe.serial('รถ → เอกสารรถ (ST2-T19)', () => {
     await expect(rnw).toContainText(`เลขเดิม TAX-${RUN}`);
     await rnw.getByLabel('เลขที่ใหม่').fill(`TAX-${RUN}-N`);
     await rnw.getByTestId('vdoc-file').setInputFiles(PDF(`TAX-${RUN}-N.pdf`));
-    await expect(rnw.getByText(`TAX-${RUN}-N.pdf`)).toBeVisible();
+    await expect(rnw.getByText(`TAX-${RUN}-N.pdf`, { exact: true })).toBeVisible();
     await rnw.getByRole('button', { name: 'บันทึกการต่ออายุ' }).click();
     await expect(page.getByRole('status').filter({ hasText: 'ต่ออายุ' })).toContainText(
       `ต่ออายุภาษี ${PLATE} กทม.`,

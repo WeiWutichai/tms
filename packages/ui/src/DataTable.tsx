@@ -58,6 +58,8 @@ export interface DataTableProps<R> {
   filters?: Record<string, string>;
   onFilterChange?: (key: string, value: string) => void;
   bulkActions?: { label: string; icon: string; run: (ids: string[]) => void }[];
+  /** แสดงช่องเลือกแถว (ค่าเริ่มต้น true) — false เมื่อผู้ใช้ไม่มี bulk action ใดใช้ได้ (QA ST2-T19) */
+  selectable?: boolean;
   rowMenu?: (r: R) => { label: string; icon: string; run: () => void }[];
   empty?: ReactNode;
   loading?: boolean;
@@ -108,6 +110,7 @@ export function DataTable<R>(p: DataTableProps<R>) {
   const visible = p.columns.filter((c) => !hidden.includes(c.key));
   const ids = useMemo(() => p.rows.map(p.rowId), [p.rows, p.rowId]);
   const allOn = ids.length > 0 && ids.every((i) => sel.includes(i));
+  const selectable = p.selectable ?? true;
 
   useEffect(() => {
     if (!menuFor) return;
@@ -181,14 +184,16 @@ export function DataTable<R>(p: DataTableProps<R>) {
           <table className="tms-table">
             <thead>
               <tr>
-                <th className="tms-check">
-                  <input
-                    type="checkbox"
-                    checked={allOn}
-                    onChange={() => setSel(allOn ? [] : ids)}
-                    aria-label={p.labels.selected(ids.length)}
-                  />
-                </th>
+                {selectable && (
+                  <th className="tms-check">
+                    <input
+                      type="checkbox"
+                      checked={allOn}
+                      onChange={() => setSel(allOn ? [] : ids)}
+                      aria-label={p.labels.selected(ids.length)}
+                    />
+                  </th>
+                )}
                 {visible.map((c) => (
                   <th key={c.key} style={{ width: c.width, textAlign: c.align ?? 'left' }}>
                     {c.label}
@@ -198,7 +203,7 @@ export function DataTable<R>(p: DataTableProps<R>) {
               </tr>
               {showFilters && (
                 <tr className="tms-filters">
-                  <th />
+                  {selectable && <th />}
                   {visible.map((c) => (
                     <th key={c.key}>
                       {c.filter?.type === 'text' && (
@@ -237,16 +242,18 @@ export function DataTable<R>(p: DataTableProps<R>) {
                 const menu = p.rowMenu?.(r) ?? [];
                 return (
                   <tr key={id} aria-selected={p.activeId === id} onClick={() => p.onRowClick?.(r)}>
-                    <td className="tms-check" onClick={(e) => e.stopPropagation()}>
-                      <input
-                        type="checkbox"
-                        checked={sel.includes(id)}
-                        onChange={() =>
-                          setSel((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]))
-                        }
-                        aria-label={id}
-                      />
-                    </td>
+                    {selectable && (
+                      <td className="tms-check" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={sel.includes(id)}
+                          onChange={() =>
+                            setSel((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]))
+                          }
+                          aria-label={id}
+                        />
+                      </td>
+                    )}
                     {visible.map((c) => (
                       <td key={c.key} style={{ textAlign: c.align ?? 'left' }}>
                         {c.render(r)}

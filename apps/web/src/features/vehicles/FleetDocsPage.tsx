@@ -274,7 +274,9 @@ export function FleetDocsPage() {
             // เปลี่ยนแท็บ/ตัวกรอง → ล้างแถวที่เลือก (ไม่ส่งออกแถวที่มองไม่เห็นแล้ว)
             key={JSON.stringify(query)}
             columns={columns}
-            rows={list.rows}
+            // เปลี่ยนแท็บ/ตัวกรอง/หน้า: ไม่แสดงแถวชุดเดิมระหว่างโหลด → "กำลังโหลด…" (QA ST2-T19)
+            rows={list.loading ? [] : list.rows}
+            selectable={canExport}
             rowId={(d) => d.id}
             activeId={renewing?.id ?? null}
             loading={list.loading}
@@ -332,7 +334,11 @@ export function FleetDocsPage() {
                 />
               )
             }
-            page={{ ...list.page, ...(shownTotal !== undefined ? { total: shownTotal } : {}) }}
+            page={{
+              ...list.page,
+              ...(list.loading ? { rowsOnPage: 0 } : {}),
+              ...(shownTotal !== undefined ? { total: shownTotal } : {}),
+            }}
             onPageSize={list.setSize}
             onNext={list.next}
             onPrev={list.prev}
