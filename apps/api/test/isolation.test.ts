@@ -479,6 +479,78 @@ const FIXTURES: Record<string, (db: PrismaClient, tenantId: string, n: number) =
     },
     job: async (db, tenantId) =>
       encodeId('job', (await db.job.create({ data: { tenantId, type: 'noop' } })).id),
+    // ST3-T09 ใบส่งของ — นิติบุคคล + ลูกค้า + สถานที่ 2 จุด + SO (1 บรรทัด) + DO ร่าง 1 ใบ
+    deliveryOrder: async (db, tenantId, n) => {
+      const co = await db.company.create({
+        data: { tenantId, legalName: `Co DO ${n}`, taxId: validTaxId(1700 + n) },
+      });
+      const cus = await db.customer.create({
+        data: {
+          tenantId,
+          code: `ISO-DO${n}`,
+          legalName: `Cust DO ${n}`,
+          taxId: validTaxId(1800 + n),
+        },
+      });
+      const site = (k: string) =>
+        db.customerSite.create({
+          data: {
+            tenantId,
+            code: `ISO-DO${k}${n}`,
+            name: `Site DO${k}${n}`,
+            address: { line1: 'x' },
+          },
+        });
+      const [a, b] = [await site('A'), await site('B')];
+      const so = await db.salesOrder.create({
+        data: {
+          tenantId,
+          soNo: `SO-ISO-${n}`,
+          source: 'MANUAL',
+          customerId: cus.id,
+          billingCompanyId: co.id,
+          requestedDate: new Date('2026-11-12'),
+          status: 'RECEIVED',
+          stops: {
+            create: [
+              { tenantId, sequence: 1, type: 'PICKUP', siteId: a.id, siteText: 'A' },
+              { tenantId, sequence: 2, type: 'DELIVERY', siteId: b.id, siteText: 'B' },
+            ],
+          },
+          lines: {
+            create: [{ tenantId, lineNo: 1, description: 'x', qtyOrdered: '2', unit: 'TON' }],
+          },
+        },
+        include: { lines: true },
+      });
+      const d = await db.deliveryOrder.create({
+        data: {
+          tenantId,
+          doNo: `DO-ISO-${n}`,
+          doDate: new Date('2026-11-12'),
+          salesOrderId: so.id,
+          customerId: cus.id,
+          originSiteId: a.id,
+          destSiteId: b.id,
+          originStopSeq: 1,
+          destStopSeq: 2,
+          lines: {
+            create: [
+              {
+                tenantId,
+                lineNo: 1,
+                salesOrderLineId: so.lines[0]!.id,
+                soLineNo: 1,
+                description: 'x',
+                qtyPlanned: '2',
+                unit: 'TON',
+              },
+            ],
+          },
+        },
+      });
+      return encodeId('deliveryOrder', d.id);
+    },
   };
 
 /** body ขั้นต่ำที่ผ่าน validation ของ action แต่ละแบบ (ให้ไปถึง handler แล้วได้ 404 จริง) */
@@ -490,6 +562,11 @@ const BODY_FOR_SUFFIX: Record<string, object> = {
   delete: { reason: 'isolation test reason' },
   revoke: { reason: 'isolation test' },
   cancel: { reason: 'isolation test' },
+  // ST3-T09 /delivery-orders/:id/split และ /merge
+  split: {
+    parts: [{ lines: [{ soLineNo: 1, qty: '1' }] }, { lines: [{ soLineNo: 1, qty: '1' }] }],
+  },
+  merge: { deliveryOrderIds: [`do_${'0'.repeat(32)}`] },
   approve: { reason: 'isolation test reason' }, // ST2-T13 /rate-cards/:id/approve
   reject: { reason: 'isolation test reason' }, // ST2-T03 /customer-sites/:id/geocode/reject
   reveal: { field: 'bankAccountNo', reason: 'isolation test reason' }, // ST2-T05 /carriers/:id/reveal
