@@ -26,7 +26,13 @@ import {
   UploadLinkDto,
   UploadLinkListDto,
 } from './carrier-docs.dto';
-import { CarrierDocsService, LINK_ACTIONS, type LinkRef } from './carrier-docs.service';
+import {
+  CarrierDocsService,
+  LINK_ACTIONS,
+  LINK_PURPOSE,
+  type LinkRef,
+} from './carrier-docs.service';
+import { ProblemException } from '../../common/problem';
 
 /**
  * รถร่วมอัปโหลดเอกสารผ่านลิงก์ — ฝั่ง admin (ST2-T21)
@@ -127,7 +133,11 @@ export class CarrierDocsPublicController {
   /** ลิงก์ที่ AuthGuard ยืนยันแล้ว (@LinkAction) */
   private link(): LinkRef {
     const ctx = requestContext.require();
-    return { id: ctx.link!.id, tenantId: ctx.tenantId!, entityId: ctx.link!.entityId };
+    const l = ctx.link;
+    // action เฉพาะของลิงก์นี้อยู่แล้ว — กันอีกชั้นว่าเป็นลิงก์ของผู้รับเหมา (review ST2-T21)
+    if (!l || l.purpose !== LINK_PURPOSE || l.entityType !== 'carrier')
+      throw new ProblemException('not_found');
+    return { id: l.id, tenantId: ctx.tenantId!, entityId: l.entityId };
   }
 
   @Get(':token')

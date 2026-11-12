@@ -128,6 +128,7 @@ function UploadForm({
       expires_before_start: 'cdl.v.beforeStart',
       pending_exists: 'cdl.v.pending',
       invalid_date: 'cdl.v.required',
+      matches: 'cdl.v.licNo',
     };
     return code && map[code] ? t(map[code]) : t('cdl.v.failed');
   };

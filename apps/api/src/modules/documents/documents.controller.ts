@@ -198,6 +198,12 @@ export class DocumentsController {
       const doc = await tx.storedDocument.findUnique({ where: { id: docId } });
       if (!doc) throw new ProblemException('not_found');
       if (doc.status !== 'PENDING') throw new ProblemException('invalid_state_transition');
+      // ไฟล์ที่จองผ่าน magic link (ST2-T21): ลิงก์ถูกเพิกถอน/หมดอายุแล้ว → อัปโหลดไม่ได้ (ไม่รอ URL หมด 15 นาที)
+      if (doc.createdBy?.startsWith('link:')) {
+        const link = await tx.magicLink.findUnique({ where: { id: doc.createdBy.slice(5) } });
+        if (!link || link.revokedAt || link.expiresAt.getTime() <= Date.now())
+          throw new ProblemException('not_found');
+      }
       const fail = (code: string, message: string) =>
         new ProblemException('validation_failed', undefined, [{ field: 'content', code, message }]);
       if (data.length === 0) throw fail('empty_file', 'file is empty');

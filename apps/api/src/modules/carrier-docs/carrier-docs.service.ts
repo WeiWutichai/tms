@@ -14,6 +14,7 @@ import { MagicLinkService, type ResolvedLink } from '../links/magic-link.service
 export type LinkRef = Pick<ResolvedLink, 'id' | 'tenantId' | 'entityId'>;
 import { emitMasterEvent, lockKey } from '../master/master-kit';
 import { DriversService } from '../drivers/drivers.service';
+import { LICENCE_NO_RE } from '../drivers/driver.dto';
 import {
   addDays,
   bangkokToday,
@@ -42,6 +43,10 @@ export const LINK_ACTIONS = { view: 'docs.view', upload: 'docs.upload' } as cons
 export const DEFAULT_TTL_DAYS = 7;
 /** จองไฟล์ต่อลิงก์ไม่เกิน N ไฟล์ / ชั่วโมง (กันใช้ลิงก์เป็นที่ฝากไฟล์) — นอกจาก rate limit ต่อ IP ของ /public/* */
 export const LINK_FILES_PER_HOUR = 30;
+/** จองไฟล์ตลอดอายุลิงก์ไม่เกิน N ไฟล์ (เพดานพื้นที่ — review ST2-T21) */
+export const LINK_FILES_LIFETIME = 200;
+/** ลิงก์ที่ยังใช้ได้ต่อผู้รับเหมาไม่เกิน N ลิงก์ — เกิน → 409 `link_limit` (ยกเลิกลิงก์เก่าก่อน; ไม่เพิกถอนให้อัตโนมัติ) */
+export const MAX_ACTIVE_LINKS = 5;
 /** หน้าอัปโหลดใช้ "ใกล้หมด" ≤ 30 วัน เหมือนป้ายเอกสารรถ (ต้นแบบ) */
 const SOON_DAYS = 30;
 const ENTITY = 'carrier_doc_submission';
@@ -132,6 +137,22 @@ export class CarrierDocsService {
   async issueLink(carrierId: string, ttlDays = DEFAULT_TTL_DAYS): Promise<IssuedUploadLinkDto> {
     const c = await this.carrier(carrierId);
     const ctx = requestContext.require();
+    await lockKey(this.db.tx, `carrier_docs.links:${c.id}`);
+    const active = await this.db.tx.magicLink.count({
+      where: {
+        purpose: LINK_PURPOSE,
+        entityType: 'carrier',
+        entityId: c.id,
+        revokedAt: null,
+        expiresAt: { gt: new Date() },
+      },
+    });
+    if (active >= MAX_ACTIVE_LINKS)
+      throw new ProblemException(
+        'conflict',
+        `at most ${MAX_ACTIVE_LINKS} active links per carrier — revoke an older link first`,
+        [{ field: 'id', code: 'link_limit', message: 'too many active links' }],
+      );
     const issued = await this.links.issue(this.db.tx, ctx.tenantId!, {
       purpose: LINK_PURPOSE,
       entityType: 'carrier',
@@ -275,7 +296,7 @@ export class CarrierDocsService {
     });
     if (!carrier) throw new ProblemException('not_found');
     const [tenant, row, { vehicles, drivers }, pending, recent] = await Promise.all([
-      tx.tenant.findFirst({ select: { name: true } }),
+      tx.tenant.findFirst({ where: { id: link.tenantId }, select: { name: true } }),
       tx.magicLink.findUniqueOrThrow({ where: { id: link.id } }),
       this.scope(carrier.id),
       tx.carrierDocSubmission.findMany({
@@ -380,6 +401,12 @@ export class CarrierDocsService {
     });
     if (recent >= LINK_FILES_PER_HOUR)
       throw new ProblemException('rate_limited', 'too many files for this link — try again later');
+    const total = await tx.storedDocument.count({ where: { createdBy: actor } });
+    if (total >= LINK_FILES_LIFETIME)
+      throw new ProblemException(
+        'rate_limited',
+        'file limit of this link reached — ask for a new link',
+      );
     const doc = await tx.storedDocument.create({
       data: {
         tenantId: link.tenantId,
@@ -463,6 +490,9 @@ export class CarrierDocsService {
       const d = drivers.find((x) => x.id === driverId);
       if (!d) throw new ProblemException('not_found');
       if (!body.docNo) throw field422('docNo', 'required', 'docNo is required');
+      // รูปแบบเดียวกับเลขใบขับขี่ของคนขับ (T08) — กันอนุมัติแล้ว PATCH คนขับไม่ผ่าน
+      if (!LICENCE_NO_RE.test(body.docNo))
+        throw field422('docNo', 'matches', 'docNo is not a valid licence number');
       if (body.startsOn !== undefined)
         throw field422('startsOn', 'not_allowed', 'startsOn is not used for DRIVER_LICENCE');
       if (body.issuer)
@@ -732,10 +762,25 @@ export class CarrierDocsService {
         resultId = r.id;
       }
     } else {
+      // ล็อกคนขับแล้วอ่านใหม่ — ใบขับขี่อาจถูกแก้หลังรถร่วมส่ง (กันเขียนทับฉบับที่ใหม่กว่า — review ST2-T21)
+      await tx.$queryRaw`SELECT id FROM driver WHERE id = ${s.driverId!}::uuid FOR UPDATE`;
       const d = await tx.driver.findFirst({
         where: { id: s.driverId!, carrierId: s.carrierId, deletedAt: null },
       });
       if (!d || d.status === 'INACTIVE') throw changed();
+      if (d.licenceExpiresAt && day(s.expiresOn) <= day(d.licenceExpiresAt))
+        throw new ProblemException('conflict', 'driver licence is already newer', [
+          {
+            field: 'expiresOn',
+            code: 'not_after_previous',
+            message: 'current licence expires on or after this one — reject instead',
+          },
+        ]);
+      // ไฟล์ย้ายจากรายการที่ส่ง → คนขับ (ยังไม่มีแท็บไฟล์ของคนขับ — ไฟล์ยังเปิดจากรายการที่ส่งได้)
+      await tx.storedDocument.updateMany({
+        where: { id: { in: s.fileDocumentIds }, entityType: ENTITY, entityId: s.id },
+        data: { entityType: 'driver_licence', entityId: d.id },
+      });
       await this.drivers.update(d.id, {
         licenceNo: s.docNo!,
         licenceExpiresOn: day(s.expiresOn),

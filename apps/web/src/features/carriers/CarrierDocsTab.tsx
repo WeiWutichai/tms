@@ -1,5 +1,6 @@
 import { EmptyState, Icon, ReasonDialog, Toast } from '@tms/ui';
 import { useState } from 'react';
+import { ApiError } from '../../api';
 import { formatDate, useI18n, type T } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
 import { useMe } from '../../shell/AppShell';
@@ -128,7 +129,14 @@ export function CarrierDocsTab({ carrierId, canWrite }: { carrierId: string; can
               onClick={() =>
                 issue.mutate(undefined, {
                   onSuccess: (l) => setIssued(l),
-                  onError: (e) => setToast(problemText(e, t)),
+                  onError: (e) =>
+                    setToast(
+                      e instanceof ApiError &&
+                        (e.problem as { errors?: { code: string }[] }).errors?.[0]?.code ===
+                          'link_limit'
+                        ? t('cdoc.link.limit')
+                        : problemText(e, t),
+                    ),
                 })
               }
             >

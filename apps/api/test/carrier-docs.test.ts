@@ -11,7 +11,11 @@ import {
   resetPublicRateLimit,
 } from '../src/http/public-rate-limit.middleware';
 import { AssignabilityService } from '../src/modules/assignability/assignability.service';
-import { LINK_FILES_PER_HOUR } from '../src/modules/carrier-docs/carrier-docs.service';
+import {
+  LINK_FILES_LIFETIME,
+  LINK_FILES_PER_HOUR,
+  MAX_ACTIVE_LINKS,
+} from '../src/modules/carrier-docs/carrier-docs.service';
 import { MagicLinkService } from '../src/modules/links/magic-link.service';
 import { addDays, bangkokToday } from '../src/modules/vehicle-documents/expiry';
 import { api, bootApp, createTenant, platform, tokenFor, truncateAll, validTaxId } from './helpers';
@@ -106,9 +110,18 @@ describe('ลิงก์อัปโหลดเอกสารรถร่ว�
   });
 
   const pub = () => request(app.getHttpServer());
-  const issue = async (carrierId = carrierA, body: object = {}) =>
-    (await api(app, admin).post(`/v1/carriers/${carrierId}/upload-links`).send(body).expect(201))
-      .body as { id: string; token: string; url: string; expiresAt: string; status: string };
+  /** ลิงก์ที่ใช้ได้มีเพดานต่อผู้รับเหมา (MAX_ACTIVE_LINKS) — test ส่วนใหญ่เพิกถอนลิงก์เก่าก่อน (fresh) */
+  const revokeAll = (carrierId: string) =>
+    db.magicLink.updateMany({
+      where: { entityId: tryDecodeId('carrier', carrierId)!, revokedAt: null },
+      data: { revokedAt: new Date(), revokedReason: 'test reset' },
+    });
+  const issue = async (carrierId = carrierA, body: object = {}, fresh = true, token = admin) => {
+    if (fresh) await revokeAll(carrierId);
+    return (
+      await api(app, token).post(`/v1/carriers/${carrierId}/upload-links`).send(body).expect(201)
+    ).body as { id: string; token: string; url: string; expiresAt: string; status: string };
+  };
   const path = (url: string) => new URL(url).pathname + new URL(url).search;
   const upload = async (token: string, data = PDF, mime = 'application/pdf') => {
     const r = await pub()
@@ -541,5 +554,132 @@ describe('ลิงก์อัปโหลดเอกสารรถร่ว�
       await pub().get(`/v1/public/carrier-docs/${l.token}`);
     const r = await pub().get(`/v1/public/carrier-docs/${l.token}`).expect(429);
     expect(r.headers['retry-after']).toBeDefined();
+  });
+  // ---------- review (security) ST2-T21 ----------
+
+  it('review: ลิงก์ที่ใช้ได้ต่อผู้รับเหมาไม่เกิน 5 → 409 link_limit · ยกเลิกแล้วออกใหม่ได้', async () => {
+    const first = await issue();
+    for (let i = 1; i < MAX_ACTIVE_LINKS; i++) await issue(carrierA, {}, false);
+    const r = await api(app, admin)
+      .post(`/v1/carriers/${carrierA}/upload-links`)
+      .send({})
+      .expect(409);
+    expect(r.body.errors[0].code).toBe('link_limit');
+    await api(app, admin)
+      .post(`/v1/carrier-upload-links/${first.id}/revoke`)
+      .send({ reason: 'ลิงก์เก่าไม่ใช้แล้ว ยกเลิก' })
+      .expect(200);
+    await issue(carrierA, {}, false);
+  });
+
+  it('review: เพดานไฟล์ตลอดอายุลิงก์ → 429 · PUT เนื้อไฟล์หลังลิงก์ถูกเพิกถอน → 404', async () => {
+    const l = await issue();
+    const lid = tryDecodeId('magicLink', l.id)!;
+    await db.storedDocument.createMany({
+      data: Array.from({ length: LINK_FILES_LIFETIME }, () => ({
+        tenantId,
+        status: 'PENDING',
+        kind: 'VEHICLE_DOC',
+        mimeType: 'application/pdf',
+        sizeBytes: 10,
+        entityType: 'carrier_doc_submission',
+        createdBy: `link:${lid}`,
+        createdAt: new Date(Date.now() - 2 * 3600_000),
+      })),
+    });
+    await pub()
+      .post(`/v1/public/carrier-docs/${l.token}/files`)
+      .send({ mime: 'application/pdf', bytes: 10 })
+      .expect(429);
+
+    const l2 = await issue();
+    const r = await pub()
+      .post(`/v1/public/carrier-docs/${l2.token}/files`)
+      .send({ mime: 'application/pdf', bytes: PDF.length })
+      .expect(201);
+    await api(app, admin)
+      .post(`/v1/carrier-upload-links/${l2.id}/revoke`)
+      .send({ reason: 'ส่งลิงก์ผิดคน ขอยกเลิก' })
+      .expect(200);
+    await pub()
+      .put(path(r.body.uploadUrl))
+      .set('Content-Type', 'application/octet-stream')
+      .send(PDF)
+      .expect(404);
+  });
+
+  it('review: ลิงก์/ไฟล์ของ tenant อื่น — ไฟล์ข้าม tenant ใช้ส่งไม่ได้ · รถของ tenant อื่นไม่เห็น', async () => {
+    const otherTenant = (await db.tenant.findFirst({
+      where: { id: { not: tenantId }, name: { not: 'ศรีสมมติขนส่ง' } },
+    }))!.id;
+    const bAdmin = await tokenFor(otherTenant);
+    const bCarrier = (
+      await api(app, bAdmin)
+        .post('/v1/carriers')
+        .send({ legalName: 'รถร่วม tenant อื่น', entityType: 'INDIVIDUAL', taxId: validTaxId(901) })
+        .expect(201)
+    ).body.id as string;
+    const bl = await issue(bCarrier, {}, true, bAdmin);
+    const bFile = await upload(bl.token);
+    const v = await pub().get(`/v1/public/carrier-docs/${bl.token}`).expect(200);
+    expect(v.body.vehicles).toEqual([]);
+    expect(JSON.stringify(v.body)).not.toContain('74-5521');
+
+    const l = await issue();
+    const r = await submit(
+      l.token,
+      await insurance(l.token, {
+        docType: 'COMPULSORY_ACT',
+        startsOn: addDays(today, 365),
+        expiresOn: addDays(today, 900),
+        fileDocumentIds: [bFile],
+      }),
+    ).expect(422);
+    expect(r.body.errors[0]).toMatchObject({ field: 'fileDocumentIds', code: 'not_found' });
+    // token ของ tenant อื่นส่งรถของเราไม่ได้
+    await submit(bl.token, await insurance(bl.token, { docType: 'COMPULSORY_ACT' })).expect(404);
+  });
+
+  it('review: ใบขับขี่ — เลขผิดรูปแบบ 422 · ใบขับขี่ถูกแก้ใหม่กว่าหลังส่ง → อนุมัติ 409 not_after_previous · อนุมัติแล้วไฟล์ผูกกับคนขับ', async () => {
+    const l = await issue();
+    const lic = async (docNo: string, n: number) =>
+      submit(l.token, {
+        driverId: drvA,
+        docType: 'DRIVER_LICENCE',
+        docNo,
+        expiresOn: addDays(today, n),
+        fileDocumentIds: [await upload(l.token)],
+      });
+    const bad = await lic('ใบ#1', 2000);
+    expect(bad.status).toBe(422);
+    expect(bad.body.errors[0]).toMatchObject({ field: 'docNo', code: 'matches' });
+    expect((await lic('DL-2569-0003', 2000)).status).toBe(201);
+    const [s] = await pending();
+    const drvId = tryDecodeId('driver', drvA)!;
+    // admin แก้ใบขับขี่ในหน้าคนขับเป็นฉบับที่หมดช้ากว่า หลังรถร่วมส่ง
+    await db.driver.update({
+      where: { id: drvId },
+      data: { licenceExpiresAt: new Date(`${addDays(today, 2500)}T00:00:00Z`) },
+    });
+    const c = await api(app, admin)
+      .post(`/v1/carrier-doc-submissions/${s!.id}/approve`)
+      .send({ reason: 'ตรวจใบขับขี่แล้วถูกต้อง' })
+      .expect(409);
+    expect(c.body.errors[0].code).toBe('not_after_previous');
+    expect((await db.driver.findUnique({ where: { id: drvId } }))!.licenceNo).not.toBe(
+      'DL-2569-0003',
+    );
+    await db.driver.update({
+      where: { id: drvId },
+      data: { licenceExpiresAt: new Date(`${addDays(today, 100)}T00:00:00Z`) },
+    });
+    await api(app, admin)
+      .post(`/v1/carrier-doc-submissions/${s!.id}/approve`)
+      .send({ reason: 'ตรวจใบขับขี่แล้วถูกต้อง' })
+      .expect(200);
+    const f = await db.storedDocument.findUnique({
+      where: { id: tryDecodeId('document', s!.files[0]!.id)! },
+    });
+    expect(f).toMatchObject({ entityType: 'driver_licence', entityId: drvId });
   });
 });

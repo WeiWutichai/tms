@@ -117,4 +117,68 @@ test.describe.serial('รถร่วมอัปโหลดเอกสาร�
     await expect(veh.locator('[data-doc-type=COMPULSORY_ACT]')).toContainText('ใช้ได้ถึง');
     await mobile.close();
   });
+
+  test('admin ไม่อนุมัติ (เหตุผล) → มือถือเห็นเหตุผล · ยกเลิกลิงก์ → หน้า "ลิงก์นี้ใช้ไม่ได้"', async ({
+    page,
+    browser,
+  }) => {
+    await page.goto('/fleet/drivers?tab=con');
+    await page.getByRole('columnheader').getByPlaceholder('ค้นหา').first().fill(CAR);
+    await page.locator('tbody tr').filter({ hasText: CAR }).first().click();
+    await page.getByRole('tab', { name: 'เอกสารแนบ' }).click();
+    await page.getByRole('button', { name: 'สร้างลิงก์' }).click();
+    const url = (await page
+      .getByTestId('cdoc-issued')
+      .locator('span[title]')
+      .getAttribute('title'))!;
+
+    const mobile = await browser.newContext({
+      viewport: { width: 390, height: 844 },
+      locale: 'th-TH',
+    });
+    const m = await mobile.newPage();
+    await m.goto(new URL(url).pathname);
+    const veh = m.getByTestId('cdl-vehicle').filter({ hasText: PLATE });
+    await veh.locator('[data-doc-type=INSURANCE]').click();
+    const form = m.getByTestId('cdl-form');
+    await form.getByLabel('เลขที่เอกสาร').fill(`POL-${RUN}`);
+    await form.getByLabel('วันเริ่มคุ้มครอง').fill(day(0));
+    await form.getByLabel('วันหมดอายุ').fill(day(365));
+    await form.getByTestId('cdl-file').setInputFiles({ ...PDF, name: 'กรมธรรม์.pdf' });
+    await expect(form.getByText('ไฟล์ที่ 1')).toBeVisible();
+    await form.getByRole('button', { name: 'ส่งเอกสาร' }).click();
+    await expect(veh.locator('[data-doc-type=INSURANCE]')).toContainText('รอตรวจ');
+
+    await page.reload();
+    await page.getByRole('columnheader').getByPlaceholder('ค้นหา').first().fill(CAR);
+    await page.locator('tbody tr').filter({ hasText: CAR }).first().click();
+    await page.getByRole('tab', { name: 'เอกสารแนบ' }).click();
+    const row = page.getByTestId('cdoc-subs').locator('[data-status=pending_review]');
+    await row.getByRole('button', { name: 'ไม่อนุมัติ' }).click();
+    const dlg = page.getByRole('dialog').filter({ hasText: 'ไม่อนุมัติ' });
+    await dlg.getByRole('textbox').fill('รูปไม่ชัด ถ่ายใหม่ให้เห็นวันหมด');
+    await dlg.getByRole('button', { name: 'ไม่อนุมัติ', exact: true }).click();
+    await expect(page.getByTestId('cdoc-subs').locator('[data-status=rejected]')).toContainText(
+      'รูปไม่ชัด ถ่ายใหม่ให้เห็นวันหมด',
+    );
+
+    await m.reload();
+    await expect(m.getByTestId('cdl-sent')).toContainText(
+      'เหตุผล: รูปไม่ชัด ถ่ายใหม่ให้เห็นวันหมด',
+    );
+
+    // ยกเลิกลิงก์ทั้งหมด → มือถือเปิดไม่ได้
+    for (;;) {
+      const link = page.getByTestId('cdoc-link').first();
+      if (!(await link.count())) break;
+      await link.getByRole('button', { name: 'ยกเลิกลิงก์' }).click();
+      const rd = page.getByRole('dialog').filter({ hasText: 'ยกเลิกลิงก์' });
+      await rd.getByRole('textbox').fill('ทดสอบยกเลิกลิงก์ E2E');
+      await rd.getByRole('button', { name: 'ยกเลิกลิงก์', exact: true }).click();
+      await expect(rd).toBeHidden();
+    }
+    await m.reload();
+    await expect(m.getByRole('alert')).toContainText('ลิงก์นี้ใช้ไม่ได้');
+    await mobile.close();
+  });
 });

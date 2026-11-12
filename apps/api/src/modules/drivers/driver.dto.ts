@@ -47,7 +47,7 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 /** เบอร์ไทย: 0XXXXXXXX(X) หรือ +66 … — ตัวคั่นขีด/ช่องว่างได้ (normalize ที่ service) */
 const PHONE_RE = /^(\+66|0)[0-9 \-]{8,16}$/;
 /** เลขที่ใบขับขี่ (เลข/อักษร ขีด ทับ) */
-const LICENCE_NO_RE = /^[0-9A-Za-z][0-9A-Za-z\-/. ]{0,29}$/;
+export const LICENCE_NO_RE = /^[0-9A-Za-z][0-9A-Za-z\-/. ]{0,29}$/;
 const digitsOnly = () =>
   Transform(({ value }: { value: unknown }) =>
     typeof value === 'string' ? value.replace(/[\s-]/g, '') : value,
