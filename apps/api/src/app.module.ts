@@ -71,6 +71,8 @@ import { CarriersController } from './modules/carriers/carriers.controller';
 import { CarriersService } from './modules/carriers/carriers.service';
 import { VehicleDocumentsController } from './modules/vehicle-documents/vehicle-documents.controller';
 import { VehicleDocumentsService } from './modules/vehicle-documents/vehicle-documents.service';
+import { Clock } from './common/clock';
+import { DepreciationService } from './modules/depreciation/depreciation.service';
 import { DriversController } from './modules/drivers/drivers.controller';
 import { DriversService } from './modules/drivers/drivers.service';
 import { VehiclesController } from './modules/vehicles/vehicles.controller';
@@ -161,6 +163,8 @@ import { StateService } from './state/state.service';
     VehiclesService,
     DriversService,
     VehicleDocumentsService,
+    Clock,
+    DepreciationService,
     GeoService,
     AuditService,
     BranchesService,

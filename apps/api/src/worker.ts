@@ -6,6 +6,7 @@ import { JobQueue } from './jobs/job-queue.service';
 import { EmailDispatcher } from './modules/email/email.service';
 import { purgeAuthData } from './auth/maintenance';
 import { PrismaService } from './db/prisma.service';
+import { DepreciationService } from './modules/depreciation/depreciation.service';
 
 /**
  * Worker process (outbox, webhook, job) — ใช้โค้ดร่วมกับ api (plan/02 T-01)
@@ -29,6 +30,15 @@ async function main() {
       .catch((e) => log.error(e));
   void daily();
   const timer = setInterval(daily, 24 * 60 * 60 * 1000);
+  // ST2-T22 ค่าเสื่อมรายเดือน: ตรวจทุก 10 นาที — ตั้งแต่วันที่ 1 เวลา 02:00 น. ไทย สร้าง job ของเดือนที่เพิ่งปิดให้ tenant ที่ยังไม่มี (ซ้ำได้ ไม่ลงซ้ำ)
+  const depreciation = ctx.get(DepreciationService);
+  const scheduleDepreciation = () =>
+    depreciation
+      .scheduleDue()
+      .then((n) => n && log.info({ tenants: n }, 'depreciation scheduled'))
+      .catch((e) => log.error(e));
+  void scheduleDepreciation();
+  const depreciationTimer = setInterval(scheduleDepreciation, 10 * 60 * 1000);
   while (!stopping) {
     // ST1-T03: อีเมลใน outbox ส่งก่อน job (ลิงก์ลืมรหัสผ่านมีอายุ 30 นาที)
     const mailed = await mail.runOnce().catch((e) => (log.error(e), false));
@@ -36,6 +46,7 @@ async function main() {
     if (!worked) await new Promise((r) => setTimeout(r, 1000));
   }
   clearInterval(timer);
+  clearInterval(depreciationTimer);
   await ctx.close();
 }
 
