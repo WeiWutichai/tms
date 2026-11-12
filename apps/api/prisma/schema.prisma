@@ -1211,9 +1211,9 @@ model SalesOrder {
   tenantId               String        @map("tenant_id") @db.Uuid
   soNo                   String?       @map("so_no") /// ออกเลข (document_series SO) เมื่อพ้น DRAFT — CHECK
   source                 OrderSource
-  /// ERP:{connector} (docs/04 C) — รหัส connector ตัวเล็ก เช่น `krs`; ช่องทางอื่น = '' (CHECK) · ใช้ใน key idempotent
+  /// ERP:{connector} (docs/04 C) — รหัส connector ตัวเล็ก เช่น `krs`; ช่องทางอื่น = '' (CHECK) · เป็นข้อมูล ไม่ใช่ส่วนของ key
   sourceConnector        String        @default("") @map("source_connector")
-  externalId             String?       @map("external_id") /// externalRef ของระบบต้นทาง — key idempotent (tenant, source, connector, external_id)
+  externalId             String?       @map("external_id") /// externalRef ของระบบต้นทาง — key idempotent unique ต่อ tenant (docs/01 §3.3, plan/00a รหัสภายนอก)
   customerId             String?       @map("customer_id") @db.Uuid /// null = CUSTOMER_UNMAPPED
   customer               Customer?     @relation(fields: [customerId], references: [id], onDelete: Restrict)
   customerExternalId     String?       @map("customer_external_id") /// รหัสลูกค้าตามต้นทาง (จับคู่ด้วย externalId — ST3-T06)
@@ -1234,6 +1234,8 @@ model SalesOrder {
   pricingDetail          Json?         @map("pricing_detail")
   priceTotal             Decimal?      @map("price_total") @db.Decimal(14, 2) /// รวมก่อน VAT (null เมื่อไม่ใช่ AVAILABLE)
   pricedAt               DateTime?     @map("priced_at") @db.Timestamptz(6)
+  /// ข้อความที่ต้นทางแจ้งว่าข้อมูลไม่ครบ/ผิดรูป (→ ใบค้าง SOURCE_ERROR) — เก็บไว้ประเมินใบค้างใหม่ได้ (reevaluate)
+  sourceIssues           Json          @default("[]") @map("source_issues")
   /// hash ของข้อมูลขาเข้า (canonical) — upsert ซ้ำค่าเดิม = ไม่เปลี่ยนอะไร (idempotent)
   inputHash              String?       @map("input_hash")
   sourceChangedAfterPlan Boolean       @default(false) @map("source_changed_after_plan")
@@ -1250,7 +1252,7 @@ model SalesOrder {
   charges SalesOrderCharge[]
 
   @@unique([tenantId, soNo])
-  @@unique([tenantId, source, sourceConnector, externalId])
+  @@unique([tenantId, externalId])
   @@index([tenantId, status, requestedDate])
   @@index([tenantId, customerId])
   @@index([tenantId, updatedAt, id])

@@ -153,6 +153,8 @@ export interface IntakeFacts {
   /** จุดตามลำดับ — `mapped` = จับคู่สถานที่ใน master ได้ */
   stops: readonly { type: OrderStopType; mapped: boolean }[];
   pricingStatus: PricingStatus;
+  /** มีบรรทัดค่าขนส่งที่คนกำหนดเอง (ORD-043 — บรรทัด MANUAL) → ไม่ค้าง RATE_MISSING แม้หา rate ไม่ได้ */
+  manualFreight?: boolean;
 }
 
 export interface IntakeHold {
@@ -177,7 +179,8 @@ export function evaluateIntakeHolds(f: IntakeFacts): IntakeHold[] {
     holds.push({ code: 'LOCATION_UNMAPPED', field: 'stops.pickup' });
   else if (!f.stops.some((s) => s.type === 'DELIVERY'))
     holds.push({ code: 'LOCATION_UNMAPPED', field: 'stops.delivery' });
-  if (f.pricingStatus !== 'AVAILABLE') holds.push({ code: 'RATE_MISSING', field: 'pricing' });
+  if (f.pricingStatus !== 'AVAILABLE' && !f.manualFreight)
+    holds.push({ code: 'RATE_MISSING', field: 'pricing' });
   return holds;
 }
 
@@ -253,5 +256,41 @@ export function planIntake(p: IntakePlanInput): IntakePlan {
     default:
       // หลังวางแผน upsert ไม่เปลี่ยนสถานะ (ST3-T10) — ผู้เรียกต้องกันไว้ก่อน (isIntakeEditable)
       return { initial: null, events: [], holdCode: p.currentHoldCode, holdCodeChanged: false };
+  }
+}
+
+/** ข้อความไทยของเหตุค้าง (ลง `hold_note` / ประวัติสถานะ — คนอ่าน ไม่ใช่ชื่อช่อง) */
+export function intakeHoldNoteTh(
+  hold: IntakeHold,
+  ctx: {
+    customerRef?: string | null;
+    /** ลูกค้าที่ระบุถูกปิดใช้งาน */
+    customerInactive?: boolean;
+    stopTexts?: readonly string[];
+    /** จุดที่อ้างสถานที่ซึ่งถูกปิดใช้งาน (ตามลำดับจุด) */
+    stopInactive?: readonly boolean[];
+    sourceIssues?: readonly string[];
+  } = {},
+): string {
+  switch (hold.code) {
+    case 'SOURCE_ERROR':
+      return `ข้อมูลจากต้นทางไม่ครบ: ${(ctx.sourceIssues ?? []).join(' · ') || 'ไม่ระบุ'}`;
+    case 'CUSTOMER_UNMAPPED':
+      if (ctx.customerInactive) return 'ลูกค้าถูกปิดใช้งาน — เลือกลูกค้าใหม่หรือเปิดใช้ลูกค้า';
+      return ctx.customerRef
+        ? `ยังไม่ได้จับคู่ลูกค้า (รหัสต้นทาง ${ctx.customerRef})`
+        : 'ยังไม่ได้ระบุลูกค้า';
+    case 'LOCATION_UNMAPPED': {
+      const m = /^stops\[(\d+)\]/.exec(hold.field ?? '');
+      if (m) {
+        const i = Number(m[1]);
+        const t = ctx.stopTexts?.[i];
+        if (ctx.stopInactive?.[i]) return `จุดที่ ${i + 1} สถานที่ถูกปิดใช้งาน${t ? `: ${t}` : ''}`;
+        return `จุดที่ ${i + 1} ยังไม่ได้จับคู่สถานที่${t ? `: ${t}` : ''}`;
+      }
+      return hold.field === 'stops.pickup' ? 'ยังไม่มีจุดรับสินค้า' : 'ยังไม่มีจุดส่งสินค้า';
+    }
+    case 'RATE_MISSING':
+      return 'ยังไม่มีราคาขาย (ไม่พบ rate card ที่ใช้ได้ หรือคิดราคาไม่ได้)';
   }
 }

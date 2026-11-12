@@ -1,5 +1,6 @@
 -- ST3-T01 sales_order + บรรทัด + upsertOrder() — docs/04 C (Source ของ order, key idempotent (source, externalId)),
 -- docs/01 §3.3 (sales_order/sales_order_line), §4.1 (state machine SO + ON_HOLD + reason_code), D-21 (ร่าง), D-22 (ตารางจุดแยก)
+-- key idempotent = external_id unique ต่อ tenant (unique เดิมของ 0004 — plan/00a "รหัสภายนอก") · source/connector เป็นข้อมูล
 -- ALTER ตาราง schema v0 (0004): FK ทุกตัว RESTRICT · CHECK · บรรทัดราคา snapshot (MD-117) · ไม่มีการลบ SO จริง
 -- sales_order เปิด FORCE RLS (0004) — ปิด row security ช่วงตรวจข้อมูลเดิม (แบบ 0053) ไม่งั้นมองไม่เห็นแถว
 SET row_security = off;
@@ -12,6 +13,25 @@ BEGIN
   IF FOUND THEN RAISE EXCEPTION '0059: sales_order พ้นร่างแต่ไม่มีเลข SO (tenant %, id %) — ออกเลขก่อน migrate', r.tenant_id, r.id; END IF;
   SELECT tenant_id, id INTO r FROM "sales_order" WHERE source = 'CONNECTOR' LIMIT 1;
   IF FOUND THEN RAISE EXCEPTION '0059: sales_order จาก connector ไม่มีรหัส connector (tenant %, id %) — ระบุ source_connector ก่อน migrate', r.tenant_id, r.id; END IF;
+  -- FK ใหม่: แถวเดิมต้องอ้างข้อมูลที่มีอยู่จริง
+  SELECT o.tenant_id, o.id INTO r FROM "sales_order" o WHERE NOT EXISTS (SELECT 1 FROM "company" c WHERE c.id = o.billing_company_id) LIMIT 1;
+  IF FOUND THEN RAISE EXCEPTION '0059: sales_order อ้างนิติบุคคลที่ไม่มีอยู่ (tenant %, id %) — แก้ billing_company_id ก่อน migrate', r.tenant_id, r.id; END IF;
+  SELECT o.tenant_id, o.id INTO r FROM "sales_order" o WHERE o.customer_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM "customer" c WHERE c.id = o.customer_id) LIMIT 1;
+  IF FOUND THEN RAISE EXCEPTION '0059: sales_order อ้างลูกค้าที่ไม่มีอยู่ (tenant %, id %) — แก้ customer_id ก่อน migrate', r.tenant_id, r.id; END IF;
+  SELECT o.tenant_id, o.id INTO r FROM "sales_order" o WHERE o.vehicle_type_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM "vehicle_type" v WHERE v.id = o.vehicle_type_id) LIMIT 1;
+  IF FOUND THEN RAISE EXCEPTION '0059: sales_order อ้างประเภทรถที่ไม่มีอยู่ (tenant %, id %) — แก้ vehicle_type_id ก่อน migrate', r.tenant_id, r.id; END IF;
+  SELECT o.tenant_id, o.id INTO r FROM "sales_order" o WHERE o.hold_reason_code_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM "reason_code" x WHERE x.id = o.hold_reason_code_id) LIMIT 1;
+  IF FOUND THEN RAISE EXCEPTION '0059: sales_order อ้างเหตุผลที่ไม่มีอยู่ (tenant %, id %) — แก้ hold_reason_code_id ก่อน migrate', r.tenant_id, r.id; END IF;
+  SELECT s.tenant_id, s.id INTO r FROM "sales_order_stop" s WHERE NOT EXISTS (SELECT 1 FROM "sales_order" o WHERE o.id = s.sales_order_id)
+    OR (s.site_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM "customer_site" c WHERE c.id = s.site_id))
+    OR s.sequence < 1 OR (s.window_start IS NOT NULL AND s.window_end IS NOT NULL AND s.window_end < s.window_start) LIMIT 1;
+  IF FOUND THEN RAISE EXCEPTION '0059: sales_order_stop อ้าง SO/สถานที่ที่ไม่มี หรือลำดับ/ช่วงเวลาผิด (tenant %, id %) — แก้ข้อมูลก่อน migrate', r.tenant_id, r.id; END IF;
+  SELECT l.tenant_id, l.id INTO r FROM "sales_order_line" l WHERE NOT EXISTS (SELECT 1 FROM "sales_order" o WHERE o.id = l.sales_order_id)
+    OR l.line_no < 1 OR l.qty_ordered <= 0 OR (l.weight_kg IS NOT NULL AND l.weight_kg < 0) OR (l.cbm IS NOT NULL AND l.cbm < 0)
+    OR (l.temp_min IS NOT NULL AND l.temp_max IS NOT NULL AND l.temp_min > l.temp_max) LIMIT 1;
+  IF FOUND THEN RAISE EXCEPTION '0059: sales_order_line อ้าง SO ที่ไม่มี หรือจำนวน/น้ำหนัก/อุณหภูมิผิด (tenant %, id %) — แก้ข้อมูลก่อน migrate', r.tenant_id, r.id; END IF;
+  SELECT tenant_id, id INTO r FROM "sales_order" WHERE external_id IS NOT NULL AND length(btrim(external_id)) = 0 LIMIT 1;
+  IF FOUND THEN RAISE EXCEPTION '0059: sales_order externalId เป็นข้อความว่าง (tenant %, id %) — ตั้งเป็น null ก่อน migrate', r.tenant_id, r.id; END IF;
 END $$;
 RESET row_security;
 
@@ -21,9 +41,6 @@ CREATE TYPE "pricing_status" AS ENUM ('AVAILABLE', 'RATE_MISSING', 'CALCULATION_
 -- CreateEnum
 CREATE TYPE "order_charge_kind" AS ENUM ('FREIGHT', 'EXTRA_STOP', 'ACCESSORIAL');
 
--- DropIndex
-DROP INDEX "sales_order_tenant_id_external_id_key";
-
 -- AlterTable
 ALTER TABLE "sales_order" ADD COLUMN     "customer_external_id" TEXT,
 ADD COLUMN     "customer_text" TEXT,
@@ -32,7 +49,8 @@ ADD COLUMN     "price_total" DECIMAL(14,2),
 ADD COLUMN     "priced_at" TIMESTAMPTZ(6),
 ADD COLUMN     "pricing_detail" JSONB,
 ADD COLUMN     "pricing_status" "pricing_status" NOT NULL DEFAULT 'RATE_MISSING',
-ADD COLUMN     "source_connector" TEXT NOT NULL DEFAULT '';
+ADD COLUMN     "source_connector" TEXT NOT NULL DEFAULT '',
+ADD COLUMN     "source_issues" JSONB NOT NULL DEFAULT '[]';
 
 -- AlterTable
 ALTER TABLE "sales_order_line" ADD COLUMN     "product_id" UUID,
@@ -79,9 +97,6 @@ CREATE UNIQUE INDEX "sales_order_charge_tenant_id_sales_order_id_line_no_key" ON
 CREATE INDEX "sales_order_tenant_id_customer_id_idx" ON "sales_order"("tenant_id", "customer_id");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "sales_order_tenant_id_source_source_connector_external_id_key" ON "sales_order"("tenant_id", "source", "source_connector", "external_id");
-
--- CreateIndex
 CREATE INDEX "sales_order_stop_tenant_id_site_id_idx" ON "sales_order_stop"("tenant_id", "site_id");
 
 -- AddForeignKey
@@ -124,6 +139,7 @@ ALTER TABLE "sales_order_charge" ADD CONSTRAINT "sales_order_charge_rate_card_id
 -- ช่องทาง CONNECTOR ต้องมีรหัส connector (ERP:{connector}) ตัวเล็ก/ตัวเลข/-/_ ≤ 32; ช่องทางอื่นไม่มี
 ALTER TABLE "sales_order" ADD CONSTRAINT "sales_order_source_connector" CHECK (
   ("source" = 'CONNECTOR') = ("source_connector" <> '') AND "source_connector" ~ '^([a-z0-9][a-z0-9_-]{0,31})?$');
+-- เงินในบรรทัดราคา ≥ 0 — ส่วนลด (ORD-042) ยังไม่เป็นบรรทัด charge ในเฟสนี้ (ST3-T02/ST5 ตัดสิน)
 -- externalRef ว่างไม่ได้ (ใช้ null แทน)
 ALTER TABLE "sales_order" ADD CONSTRAINT "sales_order_external_id_nonempty" CHECK ("external_id" IS NULL OR length(btrim("external_id")) > 0);
 -- docs/01 §4.1: สถานะค้างทุกแบบ = ON_HOLD + reason code เดียว (ST3-T07 "ไม่มี order ค้างที่ไม่มี reason code") — และพ้นค้างแล้วไม่เหลือเหตุ
@@ -131,7 +147,6 @@ ALTER TABLE "sales_order" ADD CONSTRAINT "sales_order_hold_reason" CHECK (("stat
 -- ร่างไม่กินเลข (docs/01 §3.5) · พ้นร่างต้องมีเลข SO
 ALTER TABLE "sales_order" ADD CONSTRAINT "sales_order_number" CHECK ("status" = 'DRAFT' OR "so_no" IS NOT NULL);
 ALTER TABLE "sales_order" ADD CONSTRAINT "sales_order_price_total" CHECK ("price_total" IS NULL OR "price_total" >= 0);
-ALTER TABLE "sales_order" ADD CONSTRAINT "sales_order_priced" CHECK (("pricing_status" = 'AVAILABLE') = ("price_total" IS NOT NULL));
 ALTER TABLE "sales_order_stop" ADD CONSTRAINT "sales_order_stop_sequence" CHECK ("sequence" >= 1);
 ALTER TABLE "sales_order_stop" ADD CONSTRAINT "sales_order_stop_window" CHECK ("window_end" IS NULL OR "window_start" IS NULL OR "window_end" >= "window_start");
 ALTER TABLE "sales_order_line" ADD CONSTRAINT "sales_order_line_amounts" CHECK (

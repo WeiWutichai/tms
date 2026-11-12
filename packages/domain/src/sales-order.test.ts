@@ -6,6 +6,7 @@ import {
   SO_TRANSITIONS,
   evaluateIntakeHolds,
   formatOrderSource,
+  intakeHoldNoteTh,
   isIntakeEditable,
   isValidSourceRef,
   parseOrderSource,
@@ -218,5 +219,39 @@ describe('planIntake (สถานะหลัง upsert)', () => {
     expect(() =>
       planIntake({ current: 'RECEIVED', currentHoldCode: null, draft: true, holds: [] }),
     ).toThrow(InvalidTransitionError);
+  });
+});
+
+describe('ราคากำหนดเอง + ข้อความใบค้าง', () => {
+  it('มีบรรทัดค่าขนส่ง MANUAL → ไม่ค้าง RATE_MISSING', () => {
+    const f: IntakeFacts = {
+      sourceIssues: [],
+      customerMapped: true,
+      stops: [
+        { type: 'PICKUP', mapped: true },
+        { type: 'DELIVERY', mapped: true },
+      ],
+      pricingStatus: 'RATE_MISSING',
+    };
+    expect(evaluateIntakeHolds(f).map((h) => h.code)).toEqual(['RATE_MISSING']);
+    expect(evaluateIntakeHolds({ ...f, manualFreight: true })).toEqual([]);
+  });
+
+  it('ข้อความไทยสำหรับคนอ่าน (ไม่ใช่ชื่อช่อง)', () => {
+    expect(intakeHoldNoteTh({ code: 'CUSTOMER_UNMAPPED' }, { customerRef: 'C-9' })).toBe(
+      'ยังไม่ได้จับคู่ลูกค้า (รหัสต้นทาง C-9)',
+    );
+    expect(
+      intakeHoldNoteTh(
+        { code: 'LOCATION_UNMAPPED', field: 'stops[1].site' },
+        { stopTexts: ['a', 'ตลาด'] },
+      ),
+    ).toBe('จุดที่ 2 ยังไม่ได้จับคู่สถานที่: ตลาด');
+    expect(intakeHoldNoteTh({ code: 'LOCATION_UNMAPPED', field: 'stops.pickup' })).toBe(
+      'ยังไม่มีจุดรับสินค้า',
+    );
+    expect(intakeHoldNoteTh({ code: 'SOURCE_ERROR' }, { sourceIssues: ['ไม่มีวันส่ง'] })).toBe(
+      'ข้อมูลจากต้นทางไม่ครบ: ไม่มีวันส่ง',
+    );
   });
 });

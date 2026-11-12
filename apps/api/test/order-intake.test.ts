@@ -279,7 +279,7 @@ describe('order intake (upsertOrder)', () => {
     ).toBe(1);
   });
 
-  it('source ทุกแบบ: MANUAL / EXCEL / API / PORTAL / ERP:{connector} — key แยกตามช่องทาง; ช่องทางผิด 422', async () => {
+  it('source ทุกแบบ: MANUAL / EXCEL / API / PORTAL / ERP:{connector}; externalId unique ต่อ tenant — ช่องทางอื่นใช้ซ้ำ = 409; ช่องทางผิด 422', async () => {
     const k = await key();
     const variants: [UpsertOrderInput['source'], string, string][] = [
       ['MANUAL', 'MANUAL', ''],
@@ -291,7 +291,7 @@ describe('order intake (upsertOrder)', () => {
     ];
     const ids = new Set<string>();
     for (const [source, stored, connector] of variants) {
-      const r = await upsert(order(k, { source, externalId: 'EXT-SAME-1' }));
+      const r = await upsert(order(k, { source, externalId: `EXT-${stored}-${connector}` }));
       expect(r.created).toBe(true);
       expect([r.order.source, r.order.sourceConnector]).toEqual([stored, connector]);
       ids.add(r.order.id);
@@ -300,7 +300,13 @@ describe('order intake (upsertOrder)', () => {
     const ev = await db.domainEvent.findFirst({
       where: { localId: [...ids][4]!, type: 'order.created' },
     });
-    expect(ev!.snapshot).toMatchObject({ source: 'ERP:krs', externalId: 'EXT-SAME-1' });
+    expect(ev!.snapshot).toMatchObject({ source: 'ERP:krs', externalId: 'EXT-CONNECTOR-krs' });
+    // externalId เดิมจากช่องทาง/connector อื่น → 409 ไม่ทับใบของต้นทางอื่น (plan/00a: unique ต่อ tenant)
+    for (const other of ['API', 'ERP:express'])
+      expect(
+        (await errFields(upsert(order(k, { source: other, externalId: 'EXT-CONNECTOR-krs' }))))
+          .code,
+      ).toBe('external_id_conflict');
     for (const bad of ['FAX', 'ERP:', 'CONNECTOR', { source: 'API', connector: 'krs' }] as const)
       expect(await errFields(upsert(order(k, { source: bad as never })))).toEqual({
         code: 'validation_failed',
@@ -338,10 +344,12 @@ describe('order intake (upsertOrder)', () => {
       orderBy: { at: 'asc' },
     });
     expect(hist.map((h) => [h.fromStatus, h.event, h.toStatus])).toEqual([
+      ['NONE', 'create', 'RECEIVED'],
       ['RECEIVED', 'hold', 'ON_HOLD'],
       ['ON_HOLD', 'release', 'RECEIVED'],
     ]);
-    expect(hist[0]!.reasonCodeId).toBe(a.order.holdReasonCodeId);
+    expect(hist[1]!.reasonCodeId).toBe(a.order.holdReasonCodeId);
+    expect(hist[1]!.note).toBe('ยังไม่มีราคาขาย (ไม่พบ rate card ที่ใช้ได้ หรือคิดราคาไม่ได้)');
     const ev = await db.domainEvent.findMany({
       where: { localId: a.order.id },
       orderBy: { occurredAt: 'asc' },
@@ -383,13 +391,22 @@ describe('order intake (upsertOrder)', () => {
       'RATE_MISSING',
     ]);
     expect(a.order.stops[1]).toMatchObject({ siteId: null, siteText: 'ตลาดสดเมืองใหม่ ชลบุรี' });
+    expect(a.order.holdNote).toBe('ยังไม่ได้จับคู่ลูกค้า (รหัสต้นทาง KRS-C-404)');
+    // raw ต่างแต่ข้อมูลเดิม = no-op (rawPayload ไม่อยู่ใน hash)
+    const same = await upsert({ ...input, rawPayload: { soNo: 'SO-0002', polledAt: 'x' } });
+    expect(same.changed).toBe(false);
 
     // ลูกค้าที่มี externalId ตรง → จับคู่ได้ เหตุค้างเลื่อนเป็นตัวถัดไป (ไม่ใช่ transition — บันทึกประวัติเหตุเปลี่ยน)
     const cust = await newCustomer({ externalId: 'KRS-C-404' });
-    const b = await upsert({ ...input, rawPayload: { soNo: 'SO-0002', rev: 2 } });
+    const b = await upsert({
+      ...input,
+      customerRef: 'PO-2',
+      rawPayload: { soNo: 'SO-0002', rev: 2 },
+    });
     expect(b.order.customerId).toBe(cust);
     expect(b.order.status).toBe('ON_HOLD');
     expect(b.order.holdReasonCode?.code).toBe('LOCATION_UNMAPPED');
+    expect(b.order.holdNote).toBe('จุดที่ 2 ยังไม่ได้จับคู่สถานที่: ตลาดสดเมืองใหม่ ชลบุรี');
     const last = await db.docStatusHistory.findFirst({
       where: { docId: a.order.id },
       orderBy: { at: 'desc' },
@@ -416,9 +433,13 @@ describe('order intake (upsertOrder)', () => {
     const n = (no: string | null) => Number(no!.slice(-4));
     expect(n(s.order.soNo)).toBe(n(x.order.soNo) + 1);
     const hist = await db.docStatusHistory.findMany({ where: { docId: d.order.id } });
-    expect(hist.map((h) => `${h.fromStatus}>${h.event}>${h.toStatus}`)).toEqual([
+    expect(hist.map((h) => `${h.fromStatus}>${h.event}>${h.toStatus}`).sort()).toEqual([
       'DRAFT>submit>RECEIVED',
+      'NONE>create>DRAFT',
     ]);
+    // ร่างไม่ส่ง event — order.created เกิดตอนพ้นร่าง
+    const ev = await db.domainEvent.findMany({ where: { localId: d.order.id } });
+    expect(ev.map((e) => e.type)).toEqual(['order.created']);
     expect(
       (
         await errFields(
@@ -426,6 +447,151 @@ describe('order intake (upsertOrder)', () => {
         )
       ).code,
     ).toBe('invalid_state_transition');
+  });
+
+  it('ส่งซ้ำค่าเดิมหลังอนุมัติ rate → ไม่เขียนข้อมูลซ้ำ แต่คิดราคาใหม่และปล่อยใบค้าง RATE_MISSING → RECEIVED; reevaluate() ก็ได้ผลเดียวกัน', async () => {
+    const k = await key();
+    const input = order(k, { source: 'API', externalId: 'RESEND-1' });
+    const a = await upsert(input);
+    expect(a.order.holdReasonCode?.code).toBe('RATE_MISSING');
+    const lineIds = a.order.lines.map((l) => l.id);
+    await approveRate(k);
+    const b = await upsert(input);
+    expect(b).toMatchObject({ created: false, changed: true });
+    expect(b.order).toMatchObject({ status: 'RECEIVED', pricingStatus: 'AVAILABLE' });
+    expect(b.order.priceTotal!.toFixed(2)).toBe('4500.00');
+    expect(b.order.lines.map((l) => l.id)).toEqual(lineIds);
+    expect(b.order.version).toBe(a.order.version + 1);
+    expect((await upsert(input)).changed).toBe(false);
+
+    // reevaluate (หน้าใบค้าง T07): ข้อมูลเดิม ประเมินใหม่ได้
+    const k2 = await key();
+    const c = await upsert(order(k2));
+    expect(c.order.status).toBe('ON_HOLD');
+    await approveRate(k2);
+    const r = await app
+      .get(DbService)
+      .withTenant(tenantId, (tx) =>
+        requestContext.run(
+          { requestId: randomUUID(), tenantId, actorId: 'user-test', locale: 'th', tx },
+          () => app.get(OrderIntakeService).reevaluate(c.order.id, tx),
+        ),
+      );
+    expect(r.order.status).toBe('RECEIVED');
+  });
+
+  it('แก้ใบด้วย id (กรอกมือ/ร่างไม่มี externalId): ทางเดียวกัน — ร่าง → แก้ → ส่ง; id ของจุด/สินค้าคงเดิม; externalId เปลี่ยนไม่ได้', async () => {
+    const k = await key();
+    await approveRate(k);
+    const d = await upsert(order(k, { draft: true }));
+    expect(d.order).toMatchObject({ status: 'DRAFT', soNo: null, externalId: null });
+    const stopIds = d.order.stops.map((s) => s.id);
+    const lineId = d.order.lines[0]!.id;
+    const e = await upsert(
+      order(k, {
+        id: d.order.id,
+        draft: true,
+        lines: [
+          { description: 'ปูนซีเมนต์ (แก้)', qty: '13', unitId: unitTon },
+          { description: 'เหล็กเส้น', qty: '2', unitId: unitTon },
+        ],
+      }),
+    );
+    expect(e.order.id).toBe(d.order.id);
+    expect(e.order.status).toBe('DRAFT');
+    expect(e.order.stops.map((s) => s.id)).toEqual(stopIds);
+    expect(e.order.lines.map((l) => [l.id === lineId, l.description])).toEqual([
+      [true, 'ปูนซีเมนต์ (แก้)'],
+      [false, 'เหล็กเส้น'],
+    ]);
+    const audit = await db.auditLog.findFirst({
+      where: { entityId: d.order.id, action: 'sales_order.updated' },
+    });
+    expect(JSON.stringify(audit!.after)).toContain('เหล็กเส้น');
+    const f = await upsert(
+      order(k, { id: d.order.id, lines: [{ description: 'ปูน', qty: '1', unitId: unitTon }] }),
+    );
+    expect(f.order).toMatchObject({ status: 'RECEIVED', source: 'MANUAL' });
+    expect(f.order.soNo).not.toBeNull();
+    expect(f.order.lines).toHaveLength(1);
+    expect(f.order.lines[0]!.id).toBe(lineId);
+    expect(
+      (await errFields(upsert(order(k, { id: d.order.id, externalId: 'NEW-EXT' })))).fields,
+    ).toEqual(['externalId:external_id_locked']);
+    expect((await errFields(upsert(order(k, { id: randomUUID() })))).code).toBe('not_found');
+  });
+
+  it('อ้างอิงที่ปิดใช้ → เข้าระบบแต่ค้าง (ลูกค้า → CUSTOMER_UNMAPPED, สถานที่ → LOCATION_UNMAPPED) · สถานที่ของลูกค้าอื่น → 422 site_other_customer · จำนวนต้องเป็นสตริง; ทศนิยมรูปต่างค่าเดียวกัน = no-op', async () => {
+    const k = await key();
+    await approveRate(k);
+    await api(app, admin)
+      .post(`/v1/customers/cus_${k.customer.replace(/-/g, '')}/deactivate`)
+      .send({ reason: 'เลิกใช้บริการทดสอบระบบ' })
+      .expect(200);
+    // ลูกค้าปิดใช้: order ยังเข้าระบบ (docs/04 C) แต่ค้าง CUSTOMER_UNMAPPED และไม่ใช้ rate ของลูกค้านั้น
+    const inact = await upsert(order(k));
+    expect(inact.order).toMatchObject({ status: 'ON_HOLD', pricingStatus: 'RATE_MISSING' });
+    expect(inact.order.holdReasonCode?.code).toBe('CUSTOMER_UNMAPPED');
+    expect(inact.order.holdNote).toBe('ลูกค้าถูกปิดใช้งาน — เลือกลูกค้าใหม่หรือเปิดใช้ลูกค้า');
+    expect(inact.order.charges).toEqual([]);
+    // สถานที่ปิดใช้ → LOCATION_UNMAPPED
+    const k3 = await key();
+    await api(app, admin)
+      .post(`/v1/customer-sites/loc_${k3.dest.replace(/-/g, '')}/deactivate`)
+      .send({ reason: 'ปิดจุดส่งนี้แล้ว ทดสอบระบบ' })
+      .expect(200);
+    const st = await upsert(order(k3));
+    expect(st.order.holdReasonCode?.code).toBe('LOCATION_UNMAPPED');
+    expect(st.order.holdNote).toMatch(/^จุดที่ 2 สถานที่ถูกปิดใช้งาน/);
+    const k2 = await key();
+    const otherCustomersSite = (
+      await api(app, admin)
+        .post('/v1/customer-sites')
+        .send({
+          name: `จุดของลูกค้าอื่น ${++seed}`,
+          kind: 'DROPOFF',
+          address: ADDR,
+          customerId: `cus_${(await newCustomer()).replace(/-/g, '')}`,
+        })
+        .expect(201)
+    ).body.id;
+    expect(
+      (
+        await errFields(
+          upsert(
+            order(k2, {
+              stops: [
+                { type: 'PICKUP', siteId: k2.origin },
+                { type: 'DELIVERY', siteId: uuid('site', otherCustomersSite) },
+              ],
+            }),
+          ),
+        )
+      ).fields,
+    ).toEqual(['stops[1].siteId:site_other_customer']);
+    expect(
+      (
+        await errFields(
+          upsert(order(k2, { lines: [{ description: 'x', qty: 12.5 as never, unitId: unitTon }] })),
+        )
+      ).fields,
+    ).toEqual(['lines[0].qty:invalid_type']);
+    const a = await upsert(
+      order(k2, {
+        source: 'API',
+        externalId: 'CANON-1',
+        lines: [{ description: 'x', qty: '12.50', unitId: unitTon }],
+      }),
+    );
+    const b = await upsert(
+      order(k2, {
+        source: 'API',
+        externalId: 'CANON-1',
+        lines: [{ description: 'x', qty: '012.5', unitId: unitTon }],
+      }),
+    );
+    expect(b.changed).toBe(false);
+    expect(b.order.version).toBe(a.order.version);
   });
 
   it('เลข SO เรียงต่อกันไม่ซ้ำเมื่อสร้างพร้อมกัน (document_series SO, รายเดือน)', async () => {
@@ -555,7 +721,11 @@ describe('order intake (upsertOrder)', () => {
 
   it('call path: เขียนตาราง sales_order* ได้จาก OrderIntakeService ที่เดียว (ทุกทางเข้าต้องเรียก upsertOrder)', () => {
     const root = resolve(__dirname, '../src');
-    const allowed = new Set(['modules/orders/order-intake.service.ts']);
+    // ทางเข้า: order-intake.service · ที่ว่างไว้สำหรับ service สถานะ SO ของโมดูลเดียวกัน (T09–T11 plan/dispatch/cancel)
+    const allowed = new Set([
+      'modules/orders/order-intake.service.ts',
+      'modules/orders/order-state.service.ts',
+    ]);
     const WRITE =
       /\b(salesOrder|salesOrderStop|salesOrderLine|salesOrderCharge)\s*\.\s*(create|createMany|createManyAndReturn|update|updateMany|upsert|delete|deleteMany)\b|\b(INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+"?sales_order/i;
     const offenders: string[] = [];

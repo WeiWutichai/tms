@@ -1,4 +1,4 @@
-import type { SalesOrder, SalesOrderStop } from '@prisma/client';
+import type { SalesOrder, SalesOrderLine, SalesOrderStop } from '@prisma/client';
 import { formatOrderSource, type OrderSource } from '@tms/domain';
 import { encodeId } from '../../common/ids';
 
@@ -9,8 +9,10 @@ import { encodeId } from '../../common/ids';
 export function orderEventView(
   o: SalesOrder & {
     stops?: SalesOrderStop[];
+    lines?: SalesOrderLine[];
     holdReasonCode?: { code: string } | null;
   },
+  opts: { lines?: boolean } = {},
 ): Record<string, unknown> {
   return {
     id: encodeId('salesOrder', o.id),
@@ -35,6 +37,21 @@ export function orderEventView(
       windowStart: s.windowStart?.toISOString() ?? null,
       windowEnd: s.windowEnd?.toISOString() ?? null,
     })),
+    holdNote: o.holdNote,
+    // สินค้า (ไม่มีราคา) — audit เห็นการแก้รายบรรทัด
+    ...(opts.lines
+      ? {
+          lines: (o.lines ?? []).map((l) => ({
+            lineNo: l.lineNo,
+            description: l.description,
+            qty: l.qtyOrdered.toFixed(),
+            unit: l.unit,
+            productId: l.productId ? encodeId('product', l.productId) : null,
+            weightKg: l.weightKg?.toFixed() ?? null,
+            cbm: l.cbm?.toFixed() ?? null,
+          })),
+        }
+      : {}),
     version: o.version,
   };
 }

@@ -156,6 +156,12 @@ export const PROBLEMS = {
     th: 'แก้ใบสั่งขนส่งนี้จากต้นทางไม่ได้แล้ว (วางแผน ยกเลิก หรือปิดงานแล้ว)',
     en: 'Order can no longer be updated from its source (planned, cancelled or closed)',
   },
+  /** externalId เดียวกันมาจากช่องทาง/connector อื่น (externalId unique ต่อ tenant — plan/00a) — ไม่ทับใบของต้นทางอื่น */
+  external_id_conflict: {
+    status: 409,
+    th: 'เลขอ้างอิงต้นทางนี้ถูกใช้กับใบสั่งขนส่งจากช่องทางอื่นแล้ว',
+    en: 'This external id is already used by an order from another source',
+  },
   invalid_grant: { status: 400, th: 'รหัสยืนยันหมดอายุหรือไม่ถูกต้อง', en: 'Invalid grant' },
   internal_error: { status: 500, th: 'ระบบขัดข้อง', en: 'Internal error' },
 } as const;

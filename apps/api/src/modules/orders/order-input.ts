@@ -14,6 +14,11 @@ import { isRealDate } from '../vehicle-documents/expiry';
  * T05 connector) · id ทั้งหมดเป็น uuid (ผู้เรียกถอด public id เอง) · เงิน/จำนวนเป็นสตริงทศนิยม (ไม่ใช้ float)
  */
 export interface UpsertOrderInput {
+  /**
+   * uuid ของ SO เดิม — แก้ใบที่ไม่มี externalId (กรอกมือ/ร่าง) ด้วยทางเดียวกัน (lock → hash → ประเมินสถานะ)
+   * ระบุ id แล้ว ช่องทาง/externalId ของใบเดิมคงไว้ (ส่ง externalId อื่น → 422 `external_id_locked`)
+   */
+  id?: string | null;
   /** ช่องทางเข้า: `{source, connector}` หรือชื่อตาม docs/04 C (`MANUAL` / `EXCEL` / `API` / `PORTAL` / `ERP:{connector}`) */
   source: OrderSourceRef | string;
   /** externalRef ของระบบต้นทาง — มีค่า = upsert idempotent ต่อ (source, connector, externalId) */
@@ -71,6 +76,7 @@ export interface UpsertOrderLine {
 }
 
 export interface NormalizedOrder {
+  id: string | null;
   source: OrderSource;
   connector: string;
   externalId: string | null;
@@ -102,6 +108,16 @@ export interface NormalizedOrder {
   }[];
   sourceIssues: string[];
   rawPayload: unknown;
+}
+
+/** "012.50" → "12.5", "-0.0" → "0" — ค่าเดียวกันได้ hash เดียวกัน */
+export function canonDecimal(v: string): string {
+  const neg = v.startsWith('-');
+  let [i = '0', f = ''] = v.replace(/^[-+]/, '').split('.');
+  i = i.replace(/^0+(?=\d)/, '');
+  f = f.replace(/0+$/, '');
+  const out = f ? `${i}.${f}` : i;
+  return neg && out !== '0' ? `-${out}` : out;
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -151,12 +167,16 @@ export function normalizeOrderInput(input: UpsertOrderInput): NormalizedOrder {
       if (required) err(field, 'required', 'required');
       return null;
     }
-    const s = typeof v === 'number' ? String(v) : v;
-    if (typeof s !== 'string' || !re.test(s.trim())) {
+    // เงิน/จำนวนรับเป็นสตริงทศนิยมเท่านั้น (JS number = float → ปฏิเสธ)
+    if (typeof v !== 'string') {
+      err(field, 'invalid_type', 'must be a decimal string');
+      return null;
+    }
+    if (!re.test(v.trim())) {
       err(field, 'invalid_decimal', 'invalid number');
       return null;
     }
-    return s.trim();
+    return canonDecimal(v.trim());
   };
   const instant = (v: unknown, field: string): string | null => {
     if (v === undefined || v === null || v === '') return null;
@@ -221,7 +241,7 @@ export function normalizeOrderInput(input: UpsertOrderInput): NormalizedOrder {
   const lines = (Array.isArray(linesIn) ? linesIn : []).slice(0, ORDER_LIMITS.lines).map((l, i) => {
     const f = `lines[${i}]`;
     const qty = decimal(l?.qty, `${f}.qty`, QTY, true);
-    if (qty !== null && Number(qty) <= 0) err(`${f}.qty`, 'must_be_positive', 'must be > 0');
+    if (qty !== null && !/[1-9]/.test(qty)) err(`${f}.qty`, 'must_be_positive', 'must be > 0');
     const unitId = uuid(l?.unitId, `${f}.unitId`);
     const unit = text(l?.unit, `${f}.unit`, 30, !unitId && !l?.unitId);
     const tempMin = decimal(l?.tempMin, `${f}.tempMin`, TEMP);
@@ -269,6 +289,7 @@ export function normalizeOrderInput(input: UpsertOrderInput): NormalizedOrder {
   }
 
   const result: NormalizedOrder = {
+    id: uuid(input.id, 'id'),
     source: (ref?.source ?? 'MANUAL') as OrderSource,
     connector: ref?.connector ?? '',
     externalId,
