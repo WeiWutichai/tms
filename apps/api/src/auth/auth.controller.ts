@@ -23,6 +23,7 @@ import type { CookieOptions, Request, Response } from 'express';
 import { Public } from '../common/decorators';
 import { decodeIdOr404 } from '../common/ids';
 import { ProblemException } from '../common/problem';
+import { ApiServiceBusyResponse } from './auth-tx';
 import { AuthService, type ClientInfo, type TokenPair } from './auth.service';
 
 /** code_verifier/challenge ตาม RFC 7636 (43–128 ตัว unreserved) */
@@ -117,6 +118,7 @@ export class AuthController {
     description: 'tenant_selection_required — มี `tenants: [{id, name, status}]`',
   })
   @ApiTooManyRequestsResponse({ description: 'account_locked — มี header Retry-After' })
+  @ApiServiceBusyResponse()
   @ApiUnauthorizedResponse({
     description:
       'mfa_required / mfa_enrollment_required — มี `mfaToken` ใช้ต่อที่ /v1/auth/2fa/verify หรือ /v1/auth/2fa/enroll',

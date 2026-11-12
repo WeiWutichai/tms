@@ -44,14 +44,34 @@ test.describe('ตั้งค่า (owner)', () => {
 
 test.describe('ตั้งค่า: องค์กร / ภาษี / ความปลอดภัย (owner)', () => {
   test('แก้ค่าแล้วกดบันทึก → toast และค่าคงอยู่หลังโหลดใหม่', async ({ page }) => {
+    // จำลองเครื่องช้า: GET /v1/settings ครั้งแรกเสร็จหลังผู้ใช้เลือกค่าแล้ว — เดิมค่าที่เลือกถูกเขียนทับด้วยค่าจาก server,
+    // ปุ่มบันทึกแสดง toast โดยไม่ส่ง PATCH และหลังโหลดใหม่ได้ 480 (ต้นเหตุ flaky) — ฟอร์มต้องคงค่าที่เลือก (rebaseDraft)
+    let slowed = false;
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    await page.route('**/v1/settings', async (route) => {
+      if (!slowed && route.request().method() === 'GET') {
+        slowed = true;
+        await gate;
+      }
+      await route.continue();
+    });
     await page.goto('/settings?sec=sec');
     await expect(page.getByRole('heading', { name: 'ความปลอดภัย' })).toBeVisible();
     const save = page.getByRole('button', { name: 'บันทึก' });
     await page.getByLabel('Session timeout').selectOption('60');
+    await expect(save).toBeDisabled(); // ยังไม่ได้ค่า/version จาก server → ยังบันทึกไม่ได้
+    release();
+    await expect(save).toBeEnabled();
+    await expect(page.getByLabel('Session timeout')).toHaveValue('60');
+    const patched = page.waitForResponse(
+      (r) => r.url().endsWith('/v1/settings') && r.request().method() === 'PATCH',
+    );
     await save.click();
+    expect((await patched).status()).toBe(200);
     await expect(page.getByRole('status')).toHaveText('บันทึกการตั้งค่าความปลอดภัยแล้ว');
     await page.reload();
-    // ฟอร์มแสดงค่าเริ่มต้นก่อนโหลดค่าจริงเสร็จ — เครื่องโหลดหนักใช้เกิน 5 วิ (flaky)
+    // ฟอร์มแสดงค่าเริ่มต้นก่อนโหลดค่าจริงเสร็จ — เครื่องโหลดหนักใช้เกิน 5 วิ
     await expect(page.getByLabel('Session timeout')).toHaveValue('60', { timeout: 20_000 });
     // ยืด timeout = ลดความปลอดภัย → ต้องยืนยัน 2FA อีกครั้ง
     await page.getByLabel('Session timeout').selectOption('480');

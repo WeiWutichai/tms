@@ -370,6 +370,7 @@ export const th = {
   'problem.tenant_selection_required': 'อีเมลนี้เป็นสมาชิกหลายบริษัท เลือกบริษัทที่ต้องการเข้า',
   'problem.payload_too_large': 'ไฟล์หรือข้อมูลมีขนาดใหญ่เกินกำหนด',
   'problem.rate_limited': 'เรียกถี่เกินไป',
+  'problem.service_busy': 'ระบบกำลังมีผู้ใช้งานมาก กรุณาลองใหม่อีกครั้ง',
   'problem.invitation_invalid':
     'ลิงก์คำเชิญไม่ถูกต้อง หมดอายุ หรือใช้ไปแล้ว ขอให้ผู้ดูแลส่งคำเชิญใหม่',
   'problem.already_member': 'อีเมลนี้เป็นสมาชิกของบริษัทแล้ว',
@@ -2037,6 +2038,7 @@ export const th = {
   'rsn.na': 'ใช้กับหมวดนี้ไม่ได้',
   'rsn.otherNote': 'รายการ "อื่น ๆ" ต้องบังคับโน้ตเสมอ',
   'rsn.loadError': 'โหลดเหตุผลไม่สำเร็จ',
+  'set.loadError': 'โหลดการตั้งค่าไม่สำเร็จ',
   'rsn.loading': 'กำลังโหลด…',
   'rsn.retry': 'ลองอีกครั้ง',
   'rsn.emptyTitle': 'ยังไม่มีเหตุผล',
