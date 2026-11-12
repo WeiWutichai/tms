@@ -386,8 +386,9 @@ model Customer {
   sites                   CustomerSite[]
   products                Product[]
 
-  rateCards   RateCard[]
-  salesOrders SalesOrder[]
+  rateCards      RateCard[]
+  salesOrders    SalesOrder[]
+  deliveryOrders DeliveryOrder[]
 
   @@unique([tenantId, code])
   @@unique([tenantId, externalId])
@@ -458,6 +459,8 @@ model CustomerSite {
   rateCardsFrom RateCard[]       @relation("RateCardOrigin")
   rateCardsTo   RateCard[]       @relation("RateCardDestination")
   orderStops    SalesOrderStop[]
+  doOrigins     DeliveryOrder[]  @relation("DoOrigin")
+  doDests       DeliveryOrder[]  @relation("DoDest")
 
   @@unique([tenantId, externalId])
   @@unique([tenantId, code])
@@ -1172,7 +1175,8 @@ model ReasonCode {
   createdAt         DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  heldOrders SalesOrder[]
+  heldOrders    SalesOrder[]
+  doLineRejects DeliveryOrderLine[]
 
   @@unique([tenantId, category, code])
   @@unique([tenantId, externalId])
@@ -1247,9 +1251,10 @@ model SalesOrder {
   createdAt              DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt              DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  stops   SalesOrderStop[]
-  lines   SalesOrderLine[]
-  charges SalesOrderCharge[]
+  stops          SalesOrderStop[]
+  lines          SalesOrderLine[]
+  charges        SalesOrderCharge[]
+  deliveryOrders DeliveryOrder[]
 
   @@unique([tenantId, soNo])
   @@unique([tenantId, externalId])
@@ -1314,6 +1319,8 @@ model SalesOrderLine {
   isDangerous  Boolean    @default(false) @map("is_dangerous")
   tempMin      Decimal?   @map("temp_min") @db.Decimal(5, 1)
   tempMax      Decimal?   @map("temp_max") @db.Decimal(5, 1)
+
+  deliveryOrderLines DeliveryOrderLine[]
 
   @@unique([tenantId, salesOrderId, lineNo])
   @@map("sales_order_line")
@@ -1417,6 +1424,8 @@ model Trip {
   createdAt            DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt            DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
+  deliveryOrders DeliveryOrder[]
+
   @@unique([tenantId, tripNo])
   @@index([tenantId, tripDate, status])
   @@index([tenantId, carrierId, tripDate]) /// ราคา 5 ครั้งล่าสุดที่จ้างรถร่วม (ST2-T14)
@@ -1452,6 +1461,8 @@ model TripStop {
   pod              Json?
   lastEventId      String?    @map("last_event_id") @db.Uuid
 
+  deliveryOrders DeliveryOrder[]
+
   @@unique([tenantId, tripId, sequence])
   @@map("trip_stop")
 }
@@ -1472,51 +1483,87 @@ enum DoStatus {
   @@map("do_status")
 }
 
+/// ใบส่งของ (ST3-T09; docs/01 §3.3, §4.3) — หน่วยวางบิล · 1 DO = 1 จุดส่ง (ORD-080) อยู่ได้ 1 เที่ยว · ไม่มีการลบจริง (ยกเลิก = CANCELLED)
+/// เขียนได้จาก DeliveryOrderService ที่เดียว (test `delivery-orders` ตรวจ call path) · บรรทัดอ้างบรรทัด SO (FK RESTRICT)
 model DeliveryOrder {
-  id                  String   @id @default(uuid()) @db.Uuid
-  tenantId            String   @map("tenant_id") @db.Uuid
-  doNo                String?  @map("do_no")
-  doDate              DateTime @map("do_date") @db.Date
-  salesOrderId        String   @map("sales_order_id") @db.Uuid
-  customerId          String   @map("customer_id") @db.Uuid
-  tripId              String?  @map("trip_id") @db.Uuid
-  tripStopId          String?  @map("trip_stop_id") @db.Uuid
-  originSiteId        String   @map("origin_site_id") @db.Uuid
-  destSiteId          String   @map("dest_site_id") @db.Uuid
-  weightKg            Decimal? @map("weight_kg") @db.Decimal(14, 3)
-  cbm                 Decimal? @db.Decimal(14, 3)
-  sellRateSnapshot    Json?    @map("sell_rate_snapshot")
-  revenueAmount       Decimal? @map("revenue_amount") @db.Decimal(14, 2)
-  allocatedCostAmount Decimal? @map("allocated_cost_amount") @db.Decimal(14, 2)
-  status              DoStatus @default(DRAFT)
-  podStatus           String   @default("NONE") @map("pod_status")
-  billingHold         Boolean  @default(false) @map("billing_hold")
-  redeliveryOfId      String?  @map("redelivery_of_id") @db.Uuid /// D-23 ส่งใหม่ = DO ใบใหม่
-  customerRef         String?  @map("customer_ref")
-  publicTokenHash     String?  @map("public_token_hash") /// tracking link (ST4-T14)
-  version             Int      @default(1)
-  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt           DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id                  String          @id @default(uuid()) @db.Uuid
+  tenantId            String          @map("tenant_id") @db.Uuid
+  doNo                String?         @map("do_no") /// ออกเลขตอนสร้าง (document_series DO; แยก = เลขแม่-n) — CHECK บังคับ
+  doDate              DateTime        @map("do_date") @db.Date
+  salesOrderId        String          @map("sales_order_id") @db.Uuid
+  salesOrder          SalesOrder      @relation(fields: [salesOrderId], references: [id], onDelete: Restrict)
+  customerId          String          @map("customer_id") @db.Uuid
+  customer            Customer        @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  tripId              String?         @map("trip_id") @db.Uuid
+  trip                Trip?           @relation(fields: [tripId], references: [id], onDelete: Restrict)
+  tripStopId          String?         @map("trip_stop_id") @db.Uuid
+  tripStop            TripStop?       @relation(fields: [tripStopId], references: [id], onDelete: Restrict)
+  originSiteId        String          @map("origin_site_id") @db.Uuid
+  originSite          CustomerSite    @relation("DoOrigin", fields: [originSiteId], references: [id], onDelete: Restrict)
+  destSiteId          String          @map("dest_site_id") @db.Uuid
+  destSite            CustomerSite    @relation("DoDest", fields: [destSiteId], references: [id], onDelete: Restrict)
+  /// ลำดับจุดของ SO (sales_order_stop.sequence) ที่ DO นี้รับ/ส่ง — ไม่ใช้ FK เพราะจุดของ SO upsert ตามลำดับ
+  originStopSeq       Int             @map("origin_stop_seq")
+  destStopSeq         Int             @map("dest_stop_seq")
+  weightKg            Decimal?        @map("weight_kg") @db.Decimal(14, 3)
+  cbm                 Decimal?        @db.Decimal(14, 3)
+  sellRateSnapshot    Json?           @map("sell_rate_snapshot")
+  revenueAmount       Decimal?        @map("revenue_amount") @db.Decimal(14, 2)
+  allocatedCostAmount Decimal?        @map("allocated_cost_amount") @db.Decimal(14, 2)
+  status              DoStatus        @default(DRAFT)
+  podStatus           String          @default("NONE") @map("pod_status")
+  billingHold         Boolean         @default(false) @map("billing_hold")
+  redeliveryOfId      String?         @map("redelivery_of_id") @db.Uuid /// D-23 ส่งใหม่ = DO ใบใหม่
+  redeliveryOf        DeliveryOrder?  @relation("DoRedelivery", fields: [redeliveryOfId], references: [id], onDelete: Restrict)
+  redeliveries        DeliveryOrder[] @relation("DoRedelivery")
+  /// แยก DO (ORD-084): ใบแม่ CANCELLED (event split) → ใบลูกเลข `{split_root_no}-{split_index}`
+  splitFromId         String?         @map("split_from_id") @db.Uuid
+  splitFrom           DeliveryOrder?  @relation("DoSplit", fields: [splitFromId], references: [id], onDelete: Restrict)
+  splitChildren       DeliveryOrder[] @relation("DoSplit")
+  splitRootNo         String?         @map("split_root_no")
+  splitIndex          Int?            @map("split_index")
+  /// ลายนิ้วมือข้อมูล SO ที่ DO ชุดนี้สร้างจาก (ลูกค้า จุด สินค้า) — SO เปลี่ยนแล้วไม่ตรง = สร้าง DO ใหม่ทั้งชุด (ORD-085)
+  sourceHash          String?         @map("source_hash")
+  customerRef         String?         @map("customer_ref")
+  publicTokenHash     String?         @map("public_token_hash") /// tracking link (ST4-T14)
+  version             Int             @default(1)
+  createdAt           DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  lines DeliveryOrderLine[]
 
   @@unique([tenantId, doNo])
   @@index([tenantId, status])
   @@index([tenantId, tripId])
+  @@index([tenantId, salesOrderId])
   @@index([tenantId, updatedAt, id])
   @@map("delivery_order")
 }
 
 model DeliveryOrderLine {
-  id                 String   @id @default(uuid()) @db.Uuid
-  tenantId           String   @map("tenant_id") @db.Uuid
-  deliveryOrderId    String   @map("delivery_order_id") @db.Uuid
-  salesOrderLineId   String?  @map("sales_order_line_id") @db.Uuid
-  qtyPlanned         Decimal  @map("qty_planned") @db.Decimal(14, 3)
-  qtyActual          Decimal? @map("qty_actual") @db.Decimal(14, 3)
-  rejectQty          Decimal? @map("reject_qty") @db.Decimal(14, 3)
-  rejectReasonCodeId String?  @map("reject_reason_code_id") @db.Uuid
+  id                 String          @id @default(uuid()) @db.Uuid
+  tenantId           String          @map("tenant_id") @db.Uuid
+  deliveryOrderId    String          @map("delivery_order_id") @db.Uuid
+  deliveryOrder      DeliveryOrder   @relation(fields: [deliveryOrderId], references: [id], onDelete: Restrict)
+  lineNo             Int             @map("line_no")
+  /// บรรทัด SO — null ได้เฉพาะบรรทัดของ DO ที่ยกเลิกแล้วซึ่งบรรทัด SO ถูกลบภายหลัง (เหลือ snapshot so_line_no/description)
+  salesOrderLineId   String?         @map("sales_order_line_id") @db.Uuid
+  salesOrderLine     SalesOrderLine? @relation(fields: [salesOrderLineId], references: [id], onDelete: Restrict)
+  soLineNo           Int             @map("so_line_no")
+  description        String
+  qtyPlanned         Decimal         @map("qty_planned") @db.Decimal(14, 3)
+  qtyActual          Decimal?        @map("qty_actual") @db.Decimal(14, 3)
+  rejectQty          Decimal?        @map("reject_qty") @db.Decimal(14, 3)
+  rejectReasonCodeId String?         @map("reject_reason_code_id") @db.Uuid
+  rejectReasonCode   ReasonCode?     @relation(fields: [rejectReasonCodeId], references: [id], onDelete: Restrict)
   unit               String
+  weightKg           Decimal?        @map("weight_kg") @db.Decimal(14, 3) /// สัดส่วนจากบรรทัด SO (เศษปัดไปใบสุดท้าย — รวมเท่าเดิม)
+  cbm                Decimal?        @db.Decimal(14, 3)
 
+  @@unique([tenantId, deliveryOrderId, lineNo])
+  @@unique([tenantId, deliveryOrderId, salesOrderLineId])
   @@index([tenantId, deliveryOrderId])
+  @@index([tenantId, salesOrderLineId])
   @@map("delivery_order_line")
 }
 

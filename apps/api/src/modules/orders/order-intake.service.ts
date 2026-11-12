@@ -25,6 +25,7 @@ import { AuditService, diff } from '../../audit/audit.service';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
+import { DeliveryOrderService } from '../delivery-orders/delivery-order.service';
 import { StateService } from '../../state/state.service';
 import { lockKey, lockReferenced, stableStringify, type RefTable } from '../master/master-kit';
 import { PricingService, type Quote } from '../pricing/pricing.service';
@@ -106,6 +107,7 @@ export class OrderIntakeService {
     private readonly pricing: PricingService,
     private readonly state: StateService,
     private readonly audit: AuditService,
+    private readonly deliveryOrders: DeliveryOrderService,
   ) {}
 
   async upsertOrder(input: UpsertOrderInput, tx: Tx = this.db.tx): Promise<UpsertOrderResult> {
@@ -144,7 +146,10 @@ export class OrderIntakeService {
       // ส่งซ้ำค่าเดิม: ไม่เขียนข้อมูล แต่ราคา/ใบค้างประเมินใหม่ได้ (ข้อมูลหลักอาจเปลี่ยน)
       return this.evaluate(tx, current, { draft: n.draft, created: false, dataChanged: false });
     if (current) {
-      if (!isIntakeEditable(current.status as SoStatus) || (await this.hasDoOnTrip(tx, current.id)))
+      if (
+        !isIntakeEditable(current.status as SoStatus) ||
+        (await this.deliveryOrders.hasDoOnTrip(tx, current.id))
+      )
         throw new ProblemException('order_locked_for_update', undefined, undefined, {
           status: current.status,
         });
@@ -200,6 +205,13 @@ export class OrderIntakeService {
       id = current.id;
       await tx.salesOrder.update({ where: { id }, data: { ...header, version: { increment: 1 } } });
     }
+    // สินค้าลดลง: DO ที่อ้างบรรทัดที่จะลบต้องยกเลิก/ปลดก่อน (FK RESTRICT บรรทัด DO → บรรทัด SO) — สร้างใหม่ตอน sync
+    if (current)
+      await this.deliveryOrders.releaseOrderLines(
+        tx,
+        id,
+        current.lines.filter((l) => l.lineNo > n.lines.length).map((l) => l.id),
+      );
     await this.writeChildren(tx, tenantId, id, n);
     const loaded = await tx.salesOrder.findUniqueOrThrow({ where: { id }, include: INCLUDE });
     return this.evaluate(tx, loaded, {
@@ -237,18 +249,6 @@ export class OrderIntakeService {
       SELECT id FROM sales_order WHERE id = ${id}::uuid FOR UPDATE`;
     if (!rows.length) return null;
     return tx.salesOrder.findUnique({ where: { id }, include: INCLUDE });
-  }
-
-  /**
-   * มี DO ของ SO นี้อยู่ในเที่ยวแล้ว (ORD-023: แก้จากต้นทางได้จนกว่า DO จะเข้าเที่ยว) — DO เกิดใน ST3-T09
-   * ตอนนี้จึงเป็น 0 เสมอ แต่ตรวจจริงจากตาราง delivery_order (schema v0) ไว้แล้ว
-   */
-  private async hasDoOnTrip(tx: Tx, salesOrderId: string): Promise<boolean> {
-    return (
-      (await tx.deliveryOrder.count({
-        where: { salesOrderId, tripId: { not: null }, status: { not: 'CANCELLED' } },
-      })) > 0
-    );
   }
 
   private async evaluate(
@@ -461,6 +461,9 @@ export class OrderIntakeService {
       await tx.salesOrder.update({ where: { id }, data: { version: { increment: 1 } } });
     if (plan.events.length && !opts.dataChanged && !pricingChanged && !opts.created)
       await tx.salesOrder.update({ where: { id }, data: { version: { increment: 1 } } });
+
+    // ใบส่งของตาม SO (ST3-T09): 1 DO = ทั้ง SO เมื่อพร้อม · SO แก้ข้อมูลที่ DO ใช้ → สร้างชุดใหม่ (ORD-085)
+    await this.deliveryOrders.syncWithOrder(tx, id);
 
     const changed =
       opts.created || opts.dataChanged || pricingChanged || plan.events.length > 0 || noteChanged;

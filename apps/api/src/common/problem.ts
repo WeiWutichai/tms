@@ -162,6 +162,18 @@ export const PROBLEMS = {
     th: 'เลขอ้างอิงต้นทางนี้ถูกใช้กับใบสั่งขนส่งจากช่องทางอื่นแล้ว',
     en: 'This external id is already used by an order from another source',
   },
+  /** ST3-T09: สร้าง DO ได้เมื่อ SO พ้นร่าง ยังไม่วางแผน/ยกเลิก และจับคู่ลูกค้า + สถานที่ครบ (DO ต้องมีลูกค้า/ต้นทาง/ปลายทาง) */
+  order_not_ready_for_delivery: {
+    status: 409,
+    th: 'ยังสร้างใบส่งของจากใบสั่งขนส่งนี้ไม่ได้ (ร่าง ยกเลิก วางแผนแล้ว หรือยังจับคู่ลูกค้า/สถานที่ไม่ครบ)',
+    en: 'Delivery orders cannot be created for this order yet (draft, cancelled, planned or unmapped customer/locations)',
+  },
+  /** ST3-T09 ORD-083/086: แยก/รวม/ยกเลิก DO ได้เฉพาะใบ DRAFT ที่ยังไม่อยู่ในเที่ยว */
+  delivery_order_on_trip: {
+    status: 409,
+    th: 'ใบส่งของนี้อยู่ในเที่ยวรถแล้ว — ถอดออกจากเที่ยวก่อน',
+    en: 'Delivery order is on a trip — remove it from the trip first',
+  },
   invalid_grant: { status: 400, th: 'รหัสยืนยันหมดอายุหรือไม่ถูกต้อง', en: 'Invalid grant' },
   internal_error: { status: 500, th: 'ระบบขัดข้อง', en: 'Internal error' },
 } as const;
