@@ -14,7 +14,9 @@ import { decodeIdOr404, encodeId, tryDecodeId, type IdKind } from '../../common/
 import { toPage } from '../../common/pagination';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
+import { ApiProblems } from '../../common/problem.dto';
 import { isRealDate } from '../vehicle-documents/expiry';
+import { T403, T404, T409, T412, T422 } from './trip-problems';
 import {
   AssignTripDto,
   AttachDeliveryOrdersDto,
@@ -131,6 +133,7 @@ export class TripsController {
   constructor(private readonly trips: TripService) {}
 
   @Get()
+  @ApiProblems(T403('trips:read'), T422)
   @RequireScope('trips:read')
   @ApiOkResponse({ type: TripPageDto })
   async list(@Query() q: TripListQuery) {
@@ -154,6 +157,7 @@ export class TripsController {
   }
 
   @Get(':id')
+  @ApiProblems(T403('trips:read'), T404)
   @TenantResource('trip')
   @RequireScope('trips:read')
   @ApiOkResponse({ type: TripDto })
@@ -165,6 +169,11 @@ export class TripsController {
 
   /** สร้างเที่ยว PLANNING จาก DO (DRAFT ไม่อยู่ในเที่ยวอื่น) — จุดแวะจัดจาก DO, เลขเที่ยวจาก document_series TRIP */
   @Post()
+  @ApiProblems(
+    T403('trips:assign'),
+    T409('delivery_order_on_trip', 'order_not_ready_for_delivery'),
+    T422,
+  )
   @RequireScope('trips:assign')
   @ApiHeader({ name: 'Idempotency-Key', required: false })
   @ApiCreatedResponse({ type: TripDto })
@@ -190,6 +199,13 @@ export class TripsController {
 
   /** เพิ่ม DO เข้าเที่ยว (PLANNING/ASSIGNED) */
   @Post(':id/attach')
+  @ApiProblems(
+    T403('trips:assign'),
+    T404,
+    T409('delivery_order_on_trip', 'order_not_ready_for_delivery'),
+    T412,
+    T422,
+  )
   @HttpCode(200)
   @TenantResource('trip')
   @RequireScope('trips:assign')
@@ -215,6 +231,7 @@ export class TripsController {
 
   /** ถอด DO ออกจากเที่ยว (PLANNING/ASSIGNED) — DO กลับ DRAFT นอกเที่ยว */
   @Post(':id/detach')
+  @ApiProblems(T403('trips:assign'), T404, T409('trip_has_loaded_orders'), T412, T422)
   @HttpCode(200)
   @TenantResource('trip')
   @RequireScope('trips:assign')
@@ -241,6 +258,13 @@ export class TripsController {
 
   /** จัดรถ + คนขับ (snapshot) → ASSIGNED · คำเตือนอยู่ใน `warnings` (ไม่บล็อก) */
   @Post(':id/assign')
+  @ApiProblems(
+    T403('trips:assign'),
+    T404,
+    T409('trip_empty', 'offer_required', 'carrier_change_requires_cancel'),
+    T412,
+    T422,
+  )
   @HttpCode(200)
   @TenantResource('trip')
   @RequireScope('trips:assign')
@@ -271,6 +295,7 @@ export class TripsController {
 
   /** เสนองานรถร่วม → OFFERED (ลิงก์รับงาน = ST3-T23) */
   @Post(':id/offer')
+  @ApiProblems(T403('trips:assign'), T404, T409('trip_empty'), T412, T422)
   @HttpCode(200)
   @TenantResource('trip')
   @RequireScope('trips:assign')
@@ -296,6 +321,7 @@ export class TripsController {
 
   /** ปล่อยรถ → DISPATCHED (ทุก DO → DISPATCHED) */
   @Post(':id/dispatch')
+  @ApiProblems(T403('trips:dispatch'), T404, T409('trip_empty'), T412)
   @HttpCode(200)
   @TenantResource('trip')
   @RequireScope('trips:dispatch')
@@ -315,6 +341,7 @@ export class TripsController {
 
   /** ปิดเที่ยว → COMPLETED (ทุกจุดจบแล้ว) */
   @Post(':id/complete')
+  @ApiProblems(T403('trips:close'), T404, T409('trip_stops_open'), T412)
   @HttpCode(200)
   @TenantResource('trip')
   @RequireScope('trips:close')
@@ -334,6 +361,7 @@ export class TripsController {
 
   /** ยกเลิกเที่ยว — เหตุผล ≥ 10 ตัวอักษร + audit · DO ที่ยังไม่รับของกลับเป็นงานรอจัด */
   @Post(':id/cancel')
+  @ApiProblems(T403('trips:assign'), T404, T409('trip_has_loaded_orders'), T412, T422)
   @HttpCode(200)
   @TenantResource('trip')
   @RequireScope('trips:assign')

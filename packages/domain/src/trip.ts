@@ -153,6 +153,8 @@ export function intersectWindows(ws: StopWindow[]): { window: StopWindow; confli
  * - จุดรับของ DO = จุด PICKUP เดิมที่สถานที่เดียวกัน (จุดแรก) ไม่มี → จุดใหม่ต่อท้าย "ช่วงรับของต้นเที่ยว"
  *   (ก่อนจุดส่งแรกเสมอ — รับก่อนส่ง)
  * - จุดส่งของ DO = จุด DELIVERY เดิมที่สถานที่เดียวกันและอยู่ **หลัง** จุดรับของ DO นั้น ไม่มี → จุดใหม่ต่อท้ายเที่ยว
+ *   (DO ใหม่เรียงตามต้นช่วงเวลาส่งที่ลูกค้าขอ — ไม่มีช่วงไว้ท้าย — แล้วตามลำดับที่ส่งเข้ามา; จุดเดิมคงตำแหน่ง —
+ *   ลำดับที่ผู้จัดรถเรียงเอง (ST3-T16) มาก่อนเสมอ)
  * - หลาย DO ที่จุดเดียวกัน (เช่น หลาย SO ของลูกค้าเดียว) ใช้จุดเดียว — ช่วงเวลา = ส่วนที่ทุกใบรับได้
  * - ลำดับ 1..n ต่อเนื่อง
  */
@@ -172,7 +174,12 @@ export function planStops(
     .map((s) => ({ id: s.id, type: s.type, siteId: s.siteId, pickups: [], drops: [] }));
   const pickupSlot = new Map<string, Slot>();
   const dropSlot = new Map<string, Slot>();
-  for (const d of dos) {
+  const byDropWindow = [...dos].sort(
+    (a, b) =>
+      (iso(a.dropWindow.start) ?? Number.POSITIVE_INFINITY) -
+      (iso(b.dropWindow.start) ?? Number.POSITIVE_INFINITY),
+  );
+  for (const d of byDropWindow) {
     let p = slots.find((s) => s.type === 'PICKUP' && s.siteId === d.originSiteId);
     if (!p) {
       p = { id: null, type: 'PICKUP', siteId: d.originSiteId, pickups: [], drops: [] };
@@ -217,4 +224,22 @@ export function planStops(
     dropOf[d.id] = used.indexOf(dropSlot.get(d.id)!);
   }
   return { stops, removed, pickupOf, dropOf, windowConflicts };
+}
+
+/**
+ * ลำดับจุดที่เวลาตามแผนถอยหลัง (จุดถัดไปมีเวลาก่อนจุดก่อนหน้า) → ลำดับของจุดที่ผิด (คำเตือน `stop_sequence_window_order`)
+ * จุดที่ไม่มีเวลาตามแผนข้าม
+ */
+export function backwardStops(
+  stops: readonly { sequence: number; plannedArrival: string | null }[],
+): number[] {
+  const out: number[] = [];
+  let last: number | null = null;
+  for (const s of [...stops].sort((a, b) => a.sequence - b.sequence)) {
+    const t = iso(s.plannedArrival);
+    if (t === null) continue;
+    if (last !== null && t < last) out.push(s.sequence);
+    else last = t;
+  }
+  return out;
 }

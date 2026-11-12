@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import type { Trip, TripStop, TripStatus as DbTripStatus } from '@prisma/client';
 import {
   STOP_TERMINAL_STATUSES,
+  backwardStops,
   TRIP_OPEN_STATUSES,
   TRIP_TRANSITIONS,
   isTripEditable,
@@ -24,6 +25,7 @@ import {
   type DeliveryOrderRecord,
 } from '../delivery-orders/delivery-order.service';
 import { cleanLine } from '../master/master-kit';
+import { bangkokToday } from '../vehicle-documents/expiry';
 import { OrderStateService } from '../orders/order-state.service';
 import { issueNumber } from '../sequences/sequences.service';
 
@@ -158,7 +160,7 @@ export class TripService {
    */
   async create(input: CreateTripInput, tx: Tx = this.db.tx): Promise<TripRecord> {
     const tenantId = this.tenantId();
-    const window = this.window(input.plannedStartAt, input.plannedEndAt);
+    const window = this.window(input.tripDate, input.plannedStartAt, input.plannedEndAt);
     const dos = await this.dos.lockForTrip(tx, input.deliveryOrderIds);
     const trip = await tx.trip.create({
       data: {
@@ -475,15 +477,35 @@ export class TripService {
     return t;
   }
 
-  private window(start?: string | null, end?: string | null) {
+  /**
+   * ช่วงวิ่งตามแผน: เริ่ม/จบต้องอยู่ในวันเที่ยว ± 1 วัน (เวลาไทย — เที่ยวข้ามคืน) และจบหลังเริ่ม (QA ST3-T11)
+   * — กันช่วงที่ไม่เกี่ยวกับวันเที่ยว (เช่น จบก่อนวันเที่ยว) ซึ่งทำให้ช่วงตรวจเอกสาร (assignability) กลับด้าน
+   */
+  private window(tripDate: string, start?: string | null, end?: string | null) {
     const s = start ? new Date(start) : null;
     const e = end ? new Date(end) : null;
-    if (s && e && e < s)
-      throw field422(
-        'plannedEndAt',
-        'before_start',
-        'plannedEndAt must not be before plannedStartAt',
-      );
+    const day = Date.parse(`${tripDate}T00:00:00Z`);
+    const errors: { field: string; code: string; message: string }[] = [];
+    for (const [field, v] of [
+      ['plannedStartAt', s],
+      ['plannedEndAt', e],
+    ] as const) {
+      if (!v) continue;
+      const thai = Date.parse(`${bangkokToday(v)}T00:00:00Z`);
+      if (Math.abs(thai - day) > 86_400_000)
+        errors.push({
+          field,
+          code: 'outside_trip_date',
+          message: 'must be on tripDate (Asia/Bangkok) or within 1 day of it',
+        });
+    }
+    if (s && e && e <= s)
+      errors.push({
+        field: 'plannedEndAt',
+        code: 'before_start',
+        message: 'plannedEndAt must be after plannedStartAt',
+      });
+    if (errors.length) throw new ProblemException('validation_failed', undefined, errors);
     return { start: s, end: e };
   }
 
@@ -827,12 +849,39 @@ export class TripService {
           params: { status: v.status },
         });
       out.push(...(await this.compatWarnings(tx, trip)));
-      const from = trip.plannedStartAt ?? trip.tripDate;
-      const to = trip.plannedEndAt ?? trip.plannedStartAt ?? trip.tripDate;
+      // ช่วงตรวจเอกสาร = ครอบวันเที่ยวและช่วงวิ่งทั้งหมด (min/max — ไม่มีวันกลับด้าน)
+      const points = [trip.tripDate, trip.plannedStartAt, trip.plannedEndAt].filter(
+        (d): d is Date => d !== null,
+      );
+      const from = new Date(Math.min(...points.map((d) => d.getTime())));
+      const to = new Date(Math.max(...points.map((d) => d.getTime())));
       const a = await this.assignability.isAssignable(
         { vehicleId: trip.vehicleId, driverId: trip.driverId, window: { from, to } },
         tx,
       );
+      // ใบขับขี่คนขับสำรอง (เฉพาะประเด็นใบขับขี่ — เอกสารรถตรวจแล้วข้างบน)
+      const ra = trip.reliefDriverId
+        ? await this.assignability.isAssignable(
+            { vehicleId: trip.vehicleId, driverId: trip.reliefDriverId, window: { from, to } },
+            tx,
+          )
+        : null;
+      const relief = ra
+        ? [...ra.blocks, ...ra.warnings].filter((i) => i.code.startsWith('DRIVER_LICENCE_'))
+        : [];
+      for (const i of relief)
+        out.push({
+          code: i.code,
+          severity: i.severity,
+          source: 'assignability',
+          messageKey: i.messageKey,
+          message: `คนขับสำรอง: ${i.message}`,
+          params: {
+            ...i.params,
+            driverRole: 'relief',
+            ...(i.expiredOn ? { expiredOn: i.expiredOn } : {}),
+          },
+        });
       for (const i of [...a.blocks, ...a.warnings])
         out.push({
           code: i.code,
@@ -848,19 +897,40 @@ export class TripService {
         });
       out.push(...(await this.overlapWarnings(tx, trip, 'vehicle')));
     }
-    if (trip.driverId) {
-      const d = await tx.driver.findUnique({ where: { id: trip.driverId } });
+    // คนขับหลัก + คนขับสำรอง: ลา / ซ้อนเวลา (เทียบกับทั้งคนขับหลักและสำรองของเที่ยวอื่น)
+    for (const [role, driverId, name] of [
+      ['driver', trip.driverId, trip.driverNameSnapshot],
+      ['relief', trip.reliefDriverId, trip.reliefDriverNameSnapshot],
+    ] as const) {
+      if (!driverId) continue;
+      const d = await tx.driver.findUnique({ where: { id: driverId } });
+      const label = role === 'driver' ? 'คนขับ' : 'คนขับสำรอง';
       if (d?.status === 'ON_LEAVE')
         out.push({
-          code: 'driver_on_leave',
+          code: role === 'driver' ? 'driver_on_leave' : 'relief_driver_on_leave',
           severity: 'warning',
           source: 'assignment',
-          messageKey: 'trip.driverOnLeave',
-          message: `คนขับ ${trip.driverNameSnapshot} ลาอยู่`,
-          params: {},
+          messageKey: role === 'driver' ? 'trip.driverOnLeave' : 'trip.reliefDriverOnLeave',
+          message: `${label} ${name} ลาอยู่`,
+          params: { driverRole: role },
         });
-      out.push(...(await this.overlapWarnings(tx, trip, 'driver')));
+      out.push(...(await this.overlapWarnings(tx, trip, { driverId, name: name ?? '', role })));
     }
+    // เวลาตามแผนของจุดถอยหลัง (เรียงเองภายหลัง — ST3-T16 — ลำดับของผู้จัดรถมาก่อน)
+    for (const seq of backwardStops(
+      trip.stops.map((st) => ({
+        sequence: st.sequence,
+        plannedArrival: st.plannedArrival?.toISOString() ?? null,
+      })),
+    ))
+      out.push({
+        code: 'stop_sequence_window_order',
+        severity: 'warning',
+        source: 'stops',
+        messageKey: 'trip.stopSequenceWindowOrder',
+        message: `จุดที่ ${seq}: เวลาตามแผนก่อนจุดก่อนหน้า — ตรวจลำดับจุด`,
+        params: { sequence: seq },
+      });
     const json = JSON.parse(JSON.stringify(out)) as Prisma.InputJsonValue;
     if (JSON.stringify(trip.ruleWarnings) !== JSON.stringify(json))
       await tx.trip.update({
@@ -920,12 +990,12 @@ export class TripService {
   private async overlapWarnings(
     tx: Tx,
     trip: TripRecord,
-    kind: 'vehicle' | 'driver',
+    kind: 'vehicle' | { driverId: string; name: string; role: 'driver' | 'relief' },
   ): Promise<TripWarning[]> {
     const who =
       kind === 'vehicle'
         ? { vehicleId: trip.vehicleId! }
-        : { OR: [{ driverId: trip.driverId! }, { reliefDriverId: trip.driverId! }] };
+        : { OR: [{ driverId: kind.driverId }, { reliefDriverId: kind.driverId }] };
     const others = await tx.trip.findMany({
       where: {
         id: { not: trip.id },
@@ -958,17 +1028,25 @@ export class TripService {
     });
     if (!overlaps.length) return [];
     const nos = overlaps.map((o) => o.tripNo!).join(', ');
+    if (kind === 'vehicle')
+      return [
+        {
+          code: 'vehicle_overlap',
+          severity: 'warning',
+          source: 'schedule',
+          messageKey: 'trip.vehicleOverlap',
+          message: `รถ ${trip.vehiclePlateSnapshot} มีเที่ยวอื่นในช่วงเวลาเดียวกัน: ${nos}`,
+          params: { trips: overlaps.map((o) => o.tripNo) },
+        },
+      ];
     return [
       {
-        code: `${kind}_overlap`,
+        code: kind.role === 'driver' ? 'driver_overlap' : 'relief_driver_overlap',
         severity: 'warning',
         source: 'schedule',
-        messageKey: kind === 'vehicle' ? 'trip.vehicleOverlap' : 'trip.driverOverlap',
-        message:
-          kind === 'vehicle'
-            ? `รถ ${trip.vehiclePlateSnapshot} มีเที่ยวอื่นในช่วงเวลาเดียวกัน: ${nos}`
-            : `คนขับ ${trip.driverNameSnapshot} มีเที่ยวอื่นในช่วงเวลาเดียวกัน: ${nos}`,
-        params: { trips: overlaps.map((o) => o.tripNo) },
+        messageKey: kind.role === 'driver' ? 'trip.driverOverlap' : 'trip.reliefDriverOverlap',
+        message: `${kind.role === 'driver' ? 'คนขับ' : 'คนขับสำรอง'} ${kind.name} มีเที่ยวอื่นในช่วงเวลาเดียวกัน: ${nos}`,
+        params: { trips: overlaps.map((o) => o.tripNo), driverRole: kind.role },
       },
     ];
   }

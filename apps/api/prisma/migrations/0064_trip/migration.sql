@@ -101,10 +101,10 @@ ALTER TABLE "trip" ADD CONSTRAINT "trip_snapshot" CHECK (
   AND ("relief_driver_id" IS NULL OR ("relief_driver_name_snapshot" IS NOT NULL AND "relief_driver_id" IS DISTINCT FROM "driver_id"))
   AND ("trailer_id" IS NULL OR ("trailer_plate_snapshot" IS NOT NULL AND "trailer_id" IS DISTINCT FROM "vehicle_id"))
   AND ("carrier_id" IS NULL OR "carrier_name_snapshot" IS NOT NULL));
--- จัดรถแล้ว (ASSIGNED ขึ้นไป) ต้องมีรถ · เสนอรถร่วมต้องมีรถร่วม · ช่วงวิ่งไม่ถอยหลัง
+-- จัดรถแล้ว (ASSIGNED ขึ้นไป) ต้องมีรถ · เสนอรถร่วมต้องมีรถร่วม (IS NOT DISTINCT FROM — NULL ไม่หลุด CHECK) · ช่วงวิ่งไม่ถอยหลัง
 ALTER TABLE "trip" ADD CONSTRAINT "trip_state" CHECK (
   ("status" NOT IN ('ASSIGNED', 'DISPATCHED', 'IN_PROGRESS', 'COMPLETED', 'COSTED', 'SETTLED') OR "vehicle_id" IS NOT NULL)
-  AND ("status" <> 'OFFERED' OR ("carrier_id" IS NOT NULL AND "assignment_status" = 'OFFERED'))
+  AND ("status" <> 'OFFERED' OR ("carrier_id" IS NOT NULL AND "assignment_status" IS NOT DISTINCT FROM 'OFFERED'::"assignment_status"))
   AND ("planned_end_at" IS NULL OR "planned_start_at" IS NULL OR "planned_end_at" >= "planned_start_at"));
 ALTER TABLE "trip_stop" ADD CONSTRAINT "trip_stop_values" CHECK (
   "sequence" >= 1

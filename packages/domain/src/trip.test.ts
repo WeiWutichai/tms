@@ -5,6 +5,7 @@ import {
   TRIP_STATUSES,
   TRIP_STATUS_LABEL_TH,
   TRIP_TRANSITIONS,
+  backwardStops,
   intersectWindows,
   isTripEditable,
   planStops,
@@ -130,5 +131,40 @@ describe('planStops (ST3-T11)', () => {
       ],
     );
     expect(p.windowConflicts).toEqual([1]);
+  });
+
+  it('DO ใหม่เรียงจุดส่งตามต้นช่วงเวลา (ไม่มีช่วงไว้ท้าย) · จุดเดิมคงตำแหน่ง · เวลาถอยหลัง → backwardStops', () => {
+    const p = planStops(
+      [],
+      [
+        d('late', 'W', 'C1', w('2026-11-13T09:00:00Z', null)),
+        d('none', 'W', 'C2'),
+        d('early', 'W', 'C3', w('2026-11-13T02:00:00Z', null)),
+      ],
+    );
+    expect(p.stops.filter((s) => s.type === 'DELIVERY').map((s) => s.siteId)).toEqual([
+      'C3',
+      'C1',
+      'C2',
+    ]);
+    const kept = planStops(
+      [
+        { id: 'x', type: 'DELIVERY', siteId: 'C1', sequence: 2 },
+        { id: 'p', type: 'PICKUP', siteId: 'W', sequence: 1 },
+      ],
+      [
+        d('late', 'W', 'C1', w('2026-11-13T09:00:00Z', null)),
+        d('early', 'W', 'C3', w('2026-11-13T02:00:00Z', null)),
+      ],
+    );
+    expect(kept.stops.map((s) => s.siteId)).toEqual(['W', 'C1', 'C3']);
+    expect(
+      backwardStops([
+        { sequence: 1, plannedArrival: '2026-11-13T01:00:00Z' },
+        { sequence: 2, plannedArrival: '2026-11-13T09:00:00Z' },
+        { sequence: 3, plannedArrival: null },
+        { sequence: 4, plannedArrival: '2026-11-13T02:00:00Z' },
+      ]),
+    ).toEqual([4]);
   });
 });

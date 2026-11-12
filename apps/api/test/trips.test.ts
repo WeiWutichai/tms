@@ -147,9 +147,9 @@ describe('trips (ST3-T11)', () => {
     lines: [{ description: 'ปูนซีเมนต์', qty: '10', unitId: unitTon, weightKg: '10000' }],
   });
   /** SO ใหม่ → DO (public id) + uuid SO */
-  const newDo = async (k?: Key, tid = tenantId) => {
+  const newDo = async (k?: Key, tid = tenantId, window?: [string, string]) => {
     const kk = k ?? (await key());
-    const { order: so } = await upsert(order(kk), tid);
+    const { order: so } = await upsert(order(kk, window), tid);
     const [d] = await run((tx) => app.get(DeliveryOrderService).listForOrder(so.id, {}, tx), tid);
     return { id: encodeId('deliveryOrder', d!.id), uuid: d!.id, soId: so.id, key: kk };
   };
@@ -574,6 +574,7 @@ describe('trips (ST3-T11)', () => {
     expect(
       (
         await createTrip([y.id], {
+          tripDate: '2026-11-13',
           plannedStartAt: '2026-11-13T10:00:00+07:00',
           plannedEndAt: '2026-11-13T09:00:00+07:00',
         }).expect(422)
@@ -663,5 +664,107 @@ describe('trips (ST3-T11)', () => {
     await act(a.id, 'assign', { vehicleId: v.id, driverId: d1.id }).expect(200);
     const r = await act(b.id, 'assign', { vehicleId: v.id, driverId: d2.id }).expect(200);
     expect(r.body.warnings.map((w: { code: string }) => w.code)).toContain('vehicle_overlap');
+  });
+
+  it('QA: ช่วงวิ่งต้องอยู่ในวันเที่ยว ± 1 วัน (เวลาไทย) และจบหลังเริ่ม — ช่วงข้ามคืนที่ถูกต้อง assign ได้ไม่ 422', async () => {
+    const x = await newDo();
+    const bad = await createTrip([x.id], {
+      tripDate: '2026-12-10',
+      plannedStartAt: '2026-12-10T08:00:00+07:00',
+      plannedEndAt: '2026-12-07T09:00:00+07:00',
+    }).expect(422);
+    expect(
+      bad.body.errors.map((e: { field: string; code: string }) => `${e.field}:${e.code}`),
+    ).toEqual(['plannedEndAt:outside_trip_date', 'plannedEndAt:before_start']);
+    expect(
+      (
+        await createTrip([x.id], {
+          tripDate: '2026-12-10',
+          plannedStartAt: '2026-12-10T08:00:00+07:00',
+          plannedEndAt: '2026-12-10T08:00:00+07:00',
+        }).expect(422)
+      ).body.errors[0].code,
+    ).toBe('before_start');
+    // เริ่มคืนก่อนวันเที่ยว (−1 วัน) จบเช้าวันเที่ยว → ผ่าน และ assign ได้ (ช่วงตรวจเอกสารไม่กลับด้าน)
+    const t = (
+      await createTrip([x.id], {
+        tripDate: '2026-12-10',
+        plannedStartAt: '2026-12-09T22:00:00+07:00',
+        plannedEndAt: '2026-12-10T06:00:00+07:00',
+      }).expect(201)
+    ).body;
+    await act(t.id, 'assign', {
+      vehicleId: (await newVehicle()).id,
+      driverId: (await newDriver()).id,
+    }).expect(200);
+  });
+
+  it('QA: CHECK trip_state — OFFERED ที่ assignment_status เป็น NULL ไม่หลุด', async () => {
+    const t = (await createTrip([(await newDo()).id]).expect(201)).body;
+    const car = await newCarrier();
+    await expect(
+      db.$executeRaw`UPDATE trip SET status = 'OFFERED', carrier_id = ${uuid('carrier', car.id)}::uuid, carrier_name_snapshot = 'x', assignment_status = NULL WHERE id = ${uuid('trip', t.id)}::uuid`,
+    ).rejects.toThrow(/trip_state/);
+  });
+
+  it('QA: คนขับสำรอง — ซ้อนเวลาทั้งสองทาง + ลา', async () => {
+    const [d1, d2, d3, d4] = [
+      await newDriver(),
+      await newDriver(),
+      await newDriver(),
+      await newDriver(),
+    ];
+    const tripOn = async (driverId: string, reliefDriverId?: string) => {
+      const t = (await createTrip([(await newDo()).id], { tripDate: '2026-12-20' }).expect(201))
+        .body;
+      return (
+        await act(t.id, 'assign', {
+          vehicleId: (await newVehicle()).id,
+          driverId,
+          ...(reliefDriverId ? { reliefDriverId } : {}),
+        }).expect(200)
+      ).body;
+    };
+    await tripOn(d1.id);
+    // คนขับสำรองของเที่ยวนี้ = คนขับหลักของเที่ยวอื่น
+    const b = await tripOn(d2.id, d1.id);
+    expect(b.warnings.map((w: { code: string }) => w.code)).toContain('relief_driver_overlap');
+    await tripOn(d3.id, d4.id);
+    // คนขับหลักของเที่ยวนี้ = คนขับสำรองของเที่ยวอื่น
+    const e = await tripOn(d4.id);
+    expect(e.warnings.map((w: { code: string }) => w.code)).toContain('driver_overlap');
+    // คนขับสำรองลา
+    const d5 = await newDriver();
+    await db.driver.update({ where: { id: uuid('driver', d5.id) }, data: { status: 'ON_LEAVE' } });
+    const f = (await createTrip([(await newDo()).id], { tripDate: '2026-12-21' }).expect(201)).body;
+    const r = await act(f.id, 'assign', {
+      vehicleId: (await newVehicle()).id,
+      driverId: (await newDriver()).id,
+      reliefDriverId: d5.id,
+    }).expect(200);
+    expect(r.body.warnings.map((w: { code: string }) => w.code)).toContain(
+      'relief_driver_on_leave',
+    );
+  });
+
+  it('QA: จุดส่งของ DO ใหม่เรียงตามต้นช่วงเวลาที่ลูกค้าขอ (ไม่ใช่เลข DO)', async () => {
+    const late = await newDo(undefined, tenantId, [
+      '2026-12-05T15:00:00+07:00',
+      '2026-12-05T17:00:00+07:00',
+    ]);
+    const early = await newDo(undefined, tenantId, [
+      '2026-12-05T08:00:00+07:00',
+      '2026-12-05T10:00:00+07:00',
+    ]);
+    const t = (await createTrip([late.id, early.id], { tripDate: '2026-12-05' }).expect(201)).body;
+    const drops = t.stops.filter((x: { type: string }) => x.type === 'DELIVERY');
+    expect(drops.map((x: { deliveryOrderIds: string[] }) => x.deliveryOrderIds[0])).toEqual([
+      early.id,
+      late.id,
+    ]);
+    expect(drops[0].plannedArrival).toBe('2026-12-05T01:00:00.000Z');
+    expect(t.warnings.map((w: { code: string }) => w.code)).not.toContain(
+      'stop_sequence_window_order',
+    );
   });
 });
