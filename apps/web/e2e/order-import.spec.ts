@@ -120,8 +120,13 @@ test('นำเข้าใบสั่งขนส่ง: ใบหลายแ
     'เลขอ้างอิงใบสั่ง',
   );
   await expect(dlg.locator('tbody tr[data-error]')).toHaveCount(1);
+  // คำเตือน (ไม่ขวาง): ยังไม่มี rate card → ใบจะค้าง — แสดงแยกจากแถวผิด
+  const warn = dlg.getByRole('region', { name: 'คำเตือน 1 แถว — ไม่ขวางการนำเข้า' });
+  await expect(warn.getByText(/ใบสั่งจะเข้าระบบเป็นใบค้าง/)).toBeVisible();
   await dlg.getByRole('button', { name: 'นำเข้า 2 แถว' }).click();
   await expect(dlg.getByText('นำเข้าสำเร็จ')).toBeVisible();
+  await expect(dlg.getByText('ใบที่นำเข้า')).toBeVisible();
+  await expect(warn).toBeVisible();
   await expect(dlg.getByText('แถว 4', { exact: true })).toBeVisible();
   await expect(dlg.getByText(/จุดส่ง: ไม่พบสถานที่ "ไม่มีจุดนี้" ในข้อมูลหลัก/)).toBeVisible();
   await dlg.getByRole('button', { name: 'เสร็จสิ้น' }).click();

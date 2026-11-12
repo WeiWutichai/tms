@@ -178,6 +178,11 @@ const TH_MONTHS = [
 export function parseImportDate(s: string): string | null {
   // เซลล์วันที่+เวลาของ Excel (`YYYY-MM-DD HH:mm` จาก parse.ts) ในคอลัมน์วันที่ = ใช้เฉพาะวันที่
   const t = s.trim().replace(/[ T]\d{1,2}[:.]\d{2}(:\d{2})?$/, '');
+  // เลข serial 5 หลักของ Excel (เซลล์วันที่ที่ถูกตั้งเป็นรูปแบบ General/ตัวเลข) — ระบบวันที่ 1900 (1927–2173)
+  if (/^\d{5}(\.\d+)?$/.test(t))
+    return new Date(Date.UTC(1899, 11, 30) + Math.floor(Number(t)) * 86_400_000)
+      .toISOString()
+      .slice(0, 10);
   let y: number, m: number, d: number;
   let r = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(t);
   if (r) [y, m, d] = [Number(r[1]), Number(r[2]), Number(r[3])];

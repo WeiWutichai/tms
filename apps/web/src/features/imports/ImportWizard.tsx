@@ -2,6 +2,7 @@ import { Icon } from '@tms/ui';
 import { useEffect, useRef, useState } from 'react';
 import { api, ApiError, unwrap } from '../../api';
 import { useI18n } from '../../i18n';
+import { ImportWarnings } from './ImportWarnings';
 import { th } from '../../i18n/th';
 import type { MessageKey } from '../../i18n/th';
 import type { components } from '@tms/contracts';
@@ -523,6 +524,7 @@ export function ImportWizard({
                 </div>
                 <span style={{ fontSize: 13, color: '#3B424C' }}>{t('imp.sampleNote')}</span>
               </div>
+              <ImportWarnings issues={imp.issues} />
             </>
           )}
 
@@ -530,8 +532,18 @@ export function ImportWizard({
             <>
               {done ? (
                 <>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: imp.importedEntities != null ? '1fr 1fr 1fr' : '1fr 1fr',
+                      gap: 12,
+                    }}
+                  >
                     <Stat n={imp.importedRows} color="#17733F" label={t('imp.ok')} />
+                    {/* ชนิดที่ 1 รายการมีหลายแถว (ใบสั่งขนส่ง) — จำนวนใบที่นำเข้า */}
+                    {imp.importedEntities != null && (
+                      <Stat n={imp.importedEntities} color="#17733F" label={t('imp.okEntities')} />
+                    )}
                     <Stat n={imp.errorRows} color="#B3322A" label={t('imp.bad')} />
                   </div>
                   {errRows.length > 0 && (
@@ -581,6 +593,7 @@ export function ImportWizard({
                       </button>
                     </>
                   )}
+                  <ImportWarnings issues={imp.issues} />
                 </>
               ) : (
                 <span style={{ color: '#3B424C' }}>{t('imp.importing')}</span>

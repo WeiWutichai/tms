@@ -236,9 +236,14 @@ const ID_OF: Partial<Record<RefKind, IdKind>> = {
 /** วันเวลาในไฟล์ → ISO (+07:00) · รับ `HH:mm` / `HH.mm` (= วันรับสินค้า) หรือ วันที่ + เวลา · null = อ่านไม่ได้ */
 export function parseWindow(v: string, baseDate: string | undefined): string | null | 'no_base' {
   const t = v.trim();
-  // เซลล์ตัวเลข (รูปแบบ General) ที่เป็นเวลา/วันเวลาของ Excel: เศษของวัน (0.3333…) หรือ serial (46341.5) ระบบวันที่ 1900
-  // — ทศนิยม 2 ตำแหน่ง (8.30) = ชั่วโมง.นาที ไม่ใช่ serial
-  if (/^\d*\.\d{3,}$/.test(t) || /^\d{5}(\.\d+)?$/.test(t)) {
+  // เซลล์ตัวเลข (รูปแบบ General) ที่เป็นเวลา/วันเวลาของ Excel: เศษของวัน (0.5, 0.75, 0.3333…) หรือ serial (46341.5)
+  // ระบบวันที่ 1900 · ค่า < 1 ที่มีทศนิยม 2 ตำแหน่งและอ่านเป็น ชม.นาที ได้ (0.25 = 00:25) = ชั่วโมง.นาที (กำกวม — #52)
+  const frac = /^0?\.(\d+)$/.exec(t);
+  if (
+    (frac && (frac[1]!.length !== 2 || Number(frac[1]) > 59)) ||
+    /^\d*\.\d{3,}$/.test(t) ||
+    /^\d{5}(\.\d+)?$/.test(t)
+  ) {
     const n = Number(t);
     const days = Math.floor(n);
     let minutes = Math.round((n - days) * 1440);
@@ -426,6 +431,24 @@ export function orderImportSpec(intake: OrderIntakeService): ImportSpec<OrderImp
     const isErr = (x: RowIssue) => (x.severity ?? 'error') === 'error';
     const failed = () => [...issues.values()].some((xs) => xs.some(isErr));
 
+    // ORD-026: เวลาเริ่มของจุดส่งต้องไม่ก่อนเวลาเริ่มของจุดรับแรก — คำเตือน (API ยังไม่ตรวจ — #52)
+    // มักเกิดจากส่งข้ามวันแต่กรอกแค่ HH:mm (ตีความเป็นวันรับสินค้า)
+    const pickIdx = stops.findIndex((x) => x.type === 'PICKUP');
+    const pickAt = pickIdx >= 0 ? (stops[pickIdx]!.windowStart ?? stops[pickIdx]!.windowEnd) : null;
+    if (pickAt)
+      stops.forEach((x, i) => {
+        const at = x.windowStart ?? x.windowEnd;
+        if (x.type !== 'DELIVERY' || !at || Date.parse(at) >= Date.parse(pickAt)) return;
+        const p = stopProv[i]!;
+        add(p.row, {
+          column: (x.windowStart ? p.from : p.to) ?? p.site,
+          code: 'window_before_pickup',
+          severity: 'warning',
+          message:
+            'เวลาส่งอยู่ก่อนเวลารับของจุดรับแรก — ถ้าส่งวันถัดไปให้ใส่วันที่ด้วย (DD/MM/YYYY HH:mm)',
+        });
+      });
+
     if (!failed()) {
       const input: UpsertOrderInput = {
         source: 'EXCEL',
@@ -476,9 +499,14 @@ export function orderImportSpec(intake: OrderIntakeService): ImportSpec<OrderImp
         await ctx.tx.$executeRawUnsafe('RELEASE SAVEPOINT tms_import_order');
         const raw = issuesFromError(e, () => undefined);
         if (!raw) throw e;
+        // หลาย path ลงคอลัมน์เดียวกัน (lines[0].unitId + lines[0].unit → "หน่วย") = เหตุผลเดียว
+        const seen = new Set<string>();
         for (const x of raw) {
           const { field, ...rest } = x;
           const at = place(field, x.code);
+          const k = `${at.row}|${at.column ?? ''}|${x.code}`;
+          if (seen.has(k)) continue;
+          seen.add(k);
           add(at.row, {
             ...rest,
             ...(at.column ? { column: at.column } : {}),

@@ -263,6 +263,8 @@ describe('นำเข้าใบสั่งขนส่งจาก Excel (ST
     expect(sample.actualRowCount).toBe(4);
     expect(sample.getRow(3).getCell(1).value).toBe('ORD-0002');
     expect(sample.getRow(4).getCell(1).value).toBe('ORD-0002');
+    // ไม่มีคอลัมน์แบบเลือกค่า → ไม่มี sheet ซ่อน "รายการ" ว่าง
+    expect(wb.getWorksheet('รายการ')).toBeUndefined();
     const help = wb.getWorksheet('คำอธิบาย')!;
     const text: string[] = [];
     help.eachRow((r) => text.push(String(r.getCell(1).value ?? '')));
@@ -462,11 +464,22 @@ describe('นำเข้าใบสั่งขนส่งจาก Excel (ST
     await db.salesOrder.update({ where: { id: lk!.id }, data: { status: 'PLANNED' } });
     const r = await dry(a, [
       one('X-API-1'),
-      one('LOCK-1', { จำนวน: '999' }),
+      // เปลี่ยนทั้งจำนวนและหน่วย: lines[0].unitId + lines[0].unit → คอลัมน์ "หน่วย" เหตุผลเดียว
+      one('LOCK-1', { จำนวน: '999', หน่วย: 'TON' }),
       one('HOLD-1', { ประเภทรถ: '', 'เวลาส่ง ถึง': '25:00' }),
       one('HOLD-2', { ประเภทรถ: '' }),
       one('', {}),
       one('WIN-1', { 'เวลาส่ง ตั้งแต่': '18:00', 'เวลาส่ง ถึง': '08:00' }),
+      // ส่งข้ามวันแต่กรอกแค่เวลา: ส่ง 06:00 < รับ 22:00 → คำเตือน ORD-026 (ไม่เงียบ)
+      one('NIGHT-1', { 'เวลารับ ตั้งแต่': '22:00', 'เวลาส่ง ถึง': '06:00' }),
+    ]);
+    expect(at(r, 8)).toEqual([
+      expect.objectContaining({
+        column: 'เวลาส่ง ถึง',
+        code: 'window_before_pickup',
+        severity: 'warning',
+        message: expect.stringContaining('ถ้าส่งวันถัดไปให้ใส่วันที่ด้วย'),
+      }),
     ]);
     expect(at(r, 7)).toEqual([
       expect.objectContaining({
@@ -488,6 +501,7 @@ describe('นำเข้าใบสั่งขนส่งจาก Excel (ST
         code: 'locked',
         message: 'ใบสั่งนี้วางแผน/ออกรถแล้ว แก้ช่องนี้ไม่ได้',
       }),
+      expect.objectContaining({ column: 'หน่วย', code: 'locked' }),
     ]);
     expect(at(r, 4)).toEqual([
       expect.objectContaining({ column: 'เวลาส่ง ถึง', code: 'invalid_format' }),
@@ -587,7 +601,12 @@ describe('นำเข้าใบสั่งขนส่งจาก Excel (ST
     // เซลล์ตัวเลข (General) ของ Excel: เศษของวัน และ serial วันเวลา (ระบบ 1900)
     expect(parseWindow('0.333333333333333', '2026-11-15')).toBe('2026-11-15T08:00:00+07:00');
     expect(parseWindow('46341.75', undefined)).toBe('2026-11-15T18:00:00+07:00');
-    expect(parseWindow('0.5', '2026-11-15')).toBeNull();
+    // ค่า < 1: ทศนิยม ≠ 2 ตำแหน่ง หรือ "นาที" > 59 = เศษของวัน · 2 ตำแหน่งที่อ่านเป็น ชม.นาที ได้ = ชม.นาที (#52)
+    expect(parseWindow('0.5', '2026-11-15')).toBe('2026-11-15T12:00:00+07:00');
+    expect(parseWindow('0.75', '2026-11-15')).toBe('2026-11-15T18:00:00+07:00');
+    expect(parseWindow('0.25', '2026-11-15')).toBe('2026-11-15T00:25:00+07:00');
+    // serial 5 หลักในคอลัมน์วันที่
+    expect(parseImportDate('46341')).toBe('2026-11-15');
     // บริษัทหลายนิติบุคคลยังไม่ตั้งค่าออกบิล (routing ST1-T16) → เหตุผลไทยที่บอกวิธีแก้
     const e = new ProblemException('validation_failed', undefined, [
       { field: 'companyId', code: 'routing_not_configured', message: 'several legal entities' },

@@ -153,6 +153,7 @@ describe('นำเข้าข้อมูลหลัก (ST2-T23)', () => {
     expect(wb.getWorksheet('ตัวอย่าง')!.getRow(2).getCell(2).value).toBe('บจก. ตัวอย่างพลาสติก');
     const cycle = head.indexOf('รอบวางบิล');
     expect(wb.worksheets[0]!.getCell(2, cycle).dataValidation).toMatchObject({ type: 'list' });
+    expect(wb.getWorksheet('รายการ')).toBeTruthy(); // รายการให้เลือกยังอยู่สำหรับชนิดที่มี dropdown
   });
 
   // ลำดับ = ข้อมูลที่ถูกอ้างก่อน (ลูกค้า → สถานที่ → ผู้รับเหมา → รถ → คนขับ → เส้นทาง → สินค้า → ค่าบริการ → rate)

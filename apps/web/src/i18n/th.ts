@@ -176,6 +176,10 @@ export const th = {
   'field.mode_not_supported': 'ข้อมูลชนิดนี้ไม่รองรับรูปแบบการนำเข้านี้',
   'imp.done': 'นำเข้า{kind} สำเร็จ {n} แถว',
   /** ชนิดที่ 1 รายการมีหลายแถว (ใบสั่งขนส่ง — ST3-T04) */
+  'imp.okEntities': 'ใบที่นำเข้า',
+  'imp.warnTitle': 'คำเตือน {n} แถว — ไม่ขวางการนำเข้า',
+  'imp.warnRows': 'แถว {rows}',
+  'imp.warnRowsMore': 'แถว {rows} และอีก {n} แถว',
   'imp.doneEntities': 'นำเข้า{kind} สำเร็จ {m} ใบ ({n} แถว)',
   'problem.import_has_errors': 'ไฟล์มีแถวที่ตรวจไม่ผ่าน — แก้ไฟล์หรือเลือกนำเข้าเฉพาะแถวที่ผ่าน',
   'problem.import_expired': 'ผลตรวจไฟล์หมดอายุแล้ว (24 ชั่วโมง) อัปโหลดไฟล์ใหม่',

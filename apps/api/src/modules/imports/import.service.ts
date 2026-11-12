@@ -649,10 +649,13 @@ export class ImportService implements OnModuleInit {
       for (const n of spec.helpNotes) help.addRow([n]);
     }
     // รายการให้เลือก (data validation) — เตือนแบบ information: ยังพิมพ์ค่าอื่นได้ (ระบบตรวจซ้ำตอนนำเข้า)
-    const lists = wb.addWorksheet('รายการ', { state: 'hidden' });
+    // sheet ซ่อน "รายการ" สร้างเฉพาะเมื่อมีคอลัมน์แบบเลือกค่า (เช่น order ไม่มี — ไม่ทิ้ง sheet ว่าง)
+    const lists = spec.columns.some((c) => c.options?.length)
+      ? wb.addWorksheet('รายการ', { state: 'hidden' })
+      : null;
     let listCol = 0;
     spec.columns.forEach((c, i) => {
-      if (!c.options?.length) return;
+      if (!c.options?.length || !lists) return;
       listCol++;
       c.options.forEach((o, j) => (lists.getCell(j + 1, listCol).value = o));
       const letter = lists.getColumn(listCol).letter;
