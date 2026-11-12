@@ -272,6 +272,7 @@ button:focus-visible {
   color: #3b424c;
   font-size: 13px;
   font-weight: 500;
+  white-space: nowrap;
 }
 .tms-filterchip {
   height: 28px;

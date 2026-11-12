@@ -150,6 +150,18 @@ export const PROBLEMS = {
     th: 'ปิดใช้ไม่ได้ เพราะยังมีข้อมูลที่ใช้งานอยู่อ้างถึง — ดูจำนวนใน references',
     en: 'Cannot deactivate — still used by active records (see references)',
   },
+  /** ORD-023 / docs/04 C: ทางเข้า (upsert) เขียนทับ SO ที่วางแผนแล้ว/ปิด/ยกเลิกไม่ได้ (หลังวางแผน = ST3-T10 เก็บ diff) */
+  order_locked_for_update: {
+    status: 409,
+    th: 'แก้ใบสั่งขนส่งนี้จากต้นทางไม่ได้แล้ว (วางแผน ยกเลิก หรือปิดงานแล้ว)',
+    en: 'Order can no longer be updated from its source (planned, cancelled or closed)',
+  },
+  /** externalId เดียวกันมาจากช่องทาง/connector อื่น (externalId unique ต่อ tenant — plan/00a) — ไม่ทับใบของต้นทางอื่น */
+  external_id_conflict: {
+    status: 409,
+    th: 'เลขอ้างอิงต้นทางนี้ถูกใช้กับใบสั่งขนส่งจากช่องทางอื่นแล้ว',
+    en: 'This external id is already used by an order from another source',
+  },
   invalid_grant: { status: 400, th: 'รหัสยืนยันหมดอายุหรือไม่ถูกต้อง', en: 'Invalid grant' },
   internal_error: { status: 500, th: 'ระบบขัดข้อง', en: 'Internal error' },
 } as const;

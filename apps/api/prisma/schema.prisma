@@ -65,6 +65,8 @@ model Company {
   createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt     DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
+  salesOrders SalesOrder[]
+
   @@unique([tenantId, taxId])
   @@unique([tenantId, externalId])
   @@index([tenantId, updatedAt, id])
@@ -384,7 +386,8 @@ model Customer {
   sites                   CustomerSite[]
   products                Product[]
 
-  rateCards RateCard[]
+  rateCards   RateCard[]
+  salesOrders SalesOrder[]
 
   @@unique([tenantId, code])
   @@unique([tenantId, externalId])
@@ -452,8 +455,9 @@ model CustomerSite {
   routesFrom Route[] @relation("RouteOrigin")
   routesTo   Route[] @relation("RouteDestination")
 
-  rateCardsFrom RateCard[] @relation("RateCardOrigin")
-  rateCardsTo   RateCard[] @relation("RateCardDestination")
+  rateCardsFrom RateCard[]       @relation("RateCardOrigin")
+  rateCardsTo   RateCard[]       @relation("RateCardDestination")
+  orderStops    SalesOrderStop[]
 
   @@unique([tenantId, externalId])
   @@unique([tenantId, code])
@@ -579,7 +583,8 @@ model VehicleType {
 
   vehicles Vehicle[]
 
-  rateCards RateCard[]
+  rateCards   RateCard[]
+  salesOrders SalesOrder[]
 
   @@unique([tenantId, code])
   @@unique([tenantId, externalId])
@@ -609,7 +614,8 @@ model Unit {
   products Product[]
   altUnits ProductAltUnit[]
 
-  rateCards RateCard[]
+  rateCards  RateCard[]
+  orderLines SalesOrderLine[]
 
   @@unique([tenantId, code])
   @@unique([tenantId, systemKey])
@@ -647,7 +653,8 @@ model Product {
   createdAt         DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  altUnits ProductAltUnit[]
+  altUnits   ProductAltUnit[]
+  orderLines SalesOrderLine[]
 
   @@unique([tenantId, code])
   @@unique([tenantId, externalId])
@@ -1010,6 +1017,7 @@ model ServiceItem {
 
   rateCards            RateCard[]
   rateCardAccessorials RateCardAccessorial[]
+  orderCharges         SalesOrderCharge[]
 
   @@unique([tenantId, code])
   @@unique([tenantId, externalId])
@@ -1098,6 +1106,7 @@ model RateCard {
   createdAt         DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime              @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   accessorials      RateCardAccessorial[]
+  orderCharges      SalesOrderCharge[]
 
   @@unique([tenantId, externalId])
   @@index([tenantId, side, customerId, carrierId])
@@ -1163,6 +1172,8 @@ model ReasonCode {
   createdAt         DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
+  heldOrders SalesOrder[]
+
   @@unique([tenantId, category, code])
   @@unique([tenantId, externalId])
   @@unique([tenantId, systemKey])
@@ -1196,33 +1207,65 @@ enum SoStatus {
 }
 
 model SalesOrder {
-  id                     String      @id @default(uuid()) @db.Uuid
-  tenantId               String      @map("tenant_id") @db.Uuid
-  soNo                   String?     @map("so_no") /// ออกเลขเมื่อพ้น DRAFT
+  id                     String        @id @default(uuid()) @db.Uuid
+  tenantId               String        @map("tenant_id") @db.Uuid
+  soNo                   String?       @map("so_no") /// ออกเลข (document_series SO) เมื่อพ้น DRAFT — CHECK
   source                 OrderSource
-  externalId             String?     @map("external_id")
-  customerId             String?     @map("customer_id") @db.Uuid
-  billingCompanyId       String      @map("billing_company_id") @db.Uuid
-  customerRef            String?     @map("customer_ref")
-  requestedDate          DateTime    @map("requested_date") @db.Date
-  vehicleTypeId          String?     @map("vehicle_type_id") @db.Uuid
-  status                 SoStatus    @default(DRAFT)
-  holdReasonCodeId       String?     @map("hold_reason_code_id") @db.Uuid
-  holdNote               String?     @map("hold_note")
-  sourceChangedAfterPlan Boolean     @default(false) @map("source_changed_after_plan")
-  sourceDiff             Json?       @map("source_diff")
-  lockedBy               String?     @map("locked_by")
-  lockedAt               DateTime?   @map("locked_at") @db.Timestamptz(6)
-  rawPayload             Json?       @map("raw_payload")
-  version                Int         @default(1)
-  createdAt              DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt              DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  /// ERP:{connector} (docs/04 C) — รหัส connector ตัวเล็ก เช่น `krs`; ช่องทางอื่น = '' (CHECK) · เป็นข้อมูล ไม่ใช่ส่วนของ key
+  sourceConnector        String        @default("") @map("source_connector")
+  externalId             String?       @map("external_id") /// externalRef ของระบบต้นทาง — key idempotent unique ต่อ tenant (docs/01 §3.3, plan/00a รหัสภายนอก)
+  customerId             String?       @map("customer_id") @db.Uuid /// null = CUSTOMER_UNMAPPED
+  customer               Customer?     @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  customerExternalId     String?       @map("customer_external_id") /// รหัสลูกค้าตามต้นทาง (จับคู่ด้วย externalId — ST3-T06)
+  customerText           String?       @map("customer_text") /// ชื่อ/ข้อความลูกค้าตามต้นทาง
+  billingCompanyId       String        @map("billing_company_id") @db.Uuid
+  billingCompany         Company       @relation(fields: [billingCompanyId], references: [id], onDelete: Restrict)
+  customerRef            String?       @map("customer_ref")
+  requestedDate          DateTime      @map("requested_date") @db.Date
+  vehicleTypeId          String?       @map("vehicle_type_id") @db.Uuid
+  vehicleType            VehicleType?  @relation(fields: [vehicleTypeId], references: [id], onDelete: Restrict)
+  status                 SoStatus      @default(DRAFT)
+  holdReasonCodeId       String?       @map("hold_reason_code_id") @db.Uuid /// บังคับเมื่อ ON_HOLD (CHECK)
+  holdReasonCode         ReasonCode?   @relation(fields: [holdReasonCodeId], references: [id], onDelete: Restrict)
+  holdNote               String?       @map("hold_note")
+  /// ผลคิดราคาล่าสุด (PricingService.quote ST2-T15) — บรรทัดราคา snapshot ใน sales_order_charge
+  pricingStatus          PricingStatus @default(RATE_MISSING) @map("pricing_status")
+  /// {params (MD-117), reasons[], warnings[], routeId} ของการคิดราคาครั้งล่าสุด
+  pricingDetail          Json?         @map("pricing_detail")
+  priceTotal             Decimal?      @map("price_total") @db.Decimal(14, 2) /// รวมก่อน VAT (null เมื่อไม่ใช่ AVAILABLE)
+  pricedAt               DateTime?     @map("priced_at") @db.Timestamptz(6)
+  /// ข้อความที่ต้นทางแจ้งว่าข้อมูลไม่ครบ/ผิดรูป (→ ใบค้าง SOURCE_ERROR) — เก็บไว้ประเมินใบค้างใหม่ได้ (reevaluate)
+  sourceIssues           Json          @default("[]") @map("source_issues")
+  /// hash ของข้อมูลขาเข้า (canonical) — upsert ซ้ำค่าเดิม = ไม่เปลี่ยนอะไร (idempotent)
+  inputHash              String?       @map("input_hash")
+  sourceChangedAfterPlan Boolean       @default(false) @map("source_changed_after_plan")
+  sourceDiff             Json?         @map("source_diff")
+  lockedBy               String?       @map("locked_by")
+  lockedAt               DateTime?     @map("locked_at") @db.Timestamptz(6)
+  rawPayload             Json?         @map("raw_payload")
+  version                Int           @default(1)
+  createdAt              DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  stops   SalesOrderStop[]
+  lines   SalesOrderLine[]
+  charges SalesOrderCharge[]
 
   @@unique([tenantId, soNo])
   @@unique([tenantId, externalId])
   @@index([tenantId, status, requestedDate])
+  @@index([tenantId, customerId])
   @@index([tenantId, updatedAt, id])
   @@map("sales_order")
+}
+
+/// ผลคิดราคาของ order (เหมือน PricingStatus ใน @tms/domain)
+enum PricingStatus {
+  AVAILABLE
+  RATE_MISSING
+  CALCULATION_FAILURE
+
+  @@map("pricing_status")
 }
 
 enum StopType {
@@ -1235,37 +1278,89 @@ enum StopType {
 
 /// จุดรับ-ส่งของ SO หลายจุด (D-22)
 model SalesOrderStop {
-  id           String    @id @default(uuid()) @db.Uuid
-  tenantId     String    @map("tenant_id") @db.Uuid
-  salesOrderId String    @map("sales_order_id") @db.Uuid
+  id           String        @id @default(uuid()) @db.Uuid
+  tenantId     String        @map("tenant_id") @db.Uuid
+  salesOrderId String        @map("sales_order_id") @db.Uuid
+  salesOrder   SalesOrder    @relation(fields: [salesOrderId], references: [id], onDelete: Restrict)
   sequence     Int
   type         StopType
-  siteId       String?   @map("site_id") @db.Uuid /// ว่างจนกว่าจะ map จาก text
-  siteText     String    @map("site_text")
-  windowStart  DateTime? @map("window_start") @db.Timestamptz(6)
-  windowEnd    DateTime? @map("window_end") @db.Timestamptz(6)
+  siteId       String?       @map("site_id") @db.Uuid /// ว่างจนกว่าจะ map จาก text (LOCATION_UNMAPPED)
+  site         CustomerSite? @relation(fields: [siteId], references: [id], onDelete: Restrict)
+  siteText     String        @map("site_text")
+  windowStart  DateTime?     @map("window_start") @db.Timestamptz(6)
+  windowEnd    DateTime?     @map("window_end") @db.Timestamptz(6)
 
   @@unique([tenantId, salesOrderId, sequence])
+  @@index([tenantId, siteId])
   @@map("sales_order_stop")
 }
 
 model SalesOrderLine {
-  id           String   @id @default(uuid()) @db.Uuid
-  tenantId     String   @map("tenant_id") @db.Uuid
-  salesOrderId String   @map("sales_order_id") @db.Uuid
-  lineNo       Int      @map("line_no")
-  itemCode     String?  @map("item_code")
+  id           String     @id @default(uuid()) @db.Uuid
+  tenantId     String     @map("tenant_id") @db.Uuid
+  salesOrderId String     @map("sales_order_id") @db.Uuid
+  salesOrder   SalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Restrict)
+  lineNo       Int        @map("line_no")
+  itemCode     String?    @map("item_code")
+  productId    String?    @map("product_id") @db.Uuid
+  product      Product?   @relation(fields: [productId], references: [id], onDelete: Restrict)
   description  String
-  qtyOrdered   Decimal  @map("qty_ordered") @db.Decimal(14, 3)
+  qtyOrdered   Decimal    @map("qty_ordered") @db.Decimal(14, 3)
+  unitId       String?    @map("unit_id") @db.Uuid /// หน่วยใน master (ใช้คิดราคา) — `unit` = รหัส/ข้อความหน่วย snapshot
+  unitRef      Unit?      @relation(fields: [unitId], references: [id], onDelete: Restrict)
   unit         String
-  weightKg     Decimal? @map("weight_kg") @db.Decimal(14, 3)
-  cbm          Decimal? @db.Decimal(14, 3)
-  isDangerous  Boolean  @default(false) @map("is_dangerous")
-  tempMin      Decimal? @map("temp_min") @db.Decimal(5, 1)
-  tempMax      Decimal? @map("temp_max") @db.Decimal(5, 1)
+  weightKg     Decimal?   @map("weight_kg") @db.Decimal(14, 3)
+  cbm          Decimal?   @db.Decimal(14, 3)
+  isDangerous  Boolean    @default(false) @map("is_dangerous")
+  tempMin      Decimal?   @map("temp_min") @db.Decimal(5, 1)
+  tempMax      Decimal?   @map("temp_max") @db.Decimal(5, 1)
 
   @@unique([tenantId, salesOrderId, lineNo])
   @@map("sales_order_line")
+}
+
+enum OrderChargeKind {
+  FREIGHT
+  EXTRA_STOP
+  ACCESSORIAL
+
+  @@map("order_charge_kind")
+}
+
+/// บรรทัดราคาขายของ SO (ST3-T01) — snapshot ณ เวลาคิดราคา (MD-117): ธงภาษีอยู่ที่บรรทัด (vat_type, wht_rate %)
+/// ห้าม join กลับไปอ่าน service_item/rate_card ตอนคำนวณเอกสาร · wht_rate เป็นเปอร์เซ็นต์ → toCalcWhtRate() ก่อน computeDocumentTax
+model SalesOrderCharge {
+  id                  String          @id @default(uuid()) @db.Uuid
+  tenantId            String          @map("tenant_id") @db.Uuid
+  salesOrderId        String          @map("sales_order_id") @db.Uuid
+  salesOrder          SalesOrder      @relation(fields: [salesOrderId], references: [id], onDelete: Restrict)
+  lineNo              Int             @map("line_no")
+  kind                OrderChargeKind
+  /// ที่มาของบรรทัด: RATE_CARD (ระบบคิด — rebuild ได้) · MANUAL (คนเพิ่ม — ST3-T02/ST5)
+  origin              String          @default("RATE_CARD")
+  serviceItemId       String          @map("service_item_id") @db.Uuid
+  serviceItem         ServiceItem     @relation(fields: [serviceItemId], references: [id], onDelete: Restrict)
+  serviceItemVersion  Int             @map("service_item_version")
+  serviceItemSnapshot Json            @map("service_item_snapshot") /// ServiceItemSnapshot ทั้งก้อน (รหัส ชื่อ หน่วย ราคาตั้งต้น …)
+  description         String /// ชื่อรายการ ณ เวลาคิด
+  qty                 Decimal         @db.Decimal(18, 4) /// ค่าแสดงผล (≤ 4 ตำแหน่ง)
+  qtyExact            String          @map("qty_exact") /// ค่าเต็มความละเอียด / เศษส่วน "n/d" (ห้ามคิด amount ใหม่จาก qty)
+  unitPrice           Decimal         @map("unit_price") @db.Decimal(14, 2)
+  amount              Decimal         @db.Decimal(14, 2)
+  calculatedAmount    Decimal         @map("calculated_amount") @db.Decimal(14, 2)
+  minChargeApplied    Boolean         @default(false) @map("min_charge_applied")
+  vatType             VatType         @map("vat_type")
+  whtRate             Decimal         @map("wht_rate") @db.Decimal(5, 2) /// เปอร์เซ็นต์ (1.00 = 1%)
+  rateCardId          String?         @map("rate_card_id") @db.Uuid
+  rateCard            RateCard?       @relation(fields: [rateCardId], references: [id], onDelete: Restrict)
+  rateCardCode        String?         @map("rate_card_code")
+  rateCardRevision    Int?            @map("rate_card_revision")
+  createdAt           DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, salesOrderId, lineNo])
+  @@index([tenantId, serviceItemId])
+  @@index([tenantId, rateCardId])
+  @@map("sales_order_charge")
 }
 
 enum TripStatus {

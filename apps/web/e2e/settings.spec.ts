@@ -51,7 +51,8 @@ test.describe('ตั้งค่า: องค์กร / ภาษี / คว
     await save.click();
     await expect(page.getByRole('status')).toHaveText('บันทึกการตั้งค่าความปลอดภัยแล้ว');
     await page.reload();
-    await expect(page.getByLabel('Session timeout')).toHaveValue('60');
+    // ฟอร์มแสดงค่าเริ่มต้นก่อนโหลดค่าจริงเสร็จ — เครื่องโหลดหนักใช้เกิน 5 วิ (flaky)
+    await expect(page.getByLabel('Session timeout')).toHaveValue('60', { timeout: 20_000 });
     // ยืด timeout = ลดความปลอดภัย → ต้องยืนยัน 2FA อีกครั้ง
     await page.getByLabel('Session timeout').selectOption('480');
     await page.getByRole('button', { name: 'บันทึก' }).click();

@@ -645,4 +645,7 @@ export const zh: Partial<Record<MessageKey, string>> = {
   'cdoc.st.pending': '待审核',
   'cdoc.st.approved': '已审批',
   'cdoc.approve': '已批准',
+  'so.src.col': '来源',
+  'so.srcLong.MANUAL': '手动',
+  'so.srcLong.IMPORT': '导入 CSV',
 };

@@ -173,8 +173,13 @@ test.describe.serial('รถร่วมอัปโหลดเอกสาร�
       if (!(await link.count())) break;
       await link.getByRole('button', { name: 'ยกเลิกลิงก์' }).click();
       const rd = page.getByRole('dialog', { name: 'ยกเลิกลิงก์อัปโหลดเอกสาร' });
-      await rd.getByRole('textbox').fill('ทดสอบยกเลิกลิงก์ E2E');
-      await rd.getByRole('button', { name: 'ยกเลิกลิงก์', exact: true }).click();
+      // รายการลิงก์โหลดใหม่ระหว่างพิมพ์ได้ (cache แทนแถว) → กรอกซ้ำจนปุ่มกดได้ (flaky เมื่อเครื่องช้า)
+      const ok = rd.getByRole('button', { name: 'ยกเลิกลิงก์', exact: true });
+      await expect(async () => {
+        await rd.getByRole('textbox').fill('ทดสอบยกเลิกลิงก์ E2E');
+        await expect(ok).toBeEnabled({ timeout: 1000 });
+      }).toPass({ timeout: 15_000 });
+      await ok.click();
       await expect(rd).toBeHidden();
     }
     await m.reload();
