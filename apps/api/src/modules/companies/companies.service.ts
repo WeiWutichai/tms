@@ -69,7 +69,7 @@ export class CompaniesService {
       orderBy: k.orderBy as any,
       take: k.take,
     });
-    return toPage(rows, k.limit, toCompanyDto, q.fields);
+    return toPage(rows, k, toCompanyDto, q.fields);
   }
 
   async get(id: string): Promise<Company> {

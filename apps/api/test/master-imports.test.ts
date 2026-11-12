@@ -677,7 +677,7 @@ describe('นำเข้าข้อมูลหลัก (ST2-T23)', () => {
     );
     expect(ok).toMatchObject({ status: 'validated', errorRows: 1, fileErrorCode: null });
     await db.tenant.update({ where: { id: tA }, data: { vehicleQuota: null } });
-  });
+  }, 180_000); // 201 แถวผ่าน job ทีละแถว — เครื่องโหลดหนักเกิน 30 วิ
 
   it('แก้ตามรหัส: object ย่อย (ที่อยู่/ผู้ติดต่อ/บัญชี) แก้เฉพาะช่องที่ให้มา ช่องอื่นและผู้ติดต่ออื่นคงเดิม (MD-284)', async () => {
     const c = (
