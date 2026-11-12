@@ -104,7 +104,7 @@ export class BranchesService {
       orderBy: k.orderBy as never,
       take: k.take,
     });
-    return toPage(rows, k.limit, toBranchDto, q.fields);
+    return toPage(rows, k, toBranchDto, q.fields);
   }
 
   async get(id: string): Promise<Branch> {

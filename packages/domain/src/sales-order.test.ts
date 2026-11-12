@@ -8,6 +8,8 @@ import {
   formatOrderSource,
   intakeHoldNoteTh,
   isIntakeEditable,
+  soEditableFields,
+  SO_FIELD_GROUPS,
   isValidSourceRef,
   parseOrderSource,
   planIntake,
@@ -69,6 +71,22 @@ describe('SO state machine (docs/01 §4.1)', () => {
     expect(soRequiresNumber('DRAFT')).toBe(false);
     expect(SO_STATUSES.filter(soRequiresNumber)).toHaveLength(SO_STATUSES.length - 1);
     expect(SO_STATUSES.filter(isIntakeEditable)).toEqual(['DRAFT', 'RECEIVED', 'ON_HOLD']);
+  });
+
+  it('ช่องที่แก้ได้ตามสถานะ (docs/04 C + spec/03 ORD-032): ก่อนวางแผนทุกช่อง · PLANNED ช่วงเวลา+PO · หลัง in_transit PO · ปิด/ยกเลิก ไม่มี', () => {
+    for (const s of ['DRAFT', 'RECEIVED', 'ON_HOLD'] as const) {
+      expect(soEditableFields(s)).toEqual(SO_FIELD_GROUPS);
+      // มี DO ในเที่ยวแล้ว = เหมือนวางแผนแล้ว
+      expect(soEditableFields(s, true)).toEqual(['customerRef', 'stops.window']);
+    }
+    expect(soEditableFields('PLANNED')).toEqual(['customerRef', 'stops.window']);
+    for (const s of ['IN_TRANSIT', 'PARTIALLY_DELIVERED', 'DELIVERED'] as const) {
+      expect(soEditableFields(s)).toEqual(['customerRef']);
+      expect(soEditableFields(s)).not.toContain('stops');
+      expect(soEditableFields(s)).not.toContain('lines');
+    }
+    expect(soEditableFields('CLOSED')).toEqual([]);
+    expect(soEditableFields('CANCELLED')).toEqual([]);
   });
 });
 

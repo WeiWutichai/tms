@@ -37,18 +37,21 @@ export class ListQuery {
 interface CursorKey {
   u: string; // updatedAt ISO
   i: string; // id uuid
+  s?: string; // sort ที่ใช้ตอนออก cursor (ไม่มี = updatedAt — cursor รุ่นเก่า)
 }
 
-export function encodeCursor(row: { updatedAt: Date; id: string }): string {
-  return Buffer.from(JSON.stringify({ u: row.updatedAt.toISOString(), i: row.id })).toString(
-    'base64url',
-  );
+export function encodeCursor(row: { updatedAt: Date; id: string }, sort = 'updatedAt'): string {
+  return Buffer.from(
+    JSON.stringify({ u: row.updatedAt.toISOString(), i: row.id, s: sort }),
+  ).toString('base64url');
 }
 
-function decodeCursor(cursor: string): CursorKey {
+/** cursor ใช้ได้กับ sort เดิมเท่านั้น — ต่าง sort → 422 (เดิมเงียบ ๆ ข้าม/ซ้ำแถว) */
+function decodeCursor(cursor: string, sort: string): CursorKey {
   try {
     const v = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as CursorKey;
     if (
+      (v.s ?? 'updatedAt') !== sort ||
       typeof v.u !== 'string' ||
       typeof v.i !== 'string' ||
       Number.isNaN(Date.parse(v.u)) ||
@@ -75,7 +78,7 @@ export function keysetArgs(q: ListQuery) {
   const and: Record<string, unknown>[] = [];
   if (q.updatedAfter) and.push({ updatedAt: { gt: new Date(q.updatedAfter) } });
   if (q.cursor) {
-    const c = decodeCursor(q.cursor);
+    const c = decodeCursor(q.cursor, desc ? '-updatedAt' : 'updatedAt');
     const u = new Date(c.u);
     and.push({ OR: [{ updatedAt: { [op]: u } }, { updatedAt: u, id: { [op]: c.i } }] });
   }
@@ -84,6 +87,7 @@ export function keysetArgs(q: ListQuery) {
     orderBy: [{ updatedAt: dir }, { id: dir }] as const,
     take: limit + 1,
     limit,
+    sort: desc ? '-updatedAt' : 'updatedAt',
   };
 }
 
@@ -95,16 +99,19 @@ export interface Page<T> {
 
 export function toPage<R extends { updatedAt: Date; id: string }, T>(
   rows: R[],
-  limit: number,
+  /** limit หรือผลของ `keysetArgs` (ใส่ sort ลง cursor) */
+  k: number | { limit: number; sort: string },
   map: (r: R) => T,
   fields?: string,
 ): Page<Partial<T>> {
+  const limit = typeof k === 'number' ? k : k.limit;
+  const sort = typeof k === 'number' ? 'updatedAt' : k.sort;
   const hasMore = rows.length > limit;
   const slice = hasMore ? rows.slice(0, limit) : rows;
   const last = slice[slice.length - 1];
   return {
     data: slice.map((r) => pickFields(map(r), fields)),
-    nextCursor: hasMore && last ? encodeCursor(last) : null,
+    nextCursor: hasMore && last ? encodeCursor(last, sort) : null,
     hasMore,
   };
 }
