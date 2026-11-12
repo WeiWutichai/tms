@@ -87,6 +87,8 @@ import { VehicleDocumentsController } from './modules/vehicle-documents/vehicle-
 import { VehicleDocumentsService } from './modules/vehicle-documents/vehicle-documents.service';
 import { Clock } from './common/clock';
 import { DepreciationService } from './modules/depreciation/depreciation.service';
+import { ConnectorIntakeService } from './modules/connectors/connector-intake.service';
+import { OrderSourceRegistry } from './modules/connectors/order-source-registry';
 import { DriversController } from './modules/drivers/drivers.controller';
 import {
   CarrierDocsController,
@@ -190,6 +192,8 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     OrderIntakeService,
     DeliveryOrderService,
     OrdersService,
+    OrderSourceRegistry,
+    ConnectorIntakeService,
     CarriersService,
     VehiclesService,
     DriversService,
