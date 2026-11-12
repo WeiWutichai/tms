@@ -25,16 +25,10 @@ import {
  * ชั้นรถ (docs/01 §3.2 enum `vehicle_type` → plan/00a: คงเป็นคอลัมน์ class ของ master) เรียงเล็ก → ใหญ่
  * ใช้เทียบกับ `customer_site.max_vehicle_class` (ST2-T02: 6W/10W/TRAILER/SEMI_TRAILER) — ห้องเย็นเป็นป้าย ไม่ใช่ชั้น
  * `sizeRank` ของ spec/02 §4 (4 ล้อ=1, 6 ล้อ=3, 10 ล้อ=5, พ่วง/เทรลเลอร์=8) คำนวณจากชั้น ไม่เก็บแยก
+ * ค่าอยู่ใน `@tms/domain` (ใช้ร่วมกับ checkVehicleCompatibility — ST2-T16)
  */
-export const VEHICLE_CLASSES = ['4W', '6W', '10W', 'TRAILER', 'SEMI_TRAILER'] as const;
-export type VehicleClass = (typeof VEHICLE_CLASSES)[number];
-export const VEHICLE_CLASS_RANK: Record<VehicleClass, number> = {
-  '4W': 1,
-  '6W': 3,
-  '10W': 5,
-  TRAILER: 8,
-  SEMI_TRAILER: 8,
-};
+import { VEHICLE_CLASSES, type VehicleClass } from '@tms/domain';
+export { VEHICLE_CLASSES, VEHICLE_CLASS_RANK, type VehicleClass } from '@tms/domain';
 
 /** ใบขับขี่ขั้นต่ำ — ลำดับ "สูงกว่าใช้แทนต่ำกว่าได้" (MD-090 [PROPOSED → OPEN-MD-4]) */
 export const LICENCE_CLASSES = ['PERSONAL', 'T1', 'T2', 'T3', 'T4'] as const;
@@ -42,10 +36,10 @@ export type LicenceClass = (typeof LICENCE_CLASSES)[number];
 
 /**
  * capability tags (docs/04 B รถ: ห้องเย็น ติดเครน ลากตู้ + spec/02 §4 `hazmatAllowed`)
- * รายการคงที่ของระบบ (CHECK ใน migration 0039) — เพิ่มป้าย = แก้ที่นี่ + migration · ชื่อไทยอยู่ใน i18n ของเว็บ
+ * รายการคงที่ของระบบ (CHECK ใน migration 0039) — เพิ่มป้าย = แก้ `@tms/domain` vehicle-compatibility + migration · ชื่อไทยอยู่ใน i18n ของเว็บ
  */
-export const VEHICLE_CAPABILITIES = ['REFRIGERATED', 'CRANE', 'CONTAINER', 'HAZMAT'] as const;
-export type VehicleCapability = (typeof VEHICLE_CAPABILITIES)[number];
+import { VEHICLE_CAPABILITIES, type VehicleCapability } from '@tms/domain';
+export { VEHICLE_CAPABILITIES, type VehicleCapability } from '@tms/domain';
 
 const CODE_RE = /^[A-Z0-9][A-Z0-9_\-./]{0,19}$/;
 const EXT_RE = /^[\x21-\x7e]{1,100}$/;
