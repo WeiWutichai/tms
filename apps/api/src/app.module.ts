@@ -53,6 +53,8 @@ import { UnitsController } from './modules/products/units.controller';
 import { UnitsService } from './modules/products/units.service';
 import { RoutesController } from './modules/routes/routes.controller';
 import { RoutesService } from './modules/routes/routes.service';
+import { CompatibilityService } from './modules/compatibility/compatibility.service';
+import { AssignabilityService } from './modules/assignability/assignability.service';
 import { SitesService } from './modules/sites/sites.service';
 import { ServiceItemsController } from './modules/service-items/service-items.controller';
 import { ServiceItemsService } from './modules/service-items/service-items.service';
@@ -63,6 +65,7 @@ import {
   RateCardsController,
 } from './modules/rate-cards/rate-cards.controller';
 import { RateCardsService } from './modules/rate-cards/rate-cards.service';
+import { PricingService } from './modules/pricing/pricing.service';
 import { VehicleTypesController } from './modules/vehicle-types/vehicle-types.controller';
 import { VehicleTypesService } from './modules/vehicle-types/vehicle-types.service';
 import { CarriersController } from './modules/carriers/carriers.controller';
@@ -149,12 +152,15 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     CustomersService,
     SitesService,
     RoutesService,
+    CompatibilityService,
+    AssignabilityService,
     ProductsService,
     UnitsService,
     VehicleTypesService,
     ServiceItemsService,
     ReasonCodesService,
     RateCardsService,
+    PricingService,
     CarriersService,
     VehiclesService,
     DriversService,

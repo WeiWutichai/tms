@@ -29,14 +29,14 @@ const SOFT = {
   off: { c: '#3B424C', bg: '#ECEDEA' },
 } as const;
 const MONEY_RE = /^\d{1,12}(\.\d{1,2})?$/;
-const typeLabel = (t: T, k: VehicleDocType) => t(`vdoc.type.${k}` as MessageKey);
+export const typeLabel = (t: T, k: VehicleDocType) => t(`vdoc.type.${k}` as MessageKey);
 /** ชื่อเอกสาร: OTHER ใช้ชื่อที่ตั้งเอง */
-const docName = (t: T, d: VehicleDoc) =>
+export const docName = (t: T, d: VehicleDoc) =>
   (d.docType === 'OTHER' && d.title) || typeLabel(t, d.docType);
 /** "1,234.50" → "1234.50" */
 const moneyIn = (s: string) => s.replace(/,/g, '').trim();
 
-function useDate() {
+export function useDocDate() {
   const { lang } = useI18n();
   const me = useMe();
   const ys = (me.data?.tenant.yearStyle as 'BE' | 'CE') ?? 'BE';
@@ -44,7 +44,7 @@ function useDate() {
 }
 
 /** ป้ายสถานะ — ต้นแบบ: "หมดแล้ว N วัน" (err) / "หมดใน N วัน" (warn เมื่อใกล้หมด, ok) */
-function StatusPill({ d, t }: { d: VehicleDoc; t: T }) {
+export function StatusPill({ d, t }: { d: VehicleDoc; t: T }) {
   // สีตามต้นแบบ: หมดแล้ว = err, ≤ 30 วัน = warn, นอกนั้น ok (สถานะ API `expiring` = ≤ 60 วันตาม docs/01 §3.8)
   const k =
     d.status === 'superseded' || d.status === 'cancelled'
@@ -89,7 +89,7 @@ export function VehicleDocsTab({
   layout?: 'cards' | 'table';
 }) {
   const { t } = useI18n();
-  const dt = useDate();
+  const dt = useDocDate();
   const q = useVehicleDocs(v.id);
   const [renewing, setRenewing] = useState<VehicleDoc | null>(null);
   const [cancelling, setCancelling] = useState<VehicleDoc | null>(null);
@@ -612,7 +612,7 @@ function serverErrs(
   return out;
 }
 
-function RenewDialog({
+export function RenewDialog({
   d,
   plate,
   onClose,
@@ -624,7 +624,7 @@ function RenewDialog({
   onDone: (n: VehicleDoc) => void;
 }) {
   const { t } = useI18n();
-  const dt = useDate();
+  const dt = useDocDate();
   const renew = useRenewVehicleDoc();
   const today = todayTh();
   // ต้นแบบ: เริ่ม = วันหมดของฉบับเดิม (หมดไปแล้ว = วันนี้), หมด = +1 ปี, ค่าใช้จ่ายตั้งต้นจากฉบับเดิม
