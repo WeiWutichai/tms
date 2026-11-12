@@ -96,8 +96,21 @@ export function RouteChip({ from, to }: { from: ReactNode; to: ReactNode }) {
   );
 }
 
-export function Tag({ children }: { children: ReactNode }) {
-  return <span className="tms-tag">{children}</span>;
+/* ชิปเทา (ต้นแบบ `cC` isChip: 24px, radius เต็ม, #EBEDE8 / #3B424C 13/500, ไม่ตัดบรรทัด) */
+export function Tag({
+  children,
+  title,
+  ...data
+}: {
+  children: ReactNode;
+  title?: string;
+  [dataAttr: `data-${string}`]: string | undefined;
+}) {
+  return (
+    <span className="tms-tag" title={title} {...data}>
+      {children}
+    </span>
+  );
 }
 
 export function FilterChip({

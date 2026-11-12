@@ -33,6 +33,7 @@ export const ID_PREFIX = {
   reasonCode: 'rsn',
   rateCard: 'rcd',
   trip: 'trp',
+  salesOrder: 'ord',
   magicLink: 'mlk',
   carrierDocSubmission: 'cds',
 } as const;

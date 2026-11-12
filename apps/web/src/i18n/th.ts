@@ -2320,6 +2320,18 @@ export const th = {
   'cdoc.reasonPh': 'อย่างน้อย 10 ตัวอักษร เช่น ตรวจกรมธรรม์แล้วถูกต้อง',
   'cdoc.rejectPh': 'อย่างน้อย 10 ตัวอักษร เช่น รูปไม่ชัด ถ่ายใหม่ให้เห็นวันหมด',
   'cdoc.loadError': 'โหลดเอกสารที่ส่งมาไม่สำเร็จ',
+  // ที่มาของ SO (ST3-T01; ต้นแบบ TMS v4: คอลัมน์ "ที่มา" = ชิป srcL(), drawer SO แถว "ที่มา" = srcW)
+  'so.src.col': 'ที่มา',
+  'so.src.MANUAL': 'มือ',
+  'so.src.IMPORT': 'CSV',
+  'so.src.API': 'API',
+  'so.src.PORTAL': 'พอร์ทัล',
+  'so.srcLong.MANUAL': 'สร้างเอง',
+  'so.srcLong.IMPORT': 'นำเข้า CSV',
+  'so.srcLong.API': 'API',
+  'so.srcLong.PORTAL': 'พอร์ทัลลูกค้า',
+  'so.srcLong.CONNECTOR': 'ERP',
+  'so.src.title': 'ที่มา: {src} · เลขอ้างอิงต้นทาง {ref}',
 } as const;
 
 export type MessageKey = keyof typeof th;

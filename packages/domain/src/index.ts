@@ -5,3 +5,4 @@ export * from './permissions';
 export * from './pricing';
 export * from './vehicle-compatibility';
 export * from './assignability';
+export * from './sales-order';

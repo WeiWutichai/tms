@@ -645,4 +645,7 @@ export const en: Partial<Record<MessageKey, string>> = {
   'cdoc.st.pending': 'To review',
   'cdoc.st.approved': 'Approved',
   'cdoc.approve': 'Approved',
+  'so.src.col': 'Source',
+  'so.srcLong.MANUAL': 'Manual',
+  'so.srcLong.IMPORT': 'Import CSV',
 };
