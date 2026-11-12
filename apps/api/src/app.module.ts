@@ -86,6 +86,8 @@ import { UsersController } from './modules/users/users.controller';
 import { UserLifecycleController } from './modules/users/user-lifecycle.controller';
 import { PdfRenderer } from './pdf/pdf-renderer';
 import { StateService } from './state/state.service';
+import { Clock } from './common/clock';
+import { ExpiryReminderService } from './modules/reminders/expiry-reminder.service';
 
 @Module({
   controllers: [
@@ -163,6 +165,8 @@ import { StateService } from './state/state.service';
     VehiclesService,
     DriversService,
     VehicleDocumentsService,
+    Clock,
+    ExpiryReminderService,
     GeoService,
     AuditService,
     BranchesService,
