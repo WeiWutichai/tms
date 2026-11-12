@@ -135,8 +135,14 @@ export class ServiceItemsService {
     const out = new Map<string, Usage>();
     if (!ids.length) return out;
     const tx = this.db.tx;
-    const [rc, ds] = await Promise.all([
+    const [rc, ra, ds] = await Promise.all([
       tx.rateCard.groupBy({
+        by: ['serviceItemId'],
+        where: { serviceItemId: { in: ids } },
+        _count: { _all: true },
+      }),
+      // ST2-T13: ราคาค่าบริการเสริมเฉพาะ rate card
+      tx.rateCardAccessorial.groupBy({
         by: ['serviceItemId'],
         where: { serviceItemId: { in: ids } },
         _count: { _all: true },
@@ -149,6 +155,7 @@ export class ServiceItemsService {
     ]);
     for (const id of ids) out.set(id, { ...NO_USAGE });
     for (const g of rc) out.get(g.serviceItemId)!.rateCards = g._count._all;
+    for (const g of ra) out.get(g.serviceItemId)!.rateCards += g._count._all;
     for (const g of ds) out.get(g.serviceItemId)!.doSurcharges = g._count._all;
     return out;
   }
@@ -460,6 +467,23 @@ export class ServiceItemsService {
       data.externalId = input.externalId;
     }
     if (isNoopUpdate(current, data as Record<string, unknown>, DECIMAL_FIELDS)) return current;
+    // ST2-T13: rate card ที่ยังไม่ลบอ้างรายการนี้ (ค่าขนส่ง/ค่าบริการเสริมเฉพาะ) → เปลี่ยนหน่วยคิด/ฝั่งไม่ได้
+    // (rate จะอ้างรายการที่ใช้ไม่ได้ เช่น % ของค่าขนส่ง หรือฝั่งซื้อในราคาขาย — เหมือนหน่วยนับที่สินค้าใช้)
+    const changedUse = (['calcUnit', 'side'] as const).find(
+      (k) => data[k] !== undefined && data[k] !== current[k],
+    );
+    if (changedUse) {
+      await lockForRemoval(this.db.tx, 'service_item', current.id);
+      const n =
+        (await this.db.tx.rateCard.count({
+          where: { serviceItemId: current.id, deletedAt: null },
+        })) +
+        (await this.db.tx.rateCardAccessorial.count({
+          where: { serviceItemId: current.id, rateCard: { deletedAt: null } },
+        }));
+      if (n > 0)
+        throw field422(changedUse, 'rate_card_in_use', `service item is used by ${n} rate card(s)`);
+    }
     const s = await this.bumpVersion(current, data);
     const before = auditView(current);
     const after = auditView(s);
@@ -539,7 +563,12 @@ export class ServiceItemsService {
     if (isReserved(current)) throw this.reservedConflict('deleted');
     await lockForRemoval(tx, 'service_item', id);
     await assertNotReferenced([
-      { name: 'rateCards', count: () => tx.rateCard.count({ where: { serviceItemId: id } }) },
+      {
+        name: 'rateCards',
+        count: async () =>
+          (await tx.rateCard.count({ where: { serviceItemId: id } })) +
+          (await tx.rateCardAccessorial.count({ where: { serviceItemId: id } })),
+      },
       {
         name: 'doSurcharges',
         count: () => tx.doSurcharge.count({ where: { serviceItemId: id } }),

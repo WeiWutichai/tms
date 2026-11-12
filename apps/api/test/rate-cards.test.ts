@@ -5,6 +5,7 @@ import { DbService } from '../src/db/db.service';
 import { RateCardsService } from '../src/modules/rate-cards/rate-cards.service';
 import { addDays, bangkokToday } from '../src/modules/vehicle-documents/expiry';
 import { createTenantWithDefaults } from '../src/modules/tenants/bootstrap';
+import { PrismaClient } from '@prisma/client';
 import { api, bootApp, platform, tokenFor, truncateAll, validTaxId } from './helpers';
 
 /** ST2-T13 Rate card ขาขาย — docs/04 B Rate card + B1, docs/01 §3.2, spec/02 §5 */
@@ -569,5 +570,291 @@ describe('rate card ขาขาย (rate-cards)', () => {
       .send({ reason: 'ทดสอบลบสถานที่' })
       .expect(409);
     expect(e.body.references.rateCards).toBe(1);
+  });
+  // ---------- review ST2-T13 ----------
+  const lookupFor = (key: Awaited<ReturnType<typeof newKey>>, date: string, vt = vt6) =>
+    app.get(DbService).withTenant(tenantId, (tx) =>
+      app.get(RateCardsService).findApplicableRate(
+        {
+          side: 'SELL',
+          partyId: tryDecodeId('customer', key.customerId)!,
+          originSiteId: tryDecodeId('site', key.originId)!,
+          destSiteId: tryDecodeId('site', key.destinationId)!,
+          vehicleTypeId: tryDecodeId('vehicleType', vt)!,
+          date,
+        },
+        tx,
+      ),
+    );
+  const activeRate = async (key: Awaited<ReturnType<typeof newKey>>, extra: object = {}) => {
+    const r = (
+      await create({
+        ...key,
+        pricingModel: 'PER_TRIP',
+        sellRate: '1000',
+        validFrom: d(-30),
+        validTo: d(300),
+        ...extra,
+      }).expect(201)
+    ).body;
+    return (await approve(r.id).expect(200)).body as { id: string; version: number; code: string };
+  };
+
+  it('ฉบับแก้ไขของ rate ที่มีผลแล้วย้อนวันไม่ได้ (revision_backdated) · จบก่อนฉบับเดิมไม่ได้ (revision_drops_tail) · ราคาอดีตไม่เปลี่ยน', async () => {
+    const key = await newKey();
+    const v1 = await activeRate(key);
+    // ไม่ส่ง validFrom = คัดลอกวันเริ่มเดิม (ย้อนหลัง) → 422
+    const e1 = await api(app, admin)
+      .post(`/v1/rate-cards/${v1.id}/revise`)
+      .send({ sellRate: '1100' })
+      .expect(422);
+    expect(e1.body.errors[0]).toMatchObject({ field: 'validFrom', code: 'revision_backdated' });
+    expect(e1.body.earliestValidFrom).toBe(d(1));
+    await api(app, admin)
+      .post(`/v1/rate-cards/${v1.id}/revise`)
+      .send({ sellRate: '1100', validFrom: today })
+      .expect(422);
+    const e2 = await api(app, admin)
+      .post(`/v1/rate-cards/${v1.id}/revise`)
+      .send({ sellRate: '1100', validFrom: d(1), validTo: d(100) })
+      .expect(422);
+    expect(e2.body.errors[0]).toMatchObject({ field: 'validTo', code: 'revision_drops_tail' });
+    const v2 = (
+      await api(app, admin)
+        .post(`/v1/rate-cards/${v1.id}/revise`)
+        .send({ sellRate: '1100', validFrom: d(1), validTo: null })
+        .expect(201)
+    ).body;
+    // แก้ร่างฉบับแก้ไขให้ย้อนวัน → 422
+    await api(app, admin)
+      .patch(`/v1/rate-cards/${v2.id}`)
+      .send({ validFrom: d(-5) })
+      .expect(422);
+    await approve(v2.id).expect(200);
+    expect((await lookupFor(key, d(-10)))?.unitPrice.toFixed(2)).toBe('1000.00');
+    expect((await lookupFor(key, today))?.unitPrice.toFixed(2)).toBe('1000.00');
+    expect((await lookupFor(key, d(1)))?.unitPrice.toFixed(2)).toBe('1100.00');
+  });
+
+  it('ยกเลิกฉบับแก้ไขที่อนุมัติแล้ว (ยังไม่ถึงวันเริ่ม) → คืนวันหมด/สถานะเดิมให้ฉบับเดิม ไม่มีช่องว่างราคา', async () => {
+    const key = await newKey();
+    const v1 = await activeRate(key);
+    const v2 = (
+      await api(app, admin)
+        .post(`/v1/rate-cards/${v1.id}/revise`)
+        .send({ sellRate: '1200', validFrom: d(20) })
+        .expect(201)
+    ).body;
+    await approve(v2.id).expect(200);
+    expect((await api(app, admin).get(`/v1/rate-cards/${v1.id}`).expect(200)).body.validTo).toBe(
+      d(19),
+    );
+    const c = await api(app, admin)
+      .post(`/v1/rate-cards/${v2.id}/cancel`)
+      .send({ reason: 'ลูกค้าไม่ตกลงราคาใหม่' })
+      .expect(200);
+    expect(c.body.status).toBe('retired');
+    const back = (await api(app, admin).get(`/v1/rate-cards/${v1.id}`).expect(200)).body;
+    expect(back).toMatchObject({ status: 'active', validTo: d(300) });
+    expect((await lookupFor(key, d(25)))?.unitPrice.toFixed(2)).toBe('1000.00');
+    expect(
+      await db.auditLog.count({
+        where: { entityId: tryDecodeId('rateCard', v1.id)!, action: 'rate_card.restored' },
+      }),
+    ).toBe(1);
+
+    // ฉบับเดิมที่ยังไม่ถึงวันเริ่มถูกแทนทั้งช่วง (RETIRED) → ยกเลิกฉบับแทน = ฉบับเดิมกลับมาใช้
+    const key2 = await newKey();
+    const f1 = (
+      await create({ ...key2, pricingModel: 'PER_TRIP', sellRate: '500', validFrom: d(10) }).expect(
+        201,
+      )
+    ).body;
+    await approve(f1.id).expect(200);
+    const f2 = (
+      await api(app, admin)
+        .post(`/v1/rate-cards/${f1.id}/revise`)
+        .send({ sellRate: '550' })
+        .expect(201)
+    ).body;
+    await approve(f2.id).expect(200);
+    expect((await api(app, admin).get(`/v1/rate-cards/${f1.id}`).expect(200)).body.status).toBe(
+      'retired',
+    );
+    await api(app, admin)
+      .post(`/v1/rate-cards/${f2.id}/cancel`)
+      .send({ reason: 'กลับไปใช้ราคาเดิมก่อน' })
+      .expect(200);
+    expect((await api(app, admin).get(`/v1/rate-cards/${f1.id}`).expect(200)).body.status).toBe(
+      'active',
+    );
+    expect((await lookupFor(key2, d(15)))?.unitPrice.toFixed(2)).toBe('500.00');
+  });
+
+  it('สถานที่ของลูกค้ารายอื่นเป็นต้นทาง/ปลายทางไม่ได้ (site_other_customer) · จุดของลูกค้าเอง/คลังบริษัทได้', async () => {
+    const key = await newKey();
+    const other = await newCustomer();
+    const mine = await newSite({ customerId: key.customerId });
+    const theirs = await newSite({ customerId: other.id });
+    const base = { ...key, pricingModel: 'PER_TRIP', sellRate: '100', validFrom: d(0) };
+    const e = await create({ ...base, destinationId: theirs.id }).expect(422);
+    expect(e.body.errors[0]).toMatchObject({ field: 'destinationId', code: 'site_other_customer' });
+    await create({ ...base, destinationId: mine.id }).expect(201);
+  });
+
+  it('domain event ของ rate card ไม่มีราคา (webhook/outbox ไม่ผ่านตัวตัดราคา)', async () => {
+    const key = await newKey();
+    const r = (
+      await create({ ...key, pricingModel: 'PER_TRIP', sellRate: '98765', validFrom: d(0) }).expect(
+        201,
+      )
+    ).body;
+    await approve(r.id).expect(200);
+    const evs = await db.domainEvent.findMany({
+      where: { localId: tryDecodeId('rateCard', r.id)! },
+    });
+    expect(evs.length).toBeGreaterThanOrEqual(2);
+    for (const ev of evs) {
+      expect(JSON.stringify(ev.snapshot)).not.toContain('98765');
+      expect(ev.snapshot).toMatchObject({ code: r.code });
+    }
+  });
+
+  it('ค่าบริการเสริมที่ rate card ใช้เป็นราคาเฉพาะ: ลบไม่ได้ (409 in_use) · เปลี่ยนหน่วยคิด/ฝั่งไม่ได้ (422) · usage นับ', async () => {
+    const key = await newKey();
+    const si = (
+      await api(app, admin)
+        .post('/v1/service-items')
+        .send({
+          name: `ค่ายกของพิเศษ ${++seed}`,
+          calcUnit: 'PER_TRIP',
+          defaultPrice: '100',
+          vatType: 'VAT_7',
+          whtRate: '3.00',
+          side: 'BOTH',
+          isSurcharge: true,
+        })
+        .expect(201)
+    ).body;
+    const r = (
+      await create({
+        ...key,
+        pricingModel: 'PER_TRIP',
+        sellRate: '100',
+        validFrom: d(0),
+        accessorials: [{ serviceItemId: si.id, sellPrice: '150' }],
+      }).expect(201)
+    ).body;
+    await approve(r.id).expect(200);
+    const g = (await api(app, admin).get(`/v1/service-items/${si.id}`).expect(200)).body;
+    expect(g.usage.rateCards).toBe(1);
+    const del = await api(app, admin)
+      .post(`/v1/service-items/${si.id}/delete`)
+      .send({ reason: 'ทดสอบลบค่าบริการ' })
+      .expect(409);
+    expect(del.body.references.rateCards).toBe(1);
+    const ch = await api(app, admin)
+      .patch(`/v1/service-items/${si.id}`)
+      .send({ calcUnit: 'PER_HOUR' })
+      .expect(422);
+    expect(ch.body.errors[0]).toMatchObject({ field: 'calcUnit', code: 'rate_card_in_use' });
+    await api(app, admin).patch(`/v1/service-items/${si.id}`).send({ side: 'BUY' }).expect(422);
+  });
+
+  it('แยก tenant: ค่าบริการเสริมของบริษัทอื่นอ้างไม่ได้ + RLS rate_card_accessorial', async () => {
+    const key = await newKey();
+    const items = (await api(app, admin).get('/v1/service-items?limit=50').expect(200)).body.data;
+    const wait = items.find((s: { code: string }) => s.code === 'WAIT');
+    await create({
+      ...key,
+      pricingModel: 'PER_TRIP',
+      sellRate: '100',
+      validFrom: d(0),
+      accessorials: [{ serviceItemId: wait.id, sellPrice: '99' }],
+    }).expect(201);
+    const other = await createTenantWithDefaults(db, { name: 'บริษัทอื่น rls' });
+    const tokB = await tokenFor(other.id);
+    const c = (
+      await api(app, tokB).post('/v1/customers').send({ legalName: 'ลูกค้า B' }).expect(201)
+    ).body;
+    const sB = async () =>
+      (
+        await api(app, tokB)
+          .post('/v1/customer-sites')
+          .send({ name: `จุด B ${++seed}`, kind: 'DROPOFF', address: ADDR })
+          .expect(201)
+      ).body;
+    const [a, b] = [await sB(), await sB()];
+    const vtB = (await api(app, tokB).get('/v1/vehicle-types?limit=50').expect(200)).body.data[0];
+    const e = await api(app, tokB)
+      .post('/v1/rate-cards')
+      .send({
+        customerId: c.id,
+        originId: a.id,
+        destinationId: b.id,
+        vehicleTypeId: vtB.id,
+        pricingModel: 'PER_TRIP',
+        sellRate: '100',
+        validFrom: d(0),
+        accessorials: [{ serviceItemId: wait.id, sellPrice: '1' }],
+      })
+      .expect(422);
+    expect(e.body.errors[0]).toMatchObject({ code: 'reference_not_found' });
+    const raw = new PrismaClient({ datasources: { db: { url: process.env.APP_DATABASE_URL } } });
+    try {
+      const n = await raw.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT set_config('app.tenant_id', ${other.id}, true)`;
+        return tx.$queryRaw<unknown[]>`SELECT * FROM rate_card_accessorial`;
+      });
+      expect(n).toHaveLength(0);
+      const mine = await raw.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
+        return tx.$queryRaw<unknown[]>`SELECT * FROM rate_card_accessorial`;
+      });
+      expect(mine.length).toBeGreaterThan(0);
+    } finally {
+      await raw.$disconnect();
+    }
+  });
+
+  it('อนุมัติฉบับแก้ไขพร้อมกับสร้าง/แก้ rate key เดียวกัน → ไม่มีช่วงทับในสถานะใช้งาน/ร่าง', async () => {
+    const key = await newKey();
+    const v1 = await activeRate(key, { validTo: null });
+    const v2 = (
+      await api(app, admin)
+        .post(`/v1/rate-cards/${v1.id}/revise`)
+        .send({ sellRate: '1300', validFrom: d(30) })
+        .expect(201)
+    ).body;
+    const other = (
+      await create({
+        ...key,
+        vehicleTypeId: vt10,
+        pricingModel: 'PER_TRIP',
+        sellRate: '1',
+        validFrom: d(0),
+      }).expect(201)
+    ).body;
+    const res = await Promise.all([
+      approve(v2.id),
+      create({ ...key, pricingModel: 'PER_TRIP', sellRate: '1', validFrom: d(40), validTo: d(45) }),
+      api(app, admin)
+        .patch(`/v1/rate-cards/${other.id}`)
+        .send({ vehicleTypeId: vt6, validFrom: d(50) }),
+    ]);
+    expect(res[0].status).toBe(200);
+    expect(res[1].status).toBe(422);
+    expect(res[2].status).toBe(422);
+    const rows = await db.rateCard.findMany({
+      where: {
+        customerId: tryDecodeId('customer', key.customerId)!,
+        vehicleTypeId: tryDecodeId('vehicleType', vt6)!,
+        deletedAt: null,
+        status: { in: ['DRAFT', 'APPROVED'] },
+      },
+      orderBy: { validFrom: 'asc' },
+    });
+    for (let i = 1; i < rows.length; i++)
+      expect(rows[i - 1]!.validTo && rows[i - 1]!.validTo! < rows[i]!.validFrom).toBe(true);
   });
 });

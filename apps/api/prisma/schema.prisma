@@ -1012,6 +1012,9 @@ model RateCard {
   parentId          String?               @map("parent_id") @db.Uuid /// ฉบับก่อนหน้า (ฉบับแก้ไข)
   parent            RateCard?             @relation("RateCardRevision", fields: [parentId], references: [id], onDelete: Restrict)
   revisions         RateCard[]            @relation("RateCardRevision")
+  parentClosed      Boolean               @default(false) @map("parent_closed") /// ตอนอนุมัติฉบับนี้ ระบบปิดฉบับเดิม (ตัดวันหมด/ถูกแทน) — ยกเลิกฉบับนี้แล้วคืนค่าเดิมให้ฉบับเดิม
+  parentPrevValidTo DateTime?             @map("parent_prev_valid_to") @db.Date /// วันหมดเดิมของฉบับเดิมก่อนถูกปิด (null = ไม่มีวันหมด)
+  parentPrevStatus  RateStatus?           @map("parent_prev_status") /// สถานะเดิมของฉบับเดิมก่อนถูกปิด
   customerId        String?               @map("customer_id") @db.Uuid
   customer          Customer?             @relation(fields: [customerId], references: [id], onDelete: Restrict)
   carrierId         String?               @map("carrier_id") @db.Uuid

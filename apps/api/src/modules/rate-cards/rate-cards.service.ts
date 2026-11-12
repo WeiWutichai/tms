@@ -9,6 +9,7 @@ import {
 import type { TransitionTable } from '@tms/domain';
 import { AuditService } from '../../audit/audit.service';
 import { encodeId, tryDecodeId } from '../../common/ids';
+import { redactPrices } from '../../common/price-fields';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
@@ -48,7 +49,7 @@ const NOT_ACCESSORIAL_KEYS = ['FREIGHT', 'EXTRA_STOP', 'FSC'];
 const MIN_DATE = '2000-01-01';
 const MAX_DATE = '2100-12-31';
 
-type RateEvent = 'approve' | 'cancel' | 'supersede';
+type RateEvent = 'approve' | 'cancel' | 'supersede' | 'restore';
 /**
  * state machine ของ rate card (spec/02 §5 ข้อ 6 ย่อสำหรับเฟส 0 — plan/11 ข้อ 3 ใช้ชื่อ enum ของ docs/01)
  * เฟส 0: Admin อนุมัติร่างได้ทันที (docs/04 B "P0 ใช้ ACTIVE ทันทีโดย Admin") · ส่งขออนุมัติ (PENDING_APPROVAL) = P1
@@ -58,7 +59,8 @@ export const RATE_CARD_TRANSITIONS: TransitionTable<RateStatus, RateEvent> = {
   DRAFT: { approve: 'APPROVED' },
   PENDING_APPROVAL: { approve: 'APPROVED', cancel: 'RETIRED' },
   APPROVED: { cancel: 'RETIRED', supersede: 'RETIRED' },
-  RETIRED: {},
+  /** ยกเลิกฉบับแก้ไขที่แทนทั้งช่วง → ฉบับเดิมกลับมาใช้ (ระบบทำ — cancel) */
+  RETIRED: { restore: 'APPROVED' },
 };
 
 const INCLUDE = {
@@ -221,6 +223,14 @@ export function toRateCardDto(r: RateRow, today = bangkokToday()): RateCardDto {
     createdAt: r.createdAt.toISOString(),
     updatedAt: r.updatedAt.toISOString(),
   };
+}
+
+/**
+ * snapshot ของ domain event — ตัดราคา (sell…, buy…) ออกเสมอ: event ถูกส่งต่อ webhook/outbox ที่ไม่ผ่านตัวตัดราคาของ response
+ * (common/price-fields ข้อ 3) · ผู้รับที่มีสิทธิ์ดึงราคาจาก `GET /v1/rate-cards/{id}`
+ */
+export function eventView(r: RateRow): Record<string, unknown> {
+  return redactPrices(toRateCardDto(r), []) as Record<string, unknown>;
 }
 
 /**
@@ -608,6 +618,22 @@ export class RateCardsService {
       ],
       'site_inactive',
     );
+    // สถานที่ของลูกค้ารายอื่นใช้เป็นต้นทาง/ปลายทางไม่ได้ — ใช้ได้เฉพาะจุดของลูกค้ารายนี้หรือจุดของบริษัทเอง (คลัง ไม่มีลูกค้า)
+    // spec/02 §2/§5 ไม่ระบุชัด → [DECISION — ย้อนได้ spec/12 §3] (review ST2-T13)
+    if (r.customerId && (want('originId') || want('destinationId') || want('customerId'))) {
+      const owners = await tx.customerSite.findMany({
+        where: { id: { in: [r.originSiteId, r.destSiteId] } },
+        select: { id: true, customerId: true },
+      });
+      for (const [id, field] of [
+        [r.originSiteId, 'originId'],
+        [r.destSiteId, 'destinationId'],
+      ] as const) {
+        const o = owners.find((x) => x.id === id);
+        if (o?.customerId && o.customerId !== r.customerId)
+          throw field422(field, 'site_other_customer', 'site belongs to another customer');
+      }
+    }
     await check(
       'vehicle_type',
       [{ id: r.vehicleTypeId, field: 'vehicleTypeId' }],
@@ -725,6 +751,44 @@ export class RateCardsService {
         })),
       },
     );
+  }
+
+  /**
+   * ช่วงวันของฉบับแก้ไขเทียบฉบับเดิม (review ST2-T13):
+   * - ฉบับเดิมมีผลแล้ว → ฉบับแก้ไขเริ่มได้ตั้งแต่พรุ่งนี้ (เวลาไทย) — ห้ามย้อนเปลี่ยนราคาที่ใช้คิดเงินไปแล้ว → 422 `revision_backdated`
+   * - ฉบับเดิมยังไม่ถึงวันเริ่ม → เริ่มไม่ก่อนวันเริ่มฉบับเดิม
+   * - ฉบับแก้ไขจบก่อนฉบับเดิม (ช่วงกลาง) → ท้ายช่วงของฉบับเดิมจะหาย → 422 `revision_drops_tail` [DECISION — ย้อนได้]
+   * ตรวจตอนออก/แก้ร่าง/อนุมัติ (วันเปลี่ยนระหว่างนั้นได้)
+   */
+  private async assertRevisionWindow(parentId: string, r: Complete) {
+    const p = await this.db.tx.rateCard.findFirst({
+      where: { id: parentId, deletedAt: null },
+      select: { status: true, validFrom: true, validTo: true },
+    });
+    if (!p || p.status !== 'APPROVED') return;
+    const today = bangkokToday();
+    const pFrom = day(p.validFrom);
+    const pTo = p.validTo ? day(p.validTo) : null;
+    if (pFrom <= today ? r.validFrom <= today : r.validFrom < pFrom)
+      throw new ProblemException(
+        'validation_failed',
+        undefined,
+        [
+          {
+            field: 'validFrom',
+            code: 'revision_backdated',
+            message: `a revision must start after ${pFrom <= today ? today : addDays(pFrom, -1)}`,
+          },
+        ],
+        { earliestValidFrom: pFrom <= today ? addDays(today, 1) : pFrom },
+      );
+    const overlaps = pTo === null || r.validFrom <= pTo;
+    if (overlaps && r.validTo !== null && (pTo === null || r.validTo < pTo))
+      throw field422(
+        'validTo',
+        'revision_drops_tail',
+        `a revision must run to the end of the rate it revises (${pTo ?? 'no end'})`,
+      );
   }
 
   private async assertUniqueExternal(externalId: string, exceptId?: string) {
@@ -863,7 +927,7 @@ export class RateCardsService {
       entityId: row.id,
       after: auditView(full),
     });
-    await emitMasterEvent(tx, `${ENTITY}.created`, ENTITY, row.id, toRateCardDto(full));
+    await emitMasterEvent(tx, `${ENTITY}.created`, ENTITY, row.id, eventView(full));
     return full;
   }
 
@@ -887,6 +951,7 @@ export class RateCardsService {
       ] as const)
         if (before[k] !== r[k])
           throw field422(f, 'key_locked', 'a revision keeps the key of the rate it revises');
+    if (current.parentId) await this.assertRevisionWindow(current.parentId, r);
     if (input.externalId !== undefined && input.externalId) {
       await lockKey(tx, `${ENTITY}.ext:${input.externalId}`);
       await this.assertUniqueExternal(input.externalId, current.id);
@@ -934,7 +999,7 @@ export class RateCardsService {
         `${ENTITY}.updated`,
         ENTITY,
         updated.id,
-        toRateCardDto(updated),
+        eventView(updated),
         {
           changedFields: changed,
         },
@@ -986,6 +1051,7 @@ export class RateCardsService {
       });
     const before = fromRow(current);
     const r = validateShape(merge(before, input));
+    await this.assertRevisionWindow(current.id, r);
     const changed = new Set<string>();
     if (before.unitId !== r.unitId) changed.add('unitId');
     if (stableStringify(before.accessorials) !== stableStringify(r.accessorials))
@@ -1014,7 +1080,7 @@ export class RateCardsService {
       entityId: row.id,
       after: { ...auditView(full), parentId: encodeId('rateCard', current.id) },
     });
-    await emitMasterEvent(tx, `${ENTITY}.created`, ENTITY, row.id, toRateCardDto(full));
+    await emitMasterEvent(tx, `${ENTITY}.created`, ENTITY, row.id, eventView(full));
     return full;
   }
 
@@ -1031,6 +1097,8 @@ export class RateCardsService {
     const r = validateShape(fromRow(current));
     await this.lockKeys([this.keyOf(r)]);
     if (current.status === 'DRAFT' || current.status === 'PENDING_APPROVAL') await this.lockRefs(r);
+    if (current.parentId && current.status !== 'APPROVED')
+      await this.assertRevisionWindow(current.parentId, r);
     await this.assertNoOverlap(r, [current.id, current.parentId], false);
     let updated!: RateRow;
     await this.state.transition(tx, {
@@ -1042,10 +1110,19 @@ export class RateCardsService {
       note: reason,
       eventType: `${ENTITY}.activated`,
       apply: async (to) => {
-        if (current.parentId) await this.closeParent(current.parentId, r, current);
+        const closed = current.parentId
+          ? await this.closeParent(current.parentId, r, current)
+          : null;
         const ctx = requestContext.require();
         await this.guardOverlap(() =>
           this.bumpVersion(current, {
+            ...(closed
+              ? {
+                  parentClosed: true,
+                  parentPrevValidTo: closed.validTo,
+                  parentPrevStatus: closed.status,
+                }
+              : {}),
             status: to,
             approvedAt: new Date(),
             approvedById: ctx.principalType === 'user' ? (ctx.actorId ?? null) : null,
@@ -1060,25 +1137,33 @@ export class RateCardsService {
           auditView(updated),
           reason,
         );
-        return toRateCardDto(updated) as unknown as Record<string, unknown>;
+        return eventView(updated);
       },
     });
     return updated;
   }
 
-  /** ฉบับเดิมของฉบับแก้ไขที่กำลังอนุมัติ: ตัดวันหมดเป็นวันก่อน validFrom ใหม่ หรือถูกแทนทั้งช่วง */
-  private async closeParent(parentId: string, next: Complete, child: RateRow) {
+  /**
+   * ฉบับเดิมของฉบับแก้ไขที่กำลังอนุมัติ: ตัดวันหมดเป็นวันก่อน validFrom ใหม่ หรือถูกแทนทั้งช่วง
+   * คืนค่าก่อนปิด (เก็บที่ฉบับแก้ไข — ยกเลิกฉบับแก้ไขแล้วคืนให้) · ไม่ได้ปิด = null
+   */
+  private async closeParent(
+    parentId: string,
+    next: Complete,
+    child: RateRow,
+  ): Promise<{ validTo: Date | null; status: RateStatus } | null> {
     const tx = this.db.tx;
     const parent = await tx.rateCard.findFirst({
       where: { id: parentId, deletedAt: null },
       include: INCLUDE,
     });
-    if (!parent || parent.status !== 'APPROVED') return;
+    if (!parent || parent.status !== 'APPROVED') return null;
+    const prev = { validTo: parent.validTo, status: parent.status };
     const pFrom = day(parent.validFrom);
     const pTo = parent.validTo ? day(parent.validTo) : null;
     const overlaps =
       (next.validTo === null || pFrom <= next.validTo) && (pTo === null || pTo >= next.validFrom);
-    if (!overlaps) return;
+    if (!overlaps) return null;
     const label = `${child.code} v${child.revision}`;
     if (next.validFrom > pFrom) {
       await this.bumpVersion(parent, { validTo: toDate(addDays(next.validFrom, -1)) });
@@ -1091,10 +1176,10 @@ export class RateCardsService {
         auditView(after),
         `ฉบับแก้ไข ${label} มีผลแทน`,
       );
-      await emitMasterEvent(tx, `${ENTITY}.updated`, ENTITY, parent.id, toRateCardDto(after), {
+      await emitMasterEvent(tx, `${ENTITY}.updated`, ENTITY, parent.id, eventView(after), {
         changedFields: ['validTo'],
       });
-      return;
+      return prev;
     }
     await this.state.transition(tx, {
       docType: ENTITY,
@@ -1115,8 +1200,76 @@ export class RateCardsService {
           auditView(after),
           `ฉบับแก้ไข ${label} มีผลแทนทั้งช่วง`,
         );
-        return toRateCardDto(after) as unknown as Record<string, unknown>;
+        return eventView(after);
       },
+    });
+    return prev;
+  }
+
+  /**
+   * ยกเลิกฉบับแก้ไขที่ระบบใช้ปิดฉบับเดิม → คืนวันหมด/สถานะเดิมให้ฉบับเดิม (ไม่ทิ้งช่องว่างที่ไม่มีราคา — review ST2-T13)
+   * ฉบับเดิมถูกเปลี่ยนต่อหลังจากนั้น (เช่น ฉบับแก้ไขอื่นปิดอีก) หรือคืนแล้วทับ rate อื่น → 409 `revision_cancel_blocked`
+   */
+  private async restoreParent(child: RateRow, reason: string) {
+    const tx = this.db.tx;
+    const parent = child.parentId
+      ? await tx.rateCard.findFirst({
+          where: { id: child.parentId, deletedAt: null },
+          include: INCLUDE,
+        })
+      : null;
+    const blocked = () =>
+      conflict(
+        'id',
+        'revision_cancel_blocked',
+        'the previous revision changed since — issue a new revision instead of cancelling',
+      );
+    if (!parent) throw blocked();
+    const cut = toDate(addDays(day(child.validFrom), -1)).getTime();
+    const trimmed = parent.status === 'APPROVED' && parent.validTo?.getTime() === cut;
+    const retired = parent.status === 'RETIRED' && child.parentPrevStatus === 'APPROVED';
+    if (!trimmed && !retired) throw blocked();
+    const prevTo = child.parentPrevValidTo;
+    const note = `ยกเลิกฉบับแก้ไข ${child.code} v${child.revision} — คืนช่วงวันเดิม: ${reason}`;
+    const write = async (data: Prisma.RateCardUncheckedUpdateInput) => {
+      try {
+        await this.bumpVersion(parent, data);
+      } catch (e) {
+        if (/rate_card_no_overlap|23P01/.test(String((e as Error)?.message))) throw blocked();
+        throw e;
+      }
+      const after = await this.get(parent.id);
+      await this.audit.changed(
+        `${ENTITY}.restored`,
+        ENTITY,
+        parent.id,
+        auditView(parent),
+        auditView(after),
+        note,
+      );
+      return after;
+    };
+    // ตรวจในแอปก่อน (ข้อความชัด) — constraint ในฐานกันอีกชั้น
+    const restored = validateShape({ ...fromRow(parent), validTo: prevTo ? day(prevTo) : null });
+    await this.assertNoOverlap(restored, [parent.id, child.id], false).catch(() => {
+      throw blocked();
+    });
+    if (trimmed) {
+      const after = await write({ validTo: prevTo });
+      await emitMasterEvent(tx, `${ENTITY}.updated`, ENTITY, parent.id, eventView(after), {
+        changedFields: ['validTo'],
+      });
+      return;
+    }
+    await this.state.transition(tx, {
+      docType: ENTITY,
+      docId: parent.id,
+      table: RATE_CARD_TRANSITIONS,
+      from: parent.status,
+      event: 'restore',
+      note,
+      eventType: `${ENTITY}.restored`,
+      apply: async (to) => eventView(await write({ status: to, validTo: prevTo })),
     });
   }
 
@@ -1138,6 +1291,7 @@ export class RateCardsService {
         'in_effect',
         'rate is already in effect — revise its end date instead',
       );
+    await this.lockKeys([this.keyOf(validateShape(fromRow(current)))]);
     let updated!: RateRow;
     await this.state.transition(tx, {
       docType: ENTITY,
@@ -1149,6 +1303,8 @@ export class RateCardsService {
       eventType: `${ENTITY}.cancelled`,
       apply: async (to) => {
         await this.bumpVersion(current, { status: to });
+        if (current.status === 'APPROVED' && current.parentClosed)
+          await this.restoreParent(current, reason);
         updated = await this.get(id);
         await this.audit.changed(
           `${ENTITY}.cancelled`,
@@ -1158,7 +1314,7 @@ export class RateCardsService {
           auditView(updated),
           reason,
         );
-        return toRateCardDto(updated) as unknown as Record<string, unknown>;
+        return eventView(updated);
       },
     });
     return updated;
@@ -1184,7 +1340,7 @@ export class RateCardsService {
       before: auditView(current),
       reason,
     });
-    await emitMasterEvent(tx, `${ENTITY}.deleted`, ENTITY, id, toRateCardDto(current));
+    await emitMasterEvent(tx, `${ENTITY}.deleted`, ENTITY, id, eventView(current));
   }
 
   /** optimistic lock: update เฉพาะเมื่อ version ยังเท่าเดิม ไม่งั้น 412 */

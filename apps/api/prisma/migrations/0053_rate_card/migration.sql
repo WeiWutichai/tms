@@ -4,6 +4,9 @@
 --   → exclusion constraint (btree_gist) กันที่ฐานข้อมูล + advisory lock ต่อ key ในแอป (ร่างตรวจในแอป เพราะฉบับแก้ไขทับฉบับเดิมได้จนกว่าจะอนุมัติ)
 -- "หมดอายุ" ไม่เก็บเป็นสถานะ — คำนวณจาก valid_to < วันนี้ (API + lookup ไม่ใช้ rate หมดอายุ)
 
+-- rate_card เปิด FORCE RLS (0004) — ปิด row security ช่วงตรวจ/เติมข้อมูล ไม่งั้น query ไม่เห็นแถว (ผ่านทั้งที่ข้อมูลผิด) — แบบ 0044/0047
+SET row_security = off;
+
 -- ตรวจก่อน: แถวจาก schema v0 (ถ้ามี) ต้องมีประเภทรถ + ต้นทาง/ปลายทาง (ยังไม่รองรับโซน) → ไม่งั้นหยุดพร้อมข้อความ ให้แก้ข้อมูลก่อน
 DO $$
 DECLARE r record;
@@ -19,6 +22,12 @@ BEGIN
       AND o.vehicle_type_id = "rate_card".vehicle_type_id AND o.status IN ('APPROVED', 'PENDING_APPROVAL')
       AND daterange(o.valid_from, o.valid_to, '[]') && daterange("rate_card".valid_from, "rate_card".valid_to, '[]')) LIMIT 1;
   IF FOUND THEN RAISE EXCEPTION '0053: rate_card ช่วงวันทับกันใน key เดียวกัน (tenant %, id %) — แก้ช่วงวันก่อน migrate', r.tenant_id, r.id; END IF;
+  -- PER_UNIT ต้องมีหน่วยนับ (คอลัมน์ unit_id เพิ่มใน migration นี้ — แถวเดิมไม่มี) · เงิน/จำนวนจุดตาม CHECK ใหม่
+  SELECT tenant_id, id INTO r FROM "rate_card" WHERE pricing_model = 'PER_UNIT' LIMIT 1;
+  IF FOUND THEN RAISE EXCEPTION '0053: rate_card สูตร PER_UNIT ไม่มีหน่วยนับ (tenant %, id %) — เปลี่ยนสูตรหรือระบุหน่วยหลัง migrate ก่อน', r.tenant_id, r.id; END IF;
+  SELECT tenant_id, id INTO r FROM "rate_card" WHERE included_stops NOT BETWEEN 0 AND 99
+    OR (min_charge IS NOT NULL AND min_charge < 0) OR (extra_stop_price IS NOT NULL AND extra_stop_price < 0) LIMIT 1;
+  IF FOUND THEN RAISE EXCEPTION '0053: rate_card จำนวนจุด/ขั้นต่ำ/ค่าจุดเพิ่มผิด (tenant %, id %) — แก้ข้อมูลก่อน migrate', r.tenant_id, r.id; END IF;
 END $$;
 
 -- btree_gist (trusted extension — เจ้าของฐานสร้างได้) สำหรับ exclusion constraint ที่มีคอลัมน์ uuid/enum
@@ -41,6 +50,11 @@ UPDATE "rate_card" r SET "code" = (CASE r.side WHEN 'SELL' THEN 'RC-S-' ELSE 'RC
   FROM (SELECT id, row_number() OVER (PARTITION BY tenant_id, side ORDER BY created_at, id) AS n FROM "rate_card") x
   WHERE x.id = r.id;
 ALTER TABLE "rate_card" ALTER COLUMN "code" SET NOT NULL;
+RESET row_security;
+-- ยกเลิกฉบับแก้ไขที่อนุมัติแล้ว → คืนวันหมด/สถานะเดิมให้ฉบับเดิม (เก็บค่าก่อนปิดไว้ที่ฉบับแก้ไข)
+ALTER TABLE "rate_card" ADD COLUMN "parent_closed" BOOLEAN NOT NULL DEFAULT false,
+ADD COLUMN "parent_prev_valid_to" DATE,
+ADD COLUMN "parent_prev_status" "rate_status";
 
 -- CreateTable
 CREATE TABLE "rate_card_accessorial" (

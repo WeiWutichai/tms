@@ -6,7 +6,16 @@ import type { MessageKey } from '../../i18n/th';
 import { HistoryTab } from '../master/HistoryTab';
 import { RefPicker, type RefOption } from '../master/RefPicker';
 import { fieldErrors, isStale, problemText } from '../master/problems';
-import { money, modelLabel, rateStatusLabel, rateUnit, routeText, useDateText } from './rateFormat';
+import {
+  addDays,
+  bangkokToday,
+  money,
+  modelLabel,
+  rateStatusLabel,
+  rateUnit,
+  routeText,
+  useDateText,
+} from './rateFormat';
 import {
   PRICING_MODELS,
   searchCustomers,
@@ -128,6 +137,10 @@ function rateFieldError(t: T, err: unknown): Record<string, string> {
     if (e.code === 'not_applicable') out[e.field] = t('rc.v.notApplicable');
     if (/_inactive$/.test(e.code)) out[e.field] = t('rc.v.inactive');
     if (e.code === 'before_start') out[e.field] = t('rc.v.to');
+    if (e.code === 'revision_backdated') out[e.field] = t('rc.v.backdated');
+    if (e.code === 'revision_drops_tail') out[e.field] = t('rc.v.dropsTail');
+    if (e.code === 'site_other_customer') out[e.field] = t('rc.v.otherCustomer');
+    if (e.code === 'revision_cancel_blocked') out.top = t('rc.v.cancelBlocked');
     if (e.code === 'overlap') {
       const c = (err.problem as { conflicts?: { code: string; revision: number }[] }).conflicts;
       out[e.field] = t('rc.v.overlap', {
@@ -184,6 +197,10 @@ export function RateCardDrawer({
   const approved = rate?.status === 'active' || rate?.status === 'expired';
   /** ฟอร์มแก้ได้: rate ใหม่ / ร่าง / ที่อนุมัติแล้ว (แก้แล้วส่งขออนุมัติ = ฉบับแก้ไข) */
   const editable = canWrite && rate?.status !== 'retired';
+  /** วันเริ่มเร็วสุดของฉบับแก้ไข: มีผลแล้ว = พรุ่งนี้ (เวลาไทย) · ยังไม่ถึงวันเริ่ม = วันเริ่มเดิม */
+  const today = bangkokToday();
+  const revEarliest =
+    approved && rate ? (rate.validFrom <= today ? addDays(today, 1) : rate.validFrom) : null;
   const keyEditable = canWrite && (isNew || (isDraft && !rate?.parentId));
   const [tab, setTab] = useState<Tab>('sum');
   const initial = (): Form => {
@@ -191,11 +208,7 @@ export function RateCardDrawer({
     if (copyFrom) {
       const f = toForm(copyFrom);
       // ต่อจากวันสิ้นสุดเดิม (ต้นแบบ "คัดลอกเป็น rate ใหม่เพื่อต่ออายุ") — ไม่มีวันสิ้นสุด = ให้ผู้ใช้เลือกเอง
-      const next = copyFrom.validTo
-        ? new Date(Date.parse(`${copyFrom.validTo}T00:00:00Z`) + 86_400_000)
-            .toISOString()
-            .slice(0, 10)
-        : '';
+      const next = copyFrom.validTo ? addDays(copyFrom.validTo, 1) : '';
       return { ...f, from: next, to: '' };
     }
     return EMPTY;
@@ -384,6 +397,8 @@ export function RateCardDrawer({
       vehicleTypeId: _v,
       ...body
     } = changes as Record<string, unknown>;
+    // ฉบับแก้ไขของ rate ที่มีผลแล้วเริ่มได้ตั้งแต่พรุ่งนี้ (ราคาที่ใช้คิดเงินไปแล้วไม่ย้อนเปลี่ยน — API 422 `revision_backdated`)
+    if (revEarliest && f.from < revEarliest) body.validFrom = revEarliest;
     revise.mutate(
       { id: rate.id, version: baseVersion, body },
       { ...done, onSuccess: (r) => onSaved(r, 'revised') },
@@ -471,7 +486,7 @@ export function RateCardDrawer({
                 },
               ]
             : []),
-          ...(rate.status === 'active' && rate.validFrom > new Date().toISOString().slice(0, 10)
+          ...(rate.status === 'active' && rate.validFrom > bangkokToday()
             ? [
                 {
                   label: t('rc.menu.cancel'),
@@ -699,7 +714,13 @@ export function RateCardDrawer({
                 />
               )}
             </Fld>
-            <Fld label={t('rc.fld.from')} error={errs.from}>
+            <Fld
+              label={t('rc.fld.from')}
+              error={errs.from}
+              {...(revEarliest && editable && !errs.from
+                ? { hint: t('rc.fld.revFromHint', { d: dateText(revEarliest) }) }
+                : {})}
+            >
               {(id) => (
                 <input
                   id={id}

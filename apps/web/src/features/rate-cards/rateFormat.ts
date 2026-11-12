@@ -35,3 +35,13 @@ export function useDateText() {
 }
 
 export const routeText = (r: RateCard) => `${r.origin.name} → ${r.destination.name}`;
+
+/** วันนี้ตามเวลาไทย (UTC+7 ไม่มี DST) YYYY-MM-DD — ความหมายเดียวกับ API (`bangkokToday` ฝั่ง API) */
+export function bangkokToday(now: Date = new Date()): string {
+  return new Date(now.getTime() + 7 * 3600_000).toISOString().slice(0, 10);
+}
+
+/** YYYY-MM-DD + n วัน */
+export function addDays(day: string, n: number): string {
+  return new Date(Date.parse(`${day}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
+}
