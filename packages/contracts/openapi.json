@@ -9260,6 +9260,954 @@
         ]
       }
     },
+    "/v1/rate-cards": {
+      "get": {
+        "operationId": "RateCards_list",
+        "parameters": [
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "ค่า nextCursor จากหน้าก่อน (ใช้กับ sort เดิมเท่านั้น)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "updatedAfter",
+            "required": false,
+            "in": "query",
+            "description": "คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sort",
+            "required": false,
+            "in": "query",
+            "description": "code = เรียงตามรหัส (ค่าเริ่มต้นของหน้าจอ) · updatedAt/-updatedAt สำหรับ sync",
+            "schema": {
+              "default": "code",
+              "type": "string",
+              "enum": [
+                "code",
+                "updatedAt",
+                "-updatedAt"
+              ]
+            }
+          },
+          {
+            "name": "fields",
+            "required": false,
+            "in": "query",
+            "description": "รายชื่อ field คั่นด้วย , เช่น id,code",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "required": false,
+            "in": "query",
+            "description": "ค้นหา — รหัส ชื่อลูกค้า ชื่อ/รหัสต้นทางหรือปลายทาง externalId (ไม่สนตัวพิมพ์)",
+            "schema": {
+              "maxLength": 100,
+              "type": "string"
+            }
+          },
+          {
+            "name": "side",
+            "required": false,
+            "in": "query",
+            "description": "ฝั่ง",
+            "schema": {
+              "default": "SELL",
+              "type": "string",
+              "enum": [
+                "SELL",
+                "BUY"
+              ]
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "description": "สถานะ คั่นด้วย , (draft / pending_approval / active / expired / retired) — active/expired คิดจากวันที่ (เวลาไทย)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "nearExpiry",
+            "required": false,
+            "in": "query",
+            "description": "true = ใช้งานอยู่และหมดอายุภายใน 30 วัน (ต้นแบบ \"หมดอายุใน 30 วัน\")",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          },
+          {
+            "name": "customerId",
+            "required": false,
+            "in": "query",
+            "description": "เฉพาะลูกค้านี้ (cus_…)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "party",
+            "required": false,
+            "in": "query",
+            "description": "ชื่อ/รหัสลูกค้ามีคำนี้ (ตัวกรองคอลัมน์ \"ลูกค้า\")",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "originId",
+            "required": false,
+            "in": "query",
+            "description": "ต้นทางตรงตัว (loc_…)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "destinationId",
+            "required": false,
+            "in": "query",
+            "description": "ปลายทางตรงตัว (loc_…)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "route",
+            "required": false,
+            "in": "query",
+            "description": "ชื่อ/รหัสต้นทางหรือปลายทางมีคำนี้ (ตัวกรองคอลัมน์ \"เส้นทาง\")",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "vehicleTypeId",
+            "required": false,
+            "in": "query",
+            "description": "ประเภทรถ (vty_…)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "pricingModel",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "PER_TRIP",
+                "PER_KM",
+                "PER_TON",
+                "PER_CBM",
+                "PER_UNIT"
+              ]
+            }
+          },
+          {
+            "name": "externalId",
+            "required": false,
+            "in": "query",
+            "description": "externalId ตรงตัว",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "includeDeleted",
+            "required": false,
+            "in": "query",
+            "description": "true = รวมร่างที่ถูกลบ (tombstone มี `deletedAt`)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateCardPageDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "rate-cards"
+        ]
+      },
+      "post": {
+        "operationId": "RateCards_create",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateRateCardDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateCardDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "rate-cards"
+        ]
+      }
+    },
+    "/v1/rate-cards/summary": {
+      "get": {
+        "operationId": "RateCards_summary",
+        "parameters": [
+          {
+            "name": "side",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "SELL",
+              "type": "string",
+              "enum": [
+                "SELL",
+                "BUY"
+              ]
+            }
+          },
+          {
+            "name": "customerId",
+            "required": false,
+            "in": "query",
+            "description": "เฉพาะลูกค้านี้ (cus_…)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateCardSummaryDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "rate-cards"
+        ]
+      }
+    },
+    "/v1/rate-cards/export": {
+      "get": {
+        "operationId": "RateCards_export",
+        "parameters": [
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "ค่า nextCursor จากหน้าก่อน (ใช้กับ sort เดิมเท่านั้น)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "updatedAfter",
+            "required": false,
+            "in": "query",
+            "description": "คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sort",
+            "required": false,
+            "in": "query",
+            "description": "code = เรียงตามรหัส (ค่าเริ่มต้นของหน้าจอ) · updatedAt/-updatedAt สำหรับ sync",
+            "schema": {
+              "default": "code",
+              "type": "string",
+              "enum": [
+                "code",
+                "updatedAt",
+                "-updatedAt"
+              ]
+            }
+          },
+          {
+            "name": "fields",
+            "required": false,
+            "in": "query",
+            "description": "รายชื่อ field คั่นด้วย , เช่น id,code",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "required": false,
+            "in": "query",
+            "description": "ค้นหา — รหัส ชื่อลูกค้า ชื่อ/รหัสต้นทางหรือปลายทาง externalId (ไม่สนตัวพิมพ์)",
+            "schema": {
+              "maxLength": 100,
+              "type": "string"
+            }
+          },
+          {
+            "name": "side",
+            "required": false,
+            "in": "query",
+            "description": "ฝั่ง",
+            "schema": {
+              "default": "SELL",
+              "type": "string",
+              "enum": [
+                "SELL",
+                "BUY"
+              ]
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "description": "สถานะ คั่นด้วย , (draft / pending_approval / active / expired / retired) — active/expired คิดจากวันที่ (เวลาไทย)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "nearExpiry",
+            "required": false,
+            "in": "query",
+            "description": "true = ใช้งานอยู่และหมดอายุภายใน 30 วัน (ต้นแบบ \"หมดอายุใน 30 วัน\")",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          },
+          {
+            "name": "customerId",
+            "required": false,
+            "in": "query",
+            "description": "เฉพาะลูกค้านี้ (cus_…)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "party",
+            "required": false,
+            "in": "query",
+            "description": "ชื่อ/รหัสลูกค้ามีคำนี้ (ตัวกรองคอลัมน์ \"ลูกค้า\")",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "originId",
+            "required": false,
+            "in": "query",
+            "description": "ต้นทางตรงตัว (loc_…)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "destinationId",
+            "required": false,
+            "in": "query",
+            "description": "ปลายทางตรงตัว (loc_…)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "route",
+            "required": false,
+            "in": "query",
+            "description": "ชื่อ/รหัสต้นทางหรือปลายทางมีคำนี้ (ตัวกรองคอลัมน์ \"เส้นทาง\")",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "vehicleTypeId",
+            "required": false,
+            "in": "query",
+            "description": "ประเภทรถ (vty_…)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "pricingModel",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "PER_TRIP",
+                "PER_KM",
+                "PER_TON",
+                "PER_CBM",
+                "PER_UNIT"
+              ]
+            }
+          },
+          {
+            "name": "externalId",
+            "required": false,
+            "in": "query",
+            "description": "externalId ตรงตัว",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "includeDeleted",
+            "required": false,
+            "in": "query",
+            "description": "true = รวมร่างที่ถูกลบ (tombstone มี `deletedAt`)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "format",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "xlsx",
+              "type": "string",
+              "enum": [
+                "xlsx",
+                "csv"
+              ]
+            }
+          },
+          {
+            "name": "ids",
+            "required": false,
+            "in": "query",
+            "description": "ส่งออกเฉพาะ id เหล่านี้ (คั่นด้วย ,) — แถวที่เลือกในตาราง",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ไฟล์ .xlsx หรือ .csv ตามตัวกรองเดียวกับรายการ (สูงสุด 10,000 แถว) — คอลัมน์ราคาเฉพาะผู้มี `prices.sell:read`"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "rate-cards"
+        ]
+      }
+    },
+    "/v1/rate-cards/external/{externalId}": {
+      "put": {
+        "operationId": "RateCards_upsertExternal",
+        "parameters": [
+          {
+            "name": "externalId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag — ใช้เมื่อแถวมีอยู่แล้ว",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertRateCardDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "มีอยู่แล้ว (ร่าง) → แก้ (ส่งซ้ำได้ ไม่เกิดแถวใหม่)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateCardDto"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "ยังไม่มี → สร้างร่าง",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateCardDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "rate-cards"
+        ]
+      }
+    },
+    "/v1/rate-cards/{id}": {
+      "get": {
+        "operationId": "RateCards_get",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateCardDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "rate-cards"
+        ]
+      },
+      "patch": {
+        "operationId": "RateCards_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateRateCardDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateCardDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "rate-cards"
+        ]
+      }
+    },
+    "/v1/rate-cards/{id}/history": {
+      "get": {
+        "operationId": "RateCards_history",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "ค่า nextCursor จากหน้าก่อน",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ประวัติการแก้จาก audit log ใหม่สุดก่อน (ราคาถูกตัดตามสิทธิ์ `prices.sell:read`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditPageDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "rate-cards"
+        ]
+      }
+    },
+    "/v1/rate-cards/{id}/revise": {
+      "post": {
+        "operationId": "RateCards_revise",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag ของฉบับเดิม — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReviseRateCardDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "ร่างฉบับใหม่",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateCardDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "rate-cards"
+        ]
+      }
+    },
+    "/v1/rate-cards/{id}/approve": {
+      "post": {
+        "operationId": "RateCards_approve",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MasterReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateCardDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "rate-cards"
+        ]
+      }
+    },
+    "/v1/rate-cards/{id}/cancel": {
+      "post": {
+        "operationId": "RateCards_cancel",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MasterReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateCardDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "rate-cards"
+        ]
+      }
+    },
+    "/v1/rate-cards/{id}/delete": {
+      "post": {
+        "operationId": "RateCards_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MasterReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "rate-cards"
+        ]
+      }
+    },
     "/v1/carriers": {
       "get": {
         "operationId": "Carriers_list",
@@ -19128,6 +20076,838 @@
             "type": "string",
             "nullable": true,
             "description": "null = ลบการผูก"
+          }
+        }
+      },
+      "RatePartyRefDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "cus_3f2a…"
+          },
+          "code": {
+            "type": "string",
+            "example": "CUS-0001"
+          },
+          "name": {
+            "type": "string",
+            "example": "บริษัท ตัวอย่าง จำกัด"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "name",
+          "status"
+        ]
+      },
+      "RateSiteRefDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "cus_3f2a…"
+          },
+          "code": {
+            "type": "string",
+            "example": "CUS-0001"
+          },
+          "name": {
+            "type": "string",
+            "example": "บริษัท ตัวอย่าง จำกัด"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "name",
+          "status"
+        ]
+      },
+      "RateVehicleTypeRefDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "cus_3f2a…"
+          },
+          "code": {
+            "type": "string",
+            "example": "CUS-0001"
+          },
+          "name": {
+            "type": "string",
+            "example": "บริษัท ตัวอย่าง จำกัด"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "name",
+          "status"
+        ]
+      },
+      "RateUnitRefDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "unt_3f2a…"
+          },
+          "code": {
+            "type": "string",
+            "example": "PLT"
+          },
+          "name": {
+            "type": "string",
+            "example": "พาเลท"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "name"
+        ]
+      },
+      "RateServiceItemRefDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "svc_3f2a…"
+          },
+          "code": {
+            "type": "string",
+            "example": "FREIGHT"
+          },
+          "name": {
+            "type": "string",
+            "example": "ค่าขนส่ง"
+          },
+          "unitLabel": {
+            "type": "string",
+            "example": "เที่ยว"
+          },
+          "calcUnit": {
+            "type": "string",
+            "example": "PER_TRIP"
+          },
+          "vatType": {
+            "type": "string",
+            "enum": [
+              "VAT_7",
+              "EXEMPT_TRANSPORT",
+              "ZERO_RATED"
+            ]
+          },
+          "whtRate": {
+            "type": "string",
+            "example": "1.00",
+            "description": "อัตราหัก ณ ที่จ่าย (%)"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "name",
+          "unitLabel",
+          "calcUnit",
+          "vatType",
+          "whtRate"
+        ]
+      },
+      "RateAccessorialDto": {
+        "type": "object",
+        "properties": {
+          "serviceItem": {
+            "$ref": "#/components/schemas/RateServiceItemRefDto"
+          },
+          "sellPrice": {
+            "type": "string",
+            "example": "300.00",
+            "description": "ราคาขายเฉพาะ rate นี้ (เห็นเมื่อมี `prices.sell:read`)"
+          }
+        },
+        "required": [
+          "serviceItem"
+        ]
+      },
+      "RateCardDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "rcd_3f2a…"
+          },
+          "code": {
+            "type": "string",
+            "example": "RC-S-0001"
+          },
+          "revision": {
+            "type": "number",
+            "example": 1,
+            "description": "ฉบับที่ (ฉบับแก้ไขใช้รหัสเดิม — MD-118)"
+          },
+          "parentId": {
+            "type": "string",
+            "nullable": true,
+            "description": "ฉบับก่อนหน้า (rcd_…)"
+          },
+          "side": {
+            "type": "string",
+            "enum": [
+              "SELL",
+              "BUY"
+            ]
+          },
+          "customer": {
+            "nullable": true,
+            "description": "ลูกค้า (ขาขาย)",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/RatePartyRefDto"
+              }
+            ]
+          },
+          "origin": {
+            "$ref": "#/components/schemas/RateSiteRefDto"
+          },
+          "destination": {
+            "$ref": "#/components/schemas/RateSiteRefDto"
+          },
+          "vehicleType": {
+            "$ref": "#/components/schemas/RateVehicleTypeRefDto"
+          },
+          "pricingModel": {
+            "type": "string",
+            "enum": [
+              "PER_TRIP",
+              "PER_KM",
+              "PER_TON",
+              "PER_CBM",
+              "PER_UNIT",
+              "PER_DAY"
+            ]
+          },
+          "unit": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/RateUnitRefDto"
+              }
+            ]
+          },
+          "sellRate": {
+            "type": "string",
+            "example": "6500.00",
+            "description": "ราคาขายต่อหน่วยของสูตร (เห็นเมื่อมี `prices.sell:read`)"
+          },
+          "sellMinCharge": {
+            "type": "string",
+            "example": "1500.00",
+            "nullable": true
+          },
+          "sellExtraStopRate": {
+            "type": "string",
+            "example": "300.00",
+            "nullable": true
+          },
+          "includedStops": {
+            "type": "number",
+            "example": 2
+          },
+          "serviceItem": {
+            "$ref": "#/components/schemas/RateServiceItemRefDto"
+          },
+          "accessorials": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RateAccessorialDto"
+            }
+          },
+          "validFrom": {
+            "type": "string",
+            "example": "2026-11-01",
+            "format": "date"
+          },
+          "validTo": {
+            "type": "string",
+            "example": "2027-10-31",
+            "format": "date",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "pending_approval",
+              "active",
+              "expired",
+              "retired"
+            ]
+          },
+          "nearExpiry": {
+            "type": "boolean",
+            "description": "ใช้งานอยู่และหมดอายุภายใน 30 วัน (NEAR_EXPIRY)"
+          },
+          "daysToExpiry": {
+            "type": "number",
+            "nullable": true,
+            "description": "จำนวนวันถึงวันหมด (ติดลบ = หมดแล้ว) · null = ไม่มีวันหมด"
+          },
+          "approvedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          },
+          "externalId": {
+            "type": "string",
+            "nullable": true
+          },
+          "deletedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "version": {
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "revision",
+          "parentId",
+          "side",
+          "customer",
+          "origin",
+          "destination",
+          "vehicleType",
+          "pricingModel",
+          "unit",
+          "includedStops",
+          "serviceItem",
+          "accessorials",
+          "validFrom",
+          "validTo",
+          "status",
+          "nearExpiry",
+          "daysToExpiry",
+          "approvedAt",
+          "notes",
+          "externalId",
+          "version",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "RateCardPageDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RateCardDto"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor",
+          "hasMore"
+        ]
+      },
+      "RateCardSummaryDto": {
+        "type": "object",
+        "properties": {
+          "total": {
+            "type": "number",
+            "description": "rate ทั้งหมด (ไม่รวมที่ลบ)"
+          },
+          "draft": {
+            "type": "number",
+            "description": "ร่าง (รออนุมัติ)"
+          },
+          "pendingApproval": {
+            "type": "number",
+            "description": "รออนุมัติ (P1)"
+          },
+          "active": {
+            "type": "number",
+            "description": "ใช้งาน (มีผล)"
+          },
+          "nearExpiry": {
+            "type": "number",
+            "description": "ใช้งานและหมดอายุใน 30 วัน"
+          },
+          "expired": {
+            "type": "number",
+            "description": "หมดอายุ"
+          },
+          "retired": {
+            "type": "number",
+            "description": "ยกเลิก/ถูกแทน"
+          }
+        },
+        "required": [
+          "total",
+          "draft",
+          "pendingApproval",
+          "active",
+          "nearExpiry",
+          "expired",
+          "retired"
+        ]
+      },
+      "RateAccessorialInputDto": {
+        "type": "object",
+        "properties": {
+          "serviceItemId": {
+            "type": "string",
+            "example": "svc_3f2a…",
+            "description": "ค่าบริการเสริม (`service-items`) ฝั่งขาย/ทั้งคู่"
+          },
+          "sellPrice": {
+            "type": "string",
+            "example": "300.00",
+            "description": "ราคาขาย (บาท ก่อน VAT) ทศนิยม ≤ 2 — ต้องมีสิทธิ์ `prices.sell:write`"
+          }
+        },
+        "required": [
+          "serviceItemId",
+          "sellPrice"
+        ]
+      },
+      "CreateRateCardDto": {
+        "type": "object",
+        "properties": {
+          "pricingModel": {
+            "type": "string",
+            "enum": [
+              "PER_TRIP",
+              "PER_KM",
+              "PER_TON",
+              "PER_CBM",
+              "PER_UNIT"
+            ],
+            "description": "สูตรราคา (docs/04 B1)"
+          },
+          "unitId": {
+            "type": "string",
+            "example": "unt_3f2a…",
+            "nullable": true,
+            "description": "หน่วยนับ (ชนิด COUNT เช่น ชิ้น พาเลท) — บังคับเมื่อ PER_UNIT, สูตรอื่นต้องเป็น null"
+          },
+          "sellRate": {
+            "type": "string",
+            "example": "6500.00",
+            "description": "ราคาขายต่อหน่วยของสูตร (บาท) — ต่อเที่ยว/กม./ตัน/ลบ.ม./หน่วย · ต้องมีสิทธิ์ `prices.sell:write` (เห็นเมื่อมี `prices.sell:read`)"
+          },
+          "sellMinCharge": {
+            "type": "string",
+            "example": "1500.00",
+            "nullable": true,
+            "description": "ขั้นต่ำต่อเที่ยว (บาท) — ผล = max(ราคาคำนวณ, ขั้นต่ำ) · null = ไม่มี"
+          },
+          "sellExtraStopRate": {
+            "type": "string",
+            "example": "300.00",
+            "nullable": true,
+            "description": "ค่าจุดเพิ่มต่อจุด เมื่อจำนวนจุดเกิน `includedStops` (MD-115) · null = ไม่คิด"
+          },
+          "includedStops": {
+            "type": "number",
+            "example": 2,
+            "minimum": 0,
+            "maximum": 99,
+            "description": "จำนวนจุดที่รวมในราคา (N) — ค่าเริ่มต้น 2 (รับ 1 + ส่ง 1)"
+          },
+          "validFrom": {
+            "type": "string",
+            "example": "2026-11-01",
+            "format": "date",
+            "description": "มีผลตั้งแต่ (รวมวันนี้)"
+          },
+          "validTo": {
+            "type": "string",
+            "example": "2027-10-31",
+            "format": "date",
+            "nullable": true,
+            "description": "ถึง (รวมวันนี้) ≥ validFrom · null = ไม่มีวันหมด"
+          },
+          "accessorials": {
+            "description": "ราคาค่าบริการเสริมเฉพาะ rate นี้ — ส่ง = แทนทั้งชุด (ไม่ส่ง = คงเดิม) · สูงสุด 50 รายการ ห้ามซ้ำ",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RateAccessorialInputDto"
+            }
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 1000,
+            "description": "หมายเหตุ"
+          },
+          "customerId": {
+            "type": "string",
+            "example": "cus_3f2a…",
+            "description": "ลูกค้า (ขาขาย)"
+          },
+          "originId": {
+            "type": "string",
+            "example": "loc_3f2a…",
+            "description": "ต้นทาง (สถานที่)"
+          },
+          "destinationId": {
+            "type": "string",
+            "example": "loc_8c1d…",
+            "description": "ปลายทาง (สถานที่) — ต่างจากต้นทาง"
+          },
+          "vehicleTypeId": {
+            "type": "string",
+            "example": "vty_3f2a…",
+            "description": "ประเภทรถ (ตรงตัวเท่านั้น — MD-111)"
+          },
+          "serviceItemId": {
+            "type": "string",
+            "example": "svc_3f2a…",
+            "description": "รายการบนเอกสารที่กำหนด vat_type/wht_rate ของค่าขนส่งจาก rate นี้ — ไม่ส่งตอนสร้าง = ค่าขนส่ง (FREIGHT)"
+          },
+          "side": {
+            "type": "string",
+            "enum": [
+              "SELL"
+            ],
+            "default": "SELL",
+            "description": "ฝั่ง — ตอนนี้รับเฉพาะ SELL (ขาซื้อมาใน ST2-T14)"
+          },
+          "code": {
+            "type": "string",
+            "example": "RC-S-0001",
+            "description": "รหัส — ไม่ส่ง = ระบบออกเลขถัดไป (RC-S-0001)"
+          },
+          "externalId": {
+            "type": "string",
+            "description": "รหัสในระบบต้นทาง — เรียกด้วย ext:{externalId} ได้"
+          }
+        }
+      },
+      "UpsertRateCardDto": {
+        "type": "object",
+        "properties": {
+          "pricingModel": {
+            "type": "string",
+            "enum": [
+              "PER_TRIP",
+              "PER_KM",
+              "PER_TON",
+              "PER_CBM",
+              "PER_UNIT"
+            ],
+            "description": "สูตรราคา (docs/04 B1)"
+          },
+          "unitId": {
+            "type": "string",
+            "example": "unt_3f2a…",
+            "nullable": true,
+            "description": "หน่วยนับ (ชนิด COUNT เช่น ชิ้น พาเลท) — บังคับเมื่อ PER_UNIT, สูตรอื่นต้องเป็น null"
+          },
+          "sellRate": {
+            "type": "string",
+            "example": "6500.00",
+            "description": "ราคาขายต่อหน่วยของสูตร (บาท) — ต่อเที่ยว/กม./ตัน/ลบ.ม./หน่วย · ต้องมีสิทธิ์ `prices.sell:write` (เห็นเมื่อมี `prices.sell:read`)"
+          },
+          "sellMinCharge": {
+            "type": "string",
+            "example": "1500.00",
+            "nullable": true,
+            "description": "ขั้นต่ำต่อเที่ยว (บาท) — ผล = max(ราคาคำนวณ, ขั้นต่ำ) · null = ไม่มี"
+          },
+          "sellExtraStopRate": {
+            "type": "string",
+            "example": "300.00",
+            "nullable": true,
+            "description": "ค่าจุดเพิ่มต่อจุด เมื่อจำนวนจุดเกิน `includedStops` (MD-115) · null = ไม่คิด"
+          },
+          "includedStops": {
+            "type": "number",
+            "example": 2,
+            "minimum": 0,
+            "maximum": 99,
+            "description": "จำนวนจุดที่รวมในราคา (N) — ค่าเริ่มต้น 2 (รับ 1 + ส่ง 1)"
+          },
+          "validFrom": {
+            "type": "string",
+            "example": "2026-11-01",
+            "format": "date",
+            "description": "มีผลตั้งแต่ (รวมวันนี้)"
+          },
+          "validTo": {
+            "type": "string",
+            "example": "2027-10-31",
+            "format": "date",
+            "nullable": true,
+            "description": "ถึง (รวมวันนี้) ≥ validFrom · null = ไม่มีวันหมด"
+          },
+          "accessorials": {
+            "description": "ราคาค่าบริการเสริมเฉพาะ rate นี้ — ส่ง = แทนทั้งชุด (ไม่ส่ง = คงเดิม) · สูงสุด 50 รายการ ห้ามซ้ำ",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RateAccessorialInputDto"
+            }
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 1000,
+            "description": "หมายเหตุ"
+          },
+          "customerId": {
+            "type": "string",
+            "example": "cus_3f2a…",
+            "description": "ลูกค้า (ขาขาย)"
+          },
+          "originId": {
+            "type": "string",
+            "example": "loc_3f2a…",
+            "description": "ต้นทาง (สถานที่)"
+          },
+          "destinationId": {
+            "type": "string",
+            "example": "loc_8c1d…",
+            "description": "ปลายทาง (สถานที่) — ต่างจากต้นทาง"
+          },
+          "vehicleTypeId": {
+            "type": "string",
+            "example": "vty_3f2a…",
+            "description": "ประเภทรถ (ตรงตัวเท่านั้น — MD-111)"
+          },
+          "serviceItemId": {
+            "type": "string",
+            "example": "svc_3f2a…",
+            "description": "รายการบนเอกสารที่กำหนด vat_type/wht_rate ของค่าขนส่งจาก rate นี้ — ไม่ส่งตอนสร้าง = ค่าขนส่ง (FREIGHT)"
+          },
+          "code": {
+            "type": "string",
+            "example": "RC-S-0001",
+            "description": "ใช้ตอนสร้างเท่านั้น"
+          }
+        }
+      },
+      "UpdateRateCardDto": {
+        "type": "object",
+        "properties": {
+          "pricingModel": {
+            "type": "string",
+            "enum": [
+              "PER_TRIP",
+              "PER_KM",
+              "PER_TON",
+              "PER_CBM",
+              "PER_UNIT"
+            ],
+            "description": "สูตรราคา (docs/04 B1)"
+          },
+          "unitId": {
+            "type": "string",
+            "example": "unt_3f2a…",
+            "nullable": true,
+            "description": "หน่วยนับ (ชนิด COUNT เช่น ชิ้น พาเลท) — บังคับเมื่อ PER_UNIT, สูตรอื่นต้องเป็น null"
+          },
+          "sellRate": {
+            "type": "string",
+            "example": "6500.00",
+            "description": "ราคาขายต่อหน่วยของสูตร (บาท) — ต่อเที่ยว/กม./ตัน/ลบ.ม./หน่วย · ต้องมีสิทธิ์ `prices.sell:write` (เห็นเมื่อมี `prices.sell:read`)"
+          },
+          "sellMinCharge": {
+            "type": "string",
+            "example": "1500.00",
+            "nullable": true,
+            "description": "ขั้นต่ำต่อเที่ยว (บาท) — ผล = max(ราคาคำนวณ, ขั้นต่ำ) · null = ไม่มี"
+          },
+          "sellExtraStopRate": {
+            "type": "string",
+            "example": "300.00",
+            "nullable": true,
+            "description": "ค่าจุดเพิ่มต่อจุด เมื่อจำนวนจุดเกิน `includedStops` (MD-115) · null = ไม่คิด"
+          },
+          "includedStops": {
+            "type": "number",
+            "example": 2,
+            "minimum": 0,
+            "maximum": 99,
+            "description": "จำนวนจุดที่รวมในราคา (N) — ค่าเริ่มต้น 2 (รับ 1 + ส่ง 1)"
+          },
+          "validFrom": {
+            "type": "string",
+            "example": "2026-11-01",
+            "format": "date",
+            "description": "มีผลตั้งแต่ (รวมวันนี้)"
+          },
+          "validTo": {
+            "type": "string",
+            "example": "2027-10-31",
+            "format": "date",
+            "nullable": true,
+            "description": "ถึง (รวมวันนี้) ≥ validFrom · null = ไม่มีวันหมด"
+          },
+          "accessorials": {
+            "description": "ราคาค่าบริการเสริมเฉพาะ rate นี้ — ส่ง = แทนทั้งชุด (ไม่ส่ง = คงเดิม) · สูงสุด 50 รายการ ห้ามซ้ำ",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RateAccessorialInputDto"
+            }
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 1000,
+            "description": "หมายเหตุ"
+          },
+          "customerId": {
+            "type": "string",
+            "example": "cus_3f2a…",
+            "description": "ลูกค้า (ขาขาย)"
+          },
+          "originId": {
+            "type": "string",
+            "example": "loc_3f2a…",
+            "description": "ต้นทาง (สถานที่)"
+          },
+          "destinationId": {
+            "type": "string",
+            "example": "loc_8c1d…",
+            "description": "ปลายทาง (สถานที่) — ต่างจากต้นทาง"
+          },
+          "vehicleTypeId": {
+            "type": "string",
+            "example": "vty_3f2a…",
+            "description": "ประเภทรถ (ตรงตัวเท่านั้น — MD-111)"
+          },
+          "serviceItemId": {
+            "type": "string",
+            "example": "svc_3f2a…",
+            "description": "รายการบนเอกสารที่กำหนด vat_type/wht_rate ของค่าขนส่งจาก rate นี้ — ไม่ส่งตอนสร้าง = ค่าขนส่ง (FREIGHT)"
+          },
+          "externalId": {
+            "type": "string",
+            "nullable": true,
+            "description": "null = ลบการผูก"
+          }
+        }
+      },
+      "ReviseRateCardDto": {
+        "type": "object",
+        "properties": {
+          "pricingModel": {
+            "type": "string",
+            "enum": [
+              "PER_TRIP",
+              "PER_KM",
+              "PER_TON",
+              "PER_CBM",
+              "PER_UNIT"
+            ],
+            "description": "สูตรราคา (docs/04 B1)"
+          },
+          "unitId": {
+            "type": "string",
+            "example": "unt_3f2a…",
+            "nullable": true,
+            "description": "หน่วยนับ (ชนิด COUNT เช่น ชิ้น พาเลท) — บังคับเมื่อ PER_UNIT, สูตรอื่นต้องเป็น null"
+          },
+          "sellRate": {
+            "type": "string",
+            "example": "6500.00",
+            "description": "ราคาขายต่อหน่วยของสูตร (บาท) — ต่อเที่ยว/กม./ตัน/ลบ.ม./หน่วย · ต้องมีสิทธิ์ `prices.sell:write` (เห็นเมื่อมี `prices.sell:read`)"
+          },
+          "sellMinCharge": {
+            "type": "string",
+            "example": "1500.00",
+            "nullable": true,
+            "description": "ขั้นต่ำต่อเที่ยว (บาท) — ผล = max(ราคาคำนวณ, ขั้นต่ำ) · null = ไม่มี"
+          },
+          "sellExtraStopRate": {
+            "type": "string",
+            "example": "300.00",
+            "nullable": true,
+            "description": "ค่าจุดเพิ่มต่อจุด เมื่อจำนวนจุดเกิน `includedStops` (MD-115) · null = ไม่คิด"
+          },
+          "includedStops": {
+            "type": "number",
+            "example": 2,
+            "minimum": 0,
+            "maximum": 99,
+            "description": "จำนวนจุดที่รวมในราคา (N) — ค่าเริ่มต้น 2 (รับ 1 + ส่ง 1)"
+          },
+          "validFrom": {
+            "type": "string",
+            "example": "2026-11-01",
+            "format": "date",
+            "description": "มีผลตั้งแต่ (รวมวันนี้)"
+          },
+          "validTo": {
+            "type": "string",
+            "example": "2027-10-31",
+            "format": "date",
+            "nullable": true,
+            "description": "ถึง (รวมวันนี้) ≥ validFrom · null = ไม่มีวันหมด"
+          },
+          "accessorials": {
+            "description": "ราคาค่าบริการเสริมเฉพาะ rate นี้ — ส่ง = แทนทั้งชุด (ไม่ส่ง = คงเดิม) · สูงสุด 50 รายการ ห้ามซ้ำ",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RateAccessorialInputDto"
+            }
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 1000,
+            "description": "หมายเหตุ"
           }
         }
       },

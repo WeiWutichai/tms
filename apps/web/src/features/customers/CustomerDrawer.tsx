@@ -6,6 +6,7 @@ import { useI18n } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
 import { HistoryTab } from '../master/HistoryTab';
 import { CustomerSitesTab } from '../sites/CustomerSitesTab';
+import { CustomerRatesTab } from '../rate-cards/CustomerRatesTab';
 import { fieldErrors, problemText } from '../master/problems';
 import {
   useCompanyOptions,
@@ -14,7 +15,7 @@ import {
   type CustomerInput,
 } from './useCustomers';
 
-type Tab = 'sum' | 'addr' | 'cond' | 'act';
+type Tab = 'sum' | 'addr' | 'rate' | 'cond' | 'act';
 const CYCLES = ['PER_DO', 'WEEKLY', 'MONTHLY', 'MANUAL'] as const;
 
 interface Form {
@@ -153,7 +154,7 @@ function Fld({
 /**
  * Drawer ลูกค้า — ต้นแบบ vPanel cust: แท็บ ทั่วไป / เงื่อนไข (+ กิจกรรม ตาม spec/02 §0.2)
  * ปุ่ม "บันทึก" เดียวบันทึกทุกแท็บ (PATCH + If-Match) · เมนู ⋯ = ปิดใช้/เปิดใช้, ลบ
- * แท็บ ที่อยู่ส่ง = สถานที่ของลูกค้า (ST2-T02) · Rate card (ST2-T13), การเชื่อมต่อ API (P1) ยังไม่แสดง [OPEN spec/12 §3]
+ * แท็บ ที่อยู่ส่ง = สถานที่ของลูกค้า (ST2-T02) · Rate card = rate ขาขายของลูกค้า (ST2-T13) · การเชื่อมต่อ API (P1) ยังไม่แสดง [OPEN spec/12 §3]
  */
 export function CustomerDrawer({
   customer: c,
@@ -278,13 +279,14 @@ export function CustomerDrawer({
       tabs={[
         { key: 'sum', label: t('cust.tab.sum') },
         { key: 'addr', label: t('cust.tab.addr') },
+        { key: 'rate', label: t('cust.tab.rate') },
         { key: 'cond', label: t('cust.tab.cond') },
         { key: 'act', label: t('cust.tab.act') },
       ]}
       tab={tab}
       onTab={(k) => setTab(k as Tab)}
       footer={
-        canWrite && tab !== 'act' && tab !== 'addr' ? (
+        canWrite && tab !== 'act' && tab !== 'addr' && tab !== 'rate' ? (
           <DrawerFooterButtons
             primary={{
               label: t('common.save'),
@@ -544,6 +546,7 @@ export function CustomerDrawer({
       {tab === 'addr' && (
         <CustomerSitesTab customerId={c.id} customerName={c.legalName} canWrite={canWrite} />
       )}
+      {tab === 'rate' && <CustomerRatesTab customerId={c.id} customerName={c.legalName} />}
       {tab === 'act' && (
         <HistoryTab
           path="/v1/customers/{id}/history"

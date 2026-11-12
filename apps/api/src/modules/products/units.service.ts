@@ -227,7 +227,10 @@ export class UnitsService {
         throw field422(changedDef[0]!, 'system_unit', 'system unit: only the name can be changed');
       // หน่วยที่สินค้าใช้อยู่: เปลี่ยนนิยามแล้วน้ำหนัก/ปริมาตรของสินค้าเดิมจะผิด → 422
       await lockForRemoval(tx, 'unit', current.id);
-      const used = (await unitUsage(tx, [current.id])).get(current.id) ?? 0;
+      const used =
+        ((await unitUsage(tx, [current.id])).get(current.id) ?? 0) +
+        // ST2-T13: rate card ต่อหน่วยนับใช้หน่วยนี้ — เปลี่ยนชนิดแล้วสูตรราคาผิด
+        (await tx.rateCard.count({ where: { unitId: current.id, deletedAt: null } }));
       if (used > 0)
         throw field422(changedDef[0]!, 'unit_in_use', `unit is used by ${used} product(s)`);
     }
@@ -300,6 +303,8 @@ export class UnitsService {
         name: 'products',
         count: async () => (await unitUsage(tx, [id])).get(id) ?? 0,
       },
+      // ST2-T13: rate card ราคาต่อหน่วยนับ (รวมฉบับเก่า — ตรวจย้อนได้)
+      { name: 'rateCards', count: () => tx.rateCard.count({ where: { unitId: id } }) },
     ]);
     await this.bumpVersion(current, { deletedAt: new Date() });
     await this.audit.record({

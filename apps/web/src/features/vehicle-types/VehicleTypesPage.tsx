@@ -11,6 +11,7 @@ import {
   type Column,
 } from '@tms/ui';
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { ApiError } from '../../api';
 import { useI18n } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
@@ -49,6 +50,7 @@ const cell = { color: '#101418', whiteSpace: 'nowrap' } as const;
  */
 export function VehicleTypesPage() {
   const { t } = useI18n();
+  const nav = useNavigate();
   const me = useMe();
   const scopes = me.data?.scopes ?? [];
   const canWrite = can(scopes, 'master:write');
@@ -242,6 +244,12 @@ export function VehicleTypesPage() {
             onRowClick={open}
             rowMenu={(r) => [
               { label: t('vt.menu.view'), icon: 'eye', run: () => open(r) },
+              // ต้นแบบ specVt "ดู rate card" (ST2-T13) — กรองประเภทรถนี้
+              {
+                label: t('rc.menu.view'),
+                icon: 'tags',
+                run: () => nav(`/master/rate-cards?vehicleType=${encodeURIComponent(r.id)}`),
+              },
               ...(canWrite
                 ? [
                     { label: t('vt.menu.edit'), icon: 'pencil', run: () => setForm({ vt: r }) },

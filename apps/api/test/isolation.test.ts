@@ -139,6 +139,61 @@ const FIXTURES: Record<string, (db: PrismaClient, tenantId: string, n: number) =
           })
         ).id,
       ),
+    // ST2-T13 rate card ขาขาย — ลูกค้า + สถานที่ 2 จุด + ประเภทรถ + ค่าขนส่ง
+    rateCard: async (db, tenantId, n) => {
+      const cus = await db.customer.create({
+        data: {
+          tenantId,
+          code: `ISO-RC${n}`,
+          legalName: `Cust RC ${n}`,
+          taxId: validTaxId(1300 + n),
+        },
+      });
+      const site = (k: string) =>
+        db.customerSite.create({
+          data: {
+            tenantId,
+            code: `ISO-RC${k}${n}`,
+            name: `Site RC${k}${n}`,
+            address: { line1: 'x' },
+          },
+        });
+      const [a, b] = [await site('A'), await site('B')];
+      const vt = await db.vehicleType.create({
+        data: { tenantId, code: `ISO-RC${n}`, nameTh: `Type RC ${n}`, vehicleClass: '6W' },
+      });
+      const si = await db.serviceItem.create({
+        data: {
+          tenantId,
+          code: `ISO-RC${n}`,
+          nameTh: `Freight RC ${n}`,
+          vatType: 'EXEMPT_TRANSPORT',
+          whtRate: '1.00',
+          calcUnit: 'PER_TRIP',
+          unitLabel: 'เที่ยว',
+        },
+      });
+      return encodeId(
+        'rateCard',
+        (
+          await db.rateCard.create({
+            data: {
+              tenantId,
+              side: 'SELL',
+              code: `RC-S-ISO${n}`,
+              customerId: cus.id,
+              originSiteId: a.id,
+              destSiteId: b.id,
+              vehicleTypeId: vt.id,
+              pricingModel: 'PER_TRIP',
+              unitPrice: '6500.00',
+              serviceItemId: si.id,
+              validFrom: new Date('2026-01-01'),
+            },
+          })
+        ).id,
+      );
+    },
     reasonCode: async (db, tenantId, n) =>
       encodeId(
         'reasonCode',
@@ -341,6 +396,7 @@ const BODY_FOR_SUFFIX: Record<string, object> = {
   delete: { reason: 'isolation test reason' },
   revoke: { reason: 'isolation test' },
   cancel: { reason: 'isolation test' },
+  approve: { reason: 'isolation test reason' }, // ST2-T13 /rate-cards/:id/approve
   reject: { reason: 'isolation test reason' }, // ST2-T03 /customer-sites/:id/geocode/reject
   reveal: { field: 'bankAccountNo', reason: 'isolation test reason' }, // ST2-T05 /carriers/:id/reveal
   status: { status: 'parked', reason: 'isolation test reason' }, // ST2-T06 /vehicles/:id/status

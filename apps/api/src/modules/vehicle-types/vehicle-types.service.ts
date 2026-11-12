@@ -10,6 +10,7 @@ import { EXPORT_MAX_ROWS } from '../master/export';
 import {
   assertNotActivelyUsed,
   assertNotReferenced,
+  lockForRemoval,
   deletedFilter,
   emitMasterEvent,
   isNoopUpdate,
@@ -125,13 +126,13 @@ export class VehicleTypesService {
       }),
       tx.rateCard.groupBy({
         by: ['vehicleTypeId'],
-        where: { vehicleTypeId: { in: ids } },
+        where: { vehicleTypeId: { in: ids }, deletedAt: null },
         _count: { _all: true },
       }),
     ]);
     for (const id of ids) out.set(id, { vehicles: 0, rateCards: 0 });
     for (const g of veh) out.get(g.vehicleTypeId)!.vehicles = g._count._all;
-    for (const g of rc) if (g.vehicleTypeId) out.get(g.vehicleTypeId)!.rateCards = g._count._all;
+    for (const g of rc) out.get(g.vehicleTypeId)!.rateCards = g._count._all;
     return out;
   }
 
@@ -179,7 +180,7 @@ export class VehicleTypesService {
     const n = (s: ActiveStatus) => g.find((x) => x.status === s)?._count._all ?? 0;
     const [vehicles, rateCards] = await Promise.all([
       tx.vehicle.count({ where: { status: { not: 'RETIRED' }, deletedAt: null } }),
-      tx.rateCard.count({ where: { vehicleTypeId: { not: null } } }),
+      tx.rateCard.count({ where: { deletedAt: null } }),
     ]);
     return {
       total: n('ACTIVE') + n('INACTIVE'),
@@ -423,6 +424,8 @@ export class VehicleTypesService {
     const current = await this.get(id);
     if (expected !== undefined && expected !== current.version)
       throw new ProblemException('precondition_failed');
+    // ล็อกแถวก่อนนับการอ้างอิง — rate card ที่กำลังสร้างพร้อมกัน (lockReferenced FOR SHARE) รอจนลบเสร็จ (ST2-T13)
+    await lockForRemoval(tx, 'vehicle_type', id);
     await assertNotReferenced([
       {
         name: 'vehicles',

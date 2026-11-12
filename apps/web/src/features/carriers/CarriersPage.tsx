@@ -24,6 +24,7 @@ import { problemText } from '../master/problems';
 import { DriversTab } from '../drivers/DriversTab';
 import { useDriverSummary } from '../drivers/useDrivers';
 import { listTotal } from '../master/useCursorList';
+import { SegSwitch } from '../master/SegSwitch';
 import { CarrierDrawer, taxText } from './CarrierDrawer';
 import {
   useCarrierAction,
@@ -43,67 +44,6 @@ type Seg = 'drv' | 'con';
 const DEFAULT_SEG: Seg = 'drv';
 
 const cell = { color: '#101418', whiteSpace: 'nowrap' } as const;
-
-/** ปุ่มสลับ คนขับ | ผู้รับเหมา — ต้นแบบ vx.seg (พื้น #EBEDE8 ขอบ #D9DCD4 มุม 14, ปุ่มเลือก = ขาว ตัวหนา น้ำเงิน) */
-function SegSwitch({
-  value,
-  items,
-  onChange,
-}: {
-  value: Seg;
-  items: { key: Seg; label: string; count?: number | undefined }[];
-  onChange: (k: Seg) => void;
-}) {
-  return (
-    <div
-      role="tablist"
-      style={{
-        display: 'inline-flex',
-        alignSelf: 'flex-start',
-        gap: 2,
-        padding: 3,
-        background: '#EBEDE8',
-        border: '1px solid #D9DCD4',
-        borderRadius: 14,
-      }}
-    >
-      {items.map((s) => {
-        const on = s.key === value;
-        return (
-          <button
-            key={s.key}
-            type="button"
-            role="tab"
-            aria-selected={on}
-            onClick={() => onChange(s.key)}
-            style={{
-              height: 34,
-              padding: '0 14px',
-              border: 0,
-              borderRadius: 999,
-              background: on ? '#FFFFFF' : 'transparent',
-              color: on ? '#2257C4' : '#3B424C',
-              fontWeight: on ? 600 : 500,
-              boxShadow: on ? '0 1px 2px rgba(16,24,40,.08), 0 0 0 1px #D9DCD4' : 'none',
-              cursor: 'pointer',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 8,
-              whiteSpace: 'nowrap',
-              flexShrink: 0,
-              font: 'inherit',
-            }}
-          >
-            {s.label}
-            {s.count !== undefined && (
-              <span style={{ color: '#3B424C', fontWeight: 500 }}>{s.count}</span>
-            )}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
 
 /**
  * รถ → คนขับและผู้รับเหมา (ST2-T05 ผู้รับเหมา; ST2-T08 คนขับ — `DriversTab`) — ต้นแบบ TMS v4 specVeh() con + kpisX('veh' con) + vPanel con
