@@ -175,6 +175,31 @@ export const PROBLEMS = {
     en: 'Delivery orders cannot be created for this order yet (draft, cancelled, planned or unmapped customer/locations)',
   },
   /** ST3-T09 ORD-083/086: แยก/รวม/ยกเลิก DO ได้เฉพาะใบ DRAFT ที่ยังไม่อยู่ในเที่ยว */
+  trip_has_loaded_orders: {
+    status: 409,
+    th: 'ยกเลิกเที่ยวไม่ได้ — มีใบส่งของที่รับของขึ้นรถหรือส่งแล้ว (ปิดเที่ยวบางส่วนแล้วเปิดเที่ยวใหม่แทน)',
+    en: 'Trip has orders already picked up or delivered — close it partially and open a new trip instead',
+  },
+  offer_required: {
+    status: 409,
+    th: 'รถคันนี้เป็นรถร่วม — ต้องเสนองานให้รถร่วมก่อน แล้วจึงบันทึกการรับงาน',
+    en: 'Subcontract vehicle — offer the trip to the carrier first',
+  },
+  carrier_change_requires_cancel: {
+    status: 409,
+    th: 'เปลี่ยนรถร่วมหรือสลับรถร่วม/รถบริษัทไม่ได้ — ยกเลิกการจ้างเดิมก่อน',
+    en: 'Changing the carrier requires cancelling the current hire first',
+  },
+  trip_empty: {
+    status: 409,
+    th: 'เที่ยวนี้ยังไม่มีใบส่งของ',
+    en: 'Trip has no delivery orders',
+  },
+  trip_stops_open: {
+    status: 409,
+    th: 'ยังมีจุดแวะที่ยังไม่จบ — ปิดเที่ยวได้เมื่อทุกจุดส่งสำเร็จ/ไม่สำเร็จ/ข้าม',
+    en: 'Some stops are not finished yet',
+  },
   delivery_order_on_trip: {
     status: 409,
     th: 'ใบส่งของนี้อยู่ในเที่ยวรถแล้ว — ถอดออกจากเที่ยวก่อน',

@@ -40,6 +40,7 @@ export const DO_EVENTS = [
   'cancel',
   'split',
   'merge',
+  'recall',
 ] as const;
 export type DoEvent = (typeof DO_EVENTS)[number];
 
@@ -50,12 +51,14 @@ export type DoEvent = (typeof DO_EVENTS)[number];
  * - `deliver` = stop COMPLETED outcome DELIVERED/PARTIAL (ส่งบางส่วน = DELIVERED + qty_actual — ไม่มีสถานะแยก)
  * - `redeliver` = ส่งใหม่: **DO เดิม CANCELLED** แล้วสร้าง DO ใหม่ (DRAFT) อ้าง `redelivery_of` (D-23 — ไม่วน DO เดิม)
  * - `pod_wait` / `pod_accept` = POD ไม่ครบ / ผ่านเกณฑ์ลูกค้า → รอวางบิล (UNBILLED) · `bill` / `unbill` = อยู่ใน/หลุดจาก invoice ISSUED
+ * - `recall` = เที่ยวที่ปล่อยแล้วถูกยกเลิกก่อนรับของ (plan/00a DISPATCHED → CANCELLED — ST3-T11) → DO กลับ DRAFT นอกเที่ยว
+ *   (รับของแล้ว PICKED_UP ขึ้นไปยกเลิกเที่ยวไม่ได้ — ปิดเที่ยวบางส่วนแล้วเปิดเที่ยวใหม่ตาม §4.2 ท้าย)
  * - ยกเลิกได้จาก DRAFT เท่านั้น: `cancel` (คน/ระบบ + เหตุผล), `split` (ใบแม่ที่ถูกแยก), `merge` (ใบที่ถูกรวมเข้าใบอื่น)
  */
 export const DO_TRANSITIONS: TransitionTable<DoStatus, DoEvent> = {
   DRAFT: { plan: 'PLANNED', cancel: 'CANCELLED', split: 'CANCELLED', merge: 'CANCELLED' },
   PLANNED: { unplan: 'DRAFT', dispatch: 'DISPATCHED' },
-  DISPATCHED: { pick_up: 'PICKED_UP', deliver: 'DELIVERED', fail: 'FAILED' },
+  DISPATCHED: { pick_up: 'PICKED_UP', deliver: 'DELIVERED', fail: 'FAILED', recall: 'DRAFT' },
   PICKED_UP: { deliver: 'DELIVERED', fail: 'FAILED' },
   FAILED: { redeliver: 'CANCELLED', return: 'RETURNED' },
   DELIVERED: { pod_wait: 'POD_PENDING', pod_accept: 'UNBILLED' },
