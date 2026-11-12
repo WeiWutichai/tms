@@ -33,6 +33,8 @@ export const SO_EVENTS = [
   'deliver',
   'cancel',
   'close',
+  'unplan',
+  'recall',
 ] as const;
 export type SoEvent = (typeof SO_EVENTS)[number];
 
@@ -41,14 +43,16 @@ export type SoEvent = (typeof SO_EVENTS)[number];
  * - สร้างใบ: เริ่มที่ RECEIVED (หรือ DRAFT เมื่อบันทึกร่าง) — ดู `SO_INITIAL_STATUSES`
  * - ค้าง (ON_HOLD) ทุกแบบใช้ event `hold` + reason code เดียว; ต้นทางแก้หลังวางแผน (SOURCE_CHANGED_AFTER_PLAN)
  *   **ไม่เปลี่ยนสถานะ** (ตั้งธง `source_changed_after_plan` — ST3-T10)
+ * - `unplan` = DO ทุกใบหลุดจากเที่ยว (ถอด/ยกเลิกเที่ยว — ST3-T11) → RECEIVED แล้วประเมินใบค้างใหม่
+ *   `recall` = เที่ยวที่ปล่อยแล้วถูกยกเลิกก่อนรับของ → กลับ PLANNED (เพิ่มจาก docs §4.1 — [OPEN] spec/12 §3)
  * - ยกเลิกได้ก่อนออกรถเท่านั้น (PLANNED ต้องยกเลิก DO ก่อน — ST3-T10 ตรวจ)
  */
 export const SO_TRANSITIONS: TransitionTable<SoStatus, SoEvent> = {
   DRAFT: { submit: 'RECEIVED', cancel: 'CANCELLED' },
   RECEIVED: { hold: 'ON_HOLD', plan: 'PLANNED', cancel: 'CANCELLED' },
   ON_HOLD: { release: 'RECEIVED', plan: 'PLANNED', cancel: 'CANCELLED' },
-  PLANNED: { hold: 'ON_HOLD', dispatch: 'IN_TRANSIT', cancel: 'CANCELLED' },
-  IN_TRANSIT: { deliver_partial: 'PARTIALLY_DELIVERED', deliver: 'DELIVERED' },
+  PLANNED: { hold: 'ON_HOLD', dispatch: 'IN_TRANSIT', cancel: 'CANCELLED', unplan: 'RECEIVED' },
+  IN_TRANSIT: { deliver_partial: 'PARTIALLY_DELIVERED', deliver: 'DELIVERED', recall: 'PLANNED' },
   PARTIALLY_DELIVERED: { resume: 'IN_TRANSIT', deliver: 'DELIVERED' },
   DELIVERED: { close: 'CLOSED' },
   // CLOSED / CANCELLED = สถานะสิ้นสุด

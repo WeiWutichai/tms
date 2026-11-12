@@ -311,8 +311,15 @@ describe('รถ (vehicles)', () => {
     await db.trip.create({
       data: {
         tenantId,
+        tripNo: 'TRP-VEH-1',
         tripDate: new Date(),
         vehicleId: tryDecodeId('vehicle', v.id)!,
+        vehiclePlateSnapshot: 'ทดสอบ',
+        vehicleTypeId: (
+          await db.vehicle.findUniqueOrThrow({
+            where: { id: tryDecodeId('vehicle', v.id)! },
+          })
+        ).vehicleTypeId,
         status: 'ASSIGNED',
       },
     });
