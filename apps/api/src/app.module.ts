@@ -53,6 +53,7 @@ import { UnitsController } from './modules/products/units.controller';
 import { UnitsService } from './modules/products/units.service';
 import { RoutesController } from './modules/routes/routes.controller';
 import { RoutesService } from './modules/routes/routes.service';
+import { CompatibilityService } from './modules/compatibility/compatibility.service';
 import { SitesService } from './modules/sites/sites.service';
 import { ServiceItemsController } from './modules/service-items/service-items.controller';
 import { ServiceItemsService } from './modules/service-items/service-items.service';
@@ -148,6 +149,7 @@ import { StateService } from './state/state.service';
     CustomersService,
     SitesService,
     RoutesService,
+    CompatibilityService,
     ProductsService,
     UnitsService,
     VehicleTypesService,
