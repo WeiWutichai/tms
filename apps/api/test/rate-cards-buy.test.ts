@@ -381,6 +381,69 @@ describe('rate card ขาซื้อ (side = BUY) + ราคา 5 ครั�
     expect(JSON.stringify(lv.body)).not.toMatch(/buyRate|7700/);
   });
 
+  it('สิทธิ์แยกฝั่ง (review): revise/cancel/delete/PUT external ของอีกฝั่ง → 403 ทั้งสองทาง', async () => {
+    const key = await newKey();
+    const cus = (
+      await api(app, admin)
+        .post('/v1/customers')
+        .send({ legalName: 'ลูกค้าสิทธิ์ข้ามฝั่ง', taxId: validTaxId(7005) })
+        .expect(201)
+    ).body;
+    const sellKey = {
+      customerId: cus.id,
+      originId: key.originId,
+      destinationId: key.destinationId,
+      vehicleTypeId: vt6,
+      pricingModel: 'PER_TRIP',
+    };
+    const mk = async (side: 'SELL' | 'BUY', ext: string) => {
+      const body =
+        side === 'BUY'
+          ? { side, ...key, pricingModel: 'PER_TRIP', buyRate: '100' }
+          : { side, ...sellKey, sellRate: '100' };
+      // อนุมัติแล้วยังไม่ถึงวันเริ่ม (ยกเลิก/ออกฉบับแก้ไขได้) + ร่าง (ลบได้) + externalId สำหรับ PUT
+      const approved = (await create({ ...body, validFrom: d(10), validTo: d(20) }).expect(201))
+        .body;
+      await approve(approved.id).expect(200);
+      const draft = (await create({ ...body, validFrom: d(30), validTo: d(40) }).expect(201)).body;
+      await api(app, admin)
+        .put(`/v1/rate-cards/external/${ext}`)
+        .send({ ...body, validFrom: d(50), validTo: d(60) })
+        .expect(201);
+      return { approved, draft, ext };
+    };
+    const buy = await mk('BUY', 'X-SIDE-B');
+    const sell = await mk('SELL', 'X-SIDE-S');
+    const sellOnly = await tokenFor(tenantId, 'master:read prices.sell:read prices.sell:write');
+    const buyOnly = await tokenFor(tenantId, 'master:read prices.buy:read prices.buy:write');
+    const reason = { reason: 'ทดสอบสิทธิ์ข้ามฝั่ง' };
+    for (const [token, r, scope] of [
+      [sellOnly, buy, 'prices.buy:write'],
+      [buyOnly, sell, 'prices.sell:write'],
+    ] as const) {
+      const http = api(app, token);
+      const checks = [
+        await http.post(`/v1/rate-cards/${r.approved.id}/revise`).send({ notes: 'แก้หมายเหตุ' }),
+        await http.post(`/v1/rate-cards/${r.approved.id}/cancel`).send(reason),
+        await http.post(`/v1/rate-cards/${r.draft.id}/delete`).send(reason),
+        await http.post(`/v1/rate-cards/${r.draft.id}/approve`).send(reason),
+        await http.put(`/v1/rate-cards/external/${r.ext}`).send({ notes: 'แก้หมายเหตุ' }),
+      ];
+      for (const res of checks) {
+        expect(res.status, JSON.stringify(res.body)).toBe(403);
+        expect(res.body.required).toEqual([scope]);
+      }
+    }
+    // PUT external สร้างใหม่ฝั่งที่ไม่มีสิทธิ์ → 403
+    await api(app, buyOnly)
+      .put('/v1/rate-cards/external/X-SIDE-NEW')
+      .send({ ...sellKey, vehicleTypeId: vt10, validFrom: d(0) })
+      .expect(403);
+    // สถานะไม่เปลี่ยน
+    const g = await api(app, admin).get(`/v1/rate-cards/${buy.approved.id}`).expect(200);
+    expect(g.body.status).toBe('active');
+  });
+
   it('ลบผู้รับเหมาที่ rate อ้าง → 409 in_use · ข้าม tenant → 404', async () => {
     const key = await newKey();
     const r = (
@@ -443,8 +506,11 @@ describe('rate card ขาซื้อ (side = BUY) + ราคา 5 ครั�
       fees: string[];
       to?: string;
       vehicleId?: string;
-      status?: 'COMPLETED' | 'CANCELLED';
+      status?: 'COMPLETED' | 'CANCELLED' | 'OFFERED' | 'ASSIGNED' | 'PLANNING';
+      assignmentStatus?: 'OFFERED' | 'ACCEPTED' | 'REJECTED' | 'EXPIRED';
       carrierId?: string;
+      /** carrier_id ของบรรทัดค่าจ้าง (ค่าเริ่มต้น = รถร่วมของเที่ยว) ต่อบรรทัด */
+      feeCarrierIds?: (string | null)[];
       rateCardCode?: string;
     }) => {
       const t = await db.trip.create({
@@ -457,6 +523,7 @@ describe('rate card ขาซื้อ (side = BUY) + ราคา 5 ครั�
           vehicleId: opts.vehicleId ?? v6.id,
           vehicleTypeSnapshot: opts.vehicleId === v10.id ? '10 ล้อ' : '6 ล้อ',
           status: opts.status ?? 'COMPLETED',
+          ...(opts.assignmentStatus ? { assignmentStatus: opts.assignmentStatus } : {}),
           ...(opts.rateCardCode ? { buyRateSnapshot: { rateCardCode: opts.rateCardCode } } : {}),
         },
       });
@@ -471,7 +538,7 @@ describe('rate card ขาซื้อ (side = BUY) + ราคา 5 ครั�
             siteId,
           },
         });
-      for (const amount of opts.fees)
+      for (const [i, amount] of opts.fees.entries())
         await db.tripCost.create({
           data: {
             tenantId,
@@ -479,7 +546,10 @@ describe('rate card ขาซื้อ (side = BUY) + ราคา 5 ครั�
             costType: 'CARRIER_FEE',
             amount,
             source: 'RATE_CARD',
-            carrierId: opts.carrierId ?? cid,
+            carrierId:
+              opts.feeCarrierIds?.[i] !== undefined
+                ? opts.feeCarrierIds[i]
+                : (opts.carrierId ?? cid),
           },
         });
       // ค่าใช้จ่ายอื่นของเที่ยวไม่นับ
@@ -494,9 +564,17 @@ describe('rate card ขาซื้อ (side = BUY) + ราคา 5 ครั�
     await trip({ day: -7, fees: ['5200'], to: x.id });
     await trip({ day: -6, fees: ['6100'], vehicleId: v10.id });
     await trip({ day: -5, fees: ['5300'] });
+    // ไม่นับ (review ST2-T14 — กฎ "จ้างแล้ว"): ยกเลิก · ข้อเสนอที่ยังรอ/ปฏิเสธ/หมดเวลา · ยังไม่จ่ายงาน · วันเที่ยวในอนาคต
     await trip({ day: -4, fees: ['9999'], status: 'CANCELLED' });
+    await trip({ day: -3, fees: ['9001'], status: 'OFFERED', assignmentStatus: 'OFFERED' });
+    await trip({ day: -3, fees: ['9002'], status: 'ASSIGNED', assignmentStatus: 'REJECTED' });
+    await trip({ day: -3, fees: ['9003'], status: 'ASSIGNED', assignmentStatus: 'EXPIRED' });
+    await trip({ day: -3, fees: ['9004'], status: 'PLANNING' });
+    await trip({ day: 2, fees: ['9005'], status: 'ASSIGNED', assignmentStatus: 'ACCEPTED' });
+    // ข้อเสนอเดิมให้รายนี้ถูกปฏิเสธแล้วเที่ยวไปรายอื่น: บรรทัดค่าจ้างที่ผูกรายนี้ไม่นับทั้งกับรายนี้และรายใหม่
     const other = await newCarrier();
-    await trip({ day: -1, fees: ['1111'], carrierId: tryDecodeId('carrier', other.id)! });
+    const oid = tryDecodeId('carrier', other.id)!;
+    await trip({ day: -1, fees: ['7777', '1111'], carrierId: oid, feeCarrierIds: [cid, oid] });
 
     const r = await api(app, admin).get(`/v1/carriers/${c.id}/recent-prices`).expect(200);
     expect(r.body.data.map((p: { buyAmount: string }) => p.buyAmount)).toEqual([
@@ -516,6 +594,8 @@ describe('rate card ขาซื้อ (side = BUY) + ราคา 5 ครั�
       rateCardCode: null,
     });
     expect(r.body.data[3].rateCardCode).toBe('RC-B-0009');
+    const ro = await api(app, admin).get(`/v1/carriers/${other.id}/recent-prices`).expect(200);
+    expect(ro.body.data.map((p: { buyAmount: string }) => p.buyAmount)).toEqual(['1111.00']);
     // กรองปลายทาง/ประเภทรถ
     const toB = await api(app, admin)
       .get(`/v1/carriers/${c.id}/recent-prices?originId=${a.id}&destinationId=${b.id}`)

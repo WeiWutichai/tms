@@ -1275,6 +1275,7 @@ model Trip {
 
   @@unique([tenantId, tripNo])
   @@index([tenantId, tripDate, status])
+  @@index([tenantId, carrierId, tripDate]) /// ราคา 5 ครั้งล่าสุดที่จ้างรถร่วม (ST2-T14)
   @@index([tenantId, updatedAt, id])
   @@map("trip")
 }

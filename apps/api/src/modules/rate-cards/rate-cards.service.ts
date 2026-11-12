@@ -639,8 +639,10 @@ export class RateCardsService {
 
   /**
    * ราคา 5 ครั้งล่าสุดที่จ้างรถร่วมรายนี้ (ST2-T14; docs/04 B "Rate card ขาซื้อ" + D2 PL4 "เลือก carrier + ราคาซื้อ")
-   * ที่มา = cost line `trip_cost` ชนิด CARRIER_FEE ของเที่ยวที่ไม่ถูกยกเลิก (รวมต่อเที่ยว — เที่ยวหนึ่งมีได้หลายบรรทัด)
-   * ผูกรถร่วมด้วย `trip_cost.carrier_id` (ไม่มี → `trip.carrier_id`) · ต้นทาง/ปลายทาง = จุดแรก/จุดสุดท้ายของเที่ยว
+   * "จ้างแล้ว" (review ST2-T14 — ST3-T22 ต้องเขียนข้อมูลให้ตรงกฎนี้): `trip.carrier_id` = รถร่วมรายนี้ · สถานะ ASSIGNED…SETTLED
+   *   · `assignment_status` ว่างหรือ ACCEPTED (OFFERED/REJECTED/EXPIRED ไม่นับ) · `trip_date` ≤ วันนี้ (เวลาไทย)
+   * ค่าจ้าง = ผลรวม `trip_cost` CARRIER_FEE ของเที่ยวนั้นที่ `carrier_id` ว่างหรือเท่ากับรถร่วมของเที่ยว (บรรทัดของรายอื่นไม่นับ)
+   * ต้นทาง/ปลายทาง = จุดแรก/จุดสุดท้ายของเที่ยว
    * ประเภทรถกรองด้วยรถที่ใช้ (`vehicle.vehicle_type_id`) · แสดงชื่อจาก snapshot ตอนจ่ายงาน
    * rate card ที่ใช้ = `trip.buy_rate_snapshot.rateCardCode` (ST3 จ่ายงานต้องเขียนลง snapshot) · ยังไม่เคยจ้าง = []
    * เงินคืนเป็นสตริง (`buyAmount` ตัดตามสิทธิ์ `prices.buy:read` — route บังคับสิทธิ์นี้อยู่แล้ว)
@@ -674,10 +676,19 @@ export class RateCardsService {
         d_name: string | null;
       }[]
     >`
-      WITH fee AS (
+      WITH hired AS (
+        -- "จ้างแล้ว" = เที่ยวที่ผู้รับเหมารายนี้ถูกมอบงาน/รับงานจริง (ไม่นับข้อเสนอที่ยังรอ/ปฏิเสธ/หมดเวลา) และวันเที่ยวไม่เกินวันนี้
+        SELECT t.id FROM trip t
+         WHERE t.carrier_id = ${carrierId}::uuid
+           AND t.status IN ('ASSIGNED', 'DISPATCHED', 'IN_PROGRESS', 'COMPLETED', 'COSTED', 'SETTLED')
+           AND (t.assignment_status IS NULL OR t.assignment_status = 'ACCEPTED')
+           AND t.trip_date <= ${toDate(bangkokToday())}::date
+      ), fee AS (
+        -- ค่าจ้างของเที่ยว = CARRIER_FEE ที่ผูกผู้รับเหมาเดียวกับเที่ยว (บรรทัดที่ระบุผู้รับเหมาอื่นไม่นับ)
         SELECT tc.trip_id, sum(tc.amount) AS amount, max(tc.created_at) AS last_at
-          FROM trip_cost tc JOIN trip t ON t.id = tc.trip_id
-         WHERE tc.cost_type = 'CARRIER_FEE' AND COALESCE(tc.carrier_id, t.carrier_id) = ${carrierId}::uuid
+          FROM trip_cost tc JOIN hired h ON h.id = tc.trip_id
+         WHERE tc.cost_type = 'CARRIER_FEE'
+           AND (tc.carrier_id IS NULL OR tc.carrier_id = ${carrierId}::uuid)
          GROUP BY tc.trip_id
       ), ends AS (
         SELECT t.id AS trip_id,
@@ -696,8 +707,7 @@ export class RateCardsService {
         LEFT JOIN customer_site os ON os.id = e.o
         LEFT JOIN customer_site ds ON ds.id = e.d
         LEFT JOIN vehicle v ON v.id = t.vehicle_id
-       WHERE t.status <> 'CANCELLED'
-         AND (${origin}::uuid IS NULL OR e.o = ${origin}::uuid)
+       WHERE (${origin}::uuid IS NULL OR e.o = ${origin}::uuid)
          AND (${dest}::uuid IS NULL OR e.d = ${dest}::uuid)
          AND (${vt}::uuid IS NULL OR v.vehicle_type_id = ${vt}::uuid)
        ORDER BY t.trip_date DESC, fee.last_at DESC, t.id

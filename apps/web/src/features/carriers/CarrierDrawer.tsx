@@ -143,8 +143,14 @@ function Kv({ k, v }: { k: string; v: ReactNode }) {
   );
 }
 
-/** ต้นแบบ this.num(): ตัวเลขมีคอมมา ไม่บังคับทศนิยม (เงินจาก API เป็นสตริง — ไม่แปลงเป็น float) */
-const plain = (v: string) => money(v).replace(/\.00$/, '');
+/**
+ * ต้นแบบ this.num() = toLocaleString('en-US'): คอมมาหลักพัน ไม่เติมทศนิยมศูนย์ (5,200 · 5,200.5)
+ * เงินจาก API เป็นสตริง 2 ตำแหน่ง — จัดรูปจากสตริง (ไม่แปลงเป็น float)
+ */
+const plainNum = (v: string) =>
+  money(v)
+    .replace(/(\.\d*?)0+$/, '$1')
+    .replace(/\.$/, '');
 
 /** ราคา 5 ครั้งล่าสุดที่จ้างรายนี้ (ต้นแบบ kv mono 13px) — ไม่มี `prices.buy:read` ไม่เรียก API */
 function Last5({ id }: { id: string }) {
@@ -155,7 +161,7 @@ function Last5({ id }: { id: string }) {
   if (!list.length) return <>—</>;
   return (
     <span style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
-      {list.map((p) => plain(p.buyAmount!)).join(' · ')}
+      {list.map((p) => plainNum(p.buyAmount!)).join(' · ')}
     </span>
   );
 }
