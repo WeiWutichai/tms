@@ -43,7 +43,7 @@ import { AuditService } from '../../audit/audit.service';
 import { IMPORT_MIME, type AllowedMime } from '../documents/mime';
 import { ERROR_POLICIES, IMPORT_MODES, type ImportSpec } from './import-spec';
 import { ImportFileError } from './parse';
-import { ImportService, SYNC_MAX_ROWS, type SampleRow, type StoredIssue } from './import.service';
+import { ImportService, type SampleRow, type StoredIssue } from './import.service';
 
 export class ImportColumnDto {
   @ApiProperty() key!: string;
@@ -258,7 +258,7 @@ export class ImportsController {
       },
     });
     // เกิน 1,000 แถว → ตรวจเป็น job (อ่านไฟล์ครั้งเดียวเพื่อนับแถว)
-    const done = await this.imports.validate(tx, imp, SYNC_MAX_ROWS, actor());
+    const done = await this.imports.validate(tx, imp, this.imports.syncMax(spec), actor());
     return toDto(done ?? (await this.imports.enqueue(tx, imp, 'import.validate', actor())));
   }
 
@@ -323,7 +323,7 @@ export class ImportsController {
         status: 'VALIDATING',
       },
     });
-    const done = await this.imports.validate(tx, next, SYNC_MAX_ROWS, actor());
+    const done = await this.imports.validate(tx, next, this.imports.syncMax(spec), actor());
     return toDto(done ?? (await this.imports.enqueue(tx, next, 'import.validate', actor())));
   }
 
@@ -338,12 +338,12 @@ export class ImportsController {
   async commit(@Param('id') id: string): Promise<ImportDto> {
     const tx = this.db.tx;
     const imp = await this.find(id, true);
-    await this.spec(imp.kind);
+    const spec = await this.spec(imp.kind);
     if (imp.status !== 'VALIDATED') throw new ProblemException('invalid_state_transition');
     if (imp.expiresAt.getTime() <= Date.now()) throw new ProblemException('import_expired');
     if (imp.errorRows > 0 && imp.errorPolicy === 'all_or_nothing')
       throw new ProblemException('import_has_errors');
-    if (imp.totalRows > SYNC_MAX_ROWS) {
+    if (imp.totalRows > this.imports.syncMax(spec)) {
       const moved = await tx.importJob.update({
         where: { id: imp.id },
         data: { status: 'IMPORTING' },

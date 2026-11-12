@@ -414,7 +414,7 @@ export class VehiclesService {
   }
 
   /** โควตารถ: ค่าในสัญญา (`tenant.vehicle_quota` จาก Console ST1-T24) → limit ของ entitlement `veh` ตามแพ็กเกจ */
-  private async quotaLimit(): Promise<number | null> {
+  async quotaLimit(): Promise<number | null> {
     const tenantId = requestContext.require().tenantId!;
     const t = await this.db.tx.tenant.findUnique({
       where: { id: tenantId },

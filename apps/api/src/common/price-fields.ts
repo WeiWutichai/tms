@@ -101,25 +101,32 @@ export function findPriceFields(value: unknown, kind: PriceKind, path = ''): str
 /** หา field ราคาขายใน body ที่ส่งเข้ามา (ทุกชั้น) */
 export const findSellFields = (value: unknown, path = '') => findPriceFields(value, 'sell', path);
 
+/**
+ * ขาเข้า: ส่ง field ราคามาโดยไม่มีสิทธิ์แก้ → 403 (ไม่ใช่เงียบ ๆ บันทึก) — A3 "ดู/แก้ราคาขาย"
+ * ราคาซื้อ (ST2-T14 rate card ขาซื้อ) ต้องมี `prices.buy:write` · principal ภายนอกแก้ราคาไม่ได้ทั้งสองฝั่ง
+ * ใช้ทั้ง interceptor (body ของ request) และการนำเข้า Excel (body ที่สร้างจากแถว — ST2-T23)
+ */
+export function assertPriceWriteAllowed(body: unknown, rc = requestContext.get()): void {
+  const external = rc?.principalType !== undefined && !INTERNAL_PRINCIPALS.has(rc.principalType);
+  for (const kind of ['sell', 'buy'] as const) {
+    const sent = findPriceFields(body, kind);
+    const scope = `prices.${kind}:write`;
+    if (sent.length && (external || !scopeAllows(rc?.scopes ?? [], scope)))
+      throw new ProblemException('permission_denied', undefined, undefined, {
+        module: `prices.${kind}`,
+        action: 'write',
+        required: [scope],
+        fields: sent,
+      });
+  }
+}
+
 @Injectable()
 export class PriceFieldInterceptor implements NestInterceptor {
   intercept(ctx: ExecutionContext, next: CallHandler): Observable<unknown> {
     const rc = requestContext.get();
-    // ขาเข้า: ส่ง field ราคามาโดยไม่มีสิทธิ์แก้ → 403 (ไม่ใช่เงียบ ๆ บันทึก) — A3 "ดู/แก้ราคาขาย"
-    // ราคาซื้อ (ST2-T14 rate card ขาซื้อ) ต้องมี `prices.buy:write` · principal ภายนอกแก้ราคาไม่ได้ทั้งสองฝั่ง
     const req = ctx.switchToHttp().getRequest<{ body?: unknown }>();
-    const external = rc?.principalType !== undefined && !INTERNAL_PRINCIPALS.has(rc.principalType);
-    for (const kind of ['sell', 'buy'] as const) {
-      const sent = findPriceFields(req?.body, kind);
-      const scope = `prices.${kind}:write`;
-      if (sent.length && (external || !scopeAllows(rc?.scopes ?? [], scope)))
-        throw new ProblemException('permission_denied', undefined, undefined, {
-          module: `prices.${kind}`,
-          action: 'write',
-          required: [scope],
-          fields: sent,
-        });
-    }
+    assertPriceWriteAllowed(req?.body, rc);
     return next.handle().pipe(
       // ยังไม่ผ่าน auth (route public) = ไม่มี scope ราคาใด ๆ
       map((body) => redactPrices(body, rc?.scopes ?? [], rc?.principalType)),

@@ -242,7 +242,8 @@ describe('imports (ST1-T19)', () => {
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(t.body);
     expect(wb.worksheets[0]!.getRow(1).values).toEqual([undefined, 'รหัส', 'เลขผู้เสียภาษี']);
-    expect(wb.worksheets[1]!.name).toBe('คำอธิบาย');
+    // ST2-T23: sheet "ตัวอย่าง" (แถวตัวอย่าง — sheet แรกที่ระบบอ่านมีแต่หัวคอลัมน์) ก่อน "คำอธิบาย"
+    expect(wb.worksheets.map((w) => w.name).slice(1, 3)).toEqual(['ตัวอย่าง', 'คำอธิบาย']);
   });
 
   it('สิทธิ์และการแยกข้อมูล: ไม่มี scope ของ entity → 404; ไฟล์/งานของ tenant อื่น → 404', async () => {

@@ -2,6 +2,7 @@ import { Injectable, OnModuleInit, Optional } from '@nestjs/common';
 import type { ImportJob, Prisma } from '@prisma/client';
 import { scopeAllows } from '@tms/domain';
 import { isLocalEnv } from '../../auth/tokens';
+import { requestContext } from '../../common/request-context';
 import { encodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import type { Tx } from '../../db/db.service';
@@ -11,6 +12,7 @@ import { EntitlementService } from '../entitlements/entitlement.service';
 import { NotificationService } from '../notifications/notification.service';
 import {
   ImportRegistry,
+  maskSensitive,
   type ErrorPolicy,
   type ImportMode,
   type ImportSpec,
@@ -49,6 +51,8 @@ interface JobPayload {
   importJobId: string;
   /** ผู้สั่งงานรอบนี้ (ผู้กดยืนยันอาจไม่ใช่ผู้อัปโหลด) — ลง audit + รับแจ้งเตือน */
   actorId: string | null;
+  /** scope ของผู้สั่ง ณ ตอนสั่ง — spec ตรวจสิทธิ์ระดับฟิลด์ใน job เหมือนเรียก API ตรง (ST2-T23) */
+  scopes?: string[];
 }
 type ImportTemplate =
   | 'import.validated'
@@ -96,7 +100,7 @@ export class ImportService implements OnModuleInit {
         const p = job.payload as unknown as JobPayload;
         const imp = await tx.importJob.findUnique({ where: { id: p.importJobId } });
         if (!imp || imp.status !== 'VALIDATING') return { skipped: true };
-        const v = (await this.validate(tx, imp))!;
+        const v = (await this.validate(tx, imp, Infinity, p.actorId, p.scopes ?? []))!;
         await this.notifyUser(
           tx,
           v,
@@ -113,7 +117,7 @@ export class ImportService implements OnModuleInit {
         const p = job.payload as unknown as JobPayload;
         const imp = await tx.importJob.findUnique({ where: { id: p.importJobId } });
         if (!imp || imp.status !== 'IMPORTING') return { skipped: true };
-        const r = await this.commit(tx, imp, p.actorId);
+        const r = await this.commit(tx, imp, p.actorId, p.scopes ?? []);
         await this.notifyUser(
           tx,
           r,
@@ -137,7 +141,11 @@ export class ImportService implements OnModuleInit {
     type: 'import.validate' | 'import.commit',
     actorId: string | null,
   ): Promise<ImportJob> {
-    const payload: JobPayload = { importJobId: imp.id, actorId };
+    const payload: JobPayload = {
+      importJobId: imp.id,
+      actorId,
+      scopes: requestContext.get()?.scopes ?? [],
+    };
     const job = await this.queue.enqueue(tx, {
       tenantId: imp.tenantId,
       type,
@@ -170,6 +178,38 @@ export class ImportService implements OnModuleInit {
       },
       entity: { type: 'import', id: encodeId('import', imp.id) },
     });
+  }
+
+  /** จำนวนแถวที่ตรวจ/นำเข้าใน request ได้ (เกิน = job) */
+  syncMax(spec: ImportSpec<unknown>): number {
+    return Math.min(spec.syncMaxRows ?? SYNC_MAX_ROWS, SYNC_MAX_ROWS);
+  }
+
+  /**
+   * รัน spec ใต้ request context ของ transaction นี้ — spec ของข้อมูลหลักเรียก service เดียวกับ API
+   * (ใช้ `db.tx`, audit, scope จาก context) · ใน request ใช้ context เดิม · ใน job สร้างใหม่จาก payload
+   */
+  private inContext<T>(
+    tx: Tx,
+    imp: ImportJob,
+    actorId: string | null,
+    scopes: string[] | undefined,
+    fn: () => Promise<T>,
+  ): Promise<T> {
+    const cur = requestContext.get();
+    if (cur?.tx === tx) return fn();
+    return requestContext.run(
+      {
+        requestId: `import:${imp.id}`,
+        tenantId: imp.tenantId,
+        ...(actorId ? { actorId } : {}),
+        scopes: scopes ?? cur?.scopes ?? [],
+        principalType: 'user',
+        locale: 'th',
+        tx,
+      },
+      fn,
+    );
   }
 
   /** spec ที่ผู้เรียกใช้ได้: มี kind, มี scope และแพ็กเกจเปิดฟีเจอร์ (ถ้ากำหนด) — ไม่ผ่าน = 404 เหมือนไม่มี */
@@ -209,6 +249,8 @@ export class ImportService implements OnModuleInit {
     imp: ImportJob,
     actorId: string | null,
     maxRows = Infinity,
+    scopes?: string[],
+    applying = false,
   ): Promise<Checked | 'too_big'> {
     const spec = this.registry.get(imp.kind);
     if (!spec) throw new ImportFileError('unreadable', `ไม่รู้จักชนิดข้อมูล ${imp.kind}`);
@@ -232,7 +274,10 @@ export class ImportService implements OnModuleInit {
       values: Object.fromEntries(Object.entries(idx).map(([k, j]) => [k, cells[j] ?? ''])),
     }));
     // ช่องบังคับ (framework ตรวจให้ทุก spec) — แถวที่ขาดไม่ส่งให้ spec ตรวจต่อ
-    const required = spec.columns.filter((c) => c.required);
+    const required =
+      spec.requiredOnCreateOnly && imp.mode !== 'create_only'
+        ? []
+        : spec.columns.filter((c) => c.required);
     const pre = inputs.map((r) =>
       required
         .filter((c) => !r.values[c.key])
@@ -251,11 +296,23 @@ export class ImportService implements OnModuleInit {
       actorId,
       importJobId: imp.id,
       mode: imp.mode as ImportMode,
+      scopes: scopes ?? requestContext.get()?.scopes ?? [],
+      ...(applying
+        ? {
+            apply: {
+              errorPolicy: imp.errorPolicy as ErrorPolicy,
+              rejectedRows: pre.filter((x) => x.length).length,
+            },
+          }
+        : {}),
     };
-    // ตรวจระดับไฟล์ (เช่น โควตา MD-289) ก่อนตรวจรายแถว
-    const fileIssue = spec.checkFile ? await spec.checkFile(ctx, inputs) : null;
+    const { fileIssue, checked } = await this.inContext(tx, imp, actorId, scopes, async () => {
+      // ตรวจระดับไฟล์ (เช่น โควตา MD-289) ก่อนตรวจรายแถว
+      const fileIssue = spec.checkFile ? await spec.checkFile(ctx, inputs) : null;
+      if (fileIssue) return { fileIssue, checked: [] };
+      return { fileIssue, checked: toCheck.length ? await spec.validate(ctx, toCheck) : [] };
+    });
     if (fileIssue) throw new ImportFileError('file_rejected', fileIssue);
-    const checked = toCheck.length ? await spec.validate(ctx, toCheck) : [];
     if (checked.length !== toCheck.length)
       throw new Error(`import spec ${spec.kind} returned wrong row count`);
     let k = 0;
@@ -280,7 +337,7 @@ export class ImportService implements OnModuleInit {
         issues.push({
           row: r.row,
           ...(col ? { column: col.header } : x.column ? { column: x.column } : {}),
-          ...(cell ? { value: cell.slice(0, 200) } : {}),
+          ...(cell ? { value: col?.sensitive ? maskSensitive(cell) : cell.slice(0, 200) } : {}),
           code: x.code,
           message: x.message,
           severity: x.severity ?? 'error',
@@ -291,12 +348,12 @@ export class ImportService implements OnModuleInit {
     const sample: SampleRow[] = c.results.slice(0, 3).map((r, i) => ({
       row: r.row,
       values: Object.fromEntries(
-        spec.columns.map((col) => [
-          col.key,
-          c.mapping[col.key]
+        spec.columns.map((col) => {
+          const v = c.mapping[col.key]
             ? (c.sheet.rows[i]![c.sheet.headers.indexOf(c.mapping[col.key]!)] ?? '')
-            : '',
-        ]),
+            : '';
+          return [col.key, col.sensitive && v ? maskSensitive(v) : v];
+        }),
       ),
       error: bad(r),
     }));
@@ -309,10 +366,11 @@ export class ImportService implements OnModuleInit {
     imp: ImportJob,
     maxRows = Infinity,
     actorId: string | null = imp.createdBy,
+    scopes?: string[],
   ): Promise<ImportJob | null> {
     const spec = this.registry.get(imp.kind)!;
     try {
-      const c = await this.check(tx, imp, actorId, maxRows);
+      const c = await this.check(tx, imp, actorId, maxRows, scopes);
       if (c === 'too_big') return null;
       const s = this.summarize(spec, c);
       return tx.importJob.update({
@@ -343,11 +401,16 @@ export class ImportService implements OnModuleInit {
    * ยืนยัน: ตรวจใหม่ทั้งไฟล์ → all_or_nothing มีแถวผิด = ไม่เขียนอะไร คืน VALIDATED พร้อมผลตรวจใหม่ /
    * skip_invalid_rows เขียนเฉพาะแถวผ่าน · เขียนใน transaction ของผู้เรียก — ล้มกลางทาง = ไม่มีอะไรถูกเขียน (MD-286)
    */
-  async commit(tx: Tx, imp: ImportJob, actorId: string | null): Promise<ImportJob> {
+  async commit(
+    tx: Tx,
+    imp: ImportJob,
+    actorId: string | null,
+    scopes?: string[],
+  ): Promise<ImportJob> {
     const spec = this.registry.get(imp.kind)!;
     let c: Checked;
     try {
-      c = (await this.check(tx, imp, actorId)) as Checked;
+      c = (await this.check(tx, imp, actorId, Infinity, scopes, true)) as Checked;
     } catch (e) {
       if (!(e instanceof ImportFileError)) throw e;
       return tx.importJob.update({
@@ -375,15 +438,18 @@ export class ImportService implements OnModuleInit {
         },
       });
     const n = ok.length
-      ? await spec.commit(
-          {
-            tx,
-            tenantId: imp.tenantId,
-            actorId,
-            importJobId: imp.id,
-            mode: imp.mode as ImportMode,
-          },
-          ok.map((r) => ({ row: r.row, value: r.value })),
+      ? await this.inContext(tx, imp, actorId, scopes, () =>
+          spec.commit(
+            {
+              tx,
+              tenantId: imp.tenantId,
+              actorId,
+              importJobId: imp.id,
+              mode: imp.mode as ImportMode,
+              scopes: scopes ?? requestContext.get()?.scopes ?? [],
+            },
+            ok.map((r) => ({ row: r.row, value: r.value })),
+          ),
         )
       : 0;
     // MD-287: 1 audit ต่อการนำเข้า (รายการที่สร้างอ้าง importJobId ได้) — ผู้ทำ = ผู้กดยืนยัน
@@ -411,21 +477,45 @@ export class ImportService implements OnModuleInit {
   async errorWorkbook(tx: Tx, imp: ImportJob): Promise<Buffer> {
     const ExcelJS = (await import('exceljs')).default;
     const spec = this.registry.get(imp.kind)!;
-    const c = (await this.check(tx, imp, null)) as Checked;
-    const s = this.summarize(spec, c);
+    const label = (x: RowIssue) => {
+      const col = spec.columns.find((cc) => cc.key === x.column || cc.header === x.column);
+      const name = col?.header ?? x.column;
+      return name ? `${name}: ${x.message}` : x.message;
+    };
+    // แถวผิด → ข้อความ: ใช้ผลตรวจที่เก็บไว้ถ้าครบ (ไม่ต้องตรวจทั้งไฟล์ซ้ำ — spec ข้อมูลหลักตรวจด้วยกฎ API ทีละแถว)
+    // ไม่ครบ (เกินเพดาน MAX_ISSUES หรือแถวผิดที่ไม่มีข้อความ) → ตรวจใหม่ทั้งไฟล์
+    let sheet: ParsedSheet;
+    const bad = new Map<number, string[]>();
+    const stored = (imp.issues as unknown as StoredIssue[]).filter(
+      (x) => (x.severity ?? 'error') === 'error',
+    );
+    const storedRows = new Set(stored.map((x) => x.row));
+    if ((imp.issues as unknown[]).length < MAX_ISSUES && storedRows.size === imp.errorRows) {
+      sheet = await this.load(imp, tx);
+      for (const x of stored) bad.set(x.row, [...(bad.get(x.row) ?? []), label(x)]);
+    } else {
+      const c = (await this.check(tx, imp, null)) as Checked;
+      const s = this.summarize(spec, c);
+      sheet = c.sheet;
+      for (const r of c.results)
+        if (s.bad(r))
+          bad.set(r.row, r.issues.filter((x) => (x.severity ?? 'error') === 'error').map(label));
+    }
+    // คอลัมน์อ่อนไหว (เลขบัตร/เลขบัญชี) ไม่เขียนค่าเต็มลงไฟล์ที่ดาวน์โหลด
+    const mapping = imp.mapping as Record<string, string>;
+    const secret = new Set(
+      spec.columns
+        .filter((col) => col.sensitive && mapping[col.key])
+        .map((col) => sheet.headers.indexOf(mapping[col.key]!)),
+    );
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet('แถวที่ผิด');
-    ws.addRow([...c.sheet.headers, 'ผลตรวจ']).font = { bold: true };
-    c.results.forEach((r, i) => {
-      if (!s.bad(r)) return;
-      const msg = r.issues
-        .filter((x) => (x.severity ?? 'error') === 'error')
-        .map((x) => {
-          const col = spec.columns.find((cc) => cc.key === x.column || cc.header === x.column);
-          const name = col?.header ?? x.column;
-          return name ? `${name}: ${x.message}` : x.message;
-        });
-      ws.addRow([...c.sheet.rows[i]!, msg.join(' · ') || 'ตรวจไม่ผ่าน']);
+    ws.addRow([...sheet.headers, 'ผลตรวจ']).font = { bold: true };
+    sheet.rows.forEach((cells, i) => {
+      const msg = bad.get(sheet.rowNumbers[i]!);
+      if (!msg) return;
+      const out = cells.map((v, j) => (secret.has(j) && v ? maskSensitive(v) : v));
+      ws.addRow([...out, msg.join(' · ') || 'ตรวจไม่ผ่าน']);
     });
     return Buffer.from(await wb.xlsx.writeBuffer());
   }
@@ -434,17 +524,51 @@ export class ImportService implements OnModuleInit {
   async template(spec: ImportSpec<unknown>): Promise<Buffer> {
     const ExcelJS = (await import('exceljs')).default;
     const wb = new ExcelJS.Workbook();
-    const ws = wb.addWorksheet(spec.label);
+    // sheet แรก = ที่ระบบอ่าน (หัวคอลัมน์อย่างเดียว) · ตัวอย่างอยู่ sheet "ตัวอย่าง" (กันแถวตัวอย่างถูกนำเข้าโดยไม่ตั้งใจ)
+    const ws = wb.addWorksheet(spec.label.slice(0, 31).replace(/[\\/?*[\]:]/g, ' '));
     const head = ws.addRow(spec.columns.map((c) => c.header));
     head.font = { bold: true };
     spec.columns.forEach((c, i) => {
       ws.getColumn(i + 1).width = Math.max(14, c.header.length + 4);
       ws.getColumn(i + 1).numFmt = '@'; // ข้อความ — กัน Excel ตัด 0 หน้าเลขผู้เสียภาษี/เบอร์โทร
     });
+    const sample = wb.addWorksheet('ตัวอย่าง');
+    sample.addRow(spec.columns.map((c) => c.header)).font = { bold: true };
+    sample.addRow(spec.columns.map((c) => c.example ?? ''));
+    spec.columns.forEach((c, i) => {
+      sample.getColumn(i + 1).width = Math.max(14, c.header.length + 4);
+      sample.getColumn(i + 1).numFmt = '@';
+    });
     const help = wb.addWorksheet('คำอธิบาย');
-    help.addRow(['คอลัมน์', 'ต้องกรอก', 'ตัวอย่าง', 'คำอธิบาย']).font = { bold: true };
+    help.addRow(['คอลัมน์', 'ต้องกรอก', 'ตัวอย่าง', 'คำอธิบาย', 'ค่าที่เลือกได้']).font = {
+      bold: true,
+    };
     for (const c of spec.columns)
-      help.addRow([c.header, c.required ? 'ต้องกรอก' : '', c.example ?? '', c.hint ?? '']);
+      help.addRow([
+        c.header,
+        c.required ? 'ต้องกรอก' : '',
+        c.example ?? '',
+        c.hint ?? '',
+        c.options?.join(', ') ?? '',
+      ]);
+    // รายการให้เลือก (data validation) — เตือนแบบ information: ยังพิมพ์ค่าอื่นได้ (ระบบตรวจซ้ำตอนนำเข้า)
+    const lists = wb.addWorksheet('รายการ', { state: 'hidden' });
+    let listCol = 0;
+    spec.columns.forEach((c, i) => {
+      if (!c.options?.length) return;
+      listCol++;
+      c.options.forEach((o, j) => (lists.getCell(j + 1, listCol).value = o));
+      const letter = lists.getColumn(listCol).letter;
+      for (let r = 2; r <= 1001; r++)
+        ws.getCell(r, i + 1).dataValidation = {
+          type: 'list',
+          allowBlank: true,
+          formulae: [`'รายการ'!$${letter}$1:$${letter}$${c.options.length}`],
+          showErrorMessage: true,
+          errorStyle: 'information',
+          error: 'ค่าไม่อยู่ในรายการ — ดูค่าที่เลือกได้ใน sheet คำอธิบาย',
+        };
+    });
     help.getColumn(1).width = 24;
     help.getColumn(3).width = 24;
     help.getColumn(4).width = 48;

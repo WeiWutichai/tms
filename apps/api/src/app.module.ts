@@ -15,6 +15,7 @@ import { NotificationsController } from './modules/notifications/notifications.c
 import { ImportRegistry } from './modules/imports/import-spec';
 import { ImportService } from './modules/imports/import.service';
 import { ImportsController } from './modules/imports/imports.controller';
+import { MasterImports } from './modules/imports/master-imports';
 import { SetupChecklistController } from './modules/setup/setup.controller';
 import { PlatformAuthController } from './platform/platform-auth.controller';
 import { PlatformTenantsController } from './platform/platform-tenants.controller';
@@ -142,6 +143,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     NotificationService,
     ImportRegistry,
     ImportService,
+    MasterImports,
     EntitlementService,
     MagicLinkService,
     DbService,
