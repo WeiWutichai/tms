@@ -643,6 +643,7 @@ export const en: Partial<Record<MessageKey, string>> = {
   'cdl.sent.approved': 'Approved',
   'cdoc.link.copy': 'Copy link',
   'cdoc.send.line': 'Send via LINE',
+  'cdoc.log.failedPlain': 'Failed',
   'cdoc.log.st.sent': 'Success',
   'cdoc.log.st.queued': 'Pending',
   'cdoc.log.st.failed': 'Failed',

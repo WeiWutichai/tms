@@ -174,10 +174,7 @@ export class MessagingService {
 
     // เพดานต่อผู้รับข้ามทุกบริษัท (hash ใช้ key เดียวกันทั้งระบบ) — ตัวนับรายชั่วโมง เพิ่มแบบ atomic
     const [counter] = await tx.$queryRaw<{ count: number }[]>`
-      INSERT INTO message_recipient_counter (recipient_hash, hour, count)
-      VALUES (${hash}, date_trunc('hour', now()), 1)
-      ON CONFLICT (recipient_hash, hour) DO UPDATE SET count = message_recipient_counter.count + 1
-      RETURNING count`;
+      SELECT tms_message_recipient_hit(${hash}) AS count`;
     if ((counter?.count ?? 0) > RECIPIENT_PLATFORM_PER_HOUR)
       throw new ProblemException('rate_limited', 'too many messages to this recipient', [
         {

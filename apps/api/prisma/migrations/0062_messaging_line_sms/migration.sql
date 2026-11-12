@@ -92,15 +92,31 @@ SELECT tms_enable_tenant_rls('messaging_setting');
 SELECT tms_enable_tenant_rls('message_delivery');
 
 -- role แอป: ตั้งค่า = อ่าน/เขียนได้ ไม่ลบ · บันทึกการส่ง = เพิ่มได้ อ่านได้เฉพาะคอลัมน์ที่ไม่ลับ ไม่แก้/ไม่ลบ (worker ใช้ role platform)
--- ตัวนับต่อผู้รับ (ข้ามบริษัท) = เพิ่ม/อ่าน/แก้ได้ ไม่ลบ (ค่าเป็น HMAC ของผู้รับ + จำนวน — ไม่มีข้อมูลบริษัท)
+-- ตัวนับต่อผู้รับ (ข้ามบริษัท) = role แอปแตะตารางตรงไม่ได้ — เพิ่ม + อ่านค่าผ่านฟังก์ชัน SECURITY DEFINER เท่านั้น (QA ST3-T21)
 DO $$ BEGIN
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'tms_app') THEN
     EXECUTE 'REVOKE DELETE ON "messaging_setting" FROM tms_app';
-    EXECUTE 'REVOKE DELETE, TRUNCATE ON "message_recipient_counter" FROM tms_app';
+    EXECUTE 'REVOKE ALL ON "message_recipient_counter" FROM tms_app';
     EXECUTE 'REVOKE SELECT, UPDATE, DELETE ON "message_delivery" FROM tms_app';
     EXECUTE 'GRANT SELECT ("id", "tenant_id", "channel", "template", "locale", "recipient_masked", "recipient_hash",
       "recipient_type", "recipient_ref_id", "magic_link_id", "entity_type", "entity_id", "status", "attempts",
       "max_attempts", "run_at", "provider", "provider_message_id", "error_code", "error", "created_by",
       "sent_at", "failed_at", "created_at", "updated_at") ON "message_delivery" TO tms_app';
+  END IF;
+END $$;
+
+-- เพิ่มตัวนับของผู้รับในชั่วโมงนี้ 1 แล้วคืนค่าใหม่ (atomic) — ทางเดียวที่ role แอปใช้ตาราง message_recipient_counter
+CREATE OR REPLACE FUNCTION tms_message_recipient_hit(p_hash text) RETURNS integer
+  LANGUAGE sql SECURITY DEFINER SET search_path = public AS
+$$
+  INSERT INTO message_recipient_counter (recipient_hash, hour, count)
+  VALUES (p_hash, date_trunc('hour', now()), 1)
+  ON CONFLICT (recipient_hash, hour) DO UPDATE SET count = message_recipient_counter.count + 1
+  RETURNING count
+$$;
+REVOKE ALL ON FUNCTION tms_message_recipient_hit(text) FROM PUBLIC;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'tms_app') THEN
+    EXECUTE 'GRANT EXECUTE ON FUNCTION tms_message_recipient_hit(text) TO tms_app';
   END IF;
 END $$;

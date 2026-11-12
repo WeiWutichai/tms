@@ -112,16 +112,18 @@ export class MessageDispatcher {
       if (!provider) throw new MessagingError('channel is disabled', 'channel_disabled', false);
       if (!m.recipientEnc) throw new MessagingError('recipient missing', 'body_missing', false);
       const text = await this.compose(m);
-      let lineToken: string | undefined;
-      if (provider.needsTenantCredentials) {
-        const s = await this.prisma.platform.messagingSetting.findUnique({
-          where: { tenantId: m.tenantId },
-          select: { lineEnabled: true, lineTokenEnc: true },
-        });
-        if (!s?.lineEnabled || !s.lineTokenEnc)
-          throw new MessagingError('LINE channel is not configured', 'not_configured', false);
-        lineToken = this.cipher.decrypt(s.lineTokenEnc);
-      }
+      // ช่องถูกปิด/ยังไม่ตั้งค่าระหว่างรอส่ง → ไม่ส่ง (ตรวจตอนส่งทั้ง LINE และ SMS — QA ST3-T21)
+      const s = await this.prisma.platform.messagingSetting.findUnique({
+        where: { tenantId: m.tenantId },
+        select: { lineEnabled: true, lineTokenEnc: true, smsEnabled: true },
+      });
+      const enabled = m.channel === 'SMS' ? s?.smsEnabled : s?.lineEnabled;
+      if (!enabled || (provider.needsTenantCredentials && !s?.lineTokenEnc))
+        throw new MessagingError(`${m.channel} channel is not configured`, 'not_configured', false);
+      const lineToken =
+        provider.needsTenantCredentials && s?.lineTokenEnc
+          ? this.cipher.decrypt(s.lineTokenEnc)
+          : undefined;
       const r = await provider.send({
         to: this.cipher.decrypt(m.recipientEnc),
         text,

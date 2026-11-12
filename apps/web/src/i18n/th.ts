@@ -2305,6 +2305,8 @@ export const th = {
   'cdoc.log.at': 'เมื่อ {d}',
   'cdoc.log.failed': 'ส่งไม่สำเร็จ — สร้างลิงก์ใหม่แล้วคัดลอกไปส่งเองได้',
   'cdoc.log.failedCopy': 'ส่งไม่สำเร็จ — คัดลอกลิงก์ด้านบนไปส่งเองได้',
+  'cdoc.log.failedPlain': 'ส่งไม่สำเร็จ',
+  'cdoc.log.retrying': 'กำลังลองใหม่ (ครั้งที่ {n}) · {code}',
   'cdoc.log.st.sent': 'สำเร็จ',
   'cdoc.log.st.queued': 'รอส่ง',
   'cdoc.log.st.failed': 'ล้มเหลว',

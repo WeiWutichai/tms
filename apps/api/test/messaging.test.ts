@@ -168,6 +168,12 @@ describe('ส่งลิงก์ทาง LINE / SMS (messaging)', () => {
     expect(sms.sent[0]!.text).not.toContain('ศรีสมมติ');
     expect(sms.sent[0]!.text).toContain(link.url);
     expect(sms.sent[0]!.text.length).toBeLessThan(link.url.length + 80);
+    // ปิด SMS ระหว่างรอส่ง → worker ไม่ส่ง (FAILED not_configured)
+    const r2 = await send({ channel: 'sms', url: link.url }).expect(202);
+    await api(app, admin).patch('/v1/settings/messaging').send({ smsEnabled: false }).expect(200);
+    await dispatcher.drain();
+    expect(sms.sent).toHaveLength(1);
+    expect(await row(r2.body.id)).toMatchObject({ status: 'FAILED', errorCode: 'not_configured' });
   });
 
   it('ล้มแบบลองใหม่ได้ → QUEUED + backoff แล้วสำเร็จรอบถัดไป', async () => {
@@ -380,6 +386,16 @@ describe('ส่งลิงก์ทาง LINE / SMS (messaging)', () => {
     ).rejects.toThrow(/permission denied/);
     await expect(
       dbs.withTenant(tenantId, (tx) => tx.$executeRaw`DELETE FROM message_delivery`),
+    ).rejects.toThrow(/permission denied/);
+    // ตัวนับข้ามบริษัท: role แอปใช้ได้ผ่านฟังก์ชันเท่านั้น
+    await expect(
+      dbs.withTenant(tenantId, (tx) => tx.$queryRaw`SELECT * FROM message_recipient_counter`),
+    ).rejects.toThrow(/permission denied/);
+    await expect(
+      dbs.withTenant(
+        tenantId,
+        (tx) => tx.$executeRaw`UPDATE message_recipient_counter SET count = 0`,
+      ),
     ).rejects.toThrow(/permission denied/);
   });
 

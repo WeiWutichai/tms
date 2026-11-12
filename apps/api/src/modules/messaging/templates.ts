@@ -69,12 +69,32 @@ const EN_MONTHS = [
   'Dec',
 ];
 
+/** คำต่อท้ายชื่อบริษัทที่มีจุดแต่ไม่ใช่โดเมน — กันไว้ก่อนตัดคำที่มีจุด แล้วคืนค่าทีหลัง */
+const COMPANY_SUFFIX =
+  /\b(?:Co\s*\.\s*,?\s*Ltd\s*\.?|Co\s*\.|Ltd\s*\.|Inc\s*\.|Corp\s*\.|Pte\s*\.|Plc\s*\.|P\s*\.\s*C\s*\.\s*L\s*\.?)/gi;
+const THAI_DIGITS = /[๐-๙]/g;
+
 /**
- * ชื่อที่ tenant/ผู้รับเหมากรอกเองก่อนใส่ข้อความ: `safeName` (URL/โดเมนที่รู้จัก) + ตัดทุกคำที่มีจุดตามด้วยตัวอักษร ≥ 2
- * (โดเมนอะไรก็ได้ เช่น `bit.ly`, `x.zz`) + ตัวเลขต่อกัน ≥ 6 หลัก (เบอร์/บัญชี — ยอมให้มีขีด/ช่องว่างคั่น)
+ * ชื่อที่ tenant/ผู้รับเหมากรอกเองก่อนใส่ข้อความ (ST3-T21 review + QA):
+ * 1. NFKC (ตัวอักษรเต็มความกว้าง/ตัวแปลก → ตัวปกติ) + เลขไทย ๐-๙ → 0-9
+ * 2. จุดที่เลี่ยงการตรวจ (`[.]` `(.)` `{.}` `。` `｡` `dot` และช่องว่างก่อน `.tld`) → `.`
+ * 3. ตัดทุกคำที่มีจุดตามด้วยตัวอักษร ≥ 2 (โดเมนอะไรก็ได้) · `@handle` · ตัวเลข ≥ 6 หลักแม้คั่นด้วย . - ช่องว่าง
+ * 4. `safeName` (URL/โดเมนที่รู้จัก) — คำต่อท้ายบริษัท (Co., Ltd. / Inc. / บมจ. ฯลฯ) ไม่ถูกตัด
  */
-export function messageName(s: string, max = 80): string {
-  return safeName(s.replace(/\S+\.[a-z]{2,}\S*/gi, '').replace(/\d(?:[\s-]?\d){5,}/g, ''), max);
+export function messageName(input: string, max = 80): string {
+  const kept: string[] = [];
+  const s = input
+    .normalize('NFKC')
+    .replace(THAI_DIGITS, (d) => String(d.charCodeAt(0) - 0x0e50))
+    .replace(COMPANY_SUFFIX, (m) => `\u0001${kept.push(m) - 1}\u0001`)
+    .replace(/\s*(?:\[\s*\.\s*\]|\(\s*\.\s*\)|\{\s*\.\s*\}|[。｡]|\s(?:dot)\s)\s*/gi, '.')
+    .replace(/\s+\.(?=[a-z]{2,}\b)/gi, '.')
+    .replace(/\S*\.[a-z]{2,}\S*/gi, '')
+    .replace(/@[\w.-]+/g, '')
+    .replace(/\d(?:[\s.-]*\d){5,}/g, '');
+  return safeName(s, max)
+    .replace(/\u0001(\d+)\u0001/g, (_, i: string) => kept[Number(i)] ?? '')
+    .trim();
 }
 
 /** วันเวลาไทย: "20 พฤศจิกายน 2569 10:14 น." */

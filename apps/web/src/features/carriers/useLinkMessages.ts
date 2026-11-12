@@ -6,6 +6,17 @@ export type MessageDelivery = Schemas['MessageDeliveryDto'];
 export type ChannelKey = MessageDelivery['channel'];
 
 const CHANNELS = 'message-channels';
+
+/**
+ * เบอร์มือถือไทยที่ส่ง SMS ได้ — สูตรเดียวกับ API (`phoneNorm` + มือถือ 06/08/09 สิบหลัก)
+ * ตัดทุกอย่างที่ไม่ใช่ตัวเลข, +66 → 0 (+66 ตามด้วย 0 ซ้ำ → ตัด 0 ที่เกิน)
+ */
+export function isSmsMobile(phone: string | null | undefined): boolean {
+  let d = (phone ?? '').replace(/\D/g, '');
+  if (d.startsWith('66') && d.length >= 10)
+    d = d.slice(2).startsWith('0') ? d.slice(2) : `0${d.slice(2)}`;
+  return /^0[689]\d{8}$/.test(d);
+}
 const LOG = 'message-log';
 
 /** ช่องทางที่ส่งได้ตอนนี้ (ST3-T21) — ใช้ไม่ได้ = ซ่อนปุ่มส่ง เหลือคัดลอกลิงก์ */

@@ -643,6 +643,7 @@ export const zh: Partial<Record<MessageKey, string>> = {
   'cdl.sent.approved': '已审批',
   'cdoc.link.copy': '复制链接',
   'cdoc.send.line': '通过 LINE 发送',
+  'cdoc.log.failedPlain': '送货失败',
   'cdoc.log.st.sent': '成功',
   'cdoc.log.st.queued': '待上传',
   'cdoc.log.st.failed': '失败',

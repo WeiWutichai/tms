@@ -141,6 +141,18 @@ describe('template ข้อความ (ไทย)', () => {
       'โทรด่วน หรือ บัญชี',
     );
     expect(messageName('หจก. รถร่วม 12 ล้อ สาขา 00001')).toBe('หจก. รถร่วม 12 ล้อ สาขา 00001');
+    // QA: เลี่ยงด้วยเลขไทย / จุดคั่น / ตัวเต็มความกว้าง / [.] / 。 / ช่องว่างก่อน .tld / @handle
+    expect(messageName('โทร ๐๘๑๒๓๔๕๖๗๘ ด่วน')).toBe('โทร ด่วน');
+    expect(messageName('โทร 081.234.5678 หรือ 08 1 2 3 4 5 6 7 8')).toBe('โทร หรือ');
+    expect(messageName('ｅｖｉｌ．ｃｏｍ ลดราคา')).toBe('ลดราคา');
+    expect(messageName('เข้า evil[.]cc หรือ evil。cc หรือ evil .cc หรือ evil dot cc')).toBe(
+      'เข้า หรือ หรือ หรือ',
+    );
+    expect(messageName('แอดไลน์ @promo99 ได้เลย')).toBe('แอดไลน์ ได้เลย');
+    // คำต่อท้ายบริษัทไม่ถูกตัด
+    expect(messageName('Siam Transport Co., Ltd.')).toBe('Siam Transport Co., Ltd.');
+    expect(messageName('Siam Transport Co.Ltd')).toBe('Siam Transport Co.Ltd');
+    expect(messageName('Thai Freight Inc. evil.com')).toBe('Thai Freight Inc.');
     const t = renderMessage('carrier_docs_link', 'LINE', 'th', {
       ...v,
       sender: 'โปรโมชั่น evil.co 0899999999',

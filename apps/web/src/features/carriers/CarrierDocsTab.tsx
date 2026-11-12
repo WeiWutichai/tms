@@ -1,7 +1,7 @@
 import { EmptyState, Icon, ReasonDialog, Toast } from '@tms/ui';
 import { useState } from 'react';
 import { ApiError } from '../../api';
-import { formatDate, useI18n, type T } from '../../i18n';
+import { formatDate, formatDateTime, useI18n, type T } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
 import { useMe } from '../../shell/AppShell';
 import { problemText } from '../master/problems';
@@ -17,6 +17,7 @@ import {
   type UploadLink,
 } from './useCarrierDocs';
 import {
+  isSmsMobile,
   useCarrierMessages,
   useMessageChannels,
   useSendLink,
@@ -49,17 +50,23 @@ function MessageRow({
   dt,
   t,
   copyable,
+  canWrite,
 }: {
   m: MessageDelivery;
+  /** วัน + เวลา */
   dt: (iso: string) => string;
   t: T;
   copyable: boolean;
+  canWrite: boolean;
 }) {
   const title = t('cdoc.log.row', { ch: chName(m.channel), to: m.recipient });
   const sub =
     m.status === 'failed'
-      ? t(copyable ? 'cdoc.log.failedCopy' : 'cdoc.log.failed')
-      : t('cdoc.log.at', { d: dt(m.sentAt ?? m.createdAt) });
+      ? // ผู้ที่สร้างลิงก์ไม่ได้ ไม่เห็นคำแนะนำให้สร้าง/คัดลอกลิงก์ (QA ST3-T21)
+        t(!canWrite ? 'cdoc.log.failedPlain' : copyable ? 'cdoc.log.failedCopy' : 'cdoc.log.failed')
+      : m.status === 'queued' && m.attempts > 0
+        ? t('cdoc.log.retrying', { n: m.attempts + 1, code: m.errorCode ?? '-' })
+        : t('cdoc.log.at', { d: dt(m.sentAt ?? m.createdAt) });
   return (
     <div className="tms-vdoc__item" data-testid="cdoc-msg" data-status={m.status}>
       <Icon n="send" s={18} style={{ color: '#59606B', flexShrink: 0 }} />
@@ -133,7 +140,7 @@ export function CarrierDocsTab({
       channels.data?.has(c) &&
       (c === 'line'
         ? /^U[0-9a-f]{32}$/.test(contact?.lineContact ?? '')
-        : !!contact?.phone?.trim()),
+        : isSmsMobile(contact?.phone)),
   );
   const send = (channel: ChannelKey, url: string) =>
     sendLink.mutate(
@@ -229,7 +236,14 @@ export function CarrierDocsTab({
           </div>
         ))}
         {(log.data ?? []).map((m) => (
-          <MessageRow key={m.id} m={m} dt={dt} t={t} copyable={issued?.id === m.linkId} />
+          <MessageRow
+            key={m.id}
+            m={m}
+            dt={(iso) => formatDateTime(iso, lang, ys)}
+            t={t}
+            copyable={issued?.id === m.linkId}
+            canWrite={canWrite}
+          />
         ))}
         {canWrite && (
           <div className="tms-vdoc__bar">
