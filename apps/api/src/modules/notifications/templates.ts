@@ -1,4 +1,5 @@
 import { safeName } from '../../common/safe-text';
+import { docDate } from '../../pdf/thai-date';
 
 /**
  * ข้อความแจ้งเตือน (ST1-T23) — ไทย/อังกฤษ (D-11: จีนไม่บังคับ → ใช้อังกฤษ)
@@ -19,6 +20,22 @@ export interface NotificationVars {
   'import.completed': ImportVars;
   'import.not_imported': ImportVars;
   'import.failed': ImportVars;
+  /** ST2-T18 เตือนวันหมดอายุ — level D60/D30/D7 = ใกล้หมด, EXPIRED = หมดแล้ว · expiresOn = YYYY-MM-DD */
+  'expiry.vehicle_document': ExpiryVars & { plate: string; docType: string; title: string | null };
+  'expiry.driver_licence': ExpiryVars & { name: string; code: string };
+  'expiry.rate_card': ExpiryVars & {
+    code: string;
+    revision: number;
+    side: 'SELL' | 'BUY';
+    party: string;
+    route: string;
+  };
+}
+interface ExpiryVars {
+  level: 'D60' | 'D30' | 'D7' | 'EXPIRED';
+  expiresOn: string;
+  /** วันหมด − วันนี้ (ติดลบ = หมดไปแล้ว) */
+  days: number;
 }
 interface ImportVars {
   label: string;
@@ -28,6 +45,33 @@ interface ImportVars {
   reason: string;
 }
 const n = (x: number) => x.toLocaleString('en-US');
+
+/** ชื่อประเภทเอกสารรถ (ไทยตรงกับต้นแบบ/T17) */
+const VEHICLE_DOC_NAME: Record<string, { th: string; en: string }> = {
+  INSURANCE: { th: 'ประกันภัย', en: 'Insurance' },
+  COMPULSORY_ACT: { th: 'พ.ร.บ.', en: 'Compulsory insurance (CMI)' },
+  ANNUAL_TAX: { th: 'ภาษี', en: 'Annual road tax' },
+  INSPECTION: { th: 'ตรวจสภาพ ตรอ.', en: 'Vehicle inspection' },
+  TRANSPORT_LICENSE: { th: 'ใบอนุญาตขนส่ง', en: 'Transport licence' },
+  GPS_DLT_CERT: { th: 'GPS DLT', en: 'GPS DLT certificate' },
+  OTHER: { th: 'เอกสารอื่น', en: 'Other document' },
+};
+const docName = (v: { docType: string; title: string | null }, lang: NotificationLocale) =>
+  v.docType === 'OTHER' && v.title ? v.title : (VEHICLE_DOC_NAME[v.docType]?.[lang] ?? v.docType);
+const thDay = (d: string) => docDate(new Date(`${d}T00:00:00+07:00`), 'BE');
+/** "จะหมดอายุ 30 พฤศจิกายน 2569 (อีก 30 วัน)" / "หมดอายุวันนี้ (…)" / "หมดอายุแล้วเมื่อ …" */
+const thWhen = (v: ExpiryVars) =>
+  v.days < 0
+    ? `หมดอายุแล้วเมื่อ ${thDay(v.expiresOn)}`
+    : v.days === 0
+      ? `หมดอายุวันนี้ (${thDay(v.expiresOn)})`
+      : `จะหมดอายุ ${thDay(v.expiresOn)} (อีก ${n(v.days)} วัน)`;
+const enWhen = (v: ExpiryVars) =>
+  v.days < 0
+    ? `expired on ${v.expiresOn}`
+    : v.days === 0
+      ? `expires today (${v.expiresOn})`
+      : `expires on ${v.expiresOn} (in ${n(v.days)} days)`;
 export type NotificationTemplate = keyof NotificationVars;
 
 export interface RenderedNotification {
@@ -106,6 +150,36 @@ const TEMPLATES: {
     en: (v) => ({
       title: 'Import failed',
       body: `${v.label}: system error, nothing was imported.`,
+    }),
+  },
+  'expiry.vehicle_document': {
+    th: (v) => ({
+      title: v.level === 'EXPIRED' ? 'เอกสารรถหมดอายุแล้ว' : 'เอกสารรถใกล้หมดอายุ',
+      body: `${docName(v, 'th')} ของรถ ${v.plate} ${thWhen(v)} — บันทึกฉบับต่ออายุในหน้าเอกสารรถ`,
+    }),
+    en: (v) => ({
+      title: v.level === 'EXPIRED' ? 'Vehicle document expired' : 'Vehicle document expiring',
+      body: `${docName(v, 'en')} of vehicle ${v.plate} ${enWhen(v)}. Record the renewal on the vehicle documents page.`,
+    }),
+  },
+  'expiry.driver_licence': {
+    th: (v) => ({
+      title: v.level === 'EXPIRED' ? 'ใบขับขี่หมดอายุแล้ว' : 'ใบขับขี่ใกล้หมดอายุ',
+      body: `ใบขับขี่ของ ${v.name} (${v.code}) ${thWhen(v)} — อัปเดตวันหมดอายุใบใหม่ในข้อมูลคนขับ`,
+    }),
+    en: (v) => ({
+      title: v.level === 'EXPIRED' ? 'Driving licence expired' : 'Driving licence expiring',
+      body: `Driving licence of ${v.name} (${v.code}) ${enWhen(v)}. Update the new expiry date on the driver record.`,
+    }),
+  },
+  'expiry.rate_card': {
+    th: (v) => ({
+      title: v.level === 'EXPIRED' ? 'Rate card หมดอายุแล้ว' : 'Rate card ใกล้หมดอายุ',
+      body: `${v.code}${v.revision > 1 ? ` ฉบับที่ ${v.revision}` : ''} ${v.side === 'BUY' ? 'ขาซื้อ' : 'ขาขาย'} (${v.party} · ${v.route}) ${thWhen(v)} — ออกฉบับแก้ไขหรือเพิ่ม rate ช่วงใหม่`,
+    }),
+    en: (v) => ({
+      title: v.level === 'EXPIRED' ? 'Rate card expired' : 'Rate card expiring',
+      body: `${v.code}${v.revision > 1 ? ` rev. ${v.revision}` : ''} ${v.side === 'BUY' ? 'buy' : 'sell'} rate (${v.party} · ${v.route}) ${enWhen(v)}. Issue a revision or add a new rate period.`,
     }),
   },
 };

@@ -1783,6 +1783,26 @@ model Notification {
   @@map("notification")
 }
 
+/// สมุดการเตือนวันหมดอายุ (ST2-T18) — 1 แถว = เตือนระดับหนึ่งของสิ่งหนึ่ง ณ วันหมดหนึ่ง (unique = ไม่เตือนซ้ำ แม้ job รันซ้ำ/พร้อมกัน)
+/// ต่ออายุ/เปลี่ยนวันหมด → expires_on ใหม่ = รอบเตือนใหม่ · entity_type: VEHICLE_DOCUMENT / DRIVER_LICENCE / RATE_CARD
+/// level: D60 / D30 / D7 (เหลือ ≤ N วัน) / EXPIRED (เลยวันหมดแล้ว)
+model ExpiryReminder {
+  id         String   @id @default(uuid()) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  entityType String   @map("entity_type")
+  entityId   String   @map("entity_id") @db.Uuid
+  level      String
+  expiresOn  DateTime @map("expires_on") @db.Date
+  /// วันที่ (เวลาไทย) ที่ job ส่งเตือน
+  sentOn     DateTime @map("sent_on") @db.Date
+  recipients Int      @default(0)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, entityType, entityId, expiresOn, level])
+  @@index([tenantId, sentOn])
+  @@map("expiry_reminder")
+}
+
 /// งานนำเข้า Excel/CSV (ST1-T19; spec/02 §11.6)
 enum ImportStatus {
   VALIDATING
