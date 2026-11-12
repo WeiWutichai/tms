@@ -30,6 +30,9 @@ if (
   await admin.$executeRawUnsafe('CREATE DATABASE tms_e2e');
 await admin.$disconnect();
 sh('pnpm -s db:migrate'); // ทางเดียวกับทุกที่: migrate + bootstrap tenant
+// กันล้างฐาน dev โดยไม่ตั้งใจ — ล้างได้เฉพาะฐานที่ชื่อลงท้าย _e2e / _test / _qa
+const dbName = new URL(env.DATABASE_URL).pathname.slice(1);
+if (!/_(e2e|test|qa)$/.test(dbName)) throw new Error(`prepare.mjs ปฏิเสธฐาน "${dbName}"`);
 const owner = new PrismaClient({ datasources: { db: { url: env.DATABASE_URL } } });
 const tables = await owner.$queryRawUnsafe(
   "SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename <> '_prisma_migrations'",
