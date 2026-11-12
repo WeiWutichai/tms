@@ -9,8 +9,10 @@ import type {
   SoStatus as DbSoStatus,
 } from '@prisma/client';
 import {
+  SO_FIELD_GROUPS,
   SO_TRANSITIONS,
   evaluateIntakeHolds,
+  soEditableFields,
   intakeHoldNoteTh,
   isIntakeHoldCode,
   isIntakeEditable,
@@ -19,6 +21,7 @@ import {
   type IntakeHold,
   type PricingStatus,
   type SoEvent,
+  type SoFieldGroup,
   type SoStatus,
 } from '@tms/domain';
 import { AuditService, diff } from '../../audit/audit.service';
@@ -30,7 +33,12 @@ import { lockKey, lockReferenced, stableStringify, type RefTable } from '../mast
 import { PricingService, type Quote } from '../pricing/pricing.service';
 import { resolveDocumentEntity } from '../routing/document-routing';
 import { issueNumber } from '../sequences/sequences.service';
-import { normalizeOrderInput, type NormalizedOrder, type UpsertOrderInput } from './order-input';
+import {
+  canonDecimal,
+  normalizeOrderInput,
+  type NormalizedOrder,
+  type UpsertOrderInput,
+} from './order-input';
 import { orderEventView } from './order-view';
 
 export type { UpsertOrderInput } from './order-input';
@@ -47,6 +55,29 @@ export type OrderRecord = SalesOrder & {
   charges: SalesOrderCharge[];
   holdReasonCode: { id: string; code: string } | null;
 };
+
+interface OrderChildren {
+  stops: {
+    type: SalesOrderStop['type'];
+    siteId: string | null;
+    siteText: string;
+    windowStart: Date | null;
+    windowEnd: Date | null;
+  }[];
+  lines: {
+    itemCode: string | null;
+    productId: string | null;
+    description: string;
+    qtyOrdered: string;
+    unitId: string | null;
+    unit: string;
+    weightKg: string | null;
+    cbm: string | null;
+    isDangerous: boolean;
+    tempMin: string | null;
+    tempMax: string | null;
+  }[];
+}
 
 export interface UpsertOrderResult {
   order: OrderRecord;
@@ -139,14 +170,24 @@ export class OrderIntakeService {
       }
     }
 
+    if (current && input.expectedVersion !== undefined && input.expectedVersion !== current.version)
+      throw new ProblemException('precondition_failed');
+
     const inputHash = hashInput(n);
     if (current && current.inputHash === inputHash)
       // ส่งซ้ำค่าเดิม: ไม่เขียนข้อมูล แต่ราคา/ใบค้างประเมินใหม่ได้ (ข้อมูลหลักอาจเปลี่ยน)
       return this.evaluate(tx, current, { draft: n.draft, created: false, dataChanged: false });
+    // ช่องที่แก้ได้ตามสถานะ (ST3-T03; docs/04 C + spec/03 ORD-032) — ไม่มีเลย (ปิด/ยกเลิก) → 409
+    let editable: readonly SoFieldGroup[] = SO_FIELD_GROUPS;
     if (current) {
-      if (!isIntakeEditable(current.status as SoStatus) || (await this.hasDoOnTrip(tx, current.id)))
+      editable = soEditableFields(
+        current.status as SoStatus,
+        await this.hasDoOnTrip(tx, current.id),
+      );
+      if (!editable.length)
         throw new ProblemException('order_locked_for_update', undefined, undefined, {
           status: current.status,
+          editableFields: [],
         });
       if (n.draft && current.status !== 'DRAFT')
         throw new ProblemException('invalid_state_transition', undefined, undefined, {
@@ -177,6 +218,29 @@ export class OrderIntakeService {
           ? Prisma.DbNull
           : (JSON.parse(JSON.stringify(n.rawPayload)) as Prisma.InputJsonValue),
     };
+    const children = await this.effectiveChildren(tx, n, current);
+
+    if (current) {
+      // เทียบค่าที่จะเก็บจริงกับของเดิม (ไม่ใช่รูป input) — รูปต่างแต่ค่าเท่าเดิม = ไม่มีอะไรเปลี่ยน
+      const changes = orderChanges(current, header, children);
+      if (!changes.length)
+        return this.evaluate(tx, current, { draft: n.draft, created: false, dataChanged: false });
+      const locked = changes.filter((c) => !editable.includes(c.group));
+      if (locked.length)
+        // ต้นทาง (ERP) แก้หลังวางแผน → ST3-T10 จะเปลี่ยนเป็นใบค้าง SOURCE_CHANGED_AFTER_PLAN + diff (ไม่ทับ) — ตอนนี้ 409
+        throw new ProblemException(
+          'order_locked_for_update',
+          undefined,
+          locked.map((c) => ({
+            field: c.field,
+            code: 'locked',
+            message: `cannot change ${c.group} when order is ${current.status}`,
+          })),
+          { status: current.status, editableFields: editable },
+        );
+      if (editable.length < SO_FIELD_GROUPS.length)
+        return this.applyRestricted(tx, current, header, children);
+    }
 
     // 3) เขียนข้อมูล
     let id: string;
@@ -200,7 +264,7 @@ export class OrderIntakeService {
       id = current.id;
       await tx.salesOrder.update({ where: { id }, data: { ...header, version: { increment: 1 } } });
     }
-    await this.writeChildren(tx, tenantId, id, n);
+    await this.writeChildren(tx, tenantId, id, children);
     const loaded = await tx.salesOrder.findUniqueOrThrow({ where: { id }, include: INCLUDE });
     return this.evaluate(tx, loaded, {
       draft: n.draft,
@@ -653,9 +717,15 @@ export class OrderIntakeService {
     return { customer: cust > 0, sites: new Set(sites.map((x) => x.id)), vehicleType: vt > 0 };
   }
 
-  /** จุด/สินค้า: upsert ตามลำดับ (sequence / line_no) — id ของแถวคงเดิม (DO ST3-T09 อ้างบรรทัดได้); ส่วนเกินลบ */
-  private async writeChildren(tx: Tx, tenantId: string, salesOrderId: string, n: NormalizedOrder) {
-    // ข้อความสถานที่: ตามต้นทาง หรือชื่อสถานที่ ณ เวลารับงาน (เลือกจาก master โดยไม่มีข้อความ)
+  /**
+   * ค่าจุด/สินค้าที่จะเก็บจริง — ข้อความสถานที่: ตามต้นทาง หรือ (เลือกจาก master โดยไม่มีข้อความ) ข้อความเดิมของจุดลำดับเดียวกัน
+   * ที่เป็นสถานที่เดียวกัน / ชื่อสถานที่ ณ เวลารับงาน · หน่วย: ข้อความตามต้นทาง หรือรหัสหน่วยใน master
+   */
+  private async effectiveChildren(
+    tx: Tx,
+    n: NormalizedOrder,
+    current: OrderRecord | null,
+  ): Promise<OrderChildren> {
     const siteIds = n.stops.flatMap((s) => (s.siteId && !s.siteText ? [s.siteId] : []));
     const names = new Map(
       (siteIds.length
@@ -666,33 +736,29 @@ export class OrderIntakeService {
         : []
       ).map((x) => [x.id, x.name]),
     );
-    for (const [i, s] of n.stops.entries()) {
-      const data = {
-        type: s.type,
-        siteId: s.siteId,
-        siteText: s.siteText || names.get(s.siteId!) || '',
-        windowStart: s.windowStart ? new Date(s.windowStart) : null,
-        windowEnd: s.windowEnd ? new Date(s.windowEnd) : null,
-      };
-      await tx.salesOrderStop.upsert({
-        where: {
-          tenantId_salesOrderId_sequence: { tenantId, salesOrderId, sequence: i + 1 },
-        },
-        create: { tenantId, salesOrderId, sequence: i + 1, ...data },
-        update: data,
-      });
-    }
-    await tx.salesOrderStop.deleteMany({
-      where: { salesOrderId, sequence: { gt: n.stops.length } },
-    });
-
-    const units = await tx.unit.findMany({
-      where: { id: { in: n.lines.flatMap((l) => (l.unitId ? [l.unitId] : [])) } },
-      select: { id: true, code: true },
-    });
-    const code = new Map(units.map((u) => [u.id, u.code]));
-    for (const [i, l] of n.lines.entries()) {
-      const data = {
+    const unitIds = n.lines.flatMap((l) => (l.unitId && !l.unit ? [l.unitId] : []));
+    const code = new Map(
+      (unitIds.length
+        ? await tx.unit.findMany({
+            where: { id: { in: unitIds } },
+            select: { id: true, code: true },
+          })
+        : []
+      ).map((u) => [u.id, u.code]),
+    );
+    return {
+      stops: n.stops.map((s, i) => {
+        const prev = current?.stops[i];
+        const keep = !s.siteText && s.siteId && prev?.siteId === s.siteId ? prev.siteText : null;
+        return {
+          type: s.type,
+          siteId: s.siteId,
+          siteText: s.siteText || keep || names.get(s.siteId!) || '',
+          windowStart: s.windowStart ? new Date(s.windowStart) : null,
+          windowEnd: s.windowEnd ? new Date(s.windowEnd) : null,
+        };
+      }),
+      lines: n.lines.map((l) => ({
         itemCode: l.itemCode,
         productId: l.productId,
         description: l.description,
@@ -704,14 +770,76 @@ export class OrderIntakeService {
         isDangerous: l.isDangerous,
         tempMin: l.tempMin,
         tempMax: l.tempMax,
-      };
+      })),
+    };
+  }
+
+  /** จุด/สินค้า: upsert ตามลำดับ (sequence / line_no) — id ของแถวคงเดิม (DO ST3-T09 อ้างบรรทัดได้); ส่วนเกินลบ */
+  private async writeChildren(tx: Tx, tenantId: string, salesOrderId: string, c: OrderChildren) {
+    for (const [i, data] of c.stops.entries())
+      await tx.salesOrderStop.upsert({
+        where: {
+          tenantId_salesOrderId_sequence: { tenantId, salesOrderId, sequence: i + 1 },
+        },
+        create: { tenantId, salesOrderId, sequence: i + 1, ...data },
+        update: data,
+      });
+    await tx.salesOrderStop.deleteMany({
+      where: { salesOrderId, sequence: { gt: c.stops.length } },
+    });
+    for (const [i, data] of c.lines.entries())
       await tx.salesOrderLine.upsert({
         where: { tenantId_salesOrderId_lineNo: { tenantId, salesOrderId, lineNo: i + 1 } },
         create: { tenantId, salesOrderId, lineNo: i + 1, ...data },
         update: data,
       });
+    await tx.salesOrderLine.deleteMany({ where: { salesOrderId, lineNo: { gt: c.lines.length } } });
+  }
+
+  /**
+   * แก้ใบที่พ้นช่วงรับงาน (วางแผน/ออกรถแล้ว) เฉพาะช่องที่สถานะอนุญาต (ผ่าน `orderChanges` แล้ว) — เลข PO + ช่วงเวลาของจุด
+   * ไม่คิดราคา/ไม่ประเมินใบค้างใหม่ (ราคาหลังยืนยัน = ORD-046 งานถัดไป) · version +1, audit, `order.updated`
+   */
+  private async applyRestricted(
+    tx: Tx,
+    current: OrderRecord,
+    header: { customerRef: string | null; inputHash: string; rawPayload: unknown },
+    children: OrderChildren,
+  ): Promise<UpsertOrderResult> {
+    const id = current.id;
+    await tx.salesOrder.update({
+      where: { id },
+      data: {
+        customerRef: header.customerRef,
+        inputHash: header.inputHash,
+        rawPayload: header.rawPayload as Prisma.InputJsonValue,
+        version: { increment: 1 },
+      },
+    });
+    for (const [i, s] of children.stops.entries()) {
+      const prev = current.stops[i]!;
+      if (
+        (prev.windowStart?.getTime() ?? null) !== (s.windowStart?.getTime() ?? null) ||
+        (prev.windowEnd?.getTime() ?? null) !== (s.windowEnd?.getTime() ?? null)
+      )
+        await tx.salesOrderStop.update({
+          where: { id: prev.id },
+          data: { windowStart: s.windowStart, windowEnd: s.windowEnd },
+        });
     }
-    await tx.salesOrderLine.deleteMany({ where: { salesOrderId, lineNo: { gt: n.lines.length } } });
+    const final = await tx.salesOrder.findUniqueOrThrow({ where: { id }, include: INCLUDE });
+    await this.audit.changed(
+      `${ENTITY}.updated`,
+      ENTITY,
+      id,
+      orderEventView(current, { lines: true }),
+      orderEventView(final, { lines: true }),
+    );
+    const evBefore = orderEventView(current);
+    const evAfter = orderEventView(final);
+    await this.emit(tx, 'order.updated', id, evAfter, diff(evBefore, evAfter).before);
+    const holds = (current.pricingDetail as { holds?: IntakeHold[] } | null)?.holds ?? [];
+    return { order: final, created: false, changed: true, holds };
   }
 
   private async history(
@@ -779,4 +907,77 @@ export class OrderIntakeService {
 function hashInput(n: NormalizedOrder): string {
   const { rawPayload: _raw, id: _id, ...rest } = n;
   return createHash('sha256').update(stableStringify(rest)).digest('hex');
+}
+
+/** ช่องที่เปลี่ยน (กลุ่มตาม `SO_FIELD_GROUPS` + path ของช่อง) — เทียบค่าที่จะเก็บกับแถวเดิม */
+export function orderChanges(
+  current: OrderRecord,
+  header: {
+    customerId: string | null;
+    customerExternalId: string | null;
+    customerText: string | null;
+    billingCompanyId: string;
+    customerRef: string | null;
+    requestedDate: Date;
+    vehicleTypeId: string | null;
+    sourceIssues: string[];
+  },
+  c: OrderChildren,
+): { group: SoFieldGroup; field: string }[] {
+  const out: { group: SoFieldGroup; field: string }[] = [];
+  const dec = (v: Prisma.Decimal | null) => (v === null ? null : canonDecimal(v.toFixed()));
+  const time = (v: Date | null) => v?.getTime() ?? null;
+  const ne = (a: unknown, b: unknown) => a !== b;
+  if (ne(header.customerId, current.customerId)) out.push({ group: 'customer', field: 'customer' });
+  else if (
+    ne(header.customerExternalId, current.customerExternalId) ||
+    ne(header.customerText, current.customerText)
+  )
+    out.push({ group: 'customer', field: 'customer' });
+  if (ne(header.billingCompanyId, current.billingCompanyId))
+    out.push({ group: 'billingCompanyId', field: 'billingCompanyId' });
+  if (ne(header.customerRef, current.customerRef))
+    out.push({ group: 'customerRef', field: 'customerRef' });
+  if (ne(time(header.requestedDate), time(current.requestedDate)))
+    out.push({ group: 'requestedDate', field: 'requestedDate' });
+  if (ne(header.vehicleTypeId, current.vehicleTypeId))
+    out.push({ group: 'vehicleTypeId', field: 'vehicleTypeId' });
+  if (stableStringify(header.sourceIssues) !== stableStringify(current.sourceIssues ?? []))
+    out.push({ group: 'sourceIssues', field: 'sourceIssues' });
+
+  if (c.stops.length !== current.stops.length) out.push({ group: 'stops', field: 'stops' });
+  c.stops.forEach((s, i) => {
+    const p = current.stops[i];
+    if (!p) return;
+    for (const k of ['type', 'siteId', 'siteText'] as const)
+      // ข้อความสถานที่ที่ตามมาจากการเปลี่ยนสถานที่ ไม่นับซ้ำ
+      if (ne(s[k], p[k]) && !(k === 'siteText' && ne(s.siteId, p.siteId)))
+        out.push({ group: 'stops', field: `stops[${i}].${k}` });
+    for (const k of ['windowStart', 'windowEnd'] as const)
+      if (ne(time(s[k]), time(p[k])))
+        out.push({ group: 'stops.window', field: `stops[${i}].${k}` });
+  });
+
+  if (c.lines.length !== current.lines.length) out.push({ group: 'lines', field: 'lines' });
+  c.lines.forEach((l, i) => {
+    const p = current.lines[i];
+    if (!p) return;
+    const was = {
+      itemCode: p.itemCode,
+      productId: p.productId,
+      description: p.description,
+      qtyOrdered: dec(p.qtyOrdered),
+      unitId: p.unitId,
+      unit: p.unit,
+      weightKg: dec(p.weightKg),
+      cbm: dec(p.cbm),
+      isDangerous: p.isDangerous,
+      tempMin: dec(p.tempMin),
+      tempMax: dec(p.tempMax),
+    };
+    for (const k of Object.keys(was) as (keyof typeof was)[])
+      if (ne(l[k], was[k]))
+        out.push({ group: 'lines', field: `lines[${i}].${k === 'qtyOrdered' ? 'qty' : k}` });
+  });
+  return out;
 }

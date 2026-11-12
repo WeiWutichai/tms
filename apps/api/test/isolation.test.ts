@@ -194,6 +194,23 @@ const FIXTURES: Record<string, (db: PrismaClient, tenantId: string, n: number) =
         ).id,
       );
     },
+    // ST3-T03 /orders/:id — ร่าง (ไม่ต้องมีเลข SO / reason code)
+    salesOrder: async (db, tenantId, n) => {
+      const c = await db.company.create({
+        data: { tenantId, legalName: `Co so${n}`, taxId: validTaxId(1500 + n) },
+      });
+      const o = await db.salesOrder.create({
+        data: {
+          tenantId,
+          source: 'API',
+          externalId: `ISO-SO-${n}`,
+          billingCompanyId: c.id,
+          requestedDate: new Date('2026-11-12T00:00:00Z'),
+          status: 'DRAFT',
+        },
+      });
+      return encodeId('salesOrder', o.id);
+    },
     reasonCode: async (db, tenantId, n) =>
       encodeId(
         'reasonCode',

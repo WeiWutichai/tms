@@ -68,6 +68,51 @@ export function isIntakeEditable(status: SoStatus): boolean {
   return (SO_INTAKE_EDITABLE as readonly SoStatus[]).includes(status);
 }
 
+// ---------- ช่องที่แก้ได้ตามสถานะ (ST3-T03) ----------
+
+/**
+ * กลุ่มข้อมูลของ SO ที่ทางเข้าแก้ได้ (ชื่อใช้ใน `errors[].field` ของ 409 `order_locked_for_update`)
+ * - `stops` = จำนวน/ลำดับ/ชนิด/สถานที่ของจุด · `stops.window` = ช่วงเวลาของจุดเดิม (เทียบตามลำดับ)
+ * - `customerRef` = เลข PO/อ้างอิงลูกค้า (ถือเป็น custom field ตาม docs/04 C "Custom fields (เลข PO …)")
+ */
+export const SO_FIELD_GROUPS = [
+  'customer',
+  'billingCompanyId',
+  'customerRef',
+  'requestedDate',
+  'vehicleTypeId',
+  'stops',
+  'stops.window',
+  'lines',
+  'sourceIssues',
+] as const;
+export type SoFieldGroup = (typeof SO_FIELD_GROUPS)[number];
+
+/**
+ * ช่องที่แก้ได้ตามสถานะ — docs/04 C "กฎ field ที่แก้ไม่ได้หลัง `in_transit` → 409" + รายละเอียด spec/03 ORD-032:
+ * - ก่อนวางแผน (DRAFT/RECEIVED/ON_HOLD และยังไม่มี DO ในเที่ยว): ทุกช่อง (ประเมินราคา/ใบค้างใหม่)
+ * - วางแผนแล้ว (PLANNED): ช่วงเวลา + เลข PO (ช่องอื่นต้องถอด DO ออกจากเที่ยวก่อน — ต้นทางแก้ = ST3-T10 diff)
+ * - ตั้งแต่ IN_TRANSIT ขึ้นไป (รวมส่งบางส่วน/ส่งแล้ว): เลข PO เท่านั้น (ราคา/หมายเหตุ/custom fields = งานถัดไป)
+ * - CLOSED / CANCELLED: ไม่มี
+ * `doOnTrip` = มี DO ของใบนี้อยู่ในเที่ยวแล้ว (กันกรณีสถานะยังไม่เดินตาม) → นับเหมือน PLANNED
+ */
+export function soEditableFields(status: SoStatus, doOnTrip = false): readonly SoFieldGroup[] {
+  if (isIntakeEditable(status) && !doOnTrip) return SO_FIELD_GROUPS;
+  switch (status) {
+    case 'DRAFT':
+    case 'RECEIVED':
+    case 'ON_HOLD':
+    case 'PLANNED':
+      return ['customerRef', 'stops.window'];
+    case 'IN_TRANSIT':
+    case 'PARTIALLY_DELIVERED':
+    case 'DELIVERED':
+      return ['customerRef'];
+    default:
+      return [];
+  }
+}
+
 /** ร่างไม่กินเลข (docs/01 §3.5) — สถานะอื่นทุกสถานะต้องมีเลข SO (CHECK `sales_order_number`) */
 export function soRequiresNumber(status: SoStatus): boolean {
   return status !== 'DRAFT';

@@ -46,6 +46,11 @@ export interface UpsertOrderInput {
   sourceIssues?: string[];
   /** payload ดิบจากต้นทาง (docs/01 §3.3 raw_payload) */
   rawPayload?: unknown;
+  /**
+   * version ที่ผู้เรียกคาดไว้ (HTTP `If-Match` — ST3-T03) — ใบเดิมมี version อื่น → 412 `precondition_failed`
+   * ตรวจหลังล็อกแถว · ไม่ใช่ข้อมูลงาน (ไม่อยู่ใน hash) · ใบใหม่ไม่ตรวจ
+   */
+  expectedVersion?: number;
 }
 
 export interface UpsertOrderStop {
