@@ -10,6 +10,8 @@ export const REDACT_PATHS = [
   'accessToken',
   '*.accessToken',
   'refreshToken',
+  'lineChannelAccessToken',
+  '*.lineChannelAccessToken',
   '*.refreshToken',
   'secret',
   '*.secret',

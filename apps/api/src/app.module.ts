@@ -11,6 +11,13 @@ import { PasswordController } from './auth/password.controller';
 import { PasswordResetController, PasswordResetService } from './auth/password-reset.controller';
 import { EmailDispatcher, EmailService } from './modules/email/email.service';
 import { NotificationService } from './modules/notifications/notification.service';
+import {
+  MessagesController,
+  MessagingSettingsController,
+} from './modules/messaging/messaging.controller';
+import { MessagingService } from './modules/messaging/messaging.service';
+import { MessagingProviders } from './modules/messaging/messaging.providers';
+import { MessageDispatcher } from './modules/messaging/message-dispatcher';
 import { NotificationsController } from './modules/notifications/notifications.controller';
 import { ImportRegistry } from './modules/imports/import-spec';
 import { ImportService } from './modules/imports/import.service';
@@ -145,6 +152,8 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     VehicleDocumentsController,
     CarrierDocsController,
     CarrierDocsPublicController,
+    MessagesController,
+    MessagingSettingsController,
   ],
   providers: [
     PrismaService,
@@ -185,6 +194,9 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     VehiclesService,
     DriversService,
     CarrierDocsService,
+    MessagingProviders,
+    MessagingService,
+    MessageDispatcher,
     VehicleDocumentsService,
     Clock,
     ExpiryReminderService,
