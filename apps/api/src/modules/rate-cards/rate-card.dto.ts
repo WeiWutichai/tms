@@ -17,10 +17,14 @@ import {
 import { PriceField } from '../../common/price-fields';
 import { CleanText, IsNullable, IsOptionalNotNull, NormalizeCode } from '../master/master-kit';
 
-/** ฝั่ง — ST2-T13 เปิดเฉพาะขาขาย (SELL); ขาซื้อ (BUY) ใช้ตาราง/ตัวตรวจชุดเดียวกันใน ST2-T14 */
+/**
+ * ฝั่ง — ขาขาย (SELL, ต่อลูกค้า — ST2-T13) · ขาซื้อ (BUY, ต่อรถร่วม/ผู้รับเหมา — ST2-T14) ใช้ตาราง/ตัวตรวจชุดเดียวกัน
+ * ราคาใช้ชื่อตามฝั่ง: ขาขาย `sell*` (`prices.sell:*`) · ขาซื้อ `buy*` (`prices.buy:*`) — ส่งราคาของอีกฝั่ง → 422 `wrong_side`
+ */
 export const RATE_SIDES = ['SELL', 'BUY'] as const;
 export type RateSideKey = (typeof RATE_SIDES)[number];
-export const WRITABLE_SIDES = ['SELL'] as const;
+export const WRITABLE_SIDES = ['SELL', 'BUY'] as const;
+const CARRIER_RE = /^car_[0-9a-f]{32}$/;
 
 /**
  * สูตรราคาเฟส 0 (docs/04 B1): เหมาเที่ยว (PER_TRIP) · ตามระยะทาง (PER_KM) · ตามน้ำหนัก/ปริมาตร/หน่วยนับ (PER_TON/PER_CBM/PER_UNIT)
@@ -66,14 +70,27 @@ export class RateAccessorialInputDto {
   @Matches(/^svc_[0-9a-f]{32}$/)
   serviceItemId!: string;
 
-  @ApiProperty({
+  @ApiPropertyOptional({
     example: '300.00',
     type: String,
-    description: 'ราคาขาย (บาท ก่อน VAT) ทศนิยม ≤ 2 — ต้องมีสิทธิ์ `prices.sell:write`',
+    description:
+      'ราคาขาย (บาท ก่อน VAT) ทศนิยม ≤ 2 — rate ขาขายเท่านั้น · ต้องมีสิทธิ์ `prices.sell:write`',
   })
   @PriceField('sell')
+  @IsOptionalNotNull()
   @Matches(MONEY_RE, { message: `sellPrice ${MONEY_MSG}` })
-  sellPrice!: string;
+  sellPrice?: string;
+
+  @ApiPropertyOptional({
+    example: '250.00',
+    type: String,
+    description:
+      'ราคาซื้อ (บาท ก่อน VAT) ทศนิยม ≤ 2 — rate ขาซื้อเท่านั้น · ต้องมีสิทธิ์ `prices.buy:write`',
+  })
+  @PriceField('buy')
+  @IsOptionalNotNull()
+  @Matches(MONEY_RE, { message: `buyPrice ${MONEY_MSG}` })
+  buyPrice?: string;
 }
 
 /** ฟิลด์ราคา/เงื่อนไข — ใช้ทั้งสร้าง แก้ร่าง และออกฉบับแก้ไข */
@@ -98,7 +115,7 @@ export class RateCardTermsDto {
     example: '6500.00',
     type: String,
     description:
-      'ราคาขายต่อหน่วยของสูตร (บาท) — ต่อเที่ยว/กม./ตัน/ลบ.ม./หน่วย · ต้องมีสิทธิ์ `prices.sell:write` (เห็นเมื่อมี `prices.sell:read`)',
+      'ราคาขายต่อหน่วยของสูตร (บาท) — ต่อเที่ยว/กม./ตัน/ลบ.ม./หน่วย · rate ขาขาย · ต้องมีสิทธิ์ `prices.sell:write` (เห็นเมื่อมี `prices.sell:read`)',
   })
   @PriceField('sell')
   @IsOptionalNotNull()
@@ -126,6 +143,39 @@ export class RateCardTermsDto {
   @IsNullable()
   @Matches(MONEY_RE, { message: `sellExtraStopRate ${MONEY_MSG}` })
   sellExtraStopRate?: string | null;
+
+  @ApiPropertyOptional({
+    example: '5200.00',
+    type: String,
+    description:
+      'ราคาซื้อต่อหน่วยของสูตร (บาท) — rate ขาซื้อ · ต้องมีสิทธิ์ `prices.buy:write` (เห็นเมื่อมี `prices.buy:read`)',
+  })
+  @PriceField('buy')
+  @IsOptionalNotNull()
+  @Matches(MONEY_RE, { message: `buyRate ${MONEY_MSG}` })
+  buyRate?: string;
+
+  @ApiPropertyOptional({
+    example: '1200.00',
+    nullable: true,
+    type: String,
+    description: 'ขั้นต่ำต่อเที่ยว (บาท) ขาซื้อ · null = ไม่มี',
+  })
+  @PriceField('buy')
+  @IsNullable()
+  @Matches(MONEY_RE, { message: `buyMinCharge ${MONEY_MSG}` })
+  buyMinCharge?: string | null;
+
+  @ApiPropertyOptional({
+    example: '250.00',
+    nullable: true,
+    type: String,
+    description: 'ค่าจุดเพิ่มต่อจุด ขาซื้อ (เกิน `includedStops`) · null = ไม่คิด',
+  })
+  @PriceField('buy')
+  @IsNullable()
+  @Matches(MONEY_RE, { message: `buyExtraStopRate ${MONEY_MSG}` })
+  buyExtraStopRate?: string | null;
 
   @ApiPropertyOptional({
     example: 2,
@@ -179,12 +229,20 @@ export class RateCardTermsDto {
   notes?: string | null;
 }
 
-/** key ของ rate (ฝั่งขาย) — แก้ได้เฉพาะร่าง */
+/** key ของ rate — แก้ได้เฉพาะร่าง · ขาขายใช้ `customerId` ขาซื้อใช้ `carrierId` */
 export class RateCardKeyDto extends RateCardTermsDto {
-  @ApiPropertyOptional({ example: 'cus_3f2a…', description: 'ลูกค้า (ขาขาย)' })
+  @ApiPropertyOptional({ example: 'cus_3f2a…', description: 'ลูกค้า (ขาขายเท่านั้น)' })
   @IsOptionalNotNull()
   @Matches(/^cus_[0-9a-f]{32}$/)
   customerId?: string;
+
+  @ApiPropertyOptional({
+    example: 'car_3f2a…',
+    description: 'รถร่วม/ผู้รับเหมา (ขาซื้อเท่านั้น — ST2-T05 `carriers`)',
+  })
+  @IsOptionalNotNull()
+  @Matches(CARRIER_RE)
+  carrierId?: string;
 
   @ApiPropertyOptional({ example: 'loc_3f2a…', description: 'ต้นทาง (สถานที่)' })
   @IsOptionalNotNull()
@@ -216,15 +274,16 @@ export class CreateRateCardDto extends RateCardKeyDto {
   @ApiPropertyOptional({
     enum: WRITABLE_SIDES,
     default: 'SELL',
-    description: 'ฝั่ง — ตอนนี้รับเฉพาะ SELL (ขาซื้อมาใน ST2-T14)',
+    description:
+      'ฝั่ง — SELL (ลูกค้า, ต้องมี `prices.sell:write`) · BUY (รถร่วม, ต้องมี `prices.buy:write`)',
   })
   @IsOptionalNotNull()
   @IsIn(WRITABLE_SIDES)
-  side?: 'SELL';
+  side?: RateSideKey;
 
   @ApiPropertyOptional({
     example: 'RC-S-0001',
-    description: 'รหัส — ไม่ส่ง = ระบบออกเลขถัดไป (RC-S-0001)',
+    description: 'รหัส — ไม่ส่ง = ระบบออกเลขถัดไป (ขาขาย RC-S-0001 · ขาซื้อ RC-B-0001)',
   })
   @IsOptionalNotNull()
   @NormalizeCode()
@@ -247,6 +306,15 @@ export class UpdateRateCardDto extends RateCardKeyDto {
 
 /** `PUT /rate-cards/external/{externalId}` — ยังไม่มี = สร้างร่าง · มีและเป็นร่าง = แก้ · อนุมัติแล้ว = 409 (ใช้ revise) */
 export class UpsertRateCardDto extends RateCardKeyDto {
+  @ApiPropertyOptional({
+    enum: WRITABLE_SIDES,
+    default: 'SELL',
+    description: 'ฝั่ง — ใช้ตอนสร้าง; แถวที่มีอยู่แล้วต้องเป็นฝั่งเดิม (ต่าง → 422 `side_locked`)',
+  })
+  @IsOptionalNotNull()
+  @IsIn(WRITABLE_SIDES)
+  side?: RateSideKey;
+
   @ApiPropertyOptional({ example: 'RC-S-0001', description: 'ใช้ตอนสร้างเท่านั้น' })
   @IsOptionalNotNull()
   @NormalizeCode()
@@ -298,7 +366,8 @@ export class RateCardListQuery {
   fields?: string;
 
   @ApiPropertyOptional({
-    description: 'ค้นหา — รหัส ชื่อลูกค้า ชื่อ/รหัสต้นทางหรือปลายทาง externalId (ไม่สนตัวพิมพ์)',
+    description:
+      'ค้นหา — รหัส ชื่อลูกค้า/ผู้รับเหมา ชื่อ/รหัสต้นทางหรือปลายทาง externalId (ไม่สนตัวพิมพ์)',
     maxLength: 100,
   })
   @IsOptional()
@@ -332,7 +401,14 @@ export class RateCardListQuery {
   @Matches(/^cus_[0-9a-f]{32}$/)
   customerId?: string;
 
-  @ApiPropertyOptional({ description: 'ชื่อ/รหัสลูกค้ามีคำนี้ (ตัวกรองคอลัมน์ "ลูกค้า")' })
+  @ApiPropertyOptional({ description: 'เฉพาะรถร่วมนี้ (car_…) — ขาซื้อ' })
+  @IsOptional()
+  @Matches(CARRIER_RE)
+  carrierId?: string;
+
+  @ApiPropertyOptional({
+    description: 'ชื่อ/รหัสลูกค้า (ขาขาย) หรือผู้รับเหมา (ขาซื้อ) มีคำนี้ (ตัวกรองคอลัมน์แรก)',
+  })
   @IsOptional()
   @CleanText()
   @IsString()
@@ -402,6 +478,11 @@ export class RateCardSummaryQuery {
   @IsOptional()
   @Matches(/^cus_[0-9a-f]{32}$/)
   customerId?: string;
+
+  @ApiPropertyOptional({ description: 'เฉพาะรถร่วมนี้ (car_…)' })
+  @IsOptional()
+  @Matches(CARRIER_RE)
+  carrierId?: string;
 }
 
 // ---------- response ----------
@@ -441,6 +522,13 @@ export class RateAccessorialDto {
   })
   @PriceField('sell')
   sellPrice?: string;
+  @ApiPropertyOptional({
+    example: '250.00',
+    type: String,
+    description: 'ราคาซื้อเฉพาะ rate นี้ (ขาซื้อ — เห็นเมื่อมี `prices.buy:read`)',
+  })
+  @PriceField('buy')
+  buyPrice?: string;
 }
 
 export class RateCardDto {
@@ -453,6 +541,12 @@ export class RateCardDto {
   @ApiProperty({ enum: RATE_SIDES }) side!: RateSideKey;
   @ApiProperty({ type: RatePartyRefDto, nullable: true, description: 'ลูกค้า (ขาขาย)' })
   customer!: RatePartyRefDto | null;
+  @ApiProperty({
+    type: RatePartyRefDto,
+    nullable: true,
+    description: 'รถร่วม/ผู้รับเหมา (ขาซื้อ)',
+  })
+  carrier!: RatePartyRefDto | null;
   @ApiProperty({ type: RateSiteRefDto }) origin!: RateSiteRefDto;
   @ApiProperty({ type: RateSiteRefDto }) destination!: RateSiteRefDto;
   @ApiProperty({ type: RateVehicleTypeRefDto }) vehicleType!: RateVehicleTypeRefDto;
@@ -461,7 +555,7 @@ export class RateCardDto {
   @ApiPropertyOptional({
     example: '6500.00',
     type: String,
-    description: 'ราคาขายต่อหน่วยของสูตร (เห็นเมื่อมี `prices.sell:read`)',
+    description: 'ราคาขายต่อหน่วยของสูตร — rate ขาขาย (เห็นเมื่อมี `prices.sell:read`)',
   })
   @PriceField('sell')
   sellRate?: string;
@@ -471,6 +565,19 @@ export class RateCardDto {
   @ApiPropertyOptional({ example: '300.00', nullable: true, type: String })
   @PriceField('sell')
   sellExtraStopRate?: string | null;
+  @ApiPropertyOptional({
+    example: '5200.00',
+    type: String,
+    description: 'ราคาซื้อต่อหน่วยของสูตร — rate ขาซื้อ (เห็นเมื่อมี `prices.buy:read`)',
+  })
+  @PriceField('buy')
+  buyRate?: string;
+  @ApiPropertyOptional({ example: '1200.00', nullable: true, type: String })
+  @PriceField('buy')
+  buyMinCharge?: string | null;
+  @ApiPropertyOptional({ example: '250.00', nullable: true, type: String })
+  @PriceField('buy')
+  buyExtraStopRate?: string | null;
   @ApiProperty({ example: 2 }) includedStops!: number;
   @ApiProperty({ type: RateServiceItemRefDto }) serviceItem!: RateServiceItemRefDto;
   @ApiProperty({ type: [RateAccessorialDto] }) accessorials!: RateAccessorialDto[];
@@ -512,4 +619,70 @@ export class RateCardSummaryDto {
   @ApiProperty({ description: `ใช้งานและหมดอายุใน ${NEAR_EXPIRY_DAYS} วัน` }) nearExpiry!: number;
   @ApiProperty({ description: 'หมดอายุ' }) expired!: number;
   @ApiProperty({ description: 'ยกเลิก/ถูกแทน' }) retired!: number;
+}
+
+// ---------- ราคา 5 ครั้งล่าสุดที่จ้างรถร่วมรายนี้ (ST2-T14; docs/04 B "Rate card ขาซื้อ", D2 PL4) ----------
+
+export class CarrierRecentPricesQuery {
+  @ApiPropertyOptional({ description: 'เฉพาะเที่ยวที่ต้นทาง (จุดแรก) เป็นสถานที่นี้ (loc_…)' })
+  @IsOptional()
+  @Matches(SITE_RE)
+  originId?: string;
+
+  @ApiPropertyOptional({ description: 'เฉพาะเที่ยวที่ปลายทาง (จุดสุดท้าย) เป็นสถานที่นี้ (loc_…)' })
+  @IsOptional()
+  @Matches(SITE_RE)
+  destinationId?: string;
+
+  @ApiPropertyOptional({ description: 'เฉพาะเที่ยวที่ใช้รถประเภทนี้ (vty_…)' })
+  @IsOptional()
+  @Matches(/^vty_[0-9a-f]{32}$/)
+  vehicleTypeId?: string;
+}
+
+export class RecentPriceSiteDto {
+  @ApiProperty({ example: 'loc_3f2a…' }) id!: string;
+  @ApiProperty({ example: 'LOC-0001' }) code!: string;
+  @ApiProperty({ example: 'คลังบางนา' }) name!: string;
+}
+
+export class CarrierRecentPriceDto {
+  @ApiProperty({ example: 'trp_3f2a…' }) tripId!: string;
+  @ApiProperty({ nullable: true, type: String, example: 'TRP-2611-0001' }) tripNo!: string | null;
+  @ApiProperty({ example: '2026-11-03', format: 'date', description: 'วันที่ของเที่ยว' })
+  date!: string;
+  @ApiProperty({ type: RecentPriceSiteDto, nullable: true, description: 'จุดแรกของเที่ยว' })
+  origin!: RecentPriceSiteDto | null;
+  @ApiProperty({ type: RecentPriceSiteDto, nullable: true, description: 'จุดสุดท้ายของเที่ยว' })
+  destination!: RecentPriceSiteDto | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: '6 ล้อ',
+    description: 'ประเภทรถ ณ วันจ่ายงาน',
+  })
+  vehicleType!: string | null;
+  @ApiPropertyOptional({
+    example: '5200.00',
+    type: String,
+    description:
+      'ค่าจ้างรถร่วมของเที่ยว (ผลรวม cost line CARRIER_FEE ก่อน VAT) — เห็นเมื่อมี `prices.buy:read`',
+  })
+  @PriceField('buy')
+  buyAmount?: string;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: 'RC-B-0001',
+    description: 'rate card ขาซื้อที่ใช้ตอนจ่ายงาน (จาก snapshot) — null = ราคาตกลงเอง',
+  })
+  rateCardCode!: string | null;
+}
+
+export class CarrierRecentPricesDto {
+  @ApiProperty({
+    type: [CarrierRecentPriceDto],
+    description: 'ใหม่สุดก่อน ไม่เกิน 5 เที่ยว · ยังไม่เคยจ้าง = []',
+  })
+  data!: CarrierRecentPriceDto[];
 }

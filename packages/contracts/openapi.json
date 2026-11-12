@@ -9321,7 +9321,7 @@
             "name": "q",
             "required": false,
             "in": "query",
-            "description": "ค้นหา — รหัส ชื่อลูกค้า ชื่อ/รหัสต้นทางหรือปลายทาง externalId (ไม่สนตัวพิมพ์)",
+            "description": "ค้นหา — รหัส ชื่อลูกค้า/ผู้รับเหมา ชื่อ/รหัสต้นทางหรือปลายทาง externalId (ไม่สนตัวพิมพ์)",
             "schema": {
               "maxLength": 100,
               "type": "string"
@@ -9373,10 +9373,19 @@
             }
           },
           {
+            "name": "carrierId",
+            "required": false,
+            "in": "query",
+            "description": "เฉพาะรถร่วมนี้ (car_…) — ขาซื้อ",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "party",
             "required": false,
             "in": "query",
-            "description": "ชื่อ/รหัสลูกค้ามีคำนี้ (ตัวกรองคอลัมน์ \"ลูกค้า\")",
+            "description": "ชื่อ/รหัสลูกค้า (ขาขาย) หรือผู้รับเหมา (ขาซื้อ) มีคำนี้ (ตัวกรองคอลัมน์แรก)",
             "schema": {
               "type": "string"
             }
@@ -9541,6 +9550,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "carrierId",
+            "required": false,
+            "in": "query",
+            "description": "เฉพาะรถร่วมนี้ (car_…)",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -9626,7 +9644,7 @@
             "name": "q",
             "required": false,
             "in": "query",
-            "description": "ค้นหา — รหัส ชื่อลูกค้า ชื่อ/รหัสต้นทางหรือปลายทาง externalId (ไม่สนตัวพิมพ์)",
+            "description": "ค้นหา — รหัส ชื่อลูกค้า/ผู้รับเหมา ชื่อ/รหัสต้นทางหรือปลายทาง externalId (ไม่สนตัวพิมพ์)",
             "schema": {
               "maxLength": 100,
               "type": "string"
@@ -9678,10 +9696,19 @@
             }
           },
           {
+            "name": "carrierId",
+            "required": false,
+            "in": "query",
+            "description": "เฉพาะรถร่วมนี้ (car_…) — ขาซื้อ",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "party",
             "required": false,
             "in": "query",
-            "description": "ชื่อ/รหัสลูกค้ามีคำนี้ (ตัวกรองคอลัมน์ \"ลูกค้า\")",
+            "description": "ชื่อ/รหัสลูกค้า (ขาขาย) หรือผู้รับเหมา (ขาซื้อ) มีคำนี้ (ตัวกรองคอลัมน์แรก)",
             "schema": {
               "type": "string"
             }
@@ -9780,7 +9807,7 @@
         ],
         "responses": {
           "200": {
-            "description": "ไฟล์ .xlsx หรือ .csv ตามตัวกรองเดียวกับรายการ (สูงสุด 10,000 แถว) — คอลัมน์ราคาเฉพาะผู้มี `prices.sell:read`"
+            "description": "ไฟล์ .xlsx หรือ .csv ตามตัวกรองเดียวกับรายการ (สูงสุด 10,000 แถว) — คอลัมน์ราคาเฉพาะผู้มี `prices.sell:read` (ขาขาย) / `prices.buy:read` (ขาซื้อ)"
           }
         },
         "security": [
@@ -9979,7 +10006,7 @@
         ],
         "responses": {
           "200": {
-            "description": "ประวัติการแก้จาก audit log ใหม่สุดก่อน (ราคาถูกตัดตามสิทธิ์ `prices.sell:read`)",
+            "description": "ประวัติการแก้จาก audit log ใหม่สุดก่อน (ราคาถูกตัดตามสิทธิ์ `prices.sell:read` / `prices.buy:read`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -10205,6 +10232,68 @@
         ],
         "tags": [
           "rate-cards"
+        ]
+      }
+    },
+    "/v1/carriers/{id}/recent-prices": {
+      "get": {
+        "operationId": "CarrierRecentPrices_recentPrices",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "originId",
+            "required": false,
+            "in": "query",
+            "description": "เฉพาะเที่ยวที่ต้นทาง (จุดแรก) เป็นสถานที่นี้ (loc_…)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "destinationId",
+            "required": false,
+            "in": "query",
+            "description": "เฉพาะเที่ยวที่ปลายทาง (จุดสุดท้าย) เป็นสถานที่นี้ (loc_…)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "vehicleTypeId",
+            "required": false,
+            "in": "query",
+            "description": "เฉพาะเที่ยวที่ใช้รถประเภทนี้ (vty_…)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CarrierRecentPricesDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "carriers"
         ]
       }
     },
@@ -20248,6 +20337,11 @@
             "type": "string",
             "example": "300.00",
             "description": "ราคาขายเฉพาะ rate นี้ (เห็นเมื่อมี `prices.sell:read`)"
+          },
+          "buyPrice": {
+            "type": "string",
+            "example": "250.00",
+            "description": "ราคาซื้อเฉพาะ rate นี้ (ขาซื้อ — เห็นเมื่อมี `prices.buy:read`)"
           }
         },
         "required": [
@@ -20292,6 +20386,16 @@
               }
             ]
           },
+          "carrier": {
+            "nullable": true,
+            "description": "รถร่วม/ผู้รับเหมา (ขาซื้อ)",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/RatePartyRefDto"
+              }
+            ]
+          },
           "origin": {
             "$ref": "#/components/schemas/RateSiteRefDto"
           },
@@ -20324,7 +20428,7 @@
           "sellRate": {
             "type": "string",
             "example": "6500.00",
-            "description": "ราคาขายต่อหน่วยของสูตร (เห็นเมื่อมี `prices.sell:read`)"
+            "description": "ราคาขายต่อหน่วยของสูตร — rate ขาขาย (เห็นเมื่อมี `prices.sell:read`)"
           },
           "sellMinCharge": {
             "type": "string",
@@ -20334,6 +20438,21 @@
           "sellExtraStopRate": {
             "type": "string",
             "example": "300.00",
+            "nullable": true
+          },
+          "buyRate": {
+            "type": "string",
+            "example": "5200.00",
+            "description": "ราคาซื้อต่อหน่วยของสูตร — rate ขาซื้อ (เห็นเมื่อมี `prices.buy:read`)"
+          },
+          "buyMinCharge": {
+            "type": "string",
+            "example": "1200.00",
+            "nullable": true
+          },
+          "buyExtraStopRate": {
+            "type": "string",
+            "example": "250.00",
             "nullable": true
           },
           "includedStops": {
@@ -20416,6 +20535,7 @@
           "parentId",
           "side",
           "customer",
+          "carrier",
           "origin",
           "destination",
           "vehicleType",
@@ -20513,12 +20633,16 @@
           "sellPrice": {
             "type": "string",
             "example": "300.00",
-            "description": "ราคาขาย (บาท ก่อน VAT) ทศนิยม ≤ 2 — ต้องมีสิทธิ์ `prices.sell:write`"
+            "description": "ราคาขาย (บาท ก่อน VAT) ทศนิยม ≤ 2 — rate ขาขายเท่านั้น · ต้องมีสิทธิ์ `prices.sell:write`"
+          },
+          "buyPrice": {
+            "type": "string",
+            "example": "250.00",
+            "description": "ราคาซื้อ (บาท ก่อน VAT) ทศนิยม ≤ 2 — rate ขาซื้อเท่านั้น · ต้องมีสิทธิ์ `prices.buy:write`"
           }
         },
         "required": [
-          "serviceItemId",
-          "sellPrice"
+          "serviceItemId"
         ]
       },
       "CreateRateCardDto": {
@@ -20544,7 +20668,7 @@
           "sellRate": {
             "type": "string",
             "example": "6500.00",
-            "description": "ราคาขายต่อหน่วยของสูตร (บาท) — ต่อเที่ยว/กม./ตัน/ลบ.ม./หน่วย · ต้องมีสิทธิ์ `prices.sell:write` (เห็นเมื่อมี `prices.sell:read`)"
+            "description": "ราคาขายต่อหน่วยของสูตร (บาท) — ต่อเที่ยว/กม./ตัน/ลบ.ม./หน่วย · rate ขาขาย · ต้องมีสิทธิ์ `prices.sell:write` (เห็นเมื่อมี `prices.sell:read`)"
           },
           "sellMinCharge": {
             "type": "string",
@@ -20557,6 +20681,23 @@
             "example": "300.00",
             "nullable": true,
             "description": "ค่าจุดเพิ่มต่อจุด เมื่อจำนวนจุดเกิน `includedStops` (MD-115) · null = ไม่คิด"
+          },
+          "buyRate": {
+            "type": "string",
+            "example": "5200.00",
+            "description": "ราคาซื้อต่อหน่วยของสูตร (บาท) — rate ขาซื้อ · ต้องมีสิทธิ์ `prices.buy:write` (เห็นเมื่อมี `prices.buy:read`)"
+          },
+          "buyMinCharge": {
+            "type": "string",
+            "example": "1200.00",
+            "nullable": true,
+            "description": "ขั้นต่ำต่อเที่ยว (บาท) ขาซื้อ · null = ไม่มี"
+          },
+          "buyExtraStopRate": {
+            "type": "string",
+            "example": "250.00",
+            "nullable": true,
+            "description": "ค่าจุดเพิ่มต่อจุด ขาซื้อ (เกิน `includedStops`) · null = ไม่คิด"
           },
           "includedStops": {
             "type": "number",
@@ -20594,7 +20735,12 @@
           "customerId": {
             "type": "string",
             "example": "cus_3f2a…",
-            "description": "ลูกค้า (ขาขาย)"
+            "description": "ลูกค้า (ขาขายเท่านั้น)"
+          },
+          "carrierId": {
+            "type": "string",
+            "example": "car_3f2a…",
+            "description": "รถร่วม/ผู้รับเหมา (ขาซื้อเท่านั้น — ST2-T05 `carriers`)"
           },
           "originId": {
             "type": "string",
@@ -20619,15 +20765,16 @@
           "side": {
             "type": "string",
             "enum": [
-              "SELL"
+              "SELL",
+              "BUY"
             ],
             "default": "SELL",
-            "description": "ฝั่ง — ตอนนี้รับเฉพาะ SELL (ขาซื้อมาใน ST2-T14)"
+            "description": "ฝั่ง — SELL (ลูกค้า, ต้องมี `prices.sell:write`) · BUY (รถร่วม, ต้องมี `prices.buy:write`)"
           },
           "code": {
             "type": "string",
             "example": "RC-S-0001",
-            "description": "รหัส — ไม่ส่ง = ระบบออกเลขถัดไป (RC-S-0001)"
+            "description": "รหัส — ไม่ส่ง = ระบบออกเลขถัดไป (ขาขาย RC-S-0001 · ขาซื้อ RC-B-0001)"
           },
           "externalId": {
             "type": "string",
@@ -20658,7 +20805,7 @@
           "sellRate": {
             "type": "string",
             "example": "6500.00",
-            "description": "ราคาขายต่อหน่วยของสูตร (บาท) — ต่อเที่ยว/กม./ตัน/ลบ.ม./หน่วย · ต้องมีสิทธิ์ `prices.sell:write` (เห็นเมื่อมี `prices.sell:read`)"
+            "description": "ราคาขายต่อหน่วยของสูตร (บาท) — ต่อเที่ยว/กม./ตัน/ลบ.ม./หน่วย · rate ขาขาย · ต้องมีสิทธิ์ `prices.sell:write` (เห็นเมื่อมี `prices.sell:read`)"
           },
           "sellMinCharge": {
             "type": "string",
@@ -20671,6 +20818,23 @@
             "example": "300.00",
             "nullable": true,
             "description": "ค่าจุดเพิ่มต่อจุด เมื่อจำนวนจุดเกิน `includedStops` (MD-115) · null = ไม่คิด"
+          },
+          "buyRate": {
+            "type": "string",
+            "example": "5200.00",
+            "description": "ราคาซื้อต่อหน่วยของสูตร (บาท) — rate ขาซื้อ · ต้องมีสิทธิ์ `prices.buy:write` (เห็นเมื่อมี `prices.buy:read`)"
+          },
+          "buyMinCharge": {
+            "type": "string",
+            "example": "1200.00",
+            "nullable": true,
+            "description": "ขั้นต่ำต่อเที่ยว (บาท) ขาซื้อ · null = ไม่มี"
+          },
+          "buyExtraStopRate": {
+            "type": "string",
+            "example": "250.00",
+            "nullable": true,
+            "description": "ค่าจุดเพิ่มต่อจุด ขาซื้อ (เกิน `includedStops`) · null = ไม่คิด"
           },
           "includedStops": {
             "type": "number",
@@ -20708,7 +20872,12 @@
           "customerId": {
             "type": "string",
             "example": "cus_3f2a…",
-            "description": "ลูกค้า (ขาขาย)"
+            "description": "ลูกค้า (ขาขายเท่านั้น)"
+          },
+          "carrierId": {
+            "type": "string",
+            "example": "car_3f2a…",
+            "description": "รถร่วม/ผู้รับเหมา (ขาซื้อเท่านั้น — ST2-T05 `carriers`)"
           },
           "originId": {
             "type": "string",
@@ -20729,6 +20898,15 @@
             "type": "string",
             "example": "svc_3f2a…",
             "description": "รายการบนเอกสารที่กำหนด vat_type/wht_rate ของค่าขนส่งจาก rate นี้ — ไม่ส่งตอนสร้าง = ค่าขนส่ง (FREIGHT)"
+          },
+          "side": {
+            "type": "string",
+            "enum": [
+              "SELL",
+              "BUY"
+            ],
+            "default": "SELL",
+            "description": "ฝั่ง — ใช้ตอนสร้าง; แถวที่มีอยู่แล้วต้องเป็นฝั่งเดิม (ต่าง → 422 `side_locked`)"
           },
           "code": {
             "type": "string",
@@ -20760,7 +20938,7 @@
           "sellRate": {
             "type": "string",
             "example": "6500.00",
-            "description": "ราคาขายต่อหน่วยของสูตร (บาท) — ต่อเที่ยว/กม./ตัน/ลบ.ม./หน่วย · ต้องมีสิทธิ์ `prices.sell:write` (เห็นเมื่อมี `prices.sell:read`)"
+            "description": "ราคาขายต่อหน่วยของสูตร (บาท) — ต่อเที่ยว/กม./ตัน/ลบ.ม./หน่วย · rate ขาขาย · ต้องมีสิทธิ์ `prices.sell:write` (เห็นเมื่อมี `prices.sell:read`)"
           },
           "sellMinCharge": {
             "type": "string",
@@ -20773,6 +20951,23 @@
             "example": "300.00",
             "nullable": true,
             "description": "ค่าจุดเพิ่มต่อจุด เมื่อจำนวนจุดเกิน `includedStops` (MD-115) · null = ไม่คิด"
+          },
+          "buyRate": {
+            "type": "string",
+            "example": "5200.00",
+            "description": "ราคาซื้อต่อหน่วยของสูตร (บาท) — rate ขาซื้อ · ต้องมีสิทธิ์ `prices.buy:write` (เห็นเมื่อมี `prices.buy:read`)"
+          },
+          "buyMinCharge": {
+            "type": "string",
+            "example": "1200.00",
+            "nullable": true,
+            "description": "ขั้นต่ำต่อเที่ยว (บาท) ขาซื้อ · null = ไม่มี"
+          },
+          "buyExtraStopRate": {
+            "type": "string",
+            "example": "250.00",
+            "nullable": true,
+            "description": "ค่าจุดเพิ่มต่อจุด ขาซื้อ (เกิน `includedStops`) · null = ไม่คิด"
           },
           "includedStops": {
             "type": "number",
@@ -20810,7 +21005,12 @@
           "customerId": {
             "type": "string",
             "example": "cus_3f2a…",
-            "description": "ลูกค้า (ขาขาย)"
+            "description": "ลูกค้า (ขาขายเท่านั้น)"
+          },
+          "carrierId": {
+            "type": "string",
+            "example": "car_3f2a…",
+            "description": "รถร่วม/ผู้รับเหมา (ขาซื้อเท่านั้น — ST2-T05 `carriers`)"
           },
           "originId": {
             "type": "string",
@@ -20862,7 +21062,7 @@
           "sellRate": {
             "type": "string",
             "example": "6500.00",
-            "description": "ราคาขายต่อหน่วยของสูตร (บาท) — ต่อเที่ยว/กม./ตัน/ลบ.ม./หน่วย · ต้องมีสิทธิ์ `prices.sell:write` (เห็นเมื่อมี `prices.sell:read`)"
+            "description": "ราคาขายต่อหน่วยของสูตร (บาท) — ต่อเที่ยว/กม./ตัน/ลบ.ม./หน่วย · rate ขาขาย · ต้องมีสิทธิ์ `prices.sell:write` (เห็นเมื่อมี `prices.sell:read`)"
           },
           "sellMinCharge": {
             "type": "string",
@@ -20875,6 +21075,23 @@
             "example": "300.00",
             "nullable": true,
             "description": "ค่าจุดเพิ่มต่อจุด เมื่อจำนวนจุดเกิน `includedStops` (MD-115) · null = ไม่คิด"
+          },
+          "buyRate": {
+            "type": "string",
+            "example": "5200.00",
+            "description": "ราคาซื้อต่อหน่วยของสูตร (บาท) — rate ขาซื้อ · ต้องมีสิทธิ์ `prices.buy:write` (เห็นเมื่อมี `prices.buy:read`)"
+          },
+          "buyMinCharge": {
+            "type": "string",
+            "example": "1200.00",
+            "nullable": true,
+            "description": "ขั้นต่ำต่อเที่ยว (บาท) ขาซื้อ · null = ไม่มี"
+          },
+          "buyExtraStopRate": {
+            "type": "string",
+            "example": "250.00",
+            "nullable": true,
+            "description": "ค่าจุดเพิ่มต่อจุด ขาซื้อ (เกิน `includedStops`) · null = ไม่คิด"
           },
           "includedStops": {
             "type": "number",
@@ -20910,6 +21127,109 @@
             "description": "หมายเหตุ"
           }
         }
+      },
+      "RecentPriceSiteDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "loc_3f2a…"
+          },
+          "code": {
+            "type": "string",
+            "example": "LOC-0001"
+          },
+          "name": {
+            "type": "string",
+            "example": "คลังบางนา"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "name"
+        ]
+      },
+      "CarrierRecentPriceDto": {
+        "type": "object",
+        "properties": {
+          "tripId": {
+            "type": "string",
+            "example": "trp_3f2a…"
+          },
+          "tripNo": {
+            "type": "string",
+            "nullable": true,
+            "example": "TRP-2611-0001"
+          },
+          "date": {
+            "type": "string",
+            "example": "2026-11-03",
+            "format": "date",
+            "description": "วันที่ของเที่ยว"
+          },
+          "origin": {
+            "nullable": true,
+            "description": "จุดแรกของเที่ยว",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/RecentPriceSiteDto"
+              }
+            ]
+          },
+          "destination": {
+            "nullable": true,
+            "description": "จุดสุดท้ายของเที่ยว",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/RecentPriceSiteDto"
+              }
+            ]
+          },
+          "vehicleType": {
+            "type": "string",
+            "nullable": true,
+            "example": "6 ล้อ",
+            "description": "ประเภทรถ ณ วันจ่ายงาน"
+          },
+          "buyAmount": {
+            "type": "string",
+            "example": "5200.00",
+            "description": "ค่าจ้างรถร่วมของเที่ยว (ผลรวม cost line CARRIER_FEE ก่อน VAT) — เห็นเมื่อมี `prices.buy:read`"
+          },
+          "rateCardCode": {
+            "type": "string",
+            "nullable": true,
+            "example": "RC-B-0001",
+            "description": "rate card ขาซื้อที่ใช้ตอนจ่ายงาน (จาก snapshot) — null = ราคาตกลงเอง"
+          }
+        },
+        "required": [
+          "tripId",
+          "tripNo",
+          "date",
+          "origin",
+          "destination",
+          "vehicleType",
+          "rateCardCode"
+        ]
+      },
+      "CarrierRecentPricesDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "description": "ใหม่สุดก่อน ไม่เกิน 5 เที่ยว · ยังไม่เคยจ้าง = []",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CarrierRecentPriceDto"
+            }
+          }
+        },
+        "required": [
+          "data"
+        ]
       },
       "CarrierAddressDto": {
         "type": "object",

@@ -11,7 +11,7 @@ import {
   type Column,
 } from '@tms/ui';
 import { useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ApiError } from '../../api';
 import { useI18n } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
@@ -54,6 +54,7 @@ export function CarriersPage() {
   const { t } = useI18n();
   const me = useMe();
   const scopes = me.data?.scopes ?? [];
+  const nav = useNavigate();
   const canWrite = can(scopes, 'master:write');
   const canExport = can(scopes, 'export:run');
   const canBank = can(scopes, 'settlements:pay');
@@ -338,18 +339,29 @@ export function CarriersPage() {
                 filters={{ ...filters }}
                 onFilterChange={(k, v) => setF(k as keyof CarrierFilters, v)}
                 onRowClick={open}
-                rowMenu={(r) =>
-                  canWrite
+                rowMenu={(r) => [
+                  ...(canWrite
+                    ? [{ label: t('car.menu.edit'), icon: 'pencil', run: () => open(r) }]
+                    : [{ label: t('car.menu.view'), icon: 'eye', run: () => open(r) }]),
+                  // ต้นแบบ :3735 "ดู rate ขาซื้อ" → หน้า Rate card ฝั่งขาซื้อ กรองผู้รับเหมานี้ (ST2-T14)
+                  {
+                    label: t('car.menu.rateBuy'),
+                    icon: 'tags',
+                    run: () =>
+                      nav(
+                        `/master/rate-cards?side=buy&carrier=${encodeURIComponent(r.id)}&party=${encodeURIComponent(r.legalName)}`,
+                      ),
+                  },
+                  ...(canWrite
                     ? [
-                        { label: t('car.menu.edit'), icon: 'pencil', run: () => open(r) },
                         {
                           label: t(r.status === 'active' ? 'car.menu.off' : 'car.menu.on'),
                           icon: r.status === 'active' ? 'pause' : 'play',
                           run: () => toggleStatus(r),
                         },
                       ]
-                    : [{ label: t('car.menu.view'), icon: 'eye', run: () => open(r) }]
-                }
+                    : []),
+                ]}
                 {...(canExport
                   ? {
                       bulkActions: [

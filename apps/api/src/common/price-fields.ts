@@ -22,7 +22,7 @@ import { requestContext } from './request-context';
  * 2. เงินส่งเป็น string "0.00" ก่อนออกจาก controller — ห้ามคืน Decimal/class instance (walker ไม่แตะ object ที่ไม่ใช่ plain)
  * 3. ช่องทางที่ไม่ผ่าน JSON response (PDF, CSV, webhook, outbox, อีเมล, audit diff, ผลของ job ที่เป็น string)
  *    ต้องเรียก `redactPrices(payload, scopesของผู้รับ)` เอง
- * 4. การเขียนราคาขายต้องมี `prices.sell:write` — body ที่มี field ราคาขายจากผู้ไม่มีสิทธิ์ → 403 (interceptor นี้ตรวจให้)
+ * 4. การเขียนราคาขายต้องมี `prices.sell:write` / ราคาซื้อต้องมี `prices.buy:write` — body ที่มี field ราคาจากผู้ไม่มีสิทธิ์ → 403 (interceptor นี้ตรวจให้)
  * 5. ห้ามใส่ราคาใน `extra` ของ ProblemException (filter เขียน response ตรง ไม่ผ่าน interceptor)
  * 6. field ราคาใน OpenAPI ต้อง `required: false` และบอกในคำอธิบายว่าขึ้นกับ `prices.*:read`
  */
@@ -87,31 +87,39 @@ export function redactPrices(
   return walk(value);
 }
 
-/** หา field ราคาขายใน body ที่ส่งเข้ามา (ทุกชั้น) — ใช้ตรวจสิทธิ์เขียน */
-export function findSellFields(value: unknown, path = ''): string[] {
+/** หา field ราคาของฝั่ง `kind` ใน body ที่ส่งเข้ามา (ทุกชั้น) — ใช้ตรวจสิทธิ์เขียน */
+export function findPriceFields(value: unknown, kind: PriceKind, path = ''): string[] {
   if (!value || typeof value !== 'object') return [];
-  if (Array.isArray(value)) return value.flatMap((x, i) => findSellFields(x, `${path}[${i}]`));
+  if (Array.isArray(value))
+    return value.flatMap((x, i) => findPriceFields(x, kind, `${path}[${i}]`));
   return Object.entries(value).flatMap(([k, x]) => [
-    ...(REGISTRY.get(k) === 'sell' ? [path ? `${path}.${k}` : k] : []),
-    ...findSellFields(x, path ? `${path}.${k}` : k),
+    ...(REGISTRY.get(k) === kind ? [path ? `${path}.${k}` : k] : []),
+    ...findPriceFields(x, kind, path ? `${path}.${k}` : k),
   ]);
 }
+
+/** หา field ราคาขายใน body ที่ส่งเข้ามา (ทุกชั้น) */
+export const findSellFields = (value: unknown, path = '') => findPriceFields(value, 'sell', path);
 
 @Injectable()
 export class PriceFieldInterceptor implements NestInterceptor {
   intercept(ctx: ExecutionContext, next: CallHandler): Observable<unknown> {
     const rc = requestContext.get();
-    // ขาเข้า: ส่ง field ราคาขายมาโดยไม่มีสิทธิ์แก้ → 403 (ไม่ใช่เงียบ ๆ บันทึก) — A3 "ดู/แก้ราคาขาย"
+    // ขาเข้า: ส่ง field ราคามาโดยไม่มีสิทธิ์แก้ → 403 (ไม่ใช่เงียบ ๆ บันทึก) — A3 "ดู/แก้ราคาขาย"
+    // ราคาซื้อ (ST2-T14 rate card ขาซื้อ) ต้องมี `prices.buy:write` · principal ภายนอกแก้ราคาไม่ได้ทั้งสองฝั่ง
     const req = ctx.switchToHttp().getRequest<{ body?: unknown }>();
-    const sent = findSellFields(req?.body);
     const external = rc?.principalType !== undefined && !INTERNAL_PRINCIPALS.has(rc.principalType);
-    if (sent.length && (external || !scopeAllows(rc?.scopes ?? [], 'prices.sell:write')))
-      throw new ProblemException('permission_denied', undefined, undefined, {
-        module: 'prices.sell',
-        action: 'write',
-        required: ['prices.sell:write'],
-        fields: sent,
-      });
+    for (const kind of ['sell', 'buy'] as const) {
+      const sent = findPriceFields(req?.body, kind);
+      const scope = `prices.${kind}:write`;
+      if (sent.length && (external || !scopeAllows(rc?.scopes ?? [], scope)))
+        throw new ProblemException('permission_denied', undefined, undefined, {
+          module: `prices.${kind}`,
+          action: 'write',
+          required: [scope],
+          fields: sent,
+        });
+    }
     return next.handle().pipe(
       // ยังไม่ผ่าน auth (route public) = ไม่มี scope ราคาใด ๆ
       map((body) => redactPrices(body, rc?.scopes ?? [], rc?.principalType)),

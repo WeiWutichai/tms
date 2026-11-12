@@ -10,6 +10,7 @@ import type { TransitionTable } from '@tms/domain';
 import { AuditService } from '../../audit/audit.service';
 import { encodeId, tryDecodeId } from '../../common/ids';
 import { redactPrices } from '../../common/price-fields';
+import { scopeAllows } from '@tms/domain';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
@@ -65,6 +66,7 @@ export const RATE_CARD_TRANSITIONS: TransitionTable<RateStatus, RateEvent> = {
 
 const INCLUDE = {
   customer: { select: { id: true, code: true, legalName: true, status: true } },
+  carrier: { select: { id: true, code: true, legalName: true, status: true } },
   origin: { select: { id: true, code: true, name: true, status: true } },
   dest: { select: { id: true, code: true, name: true, status: true } },
   vehicleType: { select: { id: true, code: true, nameTh: true, status: true } },
@@ -143,6 +145,27 @@ const money = (d: Prisma.Decimal | null) => (d === null ? null : d.toFixed(2));
 const normMoney = (s: string | null) => (s === null ? null : new Prisma.Decimal(s).toFixed(2));
 const st = (s: string) => s.toLowerCase() as 'active' | 'inactive';
 
+/** ชื่อ field ราคาตามฝั่ง — ขาขาย `sell*` / ขาซื้อ `buy*` (ตัดตามสิทธิ์ `prices.{sell|buy}:read` ที่ serializer) */
+const PX = {
+  SELL: { rate: 'sellRate', min: 'sellMinCharge', ex: 'sellExtraStopRate', acc: 'sellPrice' },
+  BUY: { rate: 'buyRate', min: 'buyMinCharge', ex: 'buyExtraStopRate', acc: 'buyPrice' },
+} as const satisfies Record<RateSide, Record<string, string>>;
+const other = (side: RateSide): RateSide => (side === 'SELL' ? 'BUY' : 'SELL');
+
+/**
+ * สิทธิ์เขียน/อนุมัติ rate ตามฝั่ง: ขาขาย `prices.sell:write` · ขาซื้อ `prices.buy:write` (ST2-T14)
+ * route ประกาศ scope ใดก็ได้ของสองตัวนี้ — ฝั่งจริงรู้จาก body (สร้าง) หรือแถว (ที่เหลือ) จึงตรวจที่นี่ → 403
+ */
+export function assertSideWrite(side: RateSide) {
+  const scope = side === 'SELL' ? 'prices.sell:write' : 'prices.buy:write';
+  if (!scopeAllows(requestContext.require().scopes ?? [], scope))
+    throw new ProblemException('permission_denied', undefined, undefined, {
+      module: scope.split(':')[0],
+      action: 'write',
+      required: [scope],
+    });
+}
+
 /** สถานะที่แสดง — APPROVED พ้นวันหมด (เวลาไทย) = expired */
 export function rateStatus(r: Pick<RateCard, 'status' | 'validTo'>, today: string): RateStatusKey {
   if (r.status === 'DRAFT') return 'draft';
@@ -164,21 +187,18 @@ const svcRef = (s: RateRow['serviceItem']): RateServiceItemRefDto => ({
 export function toRateCardDto(r: RateRow, today = bangkokToday()): RateCardDto {
   const status = rateStatus(r, today);
   const daysToExpiry = r.validTo ? daysBetween(today, day(r.validTo)) : null;
-  // ราคาขายใช้ชื่อ sell* (ตัดตามสิทธิ์ที่ serializer — common/price-fields) · ขาซื้อ (buy*) เพิ่มใน ST2-T14
+  // ราคาใช้ชื่อตามฝั่ง sell* / buy* (ตัดตามสิทธิ์ที่ serializer — common/price-fields)
+  const px = PX[r.side];
+  const party = (p: RateRow['customer'] | RateRow['carrier'], kind: 'customer' | 'carrier') =>
+    p ? { id: encodeId(kind, p.id), code: p.code, name: p.legalName, status: st(p.status) } : null;
   return {
     id: encodeId('rateCard', r.id),
     code: r.code,
     revision: r.revision,
     parentId: r.parentId ? encodeId('rateCard', r.parentId) : null,
     side: r.side,
-    customer: r.customer
-      ? {
-          id: encodeId('customer', r.customer.id),
-          code: r.customer.code,
-          name: r.customer.legalName,
-          status: st(r.customer.status),
-        }
-      : null,
+    customer: party(r.customer, 'customer'),
+    carrier: party(r.carrier, 'carrier'),
     origin: {
       id: encodeId('site', r.origin!.id),
       code: r.origin!.code,
@@ -201,14 +221,14 @@ export function toRateCardDto(r: RateRow, today = bangkokToday()): RateCardDto {
     unit: r.unit
       ? { id: encodeId('unit', r.unit.id), code: r.unit.code, name: r.unit.nameTh }
       : null,
-    sellRate: r.unitPrice.toFixed(2),
-    sellMinCharge: money(r.minCharge),
-    sellExtraStopRate: money(r.extraStopPrice),
+    [px.rate]: r.unitPrice.toFixed(2),
+    [px.min]: money(r.minCharge),
+    [px.ex]: money(r.extraStopPrice),
     includedStops: r.includedStops,
     serviceItem: svcRef(r.serviceItem),
     accessorials: r.accessorials.map((a) => ({
       serviceItem: svcRef(a.serviceItem),
-      sellPrice: a.price.toFixed(2),
+      [px.acc]: a.price.toFixed(2),
     })),
     validFrom: day(r.validFrom),
     validTo: r.validTo ? day(r.validTo) : null,
@@ -222,7 +242,7 @@ export function toRateCardDto(r: RateRow, today = bangkokToday()): RateCardDto {
     version: r.version,
     createdAt: r.createdAt.toISOString(),
     updatedAt: r.updatedAt.toISOString(),
-  };
+  } as RateCardDto;
 }
 
 /**
@@ -235,27 +255,29 @@ export function eventView(r: RateRow): Record<string, unknown> {
 
 /**
  * snapshot สำหรับ audit — อ้างด้วย id (ชื่อลูกค้า/สถานที่เปลี่ยนได้ ไม่นับเป็น diff) · สถานะในฐาน (ไม่ใช่ที่คำนวณจากวันที่)
- * เงินใช้ชื่อ sell* → ประวัติถูกตัดราคาตามสิทธิ์เหมือน response (PriceFieldInterceptor เดิน before/after)
+ * เงินใช้ชื่อ sell* / buy* ตามฝั่ง → ประวัติถูกตัดราคาตามสิทธิ์เหมือน response (PriceFieldInterceptor เดิน before/after)
  */
 function auditView(r: RateRow): Record<string, unknown> {
+  const px = PX[r.side];
   return {
     code: r.code,
     revision: r.revision,
     side: r.side,
     customerId: r.customerId ? encodeId('customer', r.customerId) : null,
+    carrierId: r.carrierId ? encodeId('carrier', r.carrierId) : null,
     originId: r.originSiteId ? encodeId('site', r.originSiteId) : null,
     destinationId: r.destSiteId ? encodeId('site', r.destSiteId) : null,
     vehicleTypeId: encodeId('vehicleType', r.vehicleTypeId),
     pricingModel: r.pricingModel,
     unitId: r.unitId ? encodeId('unit', r.unitId) : null,
-    sellRate: r.unitPrice.toFixed(2),
-    sellMinCharge: money(r.minCharge),
-    sellExtraStopRate: money(r.extraStopPrice),
+    [px.rate]: r.unitPrice.toFixed(2),
+    [px.min]: money(r.minCharge),
+    [px.ex]: money(r.extraStopPrice),
     includedStops: r.includedStops,
     serviceItemId: encodeId('serviceItem', r.serviceItemId),
     accessorials: r.accessorials.map((a) => ({
       serviceItemId: encodeId('serviceItem', a.serviceItemId),
-      sellPrice: a.price.toFixed(2),
+      [px.acc]: a.price.toFixed(2),
     })),
     validFrom: day(r.validFrom),
     validTo: r.validTo ? day(r.validTo) : null,
@@ -297,11 +319,43 @@ function ref(kind: Parameters<typeof tryDecodeId>[0], value: string, field: stri
   return id;
 }
 
+type TermsInput = RateCardTermsDto & Partial<UpdateRateCardDto>;
+
+/**
+ * ส่งข้อมูลของอีกฝั่งมา (ลูกค้าใน rate ขาซื้อ, รถร่วมใน rate ขาขาย, ราคา sell* ใน rate ขาซื้อ …) → 422 `wrong_side`
+ * (ไม่เงียบทิ้ง — ผู้เรียกจะเข้าใจผิดว่าบันทึกแล้ว)
+ */
+function assertSideFields(side: RateSide, input: TermsInput) {
+  const o = PX[other(side)];
+  const wrong: string[] = [
+    ...(side === 'SELL' ? ['carrierId'] : ['customerId']),
+    o.rate,
+    o.min,
+    o.ex,
+  ];
+  const rec = input as Record<string, unknown>;
+  for (const f of wrong)
+    if (rec[f] !== undefined)
+      throw field422(f, 'wrong_side', `${f} does not apply to a ${side} rate`);
+  input.accessorials?.forEach((a, i) => {
+    if ((a as unknown as Record<string, unknown>)[o.acc] !== undefined)
+      throw field422(
+        `accessorials.${i}.${o.acc}`,
+        'wrong_side',
+        `${o.acc} does not apply to a ${side} rate`,
+      );
+  });
+}
+
 /** รวม input เข้ากับค่าเดิม (undefined = คงเดิม, null = ล้าง) */
-function merge(base: Resolved, input: RateCardTermsDto & Partial<UpdateRateCardDto>): Resolved {
+function merge(base: Resolved, input: TermsInput): Resolved {
+  assertSideFields(base.side, input);
+  const px = PX[base.side];
+  const rec = input as Record<string, string | null | undefined>;
   const out: Resolved = { ...base, accessorials: [...base.accessorials] };
   if (input.customerId !== undefined)
     out.customerId = ref('customer', input.customerId, 'customerId');
+  if (input.carrierId !== undefined) out.carrierId = ref('carrier', input.carrierId, 'carrierId');
   if (input.originId !== undefined) out.originSiteId = ref('site', input.originId, 'originId');
   if (input.destinationId !== undefined)
     out.destSiteId = ref('site', input.destinationId, 'destinationId');
@@ -316,20 +370,24 @@ function merge(base: Resolved, input: RateCardTermsDto & Partial<UpdateRateCardD
   }
   if (input.unitId !== undefined)
     out.unitId = input.unitId === null ? null : ref('unit', input.unitId, 'unitId');
-  if (input.sellRate !== undefined) out.unitPrice = normMoney(input.sellRate);
-  if (input.sellMinCharge !== undefined) out.minCharge = normMoney(input.sellMinCharge);
-  if (input.sellExtraStopRate !== undefined)
-    out.extraStopPrice = normMoney(input.sellExtraStopRate);
+  if (rec[px.rate] !== undefined) out.unitPrice = normMoney(rec[px.rate]!);
+  if (rec[px.min] !== undefined) out.minCharge = normMoney(rec[px.min]!);
+  if (rec[px.ex] !== undefined) out.extraStopPrice = normMoney(rec[px.ex]!);
   if (input.includedStops !== undefined) out.includedStops = input.includedStops;
   if (input.validFrom !== undefined) out.validFrom = input.validFrom;
   if (input.validTo !== undefined) out.validTo = input.validTo;
   if (input.notes !== undefined) out.notes = input.notes === '' ? null : input.notes;
   if (input.accessorials !== undefined)
     out.accessorials = input.accessorials
-      .map((a, i) => ({
-        serviceItemId: ref('serviceItem', a.serviceItemId, `accessorials.${i}.serviceItemId`),
-        price: normMoney(a.sellPrice)!,
-      }))
+      .map((a, i) => {
+        const price = (a as unknown as Record<string, string | undefined>)[px.acc];
+        if (price === undefined)
+          throw field422(`accessorials.${i}.${px.acc}`, 'required', `${px.acc} is required`);
+        return {
+          serviceItemId: ref('serviceItem', a.serviceItemId, `accessorials.${i}.serviceItemId`),
+          price: normMoney(price)!,
+        };
+      })
       .sort((a, b) => a.serviceItemId.localeCompare(b.serviceItemId));
   return out;
 }
@@ -341,11 +399,11 @@ function validateShape(r: Resolved): Complete {
     ['destSiteId', 'destinationId'],
     ['vehicleTypeId', 'vehicleTypeId'],
     ['pricingModel', 'pricingModel'],
-    ['unitPrice', 'sellRate'],
+    ['unitPrice', PX[r.side].rate],
     ['validFrom', 'validFrom'],
     ['serviceItemId', 'serviceItemId'],
   ];
-  if (r.side === 'SELL') required.unshift(['customerId', 'customerId']);
+  required.unshift(r.side === 'SELL' ? ['customerId', 'customerId'] : ['carrierId', 'carrierId']);
   for (const [k, field] of required)
     if (r[k] === null || r[k] === undefined)
       throw field422(field, 'required', `${field} is required`);
@@ -428,6 +486,7 @@ export class RateCardsService {
     if (q.externalId) and.push({ externalId: q.externalId });
     // id ที่ผ่าน regex แล้ว decode ได้เสมอ
     if (q.customerId) and.push({ customerId: tryDecodeId('customer', q.customerId)! });
+    if (q.carrierId) and.push({ carrierId: tryDecodeId('carrier', q.carrierId)! });
     if (q.originId) and.push({ originSiteId: tryDecodeId('site', q.originId)! });
     if (q.destinationId) and.push({ destSiteId: tryDecodeId('site', q.destinationId)! });
     if (q.vehicleTypeId) and.push({ vehicleTypeId: tryDecodeId('vehicleType', q.vehicleTypeId)! });
@@ -436,6 +495,8 @@ export class RateCardsService {
     const partyLike = (v: string): Prisma.RateCardWhereInput[] => [
       { customer: { legalName: like(v) } },
       { customer: { code: like(v) } },
+      { carrier: { legalName: like(v) } },
+      { carrier: { code: like(v) } },
     ];
     const siteLike = (v: string): Prisma.RateCardWhereInput[] => [
       { origin: { name: like(v) } },
@@ -484,13 +545,18 @@ export class RateCardsService {
     return rows.map((r) => toRateCardDto(r, today));
   }
 
-  async summary(side: RateSide = 'SELL', customerId?: string): Promise<RateCardSummaryDto> {
+  async summary(
+    side: RateSide = 'SELL',
+    customerId?: string,
+    carrierId?: string,
+  ): Promise<RateCardSummaryDto> {
     const tx = this.db.tx;
     const today = bangkokToday();
     const base: Prisma.RateCardWhereInput = {
       side,
       deletedAt: null,
       ...(customerId ? { customerId: tryDecodeId('customer', customerId)! } : {}),
+      ...(carrierId ? { carrierId: tryDecodeId('carrier', carrierId)! } : {}),
     };
     const g = await tx.rateCard.groupBy({ by: ['status'], where: base, _count: { _all: true } });
     const n = (s: RateStatus) => g.find((x) => x.status === s)?._count._all ?? 0;
@@ -571,6 +637,85 @@ export class RateCardsService {
     };
   }
 
+  /**
+   * ราคา 5 ครั้งล่าสุดที่จ้างรถร่วมรายนี้ (ST2-T14; docs/04 B "Rate card ขาซื้อ" + D2 PL4 "เลือก carrier + ราคาซื้อ")
+   * ที่มา = cost line `trip_cost` ชนิด CARRIER_FEE ของเที่ยวที่ไม่ถูกยกเลิก (รวมต่อเที่ยว — เที่ยวหนึ่งมีได้หลายบรรทัด)
+   * ผูกรถร่วมด้วย `trip_cost.carrier_id` (ไม่มี → `trip.carrier_id`) · ต้นทาง/ปลายทาง = จุดแรก/จุดสุดท้ายของเที่ยว
+   * ประเภทรถกรองด้วยรถที่ใช้ (`vehicle.vehicle_type_id`) · แสดงชื่อจาก snapshot ตอนจ่ายงาน
+   * rate card ที่ใช้ = `trip.buy_rate_snapshot.rateCardCode` (ST3 จ่ายงานต้องเขียนลง snapshot) · ยังไม่เคยจ้าง = []
+   * เงินคืนเป็นสตริง (`buyAmount` ตัดตามสิทธิ์ `prices.buy:read` — route บังคับสิทธิ์นี้อยู่แล้ว)
+   */
+  async recentCarrierPrices(
+    carrierId: string,
+    q: { originId?: string; destinationId?: string; vehicleTypeId?: string },
+  ) {
+    const tx = this.db.tx;
+    const carrier = await tx.carrier.findFirst({
+      where: { id: carrierId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!carrier) throw new ProblemException('not_found');
+    const origin = q.originId ? tryDecodeId('site', q.originId) : null;
+    const dest = q.destinationId ? tryDecodeId('site', q.destinationId) : null;
+    const vt = q.vehicleTypeId ? tryDecodeId('vehicleType', q.vehicleTypeId) : null;
+    const rows = await tx.$queryRaw<
+      {
+        trip_id: string;
+        trip_no: string | null;
+        trip_date: Date;
+        vehicle_type: string | null;
+        rate_code: string | null;
+        amount: Prisma.Decimal;
+        o_id: string | null;
+        o_code: string | null;
+        o_name: string | null;
+        d_id: string | null;
+        d_code: string | null;
+        d_name: string | null;
+      }[]
+    >`
+      WITH fee AS (
+        SELECT tc.trip_id, sum(tc.amount) AS amount, max(tc.created_at) AS last_at
+          FROM trip_cost tc JOIN trip t ON t.id = tc.trip_id
+         WHERE tc.cost_type = 'CARRIER_FEE' AND COALESCE(tc.carrier_id, t.carrier_id) = ${carrierId}::uuid
+         GROUP BY tc.trip_id
+      ), ends AS (
+        SELECT t.id AS trip_id,
+          (SELECT s.site_id FROM trip_stop s WHERE s.trip_id = t.id ORDER BY s.sequence ASC LIMIT 1) AS o,
+          (SELECT s.site_id FROM trip_stop s WHERE s.trip_id = t.id ORDER BY s.sequence DESC LIMIT 1) AS d
+          FROM trip t WHERE t.id IN (SELECT trip_id FROM fee)
+      )
+      SELECT t.id::text AS trip_id, t.trip_no, t.trip_date, t.vehicle_type_snapshot AS vehicle_type,
+             COALESCE(t.buy_rate_snapshot->>'rateCardCode', t.buy_rate_snapshot->>'code') AS rate_code,
+             fee.amount,
+             os.id::text AS o_id, os.code AS o_code, os.name AS o_name,
+             ds.id::text AS d_id, ds.code AS d_code, ds.name AS d_name
+        FROM fee
+        JOIN trip t ON t.id = fee.trip_id
+        JOIN ends e ON e.trip_id = t.id
+        LEFT JOIN customer_site os ON os.id = e.o
+        LEFT JOIN customer_site ds ON ds.id = e.d
+        LEFT JOIN vehicle v ON v.id = t.vehicle_id
+       WHERE t.status <> 'CANCELLED'
+         AND (${origin}::uuid IS NULL OR e.o = ${origin}::uuid)
+         AND (${dest}::uuid IS NULL OR e.d = ${dest}::uuid)
+         AND (${vt}::uuid IS NULL OR v.vehicle_type_id = ${vt}::uuid)
+       ORDER BY t.trip_date DESC, fee.last_at DESC, t.id
+       LIMIT 5`;
+    const site = (id: string | null, code: string | null, name: string | null) =>
+      id ? { id: encodeId('site', id), code: code!, name: name! } : null;
+    return rows.map((r) => ({
+      tripId: encodeId('trip', r.trip_id),
+      tripNo: r.trip_no,
+      date: day(r.trip_date),
+      origin: site(r.o_id, r.o_code, r.o_name),
+      destination: site(r.d_id, r.d_code, r.d_name),
+      vehicleType: r.vehicle_type,
+      buyAmount: new Prisma.Decimal(r.amount).toFixed(2),
+      rateCardCode: r.rate_code,
+    }));
+  }
+
   // ---------- write helpers ----------
 
   private keyOf(r: Complete): string {
@@ -590,7 +735,7 @@ export class RateCardsService {
     const tx = this.db.tx;
     const want = (f: string) => !only || only.has(f);
     const check = async (
-      table: 'customer' | 'customer_site' | 'vehicle_type' | 'unit',
+      table: 'customer' | 'carrier' | 'customer_site' | 'vehicle_type' | 'unit',
       items: { id: string; field: string }[],
       inactiveCode: string,
     ) => {
@@ -610,6 +755,9 @@ export class RateCardsService {
     };
     if (r.customerId)
       await check('customer', [{ id: r.customerId, field: 'customerId' }], 'customer_inactive');
+    // ขาซื้อ: รถร่วมที่ระงับชั่วคราว (INACTIVE) ทำ rate ใหม่/อนุมัติไม่ได้ → 422 `carrier_inactive`
+    if (r.carrierId)
+      await check('carrier', [{ id: r.carrierId, field: 'carrierId' }], 'carrier_inactive');
     await check(
       'customer_site',
       [
@@ -620,6 +768,7 @@ export class RateCardsService {
     );
     // สถานที่ของลูกค้ารายอื่นใช้เป็นต้นทาง/ปลายทางไม่ได้ — ใช้ได้เฉพาะจุดของลูกค้ารายนี้หรือจุดของบริษัทเอง (คลัง ไม่มีลูกค้า)
     // spec/02 §2/§5 ไม่ระบุชัด → [DECISION — ย้อนได้ spec/12 §3] (review ST2-T13)
+    // ขาซื้อ (ไม่มีลูกค้า): รถร่วมวิ่งไปจุดของลูกค้ารายใดก็ได้ → สถานที่ที่ใช้งานของบริษัททุกจุด [DECISION ST2-T14]
     if (r.customerId && (want('originId') || want('destinationId') || want('customerId'))) {
       const owners = await tx.customerSite.findMany({
         where: { id: { in: [r.originSiteId, r.destSiteId] } },
@@ -870,7 +1019,8 @@ export class RateCardsService {
 
   async create(input: CreateRateCardDto | (UpsertRateCardDto & { externalId: string })) {
     const tx = this.db.tx;
-    const side: RateSide = 'SELL';
+    const side: RateSide = input.side ?? 'SELL';
+    assertSideWrite(side);
     const base: Resolved = {
       side,
       customerId: null,
@@ -935,6 +1085,7 @@ export class RateCardsService {
   async update(id: string, input: UpdateRateCardDto, expected?: number): Promise<RateRow> {
     const tx = this.db.tx;
     const current = await this.get(id);
+    assertSideWrite(current.side);
     if (expected !== undefined && expected !== current.version)
       throw new ProblemException('precondition_failed');
     if (current.status !== 'DRAFT')
@@ -945,6 +1096,7 @@ export class RateCardsService {
     if (current.parentId)
       for (const [k, f] of [
         ['customerId', 'customerId'],
+        ['carrierId', 'carrierId'],
         ['originSiteId', 'originId'],
         ['destSiteId', 'destinationId'],
         ['vehicleTypeId', 'vehicleTypeId'],
@@ -960,6 +1112,7 @@ export class RateCardsService {
       (
         [
           ['customerId', 'customerId'],
+          ['carrierId', 'carrierId'],
           ['originSiteId', 'originId'],
           ['destSiteId', 'destinationId'],
           ['vehicleTypeId', 'vehicleTypeId'],
@@ -1014,7 +1167,10 @@ export class RateCardsService {
         tx.rateCard.findFirst({ where: { externalId, deletedAt: null }, include: INCLUDE }),
       create: () => this.create({ ...input, externalId }),
       update: (cur) => {
-        const { code: _code, ...rest } = input;
+        const { code: _code, side, ...rest } = input;
+        // ฝั่งเปลี่ยนไม่ได้ (key ต่างชนิดกัน) — สร้าง externalId ใหม่แทน
+        if (side !== undefined && side !== cur.side)
+          throw field422('side', 'side_locked', 'side of an existing rate cannot change');
         return this.update(cur.id, rest, expected);
       },
     });
@@ -1028,6 +1184,7 @@ export class RateCardsService {
   async revise(id: string, input: ReviseRateCardDto, expected?: number): Promise<RateRow> {
     const tx = this.db.tx;
     const current = await this.get(id);
+    assertSideWrite(current.side);
     if (expected !== undefined && expected !== current.version)
       throw new ProblemException('precondition_failed');
     if (current.status !== 'APPROVED')
@@ -1092,6 +1249,7 @@ export class RateCardsService {
   async approve(id: string, reason: string, expected?: number): Promise<RateRow> {
     const tx = this.db.tx;
     const current = await this.get(id);
+    assertSideWrite(current.side);
     if (expected !== undefined && expected !== current.version)
       throw new ProblemException('precondition_failed');
     const r = validateShape(fromRow(current));
@@ -1281,6 +1439,7 @@ export class RateCardsService {
   async cancel(id: string, reason: string, expected?: number): Promise<RateRow> {
     const tx = this.db.tx;
     const current = await this.get(id);
+    assertSideWrite(current.side);
     if (expected !== undefined && expected !== current.version)
       throw new ProblemException('precondition_failed');
     if (current.status === 'DRAFT')
@@ -1324,6 +1483,7 @@ export class RateCardsService {
   async remove(id: string, reason: string, expected?: number): Promise<void> {
     const tx = this.db.tx;
     const current = await this.get(id);
+    assertSideWrite(current.side);
     if (expected !== undefined && expected !== current.version)
       throw new ProblemException('precondition_failed');
     if (current.status !== 'DRAFT')

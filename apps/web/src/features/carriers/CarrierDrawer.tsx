@@ -7,6 +7,10 @@ import { useCompanyOptions } from '../customers/useCustomers';
 import { HistoryTab } from '../master/HistoryTab';
 import { fieldErrors, isStale, problemText } from '../master/problems';
 import { RefPicker, type RefOption } from '../master/RefPicker';
+import { can } from '../../nav';
+import { useMe } from '../../shell/AppShell';
+import { money } from '../rate-cards/rateFormat';
+import { useRecentPrices } from '../rate-cards/useRateCards';
 import {
   BANK_CODES,
   searchCarriers,
@@ -139,6 +143,23 @@ function Kv({ k, v }: { k: string; v: ReactNode }) {
   );
 }
 
+/** ต้นแบบ this.num(): ตัวเลขมีคอมมา ไม่บังคับทศนิยม (เงินจาก API เป็นสตริง — ไม่แปลงเป็น float) */
+const plain = (v: string) => money(v).replace(/\.00$/, '');
+
+/** ราคา 5 ครั้งล่าสุดที่จ้างรายนี้ (ต้นแบบ kv mono 13px) — ไม่มี `prices.buy:read` ไม่เรียก API */
+function Last5({ id }: { id: string }) {
+  const me = useMe();
+  const allowed = can(me.data?.scopes ?? [], 'prices.buy:read');
+  const q = useRecentPrices(id, allowed);
+  const list = (q.data?.data ?? []).filter((p) => p.buyAmount !== undefined);
+  if (!list.length) return <>—</>;
+  return (
+    <span style={{ fontSize: 13, fontVariantNumeric: 'tabular-nums' }}>
+      {list.map((p) => plain(p.buyAmount!)).join(' · ')}
+    </span>
+  );
+}
+
 export function CarrierBadge({ c, t }: { c: Carrier | null; t: T }) {
   if (!c) return <Badge label={t('car.st.draft')} tone="off" icon="file" />;
   return c.status === 'active' ? (
@@ -154,7 +175,8 @@ export function CarrierBadge({ c, t }: { c: Carrier | null; t: T }) {
  * ปุ่ม "บันทึก" เดียว (สร้าง = POST + Idempotency-Key, แก้ = PATCH + If-Match) · สถานะเป็นระงับ → ขอเหตุผลก่อน (A3/กฎร่วม)
  * ส่วนที่ต้นแบบไม่มี [OPEN spec/12 §3]: "ข้อมูลเพิ่มเติม" (สาขา ที่อยู่ เบอร์ เงื่อนไขจ่าย ไม่มี POD ไม่จ่าย สังกัด จ้างในนาม
  * เพดานเที่ยว/วัน ลำดับ — ฟิลด์ตาม backlog ST2-T05), บัญชีรับเงินแยก ธนาคาร/เลขบัญชี/ชื่อบัญชี (เลขบัญชีเข้ารหัส แสดง •••• 1234),
- * คะแนนตรงเวลา/ตีกลับ/ราคา 5 ครั้งล่าสุด = "—" จนกว่าจะมีเที่ยว (ST3/ST6), เอกสารแนบยังไม่มีที่เก็บต่อผู้รับเหมา (ST2-T20/T21)
+ * คะแนนตรงเวลา/ตีกลับ = "—" จนกว่าจะมีเที่ยว (ST3/ST6), เอกสารแนบยังไม่มีที่เก็บต่อผู้รับเหมา (ST2-T20/T21)
+ * ราคา 5 ครั้งล่าสุด (ST2-T14) = `GET /v1/carriers/{id}/recent-prices` ใหม่สุดก่อน คั่น " · " (ต้นแบบ c.last) — ไม่มีสิทธิ์ดูราคาซื้อ/ยังไม่เคยจ้าง = "—"
  */
 export function CarrierDrawer({
   carrier: c,
@@ -438,7 +460,7 @@ export function CarrierDrawer({
                 <Kv k={t('car.k.ot')} v="—" />
                 <Kv k={t('car.k.ret')} v="—" />
                 <Kv k={t('car.k.veh')} v={t('car.units', { n: c.usage.vehicles })} />
-                <Kv k={t('car.k.last5')} v="—" />
+                <Kv k={t('car.k.last5')} v={<Last5 id={c.id} />} />
                 <Kv k={t('car.k.code')} v={<span className="tms-num">{c.code}</span>} />
               </div>
             </section>
