@@ -15,7 +15,7 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
-import { INTAKE_HOLD_CODES, ORDER_SOURCES, SO_STATUSES } from '@tms/domain';
+import { INTAKE_HOLD_CODES, ORDER_SOURCES, SO_FIELD_GROUPS, SO_STATUSES } from '@tms/domain';
 import { PriceField } from '../../common/price-fields';
 import { CleanText, IsOptionalNotNull } from '../master/master-kit';
 
@@ -374,9 +374,38 @@ export class OrderDto {
   sellCharges?: OrderChargeDto[];
   @ApiProperty({ type: [OrderStopDto] }) stops!: OrderStopDto[];
   @ApiProperty({ type: [OrderLineDto] }) lines!: OrderLineDto[];
+  @ApiPropertyOptional({
+    type: [String],
+    enum: SO_FIELD_GROUPS,
+    description:
+      'ช่องที่แก้ได้ในสถานะปัจจุบัน (spec/03 ORD-032) — มีเฉพาะ GET ทีละใบและผลของ POST/PUT/PATCH (ไม่อยู่ในรายการ) · ' +
+      'ว่าง = แก้ไม่ได้ (ปิดงาน/ยกเลิก) · ฟอร์มใช้ปิดช่องที่แก้ไม่ได้ก่อนส่ง (server ตรวจซ้ำ → 409 `order_locked_for_update`)',
+  })
+  editableFields?: string[];
   @ApiProperty() version!: number;
   @ApiProperty() createdAt!: string;
   @ApiProperty() updatedAt!: string;
+}
+
+/** ตัวนับของหน้ารายการใบสั่งขนส่ง (แถบสรุป + แท็บ — ต้นแบบ TMS v4 kpisX('so')) */
+export class OrderSummaryDto {
+  @ApiProperty({ description: 'ทุกใบ (รวมร่าง)' }) total!: number;
+  @ApiProperty({ description: 'ร่าง (ยังไม่ออกเลข SO)' }) draft!: number;
+  @ApiProperty({ description: 'ค้าง (ON_HOLD) ทุกเหตุ' }) onHold!: number;
+  @ApiProperty({
+    description: 'ค้างเพราะจับคู่สถานที่ไม่ได้ (LOCATION_UNMAPPED) — "รอกำหนดเส้นทาง"',
+  })
+  locationUnmapped!: number;
+  @ApiProperty({ description: 'ค้างเพราะจับคู่ลูกค้าไม่ได้ (CUSTOMER_UNMAPPED)' })
+  customerUnmapped!: number;
+  @ApiProperty({
+    description:
+      'เกินกำหนด: ยังไม่ออกรถ (RECEIVED/ON_HOLD/PLANNED) และวันรับของก่อนวันนี้ (เวลาไทย)',
+  })
+  overdue!: number;
+  @ApiProperty({ description: 'วางแผนแล้ว (PLANNED) ทั้งหมด' }) planned!: number;
+  @ApiProperty({ description: 'วางแผนแล้ว (PLANNED) ที่วันรับของ = วันนี้ (เวลาไทย)' })
+  plannedToday!: number;
 }
 
 export class OrderPageDto {

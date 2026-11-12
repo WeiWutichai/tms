@@ -3,7 +3,9 @@ import { Prisma } from '@prisma/client';
 import {
   formatOrderSource,
   parseOrderSource,
+  soEditableFields,
   type IntakeHold,
+  type SoStatus,
   type OrderSource,
   type OrderSourceRef,
 } from '@tms/domain';
@@ -20,6 +22,7 @@ import type {
   OrderDto,
   OrderFieldsDto,
   OrderListQuery,
+  OrderSummaryDto,
   SoStatusValue,
   UpdateOrderDto,
 } from './order.dto';
@@ -192,6 +195,57 @@ export class OrdersService {
     return o;
   }
 
+  /**
+   * ช่องที่แก้ได้ในสถานะปัจจุบัน (`soEditableFields` — กฎเดียวกับที่ upsertOrder ใช้ตอนเขียน) ให้ฟอร์มปิดช่องก่อนส่ง
+   * DO ของใบอยู่ในเที่ยวแล้ว = เหมือน PLANNED (ORD-023)
+   */
+  async editableFields(o: { id: string; status: string }): Promise<string[]> {
+    const onTrip =
+      (await this.db.tx.deliveryOrder.count({
+        where: { salesOrderId: o.id, tripId: { not: null }, status: { not: 'CANCELLED' } },
+      })) > 0;
+    return [...soEditableFields(o.status as SoStatus, onTrip)];
+  }
+
+  /** ตัวนับของหน้ารายการ (แถบสรุป/แท็บ) — วันนี้ตามเวลาไทย (Asia/Bangkok) */
+  async summary(): Promise<OrderSummaryDto> {
+    const tx = this.db.tx;
+    const today = new Date(
+      `${new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10)}T00:00:00Z`,
+    );
+    const [total, draft, onHold, planned, plannedToday, overdue, loc, cus] = await Promise.all([
+      tx.salesOrder.count(),
+      tx.salesOrder.count({ where: { status: 'DRAFT' } }),
+      tx.salesOrder.count({ where: { status: 'ON_HOLD' } }),
+      tx.salesOrder.count({ where: { status: 'PLANNED' } }),
+      tx.salesOrder.count({ where: { status: 'PLANNED', requestedDate: today } }),
+      tx.salesOrder.count({
+        where: { status: { in: ['RECEIVED', 'ON_HOLD', 'PLANNED'] }, requestedDate: { lt: today } },
+      }),
+      this.countHeld('LOCATION_UNMAPPED'),
+      this.countHeld('CUSTOMER_UNMAPPED'),
+    ]);
+    return {
+      total,
+      draft,
+      onHold,
+      locationUnmapped: loc,
+      customerUnmapped: cus,
+      overdue,
+      planned,
+      plannedToday,
+    };
+  }
+
+  /** ใบค้างที่มีเหตุนี้ (เหตุหลักหรือเหตุรอง — เงื่อนไขเดียวกับตัวกรอง `status=on_hold&holdReason=`) */
+  private async countHeld(code: string): Promise<number> {
+    return this.db.tx.salesOrder.count({
+      where: {
+        AND: [{ status: 'ON_HOLD' }, await this.where({ holdReason: code } as OrderListQuery)],
+      },
+    });
+  }
+
   /** ใบที่เหตุค้างของการรับงานครั้งล่าสุด (`pricing_detail.holds[].code`) มีรหัสใดรหัสหนึ่ง (RLS จำกัด tenant) */
   private async heldIds(codes: string[]): Promise<string[]> {
     const rows = await this.db.tx.$queryRaw<{ id: string }[]>`
@@ -361,7 +415,7 @@ function dateOr422(v: string, field: string): Date {
  * body (public id) → UpsertOrderInput (uuid) — `partial` (PATCH) = ช่องที่ไม่ส่งเป็น undefined
  * ข้อความสถานที่ของจุดที่ส่งมาแบบมีแต่ siteId: ใช้ข้อความเดิมของจุดลำดับเดียวกัน (upsertOrder) หรือชื่อสถานที่
  */
-function toInput(
+export function toInput(
   b: Partial<OrderFieldsDto>,
   partial = false,
 ): Omit<UpsertOrderInput, 'source'> & { requestedDate: string } {

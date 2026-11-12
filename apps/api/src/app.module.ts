@@ -70,6 +70,8 @@ import { PricingService } from './modules/pricing/pricing.service';
 import { OrderIntakeService } from './modules/orders/order-intake.service';
 import { OrdersController } from './modules/orders/orders.controller';
 import { OrdersService } from './modules/orders/orders.service';
+import { OrderTemplatesController } from './modules/orders/order-templates.controller';
+import { OrderTemplatesService } from './modules/orders/order-templates.service';
 import { VehicleTypesController } from './modules/vehicle-types/vehicle-types.controller';
 import { VehicleTypesService } from './modules/vehicle-types/vehicle-types.service';
 import { CarriersController } from './modules/carriers/carriers.controller';
@@ -127,6 +129,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     JobsController,
     CustomersController,
     OrdersController,
+    OrderTemplatesController,
     SitesController,
     RoutesController,
     ProductsController,
@@ -177,6 +180,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     PricingService,
     OrderIntakeService,
     OrdersService,
+    OrderTemplatesService,
     CarriersService,
     VehiclesService,
     DriversService,

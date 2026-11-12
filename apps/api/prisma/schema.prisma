@@ -1365,6 +1365,27 @@ model SalesOrderCharge {
   @@map("sales_order_charge")
 }
 
+/// เทมเพลตงานประจำ (ST3-T02; docs/04 C "กรอกมือ … template งานประจำ") — เก็บข้อมูลฟอร์มใบสั่งขนส่ง
+/// (payload รูปเดียวกับ body ของ POST /v1/orders ตรวจด้วยกฎชุดเดียว) ไว้สร้างใบใหม่ · ตั้งเวลาสร้างอัตโนมัติ = P1
+/// ชื่อ unique ต่อบริษัทเฉพาะที่ยังไม่ลบ (partial index ใน migration 0063) · ลบ = soft delete + เหตุผล
+model OrderTemplate {
+  id            String    @id @default(uuid()) @db.Uuid
+  tenantId      String    @map("tenant_id") @db.Uuid
+  name          String
+  /// OrderTemplatePayloadDto (public id) — ไม่มีราคา/สถานะ/externalId
+  payload       Json
+  createdBy     String?   @map("created_by") @db.Uuid
+  updatedBy     String?   @map("updated_by") @db.Uuid
+  version       Int       @default(1)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt     DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedReason String?   @map("deleted_reason")
+
+  @@index([tenantId, updatedAt, id])
+  @@map("order_template")
+}
+
 enum TripStatus {
   PLANNING
   OFFERED
