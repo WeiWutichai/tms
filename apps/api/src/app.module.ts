@@ -68,6 +68,8 @@ import {
 import { RateCardsService } from './modules/rate-cards/rate-cards.service';
 import { PricingService } from './modules/pricing/pricing.service';
 import { OrderIntakeService } from './modules/orders/order-intake.service';
+import { DeliveryOrderService } from './modules/delivery-orders/delivery-order.service';
+import { DeliveryOrdersController } from './modules/delivery-orders/delivery-orders.controller';
 import { OrdersController } from './modules/orders/orders.controller';
 import { OrdersService } from './modules/orders/orders.service';
 import { OrderTemplatesController } from './modules/orders/order-templates.controller';
@@ -138,6 +140,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     ServiceItemsController,
     ReasonCodesController,
     RateCardsController,
+    DeliveryOrdersController,
     CarrierRecentPricesController,
     CarriersController,
     VehiclesController,
@@ -179,6 +182,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     RateCardsService,
     PricingService,
     OrderIntakeService,
+    DeliveryOrderService,
     OrdersService,
     OrderTemplatesService,
     CarriersService,
