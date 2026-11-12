@@ -21,6 +21,13 @@
     { "schema": "UpsertOrderDto.billingCompanyId", "from": "object", "to": "string", "adr": "T-22" },
     { "schema": "UpsertOrderDto.customerRef", "from": "object", "to": "string", "adr": "T-22" },
     { "schema": "UpsertOrderDto.vehicleTypeId", "from": "object", "to": "string", "adr": "T-22" },
-    { "schema": "CancelDeliveryOrderDto.reasonCodeId", "from": "object", "to": "string", "adr": "T-22" }
+    { "schema": "CancelDeliveryOrderDto.reasonCodeId", "from": "object", "to": "string", "adr": "T-22" },
+    { "schema": "CreateTripDto.plannedStartAt", "from": "object", "to": "string", "adr": "T-22" },
+    { "schema": "CreateTripDto.plannedEndAt", "from": "object", "to": "string", "adr": "T-22" },
+    { "schema": "DetachDeliveryOrdersDto.note", "from": "object", "to": "string", "adr": "T-22" },
+    { "schema": "AssignTripDto.driverId", "from": "object", "to": "string", "adr": "T-22" },
+    { "schema": "AssignTripDto.reliefDriverId", "from": "object", "to": "string", "adr": "T-22" },
+    { "schema": "AssignTripDto.trailerId", "from": "object", "to": "string", "adr": "T-22" },
+    { "schema": "CancelTripDto.reasonCodeId", "from": "object", "to": "string", "adr": "T-22" }
   ]
 }

@@ -72,13 +72,23 @@ export class CreateTripDto extends DeliveryOrderIdsDto {
   @Matches(DATE_RE)
   tripDate!: string;
 
-  @ApiPropertyOptional({ example: '2026-11-13T08:00:00+07:00', description: 'เริ่มวิ่งตามแผน' })
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    example: '2026-11-13T08:00:00+07:00',
+    description: 'เริ่มวิ่งตามแผน',
+  })
   @IsOptional()
   @IsNullable()
   @IsISO8601({ strict: true })
   plannedStartAt?: string | null;
 
-  @ApiPropertyOptional({ example: '2026-11-13T17:00:00+07:00', description: 'จบตามแผน (≥ เริ่ม)' })
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    example: '2026-11-13T17:00:00+07:00',
+    description: 'จบตามแผน (≥ เริ่ม)',
+  })
   @IsOptional()
   @IsNullable()
   @IsISO8601({ strict: true })
@@ -88,7 +98,7 @@ export class CreateTripDto extends DeliveryOrderIdsDto {
 export class AttachDeliveryOrdersDto extends DeliveryOrderIdsDto {}
 
 export class DetachDeliveryOrdersDto extends DeliveryOrderIdsDto {
-  @ApiPropertyOptional({ maxLength: 500, example: 'ย้ายไปรถคันอื่น' })
+  @ApiPropertyOptional({ type: String, nullable: true, maxLength: 500, example: 'ย้ายไปรถคันอื่น' })
   @IsOptional()
   @IsNullable()
   @CleanText()
@@ -103,6 +113,8 @@ export class AssignTripDto {
   vehicleId!: string;
 
   @ApiPropertyOptional({
+    type: String,
+    nullable: true,
     example: 'drv_3f2a…',
     description: 'คนขับ — ไม่ส่ง = คนขับประจำของรถ (มีคนเดียว) · รถบริษัทต้องมีคนขับ',
   })
@@ -111,13 +123,23 @@ export class AssignTripDto {
   @Matches(DRV_ID)
   driverId?: string | null;
 
-  @ApiPropertyOptional({ example: 'drv_3f2a…', description: 'คนขับสำรอง (งานทางไกล)' })
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    example: 'drv_3f2a…',
+    description: 'คนขับสำรอง (งานทางไกล)',
+  })
   @IsOptional()
   @IsNullable()
   @Matches(DRV_ID)
   reliefDriverId?: string | null;
 
-  @ApiPropertyOptional({ example: 'veh_3f2a…', description: 'หาง (รถที่ unitRole = TRAILER)' })
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    example: 'veh_3f2a…',
+    description: 'หาง (รถที่ unitRole = TRAILER)',
+  })
   @IsOptional()
   @IsNullable()
   @Matches(VEH_ID)
@@ -138,7 +160,12 @@ export class CancelTripDto {
   @MaxLength(500)
   reason!: string;
 
-  @ApiPropertyOptional({ example: 'rsn_3f2a…', description: 'เหตุผลมาตรฐานหมวด CANCEL' })
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    example: 'rsn_3f2a…',
+    description: 'เหตุผลมาตรฐานหมวด CANCEL',
+  })
   @IsOptional()
   @IsNullable()
   @Matches(/^rsn_[0-9a-f]{32}$/)
@@ -156,7 +183,8 @@ export class TripWarningDto {
   source!: string;
   @ApiProperty({ example: 'trip.vehicleOverlap' }) messageKey!: string;
   @ApiProperty({ description: 'ข้อความไทยพร้อมแสดง' }) message!: string;
-  @ApiProperty({ type: Object, description: 'ค่าประกอบข้อความ' }) params!: Record<string, unknown>;
+  @ApiProperty({ type: 'object', additionalProperties: true, description: 'ค่าประกอบข้อความ' })
+  params!: Record<string, unknown>;
 }
 
 export class TripStopDto {

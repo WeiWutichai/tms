@@ -27488,6 +27488,7 @@
           },
           "params": {
             "type": "object",
+            "additionalProperties": true,
             "description": "ค่าประกอบข้อความ"
           }
         },
@@ -27721,12 +27722,14 @@
             "description": "วันที่เที่ยว (YYYY-MM-DD)"
           },
           "plannedStartAt": {
-            "type": "object",
+            "type": "string",
+            "nullable": true,
             "example": "2026-11-13T08:00:00+07:00",
             "description": "เริ่มวิ่งตามแผน"
           },
           "plannedEndAt": {
-            "type": "object",
+            "type": "string",
+            "nullable": true,
             "example": "2026-11-13T17:00:00+07:00",
             "description": "จบตามแผน (≥ เริ่ม)"
           }
@@ -27768,7 +27771,8 @@
             }
           },
           "note": {
-            "type": "object",
+            "type": "string",
+            "nullable": true,
             "maxLength": 500,
             "example": "ย้ายไปรถคันอื่น"
           }
@@ -27786,17 +27790,20 @@
             "description": "รถหลัก (ไม่ใช่หาง)"
           },
           "driverId": {
-            "type": "object",
+            "type": "string",
+            "nullable": true,
             "example": "drv_3f2a…",
             "description": "คนขับ — ไม่ส่ง = คนขับประจำของรถ (มีคนเดียว) · รถบริษัทต้องมีคนขับ"
           },
           "reliefDriverId": {
-            "type": "object",
+            "type": "string",
+            "nullable": true,
             "example": "drv_3f2a…",
             "description": "คนขับสำรอง (งานทางไกล)"
           },
           "trailerId": {
-            "type": "object",
+            "type": "string",
+            "nullable": true,
             "example": "veh_3f2a…",
             "description": "หาง (รถที่ unitRole = TRAILER)"
           }
@@ -27828,7 +27835,8 @@
             "example": "ลูกค้ายกเลิกการส่งทั้งเที่ยว"
           },
           "reasonCodeId": {
-            "type": "object",
+            "type": "string",
+            "nullable": true,
             "example": "rsn_3f2a…",
             "description": "เหตุผลมาตรฐานหมวด CANCEL"
           }
