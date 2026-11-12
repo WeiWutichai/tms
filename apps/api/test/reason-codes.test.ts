@@ -176,9 +176,54 @@ describe('เหตุผลมาตรฐาน (reason-codes)', () => {
     await db.reasonCode.create({
       data: { tenantId: old, category: 'DELIVERY_FAILED', code: 'NR', labelTh: 'ไม่พบผู้รับ' },
     });
+    // review ST2-T12: รหัสระบบต้องไม่หายเงียบ — (ก) แถวรหัสเดียวกันที่ถูกลบ (ข) แถวข้อความเดียวกันรหัสอื่น
+    const deletedOther = await db.reasonCode.create({
+      data: {
+        tenantId: old,
+        category: 'DELAY',
+        code: 'OTHER',
+        labelTh: 'อื่น ๆ',
+        deletedAt: new Date(),
+        externalId: 'OLD-1',
+      },
+    });
+    await db.reasonCode.create({
+      data: { tenantId: old, category: 'DELAY', code: 'MISC', labelTh: 'อื่น ๆ' }, // ชนข้อความตอนคืนชีพ
+    });
+    const noVeh = await db.reasonCode.create({
+      data: { tenantId: old, category: 'ORDER_HOLD', code: 'NOVEH', labelTh: 'ไม่มีรถว่าง' },
+    });
     await bootstrapTenant(db, old);
     const mine = await db.reasonCode.findMany({ where: { tenantId: old } });
-    expect(mine).toHaveLength(DEFAULT_REASONS.length); // OTHER ใช้แถวเดิม, NO_RECEIVER ถูกข้าม (+ NR ของเรา)
+    // OTHER ×2 + UNALLOCATED_NO_VEHICLE ใช้แถวเดิม, NO_RECEIVER ถูกข้าม (+ NR ของเรา), + MISC ของเรา
+    expect(mine).toHaveLength(DEFAULT_REASONS.length + 1);
+    expect(mine.find((r) => r.id === deletedOther.id)).toMatchObject({
+      deletedAt: null,
+      isSystem: true,
+      systemKey: 'DELAY:OTHER',
+      status: 'ACTIVE',
+      externalId: null,
+      labelTh: 'อื่น ๆ (OTHER)',
+      sortOrder: 9999,
+    });
+    expect(mine.find((r) => r.id === noVeh.id)).toMatchObject({
+      code: 'UNALLOCATED_NO_VEHICLE',
+      isSystem: true,
+      systemKey: 'ORDER_HOLD:UNALLOCATED_NO_VEHICLE',
+    });
+    // รหัสระบบครบทุกตัว และไม่มีรหัสระบบที่ถูก SKIPPED
+    const sysKeys = DEFAULT_REASONS.filter((d) => d.system).map((d) => `${d.category}:${d.code}`);
+    const sys = mine.filter((r) => r.isSystem && !r.deletedAt).map((r) => r.systemKey);
+    expect(sys.sort()).toEqual([...sysKeys].sort());
+    expect(
+      await db.tenantDefault.count({
+        where: {
+          tenantId: old,
+          outcome: 'SKIPPED',
+          key: { in: sysKeys.map((k) => `reason_code:${k}`) },
+        },
+      }),
+    ).toBe(0);
     expect(mine.find((r) => r.id === own.id)).toMatchObject({
       isSystem: true,
       systemKey: 'DELIVERY_FAILED:OTHER',
@@ -336,6 +381,48 @@ describe('เหตุผลมาตรฐาน (reason-codes)', () => {
       .expect(409);
     expect(del.body.code).toBe('in_use');
     expect(del.body.references).toEqual({ statusHistory: 1 });
+  });
+
+  it('ลำดับ: รายการใหม่ต่อท้ายหมวด, "อื่น ๆ" อยู่ท้ายเสมอ; CHECK tracking ในฐาน; snapshotFor รับ id ของ API', async () => {
+    const t = await createTenantWithDefaults(db, { name: 'บริษัท ลำดับ' });
+    const tok = await tokenFor(t.id);
+    const rows = await listAll(tok, '&category=DELIVERY_FAILED');
+    const other = rows.find((r) => r.code === 'OTHER')!;
+    expect(other.sortOrder).toBe(9999);
+    expect(other.showOnTracking).toBe(true);
+    const maxBefore = Math.max(
+      ...rows.filter((r) => r.code !== 'OTHER').map((r) => r.sortOrder as number),
+    );
+    const c = await create({ category: 'DELIVERY_FAILED', label: 'ถนนปิด' }, tok).expect(201);
+    expect(c.body.sortOrder).toBe(maxBefore + 10);
+    const p = await patch(other, { sortOrder: 1 }, tok).expect(422);
+    expect(errField(p.body)).toEqual(['sortOrder:other_last']);
+    await create({ category: 'DELAY', label: 'ไว้ท้าย', sortOrder: 9999 }, tok).expect(422);
+    // "อื่น ๆ" ของหมวดหน้างานแสดงบน tracking ทุกหมวด (สม่ำเสมอ)
+    const all = await listAll(tok);
+    for (const cat of ['DELIVERY_FAILED', 'REJECTED_BY_RECEIVER', 'POD_MISSING', 'DELAY'])
+      expect(all.find((r) => r.category === cat && r.code === 'OTHER')!.showOnTracking, cat).toBe(
+        true,
+      );
+    // CHECK ในฐาน: แสดงบน tracking ในหมวดที่ไม่ใช่หน้างาน → ปฏิเสธ
+    await expect(
+      db.reasonCode.create({
+        data: {
+          tenantId: t.id,
+          category: 'ORDER_HOLD',
+          code: 'X1',
+          labelTh: 'ทดสอบ CHECK',
+          showOnTracking: true,
+        },
+      }),
+    ).rejects.toThrow(/reason_code_show_on_tracking/);
+    // snapshotFor รับ rsn_… และ uuid; รูปแบบอื่น = ไม่พบ
+    const byApiId = await inTenant(t.id, (svc) => svc.snapshotFor(c.body.id, 'DELIVERY_FAILED'));
+    expect(byApiId.sourceId).toBe(tryDecodeId('reasonCode', c.body.id));
+    const bad = await inTenant(t.id, (svc) => svc.snapshotFor('nope', 'DELIVERY_FAILED')).catch(
+      (x) => x,
+    );
+    expect(bad.errors[0].code).toBe('reason_not_found');
   });
 
   it('PATCH 412/no-op, ลบแล้วใช้ข้อความซ้ำได้, PUT external idempotent, history, กรองหมวด, export, สิทธิ์', async () => {

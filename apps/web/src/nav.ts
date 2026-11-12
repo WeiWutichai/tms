@@ -263,7 +263,8 @@ export const NAV: NavGroup[] = [
     kids: [
       {
         key: 'settings',
-        perm: ['settings:read', 'settings:write', 'users:read'],
+        // ST2-T12: master:read เห็น "ตั้งค่า" เพื่อเข้าหัวข้อ "เหตุผล" (ข้อมูลหลัก) — หัวข้ออื่นกรองสิทธิ์ต่อหัวข้อใน Settings.tsx
+        perm: ['settings:read', 'settings:write', 'users:read', 'master:read'],
         page: 'settings',
         label: 'nav.setg.settings',
         path: '/settings',

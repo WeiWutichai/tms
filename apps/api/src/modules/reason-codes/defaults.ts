@@ -1,6 +1,11 @@
 import { Prisma, type PrismaClient, type ReasonCode } from '@prisma/client';
-import type { ReasonCategoryApi } from './reason-code.dto';
-import { OTHER_CODE, auditView, toReasonCodeDto } from './reason-codes.service';
+import { iEquals } from '../../common/ilike';
+import {
+  AUTO_RESCHEDULE_CATEGORIES,
+  TRACKING_CATEGORIES,
+  type ReasonCategoryApi,
+} from './reason-code.dto';
+import { OTHER_CODE, OTHER_SORT_ORDER, auditView, toReasonCodeDto } from './reason-codes.service';
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
@@ -16,13 +21,14 @@ interface DefaultReason {
   tracking?: boolean;
 }
 
-const other = (category: ReasonCategoryApi, tracking = false): DefaultReason => ({
+/** "อื่น ๆ" ของหมวด — แสดงบน tracking ในหมวดหน้างานทุกหมวด (สม่ำเสมอ — review ST2-T12) */
+const other = (category: ReasonCategoryApi): DefaultReason => ({
   category,
   code: OTHER_CODE,
   labelTh: 'อื่น ๆ',
   system: true,
   note: true,
-  tracking,
+  tracking: TRACKING_CATEGORIES.includes(category),
 });
 
 /**
@@ -137,7 +143,7 @@ export const DEFAULT_REASONS: readonly DefaultReason[] = [
     note: true,
     tracking: true,
   },
-  other('DELIVERY_FAILED', true),
+  other('DELIVERY_FAILED'),
   // ตีกลับ (ปฏิเสธรับ) — ต้นแบบ
   {
     category: 'REJECTED_BY_RECEIVER',
@@ -169,7 +175,7 @@ export const DEFAULT_REASONS: readonly DefaultReason[] = [
     photo: true,
     tracking: true,
   },
-  other('REJECTED_BY_RECEIVER', true),
+  other('REJECTED_BY_RECEIVER'),
   // ไม่เซ็นเอกสาร
   { category: 'POD_MISSING', code: 'NO_SIGNER', labelTh: 'ไม่มีผู้มีอำนาจเซ็นรับ', photo: true },
   {
@@ -242,14 +248,96 @@ export const reasonSystemKey = (d: { category: string; code: string }) => `${d.c
 const defaultKey = (d: { category: string; code: string }) => `reason_code:${reasonSystemKey(d)}`;
 /** เหตุผลใน audit ของแถวที่ระบบสร้าง (ผู้ทำ = ระบบ: actor_id ว่าง) */
 const BOOTSTRAP_REASON = 'ค่าเริ่มต้นของระบบ (สร้างบริษัท/อัปเดตค่าเริ่มต้น)';
-const ADOPT_REASON = 'รหัสของระบบ — ใช้แถวเดิมของบริษัทที่มีหมวดและรหัสเดียวกันเป็นรหัสของระบบ';
+const ADOPT_REASON =
+  'รหัสของระบบ — ใช้แถวเดิมของบริษัท (หมวด + รหัสหรือข้อความเดียวกัน) เป็นรหัสของระบบ';
+const sortOf = (d: DefaultReason, i: number) =>
+  d.system && d.code === OTHER_CODE ? OTHER_SORT_ORDER : (i + 1) * 10;
+
+/** ธงที่หมวดไม่อนุญาต → false (แถวเดิมของ tenant ที่ถูกรับเป็นของระบบ — กันชน CHECK/กฎ API) */
+function allowedFlags(
+  category: ReasonCategoryApi,
+  r: Pick<ReasonCode, 'autoReschedule' | 'showOnTracking'>,
+) {
+  return {
+    autoReschedule: r.autoReschedule && AUTO_RESCHEDULE_CATEGORIES.includes(category),
+    showOnTracking: r.showOnTracking && TRACKING_CATEGORIES.includes(category),
+  };
+}
+
+/**
+ * รหัสระบบต้องมีเสมอ (state machine/งานอัตโนมัติใช้) — หาแถวเดิมของ tenant ที่รับเป็นของระบบได้ (review ST2-T12):
+ * 1) หมวด + รหัสเดียวกัน (รวมที่ลบแล้ว — unique ของรหัสนับแถวที่ลบ) → คืนชีพ (ล้าง deleted_at) + ใช้งาน
+ * 2) หมวด + ข้อความเดียวกัน (ไม่สนตัวพิมพ์, ยังไม่ลบ) รหัสอื่น → เปลี่ยนรหัสเป็นรหัสระบบ
+ * ข้อความชนกับแถวอื่นตอนคืนชีพ → ต่อท้ายข้อความด้วยรหัส
+ */
+async function adoptForSystem(
+  db: Db,
+  tenantId: string,
+  d: DefaultReason,
+  sortOrder: number,
+): Promise<{ before: ReasonCode; after: ReasonCode; how: string } | null> {
+  const sameCode = await db.reasonCode.findFirst({
+    where: { tenantId, category: d.category, code: d.code, systemKey: null },
+  });
+  const sameLabel = sameCode
+    ? null
+    : await db.reasonCode.findFirst({
+        where: {
+          tenantId,
+          category: d.category,
+          systemKey: null,
+          deletedAt: null,
+          labelTh: iEquals(d.labelTh),
+        },
+      });
+  const own = sameCode ?? sameLabel;
+  if (!own) return null;
+  let labelTh = own.labelTh;
+  if (own.deletedAt) {
+    const clash = await db.reasonCode.findFirst({
+      where: {
+        tenantId,
+        category: d.category,
+        deletedAt: null,
+        id: { not: own.id },
+        labelTh: iEquals(own.labelTh),
+      },
+      select: { id: true },
+    });
+    if (clash) labelTh = `${own.labelTh} (${d.code})`;
+  }
+  const after = await db.reasonCode.update({
+    where: { id: own.id },
+    data: {
+      code: d.code,
+      labelTh,
+      systemKey: reasonSystemKey(d),
+      isSystem: true,
+      status: 'ACTIVE',
+      deletedAt: null,
+      ...(own.deletedAt ? { externalId: null } : {}),
+      ...allowedFlags(d.category, own),
+      ...(d.code === OTHER_CODE ? { requiresNote: true, sortOrder } : {}),
+      version: { increment: 1 },
+    },
+  });
+  return {
+    before: own,
+    after,
+    how: sameCode
+      ? own.deletedAt
+        ? 'adopted_deleted_same_code'
+        : 'adopted_existing'
+      : 'adopted_same_label',
+  };
+}
 
 /**
  * ใส่เหตุผลเริ่มต้นให้ tenant — รันซ้ำได้ (bootstrap ขั้น `reason-codes`, ตอนสร้าง tenant และหลัง migrate)
  * - ทุกรายการที่จัดการแล้วบันทึกใน `tenant_default` (INSERTED / SKIPPED) → ไม่ทำซ้ำอีก (แก้/ลบแล้วไม่สร้างใหม่)
- * - รหัสระบบที่ tenant มีหมวด+รหัสเดียวกันอยู่แล้ว (ยังไม่ลบ) → รับแถวนั้นเป็นรหัสระบบ (system_key + is_system;
- *   "อื่น ๆ" ตั้งบังคับโน้ตด้วย) INSERTED detail adopted_existing + audit — ไม่งั้นงานอัตโนมัติจะไม่มีรหัสให้ใช้
- * - ชนรหัส/ข้อความอื่น ๆ ที่ tenant มีอยู่ → ข้าม (SKIPPED) · ไม่ทับค่าที่ tenant แก้แล้ว
+ * - รหัสระบบ: รับแถวเดิมของ tenant ก่อน (adoptForSystem) ไม่งั้นสร้างใหม่ — **ไม่มีทาง SKIPPED**: สร้างไม่ได้ = throw
+ *   (bootstrap ล้มดัง ๆ แทนการขาดรหัสที่งานอัตโนมัติต้องใช้)
+ * - รายการทั่วไปที่ชนรหัส/ข้อความที่ tenant มีอยู่ → ข้าม (SKIPPED) · ไม่ทับค่าที่ tenant แก้แล้ว
  * - แถวที่สร้างลง audit (ผู้ทำ = ระบบ) + domain_event `reason_code.created`
  */
 export async function ensureDefaultReasonCodes(db: Db, tenantId: string): Promise<void> {
@@ -265,23 +353,12 @@ export async function ensureDefaultReasonCodes(db: Db, tenantId: string): Promis
     const key = defaultKey(d);
     if (done.has(key)) continue;
     const systemKey = reasonSystemKey(d);
+    const sortOrder = sortOf(d, i);
     if (d.system) {
-      const own = await db.reasonCode.findFirst({
-        where: { tenantId, category: d.category, code: d.code, systemKey: null, deletedAt: null },
-      });
-      if (own) {
-        const adopted = await db.reasonCode.update({
-          where: { id: own.id },
-          data: {
-            systemKey,
-            isSystem: true,
-            ...(d.code === OTHER_CODE ? { requiresNote: true } : {}),
-            status: 'ACTIVE',
-            version: { increment: 1 },
-          },
-        });
+      const adopted = await adoptForSystem(db, tenantId, d, sortOrder);
+      if (adopted) {
         await db.tenantDefault.create({
-          data: { tenantId, key, outcome: 'INSERTED', detail: 'adopted_existing' },
+          data: { tenantId, key, outcome: 'INSERTED', detail: adopted.how },
         });
         await db.auditLog.create({
           data: {
@@ -289,9 +366,9 @@ export async function ensureDefaultReasonCodes(db: Db, tenantId: string): Promis
             actorId: null,
             action: 'reason_code.adopted',
             entityType: 'reason_code',
-            entityId: own.id,
-            before: auditView(own) as Prisma.InputJsonValue,
-            after: auditView(adopted) as Prisma.InputJsonValue,
+            entityId: adopted.after.id,
+            before: auditView(adopted.before) as Prisma.InputJsonValue,
+            after: auditView(adopted.after) as Prisma.InputJsonValue,
             reason: ADOPT_REASON,
           },
         });
@@ -311,11 +388,15 @@ export async function ensureDefaultReasonCodes(db: Db, tenantId: string): Promis
           showOnTracking: d.tracking ?? false,
           isSystem: d.system ?? false,
           systemKey,
-          sortOrder: (i + 1) * 10,
+          sortOrder,
         },
       ],
-      skipDuplicates: true, // ชนรหัส/ข้อความที่ tenant สร้างเอง → ไม่สร้าง (บันทึก SKIPPED)
+      skipDuplicates: true, // รายการทั่วไปที่ชนรหัส/ข้อความที่ tenant สร้างเอง → ไม่สร้าง (บันทึก SKIPPED)
     });
+    if (!created && d.system)
+      throw new Error(
+        `reason-codes bootstrap: system reason ${systemKey} could not be created or adopted for tenant ${tenantId}`,
+      );
     await db.tenantDefault.create({
       data: {
         tenantId,

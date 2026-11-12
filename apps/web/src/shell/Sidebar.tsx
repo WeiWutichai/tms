@@ -41,8 +41,8 @@ export function Sidebar({
     );
     if (g) setOpen((o) => (o[g.key] ? o : { ...o, [g.key]: true }));
   }, [loc.pathname]);
-  const settingsPerm = NAV.find((g) => g.key === 'setg')?.kids?.[0]?.perm;
-  const canSettings = canAny(scopes, settingsPerm);
+  // ปุ่ม "ไม่ได้เชื่อมระบบบัญชี" พาไปตั้งค่าการเชื่อมต่อ — ต้องมีสิทธิ์ตั้งค่าองค์กร (master:read เข้าหน้าตั้งค่าได้แค่หัวข้อ "เหตุผล")
+  const canSettings = canAny(scopes, ['settings:read', 'settings:write']);
   // ตัวย่อ = พยัญชนะ/ตัวอักษรแรกของชื่อ + ของนามสกุล (ต้นแบบ: พรทิพย์ ศรีวงศ์ → พศ; ข้ามสระนำ เ แ โ ใ ไ)
   const first = (w: string) => [...w].find((ch) => /[\u0E01-\u0E2EA-Za-z0-9]/.test(ch)) ?? '';
   const words = actor.trim().split(/\s+/);

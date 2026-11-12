@@ -87,11 +87,16 @@ export class ReasonCodeFieldsDto {
   @IsBoolean()
   showOnTracking?: boolean;
 
-  @ApiPropertyOptional({ minimum: 0, maximum: 9999, description: 'ลำดับในหมวด (น้อยขึ้นก่อน)' })
+  @ApiPropertyOptional({
+    minimum: 0,
+    maximum: 9998,
+    description:
+      'ลำดับในหมวด (น้อยขึ้นก่อน) — ไม่ส่งตอนสร้าง = ต่อท้ายหมวด (มากสุด + 10); "อื่น ๆ" ของระบบอยู่ท้ายเสมอ (9999)',
+  })
   @IsOptionalNotNull()
   @IsInt()
   @Min(0)
-  @Max(9999)
+  @Max(9998)
   sortOrder?: number;
 }
 

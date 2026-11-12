@@ -54,3 +54,34 @@ test.describe.serial('ตั้งค่า → เหตุผล', () => {
     await expect(sys.getByRole('combobox')).toBeDisabled();
   });
 });
+
+test.describe('ตั้งค่า → เหตุผล (planner แก้ได้)', () => {
+  test.use({ loginEmail: 'planner@demo-a.test' });
+  test('planner เข้าเมนูตั้งค่าได้ เห็นเฉพาะ "เหตุผล" และบันทึกธงได้', async ({ page }) => {
+    await page.goto('/');
+    // เมนู "ตั้งค่า" ใน sidebar แสดงแล้ว (กลุ่มยุบอยู่ — กดขยายก่อน)
+    await page.getByRole('button', { name: 'ตั้งค่า', exact: true }).click();
+    await page.getByRole('button', { name: 'ตั้งค่าระบบ' }).click();
+    await expect(page.getByRole('navigation', { name: 'ตั้งค่า' }).getByRole('button')).toHaveText([
+      'เหตุผล',
+    ]);
+    const box = page.getByLabel('บังคับโน้ต — สร้างซ้ำ');
+    const before = await box.isChecked();
+    await box.click();
+    await page.getByRole('button', { name: 'บันทึก' }).click();
+    await expect(page.getByRole('status')).toContainText('บันทึกการตั้งค่าเหตุผลแล้ว');
+    await page.reload();
+    await expect(page.getByLabel('บังคับโน้ต — สร้างซ้ำ')).toBeChecked({ checked: !before });
+  });
+});
+
+test.describe('ตั้งค่า → เหตุผล (dispatcher อ่านอย่างเดียว)', () => {
+  test.use({ loginEmail: 'dispatcher@demo-a.test' });
+  test('dispatcher เห็นตารางแต่แก้ไม่ได้', async ({ page }) => {
+    await page.goto('/settings?sec=reason');
+    await expect(page.getByRole('heading', { name: 'เหตุผล (reason master)' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'เพิ่มเหตุผล' })).toHaveCount(0);
+    await expect(page.getByLabel('บังคับรูป — ไม่พบผู้รับ')).toBeDisabled();
+    await expect(page.getByRole('button', { name: 'ไม่พบผู้รับ' })).toHaveCount(0);
+  });
+});

@@ -94,19 +94,29 @@ export function useUpdateReason() {
   });
 }
 
-/** ปุ่ม "บันทึก" ลอยของหน้า: ส่งธงที่ติ๊กเปลี่ยนทีละแถว (If-Match ต่อแถว) — แถวไหนล้มหยุดและแจ้ง */
+/**
+ * ปุ่ม "บันทึก" ลอยของหน้า: ส่งธงที่ติ๊กเปลี่ยนทีละแถว (If-Match ต่อแถว) — ส่งครบทุกแถวแม้บางแถวล้ม
+ * แล้วคืนรายการแถวที่สำเร็จ/ล้ม (review ST2-T12) ให้หน้าจอล้าง draft เฉพาะแถวที่ส่งสำเร็จและแจ้งทุกแถวที่ล้ม
+ */
 export function useSaveReasonFlags() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (rows: Array<{ id: string; version: number; body: ReasonInput }>) => {
+      const ok: string[] = [];
+      const failed: Array<{ id: string; error: unknown }> = [];
       for (const r of rows)
         try {
           await patch(r);
-        } catch (e) {
-          throw Object.assign(e as object, { failedId: r.id });
+          ok.push(r.id);
+        } catch (error) {
+          failed.push({ id: r.id, error });
         }
+      return { ok, failed };
     },
-    onSettled: () => qc.invalidateQueries({ queryKey: [KEY] }),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: [KEY] });
+      qc.invalidateQueries({ queryKey: ['history'] });
+    },
   });
 }
 

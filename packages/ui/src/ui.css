@@ -1134,7 +1134,10 @@ button:focus-visible {
   flex-shrink: 0;
 }
 /* toast ที่เปิดจากในฟอร์ม (เช่น "ประมาณจากที่อยู่" ST2-T03) — ยกขึ้นเหนือแถบปุ่มท้ายฟอร์ม ไม่บังปุ่มบันทึก */
-.tms-fdrawer .tms-toast {
+.tms-fdrawer .tms-toast,
+/* review ST2-T12: toast ของหน้า (นอก drawer) ทับปุ่มหลักที่แถบล่างของ drawer — เลื่อนขึ้นเหนือแถบล่างเมื่อมี drawer เปิด */
+body:has(.tms-fdrawer) .tms-toast,
+body:has(.tms-drawer__foot) .tms-toast {
   bottom: 88px;
 }
 .tms-fdrawer__cancel {

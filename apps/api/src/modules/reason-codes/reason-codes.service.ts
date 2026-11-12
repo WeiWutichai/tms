@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma, type ActiveStatus, type ReasonCode } from '@prisma/client';
 import type { TransitionTable } from '@tms/domain';
 import { AuditService } from '../../audit/audit.service';
-import { encodeId } from '../../common/ids';
+import { encodeId, tryDecodeId } from '../../common/ids';
 import { iEquals } from '../../common/ilike';
 import { ProblemException } from '../../common/problem';
 import { DbService } from '../../db/db.service';
@@ -38,11 +38,20 @@ import { snapshotReason, type ReasonSnapshot } from './snapshot';
 export const REASON_CODE_PREFIX = 'RSN';
 /** รายการ "อื่น ๆ" ของทุกหมวด (MD-221) — รหัสระบบ บังคับโน้ตเสมอ */
 export const OTHER_CODE = 'OTHER';
+/** "อื่น ๆ" ของระบบอยู่ท้ายหมวดเสมอ (review ST2-T12) — รายการที่สร้างใหม่ได้ลำดับ = มากสุดในหมวด (ไม่นับ "อื่น ๆ") + 10 */
+export const OTHER_SORT_ORDER = 9999;
 type RcEvent = 'activate' | 'deactivate';
 export const REASON_CODE_TRANSITIONS: TransitionTable<ActiveStatus, RcEvent> = {
   ACTIVE: { deactivate: 'INACTIVE' },
   INACTIVE: { activate: 'ACTIVE' },
 };
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** `rsn_<hex32>` หรือ uuid → uuid; อื่น ๆ → null */
+export function toReasonUuid(id: string): string | null {
+  if (id.startsWith('rsn_')) return tryDecodeId('reasonCode', id);
+  return UUID_RE.test(id) ? id.toLowerCase() : null;
+}
 
 const field422 = (field: string, code: string, message: string) =>
   new ProblemException('validation_failed', undefined, [{ field, code, message }]);
@@ -161,6 +170,7 @@ export class ReasonCodesService {
   /**
    * ตัวช่วยของโมดูลงาน (ST3/ST4/ST6): ล็อกแถว (FOR SHARE — กันถูกลบระหว่างบันทึก) ตรวจว่าใช้งานอยู่และอยู่ในหมวดที่คาด
    * แล้วคืน snapshot ที่ต้องคัดลอกลงงาน (ดู snapshot.ts)
+   * - `id` รับได้ทั้ง id ของ API (`rsn_…` จาก body ของคำขอ) และ uuid ดิบ (คอลัมน์ `*_reason_code_id`) — รูปแบบอื่น = ไม่พบ
    * - ไม่พบ/ลบแล้ว → 422 `reason_not_found` · ปิดใช้ → 422 `reason_inactive` · หมวดไม่ตรง → 422 `reason_category`
    */
   async snapshotFor(
@@ -169,9 +179,11 @@ export class ReasonCodesService {
     field = 'reasonCodeId',
   ): Promise<Readonly<ReasonSnapshot>> {
     const tx = this.db.tx;
-    const [locked] = await lockReferenced(tx, 'reason_code', [id]);
+    const uuid = toReasonUuid(id);
+    if (!uuid) throw field422(field, 'reason_not_found', 'reason code not found');
+    const [locked] = await lockReferenced(tx, 'reason_code', [uuid]);
     if (!locked) throw field422(field, 'reason_not_found', 'reason code not found');
-    const r = await tx.reasonCode.findUniqueOrThrow({ where: { id } });
+    const r = await tx.reasonCode.findUniqueOrThrow({ where: { id: uuid } });
     const allowed: readonly string[] = typeof category === 'string' ? [category] : category;
     if (!allowed.includes(r.category))
       throw field422(
@@ -216,6 +228,8 @@ export class ReasonCodesService {
         );
       data.showOnTracking = input.showOnTracking;
     }
+    if (current?.isSystem && current.code === OTHER_CODE && input.sortOrder !== undefined)
+      throw field422('sortOrder', 'other_last', 'the system "other" reason always stays last');
     if (current?.isSystem && current.code === OTHER_CODE && input.requiresNote === false)
       throw field422(
         'requiresNote',
@@ -294,6 +308,13 @@ export class ReasonCodesService {
         throw field422('code', 'reserved_code', `${OTHER_CODE} is reserved by the system`);
       await this.assertCodeFree(input.category, code);
     } else code = await nextCode(tx, 'reason_code', REASON_CODE_PREFIX);
+    if (input.sortOrder === undefined) {
+      const max = await tx.reasonCode.aggregate({
+        where: { category: input.category, sortOrder: { lt: OTHER_SORT_ORDER } },
+        _max: { sortOrder: true },
+      });
+      data.sortOrder = Math.min((max._max.sortOrder ?? 0) + 10, OTHER_SORT_ORDER - 1);
+    }
     const r = await tx.reasonCode.create({
       data: {
         ...(data as object),
@@ -330,7 +351,11 @@ export class ReasonCodesService {
     if (input.label !== undefined && input.label.toLowerCase() !== current.labelTh.toLowerCase())
       await this.assertUniqueLabel(category, input.label, current.id);
     if (input.externalId !== undefined) {
-      if (input.externalId) await this.assertUniqueExternal(input.externalId, current.id);
+      if (input.externalId) {
+        // lock เดียวกับ create/PUT external — กันสองคำขอผูก externalId เดียวกันพร้อมกัน (review ST2-T12)
+        await lockKey(this.db.tx, `reason_code.ext:${input.externalId}`);
+        await this.assertUniqueExternal(input.externalId, current.id);
+      }
       data.externalId = input.externalId;
     }
     if (isNoopUpdate(current, data as Record<string, unknown>)) return current;

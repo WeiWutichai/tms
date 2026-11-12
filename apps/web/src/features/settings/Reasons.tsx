@@ -1,8 +1,8 @@
 import { EmptyState, Icon, ReasonDialog, Toast } from '@tms/ui';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useI18n } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
-import { problemText } from '../master/problems';
+import { isStale, problemText } from '../master/problems';
 import { SaveBar } from './OrgSections';
 import { ReasonFormDrawer } from './ReasonFormDrawer';
 import {
@@ -89,22 +89,45 @@ export function ReasonsSection({ canWrite }: { canWrite: boolean }) {
     })
     .filter((x) => Object.keys(x.body).length);
 
+  /** กันกดบันทึกซ้ำแบบ synchronous ก่อน isPending เปลี่ยน (review ST2-T12) */
+  const saving = useRef(false);
   const onSave = () => {
+    if (saving.current) return;
     if (!dirtyRows.length) return setSaved(t('set.saved', { section: t('set.menu.reason') }));
-    save.mutate(
-      dirtyRows.map(({ r, body }) => ({ id: r.id, version: r.version, body })),
-      {
-        onSuccess: () => {
-          setDraft({});
-          setSaved(t('set.saved', { section: t('set.menu.reason') }));
-        },
-        onError: (e) => {
-          // บันทึกทีละแถวตามลำดับ — แถวก่อนหน้าที่สำเร็จแล้วโหลดใหม่ (ค่าเท่ากัน = ไม่ค้างใน draft), แถวที่ล้มยังติ๊กค้างให้ลองใหม่
-          const failed = rows.find((r) => r.id === (e as { failedId?: string }).failedId);
-          setError(t('rsn.saveFailed', { n: failed?.label ?? '', e: problemText(e, t) ?? '' }));
-        },
+    saving.current = true;
+    const sent = dirtyRows.map(({ r, body }) => ({ id: r.id, version: r.version, body }));
+    save.mutate(sent, {
+      onSuccess: ({ ok, failed }) => {
+        // ล้าง draft เฉพาะแถวที่ส่งสำเร็จ (ค่าที่ส่ง) — ติ๊กที่เปลี่ยนระหว่างบันทึกหรือแถวที่ล้มยังค้างให้ลองใหม่
+        setDraft((d) => {
+          const next = { ...d };
+          for (const id of ok) {
+            const body = sent.find((x) => x.id === id)!.body as Record<string, boolean>;
+            const rest = Object.fromEntries(
+              Object.entries(next[id] ?? {}).filter(([k, v]) => body[k] !== v),
+            );
+            if (Object.keys(rest).length) next[id] = rest;
+            else delete next[id];
+          }
+          return next;
+        });
+        if (!failed.length) return setSaved(t('set.saved', { section: t('set.menu.reason') }));
+        setError(
+          failed
+            .map((f) =>
+              t('rsn.saveFailed', {
+                n: rows.find((r) => r.id === f.id)?.label ?? f.id,
+                e: problemText(f.error, t) ?? '',
+              }),
+            )
+            .join(' · '),
+        );
       },
-    );
+      onError: (e) => setError(problemText(e, t)),
+      onSettled: () => {
+        saving.current = false;
+      },
+    });
   };
 
   const runAction = (r: ReasonCode, a: 'activate' | 'deactivate' | 'delete') => {
@@ -211,7 +234,7 @@ export function ReasonsSection({ canWrite }: { canWrite: boolean }) {
                           aria-label={`${t(l)} — ${r.label}`}
                           title={na ? t('rsn.na') : lock ? t('rsn.otherNote') : undefined}
                           checked={!na && value(r, k)}
-                          disabled={!canWrite || na || lock}
+                          disabled={!canWrite || na || lock || save.isPending}
                           onChange={() =>
                             setDraft((d) => ({ ...d, [r.id]: { ...d[r.id], [k]: !value(r, k) } }))
                           }
@@ -279,6 +302,14 @@ export function ReasonsSection({ canWrite }: { canWrite: boolean }) {
           action.mutate(
             { id: r.id, version: r.version, action: kind, reason },
             {
+              // 412 (ผู้อื่นแก้ไปแล้ว) → ปิด dialog แจ้งให้ลองใหม่ (hook โหลดรายการใหม่ให้แล้ว) — ไม่ค้าง dialog ที่ถือ version เก่า
+              onError: (e) => {
+                if (!isStale(e)) return;
+                setDialog(null);
+                setForm(null);
+                action.reset();
+                setToast(t('rsn.stale'));
+              },
               onSuccess: () => {
                 setDialog(null);
                 setForm(null);
