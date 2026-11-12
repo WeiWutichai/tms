@@ -75,15 +75,17 @@ model Company {
 
 /// docs/01 §3.7 — (tenant_id, key, path) PK, เก็บ 24 ชม.
 model IdempotencyKey {
-  tenantId       String    @map("tenant_id") @db.Uuid
-  key            String
-  path           String
-  requestHash    String    @map("request_hash")
-  responseStatus Int?      @map("response_status")
-  responseBody   Json?     @map("response_body")
-  lockedUntil    DateTime? @map("locked_until") @db.Timestamptz(6)
-  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  expiresAt      DateTime  @map("expires_at") @db.Timestamptz(6)
+  tenantId        String    @map("tenant_id") @db.Uuid
+  key             String
+  path            String
+  requestHash     String    @map("request_hash")
+  responseStatus  Int?      @map("response_status")
+  responseBody    Json?     @map("response_body")
+  /// header ที่ต้อง replay คู่กับ body (เช่น ETag) — ST3-T03
+  responseHeaders Json?     @map("response_headers")
+  lockedUntil     DateTime? @map("locked_until") @db.Timestamptz(6)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  expiresAt       DateTime  @map("expires_at") @db.Timestamptz(6)
 
   @@id([tenantId, key, path])
   @@index([expiresAt])

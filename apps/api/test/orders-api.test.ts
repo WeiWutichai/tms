@@ -10,7 +10,9 @@ import {
 } from '../src/modules/orders/order-intake.service';
 import { createTenantWithDefaults } from '../src/modules/tenants/bootstrap';
 import { addDays, bangkokToday } from '../src/modules/vehicle-documents/expiry';
-import { api, bootApp, platform, tokenFor, truncateAll, validTaxId } from './helpers';
+import { hashPassword } from '../src/auth/password';
+import { ensureSystemRoles } from '../src/auth/system-roles';
+import { api, bootApp, loginFull, platform, tokenFor, truncateAll, validTaxId } from './helpers';
 
 /**
  * ST3-T03 Open API orders: POST (+Idempotency-Key), GET list/one, PATCH, PUT /external/{externalId}
@@ -29,7 +31,7 @@ describe('orders API (ST3-T03)', () => {
   const today = bangkokToday();
   const ADDR = { line1: '1 ถ.ทดสอบ', district: 'เมือง', province: 'ชลบุรี', postcode: '20000' };
 
-  async function company(tid: string) {
+  async function company(tid: string, isDefaultIssuer = true) {
     const c = await db.company.create({
       data: { tenantId: tid, legalName: `บริษัท ออกบิล ${++seed}`, taxId: validTaxId(700 + seed) },
     });
@@ -40,9 +42,10 @@ describe('orders API (ST3-T03)', () => {
         branchCode: '00000',
         branchLabel: 'สำนักงานใหญ่',
         address: ADDR,
-        isDefaultIssuer: true,
+        isDefaultIssuer,
       },
     });
+    return c.id;
   }
 
   beforeAll(async () => {
@@ -325,7 +328,8 @@ describe('orders API (ST3-T03)', () => {
       })
       .expect(409);
     expect(locked.body.code).toBe('order_locked_for_update');
-    expect(locked.body.status).toBe('IN_TRANSIT');
+    expect(locked.body.status).toBe(409);
+    expect(locked.body.orderStatus).toBe('IN_TRANSIT');
     expect(locked.body.editableFields).toEqual(['customerRef']);
     expect(locked.body.errors.map((e: { field: string }) => e.field).sort()).toEqual(
       ['lines[0].qty', 'requestedDate', 'stops[1].windowEnd'].sort(),
@@ -520,6 +524,170 @@ describe('orders API (ST3-T03)', () => {
     await api(app, admin).get('/v1/orders?status=bogus').expect(422);
     await api(app, admin).get('/v1/orders?requestedFrom=2026-02-30').expect(422);
     await api(app, admin).get('/v1/orders?cursor=xxx').expect(422);
+  });
+
+  it('null ใน customer / stops / lines (และสมาชิก array) → 422 ทุกทาง (POST / PUT / PATCH) ไม่ใช่ 500', async () => {
+    const k = await key();
+    const o = (await api(app, admin).post('/v1/orders').send(body(k)).expect(201)).body;
+    const cases: [string, object][] = [
+      ['customer', { customer: null }],
+      ['stops', { stops: null }],
+      ['lines', { lines: null }],
+      ['stops', { stops: [null] }],
+      ['lines', { lines: [null] }],
+    ];
+    for (const [field, extra] of cases) {
+      for (const call of [
+        () => api(app, admin).post('/v1/orders').send(body(k, extra)),
+        () => api(app, admin).put('/v1/orders/external/NULL-1').send(body(k, extra)),
+        () => api(app, admin).patch(`/v1/orders/${o.id}`).send(extra),
+      ]) {
+        const res = await call();
+        expect(res.status, `${field} ${JSON.stringify(extra)}`).toBe(422);
+        expect(res.body.code).toBe('validation_failed');
+        expect(res.body.errors[0].field).toMatch(new RegExp(`^${field}`));
+      }
+    }
+    expect(await count('NULL-1')).toBe(0);
+  });
+
+  it('ใบเดิม: อ้างอิงเดิมที่ถูกปิดใช้ภายหลังไม่ขวาง (แก้ PO ใบ PLANNED ได้) · อ้างอิงใหม่ที่ปิดใช้ → 422 · ไม่ส่ง billingCompanyId = คงของเดิม', async () => {
+    const k = await key();
+    await approveRate(k);
+    const box = await db.unit.create({
+      data: { tenantId, code: `BOX${++seed}`, nameTh: `กล่อง ${seed}`, kind: 'COUNT' },
+    });
+    const boxId = encodeId('unit', box.id);
+    const co2Id = await company(tenantId);
+    const co2 = encodeId('company', co2Id);
+    const ext = 'REF-KEEP-1';
+    const o = (
+      await api(app, admin)
+        .put(`/v1/orders/external/${ext}`)
+        .send(
+          body(k, {
+            billingCompanyId: co2,
+            lines: [{ description: 'กล่อง', qty: '3', unitId: boxId }],
+          }),
+        )
+        .expect(201)
+    ).body;
+    expect(o.billingCompanyId).toBe(co2);
+    await db.unit.update({ where: { id: box.id }, data: { status: 'INACTIVE' } });
+    await setStatus(o.id, 'PLANNED');
+    const po = await api(app, admin)
+      .patch(`/v1/orders/${o.id}`)
+      .send({ customerRef: 'PO-หลังปิดหน่วย' })
+      .expect(200);
+    expect(po.body.customerRef).toBe('PO-หลังปิดหน่วย');
+    // PUT ไม่ส่ง billingCompanyId → คงนิติบุคคลเดิม (ไม่ routing ใหม่ → ไม่ถูกมองว่าเปลี่ยนแล้ว 409)
+    const put = await api(app, admin)
+      .put(`/v1/orders/external/${ext}`)
+      .send(
+        body(k, {
+          customerRef: 'PO-2',
+          lines: [{ description: 'กล่อง', qty: '3', unitId: boxId }],
+        }),
+      )
+      .expect(200);
+    expect(put.body.billingCompanyId).toBe(co2);
+    // ใบใหม่ / บรรทัดใหม่ที่อ้างหน่วยปิดใช้ → 422
+    const bad = await api(app, admin)
+      .post('/v1/orders')
+      .send(body(k, { lines: [{ description: 'กล่อง', qty: '1', unitId: boxId }] }))
+      .expect(422);
+    expect(bad.body.errors[0]).toMatchObject({
+      field: 'lines[0].unitId',
+      code: 'reference_inactive',
+    });
+    // นิติบุคคลเดิมถูกปิดใช้ก็ยังแก้ใบได้ (คงของเดิม) — และให้ test อื่นกลับไปมีนิติบุคคลเดียว (routing ค่าเริ่มต้น)
+    await db.company.update({ where: { id: co2Id }, data: { status: 'INACTIVE' } });
+    await api(app, admin).patch(`/v1/orders/${o.id}`).send({ customerRef: 'PO-3' }).expect(200);
+  });
+
+  it('Idempotency replay คืนสถานะเดิม (201/200) + ETag เดิม', async () => {
+    const k = await key();
+    const ext = `IDEM-${++seed}`;
+    const key1 = `k1-${randomUUID()}`;
+    const a = await api(app, admin)
+      .post('/v1/orders')
+      .set('Idempotency-Key', key1)
+      .send(body(k, { externalId: ext }))
+      .expect(201);
+    const a2 = await api(app, admin)
+      .post('/v1/orders')
+      .set('Idempotency-Key', key1)
+      .send(body(k, { externalId: ext }))
+      .expect(201);
+    expect(a2.headers['idempotent-replayed']).toBe('true');
+    expect(a2.headers.etag).toBe(a.headers.etag);
+    // POST externalId เดิม (key ใหม่) = อัปเดตใบเดิม 200 → replay ก็ 200
+    const key2 = `k2-${randomUUID()}`;
+    const b = await api(app, admin)
+      .post('/v1/orders')
+      .set('Idempotency-Key', key2)
+      .send(body(k, { externalId: ext, customerRef: 'PO-B' }))
+      .expect(200);
+    expect(b.body.id).toBe(a.body.id);
+    const b2 = await api(app, admin)
+      .post('/v1/orders')
+      .set('Idempotency-Key', key2)
+      .send(body(k, { externalId: ext, customerRef: 'PO-B' }))
+      .expect(200);
+    expect(b2.headers['idempotent-replayed']).toBe('true');
+    expect(b2.headers.etag).toBe(b.headers.etag);
+    expect(b2.headers.etag).toBe(`"${b.body.version}"`);
+  });
+
+  it('If-Match กับ PUT: ใบยังไม่มี + If-Match (ETag หรือ *) → 412 ไม่สร้าง · มีแล้ว + * → อัปเดตได้', async () => {
+    const k = await key();
+    await api(app, admin)
+      .put('/v1/orders/external/IFM-1')
+      .set('If-Match', '"1"')
+      .send(body(k))
+      .expect(412);
+    await api(app, admin)
+      .put('/v1/orders/external/IFM-1')
+      .set('If-Match', '*')
+      .send(body(k))
+      .expect(412);
+    expect(await count('IFM-1')).toBe(0);
+    await api(app, admin).put('/v1/orders/external/IFM-1').send(body(k)).expect(201);
+    const r = await api(app, admin)
+      .put('/v1/orders/external/IFM-1')
+      .set('If-Match', '*')
+      .send(body(k, { customerRef: 'PO-*' }))
+      .expect(200);
+    expect(r.body.customerRef).toBe('PO-*');
+    await api(app, admin)
+      .patch(`/v1/orders/${r.body.id}`)
+      .set('If-Match', '*')
+      .send({ customerRef: 'P2' })
+      .expect(200);
+  });
+
+  it('ที่มา: ผู้ใช้ที่ login จริง (session) POST = MANUAL · PUT external จากผู้ใช้ = API · source filter ผิด → 422', async () => {
+    const PW = 'orders-user-password-2569';
+    const roles = await ensureSystemRoles(db, tenantId);
+    const u = await db.appUser.create({
+      data: {
+        tenantId,
+        email: 'planner@orders.test',
+        name: 'ผู้วางแผน',
+        status: 'ACTIVE',
+        passwordHash: await hashPassword(PW),
+      },
+    });
+    await db.userRole.create({ data: { tenantId, userId: u.id, roleId: roles.planner! } });
+    const user = (await loginFull(app, 'planner@orders.test', PW, '10.71.0.1')).access;
+    const k = await key();
+    const m = (await api(app, user).post('/v1/orders').send(body(k)).expect(201)).body;
+    expect(m).toMatchObject({ source: 'MANUAL', sourceType: 'MANUAL', connector: null });
+    const p = (await api(app, user).put('/v1/orders/external/UI-PUT-1').send(body(k)).expect(201))
+      .body;
+    expect(p.source).toBe('API');
+    await api(app, admin).get('/v1/orders?source=FOO').expect(422);
+    await api(app, admin).get('/v1/orders?source=ERP:').expect(422);
   });
 
   it('call path: POST / PUT external / PATCH เขียนผ่าน OrderIntakeService.upsertOrder ทุกครั้ง', async () => {

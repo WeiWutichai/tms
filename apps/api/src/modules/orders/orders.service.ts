@@ -176,7 +176,11 @@ export class OrdersService {
     if (q.source) {
       const or: Prisma.SalesOrderWhereInput[] = q.source.split(',').map((v) => {
         if (v === 'ERP' || v === 'CONNECTOR') return { source: 'CONNECTOR' };
-        const ref = parseOrderSource(v)!;
+        const ref = parseOrderSource(v);
+        if (!ref)
+          throw new ProblemException('validation_failed', undefined, [
+            { field: 'source', code: 'invalid_source', message: `unknown source ${v}` },
+          ]);
         return ref.source === 'CONNECTOR'
           ? { source: 'CONNECTOR', sourceConnector: ref.connector }
           : { source: ref.source };
@@ -231,7 +235,7 @@ export class OrdersService {
   upsertExternal(
     externalId: string,
     body: OrderFieldsDto,
-    expectedVersion?: number,
+    expectedVersion?: number | '*',
   ): Promise<UpsertOrderResult> {
     return this.intake.upsertOrder({
       ...toInput(body),
@@ -245,7 +249,7 @@ export class OrdersService {
    * PATCH — ล็อกแถวก่อน แล้วรวมช่องที่ส่งกับข้อมูลเดิม (ช่องบนสุด; customer/stops/lines แทนทั้งก้อน) → `upsertOrder({id})`
    * ช่องที่ไม่ได้ส่งคงค่าเดิม (นิติบุคคลออกบิล/ข้อความสถานที่/sourceIssues/rawPayload) — ช่องที่ห้ามแก้ตามสถานะ → 409
    */
-  async update(id: string, body: UpdateOrderDto, expectedVersion?: number) {
+  async update(id: string, body: UpdateOrderDto, expectedVersion?: number | '*') {
     const tx = this.db.tx;
     await tx.$queryRaw`SELECT id FROM sales_order WHERE id = ${id}::uuid FOR UPDATE`;
     const cur = await this.get(id);

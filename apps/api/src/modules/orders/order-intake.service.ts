@@ -170,7 +170,9 @@ export class OrderIntakeService {
       }
     }
 
-    if (current && input.expectedVersion !== undefined && input.expectedVersion !== current.version)
+    // If-Match (RFC 9110): `*` = ต้องมีใบอยู่แล้ว · version = ต้องตรง · ใบยังไม่มีแต่ส่ง If-Match → 412
+    const ev = input.expectedVersion;
+    if (ev !== undefined && (!current || (ev !== '*' && ev !== current.version)))
       throw new ProblemException('precondition_failed');
 
     const inputHash = hashInput(n);
@@ -186,7 +188,8 @@ export class OrderIntakeService {
       );
       if (!editable.length)
         throw new ProblemException('order_locked_for_update', undefined, undefined, {
-          status: current.status,
+          // ไม่ใช้ชื่อ `status` (ชนกับ HTTP status ของ RFC 9457)
+          orderStatus: current.status,
           editableFields: [],
         });
       if (n.draft && current.status !== 'DRAFT')
@@ -197,17 +200,26 @@ export class OrderIntakeService {
     }
 
     // 2) อ้างอิง (ล็อก FOR SHARE + ตรวจใช้งานอยู่ + สถานที่ของลูกค้านี้/ของบริษัท) → นิติบุคคลออกบิล
-    const customer = await this.resolveReferences(tx, n);
-    const routing = await resolveDocumentEntity(tx, tenantId, {
-      kind: 'invoice',
-      companyId: n.billingCompanyId,
-      partyCompanyId: customer?.defaultBillingCompanyId ?? null,
-    });
+    // ใบเดิม: ตรวจเฉพาะอ้างอิงที่เปลี่ยน (ของเดิมที่ถูกปิดใช้ภายหลังไม่ขวางการแก้ช่องอื่น เช่น เลข PO)
+    const customer = await this.resolveReferences(tx, n, current);
+    // นิติบุคคลออกบิล: ไม่ส่ง/ส่งค่าเดิม = คงของเดิม (ไม่หาใหม่จาก routing) · ใบใหม่/เปลี่ยน = routing ST1-T16
+    const keepCompany =
+      current !== null &&
+      (n.billingCompanyId === null || n.billingCompanyId === current.billingCompanyId);
+    const billingCompanyId = keepCompany
+      ? current!.billingCompanyId
+      : (
+          await resolveDocumentEntity(tx, tenantId, {
+            kind: 'invoice',
+            companyId: n.billingCompanyId,
+            partyCompanyId: customer?.defaultBillingCompanyId ?? null,
+          })
+        ).company.id;
     const header = {
       customerId: customer?.id ?? null,
       customerExternalId: n.customer.externalId,
       customerText: n.customer.text,
-      billingCompanyId: routing.company.id,
+      billingCompanyId,
       customerRef: n.customerRef,
       requestedDate: new Date(`${n.requestedDate}T00:00:00Z`),
       vehicleTypeId: n.vehicleTypeId,
@@ -236,7 +248,7 @@ export class OrderIntakeService {
             code: 'locked',
             message: `cannot change ${c.group} when order is ${current.status}`,
           })),
-          { status: current.status, editableFields: editable },
+          { orderStatus: current.status, editableFields: editable },
         );
       if (editable.length < SO_FIELD_GROUPS.length)
         return this.applyRestricted(tx, current, header, children);
@@ -554,8 +566,11 @@ export class OrderIntakeService {
     return { order: final, created: opts.created, changed, holds };
   }
 
-  /** ลูกค้า + ตรวจอ้างอิงทั้งหมด → ลูกค้าที่จับคู่ได้ (null = CUSTOMER_UNMAPPED) */
-  private async resolveReferences(tx: Tx, n: NormalizedOrder) {
+  /**
+   * ลูกค้า + ตรวจอ้างอิงทั้งหมด → ลูกค้าที่จับคู่ได้ (null = CUSTOMER_UNMAPPED)
+   * ใบเดิม (`current`): อ้างอิงที่มีอยู่ในใบแล้ว (หน่วย/สินค้า/สถานที่/ประเภทรถเดิม) ไม่ตรวจซ้ำ — ถูกปิดใช้/ลบภายหลังก็แก้ช่องอื่นได้
+   */
+  private async resolveReferences(tx: Tx, n: NormalizedOrder, current: OrderRecord | null = null) {
     // ลูกค้า: id ตรง → ต้องมีอยู่ (422) · ปิดใช้ = order ยังเข้าระบบแต่ค้าง CUSTOMER_UNMAPPED และไม่ใช้ rate ของลูกค้านั้น
     // (docs/04 C ทุกใบเข้าระบบ > spec/02 MD-003/MD-026 — [OPEN] spec/12 §3) · รหัสต้นทาง → จับคู่ตรงตัวกับลูกค้าที่ใช้งานอยู่
     // (ไม่พบ = CUSTOMER_UNMAPPED; alias/fuzzy = ST3-T06)
@@ -583,8 +598,12 @@ export class OrderIntakeService {
       items: { field: string; id: string | null }[],
       what: string,
       /** ปิดใช้ = ไม่ปฏิเสธ (สถานที่/ประเภทรถ → ใบค้าง/ไม่คิดราคา ตอนประเมิน) */
-      allowInactive = false,
+      allowInactive: boolean,
+      /** id ที่ใบเดิมอ้างอยู่แล้ว — ไม่ตรวจ */
+      kept: (string | null)[] = [],
     ) => {
+      const keep = new Set(kept);
+      items = items.filter((x) => !x.id || !keep.has(x.id));
       const ids = items.flatMap((x) => (x.id ? [x.id] : []));
       const found = new Map((await lockReferenced(tx, table, ids)).map((r) => [r.id, r.status]));
       for (const x of items) {
@@ -596,7 +615,13 @@ export class OrderIntakeService {
       }
     };
     const stopRefs = n.stops.map((s, i) => ({ field: `stops[${i}].siteId`, id: s.siteId }));
-    await check('customer_site', stopRefs, 'site', true);
+    await check(
+      'customer_site',
+      stopRefs,
+      'site',
+      true,
+      (current?.stops ?? []).map((s) => s.siteId),
+    );
     // สถานที่ต้องเป็นของลูกค้าของ order หรือของบริษัทเอง (customer_id null) — กติกาเดียวกับ rate card (ST2-T13)
     const siteIds = stopRefs.flatMap((x) => (x.id ? [x.id] : []));
     if (customer && siteIds.length) {
@@ -615,16 +640,21 @@ export class OrderIntakeService {
       [{ field: 'vehicleTypeId', id: n.vehicleTypeId }],
       'vehicle type',
       true,
+      [current?.vehicleTypeId ?? null],
     );
     await check(
       'unit',
       n.lines.map((l, i) => ({ field: `lines[${i}].unitId`, id: l.unitId })),
       'unit',
+      false,
+      (current?.lines ?? []).map((l) => l.unitId),
     );
     await check(
       'product',
       n.lines.map((l, i) => ({ field: `lines[${i}].productId`, id: l.productId })),
       'product',
+      false,
+      (current?.lines ?? []).map((l) => l.productId),
     );
     return customer;
   }

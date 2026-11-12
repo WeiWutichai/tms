@@ -59,13 +59,22 @@ export class IdempotencyInterceptor implements NestInterceptor {
     return from(this.reserve(tenantId, key, path, requestHash)).pipe(
       mergeMap((replay) => {
         if (replay) {
+          // สถานะ + header เดิม (เช่น 200 ของ upsert ใบเดิม, ETag) — ไม่ใช่ค่าเริ่มต้นของ route
+          res.status(replay.status);
+          for (const [h, v] of Object.entries(replay.headers ?? {})) res.setHeader(h, v);
           res.setHeader('Idempotent-Replayed', 'true');
           return of(replay.body);
         }
         return next.handle().pipe(
-          mergeMap((body) =>
-            from(this.complete(tenantId, key, path, status, body)).pipe(mergeMap(() => of(body))),
-          ),
+          mergeMap((body) => {
+            // handler อาจตั้งสถานะเอง (res.status ใน passthrough) — เก็บค่าจริงที่จะส่ง
+            const sent = res.statusCode >= 200 && res.statusCode < 300 ? res.statusCode : status;
+            const etag = res.getHeader('etag');
+            const headers = typeof etag === 'string' ? { ETag: etag } : null;
+            return from(this.complete(tenantId, key, path, sent, body, headers)).pipe(
+              mergeMap(() => of(body)),
+            );
+          }),
           catchError((err) =>
             from(this.release(tenantId, key, path)).pipe(
               mergeMap(() => {
@@ -89,16 +98,21 @@ export class IdempotencyInterceptor implements NestInterceptor {
           request_hash: string;
           response_status: number | null;
           response_body: unknown;
+          response_headers: Record<string, string> | null;
           locked_until: Date | null;
           expires_at: Date;
         }[]
-      >`SELECT request_hash, response_status, response_body, locked_until, expires_at
+      >`SELECT request_hash, response_status, response_body, response_headers, locked_until, expires_at
           FROM idempotency_key WHERE tenant_id = ${tenantId}::uuid AND key = ${key} AND path = ${path} FOR UPDATE`;
       const row = rows[0];
       if (row && row.expires_at > now) {
         if (row.request_hash !== requestHash) throw new ProblemException('idempotency_mismatch');
         if (row.response_status !== null)
-          return { status: row.response_status, body: row.response_body };
+          return {
+            status: row.response_status,
+            body: row.response_body,
+            headers: row.response_headers,
+          };
         if (row.locked_until && row.locked_until > now)
           throw new ProblemException('idempotency_in_progress');
       }
@@ -116,6 +130,7 @@ export class IdempotencyInterceptor implements NestInterceptor {
           requestHash,
           responseStatus: null,
           responseBody: undefined,
+          responseHeaders: undefined,
           lockedUntil: new Date(now.getTime() + LOCK_MS),
           createdAt: now,
           expiresAt: new Date(now.getTime() + TTL_MS),
@@ -125,11 +140,23 @@ export class IdempotencyInterceptor implements NestInterceptor {
     });
   }
 
-  private complete(tenantId: string, key: string, path: string, status: number, body: unknown) {
+  private complete(
+    tenantId: string,
+    key: string,
+    path: string,
+    status: number,
+    body: unknown,
+    headers: Record<string, string> | null,
+  ) {
     return this.db.withTenant(tenantId, (tx) =>
       tx.idempotencyKey.update({
         where: { tenantId_key_path: { tenantId, key, path } },
-        data: { responseStatus: status, responseBody: (body ?? null) as any, lockedUntil: null },
+        data: {
+          responseStatus: status,
+          responseBody: (body ?? null) as any,
+          responseHeaders: headers ?? undefined,
+          lockedUntil: null,
+        },
       }),
     );
   }

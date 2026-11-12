@@ -705,8 +705,27 @@ describe('order intake (upsertOrder)', () => {
       }),
     );
     expect(moved).toEqual({ code: 'order_locked_for_update', fields: ['stops[1].siteId:locked'] });
+    // สินค้า / ลูกค้า / วันรับของ เปลี่ยนหลังวางแผน → 409 ระบุช่อง
+    const po2 = { ...input, customerRef: 'แก้หลังวางแผน' };
+    expect(
+      await errFields(upsert({ ...po2, lines: [{ ...input.lines![0]!, qty: '13' }] })),
+    ).toEqual({ code: 'order_locked_for_update', fields: ['lines[0].qty:locked'] });
+    expect(await errFields(upsert({ ...po2, customer: { id: await newCustomer() } }))).toEqual({
+      code: 'order_locked_for_update',
+      fields: ['customer:locked'],
+    });
+    expect(await errFields(upsert({ ...po2, requestedDate: addDays(today, 1) }))).toEqual({
+      code: 'order_locked_for_update',
+      fields: ['requestedDate:locked'],
+    });
     // ส่งซ้ำค่าเดิม = idempotent ไม่ error
-    expect((await upsert({ ...input, customerRef: 'แก้หลังวางแผน' })).changed).toBe(false);
+    expect((await upsert(po2)).changed).toBe(false);
+    // [DECISION spec/12 #47] ต้นทางส่ง payload เดิม (ก่อนแก้ PO) มาอีก = เลข PO กลับเป็นค่าตามต้นทาง
+    // (เลข PO แก้ได้ทุกสถานะ — ต้นทางเป็นเจ้าของข้อมูล; ST3-T10 อาจเปลี่ยนเป็น diff ให้คนยืนยัน)
+    const resend = await upsert(input);
+    expect(resend.changed).toBe(true);
+    expect(resend.order.customerRef).toBeNull();
+    expect(resend.order.status).toBe('PLANNED');
     await db.salesOrder.update({ where: { id: a.order.id }, data: { status: 'CANCELLED' } });
     expect((await errFields(upsert({ ...input, customerRef: 'หลังยกเลิก' }))).code).toBe(
       'order_locked_for_update',

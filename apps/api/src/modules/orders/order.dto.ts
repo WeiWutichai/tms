@@ -6,6 +6,7 @@ import {
   IsIn,
   IsInt,
   IsISO8601,
+  IsObject,
   IsOptional,
   IsString,
   Matches,
@@ -16,7 +17,7 @@ import {
 } from 'class-validator';
 import { INTAKE_HOLD_CODES, ORDER_SOURCES, SO_STATUSES } from '@tms/domain';
 import { PriceField } from '../../common/price-fields';
-import { CleanText } from '../master/master-kit';
+import { CleanText, IsOptionalNotNull } from '../master/master-kit';
 
 /**
  * DTO ของ Open API `orders` (ST3-T03; docs/04 C + G1, docs/01 §5.2 #1)
@@ -139,7 +140,8 @@ export class OrderFieldsDto {
   draft?: boolean;
 
   @ApiPropertyOptional({ type: OrderCustomerInputDto })
-  @IsOptional()
+  @IsOptionalNotNull()
+  @IsObject()
   @ValidateNested()
   @Type(() => OrderCustomerInputDto)
   customer?: OrderCustomerInputDto;
@@ -171,7 +173,7 @@ export class OrderFieldsDto {
   stops!: OrderStopInputDto[];
 
   @ApiPropertyOptional({ type: [OrderLineInputDto], description: '≤ 200 บรรทัด' })
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => OrderLineInputDto)
@@ -205,7 +207,8 @@ export class UpdateOrderDto {
   draft?: boolean;
 
   @ApiPropertyOptional({ type: OrderCustomerInputDto })
-  @IsOptional()
+  @IsOptionalNotNull()
+  @IsObject()
   @ValidateNested()
   @Type(() => OrderCustomerInputDto)
   customer?: OrderCustomerInputDto;
@@ -227,14 +230,14 @@ export class UpdateOrderDto {
   vehicleTypeId?: string | null;
 
   @ApiPropertyOptional({ type: [OrderStopInputDto] })
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => OrderStopInputDto)
   stops?: OrderStopInputDto[];
 
   @ApiPropertyOptional({ type: [OrderLineInputDto] })
-  @IsOptional()
+  @IsOptionalNotNull()
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => OrderLineInputDto)

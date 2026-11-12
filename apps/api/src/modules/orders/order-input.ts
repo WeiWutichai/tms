@@ -48,9 +48,9 @@ export interface UpsertOrderInput {
   rawPayload?: unknown;
   /**
    * version ที่ผู้เรียกคาดไว้ (HTTP `If-Match` — ST3-T03) — ใบเดิมมี version อื่น → 412 `precondition_failed`
-   * ตรวจหลังล็อกแถว · ไม่ใช่ข้อมูลงาน (ไม่อยู่ใน hash) · ใบใหม่ไม่ตรวจ
+   * `'*'` = ต้องมีใบอยู่แล้ว (RFC 9110) · ส่งมาแต่ยังไม่มีใบ → 412 · ตรวจหลังล็อกแถว · ไม่อยู่ใน hash
    */
-  expectedVersion?: number;
+  expectedVersion?: number | '*';
 }
 
 export interface UpsertOrderStop {

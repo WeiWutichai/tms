@@ -14,3 +14,12 @@ export function expectedVersion(req: Request): number | undefined {
   if (!m) throw new ProblemException('precondition_failed', 'If-Match must be an ETag like "3"');
   return Number(m[1]);
 }
+
+/**
+ * If-Match แบบ RFC 9110 — `*` = ต้องมีอยู่แล้ว (คืน `'*'`) · ETag = version · ไม่ส่ง = undefined
+ * ใช้กับ resource ที่ PUT สร้างได้ (orders ST3-T03) — ใบยังไม่มีแต่ส่ง If-Match → 412
+ */
+export function ifMatch(req: Request): number | '*' | undefined {
+  if (req.header('if-match')?.trim() === '*') return '*';
+  return expectedVersion(req);
+}
