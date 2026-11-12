@@ -33,6 +33,7 @@ import {
   type Carrier,
   type CarrierFilters,
 } from './useCarriers';
+import { ImportExcelButton } from '../imports/ImportExcelButton';
 
 const DIALOG = {
   deactivate: { title: 'car.dlg.offT', desc: 'car.dlg.offD', ok: 'car.menu.off' },
@@ -233,15 +234,13 @@ export function CarriersPage() {
         sub={t('page.veh.sub')}
         actions={
           <>
-            {/* นำเข้า Excel = ST2-T23 — แสดงตามต้นแบบแต่ยังกดไม่ได้ [OPEN spec/12 §3] */}
-            <Button
-              variant="secondary"
-              icon="file-spreadsheet"
-              disabled
-              title={t(seg === 'drv' ? 'drv.importSoon' : 'car.importSoon')}
-            >
-              {t('car.import')}
-            </Button>
+            {/* นำเข้า Excel (ST2-T23) — ต้นแบบ: ชนิดตามแท็บ (คนขับ / ผู้รับเหมา) */}
+            <ImportExcelButton
+              key={seg}
+              kind={seg === 'drv' ? 'driver' : 'carrier'}
+              label={t('car.import')}
+              onDone={setToast}
+            />
             {canWrite && (
               <Button
                 variant="secondary"

@@ -76,6 +76,8 @@ export class AuditService {
    */
   async recordDetached(e: AuditEntry): Promise<void> {
     const ctx = requestContext.require();
+    // ขั้นตรวจของการนำเข้า Excel ไม่ใช่การกระทำจริง (ย้อนทิ้งทั้งหมด) — บันทึกเมื่อยืนยันนำเข้าเท่านั้น (ST2-T23)
+    if (ctx.importDryRun) return;
     await this.db.withTenant(ctx.tenantId!, (tx) =>
       tx.auditLog.create({
         data: {

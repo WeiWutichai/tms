@@ -34,6 +34,7 @@ import {
   type VehicleStatus,
   type VehTabKey,
 } from './useVehicles';
+import { ImportExcelButton } from '../imports/ImportExcelButton';
 
 const EMPTY_FILTERS: VehicleFilters = {
   plate: '',
@@ -250,15 +251,8 @@ export function VehiclesPage() {
                 {t('veh.add')}
               </Button>
             )}
-            {/* นำเข้า Excel = ST2-T23 · ใบสั่งซ่อม = P1 — แสดงตามต้นแบบแต่ยังกดไม่ได้ [OPEN spec/12 §3] */}
-            <Button
-              variant="secondary"
-              icon="file-spreadsheet"
-              disabled
-              title={t('veh.importSoon')}
-            >
-              {t('veh.import')}
-            </Button>
+            {/* นำเข้า Excel (ST2-T23) · ใบสั่งซ่อม = P1 — แสดงตามต้นแบบแต่ยังกดไม่ได้ [OPEN spec/12 §3] */}
+            <ImportExcelButton kind="vehicle" label={t('veh.import')} onDone={setToast} />
             <Button variant="secondary" icon="wrench" disabled title={t('veh.woSoon')}>
               {t('veh.newWo')}
             </Button>

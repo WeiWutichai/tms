@@ -38,6 +38,7 @@ import {
   type RateFilters,
   type RateSide,
 } from './useRateCards';
+import { ImportExcelButton } from '../imports/ImportExcelButton';
 
 const EMPTY_FILTERS: RateFilters = {
   status: '',
@@ -360,10 +361,13 @@ export function RateCardsPage() {
         sub={t('page.rate.sub')}
         actions={
           <>
-            {/* นำเข้า Excel = ST2-T23 — แสดงตามต้นแบบแต่ยังกดไม่ได้ [OPEN spec/12 §3] */}
-            <Button variant="secondary" icon="file-spreadsheet" disabled title={t('rc.importSoon')}>
-              {t('rc.import')}
-            </Button>
+            {/* นำเข้า Excel (ST2-T23) — ชนิดตามฝั่งที่เลือก (ขาขาย/ขาซื้อ แยกสิทธิ์ prices.*:write) */}
+            <ImportExcelButton
+              key={side}
+              kind={buy ? 'rate_card_buy' : 'rate_card_sell'}
+              label={t('rc.import')}
+              onDone={setToast}
+            />
             {canWrite && (
               <>
                 <Button
