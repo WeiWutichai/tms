@@ -48,7 +48,7 @@ import {
   UpsertRateCardDto,
   type RateStatusKey,
 } from './rate-card.dto';
-import { RateCardsService, toRateCardDto } from './rate-cards.service';
+import { listSide, RateCardsService, toRateCardDto } from './rate-cards.service';
 
 const MODEL_TH: Record<string, string> = {
   PER_TRIP: 'เหมาเที่ยว',
@@ -140,7 +140,7 @@ export class RateCardsController {
   @RequireScope('master:read')
   @ApiOkResponse({ type: RateCardSummaryDto })
   summary(@Query() q: RateCardSummaryQuery): Promise<RateCardSummaryDto> {
-    return this.rates.summary(q.side ?? 'SELL', q.customerId, q.carrierId);
+    return this.rates.summary(listSide(q), q.customerId, q.carrierId);
   }
 
   @Get('export')
@@ -155,7 +155,7 @@ export class RateCardsController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<StreamableFile> {
     const rows = await this.rates.exportRows(q);
-    const side = q.side ?? 'SELL';
+    const side = listSide(q);
     const withPrices = scopeAllows(
       requestContext.require().scopes ?? [],
       side === 'BUY' ? 'prices.buy:read' : 'prices.sell:read',

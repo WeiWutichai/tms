@@ -376,7 +376,11 @@ export class RateCardListQuery {
   @MaxLength(100)
   q?: string;
 
-  @ApiPropertyOptional({ enum: RATE_SIDES, default: 'SELL', description: 'ฝั่ง' })
+  @ApiPropertyOptional({
+    enum: RATE_SIDES,
+    description:
+      'ฝั่ง — ไม่ส่ง: มี carrierId = BUY ไม่งั้น SELL · ขัดกับ customerId/carrierId → 422 `wrong_side`',
+  })
   @IsOptional()
   @IsIn(RATE_SIDES)
   side?: RateSideKey;
@@ -469,7 +473,10 @@ export class RateCardExportQuery extends RateCardListQuery {
 }
 
 export class RateCardSummaryQuery {
-  @ApiPropertyOptional({ enum: RATE_SIDES, default: 'SELL' })
+  @ApiPropertyOptional({
+    enum: RATE_SIDES,
+    description: 'ฝั่ง — ไม่ส่ง: มี carrierId = BUY ไม่งั้น SELL · ขัดกัน → 422 `wrong_side`',
+  })
   @IsOptional()
   @IsIn(RATE_SIDES)
   side?: RateSideKey;

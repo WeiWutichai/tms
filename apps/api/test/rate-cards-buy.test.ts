@@ -140,6 +140,23 @@ describe('rate card ขาซื้อ (side = BUY) + ราคา 5 ครั�
       .get(`/v1/rate-cards?side=BUY&carrierId=${key.carrierId}`)
       .expect(200);
     expect(list.body.data.map((x: { code: string }) => x.code)).toEqual(['RC-B-0001']);
+    // QA: carrierId โดยไม่ส่ง side = ขาซื้อ · ขัดกัน → 422 wrong_side
+    const implied = await api(app, admin)
+      .get(`/v1/rate-cards?carrierId=${key.carrierId}`)
+      .expect(200);
+    expect(implied.body.data.map((x: { code: string }) => x.code)).toEqual(['RC-B-0001']);
+    const ws = await api(app, admin)
+      .get(`/v1/rate-cards?side=SELL&carrierId=${key.carrierId}`)
+      .expect(422);
+    expect(ws.body.errors[0]).toMatchObject({ field: 'carrierId', code: 'wrong_side' });
+    await api(app, admin)
+      .get(`/v1/rate-cards?side=BUY&customerId=${cus.id}`)
+      .expect(422)
+      .expect((res) => expect(res.body.errors[0].code).toBe('wrong_side'));
+    const implSum = await api(app, admin)
+      .get(`/v1/rate-cards/summary?carrierId=${key.carrierId}`)
+      .expect(200);
+    expect(implSum.body.total).toBe(1);
     const carrier = (await api(app, admin).get(`/v1/carriers/${key.carrierId}`).expect(200)).body;
     const byName = await api(app, admin)
       .get(`/v1/rate-cards?side=BUY&party=${encodeURIComponent(carrier.legalName)}`)
@@ -522,6 +539,7 @@ describe('rate card ขาซื้อ (side = BUY) + ราคา 5 ครั�
           carrierNameSnapshot: c.legalName,
           vehicleId: opts.vehicleId ?? v6.id,
           vehicleTypeSnapshot: opts.vehicleId === v10.id ? '10 ล้อ' : '6 ล้อ',
+          vehicleTypeId: vehType(opts.vehicleId === v10.id ? vt10 : vt6),
           status: opts.status ?? 'COMPLETED',
           ...(opts.assignmentStatus ? { assignmentStatus: opts.assignmentStatus } : {}),
           ...(opts.rateCardCode ? { buyRateSnapshot: { rateCardCode: opts.rateCardCode } } : {}),
@@ -611,6 +629,18 @@ describe('rate card ขาซื้อ (side = BUY) + ราคา 5 ครั�
       .get(`/v1/carriers/${c.id}/recent-prices?vehicleTypeId=${vt10}`)
       .expect(200);
     expect(ten.body.data.map((p: { buyAmount: string }) => p.buyAmount)).toEqual(['6100.00']);
+    // QA: กรองด้วยประเภทรถของเที่ยว ณ วันจ่ายงาน — รถเปลี่ยนประเภทภายหลังไม่กระทบ
+    await db.vehicle.update({ where: { id: v10.id }, data: { vehicleTypeId: vehType(vt6) } });
+    const ten2 = await api(app, admin)
+      .get(`/v1/carriers/${c.id}/recent-prices?vehicleTypeId=${vt10}`)
+      .expect(200);
+    expect(ten2.body.data).toEqual([
+      expect.objectContaining({ buyAmount: '6100.00', vehicleType: '10 ล้อ' }),
+    ]);
+    const six = await api(app, admin)
+      .get(`/v1/carriers/${c.id}/recent-prices?vehicleTypeId=${vt6}`)
+      .expect(200);
+    expect(six.body.data.map((p: { buyAmount: string }) => p.buyAmount)).not.toContain('6100.00');
     // ไม่มีสิทธิ์ดูราคาซื้อ → 403 · id ผิดรูปแบบ/ไม่พบ → 404
     const noBuy = await tokenFor(tenantId, 'master:read prices.sell:read');
     await api(app, noBuy).get(`/v1/carriers/${c.id}/recent-prices`).expect(403);

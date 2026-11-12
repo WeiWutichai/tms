@@ -166,6 +166,24 @@ export function assertSideWrite(side: RateSide) {
     });
 }
 
+/**
+ * ฝั่งของคำค้น (QA ST2-T14): ไม่ส่ง side → `carrierId` = ขาซื้อ / อื่น ๆ = ขาขาย · ส่ง side ขัดกับ customerId/carrierId → 422 `wrong_side`
+ */
+export function listSide(q: {
+  side?: RateSide;
+  customerId?: string;
+  carrierId?: string;
+}): RateSide {
+  if (q.customerId && q.carrierId)
+    throw field422('carrierId', 'wrong_side', 'customerId and carrierId cannot be combined');
+  const side: RateSide = q.side ?? (q.carrierId ? 'BUY' : 'SELL');
+  if (side === 'SELL' && q.carrierId)
+    throw field422('carrierId', 'wrong_side', 'carrierId filters BUY rates');
+  if (side === 'BUY' && q.customerId)
+    throw field422('customerId', 'wrong_side', 'customerId filters SELL rates');
+  return side;
+}
+
 /** สถานะที่แสดง — APPROVED พ้นวันหมด (เวลาไทย) = expired */
 export function rateStatus(r: Pick<RateCard, 'status' | 'validTo'>, today: string): RateStatusKey {
   if (r.status === 'DRAFT') return 'draft';
@@ -478,7 +496,7 @@ export class RateCardsService {
 
   private where(q: RateCardListQuery): Prisma.RateCardWhereInput {
     const today = bangkokToday();
-    const and: Prisma.RateCardWhereInput[] = [{ side: q.side ?? 'SELL' }];
+    const and: Prisma.RateCardWhereInput[] = [{ side: listSide(q) }];
     if (q.includeDeleted !== 'true') and.push({ deletedAt: null });
     if (q.status) and.push(this.statusWhere(q.status.split(',') as RateStatusKey[], toDate(today)));
     if (q.nearExpiry === 'true') and.push(this.nearExpiryWhere(today));
@@ -643,7 +661,7 @@ export class RateCardsService {
    *   · `assignment_status` ว่างหรือ ACCEPTED (OFFERED/REJECTED/EXPIRED ไม่นับ) · `trip_date` ≤ วันนี้ (เวลาไทย)
    * ค่าจ้าง = ผลรวม `trip_cost` CARRIER_FEE ของเที่ยวนั้นที่ `carrier_id` ว่างหรือเท่ากับรถร่วมของเที่ยว (บรรทัดของรายอื่นไม่นับ)
    * ต้นทาง/ปลายทาง = จุดแรก/จุดสุดท้ายของเที่ยว
-   * ประเภทรถกรองด้วยรถที่ใช้ (`vehicle.vehicle_type_id`) · แสดงชื่อจาก snapshot ตอนจ่ายงาน
+   * ประเภทรถ = ของเที่ยว ณ วันจ่ายงาน: กรองด้วย `trip.vehicle_type_id` แสดงชื่อจาก `vehicle_type_snapshot` (ไม่ใช่ประเภทปัจจุบันของรถ — QA ST2-T14)
    * rate card ที่ใช้ = `trip.buy_rate_snapshot.rateCardCode` (ST3 จ่ายงานต้องเขียนลง snapshot) · ยังไม่เคยจ้าง = []
    * เงินคืนเป็นสตริง (`buyAmount` ตัดตามสิทธิ์ `prices.buy:read` — route บังคับสิทธิ์นี้อยู่แล้ว)
    */
@@ -706,10 +724,9 @@ export class RateCardsService {
         JOIN ends e ON e.trip_id = t.id
         LEFT JOIN customer_site os ON os.id = e.o
         LEFT JOIN customer_site ds ON ds.id = e.d
-        LEFT JOIN vehicle v ON v.id = t.vehicle_id
        WHERE (${origin}::uuid IS NULL OR e.o = ${origin}::uuid)
          AND (${dest}::uuid IS NULL OR e.d = ${dest}::uuid)
-         AND (${vt}::uuid IS NULL OR v.vehicle_type_id = ${vt}::uuid)
+         AND (${vt}::uuid IS NULL OR t.vehicle_type_id = ${vt}::uuid)
        ORDER BY t.trip_date DESC, fee.last_at DESC, t.id
        LIMIT 5`;
     const site = (id: string | null, code: string | null, name: string | null) =>

@@ -164,6 +164,7 @@
 - ตัดสินใจ (ย้อนได้, spec/12 §3 + คำถามค้าง #37): `prices.buy:write` = owner/admin/manager/planner, สถานที่ขาซื้อจุดใดก็ได้, ราคา 5 ครั้งจาก `trip_cost` CARRIER_FEE ต่อเที่ยว
 - **release note:** scope ใหม่ `prices.buy:write` อยู่ใน role ระบบหลัง `db:migrate` (sync role) — ผู้ใช้ที่ login ค้างอยู่ต้อง **ออกจากระบบแล้วเข้าใหม่ (หรือรอ token ต่ออายุ)** จึงจะแก้ rate ขาซื้อได้ · API client/token เดิมไม่ได้ scope นี้อัตโนมัติ
 - review: กฎ "จ้างแล้ว" ของราคา 5 ครั้งเข้มขึ้น (เฉพาะเที่ยวที่มอบ/รับงานจริง ไม่นับข้อเสนอรอ/ปฏิเสธ/หมดเวลา/วันในอนาคต, บรรทัดค่าจ้างต้องผูกผู้รับเหมาเดียวกับเที่ยว — spec/12 §3 เป็นข้อกำหนดของ ST3-T22) + migration `0054_trip_carrier_date_idx` · test สิทธิ์ข้ามฝั่ง revise/cancel/delete/approve/PUT external ทั้งสองทาง · รูปตัวเลขราคา 5 ครั้งตามต้นแบบ num()
+- QA: ตัวกรองประเภทรถของราคา 5 ครั้งใช้ `trip.vehicle_type_id` (คอลัมน์ใหม่ใน 0054 — แก้ 0054 ที่ยังไม่ merge: ฐาน dev/test/e2e เพิ่มคอลัมน์ + อัปเดต checksum ใน `_prisma_migrations` ไม่ reset) · `GET /v1/rate-cards?carrierId=` ไม่ส่ง side = ขาซื้อ, side ขัดกัน → 422 `wrong_side`
 - สำหรับ ST3: ตอนจ่ายงานรถร่วมเขียน `trip.buy_rate_snapshot` พร้อม `rateCardCode` + cost line CARRIER_FEE (`trip_cost.carrier_id`) → endpoint ราคา 5 ครั้งเห็นทันที · หน้าจ่ายงาน (ต้นแบบ sbx "ราคา 5 ครั้งล่าสุด (฿)") ใช้ `GET /v1/carriers/{id}/recent-prices` + `findApplicableRate({side:'BUY'})`
 
 ### 12 พ.ย. 2569 (ST2-T13 Rate card ขาขาย)

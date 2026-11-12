@@ -9331,9 +9331,8 @@
             "name": "side",
             "required": false,
             "in": "query",
-            "description": "ฝั่ง",
+            "description": "ฝั่ง — ไม่ส่ง: มี carrierId = BUY ไม่งั้น SELL · ขัดกับ customerId/carrierId → 422 `wrong_side`",
             "schema": {
-              "default": "SELL",
               "type": "string",
               "enum": [
                 "SELL",
@@ -9533,8 +9532,8 @@
             "name": "side",
             "required": false,
             "in": "query",
+            "description": "ฝั่ง — ไม่ส่ง: มี carrierId = BUY ไม่งั้น SELL · ขัดกัน → 422 `wrong_side`",
             "schema": {
-              "default": "SELL",
               "type": "string",
               "enum": [
                 "SELL",
@@ -9654,9 +9653,8 @@
             "name": "side",
             "required": false,
             "in": "query",
-            "description": "ฝั่ง",
+            "description": "ฝั่ง — ไม่ส่ง: มี carrierId = BUY ไม่งั้น SELL · ขัดกับ customerId/carrierId → 422 `wrong_side`",
             "schema": {
-              "default": "SELL",
               "type": "string",
               "enum": [
                 "SELL",

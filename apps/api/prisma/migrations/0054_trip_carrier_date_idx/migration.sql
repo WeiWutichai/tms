@@ -4,3 +4,8 @@
 
 -- CreateIndex
 CREATE INDEX "trip_tenant_id_carrier_id_trip_date_idx" ON "trip"("tenant_id", "carrier_id", "trip_date");
+
+-- ประเภทรถ ณ วันจ่ายงาน (QA ST2-T14): ตัวกรอง "ประเภทรถ" ของราคา 5 ครั้งต้องใช้ประเภทของเที่ยว ไม่ใช่ประเภทปัจจุบันของรถ
+-- (รถเปลี่ยนประเภทภายหลัง/เที่ยวที่ไม่มี vehicle_id) — ST3 จ่ายงานต้องเขียนคู่กับ vehicle_type_snapshot (ชื่อ)
+-- ไม่มี FK ตามแบบคอลัมน์อ้างอิงอื่นของ trip ใน schema v0 (vehicle_id/driver_id/carrier_id)
+ALTER TABLE "trip" ADD COLUMN "vehicle_type_id" UUID;
