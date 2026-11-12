@@ -63,6 +63,7 @@ import {
   RateCardsController,
 } from './modules/rate-cards/rate-cards.controller';
 import { RateCardsService } from './modules/rate-cards/rate-cards.service';
+import { PricingService } from './modules/pricing/pricing.service';
 import { VehicleTypesController } from './modules/vehicle-types/vehicle-types.controller';
 import { VehicleTypesService } from './modules/vehicle-types/vehicle-types.service';
 import { CarriersController } from './modules/carriers/carriers.controller';
@@ -153,6 +154,7 @@ import { StateService } from './state/state.service';
     ServiceItemsService,
     ReasonCodesService,
     RateCardsService,
+    PricingService,
     CarriersService,
     VehiclesService,
     DriversService,
