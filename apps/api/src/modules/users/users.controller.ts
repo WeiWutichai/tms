@@ -201,7 +201,7 @@ export class UsersController {
       take: k.take,
     });
     const dtos = new Map((await this.toDtos(rows)).map((d, i) => [rows[i]!.id, d]));
-    return toPage(rows, k.limit, (u) => dtos.get(u.id)!, q.fields);
+    return toPage(rows, k, (u) => dtos.get(u.id)!, q.fields);
   }
 
   private async toDtos(rows: AppUser[]): Promise<UserDto[]> {
