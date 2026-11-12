@@ -29,6 +29,9 @@ function layout(
   return `<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><title>${esc(title)}</title></head><body style="margin:0;padding:24px;background:#F4F5F2;font-family:Sarabun,'Noto Sans Thai',Arial,sans-serif;color:#101418;font-size:15px;line-height:1.6"><div style="max-width:520px;margin:0 auto;background:#FFFFFF;border:1px solid #CDD1C8;border-radius:16px;padding:28px"><h1 style="margin:0 0 12px;font-size:20px;font-weight:600;color:#13213F">${esc(title)}</h1>${body}${button}</div></body></html>`;
 }
 
+/** ข้อความหลายบรรทัด → ย่อหน้าละบรรทัด (สรุปเตือนวันหมดอายุ ST2-T18) */
+const paras = (body: string) => body.split('\n').filter((l) => l.trim() !== '');
+
 export interface TemplateVars {
   /** ST1-T24 แจ้ง owner ทุกครั้งที่ทีม Innovera เข้าใช้งานแทน (docs/04 A6) */
   impersonation_started: {
@@ -87,12 +90,22 @@ const TEMPLATES: { [K in TemplateName]: Record<EmailLocale, Renderer<K>> } = {
     th: ({ title, body, link }) => ({
       subject: `${title} — TMS`,
       text: `${title}\n\n${body}\n${link ? `\n${link}\n` : ''}`,
-      html: layout('th', title, [body], link ? { href: link, label: 'เปิดในระบบ' } : undefined),
+      html: layout(
+        'th',
+        title,
+        paras(body),
+        link ? { href: link, label: 'เปิดในระบบ' } : undefined,
+      ),
     }),
     en: ({ title, body, link }) => ({
       subject: `${title} — TMS`,
       text: `${title}\n\n${body}\n${link ? `\n${link}\n` : ''}`,
-      html: layout('en', title, [body], link ? { href: link, label: 'Open in TMS' } : undefined),
+      html: layout(
+        'en',
+        title,
+        paras(body),
+        link ? { href: link, label: 'Open in TMS' } : undefined,
+      ),
     }),
   },
   user_invitation: {
