@@ -72,6 +72,8 @@ import { CarriersController } from './modules/carriers/carriers.controller';
 import { CarriersService } from './modules/carriers/carriers.service';
 import { VehicleDocumentsController } from './modules/vehicle-documents/vehicle-documents.controller';
 import { VehicleDocumentsService } from './modules/vehicle-documents/vehicle-documents.service';
+import { Clock } from './common/clock';
+import { DepreciationService } from './modules/depreciation/depreciation.service';
 import { DriversController } from './modules/drivers/drivers.controller';
 import { DriversService } from './modules/drivers/drivers.service';
 import { VehiclesController } from './modules/vehicles/vehicles.controller';
@@ -86,7 +88,6 @@ import { UsersController } from './modules/users/users.controller';
 import { UserLifecycleController } from './modules/users/user-lifecycle.controller';
 import { PdfRenderer } from './pdf/pdf-renderer';
 import { StateService } from './state/state.service';
-import { Clock } from './common/clock';
 import { ExpiryReminderService } from './modules/reminders/expiry-reminder.service';
 
 @Module({
@@ -167,6 +168,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     VehicleDocumentsService,
     Clock,
     ExpiryReminderService,
+    DepreciationService,
     GeoService,
     AuditService,
     BranchesService,

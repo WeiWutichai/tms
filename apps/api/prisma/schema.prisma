@@ -897,19 +897,21 @@ model VehicleDocument {
 
 /// ledger ต้นทุนต่อคัน (plan/11 ข้อ 15) — append-only (แก้ = แถวกลับรายการ)
 model VehicleCost {
-  id         String   @id @default(uuid()) @db.Uuid
-  tenantId   String   @map("tenant_id") @db.Uuid
-  vehicleId  String   @map("vehicle_id") @db.Uuid
-  vehicle    Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
-  category   String /// DOCUMENT / DEPRECIATION / FUEL / REPAIR / INCIDENT / OTHER
-  amount     Decimal  @db.Decimal(14, 2)
-  occurredOn DateTime @map("occurred_on") @db.Date
-  sourceType String?  @map("source_type") /// vehicle_document (ST2-T17)
-  sourceId   String?  @map("source_id") @db.Uuid
-  note       String?
-  createdBy  String?  @map("created_by")
-  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  id          String    @id @default(uuid()) @db.Uuid
+  tenantId    String    @map("tenant_id") @db.Uuid
+  vehicleId   String    @map("vehicle_id") @db.Uuid
+  vehicle     Vehicle   @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
+  category    String /// DOCUMENT / DEPRECIATION / FUEL / REPAIR / INCIDENT / OTHER
+  amount      Decimal   @db.Decimal(14, 2)
+  occurredOn  DateTime  @map("occurred_on") @db.Date
+  sourceType  String?   @map("source_type") /// vehicle_document (ST2-T17) · depreciation (ST2-T22)
+  sourceId    String?   @map("source_id") @db.Uuid
+  periodMonth DateTime? @map("period_month") @db.Date /// วันที่ 1 ของเดือนที่คิดค่าเสื่อม — บังคับเฉพาะ DEPRECIATION (CHECK), unique ต่อรถต่อเดือน (ST2-T22)
+  note        String?
+  createdBy   String?   @map("created_by")
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
+  @@unique([tenantId, vehicleId, category, periodMonth])
   @@index([tenantId, vehicleId, occurredOn])
   @@index([tenantId, sourceType, sourceId])
   @@map("vehicle_cost")
