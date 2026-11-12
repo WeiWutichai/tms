@@ -6,6 +6,7 @@ import { likeEscape } from '../../common/ilike';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService } from '../../db/db.service';
+import { EXPORT_MAX_ROWS } from '../master/export';
 import { emitMasterEvent, lockKey } from '../master/master-kit';
 import { plateNorm } from '../vehicles/vehicles.service';
 import {
@@ -24,6 +25,7 @@ import type {
   VehicleDocumentDto,
   VehicleDocumentListQuery,
   VehicleDocumentPageDto,
+  VehicleDocumentSummaryDto,
 } from './vehicle-document.dto';
 
 type DocRow = VehicleDocument & {
@@ -193,11 +195,17 @@ export class VehicleDocumentsService {
     return this.toDtos(rows);
   }
 
-  /** รายการทั้ง tenant เรียงวันหมดก่อน (หน้าเอกสารรถรวม ST2-T19) — keyset (expiresOn, id) */
-  async list(q: VehicleDocumentListQuery): Promise<VehicleDocumentPageDto> {
-    const limit = q.limit ?? 50;
-    const today = bangkokToday();
-    const and: Prisma.VehicleDocumentWhereInput[] = [{ vehicle: { deletedAt: null } }];
+  /**
+   * เงื่อนไขร่วมของรายการ/ส่งออก (ST2-T17 + T19) — วันนับตามเวลาไทย (`expiry.ts`)
+   * ค่าเริ่มต้นไม่รวมรถปลดระวาง (เหมือนป้าย docAlert ของทะเบียนรถ — ต่ออายุไม่ได้อยู่แล้ว)
+   * ยกเว้นระบุ `vehicleId` (ดูเอกสารของคันเดียว = พฤติกรรม T17 เดิม รวมรถปลดระวาง)
+   */
+  private where(q: VehicleDocumentListQuery, today: string): Prisma.VehicleDocumentWhereInput[] {
+    const and: Prisma.VehicleDocumentWhereInput[] = [
+      q.includeRetired === 'true' || q.vehicleId
+        ? { vehicle: { deletedAt: null } }
+        : { vehicle: { deletedAt: null, status: { not: 'RETIRED' } } },
+    ];
     if (q.docType) and.push({ docType: { in: q.docType.split(',') as VehicleDocTypeKey[] } });
     const statuses = (q.status ?? 'active,expiring,expired').split(',');
     const current = { status: { in: [...CURRENT_DB_STATUSES] } };
@@ -218,10 +226,26 @@ export class VehicleDocumentsService {
       const vid = tryDecodeId('vehicle', q.vehicleId);
       and.push({ vehicleId: vid ?? '00000000-0000-0000-0000-000000000000' });
     }
+    if (q.dueWithinDays !== undefined)
+      and.push({ expiresOn: { lte: asDate(addDays(today, q.dueWithinDays)) } });
+    if (q.docNo?.trim())
+      and.push({ refNo: { contains: likeEscape(q.docNo.trim()), mode: 'insensitive' } });
+    if (q.issuer?.trim())
+      and.push({ issuer: { contains: likeEscape(q.issuer.trim()), mode: 'insensitive' } });
+    if (q.expiresBeyondDays !== undefined)
+      and.push({ expiresOn: { gt: asDate(addDays(today, q.expiresBeyondDays)) } });
     if (q.plate) {
       const p = plateNorm(q.plate);
       if (p) and.push({ vehicle: { plateNorm: { contains: likeEscape(p) } } });
     }
+    return and;
+  }
+
+  /** รายการทั้ง tenant เรียงวันหมดก่อน (หน้าเอกสารรถรวม ST2-T19) — keyset (expiresOn, id) */
+  async list(q: VehicleDocumentListQuery): Promise<VehicleDocumentPageDto> {
+    const limit = q.limit ?? 50;
+    const today = bangkokToday();
+    const and = this.where(q, today);
     if (q.cursor) {
       let c: { k: string; i: string };
       try {
@@ -252,6 +276,46 @@ export class VehicleDocumentsService {
             )
           : null,
       hasMore,
+    };
+  }
+
+  /** ส่งออก (ST2-T19) — ตัวกรองเดียวกับรายการ + เลือกเฉพาะ id · เรียงวันหมดใกล้สุดก่อน · สูงสุด 10,000 แถว */
+  async exportRows(q: VehicleDocumentListQuery & { ids?: string }): Promise<VehicleDocumentDto[]> {
+    const and = this.where(q, bangkokToday());
+    if (q.ids)
+      and.push({ id: { in: q.ids.split(',').map((x) => tryDecodeId('vehicleDocument', x)!) } });
+    const rows = await this.db.tx.vehicleDocument.findMany({
+      where: { AND: and },
+      include: INCLUDE,
+      orderBy: [{ expiresOn: 'asc' }, { id: 'asc' }],
+      take: EXPORT_MAX_ROWS + 1,
+    });
+    if (rows.length > EXPORT_MAX_ROWS)
+      throw field422(
+        'query',
+        'too_many_rows',
+        `export is limited to ${EXPORT_MAX_ROWS} rows — narrow the filter`,
+      );
+    return this.toDtos(rows);
+  }
+
+  /** ตัวนับหน้าเอกสารรถรวม (ST2-T19 ต้นแบบ kpisF('fdoc')) — ฉบับปัจจุบันของรถที่ไม่ปลดระวาง */
+  async summary(): Promise<VehicleDocumentSummaryDto> {
+    const today = bangkokToday();
+    const base: Prisma.VehicleDocumentWhereInput = {
+      vehicle: { deletedAt: null, status: { not: 'RETIRED' } },
+      status: { in: [...CURRENT_DB_STATUSES] },
+    };
+    const count = (expiresOn?: Prisma.DateTimeFilter) =>
+      this.db.tx.vehicleDocument.count({ where: expiresOn ? { ...base, expiresOn } : base });
+    const within = (n: number) => count({ gte: asDate(today), lte: asDate(addDays(today, n)) });
+    // ทีละ query ใน transaction เดียวกัน (RLS) — 5 count บน index (tenant, vehicle, type, expires_on)
+    return {
+      total: await count(),
+      expired: await count({ lt: asDate(today) }),
+      within7: await within(7),
+      within30: await within(30),
+      within60: await within(60),
     };
   }
 

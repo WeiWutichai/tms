@@ -235,6 +235,59 @@ export class VehicleDocumentListQuery {
   @Max(3650)
   expiresWithinDays?: number;
 
+  @ApiPropertyOptional({
+    minimum: 0,
+    maximum: 3650,
+    description:
+      'หมดหลังจากอีก N วัน เช่น 30 = เหลือมากกว่า 30 วัน (สถานะ "ปกติ" ของหน้าเอกสารรถรวม) — ใช้ร่วมกับ expiresWithinDays ได้',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(3650)
+  expiresBeyondDays?: number;
+
+  @ApiPropertyOptional({
+    minimum: 0,
+    maximum: 3650,
+    description:
+      'ถึงกำหนดต่อภายใน N วัน = หมดแล้ว หรือหมดภายใน N วัน (เช่น 30 = ไฟล์ "ส่งออกให้ฝ่ายธุรการ" ของต้นแบบ)',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(3650)
+  dueWithinDays?: number;
+
+  @ApiPropertyOptional({ maxLength: 60, description: 'ค้นหาเลขที่เอกสาร (บางส่วน ไม่สนตัวพิมพ์)' })
+  @IsOptional()
+  @CleanText()
+  @IsString()
+  @MaxLength(60)
+  docNo?: string;
+
+  @ApiPropertyOptional({
+    maxLength: 120,
+    description: 'ค้นหาบริษัท / หน่วยงาน (บางส่วน ไม่สนตัวพิมพ์)',
+  })
+  @IsOptional()
+  @CleanText()
+  @IsString()
+  @MaxLength(120)
+  issuer?: string;
+
+  @ApiPropertyOptional({
+    enum: ['true', 'false'],
+    default: 'false',
+    description:
+      'รวมเอกสารของรถปลดระวาง — ค่าเริ่มต้นไม่รวม (รถที่เลิกใช้ไม่ต้องต่ออายุ ตรงกับป้าย docAlert) · ระบุ vehicleId แล้วรวมเสมอ',
+  })
+  @IsOptional()
+  @IsIn(['true', 'false'])
+  includeRetired?: 'true' | 'false';
+
   @ApiPropertyOptional({ example: 'veh_…', description: 'เฉพาะรถคันนี้' })
   @IsOptional()
   @Matches(/^veh_[0-9a-f]{32}$/)
@@ -246,6 +299,31 @@ export class VehicleDocumentListQuery {
   @IsString()
   @MaxLength(20)
   plate?: string;
+}
+
+/** ส่งออกเอกสารรถ (ST2-T19 ต้นแบบ "ส่งออกให้ฝ่ายธุรการ") — ตัวกรองเดียวกับรายการ หรือเฉพาะแถวที่เลือก */
+export class VehicleDocumentExportQuery extends VehicleDocumentListQuery {
+  @ApiPropertyOptional({ enum: ['xlsx', 'csv'], default: 'xlsx' })
+  @IsOptional()
+  @IsIn(['xlsx', 'csv'])
+  format?: 'xlsx' | 'csv';
+
+  @ApiPropertyOptional({ description: 'ส่งออกเฉพาะ id เหล่านี้ (คั่นด้วย ,) — แถวที่เลือกในตาราง' })
+  @IsOptional()
+  @Matches(/^vdoc_[0-9a-f]{32}(,vdoc_[0-9a-f]{32}){0,199}$/)
+  ids?: string;
+}
+
+/**
+ * ตัวนับหน้าเอกสารรถรวม (ST2-T19; ต้นแบบ kpisF('fdoc') + แท็บ) — เฉพาะฉบับปัจจุบันของรถที่ไม่ปลดระวาง
+ * "ภายใน N วัน" = หมดวันนี้ถึงอีก N วัน (ไม่รวมที่หมดแล้ว) — วันตามเวลาไทย
+ */
+export class VehicleDocumentSummaryDto {
+  @ApiProperty({ description: 'ฉบับปัจจุบันทั้งหมด' }) total!: number;
+  @ApiProperty({ description: 'หมดแล้ว (เลยวันหมด)' }) expired!: number;
+  @ApiProperty({ description: 'หมดภายใน 7 วัน' }) within7!: number;
+  @ApiProperty({ description: 'หมดภายใน 30 วัน' }) within30!: number;
+  @ApiProperty({ description: 'หมดภายใน 60 วัน' }) within60!: number;
 }
 
 export class VehicleDocumentVehicleDto {
