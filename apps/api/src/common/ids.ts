@@ -32,6 +32,7 @@ export const ID_PREFIX = {
   serviceItem: 'svc',
   reasonCode: 'rsn',
   rateCard: 'rcd',
+  trip: 'trp',
 } as const;
 export type IdKind = keyof typeof ID_PREFIX;
 

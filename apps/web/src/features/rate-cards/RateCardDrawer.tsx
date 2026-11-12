@@ -17,7 +17,12 @@ import {
   useDateText,
 } from './rateFormat';
 import {
+  accPriceOf,
+  partyOf,
+  priceOf,
   PRICING_MODELS,
+  PX,
+  searchCarriers,
   searchCustomers,
   searchRoutes,
   useCreateRate,
@@ -28,6 +33,7 @@ import {
   type RateCard,
   type RateCardCreate,
   type RateCardInput,
+  type RateSide,
 } from './useRateCards';
 
 type Tab = 'sum' | 'docs' | 'act';
@@ -70,8 +76,9 @@ const EMPTY: Form = {
 };
 
 function toForm(r: RateCard): Form {
+  const p = partyOf(r);
   return {
-    party: r.customer ? { id: r.customer.id, label: r.customer.name, sub: r.customer.code } : null,
+    party: p ? { id: p.id, label: p.name, sub: p.code } : null,
     route: {
       id: `${r.origin.id}>${r.destination.id}`,
       label: routeText(r),
@@ -81,14 +88,17 @@ function toForm(r: RateCard): Form {
       ? (r.pricingModel as PricingModel)
       : '',
     unit: r.unit?.id ?? '',
-    price: moneyOut(r.sellRate),
-    min: moneyOut(r.sellMinCharge),
-    ex: moneyOut(r.sellExtraStopRate),
+    price: moneyOut(priceOf(r, 'rate')),
+    min: moneyOut(priceOf(r, 'min')),
+    ex: moneyOut(priceOf(r, 'ex')),
     n: String(r.includedStops),
     from: r.validFrom,
     to: r.validTo ?? '',
     acc: Object.fromEntries(
-      r.accessorials.map((a) => [a.serviceItem.id, a.sellPrice ? money(a.sellPrice) : '']),
+      r.accessorials.map((a) => {
+        const v = accPriceOf(r.side, a);
+        return [a.serviceItem.id, v ? money(v) : ''];
+      }),
     ),
   };
 }
@@ -130,7 +140,7 @@ export function RateBadge({ r, t }: { r: Pick<RateCard, 'status'>; t: T }) {
 }
 
 /** ข้อความของ error ช่องที่เฉพาะ rate card (ไม่ใช้ข้อความกลางที่ความหมายต่าง) */
-function rateFieldError(t: T, err: unknown): Record<string, string> {
+function rateFieldError(t: T, err: unknown, side: RateSide): Record<string, string> {
   const out = fieldErrors(err, t);
   if (!(err instanceof ApiError)) return out;
   for (const e of err.problem.errors ?? []) {
@@ -143,7 +153,7 @@ function rateFieldError(t: T, err: unknown): Record<string, string> {
     if (e.code === 'revision_cancel_blocked') out.top = t('rc.v.cancelBlocked');
     if (e.code === 'overlap') {
       const c = (err.problem as { conflicts?: { code: string; revision: number }[] }).conflicts;
-      out[e.field] = t('rc.v.overlap', {
+      out[e.field] = t(side === 'BUY' ? 'rc.v.overlapBuy' : 'rc.v.overlap', {
         c: (c ?? []).map((x) => (x.revision > 1 ? `${x.code} v${x.revision}` : x.code)).join(', '),
       });
     }
@@ -156,12 +166,14 @@ function rateFieldError(t: T, err: unknown): Record<string, string> {
 }
 
 /**
- * Drawer rate — ต้นแบบ vPanel rate: หัว "Rate ขาขาย · ลูกค้า" + รหัส + ป้าย · แท็บ ข้อมูล rate / เอกสารแนบ / กิจกรรม
+ * Drawer rate — ต้นแบบ vPanel rate: หัว "Rate ขาขาย · ลูกค้า" / "Rate ขาซื้อ · รถร่วม" + รหัส + ป้าย · แท็บ ข้อมูล rate / เอกสารแนบ / กิจกรรม
+ * ขาซื้อ (ST2-T14) ใช้ drawer/ตัวตรวจเดียวกัน — ช่องแรก "ผู้รับเหมา", ราคา buy*, ค่าบริการเพิ่มฝั่งซื้อ/ทั้งคู่
  * แท็บข้อมูล = คำเตือนใกล้หมด/หมดอายุ + ฟอร์ม + ตารางค่าบริการเพิ่ม (accessorial)
  * ท้าย: รออนุมัติ (ร่าง) → [คัดลอกเป็น rate ใหม่] [บันทึก] + อนุมัติ · มีผล/หมดอายุ → [คัดลอกเป็น rate ใหม่] + ส่งขออนุมัติ (= ฉบับแก้ไข MD-118)
  * rate ใหม่/คัดลอก (ต้นแบบไม่มีฟอร์มสร้าง — [OPEN spec/12 §3]) ใช้ drawer เดียวกัน ปุ่ม "บันทึกร่าง"
  */
 export function RateCardDrawer({
+  side: sideProp = 'SELL',
   rate,
   copyFrom,
   canWrite,
@@ -173,6 +185,8 @@ export function RateCardDrawer({
   onDelete,
   onClose,
 }: {
+  /** ฝั่งของ rate ใหม่ (rate เดิมใช้ฝั่งของตัวเอง) */
+  side?: RateSide;
   /** null = rate ใหม่ */
   rate: RateCard | null;
   /** rate ใหม่ที่คัดลอกจาก rate เดิม */
@@ -193,6 +207,9 @@ export function RateCardDrawer({
   const update = useUpdateRate();
   const revise = useReviseRate();
   const isNew = !rate;
+  const side: RateSide = rate?.side ?? copyFrom?.side ?? sideProp;
+  const buy = side === 'BUY';
+  const px = PX[side];
   const isDraft = rate?.status === 'draft' || rate?.status === 'pending_approval';
   const approved = rate?.status === 'active' || rate?.status === 'expired';
   /** ฟอร์มแก้ได้: rate ใหม่ / ร่าง / ที่อนุมัติแล้ว (แก้แล้วส่งขออนุมัติ = ฉบับแก้ไข) */
@@ -235,7 +252,11 @@ export function RateCardDrawer({
 
   // ---------- ค่าบริการเพิ่ม: catalog ขาขาย/ทั้งคู่ ที่ไม่ใช่ค่าขนส่ง/ค่าจุดเพิ่ม/FSC/% ----------
   const accItems = opts.serviceItems.filter(
-    (s) => s.side !== 'BUY' && s.isSurcharge && !s.reserved && s.calcUnit !== 'PERCENT_OF_FREIGHT',
+    (s) =>
+      s.side !== (buy ? 'SELL' : 'BUY') &&
+      s.isSurcharge &&
+      !s.reserved &&
+      s.calcUnit !== 'PERCENT_OF_FREIGHT',
   );
   const extra = (rate ?? copyFrom)?.accessorials.filter(
     (a) => !accItems.some((s) => s.id === a.serviceItem.id),
@@ -243,7 +264,7 @@ export function RateCardDrawer({
 
   // ---------- ตรวจในฟอร์ม ----------
   const local: Record<string, string> = {};
-  if (!f.party) local.party = t('rc.v.party');
+  if (!f.party) local.party = t(buy ? 'rc.v.carrier' : 'rc.v.party');
   if (!f.route) local.route = t('rc.v.route');
   if (!f.vt) local.vt = t('rc.v.vt');
   if (f.model === 'PER_UNIT' && !f.unit) local.unit = t('rc.v.unit');
@@ -259,17 +280,18 @@ export function RateCardDrawer({
   if (!f.from) local.from = t('rc.v.from');
   if (f.to && f.from && f.to < f.from) local.to = t('rc.v.to');
 
-  const server = rateFieldError(t, m.error);
+  const server = rateFieldError(t, m.error, side);
   const MAP: Record<string, string> = {
     customerId: 'party',
+    carrierId: 'party',
     originId: 'route',
     destinationId: 'route',
     vehicleTypeId: 'vt',
     pricingModel: 'model',
     unitId: 'unit',
-    sellRate: 'price',
-    sellMinCharge: 'min',
-    sellExtraStopRate: 'ex',
+    [px.rate]: 'price',
+    [px.min]: 'min',
+    [px.ex]: 'ex',
     includedStops: 'n',
     validFrom: 'from',
     validTo: 'to',
@@ -293,7 +315,7 @@ export function RateCardDrawer({
   function accBody(x: Form) {
     return Object.entries(x.acc)
       .filter(([, v]) => moneyIn(v) !== '')
-      .map(([serviceItemId, v]) => ({ serviceItemId, sellPrice: moneyIn(v) }))
+      .map(([serviceItemId, v]) => ({ serviceItemId, [px.acc]: moneyIn(v) }))
       .sort((a, b) => a.serviceItemId.localeCompare(b.serviceItemId));
   }
   const terms = (x: Form) => ({
@@ -301,9 +323,9 @@ export function RateCardDrawer({
     unitId: x.model === 'PER_UNIT' ? x.unit || null : null,
     ...(canSeePrice
       ? {
-          sellRate: moneyIn(x.price),
-          sellMinCharge: moneyIn(x.min) || null,
-          sellExtraStopRate: moneyIn(x.ex) || null,
+          [px.rate]: moneyIn(x.price),
+          [px.min]: moneyIn(x.min) || null,
+          [px.ex]: moneyIn(x.ex) || null,
         }
       : {}),
     includedStops: Number(x.n),
@@ -313,7 +335,12 @@ export function RateCardDrawer({
   });
   const keyBody = (x: Form) => {
     const [originId = '', destinationId = ''] = (x.route?.id ?? '').split('>');
-    return { customerId: x.party!.id, originId, destinationId, vehicleTypeId: x.vt };
+    return {
+      [buy ? 'carrierId' : 'customerId']: x.party!.id,
+      originId,
+      destinationId,
+      vehicleTypeId: x.vt,
+    };
   };
   /** แก้ไข: เฉพาะช่องที่เปลี่ยน */
   const diff = (a: Form, b: Form, withKey: boolean): RateCardInput => {
@@ -323,7 +350,7 @@ export function RateCardDrawer({
     for (const k of Object.keys(tb))
       if (JSON.stringify(ta[k]) !== JSON.stringify(tb[k])) out[k] = tb[k];
     if (withKey) {
-      if (a.party?.id !== b.party?.id) out.customerId = b.party!.id;
+      if (a.party?.id !== b.party?.id) out[buy ? 'carrierId' : 'customerId'] = b.party!.id;
       if (a.route?.id !== b.route?.id) {
         const k = keyBody(b);
         out.originId = k.originId;
@@ -367,7 +394,7 @@ export function RateCardDrawer({
       return create.mutate(
         {
           idempotencyKey: idemKey,
-          body: { side: 'SELL', ...keyBody(f), ...terms(f) } as RateCardCreate,
+          body: { side, ...keyBody(f), ...terms(f) } as RateCardCreate,
         },
         { ...done, onSuccess: (r) => onSaved(r, 'created') },
       );
@@ -392,6 +419,7 @@ export function RateCardDrawer({
     submitting.current = true;
     const {
       customerId: _c,
+      carrierId: _cr,
       originId: _o,
       destinationId: _d,
       vehicleTypeId: _v,
@@ -503,7 +531,7 @@ export function RateCardDrawer({
     <Drawer
       open
       onClose={onClose}
-      kind={t('rc.kind')}
+      kind={t(buy ? 'rc.kindBuy' : 'rc.kind')}
       title={title}
       {...(rate ? { badge: <RateBadge r={rate} t={t} /> } : {})}
       labels={{ close: t('drawer.close'), more: t('drawer.more') }}
@@ -552,11 +580,11 @@ export function RateCardDrawer({
           )}
           <div className="tms-fgrid">
             <Fld
-              label={t('rc.fld.party')}
+              label={t(buy ? 'rc.fld.carrier' : 'rc.fld.party')}
               span={2}
               error={errs.party}
               {...(rate && !keyEditable && canWrite && editable
-                ? { hint: t('rc.fld.keyLocked') }
+                ? { hint: t(buy ? 'rc.fld.keyLockedBuy' : 'rc.fld.keyLocked') }
                 : {})}
             >
               {(id) => (
@@ -564,14 +592,14 @@ export function RateCardDrawer({
                   id={id}
                   invalid={!!errs.party}
                   disabled={roKey}
-                  queryKey="rate-customers"
+                  queryKey={buy ? 'rate-carriers' : 'rate-customers'}
                   value={f.party}
                   onChange={(v) => {
                     set('party', v);
                     create.reset();
                     update.reset();
                   }}
-                  search={searchCustomers}
+                  search={buy ? searchCarriers : searchCustomers}
                   placeholder={t('rc.fld.pick')}
                   noResult={t('table.emptyTitle')}
                 />
@@ -852,6 +880,7 @@ const FIELD_KEYS: Record<string, MessageKey> = {
   code: 'rc.f.code',
   revision: 'rc.f.revision',
   customerId: 'rc.fld.party',
+  carrierId: 'rc.fld.carrier',
   originId: 'rc.col.route',
   destinationId: 'rc.col.route',
   vehicleTypeId: 'rc.fld.vt',
@@ -860,6 +889,9 @@ const FIELD_KEYS: Record<string, MessageKey> = {
   sellRate: 'rc.fld.priceAny',
   sellMinCharge: 'rc.fld.min',
   sellExtraStopRate: 'rc.fld.ex',
+  buyRate: 'rc.fld.priceAny',
+  buyMinCharge: 'rc.fld.min',
+  buyExtraStopRate: 'rc.fld.ex',
   includedStops: 'rc.fld.n',
   accessorials: 'rc.acc.title',
   validFrom: 'rc.fld.from',

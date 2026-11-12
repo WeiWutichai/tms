@@ -24,6 +24,7 @@ const MATRIX: Array<[MessageKey, string]> = [
   ['perm.sellRead', 'prices.sell:read'],
   ['perm.sellWrite', 'prices.sell:write'],
   ['perm.buyRead', 'prices.buy:read'],
+  ['perm.buyWrite', 'prices.buy:write'],
   ['perm.ordersRead', 'orders:read'],
   ['perm.ordersWrite', 'orders:write'],
   ['perm.ordersCancel', 'orders:cancel'],

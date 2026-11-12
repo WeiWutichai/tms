@@ -1251,6 +1251,7 @@ model Trip {
   vehicleId            String?           @map("vehicle_id") @db.Uuid
   vehiclePlateSnapshot String?           @map("vehicle_plate_snapshot")
   vehicleTypeSnapshot  String?           @map("vehicle_type_snapshot")
+  vehicleTypeId        String?           @map("vehicle_type_id") @db.Uuid /// ประเภทรถ ณ วันจ่ายงาน (ST2-T14 ตัวกรองราคา 5 ครั้ง — ST3 เขียนคู่กับ snapshot)
   driverId             String?           @map("driver_id") @db.Uuid
   driverNameSnapshot   String?           @map("driver_name_snapshot")
   driverPhoneSnapshot  String?           @map("driver_phone_snapshot")
@@ -1275,6 +1276,7 @@ model Trip {
 
   @@unique([tenantId, tripNo])
   @@index([tenantId, tripDate, status])
+  @@index([tenantId, carrierId, tripDate]) /// ราคา 5 ครั้งล่าสุดที่จ้างรถร่วม (ST2-T14)
   @@index([tenantId, updatedAt, id])
   @@map("trip")
 }
