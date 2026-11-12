@@ -17,8 +17,12 @@ export type ExportPath =
 /**
  * ดาวน์โหลดไฟล์จาก endpoint ส่งออก — ผ่าน client เดียวกับ UI (token, ภาษา, การใช้งานแทน) แบบ blob
  * error → throw (หน้าแสดง toast) · revoke URL หลังเบราว์เซอร์เริ่มดาวน์โหลดแล้ว
+ * คืนจำนวนแถวในไฟล์เมื่อ API ส่ง header `X-Export-Rows` (เอกสารรถ ST2-T19) — ไม่มี = undefined
  */
-export async function downloadFile(path: ExportPath, query: Record<string, string>): Promise<void> {
+export async function downloadFile(
+  path: ExportPath,
+  query: Record<string, string>,
+): Promise<number | undefined> {
   const q = Object.fromEntries(Object.entries(query).filter(([, v]) => v !== ''));
   const r = await api.GET(path, { params: { query: q as never }, parseAs: 'blob' });
   if (!r.response.ok || !r.data) throw new Error(`export failed: ${r.response.status}`);
@@ -32,4 +36,6 @@ export async function downloadFile(path: ExportPath, query: Record<string, strin
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  const n = Number(r.response.headers.get('x-export-rows') ?? NaN);
+  return Number.isInteger(n) ? n : undefined;
 }

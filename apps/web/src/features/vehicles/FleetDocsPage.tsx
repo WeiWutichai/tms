@@ -37,6 +37,8 @@ const num = (n: number) => n.toLocaleString('th-TH');
 const cell = { color: '#101418', whiteSpace: 'nowrap' } as const;
 const sub = { color: '#3B424C', whiteSpace: 'nowrap' } as const;
 const clip = { overflow: 'hidden', textOverflow: 'ellipsis' } as const;
+/** ส่งออกแถวที่เลือกได้ครั้งละไม่เกิน (ตรงกับ `ids` ของ API) */
+const BULK_MAX = 200;
 
 /**
  * รถ → เอกสารรถ (ST2-T19; docs/04 B2.2 เอกสารรถรวม) — ต้นแบบ TMS v4 specFDoc() + kpisF('fdoc') + actions fdoc + vRnw()
@@ -203,9 +205,9 @@ export function FleetDocsPage() {
       onClick={() => toggleTab(k)}
     />
   );
-  const exportFile = (q: Record<string, string>, done: string) =>
+  const exportFile = (q: Record<string, string>, done: (n: number | undefined) => string) =>
     downloadFile('/v1/vehicle-documents/export', q).then(
-      () => setToast(done),
+      (n) => setToast(done(n)),
       () => setToast(t('fdoc.exportFailed')),
     );
 
@@ -225,7 +227,9 @@ export function FleetDocsPage() {
                 variant="secondary"
                 icon="file-down"
                 onClick={() =>
-                  void exportFile({ format: 'xlsx', dueWithinDays: '30' }, t('fdoc.exported30'))
+                  void exportFile({ format: 'xlsx', dueWithinDays: '30' }, () =>
+                    t('fdoc.exported30'),
+                  )
                 }
               >
                 {t('fdoc.export')}
@@ -267,6 +271,8 @@ export function FleetDocsPage() {
           />
         ) : (
           <DataTable
+            // เปลี่ยนแท็บ/ตัวกรอง → ล้างแถวที่เลือก (ไม่ส่งออกแถวที่มองไม่เห็นแล้ว)
+            key={JSON.stringify(query)}
             columns={columns}
             rows={list.rows}
             rowId={(d) => d.id}
@@ -288,11 +294,16 @@ export function FleetDocsPage() {
                     {
                       label: t('fdoc.export'),
                       icon: 'file-down',
-                      run: (ids: string[]) =>
-                        exportFile(
-                          { format: 'xlsx', ids: ids.join(',') },
-                          t('fdoc.exportedN', { n: ids.length }),
-                        ),
+                      run: (ids: string[]) => {
+                        // API รับ ids ≤ 200 ต่อครั้ง — เลือกเกินแจ้งให้แบ่งส่งออก
+                        if (ids.length > BULK_MAX) {
+                          setToast(t('fdoc.bulkMax', { max: BULK_MAX, n: ids.length }));
+                          return;
+                        }
+                        void exportFile({ format: 'xlsx', ids: ids.join(',') }, (n) =>
+                          t('fdoc.exportedN', { n: n ?? ids.length }),
+                        );
+                      },
                     },
                   ],
                 }

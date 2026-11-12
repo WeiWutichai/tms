@@ -140,13 +140,15 @@ export class VehicleDocumentsController {
   @ApiProduces('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'text/csv')
   @ApiOkResponse({
     description:
-      'ไฟล์ .xlsx หรือ .csv ตามตัวกรองเดียวกับรายการ หรือเฉพาะ `ids` (สูงสุด 10,000 แถว) — CSV กันสูตร',
+      'ไฟล์ .xlsx หรือ .csv ตามตัวกรองเดียวกับรายการ หรือเฉพาะ `ids` (≤ 200; สูงสุด 10,000 แถว) — CSV กันสูตร · header `X-Export-Rows` = จำนวนแถวในไฟล์',
   })
   async export(
     @Query() q: VehicleDocumentExportQuery,
     @Res({ passthrough: true }) res: Response,
   ): Promise<StreamableFile> {
     const rows = await this.docs.exportRows(q);
+    // จำนวนแถวจริงในไฟล์ (แถวที่เลือกแต่ถูกต่ออายุ/ยกเลิกไปแล้วจะไม่อยู่) — หน้าเว็บใช้แสดงข้อความ
+    res.setHeader('X-Export-Rows', String(rows.length));
     return sendExport(res, q.format ?? 'xlsx', 'vehicle-documents', EXPORT_COLUMNS, rows);
   }
 

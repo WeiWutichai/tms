@@ -38,10 +38,16 @@ test.describe.serial('รถ → เอกสารรถ (ST2-T19)', () => {
     await d.getByLabel('ทะเบียน').fill(PLATE);
     await d.getByLabel('ประเภทรถ').selectOption({ label: '6 ล้อ' });
     await d.getByRole('button', { name: 'เพิ่มรถ' }).click();
-    await expect(page.getByRole('status')).toContainText(`เพิ่มรถ ${PLATE} กทม. แล้ว`);
+    await expect(page.getByRole('status').filter({ hasText: 'เพิ่มรถ' })).toContainText(
+      `เพิ่มรถ ${PLATE} กทม. แล้ว`,
+    );
     await page.keyboard.press('Escape');
     await page.getByRole('columnheader').getByPlaceholder('ค้นหา').first().fill(PLATE);
-    await page.getByRole('row', { name: new RegExp(`${PLATE} กทม`) }).click();
+    await page
+      .getByRole('row', { name: new RegExp(`${PLATE} กทม`) })
+      .getByRole('cell')
+      .nth(2)
+      .click();
     await page.getByRole('tab', { name: 'เอกสาร', exact: true }).click();
     await addDoc(page, 'ภาษี', `TAX-${RUN}`, 10);
     await addDoc(page, 'พ.ร.บ.', `CMI-${RUN}`, 45);
@@ -74,14 +80,17 @@ test.describe.serial('รถ → เอกสารรถ (ST2-T19)', () => {
 
     // ต่ออายุจากหน้านี้: คลิกแถว → modal → เลขที่ใหม่ + ไฟล์ → บันทึก
     await page.getByRole('tab', { name: /^ภายใน 30 วัน/ }).click();
-    await tax.click();
+    // คลิกช่องเลขที่ (ไม่ใช่ checkbox/ปุ่มเมนู)
+    await tax.getByRole('cell', { name: `TAX-${RUN}`, exact: true }).click();
     const rnw = page.getByRole('dialog', { name: /ต่ออายุภาษี/ });
     await expect(rnw).toContainText(`เลขเดิม TAX-${RUN}`);
     await rnw.getByLabel('เลขที่ใหม่').fill(`TAX-${RUN}-N`);
     await rnw.getByTestId('vdoc-file').setInputFiles(PDF(`TAX-${RUN}-N.pdf`));
     await expect(rnw.getByText(`TAX-${RUN}-N.pdf`)).toBeVisible();
     await rnw.getByRole('button', { name: 'บันทึกการต่ออายุ' }).click();
-    await expect(page.getByRole('status')).toContainText(`ต่ออายุภาษี ${PLATE} กทม.`);
+    await expect(page.getByRole('status').filter({ hasText: 'ต่ออายุ' })).toContainText(
+      `ต่ออายุภาษี ${PLATE} กทม.`,
+    );
     await expect(page.getByRole('dialog')).toHaveCount(0);
     // หายจาก "ภายใน 30 วัน" · ฉบับใหม่อยู่ในแท็บทั้งหมด
     await expect(page.getByRole('row', { name: new RegExp(`TAX-${RUN}`) })).toHaveCount(0);

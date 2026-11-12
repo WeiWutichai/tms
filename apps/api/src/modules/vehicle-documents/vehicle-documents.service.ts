@@ -204,14 +204,14 @@ export class VehicleDocumentsService {
     return this.toDtos(rows);
   }
 
-  /** รายการทั้ง tenant เรียงวันหมดก่อน (หน้าเอกสารรถรวม ST2-T19) — keyset (expiresOn, id) */
   /**
    * เงื่อนไขร่วมของรายการ/ส่งออก (ST2-T17 + T19) — วันนับตามเวลาไทย (`expiry.ts`)
    * ค่าเริ่มต้นไม่รวมรถปลดระวาง (เหมือนป้าย docAlert ของทะเบียนรถ — ต่ออายุไม่ได้อยู่แล้ว)
+   * ยกเว้นระบุ `vehicleId` (ดูเอกสารของคันเดียว = พฤติกรรม T17 เดิม รวมรถปลดระวาง)
    */
   private where(q: VehicleDocumentListQuery, today: string): Prisma.VehicleDocumentWhereInput[] {
     const and: Prisma.VehicleDocumentWhereInput[] = [
-      q.includeRetired === 'true'
+      q.includeRetired === 'true' || q.vehicleId
         ? { vehicle: { deletedAt: null } }
         : { vehicle: { deletedAt: null, status: { not: 'RETIRED' } } },
     ];
@@ -250,6 +250,7 @@ export class VehicleDocumentsService {
     return and;
   }
 
+  /** รายการทั้ง tenant เรียงวันหมดก่อน (หน้าเอกสารรถรวม ST2-T19) — keyset (expiresOn, id) */
   async list(q: VehicleDocumentListQuery): Promise<VehicleDocumentPageDto> {
     const limit = q.limit ?? 50;
     const today = bangkokToday();

@@ -289,7 +289,7 @@ export class VehicleDocumentListQuery {
     enum: ['true', 'false'],
     default: 'false',
     description:
-      'รวมเอกสารของรถปลดระวาง — ค่าเริ่มต้นไม่รวม (รถที่เลิกใช้ไม่ต้องต่ออายุ ตรงกับป้าย docAlert)',
+      'รวมเอกสารของรถปลดระวาง — ค่าเริ่มต้นไม่รวม (รถที่เลิกใช้ไม่ต้องต่ออายุ ตรงกับป้าย docAlert) · ระบุ vehicleId แล้วรวมเสมอ',
   })
   @IsOptional()
   @IsIn(['true', 'false'])

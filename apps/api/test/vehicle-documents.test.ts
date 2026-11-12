@@ -894,6 +894,25 @@ describe('เอกสารรถ (vehicle documents)', () => {
     expect(await ids(`expiresWithinDays=30&vehicleId=${b.id}`)).toEqual([d30.id]);
     expect(await ids('')).toEqual([dm1.id, d0.id, d7.id, d8.id, d30.id, d31.id, d60.id, d61.id]);
     expect(await ids('includeRetired=true&expiresWithinDays=7')).toEqual([d0.id, ret.id, d7.id]);
+    // ระบุ vehicleId = เอกสารของคันนั้นเสมอ แม้ปลดระวาง (พฤติกรรม T17 เดิม)
+    expect(await ids(`vehicleId=${c.id}`)).toEqual([ret.id]);
+    // แบ่งหน้าภายใต้ตัวกรอง 30 วัน (keyset expiresOn, id)
+    const seen: string[] = [];
+    let cursor: string | null = null;
+    do {
+      const pg: { body: { data: { id: string }[]; nextCursor: string | null } } = await api(
+        app,
+        tok,
+      )
+        .get(
+          `/v1/vehicle-documents?expiresWithinDays=30&limit=1${cursor ? `&cursor=${cursor}` : ''}`,
+        )
+        .expect(200);
+      expect(pg.body.data.length).toBeLessThanOrEqual(1);
+      seen.push(...pg.body.data.map((d) => d.id));
+      cursor = pg.body.nextCursor;
+    } while (cursor);
+    expect(seen).toEqual([d0.id, d7.id, d8.id, d30.id]);
     // ถึงกำหนดต่อ (หมดแล้ว + ภายใน N วัน) · ค้นเลขที่/บริษัท (บางส่วน, % _ เป็นตัวอักษร)
     expect(await ids('dueWithinDays=7')).toEqual([dm1.id, d0.id, d7.id]);
     expect(await ids('docNo=insurance-3')).toEqual([d31.id]);
@@ -969,6 +988,12 @@ describe('เอกสารรถ (vehicle documents)', () => {
     expect(sel.text).toContain('INSPECTION-61');
     expect(sel.text).toContain('ปกติ');
     expect(sel.text.trim().split('\r\n')).toHaveLength(3);
+    expect(sel.headers['x-export-rows']).toBe('2');
+    // แถวที่เลือกแต่ถูกต่ออายุไปแล้ว (d30 ฉบับเดิม) ไม่อยู่ในไฟล์ → นับจริง 1
+    const gone = await api(app, tok)
+      .get(`/v1/vehicle-documents/export?format=csv&ids=${d30.id},${d61.id}`)
+      .expect(200);
+    expect(gone.headers['x-export-rows']).toBe('1');
     const xlsx = await api(app, tok).get('/v1/vehicle-documents/export').expect(200);
     expect(xlsx.headers['content-type']).toContain('spreadsheetml');
     await api(app, view).get('/v1/vehicle-documents/export').expect(403);

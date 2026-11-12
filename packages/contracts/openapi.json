@@ -13105,7 +13105,7 @@
             "name": "includeRetired",
             "required": false,
             "in": "query",
-            "description": "รวมเอกสารของรถปลดระวาง — ค่าเริ่มต้นไม่รวม (รถที่เลิกใช้ไม่ต้องต่ออายุ ตรงกับป้าย docAlert)",
+            "description": "รวมเอกสารของรถปลดระวาง — ค่าเริ่มต้นไม่รวม (รถที่เลิกใช้ไม่ต้องต่ออายุ ตรงกับป้าย docAlert) · ระบุ vehicleId แล้วรวมเสมอ",
             "schema": {
               "default": "false",
               "type": "string",
@@ -13160,7 +13160,7 @@
         ],
         "responses": {
           "200": {
-            "description": "ไฟล์ .xlsx หรือ .csv ตามตัวกรองเดียวกับรายการ หรือเฉพาะ `ids` (สูงสุด 10,000 แถว) — CSV กันสูตร"
+            "description": "ไฟล์ .xlsx หรือ .csv ตามตัวกรองเดียวกับรายการ หรือเฉพาะ `ids` (≤ 200; สูงสุด 10,000 แถว) — CSV กันสูตร · header `X-Export-Rows` = จำนวนแถวในไฟล์"
           }
         },
         "security": [
@@ -13272,7 +13272,7 @@
             "name": "includeRetired",
             "required": false,
             "in": "query",
-            "description": "รวมเอกสารของรถปลดระวาง — ค่าเริ่มต้นไม่รวม (รถที่เลิกใช้ไม่ต้องต่ออายุ ตรงกับป้าย docAlert)",
+            "description": "รวมเอกสารของรถปลดระวาง — ค่าเริ่มต้นไม่รวม (รถที่เลิกใช้ไม่ต้องต่ออายุ ตรงกับป้าย docAlert) · ระบุ vehicleId แล้วรวมเสมอ",
             "schema": {
               "default": "false",
               "type": "string",
