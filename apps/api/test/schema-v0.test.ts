@@ -76,6 +76,7 @@ describe('schema v0 constraints', () => {
         vatType: 'EXEMPT_TRANSPORT',
         whtRate: '1.00',
         unitLabel: 'เที่ยว',
+        calcUnit: 'PER_TRIP',
       },
     });
     const base = {

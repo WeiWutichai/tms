@@ -3,6 +3,7 @@ import { ensureSystemRoles } from '../../auth/system-roles';
 import { ensureDefaultSeries } from '../sequences/sequences.service';
 import { SETTINGS, type SettingKey } from '../settings/registry';
 import { ensureDefaultUnits } from '../products/unit-defaults';
+import { ensureDefaultServiceItems } from '../service-items/defaults';
 import { ensureDefaultVehicleTypes } from '../vehicle-types/defaults';
 
 type Db = PrismaClient | Prisma.TransactionClient;
@@ -54,6 +55,8 @@ const STEPS: readonly BootstrapStep[] = [
   { name: 'vehicle-types', run: (db, t) => ensureDefaultVehicleTypes(db, t) },
   // ST2-T10: หน่วยนับ 9 หน่วย (spec/02 §3) — ลบไม่ได้ ปิดใช้ได้
   { name: 'units', run: (db, t) => ensureDefaultUnits(db, t) },
+  // ST2-T11: ค่าบริการเสริม 8 รายการ (spec/02 §6) — ธงภาษีที่ยังเปิดใช้ค่าตั้งต้นของ ACC-3 (แก้ได้ต่อ tenant)
+  { name: 'service-items', run: (db, t) => ensureDefaultServiceItems(db, t) },
 ];
 
 export function bootstrapSteps(): readonly BootstrapStep[] {

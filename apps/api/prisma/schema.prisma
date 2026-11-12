@@ -912,23 +912,47 @@ enum VatType {
   @@map("vat_type")
 }
 
-/// catalog รายการบนเอกสาร — vat_type/wht_rate ถูก snapshot ลงบรรทัดเอกสาร
+/// ฝั่งที่ใช้รายการได้ (ST2-T11; docs/04 B Accessorial "ฝั่ง (ขาย/ซื้อ/ทั้งคู่)", spec/02 §6 appliesTo)
+enum ServiceItemSide {
+  SELL
+  BUY
+  BOTH
+
+  @@map("service_item_side")
+}
+
+/// catalog รายการบนเอกสาร (ST2-T11 ค่าบริการเสริม; docs/01 §3.2, spec/02 §6)
+/// vat_type/wht_rate/ราคา ถูก snapshot ลงบรรทัดเอกสาร (service-items/snapshot.ts) — แก้ catalog แล้วเอกสารเดิมไม่เปลี่ยน
+/// ชุดเริ่มต้นของระบบ (`system_key`) — รหัสสงวน FREIGHT/EXTRA_STOP/FSC ปิดใช้/ลบ/เปลี่ยนรหัสไม่ได้ (MD-158)
 model ServiceItem {
-  id                 String       @id @default(uuid()) @db.Uuid
-  tenantId           String       @map("tenant_id") @db.Uuid
-  code               String
-  nameTh             String       @map("name_th")
-  nameEn             String?      @map("name_en")
-  vatType            VatType      @map("vat_type")
-  whtRate            Decimal      @map("wht_rate") @db.Decimal(5, 2)
-  unitLabel          String       @map("unit_label")
-  isSurcharge        Boolean      @default(false) @map("is_surcharge")
-  defaultAccountCode String?      @map("default_account_code")
-  status             ActiveStatus @default(ACTIVE)
-  createdAt          DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt          DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id                 String          @id @default(uuid()) @db.Uuid
+  tenantId           String          @map("tenant_id") @db.Uuid
+  code               String /// FREIGHT / WAIT / AX-0001 (MD-002) — เก็บตัวใหญ่, unique ไม่สนตัวพิมพ์
+  nameTh             String          @map("name_th") /// พิมพ์บนเอกสาร — ห้ามซ้ำ (ไม่สนตัวพิมพ์, ไม่นับที่ลบ)
+  nameEn             String?         @map("name_en")
+  vatType            VatType         @map("vat_type")
+  whtRate            Decimal         @map("wht_rate") @db.Decimal(5, 2) /// 0.00 / 1.00 / 3.00 (%)
+  calcUnit           String          @map("calc_unit") /// PER_TRIP/PER_HOUR/PER_NIGHT/PER_STOP/PERCENT_OF_FREIGHT/ACTUAL
+  unitLabel          String          @map("unit_label") /// ข้อความหน่วยบนเอกสาร (เที่ยว ชั่วโมง …) — ระบบเติมตาม calc_unit
+  defaultPrice       Decimal?        @map("default_price") @db.Decimal(14, 2) /// บาทก่อน VAT หรือ % (PERCENT_OF_FREIGHT); ACTUAL = null
+  fuelRefPrice       Decimal?        @map("fuel_ref_price") @db.Decimal(14, 2) /// ราคาน้ำมันอ้างอิง ฿/ลิตร (PERCENT_OF_FREIGHT)
+  conditionText      String?         @map("condition_text") /// เงื่อนไข เช่น "ฟรี 2 ชม. แรก"
+  side               ServiceItemSide @default(BOTH)
+  isSurcharge        Boolean         @default(false) @map("is_surcharge")
+  defaultAccountCode String?         @map("default_account_code")
+  systemKey          String?         @map("system_key")
+  externalId         String?         @map("external_id")
+  deletedExternalId  String?         @map("deleted_external_id")
+  status             ActiveStatus    @default(ACTIVE)
+  deletedAt          DateTime?       @map("deleted_at") @db.Timestamptz(6)
+  version            Int             @default(1)
+  createdAt          DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@unique([tenantId, code])
+  @@unique([tenantId, externalId])
+  @@unique([tenantId, systemKey])
+  @@index([tenantId, updatedAt, id])
   @@map("service_item")
 }
 

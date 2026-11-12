@@ -7717,6 +7717,815 @@
         ]
       }
     },
+    "/v1/service-items": {
+      "get": {
+        "operationId": "ServiceItems_list",
+        "parameters": [
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "ค่า nextCursor จากหน้าก่อน (ใช้กับ sort เดิมเท่านั้น)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "updatedAfter",
+            "required": false,
+            "in": "query",
+            "description": "คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull — ใช้คู่ includeDeleted=true เพื่อรับรายการที่ถูกลบ)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sort",
+            "required": false,
+            "in": "query",
+            "description": "code = เรียงตามรหัส (ค่าเริ่มต้นของหน้าจอ) · updatedAt/-updatedAt สำหรับ sync",
+            "schema": {
+              "default": "code",
+              "type": "string",
+              "enum": [
+                "code",
+                "updatedAt",
+                "-updatedAt"
+              ]
+            }
+          },
+          {
+            "name": "fields",
+            "required": false,
+            "in": "query",
+            "description": "รายชื่อ field คั่นด้วย , เช่น id,legalName",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "required": false,
+            "in": "query",
+            "description": "ค้นหา — รหัส ชื่อ เลขผู้เสียภาษี หรือ externalId (ไม่สนตัวพิมพ์)",
+            "schema": {
+              "maxLength": 100,
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "description": "คั่นด้วย , เช่น active,inactive",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "externalId",
+            "required": false,
+            "in": "query",
+            "description": "externalId ตรงตัว (ใช้ตรวจว่ามีในระบบแล้วหรือยัง)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "includeDeleted",
+            "required": false,
+            "in": "query",
+            "description": "true = รวมรายการที่ถูกลบ (tombstone มี `deletedAt`) — ให้ระบบที่ดึงแบบ incremental รู้ว่ารายการถูกลบ",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "required": false,
+            "in": "query",
+            "description": "ชื่อ/เงื่อนไขมีคำนี้",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "calcUnit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "PER_TRIP",
+                "PER_HOUR",
+                "PER_NIGHT",
+                "PER_STOP",
+                "PERCENT_OF_FREIGHT",
+                "ACTUAL"
+              ]
+            }
+          },
+          {
+            "name": "vatType",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "EXEMPT_TRANSPORT",
+                "VAT_7",
+                "ZERO_RATED"
+              ]
+            }
+          },
+          {
+            "name": "side",
+            "required": false,
+            "in": "query",
+            "description": "ใช้ได้กับฝั่งนี้ (SELL = SELL+BOTH, BUY = BUY+BOTH, BOTH = เฉพาะทั้งสองฝั่ง)",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "SELL",
+                "BUY",
+                "BOTH"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceItemPageDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "service-items"
+        ]
+      },
+      "post": {
+        "operationId": "ServiceItems_create",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateServiceItemDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceItemWriteResultDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "service-items"
+        ]
+      }
+    },
+    "/v1/service-items/summary": {
+      "get": {
+        "operationId": "ServiceItems_summary",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceItemSummaryDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "service-items"
+        ]
+      }
+    },
+    "/v1/service-items/next-code": {
+      "get": {
+        "operationId": "ServiceItems_nextCode",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "รหัสที่ระบบจะออกให้รายการใหม่ (`AX-0001`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NextCodeDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "service-items"
+        ]
+      }
+    },
+    "/v1/service-items/export": {
+      "get": {
+        "operationId": "ServiceItems_export",
+        "parameters": [
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "ค่า nextCursor จากหน้าก่อน (ใช้กับ sort เดิมเท่านั้น)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "updatedAfter",
+            "required": false,
+            "in": "query",
+            "description": "คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull — ใช้คู่ includeDeleted=true เพื่อรับรายการที่ถูกลบ)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sort",
+            "required": false,
+            "in": "query",
+            "description": "code = เรียงตามรหัส (ค่าเริ่มต้นของหน้าจอ) · updatedAt/-updatedAt สำหรับ sync",
+            "schema": {
+              "default": "code",
+              "type": "string",
+              "enum": [
+                "code",
+                "updatedAt",
+                "-updatedAt"
+              ]
+            }
+          },
+          {
+            "name": "fields",
+            "required": false,
+            "in": "query",
+            "description": "รายชื่อ field คั่นด้วย , เช่น id,legalName",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "required": false,
+            "in": "query",
+            "description": "ค้นหา — รหัส ชื่อ เลขผู้เสียภาษี หรือ externalId (ไม่สนตัวพิมพ์)",
+            "schema": {
+              "maxLength": 100,
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "description": "คั่นด้วย , เช่น active,inactive",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "externalId",
+            "required": false,
+            "in": "query",
+            "description": "externalId ตรงตัว (ใช้ตรวจว่ามีในระบบแล้วหรือยัง)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "includeDeleted",
+            "required": false,
+            "in": "query",
+            "description": "true = รวมรายการที่ถูกลบ (tombstone มี `deletedAt`) — ให้ระบบที่ดึงแบบ incremental รู้ว่ารายการถูกลบ",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "required": false,
+            "in": "query",
+            "description": "ชื่อ/เงื่อนไขมีคำนี้",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "calcUnit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "PER_TRIP",
+                "PER_HOUR",
+                "PER_NIGHT",
+                "PER_STOP",
+                "PERCENT_OF_FREIGHT",
+                "ACTUAL"
+              ]
+            }
+          },
+          {
+            "name": "vatType",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "EXEMPT_TRANSPORT",
+                "VAT_7",
+                "ZERO_RATED"
+              ]
+            }
+          },
+          {
+            "name": "side",
+            "required": false,
+            "in": "query",
+            "description": "ใช้ได้กับฝั่งนี้ (SELL = SELL+BOTH, BUY = BUY+BOTH, BOTH = เฉพาะทั้งสองฝั่ง)",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "SELL",
+                "BUY",
+                "BOTH"
+              ]
+            }
+          },
+          {
+            "name": "format",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "xlsx",
+              "type": "string",
+              "enum": [
+                "xlsx",
+                "csv"
+              ]
+            }
+          },
+          {
+            "name": "ids",
+            "required": false,
+            "in": "query",
+            "description": "ส่งออกเฉพาะ id เหล่านี้ (คั่นด้วย ,) — แถวที่เลือกในตาราง",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ไฟล์ .xlsx หรือ .csv ตามตัวกรองเดียวกับรายการ (สูงสุด 10,000 แถว)"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "service-items"
+        ]
+      }
+    },
+    "/v1/service-items/external/{externalId}": {
+      "put": {
+        "operationId": "ServiceItems_upsertExternal",
+        "parameters": [
+          {
+            "name": "externalId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag — ใช้เมื่อแถวมีอยู่แล้ว",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertServiceItemDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "มีอยู่แล้ว → อัปเดต (ส่งซ้ำได้ ไม่เกิดแถวใหม่)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceItemWriteResultDto"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "ยังไม่มี → สร้าง",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceItemWriteResultDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "service-items"
+        ]
+      }
+    },
+    "/v1/service-items/{id}": {
+      "get": {
+        "operationId": "ServiceItems_get",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceItemDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "service-items"
+        ]
+      },
+      "patch": {
+        "operationId": "ServiceItems_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateServiceItemDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceItemWriteResultDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "service-items"
+        ]
+      }
+    },
+    "/v1/service-items/{id}/history": {
+      "get": {
+        "operationId": "ServiceItems_history",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "ค่า nextCursor จากหน้าก่อน",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ประวัติการแก้จาก audit log ใหม่สุดก่อน",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditPageDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "service-items"
+        ]
+      }
+    },
+    "/v1/service-items/{id}/deactivate": {
+      "post": {
+        "operationId": "ServiceItems_deactivate",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MasterReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceItemDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "service-items"
+        ]
+      }
+    },
+    "/v1/service-items/{id}/activate": {
+      "post": {
+        "operationId": "ServiceItems_activate",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MasterOptionalReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceItemDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "service-items"
+        ]
+      }
+    },
+    "/v1/service-items/{id}/delete": {
+      "post": {
+        "operationId": "ServiceItems_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MasterReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "service-items"
+        ]
+      }
+    },
     "/v1/carriers": {
       "get": {
         "operationId": "Carriers_list",
@@ -16613,6 +17422,680 @@
               "T2",
               "T3",
               "T4"
+            ]
+          },
+          "externalId": {
+            "type": "string",
+            "nullable": true,
+            "description": "null = ลบการผูก"
+          }
+        }
+      },
+      "ServiceItemUsageDto": {
+        "type": "object",
+        "properties": {
+          "rateCards": {
+            "type": "number",
+            "description": "rate card ที่อ้างรายการนี้"
+          },
+          "doSurcharges": {
+            "type": "number",
+            "description": "ค่าใช้จ่ายหน้างานใน DO ที่ snapshot จากรายการนี้"
+          }
+        },
+        "required": [
+          "rateCards",
+          "doSurcharges"
+        ]
+      },
+      "ServiceItemDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "svc_3f2a…"
+          },
+          "code": {
+            "type": "string",
+            "example": "WAIT"
+          },
+          "externalId": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "example": "ค่ารอ"
+          },
+          "nameEn": {
+            "type": "string",
+            "nullable": true
+          },
+          "calcUnit": {
+            "type": "string",
+            "enum": [
+              "PER_TRIP",
+              "PER_HOUR",
+              "PER_NIGHT",
+              "PER_STOP",
+              "PERCENT_OF_FREIGHT",
+              "ACTUAL"
+            ]
+          },
+          "unitLabel": {
+            "type": "string",
+            "example": "ชั่วโมง",
+            "description": "ข้อความหน่วยบนเอกสาร"
+          },
+          "defaultPrice": {
+            "type": "string",
+            "nullable": true,
+            "example": "200.00"
+          },
+          "fuelRefPrice": {
+            "type": "string",
+            "nullable": true,
+            "example": "31.50"
+          },
+          "condition": {
+            "type": "string",
+            "nullable": true
+          },
+          "vatType": {
+            "type": "string",
+            "enum": [
+              "EXEMPT_TRANSPORT",
+              "VAT_7",
+              "ZERO_RATED"
+            ]
+          },
+          "whtRate": {
+            "type": "string",
+            "enum": [
+              "0.00",
+              "1.00",
+              "3.00"
+            ]
+          },
+          "side": {
+            "type": "string",
+            "enum": [
+              "SELL",
+              "BUY",
+              "BOTH"
+            ]
+          },
+          "isSurcharge": {
+            "type": "boolean"
+          },
+          "defaultAccountCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "system": {
+            "type": "boolean",
+            "description": "แถวค่าเริ่มต้นที่ระบบสร้างให้"
+          },
+          "reserved": {
+            "type": "boolean",
+            "description": "รหัสสงวนของระบบ (FREIGHT/EXTRA_STOP/FSC — MD-158): ปิดใช้/ลบ/เปลี่ยนรหัสไม่ได้"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/ServiceItemUsageDto"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          },
+          "deletedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "มีค่าเฉพาะเมื่อขอ includeDeleted=true และรายการถูกลบแล้ว (tombstone)"
+          },
+          "version": {
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "externalId",
+          "name",
+          "nameEn",
+          "calcUnit",
+          "unitLabel",
+          "defaultPrice",
+          "fuelRefPrice",
+          "condition",
+          "vatType",
+          "whtRate",
+          "side",
+          "isSurcharge",
+          "defaultAccountCode",
+          "system",
+          "reserved",
+          "usage",
+          "status",
+          "version",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "ServiceItemPageDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ServiceItemDto"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor",
+          "hasMore"
+        ]
+      },
+      "ServiceItemSummaryDto": {
+        "type": "object",
+        "properties": {
+          "total": {
+            "type": "number",
+            "description": "รายการทั้งหมด (ไม่รวมที่ลบ)"
+          },
+          "active": {
+            "type": "number"
+          },
+          "inactive": {
+            "type": "number"
+          },
+          "vat7": {
+            "type": "number",
+            "description": "VAT 7%"
+          },
+          "exempt": {
+            "type": "number",
+            "description": "ยกเว้น VAT"
+          },
+          "zeroRated": {
+            "type": "number",
+            "description": "VAT 0%"
+          }
+        },
+        "required": [
+          "total",
+          "active",
+          "inactive",
+          "vat7",
+          "exempt",
+          "zeroRated"
+        ]
+      },
+      "CreateServiceItemDto": {
+        "type": "object",
+        "properties": {
+          "defaultPrice": {
+            "type": "string",
+            "example": "500.00",
+            "nullable": true,
+            "description": "ราคาตั้งต้น (บาท ก่อน VAT) — PERCENT_OF_FREIGHT = เปอร์เซ็นต์ (≤ 100) · ACTUAL ต้องเป็น null (ตามใบเสร็จ) · null = ไม่มีราคาตั้งต้น (ใช้ rate card)"
+          },
+          "fuelRefPrice": {
+            "type": "string",
+            "example": "31.50",
+            "nullable": true,
+            "description": "ราคาน้ำมันอ้างอิง (฿/ลิตร) — ใช้กับ PERCENT_OF_FREIGHT เท่านั้น"
+          },
+          "condition": {
+            "type": "string",
+            "example": "ฟรี 2 ชม. แรก",
+            "nullable": true
+          },
+          "side": {
+            "type": "string",
+            "enum": [
+              "SELL",
+              "BUY",
+              "BOTH"
+            ],
+            "description": "ใช้กับ: SELL = ฝั่งขาย (ลูกค้า), BUY = ฝั่งซื้อ (รถร่วม), BOTH = ทั้งสองฝั่ง (ค่าเริ่มต้น)"
+          },
+          "isSurcharge": {
+            "type": "boolean",
+            "description": "เป็นค่าใช้จ่ายเพิ่ม (ค่ารอ ทางด่วน ยกของ) — false = ค่าขนส่งหลัก (ค่าเริ่มต้น true)"
+          },
+          "nameEn": {
+            "type": "string",
+            "example": "en name",
+            "nullable": true
+          },
+          "defaultAccountCode": {
+            "type": "string",
+            "example": "4110-01",
+            "nullable": true,
+            "description": "รหัสบัญชีรายได้/ค่าใช้จ่ายตั้งต้น (ไม่บังคับ — mapping ERP อยู่ที่ connector)"
+          },
+          "name": {
+            "type": "string",
+            "example": "ค่ารอ",
+            "description": "ชื่อรายการ (พิมพ์บนเอกสาร) — ห้ามซ้ำ (ไม่สนตัวพิมพ์)"
+          },
+          "calcUnit": {
+            "type": "string",
+            "enum": [
+              "PER_TRIP",
+              "PER_HOUR",
+              "PER_NIGHT",
+              "PER_STOP",
+              "PERCENT_OF_FREIGHT",
+              "ACTUAL"
+            ],
+            "description": "หน่วยคิด: PER_TRIP ต่อเที่ยว, PER_HOUR ต่อชั่วโมง, PER_NIGHT ต่อคืน, PER_STOP ต่อจุด, PERCENT_OF_FREIGHT % ของค่าขนส่ง, ACTUAL ตามจริง (ตามใบเสร็จ)"
+          },
+          "vatType": {
+            "type": "string",
+            "enum": [
+              "EXEMPT_TRANSPORT",
+              "VAT_7",
+              "ZERO_RATED"
+            ],
+            "description": "VAT ตั้งต้นของบรรทัด: EXEMPT_TRANSPORT = ยกเว้น (ค่าขนส่ง ม.81(1)(ณ)), VAT_7 = 7%, ZERO_RATED = 0% — snapshot ลงบรรทัดเอกสาร"
+          },
+          "whtRate": {
+            "type": "string",
+            "enum": [
+              "0.00",
+              "1.00",
+              "3.00"
+            ],
+            "description": "หัก ณ ที่จ่าย (%) ตั้งต้นของบรรทัด: 1.00 ค่าขนส่ง, 3.00 ค่าบริการ, 0.00 ไม่หัก — คู่ EXEMPT_TRANSPORT+3.00 และ VAT_7+1.00 บันทึกได้แต่ได้คำเตือน `vat_wht_unusual` ใน `warnings`"
+          },
+          "code": {
+            "type": "string",
+            "example": "WAIT",
+            "description": "รหัส — ไม่ส่ง = ระบบออกเลขถัดไป `AX-0001` (MD-002)"
+          },
+          "externalId": {
+            "type": "string",
+            "description": "รหัสในระบบต้นทาง — เรียกด้วย ext:{externalId} ได้"
+          }
+        },
+        "required": [
+          "name",
+          "calcUnit",
+          "vatType",
+          "whtRate"
+        ]
+      },
+      "ServiceItemWarningDto": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "vat_wht_unusual"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "transport_wht_3",
+              "service_wht_1"
+            ],
+            "description": "transport_wht_3 = ยกเว้น VAT (ค่าขนส่ง) แต่หัก 3%; service_wht_1 = VAT 7% แต่หัก 1% (ถูกได้เมื่อจ่ายผ่าน e-WHT)"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "reason",
+          "message"
+        ]
+      },
+      "ServiceItemWriteResultDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "svc_3f2a…"
+          },
+          "code": {
+            "type": "string",
+            "example": "WAIT"
+          },
+          "externalId": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "example": "ค่ารอ"
+          },
+          "nameEn": {
+            "type": "string",
+            "nullable": true
+          },
+          "calcUnit": {
+            "type": "string",
+            "enum": [
+              "PER_TRIP",
+              "PER_HOUR",
+              "PER_NIGHT",
+              "PER_STOP",
+              "PERCENT_OF_FREIGHT",
+              "ACTUAL"
+            ]
+          },
+          "unitLabel": {
+            "type": "string",
+            "example": "ชั่วโมง",
+            "description": "ข้อความหน่วยบนเอกสาร"
+          },
+          "defaultPrice": {
+            "type": "string",
+            "nullable": true,
+            "example": "200.00"
+          },
+          "fuelRefPrice": {
+            "type": "string",
+            "nullable": true,
+            "example": "31.50"
+          },
+          "condition": {
+            "type": "string",
+            "nullable": true
+          },
+          "vatType": {
+            "type": "string",
+            "enum": [
+              "EXEMPT_TRANSPORT",
+              "VAT_7",
+              "ZERO_RATED"
+            ]
+          },
+          "whtRate": {
+            "type": "string",
+            "enum": [
+              "0.00",
+              "1.00",
+              "3.00"
+            ]
+          },
+          "side": {
+            "type": "string",
+            "enum": [
+              "SELL",
+              "BUY",
+              "BOTH"
+            ]
+          },
+          "isSurcharge": {
+            "type": "boolean"
+          },
+          "defaultAccountCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "system": {
+            "type": "boolean",
+            "description": "แถวค่าเริ่มต้นที่ระบบสร้างให้"
+          },
+          "reserved": {
+            "type": "boolean",
+            "description": "รหัสสงวนของระบบ (FREIGHT/EXTRA_STOP/FSC — MD-158): ปิดใช้/ลบ/เปลี่ยนรหัสไม่ได้"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/ServiceItemUsageDto"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          },
+          "deletedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "มีค่าเฉพาะเมื่อขอ includeDeleted=true และรายการถูกลบแล้ว (tombstone)"
+          },
+          "version": {
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ServiceItemWarningDto"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "externalId",
+          "name",
+          "nameEn",
+          "calcUnit",
+          "unitLabel",
+          "defaultPrice",
+          "fuelRefPrice",
+          "condition",
+          "vatType",
+          "whtRate",
+          "side",
+          "isSurcharge",
+          "defaultAccountCode",
+          "system",
+          "reserved",
+          "usage",
+          "status",
+          "version",
+          "createdAt",
+          "updatedAt",
+          "warnings"
+        ]
+      },
+      "UpsertServiceItemDto": {
+        "type": "object",
+        "properties": {
+          "defaultPrice": {
+            "type": "string",
+            "example": "500.00",
+            "nullable": true,
+            "description": "ราคาตั้งต้น (บาท ก่อน VAT) — PERCENT_OF_FREIGHT = เปอร์เซ็นต์ (≤ 100) · ACTUAL ต้องเป็น null (ตามใบเสร็จ) · null = ไม่มีราคาตั้งต้น (ใช้ rate card)"
+          },
+          "fuelRefPrice": {
+            "type": "string",
+            "example": "31.50",
+            "nullable": true,
+            "description": "ราคาน้ำมันอ้างอิง (฿/ลิตร) — ใช้กับ PERCENT_OF_FREIGHT เท่านั้น"
+          },
+          "condition": {
+            "type": "string",
+            "example": "ฟรี 2 ชม. แรก",
+            "nullable": true
+          },
+          "side": {
+            "type": "string",
+            "enum": [
+              "SELL",
+              "BUY",
+              "BOTH"
+            ],
+            "description": "ใช้กับ: SELL = ฝั่งขาย (ลูกค้า), BUY = ฝั่งซื้อ (รถร่วม), BOTH = ทั้งสองฝั่ง (ค่าเริ่มต้น)"
+          },
+          "isSurcharge": {
+            "type": "boolean",
+            "description": "เป็นค่าใช้จ่ายเพิ่ม (ค่ารอ ทางด่วน ยกของ) — false = ค่าขนส่งหลัก (ค่าเริ่มต้น true)"
+          },
+          "nameEn": {
+            "type": "string",
+            "example": "en name",
+            "nullable": true
+          },
+          "defaultAccountCode": {
+            "type": "string",
+            "example": "4110-01",
+            "nullable": true,
+            "description": "รหัสบัญชีรายได้/ค่าใช้จ่ายตั้งต้น (ไม่บังคับ — mapping ERP อยู่ที่ connector)"
+          },
+          "name": {
+            "type": "string",
+            "example": "ค่ารอ",
+            "description": "ชื่อรายการ (พิมพ์บนเอกสาร) — ห้ามซ้ำ (ไม่สนตัวพิมพ์)"
+          },
+          "calcUnit": {
+            "type": "string",
+            "enum": [
+              "PER_TRIP",
+              "PER_HOUR",
+              "PER_NIGHT",
+              "PER_STOP",
+              "PERCENT_OF_FREIGHT",
+              "ACTUAL"
+            ],
+            "description": "หน่วยคิด: PER_TRIP ต่อเที่ยว, PER_HOUR ต่อชั่วโมง, PER_NIGHT ต่อคืน, PER_STOP ต่อจุด, PERCENT_OF_FREIGHT % ของค่าขนส่ง, ACTUAL ตามจริง (ตามใบเสร็จ)"
+          },
+          "vatType": {
+            "type": "string",
+            "enum": [
+              "EXEMPT_TRANSPORT",
+              "VAT_7",
+              "ZERO_RATED"
+            ],
+            "description": "VAT ตั้งต้นของบรรทัด: EXEMPT_TRANSPORT = ยกเว้น (ค่าขนส่ง ม.81(1)(ณ)), VAT_7 = 7%, ZERO_RATED = 0% — snapshot ลงบรรทัดเอกสาร"
+          },
+          "whtRate": {
+            "type": "string",
+            "enum": [
+              "0.00",
+              "1.00",
+              "3.00"
+            ],
+            "description": "หัก ณ ที่จ่าย (%) ตั้งต้นของบรรทัด: 1.00 ค่าขนส่ง, 3.00 ค่าบริการ, 0.00 ไม่หัก — คู่ EXEMPT_TRANSPORT+3.00 และ VAT_7+1.00 บันทึกได้แต่ได้คำเตือน `vat_wht_unusual` ใน `warnings`"
+          },
+          "code": {
+            "type": "string",
+            "example": "WAIT",
+            "description": "ใช้ตอนสร้างเท่านั้น"
+          }
+        },
+        "required": [
+          "name",
+          "calcUnit",
+          "vatType",
+          "whtRate"
+        ]
+      },
+      "UpdateServiceItemDto": {
+        "type": "object",
+        "properties": {
+          "defaultPrice": {
+            "type": "string",
+            "example": "500.00",
+            "nullable": true,
+            "description": "ราคาตั้งต้น (บาท ก่อน VAT) — PERCENT_OF_FREIGHT = เปอร์เซ็นต์ (≤ 100) · ACTUAL ต้องเป็น null (ตามใบเสร็จ) · null = ไม่มีราคาตั้งต้น (ใช้ rate card)"
+          },
+          "fuelRefPrice": {
+            "type": "string",
+            "example": "31.50",
+            "nullable": true,
+            "description": "ราคาน้ำมันอ้างอิง (฿/ลิตร) — ใช้กับ PERCENT_OF_FREIGHT เท่านั้น"
+          },
+          "condition": {
+            "type": "string",
+            "example": "ฟรี 2 ชม. แรก",
+            "nullable": true
+          },
+          "side": {
+            "type": "string",
+            "enum": [
+              "SELL",
+              "BUY",
+              "BOTH"
+            ],
+            "description": "ใช้กับ: SELL = ฝั่งขาย (ลูกค้า), BUY = ฝั่งซื้อ (รถร่วม), BOTH = ทั้งสองฝั่ง (ค่าเริ่มต้น)"
+          },
+          "isSurcharge": {
+            "type": "boolean",
+            "description": "เป็นค่าใช้จ่ายเพิ่ม (ค่ารอ ทางด่วน ยกของ) — false = ค่าขนส่งหลัก (ค่าเริ่มต้น true)"
+          },
+          "nameEn": {
+            "type": "string",
+            "example": "en name",
+            "nullable": true
+          },
+          "defaultAccountCode": {
+            "type": "string",
+            "example": "4110-01",
+            "nullable": true,
+            "description": "รหัสบัญชีรายได้/ค่าใช้จ่ายตั้งต้น (ไม่บังคับ — mapping ERP อยู่ที่ connector)"
+          },
+          "code": {
+            "type": "string",
+            "example": "WAIT",
+            "description": "รหัสสงวนของระบบ (FREIGHT/EXTRA_STOP/FSC) แก้ไม่ได้"
+          },
+          "name": {
+            "type": "string",
+            "example": "ค่ารอ"
+          },
+          "calcUnit": {
+            "type": "string",
+            "enum": [
+              "PER_TRIP",
+              "PER_HOUR",
+              "PER_NIGHT",
+              "PER_STOP",
+              "PERCENT_OF_FREIGHT",
+              "ACTUAL"
+            ]
+          },
+          "vatType": {
+            "type": "string",
+            "enum": [
+              "EXEMPT_TRANSPORT",
+              "VAT_7",
+              "ZERO_RATED"
+            ]
+          },
+          "whtRate": {
+            "type": "string",
+            "enum": [
+              "0.00",
+              "1.00",
+              "3.00"
             ]
           },
           "externalId": {

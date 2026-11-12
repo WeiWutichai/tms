@@ -202,3 +202,31 @@ describe('DataTable', () => {
     expect(run).toHaveBeenCalledWith(['a', 'b']);
   });
 });
+
+describe('FormField ใน FormDrawer (QA ST2-T11)', () => {
+  it('error ของช่องหายเมื่อผู้ใช้แก้ช่องนั้น และกลับมาเมื่อกดบันทึกใหม่; คำแนะนำแสดงใต้ error', async () => {
+    const { FormDrawer, FormField } = await import('./master');
+    const ui = (submit = () => undefined) => (
+      <FormDrawer
+        open
+        title="ฟอร์ม"
+        onClose={() => undefined}
+        closeLabel="ปิด"
+        footer={<button type="submit">บันทึก</button>}
+        onSubmit={submit}
+      >
+        <FormField label="ชื่อ" error="มีรายการนี้แล้ว" hint="ไม่ซ้ำ">
+          {(p) => <input {...p} defaultValue="ก" />}
+        </FormField>
+      </FormDrawer>
+    );
+    render(ui());
+    expect(screen.getByText('มีรายการนี้แล้ว')).toBeTruthy();
+    expect(screen.getByText('ไม่ซ้ำ')).toBeTruthy();
+    fireEvent.input(screen.getByLabelText('ชื่อ'), { target: { value: 'ข' } });
+    expect(screen.queryByText('มีรายการนี้แล้ว')).toBeNull();
+    expect(screen.getByLabelText('ชื่อ').getAttribute('aria-invalid')).toBe('false');
+    fireEvent.click(screen.getByText('บันทึก'));
+    expect(screen.getByText('มีรายการนี้แล้ว')).toBeTruthy();
+  });
+});

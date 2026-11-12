@@ -9,7 +9,8 @@ export type ExportPath =
   | '/v1/vehicles/export'
   | '/v1/drivers/export'
   | '/v1/routes/export'
-  | '/v1/products/export';
+  | '/v1/products/export'
+  | '/v1/service-items/export';
 
 /**
  * ดาวน์โหลดไฟล์จาก endpoint ส่งออก — ผ่าน client เดียวกับ UI (token, ภาษา, การใช้งานแทน) แบบ blob

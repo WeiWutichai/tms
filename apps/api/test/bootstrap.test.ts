@@ -82,6 +82,7 @@ describe('tenant bootstrap', () => {
       'tax-billing-defaults',
       'vehicle-types',
       'units',
+      'service-items',
     ]);
   });
   it('สคริปต์ tenants:bootstrap บนฐาน tms_test: tenant เดิม 2 รายได้ค่าเริ่มต้น + audit/event, รันซ้ำไม่เปลี่ยน', async () => {
@@ -106,6 +107,15 @@ describe('tenant bootstrap', () => {
       expect(
         await db.auditLog.count({ where: { tenantId: t, action: 'unit.created', actorId: null } }),
       ).toBe(9);
+      // ST2-T11: ค่าบริการเสริม 8 รายการ (ระบบ) + audit
+      expect(await db.serviceItem.count({ where: { tenantId: t, systemKey: { not: null } } })).toBe(
+        8,
+      );
+      expect(
+        await db.auditLog.count({
+          where: { tenantId: t, action: 'service_item.created', actorId: null },
+        }),
+      ).toBe(8);
       expect(
         await db.auditLog.count({
           where: { tenantId: t, action: 'vehicle_type.created', actorId: null },
@@ -120,6 +130,7 @@ describe('tenant bootstrap', () => {
     }
     run();
     expect(await db.vehicleType.count({ where: { tenantId: a } })).toBe(6);
+    expect(await db.serviceItem.count({ where: { tenantId: a } })).toBe(8);
     expect(
       await db.auditLog.count({ where: { tenantId: a, action: 'vehicle_type.created' } }),
     ).toBe(6);

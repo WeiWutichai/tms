@@ -29,6 +29,7 @@ export const ID_PREFIX = {
   route: 'rte',
   unit: 'unt',
   product: 'prd',
+  serviceItem: 'svc',
 } as const;
 export type IdKind = keyof typeof ID_PREFIX;
 
