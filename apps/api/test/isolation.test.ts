@@ -320,6 +320,20 @@ const FIXTURES: Record<string, (db: PrismaClient, tenantId: string, n: number) =
       });
       return encodeId('magicLink', l.id);
     },
+    // ST3-T21 บันทึกการส่งลิงก์ทาง LINE/SMS
+    messageDelivery: async (db, tenantId, n) => {
+      const m = await db.messageDelivery.create({
+        data: {
+          tenantId,
+          channel: 'LINE',
+          template: 'carrier_docs_link',
+          recipientMasked: 'U0a•••2c3d',
+          recipientHash: `iso-${n}`,
+          status: 'SENT',
+        },
+      });
+      return encodeId('messageDelivery', m.id);
+    },
     // ST2-T21 เอกสารที่รถร่วมส่งผ่านลิงก์ (รอตรวจ)
     carrierDocSubmission: async (db, tenantId, n) => {
       const c = await db.carrier.create({

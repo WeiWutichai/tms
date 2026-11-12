@@ -50,7 +50,8 @@ export class CarrierDocsController {
   @RequireScope('master:write')
   @ApiCreatedResponse({
     type: IssuedUploadLinkDto,
-    description: 'ออกลิงก์อัปโหลดเอกสารให้ผู้รับเหมา (ไม่ส่งข้อความเอง — คัดลอก url ไปส่ง)',
+    description:
+      'ออกลิงก์อัปโหลดเอกสารให้ผู้รับเหมา — ส่งทาง LINE/SMS ด้วย POST /v1/messages/send-link (ST3-T21) หรือคัดลอก url ไปส่งเอง',
   })
   issue(@Param('id') id: string, @Body() body: CreateUploadLinkDto): Promise<IssuedUploadLinkDto> {
     return this.svc.issueLink(decodeIdOr404('carrier', id), body.ttlDays);

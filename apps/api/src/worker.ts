@@ -4,6 +4,7 @@ import { AppModule } from './app.module';
 import { createLogger } from './common/logger';
 import { JobQueue } from './jobs/job-queue.service';
 import { EmailDispatcher } from './modules/email/email.service';
+import { MessageDispatcher } from './modules/messaging/message-dispatcher';
 import { purgeAuthData } from './auth/maintenance';
 import { PrismaService } from './db/prisma.service';
 import { ExpiryReminderService } from './modules/reminders/expiry-reminder.service';
@@ -19,6 +20,8 @@ async function main() {
   const queue = ctx.get(JobQueue);
   const mail = ctx.get(EmailDispatcher);
   mail.init();
+  // ST3-T21 LINE/SMS outbox (ผู้ให้บริการเลือกจาก env ตอนสร้าง context — ตั้งผิด = ล้มตั้งแต่บูต)
+  const messages = ctx.get(MessageDispatcher);
   let stopping = false;
   process.on('SIGTERM', () => (stopping = true));
   process.on('SIGINT', () => (stopping = true));
@@ -52,7 +55,8 @@ async function main() {
   while (!stopping) {
     // ST1-T03: อีเมลใน outbox ส่งก่อน job (ลิงก์ลืมรหัสผ่านมีอายุ 30 นาที)
     const mailed = await mail.runOnce().catch((e) => (log.error(e), false));
-    const worked = (await queue.runOnce().catch((e) => (log.error(e), false))) || mailed;
+    const sent = await messages.runOnce().catch((e) => (log.error(e), false));
+    const worked = (await queue.runOnce().catch((e) => (log.error(e), false))) || mailed || sent;
     if (!worked) await new Promise((r) => setTimeout(r, 1000));
   }
   clearInterval(timer);

@@ -163,6 +163,12 @@ export const PROBLEMS = {
     en: 'This external id is already used by an order from another source',
   },
   invalid_grant: { status: 400, th: 'รหัสยืนยันหมดอายุหรือไม่ถูกต้อง', en: 'Invalid grant' },
+  /** ST3-T21 ช่องส่ง LINE/SMS ปิดหรือยังไม่ตั้งค่า — ผู้ใช้คัดลอกลิงก์ไปส่งเองได้ */
+  channel_unavailable: {
+    status: 409,
+    th: 'ส่งทางช่องทางนี้ไม่ได้ตอนนี้ คัดลอกลิงก์ไปส่งเองได้',
+    en: 'This channel is not available — copy the link and send it yourself',
+  },
   internal_error: { status: 500, th: 'ระบบขัดข้อง', en: 'Internal error' },
 } as const;
 

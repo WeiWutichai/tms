@@ -1,0 +1,47 @@
+import type { Schemas } from '@tms/contracts';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { api, idempotent, unwrap } from '../../api';
+
+export type MessageDelivery = Schemas['MessageDeliveryDto'];
+export type ChannelKey = MessageDelivery['channel'];
+
+const CHANNELS = 'message-channels';
+const LOG = 'message-log';
+
+/** ช่องทางที่ส่งได้ตอนนี้ (ST3-T21) — ใช้ไม่ได้ = ซ่อนปุ่มส่ง เหลือคัดลอกลิงก์ */
+export function useMessageChannels() {
+  return useQuery({
+    queryKey: [CHANNELS],
+    queryFn: () => unwrap(api.GET('/v1/messages/channels')),
+    select: (r) => new Set(r.data.filter((c) => c.available).map((c) => c.channel)),
+    staleTime: 60_000,
+  });
+}
+
+/** บันทึกการส่งถึงผู้รับเหมา (ใหม่ก่อน) — มีรายการรอส่งอยู่ = โหลดซ้ำทุก 3 วิ จนจบ */
+export function useCarrierMessages(carrierId: string) {
+  return useQuery({
+    queryKey: [LOG, carrierId],
+    queryFn: () => unwrap(api.GET('/v1/messages', { params: { query: { carrierId, limit: 5 } } })),
+    select: (r) => r.data,
+    refetchInterval: (q) =>
+      q.state.data?.data.some((m) => m.status === 'queued' || m.status === 'sending')
+        ? 3000
+        : false,
+  });
+}
+
+export function useSendLink(carrierId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    /** key ต่อการกด 1 ครั้ง — เน็ตช้าแล้วส่งซ้ำด้วย key เดิมได้ข้อความเดียว */
+    mutationFn: (v: { channel: ChannelKey; url: string; idempotencyKey: string }) =>
+      idempotent(() =>
+        api.POST('/v1/messages/send-link', {
+          body: { channel: v.channel, url: v.url, carrierId },
+          headers: { 'Idempotency-Key': v.idempotencyKey },
+        }),
+      ),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: [LOG, carrierId] }),
+  });
+}
