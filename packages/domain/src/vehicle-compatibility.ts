@@ -23,7 +23,11 @@ export const VEHICLE_CLASS_RANK: Record<VehicleClass, number> = {
   SEMI_TRAILER: 8,
 };
 
-/** capability tags ของประเภทรถ (docs/04 B รถ) — รายการคงที่ของระบบ */
+/**
+ * capability tags ของประเภทรถ (docs/04 B รถ) — รายการคงที่ของระบบ (แหล่งเดียว; `vehicle-type.dto.ts` re-export)
+ * เพิ่มป้าย = แก้ที่นี่ + migration ใหม่แก้ CHECK `vehicle_type.capability_tags`
+ * (หมายเหตุใน migration 0039 ยังชี้ `vehicle-type.dto.ts` — ห้ามแก้ migration ที่ merge แล้ว ให้ยึดหมายเหตุนี้)
+ */
 export const VEHICLE_CAPABILITIES = ['REFRIGERATED', 'CRANE', 'CONTAINER', 'HAZMAT'] as const;
 export type VehicleCapability = (typeof VEHICLE_CAPABILITIES)[number];
 
@@ -150,10 +154,13 @@ export function checkVehicleCompatibility(input: CompatibilityInput): Compatibil
   // 1) งาน
   const job = input.job;
   if (job) {
+    // ลำดับมาตรฐานของป้าย; ป้ายที่ไม่รู้จักต่อท้าย เรียงตามตัวอักษร
+    const pos = (c: string) => {
+      const i = (VEHICLE_CAPABILITIES as readonly string[]).indexOf(c);
+      return i === -1 ? VEHICLE_CAPABILITIES.length : i;
+    };
     const req = [...new Set(job.requiredCapabilities ?? [])].sort(
-      (a, b) =>
-        (VEHICLE_CAPABILITIES as readonly string[]).indexOf(a) -
-          (VEHICLE_CAPABILITIES as readonly string[]).indexOf(b) || (a < b ? -1 : a > b ? 1 : 0),
+      (a, b) => pos(a) - pos(b) || (a < b ? -1 : a > b ? 1 : 0),
     );
     for (const cap of req) {
       if (!tags.has(cap)) {

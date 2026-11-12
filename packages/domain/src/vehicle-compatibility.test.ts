@@ -152,6 +152,23 @@ describe('checkVehicleCompatibility', () => {
     expect(w.every((x) => x.code === 'CAPABILITY_MISSING' && x.source.kind === 'job')).toBe(true);
   });
 
+  it('ป้ายที่ไม่รู้จักเรียงต่อท้ายป้ายมาตรฐาน (ตามตัวอักษร)', () => {
+    const w = checkVehicleCompatibility({
+      vehicleType: T6W,
+      job: { requiredCapabilities: ['ZETA', 'CRANE', 'ALPHA', 'REFRIGERATED'] },
+    });
+    expect(w.map((x) => x.params.capability)).toEqual(['REFRIGERATED', 'CRANE', 'ALPHA', 'ZETA']);
+  });
+
+  it('ขอบช่วงติดลบทศนิยม (−18.5) พอดี = ครอบคลุม; ต่ำกว่า 0.1 °C = ไม่ครอบคลุม', () => {
+    const v = { ...REF6, tempMinC: '-18.5', tempMaxC: '-15.0' };
+    const p = { ...frozen, tempMinC: -18.5, tempMaxC: '-15' };
+    expect(codes({ vehicleType: v, products: [p] })).toEqual([]);
+    expect(codes({ vehicleType: v, products: [{ ...p, tempMinC: '-18.6' }] })).toEqual([
+      'TEMP_MISMATCH',
+    ]);
+  });
+
   it('MD-093: รถเล็กกว่าที่ SO ขอ → warning; ใหญ่กว่า → info (ไม่นับเป็นคำเตือนที่ต้องมีเหตุผล)', () => {
     const smaller = checkVehicleCompatibility({
       vehicleType: T6W,

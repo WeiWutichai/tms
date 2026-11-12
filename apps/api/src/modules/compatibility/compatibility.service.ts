@@ -1,13 +1,14 @@
 import { Injectable } from '@nestjs/common';
 import {
   checkVehicleCompatibility,
+  hasCompatibilityWarnings,
   type CompatibilityWarning,
   type CompatJob,
   type VehicleCapability,
   type VehicleClass,
 } from '@tms/domain';
 import { encodeId } from '../../common/ids';
-import { notFound } from '../../common/problem';
+import { notFound, ProblemException, type FieldError } from '../../common/problem';
 import { DbService, type Tx } from '../../db/db.service';
 
 /**
@@ -15,7 +16,9 @@ import { DbService, type Tx } from '../../db/db.service';
  * ผู้เรียก: ST3-T14 (constraint ตอนจัดรถ: เตือน + override พร้อมเหตุผล + audit) — ฟังก์ชันนี้ **ไม่บล็อก ไม่เขียนอะไร**
  *
  * - รับ uuid ภายใน (เหมือน `RoutesService.getRouteDistance`) + `tx` ที่ตั้ง tenant แล้ว → RLS กันข้าม tenant
- * - ประเภทรถไม่พบ (รวมของ tenant อื่น) → 404; สินค้า/จุดที่ไม่พบถูกข้าม (มองไม่เห็นใน tenant นี้ = ไม่มีข้อมูลให้เทียบ)
+ * - ประเภทรถ/รถไม่พบ (รวมของ tenant อื่น หรือ id ไม่ใช่ uuid) → 404
+ * - สินค้า/จุด/ประเภทรถที่ SO ขอ ไม่พบ → 422 `validation_failed` + `reference_not_found` ต่อช่อง (ไม่ข้ามเงียบ — กันผลว่า "เข้ากันได้" ทั้งที่ไม่ได้ตรวจ)
+ * - ประเภทรถที่ SO ขอมีป้ายความสามารถ (เช่น ห้องเย็น) → นับเป็นความสามารถที่งานต้องการด้วย
  * - สินค้า/จุดที่ปิดใช้หรือลบแล้วยังถูกนำมาเทียบ (SO เก่าอ้างได้ — ความเข้ากันได้เป็นคุณสมบัติของข้อมูล ไม่ใช่สถานะ)
  * - คืน id แบบ public (`prd_…`, `loc_…`) + ข้อความไทยพร้อมแสดง (API-first: ลูกค้า API เห็นข้อความเดียวกับ UI)
  */
@@ -34,7 +37,7 @@ export interface CompatibilityCheckInput {
 }
 
 export interface CompatibilityWarningView extends CompatibilityWarning {
-  /** ข้อความไทยพร้อมแสดง */
+  /** ข้อความไทยพร้อมแสดง (สำหรับลูกค้า API) — เว็บ (ST3-T14) แสดงจาก `messageKey` + `params` ผ่าน th.ts */
   message: string;
 }
 
@@ -45,6 +48,8 @@ export interface CompatibilityResult {
   /** มีคำเตือนระดับ warning (ต้องระบุเหตุผลถ้าจะใช้ต่อ — ST3-T14) */
   requiresOverride: boolean;
 }
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const CLASS_TH: Record<VehicleClass, string> = {
   '4W': '4 ล้อ',
@@ -93,6 +98,7 @@ export class CompatibilityService {
   constructor(private readonly db: DbService) {}
 
   async check(input: CompatibilityCheckInput, tx: Tx = this.db.tx): Promise<CompatibilityResult> {
+    const isUuid = (v: unknown): v is string => typeof v === 'string' && UUID_RE.test(v);
     const vtSelect = {
       id: true,
       code: true,
@@ -103,9 +109,11 @@ export class CompatibilityService {
       tempMaxC: true,
     } as const;
     let vt;
-    if (input.vehicleTypeId) {
+    if (input.vehicleTypeId !== undefined) {
+      if (!isUuid(input.vehicleTypeId)) throw notFound();
       vt = await tx.vehicleType.findFirst({ where: { id: input.vehicleTypeId }, select: vtSelect });
-    } else if (input.vehicleId) {
+    } else if (input.vehicleId !== undefined) {
+      if (!isUuid(input.vehicleId)) throw notFound();
       vt = (
         await tx.vehicle.findFirst({
           where: { id: input.vehicleId },
@@ -117,10 +125,13 @@ export class CompatibilityService {
 
     const productIds = [...new Set(input.productIds ?? [])];
     const siteIds = [...new Set(input.siteIds ?? [])];
+    const requestedId = input.job?.requestedVehicleTypeId ?? null;
+    const okProductIds = productIds.filter(isUuid);
+    const okSiteIds = siteIds.filter(isUuid);
     const [products, sites, requested] = await Promise.all([
-      productIds.length
+      okProductIds.length
         ? tx.product.findMany({
-            where: { id: { in: productIds } },
+            where: { id: { in: okProductIds } },
             select: {
               id: true,
               code: true,
@@ -132,16 +143,16 @@ export class CompatibilityService {
             },
           })
         : [],
-      siteIds.length
+      okSiteIds.length
         ? tx.customerSite.findMany({
-            where: { id: { in: siteIds } },
+            where: { id: { in: okSiteIds } },
             select: { id: true, code: true, name: true, maxVehicleClass: true },
           })
         : [],
-      input.job?.requestedVehicleTypeId
+      requestedId !== null && isUuid(requestedId)
         ? tx.vehicleType.findFirst({
-            where: { id: input.job.requestedVehicleTypeId },
-            select: { vehicleClass: true },
+            where: { id: requestedId },
+            select: { vehicleClass: true, capabilityTags: true },
           })
         : null,
     ]);
@@ -151,10 +162,40 @@ export class CompatibilityService {
     const orderedProducts = productIds.flatMap((id) => (pById.has(id) ? [pById.get(id)!] : []));
     const orderedSites = siteIds.flatMap((id) => (sById.has(id) ? [sById.get(id)!] : []));
 
+    // id ที่หาไม่พบ (ไม่มี / ของ tenant อื่น / ผิดรูปแบบ) → 422 รายช่อง
+    const errors: FieldError[] = [];
+    (input.productIds ?? []).forEach((id, i) => {
+      if (!pById.has(id))
+        errors.push({
+          field: `productIds[${i}]`,
+          code: 'reference_not_found',
+          message: 'product not found',
+        });
+    });
+    (input.siteIds ?? []).forEach((id, i) => {
+      if (!sById.has(id))
+        errors.push({
+          field: `siteIds[${i}]`,
+          code: 'reference_not_found',
+          message: 'site not found',
+        });
+    });
+    if (requestedId !== null && !requested)
+      errors.push({
+        field: 'job.requestedVehicleTypeId',
+        code: 'reference_not_found',
+        message: 'vehicle type not found',
+      });
+    if (errors.length) throw new ProblemException('validation_failed', undefined, errors);
+
     const job: CompatJob | null = input.job
       ? {
           requestedVehicleClass: requested?.vehicleClass ?? null,
-          requiredCapabilities: input.job.requiredCapabilities ?? [],
+          // ประเภทรถที่ SO ขอ = ความต้องการของงาน: ขอ "6 ล้อ ห้องเย็น" → ต้องมีป้าย REFRIGERATED ด้วย (domain ตัดซ้ำ)
+          requiredCapabilities: [
+            ...(input.job.requiredCapabilities ?? []),
+            ...((requested?.capabilityTags ?? []) as VehicleCapability[]),
+          ],
         }
       : null;
 
@@ -199,7 +240,7 @@ export class CompatibilityService {
     return {
       vehicleType: { id: encodeId('vehicleType', vt.id), code: vt.code, name: vt.nameTh },
       warnings,
-      requiresOverride: warnings.some((w) => w.severity === 'warning'),
+      requiresOverride: hasCompatibilityWarnings(warnings),
     };
   }
 }

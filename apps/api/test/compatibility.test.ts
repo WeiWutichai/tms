@@ -178,7 +178,7 @@ describe('ความเข้ากันได้ของประเภท�
     expect(larger.requiresOverride).toBe(false);
   });
 
-  it('แยก tenant: ประเภทรถของ tenant อื่น → 404 · สินค้า/จุดของ tenant อื่นมองไม่เห็น (ไม่ถูกนำมาเทียบ)', async () => {
+  it('แยก tenant: ประเภทรถ/รถของ tenant อื่น → 404 · สินค้า/จุด/ประเภทที่ขอของ tenant อื่น → 422 reference_not_found · id ผิดรูปแบบไม่ใช่ 500', async () => {
     const mine = await vtype({ vehicleClass: '10W', payloadKg: 15000 });
     const chilled = await product({ tempControlled: true, tempMinC: 2, tempMaxC: 8 });
     const soi = await site({ maxVehicleClass: '6W' });
@@ -206,20 +206,107 @@ describe('ความเข้ากันได้ของประเภท�
     ).rejects.toMatchObject({
       code: 'not_found',
     });
-    // tenant อื่นใช้ประเภทรถของตัวเอง + id สินค้า/จุดของเรา → RLS ซ่อน ไม่มีคำเตือน
-    const r = await check(
-      {
-        vehicleTypeId: otherVt,
-        productIds: [uuid('product', chilled.id)],
-        siteIds: [uuid('site', soi.id)],
-      },
-      other.id,
-    );
-    expect(r.warnings).toEqual([]);
+    // รถของเรา (vehicleId) เรียกใน tenant อื่น → 404
+    const v = await api(app, admin)
+      .post('/v1/vehicles')
+      .send({ plate: '70-1617', plateProvince: 'TH-10', vehicleTypeId: mine.id, ownership: 'OWN' })
+      .expect(201);
+    await expect(check({ vehicleId: uuid('vehicle', v.body.id) }, other.id)).rejects.toMatchObject({
+      code: 'not_found',
+    });
+    // tenant อื่นใช้ประเภทรถของตัวเอง + id สินค้า/จุด/ประเภทที่ขอของเรา → RLS ซ่อน = 422 reference_not_found (ไม่ผ่านเงียบ)
+    await expect(
+      check(
+        {
+          vehicleTypeId: otherVt,
+          productIds: [uuid('product', chilled.id)],
+          siteIds: [uuid('site', soi.id)],
+          job: { requestedVehicleTypeId: uuid('vehicleType', mine.id) },
+        },
+        other.id,
+      ),
+    ).rejects.toMatchObject({
+      code: 'validation_failed',
+      errors: [
+        { field: 'productIds[0]', code: 'reference_not_found' },
+        { field: 'siteIds[0]', code: 'reference_not_found' },
+        { field: 'job.requestedVehicleTypeId', code: 'reference_not_found' },
+      ],
+    });
+    // id ไม่ใช่ uuid: ประเภทรถ/รถ → 404, สินค้า/จุด → 422 (ไม่ใช่ 500)
+    await expect(check({ vehicleTypeId: 'not-a-uuid' })).rejects.toMatchObject({
+      code: 'not_found',
+    });
+    await expect(check({ vehicleId: 'x' })).rejects.toMatchObject({ code: 'not_found' });
+    await expect(
+      check({ vehicleTypeId: uuid('vehicleType', mine.id), productIds: ['abc'], siteIds: ['1'] }),
+    ).rejects.toMatchObject({
+      code: 'validation_failed',
+      errors: [{ field: 'productIds[0]' }, { field: 'siteIds[0]' }],
+    });
     await expect(
       check({ vehicleTypeId: '00000000-0000-0000-0000-000000000000' }),
     ).rejects.toMatchObject({
       code: 'not_found',
     });
+  });
+
+  it('ประเภทรถที่ SO ขอเป็นห้องเย็น 6 ล้อ + รถ 6 ล้อธรรมดา → CAPABILITY_MISSING (REFRIGERATED) แม้ไม่มีสินค้า', async () => {
+    const reqReefer = await vtype({
+      vehicleClass: '6W',
+      capabilityTags: ['REFRIGERATED'],
+      tempMinC: 0,
+      tempMaxC: 8,
+    });
+    const plain = await vtype({ vehicleClass: '6W' });
+    const r = await check({
+      vehicleTypeId: uuid('vehicleType', plain.id),
+      job: {
+        requestedVehicleTypeId: uuid('vehicleType', reqReefer.id),
+        requiredCapabilities: ['REFRIGERATED'],
+      },
+    });
+    expect(r.warnings.map((w) => [w.code, w.params.capability])).toEqual([
+      ['CAPABILITY_MISSING', 'REFRIGERATED'],
+    ]);
+    expect(r.requiresOverride).toBe(true);
+    // ใช้ประเภทเดียวกับที่ขอ → ไม่มีคำเตือน
+    const same = await check({
+      vehicleTypeId: uuid('vehicleType', reqReefer.id),
+      job: { requestedVehicleTypeId: uuid('vehicleType', reqReefer.id) },
+    });
+    expect(same.warnings).toEqual([]);
+  });
+
+  it('สินค้าที่ปิดใช้/ลบแล้วยังถูกนำมาเทียบ (SO เก่าอ้างได้)', async () => {
+    const plain = await vtype({ vehicleClass: '6W' });
+    const off = await product({
+      name: 'ปลาแช่เย็น',
+      tempControlled: true,
+      tempMinC: 0,
+      tempMaxC: 4,
+    });
+    const gone = await product({
+      name: 'กรดซัลฟิวริก',
+      hazardous: true,
+      unNumber: '1830',
+      hazardClass: '8',
+    });
+    await api(app, admin)
+      .post(`/v1/products/${off.id}/deactivate`)
+      .send({ reason: 'ทดสอบปิดใช้สินค้า' })
+      .expect(200);
+    await api(app, admin)
+      .post(`/v1/products/${gone.id}/delete`)
+      .send({ reason: 'ทดสอบลบสินค้า' })
+      .expect(204);
+    const r = await check({
+      vehicleTypeId: uuid('vehicleType', plain.id),
+      productIds: [uuid('product', off.id), uuid('product', gone.id)],
+    });
+    expect(r.warnings.map((w) => [w.code, w.source.id])).toEqual([
+      ['TEMP_MISMATCH', off.id],
+      ['HAZMAT_NOT_ALLOWED', gone.id],
+    ]);
   });
 });
