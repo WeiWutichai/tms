@@ -17,6 +17,8 @@ export interface PreparedNotification {
   template: NotificationTemplate;
   title: string;
   body: string;
+  /** รายละเอียดเฉพาะอีเมล (ต่อท้าย body) */
+  detail?: string;
   /** path ภายในเว็บ (ขึ้นต้นด้วย /) */
   link: string | null;
   payload: Prisma.InputJsonValue;
@@ -64,7 +66,7 @@ export class EmailChannel implements NotificationChannel {
         locale: n.recipient.locale,
         vars: {
           title: n.title,
-          body: n.body,
+          body: n.detail ? `${n.body}\n\n${n.detail}` : n.body,
           ...(n.link ? { link: `${this.webBase()}${n.link}` } : {}),
         },
       })),
@@ -114,7 +116,8 @@ const MAX_RECIPIENTS = 500;
 /**
  * แกนแจ้งเตือน (ST1-T23; docs/04 I, spec/10 Notification)
  * `notify()` เรียกใน transaction ของงานที่ทำให้เกิดเหตุการณ์ → resolve ผู้รับ → render ตามภาษาผู้รับ → ส่งทุกช่อง
- * ยังไม่มี: การตั้งค่ารับ/ไม่รับต่อผู้ใช้, สรุปรายวัน 08:00 (docs/04 I — ดู PROGRESS)
+ * ยังไม่มี: การตั้งค่ารับ/ไม่รับต่อผู้ใช้, สรุปรายวัน 08:00 แบบรวมทุกเหตุการณ์ (docs/04 I — ดู PROGRESS)
+ * — ST2-T18 เตือนวันหมดอายุมีสรุปรายวันของตัวเองแล้ว (`expiry.digest`, ExpiryReminderService)
  */
 @Injectable()
 export class NotificationService {
@@ -153,6 +156,7 @@ export class NotificationService {
         template: input.template,
         title: text.title,
         body: text.body,
+        ...(text.detail ? { detail: text.detail } : {}),
         link: input.link ?? null,
         payload: input.vars as unknown as Prisma.InputJsonValue,
         entity: input.entity ?? null,

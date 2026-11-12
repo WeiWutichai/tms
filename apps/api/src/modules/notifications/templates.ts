@@ -1,4 +1,5 @@
 import { safeName } from '../../common/safe-text';
+import { docDate } from '../../pdf/thai-date';
 
 /**
  * ข้อความแจ้งเตือน (ST1-T23) — ไทย/อังกฤษ (D-11: จีนไม่บังคับ → ใช้อังกฤษ)
@@ -19,6 +20,25 @@ export interface NotificationVars {
   'import.completed': ImportVars;
   'import.not_imported': ImportVars;
   'import.failed': ImportVars;
+  /**
+   * ST2-T18 สรุปเตือนวันหมดอายุรายวัน — 1 ฉบับต่อผู้รับต่อวัน (docs/04 I "สรุปรายวัน 08:00")
+   * items = รายการที่ถึงระดับเตือนวันนี้ (สูงสุด DIGEST_MAX_ITEMS) · more = ที่เหลือที่ไม่แสดง
+   */
+  'expiry.digest': { total: number; more: number; items: ExpiryDigestItem[] };
+}
+export type ExpiryLevel = 'D60' | 'D30' | 'D7' | 'EXPIRED';
+export interface ExpiryDigestItem {
+  kind: 'VEHICLE_DOCUMENT' | 'DRIVER_LICENCE' | 'RATE_CARD';
+  level: ExpiryLevel;
+  /** YYYY-MM-DD */
+  expiresOn: string;
+  /** วันหมด − วันนี้ (ติดลบ = หมดไปแล้ว) */
+  days: number;
+  /** ทะเบียนรถ / ชื่อคนขับ (รหัส) / รหัส rate (ลูกค้าหรือผู้รับเหมา · ต้นทาง → ปลายทาง) */
+  label: string;
+  docType?: string;
+  title?: string | null;
+  side?: 'SELL' | 'BUY';
 }
 interface ImportVars {
   label: string;
@@ -28,11 +48,93 @@ interface ImportVars {
   reason: string;
 }
 const n = (x: number) => x.toLocaleString('en-US');
+
+/** ชื่อประเภทเอกสารรถ (ไทยตรงกับต้นแบบ/T17) */
+const VEHICLE_DOC_NAME: Record<string, { th: string; en: string }> = {
+  INSURANCE: { th: 'ประกันภัย', en: 'Insurance' },
+  COMPULSORY_ACT: { th: 'พ.ร.บ.', en: 'Compulsory insurance (CMI)' },
+  ANNUAL_TAX: { th: 'ภาษี', en: 'Annual road tax' },
+  INSPECTION: { th: 'ตรวจสภาพ ตรอ.', en: 'Vehicle inspection' },
+  TRANSPORT_LICENSE: { th: 'ใบอนุญาตขนส่ง', en: 'Transport licence' },
+  GPS_DLT_CERT: { th: 'GPS DLT', en: 'GPS DLT certificate' },
+  OTHER: { th: 'เอกสารอื่น', en: 'Other document' },
+};
+const thDay = (d: string) => docDate(new Date(`${d}T00:00:00+07:00`), 'BE');
+/** ลำดับกลุ่มในสรุป: หมดแล้วก่อน แล้วใกล้สุด */
+const LEVEL_ORDER: ExpiryLevel[] = ['EXPIRED', 'D7', 'D30', 'D60'];
+const LEVEL_HEAD: Record<ExpiryLevel, Record<NotificationLocale, string>> = {
+  EXPIRED: { th: 'หมดอายุแล้ว', en: 'Expired' },
+  D7: { th: 'เหลือไม่เกิน 7 วัน', en: 'Within 7 days' },
+  D30: { th: 'เหลือไม่เกิน 30 วัน', en: 'Within 30 days' },
+  D60: { th: 'เหลือไม่เกิน 60 วัน', en: 'Within 60 days' },
+};
+const KIND_NAME: Record<ExpiryDigestItem['kind'], Record<NotificationLocale, string>> = {
+  VEHICLE_DOCUMENT: { th: 'เอกสารรถ', en: 'vehicle documents' },
+  DRIVER_LICENCE: { th: 'ใบขับขี่', en: 'driving licences' },
+  RATE_CARD: { th: 'rate card', en: 'rate cards' },
+};
+function itemLine(i: ExpiryDigestItem, lang: NotificationLocale): string {
+  const label = safeName(i.label, 160);
+  const what =
+    i.kind === 'VEHICLE_DOCUMENT'
+      ? lang === 'th'
+        ? `${i.docType === 'OTHER' && i.title ? safeName(i.title, 80) : (VEHICLE_DOC_NAME[i.docType ?? '']?.th ?? i.docType)} ของรถ ${label}`
+        : `${i.docType === 'OTHER' && i.title ? safeName(i.title, 80) : (VEHICLE_DOC_NAME[i.docType ?? '']?.en ?? i.docType)} — vehicle ${label}`
+      : i.kind === 'DRIVER_LICENCE'
+        ? lang === 'th'
+          ? `ใบขับขี่ ${label}`
+          : `Driving licence — ${label}`
+        : lang === 'th'
+          ? `Rate card ${i.side === 'BUY' ? 'ขาซื้อ' : 'ขาขาย'} ${label}`
+          : `${i.side === 'BUY' ? 'Buy' : 'Sell'} rate card ${label}`;
+  const when =
+    lang === 'th'
+      ? i.days < 0
+        ? `หมดเมื่อ ${thDay(i.expiresOn)}`
+        : i.days === 0
+          ? `หมดวันนี้ ${thDay(i.expiresOn)}`
+          : `หมด ${thDay(i.expiresOn)} (อีก ${n(i.days)} วัน)`
+      : i.days < 0
+        ? `expired ${i.expiresOn}`
+        : i.days === 0
+          ? `expires today ${i.expiresOn}`
+          : `expires ${i.expiresOn} (in ${n(i.days)} days)`;
+  return `• ${what} — ${when}`;
+}
+/** สรุปสั้น (กระดิ่ง) + รายการเต็มเป็นกลุ่มตามระดับ (อีเมล) */
+function renderDigest(v: NotificationVars['expiry.digest'], lang: NotificationLocale) {
+  const kinds = [...new Set(v.items.map((i) => i.kind))].map((k) => KIND_NAME[k][lang]);
+  const counts = LEVEL_ORDER.map((l) => [l, v.items.filter((i) => i.level === l).length] as const)
+    .filter(([, c]) => c > 0)
+    .map(([l, c]) => `${LEVEL_HEAD[l][lang]} ${n(c)}`);
+  const lines: string[] = [];
+  for (const l of LEVEL_ORDER) {
+    const g = v.items.filter((i) => i.level === l);
+    if (!g.length) continue;
+    lines.push(`${LEVEL_HEAD[l][lang]}:`, ...g.map((i) => itemLine(i, lang)));
+  }
+  if (v.more > 0)
+    lines.push(lang === 'th' ? `และอีก ${n(v.more)} รายการ` : `and ${n(v.more)} more`);
+  return lang === 'th'
+    ? {
+        title: `${kinds.join(' / ')} ใกล้หมดอายุ ${n(v.total)} รายการ`,
+        body: `${counts.join(' · ')}${v.more > 0 ? ` (แสดง ${n(v.items.length)} จาก ${n(v.total)})` : ''} — เปิดดูรายการและต่ออายุในระบบ`,
+        detail: lines.join('\n'),
+      }
+    : {
+        title: `${n(v.total)} expiring ${kinds.join(' / ')}`,
+        body: `${counts.join(' · ')} — open TMS to review and renew.`,
+        detail: lines.join('\n'),
+      };
+}
 export type NotificationTemplate = keyof NotificationVars;
 
 export interface RenderedNotification {
   title: string;
+  /** ข้อความสั้น (กระดิ่ง + ย่อหน้าแรกของอีเมล) */
   body: string;
+  /** รายละเอียดเพิ่มเฉพาะอีเมล (หลายบรรทัด) — เช่น รายการในสรุปเตือนวันหมดอายุ */
+  detail?: string;
 }
 
 type Renderer<K extends NotificationTemplate> = (v: NotificationVars[K]) => RenderedNotification;
@@ -107,6 +209,10 @@ const TEMPLATES: {
       title: 'Import failed',
       body: `${v.label}: system error, nothing was imported.`,
     }),
+  },
+  'expiry.digest': {
+    th: (v) => renderDigest(v, 'th'),
+    en: (v) => renderDigest(v, 'en'),
   },
 };
 

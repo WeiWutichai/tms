@@ -54,6 +54,7 @@ import { UnitsService } from './modules/products/units.service';
 import { RoutesController } from './modules/routes/routes.controller';
 import { RoutesService } from './modules/routes/routes.service';
 import { CompatibilityService } from './modules/compatibility/compatibility.service';
+import { AssignabilityService } from './modules/assignability/assignability.service';
 import { SitesService } from './modules/sites/sites.service';
 import { ServiceItemsController } from './modules/service-items/service-items.controller';
 import { ServiceItemsService } from './modules/service-items/service-items.service';
@@ -87,6 +88,7 @@ import { UsersController } from './modules/users/users.controller';
 import { UserLifecycleController } from './modules/users/user-lifecycle.controller';
 import { PdfRenderer } from './pdf/pdf-renderer';
 import { StateService } from './state/state.service';
+import { ExpiryReminderService } from './modules/reminders/expiry-reminder.service';
 
 @Module({
   controllers: [
@@ -152,6 +154,7 @@ import { StateService } from './state/state.service';
     SitesService,
     RoutesService,
     CompatibilityService,
+    AssignabilityService,
     ProductsService,
     UnitsService,
     VehicleTypesService,
@@ -164,6 +167,7 @@ import { StateService } from './state/state.service';
     DriversService,
     VehicleDocumentsService,
     Clock,
+    ExpiryReminderService,
     DepreciationService,
     GeoService,
     AuditService,

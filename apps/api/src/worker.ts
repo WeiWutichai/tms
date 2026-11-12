@@ -6,6 +6,7 @@ import { JobQueue } from './jobs/job-queue.service';
 import { EmailDispatcher } from './modules/email/email.service';
 import { purgeAuthData } from './auth/maintenance';
 import { PrismaService } from './db/prisma.service';
+import { ExpiryReminderService } from './modules/reminders/expiry-reminder.service';
 import { DepreciationService } from './modules/depreciation/depreciation.service';
 
 /**
@@ -30,6 +31,15 @@ async function main() {
       .catch((e) => log.error(e));
   void daily();
   const timer = setInterval(daily, 24 * 60 * 60 * 1000);
+  // ST2-T18 เตือนต่ออายุ: ตรวจทุก 10 นาที — ตั้งแต่ 08:00 เวลาไทย (docs/04 I) สร้าง job ของวันนี้ให้ tenant ที่ยังไม่มี (ซ้ำได้ ไม่เตือนซ้ำ)
+  const reminders = ctx.get(ExpiryReminderService);
+  const schedule = () =>
+    reminders
+      .scheduleDue()
+      .then((n) => n && log.info({ tenants: n }, 'expiry reminders scheduled'))
+      .catch((e) => log.error(e));
+  void schedule();
+  const reminderTimer = setInterval(schedule, 10 * 60 * 1000);
   // ST2-T22 ค่าเสื่อมรายเดือน: ตรวจทุก 10 นาที — ตั้งแต่วันที่ 1 เวลา 02:00 น. ไทย สร้าง job ของเดือนที่เพิ่งปิดให้ tenant ที่ยังไม่มี (ซ้ำได้ ไม่ลงซ้ำ)
   const depreciation = ctx.get(DepreciationService);
   const scheduleDepreciation = () =>
@@ -46,6 +56,7 @@ async function main() {
     if (!worked) await new Promise((r) => setTimeout(r, 1000));
   }
   clearInterval(timer);
+  clearInterval(reminderTimer);
   clearInterval(depreciationTimer);
   await ctx.close();
 }
