@@ -14,6 +14,7 @@ export class Clock {
 
   /** ใช้ใน test เท่านั้น — null = กลับไปใช้เวลาจริง */
   set(at: Date | null): void {
+    if (process.env.NODE_ENV === 'production') throw new Error('Clock.set is test-only');
     this.fixed = at ? new Date(at.getTime()) : null;
   }
 }

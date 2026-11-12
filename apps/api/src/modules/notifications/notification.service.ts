@@ -17,6 +17,8 @@ export interface PreparedNotification {
   template: NotificationTemplate;
   title: string;
   body: string;
+  /** รายละเอียดเฉพาะอีเมล (ต่อท้าย body) */
+  detail?: string;
   /** path ภายในเว็บ (ขึ้นต้นด้วย /) */
   link: string | null;
   payload: Prisma.InputJsonValue;
@@ -64,7 +66,7 @@ export class EmailChannel implements NotificationChannel {
         locale: n.recipient.locale,
         vars: {
           title: n.title,
-          body: n.body,
+          body: n.detail ? `${n.body}\n\n${n.detail}` : n.body,
           ...(n.link ? { link: `${this.webBase()}${n.link}` } : {}),
         },
       })),
@@ -153,6 +155,7 @@ export class NotificationService {
         template: input.template,
         title: text.title,
         body: text.body,
+        ...(text.detail ? { detail: text.detail } : {}),
         link: input.link ?? null,
         payload: input.vars as unknown as Prisma.InputJsonValue,
         entity: input.entity ?? null,

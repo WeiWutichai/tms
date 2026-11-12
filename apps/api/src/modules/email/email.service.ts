@@ -92,7 +92,9 @@ export class EmailDispatcher {
         SELECT id FROM email_outbox
          WHERE (status = 'PENDING' AND run_at <= now())
             OR (status = 'SENDING' AND locked_until < now() AND attempts < max_attempts)
-         ORDER BY run_at, created_at
+         -- อีเมลแจ้งเตือน (template notification เช่น สรุปเตือนวันหมดอายุ ST2-T18) ส่งหลังอีเมลยืนยันตัวตน
+         -- (ลืมรหัสผ่าน/คำเชิญ ฯลฯ) ที่ถึงเวลาแล้ว — ไม่ให้ลิงก์ 30 นาทีรอคิวแจ้งเตือน
+         ORDER BY (template = 'notification'), run_at, created_at
          FOR UPDATE SKIP LOCKED
          LIMIT 1
       )
