@@ -13,7 +13,14 @@ import { ProblemException } from '../../common/problem';
 import { DbService, type Tx } from '../../db/db.service';
 import { RateCardsService } from '../rate-cards/rate-cards.service';
 import { RoutesService } from '../routes/routes.service';
-import { snapshotServiceItem, type ServiceItemSnapshot } from '../service-items/snapshot';
+import type { ServiceItemSide } from '../service-items/service-item.dto';
+import { RESERVED_SYSTEM_KEYS } from '../service-items/service-items.service';
+import {
+  sideAllows,
+  snapshotServiceItem,
+  type ServiceItemSnapshot,
+} from '../service-items/snapshot';
+import { isRealDate } from '../vehicle-documents/expiry';
 
 /** คำขอคิดราคา — id ทั้งหมดเป็น uuid (ไม่ใช่ public id) */
 export interface QuoteInput {
@@ -70,6 +77,8 @@ export class PricingService {
   ) {}
 
   async quote(input: QuoteInput, tx: Tx = this.db.tx): Promise<Quote> {
+    if (typeof input.date !== 'string' || !isRealDate(input.date))
+      throw field422('date', 'invalid_date', 'date must be YYYY-MM-DD');
     const rate = await this.rateCards.findApplicableRate(
       {
         side: input.side,
@@ -95,24 +104,41 @@ export class PricingService {
       },
     });
     const snap = new Map(items.map((s) => [s.id, snapshotServiceItem(s)]));
+    // ค่าบริการเสริม: สัญญาเดียวกับ ServiceItemsService.snapshotFor — ใช้งานอยู่ + ใช้กับฝั่งนี้ได้ + ไม่ใช่รายการสงวน
     const accessorials = (input.accessorials ?? []).map((a, i) => {
-      const s = snap.get(a.serviceItemId);
-      if (!s)
+      const field = `accessorials[${i}].serviceItemId`;
+      const row = items.find((x) => x.id === a.serviceItemId);
+      if (!row) throw field422(field, 'service_item_not_found', 'service item not found');
+      if (row.status !== 'ACTIVE')
+        throw field422(field, 'service_item_inactive', `service item ${row.code} is inactive`);
+      if (!sideAllows(row.side as ServiceItemSide, input.side))
         throw field422(
-          `accessorials[${i}].serviceItemId`,
-          'service_item_not_found',
-          'service item not found',
+          field,
+          'service_item_side',
+          `service item ${row.code} is for ${row.side} documents only`,
         );
-      return { serviceItem: s, qty: a.qty };
+      if (row.systemKey && (RESERVED_SYSTEM_KEYS as readonly string[]).includes(row.systemKey))
+        throw field422(
+          field,
+          'service_item_reserved',
+          `service item ${row.code} is priced by the rate card, not as an accessorial`,
+        );
+      return { serviceItem: snap.get(row.id)!, qty: a.qty };
     });
 
     // หน่วย + สินค้า (แปลงหน่วย)
     const qIn = input.quantities ?? [];
     const unitIds = [...qIn.map((x) => x.unitId), ...(rate?.unitId ? [rate.unitId] : [])];
     const productIds = qIn.flatMap((x) => (x.productId ? [x.productId] : []));
+    // หน่วยของ rate อ่านแม้ถูกลบแบบ soft (ใช้ตามที่ rate อ้าง) · หน่วยของงานต้องยังไม่ถูกลบ
     const [units, products] = await Promise.all([
       unitIds.length
-        ? tx.unit.findMany({ where: { id: { in: unitIds }, deletedAt: null } })
+        ? tx.unit.findMany({
+            where: {
+              id: { in: unitIds },
+              OR: [{ deletedAt: null }, ...(rate?.unitId ? [{ id: rate.unitId }] : [])],
+            },
+          })
         : Promise.resolve([]),
       productIds.length
         ? tx.product.findMany({
@@ -138,7 +164,9 @@ export class PricingService {
     );
     const quantities: PricingQuantity[] = qIn.map((x, i) => {
       const unit = unitMap.get(x.unitId);
-      if (!unit) throw field422(`quantities[${i}].unitId`, 'reference_not_found', 'unit not found');
+      const live = units.find((u) => u.id === x.unitId)?.deletedAt === null;
+      if (!unit || !live)
+        throw field422(`quantities[${i}].unitId`, 'reference_not_found', 'unit not found');
       const product = x.productId ? productMap.get(x.productId) : null;
       if (x.productId && !product)
         throw field422(`quantities[${i}].productId`, 'reference_not_found', 'product not found');
@@ -155,6 +183,11 @@ export class PricingService {
         snapshotServiceItem(
           await tx.serviceItem.findUniqueOrThrow({ where: { id: rate.serviceItemId } }),
         );
+      // FSC (P1) ยังไม่คิด — อ่านเพื่อเตือนเท่านั้น (ApplicableRate ของ T13 ไม่มีช่องนี้)
+      const fsc = await tx.rateCard.findUnique({
+        where: { id: rate.id },
+        select: { fuelSurchargePct: true },
+      });
       engineRate = {
         rateCardId: rate.id,
         code: rate.code,
@@ -167,6 +200,7 @@ export class PricingService {
         unit: rate.unitId ? (unitMap.get(rate.unitId) ?? null) : null,
         serviceItem: freightSnap,
         extraStopItem: extraStop ? snap.get(extraStop.id)! : null,
+        fuelSurchargePct: dec(fsc?.fuelSurchargePct),
         accessorials: rate.accessorials.map((a) => ({
           serviceItemId: a.serviceItemId,
           price: a.price.toFixed(2),

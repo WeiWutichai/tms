@@ -308,4 +308,86 @@ describe('pricing (PricingService.quote)', () => {
     expect((await quote(key)).pricingStatus).toBe('RATE_MISSING');
     expect((await quote(key, { side: 'BUY' })).pricingStatus).toBe('RATE_MISSING');
   });
+  // ---------- review ST2-T15 ----------
+  it('ค่าบริการเสริมตามสัญญา snapshotFor: ปิดใช้ → 422 service_item_inactive, ผิดฝั่ง → service_item_side, รายการสงวน → service_item_reserved', async () => {
+    const key = await newKey();
+    await sellRate(key, { pricingModel: 'PER_TRIP', sellRate: '4500' });
+    const item = (code: string) => db.serviceItem.findFirstOrThrow({ where: { tenantId, code } });
+    const [load, unload, extra, freight] = await Promise.all(
+      ['LOAD', 'UNLOAD', 'EXTRA_STOP', 'FREIGHT'].map(item),
+    );
+    await db.serviceItem.update({ where: { id: load!.id }, data: { side: 'BUY' } });
+    await db.serviceItem.update({ where: { id: unload!.id }, data: { status: 'INACTIVE' } });
+    try {
+      const err = async (serviceItemId: string) => {
+        const e: unknown = await quote(key, { accessorials: [{ serviceItemId, qty: '1' }] }).then(
+          () => null,
+          (x: unknown) => x,
+        );
+        expect(e).toMatchObject({ status: 422 });
+        return JSON.stringify(e);
+      };
+      expect(await err(load!.id)).toContain('service_item_side');
+      expect(await err(unload!.id)).toContain('service_item_inactive');
+      expect(await err(extra!.id)).toContain('service_item_reserved');
+      expect(await err(freight!.id)).toContain('service_item_reserved');
+      // ฝั่งซื้อใช้รายการ BUY ได้ (ไม่พบ rate ซื้อ → RATE_MISSING ไม่ใช่ 422)
+      const buy = await quote(key, {
+        side: 'BUY',
+        accessorials: [{ serviceItemId: load!.id, qty: '1' }],
+      });
+      expect(buy.pricingStatus).toBe('RATE_MISSING');
+    } finally {
+      await db.serviceItem.update({ where: { id: load!.id }, data: { side: 'BOTH' } });
+      await db.serviceItem.update({ where: { id: unload!.id }, data: { status: 'ACTIVE' } });
+    }
+  });
+
+  it('วันที่ผิดรูป → 422 invalid_date (ไม่ใช่ 500)', async () => {
+    const key = await newKey();
+    for (const date of ['2026-13-01', '12/11/2026', ''])
+      await expect(quote(key, { date })).rejects.toMatchObject({ status: 422 });
+  });
+
+  it('FSC บน rate → คำเตือน FSC_IGNORED (ยังคิดราคาได้) · หน่วยของ rate ถูกลบแบบ soft ยังคิดได้', async () => {
+    const key = await newKey();
+    const rc = await sellRate(key, { pricingModel: 'PER_TRIP', sellRate: '4500' });
+    await db.rateCard.update({
+      where: { id: uuid('rateCard', rc.id) },
+      data: { fuelSurchargePct: '5.00' },
+    });
+    const r = await quote(key);
+    expect(r).toMatchObject({ pricingStatus: 'AVAILABLE', total: '4500.00' });
+    expect(r.warnings.map((w) => w.code)).toEqual(['FSC_IGNORED']);
+
+    const box = uuid('unit', units.BOX!);
+    const product = (
+      await api(app, admin)
+        .post('/v1/products')
+        .send({
+          name: `สินค้ากล่อง ${++seed}`,
+          unitId: units.BAG,
+          weightPerUnitKg: 1,
+          altUnits: [{ unitId: units.BOX, factorToBase: 10 }],
+        })
+        .expect(201)
+    ).body.id as string;
+    const k2 = await newKey();
+    await sellRate(k2, { pricingModel: 'PER_UNIT', sellRate: '100', unitId: units.BOX });
+    await db.unit.update({ where: { id: box }, data: { deletedAt: new Date() } });
+    try {
+      const q2 = await quote(k2, {
+        quantities: [
+          { qty: '20', unitId: uuid('unit', units.BAG!), productId: uuid('product', product) },
+        ],
+      });
+      expect(q2).toMatchObject({ pricingStatus: 'AVAILABLE', total: '200.00' });
+      // หน่วยของงานที่ถูกลบแล้ว → 422
+      await expect(quote(k2, { quantities: [{ qty: '1', unitId: box }] })).rejects.toMatchObject({
+        status: 422,
+      });
+    } finally {
+      await db.unit.update({ where: { id: box }, data: { deletedAt: null } });
+    }
+  });
 });

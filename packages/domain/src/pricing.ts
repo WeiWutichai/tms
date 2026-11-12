@@ -74,6 +74,8 @@ export interface PricingRate<S extends PricingServiceItem = PricingServiceItem> 
   extraStopItem?: S | null;
   /** ราคาค่าบริการเสริมเฉพาะของ rate card นี้ */
   accessorials?: readonly { serviceItemId: string; price: string }[];
+  /** FSC % บน rate (P1 — ยังไม่คิด; มีค่า → คำเตือน FSC_IGNORED) */
+  fuelSurchargePct?: string | null;
 }
 
 export interface PricingQuantity {
@@ -101,8 +103,13 @@ export type PricingLineKind = 'FREIGHT' | 'EXTRA_STOP' | 'ACCESSORIAL';
 export interface PricingLine<S extends PricingServiceItem = PricingServiceItem> {
   kind: PricingLineKind;
   serviceItem: S;
-  /** จำนวนตามสูตร (ทศนิยมสูงสุด 4 ตำแหน่ง ตัดศูนย์ท้าย — ค่าแสดงผล; amount คิดจากค่าจริงไม่ปัด) */
+  /** จำนวนตามสูตร **ค่าแสดงผล** (ทศนิยมสูงสุด 4 ตำแหน่ง ตัดศูนย์ท้าย) — qty × unitPrice อาจไม่เท่า amount */
   qty: string;
+  /**
+   * จำนวนเต็มความละเอียด (ค่าที่ใช้คิด amount จริง): ทศนิยมครบทุกหลักเมื่อหารลงตัว (12.34567)
+   * หรือเศษส่วน "n/d" เมื่อไม่สิ้นสุด (2/3) — เอกสารต้องเก็บ amount เป็นค่าหลัก + จำนวนเต็มความละเอียด ห้ามคิด amount ใหม่จาก qty
+   */
+  qtyExact: string;
   unitPrice: string;
   /** ยอดบรรทัด (บาท 2 ตำแหน่ง) — ถ้าใช้ขั้นต่ำ = minCharge */
   amount: string;
@@ -129,7 +136,9 @@ export type PricingReasonCode =
   | 'EXTRA_STOP_ITEM_MISSING'
   | 'ACCESSORIAL_PRICE_MISSING'
   | 'ACCESSORIAL_UNSUPPORTED'
-  | 'ACCESSORIAL_QTY_INVALID';
+  | 'ACCESSORIAL_QTY_INVALID'
+  | 'ACCESSORIAL_RESERVED'
+  | 'AMOUNT_OVERFLOW';
 
 export interface PricingReason {
   code: PricingReasonCode;
@@ -156,8 +165,31 @@ export const PRICING_REASON_TH: Record<PricingReasonCode, string> = {
   ACCESSORIAL_PRICE_MISSING:
     'ค่าบริการเสริมไม่มีราคา (ไม่มีทั้งราคาเฉพาะใน rate card และราคาตั้งต้น)',
   ACCESSORIAL_UNSUPPORTED: 'ค่าบริการเสริมแบบ % ของค่าขนส่ง/ตามจริง ยังคิดอัตโนมัติไม่ได้',
-  ACCESSORIAL_QTY_INVALID: 'จำนวนของค่าบริการเสริมไม่ถูกต้อง',
+  ACCESSORIAL_QTY_INVALID:
+    'จำนวนของค่าบริการเสริมไม่ถูกต้อง (ต้องมากกว่า 0; ต่อเที่ยว/ต่อจุด/ต่อคืน ต้องเป็นจำนวนเต็ม)',
+  ACCESSORIAL_RESERVED:
+    'ค่าขนส่ง/ค่าจุดเพิ่ม/ค่าน้ำมันเพิ่ม ใช้เป็นค่าบริการเสริมไม่ได้ (ระบบคิดเอง)',
+  AMOUNT_OVERFLOW: 'ยอดเงินเกิน 999,999,999,999.99 บาท',
 };
+
+export type PricingWarningCode = 'FSC_IGNORED';
+
+/** คำเตือนที่ไม่ขวางการคิดราคา */
+export interface PricingWarning {
+  code: PricingWarningCode;
+  message: string;
+}
+
+export const PRICING_WARNING_TH: Record<PricingWarningCode, string> = {
+  FSC_IGNORED: 'rate card มี fuel surcharge (%) แต่ยังไม่คิดในเฟส 0 — ราคานี้ไม่รวมค่าน้ำมันเพิ่ม',
+};
+
+/** รหัสสงวนที่ engine สร้างบรรทัดเอง (MD-158) — ห้ามส่งมาเป็นค่าบริการเสริม */
+export const PRICING_RESERVED_CODES = ['FREIGHT', 'EXTRA_STOP', 'FSC'] as const;
+/** หน่วยคิดที่จำนวนต้องเป็นจำนวนเต็ม */
+const WHOLE_QTY_UNITS = ['PER_TRIP', 'PER_STOP', 'PER_NIGHT'];
+/** numeric(14,2) สูงสุด = 999,999,999,999.99 */
+const MAX_SATANG = 99_999_999_999_999n;
 
 export interface PricingResult<S extends PricingServiceItem = PricingServiceItem> {
   pricingStatus: PricingStatus;
@@ -165,6 +197,8 @@ export interface PricingResult<S extends PricingServiceItem = PricingServiceItem
   total: string | null;
   lines: PricingLine<S>[];
   reasons: PricingReason[];
+  /** คำเตือนที่ไม่ขวาง (คืนทุกสถานะ) */
+  warnings: PricingWarning[];
   /** ค่าที่ใช้คิด (MD-117 snapshot) */
   params: {
     rateCardId: string | null;
@@ -213,6 +247,26 @@ function roundHalfUp(n: bigint, d: bigint): bigint {
 /** สตางค์ × จำนวน → สตางค์ (ปัด half-up ครั้งเดียว) */
 function amountOf(price: Satang, qty: Q): Satang {
   return roundHalfUp(price * qty.n, qty.d);
+}
+
+const gcd = (a: bigint, b: bigint): bigint => (b === 0n ? a : gcd(b, a % b));
+
+/** ค่าเต็มความละเอียด: ทศนิยมครบเมื่อตัวส่วนมีแต่ 2/5, ไม่งั้น "n/d" (ตัดทอนแล้ว) */
+function exactQty(v: Q): string {
+  const g = gcd(v.n, v.d) || 1n;
+  const n = v.n / g;
+  const d = v.d / g;
+  let rest = d;
+  let twos = 0;
+  let fives = 0;
+  while (rest % 2n === 0n) ((rest /= 2n), twos++);
+  while (rest % 5n === 0n) ((rest /= 5n), fives++);
+  if (rest !== 1n) return `${n}/${d}`;
+  const places = Math.max(twos, fives);
+  const scaled = (n * 10n ** BigInt(places)) / d;
+  if (places === 0) return `${scaled}`;
+  const str = scaled.toString().padStart(places + 1, '0');
+  return `${str.slice(0, -places)}.${str.slice(-places)}`;
 }
 
 /** ค่าแสดงผล: ทศนิยม ≤ 4 ตำแหน่ง (half-up) ตัดศูนย์ท้าย */
@@ -356,11 +410,16 @@ export function priceShipment<S extends PricingServiceItem>(
       total: null,
       lines: [],
       reasons: [fail('RATE_MISSING')],
+      warnings: [],
       params,
     };
   }
 
   const reasons: PricingReason[] = [];
+  const warnings: PricingWarning[] = [];
+  const fsc = rate.fuelSurchargePct;
+  if (fsc !== null && fsc !== undefined && !/^0+(\.0+)?$/.test(String(fsc).trim()))
+    warnings.push({ code: 'FSC_IGNORED', message: PRICING_WARNING_TH.FSC_IGNORED });
   const lines: PricingLine<S>[] = [];
   const line = (
     kind: PricingLineKind,
@@ -375,6 +434,7 @@ export function priceShipment<S extends PricingServiceItem>(
       kind,
       serviceItem: item,
       qty: fmtQty(qty),
+      qtyExact: exactQty(qty),
       unitPrice: decimalFromSatang(price),
       amount: decimalFromSatang(minApplied ? min : calculated),
       calculatedAmount: decimalFromSatang(calculated),
@@ -480,7 +540,11 @@ export function priceShipment<S extends PricingServiceItem>(
   (shipment.accessorials ?? []).forEach((a, i) => {
     const field = `accessorials[${i}]`;
     const aq = q(a.qty);
-    if (!aq || isZero(aq)) {
+    if ((PRICING_RESERVED_CODES as readonly string[]).includes(a.serviceItem.code)) {
+      reasons.push(fail('ACCESSORIAL_RESERVED', `${field}.serviceItem`));
+      return;
+    }
+    if (!aq || isZero(aq) || (WHOLE_QTY_UNITS.includes(a.serviceItem.unit) && aq.n % aq.d !== 0n)) {
       reasons.push(fail('ACCESSORIAL_QTY_INVALID', `${field}.qty`));
       return;
     }
@@ -497,13 +561,26 @@ export function priceShipment<S extends PricingServiceItem>(
     lines.push(line('ACCESSORIAL', a.serviceItem, aq, p));
   });
 
+  // เกิน numeric(14,2) — บรรทัดใดบรรทัดหนึ่งหรือยอดรวม
+  const total = sumSatang(lines.map((l) => satangFromDecimal(l.amount)));
+  if (total > MAX_SATANG || lines.some((l) => satangFromDecimal(l.amount) > MAX_SATANG))
+    reasons.push(fail('AMOUNT_OVERFLOW', 'total'));
+
   if (reasons.length > 0)
-    return { pricingStatus: 'CALCULATION_FAILURE', total: null, lines: [], reasons, params };
+    return {
+      pricingStatus: 'CALCULATION_FAILURE',
+      total: null,
+      lines: [],
+      reasons,
+      warnings,
+      params,
+    };
   return {
     pricingStatus: 'AVAILABLE',
-    total: decimalFromSatang(sumSatang(lines.map((l) => satangFromDecimal(l.amount)))),
+    total: decimalFromSatang(total),
     lines,
     reasons: [],
+    warnings,
     params,
   };
 }

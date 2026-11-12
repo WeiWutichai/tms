@@ -453,6 +453,64 @@ const cases: Case[] = [
   },
 ];
 
+cases.push(
+  // ---- review ST2-T15 ----
+  {
+    name: 'ค่ารอ (ต่อชั่วโมง) 1.5 ชม. ได้ — 1.5 × 200 = 300',
+    rate: rate(),
+    shipment: { accessorials: [{ serviceItem: WAIT, qty: '1.5' }] },
+    status: 'AVAILABLE',
+    total: '4800.00',
+  },
+  {
+    name: 'CALCULATION_FAILURE: ค่าบริการต่อเที่ยว 1.5 เที่ยว (ต้องเป็นจำนวนเต็ม)',
+    rate: rate(),
+    shipment: { accessorials: [{ serviceItem: LOAD, qty: '1.5' }] },
+    status: 'CALCULATION_FAILURE',
+    reasons: ['ACCESSORIAL_QTY_INVALID'],
+  },
+  {
+    name: 'CALCULATION_FAILURE: ส่ง EXTRA_STOP/FREIGHT มาเป็นค่าบริการเสริม (รหัสสงวน)',
+    rate: rate(),
+    shipment: {
+      accessorials: [
+        { serviceItem: EXTRA_STOP, qty: '1' },
+        { serviceItem: FREIGHT, qty: '1' },
+      ],
+    },
+    status: 'CALCULATION_FAILURE',
+    reasons: ['ACCESSORIAL_RESERVED', 'ACCESSORIAL_RESERVED'],
+  },
+  {
+    name: 'CALCULATION_FAILURE: จำนวนจุด 0 (ตรวจเสมอ แม้ rate ไม่คิดค่าจุดเพิ่ม)',
+    rate: rate(),
+    shipment: { stops: 0 },
+    status: 'CALCULATION_FAILURE',
+    reasons: ['STOPS_INVALID'],
+  },
+  {
+    name: 'CALCULATION_FAILURE: ยอดบรรทัดเกิน 999,999,999,999.99',
+    rate: rate({ pricingModel: 'PER_KM', unitPrice: '99999999999.99' }),
+    shipment: { distanceKm: '100' },
+    status: 'CALCULATION_FAILURE',
+    reasons: ['AMOUNT_OVERFLOW'],
+  },
+  {
+    name: 'CALCULATION_FAILURE: ยอดรวมเกิน (บรรทัดละไม่เกิน)',
+    rate: rate({ unitPrice: '999999999999.99' }),
+    shipment: { accessorials: [{ serviceItem: LOAD, qty: '1' }] },
+    status: 'CALCULATION_FAILURE',
+    reasons: ['AMOUNT_OVERFLOW'],
+  },
+  {
+    name: 'ยอดพอดีเพดาน 999,999,999,999.99 ได้',
+    rate: rate({ unitPrice: '999999999999.99' }),
+    shipment: {},
+    status: 'AVAILABLE',
+    total: '999999999999.99',
+  },
+);
+
 describe('priceShipment (ST2-T15 — table)', () => {
   it('มีอย่างน้อย 20 กรณี', () => expect(cases.length).toBeGreaterThanOrEqual(20));
 
@@ -517,6 +575,38 @@ describe('priceShipment — รายละเอียด', () => {
       includedStops: 3,
     });
     expect(r.total).toBe('2300.00');
+  });
+
+  it('qtyExact เต็มความละเอียด (qty แสดงผล 4 ตำแหน่ง): 12,345.67 กก. @ 350/ตัน', () => {
+    const r = priceShipment(rate({ pricingModel: 'PER_TON', unitPrice: '350.00' }), {
+      quantities: [{ value: '12345.67', unit: U.KG }],
+    });
+    // 12.34567 × 350 = 4,320.9845 → 4,320.98 (แต่ 12.3457 × 350 = 4,320.995 → 4,321.00)
+    expect(r.lines[0]).toMatchObject({ qty: '12.3457', qtyExact: '12.34567', amount: '4320.98' });
+    const third = priceShipment(
+      rate({ pricingModel: 'PER_UNIT', unitPrice: '100.00', unit: U.BOX }),
+      {
+        quantities: [
+          {
+            value: '2',
+            unit: U.BAG,
+            product: { ...CEMENT, altUnits: [{ unitId: U.BOX.id, factorToBase: '3' }] },
+          },
+        ],
+      },
+    );
+    expect(third.lines[0]).toMatchObject({ qty: '0.6667', qtyExact: '2/3' });
+    expect(priceShipment(rate(), {}).lines[0]!.qtyExact).toBe('1');
+  });
+
+  it('FSC บน rate → คำเตือน FSC_IGNORED (ไม่ขวาง) · 0 หรือ null ไม่เตือน', () => {
+    const w = priceShipment(rate({ fuelSurchargePct: '5.00' }), {});
+    expect(w.pricingStatus).toBe('AVAILABLE');
+    expect(w.total).toBe('4500.00');
+    expect(w.warnings.map((x) => x.code)).toEqual(['FSC_IGNORED']);
+    expect(priceShipment(rate({ fuelSurchargePct: '0.00' }), {}).warnings).toEqual([]);
+    expect(priceShipment(rate(), {}).warnings).toEqual([]);
+    expect(priceShipment(null, {}).warnings).toEqual([]);
   });
 
   it('ไม่แก้ input และผลเหมือนเดิมทุกครั้ง (ฟังก์ชันล้วน)', () => {
