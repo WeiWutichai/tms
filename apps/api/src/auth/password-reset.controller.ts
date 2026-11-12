@@ -18,6 +18,7 @@ import { EmailService } from '../modules/email/email.service';
 import { Public } from '../common/decorators';
 import { hashPassword } from './password';
 import { PasswordPolicy } from './password-policy';
+import { isLockTimeout } from './auth-tx';
 import { isLocalEnv, newOpaqueToken, sha256 } from './tokens';
 import { iEquals } from '../common/ilike';
 
@@ -153,7 +154,8 @@ export class PasswordResetService {
     } catch (e) {
       // pool เต็ม/ล็อกนาน (ยิงถี่) → 429 แทน 500 (เหมือน login)
       const code = (e as { code?: string }).code;
-      if (code === 'P2024' || code === 'P2028' || code === 'P2010') return 60;
+      // P2010 เฉพาะรอ lock เกินเวลา (55P03) — P2010 อื่นเป็นบั๊ก ไม่กลบเป็น 429
+      if (code === 'P2024' || code === 'P2028' || isLockTimeout(e)) return 60;
       throw e;
     }
   }

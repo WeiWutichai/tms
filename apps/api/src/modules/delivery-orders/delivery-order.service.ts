@@ -511,6 +511,171 @@ export class DeliveryOrderService {
   }
 
   // ---------------------------------------------------------------------------------------------
+  // ใช้จาก TripService (ST3-T11) — ลำดับล็อก SO → DO → trip เสมอ (ผู้เรียกล็อก trip หลัง lockForTrip)
+
+  /**
+   * ล็อก SO ของ DO ทุกใบ (เรียง id) แล้วล็อก DO (เรียง id) → อ่านใหม่ภายใต้ล็อก
+   * DO ไม่พบ (รวมของ tenant อื่น) → 422 `invalid_reference` ที่ช่อง `field`
+   */
+  async lockForTrip(
+    tx: Tx,
+    ids: string[],
+    field = 'deliveryOrderIds',
+  ): Promise<DeliveryOrderRecord[]> {
+    const unique = [...new Set(ids)].sort();
+    if (!unique.length) return [];
+    const heads = await tx.deliveryOrder.findMany({
+      where: { id: { in: unique } },
+      select: { id: true, salesOrderId: true },
+    });
+    if (heads.length !== unique.length) {
+      const known = new Set(heads.map((h) => h.id));
+      throw new ProblemException(
+        'validation_failed',
+        undefined,
+        ids.flatMap((id, i) =>
+          known.has(id)
+            ? []
+            : [
+                {
+                  field: `${field}[${i}]`,
+                  code: 'invalid_reference',
+                  message: 'delivery order not found',
+                },
+              ],
+        ),
+      );
+    }
+    for (const so of [...new Set(heads.map((h) => h.salesOrderId))].sort())
+      await tx.$queryRaw`SELECT id FROM sales_order WHERE id = ${so}::uuid FOR UPDATE`;
+    await tx.$queryRaw`
+      SELECT id FROM delivery_order WHERE id = ANY(${unique}::uuid[]) ORDER BY id FOR UPDATE`;
+    return tx.deliveryOrder.findMany({
+      where: { id: { in: unique } },
+      include: INCLUDE,
+      orderBy: { id: 'asc' },
+    });
+  }
+
+  /**
+   * ลง DO เข้าเที่ยว: ต้องเป็น DRAFT และไม่อยู่ในเที่ยวอื่นที่ยังใช้ (409 `delivery_order_on_trip`) — SO ต้องพร้อม
+   * (`isOrderReady` — ค้างเพราะลูกค้า/สถานที่/ข้อมูลต้นทาง → 409 `order_not_ready_for_delivery`)
+   * `plan` = เที่ยว ASSIGNED แล้ว → DRAFT → PLANNED (docs/01 §4.3)
+   */
+  async attachToTrip(
+    tx: Tx,
+    d: DeliveryOrderRecord,
+    o: { tripId: string; pickupStopId: string; dropStopId: string; plan: boolean },
+  ): Promise<void> {
+    if (isOnActiveTrip(d) && d.tripId !== o.tripId)
+      throw new ProblemException('delivery_order_on_trip', undefined, undefined, {
+        deliveryOrderId: d.id,
+        doNo: d.doNo,
+      });
+    if (d.status !== 'DRAFT')
+      throw new ProblemException('invalid_state_transition', undefined, undefined, {
+        deliveryOrderId: d.id,
+        doNo: d.doNo,
+        from: d.status,
+      });
+    if (!(await this.isOrderPlannable(tx, d.salesOrderId)))
+      throw new ProblemException('order_not_ready_for_delivery', undefined, undefined, {
+        deliveryOrderId: d.id,
+        doNo: d.doNo,
+      });
+    const data = { tripId: o.tripId, pickupTripStopId: o.pickupStopId, tripStopId: o.dropStopId };
+    if (o.plan) await this.move(tx, d, 'plan', data, null);
+    else await this.write(tx, d, data);
+  }
+
+  /**
+   * SO ของ DO ลงเที่ยวได้ไหม: ไม่ใช่ร่าง/ยกเลิก/ปิด และไม่ค้างเพราะลูกค้า/สถานที่/ข้อมูลต้นทาง
+   * (ต่างจาก `isOrderReady` ตรงที่ SO PLANNED/IN_TRANSIT แล้วก็ลง DO ใบอื่นของ SO เดียวกันได้ — หลายจุดส่ง/แยก DO)
+   */
+  private async isOrderPlannable(tx: Tx, salesOrderId: string): Promise<boolean> {
+    const so = await tx.salesOrder.findUnique({
+      where: { id: salesOrderId },
+      select: { status: true, holdReasonCode: { select: { code: true } } },
+    });
+    return (
+      !!so &&
+      ['RECEIVED', 'ON_HOLD', 'PLANNED', 'IN_TRANSIT', 'PARTIALLY_DELIVERED'].includes(so.status) &&
+      !(so.status === 'ON_HOLD' && NOT_READY_HOLDS.has(so.holdReasonCode?.code ?? ''))
+    );
+  }
+
+  /** จุดรับ/ส่งของ DO ในเที่ยวเดิมเปลี่ยน (จัดจุดใหม่หลังเพิ่ม/ถอด DO) — ไม่เปลี่ยนสถานะ */
+  async setTripStops(tx: Tx, d: DeliveryOrderRecord, pickupStopId: string, dropStopId: string) {
+    if (d.pickupTripStopId === pickupStopId && d.tripStopId === dropStopId) return;
+    await this.write(tx, d, { pickupTripStopId: pickupStopId, tripStopId: dropStopId });
+  }
+
+  /** เที่ยว ASSIGNED → DO DRAFT → PLANNED */
+  async planForTrip(tx: Tx, d: DeliveryOrderRecord): Promise<void> {
+    if (d.status === 'DRAFT') await this.move(tx, d, 'plan', {}, null);
+  }
+
+  /** ปล่อยรถ → DO PLANNED → DISPATCHED (docs/01 §4.2 "ทุก DO ใน trip เป็น DISPATCHED") */
+  async dispatchForTrip(tx: Tx, d: DeliveryOrderRecord): Promise<void> {
+    await this.move(tx, d, 'dispatch', {}, null);
+  }
+
+  /**
+   * ปลด DO ออกจากเที่ยว (ถอด DO / ยกเลิกเที่ยว): ล้าง trip_id + จุด (สัญญากับ T09) แล้ว
+   * DRAFT คงเดิม · PLANNED → `unplan` → DRAFT · DISPATCHED → `recall` → DRAFT (ยกเลิกเที่ยวที่ปล่อยแล้วก่อนรับของ)
+   * PICKED_UP ขึ้นไป (ของอยู่บนรถ/ส่งแล้ว) → 409 `trip_has_loaded_orders` (ปิดเที่ยวบางส่วน + เที่ยวใหม่ — ST4)
+   */
+  async releaseFromTrip(tx: Tx, d: DeliveryOrderRecord, note: string): Promise<void> {
+    const clear = { tripId: null, pickupTripStopId: null, tripStopId: null };
+    if (d.status === 'DRAFT') return this.write(tx, d, clear);
+    if (d.status === 'PLANNED') return this.move(tx, d, 'unplan', clear, note);
+    if (d.status === 'DISPATCHED') return this.move(tx, d, 'recall', clear, note);
+    throw new ProblemException('trip_has_loaded_orders', undefined, undefined, {
+      deliveryOrderId: d.id,
+      doNo: d.doNo,
+      status: d.status,
+    });
+  }
+
+  private async write(
+    tx: Tx,
+    d: DeliveryOrderRecord,
+    data: Prisma.DeliveryOrderUncheckedUpdateManyInput,
+  ): Promise<void> {
+    const r = await tx.deliveryOrder.updateMany({
+      where: { id: d.id, status: d.status as DbDoStatus, version: d.version },
+      data: { ...data, version: { increment: 1 } },
+    });
+    if (r.count === 0) throw new ProblemException('concurrent_update');
+  }
+
+  private async move(
+    tx: Tx,
+    d: DeliveryOrderRecord,
+    event: Extract<DoEvent, 'plan' | 'unplan' | 'dispatch' | 'recall'>,
+    data: Prisma.DeliveryOrderUncheckedUpdateManyInput,
+    note: string | null,
+  ): Promise<void> {
+    await this.state.transition<DoStatus, DoEvent>(tx, {
+      docType: ENTITY,
+      docId: d.id,
+      table: DO_TRANSITIONS,
+      from: d.status as DoStatus,
+      event,
+      note,
+      eventType: EVENT_TYPE,
+      apply: async (to) => {
+        const r = await tx.deliveryOrder.updateMany({
+          where: { id: d.id, status: d.status as DbDoStatus, version: d.version },
+          data: { ...data, status: to as DbDoStatus, version: { increment: 1 } },
+        });
+        if (r.count === 0) throw new ProblemException('concurrent_update');
+        return eventView(await this.get(d.id, tx));
+      },
+    });
+  }
+
+  // ---------------------------------------------------------------------------------------------
 
   private tenantId(): string {
     const t = requestContext.require().tenantId;

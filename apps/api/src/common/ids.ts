@@ -33,6 +33,7 @@ export const ID_PREFIX = {
   reasonCode: 'rsn',
   rateCard: 'rcd',
   trip: 'trp',
+  tripStop: 'stp',
   salesOrder: 'ord',
   orderTemplate: 'otp',
   deliveryOrder: 'do',

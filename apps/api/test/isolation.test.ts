@@ -579,6 +579,16 @@ const FIXTURES: Record<string, (db: PrismaClient, tenantId: string, n: number) =
       });
       return encodeId('deliveryOrder', d.id);
     },
+    // ST3-T11 เที่ยวรถ (PLANNING ว่าง)
+    trip: async (db, tenantId, n) =>
+      encodeId(
+        'trip',
+        (
+          await db.trip.create({
+            data: { tenantId, tripNo: `TRP-ISO-${n}`, tripDate: new Date('2026-11-13') },
+          })
+        ).id,
+      ),
   };
 
 /** body ขั้นต่ำที่ผ่าน validation ของ action แต่ละแบบ (ให้ไปถึง handler แล้วได้ 404 จริง) */
@@ -595,6 +605,11 @@ const BODY_FOR_SUFFIX: Record<string, object> = {
     parts: [{ lines: [{ soLineNo: 1, qty: '1' }] }, { lines: [{ soLineNo: 1, qty: '1' }] }],
   },
   merge: { deliveryOrderIds: [`do_${'0'.repeat(32)}`] },
+  // ST3-T11 /trips/:id/attach|detach|assign|offer (dispatch/complete ไม่มี body)
+  attach: { deliveryOrderIds: [`do_${'0'.repeat(32)}`] },
+  detach: { deliveryOrderIds: [`do_${'0'.repeat(32)}`] },
+  assign: { vehicleId: `veh_${'0'.repeat(32)}` },
+  offer: { carrierId: `car_${'0'.repeat(32)}` },
   approve: { reason: 'isolation test reason' }, // ST2-T13 /rate-cards/:id/approve
   reject: { reason: 'isolation test reason' }, // ST2-T03 /customer-sites/:id/geocode/reject
   reveal: { field: 'bankAccountNo', reason: 'isolation test reason' }, // ST2-T05 /carriers/:id/reveal
