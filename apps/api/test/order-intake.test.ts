@@ -237,7 +237,10 @@ describe('order intake (upsertOrder)', () => {
     const ev = await db.domainEvent.findMany({ where: { localId: o.id } });
     expect(ev.map((e) => e.type)).toEqual(['order.created']);
     // event ไม่มีราคา (ผู้รับ webhook อาจไม่มีสิทธิ์ราคา)
-    expect(JSON.stringify(ev[0]!.snapshot)).not.toMatch(/4500|4800|price/i);
+    // ตรวจจากชื่อ key/ค่าเงิน ไม่ใช่สตริงดิบ — id สุ่มอาจมีเลข 4500 ปนอยู่ (flaky)
+    const snap = JSON.stringify(ev[0]!.snapshot);
+    expect(snap).not.toMatch(/"(sell\w*|price\w*|amount|total\w*)"\s*:/i);
+    expect(snap).not.toMatch(/:\s*"?(4500|4800)(\.00)?"?[,}]/);
   });
 
   it('idempotent: externalId เดิม 2 ครั้ง = 1 order (ครั้งที่ 2 ไม่เปลี่ยนอะไร); ข้อมูลเปลี่ยน = อัปเดตใบเดิม', async () => {

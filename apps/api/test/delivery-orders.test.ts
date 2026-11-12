@@ -595,7 +595,7 @@ describe('delivery orders (ST3-T09)', () => {
     const [d] = await activeDos(so.id);
     const [l1, l2] = await lineIds(so.id);
     const trip = await db.trip.create({
-      data: { tenantId, tripDate: new Date(`${today}T00:00:00Z`) },
+      data: { tenantId, tripNo: `TRP-DO-${++seed}`, tripDate: new Date(`${today}T00:00:00Z`) },
     });
     await db.deliveryOrder.update({ where: { id: d!.id }, data: { tripId: trip.id } });
     expect(await run((tx) => svc().hasDoOnTrip(tx, so.id))).toBe(true);
@@ -617,7 +617,10 @@ describe('delivery orders (ST3-T09)', () => {
     ).toMatchObject({
       code: 'delivery_order_on_trip',
     });
-    await db.trip.update({ where: { id: trip.id }, data: { status: 'CANCELLED' } });
+    await db.trip.update({
+      where: { id: trip.id },
+      data: { status: 'CANCELLED', cancelledAt: new Date(), cancelReason: 'ยกเลิกเที่ยวทดสอบ' },
+    });
     expect(await run((tx) => svc().hasDoOnTrip(tx, so.id))).toBe(false);
   });
 
@@ -813,7 +816,14 @@ describe('delivery orders (ST3-T09)', () => {
     const [d] = await activeDos(so.id);
     const [l1, l2] = await lineIds(so.id);
     const trip = await db.trip.create({
-      data: { tenantId, tripDate: new Date(`${today}T00:00:00Z`), status: 'CANCELLED' },
+      data: {
+        tenantId,
+        tripNo: `TRP-DO-${++seed}`,
+        tripDate: new Date(`${today}T00:00:00Z`),
+        status: 'CANCELLED',
+        cancelledAt: new Date(),
+        cancelReason: 'ยกเลิกเที่ยวทดสอบ',
+      },
     });
     await db.deliveryOrder.update({ where: { id: d!.id }, data: { tripId: trip.id } });
     expect(await run((tx) => svc().hasDoOnTrip(tx, so.id))).toBe(false);
