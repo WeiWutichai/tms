@@ -5,6 +5,7 @@ import {
   bootstrapTenant,
   createTenantWithDefaults,
 } from '../src/modules/tenants/bootstrap';
+import { DEFAULT_REASONS } from '../src/modules/reason-codes/defaults';
 import { readSettings } from '../src/modules/settings/settings.service';
 import { execSync } from 'node:child_process';
 import { resolve } from 'node:path';
@@ -83,6 +84,7 @@ describe('tenant bootstrap', () => {
       'vehicle-types',
       'units',
       'service-items',
+      'reason-codes',
     ]);
   });
   it('สคริปต์ tenants:bootstrap บนฐาน tms_test: tenant เดิม 2 รายได้ค่าเริ่มต้น + audit/event, รันซ้ำไม่เปลี่ยน', async () => {
@@ -116,6 +118,15 @@ describe('tenant bootstrap', () => {
           where: { tenantId: t, action: 'service_item.created', actorId: null },
         }),
       ).toBe(8);
+      // ST2-T12: เหตุผลมาตรฐานครบทุกหมวด + audit
+      expect(await db.reasonCode.count({ where: { tenantId: t, systemKey: { not: null } } })).toBe(
+        DEFAULT_REASONS.length,
+      );
+      expect(
+        await db.auditLog.count({
+          where: { tenantId: t, action: 'reason_code.created', actorId: null },
+        }),
+      ).toBe(DEFAULT_REASONS.length);
       expect(
         await db.auditLog.count({
           where: { tenantId: t, action: 'vehicle_type.created', actorId: null },
@@ -131,6 +142,7 @@ describe('tenant bootstrap', () => {
     run();
     expect(await db.vehicleType.count({ where: { tenantId: a } })).toBe(6);
     expect(await db.serviceItem.count({ where: { tenantId: a } })).toBe(8);
+    expect(await db.reasonCode.count({ where: { tenantId: a } })).toBe(DEFAULT_REASONS.length);
     expect(
       await db.auditLog.count({ where: { tenantId: a, action: 'vehicle_type.created' } }),
     ).toBe(6);

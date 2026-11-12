@@ -8,6 +8,7 @@ import { PageHeader } from '../../shell/Header';
 import { EntitiesSection } from './Entities';
 import { NumbersSection } from './Numbers';
 import { OrgSection, SecuritySection, TaxSection } from './OrgSections';
+import { ReasonsSection } from './Reasons';
 import { UsersSection } from './Users';
 import './settings.css';
 
@@ -24,7 +25,8 @@ const SECTIONS: Array<{ k: string; icon: string; perm: string[]; stage?: string 
   { k: 'tax', icon: 'percent', perm: ['settings:read'] },
   { k: 'conn', icon: 'plug', perm: ['settings:read'], stage: 'ST7' },
   { k: 'noti', icon: 'bell', perm: ['settings:read'], stage: 'ST1-T23' },
-  { k: 'reason', icon: 'list-checks', perm: ['settings:read'], stage: 'ST2' },
+  // ST2-T12: เหตุผลเป็นข้อมูลหลัก (docs/04 A3 แถว Master data) — อ่าน master:read แก้ master:write
+  { k: 'reason', icon: 'list-checks', perm: ['master:read'] },
   { k: 'sec', icon: 'shield', perm: ['settings:read'] },
   { k: 'docalert', icon: 'bell-ring', perm: ['settings:read'], stage: 'ST2' },
 ];
@@ -62,6 +64,7 @@ export function SettingsPage() {
           {sec?.k === 'ent' && <EntitiesSection canWrite={canWrite} />}
           {sec?.k === 'num' && <NumbersSection canWrite={canWrite} />}
           {sec?.k === 'users' && <UsersSection canWrite={can(scopes, 'users:write')} />}
+          {sec?.k === 'reason' && <ReasonsSection canWrite={can(scopes, 'master:write')} />}
           {sec?.stage && (
             <section className="set-card">
               <div className="set-card__hd">

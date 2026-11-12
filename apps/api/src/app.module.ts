@@ -56,6 +56,8 @@ import { RoutesService } from './modules/routes/routes.service';
 import { SitesService } from './modules/sites/sites.service';
 import { ServiceItemsController } from './modules/service-items/service-items.controller';
 import { ServiceItemsService } from './modules/service-items/service-items.service';
+import { ReasonCodesController } from './modules/reason-codes/reason-codes.controller';
+import { ReasonCodesService } from './modules/reason-codes/reason-codes.service';
 import { VehicleTypesController } from './modules/vehicle-types/vehicle-types.controller';
 import { VehicleTypesService } from './modules/vehicle-types/vehicle-types.service';
 import { CarriersController } from './modules/carriers/carriers.controller';
@@ -110,6 +112,7 @@ import { StateService } from './state/state.service';
     UnitsController,
     VehicleTypesController,
     ServiceItemsController,
+    ReasonCodesController,
     CarriersController,
     VehiclesController,
     DriversController,
@@ -141,6 +144,7 @@ import { StateService } from './state/state.service';
     UnitsService,
     VehicleTypesService,
     ServiceItemsService,
+    ReasonCodesService,
     CarriersService,
     VehiclesService,
     DriversService,

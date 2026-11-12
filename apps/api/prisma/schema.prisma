@@ -1022,28 +1022,40 @@ enum ReasonCategory {
   SETTLEMENT_DISPUTE
   OVERRIDE
   CANCEL
+  DELAY /// ล่าช้า (docs/04 B Reason master, docs/01 §3.9 stop_event) — ST2-T12
 
   @@map("reason_category")
 }
 
+/// เหตุผลมาตรฐาน (ST2-T12; docs/01 §3.2, docs/04 B Reason master, spec/02 §9) — ใช้ทุกจุดที่บังคับเลือกเหตุผล
+/// ข้อความ + ธงถูก snapshot ลงงาน (src/modules/reason-codes/snapshot.ts) แก้ master ไม่ย้อนแก้งานเก่า
 model ReasonCode {
-  id             String         @id @default(uuid()) @db.Uuid
-  tenantId       String         @map("tenant_id") @db.Uuid
-  category       ReasonCategory
-  code           String
-  labelTh        String         @map("label_th")
-  labelEn        String?        @map("label_en")
-  requiresNote   Boolean        @default(false) @map("requires_note")
-  requiresPhoto  Boolean        @default(false) @map("requires_photo")
-  autoReschedule Boolean        @default(false) @map("auto_reschedule")
-  showOnTracking Boolean        @default(false) @map("show_on_tracking")
-  etdaCode       String?        @map("etda_code")
-  isSystem       Boolean        @default(false) @map("is_system")
-  status         ActiveStatus   @default(ACTIVE)
-  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt      DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id                String         @id @default(uuid()) @db.Uuid
+  tenantId          String         @map("tenant_id") @db.Uuid
+  category          ReasonCategory /// เปลี่ยนไม่ได้หลังสร้าง
+  code              String /// ตัวใหญ่, unique ต่อหมวด (รวมที่ลบ) — รหัสระบบเปลี่ยนไม่ได้
+  labelTh           String         @map("label_th") /// ห้ามซ้ำในหมวด (ไม่สนตัวพิมพ์, ไม่นับที่ลบ)
+  labelEn           String?        @map("label_en")
+  requiresNote      Boolean        @default(false) @map("requires_note")
+  requiresPhoto     Boolean        @default(false) @map("requires_photo")
+  autoReschedule    Boolean        @default(false) @map("auto_reschedule") /// เฉพาะ DELIVERY_FAILED (CHECK)
+  showOnTracking    Boolean        @default(false) @map("show_on_tracking")
+  etdaCode          String?        @map("etda_code") /// ใบลดหนี้/เพิ่มหนี้ (ST5) — ยังไม่เปิดใน API
+  isSystem          Boolean        @default(false) @map("is_system") /// รหัสที่ state machine/ระบบใช้ — ลบ/ปิดใช้/เปลี่ยนรหัสไม่ได้
+  systemKey         String?        @map("system_key") /// แถวค่าเริ่มต้น (bootstrap) — `CATEGORY:CODE`
+  sortOrder         Int            @default(0) @map("sort_order")
+  externalId        String?        @map("external_id")
+  deletedExternalId String?        @map("deleted_external_id")
+  status            ActiveStatus   @default(ACTIVE)
+  deletedAt         DateTime?      @map("deleted_at") @db.Timestamptz(6)
+  version           Int            @default(1)
+  createdAt         DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@unique([tenantId, category, code])
+  @@unique([tenantId, externalId])
+  @@unique([tenantId, systemKey])
+  @@index([tenantId, updatedAt, id])
   @@map("reason_code")
 }
 
