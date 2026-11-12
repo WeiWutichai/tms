@@ -79,6 +79,8 @@ export function OrdersPage() {
   const canSeePrice = can(scopes, 'prices.sell:read');
   const [tab, setTab] = useSessionState<Tab>('so.tab', 'all');
   const [overdue, setOverdue] = useSessionState('so.over', false);
+  // "จัดแล้ววันนี้" (ต้นแบบ kpisX so): แท็บจัดรถแล้ว + วันรับของ = วันนี้ — ตัวเลขเดียวกับ summary.plannedToday
+  const [doneToday, setDoneToday] = useSessionState('so.today', false);
   const [col, setCol] = useSessionState('so.cols', { q: '', st: '', source: '' });
   const today = bangkokToday();
   const base: OrderFilters = {
@@ -86,6 +88,7 @@ export function OrdersPage() {
     holdReason: '',
     q: col.q,
     source: col.source,
+    requestedFrom: '',
     requestedTo: '',
   };
   const filters: OrderFilters = {
@@ -98,6 +101,7 @@ export function OrdersPage() {
       : {}),
     // เกินกำหนด (ต้นแบบ kfs.over): ยังไม่ออกรถ + วันรับของก่อนวันนี้
     ...(overdue ? { status: 'received,on_hold,planned', requestedTo: addDays(today, -1) } : {}),
+    ...(doneToday && tab === 'done' ? { requestedFrom: today, requestedTo: today } : {}),
   };
   const list = useOrderList(filters);
   const summary = useOrderSummary();
@@ -117,6 +121,7 @@ export function OrdersPage() {
 
   const goTab = (k: Tab) => {
     setOverdue(false);
+    setDoneToday(false);
     setTab(k);
   };
 
@@ -272,9 +277,9 @@ export function OrdersPage() {
   const colFiltered = !!(col.q || col.st || col.source);
   const shownTotal = listTotal(
     list,
-    { tab, overdue: overdue ? '1' : '', ...col },
-    ['tab', 'overdue'],
-    overdue ? s?.overdue : tabCount[tab],
+    { tab, overdue: overdue ? '1' : '', today: doneToday && tab === 'done' ? '1' : '', ...col },
+    ['tab', 'overdue', 'today'],
+    overdue ? s?.overdue : doneToday && tab === 'done' ? s?.plannedToday : tabCount[tab],
   );
 
   return (
@@ -321,6 +326,7 @@ export function OrdersPage() {
             color: '#B3322A',
             onClick: () => {
               setTab('all');
+              setDoneToday(false);
               setOverdue((v) => !v);
             },
             pressed: overdue,
@@ -329,8 +335,11 @@ export function OrdersPage() {
             value: s?.plannedToday ?? '—',
             label: t('ord.kpi.today'),
             color: '#17733F',
-            onClick: () => goTab('done'),
-            pressed: tab === 'done' && !overdue,
+            onClick: () => {
+              goTab('done');
+              setDoneToday(true);
+            },
+            pressed: tab === 'done' && doneToday && !overdue,
           },
         ]}
       />
@@ -390,7 +399,7 @@ export function OrdersPage() {
                 : []),
             ]}
             empty={
-              colFiltered || tab !== 'all' || overdue ? (
+              colFiltered || tab !== 'all' || overdue || doneToday ? (
                 <EmptyState
                   icon="search-x"
                   title={t('table.emptyTitle')}

@@ -27,6 +27,7 @@ import {
   searchSites,
   searchUnits,
   useCreateOrder,
+  useOrder,
   useUpdateOrder,
   useVehicleTypeOptions,
 } from './useOrders';
@@ -82,6 +83,7 @@ function DateBox({
   invalid,
   disabled,
   name,
+  placeholder,
 }: {
   id: string;
   value: string;
@@ -89,6 +91,7 @@ function DateBox({
   invalid?: boolean;
   disabled?: boolean;
   name?: string;
+  placeholder?: string;
 }) {
   const { t } = useI18n();
   const dateText = useDateText();
@@ -121,7 +124,7 @@ function DateBox({
           textOverflow: 'ellipsis',
         }}
       >
-        {value ? dateText(value) : t('ord.f.pickDate')}
+        {value ? dateText(value) : (placeholder ?? t('ord.f.pickDate'))}
       </span>
       <input
         id={id}
@@ -186,15 +189,21 @@ export function OrderFormDrawer({
   // 1 การเปิดฟอร์ม = 1 Idempotency-Key (กดซ้ำได้ใบเดียว) — ถูกปฏิเสธแล้วแก้ = คำขอใหม่
   const [idemKey, setIdemKey] = useState(() => crypto.randomUUID());
   const submitting = useRef(false);
-  const ed = editableOf(mode === 'edit' ? (order ?? null) : null);
+  // สถานะ/ช่องที่แก้ได้ล่าสุดจาก GET (409 locked → โหลดใหม่ → ปิดช่องและป้ายตามสถานะใหม่ โดยไม่ล้างสิ่งที่พิมพ์)
+  // version ของ If-Match ยังใช้ของใบที่เปิดฟอร์ม (คนอื่นแก้ระหว่างนี้ → 412)
+  const live = useOrder(mode === 'edit' ? (order?.id ?? null) : null).data ?? order ?? null;
+  const ed = editableOf(mode === 'edit' ? live : null);
   const isDraft = mode !== 'edit' || order?.status === 'draft';
   const err = mode === 'edit' ? update.error : create.error;
   const busy = create.isPending || update.isPending;
 
   const local = tried ? validate(f, tried === 'draft') : {};
-  const server = fieldErrors(err, t);
-  const serverCodes = Object.fromEntries(
+  // ข้อความของรหัสใบสั่งก่อน (ord.v.*) แล้วค่อยข้อความกลางของ field.* (problems.ts)
+  const serverCodes: Record<string, string> = Object.fromEntries(
     (err instanceof ApiError ? (err.problem.errors ?? []) : []).map((x) => [x.field, x.code]),
+  );
+  const server: Record<string, string> = Object.fromEntries(
+    Object.entries(fieldErrors(err, t)).map(([k, v]) => [k, msg(t, serverCodes[k]) ?? v]),
   );
   const used = new Set<string>();
   const e = (k: string) => {
@@ -358,6 +367,7 @@ export function OrderFormDrawer({
                     type="button"
                     className="tms-linkbtn"
                     style={{ color: '#B3322A' }}
+                    aria-label={t('ord.removeStop', { n: i + 1 })}
                     onClick={() =>
                       set(
                         'stops',
@@ -444,6 +454,17 @@ export function OrderFormDrawer({
                     />
                   )}
                 </FormField>
+                <FormField label={t('ord.f.dateTo')} hint={t('ord.f.dateToHint')}>
+                  {(p) => (
+                    <DateBox
+                      id={p.id}
+                      value={s.dateTo}
+                      placeholder={t('ord.f.sameDay')}
+                      disabled={!ed.window}
+                      onChange={(v) => setStop(i, { dateTo: v === s.date ? '' : v })}
+                    />
+                  )}
+                </FormField>
               </div>
             </div>
           ))}
@@ -475,6 +496,7 @@ export function OrderFormDrawer({
                     type="button"
                     className="tms-linkbtn"
                     style={{ color: '#B3322A' }}
+                    aria-label={t('ord.removeLine', { n: i + 1 })}
                     onClick={() =>
                       set(
                         'lines',
@@ -682,7 +704,7 @@ export function OrderFormDrawer({
       ) : (
         (top || orphan.length > 0) && (
           <div className="tms-alert" role="alert">
-            {top ?? orphan.map(([k, v]) => <div key={k}>{msg(t, serverCodes[k]) ?? v}</div>)}
+            {top ?? orphan.map(([k, v]) => <div key={k}>{v}</div>)}
           </div>
         )
       )}
@@ -700,8 +722,8 @@ export function OrderFormDrawer({
           <Icon n="lock" s={16} style={{ color: '#2257C4', marginTop: 4, flexShrink: 0 }} />
           <span>
             {ed.any
-              ? t('ord.form.lockedSome', { st: t(`ord.st.${order.status}` as MessageKey) })
-              : t('ord.form.lockedAll', { st: t(`ord.st.${order.status}` as MessageKey) })}
+              ? t('ord.form.lockedSome', { st: t(`ord.st.${live!.status}` as MessageKey) })
+              : t('ord.form.lockedAll', { st: t(`ord.st.${live!.status}` as MessageKey) })}
           </span>
         </div>
       )}

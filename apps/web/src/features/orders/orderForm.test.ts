@@ -63,13 +63,13 @@ const ORDER: Order = {
       qty: '12.5',
       unitId: 'unt_t',
       unit: 'ตัน',
-      productId: null,
-      itemCode: null,
+      productId: 'prd_x',
+      itemCode: 'WTR-01',
       weightKg: '12500',
-      cbm: null,
-      isDangerous: false,
-      tempMin: null,
-      tempMax: null,
+      cbm: '18.2',
+      isDangerous: true,
+      tempMin: '-18',
+      tempMax: '-15.5',
     },
   ],
   editableFields: [
@@ -113,14 +113,21 @@ describe('orderForm (ST3-T02)', () => {
       ['loc_a', 'คลังบางนา'],
       ['loc_b', 'โรงงานชลบุรี'],
     ]);
-    expect(p.lines[0]).toEqual({
+    // ทุกช่องของสินค้าพาไปครบ (review B1) — ไม่ทำสินค้าอันตราย/อุณหภูมิ/ปริมาตรหาย
+    expect(p.lines![0]).toEqual({
       description: 'น้ำดื่ม',
       qty: '12.5',
       unitId: 'unt_t',
       unit: 'ตัน',
-      productId: null,
+      productId: 'prd_x',
+      itemCode: 'WTR-01',
       weightKg: '12500',
+      cbm: '18.2',
+      isDangerous: true,
+      tempMin: '-18',
+      tempMax: '-15.5',
     });
+    expect(p.billingCompanyId).toBe('cmp_1');
     expect(toPatch(ORDER, f, false)).toEqual({});
   });
 
@@ -151,8 +158,11 @@ describe('orderForm (ST3-T02)', () => {
     expect(body.draft).toBe(true);
     expect(body).not.toHaveProperty('externalId');
     expect(body.customer).toEqual(src.customer);
+    expect(body.billingCompanyId).toBe('cmp_1');
     expect(body.vehicleTypeId).toBe(src.vehicleTypeId);
     expect(body.lines).toEqual(src.lines);
+    // เท่ากับทุกช่องของบรรทัดในใบเดิม (ยกเว้นเลขบรรทัด)
+    expect(body.lines).toEqual(ORDER.lines.map(({ lineNo: _n, ...x }) => x));
     expect(body.stops.map((s) => [s.type, s.siteId, s.siteText])).toEqual(
       src.stops.map((s) => [s.type, s.siteId, s.siteText]),
     );
@@ -169,6 +179,7 @@ describe('orderForm (ST3-T02)', () => {
     expect(f.stops.map((s) => s.date)).toEqual(['2026-12-01', '2026-12-02']);
     expect(f.customer?.label).toBe('บจก. ตัวอย่าง');
     expect(toPayload(f).lines).toEqual(p.lines);
+    expect(toPayload(f).billingCompanyId).toBe('cmp_1');
   });
 
   it('ตรวจฟอร์ม: ร่างตรวจแค่รูปแบบ · ส่งต้องมีลูกค้า ประเภทรถ จุดรับ/ส่ง และสินค้าครบ', () => {
@@ -215,5 +226,34 @@ describe('orderForm (ST3-T02)', () => {
     );
     expect(totalWeightKg([{ weightKg: '1200' }, { weightKg: '300.5' }])).toBe('1500.5');
     expect(totalWeightKg([])).toBeNull();
+  });
+
+  it('ช่วงเวลาข้ามคืน/หลายวัน (dateTo): เก็บ/ส่งวันสิ้นสุด · ตรวจด้วยวันเวลาเต็ม · เลื่อนวันพร้อมกัน', () => {
+    const o = {
+      ...ORDER,
+      stops: [
+        {
+          ...ORDER.stops[0]!,
+          windowStart: '2026-11-13T15:00:00.000Z', // 22:00
+          windowEnd: '2026-11-13T19:00:00.000Z', // 02:00 วันถัดไป
+        },
+        ORDER.stops[1]!,
+      ],
+    } as Order;
+    const f = fromOrder(o);
+    expect(f.stops[0]).toMatchObject({
+      date: '2026-11-13',
+      from: '22:00',
+      dateTo: '2026-11-14',
+      to: '02:00',
+    });
+    expect(validate(f, false)).toEqual({});
+    expect(toPayload(f).stops[0]!.windowEnd).toBe('2026-11-14T02:00:00+07:00');
+    expect(toPatch(o, f, false)).toEqual({});
+    // ไม่มี dateTo → วันเดียวกัน 22:00–02:00 = ผิดลำดับ
+    f.stops[0]!.dateTo = '';
+    expect(validate(f, true)['stops[0].windowEnd']).toBe('window_order');
+    const c = copyFromOrder(o, '2026-11-20');
+    expect(c.stops[0]).toMatchObject({ date: '2026-11-21', dateTo: '2026-11-22' });
   });
 });

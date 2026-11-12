@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma, type OrderTemplate } from '@prisma/client';
 import { AuditService } from '../../audit/audit.service';
-import { encodeId } from '../../common/ids';
+import { encodeId, tryDecodeId } from '../../common/ids';
 import { iEquals } from '../../common/ilike';
 import { keysetArgs, toPage } from '../../common/pagination';
 import { ProblemException, type FieldError } from '../../common/problem';
@@ -49,7 +49,8 @@ export function canonicalPayload(p: OrderTemplatePayloadDto): OrderTemplatePaylo
       name: n.customer.text,
     },
     billingCompanyId: pub('company', n.billingCompanyId),
-    customerRef: n.customerRef,
+    // เทมเพลตไม่เก็บเลข PO (เปลี่ยนทุกครั้ง — spec/12 §3) ส่งมาก็ตัดทิ้ง
+    customerRef: null,
     requestedDate: n.requestedDate,
     vehicleTypeId: pub('vehicleType', n.vehicleTypeId),
     stops: n.stops.map((s) => ({
@@ -113,6 +114,7 @@ export class OrderTemplatesService {
   async create(body: CreateOrderTemplateDto): Promise<OrderTemplate> {
     const tx = this.db.tx;
     const payload = canonicalPayload(body.payload);
+    await this.assertRefs(tx, payload);
     const ctx = requestContext.require();
     await lockKey(tx, 'order_template.name');
     await this.assertNameFree(tx, body.name);
@@ -142,6 +144,7 @@ export class OrderTemplatesService {
     if (expected !== undefined && expected !== cur.version)
       throw new ProblemException('precondition_failed');
     const payload = body.payload !== undefined ? canonicalPayload(body.payload) : undefined;
+    if (payload) await this.assertRefs(tx, payload);
     if (body.name !== undefined && body.name.toLowerCase() !== cur.name.toLowerCase()) {
       await lockKey(tx, 'order_template.name');
       await this.assertNameFree(tx, body.name, id);
@@ -208,6 +211,47 @@ export class OrderTemplatesService {
     return new Map(cs.map((c) => [c.id, { code: c.code, legalName: c.legalName }]));
   }
 
+  /**
+   * อ้างอิงใน payload ต้องมีอยู่ในบริษัทนี้ (RLS — id ของบริษัทอื่นมองไม่เห็น) → ไม่พบ = 422 `reference_not_found` ที่ช่องนั้น
+   * ไม่ตรวจสถานะใช้งาน (ข้อมูลหลักปิดใช้ได้ระหว่างนั้น — ตรวจซ้ำตอนสร้างใบ)
+   */
+  private async assertRefs(tx: Tx, p: OrderTemplatePayloadDto) {
+    const errors: FieldError[] = [];
+    const check = async (
+      kind: Parameters<typeof tryDecodeId>[0],
+      field: string,
+      v: string | null | undefined,
+      count: (id: string) => Promise<number>,
+    ) => {
+      if (!v) return;
+      const id = tryDecodeId(kind, v);
+      if (!id || (await count(id)) === 0)
+        errors.push({ field, code: 'reference_not_found', message: `${kind} not found` });
+    };
+    await check('customer', 'payload.customer.id', p.customer?.id, (id) =>
+      tx.customer.count({ where: { id, deletedAt: null } }),
+    );
+    await check('company', 'payload.billingCompanyId', p.billingCompanyId, (id) =>
+      tx.company.count({ where: { id } }),
+    );
+    await check('vehicleType', 'payload.vehicleTypeId', p.vehicleTypeId, (id) =>
+      tx.vehicleType.count({ where: { id, deletedAt: null } }),
+    );
+    for (const [i, st] of p.stops.entries())
+      await check('site', `payload.stops[${i}].siteId`, st.siteId, (id) =>
+        tx.customerSite.count({ where: { id, deletedAt: null } }),
+      );
+    for (const [i, l] of (p.lines ?? []).entries()) {
+      await check('unit', `payload.lines[${i}].unitId`, l.unitId, (id) =>
+        tx.unit.count({ where: { id, deletedAt: null } }),
+      );
+      await check('product', `payload.lines[${i}].productId`, l.productId, (id) =>
+        tx.product.count({ where: { id, deletedAt: null } }),
+      );
+    }
+    if (errors.length) throw new ProblemException('validation_failed', undefined, errors);
+  }
+
   private async assertNameFree(tx: Tx, name: string, exceptId?: string) {
     const dup = await tx.orderTemplate.findFirst({
       where: {
@@ -232,9 +276,7 @@ function actorUuid(): string | null {
 /** uuid ของลูกค้าใน payload (public id `cus_…`) */
 function templateCustomerUuid(payload: Prisma.JsonValue): string | null {
   const id = (payload as { customer?: { id?: unknown } } | null)?.customer?.id;
-  if (typeof id !== 'string' || !/^cus_[0-9a-f]{32}$/.test(id)) return null;
-  const h = id.slice(4);
-  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+  return typeof id === 'string' ? tryDecodeId('customer', id) : null;
 }
 
 export function toTemplateDto(

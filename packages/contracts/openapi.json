@@ -17547,7 +17547,7 @@
             "example": "สมชาย ใจดี"
           },
           "phone": {
-            "type": "object",
+            "type": "string",
             "example": "0812345678",
             "nullable": true,
             "description": "เบอร์ไทย 0xxxxxxxxx หรือ +66… · null = ลบ"
@@ -17567,7 +17567,7 @@
             ]
           },
           "signatureDocumentId": {
-            "type": "object",
+            "type": "string",
             "example": "doc_…",
             "nullable": true,
             "description": "ลายเซ็น: เอกสาร kind SIGNATURE (PNG/JPEG/WebP) ที่ผู้ใช้อัปโหลดเองและ ready แล้ว · null = ลบ"
@@ -18302,11 +18302,13 @@
           "before": {
             "type": "object",
             "nullable": true,
+            "additionalProperties": true,
             "description": "ค่าก่อนแก้ (เฉพาะ field ที่เปลี่ยน)"
           },
           "after": {
             "type": "object",
-            "nullable": true
+            "nullable": true,
+            "additionalProperties": true
           },
           "reason": {
             "type": "string",
@@ -18483,11 +18485,13 @@
           "value": {
             "type": "object",
             "description": "ค่าปัจจุบัน (ชนิดตาม registry)",
-            "nullable": true
+            "nullable": true,
+            "additionalProperties": true
           },
           "default": {
             "type": "object",
-            "nullable": true
+            "nullable": true,
+            "additionalProperties": true
           },
           "isDefault": {
             "type": "boolean"
@@ -18578,11 +18582,13 @@
           },
           "result": {
             "type": "object",
-            "nullable": true
+            "nullable": true,
+            "additionalProperties": true
           },
           "error": {
             "type": "object",
-            "nullable": true
+            "nullable": true,
+            "additionalProperties": true
           },
           "attempts": {
             "type": "number"
@@ -19855,19 +19861,19 @@
         "type": "object",
         "properties": {
           "id": {
-            "type": "object",
+            "type": "string",
             "example": "cus_3f2a…",
             "nullable": true,
             "description": "ลูกค้าใน master"
           },
           "externalId": {
-            "type": "object",
+            "type": "string",
             "example": "C-001",
             "nullable": true,
             "description": "รหัสลูกค้าตามระบบต้นทาง — จับคู่กับ customer.externalId (ไม่พบ = ใบค้าง CUSTOMER_UNMAPPED)"
           },
           "name": {
-            "type": "object",
+            "type": "string",
             "nullable": true,
             "description": "ชื่อ/ข้อความลูกค้าตามต้นทาง"
           }
@@ -19885,25 +19891,25 @@
             ]
           },
           "siteId": {
-            "type": "object",
+            "type": "string",
             "example": "loc_3f2a…",
             "nullable": true,
             "description": "สถานที่ใน master — ไม่ส่ง = ใช้ `siteText` (ใบค้าง LOCATION_UNMAPPED)"
           },
           "siteText": {
-            "type": "object",
+            "type": "string",
             "nullable": true,
             "maxLength": 500,
             "description": "ข้อความสถานที่ตามต้นทาง (บังคับเมื่อไม่มี siteId)"
           },
           "windowStart": {
-            "type": "object",
+            "type": "string",
             "example": "2026-11-12T07:00:00+07:00",
             "nullable": true,
             "description": "ISO 8601 พร้อม timezone"
           },
           "windowEnd": {
-            "type": "object",
+            "type": "string",
             "nullable": true,
             "description": "ISO 8601 พร้อม timezone (≥ windowStart)"
           }
@@ -19925,23 +19931,23 @@
             "description": "> 0 ทศนิยม ≤ 3 (สตริง)"
           },
           "unitId": {
-            "type": "object",
+            "type": "string",
             "example": "unt_3f2a…",
             "nullable": true,
             "description": "หน่วยใน master"
           },
           "unit": {
-            "type": "object",
+            "type": "string",
             "nullable": true,
             "description": "ข้อความหน่วย (บังคับเมื่อไม่มี unitId)"
           },
           "productId": {
-            "type": "object",
+            "type": "string",
             "example": "prd_3f2a…",
             "nullable": true
           },
           "itemCode": {
-            "type": "object",
+            "type": "string",
             "nullable": true,
             "description": "รหัสสินค้าตามต้นทาง"
           },
@@ -19984,13 +19990,13 @@
             "$ref": "#/components/schemas/OrderCustomerInputDto"
           },
           "billingCompanyId": {
-            "type": "object",
+            "type": "string",
             "example": "cmp_3f2a…",
             "nullable": true,
             "description": "นิติบุคคลที่ออกบิล — ไม่ส่ง = ตามลูกค้า/ค่าตั้งต้นของบริษัท"
           },
           "customerRef": {
-            "type": "object",
+            "type": "string",
             "nullable": true,
             "maxLength": 50,
             "description": "เลข PO / อ้างอิงของลูกค้า"
@@ -20001,7 +20007,7 @@
             "description": "วันรับของ YYYY-MM-DD (ใช้หา rate)"
           },
           "vehicleTypeId": {
-            "type": "object",
+            "type": "string",
             "example": "vty_3f2a…",
             "nullable": true
           },
@@ -20020,7 +20026,7 @@
             }
           },
           "externalId": {
-            "type": "object",
+            "type": "string",
             "example": "PO-2026-0001",
             "nullable": true,
             "maxLength": 100,
@@ -20043,13 +20049,13 @@
             "$ref": "#/components/schemas/OrderCustomerInputDto"
           },
           "billingCompanyId": {
-            "type": "object",
+            "type": "string",
             "example": "cmp_3f2a…",
             "nullable": true,
             "description": "นิติบุคคลที่ออกบิล — ไม่ส่ง = ตามลูกค้า/ค่าตั้งต้นของบริษัท"
           },
           "customerRef": {
-            "type": "object",
+            "type": "string",
             "nullable": true,
             "maxLength": 50,
             "description": "เลข PO / อ้างอิงของลูกค้า"
@@ -20060,7 +20066,7 @@
             "description": "วันรับของ YYYY-MM-DD (ใช้หา rate)"
           },
           "vehicleTypeId": {
-            "type": "object",
+            "type": "string",
             "example": "vty_3f2a…",
             "nullable": true
           },
@@ -20132,13 +20138,13 @@
             "$ref": "#/components/schemas/OrderCustomerInputDto"
           },
           "billingCompanyId": {
-            "type": "object",
+            "type": "string",
             "example": "cmp_3f2a…",
             "nullable": true,
             "description": "นิติบุคคลที่ออกบิล — ไม่ส่ง = ตามลูกค้า/ค่าตั้งต้นของบริษัท"
           },
           "customerRef": {
-            "type": "object",
+            "type": "string",
             "nullable": true,
             "maxLength": 50,
             "description": "เลข PO / อ้างอิงของลูกค้า"
@@ -20149,7 +20155,7 @@
             "description": "วันรับของ YYYY-MM-DD (ใช้หา rate)"
           },
           "vehicleTypeId": {
-            "type": "object",
+            "type": "string",
             "example": "vty_3f2a…",
             "nullable": true
           },
@@ -25178,7 +25184,8 @@
             "example": "ลูกค้าขอยกเลิกการส่งรอบนี้"
           },
           "reasonCodeId": {
-            "type": "object",
+            "type": "string",
+            "nullable": true,
             "example": "rsn_3f2a…",
             "description": "เหตุผลมาตรฐานหมวด CANCEL"
           }

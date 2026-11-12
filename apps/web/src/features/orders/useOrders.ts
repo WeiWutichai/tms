@@ -1,14 +1,11 @@
 import type { Schemas } from '@tms/contracts';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, idempotent, unwrap } from '../../api';
 import { refetchOnStale } from '../master/problems';
 import { useCursorList } from '../master/useCursorList';
 import type { Order, OrderBody, TemplatePayload } from './orderForm';
 
-/** payload ของเทมเพลตใช้ชนิดตามสายจริง (ดู TemplatePayload) */
-export type OrderTemplate = Omit<Schemas['OrderTemplateDto'], 'payload'> & {
-  payload: TemplatePayload;
-};
+export type OrderTemplate = Schemas['OrderTemplateDto'];
 export type OrderSummary = Schemas['OrderSummaryDto'];
 
 const KEY = 'orders';
@@ -20,6 +17,7 @@ export interface OrderFilters {
   holdReason: string;
   source: string;
   q: string;
+  requestedFrom: string;
   requestedTo: string;
 }
 
@@ -57,7 +55,7 @@ export function useCreateOrder() {
     mutationFn: (v: { body: OrderBody; idempotencyKey: string }) =>
       idempotent(() =>
         api.POST('/v1/orders', {
-          body: v.body as never,
+          body: v.body,
           headers: { 'Idempotency-Key': v.idempotencyKey },
         }),
       ) as Promise<Order>,
@@ -68,13 +66,13 @@ export function useCreateOrder() {
 export function useUpdateOrder() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (v: { id: string; version: number; body: Record<string, unknown> }) =>
+    mutationFn: (v: { id: string; version: number; body: Schemas['UpdateOrderDto'] }) =>
       unwrap(
         api.PATCH('/v1/orders/{id}', {
-          params: { path: { id: v.id }, header: { 'If-Match': `"${v.version}"` } as never },
-          body: v.body as never,
+          params: { path: { id: v.id }, header: { 'If-Match': `"${v.version}"` } },
+          body: v.body,
         }),
-      ) as Promise<Order>,
+      ),
     onError: refetchOnStale(qc, KEY),
     onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
   });
@@ -82,16 +80,27 @@ export function useUpdateOrder() {
 
 // ---------- เทมเพลตงานประจำ ----------
 
+/** รายการเทมเพลตทีละ 20 (cursor) — "แสดงเพิ่ม" ดึงหน้าถัดไป */
 export function useTemplates(q: string, enabled: boolean) {
-  return useQuery({
+  return useInfiniteQuery({
     queryKey: [TPL, q],
     enabled,
-    queryFn: () =>
+    initialPageParam: null as string | null,
+    getNextPageParam: (p: { nextCursor: string | null; hasMore: boolean }) =>
+      p.hasMore ? p.nextCursor : null,
+    queryFn: ({ pageParam }) =>
       unwrap(
         api.GET('/v1/order-templates', {
-          params: { query: { limit: 200, sort: '-updatedAt', ...(q ? { q } : {}) } as never },
+          params: {
+            query: {
+              limit: 20,
+              sort: '-updatedAt',
+              ...(q ? { q } : {}),
+              ...(pageParam ? { cursor: pageParam } : {}),
+            },
+          },
         }),
-      ) as unknown as Promise<{ data: OrderTemplate[]; hasMore: boolean }>,
+      ),
   });
 }
 
@@ -101,7 +110,7 @@ export function useCreateTemplate() {
     mutationFn: (v: { body: { name: string; payload: TemplatePayload }; idempotencyKey: string }) =>
       idempotent(() =>
         api.POST('/v1/order-templates', {
-          body: v.body as never,
+          body: v.body,
           headers: { 'Idempotency-Key': v.idempotencyKey },
         }),
       ),
@@ -115,7 +124,7 @@ export function useDeleteTemplate() {
     mutationFn: (v: { id: string; version: number; reason: string }) =>
       unwrap(
         api.POST('/v1/order-templates/{id}/delete', {
-          params: { path: { id: v.id }, header: { 'If-Match': `"${v.version}"` } as never },
+          params: { path: { id: v.id }, header: { 'If-Match': `"${v.version}"` } },
           body: { reason: v.reason },
         }),
       ),

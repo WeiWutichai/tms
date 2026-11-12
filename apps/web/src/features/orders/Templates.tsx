@@ -34,7 +34,7 @@ export function TemplatesDrawer({
   const list = useTemplates(q, true);
   const del = useDeleteTemplate();
   const [delOf, setDelOf] = useState<OrderTemplate | null>(null);
-  const rows = list.data?.data ?? [];
+  const rows = list.data?.pages.flatMap((p) => p.data) ?? [];
   const route = (p: TemplatePayload) =>
     p.stops
       .map((s) => s.siteText ?? '—')
@@ -111,6 +111,7 @@ export function TemplatesDrawer({
                     type="button"
                     className="tms-linkbtn"
                     style={{ color: '#B3322A' }}
+                    aria-label={t('tpl.delT', { n: r.name })}
                     onClick={() => setDelOf(r)}
                   >
                     {t('ord.remove')}
@@ -121,6 +122,7 @@ export function TemplatesDrawer({
                     type="button"
                     className="tms-drawer__sec"
                     style={{ height: 32, padding: '0 12px' }}
+                    aria-label={t('tpl.useA', { n: r.name })}
                     onClick={() => onUse(r)}
                   >
                     {t('tpl.use')}
@@ -128,6 +130,17 @@ export function TemplatesDrawer({
                 )}
               </div>
             ))}
+            {list.hasNextPage && (
+              <button
+                type="button"
+                className="tms-linkbtn"
+                style={{ alignSelf: 'center' }}
+                disabled={list.isFetchingNextPage}
+                onClick={() => void list.fetchNextPage()}
+              >
+                {t('tpl.more')}
+              </button>
+            )}
           </div>
         )}
       </FormDrawer>

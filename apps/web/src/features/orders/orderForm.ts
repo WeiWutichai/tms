@@ -12,34 +12,9 @@ import { addDays } from '../rate-cards/rateFormat';
 export type Order = Schemas['OrderDto'];
 export type StopType = 'PICKUP' | 'DELIVERY' | 'RETURN';
 
-/**
- * payload ตามสายจริง (ค่าเป็นสตริง/null) — ใช้แทนชนิดที่ generate จาก OpenAPI ของ input DTO
- * (ช่อง nullable ของ `OrderStopInputDto`/`OrderLineInputDto` ใน OpenAPI ไม่มี `type: string` → generate เป็น object; [OPEN] spec/12 §3)
- */
-export interface PayloadStop {
-  type: StopType;
-  siteId: string | null;
-  siteText: string | null;
-  windowStart: string | null;
-  windowEnd: string | null;
-}
-export interface PayloadLine {
-  description: string;
-  qty: string;
-  unitId: string | null;
-  unit: string | null;
-  productId: string | null;
-  weightKg: string | null;
-}
-export interface TemplatePayload {
-  customer: { id?: string | null; externalId?: string | null; name?: string | null };
-  customerRef: string | null;
-  requestedDate: string;
-  vehicleTypeId: string | null;
-  stops: PayloadStop[];
-  lines: PayloadLine[];
-}
-export type OrderBody = TemplatePayload & { draft: boolean };
+/** payload = body ของ POST /v1/orders ไม่มี draft/externalId (ชนิดจาก OpenAPI — ADR T-22 แก้ชนิดช่อง nullable แล้ว) */
+export type TemplatePayload = Schemas['OrderTemplatePayloadDto'];
+export type OrderBody = Schemas['CreateOrderDto'];
 
 export interface StopForm {
   key: string;
@@ -47,8 +22,11 @@ export interface StopForm {
   site: RefOption | null;
   /** ข้อความสถานที่ตามต้นทาง (จุดที่ยังจับคู่ไม่ได้) — เลือกสถานที่แล้วใช้ชื่อสถานที่แทน */
   siteText: string;
+  /** วันที่เริ่มช่วงเวลา (เวลาไทย) */
   date: string;
   from: string;
+  /** วันที่สิ้นสุด — ว่าง/เท่า `date` = วันเดียวกัน (ช่วงข้ามคืน/หลายวันใส่วันถัดไป) */
+  dateTo: string;
   to: string;
 }
 
@@ -61,10 +39,23 @@ export interface LineForm {
   /** ข้อความหน่วยตามต้นทาง (ไม่มี unitId) */
   unitText: string;
   weightKg: string;
+  /**
+   * ช่องที่ฟอร์มไม่แสดงแต่ต้องพาไปครบ (รหัสสินค้าต้นทาง, ปริมาตร, สินค้าอันตราย, อุณหภูมิ) — คัดลอก/แก้/เทมเพลตไม่ทำข้อมูลหาย
+   * (review ST3-T02 B1)
+   */
+  keep: {
+    itemCode: string | null;
+    cbm: string | null;
+    isDangerous: boolean;
+    tempMin: string | null;
+    tempMax: string | null;
+  };
 }
 
 export interface OrderForm {
   customer: RefOption | null;
+  /** นิติบุคคลออกบิลของใบเดิม/เทมเพลต (ฟอร์มไม่แสดง — คัดลอก/เทมเพลตพาไป; ใบใหม่ = null ตาม routing) */
+  billingCompanyId: string | null;
   /** ข้อความลูกค้าตามต้นทาง (ใบที่ยังจับคู่ลูกค้าไม่ได้) — แสดงเป็นคำแนะนำ */
   customerText: string;
   customerRef: string;
@@ -84,6 +75,7 @@ export const emptyStop = (type: StopType, date: string): StopForm => ({
   siteText: '',
   date,
   from: '',
+  dateTo: '',
   to: '',
 });
 export const emptyLine = (): LineForm => ({
@@ -94,6 +86,7 @@ export const emptyLine = (): LineForm => ({
   unit: null,
   unitText: '',
   weightKg: '',
+  keep: { itemCode: null, cbm: null, isDangerous: false, tempMin: null, tempMax: null },
 });
 
 /** ใบใหม่: จุดรับ 1 + จุดส่ง 1 (spec/03: ≥ 1 pickup และ ≥ 1 drop) วันรับของ = พรุ่งนี้ */
@@ -101,6 +94,7 @@ export function emptyForm(today: string): OrderForm {
   const d = addDays(today, 1);
   return {
     customer: null,
+    billingCompanyId: null,
     customerText: '',
     customerRef: '',
     requestedDate: d,
@@ -144,6 +138,11 @@ interface LineIn {
   unit?: string | null;
   productId?: string | null;
   weightKg?: string | null;
+  itemCode?: string | null;
+  cbm?: string | null;
+  isDangerous?: boolean;
+  tempMin?: string | null;
+  tempMax?: string | null;
 }
 
 function stopFrom(s: StopIn, fallbackDate: string): StopForm {
@@ -156,6 +155,8 @@ function stopFrom(s: StopIn, fallbackDate: string): StopForm {
     siteText: s.siteId ? '' : (s.siteText ?? ''),
     date: a?.date ?? b?.date ?? fallbackDate,
     from: a?.time ?? '',
+    // วันสิ้นสุดเก็บเฉพาะเมื่อต่างจากวันเริ่ม (ช่วงข้ามคืน/หลายวัน)
+    dateTo: b && b.date !== (a?.date ?? b.date) ? b.date : '',
     to: b?.time ?? '',
   };
 }
@@ -169,6 +170,13 @@ function lineFrom(l: LineIn): LineForm {
     unit: l.unitId ? { id: l.unitId, label: l.unit ?? l.unitId } : null,
     unitText: l.unitId ? '' : (l.unit ?? ''),
     weightKg: l.weightKg ?? '',
+    keep: {
+      itemCode: l.itemCode ?? null,
+      cbm: l.cbm ?? null,
+      isDangerous: l.isDangerous ?? false,
+      tempMin: l.tempMin ?? null,
+      tempMax: l.tempMax ?? null,
+    },
   };
 }
 
@@ -182,6 +190,7 @@ export function fromOrder(o: Order): OrderForm {
           ...(o.customer.code ? { sub: o.customer.code } : {}),
         }
       : null,
+    billingCompanyId: o.billingCompanyId,
     customerText: o.customer.id ? '' : (o.customer.name ?? o.customer.externalId ?? ''),
     customerRef: o.customerRef ?? '',
     requestedDate: o.requestedDate,
@@ -197,7 +206,12 @@ export function shiftTo(f: OrderForm, to: string): OrderForm {
   return {
     ...f,
     requestedDate: to,
-    stops: f.stops.map((s) => ({ ...s, key: newKey(), date: s.date ? addDays(s.date, n) : to })),
+    stops: f.stops.map((s) => ({
+      ...s,
+      key: newKey(),
+      date: s.date ? addDays(s.date, n) : to,
+      dateTo: s.dateTo ? addDays(s.dateTo, n) : '',
+    })),
     lines: f.lines.map((l) => ({ ...l, key: newKey() })),
   };
 }
@@ -219,6 +233,7 @@ export function fromTemplate(
 ): OrderForm {
   const f: OrderForm = {
     customer: customer ? { id: customer.id, label: customer.legalName, sub: customer.code } : null,
+    billingCompanyId: p.billingCompanyId ?? null,
     customerText: '',
     customerRef: p.customerRef ?? '',
     requestedDate: p.requestedDate,
@@ -239,7 +254,7 @@ function stopsBody(f: OrderForm) {
     siteId: s.site?.id ?? null,
     siteText: s.site ? s.site.label : blank(s.siteText),
     windowStart: fromBangkok(s.date, s.from),
-    windowEnd: fromBangkok(s.date, s.to),
+    windowEnd: fromBangkok(s.dateTo || s.date, s.to),
   }));
 }
 
@@ -251,6 +266,7 @@ function linesBody(f: OrderForm) {
     unit: l.unit ? l.unit.label : blank(l.unitText),
     productId: l.product?.id ?? null,
     weightKg: blank(l.weightKg),
+    ...l.keep,
   }));
 }
 
@@ -258,6 +274,7 @@ function linesBody(f: OrderForm) {
 export function toPayload(f: OrderForm): TemplatePayload {
   return {
     customer: f.customer ? { id: f.customer.id } : {},
+    billingCompanyId: f.billingCompanyId,
     customerRef: blank(f.customerRef),
     requestedDate: f.requestedDate,
     vehicleTypeId: f.vehicleTypeId || null,
@@ -284,14 +301,14 @@ const GROUP: Record<string, string> = {
  * PATCH ของการแก้ไข: ส่งเฉพาะช่องที่เปลี่ยนจากค่าเดิม (ช่องที่ไม่ส่ง server คงค่าเดิม — ข้อความลูกค้าตามต้นทางไม่หาย)
  * `stops` ส่งได้เมื่อแก้จุดได้ หรือแก้ได้เฉพาะช่วงเวลา (`stops.window`) — server ตรวจซ้ำ (409 ถ้าเปลี่ยนสถานที่)
  */
-export function toPatch(original: Order, f: OrderForm, submit: boolean): Record<string, unknown> {
+export function toPatch(original: Order, f: OrderForm, submit: boolean): Schemas['UpdateOrderDto'] {
   const a = toPayload(fromOrder(original)) as unknown as Record<string, unknown>;
   const b = toPayload(f) as unknown as Record<string, unknown>;
   const out: Record<string, unknown> = {};
   for (const k of Object.keys(GROUP))
     if (JSON.stringify(a[k] ?? null) !== JSON.stringify(b[k] ?? null)) out[k] = b[k];
   if (submit && original.status === 'draft') out.draft = false;
-  return out;
+  return out as Schemas['UpdateOrderDto'];
 }
 
 /** ช่องใดของฟอร์มที่แก้ได้ (จาก `editableFields` ของ API) — ใบใหม่ = ทุกช่อง */
@@ -328,7 +345,12 @@ export function validate(f: OrderForm, draft: boolean): Record<string, string> {
   f.stops.forEach((s, i) => {
     if (!s.site && !s.siteText.trim()) e[`stops[${i}].siteId`] = 'required';
     if ((s.from || s.to) && !s.date) e[`stops[${i}].windowStart`] = 'required';
-    if (s.from && s.to && s.to < s.from) e[`stops[${i}].windowEnd`] = 'window_order';
+    if (s.dateTo && !s.to) e[`stops[${i}].windowEnd`] = 'required';
+    // เทียบวันเวลาเต็ม (ช่วงข้ามคืน: ถึง 02:00 ของวันถัดไป ถูกต้อง)
+    const a = fromBangkok(s.date, s.from);
+    const b = fromBangkok(s.dateTo || s.date, s.to);
+    if (a && b && Date.parse(b) < Date.parse(a)) e[`stops[${i}].windowEnd`] = 'window_order';
+    else if (s.dateTo && s.date && s.dateTo < s.date) e[`stops[${i}].windowEnd`] = 'window_order';
   });
   f.lines.forEach((l, i) => {
     if (!l.description.trim()) e[`lines[${i}].description`] = 'required';

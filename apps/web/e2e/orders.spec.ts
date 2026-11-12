@@ -38,8 +38,13 @@ async function pick(scope: ReturnType<Page['getByRole']>, label: string, text: s
     .click();
 }
 
+interface Line {
+  lineNo?: number;
+  [k: string]: unknown;
+}
 interface Snap {
   customer: unknown;
+  billingCompanyId: unknown;
   vehicleTypeId: unknown;
   stops: {
     type: string;
@@ -48,11 +53,15 @@ interface Snap {
     windowStart: string | null;
     windowEnd: string | null;
   }[];
-  lines: { description: string; qty: string; unitId: string; weightKg: string | null }[];
+  lines: Line[];
 }
-/** ข้อมูลงานที่ต้องเท่ากันระหว่างต้นฉบับกับใบคัดลอก (เวลาเทียบแบบเวลาในวัน — ORD-022 เลื่อนวันที่) */
+/**
+ * ข้อมูลงานที่ต้องเท่ากันระหว่างต้นฉบับกับใบคัดลอก — ทุกช่องของสินค้า (รวม productId, รหัสต้นทาง, ปริมาตร, สินค้าอันตราย, อุณหภูมิ)
+ * เวลาเทียบแบบเวลาในวัน (ORD-022 เลื่อนวันที่)
+ */
 const essence = (o: Snap) => ({
   customer: o.customer,
+  billingCompanyId: o.billingCompanyId,
   vehicleTypeId: o.vehicleTypeId,
   stops: o.stops.map((s) => ({
     type: s.type,
@@ -61,7 +70,7 @@ const essence = (o: Snap) => ({
     from: s.windowStart?.slice(11, 16) ?? null,
     to: s.windowEnd?.slice(11, 16) ?? null,
   })),
-  lines: o.lines.map((l) => ({ d: l.description, q: l.qty, u: l.unitId, w: l.weightKg })),
+  lines: o.lines.map(({ lineNo: _n, ...l }) => l),
 });
 
 test.describe.serial('ปฏิบัติการ → ใบสั่งขนส่ง (SO)', () => {
@@ -115,12 +124,59 @@ test.describe.serial('ปฏิบัติการ → ใบสั่งข�
   test('คัดลอกเป็นใบใหม่ภายใน 3 คลิก → ร่างใหม่ ข้อมูลเท่าต้นฉบับ (ไม่คัดลอก PO)', async ({
     page,
   }) => {
-    const list = (await (
-      await page.request.get(`/v1/orders?q=${encodeURIComponent(`PO-${RUN}`)}&limit=5`, {
-        headers: H,
-      })
-    ).json()) as { data: (Snap & { id: string; soNo: string })[] };
-    const src = list.data[0]!;
+    // ใบต้นฉบับที่มีสินค้าครบทุกช่อง (อันตราย/อุณหภูมิ/ปริมาตร/รหัสต้นทาง/สินค้า master) — สร้างผ่าน API
+    const g = async (path: string) =>
+      (await (await page.request.get(path, { headers: H })).json()) as {
+        data: { id: string; code?: string; name?: string }[];
+      };
+    const cust = (await g(`/v1/customers?q=${encodeURIComponent(CUST)}`)).data[0]!.id;
+    const sites = (await g(`/v1/customer-sites?q=${encodeURIComponent(RUN)}&limit=10`)).data;
+    const siteA = sites.find((x) => x.name === A)!.id;
+    const siteB = sites.find((x) => x.name === B)!.id;
+    const units = (await g('/v1/units?limit=50')).data;
+    const ton = units.find((u) => u.code === 'TON')!.id;
+    const pr = await page.request.post('/v1/products', {
+      headers: H,
+      data: { name: `สารเคมีแช่เย็น ${RUN}`, unitId: ton },
+    });
+    expect(pr.status(), await pr.text()).toBe(201);
+    const product = ((await pr.json()) as { id: string }).id;
+    const vt = (await g('/v1/vehicle-types?limit=50')).data.find((v) => v.code === '6W')!.id;
+    const day = new Date(Date.now() + 7 * 3600_000 + 86_400_000).toISOString().slice(0, 10);
+    const sr = await page.request.post('/v1/orders', {
+      headers: H,
+      data: {
+        customer: { id: cust },
+        customerRef: `PO-FULL-${RUN}`,
+        requestedDate: day,
+        vehicleTypeId: vt,
+        stops: [
+          { type: 'PICKUP', siteId: siteA, windowStart: `${day}T22:00:00+07:00` },
+          {
+            type: 'DELIVERY',
+            siteId: siteB,
+            windowStart: `${day}T23:00:00+07:00`,
+            windowEnd: `${day}T23:30:00+07:00`,
+          },
+        ],
+        lines: [
+          {
+            description: 'สารเคมีแช่เย็น',
+            qty: '2.5',
+            unitId: ton,
+            productId: product,
+            itemCode: `CHEM-${RUN}`,
+            weightKg: '2500',
+            cbm: '3.25',
+            isDangerous: true,
+            tempMin: '2',
+            tempMax: '8',
+          },
+        ],
+      },
+    });
+    expect(sr.status(), await sr.text()).toBe(201);
+    const src = (await sr.json()) as Snap & { id: string; soNo: string };
 
     await page.goto('/so');
     await page.getByRole('row', { name: new RegExp(src.soNo) }).click();

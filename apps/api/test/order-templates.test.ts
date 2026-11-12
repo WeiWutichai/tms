@@ -265,14 +265,38 @@ describe('order templates + form API (ST3-T02)', () => {
       .expect(201);
   });
 
-  it('สร้างใบจากเทมเพลต = POST /orders ด้วย payload (ไม่มี endpoint ลัด) · duplicate: GET ใบเดิม → POST ได้ข้อมูลเท่าต้นฉบับ', async () => {
+  it('สร้างใบจากเทมเพลต = POST /orders ด้วย payload (ไม่มี endpoint ลัด) · เทมเพลตไม่เก็บ PO · ช่องสินค้าครบทุกช่อง (อันตราย/อุณหภูมิ/ปริมาตร) · คัดลอก (body = ทุกช่องของใบเดิม) ได้ข้อมูลเท่าต้นฉบับ', async () => {
     const { body } = await payload();
+    const full = {
+      ...body,
+      lines: [
+        {
+          description: 'สารเคมีแช่เย็น',
+          qty: '3',
+          unitId: unitTon,
+          itemCode: 'CHEM-01',
+          weightKg: '3000',
+          cbm: '4.5',
+          isDangerous: true,
+          tempMin: '2',
+          tempMax: '8',
+        },
+      ],
+    };
     const t = (
       await api(app, admin)
         .post('/v1/order-templates')
-        .send({ name: 'ใช้สร้างใบ', payload: body })
+        .send({ name: 'ใช้สร้างใบ', payload: full })
         .expect(201)
     ).body;
+    expect(t.payload.customerRef).toBeNull();
+    expect(t.payload.lines[0]).toMatchObject({
+      itemCode: 'CHEM-01',
+      cbm: '4.5',
+      isDangerous: true,
+      tempMin: '2',
+      tempMax: '8',
+    });
     const fromTpl = await api(app, admin)
       .post('/v1/orders')
       .send({ ...t.payload, draft: true })
@@ -280,8 +304,14 @@ describe('order templates + form API (ST3-T02)', () => {
     expect(fromTpl.body.status).toBe('draft');
     expect(fromTpl.body.source).toBe('API'); // dev token = API client (ผู้ใช้หน้าจอ = MANUAL)
     expect(fromTpl.body.editableFields).toContain('stops');
+    expect(fromTpl.body.lines[0]).toMatchObject({
+      isDangerous: true,
+      tempMin: '2',
+      tempMax: '8',
+      cbm: '4.5',
+    });
 
-    // duplicate (ORD-022): ลูกค้า จุด สินค้า ประเภทรถ เท่าต้นฉบับ; ไม่คัดลอก PO
+    // duplicate (ORD-022): ทุกช่องของจุด/สินค้าของใบเดิมส่งกลับได้ตรง ๆ (การแปลงของฟอร์มทดสอบใน web orderForm.test.ts)
     const src = (await api(app, admin).get(`/v1/orders/${fromTpl.body.id}`).expect(200)).body;
     const copy = (
       await api(app, admin)
@@ -289,40 +319,58 @@ describe('order templates + form API (ST3-T02)', () => {
         .send({
           draft: true,
           customer: { id: src.customer.id },
+          billingCompanyId: src.billingCompanyId,
           requestedDate: src.requestedDate,
           vehicleTypeId: src.vehicleTypeId,
-          stops: src.stops.map((s: Record<string, unknown>) => ({
-            type: s.type,
-            siteId: s.siteId,
-            siteText: s.siteText,
-            windowStart: s.windowStart,
-            windowEnd: s.windowEnd,
-          })),
-          lines: src.lines.map((l: Record<string, unknown>) => ({
-            description: l.description,
-            qty: l.qty,
-            unitId: l.unitId,
-            unit: l.unit,
-            weightKg: l.weightKg,
-          })),
+          stops: src.stops.map(({ sequence: _s, ...x }: Record<string, unknown>) => x),
+          lines: src.lines.map(({ lineNo: _n, ...x }: Record<string, unknown>) => x),
         })
         .expect(201)
     ).body;
     expect(copy.id).not.toBe(src.id);
     expect(copy.externalId).toBeNull();
     expect(copy.customerRef).toBeNull();
-    const strip = (o: {
-      stops: unknown[];
-      lines: unknown[];
-      customer: unknown;
-      vehicleTypeId: unknown;
-    }) => ({
+    const strip = (o: Record<string, unknown>) => ({
       customer: o.customer,
+      billingCompanyId: o.billingCompanyId,
       vehicleTypeId: o.vehicleTypeId,
       stops: o.stops,
       lines: o.lines,
     });
     expect(strip(copy)).toEqual(strip(src));
+  });
+
+  it('อ้างอิงที่ไม่มีในบริษัทนี้ (รวมของบริษัทอื่น) → 422 reference_not_found ที่ช่องนั้น', async () => {
+    const { body } = await payload();
+    const otherCust = (
+      await api(app, other)
+        .post('/v1/customers')
+        .send({ legalName: `ลูกค้าบริษัทอื่น ${++seed}`, taxId: validTaxId(9900 + seed) })
+        .expect(201)
+    ).body.id;
+    const otherSite = (
+      await api(app, other)
+        .post('/v1/customer-sites')
+        .send({ name: `จุดบริษัทอื่น ${++seed}`, kind: 'DROPOFF', address: ADDR })
+        .expect(201)
+    ).body.id;
+    const r = await api(app, admin)
+      .post('/v1/order-templates')
+      .send({
+        name: 'อ้างข้ามบริษัท',
+        payload: {
+          ...body,
+          customer: { id: otherCust },
+          stops: [body.stops[0], { ...body.stops[1], siteId: otherSite }],
+        },
+      })
+      .expect(422);
+    expect(
+      r.body.errors.map((e: { field: string; code: string }) => `${e.field}:${e.code}`).sort(),
+    ).toEqual([
+      'payload.customer.id:reference_not_found',
+      'payload.stops[1].siteId:reference_not_found',
+    ]);
   });
 
   it('GET /orders/{id} มี editableFields ตามสถานะ · /orders/summary นับร่าง/ค้าง/วางแผน/เกินกำหนด', async () => {
