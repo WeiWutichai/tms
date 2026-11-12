@@ -538,9 +538,13 @@ describe('rate card ขาซื้อ (side = BUY) + ราคา 5 ครั�
           carrierId: opts.carrierId ?? cid,
           carrierNameSnapshot: c.legalName,
           vehicleId: opts.vehicleId ?? v6.id,
+          vehiclePlateSnapshot: 'ทดสอบ',
           vehicleTypeSnapshot: opts.vehicleId === v10.id ? '10 ล้อ' : '6 ล้อ',
           vehicleTypeId: vehType(opts.vehicleId === v10.id ? vt10 : vt6),
           status: opts.status ?? 'COMPLETED',
+          ...(opts.status === 'CANCELLED'
+            ? { cancelledAt: new Date(), cancelReason: 'ยกเลิกเที่ยวทดสอบ' }
+            : {}),
           ...(opts.assignmentStatus ? { assignmentStatus: opts.assignmentStatus } : {}),
           ...(opts.rateCardCode ? { buyRateSnapshot: { rateCardCode: opts.rateCardCode } } : {}),
         },

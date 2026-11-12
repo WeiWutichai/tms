@@ -32,6 +32,7 @@ const EXPECTED: Record<string, DoStatus> = {
   'DISPATCHED.pick_up': 'PICKED_UP',
   'DISPATCHED.deliver': 'DELIVERED',
   'DISPATCHED.fail': 'FAILED',
+  'DISPATCHED.recall': 'DRAFT',
   'PICKED_UP.deliver': 'DELIVERED',
   'PICKED_UP.fail': 'FAILED',
   'FAILED.redeliver': 'CANCELLED',

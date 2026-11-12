@@ -425,8 +425,10 @@ describe('คนขับ (drivers)', () => {
     await db.trip.create({
       data: {
         tenantId,
+        tripNo: 'TRP-DRV-1',
         tripDate: new Date('2026-11-12'),
         driverId: tryDecodeId('driver', used.id)!,
+        driverNameSnapshot: 'คนขับทดสอบ',
       },
     });
     const r = await api(app, admin)

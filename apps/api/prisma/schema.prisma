@@ -463,6 +463,7 @@ model CustomerSite {
   orderStops    SalesOrderStop[]
   doOrigins     DeliveryOrder[]  @relation("DoOrigin")
   doDests       DeliveryOrder[]  @relation("DoDest")
+  tripStops     TripStop[]
 
   @@unique([tenantId, externalId])
   @@unique([tenantId, code])
@@ -554,6 +555,7 @@ model Carrier {
 
   rateCards      RateCard[]
   docSubmissions CarrierDocSubmission[]
+  trips          Trip[]
 
   @@unique([tenantId, code])
   @@unique([tenantId, externalId])
@@ -590,6 +592,7 @@ model VehicleType {
 
   rateCards   RateCard[]
   salesOrders SalesOrder[]
+  trips       Trip[]
 
   @@unique([tenantId, code])
   @@unique([tenantId, externalId])
@@ -771,6 +774,8 @@ model Vehicle {
   docSubmissions     CarrierDocSubmission[]
   costs              VehicleCost[]
   defaultDrivers     Driver[]                 @relation("DriverDefaultVehicle")
+  trips              Trip[]                   @relation("TripVehicle")
+  trailerTrips       Trip[]                   @relation("TripTrailer")
 
   @@unique([tenantId, externalId])
   @@index([tenantId, updatedAt, id])
@@ -847,6 +852,8 @@ model Driver {
   createdAt         DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime               @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   docSubmissions    CarrierDocSubmission[]
+  trips             Trip[]                 @relation("TripDriver")
+  reliefTrips       Trip[]                 @relation("TripReliefDriver")
 
   @@unique([tenantId, externalId])
   @@unique([tenantId, code])
@@ -1179,6 +1186,8 @@ model ReasonCode {
 
   heldOrders    SalesOrder[]
   doLineRejects DeliveryOrderLine[]
+  tripCancels   Trip[]              @relation("TripCancelReason")
+  stopFailures  TripStop[]
 
   @@unique([tenantId, category, code])
   @@unique([tenantId, externalId])
@@ -1396,42 +1405,67 @@ enum AssignmentStatus {
 }
 
 model Trip {
-  id                   String            @id @default(uuid()) @db.Uuid
-  tenantId             String            @map("tenant_id") @db.Uuid
-  tripNo               String?           @map("trip_no")
-  tripDate             DateTime          @map("trip_date") @db.Date
-  vehicleId            String?           @map("vehicle_id") @db.Uuid
-  vehiclePlateSnapshot String?           @map("vehicle_plate_snapshot")
-  vehicleTypeSnapshot  String?           @map("vehicle_type_snapshot")
-  vehicleTypeId        String?           @map("vehicle_type_id") @db.Uuid /// ประเภทรถ ณ วันจ่ายงาน (ST2-T14 ตัวกรองราคา 5 ครั้ง — ST3 เขียนคู่กับ snapshot)
-  driverId             String?           @map("driver_id") @db.Uuid
-  driverNameSnapshot   String?           @map("driver_name_snapshot")
-  driverPhoneSnapshot  String?           @map("driver_phone_snapshot")
-  driverAcceptedAt     DateTime?         @map("driver_accepted_at") @db.Timestamptz(6) /// D-24 "คนขับรับงาน" เป็นธง (★ รอยืนยัน)
-  carrierId            String?           @map("carrier_id") @db.Uuid
-  carrierNameSnapshot  String?           @map("carrier_name_snapshot")
-  buyRateSnapshot      Json?             @map("buy_rate_snapshot")
-  assignmentStatus     AssignmentStatus? @map("assignment_status")
-  assignmentTokenHash  String?           @map("assignment_token_hash")
-  assignmentExpiresAt  DateTime?         @map("assignment_expires_at") @db.Timestamptz(6)
-  plannedDistanceKm    Decimal?          @map("planned_distance_km") @db.Decimal(10, 1)
-  plannedRoute         Json?             @map("planned_route") /// GeoJSON LineString (T-18)
-  actualDistanceKm     Decimal?          @map("actual_distance_km") @db.Decimal(10, 1)
-  ruleWarnings         Json              @default("[]") @map("rule_warnings") /// กฎตอนจัดงาน + เหตุผล override (★ D-07)
-  status               TripStatus        @default(PLANNING)
-  costAllocationMethod String            @default("BY_WEIGHT") @map("cost_allocation_method")
-  dispatchedAt         DateTime?         @map("dispatched_at") @db.Timestamptz(6)
-  completedAt          DateTime?         @map("completed_at") @db.Timestamptz(6)
-  version              Int               @default(1)
-  createdAt            DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt            DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id                        String            @id @default(uuid()) @db.Uuid
+  tenantId                  String            @map("tenant_id") @db.Uuid
+  tripNo                    String?           @map("trip_no") /// ออกเลขตอนสร้าง (document_series TRIP) — CHECK บังคับ
+  tripDate                  DateTime          @map("trip_date") @db.Date
+  plannedStartAt            DateTime?         @map("planned_start_at") @db.Timestamptz(6) /// ช่วงวิ่งตามแผน (กระดาน Gantt — plan/00a)
+  plannedEndAt              DateTime?         @map("planned_end_at") @db.Timestamptz(6)
+  /// รถ/คนขับ/หาง/รถร่วม = snapshot ต่อเที่ยว (docs/04 D1) — เขียนตอน assign/offer เท่านั้น ไม่ตาม master ภายหลัง
+  vehicleId                 String?           @map("vehicle_id") @db.Uuid
+  vehicle                   Vehicle?          @relation("TripVehicle", fields: [vehicleId], references: [id], onDelete: Restrict)
+  vehiclePlateSnapshot      String?           @map("vehicle_plate_snapshot")
+  vehicleTypeSnapshot       String?           @map("vehicle_type_snapshot")
+  vehicleTypeId             String?           @map("vehicle_type_id") @db.Uuid /// ประเภทรถ ณ วันจ่ายงาน (ST2-T14 ตัวกรองราคา 5 ครั้ง — ST3 เขียนคู่กับ snapshot)
+  vehicleType               VehicleType?      @relation(fields: [vehicleTypeId], references: [id], onDelete: Restrict)
+  trailerId                 String?           @map("trailer_id") @db.Uuid /// หาง (vehicle.unit_role = TRAILER)
+  trailer                   Vehicle?          @relation("TripTrailer", fields: [trailerId], references: [id], onDelete: Restrict)
+  trailerPlateSnapshot      String?           @map("trailer_plate_snapshot")
+  driverId                  String?           @map("driver_id") @db.Uuid
+  driver                    Driver?           @relation("TripDriver", fields: [driverId], references: [id], onDelete: Restrict)
+  driverNameSnapshot        String?           @map("driver_name_snapshot")
+  driverPhoneSnapshot       String?           @map("driver_phone_snapshot")
+  /// คนขับสำรอง 1 คน (docs/04 D1 secondaryDriverId — ไม่ใช้ co_driver_ids[] ของ docs/01: plan/00a §3)
+  reliefDriverId            String?           @map("relief_driver_id") @db.Uuid
+  reliefDriver              Driver?           @relation("TripReliefDriver", fields: [reliefDriverId], references: [id], onDelete: Restrict)
+  reliefDriverNameSnapshot  String?           @map("relief_driver_name_snapshot")
+  reliefDriverPhoneSnapshot String?           @map("relief_driver_phone_snapshot")
+  driverAcceptedAt          DateTime?         @map("driver_accepted_at") @db.Timestamptz(6) /// D-24 "คนขับรับงาน" เป็นธง (★ รอยืนยัน)
+  carrierId                 String?           @map("carrier_id") @db.Uuid
+  carrier                   Carrier?          @relation(fields: [carrierId], references: [id], onDelete: Restrict)
+  carrierNameSnapshot       String?           @map("carrier_name_snapshot")
+  offeredAt                 DateTime?         @map("offered_at") @db.Timestamptz(6) /// เสนองานรถร่วม (ลิงก์ = ST3-T23)
+  offeredBy                 String?           @map("offered_by")
+  assignedAt                DateTime?         @map("assigned_at") @db.Timestamptz(6)
+  buyRateSnapshot           Json?             @map("buy_rate_snapshot")
+  assignmentStatus          AssignmentStatus? @map("assignment_status")
+  assignmentTokenHash       String?           @map("assignment_token_hash")
+  assignmentExpiresAt       DateTime?         @map("assignment_expires_at") @db.Timestamptz(6)
+  plannedDistanceKm         Decimal?          @map("planned_distance_km") @db.Decimal(10, 1)
+  plannedRoute              Json?             @map("planned_route") /// GeoJSON LineString (T-18)
+  actualDistanceKm          Decimal?          @map("actual_distance_km") @db.Decimal(10, 1)
+  ruleWarnings              Json              @default("[]") @map("rule_warnings") /// กฎตอนจัดงาน + เหตุผล override (★ D-07)
+  status                    TripStatus        @default(PLANNING)
+  costAllocationMethod      String            @default("BY_WEIGHT") @map("cost_allocation_method")
+  dispatchedAt              DateTime?         @map("dispatched_at") @db.Timestamptz(6)
+  completedAt               DateTime?         @map("completed_at") @db.Timestamptz(6)
+  cancelledAt               DateTime?         @map("cancelled_at") @db.Timestamptz(6)
+  cancelReason              String?           @map("cancel_reason") /// เหตุผล ≥ 10 ตัวอักษร (CHECK คู่กับสถานะ CANCELLED)
+  cancelReasonCodeId        String?           @map("cancel_reason_code_id") @db.Uuid
+  cancelReasonCode          ReasonCode?       @relation("TripCancelReason", fields: [cancelReasonCodeId], references: [id], onDelete: Restrict)
+  version                   Int               @default(1)
+  createdAt                 DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                 DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   deliveryOrders DeliveryOrder[]
+  stops          TripStop[]
 
   @@unique([tenantId, tripNo])
   @@index([tenantId, tripDate, status])
   @@index([tenantId, carrierId, tripDate]) /// ราคา 5 ครั้งล่าสุดที่จ้างรถร่วม (ST2-T14)
   @@index([tenantId, updatedAt, id])
+  @@index([tenantId, vehicleId, tripDate])
+  @@index([tenantId, driverId, tripDate])
   @@map("trip")
 }
 
@@ -1446,26 +1480,37 @@ enum StopStatus {
 }
 
 model TripStop {
-  id               String     @id @default(uuid()) @db.Uuid
-  tenantId         String     @map("tenant_id") @db.Uuid
-  tripId           String     @map("trip_id") @db.Uuid
+  id               String       @id @default(uuid()) @db.Uuid
+  tenantId         String       @map("tenant_id") @db.Uuid
+  tripId           String       @map("trip_id") @db.Uuid
+  trip             Trip         @relation(fields: [tripId], references: [id], onDelete: Restrict)
+  /// ลำดับจุด 1..n ต่อเนื่อง — unique เฉพาะจุดที่ยังใช้ (removed_at IS NULL — partial index ใน migration 0064)
   sequence         Int
   type             StopType
-  siteId           String     @map("site_id") @db.Uuid
-  plannedArrival   DateTime?  @map("planned_arrival") @db.Timestamptz(6)
-  plannedDeparture DateTime?  @map("planned_departure") @db.Timestamptz(6)
-  arrivedAt        DateTime?  @map("arrived_at") @db.Timestamptz(6)
-  departedAt       DateTime?  @map("departed_at") @db.Timestamptz(6)
-  status           StopStatus @default(PENDING)
+  siteId           String       @map("site_id") @db.Uuid
+  site             CustomerSite @relation(fields: [siteId], references: [id], onDelete: Restrict)
+  /// ช่วงเวลาที่ลูกค้าขอ (ส่วนที่ทุก DO ของจุดนี้รับได้ — จาก sales_order_stop) · planned_* = เวลาตามแผนของผู้จัดรถ
+  windowStart      DateTime?    @map("window_start") @db.Timestamptz(6)
+  windowEnd        DateTime?    @map("window_end") @db.Timestamptz(6)
+  plannedArrival   DateTime?    @map("planned_arrival") @db.Timestamptz(6)
+  plannedDeparture DateTime?    @map("planned_departure") @db.Timestamptz(6)
+  arrivedAt        DateTime?    @map("arrived_at") @db.Timestamptz(6)
+  departedAt       DateTime?    @map("departed_at") @db.Timestamptz(6)
+  status           StopStatus   @default(PENDING)
   outcome          String?
-  failReasonCodeId String?    @map("fail_reason_code_id") @db.Uuid
-  detentionMin     Int?       @map("detention_min")
+  failReasonCodeId String?      @map("fail_reason_code_id") @db.Uuid
+  failReasonCode   ReasonCode?  @relation(fields: [failReasonCodeId], references: [id], onDelete: Restrict)
+  detentionMin     Int?         @map("detention_min")
   pod              Json?
-  lastEventId      String?    @map("last_event_id") @db.Uuid
+  lastEventId      String?      @map("last_event_id") @db.Uuid
+  /// จุดที่ไม่มี DO ใช้แล้ว (ถอด DO ก่อนปล่อยรถ) — ไม่ลบจริง (REVOKE DELETE)
+  removedAt        DateTime?    @map("removed_at") @db.Timestamptz(6)
 
-  deliveryOrders DeliveryOrder[]
+  deliveryOrders DeliveryOrder[] @relation("DoDropStop")
+  pickupOrders   DeliveryOrder[] @relation("DoPickupStop")
 
-  @@unique([tenantId, tripId, sequence])
+  @@index([tenantId, tripId])
+  @@index([tenantId, siteId])
   @@map("trip_stop")
 }
 
@@ -1498,8 +1543,10 @@ model DeliveryOrder {
   customer            Customer        @relation(fields: [customerId], references: [id], onDelete: Restrict)
   tripId              String?         @map("trip_id") @db.Uuid
   trip                Trip?           @relation(fields: [tripId], references: [id], onDelete: Restrict)
-  tripStopId          String?         @map("trip_stop_id") @db.Uuid
-  tripStop            TripStop?       @relation(fields: [tripStopId], references: [id], onDelete: Restrict)
+  tripStopId          String?         @map("trip_stop_id") @db.Uuid /// จุดส่งของ DO นี้ในเที่ยว
+  tripStop            TripStop?       @relation("DoDropStop", fields: [tripStopId], references: [id], onDelete: Restrict)
+  pickupTripStopId    String?         @map("pickup_trip_stop_id") @db.Uuid /// จุดรับของ DO นี้ในเที่ยว (ST3-T11 — ตรวจรับก่อนส่ง ST3-T16)
+  pickupTripStop      TripStop?       @relation("DoPickupStop", fields: [pickupTripStopId], references: [id], onDelete: Restrict)
   originSiteId        String          @map("origin_site_id") @db.Uuid
   originSite          CustomerSite    @relation("DoOrigin", fields: [originSiteId], references: [id], onDelete: Restrict)
   destSiteId          String          @map("dest_site_id") @db.Uuid
