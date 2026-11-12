@@ -2,8 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { normalizeOrderInput } from '../orders/order-input';
 import {
   externalCodes,
+  externalKey,
   fallbackInput,
   mapExternalOrder,
+  minimalOrder,
+  show,
   type MappedRefs,
 } from './connector-mapping';
 
@@ -125,5 +128,29 @@ describe('mapExternalOrder (ST3-T05)', () => {
         stops: [{ siteCode: 'A' }, { siteCode: 'A' }, null],
       }),
     ).toEqual({ customer: '7', sites: ['A'], vehicleType: null });
+  });
+
+  it('show() ไม่ล้มกับค่าใด ๆ · externalKey: ยาวเกินใช้ hash ของเลขเต็ม, วนซ้ำไม่ล้ม · minimalOrder ผ่านกฎ upsert', () => {
+    const circ: Record<string, unknown> = {};
+    circ.a = circ;
+    const evil = {
+      toJSON() {
+        throw new Error('x');
+      },
+    };
+    expect(show(5n)).toBe('5n');
+    expect(show(circ)).toBe('[object Object]');
+    expect(show(evil)).toBe('[object Object]');
+    expect(show(Object.create(null))).toBe('{}');
+    const long = 'A'.repeat(150);
+    expect(externalKey({ externalId: long }, 'k').value).toBe(
+      externalKey({ externalId: long, raw: { other: 1 } }, 'k').value,
+    );
+    expect(externalKey({ externalId: long }, 'k').value).toMatch(/^k-longid-[0-9a-f]{32}$/);
+    expect(externalKey({ externalId: null, raw: circ }, 'k').value).toMatch(/^k-nokey-/);
+    expect(externalKey({ externalId: 7n }, 'k').value).toBe('7');
+    const m = minimalOrder({ externalId: 'P' }, 'k', '2026-11-13', new Error('boom'));
+    expect(() => normalizeOrderInput(m.input)).not.toThrow();
+    expect(m.issues).toEqual(['ข้อมูลจากต้นทางอ่านไม่ได้ (boom)']);
   });
 });

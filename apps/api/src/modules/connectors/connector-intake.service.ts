@@ -16,11 +16,13 @@ import {
   externalCodes,
   fallbackInput,
   mapExternalOrder,
+  minimalOrder,
+  show,
   type MappedOrder,
   type MappedRefs,
 } from './connector-mapping';
 import { OrderSourceRegistry } from './order-source-registry';
-import type { ExternalOrder } from './order-source.port';
+import type { ExternalOrder, PullPage } from './order-source.port';
 
 export const CONNECTOR_PULL_JOB = 'connector.pull';
 /** จำนวนใบต่อหน้าที่ขอจาก adapter */
@@ -29,6 +31,8 @@ export const PULL_PAGE_SIZE = 50;
 export const PULL_MAX_PAGES = 20;
 /** lease ของรอบดึง — worker ตายกลางรอบ รอบถัดไปหยิบต่อได้หลังหมดอายุ */
 export const PULL_LEASE_MS = 5 * 60_000;
+/** ใบที่มีผลใน audit สรุปรอบ */
+const AUDIT_ITEMS = 100;
 /** ผลรายใบที่เก็บใน last_result (ไม่รวมใบที่ไม่เปลี่ยน) */
 const MAX_STORED_RESULTS = 200;
 
@@ -68,6 +72,21 @@ export interface PullRunResult {
   results: PullItemResult[];
   /** ดึงจากต้นทางไม่สำเร็จ */
   sourceError?: string;
+}
+
+/** ตรวจรูปหน้าที่ adapter คืน — null = ใช้ได้ */
+export function pageShapeError(page: unknown, cursor: string | null, limit: number): string | null {
+  const p = page as Partial<PullPage> | null | undefined;
+  if (!p || typeof p !== 'object' || !Array.isArray(p.orders))
+    return 'invalid page from source: orders must be an array';
+  if (p.orders.length > limit)
+    return `invalid page from source: ${p.orders.length} orders > limit ${limit}`;
+  if (p.nextCursor !== null && p.nextCursor !== undefined && typeof p.nextCursor !== 'string')
+    return 'invalid page from source: nextCursor must be a string or null';
+  if (typeof p.hasMore !== 'boolean') return 'invalid page from source: hasMore must be a boolean';
+  if (p.hasMore && (p.nextCursor ?? cursor) === cursor)
+    return 'invalid page from source: hasMore without advancing cursor';
+  return null;
 }
 
 const emptyCounts = (): PullCounts => ({
@@ -168,10 +187,17 @@ export class ConnectorIntakeService implements OnModuleInit {
         try {
           got = await port.pullOrders({ tenantId }, run.cursor, pageSize);
         } catch (e) {
-          run.sourceError = String(e instanceof Error ? e.message : e).slice(0, 500);
+          run.sourceError = (e instanceof Error ? e.message : show(e)).slice(0, 500);
           this.logger.warn(
             `tenant ${tenantId} connector ${connector}: pull failed — ${run.sourceError}`,
           );
+          break;
+        }
+        // รูปหน้าที่ adapter คืนต้องถูก — ผิด = ต้นทางผิดพลาด (ไม่รับหน้า ไม่เลื่อน cursor; hasMore ที่ไม่เลื่อน = วนไม่จบ)
+        const shapeError = pageShapeError(got, run.cursor, pageSize);
+        if (shapeError) {
+          run.sourceError = shapeError;
+          this.logger.warn(`tenant ${tenantId} connector ${connector}: ${shapeError}`);
           break;
         }
         run.pages += 1;
@@ -228,13 +254,34 @@ export class ConnectorIntakeService implements OnModuleInit {
             tx,
           },
           async () => {
-            if (!mapped)
-              mapped = mapExternalOrder(
-                ext ?? ({} as ExternalOrder),
-                connector,
-                await this.refs(tx, ext ?? ({} as ExternalOrder)),
-                today,
-              );
+            if (!mapped) {
+              try {
+                mapped = mapExternalOrder(
+                  ext ?? ({} as ExternalOrder),
+                  connector,
+                  await this.refs(tx, ext ?? ({} as ExternalOrder)),
+                  today,
+                );
+              } catch (e) {
+                // ข้อมูลพิษ (แปลงไม่ได้เลย) → ใบขั้นต่ำ SOURCE_ERROR — ไม่ใช่ error ของระบบ ไม่ค้าง cursor
+                this.logger.warn(
+                  `tenant ${tenantId} connector ${connector}: unreadable order — minimal (${show(
+                    e instanceof Error ? e.message : e,
+                  )})`,
+                );
+                mapped = minimalOrder(ext ?? ({} as ExternalOrder), connector, today, e);
+              }
+              // ต้นทางยังไม่ให้วันรับของ → ใบเดิมคงวันที่เดิม (ไม่เลื่อนเป็นวันที่ดึงทุกรอบ)
+              if (mapped.dateFallback) {
+                const cur = await tx.salesOrder.findUnique({
+                  where: {
+                    tenantId_externalId: { tenantId, externalId: mapped.input.externalId! },
+                  },
+                  select: { requestedDate: true },
+                });
+                if (cur) mapped.input.requestedDate = cur.requestedDate.toISOString().slice(0, 10);
+              }
+            }
             const input = fallback ? fallbackInput(mapped, fallback) : mapped.input;
             return this.intake.upsertOrder(input, tx);
           },
@@ -427,6 +474,16 @@ export class ConnectorIntakeService implements OnModuleInit {
                   cursor: run.cursor,
                   counts: c,
                   ...(run.sourceError ? { sourceError: run.sourceError } : {}),
+                  // ใบที่มีผล (ไม่รวม unchanged) จนกว่าจะมีหน้า error queue (ST7-T19) — จำกัด 100 ใบ
+                  items: run.results
+                    .filter((r) => r.outcome !== 'unchanged')
+                    .slice(0, AUDIT_ITEMS)
+                    .map((r) => ({
+                      externalId: r.externalId,
+                      outcome: r.outcome,
+                      ...(r.orderId ? { orderId: r.orderId } : {}),
+                      ...(r.error ? { error: r.error.code } : {}),
+                    })),
                 },
               });
           },

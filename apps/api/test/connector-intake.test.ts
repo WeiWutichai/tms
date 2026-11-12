@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { Clock } from '../src/common/clock';
 import { tryDecodeId } from '../src/common/ids';
 import { requestContext } from '../src/common/request-context';
 import { DbService } from '../src/db/db.service';
@@ -274,9 +275,7 @@ describe('connector intake (pullOrders)', () => {
       }))!;
     const noDate = await byExt('BAD-DATE');
     expect(noDate.requestedDate.toISOString().slice(0, 10)).toBe(today);
-    expect(noDate.sourceIssues).toEqual([
-      `ไม่มีวันรับของจากต้นทาง — ใช้วันที่รับเข้า ${today} ชั่วคราว`,
-    ]);
+    expect(noDate.sourceIssues).toEqual(['ไม่มีวันรับของจากต้นทาง — ใช้วันที่รับเข้าชั่วคราว']);
     expect(noDate.holdNote).toContain('ไม่มีวันรับของ');
     const qty = await byExt('BAD-QTY');
     expect(qty.lines.map((l) => [l.description, l.qtyOrdered.toFixed(), l.weightKg])).toEqual([
@@ -532,6 +531,106 @@ describe('connector intake (pullOrders)', () => {
     const failed = await db.job.findUniqueOrThrow({ where: { id: bad.id } });
     expect(failed.status).toBe('FAILED');
     expect(JSON.stringify(failed.error)).toContain("connector 'nope' is not registered");
+  });
+
+  it('ข้อมูลพิษ (bigint / วนซ้ำ / Date / Decimal-like / getter ที่ throw) → ยังเข้าระบบเป็น SOURCE_ERROR ไม่เป็น error', async () => {
+    const circular: Record<string, unknown> = { soNo: 'CIRC-1' };
+    circular.self = circular;
+    const decimalLike = { toFixed: () => '1.00', toString: () => '1', d: [1] };
+    mock.push(
+      tenantId,
+      ext('BIG-1', { lines: [{ description: 'ปูน', qty: 5n, unit: 'TON', weightKg: 10n ** 30n }] }),
+      { ...ext('x'), externalId: 123456789012345678901234567890n, raw: { big: 1n } },
+      ext('CIRC-1', { raw: circular, customer: { code: 'C-001', name: circular } }),
+      ext('DATE-OBJ', { requestedDate: new Date('2026-11-13T00:00:00Z') }),
+      ext('DEC-1', { lines: [{ description: 'ปูน', qty: decimalLike, unit: 'TON' }] }),
+    );
+    const r = await svc.pull(tenantId, 'mock');
+    expect(r.counts.error).toBe(0);
+    expect(r.results.map((x) => [x.outcome, x.status])).toEqual(
+      Array(5).fill(['created', 'ON_HOLD']),
+    );
+    const big = await db.salesOrder.findFirstOrThrow({
+      where: { tenantId, externalId: 'BIG-1' },
+      include: { lines: true },
+    });
+    expect(big.lines.map((l) => l.qtyOrdered.toFixed())).toEqual(['5']);
+    expect(big.sourceIssues).toEqual([
+      'สินค้าบรรทัดที่ 1 น้ำหนัก: ตัวเลขไม่ถูกต้อง (1000000000000000000000000000000n)',
+    ]);
+    expect(r.results[1]!.externalId).toBe('123456789012345678901234567890');
+    const circ = await db.salesOrder.findFirstOrThrow({
+      where: { tenantId, externalId: 'CIRC-1' },
+    });
+    expect(circ.rawPayload).toBeNull();
+    expect((circ.sourceIssues as string[]).join('|')).toContain('ชื่อลูกค้า: รูปแบบไม่ถูกต้อง');
+
+    // getter ที่ throw (ข้ามตัวจำลอง — structuredClone อ่าน getter ไม่ได้) → ใบขั้นต่ำ
+    const poison = {
+      externalId: 'POISON-1',
+      get stops(): unknown {
+        throw new Error('boom');
+      },
+    } as ExternalOrder;
+    const p = await svc.intakeOne(tenantId, 'mock', randomUUID(), poison, today);
+    expect(p).toMatchObject({ externalId: 'POISON-1', outcome: 'created', status: 'ON_HOLD' });
+    const po = await db.salesOrder.findFirstOrThrow({
+      where: { tenantId, externalId: 'POISON-1' },
+    });
+    expect(po.sourceIssues).toEqual(['ข้อมูลจากต้นทางอ่านไม่ได้ (boom)']);
+  });
+
+  it('เลขอ้างอิงยาวเกิน 100 → key คงที่แม้ต้นทางแก้ใบ · ไม่มีวันรับของ: ใบเดิมคงวันที่เดิม (ดึงวันถัดไปไม่เปลี่ยน)', async () => {
+    const long = `LONG-${'9'.repeat(120)}`;
+    mock.push(tenantId, ext(long), ext(long, { customerRef: 'แก้แล้ว' }));
+    const r = await svc.pull(tenantId, 'mock');
+    expect(r.results.map((x) => x.outcome)).toEqual(['created', 'updated']);
+    expect(r.results[0]!.externalId).toMatch(/^mock-longid-[0-9a-f]{32}$/);
+    expect(r.results[1]!.externalId).toBe(r.results[0]!.externalId);
+
+    mock.push(tenantId, ext('NODATE-1', { requestedDate: null }));
+    await svc.pull(tenantId, 'mock');
+    const clock = app.get(Clock);
+    clock.set(new Date(Date.now() + 2 * 86_400_000));
+    try {
+      mock.push(tenantId, ext('NODATE-1', { requestedDate: null }));
+      const again = await svc.pull(tenantId, 'mock');
+      expect(again.results[0]).toMatchObject({ outcome: 'unchanged' });
+      const o = await db.salesOrder.findFirstOrThrow({
+        where: { tenantId, externalId: 'NODATE-1' },
+      });
+      expect(o.requestedDate.toISOString().slice(0, 10)).toBe(today);
+    } finally {
+      clock.set(null);
+    }
+  });
+
+  it('หน้าจาก adapter ผิดรูป → sourceError ไม่เลื่อน cursor · audit สรุปรอบมีรายการใบ', async () => {
+    const t = (await createTenantWithDefaults(db, { name: 'บริษัท หน้าผิด' })).id;
+    await company(t);
+    mock.push(t, ext('SHAPE-1'));
+    await svc.pull(t, 'mock');
+    const audit = await db.auditLog.findFirstOrThrow({
+      where: { tenantId: t, action: 'connector.orders_pulled' },
+    });
+    expect((audit.after as { items: unknown[] }).items).toEqual([
+      expect.objectContaining({ externalId: 'SHAPE-1', outcome: 'created' }),
+    ]);
+    const spy = vi
+      .spyOn(mock, 'pullOrders')
+      .mockResolvedValueOnce({ orders: [], nextCursor: '1', hasMore: true })
+      .mockResolvedValueOnce({ orders: 'x' as never, nextCursor: '2', hasMore: false })
+      .mockResolvedValueOnce({ orders: [ext('A'), ext('B')], nextCursor: '3', hasMore: false });
+    try {
+      for (const msg of ['without advancing', 'must be an array', '2 orders > limit 1']) {
+        const r = await svc.pull(t, 'mock', { pageSize: 1 });
+        expect(r.sourceError).toContain(msg);
+        expect((await cursorRow(t))!.cursor).toBe('1');
+      }
+    } finally {
+      spy.mockRestore();
+    }
+    expect(await db.salesOrder.count({ where: { tenantId: t } })).toBe(1);
   });
 
   it('production ไม่รับต้นทางจำลอง (เหมือน GEO_PROVIDER=mock)', () => {

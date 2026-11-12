@@ -46,7 +46,14 @@ export class MockOrderSource implements OrderSourcePort {
     const orders = all.slice(from, from + limit);
     const next = from + orders.length;
     return {
-      orders: structuredClone(orders),
+      // สำเนา (ผู้เรียกแก้ไม่กระทบคิว) — ค่าที่ clone ไม่ได้ (ฟังก์ชัน/getter: จำลองข้อมูลพิษ) ส่งตัวจริง
+      orders: orders.map((o) => {
+        try {
+          return structuredClone(o);
+        } catch {
+          return o;
+        }
+      }),
       nextCursor: String(next),
       hasMore: next < all.length,
     };
