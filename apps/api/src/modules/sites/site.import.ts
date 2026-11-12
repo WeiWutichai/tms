@@ -1,6 +1,6 @@
 import { iEquals } from '../../common/ilike';
 import { ADDRESS_COLUMNS, readAddress } from '../customers/customer.import';
-import { byCode, defineMasterImport, group, put } from '../imports/master-import';
+import { byCode, defineMasterImport, group, mergeGroup, put } from '../imports/master-import';
 import { CreateSiteDto, UpdateSiteDto } from './site.dto';
 import type { SitesService } from './sites.service';
 
@@ -114,13 +114,15 @@ export function siteImportSpec(svc: SitesService) {
         select: { id: true },
       }),
     ),
-    async build(r, op) {
+    current: (id, tx) => tx.customerSite.findUnique({ where: { id } }),
+    async build(r, op, cur) {
       const b: Record<string, unknown> = {};
+      const upd = op === 'update';
       if (op === 'create') put(b, 'code', r.text('code') ?? undefined);
       put(b, 'name', r.text('name'));
       put(b, 'kind', r.pick('kind', KINDS));
       put(b, 'customerId', await r.ref('customer', 'customer'));
-      put(b, 'address', readAddress(r));
+      put(b, 'address', upd ? mergeGroup(cur?.address, readAddress(r)) : readAddress(r));
       put(b, 'lat', r.num('lat'));
       put(b, 'lng', r.num('lng'));
       put(b, 'openTime', r.text('openTime'));
@@ -128,7 +130,8 @@ export function siteImportSpec(svc: SitesService) {
       put(b, 'maxVehicleClass', r.pick('maxVehicleClass', CLASSES));
       put(b, 'serviceTimeMin', r.int('serviceTimeMin'));
       put(b, 'dockCount', r.int('dockCount'));
-      put(b, 'contact', group({ name: r.text('contactName'), phone: r.text('contactPhone') }));
+      const contact = group({ name: r.text('contactName'), phone: r.text('contactPhone') });
+      put(b, 'contact', upd ? mergeGroup(cur?.contact, contact) : contact);
       const aliases = r.text('aliases');
       if (aliases !== undefined)
         b.aliases = aliases === null ? [] : aliases.split(/[,;\n]/).map((x) => x.trim());

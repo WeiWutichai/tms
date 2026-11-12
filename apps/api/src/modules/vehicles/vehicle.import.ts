@@ -1,6 +1,6 @@
 import type { Tx } from '../../db/db.service';
 import { defineMasterImport, put, type RowReader } from '../imports/master-import';
-import { PROVINCES } from './provinces';
+import { provinceOf } from './provinces';
 import { CreateVehicleDto, UpdateVehicleDto } from './vehicle.dto';
 import { plateKey, plateNorm, type VehiclesService } from './vehicles.service';
 
@@ -15,15 +15,6 @@ const FUEL = {
   HYBRID: ['ไฮบริด'],
 };
 const label = (m: Record<string, string[]>) => Object.values(m).map((l) => l[0]!);
-const nd = (s: string) => s.replace(/[.\s]/g, '');
-
-/** จังหวัด: รหัส TH-xx / ชื่อเต็ม / อักษรย่อบนป้าย (มีหรือไม่มีจุด) */
-export function provinceOf(v: string): string | null {
-  const n = nd(v);
-  const p = PROVINCES.find((x) => x[0] === v.toUpperCase() || x[1] === v.trim() || nd(x[2]) === n);
-  return p?.[0] ?? null;
-}
-
 /** "70-7781 กทม." (ต้นแบบ — ทะเบียนกับจังหวัดในช่องเดียว) → ทะเบียน + จังหวัด */
 function splitPlate(values: Record<string, string>): { plate?: string; province?: string } {
   const raw = values.plate?.trim() ?? '';
@@ -113,6 +104,7 @@ export function vehicleImportSpec(svc: VehiclesService) {
       },
       {
         key: 'carrier',
+        requiredWhen: 'เมื่อเจ้าของเป็นรถร่วม',
         header: 'ผู้รับเหมา',
         aliases: ['Carrier', 'Vendor'],
         fields: ['carrierId'],
@@ -148,7 +140,12 @@ export function vehicleImportSpec(svc: VehiclesService) {
       { key: 'tareWeightKg', header: 'น้ำหนักรถเปล่า (กก.)', aliases: ['Tare'] },
       { key: 'grossWeightKg', header: 'น้ำหนักรวม (กก.)', aliases: ['GVW'] },
       { key: 'volumeCbm', header: 'ปริมาตร (ลบ.ม.)', aliases: ['Volume'] },
-      { key: 'gpsProvider', header: 'ผู้ให้บริการ GPS', aliases: ['GPS'] },
+      {
+        key: 'gpsProvider',
+        requiredWhen: 'เมื่อกรอกเลขอุปกรณ์ GPS',
+        header: 'ผู้ให้บริการ GPS',
+        aliases: ['GPS'],
+      },
       { key: 'gpsDeviceId', header: 'เลขอุปกรณ์ GPS', aliases: ['GPS ID'] },
       {
         key: 'odometerKm',
@@ -169,21 +166,21 @@ export function vehicleImportSpec(svc: VehiclesService) {
           return plate ? `${plateNorm(plate)}|${p ?? ''}` : null;
         },
       },
+      {
+        column: 'chassisNo',
+        label: 'เลขตัวถัง',
+        key: (v) => v.chassisNo?.replace(/[\s\-./]/g, '').toUpperCase() || null,
+      },
     ],
     findExisting,
-    async checkFile(ctx, rows) {
+    // MD-289: นับเฉพาะรถใหม่ที่ผ่านการตรวจ (แถวผิด/แถวที่แก้คันเดิมไม่นับ)
+    async quota(tx) {
       const limit = await svc.quotaLimit();
       if (limit === null) return null;
-      const used = await ctx.tx.vehicle.count({
+      const used = await tx.vehicle.count({
         where: { deletedAt: null, status: { not: 'RETIRED' } },
       });
-      let adding = rows.length;
-      if (ctx.mode !== 'create_only') {
-        adding = 0;
-        for (const r of rows) if (!(await findExisting(r.values, ctx.tx))) adding++;
-      }
-      if (used + adding <= limit) return null;
-      return `เกินโควตารถตามแพ็กเกจ: ใช้อยู่ ${used} จาก ${limit} คัน ไฟล์นี้เพิ่มรถใหม่ ${adding} คัน (เหลือได้อีก ${Math.max(0, limit - used)} คัน) — ซื้อ add-on หรือแบ่งไฟล์`;
+      return { limit, used, label: 'รถ' };
     },
     async build(r, op) {
       const b: Record<string, unknown> = {};

@@ -31,6 +31,8 @@ export interface ImportColumn {
   sensitive?: boolean;
   /** ค่าที่เลือกได้ — template ใส่ data validation แบบรายการ (dropdown) ให้คอลัมน์นี้ */
   options?: string[];
+  /** บังคับตามเงื่อนไข เช่น "เมื่อเจ้าของเป็นรถร่วม" — แสดงใน sheet คำอธิบาย และใช้ในเหตุผล "ต้องกรอก … เมื่อ …" */
+  requiredWhen?: string;
 }
 
 /** ปัญหาของแถว — code ตาม spec/02 §11.4 (required, invalid_format, duplicate_in_file, duplicate_in_db, reference_not_found …) */
@@ -40,6 +42,8 @@ export interface RowIssue {
   /** ข้อความไทยที่ผู้ใช้อ่านแล้วแก้ไฟล์ได้ */
   message: string;
   severity?: 'error' | 'warning';
+  /** path ใน body ของ API ที่ผิด (ใช้ภายใน spec — ไม่เก็บใน import_job) */
+  field?: string;
 }
 
 export interface ImportContext {
@@ -54,7 +58,12 @@ export interface ImportContext {
    * มีเฉพาะการตรวจซ้ำตอนยืนยัน: spec ที่ตรวจด้วยการเขียนจริงใน savepoint (ข้อมูลหลัก) เก็บผลไว้ได้เลยแทนการเขียนซ้ำใน commit
    * — ต้องย้อนทิ้งทั้งหมดเมื่อ `all_or_nothing` และมีแถวผิด (รวม `rejectedRows` ที่ framework ตัดไปก่อนถึง spec)
    */
-  apply?: { errorPolicy: ErrorPolicy; rejectedRows: number };
+  apply?: {
+    errorPolicy: ErrorPolicy;
+    rejectedRows: number;
+    /** spec ตั้ง true เมื่อเก็บการเขียนไว้แล้ว — framework ไม่เรียก commit (นับแถวที่ผ่านเป็นแถวที่นำเข้า) */
+    written?: boolean;
+  };
 }
 
 export interface RowInput {
@@ -97,7 +106,10 @@ export interface ImportSpec<T = unknown> {
    */
   requiredOnCreateOnly?: boolean;
   /** ตรวจระดับไฟล์ก่อนตรวจรายแถว (เช่น โควตาจำนวนรถ — MD-289) — คืนข้อความไทย = ปฏิเสธทั้งไฟล์ */
-  checkFile?(ctx: ImportContext, rows: RowInput[]): Promise<string | null>;
+  checkFile?(
+    ctx: ImportContext,
+    rows: RowInput[],
+  ): Promise<string | { code: 'quota_exceeded' | 'file_rejected'; message: string } | null>;
   /** ตรวจทุกแถวโดยไม่เขียนข้อมูล (dry-run) — ต้องคืนผลยาวเท่า rows และตามลำดับเดิม */
   validate(ctx: ImportContext, rows: RowInput[]): Promise<RowResult<T>[]>;
   /** เขียนแถวที่ผ่าน (ใน transaction เดียวกับการยืนยัน) — คืนจำนวนที่เขียน */

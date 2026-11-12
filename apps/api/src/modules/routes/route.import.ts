@@ -61,6 +61,19 @@ export function routeImportSpec(svc: RoutesService) {
       { key: 'externalId', header: 'รหัสในระบบอื่น', aliases: ['External ID', 'externalId'] },
     ],
     uniqueInFile: [{ column: 'code', label: 'รหัส', key: (v) => v.code?.toUpperCase() || null }],
+    // คู่ต้นทาง–ปลายทางซ้ำในไฟล์ (หลังแปลงรหัส/ชื่อเป็นสถานที่เดียวกัน) — ในระบบตรวจโดย service
+    inFile: (body, prior) => {
+      const hit = prior.find(
+        (p) => p.body.originId === body.originId && p.body.destinationId === body.destinationId,
+      );
+      return hit && body.originId
+        ? {
+            column: 'origin',
+            code: 'duplicate_in_file',
+            message: `คู่ต้นทาง–ปลายทางซ้ำกับแถว ${hit.row} ในไฟล์เดียวกัน`,
+          }
+        : null;
+    },
     findExisting: byCode((tx, code) =>
       tx.route.findFirst({ where: { code: iEquals(code), deletedAt: null }, select: { id: true } }),
     ),

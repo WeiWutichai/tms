@@ -4,6 +4,7 @@ import {
   byCode,
   defineMasterImport,
   group,
+  mergeGroup,
   put,
   type MasterColumn,
   type RowReader,
@@ -82,6 +83,29 @@ export function readBranch(r: RowReader, key = 'branchCode'): string | null | un
   if (/^\d{1,4}$/.test(v)) return v.padStart(5, '0');
   return v;
 }
+
+/**
+ * ผู้ติดต่อจากไฟล์ (1 คน = ผู้ติดต่อหลัก): สร้าง = รายการเดียว · แก้ = แก้เฉพาะผู้ติดต่อหลัก (ช่องว่างคงค่าเดิม)
+ * ผู้ติดต่ออื่นคงไว้ (MD-284) · ล้างทุกช่อง = ลบผู้ติดต่อหลัก
+ */
+export function mergeContacts(
+  current: unknown,
+  given: Record<string, unknown> | null,
+): Record<string, unknown>[] {
+  const list = Array.isArray(current)
+    ? (current as Record<string, unknown>[]).map((c) => ({ ...c }))
+    : [];
+  let i = list.findIndex((c) => c.isPrimary === true);
+  if (i < 0 && list.length) i = 0;
+  if (given === null) return i < 0 ? list : list.filter((_, j) => j !== i);
+  if (i < 0) return [{ ...stripNull(given), isPrimary: true }];
+  const merged = mergeGroup(list[i], given);
+  if (!merged) return list.filter((_, j) => j !== i);
+  list[i] = { ...merged, isPrimary: true };
+  return list;
+}
+const stripNull = (o: Record<string, unknown>) =>
+  Object.fromEntries(Object.entries(o).filter(([, v]) => v !== null));
 
 const CYCLES = {
   PER_DO: ['ต่อเที่ยว', 'ต่อ DO'],
@@ -225,7 +249,8 @@ export function customerImportSpec(svc: CustomersService) {
         select: { id: true },
       }),
     ),
-    async build(r, op) {
+    current: (id, tx) => tx.customer.findUnique({ where: { id } }),
+    async build(r, op, cur) {
       const b: Record<string, unknown> = {};
       if (op === 'create') put(b, 'code', r.text('code') ?? undefined);
       put(b, 'legalName', r.text('legalName'));
@@ -237,13 +262,18 @@ export function customerImportSpec(svc: CustomersService) {
       put(b, 'defaultVatType', r.pick('defaultVatType', VAT));
       put(b, 'whtExpectedRate', r.pick('whtExpectedRate', WHT));
       put(b, 'vatRegistered', r.bool('vatRegistered'));
-      put(b, 'billingAddress', readAddress(r));
+      put(
+        b,
+        'billingAddress',
+        op === 'update' ? mergeGroup(cur?.billingAddress, readAddress(r)) : readAddress(r),
+      );
       const contact = group({
         name: r.text('contactName'),
         phone: r.text('contactPhone'),
         email: r.text('contactEmail'),
       });
-      if (contact !== undefined) b.contacts = contact ? [{ ...contact, isPrimary: true }] : [];
+      if (contact !== undefined)
+        b.contacts = mergeContacts(op === 'update' ? cur?.contacts : [], contact);
       put(b, 'externalId', r.text('externalId'));
       return b;
     },

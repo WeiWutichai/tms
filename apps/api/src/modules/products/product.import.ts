@@ -47,6 +47,7 @@ export function productImportSpec(svc: ProductsService) {
       },
       {
         key: 'weightPerUnitKg',
+        requiredWhen: 'เมื่อหน่วยหลักเป็นหน่วยนับ (ชิ้น ถุง กล่อง …)',
         header: 'น้ำหนักต่อหน่วย (กก.)',
         aliases: ['Weight'],
         example: '25',
@@ -72,9 +73,16 @@ export function productImportSpec(svc: ProductsService) {
         example: 'ไม่',
         options: ['ใช่', 'ไม่'],
       },
-      { key: 'unNumber', header: 'เลข UN', aliases: ['UN'], hint: '4 หลัก (สินค้าอันตราย)' },
+      {
+        key: 'unNumber',
+        requiredWhen: 'เมื่อเป็นสินค้าอันตราย',
+        header: 'เลข UN',
+        aliases: ['UN'],
+        hint: '4 หลัก (สินค้าอันตราย)',
+      },
       {
         key: 'hazardClass',
+        requiredWhen: 'เมื่อเป็นสินค้าอันตราย',
         header: 'ประเภทอันตราย',
         aliases: ['Hazard class'],
         options: [...HAZARD_CLASSES],
@@ -86,8 +94,18 @@ export function productImportSpec(svc: ProductsService) {
         example: 'ไม่',
         options: ['ใช่', 'ไม่'],
       },
-      { key: 'tempMinC', header: 'อุณหภูมิต่ำสุด (°C)', aliases: ['Temp min'] },
-      { key: 'tempMaxC', header: 'อุณหภูมิสูงสุด (°C)', aliases: ['Temp max'] },
+      {
+        key: 'tempMinC',
+        requiredWhen: 'เมื่อควบคุมอุณหภูมิ',
+        header: 'อุณหภูมิต่ำสุด (°C)',
+        aliases: ['Temp min'],
+      },
+      {
+        key: 'tempMaxC',
+        requiredWhen: 'เมื่อควบคุมอุณหภูมิ',
+        header: 'อุณหภูมิสูงสุด (°C)',
+        aliases: ['Temp max'],
+      },
       {
         key: 'stackable',
         header: 'วางซ้อนได้',

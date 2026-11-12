@@ -4,8 +4,11 @@ import { iEquals, likeEscape } from '../../common/ilike';
 import { ProblemException } from '../../common/problem';
 import { assertPriceWriteAllowed } from '../../common/price-fields';
 import { createValidationPipe } from '../../common/validation';
+import { cleanLine } from '../master/master-kit';
+import { ImportFileError } from './parse';
 import type { Tx } from '../../db/db.service';
-import { plateNorm } from '../vehicles/vehicles.service';
+import { provinceOf } from '../vehicles/provinces';
+import { plateKey, plateNorm } from '../vehicles/vehicles.service';
 import {
   parseImportDate,
   type ImportColumn,
@@ -71,7 +74,8 @@ export class Lookup {
     this.misses.clear();
   }
 
-  find(kind: RefKind, v: string): Promise<Found> {
+  find(kind: RefKind, raw: string): Promise<Found> {
+    const v = cleanLine(raw);
     const k = `${kind}:${v.toLowerCase()}`;
     let p = this.cache.get(k);
     if (!p) {
@@ -184,9 +188,17 @@ export class Lookup {
         };
       }
       case 'vehicle': {
-        // ทะเบียนอย่างเดียว (ไม่มีจังหวัด) — ตรงกันหลายจังหวัด = กำกวม
+        // "70-1234 กทม." = ทะเบียน + จังหวัด (ตรงตัว) · ทะเบียนอย่างเดียว — ตรงกันหลายจังหวัด = กำกวม · ไม่นับคันที่ปลดระวาง
+        const m = /^(.*\S)\s+(\S+)$/.exec(v);
+        const prov = m ? provinceOf(m[2]!) : null;
         const rows = await tx.vehicle.findMany({
-          where: { ...live, plateKey: { startsWith: `${likeEscape(plateNorm(v))}|` } },
+          where: {
+            ...live,
+            status: { not: 'RETIRED' },
+            ...(prov
+              ? { plateKey: plateKey(m![1]!, prov) }
+              : { plateKey: { startsWith: `${likeEscape(plateNorm(v))}|` } }),
+          },
           select: sel,
           take: 2,
         });
@@ -261,10 +273,12 @@ export class RowReader {
   }
 
   /** เงิน/ทศนิยมแบบข้อความ (ไม่ผ่าน float) — ตรวจจำนวนทศนิยมที่ DTO */
-  decimal(key: string): string | null | undefined {
+  decimal(key: string, places = 2): string | null | undefined {
     const v = this.numeric(key);
     if (typeof v !== 'string') return v;
     if (!/^\d+(\.\d+)?$/.test(v)) return this.bad(key, 'ต้องเป็นตัวเลขไม่ติดลบ');
+    if ((v.split('.')[1]?.length ?? 0) > places)
+      return this.bad(key, `ทศนิยมไม่เกิน ${places} ตำแหน่ง`);
     return v;
   }
 
@@ -328,18 +342,57 @@ export class RowReader {
   }
 }
 
+/** ค่าใน body ตาม path ของ validator (`address.line1`, `contacts.0.phone`) */
+function getPath(o: unknown, path: string): unknown {
+  let cur: unknown = o;
+  for (const p of path.split('.')) {
+    if (cur === null || cur === undefined || typeof cur !== 'object') return undefined;
+    cur = (cur as Record<string, unknown>)[p];
+  }
+  return cur;
+}
+
 /** ใส่ค่าใน body เฉพาะที่มี (undefined = ไม่ส่ง) */
 export function put(body: Record<string, unknown>, key: string, v: unknown): void {
   if (v !== undefined) body[key] = v;
 }
 
-/** object ย่อย (ที่อยู่ ผู้ติดต่อ บัญชี): ไม่มีค่าเลย = ไม่ส่ง · ล้างทุกช่อง = null */
+/**
+ * object ย่อย (ที่อยู่ ผู้ติดต่อ บัญชี) จากหลายคอลัมน์: ไม่มีค่าเลย = ไม่ส่ง · ล้าง (`__CLEAR__`) ทุกช่องที่ให้มา = null ·
+ * ช่องที่ล้างบางช่อง = null ในผลลัพธ์ (ใช้กับ `mergeGroup` ตอนแก้ — สร้างใหม่ไม่มี null เพราะ `__CLEAR__` = ไม่ส่ง)
+ */
 export function group(parts: Record<string, unknown>): Record<string, unknown> | null | undefined {
   const given = Object.entries(parts).filter(([, v]) => v !== undefined);
   if (!given.length) return undefined;
   if (given.every(([, v]) => v === null)) return null;
-  return Object.fromEntries(given.filter(([, v]) => v !== null));
+  return Object.fromEntries(given);
 }
+
+/**
+ * แก้ object ย่อยของแถวเดิม (MD-284 ช่องว่าง = ไม่แก้): เอาค่าที่ให้มาทับค่าเดิมทีละช่อง, ช่องที่ล้าง = ลบช่องนั้น
+ * (เช่น ไฟล์มีแค่ "รหัสไปรษณีย์" → ที่อยู่บรรทัดอื่นคงเดิม) · ล้างทุกช่อง = null
+ */
+export function mergeGroup(
+  current: unknown,
+  given: Record<string, unknown> | null | undefined,
+): Record<string, unknown> | null | undefined {
+  if (given === undefined || given === null) return given;
+  const base =
+    current && typeof current === 'object' && !Array.isArray(current)
+      ? { ...(current as Record<string, unknown>) }
+      : {};
+  for (const [k, v] of Object.entries(given)) {
+    if (v === null) delete base[k];
+    else base[k] = v;
+  }
+  return Object.keys(base).length ? base : null;
+}
+
+/** ปัญหาระดับแถวที่ต้องดูแถวอื่นในไฟล์ (เช่น ช่วงวัน rate ทับกัน) — prior = แถวก่อนหน้าที่ผ่านแล้ว */
+export type InFileCheck = (
+  body: Record<string, unknown>,
+  prior: { row: number; body: Record<string, unknown> }[],
+) => RowIssue | null;
 
 export interface MasterImportDef {
   kind: string;
@@ -356,14 +409,31 @@ export interface MasterImportDef {
   identity?: string;
   /** แถวเดิมในระบบ (โหมด upsert_by_code/update_only) — คืน uuid */
   findExisting?(values: Record<string, string>, tx: Tx): Promise<string | null>;
-  /** ค่าซ้ำในไฟล์ (MD-283) — key ว่าง = ไม่ตรวจ */
+  /** แถวเดิม (ค่าดิบ) — ให้ build รวม object ย่อยกับค่าเดิม (MD-284) */
+  current?(id: string, tx: Tx): Promise<Record<string, unknown> | null>;
+  /** path ใน body → คอลัมน์ ตามค่าที่ผู้ใช้กรอก (เช่น ต้นทาง/ปลายทางที่มาจากรหัสเส้นทาง → คอลัมน์เส้นทาง) */
+  columnFor?(field: string, values: Record<string, string>): string | undefined;
+  /** ค่าซ้ำในไฟล์ (MD-283) — key ว่าง = ไม่ตรวจ · externalId ตรวจให้อัตโนมัติ */
   uniqueInFile?: {
     column: string;
     label: string;
     key(values: Record<string, string>): string | null;
   }[];
-  /** แถว → body ของ API (create = POST, update = PATCH) */
-  build(r: RowReader, op: 'create' | 'update'): Promise<Record<string, unknown>>;
+  /** กฎซ้ำ/ทับในไฟล์ที่ต้องใช้ค่าหลังแปลงแล้ว (id ที่อ้าง) */
+  inFile?: InFileCheck;
+  /**
+   * แถวที่แถวอื่นในไฟล์อ้างถึง (เช่น ผู้รับเหมาหลัก) — ขั้นตรวจคงแถวนี้ไว้ใน savepoint ให้แถวหลังอ้างได้
+   * แถวอื่นย้อนทิ้งทันทีหลังตรวจ (ไม่ถือ lock ของ service ข้ามแถว)
+   */
+  selfRef?: { column: string; identities(values: Record<string, string>): string[] };
+  /** โควตา (MD-289): นับเฉพาะแถวที่จะสร้างใหม่จริง (ผ่านการตรวจ) */
+  quota?(tx: Tx): Promise<{ limit: number; used: number; label: string } | null>;
+  /** แถว → body ของ API (create = POST, update = PATCH; current = แถวเดิมเมื่อแก้) */
+  build(
+    r: RowReader,
+    op: 'create' | 'update',
+    current: Record<string, unknown> | null,
+  ): Promise<Record<string, unknown>>;
   create(dto: object): Promise<unknown>;
   update?(id: string, dto: object): Promise<unknown>;
   /** คำเตือนหลังผ่าน (ไม่ขวางการนำเข้า) */
@@ -372,6 +442,15 @@ export interface MasterImportDef {
 }
 
 const isError = (x: RowIssue) => (x.severity ?? 'error') === 'error';
+const norm2 = (s: string) => cleanLine(s).toLowerCase();
+
+interface RunState {
+  lookup: Lookup;
+  seen: Map<string, number>[];
+  prior: { row: number; body: Record<string, unknown> }[];
+  /** identity (ตัวเล็ก) ที่แถวอื่นในไฟล์อ้างถึง */
+  referenced: Set<string>;
+}
 
 export function defineMasterImport(def: MasterImportDef): ImportSpec<MasterValue> {
   const pipe = createValidationPipe();
@@ -386,14 +465,90 @@ export function defineMasterImport(def: MasterImportDef): ImportSpec<MasterValue
     );
   };
   const modes = def.modes ?? ['create_only'];
-  /** งานนำเข้าที่ validate (ตอนยืนยัน) เขียนจริงแล้ว — commit ไม่ต้องเขียนซ้ำ */
-  const applied = new Set<string>();
+  const header = (key?: string) => def.columns.find((c) => c.key === key)?.header;
+  /**
+   * error ของ API → ปัญหารายแถวที่อ่านแล้วแก้ไฟล์ได้: 1 ข้อต่อคอลัมน์ (ไม่ซ้อนข้อความ validator หลายข้อ)
+   * - ช่องที่ล้าง (`__CLEAR__` → null) แต่ API ไม่ให้ว่าง = "ล้างค่าไม่ได้"
+   * - ช่องย่อยของกลุ่ม (ที่อยู่/ผู้ติดต่อ/บัญชี) ขาด = กรอกให้ครบทั้งกลุ่ม หรือเว้นทั้งกลุ่ม
+   * - บังคับตามเงื่อนไข = "ต้องกรอก "X" เมื่อ …" (requiredWhen ของคอลัมน์)
+   */
+  const apiIssues = (
+    e: unknown,
+    body: Record<string, unknown>,
+    values: Record<string, string>,
+  ): RowIssue[] | null => {
+    const raw = issuesFromError(e, (f) => def.columnFor?.(f, values) ?? columnOf(f));
+    if (!raw) return null;
+    const out: RowIssue[] = [];
+    const done = new Set<string>();
+    // code ของ validator/ช่องบังคับ (ค่าไม่มี → ทุก constraint ล้ม) — code เฉพาะของ service (carrier_required …) คงไว้
+    const MISSING = new Set([
+      'required',
+      'isDefined',
+      'isNotEmpty',
+      'isString',
+      'isIn',
+      'isInt',
+      'isNumber',
+      'isBoolean',
+      'isEmail',
+      'matches',
+      'maxLength',
+      'minLength',
+      'min',
+      'max',
+      'isArray',
+      'isISO8601',
+      'thai_tax_id',
+    ]);
+    for (const x of raw) {
+      const { field, ...rest } = x;
+      let y: RowIssue = rest;
+      if (field) {
+        const v = getPath(body, field);
+        const col = def.columns.find((c) => c.key === x.column);
+        const h = col?.header ?? header(x.column);
+        if (v === null && field.split('.').length === 1)
+          y = { ...rest, code: 'not_clearable', message: 'ช่องนี้ล้างค่าไม่ได้ (ต้องมีค่า)' };
+        else if (v === undefined && MISSING.has(x.code) && field.includes('.'))
+          y = {
+            ...rest,
+            code: 'required',
+            message: `ต้องกรอก "${h ?? field}" ด้วย — กรอกให้ครบทั้งกลุ่ม หรือเว้นว่างทั้งกลุ่ม`,
+          };
+        else if (v === undefined && MISSING.has(x.code))
+          y = {
+            ...rest,
+            code: 'required',
+            message: `ต้องกรอก "${h ?? field}"${col?.requiredWhen ? ` ${col.requiredWhen}` : ''}`,
+          };
+      }
+      const k = y.column ?? `#${y.code}`;
+      if (done.has(k)) continue;
+      done.add(k);
+      out.push(y);
+    }
+    return out;
+  };
+  const unique = [
+    ...(def.uniqueInFile ?? []),
+    ...(def.columns.some((c) => c.key === 'externalId')
+      ? [
+          {
+            column: 'externalId',
+            label: 'รหัสในระบบอื่น',
+            key: (v: Record<string, string>) => v.externalId || null,
+          },
+        ]
+      : []),
+  ];
 
   async function one(
     ctx: ImportContext,
-    lookup: Lookup,
-    seen: Map<string, number>[],
+    st: RunState,
     r: RowInput,
+    /** true = เก็บการเขียนไว้ (ตอนยืนยัน หรือแถวที่แถวอื่นอ้าง) · false = ตรวจแล้วย้อนทิ้งทันที */
+    keep: boolean,
   ): Promise<RowResult<MasterValue>> {
     const issues: RowIssue[] = [];
     let op: 'create' | 'update' = 'create';
@@ -419,22 +574,25 @@ export function defineMasterImport(def: MasterImportDef): ImportSpec<MasterValue
       for (const c of def.columns)
         if (c.required && !r.values[c.key])
           issues.push({ column: c.key, code: 'required', message: `ต้องกรอก "${c.header}"` });
-    def.uniqueInFile?.forEach((u, i) => {
+    unique.forEach((u, i) => {
       const k = u.key(r.values);
-      if (!k) return;
-      const first = seen[i]!.get(k);
+      if (!k || k.toUpperCase().includes(CLEAR)) return;
+      const first = st.seen[i]!.get(k);
       if (first !== undefined)
         issues.push({
           column: u.column,
           code: 'duplicate_in_file',
           message: `${u.label}ซ้ำกับแถว ${first} ในไฟล์เดียวกัน`,
         });
-      else seen[i]!.set(k, r.row);
+      else st.seen[i]!.set(k, r.row);
     });
-    const reader = new RowReader(r.values, op === 'update', lookup);
-    const body = await def.build(reader, op);
+    const current = op === 'update' && def.current ? await def.current(id!, ctx.tx) : null;
+    const reader = new RowReader(r.values, op === 'update', st.lookup);
+    const body = await def.build(reader, op, current);
     issues.push(...reader.issues);
     if (issues.some(isError)) return { issues };
+    const clash = def.inFile?.(body, st.prior);
+    if (clash) return { issues: [...issues, clash] };
     // DTO + ValidationPipe เดียวกับ request (whitelist, field แปลกปลอม = ผิด, CleanText/NormalizeCode)
     let dto: object;
     try {
@@ -444,28 +602,48 @@ export function defineMasterImport(def: MasterImportDef): ImportSpec<MasterValue
       })) as object;
       assertPriceWriteAllowed(body);
     } catch (e) {
-      const x = issuesFromError(e, columnOf);
+      const x = apiIssues(e, body, r.values);
       if (!x) throw e;
       return { issues: [...issues, ...x] };
     }
-    // กฎธุรกิจ: service ตัวเดียวกับ API ใน savepoint (ผ่าน = คงไว้จนจบไฟล์ให้แถวถัดไปเห็น · ผิด = ย้อนเฉพาะแถวนี้)
+    // กฎธุรกิจ: service ตัวเดียวกับ API ใน savepoint ของแถว — ตรวจแล้วย้อนทิ้งทันที (ปล่อย lock ของ service)
+    // ยกเว้นตอนยืนยัน หรือแถวที่แถวหลังในไฟล์อ้างถึง
     await ctx.tx.$executeRawUnsafe('SAVEPOINT tms_import_row');
     try {
       if (op === 'update') await def.update!(id!, dto);
       else await def.create(dto);
-      await ctx.tx.$executeRawUnsafe('RELEASE SAVEPOINT tms_import_row');
-      lookup.forgetMisses();
     } catch (e) {
       await ctx.tx.$executeRawUnsafe('ROLLBACK TO SAVEPOINT tms_import_row');
       await ctx.tx.$executeRawUnsafe('RELEASE SAVEPOINT tms_import_row');
-      const x = issuesFromError(e, columnOf);
+      const x = apiIssues(e, body, r.values);
       if (!x) throw e;
       return { issues: [...issues, ...x] };
     }
-    const w = new RowReader(r.values, op === 'update', lookup);
+    if (!keep) await ctx.tx.$executeRawUnsafe('ROLLBACK TO SAVEPOINT tms_import_row');
+    await ctx.tx.$executeRawUnsafe('RELEASE SAVEPOINT tms_import_row');
+    if (keep) st.lookup.forgetMisses();
+    st.prior.push({ row: r.row, body });
+    const w = new RowReader(r.values, op === 'update', st.lookup);
     def.warnings?.(w, body, op);
     return { issues: [...issues, ...w.issues], value: { op, ...(id ? { id } : {}), input: r } };
   }
+
+  function state(ctx: ImportContext, rows: RowInput[]): RunState {
+    const referenced = new Set<string>();
+    if (def.selfRef)
+      for (const r of rows) {
+        const v = r.values[def.selfRef.column];
+        if (v) referenced.add(norm2(v));
+      }
+    return {
+      lookup: new Lookup(ctx.tx),
+      seen: unique.map(() => new Map<string, number>()),
+      prior: [],
+      referenced,
+    };
+  }
+  const isReferenced = (st: RunState, r: RowInput) =>
+    !!def.selfRef && def.selfRef.identities(r.values).some((x) => x && st.referenced.has(norm2(x)));
 
   return {
     kind: def.kind,
@@ -478,41 +656,54 @@ export function defineMasterImport(def: MasterImportDef): ImportSpec<MasterValue
     requiredOnCreateOnly: true,
     ...(def.checkFile ? { checkFile: def.checkFile } : {}),
     async validate(ctx, rows) {
-      const lookup = new Lookup(ctx.tx);
-      const seen = (def.uniqueInFile ?? []).map(() => new Map<string, number>());
+      const st = state(ctx, rows);
+      const apply = !!ctx.apply;
+      const quota = def.quota ? await def.quota(ctx.tx) : null;
       const out: RowResult<MasterValue>[] = [];
-      // dry-run: ทุกการเขียนของ service อยู่ใน savepoint นี้แล้วย้อนทิ้งทั้งหมด (MD-281)
+      // ขั้นตรวจ (MD-281): ทุกการเขียนอยู่ใน savepoint นี้ แล้วย้อนทิ้งทั้งหมดตอนจบ
+      // ยืนยัน: เก็บไว้ (แถวผิดย้อนทีละแถวแล้ว) ยกเว้นทั้งหมดหรือไม่เลยที่มีแถวผิด / เกินโควตา
       await ctx.tx.$executeRawUnsafe('SAVEPOINT tms_import_dry');
-      try {
-        for (const r of rows) out.push(await one(ctx, lookup, seen, r));
-      } catch (e) {
+      const discard = async () => {
         await ctx.tx.$executeRawUnsafe('ROLLBACK TO SAVEPOINT tms_import_dry');
         await ctx.tx.$executeRawUnsafe('RELEASE SAVEPOINT tms_import_dry');
+      };
+      try {
+        for (const r of rows) out.push(await one(ctx, st, r, apply || isReferenced(st, r)));
+      } catch (e) {
+        await discard();
         throw e;
       }
-      // ตรวจซ้ำตอนยืนยัน: เก็บการเขียนไว้เลย (แถวผิดถูกย้อนทีละแถวแล้ว) — ยกเว้นทั้งหมดหรือไม่เลยที่มีแถวผิด
-      const keep =
-        !!ctx.apply &&
-        !(
-          ctx.apply.errorPolicy === 'all_or_nothing' &&
-          (ctx.apply.rejectedRows > 0 || out.some((x) => !x.value))
+      const creates = out.filter((x) => x.value?.op === 'create').length;
+      if (quota && quota.used + creates > quota.limit) {
+        await discard();
+        throw new ImportFileError(
+          'quota_exceeded',
+          `เกินโควตา${quota.label}ตามแพ็กเกจ: ใช้อยู่ ${quota.used} จาก ${quota.limit} ไฟล์นี้เพิ่มใหม่ ${creates} (เหลือได้อีก ${Math.max(0, quota.limit - quota.used)}) — ซื้อ add-on หรือแบ่งไฟล์`,
         );
-      if (!keep) await ctx.tx.$executeRawUnsafe('ROLLBACK TO SAVEPOINT tms_import_dry');
-      await ctx.tx.$executeRawUnsafe('RELEASE SAVEPOINT tms_import_dry');
-      if (keep) applied.add(ctx.importJobId);
+      }
+      const keep =
+        apply &&
+        !(
+          ctx.apply!.errorPolicy === 'all_or_nothing' &&
+          (ctx.apply!.rejectedRows > 0 || out.some((x) => !x.value))
+        );
+      if (keep) {
+        await ctx.tx.$executeRawUnsafe('RELEASE SAVEPOINT tms_import_dry');
+        ctx.apply!.written = true; // framework ไม่ต้องเรียก commit
+      } else await discard();
       return out;
     },
     /**
-     * เขียนจริง: ประมวลผลแถวที่ผ่านใหม่ตามลำดับด้วยขั้นตอนเดียวกับ dry-run (ไม่ย้อนทิ้ง) — อ้างอิงถึงแถวก่อนหน้าในไฟล์
-     * ได้ id จริง · แถวที่ผ่านตอนตรวจแต่ล้มตอนเขียน (ข้อมูลถูกแก้พร้อมกัน) = ยกเลิกทั้งการนำเข้า (transaction เดียว)
+     * เขียนจริงเมื่อ framework ไม่ได้ตรวจแบบ apply: ประมวลผลแถวที่ผ่านใหม่ตามลำดับด้วยขั้นตอนเดียวกัน (เก็บการเขียน)
+     * แถวที่ผ่านตอนตรวจแต่ล้มตอนเขียน (ข้อมูลถูกแก้พร้อมกัน) = ยกเลิกทั้งการนำเข้า (transaction เดียว)
      */
     async commit(ctx, rows) {
-      // เขียนไปแล้วตอนตรวจซ้ำใน transaction เดียวกัน (ctx.apply)
-      if (applied.delete(ctx.importJobId)) return rows.length;
-      const lookup = new Lookup(ctx.tx);
-      const seen = (def.uniqueInFile ?? []).map(() => new Map<string, number>());
+      const st = state(
+        ctx,
+        rows.map((r) => r.value.input),
+      );
       for (const { value } of rows) {
-        const res = await one(ctx, lookup, seen, value.input);
+        const res = await one(ctx, st, value.input, true);
         if (!res.value)
           throw new ProblemException(
             'conflict',
@@ -525,8 +716,8 @@ export function defineMasterImport(def: MasterImportDef): ImportSpec<MasterValue
 }
 
 /**
- * ไฟล์ข้อมูลหลักเกินกี่แถววิ่งเป็น job — ตรวจแต่ละแถวด้วย service จริง (หลาย query/แถว) และยืนยันตรวจซ้ำอีกรอบ
- * ต้องเสร็จใน transaction ของ request (15 วินาที)
+ * ไฟล์ข้อมูลหลักเกินกี่แถววิ่งเป็น job — ตรวจแต่ละแถวด้วย service จริง (หลาย query/แถว)
+ * ต้องเสร็จใน transaction ของ request (15 วินาที) — วัดใน test/master-imports.test.ts
  */
 export const MASTER_SYNC_MAX_ROWS = 200;
 

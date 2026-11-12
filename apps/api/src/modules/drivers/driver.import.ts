@@ -88,6 +88,7 @@ export function driverImportSpec(svc: DriversService) {
       },
       {
         key: 'carrier',
+        requiredWhen: 'เมื่อประเภทเป็นคนขับรถร่วม',
         header: 'ผู้รับเหมา',
         aliases: ['Carrier', 'Vendor'],
         fields: ['carrierId'],
@@ -108,6 +109,11 @@ export function driverImportSpec(svc: DriversService) {
         column: 'phone',
         label: 'เบอร์',
         key: (v) => v.phone?.replace(/[\s-]/g, '').replace(/^\+66/, '0') || null,
+      },
+      {
+        column: 'nationalId',
+        label: 'เลขบัตรประชาชน',
+        key: (v) => v.nationalId?.replace(/[\s-]/g, '') || null,
       },
     ],
     findExisting: byCode((tx, code) =>

@@ -30,7 +30,6 @@ import {
   type ServiceItem,
   type ServiceItemFilters,
 } from './useServiceItems';
-import { ImportExcelButton } from '../imports/ImportExcelButton';
 
 const EMPTY_FILTERS: ServiceItemFilters = { name: '', calcUnit: '', vatType: '' };
 
@@ -199,15 +198,11 @@ export function ServiceItemsPage() {
         title={t('page.accsr.title')}
         sub={t('page.accsr.sub')}
         actions={
-          <>
-            {/* นำเข้า Excel (ST2-T23) — ต้นแบบไม่มีปุ่มนี้ในหน้าค่าบริการเสริม: ใช้แบบเดียวกับหน้าลูกค้า [OPEN spec/12 §3] */}
-            <ImportExcelButton kind="service_item" label={t('cust.import')} onDone={setToast} />
-            {canWrite && (
-              <Button variant="primary" icon="plus" onClick={() => setForm({ r: null })}>
-                {t('svc.add')}
-              </Button>
-            )}
-          </>
+          canWrite && (
+            <Button variant="primary" icon="plus" onClick={() => setForm({ r: null })}>
+              {t('svc.add')}
+            </Button>
+          )
         }
       />
       <SummaryStrip

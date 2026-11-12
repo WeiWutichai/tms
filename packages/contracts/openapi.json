@@ -14314,6 +14314,19 @@
             "nullable": true,
             "description": "ผิดทั้งไฟล์"
           },
+          "fileErrorCode": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "no_header",
+              "too_many_rows",
+              "unreadable",
+              "duplicate_header",
+              "file_rejected",
+              "quota_exceeded"
+            ],
+            "description": "code ของ fileError (เช่น quota_exceeded = เกินโควตา — spec/02 MD-289)"
+          },
           "jobId": {
             "type": "string",
             "nullable": true
@@ -14344,6 +14357,7 @@
           "issuesTruncated",
           "sample",
           "fileError",
+          "fileErrorCode",
           "jobId",
           "expiresAt",
           "createdAt"

@@ -87,3 +87,11 @@ export type ProvinceCode = (typeof PROVINCES)[number][0];
 export const PROVINCE_CODES = PROVINCES.map((p) => p[0]) as ProvinceCode[];
 const ABBR = new Map<string, string>(PROVINCES.map((p) => [p[0], p[2]]));
 export const provinceAbbr = (code: string) => ABBR.get(code) ?? code;
+
+const nd = (s: string) => s.replace(/[.\s]/g, '');
+/** จังหวัดจากข้อความ: รหัส TH-xx / ชื่อเต็ม / อักษรย่อบนป้าย (มีหรือไม่มีจุด) — ใช้ในการนำเข้า Excel (ST2-T23) */
+export function provinceOf(v: string): ProvinceCode | null {
+  const n = nd(v);
+  const p = PROVINCES.find((x) => x[0] === v.toUpperCase() || x[1] === v.trim() || nd(x[2]) === n);
+  return p?.[0] ?? null;
+}

@@ -131,6 +131,7 @@ export function rateCardImportSpec(svc: RateCardsService, side: RateSideKey) {
       },
       {
         key: 'unit',
+        requiredWhen: 'เมื่อสูตรเป็นต่อหน่วย',
         header: 'หน่วยนับ',
         aliases: ['Unit'],
         fields: ['unitId'],
@@ -153,7 +154,30 @@ export function rateCardImportSpec(svc: RateCardsService, side: RateSideKey) {
       { key: 'notes', header: 'หมายเหตุ', aliases: ['Notes'] },
       { key: 'externalId', header: 'รหัสในระบบอื่น', aliases: ['External ID', 'externalId'] },
     ],
+    // ต้นทาง/ปลายทางที่ได้จากรหัสเส้นทาง → ปัญหาชี้คอลัมน์ "เส้นทาง" ที่ผู้ใช้กรอก
+    columnFor: (f, v) =>
+      v.route && (f === 'originId' || f === 'destinationId') ? 'route' : undefined,
     uniqueInFile: [{ column: 'code', label: 'รหัส', key: (v) => v.code?.toUpperCase() || null }],
+    // ช่วงวันทับกับแถวก่อนหน้าในไฟล์ (key เดียวกัน) — กับข้อมูลในระบบ service ตรวจ (422 overlap)
+    inFile: (body, prior) => {
+      const key = (x: Record<string, unknown>) =>
+        [x.customerId, x.carrierId, x.originId, x.destinationId, x.vehicleTypeId].join('|');
+      const end = (x: Record<string, unknown>) =>
+        (x.validTo as string | null | undefined) ?? '9999-12-31';
+      const hit = prior.find(
+        (p) =>
+          key(p.body) === key(body) &&
+          String(p.body.validFrom) <= end(body) &&
+          String(body.validFrom) <= end(p.body),
+      );
+      return hit
+        ? {
+            column: 'validFrom',
+            code: 'overlap',
+            message: `ช่วงวันที่ทับกับแถว ${hit.row} ในไฟล์เดียวกัน (ลูกค้า/ผู้รับเหมา เส้นทาง และประเภทรถเดียวกัน)`,
+          }
+        : null;
+    },
     async build(r) {
       const b: Record<string, unknown> = { side };
       put(b, 'code', r.text('code') ?? undefined);
@@ -171,7 +195,7 @@ export function rateCardImportSpec(svc: RateCardsService, side: RateSideKey) {
       } else {
         put(b, 'originId', await r.ref('origin', 'site'));
         put(b, 'destinationId', await r.ref('destination', 'site'));
-        if (!route && !r.values.origin && !r.values.destination)
+        if (route === undefined && !r.values.route && !r.values.origin && !r.values.destination)
           r.bad('route', 'ต้องกรอกรหัสเส้นทาง หรือ ต้นทางและปลายทาง', 'required');
       }
       put(b, 'vehicleTypeId', await r.ref('vehicleType', 'vehicleType'));

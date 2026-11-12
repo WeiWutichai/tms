@@ -1,6 +1,6 @@
 import { iEquals } from '../../common/ilike';
 import { ADDRESS_COLUMNS, readAddress, readBranch, readTaxId } from '../customers/customer.import';
-import { byCode, defineMasterImport, group, put } from '../imports/master-import';
+import { byCode, defineMasterImport, group, mergeGroup, put } from '../imports/master-import';
 import { BANK_CODES, CreateCarrierDto, UpdateCarrierDto } from './carrier.dto';
 import type { CarriersService } from './carriers.service';
 
@@ -131,6 +131,7 @@ export function carrierImportSpec(svc: CarriersService) {
       },
       {
         key: 'bankAccountNo',
+        requiredWhen: 'เมื่อเพิ่มบัญชีธนาคารใหม่',
         header: 'เลขบัญชี',
         aliases: ['Account no', 'เลขที่บัญชี'],
         fields: ['bankAccount.accountNo'],
@@ -162,8 +163,12 @@ export function carrierImportSpec(svc: CarriersService) {
         select: { id: true },
       }),
     ),
-    async build(r, op) {
+    current: (id, tx) => tx.carrier.findUnique({ where: { id } }),
+    // ผู้รับเหมาหลักอยู่ในไฟล์เดียวกันได้ (ขั้นตรวจคงแถวที่ถูกอ้างไว้ให้แถวหลังเห็น)
+    selfRef: { column: 'parent', identities: (v) => [v.code ?? '', v.legalName ?? ''] },
+    async build(r, op, cur) {
       const b: Record<string, unknown> = {};
+      const upd = op === 'update';
       if (op === 'create') put(b, 'code', r.text('code') ?? undefined);
       put(b, 'legalName', r.text('legalName'));
       put(b, 'taxId', readTaxId(r));
@@ -175,16 +180,26 @@ export function carrierImportSpec(svc: CarriersService) {
       put(b, 'paymentTermDays', r.int('paymentTermDays'));
       put(b, 'requirePodToPay', r.bool('requirePodToPay'));
       put(b, 'parentCarrierId', await r.ref('parent', 'carrier'));
+      const bank = group({
+        bankCode: r.pick('bankCode', BANK_TH),
+        accountNo: r.text('bankAccountNo'),
+        accountName: r.text('bankAccountName'),
+      });
+      // แก้: ช่องที่ว่างใช้ค่าเดิม (เลขบัญชีไม่ส่ง = คงเลขเดิมที่เข้ารหัสไว้ — DTO) · ล้างช่องใดช่องหนึ่ง = ลบบัญชี
       put(
         b,
         'bankAccount',
-        group({
-          bankCode: r.pick('bankCode', BANK_TH),
-          accountNo: r.text('bankAccountNo'),
-          accountName: r.text('bankAccountName'),
-        }),
+        !upd || !bank
+          ? bank
+          : Object.values(bank).some((v) => v === null)
+            ? null
+            : {
+                bankCode: bank.bankCode ?? cur?.bankCode ?? undefined,
+                accountName: bank.accountName ?? cur?.bankAccountName ?? undefined,
+                ...(bank.accountNo ? { accountNo: bank.accountNo } : {}),
+              },
       );
-      put(b, 'address', readAddress(r));
+      put(b, 'address', upd ? mergeGroup(cur?.address, readAddress(r)) : readAddress(r));
       put(b, 'externalId', r.text('externalId'));
       return b;
     },

@@ -21,6 +21,8 @@ export interface RequestContext {
   /** IP ผู้เรียก (trust proxy 1 ชั้น) — ลง audit log */
   ip?: string;
   tx?: Prisma.TransactionClient;
+  /** ขั้นตรวจของการนำเข้า (ST2-T23): ทุกการเขียนถูกย้อนทิ้ง — งานนอก transaction (audit แยก) ไม่ต้องทำ */
+  importDryRun?: boolean;
 }
 
 const storage = new AsyncLocalStorage<RequestContext>();

@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { InvalidTransitionError } from '@tms/domain';
 import { PROBLEMS, ProblemException, type FieldError } from '../../common/problem';
+import { isRetryableDbError } from '../../common/problem.filter';
 import type { RowIssue } from './import-spec';
 
 /**
@@ -68,7 +69,6 @@ const FIELD_TH: Record<string, string> = {
   reserved_field: 'รายการของระบบแก้ช่องนี้ไม่ได้',
   reserved_tax: 'ค่าขนส่งของระบบต้องยกเว้น VAT',
   reserved_code: 'รหัสนี้สงวนไว้สำหรับรายการของระบบ',
-  reserved_item: 'รายการของระบบแก้ไขด้วยการนำเข้าไม่ได้',
   actual_no_price: 'รายการตามจริงไม่มีราคาตั้งต้น (คิดตามใบเสร็จ)',
   percent_max: 'เปอร์เซ็นต์ต้องไม่เกิน 100',
   not_percent: 'ใช้ได้เฉพาะหน่วยคิด % ของค่าขนส่ง',
@@ -110,6 +110,14 @@ const PROBLEM_TH: Record<string, string> = {
   in_use: 'รายการนี้มีข้อมูลอื่นอ้างถึงแล้ว แก้ช่องนี้ไม่ได้',
   in_use_active: 'รายการนี้ยังมีข้อมูลที่ใช้งานอยู่อ้างถึง',
 };
+
+/** Prisma: ค่ายาวเกิน/ค่าเกินช่วง/ตัวเลขล้น/ค่าว่างในช่องบังคับ/CHECK */
+const DATA_PRISMA = new Set(['P2000', 'P2004', 'P2006', 'P2007', 'P2011', 'P2020', 'P2033']);
+/** SQLSTATE ข้อมูลผิด: 22001 ยาวเกิน, 22003 ตัวเลขล้น, 22007/22008 วันที่, 22P02 รูปแบบ, 23502 NOT NULL, 23514 CHECK */
+const DATA_SQLSTATE =
+  /\b(22001|22003|22007|22008|22P02|23502|23514)\b|value too long|numeric field overflow|out of range|violates check constraint|violates not-null/i;
+const INVALID_VALUE =
+  'ค่าไม่ถูกต้องหรือเกินขนาดที่ระบบบันทึกได้ — ตรวจตัวเลข/ความยาวข้อความในแถวนี้';
 
 /** code ของรายงานนำเข้า (spec/02 §11.4) จาก code ของ API */
 const ISSUE_CODE: Record<string, string> = {
@@ -155,6 +163,7 @@ export function issuesFromError(
         const column = columnOf(x.field);
         return {
           ...(column ? { column } : {}),
+          field: x.field,
           code: ISSUE_CODE[x.code] ?? (e.code === 'duplicate' ? 'duplicate_in_db' : x.code),
           message: detail(x),
         };
@@ -181,7 +190,17 @@ export function issuesFromError(
   }
   if (e instanceof InvalidTransitionError)
     return [{ code: 'invalid_state_transition', message: PROBLEM_TH.invalid_state_transition! }];
-  if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002')
-    return [{ code: 'duplicate_in_db', message: PROBLEM_TH.duplicate! }];
+  if (isRetryableDbError(e)) return null; // deadlock/serialization — ให้ทั้งคำขอลองใหม่
+  if (e instanceof Prisma.PrismaClientKnownRequestError) {
+    if (e.code === 'P2002') return [{ code: 'duplicate_in_db', message: PROBLEM_TH.duplicate! }];
+    if (e.code === 'P2003')
+      return [{ code: 'reference_not_found', message: FIELD_TH.reference_not_found! }];
+    if (DATA_PRISMA.has(e.code) || (e.code === 'P2010' && DATA_SQLSTATE.test(e.message)))
+      return [{ code: 'invalid_value', message: INVALID_VALUE }];
+    return null;
+  }
+  // ข้อจำกัดของฐานข้อมูล (ค่าเกินช่อง/เกินขนาดตัวเลข/CHECK) ที่ validator ไม่ได้กัน — แถวผิด ไม่ใช่ 500
+  if (e instanceof Prisma.PrismaClientUnknownRequestError && DATA_SQLSTATE.test(e.message))
+    return [{ code: 'invalid_value', message: INVALID_VALUE }];
   return null;
 }

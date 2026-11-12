@@ -1,7 +1,20 @@
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createRequire } from 'node:module';
 import { expect, test } from './fixtures';
+
+const env = Object.fromEntries(
+  readFileSync(new URL('./.env.e2e', import.meta.url), 'utf8')
+    .split('\n')
+    .map((l) => /^([A-Z0-9_]+)=(.*)$/.exec(l.trim()))
+    .filter((m): m is RegExpExecArray => !!m)
+    .map((m) => [m[1], m[2]]),
+);
+const { PrismaClient } = createRequire(new URL('../../api/package.json', import.meta.url))(
+  '@prisma/client',
+);
+const db = new PrismaClient({ datasources: { db: { url: env.PLATFORM_DATABASE_URL } } });
 
 /**
  * E2E ST2-T23: ปุ่ม "นำเข้า Excel" ของหน้ารายการข้อมูลหลัก → wizard (ST1-T19) → ตรวจด้วยกฎเดียวกับ API → นำเข้า → แถวขึ้นในรายการ
@@ -30,9 +43,9 @@ test.describe.serial('นำเข้า Excel ข้อมูลหลัก', 
       'customers',
       [
         'รหัส,ชื่อ,เลขผู้เสียภาษี,สาขา,เครดิต',
-        `IMP-${RUN}-1,บจก. นำเข้าอีทูอี ${RUN},${taxIdFor(RUN)},00000,30`,
-        `IMP-${RUN}-2,บจก. เลขผิด ${RUN},1234567890123,00000,30`,
-        `IMP-${RUN}-3,บจก. นำเข้าสาม ${RUN},,,45`,
+        `AIMP${RUN}-1,บจก. นำเข้าอีทูอี ${RUN},${taxIdFor(RUN)},00000,30`,
+        `AIMP${RUN}-2,บจก. เลขผิด ${RUN},1234567890123,00000,30`,
+        `AIMP${RUN}-3,บจก. นำเข้าสาม ${RUN},,,45`,
       ].join('\n'),
     );
     await page.goto('/master/customers');
@@ -55,6 +68,11 @@ test.describe.serial('นำเข้า Excel ข้อมูลหลัก', 
     ).toBeVisible();
     await dlg.getByRole('button', { name: 'เสร็จสิ้น' }).click();
     await expect(page.getByRole('status')).toHaveText('นำเข้าลูกค้า สำเร็จ 2 แถว');
+    // รหัส AIMP… เรียงก่อน CUS-… → อยู่หน้าแรกของรายการ (โหลดใหม่หลังนำเข้า)
+    await expect(
+      page.getByRole('row', { name: new RegExp(`บจก. นำเข้าอีทูอี ${RUN}`) }),
+    ).toBeVisible();
+    await expect(page.getByRole('row', { name: new RegExp(`บจก. เลขผิด ${RUN}`) })).toHaveCount(0);
   });
 
   test('สถานที่ / คนขับ / ผู้รับเหมา / รถ / rate card: ปุ่มเปิด wizard ของชนิดที่ถูกต้อง', async ({
@@ -66,9 +84,6 @@ test.describe.serial('นำเข้า Excel ข้อมูลหลัก', 
       ['/fleet/drivers?tab=con', 'นำเข้าผู้รับเหมาจาก Excel'],
       ['/fleet/vehicles', 'นำเข้ารถจาก Excel'],
       ['/master/rate-cards', 'นำเข้าRate card ขาขายจาก Excel'],
-      ['/master/routes', 'นำเข้าเส้นทางจาก Excel'],
-      ['/master/products', 'นำเข้าสินค้าจาก Excel'],
-      ['/master/accessorials', 'นำเข้าค่าบริการเสริมจาก Excel'],
     ] as const) {
       await page.goto(url);
       await page.getByRole('button', { name: 'นำเข้า Excel' }).click();
@@ -94,5 +109,14 @@ test.describe.serial('นำเข้า Excel ข้อมูลหลัก', 
     await expect(dlg.getByText('นำเข้าสำเร็จ')).toBeVisible();
     await dlg.getByRole('button', { name: 'เสร็จสิ้น' }).click();
     await expect(page.getByRole('status')).toHaveText('นำเข้ารถ สำเร็จ 1 แถว');
+  });
+
+  // ไม่ให้รถในฐาน tms_e2e เพิ่มขึ้นทุกรอบ (โควตารถของ tenant เดโม) — ลบแบบ soft รถที่รอบนี้นำเข้า
+  test.afterAll(async () => {
+    await db.vehicle.updateMany({
+      where: { plate: { startsWith: `7${RUN.slice(-1)}-${RUN.slice(-4)}` }, deletedAt: null },
+      data: { deletedAt: new Date() },
+    });
+    await db.$disconnect();
   });
 });

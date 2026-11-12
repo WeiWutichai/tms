@@ -1818,30 +1818,31 @@ enum ImportStatus {
 /// งานนำเข้า 1 ไฟล์ (ST1-T19; docs/04 A5, spec/02 §11) — ไฟล์อยู่ใน stored_document (kind IMPORT)
 /// ขั้นตรวจ (dry-run) ไม่เขียนข้อมูลจริง; ยืนยันแล้วตรวจซ้ำก่อนเขียน
 model ImportJob {
-  id           String       @id @default(uuid()) @db.Uuid
-  tenantId     String       @map("tenant_id") @db.Uuid
-  kind         String /// entity ที่นำเข้า (ImportSpec.kind)
-  documentId   String       @map("document_id") @db.Uuid
-  fileName     String?      @map("file_name")
-  status       ImportStatus @default(VALIDATING)
-  mode         String       @default("create_only") /// create_only · upsert_by_code · update_only
-  errorPolicy  String       @default("all_or_nothing") @map("error_policy") /// all_or_nothing · skip_invalid_rows
-  headers      Json         @default("[]") /// หัวคอลัมน์ในไฟล์
-  mapping      Json         @default("{}") /// field key → หัวคอลัมน์ในไฟล์
-  totalRows    Int          @default(0) @map("total_rows")
-  okRows       Int          @default(0) @map("ok_rows")
-  errorRows    Int          @default(0) @map("error_rows")
-  importedRows Int          @default(0) @map("imported_rows")
+  id            String       @id @default(uuid()) @db.Uuid
+  tenantId      String       @map("tenant_id") @db.Uuid
+  kind          String /// entity ที่นำเข้า (ImportSpec.kind)
+  documentId    String       @map("document_id") @db.Uuid
+  fileName      String?      @map("file_name")
+  status        ImportStatus @default(VALIDATING)
+  mode          String       @default("create_only") /// create_only · upsert_by_code · update_only
+  errorPolicy   String       @default("all_or_nothing") @map("error_policy") /// all_or_nothing · skip_invalid_rows
+  headers       Json         @default("[]") /// หัวคอลัมน์ในไฟล์
+  mapping       Json         @default("{}") /// field key → หัวคอลัมน์ในไฟล์
+  totalRows     Int          @default(0) @map("total_rows")
+  okRows        Int          @default(0) @map("ok_rows")
+  errorRows     Int          @default(0) @map("error_rows")
+  importedRows  Int          @default(0) @map("imported_rows")
   /// ผลตรวจรายแถว [{row, column, value, code, message}] (เฉพาะแถวผิด/เตือน; สูงสุด 5,000 รายการ)
-  issues       Json         @default("[]")
+  issues        Json         @default("[]")
   /// 3 แถวแรก (ค่าตามฟิลด์) ไว้แสดงตัวอย่างในขั้นจับคู่คอลัมน์
-  sample       Json         @default("[]")
-  fileError    String?      @map("file_error") /// ผิดทั้งไฟล์ (เช่น เกิน 5,000 แถว, ไม่มีหัวคอลัมน์)
-  jobId        String?      @map("job_id") @db.Uuid
-  expiresAt    DateTime     @map("expires_at") @db.Timestamptz(6) /// ผลตรวจหมดอายุ 24 ชม.
-  createdBy    String?      @map("created_by")
-  createdAt    DateTime     @default(dbgenerated("now()")) @map("created_at") @db.Timestamptz(3) /// ms — ตรงกับ cursor
-  updatedAt    DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  sample        Json         @default("[]")
+  fileError     String?      @map("file_error") /// ผิดทั้งไฟล์ (เช่น เกิน 5,000 แถว, ไม่มีหัวคอลัมน์)
+  fileErrorCode String?      @map("file_error_code") /// code ของ fileError: no_header / too_many_rows / unreadable / duplicate_header / file_rejected / quota_exceeded (ST2-T23)
+  jobId         String?      @map("job_id") @db.Uuid
+  expiresAt     DateTime     @map("expires_at") @db.Timestamptz(6) /// ผลตรวจหมดอายุ 24 ชม.
+  createdBy     String?      @map("created_by")
+  createdAt     DateTime     @default(dbgenerated("now()")) @map("created_at") @db.Timestamptz(3) /// ms — ตรงกับ cursor
+  updatedAt     DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@index([tenantId, createdAt])
   @@map("import_job")

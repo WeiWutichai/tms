@@ -5,7 +5,12 @@ import { resolve } from 'node:path';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { tryDecodeId } from '../src/common/ids';
+import { Prisma } from '@prisma/client';
+import { DbService } from '../src/db/db.service';
 import { JobQueue } from '../src/jobs/job-queue.service';
+import { ImportRegistry } from '../src/modules/imports/import-spec';
+import { ImportService } from '../src/modules/imports/import.service';
+import { issuesFromError } from '../src/modules/imports/reasons';
 import { createTenantWithDefaults } from '../src/modules/tenants/bootstrap';
 import { api, bootApp, platform, tokenFor, truncateAll, validTaxId } from './helpers';
 
@@ -220,7 +225,12 @@ describe('นำเข้าข้อมูลหลัก (ST2-T23)', () => {
     const d = await db.driver.findFirst({ where: { tenantId: tA, code: 'DRV-0101' } });
     expect(d).toMatchObject({ nationalIdLast4: '3024' });
     // นำเข้าซ้ำ = เลขบัตรซ้ำ → แถวผิด แต่ไม่มีเลขเต็มในผลตรวจ/ตัวอย่าง/ไฟล์แถวผิด
+    // audit "เลขบัตรซ้ำ" (เขียนแยก transaction) ไม่เกิดในขั้นตรวจ — ไม่ใช่การกระทำจริง
+    const dupAudits = () =>
+      db.auditLog.count({ where: { tenantId: tA, action: 'carrier.tax_id_duplicate' } });
+    const before = await dupAudits();
     const r = await csv('carrier', 'carriers.csv');
+    expect(await dupAudits()).toBe(before);
     const json = JSON.stringify(r);
     expect(json).not.toContain('1050000003016');
     expect(json).not.toContain('1234567890');
@@ -376,7 +386,7 @@ describe('นำเข้าข้อมูลหลัก (ST2-T23)', () => {
     expect(rowIssues(rte, 3)[0]).toMatchObject({ code: 'same_site' });
     expect(rowIssues(rte, 4)[0]).toMatchObject({ column: 'ระยะทาง (กม.)', code: 'invalid_format' });
     expect(rowIssues(rte, 5)).toEqual([]);
-    expect(rowIssues(rte, 6)[0]).toMatchObject({ code: 'duplicate_in_db' }); // ซ้ำกับแถว 5 ในไฟล์
+    expect(rowIssues(rte, 6)[0]).toMatchObject({ column: 'ต้นทาง', code: 'duplicate_in_file' }); // คู่ OD ซ้ำแถว 5
 
     const prd = await dry(
       a,
@@ -518,6 +528,16 @@ describe('นำเข้าข้อมูลหลัก (ST2-T23)', () => {
         where: { tenantId: tA, action: 'import.completed', entityId: tryDecodeId('import', r.id)! },
       }),
     ).toBe(1);
+    // MD-287 (ใน request): audit ของรายการที่นำเข้าค้นด้วย requestId `import:imp_…` + ผู้ทำ/IP ของผู้กดยืนยัน
+    const trail = await db.auditLog.findMany({
+      where: { tenantId: tA, requestId: `import:${r.id}` },
+    });
+    expect(trail.map((x) => x.action).sort()).toEqual([
+      'customer.created',
+      'customer.created',
+      'import.completed',
+    ]);
+    expect(new Set(trail.map((x) => x.actorId)).size).toBe(1);
   });
 
   it('สิทธิ์: ต้องมี scope เดียวกับการสร้างผ่าน API — ไม่มี = 404 · rate ขาขาย/ขาซื้อแยกสิทธิ์', async () => {
@@ -616,6 +636,18 @@ describe('นำเข้าข้อมูลหลัก (ST2-T23)', () => {
     }
     const done = (await a.get(`/v1/imports/${r.id}`).expect(200)).body;
     expect(done).toMatchObject({ status: 'completed', importedRows: 201 });
+    // MD-287 (job): audit ของทุกรายการ + import.completed ค้นด้วย requestId ของงานนำเข้า
+    const req = `import:${r.id}`;
+    expect(
+      await db.auditLog.count({
+        where: { tenantId: tA, requestId: req, action: 'customer.created' },
+      }),
+    ).toBe(201);
+    expect(
+      await db.auditLog.count({
+        where: { tenantId: tA, requestId: req, action: 'import.completed' },
+      }),
+    ).toBe(1);
 
     await db.tenant.update({ where: { id: tA }, data: { vehicleQuota: 4 } });
     const q = await dry(
@@ -627,8 +659,328 @@ describe('นำเข้าข้อมูลหลัก (ST2-T23)', () => {
         ['75-0002', '6W', 'บริษัท', 'กทม.'],
       ]),
     );
-    expect(q.status).toBe('failed');
+    expect(q).toMatchObject({ status: 'failed', fileErrorCode: 'quota_exceeded' });
     expect(q.fileError).toContain('โควตา');
+    // นับเฉพาะแถวที่จะสร้างจริง: แก้คันเดิม (upsert) + แถวผิด ไม่นับ
+    const used = await db.vehicle.count({ where: { tenantId: tA, status: { not: 'RETIRED' } } });
+    await db.tenant.update({ where: { id: tA }, data: { vehicleQuota: used + 1 } });
+    const ok = await dry(
+      a,
+      'vehicle',
+      await xlsxOf([
+        ['ทะเบียน', 'ประเภทรถ', 'เจ้าของ', 'จังหวัด', 'สี'],
+        ['70-7781', '6W', 'บริษัท', 'กทม.', 'ฟ้า'],
+        ['75-0003', '6W', 'บริษัท', 'กทม.', ''],
+        ['75-0004', 'ไม่มีประเภทนี้', 'บริษัท', 'กทม.', ''],
+      ]),
+      { mode: 'upsert_by_code', errorPolicy: 'skip_invalid_rows' },
+    );
+    expect(ok).toMatchObject({ status: 'validated', errorRows: 1, fileErrorCode: null });
     await db.tenant.update({ where: { id: tA }, data: { vehicleQuota: null } });
+  });
+
+  it('แก้ตามรหัส: object ย่อย (ที่อยู่/ผู้ติดต่อ/บัญชี) แก้เฉพาะช่องที่ให้มา ช่องอื่นและผู้ติดต่ออื่นคงเดิม (MD-284)', async () => {
+    const c = (
+      await a
+        .post('/v1/customers')
+        .send({
+          code: 'MRG-1',
+          legalName: 'บจก. รวมค่า',
+          billingAddress: {
+            line1: '1 ถ.เดิม',
+            line2: 'อาคาร ก',
+            district: 'บางนา',
+            postcode: '10260',
+          },
+          contacts: [
+            { name: 'คุณหลัก', phone: '0811111111', isPrimary: true },
+            { name: 'คุณรอง', phone: '0822222222' },
+          ],
+        })
+        .expect(201)
+    ).body;
+    const r = await dry(
+      a,
+      'customer',
+      await xlsxOf([
+        ['รหัส', 'รหัสไปรษณีย์', 'อำเภอ/เขต', 'เบอร์ผู้ติดต่อ'],
+        ['MRG-1', '10110', '__CLEAR__', '0899999999'],
+      ]),
+      { mode: 'upsert_by_code' },
+    );
+    expect(errorsOf(r)).toEqual([]);
+    await commit(a, r.id);
+    const after = (await a.get(`/v1/customers/${c.id}`).expect(200)).body;
+    expect(after.billingAddress).toEqual({
+      line1: '1 ถ.เดิม',
+      line2: 'อาคาร ก',
+      postcode: '10110',
+    });
+    expect(after.contacts).toEqual([
+      expect.objectContaining({ name: 'คุณหลัก', phone: '0899999999', isPrimary: true }),
+      expect.objectContaining({ name: 'คุณรอง', phone: '0822222222' }),
+    ]);
+    // ผู้รับเหมา: แก้ชื่อบัญชีอย่างเดียว → ธนาคารและเลขบัญชี (เข้ารหัส) เดิมคงอยู่ · ที่อยู่แก้เฉพาะจังหวัด
+    const before = await db.carrier.findFirst({ where: { tenantId: tA, code: 'SUB-0101' } });
+    await db.carrier.update({
+      where: { id: before!.id },
+      data: { address: { line1: '9 ถ.ผู้รับเหมา', district: 'เมือง' } },
+    });
+    const cr = await dry(
+      a,
+      'carrier',
+      await xlsxOf([
+        ['รหัส', 'ชื่อบัญชี', 'จังหวัด'],
+        ['SUB-0101', 'นายสมมติ ใจดีมาก', 'ชลบุรี'],
+      ]),
+      { mode: 'upsert_by_code' },
+    );
+    expect(errorsOf(cr)).toEqual([]);
+    await commit(a, cr.id);
+    const car = await db.carrier.findFirst({ where: { id: before!.id } });
+    expect(car).toMatchObject({
+      bankCode: 'KBANK',
+      bankAccountName: 'นายสมมติ ใจดีมาก',
+      bankAccountLast4: '7890',
+      bankAccountEnc: before!.bankAccountEnc,
+      address: { line1: '9 ถ.ผู้รับเหมา', district: 'เมือง', province: 'ชลบุรี' },
+    });
+  });
+
+  it('เหตุผลอ่านง่าย: ล้างช่องบังคับ, กลุ่มไม่ครบ, ทศนิยมเกิน, บังคับตามเงื่อนไข (1 ข้อต่อคอลัมน์)', async () => {
+    const up = await dry(
+      a,
+      'customer',
+      await xlsxOf([
+        ['รหัส', 'ชื่อ', 'วงเงินเครดิต'],
+        ['CUS-0101', '__CLEAR__', ''],
+        ['CUS-0102', '', '100.555'],
+      ]),
+      { mode: 'upsert_by_code' },
+    );
+    expect(rowIssues(up, 2)).toEqual([
+      expect.objectContaining({
+        column: 'ชื่อ',
+        code: 'not_clearable',
+        message: 'ช่องนี้ล้างค่าไม่ได้ (ต้องมีค่า)',
+      }),
+    ]);
+    expect(rowIssues(up, 3)[0]).toMatchObject({
+      column: 'วงเงินเครดิต',
+      message: 'ทศนิยมไม่เกิน 2 ตำแหน่ง',
+    });
+    const grp = await dry(
+      a,
+      'customer',
+      await xlsxOf([
+        ['ชื่อ', 'รหัสไปรษณีย์'],
+        ['บจก. ที่อยู่ไม่ครบ', '10110'],
+      ]),
+    );
+    expect(rowIssues(grp, 2)).toEqual([
+      expect.objectContaining({ column: 'ที่อยู่', code: 'required' }),
+    ]);
+    expect(rowIssues(grp, 2)[0]!.message).toContain('ทั้งกลุ่ม');
+    const car = await dry(
+      a,
+      'carrier',
+      await xlsxOf([
+        ['ชื่อ', 'เลขผู้เสียภาษี', 'ประเภท'],
+        ['นายล้างเลข', '__CLEAR__', 'บุคคลธรรมดา'],
+      ]),
+    );
+    expect(rowIssues(car, 2)).toEqual([
+      expect.objectContaining({ column: 'เลขผู้เสียภาษี', code: 'required' }),
+    ]);
+    const prd = await dry(
+      a,
+      'product',
+      await xlsxOf([
+        ['ชื่อสินค้า', 'หน่วยหลัก', 'น้ำหนักต่อหน่วย (กก.)', 'สินค้าอันตราย'],
+        ['สารไวไฟ', 'BAG', '1', 'ใช่'],
+      ]),
+    );
+    expect(rowIssues(prd, 2)[0]!.message).toBe('ต้องกรอก "เลข UN" เมื่อเป็นสินค้าอันตราย');
+    const t = await binary(a.get('/v1/imports/kinds/vehicle/template')).expect(200);
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(t.body);
+    const help = wb.getWorksheet('คำอธิบาย')!;
+    const rowOf = (h: string) =>
+      help.getRows(2, help.rowCount)!.find((r) => r.getCell(1).value === h)!;
+    expect(rowOf('ผู้รับเหมา').getCell(2).value).toBe('ต้องกรอกเมื่อเจ้าของเป็นรถร่วม');
+  });
+
+  it('ขั้นตรวจไม่ถือ lock ของ service ข้ามแถว: ระหว่าง transaction ที่ตรวจยังเปิดอยู่ คำขอสร้างอื่นไม่ต้องรอ', async () => {
+    const r = await dry(
+      a,
+      'customer',
+      await xlsxOf([
+        ['รหัส', 'ชื่อ'],
+        ['LCK-1', 'บจก. ล็อก หนึ่ง'],
+        ['LCK-2', 'บจก. ล็อก สอง'],
+      ]),
+    );
+    expect(r.errorRows).toBe(0);
+    const imp = await db.importJob.findUniqueOrThrow({
+      where: { id: tryDecodeId('import', r.id)! },
+    });
+    const svc = app.get(ImportService);
+    const dbs = app.get(DbService);
+    let free: boolean | undefined;
+    await dbs.withTenant(
+      tA,
+      async (tx) => {
+        await svc.validate(tx, imp, Infinity, { actorId: null, scopes: ['*'] });
+        // transaction ที่ตรวจยังไม่จบ — อีก connection ขอ lock รหัสลูกค้า (customers.service lockKey 'customer.code')
+        const other = await db.$transaction(async (t2) => {
+          const x = await t2.$queryRaw<{ ok: boolean }[]>`
+          SELECT pg_try_advisory_xact_lock(7, hashtext(${`${tA}:customer.code`})) AS ok`;
+          return x[0]!.ok;
+        });
+        free = other;
+      },
+      60_000,
+    );
+    expect(free).toBe(true);
+    expect(
+      await db.customer.count({ where: { tenantId: tA, code: { in: ['LCK-1', 'LCK-2'] } } }),
+    ).toBe(0);
+  });
+
+  it('ในไฟล์เดียวกัน: rate ช่วงวันทับกัน = แถวหลังผิด · ผู้รับเหมาหลักอ้างแถวก่อนหน้าได้ · ทะเบียนแบบ "70-1234 กทม." ในรถประจำ', async () => {
+    const rc = await dry(
+      a,
+      'rate_card_sell',
+      await xlsxOf([
+        ['ลูกค้า', 'เส้นทาง', 'ประเภทรถ', 'สูตร', 'ราคา', 'มีผลตั้งแต่', 'ถึง'],
+        ['CUS-0101', 'RT-0102', '6W', 'เหมาเที่ยว', '100', '01/01/2572', '30/06/2572'],
+        ['CUS-0101', 'RT-0102', '6W', 'เหมาเที่ยว', '110', '01/06/2572', ''],
+        ['CUS-0101', 'RT-9999', '6W', 'เหมาเที่ยว', '110', '01/06/2572', ''],
+        ['CUS-0103', 'RT-0101', '6W', 'เหมาเที่ยว', '110', '01/06/2572', ''],
+      ]),
+    );
+    expect(rowIssues(rc, 2)).toEqual([]);
+    expect(rowIssues(rc, 3)[0]).toMatchObject({ code: 'overlap' });
+    expect(rowIssues(rc, 3)[0]!.message).toContain('แถว 2');
+    expect(rowIssues(rc, 4)).toHaveLength(1); // เส้นทางไม่พบ = ปัญหาเดียว
+    // สถานที่ของลูกค้าอื่น (จากรหัสเส้นทาง) → ชี้คอลัมน์ที่ผู้ใช้กรอก = เส้นทาง
+    expect(rowIssues(rc, 5)[0]).toMatchObject({ column: 'เส้นทาง', code: 'site_other_customer' });
+    const car = await dry(
+      a,
+      'carrier',
+      await xlsxOf([
+        ['รหัส', 'ชื่อ', 'เลขผู้เสียภาษี', 'ประเภท', 'ผู้รับเหมาหลัก'],
+        ['PAR-2', 'นายลูกข่าย', validTaxId(9301), 'บุคคลธรรมดา', 'บจก. หัวหน้าในไฟล์'],
+        ['PAR-1', 'บจก. หัวหน้าในไฟล์', '0055600003021', 'นิติบุคคล', ''],
+        ['PAR-3', 'นายลูกข่ายสอง', validTaxId(9302), 'บุคคลธรรมดา', 'PAR-1'],
+      ]),
+    );
+    expect(rowIssues(car, 2)[0]).toMatchObject({ code: 'reference_not_found' }); // อ้างล่วงหน้าไม่ได้
+    expect(rowIssues(car, 4)).toEqual([]);
+    const drv = await dry(
+      a,
+      'driver',
+      await xlsxOf([
+        ['ชื่อ', 'เบอร์', 'ประเภท', 'ใบขับขี่', 'หมดอายุ', 'รถประจำ', 'เลขบัตรประชาชน'],
+        [
+          'นายรถประจำ',
+          '0861111111',
+          'รายเที่ยว',
+          'ท.2',
+          '31/12/2570',
+          '82-4410 ชบ.',
+          validTaxId(9401),
+        ],
+        ['นายบัตรซ้ำ', '0861111112', 'รายเที่ยว', 'ท.2', '31/12/2570', '', validTaxId(9401)],
+      ]),
+    );
+    expect(rowIssues(drv, 2)).toEqual([]);
+    expect(rowIssues(drv, 3)[0]).toMatchObject({
+      column: 'เลขบัตรประชาชน',
+      code: 'duplicate_in_file',
+    });
+  });
+
+  it('ไฟล์แถวผิดเมื่อปัญหาเกินเพดาน 5,000 รายการ: ได้ครบทุกแถวจากผลตรวจที่เก็บไว้ (ไม่ตรวจซ้ำใน GET)', async () => {
+    const rows: unknown[][] = [['ชื่อ', 'เลขผู้เสียภาษี', 'รอบวางบิล']];
+    for (let i = 1; i <= 2600; i++) rows.push([`บจก. ผิดสอง ${i}`, '123', 'ทุกวัน']);
+    const r = await dry(a, 'customer', await xlsxOf(rows));
+    const queue = app.get(JobQueue);
+    while (await queue.runOnce()) {
+      /* วนจนหมดคิว */
+    }
+    const v = (await a.get(`/v1/imports/${r.id}`).expect(200)).body;
+    expect(v).toMatchObject({ status: 'validated', errorRows: 2600 });
+    const stored = await db.importJob.findUniqueOrThrow({
+      where: { id: tryDecodeId('import', r.id)! },
+    });
+    expect((stored.issues as unknown[]).length).toBe(2600); // รวมเป็น 1 รายการต่อแถว
+    // GET ต้องไม่ตรวจไฟล์ใหม่ (spec.validate)
+    const spec = app.get(ImportRegistry).get('customer')!;
+    const orig = spec.validate;
+    let called = 0;
+    spec.validate = async (...args) => {
+      called++;
+      return orig.apply(spec, args);
+    };
+    try {
+      const rep = await binary(a.get(`/v1/imports/${r.id}/errors`)).expect(200);
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.load(rep.body);
+      const ws = wb.worksheets[0]!;
+      expect(ws.actualRowCount).toBe(2601);
+      const msg = String(ws.getRow(2).getCell(4).value);
+      expect(msg).toContain('เลขผู้เสียภาษี');
+      expect(msg).toContain('รอบวางบิล');
+    } finally {
+      spec.validate = orig;
+    }
+    expect(called).toBe(0);
+  });
+
+  it('error ฐานข้อมูลที่ validator ไม่ได้กัน (ค่าเกินช่อง/ตัวเลขล้น/FK) = แถวผิดภาษาไทย ไม่ใช่ 500', () => {
+    const unknown = new Prisma.PrismaClientUnknownRequestError(
+      'ERROR: numeric field overflow (SQLSTATE 22003)',
+      { clientVersion: 'x' },
+    );
+    expect(issuesFromError(unknown, () => undefined)).toEqual([
+      expect.objectContaining({ code: 'invalid_value' }),
+    ]);
+    for (const code of ['P2000', 'P2020', 'P2033'])
+      expect(
+        issuesFromError(
+          new Prisma.PrismaClientKnownRequestError('x', { code, clientVersion: 'x' }),
+          () => undefined,
+        )?.[0]?.message,
+      ).toMatch(/[฀-๿]/);
+    expect(
+      issuesFromError(
+        new Prisma.PrismaClientKnownRequestError('x', { code: 'P2003', clientVersion: 'x' }),
+        () => undefined,
+      )?.[0]?.code,
+    ).toBe('reference_not_found');
+    // deadlock ยังเป็น error ของทั้งคำขอ (ลองใหม่ได้)
+    expect(
+      issuesFromError(
+        new Prisma.PrismaClientKnownRequestError('x', { code: 'P2034', clientVersion: 'x' }),
+        () => undefined,
+      ),
+    ).toBeNull();
+  });
+
+  it('เวลา: 200 แถว (เพดานใน request) ตรวจ + ยืนยันได้ในเวลา transaction ของ request', async () => {
+    const rows: unknown[][] = [['รหัส', 'ชื่อ', 'เลขผู้เสียภาษี', 'เครดิต']];
+    for (let i = 1; i <= 200; i++)
+      rows.push([`TM-${i}`, `บจก. จับเวลา ${i}`, validTaxId(60000 + i), '30']);
+    const t0 = Date.now();
+    const r = await dry(a, 'customer', await xlsxOf(rows));
+    const t1 = Date.now();
+    expect(r).toMatchObject({ status: 'validated', errorRows: 0 });
+    const c = await commit(a, r.id);
+    const t2 = Date.now();
+    expect(c).toMatchObject({ status: 'completed', importedRows: 200 });
+    console.info(`[ST2-T23] 200 แถว: ตรวจ ${t1 - t0} ms · ยืนยัน ${t2 - t1} ms`);
+    expect(t1 - t0).toBeLessThan(14_000);
+    expect(t2 - t1).toBeLessThan(14_000);
   });
 });
