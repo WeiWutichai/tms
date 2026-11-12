@@ -17,6 +17,7 @@ import {
   EXPIRING_DAYS,
   isRealDate,
 } from './expiry';
+import { DOC_TYPE_TH } from './doc-labels';
 import type {
   CreateVehicleDocumentDto,
   RenewVehicleDocumentDto,
@@ -51,16 +52,6 @@ const REQUIRED_BY_DEFAULT: VehicleDocTypeKey[] = ['INSURANCE', 'COMPULSORY_ACT']
 const INSURANCE_ONLY = ['insuranceClass', 'sumInsured', 'premiumAmount'] as const;
 const FILE_MIME = ['application/pdf', 'image/png', 'image/jpeg', 'image/webp'];
 
-/** ชื่อประเภทภาษาไทย (หมายเหตุใน vehicle_cost — ต้นแบบ) */
-const DOC_TYPE_TH: Record<VehicleDocTypeKey, string> = {
-  INSURANCE: 'ประกันภัย',
-  COMPULSORY_ACT: 'พ.ร.บ.',
-  ANNUAL_TAX: 'ภาษี',
-  INSPECTION: 'ตรวจสภาพ ตรอ.',
-  TRANSPORT_LICENSE: 'ใบอนุญาตขนส่ง',
-  GPS_DLT_CERT: 'GPS DLT',
-  OTHER: 'เอกสารอื่น',
-};
 const costNote = (verb: string, d: VehicleDocument) =>
   `${verb}${d.docType === 'OTHER' && d.title ? d.title : DOC_TYPE_TH[d.docType]} ${d.refNo ?? ''}`.trim();
 /** วันที่ที่รับ (กันพิมพ์ปีผิด เช่น 0026 / 25690) */

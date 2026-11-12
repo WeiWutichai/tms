@@ -18,17 +18,10 @@ import {
 } from 'class-validator';
 import { CleanText, IsNullable, IsOptionalNotNull } from '../master/master-kit';
 import { OWNERSHIPS, type OwnershipKind } from '../vehicles/vehicle.dto';
+import { VEHICLE_DOC_TYPES as DOMAIN_VEHICLE_DOC_TYPES } from '@tms/domain';
 
-/** docs/01 §3.8 `doc_type` — ใบขับขี่อยู่ที่คนขับ ไม่ซ้ำที่นี่ */
-export const VEHICLE_DOC_TYPES = [
-  'INSURANCE',
-  'COMPULSORY_ACT',
-  'ANNUAL_TAX',
-  'INSPECTION',
-  'TRANSPORT_LICENSE',
-  'GPS_DLT_CERT',
-  'OTHER',
-] as const;
+/** docs/01 §3.8 `doc_type` — ใบขับขี่อยู่ที่คนขับ ไม่ซ้ำที่นี่ (แหล่งเดียว: @tms/domain — ST2-T20 ใช้ร่วม) */
+export const VEHICLE_DOC_TYPES = DOMAIN_VEHICLE_DOC_TYPES;
 export type VehicleDocTypeKey = (typeof VEHICLE_DOC_TYPES)[number];
 /**
  * สถานะที่ API คืน — คำนวณจากวันหมดทุกครั้ง (ไม่รอ job รายวัน ST2-T18):
