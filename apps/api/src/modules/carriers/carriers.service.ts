@@ -14,6 +14,7 @@ import { StateService } from '../../state/state.service';
 import { EXPORT_MAX_ROWS } from '../master/export';
 import {
   assertNotReferenced,
+  lockForRemoval,
   deletedFilter,
   emitMasterEvent,
   isNoopUpdate,
@@ -715,6 +716,8 @@ export class CarriersService {
     if (expected !== undefined && expected !== current.version)
       throw new ProblemException('precondition_failed');
     await lockKey(tx, 'carrier.tree'); // กันมี carrier ลูกเพิ่มระหว่างตรวจ
+    // กันสร้าง rate card ขาซื้อที่อ้างรถร่วมนี้ระหว่างลบ (rate card ล็อก FOR SHARE — lockReferenced) — ST2-T14
+    await lockForRemoval(tx, 'carrier', id);
     await assertNotReferenced(
       [
         {

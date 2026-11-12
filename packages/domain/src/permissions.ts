@@ -3,7 +3,9 @@
  *
  * รูปแบบสิทธิ์ = scope แบบ `resource:verb` ของ docs/01 §5.1 (ตัวเดียวกับที่ API key/OAuth client ใช้)
  * — `{module}.{view|manage}` ของ docs/04 แปลงเป็น `:read` / `:write` + verb พิเศษของแถวที่แยกการกระทำ
- * สิทธิ์ระดับฟิลด์ (ราคาขาย/ราคาซื้อ) เป็น scope `prices.sell:*` / `prices.buy:read` — ตัด field ที่ serializer ใน ST1-T13
+ * สิทธิ์ระดับฟิลด์ (ราคาขาย/ราคาซื้อ) เป็น scope `prices.sell:*` / `prices.buy:*` — ตัด field ที่ serializer ใน ST1-T13
+ * `prices.buy:write` (ST2-T14 — แก้/อนุมัติ rate card ขาซื้อ): A3 มีแค่แถว "ดูราคาซื้อรถร่วม" → [DECISION — ย้อนได้ spec/12 §3]
+ *   ให้ role ที่แก้ข้อมูลหลักได้ (`master:write`) และเห็นราคาซื้อ = owner, admin, manager, planner
  *
  * "เลือกได้" ในตาราง A3 = ค่าเริ่มต้นไม่ให้ (owner เปิดเพิ่มได้เมื่อมี custom role — P1)
  */
@@ -20,6 +22,7 @@ export const PERMISSIONS = [
   'prices.sell:read',
   'prices.sell:write',
   'prices.buy:read',
+  'prices.buy:write',
   'orders:read',
   'orders:write',
   'orders:cancel',
@@ -89,6 +92,7 @@ export const SYSTEM_ROLES: Record<RoleCode, { th: string; en: string; permission
         'master:write',
         'prices.sell:read',
         'prices.buy:read',
+        'prices.buy:write',
         'orders:read',
         'orders:write',
         'orders:cancel',
@@ -116,6 +120,7 @@ export const SYSTEM_ROLES: Record<RoleCode, { th: string; en: string; permission
         'master:read',
         'master:write',
         'prices.buy:read',
+        'prices.buy:write',
         'orders:read',
         'orders:write',
         'orders:cancel',

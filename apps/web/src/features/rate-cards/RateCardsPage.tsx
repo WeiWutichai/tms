@@ -22,23 +22,28 @@ import { tableLabels } from '../companies/CompanySample';
 import { downloadFile } from '../master/download';
 import { problemText } from '../master/problems';
 import { SegSwitch } from '../master/SegSwitch';
-import { listTotal } from '../master/useCursorList';
+import { listTotal, useSessionState } from '../master/useCursorList';
 import { RateCardDrawer } from './RateCardDrawer';
 import { money, modelLabel, rateStatusLabel, rateUnit, routeText, useDateText } from './rateFormat';
 import {
+  partyOf,
+  priceOf,
   PRICING_MODELS,
+  PX,
   useRateAction,
   useRateList,
   useRateOptions,
   useRateSummary,
   type RateCard,
   type RateFilters,
+  type RateSide,
 } from './useRateCards';
 
 const EMPTY_FILTERS: RateFilters = {
   status: '',
   nearExpiry: '',
   customerId: '',
+  carrierId: '',
   party: '',
   route: '',
   vehicleTypeId: '',
@@ -54,31 +59,50 @@ const two = { display: 'flex', flexDirection: 'column', lineHeight: 1.4 } as con
 const num = (n: number) => n.toLocaleString('th-TH');
 
 /**
- * ข้อมูลหลัก → Rate card (ST2-T13 ขาขาย) — ต้นแบบ TMS v4 specRate() + kpisX('rate') + vSeg rate + vPanel rate
+ * ข้อมูลหลัก → Rate card (ST2-T13 ขาขาย · ST2-T14 ขาซื้อ) — ต้นแบบ TMS v4 specRate() + kpisX('rate') + vSeg rate + vPanel rate
  * หัว (นำเข้า Excel · คัดลอกจาก rate เดิม) + ปุ่มสลับ ขาขาย/ขาซื้อ + แถบสรุป + แท็บสถานะ + ตาราง + drawer
- * ขาซื้อ (ST2-T14) แสดงปุ่มแต่ยังกดไม่ได้ · "เพิ่ม rate" ไม่มีในต้นแบบ [OPEN spec/12 §3]
+ * ขาซื้อ: คอลัมน์แรก "ผู้รับเหมา" · ราคา buy* · สิทธิ์ `prices.buy:*` · ตัวกรองแยกต่อฝั่ง (ต้นแบบ tkey rate:{side})
+ * "เพิ่ม rate" ไม่มีในต้นแบบ [OPEN spec/12 §3]
  */
 export function RateCardsPage() {
   const { t } = useI18n();
   const me = useMe();
   const dateText = useDateText();
   const scopes = me.data?.scopes ?? [];
-  const canWrite = can(scopes, 'prices.sell:write');
-  const canSeePrice = can(scopes, 'prices.sell:read');
   const canExport = can(scopes, 'export:run');
   const [params, setParams] = useSearchParams();
-  // ลิงก์จากลูกค้า ("ดู rate card" — ต้นแบบ goRate กรองชื่อลูกค้า) / ประเภทรถ → ตัวกรองเริ่มต้น แล้วล้าง query
-  const [f, setFilters] = useState<RateFilters>(() => ({
-    ...EMPTY_FILTERS,
-    customerId: params.get('customer') ?? '',
-    party: params.get('customer') ? (params.get('party') ?? '') : '',
-    vehicleTypeId: params.get('vehicleType') ?? '',
-  }));
+  // ลิงก์จากลูกค้า ("ดู rate card" — ต้นแบบ goRate กรองชื่อลูกค้า) / ผู้รับเหมา ("ดู rate ขาซื้อ") / ประเภทรถ
+  // → ฝั่ง + ตัวกรองเริ่มต้น แล้วล้าง query
+  const [side, setSide] = useSessionState<RateSide>(
+    'rate-cards.side',
+    params.get('side') === 'buy' ? 'BUY' : 'SELL',
+  );
+  const [fs, setFs] = useState<Record<RateSide, RateFilters>>(() => {
+    const linked: RateFilters = {
+      ...EMPTY_FILTERS,
+      customerId: params.get('customer') ?? '',
+      carrierId: params.get('carrier') ?? '',
+      party: params.get('customer') || params.get('carrier') ? (params.get('party') ?? '') : '',
+      vehicleTypeId: params.get('vehicleType') ?? '',
+    };
+    const buyLink = params.get('side') === 'buy';
+    return { SELL: buyLink ? EMPTY_FILTERS : linked, BUY: buyLink ? linked : EMPTY_FILTERS };
+  });
   useEffect(() => {
+    if (params.get('side')) setSide(params.get('side') === 'buy' ? 'BUY' : 'SELL');
+    else if ([...params.keys()].length) setSide('SELL');
     if ([...params.keys()].length) setParams({}, { replace: true });
   }, []);
-  const list = useRateList(f);
-  const summary = useRateSummary();
+  const f = fs[side];
+  const setFilters = (fn: (x: RateFilters) => RateFilters) =>
+    setFs((all) => ({ ...all, [side]: fn(all[side]) }));
+  const buy = side === 'BUY';
+  const canWrite = can(scopes, PX[side].write);
+  const canSeePrice = can(scopes, PX[side].read);
+  const list = useRateList(f, side);
+  const summary = useRateSummary(undefined, side);
+  const sellSum = useRateSummary(undefined, 'SELL');
+  const buySum = useRateSummary(undefined, 'BUY');
   const action = useRateAction();
   const opts = useRateOptions();
   const [panel, setPanel] = useState<Panel | null>(null);
@@ -92,8 +116,8 @@ export function RateCardsPage() {
     setFilters((x) => ({
       ...x,
       [k]: v,
-      // แก้ตัวกรองชื่อลูกค้าเอง = เลิกกรองลูกค้าจากลิงก์
-      ...(k === 'party' ? { customerId: '' } : {}),
+      // แก้ตัวกรองชื่อลูกค้า/ผู้รับเหมาเอง = เลิกกรองจากลิงก์
+      ...(k === 'party' ? { customerId: '', carrierId: '' } : {}),
     }));
   const setStatus = (status: string, nearExpiry = '') =>
     setFilters((x) => ({ ...x, status, nearExpiry }));
@@ -101,12 +125,12 @@ export function RateCardsPage() {
   const copy = (r: RateCard) => setPanel({ mode: 'new', copyFrom: r });
 
   const priceCell = (r: RateCard) =>
-    r.sellRate === undefined ? (
+    priceOf(r, 'rate') === undefined ? (
       <span style={{ color: '#3B424C' }}>—</span>
     ) : (
       <div style={{ ...two, alignItems: 'flex-end' }}>
         <span style={{ fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>
-          {money(r.sellRate)}
+          {money(priceOf(r, 'rate'))}
         </span>
         <span style={{ color: '#3B424C' }}>
           {t('rc.per', { u: rateUnit(t, r.pricingModel, r.unit?.name) })}
@@ -114,10 +138,10 @@ export function RateCardsPage() {
       </div>
     );
   const exCell = (r: RateCard) =>
-    r.sellExtraStopRate ? (
+    priceOf(r, 'ex') ? (
       <div style={{ ...two, alignItems: 'flex-end' }}>
         <span style={{ fontWeight: 500, fontVariantNumeric: 'tabular-nums' }}>
-          {money(r.sellExtraStopRate)}
+          {money(priceOf(r, 'ex'))}
         </span>
         <span style={{ color: '#3B424C' }}>{t('rc.exAfter', { n: r.includedStops })}</span>
       </div>
@@ -134,11 +158,11 @@ export function RateCardsPage() {
   const columns: Column<RateCard>[] = [
     {
       key: 'party',
-      label: t('rc.col.party'),
+      label: t(buy ? 'rc.col.carrier' : 'rc.col.party'),
       filter: { type: 'text', placeholder: t('table.search') },
       render: (r) => (
         <span
-          title={r.customer?.name}
+          title={partyOf(r)?.name}
           style={{
             ...cell,
             display: 'inline-block',
@@ -148,10 +172,10 @@ export function RateCardsPage() {
             verticalAlign: 'bottom',
           }}
         >
-          {r.customer?.name ?? '—'}
+          {partyOf(r)?.name ?? '—'}
         </span>
       ),
-      csv: (r) => r.customer?.name ?? '',
+      csv: (r) => partyOf(r)?.name ?? '',
     },
     {
       key: 'route',
@@ -210,7 +234,7 @@ export function RateCardsPage() {
       width: '1%',
       align: 'right',
       render: priceCell,
-      csv: (r) => r.sellRate ?? '',
+      csv: (r) => priceOf(r, 'rate') ?? '',
     },
     {
       key: 'ex',
@@ -218,7 +242,7 @@ export function RateCardsPage() {
       width: '1%',
       align: 'right',
       render: exCell,
-      csv: (r) => r.sellExtraStopRate ?? '',
+      csv: (r) => priceOf(r, 'ex') ?? '',
     },
     {
       key: 'valid',
@@ -257,7 +281,15 @@ export function RateCardsPage() {
           : f.status === ''
             ? s?.total
             : undefined;
-  const others = ['nearExpiry', 'customerId', 'party', 'route', 'vehicleTypeId', 'pricingModel'];
+  const others = [
+    'nearExpiry',
+    'customerId',
+    'carrierId',
+    'party',
+    'route',
+    'vehicleTypeId',
+    'pricingModel',
+  ];
   const filtered = others.some((k) => f[k as keyof RateFilters] !== '') || f.status !== '';
   const shownTotal = listTotal(list, f, ['status'], tabCount);
 
@@ -355,11 +387,14 @@ export function RateCardsPage() {
         }
       />
       <SegSwitch
-        value="sell"
-        onChange={() => {}}
+        value={side}
+        onChange={(k) => {
+          setSide(k);
+          setPanel(null);
+        }}
         items={[
-          { key: 'sell', label: t('rc.seg.sell'), count: s?.total },
-          { key: 'buy', label: t('rc.seg.buy'), disabled: true, title: t('rc.seg.buySoon') },
+          { key: 'SELL', label: t('rc.seg.sell'), count: sellSum.data?.total },
+          { key: 'BUY', label: t('rc.seg.buy'), count: buySum.data?.total },
         ]}
       />
       <SummaryStrip
@@ -477,7 +512,7 @@ export function RateCardsPage() {
                       run: (ids: string[]) =>
                         downloadFile('/v1/rate-cards/export', {
                           format: 'xlsx',
-                          side: 'SELL',
+                          side,
                           ids: ids.join(','),
                         }).then(
                           () => setToast(t('rc.toast.exported', { n: ids.length })),
@@ -494,7 +529,7 @@ export function RateCardsPage() {
                     const [originId = '', destinationId = ''] = route ? route.split('>') : [];
                     void downloadFile('/v1/rate-cards/export', {
                       format: 'csv',
-                      side: 'SELL',
+                      side,
                       ...Object.fromEntries(
                         Object.entries({ ...rest, originId, destinationId }).filter(
                           ([, v]) => v !== '',
@@ -514,8 +549,8 @@ export function RateCardsPage() {
               ) : (
                 <EmptyState
                   icon="tags"
-                  title={t('rc.emptyTitle')}
-                  description={t('rc.emptyDesc')}
+                  title={t(buy ? 'rc.emptyTitleBuy' : 'rc.emptyTitle')}
+                  description={t(buy ? 'rc.emptyDescBuy' : 'rc.emptyDesc')}
                 />
               )
             }
@@ -529,7 +564,10 @@ export function RateCardsPage() {
       </div>
       {panel && (
         <RateCardDrawer
-          key={panel.mode === 'view' ? `v:${panel.rate.id}` : `n:${panel.copyFrom?.id ?? ''}`}
+          key={
+            panel.mode === 'view' ? `v:${panel.rate.id}` : `n:${side}:${panel.copyFrom?.id ?? ''}`
+          }
+          side={side}
           rate={panel.mode === 'view' ? current : null}
           copyFrom={panel.mode === 'new' ? panel.copyFrom : null}
           canWrite={canWrite}

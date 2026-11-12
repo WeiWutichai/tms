@@ -11,6 +11,40 @@ export type RateCardInput = Schemas['UpdateRateCardDto'];
 export type RateCardRevise = Schemas['ReviseRateCardDto'];
 export type RateStatus = RateCard['status'];
 export type PricingModel = NonNullable<RateCardCreate['pricingModel']>;
+export type RateSide = RateCard['side'];
+export type RecentPrice = Schemas['CarrierRecentPriceDto'];
+
+/**
+ * ชื่อ field ราคาตามฝั่ง (API: ขาขาย `sell*` / ขาซื้อ `buy*` — ตัดตามสิทธิ์ `prices.{sell|buy}:read`)
+ * ใช้ทั้งอ่านจาก response และสร้าง body
+ */
+export const PX = {
+  SELL: {
+    rate: 'sellRate',
+    min: 'sellMinCharge',
+    ex: 'sellExtraStopRate',
+    acc: 'sellPrice',
+    read: 'prices.sell:read',
+    write: 'prices.sell:write',
+  },
+  BUY: {
+    rate: 'buyRate',
+    min: 'buyMinCharge',
+    ex: 'buyExtraStopRate',
+    acc: 'buyPrice',
+    read: 'prices.buy:read',
+    write: 'prices.buy:write',
+  },
+} as const;
+
+type Priced = Record<string, unknown> & { side: RateSide };
+/** ราคาต่อหน่วย / ขั้นต่ำ / ค่าจุดเพิ่มของ rate ตามฝั่ง (undefined = ไม่มีสิทธิ์เห็น) */
+export const priceOf = (r: RateCard, k: 'rate' | 'min' | 'ex') =>
+  (r as unknown as Priced)[PX[r.side][k]] as string | null | undefined;
+export const accPriceOf = (side: RateSide, a: RateCard['accessorials'][number]) =>
+  (a as unknown as Record<string, string | undefined>)[PX[side].acc];
+/** คู่สัญญา: ลูกค้า (ขาขาย) / ผู้รับเหมา (ขาซื้อ) */
+export const partyOf = (r: RateCard) => r.customer ?? r.carrier;
 
 /** สูตรราคาเฟส 0 (docs/04 B1) — ลำดับตามต้นแบบ (เหมาเที่ยว ต่อกม. ต่อตัน) + ต่อ ลบ.ม./ต่อหน่วย (B1) · เหมาวัน = P1 */
 export const PRICING_MODELS: PricingModel[] = [
@@ -28,6 +62,8 @@ export interface RateFilters {
   status: string;
   nearExpiry: string;
   customerId: string;
+  /** ขาซื้อ: ผู้รับเหมาจากลิงก์ "ดู rate ขาซื้อ" */
+  carrierId: string;
   party: string;
   /** เส้นทางจากตัวกรองคอลัมน์ (`originId>destinationId`) */
   route: string;
@@ -35,26 +71,42 @@ export interface RateFilters {
   pricingModel: string;
 }
 
-export function useRateList(filters: RateFilters) {
-  const { route, ...rest } = filters;
+export function useRateList(filters: RateFilters, side: RateSide = 'SELL') {
+  const { route, customerId, carrierId, ...rest } = filters;
   const [originId = '', destinationId = ''] = route ? route.split('>') : [];
   return useCursorList<RateCard>(
     KEY,
-    { side: 'SELL', ...rest, originId, destinationId },
+    {
+      side,
+      ...rest,
+      ...(side === 'SELL' ? { customerId } : { carrierId }),
+      originId,
+      destinationId,
+    },
     (query) => unwrap(api.GET('/v1/rate-cards', { params: { query: query as never } })),
-    { persist: 'rate-cards' },
+    { persist: side === 'SELL' ? 'rate-cards' : 'rate-cards-buy' },
   );
 }
 
-export function useRateSummary(customerId?: string) {
+export function useRateSummary(customerId?: string, side: RateSide = 'SELL') {
   return useQuery({
-    queryKey: [KEY, 'summary', customerId ?? ''],
+    queryKey: [KEY, 'summary', side, customerId ?? ''],
     queryFn: () =>
       unwrap(
         api.GET('/v1/rate-cards/summary', {
-          params: { query: { side: 'SELL', ...(customerId ? { customerId } : {}) } },
+          params: { query: { side, ...(customerId ? { customerId } : {}) } },
         }),
       ),
+  });
+}
+
+/** ราคา 5 ครั้งล่าสุดที่จ้างผู้รับเหมารายนี้ (ต้องมี `prices.buy:read`) — ยังไม่เคยจ้าง = [] */
+export function useRecentPrices(carrierId: string | null, enabled: boolean) {
+  return useQuery({
+    queryKey: [KEY, 'recent', carrierId ?? ''],
+    enabled: enabled && !!carrierId,
+    queryFn: () =>
+      unwrap(api.GET('/v1/carriers/{id}/recent-prices', { params: { path: { id: carrierId! } } })),
   });
 }
 
@@ -82,6 +134,16 @@ export function useCustomerRates(customerId: string) {
 export async function searchCustomers(q: string): Promise<RefOption[]> {
   const r = await unwrap(
     api.GET('/v1/customers', {
+      params: { query: { status: 'active', limit: 20, ...(q ? { q } : {}) } },
+    }),
+  );
+  return r.data.map((c) => ({ id: c.id, label: c.legalName, sub: c.code }));
+}
+
+/** ตัวเลือกผู้รับเหมา (ใช้งาน) ค้นด้วย `q` ทีละ 20 — rate ขาซื้อ */
+export async function searchCarriers(q: string): Promise<RefOption[]> {
+  const r = await unwrap(
+    api.GET('/v1/carriers', {
       params: { query: { status: 'active', limit: 20, ...(q ? { q } : {}) } },
     }),
   );
