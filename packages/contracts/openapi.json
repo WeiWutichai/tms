@@ -11330,6 +11330,373 @@
         ]
       }
     },
+    "/v1/delivery-orders": {
+      "get": {
+        "operationId": "DeliveryOrders_list",
+        "parameters": [
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "ค่า nextCursor จากหน้าก่อน",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "updatedAfter",
+            "required": false,
+            "in": "query",
+            "description": "คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sort",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "updatedAt",
+              "type": "string",
+              "enum": [
+                "updatedAt",
+                "-updatedAt"
+              ]
+            }
+          },
+          {
+            "name": "fields",
+            "required": false,
+            "in": "query",
+            "description": "รายชื่อ field คั่นด้วย , เช่น id,legalName",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "orderId",
+            "required": false,
+            "in": "query",
+            "description": "ใบสั่งขนส่ง (SO)",
+            "schema": {
+              "example": "ord_3f2a…",
+              "type": "string"
+            }
+          },
+          {
+            "name": "customerId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "example": "cus_3f2a…",
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "description": "สถานะ คั่นด้วย , (DRAFT / PLANNED / DISPATCHED / PICKED_UP / DELIVERED / FAILED / RETURNED / POD_PENDING / UNBILLED / BILLED / CANCELLED)",
+            "schema": {
+              "example": "DRAFT,PLANNED",
+              "type": "string"
+            }
+          },
+          {
+            "name": "dateFrom",
+            "required": false,
+            "in": "query",
+            "description": "วันที่ DO ตั้งแต่ (YYYY-MM-DD)",
+            "schema": {
+              "example": "2026-11-01",
+              "type": "string"
+            }
+          },
+          {
+            "name": "dateTo",
+            "required": false,
+            "in": "query",
+            "description": "วันที่ DO ถึง (YYYY-MM-DD)",
+            "schema": {
+              "example": "2026-11-30",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeliveryOrderPageDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "delivery-orders"
+        ]
+      },
+      "post": {
+        "operationId": "DeliveryOrders_create",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateDeliveryOrderDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeliveryOrderDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "delivery-orders"
+        ]
+      }
+    },
+    "/v1/delivery-orders/{id}": {
+      "get": {
+        "operationId": "DeliveryOrders_get",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeliveryOrderDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "delivery-orders"
+        ]
+      }
+    },
+    "/v1/delivery-orders/{id}/split": {
+      "post": {
+        "operationId": "DeliveryOrders_split",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SplitDeliveryOrderDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeliveryOrderSplitResultDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "delivery-orders"
+        ]
+      }
+    },
+    "/v1/delivery-orders/{id}/merge": {
+      "post": {
+        "operationId": "DeliveryOrders_merge",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag ของใบนี้ — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MergeDeliveryOrdersDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeliveryOrderDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "delivery-orders"
+        ]
+      }
+    },
+    "/v1/delivery-orders/{id}/cancel": {
+      "post": {
+        "operationId": "DeliveryOrders_cancel",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelDeliveryOrderDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeliveryOrderDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "delivery-orders"
+        ]
+      }
+    },
     "/v1/carriers/{id}/recent-prices": {
       "get": {
         "operationId": "CarrierRecentPrices_recentPrices",
@@ -23928,6 +24295,339 @@
             "description": "หมายเหตุ"
           }
         }
+      },
+      "DeliveryOrderLineDto": {
+        "type": "object",
+        "properties": {
+          "lineNo": {
+            "type": "number"
+          },
+          "soLineNo": {
+            "type": "number",
+            "description": "ลำดับบรรทัดของ SO"
+          },
+          "description": {
+            "type": "string"
+          },
+          "qtyPlanned": {
+            "type": "string",
+            "example": "12.5"
+          },
+          "qtyActual": {
+            "type": "string",
+            "nullable": true
+          },
+          "unit": {
+            "type": "string",
+            "example": "TON"
+          },
+          "weightKg": {
+            "type": "string",
+            "nullable": true
+          },
+          "cbm": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "lineNo",
+          "soLineNo",
+          "description",
+          "qtyPlanned",
+          "qtyActual",
+          "unit",
+          "weightKg",
+          "cbm"
+        ]
+      },
+      "DeliveryOrderDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "do_3f2a…"
+          },
+          "doNo": {
+            "type": "string",
+            "example": "DO-6911-0001"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "DRAFT",
+              "PLANNED",
+              "DISPATCHED",
+              "PICKED_UP",
+              "DELIVERED",
+              "FAILED",
+              "RETURNED",
+              "POD_PENDING",
+              "UNBILLED",
+              "BILLED",
+              "CANCELLED"
+            ]
+          },
+          "orderId": {
+            "type": "string",
+            "example": "ord_3f2a…"
+          },
+          "customerId": {
+            "type": "string",
+            "example": "cus_3f2a…"
+          },
+          "doDate": {
+            "type": "string",
+            "example": "2026-11-12"
+          },
+          "originSiteId": {
+            "type": "string",
+            "example": "loc_3f2a…"
+          },
+          "destSiteId": {
+            "type": "string",
+            "example": "loc_3f2a…"
+          },
+          "originStopSeq": {
+            "type": "number",
+            "description": "ลำดับจุดรับของ SO"
+          },
+          "destStopSeq": {
+            "type": "number",
+            "description": "ลำดับจุดส่งของ SO"
+          },
+          "tripId": {
+            "type": "string",
+            "nullable": true
+          },
+          "weightKg": {
+            "type": "string",
+            "nullable": true
+          },
+          "cbm": {
+            "type": "string",
+            "nullable": true
+          },
+          "customerRef": {
+            "type": "string",
+            "nullable": true,
+            "description": "PO ลูกค้า"
+          },
+          "splitFromId": {
+            "type": "string",
+            "nullable": true,
+            "description": "ใบแม่ที่ถูกแยก"
+          },
+          "splitIndex": {
+            "type": "number",
+            "nullable": true
+          },
+          "redeliveryOfId": {
+            "type": "string",
+            "nullable": true,
+            "description": "ส่งใหม่ของ DO ใบนี้ (D-23)"
+          },
+          "podStatus": {
+            "type": "string",
+            "example": "NONE"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeliveryOrderLineDto"
+            }
+          },
+          "version": {
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "doNo",
+          "status",
+          "orderId",
+          "customerId",
+          "doDate",
+          "originSiteId",
+          "destSiteId",
+          "originStopSeq",
+          "destStopSeq",
+          "tripId",
+          "weightKg",
+          "cbm",
+          "customerRef",
+          "splitFromId",
+          "splitIndex",
+          "redeliveryOfId",
+          "podStatus",
+          "lines",
+          "version",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "DeliveryOrderPageDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeliveryOrderDto"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor",
+          "hasMore"
+        ]
+      },
+      "DeliveryOrderLineQtyDto": {
+        "type": "object",
+        "properties": {
+          "soLineNo": {
+            "type": "number",
+            "example": 1,
+            "description": "ลำดับบรรทัดสินค้าของ SO"
+          },
+          "qty": {
+            "type": "string",
+            "example": "12.5",
+            "description": "ปริมาณ > 0 (สตริงทศนิยม ≤ 3 ตำแหน่ง)"
+          },
+          "unit": {
+            "type": "string",
+            "example": "TON",
+            "description": "ถ้าระบุต้องตรงหน่วยของบรรทัด SO"
+          }
+        },
+        "required": [
+          "soLineNo",
+          "qty"
+        ]
+      },
+      "CreateDeliveryOrderDto": {
+        "type": "object",
+        "properties": {
+          "orderId": {
+            "type": "string",
+            "example": "ord_3f2a…"
+          },
+          "destStopSeq": {
+            "type": "number",
+            "example": 2,
+            "description": "ลำดับจุดส่งของ SO — บังคับเมื่อ SO มีหลายจุดส่ง (1 DO ต่อ 1 จุดส่ง)"
+          },
+          "originStopSeq": {
+            "type": "number",
+            "example": 1,
+            "description": "ลำดับจุดรับ — ไม่ระบุ = จุดรับแรก"
+          },
+          "lines": {
+            "description": "ไม่ระบุ = ปริมาณคงเหลือทั้งหมดของ SO (ห้ามเกินคงเหลือ)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeliveryOrderLineQtyDto"
+            }
+          }
+        },
+        "required": [
+          "orderId"
+        ]
+      },
+      "DeliveryOrderSplitPartDto": {
+        "type": "object",
+        "properties": {
+          "lines": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeliveryOrderLineQtyDto"
+            }
+          }
+        },
+        "required": [
+          "lines"
+        ]
+      },
+      "SplitDeliveryOrderDto": {
+        "type": "object",
+        "properties": {
+          "parts": {
+            "description": "≥ 2 ส่วน — ปริมาณรวมต่อบรรทัดต้องเท่าใบเดิมพอดี",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeliveryOrderSplitPartDto"
+            }
+          }
+        },
+        "required": [
+          "parts"
+        ]
+      },
+      "DeliveryOrderSplitResultDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "description": "ใบลูกที่สร้างจากการแยก",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeliveryOrderDto"
+            }
+          }
+        },
+        "required": [
+          "data"
+        ]
+      },
+      "MergeDeliveryOrdersDto": {
+        "type": "object",
+        "properties": {
+          "deliveryOrderIds": {
+            "example": [
+              "do_3f2a…"
+            ],
+            "description": "DO ที่จะรวมเข้าใบนี้ (SO + จุดส่งเดียวกัน, DRAFT, ไม่อยู่ในเที่ยว)",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "deliveryOrderIds"
+        ]
+      },
+      "CancelDeliveryOrderDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 10,
+            "maxLength": 500,
+            "example": "ลูกค้าขอยกเลิกการส่งรอบนี้"
+          },
+          "reasonCodeId": {
+            "type": "object",
+            "example": "rsn_3f2a…",
+            "description": "เหตุผลมาตรฐานหมวด CANCEL"
+          }
+        },
+        "required": [
+          "reason"
+        ]
       },
       "RecentPriceSiteDto": {
         "type": "object",

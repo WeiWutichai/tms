@@ -6,3 +6,4 @@ export * from './pricing';
 export * from './vehicle-compatibility';
 export * from './assignability';
 export * from './sales-order';
+export * from './delivery-order';
