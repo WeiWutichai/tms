@@ -195,6 +195,7 @@ describe('checkAssignability — รถร่วม: เอกสารบัง
 
   it('วันที่ต้องเป็น YYYY-MM-DD', () => {
     expect(() => subcon([], null, '20/11/2026')).toThrow(RangeError);
+    expect(() => subcon([], null, '2026-02-30')).toThrow(RangeError);
   });
 
   it('override: admin (owner + admin) พร้อมเหตุผล ≥ 10 ตัว หมวด OVERRIDE', () => {
@@ -232,5 +233,110 @@ describe('checkAssignability — รถบริษัท: เตือนไม
   it('เอกสารที่ไม่ได้ตั้งบังคับหมด → ไม่เตือน', () => {
     const r = own([doc('INSURANCE', '2025-01-01', '2025-12-31', { isRequiredForDispatch: false })]);
     expect(r.warnings).toEqual([]);
+  });
+
+  it('ฉบับปัจจุบันยังไม่เริ่ม (ช่องว่าง) → คำเตือน DOC_NOT_YET_VALID', () => {
+    const r = own([doc('INSURANCE', '2026-12-01', '2027-11-30')]);
+    expect(r.assignable).toBe(true);
+    expect(r.warnings.map((w) => [w.code, w.severity])).toEqual([['DOC_NOT_YET_VALID', 'warning']]);
+  });
+});
+
+describe('checkAssignability — ชุดเอกสาร OTHER + ช่วงวิ่ง (review ST2-T20)', () => {
+  const other = (
+    id: string,
+    startsOn: string,
+    expiresOn: string,
+    extra: Partial<AssignDocument> = {},
+  ) => doc('OTHER', startsOn, expiresOn, { id, title: `เอกสาร ${id}`, ...extra });
+
+  it('OTHER: ชุดที่ตั้งบังคับหมด + อีกชุดไม่ตั้งบังคับยังใช้ได้ → ยังบล็อก', () => {
+    const r = subcon([
+      INS_OK,
+      CMI_OK,
+      other('o1', '2025-01-01', '2026-01-01', { isRequiredForDispatch: true }),
+      other('o2', '2026-01-01', '2027-12-31', { isRequiredForDispatch: false }),
+    ]);
+    expect(r.blocks).toEqual([
+      {
+        code: 'DOC_OTHER_EXPIRED',
+        severity: 'block',
+        messageKey: 'assign.docExpired',
+        params: { docType: 'OTHER', expiredOn: '2026-01-01', title: 'เอกสาร o1' },
+        docType: 'OTHER',
+        expiredOn: '2026-01-01',
+        documentId: 'o1',
+      },
+    ]);
+  });
+
+  it('OTHER: ตั้งบังคับ 2 ชุด หมด 1 ชุด → บล็อกชุดที่หมด', () => {
+    const r = subcon([
+      INS_OK,
+      CMI_OK,
+      other('a', '2026-01-01', '2027-12-31', { isRequiredForDispatch: true }),
+      other('b', '2025-01-01', '2026-06-30', { isRequiredForDispatch: true }),
+    ]);
+    expect(r.blocks.map((b) => [b.code, b.documentId])).toEqual([['DOC_OTHER_EXPIRED', 'b']]);
+  });
+
+  it('OTHER: ต่ออายุในสายเดียวกัน (renewsId) → ชุดเดียว ครอบคลุม', () => {
+    const r = subcon([
+      INS_OK,
+      CMI_OK,
+      other('x1', '2025-01-01', '2026-06-30', {
+        status: 'SUPERSEDED',
+        isRequiredForDispatch: true,
+      }),
+      other('x2', '2026-07-01', '2027-06-30', { renewsId: 'x1', isRequiredForDispatch: true }),
+    ]);
+    expect(r.blocks).toEqual([]);
+  });
+
+  it('ช่วงวิ่ง: ต้องครอบคลุมทั้งช่วง — พ.ร.บ./ใบขับขี่หมดกลางช่วง → บล็อก (เทียบวันสิ้นสุด)', () => {
+    const cmi = doc('COMPULSORY_ACT', '2025-11-22', '2026-11-21');
+    const base = { vehicle: { ownership: 'SUBCONTRACT' }, documents: [INS_OK, cmi] };
+    expect(
+      checkAssignability({ ...base, window: { from: '2026-11-20', to: '2026-11-21' } }).assignable,
+    ).toBe(true);
+    const r = checkAssignability({
+      ...base,
+      driver: { licenceExpiresOn: '2026-11-21' },
+      window: { from: '2026-11-20', to: '2026-11-22' },
+    });
+    expect(r.blocks.map((b) => [b.code, b.expiredOn])).toEqual([
+      ['DOC_CMI_EXPIRED', '2026-11-21'],
+      ['DRIVER_LICENCE_EXPIRED', '2026-11-21'],
+    ]);
+  });
+
+  it('ช่วงวิ่ง: ฉบับต่อกันพอดี = ครอบคลุม · มีช่องว่าง 1 วัน = DOC_NOT_YET_VALID', () => {
+    const base = {
+      vehicle: { ownership: 'SUBCONTRACT' },
+      window: { from: '2026-11-20', to: '2026-11-25' },
+    };
+    const old = doc('COMPULSORY_ACT', '2025-11-22', '2026-11-21', { status: 'SUPERSEDED' });
+    const next = (s: string, e: string) => doc('COMPULSORY_ACT', s, e);
+    expect(
+      checkAssignability({ ...base, documents: [INS_OK, old, next('2026-11-22', '2027-11-21')] })
+        .assignable,
+    ).toBe(true);
+    const gap = checkAssignability({
+      ...base,
+      documents: [INS_OK, old, next('2026-11-23', '2027-11-22')],
+    });
+    expect(gap.blocks.map((b) => [b.code, b.params.startsOn])).toEqual([
+      ['DOC_NOT_YET_VALID', '2026-11-23'],
+    ]);
+  });
+
+  it('ช่วงวิ่งกลับด้าน → RangeError', () => {
+    expect(() =>
+      checkAssignability({
+        vehicle: { ownership: 'OWN' },
+        documents: [],
+        window: { from: '2026-11-22', to: '2026-11-20' },
+      }),
+    ).toThrow(RangeError);
   });
 });

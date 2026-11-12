@@ -3,7 +3,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { tryDecodeId } from '../src/common/ids';
 import { DbService } from '../src/db/db.service';
 import {
@@ -28,7 +28,11 @@ describe('เอกสารบังคับก่อนรับงาน (As
   let vt: string;
   let carrier: string;
   let seed = 0;
-  const today = bangkokToday();
+  /** คำนวณใหม่ทุก test + ส่งให้ service ตรง (กันข้ามเที่ยงคืนระหว่างรัน) */
+  let today = bangkokToday();
+  beforeEach(() => {
+    today = bangkokToday();
+  });
 
   beforeAll(async () => {
     process.env.FILES_ROOT = mkdtempSync(join(tmpdir(), 'tms-files-'));
@@ -125,7 +129,9 @@ describe('เอกสารบังคับก่อนรับงาน (As
         .expect(201)
     ).body as { id: string };
   const check = (input: AssignabilityCheckInput, tenant = tenantId) =>
-    dbs.withTenant(tenant, (tx) => svc.isAssignable(input, tx));
+    dbs.withTenant(tenant, (tx) =>
+      svc.isAssignable(input.date || input.window ? input : { ...input, date: today }, tx),
+    );
   const writes = async () => ({
     audit: await db.auditLog.count({ where: { tenantId } }),
     docs: await db.vehicleDocument.count({ where: { tenantId } }),
@@ -142,7 +148,7 @@ describe('เอกสารบังคับก่อนรับงาน (As
     expect(r).toMatchObject({
       vehicle: { id: v.id, plate: v.plate, ownership: 'SUBCONTRACT', carrierId: carrier },
       driver: null,
-      date: today,
+      window: { from: today, to: today },
       assignable: false,
       warnings: [],
       overridable: true,
@@ -157,7 +163,7 @@ describe('เอกสารบังคับก่อนรับงาน (As
         docType: 'COMPULSORY_ACT',
         expiredOn: addDays(today, -3),
         documentId: cmi.id,
-        message: expect.stringMatching(/^พ\.ร\.บ\.หมดอายุ \d{1,2} \S+ 25\d\d$/),
+        message: expect.stringMatching(/^พ\.ร\.บ\. หมดอายุ \d{1,2} \S+ 25\d\d$/),
       },
     ]);
     expect(await writes()).toEqual(before);
@@ -174,7 +180,7 @@ describe('เอกสารบังคับก่อนรับงาน (As
     expect(r.assignable).toBe(false);
     expect(r.driver?.id).toBe(expired.id);
     expect(r.blocks.map((b) => [b.code, b.message])).toEqual([
-      ['DOC_MISSING', 'ยังไม่มีประกันภัยในระบบ — รถร่วมต้องมีเอกสารนี้ก่อนรับงาน'],
+      ['DOC_MISSING', 'ยังไม่มี ประกันภัย ในระบบ — รถร่วมต้องมีเอกสารนี้ก่อนรับงาน'],
       ['DRIVER_LICENCE_EXPIRED', expect.stringMatching(/^ใบขับขี่คนขับหมดอายุ /)],
     ]);
 
@@ -216,8 +222,45 @@ describe('เอกสารบังคับก่อนรับงาน (As
     expect(late.blocks.map((b) => b.code)).toEqual(['DOC_CMI_EXPIRED']);
     // Date → วันไทย (17:00Z = วันถัดไปตามเวลาไทย)
     const d = await check({ ...input, date: new Date(`${addDays(today, 364)}T17:00:00Z`) });
-    expect(d.date).toBe(addDays(today, 365));
+    expect(d.window).toEqual({ from: addDays(today, 365), to: addDays(today, 365) });
     expect(d.assignable).toBe(false);
+  });
+
+  it('ช่วงวิ่ง: ประกันหมดก่อนสิ้นช่วง → บล็อก · ช่วงกลับด้าน → 422', async () => {
+    const v = await vehicle();
+    await addDoc(v.id, 'INSURANCE', 3);
+    await addDoc(v.id, 'COMPULSORY_ACT', 300);
+    const id = uuid('vehicle', v.id);
+    expect(
+      (await check({ vehicleId: id, window: { from: today, to: addDays(today, 3) } })).assignable,
+    ).toBe(true);
+    const r = await check({ vehicleId: id, window: { from: today, to: addDays(today, 5) } });
+    expect(r.window).toEqual({ from: today, to: addDays(today, 5) });
+    expect(r.blocks.map((b) => [b.code, b.expiredOn])).toEqual([
+      ['DOC_INSURANCE_EXPIRED', addDays(today, 3)],
+    ]);
+    await expect(
+      check({ vehicleId: id, window: { from: addDays(today, 2), to: today } }),
+    ).rejects.toMatchObject({ code: 'validation_failed', errors: [{ field: 'window' }] });
+  });
+
+  it('รถ/คนขับที่ลบแล้ว (soft delete) → 404', async () => {
+    const v = await vehicle();
+    const d = await driver(addDays(today, 500));
+    const input = { vehicleId: uuid('vehicle', v.id), driverId: uuid('driver', d.id) };
+    expect((await check(input)).driver?.id).toBe(d.id);
+    await api(app, admin)
+      .post(`/v1/drivers/${d.id}/delete`)
+      .send({ reason: 'สร้างผิด ลบทิ้ง ทดสอบ' })
+      .expect(204);
+    await expect(check(input)).rejects.toMatchObject({ code: 'not_found' });
+    await api(app, admin)
+      .post(`/v1/vehicles/${v.id}/delete`)
+      .send({ reason: 'สร้างผิด ลบทิ้ง ทดสอบ' })
+      .expect(204);
+    await expect(check({ vehicleId: input.vehicleId })).rejects.toMatchObject({
+      code: 'not_found',
+    });
   });
 
   it('รถบริษัท: เอกสารบังคับหมด = คำเตือน ไม่บล็อก · ไม่มีเอกสาร = ไม่เตือน', async () => {
@@ -230,6 +273,10 @@ describe('เอกสารบังคับก่อนรับงาน (As
     expect(r.warnings.map((w) => [w.code, w.severity])).toEqual([
       ['DOC_INSURANCE_EXPIRED', 'warning'],
     ]);
+    // ตรอ. ที่ตั้งบังคับก่อนจ่ายงาน — ข้อความเว้นวรรคระหว่างชื่อเอกสารกับคำกริยา
+    await addDoc(own.id, 'INSPECTION', -2, { isRequiredForDispatch: true });
+    const r2 = await check({ vehicleId: uuid('vehicle', own.id) });
+    expect(r2.warnings.map((w) => w.message)[1]).toMatch(/^ตรวจสภาพ ตรอ\. หมดอายุ /);
   });
 
   it('id ของ tenant อื่น / ไม่มีอยู่ / ผิดรูปแบบ → 404 · วันที่ผิด → 422', async () => {
@@ -273,6 +320,9 @@ describe('เอกสารบังคับก่อนรับงาน (As
     expect(await status(check({ vehicleId: uuid('vehicle', mine.id), date: '2026-02-31' }))).toBe(
       422,
     );
+    expect(
+      await status(check({ vehicleId: uuid('vehicle', mine.id), date: new Date('not a date') })),
+    ).toBe(422);
     // tenant เจ้าของเห็นปกติ
     expect((await check({ vehicleId: uuid('vehicle', theirs.id) }, otherTenantId)).vehicle.id).toBe(
       theirs.id,
