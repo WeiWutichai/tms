@@ -2123,3 +2123,70 @@ model ImpersonationSession {
   @@index([tenantId, startedAt])
   @@map("impersonation_session")
 }
+
+/// ST3-T21 ตั้งค่าช่องส่งข้อความต่อ tenant (docs/04 G4 LINE OA / Messaging API) — channel access token เข้ารหัส FieldCipher
+/// ไม่คืนค่า token ใน API (คืนแค่ 4 ตัวท้าย) · SMS ใช้บัญชีผู้ให้บริการระดับระบบ (env) เปิด/ปิดต่อ tenant ได้
+model MessagingSetting {
+  tenantId       String   @id @map("tenant_id") @db.Uuid
+  lineEnabled    Boolean  @default(false) @map("line_enabled")
+  lineTokenEnc   String?  @map("line_token_enc") /// channel access token (long-lived) → FieldCipher
+  lineTokenLast4 String?  @map("line_token_last4") @db.VarChar(4)
+  smsEnabled     Boolean  @default(false) @map("sms_enabled") /// ปิดเป็นค่าเริ่มต้น — admin เปิดเอง (review ST3-T21 M1)
+  version        Int      @default(1)
+  updatedBy      String?  @map("updated_by")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("messaging_setting")
+}
+
+/// ST3-T21 outbox + บันทึกการส่งข้อความ LINE/SMS (ลิงก์ตาม template) — API เขียนแถวใน transaction, worker ส่ง (retry + backoff)
+/// ผู้รับเก็บแบบเข้ารหัส (recipient_enc) + แบบปิดบัง (recipient_masked) + blind index (rate limit ต่อผู้รับ)
+/// ไม่เก็บเนื้อความ/ลิงก์ (token): เก็บตัวแปร template (vars) + magic_link_id — worker render + สร้าง URL ตอนส่ง
+/// vars และ recipient_enc ถูกลบเมื่อจบ (SENT/FAILED) — role แอปอ่านสองคอลัมน์นี้ไม่ได้
+model MessageDelivery {
+  id                String    @id @default(uuid()) @db.Uuid
+  tenantId          String    @map("tenant_id") @db.Uuid
+  channel           String /// LINE | SMS
+  template          String /// carrier_docs_link | job_offer_link
+  locale            String    @default("th")
+  recipientEnc      String?   @map("recipient_enc")
+  recipientMasked   String    @map("recipient_masked")
+  recipientHash     String    @map("recipient_hash")
+  recipientType     String?   @map("recipient_type") /// carrier | null (ระบุผู้รับตรง)
+  recipientRefId    String?   @map("recipient_ref_id") @db.Uuid
+  vars              Json? /// {sender, recipientName, ref, yearStyle} — ชื่อผ่าน sanitiser แล้ว
+  magicLinkId       String?   @map("magic_link_id") @db.Uuid
+  entityType        String?   @map("entity_type")
+  entityId          String?   @map("entity_id") @db.Uuid
+  status            String    @default("QUEUED") /// QUEUED | SENDING | SENT | FAILED
+  attempts          Int       @default(0)
+  maxAttempts       Int       @default(5) @map("max_attempts")
+  runAt             DateTime  @default(dbgenerated("now()")) @map("run_at") @db.Timestamptz(6)
+  lockedUntil       DateTime? @map("locked_until") @db.Timestamptz(6)
+  provider          String?
+  providerMessageId String?   @map("provider_message_id")
+  errorCode         String?   @map("error_code")
+  error             String?
+  createdBy         String?   @map("created_by")
+  sentAt            DateTime? @map("sent_at") @db.Timestamptz(6)
+  failedAt          DateTime? @map("failed_at") @db.Timestamptz(6)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([status, runAt])
+  @@index([tenantId, createdAt, id])
+  @@index([tenantId, entityType, entityId, createdAt])
+  @@index([tenantId, recipientHash, createdAt])
+  @@map("message_delivery")
+}
+
+/// ST3-T21 เพดานต่อผู้รับข้ามทุกบริษัท (กันใช้ SMS/LINE ของระบบรบกวนคนคนเดียวจากหลายบริษัท) — ไม่มี tenant_id
+model MessageRecipientCounter {
+  recipientHash String   @map("recipient_hash")
+  hour          DateTime @db.Timestamptz(6)
+  count         Int      @default(0)
+
+  @@id([recipientHash, hour])
+  @@map("message_recipient_counter")
+}

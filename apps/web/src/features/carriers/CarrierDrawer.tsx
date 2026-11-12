@@ -679,7 +679,11 @@ export function CarrierDrawer({
       )}
       {tab === 'docs' &&
         (c ? (
-          <CarrierDocsTab carrierId={c.id} canWrite={canWrite} />
+          <CarrierDocsTab
+            carrierId={c.id}
+            canWrite={canWrite}
+            contact={{ phone: c.phone, lineContact: c.lineContact }}
+          />
         ) : (
           <EmptyState
             icon="file-text"

@@ -15267,7 +15267,7 @@
         },
         "responses": {
           "201": {
-            "description": "ออกลิงก์อัปโหลดเอกสารให้ผู้รับเหมา (ไม่ส่งข้อความเอง — คัดลอก url ไปส่ง)",
+            "description": "ออกลิงก์อัปโหลดเอกสารให้ผู้รับเหมา — ส่งทาง LINE/SMS ด้วย POST /v1/messages/send-link (ST3-T21) หรือคัดลอก url ไปส่งเอง",
             "content": {
               "application/json": {
                 "schema": {
@@ -15631,6 +15631,262 @@
         },
         "tags": [
           "public"
+        ]
+      }
+    },
+    "/v1/messages/send-link": {
+      "post": {
+        "operationId": "Messages_send",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendLinkDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "เข้าคิวส่งแล้ว (status `queued`) — worker ส่งจริงพร้อม retry; ติดตามผลที่ GET /v1/messages/{id} · ส่งไม่ได้/ล้ม ผู้ใช้ยังคัดลอก url ไปส่งเองได้เสมอ",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageDeliveryDto"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`channel_unavailable` — ช่องทางปิดหรือยังไม่ตั้งค่า"
+          },
+          "429": {
+            "description": "เกินเพดานต่อบริษัท/ชั่วโมง หรือต่อผู้รับ/ชั่วโมง"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "messaging"
+        ]
+      }
+    },
+    "/v1/messages": {
+      "get": {
+        "operationId": "Messages_list",
+        "parameters": [
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "ค่า nextCursor จากหน้าก่อน",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "carrierId",
+            "required": false,
+            "in": "query",
+            "description": "เฉพาะที่ส่งถึงผู้รับเหมารายนี้",
+            "schema": {
+              "example": "car_…",
+              "type": "string"
+            }
+          },
+          {
+            "name": "linkId",
+            "required": false,
+            "in": "query",
+            "description": "เฉพาะลิงก์นี้",
+            "schema": {
+              "example": "mlk_…",
+              "type": "string"
+            }
+          },
+          {
+            "name": "channel",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "line",
+                "sms"
+              ]
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "queued",
+                "sending",
+                "sent",
+                "failed"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "บันทึกการส่ง ใหม่ → เก่า (เฉพาะชนิดลิงก์ที่มีสิทธิ์ดู) — ผู้รับแสดงแบบปิดบังเสมอ ไม่มีเนื้อความ",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageDeliveryPageDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "messaging"
+        ]
+      }
+    },
+    "/v1/messages/channels": {
+      "get": {
+        "operationId": "Messages_channels",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "ช่องทางที่ส่งได้ตอนนี้ — UI ซ่อนปุ่มส่งของช่องที่ใช้ไม่ได้ (เหลือคัดลอกลิงก์)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChannelStatusListDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "messaging"
+        ]
+      }
+    },
+    "/v1/messages/{id}": {
+      "get": {
+        "operationId": "Messages_get",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessageDeliveryDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "messaging"
+        ]
+      }
+    },
+    "/v1/settings/messaging": {
+      "get": {
+        "operationId": "MessagingSettings_get",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessagingSettingsDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "messaging"
+        ]
+      },
+      "patch": {
+        "operationId": "MessagingSettings_update",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateMessagingSettingsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MessagingSettingsDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "messaging"
         ]
       }
     }
@@ -28416,7 +28672,7 @@
           },
           "url": {
             "type": "string",
-            "description": "URL หน้าอัปโหลดสำหรับรถร่วม (เปิดบนมือถือได้โดยไม่ login) — แสดงครั้งเดียวตอนสร้าง ระบบไม่ส่งข้อความให้เอง"
+            "description": "URL หน้าอัปโหลดสำหรับรถร่วม (เปิดบนมือถือได้โดยไม่ login) — แสดงครั้งเดียวตอนสร้าง · ส่งต่อด้วย POST /v1/messages/send-link หรือคัดลอกไปส่งเอง"
           },
           "token": {
             "type": "string",
@@ -29063,6 +29319,273 @@
           "id",
           "status"
         ]
+      },
+      "SendLinkDto": {
+        "type": "object",
+        "properties": {
+          "channel": {
+            "type": "string",
+            "enum": [
+              "line",
+              "sms"
+            ],
+            "description": "ช่องทาง"
+          },
+          "url": {
+            "type": "string",
+            "description": "URL ลิงก์ที่ระบบออกให้ (เช่น `url` จาก POST /v1/carriers/{id}/upload-links) — ต้องเป็นลิงก์ที่ยังใช้ได้ของบริษัทนี้ ระบบเลือก template + สิทธิ์ตามชนิดลิงก์ (carrier_docs → `master:write`; trip_offer ยังส่งไม่ได้จนถึง ST3-T23) · ผู้รับ = ช่องทางที่บันทึกไว้ของผู้รับเหมาเจ้าของลิงก์ (เบอร์มือถือ / LINE userId) — ระบุผู้รับเองไม่ได้"
+          }
+        },
+        "required": [
+          "channel",
+          "url"
+        ]
+      },
+      "MessageDeliveryDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "msg_…"
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "line",
+              "sms"
+            ]
+          },
+          "template": {
+            "type": "string",
+            "example": "carrier_docs_link"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "sending",
+              "sent",
+              "failed"
+            ]
+          },
+          "recipient": {
+            "type": "string",
+            "example": "081•••5678",
+            "description": "ผู้รับแบบปิดบัง (ไม่คืนค่าเต็มเสมอ)"
+          },
+          "carrierId": {
+            "type": "string",
+            "nullable": true,
+            "example": "car_…"
+          },
+          "linkId": {
+            "type": "string",
+            "nullable": true,
+            "example": "mlk_…"
+          },
+          "entityType": {
+            "type": "string",
+            "nullable": true
+          },
+          "entityId": {
+            "type": "string",
+            "nullable": true,
+            "description": "id แบบ opaque ของ entity"
+          },
+          "attempts": {
+            "type": "number"
+          },
+          "provider": {
+            "type": "string",
+            "nullable": true,
+            "example": "mock"
+          },
+          "providerMessageId": {
+            "type": "string",
+            "nullable": true
+          },
+          "errorCode": {
+            "type": "string",
+            "nullable": true,
+            "description": "สาเหตุที่ส่งไม่สำเร็จ: provider_unavailable · provider_auth_failed · provider_rejected · not_configured · channel_disabled · lease_expired"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "sentAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "failedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "nextAttemptAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "รอบส่งถัดไป (ยังไม่จบ)"
+          }
+        },
+        "required": [
+          "id",
+          "channel",
+          "template",
+          "status",
+          "recipient",
+          "carrierId",
+          "linkId",
+          "entityType",
+          "entityId",
+          "attempts",
+          "provider",
+          "providerMessageId",
+          "errorCode",
+          "createdAt",
+          "sentAt",
+          "failedAt",
+          "nextAttemptAt"
+        ]
+      },
+      "MessageDeliveryPageDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MessageDeliveryDto"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor",
+          "hasMore"
+        ]
+      },
+      "ChannelStatusDto": {
+        "type": "object",
+        "properties": {
+          "channel": {
+            "type": "string",
+            "enum": [
+              "line",
+              "sms"
+            ]
+          },
+          "available": {
+            "type": "boolean",
+            "description": "ส่งทางช่องนี้ได้ตอนนี้ไหม (false = ซ่อนปุ่มส่ง ใช้คัดลอกลิงก์แทน)"
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "provider_disabled",
+              "not_configured",
+              "channel_disabled"
+            ],
+            "description": "เหตุที่ใช้ไม่ได้"
+          }
+        },
+        "required": [
+          "channel",
+          "available",
+          "reason"
+        ]
+      },
+      "ChannelStatusListDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChannelStatusDto"
+            }
+          }
+        },
+        "required": [
+          "data"
+        ]
+      },
+      "MessagingSettingsDto": {
+        "type": "object",
+        "properties": {
+          "lineEnabled": {
+            "type": "boolean",
+            "description": "เปิดส่งทาง LINE OA"
+          },
+          "lineConfigured": {
+            "type": "boolean",
+            "description": "ตั้ง channel access token แล้ว"
+          },
+          "lineTokenHint": {
+            "type": "string",
+            "nullable": true,
+            "example": "•••• a1B2",
+            "description": "4 ตัวท้ายของ token"
+          },
+          "smsEnabled": {
+            "type": "boolean",
+            "description": "เปิดส่ง SMS (บัญชีผู้ให้บริการระดับระบบ)"
+          },
+          "lineProvider": {
+            "type": "string",
+            "description": "ผู้ให้บริการ LINE ที่ระบบใช้อยู่",
+            "example": "line",
+            "nullable": true
+          },
+          "smsProvider": {
+            "type": "string",
+            "description": "ผู้ให้บริการ SMS ที่ระบบใช้อยู่",
+            "example": "http",
+            "nullable": true
+          },
+          "version": {
+            "type": "number"
+          },
+          "updatedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "lineEnabled",
+          "lineConfigured",
+          "lineTokenHint",
+          "smsEnabled",
+          "lineProvider",
+          "smsProvider",
+          "version",
+          "updatedAt"
+        ]
+      },
+      "UpdateMessagingSettingsDto": {
+        "type": "object",
+        "properties": {
+          "lineChannelAccessToken": {
+            "type": "string",
+            "description": "channel access token (long-lived) จาก LINE Developers Console — เขียนอย่างเดียว ไม่คืนค่า · null = ลบ (ปิด LINE ด้วย)",
+            "nullable": true
+          },
+          "lineEnabled": {
+            "type": "boolean"
+          },
+          "smsEnabled": {
+            "type": "boolean"
+          }
+        }
       }
     }
   }

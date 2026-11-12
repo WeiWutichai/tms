@@ -38,6 +38,7 @@ export const ID_PREFIX = {
   deliveryOrder: 'do',
   magicLink: 'mlk',
   carrierDocSubmission: 'cds',
+  messageDelivery: 'msg',
 } as const;
 export type IdKind = keyof typeof ID_PREFIX;
 

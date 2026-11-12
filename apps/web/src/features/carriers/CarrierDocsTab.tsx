@@ -1,7 +1,7 @@
 import { EmptyState, Icon, ReasonDialog, Toast } from '@tms/ui';
 import { useState } from 'react';
 import { ApiError } from '../../api';
-import { formatDate, useI18n, type T } from '../../i18n';
+import { formatDate, formatDateTime, useI18n, type T } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
 import { useMe } from '../../shell/AppShell';
 import { problemText } from '../master/problems';
@@ -16,6 +16,14 @@ import {
   type IssuedUploadLink,
   type UploadLink,
 } from './useCarrierDocs';
+import {
+  isSmsMobile,
+  useCarrierMessages,
+  useMessageChannels,
+  useSendLink,
+  type ChannelKey,
+  type MessageDelivery,
+} from './useLinkMessages';
 
 /* สี soft() ของต้นแบบ TMS v4 */
 const SOFT = {
@@ -34,6 +42,53 @@ const subjectOf = (s: DocSubmission) => s.vehicle?.plate ?? s.driver?.name ?? ''
 const nameOf = (t: T, s: DocSubmission) =>
   [subjectOf(s), docLabel(t, s), s.docNo].filter(Boolean).join(' · ');
 
+const chName = (c: ChannelKey) => (c === 'line' ? 'LINE' : 'SMS');
+
+/** บันทึกการส่ง 1 รายการ (ต้นแบบ: แถว log "ส่งข้อเสนอให้ … ผ่าน LINE" + ป้าย สำเร็จ/ล้มเหลว) */
+function MessageRow({
+  m,
+  dt,
+  t,
+  copyable,
+  canWrite,
+}: {
+  m: MessageDelivery;
+  /** วัน + เวลา */
+  dt: (iso: string) => string;
+  t: T;
+  copyable: boolean;
+  canWrite: boolean;
+}) {
+  const title = t('cdoc.log.row', { ch: chName(m.channel), to: m.recipient });
+  const sub =
+    m.status === 'failed'
+      ? // ผู้ที่สร้างลิงก์ไม่ได้ ไม่เห็นคำแนะนำให้สร้าง/คัดลอกลิงก์ (QA ST3-T21)
+        t(!canWrite ? 'cdoc.log.failedPlain' : copyable ? 'cdoc.log.failedCopy' : 'cdoc.log.failed')
+      : m.status === 'queued' && m.attempts > 0
+        ? t('cdoc.log.retrying', { n: m.attempts + 1, code: m.errorCode ?? '-' })
+        : t('cdoc.log.at', { d: dt(m.sentAt ?? m.createdAt) });
+  return (
+    <div className="tms-vdoc__item" data-testid="cdoc-msg" data-status={m.status}>
+      <Icon n="send" s={18} style={{ color: '#59606B', flexShrink: 0 }} />
+      <div className="tms-vdoc__text">
+        <span className="tms-ellipsis" title={title}>
+          {title}
+        </span>
+        <span className="tms-vdoc__sub tms-ellipsis" title={sub}>
+          {sub}
+        </span>
+      </div>
+      {m.status === 'sent' ? (
+        <Pill tone="ok" label={t('cdoc.log.st.sent')} />
+      ) : m.status === 'failed' ? (
+        <Pill tone="err" label={t('cdoc.log.st.failed')} />
+      ) : (
+        <Pill tone="warn" label={t('cdoc.log.st.queued')} />
+      )}
+    </div>
+  );
+}
+
 function Pill({ tone, label }: { tone: keyof typeof SOFT; label: string }) {
   return (
     <span className="tms-vdoc__pill" style={{ background: SOFT[tone].bg, color: SOFT[tone].c }}>
@@ -45,9 +100,20 @@ function Pill({ tone, label }: { tone: keyof typeof SOFT; label: string }) {
 /**
  * แท็บ "เอกสารแนบ" ของผู้รับเหมา (ST2-T21) — ลิงก์ให้รถร่วมอัปโหลดเอกสารเอง + ตรวจเอกสารที่ส่งมา
  * ต้นแบบไม่มีส่วนนี้ → ใช้ชิ้นเดียวกับแท็บเอกสารแนบของรถ (การ์ดไฟล์ ป้ายสถานะ ปุ่มเส้นขอบ) [OPEN spec/12 §3]
- * อนุมัติ/ไม่อนุมัติ = เหตุผล ≥ 10 ตัว (ReasonDialog เดียวกับทุก master) · ระบบไม่ส่งลิงก์ให้เอง (คัดลอกไปส่ง)
+ * อนุมัติ/ไม่อนุมัติ = เหตุผล ≥ 10 ตัว (ReasonDialog เดียวกับทุก master)
+ * ST3-T21: "ส่งผ่าน LINE" / "ส่ง SMS" ข้างปุ่มคัดลอกลิงก์ (แบบ footer ข้อเสนองานของต้นแบบ: คัดลอกลิงก์ + ส่งผ่าน LINE)
+ * แสดงเฉพาะช่องที่ใช้ได้และผู้รับเหมามีผู้รับของช่องนั้น — ไม่มี/ล่ม = คัดลอกลิงก์ไปส่งเองได้เสมอ [OPEN spec/12 §3]
  */
-export function CarrierDocsTab({ carrierId, canWrite }: { carrierId: string; canWrite: boolean }) {
+export function CarrierDocsTab({
+  carrierId,
+  canWrite,
+  contact,
+}: {
+  carrierId: string;
+  canWrite: boolean;
+  /** ผู้รับของผู้รับเหมา (เบอร์ / LINE userId) — ใช้ตัดสินว่าจะแสดงปุ่มส่งช่องไหน */
+  contact?: { phone: string | null; lineContact: string | null };
+}) {
   const { t, lang } = useI18n();
   const me = useMe();
   const ys = (me.data?.tenant.yearStyle as 'BE' | 'CE') ?? 'BE';
@@ -65,6 +131,39 @@ export function CarrierDocsTab({ carrierId, canWrite }: { carrierId: string; can
     action: 'approve' | 'reject';
   } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const channels = useMessageChannels();
+  const log = useCarrierMessages(carrierId);
+  const sendLink = useSendLink(carrierId);
+  // LINE push ต้องใช้ userId (U + 32 hex) — LINE ID แบบ @ ที่กรอกเอง ส่งไม่ได้
+  const sendable: ChannelKey[] = (['line', 'sms'] as const).filter(
+    (c) =>
+      channels.data?.has(c) &&
+      (c === 'line'
+        ? /^U[0-9a-f]{32}$/.test(contact?.lineContact ?? '')
+        : isSmsMobile(contact?.phone)),
+  );
+  const send = (channel: ChannelKey, url: string) =>
+    sendLink.mutate(
+      { channel, url, idempotencyKey: crypto.randomUUID() },
+      {
+        onSuccess: () => setToast(t('cdoc.send.queued', { ch: chName(channel) })),
+        onError: (e) => {
+          const code =
+            e instanceof ApiError
+              ? (e.problem as { errors?: { code: string }[] }).errors?.[0]?.code
+              : undefined;
+          setToast(
+            e instanceof ApiError && e.problem.code === 'channel_unavailable'
+              ? t('cdoc.send.unavailable', { ch: chName(channel) })
+              : code === 'recipient_missing' || code === 'recipient_invalid'
+                ? t('cdoc.send.noRecipient', { ch: chName(channel) })
+                : e instanceof ApiError && e.problem.code === 'rate_limited'
+                  ? t('cdoc.send.limit')
+                  : problemText(e, t),
+          );
+        },
+      },
+    );
 
   const active = (links.data ?? []).filter((l) => l.status === 'active');
   const copy = (url: string) => {
@@ -97,6 +196,22 @@ export function CarrierDocsTab({ carrierId, canWrite }: { carrierId: string; can
               <Icon n="copy" s={14} />
               {t('cdoc.link.copy')}
             </button>
+            {canWrite &&
+              sendable.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  // ต้นแบบมีปุ่มหลักเดียว "ส่งผ่าน LINE" — SMS เป็นปุ่มรอง [OPEN spec/12 §3]
+                  className={
+                    c === 'line' ? 'tms-vdoc__renew tms-vdoc__renew--pri' : 'tms-vdoc__renew'
+                  }
+                  disabled={sendLink.isPending}
+                  onClick={() => send(c, issued.url)}
+                >
+                  <Icon n="send" s={14} />
+                  {t(c === 'line' ? 'cdoc.send.line' : 'cdoc.send.sms')}
+                </button>
+              ))}
           </div>
         )}
         {issued && <span className="tms-vdoc__sub">{t('cdoc.link.once')}</span>}
@@ -119,6 +234,16 @@ export function CarrierDocsTab({ carrierId, canWrite }: { carrierId: string; can
               </button>
             )}
           </div>
+        ))}
+        {(log.data ?? []).map((m) => (
+          <MessageRow
+            key={m.id}
+            m={m}
+            dt={(iso) => formatDateTime(iso, lang, ys)}
+            t={t}
+            copyable={issued?.id === m.linkId}
+            canWrite={canWrite}
+          />
         ))}
         {canWrite && (
           <div className="tms-vdoc__bar">
