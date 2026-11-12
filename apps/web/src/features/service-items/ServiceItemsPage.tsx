@@ -346,8 +346,12 @@ export function ServiceItemsPage() {
         onClose={() => setForm(null)}
         onSaved={(r, created) => {
           setForm(null);
-          setToast(t(created ? 'svc.toast.created' : 'svc.toast.saved', { n: r.name }));
-          open(r);
+          const done = t(created ? 'svc.toast.created' : 'svc.toast.saved', { n: r.name });
+          // คำเตือนที่ไม่บล็อกจาก API (คู่ VAT × หัก ณ ที่จ่ายไม่ปกติ) — บันทึกแล้ว แต่ให้ผู้ใช้ทบทวน
+          const warn = r.warnings.map((w) => t(`svc.warn.${w.reason}` as MessageKey)).join(' ');
+          setToast(warn ? `${done} — ${warn}` : done);
+          const { warnings: _w, ...item } = r;
+          open(item);
         }}
       />
       <ReasonDialog

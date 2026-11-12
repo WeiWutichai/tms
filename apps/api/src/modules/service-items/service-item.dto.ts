@@ -130,8 +130,9 @@ class RequiredServiceItemFields extends ServiceItemFieldsDto {
   })
   @CleanText()
   @IsString()
-  @IsNotEmpty()
   @MaxLength(100)
+  // class-validator รายงานจากตัวล่างขึ้นบน → ชื่อว่าง/หายได้ "isNotEmpty" เป็นข้อแรก (QA ST2-T11)
+  @IsNotEmpty()
   name!: string;
 
   @ApiProperty({
@@ -153,7 +154,7 @@ class RequiredServiceItemFields extends ServiceItemFieldsDto {
   @ApiProperty({
     enum: SERVICE_ITEM_WHT_RATES,
     description:
-      'หัก ณ ที่จ่าย (%) ตั้งต้นของบรรทัด: 1.00 ค่าขนส่ง, 3.00 ค่าบริการ, 0.00 ไม่หัก — คู่ EXEMPT_TRANSPORT+3.00 และ VAT_7+1.00 → 422 `vat_wht_combo`',
+      'หัก ณ ที่จ่าย (%) ตั้งต้นของบรรทัด: 1.00 ค่าขนส่ง, 3.00 ค่าบริการ, 0.00 ไม่หัก — คู่ EXEMPT_TRANSPORT+3.00 และ VAT_7+1.00 บันทึกได้แต่ได้คำเตือน `vat_wht_unusual` ใน `warnings`',
   })
   @IsIn(SERVICE_ITEM_WHT_RATES)
   whtRate!: ServiceItemWhtRate;
@@ -198,8 +199,9 @@ export class UpdateServiceItemDto extends ServiceItemFieldsDto {
   @IsOptionalNotNull()
   @CleanText()
   @IsString()
-  @IsNotEmpty()
   @MaxLength(100)
+  // class-validator รายงานจากตัวล่างขึ้นบน → ชื่อว่าง/หายได้ "isNotEmpty" เป็นข้อแรก (QA ST2-T11)
+  @IsNotEmpty()
   name?: string;
 
   @ApiPropertyOptional({ enum: CALC_UNITS })
@@ -301,6 +303,22 @@ export class ServiceItemDto {
   @ApiProperty() version!: number;
   @ApiProperty({ format: 'date-time' }) createdAt!: string;
   @ApiProperty({ format: 'date-time' }) updatedAt!: string;
+}
+
+export class ServiceItemWarningDto {
+  @ApiProperty({ enum: ['vat_wht_unusual'] }) code!: 'vat_wht_unusual';
+  @ApiProperty({
+    enum: ['transport_wht_3', 'service_wht_1'],
+    description:
+      'transport_wht_3 = ยกเว้น VAT (ค่าขนส่ง) แต่หัก 3%; service_wht_1 = VAT 7% แต่หัก 1% (ถูกได้เมื่อจ่ายผ่าน e-WHT)',
+  })
+  reason!: 'transport_wht_3' | 'service_wht_1';
+  @ApiProperty() message!: string;
+}
+
+/** ผลของ POST/PATCH/PUT — `warnings` = คำเตือนที่ไม่บล็อก (บันทึกแล้ว) เช่นคู่ VAT × หัก ณ ที่จ่ายไม่ปกติ */
+export class ServiceItemWriteResultDto extends ServiceItemDto {
+  @ApiProperty({ type: [ServiceItemWarningDto] }) warnings!: ServiceItemWarningDto[];
 }
 
 export class ServiceItemPageDto {

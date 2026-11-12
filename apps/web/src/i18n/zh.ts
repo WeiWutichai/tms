@@ -546,6 +546,7 @@ export const zh: Partial<Record<MessageKey, string>> = {
   'svc.f.wht': '预扣税',
   'svc.f.code': '代码',
   'svc.f.st': '状态',
+  'svc.v.gt0': '请输入大于 0 的数字',
   'svc.bulk.export': '导出 Excel',
   'svc.dlg.reason': '原因',
 };

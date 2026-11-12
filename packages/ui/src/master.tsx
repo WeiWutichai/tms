@@ -1,4 +1,12 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { useEscapeLayer } from './escape';
 import { Icon } from './Icon';
 import { tone as toneColors, type Tone } from './tokens';
@@ -54,6 +62,12 @@ export function SummaryStrip({ items }: { items: SummaryItem[] }) {
   );
 }
 
+/**
+ * จำนวนครั้งที่กดบันทึกของ FormDrawer — FormField ใช้ซ่อน error ของช่องที่ผู้ใช้แก้หลังกดบันทึก
+ * (error จาก API ค้างทั้งที่แก้แล้ว — QA ST2-T11) จนกว่าจะกดบันทึกครั้งถัดไปหรือข้อความ error เปลี่ยน
+ */
+const FormSubmits = createContext<number | null>(null);
+
 export function FormDrawer({
   open,
   title,
@@ -77,50 +91,59 @@ export function FormDrawer({
   onSubmit?: () => void;
 }) {
   useEscape(open, onClose);
+  const [submits, setSubmits] = useState(0);
   if (!open) return null;
   return (
-    <div className="tms-fdrawer__scrim" onClick={onClose}>
-      <form
-        className="tms-fdrawer"
-        role="dialog"
-        aria-modal="true"
-        aria-label={typeof title === 'string' ? title : undefined}
-        onClick={(e) => e.stopPropagation()}
-        onSubmit={(e) => {
-          e.preventDefault();
-          onSubmit?.();
-        }}
-        noValidate
-      >
-        <div className="tms-fdrawer__head">
-          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <h2 className="tms-fdrawer__title">{title}</h2>
-            {subtitle && <span style={{ color: '#3B424C' }}>{subtitle}</span>}
+    <FormSubmits.Provider value={submits}>
+      <div className="tms-fdrawer__scrim" onClick={onClose}>
+        <form
+          className="tms-fdrawer"
+          role="dialog"
+          aria-modal="true"
+          aria-label={typeof title === 'string' ? title : undefined}
+          onClick={(e) => e.stopPropagation()}
+          onSubmit={(e) => {
+            e.preventDefault();
+            setSubmits((n) => n + 1);
+            onSubmit?.();
+          }}
+          noValidate
+        >
+          <div className="tms-fdrawer__head">
+            <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <h2
+                className="tms-fdrawer__title"
+                title={typeof title === 'string' ? title : undefined}
+              >
+                {title}
+              </h2>
+              {subtitle && <span style={{ color: '#3B424C' }}>{subtitle}</span>}
+            </div>
+            <button
+              type="button"
+              className="tms-drawer__iconbtn"
+              title={closeLabel}
+              aria-label={closeLabel}
+              onClick={onClose}
+              style={{ color: '#59606B' }}
+            >
+              <Icon n="x" s={18} />
+            </button>
           </div>
-          <button
-            type="button"
-            className="tms-drawer__iconbtn"
-            title={closeLabel}
-            aria-label={closeLabel}
-            onClick={onClose}
-            style={{ color: '#59606B' }}
-          >
-            <Icon n="x" s={18} />
-          </button>
-        </div>
-        <div className="tms-fdrawer__body">{children}</div>
-        <div className="tms-fdrawer__foot">
-          {alert && (
-            <span className="tms-fdrawer__alert" role="alert">
-              <Icon n="circle-alert" s={16} />
-              {alert}
-            </span>
-          )}
-          <span style={{ flex: 1 }} />
-          {footer}
-        </div>
-      </form>
-    </div>
+          <div className="tms-fdrawer__body">{children}</div>
+          <div className="tms-fdrawer__foot">
+            {alert && (
+              <span className="tms-fdrawer__alert" role="alert">
+                <Icon n="circle-alert" s={16} />
+                {alert}
+              </span>
+            )}
+            <span style={{ flex: 1 }} />
+            {footer}
+          </div>
+        </form>
+      </div>
+    </FormSubmits.Provider>
   );
 }
 
@@ -151,20 +174,36 @@ export function FormField({
 }) {
   const id = useId();
   const errId = `${id}-err`;
+  const submits = useContext(FormSubmits);
+  // แก้ช่องหลังกดบันทึก → ซ่อน error เดิม (เช่นจาก API) จนกว่าจะกดบันทึกใหม่หรือข้อความเปลี่ยน — เฉพาะใน FormDrawer
+  const [edited, setEdited] = useState<{ error: string; submits: number } | null>(null);
+  const shown =
+    error && !(edited && submits !== null && edited.error === error && edited.submits === submits)
+      ? error
+      : undefined;
+  const onEdit = () => {
+    if (error && submits !== null) setEdited({ error, submits });
+  };
   return (
-    <div className="tms-ffield" style={{ gridColumn: `span ${span}` }}>
+    <div
+      className="tms-ffield"
+      style={{ gridColumn: `span ${span}` }}
+      // onChange ของ React ครอบทั้ง input/change แล้ว — ห้ามใช้ onInputCapture (setState ใน capture ของ input
+      // ทำให้ controlled input ถูกคืนค่าเดิมในเบราว์เซอร์จริง — พบใน E2E)
+      onChangeCapture={onEdit}
+    >
       <label htmlFor={id} className="tms-label">
         {label}
         {required && <span style={{ color: '#B3322A' }}> *</span>}
       </label>
-      {children({ id, 'aria-invalid': !!error, ...(error ? { 'aria-describedby': errId } : {}) })}
-      {error ? (
+      {children({ id, 'aria-invalid': !!shown, ...(shown ? { 'aria-describedby': errId } : {}) })}
+      {shown && (
         <span id={errId} className="tms-field-error">
-          {error}
+          {shown}
         </span>
-      ) : hint ? (
-        <span className="tms-field-hint">{hint}</span>
-      ) : null}
+      )}
+      {/* ต้นแบบ cfOpen: คำแนะนำยังแสดงใต้ข้อความ error */}
+      {hint && <span className="tms-field-hint">{hint}</span>}
     </div>
   );
 }

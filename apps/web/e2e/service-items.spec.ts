@@ -2,7 +2,7 @@ import { expect, test } from './fixtures';
 
 /**
  * E2E ST2-T11 ค่าบริการเสริม: tenant เดโมมีชุดไทยจากค่าเริ่มต้น (bootstrap) → กรองแท็บ VAT 7%
- * → เพิ่มรายการ (ฟอร์มว่างแจ้ง, คู่ VAT × หัก ณ ที่จ่ายผิดแจ้งจาก API) → แก้ราคา → ปิดใช้ (เหตุผล)
+ * → เพิ่มรายการ (ฟอร์มว่างแจ้ง, คู่ VAT × หัก ณ ที่จ่ายไม่ปกติ = บันทึก + คำเตือน) → แก้ราคา → ปิดใช้ (เหตุผล)
  * → รหัสสงวน (ค่าขนส่ง) ไม่มีเมนูปิดใช้ — ผ่าน API จริง (ฐาน tms_e2e)
  */
 const RUN = String(Date.now()).slice(-6);
@@ -23,7 +23,7 @@ test.describe.serial('ข้อมูลหลัก → ค่าบริก�
     await expect(page.getByText('ค่าค้างคืน', { exact: true })).toHaveCount(0);
   });
 
-  test('เพิ่ม → คู่ภาษีผิดถูกแจ้ง → แก้ราคา → ปิดใช้; รหัสสงวนไม่มีเมนูปิดใช้', async ({
+  test('เพิ่ม → คู่ภาษีไม่ปกติได้คำเตือน → แก้ราคา → ปิดใช้; รหัสสงวนไม่มีเมนูปิดใช้', async ({
     page,
   }) => {
     await page.goto('/master/accessorials');
@@ -32,15 +32,16 @@ test.describe.serial('ข้อมูลหลัก → ค่าบริก�
     await d.getByRole('button', { name: 'เพิ่มค่าบริการ' }).click();
     await expect(d.getByText('กรุณากรอกชื่อรายการ')).toBeVisible();
     await expect(d.getByRole('alert')).toContainText('กรอกข้อมูลให้ครบ 2 ช่อง');
+    await expect(d.getByText('กรอกตัวเลขมากกว่า 0')).toBeVisible();
+    await expect(d.getByText('บาท ก่อน VAT')).toBeVisible(); // คำแนะนำยังแสดงใต้ error (ต้นแบบ)
     await d.getByLabel('ชื่อรายการ').fill(NAME);
     await d.getByLabel('ราคา').fill('1,250.5');
     await d.getByLabel('เงื่อนไข').fill('เฉพาะสินค้าเกิน 50 กก.');
-    await d.getByLabel('หัก ณ ที่จ่าย').selectOption('1.00'); // VAT 7% + 1% → API ปฏิเสธ
-    await d.getByRole('button', { name: 'เพิ่มค่าบริการ' }).click();
-    await expect(d.getByText(/VAT กับหัก ณ ที่จ่ายไม่เข้ากัน/)).toBeVisible();
-    await d.getByLabel('หัก ณ ที่จ่าย').selectOption('3.00');
+    // VAT 7% + 1% ไม่ปกติแต่ไม่ผิดกฎ (e-WHT) → บันทึกได้ + คำเตือน
+    await d.getByLabel('หัก ณ ที่จ่าย').selectOption('1.00');
     await d.getByRole('button', { name: 'เพิ่มค่าบริการ' }).click();
     await expect(page.getByRole('status')).toContainText(`เพิ่ม ${NAME} แล้ว`);
+    await expect(page.getByRole('status')).toContainText('ปกติหัก ณ ที่จ่าย 3%');
     const drawer = page.getByRole('dialog');
     await expect(drawer.getByText('1,250.50 ฿')).toBeVisible();
     await expect(drawer.getByText('เฉพาะสินค้าเกิน 50 กก.')).toBeVisible();
@@ -50,6 +51,7 @@ test.describe.serial('ข้อมูลหลัก → ค่าบริก�
     await page.getByRole('menuitem', { name: 'แก้ไข' }).click();
     const ed = page.getByRole('dialog', { name: /แก้ไขค่าบริการเสริม/ });
     await ed.getByLabel('ราคา').fill('1300');
+    await ed.getByLabel('หัก ณ ที่จ่าย').selectOption('3.00');
     await ed.getByRole('button', { name: 'บันทึก' }).click();
     await expect(page.getByRole('status')).toContainText(`บันทึกข้อมูล ${NAME} แล้ว`);
     await expect(page.getByRole('dialog').getByText('1,300.00 ฿')).toBeVisible();

@@ -546,6 +546,7 @@ export const en: Partial<Record<MessageKey, string>> = {
   'svc.f.wht': 'Withholding tax',
   'svc.f.code': 'Code',
   'svc.f.st': 'Status',
+  'svc.v.gt0': 'Enter a number greater than 0',
   'svc.bulk.export': 'Export Excel',
   'svc.dlg.reason': 'Reasons',
 };

@@ -7913,7 +7913,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ServiceItemDto"
+                  "$ref": "#/components/schemas/ServiceItemWriteResultDto"
                 }
               }
             }
@@ -8203,7 +8203,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ServiceItemDto"
+                  "$ref": "#/components/schemas/ServiceItemWriteResultDto"
                 }
               }
             }
@@ -8213,7 +8213,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ServiceItemDto"
+                  "$ref": "#/components/schemas/ServiceItemWriteResultDto"
                 }
               }
             }
@@ -8300,7 +8300,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ServiceItemDto"
+                  "$ref": "#/components/schemas/ServiceItemWriteResultDto"
                 }
               }
             }
@@ -17728,7 +17728,7 @@
               "1.00",
               "3.00"
             ],
-            "description": "หัก ณ ที่จ่าย (%) ตั้งต้นของบรรทัด: 1.00 ค่าขนส่ง, 3.00 ค่าบริการ, 0.00 ไม่หัก — คู่ EXEMPT_TRANSPORT+3.00 และ VAT_7+1.00 → 422 `vat_wht_combo`"
+            "description": "หัก ณ ที่จ่าย (%) ตั้งต้นของบรรทัด: 1.00 ค่าขนส่ง, 3.00 ค่าบริการ, 0.00 ไม่หัก — คู่ EXEMPT_TRANSPORT+3.00 และ VAT_7+1.00 บันทึกได้แต่ได้คำเตือน `vat_wht_unusual` ใน `warnings`"
           },
           "code": {
             "type": "string",
@@ -17745,6 +17745,185 @@
           "calcUnit",
           "vatType",
           "whtRate"
+        ]
+      },
+      "ServiceItemWarningDto": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "vat_wht_unusual"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "transport_wht_3",
+              "service_wht_1"
+            ],
+            "description": "transport_wht_3 = ยกเว้น VAT (ค่าขนส่ง) แต่หัก 3%; service_wht_1 = VAT 7% แต่หัก 1% (ถูกได้เมื่อจ่ายผ่าน e-WHT)"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "reason",
+          "message"
+        ]
+      },
+      "ServiceItemWriteResultDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "svc_3f2a…"
+          },
+          "code": {
+            "type": "string",
+            "example": "WAIT"
+          },
+          "externalId": {
+            "type": "string",
+            "nullable": true
+          },
+          "name": {
+            "type": "string",
+            "example": "ค่ารอ"
+          },
+          "nameEn": {
+            "type": "string",
+            "nullable": true
+          },
+          "calcUnit": {
+            "type": "string",
+            "enum": [
+              "PER_TRIP",
+              "PER_HOUR",
+              "PER_NIGHT",
+              "PER_STOP",
+              "PERCENT_OF_FREIGHT",
+              "ACTUAL"
+            ]
+          },
+          "unitLabel": {
+            "type": "string",
+            "example": "ชั่วโมง",
+            "description": "ข้อความหน่วยบนเอกสาร"
+          },
+          "defaultPrice": {
+            "type": "string",
+            "nullable": true,
+            "example": "200.00"
+          },
+          "fuelRefPrice": {
+            "type": "string",
+            "nullable": true,
+            "example": "31.50"
+          },
+          "condition": {
+            "type": "string",
+            "nullable": true
+          },
+          "vatType": {
+            "type": "string",
+            "enum": [
+              "EXEMPT_TRANSPORT",
+              "VAT_7",
+              "ZERO_RATED"
+            ]
+          },
+          "whtRate": {
+            "type": "string",
+            "enum": [
+              "0.00",
+              "1.00",
+              "3.00"
+            ]
+          },
+          "side": {
+            "type": "string",
+            "enum": [
+              "SELL",
+              "BUY",
+              "BOTH"
+            ]
+          },
+          "isSurcharge": {
+            "type": "boolean"
+          },
+          "defaultAccountCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "system": {
+            "type": "boolean",
+            "description": "แถวค่าเริ่มต้นที่ระบบสร้างให้"
+          },
+          "reserved": {
+            "type": "boolean",
+            "description": "รหัสสงวนของระบบ (FREIGHT/EXTRA_STOP/FSC — MD-158): ปิดใช้/ลบ/เปลี่ยนรหัสไม่ได้"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/ServiceItemUsageDto"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "inactive"
+            ]
+          },
+          "deletedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "มีค่าเฉพาะเมื่อขอ includeDeleted=true และรายการถูกลบแล้ว (tombstone)"
+          },
+          "version": {
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ServiceItemWarningDto"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "externalId",
+          "name",
+          "nameEn",
+          "calcUnit",
+          "unitLabel",
+          "defaultPrice",
+          "fuelRefPrice",
+          "condition",
+          "vatType",
+          "whtRate",
+          "side",
+          "isSurcharge",
+          "defaultAccountCode",
+          "system",
+          "reserved",
+          "usage",
+          "status",
+          "version",
+          "createdAt",
+          "updatedAt",
+          "warnings"
         ]
       },
       "UpsertServiceItemDto": {
@@ -17824,7 +18003,7 @@
               "1.00",
               "3.00"
             ],
-            "description": "หัก ณ ที่จ่าย (%) ตั้งต้นของบรรทัด: 1.00 ค่าขนส่ง, 3.00 ค่าบริการ, 0.00 ไม่หัก — คู่ EXEMPT_TRANSPORT+3.00 และ VAT_7+1.00 → 422 `vat_wht_combo`"
+            "description": "หัก ณ ที่จ่าย (%) ตั้งต้นของบรรทัด: 1.00 ค่าขนส่ง, 3.00 ค่าบริการ, 0.00 ไม่หัก — คู่ EXEMPT_TRANSPORT+3.00 และ VAT_7+1.00 บันทึกได้แต่ได้คำเตือน `vat_wht_unusual` ใน `warnings`"
           },
           "code": {
             "type": "string",

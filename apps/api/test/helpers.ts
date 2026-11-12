@@ -64,6 +64,8 @@ export function api(app: NestExpressApplication, token?: string) {
  * - จำ step ที่ใช้ไปแล้วต่อ secret แล้วออก step ถัดไปเสมอ (server ไม่รับ step ≤ ที่ใช้ล่าสุด — กันใช้รหัสซ้ำ)
  *   แต่ไม่เกิน step ปัจจุบัน + 1 (หน้าต่างที่ server ยอม) — เกินแล้วรอ step ถัดไป
  * ใช้แทน `hotp(secret, currentStep())` / `currentStep() + 1` ที่ขึ้นกับเวลาและลำดับ test
+ * ⚠ secret เดียวใช้ได้ 2 รหัสโดยไม่รอ (step ปัจจุบัน + step ถัดไป) — รหัสที่ 3 ภายใน step เดียวกันต้องรอข้าม step
+ *   (สูงสุด ~30 วินาที) → test ที่ใช้ ≥ 3 รหัสต่อ secret ต้องตั้ง timeout เกิน 30 วินาที
  */
 const usedTotpStep = new Map<string, number>();
 export async function freshOtp(secret: string): Promise<string> {

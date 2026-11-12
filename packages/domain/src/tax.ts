@@ -42,6 +42,12 @@ export interface DocumentTaxSummary {
  * ค่า VAT รายบรรทัดในผลลัพธ์เป็นค่าแสดงผล โดยกระจายเศษให้บรรทัดสุดท้ายเพื่อให้ผลรวมตรงใบ
  */
 export function computeDocumentTax(lines: readonly TaxableLine[]): DocumentTaxSummary {
+  // whtRate เป็นสัดส่วน (0.01) ไม่ใช่เปอร์เซ็นต์ (1.00) — กันพลาด 100 เท่า (ใช้ toCalcWhtRate แปลงจาก snapshot)
+  for (const l of lines)
+    if (!/^(0(\.\d+)?|1(\.0+)?)$/.test(l.whtRate))
+      throw new RangeError(
+        `whtRate must be a fraction 0..1 (got ${l.whtRate}) — use toCalcWhtRate()`,
+      );
   const exemptBase = sumSatang(lines.filter((l) => l.vatType === 'EXEMPT').map((l) => l.amount));
   const vatableBase = sumSatang(lines.filter((l) => l.vatType === 'VAT7').map((l) => l.amount));
   const zeroRatedBase = sumSatang(lines.filter((l) => l.vatType === 'ZERO').map((l) => l.amount));
@@ -89,15 +95,14 @@ export const SERVICE_ITEM_WHT_RATES = ['0.00', '1.00', '3.00'] as const;
 export type ServiceItemWhtRate = (typeof SERVICE_ITEM_WHT_RATES)[number];
 
 /**
- * คู่ VAT × หัก ณ ที่จ่ายที่ขัดกันเอง → คืนรหัสปัญหา (ไม่มีปัญหา = null)
- * - `EXEMPT_TRANSPORT` + 3% → `transport_wht_3`: รายการ "ค่าขนส่ง" ยกเว้น VAT ตาม ม.81(1)(ณ) และหัก 1% ตามข้อ 12/4
- *   [FACT research/thai-tax-docs-research.md §1.8, §3.1] ถ้าเป็นค่าบริการ (3%) ต้องไม่ใช่รายการยกเว้นแบบค่าขนส่ง
- * - `VAT_7` + 1% → `service_wht_1`: อัตรา 1% คือค่าขนส่ง ซึ่งยกเว้น VAT; การคิด VAT บนค่าขนส่งยังไม่เปิด
- *   (ACC-2 ยังไม่ได้คำตอบ — plan/06 "ไม่เปิดให้คิด VAT บนค่าขนส่ง")
- * - ไม่หัก (0) ใช้ได้กับทุกแบบ (ผู้จ่ายไม่มีหน้าที่หัก/เงินทดรองจ่าย — ACC-3 ยังเปิด) · `ZERO_RATED` ไม่จำกัด (ไม่พบข้อมูล)
- * [OPEN — รอนักบัญชีข้อ 2 / ACC-3] เปลี่ยนกฎที่นี่ที่เดียว (DB ไม่มี CHECK คู่นี้)
+ * **คำเตือนเท่านั้น (ไม่บล็อก)** — คู่ VAT × หัก ณ ที่จ่ายของ "ค่าตั้งต้นใน catalog" ที่ไม่ตรงแบบที่พบบ่อย → รหัสคำเตือน (ปกติ = null)
+ * - `EXEMPT_TRANSPORT` + 3%: ค่าขนส่งยกเว้น VAT (ม.81(1)(ณ)) ปกติหัก 1% (ท.ป.4/2528 ข้อ 12/4) [research §1.8, §3.1]
+ * - `VAT_7` + 1%: ค่าบริการปกติหัก 3% (ข้อ 12/1) — แต่ **ถูกต้องได้** เมื่อจ่ายผ่าน e-Withholding Tax
+ *   (กฎกระทรวง 389 ลดเป็น 1% ถึง 31 ธ.ค. 2570 — research §3.3) จึงห้ามตีเป็นข้อผิดพลาด
+ * ไม่มีกฎภาษีข้อใดห้ามคู่เหล่านี้ → ใช้แสดง `warnings` ให้ผู้ใช้ทบทวนเท่านั้น
+ * **ห้ามนำไปใช้ตรวจ/บล็อกบรรทัดเอกสาร** (invoice/settlement — อัตราจริงขึ้นกับผู้จ่ายและช่องทาง e-WHT) [OPEN — รอนักบัญชีข้อ 2 / ACC-3]
  */
-export function serviceItemTaxProblem(
+export function serviceItemTaxNote(
   vatType: ServiceItemVatType,
   whtRate: ServiceItemWhtRate,
 ): 'transport_wht_3' | 'service_wht_1' | null {
@@ -109,4 +114,17 @@ export function serviceItemTaxProblem(
 /** แปลง vat_type ของบรรทัด (DB/API) → ชนิดที่ computeDocumentTax ใช้ */
 export function toCalcVatType(v: ServiceItemVatType): VatType {
   return v === 'VAT_7' ? 'VAT7' : v === 'ZERO_RATED' ? 'ZERO' : 'EXEMPT';
+}
+
+/**
+ * แปลงอัตราหัก ณ ที่จ่ายแบบเปอร์เซ็นต์ของบรรทัด/snapshot ("1.00", "3.00") → สัดส่วนที่ computeDocumentTax ใช้ ("0.01", "0.03")
+ * ต้องผ่านฟังก์ชันนี้เสมอ — computeDocumentTax ปฏิเสธอัตรา > 1 (เช่น "3.00") แต่ "1.00" ตรง ๆ ผ่านได้ (= หัก 100%) จึงห้ามข้ามขั้นนี้
+ */
+export function toCalcWhtRate(percent: string): string {
+  const m = /^(\d{1,3})(?:\.(\d{1,2}))?$/.exec(percent);
+  if (!m) throw new RangeError(`invalid WHT percent: ${percent}`);
+  const hundredths = Number(m[1]) * 100 + Number((m[2] ?? '').padEnd(2, '0'));
+  if (hundredths > 10_000) throw new RangeError(`WHT percent > 100: ${percent}`);
+  // hundredths ของเปอร์เซ็นต์ = หมื่นส่วน → สัดส่วนทศนิยม 4 ตำแหน่ง
+  return `${Math.floor(hundredths / 10_000)}.${String(hundredths % 10_000).padStart(4, '0')}`;
 }

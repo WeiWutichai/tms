@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeDocumentTax, serviceItemTaxProblem, toCalcVatType } from './tax';
+import { computeDocumentTax, serviceItemTaxNote, toCalcVatType, toCalcWhtRate } from './tax';
 import { decimalFromSatang, satangFromDecimal as d } from './money';
 
 /**
@@ -50,19 +50,37 @@ describe('computeDocumentTax', () => {
   });
 });
 
-describe('serviceItemTaxProblem (ST2-T11)', () => {
-  it('ค่าขนส่งยกเว้น VAT + 1% และค่าบริการ 7% + 3% ผ่าน; คู่ขัดกันไม่ผ่าน', () => {
-    expect(serviceItemTaxProblem('EXEMPT_TRANSPORT', '1.00')).toBeNull();
-    expect(serviceItemTaxProblem('VAT_7', '3.00')).toBeNull();
-    expect(serviceItemTaxProblem('EXEMPT_TRANSPORT', '0.00')).toBeNull();
-    expect(serviceItemTaxProblem('VAT_7', '0.00')).toBeNull();
-    expect(serviceItemTaxProblem('ZERO_RATED', '1.00')).toBeNull();
-    expect(serviceItemTaxProblem('EXEMPT_TRANSPORT', '3.00')).toBe('transport_wht_3');
-    expect(serviceItemTaxProblem('VAT_7', '1.00')).toBe('service_wht_1');
+describe('serviceItemTaxNote (ST2-T11) — คำเตือนเท่านั้น', () => {
+  it('คู่ที่พบบ่อยไม่มีคำเตือน; คู่ไม่ปกติได้รหัสคำเตือน', () => {
+    expect(serviceItemTaxNote('EXEMPT_TRANSPORT', '1.00')).toBeNull();
+    expect(serviceItemTaxNote('VAT_7', '3.00')).toBeNull();
+    expect(serviceItemTaxNote('EXEMPT_TRANSPORT', '0.00')).toBeNull();
+    expect(serviceItemTaxNote('VAT_7', '0.00')).toBeNull();
+    expect(serviceItemTaxNote('ZERO_RATED', '1.00')).toBeNull();
+    expect(serviceItemTaxNote('EXEMPT_TRANSPORT', '3.00')).toBe('transport_wht_3');
+    expect(serviceItemTaxNote('VAT_7', '1.00')).toBe('service_wht_1');
   });
   it('toCalcVatType', () => {
     expect(toCalcVatType('VAT_7')).toBe('VAT7');
     expect(toCalcVatType('EXEMPT_TRANSPORT')).toBe('EXEMPT');
     expect(toCalcVatType('ZERO_RATED')).toBe('ZERO');
+  });
+});
+
+describe('toCalcWhtRate + computeDocumentTax กันหน่วยอัตราผิด', () => {
+  it('เปอร์เซ็นต์ → สัดส่วน', () => {
+    expect(toCalcWhtRate('1.00')).toBe('0.0100');
+    expect(toCalcWhtRate('3.00')).toBe('0.0300');
+    expect(toCalcWhtRate('0.00')).toBe('0.0000');
+    expect(toCalcWhtRate('100')).toBe('1.0000');
+    expect(() => toCalcWhtRate('101')).toThrow(RangeError);
+    expect(() => toCalcWhtRate('-1')).toThrow(RangeError);
+  });
+  it('ส่งอัตราแบบเปอร์เซ็นต์ (3.00 / 3) เข้า computeDocumentTax → throw; สัดส่วนจาก toCalcWhtRate คำนวณถูก', () => {
+    const line = { amount: d('1000.00'), vatType: 'EXEMPT' as const };
+    expect(() => computeDocumentTax([{ ...line, whtRate: '3.00' }])).toThrow(/toCalcWhtRate/);
+    expect(() => computeDocumentTax([{ ...line, whtRate: '3' }])).toThrow(RangeError);
+    const r = computeDocumentTax([{ ...line, whtRate: toCalcWhtRate('1.00') }]);
+    expect(decimalFromSatang(r.wht)).toBe('10.00');
   });
 });

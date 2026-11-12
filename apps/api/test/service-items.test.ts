@@ -67,6 +67,7 @@ describe('ค่าบริการเสริม (service-items)', () => {
       unit: 'PER_HOUR',
       unitLabel: 'ชั่วโมง',
       unitPrice: '200.00',
+      percent: null,
       fuelRefPrice: null,
       vatType: 'EXEMPT_TRANSPORT',
       whtRate: '1.00',
@@ -187,9 +188,35 @@ describe('ค่าบริการเสริม (service-items)', () => {
         calcUnit: 'PER_HOUR',
       },
     });
+    // รายการสงวน (FREIGHT) ที่บริษัทสร้างเองด้วยรหัสเดียวกัน → รับเป็นแถวระบบ (ตั้ง system_key) ไม่ข้ามเงียบ
+    const ownFreight = await db.serviceItem.create({
+      data: {
+        tenantId: old,
+        code: 'FREIGHT',
+        nameTh: 'ค่าขนส่งของเรา',
+        vatType: 'EXEMPT_TRANSPORT',
+        whtRate: '1.00',
+        unitLabel: 'เที่ยว',
+        calcUnit: 'PER_TRIP',
+      },
+    });
     await bootstrapTenant(db, old);
     const mine = await db.serviceItem.findMany({ where: { tenantId: old } });
-    expect(mine).toHaveLength(DEFAULT_SERVICE_ITEMS.length); // WAIT ของระบบถูกข้าม
+    expect(mine).toHaveLength(DEFAULT_SERVICE_ITEMS.length); // WAIT ของระบบถูกข้าม, FREIGHT ใช้แถวเดิม
+    expect(mine.find((r) => r.id === ownFreight.id)).toMatchObject({
+      systemKey: 'FREIGHT',
+      nameTh: 'ค่าขนส่งของเรา',
+    });
+    expect(
+      await db.tenantDefault.findUnique({
+        where: { tenantId_key: { tenantId: old, key: 'service_item:FREIGHT' } },
+      }),
+    ).toMatchObject({ outcome: 'INSERTED', detail: 'adopted_existing' });
+    expect(
+      await db.auditLog.count({
+        where: { tenantId: old, action: 'service_item.adopted', entityId: ownFreight.id },
+      }),
+    ).toBe(1);
     expect(mine.find((r) => r.code === 'WAIT')).toMatchObject({
       nameTh: 'ค่ารอของเรา',
       vatType: 'VAT_7',
@@ -243,8 +270,36 @@ describe('ค่าบริการเสริม (service-items)', () => {
     await bad({ whtRate: '2.00' }, 'whtRate:isIn');
     await bad({ whtRate: 3 }, 'whtRate:isIn');
     await bad({ vatType: 'VAT_10' }, 'vatType:isIn');
-    await bad({ vatType: 'EXEMPT_TRANSPORT', whtRate: '3.00' }, 'whtRate:vat_wht_combo');
-    await bad({ vatType: 'VAT_7', whtRate: '1.00' }, 'whtRate:vat_wht_combo');
+    // ชื่อหาย/null → ข้อความแรกของช่องคือ "กรุณากรอก" (isNotEmpty)
+    const noName = await create({ ...BASE }).expect(422);
+    expect(noName.body.errors[0]).toMatchObject({ field: 'name', code: 'isNotEmpty' });
+    const nullName = await create({ name: null, ...BASE }).expect(422);
+    expect(nullName.body.errors[0]).toMatchObject({ field: 'name', code: 'isNotEmpty' });
+    // คู่ VAT × WHT ไม่ปกติ → บันทึกได้ + คำเตือน (ไม่มีกฎภาษีห้าม; 7% + 1% ถูกได้เมื่อจ่ายผ่าน e-WHT)
+    const w1 = await create({
+      name: `เตือน ${++seed}`,
+      ...BASE,
+      vatType: 'EXEMPT_TRANSPORT',
+      whtRate: '3.00',
+    }).expect(201);
+    expect(w1.body.warnings).toEqual([
+      expect.objectContaining({ code: 'vat_wht_unusual', reason: 'transport_wht_3' }),
+    ]);
+    const w2 = await create({
+      name: `เตือน ${++seed}`,
+      ...BASE,
+      vatType: 'VAT_7',
+      whtRate: '1.00',
+    }).expect(201);
+    expect(w2.body.warnings).toEqual([
+      expect.objectContaining({ code: 'vat_wht_unusual', reason: 'service_wht_1' }),
+    ]);
+    // แก้ชื่ออย่างเดียว = ไม่ตรวจคู่ภาษีซ้ำ
+    const w3 = await patch(w2.body, { name: `เตือนแก้ชื่อ ${++seed}` }).expect(200);
+    expect(w3.body.warnings).toEqual([]);
+    // รหัสสงวนตั้งเองไม่ได้ (รวม DISCOUNT)
+    await bad({ code: 'DISCOUNT' }, 'code:reserved_code');
+    await bad({ code: 'fsc' }, 'code:reserved_code');
     await bad({ calcUnit: 'ACTUAL', defaultPrice: '10.00' }, 'defaultPrice:actual_no_price');
     await bad(
       { calcUnit: 'PERCENT_OF_FREIGHT', defaultPrice: '100.01' },
@@ -259,8 +314,8 @@ describe('ค่าบริการเสริม (service-items)', () => {
     await bad({ side: 'ALL' }, 'side:isIn');
     // null บนช่องบังคับ → 422
     await bad({ vatType: null }, 'vatType:isIn');
-    // คู่ที่ถูก
-    await newItem({ vatType: 'EXEMPT_TRANSPORT', whtRate: '1.00' });
+    // คู่ปกติ — ไม่มีคำเตือน
+    expect((await newItem({ vatType: 'EXEMPT_TRANSPORT', whtRate: '1.00' })).warnings).toEqual([]);
     await newItem({ vatType: 'EXEMPT_TRANSPORT', whtRate: '0.00' });
     await newItem({ vatType: 'ZERO_RATED', whtRate: '1.00' });
     const fsc = await newItem({
@@ -271,12 +326,18 @@ describe('ค่าบริการเสริม (service-items)', () => {
       whtRate: '1.00',
     });
     expect(fsc).toMatchObject({ defaultPrice: '4.50', fuelRefPrice: '31.50', unitLabel: '%' });
+    // snapshot ของรายการ %: เปอร์เซ็นต์แยกช่อง ไม่ลงช่องราคาบาท
+    const fscSnap = await inTenant(tenantId, (svc) =>
+      svc.snapshotFor(tryDecodeId('serviceItem', fsc.id)!, 'SELL'),
+    );
+    expect(fscSnap).toMatchObject({ unit: 'PERCENT_OF_FREIGHT', unitPrice: null, percent: '4.50' });
 
-    // PATCH: เปลี่ยนแค่ VAT จนคู่ผิด → 422 ชี้ vatType; เปลี่ยนหน่วยเป็นตามจริง → ล้างราคา/ราคาน้ำมันให้เอง
+    // PATCH: เปลี่ยนแค่ VAT จนคู่ไม่ปกติ → บันทึก + เตือน; เปลี่ยนหน่วยเป็นตามจริง → ล้างราคา/ราคาน้ำมันให้เอง
     const it1 = await newItem();
-    const p = await patch(it1, { vatType: 'EXEMPT_TRANSPORT' }).expect(422);
-    expect(errField(p.body)).toEqual(['vatType:vat_wht_combo']);
-    await patch(it1, { vatType: 'EXEMPT_TRANSPORT', whtRate: '1.00' }).expect(200);
+    const p = await patch(it1, { vatType: 'EXEMPT_TRANSPORT' }).expect(200);
+    expect(p.body.warnings).toEqual([expect.objectContaining({ reason: 'transport_wht_3' })]);
+    const p2 = await patch(p.body, { whtRate: '1.00' }).expect(200);
+    expect(p2.body.warnings).toEqual([]);
     const c = await patch(fsc, { calcUnit: 'ACTUAL' }).expect(200);
     expect(c.body).toMatchObject({ defaultPrice: null, fuelRefPrice: null, unitLabel: 'ตามจริง' });
   });
@@ -299,6 +360,36 @@ describe('ค่าบริการเสริม (service-items)', () => {
     expect(errField(c.body)).toEqual(['code:reserved_code']);
     const ok = await patch(fr, { name: 'ค่าขนส่งสินค้า', whtRate: '0.00' }, tok).expect(200);
     expect(ok.body).toMatchObject({ name: 'ค่าขนส่งสินค้า', whtRate: '0.00', reserved: true });
+    // [OPEN ACC-2] ค่าขนส่งห้าม VAT 7%; VAT 0% ได้
+    const v7 = await patch(ok.body, { vatType: 'VAT_7', whtRate: '3.00' }, tok).expect(422);
+    expect(errField(v7.body)).toEqual(['vatType:reserved_tax']);
+    const z = await patch(ok.body, { vatType: 'ZERO_RATED' }, tok).expect(200);
+    // หน่วยคิด/ฝั่ง/ชนิดของรายการสงวนแก้ไม่ได้ (ค่าเดิมส่งซ้ำได้); ราคา/เงื่อนไขแก้ได้
+    for (const [k, v] of [
+      ['calcUnit', 'PER_HOUR'],
+      ['side', 'SELL'],
+      ['isSurcharge', true],
+    ] as const) {
+      const r = await patch(z.body, { [k]: v }, tok).expect(422);
+      expect(errField(r.body)).toEqual([`${k}:reserved_field`]);
+    }
+    const fsc = all.find((x) => x.code === 'FSC')!;
+    await patch(fsc, { calcUnit: 'PERCENT_OF_FREIGHT', side: 'BOTH' }, tok).expect(200);
+    const fp = await patch(
+      fsc,
+      { defaultPrice: '4.5', fuelRefPrice: '31.50', condition: 'ปรับทุกเดือน' },
+      tok,
+    ).expect(200);
+    expect(fp.body).toMatchObject({ defaultPrice: '4.50', fuelRefPrice: '31.50' });
+    // เปลี่ยนรหัสรายการอื่นเป็นรหัสสงวน → 422
+    const own = (
+      await http(tok)
+        .post('/v1/service-items')
+        .send({ name: 'ของบริษัท', ...BASE })
+        .expect(201)
+    ).body;
+    const rn = await patch(own, { code: 'DISCOUNT' }, tok).expect(422);
+    expect(errField(rn.body)).toEqual(['code:reserved_code']);
 
     const wait = all.find((x) => x.code === 'WAIT')!;
     const off = await http(tok)

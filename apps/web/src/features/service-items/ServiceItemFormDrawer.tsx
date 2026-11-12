@@ -15,6 +15,7 @@ import {
   type ServiceItem,
   type ServiceItemCreate,
   type ServiceItemInput,
+  type ServiceItemSaved,
   type Side,
   type VatType,
   type WhtRate,
@@ -84,7 +85,7 @@ export function ServiceItemFormDrawer({
   /** มีค่า = แก้ไข */
   item?: ServiceItem | null;
   onClose: () => void;
-  onSaved: (r: ServiceItem, created: boolean) => void;
+  onSaved: (r: ServiceItemSaved, created: boolean) => void;
 }) {
   const { t } = useI18n();
   const editing = !!item;
@@ -129,15 +130,16 @@ export function ServiceItemFormDrawer({
   const price = actual || f.p.trim() === '' ? null : moneyOf(f.p);
   if (!actual) {
     if (f.p.trim() === '') {
-      if (!priceOptional) local.defaultPrice = t('svc.v.price');
+      if (!priceOptional) local.defaultPrice = t('svc.v.gt0'); // ต้นแบบ: ช่องตัวเลขบังคับว่าง → "กรอกตัวเลขมากกว่า 0"
     } else if (price === null || (percent && Number(price) > 100))
       local.defaultPrice = t(percent ? 'svc.v.pct' : 'svc.v.price');
   }
   const fuel = percent && f.fb.trim() !== '' ? moneyOf(f.fb) : null;
   if (percent) {
     if (f.fb.trim() === '') {
-      if (!fuelOptional) local.fuelRefPrice = t('svc.v.fuel');
-    } else if (fuel === null || !(Number(fuel) > 0)) local.fuelRefPrice = t('svc.v.fuel');
+      if (!fuelOptional) local.fuelRefPrice = t('svc.v.gt0');
+    } else if (fuel === null) local.fuelRefPrice = t('svc.v.fuel');
+    else if (!(Number(fuel) > 0)) local.fuelRefPrice = t('svc.v.gt0');
   }
   const server = fieldErrors(m.error, t);
   // ชื่อซ้ำ → ข้อความตามต้นแบบ cfAx ("มีรายการนี้แล้ว")

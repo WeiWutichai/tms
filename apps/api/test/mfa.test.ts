@@ -5,7 +5,6 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { hashPassword } from '../src/auth/password';
 import { ensureSystemRoles } from '../src/auth/system-roles';
 import { pkceChallenge } from '../src/auth/tokens';
-import { currentStep, hotp } from '../src/auth/totp';
 import { encodeId } from '../src/common/ids';
 import { api, bootApp, createTenant, freshOtp, loginFull, platform, truncateAll } from './helpers';
 
@@ -120,9 +119,10 @@ describe('2FA', () => {
         .send({ mfaToken: second.res.body.mfaToken, otp: '111111' });
     const dead = await request(srv())
       .post('/v1/auth/2fa/verify')
-      .send({ mfaToken: second.res.body.mfaToken, otp: hotp(first.secret!, currentStep()) });
+      .send({ mfaToken: second.res.body.mfaToken, otp: await freshOtp(first.secret!) });
     expect(dead.status).toBe(401);
-  });
+    expect(dead.body.code).toBe('mfa_expired'); // ปฏิเสธเพราะ challenge ตาย ไม่ใช่เพราะรหัสผิด/ใช้ซ้ำ
+  }, 90_000); // รหัสที่ 3 ของ secret เดียวอาจต้องรอ time-step ถัดไป (≤ 30 วินาที) — ดู freshOtp
 
   it('backup code ใช้ได้ครั้งเดียว', async () => {
     await user('admin@mfa.test', 'admin');

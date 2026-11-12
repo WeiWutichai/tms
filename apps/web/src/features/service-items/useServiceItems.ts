@@ -6,6 +6,8 @@ import { useCursorList } from '../master/useCursorList';
 
 export type ServiceItem = Schemas['ServiceItemDto'];
 export type ServiceItemInput = Schemas['UpdateServiceItemDto'];
+/** ผลของ POST/PATCH — มี `warnings` (คำเตือนที่ไม่บล็อก เช่นคู่ VAT × หัก ณ ที่จ่ายไม่ปกติ) */
+export type ServiceItemSaved = Schemas['ServiceItemWriteResultDto'];
 export type ServiceItemCreate = Schemas['CreateServiceItemDto'];
 export type CalcUnit = ServiceItem['calcUnit'];
 export type VatType = ServiceItem['vatType'];

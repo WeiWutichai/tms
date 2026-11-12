@@ -1,7 +1,7 @@
 import { Prisma, type PrismaClient, type ServiceItem } from '@prisma/client';
 import type { ServiceItemVatType, ServiceItemWhtRate } from '@tms/domain';
 import { CALC_UNIT_LABEL, type CalcUnit, type ServiceItemSide } from './service-item.dto';
-import { auditView, toServiceItemDto } from './service-items.service';
+import { RESERVED_SYSTEM_KEYS, auditView, toServiceItemDto } from './service-items.service';
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
@@ -127,11 +127,13 @@ export const DEFAULT_SERVICE_ITEMS: readonly DefaultServiceItem[] = [
 const defaultKey = (systemKey: string) => `service_item:${systemKey}`;
 /** เหตุผลใน audit ของแถวที่ระบบสร้าง (ผู้ทำ = ระบบ: actor_id ว่าง) */
 const BOOTSTRAP_REASON = 'ค่าเริ่มต้นของระบบ (สร้างบริษัท/อัปเดตค่าเริ่มต้น)';
+const ADOPT_REASON = 'รหัสสงวนของระบบ — ใช้แถวเดิมของบริษัทที่มีรหัสเดียวกันเป็นรายการของระบบ';
 
 /**
  * ใส่ค่าบริการเสริมเริ่มต้นให้ tenant — รันซ้ำได้ (bootstrap ขั้น `service-items`, ตอนสร้าง tenant และหลัง migrate)
  * - ทุกรายการที่จัดการแล้วบันทึกใน `tenant_default` (INSERTED / SKIPPED) → ไม่ทำซ้ำอีก (แก้/ลบแล้วไม่สร้างใหม่)
- * - ชนรหัส/ชื่อที่ tenant มีอยู่ → ข้าม (SKIPPED) · ไม่ทับค่าที่ tenant แก้แล้ว
+ * - รายการสงวนที่ tenant มีรหัสเดียวกัน (ตรงตัว, ยังไม่ลบ) → ตั้ง system_key ให้แถวนั้น (INSERTED, detail adopted_existing + audit)
+ * - ชนรหัส/ชื่ออื่น ๆ ที่ tenant มีอยู่ → ข้าม (SKIPPED) · ไม่ทับค่าที่ tenant แก้แล้ว
  * - แถวที่สร้างลง audit (ผู้ทำ = ระบบ) + domain_event `service_item.created`
  */
 export async function ensureDefaultServiceItems(db: Db, tenantId: string): Promise<void> {
@@ -146,6 +148,35 @@ export async function ensureDefaultServiceItems(db: Db, tenantId: string): Promi
   for (const d of DEFAULT_SERVICE_ITEMS) {
     const key = defaultKey(d.systemKey);
     if (done.has(key)) continue;
+    // รายการสงวน (FREIGHT/EXTRA_STOP/FSC) ที่ tenant มีรหัสเดียวกันอยู่แล้ว (เช่น tenant เก่าสร้างเอง) → "รับเป็นแถวระบบ"
+    // (ตั้ง system_key ให้แถวเดิม ไม่แตะค่าอื่น) แทนการข้ามเงียบ ๆ ซึ่งจะทำให้ไม่มีรายการสงวนเลย
+    if ((RESERVED_SYSTEM_KEYS as readonly string[]).includes(d.systemKey)) {
+      const own = await db.serviceItem.findFirst({
+        where: { tenantId, code: d.code, systemKey: null, deletedAt: null },
+      });
+      if (own) {
+        const adopted = await db.serviceItem.update({
+          where: { id: own.id },
+          data: { systemKey: d.systemKey, version: { increment: 1 } },
+        });
+        await db.tenantDefault.create({
+          data: { tenantId, key, outcome: 'INSERTED', detail: 'adopted_existing' },
+        });
+        await db.auditLog.create({
+          data: {
+            tenantId,
+            actorId: null,
+            action: 'service_item.adopted',
+            entityType: 'service_item',
+            entityId: own.id,
+            before: auditView(own) as Prisma.InputJsonValue,
+            after: auditView(adopted) as Prisma.InputJsonValue,
+            reason: ADOPT_REASON,
+          },
+        });
+        continue;
+      }
+    }
     const [created]: (ServiceItem | undefined)[] = await db.serviceItem.createManyAndReturn({
       data: [
         {

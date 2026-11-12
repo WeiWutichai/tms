@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma, type ActiveStatus, type ServiceItem } from '@prisma/client';
-import { serviceItemTaxProblem, type TransitionTable } from '@tms/domain';
+import { serviceItemTaxNote, type TransitionTable } from '@tms/domain';
 import { AuditService } from '../../audit/audit.service';
 import { encodeId, tryDecodeId } from '../../common/ids';
 import { iEquals } from '../../common/ilike';
@@ -42,6 +42,10 @@ export const SERVICE_ITEM_CODE_PREFIX = 'AX';
  * (`DISCOUNT` ของ spec ยังไม่ใส่ — ภาษีตามบรรทัดที่ลด เป็นงาน ST5)
  */
 export const RESERVED_SYSTEM_KEYS = ['FREIGHT', 'EXTRA_STOP', 'FSC'] as const;
+/** รหัสที่ผู้ใช้ตั้งเองไม่ได้ (สร้าง/เปลี่ยนรหัสเป็นค่านี้ → 422 `reserved_code`) — รวม DISCOUNT ที่จะมากับ ST5 */
+export const RESERVED_CODES = ['FREIGHT', 'EXTRA_STOP', 'FSC', 'DISCOUNT'] as const;
+/** ฟิลด์ของรายการสงวนที่ผูกกับงานอัตโนมัติ/rate card — แก้ไม่ได้ (422 `reserved_field`) */
+const RESERVED_LOCKED = ['calcUnit', 'side', 'isSurcharge'] as const;
 const DECIMAL_FIELDS = ['defaultPrice', 'fuelRefPrice', 'whtRate'] as const;
 type SiEvent = 'activate' | 'deactivate';
 export const SERVICE_ITEM_TRANSITIONS: TransitionTable<ActiveStatus, SiEvent> = {
@@ -96,7 +100,7 @@ export function auditView(s: ServiceItem): Record<string, unknown> {
 /**
  * ค่าบริการเสริม (ST2-T11; docs/04 B Accessorial catalog, docs/01 §3.2, spec/02 §6) — master kit ของ ST2-T01
  * - vat_type/wht_rate เป็นค่าตั้งต้นของบรรทัด: เอกสารคัดลอกด้วย `snapshotFor()` (snapshot.ts) แก้ catalog ภายหลังไม่กระทบ
- * - คู่ VAT × WHT ตรวจด้วย `serviceItemTaxProblem` (@tms/domain) ที่เดียว
+ * - คู่ VAT × WHT ที่ไม่ปกติ = คำเตือน `warnings` (ไม่บล็อก) จาก `serviceItemTaxNote` (@tms/domain) ที่เดียว
  * - ปิดใช้ได้แม้มีเอกสารอ้างอิง (เอกสารเก็บ snapshot) · ลบได้เฉพาะที่ไม่เคยถูกอ้างอิง (MD-004)
  * - รหัสสงวน FREIGHT/EXTRA_STOP/FSC ปิดใช้/ลบ/เปลี่ยนรหัสไม่ได้ (MD-158) · แถวระบบอื่นเหมือนแถวทั่วไป
  */
@@ -258,7 +262,8 @@ export class ServiceItemsService {
 
   /**
    * แปลง DTO → คอลัมน์ + ตรวจข้ามช่อง (ผลรวมของค่าเดิม + ค่าที่ส่งมา):
-   * ตามจริง = ไม่มีราคา · % ของค่าขนส่ง ≤ 100 · ราคาน้ำมันอ้างอิงเฉพาะ % ของค่าขนส่ง (เปลี่ยนหน่วยแล้วล้างให้เอง) · คู่ VAT × WHT
+   * ตามจริง = ไม่มีราคา · % ของค่าขนส่ง ≤ 100 · ราคาน้ำมันอ้างอิงเฉพาะ % ของค่าขนส่ง (เปลี่ยนหน่วยแล้วล้างให้เอง)
+   * · รายการสงวน: หน่วยคิด/ฝั่ง/ชนิดแก้ไม่ได้, FREIGHT ห้าม VAT_7
    */
   private toData(
     input: UpdateServiceItemDto | CreateServiceItemDto,
@@ -306,23 +311,58 @@ export class ServiceItemsService {
       data.fuelRefPrice = fuel;
 
     const vat = (input.vatType ?? current?.vatType) as ServiceItemVatType;
-    const wht = (input.whtRate ??
-      (current ? current.whtRate.toFixed(2) : undefined)) as ServiceItemWhtRate;
     if (input.vatType !== undefined) data.vatType = input.vatType;
     if (input.whtRate !== undefined) data.whtRate = input.whtRate;
-    const problem = serviceItemTaxProblem(vat, wht);
-    if (problem)
-      throw new ProblemException('validation_failed', undefined, [
-        {
-          field: input.whtRate !== undefined ? 'whtRate' : 'vatType',
-          code: 'vat_wht_combo',
-          message:
-            problem === 'transport_wht_3'
-              ? 'EXEMPT_TRANSPORT (transport) is withheld at 1% — use VAT_7 for 3% services'
-              : 'VAT_7 (service) is withheld at 3% — 1% applies to VAT-exempt transport',
-        },
-      ]);
+    if (current && isReserved(current)) {
+      // MD-158: รายการสงวนแก้ชื่อ/ราคา/เงื่อนไข/ธงภาษีได้ แต่หน่วยคิด/ฝั่ง/ชนิดค่าใช้จ่ายผูกกับงานอัตโนมัติ
+      const now = {
+        calcUnit: current.calcUnit,
+        side: current.side,
+        isSurcharge: current.isSurcharge,
+      };
+      for (const k of RESERVED_LOCKED)
+        if (input[k] !== undefined && input[k] !== now[k])
+          throw field422(k, 'reserved_field', `${k} of a reserved system item cannot be changed`);
+      // [OPEN — รอนักบัญชี ACC-2] ค่าขนส่งยกเว้น VAT (ม.81(1)(ณ)); ยังไม่เปิดให้คิด VAT บนค่าขนส่ง (plan/06 ACC-2 fallback)
+      if (current.systemKey === 'FREIGHT' && vat === 'VAT_7')
+        throw field422(
+          'vatType',
+          'reserved_tax',
+          'FREIGHT must stay VAT-exempt until ACC-2 is answered',
+        );
+    }
     return data;
+  }
+
+  /**
+   * คำเตือนคู่ VAT × หัก ณ ที่จ่ายที่ไม่ปกติ (ไม่บล็อก) — ตรวจเฉพาะเมื่อคำขอส่ง vatType/whtRate มา
+   * (แก้ชื่อเฉย ๆ ไม่เตือนซ้ำ) · ห้ามใช้ตรวจบรรทัดเอกสาร (ดู serviceItemTaxNote)
+   */
+  taxWarnings(
+    input: { vatType?: unknown; whtRate?: unknown },
+    s: ServiceItem,
+  ): { code: 'vat_wht_unusual'; reason: 'transport_wht_3' | 'service_wht_1'; message: string }[] {
+    if (input.vatType === undefined && input.whtRate === undefined) return [];
+    const note = serviceItemTaxNote(
+      s.vatType as ServiceItemVatType,
+      s.whtRate.toFixed(2) as ServiceItemWhtRate,
+    );
+    if (!note) return [];
+    return [
+      {
+        code: 'vat_wht_unusual',
+        reason: note,
+        message:
+          note === 'transport_wht_3'
+            ? 'VAT-exempt transport is usually withheld at 1% — check with your accountant'
+            : 'VAT 7% services are usually withheld at 3% (1% only when paid via e-Withholding Tax)',
+      },
+    ];
+  }
+
+  private assertCodeAllowed(code: string) {
+    if ((RESERVED_CODES as readonly string[]).includes(code.toUpperCase()))
+      throw field422('code', 'reserved_code', `${code} is reserved by the system`);
   }
 
   /** ชื่อห้ามซ้ำ (ต้นแบบ cfAx "มีรายการนี้แล้ว"; unique index ไม่สนตัวพิมพ์) → 409 พร้อมรายการเดิม */
@@ -379,8 +419,10 @@ export class ServiceItemsService {
     await this.assertUniqueName(input.name);
     await lockKey(tx, 'service_item.code');
     let code = input.code;
-    if (code) await this.assertCodeFree(code);
-    else code = await nextCode(tx, 'service_item', SERVICE_ITEM_CODE_PREFIX);
+    if (code) {
+      this.assertCodeAllowed(code);
+      await this.assertCodeFree(code);
+    } else code = await nextCode(tx, 'service_item', SERVICE_ITEM_CODE_PREFIX);
     const s = await tx.serviceItem.create({
       data: {
         ...(data as object),
@@ -406,6 +448,7 @@ export class ServiceItemsService {
     if (input.code !== undefined && input.code !== current.code) {
       if (isReserved(current))
         throw field422('code', 'reserved_code', 'reserved system code cannot be changed');
+      this.assertCodeAllowed(input.code);
       await lockKey(this.db.tx, 'service_item.code');
       await this.assertCodeFree(input.code, current.id);
       data.code = input.code;

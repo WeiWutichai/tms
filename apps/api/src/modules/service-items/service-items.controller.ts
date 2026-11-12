@@ -39,6 +39,7 @@ import {
   ServiceItemListQuery,
   ServiceItemPageDto,
   ServiceItemSummaryDto,
+  ServiceItemWriteResultDto,
   UpdateServiceItemDto,
   UpsertServiceItemDto,
   type CalcUnit,
@@ -141,30 +142,30 @@ export class ServiceItemsController {
   @Post()
   @RequireScope('master:write')
   @ApiHeader({ name: 'Idempotency-Key', required: false })
-  @ApiCreatedResponse({ type: ServiceItemDto })
+  @ApiCreatedResponse({ type: ServiceItemWriteResultDto })
   async create(
     @Body() body: CreateServiceItemDto,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<ServiceItemDto> {
+  ): Promise<ServiceItemWriteResultDto> {
     const v = await this.items.create(body);
     setEtag(res, v.version);
-    return this.items.dto(v);
+    return { ...(await this.items.dto(v)), warnings: this.items.taxWarnings(body, v) };
   }
 
   @Put('external/:externalId')
   @RequireScope('master:write')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag — ใช้เมื่อแถวมีอยู่แล้ว' })
   @ApiOkResponse({
-    type: ServiceItemDto,
+    type: ServiceItemWriteResultDto,
     description: 'มีอยู่แล้ว → อัปเดต (ส่งซ้ำได้ ไม่เกิดแถวใหม่)',
   })
-  @ApiCreatedResponse({ type: ServiceItemDto, description: 'ยังไม่มี → สร้าง' })
+  @ApiCreatedResponse({ type: ServiceItemWriteResultDto, description: 'ยังไม่มี → สร้าง' })
   async upsertExternal(
     @Param('externalId') externalId: string,
     @Body() body: UpsertServiceItemDto,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<ServiceItemDto> {
+  ): Promise<ServiceItemWriteResultDto> {
     if (!/^[\x21-\x7e]{1,100}$/.test(externalId))
       throw new ProblemException('validation_failed', undefined, [
         {
@@ -180,7 +181,7 @@ export class ServiceItemsController {
     );
     res.status(created ? 201 : 200);
     setEtag(res, row.version);
-    return this.items.dto(row);
+    return { ...(await this.items.dto(row)), warnings: this.items.taxWarnings(body, row) };
   }
 
   @Get(':id')
@@ -209,17 +210,17 @@ export class ServiceItemsController {
   @TenantResource('serviceItem')
   @RequireScope('master:write')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
-  @ApiOkResponse({ type: ServiceItemDto })
+  @ApiOkResponse({ type: ServiceItemWriteResultDto })
   async update(
     @Param('id') id: string,
     @Body() body: UpdateServiceItemDto,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
-  ): Promise<ServiceItemDto> {
+  ): Promise<ServiceItemWriteResultDto> {
     const current = await this.resolve(id);
     const v = await this.items.update(current.id, body, expectedVersion(req));
     setEtag(res, v.version);
-    return this.items.dto(v);
+    return { ...(await this.items.dto(v)), warnings: this.items.taxWarnings(body, v) };
   }
 
   /** ปิดใช้ (เหตุผล ≥ 10) — เอกสารเดิมไม่กระทบ (snapshot) · รหัสสงวน → 409 `conflict` (MD-158) */
