@@ -34,6 +34,8 @@ import { sendExport, type ExportColumn } from '../master/export';
 import { entityHistory, HistoryQuery } from '../master/history';
 import { MasterReasonDto } from '../master/master-kit';
 import {
+  CarrierRecentPricesDto,
+  CarrierRecentPricesQuery,
   CreateRateCardDto,
   RateCardDto,
   RateCardExportQuery,
@@ -46,7 +48,7 @@ import {
   UpsertRateCardDto,
   type RateStatusKey,
 } from './rate-card.dto';
-import { RateCardsService, toRateCardDto } from './rate-cards.service';
+import { listSide, RateCardsService, toRateCardDto } from './rate-cards.service';
 
 const MODEL_TH: Record<string, string> = {
   PER_TRIP: 'เหมาเที่ยว',
@@ -64,13 +66,24 @@ const STATUS_TH: Record<RateStatusKey, string> = {
   retired: 'ยกเลิก',
 };
 
-/** คอลัมน์ไฟล์ส่งออก — ราคาใส่เฉพาะผู้มี `prices.sell:read` (ไฟล์ไม่ผ่าน PriceFieldInterceptor — common/price-fields ข้อ 3) */
-function exportColumns(withPrices: boolean): ExportColumn<RateCardDto>[] {
+/**
+ * คอลัมน์ไฟล์ส่งออก — ราคาใส่เฉพาะผู้มี `prices.sell:read` (ขาขาย) / `prices.buy:read` (ขาซื้อ)
+ * (ไฟล์ไม่ผ่าน PriceFieldInterceptor — common/price-fields ข้อ 3)
+ */
+function exportColumns(side: 'SELL' | 'BUY', withPrices: boolean): ExportColumn<RateCardDto>[] {
+  const buy = side === 'BUY';
   return [
     { header: 'รหัส', value: (r) => r.code },
     { header: 'ฉบับที่', value: (r) => r.revision },
-    { header: 'รหัสลูกค้า', value: (r) => r.customer?.code },
-    { header: 'ลูกค้า', value: (r) => r.customer?.name },
+    ...((buy
+      ? [
+          { header: 'รหัสผู้รับเหมา', value: (r) => r.carrier?.code },
+          { header: 'ผู้รับเหมา', value: (r) => r.carrier?.name },
+        ]
+      : [
+          { header: 'รหัสลูกค้า', value: (r) => r.customer?.code },
+          { header: 'ลูกค้า', value: (r) => r.customer?.name },
+        ]) satisfies ExportColumn<RateCardDto>[]),
     { header: 'รหัสต้นทาง', value: (r) => r.origin.code },
     { header: 'ต้นทาง', value: (r) => r.origin.name },
     { header: 'รหัสปลายทาง', value: (r) => r.destination.code },
@@ -80,9 +93,12 @@ function exportColumns(withPrices: boolean): ExportColumn<RateCardDto>[] {
     { header: 'หน่วย', value: (r) => r.unit?.name },
     ...(withPrices
       ? ([
-          { header: 'ราคา (บาท)', value: (r) => r.sellRate },
-          { header: 'ขั้นต่ำ (บาท)', value: (r) => r.sellMinCharge },
-          { header: 'ค่าเพิ่มต่อจุด (บาท)', value: (r) => r.sellExtraStopRate },
+          { header: 'ราคา (บาท)', value: (r) => (buy ? r.buyRate : r.sellRate) },
+          { header: 'ขั้นต่ำ (บาท)', value: (r) => (buy ? r.buyMinCharge : r.sellMinCharge) },
+          {
+            header: 'ค่าเพิ่มต่อจุด (บาท)',
+            value: (r) => (buy ? r.buyExtraStopRate : r.sellExtraStopRate),
+          },
         ] satisfies ExportColumn<RateCardDto>[])
       : []),
     { header: 'จุดที่รวมในราคา', value: (r) => r.includedStops },
@@ -94,9 +110,10 @@ function exportColumns(withPrices: boolean): ExportColumn<RateCardDto>[] {
 }
 
 /**
- * Rate card (ST2-T13 ขาขาย; docs/01 §5.2 #6 `rate-cards`) — list/get/create/PATCH ร่าง/revise/approve/cancel/delete
- * + `PUT /external/{id}` + export + ประวัติ · ขาซื้อ (side=BUY) ใช้ resource เดียวกันใน ST2-T14
- * สิทธิ์: อ่าน `master:read` (ราคาเห็นเมื่อมี `prices.sell:read`) · เขียน/อนุมัติ `prices.sell:write` · ส่งออก `export:run`
+ * Rate card (ST2-T13 ขาขาย · ST2-T14 ขาซื้อ `side=BUY`; docs/01 §5.2 #6 `rate-cards`) — list/get/create/PATCH ร่าง/revise/approve/cancel/delete
+ * + `PUT /external/{id}` + export + ประวัติ
+ * สิทธิ์: อ่าน `master:read` (ราคาขายเห็นเมื่อมี `prices.sell:read`, ราคาซื้อ `prices.buy:read`)
+ * · เขียน/อนุมัติ: ขาขาย `prices.sell:write` / ขาซื้อ `prices.buy:write` (ตรวจตามฝั่งของ rate ใน service → 403) · ส่งออก `export:run`
  */
 @ApiTags('rate-cards')
 @ApiBearerAuth()
@@ -123,7 +140,7 @@ export class RateCardsController {
   @RequireScope('master:read')
   @ApiOkResponse({ type: RateCardSummaryDto })
   summary(@Query() q: RateCardSummaryQuery): Promise<RateCardSummaryDto> {
-    return this.rates.summary(q.side ?? 'SELL', q.customerId);
+    return this.rates.summary(listSide(q), q.customerId, q.carrierId);
   }
 
   @Get('export')
@@ -131,20 +148,30 @@ export class RateCardsController {
   @ApiProduces('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'text/csv')
   @ApiOkResponse({
     description:
-      'ไฟล์ .xlsx หรือ .csv ตามตัวกรองเดียวกับรายการ (สูงสุด 10,000 แถว) — คอลัมน์ราคาเฉพาะผู้มี `prices.sell:read`',
+      'ไฟล์ .xlsx หรือ .csv ตามตัวกรองเดียวกับรายการ (สูงสุด 10,000 แถว) — คอลัมน์ราคาเฉพาะผู้มี `prices.sell:read` (ขาขาย) / `prices.buy:read` (ขาซื้อ)',
   })
   async export(
     @Query() q: RateCardExportQuery,
     @Res({ passthrough: true }) res: Response,
   ): Promise<StreamableFile> {
     const rows = await this.rates.exportRows(q);
-    const withPrices = scopeAllows(requestContext.require().scopes ?? [], 'prices.sell:read');
-    return sendExport(res, q.format ?? 'xlsx', 'rate-cards', exportColumns(withPrices), rows);
+    const side = listSide(q);
+    const withPrices = scopeAllows(
+      requestContext.require().scopes ?? [],
+      side === 'BUY' ? 'prices.buy:read' : 'prices.sell:read',
+    );
+    return sendExport(
+      res,
+      q.format ?? 'xlsx',
+      side === 'BUY' ? 'rate-cards-buy' : 'rate-cards',
+      exportColumns(side, withPrices),
+      rows,
+    );
   }
 
   /** สร้างร่าง — ช่วงวันทับ rate อื่นใน key เดียวกัน → 422 `overlap` (+ `conflicts`) */
   @Post()
-  @RequireScope('prices.sell:write')
+  @RequireScope('prices.sell:write', 'prices.buy:write')
   @ApiHeader({ name: 'Idempotency-Key', required: false })
   @ApiCreatedResponse({ type: RateCardDto })
   async create(
@@ -157,7 +184,7 @@ export class RateCardsController {
   }
 
   @Put('external/:externalId')
-  @RequireScope('prices.sell:write')
+  @RequireScope('prices.sell:write', 'prices.buy:write')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag — ใช้เมื่อแถวมีอยู่แล้ว' })
   @ApiOkResponse({
     type: RateCardDto,
@@ -206,7 +233,8 @@ export class RateCardsController {
   @RequireScope('master:read')
   @ApiOkResponse({
     type: AuditPageDto,
-    description: 'ประวัติการแก้จาก audit log ใหม่สุดก่อน (ราคาถูกตัดตามสิทธิ์ `prices.sell:read`)',
+    description:
+      'ประวัติการแก้จาก audit log ใหม่สุดก่อน (ราคาถูกตัดตามสิทธิ์ `prices.sell:read` / `prices.buy:read`)',
   })
   async history(@Param('id') id: string, @Query() q: HistoryQuery): Promise<AuditPageDto> {
     const r = await this.resolve(id);
@@ -216,7 +244,7 @@ export class RateCardsController {
   /** แก้ร่าง — อนุมัติแล้ว → 409 `not_editable` (ใช้ `POST /{id}/revise`) */
   @Patch(':id')
   @TenantResource('rateCard')
-  @RequireScope('prices.sell:write')
+  @RequireScope('prices.sell:write', 'prices.buy:write')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
   @ApiOkResponse({ type: RateCardDto })
   async update(
@@ -234,7 +262,7 @@ export class RateCardsController {
   /** ออกฉบับแก้ไข (ร่าง ฉบับที่ +1) ของ rate ที่อนุมัติแล้ว — MD-118 */
   @Post(':id/revise')
   @TenantResource('rateCard')
-  @RequireScope('prices.sell:write')
+  @RequireScope('prices.sell:write', 'prices.buy:write')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag ของฉบับเดิม — ไม่ตรง → 412' })
   @ApiCreatedResponse({ type: RateCardDto, description: 'ร่างฉบับใหม่' })
   async revise(
@@ -253,7 +281,7 @@ export class RateCardsController {
   @Post(':id/approve')
   @HttpCode(200)
   @TenantResource('rateCard')
-  @RequireScope('prices.sell:write')
+  @RequireScope('prices.sell:write', 'prices.buy:write')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
   @ApiOkResponse({ type: RateCardDto })
   async approve(
@@ -272,7 +300,7 @@ export class RateCardsController {
   @Post(':id/cancel')
   @HttpCode(200)
   @TenantResource('rateCard')
-  @RequireScope('prices.sell:write')
+  @RequireScope('prices.sell:write', 'prices.buy:write')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
   @ApiOkResponse({ type: RateCardDto })
   async cancel(
@@ -291,7 +319,7 @@ export class RateCardsController {
   @Post(':id/delete')
   @HttpCode(204)
   @TenantResource('rateCard')
-  @RequireScope('prices.sell:write')
+  @RequireScope('prices.sell:write', 'prices.buy:write')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
   @ApiNoContentResponse()
   async remove(
@@ -301,5 +329,27 @@ export class RateCardsController {
   ): Promise<void> {
     const current = await this.resolve(id);
     await this.rates.remove(current.id, body.reason, expectedVersion(req));
+  }
+}
+
+/**
+ * ราคา 5 ครั้งล่าสุดที่จ้างรถร่วมรายนี้ (ST2-T14; docs/04 B "Rate card ขาซื้อ") — ใช้ใน drawer ผู้รับเหมา และหน้าจ่ายงาน (ST3)
+ * สิทธิ์ `prices.buy:read` (ไม่มี → 403 — ทั้ง endpoint เป็นราคาซื้อ) · รถร่วมของ tenant อื่น/ลบแล้ว → 404 · ยังไม่เคยจ้าง → `data: []`
+ */
+@ApiTags('carriers')
+@ApiBearerAuth()
+@Controller('carriers')
+export class CarrierRecentPricesController {
+  constructor(private readonly rates: RateCardsService) {}
+
+  @Get(':id/recent-prices')
+  @TenantResource('carrier')
+  @RequireScope('prices.buy:read')
+  @ApiOkResponse({ type: CarrierRecentPricesDto })
+  async recentPrices(
+    @Param('id') id: string,
+    @Query() q: CarrierRecentPricesQuery,
+  ): Promise<CarrierRecentPricesDto> {
+    return { data: await this.rates.recentCarrierPrices(decodeIdOr404('carrier', id), q) };
   }
 }

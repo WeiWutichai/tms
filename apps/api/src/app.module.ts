@@ -58,7 +58,10 @@ import { ServiceItemsController } from './modules/service-items/service-items.co
 import { ServiceItemsService } from './modules/service-items/service-items.service';
 import { ReasonCodesController } from './modules/reason-codes/reason-codes.controller';
 import { ReasonCodesService } from './modules/reason-codes/reason-codes.service';
-import { RateCardsController } from './modules/rate-cards/rate-cards.controller';
+import {
+  CarrierRecentPricesController,
+  RateCardsController,
+} from './modules/rate-cards/rate-cards.controller';
 import { RateCardsService } from './modules/rate-cards/rate-cards.service';
 import { PricingService } from './modules/pricing/pricing.service';
 import { VehicleTypesController } from './modules/vehicle-types/vehicle-types.controller';
@@ -117,6 +120,7 @@ import { StateService } from './state/state.service';
     ServiceItemsController,
     ReasonCodesController,
     RateCardsController,
+    CarrierRecentPricesController,
     CarriersController,
     VehiclesController,
     DriversController,

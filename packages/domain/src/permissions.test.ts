@@ -35,6 +35,8 @@ const A3: Array<[string, string, RoleCode[]]> = [
     'prices.buy:read',
     ['owner', 'admin', 'manager', 'planner', 'dispatcher', 'invoicer', 'accounting', 'approver'],
   ],
+  // ST2-T14 [DECISION — ย้อนได้]: A3 ไม่มีแถวแก้ราคาซื้อ → role ที่แก้ข้อมูลหลักได้และเห็นราคาซื้อ
+  ['แก้ราคาซื้อ (rate card ขาซื้อ)', 'prices.buy:write', ['owner', 'admin', 'manager', 'planner']],
   ['Order: จัด', 'orders:write', ['owner', 'admin', 'manager', 'planner']],
   ['Order: ยกเลิก', 'orders:cancel', ['owner', 'admin', 'manager', 'planner']],
   [
