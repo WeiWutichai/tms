@@ -32,6 +32,7 @@ import {
   type Product,
   type ProductFilters,
 } from './useProducts';
+import { ImportExcelButton } from '../imports/ImportExcelButton';
 
 const EMPTY_FILTERS: ProductFilters = { name: '', unitId: '', special: '' };
 
@@ -230,6 +231,8 @@ export function ProductsPage() {
         sub={t('page.prod.sub')}
         actions={
           <>
+            {/* นำเข้า Excel (ST2-T23) — ต้นแบบไม่มีปุ่มนี้ในหน้าสินค้า: ใช้แบบเดียวกับหน้าลูกค้า [OPEN spec/12 §3] */}
+            <ImportExcelButton kind="product" label={t('cust.import')} onDone={setToast} />
             <Button variant="secondary" icon="ruler" onClick={() => setUnitsOpen(true)}>
               {t('prd.manageUnits')}
             </Button>

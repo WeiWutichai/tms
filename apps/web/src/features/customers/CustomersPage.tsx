@@ -31,6 +31,7 @@ import {
   type Customer,
   type CustomerFilters,
 } from './useCustomers';
+import { ImportExcelButton } from '../imports/ImportExcelButton';
 
 const CYCLES = ['PER_DO', 'WEEKLY', 'MONTHLY', 'MANUAL'] as const;
 
@@ -199,15 +200,8 @@ export function CustomersPage() {
         sub={t('page.cust.sub')}
         actions={
           <>
-            {/* นำเข้า Excel = ST2-T23 — แสดงตามต้นแบบแต่ยังกดไม่ได้ [OPEN spec/12 §3] */}
-            <Button
-              variant="secondary"
-              icon="file-spreadsheet"
-              disabled
-              title={t('cust.importSoon')}
-            >
-              {t('cust.import')}
-            </Button>
+            {/* นำเข้า Excel (ST2-T23) — แสดงเฉพาะผู้มีสิทธิ์นำเข้าลูกค้า */}
+            <ImportExcelButton kind="customer" label={t('cust.import')} onDone={setToast} />
             {canWrite && (
               <Button variant="secondary" icon="plus" onClick={() => setCreating(true)}>
                 {t('cust.add')}

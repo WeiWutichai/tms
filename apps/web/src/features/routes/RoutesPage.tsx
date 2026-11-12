@@ -32,6 +32,7 @@ import {
   type Route,
   type RouteFilters,
 } from './useRoutes';
+import { ImportExcelButton } from '../imports/ImportExcelButton';
 
 const EMPTY_FILTERS: RouteFilters = { route: '', status: '' };
 
@@ -182,11 +183,15 @@ export function RoutesPage() {
         title={t('page.route.title')}
         sub={t('page.route.sub')}
         actions={
-          canWrite && (
-            <Button variant="primary" icon="plus" onClick={() => setForm({ route: null })}>
-              {t('rt.add')}
-            </Button>
-          )
+          <>
+            {/* นำเข้า Excel (ST2-T23) — ต้นแบบไม่มีปุ่มนี้ในหน้าเส้นทาง: ใช้แบบเดียวกับหน้าลูกค้า [OPEN spec/12 §3] */}
+            <ImportExcelButton kind="route" label={t('cust.import')} onDone={setToast} />
+            {canWrite && (
+              <Button variant="primary" icon="plus" onClick={() => setForm({ route: null })}>
+                {t('rt.add')}
+              </Button>
+            )}
+          </>
         }
       />
       <SummaryStrip
