@@ -188,6 +188,14 @@
 
 ## บันทึกรายวัน
 
+### 13 พ.ย. 2569 (แก้ E2E flaky: ตั้งค่าความปลอดภัย + login 429 ตอนเครื่องโหลดหนัก)
+
+- ต้นเหตุ 1 (บั๊กแอป): `useDraft` ใน `apps/web/src/features/settings/OrgSections.tsx` ทำ `setDraft(server)` ทุกครั้งที่ GET `/v1/settings` เสร็จ — ผู้ใช้เลือกค่าก่อนข้อมูลโหลดเสร็จ → ค่าถูกเขียนทับ, dirty ว่าง, ปุ่มบันทึกแสดง toast โดยไม่ส่ง PATCH → โหลดใหม่ได้ 480 (ยืนยันด้วย E2E ที่หน่วง GET: โค้ดเดิมได้ "480")
+- แก้: `features/settings/draft.ts` `rebaseDraft()` คงค่าที่ผู้ใช้แก้ค้างเมื่อ server ไม่ได้เปลี่ยน key นั้น + ปุ่มบันทึกกดไม่ได้จนได้ค่า/version จาก server; unit test `draft.test.ts`; `e2e/settings.spec.ts` หน่วง GET ครั้งแรกให้เกิด race ทุกครั้ง + รอ PATCH 200
+- ต้นเหตุ 2: login/2FA/รับคำเชิญ map P2024/P2028 (เริ่ม transaction ไม่ทันใน 2 วิ) → 429 `rate_limited` — DB ช้าแล้วผู้ใช้จริงโดน 429
+- แก้: `apps/api/src/auth/auth-tx.ts` `authTransaction()` (maxWait 5 วิ, timeout 10 วิ, `SET LOCAL lock_timeout 6s`): เริ่มไม่ทัน → ลองใหม่ 1 ครั้ง → 503 `service_busy` + Retry-After; transaction หมดเวลา (DB ช้า) → 503; รอ advisory lock ของอีเมล/IP เกิน 6 วิ (P2010/55P03 = ยิงพร้อมกัน) → 429 ตามเดิม; problem ใหม่ `service_busy` (503) + i18n; test `src/auth/auth-tx.test.ts` + 2 เคสใน `test/auth.test.ts`
+- ค้าง: ProblemFilter กลางยัง map P2024/P2028 → 429 สำหรับ endpoint อื่น (เสนอเปลี่ยนเป็น `service_busy` แยกงาน); `forgot` ใน password-reset ยังคงแบบเดิม (ตอบ 60 วิ)
+
 ### 13 พ.ย. 2569 (ST3-T21 ช่องส่ง LINE / SMS)
 
 - ทำ: โมดูล `apps/api/src/modules/messaging/` (providers, templates, service, dispatcher, controller, dto), migration `0062_messaging_line_sms`, worker วนส่ง `MessageDispatcher`, problem `channel_unavailable`, id `msg_`, UI `CarrierDocsTab.tsx` + `useLinkMessages.ts` + ปุ่มหลักใน `packages/ui/src/ui.css`, i18n, OpenAPI

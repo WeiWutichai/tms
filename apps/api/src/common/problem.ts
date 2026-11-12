@@ -90,6 +90,12 @@ export const PROBLEMS = {
     en: 'Payload too large',
   },
   rate_limited: { status: 429, th: 'เรียกถี่เกินไป', en: 'Too many requests' },
+  /** ระบบ/ฐานข้อมูลรับงานไม่ทัน (connection pool เต็ม, เริ่ม transaction ไม่ทัน) — ไม่ใช่ความผิดของผู้เรียก ลองใหม่ได้ (มี Retry-After) */
+  service_busy: {
+    status: 503,
+    th: 'ระบบกำลังมีผู้ใช้งานมาก กรุณาลองใหม่อีกครั้ง',
+    en: 'Service busy — please retry',
+  },
   invalid_credentials: {
     status: 401,
     th: 'อีเมลหรือรหัสผ่านไม่ถูกต้อง',

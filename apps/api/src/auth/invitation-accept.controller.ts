@@ -18,6 +18,7 @@ import { PrismaService } from '../db/prisma.service';
 import { hashPassword, verifyPassword } from './password';
 import { PasswordPolicy } from './password-policy';
 import { lockSeconds, recordAttempt } from './throttle';
+import { authTransaction } from './auth-tx';
 import { sha256 } from './tokens';
 import { iEquals } from '../common/ilike';
 
@@ -145,25 +146,22 @@ export class InvitationAcceptService {
       const who = { tenantId: inv.tenantId, userId: inv.userId };
       let locked = 0;
       try {
-        locked = await db.$transaction(
-          async (tx) => {
-            await tx.$executeRaw`SELECT pg_advisory_xact_lock(1, hashtext(${email}))`;
-            await tx.$executeRaw`SELECT pg_advisory_xact_lock(2, hashtext(${client.ip}))`;
-            const t = tx as unknown as PrismaClient;
-            const l = await lockSeconds(t, email, client.ip, Date.now());
-            await recordAttempt(t, email, client, {
-              success: false,
-              reason: l > 0 ? 'locked' : 'attempt',
-              ...who,
-            });
-            return l;
-          },
-          { maxWait: 2_000, timeout: 5_000 },
-        );
+        // เริ่ม transaction ไม่ทัน → ลองใหม่ 1 ครั้ง แล้ว 503 service_busy (เหมือน login)
+        locked = await authTransaction(db, async (tx) => {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(1, hashtext(${email}))`;
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(2, hashtext(${client.ip}))`;
+          const t = tx as unknown as PrismaClient;
+          const l = await lockSeconds(t, email, client.ip, Date.now());
+          await recordAttempt(t, email, client, {
+            success: false,
+            reason: l > 0 ? 'locked' : 'attempt',
+            ...who,
+          });
+          return l;
+        });
       } catch (e) {
-        const code = (e as { code?: string }).code;
-        if (code === 'P2024' || code === 'P2028' || code === 'P2010')
-          throw new ProblemException('rate_limited');
+        // รอ advisory lock เกิน lock_timeout (ยิงพร้อมกัน) → 429 ตามเดิม
+        if ((e as { code?: string }).code === 'P2010') throw new ProblemException('rate_limited');
         throw e;
       }
       if (locked > 0)

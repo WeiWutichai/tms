@@ -6,6 +6,7 @@ import { ProblemException } from '../common/problem';
 import { PrismaService } from '../db/prisma.service';
 import { MFA_CHALLENGE_TTL_MS, MfaService } from './mfa.service';
 import { lockSeconds, recordAttempt, type ClientInfo } from './throttle';
+import { authTransaction } from './auth-tx';
 import { readSettings } from '../modules/settings/settings.service';
 export { LOGIN_MAX_FAILURES, LOGIN_WINDOW_MS, type ClientInfo } from './throttle';
 import { dummyHash, verifyPassword } from './password';
@@ -70,25 +71,22 @@ export class AuthService {
     const db = this.db;
     let lockedFor = 0;
     try {
-      lockedFor = await db.$transaction(
-        async (tx) => {
-          // key 2 ตัว (namespace, hash) แยกอีเมลกับ IP ไม่ให้ชนกัน; ล็อกเรียง อีเมล → IP เสมอ กัน deadlock
-          await tx.$executeRaw`SELECT pg_advisory_xact_lock(1, hashtext(${email}))`;
-          await tx.$executeRaw`SELECT pg_advisory_xact_lock(2, hashtext(${client.ip}))`;
-          const t = tx as unknown as PrismaClient;
-          const locked = await lockSeconds(t, email, client.ip, Date.now());
-          await recordAttempt(t, email, client, {
-            success: false,
-            reason: locked > 0 ? 'locked' : 'attempt',
-          });
-          return locked;
-        },
-        { maxWait: 2_000, timeout: 5_000 },
-      );
+      // เริ่ม transaction ไม่ทัน (pool เต็ม/DB ช้า) → ลองใหม่ 1 ครั้ง แล้ว 503 service_busy — ไม่ตอบ 429 ให้ผู้ใช้จริง
+      lockedFor = await authTransaction(db, async (tx) => {
+        // key 2 ตัว (namespace, hash) แยกอีเมลกับ IP ไม่ให้ชนกัน; ล็อกเรียง อีเมล → IP เสมอ กัน deadlock
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(1, hashtext(${email}))`;
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(2, hashtext(${client.ip}))`;
+        const t = tx as unknown as PrismaClient;
+        const locked = await lockSeconds(t, email, client.ip, Date.now());
+        await recordAttempt(t, email, client, {
+          success: false,
+          reason: locked > 0 ? 'locked' : 'attempt',
+        });
+        return locked;
+      });
     } catch (e) {
-      const code = (e as { code?: string }).code;
-      if (code === 'P2024' || code === 'P2028' || code === 'P2010')
-        throw new ProblemException('rate_limited');
+      // รอ advisory lock ของอีเมล/IP เดียวกันเกิน lock_timeout (P2010/55P03) = ยิงพร้อมกันจำนวนมาก → 429 ตามเดิม
+      if ((e as { code?: string }).code === 'P2010') throw new ProblemException('rate_limited');
       throw e;
     }
     if (lockedFor > 0)

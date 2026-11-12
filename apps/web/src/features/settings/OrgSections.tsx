@@ -4,6 +4,7 @@ import { ApiError } from '../../api';
 import { markReviewed } from '../setup/SetupChecklist';
 import { useI18n } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
+import { rebaseDraft, type Values } from './draft';
 import { Toggle } from './Settings';
 import {
   useBranches,
@@ -18,8 +19,6 @@ import {
  * เลขผู้เสียภาษี/ที่อยู่มาจากนิติบุคคลหลัก (แก้ที่ "นิติบุคคลและสาขา" — ข้อมูลบนเอกสารภาษีผูกกับนิติบุคคล/สาขา)
  * IP allowlist ของต้นแบบเป็น P1 (spec/01 §13.6) — ยังไม่แสดง
  */
-type Values = Record<string, unknown>;
-
 function useDraft(keys: string[]) {
   const q = useTenantSettings();
   const save = useSaveTenantSettings();
@@ -32,8 +31,16 @@ function useDraft(keys: string[]) {
     () => Object.fromEntries((q.data?.data ?? []).map((s) => [s.key, s.version])),
     [q.data],
   );
-  const [draft, setDraft] = useState<Values>({});
-  useEffect(() => setDraft(server), [server]);
+  // base = ค่าจาก server ที่ draft ตั้งต้นจาก (null = ยังไม่โหลด) — ไม่เขียนทับค่าที่ผู้ใช้แก้ค้าง (ดู rebaseDraft)
+  const [state, setState] = useState<{ base: Values | null; draft: Values }>({
+    base: null,
+    draft: {},
+  });
+  useEffect(() => {
+    if (!q.data) return;
+    setState((s) => ({ base: server, draft: rebaseDraft(s.base, s.draft, server) }));
+  }, [q.data, server]);
+  const draft = state.draft;
   const dirty = Object.fromEntries(
     Object.entries(draft).filter(([k, v]) => JSON.stringify(server[k]) !== JSON.stringify(v)),
   );
@@ -42,8 +49,10 @@ function useDraft(keys: string[]) {
     save,
     draft,
     versions,
-    set: (k: string, v: unknown) => setDraft((d) => ({ ...d, [k]: v })),
+    set: (k: string, v: unknown) => setState((s) => ({ ...s, draft: { ...s.draft, [k]: v } })),
     dirty,
+    /** ยังไม่ได้ค่า/version จาก server → ยังบันทึกไม่ได้ (กันส่ง version 0 แล้วได้ 412) */
+    busy: save.isPending || !q.data,
   };
 }
 
@@ -523,7 +532,7 @@ export function OrgSection({ canWrite }: { canWrite: boolean }) {
       {canWrite && (
         <SaveBar
           dirty={Object.keys(d.dirty).length > 0}
-          busy={d.save.isPending}
+          busy={d.busy}
           onSave={flow.onSave}
           saved={flow.saved}
           error={flow.error}
@@ -586,7 +595,7 @@ export function TaxSection({ canWrite }: { canWrite: boolean }) {
       {canWrite && (
         <SaveBar
           dirty={Object.keys(d.dirty).length > 0}
-          busy={d.save.isPending}
+          busy={d.busy}
           onSave={flow.onSave}
           saved={flow.saved}
           error={flow.error}
@@ -641,7 +650,7 @@ export function SecuritySection({ canWrite }: { canWrite: boolean }) {
       {canWrite && (
         <SaveBar
           dirty={Object.keys(d.dirty).length > 0}
-          busy={d.save.isPending}
+          busy={d.busy}
           onSave={flow.onSave}
           saved={flow.saved}
           error={flow.error}
