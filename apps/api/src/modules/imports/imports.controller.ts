@@ -65,7 +65,11 @@ export class CreateImportDto {
   })
   @IsString()
   documentId!: string;
-  @ApiPropertyOptional({ enum: IMPORT_MODES, description: 'ค่าเริ่มต้น create_only' })
+  @ApiPropertyOptional({
+    enum: IMPORT_MODES,
+    description:
+      'ค่าเริ่มต้น = mode แรกของชนิดนั้น (`GET /imports/kinds` → modes[0]; ข้อมูลหลัก = create_only, order = upsert_by_code)',
+  })
   @IsOptional()
   @IsIn(IMPORT_MODES)
   mode?: string;
@@ -264,7 +268,7 @@ export class ImportsController {
         kind: spec.kind,
         documentId: doc.id,
         fileName: doc.filename,
-        mode: body.mode ?? 'create_only',
+        mode: body.mode ?? spec.modes?.[0] ?? 'create_only',
         errorPolicy: body.errorPolicy ?? 'all_or_nothing',
         mapping: cleanMapping(spec, body.mapping),
         expiresAt: new Date(Date.now() + 24 * 3600_000),

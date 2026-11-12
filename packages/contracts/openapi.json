@@ -16255,7 +16255,7 @@
               "upsert_by_code",
               "update_only"
             ],
-            "description": "ค่าเริ่มต้น create_only"
+            "description": "ค่าเริ่มต้น = mode แรกของชนิดนั้น (`GET /imports/kinds` → modes[0]; ข้อมูลหลัก = create_only, order = upsert_by_code)"
           },
           "errorPolicy": {
             "type": "string",

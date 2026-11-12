@@ -79,6 +79,7 @@ import { DeliveryOrderService } from './modules/delivery-orders/delivery-order.s
 import { DeliveryOrdersController } from './modules/delivery-orders/delivery-orders.controller';
 import { OrdersController } from './modules/orders/orders.controller';
 import { OrdersService } from './modules/orders/orders.service';
+import { OrderImports } from './modules/orders/order.import';
 import { VehicleTypesController } from './modules/vehicle-types/vehicle-types.controller';
 import { VehicleTypesService } from './modules/vehicle-types/vehicle-types.service';
 import { CarriersController } from './modules/carriers/carriers.controller';
@@ -190,6 +191,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     OrderIntakeService,
     DeliveryOrderService,
     OrdersService,
+    OrderImports,
     CarriersService,
     VehiclesService,
     DriversService,

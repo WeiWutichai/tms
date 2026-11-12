@@ -141,7 +141,7 @@ describe('นำเข้าข้อมูลหลัก (ST2-T23)', () => {
       expect(wb.worksheets[0]!.actualRowCount, k).toBe(1); // sheet ที่ระบบอ่านมีแต่หัวคอลัมน์
       const head = (wb.worksheets[0]!.getRow(1).values as string[]).slice(1);
       for (const h of head) expect(h, k).toMatch(/[฀-๿]|LINE ID|VAT/);
-      expect(wb.getWorksheet('ตัวอย่าง')!.actualRowCount, k).toBe(2);
+      expect(wb.getWorksheet('ตัวอย่าง')!.actualRowCount, k).toBeGreaterThanOrEqual(2);
       expect(wb.getWorksheet('คำอธิบาย')).toBeTruthy();
     }
     const t = await binary(a.get('/v1/imports/kinds/customer/template')).expect(200);

@@ -613,7 +613,10 @@ export class ImportService implements OnModuleInit {
     });
     const sample = wb.addWorksheet('ตัวอย่าง');
     sample.addRow(spec.columns.map((c) => c.header)).font = { bold: true };
-    sample.addRow(spec.columns.map((c) => c.example ?? ''));
+    for (const r of spec.sampleRows ?? [
+      Object.fromEntries(spec.columns.map((c) => [c.key, c.example ?? ''])),
+    ])
+      sample.addRow(spec.columns.map((c) => r[c.key] ?? ''));
     spec.columns.forEach((c, i) => {
       sample.getColumn(i + 1).width = Math.max(14, c.header.length + 4);
       sample.getColumn(i + 1).numFmt = '@';
@@ -630,6 +633,10 @@ export class ImportService implements OnModuleInit {
         c.hint ?? '',
         c.options?.join(', ') ?? '',
       ]);
+    if (spec.helpNotes?.length) {
+      help.addRow([]);
+      for (const n of spec.helpNotes) help.addRow([n]);
+    }
     // รายการให้เลือก (data validation) — เตือนแบบ information: ยังพิมพ์ค่าอื่นได้ (ระบบตรวจซ้ำตอนนำเข้า)
     const lists = wb.addWorksheet('รายการ', { state: 'hidden' });
     let listCol = 0;

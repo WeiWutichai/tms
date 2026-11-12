@@ -98,6 +98,18 @@ const FIELD_TH: Record<string, string> = {
   maxLength: 'ข้อความยาวเกินกำหนด',
   secret_unreadable: 'อ่านเลขเดิมไม่ได้ — กรอกเลขใหม่',
   required_on_type_change: 'เปลี่ยนประเภทต้องกรอกเลขผู้เสียภาษี / เลขบัตรใหม่',
+  // ใบสั่งขนส่ง (normalizeOrderInput / upsertOrder — ST3-T04)
+  invalid_id: 'ไม่พบข้อมูลที่อ้างถึงในระบบ',
+  invalid_type: 'รูปแบบค่าไม่ถูกต้อง',
+  invalid_decimal: 'ต้องเป็นตัวเลขไม่ติดลบ ทศนิยมไม่เกิน 3 ตำแหน่ง',
+  must_be_positive: 'ต้องมากกว่า 0',
+  invalid_datetime: 'วันเวลาไม่ถูกต้อง — ใช้ HH:mm หรือ DD/MM/YYYY HH:mm',
+  window_order: 'เวลาสิ้นสุดต้องไม่ก่อนเวลาเริ่ม',
+  too_few: 'ใบสั่งต้องมีจุดรับหรือจุดส่งอย่างน้อย 1 จุด',
+  too_many: 'จำนวนจุด/รายการสินค้าในใบสั่งเดียวเกินกำหนด (จุด ≤ 50, สินค้า ≤ 200)',
+  reference_inactive: 'รายการที่อ้างถึงถูกปิดใช้อยู่',
+  external_id_locked: 'เปลี่ยนเลขอ้างอิงของใบสั่งเดิมไม่ได้',
+  locked: 'ใบสั่งนี้วางแผน/ออกรถแล้ว แก้ช่องนี้ไม่ได้',
 };
 
 /** problem ทั้งแถว (ไม่มี errors[]) */
@@ -109,6 +121,9 @@ const PROBLEM_TH: Record<string, string> = {
   invalid_state_transition: 'รายการในระบบอยู่ในสถานะที่แก้ไขด้วยการนำเข้าไม่ได้',
   in_use: 'รายการนี้มีข้อมูลอื่นอ้างถึงแล้ว แก้ช่องนี้ไม่ได้',
   in_use_active: 'รายการนี้ยังมีข้อมูลที่ใช้งานอยู่อ้างถึง',
+  external_id_conflict:
+    'เลขอ้างอิงนี้เป็นของใบสั่งที่มาจากช่องทางอื่น (API/ERP/กรอกเอง) — ใช้เลขอื่น',
+  order_locked_for_update: 'ใบสั่งนี้ปิดงาน/ยกเลิกแล้ว แก้ด้วยการนำเข้าไม่ได้',
 };
 
 /** Prisma: ค่ายาวเกิน/ค่าเกินช่วง/ตัวเลขล้น/ค่าว่างในช่องบังคับ/CHECK */
@@ -134,6 +149,7 @@ const ISSUE_CODE: Record<string, string> = {
 function detail(e: FieldError): string {
   const n = /(-?\d+(?:\.\d+)?)/.exec(e.message ?? '')?.[1];
   switch (e.code) {
+    case 'too_long':
     case 'maxLength':
       return n ? `ยาวเกิน ${n} ตัวอักษร` : FIELD_TH.maxLength!;
     case 'minLength':

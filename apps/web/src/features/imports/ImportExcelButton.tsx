@@ -18,6 +18,8 @@ const AFFECTS: Record<string, string[]> = {
   service_item: ['service-items'],
   rate_card_sell: ['rate-cards'],
   rate_card_buy: ['rate-cards'],
+  // ST3-T04 — หน้ารายการ SO (ST3-T02) ใช้ key 'orders'
+  order: ['orders'],
 };
 
 /**
