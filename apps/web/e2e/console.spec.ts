@@ -66,7 +66,8 @@ test.describe('Platform Console', () => {
     await expect(ok).toBeDisabled();
     await dlg.getByLabel('เหตุผล').fill('ลูกค้านำร่องเซ็นสัญญาแล้ว');
     await ok.click();
-    await expect(page.getByRole('status')).toContainText(`เพิ่ม ${name} แล้ว`);
+    // สร้าง tenant ใหม่ = bootstrap ค่าเริ่มต้นทั้งชุด (ประเภทรถ หน่วย ค่าบริการ เหตุผล ฯลฯ) — เครื่องที่โหลดหนักใช้เกิน 5 วิ
+    await expect(page.getByRole('status')).toContainText(`เพิ่ม ${name} แล้ว`, { timeout: 20_000 });
 
     const drawer = page.getByRole('dialog', { name });
     await expect(drawer.getByText('ทดลองใช้')).toBeVisible();
