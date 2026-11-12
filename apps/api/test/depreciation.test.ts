@@ -122,6 +122,15 @@ describe('ค่าเสื่อมเส้นตรง: กติกา (ST2
     expect(early.some((l) => l.catchUp)).toBe(false);
     expect(sum([...six.values(), ...early.map((l) => l.amount)])).toBe('1200000.00');
   });
+  it('แก้กลางอายุ — เลื่อนวันซื้อช้าลง: แถวก่อนเดือนซื้อใหม่คงอยู่ (แก้/ลบไม่ได้) นับในยอดที่ลงแล้ว → ไม่ลงเกินฐาน', () => {
+    const six = new Map(
+      Array.from({ length: 6 }, (_, k) => [addMonths('2026-01', k), '20000.00'] as const),
+    );
+    const later = dueLines({ ...base, purchasedOn: '2026-04-01' }, '2035-12', six);
+    expect(later[0]!.month).toBe('2026-07'); // เม.ย.–มิ.ย. ลงแล้ว
+    expect(later.at(-1)!.month).toBe('2031-03');
+    expect(sum([...six.values(), ...later.map((l) => l.amount)])).toBe('1200000.00');
+  });
   it('ยอด/เดือนปัดได้ 0.00 → ไม่ลงแถว ยอดไปลงเดือนสุดท้าย', () => {
     const tiny = dueLines({ ...base, purchaseCost: '0.05', years: 1 }, '2030-01', new Map());
     expect(tiny).toEqual([

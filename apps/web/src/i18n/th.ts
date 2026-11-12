@@ -1494,6 +1494,7 @@ export const th = {
   'field.not_allowed': 'รถบริษัทไม่มีผู้รับเหมา',
   'field.year_range': 'ปีผลิตต้องไม่เกินปีหน้า',
   'field.salvage_over_cost': 'มูลค่าซากต้องไม่เกินราคาซื้อ',
+  'field.subcontract_depreciation': 'รถร่วมไม่มีค่าเสื่อม — ล้างช่องค่าเสื่อมก่อน',
   'field.trip_running': 'เปลี่ยนประเภทรถระหว่างเที่ยววิ่งไม่ได้',
   'field.required': 'กรุณากรอกข้อมูล',
   'prov.TH-10': 'กรุงเทพมหานคร',
