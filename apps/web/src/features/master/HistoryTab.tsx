@@ -19,7 +19,8 @@ export type HistoryPath =
   | '/v1/routes/{id}/history'
   | '/v1/products/{id}/history'
   | '/v1/units/{id}/history'
-  | '/v1/service-items/{id}/history';
+  | '/v1/service-items/{id}/history'
+  | '/v1/rate-cards/{id}/history';
 
 const VERB: Record<
   string,
@@ -42,6 +43,11 @@ const VERB: Record<
   retired: { key: 'hist.retired', tone: 'off', icon: 'archive' },
   odometer_recorded: { key: 'hist.odometerRecorded', tone: 'ok', icon: 'gauge' },
   odometer_corrected: { key: 'hist.odometerCorrected', tone: 'warn', icon: 'gauge' },
+  // ST2-T13 rate card: อนุมัติ / ฉบับแก้ไข / ถูกฉบับใหม่แทน / ยกเลิก
+  activated: { key: 'hist.activated', tone: 'ok', icon: 'circle-check' },
+  revised: { key: 'hist.revised', tone: 'info', icon: 'copy' },
+  superseded: { key: 'hist.superseded', tone: 'info', icon: 'git-compare' },
+  cancelled: { key: 'hist.cancelled', tone: 'off', icon: 'ban' },
 };
 /** action ที่แสดงรายการช่องที่เปลี่ยน (ก่อน → หลัง) */
 const DIFF_ACTIONS = [
@@ -53,6 +59,7 @@ const DIFF_ACTIONS = [
   'retired',
   'odometer_recorded',
   'odometer_corrected',
+  'superseded',
 ];
 
 function show(v: unknown): string {

@@ -79,8 +79,15 @@ describe('schema v0 constraints', () => {
         calcUnit: 'PER_TRIP',
       },
     });
+    const site = (code: string) =>
+      db.customerSite.create({ data: { tenantId: t, code, name: code, address: { line1: 'x' } } });
+    const [o, d] = [await site('V0-A'), await site('V0-B')];
     const base = {
       tenantId: t,
+      code: 'RC-S-0001',
+      vehicleTypeId: vt,
+      originSiteId: o.id,
+      destSiteId: d.id,
       pricingModel: 'PER_TRIP' as const,
       unitPrice: '6500.00',
       serviceItemId: si.id,

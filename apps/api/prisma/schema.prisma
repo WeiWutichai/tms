@@ -384,6 +384,8 @@ model Customer {
   sites                   CustomerSite[]
   products                Product[]
 
+  rateCards RateCard[]
+
   @@unique([tenantId, code])
   @@unique([tenantId, externalId])
   @@index([tenantId, updatedAt, id])
@@ -449,6 +451,9 @@ model CustomerSite {
 
   routesFrom Route[] @relation("RouteOrigin")
   routesTo   Route[] @relation("RouteDestination")
+
+  rateCardsFrom RateCard[] @relation("RateCardOrigin")
+  rateCardsTo   RateCard[] @relation("RateCardDestination")
 
   @@unique([tenantId, externalId])
   @@unique([tenantId, code])
@@ -538,6 +543,8 @@ model Carrier {
   vehicles          Vehicle[]
   drivers           Driver[]
 
+  rateCards RateCard[]
+
   @@unique([tenantId, code])
   @@unique([tenantId, externalId])
   @@index([tenantId, updatedAt, id])
@@ -571,6 +578,8 @@ model VehicleType {
 
   vehicles Vehicle[]
 
+  rateCards RateCard[]
+
   @@unique([tenantId, code])
   @@unique([tenantId, externalId])
   @@unique([tenantId, systemKey])
@@ -598,6 +607,8 @@ model Unit {
 
   products Product[]
   altUnits ProductAltUnit[]
+
+  rateCards RateCard[]
 
   @@unique([tenantId, code])
   @@unique([tenantId, systemKey])
@@ -949,6 +960,9 @@ model ServiceItem {
   createdAt          DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt          DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
+  rateCards            RateCard[]
+  rateCardAccessorials RateCardAccessorial[]
+
   @@unique([tenantId, code])
   @@unique([tenantId, externalId])
   @@unique([tenantId, systemKey])
@@ -983,33 +997,82 @@ enum RateStatus {
   @@map("rate_status")
 }
 
+/// Rate card (ST2-T13 ขาขาย; ST2-T14 ขาซื้อใช้ตารางเดียวกัน `side = BUY`) — docs/01 §3.2, docs/04 B Rate card, spec/02 §5
+/// โครงแถวเดียวต่อราคา (key = ฝั่ง + ลูกค้า/รถร่วม + ต้นทาง + ปลายทาง + ประเภทรถ) ตามต้นแบบ TMS v4 specRate [OPEN D-29 — spec/12 §3]
+/// สถานะในฐาน DRAFT → APPROVED → RETIRED (plan/11 ข้อ 3 — PENDING_APPROVAL ใช้เมื่อเปิดการอนุมัติ P1)
+/// "หมดอายุ" (EXPIRED) คำนวณจาก valid_to < วันนี้ (เวลาไทย) ไม่เก็บ — API/lookup ไม่ใช้ rate หมดอายุ
+/// ช่วงวันของ rate ที่ใช้งาน (APPROVED/PENDING_APPROVAL) ใน key เดียวกันห้ามทับ — exclusion constraint `rate_card_no_overlap` (migration 0053, btree_gist)
+/// แก้ rate ที่ใช้งานแล้ว = ฉบับแก้ไข (revision ใหม่ code เดิม, parent_id ชี้ฉบับเดิม — MD-118)
 model RateCard {
-  id               String       @id @default(uuid()) @db.Uuid
-  tenantId         String       @map("tenant_id") @db.Uuid
-  side             RateSide
-  customerId       String?      @map("customer_id") @db.Uuid
-  carrierId        String?      @map("carrier_id") @db.Uuid
-  originSiteId     String?      @map("origin_site_id") @db.Uuid
-  destSiteId       String?      @map("dest_site_id") @db.Uuid
-  originZone       String?      @map("origin_zone")
-  destZone         String?      @map("dest_zone")
-  vehicleTypeId    String?      @map("vehicle_type_id") @db.Uuid
-  pricingModel     PricingModel @map("pricing_model")
-  unitPrice        Decimal      @map("unit_price") @db.Decimal(14, 2)
-  minCharge        Decimal?     @map("min_charge") @db.Decimal(14, 2)
-  extraStopPrice   Decimal?     @map("extra_stop_price") @db.Decimal(14, 2)
-  includedStops    Int          @default(1) @map("included_stops")
-  fuelSurchargePct Decimal?     @map("fuel_surcharge_pct") @db.Decimal(5, 2)
-  serviceItemId    String       @map("service_item_id") @db.Uuid
-  validFrom        DateTime     @map("valid_from") @db.Date
-  validTo          DateTime?    @map("valid_to") @db.Date
-  status           RateStatus   @default(DRAFT)
-  version          Int          @default(1)
-  createdAt        DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt        DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id                String                @id @default(uuid()) @db.Uuid
+  tenantId          String                @map("tenant_id") @db.Uuid
+  side              RateSide
+  code              String /// RC-S-0001 / RC-B-0001 — ฉบับแก้ไขใช้รหัสเดิม (unique ต่อ code + revision ไม่สนตัวพิมพ์)
+  revision          Int                   @default(1) /// ฉบับที่ (MD-118) — 1 = ฉบับแรก
+  parentId          String?               @map("parent_id") @db.Uuid /// ฉบับก่อนหน้า (ฉบับแก้ไข)
+  parent            RateCard?             @relation("RateCardRevision", fields: [parentId], references: [id], onDelete: Restrict)
+  revisions         RateCard[]            @relation("RateCardRevision")
+  parentClosed      Boolean               @default(false) @map("parent_closed") /// ตอนอนุมัติฉบับนี้ ระบบปิดฉบับเดิม (ตัดวันหมด/ถูกแทน) — ยกเลิกฉบับนี้แล้วคืนค่าเดิมให้ฉบับเดิม
+  parentPrevValidTo DateTime?             @map("parent_prev_valid_to") @db.Date /// วันหมดเดิมของฉบับเดิมก่อนถูกปิด (null = ไม่มีวันหมด)
+  parentPrevStatus  RateStatus?           @map("parent_prev_status") /// สถานะเดิมของฉบับเดิมก่อนถูกปิด
+  customerId        String?               @map("customer_id") @db.Uuid
+  customer          Customer?             @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  carrierId         String?               @map("carrier_id") @db.Uuid
+  carrier           Carrier?              @relation(fields: [carrierId], references: [id], onDelete: Restrict)
+  originSiteId      String?               @map("origin_site_id") @db.Uuid
+  origin            CustomerSite?         @relation("RateCardOrigin", fields: [originSiteId], references: [id], onDelete: Restrict)
+  destSiteId        String?               @map("dest_site_id") @db.Uuid
+  dest              CustomerSite?         @relation("RateCardDestination", fields: [destSiteId], references: [id], onDelete: Restrict)
+  originZone        String?               @map("origin_zone") /// โซน (MD-124 — P1/เฟส 2) ยังไม่ใช้
+  destZone          String?               @map("dest_zone")
+  vehicleTypeId     String                @map("vehicle_type_id") @db.Uuid
+  vehicleType       VehicleType           @relation(fields: [vehicleTypeId], references: [id], onDelete: Restrict)
+  pricingModel      PricingModel          @map("pricing_model")
+  unitPrice         Decimal               @map("unit_price") @db.Decimal(14, 2) /// ราคาต่อหน่วยของสูตร (บาท)
+  unitId            String?               @map("unit_id") @db.Uuid /// PER_UNIT: หน่วยนับ (ชิ้น พาเลท …)
+  unit              Unit?                 @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  minCharge         Decimal?              @map("min_charge") @db.Decimal(14, 2) /// ขั้นต่ำ (B1 PER_DISTANCE / PER_UNIT)
+  extraStopPrice    Decimal?              @map("extra_stop_price") @db.Decimal(14, 2) /// เกิน N จุดคิดเพิ่มต่อจุด
+  includedStops     Int                   @default(2) @map("included_stops") /// N — จุดที่รวมในราคา (MD-115 ค่าเริ่มต้น 2 = รับ 1 + ส่ง 1)
+  fuelSurchargePct  Decimal?              @map("fuel_surcharge_pct") @db.Decimal(5, 2) /// FSC (P1) ยังไม่ใช้
+  serviceItemId     String                @map("service_item_id") @db.Uuid /// รายการบนเอกสาร (vat_type/wht_rate) — ค่าเริ่มต้น FREIGHT
+  serviceItem       ServiceItem           @relation(fields: [serviceItemId], references: [id], onDelete: Restrict)
+  validFrom         DateTime              @map("valid_from") @db.Date
+  validTo           DateTime?             @map("valid_to") @db.Date /// null = ไม่มีวันหมด
+  status            RateStatus            @default(DRAFT)
+  approvedAt        DateTime?             @map("approved_at") @db.Timestamptz(6)
+  approvedById      String?               @map("approved_by_id") @db.Uuid
+  notes             String?
+  externalId        String?               @map("external_id")
+  deletedExternalId String?               @map("deleted_external_id")
+  deletedAt         DateTime?             @map("deleted_at") @db.Timestamptz(6) /// ลบได้เฉพาะร่าง (MD-004)
+  version           Int                   @default(1)
+  createdAt         DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime              @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  accessorials      RateCardAccessorial[]
 
+  @@unique([tenantId, externalId])
   @@index([tenantId, side, customerId, carrierId])
+  @@index([tenantId, updatedAt, id])
+  @@index([tenantId, originSiteId, destSiteId, vehicleTypeId])
   @@map("rate_card")
+}
+
+/// ราคาค่าบริการเสริมเฉพาะ rate นี้ (ต้นแบบ drawer rate "ค่าบริการเพิ่ม (accessorial)") — แทนราคาตั้งต้นของ catalog
+/// เก็บเฉพาะรายการที่กำหนดราคา · ราคาถูก snapshot ลงเอกสารภายหลัง (MD-117)
+model RateCardAccessorial {
+  id            String      @id @default(uuid()) @db.Uuid
+  tenantId      String      @map("tenant_id") @db.Uuid
+  rateCardId    String      @map("rate_card_id") @db.Uuid
+  rateCard      RateCard    @relation(fields: [rateCardId], references: [id], onDelete: Restrict)
+  serviceItemId String      @map("service_item_id") @db.Uuid
+  serviceItem   ServiceItem @relation(fields: [serviceItemId], references: [id], onDelete: Restrict)
+  price         Decimal     @db.Decimal(14, 2)
+  createdAt     DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([rateCardId, serviceItemId])
+  @@index([tenantId, serviceItemId])
+  @@map("rate_card_accessorial")
 }
 
 enum ReasonCategory {

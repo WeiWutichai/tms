@@ -59,4 +59,6 @@ writeFileSync(
     .map((k) => `${k}=${env[k]}`)
     .join('\n') + '\n',
 );
-console.log('e2e: database tms_e2e ready (ผู้ใช้เดโมจาก seed)');
+console.log(
+  `e2e: database ${new URL(env.DATABASE_URL).pathname.slice(1)} ready (ผู้ใช้เดโมจาก seed)`,
+);

@@ -12,6 +12,7 @@ import {
   type Column,
 } from '@tms/ui';
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useI18n } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
 import { can } from '../../nav';
@@ -39,6 +40,7 @@ const CYCLES = ['PER_DO', 'WEEKLY', 'MONTHLY', 'MANUAL'] as const;
  */
 export function CustomersPage() {
   const { t } = useI18n();
+  const nav = useNavigate();
   const me = useMe();
   const scopes = me.data?.scopes ?? [];
   const canWrite = can(scopes, 'master:write');
@@ -269,18 +271,29 @@ export function CustomersPage() {
             filters={{ ...filters }}
             onFilterChange={(k, v) => setF(k as keyof CustomerFilters, v)}
             onRowClick={open}
-            rowMenu={(r) =>
-              canWrite
+            rowMenu={(r) => [
+              ...(canWrite
+                ? [{ label: t('cust.menu.edit'), icon: 'pencil', run: () => open(r) }]
+                : []),
+              // ต้นแบบ :3714 "ดู rate card" → หน้า Rate card กรองลูกค้านี้ (ST2-T13)
+              {
+                label: t('rc.menu.view'),
+                icon: 'tags',
+                run: () =>
+                  nav(
+                    `/master/rate-cards?customer=${encodeURIComponent(r.id)}&party=${encodeURIComponent(r.legalName)}`,
+                  ),
+              },
+              ...(canWrite
                 ? [
-                    { label: t('cust.menu.edit'), icon: 'pencil', run: () => open(r) },
                     {
                       label: t(r.status === 'active' ? 'cust.menu.off' : 'cust.menu.on'),
                       icon: 'ban',
                       run: () => toggleStatus(r),
                     },
                   ]
-                : []
-            }
+                : []),
+            ]}
             {...(canExport
               ? {
                   bulkActions: [

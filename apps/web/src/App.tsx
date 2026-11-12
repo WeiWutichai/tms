@@ -10,6 +10,7 @@ import { CustomersPage } from './features/customers/CustomersPage';
 import { SitesPage } from './features/sites/SitesPage';
 import { ProductsPage } from './features/products/ProductsPage';
 import { RoutesPage } from './features/routes/RoutesPage';
+import { RateCardsPage } from './features/rate-cards/RateCardsPage';
 import { ServiceItemsPage } from './features/service-items/ServiceItemsPage';
 import { VehicleTypesPage } from './features/vehicle-types/VehicleTypesPage';
 import { CarriersPage } from './features/carriers/CarriersPage';
@@ -48,6 +49,7 @@ const READY: Record<string, () => ReactNode> = {
   '/master/products': () => <ProductsPage />,
   '/master/vehicle-types': () => <VehicleTypesPage />,
   '/master/accessorials': () => <ServiceItemsPage />,
+  '/master/rate-cards': () => <RateCardsPage />,
   '/fleet/drivers': () => <CarriersPage />,
   '/fleet/vehicles': () => <VehiclesPage />,
 };

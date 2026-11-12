@@ -44,6 +44,8 @@ export interface TableLabels {
   /** "x–y จาก N" เมื่อรู้ยอดรวม (page.total) */
   rangeOf?: (from: number, to: number, total: number) => string;
   none: string;
+  /** ระหว่างโหลดหน้าแรก (ยังไม่มีแถว) — ไม่ส่ง = "…" */
+  loading?: string;
 }
 
 export interface DataTableProps<R> {
@@ -296,6 +298,23 @@ export function DataTable<R>(p: DataTableProps<R>) {
             </tbody>
           </table>
           {!p.loading && p.rows.length === 0 && <div className="tms-table-empty">{p.empty}</div>}
+          {/* กำลังโหลด (ยังไม่มีแถว) — ไม่แสดงตารางว่าง/"0 รายการ" ที่ทำให้เข้าใจผิด (QA ST2-T13) */}
+          {p.loading && p.rows.length === 0 && (
+            <div
+              className="tms-table-empty"
+              aria-busy="true"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 8,
+                color: '#3B424C',
+              }}
+            >
+              <Icon n="loader" s={16} />
+              {p.labels.loading ?? '…'}
+            </div>
+          )}
         </div>
         <div className="tms-pager">
           <label>
@@ -316,7 +335,9 @@ export function DataTable<R>(p: DataTableProps<R>) {
               ? p.page.total !== undefined && p.labels.rangeOf
                 ? p.labels.rangeOf(from, to, p.page.total)
                 : p.labels.range(from, to)
-              : p.labels.none}
+              : p.loading
+                ? '…'
+                : p.labels.none}
           </span>
           <div style={{ display: 'flex', gap: 4 }}>
             <button
