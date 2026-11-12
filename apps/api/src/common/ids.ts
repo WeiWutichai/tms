@@ -30,6 +30,7 @@ export const ID_PREFIX = {
   unit: 'unt',
   product: 'prd',
   serviceItem: 'svc',
+  reasonCode: 'rsn',
 } as const;
 export type IdKind = keyof typeof ID_PREFIX;
 

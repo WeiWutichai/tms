@@ -139,6 +139,20 @@ const FIXTURES: Record<string, (db: PrismaClient, tenantId: string, n: number) =
           })
         ).id,
       ),
+    reasonCode: async (db, tenantId, n) =>
+      encodeId(
+        'reasonCode',
+        (
+          await db.reasonCode.create({
+            data: {
+              tenantId,
+              category: 'DELIVERY_FAILED',
+              code: `ISO-${n}`,
+              labelTh: `Reason ${n}`,
+            },
+          })
+        ).id,
+      ),
     vehicleType: async (db, tenantId, n) =>
       encodeId(
         'vehicleType',

@@ -17,6 +17,12 @@ try {
 }
 for (const k of ['DATABASE_URL', 'APP_DATABASE_URL', 'PLATFORM_DATABASE_URL'])
   env[k] = env[k].replace(/\/tms\?/, '/tms_e2e?');
+// กันล้าง/migrate ฐาน dev โดยไม่ตั้งใจ (เช่น DATABASE_URL ไม่มี "?" ทำให้แทนชื่อฐานไม่ได้) — ตรวจทันทีหลังเขียน env ใหม่
+// ก่อน CREATE DATABASE / migrate: ใช้ได้เฉพาะฐานที่ชื่อลงท้าย _e2e / _test / _qa
+for (const k of ['DATABASE_URL', 'APP_DATABASE_URL', 'PLATFORM_DATABASE_URL']) {
+  const dbName = new URL(env[k]).pathname.slice(1);
+  if (!/_(e2e|test|qa)$/.test(dbName)) throw new Error(`prepare.mjs ปฏิเสธฐาน "${dbName}" (${k})`);
+}
 const sh = (cmd, cwd = api) =>
   execSync(cmd, { cwd, env, stdio: 'pipe', encoding: 'utf8', shell: '/bin/bash' });
 

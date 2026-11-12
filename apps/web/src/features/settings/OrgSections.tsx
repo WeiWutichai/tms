@@ -173,7 +173,7 @@ const inputStyle = {
 } as const;
 
 /** ปุ่ม "บันทึก" ลอย + toast ของต้นแบบ */
-function SaveBar({
+export function SaveBar({
   dirty,
   onSave,
   busy,

@@ -77,13 +77,17 @@ test.describe('ตั้งค่า: องค์กร / ภาษี / คว
 
 test.describe('ตั้งค่า (viewer)', () => {
   test.use({ loginEmail: 'viewer@demo-a.test' });
-  test('เมนูตั้งค่าถูกซ่อน และเข้าทาง URL ได้หน้าไม่มีสิทธิ์', async ({ page }) => {
-    await page.goto('/');
-    await expect(page.getByRole('link', { name: 'ตั้งค่าระบบ' })).toHaveCount(0);
+  test('เห็นเฉพาะหัวข้อ "เหตุผล" แบบอ่านอย่างเดียว (ST2-T12: master:read)', async ({ page }) => {
     await page.goto('/settings');
-    await expect(page.getByText('ไม่มีสิทธิ์เข้าถึงหน้านี้')).toBeVisible();
-    await expect(page.getByText('บทบาท "ดูอย่างเดียว"')).toBeVisible();
-    // ลิงก์ "ตั้งค่า" ที่ท้าย sidebar ไม่พาไปหน้าที่ไม่มีสิทธิ์
+    const menu = page.getByRole('navigation', { name: 'ตั้งค่า' });
+    await expect(menu.getByRole('button')).toHaveText(['เหตุผล']);
+    await expect(page.getByRole('heading', { name: 'เหตุผล (reason master)' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'เพิ่มเหตุผล' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'บันทึก' })).toHaveCount(0);
+    await expect(page.getByLabel('บังคับรูป — ลูกค้าปิดทำการ')).toBeDisabled();
+    // หัวข้อองค์กรเข้าทาง URL ไม่ได้ (กรองตามสิทธิ์ต่อหัวข้อ) และปุ่ม "ไม่ได้เชื่อมระบบบัญชี" ยังปิด
+    await page.goto('/settings?sec=org');
+    await expect(page.getByRole('heading', { name: 'เหตุผล (reason master)' })).toBeVisible();
     await expect(page.getByRole('button', { name: /ไม่ได้เชื่อมระบบบัญชี/ })).toBeDisabled();
   });
 });

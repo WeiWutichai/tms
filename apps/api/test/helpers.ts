@@ -13,6 +13,11 @@ const REFERENCE_TABLES = ['_prisma_migrations', 'plan', 'plan_entitlement'];
 
 /** ลบข้อมูลทุกตาราง business (ใช้ role owner เพื่อ TRUNCATE ได้) */
 export async function truncateAll(): Promise<void> {
+  // กันล้างฐาน dev/production โดยไม่ตั้งใจ — ล้างได้เฉพาะฐานที่ชื่อลงท้าย _test / _e2e / _qa
+  const dbName = new URL(process.env.DATABASE_URL ?? 'postgres://x/none').pathname.slice(1);
+  if (!/_(test|e2e|qa)$/.test(dbName)) {
+    throw new Error(`truncateAll ปฏิเสธฐาน "${dbName}" — ใช้ได้เฉพาะฐาน *_test / *_e2e / *_qa`);
+  }
   const owner = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
   const tables = await owner.$queryRaw<{ tablename: string }[]>`
     SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename <> ALL(${REFERENCE_TABLES})`;

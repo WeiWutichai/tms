@@ -3,6 +3,7 @@ import { ensureSystemRoles } from '../../auth/system-roles';
 import { ensureDefaultSeries } from '../sequences/sequences.service';
 import { SETTINGS, type SettingKey } from '../settings/registry';
 import { ensureDefaultUnits } from '../products/unit-defaults';
+import { ensureDefaultReasonCodes } from '../reason-codes/defaults';
 import { ensureDefaultServiceItems } from '../service-items/defaults';
 import { ensureDefaultVehicleTypes } from '../vehicle-types/defaults';
 
@@ -57,6 +58,8 @@ const STEPS: readonly BootstrapStep[] = [
   { name: 'units', run: (db, t) => ensureDefaultUnits(db, t) },
   // ST2-T11: ค่าบริการเสริม 8 รายการ (spec/02 §6) — ธงภาษีที่ยังเปิดใช้ค่าตั้งต้นของ ACC-3 (แก้ได้ต่อ tenant)
   { name: 'service-items', run: (db, t) => ensureDefaultServiceItems(db, t) },
+  // ST2-T12: เหตุผลมาตรฐานภาษาไทยครบทุกหมวด (docs/04 B Reason master) — รหัสใบค้าง 12 รหัส + "อื่น ๆ" เป็นรหัสระบบ
+  { name: 'reason-codes', run: (db, t) => ensureDefaultReasonCodes(db, t) },
 ];
 
 export function bootstrapSteps(): readonly BootstrapStep[] {

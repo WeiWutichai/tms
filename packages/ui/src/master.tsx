@@ -340,15 +340,29 @@ export function ReasonDialog({
   const [reason, setReason] = useState('');
   /** กดยืนยันแล้ว รอผล — กันกดซ้ำก่อน `busy` ของ parent จะเปลี่ยน (QA ST2-T06) */
   const [sent, setSent] = useState(false);
+  /**
+   * กันกดยืนยันซ้ำแบบ synchronous (review ST2-T12: ดับเบิลคลิกส่ง 2 คำขอ → 412 + dialog ค้าง) —
+   * state `sent` เปลี่ยนหลัง render ถัดไป คลิกที่ 2 ใน tick เดียวกันยังเห็นค่าเดิม จึงต้องใช้ ref
+   */
+  const sentRef = useRef(false);
   const id = useId();
-  // ปลดล็อกปุ่มเมื่อคำขอจบ (busy กลับเป็น false) หรือมี error ใหม่
+  // ปลดล็อกปุ่มเมื่อคำขอจบด้วย error (สำเร็จ = parent ปิด dialog) — ไม่ปลดตอน busy ยังไม่ทันเป็น true
+  const wasBusy = useRef(false);
   useEffect(() => {
-    if (!busy) setSent(false);
+    // ปลดเมื่อมี error ใหม่ หรือคำขอจบ (busy true → false) โดย parent ยังไม่ปิด dialog
+    if (error || (wasBusy.current && !busy)) {
+      sentRef.current = false;
+      setSent(false);
+    }
+    wasBusy.current = !!busy;
   }, [busy, error]);
   // ล้างเหตุผลเฉพาะตอนเปิดใหม่ (ไม่ผูกกับ onClose ที่ parent สร้างใหม่ทุก render)
   useEffect(() => {
-    if (open) setSent(false);
-    if (open) setReason('');
+    if (open) {
+      sentRef.current = false;
+      setSent(false);
+      setReason('');
+    }
   }, [open]);
   useEscape(open, onClose);
   if (!open) return null;
@@ -407,7 +421,8 @@ export function ReasonDialog({
             disabled={!ok}
             aria-busy={busy || sent}
             onClick={() => {
-              if (!ok) return;
+              if (!ok || sentRef.current) return;
+              sentRef.current = true;
               setSent(true);
               onOk(reason.trim());
             }}
