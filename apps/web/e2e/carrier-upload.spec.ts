@@ -107,7 +107,7 @@ test.describe.serial('รถร่วมอัปโหลดเอกสาร�
     const row = page.getByTestId('cdoc-subs').locator('[data-status=pending_review]');
     await expect(row).toContainText(`${PLATE} · พ.ร.บ. · CMI-${RUN}`);
     await row.getByRole('button', { name: 'อนุมัติ', exact: true }).click();
-    const dlg = page.getByRole('dialog').filter({ hasText: 'อนุมัติ' });
+    const dlg = page.getByRole('dialog', { name: /^อนุมัติ / });
     await dlg.getByRole('textbox').fill('ตรวจ พ.ร.บ. แล้วถูกต้อง');
     await dlg.getByRole('button', { name: 'อนุมัติ', exact: true }).click();
     await expect(page.getByTestId('cdoc-subs').locator('[data-status=approved]')).toBeVisible();
@@ -155,7 +155,7 @@ test.describe.serial('รถร่วมอัปโหลดเอกสาร�
     await page.getByRole('tab', { name: 'เอกสารแนบ' }).click();
     const row = page.getByTestId('cdoc-subs').locator('[data-status=pending_review]');
     await row.getByRole('button', { name: 'ไม่อนุมัติ' }).click();
-    const dlg = page.getByRole('dialog').filter({ hasText: 'ไม่อนุมัติ' });
+    const dlg = page.getByRole('dialog', { name: /^ไม่อนุมัติ / });
     await dlg.getByRole('textbox').fill('รูปไม่ชัด ถ่ายใหม่ให้เห็นวันหมด');
     await dlg.getByRole('button', { name: 'ไม่อนุมัติ', exact: true }).click();
     await expect(page.getByTestId('cdoc-subs').locator('[data-status=rejected]')).toContainText(
@@ -172,7 +172,7 @@ test.describe.serial('รถร่วมอัปโหลดเอกสาร�
       const link = page.getByTestId('cdoc-link').first();
       if (!(await link.count())) break;
       await link.getByRole('button', { name: 'ยกเลิกลิงก์' }).click();
-      const rd = page.getByRole('dialog').filter({ hasText: 'ยกเลิกลิงก์' });
+      const rd = page.getByRole('dialog', { name: 'ยกเลิกลิงก์อัปโหลดเอกสาร' });
       await rd.getByRole('textbox').fill('ทดสอบยกเลิกลิงก์ E2E');
       await rd.getByRole('button', { name: 'ยกเลิกลิงก์', exact: true }).click();
       await expect(rd).toBeHidden();

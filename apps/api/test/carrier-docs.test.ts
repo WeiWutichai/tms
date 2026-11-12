@@ -177,6 +177,8 @@ describe('ลิงก์อัปโหลดเอกสารรถร่ว�
       where: { tenantId, action: 'magic_link.issued', entityId: tryDecodeId('carrier', carrierA)! },
     });
     expect(a).not.toBeNull();
+    // QA: audit ของลิงก์มี requestId (ip ตามคำขอ) เหมือน audit อื่น
+    expect(a!.requestId).toBeTruthy();
     // ระบบไม่ส่งอีเมล/ข้อความใด ๆ ตอนออกลิงก์
     expect(await db.emailOutbox.count({ where: { tenantId } })).toBe(0);
     await api(app, viewer).post(`/v1/carriers/${carrierA}/upload-links`).send({}).expect(403);
@@ -554,6 +556,7 @@ describe('ลิงก์อัปโหลดเอกสารรถร่ว�
       await pub().get(`/v1/public/carrier-docs/${l.token}`);
     const r = await pub().get(`/v1/public/carrier-docs/${l.token}`).expect(429);
     expect(r.headers['retry-after']).toBeDefined();
+    expect(r.headers['cache-control']).toBe('no-store');
   });
   // ---------- review (security) ST2-T21 ----------
 
@@ -681,5 +684,39 @@ describe('ลิงก์อัปโหลดเอกสารรถร่ว�
       where: { id: tryDecodeId('document', s!.files[0]!.id)! },
     });
     expect(f).toMatchObject({ entityType: 'driver_licence', entityId: drvId });
+  });
+
+  it('QA: รถย้ายไปผู้รับเหมาอื่นระหว่างรอตรวจ → ไม่แสดงบนลิงก์เดิม · อนุมัติ 409 target_changed · ไม่อนุมัติได้', async () => {
+    const vid = (
+      await api(app, admin)
+        .post('/v1/vehicles')
+        .send({
+          plate: '74-5599',
+          plateProvince: 'TH-20',
+          vehicleTypeId: vt,
+          ownership: 'SUBCONTRACT',
+          carrierId: carrierA,
+        })
+        .expect(201)
+    ).body.id as string;
+    const l = await issue();
+    await submit(l.token, await insurance(l.token, { vehicleId: vid })).expect(201);
+    const [s] = (await pending()).filter((x) => x.docType === 'INSURANCE');
+    await db.vehicle.update({
+      where: { id: tryDecodeId('vehicle', vid)! },
+      data: { carrierId: tryDecodeId('carrier', carrierB)! },
+    });
+    const v = await pub().get(`/v1/public/carrier-docs/${l.token}`).expect(200);
+    expect(v.body.vehicles.map((x: { id: string }) => x.id)).not.toContain(vid);
+    expect(JSON.stringify(v.body.submissions)).not.toContain('74-5599');
+    const r = await api(app, admin)
+      .post(`/v1/carrier-doc-submissions/${s!.id}/approve`)
+      .send({ reason: 'ตรวจกรมธรรม์แล้วถูกต้อง' })
+      .expect(409);
+    expect(r.body.errors[0].code).toBe('target_changed');
+    await api(app, admin)
+      .post(`/v1/carrier-doc-submissions/${s!.id}/reject`)
+      .send({ reason: 'รถย้ายไปผู้รับเหมารายอื่นแล้ว' })
+      .expect(200);
   });
 });

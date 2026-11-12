@@ -376,17 +376,27 @@ export class CarrierDocsService {
           ),
         };
       }),
-      submissions: recent.map((s) => ({
-        id: encodeId('carrierDocSubmission', s.id),
-        subject: s.vehicle?.plate ?? s.driver?.name ?? '',
-        docType: s.docType as SubmissionDocType,
-        title: s.title,
-        expiresOn: day(s.expiresOn),
-        fileCount: s.fileDocumentIds.length,
-        status: STATUS_KEY[s.status]!,
-        rejectReason: s.status === 'REJECTED' ? s.reviewReason : null,
-        submittedAt: s.createdAt.toISOString(),
-      })),
+      // รอตรวจของรถ/คนขับที่ไม่อยู่กับผู้รับเหมานี้แล้ว (ย้าย/ลบ/ปลดระวาง) ไม่แสดง — รถร่วมทำอะไรต่อไม่ได้,
+      // admin อนุมัติไม่ได้ (409 target_changed) ต้องไม่อนุมัติเอง (QA ST2-T21 — แถวยังอยู่ ไม่ลบ/ไม่ปฏิเสธอัตโนมัติ)
+      submissions: recent
+        .filter(
+          (s) =>
+            s.status !== 'PENDING_REVIEW' ||
+            (s.vehicleId
+              ? vehicles.some((v) => v.id === s.vehicleId)
+              : drivers.some((d) => d.id === s.driverId)),
+        )
+        .map((s) => ({
+          id: encodeId('carrierDocSubmission', s.id),
+          subject: s.vehicle?.plate ?? s.driver?.name ?? '',
+          docType: s.docType as SubmissionDocType,
+          title: s.title,
+          expiresOn: day(s.expiresOn),
+          fileCount: s.fileDocumentIds.length,
+          status: STATUS_KEY[s.status]!,
+          rejectReason: s.status === 'REJECTED' ? s.reviewReason : null,
+          submittedAt: s.createdAt.toISOString(),
+        })),
     };
   }
 

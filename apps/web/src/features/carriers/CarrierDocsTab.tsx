@@ -236,7 +236,7 @@ export function CarrierDocsTab({ carrierId, canWrite }: { carrierId: string; can
         </div>
       </section>
 
-      <EmptyState icon="file-text" title={t('car.docs.empty')} description={t('car.docs.emptyD')} />
+      <EmptyState icon="file-text" title={t('cdoc.att.empty')} description={t('cdoc.att.emptyD')} />
 
       <ReasonDialog
         open={!!revoking}

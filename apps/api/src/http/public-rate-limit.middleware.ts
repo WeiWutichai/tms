@@ -33,6 +33,7 @@ export class PublicRateLimitMiddleware implements NestMiddleware {
     if (list.length >= PUBLIC_LIMIT_PER_MIN) {
       const retry = Math.ceil((WINDOW_MS - (now - list[0]!)) / 1000);
       res.setHeader('Retry-After', String(retry));
+      res.setHeader('Cache-Control', 'no-store');
       res.status(429).type('application/problem+json').json({
         type: 'https://docs.tms.example/problems/rate_limited',
         title: 'เรียกถี่เกินไป',

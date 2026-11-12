@@ -3,6 +3,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { isLocalEnv } from '../../auth/tokens';
 import { PrismaService } from '../../db/prisma.service';
 import type { Tx } from '../../db/db.service';
+import { requestContext } from '../../common/request-context';
 
 /**
  * Magic link (ST1-T06; docs/04 A1 "เข้าถึงโดยไม่ login", J "Magic link"; docs/01 §5.5 M10)
@@ -52,6 +53,12 @@ export function decodeLinkToken(token: string): { id: string; exp: number } | nu
   }
   const got = Buffer.from(m[3]!);
   return want.length === got.length && timingSafeEqual(want, got) ? { id, exp } : null;
+}
+
+/** requestId / IP / ผู้สวมสิทธิ์ ของคำขอปัจจุบัน (ถ้ามี) — ลง audit เหมือน AuditService (QA ST2-T21) */
+function reqMeta() {
+  const ctx = requestContext.get();
+  return ctx ? { requestId: ctx.requestId, ip: ctx.ip ?? null, actAs: ctx.actAs ?? null } : {};
 }
 
 export interface IssueLinkInput {
@@ -104,6 +111,7 @@ export class MagicLinkService {
       data: {
         tenantId,
         actorId: input.createdBy ?? null,
+        ...reqMeta(),
         action: 'magic_link.issued',
         entityType: input.entityType,
         entityId: input.entityId,
@@ -135,6 +143,7 @@ export class MagicLinkService {
       data: {
         tenantId: row.tenantId,
         actorId: actorId ?? null,
+        ...reqMeta(),
         action: 'magic_link.revoked',
         entityType: row.entityType,
         entityId: row.entityId,

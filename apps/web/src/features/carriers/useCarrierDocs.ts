@@ -47,7 +47,13 @@ export function useRevokeUploadLink(carrierId: string) {
           body: { reason: v.reason },
         }),
       ),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: [LINKS, carrierId] }),
+    // แทนแถวในแคชทันที (ไม่ให้กดยกเลิกลิงก์เดิมซ้ำระหว่างรอโหลดใหม่ → 409) แล้วค่อยโหลดใหม่
+    onSuccess: (row) => {
+      qc.setQueryData<{ data: UploadLink[] }>([LINKS, carrierId], (old) =>
+        old ? { ...old, data: old.data.map((l) => (l.id === row.id ? row : l)) } : old,
+      );
+      void qc.invalidateQueries({ queryKey: [LINKS, carrierId] });
+    },
   });
 }
 
