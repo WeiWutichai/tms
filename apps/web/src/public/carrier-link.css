@@ -1,0 +1,348 @@
+/* หน้าลิงก์รถร่วม (ST2-T21) — ค่าจาก design/prototype/TMS Subcon.dc.html
+   จอกว้าง (> 430px): กรอบมือถือ 390px กลางจอ แบบต้นแบบ · มือถือ: เต็มจอ */
+.cdl {
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  padding: 24px 0;
+  background: #e4e6e0;
+  color: #101418;
+  font-size: 15px;
+  line-height: 1.55;
+}
+.cdl * {
+  box-sizing: border-box;
+}
+.cdl button,
+.cdl input {
+  font-family: inherit;
+}
+.cdl input {
+  font-size: 15px;
+}
+.cdl input:focus-visible,
+.cdl button:focus-visible {
+  outline: 2px solid #2257c4;
+  outline-offset: 1px;
+}
+.cdl__phone {
+  width: 390px;
+  min-height: 844px;
+  background: #f4f5f2;
+  border-radius: 32px;
+  box-shadow: 0 18px 44px rgba(10, 23, 52, 0.14);
+  overflow: hidden;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+@media (max-width: 430px) {
+  .cdl {
+    padding: 0;
+    background: #f4f5f2;
+  }
+  .cdl__phone {
+    width: 100%;
+    min-height: 100vh;
+    border-radius: 0;
+    box-shadow: none;
+  }
+}
+.cdl__hd {
+  padding: 18px 18px 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #ffffff;
+  border-bottom: 1px solid #e4e6e0;
+}
+.cdl__mark {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: #13213f;
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+.cdl__hdtxt {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+.cdl__hdtxt b {
+  font-weight: 600;
+  color: #13213f;
+}
+.cdl__hdtxt span {
+  font-size: 13px;
+  color: #3b424c;
+}
+.cdl__tabs {
+  display: flex;
+  gap: 4px;
+  padding: 10px 14px;
+  background: #ffffff;
+  border-bottom: 1px solid #e4e6e0;
+}
+.cdl__tab {
+  flex: 1;
+  height: 44px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #3b424c;
+  font-weight: 500;
+  cursor: pointer;
+  font-size: 15px;
+}
+.cdl__tab[aria-selected='true'] {
+  background: #e9f0fa;
+  color: #2257c4;
+  font-weight: 600;
+}
+.cdl__body {
+  padding: 16px 18px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.cdl__eyebrow {
+  font-size: 12px;
+  font-weight: 600;
+  color: #2257c4;
+}
+.cdl__notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #fcf0dc;
+  font-weight: 500;
+}
+.cdl__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.cdl__card {
+  background: #ffffff;
+  border: 1px solid #d9dcd4;
+  border-radius: 18px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.cdl__plate {
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+  font-weight: 600;
+  color: #2257c4;
+}
+.cdl__item {
+  min-height: 48px;
+  padding: 0 14px;
+  border: 1px solid #d9dcd4;
+  border-radius: 14px;
+  background: #ffffff;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  cursor: pointer;
+  color: #101418;
+  font-size: 15px;
+  width: 100%;
+}
+.cdl__item:disabled {
+  cursor: default;
+}
+.cdl__item > span:first-child {
+  flex: 1;
+  min-width: 0;
+  font-weight: 500;
+}
+.cdl__chip {
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.cdl__label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.cdl__label > span {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: #3b424c;
+}
+.cdl__input {
+  height: 48px;
+  padding: 0 12px;
+  border: 1px solid #c9cdc3;
+  border-radius: 12px;
+  background: #ffffff;
+  color: #101418;
+  width: 100%;
+}
+.cdl__num {
+  font-variant-numeric: tabular-nums;
+}
+.cdl__err {
+  color: #b3322a;
+  font-weight: 500;
+}
+.cdl__muted {
+  color: #3b424c;
+}
+.cdl__photos {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+.cdl__photo {
+  aspect-ratio: 1;
+  border-radius: 12px;
+  background: #ebede8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  color: #3b424c;
+  padding: 6px;
+  text-align: center;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.cdl__add {
+  aspect-ratio: 1;
+  border-radius: 12px;
+  border: 1.5px dashed #c9cdc3;
+  background: #ffffff;
+  cursor: pointer;
+  color: #2257c4;
+  font-weight: 600;
+  font-size: 15px;
+}
+.cdl__primary {
+  height: 56px;
+  border: 0;
+  border-radius: 999px;
+  background: #2257c4;
+  color: #ffffff;
+  font-size: 17px;
+  font-weight: 600;
+  cursor: pointer;
+  width: 100%;
+}
+.cdl__primary:hover:not(:disabled) {
+  background: #1b479f;
+}
+.cdl__primary:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.cdl__ghost {
+  height: 44px;
+  border: 0;
+  background: transparent;
+  color: #3b424c;
+  font-weight: 500;
+  cursor: pointer;
+  font-size: 15px;
+}
+.cdl__senthd {
+  font-size: 14px;
+  font-weight: 500;
+  color: #3b424c;
+}
+.cdl__sent {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cdl__row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: #ffffff;
+  border: 1px solid #d9dcd4;
+  border-radius: 14px;
+  padding: 12px 14px;
+}
+.cdl__rowtop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.cdl__rowtop > span:first-child {
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cdl__state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.cdl__state .cdl__dot {
+  width: 6px;
+  height: 6px;
+}
+.cdl__why {
+  font-size: 13px;
+  color: #b3322a;
+}
+.cdl__empty {
+  padding: 24px 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+}
+.cdl__empty i {
+  font-style: normal;
+  font-size: 32px;
+  color: #c9cdc3;
+}
+.cdl__empty b {
+  font-weight: 600;
+}
+.cdl__toast {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: 20px;
+  background: #13213f;
+  color: #ffffff;
+  border-radius: 14px;
+  padding: 12px 14px;
+  box-shadow: 0 18px 44px rgba(10, 23, 52, 0.2);
+}
+@media (max-width: 430px) {
+  .cdl__toast {
+    position: fixed;
+  }
+}

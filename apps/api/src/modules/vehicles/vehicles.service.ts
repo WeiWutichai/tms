@@ -577,6 +577,14 @@ export class VehiclesService {
         'required',
         'depreciationYears/salvageValue need depreciationMethod',
       );
+    // รถร่วมไม่มีค่าเสื่อม (docs/01 §3.8 — ต้นทุนของผู้รับเหมา; job ST2-T22 คิดเฉพาะรถบริษัท) → ห้ามตั้งวิธีค่าเสื่อม
+    const ownership = eff(input.ownership, current?.ownership ?? 'OWN');
+    if (method && ownership === 'SUBCONTRACT')
+      throw field422(
+        'depreciationMethod',
+        'subcontract_depreciation',
+        'SUBCONTRACT vehicles have no depreciation — clear depreciationMethod/Years/salvageValue',
+      );
     return data;
   }
 
@@ -983,7 +991,19 @@ export class VehiclesService {
           name: 'vehicleDocuments',
           count: () => tx.vehicleDocument.count({ where: { vehicleId: id } }),
         },
-        { name: 'vehicleCosts', count: () => tx.vehicleCost.count({ where: { vehicleId: id } }) },
+        // จำนวนแถวต้นทุน (ค่าเสื่อม = ข้อมูลการเงินรถ) เห็นเฉพาะ reports.finance:read — คนอื่นได้แค่ `financialHistory: 1`
+        canSeeFinance()
+          ? {
+              name: 'vehicleCosts',
+              count: () => tx.vehicleCost.count({ where: { vehicleId: id } }),
+            }
+          : {
+              name: 'financialHistory',
+              count: async () =>
+                (await tx.vehicleCost.findFirst({ where: { vehicleId: id }, select: { id: true } }))
+                  ? 1
+                  : 0,
+            },
         {
           name: 'positions',
           count: () => tx.vehiclePosition.count({ where: { vehicleId: id } }),

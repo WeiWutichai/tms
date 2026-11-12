@@ -543,7 +543,8 @@ model Carrier {
   vehicles          Vehicle[]
   drivers           Driver[]
 
-  rateCards RateCard[]
+  rateCards      RateCard[]
+  docSubmissions CarrierDocSubmission[]
 
   @@unique([tenantId, code])
   @@unique([tenantId, externalId])
@@ -755,6 +756,7 @@ model Vehicle {
   updatedAt          DateTime                 @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   odometerReadings   VehicleOdometerReading[]
   documents          VehicleDocument[]
+  docSubmissions     CarrierDocSubmission[]
   costs              VehicleCost[]
   defaultDrivers     Driver[]                 @relation("DriverDefaultVehicle")
 
@@ -807,31 +809,32 @@ enum DriverStatus {
 
 /// คนขับ (ST2-T08; docs/01 §3.2, docs/04 B คนขับ, spec/06 FLT-P) — ไม่ใช่ผู้ใช้/seat (แอปคนขับ = เฟส 2)
 model Driver {
-  id                String         @id @default(uuid()) @db.Uuid
-  tenantId          String         @map("tenant_id") @db.Uuid
+  id                String                 @id @default(uuid()) @db.Uuid
+  tenantId          String                 @map("tenant_id") @db.Uuid
   code              String /// DRV-0001 (MD-002) — เก็บตัวใหญ่, unique ต่อ tenant
   name              String
   phone             String /// เบอร์ตามที่กรอก (ใช้ login แอปคนขับภายหลัง — M1)
-  phoneNorm         String         @map("phone_norm") /// 0XXXXXXXXX (ตัด +66/ขีด/ช่องว่าง) — ห้ามซ้ำในคนขับที่ยังไม่ปิดใช้งาน
-  nationalIdEnc     String?        @map("national_id_enc") /// เลขบัตรประชาชน → FieldCipher (docs/04 B "บัตรประชาชน (เข้ารหัส)")
-  nationalIdLast4   String?        @map("national_id_last4") @db.Char(4)
-  nationalIdHash    String?        @map("national_id_hash") /// blind index (HMAC — BLIND_INDEX_KEY) กันคนขับซ้ำ
-  licenceNo         String?        @map("licence_no")
-  licenceClass      String?        @map("licence_class") /// PERSONAL / T1–T4 (ท.1–ท.4) — ชุดเดียวกับ vehicle_type.min_licence_class
-  licenceExpiresAt  DateTime?      @map("licence_expires_at") @db.Date
-  employmentType    EmploymentType @map("employment_type")
-  carrierId         String?        @map("carrier_id") @db.Uuid /// บังคับเมื่อ CARRIER_DRIVER (CHECK ทั้งสองทาง)
-  carrier           Carrier?       @relation(fields: [carrierId], references: [id], onDelete: Restrict)
-  defaultVehicleId  String?        @map("default_vehicle_id") @db.Uuid /// รถประจำ = ค่าเริ่มต้นตอนจัดรถเท่านั้น (เที่ยวเก็บ snapshot เอง — FLT-305)
-  defaultVehicle    Vehicle?       @relation("DriverDefaultVehicle", fields: [defaultVehicleId], references: [id], onDelete: Restrict)
-  status            DriverStatus   @default(ACTIVE)
-  statusReason      String?        @map("status_reason")
-  externalId        String?        @map("external_id")
-  deletedExternalId String?        @map("deleted_external_id")
-  deletedAt         DateTime?      @map("deleted_at") @db.Timestamptz(6) /// soft delete เฉพาะที่ไม่เคยถูกอ้างอิง (MD-004)
-  version           Int            @default(1)
-  createdAt         DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt         DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  phoneNorm         String                 @map("phone_norm") /// 0XXXXXXXXX (ตัด +66/ขีด/ช่องว่าง) — ห้ามซ้ำในคนขับที่ยังไม่ปิดใช้งาน
+  nationalIdEnc     String?                @map("national_id_enc") /// เลขบัตรประชาชน → FieldCipher (docs/04 B "บัตรประชาชน (เข้ารหัส)")
+  nationalIdLast4   String?                @map("national_id_last4") @db.Char(4)
+  nationalIdHash    String?                @map("national_id_hash") /// blind index (HMAC — BLIND_INDEX_KEY) กันคนขับซ้ำ
+  licenceNo         String?                @map("licence_no")
+  licenceClass      String?                @map("licence_class") /// PERSONAL / T1–T4 (ท.1–ท.4) — ชุดเดียวกับ vehicle_type.min_licence_class
+  licenceExpiresAt  DateTime?              @map("licence_expires_at") @db.Date
+  employmentType    EmploymentType         @map("employment_type")
+  carrierId         String?                @map("carrier_id") @db.Uuid /// บังคับเมื่อ CARRIER_DRIVER (CHECK ทั้งสองทาง)
+  carrier           Carrier?               @relation(fields: [carrierId], references: [id], onDelete: Restrict)
+  defaultVehicleId  String?                @map("default_vehicle_id") @db.Uuid /// รถประจำ = ค่าเริ่มต้นตอนจัดรถเท่านั้น (เที่ยวเก็บ snapshot เอง — FLT-305)
+  defaultVehicle    Vehicle?               @relation("DriverDefaultVehicle", fields: [defaultVehicleId], references: [id], onDelete: Restrict)
+  status            DriverStatus           @default(ACTIVE)
+  statusReason      String?                @map("status_reason")
+  externalId        String?                @map("external_id")
+  deletedExternalId String?                @map("deleted_external_id")
+  deletedAt         DateTime?              @map("deleted_at") @db.Timestamptz(6) /// soft delete เฉพาะที่ไม่เคยถูกอ้างอิง (MD-004)
+  version           Int                    @default(1)
+  createdAt         DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime               @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  docSubmissions    CarrierDocSubmission[]
 
   @@unique([tenantId, externalId])
   @@unique([tenantId, code])
@@ -895,21 +898,66 @@ model VehicleDocument {
   @@map("vehicle_document")
 }
 
+/// เอกสารที่รถร่วมส่งเองผ่านลิงก์ (ST2-T21; docs/04 B2.1 "carrier อัปโหลดเอกสารเองผ่านลิงก์ LINE ได้")
+/// ยังไม่ใช่เอกสารรถ/ใบขับขี่จนกว่า admin อนุมัติ (ไม่นับใน isAssignable) — อนุมัติ → vehicle_document ใหม่หรือต่ออายุฉบับปัจจุบัน
+/// / อัปเดตใบขับขี่ของคนขับ · ไม่อนุมัติ = เหตุผลบังคับ · ไม่มีการลบ (เก็บเป็นหลักฐาน)
+model CarrierDocSubmission {
+  id               String    @id @default(uuid()) @db.Uuid
+  tenantId         String    @map("tenant_id") @db.Uuid
+  carrierId        String    @map("carrier_id") @db.Uuid
+  carrier          Carrier   @relation(fields: [carrierId], references: [id], onDelete: Restrict)
+  /// ลิงก์ที่ใช้ส่ง (magic_link purpose carrier_docs)
+  magicLinkId      String?   @map("magic_link_id") @db.Uuid
+  /// เอกสารรถ — คู่กับ doc_type ของ vehicle_document
+  vehicleId        String?   @map("vehicle_id") @db.Uuid
+  vehicle          Vehicle?  @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
+  /// ใบขับขี่ — doc_type = DRIVER_LICENCE
+  driverId         String?   @map("driver_id") @db.Uuid
+  driver           Driver?   @relation(fields: [driverId], references: [id], onDelete: Restrict)
+  /// INSURANCE / COMPULSORY_ACT / ANNUAL_TAX / INSPECTION / TRANSPORT_LICENSE / GPS_DLT_CERT / OTHER / DRIVER_LICENCE
+  docType          String    @map("doc_type")
+  /// เอกสารรถฉบับที่จะต่ออายุ (OTHER ระบุฉบับ; ประเภทอื่น = ฉบับปัจจุบันของประเภทนั้นตอนอนุมัติ)
+  targetDocumentId String?   @map("target_document_id") @db.Uuid
+  title            String?
+  docNo            String?   @map("doc_no")
+  issuer           String?
+  startsOn         DateTime? @map("starts_on") @db.Date
+  expiresOn        DateTime  @map("expires_on") @db.Date
+  fileDocumentIds  String[]  @default([]) @map("file_document_ids") @db.Uuid
+  note             String?
+  /// PENDING_REVIEW / APPROVED / REJECTED
+  status           String    @default("PENDING_REVIEW")
+  reviewedBy       String?   @map("reviewed_by")
+  reviewedAt       DateTime? @map("reviewed_at") @db.Timestamptz(6)
+  reviewReason     String?   @map("review_reason")
+  /// vehicle_document ที่เกิดจากการอนุมัติ
+  resultDocumentId String?   @map("result_document_id") @db.Uuid
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([tenantId, carrierId, status, createdAt])
+  @@index([tenantId, vehicleId, docType])
+  @@index([tenantId, driverId])
+  @@map("carrier_doc_submission")
+}
+
 /// ledger ต้นทุนต่อคัน (plan/11 ข้อ 15) — append-only (แก้ = แถวกลับรายการ)
 model VehicleCost {
-  id         String   @id @default(uuid()) @db.Uuid
-  tenantId   String   @map("tenant_id") @db.Uuid
-  vehicleId  String   @map("vehicle_id") @db.Uuid
-  vehicle    Vehicle  @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
-  category   String /// DOCUMENT / DEPRECIATION / FUEL / REPAIR / INCIDENT / OTHER
-  amount     Decimal  @db.Decimal(14, 2)
-  occurredOn DateTime @map("occurred_on") @db.Date
-  sourceType String?  @map("source_type") /// vehicle_document (ST2-T17)
-  sourceId   String?  @map("source_id") @db.Uuid
-  note       String?
-  createdBy  String?  @map("created_by")
-  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  id          String    @id @default(uuid()) @db.Uuid
+  tenantId    String    @map("tenant_id") @db.Uuid
+  vehicleId   String    @map("vehicle_id") @db.Uuid
+  vehicle     Vehicle   @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
+  category    String /// DOCUMENT / DEPRECIATION / FUEL / REPAIR / INCIDENT / OTHER
+  amount      Decimal   @db.Decimal(14, 2)
+  occurredOn  DateTime  @map("occurred_on") @db.Date
+  sourceType  String?   @map("source_type") /// vehicle_document (ST2-T17) · depreciation (ST2-T22)
+  sourceId    String?   @map("source_id") @db.Uuid
+  periodMonth DateTime? @map("period_month") @db.Date /// วันที่ 1 ของเดือนที่คิดค่าเสื่อม — บังคับเฉพาะ DEPRECIATION (CHECK), unique ต่อรถต่อเดือน (ST2-T22)
+  note        String?
+  createdBy   String?   @map("created_by")
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
+  @@unique([tenantId, vehicleId, category, periodMonth])
   @@index([tenantId, vehicleId, occurredOn])
   @@index([tenantId, sourceType, sourceId])
   @@map("vehicle_cost")

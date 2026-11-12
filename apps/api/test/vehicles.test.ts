@@ -452,6 +452,49 @@ describe('รถ (vehicles)', () => {
     await create({ purchaseCost: 1000 }).expect(422);
   });
 
+  it('ค่าเสื่อม (ST2-T22): รถร่วมตั้งค่าเสื่อมไม่ได้ (422) · ลบรถที่มีแถวต้นทุน → 409 ไม่เปิดเผยจำนวนแถวต้นทุนแก่ผู้ไม่มี reports.finance:read', async () => {
+    const dep = {
+      purchaseCost: '500000.00',
+      depreciationMethod: 'STRAIGHT_LINE',
+      depreciationYears: 5,
+    };
+    const sub = await create({ ownership: 'SUBCONTRACT', carrierId: carrier, ...dep }).expect(422);
+    expect(sub.body.errors[0]).toMatchObject({
+      field: 'depreciationMethod',
+      code: 'subcontract_depreciation',
+    });
+    // ราคาซื้ออย่างเดียว (ไม่มีวิธีค่าเสื่อม) ของรถร่วมยังได้ (ข้อมูลเดิม T06)
+    await create({ ownership: 'SUBCONTRACT', carrierId: carrier, purchaseCost: '1.00' }).expect(
+      201,
+    );
+    const own = (await create(dep).expect(201)).body;
+    // เปลี่ยนเป็นรถร่วมโดยยังตั้งค่าเสื่อม → 422; ล้างค่าเสื่อมพร้อมกัน → 200
+    await api(app, admin)
+      .patch(`/v1/vehicles/${own.id}`)
+      .send({ ownership: 'SUBCONTRACT', carrierId: carrier })
+      .expect(422);
+    // แถวค่าเสื่อม (job ST2-T22) → ลบไม่ได้
+    const v = (await create(dep).expect(201)).body;
+    const vid = tryDecodeId('vehicle', v.id)!;
+    await db.vehicleCost.create({
+      data: {
+        tenantId,
+        vehicleId: vid,
+        category: 'DEPRECIATION',
+        amount: '8333.33',
+        periodMonth: new Date('2026-01-01T00:00:00Z'),
+        occurredOn: new Date('2026-01-31T00:00:00Z'),
+        sourceType: 'depreciation',
+      },
+    });
+    const reason = { reason: 'ลบรถทดสอบค่าเสื่อม' };
+    const p = await api(app, planner).post(`/v1/vehicles/${v.id}/delete`).send(reason).expect(409);
+    expect(p.body.references).toEqual({ financialHistory: 1 });
+    expect(JSON.stringify(p.body)).not.toContain('vehicleCosts');
+    const a = await api(app, admin).post(`/v1/vehicles/${v.id}/delete`).send(reason).expect(409);
+    expect(a.body.references).toEqual({ vehicleCosts: 1 });
+  });
+
   it('ตรวจข้ามช่อง: น้ำหนักบรรทุก ≤ รวม − เปล่า, GPS ต้องมีค่าย + ห้ามซ้ำ, ปี, null บนช่องบังคับ → 422', async () => {
     await create({ tareWeightKg: 3300, grossWeightKg: 9500, payloadKg: 7000 }).expect(422);
     await create({ tareWeightKg: 3300, grossWeightKg: 9500, payloadKg: 6000 }).expect(201);

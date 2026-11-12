@@ -69,7 +69,10 @@ export const ASSIGNABILITY_OVERRIDE = {
 export interface AssignDocument {
   id?: string;
   docType: VehicleDocType | string;
-  /** สถานะในฐาน: ACTIVE / EXPIRING / EXPIRED / SUPERSEDED / CANCELLED */
+  /**
+   * สถานะในฐาน: ACTIVE / EXPIRING / EXPIRED / SUPERSEDED / CANCELLED
+   * + เอกสารที่รถร่วมส่งผ่านลิงก์แต่ admin ยังไม่อนุมัติ (ST2-T21) `PENDING_REVIEW` / ไม่อนุมัติ `REJECTED` — **ไม่นับ** (เหมือนไม่มี)
+   */
   status: string;
   /** YYYY-MM-DD */
   startsOn: string;
@@ -136,6 +139,15 @@ const EXPIRED_CODE: Record<VehicleDocType, AssignabilityCode> = {
 };
 
 const CURRENT = new Set(['ACTIVE', 'EXPIRING', 'EXPIRED']);
+/**
+ * สถานะที่ไม่ใช่เอกสารที่ใช้ได้: ยกเลิก (บันทึกผิด) + รอ admin ตรวจ/ไม่อนุมัติ (ST2-T21 — รถร่วมอัปโหลดผ่านลิงก์
+ * ต้องรอ admin อนุมัติก่อนจึงปลดบล็อกได้; ฝั่ง API เก็บที่ `carrier_doc_submission` แยกอยู่แล้ว ตัวนี้กันอีกชั้น)
+ */
+export const NOT_A_DOCUMENT_STATUSES: readonly string[] = [
+  'CANCELLED',
+  'PENDING_REVIEW',
+  'REJECTED',
+];
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 const isDocType = (t: string): t is VehicleDocType =>
@@ -202,7 +214,9 @@ export function checkAssignability(input: AssignabilityInput): AssignabilityResu
   const severity: AssignabilitySeverity = subcon ? 'block' : 'warning';
   const issues: AssignabilityIssue[] = [];
 
-  const docs = input.documents.filter((d) => d.status !== 'CANCELLED' && isDocType(d.docType));
+  const docs = input.documents.filter(
+    (d) => !NOT_A_DOCUMENT_STATUSES.includes(d.status) && isDocType(d.docType),
+  );
   const series = seriesOf(docs);
   for (const type of VEHICLE_DOC_TYPES) {
     const mandatory = subcon && SUBCON_REQUIRED_DOC_TYPES.includes(type);

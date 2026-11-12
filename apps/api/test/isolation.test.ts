@@ -294,6 +294,83 @@ const FIXTURES: Record<string, (db: PrismaClient, tenantId: string, n: number) =
       });
       return encodeId('vehicleDocument', d.id);
     },
+    // ST2-T21 ลิงก์อัปโหลดเอกสารของรถร่วม (magic_link purpose carrier_docs)
+    magicLink: async (db, tenantId, n) => {
+      const c = await db.carrier.create({
+        data: {
+          tenantId,
+          code: `ISOL-${n}`,
+          legalName: `Carrier l${n}`,
+          entityType: 'JURISTIC',
+          taxId: validTaxId(1700 + n),
+          taxIdLast4: validTaxId(1700 + n).slice(-4),
+          branchCode: '00000',
+        },
+      });
+      const l = await db.magicLink.create({
+        data: {
+          tenantId,
+          purpose: 'carrier_docs',
+          entityType: 'carrier',
+          entityId: c.id,
+          actions: ['docs.view', 'docs.upload'],
+          scopes: [],
+          expiresAt: new Date(Date.now() + 86400_000),
+        },
+      });
+      return encodeId('magicLink', l.id);
+    },
+    // ST2-T21 เอกสารที่รถร่วมส่งผ่านลิงก์ (รอตรวจ)
+    carrierDocSubmission: async (db, tenantId, n) => {
+      const c = await db.carrier.create({
+        data: {
+          tenantId,
+          code: `ISOS-${n}`,
+          legalName: `Carrier s${n}`,
+          entityType: 'JURISTIC',
+          taxId: validTaxId(1800 + n),
+          taxIdLast4: validTaxId(1800 + n).slice(-4),
+          branchCode: '00000',
+        },
+      });
+      const vt = await db.vehicleType.create({
+        data: { tenantId, code: `ISOS-${n}`, nameTh: `Type s${n}`, vehicleClass: '6W' },
+      });
+      const v = await db.vehicle.create({
+        data: {
+          tenantId,
+          plate: `72-${1000 + n}`,
+          plateProvince: 'TH-10',
+          plateKey: `72${1000 + n}|TH-10`,
+          plateNorm: `72${1000 + n}`,
+          vehicleTypeId: vt.id,
+          ownership: 'SUBCONTRACT',
+          carrierId: c.id,
+        },
+      });
+      const f = await db.storedDocument.create({
+        data: {
+          tenantId,
+          kind: 'VEHICLE_DOC',
+          mimeType: 'application/pdf',
+          sizeBytes: 10,
+          status: 'PENDING',
+        },
+      });
+      const s = await db.carrierDocSubmission.create({
+        data: {
+          tenantId,
+          carrierId: c.id,
+          vehicleId: v.id,
+          docType: 'INSURANCE',
+          docNo: `POL-${n}`,
+          startsOn: new Date('2026-01-01'),
+          expiresOn: new Date('2027-01-01'),
+          fileDocumentIds: [f.id],
+        },
+      });
+      return encodeId('carrierDocSubmission', s.id);
+    },
     sequence: async (db, tenantId) => {
       const s = await db.documentSeries.upsert({
         where: { tenantId_docType: { tenantId, docType: 'SO' } },

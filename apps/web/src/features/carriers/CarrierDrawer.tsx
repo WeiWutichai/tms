@@ -5,6 +5,7 @@ import { useI18n, type T } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
 import { useCompanyOptions } from '../customers/useCustomers';
 import { HistoryTab } from '../master/HistoryTab';
+import { CarrierDocsTab } from './CarrierDocsTab';
 import { fieldErrors, isStale, problemText } from '../master/problems';
 import { RefPicker, type RefOption } from '../master/RefPicker';
 import { can } from '../../nav';
@@ -181,7 +182,8 @@ export function CarrierBadge({ c, t }: { c: Carrier | null; t: T }) {
  * ปุ่ม "บันทึก" เดียว (สร้าง = POST + Idempotency-Key, แก้ = PATCH + If-Match) · สถานะเป็นระงับ → ขอเหตุผลก่อน (A3/กฎร่วม)
  * ส่วนที่ต้นแบบไม่มี [OPEN spec/12 §3]: "ข้อมูลเพิ่มเติม" (สาขา ที่อยู่ เบอร์ เงื่อนไขจ่าย ไม่มี POD ไม่จ่าย สังกัด จ้างในนาม
  * เพดานเที่ยว/วัน ลำดับ — ฟิลด์ตาม backlog ST2-T05), บัญชีรับเงินแยก ธนาคาร/เลขบัญชี/ชื่อบัญชี (เลขบัญชีเข้ารหัส แสดง •••• 1234),
- * คะแนนตรงเวลา/ตีกลับ = "—" จนกว่าจะมีเที่ยว (ST3/ST6), เอกสารแนบยังไม่มีที่เก็บต่อผู้รับเหมา (ST2-T20/T21)
+ * คะแนนตรงเวลา/ตีกลับ = "—" จนกว่าจะมีเที่ยว (ST3/ST6), แท็บเอกสารแนบ = ลิงก์อัปโหลด + ตรวจเอกสารที่รถร่วมส่ง (ST2-T21)
+ * ภ.พ.20/สัญญาจ้างยังไม่มีที่เก็บต่อผู้รับเหมา
  * ราคา 5 ครั้งล่าสุด (ST2-T14) = `GET /v1/carriers/{id}/recent-prices` ใหม่สุดก่อน คั่น " · " (ต้นแบบ c.last) — ไม่มีสิทธิ์ดูราคาซื้อ/ยังไม่เคยจ้าง = "—"
  */
 export function CarrierDrawer({
@@ -675,13 +677,16 @@ export function CarrierDrawer({
           />
         </>
       )}
-      {tab === 'docs' && (
-        <EmptyState
-          icon="file-text"
-          title={t('car.docs.empty')}
-          description={t('car.docs.emptyD')}
-        />
-      )}
+      {tab === 'docs' &&
+        (c ? (
+          <CarrierDocsTab carrierId={c.id} canWrite={canWrite} />
+        ) : (
+          <EmptyState
+            icon="file-text"
+            title={t('car.docs.empty')}
+            description={t('car.docs.emptyD')}
+          />
+        ))}
       {tab === 'act' &&
         (c ? (
           <HistoryTab
