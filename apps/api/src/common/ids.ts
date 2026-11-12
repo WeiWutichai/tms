@@ -33,6 +33,8 @@ export const ID_PREFIX = {
   reasonCode: 'rsn',
   rateCard: 'rcd',
   trip: 'trp',
+  magicLink: 'mlk',
+  carrierDocSubmission: 'cds',
 } as const;
 export type IdKind = keyof typeof ID_PREFIX;
 

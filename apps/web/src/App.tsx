@@ -24,6 +24,7 @@ import { LoginPage } from './public/Login';
 import { ForgotPasswordPage, ResetPasswordPage } from './public/Password';
 import { InvitePage } from './public/Invite';
 import { ImpersonatePage } from './public/Impersonate';
+import { CarrierDocsLinkPage } from './public/CarrierDocsLink';
 import { ConsoleApp } from './console/ConsoleApp';
 import { AppShell, useMe } from './shell/AppShell';
 import type { ReactNode } from 'react';
@@ -125,6 +126,8 @@ export function App() {
             <Route path="/reset-password" element={<ResetPasswordPage />} />
             <Route path="/invite" element={<InvitePage />} />
             <Route path="/impersonate" element={<ImpersonatePage />} />
+            {/* ลิงก์รถร่วมส่งเอกสาร (ST2-T21) — magic link ไม่ต้อง login */}
+            <Route path="/link/carrier-docs/:token" element={<CarrierDocsLinkPage />} />
             {/* Platform Console (ST1-T24) — layout/login/token แยกจากแอปลูกค้า ไม่ผ่าน RequireAuth */}
             <Route path="/console/*" element={<ConsoleApp />} />
             <Route

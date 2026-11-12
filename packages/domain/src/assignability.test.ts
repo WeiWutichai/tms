@@ -79,6 +79,22 @@ describe('checkAssignability — รถร่วม: เอกสารบัง
       ['DOC_MISSING'],
     ],
     [
+      'ST2-T21: ประกันภัยฉบับใหม่ที่รถร่วมส่งผ่านลิงก์ยังรอตรวจ = ยังไม่ปลดบล็อก',
+      [
+        doc('INSURANCE', '2025-11-01', '2026-11-19', { status: 'EXPIRED' }),
+        doc('INSURANCE', '2026-11-19', '2027-11-19', { status: 'PENDING_REVIEW' }),
+        CMI_OK,
+      ],
+      null,
+      ['DOC_INSURANCE_EXPIRED'],
+    ],
+    [
+      'ST2-T21: ฉบับที่ไม่อนุมัติ = ไม่มี',
+      [doc('INSURANCE', '2026-01-01', '2026-12-31', { status: 'REJECTED' }), CMI_OK],
+      null,
+      ['DOC_MISSING'],
+    ],
+    [
       'ใบขับขี่หมด',
       [INS_OK, CMI_OK],
       { licenceExpiresOn: '2026-11-19' },

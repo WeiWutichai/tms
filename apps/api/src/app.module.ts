@@ -75,6 +75,11 @@ import { VehicleDocumentsService } from './modules/vehicle-documents/vehicle-doc
 import { Clock } from './common/clock';
 import { DepreciationService } from './modules/depreciation/depreciation.service';
 import { DriversController } from './modules/drivers/drivers.controller';
+import {
+  CarrierDocsController,
+  CarrierDocsPublicController,
+} from './modules/carrier-docs/carrier-docs.controller';
+import { CarrierDocsService } from './modules/carrier-docs/carrier-docs.service';
 import { DriversService } from './modules/drivers/drivers.service';
 import { VehiclesController } from './modules/vehicles/vehicles.controller';
 import { VehiclesService } from './modules/vehicles/vehicles.service';
@@ -130,6 +135,8 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     VehiclesController,
     DriversController,
     VehicleDocumentsController,
+    CarrierDocsController,
+    CarrierDocsPublicController,
   ],
   providers: [
     PrismaService,
@@ -165,6 +172,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     CarriersService,
     VehiclesService,
     DriversService,
+    CarrierDocsService,
     VehicleDocumentsService,
     Clock,
     ExpiryReminderService,
