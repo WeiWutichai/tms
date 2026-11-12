@@ -4864,6 +4864,510 @@
         ]
       }
     },
+    "/v1/orders/{id}/stops/{sequence}/map-site": {
+      "post": {
+        "description": "จุดลำดับ `{sequence}` (เริ่ม 1) ได้สถานที่ที่เลือก (`match.method = MANUAL`) แล้วระบบจำข้อความสถานที่ของจุดนี้เป็น alias ของสถานที่ → ใบถัดไปที่ข้อความเดิม (ไม่สนช่องว่าง/ตัวพิมพ์/คำนิติบุคคล) จับคู่เอง · ประเมินราคา + ใบค้างใหม่ทันที (LOCATION_UNMAPPED หาย / RATE_MISSING ถ้ายังไม่มี rate) · สถานที่ต้องเป็นของลูกค้าของใบหรือของบริษัท — ใบยังไม่มีลูกค้าเลือกได้เฉพาะสถานที่ของบริษัท (422 `customer_unmapped`) · หลังวางแผน → 409 `order_locked_for_update`",
+        "operationId": "Orders_mapStopSite",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sequence",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MapStopSiteDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderMapResultDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "JSON เสีย",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "bad_request": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/bad_request",
+                      "title": "คำขอไม่ถูกต้อง",
+                      "status": 400,
+                      "code": "bad_request",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`orders:read` / `orders:write`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "orders",
+                      "action": "write",
+                      "required": [
+                        "orders:write"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ไม่พบ (รวมใบของบริษัทอื่น)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "409 `order_locked_for_update` — แก้ช่องที่สถานะไม่อนุญาต (errors[] = ช่อง, `editableFields` = ช่องที่แก้ได้): ก่อนวางแผนแก้ได้ทุกช่อง · PLANNED แก้ได้เฉพาะช่วงเวลาของจุด + customerRef · ตั้งแต่ in_transit แก้ได้เฉพาะ customerRef · ปิดงาน/ยกเลิกแก้ไม่ได้ · 409 `external_id_conflict` — externalId นี้เป็นของใบจากช่องทางอื่น",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "order_locked_for_update": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/order_locked_for_update",
+                      "title": "แก้ข้อมูลนี้ของใบสั่งขนส่งไม่ได้ในสถานะปัจจุบัน",
+                      "status": 409,
+                      "code": "order_locked_for_update",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "stops[1].siteId",
+                          "code": "locked",
+                          "message": "cannot change stops when order is IN_TRANSIT"
+                        },
+                        {
+                          "field": "lines[0].qty",
+                          "code": "locked",
+                          "message": "cannot change lines when order is IN_TRANSIT"
+                        }
+                      ],
+                      "orderStatus": "IN_TRANSIT",
+                      "editableFields": [
+                        "customerRef"
+                      ]
+                    }
+                  },
+                  "invalid_state_transition": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/invalid_state_transition",
+                      "title": "ทำรายการนี้ไม่ได้ในสถานะปัจจุบัน",
+                      "status": 409,
+                      "code": "invalid_state_transition",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "from": "RECEIVED",
+                      "event": "save_draft"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "If-Match ไม่ตรง version / ส่ง If-Match แต่ยังไม่มีใบ",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "precondition_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/precondition_failed",
+                      "title": "ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่",
+                      "status": 412,
+                      "code": "precondition_failed",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "รูปแบบผิด — `errors[]` รวมทุกช่อง (path แบบ `stops[0].siteId`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "requestedDate",
+                          "code": "invalid_date",
+                          "message": "must be YYYY-MM-DD"
+                        },
+                        {
+                          "field": "stops[0].siteId",
+                          "code": "invalid_id",
+                          "message": "must be a uuid"
+                        },
+                        {
+                          "field": "lines[0].qty",
+                          "code": "invalid_type",
+                          "message": "must be a decimal string"
+                        }
+                      ]
+                    }
+                  },
+                  "idempotency_mismatch": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_mismatch",
+                      "title": "Idempotency-Key นี้เคยใช้กับข้อมูลอื่น",
+                      "status": 422,
+                      "code": "idempotency_mismatch",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "เลือกสถานที่ให้จุดที่ยังจับคู่ไม่ได้ + จำข้อความเป็น alias (ST3-T06)",
+        "tags": [
+          "orders"
+        ]
+      }
+    },
+    "/v1/orders/{id}/map-customer": {
+      "post": {
+        "description": "ใบได้ลูกค้าที่เลือก (`customer.match.method = MANUAL`) · ใบมีรหัสลูกค้าต้นทาง = จำรหัสนั้นของช่องทางนี้ (เช่น `ERP:krs`) · ไม่มีรหัส = จำชื่อตามต้นทาง → ใบถัดไปจับคู่เอง · เคยจำไว้กับลูกค้าอื่น = ย้ายมาลูกค้านี้ (audit) · จุดที่ยังว่างจับคู่ในขอบเขตลูกค้านี้ต่อ แล้วประเมินราคา + ใบค้างใหม่ · จุดที่เลือกสถานที่ของลูกค้าอื่นไว้ → 422 `site_other_customer`",
+        "operationId": "Orders_mapCustomer",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MapCustomerDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderMapResultDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "JSON เสีย",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "bad_request": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/bad_request",
+                      "title": "คำขอไม่ถูกต้อง",
+                      "status": 400,
+                      "code": "bad_request",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`orders:read` / `orders:write`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "orders",
+                      "action": "write",
+                      "required": [
+                        "orders:write"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ไม่พบ (รวมใบของบริษัทอื่น)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "409 `order_locked_for_update` — แก้ช่องที่สถานะไม่อนุญาต (errors[] = ช่อง, `editableFields` = ช่องที่แก้ได้): ก่อนวางแผนแก้ได้ทุกช่อง · PLANNED แก้ได้เฉพาะช่วงเวลาของจุด + customerRef · ตั้งแต่ in_transit แก้ได้เฉพาะ customerRef · ปิดงาน/ยกเลิกแก้ไม่ได้ · 409 `external_id_conflict` — externalId นี้เป็นของใบจากช่องทางอื่น",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "order_locked_for_update": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/order_locked_for_update",
+                      "title": "แก้ข้อมูลนี้ของใบสั่งขนส่งไม่ได้ในสถานะปัจจุบัน",
+                      "status": 409,
+                      "code": "order_locked_for_update",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "stops[1].siteId",
+                          "code": "locked",
+                          "message": "cannot change stops when order is IN_TRANSIT"
+                        },
+                        {
+                          "field": "lines[0].qty",
+                          "code": "locked",
+                          "message": "cannot change lines when order is IN_TRANSIT"
+                        }
+                      ],
+                      "orderStatus": "IN_TRANSIT",
+                      "editableFields": [
+                        "customerRef"
+                      ]
+                    }
+                  },
+                  "invalid_state_transition": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/invalid_state_transition",
+                      "title": "ทำรายการนี้ไม่ได้ในสถานะปัจจุบัน",
+                      "status": 409,
+                      "code": "invalid_state_transition",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "from": "RECEIVED",
+                      "event": "save_draft"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "If-Match ไม่ตรง version / ส่ง If-Match แต่ยังไม่มีใบ",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "precondition_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/precondition_failed",
+                      "title": "ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่",
+                      "status": 412,
+                      "code": "precondition_failed",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "รูปแบบผิด — `errors[]` รวมทุกช่อง (path แบบ `stops[0].siteId`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "requestedDate",
+                          "code": "invalid_date",
+                          "message": "must be YYYY-MM-DD"
+                        },
+                        {
+                          "field": "stops[0].siteId",
+                          "code": "invalid_id",
+                          "message": "must be a uuid"
+                        },
+                        {
+                          "field": "lines[0].qty",
+                          "code": "invalid_type",
+                          "message": "must be a decimal string"
+                        }
+                      ]
+                    }
+                  },
+                  "idempotency_mismatch": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_mismatch",
+                      "title": "Idempotency-Key นี้เคยใช้กับข้อมูลอื่น",
+                      "status": 422,
+                      "code": "idempotency_mismatch",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "เลือกลูกค้าให้ใบที่ยังจับคู่ไม่ได้ + จำรหัส/ชื่อตามต้นทาง (ST3-T06)",
+        "tags": [
+          "orders"
+        ]
+      }
+    },
     "/v1/customer-sites": {
       "get": {
         "operationId": "Sites_list",
@@ -21022,6 +21526,62 @@
           "requestId"
         ]
       },
+      "OrderMatchCandidateDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "loc_3f2a…",
+            "description": "id สาธารณะ (loc_ สถานที่ / cus_ ลูกค้า)"
+          },
+          "code": {
+            "type": "string",
+            "example": "LOC-00012"
+          },
+          "name": {
+            "type": "string",
+            "example": "คลังสินค้าบางนา"
+          },
+          "score": {
+            "type": "number",
+            "example": 0.82,
+            "description": "ความคล้าย 0–1 (1 = ตรงตัวหลัง normalize)"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "name",
+          "score"
+        ]
+      },
+      "OrderCustomerMatchDto": {
+        "type": "object",
+        "properties": {
+          "method": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "INPUT",
+              "EXTERNAL_ID",
+              "ALIAS",
+              "MANUAL"
+            ],
+            "description": "ได้ลูกค้ามาอย่างไร (ST3-T06): INPUT = ระบุ id มา · EXTERNAL_ID = รหัสต้นทางตรง externalId ของลูกค้า · ALIAS = รหัส/ชื่อที่คนเคยจับคู่ไว้ · MANUAL = คนเลือก · null = ยังไม่ได้"
+          },
+          "candidates": {
+            "description": "ลูกค้าที่ชื่อคล้าย (แนะนำเมื่อยังจับคู่ไม่ได้ — ระบบไม่จับคู่ลูกค้าเองด้วยความคล้าย)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderMatchCandidateDto"
+            }
+          }
+        },
+        "required": [
+          "method",
+          "candidates"
+        ]
+      },
       "OrderCustomerDto": {
         "type": "object",
         "properties": {
@@ -21047,6 +21607,9 @@
             "type": "string",
             "nullable": true,
             "description": "ข้อความลูกค้าตามต้นทาง"
+          },
+          "match": {
+            "$ref": "#/components/schemas/OrderCustomerMatchDto"
           }
         },
         "required": [
@@ -21054,7 +21617,8 @@
           "code",
           "legalName",
           "externalId",
-          "name"
+          "name",
+          "match"
         ]
       },
       "OrderHoldReasonDto": {
@@ -21181,6 +21745,40 @@
           "rateCardRevision"
         ]
       },
+      "OrderStopMatchDto": {
+        "type": "object",
+        "properties": {
+          "method": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "ALIAS",
+              "NAME",
+              "FUZZY",
+              "MANUAL"
+            ],
+            "description": "ได้สถานที่มาอย่างไร (ST3-T06): ALIAS = ข้อความตรง alias ที่เรียนรู้ · NAME = ตรงชื่อสถานที่ · FUZZY = ความคล้ายเกินเกณฑ์ · MANUAL = คนเลือก · null = ต้นทางระบุ siteId มาเอง หรือยังจับคู่ไม่ได้"
+          },
+          "score": {
+            "type": "number",
+            "nullable": true,
+            "example": 0.94,
+            "description": "ความคล้ายตอนจับคู่อัตโนมัติ"
+          },
+          "candidates": {
+            "description": "สถานที่ที่แนะนำเมื่อยังจับคู่ไม่ได้/กำกวม (หน้าใบค้าง) — เรียงคะแนนมาก → น้อย ≤ 5",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderMatchCandidateDto"
+            }
+          }
+        },
+        "required": [
+          "method",
+          "score",
+          "candidates"
+        ]
+      },
       "OrderStopDto": {
         "type": "object",
         "properties": {
@@ -21209,6 +21807,9 @@
           "windowEnd": {
             "type": "string",
             "nullable": true
+          },
+          "match": {
+            "$ref": "#/components/schemas/OrderStopMatchDto"
           }
         },
         "required": [
@@ -21217,7 +21818,8 @@
           "siteId",
           "siteText",
           "windowStart",
-          "windowEnd"
+          "windowEnd",
+          "match"
         ]
       },
       "OrderLineDto": {
@@ -21747,6 +22349,213 @@
             }
           }
         }
+      },
+      "MapStopSiteDto": {
+        "type": "object",
+        "properties": {
+          "siteId": {
+            "type": "string",
+            "example": "loc_3f2a…",
+            "description": "สถานที่ (ของลูกค้าของใบ หรือของบริษัท) ที่ใช้งานอยู่"
+          }
+        },
+        "required": [
+          "siteId"
+        ]
+      },
+      "OrderMapResultDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "ord_3f2a…"
+          },
+          "soNo": {
+            "type": "string",
+            "nullable": true,
+            "example": "SO-6911-0001",
+            "description": "ร่าง = null"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "received",
+              "on_hold",
+              "planned",
+              "in_transit",
+              "partially_delivered",
+              "delivered",
+              "closed",
+              "cancelled"
+            ]
+          },
+          "source": {
+            "type": "string",
+            "example": "ERP:krs",
+            "description": "ที่มาตาม docs/04 C: MANUAL / EXCEL / API / PORTAL / ERP:{connector}"
+          },
+          "sourceType": {
+            "type": "string",
+            "enum": [
+              "MANUAL",
+              "IMPORT",
+              "API",
+              "PORTAL",
+              "CONNECTOR"
+            ],
+            "description": "ชนิดที่มา (ใช้กับป้ายที่มา): MANUAL / IMPORT / API / PORTAL / CONNECTOR"
+          },
+          "connector": {
+            "type": "string",
+            "nullable": true,
+            "example": "krs",
+            "description": "รหัส connector"
+          },
+          "externalId": {
+            "type": "string",
+            "nullable": true,
+            "description": "externalRef ของระบบต้นทาง"
+          },
+          "customer": {
+            "$ref": "#/components/schemas/OrderCustomerDto"
+          },
+          "billingCompanyId": {
+            "type": "string"
+          },
+          "customerRef": {
+            "type": "string",
+            "nullable": true
+          },
+          "requestedDate": {
+            "type": "string",
+            "example": "2026-11-12"
+          },
+          "vehicleTypeId": {
+            "type": "string",
+            "nullable": true
+          },
+          "holdReason": {
+            "nullable": true,
+            "description": "เหตุค้าง (ON_HOLD)",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/OrderHoldReasonDto"
+              }
+            ]
+          },
+          "holdCodes": {
+            "type": "array",
+            "description": "เหตุค้างทั้งหมดของการรับงานครั้งล่าสุด (ตัวแรก = holdReason)",
+            "items": {
+              "type": "string",
+              "enum": [
+                "SOURCE_ERROR",
+                "CUSTOMER_UNMAPPED",
+                "LOCATION_UNMAPPED",
+                "RATE_MISSING"
+              ]
+            }
+          },
+          "pricingStatus": {
+            "type": "string",
+            "enum": [
+              "AVAILABLE",
+              "RATE_MISSING",
+              "CALCULATION_FAILURE"
+            ]
+          },
+          "pricingReasons": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderPricingReasonDto"
+            }
+          },
+          "sellTotal": {
+            "type": "string",
+            "nullable": true,
+            "example": "4500.00",
+            "description": "ราคาขายรวมก่อน VAT (คาดการณ์) — เห็นเมื่อมี `prices.sell:read`"
+          },
+          "sellCharges": {
+            "description": "บรรทัดราคาขาย — เห็นเมื่อมี `prices.sell:read`",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderChargeDto"
+            }
+          },
+          "stops": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderStopDto"
+            }
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderLineDto"
+            }
+          },
+          "version": {
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "aliasLearning": {
+            "type": "string",
+            "enum": [
+              "learned",
+              "exists",
+              "name",
+              "full",
+              "too_long",
+              "empty"
+            ],
+            "description": "ผลการเรียนรู้ alias: learned = จำแล้ว (ใบถัดไปข้อความเดิมจับคู่เอง) · exists = จำไว้แล้ว · name = ข้อความตรงชื่อสถานที่อยู่แล้ว · full = alias ครบ 50 · too_long = ข้อความยาวเกิน · empty = ไม่มีข้อความ"
+          }
+        },
+        "required": [
+          "id",
+          "soNo",
+          "status",
+          "source",
+          "sourceType",
+          "connector",
+          "externalId",
+          "customer",
+          "billingCompanyId",
+          "customerRef",
+          "requestedDate",
+          "vehicleTypeId",
+          "holdReason",
+          "holdCodes",
+          "pricingStatus",
+          "pricingReasons",
+          "stops",
+          "lines",
+          "version",
+          "createdAt",
+          "updatedAt",
+          "aliasLearning"
+        ]
+      },
+      "MapCustomerDto": {
+        "type": "object",
+        "properties": {
+          "customerId": {
+            "type": "string",
+            "example": "cus_3f2a…",
+            "description": "ลูกค้าที่ใช้งานอยู่"
+          }
+        },
+        "required": [
+          "customerId"
+        ]
       },
       "SiteAddressDto": {
         "type": "object",

@@ -12,6 +12,7 @@ import {
   SO_FIELD_GROUPS,
   SO_TRANSITIONS,
   evaluateIntakeHolds,
+  formatOrderSource,
   soEditableFields,
   intakeHoldNoteTh,
   isIntakeHoldCode,
@@ -19,6 +20,7 @@ import {
   planIntake,
   transition,
   type IntakeHold,
+  type OrderSource,
   type PricingStatus,
   type SoEvent,
   type SoFieldGroup,
@@ -41,6 +43,11 @@ import {
   type UpsertOrderInput,
 } from './order-input';
 import { orderEventView } from './order-view';
+import {
+  OrderMatchingService,
+  suggestionsJson,
+  type AliasLearnResult,
+} from './order-matching.service';
 
 export type { UpsertOrderInput } from './order-input';
 
@@ -64,6 +71,10 @@ interface OrderChildren {
     siteText: string;
     windowStart: Date | null;
     windowEnd: Date | null;
+    /** ผลจับคู่ (ST3-T06) — ต้นทางระบุ siteId = null · ข้อความ/สถานที่เดิมของจุดเดิม = คงผลเดิม · ยังไม่ได้ = null (evaluate จับคู่) */
+    matchMethod: string | null;
+    matchScore: string | null;
+    matchCandidates: Prisma.InputJsonValue | typeof Prisma.DbNull;
   }[];
   lines: {
     itemCode: string | null;
@@ -139,6 +150,7 @@ export class OrderIntakeService {
     private readonly state: StateService,
     private readonly audit: AuditService,
     private readonly deliveryOrders: DeliveryOrderService,
+    private readonly matching: OrderMatchingService,
   ) {}
 
   async upsertOrder(input: UpsertOrderInput, tx: Tx = this.db.tx): Promise<UpsertOrderResult> {
@@ -203,7 +215,11 @@ export class OrderIntakeService {
 
     // 2) อ้างอิง (ล็อก FOR SHARE + ตรวจใช้งานอยู่ + สถานที่ของลูกค้านี้/ของบริษัท) → นิติบุคคลออกบิล
     // ใบเดิม: ตรวจเฉพาะอ้างอิงที่เปลี่ยน (ของเดิมที่ถูกปิดใช้ภายหลังไม่ขวางการแก้ช่องอื่น เช่น เลข PO)
-    const customer = await this.resolveReferences(tx, n, current);
+    const { customer, matchMethod: customerMatchMethod } = await this.resolveReferences(
+      tx,
+      n,
+      current,
+    );
     // นิติบุคคลออกบิล: ไม่ส่ง/ส่งค่าเดิม = คงของเดิม (ไม่หาใหม่จาก routing) · ใบใหม่/เปลี่ยน = routing ST1-T16
     const keepCompany =
       current !== null &&
@@ -221,6 +237,7 @@ export class OrderIntakeService {
       customerId: customer?.id ?? null,
       customerExternalId: n.customer.externalId,
       customerText: n.customer.text,
+      customerMatchMethod,
       billingCompanyId,
       customerRef: n.customerRef,
       requestedDate: new Date(`${n.requestedDate}T00:00:00Z`),
@@ -311,7 +328,277 @@ export class OrderIntakeService {
     });
   }
 
+  /**
+   * คนเลือกสถานที่ให้จุดที่ยังจับคู่ไม่ได้ (ST3-T06 "เรียนรู้ alias"; หน้าใบค้าง T07 เรียก) — `POST /orders/{id}/stops/{seq}/map-site`
+   * สถานที่ต้องใช้งานอยู่และเป็นของลูกค้าของใบหรือของบริษัท (ใบยังไม่มีลูกค้า = เฉพาะของบริษัท — จับคู่ลูกค้าก่อน)
+   * → จุดได้สถานที่ (MANUAL) + จำข้อความเป็น alias ของสถานที่ (order ถัดไปข้อความเดิมจับคู่เอง) → ประเมินราคา/ใบค้างใหม่
+   * ใช้ได้เมื่อแก้จุดได้ตามสถานะ (ก่อนวางแผน) — ไม่งั้น 409 `order_locked_for_update`
+   */
+  async mapStopSite(
+    orderId: string,
+    sequence: number,
+    siteId: string,
+    opts: { expectedVersion?: number | '*' } = {},
+    tx: Tx = this.db.tx,
+  ): Promise<UpsertOrderResult & { aliasLearning: AliasLearnResult }> {
+    const current = await this.lockForMapping(tx, orderId, opts.expectedVersion, 'stops');
+    const stop = current.stops.find((s) => s.sequence === sequence);
+    if (!stop) throw new ProblemException('not_found');
+    // FOR UPDATE ตั้งแต่แรก (ไม่ใช่ FOR SHARE แล้วค่อยยก) — การเรียนรู้ alias เขียนแถวนี้; สองคำขอถือ SHARE แล้วยกพร้อมกัน = deadlock
+    const [ref] = await tx.$queryRaw<{ status: string }[]>`
+      SELECT status::text AS status FROM customer_site
+       WHERE id = ${siteId}::uuid AND deleted_at IS NULL FOR UPDATE`;
+    if (!ref) throw field422('siteId', 'reference_not_found', 'site not found');
+    if (ref.status !== 'ACTIVE') throw field422('siteId', 'reference_inactive', 'site is inactive');
+    const site = await tx.customerSite.findUniqueOrThrow({
+      where: { id: siteId },
+      select: { customerId: true },
+    });
+    if (site.customerId && site.customerId !== current.customerId)
+      throw field422(
+        'siteId',
+        current.customerId ? 'site_other_customer' : 'customer_unmapped',
+        current.customerId
+          ? 'site belongs to another customer'
+          : 'map the customer before choosing a customer site',
+      );
+    const changed = stop.siteId !== siteId || stop.matchMethod !== 'MANUAL';
+    if (changed) {
+      await tx.salesOrderStop.update({
+        where: { id: stop.id },
+        data: {
+          siteId,
+          matchMethod: 'MANUAL',
+          matchScore: null,
+          matchCandidates: Prisma.DbNull,
+        },
+      });
+      await tx.salesOrder.update({ where: { id: orderId }, data: { version: { increment: 1 } } });
+    }
+    const scope = await this.matching.siteScope(tx, current.customerId);
+    const aliasLearning = await this.matching.learnSiteAlias(tx, siteId, stop.siteText, scope);
+    const loaded = (await tx.salesOrder.findUnique({ where: { id: orderId }, include: INCLUDE }))!;
+    const r = await this.evaluate(tx, loaded, {
+      draft: current.status === 'DRAFT',
+      created: false,
+      dataChanged: changed,
+      before: orderEventView(current, { lines: true }),
+    });
+    return { ...r, aliasLearning };
+  }
+
+  /**
+   * คนเลือกลูกค้าให้ใบที่ยังจับคู่ไม่ได้ (ST3-T06; docs/01 §4.1 CUSTOMER_UNMAPPED "map ลูกค้า") — `POST /orders/{id}/map-customer`
+   * จำรหัสต้นทาง (ต่อช่องทาง) หรือชื่อตามต้นทางเป็น alias ของลูกค้า → order ถัดไปจับคู่เอง · นิติบุคคลออกบิลตามค่าตั้งต้นของลูกค้า
+   * จุดที่เลือกสถานที่ของลูกค้าอื่นไว้ → 422 · หลังได้ลูกค้า จุดที่ยังว่างจับคู่ในขอบเขตลูกค้านั้นต่อทันที (evaluate)
+   */
+  async mapCustomer(
+    orderId: string,
+    customerId: string,
+    opts: { expectedVersion?: number | '*' } = {},
+    tx: Tx = this.db.tx,
+  ): Promise<UpsertOrderResult & { aliasLearning: AliasLearnResult }> {
+    const current = await this.lockForMapping(tx, orderId, opts.expectedVersion, 'customer');
+    const [ref] = await lockReferenced(tx, 'customer', [customerId]);
+    if (!ref) throw field422('customerId', 'reference_not_found', 'customer not found');
+    if (ref.status !== 'ACTIVE')
+      throw field422('customerId', 'reference_inactive', 'customer is inactive');
+    const siteIds = current.stops.flatMap((s) => (s.siteId ? [s.siteId] : []));
+    if (siteIds.length) {
+      const owners = await tx.customerSite.findMany({
+        where: { id: { in: siteIds }, customerId: { not: null } },
+        select: { id: true, customerId: true },
+      });
+      const bad = current.stops.findIndex((s) =>
+        owners.some((o) => o.id === s.siteId && o.customerId !== customerId),
+      );
+      if (bad >= 0)
+        throw field422(
+          `stops[${bad}].siteId`,
+          'site_other_customer',
+          'site belongs to another customer',
+        );
+    }
+    const changed = current.customerId !== customerId || current.customerMatchMethod !== 'MANUAL';
+    if (changed)
+      await tx.salesOrder.update({
+        where: { id: orderId },
+        data: {
+          customerId,
+          customerMatchMethod: 'MANUAL',
+          customerCandidates: Prisma.DbNull,
+          billingCompanyId: await this.billingFor(tx, customerId, current.billingCompanyId),
+          version: { increment: 1 },
+        },
+      });
+    const aliasLearning = await this.matching.learnCustomerAlias(tx, {
+      customerId,
+      externalId: current.customerExternalId,
+      text: current.customerText,
+      source: formatOrderSource({
+        source: current.source as OrderSource,
+        connector: current.sourceConnector,
+      }),
+    });
+    const loaded = (await tx.salesOrder.findUnique({ where: { id: orderId }, include: INCLUDE }))!;
+    const r = await this.evaluate(tx, loaded, {
+      draft: current.status === 'DRAFT',
+      created: false,
+      dataChanged: changed,
+      before: orderEventView(current, { lines: true }),
+    });
+    return { ...r, aliasLearning };
+  }
+
   // ---------------------------------------------------------------------------------------------
+
+  /** ล็อกใบ + If-Match + ช่องที่แก้ได้ตามสถานะ (ชุดเดียวกับ upsert) สำหรับการจับคู่ด้วยมือ */
+  private async lockForMapping(
+    tx: Tx,
+    orderId: string,
+    expectedVersion: number | '*' | undefined,
+    group: SoFieldGroup,
+  ): Promise<OrderRecord> {
+    const current = await this.lockAndLoad(tx, orderId);
+    if (!current) throw new ProblemException('not_found');
+    if (
+      expectedVersion !== undefined &&
+      expectedVersion !== '*' &&
+      expectedVersion !== current.version
+    )
+      throw new ProblemException('precondition_failed');
+    const editable = soEditableFields(
+      current.status as SoStatus,
+      await this.deliveryOrders.hasDoOnTrip(tx, current.id),
+    );
+    if (!editable.includes(group) || !isIntakeEditable(current.status as SoStatus))
+      throw new ProblemException(
+        'order_locked_for_update',
+        undefined,
+        [
+          {
+            field: group,
+            code: 'locked',
+            message: `cannot change ${group} when order is ${current.status}`,
+          },
+        ],
+        { orderStatus: current.status, editableFields: editable },
+      );
+    return current;
+  }
+
+  /** นิติบุคคลออกบิลเมื่อเพิ่งได้ลูกค้า: ลูกค้ามีค่าตั้งต้น → routing ด้วยค่านั้น (ST1-T16) · ไม่มี = คงของเดิม */
+  private async billingFor(tx: Tx, customerId: string, current: string): Promise<string> {
+    const c = await tx.customer.findUnique({
+      where: { id: customerId },
+      select: { defaultBillingCompanyId: true },
+    });
+    if (!c?.defaultBillingCompanyId || c.defaultBillingCompanyId === current) return current;
+    return (
+      await resolveDocumentEntity(tx, this.tenantId(), {
+        kind: 'invoice',
+        companyId: null,
+        partyCompanyId: c.defaultBillingCompanyId,
+      })
+    ).company.id;
+  }
+
+  /**
+   * จับคู่อัตโนมัติจากข้อมูลที่เก็บ (ST3-T06) — ลูกค้าที่ยังว่าง (externalId/alias) แล้วจุดที่ยังว่าง (ขอบเขตลูกค้า + บริษัท)
+   * ได้ = เขียน id + วิธี/คะแนน · ไม่ได้ = เก็บรายการแนะนำ (เขียนเฉพาะเมื่อเปลี่ยน) · `changed` = ได้ลูกค้า/สถานที่เพิ่ม
+   * ลูกค้าที่ขัดกับสถานที่ที่ต้นทางระบุไว้ (สถานที่ของลูกค้าอื่น) → ไม่จับคู่ลูกค้าเอง (ให้คนตัดสิน)
+   */
+  private async autoMatch(
+    tx: Tx,
+    order: OrderRecord,
+  ): Promise<{ order: OrderRecord; changed: boolean }> {
+    let changed = false;
+    let wrote = false;
+    let customerId = order.customerId;
+    const same = (a: unknown, b: unknown) =>
+      stableStringify(a ?? null) === stableStringify(b ?? null);
+    if (!customerId && (order.customerExternalId || order.customerText)) {
+      const m = await this.matching.matchCustomer(tx, {
+        externalId: order.customerExternalId,
+        text: order.customerText,
+        source: formatOrderSource({
+          source: order.source as OrderSource,
+          connector: order.sourceConnector,
+        }),
+      });
+      const siteIds = order.stops.flatMap((s) => (s.siteId ? [s.siteId] : []));
+      const conflict =
+        m.customerId && siteIds.length
+          ? await tx.customerSite.count({
+              where: { id: { in: siteIds }, customerId: { notIn: [m.customerId] } },
+            })
+          : 0;
+      if (m.customerId && !conflict) {
+        customerId = m.customerId;
+        await tx.salesOrder.update({
+          where: { id: order.id },
+          data: {
+            customerId,
+            customerMatchMethod: m.method,
+            customerCandidates: Prisma.DbNull,
+            billingCompanyId: await this.billingFor(tx, customerId, order.billingCompanyId),
+          },
+        });
+        changed = wrote = true;
+      } else if (!same(order.customerCandidates, m.candidates.length ? m.candidates : null)) {
+        await tx.salesOrder.update({
+          where: { id: order.id },
+          data: { customerCandidates: suggestionsJson(m.candidates) },
+        });
+        wrote = true;
+      }
+    } else if (customerId && order.customerCandidates !== null) {
+      await tx.salesOrder.update({
+        where: { id: order.id },
+        data: { customerCandidates: Prisma.DbNull },
+      });
+      wrote = true;
+    }
+
+    const pending = order.stops.filter((s) => !s.siteId && s.siteText);
+    if (pending.length) {
+      const scope = await this.matching.siteScope(tx, customerId);
+      for (const s of pending) {
+        const m = this.matching.matchSite(s.siteText, scope);
+        if (m.siteId) {
+          await tx.salesOrderStop.update({
+            where: { id: s.id },
+            data: {
+              siteId: m.siteId,
+              matchMethod: m.method,
+              matchScore: m.score!.toFixed(3),
+              matchCandidates: Prisma.DbNull,
+            },
+          });
+          changed = wrote = true;
+        } else if (
+          !same(s.matchCandidates, m.candidates.length ? m.candidates : null) ||
+          s.matchMethod !== null
+        ) {
+          await tx.salesOrderStop.update({
+            where: { id: s.id },
+            data: {
+              matchMethod: null,
+              matchScore: null,
+              matchCandidates: suggestionsJson(m.candidates),
+            },
+          });
+          wrote = true;
+        }
+      }
+    }
+    if (!wrote) return { order, changed };
+    const reloaded = await tx.salesOrder.findUniqueOrThrow({
+      where: { id: order.id },
+      include: INCLUDE,
+    });
+    return { order: reloaded, changed };
+  }
 
   private tenantId(): string {
     const t = requestContext.require().tenantId;
@@ -328,7 +615,7 @@ export class OrderIntakeService {
 
   private async evaluate(
     tx: Tx,
-    order: OrderRecord,
+    loadedOrder: OrderRecord,
     opts: {
       draft: boolean;
       created: boolean;
@@ -340,10 +627,17 @@ export class OrderIntakeService {
   ): Promise<UpsertOrderResult> {
     const ctx = requestContext.require();
     const tenantId = ctx.tenantId!;
-    const id = order.id;
-    const storedHolds = (order.pricingDetail as { holds?: IntakeHold[] } | null)?.holds ?? [];
-    if (!isIntakeEditable(order.status as SoStatus))
-      return { order, created: false, changed: false, holds: storedHolds };
+    const id = loadedOrder.id;
+    const storedHolds = (loadedOrder.pricingDetail as { holds?: IntakeHold[] } | null)?.holds ?? [];
+    if (!isIntakeEditable(loadedOrder.status as SoStatus))
+      return { order: loadedOrder, created: false, changed: false, holds: storedHolds };
+
+    // จับคู่อัตโนมัติ (ST3-T06) ก่อนคิดราคา/ใบค้าง — ทุกทาง (ใบใหม่ / ส่งซ้ำ / reevaluate หลังเรียนรู้ alias)
+    const matched = await this.autoMatch(tx, loadedOrder);
+    const order = matched.order;
+    if (matched.changed && !opts.dataChanged && !opts.created)
+      await tx.salesOrder.update({ where: { id }, data: { version: { increment: 1 } } });
+    const dataChanged = opts.dataChanged || matched.changed;
 
     // ราคา: บรรทัดระบบ (RATE_CARD) คิดใหม่ — เขียนใหม่เฉพาะเมื่อผลต่าง; บรรทัด MANUAL คงไว้
     const act = await this.activeRefs(tx, order);
@@ -459,7 +753,7 @@ export class OrderIntakeService {
           pricingDetail: JSON.parse(JSON.stringify(pricingDetail)) as Prisma.InputJsonValue,
           priceTotal,
           pricedAt: new Date(),
-          ...(opts.dataChanged || opts.created ? {} : { version: { increment: 1 } }),
+          ...(dataChanged || opts.created ? {} : { version: { increment: 1 } }),
         },
       });
 
@@ -529,19 +823,14 @@ export class OrderIntakeService {
       if (plan.holdCodeChanged)
         await this.history(tx, id, 'ON_HOLD', 'ON_HOLD', 'hold_reason_changed', holdId, holdNote);
     }
-    if (
-      (plan.events.length || noteChanged) &&
-      !opts.dataChanged &&
-      !pricingChanged &&
-      !opts.created
-    )
+    if ((plan.events.length || noteChanged) && !dataChanged && !pricingChanged && !opts.created)
       await tx.salesOrder.update({ where: { id }, data: { version: { increment: 1 } } });
 
     // ใบส่งของตาม SO (ST3-T09): 1 DO = ทั้ง SO เมื่อพร้อม · SO แก้ข้อมูลที่ DO ใช้ → สร้างชุดใหม่ (ORD-085)
     await this.deliveryOrders.syncWithOrder(tx, id, opts.releasedDos ?? []);
 
     const changed =
-      opts.created || opts.dataChanged || pricingChanged || plan.events.length > 0 || noteChanged;
+      opts.created || dataChanged || pricingChanged || plan.events.length > 0 || noteChanged;
     const final = await tx.salesOrder.findUniqueOrThrow({ where: { id }, include: INCLUDE });
     if (opts.created) {
       await this.audit.record({
@@ -551,16 +840,12 @@ export class OrderIntakeService {
         after: orderEventView(final, { lines: true }),
       });
     } else if (changed) {
-      const before = opts.before ?? orderEventView(order, { lines: true });
+      const before = opts.before ?? orderEventView(loadedOrder, { lines: true });
       const after = orderEventView(final, { lines: true });
       await this.audit.changed(`${ENTITY}.updated`, ENTITY, id, before, after);
       // ร่างไม่ส่ง event (order.created เกิดตอนพ้นร่าง — transition submit)
-      if (
-        (opts.dataChanged || pricingChanged) &&
-        order.status !== 'DRAFT' &&
-        final.status !== 'DRAFT'
-      ) {
-        const evBefore = orderEventView(order);
+      if ((dataChanged || pricingChanged) && order.status !== 'DRAFT' && final.status !== 'DRAFT') {
+        const evBefore = orderEventView(loadedOrder);
         const evAfter = orderEventView(final);
         await this.emit(tx, 'order.updated', id, evAfter, diff(evBefore, evAfter).before);
       }
@@ -576,17 +861,23 @@ export class OrderIntakeService {
     // ลูกค้า: id ตรง → ต้องมีอยู่ (422) · ปิดใช้ = order ยังเข้าระบบแต่ค้าง CUSTOMER_UNMAPPED และไม่ใช้ rate ของลูกค้านั้น
     // (docs/04 C ทุกใบเข้าระบบ > spec/02 MD-003/MD-026 — [OPEN] spec/12 §3) · รหัสต้นทาง → จับคู่ตรงตัวกับลูกค้าที่ใช้งานอยู่
     // (ไม่พบ = CUSTOMER_UNMAPPED; alias/fuzzy = ST3-T06)
+    // ST3-T06: ไม่มี id → จับคู่ (externalId ตรง → alias รหัสของช่องทางนี้ → alias ชื่อ) — ไม่พบ = CUSTOMER_UNMAPPED
     let customerId = n.customer.id;
+    let matchMethod: string | null = null;
     if (customerId) {
       const [row] = await lockReferenced(tx, 'customer', [customerId]);
       if (!row) throw field422('customer.id', 'reference_not_found', 'customer not found');
-    } else if (n.customer.externalId) {
-      const byExt = await tx.customer.findFirst({
-        where: { externalId: n.customer.externalId, deletedAt: null, status: 'ACTIVE' },
-        select: { id: true },
+      // ลูกค้าเดิมของใบ (เช่น PATCH ส่ง id ที่ได้จากการจับคู่) = คงวิธีเดิม
+      matchMethod =
+        current?.customerId === customerId ? (current.customerMatchMethod ?? 'INPUT') : 'INPUT';
+    } else if (n.customer.externalId || n.customer.text) {
+      const m = await this.matching.matchCustomer(tx, {
+        externalId: n.customer.externalId,
+        text: n.customer.text,
+        source: formatOrderSource({ source: n.source, connector: n.connector }),
       });
-      if (byExt && (await lockReferenced(tx, 'customer', [byExt.id]))[0]?.status === 'ACTIVE')
-        customerId = byExt.id;
+      customerId = m.customerId;
+      matchMethod = m.method;
     }
     const customer = customerId
       ? await tx.customer.findUnique({
@@ -658,7 +949,7 @@ export class OrderIntakeService {
       false,
       (current?.lines ?? []).map((l) => l.productId),
     );
-    return customer;
+    return { customer, matchMethod: customer ? matchMethod : null };
   }
 
   /**
@@ -782,12 +1073,23 @@ export class OrderIntakeService {
       stops: n.stops.map((s, i) => {
         const prev = current?.stops[i];
         const keep = !s.siteText && s.siteId && prev?.siteId === s.siteId ? prev.siteText : null;
+        const siteText = s.siteText || keep || names.get(s.siteId!) || '';
+        // ST3-T06: ข้อความเดิมของจุดเดิมที่จับคู่ไว้แล้ว (อัตโนมัติ/คนเลือก) → คงสถานที่ + ผลจับคู่เดิม
+        // (ต้นทางส่งซ้ำแบบไม่มี siteId ไม่ลบผลที่คน map ไว้ และไม่นับเป็นการแก้จุดหลังวางแผน)
+        const samePrev =
+          !!prev?.siteId &&
+          prev.siteText === siteText &&
+          prev.type === s.type &&
+          (s.siteId === null || s.siteId === prev.siteId);
         return {
           type: s.type,
-          siteId: s.siteId,
-          siteText: s.siteText || keep || names.get(s.siteId!) || '',
+          siteId: samePrev ? prev.siteId : s.siteId,
+          siteText,
           windowStart: s.windowStart ? new Date(s.windowStart) : null,
           windowEnd: s.windowEnd ? new Date(s.windowEnd) : null,
+          matchMethod: samePrev ? prev.matchMethod : null,
+          matchScore: samePrev ? (prev.matchScore?.toFixed(3) ?? null) : null,
+          matchCandidates: Prisma.DbNull,
         };
       }),
       lines: n.lines.map((l) => ({
