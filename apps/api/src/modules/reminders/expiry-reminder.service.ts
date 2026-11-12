@@ -114,7 +114,13 @@ export class ExpiryReminderService implements OnModuleInit {
           typeof p.day === 'string' && isRealDate(p.day) ? p.day : bangkokToday(this.clock.now());
         // ตรวจสถานะ tenant ซ้ำตอนรัน — ถูกระงับ/ยกเลิกหลังสร้าง job แล้วต้องไม่ได้เตือน (QA ST2-T18)
         if (!(await this.tenantActive(tenantId))) return { skipped: 'tenant_inactive', day: today };
-        return this.runForTenant(tenantId, today, withTx);
+        const r = await this.runForTenant(tenantId, today, withTx);
+        // ผู้รับบางคนล้ม → ให้ JobQueue ลองใหม่แบบ backoff (คนที่ได้แล้วถูกสมุดเตือนกันไว้ = ไม่ส่งซ้ำ)
+        if (r.failedRecipients > 0)
+          throw new Error(
+            `expiry digest failed for ${r.failedRecipients} recipient(s) — retrying (${r.digests} delivered)`,
+          );
+        return r;
       },
       { outsideTransaction: true },
     );
@@ -129,7 +135,7 @@ export class ExpiryReminderService implements OnModuleInit {
     if (bkk.getUTCHours() < RUN_FROM_HOUR_BKK) return 0;
     const today = bangkokToday(now);
     return this.prisma.platform.$transaction(async (db) => {
-      await db.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('job:expiry.reminders'))`;
+      await db.$executeRaw`SELECT pg_advisory_xact_lock(8, hashtext('expiry.reminders'))`;
       const tenants = await db.tenant.findMany({
         where: { status: { in: ['TRIAL', 'ACTIVE'] } },
         select: { id: true },
@@ -317,16 +323,18 @@ export class ExpiryReminderService implements OnModuleInit {
   private async syncVehicleDocStatus(tx: Tx, today: string): Promise<number> {
     const t = toDate(today);
     const edge = toDate(addDays(today, EXPIRING_DAYS));
+    // รถที่ปลด/ลบแล้วไม่แตะ (เหมือนตอนเลือกรายการเตือน)
+    const vehicle = { status: { not: 'RETIRED' as const }, deletedAt: null };
     const a = await tx.vehicleDocument.updateMany({
-      where: { status: { in: ['ACTIVE', 'EXPIRING'] }, expiresOn: { lt: t } },
+      where: { status: { in: ['ACTIVE', 'EXPIRING'] }, expiresOn: { lt: t }, vehicle },
       data: { status: 'EXPIRED' },
     });
     const b = await tx.vehicleDocument.updateMany({
-      where: { status: { in: ['ACTIVE', 'EXPIRED'] }, expiresOn: { gte: t, lte: edge } },
+      where: { status: { in: ['ACTIVE', 'EXPIRED'] }, expiresOn: { gte: t, lte: edge }, vehicle },
       data: { status: 'EXPIRING' },
     });
     const c = await tx.vehicleDocument.updateMany({
-      where: { status: { in: ['EXPIRING', 'EXPIRED'] }, expiresOn: { gt: edge } },
+      where: { status: { in: ['EXPIRING', 'EXPIRED'] }, expiresOn: { gt: edge }, vehicle },
       data: { status: 'ACTIVE' },
     });
     return a.count + b.count + c.count;

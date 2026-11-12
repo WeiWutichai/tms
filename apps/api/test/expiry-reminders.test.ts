@@ -582,6 +582,48 @@ describe('เตือนต่ออายุ: job รายวัน (ST2-T18)
     expect(await digests(tA, owner)).toHaveLength(1);
   });
 
+  it('job: ผู้รับบางคนล้ม → job ล้มให้ JobQueue ลองใหม่ (backoff) → รอบลองใหม่ส่งเฉพาะคนที่ขาด', async () => {
+    const v = await vehicle(tA, vtA);
+    await doc(tA, v.id, addDays(D0, 30));
+    const real = notifications.notify.bind(notifications);
+    const spy = vi.spyOn(notifications, 'notify').mockImplementation(async (tx, input) => {
+      if (input.to.userIds?.includes(planner)) throw new Error('smtp outbox down');
+      return real(tx, input);
+    });
+    await runDay(D0);
+    const job = await db.job.findFirstOrThrow({
+      where: { tenantId: tA, type: EXPIRY_REMINDER_JOB },
+    });
+    expect(job).toMatchObject({ status: 'PENDING', attempts: 1 });
+    expect((job.error as { message: string }).message).toContain('retrying');
+    expect((await digests(tA)).map((x) => x.recipientId)).toEqual([owner]);
+    spy.mockRestore();
+    // ถึงเวลาลองใหม่ (นาฬิกาฐานข้อมูล)
+    await db.$executeRaw`UPDATE job SET run_at = now() WHERE id = ${job.id}::uuid`;
+    while (await queue.runOnce());
+    expect((await db.job.findUniqueOrThrow({ where: { id: job.id } })).status).toBe('SUCCEEDED');
+    expect((await digests(tA)).map((x) => x.recipientId).sort()).toEqual([owner, planner].sort());
+  });
+
+  it('ซิงก์สถานะไม่แตะเอกสารของรถที่ปลด/ลบแล้ว', async () => {
+    const retired = await vehicle(tA, vtA);
+    const dR = await doc(tA, retired.id, addDays(D0, -5));
+    await db.vehicle.update({
+      where: { id: retired.id },
+      data: { status: 'RETIRED', retiredAt: new Date() },
+    });
+    const gone = await vehicle(tA, vtA);
+    const dG = await doc(tA, gone.id, addDays(D0, 10));
+    await db.vehicle.update({ where: { id: gone.id }, data: { deletedAt: new Date() } });
+    await runDay(D0);
+    expect((await db.vehicleDocument.findUniqueOrThrow({ where: { id: dR.id } })).status).toBe(
+      'ACTIVE',
+    );
+    expect((await db.vehicleDocument.findUniqueOrThrow({ where: { id: dG.id } })).status).toBe(
+      'ACTIVE',
+    );
+  });
+
   it('ผู้รับเกิน 500 คน (เพดานของ notify) → ทุกคนได้สรุป ไม่ล้ม', async () => {
     const tC = (await createTenant(db, 'บริษัท ผู้ใช้เยอะ จำกัด')).id;
     const roles = await ensureSystemRoles(db, tC);

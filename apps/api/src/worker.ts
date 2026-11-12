@@ -30,7 +30,7 @@ async function main() {
       .catch((e) => log.error(e));
   void daily();
   const timer = setInterval(daily, 24 * 60 * 60 * 1000);
-  // ST2-T18 เตือนต่ออายุ: ตรวจทุก 10 นาที — ตั้งแต่ 06:00 เวลาไทย สร้าง job ของวันนี้ให้ tenant ที่ยังไม่มี (ซ้ำได้ ไม่เตือนซ้ำ)
+  // ST2-T18 เตือนต่ออายุ: ตรวจทุก 10 นาที — ตั้งแต่ 08:00 เวลาไทย (docs/04 I) สร้าง job ของวันนี้ให้ tenant ที่ยังไม่มี (ซ้ำได้ ไม่เตือนซ้ำ)
   const reminders = ctx.get(ExpiryReminderService);
   const schedule = () =>
     reminders
