@@ -251,6 +251,31 @@ describe('ความเข้ากันได้ของประเภท�
     });
   });
 
+  it('ประเภทรถ/รถที่ลบแล้ว (soft delete) → 404', async () => {
+    const t = await vtype({});
+    const v = (
+      await api(app, admin)
+        .post('/v1/vehicles')
+        .send({ plate: '70-1618', plateProvince: 'TH-10', vehicleTypeId: t.id, ownership: 'OWN' })
+        .expect(201)
+    ).body as { id: string };
+    expect((await check({ vehicleId: uuid('vehicle', v.id) })).vehicleType.id).toBe(t.id);
+    await api(app, admin)
+      .post(`/v1/vehicles/${v.id}/delete`)
+      .send({ reason: 'สร้างผิด ลบทิ้ง ทดสอบ' })
+      .expect(204);
+    await expect(check({ vehicleId: uuid('vehicle', v.id) })).rejects.toMatchObject({
+      code: 'not_found',
+    });
+    await api(app, admin)
+      .post(`/v1/vehicle-types/${t.id}/delete`)
+      .send({ reason: 'สร้างผิด ลบทิ้ง ทดสอบ' })
+      .expect(204);
+    await expect(check({ vehicleTypeId: uuid('vehicleType', t.id) })).rejects.toMatchObject({
+      code: 'not_found',
+    });
+  });
+
   it('ประเภทรถที่ SO ขอเป็นห้องเย็น 6 ล้อ + รถ 6 ล้อธรรมดา → CAPABILITY_MISSING (REFRIGERATED) แม้ไม่มีสินค้า', async () => {
     const reqReefer = await vtype({
       vehicleClass: '6W',

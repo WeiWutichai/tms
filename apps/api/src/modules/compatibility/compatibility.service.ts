@@ -16,7 +16,7 @@ import { DbService, type Tx } from '../../db/db.service';
  * ผู้เรียก: ST3-T14 (constraint ตอนจัดรถ: เตือน + override พร้อมเหตุผล + audit) — ฟังก์ชันนี้ **ไม่บล็อก ไม่เขียนอะไร**
  *
  * - รับ uuid ภายใน (เหมือน `RoutesService.getRouteDistance`) + `tx` ที่ตั้ง tenant แล้ว → RLS กันข้าม tenant
- * - ประเภทรถ/รถไม่พบ (รวมของ tenant อื่น หรือ id ไม่ใช่ uuid) → 404
+ * - ประเภทรถ/รถไม่พบ (รวมของ tenant อื่น, ลบแล้ว (soft delete) หรือ id ไม่ใช่ uuid) → 404
  * - สินค้า/จุด/ประเภทรถที่ SO ขอ ไม่พบ → 422 `validation_failed` + `reference_not_found` ต่อช่อง (ไม่ข้ามเงียบ — กันผลว่า "เข้ากันได้" ทั้งที่ไม่ได้ตรวจ)
  * - ประเภทรถที่ SO ขอมีป้ายความสามารถ (เช่น ห้องเย็น) → นับเป็นความสามารถที่งานต้องการด้วย
  * - สินค้า/จุดที่ปิดใช้หรือลบแล้วยังถูกนำมาเทียบ (SO เก่าอ้างได้ — ความเข้ากันได้เป็นคุณสมบัติของข้อมูล ไม่ใช่สถานะ)
@@ -111,12 +111,15 @@ export class CompatibilityService {
     let vt;
     if (input.vehicleTypeId !== undefined) {
       if (!isUuid(input.vehicleTypeId)) throw notFound();
-      vt = await tx.vehicleType.findFirst({ where: { id: input.vehicleTypeId }, select: vtSelect });
+      vt = await tx.vehicleType.findFirst({
+        where: { id: input.vehicleTypeId, deletedAt: null },
+        select: vtSelect,
+      });
     } else if (input.vehicleId !== undefined) {
       if (!isUuid(input.vehicleId)) throw notFound();
       vt = (
         await tx.vehicle.findFirst({
-          where: { id: input.vehicleId },
+          where: { id: input.vehicleId, deletedAt: null },
           select: { vehicleType: { select: vtSelect } },
         })
       )?.vehicleType;
