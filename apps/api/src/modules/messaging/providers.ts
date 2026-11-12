@@ -50,6 +50,12 @@ export function maskRecipient(channel: MessageChannel, to: string): string {
 /** ข้อความใน log: ตัด token ของลิงก์ (ml1.…) ออก */
 export const redactLinks = (s: string) => s.replace(/ml1\.[A-Za-z0-9._-]+/g, 'ml1.•••');
 
+/** ข้อความ error ที่เก็บ/ลง log: ตัดลิงก์ + ตัวเลขต่อกัน ≥ 6 หลัก (เบอร์/บัญชี) + สั้น (review ST3-T21) */
+export const safeError = (e: unknown) =>
+  redactLinks(String((e as Error)?.message ?? e))
+    .replace(/\d(?:[\s-]?\d){5,}/g, '•••')
+    .slice(0, 200);
+
 /** dev/test — ไม่ออกนอกเครื่อง · `down = true` จำลองผู้ให้บริการล่ม (test) */
 export class MockMessagingProvider implements MessagingProvider {
   readonly name = 'mock';
@@ -89,25 +95,24 @@ async function post(
       headers: { 'Content-Type': 'application/json', ...headers },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(TIMEOUT_MS),
+      // ไม่ตาม redirect (ส่ง token/ข้อความไปที่อื่นไม่ได้)
+      redirect: 'error',
     });
   } catch (e) {
-    throw new MessagingError(
-      `network error: ${String((e as Error).message ?? e).slice(0, 200)}`,
-      'provider_unavailable',
-      true,
-    );
+    const name = (e as Error)?.name === 'TimeoutError' ? 'timeout' : 'network error';
+    throw new MessagingError(name, 'provider_unavailable', true);
   }
 }
 
-/** สถานะ HTTP → ลองใหม่ได้ไหม (429/5xx = ได้) */
-function httpError(prefix: string, status: number, detail: string): MessagingError {
+/** สถานะ HTTP → ลองใหม่ได้ไหม (429/5xx = ได้) — เก็บแค่สถานะ ไม่เก็บ response ของ provider */
+function httpError(prefix: string, status: number): MessagingError {
   const retryable = status === 429 || status >= 500;
   const code = retryable
     ? 'provider_unavailable'
     : status === 401 || status === 403
       ? 'provider_auth_failed'
       : 'provider_rejected';
-  return new MessagingError(`${prefix} ${status}: ${detail.slice(0, 300)}`, code, retryable);
+  return new MessagingError(`${prefix} HTTP ${status}`, code, retryable);
 }
 
 /**
@@ -135,7 +140,7 @@ export class LineMessagingProvider implements MessagingProvider {
     const requestId = res.headers.get('x-line-request-id') ?? undefined;
     if (res.status === 409 && res.headers.get('x-line-accepted-request-id'))
       return { messageId: res.headers.get('x-line-accepted-request-id') ?? requestId };
-    if (!res.ok) throw httpError('LINE', res.status, await res.text().catch(() => ''));
+    if (!res.ok) throw httpError('LINE', res.status);
     const json = (await res.json().catch(() => ({}))) as { sentMessages?: { id?: string }[] };
     return { messageId: json.sentMessages?.[0]?.id ?? requestId };
   }
@@ -164,7 +169,7 @@ export class HttpSmsProvider implements MessagingProvider {
       { Authorization: `Bearer ${this.token}`, 'Idempotency-Key': m.retryKey },
       { to, text: m.text, sender: this.sender },
     );
-    if (!res.ok) throw httpError('SMS', res.status, await res.text().catch(() => ''));
+    if (!res.ok) throw httpError('SMS', res.status);
     const json = (await res.json().catch(() => ({}))) as { id?: string; messageId?: string };
     return { messageId: json.messageId ?? json.id };
   }

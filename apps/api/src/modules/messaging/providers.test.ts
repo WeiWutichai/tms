@@ -6,9 +6,10 @@ import {
   maskRecipient,
   MessagingError,
   redactLinks,
+  safeError,
   smsProviderFromEnv,
 } from './providers';
-import { renderMessage } from './templates';
+import { messageName, renderMessage } from './templates';
 
 const env0 = process.env.NODE_ENV;
 afterEach(() => {
@@ -120,24 +121,34 @@ describe('template ข้อความ (ไทย)', () => {
     expiresAt: new Date('2026-11-20T03:14:00Z'),
     yearStyle: 'BE' as const,
   };
-  it('LINE: ทักชื่อ + ลิงก์ + วันหมดอายุเวลาไทย พ.ศ.', () => {
+  it('LINE: ทักชื่อ + ลิงก์ + วันหมดอายุเวลาไทย พ.ศ. · SMS: ข้อความคงที่ ไม่มีชื่อที่ tenant กรอก', () => {
     expect(renderMessage('carrier_docs_link', 'LINE', 'th', v)).toBe(
       'เรียน หจก. รถร่วมสมมติ\nศรีสมมติขนส่ง ขอให้ส่งเอกสารรถและใบขับขี่ (ประกันภัย พ.ร.บ. ใบขับขี่) ผ่านลิงก์นี้ ไม่ต้องสมัครหรือ login\nhttps://tms.test/link/carrier-docs/ml1.x\nลิงก์ใช้ได้ถึง 20 พฤศจิกายน 2569 10:14 น.',
     );
     expect(renderMessage('job_offer_link', 'SMS', 'th', { ...v, ref: 'JOB-0001' })).toBe(
-      'ศรีสมมติขนส่ง: ข้อเสนองาน JOB-0001 https://tms.test/link/carrier-docs/ml1.x (ถึง 20 พฤศจิกายน 2569 10:14 น.)',
+      'TMS: ข้อเสนองานขนส่ง https://tms.test/link/carrier-docs/ml1.x (ถึง 20 พฤศจิกายน 2569 10:14 น.)',
     );
     expect(renderMessage('carrier_docs_link', 'LINE', 'th', { ...v, yearStyle: 'CE' })).toContain(
       '20 พฤศจิกายน 2026',
     );
-  });
-  it('ชื่อที่ tenant กรอกเองถูกตัด URL/โดเมน (กันฟิชชิง) · อังกฤษได้', () => {
-    const t = renderMessage('carrier_docs_link', 'SMS', 'th', {
-      ...v,
-      sender: 'โปรโมชั่น https://evil.example/x evil.com',
-    });
-    expect(t.startsWith('โปรโมชั่น: ')).toBe(true);
-    expect(t).not.toContain('evil');
     expect(renderMessage('carrier_docs_link', 'SMS', 'en', v)).toContain('until 20 Nov 2026 10:14');
+  });
+  it('sanitiser: ตัด URL/โดเมนใด ๆ (คำที่มีจุด + ตัวอักษร ≥ 2) และตัวเลขยาว ≥ 6 หลักออกจากชื่อ', () => {
+    expect(messageName('โปรโมชั่น https://evil.example/x evil.com bit.ly/a x.zz')).toBe(
+      'โปรโมชั่น',
+    );
+    expect(messageName('โทรด่วน 081-234-5678 หรือ 0812345678 บัญชี 123 456 789')).toBe(
+      'โทรด่วน หรือ บัญชี',
+    );
+    expect(messageName('หจก. รถร่วม 12 ล้อ สาขา 00001')).toBe('หจก. รถร่วม 12 ล้อ สาขา 00001');
+    const t = renderMessage('carrier_docs_link', 'LINE', 'th', {
+      ...v,
+      sender: 'โปรโมชั่น evil.co 0899999999',
+    });
+    expect(t).toContain('\nโปรโมชั่น ขอให้ส่ง');
+    expect(t).not.toMatch(/evil|0899999999/);
+  });
+  it('error ที่เก็บไม่มีตัวเลขยาว/ลิงก์', () => {
+    expect(safeError(new Error('to 0812345678 failed ml1.abc.1.x'))).toBe('to ••• failed ml1.•••');
   });
 });

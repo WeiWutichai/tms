@@ -28,32 +28,12 @@ export class SendLinkDto {
   @ApiProperty({
     description:
       'URL ลิงก์ที่ระบบออกให้ (เช่น `url` จาก POST /v1/carriers/{id}/upload-links) — ต้องเป็นลิงก์ที่ยังใช้ได้ของบริษัทนี้ ' +
-      'ระบบเลือก template + สิทธิ์ตามชนิดลิงก์ (carrier_docs → `master:write`, trip_offer → `trips:assign`)',
+      'ระบบเลือก template + สิทธิ์ตามชนิดลิงก์ (carrier_docs → `master:write`; trip_offer ยังส่งไม่ได้จนถึง ST3-T23) · ' +
+      'ผู้รับ = ช่องทางที่บันทึกไว้ของผู้รับเหมาเจ้าของลิงก์ (เบอร์มือถือ / LINE userId) — ระบุผู้รับเองไม่ได้',
   })
   @IsString()
   @MaxLength(1000)
   url!: string;
-
-  @ApiPropertyOptional({
-    example: 'car_…',
-    description:
-      'ผู้รับเหมาที่จะส่งถึง — ไม่ส่ง `to` = ใช้เบอร์ (SMS) / LINE userId (LINE) ที่บันทึกไว้ของผู้รับเหมา · ลิงก์ของผู้รับเหมาต้องเป็นรายเดียวกัน',
-  })
-  @IsOptionalNotNull()
-  @IsString()
-  @MaxLength(40)
-  carrierId?: string;
-
-  @ApiPropertyOptional({
-    example: '0812345678',
-    description:
-      'ผู้รับระบุตรง: LINE userId (U + 32 hex) หรือเบอร์มือถือไทย — ไม่เก็บเป็นข้อความเปิด (เข้ารหัส + ปิดบัง)',
-  })
-  @IsOptionalNotNull()
-  @IsString()
-  @MaxLength(40)
-  @Matches(/^[0-9A-Za-z+\-. _@]+$/)
-  to?: string;
 }
 
 export class MessageDeliveryDto {

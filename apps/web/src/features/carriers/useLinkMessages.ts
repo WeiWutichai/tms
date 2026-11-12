@@ -38,7 +38,7 @@ export function useSendLink(carrierId: string) {
     mutationFn: (v: { channel: ChannelKey; url: string; idempotencyKey: string }) =>
       idempotent(() =>
         api.POST('/v1/messages/send-link', {
-          body: { channel: v.channel, url: v.url, carrierId },
+          body: { channel: v.channel, url: v.url },
           headers: { 'Idempotency-Key': v.idempotencyKey },
         }),
       ),

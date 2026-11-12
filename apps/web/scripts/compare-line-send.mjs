@@ -95,6 +95,11 @@ if (!list.data?.length)
       lineContact: `U${'4f2a9c1e'.repeat(4)}`,
     },
   });
+// ช่อง LINE/SMS ปิดเป็นค่าเริ่มต้น — เปิดสำหรับภาพ (ผู้ให้บริการ mock)
+await W.request.patch('/v1/settings/messaging', {
+  headers: auth,
+  data: { lineEnabled: true, smsEnabled: true },
+});
 await W.goto('/fleet/drivers');
 await W.waitForTimeout(1500);
 await W.locator('button', { hasText: /^ผู้รับเหมา/ })

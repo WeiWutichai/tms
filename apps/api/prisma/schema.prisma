@@ -2061,7 +2061,7 @@ model MessagingSetting {
   lineEnabled    Boolean  @default(false) @map("line_enabled")
   lineTokenEnc   String?  @map("line_token_enc") /// channel access token (long-lived) → FieldCipher
   lineTokenLast4 String?  @map("line_token_last4") @db.VarChar(4)
-  smsEnabled     Boolean  @default(true) @map("sms_enabled")
+  smsEnabled     Boolean  @default(false) @map("sms_enabled") /// ปิดเป็นค่าเริ่มต้น — admin เปิดเอง (review ST3-T21 M1)
   version        Int      @default(1)
   updatedBy      String?  @map("updated_by")
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -2072,7 +2072,8 @@ model MessagingSetting {
 
 /// ST3-T21 outbox + บันทึกการส่งข้อความ LINE/SMS (ลิงก์ตาม template) — API เขียนแถวใน transaction, worker ส่ง (retry + backoff)
 /// ผู้รับเก็บแบบเข้ารหัส (recipient_enc) + แบบปิดบัง (recipient_masked) + blind index (rate limit ต่อผู้รับ)
-/// body (มีลิงก์/token) และ recipient_enc ถูกลบเมื่อจบ (SENT/FAILED) — role แอปอ่านสองคอลัมน์นี้ไม่ได้
+/// ไม่เก็บเนื้อความ/ลิงก์ (token): เก็บตัวแปร template (vars) + magic_link_id — worker render + สร้าง URL ตอนส่ง
+/// vars และ recipient_enc ถูกลบเมื่อจบ (SENT/FAILED) — role แอปอ่านสองคอลัมน์นี้ไม่ได้
 model MessageDelivery {
   id                String    @id @default(uuid()) @db.Uuid
   tenantId          String    @map("tenant_id") @db.Uuid
@@ -2084,7 +2085,7 @@ model MessageDelivery {
   recipientHash     String    @map("recipient_hash")
   recipientType     String?   @map("recipient_type") /// carrier | null (ระบุผู้รับตรง)
   recipientRefId    String?   @map("recipient_ref_id") @db.Uuid
-  body              String?
+  vars              Json? /// {sender, recipientName, ref, yearStyle} — ชื่อผ่าน sanitiser แล้ว
   magicLinkId       String?   @map("magic_link_id") @db.Uuid
   entityType        String?   @map("entity_type")
   entityId          String?   @map("entity_id") @db.Uuid
@@ -2108,4 +2109,14 @@ model MessageDelivery {
   @@index([tenantId, entityType, entityId, createdAt])
   @@index([tenantId, recipientHash, createdAt])
   @@map("message_delivery")
+}
+
+/// ST3-T21 เพดานต่อผู้รับข้ามทุกบริษัท (กันใช้ SMS/LINE ของระบบรบกวนคนคนเดียวจากหลายบริษัท) — ไม่มี tenant_id
+model MessageRecipientCounter {
+  recipientHash String   @map("recipient_hash")
+  hour          DateTime @db.Timestamptz(6)
+  count         Int      @default(0)
+
+  @@id([recipientHash, hour])
+  @@map("message_recipient_counter")
 }

@@ -6,7 +6,12 @@ import { DbService } from '../src/db/db.service';
 import { resetPublicRateLimit } from '../src/http/public-rate-limit.middleware';
 import { MessageDispatcher, RETRY_BASE_S } from '../src/modules/messaging/message-dispatcher';
 import { MessagingProviders } from '../src/modules/messaging/messaging.providers';
-import { RECIPIENT_PER_HOUR, TENANT_PER_HOUR } from '../src/modules/messaging/messaging.service';
+import {
+  RECIPIENT_PER_HOUR,
+  RECIPIENT_PLATFORM_PER_HOUR,
+  TENANT_PER_HOUR,
+} from '../src/modules/messaging/messaging.service';
+import { BlindIndex } from '../src/common/blind-index';
 import { LineMessagingProvider, MockMessagingProvider } from '../src/modules/messaging/providers';
 import { api, bootApp, createTenant, platform, tokenFor, truncateAll, validTaxId } from './helpers';
 
@@ -70,6 +75,9 @@ describe('ส่งลิงก์ทาง LINE / SMS (messaging)', () => {
     // แต่ละข้อเริ่มจาก log ว่าง (เพดานต่อผู้รับนับจาก log)
     await db.messageDelivery.deleteMany({});
     await db.messagingSetting.deleteMany({});
+    await db.messageRecipientCounter.deleteMany({});
+    // ปิดเป็นค่าเริ่มต้น — test ส่วนใหญ่เปิดทั้งสองช่อง (mock ไม่ต้องมี token)
+    await db.messagingSetting.create({ data: { tenantId, lineEnabled: true, smsEnabled: true } });
   });
   afterAll(async () => {
     await app.close();
@@ -134,7 +142,7 @@ describe('ส่งลิงก์ทาง LINE / SMS (messaging)', () => {
     expect(got.body.sentAt).toBeTruthy();
     // ส่งแล้วลบเนื้อความ (มี token) + ผู้รับตัวจริง เหลือแบบปิดบัง
     const db1 = await row(r.body.id);
-    expect(db1.body).toBeNull();
+    expect(db1.vars).toBeNull();
     expect(db1.recipientEnc).toBeNull();
     expect(db1.recipientMasked).toBe('U0a•••2c3d');
 
@@ -155,11 +163,11 @@ describe('ส่งลิงก์ทาง LINE / SMS (messaging)', () => {
     expect(r.body.recipient).toBe('081•••5678');
     await dispatcher.drain();
     expect(sms.sent[0]!.to).toBe('0812345678');
-    expect(sms.sent[0]!.text.startsWith('ศรีสมมติขนส่ง: ส่งเอกสารรถ/ใบขับขี่ ')).toBe(true);
-    expect(sms.sent[0]!.text.length).toBeLessThan(link.url.length + 70);
-    // ระบุเบอร์ตรงได้ (+66)
-    const r2 = await send({ channel: 'sms', url: link.url, to: '+66 89 111 2233' }).expect(202);
-    expect(r2.body.recipient).toBe('089•••2233');
+    // SMS = ข้อความคงที่ + ลิงก์ ไม่มีชื่อที่ tenant กรอก (บัญชี SMS ของระบบ)
+    expect(sms.sent[0]!.text.startsWith('TMS: ส่งเอกสารรถ/ใบขับขี่')).toBe(true);
+    expect(sms.sent[0]!.text).not.toContain('ศรีสมมติ');
+    expect(sms.sent[0]!.text).toContain(link.url);
+    expect(sms.sent[0]!.text.length).toBeLessThan(link.url.length + 80);
   });
 
   it('ล้มแบบลองใหม่ได้ → QUEUED + backoff แล้วสำเร็จรอบถัดไป', async () => {
@@ -170,7 +178,8 @@ describe('ส่งลิงก์ทาง LINE / SMS (messaging)', () => {
     await dispatcher.drain();
     let m = await row(r.body.id);
     expect(m).toMatchObject({ status: 'QUEUED', attempts: 1, errorCode: 'provider_unavailable' });
-    expect(m.body).not.toBeNull(); // ยังไม่จบ — เก็บไว้ส่งรอบหน้า
+    expect(m.vars).not.toBeNull(); // ยังไม่จบ — เก็บไว้ส่งรอบหน้า (ตัวแปร ไม่ใช่ลิงก์)
+    expect(JSON.stringify(m)).not.toContain(link.token);
     // รอบถัดไป ≈ 10 วินาที (นาฬิกาฐานข้อมูล)
     expect(m.runAt.getTime() - t0).toBeGreaterThan((RETRY_BASE_S - 3) * 1000);
     expect(await dispatcher.drain()).toBe(0); // ยังไม่ถึงเวลา
@@ -185,7 +194,7 @@ describe('ส่งลิงก์ทาง LINE / SMS (messaging)', () => {
     await due();
     await dispatcher.drain();
     m = await row(r.body.id);
-    expect(m).toMatchObject({ status: 'SENT', attempts: 3, errorCode: null, body: null });
+    expect(m).toMatchObject({ status: 'SENT', attempts: 3, errorCode: null, vars: null });
     expect(line.sent).toHaveLength(1);
   });
 
@@ -199,7 +208,7 @@ describe('ส่งลิงก์ทาง LINE / SMS (messaging)', () => {
     }
     const m = await row(r.body.id);
     expect(m).toMatchObject({ status: 'FAILED', attempts: 5, errorCode: 'provider_unavailable' });
-    expect(m.body).toBeNull();
+    expect(m.vars).toBeNull();
     expect(m.recipientEnc).toBeNull();
     expect(m.failedAt).toBeTruthy();
     const list = await api(app, admin)
@@ -236,6 +245,7 @@ describe('ส่งลิงก์ทาง LINE / SMS (messaging)', () => {
   });
 
   it('LINE จริง (fetch ปลอม): token ต่อบริษัทเข้ารหัส ไม่คืนใน API/audit, ส่งด้วย Bearer + X-Line-Retry-Key', async () => {
+    await db.messagingSetting.deleteMany({});
     const calls: { url: string; init: RequestInit }[] = [];
     let reply: () => Response = () =>
       new Response(JSON.stringify({ sentMessages: [{ id: '5000000001', quoteToken: 'q' }] }), {
@@ -299,6 +309,7 @@ describe('ส่งลิงก์ทาง LINE / SMS (messaging)', () => {
     expect(calls[0]!.url).toBe('https://line.test.invalid/v2/bot/message/push');
     const h = calls[0]!.init.headers as Record<string, string>;
     expect(h.Authorization).toBe(`Bearer ${LINE_TOKEN}`);
+    expect(calls[0]!.init.redirect).toBe('error');
     expect(h['X-Line-Retry-Key']).toBe(tryDecodeId('messageDelivery', r.body.id));
     const payload = JSON.parse(String(calls[0]!.init.body));
     expect(payload.to).toBe(LINE_UID);
@@ -327,6 +338,7 @@ describe('ส่งลิงก์ทาง LINE / SMS (messaging)', () => {
     const f = await row(r3.body.id);
     expect(f).toMatchObject({ status: 'FAILED', attempts: 1, errorCode: 'provider_auth_failed' });
     expect(f.error).not.toContain(LINE_TOKEN);
+    expect(f.error).toBe('LINE HTTP 401'); // ไม่เก็บ response ของ provider
 
     // 500 → ลองใหม่
     reply = () => new Response('oops', { status: 503 });
@@ -358,7 +370,7 @@ describe('ส่งลิงก์ทาง LINE / SMS (messaging)', () => {
     const link = await issue();
     await send({ channel: 'line', url: link.url }).expect(202);
     await expect(
-      dbs.withTenant(tenantId, (tx) => tx.$queryRaw`SELECT body FROM message_delivery`),
+      dbs.withTenant(tenantId, (tx) => tx.$queryRaw`SELECT vars FROM message_delivery`),
     ).rejects.toThrow(/permission denied/);
     await expect(
       dbs.withTenant(tenantId, (tx) => tx.$queryRaw`SELECT recipient_enc FROM message_delivery`),
@@ -385,30 +397,35 @@ describe('ส่งลิงก์ทาง LINE / SMS (messaging)', () => {
     expect(await code({ channel: 'line', url: `${link.url.slice(0, -3)}AAA` })).toBe(
       'link_invalid',
     );
-    // ลิงก์ของผู้รับเหมาอื่น
-    expect(await code({ channel: 'sms', url: link.url, carrierId: carrierB })).toBe(
-      'link_mismatch',
-    );
+    // ระบุผู้รับเอง/ผู้รับเหมาอื่นไม่ได้ (ช่อง to / carrierId ถูกตัดออก — review M1)
+    expect(await code({ channel: 'sms', url: link.url, to: '0899999999' })).toBeTruthy();
+    expect(await code({ channel: 'sms', url: link.url, carrierId: carrierB })).toBeTruthy();
+    expect(await db.messageDelivery.count()).toBe(0);
     // ผู้รับเหมา B: LINE ID แบบ @ ใช้ push ไม่ได้ · เบอร์บ้านส่ง SMS ไม่ได้
     const linkB = await issue(carrierB);
     expect(await code({ channel: 'line', url: linkB.url })).toBe('recipient_missing');
     expect(await code({ channel: 'sms', url: linkB.url })).toBe('recipient_missing');
-    expect(await code({ channel: 'line', url: linkB.url, to: '@sapsomboon' })).toBe(
-      'recipient_invalid',
-    );
-    expect(await code({ channel: 'sms', url: linkB.url, to: '021234567' })).toBe(
-      'recipient_invalid',
-    );
-    // ระบุผู้รับตรงได้
-    await send({ channel: 'line', url: linkB.url, to: LINE_UID }).expect(202);
+    // ข้อเสนองาน (trip_offer) ยังส่งไม่ได้จนกว่า ST3-T23 ตรวจว่าเที่ยวเสนอให้ผู้รับเหมารายนั้น
+    const offer = await db.magicLink.create({
+      data: {
+        tenantId,
+        purpose: 'trip_offer',
+        entityType: 'trip',
+        entityId: tryDecodeId('carrier', carrierA)!,
+        actions: ['offer.respond'],
+        scopes: [],
+        expiresAt: new Date(Math.floor(Date.now() / 1000 + 86400) * 1000),
+      },
+    });
+    const { encodeLinkToken } = await import('../src/modules/links/magic-link.service');
+    const offerUrl = `${new URL(link.url).origin}/link/offer/${encodeLinkToken(offer.id, Math.floor(offer.expiresAt.getTime() / 1000))}`;
+    expect(await code({ channel: 'line', url: offerUrl })).toBe('link_kind_not_supported');
     // ลิงก์ที่เพิกถอนแล้ว
     await api(app, admin)
       .post(`/v1/carrier-upload-links/${link.id}/revoke`)
       .send({ reason: 'ส่งผิดคน ยกเลิกลิงก์นี้' })
       .expect(200);
     expect(await code({ channel: 'line', url: link.url })).toBe('link_invalid');
-    // ผู้รับเหมาที่ไม่มี → 404
-    await send({ channel: 'line', url: linkB.url, carrierId: 'car_' + '0'.repeat(32) }).expect(404);
   });
 
   it('ลิงก์ถูกเพิกถอนระหว่างรอส่ง → ไม่ส่ง (FAILED link_inactive)', async () => {
@@ -445,10 +462,8 @@ describe('ส่งลิงก์ทาง LINE / SMS (messaging)', () => {
     const r = await send({ channel: 'line', url: link.url }).expect(202);
     await api(app, otherAdmin).get(`/v1/messages/${r.body.id}`).expect(404);
     expect((await api(app, otherAdmin).get('/v1/messages').expect(200)).body.data).toHaveLength(0);
-    const x = await send({ channel: 'line', url: link.url, to: LINE_UID }, otherAdmin).expect(422);
+    const x = await send({ channel: 'line', url: link.url }, otherAdmin).expect(422);
     expect(x.body.errors[0].code).toBe('link_invalid');
-    // ผู้รับเหมาของบริษัทอื่น → 404
-    await send({ channel: 'line', url: link.url, carrierId: carrierA }, otherAdmin).expect(422);
   });
 
   it(`rate limit: ต่อผู้รับ ${RECIPIENT_PER_HOUR} ครั้ง/ชม. และต่อบริษัท ${TENANT_PER_HOUR} ครั้ง/ชม. → 429`, async () => {
@@ -470,8 +485,41 @@ describe('ส่งลิงก์ทาง LINE / SMS (messaging)', () => {
         status: 'SENT',
       })),
     });
-    const t = await send({ channel: 'sms', url: link.url, to: '0899999999' }).expect(429);
+    const t = await send({ channel: 'sms', url: link.url }).expect(429);
     expect(t.body.errors[0].code).toBe('tenant_hourly_limit');
+  });
+
+  it(`เพดานต่อผู้รับข้ามทุกบริษัท ${RECIPIENT_PLATFORM_PER_HOUR} ครั้ง/ชม. → 429`, async () => {
+    const link = await issue();
+    // บริษัทอื่นส่งถึงเบอร์เดียวกันไปแล้วเต็มเพดาน (ตัวนับใช้ hash เดียวกันทั้งระบบ)
+    const hash = new BlindIndex().of('SMS:0812345678');
+    await db.$executeRaw`INSERT INTO message_recipient_counter (recipient_hash, hour, count)
+      VALUES (${hash}, date_trunc('hour', now()), ${RECIPIENT_PLATFORM_PER_HOUR})`;
+    const r = await send({ channel: 'sms', url: link.url }).expect(429);
+    expect(r.body.errors[0].code).toBe('recipient_platform_limit');
+    expect(await db.messageDelivery.count()).toBe(0);
+    // ช่อง LINE = ผู้รับคนละค่า ยังส่งได้ และนับเพิ่ม
+    await send({ channel: 'line', url: link.url }).expect(202);
+    const c = await db.messageRecipientCounter.findMany({});
+    expect(c.find((x) => x.recipientHash === hash)!.count).toBe(RECIPIENT_PLATFORM_PER_HOUR);
+    expect(c.find((x) => x.recipientHash !== hash)!.count).toBe(1);
+  });
+
+  it('ค่าเริ่มต้นปิดทั้ง LINE และ SMS — admin ต้องเปิดเอง', async () => {
+    await db.messagingSetting.deleteMany({});
+    const ch = await api(app, viewer).get('/v1/messages/channels').expect(200);
+    expect(ch.body.data).toEqual([
+      { channel: 'line', available: false, reason: 'channel_disabled' },
+      { channel: 'sms', available: false, reason: 'channel_disabled' },
+    ]);
+    const s = await api(app, admin).get('/v1/settings/messaging').expect(200);
+    expect(s.body).toMatchObject({ lineEnabled: false, smsEnabled: false });
+    const link = await issue();
+    expect((await send({ channel: 'sms', url: link.url }).expect(409)).body.code).toBe(
+      'channel_unavailable',
+    );
+    await api(app, admin).patch('/v1/settings/messaging').send({ smsEnabled: true }).expect(200);
+    await send({ channel: 'sms', url: link.url }).expect(202);
   });
 
   it('Idempotency-Key ซ้ำ = ไม่เข้าคิวซ้ำ', async () => {

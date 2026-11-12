@@ -6,7 +6,7 @@ import { webBaseUrl } from '../../auth/password-reset.controller';
 import { AuditService } from '../../audit/audit.service';
 import { BlindIndex } from '../../common/blind-index';
 import { FieldCipher } from '../../common/crypto';
-import { decodeIdOr404, encodeId, tryDecodeId, type IdKind } from '../../common/ids';
+import { encodeId, tryDecodeId, type IdKind } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService } from '../../db/db.service';
@@ -25,48 +25,20 @@ import {
 } from './messaging.dto';
 import { MessagingProviders } from './messaging.providers';
 import { maskRecipient, type MessageChannel } from './providers';
-import { renderMessage, type MessageTemplate } from './templates';
-
-/**
- * ชนิดลิงก์ที่ส่งทาง LINE/SMS ได้ — path หน้าเว็บ + template + สิทธิ์ส่ง/ดูบันทึก (docs/04 A3)
- * ST3-T23 (ข้อเสนองาน) ยืนยัน path ของหน้า public ตอนทำหน้าจริง
- */
-export const LINK_KINDS = {
-  carrier_docs: {
-    path: 'carrier-docs',
-    template: 'carrier_docs_link',
-    sendScope: 'master:write',
-    readScope: 'master:read',
-    entityType: 'carrier',
-  },
-  trip_offer: {
-    path: 'offer',
-    template: 'job_offer_link',
-    sendScope: 'trips:assign',
-    readScope: 'trips:read',
-    entityType: 'trip',
-  },
-} as const satisfies Record<
-  string,
-  {
-    path: string;
-    template: MessageTemplate;
-    sendScope: string;
-    readScope: string;
-    entityType: string;
-  }
->;
-type LinkKind = keyof typeof LINK_KINDS;
+import { isLinkKind, LINK_KINDS } from './link-kinds';
+import { messageName } from './templates';
 
 /** เพดานต่อ tenant / ชั่วโมง (กันส่งรัว — ค่าใช้จ่าย SMS + LINE quota) */
 export const TENANT_PER_HOUR = 300;
-/** เพดานต่อผู้รับ / ชั่วโมง (กันก่อกวนผู้รับคนเดียว) */
+/** เพดานต่อผู้รับ / ชั่วโมง ในบริษัทเดียว (กันก่อกวนผู้รับคนเดียว) */
 export const RECIPIENT_PER_HOUR = 5;
+/** เพดานต่อผู้รับ / ชั่วโมง ข้ามทุกบริษัท (ช่อง SMS ใช้บัญชีของระบบ — review ST3-T21 M1) */
+export const RECIPIENT_PLATFORM_PER_HOUR = 10;
 
 const CHANNEL: Record<ChannelKey, MessageChannel> = { line: 'LINE', sms: 'SMS' };
 const KEY: Record<string, ChannelKey> = { LINE: 'line', SMS: 'sms' };
 
-/** คอลัมน์ที่ role แอปอ่านได้ (migration 0062 — body/recipient_enc อ่านไม่ได้) */
+/** คอลัมน์ที่ role แอปอ่านได้ (migration 0062 — vars/recipient_enc อ่านไม่ได้) */
 const SAFE_SELECT = {
   id: true,
   channel: true,
@@ -97,6 +69,8 @@ const bad = (field: string, code: string, message: string) =>
 /**
  * ส่งลิงก์ทาง LINE/SMS (ST3-T21) — เขียนแถว outbox ใน transaction ของคำขอ (rollback = ไม่ส่ง), worker ส่งจริง
  * ส่งได้เฉพาะลิงก์ที่ระบบออกและยังใช้ได้ของบริษัทนี้ (ไม่รับ URL อื่น — กันใช้ระบบเราส่งสแปม/ฟิชชิง)
+ * ผู้รับ = ช่องทางติดต่อที่บันทึกไว้ของผู้รับเหมาเจ้าของลิงก์เท่านั้น (ไม่รับเบอร์/userId ที่พิมพ์เอง — review M1)
+ * outbox ไม่เก็บเนื้อความ/ลิงก์ — เก็บตัวแปร template + magic_link_id ให้ worker render ตอนส่ง (review M2)
  * ผู้รับเข้ารหัส + ปิดบัง · ส่งไม่ได้ = ผู้ใช้ยังคัดลอกลิงก์ไปส่งเองได้เสมอ (fallback ของเกณฑ์ตรวจรับ)
  */
 @Injectable()
@@ -138,11 +112,11 @@ export class MessagingService {
   ): 'provider_disabled' | 'not_configured' | 'channel_disabled' | null {
     const p = this.providers.get(ch);
     if (!p) return 'provider_disabled';
-    if (ch === 'SMS') return (s?.smsEnabled ?? true) ? null : 'channel_disabled';
-    // mock (dev/test) ไม่ต้องตั้ง token · LINE จริง = ต้องตั้ง token + เปิดใช้
-    if (!p.needsTenantCredentials) return null;
-    if (!s?.lineTokenEnc) return 'not_configured';
-    return s.lineEnabled ? null : 'channel_disabled';
+    // ปิดเป็นค่าเริ่มต้นทั้งสองช่อง — admin ของบริษัทเปิดเอง (review M1)
+    if (ch === 'SMS') return s?.smsEnabled ? null : 'channel_disabled';
+    // mock (dev/test) ไม่ต้องตั้ง token · LINE จริง = ต้องตั้ง token
+    if (p.needsTenantCredentials && !s?.lineTokenEnc) return 'not_configured';
+    return s?.lineEnabled ? null : 'channel_disabled';
   }
 
   // ---------- ส่ง ----------
@@ -156,19 +130,13 @@ export class MessagingService {
     if (!scopeAllows(ctx.scopes ?? [], k.sendScope))
       throw new ProblemException('permission_denied');
 
-    // ผู้รับ: ผู้รับเหมา (ค่าเริ่มต้น = เจ้าของลิงก์ของผู้รับเหมา) และ/หรือระบุตรง
-    let carrierId = input.carrierId ? decodeIdOr404('carrier', input.carrierId) : null;
-    if (!carrierId && k.entityType === 'carrier') carrierId = link.entityId;
-    const carrier = carrierId
-      ? await tx.carrier.findFirst({
-          where: { id: carrierId, deletedAt: null },
-          select: { id: true, legalName: true, phone: true, lineContact: true },
-        })
-      : null;
-    if (carrierId && !carrier) throw new ProblemException('not_found');
-    if (k.entityType === 'carrier' && carrier && link.entityId !== carrier.id)
-      throw bad('carrierId', 'link_mismatch', 'link belongs to another carrier');
-    const to = this.recipient(channel, input.to, carrier);
+    // ผู้รับ = ผู้รับเหมาเจ้าของลิงก์ (ช่องทางที่บันทึกไว้เท่านั้น)
+    const carrier = await tx.carrier.findFirst({
+      where: { id: link.entityId, deletedAt: null },
+      select: { id: true, legalName: true, phone: true, lineContact: true },
+    });
+    if (!carrier) throw bad('url', 'link_invalid', 'the carrier of this link no longer exists');
+    const to = this.recipient(channel, carrier);
 
     const s = await this.setting();
     const reason = this.unavailable(channel, s);
@@ -197,23 +165,37 @@ export class MessagingService {
         `at most ${RECIPIENT_PER_HOUR} messages per recipient per hour`,
         [
           {
-            field: 'to',
+            field: 'channel',
             code: 'recipient_hourly_limit',
             message: 'too many messages to recipient',
           },
         ],
       );
 
+    // เพดานต่อผู้รับข้ามทุกบริษัท (hash ใช้ key เดียวกันทั้งระบบ) — ตัวนับรายชั่วโมง เพิ่มแบบ atomic
+    const [counter] = await tx.$queryRaw<{ count: number }[]>`
+      INSERT INTO message_recipient_counter (recipient_hash, hour, count)
+      VALUES (${hash}, date_trunc('hour', now()), 1)
+      ON CONFLICT (recipient_hash, hour) DO UPDATE SET count = message_recipient_counter.count + 1
+      RETURNING count`;
+    if ((counter?.count ?? 0) > RECIPIENT_PLATFORM_PER_HOUR)
+      throw new ProblemException('rate_limited', 'too many messages to this recipient', [
+        {
+          field: 'channel',
+          code: 'recipient_platform_limit',
+          message: 'too many messages to recipient',
+        },
+      ]);
+
     const tenant = await tx.tenant.findFirst({ select: { name: true, yearStyle: true } });
-    const body = renderMessage(k.template, channel, 'th', {
-      sender: tenant?.name ?? 'TMS',
-      recipientName: carrier?.legalName ?? null,
-      url: input.url,
-      expiresAt: link.expiresAt,
+    // ตัวแปร template (ชื่อผ่าน sanitiser ตั้งแต่ตอนเก็บ) — ไม่มี URL/token
+    const vars = {
+      sender: messageName(tenant?.name ?? '') || 'TMS',
+      recipientName: messageName(carrier.legalName) || null,
       yearStyle: tenant?.yearStyle === 'CE' ? 'CE' : 'BE',
-    });
+    };
     const id = randomUUID();
-    // createMany = ไม่มี RETURNING (role แอปอ่าน body/recipient_enc ไม่ได้)
+    // createMany = ไม่มี RETURNING (role แอปอ่าน vars/recipient_enc ไม่ได้)
     await tx.messageDelivery.createMany({
       data: [
         {
@@ -225,9 +207,9 @@ export class MessagingService {
           recipientEnc: this.cipher.encrypt(to),
           recipientMasked: maskRecipient(channel, to),
           recipientHash: hash,
-          recipientType: carrier ? 'carrier' : null,
-          recipientRefId: carrier?.id ?? null,
-          body,
+          recipientType: 'carrier',
+          recipientRefId: carrier.id,
+          vars,
           magicLinkId: link.id,
           entityType: link.entityType,
           entityId: link.entityId,
@@ -260,7 +242,9 @@ export class MessagingService {
     const base = webBaseUrl();
     if (!url.startsWith(`${base}/link/`)) throw invalid();
     const m = /^\/link\/([a-z-]+)\/(ml1\.[A-Za-z0-9._-]+)$/.exec(url.slice(base.length));
-    const kind = (Object.keys(LINK_KINDS) as LinkKind[]).find((k) => LINK_KINDS[k].path === m?.[1]);
+    const kind = (Object.keys(LINK_KINDS) as (keyof typeof LINK_KINDS)[]).find(
+      (k) => LINK_KINDS[k].path === m?.[1],
+    );
     const t = m && kind ? decodeLinkToken(m[2]!) : null;
     if (!t || !kind) throw invalid();
     // RLS: ลิงก์ของบริษัทอื่นมองไม่เห็น = ไม่ถูกต้อง
@@ -273,35 +257,27 @@ export class MessagingService {
       Math.floor(link.expiresAt.getTime() / 1000) !== t.exp
     )
       throw invalid();
+    if (!isLinkKind(link.purpose)) throw invalid();
+    // ข้อเสนองาน: ต้องตรวจว่าเที่ยวถูกเสนอให้ผู้รับเหมารายนั้น (ST3-T23) — ยังไม่มี = ยังส่งไม่ได้
+    if (!LINK_KINDS[kind].enabled)
+      throw bad('url', 'link_kind_not_supported', 'this link type cannot be sent yet');
     return { kind, link };
   }
 
   private recipient(
     channel: MessageChannel,
-    to: string | undefined,
-    carrier: { phone: string | null; lineContact: string | null } | null,
+    carrier: { phone: string | null; lineContact: string | null },
   ): string {
     if (channel === 'LINE') {
-      const v = (to ?? carrier?.lineContact ?? '').trim();
-      if (!v) throw bad('to', 'recipient_missing', 'no LINE userId for this recipient');
+      const v = (carrier.lineContact ?? '').trim();
       // LINE ID ที่ตั้งเอง (@xxx) ใช้ push ไม่ได้ — ต้องเป็น userId จาก webhook (ยังไม่มี — OPEN #49)
       if (!LINE_USER_ID_RE.test(v))
-        throw bad(
-          'to',
-          to ? 'recipient_invalid' : 'recipient_missing',
-          'LINE push needs a LINE userId (U + 32 hex)',
-        );
+        throw bad('channel', 'recipient_missing', 'carrier has no LINE userId (U + 32 hex)');
       return v;
     }
-    const raw = (to ?? carrier?.phone ?? '').trim();
-    if (!raw) throw bad('to', 'recipient_missing', 'no mobile number for this recipient');
-    const n = phoneNorm(raw);
+    const n = phoneNorm((carrier.phone ?? '').trim());
     if (!isThaiPhone(n) || !/^0[689]/.test(n))
-      throw bad(
-        'to',
-        to ? 'recipient_invalid' : 'recipient_missing',
-        'SMS needs a Thai mobile number',
-      );
+      throw bad('channel', 'recipient_missing', 'carrier has no Thai mobile number');
     return n;
   }
 
@@ -378,7 +354,7 @@ export class MessagingService {
       lineEnabled: s?.lineEnabled ?? false,
       lineConfigured: !!s?.lineTokenEnc,
       lineTokenHint: s?.lineTokenLast4 ? `•••• ${s.lineTokenLast4}` : null,
-      smsEnabled: s?.smsEnabled ?? true,
+      smsEnabled: s?.smsEnabled ?? false,
       lineProvider: this.providers.get('LINE')?.name ?? null,
       smsProvider: this.providers.get('SMS')?.name ?? null,
       version: s?.version ?? 0,
@@ -395,7 +371,7 @@ export class MessagingService {
       lineTokenEnc: before?.lineTokenEnc ?? null,
       lineTokenLast4: before?.lineTokenLast4 ?? null,
       lineEnabled: before?.lineEnabled ?? false,
-      smsEnabled: before?.smsEnabled ?? true,
+      smsEnabled: before?.smsEnabled ?? false,
     };
     const tokenChanged = dto.lineChannelAccessToken !== undefined;
     if (dto.lineChannelAccessToken === null) {
@@ -410,7 +386,11 @@ export class MessagingService {
     }
     if (dto.lineEnabled !== undefined) next.lineEnabled = dto.lineEnabled;
     if (dto.smsEnabled !== undefined) next.smsEnabled = dto.smsEnabled;
-    if (next.lineEnabled && !next.lineTokenEnc)
+    if (
+      next.lineEnabled &&
+      !next.lineTokenEnc &&
+      this.providers.get('LINE')?.needsTenantCredentials === true
+    )
       throw bad(
         'lineEnabled',
         'line_token_required',
@@ -419,7 +399,7 @@ export class MessagingService {
     const changed =
       tokenChanged ||
       next.lineEnabled !== (before?.lineEnabled ?? false) ||
-      next.smsEnabled !== (before?.smsEnabled ?? true);
+      next.smsEnabled !== (before?.smsEnabled ?? false);
     if (!changed) return this.settingsDto(before);
     const row = before
       ? await tx.messagingSetting.update({
@@ -437,7 +417,7 @@ export class MessagingService {
       before: {
         lineEnabled: before?.lineEnabled ?? false,
         lineConfigured: !!before?.lineTokenEnc,
-        smsEnabled: before?.smsEnabled ?? true,
+        smsEnabled: before?.smsEnabled ?? false,
       },
       after: {
         lineEnabled: row.lineEnabled,

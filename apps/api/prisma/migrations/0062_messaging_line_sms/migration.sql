@@ -1,6 +1,8 @@
 -- ST3-T21 ช่องส่ง LINE Messaging API + SMS หลังแกนแจ้งเตือน (docs/04 G4 LINE OA / Messaging API; I การแจ้งเตือน — LINE สำหรับรถร่วม)
 -- messaging_setting = ตั้งค่าต่อ tenant (channel access token เข้ารหัส FieldCipher ไม่คืนใน API)
 -- message_delivery  = outbox + บันทึกการส่ง (API เขียนใน transaction ของงาน, worker ส่งด้วย retry + backoff)
+--   ไม่เก็บเนื้อความ/ลิงก์ (token) — เก็บตัวแปร template + magic_link_id แล้ว worker render + สร้าง URL ตอนส่ง (review ST3-T21 M2)
+-- message_recipient_counter = เพดานต่อผู้รับข้ามทุกบริษัท (blind index ของผู้รับ × ชั่วโมง — ไม่มี tenant_id, review M1)
 
 -- CreateTable
 CREATE TABLE "messaging_setting" (
@@ -8,7 +10,7 @@ CREATE TABLE "messaging_setting" (
     "line_enabled" BOOLEAN NOT NULL DEFAULT false,
     "line_token_enc" TEXT,
     "line_token_last4" VARCHAR(4),
-    "sms_enabled" BOOLEAN NOT NULL DEFAULT true,
+    "sms_enabled" BOOLEAN NOT NULL DEFAULT false,
     "version" INTEGER NOT NULL DEFAULT 1,
     "updated_by" TEXT,
     "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -29,7 +31,7 @@ CREATE TABLE "message_delivery" (
     "recipient_hash" TEXT NOT NULL,
     "recipient_type" TEXT,
     "recipient_ref_id" UUID,
-    "body" TEXT,
+    "vars" JSONB,
     "magic_link_id" UUID,
     "entity_type" TEXT,
     "entity_id" UUID,
@@ -51,6 +53,15 @@ CREATE TABLE "message_delivery" (
     CONSTRAINT "message_delivery_pkey" PRIMARY KEY ("id")
 );
 
+-- CreateTable
+CREATE TABLE "message_recipient_counter" (
+    "recipient_hash" TEXT NOT NULL,
+    "hour" TIMESTAMPTZ(6) NOT NULL,
+    "count" INTEGER NOT NULL DEFAULT 0,
+
+    CONSTRAINT "message_recipient_counter_pkey" PRIMARY KEY ("recipient_hash","hour")
+);
+
 -- CreateIndex
 CREATE INDEX "message_delivery_status_run_at_idx" ON "message_delivery"("status", "run_at");
 
@@ -63,16 +74,17 @@ CREATE INDEX "message_delivery_tenant_id_entity_type_entity_id_created_at_idx" O
 -- CreateIndex
 CREATE INDEX "message_delivery_tenant_id_recipient_hash_created_at_idx" ON "message_delivery"("tenant_id", "recipient_hash", "created_at");
 
--- token ต้องมาพร้อม 4 ตัวท้าย · เปิด LINE ได้เมื่อมี token
+-- token ต้องมาพร้อม 4 ตัวท้าย (เปิด LINE จริงต้องมี token — ตรวจใน service เพราะ mock dev/test ไม่ใช้ token)
 ALTER TABLE "messaging_setting" ADD CONSTRAINT "messaging_setting_line_token_check"
-  CHECK (("line_token_enc" IS NULL) = ("line_token_last4" IS NULL) AND (NOT "line_enabled" OR "line_token_enc" IS NOT NULL));
+  CHECK (("line_token_enc" IS NULL) = ("line_token_last4" IS NULL));
 
 ALTER TABLE "message_delivery" ADD CONSTRAINT "message_delivery_channel_check" CHECK ("channel" IN ('LINE', 'SMS'));
 ALTER TABLE "message_delivery" ADD CONSTRAINT "message_delivery_status_check"
   CHECK ("status" IN ('QUEUED', 'SENDING', 'SENT', 'FAILED'));
--- จบแล้ว (SENT/FAILED) ห้ามเหลือเนื้อความ/ผู้รับตัวจริง (มีลิงก์ token + ข้อมูลส่วนบุคคล)
+-- จบแล้ว (SENT/FAILED) ห้ามเหลือตัวแปรข้อความ/ผู้รับตัวจริง (ข้อมูลส่วนบุคคล)
 ALTER TABLE "message_delivery" ADD CONSTRAINT "message_delivery_final_scrub_check"
-  CHECK ("status" IN ('QUEUED', 'SENDING') OR ("body" IS NULL AND "recipient_enc" IS NULL));
+  CHECK ("status" IN ('QUEUED', 'SENDING') OR ("vars" IS NULL AND "recipient_enc" IS NULL));
+ALTER TABLE "message_recipient_counter" ADD CONSTRAINT "message_recipient_counter_count_check" CHECK ("count" >= 0);
 ALTER TABLE "message_delivery" ADD CONSTRAINT "message_delivery_attempts_check"
   CHECK ("attempts" >= 0 AND "max_attempts" BETWEEN 1 AND 10);
 
@@ -80,9 +92,11 @@ SELECT tms_enable_tenant_rls('messaging_setting');
 SELECT tms_enable_tenant_rls('message_delivery');
 
 -- role แอป: ตั้งค่า = อ่าน/เขียนได้ ไม่ลบ · บันทึกการส่ง = เพิ่มได้ อ่านได้เฉพาะคอลัมน์ที่ไม่ลับ ไม่แก้/ไม่ลบ (worker ใช้ role platform)
+-- ตัวนับต่อผู้รับ (ข้ามบริษัท) = เพิ่ม/อ่าน/แก้ได้ ไม่ลบ (ค่าเป็น HMAC ของผู้รับ + จำนวน — ไม่มีข้อมูลบริษัท)
 DO $$ BEGIN
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'tms_app') THEN
     EXECUTE 'REVOKE DELETE ON "messaging_setting" FROM tms_app';
+    EXECUTE 'REVOKE DELETE, TRUNCATE ON "message_recipient_counter" FROM tms_app';
     EXECUTE 'REVOKE SELECT, UPDATE, DELETE ON "message_delivery" FROM tms_app';
     EXECUTE 'GRANT SELECT ("id", "tenant_id", "channel", "template", "locale", "recipient_masked", "recipient_hash",
       "recipient_type", "recipient_ref_id", "magic_link_id", "entity_type", "entity_id", "status", "attempts",

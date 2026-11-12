@@ -3,9 +3,10 @@ import { docDate } from '../../common/thai-date';
 import type { MessageChannel } from './providers';
 
 /**
- * template ข้อความส่งลิงก์ (ST3-T21) — ไทย/อังกฤษ (D-11) · render ตอน enqueue (แก้ template ภายหลังไม่กระทบข้อความที่รอส่ง)
- * ชื่อที่ tenant กรอกเองผ่าน `safeName` (ตัด URL/โดเมน — กันใช้ข้อความเราเป็นฟิชชิง) · URL มาจากระบบเท่านั้น
- * SMS สั้นกว่า LINE (ภาษาไทยใน SMS = UCS-2 70 ตัวอักษร/ชิ้น)
+ * template ข้อความส่งลิงก์ (ST3-T21) — ไทย/อังกฤษ (D-11) · worker render ตอนส่ง (outbox ไม่เก็บลิงก์/token)
+ * ชื่อที่ tenant กรอกเองผ่าน `messageName` (ตัด URL/โดเมน/คำที่มีจุด + ตัวเลขยาว ≥ 6 หลัก — กันใช้ข้อความเราเป็นฟิชชิง/สแปม)
+ * SMS = ข้อความคงที่สั้น + ลิงก์ ไม่มีชื่อที่ tenant กรอกเลย (ส่งจากบัญชี SMS ของระบบ — review ST3-T21 M1)
+ * LINE = ส่งจาก OA ของบริษัทเอง → มีชื่อบริษัท/ผู้รับ (ผ่าน sanitiser) · URL มาจากระบบเท่านั้น
  */
 export const MESSAGE_TEMPLATES = ['carrier_docs_link', 'job_offer_link'] as const;
 export type MessageTemplate = (typeof MESSAGE_TEMPLATES)[number];
@@ -31,24 +32,24 @@ const T: Record<MessageTemplate, Record<'th' | 'en', Record<MessageChannel, Rend
     th: {
       LINE: (v) =>
         `${v.name ? `เรียน ${v.name}\n` : ''}${v.sender} ขอให้ส่งเอกสารรถและใบขับขี่ (ประกันภัย พ.ร.บ. ใบขับขี่) ผ่านลิงก์นี้ ไม่ต้องสมัครหรือ login\n${v.url}\nลิงก์ใช้ได้ถึง ${v.until}`,
-      SMS: (v) => `${v.sender}: ส่งเอกสารรถ/ใบขับขี่ ${v.url} (ถึง ${v.until})`,
+      SMS: (v) => `TMS: ส่งเอกสารรถ/ใบขับขี่ตามที่บริษัทขนส่งขอ ${v.url} (ถึง ${v.until})`,
     },
     en: {
       LINE: (v) =>
         `${v.name ? `Dear ${v.name}\n` : ''}${v.sender} asks you to upload vehicle documents and driving licences (insurance, compulsory act, licence) via this link — no login needed\n${v.url}\nValid until ${v.until}`,
-      SMS: (v) => `${v.sender}: upload vehicle docs ${v.url} (until ${v.until})`,
+      SMS: (v) => `TMS: upload vehicle docs requested by your carrier ${v.url} (until ${v.until})`,
     },
   },
   job_offer_link: {
     th: {
       LINE: (v) =>
         `${v.name ? `เรียน ${v.name}\n` : ''}${v.sender} ส่งข้อเสนองาน${v.ref ? ` ${v.ref}` : ''} กดรับหรือปฏิเสธได้ที่ลิงก์นี้ ไม่ต้อง login\n${v.url}\nตอบได้ถึง ${v.until}`,
-      SMS: (v) => `${v.sender}: ข้อเสนองาน${v.ref ? ` ${v.ref}` : ''} ${v.url} (ถึง ${v.until})`,
+      SMS: (v) => `TMS: ข้อเสนองานขนส่ง ${v.url} (ถึง ${v.until})`,
     },
     en: {
       LINE: (v) =>
         `${v.name ? `Dear ${v.name}\n` : ''}${v.sender} sent you a job offer${v.ref ? ` ${v.ref}` : ''}. Accept or decline via this link — no login needed\n${v.url}\nReply by ${v.until}`,
-      SMS: (v) => `${v.sender}: job offer${v.ref ? ` ${v.ref}` : ''} ${v.url} (until ${v.until})`,
+      SMS: (v) => `TMS: transport job offer ${v.url} (until ${v.until})`,
     },
   },
 };
@@ -68,6 +69,14 @@ const EN_MONTHS = [
   'Dec',
 ];
 
+/**
+ * ชื่อที่ tenant/ผู้รับเหมากรอกเองก่อนใส่ข้อความ: `safeName` (URL/โดเมนที่รู้จัก) + ตัดทุกคำที่มีจุดตามด้วยตัวอักษร ≥ 2
+ * (โดเมนอะไรก็ได้ เช่น `bit.ly`, `x.zz`) + ตัวเลขต่อกัน ≥ 6 หลัก (เบอร์/บัญชี — ยอมให้มีขีด/ช่องว่างคั่น)
+ */
+export function messageName(s: string, max = 80): string {
+  return safeName(s.replace(/\S+\.[a-z]{2,}\S*/gi, '').replace(/\d(?:[\s-]?\d){5,}/g, ''), max);
+}
+
 /** วันเวลาไทย: "20 พฤศจิกายน 2569 10:14 น." */
 function until(d: Date, locale: 'th' | 'en', ys: 'BE' | 'CE'): string {
   const bkk = new Date(d.getTime() + 7 * 3600_000);
@@ -85,9 +94,9 @@ export function renderMessage(
 ): string {
   const lang = locale === 'en' ? 'en' : 'th';
   return T[template][lang][channel]({
-    sender: safeName(v.sender, 80) || 'TMS',
-    name: v.recipientName ? safeName(v.recipientName, 80) : '',
-    ref: v.ref ? safeName(v.ref, 40) : '',
+    sender: messageName(v.sender) || 'TMS',
+    name: v.recipientName ? messageName(v.recipientName) : '',
+    ref: v.ref ? messageName(v.ref, 40) : '',
     url: v.url,
     until: until(v.expiresAt, lang, v.yearStyle),
   });
