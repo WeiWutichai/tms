@@ -69,7 +69,6 @@ export interface CreateTripInput {
   deliveryOrderIds: string[];
   plannedStartAt?: string | null;
   plannedEndAt?: string | null;
-  vehicleId?: string | null;
 }
 
 export interface AssignInput {
@@ -153,12 +152,14 @@ export class TripService {
   // ---------------------------------------------------------------------------------------------
   // สร้าง / เพิ่ม-ถอด DO
 
-  /** สร้างเที่ยว PLANNING จาก DO (≥ 1) — จุดแวะจาก DO · รถที่วางไว้ (ถ้ามี) เป็น snapshot */
+  /**
+   * สร้างเที่ยว PLANNING จาก DO (≥ 1) — จุดแวะจาก DO · **ไม่รับรถ** (รถ/คนขับ/รถร่วมเข้าทาง /assign หรือ /offer เท่านั้น —
+   * ล็อกรถ + snapshot ชุดเดียว; review ST3-T11)
+   */
   async create(input: CreateTripInput, tx: Tx = this.db.tx): Promise<TripRecord> {
     const tenantId = this.tenantId();
     const window = this.window(input.plannedStartAt, input.plannedEndAt);
     const dos = await this.dos.lockForTrip(tx, input.deliveryOrderIds);
-    const vehicleSnap = input.vehicleId ? await this.vehicleSnapshot(tx, input.vehicleId) : {};
     const trip = await tx.trip.create({
       data: {
         tenantId,
@@ -166,12 +167,11 @@ export class TripService {
         tripDate: new Date(`${input.tripDate}T00:00:00Z`),
         plannedStartAt: window.start,
         plannedEndAt: window.end,
-        ...vehicleSnap,
         status: 'PLANNING',
       },
     });
     await this.history(tx, trip.id, 'NONE', 'PLANNING', 'create');
-    const stops = await this.replanStops(tx, trip, [], dos, { attach: dos, plan: false });
+    const stops = await this.replanStops(tx, trip, dos, { attach: dos, plan: false });
     await this.orderState.syncFromDeliveryOrders(
       tx,
       dos.map((d) => d.salesOrderId),
@@ -203,7 +203,7 @@ export class TripService {
         { field: 'deliveryOrderIds', code: 'already_on_trip', message: 'already on this trip' },
       ]);
     const current = dos.filter((d) => d.tripId === trip.id);
-    const stops = await this.replanStops(tx, trip, current, [...current, ...adding], {
+    const stops = await this.replanStops(tx, trip, [...current, ...adding], {
       attach: adding,
       plan: trip.status === 'ASSIGNED',
     });
@@ -213,6 +213,9 @@ export class TripService {
       adding.map((d) => d.salesOrderId),
     );
     const final = await this.refreshWarnings(tx, trip.id, stops.windowConflicts);
+    await this.emit(tx, 'trip.updated', final, {
+      deliveryOrderIds: trip.deliveryOrders.map((d) => d.id),
+    });
     await this.audit.record({
       action: `${ENTITY}.orders_attached`,
       entityType: ENTITY,
@@ -243,13 +246,16 @@ export class TripService {
     for (const d of removing) await this.dos.releaseFromTrip(tx, d, text ?? 'ถอดออกจากเที่ยว');
     const remaining = dos.filter((d) => d.tripId === trip.id && !doIds.includes(d.id));
     const fresh = await this.reload(tx, remaining);
-    const stops = await this.replanStops(tx, trip, fresh, fresh, { attach: [], plan: false });
+    const stops = await this.replanStops(tx, trip, fresh, { attach: [], plan: false });
     await this.bump(tx, trip);
     await this.orderState.syncFromDeliveryOrders(
       tx,
       removing.map((d) => d.salesOrderId),
     );
     const final = await this.refreshWarnings(tx, trip.id, stops.windowConflicts);
+    await this.emit(tx, 'trip.updated', final, {
+      deliveryOrderIds: trip.deliveryOrders.map((d) => d.id),
+    });
     await this.audit.record({
       action: `${ENTITY}.orders_detached`,
       entityType: ENTITY,
@@ -278,13 +284,27 @@ export class TripService {
     const event: TripEvent =
       trip.status === 'OFFERED' ? 'accept' : trip.status === 'ASSIGNED' ? 'reassign' : 'assign';
     this.assertCan(trip, event);
+    if (!dos.length) throw new ProblemException('trip_empty');
     const snap = await this.assignmentSnapshot(tx, trip, input);
+    // รถร่วมเข้าทาง /offer ก่อนเสมอ (docs/01 §4.2 PLANNING → OFFERED → ASSIGNED) · เปลี่ยนรถร่วม = ยกเลิกการจ้างเดิม (ST3-T25)
+    if (event === 'assign' && snap.carrierId !== null)
+      throw new ProblemException('offer_required', undefined, undefined, {
+        carrierId: snap.carrierId,
+      });
+    if (event === 'reassign' && snap.carrierId !== trip.carrierId)
+      throw new ProblemException('carrier_change_requires_cancel', undefined, undefined, {
+        from: trip.carrierId,
+        to: snap.carrierId,
+      });
     await this.lockVehicle(tx, input.vehicleId);
     const before = view(await this.get(trip.id, tx));
     await this.transition(tx, trip, event, {
       ...snap,
       assignedAt: new Date(),
+      // ช่องข้อเสนอรถร่วม: accept → ACCEPTED · รถบริษัท (assign จาก PLANNING) → ล้างค้างจากข้อเสนอที่ถูกปฏิเสธ/หมดอายุ
+      // reassign รถร่วมรายเดิม → คงสถานะข้อเสนอเดิม (ACCEPTED)
       ...(event === 'accept' ? { assignmentStatus: 'ACCEPTED' } : {}),
+      ...(event === 'assign' ? CLEAR_OFFER : {}),
     });
     for (const d of dos) await this.dos.planForTrip(tx, d);
     await this.orderState.syncFromDeliveryOrders(
@@ -311,15 +331,16 @@ export class TripService {
   ): Promise<TripRecord> {
     const { trip } = await this.lock(tx, id, expectedVersion);
     this.assertCan(trip, 'offer');
+    const on = await tx.deliveryOrder.count({
+      where: { tripId: trip.id, status: { not: 'CANCELLED' } },
+    });
+    if (!on) throw new ProblemException('trip_empty');
     const carrier = await tx.carrier.findFirst({ where: { id: carrierId, deletedAt: null } });
     if (!carrier) throw field422('carrierId', 'invalid_reference', 'carrier not found');
     if (carrier.status !== 'ACTIVE')
       throw field422('carrierId', 'carrier_inactive', 'carrier is suspended');
     const now = new Date();
-    // รถที่วางไว้ไม่ใช่ของรถร่วมรายนี้ → ล้าง (รถร่วมใส่ทะเบียนเองตอนรับงาน)
-    const keepVehicle =
-      trip.vehicleId !== null &&
-      (await tx.vehicle.count({ where: { id: trip.vehicleId, carrierId } })) > 0;
+    // PLANNING ไม่มีรถ/คนขับเสมอ (create ไม่รับรถ, assign ไป ASSIGNED) — ล้างไว้กันค่าค้าง (รถร่วมใส่ทะเบียนเองตอนรับงาน)
     await this.transition(tx, trip, 'offer', {
       carrierId,
       carrierNameSnapshot: carrier.legalName,
@@ -327,7 +348,7 @@ export class TripService {
       offeredAt: now,
       offeredBy: requestContext.require().actorId ?? null,
       assignmentExpiresAt: new Date(now.getTime() + OFFER_TTL_MS),
-      ...(keepVehicle ? {} : CLEAR_VEHICLE),
+      ...CLEAR_VEHICLE,
     });
     const final = await this.refreshWarnings(tx, trip.id);
     await this.audit.record({
@@ -395,6 +416,8 @@ export class TripService {
     input: { reason: string; reasonCodeId?: string | null },
     tx: Tx = this.db.tx,
     expectedVersion?: number,
+    /** ผู้เรียกมีสิทธิ์ `trips:dispatch` (ยกเลิกเที่ยวที่ปล่อยรถแล้ว — A3 Planner ไม่มี) — ตรวจหลังล็อก (กันชนกับการปล่อยรถพร้อมกัน) */
+    opts: { canCancelDispatched: boolean } = { canCancelDispatched: true },
   ): Promise<TripRecord> {
     const reason = cleanLine(String(input.reason ?? '')).trim();
     if ([...reason].length < 10)
@@ -407,6 +430,12 @@ export class TripService {
     }
     const { trip, dos } = await this.lock(tx, id, expectedVersion);
     this.assertCan(trip, 'cancel');
+    if (trip.status === 'DISPATCHED' && !opts.canCancelDispatched)
+      throw new ProblemException('permission_denied', undefined, undefined, {
+        module: 'trips',
+        action: 'dispatch',
+        required: ['trips:dispatch'],
+      });
     const before = view(trip);
     for (const d of dos)
       await this.dos.releaseFromTrip(tx, d, `ยกเลิกเที่ยว ${trip.tripNo}: ${reason}`);
@@ -489,9 +518,12 @@ export class TripService {
     };
   }
 
-  /** ล็อกรถ (advisory ต่อ tenant+รถ) — สองคนจัดรถคันเดียวกันพร้อมกันเห็นเที่ยวของกันและกันตอนตรวจซ้อนเวลา */
+  /**
+   * ล็อกรถ (advisory namespace 12 = ST3-T11 รถของเที่ยว; uuid ไม่ซ้ำข้าม tenant) — สองคนจัดรถคันเดียวกันพร้อมกัน
+   * เห็นเที่ยวของกันและกันตอนตรวจซ้อนเวลา (คำเตือน — ไม่บล็อก)
+   */
   private async lockVehicle(tx: Tx, vehicleId: string) {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(11, hashtext(${vehicleId}))`;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(12, hashtext(${vehicleId}))`;
   }
 
   private assertEditable(trip: TripRecord) {
@@ -557,7 +589,6 @@ export class TripService {
   private async replanStops(
     tx: Tx,
     trip: Trip,
-    current: DeliveryOrderRecord[],
     all: DeliveryOrderRecord[],
     o: { attach: DeliveryOrderRecord[]; plan: boolean },
   ) {
@@ -593,7 +624,13 @@ export class TripService {
           data: {
             sequence: s.sequence,
             ...w,
-            plannedArrival: prev.plannedArrival ?? w.windowStart,
+            // เวลาตามแผนเดิมยังอยู่ในช่วงใหม่ → คง (ผู้จัดรถอาจตั้งเอง) · หลุดช่วง/ว่าง → ต้นช่วง
+            plannedArrival:
+              prev.plannedArrival &&
+              (!w.windowStart || prev.plannedArrival >= w.windowStart) &&
+              (!w.windowEnd || prev.plannedArrival <= w.windowEnd)
+                ? prev.plannedArrival
+                : w.windowStart,
           },
         });
         ids.push(s.id);
@@ -625,7 +662,6 @@ export class TripService {
         });
       else await this.dos.setTripStops(tx, d, pickup, drop);
     }
-    void current;
     return plan;
   }
 
@@ -678,7 +714,11 @@ export class TripService {
     return d;
   }
 
-  /** snapshot ทั้งชุดของการจัดรถ (รถ ประเภท หาง คนขับ คนขับสำรอง รถร่วม) */
+  /**
+   * snapshot ทั้งชุดของการจัดรถ (รถ ประเภท หาง คนขับ คนขับสำรอง รถร่วม)
+   * ตรวจเฉพาะการอ้างอิงที่ใช้ได้ (มีอยู่ ไม่ปลดระวาง/ปิดใช้ หางเป็นหางจริง) — คนขับเป็นของรถร่วมรายใด / ใบขับขี่ตรงประเภทรถ /
+   * น้ำหนัก = กฎตอนจัดของ ST3-T14 (เตือน + override) ไม่ใช่ที่นี่
+   */
   private async assignmentSnapshot(tx: Tx, trip: TripRecord, input: AssignInput) {
     const vehicle = await this.vehicleSnapshot(tx, input.vehicleId);
     const v = (await tx.vehicle.findUnique({
@@ -745,6 +785,10 @@ export class TripService {
   /**
    * ตรวจคำเตือนทั้งหมดใหม่แล้วเก็บใน rule_warnings (ไม่บล็อก — ST3-T14 บังคับ/override):
    * ความเข้ากันได้ (ST2-T16) ต่อ SO · เอกสารรถ/ใบขับขี่ (ST2-T20) ตามช่วงวิ่ง · รถ/คนขับซ้อนเวลา · สถานะรถ/คนขับ · ช่วงเวลาจุด
+   * - เป็น **ภาพ ณ การกระทำล่าสุดบนเที่ยวนี้** — เที่ยวอื่นที่มาซ้อนทีหลัง/เอกสารที่หมดทีหลังไม่ย้อนมาอัปเดต
+   *   (กระดาน ST3-T12 ต้องคำนวณซ้อนเวลา ณ ตอนอ่านเอง) · เนื้อหาเปลี่ยน → version +1 (ETag)
+   * - `rule_warnings` เก็บ **เฉพาะผลตรวจ** — เหตุผล override ของ ST3-T14 ต้องแยกคอลัมน์ (เช่น `rule_overrides`) ไม่ปนกัน
+   *   เพราะคำนวณใหม่ทุกครั้งจะทับ
    */
   private async refreshWarnings(
     tx: Tx,
@@ -819,7 +863,10 @@ export class TripService {
     }
     const json = JSON.parse(JSON.stringify(out)) as Prisma.InputJsonValue;
     if (JSON.stringify(trip.ruleWarnings) !== JSON.stringify(json))
-      await tx.trip.update({ where: { id }, data: { ruleWarnings: json } });
+      await tx.trip.update({
+        where: { id },
+        data: { ruleWarnings: json, version: { increment: 1 } },
+      });
     return this.get(id, tx);
   }
 
@@ -883,15 +930,30 @@ export class TripService {
       where: {
         id: { not: trip.id },
         status: { in: [...TRIP_OPEN_STATUSES] },
-        tripDate: trip.tripDate,
-        ...who,
+        AND: [
+          who,
+          {
+            OR: [
+              { tripDate: trip.tripDate },
+              ...(trip.plannedStartAt && trip.plannedEndAt
+                ? [
+                    {
+                      plannedStartAt: { lt: trip.plannedEndAt },
+                      plannedEndAt: { gt: trip.plannedStartAt },
+                    },
+                  ]
+                : []),
+            ],
+          },
+        ],
       },
-      select: { tripNo: true, plannedStartAt: true, plannedEndAt: true },
+      select: { tripNo: true, tripDate: true, plannedStartAt: true, plannedEndAt: true },
       orderBy: { tripNo: 'asc' },
     });
+    // ทั้งสองเที่ยวมีช่วงวิ่ง → เทียบช่วงเวลา (ข้ามวันได้) · ไม่มี → วันเดียวกัน = ซ้อน
     const overlaps = others.filter((o) => {
       if (!trip.plannedStartAt || !trip.plannedEndAt || !o.plannedStartAt || !o.plannedEndAt)
-        return true;
+        return o.tripDate.getTime() === trip.tripDate.getTime();
       return o.plannedStartAt < trip.plannedEndAt && trip.plannedStartAt < o.plannedEndAt;
     });
     if (!overlaps.length) return [];
@@ -949,7 +1011,22 @@ export class TripService {
   }
 }
 
+const CLEAR_OFFER = {
+  carrierId: null,
+  carrierNameSnapshot: null,
+  assignmentStatus: null,
+  assignmentExpiresAt: null,
+  offeredAt: null,
+  offeredBy: null,
+} as const;
+
 const CLEAR_VEHICLE = {
+  driverId: null,
+  driverNameSnapshot: null,
+  driverPhoneSnapshot: null,
+  reliefDriverId: null,
+  reliefDriverNameSnapshot: null,
+  reliefDriverPhoneSnapshot: null,
   vehicleId: null,
   vehiclePlateSnapshot: null,
   vehicleTypeId: null,

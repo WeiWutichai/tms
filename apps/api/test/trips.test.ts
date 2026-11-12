@@ -7,6 +7,7 @@ import { encodeId, tryDecodeId } from '../src/common/ids';
 import { requestContext } from '../src/common/request-context';
 import { DbService, type Tx } from '../src/db/db.service';
 import { DeliveryOrderService } from '../src/modules/delivery-orders/delivery-order.service';
+import { TripService } from '../src/modules/trips/trip.service';
 import {
   OrderIntakeService,
   type UpsertOrderInput,
@@ -479,6 +480,44 @@ describe('trips (ST3-T11)', () => {
       vehicle: { id: sub.id },
       driver: null,
     });
+    // เปลี่ยนรถร่วม / สลับเป็นรถบริษัท หลังรับงาน → 409 (ยกเลิกการจ้างเดิมก่อน — ST3-T25)
+    const car2 = await newCarrier();
+    const sub2 = await newVehicle({ ownership: 'SUBCONTRACT', carrierId: car2.id });
+    expect((await act(t.id, 'assign', { vehicleId: sub2.id }).expect(409)).body.code).toBe(
+      'carrier_change_requires_cancel',
+    );
+    expect(
+      (
+        await act(t.id, 'assign', { vehicleId: own.id, driverId: (await newDriver()).id }).expect(
+          409,
+        )
+      ).body.code,
+    ).toBe('carrier_change_requires_cancel');
+    // รถคันอื่นของรถร่วมรายเดิม → เปลี่ยนได้ คง ACCEPTED
+    const sub1b = await newVehicle({ ownership: 'SUBCONTRACT', carrierId: car.id });
+    expect((await act(t.id, 'assign', { vehicleId: sub1b.id }).expect(200)).body).toMatchObject({
+      assignmentStatus: 'ACCEPTED',
+      vehicle: { id: sub1b.id },
+      carrier: { id: car.id },
+    });
+    // รถร่วมจาก PLANNING ต้อง /offer ก่อน (409 offer_required)
+    const z = await newDo();
+    const t3 = (await createTrip([z.id]).expect(201)).body;
+    expect((await act(t3.id, 'assign', { vehicleId: sub.id }).expect(409)).body.code).toBe(
+      'offer_required',
+    );
+    // เที่ยวว่าง (ถอด DO หมด) → assign/offer 409 trip_empty
+    await act(t3.id, 'detach', { deliveryOrderIds: [z.id] }).expect(200);
+    expect(
+      (
+        await act(t3.id, 'assign', { vehicleId: own.id, driverId: (await newDriver()).id }).expect(
+          409,
+        )
+      ).body.code,
+    ).toBe('trip_empty');
+    expect((await act(t3.id, 'offer', { carrierId: car.id }).expect(409)).body.code).toBe(
+      'trip_empty',
+    );
     // เที่ยวอื่น: ยกเลิกระหว่างรอรถร่วมตอบ
     const y = await newDo();
     const t2 = (await createTrip([y.id]).expect(201)).body;
@@ -557,6 +596,12 @@ describe('trips (ST3-T11)', () => {
     await expect(
       db.$executeRaw`UPDATE trip_stop SET sequence = 1 WHERE trip_id = ${id}::uuid`,
     ).rejects.toThrow(/already exists/);
+    // จุดของ DO ต้องเป็นของเที่ยวเดียวกัน (composite FK)
+    const t2 = (await createTrip([(await newDo()).id]).expect(201)).body;
+    const d1 = t.deliveryOrders[0].id as string;
+    await expect(
+      db.$executeRaw`UPDATE delivery_order SET trip_stop_id = ${uuid('tripStop', t2.stops[1].id)}::uuid WHERE id = ${uuid('deliveryOrder', d1)}::uuid`,
+    ).rejects.toThrow(/delivery_order_drop_stop_same_trip_fkey/);
     const appDb = new PrismaClient({ datasources: { db: { url: process.env.APP_DATABASE_URL } } });
     try {
       await expect(
@@ -574,5 +619,49 @@ describe('trips (ST3-T11)', () => {
     } finally {
       await appDb.$disconnect();
     }
+  });
+
+  it('M1: สิทธิ์ยกเลิกเที่ยวที่ปล่อยแล้วตรวจหลังล็อก — คำขอที่เห็น ASSIGNED แต่เที่ยวถูกปล่อยก่อนล็อก → 403 ไม่ยกเลิก', async () => {
+    const v = await newVehicle();
+    const drv = await newDriver();
+    const x = await newDo();
+    const t = (await createTrip([x.id]).expect(201)).body;
+    await act(t.id, 'assign', { vehicleId: v.id, driverId: drv.id }).expect(200);
+    const id = uuid('trip', t.id);
+    const seen = await run((tx) => app.get(TripService).get(id, tx));
+    expect(seen.status).toBe('ASSIGNED'); // planner อ่านได้ ASSIGNED (ผ่านด่าน controller)
+    await act(t.id, 'dispatch', {}, dispatcher).expect(200); // ผู้จ่ายงานปล่อยรถก่อน planner ได้ล็อก
+    const err = await run((tx) =>
+      app.get(TripService).cancel(id, { reason: 'ยกเลิกจากผู้วางแผนที่ช้าไป' }, tx, undefined, {
+        canCancelDispatched: false,
+      }),
+    ).catch((e: { code?: string }) => e);
+    expect((err as { code?: string }).code).toBe('permission_denied');
+    expect((await api(app, admin).get(`/v1/trips/${t.id}`).expect(200)).body.status).toBe(
+      'DISPATCHED',
+    );
+    expect((await doRow(x.uuid)).status).toBe('DISPATCHED');
+  });
+
+  it('ซ้อนเวลาตามช่วงวิ่ง (ข้ามวัน) ไม่ใช่แค่วันเดียวกัน', async () => {
+    const v = await newVehicle();
+    const [d1, d2] = [await newDriver(), await newDriver()];
+    const a = (
+      await createTrip([(await newDo()).id], {
+        tripDate: '2026-12-01',
+        plannedStartAt: '2026-12-01T20:00:00+07:00',
+        plannedEndAt: '2026-12-02T06:00:00+07:00',
+      }).expect(201)
+    ).body;
+    const b = (
+      await createTrip([(await newDo()).id], {
+        tripDate: '2026-12-02',
+        plannedStartAt: '2026-12-02T04:00:00+07:00',
+        plannedEndAt: '2026-12-02T09:00:00+07:00',
+      }).expect(201)
+    ).body;
+    await act(a.id, 'assign', { vehicleId: v.id, driverId: d1.id }).expect(200);
+    const r = await act(b.id, 'assign', { vehicleId: v.id, driverId: d2.id }).expect(200);
+    expect(r.body.warnings.map((w: { code: string }) => w.code)).toContain('vehicle_overlap');
   });
 });

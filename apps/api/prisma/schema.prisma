@@ -1584,6 +1584,8 @@ model DeliveryOrder {
   @@unique([tenantId, doNo])
   @@index([tenantId, status])
   @@index([tenantId, tripId])
+  @@index([tenantId, tripStopId])
+  @@index([tenantId, pickupTripStopId])
   @@index([tenantId, salesOrderId])
   @@index([tenantId, updatedAt, id])
   @@map("delivery_order")

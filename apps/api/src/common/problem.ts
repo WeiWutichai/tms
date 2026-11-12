@@ -174,6 +174,16 @@ export const PROBLEMS = {
     th: 'ยกเลิกเที่ยวไม่ได้ — มีใบส่งของที่รับของขึ้นรถหรือส่งแล้ว (ปิดเที่ยวบางส่วนแล้วเปิดเที่ยวใหม่แทน)',
     en: 'Trip has orders already picked up or delivered — close it partially and open a new trip instead',
   },
+  offer_required: {
+    status: 409,
+    th: 'รถคันนี้เป็นรถร่วม — ต้องเสนองานให้รถร่วมก่อน แล้วจึงบันทึกการรับงาน',
+    en: 'Subcontract vehicle — offer the trip to the carrier first',
+  },
+  carrier_change_requires_cancel: {
+    status: 409,
+    th: 'เปลี่ยนรถร่วมหรือสลับรถร่วม/รถบริษัทไม่ได้ — ยกเลิกการจ้างเดิมก่อน',
+    en: 'Changing the carrier requires cancelling the current hire first',
+  },
   trip_empty: {
     status: 409,
     th: 'เที่ยวนี้ยังไม่มีใบส่งของ',

@@ -83,16 +83,6 @@ export class CreateTripDto extends DeliveryOrderIdsDto {
   @IsNullable()
   @IsISO8601({ strict: true })
   plannedEndAt?: string | null;
-
-  @ApiPropertyOptional({
-    example: 'veh_3f2a…',
-    description:
-      'รถที่วางไว้ (ลากลงแถวรถบนกระดาน) — snapshot ทะเบียน/ประเภท; สถานะยัง PLANNING จนกว่าจะ /assign',
-  })
-  @IsOptional()
-  @IsNullable()
-  @Matches(VEH_ID)
-  vehicleId?: string | null;
 }
 
 export class AttachDeliveryOrdersDto extends DeliveryOrderIdsDto {}

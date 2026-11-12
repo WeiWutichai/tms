@@ -183,7 +183,6 @@ export class TripsController {
       ),
       plannedStartAt: body.plannedStartAt,
       plannedEndAt: body.plannedEndAt,
-      vehicleId: optRef('vehicle', body.vehicleId, 'vehicleId'),
     });
     setEtag(res, t.version);
     return toTripDto(t);
@@ -195,6 +194,7 @@ export class TripsController {
   @TenantResource('trip')
   @RequireScope('trips:assign')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
+  @ApiHeader({ name: 'Idempotency-Key', required: false })
   @ApiOkResponse({ type: TripDto })
   async attach(
     @Param('id') id: string,
@@ -219,6 +219,7 @@ export class TripsController {
   @TenantResource('trip')
   @RequireScope('trips:assign')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
+  @ApiHeader({ name: 'Idempotency-Key', required: false })
   @ApiOkResponse({ type: TripDto })
   async detach(
     @Param('id') id: string,
@@ -244,6 +245,7 @@ export class TripsController {
   @TenantResource('trip')
   @RequireScope('trips:assign')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
+  @ApiHeader({ name: 'Idempotency-Key', required: false })
   @ApiOkResponse({ type: TripDto })
   async assign(
     @Param('id') id: string,
@@ -273,6 +275,7 @@ export class TripsController {
   @TenantResource('trip')
   @RequireScope('trips:assign')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
+  @ApiHeader({ name: 'Idempotency-Key', required: false })
   @ApiOkResponse({ type: TripDto })
   async offer(
     @Param('id') id: string,
@@ -297,6 +300,7 @@ export class TripsController {
   @TenantResource('trip')
   @RequireScope('trips:dispatch')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
+  @ApiHeader({ name: 'Idempotency-Key', required: false })
   @ApiOkResponse({ type: TripDto })
   async dispatch(
     @Param('id') id: string,
@@ -315,6 +319,7 @@ export class TripsController {
   @TenantResource('trip')
   @RequireScope('trips:close')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
+  @ApiHeader({ name: 'Idempotency-Key', required: false })
   @ApiOkResponse({ type: TripDto })
   async complete(
     @Param('id') id: string,
@@ -333,6 +338,7 @@ export class TripsController {
   @TenantResource('trip')
   @RequireScope('trips:assign')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
+  @ApiHeader({ name: 'Idempotency-Key', required: false })
   @ApiOkResponse({ type: TripDto })
   async cancel(
     @Param('id') id: string,
@@ -341,16 +347,6 @@ export class TripsController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<TripDto> {
     const trip = await this.trips.get(decodeIdOr404('trip', id));
-    // เที่ยวที่ปล่อยรถแล้ว = งานของผู้จ่ายงาน (A3 Planner ไม่มี dispatch)
-    if (
-      trip.status === 'DISPATCHED' &&
-      !scopeAllows(requestContext.require().scopes ?? [], 'trips:dispatch')
-    )
-      throw new ProblemException('permission_denied', undefined, undefined, {
-        module: 'trips',
-        action: 'dispatch',
-        required: ['trips:dispatch'],
-      });
     const t = await this.trips.cancel(
       trip.id,
       {
@@ -359,6 +355,8 @@ export class TripsController {
       },
       undefined,
       expectedVersion(req),
+      // เที่ยวที่ปล่อยรถแล้ว = งานของผู้จ่ายงาน (A3 Planner ไม่มี dispatch) — service ตรวจหลังล็อก
+      { canCancelDispatched: scopeAllows(requestContext.require().scopes ?? [], 'trips:dispatch') },
     );
     setEtag(res, t.version);
     return toTripDto(t);

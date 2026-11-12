@@ -11924,6 +11924,14 @@
             }
           },
           {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "If-Match",
             "in": "header",
             "description": "ETag จาก GET — ไม่ตรง → 412",
@@ -11973,6 +11981,14 @@
             "name": "id",
             "required": true,
             "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
             "schema": {
               "type": "string"
             }
@@ -12032,6 +12048,14 @@
             }
           },
           {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "If-Match",
             "in": "header",
             "description": "ETag จาก GET — ไม่ตรง → 412",
@@ -12081,6 +12105,14 @@
             "name": "id",
             "required": true,
             "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
             "schema": {
               "type": "string"
             }
@@ -12140,6 +12172,14 @@
             }
           },
           {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "If-Match",
             "in": "header",
             "description": "ETag จาก GET — ไม่ตรง → 412",
@@ -12184,6 +12224,14 @@
             }
           },
           {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "If-Match",
             "in": "header",
             "description": "ETag จาก GET — ไม่ตรง → 412",
@@ -12223,6 +12271,14 @@
             "name": "id",
             "required": true,
             "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
             "schema": {
               "type": "string"
             }
@@ -25673,11 +25729,6 @@
             "type": "object",
             "example": "2026-11-13T17:00:00+07:00",
             "description": "จบตามแผน (≥ เริ่ม)"
-          },
-          "vehicleId": {
-            "type": "object",
-            "example": "veh_3f2a…",
-            "description": "รถที่วางไว้ (ลากลงแถวรถบนกระดาน) — snapshot ทะเบียน/ประเภท; สถานะยัง PLANNING จนกว่าจะ /assign"
           }
         },
         "required": [

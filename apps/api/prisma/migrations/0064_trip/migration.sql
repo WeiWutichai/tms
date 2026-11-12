@@ -74,6 +74,17 @@ ALTER TABLE "trip_stop" ADD CONSTRAINT "trip_stop_fail_reason_code_id_fkey" FORE
 -- AddForeignKey
 ALTER TABLE "delivery_order" ADD CONSTRAINT "delivery_order_pickup_trip_stop_id_fkey" FOREIGN KEY ("pickup_trip_stop_id") REFERENCES "trip_stop"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
+-- CreateIndex (ค้น DO ตามจุด — review ST3-T11)
+CREATE INDEX "delivery_order_tenant_id_trip_stop_id_idx" ON "delivery_order"("tenant_id", "trip_stop_id");
+CREATE INDEX "delivery_order_tenant_id_pickup_trip_stop_id_idx" ON "delivery_order"("tenant_id", "pickup_trip_stop_id");
+
+-- จุดของ DO ต้องเป็นจุดของเที่ยวเดียวกับ DO (composite FK — Prisma ไม่ได้ model ไว้; MATCH SIMPLE: DO นอกเที่ยวไม่ตรวจ)
+CREATE UNIQUE INDEX "trip_stop_id_trip_id_key" ON "trip_stop"("id", "trip_id");
+ALTER TABLE "delivery_order" ADD CONSTRAINT "delivery_order_drop_stop_same_trip_fkey"
+  FOREIGN KEY ("trip_stop_id", "trip_id") REFERENCES "trip_stop"("id", "trip_id") ON DELETE RESTRICT ON UPDATE RESTRICT;
+ALTER TABLE "delivery_order" ADD CONSTRAINT "delivery_order_pickup_stop_same_trip_fkey"
+  FOREIGN KEY ("pickup_trip_stop_id", "trip_id") REFERENCES "trip_stop"("id", "trip_id") ON DELETE RESTRICT ON UPDATE RESTRICT;
+
 -- ลำดับจุดไม่ซ้ำเฉพาะจุดที่ยังใช้ (จุดที่ถอดแล้วเก็บไว้เป็นประวัติ)
 CREATE UNIQUE INDEX "trip_stop_active_sequence_key" ON "trip_stop"("tenant_id", "trip_id", "sequence") WHERE "removed_at" IS NULL;
 
