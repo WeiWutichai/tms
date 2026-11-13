@@ -3822,6 +3822,59 @@
         ]
       }
     },
+    "/v1/orders/summary": {
+      "get": {
+        "operationId": "Orders_summary",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderSummaryDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`orders:read` / `orders:write`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "orders",
+                      "action": "write",
+                      "required": [
+                        "orders:write"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "orders"
+        ]
+      }
+    },
     "/v1/orders": {
       "get": {
         "operationId": "Orders_list",
@@ -4916,6 +4969,273 @@
         ],
         "tags": [
           "orders"
+        ]
+      }
+    },
+    "/v1/order-templates": {
+      "get": {
+        "operationId": "OrderTemplates_list",
+        "parameters": [
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "ค่า nextCursor จากหน้าก่อน",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "updatedAfter",
+            "required": false,
+            "in": "query",
+            "description": "คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sort",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "updatedAt",
+              "type": "string",
+              "enum": [
+                "updatedAt",
+                "-updatedAt"
+              ]
+            }
+          },
+          {
+            "name": "fields",
+            "required": false,
+            "in": "query",
+            "description": "รายชื่อ field คั่นด้วย , เช่น id,legalName",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "required": false,
+            "in": "query",
+            "description": "ค้นชื่อเทมเพลต (ไม่สนตัวพิมพ์)",
+            "schema": {
+              "maxLength": 100,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderTemplatePageDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "order-templates"
+        ]
+      },
+      "post": {
+        "description": "payload ตรวจด้วยกฎเดียวกับ POST /v1/orders (422 `payload.…`) · ชื่อซ้ำ (ไม่สนตัวพิมพ์) → 409 `duplicate`",
+        "operationId": "OrderTemplates_create",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateOrderTemplateDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderTemplateDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "บันทึกเทมเพลต",
+        "tags": [
+          "order-templates"
+        ]
+      }
+    },
+    "/v1/order-templates/{id}": {
+      "get": {
+        "operationId": "OrderTemplates_get",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderTemplateDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "order-templates"
+        ]
+      },
+      "patch": {
+        "operationId": "OrderTemplates_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateOrderTemplateDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderTemplateDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "order-templates"
+        ]
+      }
+    },
+    "/v1/order-templates/{id}/delete": {
+      "post": {
+        "operationId": "OrderTemplates_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MasterReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "order-templates"
         ]
       }
     },
@@ -19290,7 +19610,7 @@
             "example": "สมชาย ใจดี"
           },
           "phone": {
-            "type": "object",
+            "type": "string",
             "example": "0812345678",
             "nullable": true,
             "description": "เบอร์ไทย 0xxxxxxxxx หรือ +66… · null = ลบ"
@@ -19310,7 +19630,7 @@
             ]
           },
           "signatureDocumentId": {
-            "type": "object",
+            "type": "string",
             "example": "doc_…",
             "nullable": true,
             "description": "ลายเซ็น: เอกสาร kind SIGNATURE (PNG/JPEG/WebP) ที่ผู้ใช้อัปโหลดเองและ ready แล้ว · null = ลบ"
@@ -20045,11 +20365,13 @@
           "before": {
             "type": "object",
             "nullable": true,
+            "additionalProperties": true,
             "description": "ค่าก่อนแก้ (เฉพาะ field ที่เปลี่ยน)"
           },
           "after": {
             "type": "object",
-            "nullable": true
+            "nullable": true,
+            "additionalProperties": true
           },
           "reason": {
             "type": "string",
@@ -20226,11 +20548,13 @@
           "value": {
             "type": "object",
             "description": "ค่าปัจจุบัน (ชนิดตาม registry)",
-            "nullable": true
+            "nullable": true,
+            "additionalProperties": true
           },
           "default": {
             "type": "object",
-            "nullable": true
+            "nullable": true,
+            "additionalProperties": true
           },
           "isDefault": {
             "type": "boolean"
@@ -20321,11 +20645,13 @@
           },
           "result": {
             "type": "object",
-            "nullable": true
+            "nullable": true,
+            "additionalProperties": true
           },
           "error": {
             "type": "object",
-            "nullable": true
+            "nullable": true,
+            "additionalProperties": true
           },
           "attempts": {
             "type": "number"
@@ -21077,6 +21403,53 @@
           "requestId"
         ]
       },
+      "OrderSummaryDto": {
+        "type": "object",
+        "properties": {
+          "total": {
+            "type": "number",
+            "description": "ทุกใบ (รวมร่าง)"
+          },
+          "draft": {
+            "type": "number",
+            "description": "ร่าง (ยังไม่ออกเลข SO)"
+          },
+          "onHold": {
+            "type": "number",
+            "description": "ค้าง (ON_HOLD) ทุกเหตุ"
+          },
+          "locationUnmapped": {
+            "type": "number",
+            "description": "ค้างเพราะจับคู่สถานที่ไม่ได้ (LOCATION_UNMAPPED) — \"รอกำหนดเส้นทาง\""
+          },
+          "customerUnmapped": {
+            "type": "number",
+            "description": "ค้างเพราะจับคู่ลูกค้าไม่ได้ (CUSTOMER_UNMAPPED)"
+          },
+          "overdue": {
+            "type": "number",
+            "description": "เกินกำหนด: ยังไม่ออกรถ (RECEIVED/ON_HOLD/PLANNED) และวันรับของก่อนวันนี้ (เวลาไทย)"
+          },
+          "planned": {
+            "type": "number",
+            "description": "วางแผนแล้ว (PLANNED) ทั้งหมด"
+          },
+          "plannedToday": {
+            "type": "number",
+            "description": "วางแผนแล้ว (PLANNED) ที่วันรับของ = วันนี้ (เวลาไทย)"
+          }
+        },
+        "required": [
+          "total",
+          "draft",
+          "onHold",
+          "locationUnmapped",
+          "customerUnmapped",
+          "overdue",
+          "planned",
+          "plannedToday"
+        ]
+      },
       "OrderCustomerDto": {
         "type": "object",
         "properties": {
@@ -21472,6 +21845,24 @@
               "$ref": "#/components/schemas/OrderLineDto"
             }
           },
+          "editableFields": {
+            "type": "array",
+            "description": "ช่องที่แก้ได้ในสถานะปัจจุบัน (spec/03 ORD-032) — มีเฉพาะ GET ทีละใบและผลของ POST/PUT/PATCH (ไม่อยู่ในรายการ) · ว่าง = แก้ไม่ได้ (ปิดงาน/ยกเลิก) · ฟอร์มใช้ปิดช่องที่แก้ไม่ได้ก่อนส่ง (server ตรวจซ้ำ → 409 `order_locked_for_update`)",
+            "items": {
+              "type": "string",
+              "enum": [
+                "customer",
+                "billingCompanyId",
+                "customerRef",
+                "requestedDate",
+                "vehicleTypeId",
+                "stops",
+                "stops.window",
+                "lines",
+                "sourceIssues"
+              ]
+            }
+          },
           "version": {
             "type": "number"
           },
@@ -21533,19 +21924,19 @@
         "type": "object",
         "properties": {
           "id": {
-            "type": "object",
+            "type": "string",
             "example": "cus_3f2a…",
             "nullable": true,
             "description": "ลูกค้าใน master"
           },
           "externalId": {
-            "type": "object",
+            "type": "string",
             "example": "C-001",
             "nullable": true,
             "description": "รหัสลูกค้าตามระบบต้นทาง — จับคู่กับ customer.externalId (ไม่พบ = ใบค้าง CUSTOMER_UNMAPPED)"
           },
           "name": {
-            "type": "object",
+            "type": "string",
             "nullable": true,
             "description": "ชื่อ/ข้อความลูกค้าตามต้นทาง"
           }
@@ -21563,25 +21954,25 @@
             ]
           },
           "siteId": {
-            "type": "object",
+            "type": "string",
             "example": "loc_3f2a…",
             "nullable": true,
             "description": "สถานที่ใน master — ไม่ส่ง = ใช้ `siteText` (ใบค้าง LOCATION_UNMAPPED)"
           },
           "siteText": {
-            "type": "object",
+            "type": "string",
             "nullable": true,
             "maxLength": 500,
             "description": "ข้อความสถานที่ตามต้นทาง (บังคับเมื่อไม่มี siteId)"
           },
           "windowStart": {
-            "type": "object",
+            "type": "string",
             "example": "2026-11-12T07:00:00+07:00",
             "nullable": true,
             "description": "ISO 8601 พร้อม timezone"
           },
           "windowEnd": {
-            "type": "object",
+            "type": "string",
             "nullable": true,
             "description": "ISO 8601 พร้อม timezone (≥ windowStart)"
           }
@@ -21603,23 +21994,23 @@
             "description": "> 0 ทศนิยม ≤ 3 (สตริง)"
           },
           "unitId": {
-            "type": "object",
+            "type": "string",
             "example": "unt_3f2a…",
             "nullable": true,
             "description": "หน่วยใน master"
           },
           "unit": {
-            "type": "object",
+            "type": "string",
             "nullable": true,
             "description": "ข้อความหน่วย (บังคับเมื่อไม่มี unitId)"
           },
           "productId": {
-            "type": "object",
+            "type": "string",
             "example": "prd_3f2a…",
             "nullable": true
           },
           "itemCode": {
-            "type": "object",
+            "type": "string",
             "nullable": true,
             "description": "รหัสสินค้าตามต้นทาง"
           },
@@ -21662,13 +22053,13 @@
             "$ref": "#/components/schemas/OrderCustomerInputDto"
           },
           "billingCompanyId": {
-            "type": "object",
+            "type": "string",
             "example": "cmp_3f2a…",
             "nullable": true,
             "description": "นิติบุคคลที่ออกบิล — ไม่ส่ง = ตามลูกค้า/ค่าตั้งต้นของบริษัท"
           },
           "customerRef": {
-            "type": "object",
+            "type": "string",
             "nullable": true,
             "maxLength": 50,
             "description": "เลข PO / อ้างอิงของลูกค้า"
@@ -21679,7 +22070,7 @@
             "description": "วันรับของ YYYY-MM-DD (ใช้หา rate)"
           },
           "vehicleTypeId": {
-            "type": "object",
+            "type": "string",
             "example": "vty_3f2a…",
             "nullable": true
           },
@@ -21698,7 +22089,7 @@
             }
           },
           "externalId": {
-            "type": "object",
+            "type": "string",
             "example": "PO-2026-0001",
             "nullable": true,
             "maxLength": 100,
@@ -21721,13 +22112,13 @@
             "$ref": "#/components/schemas/OrderCustomerInputDto"
           },
           "billingCompanyId": {
-            "type": "object",
+            "type": "string",
             "example": "cmp_3f2a…",
             "nullable": true,
             "description": "นิติบุคคลที่ออกบิล — ไม่ส่ง = ตามลูกค้า/ค่าตั้งต้นของบริษัท"
           },
           "customerRef": {
-            "type": "object",
+            "type": "string",
             "nullable": true,
             "maxLength": 50,
             "description": "เลข PO / อ้างอิงของลูกค้า"
@@ -21738,7 +22129,7 @@
             "description": "วันรับของ YYYY-MM-DD (ใช้หา rate)"
           },
           "vehicleTypeId": {
-            "type": "object",
+            "type": "string",
             "example": "vty_3f2a…",
             "nullable": true
           },
@@ -21800,6 +22191,179 @@
             "items": {
               "$ref": "#/components/schemas/OrderLineInputDto"
             }
+          }
+        }
+      },
+      "OrderTemplatePayloadDto": {
+        "type": "object",
+        "properties": {
+          "customer": {
+            "$ref": "#/components/schemas/OrderCustomerInputDto"
+          },
+          "billingCompanyId": {
+            "type": "string",
+            "example": "cmp_3f2a…",
+            "nullable": true,
+            "description": "นิติบุคคลที่ออกบิล — ไม่ส่ง = ตามลูกค้า/ค่าตั้งต้นของบริษัท"
+          },
+          "customerRef": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 50,
+            "description": "เลข PO / อ้างอิงของลูกค้า"
+          },
+          "requestedDate": {
+            "type": "string",
+            "example": "2026-11-12",
+            "description": "วันรับของ YYYY-MM-DD (ใช้หา rate)"
+          },
+          "vehicleTypeId": {
+            "type": "string",
+            "example": "vty_3f2a…",
+            "nullable": true
+          },
+          "stops": {
+            "description": "1–50 จุด เรียงตามลำดับวิ่ง",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderStopInputDto"
+            }
+          },
+          "lines": {
+            "description": "≤ 200 บรรทัด",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderLineInputDto"
+            }
+          }
+        },
+        "required": [
+          "requestedDate",
+          "stops"
+        ]
+      },
+      "OrderTemplateCustomerDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "cus_3f2a…"
+          },
+          "code": {
+            "type": "string"
+          },
+          "legalName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "legalName"
+        ]
+      },
+      "OrderTemplateDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "otp_3f2a…"
+          },
+          "name": {
+            "type": "string"
+          },
+          "payload": {
+            "$ref": "#/components/schemas/OrderTemplatePayloadDto"
+          },
+          "customer": {
+            "nullable": true,
+            "description": "ลูกค้าตาม payload.customer.id (ไม่พบ/ถูกลบ = null) — ใช้แสดงในรายการ",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/OrderTemplateCustomerDto"
+              }
+            ]
+          },
+          "version": {
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "payload",
+          "customer",
+          "version",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "OrderTemplatePageDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderTemplateDto"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor",
+          "hasMore"
+        ]
+      },
+      "CreateOrderTemplateDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "ส่งน้ำดื่ม บางปู → แหลมฉบัง ทุกจันทร์",
+            "maxLength": 100
+          },
+          "payload": {
+            "description": "ข้อมูลใบสั่งขนส่ง (รูปเดียวกับ body ของ POST /v1/orders) — `requestedDate` + ช่วงเวลาของจุด = วันอ้างอิง (ตอนสร้างใบ ผู้เรียกเลื่อนเป็นวันที่ต้องการโดยคงเวลาเดิม)",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/OrderTemplatePayloadDto"
+              }
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "payload"
+        ]
+      },
+      "UpdateOrderTemplateDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "payload": {
+            "description": "แทนทั้งก้อน",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/OrderTemplatePayloadDto"
+              }
+            ]
           }
         }
       },
@@ -26683,7 +27247,8 @@
             "example": "ลูกค้าขอยกเลิกการส่งรอบนี้"
           },
           "reasonCodeId": {
-            "type": "object",
+            "type": "string",
+            "nullable": true,
             "example": "rsn_3f2a…",
             "description": "เหตุผลมาตรฐานหมวด CANCEL"
           }
@@ -26923,6 +27488,7 @@
           },
           "params": {
             "type": "object",
+            "additionalProperties": true,
             "description": "ค่าประกอบข้อความ"
           }
         },
@@ -27156,12 +27722,14 @@
             "description": "วันที่เที่ยว (YYYY-MM-DD)"
           },
           "plannedStartAt": {
-            "type": "object",
+            "type": "string",
+            "nullable": true,
             "example": "2026-11-13T08:00:00+07:00",
             "description": "เริ่มวิ่งตามแผน"
           },
           "plannedEndAt": {
-            "type": "object",
+            "type": "string",
+            "nullable": true,
             "example": "2026-11-13T17:00:00+07:00",
             "description": "จบตามแผน (≥ เริ่ม)"
           }
@@ -27203,7 +27771,8 @@
             }
           },
           "note": {
-            "type": "object",
+            "type": "string",
+            "nullable": true,
             "maxLength": 500,
             "example": "ย้ายไปรถคันอื่น"
           }
@@ -27221,17 +27790,20 @@
             "description": "รถหลัก (ไม่ใช่หาง)"
           },
           "driverId": {
-            "type": "object",
+            "type": "string",
+            "nullable": true,
             "example": "drv_3f2a…",
             "description": "คนขับ — ไม่ส่ง = คนขับประจำของรถ (มีคนเดียว) · รถบริษัทต้องมีคนขับ"
           },
           "reliefDriverId": {
-            "type": "object",
+            "type": "string",
+            "nullable": true,
             "example": "drv_3f2a…",
             "description": "คนขับสำรอง (งานทางไกล)"
           },
           "trailerId": {
-            "type": "object",
+            "type": "string",
+            "nullable": true,
             "example": "veh_3f2a…",
             "description": "หาง (รถที่ unitRole = TRAILER)"
           }
@@ -27263,7 +27835,8 @@
             "example": "ลูกค้ายกเลิกการส่งทั้งเที่ยว"
           },
           "reasonCodeId": {
-            "type": "object",
+            "type": "string",
+            "nullable": true,
             "example": "rsn_3f2a…",
             "description": "เหตุผลมาตรฐานหมวด CANCEL"
           }

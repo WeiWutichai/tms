@@ -157,3 +157,10 @@
 - ค่า prefix/รีเซ็ตตั้งต่อประเภทเอกสาร (`document_series`, ตรงกับตารางในต้นแบบ) · ตัวนับจริงต่อ (ประเภท × สาขา × งวด) ใน `document_sequence`; เอกสารที่ไม่ใช่ภาษีนับรวมทั้ง tenant (`branch_id` null)
 - เอกสารภาษี (INV, TXINV, RCP, CN, DN, WHT) นับแยกต่อสาขาผู้ออก และ prefix ต้องมี `{BR}` กันเลขซ้ำข้ามสาขา — ค่าเริ่มต้น `INV-{BR}-` + `{YY}{MM}-` + 4 หลัก (รอคำตอบนักบัญชีข้อ 4 ถ้าต้องการชุดเดียวทั้งบริษัท)
 - ออกเลขด้วย `INSERT … ON CONFLICT DO NOTHING` + `UPDATE … RETURNING` ใน transaction ของผู้เรียก (ล็อกแถวจนจบ transaction); งวดคิดตามเวลาไทย; ปีตาม `tenant.year_style`
+
+### T-22 แก้ชนิดใน OpenAPI ที่ผิดจากของจริง — "OpenAPI correction: no wire change" [ตัดสิน 13 พ.ย. 2569, ST3-T02 ตามผล review]
+- ปัญหา: DTO ที่ประกาศ `@ApiPropertyOptional({ nullable: true })` บนช่อง `string | null` โดยไม่ใส่ `type: String` ทำให้ OpenAPI ออกเป็น `type: object` (client ที่ generate จะส่ง object) ทั้งที่ server รับเฉพาะสตริง — ข้อมูลบนสายไม่เปลี่ยน แต่ diff gate นับ object → string เป็น breaking
+- แก้: ใส่ `type: String` ให้ช่องที่ผิด (schema ด้านล่าง) · ช่อง JSON อิสระ (`AuditEntryDto.before/after`, `JobDto.result/error`, `SettingDto.value/default`) ใส่ `additionalProperties: true` (ชนิดเดิม ไม่ใช่ breaking)
+- gate: `apps/api/openapi-corrections.json` = รายการแก้ที่ยอม (เฉพาะ `type object → string` ของ schema ที่ระบุ + อ้าง ADR) — `openapi:diff` กรองออกเฉพาะรายการนี้ ไม่ใช้ `ALLOW_BREAKING` ทั้งก้อน · ลบรายการได้เมื่อ main มีชนิดใหม่แล้ว
+- กันซ้ำ: test `src/openapi-diff.test.ts` ล้มเมื่อ OpenAPI ที่ export มี `type: object` ที่ไม่มี properties/$ref/additionalProperties
+- schema ที่แก้ (request): `UpdateProfileDto.phone`, `.signatureDocumentId` · `OrderCustomerInputDto.id`, `.externalId`, `.name` · `OrderStopInputDto.siteId`, `.siteText`, `.windowStart`, `.windowEnd` · `OrderLineInputDto.unitId`, `.unit`, `.productId`, `.itemCode` · `CreateOrderDto.billingCompanyId`, `.customerRef`, `.vehicleTypeId`, `.externalId` · `UpsertOrderDto.billingCompanyId`, `.customerRef`, `.vehicleTypeId` · `CancelDeliveryOrderDto.reasonCodeId` (+ `OrderTemplatePayloadDto` ใหม่ใน ST3-T02 ไม่อยู่บน main)

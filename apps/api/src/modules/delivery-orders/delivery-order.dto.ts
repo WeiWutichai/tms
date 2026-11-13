@@ -148,7 +148,12 @@ export class CancelDeliveryOrderDto {
   @MaxLength(500)
   reason!: string;
 
-  @ApiPropertyOptional({ example: 'rsn_3f2a…', description: 'เหตุผลมาตรฐานหมวด CANCEL' })
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    example: 'rsn_3f2a…',
+    description: 'เหตุผลมาตรฐานหมวด CANCEL',
+  })
   @IsOptional()
   @IsNullable()
   @Matches(/^rsn_[0-9a-f]{32}$/)

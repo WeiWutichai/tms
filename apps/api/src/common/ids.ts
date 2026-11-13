@@ -35,6 +35,7 @@ export const ID_PREFIX = {
   trip: 'trp',
   tripStop: 'stp',
   salesOrder: 'ord',
+  orderTemplate: 'otp',
   deliveryOrder: 'do',
   magicLink: 'mlk',
   carrierDocSubmission: 'cds',

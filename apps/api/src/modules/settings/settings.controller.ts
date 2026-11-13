@@ -15,8 +15,14 @@ import { SettingsService } from './settings.service';
 
 export class SettingDto {
   @ApiProperty({ example: 'security.idleTimeoutMinutes' }) key!: string;
-  @ApiProperty({ description: 'ค่าปัจจุบัน (ชนิดตาม registry)', nullable: true }) value!: unknown;
-  @ApiProperty({ nullable: true }) default!: unknown;
+  @ApiProperty({
+    description: 'ค่าปัจจุบัน (ชนิดตาม registry)',
+    nullable: true,
+    type: 'object',
+    additionalProperties: true,
+  })
+  value!: unknown;
+  @ApiProperty({ nullable: true, type: 'object', additionalProperties: true }) default!: unknown;
   @ApiProperty() isDefault!: boolean;
   @ApiProperty() version!: number;
   @ApiProperty({ nullable: true, type: String, format: 'date-time' }) updatedAt!: string | null;

@@ -1,0 +1,33 @@
+{
+  "description": "แก้ชนิดใน OpenAPI ที่ผิดจากของจริง (ไม่เปลี่ยนข้อมูลบนสาย) — openapi-diff ยอมเฉพาะรายการนี้และเฉพาะ type object → string; ดู plan/02-tech-decisions.md T-22 · ลบรายการได้เมื่อ main มีชนิดใหม่แล้ว",
+  "corrections": [
+    { "schema": "UpdateProfileDto.phone", "from": "object", "to": "string", "adr": "T-22" },
+    { "schema": "UpdateProfileDto.signatureDocumentId", "from": "object", "to": "string", "adr": "T-22" },
+    { "schema": "OrderCustomerInputDto.id", "from": "object", "to": "string", "adr": "T-22" },
+    { "schema": "OrderCustomerInputDto.externalId", "from": "object", "to": "string", "adr": "T-22" },
+    { "schema": "OrderCustomerInputDto.name", "from": "object", "to": "string", "adr": "T-22" },
+    { "schema": "OrderStopInputDto.siteId", "from": "object", "to": "string", "adr": "T-22" },
+    { "schema": "OrderStopInputDto.siteText", "from": "object", "to": "string", "adr": "T-22" },
+    { "schema": "OrderStopInputDto.windowStart", "from": "object", "to": "string", "adr": "T-22" },
+    { "schema": "OrderStopInputDto.windowEnd", "from": "object", "to": "string", "adr": "T-22" },
+    { "schema": "OrderLineInputDto.unitId", "from": "object", "to": "string", "adr": "T-22" },
+    { "schema": "OrderLineInputDto.unit", "from": "object", "to": "string", "adr": "T-22" },
+    { "schema": "OrderLineInputDto.productId", "from": "object", "to": "string", "adr": "T-22" },
+    { "schema": "OrderLineInputDto.itemCode", "from": "object", "to": "string", "adr": "T-22" },
+    { "schema": "CreateOrderDto.billingCompanyId", "from": "object", "to": "string", "adr": "T-22" },
+    { "schema": "CreateOrderDto.customerRef", "from": "object", "to": "string", "adr": "T-22" },
+    { "schema": "CreateOrderDto.vehicleTypeId", "from": "object", "to": "string", "adr": "T-22" },
+    { "schema": "CreateOrderDto.externalId", "from": "object", "to": "string", "adr": "T-22" },
+    { "schema": "UpsertOrderDto.billingCompanyId", "from": "object", "to": "string", "adr": "T-22" },
+    { "schema": "UpsertOrderDto.customerRef", "from": "object", "to": "string", "adr": "T-22" },
+    { "schema": "UpsertOrderDto.vehicleTypeId", "from": "object", "to": "string", "adr": "T-22" },
+    { "schema": "CancelDeliveryOrderDto.reasonCodeId", "from": "object", "to": "string", "adr": "T-22" },
+    { "schema": "CreateTripDto.plannedStartAt", "from": "object", "to": "string", "adr": "T-22" },
+    { "schema": "CreateTripDto.plannedEndAt", "from": "object", "to": "string", "adr": "T-22" },
+    { "schema": "DetachDeliveryOrdersDto.note", "from": "object", "to": "string", "adr": "T-22" },
+    { "schema": "AssignTripDto.driverId", "from": "object", "to": "string", "adr": "T-22" },
+    { "schema": "AssignTripDto.reliefDriverId", "from": "object", "to": "string", "adr": "T-22" },
+    { "schema": "AssignTripDto.trailerId", "from": "object", "to": "string", "adr": "T-22" },
+    { "schema": "CancelTripDto.reasonCodeId", "from": "object", "to": "string", "adr": "T-22" }
+  ]
+}

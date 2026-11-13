@@ -211,6 +211,20 @@ const FIXTURES: Record<string, (db: PrismaClient, tenantId: string, n: number) =
       });
       return encodeId('salesOrder', o.id);
     },
+    // ST3-T02 /order-templates/:id
+    orderTemplate: async (db, tenantId, n) =>
+      encodeId(
+        'orderTemplate',
+        (
+          await db.orderTemplate.create({
+            data: {
+              tenantId,
+              name: `ISO-TPL-${n}`,
+              payload: { requestedDate: '2026-11-12', stops: [] },
+            },
+          })
+        ).id,
+      ),
     reasonCode: async (db, tenantId, n) =>
       encodeId(
         'reasonCode',
