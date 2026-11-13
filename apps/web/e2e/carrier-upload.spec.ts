@@ -122,8 +122,6 @@ test.describe.serial('รถร่วมอัปโหลดเอกสาร�
     page,
     browser,
   }) => {
-    // flow ยาว (ส่งเอกสาร → ไม่อนุมัติ → มือถือ → ยกเลิกลิงก์ทั้งหมด) — เกิน 30 วิเมื่อเครื่องโหลดหนัก
-    test.setTimeout(90_000);
     await page.goto('/fleet/drivers?tab=con');
     await page.getByRole('columnheader').getByPlaceholder('ค้นหา').first().fill(CAR);
     await page.locator('tbody tr').filter({ hasText: CAR }).first().click();
