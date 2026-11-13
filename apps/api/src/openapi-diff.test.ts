@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { diffOpenApi } from './openapi-diff';
+import { bareObjects, diffOpenApi } from './openapi-diff';
 
 const base = {
   paths: {
@@ -68,5 +68,38 @@ describe('diffOpenApi', () => {
     h.components.schemas.Company.properties.status.enum.push('archived');
     h.paths['/v1/jobs/{id}'] = { get: {} };
     expect(diffOpenApi(base, h)).toEqual([]);
+  });
+
+  it('แก้ชนิด object → string ยอมเฉพาะที่อยู่ในรายการ corrections (ADR T-22) — อย่างอื่นยังเป็น breaking', () => {
+    const b = clone();
+    b.components.schemas.Create.properties.ref = { type: 'object', nullable: true };
+    b.components.schemas.Create.properties.other = { type: 'object', nullable: true };
+    b.components.schemas.Create.properties.n = { type: 'number' };
+    const h = JSON.parse(JSON.stringify(b));
+    h.components.schemas.Create.properties.ref = { type: 'string', nullable: true };
+    h.components.schemas.Create.properties.other = { type: 'string', nullable: true };
+    h.components.schemas.Create.properties.n = { type: 'string' };
+    const corr = [
+      { schema: 'Create.ref', from: 'object', to: 'string', adr: 'T-22' },
+      // ชนิดอื่นไม่ยอม แม้อยู่ในรายการ
+      { schema: 'Create.n', from: 'number', to: 'string', adr: 'T-22' },
+    ];
+    expect(diffOpenApi(b, h, corr).map((x) => x.where)).toEqual([
+      'schema Create.other',
+      'schema Create.n',
+    ]);
+    expect(diffOpenApi(b, h).length).toBe(3);
+  });
+});
+
+describe('OpenAPI ที่ export (packages/contracts/openapi.json)', () => {
+  it('ไม่มี type: object ที่ไม่มี properties/$ref/additionalProperties', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { resolve } = await import('node:path');
+    const spec = JSON.parse(
+      readFileSync(resolve(__dirname, '../../../packages/contracts/openapi.json'), 'utf8'),
+    );
+    expect(bareObjects({ components: { schemas: { X: { type: 'object' } } } })).toEqual(['X']);
+    expect(bareObjects(spec)).toEqual([]);
   });
 });

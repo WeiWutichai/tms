@@ -2,13 +2,15 @@ import { ApiError } from '../../api';
 import type { T } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
 
-/** ข้อความไทยของ error ระดับช่อง (`field.{code}` ใน catalog; ไม่มี = ข้อความจาก API) */
+/** ข้อความไทยของ error ระดับช่อง (`field.{code}` ใน catalog; ไม่มี = ข้อความไทยจาก API หรือข้อความกลาง — ไม่แสดงข้อความอังกฤษ) */
 export function fieldErrors(err: unknown, t: T): Record<string, string> {
   if (!(err instanceof ApiError)) return {};
   const out: Record<string, string> = {};
   for (const e of err.problem.errors ?? []) {
     const key = `field.${e.code}` as MessageKey;
-    out[e.field] ??= t(key) === key ? e.message : t(key);
+    // ไม่มีข้อความในแคตตาล็อก: ใช้ข้อความ server เฉพาะที่เป็นไทยอยู่แล้ว (เช่น นำเข้า Excel) — ข้อความอังกฤษ → ข้อความกลางภาษาไทย
+    out[e.field] ??=
+      t(key) !== key ? t(key) : /[\u0E00-\u0E7F]/.test(e.message) ? e.message : t('field.invalid');
   }
   return out;
 }

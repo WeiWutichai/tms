@@ -6,7 +6,7 @@ import { ImportWizard } from './ImportWizard';
 
 /**
  * หน้าทดสอบ wizard นำเข้า (ST1-T19) — เปิดเฉพาะ dev (import.meta.env.DEV) ใช้ทำ E2E/ภาพเทียบ
- * จนกว่าหน้ารายการข้อมูลหลักจริงจะมีปุ่ม "นำเข้า Excel" ใน ST2-T23
+ * จนกว่าหน้ารายการข้อมูลหลักจริงจะมีปุ่ม "นำเข้า Excel" ใน ST2-T23 · `?kind=` เลือกชนิด (ค่าเริ่มต้น sample)
  */
 export function DevImportPage() {
   const { t } = useI18n();
@@ -16,7 +16,9 @@ export function DevImportPage() {
   });
   const [open, setOpen] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
-  const kind = kinds.data?.find((k) => k.kind === 'sample');
+  // ?kind=order — ชนิดที่ยังไม่มีหน้ารายการบน main (ใบสั่งขนส่ง ST3-T04 จนกว่า ST3-T02 จะมีหน้ารายการ SO)
+  const want = new URLSearchParams(window.location.search).get('kind') ?? 'sample';
+  const kind = kinds.data?.find((k) => k.kind === want);
   return (
     <div style={{ padding: 24 }}>
       <button
@@ -40,9 +42,14 @@ export function DevImportPage() {
       {open && kind && (
         <ImportWizard
           kind={kind}
-          onClose={(n) => {
+          onClose={(n, entities) => {
             setOpen(false);
-            if (n !== null) setMsg(t('imp.done', { kind: kind.label, n }));
+            if (n !== null)
+              setMsg(
+                entities != null
+                  ? t('imp.doneEntities', { kind: kind.label, n, m: entities })
+                  : t('imp.done', { kind: kind.label, n }),
+              );
           }}
         />
       )}

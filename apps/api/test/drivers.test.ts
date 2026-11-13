@@ -2,7 +2,9 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { FieldCipher } from '../src/common/crypto';
 import { tryDecodeId } from '../src/common/ids';
+import { DriversController } from '../src/modules/drivers/drivers.controller';
 import { licenceStatus, phoneNorm } from '../src/modules/drivers/drivers.service';
+import { TenantRateLimiter } from '../src/modules/geo/rate-limit';
 import { addDays, bangkokToday } from '../src/modules/vehicle-documents/expiry';
 import { api, bootApp, createTenant, platform, tokenFor, truncateAll, validTaxId } from './helpers';
 
@@ -468,6 +470,11 @@ describe('คนขับ (drivers)', () => {
       .send({ reason: 'ตรวจเลขบัตรคนขับ' })
       .expect(400);
     const burst = await tokenFor(tenantId, 'users:write', 'user-burst');
+    // หยุดนาฬิกาของตัวจำกัดถี่ — เครื่องโหลดหนัก 21 คำขอใช้เกิน 3 วิ แล้ว token เติมกลับ (flaky)
+    const ctrl = app.get(DriversController);
+    const realLimiter = ctrl.revealLimiter;
+    const frozen = Date.now();
+    ctrl.revealLimiter = new TenantRateLimiter(20, () => frozen);
     const codes: number[] = [];
     for (let i = 0; i < 21; i++)
       codes.push(
@@ -477,6 +484,7 @@ describe('คนขับ (drivers)', () => {
             .send({ reason: 'ตรวจเลขบัตรคนขับ' })
         ).status,
       );
+    ctrl.revealLimiter = realLimiter;
     expect(codes.slice(0, 20).every((x) => x === 200)).toBe(true);
     expect(codes[20]).toBe(429);
   });

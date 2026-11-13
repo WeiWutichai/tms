@@ -51,6 +51,11 @@ export interface UpsertOrderInput {
    * `'*'` = ต้องมีใบอยู่แล้ว (RFC 9110) · ส่งมาแต่ยังไม่มีใบ → 412 · ตรวจหลังล็อกแถว · ไม่อยู่ใน hash
    */
   expectedVersion?: number | '*';
+  /**
+   * สร้างใหม่เท่านั้น (นำเข้า Excel โหมด create_only — ST3-T04): externalId มีใบอยู่แล้ว → 409 `duplicate`
+   * (field `externalId`) — ตรวจหลังล็อก externalId (กันสองงานนำเข้าพร้อมกัน) · ไม่อยู่ใน hash
+   */
+  createOnly?: boolean;
 }
 
 export interface UpsertOrderStop {

@@ -83,6 +83,9 @@ import { TripService } from './modules/trips/trip.service';
 import { TripsController } from './modules/trips/trips.controller';
 import { OrdersController } from './modules/orders/orders.controller';
 import { OrdersService } from './modules/orders/orders.service';
+import { OrderTemplatesController } from './modules/orders/order-templates.controller';
+import { OrderTemplatesService } from './modules/orders/order-templates.service';
+import { OrderImports } from './modules/orders/order.import';
 import { VehicleTypesController } from './modules/vehicle-types/vehicle-types.controller';
 import { VehicleTypesService } from './modules/vehicle-types/vehicle-types.service';
 import { CarriersController } from './modules/carriers/carriers.controller';
@@ -91,6 +94,8 @@ import { VehicleDocumentsController } from './modules/vehicle-documents/vehicle-
 import { VehicleDocumentsService } from './modules/vehicle-documents/vehicle-documents.service';
 import { Clock } from './common/clock';
 import { DepreciationService } from './modules/depreciation/depreciation.service';
+import { ConnectorIntakeService } from './modules/connectors/connector-intake.service';
+import { OrderSourceRegistry } from './modules/connectors/order-source-registry';
 import { DriversController } from './modules/drivers/drivers.controller';
 import {
   CarrierDocsController,
@@ -140,6 +145,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     JobsController,
     CustomersController,
     OrdersController,
+    OrderTemplatesController,
     SitesController,
     RoutesController,
     ProductsController,
@@ -198,6 +204,10 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     OrderStateService,
     TripService,
     OrdersService,
+    OrderTemplatesService,
+    OrderImports,
+    OrderSourceRegistry,
+    ConnectorIntakeService,
     CarriersService,
     VehiclesService,
     DriversService,

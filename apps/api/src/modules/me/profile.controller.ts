@@ -42,6 +42,7 @@ export class UpdateProfileDto {
   name?: string;
 
   @ApiPropertyOptional({
+    type: String,
     example: '0812345678',
     nullable: true,
     description: 'เบอร์ไทย 0xxxxxxxxx หรือ +66… · null = ลบ',
@@ -62,6 +63,7 @@ export class UpdateProfileDto {
   timezone?: string;
 
   @ApiPropertyOptional({
+    type: String,
     example: 'doc_…',
     nullable: true,
     description:

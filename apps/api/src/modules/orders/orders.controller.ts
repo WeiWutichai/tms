@@ -33,6 +33,7 @@ import {
   OrderMapResultDto,
   OrderListQuery,
   OrderPageDto,
+  OrderSummaryDto,
   UpdateOrderDto,
   UpsertOrderDto,
 } from './order.dto';
@@ -197,10 +198,24 @@ export class OrdersController {
     return this.orders.get(decodeIdOr404('salesOrder', id));
   }
 
+  /** ใบเดียว + ช่องที่แก้ได้ตามสถานะ (ฟอร์ม ST3-T02 ใช้ปิดช่อง) */
+  private async full(row: Awaited<ReturnType<OrdersService['get']>>): Promise<OrderDto> {
+    return { ...toOrderDto(row), editableFields: await this.orders.editableFields(row) };
+  }
+
   private async respond(r: UpsertOrderResult, res: Response): Promise<OrderDto> {
     const row = await this.orders.get(r.order.id);
     setEtag(res, row.version);
-    return toOrderDto(row);
+    return this.full(row);
+  }
+
+  /** ตัวนับของหน้ารายการ (แถบสรุป + แท็บ) */
+  @Get('summary')
+  @RequireScope('orders:read')
+  @ApiOkResponse({ type: OrderSummaryDto })
+  @ApiProblems(E403)
+  summary(): Promise<OrderSummaryDto> {
+    return this.orders.summary();
   }
 
   @Get()
@@ -278,7 +293,7 @@ export class OrdersController {
   async get(@Param('id') id: string, @Res({ passthrough: true }) res: Response): Promise<OrderDto> {
     const o = await this.resolve(id);
     setEtag(res, o.version);
-    return toOrderDto(o);
+    return this.full(o);
   }
 
   @Patch(':id')
