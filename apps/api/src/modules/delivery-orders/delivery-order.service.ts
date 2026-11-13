@@ -510,6 +510,42 @@ export class DeliveryOrderService {
     return final;
   }
 
+  /**
+   * ยกเลิก SO (ST3-T10; ORD-036 "SO ที่ยกเลิก: DO ทั้งหมด cancelled") — ผู้เรียก (OrderStateService.cancel) ถือล็อก SO แล้ว
+   * DO ใดอยู่ในเที่ยวที่ยังใช้ → 409 `order_on_trip` (docs/04 C "order ที่มี trip แล้วต้องถอดจาก trip ก่อน" — ไม่ถอดให้เอง)
+   * DO ที่พ้น DRAFT นอกเที่ยว (ส่งแล้ว ฯลฯ) → 409 `invalid_state_transition` · DRAFT ทุกใบ → CANCELLED ด้วยเหตุผลเดียวกับ SO
+   * (คนยกเลิก — คง source_hash) + audit ต่อใบ · คืนเลข DO ที่ยกเลิก
+   */
+  async cancelForOrder(
+    tx: Tx,
+    salesOrderId: string,
+    input: { note: string; reasonCodeId: string | null },
+  ): Promise<string[]> {
+    const active = await this.lockActive(tx, salesOrderId);
+    const onTrip = active.filter((d) => isOnActiveTrip(d));
+    if (onTrip.length)
+      throw new ProblemException('order_on_trip', undefined, undefined, {
+        deliveryOrders: onTrip.map((d) => d.doNo),
+      });
+    const done = active.filter((d) => d.status !== 'DRAFT');
+    if (done.length)
+      throw new ProblemException('invalid_state_transition', undefined, undefined, {
+        deliveryOrders: done.map((d) => ({ doNo: d.doNo, status: d.status })),
+      });
+    for (const d of active) {
+      await this.cancelOne(tx, d, 'cancel', input.reasonCodeId, input.note, true);
+      await this.audit.record({
+        action: `${ENTITY}.cancelled`,
+        entityType: ENTITY,
+        entityId: d.id,
+        before: { status: d.status },
+        after: { status: 'CANCELLED', by: 'order_cancel' },
+        reason: input.note,
+      });
+    }
+    return active.map((d) => d.doNo!);
+  }
+
   // ---------------------------------------------------------------------------------------------
   // ใช้จาก TripService (ST3-T11) — ลำดับล็อก SO → DO → trip เสมอ (ผู้เรียกล็อก trip หลัง lockForTrip)
 

@@ -17,8 +17,10 @@ import {
   isIntakeHoldCode,
   isIntakeEditable,
   planIntake,
+  stagesSourceChanges,
   transition,
   type IntakeHold,
+  type SourceChangeEntry,
   type PricingStatus,
   type SoEvent,
   type SoFieldGroup,
@@ -30,7 +32,13 @@ import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
 import { DeliveryOrderService } from '../delivery-orders/delivery-order.service';
 import { StateService } from '../../state/state.service';
-import { lockKey, lockReferenced, stableStringify, type RefTable } from '../master/master-kit';
+import {
+  cleanLine,
+  lockKey,
+  lockReferenced,
+  stableStringify,
+  type RefTable,
+} from '../master/master-kit';
 import { PricingService, type Quote } from '../pricing/pricing.service';
 import { resolveDocumentEntity } from '../routing/document-routing';
 import { issueNumber } from '../sequences/sequences.service';
@@ -88,7 +96,26 @@ export interface UpsertOrderResult {
   changed: boolean;
   /** เหตุค้างทั้งหมดของทางเข้า (ตัวแรก = reason code บน SO) */
   holds: IntakeHold[];
+  /**
+   * ST3-T10: ต้นทาง (connector) แก้ช่องที่ล็อกหลังวางแผน → **ไม่ทับ** แต่เก็บเป็นชุดรอตัดสิน (`order_source_change`)
+   * — `status` PENDING (ชุดใหม่/ชุดเดิมที่ส่งซ้ำ) หรือ REJECTED (ชุดที่คนไม่รับแล้วต้นทางส่งซ้ำ = ไม่ขึ้นใหม่)
+   */
+  sourceChange?: { id: string; status: 'PENDING' | 'REJECTED' };
 }
+
+/** ตัวเลือกภายใน (ไม่เปิดให้ทางเข้า) */
+interface UpsertOptions {
+  /** กำลัง "รับ" ชุดการเปลี่ยนแปลงจากต้นทาง — ห้ามเก็บเป็นชุดใหม่ซ้ำ (ช่องที่ยังล็อก → 409) */
+  applyingSourceChange?: boolean;
+}
+
+/** ข้อความระบบเมื่อปิดชุดรอตัดสินเอง (SUPERSEDED) */
+const SUPERSEDE_NOTE = {
+  replaced: 'ต้นทางส่งข้อมูลชุดใหม่มาแทน',
+  reverted: 'ต้นทางกลับเป็นข้อมูลเดียวกับใน TMS',
+  applied: 'ต้นทางส่งข้อมูลชุดใหม่ที่บันทึกได้ตามสถานะแล้ว',
+  cancelled: 'ใบสั่งขนส่งถูกยกเลิก',
+};
 
 const ENTITY = 'sales_order';
 const INCLUDE = {
@@ -141,9 +168,15 @@ export class OrderIntakeService {
     private readonly deliveryOrders: DeliveryOrderService,
   ) {}
 
-  async upsertOrder(input: UpsertOrderInput, tx: Tx = this.db.tx): Promise<UpsertOrderResult> {
+  async upsertOrder(
+    input: UpsertOrderInput,
+    tx: Tx = this.db.tx,
+    opts: UpsertOptions = {},
+  ): Promise<UpsertOrderResult> {
     const tenantId = this.tenantId();
     const n = normalizeOrderInput(input);
+    /** ต้นทางส่งทั้งใบด้วย externalId (ไม่ใช่คนแก้ใบด้วย id) — ชุดรอตัดสินของใบนี้ถูกแทน/ปิดโดยข้อมูลชุดนี้ */
+    const viaSource = !n.id && n.externalId !== null;
 
     // 1) หาใบเดิม + ล็อกก่อน แล้วอ่านใหม่ภายใต้ล็อก
     let current: OrderRecord | null = null;
@@ -178,9 +211,13 @@ export class OrderIntakeService {
       throw new ProblemException('precondition_failed');
 
     const inputHash = hashInput(n);
-    if (current && current.inputHash === inputHash)
+    if (current && current.inputHash === inputHash) {
       // ส่งซ้ำค่าเดิม: ไม่เขียนข้อมูล แต่ราคา/ใบค้างประเมินใหม่ได้ (ข้อมูลหลักอาจเปลี่ยน)
+      // ต้นทางกลับเป็นข้อมูลเดียวกับ TMS → ชุดที่รอตัดสินไม่มีความหมายแล้ว (ปิดเอง)
+      if (viaSource && (await this.closePending(tx, current.id, SUPERSEDE_NOTE.reverted, true)))
+        current = (await this.lockAndLoad(tx, current.id))!;
       return this.evaluate(tx, current, { draft: n.draft, created: false, dataChanged: false });
+    }
     // ช่องที่แก้ได้ตามสถานะ (ST3-T03; docs/04 C + spec/03 ORD-032) — ไม่มีเลย (ปิด/ยกเลิก) → 409
     let editable: readonly SoFieldGroup[] = SO_FIELD_GROUPS;
     if (current) {
@@ -237,21 +274,30 @@ export class OrderIntakeService {
     if (current) {
       // เทียบค่าที่จะเก็บจริงกับของเดิม (ไม่ใช่รูป input) — รูปต่างแต่ค่าเท่าเดิม = ไม่มีอะไรเปลี่ยน
       const changes = orderChanges(current, header, children);
-      if (!changes.length)
+      if (!changes.length) {
+        if (viaSource && (await this.closePending(tx, current.id, SUPERSEDE_NOTE.reverted, true)))
+          current = (await this.lockAndLoad(tx, current.id))!;
         return this.evaluate(tx, current, { draft: n.draft, created: false, dataChanged: false });
+      }
       const locked = changes.filter((c) => !editable.includes(c.group));
+      // ST3-T10: ต้นทาง (connector) แก้ช่องที่ล็อกหลังวางแผน → ไม่ทับ เก็บทั้งชุด + diff รอคนรับ/ไม่รับ
+      // (docs/01 §4.1 ไม่เปลี่ยนสถานะ) · Open API / คนแก้ → 409 (docs/04 C)
+      if (locked.length && viaSource && stagesSourceChanges(n.source) && !opts.applyingSourceChange)
+        return this.stageSourceChange(tx, current, n, inputHash, changes, header, children);
+      const lockedStatus = current.status;
       if (locked.length)
-        // ต้นทาง (ERP) แก้หลังวางแผน → ST3-T10 จะเปลี่ยนเป็นใบค้าง SOURCE_CHANGED_AFTER_PLAN + diff (ไม่ทับ) — ตอนนี้ 409
         throw new ProblemException(
           'order_locked_for_update',
           undefined,
           locked.map((c) => ({
             field: c.field,
             code: 'locked',
-            message: `cannot change ${c.group} when order is ${current.status}`,
+            message: `cannot change ${c.group} when order is ${lockedStatus}`,
           })),
           { orderStatus: current.status, editableFields: editable },
         );
+      // ต้นทางส่งชุดใหม่ที่เขียนได้ตามสถานะ → ชุดเดิมที่รอตัดสินถูกแทน (ไม่ใช่ข้อมูลล่าสุดของต้นทางแล้ว)
+      if (viaSource) await this.closePending(tx, current.id, SUPERSEDE_NOTE.applied, false);
       if (editable.length < SO_FIELD_GROUPS.length)
         return this.applyRestricted(tx, current, header, children);
     }
@@ -308,6 +354,357 @@ export class OrderIntakeService {
       draft: current.status === 'DRAFT',
       created: false,
       dataChanged: false,
+    });
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // ST3-T10 ต้นทางแก้หลังวางแผน — ชุดการเปลี่ยนแปลงรอตัดสิน (order_source_change)
+
+  /**
+   * "รับ" ชุดการเปลี่ยนแปลง: เขียนข้อมูลชุดนั้นผ่าน `upsertOrder` (ทางเดียว — คิดราคา/ใบค้าง/DO ใหม่ตามกฎเดิม)
+   * ช่องที่ยังล็อกตามสถานะ: มี DO อยู่ในเที่ยว → 409 `order_on_trip` (docs/04 C "ต้องถอดจาก trip ก่อน") · ปิด/ยกเลิก/ออกรถแล้ว → 409
+   * เหตุผล ≥ 10 ตัวอักษร + audit (CLAUDE.md: ทุก override/อนุมัติ)
+   */
+  async acceptSourceChange(
+    orderId: string,
+    changeId: string,
+    reason: string,
+    tx: Tx = this.db.tx,
+  ): Promise<UpsertOrderResult> {
+    const note = decisionNote(reason);
+    const { current, change } = await this.lockChange(tx, orderId, changeId);
+    const groups = new Set(
+      (change.changes as unknown as SourceChangeEntry[]).map((c) => c.group as SoFieldGroup),
+    );
+    const onTrip = await this.deliveryOrders.hasDoOnTrip(tx, current.id);
+    const editable = soEditableFields(current.status as SoStatus, onTrip);
+    const blocked = [...groups].filter((g) => !editable.includes(g));
+    if (blocked.length) {
+      if (onTrip)
+        throw new ProblemException('order_on_trip', undefined, undefined, {
+          orderStatus: current.status,
+          lockedFields: blocked,
+        });
+      throw new ProblemException('order_locked_for_update', undefined, undefined, {
+        orderStatus: current.status,
+        editableFields: editable,
+      });
+    }
+    await this.decide(tx, change.id, 'ACCEPTED', note);
+    await this.clearFlag(tx, current.id);
+    const input = change.input as unknown as UpsertOrderInput;
+    const r = await this.upsertOrder({ ...input, rawPayload: change.rawPayload ?? null }, tx, {
+      applyingSourceChange: true,
+    });
+    await this.audit.record({
+      action: `${ENTITY}.source_change_accepted`,
+      entityType: ENTITY,
+      entityId: current.id,
+      before: { sourceChangeId: change.id, changes: change.changes },
+      after: orderEventView(r.order, { lines: true }),
+      reason: note,
+    });
+    return r;
+  }
+
+  /** "ไม่รับ" ชุดการเปลี่ยนแปลง: ข้อมูล TMS คงเดิม ปลดธง + เหตุผล + audit + `order.updated` (ต้นทางส่งชุดเดิมซ้ำ = ไม่ขึ้นใหม่) */
+  async rejectSourceChange(
+    orderId: string,
+    changeId: string,
+    reason: string,
+    tx: Tx = this.db.tx,
+  ): Promise<OrderRecord> {
+    const note = decisionNote(reason);
+    const { current, change } = await this.lockChange(tx, orderId, changeId);
+    await this.decide(tx, change.id, 'REJECTED', note);
+    await this.clearFlag(tx, current.id);
+    const final = await tx.salesOrder.findUniqueOrThrow({
+      where: { id: current.id },
+      include: INCLUDE,
+    });
+    await this.audit.record({
+      action: `${ENTITY}.source_change_rejected`,
+      entityType: ENTITY,
+      entityId: current.id,
+      before: { sourceChangeId: change.id, changes: change.changes },
+      after: { sourceChangedAfterPlan: false },
+      reason: note,
+    });
+    await this.emit(tx, 'order.updated', current.id, orderEventView(final), {
+      sourceChangedAfterPlan: true,
+    });
+    return final;
+  }
+
+  /**
+   * ปิดชุดที่รอตัดสินของใบนี้เอง (SUPERSEDED + ข้อความระบบ) และปลดธง — คืน true เมื่อมีชุดถูกปิด
+   * ใช้เมื่อต้นทางส่งข้อมูลที่ทำให้ชุดเดิมหมดความหมาย และตอนยกเลิกใบ (OrderStateService.cancel) · `bump` = เพิ่ม version
+   */
+  async closePending(tx: Tx, orderId: string, note: string, bump: boolean): Promise<boolean> {
+    const pending = await tx.orderSourceChange.findFirst({
+      where: { salesOrderId: orderId, status: 'PENDING' },
+      select: { id: true, changes: true },
+    });
+    if (!pending) return false;
+    await tx.orderSourceChange.update({
+      where: { id: pending.id },
+      data: { status: 'SUPERSEDED', decidedAt: new Date(), decisionReason: note },
+    });
+    await this.clearFlag(tx, orderId, bump);
+    await this.audit.record({
+      action: `${ENTITY}.source_change_superseded`,
+      entityType: ENTITY,
+      entityId: orderId,
+      before: { sourceChangeId: pending.id, changes: pending.changes },
+      after: { sourceChangedAfterPlan: false },
+      reason: note,
+    });
+    return true;
+  }
+
+  /**
+   * ต้นทางแก้ช่องที่ล็อก: เก็บข้อมูลทั้งชุด + diff ต่อช่อง (PENDING) ตั้งธง `source_changed_after_plan` + `source_diff`
+   * **ไม่เปลี่ยนสถานะและไม่ทับข้อมูล** (docs/01 §4.1) · ชุดเดิมที่ยังรอ → SUPERSEDED (เหลือรอได้ชุดเดียว)
+   * ส่งซ้ำชุดเดิม (hash เดียวกับชุดล่าสุดที่รอ/ไม่รับ) = ไม่มีอะไรเปลี่ยน
+   */
+  private async stageSourceChange(
+    tx: Tx,
+    current: OrderRecord,
+    n: NormalizedOrder,
+    inputHash: string,
+    changes: { group: SoFieldGroup; field: string }[],
+    header: Parameters<typeof orderChanges>[1],
+    children: OrderChildren,
+  ): Promise<UpsertOrderResult> {
+    const holds = (current.pricingDetail as { holds?: IntakeHold[] } | null)?.holds ?? [];
+    const latest = await tx.orderSourceChange.findFirst({
+      where: { salesOrderId: current.id },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: { id: true, status: true, inputHash: true },
+    });
+    if (
+      latest &&
+      latest.inputHash === inputHash &&
+      (latest.status === 'PENDING' || latest.status === 'REJECTED')
+    )
+      return {
+        order: current,
+        created: false,
+        changed: false,
+        holds,
+        sourceChange: { id: latest.id, status: latest.status },
+      };
+    const entries = await this.describeChanges(tx, current, header, children, changes);
+    const pending = latest?.status === 'PENDING' ? latest : null;
+    if (pending)
+      await tx.orderSourceChange.update({
+        where: { id: pending.id },
+        data: {
+          status: 'SUPERSEDED',
+          decidedAt: new Date(),
+          decisionReason: SUPERSEDE_NOTE.replaced,
+        },
+      });
+    const json = (v: unknown) => JSON.parse(JSON.stringify(v)) as Prisma.InputJsonValue;
+    const row = await tx.orderSourceChange.create({
+      data: {
+        tenantId: current.tenantId,
+        salesOrderId: current.id,
+        source: n.source,
+        sourceConnector: n.connector,
+        orderStatus: current.status,
+        baseVersion: current.version,
+        input: json(storedInput(n)),
+        inputHash,
+        changes: json(entries),
+        rawPayload: n.rawPayload === null ? Prisma.DbNull : json(n.rawPayload),
+      },
+    });
+    if (pending)
+      await tx.orderSourceChange.update({
+        where: { id: pending.id },
+        data: { supersededById: row.id },
+      });
+    await tx.salesOrder.update({
+      where: { id: current.id },
+      data: { sourceChangedAfterPlan: true, sourceDiff: json(entries), version: { increment: 1 } },
+    });
+    const final = await tx.salesOrder.findUniqueOrThrow({
+      where: { id: current.id },
+      include: INCLUDE,
+    });
+    await this.audit.record({
+      action: `${ENTITY}.source_changed`,
+      entityType: ENTITY,
+      entityId: current.id,
+      after: {
+        sourceChangeId: row.id,
+        source: formatSource(n),
+        orderStatus: current.status,
+        changes: entries,
+        ...(pending ? { superseded: pending.id } : {}),
+      },
+    });
+    await this.emit(tx, 'order.updated', current.id, orderEventView(final), {
+      sourceChangedAfterPlan: current.sourceChangedAfterPlan,
+    });
+    return {
+      order: final,
+      created: false,
+      changed: true,
+      holds,
+      sourceChange: { id: row.id, status: 'PENDING' },
+    };
+  }
+
+  /** ค่าแสดงผลก่อน/หลังของแต่ละช่องที่เปลี่ยน (ชื่อลูกค้า/สถานที่/ประเภทรถ/บริษัท แทน id · ไม่มีราคา) */
+  private async describeChanges(
+    tx: Tx,
+    current: OrderRecord,
+    header: Parameters<typeof orderChanges>[1],
+    children: OrderChildren,
+    changes: { group: SoFieldGroup; field: string }[],
+  ): Promise<SourceChangeEntry[]> {
+    const ids = (xs: (string | null | undefined)[]) => [
+      ...new Set(xs.filter((x): x is string => !!x)),
+    ];
+    const [customers, vts, companies] = await Promise.all([
+      tx.customer.findMany({
+        where: { id: { in: ids([current.customerId, header.customerId]) } },
+        select: { id: true, code: true, legalName: true },
+      }),
+      tx.vehicleType.findMany({
+        where: { id: { in: ids([current.vehicleTypeId, header.vehicleTypeId]) } },
+        select: { id: true, nameTh: true },
+      }),
+      tx.company.findMany({
+        where: { id: { in: ids([current.billingCompanyId, header.billingCompanyId]) } },
+        select: { id: true, legalName: true },
+      }),
+    ]);
+    const cust = (id: string | null, ext: string | null, text: string | null) => {
+      const c = customers.find((x) => x.id === id);
+      return c ? `${c.code} ${c.legalName}` : (text ?? ext ?? null);
+    };
+    const iso = (d: Date | null | undefined) => d?.toISOString() ?? null;
+    const stopText = (s: { type: string; siteText: string }) => `${s.type}: ${s.siteText}`;
+    const lineText = (l: { description: string; qtyOrdered: unknown; unit: string }) =>
+      `${l.description} ${String(l.qtyOrdered)} ${l.unit}`;
+    const dec = (v: Prisma.Decimal | null) => (v === null ? null : v.toFixed());
+    const out: SourceChangeEntry[] = [];
+    const seen = new Set<string>();
+    for (const c of changes) {
+      if (seen.has(c.field)) continue;
+      seen.add(c.field);
+      const e = (
+        before: string | null,
+        after: string | null,
+        kind: SourceChangeEntry['kind'] = 'text',
+      ) => out.push({ group: c.group, field: c.field, before, after, kind });
+      const m = /^(stops|lines)\[(\d+)\]\.(\w+)$/.exec(c.field);
+      if (c.field === 'customer')
+        e(
+          cust(current.customerId, current.customerExternalId, current.customerText),
+          cust(header.customerId, header.customerExternalId, header.customerText),
+        );
+      else if (c.field === 'billingCompanyId')
+        e(
+          companies.find((x) => x.id === current.billingCompanyId)?.legalName ?? null,
+          companies.find((x) => x.id === header.billingCompanyId)?.legalName ?? null,
+        );
+      else if (c.field === 'customerRef') e(current.customerRef, header.customerRef);
+      else if (c.field === 'requestedDate')
+        e(
+          iso(current.requestedDate)!.slice(0, 10),
+          iso(header.requestedDate)!.slice(0, 10),
+          'date',
+        );
+      else if (c.field === 'vehicleTypeId')
+        e(
+          vts.find((x) => x.id === current.vehicleTypeId)?.nameTh ?? null,
+          vts.find((x) => x.id === header.vehicleTypeId)?.nameTh ?? null,
+        );
+      else if (c.field === 'sourceIssues')
+        e(
+          ((current.sourceIssues as string[] | null) ?? []).join(' · ') || null,
+          header.sourceIssues.join(' · ') || null,
+        );
+      else if (c.field === 'stops')
+        e(current.stops.map(stopText).join(' → '), children.stops.map(stopText).join(' → '));
+      else if (c.field === 'lines')
+        e(
+          current.lines
+            .map((l) => lineText({ ...l, qtyOrdered: l.qtyOrdered.toFixed() }))
+            .join(' · ') || null,
+          children.lines.map(lineText).join(' · ') || null,
+        );
+      else if (m && m[1] === 'stops') {
+        const i = Number(m[2]);
+        const p = current.stops[i]!;
+        const s = children.stops[i]!;
+        const k = m[3]!;
+        if (k === 'windowStart' || k === 'windowEnd') e(iso(p[k]), iso(s[k]), 'datetime');
+        // สถานที่: แสดงชื่อ (ข้อความสถานที่ของจุด) แทน id
+        else if (k === 'siteId' || k === 'siteText') e(p.siteText, s.siteText);
+        else e(String(p[k as 'type']), String(s[k as 'type']));
+      } else if (m && m[1] === 'lines') {
+        const i = Number(m[2]);
+        const p = current.lines[i]!;
+        const l = children.lines[i]!;
+        const k = m[3] === 'qty' ? 'qtyOrdered' : (m[3] as keyof OrderChildren['lines'][number]);
+        const was: Record<string, unknown> = {
+          ...p,
+          qtyOrdered: dec(p.qtyOrdered),
+          weightKg: dec(p.weightKg),
+          cbm: dec(p.cbm),
+          tempMin: dec(p.tempMin),
+          tempMax: dec(p.tempMax),
+        };
+        const v = (x: unknown) => (x === null || x === undefined ? null : String(x));
+        e(v(was[k]), v(l[k]));
+      } else e(null, null);
+    }
+    return out;
+  }
+
+  /** ล็อก SO แล้วล็อกชุดการเปลี่ยนแปลงของใบนี้ — ไม่พบ (รวมของใบ/tenant อื่น) → 404 · ไม่ใช่ PENDING → 409 */
+  private async lockChange(tx: Tx, orderId: string, changeId: string) {
+    const current = await this.lockAndLoad(tx, orderId);
+    if (!current) throw new ProblemException('not_found');
+    const rows = await tx.$queryRaw<{ id: string }[]>`
+      SELECT id FROM order_source_change WHERE id = ${changeId}::uuid AND sales_order_id = ${orderId}::uuid
+      FOR UPDATE`;
+    if (!rows.length) throw new ProblemException('not_found');
+    const change = await tx.orderSourceChange.findUniqueOrThrow({ where: { id: changeId } });
+    if (change.status !== 'PENDING')
+      throw new ProblemException('source_change_not_pending', undefined, undefined, {
+        changeStatus: change.status,
+      });
+    return { current, change };
+  }
+
+  private async decide(tx: Tx, id: string, status: 'ACCEPTED' | 'REJECTED', note: string) {
+    const ctx = requestContext.require();
+    const r = await tx.orderSourceChange.updateMany({
+      where: { id, status: 'PENDING' },
+      data: {
+        status,
+        decidedAt: new Date(),
+        decidedBy: ctx.actorId ?? ctx.principalType ?? 'unknown',
+        decisionReason: note,
+      },
+    });
+    if (r.count === 0) throw new ProblemException('concurrent_update');
+  }
+
+  private async clearFlag(tx: Tx, orderId: string, bump = true) {
+    await tx.salesOrder.update({
+      where: { id: orderId },
+      data: {
+        sourceChangedAfterPlan: false,
+        sourceDiff: Prisma.DbNull,
+        ...(bump ? { version: { increment: 1 } } : {}),
+      },
     });
   }
 
@@ -1012,4 +1409,35 @@ export function orderChanges(
         out.push({ group: 'lines', field: `lines[${i}].${k === 'qtyOrdered' ? 'qty' : k}` });
   });
   return out;
+}
+
+/** เหตุผลของการรับ/ไม่รับ — ล้างอักขระควบคุมแล้วต้อง ≥ 10 ตัวอักษร (MD-222) ≤ 500 */
+export function decisionNote(reason: unknown): string {
+  const note = cleanLine(String(reason ?? '')).trim();
+  if ([...note].length < 10)
+    throw field422('reason', 'too_short', 'reason must be at least 10 characters');
+  if ([...note].length > 500)
+    throw field422('reason', 'too_long', 'reason must be at most 500 characters');
+  return note;
+}
+
+/** ข้อมูลขาเข้าที่ normalize แล้ว → UpsertOrderInput ที่เก็บไว้ใช้ตอน "รับ" (ไม่รวม raw — เก็บแยกคอลัมน์) */
+function storedInput(n: NormalizedOrder): UpsertOrderInput {
+  return {
+    source: { source: n.source, connector: n.connector },
+    externalId: n.externalId,
+    draft: false,
+    customer: n.customer,
+    billingCompanyId: n.billingCompanyId,
+    customerRef: n.customerRef,
+    requestedDate: n.requestedDate,
+    vehicleTypeId: n.vehicleTypeId,
+    stops: n.stops,
+    lines: n.lines,
+    sourceIssues: n.sourceIssues,
+  };
+}
+
+function formatSource(n: NormalizedOrder): string {
+  return n.source === 'CONNECTOR' ? `ERP:${n.connector}` : n.source;
 }

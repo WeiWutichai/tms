@@ -1266,6 +1266,7 @@ model SalesOrder {
   lines          SalesOrderLine[]
   charges        SalesOrderCharge[]
   deliveryOrders DeliveryOrder[]
+  sourceChanges  OrderSourceChange[]
 
   @@unique([tenantId, soNo])
   @@unique([tenantId, externalId])
@@ -1273,6 +1274,49 @@ model SalesOrder {
   @@index([tenantId, customerId])
   @@index([tenantId, updatedAt, id])
   @@map("sales_order")
+}
+
+/// ผลตัดสินชุดการเปลี่ยนแปลงจากต้นทาง (ST3-T10)
+enum SourceChangeStatus {
+  PENDING /// รอคนรับ/ไม่รับ — SO ตั้ง source_changed_after_plan
+  ACCEPTED /// รับแล้ว — ข้อมูลเขียนผ่าน upsertOrder
+  REJECTED /// ไม่รับ — ข้อมูล TMS คงเดิม (ต้นทางส่งชุดเดิมซ้ำ = ไม่ขึ้นใหม่)
+  SUPERSEDED /// ต้นทางส่งชุดใหม่มาแทน / ต้นทางกลับเป็นค่าเดิม / ใบถูกยกเลิก (ระบบปิดเอง)
+
+  @@map("source_change_status")
+}
+
+/// ชุดการเปลี่ยนแปลงจากต้นทางหลังวางแผน (ST3-T10; docs/01 §3.3 + §4.1 "ไม่ overwrite แต่เก็บ diff", docs/04 C)
+/// — ไม่ทับข้อมูลอัตโนมัติ: เก็บ input ทั้งชุด + diff ต่อช่อง รอคนรับ (apply ผ่าน upsertOrder) หรือไม่รับ (พร้อมเหตุผล)
+/// PENDING ได้ครั้งละ 1 ชุดต่อ SO (unique partial index) · เขียนจาก OrderIntakeService เท่านั้น · ไม่มีการลบจริง
+model OrderSourceChange {
+  id              String              @id @default(uuid()) @db.Uuid
+  tenantId        String              @map("tenant_id") @db.Uuid
+  salesOrderId    String              @map("sales_order_id") @db.Uuid
+  salesOrder      SalesOrder          @relation(fields: [salesOrderId], references: [id], onDelete: Restrict)
+  status          SourceChangeStatus  @default(PENDING)
+  source          OrderSource
+  sourceConnector String              @default("") @map("source_connector")
+  /// สถานะ/version ของ SO ตอนต้นทางส่งมา
+  orderStatus     SoStatus            @map("order_status")
+  baseVersion     Int                 @map("base_version")
+  /// ข้อมูลขาเข้าที่ normalize แล้ว (UpsertOrderInput — uuid) — ใช้ตอน "รับ"
+  input           Json
+  inputHash       String              @map("input_hash")
+  /// [{group, field, before, after}] — ค่าแสดงผล (ไม่มีราคา)
+  changes         Json
+  rawPayload      Json?               @map("raw_payload")
+  decidedBy       String?             @map("decided_by")
+  decidedAt       DateTime?           @map("decided_at") @db.Timestamptz(6)
+  decisionReason  String?             @map("decision_reason")
+  supersededById  String?             @map("superseded_by_id") @db.Uuid
+  supersededBy    OrderSourceChange?  @relation("SourceChangeSupersede", fields: [supersededById], references: [id], onDelete: Restrict)
+  supersedes      OrderSourceChange[] @relation("SourceChangeSupersede")
+  createdAt       DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([tenantId, salesOrderId, createdAt])
+  @@map("order_source_change")
 }
 
 /// ผลคิดราคาของ order (เหมือน PricingStatus ใน @tms/domain)

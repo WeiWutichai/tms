@@ -1,11 +1,31 @@
 import { Injectable } from '@nestjs/common';
-import type { SoStatus as DbSoStatus } from '@prisma/client';
-import { SO_TRANSITIONS, transition, type SoEvent, type SoStatus } from '@tms/domain';
+import { Prisma, type SoStatus as DbSoStatus } from '@prisma/client';
+import {
+  SO_TRANSITIONS,
+  canCancelOrder,
+  transition,
+  type SoEvent,
+  type SoStatus,
+} from '@tms/domain';
+import { AuditService } from '../../audit/audit.service';
 import { ProblemException } from '../../common/problem';
-import type { Tx } from '../../db/db.service';
+import { DbService, type Tx } from '../../db/db.service';
 import { StateService } from '../../state/state.service';
-import { ON_ACTIVE_TRIP_WHERE } from '../delivery-orders/delivery-order.service';
-import { OrderIntakeService } from './order-intake.service';
+import {
+  DeliveryOrderService,
+  ON_ACTIVE_TRIP_WHERE,
+} from '../delivery-orders/delivery-order.service';
+import { OrderIntakeService, decisionNote } from './order-intake.service';
+import { orderEventView } from './order-view';
+
+export interface CancelOrderInput {
+  /** เหตุผล ≥ 10 ตัวอักษร (ORD-034 / MD-222) */
+  reason: string;
+  /** reason code หมวด CANCEL (ไม่บังคับ — ST2-T12) */
+  reasonCodeId?: string | null;
+  /** If-Match */
+  expectedVersion?: number;
+}
 
 const ENTITY = 'sales_order';
 /** DO ที่ออกรถแล้วแต่ยังไม่จบการส่ง */
@@ -24,9 +44,90 @@ const MOVING = new Set(['DISPATCHED', 'PICKED_UP']);
 @Injectable()
 export class OrderStateService {
   constructor(
+    private readonly db: DbService,
     private readonly state: StateService,
     private readonly intake: OrderIntakeService,
+    private readonly deliveryOrders: DeliveryOrderService,
+    private readonly audit: AuditService,
   ) {}
+
+  /**
+   * ยกเลิก SO (ST3-T10; docs/04 C "ยกเลิก / คืนสถานะ พร้อม reason; order ที่มี trip แล้วต้องถอดจาก trip ก่อน",
+   * docs/01 §4.1 DRAFT/RECEIVED/ON_HOLD/PLANNED → CANCELLED, ORD-034/036)
+   * - เหตุผล ≥ 10 ตัวอักษร + reason code หมวด CANCEL (ไม่บังคับ) → ประวัติสถานะ + `order.cancelled` + audit
+   * - DO ในเที่ยว → 409 `order_on_trip` (ไม่ถอดให้เอง — ถอดที่เที่ยว ST3-T11 ก่อน) · DO DRAFT ทั้งหมด → CANCELLED ตามไป
+   * - ชุดการเปลี่ยนแปลงจากต้นทางที่รอตัดสิน → ปิด (SUPERSEDED) · สถานะสิ้นสุด (ไม่มีทางกลับ — docs/01 §4.1)
+   */
+  async cancel(id: string, input: CancelOrderInput, tx: Tx = this.db.tx) {
+    const note = decisionNote(input.reason);
+    const reasonCodeId = input.reasonCodeId ?? null;
+    if (reasonCodeId) {
+      const rc = await tx.reasonCode.count({
+        where: { id: reasonCodeId, category: 'CANCEL', status: 'ACTIVE', deletedAt: null },
+      });
+      if (!rc)
+        throw new ProblemException('validation_failed', undefined, [
+          { field: 'reasonCodeId', code: 'invalid_reference', message: 'reason code not found' },
+        ]);
+    }
+    const rows = await tx.$queryRaw<{ id: string }[]>`
+      SELECT id FROM sales_order WHERE id = ${id}::uuid FOR UPDATE`;
+    if (!rows.length) throw new ProblemException('not_found');
+    const so = await tx.salesOrder.findUniqueOrThrow({
+      where: { id },
+      include: { stops: true, holdReasonCode: { select: { code: true } } },
+    });
+    if (input.expectedVersion !== undefined && so.version !== input.expectedVersion)
+      throw new ProblemException('precondition_failed');
+    const from = so.status as SoStatus;
+    if (!canCancelOrder(from))
+      throw new ProblemException('invalid_state_transition', undefined, undefined, {
+        from,
+        event: 'cancel',
+      });
+    // ลำดับล็อก SO → DO (ตรงกับ upsertOrder/TripService)
+    const cancelledDos = await this.deliveryOrders.cancelForOrder(tx, id, { note, reasonCodeId });
+    const hadSourceChange = await this.intake.closePending(tx, id, 'ใบสั่งขนส่งถูกยกเลิก', false);
+    await this.state.transition<SoStatus, SoEvent>(tx, {
+      docType: ENTITY,
+      docId: id,
+      table: SO_TRANSITIONS,
+      from,
+      event: 'cancel',
+      reasonCodeId,
+      note,
+      eventType: 'order.cancelled',
+      apply: async (next) => {
+        const r = await tx.salesOrder.updateMany({
+          where: { id, status: from as DbSoStatus },
+          data: {
+            status: next as DbSoStatus,
+            holdReasonCodeId: null,
+            holdNote: null,
+            sourceChangedAfterPlan: false,
+            sourceDiff: Prisma.DbNull,
+            version: { increment: 1 },
+          },
+        });
+        if (r.count === 0) throw new ProblemException('concurrent_update');
+        return orderEventView(await tx.salesOrder.findUniqueOrThrow({ where: { id } }));
+      },
+    });
+    await this.audit.record({
+      action: `${ENTITY}.cancelled`,
+      entityType: ENTITY,
+      entityId: id,
+      before: { status: from, holdReason: so.holdReasonCode?.code ?? null },
+      after: {
+        status: 'CANCELLED',
+        reasonCodeId,
+        deliveryOrdersCancelled: cancelledDos,
+        ...(hadSourceChange ? { sourceChangeClosed: true } : {}),
+      },
+      reason: note,
+    });
+    return { id, cancelledDeliveryOrders: cancelledDos };
+  }
 
   async syncFromDeliveryOrders(tx: Tx, salesOrderIds: string[]): Promise<void> {
     for (const id of [...new Set(salesOrderIds)].sort()) await this.syncOne(tx, id);

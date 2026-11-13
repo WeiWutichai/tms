@@ -37,6 +37,7 @@ export const ID_PREFIX = {
   salesOrder: 'ord',
   orderTemplate: 'otp',
   deliveryOrder: 'do',
+  orderSourceChange: 'osc',
   magicLink: 'mlk',
   carrierDocSubmission: 'cds',
   messageDelivery: 'msg',
