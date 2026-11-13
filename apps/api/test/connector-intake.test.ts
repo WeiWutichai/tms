@@ -319,6 +319,33 @@ describe('connector intake (pullOrders)', () => {
     expect((await byExt('BAD-DATE')).sourceIssues).toEqual([]);
   });
 
+  it('QA: ใบวางแผนแล้วต้นทางส่งบรรทัดเสีย (mapper ทิ้งบรรทัด + SOURCE_ERROR) → locked ไม่เก็บ diff ไม่ลบบรรทัด', async () => {
+    mock.push(tenantId, ext('PLAN-BAD'));
+    await svc.pull(tenantId, 'mock');
+    const o = await db.salesOrder.findFirstOrThrow({
+      where: { tenantId, externalId: 'PLAN-BAD' },
+      include: { lines: true },
+    });
+    await db.salesOrder.update({ where: { id: o.id }, data: { status: 'PLANNED' } });
+    mock.push(
+      tenantId,
+      ext('PLAN-BAD', {
+        lines: [{ itemCode: 'CEM-01', description: 'ปูนซีเมนต์', unit: 'TON' } as never],
+      }),
+    );
+    const r = await svc.pull(tenantId, 'mock');
+    expect(r.results[0]).toMatchObject({
+      outcome: 'locked',
+      error: { code: 'order_locked_for_update' },
+    });
+    expect(await db.orderSourceChange.count({ where: { salesOrderId: o.id } })).toBe(0);
+    const after = await db.salesOrder.findUniqueOrThrow({
+      where: { id: o.id },
+      include: { lines: true },
+    });
+    expect([after.version, after.lines.length]).toEqual([o.version + 0, o.lines.length]);
+  });
+
   it('ใบสำรองของใบที่วางแผนแล้ว → locked (ห้ามเก็บข้อมูลลดรูปเป็นชุดรอตัดสิน)', async () => {
     mock.push(tenantId, ext('PLAN-FB'));
     await svc.pull(tenantId, 'mock');

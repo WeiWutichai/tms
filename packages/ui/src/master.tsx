@@ -320,6 +320,7 @@ export function ReasonDialog({
   busy,
   okIcon,
   diff,
+  hint,
   onOk,
   onClose,
 }: {
@@ -328,6 +329,8 @@ export function ReasonDialog({
    * ตารางเทียบ "ฟิลด์ | เดิม | ใหม่" เหนือช่องเหตุผล (ต้นแบบ TMS v4 vDialog `diff` — แถวพื้นแดงอ่อน ค่าเดิมขีดฆ่า)
    * `labels` = หัวคอลัมน์ [ฟิลด์, เดิม, ใหม่]
    */
+  /** ข้อความใต้ช่องเหตุผล ตามจำนวนอักษร (ต้นแบบ vDialog: "กรอกอย่างน้อย 10 ตัวอักษร (n/10)" / ผ่านแล้วสีเขียว) */
+  hint?: (count: number, ok: boolean) => ReactNode;
   diff?: {
     rows: { f: ReactNode; b: ReactNode; a: ReactNode }[];
     labels: [string, string, string];
@@ -455,6 +458,16 @@ export function ReasonDialog({
               autoFocus
             />
           </label>
+          {hint && (
+            <span
+              style={{
+                fontSize: 13,
+                color: reason.trim().length >= minLength ? '#17733F' : '#3B424C',
+              }}
+            >
+              {hint(reason.trim().length, reason.trim().length >= minLength)}
+            </span>
+          )}
           {error && <span className="tms-field-error">{error}</span>}
         </div>
         <div className="tms-dialog__foot">

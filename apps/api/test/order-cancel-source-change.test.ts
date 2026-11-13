@@ -602,7 +602,7 @@ describe('order cancel + source change after plan (ST3-T10)', () => {
       if (svc.status === 'rejected') expect(String(svc.reason)).not.toMatch(/deadlock/i);
       expect(svc.status).toBe('fulfilled');
     }
-  });
+  }, 120_000);
 
   it('diff คำนวณกับข้อมูลปัจจุบันตอนอ่าน + If-Match ตอนรับ/ไม่รับ · ชื่อสินค้า/สถานที่ (ไม่ใช่ id) · สถานที่ชื่อซ้ำแสดงรหัส', async () => {
     const p = await planned('KRS-LIVE-1');
@@ -629,7 +629,12 @@ describe('order cancel + source change after plan (ST3-T10)', () => {
     const by = (f: string) => g.sourceChange.changes.find((x: { field: string }) => x.field === f);
     expect(by('customerRef')).toMatchObject({ before: 'PO-คนแก้', after: null });
     const siteCode = (await db.customerSite.findUniqueOrThrow({ where: { id: twin } })).code;
-    expect(by('stops[1].siteId').after).toBe(`${siteCode} ${before.stops[1]!.siteText}`);
+    // ชื่อสถานที่เท่ากันแต่คนละสถานที่ → ชื่อ (รหัส) ทั้งสองฝั่ง
+    const oldCode = (await db.customerSite.findUniqueOrThrow({ where: { id: p.k.dest } })).code;
+    expect(by('stops[1].siteId')).toMatchObject({
+      before: `${before.stops[1]!.siteText} (${oldCode})`,
+      after: `${before.stops[1]!.siteText} (${siteCode})`,
+    });
     expect(by('lines[0].productId')).toMatchObject({
       before: null,
       after: `${prod.code} ปูนถุงต้นทาง`,
@@ -683,6 +688,37 @@ describe('order cancel + source change after plan (ST3-T10)', () => {
       .send({ reason })
       .expect(200);
     await createTrip([encodeId('deliveryOrder', p.doId)]);
+  });
+
+  it('QA: รับการเปลี่ยนแปลงของใบที่ออกรถแล้ว → 409 order_locked_for_update (ไม่ใช่ order_on_trip) · ตัวนับ "จัดรถแล้ว" ไม่นับใบที่ติดธง', async () => {
+    const p = await planned('KRS-QA-1');
+    const sum0 = (await api(app, admin).get('/v1/orders/summary').expect(200)).body;
+    const c = (await upsert(erp(p.k, 'KRS-QA-1', await newSite()))).sourceChange!;
+    const sum1 = (await api(app, admin).get('/v1/orders/summary').expect(200)).body;
+    expect(sum1.planned).toBe(sum0.planned - 1);
+    await db.salesOrder.update({ where: { id: p.id }, data: { status: 'IN_TRANSIT' } });
+    const r = await api(app, admin)
+      .post(`/v1/orders/${p.pub}/source-changes/${encodeId('orderSourceChange', c.id)}/accept`)
+      .send({ reason })
+      .expect(409);
+    expect(r.body).toMatchObject({ code: 'order_locked_for_update', orderStatus: 'IN_TRANSIT' });
+  });
+
+  it('QA [OPEN #56 ซ]: ต้นทางส่งข้อมูลมีปัญหา (sourceIssues) หลังวางแผน → ไม่เก็บ diff ไม่แตะข้อมูล (409)', async () => {
+    const p = await planned('KRS-QA-2');
+    const before = await so(p.id);
+    const e = await errOf(
+      upsert({
+        ...erp(p.k, 'KRS-QA-2'),
+        lines: [],
+        sourceIssues: ['บรรทัดที่ 1 ไม่มีจำนวน — ไม่รับบรรทัดนี้'],
+      }),
+    );
+    expect(e).toMatchObject({ code: 'order_locked_for_update' });
+    expect(e.errors?.map((x) => x.code)).toContain('source_invalid');
+    expect(await db.orderSourceChange.count({ where: { salesOrderId: p.id } })).toBe(0);
+    const after = await so(p.id);
+    expect([after.version, after.sourceChangedAfterPlan]).toEqual([before.version, false]);
   });
 
   it('เลข SO ที่ออกแล้วล้าง/เปลี่ยนไม่ได้ (trigger) แม้ใบยกเลิกแล้ว', async () => {

@@ -297,8 +297,22 @@ export class OrderIntakeService {
         stagesSourceChanges(n.source) &&
         !opts.applyingSourceChange &&
         !opts.forbidStaging
-      )
+      ) {
+        // [OPEN #56 ซ] ต้นทางส่งข้อมูลที่มีปัญหา (mapper ทิ้งบรรทัด/ช่อง → sourceIssues) → ไม่ขึ้นเป็น diff
+        // (รับแล้วจะลบ/ล้างข้อมูลที่ใบวางแผนใช้อยู่) — ไม่แตะข้อมูล TMS ตอบ 409 ให้ connector บันทึกผล locked
+        if (n.sourceIssues.length)
+          throw new ProblemException(
+            'order_locked_for_update',
+            undefined,
+            locked.map((c) => ({
+              field: c.field,
+              code: 'source_invalid',
+              message: 'source data has issues',
+            })),
+            { orderStatus: current.status, editableFields: editable, sourceIssues: n.sourceIssues },
+          );
         return this.stageSourceChange(tx, current, n, inputHash, changes, header, children);
+      }
       const lockedStatus = current.status;
       if (locked.length)
         throw new ProblemException(
@@ -396,7 +410,8 @@ export class OrderIntakeService {
     const editable = soEditableFields(current.status as SoStatus, onTrip);
     const blocked = [...groups].filter((g) => !editable.includes(g));
     if (blocked.length) {
-      if (onTrip)
+      // ถอดจากเที่ยวได้เฉพาะใบที่ยังไม่ออกรถ (RECEIVED/ON_HOLD/PLANNED) — ออกรถ/ส่ง/ปิดแล้ว รับไม่ได้ (#56 ค)
+      if (onTrip && (isIntakeEditable(current.status as SoStatus) || current.status === 'PLANNED'))
         throw new ProblemException('order_on_trip', undefined, undefined, {
           orderStatus: current.status,
           lockedFields: blocked,
@@ -763,12 +778,18 @@ export class OrderIntakeService {
         if (k === 'windowStart' || k === 'windowEnd') e(iso(p[k]), iso(s[k]), 'datetime');
         // สถานที่: ข้อความของจุด · ข้อความเท่ากันแต่คนละสถานที่ (หรือเปลี่ยนสถานที่) → ชื่อ + รหัสสถานที่ใน master
         else if (k === 'siteId') {
-          const a = named(sites, p.siteId);
-          const b = named(sites, s.siteId);
-          e(
-            p.siteText === s.siteText || !p.siteText ? (a ?? p.siteText) : p.siteText,
-            p.siteText === s.siteText || !s.siteText ? (b ?? s.siteText) : s.siteText,
-          );
+          // ชื่อสถานที่ใน master (connector มักส่งรหัสเป็นข้อความ) — จับคู่ไม่ได้ = ข้อความตามต้นทาง
+          // ชื่อเท่ากันแต่คนละสถานที่ → ต่อท้ายด้วยรหัสสถานที่
+          const site = (id: string | null) => sites.find((x) => x.id === id);
+          const a = site(p.siteId);
+          const b = site(s.siteId);
+          let before = a?.name ?? p.siteText;
+          let after = b?.name ?? s.siteText;
+          if (before === after) {
+            before = a ? `${a.name} (${a.code})` : before;
+            after = b ? `${b.name} (${b.code})` : after;
+          }
+          e(before || null, after || null);
         } else if (k === 'siteText') e(p.siteText, s.siteText);
         else e(String(p[k as 'type']), String(s[k as 'type']));
       } else if (m && m[1] === 'lines') {

@@ -283,8 +283,11 @@ export class OrdersService {
       tx.salesOrder.count(),
       tx.salesOrder.count({ where: { status: 'DRAFT' } }),
       tx.salesOrder.count({ where: { status: 'ON_HOLD' } }),
-      tx.salesOrder.count({ where: { status: 'PLANNED' } }),
-      tx.salesOrder.count({ where: { status: 'PLANNED', requestedDate: today } }),
+      // จัดรถแล้ว: ไม่นับใบที่ต้นทางแก้หลังวางแผนรอตัดสิน (อยู่กลุ่มงานค้าง — docs/01 §4.1, QA ST3-T10)
+      tx.salesOrder.count({ where: { status: 'PLANNED', sourceChangedAfterPlan: false } }),
+      tx.salesOrder.count({
+        where: { status: 'PLANNED', sourceChangedAfterPlan: false, requestedDate: today },
+      }),
       tx.salesOrder.count({
         where: { status: { in: ['RECEIVED', 'ON_HOLD', 'PLANNED'] }, requestedDate: { lt: today } },
       }),

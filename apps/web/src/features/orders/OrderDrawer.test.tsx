@@ -86,6 +86,7 @@ const BASE = {
         after: 'คลังลาดกระบัง',
         kind: 'text',
       },
+      { group: 'lines', field: 'lines[0].weightKg', before: '10000', after: '12500', kind: 'text' },
       {
         group: 'stops.window',
         field: 'stops[1].windowEnd',
@@ -131,7 +132,9 @@ describe('OrderDrawer (ST3-T10)', () => {
     expect(screen.getAllByText('ต้นทางแก้หลังวางแผน').length).toBeGreaterThan(0);
     expect(screen.getByRole('alert')).toHaveTextContent(/ระบบยังไม่เขียนทับ/);
     expect(screen.getByText('เทียบข้อมูล TMS กับ KRS')).toBeInTheDocument();
-    expect(screen.getByText('ต่าง 2 ฟิลด์')).toBeInTheDocument();
+    expect(screen.getByText('ต่าง 3 ฟิลด์')).toBeInTheDocument();
+    expect(screen.getByText('12,500')).toBeInTheDocument();
+    expect(screen.getByText('10,000')).toBeInTheDocument();
     expect(screen.getByText('จุดที่ 2 · สถานที่')).toBeInTheDocument();
     expect(screen.getByText('คลังลาดกระบัง')).toBeInTheDocument();
     expect(screen.getByText(/16:00/)).toBeInTheDocument();
@@ -144,7 +147,7 @@ describe('OrderDrawer (ST3-T10)', () => {
     view();
     fireEvent.click(screen.getByRole('button', { name: /ใช้ค่า TMS/ }));
     const dlg = screen.getByRole('dialog', { name: 'ใช้ค่า TMS · SO-6911-0001' });
-    expect(within(dlg).getAllByRole('row')).toHaveLength(3);
+    expect(within(dlg).getAllByRole('row')).toHaveLength(4);
     // ใช้ค่า TMS: ค่าต้นทาง (ขวา) ถูกขีดฆ่า
     expect(within(dlg).getByRole('cell', { name: 'คลังลาดกระบัง' })).toHaveClass(
       'tms-dialog__diffb',
@@ -177,6 +180,7 @@ describe('OrderDrawer (ST3-T10)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'เพิ่มเติม' }));
     fireEvent.click(screen.getByRole('menuitem', { name: /ยกเลิกเอกสาร/ }));
     const dlg = screen.getByRole('dialog', { name: 'ยกเลิก SO-6911-0001' });
+    expect(within(dlg).getByText('กรอกอย่างน้อย 10 ตัวอักษร (0/10)')).toBeInTheDocument();
     expect(within(dlg).getByText('จัดรถแล้ว')).toBeInTheDocument();
     fireEvent.change(within(dlg).getByRole('textbox'), {
       target: { value: 'ลูกค้ายกเลิกคำสั่งทางอีเมล' },

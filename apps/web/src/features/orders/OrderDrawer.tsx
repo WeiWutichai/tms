@@ -114,6 +114,8 @@ function Kv({ k, v, late }: { k: ReactNode; v: ReactNode; late?: string }) {
 const CANCELLABLE = new Set(['draft', 'received', 'on_hold', 'planned']);
 /** รับค่าต้นทางได้ (ยังไม่ออกรถ — ใบในเที่ยว API ตอบ 409 `order_on_trip` ให้ถอดก่อน) */
 const ACCEPTABLE = new Set(['received', 'on_hold', 'planned']);
+/** ช่องตัวเลขของสินค้าใน diff (จัดรูปแบบหลักพัน) */
+const NUMERIC = /^lines\[\d+\]\.(qty|weightKg|cbm)$/;
 
 /** ชื่อช่องของ diff ต้นทาง (path จาก API เช่น `stops[1].siteId`) → ข้อความไทย */
 function fieldLabel(t: T, field: string): string {
@@ -228,19 +230,22 @@ export function OrderDrawer({
   ];
   const sc = o.sourceChange;
   const srcName = orderSourceLabel(t, { source: o.sourceType, connector: o.connector });
-  const val = (v: string | null, kind: string) => {
+  const val = (v: string | null, kind: string, num = false) => {
     if (v === null || v === '') return '—';
     if (kind === 'datetime') {
       const x = toBangkok(v);
       return `${dateText(x.date)} ${x.time}`;
     }
     if (kind === 'date') return dateText(v);
+    // จำนวน/น้ำหนัก/ปริมาตร: หลักพันตามต้นแบบ (12,500)
+    if (num && /^-?\d+(\.\d+)?$/.test(v))
+      return Number(v).toLocaleString('th-TH', { maximumFractionDigits: 3 });
     return v;
   };
   const diffRows = (sc?.changes ?? []).map((c) => ({
     f: fieldLabel(t, c.field),
-    b: val(c.before, c.kind),
-    a: val(c.after, c.kind),
+    b: val(c.before, c.kind, NUMERIC.test(c.field)),
+    a: val(c.after, c.kind, NUMERIC.test(c.field)),
   }));
   const no = o.soNo ?? t('ord.draftNo');
   const dlgBusy = cancel.isPending || decide.isPending;
@@ -734,6 +739,7 @@ export function OrderDrawer({
                 strike: dlg === 'keep' ? 'after' : 'before',
               }
         }
+        hint={(n, ok) => (ok ? t('ord.dlg.hintOk') : t('ord.dlg.hintMin', { n }))}
         label={t('ord.dlg.reason')}
         placeholder={t('ord.dlg.reasonPh')}
         okLabel={
