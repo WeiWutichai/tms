@@ -202,6 +202,26 @@
 
 ## บันทึกรายวัน
 
+### 13 พ.ย. 2569 (ส่งต่องาน — ปิด session กลางทาง ST3)
+
+**FACT — merge เข้า main แล้ว:** ST3-T01, T02, T03, T04 (#53), T05 (#55), T06 (#56), T11 (#51) และงานก่อนหน้า ST0–ST2
+
+**FACT — ค้างอยู่ใน branch ในเครื่อง (ยังไม่ push):**
+
+| งาน | branch / commit | สถานะ | ทำต่อ |
+|---|---|---|---|
+| ST3-T08 ล็อกการแก้ SO | `st3/t08-edit-lock` @ `1b9b7ea` (migration 0068) | review + QA แก้ครบ · รวม main (T06) แล้ว — เพิ่ม `assertWritable` ใน map-site/map-customer · `pnpm ci:local` รอบล่าสุดแดง 1 ข้อ: E2E `fleet-documents.spec.ts:33` (ST2-T19 ไม่เกี่ยวกับ T08) ตอนเครื่องโหลดหนัก (E2E ใช้ 8.8 นาที) — น่าจะ flaky แต่ยังไม่ยืนยัน | รัน `pnpm ci:local` ใหม่ → push → PR → merge |
+| ST3-T10 ยกเลิก SO + ต้นทางแก้หลังวางแผน | `st3/t10-cancel-source-diff` @ `e8e569f` (migration 0069) | review + QA แก้ครบ (QA 4 ข้อระดับต่ำ) | หลัง T08 merge: รวม origin/main → `pnpm ci:local` → push → PR → merge · เฝ้า test M1 (accept ∥ upsert) ที่เคยค้าง 565 วินาที 1 ครั้ง ทำซ้ำไม่ได้ — ถ้าค้างอีกให้เก็บ `pg_locks` |
+| ST3-T07 หน้าใบค้าง | `st3/t07-hold-page` (ฐาน `tms_s3t07*`, migration 0070 ถ้าต้องใช้) | dev เพิ่งเริ่ม — agent ถูกปิดพร้อม session งานอาจไม่ครบ/ไม่ commit | ดู `git log`/`git status` ใน worktree `.claude/worktrees/` ที่ใช้ branch นี้ ทำต่อหรือเริ่มใหม่ |
+| ST3-T12 Planning board | `st3/t12-planning-board` (ฐาน `tms_s3t12*`, migration 0071 ถ้าต้องใช้) | dev เพิ่งเริ่ม — เหมือน T07 | เหมือน T07 |
+
+**ลำดับต่อไป:** T08 → T10 → T07 → T12 → ST3 ที่เหลือ (T13–T20, T22–T25) → อัปเดตตาราง Stage เมื่อ ST3 ครบ → ST4–ST9 · ทุกงานผ่าน dev → review อิสระ → QA → แก้ → รวม main → `pnpm ci:local` เขียว → PR → merge
+
+**คำถามค้างที่รอ PO (ใหม่ในรอบนี้):** #54 (จับคู่อัตโนมัติ), #55 (ป้ายล็อกการแก้ใช้แถบแบบใบแจ้งหนี้), #56 (ต้นทางแก้หลังวางแผน — รวมข้อ (ซ) ข้อมูลต้นทางเสียบนใบที่วางแผนแล้ว = ไม่ขึ้น diff/ตอบ locked)
+
+**ติดตามต่อ (ยังไม่ทำ):** seed ตั้งบริษัทออกบิลเริ่มต้น (ใบสั่งเดโมติด `routing_not_configured`), `forgot` password 429, ตรวจ ORD-026 ใน API, กันสูตรตอนส่งออก order, สัญญา ST7 (ตาราง connector, scheduler, feature flag, error queue), ใส่ hint "กรอกอย่างน้อย 10 ตัวอักษร" ใน ReasonDialog หน้าอื่น, test ที่ล้มเพราะเครื่องโหลดหนัก (รัน agent หนักพร้อมกันไม่เกิน 2–3 ตัว)
+
+
 ### 13 พ.ย. 2569 (ST3-T08 แก้ผล QA รอบ 1)
 
 - ทำ: ปลดล็อกของผู้อื่นไม่หยุดผู้ถือเดิม (PATCH 200 + heartbeat ได้ล็อกคืนเงียบ ๆ) → ตาราง `order_edit_lock_release` (ใน migration 0068 — ยังไม่อยู่บน main) บันทึกผู้ปลด/เหตุผล/หมดอายุ 10 นาที · ผู้ถือเดิม heartbeat (`POST /lock` + `{heartbeat:true}`) และ PATCH → 409 `order_lock_released` (`releasedBy`, `releasedAt`, `reason`) จนกว่าจะเปิดแก้ใหม่ (`POST /lock` ไม่ส่ง heartbeat = ล้างการแจ้ง) · เว็บ: สถานะ `released` + `LockReleasedBanner` (ปุ่ม "โหลดใหม่" = เปิดฟอร์มใหม่), ขอซ้ำหลังเคยได้ล็อก = heartbeat, ปลดจาก drawer แล้วเปิดฟอร์มแก้ของผู้ปลดทันที · test API +3, web +2, E2E เส้นปลดจาก drawer
