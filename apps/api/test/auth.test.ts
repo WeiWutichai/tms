@@ -1,8 +1,9 @@
 import type { NestExpressApplication } from '@nestjs/platform-express';
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 import { randomBytes } from 'node:crypto';
 import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { PrismaService } from '../src/db/prisma.service';
 import { hashPassword } from '../src/auth/password';
 import { signDevToken } from '../src/auth/auth.guard';
 import { isLocalEnv, pkceChallenge, verifyAccessToken } from '../src/auth/tokens';
@@ -144,6 +145,64 @@ describe('auth: login + Auth Code/PKCE + refresh', () => {
     expect(Number(r.headers['retry-after'])).toBeGreaterThan(800);
     expect(Number(r.headers['retry-after'])).toBeLessThanOrEqual(900);
   });
+
+  it('DB โหลดหนัก: เริ่ม transaction ไม่ทันครั้งแรก → ลองใหม่แล้ว login ได้; ไม่ทัน 2 ครั้ง → 503 service_busy (ไม่ใช่ 429)', async () => {
+    await makeUser(tenantA, 'busy@example.co.th');
+    const pdb = app.get(PrismaService).platform;
+    const startTimeout = () =>
+      new Prisma.PrismaClientKnownRequestError(
+        'Transaction API error: Unable to start a transaction in the given time.',
+        { code: 'P2028', clientVersion: 'test' },
+      );
+    const spy = vi.spyOn(pdb, '$transaction');
+    try {
+      spy.mockRejectedValueOnce(startTimeout());
+      await fullLogin('busy@example.co.th');
+      expect(spy).toHaveBeenCalledTimes(2);
+
+      spy.mockClear();
+      spy.mockRejectedValueOnce(startTimeout()).mockRejectedValueOnce(startTimeout());
+      const r = await login(
+        { email: 'busy@example.co.th', password: PW, codeChallenge: pkceChallenge(verifier()) },
+        nextIp(),
+      );
+      expect(r.status).toBe(503);
+      expect(r.body.code).toBe('service_busy');
+      expect(Number(r.headers['retry-after'])).toBeGreaterThan(0);
+    } finally {
+      spy.mockRestore();
+    }
+    // transaction ที่เริ่มไม่ได้ไม่ได้บันทึกครั้งผิด → ยังไม่ถูกล็อก
+    await fullLogin('busy@example.co.th');
+  });
+
+  it('มีคำขออีเมลเดียวกันถือ advisory lock ค้างนานเกิน lock_timeout → 429 rate_limited (กันยิงถี่ตามเดิม)', async () => {
+    await makeUser(tenantA, 'held@example.co.th');
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    let locked!: () => void;
+    const isLocked = new Promise<void>((r) => (locked = r));
+    const holder = db.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(1, hashtext(${'held@example.co.th'}))`;
+        locked();
+        await held;
+      },
+      { timeout: 20_000 },
+    );
+    await isLocked;
+    try {
+      const r = await login(
+        { email: 'held@example.co.th', password: PW, codeChallenge: pkceChallenge(verifier()) },
+        nextIp(),
+      );
+      expect(r.status).toBe(429);
+      expect(r.body.code).toBe('rate_limited');
+    } finally {
+      release();
+      await holder;
+    }
+  }, 30_000);
 
   it('ผิด 5 ครั้งจาก IP เดียว (หลายบัญชี) → IP นั้นถูกล็อก บัญชีอื่นจาก IP อื่นยังเข้าได้', async () => {
     await makeUser(tenantA, 'victim@example.co.th');

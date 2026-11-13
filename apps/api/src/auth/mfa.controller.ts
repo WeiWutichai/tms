@@ -10,6 +10,7 @@ import { IsBoolean, IsOptional, IsString, Matches, MaxLength } from 'class-valid
 import type { CookieOptions, Request, Response } from 'express';
 import { Public, RequireStepUp } from '../common/decorators';
 import { ProblemException } from '../common/problem';
+import { ApiServiceBusyResponse } from './auth-tx';
 import { requestContext } from '../common/request-context';
 import { PrismaService } from '../db/prisma.service';
 import { AuthService } from './auth.service';
@@ -121,6 +122,7 @@ export class MfaController {
 
   @Public()
   @Post('auth/2fa/verify')
+  @ApiServiceBusyResponse()
   @HttpCode(200)
   @ApiOkResponse({ type: AuthCodeDto })
   async verify(
@@ -164,6 +166,7 @@ export class MfaController {
 
   @Public()
   @Post('auth/2fa/enroll/confirm')
+  @ApiServiceBusyResponse()
   @HttpCode(200)
   @ApiOkResponse({ type: EnrollDoneDto })
   async enrollConfirm(
@@ -192,6 +195,7 @@ export class MfaController {
 
   /** step-up: ยืนยัน 2FA ซ้ำก่อนทำรายการเสี่ยง (เปลี่ยน role ฯลฯ) — ใช้ซ้ำได้ทุก endpoint ด้วย @RequireStepUp() */
   @Post('auth/step-up')
+  @ApiServiceBusyResponse()
   @HttpCode(200)
   @ApiBearerAuth()
   @ApiOkResponse({ type: StepUpDto })

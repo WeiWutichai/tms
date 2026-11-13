@@ -7,6 +7,7 @@ import { PrismaService } from '../db/prisma.service';
 import { newBackupCodes, newTotpSecret, normalizeBackupCode, otpauthUri, verifyTotp } from './totp';
 import { newOpaqueToken, sha256 } from './tokens';
 import { lockSeconds, OTP_FAILED, recordAttempt, type ClientInfo } from './throttle';
+import { authTransaction } from './auth-tx';
 
 export const MFA_CHALLENGE_TTL_MS = 5 * 60 * 1000;
 export const MFA_MAX_ATTEMPTS = 5;
@@ -124,23 +125,16 @@ export class MfaService {
    * กันยิงพร้อมกันหลาย challenge จนผ่านเพดาน (re-review T05); มีอีก request ถืออยู่ → 429 rate_limited ทันที
    */
   async serialized<T>(user: AppUser, fn: (db: Db) => Promise<T>): Promise<T> {
-    try {
-      return await this.db.$transaction(
-        async (tx) => {
-          // try-lock: มี request 2FA ของผู้ใช้นี้ค้างอยู่ → ตอบ 429 ทันที ไม่ต่อคิวถือ connection (ผู้ใช้จริงไม่ยิงพร้อมกัน)
-          const [r] = await tx.$queryRaw<{ ok: boolean }[]>`
-            SELECT pg_try_advisory_xact_lock(3, hashtext(${user.email.toLowerCase()})) AS ok`;
-          if (!r?.ok) throw new ProblemException('rate_limited');
-          // ทุกอย่างใน fn ใช้ connection เดียวกับ lock (ไม่ขอ connection ที่ 2 — กัน pool ตันตอนคนเข้าพร้อมกัน)
-          return fn(tx as unknown as Db);
-        },
-        { maxWait: 2_000, timeout: 5_000 },
-      );
-    } catch (e) {
-      const code = (e as { code?: string }).code;
-      if (code === 'P2024' || code === 'P2028') throw new ProblemException('rate_limited');
-      throw e;
-    }
+    // เริ่ม transaction ไม่ทัน (pool เต็ม/DB ช้า) → ลองใหม่ 1 ครั้ง แล้ว 503 service_busy (เหมือน login)
+    // — เดิม map P2024/P2028 → 429 ทำให้ผู้ใช้จริงเห็น "เรียกถี่เกินไป" ตอน DB ช้า
+    return authTransaction(this.db, async (tx) => {
+      // try-lock: มี request 2FA ของผู้ใช้นี้ค้างอยู่ → ตอบ 429 ทันที ไม่ต่อคิวถือ connection (ผู้ใช้จริงไม่ยิงพร้อมกัน)
+      const [r] = await tx.$queryRaw<{ ok: boolean }[]>`
+        SELECT pg_try_advisory_xact_lock(3, hashtext(${user.email.toLowerCase()})) AS ok`;
+      if (!r?.ok) throw new ProblemException('rate_limited');
+      // ทุกอย่างใน fn ใช้ connection เดียวกับ lock (ไม่ขอ connection ที่ 2 — กัน pool ตันตอนคนเข้าพร้อมกัน)
+      return fn(tx as unknown as Db);
+    });
   }
 
   async recordOtpSuccess(user: AppUser, client: ClientInfo, reason = 'mfa_ok') {

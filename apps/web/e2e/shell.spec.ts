@@ -28,9 +28,10 @@ test.describe('shell', () => {
 
   test('หน้าที่ยังไม่ถึง stage บอก stage และกลับภาพรวมได้', async ({ page }) => {
     await page.goto('/');
-    await page.getByRole('button', { name: 'ใบสั่งขนส่ง (SO)', exact: true }).click();
-    await expect(page).toHaveURL(/\/so$/);
-    await expect(page.getByRole('heading', { level: 1, name: 'ใบสั่งขนส่ง (SO)' })).toBeVisible();
+    // /so มีหน้าจริงแล้ว (ST3-T02) — ใช้ใบส่งของ (DO) ซึ่งยังเป็นหน้ารอ stage
+    await page.getByRole('button', { name: 'ใบส่งของ (DO)', exact: true }).click();
+    await expect(page).toHaveURL(/\/do$/);
+    await expect(page.getByRole('heading', { level: 1, name: 'ใบส่งของ (DO)' })).toBeVisible();
     await expect(page.getByText(/ST3/)).toBeVisible();
     await page.getByRole('button', { name: 'กลับไปภาพรวม' }).click();
     await expect(page).toHaveURL(/\/$/);

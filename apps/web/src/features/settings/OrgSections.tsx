@@ -1,9 +1,10 @@
-import { Icon } from '@tms/ui';
+import { EmptyState, Icon } from '@tms/ui';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ApiError } from '../../api';
 import { markReviewed } from '../setup/SetupChecklist';
 import { useI18n } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
+import { rebaseDraft, type Values } from './draft';
 import { Toggle } from './Settings';
 import {
   useBranches,
@@ -18,8 +19,6 @@ import {
  * เลขผู้เสียภาษี/ที่อยู่มาจากนิติบุคคลหลัก (แก้ที่ "นิติบุคคลและสาขา" — ข้อมูลบนเอกสารภาษีผูกกับนิติบุคคล/สาขา)
  * IP allowlist ของต้นแบบเป็น P1 (spec/01 §13.6) — ยังไม่แสดง
  */
-type Values = Record<string, unknown>;
-
 function useDraft(keys: string[]) {
   const q = useTenantSettings();
   const save = useSaveTenantSettings();
@@ -32,8 +31,16 @@ function useDraft(keys: string[]) {
     () => Object.fromEntries((q.data?.data ?? []).map((s) => [s.key, s.version])),
     [q.data],
   );
-  const [draft, setDraft] = useState<Values>({});
-  useEffect(() => setDraft(server), [server]);
+  // base = ค่าจาก server ที่ draft ตั้งต้นจาก (null = ยังไม่โหลด) — ไม่เขียนทับค่าที่ผู้ใช้แก้ค้าง (ดู rebaseDraft)
+  const [state, setState] = useState<{ base: Values | null; draft: Values }>({
+    base: null,
+    draft: {},
+  });
+  useEffect(() => {
+    if (!q.data) return;
+    setState((s) => ({ base: server, draft: rebaseDraft(s.base, s.draft, server) }));
+  }, [q.data, server]);
+  const draft = state.draft;
   const dirty = Object.fromEntries(
     Object.entries(draft).filter(([k, v]) => JSON.stringify(server[k]) !== JSON.stringify(v)),
   );
@@ -42,12 +49,36 @@ function useDraft(keys: string[]) {
     save,
     draft,
     versions,
-    set: (k: string, v: unknown) => setDraft((d) => ({ ...d, [k]: v })),
+    set: (k: string, v: unknown) => setState((s) => ({ ...s, draft: { ...s.draft, [k]: v } })),
     dirty,
+    /** ยังไม่ได้ค่า/version จาก server → ยังบันทึกไม่ได้ (กันส่ง version 0 แล้วได้ 412) */
+    busy: save.isPending || !q.data,
   };
 }
 
-function Card({ title, children }: { title: string; children: ReactNode }) {
+/** โหลดค่าตั้งค่าไม่สำเร็จ → แสดงสถานะ error + ลองอีกครั้ง แทนฟอร์ม (ไม่ให้ปุ่มบันทึกค้างที่ "กดไม่ได้") — แบบเดียวกับหน้าเหตุผล */
+function Card({
+  title,
+  children,
+  load,
+}: {
+  title: string;
+  children: ReactNode;
+  load?: ReturnType<typeof useTenantSettings>;
+}) {
+  const { t } = useI18n();
+  if (load?.isError && !load.data)
+    children = (
+      <EmptyState
+        icon="triangle-alert"
+        title={t('set.loadError')}
+        action={
+          <button type="button" className="set-btn2" onClick={() => void load.refetch()}>
+            {t('rsn.retry')}
+          </button>
+        }
+      />
+    );
   return (
     <section
       className="set-card"
@@ -424,7 +455,7 @@ export function OrgSection({ canWrite }: { canWrite: boolean }) {
     : '';
   const year = new Date().getFullYear();
   return (
-    <Card title={t('set.menu.org')}>
+    <Card title={t('set.menu.org')} load={d.q}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
         <div
           style={{
@@ -466,7 +497,7 @@ export function OrgSection({ canWrite }: { canWrite: boolean }) {
           <input
             style={inputStyle}
             value={String(d.draft['org.name'] ?? '')}
-            disabled={!canWrite}
+            disabled={!canWrite || d.save.isPending}
             onChange={(e) => d.set('org.name', e.target.value)}
           />
         </label>
@@ -485,7 +516,7 @@ export function OrgSection({ canWrite }: { canWrite: boolean }) {
           <select
             style={inputStyle}
             value={String(d.draft['org.timezone'] ?? 'Asia/Bangkok')}
-            disabled={!canWrite}
+            disabled={!canWrite || d.save.isPending}
             onChange={(e) => d.set('org.timezone', e.target.value)}
           >
             <option value="Asia/Bangkok">{t('org.tzBangkok')}</option>
@@ -513,7 +544,7 @@ export function OrgSection({ canWrite }: { canWrite: boolean }) {
       <Radio
         label={t('org.yearStyle')}
         value={d.draft['org.yearStyle']}
-        disabled={!canWrite}
+        disabled={!canWrite || d.save.isPending}
         onChange={(v) => d.set('org.yearStyle', v)}
         options={[
           { v: 'BE', l: t('org.yearBE', { y: year + 543 }) },
@@ -523,7 +554,7 @@ export function OrgSection({ canWrite }: { canWrite: boolean }) {
       {canWrite && (
         <SaveBar
           dirty={Object.keys(d.dirty).length > 0}
-          busy={d.save.isPending}
+          busy={d.busy}
           onSave={flow.onSave}
           saved={flow.saved}
           error={flow.error}
@@ -544,11 +575,11 @@ export function TaxSection({ canWrite }: { canWrite: boolean }) {
   ]);
   const flow = useSaveFlow('set.menu.tax', d);
   return (
-    <Card title={t('set.menu.tax')}>
+    <Card title={t('set.menu.tax')} load={d.q}>
       <Radio
         label={t('tax.vatDefault')}
         value={d.draft['tax.vatDefault']}
-        disabled={!canWrite}
+        disabled={!canWrite || d.save.isPending}
         onChange={(v) => d.set('tax.vatDefault', v)}
         options={[
           { v: 'VAT_7', l: t('tax.vat7') },
@@ -558,7 +589,7 @@ export function TaxSection({ canWrite }: { canWrite: boolean }) {
       <Radio
         label={t('tax.mode')}
         value={d.draft['tax.invoiceModePolicy']}
-        disabled={!canWrite}
+        disabled={!canWrite || d.save.isPending}
         onChange={(v) => d.set('tax.invoiceModePolicy', v)}
         options={[
           { v: 'ON_PAYMENT', l: t('tax.modePayment') },
@@ -578,7 +609,7 @@ export function TaxSection({ canWrite }: { canWrite: boolean }) {
             key={k}
             label={t(l)}
             on={d.draft[k] === true}
-            disabled={!canWrite}
+            disabled={!canWrite || d.save.isPending}
             onChange={() => d.set(k, !(d.draft[k] === true))}
           />
         ))}
@@ -586,7 +617,7 @@ export function TaxSection({ canWrite }: { canWrite: boolean }) {
       {canWrite && (
         <SaveBar
           dirty={Object.keys(d.dirty).length > 0}
-          busy={d.save.isPending}
+          busy={d.busy}
           onSave={flow.onSave}
           saved={flow.saved}
           error={flow.error}
@@ -607,11 +638,11 @@ export function SecuritySection({ canWrite }: { canWrite: boolean }) {
   const flow = useSaveFlow('set.menu.sec', d);
   const auto = d.draft['security.autoLogout'] !== false;
   return (
-    <Card title={t('set.menu.sec')}>
+    <Card title={t('set.menu.sec')} load={d.q}>
       <ToggleRow
         label={t('sec.require2fa')}
         on={d.draft['security.require2faAll'] === true}
-        disabled={!canWrite}
+        disabled={!canWrite || d.save.isPending}
         onChange={() =>
           d.set('security.require2faAll', !(d.draft['security.require2faAll'] === true))
         }
@@ -619,7 +650,7 @@ export function SecuritySection({ canWrite }: { canWrite: boolean }) {
       <ToggleRow
         label={t('sec.autoLogout')}
         on={auto}
-        disabled={!canWrite}
+        disabled={!canWrite || d.save.isPending}
         onChange={() => d.set('security.autoLogout', !auto)}
       />
       <label style={{ display: 'flex', flexDirection: 'column', gap: 6, maxWidth: 280 }}>
@@ -627,7 +658,7 @@ export function SecuritySection({ canWrite }: { canWrite: boolean }) {
         <select
           style={inputStyle}
           value={String(d.draft['security.idleTimeoutMinutes'] ?? 480)}
-          disabled={!canWrite || !auto}
+          disabled={!canWrite || !auto || d.save.isPending}
           onChange={(e) => d.set('security.idleTimeoutMinutes', Number(e.target.value))}
         >
           <option value="30">{t('sec.t30')}</option>
@@ -641,7 +672,7 @@ export function SecuritySection({ canWrite }: { canWrite: boolean }) {
       {canWrite && (
         <SaveBar
           dirty={Object.keys(d.dirty).length > 0}
-          busy={d.save.isPending}
+          busy={d.busy}
           onSave={flow.onSave}
           saved={flow.saved}
           error={flow.error}

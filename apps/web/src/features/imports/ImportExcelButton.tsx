@@ -51,9 +51,12 @@ export function ImportExcelButton({
   onDone,
   open: openProp,
   onOpenChange,
+  icon = 'file-spreadsheet',
 }: {
   kind: string;
   label: string;
+  /** ไอคอนปุ่ม — ต้นแบบ SO ใช้ upload ("นำเข้า CSV"), หน้าข้อมูลหลักใช้ file-spreadsheet */
+  icon?: string;
   onDone: (message: string) => void;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
@@ -67,7 +70,7 @@ export function ImportExcelButton({
   if (!k) return null;
   return (
     <>
-      <Button variant="secondary" icon="file-spreadsheet" onClick={() => setOpen(true)}>
+      <Button variant="secondary" icon={icon} onClick={() => setOpen(true)}>
         {label}
       </Button>
       {open && (

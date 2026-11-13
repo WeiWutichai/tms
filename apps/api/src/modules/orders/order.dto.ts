@@ -15,7 +15,7 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
-import { INTAKE_HOLD_CODES, ORDER_SOURCES, SO_STATUSES } from '@tms/domain';
+import { INTAKE_HOLD_CODES, ORDER_SOURCES, SO_FIELD_GROUPS, SO_STATUSES } from '@tms/domain';
 import { PriceField } from '../../common/price-fields';
 import { CleanText, IsOptionalNotNull } from '../master/master-kit';
 
@@ -33,11 +33,17 @@ export type SoStatusValue = (typeof SO_STATUS_VALUES)[number];
 const STOP_TYPES = ['PICKUP', 'DELIVERY', 'RETURN'] as const;
 
 export class OrderCustomerInputDto {
-  @ApiPropertyOptional({ example: 'cus_3f2a…', nullable: true, description: 'ลูกค้าใน master' })
+  @ApiPropertyOptional({
+    type: String,
+    example: 'cus_3f2a…',
+    nullable: true,
+    description: 'ลูกค้าใน master',
+  })
   @Allow()
   id?: string | null;
 
   @ApiPropertyOptional({
+    type: String,
     example: 'C-001',
     nullable: true,
     description:
@@ -46,7 +52,7 @@ export class OrderCustomerInputDto {
   @Allow()
   externalId?: string | null;
 
-  @ApiPropertyOptional({ nullable: true, description: 'ชื่อ/ข้อความลูกค้าตามต้นทาง' })
+  @ApiPropertyOptional({ type: String, nullable: true, description: 'ชื่อ/ข้อความลูกค้าตามต้นทาง' })
   @Allow()
   name?: string | null;
 }
@@ -57,6 +63,7 @@ export class OrderStopInputDto {
   type!: (typeof STOP_TYPES)[number];
 
   @ApiPropertyOptional({
+    type: String,
     example: 'loc_3f2a…',
     nullable: true,
     description: 'สถานที่ใน master — ไม่ส่ง = ใช้ `siteText` (ใบค้าง LOCATION_UNMAPPED)',
@@ -65,6 +72,7 @@ export class OrderStopInputDto {
   siteId?: string | null;
 
   @ApiPropertyOptional({
+    type: String,
     nullable: true,
     maxLength: 500,
     description: 'ข้อความสถานที่ตามต้นทาง (บังคับเมื่อไม่มี siteId)',
@@ -73,6 +81,7 @@ export class OrderStopInputDto {
   siteText?: string | null;
 
   @ApiPropertyOptional({
+    type: String,
     example: '2026-11-12T07:00:00+07:00',
     nullable: true,
     description: 'ISO 8601 พร้อม timezone',
@@ -80,7 +89,11 @@ export class OrderStopInputDto {
   @Allow()
   windowStart?: string | null;
 
-  @ApiPropertyOptional({ nullable: true, description: 'ISO 8601 พร้อม timezone (≥ windowStart)' })
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    description: 'ISO 8601 พร้อม timezone (≥ windowStart)',
+  })
   @Allow()
   windowEnd?: string | null;
 }
@@ -94,19 +107,28 @@ export class OrderLineInputDto {
   @Allow()
   qty!: string;
 
-  @ApiPropertyOptional({ example: 'unt_3f2a…', nullable: true, description: 'หน่วยใน master' })
+  @ApiPropertyOptional({
+    type: String,
+    example: 'unt_3f2a…',
+    nullable: true,
+    description: 'หน่วยใน master',
+  })
   @Allow()
   unitId?: string | null;
 
-  @ApiPropertyOptional({ nullable: true, description: 'ข้อความหน่วย (บังคับเมื่อไม่มี unitId)' })
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    description: 'ข้อความหน่วย (บังคับเมื่อไม่มี unitId)',
+  })
   @Allow()
   unit?: string | null;
 
-  @ApiPropertyOptional({ example: 'prd_3f2a…', nullable: true })
+  @ApiPropertyOptional({ type: String, example: 'prd_3f2a…', nullable: true })
   @Allow()
   productId?: string | null;
 
-  @ApiPropertyOptional({ nullable: true, description: 'รหัสสินค้าตามต้นทาง' })
+  @ApiPropertyOptional({ type: String, nullable: true, description: 'รหัสสินค้าตามต้นทาง' })
   @Allow()
   itemCode?: string | null;
 
@@ -147,6 +169,7 @@ export class OrderFieldsDto {
   customer?: OrderCustomerInputDto;
 
   @ApiPropertyOptional({
+    type: String,
     example: 'cmp_3f2a…',
     nullable: true,
     description: 'นิติบุคคลที่ออกบิล — ไม่ส่ง = ตามลูกค้า/ค่าตั้งต้นของบริษัท',
@@ -154,7 +177,12 @@ export class OrderFieldsDto {
   @Allow()
   billingCompanyId?: string | null;
 
-  @ApiPropertyOptional({ nullable: true, maxLength: 50, description: 'เลข PO / อ้างอิงของลูกค้า' })
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    maxLength: 50,
+    description: 'เลข PO / อ้างอิงของลูกค้า',
+  })
   @Allow()
   customerRef?: string | null;
 
@@ -162,7 +190,7 @@ export class OrderFieldsDto {
   @Allow()
   requestedDate!: string;
 
-  @ApiPropertyOptional({ example: 'vty_3f2a…', nullable: true })
+  @ApiPropertyOptional({ type: String, example: 'vty_3f2a…', nullable: true })
   @Allow()
   vehicleTypeId?: string | null;
 
@@ -182,6 +210,7 @@ export class OrderFieldsDto {
 
 export class CreateOrderDto extends OrderFieldsDto {
   @ApiPropertyOptional({
+    type: String,
     example: 'PO-2026-0001',
     nullable: true,
     maxLength: 100,
@@ -374,9 +403,38 @@ export class OrderDto {
   sellCharges?: OrderChargeDto[];
   @ApiProperty({ type: [OrderStopDto] }) stops!: OrderStopDto[];
   @ApiProperty({ type: [OrderLineDto] }) lines!: OrderLineDto[];
+  @ApiPropertyOptional({
+    type: [String],
+    enum: SO_FIELD_GROUPS,
+    description:
+      'ช่องที่แก้ได้ในสถานะปัจจุบัน (spec/03 ORD-032) — มีเฉพาะ GET ทีละใบและผลของ POST/PUT/PATCH (ไม่อยู่ในรายการ) · ' +
+      'ว่าง = แก้ไม่ได้ (ปิดงาน/ยกเลิก) · ฟอร์มใช้ปิดช่องที่แก้ไม่ได้ก่อนส่ง (server ตรวจซ้ำ → 409 `order_locked_for_update`)',
+  })
+  editableFields?: string[];
   @ApiProperty() version!: number;
   @ApiProperty() createdAt!: string;
   @ApiProperty() updatedAt!: string;
+}
+
+/** ตัวนับของหน้ารายการใบสั่งขนส่ง (แถบสรุป + แท็บ — ต้นแบบ TMS v4 kpisX('so')) */
+export class OrderSummaryDto {
+  @ApiProperty({ description: 'ทุกใบ (รวมร่าง)' }) total!: number;
+  @ApiProperty({ description: 'ร่าง (ยังไม่ออกเลข SO)' }) draft!: number;
+  @ApiProperty({ description: 'ค้าง (ON_HOLD) ทุกเหตุ' }) onHold!: number;
+  @ApiProperty({
+    description: 'ค้างเพราะจับคู่สถานที่ไม่ได้ (LOCATION_UNMAPPED) — "รอกำหนดเส้นทาง"',
+  })
+  locationUnmapped!: number;
+  @ApiProperty({ description: 'ค้างเพราะจับคู่ลูกค้าไม่ได้ (CUSTOMER_UNMAPPED)' })
+  customerUnmapped!: number;
+  @ApiProperty({
+    description:
+      'เกินกำหนด: ยังไม่ออกรถ (RECEIVED/ON_HOLD/PLANNED) และวันรับของก่อนวันนี้ (เวลาไทย)',
+  })
+  overdue!: number;
+  @ApiProperty({ description: 'วางแผนแล้ว (PLANNED) ทั้งหมด' }) planned!: number;
+  @ApiProperty({ description: 'วางแผนแล้ว (PLANNED) ที่วันรับของ = วันนี้ (เวลาไทย)' })
+  plannedToday!: number;
 }
 
 export class OrderPageDto {

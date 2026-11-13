@@ -75,9 +75,12 @@ export class ProblemFilter implements ExceptionFilter {
     } else if (exception instanceof Prisma.PrismaClientKnownRequestError) {
       if (exception.code === 'P2002') code = 'duplicate';
       else if (exception.code === 'P2025') code = 'not_found';
-      // connection pool เต็ม / transaction รอนานเกิน → ให้ client ลองใหม่ แทน 500
-      else if (exception.code === 'P2024' || exception.code === 'P2028') code = 'rate_limited';
-      else this.logger.error(exception);
+      // connection pool เต็ม / transaction รอนานเกิน = ระบบรับงานไม่ทัน (ไม่ใช่ผู้เรียกยิงถี่) → 503 + Retry-After
+      else if (exception.code === 'P2024' || exception.code === 'P2028') {
+        code = 'service_busy';
+        extra = { retryAfter: 2, retryable: true };
+        this.logger.warn(`db busy: ${exception.code}`);
+      } else this.logger.error(exception);
     } else if (exception instanceof HttpException) {
       code = STATUS_TO_CODE[exception.getStatus()] ?? 'internal_error';
       if (exception.getStatus() === HttpStatus.NOT_FOUND) detail = undefined;

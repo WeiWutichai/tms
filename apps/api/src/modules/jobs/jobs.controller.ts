@@ -10,8 +10,8 @@ export class JobDto {
   @ApiProperty() type!: string;
   @ApiProperty({ enum: ['pending', 'running', 'succeeded', 'failed', 'skipped'] }) status!: string;
   @ApiProperty({ minimum: 0, maximum: 100 }) progress!: number;
-  @ApiProperty({ nullable: true, type: Object }) result!: unknown;
-  @ApiProperty({ nullable: true, type: Object }) error!: unknown;
+  @ApiProperty({ nullable: true, type: 'object', additionalProperties: true }) result!: unknown;
+  @ApiProperty({ nullable: true, type: 'object', additionalProperties: true }) error!: unknown;
   @ApiProperty() attempts!: number;
   @ApiProperty({ format: 'date-time' }) createdAt!: string;
   @ApiProperty({ format: 'date-time', nullable: true, type: String }) finishedAt!: string | null;
