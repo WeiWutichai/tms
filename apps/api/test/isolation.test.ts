@@ -636,6 +636,9 @@ const BODY_FOR_SUFFIX: Record<string, object> = {
 const BODY_FOR_PATH: Record<string, object> = {
   '/v1/drivers/:id/status': { status: 'on_leave', reason: 'isolation test reason' }, // ST2-T08
   '/v1/drivers/:id/reveal': { reason: 'isolation test reason' }, // ST2-T08
+  // ST3-T06 จับคู่ด้วยมือ (`:sequence` ไม่ถูกแทน — ใบของ tenant อื่นต้อง 404 ก่อนตรวจลำดับจุด)
+  '/v1/orders/:id/stops/:sequence/map-site': { siteId: `loc_${'0'.repeat(32)}` },
+  '/v1/orders/:id/map-customer': { customerId: `cus_${'0'.repeat(32)}` },
 };
 
 interface RouteInfo {

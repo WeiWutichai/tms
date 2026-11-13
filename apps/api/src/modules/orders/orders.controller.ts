@@ -1,4 +1,16 @@
-import { Body, Controller, Get, Param, Patch, Post, Put, Query, Req, Res } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Param,
+  Patch,
+  Post,
+  Put,
+  Query,
+  Req,
+  Res,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
@@ -15,7 +27,10 @@ import { ProblemException } from '../../common/problem';
 import { ApiProblems } from '../../common/problem.dto';
 import {
   CreateOrderDto,
+  MapCustomerDto,
+  MapStopSiteDto,
   OrderDto,
+  OrderMapResultDto,
   OrderListQuery,
   OrderPageDto,
   OrderSummaryDto,
@@ -154,6 +169,19 @@ const E409 = (withConflict: boolean, idem = false) => ({
   },
 });
 
+const E409_ALIAS = {
+  ...E409(false),
+  examples: {
+    ...E409(false).examples,
+    alias_conflict: P(
+      'alias_conflict',
+      409,
+      'รหัสหรือชื่อลูกค้าตามต้นทางนี้เคยจับคู่กับลูกค้ารายอื่นไว้แล้ว — ยืนยันการย้ายพร้อมเหตุผล',
+      { aliasKind: 'EXTERNAL_ID', aliasValue: 'NSF-777', mappedCustomerId: 'cus_3f2a…' },
+    ),
+  },
+};
+
 /**
  * ใบสั่งขนส่ง / Sales Order — Open API (ST3-T03; docs/04 C "Upsert ด้วย external id", "รับจาก Open API", docs/01 §5.2 #1)
  * ทุกการเขียนเรียก `OrderIntakeService.upsertOrder` (ทางเดียวของทุกทางเข้า) · UI ใช้ endpoint ชุดเดียวกันนี้
@@ -283,5 +311,65 @@ export class OrdersController {
     const current = await this.resolve(id);
     const r = await this.orders.update(current.id, body, ifMatch(req));
     return this.respond(r, res);
+  }
+
+  @Post(':id/stops/:sequence/map-site')
+  @HttpCode(200)
+  @TenantResource('salesOrder')
+  @RequireScope('orders:write')
+  @ApiOperation({
+    summary: 'เลือกสถานที่ให้จุดที่ยังจับคู่ไม่ได้ + จำข้อความเป็น alias (ST3-T06)',
+    description:
+      'จุดลำดับ `{sequence}` (เริ่ม 1) ได้สถานที่ที่เลือก (`match.method = MANUAL`) แล้วระบบจำข้อความสถานที่ของจุดนี้เป็น alias ' +
+      'ของสถานที่ → ใบถัดไปที่ข้อความเดิม (ไม่สนช่องว่าง/ตัวพิมพ์/คำนิติบุคคล) จับคู่เอง · ประเมินราคา + ใบค้างใหม่ทันที ' +
+      '(LOCATION_UNMAPPED หาย / RATE_MISSING ถ้ายังไม่มี rate) · สถานที่ต้องเป็นของลูกค้าของใบหรือของบริษัท — ' +
+      'ใบยังไม่มีลูกค้าเลือกได้เฉพาะสถานที่ของบริษัท (422 `customer_unmapped`) · หลังวางแผน → 409 `order_locked_for_update`',
+  })
+  @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
+  @ApiOkResponse({ type: OrderMapResultDto })
+  @ApiProblems(E400(false), E403, E404, E409(false), E412, E422)
+  async mapStopSite(
+    @Param('id') id: string,
+    @Param('sequence') sequence: string,
+    @Body() body: MapStopSiteDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<OrderMapResultDto> {
+    const current = await this.resolve(id);
+    if (!/^[1-9]\d{0,2}$/.test(sequence)) throw new ProblemException('not_found');
+    const r = await this.orders.mapStopSite(
+      current.id,
+      Number(sequence),
+      body.siteId,
+      ifMatch(req),
+    );
+    return { ...(await this.respond(r, res)), aliasLearning: r.aliasLearning };
+  }
+
+  @Post(':id/map-customer')
+  @HttpCode(200)
+  @TenantResource('salesOrder')
+  @RequireScope('orders:write')
+  @ApiOperation({
+    summary: 'เลือกลูกค้าให้ใบที่ยังจับคู่ไม่ได้ + จำรหัส/ชื่อตามต้นทาง (ST3-T06)',
+    description:
+      'ใบได้ลูกค้าที่เลือก (`customer.match.method = MANUAL`) · ใบมีรหัสลูกค้าต้นทาง = จำรหัสนั้นของช่องทางนี้ ' +
+      '(เช่น `ERP:krs`) · ไม่มีรหัส = จำชื่อตามต้นทาง → ใบถัดไปจับคู่เอง · เคยจำไว้กับลูกค้าอื่น = ย้ายมาลูกค้านี้ (audit) · ' +
+      'จุดที่ยังว่างจับคู่ในขอบเขตลูกค้านี้ต่อ แล้วประเมินราคา + ใบค้างใหม่ · จุดที่เลือกสถานที่ของลูกค้าอื่นไว้ → 422 `site_other_customer` · ' +
+      'รหัส/ชื่อนี้เคยจับคู่กับลูกค้าอื่น → 409 `alias_conflict` (ใบไม่เปลี่ยน) จนกว่าส่ง `confirmReassign: true` + `reason` · ' +
+      'ชื่อทั่วไป (เงินสด, ลูกค้าทั่วไป, walk-in …) ไม่จำ (`aliasLearning = generic`) · alias รหัสที่คนจับคู่ชนะ externalId ของลูกค้า',
+  })
+  @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
+  @ApiOkResponse({ type: OrderMapResultDto })
+  @ApiProblems(E400(false), E403, E404, E409_ALIAS, E412, E422)
+  async mapCustomer(
+    @Param('id') id: string,
+    @Body() body: MapCustomerDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<OrderMapResultDto> {
+    const current = await this.resolve(id);
+    const r = await this.orders.mapCustomer(current.id, body, ifMatch(req));
+    return { ...(await this.respond(r, res)), aliasLearning: r.aliasLearning };
   }
 }
