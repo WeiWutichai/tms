@@ -74,6 +74,7 @@ import {
 } from './modules/rate-cards/rate-cards.controller';
 import { RateCardsService } from './modules/rate-cards/rate-cards.service';
 import { PricingService } from './modules/pricing/pricing.service';
+import { OrderMatchingService } from './modules/orders/order-matching.service';
 import { OrderIntakeService } from './modules/orders/order-intake.service';
 import { DeliveryOrderService } from './modules/delivery-orders/delivery-order.service';
 import { DeliveryOrdersController } from './modules/delivery-orders/delivery-orders.controller';
@@ -94,6 +95,8 @@ import { VehicleDocumentsController } from './modules/vehicle-documents/vehicle-
 import { VehicleDocumentsService } from './modules/vehicle-documents/vehicle-documents.service';
 import { Clock } from './common/clock';
 import { DepreciationService } from './modules/depreciation/depreciation.service';
+import { ConnectorIntakeService } from './modules/connectors/connector-intake.service';
+import { OrderSourceRegistry } from './modules/connectors/order-source-registry';
 import { DriversController } from './modules/drivers/drivers.controller';
 import {
   CarrierDocsController,
@@ -197,6 +200,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     RateCardsService,
     PricingService,
     OrderIntakeService,
+    OrderMatchingService,
     DeliveryOrderService,
     OrderStateService,
     TripService,
@@ -204,6 +208,8 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     OrderLockService,
     OrderTemplatesService,
     OrderImports,
+    OrderSourceRegistry,
+    ConnectorIntakeService,
     CarriersService,
     VehiclesService,
     DriversService,

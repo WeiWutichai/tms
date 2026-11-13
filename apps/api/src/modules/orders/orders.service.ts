@@ -17,6 +17,7 @@ import { DbService } from '../../db/db.service';
 import { likeEscape } from '../master/master-kit';
 import type { UpsertOrderInput } from './order-input';
 import { OrderIntakeService, type UpsertOrderResult } from './order-intake.service';
+import type { MatchSuggestion } from './order-matching.service';
 import type {
   CreateOrderDto,
   OrderDto,
@@ -85,6 +86,10 @@ export function toOrderDto(o: OrderRow): OrderDto {
       legalName: o.customer?.legalName ?? null,
       externalId: o.customerExternalId,
       name: o.customerText,
+      match: {
+        method: o.customerMatchMethod,
+        candidates: candidatesDto('customer', o.customerCandidates),
+      },
     },
     billingCompanyId: encodeId('company', o.billingCompanyId),
     customerRef: o.customerRef,
@@ -124,6 +129,11 @@ export function toOrderDto(o: OrderRow): OrderDto {
       siteText: s.siteText,
       windowStart: s.windowStart?.toISOString() ?? null,
       windowEnd: s.windowEnd?.toISOString() ?? null,
+      match: {
+        method: s.matchMethod,
+        score: s.matchScore === null ? null : Number(s.matchScore.toFixed(3)),
+        candidates: candidatesDto('site', s.matchCandidates),
+      },
     })),
     lines: o.lines.map((l) => ({
       lineNo: l.lineNo,
@@ -143,6 +153,16 @@ export function toOrderDto(o: OrderRow): OrderDto {
     createdAt: o.createdAt.toISOString(),
     updatedAt: o.updatedAt.toISOString(),
   };
+}
+
+/** รายการแนะนำที่เก็บไว้ (uuid) → public id */
+function candidatesDto(kind: 'site' | 'customer', v: Prisma.JsonValue) {
+  return ((v ?? []) as unknown as MatchSuggestion[]).map((c) => ({
+    id: encodeId(kind, c.id),
+    code: c.code,
+    name: c.name,
+    score: c.score,
+  }));
 }
 
 /**
@@ -400,6 +420,35 @@ export class OrdersService {
       ...(expectedVersion !== undefined ? { expectedVersion } : {}),
     });
   }
+
+  /** POST /orders/{id}/stops/{seq}/map-site — คนเลือกสถานที่ + เรียนรู้ alias (ST3-T06) */
+  mapStopSite(id: string, sequence: number, siteId: string, expectedVersion?: number | '*') {
+    return this.intake.mapStopSite(id, sequence, publicIdOr422(siteId, 'site', 'siteId'), {
+      expectedVersion,
+    });
+  }
+
+  /** POST /orders/{id}/map-customer — คนเลือกลูกค้า + เรียนรู้ alias รหัส/ชื่อตามต้นทาง (ST3-T06) */
+  mapCustomer(
+    id: string,
+    body: { customerId: string; confirmReassign?: boolean; reason?: string },
+    expectedVersion?: number | '*',
+  ) {
+    return this.intake.mapCustomer(id, publicIdOr422(body.customerId, 'customer', 'customerId'), {
+      expectedVersion,
+      confirmReassign: body.confirmReassign === true,
+      reason: body.reason ?? null,
+    });
+  }
+}
+
+function publicIdOr422(v: string, kind: IdKind, field: string): string {
+  const id = tryDecodeId(kind, v);
+  if (!id)
+    throw new ProblemException('validation_failed', undefined, [
+      { field, code: 'invalid_id', message: `must be a ${kind} id` },
+    ]);
+  return id;
 }
 
 function dateOr422(v: string, field: string): Date {

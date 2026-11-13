@@ -8,3 +8,4 @@ export * from './assignability';
 export * from './sales-order';
 export * from './delivery-order';
 export * from './trip';
+export * from './matching';

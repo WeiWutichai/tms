@@ -356,13 +356,21 @@ export function ReasonDialog({
     }
     wasBusy.current = !!busy;
   }, [busy, error]);
-  // ล้างเหตุผลเฉพาะตอนเปิดใหม่ (ไม่ผูกกับ onClose ที่ parent สร้างใหม่ทุก render)
-  useEffect(() => {
+  /**
+   * ล้างเหตุผลเฉพาะตอนเปิดใหม่ — ทำระหว่าง render (ไม่ใช่ใน effect) เพื่อให้ภาพแรกของ dialog ว่างตั้งแต่ต้น
+   * เดิมล้างใน useEffect หลัง render: dialog เปิดครั้งที่ 2 แสดงเหตุผลเก่าค้างก่อน แล้ว setReason('') ตามมา
+   * ลบสิ่งที่ผู้ใช้เพิ่งพิมพ์ในช่วงนั้น (ยกเลิกลิงก์ทีละรายการ — E2E carrier-upload ค้าง) · refetch/render ซ้ำไม่ล้าง
+   */
+  const [shownOpen, setShownOpen] = useState(open);
+  if (shownOpen !== open) {
+    setShownOpen(open);
     if (open) {
-      sentRef.current = false;
       setSent(false);
       setReason('');
     }
+  }
+  useEffect(() => {
+    if (open) sentRef.current = false;
   }, [open]);
   useEscape(open, onClose);
   if (!open) return null;
