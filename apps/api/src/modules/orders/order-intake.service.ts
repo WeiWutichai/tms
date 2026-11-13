@@ -110,7 +110,7 @@ interface UpsertOptions {
 }
 
 /** ข้อความระบบเมื่อปิดชุดรอตัดสินเอง (SUPERSEDED) */
-const SUPERSEDE_NOTE = {
+export const SUPERSEDE_NOTE = {
   replaced: 'ต้นทางส่งข้อมูลชุดใหม่มาแทน',
   reverted: 'ต้นทางกลับเป็นข้อมูลเดียวกับใน TMS',
   applied: 'ต้นทางส่งข้อมูลชุดใหม่ที่บันทึกได้ตามสถานะแล้ว',
@@ -374,12 +374,13 @@ export class OrderIntakeService {
     changeId: string,
     reason: string,
     tx: Tx = this.db.tx,
+    expectedVersion?: number,
   ): Promise<UpsertOrderResult> {
     const note = decisionNote(reason);
-    const { current, change } = await this.lockChange(tx, orderId, changeId);
-    const groups = new Set(
-      (change.changes as unknown as SourceChangeEntry[]).map((c) => c.group as SoFieldGroup),
-    );
+    const { current, change } = await this.lockChange(tx, orderId, changeId, expectedVersion);
+    // diff ตามข้อมูล TMS ปัจจุบัน (คนอาจแก้ PO/เวลา หรือถอดจากเที่ยวหลังต้นทางส่งมา) — ตัวเดียวกับที่ GET แสดง
+    const live = await this.liveChanges(tx, current, change.input as unknown as UpsertOrderInput);
+    const groups = new Set(live.map((c) => c.group as SoFieldGroup));
     const onTrip = await this.deliveryOrders.hasDoOnTrip(tx, current.id);
     const editable = soEditableFields(current.status as SoStatus, onTrip);
     const blocked = [...groups].filter((g) => !editable.includes(g));
@@ -404,7 +405,7 @@ export class OrderIntakeService {
       action: `${ENTITY}.source_change_accepted`,
       entityType: ENTITY,
       entityId: current.id,
-      before: { sourceChangeId: change.id, changes: change.changes },
+      before: { sourceChangeId: change.id, changes: live },
       after: orderEventView(r.order, { lines: true }),
       reason: note,
     });
@@ -417,9 +418,10 @@ export class OrderIntakeService {
     changeId: string,
     reason: string,
     tx: Tx = this.db.tx,
+    expectedVersion?: number,
   ): Promise<OrderRecord> {
     const note = decisionNote(reason);
-    const { current, change } = await this.lockChange(tx, orderId, changeId);
+    const { current, change } = await this.lockChange(tx, orderId, changeId, expectedVersion);
     await this.decide(tx, change.id, 'REJECTED', note);
     await this.clearFlag(tx, current.id);
     const final = await tx.salesOrder.findUniqueOrThrow({
@@ -481,25 +483,31 @@ export class OrderIntakeService {
     children: OrderChildren,
   ): Promise<UpsertOrderResult> {
     const holds = (current.pricingDetail as { holds?: IntakeHold[] } | null)?.holds ?? [];
-    const latest = await tx.orderSourceChange.findFirst({
-      where: { salesOrderId: current.id },
+    // ชุดเดียวกัน (hash ข้อมูลต้นทาง) บนข้อมูล TMS ชุดเดียวกัน (hash ฐาน) ที่ยังรอหรือคนไม่รับไปแล้ว → ไม่ขึ้นใหม่
+    // (ข้อมูล TMS เปลี่ยนหลังไม่รับ เช่น ต้นทางส่งชุดอื่นที่รับไปแล้ว → ชุดเดิมกลับมามีความหมาย ขึ้นใหม่ได้)
+    const same = await tx.orderSourceChange.findFirst({
+      where: {
+        salesOrderId: current.id,
+        inputHash,
+        baseInputHash: current.inputHash,
+        status: { in: ['PENDING', 'REJECTED'] },
+      },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      select: { id: true, status: true, inputHash: true },
+      select: { id: true, status: true },
     });
-    if (
-      latest &&
-      latest.inputHash === inputHash &&
-      (latest.status === 'PENDING' || latest.status === 'REJECTED')
-    )
+    if (same)
       return {
         order: current,
         created: false,
         changed: false,
         holds,
-        sourceChange: { id: latest.id, status: latest.status },
+        sourceChange: { id: same.id, status: same.status as 'PENDING' | 'REJECTED' },
       };
     const entries = await this.describeChanges(tx, current, header, children, changes);
-    const pending = latest?.status === 'PENDING' ? latest : null;
+    const pending = await tx.orderSourceChange.findFirst({
+      where: { salesOrderId: current.id, status: 'PENDING' },
+      select: { id: true },
+    });
     if (pending)
       await tx.orderSourceChange.update({
         where: { id: pending.id },
@@ -518,6 +526,7 @@ export class OrderIntakeService {
         sourceConnector: n.connector,
         orderStatus: current.status,
         baseVersion: current.version,
+        baseInputHash: current.inputHash,
         input: json(storedInput(n)),
         inputHash,
         changes: json(entries),
@@ -561,7 +570,61 @@ export class OrderIntakeService {
     };
   }
 
-  /** ค่าแสดงผลก่อน/หลังของแต่ละช่องที่เปลี่ยน (ชื่อลูกค้า/สถานที่/ประเภทรถ/บริษัท แทน id · ไม่มีราคา) */
+  /**
+   * diff ของชุดที่รอตัดสิน เทียบกับข้อมูล TMS **ตอนนี้** (ค่า "เดิม" คำนวณตอนอ่าน — ไม่ใช่ snapshot ตอนต้นทางส่งมา)
+   * อ่านอย่างเดียว ไม่ล็อก — GET /orders/{id} ใช้แสดง และ accept ใช้ตรวจช่องที่ยังล็อก
+   */
+  async previewSourceChange(orderId: string, changeId: string, tx: Tx = this.db.tx) {
+    const [current, change] = await Promise.all([
+      tx.salesOrder.findUnique({ where: { id: orderId }, include: INCLUDE }),
+      tx.orderSourceChange.findUnique({ where: { id: changeId }, select: { input: true } }),
+    ]);
+    if (!current || !change) return [];
+    try {
+      return await this.liveChanges(tx, current, change.input as unknown as UpsertOrderInput);
+    } catch (e) {
+      // input ที่เก็บไว้ตรวจรูปแบบไม่ผ่านแล้ว (กฎเปลี่ยน) → แสดง diff ตอนรับเข้า (รับจะได้ 422 ตามกฎปัจจุบัน)
+      if (e instanceof ProblemException) return null;
+      throw e;
+    }
+  }
+
+  private async liveChanges(
+    tx: Tx,
+    current: OrderRecord,
+    input: UpsertOrderInput,
+  ): Promise<SourceChangeEntry[]> {
+    const n = normalizeOrderInput(input);
+    let customerId = n.customer.id;
+    if (!customerId && n.customer.externalId)
+      customerId =
+        (
+          await tx.customer.findFirst({
+            where: { externalId: n.customer.externalId, deletedAt: null, status: 'ACTIVE' },
+            select: { id: true },
+          })
+        )?.id ?? null;
+    const header = {
+      customerId,
+      customerExternalId: n.customer.externalId,
+      customerText: n.customer.text,
+      billingCompanyId: n.billingCompanyId ?? current.billingCompanyId,
+      customerRef: n.customerRef,
+      requestedDate: new Date(`${n.requestedDate}T00:00:00Z`),
+      vehicleTypeId: n.vehicleTypeId,
+      sourceIssues: n.sourceIssues,
+    };
+    const children = await this.effectiveChildren(tx, n, current);
+    return this.describeChanges(
+      tx,
+      current,
+      header,
+      children,
+      orderChanges(current, header, children),
+    );
+  }
+
+  /** ค่าแสดงผลก่อน/หลังของแต่ละช่องที่เปลี่ยน (ชื่อลูกค้า/สถานที่/สินค้า/หน่วย/ประเภทรถ/บริษัท แทน id · ไม่มีราคา) */
   private async describeChanges(
     tx: Tx,
     current: OrderRecord,
@@ -572,6 +635,45 @@ export class OrderIntakeService {
     const ids = (xs: (string | null | undefined)[]) => [
       ...new Set(xs.filter((x): x is string => !!x)),
     ];
+    const siteIds = ids([
+      ...current.stops.map((x) => x.siteId),
+      ...children.stops.map((x) => x.siteId),
+    ]);
+    const productIds = ids([
+      ...current.lines.map((x) => x.productId),
+      ...children.lines.map((x) => x.productId),
+    ]);
+    const unitIds = ids([
+      ...current.lines.map((x) => x.unitId),
+      ...children.lines.map((x) => x.unitId),
+    ]);
+    const [sites, products, units] = await Promise.all([
+      siteIds.length
+        ? tx.customerSite.findMany({
+            where: { id: { in: siteIds } },
+            select: { id: true, code: true, name: true },
+          })
+        : [],
+      productIds.length
+        ? tx.product.findMany({
+            where: { id: { in: productIds } },
+            select: { id: true, code: true, nameTh: true },
+          })
+        : [],
+      unitIds.length
+        ? tx.unit.findMany({
+            where: { id: { in: unitIds } },
+            select: { id: true, code: true, nameTh: true },
+          })
+        : [],
+    ]);
+    const named = (
+      list: { id: string; code: string; name?: string; nameTh?: string }[],
+      id: string | null | undefined,
+    ) => {
+      const x = list.find((y) => y.id === id);
+      return x ? `${x.code} ${x.name ?? x.nameTh}` : null;
+    };
     const [customers, vts, companies] = await Promise.all([
       tx.customer.findMany({
         where: { id: { in: ids([current.customerId, header.customerId]) } },
@@ -648,8 +750,15 @@ export class OrderIntakeService {
         const s = children.stops[i]!;
         const k = m[3]!;
         if (k === 'windowStart' || k === 'windowEnd') e(iso(p[k]), iso(s[k]), 'datetime');
-        // สถานที่: แสดงชื่อ (ข้อความสถานที่ของจุด) แทน id
-        else if (k === 'siteId' || k === 'siteText') e(p.siteText, s.siteText);
+        // สถานที่: ข้อความของจุด · ข้อความเท่ากันแต่คนละสถานที่ (หรือเปลี่ยนสถานที่) → ชื่อ + รหัสสถานที่ใน master
+        else if (k === 'siteId') {
+          const a = named(sites, p.siteId);
+          const b = named(sites, s.siteId);
+          e(
+            p.siteText === s.siteText || !p.siteText ? (a ?? p.siteText) : p.siteText,
+            p.siteText === s.siteText || !s.siteText ? (b ?? s.siteText) : s.siteText,
+          );
+        } else if (k === 'siteText') e(p.siteText, s.siteText);
         else e(String(p[k as 'type']), String(s[k as 'type']));
       } else if (m && m[1] === 'lines') {
         const i = Number(m[2]);
@@ -665,16 +774,29 @@ export class OrderIntakeService {
           tempMax: dec(p.tempMax),
         };
         const v = (x: unknown) => (x === null || x === undefined ? null : String(x));
-        e(v(was[k]), v(l[k]));
+        if (k === 'productId') e(named(products, p.productId), named(products, l.productId));
+        else if (k === 'unitId')
+          e(named(units, p.unitId) ?? p.unit, named(units, l.unitId) ?? l.unit);
+        else e(v(was[k]), v(l[k]));
       } else e(null, null);
     }
     return out;
   }
 
   /** ล็อก SO แล้วล็อกชุดการเปลี่ยนแปลงของใบนี้ — ไม่พบ (รวมของใบ/tenant อื่น) → 404 · ไม่ใช่ PENDING → 409 */
-  private async lockChange(tx: Tx, orderId: string, changeId: string) {
+  private async lockChange(tx: Tx, orderId: string, changeId: string, expectedVersion?: number) {
+    // ลำดับล็อกเดียวกับ upsertOrder (advisory ต่อ externalId → แถว SO) — กัน deadlock กับต้นทางที่ส่งใบเดียวกันพร้อมกัน
+    // (externalId ของใบเปลี่ยนไม่ได้ จึงอ่านก่อนล็อกได้) · advisory lock ของ transaction ซ้อนได้ (upsertOrder ล็อกซ้ำไม่ค้าง)
+    const head = await tx.salesOrder.findUnique({
+      where: { id: orderId },
+      select: { externalId: true },
+    });
+    if (!head) throw new ProblemException('not_found');
+    if (head.externalId) await lockKey(tx, `${ENTITY}.ext:${head.externalId}`);
     const current = await this.lockAndLoad(tx, orderId);
     if (!current) throw new ProblemException('not_found');
+    if (expectedVersion !== undefined && current.version !== expectedVersion)
+      throw new ProblemException('precondition_failed');
     const rows = await tx.$queryRaw<{ id: string }[]>`
       SELECT id FROM order_source_change WHERE id = ${changeId}::uuid AND sales_order_id = ${orderId}::uuid
       FOR UPDATE`;

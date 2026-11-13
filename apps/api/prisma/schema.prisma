@@ -1300,6 +1300,8 @@ model OrderSourceChange {
   /// สถานะ/version ของ SO ตอนต้นทางส่งมา
   orderStatus     SoStatus            @map("order_status")
   baseVersion     Int                 @map("base_version")
+  /// input_hash ของ SO ตอนต้นทางส่งมา — ชุดเดียวกันบนข้อมูล TMS ชุดเดียวกันที่ไม่รับไปแล้ว = ไม่ขึ้นใหม่
+  baseInputHash   String?             @map("base_input_hash")
   /// ข้อมูลขาเข้าที่ normalize แล้ว (UpsertOrderInput — uuid) — ใช้ตอน "รับ"
   input           Json
   inputHash       String              @map("input_hash")

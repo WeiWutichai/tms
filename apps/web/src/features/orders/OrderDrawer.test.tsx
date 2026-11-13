@@ -145,6 +145,11 @@ describe('OrderDrawer (ST3-T10)', () => {
     fireEvent.click(screen.getByRole('button', { name: /ใช้ค่า TMS/ }));
     const dlg = screen.getByRole('dialog', { name: 'ใช้ค่า TMS · SO-6911-0001' });
     expect(within(dlg).getAllByRole('row')).toHaveLength(3);
+    // ใช้ค่า TMS: ค่าต้นทาง (ขวา) ถูกขีดฆ่า
+    expect(within(dlg).getByRole('cell', { name: 'คลังลาดกระบัง' })).toHaveClass(
+      'tms-dialog__diffb',
+    );
+    expect(within(dlg).getByRole('cell', { name: 'คลังเดิม' })).toHaveClass('tms-dialog__diffa');
     const ok = within(dlg)
       .getAllByRole('button', { name: /ใช้ค่า TMS/ })
       .at(-1)!;
@@ -155,7 +160,13 @@ describe('OrderDrawer (ST3-T10)', () => {
     });
     fireEvent.click(ok);
     expect(decideMutate).toHaveBeenCalledWith(
-      { id: 'ord_1', changeId: 'osc_1', accept: false, reason: 'ลูกค้ายืนยันใช้ปลายทางเดิม' },
+      {
+        id: 'ord_1',
+        version: 3,
+        changeId: 'osc_1',
+        accept: false,
+        reason: 'ลูกค้ายืนยันใช้ปลายทางเดิม',
+      },
       expect.anything(),
     );
   });
@@ -182,5 +193,12 @@ describe('OrderDrawer (ST3-T10)', () => {
     view({ canWrite: false });
     expect(screen.queryByRole('button', { name: 'รับค่า KRS' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'เพิ่มเติม' })).toBeNull();
+  });
+
+  it('ใบออกรถแล้ว: ไม่มีปุ่มรับค่าต้นทาง (ไม่รับได้อย่างเดียว)', () => {
+    live.data = { ...BASE, status: 'in_transit' } as Order;
+    view();
+    expect(screen.queryByRole('button', { name: 'รับค่า KRS' })).toBeNull();
+    expect(screen.getByRole('button', { name: /ใช้ค่า TMS/ })).toBeInTheDocument();
   });
 });

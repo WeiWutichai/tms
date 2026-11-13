@@ -250,7 +250,16 @@ export class OrdersController {
 
   /** ใบเดียว + ช่องที่แก้ได้ตามสถานะ (ฟอร์ม ST3-T02 ใช้ปิดช่อง) */
   private async full(row: Awaited<ReturnType<OrdersService['get']>>): Promise<OrderDto> {
-    return { ...toOrderDto(row), editableFields: await this.orders.editableFields(row) };
+    const dto: OrderDto = {
+      ...toOrderDto(row),
+      editableFields: await this.orders.editableFields(row),
+    };
+    // ชุดที่รอตัดสิน: ค่า "เดิม" เทียบข้อมูล TMS ตอนนี้ (list ใช้ diff ตอนรับเข้า)
+    if (dto.sourceChange && row.sourceChanges[0]) {
+      const live = await this.orders.previewSourceChange(row.id, row.sourceChanges[0].id);
+      if (live) dto.sourceChange.changes = live as typeof dto.sourceChange.changes;
+    }
+    return dto;
   }
 
   private async respond(r: UpsertOrderResult, res: Response): Promise<OrderDto> {
@@ -396,16 +405,28 @@ export class OrdersController {
   @HttpCode(200)
   @TenantResource('salesOrder')
   @RequireScope('orders:write')
+  @ApiHeader({
+    name: 'If-Match',
+    required: false,
+    description: 'ETag ของใบที่ผู้ใช้เห็น diff — ไม่ตรง → 412',
+  })
   @ApiOkResponse({ type: OrderDto })
-  @ApiProblems(E400(false), E403, E404, E409S, E422R)
+  @ApiProblems(E400(false), E403, E404, E409S, E412, E422R)
   async acceptSourceChange(
     @Param('id') id: string,
     @Param('changeId') changeId: string,
     @Body() body: SourceChangeDecisionDto,
+    @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<OrderDto> {
     const current = await this.resolve(id);
-    const r = await this.orders.decideSourceChange(current.id, changeId, true, body.reason);
+    const r = await this.orders.decideSourceChange(
+      current.id,
+      changeId,
+      true,
+      body.reason,
+      ifMatch(req),
+    );
     return this.respond(r as UpsertOrderResult, res);
   }
 
@@ -414,16 +435,22 @@ export class OrdersController {
   @HttpCode(200)
   @TenantResource('salesOrder')
   @RequireScope('orders:write')
+  @ApiHeader({
+    name: 'If-Match',
+    required: false,
+    description: 'ETag ของใบที่ผู้ใช้เห็น diff — ไม่ตรง → 412',
+  })
   @ApiOkResponse({ type: OrderDto })
-  @ApiProblems(E400(false), E403, E404, E409S, E422R)
+  @ApiProblems(E400(false), E403, E404, E409S, E412, E422R)
   async rejectSourceChange(
     @Param('id') id: string,
     @Param('changeId') changeId: string,
     @Body() body: SourceChangeDecisionDto,
+    @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<OrderDto> {
     const current = await this.resolve(id);
-    await this.orders.decideSourceChange(current.id, changeId, false, body.reason);
+    await this.orders.decideSourceChange(current.id, changeId, false, body.reason, ifMatch(req));
     const row = await this.orders.get(current.id);
     setEtag(res, row.version);
     return this.full(row);

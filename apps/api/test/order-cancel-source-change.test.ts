@@ -572,4 +572,128 @@ describe('order cancel + source change after plan (ST3-T10)', () => {
       await appDb.$disconnect();
     }
   });
+
+  // ---------- review รอบ 1 ----------
+  const detach = (p: { trip: { id: string }; doId: string }) =>
+    api(app, admin)
+      .post(`/v1/trips/${p.trip.id}/detach`)
+      .send({ deliveryOrderIds: [encodeId('deliveryOrder', p.doId)] })
+      .expect(200);
+
+  it('M1: รับการเปลี่ยนแปลง ∥ ต้นทางส่งใบเดียวกันพร้อมกัน → ไม่ deadlock (ลำดับล็อก advisory externalId → แถว SO)', async () => {
+    for (let round = 0; round < 3; round++) {
+      const ext = `KRS-RACE-${round}`;
+      const p = await planned(ext);
+      const c = (await upsert(erp(p.k, ext, await newSite()))).sourceChange!;
+      await detach(p);
+      const other = await newSite();
+      const [http, svc] = await Promise.allSettled([
+        api(app, admin)
+          .post(`/v1/orders/${p.pub}/source-changes/${encodeId('orderSourceChange', c.id)}/accept`)
+          .send({ reason }),
+        upsert({ ...erp(p.k, ext, other), customerRef: `PO-RACE-${round}` }),
+      ]);
+      expect(http.status).toBe('fulfilled');
+      const res = (http as PromiseFulfilledResult<{ status: number; body: { code?: string } }>)
+        .value;
+      // ต้นทางชนะก่อน = ชุดเดิมถูกแทน (409 source_change_not_pending) · รับก่อน = 200 · ห้ามเป็น 500/deadlock
+      expect([200, 409]).toContain(res.status);
+      if (res.status === 409) expect(res.body.code).toBe('source_change_not_pending');
+      if (svc.status === 'rejected') expect(String(svc.reason)).not.toMatch(/deadlock/i);
+      expect(svc.status).toBe('fulfilled');
+    }
+  });
+
+  it('diff คำนวณกับข้อมูลปัจจุบันตอนอ่าน + If-Match ตอนรับ/ไม่รับ · ชื่อสินค้า/สถานที่ (ไม่ใช่ id) · สถานที่ชื่อซ้ำแสดงรหัส', async () => {
+    const p = await planned('KRS-LIVE-1');
+    // สถานที่ใหม่ชื่อเดียวกับปลายทางเดิม → แสดงรหัสสถานที่
+    const before = await so(p.id);
+    const twin = await newSite(before.stops[1]!.siteText);
+    const prod = (
+      await api(app, admin)
+        .post('/v1/products')
+        .send({ name: 'ปูนถุงต้นทาง', unitId: encodeId('unit', unitTon) })
+        .expect(201)
+    ).body as { id: string; code: string };
+    const input = erp(p.k, 'KRS-LIVE-1', twin);
+    input.lines = [{ ...input.lines![0]!, productId: uuid('product', prod.id) }];
+    const c = (await upsert(input)).sourceChange!;
+    // คนแก้เลข PO หลังต้นทางส่งมา (แก้ได้ตอน PLANNED) → diff ตอนอ่านเห็น PO ใหม่เป็นค่า "เดิม"
+    const cur = (await api(app, admin).get(`/v1/orders/${p.pub}`).expect(200)).body;
+    await api(app, admin)
+      .patch(`/v1/orders/${p.pub}`)
+      .set('If-Match', `"${cur.version}"`)
+      .send({ customerRef: 'PO-คนแก้' })
+      .expect(200);
+    const g = (await api(app, admin).get(`/v1/orders/${p.pub}`).expect(200)).body;
+    const by = (f: string) => g.sourceChange.changes.find((x: { field: string }) => x.field === f);
+    expect(by('customerRef')).toMatchObject({ before: 'PO-คนแก้', after: null });
+    const siteCode = (await db.customerSite.findUniqueOrThrow({ where: { id: twin } })).code;
+    expect(by('stops[1].siteId').after).toBe(`${siteCode} ${before.stops[1]!.siteText}`);
+    expect(by('lines[0].productId')).toMatchObject({
+      before: null,
+      after: `${prod.code} ปูนถุงต้นทาง`,
+    });
+    expect(JSON.stringify(g.sourceChange.changes)).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-/);
+    // If-Match เก่า → 412 · ตรง → ผ่าน
+    const url = `/v1/orders/${p.pub}/source-changes/${encodeId('orderSourceChange', c.id)}`;
+    await api(app, admin)
+      .post(`${url}/reject`)
+      .set('If-Match', `"${cur.version}"`)
+      .send({ reason })
+      .expect(412);
+    await api(app, admin)
+      .post(`${url}/reject`)
+      .set('If-Match', `"${g.version}"`)
+      .send({ reason })
+      .expect(200);
+  });
+
+  it('ไม่รับแล้วต้นทางส่งชุดเดิมซ้ำ: ข้อมูล TMS เท่าเดิม → ไม่ขึ้น · ข้อมูล TMS เปลี่ยน (hash ฐานต่าง) → ขึ้นใหม่', async () => {
+    const p = await planned('KRS-BASE-1');
+    const d = await newSite();
+    const c1 = (await upsert(erp(p.k, 'KRS-BASE-1', d))).sourceChange!;
+    await api(app, admin)
+      .post(`/v1/orders/${p.pub}/source-changes/${encodeId('orderSourceChange', c1.id)}/reject`)
+      .send({ reason })
+      .expect(200);
+    expect((await upsert(erp(p.k, 'KRS-BASE-1', d))).changed).toBe(false);
+    const cur = (await api(app, admin).get(`/v1/orders/${p.pub}`).expect(200)).body;
+    await api(app, admin)
+      .patch(`/v1/orders/${p.pub}`)
+      .set('If-Match', `"${cur.version}"`)
+      .send({ customerRef: 'PO-เปลี่ยนฐาน' })
+      .expect(200);
+    const again = await upsert(erp(p.k, 'KRS-BASE-1', d));
+    expect(again.sourceChange?.status).toBe('PENDING');
+    expect(again.sourceChange?.id).not.toBe(c1.id);
+  });
+
+  it('[OPEN #56] ถอดจากเที่ยวแล้วชุดยังรอตัดสิน → ลงเที่ยวไม่ได้ (409 order_source_change_pending) จนกว่าจะรับ/ไม่รับ', async () => {
+    const p = await planned('KRS-REPLAN-1');
+    const c = (await upsert(erp(p.k, 'KRS-REPLAN-1', await newSite()))).sourceChange!;
+    await detach(p);
+    const r = await api(app, admin)
+      .post('/v1/trips')
+      .send({ tripDate: today, deliveryOrderIds: [encodeId('deliveryOrder', p.doId)] })
+      .expect(409);
+    expect(r.body.code).toBe('order_source_change_pending');
+    await api(app, admin)
+      .post(`/v1/orders/${p.pub}/source-changes/${encodeId('orderSourceChange', c.id)}/reject`)
+      .send({ reason })
+      .expect(200);
+    await createTrip([encodeId('deliveryOrder', p.doId)]);
+  });
+
+  it('เลข SO ที่ออกแล้วล้าง/เปลี่ยนไม่ได้ (trigger) แม้ใบยกเลิกแล้ว', async () => {
+    const k = await key();
+    const { order } = await upsert({ ...erp(k, 'X'), source: 'MANUAL', externalId: null });
+    await api(app, admin)
+      .post(`/v1/orders/${encodeId('salesOrder', order.id)}/cancel`)
+      .send({ reason })
+      .expect(200);
+    await expect(
+      db.$executeRaw`UPDATE sales_order SET so_no = NULL WHERE id = ${order.id}::uuid`,
+    ).rejects.toThrow(/sales_order_number_immutable/);
+  });
 });

@@ -14,6 +14,7 @@ CREATE TABLE "order_source_change" (
     "source_connector" TEXT NOT NULL DEFAULT '',
     "order_status" "so_status" NOT NULL,
     "base_version" INTEGER NOT NULL,
+    "base_input_hash" TEXT,
     "input" JSONB NOT NULL,
     "input_hash" TEXT NOT NULL,
     "changes" JSONB NOT NULL,
@@ -70,3 +71,14 @@ DO $$ BEGIN
   END IF;
 END $$;
 ALTER TABLE "sales_order" ADD CONSTRAINT "sales_order_source_diff" CHECK (NOT "source_changed_after_plan" OR "source_diff" IS NOT NULL);
+
+-- เลข SO ออกแล้วไม่หาย (ยกเลิก/แก้ทีหลังก็คงเลขเดิม — ล้างหรือเปลี่ยนไม่ได้)
+CREATE OR REPLACE FUNCTION tms_sales_order_keep_number() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF OLD."so_no" IS NOT NULL AND NEW."so_no" IS DISTINCT FROM OLD."so_no" THEN
+    RAISE EXCEPTION 'sales_order_number_immutable: so_no % cannot change', OLD."so_no";
+  END IF;
+  RETURN NEW;
+END $$;
+CREATE TRIGGER "sales_order_keep_number" BEFORE UPDATE OF "so_no" ON "sales_order"
+  FOR EACH ROW EXECUTE FUNCTION tms_sales_order_keep_number();

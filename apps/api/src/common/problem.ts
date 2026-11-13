@@ -217,6 +217,12 @@ export const PROBLEMS = {
     th: 'การเปลี่ยนแปลงจากต้นทางชุดนี้ถูกตัดสินไปแล้ว หรือมีชุดใหม่มาแทน — โหลดใหม่',
     en: 'This source change was already decided or superseded — reload',
   },
+  /** ST3-T10: ใบที่ต้นทางแก้หลังวางแผนยังรอตัดสิน (รับ/ไม่รับ) — ลงเที่ยวไม่ได้ [OPEN #56] */
+  order_source_change_pending: {
+    status: 409,
+    th: 'ต้นทางแก้ใบสั่งขนส่งนี้หลังวางแผน — เลือกรับค่าต้นทางหรือใช้ค่า TMS ก่อนจัดลงเที่ยว',
+    en: 'The source changed this order after planning — accept or reject the change before planning it',
+  },
   invalid_grant: { status: 400, th: 'รหัสยืนยันหมดอายุหรือไม่ถูกต้อง', en: 'Invalid grant' },
   /** ST3-T21 ช่องส่ง LINE/SMS ปิดหรือยังไม่ตั้งค่า — ผู้ใช้คัดลอกลิงก์ไปส่งเองได้ */
   channel_unavailable: {

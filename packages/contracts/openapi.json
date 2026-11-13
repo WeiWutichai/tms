@@ -5204,6 +5204,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag ของใบที่ผู้ใช้เห็น diff — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -5329,6 +5338,28 @@
                       "instance": "/v1/orders/ord_3f2a…",
                       "requestId": "b6a1c2d3-…",
                       "changeStatus": "SUPERSEDED"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "If-Match ไม่ตรง version / ส่ง If-Match แต่ยังไม่มีใบ",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "precondition_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/precondition_failed",
+                      "title": "ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่",
+                      "status": 412,
+                      "code": "precondition_failed",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…"
                     }
                   }
                 }
@@ -5394,6 +5425,15 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag ของใบที่ผู้ใช้เห็น diff — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "requestBody": {
@@ -5519,6 +5559,28 @@
                       "instance": "/v1/orders/ord_3f2a…",
                       "requestId": "b6a1c2d3-…",
                       "changeStatus": "SUPERSEDED"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "If-Match ไม่ตรง version / ส่ง If-Match แต่ยังไม่มีใบ",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "precondition_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/precondition_failed",
+                      "title": "ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่",
+                      "status": 412,
+                      "code": "precondition_failed",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…"
                     }
                   }
                 }

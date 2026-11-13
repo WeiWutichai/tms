@@ -51,6 +51,8 @@ async function token(page: Page): Promise<string> {
 test.describe.serial('ใบสั่งขนส่ง: ยกเลิก + ต้นทางแก้หลังวางแผน (ST3-T10)', () => {
   let H: Record<string, string>;
   let body: object | undefined;
+  /** ข้อมูลที่ connector ส่งมา (uuid — รูปเดียวกับ UpsertOrderInput ที่ upsertOrder เก็บ): ปลายทางเปลี่ยนเป็นสถานที่ C */
+  let erpInput: object;
 
   /** ลูกค้า/สถานที่ของรอบนี้ (ครั้งแรก) — ใช้ request ของหน้า (baseURL ของ config) */
   const setup = async (page: Page) => {
@@ -69,7 +71,29 @@ test.describe.serial('ใบสั่งขนส่ง: ยกเลิก + �
     const cust = await post('/v1/customers', { legalName: CUST, billingCompanyId: company });
     const a = await post('/v1/customer-sites', { name: A, kind: 'PICKUP', address: { line1: A } });
     const b = await post('/v1/customer-sites', { name: B, kind: 'DROPOFF', address: { line1: B } });
+    const c = await post('/v1/customer-sites', {
+      name: `คลังปลายทางใหม่ ลาดกระบัง ${RUN}`,
+      kind: 'DROPOFF',
+      address: { line1: 'ลาดกระบัง' },
+    });
     const ton = (await get('/v1/units?limit=50')).data.find((u) => u.code === 'TON')!.id;
+    const day = new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10);
+    erpInput = {
+      source: { source: 'CONNECTOR', connector: 'krs' },
+      externalId: `KRS-E2E-${RUN}`,
+      draft: false,
+      customer: { id: hex(cust.id), externalId: null, text: null },
+      billingCompanyId: null,
+      customerRef: null,
+      requestedDate: day,
+      vehicleTypeId: null,
+      stops: [
+        { type: 'PICKUP', siteId: hex(a.id), siteText: '', windowStart: null, windowEnd: null },
+        { type: 'DELIVERY', siteId: hex(c.id), siteText: '', windowStart: null, windowEnd: null },
+      ],
+      lines: [{ description: 'น้ำดื่มขวด', qty: '10', unitId: hex(ton), weightKg: '10000' }],
+      sourceIssues: [],
+    };
     body = {
       customer: { id: cust.id },
       requestedDate: new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10),
@@ -164,7 +188,7 @@ test.describe.serial('ใบสั่งขนส่ง: ยกเลิก + �
         sourceConnector: 'krs',
         orderStatus: 'PLANNED',
         baseVersion: cur.version,
-        input: {},
+        input: erpInput,
         inputHash: `e2e-${RUN}`,
         changes,
       },

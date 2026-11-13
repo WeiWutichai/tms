@@ -614,6 +614,15 @@ export class DeliveryOrderService {
         doNo: d.doNo,
         from: d.status,
       });
+    // ST3-T10 [OPEN #56]: ต้นทางแก้หลังวางแผนรอตัดสินอยู่ → ห้ามลงเที่ยวจนกว่าจะรับ/ไม่รับ (ย้อนได้ง่ายสุด — ไม่วางแผนบนข้อมูลที่อาจเปลี่ยน)
+    const flagged = await tx.salesOrder.count({
+      where: { id: d.salesOrderId, sourceChangedAfterPlan: true },
+    });
+    if (flagged)
+      throw new ProblemException('order_source_change_pending', undefined, undefined, {
+        deliveryOrderId: d.id,
+        doNo: d.doNo,
+      });
     if (!(await this.isOrderPlannable(tx, d.salesOrderId)))
       throw new ProblemException('order_not_ready_for_delivery', undefined, undefined, {
         deliveryOrderId: d.id,

@@ -15,7 +15,7 @@ import {
   DeliveryOrderService,
   ON_ACTIVE_TRIP_WHERE,
 } from '../delivery-orders/delivery-order.service';
-import { OrderIntakeService, decisionNote } from './order-intake.service';
+import { OrderIntakeService, SUPERSEDE_NOTE, decisionNote } from './order-intake.service';
 import { orderEventView } from './order-view';
 
 export interface CancelOrderInput {
@@ -87,7 +87,7 @@ export class OrderStateService {
       });
     // ลำดับล็อก SO → DO (ตรงกับ upsertOrder/TripService)
     const cancelledDos = await this.deliveryOrders.cancelForOrder(tx, id, { note, reasonCodeId });
-    const hadSourceChange = await this.intake.closePending(tx, id, 'ใบสั่งขนส่งถูกยกเลิก', false);
+    const hadSourceChange = await this.intake.closePending(tx, id, SUPERSEDE_NOTE.cancelled, false);
     await this.state.transition<SoStatus, SoEvent>(tx, {
       docType: ENTITY,
       docId: id,

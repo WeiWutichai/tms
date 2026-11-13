@@ -223,12 +223,24 @@ export class OrdersService {
   }
 
   /** รับ/ไม่รับ ชุดการเปลี่ยนแปลงจากต้นทาง — changeId ผิดรูป = 404 */
-  decideSourceChange(id: string, changeId: string, accept: boolean, reason: string) {
+  decideSourceChange(
+    id: string,
+    changeId: string,
+    accept: boolean,
+    reason: string,
+    expectedVersion?: number | '*',
+  ) {
     const change = tryDecodeId('orderSourceChange', changeId);
     if (!change) throw new ProblemException('not_found');
+    const ev = typeof expectedVersion === 'number' ? expectedVersion : undefined;
     return accept
-      ? this.intake.acceptSourceChange(id, change, reason)
-      : this.intake.rejectSourceChange(id, change, reason);
+      ? this.intake.acceptSourceChange(id, change, reason, undefined, ev)
+      : this.intake.rejectSourceChange(id, change, reason, undefined, ev);
+  }
+
+  /** diff ของชุดที่รอ เทียบข้อมูล TMS ตอนนี้ (ค่า "เดิม" คำนวณตอนอ่าน) — ใช้ใน GET ทีละใบ */
+  previewSourceChange(orderId: string, changeId: string) {
+    return this.intake.previewSourceChange(orderId, changeId);
   }
 
   // ---------- read ----------

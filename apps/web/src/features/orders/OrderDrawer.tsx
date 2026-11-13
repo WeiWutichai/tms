@@ -112,6 +112,8 @@ function Kv({ k, v, late }: { k: ReactNode; v: ReactNode; late?: string }) {
 
 /** สถานะที่ยกเลิกได้ (docs/01 §4.1 — ใบที่มี DO ในเที่ยว API ตอบ 409 `order_on_trip` ให้ถอดออกก่อน) */
 const CANCELLABLE = new Set(['draft', 'received', 'on_hold', 'planned']);
+/** รับค่าต้นทางได้ (ยังไม่ออกรถ — ใบในเที่ยว API ตอบ 409 `order_on_trip` ให้ถอดก่อน) */
+const ACCEPTABLE = new Set(['received', 'on_hold', 'planned']);
 
 /** ชื่อช่องของ diff ต้นทาง (path จาก API เช่น `stops[1].siteId`) → ข้อความไทย */
 function fieldLabel(t: T, field: string): string {
@@ -261,7 +263,7 @@ export function OrderDrawer({
       );
     else if (sc)
       decide.mutate(
-        { id: o.id, changeId: sc.id, accept: dlg === 'accept', reason },
+        { id: o.id, version: o.version, changeId: sc.id, accept: dlg === 'accept', reason },
         {
           onSuccess: () => {
             setDlg(null);
@@ -312,9 +314,17 @@ export function OrderDrawer({
           )}
           {canWrite && sc && (
             <DrawerFooterButtons
-              secondary={[
-                { label: t('ord.src.accept', { src: srcName }), onClick: () => setDlg('accept') },
-              ]}
+              secondary={
+                // รับได้เฉพาะใบที่ยังไม่ออกรถ (ออกรถ/ส่ง/ปิดแล้ว API ตอบ 409) — ไม่รับได้เสมอ
+                ACCEPTABLE.has(o.status)
+                  ? [
+                      {
+                        label: t('ord.src.accept', { src: srcName }),
+                        onClick: () => setDlg('accept'),
+                      },
+                    ]
+                  : []
+              }
               primary={{ label: t('ord.src.keep'), icon: 'check', onClick: () => setDlg('keep') }}
             />
           )}
@@ -720,6 +730,8 @@ export function OrderDrawer({
             : {
                 rows: diffRows,
                 labels: [t('ord.dlg.field'), t('ord.src.colTms'), srcName],
+                // ค่าที่จะถูกทิ้งขีดฆ่า: รับ = ค่า TMS (ซ้าย) · ใช้ค่า TMS = ค่าต้นทาง (ขวา)
+                strike: dlg === 'keep' ? 'after' : 'before',
               }
         }
         label={t('ord.dlg.reason')}

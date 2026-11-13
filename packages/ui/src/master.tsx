@@ -328,7 +328,12 @@ export function ReasonDialog({
    * ตารางเทียบ "ฟิลด์ | เดิม | ใหม่" เหนือช่องเหตุผล (ต้นแบบ TMS v4 vDialog `diff` — แถวพื้นแดงอ่อน ค่าเดิมขีดฆ่า)
    * `labels` = หัวคอลัมน์ [ฟิลด์, เดิม, ใหม่]
    */
-  diff?: { rows: { f: ReactNode; b: ReactNode; a: ReactNode }[]; labels: [string, string, string] };
+  diff?: {
+    rows: { f: ReactNode; b: ReactNode; a: ReactNode }[];
+    labels: [string, string, string];
+    /** คอลัมน์ที่ขีดฆ่า (ค่าที่จะถูกทิ้ง) — ค่าตั้งต้น 'before' ตามต้นแบบ */
+    strike?: 'before' | 'after';
+  };
   title: ReactNode;
   description?: ReactNode;
   label: ReactNode;
@@ -412,10 +417,16 @@ export function ReasonDialog({
               {diff.rows.map((r, i) => (
                 <div key={i} className="tms-dialog__diffrow" role="row">
                   <span role="cell">{r.f}</span>
-                  <span role="cell" className="tms-dialog__diffb">
+                  <span
+                    role="cell"
+                    className={diff.strike === 'after' ? 'tms-dialog__diffa' : 'tms-dialog__diffb'}
+                  >
                     {r.b}
                   </span>
-                  <span role="cell" className="tms-dialog__diffa">
+                  <span
+                    role="cell"
+                    className={diff.strike === 'after' ? 'tms-dialog__diffb' : 'tms-dialog__diffa'}
+                  >
                     {r.a}
                   </span>
                 </div>

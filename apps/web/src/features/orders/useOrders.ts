@@ -98,15 +98,28 @@ export function useCancelOrder() {
 export function useDecideSourceChange() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (v: { id: string; changeId: string; accept: boolean; reason: string }) =>
+    /** If-Match = version ของใบที่ผู้ใช้เห็น diff (diff คำนวณกับข้อมูลตอนอ่าน) */
+    mutationFn: (v: {
+      id: string;
+      version: number;
+      changeId: string;
+      accept: boolean;
+      reason: string;
+    }) =>
       unwrap(
         v.accept
           ? api.POST('/v1/orders/{id}/source-changes/{changeId}/accept', {
-              params: { path: { id: v.id, changeId: v.changeId } },
+              params: {
+                path: { id: v.id, changeId: v.changeId },
+                header: { 'If-Match': `"${v.version}"` },
+              },
               body: { reason: v.reason },
             })
           : api.POST('/v1/orders/{id}/source-changes/{changeId}/reject', {
-              params: { path: { id: v.id, changeId: v.changeId } },
+              params: {
+                path: { id: v.id, changeId: v.changeId },
+                header: { 'If-Match': `"${v.version}"` },
+              },
               body: { reason: v.reason },
             }),
       ) as Promise<Order>,

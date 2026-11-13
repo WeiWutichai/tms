@@ -120,6 +120,11 @@ const B = await post('/v1/customer-sites', {
   kind: 'DROPOFF',
   address: { line1: 'ชลบุรี' },
 });
+const C = await post('/v1/customer-sites', {
+  name: `ร้านวัสดุ ระยอง ${RUN}`,
+  kind: 'DROPOFF',
+  address: { line1: 'ระยอง' },
+});
 const ton = (await get('/v1/units?limit=50')).data.find((u) => u.code === 'TON').id;
 const day = new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10);
 const body = {
@@ -174,7 +179,35 @@ await db.orderSourceChange.create({
     sourceConnector: 'krs',
     orderStatus: 'PLANNED',
     baseVersion: cur.version,
-    input: {},
+    // ข้อมูลที่ connector ส่งมา (uuid) — ปลายทางเปลี่ยนเป็น C + เวลาส่งถึง 18:00 · diff ในหน้าคำนวณตอนอ่าน
+    input: {
+      source: { source: 'CONNECTOR', connector: 'krs' },
+      externalId: `KRS-SO-${RUN}`,
+      draft: false,
+      customer: { id: hex(cust.id), externalId: null, text: null },
+      billingCompanyId: null,
+      customerRef: `PO-${RUN}`,
+      requestedDate: day,
+      vehicleTypeId: null,
+      stops: [
+        {
+          type: 'PICKUP',
+          siteId: hex(A.id),
+          siteText: '',
+          windowStart: `${day}T08:00:00+07:00`,
+          windowEnd: null,
+        },
+        {
+          type: 'DELIVERY',
+          siteId: hex(C.id),
+          siteText: '',
+          windowStart: null,
+          windowEnd: `${day}T18:00:00+07:00`,
+        },
+      ],
+      lines: [{ description: 'ปูนซีเมนต์ถุง', qty: '12', unitId: hex(ton), weightKg: '12000' }],
+      sourceIssues: [],
+    },
     inputHash: `cmp-${RUN}`,
     changes,
   },
