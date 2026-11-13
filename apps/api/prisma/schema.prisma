@@ -192,6 +192,7 @@ model AppUser {
   updatedAt           DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   invitations UserInvitation[]
+  orderLocks  OrderEditLock[]
 
   @@unique([tenantId, email])
   @@map("app_user")
@@ -1266,6 +1267,7 @@ model SalesOrder {
   lines          SalesOrderLine[]
   charges        SalesOrderCharge[]
   deliveryOrders DeliveryOrder[]
+  editLock       OrderEditLock?
 
   @@unique([tenantId, soNo])
   @@unique([tenantId, externalId])
@@ -1384,6 +1386,26 @@ model SalesOrderCharge {
 /// เทมเพลตงานประจำ (ST3-T02; docs/04 C "กรอกมือ … template งานประจำ") — เก็บข้อมูลฟอร์มใบสั่งขนส่ง
 /// (payload รูปเดียวกับ body ของ POST /v1/orders ตรวจด้วยกฎชุดเดียว) ไว้สร้างใบใหม่ · ตั้งเวลาสร้างอัตโนมัติ = P1
 /// ชื่อ unique ต่อบริษัทเฉพาะที่ยังไม่ลบ (partial index ใน migration 0063) · ลบ = soft delete + เหตุผล
+/// ล็อกการแก้ใบสั่งขนส่งจากหน้าจอ (ST3-T08; docs/04 C "Edit lock", spec/03 ORD-031) — 1 แถวต่อใบ
+/// หมดอายุตามเวลา (`expires_at` = กิจกรรมล่าสุด + 10 นาที) ไม่มี job ล้าง — แถวที่หมดอายุแล้วนับว่าไม่มีล็อก
+/// ปลด = ลบแถว (ข้อมูลชั่วคราว ไม่ใช่เอกสาร) · ปลดของคนอื่น (`orders:unlock`) ลง audit พร้อมเหตุผล
+/// คอลัมน์ `sales_order.locked_by/locked_at` ของ schema v0 ไม่ใช้ (heartbeat ไม่แตะแถว SO/version)
+model OrderEditLock {
+  id           String     @id @default(uuid()) @db.Uuid
+  tenantId     String     @map("tenant_id") @db.Uuid
+  salesOrderId String     @map("sales_order_id") @db.Uuid
+  salesOrder   SalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
+  userId       String     @map("user_id") @db.Uuid
+  user         AppUser    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  acquiredAt   DateTime   @map("acquired_at") @db.Timestamptz(6)
+  lastSeenAt   DateTime   @map("last_seen_at") @db.Timestamptz(6)
+  expiresAt    DateTime   @map("expires_at") @db.Timestamptz(6)
+
+  @@unique([salesOrderId])
+  @@index([tenantId, userId])
+  @@map("order_edit_lock")
+}
+
 model OrderTemplate {
   id            String    @id @default(uuid()) @db.Uuid
   tenantId      String    @map("tenant_id") @db.Uuid

@@ -1,6 +1,6 @@
 import { FormDrawer, FormField, FormSection, Icon, TextInput } from '@tms/ui';
 import { useQueryClient } from '@tanstack/react-query';
-import { useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { ApiError } from '../../api';
 import { useI18n, type T } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
@@ -31,6 +31,8 @@ import {
   useUpdateOrder,
   useVehicleTypeOptions,
 } from './useOrders';
+import { useOrderEditLock } from './editLock';
+import { EditLockBanner } from './EditLockBanner';
 
 export type FormMode = 'create' | 'copy' | 'template' | 'edit';
 
@@ -164,6 +166,7 @@ export function OrderFormDrawer({
   order,
   subtitle,
   canSeePrice,
+  canUnlock = false,
   onClose,
   onSaved,
   onReload,
@@ -174,6 +177,8 @@ export function OrderFormDrawer({
   order?: Order | null;
   subtitle?: string;
   canSeePrice: boolean;
+  /** ปลดล็อกการแก้ของผู้อื่นได้ (`orders:unlock` — ST3-T08) */
+  canUnlock?: boolean;
   onClose: () => void;
   onSaved: (o: Order, how: 'created' | 'draft' | 'saved') => void;
   /** 412: โหลดใบล่าสุดแล้วเปิดฟอร์มใหม่ */
@@ -192,7 +197,19 @@ export function OrderFormDrawer({
   // สถานะ/ช่องที่แก้ได้ล่าสุดจาก GET (409 locked → โหลดใหม่ → ปิดช่องและป้ายตามสถานะใหม่ โดยไม่ล้างสิ่งที่พิมพ์)
   // version ของ If-Match ยังใช้ของใบที่เปิดฟอร์ม (คนอื่นแก้ระหว่างนี้ → 412)
   const live = useOrder(mode === 'edit' ? (order?.id ?? null) : null).data ?? order ?? null;
-  const ed = editableOf(mode === 'edit' ? live : null);
+  // ล็อกการแก้ (ST3-T08): ขอเมื่อเปิดฟอร์มแก้ ต่ออายุระหว่างใช้งาน ปลดเมื่อปิด — ผู้อื่นแก้อยู่ = อ่านอย่างเดียว
+  const editLock = useOrderEditLock(mode === 'edit' ? (order?.id ?? null) : null);
+  const lockedBy = editLock.state.kind === 'other' ? editLock.state.lock : null;
+  const lockPending = editLock.state.kind === 'pending';
+  // กลายเป็นอ่านอย่างเดียวระหว่างแก้ (เช่น บันทึกแล้วได้ 409) → เลื่อนให้เห็นป้ายผู้แก้ที่หัวฟอร์ม
+  const lockNote = useRef<HTMLDivElement>(null);
+  const lockHolder = lockedBy?.userId;
+  useEffect(() => {
+    if (lockHolder) lockNote.current?.scrollIntoView?.({ block: 'nearest' });
+  }, [lockHolder]);
+  const ed = editableOf(
+    mode !== 'edit' ? null : lockedBy && live ? { ...live, editableFields: [] } : live,
+  );
   const isDraft = mode !== 'edit' || order?.status === 'draft';
   const err = mode === 'edit' ? update.error : create.error;
   const busy = create.isPending || update.isPending;
@@ -224,6 +241,7 @@ export function OrderFormDrawer({
   const save = (draft: boolean) => {
     // แก้ใบที่พ้นร่างแล้ว (เช่นใบค้างจาก connector ที่ยังไม่มีลูกค้า) ตรวจแค่รูปแบบ — กติกาครบถ้วนของการส่งใช้ตอนสร้าง/ยืนยันร่าง
     const loose = draft || (mode === 'edit' && order?.status !== 'draft');
+    if (lockedBy || lockPending) return;
     setTried(loose ? 'draft' : 'submit');
     if (Object.keys(validate(f, loose)).length || submitting.current) return;
     submitting.current = true;
@@ -247,6 +265,9 @@ export function OrderFormDrawer({
             // ช่องที่แก้ได้เปลี่ยน (เช่นใบถูกวางแผนระหว่างแก้) → โหลดใบใหม่ให้ปิดช่องตามสถานะล่าสุด
             if (x instanceof ApiError && x.problem.code === 'order_locked_for_update')
               void qc.invalidateQueries({ queryKey: ['orders', 'one', order.id] });
+            // ล็อกหลุด (หมดอายุ/ถูกปลด) แล้วผู้อื่นแก้อยู่ → ขอใหม่ = แสดงป้ายผู้แก้ + อ่านอย่างเดียว
+            if (x instanceof ApiError && x.problem.code === 'order_locked_by_user')
+              editLock.retry();
           },
         },
       );
@@ -671,7 +692,7 @@ export function OrderFormDrawer({
               type="button"
               className="tms-drawer__sec"
               style={{ height: 40, padding: '0 16px' }}
-              disabled={busy}
+              disabled={busy || lockPending || !!lockedBy}
               onClick={() => save(true)}
             >
               {t('ord.form.saveDraft')}
@@ -681,7 +702,7 @@ export function OrderFormDrawer({
             type="submit"
             className="tms-drawer__pri"
             style={{ height: 40, padding: '0 18px' }}
-            disabled={busy || (mode === 'edit' && !ed.any)}
+            disabled={busy || lockPending || (mode === 'edit' && !ed.any)}
           >
             {primary}
           </button>
@@ -708,7 +729,18 @@ export function OrderFormDrawer({
           </div>
         )
       )}
-      {mode === 'edit' && order && (!ed.customer || locked) && (
+      {lockedBy && order && (
+        <div ref={lockNote}>
+          <EditLockBanner
+            orderId={order.id}
+            soNo={order.soNo ?? t('ord.draftNo')}
+            lock={lockedBy}
+            canUnlock={canUnlock}
+            onUnlocked={() => editLock.retry()}
+          />
+        </div>
+      )}
+      {mode === 'edit' && order && !lockedBy && (!ed.customer || locked) && (
         <div
           role="note"
           style={{

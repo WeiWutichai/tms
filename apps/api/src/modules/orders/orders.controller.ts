@@ -1,8 +1,21 @@
-import { Body, Controller, Get, Param, Patch, Post, Put, Query, Req, Res } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Param,
+  Patch,
+  Post,
+  Put,
+  Query,
+  Req,
+  Res,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
   ApiHeader,
+  ApiNoContentResponse,
   ApiOkResponse,
   ApiOperation,
   ApiTags,
@@ -16,12 +29,15 @@ import { ApiProblems } from '../../common/problem.dto';
 import {
   CreateOrderDto,
   OrderDto,
+  OrderEditLockDto,
   OrderListQuery,
   OrderPageDto,
   OrderSummaryDto,
+  OrderUnlockDto,
   UpdateOrderDto,
   UpsertOrderDto,
 } from './order.dto';
+import { OrderLockService } from './order-lock.service';
 import { OrdersService, toOrderDto } from './orders.service';
 import type { UpsertOrderResult } from './order-intake.service';
 
@@ -154,6 +170,32 @@ const E409 = (withConflict: boolean, idem = false) => ({
   },
 });
 
+const LOCK_EX = {
+  userId: 'usr_7c1d…',
+  userName: 'สมชาย ใจดี',
+  acquiredAt: '2026-11-13T02:00:00.000Z',
+  lastSeenAt: '2026-11-13T02:04:00.000Z',
+  expiresAt: '2026-11-13T02:14:00.000Z',
+  mine: false,
+};
+const LOCKED_BY_USER = P('order_locked_by_user', 409, 'ใบสั่งขนส่งนี้กำลังถูกแก้ไขโดยผู้ใช้อื่น', {
+  editLock: LOCK_EX,
+});
+const E409_LOCK = {
+  status: 409,
+  description:
+    '409 `order_locked_by_user` — ผู้ใช้อื่นเปิดแก้อยู่ (`editLock` = ผู้ถือ + เวลาหมดอายุ) · ' +
+    '`concurrent_update` — ล็อกเปลี่ยนมือระหว่างขอ ลองใหม่ได้',
+  examples: {
+    order_locked_by_user: LOCKED_BY_USER,
+    concurrent_update: P(
+      'concurrent_update',
+      409,
+      'มีการแก้ไขข้อมูลเดียวกันพร้อมกัน กรุณาลองใหม่อีกครั้ง',
+    ),
+  },
+};
+
 /**
  * ใบสั่งขนส่ง / Sales Order — Open API (ST3-T03; docs/04 C "Upsert ด้วย external id", "รับจาก Open API", docs/01 §5.2 #1)
  * ทุกการเขียนเรียก `OrderIntakeService.upsertOrder` (ทางเดียวของทุกทางเข้า) · UI ใช้ endpoint ชุดเดียวกันนี้
@@ -163,16 +205,23 @@ const E409 = (withConflict: boolean, idem = false) => ({
 @ApiBearerAuth()
 @Controller('orders')
 export class OrdersController {
-  constructor(private readonly orders: OrdersService) {}
+  constructor(
+    private readonly orders: OrdersService,
+    private readonly locks: OrderLockService,
+  ) {}
 
   private async resolve(id: string) {
     if (id.startsWith('ext:')) return this.orders.getByExternalId(id.slice(4));
     return this.orders.get(decodeIdOr404('salesOrder', id));
   }
 
-  /** ใบเดียว + ช่องที่แก้ได้ตามสถานะ (ฟอร์ม ST3-T02 ใช้ปิดช่อง) */
+  /** ใบเดียว + ช่องที่แก้ได้ตามสถานะ (ฟอร์ม ST3-T02 ใช้ปิดช่อง) + ผู้ที่เปิดแก้อยู่ (ST3-T08) */
   private async full(row: Awaited<ReturnType<OrdersService['get']>>): Promise<OrderDto> {
-    return { ...toOrderDto(row), editableFields: await this.orders.editableFields(row) };
+    return {
+      ...toOrderDto(row),
+      editableFields: await this.orders.editableFields(row),
+      editLock: await this.locks.view(row.id),
+    };
   }
 
   private async respond(r: UpsertOrderResult, res: Response): Promise<OrderDto> {
@@ -265,6 +314,8 @@ export class OrdersController {
   async get(@Param('id') id: string, @Res({ passthrough: true }) res: Response): Promise<OrderDto> {
     const o = await this.resolve(id);
     setEtag(res, o.version);
+    // editLock/editableFields เปลี่ยนได้โดย version ไม่เปลี่ยน — ห้าม browser เก็บแล้วตอบ 304 จาก ETag เดิม (ST3-T08)
+    res.setHeader('Cache-Control', 'no-store');
     return this.full(o);
   }
 
@@ -272,8 +323,26 @@ export class OrdersController {
   @TenantResource('salesOrder')
   @RequireScope('orders:write')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
+  @ApiOperation({
+    summary: 'แก้บางช่อง',
+    description:
+      'ผู้ใช้อื่นเปิดแก้อยู่ (ล็อกการแก้ยังไม่หมดอายุ — ST3-T08) → 409 `order_locked_by_user` · ผู้ถือล็อกแก้ได้และนับเป็นกิจกรรม (ต่ออายุ) · ' +
+      'ไม่มีล็อก = แก้ได้ตามปกติ · ทางเข้า POST/PUT external (API/connector/นำเข้า) ไม่ติดล็อก',
+  })
   @ApiOkResponse({ type: OrderDto })
-  @ApiProblems(E400(false), E403, E404, E409(false), E412, E413, E422)
+  @ApiProblems(
+    E400(false),
+    E403,
+    E404,
+    {
+      ...E409(false),
+      description: `${LOCKED_DOC} · 409 \`order_locked_by_user\` — ผู้ใช้อื่นเปิดแก้อยู่`,
+      examples: { ...E409(false).examples, order_locked_by_user: LOCKED_BY_USER },
+    },
+    E412,
+    E413,
+    E422,
+  )
   async update(
     @Param('id') id: string,
     @Body() body: UpdateOrderDto,
@@ -281,7 +350,91 @@ export class OrdersController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<OrderDto> {
     const current = await this.resolve(id);
+    await this.locks.assertWritable(current.id);
     const r = await this.orders.update(current.id, body, ifMatch(req));
     return this.respond(r, res);
+  }
+
+  /**
+   * ขอล็อกการแก้ / ต่ออายุ (heartbeat) — ST3-T08 (docs/04 C Edit lock)
+   * หน้าจอเรียกตอนเปิดฟอร์มแก้ และซ้ำระหว่างผู้ใช้ยังใช้งาน (ทุก ~60 วินาทีที่มีกิจกรรม) — ล็อกหมดอายุเมื่อไม่มีกิจกรรม 10 นาที
+   */
+  @Post(':id/lock')
+  @HttpCode(200)
+  @TenantResource('salesOrder')
+  @RequireScope('orders:write')
+  @ApiOperation({
+    summary: 'ขอ/ต่ออายุล็อกการแก้',
+    description:
+      'ได้ล็อก (หรือต่ออายุของตัวเอง) → 200 + ผู้ถือ/เวลาหมดอายุ (กิจกรรมล่าสุด + 10 นาที) · ผู้อื่นถืออยู่ → 409 `order_locked_by_user` · ' +
+      'ล็อกของผู้อื่นที่หมดอายุแล้วถูกแทนที่ทันที · ใช้ได้เฉพาะผู้ใช้ในบริษัท (token อื่น → 403 `edit_lock_user_required`)',
+  })
+  @ApiOkResponse({ type: OrderEditLockDto })
+  @ApiProblems(
+    {
+      ...E403,
+      examples: {
+        ...E403.examples,
+        edit_lock_user_required: P(
+          'edit_lock_user_required',
+          403,
+          'การล็อกเพื่อแก้ไขใช้ได้เฉพาะผู้ใช้ในระบบ',
+        ),
+      },
+    },
+    E404,
+    E409_LOCK,
+  )
+  async lock(@Param('id') id: string): Promise<OrderEditLockDto> {
+    const o = await this.resolve(id);
+    return this.locks.acquire(o.id);
+  }
+
+  /**
+   * ปลดล็อกการแก้ — ST3-T08 · ของตัวเอง/ไม่มีล็อก/หมดอายุ = 204 (ส่งซ้ำได้ ใช้ตอนปิดฟอร์ม/ปิดแท็บ)
+   * ของผู้อื่น = ต้องมี `orders:unlock` + `reason` ≥ 10 ตัวอักษร (ลง audit `order.edit_lock_released`)
+   */
+  @Post(':id/unlock')
+  @HttpCode(204)
+  @TenantResource('salesOrder')
+  @RequireScope('orders:write')
+  @ApiOperation({
+    summary: 'ปลดล็อกการแก้',
+    description:
+      'ของตัวเอง/ไม่มีล็อก/หมดอายุ → 204 · ล็อกของผู้อื่น: ต้องมีสิทธิ์ `orders:unlock` (ไม่มี → 403) และ `reason` ≥ 10 ตัวอักษร (422) — ลง audit พร้อมเหตุผล',
+  })
+  @ApiNoContentResponse()
+  @ApiProblems(
+    {
+      ...E403,
+      description: 'ไม่มีสิทธิ์ (`orders:write`; ปลดล็อกของผู้อื่นต้องมี `orders:unlock`)',
+      examples: {
+        permission_denied: P('permission_denied', 403, 'ไม่มีสิทธิ์ทำรายการนี้', {
+          module: 'orders',
+          action: 'unlock',
+          required: ['orders:unlock'],
+        }),
+      },
+    },
+    E404,
+    {
+      status: 422,
+      description: 'ปลดล็อกของผู้อื่นโดยไม่มีเหตุผล / เหตุผลสั้นกว่า 10 ตัวอักษร',
+      examples: {
+        validation_failed: P('validation_failed', 422, 'ข้อมูลไม่ถูกต้อง', {
+          errors: [
+            {
+              field: 'reason',
+              code: 'minLength',
+              message: 'reason must be at least 10 characters',
+            },
+          ],
+        }),
+      },
+    },
+  )
+  async unlock(@Param('id') id: string, @Body() body: OrderUnlockDto): Promise<void> {
+    const o = await this.resolve(id);
+    await this.locks.release(o.id, body.reason);
   }
 }

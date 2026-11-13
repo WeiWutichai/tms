@@ -39,6 +39,8 @@ const A3: Array<[string, string, RoleCode[]]> = [
   ['แก้ราคาซื้อ (rate card ขาซื้อ)', 'prices.buy:write', ['owner', 'admin', 'manager', 'planner']],
   ['Order: จัด', 'orders:write', ['owner', 'admin', 'manager', 'planner']],
   ['Order: ยกเลิก', 'orders:cancel', ['owner', 'admin', 'manager', 'planner']],
+  // ST3-T08: docs/04 C `orders.unlock` (A3 ไม่มีแถว) — spec/03 ORD-031 "manager ปลดล็อกได้"
+  ['Order: ปลดล็อกการแก้ของคนอื่น', 'orders:unlock', ['owner', 'admin', 'manager']],
   [
     'Order: ดู',
     'orders:read',

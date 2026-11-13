@@ -1,0 +1,178 @@
+import { Injectable } from '@nestjs/common';
+import { scopeAllows } from '@tms/domain';
+import { AuditService } from '../../audit/audit.service';
+import { Clock } from '../../common/clock';
+import { encodeId } from '../../common/ids';
+import { ProblemException } from '../../common/problem';
+import { requestContext } from '../../common/request-context';
+import { DbService } from '../../db/db.service';
+import type { OrderEditLockDto } from './order.dto';
+
+/** ล็อกหมดอายุเมื่อไม่มีกิจกรรม 10 นาที (docs/04 C Edit lock — ยึด docs แทน heartbeat 2 นาทีของ spec/03 ORD-031) */
+export const EDIT_LOCK_TTL_MS = 10 * 60_000;
+export const UNLOCK_SCOPE = 'orders:unlock';
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+interface LockRow {
+  id: string;
+  userId: string;
+  acquiredAt: Date;
+  lastSeenAt: Date;
+  expiresAt: Date;
+  user: { name: string };
+}
+
+/**
+ * ล็อกการแก้ใบสั่งขนส่ง (ST3-T08; docs/04 C "Edit lock", spec/03 ORD-031, research O4)
+ *
+ * - ขอ/ต่ออายุ (`acquire`): คำสั่งเดียว `INSERT … ON CONFLICT DO UPDATE … WHERE ผู้ถือเดิม OR หมดอายุแล้ว` — ปลอดภัยเมื่อขอพร้อมกัน
+ *   (unique ต่อใบ: แถวเดียว คนแรกได้ อีกคน 409 `order_locked_by_user`)
+ * - หมดอายุตามเวลา (`expires_at` ≤ ตอนนี้ = ไม่มีล็อก) — ไม่มี job ล้าง · เวลาจาก `Clock` (test เลื่อนเวลาได้)
+ * - ใช้ล็อกเฉพาะทางแก้ของหน้าจอ: PATCH /v1/orders/{id} ของผู้ที่ไม่ใช่ผู้ถือ → 409 · ทางเข้า POST/PUT external
+ *   (API/connector/นำเข้า) และการเปลี่ยนสถานะจากเที่ยว/DO ไม่ติดล็อก (docs/04 C "ทุกใบเข้าระบบ"; คนที่แก้อยู่จะได้ 412 ตอนบันทึก)
+ * - ปลดของตัวเอง/ล็อกหมดอายุ = ลบแถว · ปลดของคนอื่นต้องมี `orders:unlock` + เหตุผล ≥ 10 ตัวอักษร + audit
+ */
+@Injectable()
+export class OrderLockService {
+  constructor(
+    private readonly db: DbService,
+    private readonly clock: Clock,
+    private readonly audit: AuditService,
+  ) {}
+
+  /** ผู้ใช้ของบริษัทที่เรียก (ล็อกแสดงชื่อ) — token อื่น (API client/link) → 403 `edit_lock_user_required` */
+  private async actorUser(): Promise<string> {
+    const actor = requestContext.require().actorId ?? '';
+    if (!UUID.test(actor)) throw new ProblemException('edit_lock_user_required');
+    const u = await this.db.tx.appUser.findFirst({
+      where: { id: actor, deletedAt: null },
+      select: { id: true },
+    });
+    if (!u) throw new ProblemException('edit_lock_user_required');
+    return u.id;
+  }
+
+  private async row(salesOrderId: string): Promise<LockRow | null> {
+    return this.db.tx.orderEditLock.findUnique({
+      where: { salesOrderId },
+      select: {
+        id: true,
+        userId: true,
+        acquiredAt: true,
+        lastSeenAt: true,
+        expiresAt: true,
+        user: { select: { name: true } },
+      },
+    });
+  }
+
+  private toDto(r: LockRow): OrderEditLockDto {
+    return {
+      userId: encodeId('user', r.userId),
+      userName: r.user.name,
+      acquiredAt: r.acquiredAt.toISOString(),
+      lastSeenAt: r.lastSeenAt.toISOString(),
+      expiresAt: r.expiresAt.toISOString(),
+      mine: r.userId === requestContext.get()?.actorId,
+    };
+  }
+
+  /** ล็อกที่ยังไม่หมดอายุ (null = ไม่มีใครแก้) */
+  async active(salesOrderId: string): Promise<LockRow | null> {
+    const r = await this.row(salesOrderId);
+    return r && r.expiresAt > this.clock.now() ? r : null;
+  }
+
+  async view(salesOrderId: string): Promise<OrderEditLockDto | null> {
+    const r = await this.active(salesOrderId);
+    return r ? this.toDto(r) : null;
+  }
+
+  private lockedBy(r: LockRow): ProblemException {
+    return new ProblemException('order_locked_by_user', undefined, undefined, {
+      editLock: this.toDto(r),
+    });
+  }
+
+  /** ขอล็อก / ต่ออายุ (heartbeat) — ผู้อื่นถืออยู่และยังไม่หมดอายุ → 409 `order_locked_by_user` */
+  async acquire(salesOrderId: string): Promise<OrderEditLockDto> {
+    const userId = await this.actorUser();
+    const tenantId = requestContext.require().tenantId!;
+    const now = this.clock.now();
+    const exp = new Date(now.getTime() + EDIT_LOCK_TTL_MS);
+    const got = await this.db.tx.$queryRaw<{ id: string }[]>`
+      INSERT INTO order_edit_lock (id, tenant_id, sales_order_id, user_id, acquired_at, last_seen_at, expires_at)
+      VALUES (gen_random_uuid(), ${tenantId}::uuid, ${salesOrderId}::uuid, ${userId}::uuid, ${now}, ${now}, ${exp})
+      ON CONFLICT (sales_order_id) DO UPDATE SET
+        acquired_at = CASE
+          WHEN order_edit_lock.user_id = EXCLUDED.user_id AND order_edit_lock.expires_at > EXCLUDED.last_seen_at
+          THEN LEAST(order_edit_lock.acquired_at, EXCLUDED.acquired_at)
+          ELSE EXCLUDED.acquired_at END,
+        user_id = EXCLUDED.user_id,
+        last_seen_at = EXCLUDED.last_seen_at,
+        expires_at = EXCLUDED.expires_at
+      WHERE order_edit_lock.user_id = EXCLUDED.user_id
+         OR order_edit_lock.expires_at <= EXCLUDED.last_seen_at
+      RETURNING id`;
+    const r = await this.row(salesOrderId);
+    if (!got.length) {
+      // ผู้อื่นถืออยู่ (แถวไม่ถูกแก้) — อ่านใหม่เพื่อบอกชื่อ; หายไประหว่างนั้น (เพิ่งปลด) = ให้ลองใหม่
+      if (r && r.userId !== userId) throw this.lockedBy(r);
+      throw new ProblemException('concurrent_update');
+    }
+    return this.toDto(r!);
+  }
+
+  /**
+   * PATCH จากผู้ที่ไม่ใช่ผู้ถือล็อก → 409 `order_locked_by_user` · ผู้ถือ = ต่ออายุ (กิจกรรม)
+   * ไม่มีล็อก/หมดอายุ = เขียนได้ (ล็อกเป็นข้อตกลงของหน้าจอ — ผู้เรียก API ไม่ต้องขอก่อน)
+   */
+  async assertWritable(salesOrderId: string): Promise<void> {
+    const r = await this.active(salesOrderId);
+    if (!r) return;
+    if (r.userId !== requestContext.require().actorId) throw this.lockedBy(r);
+    const now = this.clock.now();
+    await this.db.tx.orderEditLock.updateMany({
+      where: { id: r.id, userId: r.userId, expiresAt: { gt: now } },
+      data: { lastSeenAt: now, expiresAt: new Date(now.getTime() + EDIT_LOCK_TTL_MS) },
+    });
+  }
+
+  /**
+   * ปลดล็อก — ไม่มีล็อก/หมดอายุ/ของตัวเอง = ลบ (ส่งซ้ำได้) · ของคนอื่น = ต้องมี `orders:unlock` (ไม่มี → 403)
+   * + เหตุผล ≥ 10 ตัวอักษร (422) แล้วลง audit `order.edit_lock_released` (before = ผู้ถือเดิม)
+   */
+  async release(salesOrderId: string, reason?: string): Promise<void> {
+    const ctx = requestContext.require();
+    const r = await this.row(salesOrderId);
+    if (!r) return;
+    const expired = r.expiresAt <= this.clock.now();
+    if (!expired && r.userId !== ctx.actorId) {
+      if (!scopeAllows(ctx.scopes ?? [], UNLOCK_SCOPE))
+        throw new ProblemException('permission_denied', undefined, undefined, {
+          module: 'orders',
+          action: 'unlock',
+          required: [UNLOCK_SCOPE],
+        });
+      const why = reason?.trim() ?? '';
+      if (why.length < 10)
+        throw new ProblemException('validation_failed', undefined, [
+          { field: 'reason', code: 'minLength', message: 'reason must be at least 10 characters' },
+        ]);
+      // ลบเฉพาะล็อกที่เห็น (ผู้ถือเดิมยังไม่ต่ออายุ/ปลดเองระหว่างนี้ก็ยังเป็นแถวเดิม — id + user ตรง)
+      const del = await this.db.tx.orderEditLock.deleteMany({
+        where: { id: r.id, userId: r.userId },
+      });
+      if (!del.count) return;
+      await this.audit.record({
+        action: 'order.edit_lock_released',
+        entityType: 'sales_order',
+        entityId: salesOrderId,
+        before: this.toDto(r),
+        reason: why,
+      });
+      return;
+    }
+    await this.db.tx.orderEditLock.deleteMany({ where: { id: r.id, userId: r.userId } });
+  }
+}

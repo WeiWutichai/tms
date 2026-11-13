@@ -162,6 +162,21 @@ export const PROBLEMS = {
     th: 'แก้ข้อมูลนี้ของใบสั่งขนส่งไม่ได้ในสถานะปัจจุบัน (วางแผน ออกรถ ปิดงาน หรือยกเลิกแล้ว)',
     en: 'These order fields can no longer be changed in its current status',
   },
+  /**
+   * ST3-T08 (docs/04 C Edit lock): ผู้ใช้อื่นเปิดแก้ใบนี้อยู่ (ล็อกยังไม่หมดอายุ) — แก้ผ่าน PATCH/ขอล็อกไม่ได้
+   * extension `editLock` = {userId, userName, acquiredAt, expiresAt}
+   */
+  order_locked_by_user: {
+    status: 409,
+    th: 'ใบสั่งขนส่งนี้กำลังถูกแก้ไขโดยผู้ใช้อื่น',
+    en: 'This order is being edited by another user',
+  },
+  /** ST3-T08: ขอล็อกการแก้ได้เฉพาะผู้ใช้ในบริษัท (ล็อกแสดงชื่อผู้แก้) — token ที่ไม่ใช่ผู้ใช้ (เช่น API client) ไม่ต้องใช้ล็อก */
+  edit_lock_user_required: {
+    status: 403,
+    th: 'การล็อกเพื่อแก้ไขใช้ได้เฉพาะผู้ใช้ในระบบ',
+    en: 'Edit locks are only available to signed-in users',
+  },
   /** externalId เดียวกันมาจากช่องทาง/connector อื่น (externalId unique ต่อ tenant — plan/00a) — ไม่ทับใบของต้นทางอื่น */
   external_id_conflict: {
     status: 409,
