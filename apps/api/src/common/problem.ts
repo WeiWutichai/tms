@@ -168,6 +168,12 @@ export const PROBLEMS = {
     th: 'เลขอ้างอิงต้นทางนี้ถูกใช้กับใบสั่งขนส่งจากช่องทางอื่นแล้ว',
     en: 'This external id is already used by an order from another source',
   },
+  /** ST3-T06: รหัส/ชื่อลูกค้าตามต้นทางนี้เคยจับคู่กับลูกค้าอื่นไว้ — ย้ายต้องยืนยัน (`confirmReassign` + เหตุผล) */
+  alias_conflict: {
+    status: 409,
+    th: 'รหัสหรือชื่อลูกค้าตามต้นทางนี้เคยจับคู่กับลูกค้ารายอื่นไว้แล้ว — ยืนยันการย้ายพร้อมเหตุผล',
+    en: 'This source customer code/name is already mapped to another customer — confirm the reassignment with a reason',
+  },
   /** ST3-T09: สร้าง DO ได้เมื่อ SO พ้นร่าง ยังไม่วางแผน/ยกเลิก และจับคู่ลูกค้า + สถานที่ครบ (DO ต้องมีลูกค้า/ต้นทาง/ปลายทาง) */
   order_not_ready_for_delivery: {
     status: 409,

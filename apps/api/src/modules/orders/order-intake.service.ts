@@ -249,7 +249,7 @@ export class OrderIntakeService {
           ? Prisma.DbNull
           : (JSON.parse(JSON.stringify(n.rawPayload)) as Prisma.InputJsonValue),
     };
-    const children = await this.effectiveChildren(tx, n, current);
+    const children = await this.effectiveChildren(tx, n, current, header.customerId);
 
     if (current) {
       // เทียบค่าที่จะเก็บจริงกับของเดิม (ไม่ใช่รูป input) — รูปต่างแต่ค่าเท่าเดิม = ไม่มีอะไรเปลี่ยน
@@ -375,8 +375,7 @@ export class OrderIntakeService {
       });
       await tx.salesOrder.update({ where: { id: orderId }, data: { version: { increment: 1 } } });
     }
-    const scope = await this.matching.siteScope(tx, current.customerId);
-    const aliasLearning = await this.matching.learnSiteAlias(tx, siteId, stop.siteText, scope);
+    const aliasLearning = await this.matching.learnSiteAlias(tx, siteId, stop.siteText);
     const loaded = (await tx.salesOrder.findUnique({ where: { id: orderId }, include: INCLUDE }))!;
     const r = await this.evaluate(tx, loaded, {
       draft: current.status === 'DRAFT',
@@ -391,11 +390,16 @@ export class OrderIntakeService {
    * คนเลือกลูกค้าให้ใบที่ยังจับคู่ไม่ได้ (ST3-T06; docs/01 §4.1 CUSTOMER_UNMAPPED "map ลูกค้า") — `POST /orders/{id}/map-customer`
    * จำรหัสต้นทาง (ต่อช่องทาง) หรือชื่อตามต้นทางเป็น alias ของลูกค้า → order ถัดไปจับคู่เอง · นิติบุคคลออกบิลตามค่าตั้งต้นของลูกค้า
    * จุดที่เลือกสถานที่ของลูกค้าอื่นไว้ → 422 · หลังได้ลูกค้า จุดที่ยังว่างจับคู่ในขอบเขตลูกค้านั้นต่อทันที (evaluate)
+   * รหัส/ชื่อนี้เคยจับคู่กับลูกค้าอื่น → 409 `alias_conflict` (ใบไม่เปลี่ยน) เว้นส่ง `confirmReassign` + `reason` (≥ 10, audit)
    */
   async mapCustomer(
     orderId: string,
     customerId: string,
-    opts: { expectedVersion?: number | '*' } = {},
+    opts: {
+      expectedVersion?: number | '*';
+      confirmReassign?: boolean;
+      reason?: string | null;
+    } = {},
     tx: Tx = this.db.tx,
   ): Promise<UpsertOrderResult & { aliasLearning: AliasLearnResult }> {
     const current = await this.lockForMapping(tx, orderId, opts.expectedVersion, 'customer');
@@ -419,6 +423,18 @@ export class OrderIntakeService {
           'site belongs to another customer',
         );
     }
+    // เรียนรู้ก่อนแก้ใบ — alias ชนกับลูกค้าอื่นโดยไม่ยืนยัน = 409 ทั้งคำขอ (ใบไม่เปลี่ยน)
+    const aliasLearning = await this.matching.learnCustomerAlias(tx, {
+      customerId,
+      externalId: current.customerExternalId,
+      text: current.customerText,
+      source: formatOrderSource({
+        source: current.source as OrderSource,
+        connector: current.sourceConnector,
+      }),
+      confirmReassign: opts.confirmReassign,
+      reason: opts.reason,
+    });
     const changed = current.customerId !== customerId || current.customerMatchMethod !== 'MANUAL';
     if (changed)
       await tx.salesOrder.update({
@@ -431,15 +447,6 @@ export class OrderIntakeService {
           version: { increment: 1 },
         },
       });
-    const aliasLearning = await this.matching.learnCustomerAlias(tx, {
-      customerId,
-      externalId: current.customerExternalId,
-      text: current.customerText,
-      source: formatOrderSource({
-        source: current.source as OrderSource,
-        connector: current.sourceConnector,
-      }),
-    });
     const loaded = (await tx.salesOrder.findUnique({ where: { id: orderId }, include: INCLUDE }))!;
     const r = await this.evaluate(tx, loaded, {
       draft: current.status === 'DRAFT',
@@ -861,15 +868,25 @@ export class OrderIntakeService {
     // ลูกค้า: id ตรง → ต้องมีอยู่ (422) · ปิดใช้ = order ยังเข้าระบบแต่ค้าง CUSTOMER_UNMAPPED และไม่ใช้ rate ของลูกค้านั้น
     // (docs/04 C ทุกใบเข้าระบบ > spec/02 MD-003/MD-026 — [OPEN] spec/12 §3) · รหัสต้นทาง → จับคู่ตรงตัวกับลูกค้าที่ใช้งานอยู่
     // (ไม่พบ = CUSTOMER_UNMAPPED; alias/fuzzy = ST3-T06)
-    // ST3-T06: ไม่มี id → จับคู่ (externalId ตรง → alias รหัสของช่องทางนี้ → alias ชื่อ) — ไม่พบ = CUSTOMER_UNMAPPED
+    // ST3-T06: ไม่มี id → จับคู่ (alias รหัสของช่องทางนี้ → externalId ตรง → alias ชื่อ) — ไม่พบ = CUSTOMER_UNMAPPED
     let customerId = n.customer.id;
     let matchMethod: string | null = null;
+    const sticky =
+      !customerId &&
+      !!current?.customerId &&
+      n.customer.externalId === current.customerExternalId &&
+      n.customer.text === current.customerText;
     if (customerId) {
       const [row] = await lockReferenced(tx, 'customer', [customerId]);
       if (!row) throw field422('customer.id', 'reference_not_found', 'customer not found');
       // ลูกค้าเดิมของใบ (เช่น PATCH ส่ง id ที่ได้จากการจับคู่) = คงวิธีเดิม
       matchMethod =
         current?.customerId === customerId ? (current.customerMatchMethod ?? 'INPUT') : 'INPUT';
+    } else if (sticky && (await lockReferenced(tx, 'customer', [current!.customerId!])).length) {
+      // ต้นทางส่งซ้ำ รหัส/ชื่อลูกค้าเดิม → คงลูกค้าที่จับคู่/คนเลือกไว้ (ไม่หาใหม่ — คนเลือกแล้วไม่ถูกทับ)
+      // ลูกค้านั้นถูกปิดใช้ภายหลัง = คงไว้แต่ค้าง CUSTOMER_UNMAPPED (activeRefs) ให้คนเลือกใหม่
+      customerId = current!.customerId;
+      matchMethod = current!.customerMatchMethod;
     } else if (n.customer.externalId || n.customer.text) {
       const m = await this.matching.matchCustomer(tx, {
         externalId: n.customer.externalId,
@@ -879,7 +896,7 @@ export class OrderIntakeService {
       customerId = m.customerId;
       matchMethod = m.method;
     }
-    const customer = customerId
+    let customer = customerId
       ? await tx.customer.findUnique({
           where: { id: customerId },
           select: { id: true, defaultBillingCompanyId: true },
@@ -922,11 +939,19 @@ export class OrderIntakeService {
         where: { id: { in: siteIds } },
         select: { id: true, customerId: true },
       });
+      const cid = customer.id;
       const bad = stopRefs.find((x) => {
         const o = owners.find((y) => y.id === x.id);
-        return o?.customerId && o.customerId !== customer.id;
+        return o?.customerId && o.customerId !== cid;
       });
-      if (bad) throw field422(bad.field, 'site_other_customer', 'site belongs to another customer');
+      if (bad) {
+        // ลูกค้าที่ระบุ id มาเอง + สถานที่ของลูกค้าอื่น = ข้อมูลขัดกัน → 422 · ลูกค้าที่ได้จากการจับคู่ = ไม่ใช้ลูกค้านั้น
+        // (ใบเข้าระบบเสมอ ค้าง CUSTOMER_UNMAPPED ให้คนตัดสิน — กติกาเดียวกับ autoMatch)
+        if (n.customer.id)
+          throw field422(bad.field, 'site_other_customer', 'site belongs to another customer');
+        customer = null;
+        matchMethod = null;
+      }
     }
     await check(
       'vehicle_type',
@@ -1048,7 +1073,19 @@ export class OrderIntakeService {
     tx: Tx,
     n: NormalizedOrder,
     current: OrderRecord | null,
+    customerId: string | null,
   ): Promise<OrderChildren> {
+    // ลูกค้าเปลี่ยน → สถานที่ที่จับคู่ไว้เดิมต้องยังอยู่ในขอบเขตลูกค้าใหม่ (ของลูกค้านั้น/ของบริษัท) จึงคงได้
+    const prevOwners = new Map(
+      current && current.customerId !== customerId
+        ? (
+            await tx.customerSite.findMany({
+              where: { id: { in: current.stops.flatMap((s) => (s.siteId ? [s.siteId] : [])) } },
+              select: { id: true, customerId: true },
+            })
+          ).map((x) => [x.id, x.customerId])
+        : [],
+    );
     const siteIds = n.stops.flatMap((s) => (s.siteId && !s.siteText ? [s.siteId] : []));
     const names = new Map(
       (siteIds.length
@@ -1074,13 +1111,16 @@ export class OrderIntakeService {
         const prev = current?.stops[i];
         const keep = !s.siteText && s.siteId && prev?.siteId === s.siteId ? prev.siteText : null;
         const siteText = s.siteText || keep || names.get(s.siteId!) || '';
-        // ST3-T06: ข้อความเดิมของจุดเดิมที่จับคู่ไว้แล้ว (อัตโนมัติ/คนเลือก) → คงสถานที่ + ผลจับคู่เดิม
-        // (ต้นทางส่งซ้ำแบบไม่มี siteId ไม่ลบผลที่คน map ไว้ และไม่นับเป็นการแก้จุดหลังวางแผน)
+        // ST3-T06: ต้นทางไม่ระบุ siteId + ข้อความ/ประเภทเดิมของจุดเดิมที่จับคู่ไว้แล้ว (อัตโนมัติ/คนเลือก) → คงสถานที่ + ผลจับคู่เดิม
+        // (ส่งซ้ำไม่ลบผลที่คน map ไว้ และไม่นับเป็นการแก้จุดหลังวางแผน) · ลูกค้าเปลี่ยน → คงได้เฉพาะสถานที่ที่อยู่ในขอบเขตลูกค้าใหม่
+        // ไม่งั้นกลับเป็นยังไม่จับคู่ (evaluate จับคู่ใหม่ในขอบเขตใหม่) · ระบุ siteId มาเอง = ของต้นทาง (วิธีจับคู่ null)
+        const owner = prev?.siteId ? prevOwners.get(prev.siteId) : undefined;
         const samePrev =
+          s.siteId === null &&
           !!prev?.siteId &&
           prev.siteText === siteText &&
           prev.type === s.type &&
-          (s.siteId === null || s.siteId === prev.siteId);
+          (current!.customerId === customerId || !owner || owner === customerId);
         return {
           type: s.type,
           siteId: samePrev ? prev.siteId : s.siteId,

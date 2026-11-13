@@ -168,6 +168,19 @@ const E409 = (withConflict: boolean, idem = false) => ({
   },
 });
 
+const E409_ALIAS = {
+  ...E409(false),
+  examples: {
+    ...E409(false).examples,
+    alias_conflict: P(
+      'alias_conflict',
+      409,
+      'รหัสหรือชื่อลูกค้าตามต้นทางนี้เคยจับคู่กับลูกค้ารายอื่นไว้แล้ว — ยืนยันการย้ายพร้อมเหตุผล',
+      { aliasKind: 'EXTERNAL_ID', aliasValue: 'NSF-777', mappedCustomerId: 'cus_3f2a…' },
+    ),
+  },
+};
+
 /**
  * ใบสั่งขนส่ง / Sales Order — Open API (ST3-T03; docs/04 C "Upsert ด้วย external id", "รับจาก Open API", docs/01 §5.2 #1)
  * ทุกการเขียนเรียก `OrderIntakeService.upsertOrder` (ทางเดียวของทุกทางเข้า) · UI ใช้ endpoint ชุดเดียวกันนี้
@@ -327,11 +340,13 @@ export class OrdersController {
     description:
       'ใบได้ลูกค้าที่เลือก (`customer.match.method = MANUAL`) · ใบมีรหัสลูกค้าต้นทาง = จำรหัสนั้นของช่องทางนี้ ' +
       '(เช่น `ERP:krs`) · ไม่มีรหัส = จำชื่อตามต้นทาง → ใบถัดไปจับคู่เอง · เคยจำไว้กับลูกค้าอื่น = ย้ายมาลูกค้านี้ (audit) · ' +
-      'จุดที่ยังว่างจับคู่ในขอบเขตลูกค้านี้ต่อ แล้วประเมินราคา + ใบค้างใหม่ · จุดที่เลือกสถานที่ของลูกค้าอื่นไว้ → 422 `site_other_customer`',
+      'จุดที่ยังว่างจับคู่ในขอบเขตลูกค้านี้ต่อ แล้วประเมินราคา + ใบค้างใหม่ · จุดที่เลือกสถานที่ของลูกค้าอื่นไว้ → 422 `site_other_customer` · ' +
+      'รหัส/ชื่อนี้เคยจับคู่กับลูกค้าอื่น → 409 `alias_conflict` (ใบไม่เปลี่ยน) จนกว่าส่ง `confirmReassign: true` + `reason` · ' +
+      'ชื่อทั่วไป (เงินสด, ลูกค้าทั่วไป, walk-in …) ไม่จำ (`aliasLearning = generic`) · alias รหัสที่คนจับคู่ชนะ externalId ของลูกค้า',
   })
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
   @ApiOkResponse({ type: OrderMapResultDto })
-  @ApiProblems(E400(false), E403, E404, E409(false), E412, E422)
+  @ApiProblems(E400(false), E403, E404, E409_ALIAS, E412, E422)
   async mapCustomer(
     @Param('id') id: string,
     @Body() body: MapCustomerDto,
@@ -339,7 +354,7 @@ export class OrdersController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<OrderMapResultDto> {
     const current = await this.resolve(id);
-    const r = await this.orders.mapCustomer(current.id, body.customerId, ifMatch(req));
+    const r = await this.orders.mapCustomer(current.id, body, ifMatch(req));
     return { ...(await this.respond(r, res)), aliasLearning: r.aliasLearning };
   }
 }

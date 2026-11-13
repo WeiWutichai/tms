@@ -375,9 +375,15 @@ export class OrdersService {
   }
 
   /** POST /orders/{id}/map-customer — คนเลือกลูกค้า + เรียนรู้ alias รหัส/ชื่อตามต้นทาง (ST3-T06) */
-  mapCustomer(id: string, customerId: string, expectedVersion?: number | '*') {
-    return this.intake.mapCustomer(id, publicIdOr422(customerId, 'customer', 'customerId'), {
+  mapCustomer(
+    id: string,
+    body: { customerId: string; confirmReassign?: boolean; reason?: string },
+    expectedVersion?: number | '*',
+  ) {
+    return this.intake.mapCustomer(id, publicIdOr422(body.customerId, 'customer', 'customerId'), {
       expectedVersion,
+      confirmReassign: body.confirmReassign === true,
+      reason: body.reason ?? null,
     });
   }
 }

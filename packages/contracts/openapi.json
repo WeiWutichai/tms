@@ -5177,7 +5177,7 @@
     },
     "/v1/orders/{id}/map-customer": {
       "post": {
-        "description": "ใบได้ลูกค้าที่เลือก (`customer.match.method = MANUAL`) · ใบมีรหัสลูกค้าต้นทาง = จำรหัสนั้นของช่องทางนี้ (เช่น `ERP:krs`) · ไม่มีรหัส = จำชื่อตามต้นทาง → ใบถัดไปจับคู่เอง · เคยจำไว้กับลูกค้าอื่น = ย้ายมาลูกค้านี้ (audit) · จุดที่ยังว่างจับคู่ในขอบเขตลูกค้านี้ต่อ แล้วประเมินราคา + ใบค้างใหม่ · จุดที่เลือกสถานที่ของลูกค้าอื่นไว้ → 422 `site_other_customer`",
+        "description": "ใบได้ลูกค้าที่เลือก (`customer.match.method = MANUAL`) · ใบมีรหัสลูกค้าต้นทาง = จำรหัสนั้นของช่องทางนี้ (เช่น `ERP:krs`) · ไม่มีรหัส = จำชื่อตามต้นทาง → ใบถัดไปจับคู่เอง · เคยจำไว้กับลูกค้าอื่น = ย้ายมาลูกค้านี้ (audit) · จุดที่ยังว่างจับคู่ในขอบเขตลูกค้านี้ต่อ แล้วประเมินราคา + ใบค้างใหม่ · จุดที่เลือกสถานที่ของลูกค้าอื่นไว้ → 422 `site_other_customer` · รหัส/ชื่อนี้เคยจับคู่กับลูกค้าอื่น → 409 `alias_conflict` (ใบไม่เปลี่ยน) จนกว่าส่ง `confirmReassign: true` + `reason` · ชื่อทั่วไป (เงินสด, ลูกค้าทั่วไป, walk-in …) ไม่จำ (`aliasLearning = generic`) · alias รหัสที่คนจับคู่ชนะ externalId ของลูกค้า",
         "operationId": "Orders_mapCustomer",
         "parameters": [
           {
@@ -5334,6 +5334,19 @@
                       "requestId": "b6a1c2d3-…",
                       "from": "RECEIVED",
                       "event": "save_draft"
+                    }
+                  },
+                  "alias_conflict": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/alias_conflict",
+                      "title": "รหัสหรือชื่อลูกค้าตามต้นทางนี้เคยจับคู่กับลูกค้ารายอื่นไว้แล้ว — ยืนยันการย้ายพร้อมเหตุผล",
+                      "status": 409,
+                      "code": "alias_conflict",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "aliasKind": "EXTERNAL_ID",
+                      "aliasValue": "NSF-777",
+                      "mappedCustomerId": "cus_3f2a…"
                     }
                   }
                 }
@@ -22569,9 +22582,12 @@
               "name",
               "full",
               "too_long",
-              "empty"
+              "empty",
+              "generic",
+              "conflict",
+              "not_permitted"
             ],
-            "description": "ผลการเรียนรู้ alias: learned = จำแล้ว (ใบถัดไปข้อความเดิมจับคู่เอง) · exists = จำไว้แล้ว · name = ข้อความตรงชื่อสถานที่อยู่แล้ว · full = alias ครบ 50 · too_long = ข้อความยาวเกิน · empty = ไม่มีข้อความ"
+            "description": "ผลการเรียนรู้ alias (ใบนี้จับคู่แล้วทุกกรณี): learned = จำแล้ว (ใบถัดไปข้อความเดิมจับคู่เอง) · exists = จำไว้แล้ว · name = ข้อความตรงชื่อสถานที่อยู่แล้ว · full = alias ครบ 50 · too_long = ข้อความยาวเกิน · empty = ไม่มีข้อความ · generic = ข้อความทั่วไป/สั้นเกินไป (เช่น \"คลัง\", \"เงินสด\") ไม่จำ · conflict = ข้อความนี้เป็นชื่อ/alias ของสถานที่อื่น ในขอบเขตเดียวกัน ไม่จำ · not_permitted = สถานที่ของบริษัท (มีผลกับทุกลูกค้า) ต้องมีสิทธิ์ `master:write` จึงจำ"
           }
         },
         "required": [
@@ -22606,6 +22622,16 @@
             "type": "string",
             "example": "cus_3f2a…",
             "description": "ลูกค้าที่ใช้งานอยู่"
+          },
+          "confirmReassign": {
+            "type": "boolean",
+            "description": "รหัส/ชื่อตามต้นทางนี้เคยจับคู่กับลูกค้ารายอื่น (409 `alias_conflict`) → ส่ง true + `reason` เพื่อย้ายมาลูกค้านี้"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 10,
+            "maxLength": 500,
+            "description": "เหตุผลการย้าย (บังคับเมื่อ confirmReassign = true, ≥ 10 ตัวอักษร — ลง audit)"
           }
         },
         "required": [

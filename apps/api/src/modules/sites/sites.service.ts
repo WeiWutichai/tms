@@ -286,15 +286,14 @@ export class SitesService implements OnModuleInit {
   /**
    * เรียนรู้ alias (ST3-T06 docs/04 C "เรียนรู้ alias") — คนจับคู่ข้อความสถานที่ของ order กับสถานที่นี้ครั้งแรก
    * → เพิ่มข้อความลง `aliases` ให้ order ถัดไปที่ข้อความเดิมจับคู่เอง · ล็อกแถว (`FOR UPDATE`) ก่อนอ่าน กันสองคนเพิ่มพร้อมกันแล้วหาย
-   * ไม่เพิ่มเมื่อ: คีย์ (`matchKey`) ซ้ำ alias เดิม (`exists`) · ตรงชื่อสถานที่อยู่แล้ว (`name` — เว้น `disambiguate` = มีสถานที่ชื่อซ้ำ
-   * ในขอบเขต จึงต้องมี alias ชี้ขาด) · ครบ 50 (`full`, กติกาเดียวกับฟอร์ม T02) · ยาวเกิน 150 (`too_long`) · ไม่มีสาระ (`empty`)
+   * ไม่เพิ่มเมื่อ: คีย์ (`matchKey`) ซ้ำ alias เดิม (`exists`) · ตรงชื่อสถานที่อยู่แล้ว (`name`) · ครบ 50 (`full`, กติกาเดียวกับ
+   * ฟอร์ม T02) · ยาวเกิน 150 (`too_long`) · ไม่มีสาระ (`empty`) — ผู้เรียก (OrderMatchingService) ตรวจคำทั่วไป/สิทธิ์/ชนกับสถานที่อื่นก่อน
    * เพิ่มแล้ว: version +1, audit `location.alias_learned`, event `location.updated` (changedFields aliases)
    */
   async learnAlias(
     tx: Tx,
     siteId: string,
     text: string,
-    opts: { disambiguate?: boolean } = {},
   ): Promise<'learned' | 'exists' | 'name' | 'full' | 'too_long' | 'empty'> {
     const value = cleanLine(text);
     const key = matchKey(value);
@@ -303,7 +302,7 @@ export class SitesService implements OnModuleInit {
     await tx.$queryRaw`SELECT 1 FROM customer_site WHERE id = ${siteId}::uuid FOR UPDATE`;
     const current = await tx.customerSite.findUniqueOrThrow({ where: { id: siteId } });
     if (current.aliases.some((a) => matchKey(a) === key)) return 'exists';
-    if (!opts.disambiguate && matchKey(current.name) === key) return 'name';
+    if (matchKey(current.name) === key) return 'name';
     if (current.aliases.length >= 50) return 'full';
     const s = await tx.customerSite.update({
       where: { id: siteId },

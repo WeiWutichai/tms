@@ -3,6 +3,7 @@ import { Type } from 'class-transformer';
 import {
   Allow,
   IsArray,
+  IsBoolean,
   IsIn,
   IsInt,
   IsISO8601,
@@ -13,6 +14,8 @@ import {
   Max,
   MaxLength,
   Min,
+  MinLength,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import { INTAKE_HOLD_CODES, ORDER_SOURCES, SO_STATUSES } from '@tms/domain';
@@ -544,14 +547,46 @@ export class MapCustomerDto {
   @IsString()
   @MaxLength(100)
   customerId!: string;
+
+  @ApiPropertyOptional({
+    description:
+      'รหัส/ชื่อตามต้นทางนี้เคยจับคู่กับลูกค้ารายอื่น (409 `alias_conflict`) → ส่ง true + `reason` เพื่อย้ายมาลูกค้านี้',
+  })
+  @IsOptional()
+  @IsBoolean()
+  confirmReassign?: boolean;
+
+  @ApiPropertyOptional({
+    minLength: 10,
+    maxLength: 500,
+    description: 'เหตุผลการย้าย (บังคับเมื่อ confirmReassign = true, ≥ 10 ตัวอักษร — ลง audit)',
+  })
+  @ValidateIf((o: MapCustomerDto) => o.confirmReassign === true || o.reason !== undefined)
+  @CleanText()
+  @IsString()
+  @MinLength(10)
+  @MaxLength(500)
+  reason?: string;
 }
 
 export class OrderMapResultDto extends OrderDto {
   @ApiProperty({
-    enum: ['learned', 'exists', 'name', 'full', 'too_long', 'empty'],
+    enum: [
+      'learned',
+      'exists',
+      'name',
+      'full',
+      'too_long',
+      'empty',
+      'generic',
+      'conflict',
+      'not_permitted',
+    ],
     description:
-      'ผลการเรียนรู้ alias: learned = จำแล้ว (ใบถัดไปข้อความเดิมจับคู่เอง) · exists = จำไว้แล้ว · ' +
-      'name = ข้อความตรงชื่อสถานที่อยู่แล้ว · full = alias ครบ 50 · too_long = ข้อความยาวเกิน · empty = ไม่มีข้อความ',
+      'ผลการเรียนรู้ alias (ใบนี้จับคู่แล้วทุกกรณี): learned = จำแล้ว (ใบถัดไปข้อความเดิมจับคู่เอง) · exists = จำไว้แล้ว · ' +
+      'name = ข้อความตรงชื่อสถานที่อยู่แล้ว · full = alias ครบ 50 · too_long = ข้อความยาวเกิน · empty = ไม่มีข้อความ · ' +
+      'generic = ข้อความทั่วไป/สั้นเกินไป (เช่น "คลัง", "เงินสด") ไม่จำ · conflict = ข้อความนี้เป็นชื่อ/alias ของสถานที่อื่น ' +
+      'ในขอบเขตเดียวกัน ไม่จำ · not_permitted = สถานที่ของบริษัท (มีผลกับทุกลูกค้า) ต้องมีสิทธิ์ `master:write` จึงจำ',
   })
   aliasLearning!: string;
 }

@@ -15,6 +15,11 @@ ALTER TABLE "sales_order_stop" ADD CONSTRAINT "sales_order_stop_match_method_che
   CHECK ("match_method" IS NULL OR "match_method" IN ('ALIAS', 'NAME', 'FUZZY', 'MANUAL'));
 ALTER TABLE "sales_order_stop" ADD CONSTRAINT "sales_order_stop_match_score_check"
   CHECK ("match_score" IS NULL OR ("match_score" >= 0 AND "match_score" <= 1));
+-- มีวิธีจับคู่ = ต้องมีผลที่จับคู่ได้
+ALTER TABLE "sales_order_stop" ADD CONSTRAINT "sales_order_stop_match_site_check"
+  CHECK ("match_method" IS NULL OR "site_id" IS NOT NULL);
+ALTER TABLE "sales_order" ADD CONSTRAINT "sales_order_customer_match_check"
+  CHECK ("customer_match_method" IS NULL OR "customer_id" IS NOT NULL);
 
 -- alias ลูกค้าที่เรียนรู้จากการจับคู่ของคน
 CREATE TABLE "customer_alias" (
@@ -32,6 +37,7 @@ CREATE TABLE "customer_alias" (
     CONSTRAINT "customer_alias_pkey" PRIMARY KEY ("id"),
     CONSTRAINT "customer_alias_kind_check" CHECK ("kind" IN ('EXTERNAL_ID', 'NAME')),
     CONSTRAINT "customer_alias_key_check" CHECK (length("value_key") BETWEEN 1 AND 500),
+    CONSTRAINT "customer_alias_value_check" CHECK (length("value") BETWEEN 1 AND 500),
     -- รหัสลูกค้าผูกกับช่องทาง (source ไม่ว่าง) · ชื่อใช้ทุกช่องทาง (source ว่าง)
     CONSTRAINT "customer_alias_source_check" CHECK (("kind" = 'NAME') = ("source" = ''))
 );

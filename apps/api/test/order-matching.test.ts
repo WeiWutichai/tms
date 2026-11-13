@@ -286,29 +286,142 @@ describe('order auto-matching + alias learning', () => {
     expect(far.order.stops[1]).toMatchObject({ siteId: null, matchCandidates: null });
   });
 
-  it('กำกวม: ชื่อซ้ำ 2 แห่งในขอบเขต → ไม่จับคู่เอง + แนะนำทั้งสอง · คนเลือก → alias ชี้ขาด → ใบถัดไปจับคู่เอง', async () => {
+  it('ชื่อซ้ำ: ของลูกค้าเองชนะของบริษัท (NAME) · ของลูกค้าเองซ้ำ 2 แห่ง → กำกวม + แนะนำ · คนเลือกได้แต่ไม่จำ alias ที่ชนชื่อแห่งอื่น (conflict)', async () => {
     const cust = await newCustomer({ externalId: 'KRS-C-130' });
     const origin = await newSite('คลังต้นทาง แหลมฉบัง');
     const a = await newSite('โรงงานสระบุรี', cust);
-    const b = await newSite('โรงงาน สระบุรี'); // ของบริษัท
+    await newSite('โรงงาน สระบุรี'); // ของบริษัท
     const first = await upsert(
       erpOrder('KRS-SO-130', { custExt: 'KRS-C-130', origin, dest: 'โรงงานสระบุรี' }),
     );
-    expect(first.order.stops[1]!.siteId).toBeNull();
-    expect(
-      (first.order.stops[1]!.matchCandidates as { id: string; score: number }[])
-        .map((c) => c.id)
-        .sort(),
-    ).toEqual([a, b].sort());
-    const m = await api(app, admin)
-      .post(`/v1/orders/${pubOrder(first.order.id)}/stops/2/map-site`)
-      .send({ siteId: encodeId('site', a) })
-      .expect(200);
-    expect(m.body.aliasLearning).toBe('learned');
-    const next = await upsert(
+    expect(first.order.stops[1]).toMatchObject({ siteId: a, matchMethod: 'NAME' });
+
+    const a2 = await newSite('โรงงาน  สระบุรี', cust);
+    const amb = await upsert(
       erpOrder('KRS-SO-131', { custExt: 'KRS-C-130', origin, dest: 'โรงงานสระบุรี' }),
     );
-    expect(next.order.stops[1]).toMatchObject({ siteId: a, matchMethod: 'ALIAS' });
+    expect(amb.order.stops[1]!.siteId).toBeNull();
+    const ids = (amb.order.stops[1]!.matchCandidates as { id: string }[]).map((c) => c.id);
+    expect(ids).toEqual(expect.arrayContaining([a, a2]));
+    const m = await api(app, admin)
+      .post(`/v1/orders/${pubOrder(amb.order.id)}/stops/2/map-site`)
+      .send({ siteId: encodeId('site', a) })
+      .expect(200);
+    expect(m.body).toMatchObject({ aliasLearning: 'conflict' });
+    expect(m.body.stops[1]).toMatchObject({
+      siteId: encodeId('site', a),
+      match: { method: 'MANUAL' },
+    });
+    expect((await db.customerSite.findUniqueOrThrow({ where: { id: a } })).aliases).toEqual([]);
+  });
+
+  it('กัน alias วางยา: ข้อความที่เป็นชื่อสถานที่อื่น/ข้อความทั่วไป/สั้น ไม่ถูกจำ · สอนสถานที่ของบริษัทต้องมีสิทธิ์ master:write', async () => {
+    const cust = await newCustomer({ externalId: 'KRS-C-135' });
+    const origin = await newSite('คลังต้นทาง บ่อวิน');
+    const s1 = await newSite('ปลายทางหนึ่ง ทดสอบวางยา', cust);
+    const s2 = await newSite('ปลายทางสอง ทดสอบวางยา', cust);
+    const auto = await upsert(
+      erpOrder('KRS-SO-135', { custExt: 'KRS-C-135', origin, dest: 'ปลายทางหนึ่ง ทดสอบวางยา' }),
+    );
+    expect(auto.order.stops[1]).toMatchObject({ siteId: s1, matchMethod: 'NAME' });
+    // คนเลือก s2 ให้ข้อความที่เป็นชื่อ s1 → ใบนี้ได้ s2 แต่ไม่จำ (ไม่งั้นทุกใบของ s1 จะวิ่งไป s2)
+    const poison = await api(app, admin)
+      .post(`/v1/orders/${pubOrder(auto.order.id)}/stops/2/map-site`)
+      .send({ siteId: encodeId('site', s2) })
+      .expect(200);
+    expect(poison.body.aliasLearning).toBe('conflict');
+    const after = await upsert(
+      erpOrder('KRS-SO-136', { custExt: 'KRS-C-135', origin, dest: 'ปลายทางหนึ่ง ทดสอบวางยา' }),
+    );
+    expect(after.order.stops[1]).toMatchObject({ siteId: s1, matchMethod: 'NAME' });
+
+    // ข้อความทั่วไป / สั้นเกิน → generic
+    for (const [ext, text] of [
+      ['KRS-SO-137', 'คลังสินค้า'],
+      ['KRS-SO-138', 'A1'],
+    ] as const) {
+      const o = await upsert(erpOrder(ext, { custExt: 'KRS-C-135', origin, dest: text }));
+      const r = await api(app, admin)
+        .post(`/v1/orders/${pubOrder(o.order.id)}/stops/2/map-site`)
+        .send({ siteId: encodeId('site', s2) })
+        .expect(200);
+      expect(r.body.aliasLearning).toBe('generic');
+    }
+    expect((await db.customerSite.findUniqueOrThrow({ where: { id: s2 } })).aliases).toEqual([]);
+
+    // สถานที่ของบริษัท: ผู้มีแค่ orders:write จับคู่ใบได้แต่ไม่จำ · มี master:write จำได้
+    const hub = await newSite('ศูนย์กระจายของบริษัท ทดสอบสิทธิ์');
+    const writer = await tokenFor(tenantId, 'orders:read orders:write');
+    const o1 = await upsert(
+      erpOrder('KRS-SO-139', { custExt: 'KRS-C-135', origin, dest: 'ฮับบริษัท ทดสอบสิทธิ์' }),
+    );
+    const r1 = await api(app, writer)
+      .post(`/v1/orders/${pubOrder(o1.order.id)}/stops/2/map-site`)
+      .send({ siteId: encodeId('site', hub) })
+      .expect(200);
+    expect(r1.body).toMatchObject({ aliasLearning: 'not_permitted' });
+    expect(r1.body.stops[1].siteId).toBe(encodeId('site', hub));
+    const o2 = await upsert(
+      erpOrder('KRS-SO-140B', { custExt: 'KRS-C-135', origin, dest: 'ฮับบริษัท ทดสอบสิทธิ์' }),
+    );
+    expect(o2.order.stops[1]!.siteId).toBeNull();
+    const r2 = await api(app, admin)
+      .post(`/v1/orders/${pubOrder(o2.order.id)}/stops/2/map-site`)
+      .send({ siteId: encodeId('site', hub) })
+      .expect(200);
+    expect(r2.body.aliasLearning).toBe('learned');
+  });
+
+  it('ลูกค้าเปลี่ยนตอนส่งซ้ำ: สถานที่ของลูกค้าเดิมที่จับคู่ไว้ไม่ถูกคง (จับคู่ใหม่ในขอบเขตใหม่) · ของบริษัทคงได้ · ระบุ siteId เอง = วิธีจับคู่ null', async () => {
+    const cA = await newCustomer();
+    const cB = await newCustomer();
+    const origin = await newSite('คลังต้นทาง ลูกค้าเปลี่ยน');
+    const siteA = await newSite('ปลายทางเฉพาะ ลูกค้าเปลี่ยน', cA);
+    const hub = await newSite('ศูนย์กลาง ลูกค้าเปลี่ยน');
+    const input = (cust: string): UpsertOrderInput => ({
+      source: 'API',
+      externalId: 'CHG-1',
+      customer: { id: cust },
+      requestedDate: today,
+      vehicleTypeId: vt6,
+      stops: [
+        { type: 'PICKUP', siteText: 'ศูนย์กลาง ลูกค้าเปลี่ยน' },
+        { type: 'DELIVERY', siteText: 'ปลายทางเฉพาะ ลูกค้าเปลี่ยน' },
+      ],
+    });
+    const a = await upsert(input(cA));
+    expect(a.order.stops.map((s) => s.siteId)).toEqual([hub, siteA]);
+    const b = await upsert(input(cB));
+    expect(b.order.customerId).toBe(cB);
+    expect(b.order.stops[0]).toMatchObject({ siteId: hub, matchMethod: 'NAME' });
+    expect(b.order.stops[1]).toMatchObject({ siteId: null, matchMethod: null });
+    expect(holdCodes(b)[0]).toBe('LOCATION_UNMAPPED');
+    // ระบุ siteId มาเองบนใบใหม่ = ข้อมูลต้นทาง → วิธีจับคู่ null (ใบเดิมที่ค่าเท่าเดิม = ไม่เปลี่ยนอะไร)
+    const c = await upsert({
+      ...input(cB),
+      externalId: 'CHG-1B',
+      stops: [
+        { type: 'PICKUP', siteId: hub },
+        { type: 'DELIVERY', siteText: 'ปลายทางเฉพาะ ลูกค้าเปลี่ยน' },
+      ],
+    });
+    expect(c.order.stops[0]).toMatchObject({ siteId: hub, matchMethod: null });
+
+    // ลูกค้าที่ได้จากการจับคู่ + สถานที่ (ระบุ id) ของลูกค้าอื่น → ไม่ 422: เข้าระบบ ค้าง CUSTOMER_UNMAPPED
+    await newCustomer({ externalId: 'CHG-EXT' });
+    const conflict = await upsert({
+      source: 'API',
+      externalId: 'CHG-2',
+      customer: { externalId: 'CHG-EXT' },
+      requestedDate: today,
+      vehicleTypeId: vt6,
+      stops: [
+        { type: 'PICKUP', siteId: origin },
+        { type: 'DELIVERY', siteId: siteA },
+      ],
+    });
+    expect(conflict.order.customerId).toBeNull();
+    expect(holdCodes(conflict)[0]).toBe('CUSTOMER_UNMAPPED');
   });
 
   it('ขอบเขต: alias บนสถานที่ของลูกค้า A ไม่ใช้กับลูกค้า B · alias บนสถานที่ของบริษัทใช้ได้ทุกลูกค้า · ใบยังไม่มีลูกค้าจับคู่ได้เฉพาะของบริษัท', async () => {
@@ -461,14 +574,68 @@ describe('order auto-matching + alias learning', () => {
       .send({ customerId: encodeId('customer', cust2) })
       .expect(422);
     expect(bad.body.errors[0]).toMatchObject({ field: 'customerId', code: 'reference_inactive' });
-    await api(app, admin)
+    // รหัสเคยผูกลูกค้าอื่น → 409 alias_conflict ใบไม่เปลี่ยน · ยืนยัน + เหตุผล → ย้าย (audit เหตุผล)
+    const conflict = await api(app, admin)
       .post(`/v1/orders/${pubOrder(held3.order.id)}/map-customer`)
       .send({ customerId: encodeId('customer', cust) })
+      .expect(409);
+    expect(conflict.body).toMatchObject({
+      code: 'alias_conflict',
+      aliasKind: 'EXTERNAL_ID',
+      aliasValue: 'NSF-888',
+      mappedCustomerId: encodeId('customer', cust2),
+    });
+    const still = await db.salesOrder.findUniqueOrThrow({ where: { id: held3.order.id } });
+    expect(still).toMatchObject({ customerId: null, version: held3.order.version });
+    await api(app, admin)
+      .post(`/v1/orders/${pubOrder(held3.order.id)}/map-customer`)
+      .send({ customerId: encodeId('customer', cust), confirmReassign: true, reason: 'สั้น' })
+      .expect(422);
+    const ok = await api(app, admin)
+      .post(`/v1/orders/${pubOrder(held3.order.id)}/map-customer`)
+      .send({
+        customerId: encodeId('customer', cust),
+        confirmReassign: true,
+        reason: 'ลูกค้าเดิมเลิกกิจการ รหัสโอนมาเจ้านี้',
+      })
       .expect(200);
+    expect(ok.body.aliasLearning).toBe('learned');
     const moved = await db.customerAlias.findFirstOrThrow({
       where: { tenantId, kind: 'EXTERNAL_ID', valueKey: 'NSF-888' },
     });
     expect(moved.customerId).toBe(cust);
+    expect(
+      await db.auditLog.findFirst({
+        where: { entityId: cust, action: 'customer.alias_reassigned' },
+        select: { reason: true },
+      }),
+    ).toEqual({ reason: 'ลูกค้าเดิมเลิกกิจการ รหัสโอนมาเจ้านี้' });
+
+    // alias รหัสที่คนจับคู่ชนะ externalId ของลูกค้าอื่น (คนตัดสินแล้ว)
+    const c3 = await newCustomer({ externalId: 'NSF-999' });
+    const auto3 = await upsert(erpOrder('KRS-SO-154', { custExt: 'NSF-999', origin, dest: 'x' }));
+    expect(auto3.order).toMatchObject({ customerId: c3, customerMatchMethod: 'EXTERNAL_ID' });
+    await api(app, admin)
+      .post(`/v1/orders/${pubOrder(auto3.order.id)}/map-customer`)
+      .send({ customerId: encodeId('customer', cust) })
+      .expect(200);
+    const after3 = await upsert(erpOrder('KRS-SO-155', { custExt: 'NSF-999', origin, dest: 'x' }));
+    expect(after3.order).toMatchObject({ customerId: cust, customerMatchMethod: 'ALIAS' });
+
+    // ชื่อทั่วไป (เงินสด) ไม่จำ แต่ใบนี้ได้ลูกค้า + ส่งซ้ำ (แก้ PO) คงลูกค้าที่คนเลือก (sticky)
+    const cash = erpOrder('XL-CASH', { custText: 'ลูกค้าเงินสด', origin, dest: 'x' }, 'EXCEL');
+    const cashHeld = await upsert(cash);
+    const cashMap = await api(app, admin)
+      .post(`/v1/orders/${pubOrder(cashHeld.order.id)}/map-customer`)
+      .send({ customerId: encodeId('customer', cust) })
+      .expect(200);
+    expect(cashMap.body.aliasLearning).toBe('generic');
+    const resend = await upsert({ ...cash, customerRef: 'PO-CASH-2' });
+    expect(resend.order).toMatchObject({ customerId: cust, customerMatchMethod: 'MANUAL' });
+    const other = await upsert(
+      erpOrder('XL-CASH-2', { custText: 'ลูกค้าเงินสด', origin, dest: 'x' }, 'EXCEL'),
+    );
+    expect(other.order.customerId).toBeNull();
   });
 
   it('แยก tenant: alias/สถานที่ของ tenant A ไม่ถูกใช้จับคู่ใน tenant B; customer_alias มี RLS; map ใบของอีก tenant → 404', async () => {
