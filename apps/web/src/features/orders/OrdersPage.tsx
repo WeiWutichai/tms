@@ -77,6 +77,7 @@ export function OrdersPage() {
   const dateText = useDateText();
   const scopes = me.data?.scopes ?? [];
   const canWrite = can(scopes, 'orders:write');
+  const canCancel = can(scopes, 'orders:cancel');
   const canSeePrice = can(scopes, 'prices.sell:read');
   const [tab, setTab] = useSessionState<Tab>('so.tab', 'all');
   const [overdue, setOverdue] = useSessionState('so.over', false);
@@ -434,6 +435,7 @@ export function OrdersPage() {
           key={openId}
           id={openId}
           canWrite={canWrite}
+          canCancel={canCancel}
           canSeePrice={canSeePrice}
           onClose={() => setOpenId(null)}
           onEdit={(o) =>

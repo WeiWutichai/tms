@@ -78,6 +78,43 @@ export function useUpdateOrder() {
   });
 }
 
+/** ยกเลิกใบสั่งขนส่ง (ST3-T10) — เหตุผล ≥ 10 ตัวอักษร · If-Match = version ที่เห็นใน drawer */
+export function useCancelOrder() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { id: string; version: number; reason: string }) =>
+      unwrap(
+        api.POST('/v1/orders/{id}/cancel', {
+          params: { path: { id: v.id }, header: { 'If-Match': `"${v.version}"` } },
+          body: { reason: v.reason },
+        }),
+      ) as Promise<Order>,
+    onError: refetchOnStale(qc, KEY),
+    onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
+  });
+}
+
+/** รับ/ไม่รับ การเปลี่ยนแปลงจากต้นทาง (ST3-T10) */
+export function useDecideSourceChange() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { id: string; changeId: string; accept: boolean; reason: string }) =>
+      unwrap(
+        v.accept
+          ? api.POST('/v1/orders/{id}/source-changes/{changeId}/accept', {
+              params: { path: { id: v.id, changeId: v.changeId } },
+              body: { reason: v.reason },
+            })
+          : api.POST('/v1/orders/{id}/source-changes/{changeId}/reject', {
+              params: { path: { id: v.id, changeId: v.changeId } },
+              body: { reason: v.reason },
+            }),
+      ) as Promise<Order>,
+    onError: refetchOnStale(qc, KEY),
+    onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
+  });
+}
+
 // ---------- เทมเพลตงานประจำ ----------
 
 /** รายการเทมเพลตทีละ 20 (cursor) — "แสดงเพิ่ม" ดึงหน้าถัดไป */

@@ -319,10 +319,16 @@ export function ReasonDialog({
   error,
   busy,
   okIcon,
+  diff,
   onOk,
   onClose,
 }: {
   open: boolean;
+  /**
+   * ตารางเทียบ "ฟิลด์ | เดิม | ใหม่" เหนือช่องเหตุผล (ต้นแบบ TMS v4 vDialog `diff` — แถวพื้นแดงอ่อน ค่าเดิมขีดฆ่า)
+   * `labels` = หัวคอลัมน์ [ฟิลด์, เดิม, ใหม่]
+   */
+  diff?: { rows: { f: ReactNode; b: ReactNode; a: ReactNode }[]; labels: [string, string, string] };
   title: ReactNode;
   description?: ReactNode;
   label: ReactNode;
@@ -394,6 +400,28 @@ export function ReasonDialog({
           </button>
         </div>
         <div className="tms-dialog__body">
+          {diff && diff.rows.length > 0 && (
+            <div className="tms-dialog__diff" role="table">
+              <div className="tms-dialog__diffhead" role="row">
+                {diff.labels.map((l) => (
+                  <span key={l} role="columnheader">
+                    {l}
+                  </span>
+                ))}
+              </div>
+              {diff.rows.map((r, i) => (
+                <div key={i} className="tms-dialog__diffrow" role="row">
+                  <span role="cell">{r.f}</span>
+                  <span role="cell" className="tms-dialog__diffb">
+                    {r.b}
+                  </span>
+                  <span role="cell" className="tms-dialog__diffa">
+                    {r.a}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
           <label className="tms-field" htmlFor={id}>
             <span className="tms-label">
               {label} <span style={{ color: '#B3322A' }}>*</span>

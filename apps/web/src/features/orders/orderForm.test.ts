@@ -36,6 +36,8 @@ const ORDER: Order = {
   vehicleTypeId: 'vty_1',
   holdReason: null,
   holdCodes: [],
+  sourceChangedAfterPlan: false,
+  sourceChange: null,
   pricingStatus: 'AVAILABLE',
   pricingReasons: [],
   stops: [
