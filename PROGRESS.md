@@ -211,6 +211,12 @@
   - **ST3-T10**: ผล `locked` ตอนนี้ = log + `last_result` + audit items เท่านั้น → T10 เปลี่ยน `upsertOrder` ให้คืนใบค้าง SOURCE_CHANGED_AFTER_PLAN + diff แทน 409 แล้ว `ConnectorIntakeService.failed()` จะไม่เห็น `order_locked_for_update` อีก (ผลเป็น updated/held)
   - **ส่งออก order (ยังไม่มี)**: `sourceIssues`/ข้อความจากต้นทางอาจขึ้นต้นด้วย `= + - @` → export CSV/Excel ของ order ในอนาคตต้องใช้ตัวกันสูตรของ `master/export.ts`
 
+### 13 พ.ย. 2569 (แก้บั๊ก: เหตุผลยกเลิกลิงก์หายใน dialog — E2E carrier-upload ค้าง)
+
+- ต้นเหตุ (บั๊กแอป ไม่ใช่ polling/refetch): `ReasonDialog` (`packages/ui/src/master.tsx`) อยู่ใน tree ตลอดแม้ปิด เก็บเหตุผลรอบก่อนไว้ และล้างใน `useEffect([open])` **หลัง** render — ยกเลิกลิงก์ที่ 2 dialog เปิดขึ้นพร้อมเหตุผลเก่า แล้ว `setReason('')` ตามมาลบสิ่งที่ผู้ใช้/Playwright เพิ่งพิมพ์ (Playwright กรอกค่าเดียวกับค่าเก่า → React ไม่ยิง onChange → ช่องว่าง ปุ่มกดไม่ได้) · ยืนยันด้วย log: แท็บ/dialog ไม่ remount และ `open` ไม่สลับระหว่างพิมพ์ — render ที่ล้างมาหลัง fill ทุกครั้งที่ล้ม
+- แก้: ล้างเหตุผล/สถานะ sent ระหว่าง render ตอน `open` เปลี่ยน (ภาพแรกว่างเสมอ) — ใช้กับ ReasonDialog ทุกจุด รวม อนุมัติ/ไม่อนุมัติ ในแท็บเดียวกัน · E2E กลับเป็นกรอกครั้งเดียว → กด (ตรวจช่องว่างก่อนกรอก) ลบ toPass
+- test: `packages/ui/src/master.test.tsx` (ค่าที่ commit ตอนเปิดใหม่ต้องว่าง — โค้ดเดิมล้ม), `apps/web/src/features/carriers/CarrierDocsTab.test.tsx` (refetch ระหว่าง dialog ยกเลิกลิงก์/ไม่อนุมัติเปิด เหตุผลยังอยู่) · carrier-upload.spec 5 รอบติดเขียว
+
 ### 13 พ.ย. 2569 (ST3-T04 นำเข้า order จาก Excel)
 
 - ทำ: `apps/api/src/modules/orders/order.import.ts` (+ `app.module.ts`), framework `imports/{import-spec,import.service,imports.controller,master-import,parse,reasons}.ts`, test `apps/api/test/order-import.test.ts` (+ แก้ `master-imports.test.ts` ให้ sheet ตัวอย่าง ≥ 2 แถว), web `features/imports/{ImportExcelButton,DevImportPage}.tsx`, E2E `apps/web/e2e/order-import.spec.ts`, OpenAPI (คำอธิบาย mode), spec/12 §3
