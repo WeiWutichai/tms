@@ -95,6 +95,18 @@ export interface ImportSpec<T = unknown> {
   columns: ImportColumn[];
   /** mode ที่รองรับ (ค่าเริ่มต้น create_only อย่างเดียว) */
   modes?: ImportMode[];
+  /** mode เมื่อผู้เรียกไม่ส่ง (ค่าเริ่มต้น create_only) — ต้องอยู่ใน modes */
+  defaultMode?: ImportMode;
+  /**
+   * เพดานแถวต่อไฟล์ของชนิดนี้ (ต่ำกว่าเพดานรวม 5,000) — เกิน = ปฏิเสธทั้งไฟล์ `too_many_rows` พร้อมข้อความไทย
+   * (เช่น order: ทุกใบคิดราคา + DO ใน transaction เดียวของ job — MD-286)
+   */
+  maxRows?: number;
+  /**
+   * จำนวนรายการ (entity) จากค่าของแถวที่ผ่าน — เมื่อ 1 รายการมีหลายแถว (order) · ไม่ระบุ = 1 แถว = 1 รายการ
+   * (`okEntities` / `importedEntities` ของงานนำเข้า)
+   */
+  countEntities?(values: T[]): number;
   /**
    * ไฟล์เกินจำนวนแถวนี้ตรวจ/นำเข้าเป็น job (ค่าเริ่มต้น SYNC_MAX_ROWS = 1,000) — spec ที่ตรวจแต่ละแถวด้วยกฎของ API
    * (หลาย query ต่อแถว) ตั้งต่ำกว่านี้ให้คำขอเสร็จทันเวลา transaction ของ request
@@ -105,6 +117,13 @@ export interface ImportSpec<T = unknown> {
    * framework ข้ามการตรวจช่องบังคับในโหมดนั้น และ spec ตรวจเองเฉพาะแถวที่สร้าง
    */
   requiredOnCreateOnly?: boolean;
+  /**
+   * แถวตัวอย่างใน sheet "ตัวอย่าง" ของ template (key คอลัมน์ → ค่า) — ไม่ระบุ = 1 แถวจาก `example` ของแต่ละคอลัมน์
+   * (เช่น order หลายแถวต่อใบ — ST3-T04)
+   */
+  sampleRows?: Record<string, string>[];
+  /** ข้อความอธิบายเพิ่มท้าย sheet "คำอธิบาย" (เช่น วิธีจัดกลุ่มหลายแถวเป็นใบเดียว) */
+  helpNotes?: string[];
   /** ตรวจระดับไฟล์ก่อนตรวจรายแถว (เช่น โควตาจำนวนรถ — MD-289) — คืนข้อความไทย = ปฏิเสธทั้งไฟล์ */
   checkFile?(
     ctx: ImportContext,
@@ -157,7 +176,13 @@ const TH_MONTHS = [
  * รับ: YYYY-MM-DD, DD/MM/YYYY, D/M/YYYY, "15 พ.ย. 2569" · ปี > 2400 = พ.ศ. (spec/02 §11.4 dateFormat อัตโนมัติ)
  */
 export function parseImportDate(s: string): string | null {
-  const t = s.trim();
+  // เซลล์วันที่+เวลาของ Excel (`YYYY-MM-DD HH:mm` จาก parse.ts) ในคอลัมน์วันที่ = ใช้เฉพาะวันที่
+  const t = s.trim().replace(/[ T]\d{1,2}[:.]\d{2}(:\d{2})?$/, '');
+  // เลข serial 5 หลักของ Excel (เซลล์วันที่ที่ถูกตั้งเป็นรูปแบบ General/ตัวเลข) — ระบบวันที่ 1900 (1927–2173)
+  if (/^\d{5}(\.\d+)?$/.test(t))
+    return new Date(Date.UTC(1899, 11, 30) + Math.floor(Number(t)) * 86_400_000)
+      .toISOString()
+      .slice(0, 10);
   let y: number, m: number, d: number;
   let r = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(t);
   if (r) [y, m, d] = [Number(r[1]), Number(r[2]), Number(r[3])];

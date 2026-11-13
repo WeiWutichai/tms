@@ -1,3 +1,4 @@
+import { ImportExcelButton } from '../imports/ImportExcelButton';
 import {
   Button,
   DataTable,
@@ -290,6 +291,13 @@ export function OrdersPage() {
         actions={
           canWrite ? (
             <>
+              {/* ต้นแบบ SO: "นำเข้า CSV" (upload) อยู่หน้าปุ่มอื่น — ใช้ wizard นำเข้า Excel/CSV ตัวเดียวกับข้อมูลหลัก (ST3-T04) */}
+              <ImportExcelButton
+                kind="order"
+                icon="upload"
+                label={t('so.importCsv')}
+                onDone={(m) => setToast(m)}
+              />
               <Button variant="secondary" icon="bookmark" onClick={() => setTplOpen(true)}>
                 {t('tpl.fromTpl')}
               </Button>

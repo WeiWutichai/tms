@@ -128,7 +128,13 @@ async function readXlsx(buf: Buffer): Promise<GridRow[]> {
 /** ค่าในเซลล์ → ข้อความ: สูตรใช้ค่าที่คำนวณแล้ว (spec/02 §11.8), วันที่ → YYYY-MM-DD */
 function cellText(v: ExcelJS.CellValue): string {
   if (v === null || v === undefined) return '';
-  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  if (v instanceof Date) {
+    // Excel เก็บวันเวลาแบบไม่มี timezone (exceljs อ่านเป็น UTC = เวลาตามเซลล์) · เวลาอย่างเดียว = วันฐาน 1899-12-30
+    const iso = v.toISOString();
+    const time = iso.slice(11, 16);
+    if (iso.startsWith('1899-12-30')) return time;
+    return time === '00:00' ? iso.slice(0, 10) : `${iso.slice(0, 10)} ${time}`;
+  }
   if (typeof v === 'number') return String(v);
   if (typeof v === 'boolean') return v ? 'TRUE' : 'FALSE';
   if (typeof v === 'string') return v;

@@ -38,6 +38,7 @@ export const en: Partial<Record<MessageKey, string>> = {
   'page.plan.group': 'Operations',
   'page.trips.title': 'Trips / Trip sheets',
   'page.trips.group': 'Operations',
+  'so.importCsv': 'Import CSV',
   'page.so.title': 'Shipment orders (SO)',
   'page.so.group': 'Operations',
   'page.do.title': 'Delivery orders (DO)',
