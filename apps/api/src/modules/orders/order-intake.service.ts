@@ -103,10 +103,15 @@ export interface UpsertOrderResult {
   sourceChange?: { id: string; status: 'PENDING' | 'REJECTED' };
 }
 
-/** ตัวเลือกภายใน (ไม่เปิดให้ทางเข้า) */
-interface UpsertOptions {
+/** ตัวเลือกภายใน (ไม่เปิดให้ทางเข้าภายนอก) */
+export interface UpsertOptions {
   /** กำลัง "รับ" ชุดการเปลี่ยนแปลงจากต้นทาง — ห้ามเก็บเป็นชุดใหม่ซ้ำ (ช่องที่ยังล็อก → 409) */
   applyingSourceChange?: boolean;
+  /**
+   * ห้ามเก็บชุดการเปลี่ยนแปลง (ช่องที่ล็อก → 409 `order_locked_for_update` เหมือน API) — connector ใช้กับ **ใบสำรอง**
+   * (ข้อมูลลดรูปหลังรอบแรกถูกปฏิเสธ) เพื่อไม่ให้ข้อมูลที่ไม่ครบขึ้นเป็น diff ให้คนรับทับใบที่วางแผนแล้ว
+   */
+  forbidStaging?: boolean;
 }
 
 /** ข้อความระบบเมื่อปิดชุดรอตัดสินเอง (SUPERSEDED) */
@@ -286,7 +291,13 @@ export class OrderIntakeService {
       const locked = changes.filter((c) => !editable.includes(c.group));
       // ST3-T10: ต้นทาง (connector) แก้ช่องที่ล็อกหลังวางแผน → ไม่ทับ เก็บทั้งชุด + diff รอคนรับ/ไม่รับ
       // (docs/01 §4.1 ไม่เปลี่ยนสถานะ) · Open API / คนแก้ → 409 (docs/04 C)
-      if (locked.length && viaSource && stagesSourceChanges(n.source) && !opts.applyingSourceChange)
+      if (
+        locked.length &&
+        viaSource &&
+        stagesSourceChanges(n.source) &&
+        !opts.applyingSourceChange &&
+        !opts.forbidStaging
+      )
         return this.stageSourceChange(tx, current, n, inputHash, changes, header, children);
       const lockedStatus = current.status;
       if (locked.length)
