@@ -32,7 +32,7 @@ import {
   useVehicleTypeOptions,
 } from './useOrders';
 import { useOrderEditLock } from './editLock';
-import { EditLockBanner } from './EditLockBanner';
+import { EditLockBanner, LockReleasedBanner } from './EditLockBanner';
 
 export type FormMode = 'create' | 'copy' | 'template' | 'edit';
 
@@ -201,14 +201,17 @@ export function OrderFormDrawer({
   const editLock = useOrderEditLock(mode === 'edit' ? (order?.id ?? null) : null);
   const lockedBy = editLock.state.kind === 'other' ? editLock.state.lock : null;
   const lockPending = editLock.state.kind === 'pending';
+  // ล็อกของเราถูกผู้อื่นปลด (QA) → อ่านอย่างเดียวจนกว่าจะโหลดใหม่
+  const lockReleased = editLock.state.kind === 'released' ? editLock.state : null;
+  const readOnly = !!lockedBy || !!lockReleased;
   // กลายเป็นอ่านอย่างเดียวระหว่างแก้ (เช่น บันทึกแล้วได้ 409) → เลื่อนให้เห็นป้ายผู้แก้ที่หัวฟอร์ม
   const lockNote = useRef<HTMLDivElement>(null);
-  const lockHolder = lockedBy?.userId;
+  const lockHolder = lockedBy?.userId ?? (lockReleased ? `released:${lockReleased.by}` : undefined);
   useEffect(() => {
     if (lockHolder) lockNote.current?.scrollIntoView?.({ block: 'nearest' });
   }, [lockHolder]);
   const ed = editableOf(
-    mode !== 'edit' ? null : lockedBy && live ? { ...live, editableFields: [] } : live,
+    mode !== 'edit' ? null : readOnly && live ? { ...live, editableFields: [] } : live,
   );
   const isDraft = mode !== 'edit' || order?.status === 'draft';
   const err = mode === 'edit' ? update.error : create.error;
@@ -230,7 +233,11 @@ export function OrderFormDrawer({
   const nLocal = Object.keys(local).length;
   const stale = isStale(err);
   const locked = err instanceof ApiError && err.problem.code === 'order_locked_for_update';
-  const top = err && !Object.keys(server).length ? problemText(err, t) : null;
+  // 409 ของล็อก — แถบล็อก/ถูกปลดแสดงแทนข้อความด้านบน
+  const lockErr =
+    err instanceof ApiError &&
+    ['order_locked_by_user', 'order_lock_released'].includes(err.problem.code);
+  const top = err && !lockErr && !Object.keys(server).length ? problemText(err, t) : null;
 
   const set = <K extends keyof OrderForm>(k: K, v: OrderForm[K]) => setF((x) => ({ ...x, [k]: v }));
   const setStop = (i: number, p: Partial<StopForm>) =>
@@ -241,7 +248,7 @@ export function OrderFormDrawer({
   const save = (draft: boolean) => {
     // แก้ใบที่พ้นร่างแล้ว (เช่นใบค้างจาก connector ที่ยังไม่มีลูกค้า) ตรวจแค่รูปแบบ — กติกาครบถ้วนของการส่งใช้ตอนสร้าง/ยืนยันร่าง
     const loose = draft || (mode === 'edit' && order?.status !== 'draft');
-    if (lockedBy || lockPending) return;
+    if (readOnly || lockPending) return;
     setTried(loose ? 'draft' : 'submit');
     if (Object.keys(validate(f, loose)).length || submitting.current) return;
     submitting.current = true;
@@ -266,7 +273,12 @@ export function OrderFormDrawer({
             if (x instanceof ApiError && x.problem.code === 'order_locked_for_update')
               void qc.invalidateQueries({ queryKey: ['orders', 'one', order.id] });
             // ล็อกหลุด (หมดอายุ/ถูกปลด) แล้วผู้อื่นแก้อยู่ → ขอใหม่ = แสดงป้ายผู้แก้ + อ่านอย่างเดียว
-            if (x instanceof ApiError && x.problem.code === 'order_locked_by_user')
+            // หรือถูกผู้จัดการปลดล็อก → heartbeat บอกชื่อผู้ปลด (ไม่ได้ล็อกคืน)
+            if (
+              x instanceof ApiError &&
+              (x.problem.code === 'order_locked_by_user' ||
+                x.problem.code === 'order_lock_released')
+            )
               editLock.retry();
           },
         },
@@ -692,7 +704,7 @@ export function OrderFormDrawer({
               type="button"
               className="tms-drawer__sec"
               style={{ height: 40, padding: '0 16px' }}
-              disabled={busy || lockPending || !!lockedBy}
+              disabled={busy || lockPending || readOnly}
               onClick={() => save(true)}
             >
               {t('ord.form.saveDraft')}
@@ -736,11 +748,20 @@ export function OrderFormDrawer({
             soNo={order.soNo ?? t('ord.draftNo')}
             lock={lockedBy}
             canUnlock={canUnlock}
-            onUnlocked={() => editLock.retry()}
+            onUnlocked={() => editLock.retry(true)}
           />
         </div>
       )}
-      {mode === 'edit' && order && !lockedBy && (!ed.customer || locked) && (
+      {lockReleased && (
+        <div ref={lockNote}>
+          <LockReleasedBanner
+            by={lockReleased.by}
+            reason={lockReleased.reason}
+            {...(onReload ? { onReload } : {})}
+          />
+        </div>
+      )}
+      {mode === 'edit' && order && !readOnly && (!ed.customer || locked) && (
         <div
           role="note"
           style={{

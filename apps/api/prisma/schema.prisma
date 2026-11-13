@@ -191,8 +191,10 @@ model AppUser {
   createdAt           DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  invitations UserInvitation[]
-  orderLocks  OrderEditLock[]
+  invitations        UserInvitation[]
+  orderLocks         OrderEditLock[]
+  orderLockReleases  OrderEditLockRelease[] @relation("OrderLockReleaseHolder")
+  orderLocksReleased OrderEditLockRelease[] @relation("OrderLockReleaseBy")
 
   @@unique([tenantId, email])
   @@map("app_user")
@@ -1268,6 +1270,7 @@ model SalesOrder {
   charges        SalesOrderCharge[]
   deliveryOrders DeliveryOrder[]
   editLock       OrderEditLock?
+  lockReleases   OrderEditLockRelease[]
 
   @@unique([tenantId, soNo])
   @@unique([tenantId, externalId])
@@ -1404,6 +1407,27 @@ model OrderEditLock {
   @@unique([salesOrderId])
   @@index([tenantId, userId])
   @@map("order_edit_lock")
+}
+
+/// การปลดล็อกของผู้อื่น (ST3-T08 QA) — ผู้ถือเดิม (user_id) ต่ออายุ/PATCH ได้ 409 `order_lock_released`
+/// ("ถูกปลดล็อกโดย …") จนกว่าจะเปิดแก้ใหม่ (POST /lock แบบเปิด = ลบแถว) หรือหมดอายุ (ปลด + 10 นาที)
+/// แยกจาก order_edit_lock: คงอยู่แม้ผู้ปลดเปิดแก้แล้วปิดไป (ผู้ถือเดิมไม่ได้ล็อกคืนเงียบ ๆ)
+model OrderEditLockRelease {
+  id           String     @id @default(uuid()) @db.Uuid
+  tenantId     String     @map("tenant_id") @db.Uuid
+  salesOrderId String     @map("sales_order_id") @db.Uuid
+  salesOrder   SalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
+  userId       String     @map("user_id") @db.Uuid
+  user         AppUser    @relation("OrderLockReleaseHolder", fields: [userId], references: [id], onDelete: Cascade)
+  releasedBy   String     @map("released_by") @db.Uuid
+  releaser     AppUser    @relation("OrderLockReleaseBy", fields: [releasedBy], references: [id], onDelete: Cascade)
+  releasedAt   DateTime   @map("released_at") @db.Timestamptz(6)
+  reason       String
+  expiresAt    DateTime   @map("expires_at") @db.Timestamptz(6)
+
+  @@unique([salesOrderId, userId])
+  @@index([tenantId, userId])
+  @@map("order_edit_lock_release")
 }
 
 model OrderTemplate {

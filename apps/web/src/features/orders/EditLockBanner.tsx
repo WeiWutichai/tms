@@ -92,3 +92,52 @@ export function EditLockBanner({
     </>
   );
 }
+
+/**
+ * ล็อกของเราถูกผู้อื่นปลด (409 `order_lock_released` — QA ST3-T08): ฟอร์มอ่านอย่างเดียว "ถูกปลดล็อกโดย … — โหลดใหม่"
+ * แถบล็อกแบบเดียวกัน [OPEN spec/12 §3 #55] · "โหลดใหม่" = เปิดฟอร์มใหม่จากใบล่าสุด (ขอล็อกแบบเปิดแก้)
+ */
+export function LockReleasedBanner({
+  by,
+  reason,
+  onReload,
+}: {
+  by: string;
+  reason: string | null;
+  onReload?: () => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <div
+      role="alert"
+      data-testid="edit-lock-released"
+      style={{
+        background: '#EEF0EC',
+        border: '1px solid #E9F0FA',
+        borderRadius: 8,
+        padding: '10px 14px',
+        display: 'flex',
+        gap: 8,
+        alignItems: 'flex-start',
+      }}
+    >
+      <Icon n="lock" s={16} style={{ color: '#2257C4', marginTop: 4, flexShrink: 0 }} />
+      <span style={{ flex: 1 }}>
+        <span style={{ fontWeight: 600 }}>{t('ord.lock.released', { name: by })}</span>
+        {reason && (
+          <>
+            <br />
+            <span style={{ color: '#59606B', fontSize: 12.5 }}>
+              {t('ord.lock.releasedReason', { reason })}
+            </span>
+          </>
+        )}
+      </span>
+      {onReload && (
+        <button type="button" className="tms-linkbtn" style={{ flexShrink: 0 }} onClick={onReload}>
+          {t('ord.lock.reload')}
+        </button>
+      )}
+    </div>
+  );
+}

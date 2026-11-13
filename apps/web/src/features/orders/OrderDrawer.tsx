@@ -233,7 +233,11 @@ export function OrderDrawer({
               soNo={o.soNo ?? t('ord.draftNo')}
               lock={lockedBy}
               canUnlock={canUnlock}
-              onUnlocked={onDone}
+              onUnlocked={(msg) => {
+                onDone(msg);
+                // ผู้ปลดตั้งใจแก้เอง (QA) → เปิดฟอร์มแก้ทันที = ขอล็อกต่อ (ผู้ถือเดิมได้ 409 "ถูกปลดล็อกโดย …")
+                if (canWrite) onEdit(o);
+              }}
             />
           )}
           {o.status === 'on_hold' && o.holdReason && (

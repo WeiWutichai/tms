@@ -185,7 +185,7 @@ test('ผู้ใช้ B เปิดใบที่ A แก้อยู่ �
   await expect(db2.getByTestId('edit-lock-banner')).toHaveCount(0);
   await pb.keyboard.press('Escape');
 
-  // 4) A เปิดแก้อีกครั้ง → B (ผู้จัดการ, orders:unlock) ปลดล็อกด้วยเหตุผล → เปิดแก้เอง
+  // 4) A เปิดแก้อีกครั้ง → B (ผู้จัดการ, orders:unlock) ปลดล็อกจาก drawer ด้วยเหตุผล → ฟอร์มแก้ของ B เปิดเอง (ได้ล็อก)
   expect(await (await openEdit(page, so.soNo)).status()).toBe(200);
   const db3 = await openOrder(pb, so.soNo);
   const banner = db3.getByTestId('edit-lock-banner');
@@ -193,33 +193,48 @@ test('ผู้ใช้ B เปิดใบที่ A แก้อยู่ �
   await banner.getByRole('button', { name: 'ปลดล็อก' }).click();
   const dlg = pb.getByRole('dialog', { name: `ปลดล็อกการแก้ไขของ ${A_NAME}` });
   await dlg.getByLabel(/เหตุผลที่ปลดล็อก/).fill('ผู้แก้ไม่อยู่ ต้องแก้วันรับของด่วน');
+  const b1 = pb.waitForResponse(
+    (r) => /\/v1\/orders\/[^/]+\/lock$/.test(r.url()) && r.request().method() === 'POST',
+  );
   await dlg.getByRole('button', { name: 'ปลดล็อก' }).click();
   await expect(pb.getByRole('status')).toContainText(`ปลดล็อก ${so.soNo} แล้ว`);
-  await expect(db3.getByTestId('edit-lock-banner')).toHaveCount(0);
+  expect((await b1).status()).toBe(200);
+  const fb = pb.getByRole('dialog');
+  await expect(fb.getByText(`แก้ไข ${so.soNo}`)).toBeVisible();
+  await expect(fb.getByTestId('edit-lock-banner')).toHaveCount(0);
   const audit = await db.auditLog.findFirst({
     where: { entityId: soId, action: 'order.edit_lock_released' },
   });
   expect(audit).toMatchObject({ reason: 'ผู้แก้ไม่อยู่ ต้องแก้วันรับของด่วน' });
-  const b1 = pb.waitForResponse(
-    (r) => /\/v1\/orders\/[^/]+\/lock$/.test(r.url()) && r.request().method() === 'POST',
-  );
-  await db3.getByRole('button', { name: 'เพิ่มเติม' }).click();
-  await pb.getByRole('menuitem', { name: 'แก้ไข', exact: true }).click();
-  expect((await b1).status()).toBe(200);
 
-  // 5) A กดบันทึก → 409 → ฟอร์ม A อ่านอย่างเดียว พร้อมป้ายชื่อ B
+  // 5) A กดบันทึก → 409 order_lock_released → ฟอร์ม A อ่านอย่างเดียว "ถูกปลดล็อกโดย B" + เหตุผล (ข้อมูลไม่ถูกบันทึก)
   const fa = page.getByRole('dialog');
   await fa.getByLabel('เลข PO ลูกค้า').fill(`PO-A-${RUN}`);
+  const saveA = page.waitForResponse(
+    (r) => r.url().endsWith(`/v1/orders/${so.id}`) && r.request().method() === 'PATCH',
+  );
   await fa.getByRole('button', { name: 'บันทึกการแก้ไข' }).click();
-  await expect(fa.getByTestId('edit-lock-banner')).toContainText(`กำลังแก้ไขโดย ${B_NAME}`);
+  expect((await saveA).status()).toBe(409);
+  const rel = fa.getByTestId('edit-lock-released');
+  await expect(rel).toContainText(`ถูกปลดล็อกโดย ${B_NAME}`);
+  await expect(rel).toContainText('ผู้แก้ไม่อยู่ ต้องแก้วันรับของด่วน');
   await expect(fa.getByLabel('เลข PO ลูกค้า')).toBeDisabled();
   await expect(fa.getByRole('button', { name: 'บันทึกการแก้ไข' })).toBeDisabled();
+  expect(
+    ((await db.salesOrder.findFirst({ where: { id: soId } })) as { customerRef: string })
+      .customerRef,
+  ).not.toBe(`PO-A-${RUN}`);
+  // A กด "โหลดใหม่" → เปิดแก้ใหม่ → B ยังแก้อยู่ → ป้าย "กำลังแก้ไขโดย B"
+  await rel.getByRole('button', { name: 'โหลดใหม่' }).click();
+  await expect(page.getByRole('dialog').getByTestId('edit-lock-banner')).toContainText(
+    `กำลังแก้ไขโดย ${B_NAME}`,
+  );
 
-  // 6) B ปิดฟอร์ม → ปลดล็อก (A ลองใหม่แล้วได้ล็อก)
+  // 6) B ปิดฟอร์ม → ปลดล็อก
   const released = pb.waitForResponse(
     (r) => /\/v1\/orders\/[^/]+\/unlock$/.test(r.url()) && r.request().method() === 'POST',
   );
-  await pb.getByRole('dialog').getByRole('button', { name: 'ยกเลิก' }).click();
+  await fb.getByRole('button', { name: 'ยกเลิก' }).click();
   expect((await released).status()).toBe(204);
   await ctx.close();
 });

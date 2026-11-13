@@ -31,6 +31,7 @@ import {
   OrderDto,
   OrderEditLockDto,
   OrderListQuery,
+  OrderLockDto,
   OrderPageDto,
   OrderSummaryDto,
   OrderUnlockDto,
@@ -185,9 +186,20 @@ const E409_LOCK = {
   status: 409,
   description:
     '409 `order_locked_by_user` — ผู้ใช้อื่นเปิดแก้อยู่ (`editLock` = ผู้ถือ + เวลาหมดอายุ) · ' +
+    '`order_lock_released` — ล็อกของผู้เรียกถูกผู้อื่นปลด (heartbeat/PATCH) จนกว่าจะเปิดแก้ใหม่ · ' +
     '`concurrent_update` — ล็อกเปลี่ยนมือระหว่างขอ ลองใหม่ได้',
   examples: {
     order_locked_by_user: LOCKED_BY_USER,
+    order_lock_released: P(
+      'order_lock_released',
+      409,
+      'การแก้ไขของคุณถูกปลดล็อกโดยผู้อื่นแล้ว — โหลดใหม่ก่อนแก้ต่อ',
+      {
+        releasedBy: { userId: 'usr_9b2e…', userName: 'ผู้จัดการ ตัวอย่าง' },
+        releasedAt: '2026-11-13T02:06:00.000Z',
+        reason: 'ผู้แก้ไม่อยู่ ต้องแก้วันรับของด่วน',
+      },
+    ),
     concurrent_update: P(
       'concurrent_update',
       409,
@@ -338,6 +350,7 @@ export class OrdersController {
     summary: 'แก้บางช่อง',
     description:
       'ผู้ใช้อื่นเปิดแก้อยู่ (ล็อกการแก้ยังไม่หมดอายุ — ST3-T08) → 409 `order_locked_by_user` · ผู้ถือล็อกแก้ได้และนับเป็นกิจกรรม (ต่ออายุ) · ' +
+      'ล็อกของผู้เรียกถูกผู้อื่นปลด → 409 `order_lock_released` จนกว่าจะเปิดแก้ใหม่ (POST /lock) · ' +
       'ไม่มีล็อก = แก้ได้ตามปกติ · ทางเข้า POST/PUT external (API/connector/นำเข้า) ไม่ติดล็อก',
   })
   @ApiOkResponse({ type: OrderDto })
@@ -348,7 +361,11 @@ export class OrdersController {
     {
       ...E409(false),
       description: `${LOCKED_DOC} · 409 \`order_locked_by_user\` — ผู้ใช้อื่นเปิดแก้อยู่`,
-      examples: { ...E409(false).examples, order_locked_by_user: LOCKED_BY_USER },
+      examples: {
+        ...E409(false).examples,
+        order_locked_by_user: LOCKED_BY_USER,
+        order_lock_released: E409_LOCK.examples.order_lock_released,
+      },
     },
     E412,
     E413,
@@ -396,9 +413,9 @@ export class OrdersController {
     E404,
     E409_LOCK,
   )
-  async lock(@Param('id') id: string): Promise<OrderEditLockDto> {
+  async lock(@Param('id') id: string, @Body() body: OrderLockDto): Promise<OrderEditLockDto> {
     const o = await this.resolve(id);
-    return this.locks.acquire(o.id);
+    return this.locks.acquire(o.id, body?.heartbeat === true);
   }
 
   /**
@@ -412,7 +429,8 @@ export class OrdersController {
   @ApiOperation({
     summary: 'ปลดล็อกการแก้',
     description:
-      'ของตัวเอง/ไม่มีล็อก/หมดอายุ → 204 · ล็อกของผู้อื่น: ต้องมีสิทธิ์ `orders:unlock` (ไม่มี → 403) และ `reason` ≥ 10 ตัวอักษร (422) — ลง audit พร้อมเหตุผล',
+      'ของตัวเอง/ไม่มีล็อก/หมดอายุ → 204 · ล็อกของผู้อื่น: ต้องมีสิทธิ์ `orders:unlock` (ไม่มี → 403) และ `reason` ≥ 10 ตัวอักษร (422) — ลง audit พร้อมเหตุผล · ' +
+      'ผู้ถือเดิมต่ออายุ/บันทึกไม่ได้ (409 `order_lock_released`) จนกว่าจะเปิดแก้ใหม่ — คนอื่นขอล็อกได้ทันที',
   })
   @ApiNoContentResponse()
   @ApiProblems(

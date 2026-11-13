@@ -3,6 +3,7 @@ import { Type } from 'class-transformer';
 import {
   Allow,
   IsArray,
+  IsBoolean,
   IsIn,
   IsInt,
   IsISO8601,
@@ -436,6 +437,18 @@ export class OrderEditLockDto {
   })
   expiresAt!: string;
   @ApiProperty({ description: 'ผู้เรียกเป็นผู้ถือล็อกเอง' }) mine!: boolean;
+}
+
+/** ขอล็อก (ST3-T08) — ไม่ส่ง/`heartbeat: false` = เปิดแก้ (ล้างการแจ้งว่าถูกปลด) · `heartbeat: true` = ต่ออายุระหว่างแก้ */
+export class OrderLockDto {
+  @ApiPropertyOptional({
+    description:
+      'true = ต่ออายุระหว่างแก้ (หน้าจอส่งเมื่อผู้ใช้มีกิจกรรม) — ถ้าล็อกเดิมถูกผู้อื่นปลดแล้วได้ 409 `order_lock_released` ' +
+      '(ไม่ได้ล็อกคืนเอง) · ไม่ส่ง/false = เปิดแก้ใหม่',
+  })
+  @IsOptional()
+  @IsBoolean()
+  heartbeat?: boolean;
 }
 
 /** ปลดล็อก — ของตัวเองไม่ต้องมีเหตุผล · ปลดของคนอื่น (`orders:unlock`) ต้องมีเหตุผล ≥ 10 ตัวอักษร (ลง audit) */

@@ -31,6 +31,7 @@ interface LockRow {
  * - ใช้ล็อกเฉพาะทางแก้ของหน้าจอ: PATCH /v1/orders/{id} ของผู้ที่ไม่ใช่ผู้ถือ → 409 · ทางเข้า POST/PUT external
  *   (API/connector/นำเข้า) และการเปลี่ยนสถานะจากเที่ยว/DO ไม่ติดล็อก (docs/04 C "ทุกใบเข้าระบบ"; คนที่แก้อยู่จะได้ 412 ตอนบันทึก)
  * - ปลดของตัวเอง/ล็อกหมดอายุ = ลบแถว · ปลดของคนอื่นต้องมี `orders:unlock` + เหตุผล ≥ 10 ตัวอักษร + audit
+ *   + บันทึก `order_edit_lock_release` ให้ผู้ถือเดิม heartbeat/PATCH ได้ 409 `order_lock_released` จนกว่าจะเปิดแก้ใหม่ (QA)
  */
 @Injectable()
 export class OrderLockService {
@@ -94,12 +95,40 @@ export class OrderLockService {
     });
   }
 
-  /** ขอล็อก / ต่ออายุ (heartbeat) — ผู้อื่นถืออยู่และยังไม่หมดอายุ → 409 `order_locked_by_user` */
-  async acquire(salesOrderId: string): Promise<OrderEditLockDto> {
+  /**
+   * การปลดล็อกของผู้อื่นที่ยังมีผลกับผู้ใช้นี้ (QA ST3-T08) → 409 `order_lock_released` พร้อมชื่อผู้ปลด + เหตุผล
+   * ผู้ถือเดิมต่ออายุ/บันทึกไม่ได้จนกว่าจะเปิดแก้ใหม่ (POST /lock แบบเปิด) หรือหมดอายุ (ปลด + 10 นาที)
+   */
+  private async assertNotReleased(salesOrderId: string, userId: string | undefined, now: Date) {
+    if (!userId || !UUID.test(userId)) return;
+    const rel = await this.db.tx.orderEditLockRelease.findUnique({
+      where: { salesOrderId_userId: { salesOrderId, userId } },
+      select: {
+        releasedAt: true,
+        reason: true,
+        expiresAt: true,
+        releaser: { select: { id: true, name: true } },
+      },
+    });
+    if (rel && rel.expiresAt > now)
+      throw new ProblemException('order_lock_released', undefined, undefined, {
+        releasedBy: { userId: encodeId('user', rel.releaser.id), userName: rel.releaser.name },
+        releasedAt: rel.releasedAt.toISOString(),
+        reason: rel.reason,
+      });
+  }
+
+  /**
+   * เปิดแก้ (ขอล็อก — ค่าตั้งต้น) / ต่ออายุ (`heartbeat`) — ผู้อื่นถืออยู่และยังไม่หมดอายุ → 409 `order_locked_by_user`
+   * heartbeat ของผู้ที่ถูกปลดล็อก → 409 `order_lock_released` (ไม่ได้ล็อกคืนเงียบ ๆ) · เปิดแก้ใหม่ = ล้างการแจ้งแล้วขอตามปกติ
+   */
+  async acquire(salesOrderId: string, heartbeat = false): Promise<OrderEditLockDto> {
     const userId = await this.actorUser();
     const tenantId = requestContext.require().tenantId!;
     const now = this.clock.now();
     const exp = new Date(now.getTime() + EDIT_LOCK_TTL_MS);
+    if (heartbeat) await this.assertNotReleased(salesOrderId, userId, now);
+    else await this.db.tx.orderEditLockRelease.deleteMany({ where: { salesOrderId, userId } });
     const got = await this.db.tx.$queryRaw<{ id: string }[]>`
       INSERT INTO order_edit_lock (id, tenant_id, sales_order_id, user_id, acquired_at, last_seen_at, expires_at)
       VALUES (gen_random_uuid(), ${tenantId}::uuid, ${salesOrderId}::uuid, ${userId}::uuid, ${now}, ${now}, ${exp})
@@ -132,6 +161,7 @@ export class OrderLockService {
   async assertWritable(salesOrderId: string): Promise<void> {
     const actor = requestContext.require().actorId;
     const now = this.clock.now();
+    await this.assertNotReleased(salesOrderId, actor, now);
     const rows = await this.db.tx.$queryRaw<{ id: string; user_id: string; expires_at: Date }[]>`
       SELECT id, user_id, expires_at FROM order_edit_lock
        WHERE sales_order_id = ${salesOrderId}::uuid FOR UPDATE`;
@@ -173,11 +203,29 @@ export class OrderLockService {
         throw new ProblemException('validation_failed', undefined, [
           { field: 'reason', code: 'minLength', message: 'reason must be at least 10 characters' },
         ]);
+      // ผู้ปลดต้องเป็นผู้ใช้ (บันทึกชื่อให้ผู้ถือเดิมเห็น) — ตรวจก่อนลบ
+      const releaser = await this.actorUser();
       // ลบเฉพาะล็อกที่เห็น (ผู้ถือเดิมยังไม่ต่ออายุ/ปลดเองระหว่างนี้ก็ยังเป็นแถวเดิม — id + user ตรง)
       const del = await this.db.tx.orderEditLock.deleteMany({
         where: { id: r.id, userId: r.userId },
       });
       if (!del.count) return;
+      // แจ้งผู้ถือเดิม (QA): heartbeat/บันทึกครั้งถัดไปได้ 409 "ถูกปลดล็อกโดย …" ไม่ว่าล็อกจะเปลี่ยนมือหรือถูกลบต่อ
+      const until = new Date(this.clock.now().getTime() + EDIT_LOCK_TTL_MS);
+      const at = this.clock.now();
+      await this.db.tx.orderEditLockRelease.upsert({
+        where: { salesOrderId_userId: { salesOrderId, userId: r.userId } },
+        create: {
+          tenantId: ctx.tenantId!,
+          salesOrderId,
+          userId: r.userId,
+          releasedBy: releaser,
+          releasedAt: at,
+          reason: why,
+          expiresAt: until,
+        },
+        update: { releasedBy: releaser, releasedAt: at, reason: why, expiresAt: until },
+      });
       await this.audit.record({
         action: 'order.edit_lock_released',
         entityType: 'sales_order',

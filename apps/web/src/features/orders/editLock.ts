@@ -15,11 +15,14 @@ export type LockState =
   | { kind: 'mine'; lock: EditLock }
   /** ผู้อื่นแก้อยู่ — อ่านอย่างเดียว */
   | { kind: 'other'; lock: EditLock }
+  /** ล็อกของเราถูกผู้อื่นปลด (`orders:unlock`) — อ่านอย่างเดียวจนกว่าจะโหลดใหม่ (เปิดแก้ใหม่) */
+  | { kind: 'released'; by: string; reason: string | null }
   /** ขอไม่ได้ด้วยเหตุอื่น (เน็ต/ไม่ใช่ผู้ใช้) — ให้แก้ต่อได้ server ตรวจซ้ำตอนบันทึก */
   | { kind: 'free' };
 
 export interface LockApi {
-  acquire: () => Promise<EditLock>;
+  /** `heartbeat` = ต่ออายุระหว่างแก้ (ถูกปลดแล้ว → 409 `order_lock_released`) · false = เปิดแก้ */
+  acquire: (heartbeat: boolean) => Promise<EditLock>;
   release: (keepalive: boolean) => Promise<void>;
 }
 
@@ -28,6 +31,16 @@ export function lockedBy(e: unknown): EditLock | null {
   if (e instanceof ApiError && e.problem.code === 'order_locked_by_user')
     return ((e.problem as unknown as { editLock?: EditLock }).editLock ?? null) as EditLock | null;
   return null;
+}
+
+/** ล็อกของเราถูกผู้อื่นปลด (409 `order_lock_released`) → ชื่อผู้ปลด + เหตุผล */
+export function releasedBy(e: unknown): { by: string; reason: string | null } | null {
+  if (!(e instanceof ApiError) || e.problem.code !== 'order_lock_released') return null;
+  const p = e.problem as unknown as {
+    releasedBy?: { userName?: string };
+    reason?: string | null;
+  };
+  return { by: p.releasedBy?.userName ?? '', reason: p.reason ?? null };
 }
 
 /** ขอล็อกไม่ได้คำตอบภายในเวลานี้ → ถือว่าว่าง (ปุ่มบันทึกไม่ค้าง — server ตรวจซ้ำตอนบันทึก) */
@@ -53,6 +66,8 @@ export class EditLockController {
   private busy = false;
   private keepalive = false;
   private lastTry = 0;
+  /** เคยได้ล็อกแล้ว — การขอซ้ำหลังจากนี้เป็น heartbeat (ถูกปลดแล้วไม่ได้ล็อกคืนเงียบ ๆ ต้องโหลดใหม่) */
+  private held = false;
 
   constructor(
     private readonly lockApi: LockApi,
@@ -66,18 +81,21 @@ export class EditLockController {
     this.onChange(s);
   }
 
-  private async beat(): Promise<void> {
+  private async beat(open = false): Promise<void> {
     if (this.busy || this.stopped) return;
     this.busy = true;
     this.lastTry = Date.now();
     try {
-      const lock = await this.lockApi.acquire();
+      const lock = await this.lockApi.acquire(this.held && !open);
+      this.held = true;
       // ปิดฟอร์มระหว่างรอผล → ปลดทันที (ไม่ค้างล็อกให้คนอื่นรอ 10 นาที)
       if (this.stopped) return void this.lockApi.release(this.keepalive).catch(() => undefined);
       this.set({ kind: 'mine', lock });
     } catch (e) {
       const other = lockedBy(e);
-      if (other) this.set({ kind: 'other', lock: other });
+      const rel = releasedBy(e);
+      if (rel) this.set({ kind: 'released', ...rel });
+      else if (other) this.set({ kind: 'other', lock: other });
       else if (this.state.kind === 'pending') this.set({ kind: 'free' });
     } finally {
       this.busy = false;
@@ -91,16 +109,19 @@ export class EditLockController {
     }, LOCK_TIMEOUT_MS);
     this.timer = setInterval(() => {
       // ต่ออายุ/ลองใหม่เฉพาะเมื่อมีกิจกรรมตั้งแต่รอบก่อน
-      if (this.active && this.state.kind !== 'pending') {
+      if (this.active && this.state.kind !== 'pending' && this.state.kind !== 'released') {
         this.active = false;
         void this.beat();
       }
     }, this.everyMs);
   }
 
-  /** ขอใหม่ทันที (เช่น เพิ่งปลดล็อกของผู้อื่นสำเร็จ / บันทึกแล้วได้ 409) */
-  retry(): void {
-    void this.beat();
+  /**
+   * ขอใหม่ทันที — `open` = ผู้ใช้ตั้งใจเปิดแก้ (เช่น เพิ่งปลดล็อกของผู้อื่นสำเร็จ) · ไม่ส่ง = heartbeat
+   * (เช่น บันทึกแล้วได้ 409 → รู้ว่าใครถือ/ถูกปลด)
+   */
+  retry(open = false): void {
+    void this.beat(open);
   }
 
   /** ผู้ใช้พิมพ์/คลิกในฟอร์ม */
@@ -127,8 +148,13 @@ export class EditLockController {
 /** API ของล็อก (endpoint ชุดเดียวกับลูกค้า — /v1/orders/{id}/lock, /unlock) */
 export function orderLockApi(id: string): LockApi {
   return {
-    acquire: () =>
-      unwrap(api.POST('/v1/orders/{id}/lock', { params: { path: { id } } })) as Promise<EditLock>,
+    acquire: (heartbeat) =>
+      unwrap(
+        api.POST('/v1/orders/{id}/lock', {
+          params: { path: { id } },
+          body: heartbeat ? { heartbeat: true } : {},
+        }),
+      ) as Promise<EditLock>,
     release: async (keepalive) => {
       await unwrap(
         api.POST('/v1/orders/{id}/unlock', {
@@ -147,7 +173,10 @@ export function orderLockApi(id: string): LockApi {
  * - กลับมาหน้าเดิมจาก bfcache (`pageshow.persisted`) หลัง `pagehide` ปลดไปแล้ว → สร้างตัวคุมใหม่แล้วขอใหม่
  * - ล็อกผูกกับผู้ใช้ ไม่ใช่แท็บ: ผู้ใช้เดียวกันเปิด 2 แท็บ = แก้ได้ทั้งคู่ (ปิดแท็บหนึ่ง = ปลด แท็บที่เหลือขอใหม่เมื่อมีกิจกรรม)
  */
-export function useOrderEditLock(id: string | null): { state: LockState; retry: () => void } {
+export function useOrderEditLock(id: string | null): {
+  state: LockState;
+  retry: (open?: boolean) => void;
+} {
   const qc = useQueryClient();
   const [state, setState] = useState<LockState>(id ? { kind: 'pending' } : { kind: 'free' });
   const ref = useRef<{ id: string; c: EditLockController; closing?: number } | null>(null);
@@ -197,5 +226,5 @@ export function useOrderEditLock(id: string | null): { state: LockState; retry: 
       }, 0);
     };
   }, [id, qc]);
-  return { state, retry: () => ref.current?.c.retry() };
+  return { state, retry: (open?: boolean) => ref.current?.c.retry(open) };
 }

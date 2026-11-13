@@ -4706,7 +4706,7 @@
         ]
       },
       "patch": {
-        "description": "ผู้ใช้อื่นเปิดแก้อยู่ (ล็อกการแก้ยังไม่หมดอายุ — ST3-T08) → 409 `order_locked_by_user` · ผู้ถือล็อกแก้ได้และนับเป็นกิจกรรม (ต่ออายุ) · ไม่มีล็อก = แก้ได้ตามปกติ · ทางเข้า POST/PUT external (API/connector/นำเข้า) ไม่ติดล็อก",
+        "description": "ผู้ใช้อื่นเปิดแก้อยู่ (ล็อกการแก้ยังไม่หมดอายุ — ST3-T08) → 409 `order_locked_by_user` · ผู้ถือล็อกแก้ได้และนับเป็นกิจกรรม (ต่ออายุ) · ล็อกของผู้เรียกถูกผู้อื่นปลด → 409 `order_lock_released` จนกว่าจะเปิดแก้ใหม่ (POST /lock) · ไม่มีล็อก = แก้ได้ตามปกติ · ทางเข้า POST/PUT external (API/connector/นำเข้า) ไม่ติดล็อก",
         "operationId": "Orders_update",
         "parameters": [
           {
@@ -4882,6 +4882,22 @@
                         "mine": false
                       }
                     }
+                  },
+                  "order_lock_released": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/order_lock_released",
+                      "title": "การแก้ไขของคุณถูกปลดล็อกโดยผู้อื่นแล้ว — โหลดใหม่ก่อนแก้ต่อ",
+                      "status": 409,
+                      "code": "order_lock_released",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "releasedBy": {
+                        "userId": "usr_9b2e…",
+                        "userName": "ผู้จัดการ ตัวอย่าง"
+                      },
+                      "releasedAt": "2026-11-13T02:06:00.000Z",
+                      "reason": "ผู้แก้ไม่อยู่ ต้องแก้วันรับของด่วน"
+                    }
                   }
                 }
               }
@@ -5006,6 +5022,16 @@
             }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrderLockDto"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "",
@@ -5077,7 +5103,7 @@
             }
           },
           "409": {
-            "description": "409 `order_locked_by_user` — ผู้ใช้อื่นเปิดแก้อยู่ (`editLock` = ผู้ถือ + เวลาหมดอายุ) · `concurrent_update` — ล็อกเปลี่ยนมือระหว่างขอ ลองใหม่ได้",
+            "description": "409 `order_locked_by_user` — ผู้ใช้อื่นเปิดแก้อยู่ (`editLock` = ผู้ถือ + เวลาหมดอายุ) · `order_lock_released` — ล็อกของผู้เรียกถูกผู้อื่นปลด (heartbeat/PATCH) จนกว่าจะเปิดแก้ใหม่ · `concurrent_update` — ล็อกเปลี่ยนมือระหว่างขอ ลองใหม่ได้",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -5100,6 +5126,22 @@
                         "expiresAt": "2026-11-13T02:14:00.000Z",
                         "mine": false
                       }
+                    }
+                  },
+                  "order_lock_released": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/order_lock_released",
+                      "title": "การแก้ไขของคุณถูกปลดล็อกโดยผู้อื่นแล้ว — โหลดใหม่ก่อนแก้ต่อ",
+                      "status": 409,
+                      "code": "order_lock_released",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "releasedBy": {
+                        "userId": "usr_9b2e…",
+                        "userName": "ผู้จัดการ ตัวอย่าง"
+                      },
+                      "releasedAt": "2026-11-13T02:06:00.000Z",
+                      "reason": "ผู้แก้ไม่อยู่ ต้องแก้วันรับของด่วน"
                     }
                   },
                   "concurrent_update": {
@@ -5130,7 +5172,7 @@
     },
     "/v1/orders/{id}/unlock": {
       "post": {
-        "description": "ของตัวเอง/ไม่มีล็อก/หมดอายุ → 204 · ล็อกของผู้อื่น: ต้องมีสิทธิ์ `orders:unlock` (ไม่มี → 403) และ `reason` ≥ 10 ตัวอักษร (422) — ลง audit พร้อมเหตุผล",
+        "description": "ของตัวเอง/ไม่มีล็อก/หมดอายุ → 204 · ล็อกของผู้อื่น: ต้องมีสิทธิ์ `orders:unlock` (ไม่มี → 403) และ `reason` ≥ 10 ตัวอักษร (422) — ลง audit พร้อมเหตุผล · ผู้ถือเดิมต่ออายุ/บันทึกไม่ได้ (409 `order_lock_released`) จนกว่าจะเปิดแก้ใหม่ — คนอื่นขอล็อกได้ทันที",
         "operationId": "Orders_unlock",
         "parameters": [
           {
@@ -22544,6 +22586,15 @@
             "items": {
               "$ref": "#/components/schemas/OrderLineInputDto"
             }
+          }
+        }
+      },
+      "OrderLockDto": {
+        "type": "object",
+        "properties": {
+          "heartbeat": {
+            "type": "boolean",
+            "description": "true = ต่ออายุระหว่างแก้ (หน้าจอส่งเมื่อผู้ใช้มีกิจกรรม) — ถ้าล็อกเดิมถูกผู้อื่นปลดแล้วได้ 409 `order_lock_released` (ไม่ได้ล็อกคืนเอง) · ไม่ส่ง/false = เปิดแก้ใหม่"
           }
         }
       },

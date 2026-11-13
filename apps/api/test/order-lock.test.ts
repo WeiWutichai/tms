@@ -216,9 +216,84 @@ describe('order edit lock (ST3-T08)', () => {
       userId: encodeId('user', userA),
       userName: 'สมชาย ใจดี',
     });
-    // A ที่ถูกปลดแล้วขอใหม่ได้ (ไม่มีใครถือ) — หน้าจอ A จะเห็นว่าล็อกเปลี่ยนมือเมื่อ B ขอก่อน
+    // ปลดแล้วไม่นับเป็นล็อก — B เปิดแก้ได้ทันที แล้ว A ขอไม่ได้ (B ถืออยู่)
     await lock(o.id, tokB).expect(200);
     await lock(o.id, tokA).expect(409);
+  });
+
+  it('QA: ผู้จัดการปลดล็อก → ผู้ถือเดิม heartbeat/PATCH ได้ 409 order_lock_released (ไม่ได้ล็อกคืนเงียบ ๆ) จนกว่าจะเปิดแก้ใหม่', async () => {
+    clock.set(T0);
+    const o = await newOrder();
+    await lock(o.id, tokA).expect(200);
+    await unlock(o.id, tokM, 'ผู้แก้ไม่อยู่ ต้องแก้วันรับของด่วน').expect(204);
+    // ไม่นับเป็นล็อก — คนอื่นเห็นว่าว่าง
+    expect((await api(app, tokB).get(`/v1/orders/${o.id}`).expect(200)).body.editLock).toBeNull();
+    // A ต่ออายุ (heartbeat) → 409 พร้อมชื่อผู้ปลด + เหตุผล ไม่ได้ล็อกคืน
+    clock.set(new Date(T0.getTime() + MIN));
+    const hb = await api(app, tokA)
+      .post(`/v1/orders/${o.id}/lock`)
+      .send({ heartbeat: true })
+      .expect(409);
+    expect(hb.body).toMatchObject({
+      code: 'order_lock_released',
+      releasedBy: { userId: encodeId('user', userM), userName: 'ผู้จัดการ ทดสอบ' },
+      reason: 'ผู้แก้ไม่อยู่ ต้องแก้วันรับของด่วน',
+    });
+    expect((await api(app, tokB).get(`/v1/orders/${o.id}`).expect(200)).body.editLock).toBeNull();
+    // A บันทึก (PATCH) → 409 เช่นกัน · ข้อมูลไม่เปลี่ยน
+    const p = await patch(o.id, tokA, { customerRef: 'PO-A-หลังถูกปลด' }).expect(409);
+    expect(p.body.code).toBe('order_lock_released');
+    // คนอื่น (ไม่ได้ถูกปลด) แก้ได้ตามปกติ — ไม่มีล็อก
+    await patch(o.id, tokB, { customerRef: 'PO-B-หลังปลด' }).expect(200);
+    // คนอื่นเรียกปลด (ไม่มีล็อก) ไม่ลบการแจ้งของ A
+    await unlock(o.id, tokB).expect(204);
+    await api(app, tokA).post(`/v1/orders/${o.id}/lock`).send({ heartbeat: true }).expect(409);
+    // A เปิดแก้ใหม่ (โหลดใหม่) → ได้ล็อก แล้วบันทึกได้
+    const re = await lock(o.id, tokA).expect(200);
+    expect(re.body).toMatchObject({ mine: true });
+    await patch(o.id, tokA, { customerRef: 'PO-A-เปิดใหม่' }).expect(200);
+  });
+
+  it('QA: ผู้จัดการปลดแล้วเปิดแก้เอง แล้วปิด (ล็อกถูกลบ) → A ยังได้ 409 order_lock_released ไม่ได้ล็อกคืนเงียบ ๆ', async () => {
+    const o = await newOrder();
+    await lock(o.id, tokA).expect(200);
+    await unlock(o.id, tokM, 'ผู้แก้ไม่อยู่ ต้องแก้วันรับของด่วน').expect(204);
+    await lock(o.id, tokM).expect(200);
+    const hb = (heartbeatTok: string) =>
+      api(app, heartbeatTok).post(`/v1/orders/${o.id}/lock`).send({ heartbeat: true });
+    expect((await hb(tokA).expect(409)).body).toMatchObject({
+      code: 'order_lock_released',
+      releasedBy: { userName: 'ผู้จัดการ ทดสอบ' },
+    });
+    expect((await patch(o.id, tokA, { customerRef: 'x' }).expect(409)).body.code).toBe(
+      'order_lock_released',
+    );
+    // ผู้จัดการปิดฟอร์ม (ปลดของตัวเอง — ไม่มีล็อกเหลือ) → A heartbeat/PATCH ยังไม่ได้
+    await unlock(o.id, tokM).expect(204);
+    await hb(tokA).expect(409);
+    await patch(o.id, tokA, { customerRef: 'x' }).expect(409);
+    // A เปิดแก้ใหม่ระหว่างผู้จัดการถืออยู่ → 409 order_locked_by_user (ชื่อผู้ถือ)
+    await lock(o.id, tokM).expect(200);
+    expect((await lock(o.id, tokA).expect(409)).body).toMatchObject({
+      code: 'order_locked_by_user',
+      editLock: { userName: 'ผู้จัดการ ทดสอบ' },
+    });
+    // ผู้จัดการปิด → A เปิดแก้ (โหลดใหม่) ได้ล็อก และบันทึกได้
+    await unlock(o.id, tokM).expect(204);
+    await lock(o.id, tokA).expect(200);
+    await hb(tokA).expect(200);
+    await patch(o.id, tokA, { customerRef: 'PO-A-หลังเปิดใหม่' }).expect(200);
+  });
+
+  it('QA: การแจ้งถูกปลดหมดอายุ 10 นาทีหลังปลด → ผู้ถือเดิมกลับมาเป็นปกติ (PATCH ได้)', async () => {
+    clock.set(T0);
+    const o = await newOrder();
+    await lock(o.id, tokA).expect(200);
+    await unlock(o.id, tokM, 'ผู้แก้ไม่อยู่ ต้องแก้วันรับของด่วน').expect(204);
+    clock.set(new Date(T0.getTime() + 9 * MIN));
+    await patch(o.id, tokA, { customerRef: 'PO-ยังถูกปลด' }).expect(409);
+    clock.set(new Date(T0.getTime() + 10 * MIN));
+    await patch(o.id, tokA, { customerRef: 'PO-พ้นแล้ว' }).expect(200);
   });
 
   it('ปลดล็อกที่หมดอายุแล้วของคนอื่น = 204 ไม่ต้องมีสิทธิ์/เหตุผล (ไม่ลง audit)', async () => {

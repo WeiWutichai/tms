@@ -152,4 +152,20 @@ describe('OrderFormDrawer ล็อกการแก้ (ST3-T08)', () => {
     expect(screen.getByRole('button', { name: 'บันทึกการแก้ไข' })).toBeEnabled();
     expect(screen.queryByTestId('edit-lock-banner')).toBeNull();
   });
+
+  it('QA: ล็อกถูกปลด → "ถูกปลดล็อกโดย …" + เหตุผล ทุกช่องปิด บันทึกไม่ได้', () => {
+    live.data = BASE;
+    lockState.state = {
+      kind: 'released',
+      by: 'ผู้จัดการ ตัวอย่าง',
+      reason: 'ต้องแก้วันรับของด่วน',
+    };
+    view();
+    expect(screen.getByTestId('edit-lock-released')).toHaveTextContent(
+      /ถูกปลดล็อกโดย ผู้จัดการ ตัวอย่าง.*เหตุผล: ต้องแก้วันรับของด่วน/,
+    );
+    expect(screen.getByLabelText(/เลข PO ลูกค้า/)).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'บันทึกการแก้ไข' })).toBeDisabled();
+    lockState.state = { kind: 'mine', lock: {} };
+  });
 });

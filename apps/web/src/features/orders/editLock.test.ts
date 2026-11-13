@@ -27,6 +27,17 @@ const taken = (name: string) =>
     editLock: lock(name, false),
   } as never);
 
+const released = (name: string) =>
+  new ApiError({
+    type: '',
+    title: '',
+    status: 409,
+    code: 'order_lock_released',
+    releasedBy: { userId: 'usr_m', userName: name },
+    releasedAt: '2026-11-13T02:05:00.000Z',
+    reason: 'ผู้แก้ไม่อยู่ ต้องแก้ด่วน',
+  } as never);
+
 /** ST3-T08: ขอล็อกเมื่อเปิด · heartbeat เฉพาะเมื่อมีกิจกรรม · ปลดเมื่อปิด · ผู้อื่นถือ = อ่านอย่างเดียว */
 describe('EditLockController', () => {
   let states: LockState[];
@@ -149,6 +160,37 @@ describe('EditLockController', () => {
     await flush();
     expect(release).toHaveBeenCalledWith(true);
     expect(states).toEqual([]);
+  });
+
+  it('QA: ถูกปลดล็อก → heartbeat ได้ 409 order_lock_released → released (ไม่ขอซ้ำ/ไม่ปลดตอนปิด) · ครั้งแรก = เปิดแก้, ต่อจากนั้น = heartbeat', async () => {
+    const acquire = vi
+      .fn()
+      .mockResolvedValueOnce(lock('ฉัน', true))
+      .mockRejectedValueOnce(released('ผู้จัดการ'))
+      .mockResolvedValue(lock('ฉัน', true));
+    const release = vi.fn().mockResolvedValue(undefined);
+    const c = new EditLockController({ acquire, release }, (s) => states.push(s));
+    c.start();
+    await flush();
+    expect(acquire).toHaveBeenLastCalledWith(false);
+    c.activity();
+    await vi.advanceTimersByTimeAsync(HEARTBEAT_MS);
+    expect(acquire).toHaveBeenLastCalledWith(true);
+    expect(c.state).toMatchObject({ kind: 'released', by: 'ผู้จัดการ' });
+    // ไม่ได้ล็อกคืนเอง ไม่ว่ามีกิจกรรมหรือเวลาผ่านไป
+    c.activity();
+    await vi.advanceTimersByTimeAsync(HEARTBEAT_MS * 3);
+    c.activity();
+    await flush();
+    expect(acquire).toHaveBeenCalledTimes(2);
+    // retry หลังบันทึกได้ 409 = heartbeat · retry(true) = ผู้ใช้ตั้งใจเปิดแก้
+    c.retry();
+    await flush();
+    expect(acquire).toHaveBeenLastCalledWith(true);
+    c.retry(true);
+    await flush();
+    expect(acquire).toHaveBeenLastCalledWith(false);
+    c.stop();
   });
 
   it('lockedBy อ่านผู้ถือจาก problem 409 เท่านั้น', () => {

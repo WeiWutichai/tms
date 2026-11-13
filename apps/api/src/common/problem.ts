@@ -171,6 +171,15 @@ export const PROBLEMS = {
     th: 'ใบสั่งขนส่งนี้กำลังถูกแก้ไขโดยผู้ใช้อื่น',
     en: 'This order is being edited by another user',
   },
+  /**
+   * ST3-T08 (QA): ล็อกการแก้ของผู้เรียกถูกผู้อื่นปลด (`orders:unlock`) — ต่ออายุ/บันทึกไม่ได้จนกว่าจะเปิดแก้ใหม่ (โหลดใหม่)
+   * extension `releasedBy` = {userId, userName}, `releasedAt`, `reason`
+   */
+  order_lock_released: {
+    status: 409,
+    th: 'การแก้ไขของคุณถูกปลดล็อกโดยผู้อื่นแล้ว — โหลดใหม่ก่อนแก้ต่อ',
+    en: 'Your edit lock was released by another user — reload before editing again',
+  },
   /** ST3-T08: ขอล็อกการแก้ได้เฉพาะผู้ใช้ในบริษัท (ล็อกแสดงชื่อผู้แก้) — token ที่ไม่ใช่ผู้ใช้ (เช่น API client) ไม่ต้องใช้ล็อก */
   edit_lock_user_required: {
     status: 403,

@@ -34,6 +34,7 @@ describe('OrderLockService (ST3-T08)', () => {
     const later = new Date(NOW.getTime() + 60_000);
     const tx = {
       $queryRaw: vi.fn().mockResolvedValue([{ id: 'l1', user_id: A, expires_at: later }]),
+      orderEditLockRelease: { findUnique: vi.fn().mockResolvedValue(null) },
       orderEditLock: {
         updateMany: vi.fn().mockResolvedValue({ count: 0 }),
         findUnique: vi.fn().mockResolvedValue(row(B, new Date(NOW.getTime() + 600_000))),
@@ -50,6 +51,7 @@ describe('OrderLockService (ST3-T08)', () => {
       $queryRaw: vi
         .fn()
         .mockResolvedValue([{ id: 'l1', user_id: A, expires_at: new Date(NOW.getTime() + 1) }]),
+      orderEditLockRelease: { findUnique: vi.fn().mockResolvedValue(null) },
       orderEditLock: { updateMany: vi.fn().mockResolvedValue({ count: 1 }), findUnique: vi.fn() },
     };
     const { svc, as } = make(tx);

@@ -2512,6 +2512,10 @@ export const th = {
   'ord.lock.reasonPh': 'เช่น ผู้แก้ไม่อยู่ ต้องแก้วันรับของด่วน',
   'ord.lock.ok': 'ปลดล็อก',
   'ord.lock.done': 'ปลดล็อก {no} แล้ว',
+  'problem.order_lock_released': 'การแก้ไขของคุณถูกปลดล็อกโดยผู้อื่นแล้ว — โหลดใหม่ก่อนแก้ต่อ',
+  'ord.lock.released': 'ถูกปลดล็อกโดย {name} — สิ่งที่แก้ยังไม่ได้บันทึก โหลดใหม่ก่อนแก้ต่อ',
+  'ord.lock.releasedReason': 'เหตุผล: {reason}',
+  'ord.lock.reload': 'โหลดใหม่',
   // เทมเพลตงานประจำ (ST3-T02) — ต้นแบบไม่มีหน้าจอนี้ [OPEN spec/12 §3]
   'tpl.fromTpl': 'สร้างจากเทมเพลต',
   'tpl.title': 'เทมเพลตงานประจำ',
