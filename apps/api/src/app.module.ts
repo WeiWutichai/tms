@@ -84,6 +84,7 @@ import { OrdersController } from './modules/orders/orders.controller';
 import { OrdersService } from './modules/orders/orders.service';
 import { OrderTemplatesController } from './modules/orders/order-templates.controller';
 import { OrderTemplatesService } from './modules/orders/order-templates.service';
+import { OrderImports } from './modules/orders/order.import';
 import { VehicleTypesController } from './modules/vehicle-types/vehicle-types.controller';
 import { VehicleTypesService } from './modules/vehicle-types/vehicle-types.service';
 import { CarriersController } from './modules/carriers/carriers.controller';
@@ -200,6 +201,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     TripService,
     OrdersService,
     OrderTemplatesService,
+    OrderImports,
     CarriersService,
     VehiclesService,
     DriversService,

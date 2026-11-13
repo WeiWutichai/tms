@@ -18,6 +18,8 @@ const AFFECTS: Record<string, string[]> = {
   service_item: ['service-items'],
   rate_card_sell: ['rate-cards'],
   rate_card_buy: ['rate-cards'],
+  // ST3-T04 — หน้ารายการ SO (ST3-T02) ใช้ key 'orders'
+  order: ['orders'],
 };
 
 /**
@@ -49,9 +51,12 @@ export function ImportExcelButton({
   onDone,
   open: openProp,
   onOpenChange,
+  icon = 'file-spreadsheet',
 }: {
   kind: string;
   label: string;
+  /** ไอคอนปุ่ม — ต้นแบบ SO ใช้ upload ("นำเข้า CSV"), หน้าข้อมูลหลักใช้ file-spreadsheet */
+  icon?: string;
   onDone: (message: string) => void;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
@@ -65,18 +70,22 @@ export function ImportExcelButton({
   if (!k) return null;
   return (
     <>
-      <Button variant="secondary" icon="file-spreadsheet" onClick={() => setOpen(true)}>
+      <Button variant="secondary" icon={icon} onClick={() => setOpen(true)}>
         {label}
       </Button>
       {open && (
         <ImportWizard
           kind={k}
-          onClose={(n) => {
+          onClose={(n, entities) => {
             setOpen(false);
             if (n === null) return;
             for (const key of [...(AFFECTS[kind] ?? []), 'history'])
               void qc.invalidateQueries({ queryKey: [key] });
-            onDone(t('imp.done', { kind: k.label, n }));
+            onDone(
+              entities != null
+                ? t('imp.doneEntities', { kind: k.label, n, m: entities })
+                : t('imp.done', { kind: k.label, n }),
+            );
           }}
         />
       )}

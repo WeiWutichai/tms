@@ -38,6 +38,7 @@ export const zh: Partial<Record<MessageKey, string>> = {
   'page.plan.group': '运营',
   'page.trips.title': '车次 / 派车单',
   'page.trips.group': '运营',
+  'so.importCsv': '导入 CSV',
   'page.so.title': '运输订单 (SO)',
   'page.so.group': '运营',
   'page.do.title': '送货单 (DO)',

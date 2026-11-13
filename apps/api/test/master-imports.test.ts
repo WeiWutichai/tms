@@ -134,7 +134,8 @@ describe('นำเข้าข้อมูลหลัก (ST2-T23)', () => {
         'rate_card_buy',
       ]),
     );
-    for (const k of kinds.filter((x: string) => x !== 'sample')) {
+    // ชนิดข้อมูลหลัก (order มีตัวอย่างหลายแถว — test/order-import.test.ts)
+    for (const k of kinds.filter((x: string) => x !== 'sample' && x !== 'order')) {
       const t = await binary(a.get(`/v1/imports/kinds/${k}/template`)).expect(200);
       const wb = new ExcelJS.Workbook();
       await wb.xlsx.load(t.body);
@@ -152,6 +153,7 @@ describe('นำเข้าข้อมูลหลัก (ST2-T23)', () => {
     expect(wb.getWorksheet('ตัวอย่าง')!.getRow(2).getCell(2).value).toBe('บจก. ตัวอย่างพลาสติก');
     const cycle = head.indexOf('รอบวางบิล');
     expect(wb.worksheets[0]!.getCell(2, cycle).dataValidation).toMatchObject({ type: 'list' });
+    expect(wb.getWorksheet('รายการ')).toBeTruthy(); // รายการให้เลือกยังอยู่สำหรับชนิดที่มี dropdown
   });
 
   // ลำดับ = ข้อมูลที่ถูกอ้างก่อน (ลูกค้า → สถานที่ → ผู้รับเหมา → รถ → คนขับ → เส้นทาง → สินค้า → ค่าบริการ → rate)

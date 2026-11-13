@@ -18610,13 +18610,29 @@
                 "update_only"
               ]
             }
+          },
+          "defaultMode": {
+            "type": "string",
+            "enum": [
+              "create_only",
+              "upsert_by_code",
+              "update_only"
+            ],
+            "description": "mode เมื่อไม่ส่ง mode ตอนสร้างงานนำเข้า"
+          },
+          "maxRows": {
+            "type": "number",
+            "example": 5000,
+            "description": "เพดานแถวต่อไฟล์ของชนิดนี้"
           }
         },
         "required": [
           "kind",
           "label",
           "columns",
-          "modes"
+          "modes",
+          "defaultMode",
+          "maxRows"
         ]
       },
       "CreateImportDto": {
@@ -18638,7 +18654,7 @@
               "upsert_by_code",
               "update_only"
             ],
-            "description": "ค่าเริ่มต้น create_only"
+            "description": "ค่าเริ่มต้น = `defaultMode` ของชนิดนั้น (`GET /imports/kinds`; ข้อมูลหลัก = create_only, order = upsert_by_code)"
           },
           "errorPolicy": {
             "type": "string",
@@ -18787,6 +18803,16 @@
           "importedRows": {
             "type": "number"
           },
+          "okEntities": {
+            "type": "number",
+            "nullable": true,
+            "description": "จำนวนรายการที่ผ่านการตรวจ เมื่อ 1 รายการมีหลายแถว (order: จำนวนใบ) · null = 1 แถว = 1 รายการ"
+          },
+          "importedEntities": {
+            "type": "number",
+            "nullable": true,
+            "description": "จำนวนรายการที่นำเข้า (order: จำนวนใบ) · null = เท่ากับ importedRows"
+          },
           "issues": {
             "description": "ปัญหารายแถว (GET /{id} ไม่เกิน 1,000 รายการแรก; รายการใน GET /imports ว่างเสมอ) — ครบทุกแถวใน /{id}/errors",
             "type": "array",
@@ -18848,6 +18874,8 @@
           "okRows",
           "errorRows",
           "importedRows",
+          "okEntities",
+          "importedEntities",
           "issues",
           "issuesTruncated",
           "sample",

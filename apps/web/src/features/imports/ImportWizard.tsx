@@ -2,6 +2,7 @@ import { Icon } from '@tms/ui';
 import { useEffect, useRef, useState } from 'react';
 import { api, ApiError, unwrap } from '../../api';
 import { useI18n } from '../../i18n';
+import { ImportWarnings } from './ImportWarnings';
 import { th } from '../../i18n/th';
 import type { MessageKey } from '../../i18n/th';
 import type { components } from '@tms/contracts';
@@ -26,7 +27,8 @@ export function ImportWizard({
 }: {
   kind: KindDto;
   /** done = นำเข้าแล้วกี่แถว (null = ยกเลิก) */
-  onClose: (done: number | null) => void;
+  /** done = แถวที่นำเข้า (null = ยังไม่นำเข้า) · entities = จำนวนรายการเมื่อ 1 รายการมีหลายแถว (order: ใบ) */
+  onClose: (done: number | null, entities?: number | null) => void;
 }) {
   const { t } = useI18n();
   const [step, setStep] = useState(1);
@@ -159,7 +161,7 @@ export function ImportWizard({
   const close = () => {
     if (busy) return;
     // นำเข้าเสร็จแล้วเท่านั้นจึงบอกจำนวน (ปิดระหว่าง job ยังวิ่ง = งานทำต่อ + แจ้งเตือนเมื่อเสร็จ)
-    onClose(done ? imp!.importedRows : null);
+    onClose(done ? imp!.importedRows : null, done ? imp!.importedEntities : null);
   };
 
   const canNext =
@@ -168,7 +170,7 @@ export function ImportWizard({
     if (!canNext) return;
     if (step === 1) setStep(2);
     else if (step === 2) void commit();
-    else onClose(imp!.importedRows);
+    else onClose(imp!.importedRows, imp!.importedEntities);
   };
   const steps = [t('imp.step1'), t('imp.step2'), t('imp.step3')];
   const priL =
@@ -522,6 +524,7 @@ export function ImportWizard({
                 </div>
                 <span style={{ fontSize: 13, color: '#3B424C' }}>{t('imp.sampleNote')}</span>
               </div>
+              <ImportWarnings issues={imp.issues} />
             </>
           )}
 
@@ -529,8 +532,18 @@ export function ImportWizard({
             <>
               {done ? (
                 <>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: imp.importedEntities != null ? '1fr 1fr 1fr' : '1fr 1fr',
+                      gap: 12,
+                    }}
+                  >
                     <Stat n={imp.importedRows} color="#17733F" label={t('imp.ok')} />
+                    {/* ชนิดที่ 1 รายการมีหลายแถว (ใบสั่งขนส่ง) — จำนวนใบที่นำเข้า */}
+                    {imp.importedEntities != null && (
+                      <Stat n={imp.importedEntities} color="#17733F" label={t('imp.okEntities')} />
+                    )}
                     <Stat n={imp.errorRows} color="#B3322A" label={t('imp.bad')} />
                   </div>
                   {errRows.length > 0 && (
@@ -580,6 +593,7 @@ export function ImportWizard({
                       </button>
                     </>
                   )}
+                  <ImportWarnings issues={imp.issues} />
                 </>
               ) : (
                 <span style={{ color: '#3B424C' }}>{t('imp.importing')}</span>

@@ -46,8 +46,16 @@ export interface MasterValue {
   input: RowInput;
 }
 
-type RefKind =
-  'customer' | 'site' | 'carrier' | 'vehicleType' | 'serviceItem' | 'route' | 'unit' | 'vehicle';
+export type RefKind =
+  | 'customer'
+  | 'site'
+  | 'carrier'
+  | 'vehicleType'
+  | 'serviceItem'
+  | 'route'
+  | 'unit'
+  | 'vehicle'
+  | 'product';
 
 const REF_LABEL: Record<RefKind, string> = {
   customer: 'ลูกค้า',
@@ -58,6 +66,7 @@ const REF_LABEL: Record<RefKind, string> = {
   route: 'เส้นทาง',
   unit: 'หน่วย',
   vehicle: 'รถ',
+  product: 'สินค้า',
 };
 
 type Found = { id: string; extra?: Record<string, string> } | 'none' | 'many';
@@ -173,6 +182,18 @@ export class Lookup {
           ) ??
           'none'
         );
+      case 'product':
+        return (
+          one(await tx.product.findMany({ where: { ...live, code: iEquals(v) }, select: sel })) ??
+          one(
+            await tx.product.findMany({
+              where: { ...live, nameTh: iEquals(v) },
+              select: sel,
+              take: 2,
+            }),
+          ) ??
+          'none'
+        );
       case 'route': {
         const r = await tx.route.findMany({
           where: { ...live, code: iEquals(v) },
@@ -217,6 +238,7 @@ const ID_KIND: Record<RefKind, IdKind> = {
   route: 'route',
   unit: 'unit',
   vehicle: 'vehicle',
+  product: 'product',
 };
 
 const TRUE = new Set(['ใช่', 'มี', 'true', 'yes', 'y', '1', '✓', 'x']);
