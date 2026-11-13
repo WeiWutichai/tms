@@ -2242,3 +2242,22 @@ model MessageRecipientCounter {
   @@id([recipientHash, hour])
   @@map("message_recipient_counter")
 }
+
+/// ST3-T05 ตำแหน่งที่ดึง order จากต้นทาง (connector `pullOrders`) ล่าสุด ต่อ tenant + connector
+/// ตาราง `connector` (ตั้งค่า adapter ต่อ tenant — docs/01 §3.7) มาใน ST7-T13 แล้วค่อยผูก FK · lease กันดึงซ้อนกัน
+model ConnectorCursor {
+  id            String    @id @default(uuid()) @db.Uuid
+  tenantId      String    @map("tenant_id") @db.Uuid
+  connectorKey  String    @map("connector_key") /// รหัส connector (CONNECTOR_KEY_RE) เช่น `krs`, `mock`
+  cursor        String? /// watermark ทึบ (opaque) ที่ adapter คืนมา — null = ยังไม่เคยดึง
+  leaseId       String?   @map("lease_id") @db.Uuid /// รอบดึงที่ถืออยู่ (กันสอง worker ดึงพร้อมกัน)
+  leaseUntil    DateTime? @map("lease_until") @db.Timestamptz(6)
+  lastPullAt    DateTime? @map("last_pull_at") @db.Timestamptz(6)
+  lastSuccessAt DateTime? @map("last_success_at") @db.Timestamptz(6) /// รอบล่าสุดที่ดึงครบโดยไม่มีใบที่ error
+  lastResult    Json?     @map("last_result") /// สรุปรอบล่าสุด {counts, results[]} (ไม่เก็บ payload)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, connectorKey])
+  @@map("connector_cursor")
+}
