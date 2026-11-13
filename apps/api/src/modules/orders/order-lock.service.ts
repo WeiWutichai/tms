@@ -126,16 +126,30 @@ export class OrderLockService {
   /**
    * PATCH จากผู้ที่ไม่ใช่ผู้ถือล็อก → 409 `order_locked_by_user` · ผู้ถือ = ต่ออายุ (กิจกรรม)
    * ไม่มีล็อก/หมดอายุ = เขียนได้ (ล็อกเป็นข้อตกลงของหน้าจอ — ผู้เรียก API ไม่ต้องขอก่อน)
+   * อ่านแถวล็อกด้วย `FOR UPDATE` (ค้างจนจบ transaction ของ PATCH) — คนอื่นขอล็อกระหว่างนี้ต้องรอ แล้วเห็นล็อกที่ต่ออายุแล้ว
+   * ต่ออายุไม่สำเร็จ (ล็อกเปลี่ยนมือระหว่างอ่าน) → อ่านใหม่แล้ว 409 ถ้าคนอื่นถืออยู่ (review ST3-T08 TOCTOU)
    */
   async assertWritable(salesOrderId: string): Promise<void> {
-    const r = await this.active(salesOrderId);
-    if (!r) return;
-    if (r.userId !== requestContext.require().actorId) throw this.lockedBy(r);
+    const actor = requestContext.require().actorId;
     const now = this.clock.now();
-    await this.db.tx.orderEditLock.updateMany({
-      where: { id: r.id, userId: r.userId, expiresAt: { gt: now } },
+    const rows = await this.db.tx.$queryRaw<{ id: string; user_id: string; expires_at: Date }[]>`
+      SELECT id, user_id, expires_at FROM order_edit_lock
+       WHERE sales_order_id = ${salesOrderId}::uuid FOR UPDATE`;
+    const r = rows[0];
+    if (!r || r.expires_at <= now) return;
+    if (r.user_id !== actor) {
+      const cur = await this.active(salesOrderId);
+      if (cur) throw this.lockedBy(cur);
+      return;
+    }
+    const u = await this.db.tx.orderEditLock.updateMany({
+      where: { id: r.id, userId: r.user_id, expiresAt: { gt: now } },
       data: { lastSeenAt: now, expiresAt: new Date(now.getTime() + EDIT_LOCK_TTL_MS) },
     });
+    if (u.count === 0) {
+      const cur = await this.active(salesOrderId);
+      if (cur && cur.userId !== actor) throw this.lockedBy(cur);
+    }
   }
 
   /**
@@ -173,6 +187,12 @@ export class OrderLockService {
       });
       return;
     }
-    await this.db.tx.orderEditLock.deleteMany({ where: { id: r.id, userId: r.userId } });
+    // ของตัวเอง = ลบเฉพาะแถวของตัวเอง · ของคนอื่นที่หมดอายุ = ลบเมื่อยังหมดอายุอยู่ (ผู้ถือต่ออายุทันระหว่างนี้ → ไม่ลบ)
+    await this.db.tx.orderEditLock.deleteMany({
+      where:
+        r.userId === ctx.actorId
+          ? { id: r.id, userId: r.userId }
+          : { id: r.id, userId: r.userId, expiresAt: { lte: this.clock.now() } },
+    });
   }
 }

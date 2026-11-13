@@ -79,13 +79,8 @@ async function openEdit(page: Page, soNo: string) {
   return locked;
 }
 
-test('ผู้ใช้ B เปิดใบที่ A แก้อยู่ → อ่านอย่างเดียว; ครบ 10 นาทีล็อกหลุด; ผู้จัดการปลดล็อกพร้อมเหตุผล', async ({
-  page,
-  browser,
-  baseURL,
-}) => {
-  test.setTimeout(120_000);
-  // ใบสั่งที่พร้อมแก้ (สร้างผ่าน API ด้วยสิทธิ์ของ A)
+/** ใบสั่งที่พร้อมแก้ (สร้างผ่าน API ด้วยสิทธิ์ของผู้วางแผน) */
+async function newOrder(page: Page, tag: string) {
   const H = { Authorization: `Bearer ${await login(page, 'planner@demo-a.test')}` };
   const g = async (path: string) =>
     (
@@ -100,24 +95,24 @@ test('ผู้ใช้ B เปิดใบที่ A แก้อยู่ �
   };
   const company = (await g('/v1/companies?status=active&limit=1'))[0]!.id;
   const cust = await post('/v1/customers', {
-    legalName: `ลูกค้าล็อก ${RUN}`,
+    legalName: `ลูกค้าล็อก ${RUN}${tag}`,
     billingCompanyId: company,
   });
   const sa = await post('/v1/customer-sites', {
-    name: `ต้นทางล็อก ${RUN}`,
+    name: `ต้นทางล็อก ${RUN}${tag}`,
     kind: 'PICKUP',
     address: { line1: 'ต้นทาง' },
   });
   const sb = await post('/v1/customer-sites', {
-    name: `ปลายทางล็อก ${RUN}`,
+    name: `ปลายทางล็อก ${RUN}${tag}`,
     kind: 'DROPOFF',
     address: { line1: 'ปลายทาง' },
   });
   const vt = (await g('/v1/vehicle-types?limit=50')).find((v) => v.code === '6W')!.id;
   const day = new Date(Date.now() + 7 * 3600_000 + 86_400_000).toISOString().slice(0, 10);
-  const so = await post('/v1/orders', {
+  return post('/v1/orders', {
     customer: { id: cust.id },
-    customerRef: `PO-LOCK-${RUN}`,
+    customerRef: `PO-LOCK-${RUN}${tag}`,
     requestedDate: day,
     vehicleTypeId: vt,
     stops: [
@@ -125,6 +120,15 @@ test('ผู้ใช้ B เปิดใบที่ A แก้อยู่ �
       { type: 'DELIVERY', siteId: sb.id },
     ],
   });
+}
+
+test('ผู้ใช้ B เปิดใบที่ A แก้อยู่ → อ่านอย่างเดียว; ครบ 10 นาทีล็อกหลุด; ผู้จัดการปลดล็อกพร้อมเหตุผล', async ({
+  page,
+  browser,
+  baseURL,
+}) => {
+  test.setTimeout(120_000);
+  const so = await newOrder(page, 'a');
 
   // 1) A เปิดฟอร์มแก้ → ได้ล็อก
   const a1 = await openEdit(page, so.soNo);
@@ -218,4 +222,32 @@ test('ผู้ใช้ B เปิดใบที่ A แก้อยู่ �
   await pb.getByRole('dialog').getByRole('button', { name: 'ยกเลิก' }).click();
   expect((await released).status()).toBe(204);
   await ctx.close();
+});
+
+test('ฝั่งเว็บ: ไม่มีกิจกรรม → ไม่ต่ออายุ (ล็อกหลุดเองที่ server) · มีกิจกรรม → ต่ออายุทุก 60 วินาที (page.clock)', async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  const so = await newOrder(page, 'b');
+  await page.clock.install();
+  const beats: string[] = [];
+  page.on('response', (r) => {
+    if (/\/v1\/orders\/[^/]+\/lock$/.test(r.url()) && r.request().method() === 'POST')
+      beats.push(String(r.status()));
+  });
+  expect(await (await openEdit(page, so.soNo)).status()).toBe(200);
+  const first = beats.length;
+  // 3 รอบ heartbeat โดยไม่แตะฟอร์ม → ไม่มีคำขอต่ออายุ (server ปล่อยล็อกเองเมื่อครบ 10 นาที)
+  await page.clock.runFor(3 * 61_000);
+  expect(beats.length).toBe(first);
+  // พิมพ์ในฟอร์ม → รอบถัดไปต่ออายุ 1 ครั้ง
+  await page.getByRole('dialog').getByLabel('เลข PO ลูกค้า').fill(`PO-CLK-${RUN}`);
+  const renewed = page.waitForResponse(
+    (r) => /\/v1\/orders\/[^/]+\/lock$/.test(r.url()) && r.request().method() === 'POST',
+  );
+  await page.clock.runFor(61_000);
+  expect((await renewed).status()).toBe(200);
+  expect(beats.length).toBe(first + 1);
+  await page.clock.runFor(2 * 61_000);
+  expect(beats.length).toBe(first + 1);
 });

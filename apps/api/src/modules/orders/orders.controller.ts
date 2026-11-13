@@ -309,13 +309,24 @@ export class OrdersController {
   @Get(':id')
   @TenantResource('salesOrder')
   @RequireScope('orders:read')
-  @ApiOkResponse({ type: OrderDto, description: '`{id}` รับ `ext:{externalId}` ได้' })
+  @ApiOkResponse({
+    type: OrderDto,
+    description:
+      '`{id}` รับ `ext:{externalId}` ได้ · ETag = version ของใบ (ใช้กับ If-Match) — `editLock`/`editableFields` ' +
+      'เปลี่ยนได้โดย version ไม่เปลี่ยน จึงไม่รองรับ conditional GET (`If-None-Match` ถูกละเลย ตอบ 200 เสมอ) + `Cache-Control: no-store`',
+  })
   @ApiProblems(E403, E404)
-  async get(@Param('id') id: string, @Res({ passthrough: true }) res: Response): Promise<OrderDto> {
+  async get(
+    @Param('id') id: string,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<OrderDto> {
     const o = await this.resolve(id);
     setEtag(res, o.version);
-    // editLock/editableFields เปลี่ยนได้โดย version ไม่เปลี่ยน — ห้าม browser เก็บแล้วตอบ 304 จาก ETag เดิม (ST3-T08)
+    // ST3-T08: ETag (version) ไม่ครอบสถานะล็อก — ห้าม browser เก็บ และห้าม express ตอบ 304 จาก If-None-Match
+    // (ไม่งั้นป้าย "กำลังแก้ไขโดย …" ค้าง) · If-Match ของ PATCH/PUT ยังใช้ ETag = version เหมือนเดิม
     res.setHeader('Cache-Control', 'no-store');
+    delete req.headers['if-none-match'];
     return this.full(o);
   }
 

@@ -115,6 +115,15 @@ describe('order edit lock (ST3-T08)', () => {
     expect(asA.body.editLock).toMatchObject({ userName: 'สมชาย ใจดี', mine: true });
     // ป้ายล็อกเปลี่ยนโดย version ไม่เปลี่ยน → browser ห้ามเก็บ (ไม่งั้นได้ 304 จาก ETag + ข้อมูลล็อกเก่า)
     expect(asA.headers['cache-control']).toBe('no-store');
+    // conditional GET ด้วย ETag เดิม (version ไม่เปลี่ยน) → ยังได้ 200 + สถานะล็อกล่าสุด ไม่ใช่ 304
+    await unlock(o.id, tokA).expect(204);
+    const again = await api(app, tokA)
+      .get(`/v1/orders/${o.id}`)
+      .set('If-None-Match', asA.headers.etag as string)
+      .expect(200);
+    expect(again.headers.etag).toBe(asA.headers.etag);
+    expect(again.body.editLock).toBeNull();
+    await lock(o.id, tokA).expect(200);
     const asB = await api(app, tokB).get(`/v1/orders/${o.id}`).expect(200);
     expect(asB.body.editLock).toMatchObject({ userName: 'สมชาย ใจดี', mine: false });
     // ไม่มีล็อก = null

@@ -30,20 +30,29 @@ export function lockedBy(e: unknown): EditLock | null {
   return null;
 }
 
+/** ขอล็อกไม่ได้คำตอบภายในเวลานี้ → ถือว่าว่าง (ปุ่มบันทึกไม่ค้าง — server ตรวจซ้ำตอนบันทึก) */
+export const LOCK_TIMEOUT_MS = 10_000;
+/** ผู้อื่นถือ/ขอไม่สำเร็จ: ลองใหม่เมื่อผู้ใช้มีกิจกรรม แต่ไม่ถี่กว่านี้ */
+export const RETRY_MIN_MS = 10_000;
+
 /**
  * ตัวคุมล็อกการแก้ของฟอร์ม (ST3-T08) — แยกจาก React ให้ test ด้วย fake timer ได้
- * - `start()` ขอล็อกทันที · ทุก `HEARTBEAT_MS` ถ้ามีกิจกรรม (`activity()`) ตั้งแต่ครั้งก่อน → ต่ออายุ
- * - ผู้อื่นถืออยู่ → ลองขอใหม่ทุก `HEARTBEAT_MS` (ล็อกเขาหมดอายุ/ปลดแล้ว → ได้ล็อกและแก้ต่อได้)
+ * - `start()` ขอล็อกทันที · ไม่ได้คำตอบใน `LOCK_TIMEOUT_MS` → `free` (แก้ต่อได้)
+ * - ถือล็อก: ทุก `HEARTBEAT_MS` ถ้ามีกิจกรรม (`activity()`) ตั้งแต่ครั้งก่อน → ต่ออายุ (ไม่มีกิจกรรม = ปล่อยให้หมดอายุ)
+ * - ผู้อื่นถือ/ขอไม่สำเร็จ: ลองขอใหม่เฉพาะเมื่อผู้ใช้มีกิจกรรม (ทันที ห่างกันอย่างน้อย `RETRY_MIN_MS`)
+ *   — ผู้ที่เปิดดูเฉย ๆ ไม่ยึดล็อก (ป้ายอัปเดตจาก GET ที่ poll อยู่แล้ว)
  * - heartbeat ได้ 409 (ถูกปลด/หมดอายุแล้วคนอื่นเอาไป) → เปลี่ยนเป็นอ่านอย่างเดียว
  * - `stop(keepalive)` ปลดล็อกถ้าถืออยู่ (ปิดฟอร์ม/ออกจากหน้า — keepalive ให้คำขอไปถึงแม้ปิดแท็บ)
  */
 export class EditLockController {
   state: LockState = { kind: 'pending' };
   private timer: ReturnType<typeof setInterval> | null = null;
+  private waitTimer: ReturnType<typeof setTimeout> | null = null;
   private active = false;
   private stopped = false;
   private busy = false;
   private keepalive = false;
+  private lastTry = 0;
 
   constructor(
     private readonly lockApi: LockApi,
@@ -60,6 +69,7 @@ export class EditLockController {
   private async beat(): Promise<void> {
     if (this.busy || this.stopped) return;
     this.busy = true;
+    this.lastTry = Date.now();
     try {
       const lock = await this.lockApi.acquire();
       // ปิดฟอร์มระหว่างรอผล → ปลดทันที (ไม่ค้างล็อกให้คนอื่นรอ 10 นาที)
@@ -76,17 +86,19 @@ export class EditLockController {
 
   start(): void {
     void this.beat();
+    this.waitTimer = setTimeout(() => {
+      if (this.state.kind === 'pending') this.set({ kind: 'free' });
+    }, LOCK_TIMEOUT_MS);
     this.timer = setInterval(() => {
-      const k = this.state.kind;
-      // ถือล็อก: ต่ออายุเมื่อมีกิจกรรม · ผู้อื่นถือ/ขอไม่สำเร็จ: ลองใหม่
-      if (k === 'mine' ? this.active : k === 'other' || k === 'free') {
+      // ต่ออายุ/ลองใหม่เฉพาะเมื่อมีกิจกรรมตั้งแต่รอบก่อน
+      if (this.active && this.state.kind !== 'pending') {
         this.active = false;
         void this.beat();
       }
     }, this.everyMs);
   }
 
-  /** ขอใหม่ทันที (เช่น เพิ่งปลดล็อกของผู้อื่นสำเร็จ) */
+  /** ขอใหม่ทันที (เช่น เพิ่งปลดล็อกของผู้อื่นสำเร็จ / บันทึกแล้วได้ 409) */
   retry(): void {
     void this.beat();
   }
@@ -94,6 +106,11 @@ export class EditLockController {
   /** ผู้ใช้พิมพ์/คลิกในฟอร์ม */
   activity(): void {
     this.active = true;
+    const k = this.state.kind;
+    if ((k === 'other' || k === 'free') && Date.now() - this.lastTry >= RETRY_MIN_MS) {
+      this.active = false;
+      void this.beat();
+    }
   }
 
   stop(keepalive = false): void {
@@ -101,6 +118,7 @@ export class EditLockController {
     this.stopped = true;
     this.keepalive = keepalive;
     if (this.timer) clearInterval(this.timer);
+    if (this.waitTimer) clearTimeout(this.waitTimer);
     this.timer = null;
     if (this.state.kind === 'mine') void this.lockApi.release(keepalive).catch(() => undefined);
   }
@@ -126,6 +144,8 @@ export function orderLockApi(id: string): LockApi {
 /**
  * ล็อกการแก้ของฟอร์มแก้ใบสั่ง — ขอเมื่อเปิด, ต่ออายุระหว่างใช้งาน, ปลดเมื่อปิด/ออกจากหน้า
  * `id` null = ไม่ใช้ล็อก (สร้าง/คัดลอก)
+ * - กลับมาหน้าเดิมจาก bfcache (`pageshow.persisted`) หลัง `pagehide` ปลดไปแล้ว → สร้างตัวคุมใหม่แล้วขอใหม่
+ * - ล็อกผูกกับผู้ใช้ ไม่ใช่แท็บ: ผู้ใช้เดียวกันเปิด 2 แท็บ = แก้ได้ทั้งคู่ (ปิดแท็บหนึ่ง = ปลด แท็บที่เหลือขอใหม่เมื่อมีกิจกรรม)
  */
 export function useOrderEditLock(id: string | null): { state: LockState; retry: () => void } {
   const qc = useQueryClient();
@@ -133,6 +153,17 @@ export function useOrderEditLock(id: string | null): { state: LockState; retry: 
   const ref = useRef<{ id: string; c: EditLockController; closing?: number } | null>(null);
   useEffect(() => {
     if (!id) return;
+    let prevKind: LockState['kind'] = 'pending';
+    const create = () => {
+      const c = new EditLockController(orderLockApi(id), (s) => {
+        setState(s);
+        // ป้าย/ปุ่มในหน้ารายละเอียดใช้ editLock จาก GET — โหลดใหม่เมื่อชนิดสถานะเปลี่ยนเท่านั้น (ไม่ทุก heartbeat)
+        if (s.kind !== prevKind) void qc.invalidateQueries({ queryKey: ['orders', 'one', id] });
+        prevKind = s.kind;
+      });
+      c.start();
+      return c;
+    };
     // StrictMode (dev) ถอด-ใส่ effect ทันที → ใช้ตัวคุมเดิมต่อ (ยกเลิกการปลดที่ตั้งไว้) ไม่ให้คำขอปลดของรอบแรก
     // ไปลบล็อกที่รอบที่สองเพิ่งได้
     let cur = ref.current;
@@ -140,27 +171,28 @@ export function useOrderEditLock(id: string | null): { state: LockState; retry: 
       window.clearTimeout(cur.closing);
       cur.closing = undefined;
     } else {
-      const c = new EditLockController(orderLockApi(id), (s) => {
-        setState(s);
-        // ป้าย/ปุ่มในหน้ารายละเอียดใช้ editLock จาก GET
-        void qc.invalidateQueries({ queryKey: ['orders', 'one', id] });
-      });
-      cur = ref.current = { id, c };
-      c.start();
+      cur = ref.current = { id, c: create() };
     }
     const entry = cur;
-    const c = entry.c;
-    const onActivity = () => c.activity();
-    const onLeave = () => c.stop(true);
+    const onActivity = () => entry.c.activity();
+    const onLeave = () => entry.c.stop(true);
+    const onShow = (e: PageTransitionEvent) => {
+      if (!e.persisted) return;
+      prevKind = 'pending';
+      setState({ kind: 'pending' });
+      entry.c = create();
+    };
     const events = ['keydown', 'pointerdown', 'input', 'wheel'] as const;
     for (const e of events) document.addEventListener(e, onActivity, true);
     window.addEventListener('pagehide', onLeave);
+    window.addEventListener('pageshow', onShow);
     return () => {
       for (const e of events) document.removeEventListener(e, onActivity, true);
       window.removeEventListener('pagehide', onLeave);
+      window.removeEventListener('pageshow', onShow);
       entry.closing = window.setTimeout(() => {
         if (ref.current === entry) ref.current = null;
-        c.stop(false);
+        entry.c.stop(false);
         void qc.invalidateQueries({ queryKey: ['orders', 'one', id] });
       }, 0);
     };

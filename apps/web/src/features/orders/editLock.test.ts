@@ -3,6 +3,8 @@ import { ApiError } from '../../api';
 import {
   EditLockController,
   HEARTBEAT_MS,
+  LOCK_TIMEOUT_MS,
+  RETRY_MIN_MS,
   lockedBy,
   type EditLock,
   type LockState,
@@ -61,7 +63,7 @@ describe('EditLockController', () => {
     expect(acquire).toHaveBeenCalledTimes(2);
   });
 
-  it('ผู้อื่นถืออยู่ → other (อ่านอย่างเดียว) ไม่ปลดตอนปิด; ลองใหม่ทุกรอบจนได้ล็อก', async () => {
+  it('ผู้อื่นถืออยู่ → other ไม่ปลดตอนปิด; เปิดดูเฉย ๆ ไม่ขอซ้ำ · ลองใหม่เมื่อมีกิจกรรม (ห่างกัน ≥ 10 วิ) จนได้ล็อก', async () => {
     const acquire = vi
       .fn()
       .mockRejectedValueOnce(taken('สมชาย'))
@@ -72,11 +74,42 @@ describe('EditLockController', () => {
     c.start();
     await flush();
     expect(c.state).toMatchObject({ kind: 'other', lock: { userName: 'สมชาย' } });
-    await vi.advanceTimersByTimeAsync(HEARTBEAT_MS);
+    // ไม่มีกิจกรรม → ไม่ขอซ้ำเลย (ไม่ยึดล็อกเมื่อของเขาหมดอายุ)
+    await vi.advanceTimersByTimeAsync(HEARTBEAT_MS * 5);
+    expect(acquire).toHaveBeenCalledTimes(1);
+    c.activity();
+    await flush();
+    expect(acquire).toHaveBeenCalledTimes(2);
     expect(c.state.kind).toBe('other');
-    await vi.advanceTimersByTimeAsync(HEARTBEAT_MS);
+    // กิจกรรมถี่ ๆ ภายใน 10 วิ ไม่ขอซ้ำทันที
+    c.activity();
+    await flush();
+    expect(acquire).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(RETRY_MIN_MS);
+    c.activity();
+    await flush();
     expect(c.state.kind).toBe('mine');
     expect(acquire).toHaveBeenCalledTimes(3);
+    c.stop();
+    expect(release).toHaveBeenCalledTimes(1);
+  });
+
+  it('ขอล็อกไม่ได้คำตอบภายใน 10 วิ → free (บันทึกไม่ค้าง); ได้คำตอบทีหลัง → mine', async () => {
+    let resolve!: (l: EditLock) => void;
+    const acquire = vi.fn(() => new Promise<EditLock>((r) => (resolve = r)));
+    const c = new EditLockController(
+      { acquire, release: vi.fn().mockResolvedValue(undefined) },
+      (s) => states.push(s),
+    );
+    c.start();
+    await vi.advanceTimersByTimeAsync(LOCK_TIMEOUT_MS - 1);
+    expect(c.state.kind).toBe('pending');
+    await vi.advanceTimersByTimeAsync(1);
+    expect(c.state.kind).toBe('free');
+    resolve(lock('ฉัน', true));
+    await flush();
+    expect(c.state.kind).toBe('mine');
+    c.stop();
   });
 
   it('heartbeat ได้ 409 (ถูกปลด/หมดอายุแล้วคนอื่นเอาไป) → other และปิดแล้วไม่ปลดของคนอื่น', async () => {

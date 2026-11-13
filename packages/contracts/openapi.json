@@ -4637,7 +4637,7 @@
         ],
         "responses": {
           "200": {
-            "description": "`{id}` รับ `ext:{externalId}` ได้",
+            "description": "`{id}` รับ `ext:{externalId}` ได้ · ETag = version ของใบ (ใช้กับ If-Match) — `editLock`/`editableFields` เปลี่ยนได้โดย version ไม่เปลี่ยน จึงไม่รองรับ conditional GET (`If-None-Match` ถูกละเลย ตอบ 200 เสมอ) + `Cache-Control: no-store`",
             "content": {
               "application/json": {
                 "schema": {
