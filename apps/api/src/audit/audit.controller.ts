@@ -72,9 +72,14 @@ export class AuditEntryDto {
   @ApiProperty({ example: 'company.updated' }) action!: string;
   @ApiProperty() entityType!: string;
   @ApiProperty({ nullable: true, type: String }) entityId!: string | null;
-  @ApiProperty({ nullable: true, type: Object, description: 'ค่าก่อนแก้ (เฉพาะ field ที่เปลี่ยน)' })
+  @ApiProperty({
+    nullable: true,
+    type: 'object',
+    additionalProperties: true,
+    description: 'ค่าก่อนแก้ (เฉพาะ field ที่เปลี่ยน)',
+  })
   before!: unknown;
-  @ApiProperty({ nullable: true, type: Object }) after!: unknown;
+  @ApiProperty({ nullable: true, type: 'object', additionalProperties: true }) after!: unknown;
   @ApiProperty({ nullable: true, type: String }) reason!: string | null;
   @ApiProperty({ nullable: true, type: String }) ip!: string | null;
   @ApiProperty({ nullable: true, type: String }) requestId!: string | null;

@@ -162,6 +162,10 @@ export class OrderIntakeService {
         where: { tenantId_externalId: { tenantId, externalId: n.externalId } },
         select: { id: true },
       });
+      if (hit && input.createOnly)
+        throw new ProblemException('duplicate', undefined, [
+          { field: 'externalId', code: 'duplicate', message: 'externalId already exists' },
+        ]);
       if (hit) {
         current = (await this.lockAndLoad(tx, hit.id))!;
         if (current.source !== n.source || current.sourceConnector !== n.connector)
