@@ -15,7 +15,7 @@ import { encodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import type { Tx } from '../../db/db.service';
-import { cleanLine, lockReferenced } from '../master/master-kit';
+import { cleanLine, lockKey, lockReferenced } from '../master/master-kit';
 import { SitesService } from '../sites/sites.service';
 
 /** รายการแนะนำ (เก็บใน `match_candidates` / `customer_candidates` — id เป็น uuid; API แปลงเป็น public id) */
@@ -225,6 +225,8 @@ export class OrderMatchingService {
     });
     if (!site.customerId && !scopeAllows(requestContext.require().scopes ?? [], SITE_WRITE_SCOPE))
       return 'not_permitted';
+    // ล็อกตามคีย์ (ต่อ tenant) ก่อนตรวจชน — สองคำขอสอนข้อความเดียวกันให้คนละแห่งพร้อมกัน: แห่งแรกจำ แห่งหลังเห็นแล้ว = conflict
+    await lockKey(tx, `site_alias:${key}`);
     const scope = await this.siteScope(tx, site.customerId, !site.customerId);
     if (keyOwners(scope.index, key, siteId).length) return 'conflict';
     return this.sites.learnAlias(tx, siteId, text);
@@ -254,6 +256,7 @@ export class OrderMatchingService {
     if (value.length > 500) return 'too_long';
     if (kind === 'NAME' && !isLearnableKey(valueKey, 'customer')) return 'generic';
     const source = kind === 'EXTERNAL_ID' ? q.source : '';
+    await lockKey(tx, `customer_alias:${kind}:${source}:${valueKey}`);
     const owner = async () =>
       (
         await tx.$queryRaw<{ customer_id: string }[]>`

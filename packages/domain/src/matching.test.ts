@@ -45,7 +45,7 @@ describe('matchKey (normalize ข้อความไทย)', () => {
     expect(matchKey('คลังจำกัดเขต')).toBe('คลังจำกัดเขต'.normalize('NFKC'));
   });
 
-  it('เรียนรู้ได้เฉพาะคีย์ที่มีสาระ: ยาว ≥ 4 และไม่ใช่คำทั่วไป', () => {
+  it('เรียนรู้ได้เฉพาะคีย์ที่มีสาระ: ยาวพอ และไม่ใช่คำทั่วไป (+ ตัวเลข)', () => {
     expect(isLearnableKey(matchKey('คลังสินค้า'), 'site')).toBe(false);
     expect(isLearnableKey(matchKey('โกดัง'), 'site')).toBe(false);
     expect(isLearnableKey(matchKey('A1'), 'site')).toBe(false);
@@ -53,7 +53,23 @@ describe('matchKey (normalize ข้อความไทย)', () => {
     expect(isLearnableKey(matchKey('Walk-in'), 'customer')).toBe(false);
     expect(isLearnableKey(matchKey('ลูกค้า เงินสด'), 'customer')).toBe(false);
     expect(isLearnableKey(matchKey('CASH'), 'customer')).toBe(false);
-    expect(isLearnableKey(matchKey('ร้านสมใจ'), 'customer')).toBe(true);
+    expect(isLearnableKey(matchKey('ร้านสมใจการค้า'), 'customer')).toBe(true);
+    // คำทั่วไป + ตัวเลข/คำทั่วไปหลายคำ ก็ไม่เรียนรู้ · ความยาวขั้นต่ำ สถานที่ 5 / ลูกค้า 6
+    for (const t of ['คลัง 3', 'ร้าน 12', 'ส่งตามที่อยู่', 'ตามที่อยู่ลูกค้า', 'คลังสินค้า 02'])
+      expect(isLearnableKey(matchKey(t), 'site'), t).toBe(false);
+    for (const t of [
+      'Cash Sale',
+      'ลูกค้าเงินสด 02',
+      'เงินสดหน้าร้าน',
+      'walk-in 1',
+      'ลูกค้าทั่วไป',
+      'หน้าร้าน',
+    ])
+      expect(isLearnableKey(matchKey(t), 'customer'), t).toBe(false);
+    expect(isLearnableKey(matchKey('ABCD'), 'site')).toBe(false);
+    expect(isLearnableKey(matchKey('ABCDE'), 'site')).toBe(true);
+    expect(isLearnableKey(matchKey('ABCDE'), 'customer')).toBe(false);
+    expect(isLearnableKey(matchKey('ABCDEF'), 'customer')).toBe(true);
   });
 
   it('ข้อความว่าง/มีแต่คำทั่วไป → คีย์ว่าง', () => {
@@ -116,10 +132,32 @@ describe('matchText', () => {
   it('ชื่อตรงตัวหลัง normalize → NAME', () => {
     expect(matchText('บจก. โรงงาน สระบุรี', sites)).toMatchObject({ id: 's2', method: 'NAME' });
   });
-  it('พิมพ์ผิด 1 ตัว (ข้อความยาวพอ) → FUZZY ≥ เกณฑ์', () => {
+  it('พิมพ์ผิด 1 ตัว → ค่าเริ่มต้นไม่จับคู่เอง (แนะนำอันดับ 1 คะแนน ≥ เกณฑ์) · allowFuzzy: true → FUZZY', () => {
     const r = matchText('คลังสินค้าบางน่า กม.5', sites);
-    expect(r).toMatchObject({ id: 's1', method: 'FUZZY' });
-    expect(r.score!).toBeGreaterThanOrEqual(MATCH_AUTO_THRESHOLD);
+    expect(r).toMatchObject({ id: null, method: null });
+    expect(r.candidates[0]!.id).toBe('s1');
+    expect(r.candidates[0]!.score).toBeGreaterThanOrEqual(MATCH_AUTO_THRESHOLD);
+    expect(matchText('คลังสินค้าบางน่า กม.5', sites, { allowFuzzy: true })).toMatchObject({
+      id: 's1',
+      method: 'FUZZY',
+    });
+  });
+  it('เลขโรมัน/พยางค์ท้ายต่าง (คลัง II vs III) → ไม่จับคู่เอง แนะนำทั้งคู่', () => {
+    const t = [
+      { id: 'ii', name: 'ศูนย์กระจายสินค้าวังน้อย II' },
+      { id: 'iii', name: 'ศูนย์กระจายสินค้าวังน้อย III' },
+    ];
+    const r = matchText('ศูนย์กระจายสินค้าวังน้อย IIII', t);
+    expect(r.id).toBeNull();
+    expect(r.candidates.map((c) => c.id).sort()).toEqual(['ii', 'iii']);
+  });
+  it('รายการแนะนำคะแนนเท่ากัน → สถานที่ของลูกค้าเอง (preferred) ก่อน', () => {
+    const t = [
+      { id: 'a-company', name: 'จุดส่งทดสอบอันดับเอ' },
+      { id: 'z-own', name: 'จุดส่งทดสอบอันดับบี', preferred: true },
+    ];
+    const r = matchText('จุดส่งทดสอบอันดับซี', t);
+    expect(r.candidates.map((c) => c.id)).toEqual(['z-own', 'a-company']);
   });
   it('ตัวเลขต่างกัน (สาขา 2 vs 4) → ไม่จับคู่เองแม้คล้ายมาก แต่แนะนำ', () => {
     const r = matchText('ตลาดไท สาขา 4', sites);
@@ -175,6 +213,18 @@ describe('matchText', () => {
   });
   it('allowFuzzy=false → ตรงตัวเท่านั้น', () => {
     expect(matchText('คลังสินค้าบางน่า กม.5', sites, { allowFuzzy: false }).id).toBeNull();
+  });
+  it('ตัวเลขคนละชุดไม่ถูกรวม: 12/3 ≠ 1/23 ≠ 123 · สาขา 1 2 ≠ สาขา 12 (ตรงตัวและความคล้ายแบบเปิดก็ไม่จับคู่)', () => {
+    const keys = ['เลขที่ 12/3', 'เลขที่ 1/23', 'เลขที่ 123', 'เลขที่ 12-3'].map(matchKey);
+    expect(new Set(keys.slice(0, 3)).size).toBe(3);
+    expect(keys[3]).toBe(keys[0]);
+    expect(matchKey('ตลาดสาขา 1 2')).not.toBe(matchKey('ตลาดสาขา 12'));
+    expect(digitGroups(matchKey('ตลาดสาขา 1 2'))).toBe('1,2');
+    const t = [{ id: 'b12', name: 'คลังสินค้าลูกค้าสาขา 12' }];
+    expect(matchText('คลังสินค้าลูกค้าสาขา 1 2', t, { allowFuzzy: true }).id).toBeNull();
+    expect(
+      matchText('คลังสินค้าลูกค้า 1/23', [{ id: 'x', name: 'คลังสินค้าลูกค้า 12/3' }]).id,
+    ).toBeNull();
   });
 
   it('ประสิทธิภาพ: 5,000 สถานที่ × 20 ข้อความ ใช้ดัชนีเดียว — ภายในเวลาที่กำหนด (หลวม)', () => {

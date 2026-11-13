@@ -300,7 +300,7 @@ export class OrderStopMatchDto {
     enum: ['ALIAS', 'NAME', 'FUZZY', 'MANUAL'],
     description:
       'ได้สถานที่มาอย่างไร (ST3-T06): ALIAS = ข้อความตรง alias ที่เรียนรู้ · NAME = ตรงชื่อสถานที่ · ' +
-      'FUZZY = ความคล้ายเกินเกณฑ์ · MANUAL = คนเลือก · null = ต้นทางระบุ siteId มาเอง หรือยังจับคู่ไม่ได้',
+      'FUZZY = ความคล้ายเกินเกณฑ์ (ปิดในเฟส 0 — ความคล้ายเป็นรายการแนะนำเท่านั้น) · MANUAL = คนเลือก · null = ต้นทางระบุ siteId มาเอง หรือยังจับคู่ไม่ได้',
   })
   method!: string | null;
   @ApiProperty({

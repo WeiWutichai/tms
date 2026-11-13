@@ -7,10 +7,14 @@
  * - ตรงตัว: alias ที่เรียนรู้ 1 แห่ง (และไม่มีสถานที่อื่นชื่อตรง) → ALIAS · alias ชี้แห่งหนึ่งแต่อีกแห่งชื่อตรง → กำกวม (กัน alias
  *   "วางยา") · ชื่อตรง 1 แห่ง → NAME · ชื่อตรงหลายแห่ง → เลือกแห่งที่ `preferred` (สถานที่ของลูกค้าเองชนะของบริษัท) ถ้ามีแห่งเดียว
  *   ไม่งั้นกำกวม
- * - ไม่ตรงตัว → ความคล้าย (Levenshtein ratio บนคีย์) ≥ `MATCH_AUTO_THRESHOLD` + ห่างอันดับสอง ≥ `MATCH_AUTO_MARGIN`
- *   + ตัวเลขในข้อความตรงกันทุกชุด (กัน "สาขา 2" ≠ "สาขา 3") + คีย์ยาว ≥ `MATCH_MIN_KEY_FUZZY` → จับคู่ (FUZZY)
- * - ไม่ถึงเกณฑ์ → ไม่จับคู่ เก็บรายการแนะนำ (≥ `MATCH_SUGGEST_THRESHOLD`, ≤ `MATCH_MAX_CANDIDATES` รายการ) ให้หน้าใบค้าง (T07)
- * - เรียนรู้ alias ได้เฉพาะคีย์ที่ "มีสาระ" (`isLearnableKey`): ยาว ≥ `MATCH_MIN_LEARN_KEY` และไม่อยู่ในรายการคำทั่วไป
+ * - ไม่ตรงตัว → ความคล้าย (Levenshtein ratio บนคีย์) ใช้**จัดอันดับรายการแนะนำเท่านั้น** — `MATCH_FUZZY_AUTO_ASSIGN = false`
+ *   (QA ST3-T06: ชื่อที่ต่างกันแค่ตัวท้าย/เลขโรมัน เช่น "คลัง II" กับ "คลัง III" คล้ายเกินเกณฑ์ → จับผิดแห่งได้) · เกณฑ์อัตโนมัติ
+ *   (≥ `MATCH_AUTO_THRESHOLD`, ห่างอันดับสอง ≥ `MATCH_AUTO_MARGIN`, ชุดตัวเลขตรงกัน, คีย์ ≥ `MATCH_MIN_KEY_FUZZY`) คงไว้ให้ PO
+ *   เปิดภายหลังได้ (`allowFuzzy: true`) [OPEN #54]
+ * - รายการแนะนำ (≥ `MATCH_SUGGEST_THRESHOLD`, ≤ `MATCH_MAX_CANDIDATES`) เรียงคะแนน → แห่งที่ `preferred` (ของลูกค้าเอง) ก่อน
+ * - ตัวเลขคนละชุดคั่นด้วย `#` ในคีย์ ("12/3" ≠ "1/23" ≠ "123", "สาขา 1 2" ≠ "สาขา 12")
+ * - เรียนรู้ alias ได้เฉพาะคีย์ที่ "มีสาระ" (`isLearnableKey`): ยาว ≥ 5 (สถานที่) / ≥ 6 (ชื่อลูกค้า) และเมื่อตัดตัวเลข + คำทั่วไป
+ *   ("คลัง", "ร้าน", "เงินสด", "walk-in", "หน้าร้าน" …) ออกแล้วยังเหลือสาระ ≥ 2 ตัว
  */
 
 export const MATCH_AUTO_THRESHOLD = 0.9;
@@ -18,8 +22,10 @@ export const MATCH_AUTO_MARGIN = 0.05;
 export const MATCH_SUGGEST_THRESHOLD = 0.6;
 export const MATCH_MAX_CANDIDATES = 5;
 export const MATCH_MIN_KEY_FUZZY = 6;
-/** คีย์สั้นกว่านี้ไม่เรียนรู้เป็น alias (code point) */
-export const MATCH_MIN_LEARN_KEY = 4;
+/** ความคล้ายจับคู่เองได้ไหม (ค่าเริ่มต้นเฟส 0 = ไม่ — แนะนำเท่านั้น; PO ตัดสินเปิด #54) */
+export const MATCH_FUZZY_AUTO_ASSIGN = false;
+/** คีย์สั้นกว่านี้ไม่เรียนรู้เป็น alias (code point) — สถานที่ / ชื่อลูกค้า */
+export const MATCH_MIN_LEARN_KEY = { site: 5, customer: 6 } as const;
 /** ข้อความหนึ่งอยู่ในอีกข้อความ (เช่น ชื่อ + ที่อยู่ยาว) — แนะนำได้ แต่ไม่ถึงเกณฑ์จับคู่เอง */
 const CONTAINS_SCORE = 0.8;
 
@@ -69,21 +75,27 @@ const THAI_ABBR: [RegExp, string][] = (
 
 /** คำทั่วไปที่ไม่ใช้เป็น alias (เรียนรู้ไม่ได้ — ใช้ชี้สถานที่/ลูกค้าเจาะจงไม่ได้) */
 const GENERIC_SITE = [
-  'โกดัง',
-  'คลัง',
   'คลังสินค้า',
-  'ร้าน',
+  'คลัง',
+  'โกดัง',
   'ร้านค้า',
+  'ร้าน',
   'บ้าน',
   'โรงงาน',
-  'สำนักงาน',
   'สำนักงานใหญ่',
+  'สำนักงาน',
   'ออฟฟิศ',
   'office',
   'warehouse',
   'หน้าร้าน',
   'ไซต์งาน',
   'หน้างาน',
+  'ส่งตามที่อยู่ลูกค้า',
+  'ตามที่อยู่ลูกค้า',
+  'ที่อยู่ลูกค้า',
+  'ส่งตามที่อยู่',
+  'ตามที่อยู่',
+  'ที่อยู่',
   'ลูกค้า',
   'ปลายทาง',
   'ต้นทาง',
@@ -91,22 +103,31 @@ const GENERIC_SITE = [
   'จุดรับ',
   'ส่งของ',
   'รับของ',
-  'ตามที่อยู่',
   'ตามใบสั่ง',
   'ไม่ระบุ',
   'อื่นๆ',
+  'ส่ง',
+  'รับ',
 ];
 const GENERIC_CUSTOMER = [
-  'เงินสด',
   'ลูกค้าเงินสด',
+  'เงินสด',
   'ลูกค้าทั่วไป',
   'ทั่วไป',
+  'ลูกค้าหน้าร้าน',
+  'ขายหน้าร้าน',
+  'หน้าร้าน',
+  'ลูกค้าขาจร',
+  'ขาจร',
   'ขายสด',
   'ขายปลีก',
+  'walkincustomer',
   'walkin',
-  'cash',
+  'cashsale',
   'cashcustomer',
+  'cash',
   'general',
+  'customer',
   'ลูกค้า',
   'ไม่ระบุ',
   'อื่นๆ',
@@ -140,17 +161,28 @@ export function matchKey(text: string | null | undefined): string {
     }
     if (t) out.push(t);
   }
-  return out.join('').replace(/[^\p{L}\p{M}\p{N}]/gu, '');
+  // ตัวเลขคนละชุด (คั่นด้วยช่องว่าง / เครื่องหมาย) คั่นด้วย `#` — "12/3" ≠ "123"
+  return out
+    .join(' ')
+    .replace(/(\d)[^\p{L}\p{M}\p{N}]+(?=\d)/gu, '$1#')
+    .replace(/[^\p{L}\p{M}\p{N}#]/gu, '');
 }
 
+/** คำทั่วไปเป็นคีย์ เรียงยาวก่อนสั้น (ตัดคำยาวก่อน) */
 const GENERIC_KEYS = {
-  site: new Set(GENERIC_SITE.map(matchKey)),
-  customer: new Set(GENERIC_CUSTOMER.map(matchKey)),
+  site: [...new Set(GENERIC_SITE.map(matchKey))].sort((a, b) => b.length - a.length),
+  customer: [...new Set(GENERIC_CUSTOMER.map(matchKey))].sort((a, b) => b.length - a.length),
 };
 
-/** เรียนรู้เป็น alias ได้ไหม: คีย์ยาวพอ + ไม่ใช่คำทั่วไป ("คลัง", "เงินสด", "walk-in" …) */
+/**
+ * เรียนรู้เป็น alias ได้ไหม: คีย์ยาวพอ และเมื่อตัดตัวเลข/`#` + คำทั่วไปทุกคำ (ที่ใดก็ได้ในคีย์) แล้วยังเหลือ ≥ 2 ตัว
+ * ("คลัง 3", "ลูกค้าเงินสด 02", "walk-in หน้าร้าน" = ไม่เรียนรู้ · "ร้านสมใจ", "คลังสินค้าบางนา" = เรียนรู้ได้)
+ */
 export function isLearnableKey(key: string, kind: 'site' | 'customer'): boolean {
-  return [...key].length >= MATCH_MIN_LEARN_KEY && !GENERIC_KEYS[kind].has(key);
+  if ([...key].length < MATCH_MIN_LEARN_KEY[kind]) return false;
+  let rest = key.replace(/[\d#]/g, '');
+  for (const g of GENERIC_KEYS[kind]) if (g) rest = rest.split(g).join('');
+  return [...rest].length >= 2;
 }
 
 /** ชุดตัวเลขในข้อความ — ใช้กันจับคู่ข้ามสาขา/เลขที่ */
@@ -288,7 +320,8 @@ const NONE: MatchOutcome = {
 };
 
 /**
- * จับคู่ข้อความกับรายการเป้าหมาย (ขอบเขต/สถานะใช้งานกรองมาก่อนแล้ว) · `allowFuzzy = false` = ตรงตัวเท่านั้น
+ * จับคู่ข้อความกับรายการเป้าหมาย (ขอบเขต/สถานะใช้งานกรองมาก่อนแล้ว) · ความคล้ายจับคู่เองเฉพาะ `allowFuzzy: true`
+ * (ค่าเริ่มต้น `MATCH_FUZZY_AUTO_ASSIGN` = false — แนะนำเท่านั้น)
  * รับรายการ (สร้างดัชนีให้) หรือดัชนีที่สร้างไว้แล้ว (`buildMatchIndex` — หลายจุดใช้ร่วมกัน)
  */
 export function matchText(
@@ -331,13 +364,21 @@ export function matchText(
         const s = keySimilarity(key, k);
         if (s > best) [best, bestKey] = [s, k];
       }
-      return { id: t.id, score: best, sameDigits: digitGroups(bestKey) === digits };
+      return {
+        id: t.id,
+        score: best,
+        sameDigits: digitGroups(bestKey) === digits,
+        preferred: t.preferred,
+      };
     })
     .filter((x) => x.score >= MATCH_SUGGEST_THRESHOLD)
-    .sort((a, b) => b.score - a.score || (a.id < b.id ? -1 : 1));
+    .sort(
+      (a, b) =>
+        b.score - a.score || Number(b.preferred) - Number(a.preferred) || (a.id < b.id ? -1 : 1),
+    );
   const [top, second] = scored;
   if (
-    opts.allowFuzzy !== false &&
+    (opts.allowFuzzy ?? MATCH_FUZZY_AUTO_ASSIGN) &&
     top &&
     top.score >= MATCH_AUTO_THRESHOLD &&
     top.sameDigits &&

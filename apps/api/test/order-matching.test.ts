@@ -260,8 +260,12 @@ describe('order auto-matching + alias learning', () => {
     expect(name.order.stops[1]).toMatchObject({ siteId: bangna, matchMethod: 'NAME' });
 
     const typo = await o('KRS-SO-121', 'คลังสินค้าบางน่า กม.5');
-    expect(typo.order.stops[1]).toMatchObject({ siteId: bangna, matchMethod: 'FUZZY' });
-    expect(Number(typo.order.stops[1]!.matchScore)).toBeGreaterThanOrEqual(0.9);
+    // ความคล้ายไม่จับคู่เอง (เฟส 0 — QA H2) → ค้าง LOCATION_UNMAPPED + แนะนำ bangna อันดับ 1
+    expect(typo.order.stops[1]).toMatchObject({ siteId: null, matchMethod: null });
+    expect(holdCodes(typo)[0]).toBe('LOCATION_UNMAPPED');
+    const top = (typo.order.stops[1]!.matchCandidates as { id: string; score: number }[])[0]!;
+    expect(top.id).toBe(bangna);
+    expect(top.score).toBeGreaterThanOrEqual(0.9);
 
     const branch = await o('KRS-SO-122', 'ตลาดไท สาขา 4');
     expect(branch.order.stops[1]!.siteId).toBeNull();
@@ -618,7 +622,31 @@ describe('order auto-matching + alias learning', () => {
     await api(app, admin)
       .post(`/v1/orders/${pubOrder(auto3.order.id)}/map-customer`)
       .send({ customerId: encodeId('customer', cust) })
+      .expect(409)
+      .expect((r) =>
+        expect(r.body).toMatchObject({
+          code: 'alias_conflict',
+          aliasValue: 'NSF-999',
+          mappedCustomerId: encodeId('customer', c3),
+        }),
+      );
+    await api(app, admin)
+      .post(`/v1/orders/${pubOrder(auto3.order.id)}/map-customer`)
+      .send({
+        customerId: encodeId('customer', cust),
+        confirmReassign: true,
+        reason: 'รหัส NSF-999 ในระบบต้นทางเป็นของลูกค้านี้',
+      })
       .expect(200);
+    expect(
+      await db.auditLog.count({
+        where: {
+          entityId: cust,
+          action: 'customer.alias_reassigned',
+          reason: 'รหัส NSF-999 ในระบบต้นทางเป็นของลูกค้านี้',
+        },
+      }),
+    ).toBe(1);
     const after3 = await upsert(erpOrder('KRS-SO-155', { custExt: 'NSF-999', origin, dest: 'x' }));
     expect(after3.order).toMatchObject({ customerId: cust, customerMatchMethod: 'ALIAS' });
 
@@ -672,6 +700,38 @@ describe('order auto-matching + alias learning', () => {
       .post(`/v1/orders/${pubOrder(a.order.id)}/stops/2/map-site`)
       .send({ siteId: encodeId('site', originB) })
       .expect(404);
+  });
+
+  it('พร้อมกัน: ข้อความเดียวกันสอนให้ 2 สถานที่พร้อมกัน → จำได้แห่งเดียว อีกแห่ง conflict (ล็อกตามคีย์)', async () => {
+    const cust = await newCustomer({ externalId: 'RACE-C-1' });
+    const origin = await newSite('ต้นทาง แข่งกันสอน');
+    const x = await newSite('ปลายทางเอ็กซ์ แข่งกันสอน', cust);
+    const y = await newSite('ปลายทางวาย แข่งกันสอน', cust);
+    const text = 'จุดลงสินค้า หลังตลาดแข่งกัน';
+    const [o1, o2] = await Promise.all(
+      ['RACE-1', 'RACE-2'].map((e) =>
+        upsert(erpOrder(e, { custExt: 'RACE-C-1', origin, dest: text })),
+      ),
+    );
+    const res = await Promise.all(
+      [
+        [o1!, x],
+        [o2!, y],
+      ].map(([o, site]) =>
+        api(app, admin)
+          .post(
+            `/v1/orders/${pubOrder((o as { order: { id: string } }).order.id)}/stops/2/map-site`,
+          )
+          .send({ siteId: encodeId('site', site as string) }),
+      ),
+    );
+    expect(res.map((r) => r.status)).toEqual([200, 200]);
+    expect(res.map((r) => r.body.aliasLearning).sort()).toEqual(['conflict', 'learned']);
+    const aliases = await db.customerSite.findMany({
+      where: { id: { in: [x, y] } },
+      select: { aliases: true },
+    });
+    expect(aliases.flatMap((a) => a.aliases)).toEqual([text]);
   });
 
   it('พร้อมกัน: map ข้อความต่างกัน 6 ใบเข้าสถานที่เดียวพร้อมกัน → alias ครบไม่หาย · ข้อความเดียวกันพร้อมกัน → alias เดียว', async () => {

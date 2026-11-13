@@ -27,6 +27,7 @@ import {
   type SoStatus,
 } from '@tms/domain';
 import { AuditService, diff } from '../../audit/audit.service';
+import { encodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
@@ -423,6 +424,18 @@ export class OrderIntakeService {
           'site belongs to another customer',
         );
     }
+    // ใบได้ลูกค้ามาจากรหัสต้นทางตรง externalId ของลูกค้า K แล้วคนเลือก L = ย้ายรหัสนั้นไป L (alias ชนะ externalId ใบถัดไป)
+    // → ต้องยืนยันเหมือนย้าย alias (QA ST3-T06 H3) · audit เหตุผล
+    const fromExternalId =
+      current.customerMatchMethod === 'EXTERNAL_ID' &&
+      !!current.customerId &&
+      current.customerId !== customerId;
+    if (fromExternalId && (!opts.confirmReassign || !opts.reason))
+      throw new ProblemException('alias_conflict', undefined, undefined, {
+        aliasKind: 'EXTERNAL_ID',
+        aliasValue: current.customerExternalId,
+        mappedCustomerId: encodeId('customer', current.customerId!),
+      });
     // เรียนรู้ก่อนแก้ใบ — alias ชนกับลูกค้าอื่นโดยไม่ยืนยัน = 409 ทั้งคำขอ (ใบไม่เปลี่ยน)
     const aliasLearning = await this.matching.learnCustomerAlias(tx, {
       customerId,
@@ -435,6 +448,22 @@ export class OrderIntakeService {
       confirmReassign: opts.confirmReassign,
       reason: opts.reason,
     });
+    if (fromExternalId)
+      await this.audit.record({
+        action: 'customer.alias_reassigned',
+        entityType: 'customer',
+        entityId: customerId,
+        before: { externalIdOf: encodeId('customer', current.customerId!) },
+        after: {
+          kind: 'EXTERNAL_ID',
+          source: formatOrderSource({
+            source: current.source as OrderSource,
+            connector: current.sourceConnector,
+          }),
+          value: current.customerExternalId,
+        },
+        reason: opts.reason!,
+      });
     const changed = current.customerId !== customerId || current.customerMatchMethod !== 'MANUAL';
     if (changed)
       await tx.salesOrder.update({
