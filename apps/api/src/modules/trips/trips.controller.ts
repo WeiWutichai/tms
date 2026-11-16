@@ -15,6 +15,7 @@ import {
   type RuleOverride,
   type TripStatus,
 } from '@tms/domain';
+import { Prisma } from '@prisma/client';
 import type { Request, Response } from 'express';
 import { RequireScope, TenantResource } from '../../common/decorators';
 import { expectedVersion, setEtag } from '../../common/etag';
@@ -34,6 +35,7 @@ import {
   DetachDeliveryOrdersDto,
   DispatchTripDto,
   OfferTripDto,
+  ReorderStopsDto,
   ScheduleTripDto,
   TripDto,
   TripListQuery,
@@ -48,6 +50,11 @@ import {
 } from './trip.service';
 
 const iso = (d: Date | null) => (d ? d.toISOString() : null);
+const kg = (vs: (Prisma.Decimal | null)[]) =>
+  vs
+    .reduce<Prisma.Decimal>((a, v) => (v === null ? a : a.add(v)), new Prisma.Decimal(0))
+    .toFixed(3)
+    .replace(/\.?0+$/, '') || '0';
 
 /** ช่องยืนยัน/ยกเว้นกฎ (ST3-T14) จาก body + สิทธิ์ `trips:override` ของผู้เรียก */
 function rulesOf(b: RuleConfirmDto): RuleConfirmInput {
@@ -126,6 +133,10 @@ export function toTripDto(t: TripRecord): TripDto {
       deliveryOrderIds: t.deliveryOrders
         .filter((d) => (s.type === 'PICKUP' ? d.pickupTripStopId : d.tripStopId) === s.id)
         .map((d) => encodeId('deliveryOrder', d.id)),
+      siteName: s.site.name,
+      legDistanceKm: s.legDistanceKm?.toFixed(1) ?? null,
+      legMinutes: s.legMinutes,
+      legSource: s.legSource,
     })),
     deliveryOrders: t.deliveryOrders.map((d) => ({
       id: encodeId('deliveryOrder', d.id),
@@ -136,6 +147,13 @@ export function toTripDto(t: TripRecord): TripDto {
       pickupStopId: d.pickupTripStopId ? encodeId('tripStop', d.pickupTripStopId) : null,
       dropStopId: d.tripStopId ? encodeId('tripStop', d.tripStopId) : null,
     })),
+    weightKg: kg(t.deliveryOrders.map((d) => d.weightKg)),
+    route: {
+      distanceKm: t.plannedDistanceKm?.toFixed(1) ?? null,
+      minutes: t.plannedDurationMin,
+      missingLegs: t.stops.slice(1).filter((s) => s.legSource === null).length,
+      estimated: t.stops.some((s) => s.legSource === 'ESTIMATE'),
+    },
     ...(() => {
       const r = tripRules(t);
       return {
@@ -354,6 +372,73 @@ export class TripsController {
       trip.id,
       body.deliveryOrderIds.map((x, i) => ref('deliveryOrder', x, `deliveryOrderIds[${i}]`)),
       body.note ?? null,
+      undefined,
+      expectedVersion(req),
+    );
+    setEtag(res, t.version);
+    return toTripDto(t);
+  }
+
+  /**
+   * เรียงจุดแวะเอง (ST3-T16 Multi-drop — docs/04 D2, spec/03 PLN-003) · PLANNING/ASSIGNED
+   * ส่งก่อนรับ (จุดส่งของ DO อยู่ก่อนจุดรับของ DO เดียวกัน) → 422 `stop_order_invalid` (บล็อก) ·
+   * คำนวณระยะ/เวลาช่วงวิ่งใหม่ (`stops[].leg*`, `route`) + ตรวจกฎตอนจัดใหม่ (`warnings`)
+   */
+  @Post(':id/reorder-stops')
+  @ApiOperation({
+    summary: 'เรียงลำดับจุดแวะของเที่ยว',
+    description:
+      'ส่ง id ของจุดแวะทุกจุดตามลำดับใหม่ · ลำดับเท่าเดิม = ไม่เปลี่ยน version · ' +
+      'จุดส่งก่อนจุดรับของใบส่งของเดียวกัน → 422 `stop_order_invalid` พร้อม `violations[]` · ' +
+      'ระยะ/เวลา: route master ก่อน ไม่มี → ค่าประมาณจากพิกัด (เส้นตรง × 1.3, 50 กม./ชม.) ไม่มีทั้งคู่ = ไม่ทราบ',
+  })
+  @ApiProblems(T403('trips:assign'), T404, T409(), T412, {
+    ...T422,
+    examples: {
+      ...T422.examples,
+      stop_order_invalid: {
+        type: 'https://docs.tms.example/problems/stop_order_invalid',
+        title: 'ลำดับจุดไม่ถูกต้อง — จุดส่งของใบส่งของต้องอยู่หลังจุดรับของใบเดียวกัน',
+        status: 422,
+        code: 'stop_order_invalid',
+        detail:
+          'ใบส่งของ DO-6911-0001: จุดส่ง (ลำดับ 1) อยู่ก่อนจุดรับ (ลำดับ 2) — ต้องรับของก่อนส่ง',
+        errors: [
+          {
+            field: 'stopIds',
+            code: 'delivery_before_pickup',
+            message: 'DO-6911-0001: drop stop 1 is not after pickup stop 2',
+          },
+        ],
+        violations: [
+          {
+            deliveryOrderId: 'do_3f2a…',
+            doNo: 'DO-6911-0001',
+            pickupStopId: 'stp_3f2a…',
+            dropStopId: 'stp_8c1d…',
+            pickupSequence: 2,
+            dropSequence: 1,
+          },
+        ],
+      },
+    },
+  })
+  @HttpCode(200)
+  @TenantResource('trip')
+  @RequireScope('trips:assign')
+  @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
+  @ApiHeader({ name: 'Idempotency-Key', required: false })
+  @ApiOkResponse({ type: TripDto })
+  async reorderStops(
+    @Param('id') id: string,
+    @Body() body: ReorderStopsDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<TripDto> {
+    const trip = await this.trips.get(decodeIdOr404('trip', id));
+    const t = await this.trips.reorderStops(
+      trip.id,
+      body.stopIds.map((x, i) => ref('tripStop', x, `stopIds[${i}]`)),
       undefined,
       expectedVersion(req),
     );

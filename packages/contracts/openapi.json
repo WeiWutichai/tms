@@ -15624,6 +15624,255 @@
         ]
       }
     },
+    "/v1/trips/{id}/reorder-stops": {
+      "post": {
+        "description": "ส่ง id ของจุดแวะทุกจุดตามลำดับใหม่ · ลำดับเท่าเดิม = ไม่เปลี่ยน version · จุดส่งก่อนจุดรับของใบส่งของเดียวกัน → 422 `stop_order_invalid` พร้อม `violations[]` · ระยะ/เวลา: route master ก่อน ไม่มี → ค่าประมาณจากพิกัด (เส้นตรง × 1.3, 50 กม./ชม.) ไม่มีทั้งคู่ = ไม่ทราบ",
+        "operationId": "Trips_reorderStops",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReorderStopsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TripDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`trips:assign`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "trips",
+                      "action": "assign",
+                      "required": [
+                        "trips:assign"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ไม่พบเที่ยว (รวมของบริษัทอื่น)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "invalid_state_transition": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/invalid_state_transition",
+                      "title": "ทำรายการนี้ไม่ได้ในสถานะปัจจุบัน",
+                      "status": 409,
+                      "code": "invalid_state_transition",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "from": "PLANNING",
+                      "event": "dispatch"
+                    }
+                  },
+                  "concurrent_update": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/concurrent_update",
+                      "title": "มีการแก้ไขข้อมูลเดียวกันพร้อมกัน กรุณาลองใหม่อีกครั้ง",
+                      "status": 409,
+                      "code": "concurrent_update",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  },
+                  "idempotency_in_progress": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_in_progress",
+                      "title": "คำขอเดียวกันกำลังประมวลผลอยู่",
+                      "status": 409,
+                      "code": "idempotency_in_progress",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "If-Match ไม่ตรง version",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "precondition_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/precondition_failed",
+                      "title": "ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่",
+                      "status": 412,
+                      "code": "precondition_failed",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "deliveryOrderIds[0]",
+                          "code": "invalid_reference",
+                          "message": "not found"
+                        },
+                        {
+                          "field": "plannedEndAt",
+                          "code": "outside_trip_date",
+                          "message": "must be on tripDate"
+                        }
+                      ]
+                    }
+                  },
+                  "idempotency_mismatch": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_mismatch",
+                      "title": "Idempotency-Key นี้เคยใช้กับข้อมูลอื่น",
+                      "status": 422,
+                      "code": "idempotency_mismatch",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  },
+                  "stop_order_invalid": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/stop_order_invalid",
+                      "title": "ลำดับจุดไม่ถูกต้อง — จุดส่งของใบส่งของต้องอยู่หลังจุดรับของใบเดียวกัน",
+                      "status": 422,
+                      "code": "stop_order_invalid",
+                      "detail": "ใบส่งของ DO-6911-0001: จุดส่ง (ลำดับ 1) อยู่ก่อนจุดรับ (ลำดับ 2) — ต้องรับของก่อนส่ง",
+                      "errors": [
+                        {
+                          "field": "stopIds",
+                          "code": "delivery_before_pickup",
+                          "message": "DO-6911-0001: drop stop 1 is not after pickup stop 2"
+                        }
+                      ],
+                      "violations": [
+                        {
+                          "deliveryOrderId": "do_3f2a…",
+                          "doNo": "DO-6911-0001",
+                          "pickupStopId": "stp_3f2a…",
+                          "dropStopId": "stp_8c1d…",
+                          "pickupSequence": 2,
+                          "dropSequence": 1
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "เรียงลำดับจุดแวะของเที่ยว",
+        "tags": [
+          "trips"
+        ]
+      }
+    },
     "/v1/trips/{id}/assign": {
       "post": {
         "operationId": "Trips_assign",
@@ -31573,6 +31822,33 @@
             "items": {
               "type": "string"
             }
+          },
+          "siteName": {
+            "type": "string",
+            "example": "คลังสินค้าบางนา",
+            "description": "ชื่อสถานที่ (ปัจจุบัน)"
+          },
+          "legDistanceKm": {
+            "type": "string",
+            "nullable": true,
+            "example": "45.2",
+            "description": "ST3-T16 ระยะช่วงวิ่งจากจุดก่อนหน้า (กม.) — จุดแรก/ไม่ทราบ = null"
+          },
+          "legMinutes": {
+            "type": "number",
+            "nullable": true,
+            "example": 55,
+            "description": "เวลาเดินทางช่วงนี้ (นาที)"
+          },
+          "legSource": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "ROUTE",
+              "ESTIMATE",
+              "SAME_SITE"
+            ],
+            "description": "ที่มา: ROUTE = เส้นทางใน route master · ESTIMATE = ค่าประมาณจากพิกัด (เส้นตรง × 1.3, 50 กม./ชม.) · SAME_SITE = จุดเดียวกัน"
           }
         },
         "required": [
@@ -31585,7 +31861,11 @@
           "windowEnd",
           "plannedArrival",
           "plannedDeparture",
-          "deliveryOrderIds"
+          "deliveryOrderIds",
+          "siteName",
+          "legDistanceKm",
+          "legMinutes",
+          "legSource"
         ]
       },
       "TripDeliveryOrderDto": {
@@ -31627,6 +31907,38 @@
           "customerId",
           "pickupStopId",
           "dropStopId"
+        ]
+      },
+      "TripRouteSummaryDto": {
+        "type": "object",
+        "properties": {
+          "distanceKm": {
+            "type": "string",
+            "nullable": true,
+            "example": "182.4",
+            "description": "ระยะรวมของช่วงที่ทราบ (กม.) — จุด < 2 หรือไม่ทราบทุกช่วง = null"
+          },
+          "minutes": {
+            "type": "number",
+            "nullable": true,
+            "example": 230,
+            "description": "เวลาเดินทางรวม (นาที) ไม่รวมเวลาที่จุด"
+          },
+          "missingLegs": {
+            "type": "number",
+            "example": 0,
+            "description": "จำนวนช่วงที่ไม่ทราบระยะ (ไม่มีเส้นทางและไม่มีพิกัด) — > 0 = ยอดรวมยังไม่ครบ"
+          },
+          "estimated": {
+            "type": "boolean",
+            "description": "มีช่วงที่เป็นค่าประมาณจากพิกัด"
+          }
+        },
+        "required": [
+          "distanceKm",
+          "minutes",
+          "missingLegs",
+          "estimated"
         ]
       },
       "TripWarningDto": {
@@ -31887,6 +32199,19 @@
               "$ref": "#/components/schemas/TripDeliveryOrderDto"
             }
           },
+          "weightKg": {
+            "type": "string",
+            "example": "5400",
+            "description": "น้ำหนักรวมของ DO ในเที่ยว (กก.)"
+          },
+          "route": {
+            "description": "ST3-T16 ระยะ/เวลารวมตามลำดับจุดปัจจุบัน (คำนวณใหม่ทุกครั้งที่จุดเปลี่ยน)",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TripRouteSummaryDto"
+              }
+            ]
+          },
           "warnings": {
             "description": "ผลตรวจกฎตอนจัดล่าสุด (ST3-T14 — D-07: block = กฎเอกสาร, warning = ต้องยืนยันก่อนปล่อยรถ)",
             "type": "array",
@@ -31933,6 +32258,8 @@
           "cancelReason",
           "stops",
           "deliveryOrders",
+          "weightKg",
+          "route",
           "warnings",
           "ruleOverrides",
           "version",
@@ -32109,6 +32436,26 @@
         },
         "required": [
           "deliveryOrderIds"
+        ]
+      },
+      "ReorderStopsDto": {
+        "type": "object",
+        "properties": {
+          "stopIds": {
+            "example": [
+              "stp_3f2a…",
+              "stp_8c1d…",
+              "stp_77b0…"
+            ],
+            "description": "จุดแวะทุกจุดของเที่ยว (`stops[].id`) ตามลำดับใหม่ — ขาด/เกิน/ซ้ำ → 422 `stop_set_mismatch` · จุดส่งของใบส่งของอยู่ก่อนจุดรับของใบเดียวกัน → 422 `stop_order_invalid`",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "stopIds"
         ]
       },
       "AssignTripDto": {

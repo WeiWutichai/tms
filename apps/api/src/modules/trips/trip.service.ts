@@ -4,6 +4,9 @@ import type { Trip, TripStop, TripStatus as DbTripStatus } from '@prisma/client'
 import {
   STOP_TERMINAL_STATUSES,
   backwardStops,
+  estimateLeg,
+  routeTotals,
+  stopOrderViolations,
   TRIP_OPEN_STATUSES,
   TRIP_TRANSITIONS,
   isTripEditable,
@@ -16,12 +19,14 @@ import {
   ruleKey,
   RULE_OVERRIDE_SCOPE,
   RULE_REASON_MIN_LENGTH,
+  type Leg,
   type RuleOverride,
   type TripDoInput,
   type TripEvent,
   type TripStatus,
 } from '@tms/domain';
 import { AuditService } from '../../audit/audit.service';
+import { encodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { keysetArgs, type ListQuery } from '../../common/pagination';
@@ -36,6 +41,7 @@ import {
 import { cleanLine } from '../master/master-kit';
 import { bangkokToday } from '../vehicle-documents/expiry';
 import { OrderStateService } from '../orders/order-state.service';
+import { RoutesService } from '../routes/routes.service';
 import { issueNumber } from '../sequences/sequences.service';
 import {
   driverOnLeaveMessageTh,
@@ -45,7 +51,11 @@ import {
 } from './rule-messages';
 
 export const TRIP_INCLUDE = {
-  stops: { where: { removedAt: null }, orderBy: { sequence: 'asc' } },
+  stops: {
+    where: { removedAt: null },
+    orderBy: { sequence: 'asc' },
+    include: { site: { select: { name: true } } },
+  },
   deliveryOrders: {
     where: { status: { not: 'CANCELLED' } },
     orderBy: [{ doNo: 'asc' }],
@@ -57,6 +67,7 @@ export const TRIP_INCLUDE = {
       customerId: true,
       pickupTripStopId: true,
       tripStopId: true,
+      weightKg: true,
     },
   },
 } as const satisfies Prisma.TripInclude;
@@ -161,6 +172,7 @@ export class TripService {
     private readonly orderState: OrderStateService,
     private readonly compatibility: CompatibilityService,
     private readonly assignability: AssignabilityService,
+    private readonly routes: RoutesService,
   ) {}
 
   // ---------------------------------------------------------------------------------------------
@@ -317,6 +329,92 @@ export class TripService {
       entityId: trip.id,
       before: { deliveryOrders: removing.map((d) => d.doNo) },
       reason: text ?? undefined,
+    });
+    return final;
+  }
+
+  /**
+   * เรียงจุดแวะเอง (ST3-T16 Multi-drop; docs/04 D2, spec/03 PLN-003) — PLANNING/ASSIGNED เท่านั้น
+   * - `stopIds` = id ของจุดที่ยังใช้ **ครบทุกจุด** ตามลำดับใหม่ (ขาด/เกิน/ซ้ำ → 422 `stop_set_mismatch`)
+   * - จุดส่งของ DO อยู่ก่อน (หรือที่เดียวกับ) จุดรับของ DO เดียวกัน → 422 `stop_order_invalid` + `violations[]` (บล็อก)
+   * - ลำดับเท่าเดิม = ไม่เปลี่ยน version · เปลี่ยน → คำนวณระยะ/เวลาช่วงวิ่งใหม่ + ตรวจกฎใหม่ (ST3-T14 —
+   *   คำเตือนลำดับเวลา `stop_sequence_window_order` ฯลฯ; การยืนยันที่ข้อเท็จจริงเปลี่ยนหมดผล) + audit `trip.stops_reordered`
+   */
+  async reorderStops(
+    id: string,
+    stopIds: string[],
+    tx: Tx = this.db.tx,
+    expectedVersion?: number,
+  ): Promise<TripRecord> {
+    const { trip } = await this.lock(tx, id, expectedVersion);
+    this.assertEditable(trip);
+    const current = trip.stops.map((st) => st.id);
+    const known = new Set(current);
+    if (
+      stopIds.length !== current.length ||
+      new Set(stopIds).size !== stopIds.length ||
+      stopIds.some((x) => !known.has(x))
+    )
+      throw field422(
+        'stopIds',
+        'stop_set_mismatch',
+        'must list every active stop of this trip exactly once',
+      );
+    if (stopIds.every((x, i) => x === current[i])) return trip;
+    const violations = stopOrderViolations(
+      stopIds,
+      trip.deliveryOrders.map((d) => ({
+        id: d.id,
+        pickupStopId: d.pickupTripStopId,
+        dropStopId: d.tripStopId,
+      })),
+    );
+    if (violations.length) {
+      const doNo = (x: string) => trip.deliveryOrders.find((d) => d.id === x)?.doNo ?? x;
+      const first = violations[0]!;
+      throw new ProblemException(
+        'stop_order_invalid',
+        `ใบส่งของ ${doNo(first.deliveryOrderId)}: จุดส่ง (ลำดับ ${first.dropSequence}) อยู่ก่อนจุดรับ (ลำดับ ${first.pickupSequence}) — ต้องรับของก่อนส่ง`,
+        violations.map((v) => ({
+          field: 'stopIds',
+          code: 'delivery_before_pickup',
+          message: `${doNo(v.deliveryOrderId)}: drop stop ${v.dropSequence} is not after pickup stop ${v.pickupSequence}`,
+        })),
+        {
+          violations: violations.map((v) => ({
+            deliveryOrderId: encodeId('deliveryOrder', v.deliveryOrderId),
+            doNo: doNo(v.deliveryOrderId),
+            pickupStopId: encodeId('tripStop', v.pickupStopId),
+            dropStopId: encodeId('tripStop', v.dropStopId),
+            pickupSequence: v.pickupSequence,
+            dropSequence: v.dropSequence,
+          })),
+        },
+      );
+    }
+    // คำเตือนช่วงเวลาของจุด (ผูกกับตำแหน่ง) → ย้ายตามจุดไปตำแหน่งใหม่
+    const conflicts = ((trip.ruleWarnings as unknown as TripWarning[]) ?? [])
+      .filter((w) => w.code === 'stop_window_conflict')
+      .map((w) => current[Number(w.params.sequence) - 1])
+      .filter((x): x is string => !!x)
+      .map((x) => stopIds.indexOf(x));
+    const before = stopsView(trip);
+    await tx.tripStop.updateMany({
+      where: { tripId: trip.id, removedAt: null },
+      data: { sequence: { increment: 100000 } },
+    });
+    for (const [i, sid] of stopIds.entries())
+      await tx.tripStop.update({ where: { id: sid }, data: { sequence: i + 1 } });
+    await this.refreshLegs(tx, trip.id);
+    await this.bump(tx, trip);
+    const final = await this.refreshWarnings(tx, trip.id, conflicts);
+    await this.emit(tx, 'trip.updated', final, { stops: before });
+    await this.audit.record({
+      action: `${ENTITY}.stops_reordered`,
+      entityType: ENTITY,
+      entityId: trip.id,
+      before: { stops: before },
+      after: { stops: stopsView(final) },
     });
     return final;
   }
@@ -963,7 +1061,69 @@ export class TripService {
         });
       else await this.dos.setTripStops(tx, d, pickup, drop);
     }
+    await this.refreshLegs(tx, trip.id);
     return plan;
+  }
+
+  /**
+   * ระยะ/เวลาช่วงวิ่งของทุกจุด (ST3-T16) — จุดก่อนหน้า → จุดนี้ (จุดแรกไม่มีช่วง): route master ที่ใช้งาน (ทิศทางมีผล —
+   * `RoutesService.getRouteDistance`) ก่อน · ไม่มี → ค่าประมาณจากพิกัดที่ยืนยันแล้ว (`estimateLeg`) · ไม่มีทั้งคู่ = ไม่ทราบ
+   * ยอดรวมเขียนที่ `trip.planned_distance_km` / `planned_duration_min` (จุด < 2 = null) — เรียกทุกครั้งที่จุดเปลี่ยน
+   * (ไม่ขยับ version เอง — ผู้เรียกขยับแล้ว) · ข้อมูลหลักเปลี่ยนภายหลังไม่ย้อนมาอัปเดตจนกว่าจุดจะเปลี่ยนอีกครั้ง
+   */
+  private async refreshLegs(tx: Tx, tripId: string) {
+    const stops = await tx.tripStop.findMany({
+      where: { tripId, removedAt: null },
+      orderBy: { sequence: 'asc' },
+      select: { id: true, siteId: true, legDistanceKm: true, legMinutes: true, legSource: true },
+    });
+    const sites = await tx.customerSite.findMany({
+      where: { id: { in: [...new Set(stops.map((st) => st.siteId))] } },
+      select: { id: true, lat: true, lng: true },
+    });
+    const pt = (id: string) => {
+      const x = sites.find((y) => y.id === id);
+      return x && x.lat !== null && x.lng !== null
+        ? { lat: Number(x.lat), lng: Number(x.lng) }
+        : null;
+    };
+    const legs: Leg[] = [];
+    for (const [i, st] of stops.entries()) {
+      let leg: Leg = { km: null, minutes: null, source: null };
+      if (i > 0) {
+        const from = stops[i - 1]!.siteId;
+        const r =
+          from === st.siteId ? null : await this.routes.getRouteDistance(from, st.siteId, tx);
+        leg = estimateLeg({
+          fromSiteId: from,
+          toSiteId: st.siteId,
+          route: r
+            ? { distanceKm: Number(r.distanceKm), standardMinutes: r.standardMinutes }
+            : null,
+          from: pt(from),
+          to: pt(st.siteId),
+        });
+        legs.push(leg);
+      }
+      const km = leg.km === null ? null : leg.km.toFixed(1);
+      if (
+        (st.legDistanceKm?.toFixed(1) ?? null) !== km ||
+        st.legMinutes !== leg.minutes ||
+        st.legSource !== leg.source
+      )
+        await tx.tripStop.update({
+          where: { id: st.id },
+          data: { legDistanceKm: km, legMinutes: leg.minutes, legSource: leg.source },
+        });
+    }
+    const tot = stops.length < 2 ? null : routeTotals(legs);
+    await tx.trip.update({
+      where: { id: tripId },
+      data: {
+        plannedDistanceKm: tot?.distanceKm == null ? null : tot.distanceKm.toFixed(1),
+        plannedDurationMin: tot?.minutes ?? null,
+      },
+    });
   }
 
   /** DO → จุดรับ/ส่ง + ช่วงเวลาของจุดนั้นใน SO */
@@ -1564,6 +1724,16 @@ function view(t: TripRecord) {
     carrier: t.carrierNameSnapshot,
     deliveryOrders: t.deliveryOrders.map((d) => d.doNo),
   };
+}
+
+/** ลำดับจุด (audit/event ของ reorder — ST3-T16) */
+function stopsView(t: TripRecord) {
+  return t.stops.map((st) => ({
+    id: st.id,
+    sequence: st.sequence,
+    type: st.type,
+    site: st.site.name,
+  }));
 }
 
 /** ค่าที่กระดานเปลี่ยน (audit/event ของ schedule) */

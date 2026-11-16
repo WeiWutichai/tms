@@ -220,6 +220,15 @@ export const PROBLEMS = {
     th: 'เปลี่ยนรถร่วมหรือสลับรถร่วม/รถบริษัทไม่ได้ — ยกเลิกการจ้างเดิมก่อน',
     en: 'Changing the carrier requires cancelling the current hire first',
   },
+  /**
+   * ST3-T16 (spec/03 PLN-003): ลำดับจุดที่เรียงเองทำให้จุดส่งของใบส่งของอยู่ก่อนจุดรับ (ส่งก่อนรับ) — บล็อก
+   * extension `violations[]` {deliveryOrderId, doNo, pickupStopId, dropStopId, pickupSequence, dropSequence}
+   */
+  stop_order_invalid: {
+    status: 422,
+    th: 'ลำดับจุดไม่ถูกต้อง — จุดส่งของใบส่งของต้องอยู่หลังจุดรับของใบเดียวกัน',
+    en: 'Invalid stop order — a delivery stop must come after the pickup stop of the same delivery order',
+  },
   trip_empty: {
     status: 409,
     th: 'เที่ยวนี้ยังไม่มีใบส่งของ',

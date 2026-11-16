@@ -281,3 +281,135 @@ export function vehicleOverlaps(trips: OverlapTrip[]): Map<string, string[]> {
     }
   return out;
 }
+
+// ---------- Multi-drop: เรียงจุดเอง + ระยะ/เวลารวม (ST3-T16; docs/04 D2, spec/03 PLN-003/004) ----------
+
+/** DO ในเที่ยว → จุดรับ/จุดส่ง (id ของ trip_stop) */
+export interface StopOrderDo {
+  id: string;
+  pickupStopId: string | null;
+  dropStopId: string | null;
+}
+
+export interface StopOrderViolation {
+  deliveryOrderId: string;
+  pickupStopId: string;
+  dropStopId: string;
+  /** ลำดับใหม่ (1..n) ของจุดรับ/จุดส่ง */
+  pickupSequence: number;
+  dropSequence: number;
+}
+
+/**
+ * ตรวจลำดับจุดที่ผู้จัดรถเรียงเอง: จุดรับของ DO ต้องมาก่อนจุดส่งของ DO เดียวกัน (spec/03 PLN-003 — บล็อก)
+ * `order` = id ของจุดตามลำดับใหม่ · คืนรายการ DO ที่ "ส่งก่อนรับ" (ว่าง = ผ่าน)
+ */
+export function stopOrderViolations(
+  order: readonly string[],
+  dos: readonly StopOrderDo[],
+): StopOrderViolation[] {
+  const pos = new Map(order.map((id, i) => [id, i + 1] as const));
+  const out: StopOrderViolation[] = [];
+  for (const d of dos) {
+    if (!d.pickupStopId || !d.dropStopId) continue;
+    const p = pos.get(d.pickupStopId);
+    const q = pos.get(d.dropStopId);
+    if (p === undefined || q === undefined) continue;
+    if (q <= p)
+      out.push({
+        deliveryOrderId: d.id,
+        pickupStopId: d.pickupStopId,
+        dropStopId: d.dropStopId,
+        pickupSequence: p,
+        dropSequence: q,
+      });
+  }
+  return out;
+}
+
+/**
+ * ค่าประมาณเมื่อไม่มีเส้นทางใน route master (ยังไม่มีผู้ให้บริการแผนที่ — ADR ST0-T01 / Q-D3):
+ * ระยะเส้นตรงระหว่างพิกัด × ตัวคูณถนน · เวลา = ระยะ ÷ ความเร็วเฉลี่ย (spec/03 PLN-004 ค่าตั้งต้น 50 กม./ชม. [PROPOSED])
+ * [DECISION — ย้อนได้] spec/12 §3 "Multi-drop ระยะ/เวลารวม (ST3-T16)"
+ */
+export const TRIP_ROAD_FACTOR = 1.3;
+export const TRIP_AVG_SPEED_KMH = 50;
+
+/** ที่มาของระยะ/เวลาช่วงวิ่ง: เส้นทางใน route master · ค่าประมาณจากพิกัด · จุดเดียวกัน (0) */
+export type LegSource = 'ROUTE' | 'ESTIMATE' | 'SAME_SITE';
+
+export interface LegPoint {
+  lat: number;
+  lng: number;
+}
+
+export interface LegInput {
+  fromSiteId: string;
+  toSiteId: string;
+  /** เส้นทางที่ใช้งานใน route master (ทิศทางมีผล A→B) — null = ไม่มี */
+  route: { distanceKm: number; standardMinutes: number | null } | null;
+  from: LegPoint | null;
+  to: LegPoint | null;
+}
+
+export interface Leg {
+  km: number | null;
+  minutes: number | null;
+  source: LegSource | null;
+}
+
+function straightKm(a: LegPoint, b: LegPoint): number {
+  const R = 6371;
+  const rad = (d: number) => (d * Math.PI) / 180;
+  const dLat = rad(b.lat - a.lat);
+  const dLng = rad(b.lng - a.lng);
+  const h =
+    Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+const round1 = (n: number) => Math.round(n * 10) / 10;
+const minutesFor = (km: number) => Math.round((km / TRIP_AVG_SPEED_KMH) * 60);
+
+/**
+ * ระยะ/เวลาของช่วงวิ่งระหว่างสองจุดติดกัน: จุดเดียวกัน = 0 · route master ก่อน (เวลามาตรฐานว่าง → ระยะ ÷ ความเร็วเฉลี่ย)
+ * · ไม่มีเส้นทางแต่มีพิกัดทั้งสองฝั่ง → ค่าประมาณ · ไม่มีทั้งสอง → ไม่ทราบ (null)
+ */
+export function estimateLeg(i: LegInput): Leg {
+  if (i.fromSiteId === i.toSiteId) return { km: 0, minutes: 0, source: 'SAME_SITE' };
+  if (i.route)
+    return {
+      km: round1(i.route.distanceKm),
+      minutes: i.route.standardMinutes ?? minutesFor(i.route.distanceKm),
+      source: 'ROUTE',
+    };
+  if (i.from && i.to) {
+    const km = round1(straightKm(i.from, i.to) * TRIP_ROAD_FACTOR);
+    return { km, minutes: minutesFor(km), source: 'ESTIMATE' };
+  }
+  return { km: null, minutes: null, source: null };
+}
+
+export interface RouteTotals {
+  /** ผลรวมของช่วงที่ทราบ (กม. ทศนิยม 1) — ไม่มีช่วงวิ่งเลย (จุดเดียว) = 0 · ไม่ทราบทุกช่วง = null */
+  distanceKm: number | null;
+  minutes: number | null;
+  /** จำนวนช่วงที่ไม่ทราบระยะ (ยอดรวมยังไม่ครบ) */
+  missingLegs: number;
+  /** มีช่วงที่เป็นค่าประมาณจากพิกัด */
+  estimated: boolean;
+}
+
+/** รวมระยะ/เวลาของทุกช่วงวิ่ง (ช่วงที่ไม่ทราบไม่นับ แต่บอกจำนวนใน `missingLegs`) */
+export function routeTotals(legs: readonly Leg[]): RouteTotals {
+  const known = legs.filter((l) => l.km !== null);
+  const missingLegs = legs.length - known.length;
+  if (legs.length > 0 && known.length === 0)
+    return { distanceKm: null, minutes: null, missingLegs, estimated: false };
+  return {
+    distanceKm: round1(known.reduce((a, l) => a + l.km!, 0)),
+    minutes: known.reduce((a, l) => a + (l.minutes ?? 0), 0),
+    missingLegs,
+    estimated: known.some((l) => l.source === 'ESTIMATE'),
+  };
+}
