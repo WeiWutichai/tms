@@ -1,4 +1,4 @@
-import { formatDate, useI18n, type T } from '../../i18n';
+import { formatDate, formatDateTime, useI18n, type T } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
 import { useMe } from '../../shell/AppShell';
 import type { RateCard, RateStatus } from './useRateCards';
@@ -32,6 +32,14 @@ export function useDateText() {
   const me = useMe();
   const ys = (me.data?.tenant.yearStyle as 'BE' | 'CE') ?? 'BE';
   return (iso: string) => formatDate(new Date(`${iso}T00:00:00`), lang, ys);
+}
+
+/** วันเวลา "20 พ.ย. 2569 10:14" ตามปี พ.ศ./ค.ศ. ของบริษัท (เวลาเครื่อง = ไทย) */
+export function useDateTimeText() {
+  const { lang } = useI18n();
+  const me = useMe();
+  const ys = (me.data?.tenant.yearStyle as 'BE' | 'CE') ?? 'BE';
+  return (iso: string) => formatDateTime(iso, lang, ys);
 }
 
 export const routeText = (r: RateCard) => `${r.origin.name} → ${r.destination.name}`;
