@@ -81,6 +81,8 @@ import { DeliveryOrdersController } from './modules/delivery-orders/delivery-ord
 import { OrderStateService } from './modules/orders/order-state.service';
 import { TripService } from './modules/trips/trip.service';
 import { TripsController } from './modules/trips/trips.controller';
+import { PlanningController } from './modules/planning/planning.controller';
+import { PlanningService } from './modules/planning/planning.service';
 import { OrdersController } from './modules/orders/orders.controller';
 import { OrdersService } from './modules/orders/orders.service';
 import { OrderTemplatesController } from './modules/orders/order-templates.controller';
@@ -156,6 +158,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     RateCardsController,
     DeliveryOrdersController,
     TripsController,
+    PlanningController,
     CarrierRecentPricesController,
     CarriersController,
     VehiclesController,
@@ -203,6 +206,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     DeliveryOrderService,
     OrderStateService,
     TripService,
+    PlanningService,
     OrdersService,
     OrderTemplatesService,
     OrderImports,

@@ -71,6 +71,16 @@ export interface CreateTripInput {
   deliveryOrderIds: string[];
   plannedStartAt?: string | null;
   plannedEndAt?: string | null;
+  /** รถที่วางแผนไว้ (กระดาน ST3-T12) — ยังไม่ใช่การจัดรถ */
+  vehicleId?: string | null;
+}
+
+/** ย้าย/ปรับเวลาเที่ยวบนกระดาน (ST3-T12) — `undefined` = คงค่าเดิม */
+export interface ScheduleInput {
+  tripDate?: string;
+  plannedStartAt?: string | null;
+  plannedEndAt?: string | null;
+  vehicleId?: string | null;
 }
 
 export interface AssignInput {
@@ -155,13 +165,20 @@ export class TripService {
   // สร้าง / เพิ่ม-ถอด DO
 
   /**
-   * สร้างเที่ยว PLANNING จาก DO (≥ 1) — จุดแวะจาก DO · **ไม่รับรถ** (รถ/คนขับ/รถร่วมเข้าทาง /assign หรือ /offer เท่านั้น —
-   * ล็อกรถ + snapshot ชุดเดียว; review ST3-T11)
+   * สร้างเที่ยว PLANNING จาก DO (≥ 1) — จุดแวะจาก DO
+   * `vehicleId` (ST3-T12 กระดาน: ลาก SO ลงแถวรถ) = **รถที่วางแผนไว้** — snapshot เฉพาะรถ/ประเภทรถ (ทางเดียวกับ /assign:
+   * `vehicleSnapshot` + ล็อกรถ) สถานะยังเป็น PLANNING · ไม่มีคนขับ/หาง/รถร่วม/DO ยังเป็น DRAFT — ผูกรถ+คนขับจริงที่ /assign
+   * (→ ASSIGNED, ปุ่ม Assign = ST3-T17) · รถร่วมยังต้องผ่าน /offer (ล้างรถที่วางไว้) — [OPEN] spec/12 §3
    */
   async create(input: CreateTripInput, tx: Tx = this.db.tx): Promise<TripRecord> {
     const tenantId = this.tenantId();
     const window = this.window(input.tripDate, input.plannedStartAt, input.plannedEndAt);
     const dos = await this.dos.lockForTrip(tx, input.deliveryOrderIds);
+    let vehicle = {};
+    if (input.vehicleId) {
+      vehicle = await this.vehicleSnapshot(tx, input.vehicleId);
+      await this.lockVehicle(tx, input.vehicleId);
+    }
     const trip = await tx.trip.create({
       data: {
         tenantId,
@@ -170,6 +187,7 @@ export class TripService {
         plannedStartAt: window.start,
         plannedEndAt: window.end,
         status: 'PLANNING',
+        ...vehicle,
       },
     });
     await this.history(tx, trip.id, 'NONE', 'PLANNING', 'create');
@@ -268,6 +286,79 @@ export class TripService {
     return final;
   }
 
+  /**
+   * ย้าย/ปรับขนาดเที่ยวบนกระดาน (ST3-T12; spec/03 PLN-040): วันเที่ยว + ช่วงวิ่งตามแผน + รถที่วางไว้
+   * - PLANNING: เปลี่ยน/ถอดรถที่วางไว้ได้ (snapshot รถ + ล็อกรถ) · ASSIGNED: ปรับเวลาได้ แต่เปลี่ยนรถต้องผ่าน /assign
+   *   (snapshot คนขับ/รถร่วมชุดเดียว) → 409 `invalid_state_transition` (event `schedule_vehicle`)
+   * - ซ้อนเวลา = คำเตือน `vehicle_overlap` ใน `warnings` (ไม่บล็อก — docs/04 D2) · ค่าเท่าเดิม = ไม่เปลี่ยน version
+   */
+  async schedule(
+    id: string,
+    input: ScheduleInput,
+    tx: Tx = this.db.tx,
+    expectedVersion?: number,
+  ): Promise<TripRecord> {
+    const { trip } = await this.lock(tx, id, expectedVersion);
+    this.assertEditable(trip);
+    const tripDate = input.tripDate ?? trip.tripDate.toISOString().slice(0, 10);
+    const keep = (v: string | null | undefined, cur: Date | null) =>
+      v === undefined ? (cur?.toISOString() ?? null) : v;
+    const window = this.window(
+      tripDate,
+      keep(input.plannedStartAt, trip.plannedStartAt),
+      keep(input.plannedEndAt, trip.plannedEndAt),
+    );
+    const vehicleChange = input.vehicleId !== undefined && input.vehicleId !== trip.vehicleId;
+    if (vehicleChange && trip.status !== 'PLANNING')
+      throw new ProblemException('invalid_state_transition', undefined, undefined, {
+        from: trip.status,
+        event: 'schedule_vehicle',
+      });
+    let vehicle: Prisma.TripUncheckedUpdateManyInput = {};
+    if (vehicleChange && input.vehicleId) {
+      vehicle = await this.vehicleSnapshot(tx, input.vehicleId);
+      await this.lockVehicle(tx, input.vehicleId);
+    } else if (vehicleChange)
+      vehicle = {
+        vehicleId: null,
+        vehiclePlateSnapshot: null,
+        vehicleTypeId: null,
+        vehicleTypeSnapshot: null,
+      };
+    const same = (a: Date | null, b: Date | null) =>
+      (a?.getTime() ?? null) === (b?.getTime() ?? null);
+    const dateChange = tripDate !== trip.tripDate.toISOString().slice(0, 10);
+    if (
+      !vehicleChange &&
+      !dateChange &&
+      same(window.start, trip.plannedStartAt) &&
+      same(window.end, trip.plannedEndAt)
+    )
+      return trip;
+    const before = schedView(trip);
+    const r = await tx.trip.updateMany({
+      where: { id: trip.id, version: trip.version },
+      data: {
+        tripDate: new Date(`${tripDate}T00:00:00Z`),
+        plannedStartAt: window.start,
+        plannedEndAt: window.end,
+        ...vehicle,
+        version: { increment: 1 },
+      },
+    });
+    if (r.count === 0) throw new ProblemException('concurrent_update');
+    const final = await this.refreshWarnings(tx, trip.id);
+    await this.emit(tx, 'trip.updated', final, before);
+    await this.audit.record({
+      action: `${ENTITY}.rescheduled`,
+      entityType: ENTITY,
+      entityId: trip.id,
+      before,
+      after: schedView(final),
+    });
+    return final;
+  }
+
   // ---------------------------------------------------------------------------------------------
   // action ตาม state machine
 
@@ -342,7 +433,7 @@ export class TripService {
     if (carrier.status !== 'ACTIVE')
       throw field422('carrierId', 'carrier_inactive', 'carrier is suspended');
     const now = new Date();
-    // PLANNING ไม่มีรถ/คนขับเสมอ (create ไม่รับรถ, assign ไป ASSIGNED) — ล้างไว้กันค่าค้าง (รถร่วมใส่ทะเบียนเองตอนรับงาน)
+    // PLANNING ไม่มีคนขับ (assign ไป ASSIGNED) แต่อาจมีรถที่วางไว้บนกระดาน (ST3-T12) — ล้างไว้ (รถร่วมใส่ทะเบียนเองตอนรับงาน)
     await this.transition(tx, trip, 'offer', {
       carrierId,
       carrierNameSnapshot: carrier.legalName,
@@ -1124,6 +1215,17 @@ function view(t: TripRecord) {
     reliefDriver: t.reliefDriverNameSnapshot,
     carrier: t.carrierNameSnapshot,
     deliveryOrders: t.deliveryOrders.map((d) => d.doNo),
+  };
+}
+
+/** ค่าที่กระดานเปลี่ยน (audit/event ของ schedule) */
+function schedView(t: TripRecord) {
+  return {
+    tripDate: t.tripDate.toISOString().slice(0, 10),
+    plannedStartAt: t.plannedStartAt?.toISOString() ?? null,
+    plannedEndAt: t.plannedEndAt?.toISOString() ?? null,
+    vehicleId: t.vehicleId,
+    vehiclePlate: t.vehiclePlateSnapshot,
   };
 }
 

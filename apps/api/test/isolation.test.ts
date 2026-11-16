@@ -610,6 +610,7 @@ const BODY_FOR_SUFFIX: Record<string, object> = {
   detach: { deliveryOrderIds: [`do_${'0'.repeat(32)}`] },
   assign: { vehicleId: `veh_${'0'.repeat(32)}` },
   offer: { carrierId: `car_${'0'.repeat(32)}` },
+  schedule: { plannedStartAt: '2026-11-13T08:00:00+07:00' }, // ST3-T12 /trips/:id/schedule
   approve: { reason: 'isolation test reason' }, // ST2-T13 /rate-cards/:id/approve
   reject: { reason: 'isolation test reason' }, // ST2-T03 /customer-sites/:id/geocode/reject
   reveal: { field: 'bankAccountNo', reason: 'isolation test reason' }, // ST2-T05 /carriers/:id/reveal

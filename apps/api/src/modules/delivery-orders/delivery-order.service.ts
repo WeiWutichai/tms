@@ -111,7 +111,15 @@ export function isOnActiveTrip(d: {
 /** SO ที่สร้าง/คง DO ได้: พ้นร่างและยังไม่วางแผน (หลังวางแผน DO เป็นของเที่ยว — ST3-T10/T11) */
 const SO_DO_STATUSES = ['RECEIVED', 'ON_HOLD'] as const;
 /** ใบค้างที่ห้าม **สร้าง** DO ใหม่ (ลูกค้า/สถานที่ใช้ไม่ได้, ข้อมูลต้นทางไม่ครบ) — DO ที่มีอยู่แล้วคงไว้ */
-const NOT_READY_HOLDS = new Set(['CUSTOMER_UNMAPPED', 'LOCATION_UNMAPPED', 'SOURCE_ERROR']);
+export const NOT_READY_HOLDS = new Set(['CUSTOMER_UNMAPPED', 'LOCATION_UNMAPPED', 'SOURCE_ERROR']);
+/** สถานะ SO ที่ลง DO เข้าเที่ยวได้ (`isOrderPlannable` — กระดานวางแผน ST3-T12 ใช้ชุดเดียวกันเลือกงานรอจัด) */
+export const PLANNABLE_SO_STATUSES = [
+  'RECEIVED',
+  'ON_HOLD',
+  'PLANNED',
+  'IN_TRANSIT',
+  'PARTIALLY_DELIVERED',
+] as const;
 const SYSTEM_NOTE = {
   rebuilt: 'ใบสั่งขนส่งถูกแก้ไข — สร้างใบส่งของใหม่ทั้งชุด (ORD-085)',
 };
@@ -599,7 +607,7 @@ export class DeliveryOrderService {
     });
     return (
       !!so &&
-      ['RECEIVED', 'ON_HOLD', 'PLANNED', 'IN_TRANSIT', 'PARTIALLY_DELIVERED'].includes(so.status) &&
+      (PLANNABLE_SO_STATUSES as readonly string[]).includes(so.status) &&
       !(so.status === 'ON_HOLD' && NOT_READY_HOLDS.has(so.holdReasonCode?.code ?? ''))
     );
   }

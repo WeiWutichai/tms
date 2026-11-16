@@ -24,6 +24,7 @@ import {
   CreateTripDto,
   DetachDeliveryOrdersDto,
   OfferTripDto,
+  ScheduleTripDto,
   TripDto,
   TripListQuery,
   TripPageDto,
@@ -192,7 +193,46 @@ export class TripsController {
       ),
       plannedStartAt: body.plannedStartAt,
       plannedEndAt: body.plannedEndAt,
+      vehicleId: optRef('vehicle', body.vehicleId, 'vehicleId'),
     });
+    setEtag(res, t.version);
+    return toTripDto(t);
+  }
+
+  /**
+   * ย้าย/ปรับขนาดเที่ยวบนกระดานวางแผน (ST3-T12; spec/03 PLN-040) — วันเที่ยว/ช่วงวิ่ง/รถที่วางไว้ (PLANNING)
+   * ซ้อนเวลา = คำเตือนใน `warnings` บันทึกได้ (docs/04 D2)
+   */
+  @Post(':id/schedule')
+  @ApiProblems(T403('trips:assign'), T404, T409(), T412, T422)
+  @HttpCode(200)
+  @TenantResource('trip')
+  @RequireScope('trips:assign')
+  @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
+  @ApiHeader({ name: 'Idempotency-Key', required: false })
+  @ApiOkResponse({ type: TripDto })
+  async schedule(
+    @Param('id') id: string,
+    @Body() body: ScheduleTripDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<TripDto> {
+    const trip = await this.trips.get(decodeIdOr404('trip', id));
+    if (body.tripDate !== undefined && !isRealDate(body.tripDate))
+      throw new ProblemException('validation_failed', undefined, [
+        { field: 'tripDate', code: 'invalid_date', message: 'must be a real date (YYYY-MM-DD)' },
+      ]);
+    const t = await this.trips.schedule(
+      trip.id,
+      {
+        tripDate: body.tripDate,
+        plannedStartAt: body.plannedStartAt,
+        plannedEndAt: body.plannedEndAt,
+        vehicleId: optRef('vehicle', body.vehicleId, 'vehicleId'),
+      },
+      undefined,
+      expectedVersion(req),
+    );
     setEtag(res, t.version);
     return toTripDto(t);
   }
