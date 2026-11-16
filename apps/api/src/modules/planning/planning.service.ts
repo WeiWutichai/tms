@@ -23,6 +23,8 @@ import type {
 
 /** SO รอจัดสูงสุดต่อครั้ง (นับเป็น SO — กระดานเฟส 0; PLN-051 virtualized = งานถัดไป) */
 const POOL_LIMIT = 500;
+/** DO รอจัด = DRAFT ที่ยังไม่อยู่ในเที่ยว */
+export const POOL_DO = { status: 'DRAFT' as const, tripId: null };
 
 const dec = (v: Prisma.Decimal | null | undefined) =>
   v === null || v === undefined ? null : v.toFixed(3).replace(/\.?0+$/, '') || '0';
@@ -263,9 +265,11 @@ export class PlanningService {
    * SO รอจัด = DO DRAFT ที่ไม่อยู่ในเที่ยว ของ SO ที่ลงเที่ยวได้ (`isOrderPlannable` ของ DeliveryOrderService)
    * จัดกลุ่มตาม SO (spec/03 §5 "การ์ด DO ที่ pending จัดกลุ่มตาม SO") · เรียงกำหนดส่ง → เลข SO
    */
-  private async pool(tx: Tx): Promise<BoardPoolOrderDto[]> {
-    // จำกัดจำนวน **ต่อ SO** (ไม่ตัด DO ของ SO เดียวกันออกจากกัน — review ST3-T12)
-    const pending = { status: 'DRAFT' as const, tripId: null };
+  /**
+   * SO ที่อยู่ใน "SO รอจัด" (uuid เรียงกำหนดส่ง → เลข SO; สูงสุด `POOL_LIMIT`) — ชุดเดียวกับกระดานและการเน้นงานที่รถรับได้ (ST3-T15)
+   * จำกัดจำนวน **ต่อ SO** (ไม่ตัด DO ของ SO เดียวกันออกจากกัน — review ST3-T12)
+   */
+  async poolOrderIds(tx: Tx): Promise<string[]> {
     const sos = await tx.salesOrder.findMany({
       where: {
         status: { in: [...PLANNABLE_SO_STATUSES] },
@@ -273,12 +277,18 @@ export class PlanningService {
           { holdReasonCodeId: null },
           { holdReasonCode: { code: { notIn: [...NOT_READY_HOLDS] } } },
         ],
-        deliveryOrders: { some: pending },
+        deliveryOrders: { some: POOL_DO },
       },
       orderBy: [{ requestedDate: 'asc' }, { soNo: 'asc' }],
       take: POOL_LIMIT,
       select: { id: true },
     });
+    return sos.map((x) => x.id);
+  }
+
+  private async pool(tx: Tx): Promise<BoardPoolOrderDto[]> {
+    const pending = POOL_DO;
+    const sos = (await this.poolOrderIds(tx)).map((id) => ({ id }));
     const dos = await tx.deliveryOrder.findMany({
       where: { ...pending, salesOrderId: { in: sos.map((x) => x.id) } },
       orderBy: [{ salesOrder: { requestedDate: 'asc' } }, { doNo: 'asc' }],

@@ -378,3 +378,93 @@ export function weekFields(fields: readonly string[]): CardField[] {
   const f = WEEK_FIELDS.filter((x) => fields.includes(x));
   return f.length ? f : ['ORDER_NO'];
 }
+
+// ------------------------------------------------------------------------------------------------
+// ST3-T15 Filter รถที่รับได้สองทาง (GET /v1/planning/eligibility)
+
+export type Eligibility = Schemas['PlanningEligibilityDto'];
+export type EligItem = Schemas['EligibilityItemDto'];
+export type EligLevel = 'OK' | 'WARNING' | 'BLOCK';
+
+/** กฎที่มีผลในวัน `day` (date null = ทุกวันในช่วง) — `info` ไม่นับ (ป้ายแจ้งเฉย ๆ) */
+export const issuesOn = (it: Pick<EligItem, 'issues'>, day: string | null, withInfo = false) =>
+  it.issues.filter(
+    (i) =>
+      (withInfo || i.severity !== 'info') && (i.date === null || day === null || i.date === day),
+  );
+
+/** ระดับในวัน `day`: บล็อก > คำเตือน > ผ่าน (null = ทั้งช่วง) */
+export function levelOn(it: EligItem, day: string | null): EligLevel {
+  const xs = issuesOn(it, day);
+  if (xs.some((i) => i.severity === 'block')) return 'BLOCK';
+  return xs.length ? 'WARNING' : 'OK';
+}
+
+/**
+ * ขอบเน้น (ต้นแบบ vPlan "ขอบเขียว = วางได้ · ขอบแดง = วางไม่ได้"; spec/03 PLN-041 เตือน = ขอบส้ม วางได้)
+ * ผ่าน = เขียว `#17733F` · คำเตือน = ส้ม `#8F5500` (สี "ติดเงื่อนไข" ของ legend) · บล็อก = แดง `#B3322A`
+ */
+export const LEVEL_COLOR: Record<EligLevel, string> = {
+  OK: '#17733F',
+  WARNING: '#8F5500',
+  BLOCK: '#B3322A',
+};
+/** รถ/งานที่รับไม่ได้ = จาง (docs/04 D2 "ที่เหลือจาง" — ความทึบเดียวกับรายการที่เลือกไม่ได้ในต้นแบบ) */
+export const DIM = 0.6;
+
+/** วันที่ใช้ประเมินการ์ด SO เมื่อเลือกรถ: มุมมองวันเดียว = วันนั้น · 7 วัน = กำหนดส่ง (ถ้าอยู่ในช่วง) มิฉะนั้นวันแรก */
+export function orderDay(o: Pick<PoolOrder, 'requestedDate'>, days: string[]): string {
+  if (days.length === 1) return days[0]!;
+  return days.includes(o.requestedDate) ? o.requestedDate : days[0]!;
+}
+
+/**
+ * "ย้ายไปรถอื่น" (ต้นแบบ moveBlock; spec/03 PLN-093): รถที่ผ่านกฎทั้งหมดของเที่ยว (ไม่ใช่คันเดิม) เรียง
+ * ประเภทเดียวกัน → ความจุพอดี (น้อยสุดที่รับน้ำหนักได้) → ทะเบียน · null = ไม่มีรถที่รับได้
+ */
+export function moveTarget(
+  t: BoardTrip,
+  items: EligItem[],
+  vehicles: BoardVehicle[],
+): BoardVehicle | null {
+  const ok = new Set(items.filter((i) => levelOn(i, null) === 'OK').map((i) => i.vehicleId));
+  const cur = vehicles.find((v) => v.id === t.vehicleId);
+  const w = kg(t.weightKg);
+  const cap = (v: BoardVehicle) => (v.capacityKg === null ? Infinity : kg(v.capacityKg));
+  const c = vehicles
+    .filter((v) => v.id !== t.vehicleId && ok.has(v.id) && cap(v) >= w)
+    .sort(
+      (a, b) =>
+        (a.vehicleTypeId === cur?.vehicleTypeId ? 0 : 1) -
+          (b.vehicleTypeId === cur?.vehicleTypeId ? 0 : 1) ||
+        cap(a) - cap(b) ||
+        a.plate.localeCompare(b.plate, 'th'),
+    );
+  return c[0] ?? null;
+}
+
+/**
+ * เหตุหลักที่ "ย้ายไปรถอื่น" หาไม่ได้ (QA L2): นับข้อแรกของแต่ละคัน (ไม่นับคันเดิม) — รถผ่านกฎแต่ความจุไม่พอ = น้ำหนัก
+ * คืน null = เหตุคือน้ำหนัก (ใช้ข้อความต้นแบบ) · มิฉะนั้นข้อความกฎที่พบมากสุด
+ */
+export function moveNoneReason(
+  t: BoardTrip,
+  items: EligItem[],
+  vehicles: BoardVehicle[],
+): string | null {
+  const w = kg(t.weightKg);
+  const count = new Map<string, { n: number; message: string }>();
+  for (const it of items) {
+    if (it.vehicleId === t.vehicleId) continue;
+    const v = vehicles.find((x) => x.id === it.vehicleId);
+    if (!v) continue;
+    const first = issuesOn(it, null)[0];
+    const fits = v.capacityKg === null || kg(v.capacityKg) >= w;
+    const code = first ? first.code : fits ? null : 'OVERWEIGHT';
+    if (!code) continue;
+    const c = count.get(code) ?? { n: 0, message: first?.message ?? '' };
+    count.set(code, { ...c, n: c.n + 1 });
+  }
+  const top = [...count.entries()].sort((a, b) => b[1].n - a[1].n)[0];
+  return !top || top[0] === 'OVERWEIGHT' ? null : top[1].message;
+}

@@ -37,6 +37,12 @@ import { cleanLine } from '../master/master-kit';
 import { bangkokToday } from '../vehicle-documents/expiry';
 import { OrderStateService } from '../orders/order-state.service';
 import { issueNumber } from '../sequences/sequences.service';
+import {
+  driverOnLeaveMessageTh,
+  loadMessageTh,
+  vehicleNotReadyMessageTh,
+  vehicleOverlapMessageTh,
+} from './rule-messages';
 
 export const TRIP_INCLUDE = {
   stops: { where: { removedAt: null }, orderBy: { sequence: 'asc' } },
@@ -1137,7 +1143,7 @@ export class TripService {
           severity: 'warning',
           source: 'assignment',
           messageKey: 'trip.vehicleNotReady',
-          message: `รถ ${trip.vehiclePlateSnapshot} อยู่ในสถานะ${v.status === 'MAINTENANCE' ? 'ซ่อม' : 'จอด'}`,
+          message: vehicleNotReadyMessageTh(trip.vehiclePlateSnapshot, v.status),
           params: { status: v.status },
         });
       const compat = await this.compatWarnings(tx, trip);
@@ -1208,14 +1214,13 @@ export class TripService {
     ] as const) {
       if (!driverId) continue;
       const d = await tx.driver.findUnique({ where: { id: driverId } });
-      const label = role === 'driver' ? 'คนขับ' : 'คนขับสำรอง';
       if (d?.status === 'ON_LEAVE')
         out.push({
           code: role === 'driver' ? 'driver_on_leave' : 'relief_driver_on_leave',
           severity: 'warning',
           source: 'assignment',
           messageKey: role === 'driver' ? 'trip.driverOnLeave' : 'trip.reliefDriverOnLeave',
-          message: `${label} ${name} ลาอยู่`,
+          message: driverOnLeaveMessageTh(role, name),
           params: { driverRole: role },
         });
       out.push(...(await this.overlapWarnings(tx, trip, { driverId, name: name ?? '', role })));
@@ -1345,7 +1350,6 @@ export class TripService {
       _sum: { weightKg: true, cbm: true },
     });
     const str = (d: Prisma.Decimal | null | undefined) => (d ? d.toString() : null);
-    const fmtN = (x: string) => Number(x).toLocaleString('en-US', { maximumFractionDigits: 3 });
     return checkLoad({
       weightKg: str(sum._sum.weightKg),
       cbm: str(sum._sum.cbm),
@@ -1356,10 +1360,7 @@ export class TripService {
       severity: 'warning',
       source: 'load',
       messageKey: i.messageKey,
-      message:
-        i.code === 'OVERWEIGHT'
-          ? `น้ำหนักเกิน ${fmtN(i.params.over)} กก. (${fmtN(i.params.load)} / ${fmtN(i.params.capacity)} กก.)`
-          : `ปริมาตรเกิน ${fmtN(i.params.over)} ลบ.ม. (${fmtN(i.params.load)} / ${fmtN(i.params.capacity)} ลบ.ม.)`,
+      message: loadMessageTh(i),
       params: i.params,
     }));
   }
@@ -1459,7 +1460,10 @@ export class TripService {
           severity: 'warning',
           source: 'schedule',
           messageKey: 'trip.vehicleOverlap',
-          message: `รถ ${trip.vehiclePlateSnapshot} มีเที่ยวอื่นในช่วงเวลาเดียวกัน: ${nos}`,
+          message: vehicleOverlapMessageTh(
+            trip.vehiclePlateSnapshot,
+            overlaps.map((o) => o.tripNo!),
+          ),
           params: { trips: overlaps.map((o) => o.tripNo) },
         },
       ];

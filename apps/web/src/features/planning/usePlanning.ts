@@ -2,7 +2,7 @@ import type { Schemas } from '@tms/contracts';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, idempotent, unwrap } from '../../api';
 import { useRef, useState } from 'react';
-import { DEFAULT_PREFS, type Board, type BoardPrefs } from './board';
+import { DEFAULT_PREFS, type Board, type BoardPrefs, type Eligibility } from './board';
 import { createPrefSaver } from './prefSaver';
 
 export type Trip = Schemas['TripDto'];
@@ -17,6 +17,48 @@ export function useBoard(days: 1 | 7) {
     queryFn: () =>
       unwrap(api.GET('/v1/planning/board', { params: { query: { days } } })) as Promise<Board>,
   });
+}
+
+/** สิ่งที่เลือกบนกระดาน → รถ/งานที่รับได้ (ST3-T15) */
+export type EligSubject = { kind: 'order' | 'vehicle' | 'trip'; id: string };
+
+const eligQuery = (s: EligSubject, days: 1 | 7) => ({
+  // ใต้ KEY ของกระดาน — การวาง/ย้าย/ยืนยันกฎ invalidate ไปด้วย (ผลตรวจเปลี่ยนตามข้อมูลกระดาน)
+  queryKey: [KEY, 'elig', s.kind, s.id, days],
+  staleTime: 0,
+  queryFn: () =>
+    unwrap(
+      api.GET('/v1/planning/eligibility', {
+        params: {
+          query: {
+            ...(s.kind === 'order'
+              ? { orderId: s.id }
+              : s.kind === 'vehicle'
+                ? { vehicleId: s.id }
+                : { tripId: s.id }),
+            ...(s.kind === 'trip' ? {} : { days }),
+          },
+        },
+      }),
+    ) as Promise<Eligibility>,
+});
+
+/**
+ * Filter รถที่รับได้สองทาง (GET /v1/planning/eligibility — ST3-T15): คลิก SO → รถทุกคัน · คลิกรถ → SO รอจัดทุกใบ
+ * ช่วงวันเดียวกับกระดาน (วันนี้ตาม server + 7 วัน) — กฎชุดเดียวกับตอนวางจริง (ST3-T14)
+ */
+export function useEligibility(s: EligSubject | null, days: 1 | 7 = 7) {
+  return useQuery({
+    ...eligQuery(s ?? { kind: 'order', id: '' }, days),
+    enabled: s !== null,
+    retry: false,
+  });
+}
+
+/** รถที่รับเที่ยวนี้ได้ ("ย้ายไปรถอื่น") — อ่านสดทุกครั้ง */
+export function useFetchTripEligibility() {
+  const qc = useQueryClient();
+  return (tripId: string) => qc.fetchQuery(eligQuery({ kind: 'trip', id: tripId }, 1));
 }
 
 /**

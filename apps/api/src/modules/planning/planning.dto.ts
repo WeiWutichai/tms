@@ -8,6 +8,7 @@ import {
   IsIn,
   IsInt,
   IsOptional,
+  IsString,
   Matches,
 } from 'class-validator';
 import { TRIP_STATUSES, type TripStatus } from '@tms/domain';
@@ -199,6 +200,117 @@ export class PlanningBoardDto {
     description: 'SO รอจัด (จัดกลุ่ม DO ตาม SO) เรียงกำหนดส่ง',
   })
   pool!: BoardPoolOrderDto[];
+}
+
+/** ST3-T15 Filter รถที่รับได้สองทาง — ส่ง `orderId` / `vehicleId` / `tripId` อย่างใดอย่างหนึ่ง */
+export class PlanningEligibilityQuery {
+  @ApiPropertyOptional({
+    example: 'so_3f2a…',
+    description: 'SO (การ์ดใน "SO รอจัด") → ประเมินรถทุกคันบนกระดาน',
+  })
+  @IsOptional()
+  @IsString()
+  orderId?: string;
+
+  @ApiPropertyOptional({
+    example: 'veh_3f2a…',
+    description: 'รถ (แถวรถ) → ประเมิน SO รอจัดทุกใบ',
+  })
+  @IsOptional()
+  @IsString()
+  vehicleId?: string;
+
+  @ApiPropertyOptional({
+    example: 'trp_3f2a…',
+    description:
+      'เที่ยว ("ย้ายไปรถอื่น") → ประเมินรถทุกคันกับ DO ทั้งหมดของเที่ยว ในช่วงวิ่งของเที่ยว (รวมซ้อนเวลา)',
+  })
+  @IsOptional()
+  @IsString()
+  tripId?: string;
+
+  @ApiPropertyOptional({
+    example: '2026-11-13',
+    description:
+      'วันแรก (YYYY-MM-DD) ที่ตรวจเอกสารรถ/ใบขับขี่ — ไม่ส่ง = วันนี้ (เวลาไทย) · ไม่ใช้กับ `tripId`',
+  })
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  date?: string;
+
+  @ApiPropertyOptional({ enum: [1, 7], default: 1, description: 'จำนวนวัน: 1 / 7' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @IsIn([1, 7])
+  days?: number;
+}
+
+export class EligibilityIssueDto {
+  @ApiProperty({
+    example: 'CAPABILITY_MISSING',
+    description: 'รหัสกฎชุดเดียวกับ `warnings` ของเที่ยว (ST3-T14)',
+  })
+  code!: string;
+  @ApiProperty({
+    enum: ['block', 'warning', 'info'],
+    description:
+      'block = ห้ามจ่ายงาน (ยกเว้นได้โดย `trips:override`) · warning = วางได้แต่ต้องยืนยันพร้อมเหตุผล · info = แจ้งเฉย ๆ',
+  })
+  severity!: 'block' | 'warning' | 'info';
+  @ApiProperty({ example: 'งานนี้ต้องใช้รถห้องเย็น แต่ประเภทรถที่เลือกไม่มี' }) message!: string;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: '2026-11-14',
+    description: 'วันที่ติดกฎนี้ (เอกสาร/ใบขับขี่ที่หมดระหว่างช่วง) · null = ทุกวันในช่วง',
+  })
+  date!: string | null;
+}
+
+export class EligibilityDayLevelDto {
+  @ApiProperty({ example: '2026-11-14' }) date!: string;
+  @ApiProperty({ enum: ['OK', 'WARNING', 'BLOCK'] }) level!: 'OK' | 'WARNING' | 'BLOCK';
+}
+
+export class EligibilityItemDto {
+  @ApiProperty({ example: 'veh_3f2a…' }) vehicleId!: string;
+  @ApiProperty({ nullable: true, type: String, example: 'so_3f2a…' }) orderId!: string | null;
+  @ApiProperty({ nullable: true, type: String, example: 'trp_3f2a…' }) tripId!: string | null;
+  @ApiProperty({
+    enum: ['OK', 'WARNING', 'BLOCK'],
+    description:
+      'ระดับที่แย่ที่สุดของทั้งช่วง (worst-of-range): OK = ผ่านทุกกฎตอนวาง (เน้น) · WARNING = มีคำเตือน · BLOCK = ติดกฎห้ามจ่ายงาน — รายวันดู `levels`',
+  })
+  level!: 'OK' | 'WARNING' | 'BLOCK';
+  @ApiProperty({
+    type: [EligibilityDayLevelDto],
+    description: 'ระดับรายวันในช่วง from–to (เอกสารที่หมดกลางช่วงติดเฉพาะวันหลังหมด)',
+  })
+  levels!: EligibilityDayLevelDto[];
+  @ApiProperty({
+    type: [EligibilityIssueDto],
+    description:
+      'กฎที่บังคับตอนวาง (POST /v1/trips + vehicleId) — ชุดเดียวกับ `warnings` ของเที่ยวที่ได้',
+  })
+  issues!: EligibilityIssueDto[];
+  @ApiProperty({
+    type: [EligibilityIssueDto],
+    description:
+      'ข้อสังเกตของคนขับประจำ (ใบขับขี่ไม่ถึงชั้น/หมด รวม ท.4 สินค้าอันตราย, ลา) — severity `info` ไม่นับในระดับ เพราะบังคับตอน /assign ไม่ใช่ตอนวาง',
+  })
+  driverHints!: EligibilityIssueDto[];
+}
+
+export class PlanningEligibilityDto {
+  @ApiProperty({ example: '2026-11-13' }) from!: string;
+  @ApiProperty({ example: '2026-11-19' }) to!: string;
+  @ApiProperty({ enum: ['ORDER', 'VEHICLE', 'TRIP'] }) subject!: 'ORDER' | 'VEHICLE' | 'TRIP';
+  @ApiProperty({
+    type: [EligibilityItemDto],
+    description: 'ORDER/TRIP = หนึ่งรายการต่อรถ · VEHICLE = หนึ่งรายการต่อ SO รอจัด',
+  })
+  items!: EligibilityItemDto[];
 }
 
 /**

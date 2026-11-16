@@ -783,6 +783,7 @@ export const zh: Partial<Record<MessageKey, string>> = {
   'plan.sum.weight': '总重量',
   'plan.why': '查看原因',
   'plan.pop.open': '打开运输单',
+  'plan.move': '移到其他车',
   'plan.noVeh.add': '新增车辆',
   'plan.field.ORDER_NO': 'SO 编号',
   'plan.field.CUSTOMER': '客户',
