@@ -82,6 +82,20 @@ export function formatLongDate(d: Date, lang: Lang, yearStyle: 'BE' | 'CE' = 'BE
   }).format(d);
 }
 
+const TH_DAYS_SHORT = ['อา.', 'จ.', 'อ.', 'พ.', 'พฤ.', 'ศ.', 'ส.'];
+
+/** หัวคอลัมน์วันของกระดานวางแผน (ต้นแบบ vPlan cols): "อ. 3 พ.ย." — `day` = YYYY-MM-DD */
+export function formatDayHead(day: string, lang: Lang): string {
+  const d = new Date(`${day}T00:00:00`);
+  if (lang === 'th')
+    return `${TH_DAYS_SHORT[d.getDay()]} ${d.getDate()} ${TH_MONTHS[d.getMonth()]}`;
+  return new Intl.DateTimeFormat(lang === 'zh' ? 'zh-CN' : 'en-GB', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+  }).format(d);
+}
+
 /** วันที่สั้น: "3 พ.ย. 2569" */
 export function formatDate(d: Date, lang: Lang, yearStyle: 'BE' | 'CE' = 'BE'): string {
   if (lang === 'th')

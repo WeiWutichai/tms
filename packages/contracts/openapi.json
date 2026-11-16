@@ -14909,6 +14909,227 @@
         ]
       }
     },
+    "/v1/trips/{id}/schedule": {
+      "post": {
+        "operationId": "Trips_schedule",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScheduleTripDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TripDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`trips:assign`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "trips",
+                      "action": "assign",
+                      "required": [
+                        "trips:assign"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ไม่พบเที่ยว (รวมของบริษัทอื่น)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "invalid_state_transition": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/invalid_state_transition",
+                      "title": "ทำรายการนี้ไม่ได้ในสถานะปัจจุบัน",
+                      "status": 409,
+                      "code": "invalid_state_transition",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "from": "PLANNING",
+                      "event": "dispatch"
+                    }
+                  },
+                  "concurrent_update": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/concurrent_update",
+                      "title": "มีการแก้ไขข้อมูลเดียวกันพร้อมกัน กรุณาลองใหม่อีกครั้ง",
+                      "status": 409,
+                      "code": "concurrent_update",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  },
+                  "idempotency_in_progress": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_in_progress",
+                      "title": "คำขอเดียวกันกำลังประมวลผลอยู่",
+                      "status": 409,
+                      "code": "idempotency_in_progress",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "If-Match ไม่ตรง version",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "precondition_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/precondition_failed",
+                      "title": "ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่",
+                      "status": 412,
+                      "code": "precondition_failed",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "deliveryOrderIds[0]",
+                          "code": "invalid_reference",
+                          "message": "not found"
+                        },
+                        {
+                          "field": "plannedEndAt",
+                          "code": "outside_trip_date",
+                          "message": "must be on tripDate"
+                        }
+                      ]
+                    }
+                  },
+                  "idempotency_mismatch": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_mismatch",
+                      "title": "Idempotency-Key นี้เคยใช้กับข้อมูลอื่น",
+                      "status": 422,
+                      "code": "idempotency_mismatch",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "trips"
+        ]
+      }
+    },
     "/v1/trips/{id}/attach": {
       "post": {
         "operationId": "Trips_attach",
@@ -16445,6 +16666,128 @@
         ],
         "tags": [
           "trips"
+        ]
+      }
+    },
+    "/v1/planning/board": {
+      "get": {
+        "operationId": "Planning_board",
+        "parameters": [
+          {
+            "name": "date",
+            "required": false,
+            "in": "query",
+            "description": "วันแรกของกระดาน (YYYY-MM-DD) — ไม่ส่ง = วันนี้ (เวลาไทย)",
+            "schema": {
+              "example": "2026-11-13",
+              "type": "string"
+            }
+          },
+          {
+            "name": "days",
+            "required": false,
+            "in": "query",
+            "description": "จำนวนวัน: 1 = วันเดียว · 7 = 7 วัน",
+            "schema": {
+              "default": 1,
+              "type": "number",
+              "enum": [
+                1,
+                7
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningBoardDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`trips:read`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "trips",
+                      "action": "read",
+                      "required": [
+                        "trips:read"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "deliveryOrderIds[0]",
+                          "code": "invalid_reference",
+                          "message": "not found"
+                        },
+                        {
+                          "field": "plannedEndAt",
+                          "code": "outside_trip_date",
+                          "message": "must be on tripDate"
+                        }
+                      ]
+                    }
+                  },
+                  "idempotency_mismatch": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_mismatch",
+                      "title": "Idempotency-Key นี้เคยใช้กับข้อมูลอื่น",
+                      "status": 422,
+                      "code": "idempotency_mismatch",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "planning"
         ]
       }
     },
@@ -30820,12 +31163,44 @@
             "nullable": true,
             "example": "2026-11-13T17:00:00+07:00",
             "description": "จบตามแผน (≥ เริ่ม)"
+          },
+          "vehicleId": {
+            "type": "string",
+            "nullable": true,
+            "example": "veh_3f2a…",
+            "description": "รถที่วางแผนไว้ (กระดานวางแผน — ลาก SO ลงแถวรถ) · เที่ยวยังเป็น PLANNING ไม่มีคนขับ — จัดรถจริงที่ /assign"
           }
         },
         "required": [
           "deliveryOrderIds",
           "tripDate"
         ]
+      },
+      "ScheduleTripDto": {
+        "type": "object",
+        "properties": {
+          "tripDate": {
+            "type": "string",
+            "example": "2026-11-13",
+            "description": "วันที่เที่ยว (YYYY-MM-DD)"
+          },
+          "plannedStartAt": {
+            "type": "string",
+            "nullable": true,
+            "example": "2026-11-13T08:00:00+07:00"
+          },
+          "plannedEndAt": {
+            "type": "string",
+            "nullable": true,
+            "example": "2026-11-13T11:00:00+07:00"
+          },
+          "vehicleId": {
+            "type": "string",
+            "nullable": true,
+            "example": "veh_3f2a…",
+            "description": "ย้ายไปรถคันอื่น (เฉพาะ PLANNING — ASSIGNED ใช้ /assign) · null = ถอดรถที่วางไว้"
+          }
+        }
       },
       "AttachDeliveryOrdersDto": {
         "type": "object",
@@ -30931,6 +31306,485 @@
         },
         "required": [
           "reason"
+        ]
+      },
+      "BoardDriverDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "drv_3f2a…"
+          },
+          "name": {
+            "type": "string"
+          },
+          "licenceClass": {
+            "type": "string",
+            "nullable": true,
+            "example": "T2"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "licenceClass"
+        ]
+      },
+      "BoardBlockIssueDto": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "example": "DOC_CMI_EXPIRED"
+          },
+          "message": {
+            "type": "string",
+            "example": "พ.ร.บ. หมดอายุ 1 พ.ย. 2569"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ]
+      },
+      "BoardBlockDayDto": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "example": "2026-11-13"
+          },
+          "issues": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BoardBlockIssueDto"
+            }
+          }
+        },
+        "required": [
+          "date",
+          "issues"
+        ]
+      },
+      "BoardVehicleDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "veh_3f2a…"
+          },
+          "plate": {
+            "type": "string",
+            "example": "70-1234"
+          },
+          "plateProvince": {
+            "type": "string",
+            "example": "TH-10",
+            "description": "จังหวัดของทะเบียน (ISO 3166-2:TH)"
+          },
+          "vehicleTypeId": {
+            "type": "string",
+            "example": "vty_3f2a…"
+          },
+          "vehicleTypeName": {
+            "type": "string",
+            "example": "6 ล้อ"
+          },
+          "capacityKg": {
+            "type": "string",
+            "nullable": true,
+            "example": "6000",
+            "description": "น้ำหนักบรรทุก (กก.) ของรถ หรือของประเภทรถ"
+          },
+          "ownership": {
+            "type": "string",
+            "enum": [
+              "OWN",
+              "SUBCONTRACT"
+            ]
+          },
+          "carrierName": {
+            "type": "string",
+            "nullable": true,
+            "description": "ชื่อรถร่วม (SUBCONTRACT)"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "READY",
+              "MAINTENANCE",
+              "PARKED",
+              "RETIRED"
+            ]
+          },
+          "driver": {
+            "nullable": true,
+            "description": "คนขับประจำ (ค่าเริ่มต้นตอนจัด)",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/BoardDriverDto"
+              }
+            ]
+          },
+          "blocks": {
+            "description": "วันในช่วงกระดานที่รถติดกฎห้ามจ่ายงาน (ST2-T20 `checkAssignability` — รถร่วมเอกสารบังคับหมด/ไม่มี) · ไม่มี = ว่าง",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BoardBlockDayDto"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "plate",
+          "plateProvince",
+          "vehicleTypeId",
+          "vehicleTypeName",
+          "capacityKg",
+          "ownership",
+          "carrierName",
+          "status",
+          "driver",
+          "blocks"
+        ]
+      },
+      "BoardOrderRefDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "ord_3f2a…"
+          },
+          "orderNo": {
+            "type": "string",
+            "example": "SO-6911-0001"
+          },
+          "customerName": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "orderNo",
+          "customerName"
+        ]
+      },
+      "BoardPlaceDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "province": {
+            "type": "string",
+            "nullable": true,
+            "example": "ชลบุรี"
+          }
+        },
+        "required": [
+          "name",
+          "province"
+        ]
+      },
+      "BoardTripDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "trp_3f2a…"
+          },
+          "tripNo": {
+            "type": "string",
+            "example": "TRP-6911-0001"
+          },
+          "tripDate": {
+            "type": "string",
+            "example": "2026-11-13"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PLANNING",
+              "OFFERED",
+              "ASSIGNED",
+              "DISPATCHED",
+              "IN_PROGRESS",
+              "COMPLETED",
+              "COSTED",
+              "SETTLED",
+              "CANCELLED"
+            ]
+          },
+          "vehicleId": {
+            "type": "string",
+            "nullable": true,
+            "description": "รถที่วาง/จัด — null = ยังไม่วางลงรถ"
+          },
+          "vehiclePlate": {
+            "type": "string",
+            "nullable": true
+          },
+          "plannedStartAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "plannedEndAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "driverName": {
+            "type": "string",
+            "nullable": true
+          },
+          "carrierName": {
+            "type": "string",
+            "nullable": true
+          },
+          "orders": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BoardOrderRefDto"
+            }
+          },
+          "origin": {
+            "nullable": true,
+            "description": "จุดรับแรก",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/BoardPlaceDto"
+              }
+            ]
+          },
+          "dest": {
+            "nullable": true,
+            "description": "จุดส่งสุดท้าย",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/BoardPlaceDto"
+              }
+            ]
+          },
+          "weightKg": {
+            "type": "string",
+            "example": "5400",
+            "description": "น้ำหนักรวมของ DO ในเที่ยว (กก.)"
+          },
+          "doNos": {
+            "example": [
+              "DO-6911-0001"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "plannedDistanceKm": {
+            "type": "string",
+            "nullable": true,
+            "example": "120.5",
+            "description": "ระยะทางตามแผน (กม.)"
+          },
+          "overlapsWith": {
+            "description": "เที่ยวอื่นของรถคันเดียวกันที่ซ้อนเวลา (คำนวณ ณ ตอนอ่าน — ช่วงวิ่งทับกัน หรือวันเดียวกันเมื่อไม่มีช่วงวิ่ง) — เตือน ไม่บล็อก",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "warningCount": {
+            "type": "number",
+            "description": "จำนวนคำเตือนจากการตรวจล่าสุดของเที่ยว ไม่นับ `vehicle_overlap` (ซ้อนเวลารถใช้ `overlapsWith` ที่คำนวณ ณ ตอนอ่าน)"
+          },
+          "version": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "tripNo",
+          "tripDate",
+          "status",
+          "vehicleId",
+          "vehiclePlate",
+          "plannedStartAt",
+          "plannedEndAt",
+          "driverName",
+          "carrierName",
+          "orders",
+          "origin",
+          "dest",
+          "weightKg",
+          "doNos",
+          "plannedDistanceKm",
+          "overlapsWith",
+          "warningCount",
+          "version"
+        ]
+      },
+      "BoardPoolDoDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "do_3f2a…"
+          },
+          "doNo": {
+            "type": "string",
+            "example": "DO-6911-0001"
+          },
+          "weightKg": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "doNo",
+          "weightKg"
+        ]
+      },
+      "BoardPoolOrderDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "ord_3f2a…"
+          },
+          "orderNo": {
+            "type": "string",
+            "example": "SO-6911-0001"
+          },
+          "customerId": {
+            "type": "string",
+            "nullable": true
+          },
+          "customerName": {
+            "type": "string",
+            "nullable": true
+          },
+          "requestedDate": {
+            "type": "string",
+            "example": "2026-11-13",
+            "description": "วันที่ลูกค้าขอ (กำหนดส่ง)"
+          },
+          "status": {
+            "type": "string",
+            "example": "RECEIVED"
+          },
+          "holdReason": {
+            "type": "string",
+            "nullable": true,
+            "description": "รหัสเหตุผลที่ค้าง (ON_HOLD)"
+          },
+          "sourceChangePending": {
+            "type": "boolean",
+            "description": "ต้นทางแก้ไขหลังวางแผน รอตรวจ (ST3-T10) — ลงเที่ยวไม่ได้จนกว่าจะเคลียร์"
+          },
+          "vehicleTypeId": {
+            "type": "string",
+            "nullable": true
+          },
+          "vehicleTypeName": {
+            "type": "string",
+            "nullable": true,
+            "example": "6 ล้อ"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/BoardPlaceDto"
+          },
+          "dest": {
+            "$ref": "#/components/schemas/BoardPlaceDto"
+          },
+          "windowStart": {
+            "type": "string",
+            "nullable": true,
+            "description": "ต้นช่วงเวลาส่งที่ลูกค้าขอ"
+          },
+          "windowEnd": {
+            "type": "string",
+            "nullable": true
+          },
+          "weightKg": {
+            "type": "string",
+            "example": "5400",
+            "description": "น้ำหนักรวมของ DO รอจัด (กก.)"
+          },
+          "deliveryOrders": {
+            "description": "ใบส่งของรอจัด (DRAFT ไม่อยู่ในเที่ยว)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BoardPoolDoDto"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "orderNo",
+          "customerId",
+          "customerName",
+          "requestedDate",
+          "status",
+          "holdReason",
+          "sourceChangePending",
+          "vehicleTypeId",
+          "vehicleTypeName",
+          "origin",
+          "dest",
+          "windowStart",
+          "windowEnd",
+          "weightKg",
+          "deliveryOrders"
+        ]
+      },
+      "PlanningBoardDto": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "example": "2026-11-13"
+          },
+          "to": {
+            "type": "string",
+            "example": "2026-11-13"
+          },
+          "today": {
+            "type": "string",
+            "example": "2026-11-13",
+            "description": "วันนี้ (เวลาไทย)"
+          },
+          "vehicles": {
+            "description": "แถวรถ: รถบริษัท → รถร่วม (PLN-049)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BoardVehicleDto"
+            }
+          },
+          "trips": {
+            "description": "เที่ยวในช่วง (± 1 วัน — เที่ยวข้ามคืน) ยกเว้นที่ยกเลิก",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BoardTripDto"
+            }
+          },
+          "pool": {
+            "description": "SO รอจัด (จัดกลุ่ม DO ตาม SO) เรียงกำหนดส่ง",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BoardPoolOrderDto"
+            }
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "today",
+          "vehicles",
+          "trips",
+          "pool"
         ]
       },
       "RecentPriceSiteDto": {

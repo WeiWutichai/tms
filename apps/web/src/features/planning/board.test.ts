@@ -1,0 +1,210 @@
+import { describe, expect, it } from 'vitest';
+import {
+  axisBox,
+  blocksOn,
+  boardStats,
+  custShort,
+  dropWindow,
+  hhmm,
+  hourOf,
+  isoAt,
+  lanes,
+  movable,
+  movedWindow,
+  onDay,
+  poolView,
+  resizedWindow,
+  rowLoad,
+  scheduleBody,
+  span,
+  tripColor,
+  tripMoveBlock,
+  weekDropWindow,
+  type Board,
+  type BoardTrip,
+  type PoolOrder,
+} from './board';
+
+const D = '2026-11-16';
+const trip = (o: Partial<BoardTrip> = {}): BoardTrip => ({
+  id: 'trp_1',
+  tripNo: 'TRP-1',
+  tripDate: D,
+  status: 'PLANNING',
+  vehicleId: 'veh_1',
+  vehiclePlate: '70-1234',
+  plannedStartAt: `${D}T09:00:00+07:00`,
+  plannedEndAt: `${D}T12:00:00+07:00`,
+  driverName: null,
+  carrierName: null,
+  orders: [{ id: 'ord_1', orderNo: 'SO-1', customerName: 'บจก. ทดสอบ' }],
+  origin: null,
+  dest: null,
+  weightKg: '5400',
+  doNos: ['DO-1'],
+  plannedDistanceKm: '120',
+  overlapsWith: [],
+  warningCount: 0,
+  version: 1,
+  ...o,
+});
+const order = (o: Partial<PoolOrder>): PoolOrder => ({
+  id: 'ord_x',
+  orderNo: 'SO-X',
+  customerId: 'cus_1',
+  customerName: 'ก',
+  requestedDate: D,
+  status: 'RECEIVED',
+  holdReason: null,
+  sourceChangePending: false,
+  vehicleTypeId: 'vty_6',
+  vehicleTypeName: '6 ล้อ',
+  origin: { name: 'A', province: null },
+  dest: { name: 'B', province: null },
+  windowStart: null,
+  windowEnd: null,
+  weightKg: '1000',
+  deliveryOrders: [],
+  ...o,
+});
+
+describe('เวลาไทยบนแกน (ST3-T12)', () => {
+  it('ISO ↔ ชั่วโมงของวัน (+07:00) และข้ามวัน', () => {
+    expect(hourOf(`${D}T09:30:00+07:00`, D)).toBe(9.5);
+    expect(hourOf('2026-11-16T17:00:00Z', D)).toBe(24); // เที่ยงคืนของวันถัดไป
+    expect(isoAt(D, 9.25)).toBe(`${D}T09:15:00+07:00`);
+    expect(isoAt(D, 25)).toBe('2026-11-17T01:00:00+07:00');
+    expect(hhmm(13.75)).toBe('13:45');
+  });
+  it('ไม่มีช่วงวิ่ง → 08:00 + 3 ชม. ของวันเที่ยว · ข้ามคืนแสดงทั้งสองวัน', () => {
+    expect(span(trip({ plannedStartAt: null, plannedEndAt: null }), D)).toEqual({
+      s: 8,
+      e: 11,
+      estimated: true,
+    });
+    const night = trip({
+      plannedStartAt: `${D}T22:00:00+07:00`,
+      plannedEndAt: '2026-11-17T03:00:00+07:00',
+    });
+    expect(onDay(night, D)).toBe(true);
+    expect(onDay(night, '2026-11-17')).toBe(true);
+    expect(onDay(night, '2026-11-18')).toBe(false);
+  });
+  it('แกน 06:00–20:00 ตัดที่ขอบ · ทั้งเที่ยวนอกแกน = แถบ 1 ชม. ที่ขอบ', () => {
+    expect(axisBox(9, 12)).toEqual({
+      left: 3 / 14,
+      width: 3 / 14,
+      clipped: false,
+      clipS: false,
+      clipE: false,
+    });
+    expect(axisBox(18, 23)).toMatchObject({ clipS: false, clipE: true });
+    expect(axisBox(-2, 3)).toMatchObject({ clipS: true, clipE: true }); // 22:00–03:00 วันที่สอง
+    expect(axisBox(19, 22)).toMatchObject({ left: 13 / 14, width: 1 / 14, clipped: true });
+    expect(axisBox(21, 23)).toMatchObject({ left: 13 / 14, width: 1 / 14 });
+    expect(axisBox(2, 4)).toMatchObject({ left: 0, width: 1 / 14 });
+  });
+});
+
+describe('lane + ซ้อนเวลา', () => {
+  it('เวลาซ้อน = lane ใหม่ · ขอบชนพอดีใช้ lane เดิม (ต้นแบบ laneOf)', () => {
+    const r = lanes([
+      { id: 'a', s: 9, e: 12 },
+      { id: 'b', s: 11, e: 14 },
+      { id: 'c', s: 12, e: 13 },
+    ]);
+    expect(r.lane).toEqual({ a: 0, b: 1, c: 0 });
+    expect(r.count).toBe(2);
+    expect(lanes([]).count).toBe(1);
+  });
+  it('ซ้อนเวลา = แถบแดง (docs/04 D2) · ไม่ซ้อน = สีสถานะ', () => {
+    expect(tripColor(trip({ overlapsWith: ['TRP-2'] }))).toBe('#B3322A');
+    expect(tripColor(trip({ status: 'DISPATCHED' }))).toBe('#2257C4');
+    expect(movable(trip({ status: 'ASSIGNED' }))).toBe(true);
+    expect(movable(trip({ status: 'DISPATCHED' }))).toBe(false);
+    expect(tripMoveBlock(trip({ status: 'DISPATCHED' }), 'veh_1')).toBe('locked');
+    expect(tripMoveBlock(trip({ status: 'ASSIGNED' }), 'veh_2')).toBe('assigned');
+    expect(tripMoveBlock(trip({ status: 'ASSIGNED' }), 'veh_1')).toBeNull();
+    expect(tripMoveBlock(trip(), 'veh_2')).toBeNull();
+  });
+});
+
+describe('ลากวาง / ย้าย / ปรับขนาด', () => {
+  it('วางงานใหม่: snap 15 นาที จำกัดในแกน · 7 วัน = ต่อท้ายเที่ยวสุดท้าย หรือ 08:00', () => {
+    expect(dropWindow(9.4)).toEqual({ s: 9.5, e: 12.5 });
+    expect(dropWindow(19)).toEqual({ s: 17, e: 20 });
+    expect(dropWindow(3)).toEqual({ s: 6, e: 9 });
+    expect(weekDropWindow([], D)).toEqual({ s: 8, e: 11 });
+    expect(weekDropWindow([trip()], D)).toEqual({ s: 12, e: 15 });
+  });
+  it('ลากเที่ยว: เริ่มใหม่ = ตำแหน่งปล่อย − จุดที่จับ คงความยาว · ปรับขอบยาวอย่างน้อย 15 นาที', () => {
+    expect(movedWindow(trip(), D, 14.1, 1)).toEqual({ s: 13, e: 16 });
+    expect(resizedWindow(9, 12, 'e', 14.6)).toEqual({ s: 9, e: 14.5 });
+    expect(resizedWindow(9, 12, 's', 13)).toEqual({ s: 11.75, e: 12 });
+    expect(resizedWindow(9, 12, 'e', 8)).toEqual({ s: 9, e: 9.25 });
+    // ขอบที่ลากไม่ออกนอกแกน 06:00–20:00 ของวันที่แสดง (เปลี่ยนวันเที่ยวไม่ได้)
+    expect(resizedWindow(9, 12, 'e', 26)).toEqual({ s: 9, e: 20 });
+    expect(resizedWindow(9, 12, 's', 2)).toEqual({ s: 6, e: 12 });
+    // ลากทั้งเที่ยวก็อยู่ในแกน
+    expect(movedWindow(trip(), D, 21, 0)).toEqual({ s: 17, e: 20 });
+    expect(movedWindow(trip(), D, 4, 1)).toEqual({ s: 6, e: 9 });
+  });
+  it('body ของ /schedule: วันเที่ยว = วันเริ่ม (เวลาไทย)', () => {
+    expect(scheduleBody(D, 9, 12)).toEqual({
+      tripDate: D,
+      plannedStartAt: `${D}T09:00:00+07:00`,
+      plannedEndAt: `${D}T12:00:00+07:00`,
+    });
+    expect(scheduleBody(D, 24.5, 26).tripDate).toBe('2026-11-17');
+    // ปรับขนาดส่งวันเที่ยวเดิม
+    expect(scheduleBody(D, 6, 8, '2026-11-15').tripDate).toBe('2026-11-15');
+  });
+});
+
+describe('SO รอจัด + สรุป', () => {
+  it('กรองวัน/ประเภทรถ/ลูกค้า · เรียงกำหนดส่ง → น้ำหนักมากก่อน', () => {
+    const pool = [
+      order({ id: '1', orderNo: 'SO-1', requestedDate: '2026-11-17' }),
+      order({ id: '2', orderNo: 'SO-2', weightKg: '500' }),
+      order({ id: '3', orderNo: 'SO-3', weightKg: '9000', vehicleTypeId: 'vty_10' }),
+      order({ id: '4', orderNo: 'SO-4', requestedDate: '2026-11-10', customerId: 'cus_2' }),
+    ];
+    const all = { d: 'all' as const, vt: '', c: '' };
+    expect(poolView(pool, all, D).map((o) => o.id)).toEqual(['4', '3', '2', '1']);
+    expect(poolView(pool, { ...all, d: 'today' }, D).map((o) => o.id)).toEqual(['4', '3', '2']);
+    expect(poolView(pool, { ...all, d: 'tomorrow' }, D).map((o) => o.id)).toEqual(['1']);
+    expect(poolView(pool, { ...all, vt: 'vty_10' }, D).map((o) => o.id)).toEqual(['3']);
+    expect(poolView(pool, { ...all, c: 'cus_2' }, D).map((o) => o.id)).toEqual(['4']);
+  });
+  it('ภาระรถ = น้ำหนักสูงสุด · รถว่างวันนี้ / ปัญหารอแก้', () => {
+    expect(rowLoad([trip(), trip({ weightKg: '6800' })])).toBe(6800);
+    const b = {
+      from: D,
+      to: D,
+      today: D,
+      vehicles: [{ id: 'veh_1' }, { id: 'veh_2' }],
+      trips: [trip(), trip({ id: 'trp_2', overlapsWith: ['TRP-1'], plannedDistanceKm: null })],
+      pool: [order({})],
+    } as unknown as Board;
+    expect(boardStats(b, [D])).toMatchObject({
+      pend: 1,
+      total: 2,
+      free: 1,
+      used: 1,
+      w: 10800,
+      km: 120,
+      iss: 1,
+    });
+  });
+  it('วันที่รถติดกฎห้ามจ่ายงาน', () => {
+    const v = {
+      blocks: [{ date: D, issues: [{ code: 'DOC_MISSING', message: 'ยังไม่มี ประกันภัย' }] }],
+    } as unknown as Board['vehicles'][number];
+    expect(blocksOn(v, D).map((i) => i.code)).toEqual(['DOC_MISSING']);
+    expect(blocksOn(v, '2026-11-17')).toEqual([]);
+  });
+  it('ชื่อลูกค้าสั้น ตัดคำนำหน้า', () => {
+    expect(custShort('บจก. สยามพลาสติก', 'บจก.|บมจ.')).toBe('สยามพลาสติก');
+    expect(custShort('ร้านทดสอบ', 'บจก.')).toBe('ร้านทดสอบ');
+  });
+});

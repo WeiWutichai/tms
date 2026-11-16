@@ -243,3 +243,41 @@ export function backwardStops(
   }
   return out;
 }
+
+/** เที่ยวสำหรับตรวจซ้อนเวลาบนรถ (กระดานวางแผน ST3-T12) — วันที่ YYYY-MM-DD, เวลา ISO */
+export interface OverlapTrip {
+  id: string;
+  vehicleId: string | null;
+  status: TripStatus;
+  tripDate: string;
+  start: string | null;
+  end: string | null;
+}
+
+/**
+ * เที่ยวที่ซ้อนเวลากันบนรถคันเดียวกัน → map id → id ของเที่ยวที่ซ้อน (กติกาเดียวกับคำเตือน `vehicle_overlap` ของ ST3-T11):
+ * นับเฉพาะเที่ยวที่ยังไม่จบ (`TRIP_OPEN_STATUSES`) · มีช่วงวิ่งทั้งสองฝั่ง → ช่วงทับกัน (ขอบชนกันพอดีไม่นับ) ·
+ * ฝั่งใดไม่มีช่วงวิ่ง → วันเดียวกัน = ซ้อน · เตือน ไม่บล็อก (docs/04 D2)
+ */
+export function vehicleOverlaps(trips: OverlapTrip[]): Map<string, string[]> {
+  const open = trips.filter(
+    (t) => t.vehicleId && (TRIP_OPEN_STATUSES as readonly string[]).includes(t.status),
+  );
+  const out = new Map<string, string[]>();
+  const add = (a: string, b: string) => out.set(a, [...(out.get(a) ?? []), b]);
+  for (let i = 0; i < open.length; i++)
+    for (let j = i + 1; j < open.length; j++) {
+      const a = open[i]!;
+      const b = open[j]!;
+      if (a.vehicleId !== b.vehicleId) continue;
+      const hit =
+        a.start && a.end && b.start && b.end
+          ? Date.parse(a.start) < Date.parse(b.end) && Date.parse(b.start) < Date.parse(a.end)
+          : a.tripDate === b.tripDate;
+      if (hit) {
+        add(a.id, b.id);
+        add(b.id, a.id);
+      }
+    }
+  return out;
+}

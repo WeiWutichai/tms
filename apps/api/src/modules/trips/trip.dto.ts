@@ -93,6 +93,49 @@ export class CreateTripDto extends DeliveryOrderIdsDto {
   @IsNullable()
   @IsISO8601({ strict: true })
   plannedEndAt?: string | null;
+
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    example: 'veh_3f2a…',
+    description:
+      'รถที่วางแผนไว้ (กระดานวางแผน — ลาก SO ลงแถวรถ) · เที่ยวยังเป็น PLANNING ไม่มีคนขับ — จัดรถจริงที่ /assign',
+  })
+  @IsOptional()
+  @IsNullable()
+  @Matches(VEH_ID)
+  vehicleId?: string | null;
+}
+
+/** ย้าย/ปรับขนาดเที่ยวบนกระดาน — ไม่ส่งช่องไหน = คงค่าเดิม */
+export class ScheduleTripDto {
+  @ApiPropertyOptional({ example: '2026-11-13', description: 'วันที่เที่ยว (YYYY-MM-DD)' })
+  @IsOptional()
+  @Matches(DATE_RE)
+  tripDate?: string;
+
+  @ApiPropertyOptional({ type: String, nullable: true, example: '2026-11-13T08:00:00+07:00' })
+  @IsOptional()
+  @IsNullable()
+  @IsISO8601({ strict: true })
+  plannedStartAt?: string | null;
+
+  @ApiPropertyOptional({ type: String, nullable: true, example: '2026-11-13T11:00:00+07:00' })
+  @IsOptional()
+  @IsNullable()
+  @IsISO8601({ strict: true })
+  plannedEndAt?: string | null;
+
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    example: 'veh_3f2a…',
+    description: 'ย้ายไปรถคันอื่น (เฉพาะ PLANNING — ASSIGNED ใช้ /assign) · null = ถอดรถที่วางไว้',
+  })
+  @IsOptional()
+  @IsNullable()
+  @Matches(VEH_ID)
+  vehicleId?: string | null;
 }
 
 export class AttachDeliveryOrdersDto extends DeliveryOrderIdsDto {}

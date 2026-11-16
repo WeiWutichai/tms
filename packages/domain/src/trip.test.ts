@@ -9,6 +9,8 @@ import {
   intersectWindows,
   isTripEditable,
   planStops,
+  vehicleOverlaps,
+  type OverlapTrip,
   type TripDoInput,
   type TripEvent,
   type TripStatus,
@@ -166,5 +168,50 @@ describe('planStops (ST3-T11)', () => {
         { sequence: 4, plannedArrival: '2026-11-13T02:00:00Z' },
       ]),
     ).toEqual([4]);
+  });
+});
+
+describe('vehicleOverlaps (ST3-T12)', () => {
+  const T = (
+    id: string,
+    start: string | null,
+    end: string | null,
+    o: { vehicleId?: string | null; status?: TripStatus; tripDate?: string } = {},
+  ): OverlapTrip => ({
+    id,
+    vehicleId: o.vehicleId === undefined ? 'v1' : o.vehicleId,
+    status: o.status ?? 'PLANNING',
+    tripDate: o.tripDate ?? '2026-11-13',
+    start,
+    end,
+  });
+  it('ช่วงวิ่งทับกัน → ซ้อนทั้งสองฝั่ง · ขอบชนพอดีไม่ซ้อน', () => {
+    const m = vehicleOverlaps([
+      T('a', '2026-11-13T02:00:00Z', '2026-11-13T05:00:00Z'),
+      T('b', '2026-11-13T04:00:00Z', '2026-11-13T07:00:00Z'),
+      T('c', '2026-11-13T07:00:00Z', '2026-11-13T08:00:00Z'),
+    ]);
+    expect(m.get('a')).toEqual(['b']);
+    expect(m.get('b')).toEqual(['a']);
+    expect(m.has('c')).toBe(false);
+  });
+  it('คนละรถ / ไม่มีรถ / จบหรือยกเลิกแล้ว ไม่นับ', () => {
+    const m = vehicleOverlaps([
+      T('a', '2026-11-13T02:00:00Z', '2026-11-13T05:00:00Z'),
+      T('b', '2026-11-13T02:00:00Z', '2026-11-13T05:00:00Z', { vehicleId: 'v2' }),
+      T('c', '2026-11-13T02:00:00Z', '2026-11-13T05:00:00Z', { vehicleId: null }),
+      T('d', '2026-11-13T02:00:00Z', '2026-11-13T05:00:00Z', { status: 'COMPLETED' }),
+      T('e', '2026-11-13T02:00:00Z', '2026-11-13T05:00:00Z', { status: 'CANCELLED' }),
+    ]);
+    expect(m.size).toBe(0);
+  });
+  it('ฝั่งใดไม่มีช่วงวิ่ง → วันเดียวกัน = ซ้อน', () => {
+    const m = vehicleOverlaps([
+      T('a', null, null),
+      T('b', '2026-11-13T02:00:00Z', '2026-11-13T05:00:00Z'),
+      T('c', null, null, { tripDate: '2026-11-14' }),
+    ]);
+    expect(m.get('a')).toEqual(['b']);
+    expect(m.has('c')).toBe(false);
   });
 });
