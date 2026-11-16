@@ -4,11 +4,11 @@ import { I18nProvider } from '../../i18n';
 import { BoardViewMenu } from './BoardViewMenu';
 
 const ALL = ['ORDER_NO', 'CUSTOMER', 'TIME', 'ROUTE', 'WEIGHT'];
-const setup = (fields: string[] = ALL) => {
+const setup = (fields: string[] = ALL, disabled = false) => {
   const onChange = vi.fn();
   render(
     <I18nProvider lang="th">
-      <BoardViewMenu view="FLEET" fields={fields} onChange={onChange} />
+      <BoardViewMenu view="FLEET" fields={fields} disabled={disabled} onChange={onChange} />
     </I18nProvider>,
   );
   fireEvent.click(screen.getByRole('button', { name: /มุมมอง: รถบริษัท \+ รถร่วม/ }));
@@ -48,5 +48,24 @@ describe('BoardViewMenu', () => {
     setup(['ROUTE']);
     expect(screen.getByLabelText('เส้นทาง')).toBeDisabled();
     expect(screen.getByLabelText('ช่วงเวลา')).not.toBeDisabled();
+  });
+
+  it('Esc ปิดเมนูแล้วโฟกัสกลับที่ปุ่ม', () => {
+    setup();
+    expect(screen.getByRole('menu')).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(screen.getByRole('button', { name: /มุมมอง:/ })).toHaveFocus();
+  });
+
+  it('ระหว่างโหลดค่าของผู้ใช้ ปุ่มกดไม่ได้', () => {
+    setup(ALL, true);
+    expect(screen.getByRole('button', { name: /มุมมอง:/ })).toBeDisabled();
+    expect(screen.queryByRole('menu')).toBeNull();
+  });
+
+  it('ปุ่มตัวหนา 500 ตามต้นแบบ', () => {
+    setup();
+    expect(screen.getByRole('button', { name: /มุมมอง:/ })).toHaveStyle({ fontWeight: '500' });
   });
 });

@@ -1,10 +1,13 @@
 import type { Schemas } from '@tms/contracts';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, idempotent, unwrap } from '../../api';
-import type { Board, BoardPrefs } from './board';
+import { useRef, useState } from 'react';
+import { DEFAULT_PREFS, type Board, type BoardPrefs } from './board';
+import { createPrefSaver } from './prefSaver';
 
 export type Trip = Schemas['TripDto'];
 const KEY = 'planning-board';
+const PREFS_KEY = ['planning-board-prefs'];
 
 /** กระดาน (GET /v1/planning/board) — เริ่มวันนี้ตาม server (เวลาไทย) + จำนวนวัน (1 / 7) */
 export function useBoard(days: 1 | 7) {
@@ -22,7 +25,7 @@ export function useBoard(days: 1 | 7) {
  */
 export function useBoardPrefs() {
   return useQuery({
-    queryKey: ['planning-board-prefs'],
+    queryKey: PREFS_KEY,
     staleTime: 60_000,
     retry: false,
     queryFn: () => unwrap(api.GET('/v1/planning/board/preferences')) as Promise<BoardPrefs>,
@@ -69,30 +72,29 @@ export function useMoveTrip() {
   });
 }
 
-/** บันทึกมุมมอง + field บนการ์ด (PUT /v1/planning/board/preferences, If-Match = version ที่อ่านไว้) — เห็นผลทันที */
-export function useSaveBoardPrefs() {
+/**
+ * บันทึกมุมมอง + field บนการ์ด (PUT /v1/planning/board/preferences) — ทีละคำขอ รวมการกดรัว ๆ, version จากคำตอบก่อนหน้า,
+ * 412 → อ่านใหม่แล้วลองซ้ำ 1 ครั้ง (`createPrefSaver`) · `onFail(conflict)` เมื่อยังไม่สำเร็จ (UI ย้อนค่าแล้ว)
+ */
+export function useSaveBoardPrefs(onFail: (conflict: boolean) => void) {
   const qc = useQueryClient();
-  const key = ['planning-board-prefs'];
-  return useMutation({
-    mutationFn: (v: {
-      body: Schemas['UpdateBoardPreferencesDto'];
-      version: number;
-    }): Promise<BoardPrefs> =>
-      unwrap(
-        api.PUT('/v1/planning/board/preferences', {
-          body: v.body,
-          headers: { 'If-Match': `"${v.version}"` },
-        }),
-      ) as Promise<BoardPrefs>,
-    onMutate: (v) => {
-      const prev = qc.getQueryData<BoardPrefs>(key);
-      qc.setQueryData<BoardPrefs>(key, { ...v.body, version: v.version });
-      return { prev };
-    },
-    onSuccess: (r) => qc.setQueryData(key, r),
-    onError: (_e, _v, ctx) => {
-      if (ctx?.prev) qc.setQueryData(key, ctx.prev);
-      void qc.invalidateQueries({ queryKey: key });
-    },
-  });
+  const fail = useRef(onFail);
+  fail.current = onFail;
+  const [saver] = useState(() =>
+    createPrefSaver({
+      put: (body, version) =>
+        unwrap(
+          api.PUT('/v1/planning/board/preferences', {
+            body: body as Schemas['UpdateBoardPreferencesDto'],
+            headers: version === undefined ? {} : { 'If-Match': `"${version}"` },
+          }),
+        ) as Promise<BoardPrefs>,
+      get: () => unwrap(api.GET('/v1/planning/board/preferences')) as Promise<BoardPrefs>,
+      read: () => qc.getQueryData<BoardPrefs>(PREFS_KEY),
+      write: (v) => qc.setQueryData<BoardPrefs>(PREFS_KEY, v as BoardPrefs),
+      fail: (c) => fail.current(c),
+      fallback: { ...DEFAULT_PREFS, cardFields: [...DEFAULT_PREFS.cardFields], version: 0 },
+    }),
+  );
+  return saver.save;
 }

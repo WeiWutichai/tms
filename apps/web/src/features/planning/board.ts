@@ -311,8 +311,8 @@ const byPlate = (a: BoardVehicle, b: BoardVehicle) =>
 /**
  * มุมมองกระดาน (ST3-T13; docs/04 D2 "View") — ข้อมูลชุดเดียวกัน จัดกลุ่ม/เรียงแถวรถใหม่ (ไม่กรองแถวทิ้ง):
  * FLEET = "รถบริษัท + รถร่วม" ตามลำดับ server (PLN-049: รถบริษัท ประเภท/ทะเบียน → รถร่วม) ·
- * VEHICLE = ตามทะเบียน · DRIVER = ตามชื่อคนขับประจำ (ยังไม่กำหนดไว้ท้าย) · CARRIER = รถบริษัทก่อน แล้วตามชื่อรถร่วม
- * หัวกลุ่ม/ตัวสลับบนจอ = รอต้นแบบ (spec/12 §3 ST3-T13)
+ * VEHICLE = ตามทะเบียน · DRIVER = ตามชื่อคนขับประจำ (ยังไม่กำหนดไว้ท้าย) · CARRIER = รถบริษัท (ownership OWN) ก่อน
+ * แล้วรถร่วมตามชื่อรถร่วม (ไม่มีชื่อไว้ท้าย) · [DECISION — ย้อนได้ PO 16 พ.ย.] · หัวกลุ่ม = รอต้นแบบ (spec/12 §3)
  */
 export function orderVehicles(vs: BoardVehicle[], view: BoardView): BoardVehicle[] {
   if (view === 'FLEET') return vs;
@@ -325,10 +325,12 @@ export function orderVehicles(vs: BoardVehicle[], view: BoardView): BoardVehicle
         th(a.driver?.name ?? '', b.driver?.name ?? '') ||
         byPlate(a, b),
     );
+  // รถบริษัท/รถร่วมตัดสินด้วย ownership (review ST3-T13) — รถร่วมที่ไม่มีชื่อรถร่วมอยู่ท้ายกลุ่มรถร่วม
+  const grp = (v: BoardVehicle) => (v.ownership === 'OWN' ? 0 : v.carrierName ? 1 : 2);
   return out.sort(
     (a, b) =>
-      (a.carrierName ? 1 : 0) - (b.carrierName ? 1 : 0) ||
-      th(a.carrierName ?? '', b.carrierName ?? '') ||
+      grp(a) - grp(b) ||
+      (grp(a) === 1 ? th(a.carrierName ?? '', b.carrierName ?? '') : 0) ||
       byPlate(a, b),
   );
 }
@@ -342,4 +344,12 @@ export function cardLine(
     .filter(([f, s]) => fields.includes(f) && s)
     .map(([, s]) => s)
     .join(' · ');
+}
+
+/** field ที่การ์ดมุมมอง 7 วันแสดงได้ (ต้นแบบ: เลข SO / ลูกค้า / น้ำหนัก) */
+const WEEK_FIELDS: CardField[] = ['ORDER_NO', 'CUSTOMER', 'WEIGHT'];
+/** field ของการ์ด 7 วันจากที่ผู้ใช้เลือก — ไม่มีข้อใดใช้ได้ (เลือกแค่ช่วงเวลา/เส้นทาง) → เลข SO (การ์ดไม่ว่าง — QA ST3-T13) */
+export function weekFields(fields: readonly string[]): CardField[] {
+  const f = WEEK_FIELDS.filter((x) => fields.includes(x));
+  return f.length ? f : ['ORDER_NO'];
 }

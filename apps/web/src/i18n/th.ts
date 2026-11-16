@@ -2752,6 +2752,7 @@ export const th = {
   'plan.field.ROUTE': 'เส้นทาง',
   'plan.field.WEIGHT': 'น้ำหนักต่อความจุ',
   'plan.view.saveError': 'บันทึกมุมมองไม่สำเร็จ',
+  'plan.view.conflict': 'มุมมองถูกเปลี่ยนจากหน้าจออื่น — แสดงค่าล่าสุดแล้ว',
 } as const;
 
 export type MessageKey = keyof typeof th;

@@ -21,6 +21,7 @@ import {
   span,
   tripColor,
   tripMoveBlock,
+  weekFields,
   weekDropWindow,
   type Board,
   type BoardTrip,
@@ -269,6 +270,29 @@ describe('มุมมองกระดาน (ST3-T13)', () => {
       '10-5555',
       '10-9999',
     ]);
+  });
+  it('ตาม carrier ตัดสินด้วย ownership: รถร่วมไม่มีชื่อ = ท้ายกลุ่มรถร่วม · รถบริษัทที่มี carrierName ยังเป็นรถบริษัท', () => {
+    const v = [
+      sub('10-1111', 'หจก. ข'),
+      veh('10-0000', { ownership: 'SUBCONTRACT', carrierName: null }),
+      veh('70-9999', { carrierName: 'ข้อมูลเก่า' }),
+      veh('70-0001'),
+    ];
+    expect(plates(orderVehicles(v, 'CARRIER'))).toEqual([
+      '70-0001',
+      '70-9999',
+      '10-1111',
+      '10-0000',
+    ]);
+  });
+  it('การ์ด 7 วัน: เฉพาะ field ที่แสดงได้ · เลือกแค่ช่วงเวลา/เส้นทาง → เลข SO', () => {
+    expect(weekFields(['ORDER_NO', 'CUSTOMER', 'TIME', 'ROUTE', 'WEIGHT'])).toEqual([
+      'ORDER_NO',
+      'CUSTOMER',
+      'WEIGHT',
+    ]);
+    expect(weekFields(['TIME', 'WEIGHT'])).toEqual(['WEIGHT']);
+    expect(weekFields(['TIME', 'ROUTE'])).toEqual(['ORDER_NO']);
   });
   it('สลับมุมมอง = ข้อมูลชุดเดียวกัน (ไม่เพิ่ม/ไม่ตัดแถว) และไม่แก้ array เดิม', () => {
     const before = plates(rows);

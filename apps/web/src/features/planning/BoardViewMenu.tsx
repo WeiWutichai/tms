@@ -14,18 +14,31 @@ const VIEWS: BoardView[] = ['FLEET', 'VEHICLE', 'DRIVER', 'CARRIER'];
 export function BoardViewMenu(props: {
   view: BoardView;
   fields: readonly string[];
+  /** ระหว่างโหลดค่าของผู้ใช้ — กดไม่ได้ (QA ST3-T13) */
+  disabled?: boolean;
   onChange: (v: { view: BoardView; cardFields: CardField[] }) => void;
 }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const btn = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     if (!open) return;
     const close = (e: MouseEvent) => {
       if (!ref.current?.contains(e.target as Node)) setOpen(false);
     };
+    // Esc ปิดเมนูแล้วคืนโฟกัสให้ปุ่ม
+    const esc = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      setOpen(false);
+      btn.current?.focus();
+    };
     document.addEventListener('mousedown', close);
-    return () => document.removeEventListener('mousedown', close);
+    document.addEventListener('keydown', esc);
+    return () => {
+      document.removeEventListener('mousedown', close);
+      document.removeEventListener('keydown', esc);
+    };
   }, [open]);
   const vl = (v: BoardView) => t(`plan.view.${v}` as MessageKey);
   const toggle = (f: CardField) => {
@@ -46,9 +59,11 @@ export function BoardViewMenu(props: {
       }}
     >
       <button
+        ref={btn}
         type="button"
         aria-haspopup="menu"
         aria-expanded={open}
+        disabled={props.disabled}
         onClick={() => setOpen((o) => !o)}
         className="tms-plan-viewbtn"
         style={{
@@ -61,9 +76,10 @@ export function BoardViewMenu(props: {
           borderRadius: 999,
           background: '#FFFFFF',
           color: '#101418',
-          cursor: 'pointer',
-          fontWeight: 500,
+          cursor: props.disabled ? 'default' : 'pointer',
+          opacity: props.disabled ? 0.6 : 1,
           font: 'inherit',
+          fontWeight: 500,
         }}
       >
         <Icon n="bookmark" s={16} style={{ color: '#59606B' }} />

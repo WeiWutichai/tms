@@ -56,6 +56,7 @@ import {
   cardLine,
   DEFAULT_PREFS,
   orderVehicles,
+  weekFields,
   type BoardView,
 } from './board';
 import { BoardViewMenu } from './BoardViewMenu';
@@ -171,7 +172,10 @@ export function PlanningPage() {
   const prefs = useBoardPrefs();
   const view = (prefs.data?.view ?? DEFAULT_PREFS.view) as BoardView;
   const cf: readonly string[] = prefs.data?.cardFields ?? DEFAULT_PREFS.cardFields;
-  const savePrefs = useSaveBoardPrefs();
+  const wf = weekFields(cf);
+  const savePrefs = useSaveBoardPrefs((conflict) =>
+    setToast(t(conflict ? 'plan.view.conflict' : 'plan.view.saveError')),
+  );
   const drop = useDropOrder();
   const move = useMoveTrip();
   const nowH = useNowHour();
@@ -868,7 +872,7 @@ export function PlanningPage() {
                         opacity: drag?.kind === 'trip' && drag.id === x.id ? 0.5 : 1,
                       }}
                     >
-                      {cf.includes('ORDER_NO') && (
+                      {wf.includes('ORDER_NO') && (
                         <span
                           className="tms-num"
                           style={{
@@ -881,7 +885,7 @@ export function PlanningPage() {
                           {soText(x)}
                         </span>
                       )}
-                      {cf.includes('CUSTOMER') && (
+                      {wf.includes('CUSTOMER') && (
                         <span
                           style={{
                             fontSize: 12.5,
@@ -894,7 +898,7 @@ export function PlanningPage() {
                           {custShort(custText(x), prefixes)}
                         </span>
                       )}
-                      {cf.includes('WEIGHT') && (
+                      {wf.includes('WEIGHT') && (
                         <span
                           className="tms-num"
                           style={{
@@ -1111,12 +1115,8 @@ export function PlanningPage() {
       <BoardViewMenu
         view={view}
         fields={cf}
-        onChange={(body) =>
-          savePrefs.mutate(
-            { body, version: prefs.data?.version ?? 0 },
-            { onError: () => setToast(t('plan.view.saveError')) },
-          )
-        }
+        disabled={prefs.isPending}
+        onChange={(body) => void savePrefs(body)}
       />
       <div
         onClick={() => setPop(null)}
