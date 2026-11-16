@@ -19,6 +19,8 @@ import {
   rowLoad,
   scheduleBody,
   span,
+  firstRule,
+  ruleState,
   tripColor,
   tripMoveBlock,
   weekFields,
@@ -49,6 +51,8 @@ const trip = (o: Partial<BoardTrip> = {}): BoardTrip => ({
   plannedDistanceKm: '120',
   overlapsWith: [],
   warningCount: 0,
+  pendingRules: [],
+  confirmedRules: 0,
   version: 1,
   ...o,
 });
@@ -124,6 +128,22 @@ describe('lane + ซ้อนเวลา', () => {
   it('ซ้อนเวลา = แถบแดง (docs/04 D2) · ไม่ซ้อน = สีสถานะ', () => {
     expect(tripColor(trip({ overlapsWith: ['TRP-2'] }))).toBe('#B3322A');
     expect(tripColor(trip({ status: 'DISPATCHED' }))).toBe('#2257C4');
+  });
+
+  it('ST3-T14 กฎตอนจัด: บล็อกค้าง = แดง (ต้องย้ายรถ) · คำเตือนค้าง = ส้ม (รออนุมัติ) · ยกเว้นครบ = เทา', () => {
+    const w = { code: 'OVERWEIGHT', severity: 'warning' as const, message: 'น้ำหนักเกิน' };
+    const ov = { code: 'vehicle_overlap', severity: 'warning' as const, message: 'ซ้อน' };
+    const b = { code: 'DOC_CMI_EXPIRED', severity: 'block' as const, message: 'พ.ร.บ. หมด' };
+    expect(ruleState(trip())).toBeNull();
+    expect(ruleState(trip({ pendingRules: [w, b] }))).toBe('block');
+    expect(tripColor(trip({ pendingRules: [b] }))).toBe('#B3322A');
+    expect(ruleState(trip({ pendingRules: [w] }))).toBe('pending');
+    expect(tripColor(trip({ status: 'DISPATCHED', pendingRules: [w] }))).toBe('#8F5500');
+    expect(ruleState(trip({ confirmedRules: 2 }))).toBe('overridden');
+    expect(tripColor(trip({ confirmedRules: 1 }))).toBe('#59606B');
+    // ซ้อนเวลามีป้ายของตัวเอง — ป้ายกฎใช้ข้อแรกที่ไม่ใช่ซ้อนเวลา
+    expect(firstRule(trip({ pendingRules: [ov, w] }))).toBe(w);
+    expect(firstRule(trip({ pendingRules: [ov] }))).toBe(ov);
     expect(movable(trip({ status: 'ASSIGNED' }))).toBe(true);
     expect(movable(trip({ status: 'DISPATCHED' }))).toBe(false);
     expect(tripMoveBlock(trip({ status: 'DISPATCHED' }), 'veh_1')).toBe('locked');

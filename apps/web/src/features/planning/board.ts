@@ -205,8 +205,33 @@ export const STATUS_COLOR: Record<string, string> = {
 };
 export const CLASH = '#B3322A';
 
+/** ST3-T14 legend ต้นแบบ: "ติดเงื่อนไข · รออนุมัติ" (ส้ม) · "อนุมัติยกเว้นแล้ว" (เทา) · "ต้องย้ายรถ" (แดง) */
+export const RULE_PENDING = '#8F5500';
+export const RULE_OVERRIDDEN = '#59606B';
+
+/**
+ * สถานะกฎตอนจัดของเที่ยว (ผลตรวจล่าสุดจาก API): `block` = ติดกฎเอกสารที่ยังไม่ยกเว้น (ต้องย้ายรถ) ·
+ * `pending` = มีคำเตือนรอยืนยัน · `overridden` = ยกเว้น/ยืนยันแล้วทั้งหมด · null = ไม่ติดอะไร
+ */
+export function ruleState(t: BoardTrip): 'block' | 'pending' | 'overridden' | null {
+  const p = t.pendingRules ?? [];
+  if (p.some((r) => r.severity === 'block')) return 'block';
+  if (p.length) return 'pending';
+  return (t.confirmedRules ?? 0) > 0 ? 'overridden' : null;
+}
+
+/** กฎที่แสดงบนการ์ด — ข้อแรกที่ไม่ใช่ซ้อนเวลา (ซ้อนเวลามีป้าย "เวลาชนกัน" ของตัวเอง) */
+export const firstRule = (t: BoardTrip) => {
+  const p = t.pendingRules ?? [];
+  return p.find((r) => !r.code.endsWith('_overlap')) ?? p[0];
+};
+
 export function tripColor(t: BoardTrip): string {
-  return t.overlapsWith.length ? CLASH : (STATUS_COLOR[t.status] ?? '#3B424C');
+  const r = ruleState(t);
+  if (r === 'block' || t.overlapsWith.length) return CLASH;
+  if (r === 'pending') return RULE_PENDING;
+  if (r === 'overridden') return RULE_OVERRIDDEN;
+  return STATUS_COLOR[t.status] ?? '#3B424C';
 }
 
 /** เที่ยวที่ยังย้าย/ปรับเวลาบนกระดานได้ (ก่อนปล่อยรถ — `isTripEditable` ของ domain) */
