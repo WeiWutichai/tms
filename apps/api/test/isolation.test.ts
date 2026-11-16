@@ -641,6 +641,7 @@ const BODY_FOR_PATH: Record<string, object> = {
   '/v1/orders/:id/stops/:sequence/map-site': { siteId: `loc_${'0'.repeat(32)}` },
   '/v1/orders/:id/map-customer': { customerId: `cus_${'0'.repeat(32)}` },
   '/v1/orders/:id/resolve-source-error': { reason: 'isolation test reason' }, // ST3-T07
+  '/v1/orders/:id/manual-price': { sellAmount: '1000.00', reason: 'isolation test reason' }, // ST3-T07
 };
 
 interface RouteInfo {

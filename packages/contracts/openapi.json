@@ -3952,7 +3952,7 @@
             "name": "held",
             "required": false,
             "in": "query",
-            "description": "หน้าใบค้าง (ST3-T07): true = เฉพาะใบค้าง (ON_HOLD) · false = ไม่รวมใบค้าง — ใช้คู่กับ `holdReason` ได้",
+            "description": "หน้าใบค้าง (ST3-T07): true = เฉพาะใบค้าง (ON_HOLD + ใบที่ต้นทางแก้หลังวางแผนรอตัดสิน ซึ่งสถานะยัง PLANNED) · false = ไม่รวมใบค้างทั้งสองแบบ — ใช้คู่กับ `holdReason` ได้",
             "schema": {
               "type": "string",
               "enum": [
@@ -6316,7 +6316,7 @@
     },
     "/v1/orders/{id}/reevaluate": {
       "post": {
-        "description": "หน้าใบค้างเรียกหลังเคลียร์เหตุที่ข้อมูลหลัก (เพิ่ม/อนุมัติ rate card → RATE_MISSING, ปักพิกัดสถานที่ → GEOCODING_ERROR, เปิดใช้ลูกค้า/สถานที่) · จับคู่อัตโนมัติด้วย alias ที่เรียนรู้ล่าสุดด้วย · ไม่แก้ข้อมูลงาน · ผลเหมือนเดิม = ไม่เพิ่ม version · เหตุหมด → กลับ `received` · เหตุที่ flow อื่นตั้ง (CARRIER_REJECTED ฯลฯ) ไม่ถูกปล่อย · ใช้ได้ก่อนวางแผน (draft/received/on_hold) — ไม่งั้น 409 `invalid_state_transition`",
+        "description": "หน้าใบค้างเรียกหลังเคลียร์เหตุที่ข้อมูลหลัก (เพิ่ม/อนุมัติ rate card → RATE_MISSING, ปักพิกัดสถานที่ → GEOCODING_ERROR, เปิดใช้ลูกค้า/สถานที่) · จับคู่อัตโนมัติด้วย alias ที่เรียนรู้ล่าสุดด้วย · ไม่แก้ข้อมูลงาน · ผลเหมือนเดิม = ไม่เพิ่ม version · เหตุหมด → กลับ `received` · เหตุที่ flow อื่นตั้ง (CARRIER_REJECTED ฯลฯ) ไม่ถูกปล่อย · ใช้ได้ก่อนวางแผน (draft/received/on_hold) — ไม่งั้น 409 `invalid_state_transition` · ใบค้างด้วยเหตุตอนจัดรถ/ส่ง (CARRIER_REJECTED ฯลฯ — เคยวางแผนแล้ว ไม่คิดราคาใหม่) → 409 `invalid_state_transition` (`holdReason`) · ผู้ใช้อื่นเปิดแก้อยู่ → 409 `order_locked_by_user`",
         "operationId": "Orders_reevaluate",
         "parameters": [
           {
@@ -6398,7 +6398,7 @@
             }
           },
           "409": {
-            "description": "`invalid_state_transition` — ใบวางแผน/ออกรถ/ปิด/ยกเลิกแล้ว (ประเมินใหม่ได้เฉพาะก่อนวางแผน) หรือไม่มีปัญหาจากต้นทางให้ยืนยัน",
+            "description": "`invalid_state_transition` — ใบวางแผน/ออกรถ/ปิด/ยกเลิกแล้ว (ประเมินใหม่ได้เฉพาะก่อนวางแผน) หรือไม่มีปัญหาจากต้นทางให้ยืนยัน · `order_locked_by_user` — ผู้ใช้อื่นเปิดแก้อยู่ · `order_lock_released` — ล็อกของผู้เรียกถูกปลด",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -6442,6 +6442,40 @@
                         "customerRef"
                       ]
                     }
+                  },
+                  "order_locked_by_user": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/order_locked_by_user",
+                      "title": "ใบสั่งขนส่งนี้กำลังถูกแก้ไขโดยผู้ใช้อื่น",
+                      "status": 409,
+                      "code": "order_locked_by_user",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "editLock": {
+                        "userId": "usr_7c1d…",
+                        "userName": "สมชาย ใจดี",
+                        "acquiredAt": "2026-11-13T02:00:00.000Z",
+                        "lastSeenAt": "2026-11-13T02:04:00.000Z",
+                        "expiresAt": "2026-11-13T02:14:00.000Z",
+                        "mine": false
+                      }
+                    }
+                  },
+                  "order_lock_released": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/order_lock_released",
+                      "title": "การแก้ไขของคุณถูกปลดล็อกโดยผู้อื่นแล้ว — โหลดใหม่ก่อนแก้ต่อ",
+                      "status": 409,
+                      "code": "order_lock_released",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "releasedBy": {
+                        "userId": "usr_9b2e…",
+                        "userName": "ผู้จัดการ ตัวอย่าง"
+                      },
+                      "releasedAt": "2026-11-13T02:06:00.000Z",
+                      "reason": "ผู้แก้ไม่อยู่ ต้องแก้วันรับของด่วน"
+                    }
                   }
                 }
               }
@@ -6476,6 +6510,288 @@
           }
         ],
         "summary": "ตรวจใบค้างอีกครั้ง — คิดราคา + ประเมินเหตุค้างใหม่จากข้อมูลหลักปัจจุบัน (ST3-T07)",
+        "tags": [
+          "orders"
+        ]
+      }
+    },
+    "/v1/orders/{id}/manual-price": {
+      "post": {
+        "description": "สร้างบรรทัด FREIGHT ที่มา `MANUAL` (รายการบริการระบบ FREIGHT — vat_type/wht_rate ตาม catalog) หรือแก้จำนวนเงินของบรรทัด MANUAL เดิม → ประเมินใบค้างใหม่ (มีค่าขนส่ง MANUAL = ไม่ค้าง RATE_MISSING · เหตุหมด → `received`) · บรรทัด MANUAL ไม่ถูกลบตอนคิดราคาใหม่ · ต้องมี `orders:write` + `prices.sell:write` (ไม่มี → 403) · เหตุผล ≥ 10 ตัวอักษร (audit `sales_order.manual_price_set`) · ใช้ได้ก่อนวางแผน (หลังวางแผน → 409 `order_locked_for_update`) · มีค่าขนส่งจาก rate card แล้ว หรือใบค้างด้วยเหตุตอนจัดรถ/ส่ง → 409 `invalid_state_transition`",
+        "operationId": "Orders_manualPrice",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManualPriceDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "JSON เสีย",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "bad_request": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/bad_request",
+                      "title": "คำขอไม่ถูกต้อง",
+                      "status": 400,
+                      "code": "bad_request",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`orders:read` / `orders:write`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "orders",
+                      "action": "write",
+                      "required": [
+                        "orders:write"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ไม่พบ (รวมใบของบริษัทอื่น)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`invalid_state_transition` — ใบวางแผน/ออกรถ/ปิด/ยกเลิกแล้ว (ประเมินใหม่ได้เฉพาะก่อนวางแผน) หรือไม่มีปัญหาจากต้นทางให้ยืนยัน · `order_locked_by_user` — ผู้ใช้อื่นเปิดแก้อยู่ · `order_lock_released` — ล็อกของผู้เรียกถูกปลด",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "invalid_state_transition": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/invalid_state_transition",
+                      "title": "ทำรายการนี้ไม่ได้ในสถานะปัจจุบัน",
+                      "status": 409,
+                      "code": "invalid_state_transition",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "from": "PLANNED",
+                      "event": "reevaluate"
+                    }
+                  },
+                  "order_locked_for_update": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/order_locked_for_update",
+                      "title": "แก้ข้อมูลนี้ของใบสั่งขนส่งไม่ได้ในสถานะปัจจุบัน",
+                      "status": 409,
+                      "code": "order_locked_for_update",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "stops[1].siteId",
+                          "code": "locked",
+                          "message": "cannot change stops when order is IN_TRANSIT"
+                        },
+                        {
+                          "field": "lines[0].qty",
+                          "code": "locked",
+                          "message": "cannot change lines when order is IN_TRANSIT"
+                        }
+                      ],
+                      "orderStatus": "IN_TRANSIT",
+                      "editableFields": [
+                        "customerRef"
+                      ]
+                    }
+                  },
+                  "order_locked_by_user": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/order_locked_by_user",
+                      "title": "ใบสั่งขนส่งนี้กำลังถูกแก้ไขโดยผู้ใช้อื่น",
+                      "status": 409,
+                      "code": "order_locked_by_user",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "editLock": {
+                        "userId": "usr_7c1d…",
+                        "userName": "สมชาย ใจดี",
+                        "acquiredAt": "2026-11-13T02:00:00.000Z",
+                        "lastSeenAt": "2026-11-13T02:04:00.000Z",
+                        "expiresAt": "2026-11-13T02:14:00.000Z",
+                        "mine": false
+                      }
+                    }
+                  },
+                  "order_lock_released": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/order_lock_released",
+                      "title": "การแก้ไขของคุณถูกปลดล็อกโดยผู้อื่นแล้ว — โหลดใหม่ก่อนแก้ต่อ",
+                      "status": 409,
+                      "code": "order_lock_released",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "releasedBy": {
+                        "userId": "usr_9b2e…",
+                        "userName": "ผู้จัดการ ตัวอย่าง"
+                      },
+                      "releasedAt": "2026-11-13T02:06:00.000Z",
+                      "reason": "ผู้แก้ไม่อยู่ ต้องแก้วันรับของด่วน"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "If-Match ไม่ตรง version / ส่ง If-Match แต่ยังไม่มีใบ",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "precondition_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/precondition_failed",
+                      "title": "ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่",
+                      "status": 412,
+                      "code": "precondition_failed",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "รูปแบบผิด — `errors[]` รวมทุกช่อง (path แบบ `stops[0].siteId`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "requestedDate",
+                          "code": "invalid_date",
+                          "message": "must be YYYY-MM-DD"
+                        },
+                        {
+                          "field": "stops[0].siteId",
+                          "code": "invalid_id",
+                          "message": "must be a uuid"
+                        },
+                        {
+                          "field": "lines[0].qty",
+                          "code": "invalid_type",
+                          "message": "must be a decimal string"
+                        }
+                      ]
+                    }
+                  },
+                  "idempotency_mismatch": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_mismatch",
+                      "title": "Idempotency-Key นี้เคยใช้กับข้อมูลอื่น",
+                      "status": 422,
+                      "code": "idempotency_mismatch",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "กำหนดราคาเอง — ค่าขนส่งเมื่อไม่พบ rate card (spec/03 ORD-043 · ใบค้าง RATE_MISSING — ST3-T07)",
         "tags": [
           "orders"
         ]
@@ -23548,8 +23864,12 @@
             "type": "number",
             "description": "วางแผนแล้ว (PLANNED) ที่วันรับของ = วันนี้ (เวลาไทย)"
           },
+          "heldTotal": {
+            "type": "number",
+            "description": "หน้าใบค้าง (ST3-T07): ใบค้างทั้งหมด = ON_HOLD + ใบที่ต้นทางแก้หลังวางแผนรอตัดสิน (สถานะ PLANNED — เงื่อนไขเดียวกับ `held=true`)"
+          },
           "holdReasons": {
-            "description": "หน้าใบค้าง (ST3-T07): จำนวนใบค้างต่อเหตุ ครบ 12 รหัสของ docs/04 C (ไม่มี = 0) — นับเหตุหลักหรือเหตุรอง (เงื่อนไขเดียวกับตัวกรอง `held=true&holdReason=`) ใบหนึ่งจึงอาจนับในหลายเหตุ",
+            "description": "หน้าใบค้าง (ST3-T07): จำนวนใบค้างต่อเหตุ ครบ 12 รหัสของ docs/04 C (ไม่มี = 0) — นับเหตุหลักหรือเหตุรอง (เงื่อนไขเดียวกับตัวกรอง `held=true&holdReason=`) ใบหนึ่งจึงอาจนับในหลายเหตุ · SOURCE_CHANGED_AFTER_PLAN = ใบที่ต้นทางแก้หลังวางแผน (สถานะยัง PLANNED)",
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/OrderHoldCountDto"
@@ -23565,6 +23885,7 @@
           "overdue",
           "planned",
           "plannedToday",
+          "heldTotal",
           "holdReasons"
         ]
       },
@@ -23684,13 +24005,25 @@
             "nullable": true,
             "example": "stops[1].site",
             "description": "ช่องที่เป็นต้นเหตุ (เหตุของทางเข้า: `customer`, `stops[i].site`, `stops.pickup`, `pricing`, `source`) · เหตุที่ flow อื่นตั้ง = null"
+          },
+          "fields": {
+            "example": [
+              "stops[0].site",
+              "stops[2].site"
+            ],
+            "description": "ช่องต้นเหตุทั้งหมดของเหตุหลัก (เช่น ทุกจุดที่หาพิกัดไม่ได้ของ GEOCODING_ERROR) — `field` = ช่องแรก · เหตุที่ flow อื่นตั้ง = []",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
         "required": [
           "code",
           "label",
           "note",
-          "field"
+          "field",
+          "fields"
         ]
       },
       "OrderPricingReasonDto": {
@@ -24888,6 +25221,27 @@
           "createdAt",
           "updatedAt",
           "aliasLearning"
+        ]
+      },
+      "ManualPriceDto": {
+        "type": "object",
+        "properties": {
+          "sellAmount": {
+            "type": "string",
+            "example": "4200.00",
+            "description": "ค่าขนส่งที่กำหนดเอง (บาท ก่อน VAT, > 0, ทศนิยม ≤ 2) — ต้องมีสิทธิ์ `prices.sell:write` (ไม่มี → 403)"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 10,
+            "maxLength": 500,
+            "example": "ลูกค้ารายใหม่ ยังไม่มีสัญญาราคา ตกลงราคาทางโทรศัพท์",
+            "description": "เหตุผลที่กำหนดราคาเอง (≥ 10 ตัวอักษร — ลง audit)"
+          }
+        },
+        "required": [
+          "sellAmount",
+          "reason"
         ]
       },
       "ResolveSourceErrorDto": {

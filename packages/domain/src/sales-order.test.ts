@@ -181,6 +181,27 @@ describe('กฎรับงานเข้า → ใบค้าง', () => {
     ).toBe('จุดที่ 2 หาพิกัดสถานที่ไม่ได้ — ปักหมุดในข้อมูลหลักสถานที่: ร้านปลายทาง');
   });
 
+  it('GEOCODING_ERROR หลายจุด → field = จุดแรก, fields = ทุกจุด · ข้อความบอกทุกจุด (review ST3-T07)', () => {
+    const holds = evaluateIntakeHolds({
+      ...ok,
+      stops: [
+        { type: 'PICKUP', mapped: true, geocodeFailed: true },
+        { type: 'DELIVERY', mapped: true },
+        { type: 'DELIVERY', mapped: true, geocodeFailed: true },
+      ],
+    });
+    expect(holds).toEqual([
+      {
+        code: 'GEOCODING_ERROR',
+        field: 'stops[0].site',
+        fields: ['stops[0].site', 'stops[2].site'],
+      },
+    ]);
+    expect(intakeHoldNoteTh(holds[0]!, { stopTexts: ['คลัง', 'ร้าน ก', 'ร้าน ข'] })).toBe(
+      'จุดที่ 1, 3 หาพิกัดสถานที่ไม่ได้ — ปักหมุดในข้อมูลหลักสถานที่: คลัง, ร้าน ข',
+    );
+  });
+
   it('ชุดเหตุค้างครบ 12 รหัสของ docs/04 C · เหตุของทางเข้าเป็นส่วนหนึ่งของชุด', () => {
     expect(ORDER_HOLD_CODES).toHaveLength(12);
     for (const c of INTAKE_HOLD_CODES) expect(ORDER_HOLD_CODES).toContain(c);

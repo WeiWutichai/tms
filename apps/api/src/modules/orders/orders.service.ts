@@ -80,6 +80,9 @@ export function toOrderDto(o: OrderRow): OrderDto {
     reasons?: { code: string; message: string; field?: string }[];
     holds?: IntakeHold[];
   };
+  const primaryHold = o.holdReasonCode
+    ? (detail.holds ?? []).find((h) => h.code === o.holdReasonCode!.code)
+    : undefined;
   return {
     id: encodeId('salesOrder', o.id),
     soNo: o.soNo,
@@ -109,10 +112,11 @@ export function toOrderDto(o: OrderRow): OrderDto {
           label: o.holdReasonCode.labelTh,
           note: o.holdNote,
           // ช่องต้นเหตุ (เหตุของทางเข้า — เช่น stops[1].site) ให้หน้าใบค้างพาไปจุดที่ต้องแก้ (ST3-T07)
-          field: (detail.holds ?? []).find((h) => h.code === o.holdReasonCode!.code)?.field ?? null,
+          field: primaryHold?.field ?? null,
+          fields: primaryHold?.fields ?? (primaryHold?.field ? [primaryHold.field] : []),
         }
       : null,
-    holdCodes: (detail.holds ?? []).map((h) => h.code),
+    holdCodes: [...new Set((detail.holds ?? []).map((h) => h.code))],
     pricingStatus: o.pricingStatus,
     pricingReasons: (detail.reasons ?? []).map((r) => ({
       code: r.code,
@@ -321,7 +325,12 @@ export class OrdersService {
       this.countHeld('LOCATION_UNMAPPED'),
       this.countHeld('CUSTOMER_UNMAPPED'),
     ]);
-    const holdReasons = await this.holdReasonCounts();
+    const [holdReasons, heldTotal] = await Promise.all([
+      this.holdReasonCounts(),
+      tx.salesOrder.count({
+        where: { OR: [{ status: 'ON_HOLD' }, { sourceChangedAfterPlan: true }] },
+      }),
+    ]);
     return {
       total,
       draft,
@@ -331,13 +340,15 @@ export class OrdersService {
       overdue,
       planned,
       plannedToday,
+      heldTotal,
       holdReasons,
     };
   }
 
   /**
    * หน้าใบค้าง (ST3-T07): จำนวนใบค้างต่อเหตุ (เหตุหลักบนใบ ∪ เหตุของการรับงานครั้งล่าสุด) ครบ 12 รหัส — query เดียว (RLS จำกัด tenant)
-   * เงื่อนไขเดียวกับ `held=true&holdReason={code}` ของรายการ
+   * เงื่อนไขเดียวกับ `held=true&holdReason={code}` ของรายการ · ใบที่ต้นทางแก้หลังวางแผน (ธง — สถานะ PLANNED)
+   * นับใต้ SOURCE_CHANGED_AFTER_PLAN
    */
   private async holdReasonCounts(): Promise<{ code: string; count: number }[]> {
     const rows = await this.db.tx.$queryRaw<{ code: string; n: bigint }[]>`
@@ -345,11 +356,15 @@ export class OrdersService {
         FROM sales_order o
         LEFT JOIN reason_code r ON r.id = o.hold_reason_code_id
        CROSS JOIN LATERAL (
-             SELECT r.code
+             SELECT r.code WHERE o.status = 'ON_HOLD'
              UNION
-             SELECT h->>'code' FROM jsonb_array_elements(COALESCE(o.pricing_detail->'holds', '[]'::jsonb)) h
+             SELECT h->>'code' FROM jsonb_array_elements(
+               CASE WHEN o.status = 'ON_HOLD' THEN COALESCE(o.pricing_detail->'holds', '[]'::jsonb)
+                    ELSE '[]'::jsonb END) h
+             UNION
+             SELECT ${SOURCE_CHANGED_HOLD_CODE}::text WHERE o.source_changed_after_plan
            ) c(code)
-       WHERE o.status = 'ON_HOLD' AND c.code IS NOT NULL
+       WHERE (o.status = 'ON_HOLD' OR o.source_changed_after_plan) AND c.code IS NOT NULL
        GROUP BY c.code`;
     const n = new Map(rows.map((r) => [r.code, Number(r.n)]));
     return ORDER_HOLD_CODES.map((code) => ({ code, count: n.get(code) ?? 0 }));
@@ -379,8 +394,6 @@ export class OrdersService {
       and.push({
         status: { in: q.status.split(',').map((s) => s.toUpperCase()) as OrderRow['status'][] },
       });
-    // เหตุค้าง: ตรงกับเหตุใดก็ได้ของการรับงานครั้งล่าสุด (`holdCodes` — เหตุหลัก + เหตุรอง) หรือเหตุหลักบนใบ
-    // (เหตุที่ flow อื่นตั้ง เช่น CARRIER_REJECTED) — หน้าใบค้าง (ST3-T07) กรองเหตุรองได้
     // เหตุค้าง: เหตุหลักบนใบ (รวมเหตุที่ flow อื่นตั้ง) หรือเหตุใดก็ได้ของ `holdCodes` (เหตุรอง) — หน้าใบค้าง ST3-T07
     if (q.holdReason) {
       const codes = q.holdReason.split(',');
@@ -393,9 +406,12 @@ export class OrdersService {
         ],
       });
     }
-    // หน้าใบค้าง (ST3-T07): ใบค้างทั้งหมดในตารางเดียว
-    if (q.held === 'true') and.push({ status: 'ON_HOLD' });
-    if (q.held === 'false') and.push({ status: { not: 'ON_HOLD' } });
+    // หน้าใบค้าง (ST3-T07): ใบค้างทั้งหมดในตารางเดียว — รวมใบที่ต้นทางแก้หลังวางแผน (สถานะยัง PLANNED ตาม ST3-T10
+    // แต่อยู่หน้างานค้าง — PO ตัดสิน 16 พ.ย. 2569)
+    if (q.held === 'true')
+      and.push({ OR: [{ status: 'ON_HOLD' }, { sourceChangedAfterPlan: true }] });
+    if (q.held === 'false')
+      and.push({ status: { not: 'ON_HOLD' } }, { sourceChangedAfterPlan: false });
     if (q.customerId) and.push({ customerId: tryDecodeId('customer', q.customerId)! });
     if (q.source) {
       const or: Prisma.SalesOrderWhereInput[] = q.source.split(',').map((v) => {
@@ -534,6 +550,11 @@ export class OrdersService {
   /** POST /orders/{id}/reevaluate — หน้าใบค้าง "ตรวจอีกครั้ง" (ST3-T07) */
   recheck(id: string, expectedVersion?: number | '*') {
     return this.intake.recheck(id, { expectedVersion });
+  }
+
+  /** POST /orders/{id}/manual-price — กำหนดราคาเอง (ORD-043; ST3-T07) */
+  setManualPrice(id: string, amount: string, reason: string, expectedVersion?: number | '*') {
+    return this.intake.setManualPrice(id, amount, reason, { expectedVersion });
   }
 
   /** POST /orders/{id}/resolve-source-error — ยืนยันข้อมูลใบที่ต้นทางแจ้งว่าไม่ครบ (ST3-T07) */

@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import type { NestExpressApplication } from '@nestjs/platform-express';
+import { SYSTEM_ROLES } from '@tms/domain';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { encodeId, tryDecodeId } from '../src/common/ids';
+import { JobQueue } from '../src/jobs/job-queue.service';
 import { requestContext } from '../src/common/request-context';
 import { DbService } from '../src/db/db.service';
 import {
@@ -25,6 +27,11 @@ describe('hold page (ใบค้าง)', () => {
   let admin: string;
   let other: string;
   let reader: string;
+  /** ผู้ใช้จริง 2 คน (planner — มี orders:write แต่ไม่มี prices.sell:write) สำหรับล็อกการแก้ (ST3-T08) */
+  let tokA: string;
+  let tokB: string;
+  /** มีทั้ง orders:write + prices.sell:write (กำหนดราคาเอง) */
+  let pricer: string;
   let vt6: string;
   let seed = 0;
   const today = bangkokToday();
@@ -62,6 +69,20 @@ describe('hold page (ใบค้าง)', () => {
     admin = await tokenFor(tenantId);
     other = await tokenFor(otherId);
     reader = await tokenFor(tenantId, 'orders:read');
+    const user = async (name: string) =>
+      (
+        await db.appUser.create({
+          data: { tenantId, email: `hold${++seed}@example.test`, name, status: 'ACTIVE' },
+        })
+      ).id;
+    const planner = SYSTEM_ROLES.planner.permissions.join(' ');
+    tokA = await tokenFor(tenantId, planner, await user('สมชาย ใบค้าง'));
+    tokB = await tokenFor(tenantId, planner, await user('สมหญิง ใบค้าง'));
+    pricer = await tokenFor(
+      tenantId,
+      `${planner} prices.sell:read prices.sell:write`,
+      await user('ผู้กำหนดราคา'),
+    );
     const types = (await api(app, admin).get('/v1/vehicle-types?limit=50').expect(200)).body.data;
     vt6 = uuid('vehicleType', types.find((t: { code: string }) => t.code === '6W').id);
   });
@@ -276,10 +297,103 @@ describe('hold page (ใบค้าง)', () => {
       .set('If-Match', site.headers.etag!)
       .send({ lat: 13.3611, lng: 100.9847 })
       .expect(200);
+    // ปักพิกัด (FAILED → OK) = ประเมินใบก่อนวางแผนที่ใช้สถานที่นี้ใหม่เอง (review ST3-T07 ข้อ 6) — ไม่ต้องกดตรวจอีกครั้ง
+    const after = await api(app, admin)
+      .get(`/v1/orders/${pub(a.order.id)}`)
+      .expect(200);
+    expect(after.body).toMatchObject({ status: 'received', holdReason: null, holdCodes: [] });
     const ok = await api(app, admin)
       .post(`/v1/orders/${pub(a.order.id)}/reevaluate`)
       .expect(200);
     expect(ok.body).toMatchObject({ status: 'received', holdReason: null, holdCodes: [] });
+  });
+
+  it('GEOCODING_ERROR อัตโนมัติ: ผล geocode หาไม่ได้ → ใบก่อนวางแผนขึ้นค้างเอง · หลายจุด = บอกทุกจุด · ร่าง/วางแผนแล้วไม่แตะ · ปักหมุด → พ้นค้างเอง', async () => {
+    const queue = app.get(JobQueue);
+    const drain = async () => {
+      while (await queue.runOnce());
+    };
+    await drain(); // งาน geocode ของสถานที่จากเคสก่อนหน้า
+    const cust = await newCustomer();
+    const BAD = { line1: 'zzz ไม่มีที่นี่ 123', district: '-', province: '-', postcode: '00000' };
+    const mk = async (name: string, address: object) =>
+      uuid(
+        'site',
+        (
+          await api(app, admin)
+            .post('/v1/customer-sites')
+            .send({ name, kind: 'DROPOFF', address, customerId: encodeId('customer', cust) })
+            .expect(201)
+        ).body.id,
+      );
+    const origin = await mk('คลัง geocode อัตโนมัติ', BAD);
+    const dest = await mk('ร้าน geocode อัตโนมัติ', BAD);
+    await approveRate(cust, origin, dest);
+    const a = await upsert(order('HOLD-GEO-A', { custId: cust, origin, dest }));
+    expect(a.order.status).toBe('RECEIVED'); // PENDING (ยังรอผล) ไม่ค้าง
+    const planned = await upsert(order('HOLD-GEO-P', { custId: cust, origin, dest }));
+    await db.salesOrder.update({ where: { id: planned.order.id }, data: { status: 'PLANNED' } });
+    const draft = await upsert({
+      ...order('HOLD-GEO-D', { custId: cust, origin, dest }),
+      draft: true,
+    });
+    expect(draft.order.status).toBe('DRAFT');
+
+    await drain(); // mock หาที่อยู่มั่วไม่พบ → FAILED ทั้งสองจุด
+    expect((await db.customerSite.findUniqueOrThrow({ where: { id: dest } })).geocodeStatus).toBe(
+      'FAILED',
+    );
+    const held1 = (
+      await api(app, admin)
+        .get(`/v1/orders/${pub(a.order.id)}`)
+        .expect(200)
+    ).body;
+    expect(held1).toMatchObject({
+      status: 'on_hold',
+      holdReason: {
+        code: 'GEOCODING_ERROR',
+        field: 'stops[0].site',
+        fields: ['stops[0].site', 'stops[1].site'],
+      },
+      holdCodes: ['GEOCODING_ERROR'],
+    });
+    expect(held1.holdReason.note).toContain('จุดที่ 1, 2 หาพิกัดสถานที่ไม่ได้');
+    expect(
+      (await db.salesOrder.findUniqueOrThrow({ where: { id: planned.order.id } })).status,
+    ).toBe('PLANNED');
+    expect((await db.salesOrder.findUniqueOrThrow({ where: { id: draft.order.id } })).status).toBe(
+      'DRAFT',
+    );
+
+    // ปักหมุดจุดแรก → ยังค้าง (จุดที่ 2) · ปักจุดที่ 2 → พ้นค้างเอง
+    const pin = async (site: string) => {
+      const g = await api(app, admin)
+        .get(`/v1/customer-sites/${encodeId('site', site)}`)
+        .expect(200);
+      await api(app, admin)
+        .patch(`/v1/customer-sites/${encodeId('site', site)}`)
+        .set('If-Match', g.headers.etag!)
+        .send({ lat: 13.36, lng: 100.98 })
+        .expect(200);
+    };
+    await pin(origin);
+    const held2 = (
+      await api(app, admin)
+        .get(`/v1/orders/${pub(a.order.id)}`)
+        .expect(200)
+    ).body;
+    expect(held2.holdReason).toMatchObject({
+      code: 'GEOCODING_ERROR',
+      field: 'stops[1].site',
+      fields: ['stops[1].site'],
+    });
+    await pin(dest);
+    const ok = (
+      await api(app, admin)
+        .get(`/v1/orders/${pub(a.order.id)}`)
+        .expect(200)
+    ).body;
+    expect(ok).toMatchObject({ status: 'received', holdReason: null });
   });
 
   it('SOURCE_ERROR: ยืนยันข้อมูลใบ (เหตุผล ≥ 10 + audit) → ประเมินใหม่ · ไม่มีปัญหาค้าง = 409 · ไม่มีเหตุผล = 422', async () => {
@@ -331,6 +445,186 @@ describe('hold page (ใบค้าง)', () => {
       order('HOLD-5', { custId: cust, origin, dest, issues: ['จำนวนสินค้าไม่ใช่ตัวเลข'] }),
     );
     expect(re2.order.holdReasonCode?.code).toBe('SOURCE_ERROR');
+  });
+
+  it('ล็อกการแก้ (ST3-T08): ผู้ใช้อื่นเปิดแก้อยู่ → ตรวจอีกครั้ง / ยืนยันข้อมูลต้นทาง / กำหนดราคาเอง ได้ 409 · ผู้ถือล็อกทำได้', async () => {
+    const cust = await newCustomer();
+    const origin = await newSite('คลังต้นทาง ใบค้าง ล็อก');
+    const dest = await newSite('ปลายทาง ใบค้าง ล็อก', cust);
+    await approveRate(cust, origin, dest);
+    const a = await upsert(
+      order('HOLD-LOCK', { custId: cust, origin, dest, issues: ['ไม่มีวันรับของจากต้นทาง'] }),
+    );
+    const id = pub(a.order.id);
+    await api(app, tokA).post(`/v1/orders/${id}/lock`).send().expect(200);
+    const r1 = await api(app, tokB).post(`/v1/orders/${id}/reevaluate`).expect(409);
+    expect(r1.body).toMatchObject({
+      code: 'order_locked_by_user',
+      editLock: { userName: 'สมชาย ใบค้าง' },
+    });
+    const r2 = await api(app, tokB)
+      .post(`/v1/orders/${id}/resolve-source-error`)
+      .send({ reason: 'ตรวจกับเอกสารต้นฉบับแล้ว' })
+      .expect(409);
+    expect(r2.body.code).toBe('order_locked_by_user');
+    const r3 = await api(app, pricer)
+      .post(`/v1/orders/${id}/manual-price`)
+      .send({ sellAmount: '1000.00', reason: 'ตกลงราคากับลูกค้าแล้ว' })
+      .expect(409);
+    expect(r3.body.code).toBe('order_locked_by_user');
+    // ไม่มีอะไรเปลี่ยนใต้ล็อกของ A
+    expect((await db.salesOrder.findUniqueOrThrow({ where: { id: a.order.id } })).version).toBe(
+      a.order.version,
+    );
+
+    const same = await api(app, tokA).post(`/v1/orders/${id}/reevaluate`).expect(200);
+    expect(same.body).toMatchObject({ status: 'on_hold', holdReason: { code: 'SOURCE_ERROR' } });
+    const ok = await api(app, tokA)
+      .post(`/v1/orders/${id}/resolve-source-error`)
+      .send({ reason: 'ตรวจกับเอกสารต้นฉบับแล้ว วันรับของถูกต้อง' })
+      .expect(200);
+    expect(ok.body).toMatchObject({ status: 'received', holdReason: null });
+  });
+
+  it('RATE_MISSING "กำหนดราคาเอง" (ORD-043): บรรทัด FREIGHT ที่มา MANUAL + เหตุผล + audit → RECEIVED · ไม่มีสิทธิ์ราคา 403 · เหตุผลสั้น 422 · คิดราคาใหม่ไม่ลบ', async () => {
+    const cust = await newCustomer();
+    const origin = await newSite('คลังต้นทาง ราคาเอง');
+    const dest = await newSite('ปลายทาง ราคาเอง', cust);
+    const a = await upsert(order('HOLD-MP', { custId: cust, origin, dest }));
+    expect(a.order.holdReasonCode?.code).toBe('RATE_MISSING');
+    const id = pub(a.order.id);
+    const url = `/v1/orders/${id}/manual-price`;
+    const body = { sellAmount: '4200.50', reason: 'ลูกค้ารายใหม่ ตกลงราคาทางโทรศัพท์' };
+
+    // planner (orders:write แต่ไม่มี prices.sell:write) → 403 · อ่านอย่างเดียว → 403 · อีก tenant → 404
+    const f = await api(app, tokA).post(url).send(body).expect(403);
+    expect(f.body).toMatchObject({ code: 'permission_denied', required: ['prices.sell:write'] });
+    await api(app, reader).post(url).send(body).expect(403);
+    await api(app, other).post(url).send(body).expect(404);
+    await api(app, pricer).post(url).send({ sellAmount: '4200.50', reason: 'สั้นไป' }).expect(422);
+    await api(app, pricer)
+      .post(url)
+      .send({ sellAmount: '42.001', reason: body.reason })
+      .expect(422);
+    await api(app, pricer).post(url).send({ sellAmount: '0', reason: body.reason }).expect(422);
+    await api(app, pricer).post(url).set('If-Match', '"999"').send(body).expect(412);
+
+    const ok = await api(app, pricer).post(url).send(body).expect(200);
+    expect(ok.body).toMatchObject({
+      status: 'received',
+      holdReason: null,
+      holdCodes: [],
+      pricingStatus: 'RATE_MISSING',
+      sellTotal: '4200.50',
+    });
+    expect(ok.body.sellCharges).toEqual([
+      expect.objectContaining({
+        kind: 'FREIGHT',
+        origin: 'MANUAL',
+        sellAmount: '4200.50',
+        vatType: 'EXEMPT_TRANSPORT',
+        whtRate: '1.00',
+        rateCardId: null,
+      }),
+    ]);
+    const audit = await db.auditLog.findFirstOrThrow({
+      where: { entityId: a.order.id, action: 'sales_order.manual_price_set' },
+    });
+    expect(audit).toMatchObject({
+      reason: body.reason,
+      before: { manualFreight: null },
+      after: { manualFreight: '4200.50' },
+    });
+
+    // ตรวจอีกครั้ง/คิดราคาใหม่ ไม่ลบบรรทัด MANUAL · แก้ราคาซ้ำ = แก้บรรทัดเดิม (ไม่เพิ่มบรรทัด)
+    const re = await api(app, admin).post(`/v1/orders/${id}/reevaluate`).expect(200);
+    expect(re.body).toMatchObject({ status: 'received', sellTotal: '4200.50' });
+    const again = await api(app, pricer)
+      .post(url)
+      .send({ sellAmount: '4500', reason: 'ลูกค้าขอเพิ่มจุดรับ ปรับราคาตามตกลง' })
+      .expect(200);
+    expect(again.body.sellCharges).toHaveLength(1);
+    expect(again.body).toMatchObject({ sellTotal: '4500.00' });
+
+    // มีค่าขนส่งจาก rate card แล้ว → 409 (ไม่ซ้อนค่าขนส่ง)
+    const cust2 = await newCustomer();
+    const o2 = await newSite('คลังต้นทาง ราคาเอง 2');
+    const d2 = await newSite('ปลายทาง ราคาเอง 2', cust2);
+    await approveRate(cust2, o2, d2);
+    const b = await upsert(order('HOLD-MP-2', { custId: cust2, origin: o2, dest: d2 }));
+    expect(b.order.status).toBe('RECEIVED');
+    const c = await api(app, pricer)
+      .post(`/v1/orders/${pub(b.order.id)}/manual-price`)
+      .send(body)
+      .expect(409);
+    expect(c.body).toMatchObject({ code: 'invalid_state_transition', event: 'manual_price' });
+    // หลังวางแผน → 409 order_locked_for_update
+    await db.salesOrder.update({ where: { id: a.order.id }, data: { status: 'PLANNED' } });
+    const d = await api(app, pricer).post(url).send(body).expect(409);
+    expect(d.body.code).toBe('order_locked_for_update');
+  });
+
+  it('ใบค้างด้วยเหตุตอนจัดรถ/ส่ง (เคยวางแผนแล้ว) → ตรวจอีกครั้ง/กำหนดราคาเอง 409 ไม่คิดราคาใหม่', async () => {
+    const cust = await newCustomer();
+    const origin = await newSite('คลังต้นทาง ใบค้าง รถร่วม');
+    const dest = await newSite('ปลายทาง ใบค้าง รถร่วม', cust);
+    const a = await upsert(order('HOLD-CR', { custId: cust, origin, dest }));
+    expect(a.order.status).toBe('ON_HOLD');
+    const rc = await db.reasonCode.findFirstOrThrow({
+      where: { tenantId, code: 'CARRIER_REJECTED' },
+    });
+    await db.salesOrder.update({ where: { id: a.order.id }, data: { holdReasonCodeId: rc.id } });
+    await approveRate(cust, origin, dest); // ราคาที่เปลี่ยนต้องไม่ถูกคิดเข้าใบนี้
+    const before = await db.salesOrder.findUniqueOrThrow({
+      where: { id: a.order.id },
+      include: { charges: true },
+    });
+    const r = await api(app, admin)
+      .post(`/v1/orders/${pub(a.order.id)}/reevaluate`)
+      .expect(409);
+    expect(r.body).toMatchObject({
+      code: 'invalid_state_transition',
+      event: 'reevaluate',
+      holdReason: 'CARRIER_REJECTED',
+    });
+    await api(app, pricer)
+      .post(`/v1/orders/${pub(a.order.id)}/manual-price`)
+      .send({ sellAmount: '1000', reason: 'ตกลงราคากับลูกค้าแล้ว' })
+      .expect(409);
+    const after = await db.salesOrder.findUniqueOrThrow({
+      where: { id: a.order.id },
+      include: { charges: true },
+    });
+    expect(after.version).toBe(before.version);
+    expect(after.charges).toEqual(before.charges);
+    expect(after.pricingStatus).toBe(before.pricingStatus);
+  });
+
+  it('ใบที่ต้นทางแก้หลังวางแผน (PLANNED + ธง) อยู่ในตารางใบค้าง + ตัวนับ SOURCE_CHANGED_AFTER_PLAN (PO 16 พ.ย. 2569)', async () => {
+    const cust = await newCustomer();
+    const origin = await newSite('คลังต้นทาง ต้นทางแก้');
+    const dest = await newSite('ปลายทาง ต้นทางแก้', cust);
+    await approveRate(cust, origin, dest);
+    const a = await upsert(order('HOLD-SC', { custId: cust, origin, dest }));
+    const c0 = await counts();
+    const s0 = (await api(app, admin).get('/v1/orders/summary').expect(200)).body;
+    await db.salesOrder.update({
+      where: { id: a.order.id },
+      data: { status: 'PLANNED', sourceChangedAfterPlan: true, sourceDiff: [] },
+    });
+    const rows = await held();
+    expect(rows.find((r) => r.id === pub(a.order.id))).toMatchObject({ status: 'planned' });
+    expect((await held('&holdReason=SOURCE_CHANGED_AFTER_PLAN')).map((r) => r.id)).toContain(
+      pub(a.order.id),
+    );
+    const c1 = await counts();
+    expect(c1.SOURCE_CHANGED_AFTER_PLAN).toBe(c0.SOURCE_CHANGED_AFTER_PLAN! + 1);
+    const s1 = (await api(app, admin).get('/v1/orders/summary').expect(200)).body;
+    expect(s1.heldTotal).toBe(s0.heldTotal + 1);
+    expect(s1.onHold).toBe(s0.onHold); // สถานะยัง PLANNED
+    const notHeld = (await api(app, admin).get('/v1/orders?held=false&limit=200').expect(200)).body
+      .data as { id: string }[];
+    expect(notHeld.some((r) => r.id === pub(a.order.id))).toBe(false);
   });
 
   it('ใบค้างของอีก tenant ไม่ปนในตาราง/ตัวนับ', async () => {

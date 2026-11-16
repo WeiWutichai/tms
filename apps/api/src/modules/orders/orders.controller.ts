@@ -24,6 +24,7 @@ import type { Request, Response } from 'express';
 import { RequireScope, TenantResource } from '../../common/decorators';
 import { ifMatch, setEtag } from '../../common/etag';
 import { decodeIdOr404 } from '../../common/ids';
+import { assertPriceWriteAllowed } from '../../common/price-fields';
 import { ProblemException } from '../../common/problem';
 import { ApiProblems } from '../../common/problem.dto';
 import {
@@ -40,6 +41,7 @@ import {
   OrderPageDto,
   OrderSummaryDto,
   ResolveSourceErrorDto,
+  ManualPriceDto,
   OrderUnlockDto,
   UpdateOrderDto,
   UpsertOrderDto,
@@ -717,18 +719,53 @@ export class OrdersController {
       'หน้าใบค้างเรียกหลังเคลียร์เหตุที่ข้อมูลหลัก (เพิ่ม/อนุมัติ rate card → RATE_MISSING, ปักพิกัดสถานที่ → GEOCODING_ERROR, ' +
       'เปิดใช้ลูกค้า/สถานที่) · จับคู่อัตโนมัติด้วย alias ที่เรียนรู้ล่าสุดด้วย · ไม่แก้ข้อมูลงาน · ผลเหมือนเดิม = ไม่เพิ่ม version · ' +
       'เหตุหมด → กลับ `received` · เหตุที่ flow อื่นตั้ง (CARRIER_REJECTED ฯลฯ) ไม่ถูกปล่อย · ' +
-      'ใช้ได้ก่อนวางแผน (draft/received/on_hold) — ไม่งั้น 409 `invalid_state_transition`',
+      'ใช้ได้ก่อนวางแผน (draft/received/on_hold) — ไม่งั้น 409 `invalid_state_transition` · ' +
+      'ใบค้างด้วยเหตุตอนจัดรถ/ส่ง (CARRIER_REJECTED ฯลฯ — เคยวางแผนแล้ว ไม่คิดราคาใหม่) → 409 `invalid_state_transition` (`holdReason`) · ' +
+      'ผู้ใช้อื่นเปิดแก้อยู่ → 409 `order_locked_by_user`',
   })
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
   @ApiOkResponse({ type: OrderDto })
-  @ApiProblems(E403, E404, E409_STATE, E412)
+  @ApiProblems(E403, E404, withLock(E409_STATE), E412)
   async reevaluate(
     @Param('id') id: string,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<OrderDto> {
     const current = await this.resolve(id);
+    await this.locks.assertWritable(current.id);
     return this.respond(await this.orders.recheck(current.id, ifMatch(req)), res);
+  }
+
+  @Post(':id/manual-price')
+  @HttpCode(200)
+  @TenantResource('salesOrder')
+  @RequireScope('orders:write')
+  @ApiOperation({
+    summary:
+      'กำหนดราคาเอง — ค่าขนส่งเมื่อไม่พบ rate card (spec/03 ORD-043 · ใบค้าง RATE_MISSING — ST3-T07)',
+    description:
+      'สร้างบรรทัด FREIGHT ที่มา `MANUAL` (รายการบริการระบบ FREIGHT — vat_type/wht_rate ตาม catalog) หรือแก้จำนวนเงินของบรรทัด MANUAL เดิม ' +
+      '→ ประเมินใบค้างใหม่ (มีค่าขนส่ง MANUAL = ไม่ค้าง RATE_MISSING · เหตุหมด → `received`) · บรรทัด MANUAL ไม่ถูกลบตอนคิดราคาใหม่ · ' +
+      'ต้องมี `orders:write` + `prices.sell:write` (ไม่มี → 403) · เหตุผล ≥ 10 ตัวอักษร (audit `sales_order.manual_price_set`) · ' +
+      'ใช้ได้ก่อนวางแผน (หลังวางแผน → 409 `order_locked_for_update`) · มีค่าขนส่งจาก rate card แล้ว หรือใบค้างด้วยเหตุตอนจัดรถ/ส่ง → 409 `invalid_state_transition`',
+  })
+  @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
+  @ApiOkResponse({ type: OrderDto })
+  @ApiProblems(E400(false), E403, E404, withLock(E409_STATE), E412, E422)
+  async manualPrice(
+    @Param('id') id: string,
+    @Body() body: ManualPriceDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<OrderDto> {
+    // สิทธิ์แก้ราคาขาย (A3 "ดู/แก้ราคาขาย"; MD-113) — interceptor ตรวจ field ราคาใน body แล้ว ตรวจซ้ำที่นี่ให้ชัด
+    assertPriceWriteAllowed({ sellAmount: body.sellAmount });
+    const current = await this.resolve(id);
+    await this.locks.assertWritable(current.id);
+    return this.respond(
+      await this.orders.setManualPrice(current.id, body.sellAmount, body.reason, ifMatch(req)),
+      res,
+    );
   }
 
   @Post(':id/resolve-source-error')

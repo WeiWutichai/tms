@@ -271,8 +271,10 @@ export interface IntakeFacts {
 
 export interface IntakeHold {
   code: IntakeHoldCode;
-  /** ช่องที่เป็นต้นเหตุ (เช่น `customer`, `stops[1].site`) */
+  /** ช่องที่เป็นต้นเหตุ (เช่น `customer`, `stops[1].site`) — หลายช่อง = ช่องแรก */
   field?: string;
+  /** ต้นเหตุมากกว่า 1 ช่อง (เช่น GEOCODING_ERROR หลายจุด) = ทุกช่องตามลำดับ (ST3-T07) */
+  fields?: string[];
 }
 
 /**
@@ -291,8 +293,16 @@ export function evaluateIntakeHolds(f: IntakeFacts): IntakeHold[] {
     holds.push({ code: 'LOCATION_UNMAPPED', field: 'stops.pickup' });
   else if (!f.stops.some((s) => s.type === 'DELIVERY'))
     holds.push({ code: 'LOCATION_UNMAPPED', field: 'stops.delivery' });
-  const noCoords = f.stops.findIndex((s) => s.mapped && s.geocodeFailed);
-  if (noCoords >= 0) holds.push({ code: 'GEOCODING_ERROR', field: `stops[${noCoords}].site` });
+  // ทุกจุดที่หาพิกัดไม่ได้ (review ST3-T07) — field = จุดแรก, fields = ทุกจุด (เมื่อมากกว่า 1)
+  const noCoords = f.stops.flatMap((s, i) =>
+    s.mapped && s.geocodeFailed ? [`stops[${i}].site`] : [],
+  );
+  if (noCoords.length)
+    holds.push({
+      code: 'GEOCODING_ERROR',
+      field: noCoords[0]!,
+      ...(noCoords.length > 1 ? { fields: noCoords } : {}),
+    });
   if (f.pricingStatus !== 'AVAILABLE' && !f.manualFreight)
     holds.push({ code: 'RATE_MISSING', field: 'pricing' });
   return holds;
@@ -405,9 +415,11 @@ export function intakeHoldNoteTh(
       return hold.field === 'stops.pickup' ? 'ยังไม่มีจุดรับสินค้า' : 'ยังไม่มีจุดส่งสินค้า';
     }
     case 'GEOCODING_ERROR': {
-      const i = Number(/^stops\[(\d+)\]/.exec(hold.field ?? '')?.[1] ?? 0);
-      const t = ctx.stopTexts?.[i];
-      return `จุดที่ ${i + 1} หาพิกัดสถานที่ไม่ได้ — ปักหมุดในข้อมูลหลักสถานที่${t ? `: ${t}` : ''}`;
+      const idx = (hold.fields ?? [hold.field ?? '']).map((f) =>
+        Number(/^stops\[(\d+)\]/.exec(f)?.[1] ?? 0),
+      );
+      const texts = idx.flatMap((i) => (ctx.stopTexts?.[i] ? [ctx.stopTexts[i]] : []));
+      return `จุดที่ ${idx.map((i) => i + 1).join(', ')} หาพิกัดสถานที่ไม่ได้ — ปักหมุดในข้อมูลหลักสถานที่${texts.length ? `: ${texts.join(', ')}` : ''}`;
     }
     case 'RATE_MISSING':
       return 'ยังไม่มีราคาขาย (ไม่พบ rate card ที่ใช้ได้ หรือคิดราคาไม่ได้)';
