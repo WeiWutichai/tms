@@ -4,17 +4,19 @@ import { AuditService } from '../../audit/audit.service';
 import { encodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
-import { bkkTime } from '../../common/thai-date';
+import { bkkTime, docDayMonth } from '../../common/thai-date';
+import { bangkokToday } from '../vehicle-documents/expiry';
 import { DbService, type Tx } from '../../db/db.service';
 import { PdfRenderer } from '../../pdf/pdf-renderer';
 import { store } from '../documents/documents.controller';
 import { addressText } from '../geo/geo.service';
 import { MagicLinkService } from '../links/magic-link.service';
+import { SHEET_LINK_PURPOSE, TripSheetLinks } from './sheet-links';
 import { tripSheetDocument, type TripSheetPage, type TripSheetStop } from './trip-sheet.template';
 
 /** ลิงก์ใบคุมรถที่คัดลอกส่งให้คนขับ — ใช้ได้ 72 ชม. (spec/12 §3 ST3-T20 DECISION) */
 export const SHEET_LINK_TTL_S = 72 * 3600;
-export const SHEET_LINK_PURPOSE = 'trip_sheet' as const;
+export { SHEET_LINK_PURPOSE };
 export const SHEET_LINK_ACTION = 'sheet.view';
 
 const LINES = {
@@ -50,10 +52,17 @@ type SheetTrip = Prisma.TripGetPayload<{ include: typeof SHEET_INCLUDE }>;
 const qty = (d: Prisma.Decimal) =>
   Number(d.toFixed(3)).toLocaleString('en-US', { maximumFractionDigits: 3 });
 
-function appointment(s: SheetTrip['stops'][number]): string | null {
-  if (s.windowStart && s.windowEnd) return `${bkkTime(s.windowStart)}–${bkkTime(s.windowEnd)}`;
+/** เวลาไทย — วันไม่ตรงวันเที่ยว (เที่ยวข้ามคืน/นัดล่วงหน้า) ใส่วันนำหน้า "18 พ.ย. 08:00" (review ST3-T20 L5) */
+function when(d: Date, tripDate: string): string {
+  const day = bangkokToday(d);
+  return day === tripDate ? bkkTime(d) : `${docDayMonth(day)} ${bkkTime(d)}`;
+}
+
+function appointment(s: SheetTrip['stops'][number], tripDate: string): string | null {
+  if (s.windowStart && s.windowEnd)
+    return `${when(s.windowStart, tripDate)}–${when(s.windowEnd, tripDate)}`;
   const at = s.windowStart ?? s.plannedArrival;
-  return at ? bkkTime(at) : null;
+  return at ? when(at, tripDate) : null;
 }
 
 function contactOf(c: unknown): { name: string | null; phone: string | null } {
@@ -66,10 +75,14 @@ function contactOf(c: unknown): { name: string | null; phone: string | null } {
 export function sheetPage(
   t: SheetTrip,
   units: ReadonlyMap<string, string> = new Map(),
+  fallbackCompany = '',
 ): TripSheetPage {
+  const tripDate = t.tripDate.toISOString().slice(0, 10);
   return {
+    // ผู้ออกต่อเที่ยว (review ST3-T20 L4) — ผู้วางบิลของ DO แรกในเที่ยว ไม่มี = ชื่อบริษัทใน tenant
+    companyName: t.deliveryOrders[0]?.salesOrder.billingCompany.legalName ?? fallbackCompany,
     tripNo: t.tripNo ?? '—',
-    tripDate: t.tripDate.toISOString().slice(0, 10),
+    tripDate,
     plate: t.vehiclePlateSnapshot,
     vehicleType: t.vehicleTypeSnapshot,
     trailerPlate: t.trailerPlateSnapshot,
@@ -84,7 +97,7 @@ export function sheetPage(
         type: s.type,
         siteName: s.site.name,
         address: addressText(s.site.address),
-        appointment: appointment(s),
+        appointment: appointment(s, tripDate),
         contactName: c.name,
         contactPhone: c.phone,
         dos: dos.map((d) => ({
@@ -122,6 +135,7 @@ export class TripSheetsService {
     private readonly pdf: PdfRenderer,
     private readonly audit: AuditService,
     private readonly links: MagicLinkService,
+    private readonly sheetLinks: TripSheetLinks,
   ) {}
 
   /** transaction ของ tenant ปัจจุบัน + ให้ AuditService/โค้ดที่ใช้ `db.tx` ทำงานในนั้น */
@@ -137,12 +151,10 @@ export class TripSheetsService {
     });
   }
 
-  private async header(tx: Tx, trips: SheetTrip[]) {
+  private async header(tx: Tx) {
     const tenant = await tx.tenant.findFirst({ select: { name: true, yearStyle: true } });
-    const company = trips.find((t) => t.deliveryOrders[0])?.deliveryOrders[0]?.salesOrder
-      .billingCompany.legalName;
     return {
-      companyName: company ?? tenant?.name ?? '',
+      tenantName: tenant?.name ?? '',
       yearStyle: (tenant?.yearStyle === 'CE' ? 'CE' : 'BE') as 'BE' | 'CE',
     };
   }
@@ -152,10 +164,13 @@ export class TripSheetsService {
   ): Promise<{ pdf: Buffer; trips: SheetTrip[] }> {
     const { trips, head, units } = await this.inTx(async (tx) => {
       const trips = await load(tx);
-      return { trips, head: await this.header(tx, trips), units: await unitNames(tx) };
+      return { trips, head: await this.header(tx), units: await unitNames(tx) };
     });
     const pdf = await this.pdf.pdf(
-      tripSheetDocument({ ...head, pages: trips.map((t) => sheetPage(t, units)) }),
+      tripSheetDocument({
+        yearStyle: head.yearStyle,
+        pages: trips.map((t) => sheetPage(t, units, head.tenantName)),
+      }),
     );
     return { pdf, trips };
   }
@@ -294,6 +309,8 @@ export class TripSheetsService {
     const ctx = requestContext.require();
     let link: { token: string; expiresAt: Date } | null = null;
     const r = await this.forTrip(id, async (tx, doc, t) => {
+      // ลิงก์เดิมของเที่ยวหมดผล — คนขับมีลิงก์ใช้ได้ทีละอัน (review/QA ST3-T20)
+      await this.sheetLinks.revokeForTrip(tx, t.id, 'REISSUED');
       const l = await this.links.issue(tx, ctx.tenantId!, {
         purpose: SHEET_LINK_PURPOSE,
         entityType: 'stored_document',
@@ -317,6 +334,14 @@ export class TripSheetsService {
       });
     });
     return { ...r, ...link! };
+  }
+
+  /** เพิกถอนลิงก์ใบคุมรถทั้งหมดของเที่ยว (ปุ่ม "เพิกถอนลิงก์" — เหตุผล ≥ 10) — ใน transaction ของคำขอ */
+  async revokeDriverLinks(id: string, reason: string): Promise<number> {
+    const tx = this.db.tx;
+    if (!(await tx.trip.findUnique({ where: { id }, select: { id: true } })))
+      throw new ProblemException('not_found');
+    return this.sheetLinks.revokeForTrip(tx, id, 'MANUAL', reason);
   }
 
   /** เปิด PDF จากลิงก์ (principal `link`) — ไฟล์ที่ลิงก์ชี้เท่านั้น */

@@ -17627,6 +17627,9 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "`service_busy` (คิวสร้าง PDF เต็ม) / `pdf_render_timeout` (สร้างไม่ทันเวลา) — ลองใหม่"
           }
         },
         "security": [
@@ -17764,6 +17767,9 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "`service_busy` (คิวสร้าง PDF เต็ม) / `pdf_render_timeout` (สร้างไม่ทันเวลา) — ลองใหม่"
           }
         },
         "security": [
@@ -17772,6 +17778,145 @@
           }
         ],
         "summary": "ส่งให้คนขับ: สร้างใบคุมรถใหม่ + ลิงก์เปิด PDF ไม่ต้อง login (72 ชม.) สำหรับคัดลอกส่ง — `trips:dispatch`",
+        "tags": [
+          "trips"
+        ]
+      }
+    },
+    "/v1/trips/{id}/sheet/driver-link/revoke": {
+      "post": {
+        "operationId": "TripSheets_revoke",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RevokeTripSheetLinksDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevokeTripSheetLinksResultDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`trips:dispatch`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "trips",
+                      "action": "dispatch",
+                      "required": [
+                        "trips:dispatch"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ไม่พบเที่ยว (รวมของบริษัทอื่น)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "deliveryOrderIds[0]",
+                          "code": "invalid_reference",
+                          "message": "not found"
+                        },
+                        {
+                          "field": "plannedEndAt",
+                          "code": "outside_trip_date",
+                          "message": "must be on tripDate"
+                        }
+                      ]
+                    }
+                  },
+                  "idempotency_mismatch": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_mismatch",
+                      "title": "Idempotency-Key นี้เคยใช้กับข้อมูลอื่น",
+                      "status": 422,
+                      "code": "idempotency_mismatch",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "เพิกถอนลิงก์ใบคุมรถที่ส่งให้คนขับทั้งหมดของเที่ยว (เหตุผล ≥ 10 + audit) — `trips:dispatch` · เปิดลิงก์เดิม → 404",
         "tags": [
           "trips"
         ]
@@ -17872,6 +18017,9 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "`service_busy` (คิวสร้าง PDF เต็ม) / `pdf_render_timeout` (สร้างไม่ทันเวลา) — ลองใหม่"
           }
         },
         "security": [
@@ -17910,6 +18058,9 @@
                 }
               }
             }
+          },
+          "404": {
+            "description": "ลิงก์ผิด/หมดอายุ/ถูกเพิกถอน (ไม่บอกใบ้)"
           },
           "429": {
             "description": "เรียกถี่เกินไป (ต่อ IP)"
@@ -34214,6 +34365,33 @@
           "tripNos",
           "url",
           "expiresAt"
+        ]
+      },
+      "RevokeTripSheetLinksDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 10,
+            "maxLength": 500,
+            "example": "ส่งลิงก์ผิดคน ขอยกเลิกลิงก์เดิม"
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      },
+      "RevokeTripSheetLinksResultDto": {
+        "type": "object",
+        "properties": {
+          "revoked": {
+            "type": "number",
+            "example": 1,
+            "description": "จำนวนลิงก์ที่เพิกถอน (0 = ไม่มีลิงก์ที่ใช้ได้อยู่)"
+          }
+        },
+        "required": [
+          "revoked"
         ]
       },
       "DailyTripSheetDto": {

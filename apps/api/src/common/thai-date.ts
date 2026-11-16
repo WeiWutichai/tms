@@ -41,6 +41,12 @@ export function docDateShort(ymd: string, yearStyle: 'BE' | 'CE'): string {
   return `${d} ${TH_MONTHS_ABBR[m! - 1]} ${y! + (yearStyle === 'BE' ? 543 : 0)}`;
 }
 
+/** วัน + เดือนย่อ ไม่มีปี: "18 พ.ย." (เวลานัดที่ไม่ตรงวันเที่ยว — ST3-T20) */
+export function docDayMonth(ymd: string): string {
+  const [, m, d] = ymd.split('-').map(Number);
+  return `${d} ${TH_MONTHS_ABBR[m! - 1]}`;
+}
+
 /** เวลาไทย HH:MM */
 export function bkkTime(d: Date): string {
   const b = new Date(d.getTime() + 7 * 3600_000);

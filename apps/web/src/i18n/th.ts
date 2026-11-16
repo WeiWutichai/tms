@@ -2890,8 +2890,17 @@ export const th = {
   'trip.share.driver': 'คนขับ',
   'trip.share.copy': 'คัดลอกลิงก์',
   'trip.share.copied': 'คัดลอกลิงก์แล้ว · ส่งให้คนขับทาง LINE หรือ SMS',
-  'trip.share.snapshot': 'PDF เป็นข้อมูล ณ ตอนนี้ — แก้เที่ยวแล้วส่งลิงก์ใหม่',
+  'trip.share.snapshot':
+    'PDF เป็นข้อมูล ณ ตอนนี้ — แก้เที่ยวแล้วส่งลิงก์ใหม่ (ลิงก์เดิมจะใช้ไม่ได้)',
   'trip.share.close': 'ปิด',
+  'trip.share.revoke': 'เพิกถอนลิงก์',
+  'trip.share.revokeTitle': 'เพิกถอนลิงก์ใบคุมรถ',
+  'trip.share.revokeDesc':
+    'ลิงก์ใบคุมรถของเที่ยวนี้ที่ส่งให้คนขับทั้งหมดจะเปิดไม่ได้ทันที — ส่งลิงก์ใหม่ได้ภายหลัง',
+  'trip.share.revokeReason': 'เหตุผลที่เพิกถอน',
+  'trip.share.revokePh': 'เช่น ส่งลิงก์ผิดคน',
+  'trip.share.revokeOk': 'เพิกถอนลิงก์',
+  'trip.share.revoked': 'เพิกถอนลิงก์ใบคุมรถแล้ว',
   'plan.print.btn': 'พิมพ์ใบคุมรถ',
   'plan.print.done': 'สร้าง PDF ใบคุมรถ {n} เที่ยว · {d} แล้ว',
   'plan.print.none': 'ไม่มีเที่ยวของ {d} ให้พิมพ์',

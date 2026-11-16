@@ -22,6 +22,7 @@ import {
   useDispatchTrip,
   usePrintTripSheet,
   useReorderStops,
+  useRevokeTripSheetLinks,
   useTrip,
   useTripSheetLink,
   type TripDetail,
@@ -183,75 +184,122 @@ const ruleProblem = (err: unknown): RuleProblem | null => {
  * กรอบ `tms-dialog` + แถวลิงก์แบบเดียวกับ "ลิงก์อัปโหลดเอกสาร" ของผู้รับเหมา (ST2-T21) · ส่ง LINE/SMS ถึงคนขับโดยตรง = ST4
  */
 function ShareDialog({
+  tripId,
   link,
   driver,
   onCopied,
+  onRevoked,
   onClose,
 }: {
+  tripId: string;
   link: TripSheetLink;
   driver: string | null;
   onCopied: () => void;
+  onRevoked: () => void;
   onClose: () => void;
 }) {
   const { t } = useI18n();
   const dateTime = useDateTimeText();
-  useEscapeLayer(true, onClose);
+  const revoke = useRevokeTripSheetLinks();
+  const [asking, setAsking] = useState(false);
+  const [revokeErr, setRevokeErr] = useState<string | null>(null);
+  useEscapeLayer(!asking, onClose);
   const copy = () => {
     void navigator.clipboard?.writeText(link.url).catch(() => undefined);
     onCopied();
   };
   return (
-    <div className="tms-dialog__scrim" onClick={onClose}>
-      <div
-        className="tms-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-label={t('trip.share.title')}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="tms-dialog__head">
-          <div style={{ flex: 1 }}>
-            <h2 className="tms-dialog__title">{t('trip.share.title')}</h2>
-            <p className="tms-dialog__desc">
-              {t('trip.share.desc', {
-                driver: driver ?? t('trip.share.driver'),
-                until: dateTime(link.expiresAt),
-              })}
-            </p>
-          </div>
-          <button
-            type="button"
-            className="tms-drawer__iconbtn"
-            aria-label={t('drawer.close')}
-            title={t('drawer.close')}
-            onClick={onClose}
-          >
-            <Icon n="x" s={18} />
-          </button>
-        </div>
-        <div className="tms-dialog__body">
-          <div className="tms-vdoc__file" data-testid="trip-share-link">
-            <Icon n="link" s={16} style={{ color: '#2257C4' }} />
-            <span
-              className="tms-num tms-ellipsis"
-              style={{ flex: 1, fontSize: 13 }}
-              title={link.url}
+    <>
+      <div className="tms-dialog__scrim" onClick={onClose}>
+        <div
+          className="tms-dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-label={t('trip.share.title')}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="tms-dialog__head">
+            <div style={{ flex: 1 }}>
+              <h2 className="tms-dialog__title">{t('trip.share.title')}</h2>
+              <p className="tms-dialog__desc">
+                {t('trip.share.desc', {
+                  driver: driver ?? t('trip.share.driver'),
+                  until: dateTime(link.expiresAt),
+                })}
+              </p>
+            </div>
+            <button
+              type="button"
+              className="tms-drawer__iconbtn"
+              aria-label={t('drawer.close')}
+              title={t('drawer.close')}
+              onClick={onClose}
             >
-              {link.url}
-            </span>
-            <button type="button" className="tms-vdoc__renew" onClick={copy}>
-              {t('trip.share.copy')}
+              <Icon n="x" s={18} />
             </button>
           </div>
-          <span style={{ fontSize: 12.5, color: '#59606B' }}>{t('trip.share.snapshot')}</span>
-        </div>
-        <div className="tms-dialog__foot">
-          <button type="button" className="tms-dialog__cancel" onClick={onClose}>
-            {t('trip.share.close')}
-          </button>
+          <div className="tms-dialog__body">
+            <div className="tms-vdoc__file" data-testid="trip-share-link">
+              <Icon n="link" s={16} style={{ color: '#2257C4' }} />
+              <span
+                className="tms-num tms-ellipsis"
+                style={{ flex: 1, fontSize: 13 }}
+                title={link.url}
+              >
+                {link.url}
+              </span>
+              <button type="button" className="tms-vdoc__renew" onClick={copy}>
+                {t('trip.share.copy')}
+              </button>
+            </div>
+            <span style={{ fontSize: 12.5, color: '#59606B' }}>{t('trip.share.snapshot')}</span>
+          </div>
+          <div className="tms-dialog__foot">
+            <button
+              type="button"
+              className="tms-dialog__cancel"
+              style={{ color: '#B3322A', marginRight: 'auto' }}
+              onClick={() => {
+                setRevokeErr(null);
+                setAsking(true);
+              }}
+            >
+              {t('trip.share.revoke')}
+            </button>
+            <button type="button" className="tms-dialog__cancel" onClick={onClose}>
+              {t('trip.share.close')}
+            </button>
+          </div>
         </div>
       </div>
-    </div>
+      <ReasonDialog
+        open={asking}
+        title={t('trip.share.revokeTitle')}
+        description={t('trip.share.revokeDesc')}
+        label={t('trip.share.revokeReason')}
+        placeholder={t('trip.share.revokePh')}
+        okLabel={t('trip.share.revokeOk')}
+        cancelLabel={t('trip.share.close')}
+        closeLabel={t('drawer.close')}
+        minLength={10}
+        hint={(n, ok) => (ok ? t('ord.dlg.hintOk') : t('ord.dlg.hintMin', { n }))}
+        busy={revoke.isPending}
+        error={revokeErr}
+        onClose={() => setAsking(false)}
+        onOk={(reason) =>
+          revoke.mutate(
+            { id: tripId, reason },
+            {
+              onSuccess: () => {
+                setAsking(false);
+                onRevoked();
+              },
+              onError: (e) => setRevokeErr(problemText(e, t)),
+            },
+          )
+        }
+      />
+    </>
   );
 }
 
@@ -450,7 +498,8 @@ export function TripDrawer({
     (assignedNow || (tr.status === 'PLANNING' && assignable));
   // ST3-T20 ใบคุมรถ: เที่ยวที่ยกเลิกไม่มีปุ่ม (API 409) · ไม่มีจุดแวะ = กดไม่ได้ (API 409 trip_empty)
   const showPrint = canPrint && tr.status !== 'CANCELLED';
-  const showShare = showPrint && canDispatch;
+  // ไม่มีคนขับ (ยังไม่จัด/รถร่วมยังไม่ใส่คนขับ) = ไม่มีผู้รับลิงก์ (review ST3-T20 L6)
+  const showShare = showPrint && canDispatch && !!tr.driver;
   const sheetBusy = print.isPending || shareLink.isPending;
   const printSheet = () => {
     setErr(null);
@@ -980,9 +1029,14 @@ export function TripDrawer({
       )}
       {share && (
         <ShareDialog
+          tripId={tr.id}
           link={share}
           driver={tr.driver?.name ?? null}
           onCopied={() => setToast(t('trip.share.copied'))}
+          onRevoked={() => {
+            setShare(null);
+            setToast(t('trip.share.revoked'));
+          }}
           onClose={() => setShare(null)}
         />
       )}

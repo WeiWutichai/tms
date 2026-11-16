@@ -6,10 +6,10 @@ import type { TripSheetDoc } from './trip-sheet.template';
  */
 export function sampleTripSheet(): TripSheetDoc {
   return {
-    companyName: 'บริษัท ศรีไทยขนส่ง จำกัด',
     yearStyle: 'BE',
     pages: [
       {
+        companyName: 'บริษัท ศรีไทยขนส่ง จำกัด',
         tripNo: 'TRP-2611-0041',
         tripDate: '2026-11-03',
         plate: '70-1234 กทม.',
@@ -51,6 +51,40 @@ export function sampleTripSheet(): TripSheetDoc {
             contactPhone: '038-111-222',
             dos: [{ doNo: 'DO-2611-00080', goods: ['ปูนซีเมนต์ถุง 120 ถุง'] }],
           },
+        ],
+      },
+    ],
+  };
+}
+
+/**
+ * เที่ยวยาว (golden หลายหน้า — QA ST3-T20 L1/L2): จุดรับแรกมี DO 14 ใบ (สูงเกินที่เหลือในหน้าแรก → แยกแถว "(ต่อ)")
+ * + จุดส่ง 8 จุด → หัวหน้าต่อ + "TRP-… · หน้า x/y" ทุกหน้า
+ */
+export function sampleLongTripSheet(): TripSheetDoc {
+  const base = sampleTripSheet().pages[0]!;
+  const dos = Array.from({ length: 14 }, (_, i) => ({
+    doNo: `DO-2611-${String(101 + i).padStart(5, '0')}`,
+    goods: [`ปูนซีเมนต์ถุง ${10 + i} ถุง`, `เหล็กเส้น ${i + 1} มัด`],
+  }));
+  return {
+    yearStyle: 'BE',
+    pages: [
+      {
+        ...base,
+        tripNo: 'TRP-2611-0099',
+        stops: [
+          { ...base.stops[0]!, dos },
+          ...Array.from({ length: 8 }, (_, i) => ({
+            sequence: i + 2,
+            type: 'DELIVERY' as const,
+            siteName: `ร้านวัสดุก่อสร้าง สาขา ${i + 1}`,
+            address: `${i + 10} ถ.สุขุมวิท ชลบุรี 20000`,
+            appointment: `${String(9 + i).padStart(2, '0')}:00–${String(10 + i).padStart(2, '0')}:00`,
+            contactName: 'คุณผู้รับ',
+            contactPhone: '081-000-0000',
+            dos: dos.slice(i * 2, i * 2 + 2).map((d) => ({ doNo: d.doNo, goods: [d.goods[0]!] })),
+          })),
         ],
       },
     ],

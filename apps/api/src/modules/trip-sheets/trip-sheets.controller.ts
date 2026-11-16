@@ -12,17 +12,19 @@ import {
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
+  ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
   ApiParam,
   ApiProduces,
   ApiProperty,
+  ApiResponse,
   ApiPropertyOptional,
   ApiTags,
   ApiTooManyRequestsResponse,
 } from '@nestjs/swagger';
 import { scopeAllows } from '@tms/domain';
-import { IsOptional, IsString, Matches } from 'class-validator';
+import { IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
 import type { Request, Response } from 'express';
 import { LinkAction, NoTransaction, RequireScope, TenantResource } from '../../common/decorators';
 import { decodeIdOr404, encodeId, tryDecodeId } from '../../common/ids';
@@ -38,6 +40,13 @@ import {
   TripSheetsService,
   type SheetResult,
 } from './trip-sheets.service';
+
+/** render เต็ม/เกินเวลา (PdfRenderer RenderGate) */
+const R503 = ApiResponse({
+  status: 503,
+  description:
+    '`service_busy` (คิวสร้าง PDF เต็ม) / `pdf_render_timeout` (สร้างไม่ทันเวลา) — ลองใหม่',
+});
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -57,6 +66,19 @@ export class TripSheetLinkDto extends TripSheetDto {
   })
   url!: string;
   @ApiProperty({ format: 'date-time' }) expiresAt!: string;
+}
+
+export class RevokeTripSheetLinksDto {
+  @ApiProperty({ minLength: 10, maxLength: 500, example: 'ส่งลิงก์ผิดคน ขอยกเลิกลิงก์เดิม' })
+  @IsString()
+  @MinLength(10)
+  @MaxLength(500)
+  reason!: string;
+}
+
+export class RevokeTripSheetLinksResultDto {
+  @ApiProperty({ example: 1, description: 'จำนวนลิงก์ที่เพิกถอน (0 = ไม่มีลิงก์ที่ใช้ได้อยู่)' })
+  revoked!: number;
 }
 
 export class DailyTripSheetDto {
@@ -102,6 +124,7 @@ export class TripSheetsController {
     summary: 'สร้าง PDF ใบคุมรถของเที่ยว (A4) — ต้องมี `trips:read` + `documents:write`',
   })
   @ApiProblems(T403('trips:read'), T404, T409('invalid_state_transition', 'trip_empty'))
+  @R503
   @ApiCreatedResponse({ type: TripSheetDto })
   async trip(@Param('id') id: string, @Req() req: Request): Promise<TripSheetDto> {
     const tripId = decodeIdOr404('trip', id);
@@ -119,6 +142,7 @@ export class TripSheetsController {
       'ส่งให้คนขับ: สร้างใบคุมรถใหม่ + ลิงก์เปิด PDF ไม่ต้อง login (72 ชม.) สำหรับคัดลอกส่ง — `trips:dispatch`',
   })
   @ApiProblems(T403('trips:dispatch'), T404, T409('invalid_state_transition', 'trip_empty'))
+  @R503
   @ApiCreatedResponse({ type: TripSheetLinkDto })
   async driverLink(@Param('id') id: string, @Req() req: Request): Promise<TripSheetLinkDto> {
     const tripId = decodeIdOr404('trip', id);
@@ -131,6 +155,28 @@ export class TripSheetsController {
     };
   }
 
+  @Post('trips/:id/sheet/driver-link/revoke')
+  @HttpCode(200)
+  @TenantResource('trip')
+  @RequireScope('trips:dispatch')
+  @ApiOperation({
+    summary:
+      'เพิกถอนลิงก์ใบคุมรถที่ส่งให้คนขับทั้งหมดของเที่ยว (เหตุผล ≥ 10 + audit) — `trips:dispatch` · เปิดลิงก์เดิม → 404',
+  })
+  @ApiProblems(T403('trips:dispatch'), T404, T422)
+  @ApiOkResponse({ type: RevokeTripSheetLinksResultDto })
+  async revoke(
+    @Param('id') id: string,
+    @Body() body: RevokeTripSheetLinksDto,
+  ): Promise<RevokeTripSheetLinksResultDto> {
+    const reason = body.reason.trim();
+    if ([...reason].length < 10)
+      throw new ProblemException('validation_failed', undefined, [
+        { field: 'reason', code: 'too_short', message: 'reason must be at least 10 characters' },
+      ]);
+    return { revoked: await this.svc.revokeDriverLinks(decodeIdOr404('trip', id), reason) };
+  }
+
   @Post('trip-sheets')
   @HttpCode(201)
   @NoTransaction()
@@ -140,6 +186,7 @@ export class TripSheetsController {
       'ใบงานประจำวัน: PDF ใบคุมรถทุกเที่ยวของวัน (หรือของรถคันเดียว) 1 เที่ยว/หน้า — ไม่มีเที่ยว → 422 `no_trips`',
   })
   @ApiProblems(T403('trips:read'), T422)
+  @R503
   @ApiCreatedResponse({ type: TripSheetDto })
   async day(@Body() body: DailyTripSheetDto, @Req() req: Request): Promise<TripSheetDto> {
     if (!isRealDate(body.date))
@@ -170,6 +217,7 @@ export class TripSheetsPublicController {
   @LinkAction(SHEET_LINK_ACTION)
   @ApiProduces('application/pdf')
   @ApiOkResponse({ description: 'ไฟล์ PDF ใบคุมรถ', schema: { type: 'string', format: 'binary' } })
+  @ApiNotFoundResponse({ description: 'ลิงก์ผิด/หมดอายุ/ถูกเพิกถอน (ไม่บอกใบ้)' })
   @ApiTooManyRequestsResponse({ description: 'เรียกถี่เกินไป (ต่อ IP)' })
   async view(@Res({ passthrough: true }) res: Response): Promise<StreamableFile> {
     const l = requestContext.require().link;

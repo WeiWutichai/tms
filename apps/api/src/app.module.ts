@@ -126,6 +126,7 @@ import {
   TripSheetsPublicController,
 } from './modules/trip-sheets/trip-sheets.controller';
 import { TripSheetsService } from './modules/trip-sheets/trip-sheets.service';
+import { TripSheetLinks } from './modules/trip-sheets/sheet-links';
 import { StateService } from './state/state.service';
 import { ExpiryReminderService } from './modules/reminders/expiry-reminder.service';
 
@@ -220,6 +221,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     OrderStateService,
     TripService,
     TripSheetsService,
+    TripSheetLinks,
     PlanningService,
     ScheduleService,
     BoardPreferencesService,

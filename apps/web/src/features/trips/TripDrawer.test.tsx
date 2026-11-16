@@ -17,7 +17,9 @@ const assignMutate = vi.fn();
 const dispatchMutate = vi.fn();
 const printMutate = vi.fn();
 const shareMutate = vi.fn();
+const revokeMutate = vi.fn();
 vi.mock('./useTrips', () => ({
+  useRevokeTripSheetLinks: () => ({ mutate: revokeMutate, isPending: false }),
   usePrintTripSheet: () => ({ mutate: printMutate, isPending: false }),
   useTripSheetLink: () => ({ mutate: shareMutate, isPending: false }),
   useTrip: () => live,
@@ -208,6 +210,28 @@ describe('TripDrawer (ST3-T16)', () => {
     fireEvent.click(within(dlg).getByRole('button', { name: 'คัดลอกลิงก์' }));
     expect(writeText).toHaveBeenCalledWith('http://x/v1/public/trip-sheets/ml1.abc');
     expect(screen.getByText('คัดลอกลิงก์แล้ว · ส่งให้คนขับทาง LINE หรือ SMS')).toBeTruthy();
+
+    // เพิกถอนลิงก์: เหตุผล ≥ 10 → API แล้วปิด dialog + toast
+    fireEvent.click(within(dlg).getByRole('button', { name: 'เพิกถอนลิงก์' }));
+    const rd = screen.getByRole('dialog', { name: 'เพิกถอนลิงก์ใบคุมรถ' });
+    fireEvent.change(within(rd).getByRole('textbox'), {
+      target: { value: 'ส่งลิงก์ผิดคน ขอยกเลิก' },
+    });
+    revokeMutate.mockImplementationOnce((_v, o: { onSuccess: () => void }) => o.onSuccess());
+    fireEvent.click(within(rd).getByRole('button', { name: 'เพิกถอนลิงก์' }));
+    expect(revokeMutate).toHaveBeenCalledWith(
+      { id: 'trp_1', reason: 'ส่งลิงก์ผิดคน ขอยกเลิก' },
+      expect.anything(),
+    );
+    expect(screen.queryByRole('dialog', { name: 'ส่งใบคุมรถให้คนขับ' })).toBeNull();
+    expect(screen.getByText('เพิกถอนลิงก์ใบคุมรถแล้ว')).toBeTruthy();
+  });
+
+  it('ST3-T20 ไม่มีคนขับ → ไม่มีปุ่ม "ส่งให้คนขับ" (พิมพ์ได้)', () => {
+    live.data = { ...TRIP, driver: null } as TripDetail;
+    show(true, true, true);
+    expect(screen.getByRole('button', { name: 'พิมพ์ใบคุมรถ' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'ส่งให้คนขับ' })).toBeNull();
   });
 
   it('ST3-T20 เที่ยวยกเลิก → ไม่มีปุ่มพิมพ์/ส่ง', () => {

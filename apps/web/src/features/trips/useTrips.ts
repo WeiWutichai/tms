@@ -290,3 +290,16 @@ export function useTripSheetLink() {
       ) as Promise<TripSheetLink>,
   });
 }
+
+/** เพิกถอนลิงก์ใบคุมรถของเที่ยว (เหตุผล ≥ 10) → POST /v1/trips/{id}/sheet/driver-link/revoke */
+export function useRevokeTripSheetLinks() {
+  return useMutation({
+    mutationFn: (v: { id: string; reason: string }) =>
+      unwrap(
+        api.POST('/v1/trips/{id}/sheet/driver-link/revoke', {
+          params: { path: { id: v.id } },
+          body: { reason: v.reason },
+        }),
+      ) as Promise<{ revoked: number }>,
+  });
+}

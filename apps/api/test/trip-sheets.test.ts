@@ -162,13 +162,13 @@ describe('trip sheets (ST3-T20)', () => {
     ).body as { id: string; name: string };
 
   /** เที่ยวรับ 1 จุด ส่ง 2 จุด (DO 2 ใบ) บนรถที่มีคนขับประจำ วัน `date` · จัดรถแล้ว (snapshot คนขับ) */
-  const trip = async (date = today) => {
+  const trip = async (date = today, windowDay = date) => {
     const origin = await newSite('คลังต้นทาง บางนา', { name: 'คุณวิภา', phone: '02-118-4400' });
     const d1 = await newSite('บจก. สยามพลาสติก', { name: 'คุณสมศักดิ์', phone: '081-234-5678' });
     const d2 = await newSite('ศูนย์กระจายสินค้า ชลบุรี');
     const a = await newDo(origin, d1, 'เม็ดพลาสติก', [
-      `${date}T08:00:00+07:00`,
-      `${date}T10:00:00+07:00`,
+      `${windowDay}T08:00:00+07:00`,
+      `${windowDay}T10:00:00+07:00`,
     ]);
     const b = await newDo(origin, d2, 'ปูนซีเมนต์ถุง');
     const v = await newVehicle();
@@ -227,8 +227,8 @@ describe('trip sheets (ST3-T20)', () => {
       address: '99 ถ.สุขุมวิท เมือง ชลบุรี 20000',
     });
     expect(p.stops[0]).toMatchObject({ contactName: 'คุณวิภา', contactPhone: '02-118-4400' });
+    expect(p.companyName).toBe('บริษัท ศรีไทยขนส่ง จำกัด');
     const html = tripSheetDocument({
-      companyName: 'บริษัท ศรีไทยขนส่ง จำกัด',
       yearStyle: 'BE',
       pages: [p],
     }).body;
@@ -387,5 +387,117 @@ describe('trip sheets (ST3-T20)', () => {
       data: { revokedAt: new Date(), revokedReason: 'ทดสอบ' },
     });
     expect((await download(r.body.url)).status).toBe(404);
+  }, 60_000);
+
+  const link = (id: string, token = dispatcher) =>
+    api(app, token).post(`/v1/trips/${id}/sheet/driver-link`).send({});
+  const revokedAudit = (tripId: string) =>
+    db.auditLog.findMany({
+      where: { action: 'trip_sheet.links_revoked', entityId: uuid('trip', tripId) },
+      orderBy: { seq: 'asc' },
+    });
+
+  it('ลิงก์คนขับ: ออกใหม่ → ลิงก์เดิมถูกเพิกถอน ("ออกลิงก์ใหม่" + audit) · เพิกถอนเอง (เหตุผล ≥ 10, trips:dispatch) → 404', async () => {
+    const { t } = await trip();
+    const l1 = (await link(t.id).expect(201)).body;
+    const l2 = (await link(t.id).expect(201)).body;
+    expect((await download(l1.url)).status).toBe(404);
+    expect((await download(l2.url)).status).toBe(200);
+    const [a1] = await revokedAudit(t.id);
+    expect(a1).toMatchObject({ reason: 'ออกลิงก์ใหม่', actorId: 'u-disp' });
+    expect(a1!.after).toMatchObject({ cause: 'REISSUED' });
+    expect(
+      await db.auditLog.count({ where: { action: 'magic_link.revoked', reason: 'ออกลิงก์ใหม่' } }),
+    ).toBeGreaterThanOrEqual(1);
+
+    const rv = (body: object, token = dispatcher) =>
+      api(app, token).post(`/v1/trips/${t.id}/sheet/driver-link/revoke`).send(body);
+    await rv({ reason: 'สั้นไป' }).expect(422);
+    await rv({ reason: 'ส่งลิงก์ผิดคน ขอยกเลิก' }, planner).expect(403);
+    await rv({ reason: 'ส่งลิงก์ผิดคน ขอยกเลิก' }, other).expect(404);
+    expect((await rv({ reason: 'ส่งลิงก์ผิดคน ขอยกเลิก' }).expect(200)).body).toEqual({
+      revoked: 1,
+    });
+    expect((await download(l2.url)).status).toBe(404);
+    expect((await rv({ reason: 'ส่งลิงก์ผิดคน ขอยกเลิก' }).expect(200)).body).toEqual({
+      revoked: 0,
+    });
+    const audits = await revokedAudit(t.id);
+    expect(audits.at(-1)).toMatchObject({ reason: 'ส่งลิงก์ผิดคน ขอยกเลิก' });
+    expect(audits.at(-1)!.after).toMatchObject({ cause: 'MANUAL' });
+  }, 60_000);
+
+  it('ลิงก์คนขับ: ยกเลิกเที่ยว → เพิกถอน · เปลี่ยนคนขับ → เพิกถอน · จัดรถซ้ำคนขับเดิม → ลิงก์ยังใช้ได้', async () => {
+    const c = await trip();
+    const lc = (await link(c.t.id).expect(201)).body;
+    await api(app, admin)
+      .post(`/v1/trips/${c.t.id}/cancel`)
+      .send({ reason: 'ลูกค้ายกเลิกการส่งทั้งเที่ยว' })
+      .expect(200);
+    expect((await download(lc.url)).status).toBe(404);
+    expect((await revokedAudit(c.t.id))[0]!.after).toMatchObject({ cause: 'TRIP_CANCELLED' });
+
+    const d = await trip();
+    const ld = (await link(d.t.id).expect(201)).body;
+    await api(app, admin)
+      .post(`/v1/trips/${d.t.id}/assign`)
+      .send({ vehicleId: d.v.id, driverId: d.drv.id })
+      .expect(200);
+    expect((await download(ld.url)).status).toBe(200);
+    const v2 = await newVehicle();
+    const drv2 = await newDriver(v2.id);
+    await api(app, admin)
+      .post(`/v1/trips/${d.t.id}/assign`)
+      .send({ vehicleId: d.v.id, driverId: drv2.id })
+      .expect(200);
+    expect((await download(ld.url)).status).toBe(404);
+    const [a] = await revokedAudit(d.t.id);
+    expect(a!.after).toMatchObject({ cause: 'DRIVER_CHANGED' });
+  }, 60_000);
+
+  it('หัวใบต่อเที่ยว (ผู้วางบิลของเที่ยวนั้น) · เวลานัดคนละวันกับวันเที่ยวแสดงวันที่', async () => {
+    const D = addDays(today, 6);
+    const x = await trip(D);
+    const y = await trip(D, addDays(D, 1));
+    const c2 = await db.company.create({
+      data: { tenantId, legalName: 'บริษัท สาขาสอง จำกัด', taxId: validTaxId(990 + ++seed) },
+    });
+    const soId = (await db.deliveryOrder.findUniqueOrThrow({ where: { id: y.a.uuid } }))
+      .salesOrderId;
+    await db.salesOrder.update({ where: { id: soId }, data: { billingCompanyId: c2.id } });
+    await db.salesOrder.updateMany({
+      where: { deliveryOrders: { some: { id: y.b.uuid } } },
+      data: { billingCompanyId: c2.id },
+    });
+    const load = (id: string) =>
+      db.trip.findUniqueOrThrow({ where: { id: uuid('trip', id) }, include: SHEET_INCLUDE });
+    const px = sheetPage(await load(x.t.id), new Map(), 'บริษัท ใบคุมรถ');
+    const py = sheetPage(await load(y.t.id), new Map(), 'บริษัท ใบคุมรถ');
+    expect(px.companyName).toBe('บริษัท ศรีไทยขนส่ง จำกัด');
+    expect(py.companyName).toBe('บริษัท สาขาสอง จำกัด');
+    const [, m, d] = addDays(D, 1).split('-').map(Number);
+    const TH = [
+      'ม.ค.',
+      'ก.พ.',
+      'มี.ค.',
+      'เม.ย.',
+      'พ.ค.',
+      'มิ.ย.',
+      'ก.ค.',
+      'ส.ค.',
+      'ก.ย.',
+      'ต.ค.',
+      'พ.ย.',
+      'ธ.ค.',
+    ];
+    const dm = `${d} ${TH[m! - 1]}`;
+    const late = py.stops.find(
+      (s) => s.dos.some((z) => z.doNo === y.a.doNo) && s.type === 'DELIVERY',
+    )!;
+    expect(late.appointment).toBe(`${dm} 08:00–${dm} 10:00`);
+    const same = px.stops.find(
+      (s) => s.dos.some((z) => z.doNo === x.a.doNo) && s.type === 'DELIVERY',
+    )!;
+    expect(same.appointment).toBe('08:00–10:00');
   }, 60_000);
 });

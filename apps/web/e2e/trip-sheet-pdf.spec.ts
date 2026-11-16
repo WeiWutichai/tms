@@ -157,6 +157,24 @@ test.describe.serial('ใบคุมรถ PDF ต่อเที่ยว/ต�
     expect((await open.body()).subarray(0, 5).toString()).toBe('%PDF-');
     await share.getByText('ปิด', { exact: true }).click();
     await expect(share).toBeHidden();
+
+    // ส่งใหม่ → ลิงก์เดิมใช้ไม่ได้ · เพิกถอน (เหตุผล ≥ 10) → ลิงก์ใหม่ใช้ไม่ได้
+    await d.getByRole('button', { name: 'ส่งให้คนขับ' }).click();
+    const url2 = (await share
+      .getByTestId('trip-share-link')
+      .locator('span')
+      .first()
+      .textContent())!;
+    expect(url2).not.toBe(url);
+    expect((await page.request.get(u.pathname + u.search)).status()).toBe(404);
+    await share.getByRole('button', { name: 'เพิกถอนลิงก์' }).click();
+    const rd = page.getByRole('dialog', { name: 'เพิกถอนลิงก์ใบคุมรถ' });
+    await rd.getByRole('textbox').fill('ส่งลิงก์ผิดคน ขอยกเลิก');
+    await rd.getByRole('button', { name: 'เพิกถอนลิงก์' }).click();
+    await expect(page.getByText('เพิกถอนลิงก์ใบคุมรถแล้ว')).toBeVisible();
+    await expect(share).toBeHidden();
+    const u2 = new URL(url2);
+    expect((await page.request.get(u2.pathname + u2.search)).status()).toBe(404);
   });
 
   test('กระดานวางแผน → "พิมพ์ใบคุมรถ" = ใบงานประจำวันของวันที่แสดง (1 เที่ยว/หน้า)', async ({

@@ -6,6 +6,7 @@
 | `sample-th.linux.png`  | image `mcr.microsoft.com/playwright:v1.65.0-noble` แบบ **linux/amd64** (ตัวเดียวกับ CI)             |
 | `trip-sheet-th.darwin.png` | ใบคุมรถตัวอย่าง (`sampleTripSheet()`) — `UPDATE_GOLDEN=1 pnpm --filter @tms/api exec vitest run test/trip-sheet-pdf.test.ts` |
 | `trip-sheet-th.linux.png`  | เหมือน `sample-th.linux.png` แต่ dump HTML จาก `tripSheetDocument(sampleTripSheet())`                     |
+| `trip-sheet-long-th.{darwin,linux}.png` | เที่ยวยาวหลายหน้า (`sampleLongTripSheet()`, ภาพ fullPage) — Linux: render หลัง `html[data-paged]` เหมือน `PdfRenderer.withPage` |
 
 สร้างของ Linux ใหม่ (เมื่อเปลี่ยน template ตัวอย่างหรืออัปเกรด Playwright):
 
