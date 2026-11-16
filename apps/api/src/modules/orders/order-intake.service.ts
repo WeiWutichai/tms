@@ -55,6 +55,8 @@ export type { UpsertOrderInput } from './order-input';
 interface ActiveRefs {
   customer: boolean;
   sites: Set<string>;
+  /** สถานที่ (ใช้งานอยู่) ที่หาพิกัดไม่ได้ — geocode_status FAILED → ใบค้าง GEOCODING_ERROR (ST3-T07) */
+  geocodeFailed: Set<string>;
   vehicleType: boolean;
 }
 
@@ -490,6 +492,77 @@ export class OrderIntakeService {
     return { ...r, aliasLearning };
   }
 
+  /**
+   * หน้าใบค้าง (ST3-T07) "ตรวจอีกครั้ง" — `POST /orders/{id}/reevaluate`: คิดราคา + ประเมินใบค้างใหม่จากข้อมูลหลักปัจจุบัน
+   * (เพิ่ม/อนุมัติ rate card แล้ว · ปักพิกัดสถานที่แล้ว · เปิดใช้ลูกค้า/สถานที่แล้ว · จับคู่อัตโนมัติด้วย alias ที่เพิ่งเรียนรู้)
+   * ไม่แก้ข้อมูลงาน · ผลเหมือนเดิม = ไม่เพิ่ม version · ใช้ได้ก่อนวางแผนเท่านั้น (ร่าง/รับคำสั่ง/ค้าง) — ไม่งั้น 409
+   * `invalid_state_transition` · เหตุค้างที่ flow อื่นตั้ง (CARRIER_REJECTED …) ไม่ถูกปล่อย (planIntake)
+   */
+  async recheck(
+    orderId: string,
+    opts: { expectedVersion?: number | '*' } = {},
+    tx: Tx = this.db.tx,
+  ): Promise<UpsertOrderResult> {
+    const current = await this.lockAndLoad(tx, orderId);
+    if (!current) throw new ProblemException('not_found');
+    if (
+      opts.expectedVersion !== undefined &&
+      opts.expectedVersion !== '*' &&
+      opts.expectedVersion !== current.version
+    )
+      throw new ProblemException('precondition_failed');
+    if (!isIntakeEditable(current.status as SoStatus))
+      throw new ProblemException('invalid_state_transition', undefined, undefined, {
+        from: current.status,
+        event: 'reevaluate',
+      });
+    return this.evaluate(tx, current, {
+      draft: current.status === 'DRAFT',
+      created: false,
+      dataChanged: false,
+    });
+  }
+
+  /**
+   * หน้าใบค้าง (ST3-T07) เหตุ SOURCE_ERROR "แก้มือ" (docs/01 §4.1: ดู raw_payload, แก้มือ หรือรอ connector แก้) —
+   * `POST /orders/{id}/resolve-source-error`: คนตรวจ/แก้ข้อมูลใบแล้วยืนยันว่าใช้ได้ → ล้างข้อความปัญหาจากต้นทาง
+   * (`source_issues`) แล้วประเมินใบค้างใหม่ · เป็นการ override ข้อมูลต้นทาง → บังคับเหตุผล + audit
+   * ต้นทางส่งใบนี้มาใหม่ (ข้อมูลเปลี่ยน) = ใช้ปัญหาชุดใหม่ของต้นทาง · ไม่มีปัญหาค้าง → 409 `invalid_state_transition`
+   */
+  async resolveSourceError(
+    orderId: string,
+    reason: string,
+    opts: { expectedVersion?: number | '*' } = {},
+    tx: Tx = this.db.tx,
+  ): Promise<UpsertOrderResult> {
+    const current = await this.lockForMapping(tx, orderId, opts.expectedVersion, 'sourceIssues');
+    const issues = (current.sourceIssues as string[] | null) ?? [];
+    if (!issues.length)
+      throw new ProblemException('invalid_state_transition', undefined, undefined, {
+        from: current.status,
+        event: 'resolve_source_error',
+      });
+    await tx.salesOrder.update({
+      where: { id: orderId },
+      data: { sourceIssues: [], version: { increment: 1 } },
+    });
+    await this.audit.record({
+      action: `${ENTITY}.source_error_resolved`,
+      entityType: ENTITY,
+      entityId: orderId,
+      before: { sourceIssues: issues },
+      after: { sourceIssues: [] },
+      reason,
+    });
+    const loaded = (await tx.salesOrder.findUnique({ where: { id: orderId }, include: INCLUDE }))!;
+    return this.evaluate(tx, loaded, {
+      draft: current.status === 'DRAFT',
+      created: false,
+      dataChanged: true,
+      before: orderEventView(current, { lines: true }),
+    });
+  }
+
   // ---------------------------------------------------------------------------------------------
 
   /** ล็อกใบ + If-Match + ช่องที่แก้ได้ตามสถานะ (ชุดเดียวกับ upsert) สำหรับการจับคู่ด้วยมือ */
@@ -768,6 +841,7 @@ export class OrderIntakeService {
       stops: order.stops.map((s) => ({
         type: s.type,
         mapped: s.siteId !== null && act.sites.has(s.siteId),
+        geocodeFailed: s.siteId !== null && act.geocodeFailed.has(s.siteId),
       })),
       pricingStatus: quote.pricingStatus,
       manualFreight,
@@ -1086,7 +1160,7 @@ export class OrderIntakeService {
       siteIds.length
         ? tx.customerSite.findMany({
             where: { id: { in: siteIds }, status: 'ACTIVE', deletedAt: null },
-            select: { id: true },
+            select: { id: true, geocodeStatus: true },
           })
         : [],
       o.vehicleTypeId
@@ -1095,7 +1169,12 @@ export class OrderIntakeService {
           })
         : 0,
     ]);
-    return { customer: cust > 0, sites: new Set(sites.map((x) => x.id)), vehicleType: vt > 0 };
+    return {
+      customer: cust > 0,
+      sites: new Set(sites.map((x) => x.id)),
+      geocodeFailed: new Set(sites.filter((x) => x.geocodeStatus === 'FAILED').map((x) => x.id)),
+      vehicleType: vt > 0,
+    };
   }
 
   /**

@@ -7,6 +7,7 @@ import { I18nProvider } from './i18n';
 import { canAny, featureOf, isLocked, NAV, permOf } from './nav';
 import { SettingsPage } from './features/settings/Settings';
 import { CustomersPage } from './features/customers/CustomersPage';
+import { HoldPage } from './features/orders/HoldPage';
 import { OrdersPage } from './features/orders/OrdersPage';
 import { SitesPage } from './features/sites/SitesPage';
 import { ProductsPage } from './features/products/ProductsPage';
@@ -47,6 +48,7 @@ function Guard({ perm, path, children }: { perm?: string[]; path?: string; child
 /** หน้าที่ทำแล้ว (path → หน้า) — เมนูอื่นที่ยังไม่ทำแสดง "ยังไม่เปิดใช้" */
 const READY: Record<string, () => ReactNode> = {
   '/so': () => <OrdersPage />,
+  '/so/hold': () => <HoldPage />,
   '/master/customers': () => <CustomersPage />,
   '/master/locations': () => <SitesPage />,
   '/master/routes': () => <RoutesPage />,

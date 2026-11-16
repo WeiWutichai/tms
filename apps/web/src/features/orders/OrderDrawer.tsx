@@ -4,6 +4,13 @@ import { formatDateTime, useI18n, type T } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
 import { problemText } from '../master/problems';
 import { bangkokToday, money, useDateText } from '../rate-cards/rateFormat';
+import {
+  HoldActions,
+  holdStopIndex,
+  MatchCustomerBox,
+  StopSitePicker,
+  useCustomerMatch,
+} from './HoldClear';
 import { orderSourceText } from './OrderSource';
 import { STOP_COLOR } from './OrderFormDrawer';
 import { editableOf, toBangkok, totalWeightKg, type Order } from './orderForm';
@@ -115,8 +122,9 @@ export function OrderDrawer({
   canSeePrice: boolean;
   onClose: () => void;
   onEdit: (o: Order) => void;
-  onCopy: (o: Order) => void;
-  onSaveTemplate: (o: Order) => void;
+  /** ไม่ส่ง = ไม่มีเมนูคัดลอก (หน้าใบค้าง ST3-T07) */
+  onCopy?: (o: Order) => void;
+  onSaveTemplate?: (o: Order) => void;
   onDone: (msg: string) => void;
 }) {
   const { t, lang } = useI18n();
@@ -126,6 +134,8 @@ export function OrderDrawer({
   const confirm = useUpdateOrder();
   const [tab, setTab] = useState('sum');
   const o = q.data;
+  // หน้าใบค้าง (ST3-T07): จับคู่ลูกค้า — กล่องในเนื้อ + ปุ่ม footer ใช้ state เดียวกัน
+  const match = useCustomerMatch(o, onDone);
   const labels = { close: t('drawer.close'), more: t('drawer.more') };
 
   if (!o)
@@ -162,10 +172,23 @@ export function OrderDrawer({
         ...(ed.any
           ? [{ label: t('ord.menu.edit'), icon: 'pencil', onClick: () => onEdit(o) }]
           : []),
-        { label: t('ord.menu.copy'), icon: 'copy', onClick: () => onCopy(o) },
-        { label: t('ord.menu.template'), icon: 'bookmark-plus', onClick: () => onSaveTemplate(o) },
+        ...(onCopy ? [{ label: t('ord.menu.copy'), icon: 'copy', onClick: () => onCopy(o) }] : []),
+        ...(onSaveTemplate
+          ? [
+              {
+                label: t('ord.menu.template'),
+                icon: 'bookmark-plus',
+                onClick: () => onSaveTemplate(o),
+              },
+            ]
+          : []),
       ]
     : [];
+  const unmatched =
+    o.status === 'on_hold' && o.holdReason?.code === 'CUSTOMER_UNMAPPED' && canWrite && ed.customer;
+  // เลือก/เปลี่ยนสถานที่ของจุดได้ก่อนวางแผน (ต้นแบบ soStops canChg = รอจัด) — map-site (ST3-T06)
+  const canMapSite = canWrite && ed.stops && (o.status === 'received' || o.status === 'on_hold');
+  const geoStop = o.holdReason?.code === 'GEOCODING_ERROR' ? holdStopIndex(o) : null;
   const submit = () =>
     confirm.mutate(
       { id: o.id, version: o.version, body: { draft: false } },
@@ -206,6 +229,21 @@ export function OrderDrawer({
               {problemText(confirm.error, t)}
             </span>
           )}
+          {match.error && unmatched && (
+            <span className="tms-field-error" role="alert">
+              {match.error}
+            </span>
+          )}
+          {unmatched && (
+            <DrawerFooterButtons
+              primary={{
+                label: t('hold.act.customer'),
+                icon: 'link',
+                onClick: match.run,
+                disabled: !match.picked || match.busy,
+              }}
+            />
+          )}
           {canWrite && o.status === 'draft' && (
             <DrawerFooterButtons
               primary={{
@@ -221,7 +259,15 @@ export function OrderDrawer({
     >
       {tab === 'sum' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-          {o.status === 'on_hold' && o.holdReason && (
+          {unmatched && (
+            <MatchCustomerBox
+              order={o}
+              value={match.picked}
+              onChange={match.setPicked}
+              disabled={match.busy}
+            />
+          )}
+          {o.status === 'on_hold' && o.holdReason && !unmatched && (
             <div
               role="note"
               style={{
@@ -229,20 +275,31 @@ export function OrderDrawer({
                 borderRadius: 8,
                 padding: '12px 14px',
                 display: 'flex',
-                gap: 8,
+                flexDirection: 'column',
+                gap: 10,
               }}
             >
-              <Icon
-                n="triangle-alert"
-                s={16}
-                style={{ color: '#8F5500', marginTop: 3, flexShrink: 0 }}
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Icon
+                  n="triangle-alert"
+                  s={16}
+                  style={{ color: '#8F5500', marginTop: 3, flexShrink: 0 }}
+                />
+                <span>
+                  {t('ord.hold', { r: o.holdReason.label })}
+                  {o.holdReason.note ? ` — ${o.holdReason.note}` : ''}
+                </span>
+              </div>
+              <HoldActions
+                order={o}
+                canWrite={canWrite}
+                canEdit={ed.any}
+                onEdit={() => onEdit(o)}
+                onDone={onDone}
               />
-              <span>
-                {t('ord.hold', { r: o.holdReason.label })}
-                {o.holdReason.note ? ` — ${o.holdReason.note}` : ''}
-              </span>
             </div>
           )}
+          {match.dialog}
           <Sec title={t('ord.sec.job')}>
             <div style={grid2}>
               <Kv k={t('ord.f.customer')} v={custName} />
@@ -330,6 +387,17 @@ export function OrderDrawer({
                           <Icon n="triangle-alert" s={16} style={{ marginTop: 3, flexShrink: 0 }} />
                           {t('ord.siteUnmapped')}
                         </span>
+                      )}
+                      {geoStop === i && (
+                        <span
+                          style={{ display: 'flex', gap: 6, color: '#B3322A', fontWeight: 500 }}
+                        >
+                          <Icon n="map-pin-off" s={16} style={{ marginTop: 3, flexShrink: 0 }} />
+                          {t('hold.site.noCoords')}
+                        </span>
+                      )}
+                      {canMapSite && (
+                        <StopSitePicker order={o} sequence={s.sequence} onDone={onDone} />
                       )}
                     </div>
                   </div>

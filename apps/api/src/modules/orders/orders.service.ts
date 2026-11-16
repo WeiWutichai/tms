@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
   formatOrderSource,
+  ORDER_HOLD_CODES,
   parseOrderSource,
   soEditableFields,
   type IntakeHold,
@@ -96,7 +97,13 @@ export function toOrderDto(o: OrderRow): OrderDto {
     requestedDate: o.requestedDate.toISOString().slice(0, 10),
     vehicleTypeId: o.vehicleTypeId ? encodeId('vehicleType', o.vehicleTypeId) : null,
     holdReason: o.holdReasonCode
-      ? { code: o.holdReasonCode.code, label: o.holdReasonCode.labelTh, note: o.holdNote }
+      ? {
+          code: o.holdReasonCode.code,
+          label: o.holdReasonCode.labelTh,
+          note: o.holdNote,
+          // ช่องต้นเหตุ (เหตุของทางเข้า — เช่น stops[1].site) ให้หน้าใบค้างพาไปจุดที่ต้องแก้ (ST3-T07)
+          field: (detail.holds ?? []).find((h) => h.code === o.holdReasonCode!.code)?.field ?? null,
+        }
       : null,
     holdCodes: (detail.holds ?? []).map((h) => h.code),
     pricingStatus: o.pricingStatus,
@@ -245,6 +252,7 @@ export class OrdersService {
       this.countHeld('LOCATION_UNMAPPED'),
       this.countHeld('CUSTOMER_UNMAPPED'),
     ]);
+    const holdReasons = await this.holdReasonCounts();
     return {
       total,
       draft,
@@ -254,7 +262,28 @@ export class OrdersService {
       overdue,
       planned,
       plannedToday,
+      holdReasons,
     };
+  }
+
+  /**
+   * หน้าใบค้าง (ST3-T07): จำนวนใบค้างต่อเหตุ (เหตุหลักบนใบ ∪ เหตุของการรับงานครั้งล่าสุด) ครบ 12 รหัส — query เดียว (RLS จำกัด tenant)
+   * เงื่อนไขเดียวกับ `held=true&holdReason={code}` ของรายการ
+   */
+  private async holdReasonCounts(): Promise<{ code: string; count: number }[]> {
+    const rows = await this.db.tx.$queryRaw<{ code: string; n: bigint }[]>`
+      SELECT c.code, count(DISTINCT o.id) AS n
+        FROM sales_order o
+        LEFT JOIN reason_code r ON r.id = o.hold_reason_code_id
+       CROSS JOIN LATERAL (
+             SELECT r.code
+             UNION
+             SELECT h->>'code' FROM jsonb_array_elements(COALESCE(o.pricing_detail->'holds', '[]'::jsonb)) h
+           ) c(code)
+       WHERE o.status = 'ON_HOLD' AND c.code IS NOT NULL
+       GROUP BY c.code`;
+    const n = new Map(rows.map((r) => [r.code, Number(r.n)]));
+    return ORDER_HOLD_CODES.map((code) => ({ code, count: n.get(code) ?? 0 }));
   }
 
   /** ใบค้างที่มีเหตุนี้ (เหตุหลักหรือเหตุรอง — เงื่อนไขเดียวกับตัวกรอง `status=on_hold&holdReason=`) */
@@ -293,6 +322,9 @@ export class OrdersService {
         ],
       });
     }
+    // หน้าใบค้าง (ST3-T07): ใบค้างทั้งหมดในตารางเดียว
+    if (q.held === 'true') and.push({ status: 'ON_HOLD' });
+    if (q.held === 'false') and.push({ status: { not: 'ON_HOLD' } });
     if (q.customerId) and.push({ customerId: tryDecodeId('customer', q.customerId)! });
     if (q.source) {
       const or: Prisma.SalesOrderWhereInput[] = q.source.split(',').map((v) => {
@@ -426,6 +458,16 @@ export class OrdersService {
     return this.intake.mapStopSite(id, sequence, publicIdOr422(siteId, 'site', 'siteId'), {
       expectedVersion,
     });
+  }
+
+  /** POST /orders/{id}/reevaluate — หน้าใบค้าง "ตรวจอีกครั้ง" (ST3-T07) */
+  recheck(id: string, expectedVersion?: number | '*') {
+    return this.intake.recheck(id, { expectedVersion });
+  }
+
+  /** POST /orders/{id}/resolve-source-error — ยืนยันข้อมูลใบที่ต้นทางแจ้งว่าไม่ครบ (ST3-T07) */
+  resolveSourceError(id: string, reason: string, expectedVersion?: number | '*') {
+    return this.intake.resolveSourceError(id, reason, { expectedVersion });
   }
 
   /** POST /orders/{id}/map-customer — คนเลือกลูกค้า + เรียนรู้ alias รหัส/ชื่อตามต้นทาง (ST3-T06) */

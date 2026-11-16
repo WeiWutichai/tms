@@ -639,6 +639,7 @@ const BODY_FOR_PATH: Record<string, object> = {
   // ST3-T06 จับคู่ด้วยมือ (`:sequence` ไม่ถูกแทน — ใบของ tenant อื่นต้อง 404 ก่อนตรวจลำดับจุด)
   '/v1/orders/:id/stops/:sequence/map-site': { siteId: `loc_${'0'.repeat(32)}` },
   '/v1/orders/:id/map-customer': { customerId: `cus_${'0'.repeat(32)}` },
+  '/v1/orders/:id/resolve-source-error': { reason: 'isolation test reason' }, // ST3-T07
 };
 
 interface RouteInfo {

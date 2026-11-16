@@ -9,7 +9,8 @@ import {
   Toast,
   type Column,
 } from '@tms/ui';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useI18n } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
 import { can } from '../../nav';
@@ -26,6 +27,7 @@ import {
   SITE_KINDS,
   VEHICLE_CLASSES,
   useGeocodeDecision,
+  fetchSite,
   useSiteAction,
   useSiteList,
   useSiteSummary,
@@ -101,6 +103,24 @@ export function SitesPage() {
   const [toast, setToast] = useState<string | null>(null);
   const current = openId ? (list.rows.find((r) => r.id === openId) ?? selected) : null;
   const sum = summary.data;
+  // ลิงก์จากหน้าใบค้าง (ST3-T07): `?open={id}` เปิด drawer สถานที่ (ปักหมุด) · `?new=1` เปิดฟอร์มเพิ่มสถานที่
+  const [params, setParams] = useSearchParams();
+  const deepOpen = params.get('open');
+  const deepNew = params.get('new') === '1';
+  useEffect(() => {
+    if ((!deepOpen && !deepNew) || !me.data) return;
+    setParams({}, { replace: true });
+    if (deepNew) {
+      if (canWrite) setForm({ site: null });
+      return;
+    }
+    fetchSite(deepOpen!)
+      .then((x) => {
+        setOpenId(x.id);
+        setSelected(x);
+      })
+      .catch(() => setToast(t('problem.not_found')));
+  }, [deepOpen, deepNew, canWrite, me.data, setParams, t]);
 
   const setF = (k: keyof SiteFilters, v: string) => setFilters((f) => ({ ...f, [k]: v }));
   const open = (s: Site) => {

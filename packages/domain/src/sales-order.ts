@@ -173,6 +173,30 @@ export function isValidSourceRef(ref: OrderSourceRef): boolean {
   return ref.source === 'CONNECTOR' ? CONNECTOR_KEY_RE.test(ref.connector) : ref.connector === '';
 }
 
+// ---------- ชุดเหตุค้างทั้งหมด (ST3-T07) ----------
+
+/**
+ * reason code ใบค้างครบชุด 12 รหัส (docs/04 C "หน้าใบค้าง + reason code ครบชุด"; plan/11 ข้อ 4 — ชื่อใน docs/01 §4.1
+ * map เข้ามา: ROUTE_PENDING → LOCATION_UNMAPPED/RATE_MISSING, NO_VEHICLE → UNALLOCATED_NO_VEHICLE,
+ * GEOCODE_FAILED → GEOCODING_ERROR, WINDOW_EXHAUSTED → DELIVERY_WINDOW_EXHAUSTED) — เป็นรหัสระบบหมวด ORDER_HOLD (ST2-T12)
+ * เรียงตามลำดับใน docs/04 C (ลำดับแสดงบนหน้าใบค้าง)
+ */
+export const ORDER_HOLD_CODES = [
+  'CUSTOMER_UNMAPPED',
+  'LOCATION_UNMAPPED',
+  'GEOCODING_ERROR',
+  'RATE_MISSING',
+  'UNALLOCATED_NO_VEHICLE',
+  'CAPACITY_EXCEEDED',
+  'VEHICLE_TYPE_INCOMPATIBLE',
+  'CARRIER_REJECTED',
+  'DELIVERY_WINDOW_EXHAUSTED',
+  'RESCHEDULES_EXHAUSTED',
+  'SOURCE_CHANGED_AFTER_PLAN',
+  'SOURCE_ERROR',
+] as const;
+export type OrderHoldCode = (typeof ORDER_HOLD_CODES)[number];
+
 // ---------- กฎรับงานเข้า (intake) → ใบค้าง ----------
 
 /**
@@ -184,6 +208,8 @@ export const INTAKE_HOLD_CODES = [
   'SOURCE_ERROR',
   'CUSTOMER_UNMAPPED',
   'LOCATION_UNMAPPED',
+  // ST3-T07: จุดที่จับคู่สถานที่แล้วแต่สถานที่หาพิกัดไม่ได้ (geocode_status FAILED — docs/04 B "จุด geocode ไม่ได้ขึ้นใบค้าง")
+  'GEOCODING_ERROR',
   'RATE_MISSING',
 ] as const;
 export type IntakeHoldCode = (typeof INTAKE_HOLD_CODES)[number];
@@ -199,8 +225,11 @@ export interface IntakeFacts {
   sourceIssues: readonly string[];
   /** จับคู่ลูกค้าได้ (มี customer_id) */
   customerMapped: boolean;
-  /** จุดตามลำดับ — `mapped` = จับคู่สถานที่ใน master ได้ */
-  stops: readonly { type: OrderStopType; mapped: boolean }[];
+  /**
+   * จุดตามลำดับ — `mapped` = จับคู่สถานที่ใน master ได้ · `geocodeFailed` = สถานที่นั้นหาพิกัดไม่ได้ (FAILED)
+   * (PENDING = ยังไม่มีพิกัด/รอคนยืนยัน ไม่ค้าง — docs/04 B ค้างเฉพาะ "geocode ไม่ได้")
+   */
+  stops: readonly { type: OrderStopType; mapped: boolean; geocodeFailed?: boolean }[];
   pricingStatus: PricingStatus;
   /** มีบรรทัดค่าขนส่งที่คนกำหนดเอง (ORD-043 — บรรทัด MANUAL) → ไม่ค้าง RATE_MISSING แม้หา rate ไม่ได้ */
   manualFreight?: boolean;
@@ -228,6 +257,8 @@ export function evaluateIntakeHolds(f: IntakeFacts): IntakeHold[] {
     holds.push({ code: 'LOCATION_UNMAPPED', field: 'stops.pickup' });
   else if (!f.stops.some((s) => s.type === 'DELIVERY'))
     holds.push({ code: 'LOCATION_UNMAPPED', field: 'stops.delivery' });
+  const noCoords = f.stops.findIndex((s) => s.mapped && s.geocodeFailed);
+  if (noCoords >= 0) holds.push({ code: 'GEOCODING_ERROR', field: `stops[${noCoords}].site` });
   if (f.pricingStatus !== 'AVAILABLE' && !f.manualFreight)
     holds.push({ code: 'RATE_MISSING', field: 'pricing' });
   return holds;
@@ -338,6 +369,11 @@ export function intakeHoldNoteTh(
         return `จุดที่ ${i + 1} ยังไม่ได้จับคู่สถานที่${t ? `: ${t}` : ''}`;
       }
       return hold.field === 'stops.pickup' ? 'ยังไม่มีจุดรับสินค้า' : 'ยังไม่มีจุดส่งสินค้า';
+    }
+    case 'GEOCODING_ERROR': {
+      const i = Number(/^stops\[(\d+)\]/.exec(hold.field ?? '')?.[1] ?? 0);
+      const t = ctx.stopTexts?.[i];
+      return `จุดที่ ${i + 1} หาพิกัดสถานที่ไม่ได้ — ปักหมุดในข้อมูลหลักสถานที่${t ? `: ${t}` : ''}`;
     }
     case 'RATE_MISSING':
       return 'ยังไม่มีราคาขาย (ไม่พบ rate card ที่ใช้ได้ หรือคิดราคาไม่ได้)';

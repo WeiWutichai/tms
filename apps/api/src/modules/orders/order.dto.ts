@@ -18,7 +18,13 @@ import {
   ValidateIf,
   ValidateNested,
 } from 'class-validator';
-import { INTAKE_HOLD_CODES, ORDER_SOURCES, SO_FIELD_GROUPS, SO_STATUSES } from '@tms/domain';
+import {
+  INTAKE_HOLD_CODES,
+  ORDER_HOLD_CODES,
+  ORDER_SOURCES,
+  SO_FIELD_GROUPS,
+  SO_STATUSES,
+} from '@tms/domain';
 import { PriceField } from '../../common/price-fields';
 import { CleanText, IsOptionalNotNull } from '../master/master-kit';
 
@@ -321,6 +327,14 @@ export class OrderHoldReasonDto {
   @ApiProperty({ example: 'ไม่มีเรท' }) label!: string;
   @ApiProperty({ nullable: true, type: String, description: 'รายละเอียดเหตุค้าง (ไทย)' })
   note!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: 'stops[1].site',
+    description:
+      'ช่องที่เป็นต้นเหตุ (เหตุของทางเข้า: `customer`, `stops[i].site`, `stops.pickup`, `pricing`, `source`) · เหตุที่ flow อื่นตั้ง = null',
+  })
+  field!: string | null;
 }
 
 export class OrderStopMatchDto {
@@ -490,6 +504,18 @@ export class OrderSummaryDto {
   @ApiProperty({ description: 'วางแผนแล้ว (PLANNED) ทั้งหมด' }) planned!: number;
   @ApiProperty({ description: 'วางแผนแล้ว (PLANNED) ที่วันรับของ = วันนี้ (เวลาไทย)' })
   plannedToday!: number;
+  @ApiProperty({
+    type: () => [OrderHoldCountDto],
+    description:
+      'หน้าใบค้าง (ST3-T07): จำนวนใบค้างต่อเหตุ ครบ 12 รหัสของ docs/04 C (ไม่มี = 0) — นับเหตุหลักหรือเหตุรอง ' +
+      '(เงื่อนไขเดียวกับตัวกรอง `held=true&holdReason=`) ใบหนึ่งจึงอาจนับในหลายเหตุ',
+  })
+  holdReasons!: OrderHoldCountDto[];
+}
+
+export class OrderHoldCountDto {
+  @ApiProperty({ enum: ORDER_HOLD_CODES, example: 'CUSTOMER_UNMAPPED' }) code!: string;
+  @ApiProperty() count!: number;
 }
 
 export class OrderPageDto {
@@ -545,6 +571,15 @@ export class OrderListQuery {
   @IsOptional()
   @Matches(/^[A-Z][A-Z0-9_]{0,49}(,[A-Z][A-Z0-9_]{0,49}){0,19}$/)
   holdReason?: string;
+
+  @ApiPropertyOptional({
+    enum: ['true', 'false'],
+    description:
+      'หน้าใบค้าง (ST3-T07): true = เฉพาะใบค้าง (ON_HOLD) · false = ไม่รวมใบค้าง — ใช้คู่กับ `holdReason` ได้',
+  })
+  @IsOptional()
+  @IsIn(['true', 'false'])
+  held?: 'true' | 'false';
 
   @ApiPropertyOptional({ example: 'cus_3f2a…', description: 'ลูกค้า' })
   @IsOptional()
@@ -625,6 +660,21 @@ export class MapCustomerDto {
   @MinLength(10)
   @MaxLength(500)
   reason?: string;
+}
+
+export class ResolveSourceErrorDto {
+  @ApiProperty({
+    minLength: 10,
+    maxLength: 500,
+    example: 'ตรวจกับเอกสารต้นฉบับแล้ว แก้วันรับของและจำนวนในใบให้ถูกต้อง',
+    description:
+      'เหตุผลที่ยืนยันว่าข้อมูลใบใช้ได้แม้ต้นทางแจ้งว่าไม่ครบ (≥ 10 ตัวอักษร — ลง audit)',
+  })
+  @CleanText()
+  @IsString()
+  @MinLength(10)
+  @MaxLength(500)
+  reason!: string;
 }
 
 export class OrderMapResultDto extends OrderDto {
