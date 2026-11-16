@@ -466,9 +466,57 @@ export class OrderDto {
       'ว่าง = แก้ไม่ได้ (ปิดงาน/ยกเลิก) · ฟอร์มใช้ปิดช่องที่แก้ไม่ได้ก่อนส่ง (server ตรวจซ้ำ → 409 `order_locked_for_update`)',
   })
   editableFields?: string[];
+  @ApiPropertyOptional({
+    type: () => OrderEditLockDto,
+    nullable: true,
+    description:
+      'ผู้ที่เปิดแก้ใบนี้อยู่ (ST3-T08 — ล็อกที่ยังไม่หมดอายุ) · null = ไม่มีใครแก้ · มีเฉพาะ GET ทีละใบและผลของ POST/PUT/PATCH (ไม่อยู่ในรายการ)',
+  })
+  editLock?: OrderEditLockDto | null;
   @ApiProperty() version!: number;
   @ApiProperty() createdAt!: string;
   @ApiProperty() updatedAt!: string;
+}
+
+/** ล็อกการแก้จากหน้าจอ (ST3-T08; docs/04 C Edit lock) — หมดอายุเมื่อไม่มีกิจกรรม 10 นาที */
+export class OrderEditLockDto {
+  @ApiProperty({ example: 'usr_3f2a…', description: 'ผู้ถือล็อก' }) userId!: string;
+  @ApiProperty({ example: 'สมชาย ใจดี', description: 'ชื่อผู้ถือล็อก (ป้าย "กำลังแก้ไขโดย …")' })
+  userName!: string;
+  @ApiProperty({ format: 'date-time' }) acquiredAt!: string;
+  @ApiProperty({ format: 'date-time', description: 'กิจกรรมล่าสุด' }) lastSeenAt!: string;
+  @ApiProperty({
+    format: 'date-time',
+    description: 'หมดอายุ = กิจกรรมล่าสุด + 10 นาที — หลังเวลานี้คนอื่นขอล็อกได้ทันที',
+  })
+  expiresAt!: string;
+  @ApiProperty({ description: 'ผู้เรียกเป็นผู้ถือล็อกเอง' }) mine!: boolean;
+}
+
+/** ขอล็อก (ST3-T08) — ไม่ส่ง/`heartbeat: false` = เปิดแก้ (ล้างการแจ้งว่าถูกปลด) · `heartbeat: true` = ต่ออายุระหว่างแก้ */
+export class OrderLockDto {
+  @ApiPropertyOptional({
+    description:
+      'true = ต่ออายุระหว่างแก้ (หน้าจอส่งเมื่อผู้ใช้มีกิจกรรม) — ถ้าล็อกเดิมถูกผู้อื่นปลดแล้วได้ 409 `order_lock_released` ' +
+      '(ไม่ได้ล็อกคืนเอง) · ไม่ส่ง/false = เปิดแก้ใหม่',
+  })
+  @IsOptional()
+  @IsBoolean()
+  heartbeat?: boolean;
+}
+
+/** ปลดล็อก — ของตัวเองไม่ต้องมีเหตุผล · ปลดของคนอื่น (`orders:unlock`) ต้องมีเหตุผล ≥ 10 ตัวอักษร (ลง audit) */
+export class OrderUnlockDto {
+  @ApiPropertyOptional({
+    maxLength: 500,
+    example: 'ผู้แก้ลาป่วย ต้องแก้วันรับของด่วน',
+    description: 'บังคับ (≥ 10 ตัวอักษร) เมื่อปลดล็อกของผู้ใช้อื่น',
+  })
+  @IsOptional()
+  @CleanText()
+  @IsString()
+  @MaxLength(500)
+  reason?: string;
 }
 
 /** ตัวนับของหน้ารายการใบสั่งขนส่ง (แถบสรุป + แท็บ — ต้นแบบ TMS v4 kpisX('so')) */
