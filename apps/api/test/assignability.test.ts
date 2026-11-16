@@ -152,7 +152,11 @@ describe('เอกสารบังคับก่อนรับงาน (As
       assignable: false,
       warnings: [],
       overridable: true,
-      override: { permission: 'users:write', roles: ['owner', 'admin'], reasonMinLength: 10 },
+      override: {
+        permission: 'trips:override',
+        roles: ['owner', 'admin', 'manager'],
+        reasonMinLength: 10,
+      },
     });
     expect(r.blocks).toEqual([
       {
@@ -263,20 +267,18 @@ describe('เอกสารบังคับก่อนรับงาน (As
     });
   });
 
-  it('รถบริษัท: เอกสารบังคับหมด = คำเตือน ไม่บล็อก · ไม่มีเอกสาร = ไม่เตือน', async () => {
+  it('รถบริษัท (D-07): เอกสารบังคับหมด = บล็อก · ไม่มีเอกสาร = ไม่บล็อก', async () => {
     const own = await vehicle(admin, { ownership: 'OWN', carrierId: undefined });
     const empty = await check({ vehicleId: uuid('vehicle', own.id) });
     expect(empty).toMatchObject({ assignable: true, blocks: [], warnings: [] });
     await addDoc(own.id, 'INSURANCE', -5);
     const r = await check({ vehicleId: uuid('vehicle', own.id) });
-    expect(r.assignable).toBe(true);
-    expect(r.warnings.map((w) => [w.code, w.severity])).toEqual([
-      ['DOC_INSURANCE_EXPIRED', 'warning'],
-    ]);
+    expect(r.assignable).toBe(false);
+    expect(r.blocks.map((w) => [w.code, w.severity])).toEqual([['DOC_INSURANCE_EXPIRED', 'block']]);
     // ตรอ. ที่ตั้งบังคับก่อนจ่ายงาน — ข้อความเว้นวรรคระหว่างชื่อเอกสารกับคำกริยา
     await addDoc(own.id, 'INSPECTION', -2, { isRequiredForDispatch: true });
     const r2 = await check({ vehicleId: uuid('vehicle', own.id) });
-    expect(r2.warnings.map((w) => w.message)[1]).toMatch(/^ตรวจสภาพ ตรอ\. หมดอายุ /);
+    expect(r2.blocks.map((w) => w.message)[1]).toMatch(/^ตรวจสภาพ ตรอ\. หมดอายุ /);
   });
 
   it('id ของ tenant อื่น / ไม่มีอยู่ / ผิดรูปแบบ → 404 · วันที่ผิด → 422', async () => {

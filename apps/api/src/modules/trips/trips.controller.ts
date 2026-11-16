@@ -6,7 +6,14 @@ import {
   ApiOkResponse,
   ApiTags,
 } from '@nestjs/swagger';
-import { scopeAllows, type TripStatus } from '@tms/domain';
+import {
+  pendingRules,
+  ruleKey,
+  RULE_OVERRIDE_SCOPE,
+  scopeAllows,
+  type RuleOverride,
+  type TripStatus,
+} from '@tms/domain';
 import type { Request, Response } from 'express';
 import { RequireScope, TenantResource } from '../../common/decorators';
 import { expectedVersion, setEtag } from '../../common/etag';
@@ -21,18 +28,46 @@ import {
   AssignTripDto,
   AttachDeliveryOrdersDto,
   CancelTripDto,
+  ConfirmRulesDto,
   CreateTripDto,
   DetachDeliveryOrdersDto,
+  DispatchTripDto,
   OfferTripDto,
   ScheduleTripDto,
   TripDto,
   TripListQuery,
   TripPageDto,
-  type TripWarningDto,
+  type RuleConfirmDto,
 } from './trip.dto';
-import { TripService, type TripRecord } from './trip.service';
+import {
+  TripService,
+  type RuleConfirmInput,
+  type TripRecord,
+  type TripWarning,
+} from './trip.service';
 
 const iso = (d: Date | null) => (d ? d.toISOString() : null);
+
+/** ช่องยืนยัน/ยกเว้นกฎ (ST3-T14) จาก body + สิทธิ์ `trips:override` ของผู้เรียก */
+function rulesOf(b: RuleConfirmDto): RuleConfirmInput {
+  return {
+    acknowledgeWarnings: b.acknowledgeWarnings ?? false,
+    overrideBlocks: b.overrideBlocks ?? false,
+    reason: b.overrideReason ?? null,
+    canOverride: scopeAllows(requestContext.require().scopes ?? [], RULE_OVERRIDE_SCOPE),
+  };
+}
+
+/** ผลตรวจล่าสุด + สถานะยืนยัน/ยกเว้น (ชุดเดียวกับ `enforceRules`) */
+export function tripRules(t: TripRecord) {
+  const ctx = { vehicleId: t.vehicleId, driverId: t.driverId, reliefDriverId: t.reliefDriverId };
+  const results = (t.ruleWarnings as unknown as TripWarning[]) ?? [];
+  const overrides = (t.ruleOverrides as unknown as RuleOverride[]) ?? [];
+  const p = pendingRules(results, overrides, ctx);
+  const covered = new Set(p.covered);
+  const keys = new Set(results.map((w) => ruleKey(w, ctx)));
+  return { results, overrides, pending: p, covered, keys };
+}
 
 export function toTripDto(t: TripRecord): TripDto {
   return {
@@ -101,7 +136,25 @@ export function toTripDto(t: TripRecord): TripDto {
       pickupStopId: d.pickupTripStopId ? encodeId('tripStop', d.pickupTripStopId) : null,
       dropStopId: d.tripStopId ? encodeId('tripStop', d.tripStopId) : null,
     })),
-    warnings: (t.ruleWarnings as unknown as TripWarningDto[]) ?? [],
+    ...(() => {
+      const r = tripRules(t);
+      return {
+        warnings: r.results.map((w) => ({
+          ...w,
+          confirmed: w.severity === 'info' || r.covered.has(w),
+        })),
+        ruleOverrides: r.overrides.map((o) => ({
+          code: o.code,
+          severity: o.severity,
+          kind: o.kind,
+          reason: o.reason,
+          actorId: o.actorId,
+          at: o.at,
+          message: o.message,
+          active: r.keys.has(o.key),
+        })),
+      };
+    })(),
     version: t.version,
     createdAt: t.createdAt.toISOString(),
     updatedAt: t.updatedAt.toISOString(),
@@ -172,7 +225,7 @@ export class TripsController {
   @Post()
   @ApiProblems(
     T403('trips:assign'),
-    T409('delivery_order_on_trip', 'order_not_ready_for_delivery'),
+    T409('delivery_order_on_trip', 'order_not_ready_for_delivery', 'assignment_blocked'),
     T422,
   )
   @RequireScope('trips:assign')
@@ -194,6 +247,7 @@ export class TripsController {
       plannedStartAt: body.plannedStartAt,
       plannedEndAt: body.plannedEndAt,
       vehicleId: optRef('vehicle', body.vehicleId, 'vehicleId'),
+      rules: rulesOf(body),
     });
     setEtag(res, t.version);
     return toTripDto(t);
@@ -204,7 +258,7 @@ export class TripsController {
    * ซ้อนเวลา = คำเตือนใน `warnings` บันทึกได้ (docs/04 D2)
    */
   @Post(':id/schedule')
-  @ApiProblems(T403('trips:assign'), T404, T409(), T412, T422)
+  @ApiProblems(T403('trips:assign'), T404, T409('assignment_blocked'), T412, T422)
   @HttpCode(200)
   @TenantResource('trip')
   @RequireScope('trips:assign')
@@ -229,6 +283,7 @@ export class TripsController {
         plannedStartAt: body.plannedStartAt,
         plannedEndAt: body.plannedEndAt,
         vehicleId: optRef('vehicle', body.vehicleId, 'vehicleId'),
+        rules: rulesOf(body),
       },
       undefined,
       expectedVersion(req),
@@ -301,7 +356,7 @@ export class TripsController {
   @ApiProblems(
     T403('trips:assign'),
     T404,
-    T409('trip_empty', 'offer_required', 'carrier_change_requires_cancel'),
+    T409('trip_empty', 'offer_required', 'carrier_change_requires_cancel', 'assignment_blocked'),
     T412,
     T422,
   )
@@ -325,6 +380,7 @@ export class TripsController {
         driverId: optRef('driver', body.driverId, 'driverId'),
         reliefDriverId: optRef('driver', body.reliefDriverId, 'reliefDriverId'),
         trailerId: optRef('vehicle', body.trailerId, 'trailerId'),
+        rules: rulesOf(body),
       },
       undefined,
       expectedVersion(req),
@@ -359,9 +415,18 @@ export class TripsController {
     return toTripDto(t);
   }
 
-  /** ปล่อยรถ → DISPATCHED (ทุก DO → DISPATCHED) */
+  /**
+   * ปล่อยรถ → DISPATCHED (ทุก DO → DISPATCHED) · ST3-T14: ตรวจกฎใหม่ — บล็อกที่ยังไม่ยกเว้น 409 `assignment_blocked`,
+   * คำเตือนที่ยังไม่ยืนยัน 409 `assignment_warnings` (ยืนยัน/ยกเว้นใน body ได้)
+   */
   @Post(':id/dispatch')
-  @ApiProblems(T403('trips:dispatch'), T404, T409('trip_empty'), T412)
+  @ApiProblems(
+    T403('trips:dispatch'),
+    T404,
+    T409('trip_empty', 'assignment_blocked', 'assignment_warnings'),
+    T412,
+    T422,
+  )
   @HttpCode(200)
   @TenantResource('trip')
   @RequireScope('trips:dispatch')
@@ -370,11 +435,50 @@ export class TripsController {
   @ApiOkResponse({ type: TripDto })
   async dispatch(
     @Param('id') id: string,
+    @Body() body: DispatchTripDto,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<TripDto> {
     const trip = await this.trips.get(decodeIdOr404('trip', id));
-    const t = await this.trips.dispatch(trip.id, undefined, expectedVersion(req));
+    const t = await this.trips.dispatch(
+      trip.id,
+      undefined,
+      expectedVersion(req),
+      rulesOf(body ?? {}),
+    );
+    setEtag(res, t.version);
+    return toTripDto(t);
+  }
+
+  /**
+   * ยืนยันคำเตือนที่ค้าง + ยกเว้นบล็อก (ST3-T14 — กระดาน "… · ขออนุมัติ" / "ยกเว้นและบันทึก log") — เหตุผล ≥ 10 + audit
+   * `overrideBlocks` ต้องมี `trips:override` (ผู้จัดการ/ผู้ดูแล — D-07) · ไม่มีอะไรค้าง = ไม่เปลี่ยน
+   */
+  @Post(':id/confirm-rules')
+  @ApiProblems(T403('trips:assign'), T404, T409('assignment_blocked'), T412, T422)
+  @HttpCode(200)
+  @TenantResource('trip')
+  @RequireScope('trips:assign')
+  @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
+  @ApiHeader({ name: 'Idempotency-Key', required: false })
+  @ApiOkResponse({ type: TripDto })
+  async confirmRules(
+    @Param('id') id: string,
+    @Body() body: ConfirmRulesDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<TripDto> {
+    const trip = await this.trips.get(decodeIdOr404('trip', id));
+    const t = await this.trips.confirmRules(
+      trip.id,
+      {
+        overrideBlocks: body.overrideBlocks ?? false,
+        reason: body.overrideReason,
+        canOverride: scopeAllows(requestContext.require().scopes ?? [], RULE_OVERRIDE_SCOPE),
+      },
+      undefined,
+      expectedVersion(req),
+    );
     setEtag(res, t.version);
     return toTripDto(t);
   }

@@ -29,6 +29,8 @@ export interface AssignabilityCheckInput {
   window?: { from: string | Date; to: string | Date };
   /** วันวิ่งวันเดียว (= window from = to) */
   date?: string | Date;
+  /** มีสินค้าอันตรายในเที่ยว → ใบขับขี่ ท.4 (PLN-084 — ST3-T14) */
+  hazmat?: boolean;
 }
 
 export interface AssignabilityIssueView extends Omit<AssignabilityIssue, 'documentId'> {
@@ -75,10 +77,21 @@ export function assignabilityMessageTh(i: AssignabilityIssue): string {
       return `ใบขับขี่คนขับหมดอายุ ${thDay(i.expiredOn)}`;
     case 'assign.licenceMissing':
       return 'ยังไม่มีวันหมดอายุใบขับขี่ของคนขับ';
+    case 'assign.licenceClass':
+      return `ใบขับขี่${i.params.licenceClass ? ` ${LIC_TH[i.params.licenceClass] ?? i.params.licenceClass}` : ''} ไม่ถึงชั้น ${LIC_TH[i.params.required ?? ''] ?? i.params.required} ที่รถคันนี้ต้องใช้`;
     default:
       return i.code;
   }
 }
+
+/** ชั้นใบขับขี่ภาษาไทย (ชุดเดียวกับ vt.lic.* ของเว็บ) */
+const LIC_TH: Record<string, string> = {
+  PERSONAL: 'ส่วนบุคคล',
+  T1: 'ท.1',
+  T2: 'ท.2',
+  T3: 'ท.3',
+  T4: 'ท.4',
+};
 
 const ymd = (d: Date) => d.toISOString().slice(0, 10);
 /** Date ที่ไม่ถูกต้อง (Invalid Date) → '' (ตกที่ 422) */
@@ -119,6 +132,7 @@ export class AssignabilityService {
           plate: true,
           ownership: true,
           carrierId: true,
+          vehicleType: { select: { minLicenceClass: true } },
           documents: {
             select: {
               id: true,
@@ -137,13 +151,17 @@ export class AssignabilityService {
         ? null
         : tx.driver.findFirst({
             where: { id: driverId, deletedAt: null },
-            select: { id: true, name: true, licenceExpiresAt: true },
+            select: { id: true, name: true, licenceExpiresAt: true, licenceClass: true },
           }),
     ]);
     if (!vehicle || (driverId !== null && !driver)) throw notFound();
 
     const r = checkAssignability({
-      vehicle: { ownership: vehicle.ownership },
+      vehicle: {
+        ownership: vehicle.ownership,
+        minLicenceClass: vehicle.vehicleType.minLicenceClass,
+      },
+      hazmat: input.hazmat ?? false,
       documents: vehicle.documents.map((d) => ({
         id: d.id,
         docType: d.docType,
@@ -155,7 +173,10 @@ export class AssignabilityService {
         title: d.title,
       })),
       driver: driver
-        ? { licenceExpiresOn: driver.licenceExpiresAt ? ymd(driver.licenceExpiresAt) : null }
+        ? {
+            licenceExpiresOn: driver.licenceExpiresAt ? ymd(driver.licenceExpiresAt) : null,
+            licenceClass: driver.licenceClass,
+          }
         : null,
       window,
     });

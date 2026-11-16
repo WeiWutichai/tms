@@ -1,8 +1,9 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional, IntersectionType } from '@nestjs/swagger';
 import {
   ArrayMaxSize,
   ArrayMinSize,
   IsArray,
+  IsBoolean,
   IsISO8601,
   IsOptional,
   IsString,
@@ -67,7 +68,44 @@ class DeliveryOrderIdsDto {
   deliveryOrderIds!: string[];
 }
 
-export class CreateTripDto extends DeliveryOrderIdsDto {
+/**
+ * ST3-T14 (D-07 PO 16 พ.ย. 2569) — ยืนยัน/ยกเว้นกฎตอนจัดในคำขอเดียวกัน (create + รถ / schedule / assign / dispatch)
+ * บล็อก (กฎเอกสาร/ใบขับขี่) ไม่ยกเว้น → 409 `assignment_blocked` · คำเตือนที่ไม่ยืนยัน → บันทึกได้ แต่ปล่อยรถไม่ได้ (409 `assignment_warnings`)
+ */
+export class RuleConfirmDto {
+  @ApiPropertyOptional({
+    description:
+      'ยืนยันคำเตือนทั้งหมดของผลตรวจนี้ (น้ำหนักเกิน, รถไม่เข้ากับงาน/จุดส่ง, ชั่วโมงขับ, ซ้อนเวลา ฯลฯ) — ต้องมี `overrideReason`',
+  })
+  @IsOptional()
+  @IsBoolean()
+  acknowledgeWarnings?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'ยกเว้นบล็อก (เอกสารรถบังคับหมด/ไม่มี, ใบขับขี่ไม่มี/หมด/ชั้นไม่ถึง) — ต้องมี scope `trips:override` (ผู้จัดการ/ผู้ดูแล) + `overrideReason`',
+  })
+  @IsOptional()
+  @IsBoolean()
+  overrideBlocks?: boolean;
+
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    minLength: 10,
+    maxLength: 500,
+    example: 'ลูกค้ายืนยันรับของเกินพิกัด แยกส่งรอบบ่ายไม่ได้',
+    description: 'เหตุผล ≥ 10 ตัวอักษร (บันทึกใน audit)',
+  })
+  @IsOptional()
+  @IsNullable()
+  @CleanText()
+  @IsString()
+  @MaxLength(500)
+  overrideReason?: string | null;
+}
+
+export class CreateTripDto extends IntersectionType(DeliveryOrderIdsDto, RuleConfirmDto) {
   @ApiProperty({ example: '2026-11-13', description: 'วันที่เที่ยว (YYYY-MM-DD)' })
   @Matches(DATE_RE)
   tripDate!: string;
@@ -108,7 +146,7 @@ export class CreateTripDto extends DeliveryOrderIdsDto {
 }
 
 /** ย้าย/ปรับขนาดเที่ยวบนกระดาน — ไม่ส่งช่องไหน = คงค่าเดิม */
-export class ScheduleTripDto {
+export class ScheduleTripDto extends RuleConfirmDto {
   @ApiPropertyOptional({ example: '2026-11-13', description: 'วันที่เที่ยว (YYYY-MM-DD)' })
   @IsOptional()
   @Matches(DATE_RE)
@@ -150,7 +188,7 @@ export class DetachDeliveryOrdersDto extends DeliveryOrderIdsDto {
   note?: string | null;
 }
 
-export class AssignTripDto {
+export class AssignTripDto extends RuleConfirmDto {
   @ApiProperty({ example: 'veh_3f2a…', description: 'รถหลัก (ไม่ใช่หาง)' })
   @Matches(VEH_ID)
   vehicleId!: string;
@@ -189,6 +227,30 @@ export class AssignTripDto {
   trailerId?: string | null;
 }
 
+/** ปล่อยรถ — ยืนยัน/ยกเว้นกฎที่ค้างในคำขอนี้ได้ (ST3-T14) */
+export class DispatchTripDto extends RuleConfirmDto {}
+
+/** ยืนยันคำเตือนที่ค้าง + ยกเว้นบล็อก (ถ้า `overrideBlocks` และมี `trips:override`) ของเที่ยวภายหลัง (ST3-T14) */
+export class ConfirmRulesDto {
+  @ApiPropertyOptional({
+    description: 'ยกเว้นบล็อกที่ค้างด้วย — ต้องมี scope `trips:override` (ผู้จัดการ/ผู้ดูแล)',
+  })
+  @IsOptional()
+  @IsBoolean()
+  overrideBlocks?: boolean;
+
+  @ApiProperty({
+    minLength: 10,
+    maxLength: 500,
+    example: 'ลูกค้ายืนยันรับของเกินพิกัด แยกส่งรอบบ่ายไม่ได้',
+    description: 'เหตุผล ≥ 10 ตัวอักษร (บันทึกใน audit)',
+  })
+  @CleanText()
+  @IsString()
+  @MaxLength(500)
+  overrideReason!: string;
+}
+
 export class OfferTripDto {
   @ApiProperty({ example: 'car_3f2a…', description: 'รถร่วมที่เสนองาน (ลิงก์รับงาน = ST3-T23)' })
   @Matches(/^car_[0-9a-f]{32}$/)
@@ -218,16 +280,37 @@ export class CancelTripDto {
 export class TripWarningDto {
   @ApiProperty({ example: 'vehicle_overlap' }) code!: string;
   @ApiProperty({
-    enum: ['warning', 'block'],
-    description: 'block = กฎเอกสารรถร่วม (บังคับ/override ใน ST3-T14)',
+    enum: ['warning', 'block', 'info'],
+    description:
+      'block = กฎเอกสาร/ใบขับขี่ (D-07 — ยกเว้นได้โดย `trips:override`) · warning = ต้องยืนยันพร้อมเหตุผลก่อนปล่อยรถ · info = แจ้งเฉย ๆ',
   })
-  severity!: 'warning' | 'block';
-  @ApiProperty({ enum: ['compatibility', 'assignability', 'schedule', 'stops', 'assignment'] })
+  severity!: 'warning' | 'block' | 'info';
+  @ApiProperty({
+    enum: ['compatibility', 'assignability', 'schedule', 'stops', 'assignment', 'load'],
+  })
   source!: string;
+  @ApiProperty({
+    description:
+      'ยกเว้น (block) / ยืนยัน (warning) แล้วสำหรับรถ + คนขับชุดนี้ — info เป็น true เสมอ',
+  })
+  confirmed!: boolean;
   @ApiProperty({ example: 'trip.vehicleOverlap' }) messageKey!: string;
   @ApiProperty({ description: 'ข้อความไทยพร้อมแสดง' }) message!: string;
   @ApiProperty({ type: 'object', additionalProperties: true, description: 'ค่าประกอบข้อความ' })
   params!: Record<string, unknown>;
+}
+
+export class TripRuleOverrideDto {
+  @ApiProperty({ example: 'OVERWEIGHT' }) code!: string;
+  @ApiProperty({ enum: ['block', 'warning'] }) severity!: 'block' | 'warning';
+  @ApiProperty({ enum: ['OVERRIDE', 'ACKNOWLEDGE'], description: 'ยกเว้นบล็อก / ยืนยันคำเตือน' })
+  kind!: 'OVERRIDE' | 'ACKNOWLEDGE';
+  @ApiProperty({ example: 'ลูกค้ายืนยันรับของเกินพิกัด แยกส่งรอบบ่ายไม่ได้' }) reason!: string;
+  @ApiProperty({ nullable: true, type: String, description: 'ผู้ยกเว้น/ยืนยัน (user id)' })
+  actorId!: string | null;
+  @ApiProperty() at!: string;
+  @ApiProperty({ description: 'ข้อความกฎ ณ ตอนยกเว้น' }) message!: string;
+  @ApiProperty({ description: 'ยังตรงกับผลตรวจล่าสุด (เปลี่ยนรถ/คนขับ = หมดผล)' }) active!: boolean;
 }
 
 export class TripStopDto {
@@ -310,9 +393,15 @@ export class TripDto {
   @ApiProperty({ type: [TripDeliveryOrderDto] }) deliveryOrders!: TripDeliveryOrderDto[];
   @ApiProperty({
     type: [TripWarningDto],
-    description: 'คำเตือนจากการตรวจล่าสุด (ไม่บล็อก — บังคับ/override = ST3-T14)',
+    description:
+      'ผลตรวจกฎตอนจัดล่าสุด (ST3-T14 — D-07: block = กฎเอกสาร, warning = ต้องยืนยันก่อนปล่อยรถ)',
   })
   warnings!: TripWarningDto[];
+  @ApiProperty({
+    type: [TripRuleOverrideDto],
+    description: 'ประวัติการยกเว้น/ยืนยันกฎของเที่ยว (เรียงตามเวลา)',
+  })
+  ruleOverrides!: TripRuleOverrideDto[];
   @ApiProperty() version!: number;
   @ApiProperty() createdAt!: string;
   @ApiProperty() updatedAt!: string;
