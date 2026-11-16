@@ -15,6 +15,7 @@ import {
   checkDrivingHours,
   checkLoad,
   drivingDays,
+  leaveDaysIn,
   pendingRules,
   reconcileOverrides,
   planStops,
@@ -1640,14 +1641,16 @@ export class TripService {
     ] as const) {
       if (!driverId) continue;
       const d = await tx.driver.findUnique({ where: { id: driverId } });
-      if (d?.status === 'ON_LEAVE')
+      // สถานะ "ลาพัก" หรือวันลาในตารางรถ/คนขับรายวันที่ทับวันของเที่ยว (ST3-T19 — วันไทยของเที่ยว + ช่วงวิ่งข้ามคืน)
+      const leaveDays = await this.leaveDays(tx, trip, driverId);
+      if (d?.status === 'ON_LEAVE' || leaveDays.length)
         out.push({
           code: role === 'driver' ? 'driver_on_leave' : 'relief_driver_on_leave',
           severity: 'warning',
           source: 'assignment',
           messageKey: role === 'driver' ? 'trip.driverOnLeave' : 'trip.reliefDriverOnLeave',
-          message: driverOnLeaveMessageTh(role, name),
-          params: { driverRole: role },
+          message: driverOnLeaveMessageTh(role, name, d?.status === 'ON_LEAVE' ? [] : leaveDays),
+          params: { driverRole: role, ...(leaveDays.length ? { dates: leaveDays } : {}) },
         });
       out.push(...(await this.overlapWarnings(tx, trip, { driverId, name: name ?? '', role })));
       out.push(
@@ -1795,6 +1798,68 @@ export class TripService {
    * ชั่วโมงขับตามแผนของคนขับในวันเที่ยว (ST3-T14 — คำเตือน; เฟส 0 ไม่มีบันทึกเวลาขับจริง → ใช้ช่วงวิ่งตามแผนของเที่ยวที่ยังไม่จบ
    * ที่คนนี้เป็นคนขับหลัก/สำรอง ในวันเดียวกัน · เพดาน `DRIVING_HOURS_PER_DAY` [OPEN] FLT-Q5)
    */
+  /** วันลา (ตารางรถ/คนขับรายวัน — ST3-T19) ของคนขับที่ทับวันของเที่ยว: วันเที่ยว + วันไทยของช่วงวิ่ง (ข้ามคืน) */
+  private async leaveDays(tx: Tx, trip: TripRecord, driverId: string): Promise<string[]> {
+    const days = [
+      ...new Set([
+        trip.tripDate.toISOString().slice(0, 10),
+        ...drivingDays({
+          tripDate: trip.tripDate.toISOString().slice(0, 10),
+          start: trip.plannedStartAt?.toISOString() ?? null,
+          end: trip.plannedEndAt?.toISOString() ?? null,
+        }),
+      ]),
+    ].sort();
+    const spans = await tx.scheduleEntry.findMany({
+      where: {
+        driverId,
+        kind: 'LEAVE',
+        cancelledAt: null,
+        startsOn: { lte: new Date(`${days[days.length - 1]}T00:00:00Z`) },
+        endsOn: { gte: new Date(`${days[0]}T00:00:00Z`) },
+      },
+      select: { startsOn: true, endsOn: true },
+    });
+    return leaveDaysIn(
+      spans.map((x) => ({
+        startsOn: x.startsOn.toISOString().slice(0, 10),
+        endsOn: x.endsOn.toISOString().slice(0, 10),
+      })),
+      days,
+    );
+  }
+
+  /**
+   * ใส่/ยกเลิกวันลาคนขับ (ST3-T19) → ตรวจกฎเที่ยวที่ยังไม่จบของคนขับคนนั้น (หลัก/สำรอง) ในช่วงนั้นใหม่
+   * (spec/03 PLN-088 "ประเมินใหม่เมื่อข้อมูลต้นทางเปลี่ยน") — คำเตือนเปลี่ยน = version +1 · คืนเลขเที่ยวที่ตรวจใหม่
+   */
+  async refreshForDriverLeave(
+    driverId: string,
+    from: string,
+    to: string,
+    tx: Tx = this.db.tx,
+  ): Promise<string[]> {
+    const DAY = 86_400_000;
+    const rows = await tx.trip.findMany({
+      where: {
+        status: { in: [...TRIP_OPEN_STATUSES] },
+        OR: [{ driverId }, { reliefDriverId: driverId }],
+        // เที่ยวข้ามคืนของวันก่อนหน้าล้นเข้ามาในช่วงได้
+        tripDate: {
+          gte: new Date(Date.parse(`${from}T00:00:00Z`) - DAY),
+          lte: new Date(`${to}T00:00:00Z`),
+        },
+      },
+      select: { id: true, tripNo: true },
+      orderBy: { tripNo: 'asc' },
+    });
+    for (const r of rows) {
+      await tx.$queryRaw`SELECT id FROM trip WHERE id = ${r.id}::uuid FOR UPDATE`;
+      await this.refreshWarnings(tx, r.id);
+    }
+    return rows.map((r) => r.tripNo ?? r.id);
+  }
+
   private async drivingHoursWarnings(
     tx: Tx,
     trip: TripRecord,

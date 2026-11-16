@@ -41,6 +41,7 @@ export const ID_PREFIX = {
   magicLink: 'mlk',
   carrierDocSubmission: 'cds',
   messageDelivery: 'msg',
+  scheduleEntry: 'sch',
 } as const;
 export type IdKind = keyof typeof ID_PREFIX;
 

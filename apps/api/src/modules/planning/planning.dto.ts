@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
+import { ScheduleEntryDto } from '../schedule/schedule.dto';
 import {
   ArrayMaxSize,
   ArrayMinSize,
@@ -56,6 +57,11 @@ class BoardDriverDto {
   @ApiProperty({ example: 'drv_3f2a…' }) id!: string;
   @ApiProperty() name!: string;
   @ApiProperty({ nullable: true, type: String, example: 'T2' }) licenceClass!: string | null;
+  @ApiProperty({
+    enum: ['ACTIVE', 'ON_LEAVE'],
+    description: 'สถานะคนขับ — ON_LEAVE (ลาพัก ไม่มีวัน) = ลาทุกวันบนกระดาน',
+  })
+  status!: 'ACTIVE' | 'ON_LEAVE';
 }
 
 export class BoardVehicleDto {
@@ -213,6 +219,12 @@ export class PlanningBoardDto {
       'สถานะการส่งต่อวันในช่วง from–to (ST3-T18 ปฏิทินขึ้นเขียวเมื่อส่งครบ) — นับตามวันเที่ยว `tripDate`',
   })
   days!: DaySendStateDto[];
+  @ApiProperty({
+    type: [ScheduleEntryDto],
+    description:
+      'วันลาคนขับ/โน้ตรายวันที่ทับช่วง from–to (ST3-T19 ตารางรถ/คนขับรายวัน) — ไม่รวมที่ยกเลิก · ชุดเดียวกับ GET /v1/schedule-entries',
+  })
+  schedule!: ScheduleEntryDto[];
 }
 
 /** ST3-T15 Filter รถที่รับได้สองทาง — ส่ง `orderId` / `vehicleId` / `tripId` อย่างใดอย่างหนึ่ง */

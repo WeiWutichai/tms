@@ -18033,6 +18033,581 @@
         ]
       }
     },
+    "/v1/schedule-entries": {
+      "get": {
+        "operationId": "Schedule_list",
+        "parameters": [
+          {
+            "name": "from",
+            "required": true,
+            "in": "query",
+            "description": "วันแรก (วันไทย)",
+            "schema": {
+              "format": "date",
+              "example": "2026-11-17",
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "required": true,
+            "in": "query",
+            "description": "วันสุดท้าย (รวม) — ช่วงไม่เกิน 62 วัน",
+            "schema": {
+              "format": "date",
+              "example": "2026-11-23",
+              "type": "string"
+            }
+          },
+          {
+            "name": "driverId",
+            "required": false,
+            "in": "query",
+            "description": "เฉพาะคนขับคนนี้",
+            "schema": {
+              "example": "drv_…",
+              "type": "string"
+            }
+          },
+          {
+            "name": "vehicleId",
+            "required": false,
+            "in": "query",
+            "description": "เฉพาะรถคันนี้",
+            "schema": {
+              "example": "veh_…",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "รายการที่ยังไม่ยกเลิกซึ่งทับช่วง from–to (≤ 62 วัน) เรียงวันเริ่ม",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleEntryListDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`trips:read`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "trips",
+                      "action": "read",
+                      "required": [
+                        "trips:read"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "deliveryOrderIds[0]",
+                          "code": "invalid_reference",
+                          "message": "not found"
+                        },
+                        {
+                          "field": "plannedEndAt",
+                          "code": "outside_trip_date",
+                          "message": "must be on tripDate"
+                        }
+                      ]
+                    }
+                  },
+                  "idempotency_mismatch": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_mismatch",
+                      "title": "Idempotency-Key นี้เคยใช้กับข้อมูลอื่น",
+                      "status": 422,
+                      "code": "idempotency_mismatch",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "schedule"
+        ]
+      },
+      "post": {
+        "operationId": "Schedule_create",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateScheduleEntryDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "ใส่วันลา/โน้ต — วันลาทับวันลาเดิมของคนขับคนเดียวกัน → 409 `conflict` (`existing`) · ใส่วันลาแล้วตรวจกฎเที่ยวที่ยังไม่จบของคนขับในช่วงนั้นใหม่",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleEntryDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`trips:assign`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "trips",
+                      "action": "assign",
+                      "required": [
+                        "trips:assign"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "วันลาทับวันลาเดิมของคนขับ (`conflict`) / ยกเลิกไปแล้ว (`invalid_state_transition`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "conflict": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/conflict",
+                      "title": "ข้อมูลขัดแย้งกับที่มีอยู่",
+                      "status": 409,
+                      "code": "conflict",
+                      "instance": "/v1/schedule-entries/sch_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "detail": "มีวันลาของคนขับคนนี้ทับช่วงนี้อยู่แล้ว (2026-11-18 – 2026-11-19)"
+                    }
+                  },
+                  "invalid_state_transition": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/invalid_state_transition",
+                      "title": "ทำรายการนี้ไม่ได้ในสถานะปัจจุบัน",
+                      "status": 409,
+                      "code": "invalid_state_transition",
+                      "instance": "/v1/schedule-entries/sch_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "detail": "รายการนี้ถูกยกเลิกแล้ว"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "deliveryOrderIds[0]",
+                          "code": "invalid_reference",
+                          "message": "not found"
+                        },
+                        {
+                          "field": "plannedEndAt",
+                          "code": "outside_trip_date",
+                          "message": "must be on tripDate"
+                        }
+                      ]
+                    }
+                  },
+                  "idempotency_mismatch": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_mismatch",
+                      "title": "Idempotency-Key นี้เคยใช้กับข้อมูลอื่น",
+                      "status": 422,
+                      "code": "idempotency_mismatch",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "schedule"
+        ]
+      }
+    },
+    "/v1/schedule-entries/{id}": {
+      "get": {
+        "operationId": "Schedule_get",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleEntryDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`trips:read`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "trips",
+                      "action": "read",
+                      "required": [
+                        "trips:read"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ไม่พบรายการ (รวมของบริษัทอื่น)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "instance": "/v1/schedule-entries/sch_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "schedule"
+        ]
+      }
+    },
+    "/v1/schedule-entries/{id}/cancel": {
+      "post": {
+        "operationId": "Schedule_cancel",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelScheduleEntryDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleEntryDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`trips:assign`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "trips",
+                      "action": "assign",
+                      "required": [
+                        "trips:assign"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ไม่พบรายการ (รวมของบริษัทอื่น)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "instance": "/v1/schedule-entries/sch_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "วันลาทับวันลาเดิมของคนขับ (`conflict`) / ยกเลิกไปแล้ว (`invalid_state_transition`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "conflict": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/conflict",
+                      "title": "ข้อมูลขัดแย้งกับที่มีอยู่",
+                      "status": 409,
+                      "code": "conflict",
+                      "instance": "/v1/schedule-entries/sch_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "detail": "มีวันลาของคนขับคนนี้ทับช่วงนี้อยู่แล้ว (2026-11-18 – 2026-11-19)"
+                    }
+                  },
+                  "invalid_state_transition": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/invalid_state_transition",
+                      "title": "ทำรายการนี้ไม่ได้ในสถานะปัจจุบัน",
+                      "status": 409,
+                      "code": "invalid_state_transition",
+                      "instance": "/v1/schedule-entries/sch_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "detail": "รายการนี้ถูกยกเลิกแล้ว"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "If-Match ไม่ตรง version",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "precondition_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/precondition_failed",
+                      "title": "ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่",
+                      "status": 412,
+                      "code": "precondition_failed",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "deliveryOrderIds[0]",
+                          "code": "invalid_reference",
+                          "message": "not found"
+                        },
+                        {
+                          "field": "plannedEndAt",
+                          "code": "outside_trip_date",
+                          "message": "must be on tripDate"
+                        }
+                      ]
+                    }
+                  },
+                  "idempotency_mismatch": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_mismatch",
+                      "title": "Idempotency-Key นี้เคยใช้กับข้อมูลอื่น",
+                      "status": 422,
+                      "code": "idempotency_mismatch",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "schedule"
+        ]
+      }
+    },
     "/v1/carriers/{id}/recent-prices": {
       "get": {
         "operationId": "CarrierRecentPrices_recentPrices",
@@ -33153,12 +33728,21 @@
             "type": "string",
             "nullable": true,
             "example": "T2"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "ON_LEAVE"
+            ],
+            "description": "สถานะคนขับ — ON_LEAVE (ลาพัก ไม่มีวัน) = ลาทุกวันบนกระดาน"
           }
         },
         "required": [
           "id",
           "name",
-          "licenceClass"
+          "licenceClass",
+          "status"
         ]
       },
       "BoardBlockIssueDto": {
@@ -33620,6 +34204,118 @@
           "deliveryOrders"
         ]
       },
+      "ScheduleEntryDriverDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "drv_…"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ]
+      },
+      "ScheduleEntryVehicleDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "veh_…"
+          },
+          "plate": {
+            "type": "string"
+          },
+          "plateProvince": {
+            "type": "string",
+            "example": "TH-10"
+          }
+        },
+        "required": [
+          "id",
+          "plate",
+          "plateProvince"
+        ]
+      },
+      "ScheduleEntryDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "sch_…"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "LEAVE",
+              "NOTE"
+            ]
+          },
+          "driver": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ScheduleEntryDriverDto"
+              }
+            ]
+          },
+          "vehicle": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ScheduleEntryVehicleDto"
+              }
+            ]
+          },
+          "startsOn": {
+            "type": "string",
+            "format": "date"
+          },
+          "endsOn": {
+            "type": "string",
+            "format": "date"
+          },
+          "note": {
+            "type": "string",
+            "description": "เหตุผลการลา / ข้อความโน้ต"
+          },
+          "cancelledAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "cancelReason": {
+            "type": "string",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "version": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "driver",
+          "vehicle",
+          "startsOn",
+          "endsOn",
+          "note",
+          "cancelledAt",
+          "cancelReason",
+          "createdAt",
+          "version"
+        ]
+      },
       "PlanningBoardDto": {
         "type": "object",
         "properties": {
@@ -33663,6 +34359,13 @@
             "items": {
               "$ref": "#/components/schemas/DaySendStateDto"
             }
+          },
+          "schedule": {
+            "description": "วันลาคนขับ/โน้ตรายวันที่ทับช่วง from–to (ST3-T19 ตารางรถ/คนขับรายวัน) — ไม่รวมที่ยกเลิก · ชุดเดียวกับ GET /v1/schedule-entries",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScheduleEntryDto"
+            }
           }
         },
         "required": [
@@ -33672,7 +34375,8 @@
           "vehicles",
           "trips",
           "pool",
-          "days"
+          "days",
+          "schedule"
         ]
       },
       "EligibilityDayLevelDto": {
@@ -33891,6 +34595,81 @@
         "required": [
           "view",
           "cardFields"
+        ]
+      },
+      "ScheduleEntryListDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScheduleEntryDto"
+            }
+          }
+        },
+        "required": [
+          "data"
+        ]
+      },
+      "CreateScheduleEntryDto": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "LEAVE",
+              "NOTE"
+            ],
+            "description": "LEAVE = วันลาคนขับ (ต้องมี driverId) · NOTE = โน้ตรายวันของคนขับหรือรถ (อย่างใดอย่างหนึ่ง)"
+          },
+          "driverId": {
+            "type": "string",
+            "example": "drv_…"
+          },
+          "vehicleId": {
+            "type": "string",
+            "example": "veh_…",
+            "description": "เฉพาะ NOTE"
+          },
+          "startsOn": {
+            "type": "string",
+            "example": "2026-11-18",
+            "format": "date",
+            "description": "วันแรก (วันไทย)"
+          },
+          "endsOn": {
+            "type": "string",
+            "example": "2026-11-19",
+            "format": "date",
+            "description": "วันสุดท้าย (รวม) ≥ startsOn · ช่วงไม่เกิน 366 วัน"
+          },
+          "note": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "example": "ลาป่วย",
+            "description": "เหตุผลการลา / ข้อความโน้ต"
+          }
+        },
+        "required": [
+          "kind",
+          "startsOn",
+          "endsOn",
+          "note"
+        ]
+      },
+      "CancelScheduleEntryDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 10,
+            "maxLength": 500,
+            "description": "เหตุผล (ลง audit)"
+          }
+        },
+        "required": [
+          "reason"
         ]
       },
       "RecentPriceSiteDto": {
