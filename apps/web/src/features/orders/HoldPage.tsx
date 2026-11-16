@@ -64,7 +64,7 @@ const KPI: { code: string; color: string }[] = [
 
 /**
  * ปฏิบัติการ → ใบค้าง (ST3-T07; docs/04 C "หน้าใบค้าง + reason code ครบชุด") — ตารางเดียวของ SO ที่ ON_HOLD
- * ต้นแบบไม่มีหน้านี้ ([OPEN] spec/12 §3) → ใช้โครงหน้า SO ของต้นแบบ (specSo: หัว + แถบสรุป + แท็บ + ตาราง + drawer SO)
+ * ต้นแบบไม่มีหน้านี้ ([DECISION — ย้อนได้] spec/12 §3, PO 16 พ.ย. 2569) → ใช้โครงหน้า SO ของต้นแบบ (specSo: หัว + แถบสรุป + แท็บ + ตาราง + drawer SO)
  * ป้ายเหตุผลครบ 12 รหัส + ปุ่มเคลียร์ต่อรหัส (เปิด drawer SO ที่มีกล่อง/ปุ่มเคลียร์ตามเหตุ)
  */
 export function HoldPage() {
@@ -120,7 +120,7 @@ export function HoldPage() {
             style={{
               color: mapped ? '#101418' : '#8F5500',
               display: 'inline-block',
-              maxWidth: 240,
+              maxWidth: 120,
               overflow: 'hidden',
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',
@@ -145,12 +145,12 @@ export function HoldPage() {
           <span className="tms-route-cell" title={`${a.siteText} → ${b.siteText}`}>
             <RouteChip
               from={
-                <span className="tms-ellipsis" style={{ maxWidth: 110 }}>
+                <span className="tms-ellipsis" style={{ maxWidth: 72 }}>
                   {a.siteText}
                 </span>
               }
               to={
-                <span className="tms-ellipsis" style={{ maxWidth: 110 }}>
+                <span className="tms-ellipsis" style={{ maxWidth: 72 }}>
                   {b.siteText}
                 </span>
               }

@@ -1,8 +1,9 @@
 // ภาพเทียบ "ต้นแบบ | ของจริง" ของหน้า ปฏิบัติการ → ใบค้าง (ST3-T07) ที่ 1440 px — เครื่อง dev เท่านั้น
 // ต้องมี web dev (4420) + API dev (4410) ที่รันโค้ด ST3-T07 + seed · ใช้: node scripts/compare-hold.mjs
 // (web อื่น: WEB=http://localhost:4820 node scripts/compare-hold.mjs · เขียนสำเนาเพิ่ม: OUT2=/path/)
-// ต้นแบบไม่มีหน้าใบค้าง ([OPEN] spec/12 §3) → ฝั่งซ้ายเป็นหน้าที่ใช้เป็นแบบ: รายการ SO แท็บ "ยังไม่จับคู่ลูกค้า",
-// drawer SO ที่ยังไม่จับคู่ลูกค้า (กล่องเลือกลูกค้า + ปุ่ม "จับคู่ลูกค้า"), popover "เปลี่ยนสถานที่", ราคา "ไม่พบ rate card"
+// ต้นแบบไม่มีหน้าใบค้าง ([DECISION — ย้อนได้] spec/12 §3, PO 16 พ.ย. 2569) → ฝั่งซ้ายเป็นหน้าที่ใช้เป็นแบบ: รายการ SO,
+// drawer SO ที่ยังไม่จับคู่ลูกค้า (กล่องเลือกลูกค้า + ปุ่ม "จับคู่ลูกค้า"), popover "เปลี่ยนสถานที่", ราคา "ไม่พบ rate card",
+// "กำหนดราคาเอง" (ช่องราคา — sox.setManual/mp)
 // ข้อมูลตัวอย่าง (สมมติ) ใน demo-a ด้วย PUT .../external/DEMO-HOLD-* — รันซ้ำได้ไม่เกิดแถวใหม่
 import { chromium } from '@playwright/test';
 import { createHash, randomBytes } from 'node:crypto';
@@ -53,9 +54,29 @@ await P.waitForTimeout(900);
 await P.getByText('เปลี่ยนสถานที่', { exact: true }).filter({ visible: true }).nth(1).click();
 await P.waitForTimeout(600);
 a.site = await P.screenshot();
-await P.getByText('ราคา', { exact: true }).filter({ visible: true }).first().scrollIntoViewIfNeeded();
+await P.getByText('ราคา', { exact: true })
+  .filter({ visible: true })
+  .first()
+  .scrollIntoViewIfNeeded();
 await P.waitForTimeout(400);
 a.rate = await P.screenshot();
+// ใบที่ไม่พบ rate card ในข้อมูลตัวอย่างของต้นแบบ — ไล่เปิดแถวจนเจอปุ่ม "กำหนดราคาเอง"
+const manualBtn = P.getByRole('button', { name: 'กำหนดราคาเอง' }).filter({ visible: true });
+for (let i = 0; i < 25 && !(await manualBtn.count()); i++) {
+  await P.keyboard.press('Escape');
+  await P.waitForTimeout(300);
+  const row = P.locator('tbody tr').nth(i);
+  if (!(await row.count())) break;
+  await row.click();
+  await P.waitForTimeout(600);
+}
+if (await manualBtn.count()) {
+  await manualBtn.first().scrollIntoViewIfNeeded();
+  a.rate = await P.screenshot();
+  await manualBtn.first().click();
+  await P.waitForTimeout(500);
+}
+a.manual = await P.screenshot();
 
 // ---------- ของจริง ----------
 const ctx = await b.newContext({ viewport: vp, locale: 'th-TH', baseURL: WEB });
@@ -87,7 +108,12 @@ const put = async (path, data) => {
   if (!r.ok()) console.error('seed failed', path, r.status(), (await r.text()).slice(0, 300));
   return r.ok() ? r.json() : null;
 };
-const ADDR = (p) => ({ line1: '99 ถนนตัวอย่าง', district: 'เมือง', province: p, postcode: '20000' });
+const ADDR = (p) => ({
+  line1: '99 ถนนตัวอย่าง',
+  district: 'เมือง',
+  province: p,
+  postcode: '20000',
+});
 const cos = await (
   await W.request.get('/v1/companies?status=active&limit=50', { headers: H })
 ).json();
@@ -133,7 +159,7 @@ await order(1, {
     { type: 'DELIVERY', siteText: 'ห้องเย็น มหาชัย' },
   ],
 });
-// ปลายทางยังจับคู่ไม่ได้ (LOCATION_UNMAPPED → "รอกำหนดเส้นทาง")
+// ปลายทางยังจับคู่ไม่ได้ (LOCATION_UNMAPPED → "รอกำหนดเส้นทาง" — ฐาน dev ที่เคยเรียน alias แล้วจะจับคู่ได้เอง; ภาพ popover ใช้ใบที่ 1)
 await order(2, {
   customer: { id: cust[1].id },
   stops: [
@@ -165,9 +191,9 @@ await W.waitForTimeout(1200);
 c.match = await W.screenshot();
 await W.keyboard.press('Escape');
 await W.waitForTimeout(500);
-await W.locator('tbody tr').filter({ hasText: 'บจก. ตัวอย่างท่อเหล็ก' }).first().click();
+await W.locator('tbody tr').filter({ hasText: 'EASTERN SEAFOOD SAMPLE' }).first().click();
 await W.waitForTimeout(1200);
-const pick = W.getByRole('button', { name: 'เลือกสถานที่' }).first();
+const pick = W.locator('aside.tms-drawer').getByRole('button', { name: 'เลือกสถานที่' }).first();
 await pick.click();
 await W.waitForTimeout(900);
 c.site = await W.screenshot();
@@ -175,17 +201,27 @@ await W.keyboard.press('Escape');
 await W.waitForTimeout(300);
 await W.keyboard.press('Escape');
 await W.waitForTimeout(500);
-await W.locator('tbody tr').filter({ hasText: 'บจก. ตัวอย่างอาหารทะเล' }).first().click();
+await W.locator('tbody tr')
+  .filter({ hasText: 'บจก. ตัวอย่างอาหารทะเล' })
+  .filter({ hasText: 'ยังไม่มีราคาขาย' })
+  .first()
+  .click();
 await W.waitForTimeout(1200);
+await W.locator('aside.tms-drawer').getByText('ราคา', { exact: true }).scrollIntoViewIfNeeded();
+await W.waitForTimeout(400);
 c.rate = await W.screenshot();
+await W.locator('aside.tms-drawer').getByRole('button', { name: 'กำหนดราคาเอง' }).click();
+await W.waitForTimeout(500);
+c.manual = await W.screenshot();
 
 const LEFT = {
   list: 'ต้นแบบไม่มีหน้าใบค้าง — รายการ SO ที่ใช้เป็นแบบ',
   match: 'drawer SO ยังไม่จับคู่ลูกค้า',
   site: 'drawer SO "เปลี่ยนสถานที่"',
   rate: 'drawer SO ราคา (ไม่พบ rate card)',
+  manual: 'drawer SO "กำหนดราคาเอง" (ช่องราคา)',
 };
-for (const tag of ['list', 'match', 'site', 'rate']) {
+for (const tag of ['list', 'match', 'site', 'rate', 'manual']) {
   const M = await (await b.newContext({ viewport: { width: 2900, height: 960 } })).newPage();
   await M.setContent(
     `<body style="margin:0;display:flex;gap:20px;background:#333;font:16px sans-serif;color:#fff"><div><div style="padding:8px">ต้นแบบ (TMS v4) — ${LEFT[tag]}</div><img src="data:image/png;base64,${a[tag].toString('base64')}"></div><div><div style="padding:8px">ของจริง (apps/web /so/hold)</div><img src="data:image/png;base64,${c[tag].toString('base64')}"></div></body>`,

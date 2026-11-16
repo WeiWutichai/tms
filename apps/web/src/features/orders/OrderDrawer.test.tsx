@@ -13,7 +13,13 @@ const cancelMutate = vi.fn();
 const decideMutate = vi.fn();
 const recheckMutate = vi.fn();
 const priceMutate = vi.fn();
-const mut = () => ({ mutate: vi.fn(), isPending: false, error: null, reset: vi.fn() });
+const mut = () => ({
+  mutate: vi.fn(),
+  mutateAsync: vi.fn(() => new Promise(() => {})),
+  isPending: false,
+  error: null,
+  reset: vi.fn(),
+});
 vi.mock('./useOrders', () => ({
   useOrder: () => live,
   useUpdateOrder: () => ({ mutate: vi.fn(), isPending: false, error: null }),
@@ -29,9 +35,9 @@ vi.mock('./useOrders', () => ({
   // หน้าใบค้าง (ST3-T07)
   useMapCustomer: () => mut(),
   useMapSite: () => mut(),
-  useReevaluate: () => ({ ...mut(), mutate: recheckMutate }),
+  useReevaluate: () => ({ ...mut(), mutateAsync: recheckMutate }),
   useResolveSourceError: () => mut(),
-  useManualPrice: () => ({ ...mut(), mutate: priceMutate }),
+  useManualPrice: () => ({ ...mut(), mutateAsync: priceMutate }),
   searchCustomers: async () => [],
   searchStopSites: async () => [],
 }));
@@ -148,7 +154,7 @@ describe('OrderDrawer (ST3-T10)', () => {
     cancelMutate.mockReset();
     decideMutate.mockReset();
     recheckMutate.mockReset();
-    priceMutate.mockReset();
+    priceMutate.mockReset().mockReturnValue(new Promise(() => {}));
   });
 
   it('ต้นทางแก้หลังวางแผน: ป้าย + ตารางเทียบ TMS กับ KRS (ชื่อช่องไทย, เวลาไทย) + ปุ่มรับ/ใช้ค่า TMS', () => {
@@ -286,15 +292,12 @@ describe('OrderDrawer (ST3-T10)', () => {
       target: { value: 'ลูกค้ารายใหม่ ตกลงราคาทางโทรศัพท์' },
     });
     fireEvent.click(within(dlg).getByRole('button', { name: 'บันทึกราคา' }));
-    expect(priceMutate).toHaveBeenCalledWith(
-      {
-        id: 'ord_1',
-        version: 3,
-        sellAmount: '4200.50',
-        reason: 'ลูกค้ารายใหม่ ตกลงราคาทางโทรศัพท์',
-      },
-      expect.anything(),
-    );
+    expect(priceMutate).toHaveBeenCalledWith({
+      id: 'ord_1',
+      version: 3,
+      sellAmount: '4200.50',
+      reason: 'ลูกค้ารายใหม่ ตกลงราคาทางโทรศัพท์',
+    });
   });
 
   it('ไม่มีสิทธิ์แก้ราคาขาย (prices.sell:write) → เห็นแถวเตือนแต่ไม่มีปุ่มกำหนดราคาเอง · บรรทัด MANUAL แสดง "ค่าขนส่ง (กำหนดเอง)"', () => {

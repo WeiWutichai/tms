@@ -29,6 +29,9 @@ import {
  * endpoint: map-customer / map-site (ST3-T06) · reevaluate / resolve-source-error / manual-price (ST3-T07)
  */
 
+/** error แสดงจาก state ของ mutation แล้ว (clearErrorText) — promise ที่ reject ไม่ต้องทำอะไรเพิ่ม */
+const noop = () => {};
+
 /** ข้อความผลหลังเคลียร์: กลับรอจัดรถ / ยังค้างด้วยเหตุอื่น */
 export function useClearedText() {
   const { t } = useI18n();
@@ -434,10 +437,10 @@ export function HoldActions({
   const code = order.holdReason?.code ?? '';
   const no = order.soNo ?? t('ord.draftNo');
   const doRecheck = () =>
-    recheck.mutate(
-      { id: order.id, version: order.version },
-      { onSuccess: (x) => onDone(cleared(x)) },
-    );
+    // mutateAsync: ใบพ้นค้างแล้วกล่องนี้หายก่อน callback ของ mutate จะถูกเรียก (react-query ไม่เรียกเมื่อ unmount)
+    recheck
+      .mutateAsync({ id: order.id, version: order.version })
+      .then((x) => onDone(cleared(x)), noop);
   const btns: ReactNode[] = [];
   if (canWrite && code === 'GEOCODING_ERROR') {
     // ทุกจุดที่หาพิกัดไม่ได้ (review ST3-T07) — หลายจุด = ปุ่มต่อจุด "ปักหมุดสถานที่ · จุดที่ n"
@@ -506,15 +509,10 @@ export function HoldActions({
         busy={resolve.isPending}
         error={problemText(resolve.error, t)}
         onOk={(reason) =>
-          resolve.mutate(
-            { id: order.id, version: order.version, reason },
-            {
-              onSuccess: (x) => {
-                setConfirmSrc(false);
-                onDone(`${t('hold.toast.source', { no })} · ${cleared(x)}`);
-              },
-            },
-          )
+          resolve.mutateAsync({ id: order.id, version: order.version, reason }).then((x) => {
+            setConfirmSrc(false);
+            onDone(`${t('hold.toast.source', { no })} · ${cleared(x)}`);
+          }, noop)
         }
         onClose={() => setConfirmSrc(false)}
       />
@@ -644,16 +642,14 @@ export function ManualPrice({
           save.reset();
         }}
         onOk={(reason) =>
-          save.mutate(
-            { id: order.id, version: order.version, sellAmount: amount, reason },
-            {
-              onSuccess: (x) => {
-                setDlg(false);
-                setEditing(false);
-                onDone(`${t('ord.mp.toast', { no })} · ${cleared(x)}`);
-              },
-            },
-          )
+          // mutateAsync: มีบรรทัด MANUAL แล้วส่วนนี้หาย (unmount) ก่อน callback ของ mutate — ข้อความผลต้องยังขึ้น
+          save
+            .mutateAsync({ id: order.id, version: order.version, sellAmount: amount, reason })
+            .then((x) => {
+              setDlg(false);
+              setEditing(false);
+              onDone(`${t('ord.mp.toast', { no })} · ${cleared(x)}`);
+            }, noop)
         }
       />
     </div>
