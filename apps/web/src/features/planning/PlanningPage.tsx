@@ -33,7 +33,13 @@ import { HoldBadge, holdLabel } from '../orders/HoldPage';
 import { OrderDrawer } from '../orders/OrderDrawer';
 import { TripDrawer } from '../trips/TripDrawer';
 import { tripProblemText } from '../trips/tripProblem';
-import { useBulkAssign, useSendAll, useSendCheck, type BulkResults } from '../trips/useTrips';
+import {
+  useBulkAssign,
+  usePrintDaySheet,
+  useSendAll,
+  useSendCheck,
+  type BulkResults,
+} from '../trips/useTrips';
 import { OrderFormDrawer } from '../orders/OrderFormDrawer';
 import { fromOrder, type Order, type OrderForm } from '../orders/orderForm';
 import { bangkokToday, useDateText } from '../rate-cards/rateFormat';
@@ -303,6 +309,9 @@ export function PlanningPage() {
   const [form, setForm] = useState<{ key: number; initial: OrderForm; order: Order } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const canDispatch = can(scopes, 'trips:dispatch');
+  /** ST3-T20 ใบงานประจำวัน: พิมพ์ใบคุมรถทุกเที่ยวของวันที่แสดง (สร้างไฟล์ = `documents:write`) */
+  const canPrint = can(scopes, 'documents:write');
+  const printDay = usePrintDaySheet();
   /** ST3-T17 bulk (spec/03 PLN-047): เที่ยวที่เลือก (Shift/⌘/Ctrl + คลิกการ์ด) → แถบ "เลือก N รายการ" */
   const [picked, setPicked] = useState<string[]>([]);
   const bulk = useBulkAssign();
@@ -1947,10 +1956,44 @@ export function PlanningPage() {
         title={t('page.plan.title')}
         sub={t('page.plan.sub')}
         actions={
-          canPlan && canDispatch ? (
-            <Button variant="secondary" icon="send" disabled={!b} onClick={openSend}>
-              {t('plan.send.btn')}
-            </Button>
+          canPrint || (canPlan && canDispatch) ? (
+            <>
+              {canPrint && (
+                <Button
+                  variant="secondary"
+                  icon="printer"
+                  disabled={!b || printDay.isPending}
+                  onClick={() =>
+                    printDay.mutate(
+                      { date: dsel },
+                      {
+                        onSuccess: (r) =>
+                          setToast(
+                            t('plan.print.done', {
+                              n: r.tripIds.length,
+                              d: formatDayHead(dsel, lang),
+                            }),
+                          ),
+                        onError: (e) =>
+                          setToast(
+                            e instanceof ApiError &&
+                              e.problem.errors?.some((x) => x.code === 'no_trips')
+                              ? t('plan.print.none', { d: formatDayHead(dsel, lang) })
+                              : problemText(e, t),
+                          ),
+                      },
+                    )
+                  }
+                >
+                  {t('plan.print.btn')}
+                </Button>
+              )}
+              {canPlan && canDispatch && (
+                <Button variant="secondary" icon="send" disabled={!b} onClick={openSend}>
+                  {t('plan.send.btn')}
+                </Button>
+              )}
+            </>
           ) : undefined
         }
       />
@@ -2495,6 +2538,7 @@ export function PlanningPage() {
           canEdit={can(scopes, 'trips:assign')}
           canDispatch={canDispatch}
           canOverride={canOverride}
+          canPrint={canPrint}
           onDone={setToast}
           onClose={() => setTripId(null)}
         />

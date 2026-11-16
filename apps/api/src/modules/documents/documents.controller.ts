@@ -99,6 +99,19 @@ export const store = () =>
   new LocalFileStore(process.env.FILES_ROOT ?? join(process.cwd(), '.data', 'files'));
 const enc = (id: string) => encodeId('document', id);
 
+/** DTO + ลิงก์ดาวน์โหลดอายุสั้น (READY) — ใช้ร่วมกับเอกสารที่ระบบสร้างเอง เช่น ใบคุมรถ ST3-T20 */
+export function readyDocumentDto(doc: StoredDocument, origin: string): DocumentDto {
+  const dto = toDto(doc);
+  const s = signDocumentUrl('download', doc.tenantId, doc.id, DOWNLOAD_TTL_S);
+  dto.downloadUrl = `${origin.replace(/\/+$/, '')}/v1/documents/${enc(doc.id)}/content?${s.query}`;
+  dto.urlExpiresAt = s.expiresAt.toISOString();
+  return dto;
+}
+
+/** ฐาน URL ของ API จากค่าตั้ง (ไม่เชื่อ Host / X-Forwarded-* ของ request) — dev ใช้ค่าจาก request */
+export const apiOrigin = (req: Request) =>
+  process.env.PUBLIC_API_BASE_URL ?? `${req.protocol}://${req.get('host')}`;
+
 function toDto(d: StoredDocument): DocumentDto {
   return {
     id: enc(d.id),
@@ -258,7 +271,7 @@ export class DocumentsController {
 
   private withUrl(doc: StoredDocument, req: Request): DocumentDto {
     // ฐาน URL จากค่าตั้ง (ไม่เชื่อ Host / X-Forwarded-* ของ request) — dev ใช้ค่าจาก request
-    const origin = process.env.PUBLIC_API_BASE_URL ?? `${req.protocol}://${req.get('host')}`;
+    const origin = apiOrigin(req);
     const base = `${origin.replace(/\/+$/, '')}/v1/documents/${enc(doc.id)}/content`;
     const dto = toDto(doc);
     const ctx = requestContext.require();

@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 /**
- * ฟอนต์ Sarabun (SIL OFL 1.1 — @fontsource/sarabun) ฝังเป็น base64 ใน HTML ทุกครั้ง
+ * ฟอนต์ Sarabun (SIL OFL 1.1 — @fontsource/sarabun) 400/500/600/700 ฝังเป็น base64 ใน HTML ทุกครั้ง (500 = ST3-T20 ใบคุมรถตามต้นแบบ)
  * → PDF ไม่พึ่งฟอนต์ในเครื่อง/เน็ต และผลเหมือนกันทุกเครื่อง (ต้นแบบ TMS Print ใช้ Sarabun สำหรับ A4)
  */
 let css: string | null = null;
@@ -11,7 +11,7 @@ export function sarabunFontCss(): string {
   if (css) return css;
   const dir = join(dirname(require.resolve('@fontsource/sarabun/package.json')), 'files');
   const faces: string[] = [];
-  for (const weight of [400, 600, 700]) {
+  for (const weight of [400, 500, 600, 700]) {
     for (const [subset, range] of [
       ['thai', 'U+02D7, U+0303, U+0331, U+0E01-0E5B, U+200C-200D, U+25CC'],
       [

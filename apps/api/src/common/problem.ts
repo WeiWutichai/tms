@@ -91,6 +91,11 @@ export const PROBLEMS = {
   },
   rate_limited: { status: 429, th: 'เรียกถี่เกินไป', en: 'Too many requests' },
   /** ระบบ/ฐานข้อมูลรับงานไม่ทัน (connection pool เต็ม, เริ่ม transaction ไม่ทัน) — ไม่ใช่ความผิดของผู้เรียก ลองใหม่ได้ (มี Retry-After) */
+  pdf_render_timeout: {
+    status: 503,
+    th: 'สร้าง PDF ไม่ทันเวลา กรุณาลองใหม่อีกครั้ง',
+    en: 'PDF rendering timed out — please retry',
+  },
   service_busy: {
     status: 503,
     th: 'ระบบกำลังมีผู้ใช้งานมาก กรุณาลองใหม่อีกครั้ง',

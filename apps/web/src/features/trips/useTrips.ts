@@ -244,3 +244,62 @@ export function useAssignOptions(carrierId: string | null, enabled: boolean) {
   });
   return { vehicles, drivers };
 }
+
+// ---------------------------------------------------------------- ใบคุมรถ PDF (ST3-T20)
+
+export type TripSheet = Schemas['TripSheetDto'];
+export type TripSheetLink = Schemas['TripSheetLinkDto'];
+
+/** ดาวน์โหลดไฟล์จากลิงก์อายุสั้นของ `/v1/documents/{id}/content` (แบบเดียวกับไฟล์แนบ — openDocFile) */
+export function downloadSheet(s: TripSheet): void {
+  const url = s.document.downloadUrl;
+  if (!url) return;
+  const u = new URL(url, location.origin);
+  const a = document.createElement('a');
+  a.href = u.pathname + u.search;
+  a.rel = 'noopener';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+/** "พิมพ์ใบคุมรถ" ของเที่ยว → POST /v1/trips/{id}/sheet (สร้าง PDF ใหม่ทุกครั้ง = ข้อมูล ณ ตอนกด) แล้วดาวน์โหลด */
+export function usePrintTripSheet() {
+  return useMutation({
+    mutationFn: (id: string) =>
+      unwrap(api.POST('/v1/trips/{id}/sheet', { params: { path: { id } } })) as Promise<TripSheet>,
+    onSuccess: downloadSheet,
+  });
+}
+
+/** ใบงานประจำวัน: ทุกเที่ยวของวัน (หรือรถคันเดียว) → POST /v1/trip-sheets แล้วดาวน์โหลด */
+export function usePrintDaySheet() {
+  return useMutation({
+    mutationFn: (v: { date: string; vehicleId?: string }) =>
+      unwrap(api.POST('/v1/trip-sheets', { body: v })) as Promise<TripSheet>,
+    onSuccess: downloadSheet,
+  });
+}
+
+/** "ส่งให้คนขับ" (เฟส 0 = คัดลอกลิงก์) → POST /v1/trips/{id}/sheet/driver-link */
+export function useTripSheetLink() {
+  return useMutation({
+    mutationFn: (id: string) =>
+      unwrap(
+        api.POST('/v1/trips/{id}/sheet/driver-link', { params: { path: { id } } }),
+      ) as Promise<TripSheetLink>,
+  });
+}
+
+/** เพิกถอนลิงก์ใบคุมรถของเที่ยว (เหตุผล ≥ 10) → POST /v1/trips/{id}/sheet/driver-link/revoke */
+export function useRevokeTripSheetLinks() {
+  return useMutation({
+    mutationFn: (v: { id: string; reason: string }) =>
+      unwrap(
+        api.POST('/v1/trips/{id}/sheet/driver-link/revoke', {
+          params: { path: { id: v.id } },
+          body: { reason: v.reason },
+        }),
+      ) as Promise<{ revoked: number }>,
+  });
+}

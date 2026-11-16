@@ -32,6 +32,7 @@ import { encodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { keysetArgs, type ListQuery } from '../../common/pagination';
+import { TripSheetLinks } from '../trip-sheets/sheet-links';
 import { DbService, type Tx } from '../../db/db.service';
 import { StateService } from '../../state/state.service';
 import { AssignabilityService } from '../assignability/assignability.service';
@@ -183,6 +184,7 @@ export class TripService {
     private readonly orderState: OrderStateService,
     private readonly compatibility: CompatibilityService,
     private readonly assignability: AssignabilityService,
+    private readonly sheetLinks: TripSheetLinks,
   ) {}
 
   // ---------------------------------------------------------------------------------------------
@@ -670,6 +672,9 @@ export class TripService {
     );
     let final = await this.refreshWarnings(tx, trip.id);
     final = await this.enforceRules(tx, final, input.rules, reason, gate);
+    // เปลี่ยนคนขับ → ลิงก์ใบคุมรถที่ส่งให้คนขับเดิมหมดผล (ST3-T20 review/QA — PDPA)
+    if (trip.driverId && final.driverId !== trip.driverId)
+      await this.sheetLinks.revokeForTrip(tx, trip.id, 'DRIVER_CHANGED');
     await this.audit.record({
       action: `${ENTITY}.${event === 'reassign' ? 'reassigned' : 'assigned'}`,
       entityType: ENTITY,
@@ -1018,6 +1023,8 @@ export class TripService {
       tx,
       dos.map((d) => d.salesOrderId),
     );
+    // ลิงก์ใบคุมรถที่ส่งให้คนขับหมดผล (ST3-T20 review/QA)
+    await this.sheetLinks.revokeForTrip(tx, trip.id, 'TRIP_CANCELLED');
     const final = await this.get(trip.id, tx);
     await this.audit.record({
       action: `${ENTITY}.cancelled`,

@@ -15,7 +15,13 @@ const reorderMutate = vi.fn();
 const detachMutate = vi.fn();
 const assignMutate = vi.fn();
 const dispatchMutate = vi.fn();
+const printMutate = vi.fn();
+const shareMutate = vi.fn();
+const revokeMutate = vi.fn();
 vi.mock('./useTrips', () => ({
+  useRevokeTripSheetLinks: () => ({ mutate: revokeMutate, isPending: false }),
+  usePrintTripSheet: () => ({ mutate: printMutate, isPending: false }),
+  useTripSheetLink: () => ({ mutate: shareMutate, isPending: false }),
   useTrip: () => live,
   useReorderStops: () => ({ mutate: reorderMutate, isPending: false }),
   useDetachFromTrip: () => ({ mutate: detachMutate, isPending: false }),
@@ -143,7 +149,7 @@ const TRIP = {
 } as unknown as TripDetail;
 
 const onDone = vi.fn();
-const show = (canEdit = true, canDispatch = false) =>
+const show = (canEdit = true, canDispatch = false, canPrint = false) =>
   render(
     <MemoryRouter>
       <QueryClientProvider client={new QueryClient()}>
@@ -152,6 +158,7 @@ const show = (canEdit = true, canDispatch = false) =>
             id="trp_1"
             canEdit={canEdit}
             canDispatch={canDispatch}
+            canPrint={canPrint}
             onDone={onDone}
             onClose={() => {}}
           />
@@ -167,7 +174,71 @@ describe('TripDrawer (ST3-T16)', () => {
     detachMutate.mockReset();
     assignMutate.mockReset();
     dispatchMutate.mockReset();
+    printMutate.mockReset();
+    shareMutate.mockReset();
     onDone.mockReset();
+  });
+
+  it('ST3-T20 footer "พิมพ์ใบคุมรถ" (ต้นแบบ sec) → สร้าง PDF + toast · "ส่งให้คนขับ" → dialog ลิงก์ + คัดลอก · สิทธิ์/สถานะ', () => {
+    const { unmount } = show(true, false, false);
+    expect(screen.queryByRole('button', { name: 'พิมพ์ใบคุมรถ' })).toBeNull();
+    unmount();
+    const r2 = show(true, false, true);
+    expect(screen.queryByRole('button', { name: 'ส่งให้คนขับ' })).toBeNull(); // ต้องมี trips:dispatch
+    printMutate.mockImplementationOnce((_id, o: { onSuccess: () => void }) => o.onSuccess());
+    fireEvent.click(screen.getByRole('button', { name: 'พิมพ์ใบคุมรถ' }));
+    expect(printMutate).toHaveBeenCalledWith('trp_1', expect.anything());
+    expect(screen.getByText('สร้าง PDF ใบคุมรถ TRP-6911-0001 แล้ว')).toBeTruthy();
+    r2.unmount();
+
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+    show(true, true, true);
+    shareMutate.mockImplementationOnce((_id, o: { onSuccess: (x: unknown) => void }) =>
+      o.onSuccess({
+        url: 'http://x/v1/public/trip-sheets/ml1.abc',
+        expiresAt: '2026-11-20T03:14:00.000Z',
+        tripIds: ['trp_1'],
+        tripNos: ['TRP-6911-0001'],
+        document: {},
+      }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'ส่งให้คนขับ' }));
+    const dlg = screen.getByRole('dialog', { name: 'ส่งใบคุมรถให้คนขับ' });
+    expect(dlg.textContent).toContain('สมชาย ใจดี');
+    expect(dlg.textContent).toContain('ml1.abc');
+    fireEvent.click(within(dlg).getByRole('button', { name: 'คัดลอกลิงก์' }));
+    expect(writeText).toHaveBeenCalledWith('http://x/v1/public/trip-sheets/ml1.abc');
+    expect(screen.getByText('คัดลอกลิงก์แล้ว · ส่งให้คนขับทาง LINE หรือ SMS')).toBeTruthy();
+
+    // เพิกถอนลิงก์: เหตุผล ≥ 10 → API แล้วปิด dialog + toast
+    fireEvent.click(within(dlg).getByRole('button', { name: 'เพิกถอนลิงก์' }));
+    const rd = screen.getByRole('dialog', { name: 'เพิกถอนลิงก์ใบคุมรถ' });
+    fireEvent.change(within(rd).getByRole('textbox'), {
+      target: { value: 'ส่งลิงก์ผิดคน ขอยกเลิก' },
+    });
+    revokeMutate.mockImplementationOnce((_v, o: { onSuccess: () => void }) => o.onSuccess());
+    fireEvent.click(within(rd).getByRole('button', { name: 'เพิกถอนลิงก์' }));
+    expect(revokeMutate).toHaveBeenCalledWith(
+      { id: 'trp_1', reason: 'ส่งลิงก์ผิดคน ขอยกเลิก' },
+      expect.anything(),
+    );
+    expect(screen.queryByRole('dialog', { name: 'ส่งใบคุมรถให้คนขับ' })).toBeNull();
+    expect(screen.getByText('เพิกถอนลิงก์ใบคุมรถแล้ว')).toBeTruthy();
+  });
+
+  it('ST3-T20 ไม่มีคนขับ → ไม่มีปุ่ม "ส่งให้คนขับ" (พิมพ์ได้)', () => {
+    live.data = { ...TRIP, driver: null } as TripDetail;
+    show(true, true, true);
+    expect(screen.getByRole('button', { name: 'พิมพ์ใบคุมรถ' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'ส่งให้คนขับ' })).toBeNull();
+  });
+
+  it('ST3-T20 เที่ยวยกเลิก → ไม่มีปุ่มพิมพ์/ส่ง', () => {
+    live.data = { ...TRIP, status: 'CANCELLED' } as TripDetail;
+    show(true, true, true);
+    expect(screen.queryByRole('button', { name: 'พิมพ์ใบคุมรถ' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'ส่งให้คนขับ' })).toBeNull();
   });
 
   it('หัว/ข้อมูล/จุดตามลำดับ + ระยะช่วงวิ่ง + ยอดรวม', () => {
