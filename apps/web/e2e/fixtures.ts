@@ -6,8 +6,8 @@ export const DEMO_EMAIL = 'owner@demo-a.test';
 export const DEMO_PASSWORD = 'demo-password-2569';
 /** secret TOTP ของผู้ใช้เดโมที่ role บังคับ 2FA + token อุปกรณ์ที่จำไว้ (seed.ts — dev/e2e เท่านั้น) */
 export const DEMO_TOTP_SECRET = 'JBSWY3DPEHPK3PXP';
-const DEMO_TRUSTED_DEVICE = 'demo-trusted-device-e2e-only-0000000000000';
-const DEMO_IDS: Record<string, string> = {
+export const DEMO_TRUSTED_DEVICE = 'demo-trusted-device-e2e-only-0000000000000';
+export const DEMO_IDS: Record<string, string> = {
   'owner@demo-a.test': '00000000-0000-4000-8000-0000000e0a01',
   'admin@demo-a.test': '00000000-0000-4000-8000-0000000e0a02',
   'accounting@demo-a.test': '00000000-0000-4000-8000-0000000e0a07',

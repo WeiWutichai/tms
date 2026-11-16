@@ -1,7 +1,7 @@
 import type { Schemas } from '@tms/contracts';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, idempotent, unwrap } from '../../api';
-import type { Board } from './board';
+import type { Board, BoardPrefs } from './board';
 
 export type Trip = Schemas['TripDto'];
 const KEY = 'planning-board';
@@ -13,6 +13,19 @@ export function useBoard(days: 1 | 7) {
     staleTime: 0,
     queryFn: () =>
       unwrap(api.GET('/v1/planning/board', { params: { query: { days } } })) as Promise<Board>,
+  });
+}
+
+/**
+ * มุมมอง + field บนการ์ดของผู้ใช้ (GET /v1/planning/board/preferences — ST3-T13) — เก็บฝั่ง server จำข้ามเครื่อง/login
+ * ผิดพลาด (เช่น credential ไม่ใช่ผู้ใช้) → ไม่ลองซ้ำ ใช้ค่าเริ่มต้น
+ */
+export function useBoardPrefs() {
+  return useQuery({
+    queryKey: ['planning-board-prefs'],
+    staleTime: 60_000,
+    retry: false,
+    queryFn: () => unwrap(api.GET('/v1/planning/board/preferences')) as Promise<BoardPrefs>,
   });
 }
 

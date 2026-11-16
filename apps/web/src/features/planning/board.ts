@@ -293,3 +293,53 @@ export function boardStats(b: Board, days: string[]) {
     count: vis.length,
   };
 }
+
+export type BoardPrefs = Schemas['BoardPreferencesDto'];
+export type BoardView = 'FLEET' | 'VEHICLE' | 'DRIVER' | 'CARRIER';
+export type CardField = 'ORDER_NO' | 'CUSTOMER' | 'TIME' | 'ROUTE' | 'WEIGHT';
+export const CARD_FIELDS: CardField[] = ['ORDER_NO', 'CUSTOMER', 'TIME', 'ROUTE', 'WEIGHT'];
+/** ค่าเริ่มต้นเมื่อยังโหลดค่าของผู้ใช้ไม่เสร็จ/ไม่มี = "รถบริษัท + รถร่วม" + ทุก field (docs/04 D2) */
+export const DEFAULT_PREFS: { view: BoardView; cardFields: CardField[] } = {
+  view: 'FLEET',
+  cardFields: CARD_FIELDS,
+};
+
+const th = (a: string, b: string) => a.localeCompare(b, 'th');
+const byPlate = (a: BoardVehicle, b: BoardVehicle) =>
+  th(a.plate, b.plate) || th(a.plateProvince, b.plateProvince);
+
+/**
+ * มุมมองกระดาน (ST3-T13; docs/04 D2 "View") — ข้อมูลชุดเดียวกัน จัดกลุ่ม/เรียงแถวรถใหม่ (ไม่กรองแถวทิ้ง):
+ * FLEET = "รถบริษัท + รถร่วม" ตามลำดับ server (PLN-049: รถบริษัท ประเภท/ทะเบียน → รถร่วม) ·
+ * VEHICLE = ตามทะเบียน · DRIVER = ตามชื่อคนขับประจำ (ยังไม่กำหนดไว้ท้าย) · CARRIER = รถบริษัทก่อน แล้วตามชื่อรถร่วม
+ * หัวกลุ่ม/ตัวสลับบนจอ = รอต้นแบบ (spec/12 §3 ST3-T13)
+ */
+export function orderVehicles(vs: BoardVehicle[], view: BoardView): BoardVehicle[] {
+  if (view === 'FLEET') return vs;
+  const out = [...vs];
+  if (view === 'VEHICLE') return out.sort(byPlate);
+  if (view === 'DRIVER')
+    return out.sort(
+      (a, b) =>
+        (a.driver ? 0 : 1) - (b.driver ? 0 : 1) ||
+        th(a.driver?.name ?? '', b.driver?.name ?? '') ||
+        byPlate(a, b),
+    );
+  return out.sort(
+    (a, b) =>
+      (a.carrierName ? 1 : 0) - (b.carrierName ? 1 : 0) ||
+      th(a.carrierName ?? '', b.carrierName ?? '') ||
+      byPlate(a, b),
+  );
+}
+
+/** ข้อความบนการ์ดตาม field ที่ผู้ใช้เลือก — ส่วนที่ไม่เลือก/ว่างถูกตัด แล้วต่อด้วย " · " */
+export function cardLine(
+  fields: readonly string[],
+  parts: [CardField, string | null | undefined][],
+): string {
+  return parts
+    .filter(([f, s]) => fields.includes(f) && s)
+    .map(([, s]) => s)
+    .join(' · ');
+}

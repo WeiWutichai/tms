@@ -53,8 +53,12 @@ import {
   type BoardVehicle,
   type PoolFilter,
   type PoolOrder,
+  cardLine,
+  DEFAULT_PREFS,
+  orderVehicles,
+  type BoardView,
 } from './board';
-import { useBoard, useDropOrder, useMoveTrip, type Trip } from './usePlanning';
+import { useBoard, useBoardPrefs, useDropOrder, useMoveTrip, type Trip } from './usePlanning';
 
 type Tab = 'today' | 'tomorrow' | '7d';
 type Drag =
@@ -155,6 +159,10 @@ export function PlanningPage() {
   const [pf, setPf] = useSessionState<PoolFilter>('plan.pool', POOL_FILTER);
   // วันนี้ตาม server (เวลาไทย) — ไม่ส่ง date ทั้งตอนโหลดและแท็บ (review ST3-T12)
   const board = useBoard(7);
+  // มุมมอง + field บนการ์ด จำต่อผู้ใช้ฝั่ง server (ST3-T13) — โหลดไม่ได้ = ค่าเริ่มต้น "รถบริษัท + รถร่วม"
+  const prefs = useBoardPrefs();
+  const view = (prefs.data?.view ?? DEFAULT_PREFS.view) as BoardView;
+  const cf: readonly string[] = prefs.data?.cardFields ?? DEFAULT_PREFS.cardFields;
   const drop = useDropOrder();
   const move = useMoveTrip();
   const nowH = useNowHour();
@@ -698,24 +706,36 @@ export function PlanningPage() {
                     minWidth: 0,
                   }}
                 >
-                  <div style={{ ...ELL, lineHeight: 1.45 }}>
-                    <span className="tms-num" style={{ color: '#2257C4', fontWeight: 500 }}>
-                      {soText(x)}
-                    </span>{' '}
-                    · {custText(x)}
-                  </div>
-                  <div
-                    className="tms-num"
-                    style={{ fontSize: 12.5, color: '#3B424C', ...ELL, lineHeight: 1.45 }}
-                  >
-                    {timeText(x, dsel)} · {routeText(x)}
-                  </div>
-                  <div
-                    className="tms-num"
-                    style={{ fontSize: 12.5, color: wl.color, ...ELL, lineHeight: 1.45 }}
-                  >
-                    {wl.text}
-                  </div>
+                  {(cf.includes('ORDER_NO') || cf.includes('CUSTOMER')) && (
+                    <div style={{ ...ELL, lineHeight: 1.45 }}>
+                      {cf.includes('ORDER_NO') && (
+                        <span className="tms-num" style={{ color: '#2257C4', fontWeight: 500 }}>
+                          {soText(x)}
+                        </span>
+                      )}
+                      {cf.includes('ORDER_NO') && cf.includes('CUSTOMER') && ' · '}
+                      {cf.includes('CUSTOMER') && custText(x)}
+                    </div>
+                  )}
+                  {(cf.includes('TIME') || cf.includes('ROUTE')) && (
+                    <div
+                      className="tms-num"
+                      style={{ fontSize: 12.5, color: '#3B424C', ...ELL, lineHeight: 1.45 }}
+                    >
+                      {cardLine(cf, [
+                        ['TIME', timeText(x, dsel)],
+                        ['ROUTE', routeText(x)],
+                      ])}
+                    </div>
+                  )}
+                  {cf.includes('WEIGHT') && (
+                    <div
+                      className="tms-num"
+                      style={{ fontSize: 12.5, color: wl.color, ...ELL, lineHeight: 1.45 }}
+                    >
+                      {wl.text}
+                    </div>
+                  )}
                   {x.overlapsWith.length > 0 && clashBadge}
                 </div>
                 {/* ขอบที่ล้นแกน 06:00–20:00 ไม่มีที่จับ (กันตัดเที่ยวนอกช่วง/ข้ามคืน — review ST3-T12) */}
@@ -839,39 +859,45 @@ export function PlanningPage() {
                         opacity: drag?.kind === 'trip' && drag.id === x.id ? 0.5 : 1,
                       }}
                     >
-                      <span
-                        className="tms-num"
-                        style={{
-                          color: '#2257C4',
-                          fontWeight: 500,
-                          whiteSpace: 'nowrap',
-                          lineHeight: 1.45,
-                        }}
-                      >
-                        {soText(x)}
-                      </span>
-                      <span
-                        style={{
-                          fontSize: 12.5,
-                          color: '#101418',
-                          lineHeight: 1.45,
-                          overflowWrap: 'normal',
-                          wordBreak: 'normal',
-                        }}
-                      >
-                        {custShort(custText(x), prefixes)}
-                      </span>
-                      <span
-                        className="tms-num"
-                        style={{
-                          fontSize: 12.5,
-                          color: wl.color,
-                          lineHeight: 1.45,
-                          whiteSpace: 'nowrap',
-                        }}
-                      >
-                        {wl.short}
-                      </span>
+                      {cf.includes('ORDER_NO') && (
+                        <span
+                          className="tms-num"
+                          style={{
+                            color: '#2257C4',
+                            fontWeight: 500,
+                            whiteSpace: 'nowrap',
+                            lineHeight: 1.45,
+                          }}
+                        >
+                          {soText(x)}
+                        </span>
+                      )}
+                      {cf.includes('CUSTOMER') && (
+                        <span
+                          style={{
+                            fontSize: 12.5,
+                            color: '#101418',
+                            lineHeight: 1.45,
+                            overflowWrap: 'normal',
+                            wordBreak: 'normal',
+                          }}
+                        >
+                          {custShort(custText(x), prefixes)}
+                        </span>
+                      )}
+                      {cf.includes('WEIGHT') && (
+                        <span
+                          className="tms-num"
+                          style={{
+                            fontSize: 12.5,
+                            color: wl.color,
+                            lineHeight: 1.45,
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {wl.short}
+                        </span>
+                      )}
                       {x.overlapsWith.length > 0 && (
                         <span
                           style={{
@@ -1409,8 +1435,8 @@ export function PlanningPage() {
                   </div>
                 )}
               </div>
-              {b
-                ? b.vehicles.map((v) => (week ? weekRow(v) : dayRow(v)))
+              {b && !prefs.isPending
+                ? orderVehicles(b.vehicles, view).map((v) => (week ? weekRow(v) : dayRow(v)))
                 : Array.from({ length: 6 }, (_, i) => (
                     <div
                       key={i}
