@@ -112,6 +112,10 @@ test.describe.serial('Filter รถที่รับได้สองทาง
   test.beforeEach(async ({ page }) => seed(page));
 
   test('เกณฑ์ตรวจรับ: คลิก SO ห้องเย็น → เน้นเฉพาะรถห้องเย็นที่น้ำหนักพอ', async ({ page }) => {
+    const warns: string[] = [];
+    page.on('console', (m) => {
+      if (m.type() === 'error' || m.type() === 'warning') warns.push(m.text());
+    });
     await open(page);
     await pick(page, so.cold.soNo);
     const row = (p: string) => page.getByTestId(`plan-row-${p}`);
@@ -135,19 +139,24 @@ test.describe.serial('Filter รถที่รับได้สองทาง
     );
     await expect(page.getByTestId(`plan-track-${SMALL}`)).toHaveAttribute(
       'title',
-      'น้ำหนักเกิน 1,000 กก. (4,000 / 3,000 กก.)',
+      'ต่องาน: น้ำหนักเกิน 1,000 กก. (4,000 / 3,000 กก.)',
     );
     // การ์ดที่เลือก + คลิกซ้ำ/Esc = เลิกเน้น
     await expect(page.getByTestId(`plan-pool-${so.cold.soNo}`)).toHaveAttribute(
       'aria-pressed',
       'true',
     );
+    // ขอบซ้าย 3px ของการ์ดยังอยู่ทั้งตอนเลือกและหลังเลิกเลือก (QA M2)
+    const sel = page.getByTestId(`plan-pool-${so.cold.soNo}`);
+    await expect(sel).toHaveCSS('border-left-width', '3px');
     await pick(page, so.cold.soNo);
     await expect(row(COLD)).not.toHaveAttribute('data-elig', /.*/);
     await pick(page, so.cold.soNo);
     await expect(row(COLD)).toHaveAttribute('data-elig', 'OK');
     await page.keyboard.press('Escape');
     await expect(row(COLD)).not.toHaveAttribute('data-elig', /.*/);
+    await expect(sel).toHaveCSS('border-left-width', '3px');
+    expect(warns.filter((m) => /style|border/i.test(m))).toEqual([]);
   });
 
   test('คลิกรถ → SO ที่รถรับได้ถูกเน้น · เลข SO เปิด drawer', async ({ page }) => {

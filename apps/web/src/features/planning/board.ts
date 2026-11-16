@@ -387,9 +387,10 @@ export type EligItem = Schemas['EligibilityItemDto'];
 export type EligLevel = 'OK' | 'WARNING' | 'BLOCK';
 
 /** กฎที่มีผลในวัน `day` (date null = ทุกวันในช่วง) — `info` ไม่นับ (ป้ายแจ้งเฉย ๆ) */
-export const issuesOn = (it: EligItem, day: string | null) =>
+export const issuesOn = (it: Pick<EligItem, 'issues'>, day: string | null, withInfo = false) =>
   it.issues.filter(
-    (i) => i.severity !== 'info' && (i.date === null || day === null || i.date === day),
+    (i) =>
+      (withInfo || i.severity !== 'info') && (i.date === null || day === null || i.date === day),
   );
 
 /** ระดับในวัน `day`: บล็อก > คำเตือน > ผ่าน (null = ทั้งช่วง) */
@@ -440,4 +441,30 @@ export function moveTarget(
         a.plate.localeCompare(b.plate, 'th'),
     );
   return c[0] ?? null;
+}
+
+/**
+ * เหตุหลักที่ "ย้ายไปรถอื่น" หาไม่ได้ (QA L2): นับข้อแรกของแต่ละคัน (ไม่นับคันเดิม) — รถผ่านกฎแต่ความจุไม่พอ = น้ำหนัก
+ * คืน null = เหตุคือน้ำหนัก (ใช้ข้อความต้นแบบ) · มิฉะนั้นข้อความกฎที่พบมากสุด
+ */
+export function moveNoneReason(
+  t: BoardTrip,
+  items: EligItem[],
+  vehicles: BoardVehicle[],
+): string | null {
+  const w = kg(t.weightKg);
+  const count = new Map<string, { n: number; message: string }>();
+  for (const it of items) {
+    if (it.vehicleId === t.vehicleId) continue;
+    const v = vehicles.find((x) => x.id === it.vehicleId);
+    if (!v) continue;
+    const first = issuesOn(it, null)[0];
+    const fits = v.capacityKg === null || kg(v.capacityKg) >= w;
+    const code = first ? first.code : fits ? null : 'OVERWEIGHT';
+    if (!code) continue;
+    const c = count.get(code) ?? { n: 0, message: first?.message ?? '' };
+    count.set(code, { ...c, n: c.n + 1 });
+  }
+  const top = [...count.entries()].sort((a, b) => b[1].n - a[1].n)[0];
+  return !top || top[0] === 'OVERWEIGHT' ? null : top[1].message;
 }

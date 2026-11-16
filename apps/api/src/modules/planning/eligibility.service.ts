@@ -81,17 +81,52 @@ const VEHICLE_INCLUDE = {
       title: true,
     },
   },
-  // คนขับประจำ = คนขับที่จะติดรถตอนจัด (ชุดเดียวกับแถวรถบนกระดาน)
+  // คนขับประจำ — `/assign` เลือกเองเมื่อมีคนขับประจำ ACTIVE คนเดียว (ชุดเดียวกับ `assignmentSnapshot`)
   defaultDrivers: {
     where: { deletedAt: null, status: { not: 'INACTIVE' as const } },
     select: { name: true, status: true, licenceClass: true, licenceExpiresAt: true },
     orderBy: { code: 'asc' as const },
-    take: 1,
+    take: 3,
   },
 } as const;
 type VehicleRow = Prisma.VehicleGetPayload<{ include: typeof VEHICLE_INCLUDE }>;
 
 const ymd = (d: Date) => d.toISOString().slice(0, 10);
+const issuesOf = (
+  input: Omit<Parameters<typeof checkAssignability>[0], 'window' | 'date'>,
+  window: { from: string; to: string },
+) => {
+  const a = checkAssignability({ ...input, window });
+  return [...a.blocks, ...a.warnings];
+};
+/** ผลรายวัน → ติดทุกวัน = date null (ครั้งเดียว) · ติดบางวัน = รายวัน */
+function spread<T extends { code: string; params: object; docType?: string }>(
+  per: { date: string | null; issues: T[] }[],
+): { i: T; date: string | null }[] {
+  const keyOf = (i: T) => `${i.code}|${i.docType ?? ''}|${JSON.stringify(i.params)}`;
+  const all = per.length
+    ? per
+        .map((p) => new Set(p.issues.map(keyOf)))
+        .reduce((a, b) => new Set([...a].filter((k) => b.has(k))))
+    : new Set<string>();
+  const done = new Set<string>();
+  const out: { i: T; date: string | null }[] = [];
+  for (const p of per)
+    for (const i of p.issues) {
+      const k = keyOf(i);
+      if (!all.has(k)) out.push({ i, date: p.date });
+      else if (!done.has(k)) {
+        done.add(k);
+        out.push({ i, date: null });
+      }
+    }
+  return out;
+}
+const daysOf = (from: string, to: string) => {
+  const out = [from];
+  while (out[out.length - 1]! < to && out.length < 7) out.push(addDays(out[out.length - 1]!, 1));
+  return out;
+};
 const addDec = (a: Prisma.Decimal | null, v: Prisma.Decimal | null) =>
   v === null ? a : a === null ? v : a.add(v);
 
@@ -162,16 +197,16 @@ export class EligibilityService {
         to: window.to,
         subject: 'TRIP',
         items: vehicles.map((v) => {
-          const issues = this.evaluate(v, subject, ref, { window });
+          const r = this.evaluate(v, subject, ref, { window });
           const o = overlaps.get(v.id);
           if (o?.length)
-            issues.push({
+            r.issues.push({
               code: 'vehicle_overlap',
               severity: 'warning',
               message: vehicleOverlapMessageTh(v.plate, o),
               date: null,
             });
-          return this.item(v, subject, issues);
+          return this.item(v, subject, r, daysOf(window.from, window.to));
         }),
       };
     }
@@ -205,7 +240,7 @@ export class EligibilityService {
         from,
         to,
         subject: 'ORDER',
-        items: vehicles.map((v) => this.item(v, job, this.evaluate(v, job, ref, { dates }))),
+        items: vehicles.map((v) => this.item(v, job, this.evaluate(v, job, ref, { dates }), dates)),
       };
     }
 
@@ -225,7 +260,9 @@ export class EligibilityService {
       from,
       to,
       subject: 'VEHICLE',
-      items: jobs.map((j) => this.item(vehicle, j, this.evaluate(vehicle, j, ref, { dates }))),
+      items: jobs.map((j) =>
+        this.item(vehicle, j, this.evaluate(vehicle, j, ref, { dates }), dates),
+      ),
     };
   }
 
@@ -357,8 +394,9 @@ export class EligibilityService {
     job: Job,
     ref: Awaited<ReturnType<EligibilityService['refs']>>,
     when: { dates: string[] } | { window: { from: string; to: string } },
-  ): EligibilityIssueDto[] {
+  ): { issues: EligibilityIssueDto[]; driverHints: EligibilityIssueDto[] } {
     const out: EligibilityIssueDto[] = [];
+    const hints: EligibilityIssueDto[] = [];
     const add = (code: string, severity: string, message: string, date: string | null = null) =>
       out.push({ code, severity: severity as EligibilityIssueDto['severity'], message, date });
     if (v.status !== 'READY')
@@ -401,8 +439,11 @@ export class EligibilityService {
     const hazmat =
       job.hazmat ||
       job.groups.some((g) => g.productIds.some((id) => ref.products.get(id)?.hazardous));
-    const d = v.defaultDrivers[0];
-    const input = {
+    // คนขับประจำที่ `/assign` จะเลือกเอง = ACTIVE คนเดียว · กฎคนขับ **ไม่บังคับตอนวาง** (เที่ยว PLANNING ยังไม่มีคนขับ)
+    // → คืนเป็น `driverHints` (info) แยกจากระดับ — บังคับจริงตอน /assign (ST3-T17)
+    const active = v.defaultDrivers.filter((x) => x.status === 'ACTIVE');
+    const d = active.length === 1 ? active[0]! : null;
+    const base = {
       vehicle: { ownership: v.ownership, minLicenceClass: v.vehicleType.minLicenceClass },
       hazmat,
       documents: v.documents.map((x) => ({
@@ -410,51 +451,66 @@ export class EligibilityService {
         startsOn: ymd(x.startsOn),
         expiresOn: ymd(x.expiresOn),
       })),
-      driver: d
-        ? {
-            licenceExpiresOn: d.licenceExpiresAt ? ymd(d.licenceExpiresAt) : null,
-            licenceClass: d.licenceClass,
-          }
-        : null,
     };
-    // เอกสารรถ/ใบขับขี่: ช่วงวิ่งของเที่ยว หรือรายวัน (ติดทุกวัน = date null · ติดบางวัน = รายวัน)
+    // เอกสารรถ: ช่วงวิ่งของเที่ยว หรือรายวัน (ติดทุกวัน = date null · ติดบางวัน = รายวัน) — เหมือนตอนวาง (ไม่มีคนขับ)
     const ranges =
       'window' in when
         ? [{ date: null, window: when.window }]
         : when.dates.map((x) => ({ date: x, window: { from: x, to: x } }));
-    const per = ranges.map((r) => {
-      const a = checkAssignability({ ...input, window: r.window });
-      return { date: r.date, issues: [...a.blocks, ...a.warnings] };
-    });
-    const keyOf = (i: { code: string; params: object; docType?: string }) =>
-      `${i.code}|${i.docType ?? ''}|${JSON.stringify(i.params)}`;
-    const all = per.length
-      ? per
-          .map((p) => new Set(p.issues.map(keyOf)))
-          .reduce((a, b) => new Set([...a].filter((k) => b.has(k))))
-      : new Set<string>();
-    const done = new Set<string>();
-    for (const p of per)
-      for (const i of p.issues) {
-        const k = keyOf(i);
-        if (all.has(k)) {
-          if (done.has(k)) continue;
-          done.add(k);
-          add(i.code, i.severity, assignabilityMessageTh(i));
-        } else add(i.code, i.severity, assignabilityMessageTh(i), p.date);
-      }
-    if (d?.status === 'ON_LEAVE')
-      add('driver_on_leave', 'warning', driverOnLeaveMessageTh('driver', d.name));
-    return out;
+    for (const x of spread(
+      ranges.map((r) => ({ date: r.date, issues: issuesOf({ ...base, driver: null }, r.window) })),
+    ))
+      add(x.i.code, x.i.severity, assignabilityMessageTh(x.i), x.date);
+    if (d)
+      for (const x of spread(
+        ranges.map((r) => ({
+          date: r.date,
+          issues: issuesOf(
+            {
+              ...base,
+              driver: {
+                licenceExpiresOn: d.licenceExpiresAt ? ymd(d.licenceExpiresAt) : null,
+                licenceClass: d.licenceClass,
+              },
+            },
+            r.window,
+          ).filter((i) => i.code.startsWith('DRIVER_LICENCE_')),
+        })),
+      ))
+        hints.push({
+          code: x.i.code,
+          severity: 'info',
+          message: assignabilityMessageTh(x.i),
+          date: x.date,
+        });
+    const leave = v.defaultDrivers.find((x) => x.status === 'ON_LEAVE');
+    if (!d && leave)
+      hints.push({
+        code: 'driver_on_leave',
+        severity: 'info',
+        message: driverOnLeaveMessageTh('driver', leave.name),
+        date: null,
+      });
+    return { issues: out, driverHints: hints };
   }
 
-  private item(v: VehicleRow, job: Job, issues: EligibilityIssueDto[]): EligibilityItemDto {
+  private item(
+    v: VehicleRow,
+    job: Job,
+    r: { issues: EligibilityIssueDto[]; driverHints: EligibilityIssueDto[] },
+    dates: string[],
+  ): EligibilityItemDto {
     return {
       vehicleId: encodeId('vehicle', v.id),
       orderId: job.tripId ? null : job.orderId,
       tripId: job.tripId,
-      level: eligibilityLevel(issues),
-      issues,
+      level: eligibilityLevel(r.issues),
+      levels: dates.map((date) => ({
+        date,
+        level: eligibilityLevel(r.issues.filter((i) => i.date === null || i.date === date)),
+      })),
+      issues: r.issues,
+      driverHints: r.driverHints,
     };
   }
 }

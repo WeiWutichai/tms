@@ -66,6 +66,7 @@ import {
   issuesOn,
   LEVEL_COLOR,
   levelOn,
+  moveNoneReason,
   moveTarget,
   orderDay,
   type EligItem,
@@ -285,11 +286,27 @@ export function PlanningPage() {
     const it = eligBy.get(v);
     return it ? levelOn(it, d) : null;
   };
+  /**
+   * เหตุผลใน tooltip: กฎที่บังคับตอนวาง (น้ำหนัก/ปริมาตร = ของงานนี้ "ต่องาน") · ไม่มี = รับได้ ·
+   * ข้อสังเกตคนขับประจำ (บังคับตอนจัดรถ /assign — ไม่เปลี่ยนสีขอบ) ต่อท้าย
+   */
+  const eligLines = (it: EligItem, d: string) => {
+    const xs = issuesOn(it, d).map((i) =>
+      i.code === 'OVERWEIGHT' || i.code === 'OVER_VOLUME'
+        ? t('plan.elig.jobLoad', { m: i.message })
+        : i.message,
+    );
+    return [
+      ...(xs.length ? xs : [t('plan.elig.ok')]),
+      ...issuesOn({ ...it, issues: it.driverHints }, d, true).map((i) =>
+        t('plan.elig.driverHint', { m: i.message }),
+      ),
+    ];
+  };
   const vehTip = (v: string, d: string) => {
     const it = selOn?.kind === 'order' ? eligBy.get(v) : undefined;
     if (!it || elig.data?.subject !== 'ORDER') return undefined;
-    const xs = issuesOn(it, d);
-    return xs.length ? xs.map((i) => i.message).join('\n') : t('plan.elig.ok');
+    return eligLines(it, d).join('\n');
   };
   const pickVehicle = (v: BoardVehicle) =>
     setSel((s) => (s?.kind === 'vehicle' && s.id === v.id ? null : { kind: 'vehicle', id: v.id }));
@@ -386,9 +403,14 @@ export function PlanningPage() {
    * (ผู้จัดการกรอกเหตุผลแล้วส่งคำขอเดิมซ้ำพร้อมยกเว้น) · อื่น ๆ → toast "วางไม่ได้: …"
    */
   const failOn =
-    (v: BoardVehicle, retry: (reason: string, keys: string[]) => void) => (err: unknown) => {
+    (
+      v: BoardVehicle,
+      retry: (reason: string, keys: string[]) => void,
+      other: (err: unknown) => void = fail,
+    ) =>
+    (err: unknown) => {
       const reasons = blockedOf(err);
-      if (!reasons) return fail(err);
+      if (!reasons) return other(err);
       setToast(t('plan.cantDrop', { m: t('plan.bad.blocked', { m: reasons[0]?.message ?? '' }) }));
       setBpErr(null);
       setBp({ v, reasons, retry });
@@ -415,7 +437,15 @@ export function PlanningPage() {
       return fail(err);
     }
     const v = moveTarget(x, items, b.vehicles);
-    if (!v) return setToast(t('plan.move.none', { w: fmtNum(kg(x.weightKg)) }));
+    if (!v) {
+      // เหตุหลักที่ไม่มีรถรับได้ — น้ำหนัก = ข้อความต้นแบบ · อื่น ๆ = เหตุจริงข้อที่พบมากสุด (QA L2)
+      const why = moveNoneReason(x, items, b.vehicles);
+      return setToast(
+        why === null
+          ? t('plan.move.none', { w: fmtNum(kg(x.weightKg)) })
+          : t('plan.move.noneWhy', { m: why }),
+      );
+    }
     const send = (extra: object, viaDialog: boolean) =>
       move.mutate(
         { id: x.id, version: x.version, body: { vehicleId: v.id, ...extra } },
@@ -432,10 +462,15 @@ export function PlanningPage() {
           },
           onError: viaDialog
             ? (e) => setBpErr(problemText(e, t))
-            : failOn(v, (reason, keys) => {
-                setLastReason((m) => ({ ...m, [v.id]: reason }));
-                send({ ruleKeys: keys, overrideReason: reason }, true);
-              }),
+            : failOn(
+                v,
+                (reason, keys) => {
+                  setLastReason((m) => ({ ...m, [v.id]: reason }));
+                  send({ ruleKeys: keys, overrideReason: reason }, true);
+                },
+                // ย้ายไม่สำเร็จ (เช่น 412 มีคนแก้เที่ยวก่อน) — ไม่ใช่ "วางไม่ได้" (QA L3)
+                (e) => setToast(t('plan.move.fail', { m: problemText(e, t) ?? '' })),
+              ),
         },
       );
     send({}, false);
@@ -1398,7 +1433,7 @@ export function PlanningPage() {
       selOn?.kind === 'vehicle' && elig.data?.subject === 'VEHICLE' ? eligBy.get(o.id) : undefined;
     const day = orderDay(o, days);
     const lv = it ? levelOn(it, day) : null;
-    const why = it ? issuesOn(it, day).map((i) => i.message) : [];
+    const why = it ? eligLines(it, day) : [];
     return (
       <div
         key={o.id}
@@ -1422,12 +1457,15 @@ export function PlanningPage() {
           route,
           dateText(o.requestedDate) + (late ? t('plan.pool.over') : ''),
           t('plan.kg', { n: w }),
-          ...(it ? (why.length ? why : [t('plan.elig.ok')]) : [t('plan.elig.pickOrder')]),
+          ...(it ? why : [t('plan.elig.pickOrder')]),
         ].join('\n')}
         className="tms-plan-card"
         style={{
           background: picked ? SELECTED_BG : '#FFFFFF',
-          border: `1px solid ${picked ? '#9DB6E3' : '#CDD1C8'}`,
+          // กำหนดทีละด้าน — ไม่ผสม shorthand `border` กับ `borderLeft` (React ลบขอบซ้ายเมื่อเลือก — QA M2)
+          borderTop: `1px solid ${picked ? '#9DB6E3' : '#CDD1C8'}`,
+          borderRight: `1px solid ${picked ? '#9DB6E3' : '#CDD1C8'}`,
+          borderBottom: `1px solid ${picked ? '#9DB6E3' : '#CDD1C8'}`,
           borderLeft: `3px solid ${late ? '#B3322A' : '#2257C4'}`,
           borderRadius: 8,
           padding: '8px 10px',

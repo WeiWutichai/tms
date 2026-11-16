@@ -26,7 +26,9 @@ interface Item {
   orderId: string | null;
   tripId: string | null;
   level: 'OK' | 'WARNING' | 'BLOCK';
+  levels: { date: string; level: string }[];
   issues: Issue[];
+  driverHints: Issue[];
 }
 interface Elig {
   from: string;
@@ -308,6 +310,95 @@ describe('planning eligibility (ST3-T15)', () => {
     expect(of(e, c.id).level).toBe('OK');
     // รถคันเดิมไม่ซ้อนกับตัวเอง
     expect(of(e, a.id).level).toBe('OK');
+  });
+
+  it('ความสอดคล้อง: ระดับ == ผลการวางจริง (OK → ไม่มีคำเตือน · WARNING → มีคำเตือน · BLOCK → 409/422)', async () => {
+    const carrier = (
+      await api(app, admin)
+        .post('/v1/carriers')
+        .send({ legalName: `หจก. รถร่วม ${++seed}`, entityType: 'JURISTIC', taxId: jur(seed) })
+        .expect(201)
+    ).body as { id: string };
+    const vs = [
+      await newVehicle(ref6, 6000),
+      await newVehicle(ref6, 3000),
+      await newVehicle(vt6, 6000),
+      await newVehicle(ref6, 6000, { ownership: 'SUBCONTRACT', carrierId: carrier.id }),
+    ];
+    // คนขับประจำใบขับขี่ ท.1 (ต่ำกว่า ท.2 ของรถ) — ไม่บังคับตอนวาง → ระดับยัง OK แต่มี driverHints
+    await api(app, admin)
+      .post('/v1/drivers')
+      .send({
+        name: `คนขับ ${++seed}`,
+        phone: `089-${String(seed).padStart(3, '0')}-${String(seed).padStart(4, '0')}`,
+        employmentType: 'EMPLOYEE_SALARIED',
+        licenceClass: 'T1',
+        licenceExpiresOn: '2031-03-31',
+        defaultVehicleId: vs[0]!.id,
+      })
+      .expect(201);
+    const seen: string[] = [];
+    for (const v of vs) {
+      const o = await newOrder({ weightKg: '4000', vehicleTypeId: ref6 });
+      const it = of(await elig(`orderId=${o.soId}`), v.id);
+      const r = await api(app, admin)
+        .post('/v1/trips')
+        .set('Idempotency-Key', randomUUID())
+        .send({
+          tripDate: today,
+          deliveryOrderIds: o.doIds,
+          vehicleId: v.id,
+          plannedStartAt: at('09:00'),
+          plannedEndAt: at('12:00'),
+        });
+      const codes = (r.body.warnings ?? [])
+        .filter((w: { severity: string }) => w.severity !== 'info')
+        .map((w: { code: string }) => w.code)
+        .sort();
+      if (it.level === 'BLOCK') expect([409, 422]).toContain(r.status);
+      else {
+        expect(r.status).toBe(201);
+        expect(codes).toEqual(
+          it.issues
+            .filter((i) => i.severity !== 'info')
+            .map((i) => i.code)
+            .sort(),
+        );
+      }
+      seen.push(it.level);
+      if (v === vs[0]) {
+        expect(it.level).toBe('OK');
+        expect(it.driverHints).toMatchObject([{ code: 'DRIVER_LICENCE_CLASS', severity: 'info' }]);
+      }
+    }
+    expect(seen).toEqual(['OK', 'WARNING', 'WARNING', 'BLOCK']);
+  });
+
+  it('7 วัน: `levels` รายวัน + `level` = แย่สุดของช่วง', async () => {
+    const v = await newVehicle(vt6, 6000);
+    await db.vehicleDocument.create({
+      data: {
+        tenantId,
+        vehicleId: uuid('vehicle', v.id),
+        docType: 'COMPULSORY_ACT',
+        startsOn: new Date(`${addDays(today, -300)}T00:00:00Z`),
+        expiresOn: new Date(`${addDays(today, 1)}T00:00:00Z`),
+        isRequiredForDispatch: true,
+      },
+    });
+    const o = await newOrder({ weightKg: '1000' });
+    const it = of(await elig(`orderId=${o.soId}&days=7`), v.id);
+    expect(it.level).toBe('BLOCK');
+    expect(it.levels.map((x) => x.level)).toEqual([
+      'OK',
+      'OK',
+      'BLOCK',
+      'BLOCK',
+      'BLOCK',
+      'BLOCK',
+      'BLOCK',
+    ]);
+    expect(it.levels[0]!.date).toBe(today);
   });
 
   it('ต้องส่ง id อย่างเดียว (422) · id ของ tenant อื่น/ผิดรูปแบบ → 404 · ไม่มีสิทธิ์อ่านงาน → 403', async () => {

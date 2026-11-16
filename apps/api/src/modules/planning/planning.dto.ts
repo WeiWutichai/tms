@@ -268,6 +268,11 @@ export class EligibilityIssueDto {
   date!: string | null;
 }
 
+export class EligibilityDayLevelDto {
+  @ApiProperty({ example: '2026-11-14' }) date!: string;
+  @ApiProperty({ enum: ['OK', 'WARNING', 'BLOCK'] }) level!: 'OK' | 'WARNING' | 'BLOCK';
+}
+
 export class EligibilityItemDto {
   @ApiProperty({ example: 'veh_3f2a…' }) vehicleId!: string;
   @ApiProperty({ nullable: true, type: String, example: 'so_3f2a…' }) orderId!: string | null;
@@ -275,10 +280,26 @@ export class EligibilityItemDto {
   @ApiProperty({
     enum: ['OK', 'WARNING', 'BLOCK'],
     description:
-      'ระดับรวมทั้งช่วง: OK = ผ่านทุกกฎ (เน้น) · WARNING = มีคำเตือน · BLOCK = ติดกฎห้ามจ่ายงาน',
+      'ระดับที่แย่ที่สุดของทั้งช่วง (worst-of-range): OK = ผ่านทุกกฎตอนวาง (เน้น) · WARNING = มีคำเตือน · BLOCK = ติดกฎห้ามจ่ายงาน — รายวันดู `levels`',
   })
   level!: 'OK' | 'WARNING' | 'BLOCK';
-  @ApiProperty({ type: [EligibilityIssueDto] }) issues!: EligibilityIssueDto[];
+  @ApiProperty({
+    type: [EligibilityDayLevelDto],
+    description: 'ระดับรายวันในช่วง from–to (เอกสารที่หมดกลางช่วงติดเฉพาะวันหลังหมด)',
+  })
+  levels!: EligibilityDayLevelDto[];
+  @ApiProperty({
+    type: [EligibilityIssueDto],
+    description:
+      'กฎที่บังคับตอนวาง (POST /v1/trips + vehicleId) — ชุดเดียวกับ `warnings` ของเที่ยวที่ได้',
+  })
+  issues!: EligibilityIssueDto[];
+  @ApiProperty({
+    type: [EligibilityIssueDto],
+    description:
+      'ข้อสังเกตของคนขับประจำ (ใบขับขี่ไม่ถึงชั้น/หมด รวม ท.4 สินค้าอันตราย, ลา) — severity `info` ไม่นับในระดับ เพราะบังคับตอน /assign ไม่ใช่ตอนวาง',
+  })
+  driverHints!: EligibilityIssueDto[];
 }
 
 export class PlanningEligibilityDto {

@@ -32765,6 +32765,27 @@
           "pool"
         ]
       },
+      "EligibilityDayLevelDto": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "example": "2026-11-14"
+          },
+          "level": {
+            "type": "string",
+            "enum": [
+              "OK",
+              "WARNING",
+              "BLOCK"
+            ]
+          }
+        },
+        "required": [
+          "date",
+          "level"
+        ]
+      },
       "EligibilityIssueDto": {
         "type": "object",
         "properties": {
@@ -32824,9 +32845,24 @@
               "WARNING",
               "BLOCK"
             ],
-            "description": "ระดับรวมทั้งช่วง: OK = ผ่านทุกกฎ (เน้น) · WARNING = มีคำเตือน · BLOCK = ติดกฎห้ามจ่ายงาน"
+            "description": "ระดับที่แย่ที่สุดของทั้งช่วง (worst-of-range): OK = ผ่านทุกกฎตอนวาง (เน้น) · WARNING = มีคำเตือน · BLOCK = ติดกฎห้ามจ่ายงาน — รายวันดู `levels`"
+          },
+          "levels": {
+            "description": "ระดับรายวันในช่วง from–to (เอกสารที่หมดกลางช่วงติดเฉพาะวันหลังหมด)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EligibilityDayLevelDto"
+            }
           },
           "issues": {
+            "description": "กฎที่บังคับตอนวาง (POST /v1/trips + vehicleId) — ชุดเดียวกับ `warnings` ของเที่ยวที่ได้",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EligibilityIssueDto"
+            }
+          },
+          "driverHints": {
+            "description": "ข้อสังเกตของคนขับประจำ (ใบขับขี่ไม่ถึงชั้น/หมด รวม ท.4 สินค้าอันตราย, ลา) — severity `info` ไม่นับในระดับ เพราะบังคับตอน /assign ไม่ใช่ตอนวาง",
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/EligibilityIssueDto"
@@ -32838,7 +32874,9 @@
           "orderId",
           "tripId",
           "level",
-          "issues"
+          "levels",
+          "issues",
+          "driverHints"
         ]
       },
       "PlanningEligibilityDto": {

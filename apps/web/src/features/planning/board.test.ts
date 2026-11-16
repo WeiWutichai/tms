@@ -32,6 +32,7 @@ import {
   type PoolOrder,
   issuesOn,
   levelOn,
+  moveNoneReason,
   moveTarget,
   orderDay,
   type EligItem,
@@ -358,7 +359,9 @@ describe('Filter รถที่รับได้สองทาง (ST3-T15)',
     orderId: null,
     tripId: 'trp_1',
     level: 'OK',
+    levels: [],
     issues,
+    driverHints: [],
   });
   const iss = (
     code: string,
@@ -409,5 +412,30 @@ describe('Filter รถที่รับได้สองทาง (ST3-T15)',
     ).toBe('veh_10');
     expect(moveTarget(t, [item([], 'veh_small')], vs)).toBeNull();
     expect(moveTarget(t, [item([iss('OVERWEIGHT', 'warning')], 'veh_big')], vs)).toBeNull();
+  });
+  it('ย้ายไม่ได้: เหตุหลัก = น้ำหนัก (null → ข้อความต้นแบบ) หรือกฎที่พบมากสุด', () => {
+    const v = (id: string, cap: string): BoardVehicle =>
+      ({ id, plate: id, vehicleTypeId: 'vty_6', capacityKg: cap }) as BoardVehicle;
+    const vs = [v('veh_1', '6000'), v('a', '3000'), v('b', '6000'), v('c', '6000')];
+    const t = trip({ weightKg: '5400' });
+    expect(moveNoneReason(t, [item([], 'a')], vs)).toBeNull();
+    expect(
+      moveNoneReason(
+        t,
+        [
+          item([], 'a'),
+          {
+            ...item([iss('CAPABILITY_MISSING', 'warning')], 'b'),
+            issues: [{ ...iss('CAPABILITY_MISSING', 'warning'), message: 'ต้องใช้รถห้องเย็น' }],
+          },
+          {
+            ...item([], 'c'),
+            issues: [{ ...iss('CAPABILITY_MISSING', 'warning'), message: 'ต้องใช้รถห้องเย็น' }],
+          },
+          item([iss('X', 'warning')], 'veh_1'),
+        ],
+        vs,
+      ),
+    ).toBe('ต้องใช้รถห้องเย็น');
   });
 });
