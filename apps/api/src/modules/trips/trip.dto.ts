@@ -628,3 +628,54 @@ export class BulkTripResultsDto {
   @ApiProperty({ example: 0, description: 'จัดรถแล้วอยู่ก่อน ไม่เปลี่ยน' }) unchanged!: number;
   @ApiProperty({ example: 1 }) failed!: number;
 }
+
+/**
+ * ส่งแผนทั้งวัน (ST3-T18 "Send all" — docs/04 D2, spec/03 §9): ปล่อยทุกเที่ยวของวันในคำขอเดียว (ผลต่อเที่ยวแบบ bulk)
+ */
+export class SendAllTripsDto {
+  @ApiProperty({ example: '2026-11-18', description: 'วันเที่ยว (เวลาไทย)' })
+  @Matches(DATE_RE)
+  date!: string;
+
+  @ApiPropertyOptional({
+    type: [BulkTripItemDto],
+    minItems: 1,
+    maxItems: 400,
+    description:
+      'เฉพาะเที่ยวที่ติ๊ก (+ `version` ที่เห็น) — ไม่ส่ง = ทุกเที่ยวของวันที่ยังไม่ส่ง (PLANNING/OFFERED/ASSIGNED ณ ตอนทำ)',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(400)
+  @ValidateNested({ each: true })
+  @Type(() => BulkTripItemDto)
+  items?: BulkTripItemDto[];
+
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    minLength: 10,
+    maxLength: 500,
+    description: 'เหตุผลการยกเว้น/ยืนยันกฎ (≥ 10 ตัวอักษร) — ใช้กับทุกรายการที่ส่ง `ruleKeys`',
+  })
+  @IsOptional()
+  @IsNullable()
+  @CleanText()
+  @IsString()
+  @MaxLength(500)
+  overrideReason?: string | null;
+}
+
+/** สถานะการส่งของวัน — ส่งครบ = มีเที่ยว ≥ 1 และทุกเที่ยวที่ไม่ยกเลิกปล่อยรถแล้ว (หรือเลยไป) */
+export class DaySendStateDto {
+  @ApiProperty({ example: '2026-11-18' }) date!: string;
+  @ApiProperty({ example: 12, description: 'เที่ยวที่ไม่ยกเลิกของวัน' }) trips!: number;
+  @ApiProperty({ example: 12, description: 'ปล่อยรถแล้วหรือเลยไป' }) sent!: number;
+  @ApiProperty({ description: 'ส่งครบ (ปฏิทินขึ้นเขียว)' }) complete!: boolean;
+}
+
+export class SendAllTripsResultDto extends BulkTripResultsDto {
+  @ApiProperty({ type: DaySendStateDto, description: 'สถานะการส่งของวันหลังทำ' })
+  day!: DaySendStateDto;
+}

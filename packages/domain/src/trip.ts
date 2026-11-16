@@ -72,6 +72,39 @@ export const TRIP_OPEN_STATUSES = [
   'IN_PROGRESS',
 ] as const satisfies readonly TripStatus[];
 
+/**
+ * ส่งแผนแล้ว (ST3-T18 "Send all" — docs/04 D2): ปล่อยรถแล้วหรือเลยไปแล้ว — นับว่า "ส่งงาน" ของวันนั้นแล้ว
+ * (COSTED/SETTLED = ปิดบัญชีของเที่ยวที่วิ่งจบ)
+ */
+export const TRIP_SENT_STATUSES = [
+  'DISPATCHED',
+  'IN_PROGRESS',
+  'COMPLETED',
+  'COSTED',
+  'SETTLED',
+] as const satisfies readonly TripStatus[];
+
+/** ยังส่งแผนได้ (Send all ทำกับเที่ยวสถานะเหล่านี้ — OFFERED ไม่ผ่านพร้อมเหตุผล "รอรถร่วมตอบ") */
+export const TRIP_UNSENT_STATUSES = [
+  'PLANNING',
+  'OFFERED',
+  'ASSIGNED',
+] as const satisfies readonly TripStatus[];
+
+/**
+ * สถานะการส่งของวัน (ST3-T18 "ปฏิทินขึ้นเขียวเมื่อส่งครบ"): นับเฉพาะเที่ยวที่ไม่ยกเลิกซึ่งวันเที่ยว = วันนั้น ·
+ * ส่งครบ = มีเที่ยว ≥ 1 และทุกเที่ยวส่งแล้ว (วันที่ไม่มีเที่ยว = ไม่เขียว) · SO ที่ยังไม่ได้จัดไม่นับ (อยู่ใน "SO รอจัด")
+ */
+export function daySendState(statuses: readonly TripStatus[]): {
+  trips: number;
+  sent: number;
+  complete: boolean;
+} {
+  const live = statuses.filter((s) => s !== 'CANCELLED');
+  const sent = live.filter((s) => (TRIP_SENT_STATUSES as readonly string[]).includes(s)).length;
+  return { trips: live.length, sent, complete: live.length > 0 && sent === live.length };
+}
+
 export const TRIP_STATUS_LABEL_TH: Record<TripStatus, string> = {
   PLANNING: 'กำลังวางแผน',
   OFFERED: 'รอรถร่วมตอบ',

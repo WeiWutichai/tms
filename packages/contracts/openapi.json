@@ -14953,6 +14953,124 @@
         ]
       }
     },
+    "/v1/trips/send-all": {
+      "post": {
+        "description": "ไม่ส่ง `items` = ทุกเที่ยว PLANNING/OFFERED/ASSIGNED ของวันนั้น (≤ 400) · ส่ง `items` = เฉพาะที่เลือก (ต้องเป็นเที่ยวของวันนั้น) · แต่ละเที่ยวทำแยกกันเหมือน `bulk-assign` + `dispatch: true` (ติดกฎ/ไม่มีรถ/รอรถร่วมตอบ = ไม่ผ่านพร้อม `problem`) · ตอบ 207 พร้อม `day` (ส่งครบ = มีเที่ยวและทุกเที่ยวปล่อยรถแล้ว) · ต้องมี `trips:dispatch` + `trips:assign` · audit `trip.sent_all`",
+        "operationId": "Trips_sendAll",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendAllTripsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "207": {
+            "description": "ผลต่อรายการ + สถานะของวัน",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SendAllTripsResultDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`trips:dispatch`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "trips",
+                      "action": "dispatch",
+                      "required": [
+                        "trips:dispatch"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "deliveryOrderIds[0]",
+                          "code": "invalid_reference",
+                          "message": "not found"
+                        },
+                        {
+                          "field": "plannedEndAt",
+                          "code": "outside_trip_date",
+                          "message": "must be on tripDate"
+                        }
+                      ]
+                    }
+                  },
+                  "idempotency_mismatch": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_mismatch",
+                      "title": "Idempotency-Key นี้เคยใช้กับข้อมูลอื่น",
+                      "status": 422,
+                      "code": "idempotency_mismatch",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "ส่งแผนทั้งวัน (ปล่อยทุกเที่ยวของวัน)",
+        "tags": [
+          "trips"
+        ]
+      }
+    },
     "/v1/trips/{id}": {
       "get": {
         "operationId": "Trips_get",
@@ -32614,6 +32732,105 @@
           "failed"
         ]
       },
+      "SendAllTripsDto": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "example": "2026-11-18",
+            "description": "วันเที่ยว (เวลาไทย)"
+          },
+          "items": {
+            "minItems": 1,
+            "maxItems": 400,
+            "description": "เฉพาะเที่ยวที่ติ๊ก (+ `version` ที่เห็น) — ไม่ส่ง = ทุกเที่ยวของวันที่ยังไม่ส่ง (PLANNING/OFFERED/ASSIGNED ณ ตอนทำ)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BulkTripItemDto"
+            }
+          },
+          "overrideReason": {
+            "type": "string",
+            "nullable": true,
+            "minLength": 10,
+            "maxLength": 500,
+            "description": "เหตุผลการยกเว้น/ยืนยันกฎ (≥ 10 ตัวอักษร) — ใช้กับทุกรายการที่ส่ง `ruleKeys`"
+          }
+        },
+        "required": [
+          "date"
+        ]
+      },
+      "DaySendStateDto": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "example": "2026-11-18"
+          },
+          "trips": {
+            "type": "number",
+            "example": 12,
+            "description": "เที่ยวที่ไม่ยกเลิกของวัน"
+          },
+          "sent": {
+            "type": "number",
+            "example": 12,
+            "description": "ปล่อยรถแล้วหรือเลยไป"
+          },
+          "complete": {
+            "type": "boolean",
+            "description": "ส่งครบ (ปฏิทินขึ้นเขียว)"
+          }
+        },
+        "required": [
+          "date",
+          "trips",
+          "sent",
+          "complete"
+        ]
+      },
+      "SendAllTripsResultDto": {
+        "type": "object",
+        "properties": {
+          "results": {
+            "description": "ผลต่อรายการ เรียงตามคำขอ",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BulkTripResultDto"
+            }
+          },
+          "succeeded": {
+            "type": "number",
+            "example": 3,
+            "description": "จัดรถ/ปล่อยสำเร็จ (ไม่นับ `UNCHANGED`)"
+          },
+          "unchanged": {
+            "type": "number",
+            "example": 0,
+            "description": "จัดรถแล้วอยู่ก่อน ไม่เปลี่ยน"
+          },
+          "failed": {
+            "type": "number",
+            "example": 1
+          },
+          "day": {
+            "description": "สถานะการส่งของวันหลังทำ",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/DaySendStateDto"
+              }
+            ]
+          }
+        },
+        "required": [
+          "results",
+          "succeeded",
+          "unchanged",
+          "failed",
+          "day"
+        ]
+      },
       "CreateTripDto": {
         "type": "object",
         "properties": {
@@ -33435,6 +33652,13 @@
             "items": {
               "$ref": "#/components/schemas/BoardPoolOrderDto"
             }
+          },
+          "days": {
+            "description": "สถานะการส่งต่อวันในช่วง from–to (ST3-T18 ปฏิทินขึ้นเขียวเมื่อส่งครบ) — นับตามวันเที่ยว `tripDate`",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DaySendStateDto"
+            }
           }
         },
         "required": [
@@ -33443,7 +33667,8 @@
           "today",
           "vehicles",
           "trips",
-          "pool"
+          "pool",
+          "days"
         ]
       },
       "EligibilityDayLevelDto": {

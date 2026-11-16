@@ -33,6 +33,8 @@ import {
   AttachDeliveryOrdersDto,
   BulkAssignTripsDto,
   BulkTripResultsDto,
+  SendAllTripsDto,
+  SendAllTripsResultDto,
   CancelTripDto,
   ConfirmRulesDto,
   CreateTripDto,
@@ -48,6 +50,7 @@ import {
 } from './trip.dto';
 import {
   TripService,
+  type BulkOutcome,
   type RuleConfirmInput,
   type TripRecord,
   type TripWarning,
@@ -213,6 +216,34 @@ function problemOf(e: unknown) {
   };
 }
 
+/** ผลต่อรายการของ bulk / send-all (207) เรียงตามคำขอ — `tripNo` ของรายการที่ไม่สำเร็จ = ที่รู้ก่อนทำ (ถ้ามี) */
+function bulkResults(
+  out: BulkOutcome[],
+  refs: { tripId: string; tripNo: string | null }[],
+): BulkTripResultsDto {
+  const results = out.map((r, i) => {
+    const { tripId, tripNo } = refs[i]!;
+    if (r.trip)
+      return {
+        tripId,
+        tripNo: r.trip.tripNo,
+        status: 200,
+        outcome: r.outcome,
+        trip: toTripDto(r.trip),
+        problem: null,
+      };
+    const problem = problemOf(r.error);
+    return { tripId, tripNo, status: problem.status, outcome: r.outcome, trip: null, problem };
+  });
+  const n = (o: string) => results.filter((r) => r.outcome === o).length;
+  return {
+    results,
+    succeeded: n('ASSIGNED') + n('DISPATCHED'),
+    unchanged: n('UNCHANGED'),
+    failed: n('FAILED'),
+  };
+}
+
 /** ผู้เรียกต้องมี scope นี้เพิ่ม (เช่น `/assign` + `dispatch: true` ต้องมี `trips:dispatch`) */
 function requireAlso(scope: string) {
   if (!scopeAllows(requestContext.require().scopes ?? [], scope))
@@ -310,33 +341,67 @@ export class TripsController {
         canOverride: scopeAllows(requestContext.require().scopes ?? [], RULE_OVERRIDE_SCOPE),
       },
     );
-    const results = out.map((r, i) => {
-      const tripId = body.items[i]!.tripId;
-      if (r.trip)
-        return {
-          tripId,
-          tripNo: r.trip.tripNo,
-          status: 200,
-          outcome: r.outcome,
-          trip: toTripDto(r.trip),
-          problem: null,
-        };
-      const problem = problemOf(r.error);
-      return {
-        tripId,
-        tripNo: null,
-        status: problem.status,
-        outcome: r.outcome,
-        trip: null,
-        problem,
-      };
-    });
-    const n = (o: string) => results.filter((r) => r.outcome === o).length;
+    return bulkResults(
+      out,
+      body.items.map((i) => ({ tripId: i.tripId, tripNo: null })),
+    );
+  }
+
+  /**
+   * ส่งแผนทั้งวัน (ST3-T18 "Send all" — docs/04 D2 "checkbox ส่งงานทั้งวันของทุกรถทีเดียว", spec/03 §9 PLN-170)
+   * งานต่อเที่ยว = bulk จัดรถและปล่อย (207 ผลต่อรายการ) + `day` สถานะการส่งของวันหลังทำ (ส่งครบ = เขียว)
+   */
+  @Post('send-all')
+  @ApiOperation({
+    summary: 'ส่งแผนทั้งวัน (ปล่อยทุกเที่ยวของวัน)',
+    description:
+      'ไม่ส่ง `items` = ทุกเที่ยว PLANNING/OFFERED/ASSIGNED ของวันนั้น (≤ 400) · ส่ง `items` = เฉพาะที่เลือก (ต้องเป็นเที่ยวของวันนั้น) · ' +
+      'แต่ละเที่ยวทำแยกกันเหมือน `bulk-assign` + `dispatch: true` (ติดกฎ/ไม่มีรถ/รอรถร่วมตอบ = ไม่ผ่านพร้อม `problem`) · ' +
+      'ตอบ 207 พร้อม `day` (ส่งครบ = มีเที่ยวและทุกเที่ยวปล่อยรถแล้ว) · ต้องมี `trips:dispatch` + `trips:assign` · audit `trip.sent_all`',
+  })
+  @ApiProblems(T403('trips:dispatch'), T422)
+  @HttpCode(207)
+  @RequireScope('trips:dispatch')
+  @ApiHeader({ name: 'Idempotency-Key', required: false })
+  @ApiResponse({
+    status: 207,
+    type: SendAllTripsResultDto,
+    description: 'ผลต่อรายการ + สถานะของวัน',
+  })
+  async sendAll(@Body() body: SendAllTripsDto): Promise<SendAllTripsResultDto> {
+    requireAlso('trips:assign');
+    if (!isRealDate(body.date))
+      throw new ProblemException('validation_failed', undefined, [
+        { field: 'date', code: 'invalid_date', message: 'must be a real date (YYYY-MM-DD)' },
+      ]);
+    const ids = (body.items ?? []).map((i) => i.tripId);
+    const dup = ids.flatMap((x, i) =>
+      ids.indexOf(x) !== i
+        ? [{ field: `items[${i}].tripId`, code: 'duplicate', message: 'trip listed twice' }]
+        : [],
+    );
+    if (dup.length) throw new ProblemException('validation_failed', undefined, dup);
+    const r = await this.trips.sendAll(
+      body.date,
+      body.items?.map((i) => ({
+        tripId: tryDecodeId('trip', i.tripId),
+        version: i.version,
+        ruleKeys: i.ruleKeys,
+      })),
+      {
+        reason: body.overrideReason ?? null,
+        canOverride: scopeAllows(requestContext.require().scopes ?? [], RULE_OVERRIDE_SCOPE),
+      },
+    );
     return {
-      results,
-      succeeded: n('ASSIGNED') + n('DISPATCHED'),
-      unchanged: n('UNCHANGED'),
-      failed: n('FAILED'),
+      ...bulkResults(
+        r.outcomes,
+        r.items.map((it, i) => ({
+          tripId: body.items?.[i]?.tripId ?? (it.tripId ? encodeId('trip', it.tripId) : ''),
+          tripNo: it.tripNo,
+        })),
+      ),
+      day: { date: body.date, ...r.day },
     };
   }
 

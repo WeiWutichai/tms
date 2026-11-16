@@ -6,6 +6,9 @@ import {
   TRIP_STATUS_LABEL_TH,
   TRIP_TRANSITIONS,
   backwardStops,
+  daySendState,
+  TRIP_SENT_STATUSES,
+  TRIP_UNSENT_STATUSES,
   estimateLeg,
   intersectWindows,
   routeTotals,
@@ -314,5 +317,27 @@ describe('estimateLeg / routeTotals (ST3-T16)', () => {
       missingLegs: 1,
       estimated: false,
     });
+  });
+});
+
+describe('daySendState (ST3-T18 ส่งครบ)', () => {
+  it('ส่งครบ = มีเที่ยวและทุกเที่ยวที่ไม่ยกเลิกปล่อยรถแล้วหรือเลยไป · ไม่มีเที่ยว = ไม่ครบ', () => {
+    expect(daySendState([])).toEqual({ trips: 0, sent: 0, complete: false });
+    expect(daySendState(['CANCELLED'])).toEqual({ trips: 0, sent: 0, complete: false });
+    expect(daySendState(['DISPATCHED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'])).toEqual({
+      trips: 3,
+      sent: 3,
+      complete: true,
+    });
+    expect(daySendState(['DISPATCHED', 'ASSIGNED'])).toEqual({
+      trips: 2,
+      sent: 1,
+      complete: false,
+    });
+    expect(daySendState(['OFFERED']).complete).toBe(false);
+  });
+  it('สถานะส่งแล้ว/ยังไม่ส่ง ครอบทุกสถานะยกเว้นยกเลิก ไม่ซ้อนกัน', () => {
+    const all = [...TRIP_SENT_STATUSES, ...TRIP_UNSENT_STATUSES].sort();
+    expect(all).toEqual(TRIP_STATUSES.filter((s) => s !== 'CANCELLED').sort());
   });
 });

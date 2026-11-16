@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import {
   checkAssignability,
+  daySendState,
   pendingRules,
   ruleKey,
   vehicleOverlaps,
@@ -74,6 +75,11 @@ export class PlanningService {
       vehicles: [...vehicles, ...extra],
       trips,
       pool,
+      // ส่งครบต่อวัน (ST3-T18) — `trips` มีทุกเที่ยวที่ไม่ยกเลิกของช่วง ± 1 วัน จึงครอบวันในช่วงครบ
+      days: days.map((date) => ({
+        date,
+        ...daySendState(trips.filter((t) => t.tripDate === date).map((t) => t.status)),
+      })),
     };
   }
 

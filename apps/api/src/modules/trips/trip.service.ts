@@ -7,6 +7,8 @@ import {
   backwardStops,
   stopOrderViolations,
   TRIP_OPEN_STATUSES,
+  TRIP_UNSENT_STATUSES,
+  daySendState,
   TRIP_TRANSITIONS,
   isTripEditable,
   checkDrivingHours,
@@ -136,6 +138,8 @@ export interface AssignInput {
 }
 
 const ENTITY = 'trip';
+/** Send all ทั้งวันสูงสุดต่อคำขอ (≥ รถ 200 คัน × 1–2 เที่ยว — PLN-051) */
+export const SEND_ALL_MAX = 400;
 const EVENT_TYPE: Partial<Record<TripEvent, string>> = {
   offer: 'trip.offered',
   accept: 'trip.assigned',
@@ -734,6 +738,97 @@ export class TripService {
       }
     }
     return out;
+  }
+
+  /**
+   * ส่งแผนทั้งวัน (ST3-T18 "Send all" — docs/04 D2, spec/03 §9 PLN-170): ปล่อยทุกเที่ยวของวันที่ยังไม่ส่งในคำขอเดียว
+   * งานต่อเที่ยวใช้ `bulkAssign` + dispatch (แยกรายการ — ติดกฎ/ไม่มีรถ/รอรถร่วมตอบ = ไม่ผ่านพร้อมเหตุผล ไม่ข้ามเงียบ)
+   * - `items` ไม่ส่ง = ทุกเที่ยว PLANNING/OFFERED/ASSIGNED ที่ `tripDate` = วันนั้น (ณ ตอนทำ)
+   * - `items` ส่ง = เฉพาะที่ติ๊ก (+ version ที่เห็น) — เที่ยวของวันอื่น → 422 `items[i].tripId` `not_on_date`
+   * - audit `trip.sent_all` 1 แถวต่อคำขอ (วัน, ขอบเขต, ผลต่อเที่ยว) — event ต่อเที่ยว = `trip.dispatched` เดิม (docs/01 §6)
+   */
+  async sendAll(
+    date: string,
+    items: { tripId: string | null; version?: number; ruleKeys?: string[] }[] | undefined,
+    o: { reason?: string | null; canOverride: boolean },
+    tx: Tx = this.db.tx,
+  ): Promise<{
+    items: { tripId: string | null; tripNo: string | null }[];
+    outcomes: BulkOutcome[];
+    day: { trips: number; sent: number; complete: boolean };
+  }> {
+    const day = new Date(`${date}T00:00:00Z`);
+    let list: { tripId: string | null; version?: number; ruleKeys?: string[] }[];
+    const numbers = new Map<string, string | null>();
+    if (items === undefined) {
+      const rows = await tx.trip.findMany({
+        where: { tripDate: day, status: { in: [...TRIP_UNSENT_STATUSES] } },
+        select: { id: true, tripNo: true },
+        orderBy: { tripNo: 'asc' },
+      });
+      if (rows.length > SEND_ALL_MAX)
+        throw field422('date', 'too_many', `more than ${SEND_ALL_MAX} trips — send selected trips`);
+      for (const r of rows) numbers.set(r.id, r.tripNo);
+      list = rows.map((r) => ({ tripId: r.id }));
+    } else {
+      const ids = items.flatMap((i) => (i.tripId ? [i.tripId] : []));
+      const rows = await tx.trip.findMany({
+        where: { id: { in: ids } },
+        select: { id: true, tripNo: true, tripDate: true },
+      });
+      const off = new Map(rows.map((r) => [r.id, r]));
+      const bad = items.flatMap((it, i) => {
+        const r = it.tripId ? off.get(it.tripId) : undefined;
+        return r && r.tripDate.getTime() !== day.getTime()
+          ? [
+              {
+                field: `items[${i}].tripId`,
+                code: 'not_on_date',
+                message: `trip is not on ${date}`,
+              },
+            ]
+          : [];
+      });
+      if (bad.length) throw new ProblemException('validation_failed', undefined, bad);
+      for (const r of rows) numbers.set(r.id, r.tripNo);
+      list = items;
+    }
+    const outcomes = await this.bulkAssign(
+      list,
+      { dispatch: true, reason: o.reason ?? null, canOverride: o.canOverride },
+      tx,
+    );
+    const after = await tx.trip.findMany({ where: { tripDate: day }, select: { status: true } });
+    const state = daySendState(after.map((r) => r.status as TripStatus));
+    const no = (id: string | null) => (id ? (numbers.get(id) ?? null) : null);
+    const code = (e: unknown) =>
+      e instanceof InvalidTransitionError
+        ? 'invalid_state_transition'
+        : ((e as ProblemException | null)?.code ?? null);
+    await this.audit.record({
+      action: `${ENTITY}.sent_all`,
+      entityType: ENTITY,
+      ...(o.reason ? { reason: o.reason } : {}),
+      after: {
+        date,
+        scope: items === undefined ? 'ALL' : 'SELECTED',
+        requested: list.length,
+        dispatched: outcomes.flatMap((r, i) =>
+          r.outcome === 'DISPATCHED' ? [no(list[i]!.tripId)] : [],
+        ),
+        failed: outcomes.flatMap((r, i) =>
+          r.outcome === 'FAILED' ? [{ tripNo: no(list[i]!.tripId), code: code(r.error) }] : [],
+        ),
+        dayTrips: state.trips,
+        daySent: state.sent,
+        dayComplete: state.complete,
+      },
+    });
+    return {
+      items: list.map((i) => ({ tripId: i.tripId, tripNo: no(i.tripId) })),
+      outcomes,
+      day: state,
+    };
   }
 
   /** เสนองานรถร่วม (PLANNING → OFFERED): รถร่วม + ผู้เสนอ + เวลา (ลิงก์/token = ST3-T23) */
