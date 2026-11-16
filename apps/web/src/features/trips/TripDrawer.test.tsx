@@ -1,6 +1,8 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, within } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { ApiError } from '../../api';
 import { I18nProvider } from '../../i18n';
 import type { TripDetail } from './useTrips';
 
@@ -11,10 +13,49 @@ const live: { data: TripDetail | undefined; isError: boolean } = {
 };
 const reorderMutate = vi.fn();
 const detachMutate = vi.fn();
+const assignMutate = vi.fn();
+const dispatchMutate = vi.fn();
 vi.mock('./useTrips', () => ({
   useTrip: () => live,
   useReorderStops: () => ({ mutate: reorderMutate, isPending: false }),
   useDetachFromTrip: () => ({ mutate: detachMutate, isPending: false }),
+  useAssignTrip: () => ({ mutate: assignMutate, isPending: false }),
+  useDispatchTrip: () => ({ mutate: dispatchMutate, isPending: false }),
+  useAssignOptions: () => ({
+    vehicles: {
+      data: [
+        {
+          id: 'veh_1',
+          plate: '70-1234',
+          payloadKg: 6000,
+          status: 'ready',
+          unitRole: 'TRUCK',
+          vehicleType: { name: '6 ล้อ' },
+        },
+        {
+          id: 'veh_2',
+          plate: '71-5555',
+          payloadKg: 10000,
+          status: 'ready',
+          unitRole: 'TRUCK',
+          vehicleType: { name: '10 ล้อ' },
+        },
+      ],
+      isError: false,
+    },
+    drivers: {
+      data: [
+        { id: 'drv_1', name: 'สมชาย ใจดี', licenceClass: 'T2', defaultVehicle: { id: 'veh_1' } },
+        {
+          id: 'drv_2',
+          name: 'สมศักดิ์ ขับดี',
+          licenceClass: 'T3',
+          defaultVehicle: { id: 'veh_2' },
+        },
+      ],
+      isError: false,
+    },
+  }),
 }));
 vi.mock('../../shell/AppShell', () => ({
   useMe: () => ({ data: { tenant: { yearStyle: 'BE' } } }),
@@ -101,13 +142,22 @@ const TRIP = {
   updatedAt: '2026-11-17T00:00:00.000Z',
 } as unknown as TripDetail;
 
-const show = (canEdit = true) =>
+const onDone = vi.fn();
+const show = (canEdit = true, canDispatch = false) =>
   render(
-    <QueryClientProvider client={new QueryClient()}>
-      <I18nProvider lang="th">
-        <TripDrawer id="trp_1" canEdit={canEdit} onClose={() => {}} />
-      </I18nProvider>
-    </QueryClientProvider>,
+    <MemoryRouter>
+      <QueryClientProvider client={new QueryClient()}>
+        <I18nProvider lang="th">
+          <TripDrawer
+            id="trp_1"
+            canEdit={canEdit}
+            canDispatch={canDispatch}
+            onDone={onDone}
+            onClose={() => {}}
+          />
+        </I18nProvider>
+      </QueryClientProvider>
+    </MemoryRouter>,
   );
 
 describe('TripDrawer (ST3-T16)', () => {
@@ -115,6 +165,9 @@ describe('TripDrawer (ST3-T16)', () => {
     live.data = TRIP;
     reorderMutate.mockReset();
     detachMutate.mockReset();
+    assignMutate.mockReset();
+    dispatchMutate.mockReset();
+    onDone.mockReset();
   });
 
   it('หัว/ข้อมูล/จุดตามลำดับ + ระยะช่วงวิ่ง + ยอดรวม', () => {
@@ -210,5 +263,84 @@ describe('TripDrawer (ST3-T16)', () => {
     expect(screen.getByRole('status').textContent).toContain(
       'เรียงลำดับจุดของ TRP-6911-0001 แล้ว · พบปัญหา: จุดที่ 3: เวลาตามแผนก่อนจุดก่อนหน้า',
     );
+  });
+
+  it('ST3-T17: "จัดรถ" (→ ASSIGNED) แยกจาก "ปล่อยเที่ยว" (จัดรถและปล่อย dispatch:true) · ไม่มี trips:dispatch = ไม่มีปุ่มปล่อย', () => {
+    const { unmount } = show(true, false);
+    expect(screen.getByText('ยังไม่จัดรถ')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'ปล่อยเที่ยว' })).toBeNull();
+    // ลิงก์ "จัดรถ" ในส่วน รถ / คนขับ (เปิดฟอร์ม) + ปุ่ม footer "จัดรถ" (ส่ง) — ตามต้นแบบ drawer SO
+    fireEvent.click(screen.getAllByRole('button', { name: 'จัดรถ' }).at(-1)!);
+    expect(assignMutate).toHaveBeenCalledWith(
+      { id: 'trp_1', version: 3, body: { vehicleId: 'veh_1', driverId: 'drv_1' } },
+      expect.anything(),
+    );
+    unmount();
+    show(true, true);
+    fireEvent.click(screen.getByRole('button', { name: 'ปล่อยเที่ยว' }));
+    expect(assignMutate).toHaveBeenLastCalledWith(
+      { id: 'trp_1', version: 3, body: { vehicleId: 'veh_1', driverId: 'drv_1', dispatch: true } },
+      expect.anything(),
+    );
+  });
+
+  it('ST3-T17: ฟอร์มจัดรถ — เปลี่ยนรถ → คนขับประจำของรถนั้น · คนขับสำรอง · เที่ยว ASSIGNED ปล่อย = /dispatch', () => {
+    show(true, true);
+    fireEvent.click(screen.getAllByRole('button', { name: 'จัดรถ' })[0]!);
+    fireEvent.change(screen.getByLabelText('รถ (เรียงตามความเหมาะสม)'), {
+      target: { value: 'veh_2' },
+    });
+    expect((screen.getByLabelText('คนขับ') as HTMLSelectElement).value).toBe('drv_2');
+    fireEvent.change(screen.getByLabelText('คนขับสำรอง'), { target: { value: 'drv_1' } });
+    fireEvent.click(screen.getAllByRole('button', { name: 'จัดรถ' }).at(-1)!);
+    expect(assignMutate).toHaveBeenCalledWith(
+      {
+        id: 'trp_1',
+        version: 3,
+        body: { vehicleId: 'veh_2', driverId: 'drv_2', reliefDriverId: 'drv_1' },
+      },
+      expect.anything(),
+    );
+  });
+
+  it('ST3-T17: เที่ยว ASSIGNED → "ปล่อยเที่ยว" เรียก /dispatch · สำเร็จ → onDone + ปิด · 409 คำเตือน → dialog ยืนยันพร้อมเหตุผลแล้วส่งซ้ำพร้อมกุญแจ', () => {
+    live.data = { ...TRIP, status: 'ASSIGNED' } as TripDetail;
+    dispatchMutate.mockImplementationOnce((_v, o: { onError: (e: unknown) => void }) =>
+      o.onError(
+        new ApiError({
+          type: '',
+          title: 'ยังไม่ยืนยันคำเตือน',
+          status: 409,
+          code: 'assignment_warnings',
+          warnings: [{ key: 'OVERWEIGHT|v=veh_1', code: 'OVERWEIGHT', message: 'น้ำหนักเกิน' }],
+        } as never),
+      ),
+    );
+    show(true, true);
+    expect(screen.getByText('จัดรถแล้ว · ยังไม่ส่ง')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'จัดรถ' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'ปล่อยเที่ยว' }));
+    expect(dispatchMutate).toHaveBeenCalledWith(
+      { id: 'trp_1', version: 3, body: {} },
+      expect.anything(),
+    );
+    const dlg = screen.getByRole('dialog', { name: 'ยืนยันคำเตือนก่อนปล่อยเที่ยว' });
+    expect(dlg.textContent).toContain('น้ำหนักเกิน');
+    fireEvent.change(within(dlg).getByRole('textbox'), {
+      target: { value: 'ลูกค้ายืนยันรับของเกินพิกัด' },
+    });
+    dispatchMutate.mockImplementationOnce((_v, o: { onSuccess: (x: TripDetail) => void }) =>
+      o.onSuccess({ ...TRIP, status: 'DISPATCHED' } as TripDetail),
+    );
+    fireEvent.click(within(dlg).getByRole('button', { name: 'ยืนยันและบันทึก log' }));
+    expect(dispatchMutate).toHaveBeenLastCalledWith(
+      {
+        id: 'trp_1',
+        version: 3,
+        body: { ruleKeys: ['OVERWEIGHT|v=veh_1'], overrideReason: 'ลูกค้ายืนยันรับของเกินพิกัด' },
+      },
+      expect.anything(),
+    );
+    expect(onDone).toHaveBeenCalledWith('ปล่อย 1 เที่ยวแล้ว');
   });
 });

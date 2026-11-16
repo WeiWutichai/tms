@@ -13,6 +13,8 @@ import { useSessionState } from '../master/useCursorList';
 import { HoldBadge, holdLabel } from '../orders/HoldPage';
 import { OrderDrawer } from '../orders/OrderDrawer';
 import { TripDrawer } from '../trips/TripDrawer';
+import { tripProblemText } from '../trips/tripProblem';
+import { useBulkAssign, type BulkResults } from '../trips/useTrips';
 import { OrderFormDrawer } from '../orders/OrderFormDrawer';
 import { fromOrder, type Order, type OrderForm } from '../orders/orderForm';
 import { bangkokToday, useDateText } from '../rate-cards/rateFormat';
@@ -74,6 +76,7 @@ import {
   type EligLevel,
 } from './board';
 import { BoardViewMenu } from './BoardViewMenu';
+import { BulkFailDialog } from './BulkFailDialog';
 import { BlockedDialog, ruleTagKey, type BlockedReason } from './RuleDialogs';
 import {
   useBoard,
@@ -248,6 +251,12 @@ export function PlanningPage() {
   const [tripId, setTripId] = useState<string | null>(null);
   const [form, setForm] = useState<{ key: number; initial: OrderForm; order: Order } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const canDispatch = can(scopes, 'trips:dispatch');
+  /** ST3-T17 bulk (spec/03 PLN-047): เที่ยวที่เลือก (Shift/⌘/Ctrl + คลิกการ์ด) → แถบ "เลือก N รายการ" */
+  const [picked, setPicked] = useState<string[]>([]);
+  const bulk = useBulkAssign();
+  /** ผลที่ไม่สำเร็จของ bulk → dialog รายการ (ไม่ใช่ all-or-nothing) */
+  const [bulkFail, setBulkFail] = useState<BulkResults['results'] | null>(null);
 
   const b = board.data;
   const day0 = b?.today ?? bangkokToday();
@@ -314,7 +323,11 @@ export function PlanningPage() {
   const pickVehicle = (v: BoardVehicle) =>
     setSel((s) => (s?.kind === 'vehicle' && s.id === v.id ? null : { kind: 'vehicle', id: v.id }));
   useEffect(() => {
-    const esc = (e: KeyboardEvent) => e.key === 'Escape' && setSel(null);
+    const esc = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      setSel(null);
+      setPicked([]);
+    };
     window.addEventListener('keydown', esc);
     return () => window.removeEventListener('keydown', esc);
   }, []);
@@ -355,8 +368,8 @@ export function PlanningPage() {
   };
   /**
    * เหตุที่วางสิ่งที่กำลังลากลงแถวรถ `v` วัน `day` ไม่ได้ (server ตรวจซ้ำเสมอ — PLN-042; กฎเต็ม = ST3-T14/T15):
-   * รถติดกฎห้ามจ่ายงาน (ต้นแบบ "รถติดกฎห้ามจ่ายงาน (…)") · SO ต้นทางแก้รอตรวจ · เที่ยวปล่อยรถแล้ว ·
-   * เที่ยวจัดรถแล้ว (ASSIGNED) ย้ายไปรถอื่น = ทางจัดรถใหม่ของ ST3-T17 (ไม่ทำ /assign + /schedule สองคำขอ)
+   * รถติดกฎห้ามจ่ายงาน (ต้นแบบ "รถติดกฎห้ามจ่ายงาน (…)") · SO ต้นทางแก้รอตรวจ · เที่ยวปล่อยรถแล้ว
+   * (เที่ยวจัดรถแล้ว (ASSIGNED) ย้ายไปรถอื่น = จัดรถใหม่ผ่าน /schedule คำขอเดียว — ST3-T17)
    */
   const badOf = (d: Drag, v: BoardVehicle | undefined, day: string): string => {
     if (!d || !canPlan) return '';
@@ -365,7 +378,6 @@ export function PlanningPage() {
       const x = tripOf(d.id);
       const why = x ? tripMoveBlock(x, v?.id ?? x.vehicleId ?? '') : null;
       if (x && why === 'locked') return t('plan.bad.locked', { no: x.tripNo });
-      if (x && why === 'assigned') return t('plan.bad.assigned', { no: x.tripNo });
       if (x && v && v.id === x.vehicleId) return '';
     }
     const blk = v ? blkOn(v, day) : [];
@@ -400,7 +412,18 @@ export function PlanningPage() {
     endDrag();
     if (why) setToast(t('plan.cantDrop', { m: why }));
   };
-  const fail = (err: unknown) => setToast(t('plan.cantDrop', { m: problemText(err, t) ?? '' }));
+  // ข้อความไทยรายช่อง/กฎ ชุดเดียวกับ dialog ผล bulk (QA ST3-T17 M)
+  /**
+   * ผลคนขับเมื่อย้ายเที่ยวที่จัดรถแล้วไปรถอื่น (ST3-T17 review M1): " · คนขับ: … (คงเดิม)" / "(เปลี่ยนเป็นคนขับประจำ)"
+   * เที่ยวที่ยังไม่จัดรถไม่มีคนขับ = ไม่ต่อท้าย
+   */
+  const driverNote = (x: BoardTrip, r: Trip) =>
+    x.status !== 'ASSIGNED' || !r.driver
+      ? ''
+      : t(r.driver.name === x.driverName ? 'plan.toast.driverKept' : 'plan.toast.driverChanged', {
+          n: r.driver.name,
+        });
+  const fail = (err: unknown) => setToast(t('plan.cantDrop', { m: tripProblemText(err, t) }));
   /**
    * ผลปฏิเสธของ API: 409 `assignment_blocked` → toast "ห้ามจ่ายงานให้ …" + เปิด BP (ต้นแบบ assignToast) พร้อม `retry`
    * (ผู้จัดการกรอกเหตุผลแล้วส่งคำขอเดิมซ้ำพร้อมยกเว้น) · อื่น ๆ → toast "วางไม่ได้: …"
@@ -455,11 +478,12 @@ export function PlanningPage() {
         {
           onSuccess: (r) => {
             if (viaDialog) setBp(null);
-            const m = t('plan.toast.moved', {
-              so: soText(x),
-              from: x.vehiclePlate ?? '—',
-              to: v.plate,
-            });
+            const m =
+              t('plan.toast.moved', {
+                so: soText(x),
+                from: x.vehiclePlate ?? '—',
+                to: v.plate,
+              }) + driverNote(x, r);
             const i = issueText(r);
             setToast(i ? t('plan.toast.issue', { m, i }) : m);
           },
@@ -478,7 +502,7 @@ export function PlanningPage() {
       );
     send({}, false);
   };
-  /** ลิงก์ "ย้ายไปรถอื่น" — เฉพาะเที่ยวที่ยังเปลี่ยนรถบนกระดานได้ (PLANNING; ASSIGNED = จัดรถใหม่ของ ST3-T17) */
+  /** ลิงก์ "ย้ายไปรถอื่น" — เที่ยวที่ยังไม่ปล่อยรถ (ASSIGNED = จัดรถใหม่ ST3-T17) */
   const canMoveOther = (x: BoardTrip) => canPlan && tripMoveBlock(x, '') === null;
   const moveLink = (x: BoardTrip, style: CSSProperties) => (
     <button
@@ -579,7 +603,7 @@ export function PlanningPage() {
                   so: soText(x),
                   from: x.vehiclePlate ?? '—',
                   to: v.plate,
-                })
+                }) + driverNote(x, r)
               : t('plan.toast.time', {
                   so: soText(x),
                   t: `${hhmm(hourOf(body.plannedStartAt, d))}–${hhmm(hourOf(body.plannedEndAt, d))}`,
@@ -857,6 +881,8 @@ export function PlanningPage() {
       ...((x.pendingRules ?? []).length
         ? [t('plan.rule.tip', { i: (x.pendingRules ?? []).map((r) => r.message).join(' · ') })]
         : []),
+      // ST3-T17 bulk (PLN-047) — วิธีเลือกหลายเที่ยว
+      ...(canPlan && movable(x) ? [t('plan.bulk.hint')] : []),
     ].join('\n');
   const tripDragStart = (x: BoardTrip, d: string) => (e: DragEvent<HTMLDivElement>) => {
     const track = e.currentTarget.closest('[data-track]') as HTMLElement | null;
@@ -1030,6 +1056,66 @@ export function PlanningPage() {
     return null;
   };
 
+  // ---------------------------------------------------------------- เลือกหลายเที่ยว + จัดรถ/ปล่อยเที่ยว (ST3-T17)
+  const pickable = (x: BoardTrip) => canPlan && movable(x);
+  /** เที่ยวที่เลือกที่ยังอยู่บนกระดานและยังทำได้ (ปล่อยแล้ว/หายไป → หลุดเอง) */
+  const pickedOn = (b?.trips ?? []).filter((x) => picked.includes(x.id) && pickable(x));
+  const cardClick = (x: BoardTrip) => (e: React.MouseEvent) => {
+    if ((e.shiftKey || e.metaKey || e.ctrlKey) && pickable(x)) {
+      e.preventDefault();
+      setPicked((p) => (p.includes(x.id) ? p.filter((i) => i !== x.id) : [...p, x.id]));
+      return;
+    }
+    if (x.orders[0]) setOpenId(x.orders[0].id);
+  };
+  /** การ์ดที่เลือก (ต้นแบบ: พื้น `#E9F0FA` ขอบ `#9DB6E3`) — ระบุขอบทีละด้าน (ไม่ปน shorthand — QA) + เงาขอบให้เห็นชัด */
+  const cardBorder = (x: BoardTrip): CSSProperties => {
+    const on = picked.includes(x.id);
+    const side = `1px solid ${on ? '#9DB6E3' : '#CDD1C8'}`;
+    return {
+      background: on ? '#E9F0FA' : '#FFFFFF',
+      borderTop: side,
+      borderRight: side,
+      borderBottom: side,
+      borderLeft: `3px solid ${tripColor(x)}`,
+      boxShadow: on
+        ? '0 0 0 2px #9DB6E3, 0 1px 2px rgba(16,20,24,.06)'
+        : '0 1px 2px rgba(16,20,24,.06)',
+    };
+  };
+  const runBulk = (release: boolean) => {
+    const xs = pickedOn;
+    if (!xs.length || bulk.isPending) return;
+    bulk.mutate(
+      {
+        items: xs.map((x) => ({ tripId: x.id, version: x.version })),
+        ...(release ? { dispatch: true } : {}),
+      },
+      {
+        onSuccess: (r) => {
+          setPicked([]);
+          const failed = r.results.filter((i) => !i.trip);
+          if (failed.length) setBulkFail(r.results);
+          else
+            setToast(
+              [
+                ...(r.succeeded || !r.unchanged
+                  ? [
+                      t(release ? 'trip.toast.released' : 'plan.bulk.doneAssign', {
+                        n: r.succeeded,
+                      }),
+                    ]
+                  : []),
+                // review L3: เที่ยวที่จัดรถแล้วอยู่ก่อนไม่นับเป็นสำเร็จ
+                ...(r.unchanged ? [t('plan.bulk.unchanged', { n: r.unchanged })] : []),
+              ].join(' · '),
+            );
+        },
+        onError: fail,
+      },
+    );
+  };
+
   const dayRow = (v: BoardVehicle) => {
     const ts = (tripsBy.get(v.id) ?? []).filter((x) => onDay(x, dsel));
     const items = ts.map((x) => {
@@ -1111,24 +1197,22 @@ export function PlanningPage() {
                   draggable={canMove}
                   onDragStart={tripDragStart(x, dsel)}
                   onDragEnd={dragEnd}
-                  onClick={() => x.orders[0] && setOpenId(x.orders[0].id)}
+                  onClick={cardClick(x)}
                   title={tipOf(x, dsel)}
                   className="tms-plan-card"
+                  data-picked={picked.includes(x.id) ? 'true' : undefined}
                   style={{
                     height: '100%',
                     boxSizing: 'border-box',
-                    background: '#FFFFFF',
-                    border: '1px solid #CDD1C8',
-                    borderLeft: `3px solid ${tripColor(x)}`,
                     borderRadius: 8,
                     padding: '6px 8px',
                     display: 'flex',
                     flexDirection: 'column',
                     gap: 1,
                     overflow: 'hidden',
-                    boxShadow: '0 1px 2px rgba(16,20,24,.06)',
                     cursor: canMove ? 'grab' : 'pointer',
                     minWidth: 0,
+                    ...cardBorder(x),
                   }}
                 >
                   {(cf.includes('ORDER_NO') || cf.includes('CUSTOMER')) && (
@@ -1810,6 +1894,50 @@ export function PlanningPage() {
               {t('plan.lg.hint')}
             </span>
           </div>
+          {pickedOn.length > 0 && (
+            <div
+              className="tms-bulk"
+              data-testid="plan-bulk"
+              style={{ position: 'sticky', left: 0, flexShrink: 0 }}
+            >
+              <span className="tms-bulk__n">{t('plan.bulk.n', { n: pickedOn.length })}</span>
+              <button
+                type="button"
+                className="tms-btn tms-btn--secondary tms-btn--sm"
+                disabled={bulk.isPending}
+                onClick={() => runBulk(false)}
+              >
+                <Icon n="truck" s={16} />
+                {t('plan.bulk.assign')}
+              </button>
+              {canDispatch && (
+                <button
+                  type="button"
+                  className="tms-btn tms-btn--secondary tms-btn--sm"
+                  disabled={bulk.isPending}
+                  onClick={() => runBulk(true)}
+                >
+                  <Icon n="send" s={16} />
+                  {t('plan.bulk.release')}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setPicked([])}
+                style={{
+                  marginLeft: 'auto',
+                  height: 32,
+                  border: 0,
+                  background: 'transparent',
+                  color: '#3B424C',
+                  cursor: 'pointer',
+                  padding: '0 8px',
+                }}
+              >
+                {t('plan.bulk.clear')}
+              </button>
+            </div>
+          )}
           {board.isError ? (
             <EmptyState
               icon="circle-alert"
@@ -2018,6 +2146,9 @@ export function PlanningPage() {
           key={tripId}
           id={tripId}
           canEdit={can(scopes, 'trips:assign')}
+          canDispatch={canDispatch}
+          canOverride={canOverride}
+          onDone={setToast}
           onClose={() => setTripId(null)}
         />
       )}
@@ -2100,6 +2231,17 @@ export function PlanningPage() {
             />
           );
         })()}
+      {bulkFail && (
+        <BulkFailDialog
+          results={bulkFail}
+          tripNo={(id) => tripOf(id)?.tripNo ?? ''}
+          onOpen={(id) => {
+            setBulkFail(null);
+            setTripId(id);
+          }}
+          onClose={() => setBulkFail(null)}
+        />
+      )}
       <BlockedDialog
         open={bp !== null}
         plate={bp ? plateText(bp.v) : ''}

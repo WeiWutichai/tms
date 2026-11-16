@@ -4,13 +4,17 @@ import {
   ArrayMinSize,
   IsArray,
   IsBoolean,
+  IsInt,
   IsISO8601,
   IsOptional,
   IsString,
   Matches,
   MaxLength,
+  Min,
   MinLength,
+  ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import { TRIP_STATUSES, type TripStatus } from '@tms/domain';
 import { ListQuery } from '../../common/pagination';
 import { CleanText, IsNullable } from '../master/master-kit';
@@ -20,6 +24,7 @@ const DO_ID = /^do_[0-9a-f]{32}$/;
 const VEH_ID = /^veh_[0-9a-f]{32}$/;
 const DRV_ID = /^drv_[0-9a-f]{32}$/;
 const STP_ID = /^stp_[0-9a-f]{32}$/;
+const TRP_ID = /^trp_[0-9a-f]{32}$/;
 
 export class TripListQuery extends ListQuery {
   @ApiPropertyOptional({
@@ -241,10 +246,83 @@ export class AssignTripDto extends RuleConfirmDto {
   @IsNullable()
   @Matches(VEH_ID)
   trailerId?: string | null;
+
+  @ApiPropertyOptional({
+    description:
+      'ST3-T17 "จัดรถและปล่อยเที่ยว" (docs/04 D2 Assign & dispatch) — จัดรถแล้วปล่อยรถในคำขอเดียว (atomic: ปล่อยไม่ได้ = ไม่จัดรถด้วย) · ' +
+      'ต้องมี scope `trips:dispatch` เพิ่ม · ตรวจกฎแบบตอนปล่อยรถ: คำเตือนที่ยังไม่ยืนยัน → 409 `assignment_warnings`',
+  })
+  @IsOptional()
+  @IsBoolean()
+  dispatch?: boolean;
 }
 
 /** ปล่อยรถ — ยืนยัน/ยกเว้นกฎที่ค้างในคำขอนี้ได้ (ST3-T14) */
 export class DispatchTripDto extends RuleConfirmDto {}
+
+/** เที่ยว 1 รายการของคำขอทำหลายเที่ยว (ST3-T17) */
+export class BulkTripItemDto {
+  @ApiProperty({ example: 'trp_3f2a…' })
+  @Matches(TRP_ID)
+  tripId!: string;
+
+  @ApiPropertyOptional({
+    example: 3,
+    description: '`version` ที่ผู้ใช้เห็น (แทน If-Match ต่อรายการ) — ไม่ตรง → รายการนั้น 412',
+  })
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  version?: number;
+
+  @ApiPropertyOptional({
+    type: [String],
+    maxItems: 50,
+    description: 'กุญแจกฎที่ยกเว้น/ยืนยันของเที่ยวนี้ (ใช้ `overrideReason` ของคำขอ)',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @IsString({ each: true })
+  @MaxLength(400, { each: true })
+  ruleKeys?: string[];
+}
+
+/**
+ * จัดรถ / จัดรถและปล่อยเที่ยว หลายเที่ยว (ST3-T17 bulk — docs/04 D2, spec/03 PLN-047/048)
+ * แต่ละเที่ยวทำแยกกัน (สำเร็จบางรายการได้ — ไม่ใช่ all-or-nothing) · รถ = รถที่วางไว้/จัดไว้ของเที่ยว · คนขับ = คนขับประจำรถ (เที่ยว PLANNING)
+ */
+export class BulkAssignTripsDto {
+  @ApiProperty({ type: [BulkTripItemDto], minItems: 1, maxItems: 50 })
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(50)
+  @ValidateNested({ each: true })
+  @Type(() => BulkTripItemDto)
+  items!: BulkTripItemDto[];
+
+  @ApiPropertyOptional({
+    description:
+      'true = จัดรถและปล่อยเที่ยว (เที่ยวที่จัดรถแล้ว = ปล่อยอย่างเดียว) — ต้องมี scope `trips:dispatch` เพิ่ม',
+  })
+  @IsOptional()
+  @IsBoolean()
+  dispatch?: boolean;
+
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    minLength: 10,
+    maxLength: 500,
+    description: 'เหตุผลการยกเว้น/ยืนยันกฎ (≥ 10 ตัวอักษร) — ใช้กับทุกรายการที่ส่ง `ruleKeys`',
+  })
+  @IsOptional()
+  @IsNullable()
+  @CleanText()
+  @IsString()
+  @MaxLength(500)
+  overrideReason?: string | null;
+}
 
 /** ยกเว้น/ยืนยันกฎที่ค้างของเที่ยวภายหลัง — เฉพาะ `ruleKeys` ที่ส่ง (ST3-T14) */
 export class ConfirmRulesDto {
@@ -495,4 +573,58 @@ export class TripPageDto {
   @ApiProperty({ type: [TripDto] }) data!: TripDto[];
   @ApiProperty({ nullable: true, type: String }) nextCursor!: string | null;
   @ApiProperty() hasMore!: boolean;
+}
+
+/** ผลปฏิเสธของรายการ (รูปเดียวกับ application/problem+json ของคำขอเดี่ยว) */
+export class BulkTripProblemDto {
+  @ApiProperty({ example: 'https://docs.tms.example/problems/assignment_warnings' }) type!: string;
+  @ApiProperty() title!: string;
+  @ApiProperty({ example: 409 }) status!: number;
+  @ApiProperty({ example: 'assignment_warnings' }) code!: string;
+  @ApiPropertyOptional() detail?: string;
+  @ApiPropertyOptional({
+    type: 'array',
+    items: { type: 'object', additionalProperties: true },
+    description: 'รายช่อง (422)',
+  })
+  errors?: { field: string; code: string; message: string }[];
+  @ApiPropertyOptional({
+    type: 'array',
+    items: { type: 'object', additionalProperties: true },
+    description: '409 `assignment_blocked` — กฎบล็อกที่ค้าง (`key` สำหรับยกเว้น)',
+  })
+  blocks?: Record<string, unknown>[];
+  @ApiPropertyOptional({
+    type: 'array',
+    items: { type: 'object', additionalProperties: true },
+    description:
+      '409 `assignment_blocked`/`assignment_warnings` — คำเตือนที่ค้าง (`key` สำหรับยืนยัน)',
+  })
+  warnings?: Record<string, unknown>[];
+}
+
+export class BulkTripResultDto {
+  @ApiProperty({ example: 'trp_3f2a…' }) tripId!: string;
+  @ApiProperty({ nullable: true, type: String, example: 'TRP-6911-0001' }) tripNo!: string | null;
+  @ApiProperty({ example: 200, description: 'สถานะ HTTP ของรายการนี้ (200 = สำเร็จ/ไม่เปลี่ยน)' })
+  status!: number;
+  @ApiProperty({
+    enum: ['ASSIGNED', 'DISPATCHED', 'UNCHANGED', 'FAILED'],
+    description:
+      'ผลของรายการ — `UNCHANGED` = เที่ยวจัดรถแล้วอยู่ก่อน (จัดรถโดยไม่ปล่อย) ไม่ได้ทำอะไร',
+  })
+  outcome!: 'ASSIGNED' | 'DISPATCHED' | 'UNCHANGED' | 'FAILED';
+  @ApiProperty({ nullable: true, type: TripDto, description: 'เที่ยวหลังทำ (สำเร็จ)' })
+  trip!: TripDto | null;
+  @ApiProperty({ nullable: true, type: BulkTripProblemDto, description: 'เหตุที่ไม่สำเร็จ' })
+  problem!: BulkTripProblemDto | null;
+}
+
+export class BulkTripResultsDto {
+  @ApiProperty({ type: [BulkTripResultDto], description: 'ผลต่อรายการ เรียงตามคำขอ' })
+  results!: BulkTripResultDto[];
+  @ApiProperty({ example: 3, description: 'จัดรถ/ปล่อยสำเร็จ (ไม่นับ `UNCHANGED`)' })
+  succeeded!: number;
+  @ApiProperty({ example: 0, description: 'จัดรถแล้วอยู่ก่อน ไม่เปลี่ยน' }) unchanged!: number;
+  @ApiProperty({ example: 1 }) failed!: number;
 }

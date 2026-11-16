@@ -14835,6 +14835,124 @@
         ]
       }
     },
+    "/v1/trips/bulk-assign": {
+      "post": {
+        "description": "≤ 50 เที่ยว ทำทีละรายการแยกกัน (สำเร็จบางรายการได้) · PLANNING: จัดรถด้วยรถที่วางไว้ + คนขับประจำรถ · ASSIGNED: `dispatch` = ปล่อยรถ, ไม่ dispatch = ไม่เปลี่ยน · สถานะอื่น = 409 · ตอบ 207 เสมอเมื่อคำขอถูกต้อง — ดู `results[].status` / `problem` · `dispatch: true` ต้องมี `trips:dispatch`",
+        "operationId": "Trips_bulkAssign",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkAssignTripsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "207": {
+            "description": "ผลต่อรายการ",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkTripResultsDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`trips:assign`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "trips",
+                      "action": "assign",
+                      "required": [
+                        "trips:assign"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "deliveryOrderIds[0]",
+                          "code": "invalid_reference",
+                          "message": "not found"
+                        },
+                        {
+                          "field": "plannedEndAt",
+                          "code": "outside_trip_date",
+                          "message": "must be on tripDate"
+                        }
+                      ]
+                    }
+                  },
+                  "idempotency_mismatch": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_mismatch",
+                      "title": "Idempotency-Key นี้เคยใช้กับข้อมูลอื่น",
+                      "status": 422,
+                      "code": "idempotency_mismatch",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "จัดรถ / จัดรถและปล่อยเที่ยว หลายเที่ยว",
+        "tags": [
+          "trips"
+        ]
+      }
+    },
     "/v1/trips/{id}": {
       "get": {
         "operationId": "Trips_get",
@@ -15875,6 +15993,7 @@
     },
     "/v1/trips/{id}/assign": {
       "post": {
+        "description": "PLANNING → ASSIGNED (รถบริษัท) · ASSIGNED → ASSIGNED (เปลี่ยนรถ/คนขับก่อนปล่อยรถ — docs/01 §4.2) · OFFERED → ASSIGNED (รถร่วมรับงาน) · `dispatch: true` → ปล่อยรถต่อทันที (atomic; ต้องมี `trips:dispatch`; คำเตือนที่ยังไม่ยืนยัน → 409 `assignment_warnings`)",
         "operationId": "Trips_assign",
         "parameters": [
           {
@@ -16052,6 +16171,16 @@
                       "instance": "/v1/trips/trp_3f2a…",
                       "requestId": "b6a1c2d3-…"
                     }
+                  },
+                  "assignment_warnings": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/assignment_warnings",
+                      "title": "เที่ยวนี้มีคำเตือนที่ยังไม่ได้ยืนยัน — ยืนยันพร้อมเหตุผลก่อน",
+                      "status": 409,
+                      "code": "assignment_warnings",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
                   }
                 }
               }
@@ -16129,6 +16258,7 @@
             "bearer": []
           }
         ],
+        "summary": "จัดรถ / จัดรถและปล่อยเที่ยว",
         "tags": [
           "trips"
         ]
@@ -32290,6 +32420,200 @@
           "hasMore"
         ]
       },
+      "BulkTripItemDto": {
+        "type": "object",
+        "properties": {
+          "tripId": {
+            "type": "string",
+            "example": "trp_3f2a…"
+          },
+          "version": {
+            "type": "number",
+            "example": 3,
+            "description": "`version` ที่ผู้ใช้เห็น (แทน If-Match ต่อรายการ) — ไม่ตรง → รายการนั้น 412"
+          },
+          "ruleKeys": {
+            "maxItems": 50,
+            "description": "กุญแจกฎที่ยกเว้น/ยืนยันของเที่ยวนี้ (ใช้ `overrideReason` ของคำขอ)",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "tripId"
+        ]
+      },
+      "BulkAssignTripsDto": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "minItems": 1,
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BulkTripItemDto"
+            }
+          },
+          "dispatch": {
+            "type": "boolean",
+            "description": "true = จัดรถและปล่อยเที่ยว (เที่ยวที่จัดรถแล้ว = ปล่อยอย่างเดียว) — ต้องมี scope `trips:dispatch` เพิ่ม"
+          },
+          "overrideReason": {
+            "type": "string",
+            "nullable": true,
+            "minLength": 10,
+            "maxLength": 500,
+            "description": "เหตุผลการยกเว้น/ยืนยันกฎ (≥ 10 ตัวอักษร) — ใช้กับทุกรายการที่ส่ง `ruleKeys`"
+          }
+        },
+        "required": [
+          "items"
+        ]
+      },
+      "BulkTripProblemDto": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "example": "https://docs.tms.example/problems/assignment_warnings"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "number",
+            "example": 409
+          },
+          "code": {
+            "type": "string",
+            "example": "assignment_warnings"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "description": "รายช่อง (422)"
+          },
+          "blocks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "description": "409 `assignment_blocked` — กฎบล็อกที่ค้าง (`key` สำหรับยกเว้น)"
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "description": "409 `assignment_blocked`/`assignment_warnings` — คำเตือนที่ค้าง (`key` สำหรับยืนยัน)"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code"
+        ]
+      },
+      "BulkTripResultDto": {
+        "type": "object",
+        "properties": {
+          "tripId": {
+            "type": "string",
+            "example": "trp_3f2a…"
+          },
+          "tripNo": {
+            "type": "string",
+            "nullable": true,
+            "example": "TRP-6911-0001"
+          },
+          "status": {
+            "type": "number",
+            "example": 200,
+            "description": "สถานะ HTTP ของรายการนี้ (200 = สำเร็จ/ไม่เปลี่ยน)"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "ASSIGNED",
+              "DISPATCHED",
+              "UNCHANGED",
+              "FAILED"
+            ],
+            "description": "ผลของรายการ — `UNCHANGED` = เที่ยวจัดรถแล้วอยู่ก่อน (จัดรถโดยไม่ปล่อย) ไม่ได้ทำอะไร"
+          },
+          "trip": {
+            "nullable": true,
+            "description": "เที่ยวหลังทำ (สำเร็จ)",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TripDto"
+              }
+            ]
+          },
+          "problem": {
+            "nullable": true,
+            "description": "เหตุที่ไม่สำเร็จ",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/BulkTripProblemDto"
+              }
+            ]
+          }
+        },
+        "required": [
+          "tripId",
+          "tripNo",
+          "status",
+          "outcome",
+          "trip",
+          "problem"
+        ]
+      },
+      "BulkTripResultsDto": {
+        "type": "object",
+        "properties": {
+          "results": {
+            "description": "ผลต่อรายการ เรียงตามคำขอ",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BulkTripResultDto"
+            }
+          },
+          "succeeded": {
+            "type": "number",
+            "example": 3,
+            "description": "จัดรถ/ปล่อยสำเร็จ (ไม่นับ `UNCHANGED`)"
+          },
+          "unchanged": {
+            "type": "number",
+            "example": 0,
+            "description": "จัดรถแล้วอยู่ก่อน ไม่เปลี่ยน"
+          },
+          "failed": {
+            "type": "number",
+            "example": 1
+          }
+        },
+        "required": [
+          "results",
+          "succeeded",
+          "unchanged",
+          "failed"
+        ]
+      },
       "CreateTripDto": {
         "type": "object",
         "properties": {
@@ -32502,6 +32826,10 @@
             "nullable": true,
             "example": "veh_3f2a…",
             "description": "หาง (รถที่ unitRole = TRAILER)"
+          },
+          "dispatch": {
+            "type": "boolean",
+            "description": "ST3-T17 \"จัดรถและปล่อยเที่ยว\" (docs/04 D2 Assign & dispatch) — จัดรถแล้วปล่อยรถในคำขอเดียว (atomic: ปล่อยไม่ได้ = ไม่จัดรถด้วย) · ต้องมี scope `trips:dispatch` เพิ่ม · ตรวจกฎแบบตอนปล่อยรถ: คำเตือนที่ยังไม่ยืนยัน → 409 `assignment_warnings`"
           }
         },
         "required": [

@@ -310,7 +310,7 @@ describe('planning board (ST3-T12)', () => {
     ).toBe('before_start');
   });
 
-  it('ย้ายเที่ยวไปรถอื่น (PLANNING) · ถอดรถที่วางไว้ · ASSIGNED เปลี่ยนรถผ่าน schedule ไม่ได้ (409) แต่ปรับเวลาได้', async () => {
+  it('ย้ายเที่ยวไปรถอื่น (PLANNING) · ถอดรถที่วางไว้ · ASSIGNED เปลี่ยนรถผ่าน schedule = จัดรถใหม่ (ST3-T17 — คงคนขับเดิม, ถอดรถ 409) · ปรับเวลาได้', async () => {
     const v1 = await newVehicle();
     const v2 = await newVehicle();
     const t = (await drop((await newOrder()).doIds, v1.id, '08:00', '10:00').expect(201)).body;
@@ -345,8 +345,15 @@ describe('planning board (ST3-T12)', () => {
       .post(`/v1/trips/${t.id}/assign`)
       .send({ vehicleId: v1.id, driverId: d.id })
       .expect(200);
-    const r = await schedule(t.id, { vehicleId: v2.id }).expect(409);
-    expect(r.body).toMatchObject({ code: 'invalid_state_transition', event: 'schedule_vehicle' });
+    // ST3-T17: เปลี่ยนรถของเที่ยวที่จัดแล้ว = จัดรถใหม่ — คนขับเดิมผ่านกฎใบขับขี่ของรถใหม่ → คงเดิม · ถอดรถ → 409
+    const r = await schedule(t.id, { vehicleId: v2.id }).expect(200);
+    expect(r.body).toMatchObject({
+      status: 'ASSIGNED',
+      vehicle: { id: v2.id },
+      driver: { id: d.id },
+    });
+    const un = await schedule(t.id, { vehicleId: null }).expect(409);
+    expect(un.body).toMatchObject({ code: 'invalid_state_transition', event: 'unassign' });
     const ok = await schedule(t.id, {
       plannedStartAt: at('13:00'),
       plannedEndAt: at('15:00'),

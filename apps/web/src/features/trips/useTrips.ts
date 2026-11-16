@@ -90,3 +90,107 @@ export function useDetachFromTrip() {
     },
   });
 }
+
+export type BulkResults = Schemas['BulkTripResultsDto'];
+type AssignBody = Schemas['AssignTripDto'];
+
+const invalidateAll = (qc: ReturnType<typeof useQueryClient>) => {
+  qc.invalidateQueries({ queryKey: [KEY] });
+  qc.invalidateQueries({ queryKey: [BOARD_KEY] });
+  qc.invalidateQueries({ queryKey: ['orders'] });
+};
+
+/**
+ * จัดรถ (→ ASSIGNED) / จัดรถและปล่อยเที่ยว (`dispatch: true` → DISPATCHED ในคำขอเดียว) — POST /v1/trips/{id}/assign
+ * ST3-T17 (docs/04 D2 "Assign vs Dispatch แยกปุ่ม") · If-Match = version ที่เห็น
+ */
+export function useAssignTrip() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { id: string; version: number; body: AssignBody }): Promise<TripDetail> => {
+      const key = crypto.randomUUID();
+      return idempotent(() =>
+        api.POST('/v1/trips/{id}/assign', {
+          params: { path: { id: v.id } },
+          body: v.body,
+          headers: { 'If-Match': `"${v.version}"`, 'Idempotency-Key': key },
+        }),
+      );
+    },
+    onSuccess: (t) => qc.setQueryData([KEY, t.id], t),
+    onSettled: () => invalidateAll(qc),
+  });
+}
+
+/** ปล่อยเที่ยวที่จัดรถแล้ว (ASSIGNED → DISPATCHED) — POST /v1/trips/{id}/dispatch */
+export function useDispatchTrip() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: {
+      id: string;
+      version: number;
+      body: Schemas['DispatchTripDto'];
+    }): Promise<TripDetail> => {
+      const key = crypto.randomUUID();
+      return idempotent(() =>
+        api.POST('/v1/trips/{id}/dispatch', {
+          params: { path: { id: v.id } },
+          body: v.body,
+          headers: { 'If-Match': `"${v.version}"`, 'Idempotency-Key': key },
+        }),
+      );
+    },
+    onSuccess: (t) => qc.setQueryData([KEY, t.id], t),
+    onSettled: () => invalidateAll(qc),
+  });
+}
+
+/** จัดรถ / จัดรถและปล่อยเที่ยว หลายเที่ยว — POST /v1/trips/bulk-assign (207 ผลต่อรายการ) */
+export function useBulkAssign() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: Schemas['BulkAssignTripsDto']): Promise<BulkResults> => {
+      const key = crypto.randomUUID();
+      return idempotent(() =>
+        api.POST('/v1/trips/bulk-assign', { body: v, headers: { 'Idempotency-Key': key } }),
+      );
+    },
+    onSettled: () => invalidateAll(qc),
+  });
+}
+
+/**
+ * ตัวเลือก "รถ" / "คนขับ" ของการจัดรถใน drawer เที่ยว (ต้นแบบ SO drawer "จัดรถ": select รถ + คนขับ)
+ * รถ: ใช้งานได้ ไม่ใช่หาง · รถบริษัท (เที่ยวที่ไม่มีรถร่วม) หรือรถของรถร่วมรายนั้น · คนขับ: พร้อมใช้ (ต้องมี `master:read`)
+ */
+export function useAssignOptions(carrierId: string | null, enabled: boolean) {
+  const vehicles = useQuery({
+    queryKey: [KEY, 'assign-vehicles', carrierId],
+    enabled,
+    queryFn: () =>
+      unwrap(
+        api.GET('/v1/vehicles', {
+          params: {
+            query: {
+              limit: 200,
+              status: 'ready,maintenance,parked',
+              ...(carrierId ? { ownership: 'SUBCONTRACT', carrierId } : { ownership: 'OWN' }),
+            } as never,
+          },
+        }),
+      ).then((p) => p.data.filter((v) => v.unitRole !== 'TRAILER')),
+  });
+  const drivers = useQuery({
+    queryKey: [KEY, 'assign-drivers', carrierId],
+    enabled,
+    queryFn: () =>
+      unwrap(
+        api.GET('/v1/drivers', {
+          params: {
+            query: { limit: 200, status: 'active', ...(carrierId ? { carrierId } : {}) } as never,
+          },
+        }),
+      ).then((p) => p.data),
+  });
+  return { vehicles, drivers };
+}

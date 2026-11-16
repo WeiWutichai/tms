@@ -5,9 +5,11 @@ import {
   ApiHeader,
   ApiOkResponse,
   ApiOperation,
+  ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
 import {
+  InvalidTransitionError,
   pendingRules,
   ruleKey,
   RULE_OVERRIDE_SCOPE,
@@ -21,7 +23,7 @@ import { RequireScope, TenantResource } from '../../common/decorators';
 import { expectedVersion, setEtag } from '../../common/etag';
 import { decodeIdOr404, encodeId, tryDecodeId, type IdKind } from '../../common/ids';
 import { toPage } from '../../common/pagination';
-import { ProblemException } from '../../common/problem';
+import { PROBLEMS, ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { ApiProblems } from '../../common/problem.dto';
 import { isRealDate } from '../vehicle-documents/expiry';
@@ -29,6 +31,8 @@ import { T403, T404, T409, T412, T422 } from './trip-problems';
 import {
   AssignTripDto,
   AttachDeliveryOrdersDto,
+  BulkAssignTripsDto,
+  BulkTripResultsDto,
   CancelTripDto,
   ConfirmRulesDto,
   CreateTripDto,
@@ -182,6 +186,43 @@ export function toTripDto(t: TripRecord): TripDto {
   };
 }
 
+/** problem body ของรายการใน bulk (รูปเดียวกับ ProblemFilter — ไม่มี instance/requestId ต่อรายการ) */
+function problemOf(e: unknown) {
+  const locale = requestContext.get()?.locale ?? 'th';
+  if (e instanceof InvalidTransitionError)
+    return {
+      type: 'https://docs.tms.example/problems/invalid_state_transition',
+      title: PROBLEMS.invalid_state_transition[locale],
+      status: PROBLEMS.invalid_state_transition.status,
+      code: 'invalid_state_transition',
+    };
+  const p = e as ProblemException;
+  const def = PROBLEMS[p.code];
+  const { title, ...extra } = (p.extra ?? {}) as { title?: { th: string; en: string } } & Record<
+    string,
+    unknown
+  >;
+  return {
+    type: `https://docs.tms.example/problems/${p.code}`,
+    title: title?.[locale] ?? def[locale],
+    status: def.status as number,
+    code: p.code as string,
+    ...(p.detail ? { detail: p.detail } : {}),
+    ...(p.errors?.length ? { errors: p.errors } : {}),
+    ...extra,
+  };
+}
+
+/** ผู้เรียกต้องมี scope นี้เพิ่ม (เช่น `/assign` + `dispatch: true` ต้องมี `trips:dispatch`) */
+function requireAlso(scope: string) {
+  if (!scopeAllows(requestContext.require().scopes ?? [], scope))
+    throw new ProblemException('permission_denied', undefined, undefined, {
+      module: 'trips',
+      action: scope.split(':')[1],
+      required: [scope],
+    });
+}
+
 /** id ใน body ที่ผิดรูป/ไม่พบ → 422 รายช่อง (ไม่ใช่ 404 ของ resource หลัก) */
 function ref(kind: IdKind, v: string, field: string): string {
   const id = tryDecodeId(kind, v);
@@ -229,6 +270,74 @@ export class TripsController {
       carrierId: dec('carrier', q.carrierId),
     });
     return toPage(rows, k, toTripDto, q.fields);
+  }
+
+  /**
+   * จัดรถ / จัดรถและปล่อยเที่ยว หลายเที่ยว (ST3-T17 bulk — docs/04 D2, spec/03 PLN-047/048) → 207 ผลต่อรายการ
+   * ไม่ใช่ all-or-nothing: แต่ละเที่ยวสำเร็จ/ไม่สำเร็จแยกกัน (ไม่สำเร็จ = `problem` รูปเดียวกับคำขอเดี่ยว เช่น 409 `assignment_warnings`)
+   */
+  @Post('bulk-assign')
+  @ApiOperation({
+    summary: 'จัดรถ / จัดรถและปล่อยเที่ยว หลายเที่ยว',
+    description:
+      '≤ 50 เที่ยว ทำทีละรายการแยกกัน (สำเร็จบางรายการได้) · PLANNING: จัดรถด้วยรถที่วางไว้ + คนขับประจำรถ · ' +
+      'ASSIGNED: `dispatch` = ปล่อยรถ, ไม่ dispatch = ไม่เปลี่ยน · สถานะอื่น = 409 · ' +
+      'ตอบ 207 เสมอเมื่อคำขอถูกต้อง — ดู `results[].status` / `problem` · `dispatch: true` ต้องมี `trips:dispatch`',
+  })
+  @ApiProblems(T403('trips:assign'), T422)
+  @HttpCode(207)
+  @RequireScope('trips:assign')
+  @ApiHeader({ name: 'Idempotency-Key', required: false })
+  @ApiResponse({ status: 207, type: BulkTripResultsDto, description: 'ผลต่อรายการ' })
+  async bulkAssign(@Body() body: BulkAssignTripsDto): Promise<BulkTripResultsDto> {
+    if (body.dispatch) requireAlso('trips:dispatch');
+    const ids = body.items.map((i) => i.tripId);
+    const dup = ids.flatMap((x, i) =>
+      ids.indexOf(x) !== i
+        ? [{ field: `items[${i}].tripId`, code: 'duplicate', message: 'trip listed twice' }]
+        : [],
+    );
+    if (dup.length) throw new ProblemException('validation_failed', undefined, dup);
+    const out = await this.trips.bulkAssign(
+      body.items.map((i) => ({
+        tripId: tryDecodeId('trip', i.tripId),
+        version: i.version,
+        ruleKeys: i.ruleKeys,
+      })),
+      {
+        dispatch: body.dispatch === true,
+        reason: body.overrideReason ?? null,
+        canOverride: scopeAllows(requestContext.require().scopes ?? [], RULE_OVERRIDE_SCOPE),
+      },
+    );
+    const results = out.map((r, i) => {
+      const tripId = body.items[i]!.tripId;
+      if (r.trip)
+        return {
+          tripId,
+          tripNo: r.trip.tripNo,
+          status: 200,
+          outcome: r.outcome,
+          trip: toTripDto(r.trip),
+          problem: null,
+        };
+      const problem = problemOf(r.error);
+      return {
+        tripId,
+        tripNo: null,
+        status: problem.status,
+        outcome: r.outcome,
+        trip: null,
+        problem,
+      };
+    });
+    const n = (o: string) => results.filter((r) => r.outcome === o).length;
+    return {
+      results,
+      succeeded: n('ASSIGNED') + n('DISPATCHED'),
+      unchanged: n('UNCHANGED'),
+      failed: n('FAILED'),
+    };
   }
 
   @Get(':id')
@@ -446,12 +555,27 @@ export class TripsController {
     return toTripDto(t);
   }
 
-  /** จัดรถ + คนขับ (snapshot) → ASSIGNED · คำเตือนอยู่ใน `warnings` (ไม่บล็อก) */
+  /**
+   * จัดรถ + คนขับ (snapshot) → ASSIGNED (ยังไม่ส่งงาน) · คำเตือนอยู่ใน `warnings` (ต้องยืนยันก่อนปล่อยรถ)
+   * ST3-T17: `dispatch: true` = จัดรถและปล่อยเที่ยว (→ DISPATCHED, ทุก DO DISPATCHED) ในคำขอเดียว — ต้องมี `trips:dispatch` ด้วย
+   */
   @Post(':id/assign')
+  @ApiOperation({
+    summary: 'จัดรถ / จัดรถและปล่อยเที่ยว',
+    description:
+      'PLANNING → ASSIGNED (รถบริษัท) · ASSIGNED → ASSIGNED (เปลี่ยนรถ/คนขับก่อนปล่อยรถ — docs/01 §4.2) · OFFERED → ASSIGNED (รถร่วมรับงาน) · ' +
+      '`dispatch: true` → ปล่อยรถต่อทันที (atomic; ต้องมี `trips:dispatch`; คำเตือนที่ยังไม่ยืนยัน → 409 `assignment_warnings`)',
+  })
   @ApiProblems(
     T403('trips:assign'),
     T404,
-    T409('trip_empty', 'offer_required', 'carrier_change_requires_cancel', 'assignment_blocked'),
+    T409(
+      'trip_empty',
+      'offer_required',
+      'carrier_change_requires_cancel',
+      'assignment_blocked',
+      'assignment_warnings',
+    ),
     T412,
     T422,
   )
@@ -468,6 +592,7 @@ export class TripsController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<TripDto> {
     const trip = await this.trips.get(decodeIdOr404('trip', id));
+    if (body.dispatch) requireAlso('trips:dispatch');
     const t = await this.trips.assign(
       trip.id,
       {
@@ -479,6 +604,7 @@ export class TripsController {
       },
       undefined,
       expectedVersion(req),
+      { dispatch: body.dispatch === true },
     );
     setEtag(res, t.version);
     return toTripDto(t);
