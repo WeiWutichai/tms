@@ -9,3 +9,4 @@ export * from './sales-order';
 export * from './delivery-order';
 export * from './trip';
 export * from './matching';
+export * from './assignment-rules';

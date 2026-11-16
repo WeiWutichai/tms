@@ -214,47 +214,66 @@ describe('checkAssignability — รถร่วม: เอกสารบัง
     expect(() => subcon([], null, '2026-02-30')).toThrow(RangeError);
   });
 
-  it('override: admin (owner + admin) พร้อมเหตุผล ≥ 10 ตัว หมวด OVERRIDE', () => {
+  it('override (D-07): ผู้จัดการ/ผู้ดูแล `trips:override` พร้อมเหตุผล ≥ 10 ตัว หมวด OVERRIDE', () => {
     expect(ASSIGNABILITY_OVERRIDE).toEqual({
-      permission: 'users:write',
-      roles: ['owner', 'admin'],
+      permission: 'trips:override',
+      roles: ['owner', 'admin', 'manager'],
       reasonCategory: 'OVERRIDE',
       reasonMinLength: 10,
     });
   });
 });
 
-describe('checkAssignability — รถบริษัท: เตือนไม่บล็อก (docs/04 B2.3 D)', () => {
-  it('ไม่มีเอกสารเลย → ไม่บล็อก ไม่เตือน', () => {
-    expect(own([], { licenceExpiresOn: null })).toEqual({
-      assignable: true,
-      blocks: [],
-      warnings: [],
-      overridable: true,
-    });
-  });
-
-  it('พ.ร.บ. (บังคับก่อนจ่ายงาน) + ใบขับขี่หมด → คำเตือน, assignable ยังเป็น true', () => {
-    const r = own([INS_OK, doc('COMPULSORY_ACT', '2025-11-01', '2026-10-31')], {
-      licenceExpiresOn: '2026-11-01',
-    });
-    expect(r.assignable).toBe(true);
-    expect(r.blocks).toEqual([]);
-    expect(r.warnings.map((w) => [w.code, w.severity])).toEqual([
-      ['DOC_CMI_EXPIRED', 'warning'],
-      ['DRIVER_LICENCE_EXPIRED', 'warning'],
+describe('checkAssignability — รถบริษัท: D-07 กฎเอกสาร/ใบขับขี่ = บล็อก (PO 16 พ.ย. 2569)', () => {
+  it('ไม่มีเอกสารที่ตั้งบังคับเลย → ไม่บล็อก; ใบขับขี่ไม่มีวันหมด → บล็อก DRIVER_LICENCE_MISSING', () => {
+    expect(own([])).toEqual({ assignable: true, blocks: [], warnings: [], overridable: true });
+    const r = own([], { licenceExpiresOn: null });
+    expect(r.assignable).toBe(false);
+    expect(r.blocks.map((w) => [w.code, w.severity])).toEqual([
+      ['DRIVER_LICENCE_MISSING', 'block'],
     ]);
   });
 
-  it('เอกสารที่ไม่ได้ตั้งบังคับหมด → ไม่เตือน', () => {
+  it('พ.ร.บ. (บังคับก่อนจ่ายงาน) + ใบขับขี่หมด → บล็อก, assignable = false', () => {
+    const r = own([INS_OK, doc('COMPULSORY_ACT', '2025-11-01', '2026-10-31')], {
+      licenceExpiresOn: '2026-11-01',
+    });
+    expect(r.assignable).toBe(false);
+    expect(r.warnings).toEqual([]);
+    expect(r.blocks.map((w) => [w.code, w.severity])).toEqual([
+      ['DOC_CMI_EXPIRED', 'block'],
+      ['DRIVER_LICENCE_EXPIRED', 'block'],
+    ]);
+  });
+
+  it('เอกสารที่ไม่ได้ตั้งบังคับหมด → ไม่บล็อก', () => {
     const r = own([doc('INSURANCE', '2025-01-01', '2025-12-31', { isRequiredForDispatch: false })]);
+    expect(r.blocks).toEqual([]);
     expect(r.warnings).toEqual([]);
   });
 
-  it('ฉบับปัจจุบันยังไม่เริ่ม (ช่องว่าง) → คำเตือน DOC_NOT_YET_VALID', () => {
+  it('ฉบับปัจจุบันยังไม่เริ่ม (ช่องว่าง) → บล็อก DOC_NOT_YET_VALID', () => {
     const r = own([doc('INSURANCE', '2026-12-01', '2027-11-30')]);
-    expect(r.assignable).toBe(true);
-    expect(r.warnings.map((w) => [w.code, w.severity])).toEqual([['DOC_NOT_YET_VALID', 'warning']]);
+    expect(r.assignable).toBe(false);
+    expect(r.blocks.map((w) => [w.code, w.severity])).toEqual([['DOC_NOT_YET_VALID', 'block']]);
+  });
+
+  it('ชั้นใบขับขี่ต่ำกว่าประเภทรถ (MD-090) / สินค้าอันตรายต้อง ท.4 (PLN-084) → บล็อก DRIVER_LICENCE_CLASS', () => {
+    const chk = (licenceClass: string | null, minLicenceClass: string | null, hazmat = false) =>
+      checkAssignability({
+        vehicle: { ownership: 'OWN', minLicenceClass },
+        documents: [],
+        driver: { licenceExpiresOn: '2030-01-01', licenceClass },
+        date: '2026-11-20',
+        hazmat,
+      }).blocks.map((b) => [b.code, b.params.required]);
+    expect(chk('T2', 'T3')).toEqual([['DRIVER_LICENCE_CLASS', 'T3']]);
+    expect(chk('T3', 'T3')).toEqual([]);
+    expect(chk('T4', 'T2')).toEqual([]);
+    expect(chk(null, 'T2')).toEqual([['DRIVER_LICENCE_CLASS', 'T2']]);
+    expect(chk('T2', null)).toEqual([]);
+    expect(chk('T3', 'T2', true)).toEqual([['DRIVER_LICENCE_CLASS', 'T4']]);
+    expect(chk('T4', 'T2', true)).toEqual([]);
   });
 });
 

@@ -7,7 +7,16 @@ import {
   TRIP_OPEN_STATUSES,
   TRIP_TRANSITIONS,
   isTripEditable,
+  checkDrivingHours,
+  checkLoad,
+  drivingDays,
+  pendingRules,
+  reconcileOverrides,
   planStops,
+  ruleKey,
+  RULE_OVERRIDE_SCOPE,
+  RULE_REASON_MIN_LENGTH,
+  type RuleOverride,
   type TripDoInput,
   type TripEvent,
   type TripStatus,
@@ -50,8 +59,9 @@ export type TripRecord = Prisma.TripGetPayload<{ include: typeof TRIP_INCLUDE }>
 
 export interface TripWarning {
   code: string;
-  severity: 'warning' | 'block';
-  source: 'compatibility' | 'assignability' | 'schedule' | 'stops' | 'assignment';
+  /** block = กฎเอกสาร (D-07) ต้องยกเว้นโดย `trips:override` · warning = ต้องยืนยันพร้อมเหตุผลก่อนปล่อยรถ · info = แจ้งเฉย ๆ */
+  severity: 'warning' | 'block' | 'info';
+  source: 'compatibility' | 'assignability' | 'schedule' | 'stops' | 'assignment' | 'load';
   messageKey: string;
   message: string;
   params: Record<string, unknown>;
@@ -66,7 +76,18 @@ export interface TripFilter extends ListQuery {
   carrierId?: string;
 }
 
+/**
+ * ST3-T14 (D-07 + PO 17 พ.ย. 2569): ยกเว้นบล็อก/ยืนยันคำเตือน **เฉพาะกฎที่ผู้ใช้เห็น** — `ruleKeys` = กุญแจของกฎที่ค้าง
+ * (`warnings[].key` / extension `blocks[].key` ของ 409) + เหตุผล ≥ 10 ตัว · `canOverride` = ผู้เรียกมี `trips:override`
+ */
+export interface RuleConfirmInput {
+  ruleKeys?: string[];
+  reason?: string | null;
+  canOverride?: boolean;
+}
+
 export interface CreateTripInput {
+  rules?: RuleConfirmInput;
   tripDate: string;
   deliveryOrderIds: string[];
   plannedStartAt?: string | null;
@@ -77,6 +98,7 @@ export interface CreateTripInput {
 
 /** ย้าย/ปรับเวลาเที่ยวบนกระดาน (ST3-T12) — `undefined` = คงค่าเดิม */
 export interface ScheduleInput {
+  rules?: RuleConfirmInput;
   tripDate?: string;
   plannedStartAt?: string | null;
   plannedEndAt?: string | null;
@@ -84,6 +106,7 @@ export interface ScheduleInput {
 }
 
 export interface AssignInput {
+  rules?: RuleConfirmInput;
   vehicleId: string;
   driverId?: string | null;
   reliefDriverId?: string | null;
@@ -114,8 +137,12 @@ const field422 = (field: string, code: string, message: string) =>
  * - รถ/คนขับ/คนขับสำรอง/หาง/รถร่วม = **snapshot ต่อเที่ยว** เขียนตอน assign/offer (และรถที่วางไว้ตอนสร้าง) — ไม่อ่าน master ภายหลัง
  *   (คนขับประจำ/ชื่อ/ทะเบียนเปลี่ยนแล้วเที่ยวเดิมไม่เปลี่ยน) · หลังปล่อยรถแก้ไม่ได้ (ตาราง transition)
  * - จุดแวะจัดจาก DO (`planStops`) ทุกครั้งที่เพิ่ม/ถอด DO ก่อนปล่อยรถ — จุดที่ไม่มี DO ใช้ตั้ง removed_at (ไม่ลบจริง)
- * - คำเตือน (เข้ากันได้/เอกสารรถ/ซ้อนเวลา/ช่วงเวลาจุด) **ไม่บล็อก** — เก็บใน `rule_warnings` และคืนใน `warnings`
- *   (บังคับ + override พร้อมเหตุผล = ST3-T14)
+ * - กฎตอนจัด (ST3-T14 — D-07 PO 16 พ.ย. 2569): ผลตรวจเก็บใน `rule_warnings` (คืนใน `warnings`) ·
+ *   **บล็อก** (กฎเอกสาร/ใบขับขี่) → create(+รถ)/schedule/assign/dispatch ตอบ 409 `assignment_blocked` เว้นแต่ส่งกุญแจ
+ *   ของบล็อกนั้นใน `ruleKeys` + เหตุผล โดยผู้มี `trips:override` · **คำเตือน** → บันทึกได้ (ค้าง "รอยืนยัน") แต่ต้องยืนยัน
+ *   พร้อมเหตุผลก่อนปล่อยรถ (`ruleKeys` ในคำขอ หรือ `/confirm-rules`; dispatch ที่ยังค้าง → 409 `assignment_warnings`)
+ *   การยกเว้นหมดผลเมื่อข้อเท็จจริงเปลี่ยน/แย่ลง (`reconcileOverrides` ทุกครั้งที่ตรวจใหม่)
+ *   การยกเว้น/ยืนยันเก็บใน `rule_overrides` (append-only) + audit `trip.rules_overridden`
  * - ยกเลิก: เหตุผล ≥ 10 + audit · DO ที่ยังไม่รับของกลับ DRAFT นอกเที่ยว (ล้าง trip_id) · SO ตาม DO
  */
 @Injectable()
@@ -172,6 +199,7 @@ export class TripService {
    */
   async create(input: CreateTripInput, tx: Tx = this.db.tx): Promise<TripRecord> {
     const tenantId = this.tenantId();
+    const reason = this.ruleReason(input.rules);
     const window = this.window(input.tripDate, input.plannedStartAt, input.plannedEndAt);
     const dos = await this.dos.lockForTrip(tx, input.deliveryOrderIds);
     let vehicle = {};
@@ -196,7 +224,8 @@ export class TripService {
       tx,
       dos.map((d) => d.salesOrderId),
     );
-    const final = await this.refreshWarnings(tx, trip.id, stops.windowConflicts);
+    let final = await this.refreshWarnings(tx, trip.id, stops.windowConflicts);
+    if (input.vehicleId) final = await this.enforceRules(tx, final, input.rules, reason, 'entry');
     await this.emit(tx, 'trip.created', final, {});
     await this.audit.record({
       action: `${ENTITY}.created`,
@@ -298,6 +327,7 @@ export class TripService {
     tx: Tx = this.db.tx,
     expectedVersion?: number,
   ): Promise<TripRecord> {
+    const reason = this.ruleReason(input.rules);
     const { trip } = await this.lock(tx, id, expectedVersion);
     this.assertEditable(trip);
     const tripDate = input.tripDate ?? trip.tripDate.toISOString().slice(0, 10);
@@ -347,7 +377,8 @@ export class TripService {
       },
     });
     if (r.count === 0) throw new ProblemException('concurrent_update');
-    const final = await this.refreshWarnings(tx, trip.id);
+    let final = await this.refreshWarnings(tx, trip.id);
+    if (final.vehicleId) final = await this.enforceRules(tx, final, input.rules, reason, 'entry');
     await this.emit(tx, 'trip.updated', final, before);
     await this.audit.record({
       action: `${ENTITY}.rescheduled`,
@@ -373,6 +404,7 @@ export class TripService {
     tx: Tx = this.db.tx,
     expectedVersion?: number,
   ): Promise<TripRecord> {
+    const reason = this.ruleReason(input.rules);
     const { trip, dos } = await this.lock(tx, id, expectedVersion);
     const event: TripEvent =
       trip.status === 'OFFERED' ? 'accept' : trip.status === 'ASSIGNED' ? 'reassign' : 'assign';
@@ -404,7 +436,8 @@ export class TripService {
       tx,
       dos.map((d) => d.salesOrderId),
     );
-    const final = await this.refreshWarnings(tx, trip.id);
+    let final = await this.refreshWarnings(tx, trip.id);
+    final = await this.enforceRules(tx, final, input.rules, reason, 'entry');
     await this.audit.record({
       action: `${ENTITY}.assigned`,
       entityType: ENTITY,
@@ -453,11 +486,23 @@ export class TripService {
     return final;
   }
 
-  /** ปล่อยรถ (ASSIGNED → DISPATCHED): ต้องมี DO ≥ 1 · ทุก DO → DISPATCHED · SO → IN_TRANSIT */
-  async dispatch(id: string, tx: Tx = this.db.tx, expectedVersion?: number): Promise<TripRecord> {
-    const { trip, dos } = await this.lock(tx, id, expectedVersion);
-    this.assertCan(trip, 'dispatch');
+  /**
+   * ปล่อยรถ (ASSIGNED → DISPATCHED): ต้องมี DO ≥ 1 · ทุก DO → DISPATCHED · SO → IN_TRANSIT
+   * ST3-T14 (PLN-088 "ประเมินตอนส่งแผน"): ตรวจกฎใหม่ก่อนปล่อย — บล็อกที่ยังไม่ยกเว้น → 409 `assignment_blocked`,
+   * คำเตือนที่ยังไม่ยืนยัน → 409 `assignment_warnings` (ยืนยัน/ยกเว้นในคำขอนี้ได้ด้วย `rules`)
+   */
+  async dispatch(
+    id: string,
+    tx: Tx = this.db.tx,
+    expectedVersion?: number,
+    rules?: RuleConfirmInput,
+  ): Promise<TripRecord> {
+    const reason = this.ruleReason(rules);
+    const { trip: locked, dos } = await this.lock(tx, id, expectedVersion);
+    this.assertCan(locked, 'dispatch');
     if (!dos.length) throw new ProblemException('trip_empty');
+    const checked = await this.refreshWarnings(tx, locked.id);
+    const trip = await this.enforceRules(tx, checked, rules, reason, 'dispatch');
     await this.transition(tx, trip, 'dispatch', { dispatchedAt: new Date() });
     for (const d of await this.reload(tx, dos)) {
       await this.dos.planForTrip(tx, d);
@@ -560,7 +605,144 @@ export class TripService {
     return final;
   }
 
+  /**
+   * ยืนยันคำเตือน / ยกเว้นบล็อกของเที่ยวภายหลัง (ST3-T14 — กระดาน "… · ขออนุมัติ" / "ต้องย้ายรถ" → dialog)
+   * ตรวจกฎใหม่ก่อน (ผลล่าสุด) แล้วยกเว้น/ยืนยัน **เฉพาะ `ruleKeys`** (กุญแจที่ไม่ค้างแล้ว → 422) · บล็อกต้องมี `trips:override`
+   * บล็อกอื่นที่ค้างไม่ขวาง (เที่ยวมีอยู่แล้ว) · เที่ยวที่ปล่อยแล้ว/จบ/ยกเลิก → 409 `invalid_state_transition`
+   */
+  async confirmRules(
+    id: string,
+    rules: RuleConfirmInput,
+    tx: Tx = this.db.tx,
+    expectedVersion?: number,
+  ): Promise<TripRecord> {
+    const reason = this.ruleReason(rules);
+    const { trip } = await this.lock(tx, id, expectedVersion);
+    this.assertEditable(trip);
+    const checked = await this.refreshWarnings(tx, trip.id);
+    return this.enforceRules(tx, checked, rules, reason, 'confirm');
+  }
+
   // ---------------------------------------------------------------------------------------------
+
+  /** เหตุผลของการยืนยัน/ยกเว้น — ส่งธงใดธงหนึ่งแล้วต้องมีเหตุผล ≥ 10 ตัวอักษร (ตรวจก่อนทำงาน) */
+  private ruleReason(rules?: RuleConfirmInput): string | null {
+    if (!rules?.ruleKeys?.length) return null;
+    const reason = cleanLine(String(rules.reason ?? '')).trim();
+    if ([...reason].length < RULE_REASON_MIN_LENGTH)
+      throw field422(
+        'overrideReason',
+        reason ? 'too_short' : 'required',
+        `reason must be at least ${RULE_REASON_MIN_LENGTH} characters`,
+      );
+    return reason;
+  }
+
+  /**
+   * บังคับกฎตอนจัด (D-07) กับผลตรวจล่าสุดของเที่ยว — **ตัวเดียวกันทุกทางเข้า** (create+รถ / schedule / assign / dispatch / confirm)
+   * - `ruleKeys` ต้องเป็นกุญแจของกฎที่ค้างอยู่ (มิฉะนั้น 422 `not_pending`) — ยกเว้น/ยืนยันเฉพาะกฎเหล่านั้น
+   * - บล็อกที่ค้างและไม่อยู่ใน `ruleKeys` → 409 `assignment_blocked` (+ `blocks[].key`, `warnings`) ยกเว้น `/confirm-rules`
+   * - บล็อกใน `ruleKeys` แต่ไม่มี `trips:override` → 403 `permission_denied`
+   * - คำเตือนที่ยังไม่ยืนยัน: `dispatch` → 409 `assignment_warnings` · ทางเข้าอื่นบันทึกได้ (ค้างให้ยืนยันภายหลัง)
+   * - ยกเว้น/ยืนยัน → ต่อท้าย `rule_overrides` (กุญแจผูกรถ + คนขับ — `ruleKey`) + audit `trip.rules_overridden` พร้อมเหตุผล
+   * ทั้งหมดอยู่ใน transaction ของคำขอ — ตอบ error แล้วการเปลี่ยนแปลงของคำขอนั้นย้อนกลับทั้งหมด
+   */
+  private async enforceRules(
+    tx: Tx,
+    trip: TripRecord,
+    rules: RuleConfirmInput | undefined,
+    reason: string | null,
+    gate: 'entry' | 'dispatch' | 'confirm',
+  ): Promise<TripRecord> {
+    const ctx = {
+      vehicleId: trip.vehicleId,
+      driverId: trip.driverId,
+      reliefDriverId: trip.reliefDriverId,
+    };
+    const results = (trip.ruleWarnings as unknown as TripWarning[]) ?? [];
+    const done = (trip.ruleOverrides as unknown as RuleOverride[]) ?? [];
+    const p = pendingRules(results, done, ctx);
+    const keyOf = (w: TripWarning) => ruleKey(w, ctx);
+    const brief = (w: TripWarning) => ({
+      key: keyOf(w),
+      code: w.code,
+      severity: w.severity,
+      source: w.source,
+      messageKey: w.messageKey,
+      message: w.message,
+      params: w.params,
+    });
+    const wanted = rules?.ruleKeys ?? [];
+    const pending = new Set([...p.blocks, ...p.warnings].map(keyOf));
+    // กุญแจที่ไม่ค้าง (ไม่ใช่สิ่งที่ผู้ใช้เห็นตอนนี้) → 422 รายช่อง
+    const stale = wanted.flatMap((k, i) =>
+      pending.has(k)
+        ? []
+        : [{ field: `ruleKeys[${i}]`, code: 'not_pending', message: 'rule is not pending' }],
+    );
+    if (stale.length) throw new ProblemException('validation_failed', undefined, stale);
+    const chosen = new Set(wanted);
+    const blocksLeft = p.blocks.filter((b) => !chosen.has(keyOf(b)));
+    if (blocksLeft.length && gate !== 'confirm')
+      throw new ProblemException('assignment_blocked', undefined, undefined, {
+        blocks: blocksLeft.map(brief),
+        warnings: p.warnings.map(brief),
+        overrideScope: RULE_OVERRIDE_SCOPE,
+      });
+    const overriding = p.blocks.filter((b) => chosen.has(keyOf(b)));
+    if (overriding.length && !rules?.canOverride)
+      throw new ProblemException('permission_denied', undefined, undefined, {
+        module: 'trips',
+        action: 'override',
+        required: [RULE_OVERRIDE_SCOPE],
+      });
+    const warnLeft = p.warnings.filter((w) => !chosen.has(keyOf(w)));
+    if (gate === 'dispatch' && warnLeft.length)
+      throw new ProblemException('assignment_warnings', undefined, undefined, {
+        warnings: warnLeft.map(brief),
+      });
+    const add = [...p.blocks, ...p.warnings].filter((w) => chosen.has(keyOf(w)));
+    if (!add.length || reason === null) return trip;
+    const ctxReq = requestContext.require();
+    const at = new Date().toISOString();
+    const entries: RuleOverride[] = add.map((w) => ({
+      key: ruleKey(w, ctx),
+      code: w.code,
+      severity: w.severity === 'block' ? 'block' : 'warning',
+      kind: w.severity === 'block' ? 'OVERRIDE' : 'ACKNOWLEDGE',
+      reason,
+      actorId: ctxReq.actorId ?? null,
+      at,
+      message: w.message,
+      params: w.params,
+    }));
+    const r = await tx.trip.updateMany({
+      where: { id: trip.id, version: trip.version },
+      data: {
+        ruleOverrides: JSON.parse(JSON.stringify([...done, ...entries])) as Prisma.InputJsonValue,
+        version: { increment: 1 },
+      },
+    });
+    if (r.count === 0) throw new ProblemException('concurrent_update');
+    await this.audit.record({
+      action: `${ENTITY}.rules_overridden`,
+      entityType: ENTITY,
+      entityId: trip.id,
+      after: {
+        tripNo: trip.tripNo,
+        vehiclePlate: trip.vehiclePlateSnapshot,
+        driver: trip.driverNameSnapshot,
+        rules: entries.map((e) => ({ code: e.code, kind: e.kind, message: e.message })),
+      },
+      reason,
+    });
+    const final = await this.get(trip.id, tx);
+    // PLN-090: `trip.rule_overridden` + การเปลี่ยนแปลงของเที่ยว (review L7)
+    const ruled = entries.map((e) => ({ key: e.key, code: e.code, kind: e.kind, reason }));
+    await this.emit(tx, 'trip.rule_overridden', final, { rules: ruled });
+    await this.emit(tx, 'trip.updated', final, { ruleOverrides: ruled });
+    return final;
+  }
 
   private tenantId(): string {
     const t = requestContext.require().tenantId;
@@ -958,7 +1140,9 @@ export class TripService {
           message: `รถ ${trip.vehiclePlateSnapshot} อยู่ในสถานะ${v.status === 'MAINTENANCE' ? 'ซ่อม' : 'จอด'}`,
           params: { status: v.status },
         });
-      out.push(...(await this.compatWarnings(tx, trip)));
+      const compat = await this.compatWarnings(tx, trip);
+      out.push(...compat.warnings);
+      out.push(...(await this.loadWarnings(tx, trip)));
       // ช่วงตรวจเอกสาร = ครอบวันเที่ยวและช่วงวิ่งทั้งหมด (min/max — ไม่มีวันกลับด้าน)
       const points = [trip.tripDate, trip.plannedStartAt, trip.plannedEndAt].filter(
         (d): d is Date => d !== null,
@@ -966,13 +1150,23 @@ export class TripService {
       const from = new Date(Math.min(...points.map((d) => d.getTime())));
       const to = new Date(Math.max(...points.map((d) => d.getTime())));
       const a = await this.assignability.isAssignable(
-        { vehicleId: trip.vehicleId, driverId: trip.driverId, window: { from, to } },
+        {
+          vehicleId: trip.vehicleId,
+          driverId: trip.driverId,
+          window: { from, to },
+          hazmat: compat.hazmat,
+        },
         tx,
       );
       // ใบขับขี่คนขับสำรอง (เฉพาะประเด็นใบขับขี่ — เอกสารรถตรวจแล้วข้างบน)
       const ra = trip.reliefDriverId
         ? await this.assignability.isAssignable(
-            { vehicleId: trip.vehicleId, driverId: trip.reliefDriverId, window: { from, to } },
+            {
+              vehicleId: trip.vehicleId,
+              driverId: trip.reliefDriverId,
+              window: { from, to },
+              hazmat: compat.hazmat,
+            },
             tx,
           )
         : null;
@@ -1025,6 +1219,9 @@ export class TripService {
           params: { driverRole: role },
         });
       out.push(...(await this.overlapWarnings(tx, trip, { driverId, name: name ?? '', role })));
+      out.push(
+        ...(await this.drivingHoursWarnings(tx, trip, { driverId, name: name ?? '', role })),
+      );
     }
     // เวลาตามแผนของจุดถอยหลัง (เรียงเองภายหลัง — ST3-T16 — ลำดับของผู้จัดรถมาก่อน)
     for (const seq of backwardStops(
@@ -1042,15 +1239,34 @@ export class TripService {
         params: { sequence: seq },
       });
     const json = JSON.parse(JSON.stringify(out)) as Prisma.InputJsonValue;
-    if (JSON.stringify(trip.ruleWarnings) !== JSON.stringify(json))
+    // การยกเว้นที่ข้อเท็จจริงเปลี่ยน/แย่ลง → หมดผล (ไม่กลับมามีผลอีก — PO 17 พ.ย. 2569)
+    const rec = reconcileOverrides(
+      out,
+      (trip.ruleOverrides as unknown as RuleOverride[]) ?? [],
+      { vehicleId: trip.vehicleId, driverId: trip.driverId, reliefDriverId: trip.reliefDriverId },
+      new Date().toISOString(),
+    );
+    // เทียบแบบเรียง key (jsonb เรียง key ใหม่ — เทียบตรง ๆ จะต่างทุกครั้งแล้ว version ขยับโดยไม่มีอะไรเปลี่ยน)
+    if (canonJson(trip.ruleWarnings) !== canonJson(json) || rec.changed)
       await tx.trip.update({
         where: { id },
-        data: { ruleWarnings: json, version: { increment: 1 } },
+        data: {
+          ruleWarnings: json,
+          ...(rec.changed
+            ? {
+                ruleOverrides: JSON.parse(JSON.stringify(rec.overrides)) as Prisma.InputJsonValue,
+              }
+            : {}),
+          version: { increment: 1 },
+        },
       });
     return this.get(id, tx);
   }
 
-  private async compatWarnings(tx: Tx, trip: TripRecord): Promise<TripWarning[]> {
+  private async compatWarnings(
+    tx: Tx,
+    trip: TripRecord,
+  ): Promise<{ warnings: TripWarning[]; hazmat: boolean }> {
     const dos = await tx.deliveryOrder.findMany({
       where: { tripId: trip.id, status: { not: 'CANCELLED' } },
       select: {
@@ -1058,13 +1274,26 @@ export class TripService {
         originSiteId: true,
         destSiteId: true,
         salesOrder: { select: { vehicleTypeId: true } },
-        lines: { select: { salesOrderLine: { select: { productId: true } } } },
+        lines: { select: { salesOrderLine: { select: { productId: true, isDangerous: true } } } },
       },
     });
     const bySo = new Map<string, typeof dos>();
     for (const d of dos) bySo.set(d.salesOrderId, [...(bySo.get(d.salesOrderId) ?? []), d]);
     const seen = new Set<string>();
     const out: TripWarning[] = [];
+    const productIds = [
+      ...new Set(
+        dos.flatMap((d) =>
+          d.lines.flatMap((l) => (l.salesOrderLine?.productId ? [l.salesOrderLine.productId] : [])),
+        ),
+      ),
+    ];
+    // สินค้าอันตราย (PLN-084): สินค้าใน master `hazardous` หรือบรรทัด SO `is_dangerous` (ต้นทาง/connector) — QA M2
+    const hazmat =
+      dos.some((d) => d.lines.some((l) => l.salesOrderLine?.isDangerous)) ||
+      (productIds.length
+        ? (await tx.product.count({ where: { id: { in: productIds }, hazardous: true } })) > 0
+        : false);
     for (const group of bySo.values()) {
       const r = await this.compatibility.check(
         {
@@ -1085,7 +1314,7 @@ export class TripService {
         seen.add(k);
         out.push({
           code: w.code,
-          severity: 'warning',
+          severity: w.severity === 'info' ? 'info' : 'warning',
           source: 'compatibility',
           messageKey: w.messageKey,
           message: w.message,
@@ -1093,7 +1322,92 @@ export class TripService {
         });
       }
     }
-    return out;
+    return { warnings: out, hazmat };
+  }
+
+  /**
+   * น้ำหนัก/ปริมาตรรวมของ DO ในเที่ยวเกินความจุ (ST3-T14 — คำเตือน D-07) · ความจุ MD-091: รถ ถ้ามี มิฉะนั้นประเภทรถ;
+   * มีหาง = ความจุของหาง (หรือประเภทของหาง)
+   */
+  private async loadWarnings(tx: Tx, trip: TripRecord): Promise<TripWarning[]> {
+    const unit = trip.trailerId ?? trip.vehicleId!;
+    const v = await tx.vehicle.findUnique({
+      where: { id: unit },
+      select: {
+        capacityKg: true,
+        capacityCbm: true,
+        vehicleType: { select: { capacityKg: true, capacityCbm: true } },
+      },
+    });
+    if (!v) return [];
+    const sum = await tx.deliveryOrder.aggregate({
+      where: { tripId: trip.id, status: { not: 'CANCELLED' } },
+      _sum: { weightKg: true, cbm: true },
+    });
+    const str = (d: Prisma.Decimal | null | undefined) => (d ? d.toString() : null);
+    const fmtN = (x: string) => Number(x).toLocaleString('en-US', { maximumFractionDigits: 3 });
+    return checkLoad({
+      weightKg: str(sum._sum.weightKg),
+      cbm: str(sum._sum.cbm),
+      capacityKg: str(v.capacityKg ?? v.vehicleType.capacityKg),
+      capacityCbm: str(v.capacityCbm ?? v.vehicleType.capacityCbm),
+    }).map((i) => ({
+      code: i.code,
+      severity: 'warning',
+      source: 'load',
+      messageKey: i.messageKey,
+      message:
+        i.code === 'OVERWEIGHT'
+          ? `น้ำหนักเกิน ${fmtN(i.params.over)} กก. (${fmtN(i.params.load)} / ${fmtN(i.params.capacity)} กก.)`
+          : `ปริมาตรเกิน ${fmtN(i.params.over)} ลบ.ม. (${fmtN(i.params.load)} / ${fmtN(i.params.capacity)} ลบ.ม.)`,
+      params: i.params,
+    }));
+  }
+
+  /**
+   * ชั่วโมงขับตามแผนของคนขับในวันเที่ยว (ST3-T14 — คำเตือน; เฟส 0 ไม่มีบันทึกเวลาขับจริง → ใช้ช่วงวิ่งตามแผนของเที่ยวที่ยังไม่จบ
+   * ที่คนนี้เป็นคนขับหลัก/สำรอง ในวันเดียวกัน · เพดาน `DRIVING_HOURS_PER_DAY` [OPEN] FLT-Q5)
+   */
+  private async drivingHoursWarnings(
+    tx: Tx,
+    trip: TripRecord,
+    who: { driverId: string; name: string; role: 'driver' | 'relief' },
+  ): Promise<TripWarning[]> {
+    const span = (t: {
+      tripDate: Date;
+      plannedStartAt: Date | null;
+      plannedEndAt: Date | null;
+    }) => ({
+      tripDate: t.tripDate.toISOString().slice(0, 10),
+      start: t.plannedStartAt?.toISOString() ?? null,
+      end: t.plannedEndAt?.toISOString() ?? null,
+    });
+    // วันไทยที่เที่ยวนี้วิ่ง (ข้ามเที่ยงคืน = 2 วัน) · เที่ยวอื่นวันก่อน/หลังที่อาจล้นเข้ามา (review L6)
+    const days = drivingDays(span(trip));
+    const day0 = Date.parse(`${days[0]}T00:00:00Z`);
+    const others = await tx.trip.findMany({
+      where: {
+        id: { not: trip.id },
+        status: { in: [...TRIP_OPEN_STATUSES] },
+        tripDate: {
+          gte: new Date(day0 - 86_400_000),
+          lte: new Date(Date.parse(`${days[days.length - 1]}T00:00:00Z`) + 86_400_000),
+        },
+        OR: [{ driverId: who.driverId }, { reliefDriverId: who.driverId }],
+      },
+      select: { tripDate: true, plannedStartAt: true, plannedEndAt: true },
+    });
+    const spans = [span(trip), ...others.map(span)];
+    return days.flatMap((date) =>
+      checkDrivingHours(date, spans).map((i): TripWarning => ({
+        code: i.code,
+        severity: 'warning',
+        source: 'schedule',
+        messageKey: i.messageKey,
+        message: `${who.role === 'driver' ? 'คนขับ' : 'คนขับสำรอง'} ${who.name} มีเวลาขับตามแผน ${i.params.hours} ชม. ในวันที่ ${i.params.date} (เกิน ${i.params.limit} ชม.)`,
+        params: { ...i.params, driverRole: who.role },
+      })),
+    );
   }
 
   /** รถ/คนขับคนเดียวกันมีเที่ยวอื่นที่ยังไม่จบในวันเดียวกัน (ช่วงวิ่งทับกันเมื่อมีทั้งสองฝั่ง) — เตือน ไม่บล็อก (docs/04 D2) */
@@ -1197,6 +1511,17 @@ export class TripService {
       },
     });
   }
+}
+
+/** JSON ที่เรียง key ของทุก object (เทียบเนื้อหา jsonb) */
+function canonJson(v: unknown): string {
+  return JSON.stringify(v, (_k, x: unknown) =>
+    x && typeof x === 'object' && !Array.isArray(x)
+      ? Object.fromEntries(
+          Object.entries(x as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : 1)),
+        )
+      : x,
+  );
 }
 
 const CLEAR_OFFER = {

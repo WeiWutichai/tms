@@ -38,6 +38,13 @@ class BoardBlockIssueDto {
   @ApiProperty({ example: 'พ.ร.บ. หมดอายุ 1 พ.ย. 2569' }) message!: string;
 }
 
+class BoardRuleDto {
+  @ApiProperty({ description: 'กุญแจของกฎ (ส่งใน `ruleKeys` ของ /confirm-rules)' }) key!: string;
+  @ApiProperty({ example: 'OVERWEIGHT' }) code!: string;
+  @ApiProperty({ enum: ['block', 'warning'] }) severity!: 'block' | 'warning';
+  @ApiProperty({ example: 'น้ำหนักเกิน 800 กก. (6,800 / 6,000 กก.)' }) message!: string;
+}
+
 class BoardBlockDayDto {
   @ApiProperty({ example: '2026-11-13' }) date!: string;
   @ApiProperty({ type: [BoardBlockIssueDto] }) issues!: BoardBlockIssueDto[];
@@ -130,6 +137,17 @@ export class BoardTripDto {
       'จำนวนคำเตือนจากการตรวจล่าสุดของเที่ยว ไม่นับ `vehicle_overlap` (ซ้อนเวลารถใช้ `overlapsWith` ที่คำนวณ ณ ตอนอ่าน)',
   })
   warningCount!: number;
+  @ApiProperty({
+    type: [BoardRuleDto],
+    description:
+      'ST3-T14: กฎที่ติดและยังไม่ยกเว้น/ยืนยัน (ผลตรวจล่าสุดของเที่ยว — บล็อกก่อน) → การ์ด "ติดเงื่อนไข · รออนุมัติ" / "ต้องย้ายรถ"',
+  })
+  pendingRules!: BoardRuleDto[];
+  @ApiProperty({
+    description:
+      'ST3-T14: จำนวนกฎที่ยกเว้น/ยืนยันแล้ว (ยังตรงกับผลตรวจล่าสุด) → การ์ด "อนุมัติยกเว้นแล้ว"',
+  })
+  confirmedRules!: number;
   @ApiProperty() version!: number;
 }
 

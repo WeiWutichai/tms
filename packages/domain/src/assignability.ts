@@ -16,9 +16,11 @@
  *   - เอกสารประเภทอื่นที่ฉบับปัจจุบันตั้ง `isRequiredForDispatch` (docs/01 §3.8) ไม่ครอบคลุมช่วงวิ่ง → `DOC_TAX_EXPIRED` /
  *     `DOC_INSPECTION_EXPIRED` / `DOC_OTHER_EXPIRED`
  *   - ใบขับขี่คนขับ (ถ้าส่งคนขับ): ไม่มีวันหมด → `DRIVER_LICENCE_MISSING`, หมดก่อน `to` → `DRIVER_LICENCE_EXPIRED`
- * - **รถบริษัท** (`OWN`) → ไม่บล็อก (`assignable` = true เสมอ); ชุดเอกสารที่ตั้ง `isRequiredForDispatch` ที่ไม่ครอบคลุม
- *   (หมด/ช่องว่าง) หรือใบขับขี่ที่**หมดอายุ** คืนเป็น `warnings` (ST3-T14 แสดง badge + ขอเหตุผล) — ไม่มีข้อมูลเอกสาร/ใบขับขี่ไม่เตือน (ข้อมูลรถบริษัท
- *   อาจยังไม่กรอก — spec/03 §6 ข้อ 8 ให้ tenant ตั้งภายหลัง)
+ * - **รถบริษัท** (`OWN`) — **D-07 (PO 16 พ.ย. 2569 "ผสม") กฎเอกสารบล็อกเหมือนรถร่วม**: ชุดเอกสารที่ตั้ง `isRequiredForDispatch`
+ *   ที่ไม่ครอบคลุม (หมด/ช่องว่าง) → บล็อก · ไม่มีเอกสารที่ตั้งบังคับเลย = ไม่ตรวจ (ไม่มีเอกสาร "บังคับ" ของรถบริษัท)
+ * - **ใบขับขี่ (ทั้งรถบริษัทและรถร่วม — D-07)**: ไม่มีวันหมด → `DRIVER_LICENCE_MISSING`, หมดก่อน `to` → `DRIVER_LICENCE_EXPIRED`,
+ *   ชั้นต่ำกว่า `vehicle.minLicenceClass` (MD-090: PERSONAL < T1 < T2 < T3 < T4) หรือมีสินค้าอันตรายแต่ไม่ใช่ ท.4
+ *   (PLN-084) → `DRIVER_LICENCE_CLASS` — ทั้งหมดเป็น **บล็อก** override ได้โดย `trips:override` + เหตุผล (ST3-T14)
  * - สถานะรถ/รถร่วม (ซ่อม จอด ปลดระวาง ระงับ) **ไม่ตรวจที่นี่** — docs/04 ไม่ได้ผูกกับเอกสารบังคับ; ST3-T14 ทำตาม spec/03 §6
  * - รหัสใช้ชุดหลักของ spec/03 §6 (`DOC_*_EXPIRED`, `DRIVER_LICENCE_EXPIRED`) + 3 รหัสใหม่ (`DOC_MISSING`,
  *   `DOC_NOT_YET_VALID`, `DRIVER_LICENCE_MISSING`)
@@ -50,21 +52,26 @@ export const ASSIGNABILITY_CODES = [
   'DOC_OTHER_EXPIRED',
   'DRIVER_LICENCE_MISSING',
   'DRIVER_LICENCE_EXPIRED',
+  'DRIVER_LICENCE_CLASS',
 ] as const;
 export type AssignabilityCode = (typeof ASSIGNABILITY_CODES)[number];
 
 /**
- * ผู้ override บล็อกได้ (ST3-T14 ใช้): docs/04 B2.1 "override โดย admin พร้อมเหตุผล"
- * - A3 ไม่มีสิทธิ์ "ยกเว้นกฎ" แยก → ชั่วคราวใช้ `users:write` (มีเฉพาะ owner + admin — แนวเดียวกับ PROGRESS #30) [OPEN #42]
- *   ST3-T14 ควรกำหนด scope เฉพาะ (เช่น `trips:override`) แทนการผูก `users:write`
- * - เหตุผล ≥ 10 ตัวอักษร + หมวดเหตุผล `OVERRIDE` (ยกเว้นกฎ) + audit (CLAUDE.md)
+ * ผู้ override บล็อกได้ (ST3-T14 — D-07 PO 16 พ.ย. 2569): ผู้จัดการ/ผู้ดูแล — scope เฉพาะ `trips:override`
+ * (owner, admin, manager) · เหตุผล ≥ 10 ตัวอักษร + audit (CLAUDE.md) — แทนตัวแทนชั่วคราว `users:write` ของ ST2-T20
  */
 export const ASSIGNABILITY_OVERRIDE = {
-  permission: 'users:write',
-  roles: ['owner', 'admin'],
+  permission: 'trips:override',
+  roles: ['owner', 'admin', 'manager'],
   reasonCategory: 'OVERRIDE',
   reasonMinLength: 10,
 } as const;
+
+/** ชั้นใบขับขี่ (MD-090 — ชั้นสูงใช้แทนชั้นต่ำได้; OPEN-MD-4 รอยืนยันกฎหมาย) — ชุดเดียวกับ `driver.licence_class` */
+export const LICENCE_CLASSES = ['PERSONAL', 'T1', 'T2', 'T3', 'T4'] as const;
+export type LicenceClass = (typeof LICENCE_CLASSES)[number];
+const licRank = (c: string | null | undefined) =>
+  c ? (LICENCE_CLASSES as readonly string[]).indexOf(c) : -1;
 
 export interface AssignDocument {
   id?: string;
@@ -92,11 +99,14 @@ export interface AssignWindow {
 }
 
 export interface AssignabilityInput {
-  vehicle: { ownership: 'OWN' | 'SUBCONTRACT' | string };
+  /** `minLicenceClass` = ใบขับขี่ขั้นต่ำของประเภทรถ (MD-090) — ไม่ส่ง/null = ไม่ตรวจชั้น */
+  vehicle: { ownership: 'OWN' | 'SUBCONTRACT' | string; minLicenceClass?: string | null };
   /** เอกสารรถทุกฉบับของคัน (รวมฉบับที่ถูกต่ออายุแล้ว; ฉบับยกเลิกถูกข้าม) */
   documents: readonly AssignDocument[];
   /** ไม่ส่ง/null = ยังไม่กำหนดคนขับ (รถร่วมกรอกตอนรับงาน — PLN-152) → ไม่ตรวจใบขับขี่ */
-  driver?: { id?: string; licenceExpiresOn: string | null } | null;
+  driver?: { id?: string; licenceExpiresOn: string | null; licenceClass?: string | null } | null;
+  /** มีสินค้าอันตรายในเที่ยว → ใบขับขี่ต้องเป็น ท.4 (PLN-084) */
+  hazmat?: boolean;
   /** ช่วงวิ่ง (ST3: วันเริ่ม–วันสิ้นสุดแผนของเที่ยว) — ส่งอย่างใดอย่างหนึ่งกับ `date` */
   window?: AssignWindow;
   /** วันวิ่งวันเดียว = `window {from: date, to: date}` */
@@ -211,7 +221,8 @@ function resolveWindow(input: AssignabilityInput): AssignWindow {
 export function checkAssignability(input: AssignabilityInput): AssignabilityResult {
   const w = resolveWindow(input);
   const subcon = input.vehicle.ownership === 'SUBCONTRACT';
-  const severity: AssignabilitySeverity = subcon ? 'block' : 'warning';
+  // D-07 (PO 16 พ.ย. 2569): กฎเอกสาร/ใบขับขี่ = บล็อกทั้งรถบริษัทและรถร่วม
+  const severity: AssignabilitySeverity = 'block';
   const issues: AssignabilityIssue[] = [];
 
   const docs = input.documents.filter(
@@ -280,13 +291,12 @@ export function checkAssignability(input: AssignabilityInput): AssignabilityResu
   if (drv) {
     const exp = drv.licenceExpiresOn;
     if (exp === null || exp === '') {
-      if (subcon)
-        issues.push({
-          code: 'DRIVER_LICENCE_MISSING',
-          severity,
-          messageKey: 'assign.licenceMissing',
-          params: {},
-        });
+      issues.push({
+        code: 'DRIVER_LICENCE_MISSING',
+        severity,
+        messageKey: 'assign.licenceMissing',
+        params: {},
+      });
     } else if (exp < w.to) {
       issues.push({
         code: 'DRIVER_LICENCE_EXPIRED',
@@ -296,6 +306,20 @@ export function checkAssignability(input: AssignabilityInput): AssignabilityResu
         expiredOn: exp,
       });
     }
+    const min = input.vehicle.minLicenceClass ?? null;
+    const need = input.hazmat ? (licRank(min) > licRank('T4') ? min : 'T4') : min;
+    if (need && licRank(need) >= 0 && licRank(drv.licenceClass) < licRank(need))
+      issues.push({
+        code: 'DRIVER_LICENCE_CLASS',
+        severity,
+        messageKey: 'assign.licenceClass',
+        params: {
+          required: need,
+          licenceClass: drv.licenceClass ?? null,
+          // ชั้นที่ต้องการมาจากสินค้าอันตราย (ท.4 — PLN-084) หรือจากประเภทรถ (MD-090)
+          basis: need !== min ? 'DANGEROUS_GOODS' : 'VEHICLE_TYPE',
+        },
+      });
   }
 
   const blocks = issues.filter((i) => i.severity === 'block');

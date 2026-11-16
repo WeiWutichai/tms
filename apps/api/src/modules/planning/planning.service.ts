@@ -1,6 +1,14 @@
 import { Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
-import { checkAssignability, vehicleOverlaps, type TripStatus } from '@tms/domain';
+import {
+  checkAssignability,
+  pendingRules,
+  ruleKey,
+  vehicleOverlaps,
+  type RuleOverride,
+  type RuleResult,
+  type TripStatus,
+} from '@tms/domain';
 import { assignabilityMessageTh } from '../assignability/assignability.service';
 import { encodeId } from '../../common/ids';
 import { DbService, type Tx } from '../../db/db.service';
@@ -110,7 +118,7 @@ export class PlanningService {
           startsOn: x.startsOn.toISOString().slice(0, 10),
           expiresOn: x.expiresOn.toISOString().slice(0, 10),
         }));
-        // กฎห้ามจ่ายงานต่อวัน (ชุดเดียวกับ /assign — ST2-T20; รถบริษัท = คำเตือน จึงไม่ขึ้นที่นี่) · ใบขับขี่ = ตอนจัดคนขับ
+        // กฎห้ามจ่ายงานต่อวัน (ชุดเดียวกับ /assign — ST2-T20 + D-07: เอกสารบังคับหมดบล็อกทั้งรถบริษัทและรถร่วม) · ใบขับขี่ = ตอนจัดคนขับ
         const blocks = days.flatMap((date) => {
           const r = checkAssignability({
             vehicle: { ownership: v.ownership },
@@ -220,6 +228,28 @@ export class PlanningService {
         doNos: t.deliveryOrders.map((d) => d.doNo!),
         plannedDistanceKm: dec(t.plannedDistanceKm),
         overlapsWith: (overlaps.get(t.id) ?? []).map((id) => no.get(id)!).sort(),
+        ...(() => {
+          const results = (t.ruleWarnings as unknown as (RuleResult & { message: string })[]) ?? [];
+          const ctx = {
+            vehicleId: t.vehicleId,
+            driverId: t.driverId,
+            reliefDriverId: t.reliefDriverId,
+          };
+          const p = pendingRules(
+            results,
+            (t.ruleOverrides as unknown as RuleOverride[]) ?? [],
+            ctx,
+          );
+          return {
+            pendingRules: [...p.blocks, ...p.warnings].map((w) => ({
+              key: ruleKey(w, ctx),
+              code: w.code,
+              severity: w.severity as 'block' | 'warning',
+              message: w.message,
+            })),
+            confirmedRules: p.covered.length,
+          };
+        })(),
         warningCount: Array.isArray(t.ruleWarnings)
           ? (t.ruleWarnings as { code?: string }[]).filter((w) => w?.code !== 'vehicle_overlap')
               .length

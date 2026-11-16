@@ -380,7 +380,7 @@ describe('planning board (ST3-T12)', () => {
     expect(nos).not.toContain(unmapped.soNo);
   });
 
-  it('รถร่วมติดกฎห้ามจ่ายงาน: กระดานบอกรายวัน · วางได้แต่ warnings มีบล็อก (ชุดเดียวกับ /assign) · รถร่วมพักใช้ → 422', async () => {
+  it('รถร่วมติดกฎห้ามจ่ายงาน: กระดานบอกรายวัน · วาง = 409 assignment_blocked ชุดเดียวกับ /assign (ST3-T14) · รถร่วมพักใช้ → 422', async () => {
     const jur = (n: number) => {
       const base = `0105${String(90_000 + n).padStart(8, '0')}`;
       let sum = 0;
@@ -400,7 +400,8 @@ describe('planning board (ST3-T12)', () => {
     expect(row.blocks[0]!.date).toBe(today);
     expect(row.blocks[0]!.issues.map((i) => i.code)).toEqual(['DOC_MISSING', 'DOC_MISSING']);
     expect(row.blocks[0]!.issues[0]!.message).toMatch(/ยังไม่มี/);
-    const r = await drop((await newOrder()).doIds, v.id, '09:00', '11:00').expect(201);
+    const r = await drop((await newOrder()).doIds, v.id, '09:00', '11:00').expect(409);
+    expect(r.body.code).toBe('assignment_blocked');
     const assign = await api(app, admin)
       .post('/v1/trips')
       .set('Idempotency-Key', randomUUID())
@@ -413,12 +414,12 @@ describe('planning board (ST3-T12)', () => {
     const viaAssign = await api(app, admin)
       .post(`/v1/trips/${a.body.id}/assign`)
       .send({ vehicleId: v.id })
-      .expect(200);
+      .expect(409);
     const blocks = (w: { code: string; severity: string }[]) =>
       w.filter((x) => x.severity === 'block').map((x) => x.code);
-    expect(blocks(r.body.warnings)).toEqual(blocks(viaAssign.body.warnings));
-    expect(blocks(r.body.warnings).length).toBeGreaterThan(0);
-    // รถบริษัทไม่ติดกฎ (เอกสารรถบริษัท = คำเตือน)
+    expect(blocks(r.body.blocks)).toEqual(blocks(viaAssign.body.blocks));
+    expect(blocks(r.body.blocks).length).toBeGreaterThan(0);
+    // รถบริษัทที่ไม่มีเอกสารตั้งบังคับ ไม่ติดกฎ
     const own = await newVehicle();
     expect((await board()).vehicles.find((x) => x.id === own.id)!.blocks).toEqual([]);
     // รถร่วมถูกพักใช้ → 422 ทั้ง create และ schedule (ชุดเดียวกับ /assign)

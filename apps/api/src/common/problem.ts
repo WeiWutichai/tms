@@ -253,6 +253,24 @@ export const PROBLEMS = {
     th: 'ต้นทางแก้ใบสั่งขนส่งนี้หลังวางแผน — เลือกรับค่าต้นทางหรือใช้ค่า TMS ก่อนจัดลงเที่ยว',
     en: 'The source changed this order after planning — accept or reject the change before planning it',
   },
+  /**
+   * ST3-T14 (D-07): รถ/คนขับติดกฎเอกสาร (เอกสารรถบังคับหมด/ไม่มี, ใบขับขี่ไม่มี/หมด/ชั้นไม่ถึง) — ผู้มี `trips:override`
+   * ส่ง `overrideBlocks: true` + `overrideReason` (≥ 10 ตัว) เพื่อยกเว้น · extension `blocks[]`, `warnings[]`, `overrideScope`
+   */
+  assignment_blocked: {
+    status: 409,
+    th: 'รถหรือคนขับติดกฎห้ามจ่ายงาน — แก้เอกสารให้ครบ หรือให้ผู้จัดการยกเว้นพร้อมเหตุผล',
+    en: 'Vehicle or driver is blocked by dispatch rules — fix the documents or have a manager override with a reason',
+  },
+  /**
+   * ST3-T14 (D-07): ยังมีคำเตือนที่ไม่ได้ยืนยัน (น้ำหนักเกิน, รถไม่เข้ากับงาน/จุดส่ง, ชั่วโมงขับ, ซ้อนเวลา ฯลฯ) ตอนปล่อยรถ —
+   * ส่ง `acknowledgeWarnings: true` + `overrideReason` หรือยืนยันที่ `/confirm-rules` · extension `warnings[]`
+   */
+  assignment_warnings: {
+    status: 409,
+    th: 'เที่ยวนี้มีคำเตือนที่ยังไม่ได้ยืนยัน — ยืนยันพร้อมเหตุผลก่อน',
+    en: 'This trip has unconfirmed warnings — confirm them with a reason first',
+  },
   invalid_grant: { status: 400, th: 'รหัสยืนยันหมดอายุหรือไม่ถูกต้อง', en: 'Invalid grant' },
   /** ST3-T21 ช่องส่ง LINE/SMS ปิดหรือยังไม่ตั้งค่า — ผู้ใช้คัดลอกลิงก์ไปส่งเองได้ */
   channel_unavailable: {

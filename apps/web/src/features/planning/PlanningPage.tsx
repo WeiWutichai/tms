@@ -1,8 +1,8 @@
-import { Button, EmptyState, Icon, StatusTabs, SummaryStrip, Toast } from '@tms/ui';
+import { Button, EmptyState, Icon, ReasonDialog, StatusTabs, SummaryStrip, Toast } from '@tms/ui';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api, unwrap } from '../../api';
+import { api, ApiError, unwrap } from '../../api';
 import { formatDayHead, useI18n, type T } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
 import { can } from '../../nav';
@@ -54,15 +54,21 @@ import {
   type PoolFilter,
   type PoolOrder,
   cardLine,
+  firstRule,
+  RULE_OVERRIDDEN,
+  RULE_PENDING,
+  ruleState,
   DEFAULT_PREFS,
   orderVehicles,
   weekFields,
   type BoardView,
 } from './board';
 import { BoardViewMenu } from './BoardViewMenu';
+import { BlockedDialog, ruleTagKey, type BlockedReason } from './RuleDialogs';
 import {
   useBoard,
   useBoardPrefs,
+  useConfirmRules,
   useDropOrder,
   useMoveTrip,
   useSaveBoardPrefs,
@@ -117,7 +123,16 @@ const LEGEND: { c: string; k: MessageKey }[] = [
   { c: STATUS_COLOR.IN_PROGRESS!, k: 'plan.lg.IN_PROGRESS' },
   { c: STATUS_COLOR.COMPLETED!, k: 'plan.lg.COMPLETED' },
   { c: CLASH, k: 'plan.lg.clash' },
+  // ST3-T14 (ต้นแบบ legend): คำเตือนรอยืนยัน / ยกเว้นแล้ว
+  { c: RULE_PENDING, k: 'plan.lg.pending' },
+  { c: RULE_OVERRIDDEN, k: 'plan.lg.overridden' },
 ];
+
+/** ปัญหาจาก API (problem+json) — `assignment_blocked` → รายการบล็อก (ST3-T14) */
+const blockedOf = (err: unknown): BlockedReason[] | null =>
+  err instanceof ApiError && err.problem.code === 'assignment_blocked'
+    ? ((err.problem as unknown as { blocks?: BlockedReason[] }).blocks ?? [])
+    : null;
 
 /** ชั่วโมงทศนิยมของตอนนี้ (เวลาไทย) — อัปเดตทุก 1 นาที (spec/03 §5 เส้น "ตอนนี้") */
 function useNowHour(): number {
@@ -164,6 +179,8 @@ export function PlanningPage() {
   const canSeePrice = can(scopes, 'prices.sell:read');
   const canEditPrice = can(scopes, 'prices.sell:write');
   const canUnlock = can(scopes, 'orders:unlock');
+  // ST3-T14 D-07: ยกเว้นกฎเอกสาร (บล็อก) = ผู้จัดการ/ผู้ดูแล
+  const canOverride = can(scopes, 'trips:override');
   const [tab, setTab] = useSessionState<Tab>('plan.tab', 'today');
   const [pf, setPf] = useSessionState<PoolFilter>('plan.pool', POOL_FILTER);
   // วันนี้ตาม server (เวลาไทย) — ไม่ส่ง date ทั้งตอนโหลดและแท็บ (review ST3-T12)
@@ -178,6 +195,24 @@ export function PlanningPage() {
   );
   const drop = useDropOrder();
   const move = useMoveTrip();
+  const confirm = useConfirmRules();
+  /**
+   * "ห้ามจ่ายงาน · {ทะเบียน}" (ต้นแบบ BP): เปิดจาก (i) ดูสาเหตุ หรือเมื่อ API ตอบ 409 `assignment_blocked`
+   * `retry(reason, keys)` = ยกเว้นเฉพาะกฎที่แสดง (`reasons[].key`) — ส่งคำขอเดิมซ้ำ / `/confirm-rules` ของเที่ยว
+   * ไม่มี `retry` (เปิดจาก (i) ของแถวรถ) = ยกเว้นเอกสารรถของเที่ยวที่ค้างบนรถคันนี้ (`tripsBlocked`) — ไม่มีเที่ยว = ยกเว้นไม่ได้
+   * ไม่มีการยกเว้นทั้งคันข้ามเที่ยว (PO 17 พ.ย. 2569 — ทุกเที่ยวต้องยืนยันเอง; เติมเหตุผลล่าสุดของรถคันนั้นให้)
+   */
+  const [bp, setBp] = useState<{
+    v: BoardVehicle;
+    reasons: BlockedReason[];
+    retry?: (reason: string, keys: string[]) => void;
+  } | null>(null);
+  const [bpErr, setBpErr] = useState<string | null>(null);
+  /** เหตุผลยกเว้นล่าสุดต่อรถ (เติมให้ในครั้งถัดไป — ผู้ใช้ยังต้องกดยืนยันเองทุกเที่ยว) */
+  const [lastReason, setLastReason] = useState<Record<string, string>>({});
+  /** การ์ด "… · ขออนุมัติ" → dialog ยืนยันคำเตือนพร้อมเหตุผล */
+  const [ack, setAck] = useState<BoardTrip | null>(null);
+  const [ackErr, setAckErr] = useState<string | null>(null);
   const nowH = useNowHour();
   const [drag, setDrag] = useState<Drag>(null);
   const [over, setOver] = useState<{ v: string; d: string } | null>(null);
@@ -217,6 +252,29 @@ export function PlanningPage() {
   const orderOf = (id: string) => b?.pool.find((o) => o.id === id);
   const tripOf = (id: string) => b?.trips.find((x) => x.id === id);
   const vehOf = (id: string | null) => b?.vehicles.find((v) => v.id === id);
+  const blkOn = blocksOn;
+  /** เที่ยวบนรถ `v` (วันที่แสดง) ที่ค้างบล็อกเอกสารรถ + กฎเหล่านั้น — ยกเว้นจาก (i) ของแถวรถ */
+  const docBlocked = (v: BoardVehicle) =>
+    (tripsBy.get(v.id) ?? [])
+      .filter((x) => days.some((d) => onDay(x, d)))
+      .map((x) => ({
+        x,
+        rules: (x.pendingRules ?? []).filter(
+          (r) => r.severity === 'block' && r.code.startsWith('DOC_'),
+        ),
+      }))
+      .filter((e) => e.rules.length > 0);
+  /**
+   * วางไม่ได้จริงไหม — ผู้มีสิทธิ์ยกเว้น (`trips:override`) วางลงรถที่ติดเฉพาะกฎเอกสารได้ (server ตอบ 409 → dialog ยกเว้น
+   * เฉพาะเที่ยวนี้) · ผู้วางแผนถูกกันฝั่ง client เหมือนเดิม (ขอบแดง + toast)
+   */
+  const stopsDrop = (d: Drag, v: BoardVehicle | undefined, day: string) => {
+    const why = badOf(d, v, day);
+    if (!why) return false;
+    const blk = v ? blkOn(v, day) : [];
+    const onlyBlocked = blk.length > 0 && why === t('plan.bad.blocked', { m: blk[0]!.message });
+    return !(canOverride && onlyBlocked);
+  };
   /**
    * เหตุที่วางสิ่งที่กำลังลากลงแถวรถ `v` วัน `day` ไม่ได้ (server ตรวจซ้ำเสมอ — PLN-042; กฎเต็ม = ST3-T14/T15):
    * รถติดกฎห้ามจ่ายงาน (ต้นแบบ "รถติดกฎห้ามจ่ายงาน (…)") · SO ต้นทางแก้รอตรวจ · เที่ยวปล่อยรถแล้ว ·
@@ -232,7 +290,7 @@ export function PlanningPage() {
       if (x && why === 'assigned') return t('plan.bad.assigned', { no: x.tripNo });
       if (x && v && v.id === x.vehicleId) return '';
     }
-    const blk = v ? blocksOn(v, day) : [];
+    const blk = v ? blkOn(v, day) : [];
     return blk.length ? t('plan.bad.blocked', { m: blk[0]!.message }) : '';
   };
   const overVeh = over ? vehOf(over.v) : undefined;
@@ -243,8 +301,9 @@ export function PlanningPage() {
     if (!drag) return;
     e.preventDefault();
     const why = badOf(drag, vehOf(v), d);
-    badRef.current = why;
-    e.dataTransfer.dropEffect = why ? 'none' : 'move';
+    const stop = stopsDrop(drag, vehOf(v), d);
+    badRef.current = stop ? why : '';
+    e.dataTransfer.dropEffect = stop ? 'none' : 'move';
     if (!over || over.v !== v || over.d !== d) setOver({ v, d });
   };
   // ไม่ล้าง badRef ตอนออกจากแถว — ปล่อยบนแถวที่วางไม่ได้ Chromium ยิง dragleave ก่อน dragend
@@ -261,6 +320,18 @@ export function PlanningPage() {
     if (why) setToast(t('plan.cantDrop', { m: why }));
   };
   const fail = (err: unknown) => setToast(t('plan.cantDrop', { m: problemText(err, t) ?? '' }));
+  /**
+   * ผลปฏิเสธของ API: 409 `assignment_blocked` → toast "ห้ามจ่ายงานให้ …" + เปิด BP (ต้นแบบ assignToast) พร้อม `retry`
+   * (ผู้จัดการกรอกเหตุผลแล้วส่งคำขอเดิมซ้ำพร้อมยกเว้น) · อื่น ๆ → toast "วางไม่ได้: …"
+   */
+  const failOn =
+    (v: BoardVehicle, retry: (reason: string, keys: string[]) => void) => (err: unknown) => {
+      const reasons = blockedOf(err);
+      if (!reasons) return fail(err);
+      setToast(t('plan.cantDrop', { m: t('plan.bad.blocked', { m: reasons[0]?.message ?? '' }) }));
+      setBpErr(null);
+      setBp({ v, reasons, retry });
+    };
   /** คำเตือนทั้งหมดของเที่ยว (QA ST3-T12) — ซ้อนเวลารถ = "เวลาชนกัน" */
   const issueText = (x: Trip) => {
     const ws = (x.warnings ?? []).map((w) =>
@@ -275,32 +346,41 @@ export function PlanningPage() {
     endDrag();
     if (!cur || !canPlan) return;
     const why = badOf(cur, v, d);
-    if (why) return setToast(t('plan.cantDrop', { m: why }));
+    if (why && stopsDrop(cur, v, d)) return setToast(t('plan.cantDrop', { m: why }));
     const own = tripsBy.get(v.id) ?? [];
     if (cur.kind === 'order') {
       const o = orderOf(cur.id);
       if (!o) return;
       const w = hour === null ? weekDropWindow(own, d) : dropWindow(hour);
-      drop.mutate(
-        {
-          idempotencyKey: crypto.randomUUID(),
-          body: {
-            tripDate: d,
-            deliveryOrderIds: o.deliveryOrders.map((x) => x.id),
-            vehicleId: v.id,
-            plannedStartAt: isoAt(d, w.s),
-            plannedEndAt: isoAt(d, w.e),
+      const send = (extra: object, viaDialog: boolean) =>
+        drop.mutate(
+          {
+            idempotencyKey: crypto.randomUUID(),
+            body: {
+              tripDate: d,
+              deliveryOrderIds: o.deliveryOrders.map((x) => x.id),
+              vehicleId: v.id,
+              plannedStartAt: isoAt(d, w.s),
+              plannedEndAt: isoAt(d, w.e),
+              ...extra,
+            },
           },
-        },
-        {
-          onSuccess: (x) => {
-            const m = t('plan.toast.assigned', { so: o.orderNo, plate: v.plate });
-            const i = issueText(x);
-            setToast(i ? t('plan.toast.issue', { m, i }) : m);
+          {
+            onSuccess: (x) => {
+              if (viaDialog) setBp(null);
+              const m = t('plan.toast.assigned', { so: o.orderNo, plate: v.plate });
+              const i = issueText(x);
+              setToast(i ? t('plan.toast.issue', { m, i }) : m);
+            },
+            onError: viaDialog
+              ? (e) => setBpErr(problemText(e, t))
+              : failOn(v, (reason, keys) => {
+                  setLastReason((m) => ({ ...m, [v.id]: reason }));
+                  send({ ruleKeys: keys, overrideReason: reason }, true);
+                }),
           },
-          onError: fail,
-        },
-      );
+        );
+      send({}, false);
       return;
     }
     const x = tripOf(cur.id);
@@ -318,26 +398,38 @@ export function PlanningPage() {
       body.plannedEndAt === x.plannedEndAt
     )
       return;
-    move.mutate(
-      { id: x.id, version: x.version, body: changeVeh ? { ...body, vehicleId: v.id } : body },
-      {
-        onSuccess: (r) => {
-          const m = changeVeh
-            ? t('plan.toast.moved', {
-                so: soText(x),
-                from: x.vehiclePlate ?? '—',
-                to: v.plate,
-              })
-            : t('plan.toast.time', {
-                so: soText(x),
-                t: `${hhmm(hourOf(body.plannedStartAt, d))}–${hhmm(hourOf(body.plannedEndAt, d))}`,
-              });
-          const i = issueText(r);
-          setToast(i ? t('plan.toast.issue', { m, i }) : m);
+    const sendMove = (extra: object, viaDialog: boolean) =>
+      move.mutate(
+        {
+          id: x.id,
+          version: x.version,
+          body: { ...(changeVeh ? { ...body, vehicleId: v.id } : body), ...extra },
         },
-        onError: fail,
-      },
-    );
+        {
+          onSuccess: (r) => {
+            if (viaDialog) setBp(null);
+            const m = changeVeh
+              ? t('plan.toast.moved', {
+                  so: soText(x),
+                  from: x.vehiclePlate ?? '—',
+                  to: v.plate,
+                })
+              : t('plan.toast.time', {
+                  so: soText(x),
+                  t: `${hhmm(hourOf(body.plannedStartAt, d))}–${hhmm(hourOf(body.plannedEndAt, d))}`,
+                });
+            const i = issueText(r);
+            setToast(i ? t('plan.toast.issue', { m, i }) : m);
+          },
+          onError: viaDialog
+            ? (e) => setBpErr(problemText(e, t))
+            : failOn(v, (reason, keys) => {
+                setLastReason((m) => ({ ...m, [v.id]: reason }));
+                sendMove({ ruleKeys: keys, overrideReason: reason }, true);
+              }),
+        },
+      );
+    sendMove({}, false);
   };
 
   // ---------------------------------------------------------------- ปรับขนาด (ลากขอบ)
@@ -445,12 +537,8 @@ export function PlanningPage() {
               aria-label={t('plan.why')}
               onClick={(e) => {
                 e.stopPropagation();
-                setToast(
-                  t('plan.whyText', {
-                    plate: plateText(v),
-                    m: [...new Set(blk.map((i) => i.message))].join(' · '),
-                  }),
-                );
+                setBpErr(null);
+                setBp({ v, reasons: blk });
               }}
               className="tms-plan-why"
               style={{
@@ -585,6 +673,9 @@ export function PlanningPage() {
       `${timeText(x, d)} · ${routeText(x)}`,
       weightLine(x).text,
       ...(x.overlapsWith.length ? [`${t('plan.clash')}: ${x.overlapsWith.join(', ')}`] : []),
+      ...((x.pendingRules ?? []).length
+        ? [t('plan.rule.tip', { i: (x.pendingRules ?? []).map((r) => r.message).join(' · ') })]
+        : []),
     ].join('\n');
   const tripDragStart = (x: BoardTrip, d: string) => (e: DragEvent<HTMLDivElement>) => {
     const track = e.currentTarget.closest('[data-track]') as HTMLElement | null;
@@ -621,6 +712,130 @@ export function PlanningPage() {
     </span>
   );
 
+  /**
+   * ป้ายกฎตอนจัดบนการ์ด (ST3-T14 — ต้นแบบ vPlan `mk`): บล็อกค้าง = "ต้องย้ายรถ" (แดง) · คำเตือนค้าง = ปุ่ม "{กฎ} · ขออนุมัติ"
+   * (ส้ม — เปิด dialog ยืนยันพร้อมเหตุผล) · ยกเว้น/ยืนยันครบ = "อนุมัติยกเว้นแล้ว" (เทา)
+   */
+  const rulePill = (x: BoardTrip) => {
+    const st = ruleState(x);
+    if (st === 'block') {
+      // บล็อกผูกรถ (เอกสารรถ) = "ต้องย้ายรถ" · ผูกคนขับ (ใบขับขี่) = "ต้องเปลี่ยนคนขับ" (QA L2)
+      const blocks = (x.pendingRules ?? []).filter((r) => r.severity === 'block');
+      const vehicleBound = blocks.some((r) => !r.code.startsWith('DRIVER_'));
+      const label = t(vehicleBound ? 'plan.rule.mustMove' : 'plan.rule.mustChangeDriver');
+      const style: CSSProperties = {
+        alignSelf: 'flex-start',
+        marginTop: 3,
+        height: 22,
+        padding: '0 8px',
+        border: 0,
+        borderRadius: 999,
+        background: '#FBE9E7',
+        color: '#B3322A',
+        fontSize: 12,
+        fontWeight: 600,
+        display: 'inline-flex',
+        alignItems: 'center',
+        whiteSpace: 'nowrap',
+        flexShrink: 0,
+      };
+      const v = vehOf(x.vehicleId);
+      // ผู้มีสิทธิ์ยกเว้น: กดป้าย → "ห้ามจ่ายงาน" ของเที่ยวนี้ (ยกเว้นเฉพาะกฎที่แสดง)
+      return canOverride && canPlan && v ? (
+        <button
+          type="button"
+          data-testid={`plan-mustmove-${x.tripNo}`}
+          title={t('plan.rule.overrideTitle')}
+          draggable={false}
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            setBpErr(null);
+            setBp({
+              v,
+              reasons: blocks,
+              retry: (reason, keys) =>
+                confirm.mutate(
+                  { id: x.id, version: x.version, reason, ruleKeys: keys },
+                  {
+                    onSuccess: () => {
+                      setLastReason((m) => ({ ...m, [v.id]: reason }));
+                      setBp(null);
+                      setToast(t('plan.ack.done', { so: soText(x) }));
+                    },
+                    onError: (er) => setBpErr(problemText(er, t)),
+                  },
+                ),
+            });
+          }}
+          style={{ ...style, cursor: 'pointer' }}
+        >
+          {label}
+        </button>
+      ) : (
+        <span data-testid={`plan-mustmove-${x.tripNo}`} style={style}>
+          {label}
+        </span>
+      );
+    }
+    if (st === 'pending') {
+      const r = firstRule(x)!;
+      const label = t('plan.rule.ask', { i: t(ruleTagKey(r.code)) });
+      const pill: CSSProperties = {
+        alignSelf: 'flex-start',
+        marginTop: 3,
+        height: 22,
+        padding: '0 8px',
+        border: 0,
+        borderRadius: 999,
+        background: '#FCF0DC',
+        color: '#8F5500',
+        fontSize: 12,
+        fontWeight: 600,
+        whiteSpace: 'nowrap',
+        maxWidth: '100%',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        flexShrink: 0,
+      };
+      return canPlan ? (
+        <button
+          type="button"
+          data-testid={`plan-ask-${x.tripNo}`}
+          title={t('plan.rule.askTitle')}
+          draggable={false}
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            setAckErr(null);
+            setAck(x);
+          }}
+          style={{ ...pill, cursor: 'pointer' }}
+        >
+          {label}
+        </button>
+      ) : (
+        <span style={{ ...pill, display: 'inline-flex', alignItems: 'center' }}>{label}</span>
+      );
+    }
+    if (st === 'overridden')
+      return (
+        <span
+          data-testid={`plan-overridden-${x.tripNo}`}
+          style={{
+            marginTop: 3,
+            fontSize: 12,
+            fontWeight: 600,
+            color: '#59606B',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {t('plan.rule.overridden')}
+        </span>
+      );
+    return null;
+  };
+
   const dayRow = (v: BoardVehicle) => {
     const ts = (tripsBy.get(v.id) ?? []).filter((x) => onDay(x, dsel));
     const items = ts.map((x) => {
@@ -639,7 +854,7 @@ export function PlanningPage() {
           borderBottom: '1px solid #E4E6E0',
         }}
       >
-        {vehicleCell(v, rowLoad(ts), blocksOn(v, dsel))}
+        {vehicleCell(v, rowLoad(ts), blkOn(v, dsel))}
         <div
           data-track
           data-testid={`plan-track-${v.plate}`}
@@ -650,11 +865,11 @@ export function PlanningPage() {
             const rc = e.currentTarget.getBoundingClientRect();
             onDropAt(v, dsel, hourAt((e.clientX - rc.left) / rc.width));
           }}
-          title={over?.v === v.id ? bad : blocksOn(v, dsel)[0]?.message}
+          title={over?.v === v.id ? bad : blkOn(v, dsel)[0]?.message}
           style={{
             position: 'relative',
             minHeight: ln.count * LANE_H + 16,
-            background: blocksOn(v, dsel).length ? `${HATCH_ROW},${GRID}` : GRID,
+            background: blkOn(v, dsel).length ? `${HATCH_ROW},${GRID}` : GRID,
             boxShadow: ringOf(v.id, dsel),
           }}
         >
@@ -750,6 +965,7 @@ export function PlanningPage() {
                     </div>
                   )}
                   {x.overlapsWith.length > 0 && clashBadge}
+                  {rulePill(x)}
                 </div>
                 {/* ขอบที่ล้นแกน 06:00–20:00 ไม่มีที่จับ (กันตัดเที่ยวนอกช่วง/ข้ามคืน — review ST3-T12) */}
                 {canMove && !box.clipS && (
@@ -811,7 +1027,7 @@ export function PlanningPage() {
           v,
           load,
           days
-            .flatMap((d) => blocksOn(v, d))
+            .flatMap((d) => blkOn(v, d))
             .filter((i, n, a) => a.findIndex((j) => j.message === i.message) === n),
         )}
         {days.map((d) => {
@@ -826,14 +1042,14 @@ export function PlanningPage() {
                 e.preventDefault();
                 onDropAt(v, d, null);
               }}
-              title={over?.v === v.id && over.d === d ? bad : blocksOn(v, d)[0]?.message}
+              title={over?.v === v.id && over.d === d ? bad : blkOn(v, d)[0]?.message}
               style={{
                 borderLeft: '1px solid #E4E6E0',
                 padding: 6,
                 display: 'flex',
                 flexDirection: 'column',
                 gap: 6,
-                background: blocksOn(v, d).length ? HATCH_ROW : d === day0 ? '#F7F8F5' : '#FFFFFF',
+                background: blkOn(v, d).length ? HATCH_ROW : d === day0 ? '#F7F8F5' : '#FFFFFF',
                 boxShadow: ringOf(v.id, d),
                 minWidth: 0,
                 minHeight: 96,
@@ -923,6 +1139,7 @@ export function PlanningPage() {
                           {t('plan.clash')}
                         </span>
                       )}
+                      {rulePill(x)}
                     </div>
                     {pop === key && (
                       <div
@@ -1556,6 +1773,107 @@ export function PlanningPage() {
           }}
         />
       )}
+      {ack &&
+        (() => {
+          const r = firstRule(ack);
+          const ow = (ack.pendingRules ?? []).some((p) => p.code === 'OVERWEIGHT');
+          const cap = capOf(ack);
+          return (
+            <ReasonDialog
+              open
+              title={t('plan.ack.title')}
+              description={t('plan.ack.desc', {
+                so: soText(ack),
+                plate: ack.vehiclePlate ?? '—',
+                i: r ? t(ruleTagKey(r.code)) : '',
+                w:
+                  ow && cap > 0
+                    ? t('plan.ack.weight', { w: fmtNum(kg(ack.weightKg)), c: fmtNum(cap) })
+                    : '',
+              })}
+              diff={{
+                rows: (ack.pendingRules ?? [])
+                  .filter((p) => p.severity === 'warning')
+                  .map((p) => ({
+                    f: t('plan.ack.field'),
+                    b: p.message,
+                    a: t('plan.ack.approve'),
+                  })),
+                labels: [t('plan.ack.field'), t('plan.ack.before'), t('plan.ack.after')],
+              }}
+              hint={(n, ok) => (ok ? t('ord.dlg.hintOk') : t('ord.dlg.hintMin', { n }))}
+              label={t('ord.dlg.reason')}
+              placeholder={t('plan.ack.ph')}
+              okLabel={t('plan.ack.ok')}
+              cancelLabel={t('common.cancel')}
+              closeLabel={t('drawer.close')}
+              busy={confirm.isPending}
+              error={ackErr}
+              onClose={() => setAck(null)}
+              onOk={(reason) =>
+                confirm.mutate(
+                  {
+                    id: ack.id,
+                    version: ack.version,
+                    reason,
+                    // ยืนยันเฉพาะคำเตือนที่แสดงใน dialog
+                    ruleKeys: (ack.pendingRules ?? [])
+                      .filter((p) => p.severity === 'warning')
+                      .map((p) => p.key),
+                  },
+                  {
+                    onSuccess: () => {
+                      setToast(t('plan.ack.done', { so: soText(ack) }));
+                      setAck(null);
+                    },
+                    onError: (e) => setAckErr(problemText(e, t)),
+                  },
+                )
+              }
+            />
+          );
+        })()}
+      <BlockedDialog
+        open={bp !== null}
+        plate={bp ? plateText(bp.v) : ''}
+        sub={
+          bp
+            ? t('plan.bp.sub', {
+                type: bp.v.vehicleTypeName,
+                driver:
+                  bp.v.ownership === 'SUBCONTRACT'
+                    ? t('plan.subcon', { n: bp.v.carrierName ?? '—' })
+                    : (bp.v.driver?.name ?? t('plan.noDriver')),
+              })
+            : ''
+        }
+        reasons={bp?.reasons ?? []}
+        canOverride={canOverride}
+        initialReason={bp ? (lastReason[bp.v.id] ?? '') : ''}
+        nothing={!!bp && !bp.retry && docBlocked(bp.v).length === 0}
+        busy={drop.isPending || move.isPending || confirm.isPending}
+        error={bpErr}
+        onLink={(code) => {
+          setBp(null);
+          nav(code.startsWith('DRIVER_') ? '/fleet/drivers' : '/fleet/documents');
+        }}
+        onClose={() => setBp(null)}
+        onOk={(reason, keys) => {
+          if (!bp) return;
+          setBpErr(null);
+          if (bp.retry) return bp.retry(reason, keys);
+          // จาก (i) ของแถวรถ: ยกเว้นเฉพาะเอกสารรถที่แสดง ของเที่ยวที่ค้างบนรถคันนี้ (ทีละเที่ยว — ไม่ยกเว้นทั้งคันล่วงหน้า)
+          const v = bp.v;
+          for (const { x, rules } of docBlocked(v))
+            confirm.mutate(
+              { id: x.id, version: x.version, reason, ruleKeys: rules.map((r) => r.key) },
+              { onError: fail },
+            );
+          setLastReason((m) => ({ ...m, [v.id]: reason }));
+          setBp(null);
+          setToast(t('plan.bp.done', { plate: plateText(v) }));
+        }}
+      />
       <Toast message={toast} onClose={() => setToast(null)} closeLabel={t('drawer.close')} />
     </>
   );

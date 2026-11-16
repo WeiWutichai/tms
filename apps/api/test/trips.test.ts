@@ -200,6 +200,26 @@ describe('trips (ST3-T11)', () => {
       .send({ tripDate: today, deliveryOrderIds, ...extra });
   const act = (id: string, verb: string, body: object = {}, token = admin) =>
     api(app, token).post(`/v1/trips/${id}/${verb}`).send(body);
+  /** ST3-T14 (D-07): ยืนยันคำเตือน (DO 10 ตันบนรถ 6 ล้อ = น้ำหนักเกิน) / ยกเว้นบล็อก พร้อมเหตุผล */
+  const REASON = 'ยืนยันตามแผนของลูกค้า';
+  /** กุญแจของคำเตือน/บล็อกที่ค้างของเที่ยว → body ยืนยันเฉพาะกฎเหล่านั้น */
+  const ACK = async (id: string) => ({
+    ruleKeys: (
+      (await api(app, admin).get(`/v1/trips/${id}`).expect(200)).body.warnings as {
+        key: string;
+        severity: string;
+        confirmed: boolean;
+      }[]
+    )
+      .filter((w) => !w.confirmed)
+      .map((w) => w.key),
+    overrideReason: REASON,
+  });
+  /** ยกเว้นบล็อกจาก 409 assignment_blocked */
+  const OVR = (r: { body: { blocks: { key: string }[] } }) => ({
+    ruleKeys: r.body.blocks.map((b) => b.key),
+    overrideReason: REASON,
+  });
 
   it('สร้างเที่ยวจาก DO ของ 2 SO ลูกค้าเดียว จุดเดียวกัน → PLANNING, เลข TRP, จุดรับ/ส่งร่วมกัน, SO → PLANNED, ประวัติ/event/audit', async () => {
     const k = await key();
@@ -313,7 +333,11 @@ describe('trips (ST3-T11)', () => {
     await code409('complete');
     // If-Match เก่า → 412
     expect((await act(t.id, 'dispatch').set('If-Match', '"1"')).status).toBe(412);
-    const disp = await act(t.id, 'dispatch', {}, dispatcher).expect(200);
+    // ST3-T14: คำเตือนที่ยังไม่ยืนยัน (น้ำหนักเกิน) → ปล่อยรถไม่ได้
+    const unconfirmed = await act(t.id, 'dispatch', {}, dispatcher).expect(409);
+    expect(unconfirmed.body.code).toBe('assignment_warnings');
+    expect(unconfirmed.body.warnings.map((w: { code: string }) => w.code)).toContain('OVERWEIGHT');
+    const disp = await act(t.id, 'dispatch', await ACK(t.id), dispatcher).expect(200);
     expect(disp.body.status).toBe('DISPATCHED');
     expect(disp.body.dispatchedAt).toBeTruthy();
     expect((await doRow(x.uuid)).status).toBe('DISPATCHED');
@@ -350,7 +374,7 @@ describe('trips (ST3-T11)', () => {
     expect((await soStatus(x.soId)).holdReasonCode?.code).toBe('RATE_MISSING');
     const t = (await createTrip([x.id]).expect(201)).body;
     await act(t.id, 'assign', { vehicleId: v.id, driverId: drv.id }).expect(200);
-    await act(t.id, 'dispatch').expect(200);
+    await act(t.id, 'dispatch', await ACK(t.id)).expect(200);
     expect((await act(t.id, 'cancel', { reason: 'สั้น' }).expect(422)).body.code).toBe(
       'validation_failed',
     );
@@ -401,7 +425,7 @@ describe('trips (ST3-T11)', () => {
     const y = await newDo();
     const t = (await createTrip([x.id, y.id]).expect(201)).body;
     await act(t.id, 'assign', { vehicleId: v.id, driverId: drv.id }).expect(200);
-    await act(t.id, 'dispatch').expect(200);
+    await act(t.id, 'dispatch', await ACK(t.id)).expect(200);
     await db.deliveryOrder.update({ where: { id: y.uuid }, data: { status: 'PICKED_UP' } });
     expect(
       (await act(t.id, 'cancel', { reason: 'รถเสียกลางทางระหว่างวิ่ง' }).expect(409)).body.code,
@@ -472,7 +496,10 @@ describe('trips (ST3-T11)', () => {
         )
       ).body.errors[0].code,
     ).toBe('carrier_mismatch');
-    const acc = await act(t.id, 'assign', { vehicleId: sub.id }).expect(200);
+    // ST3-T14: รถร่วมไม่มีประกัน/พ.ร.บ. = บล็อก (D-07) → ผู้ดูแลยกเว้นพร้อมเหตุผล
+    const blocked = await act(t.id, 'assign', { vehicleId: sub.id }).expect(409);
+    expect(blocked.body.code).toBe('assignment_blocked');
+    const acc = await act(t.id, 'assign', { vehicleId: sub.id, ...OVR(blocked) }).expect(200);
     expect(acc.body).toMatchObject({
       status: 'ASSIGNED',
       assignmentStatus: 'ACCEPTED',
@@ -495,7 +522,14 @@ describe('trips (ST3-T11)', () => {
     ).toBe('carrier_change_requires_cancel');
     // รถคันอื่นของรถร่วมรายเดิม → เปลี่ยนได้ คง ACCEPTED
     const sub1b = await newVehicle({ ownership: 'SUBCONTRACT', carrierId: car.id });
-    expect((await act(t.id, 'assign', { vehicleId: sub1b.id }).expect(200)).body).toMatchObject({
+    expect(
+      (
+        await act(t.id, 'assign', {
+          vehicleId: sub1b.id,
+          ...OVR(await act(t.id, 'assign', { vehicleId: sub1b.id }).expect(409)),
+        }).expect(200)
+      ).body,
+    ).toMatchObject({
       assignmentStatus: 'ACCEPTED',
       vehicle: { id: sub1b.id },
       carrier: { id: car.id },
@@ -631,7 +665,7 @@ describe('trips (ST3-T11)', () => {
     const id = uuid('trip', t.id);
     const seen = await run((tx) => app.get(TripService).get(id, tx));
     expect(seen.status).toBe('ASSIGNED'); // planner อ่านได้ ASSIGNED (ผ่านด่าน controller)
-    await act(t.id, 'dispatch', {}, dispatcher).expect(200); // ผู้จ่ายงานปล่อยรถก่อน planner ได้ล็อก
+    await act(t.id, 'dispatch', await ACK(t.id), dispatcher).expect(200); // ผู้จ่ายงานปล่อยรถก่อน planner ได้ล็อก
     const err = await run((tx) =>
       app.get(TripService).cancel(id, { reason: 'ยกเลิกจากผู้วางแผนที่ช้าไป' }, tx, undefined, {
         canCancelDispatched: false,

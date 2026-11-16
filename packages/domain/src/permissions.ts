@@ -10,6 +10,9 @@
  * `orders:unlock` (ST3-T08 — docs/04 C Edit lock เขียน `orders.unlock`; A3 ไม่มีแถวนี้ ตั้งชื่อตามรูปแบบ `resource:verb`)
  *   → owner, admin, manager (spec/03 ORD-031 "manager ปลดล็อกได้") [DECISION — ย้อนได้ spec/12 §3]
  *
+ * `trips:override` (ST3-T14 — D-07 PO 16 พ.ย. 2569: กฎเอกสารบล็อก ยกเว้นได้โดยผู้จัดการ/ผู้ดูแลพร้อมเหตุผล; A3 ไม่มีแถวนี้)
+ *   → owner, admin, manager
+ *
  * "เลือกได้" ในตาราง A3 = ค่าเริ่มต้นไม่ให้ (owner เปิดเพิ่มได้เมื่อมี custom role — P1)
  */
 export const PERMISSIONS = [
@@ -32,6 +35,7 @@ export const PERMISSIONS = [
   'orders:unlock',
   'trips:read',
   'trips:assign',
+  'trips:override',
   'trips:dispatch',
   'trips:close',
   'invoices:read',
@@ -104,6 +108,8 @@ export const SYSTEM_ROLES: Record<RoleCode, { th: string; en: string; permission
         'orders:unlock',
         'trips:read',
         'trips:assign',
+        // ST3-T14 D-07: ยกเว้นกฎเอกสาร (บล็อก) ตอนจัดรถ — ผู้จัดการ/ผู้ดูแล
+        'trips:override',
         'trips:dispatch',
         'trips:close',
         'invoices:read',

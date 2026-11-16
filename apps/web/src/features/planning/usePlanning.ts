@@ -73,6 +73,33 @@ export function useMoveTrip() {
 }
 
 /**
+ * ยืนยันคำเตือน / ยกเว้นบล็อกของเที่ยว → POST /v1/trips/{id}/confirm-rules (ST3-T14 — เหตุผล ≥ 10 + audit)
+ * เฉพาะ `ruleKeys` ที่ผู้ใช้เห็น · บล็อกต้องมี `trips:override` (ผู้จัดการ/ผู้ดูแล — D-07)
+ */
+export function useConfirmRules() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: {
+      id: string;
+      version: number;
+      reason: string;
+      /** กุญแจของกฎที่ผู้ใช้เห็นและยืนยัน/ยกเว้น */
+      ruleKeys: string[];
+    }): Promise<Trip> => {
+      const key = crypto.randomUUID();
+      return idempotent(() =>
+        api.POST('/v1/trips/{id}/confirm-rules', {
+          params: { path: { id: v.id } },
+          body: { overrideReason: v.reason, ruleKeys: v.ruleKeys },
+          headers: { 'If-Match': `"${v.version}"`, 'Idempotency-Key': key },
+        }),
+      );
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: [KEY] }),
+  });
+}
+
+/**
  * บันทึกมุมมอง + field บนการ์ด (PUT /v1/planning/board/preferences) — ทีละคำขอ รวมการกดรัว ๆ, version จากคำตอบก่อนหน้า,
  * 412 → อ่านใหม่แล้วลองซ้ำ 1 ครั้ง (`createPrefSaver`) · `onFail(conflict)` เมื่อยังไม่สำเร็จ (UI ย้อนค่าแล้ว)
  */
