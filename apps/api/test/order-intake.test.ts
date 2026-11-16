@@ -779,5 +779,22 @@ describe('order intake (upsertOrder)', () => {
     };
     walk(root);
     expect(offenders).toEqual([]);
+    // ST3-T10 ชุดการเปลี่ยนแปลงจากต้นทาง: เขียนได้จาก OrderIntakeService ที่เดียว
+    const SC =
+      /\borderSourceChange\s*\.\s*(create|createMany|update|updateMany|upsert|delete|deleteMany)\b|\b(INSERT\s+INTO|UPDATE|DELETE\s+FROM)\s+"?order_source_change/i;
+    const scOffenders: string[] = [];
+    const walk2 = (dir: string) => {
+      for (const f of readdirSync(dir)) {
+        const p = join(dir, f);
+        if (statSync(p).isDirectory()) walk2(p);
+        else if (/\.ts$/.test(f) && !/\.test\.ts$/.test(f)) {
+          const rel = relative(root, p);
+          if (rel !== 'modules/orders/order-intake.service.ts' && SC.test(readFileSync(p, 'utf8')))
+            scOffenders.push(rel);
+        }
+      }
+    };
+    walk2(root);
+    expect(scOffenders).toEqual([]);
   });
 });

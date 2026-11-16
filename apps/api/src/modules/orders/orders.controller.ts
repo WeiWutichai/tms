@@ -15,6 +15,7 @@ import {
   ApiBearerAuth,
   ApiCreatedResponse,
   ApiHeader,
+  ApiNoContentResponse,
   ApiOkResponse,
   ApiOperation,
   ApiTags,
@@ -26,18 +27,24 @@ import { decodeIdOr404 } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { ApiProblems } from '../../common/problem.dto';
 import {
+  CancelOrderDto,
   CreateOrderDto,
+  SourceChangeDecisionDto,
   MapCustomerDto,
   MapStopSiteDto,
   OrderDto,
+  OrderEditLockDto,
   OrderMapResultDto,
   OrderListQuery,
+  OrderLockDto,
   OrderPageDto,
   OrderSummaryDto,
   ResolveSourceErrorDto,
+  OrderUnlockDto,
   UpdateOrderDto,
   UpsertOrderDto,
 } from './order.dto';
+import { OrderLockService } from './order-lock.service';
 import { OrdersService, toOrderDto } from './orders.service';
 import type { UpsertOrderResult } from './order-intake.service';
 
@@ -170,6 +177,122 @@ const E409 = (withConflict: boolean, idem = false) => ({
   },
 });
 
+const E422R = {
+  status: 422,
+  description: 'เหตุผลสั้นกว่า 10 ตัวอักษร / reason code ไม่ใช่หมวด CANCEL',
+  examples: {
+    validation_failed: P('validation_failed', 422, 'ข้อมูลไม่ถูกต้อง', {
+      errors: [
+        {
+          field: 'reason',
+          code: 'minLength',
+          message: 'reason must be longer than or equal to 10 characters',
+        },
+      ],
+    }),
+  },
+};
+const ON_TRIP = P(
+  'order_on_trip',
+  409,
+  'ใบสั่งขนส่งนี้มีใบส่งของอยู่ในเที่ยวรถ — ถอดออกจากเที่ยวก่อน',
+  {
+    deliveryOrders: ['DO-6911-0001'],
+  },
+);
+const E409C = {
+  status: 409,
+  description:
+    '`order_on_trip` — มีใบส่งของอยู่ในเที่ยว (ถอดออกจากเที่ยวก่อน) · `invalid_state_transition` — สถานะนี้ยกเลิกไม่ได้ (ออกรถ/ส่ง/ปิด/ยกเลิกแล้ว)',
+  examples: {
+    order_on_trip: ON_TRIP,
+    invalid_state_transition: P(
+      'invalid_state_transition',
+      409,
+      'ทำรายการนี้ไม่ได้ในสถานะปัจจุบัน',
+      {
+        from: 'IN_TRANSIT',
+        event: 'cancel',
+      },
+    ),
+  },
+};
+const E409S = {
+  status: 409,
+  description:
+    '`order_on_trip` — ช่องที่ต้นทางแก้ยังล็อกเพราะมีใบส่งของในเที่ยว (ถอดออกจากเที่ยวก่อนแล้วรับ) · ' +
+    '`order_locked_for_update` — ใบออกรถ/ปิด/ยกเลิกแล้ว · `source_change_not_pending` — ชุดนี้ถูกตัดสิน/มีชุดใหม่มาแทนแล้ว',
+  examples: {
+    order_on_trip: P(
+      'order_on_trip',
+      409,
+      'ใบสั่งขนส่งนี้มีใบส่งของอยู่ในเที่ยวรถ — ถอดออกจากเที่ยวก่อน',
+      {
+        orderStatus: 'PLANNED',
+        lockedFields: ['stops'],
+      },
+    ),
+    source_change_not_pending: P(
+      'source_change_not_pending',
+      409,
+      'การเปลี่ยนแปลงจากต้นทางชุดนี้ถูกตัดสินไปแล้ว หรือมีชุดใหม่มาแทน — โหลดใหม่',
+      { changeStatus: 'SUPERSEDED' },
+    ),
+  },
+};
+
+const LOCK_EX = {
+  userId: 'usr_7c1d…',
+  userName: 'สมชาย ใจดี',
+  acquiredAt: '2026-11-13T02:00:00.000Z',
+  lastSeenAt: '2026-11-13T02:04:00.000Z',
+  expiresAt: '2026-11-13T02:14:00.000Z',
+  mine: false,
+};
+const LOCKED_BY_USER = P('order_locked_by_user', 409, 'ใบสั่งขนส่งนี้กำลังถูกแก้ไขโดยผู้ใช้อื่น', {
+  editLock: LOCK_EX,
+});
+const E409_LOCK = {
+  status: 409,
+  description:
+    '409 `order_locked_by_user` — ผู้ใช้อื่นเปิดแก้อยู่ (`editLock` = ผู้ถือ + เวลาหมดอายุ) · ' +
+    '`order_lock_released` — ล็อกของผู้เรียกถูกผู้อื่นปลด (heartbeat/PATCH) จนกว่าจะเปิดแก้ใหม่ · ' +
+    '`concurrent_update` — ล็อกเปลี่ยนมือระหว่างขอ ลองใหม่ได้',
+  examples: {
+    order_locked_by_user: LOCKED_BY_USER,
+    order_lock_released: P(
+      'order_lock_released',
+      409,
+      'การแก้ไขของคุณถูกปลดล็อกโดยผู้อื่นแล้ว — โหลดใหม่ก่อนแก้ต่อ',
+      {
+        releasedBy: { userId: 'usr_9b2e…', userName: 'ผู้จัดการ ตัวอย่าง' },
+        releasedAt: '2026-11-13T02:06:00.000Z',
+        reason: 'ผู้แก้ไม่อยู่ ต้องแก้วันรับของด่วน',
+      },
+    ),
+    concurrent_update: P(
+      'concurrent_update',
+      409,
+      'มีการแก้ไขข้อมูลเดียวกันพร้อมกัน กรุณาลองใหม่อีกครั้ง',
+    ),
+  },
+};
+
+/** 409 ของ action ที่ติดล็อกการแก้ (ST3-T08) — รวม example ล็อกเข้ากับ 409 เดิมของ endpoint */
+const withLock = (e: {
+  status: number;
+  description: string;
+  examples: Record<string, unknown>;
+}) => ({
+  ...e,
+  description: `${e.description} · \`order_locked_by_user\` — ผู้ใช้อื่นเปิดแก้อยู่ · \`order_lock_released\` — ล็อกของผู้เรียกถูกปลด`,
+  examples: {
+    ...e.examples,
+    order_locked_by_user: LOCKED_BY_USER,
+    order_lock_released: E409_LOCK.examples.order_lock_released,
+  },
+});
+
 const E409_STATE = {
   status: 409,
   description:
@@ -207,16 +330,29 @@ const E409_ALIAS = {
 @ApiBearerAuth()
 @Controller('orders')
 export class OrdersController {
-  constructor(private readonly orders: OrdersService) {}
+  constructor(
+    private readonly orders: OrdersService,
+    private readonly locks: OrderLockService,
+  ) {}
 
   private async resolve(id: string) {
     if (id.startsWith('ext:')) return this.orders.getByExternalId(id.slice(4));
     return this.orders.get(decodeIdOr404('salesOrder', id));
   }
 
-  /** ใบเดียว + ช่องที่แก้ได้ตามสถานะ (ฟอร์ม ST3-T02 ใช้ปิดช่อง) */
+  /** ใบเดียว + ช่องที่แก้ได้ตามสถานะ (ฟอร์ม ST3-T02 ใช้ปิดช่อง) + ผู้ที่เปิดแก้อยู่ (ST3-T08) */
   private async full(row: Awaited<ReturnType<OrdersService['get']>>): Promise<OrderDto> {
-    return { ...toOrderDto(row), editableFields: await this.orders.editableFields(row) };
+    const dto: OrderDto = {
+      ...toOrderDto(row),
+      editableFields: await this.orders.editableFields(row),
+      editLock: await this.locks.view(row.id),
+    };
+    // ชุดที่รอตัดสิน: ค่า "เดิม" เทียบข้อมูล TMS ตอนนี้ (list ใช้ diff ตอนรับ)
+    if (dto.sourceChange && row.sourceChanges[0]) {
+      const live = await this.orders.previewSourceChange(row.id, row.sourceChanges[0].id);
+      if (live) dto.sourceChange.changes = live as typeof dto.sourceChange.changes;
+    }
+    return dto;
   }
 
   private async respond(r: UpsertOrderResult, res: Response): Promise<OrderDto> {
@@ -304,11 +440,24 @@ export class OrdersController {
   @Get(':id')
   @TenantResource('salesOrder')
   @RequireScope('orders:read')
-  @ApiOkResponse({ type: OrderDto, description: '`{id}` รับ `ext:{externalId}` ได้' })
+  @ApiOkResponse({
+    type: OrderDto,
+    description:
+      '`{id}` รับ `ext:{externalId}` ได้ · ETag = version ของใบ (ใช้กับ If-Match) — `editLock`/`editableFields` ' +
+      'เปลี่ยนได้โดย version ไม่เปลี่ยน จึงไม่รองรับ conditional GET (`If-None-Match` ถูกละเลย ตอบ 200 เสมอ) + `Cache-Control: no-store`',
+  })
   @ApiProblems(E403, E404)
-  async get(@Param('id') id: string, @Res({ passthrough: true }) res: Response): Promise<OrderDto> {
+  async get(
+    @Param('id') id: string,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<OrderDto> {
     const o = await this.resolve(id);
     setEtag(res, o.version);
+    // ST3-T08: ETag (version) ไม่ครอบสถานะล็อก — ห้าม browser เก็บ และห้าม express ตอบ 304 จาก If-None-Match
+    // (ไม่งั้นป้าย "กำลังแก้ไขโดย …" ค้าง) · If-Match ของ PATCH/PUT ยังใช้ ETag = version เหมือนเดิม
+    res.setHeader('Cache-Control', 'no-store');
+    delete req.headers['if-none-match'];
     return this.full(o);
   }
 
@@ -316,8 +465,31 @@ export class OrdersController {
   @TenantResource('salesOrder')
   @RequireScope('orders:write')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
+  @ApiOperation({
+    summary: 'แก้บางช่อง',
+    description:
+      'ผู้ใช้อื่นเปิดแก้อยู่ (ล็อกการแก้ยังไม่หมดอายุ — ST3-T08) → 409 `order_locked_by_user` · ผู้ถือล็อกแก้ได้และนับเป็นกิจกรรม (ต่ออายุ) · ' +
+      'ล็อกของผู้เรียกถูกผู้อื่นปลด → 409 `order_lock_released` จนกว่าจะเปิดแก้ใหม่ (POST /lock) · ' +
+      'ไม่มีล็อก = แก้ได้ตามปกติ · ทางเข้า POST/PUT external (API/connector/นำเข้า) ไม่ติดล็อก',
+  })
   @ApiOkResponse({ type: OrderDto })
-  @ApiProblems(E400(false), E403, E404, E409(false), E412, E413, E422)
+  @ApiProblems(
+    E400(false),
+    E403,
+    E404,
+    {
+      ...E409(false),
+      description: `${LOCKED_DOC} · 409 \`order_locked_by_user\` — ผู้ใช้อื่นเปิดแก้อยู่`,
+      examples: {
+        ...E409(false).examples,
+        order_locked_by_user: LOCKED_BY_USER,
+        order_lock_released: E409_LOCK.examples.order_lock_released,
+      },
+    },
+    E412,
+    E413,
+    E422,
+  )
   async update(
     @Param('id') id: string,
     @Body() body: UpdateOrderDto,
@@ -325,8 +497,180 @@ export class OrdersController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<OrderDto> {
     const current = await this.resolve(id);
+    await this.locks.assertWritable(current.id);
     const r = await this.orders.update(current.id, body, ifMatch(req));
     return this.respond(r, res);
+  }
+
+  /**
+   * ยกเลิกใบสั่งขนส่ง (ST3-T10; docs/04 C "ยกเลิก / คืนสถานะ", docs/01 §4.1) — เหตุผล ≥ 10 ตัวอักษร + reason code หมวด CANCEL (ไม่บังคับ)
+   * ใบส่งของ (DO) ร่างถูกยกเลิกตามไปทั้งหมด · มี DO อยู่ในเที่ยว → 409 `order_on_trip` (ถอดออกจากเที่ยวก่อน)
+   * ยกเลิกแล้วย้อนกลับไม่ได้ (สถานะสิ้นสุด) · event `order.cancelled`
+   */
+  @Post(':id/cancel')
+  @HttpCode(200)
+  @TenantResource('salesOrder')
+  @RequireScope('orders:cancel')
+  @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
+  @ApiOkResponse({ type: OrderDto })
+  @ApiProblems(E400(false), E403, E404, withLock(E409C), E412, E422R)
+  async cancel(
+    @Param('id') id: string,
+    @Body() body: CancelOrderDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<OrderDto> {
+    const current = await this.resolve(id);
+    await this.locks.assertWritable(current.id);
+    await this.orders.cancel(current.id, body, ifMatch(req));
+    const row = await this.orders.get(current.id);
+    setEtag(res, row.version);
+    return this.full(row);
+  }
+
+  /**
+   * รับการเปลี่ยนแปลงจากต้นทาง (ST3-T10) — เขียนข้อมูลชุดนั้นด้วยกฎเดียวกับทางเข้า (คิดราคา/ใบค้าง/ใบส่งของใหม่)
+   * ช่องที่ยังล็อก: มีใบส่งของในเที่ยว → 409 `order_on_trip` (ถอดออกจากเที่ยวก่อน) · เหตุผล ≥ 10 ตัวอักษร + audit
+   */
+  @Post(':id/source-changes/:changeId/accept')
+  @HttpCode(200)
+  @TenantResource('salesOrder')
+  @RequireScope('orders:write')
+  @ApiHeader({
+    name: 'If-Match',
+    required: false,
+    description: 'ETag ของใบที่ผู้ใช้เห็น diff — ไม่ตรง → 412',
+  })
+  @ApiOkResponse({ type: OrderDto })
+  @ApiProblems(E400(false), E403, E404, withLock(E409S), E412, E422R)
+  async acceptSourceChange(
+    @Param('id') id: string,
+    @Param('changeId') changeId: string,
+    @Body() body: SourceChangeDecisionDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<OrderDto> {
+    const current = await this.resolve(id);
+    await this.locks.assertWritable(current.id);
+    const r = await this.orders.decideSourceChange(
+      current.id,
+      changeId,
+      true,
+      body.reason,
+      ifMatch(req),
+    );
+    return this.respond(r as UpsertOrderResult, res);
+  }
+
+  /** ไม่รับการเปลี่ยนแปลงจากต้นทาง — ข้อมูล TMS คงเดิม ปลดธง (ต้นทางส่งชุดเดิมซ้ำ = ไม่ขึ้นใหม่) · เหตุผล ≥ 10 ตัวอักษร + audit */
+  @Post(':id/source-changes/:changeId/reject')
+  @HttpCode(200)
+  @TenantResource('salesOrder')
+  @RequireScope('orders:write')
+  @ApiHeader({
+    name: 'If-Match',
+    required: false,
+    description: 'ETag ของใบที่ผู้ใช้เห็น diff — ไม่ตรง → 412',
+  })
+  @ApiOkResponse({ type: OrderDto })
+  @ApiProblems(E400(false), E403, E404, withLock(E409S), E412, E422R)
+  async rejectSourceChange(
+    @Param('id') id: string,
+    @Param('changeId') changeId: string,
+    @Body() body: SourceChangeDecisionDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<OrderDto> {
+    const current = await this.resolve(id);
+    await this.locks.assertWritable(current.id);
+    await this.orders.decideSourceChange(current.id, changeId, false, body.reason, ifMatch(req));
+    const row = await this.orders.get(current.id);
+    setEtag(res, row.version);
+    return this.full(row);
+  }
+
+  /**
+   * ขอล็อกการแก้ / ต่ออายุ (heartbeat) — ST3-T08 (docs/04 C Edit lock)
+   * หน้าจอเรียกตอนเปิดฟอร์มแก้ และซ้ำระหว่างผู้ใช้ยังใช้งาน (ทุก ~60 วินาทีที่มีกิจกรรม) — ล็อกหมดอายุเมื่อไม่มีกิจกรรม 10 นาที
+   */
+  @Post(':id/lock')
+  @HttpCode(200)
+  @TenantResource('salesOrder')
+  @RequireScope('orders:write')
+  @ApiOperation({
+    summary: 'ขอ/ต่ออายุล็อกการแก้',
+    description:
+      'ได้ล็อก (หรือต่ออายุของตัวเอง) → 200 + ผู้ถือ/เวลาหมดอายุ (กิจกรรมล่าสุด + 10 นาที) · ผู้อื่นถืออยู่ → 409 `order_locked_by_user` · ' +
+      'ล็อกของผู้อื่นที่หมดอายุแล้วถูกแทนที่ทันที · ใช้ได้เฉพาะผู้ใช้ในบริษัท (token อื่น → 403 `edit_lock_user_required`)',
+  })
+  @ApiOkResponse({ type: OrderEditLockDto })
+  @ApiProblems(
+    {
+      ...E403,
+      examples: {
+        ...E403.examples,
+        edit_lock_user_required: P(
+          'edit_lock_user_required',
+          403,
+          'การล็อกเพื่อแก้ไขใช้ได้เฉพาะผู้ใช้ในระบบ',
+        ),
+      },
+    },
+    E404,
+    E409_LOCK,
+  )
+  async lock(@Param('id') id: string, @Body() body: OrderLockDto): Promise<OrderEditLockDto> {
+    const o = await this.resolve(id);
+    return this.locks.acquire(o.id, body?.heartbeat === true);
+  }
+
+  /**
+   * ปลดล็อกการแก้ — ST3-T08 · ของตัวเอง/ไม่มีล็อก/หมดอายุ = 204 (ส่งซ้ำได้ ใช้ตอนปิดฟอร์ม/ปิดแท็บ)
+   * ของผู้อื่น = ต้องมี `orders:unlock` + `reason` ≥ 10 ตัวอักษร (ลง audit `order.edit_lock_released`)
+   */
+  @Post(':id/unlock')
+  @HttpCode(204)
+  @TenantResource('salesOrder')
+  @RequireScope('orders:write')
+  @ApiOperation({
+    summary: 'ปลดล็อกการแก้',
+    description:
+      'ของตัวเอง/ไม่มีล็อก/หมดอายุ → 204 · ล็อกของผู้อื่น: ต้องมีสิทธิ์ `orders:unlock` (ไม่มี → 403) และ `reason` ≥ 10 ตัวอักษร (422) — ลง audit พร้อมเหตุผล · ' +
+      'ผู้ถือเดิมต่ออายุ/บันทึกไม่ได้ (409 `order_lock_released`) จนกว่าจะเปิดแก้ใหม่ — คนอื่นขอล็อกได้ทันที',
+  })
+  @ApiNoContentResponse()
+  @ApiProblems(
+    {
+      ...E403,
+      description: 'ไม่มีสิทธิ์ (`orders:write`; ปลดล็อกของผู้อื่นต้องมี `orders:unlock`)',
+      examples: {
+        permission_denied: P('permission_denied', 403, 'ไม่มีสิทธิ์ทำรายการนี้', {
+          module: 'orders',
+          action: 'unlock',
+          required: ['orders:unlock'],
+        }),
+      },
+    },
+    E404,
+    {
+      status: 422,
+      description: 'ปลดล็อกของผู้อื่นโดยไม่มีเหตุผล / เหตุผลสั้นกว่า 10 ตัวอักษร',
+      examples: {
+        validation_failed: P('validation_failed', 422, 'ข้อมูลไม่ถูกต้อง', {
+          errors: [
+            {
+              field: 'reason',
+              code: 'minLength',
+              message: 'reason must be at least 10 characters',
+            },
+          ],
+        }),
+      },
+    },
+  )
+  async unlock(@Param('id') id: string, @Body() body: OrderUnlockDto): Promise<void> {
+    const o = await this.resolve(id);
+    await this.locks.release(o.id, body.reason);
   }
 
   @Post(':id/stops/:sequence/map-site')
@@ -353,6 +697,7 @@ export class OrdersController {
   ): Promise<OrderMapResultDto> {
     const current = await this.resolve(id);
     if (!/^[1-9]\d{0,2}$/.test(sequence)) throw new ProblemException('not_found');
+    await this.locks.assertWritable(current.id);
     const r = await this.orders.mapStopSite(
       current.id,
       Number(sequence),
@@ -400,7 +745,7 @@ export class OrdersController {
   })
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
   @ApiOkResponse({ type: OrderDto })
-  @ApiProblems(E400(false), E403, E404, E409_STATE, E412, E422)
+  @ApiProblems(E400(false), E403, E404, withLock(E409_STATE), E412, E422)
   async resolveSourceError(
     @Param('id') id: string,
     @Body() body: ResolveSourceErrorDto,
@@ -408,6 +753,7 @@ export class OrdersController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<OrderDto> {
     const current = await this.resolve(id);
+    await this.locks.assertWritable(current.id);
     return this.respond(
       await this.orders.resolveSourceError(current.id, body.reason, ifMatch(req)),
       res,
@@ -437,6 +783,7 @@ export class OrdersController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<OrderMapResultDto> {
     const current = await this.resolve(id);
+    await this.locks.assertWritable(current.id);
     const r = await this.orders.mapCustomer(current.id, body, ifMatch(req));
     return { ...(await this.respond(r, res)), aliasLearning: r.aliasLearning };
   }

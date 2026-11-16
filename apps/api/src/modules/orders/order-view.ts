@@ -38,6 +38,8 @@ export function orderEventView(
       windowEnd: s.windowEnd?.toISOString() ?? null,
     })),
     holdNote: o.holdNote,
+    // ต้นทางแก้หลังวางแผน รอคนรับ/ไม่รับ (ST3-T10) — ธงข้างสถานะ
+    sourceChangedAfterPlan: o.sourceChangedAfterPlan,
     // สินค้า (ไม่มีราคา) — audit เห็นการแก้รายบรรทัด
     ...(opts.lines
       ? {

@@ -15,6 +15,8 @@ import {
   parseOrderSource,
   planIntake,
   soRequiresNumber,
+  canCancelOrder,
+  stagesSourceChanges,
   type IntakeFacts,
   type SoEvent,
   type SoStatus,
@@ -308,5 +310,12 @@ describe('ราคากำหนดเอง + ข้อความใบค�
     expect(intakeHoldNoteTh({ code: 'SOURCE_ERROR' }, { sourceIssues: ['ไม่มีวันส่ง'] })).toBe(
       'ข้อมูลจากต้นทางไม่ครบ: ไม่มีวันส่ง',
     );
+  });
+
+  it('ST3-T10: ยกเลิกได้ก่อนออกรถเท่านั้น · connector เท่านั้นที่เก็บ diff หลังวางแผน (API/คน → 409)', () => {
+    expect(SO_STATUSES.filter(canCancelOrder)).toEqual(['DRAFT', 'RECEIVED', 'ON_HOLD', 'PLANNED']);
+    expect(stagesSourceChanges('CONNECTOR')).toBe(true);
+    for (const s of ['MANUAL', 'IMPORT', 'API', 'PORTAL'] as const)
+      expect(stagesSourceChanges(s)).toBe(false);
   });
 });

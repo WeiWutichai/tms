@@ -117,6 +117,40 @@ export function soEditableFields(status: SoStatus, doOnTrip = false): readonly S
   }
 }
 
+// ---------- ต้นทางแก้หลังวางแผน + ยกเลิก (ST3-T10) ----------
+
+/**
+ * ทางเข้าที่ "ต้นทางเป็นเจ้าของข้อมูล" และแก้ใบหลังวางแผนแล้ว **ไม่ถูกปฏิเสธแต่เก็บเป็นชุดรอตัดสิน** (diff — ไม่ทับอัตโนมัติ)
+ * docs/01 §4.1 + docs/04 C "ERP แก้หลังวางแผน → ใบค้าง SOURCE_CHANGED_AFTER_PLAN" → connector (`ERP:{c}`) เท่านั้น
+ * · Open API (`PUT /orders/external`) ยังตอบ 409 `order_locked_for_update` ตาม docs/04 C "Upsert ด้วย external id … → 409"
+ * · Excel (IMPORT) ยังไม่มีการส่งซ้ำแบบต้นทาง — [OPEN] spec/12 §3 (เปิดได้ที่นี่ที่เดียว)
+ */
+export function stagesSourceChanges(source: OrderSource): boolean {
+  return source === 'CONNECTOR';
+}
+
+/** สถานะของชุดการเปลี่ยนแปลงจากต้นทาง (ตาราง `order_source_change`) */
+export const SOURCE_CHANGE_STATUSES = ['PENDING', 'ACCEPTED', 'REJECTED', 'SUPERSEDED'] as const;
+export type SourceChangeStatus = (typeof SOURCE_CHANGE_STATUSES)[number];
+
+/** ช่องหนึ่งใน diff (ค่าแสดงผล — ไม่มีราคา) · `kind` บอกวิธีแสดงค่า */
+export interface SourceChangeEntry {
+  group: SoFieldGroup;
+  /** path ของช่อง เช่น `stops[1].siteId`, `lines[0].qty` */
+  field: string;
+  before: string | null;
+  after: string | null;
+  kind: 'text' | 'date' | 'datetime';
+}
+
+/** เหตุค้างของใบที่ต้นทางแก้หลังวางแผน (reason code ระบบหมวด ORDER_HOLD) — ธงข้างสถานะ ไม่ใช่สถานะ ON_HOLD */
+export const SOURCE_CHANGED_HOLD_CODE = 'SOURCE_CHANGED_AFTER_PLAN';
+
+/** ยกเลิกได้จากสถานะนี้ไหม (ตาราง SO_TRANSITIONS — DRAFT/RECEIVED/ON_HOLD/PLANNED) */
+export function canCancelOrder(status: SoStatus): boolean {
+  return SO_TRANSITIONS[status]?.cancel !== undefined;
+}
+
 /** ร่างไม่กินเลข (docs/01 §3.5) — สถานะอื่นทุกสถานะต้องมีเลข SO (CHECK `sales_order_number`) */
 export function soRequiresNumber(status: SoStatus): boolean {
   return status !== 'DRAFT';

@@ -611,7 +611,8 @@ const BODY_FOR_SUFFIX: Record<string, object> = {
   assign: { vehicleId: `veh_${'0'.repeat(32)}` },
   offer: { carrierId: `car_${'0'.repeat(32)}` },
   approve: { reason: 'isolation test reason' }, // ST2-T13 /rate-cards/:id/approve
-  reject: { reason: 'isolation test reason' }, // ST2-T03 /customer-sites/:id/geocode/reject
+  reject: { reason: 'isolation test reason' }, // ST2-T03 /customer-sites/:id/geocode/reject + ST3-T10 source-changes
+  accept: { reason: 'isolation test reason' }, // ST3-T10 /orders/:id/source-changes/:changeId/accept
   reveal: { field: 'bankAccountNo', reason: 'isolation test reason' }, // ST2-T05 /carriers/:id/reveal
   status: { status: 'parked', reason: 'isolation test reason' }, // ST2-T06 /vehicles/:id/status
   odometer: { readingKm: 1 }, // ST2-T06 /vehicles/:id/odometer

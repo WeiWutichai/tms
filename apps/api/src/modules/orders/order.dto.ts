@@ -24,9 +24,10 @@ import {
   ORDER_SOURCES,
   SO_FIELD_GROUPS,
   SO_STATUSES,
+  SOURCE_CHANGE_STATUSES,
 } from '@tms/domain';
 import { PriceField } from '../../common/price-fields';
-import { CleanText, IsOptionalNotNull } from '../master/master-kit';
+import { CleanText, IsNullable, IsOptionalNotNull } from '../master/master-kit';
 
 /**
  * DTO ของ Open API `orders` (ST3-T03; docs/04 C + G1, docs/01 §5.2 #1)
@@ -416,6 +417,71 @@ export class OrderChargeDto {
   @ApiProperty({ nullable: true, type: Number }) rateCardRevision!: number | null;
 }
 
+/** ช่องหนึ่งของ diff ต้นทาง (ค่าแสดงผล — ไม่มีราคา) */
+export class SourceChangeEntryDto {
+  @ApiProperty({ enum: SO_FIELD_GROUPS, example: 'stops' }) group!: string;
+  @ApiProperty({ example: 'stops[1].siteId', description: 'path ของช่อง' }) field!: string;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: 'คลังสินค้า บางนา',
+    description: 'ค่าใน TMS',
+  })
+  before!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: 'คลังสินค้า ลาดกระบัง',
+    description: 'ค่าตามต้นทาง',
+  })
+  after!: string | null;
+  @ApiProperty({
+    enum: ['text', 'date', 'datetime'],
+    description: 'วิธีแสดงค่า: date = YYYY-MM-DD, datetime = ISO 8601',
+  })
+  kind!: string;
+}
+
+/** ชุดการเปลี่ยนแปลงจากต้นทางที่รอตัดสิน (ST3-T10) */
+export class OrderSourceChangeDto {
+  @ApiProperty({ example: 'osc_3f2a…' }) id!: string;
+  @ApiProperty({ enum: SOURCE_CHANGE_STATUSES }) status!: string;
+  @ApiProperty({ example: 'ERP:krs', description: 'ต้นทางที่ส่งมา' }) source!: string;
+  @ApiProperty({ enum: SO_STATUS_VALUES, description: 'สถานะใบตอนต้นทางส่งมา' })
+  orderStatus!: string;
+  @ApiProperty({ description: 'เวลาที่ต้นทางส่งมา' }) receivedAt!: string;
+  @ApiProperty({ type: [SourceChangeEntryDto] }) changes!: SourceChangeEntryDto[];
+}
+
+export class CancelOrderDto {
+  @ApiProperty({ minLength: 10, maxLength: 500, example: 'ลูกค้ายกเลิกคำสั่งทางอีเมล' })
+  @CleanText()
+  @IsString()
+  @MinLength(10)
+  @MaxLength(500)
+  reason!: string;
+
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    example: 'rsn_3f2a…',
+    description: 'เหตุผลมาตรฐานหมวด CANCEL (ไม่บังคับ)',
+  })
+  @IsOptional()
+  @IsNullable()
+  @Matches(/^rsn_[0-9a-f]{32}$/)
+  reasonCodeId?: string | null;
+}
+
+export class SourceChangeDecisionDto {
+  @ApiProperty({ minLength: 10, maxLength: 500, example: 'ลูกค้ายืนยันเปลี่ยนจุดส่งทางโทรศัพท์' })
+  @CleanText()
+  @IsString()
+  @MinLength(10)
+  @MaxLength(500)
+  reason!: string;
+}
+
 export class OrderDto {
   @ApiProperty({ example: 'ord_3f2a…' }) id!: string;
   @ApiProperty({
@@ -480,9 +546,69 @@ export class OrderDto {
       'ว่าง = แก้ไม่ได้ (ปิดงาน/ยกเลิก) · ฟอร์มใช้ปิดช่องที่แก้ไม่ได้ก่อนส่ง (server ตรวจซ้ำ → 409 `order_locked_for_update`)',
   })
   editableFields?: string[];
+  @ApiProperty({
+    description:
+      'ต้นทาง (connector) แก้ใบหลังวางแผน — ไม่ทับข้อมูล รอคนรับ/ไม่รับ (`sourceChange`) · สถานะใบไม่เปลี่ยน (docs/01 §4.1)',
+  })
+  sourceChangedAfterPlan!: boolean;
+  @ApiProperty({
+    nullable: true,
+    type: OrderSourceChangeDto,
+    description:
+      'ชุดการเปลี่ยนแปลงจากต้นทางที่รอตัดสิน (รับ: POST …/source-changes/{changeId}/accept · ไม่รับ: …/reject)',
+  })
+  sourceChange!: OrderSourceChangeDto | null;
+  @ApiPropertyOptional({
+    type: () => OrderEditLockDto,
+    nullable: true,
+    description:
+      'ผู้ที่เปิดแก้ใบนี้อยู่ (ST3-T08 — ล็อกที่ยังไม่หมดอายุ) · null = ไม่มีใครแก้ · มีเฉพาะ GET ทีละใบและผลของ POST/PUT/PATCH (ไม่อยู่ในรายการ)',
+  })
+  editLock?: OrderEditLockDto | null;
   @ApiProperty() version!: number;
   @ApiProperty() createdAt!: string;
   @ApiProperty() updatedAt!: string;
+}
+
+/** ล็อกการแก้จากหน้าจอ (ST3-T08; docs/04 C Edit lock) — หมดอายุเมื่อไม่มีกิจกรรม 10 นาที */
+export class OrderEditLockDto {
+  @ApiProperty({ example: 'usr_3f2a…', description: 'ผู้ถือล็อก' }) userId!: string;
+  @ApiProperty({ example: 'สมชาย ใจดี', description: 'ชื่อผู้ถือล็อก (ป้าย "กำลังแก้ไขโดย …")' })
+  userName!: string;
+  @ApiProperty({ format: 'date-time' }) acquiredAt!: string;
+  @ApiProperty({ format: 'date-time', description: 'กิจกรรมล่าสุด' }) lastSeenAt!: string;
+  @ApiProperty({
+    format: 'date-time',
+    description: 'หมดอายุ = กิจกรรมล่าสุด + 10 นาที — หลังเวลานี้คนอื่นขอล็อกได้ทันที',
+  })
+  expiresAt!: string;
+  @ApiProperty({ description: 'ผู้เรียกเป็นผู้ถือล็อกเอง' }) mine!: boolean;
+}
+
+/** ขอล็อก (ST3-T08) — ไม่ส่ง/`heartbeat: false` = เปิดแก้ (ล้างการแจ้งว่าถูกปลด) · `heartbeat: true` = ต่ออายุระหว่างแก้ */
+export class OrderLockDto {
+  @ApiPropertyOptional({
+    description:
+      'true = ต่ออายุระหว่างแก้ (หน้าจอส่งเมื่อผู้ใช้มีกิจกรรม) — ถ้าล็อกเดิมถูกผู้อื่นปลดแล้วได้ 409 `order_lock_released` ' +
+      '(ไม่ได้ล็อกคืนเอง) · ไม่ส่ง/false = เปิดแก้ใหม่',
+  })
+  @IsOptional()
+  @IsBoolean()
+  heartbeat?: boolean;
+}
+
+/** ปลดล็อก — ของตัวเองไม่ต้องมีเหตุผล · ปลดของคนอื่น (`orders:unlock`) ต้องมีเหตุผล ≥ 10 ตัวอักษร (ลง audit) */
+export class OrderUnlockDto {
+  @ApiPropertyOptional({
+    maxLength: 500,
+    example: 'ผู้แก้ลาป่วย ต้องแก้วันรับของด่วน',
+    description: 'บังคับ (≥ 10 ตัวอักษร) เมื่อปลดล็อกของผู้ใช้อื่น',
+  })
+  @IsOptional()
+  @CleanText()
+  @IsString()
+  @MaxLength(500)
+  reason?: string;
 }
 
 /** ตัวนับของหน้ารายการใบสั่งขนส่ง (แถบสรุป + แท็บ — ต้นแบบ TMS v4 kpisX('so')) */

@@ -77,7 +77,9 @@ export function OrdersPage() {
   const dateText = useDateText();
   const scopes = me.data?.scopes ?? [];
   const canWrite = can(scopes, 'orders:write');
+  const canCancel = can(scopes, 'orders:cancel');
   const canSeePrice = can(scopes, 'prices.sell:read');
+  const canUnlock = can(scopes, 'orders:unlock');
   const [tab, setTab] = useSessionState<Tab>('so.tab', 'all');
   const [overdue, setOverdue] = useSessionState('so.over', false);
   // "จัดแล้ววันนี้" (ต้นแบบ kpisX so): แท็บจัดรถแล้ว + วันรับของ = วันนี้ — ตัวเลขเดียวกับ summary.plannedToday
@@ -434,7 +436,9 @@ export function OrdersPage() {
           key={openId}
           id={openId}
           canWrite={canWrite}
+          canCancel={canCancel}
           canSeePrice={canSeePrice}
+          canUnlock={canUnlock}
           onClose={() => setOpenId(null)}
           onEdit={(o) =>
             openForm({ mode: 'edit', initial: fromOrder(o), order: o, subtitle: t('ord.kind') })
@@ -458,6 +462,7 @@ export function OrdersPage() {
           order={form.order ?? null}
           {...(form.subtitle ? { subtitle: form.subtitle } : {})}
           canSeePrice={canSeePrice}
+          canUnlock={canUnlock}
           onClose={() => setForm(null)}
           onReload={form.order ? () => void reloadEdit(form.order!.id) : undefined}
           onSaved={(o, how) => {

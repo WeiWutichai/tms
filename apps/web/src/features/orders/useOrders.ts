@@ -43,6 +43,11 @@ export function useOrder(id: string | null) {
     queryKey: [KEY, 'one', id],
     enabled: !!id,
     staleTime: 0,
+    // ผู้อื่นแก้อยู่ (ST3-T08) → ตรวจซ้ำทุก 30 วินาที ให้ป้าย "กำลังแก้ไขโดย …" หายเองเมื่อเขาปิด/ล็อกหมดอายุ
+    refetchInterval: (q) => {
+      const l = (q.state.data as Order | undefined)?.editLock;
+      return l && !l.mine ? 30_000 : false;
+    },
     queryFn: () =>
       unwrap(api.GET('/v1/orders/{id}', { params: { path: { id: id! } } })) as Promise<Order>,
   });
@@ -75,6 +80,73 @@ export function useUpdateOrder() {
       ),
     onError: refetchOnStale(qc, KEY),
     onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
+  });
+}
+
+/** ยกเลิกใบสั่งขนส่ง (ST3-T10) — เหตุผล ≥ 10 ตัวอักษร · If-Match = version ที่เห็นใน drawer */
+export function useCancelOrder() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { id: string; version: number; reason: string }) =>
+      unwrap(
+        api.POST('/v1/orders/{id}/cancel', {
+          params: { path: { id: v.id }, header: { 'If-Match': `"${v.version}"` } },
+          body: { reason: v.reason },
+        }),
+      ) as Promise<Order>,
+    onError: refetchOnStale(qc, KEY),
+    onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
+  });
+}
+
+/** รับ/ไม่รับ การเปลี่ยนแปลงจากต้นทาง (ST3-T10) */
+export function useDecideSourceChange() {
+  const qc = useQueryClient();
+  return useMutation({
+    /** If-Match = version ของใบที่ผู้ใช้เห็น diff (diff คำนวณกับข้อมูลตอนอ่าน) */
+    mutationFn: (v: {
+      id: string;
+      version: number;
+      changeId: string;
+      accept: boolean;
+      reason: string;
+    }) =>
+      unwrap(
+        v.accept
+          ? api.POST('/v1/orders/{id}/source-changes/{changeId}/accept', {
+              params: {
+                path: { id: v.id, changeId: v.changeId },
+                header: { 'If-Match': `"${v.version}"` },
+              },
+              body: { reason: v.reason },
+            })
+          : api.POST('/v1/orders/{id}/source-changes/{changeId}/reject', {
+              params: {
+                path: { id: v.id, changeId: v.changeId },
+                header: { 'If-Match': `"${v.version}"` },
+              },
+              body: { reason: v.reason },
+            }),
+      ) as Promise<Order>,
+    onError: refetchOnStale(qc, KEY),
+    onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
+  });
+}
+
+// ---------- ล็อกการแก้ (ST3-T08) ----------
+
+/** ปลดล็อกของผู้อื่น (`orders:unlock`) พร้อมเหตุผล ≥ 10 ตัวอักษร — server ลง audit */
+export function useForceUnlock() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { id: string; reason: string }) =>
+      unwrap(
+        api.POST('/v1/orders/{id}/unlock', {
+          params: { path: { id: v.id } },
+          body: { reason: v.reason },
+        }),
+      ),
+    onSettled: (_d, _e, v) => qc.invalidateQueries({ queryKey: [KEY, 'one', v.id] }),
   });
 }
 

@@ -38,11 +38,14 @@ const MAX_STORED_RESULTS = 200;
 
 /**
  * ผลต่อใบ: created/updated/unchanged = เข้าระบบแล้ว (ดู `status`/`holds`) ·
+ * source_changed = ใบวางแผนแล้วและต้นทางแก้ช่องที่ล็อก → **ไม่ทับ** เก็บชุดรอคนรับ/ไม่รับ (SOURCE_CHANGED_AFTER_PLAN + diff — ST3-T10)
+ *   (ส่งชุดเดิมซ้ำ / ชุดที่คนไม่รับแล้ว = unchanged + `reason`) ·
  * conflict = externalId เดียวกันเป็นของช่องทางอื่น (409 `external_id_conflict` — ไม่ทับ) ·
- * locked = ใบวางแผน/ออกรถแล้วและต้นทางแก้ช่องที่ล็อก (ไม่ทับ — ใบค้าง SOURCE_CHANGED_AFTER_PLAN + diff คือ ST3-T10) ·
+ * locked = ใบปิด/ยกเลิกแล้ว หรือใบสำรองที่แก้ช่องที่ล็อก (409 `order_locked_for_update` — ไม่ทับ ไม่เก็บ diff) ·
  * error = ล้มเหลวที่ไม่คาดคิด (เช่น ฐานข้อมูล) → ไม่เลื่อน cursor รอบหน้าดึงซ้ำ (ไม่ทิ้งใบ)
  */
-export type PullOutcome = 'created' | 'updated' | 'unchanged' | 'conflict' | 'locked' | 'error';
+export type PullOutcome =
+  'created' | 'updated' | 'unchanged' | 'source_changed' | 'conflict' | 'locked' | 'error';
 
 export interface PullItemResult {
   externalId: string;
@@ -57,6 +60,10 @@ export interface PullItemResult {
   warnings?: string[];
   /** รับเป็นใบสำรอง (upsert ปฏิเสธรูปแบบครั้งแรก) */
   fallback?: boolean;
+  /** ชุดการเปลี่ยนแปลงจากต้นทาง (ST3-T10) — source_changed / unchanged ที่เป็นชุดเดิม */
+  sourceChangeId?: string;
+  /** เหตุที่ unchanged: ชุดเดิมยังรอตัดสิน / ชุดนี้คนไม่รับไปแล้ว */
+  reason?: 'source_change_pending' | 'source_change_rejected';
   error?: { code: string; message: string };
 }
 
@@ -111,6 +118,7 @@ const emptyCounts = (): PullCounts => ({
   created: 0,
   updated: 0,
   unchanged: 0,
+  source_changed: 0,
   conflict: 0,
   locked: 0,
   error: 0,
@@ -126,6 +134,8 @@ const emptyCounts = (): PullCounts => ({
  *   → `OrderIntakeService.upsertOrder` (ทางเดียวกับ API — ไม่มีทางลัด) · ใบหนึ่งล้มไม่ย้อนใบอื่น
  * - **ทุกใบเข้าระบบ**: ข้อมูลผิดรูป → ใบค้าง SOURCE_ERROR + sourceIssues; ลูกค้า/สถานที่ไม่รู้จัก → CUSTOMER/LOCATION_UNMAPPED;
  *   upsert ยังปฏิเสธรูปแบบ (422) → ใบสำรอง (หัวใบ + จุดเป็นข้อความ) · ข้อยกเว้นที่ไม่ทับข้อมูล: conflict / locked (บันทึกผล + log)
+ * - ใบวางแผนแล้วที่ต้นทางแก้ช่องที่ล็อก → `upsertOrder` เก็บชุดรอตัดสิน (ไม่ทับ) = ผล source_changed (ST3-T10)
+ *   ใบสำรองห้ามเก็บชุด (`forbidStaging`) — ข้อมูลลดรูปไม่ขึ้นเป็น diff ให้คนรับทับใบที่วางแผนแล้ว → locked
  * - idempotent: externalId เดิม + ข้อมูลเดิม = unchanged (hash ใน upsertOrder) — ดึงซ้ำไม่เกิดใบซ้ำ
  * - cursor ต่อ tenant + connector (`connector_cursor`) เลื่อนเมื่อทุกใบในหน้าได้ผลสุดท้าย (มี error = ไม่เลื่อน, job ลองใหม่)
  * - lease ในแถว cursor กันสองรอบดึงพร้อมกัน (รอบที่สองได้ `skipped: in_progress`)
@@ -315,7 +325,8 @@ export class ConnectorIntakeService implements OnModuleInit {
               if (cur) m.input.requestedDate = cur.requestedDate.toISOString().slice(0, 10);
             }
             const input = recover ? fallbackInput(m, recover.errors) : m.input;
-            return this.intake.upsertOrder(input, tx);
+            // ใบสำรองแก้ใบที่พ้นช่วงรับงานไม่ได้ (→ 409 locked) — ไม่เก็บข้อมูลลดรูปเป็นชุดรอตัดสิน
+            return this.intake.upsertOrder(input, tx, recover ? { forbidStaging: true } : {});
           },
         ),
       );
@@ -324,7 +335,26 @@ export class ConnectorIntakeService implements OnModuleInit {
       fallback: boolean,
     ): PullItemResult => ({
       externalId: r.order.externalId ?? label(),
-      outcome: r.created ? 'created' : r.changed ? 'updated' : 'unchanged',
+      outcome: r.created
+        ? 'created'
+        : r.sourceChange && r.changed
+          ? 'source_changed'
+          : r.changed
+            ? 'updated'
+            : 'unchanged',
+      ...(r.sourceChange
+        ? {
+            sourceChangeId: r.sourceChange.id,
+            ...(!r.changed
+              ? {
+                  reason:
+                    r.sourceChange.status === 'REJECTED'
+                      ? ('source_change_rejected' as const)
+                      : ('source_change_pending' as const),
+                }
+              : {}),
+          }
+        : {}),
       orderId: r.order.id,
       soNo: r.order.soNo,
       status: r.order.status,
