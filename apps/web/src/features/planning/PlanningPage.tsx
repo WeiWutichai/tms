@@ -14,7 +14,7 @@ import { HoldBadge, holdLabel } from '../orders/HoldPage';
 import { OrderDrawer } from '../orders/OrderDrawer';
 import { TripDrawer } from '../trips/TripDrawer';
 import { tripProblemText } from '../trips/tripProblem';
-import { useBulkAssign, type BulkResults } from '../trips/useTrips';
+import { useBulkAssign, useSendAll, type BulkResults } from '../trips/useTrips';
 import { OrderFormDrawer } from '../orders/OrderFormDrawer';
 import { fromOrder, type Order, type OrderForm } from '../orders/orderForm';
 import { bangkokToday, useDateText } from '../rate-cards/rateFormat';
@@ -74,9 +74,12 @@ import {
   orderDay,
   type EligItem,
   type EligLevel,
+  dayComplete,
+  unsentOn,
 } from './board';
 import { BoardViewMenu } from './BoardViewMenu';
 import { BulkFailDialog } from './BulkFailDialog';
+import { SendAllDialog } from './SendAllDialog';
 import { BlockedDialog, ruleTagKey, type BlockedReason } from './RuleDialogs';
 import {
   useBoard,
@@ -257,6 +260,9 @@ export function PlanningPage() {
   const bulk = useBulkAssign();
   /** ผลที่ไม่สำเร็จของ bulk → dialog รายการ (ไม่ใช่ all-or-nothing) */
   const [bulkFail, setBulkFail] = useState<BulkResults['results'] | null>(null);
+  /** ST3-T18 Send all: dialog "ส่งแผนให้คนขับ" (ปุ่มหัวหน้าตามต้นแบบ) */
+  const [sendOpen, setSendOpen] = useState(false);
+  const sendAll = useSendAll();
 
   const b = board.data;
   const day0 = b?.today ?? bangkokToday();
@@ -1116,6 +1122,44 @@ export function PlanningPage() {
     );
   };
 
+  /** ส่งเที่ยวที่ติ๊กของวัน `day` (ST3-T18) — ไม่สำเร็จบางเที่ยว → dialog รายการเหตุผล (ชุดเดียวกับ bulk) */
+  const runSendAll = (day: string, xs: BoardTrip[]) => {
+    if (!xs.length || sendAll.isPending) return;
+    sendAll.mutate(
+      { date: day, items: xs.map((x) => ({ tripId: x.id, version: x.version })) },
+      {
+        onSuccess: (r) => {
+          setSendOpen(false);
+          setPicked([]);
+          if (r.failed) setBulkFail(r.results);
+          else
+            setToast(
+              [
+                t('plan.send.done', { n: r.succeeded }),
+                ...(r.day.complete
+                  ? [t('plan.send.doneDay', { d: formatDayHead(day, lang) })]
+                  : []),
+              ].join(' · '),
+            );
+        },
+        onError: fail,
+      },
+    );
+  };
+  /** วันส่งครบ → ป้ายเขียว (docs/04 D2 "ปฏิทินขึ้นเขียวเมื่อส่งครบ") บนแท็บวัน */
+  const doneMark = (d: string) =>
+    dayComplete(b, d) ? (
+      <Icon
+        n="circle-check"
+        s={14}
+        data-testid={`day-done-${d}`}
+        role="img"
+        aria-hidden={false}
+        aria-label={t('plan.send.dayDone')}
+        style={{ color: '#17733F', marginLeft: 6, verticalAlign: '-2px' }}
+      />
+    ) : null;
+
   const dayRow = (v: BoardVehicle) => {
     const ts = (tripsBy.get(v.id) ?? []).filter((x) => onDay(x, dsel));
     const items = ts.map((x) => {
@@ -1636,7 +1680,17 @@ export function PlanningPage() {
 
   return (
     <>
-      <PageHeader title={t('page.plan.title')} sub={t('page.plan.sub')} />
+      <PageHeader
+        title={t('page.plan.title')}
+        sub={t('page.plan.sub')}
+        actions={
+          canPlan && canDispatch ? (
+            <Button variant="secondary" icon="send" disabled={!b} onClick={() => setSendOpen(true)}>
+              {t('plan.send.btn')}
+            </Button>
+          ) : undefined
+        }
+      />
       <SummaryStrip
         items={[
           { value: stats?.pend ?? '—', label: t('plan.kpi.pend'), color: '#8F5500' },
@@ -1656,8 +1710,26 @@ export function PlanningPage() {
           setPop(null);
         }}
         items={[
-          { key: 'today', label: t('plan.tab.today'), count: tabCount([day0]) },
-          { key: 'tomorrow', label: t('plan.tab.tomorrow'), count: tabCount([addDays(day0, 1)]) },
+          {
+            key: 'today',
+            label: (
+              <>
+                {t('plan.tab.today')}
+                {doneMark(day0)}
+              </>
+            ),
+            count: tabCount([day0]),
+          },
+          {
+            key: 'tomorrow',
+            label: (
+              <>
+                {t('plan.tab.tomorrow')}
+                {doneMark(addDays(day0, 1))}
+              </>
+            ),
+            count: tabCount([addDays(day0, 1)]),
+          },
           {
             key: '7d',
             label: t('plan.tab.week'),
@@ -1987,23 +2059,35 @@ export function PlanningPage() {
                   {t('plan.col.vehicle')}
                 </div>
                 {week ? (
-                  days.map((d) => (
-                    <div
-                      key={d}
-                      style={{
-                        padding: '10px 8px',
-                        fontSize: 12.5,
-                        fontWeight: d === day0 ? 600 : 500,
-                        color: d === day0 ? '#2257C4' : '#3B424C',
-                        borderLeft: '1px solid #E4E6E0',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      {d === day0
-                        ? t('plan.col.today', { d: formatDayHead(d, lang) })
-                        : formatDayHead(d, lang)}
-                    </div>
-                  ))
+                  days.map((d) => {
+                    // ส่งครบ = หัววันเขียว (ST3-T18 "ปฏิทินขึ้นเขียว" — สีสำเร็จของต้นแบบ #E7F3EC / #17733F)
+                    const done = dayComplete(b, d);
+                    return (
+                      <div
+                        key={d}
+                        data-testid={`week-day-${d}`}
+                        data-done={done || undefined}
+                        title={done ? t('plan.send.dayDone') : undefined}
+                        style={{
+                          padding: '10px 8px',
+                          fontSize: 12.5,
+                          fontWeight: d === day0 ? 600 : 500,
+                          color: done ? '#17733F' : d === day0 ? '#2257C4' : '#3B424C',
+                          background: done ? '#E7F3EC' : undefined,
+                          borderLeft: '1px solid #E4E6E0',
+                          whiteSpace: 'nowrap',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6,
+                        }}
+                      >
+                        {done && <Icon n="circle-check" s={14} />}
+                        {d === day0
+                          ? t('plan.col.today', { d: formatDayHead(d, lang) })
+                          : formatDayHead(d, lang)}
+                      </div>
+                    );
+                  })
                 ) : (
                   <div
                     style={{
@@ -2231,6 +2315,17 @@ export function PlanningPage() {
             />
           );
         })()}
+      {sendOpen && b && (
+        <SendAllDialog
+          board={b}
+          days={Array.from({ length: 7 }, (_, i) => addDays(day0, i))}
+          // 7 วัน: วันแรกที่ยังมีเที่ยวค้างส่ง · วันนี้/พรุ่งนี้: วันของแท็บ
+          initialDay={week ? (days.find((d) => unsentOn(b.trips, d).length) ?? day0) : dsel}
+          busy={sendAll.isPending}
+          onSend={runSendAll}
+          onClose={() => setSendOpen(false)}
+        />
+      )}
       {bulkFail && (
         <BulkFailDialog
           results={bulkFail}

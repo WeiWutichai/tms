@@ -468,3 +468,30 @@ export function moveNoneReason(
   const top = [...count.entries()].sort((a, b) => b[1].n - a[1].n)[0];
   return !top || top[0] === 'OVERWEIGHT' ? null : top[1].message;
 }
+
+// ---------------------------------------------------------------- ส่งแผนทั้งวัน (ST3-T18)
+
+/** ยังไม่ส่งแผน (Send all ส่งเที่ยวเหล่านี้ — OFFERED ไม่ผ่านพร้อมเหตุผล) — ชุดเดียวกับ `TRIP_UNSENT_STATUSES` ของ API */
+export const UNSENT = ['PLANNING', 'OFFERED', 'ASSIGNED'] as const;
+
+/** เที่ยวที่ยังไม่ส่งของวัน `day` (ตามวันเที่ยว — นับแบบเดียวกับ API) เรียงทะเบียน → เลขเที่ยว */
+export function unsentOn(trips: BoardTrip[], day: string): BoardTrip[] {
+  return trips
+    .filter((x) => x.tripDate === day && (UNSENT as readonly string[]).includes(x.status))
+    .sort(
+      (a, b) =>
+        (a.vehiclePlate ?? '￿').localeCompare(b.vehiclePlate ?? '￿', 'th') ||
+        a.tripNo.localeCompare(b.tripNo),
+    );
+}
+
+/** วัน `day` ส่งครบ (ปฏิทินขึ้นเขียว — docs/04 D2) ตาม `days[]` ของกระดาน */
+export const dayComplete = (b: Board | undefined, day: string): boolean =>
+  !!b?.days.find((d) => d.date === day)?.complete;
+
+/** เหตุที่คาดว่าส่งไม่ได้ (แสดงในรายการก่อนส่ง — server ตรวจซ้ำเสมอ) */
+export function sendHint(x: BoardTrip): 'offered' | 'noVehicle' | 'rule' | null {
+  if (x.status === 'OFFERED') return 'offered';
+  if (!x.vehicleId) return 'noVehicle';
+  return x.pendingRules?.length ? 'rule' : null;
+}

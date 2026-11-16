@@ -159,6 +159,25 @@ export function useBulkAssign() {
   });
 }
 
+export type SendAllResults = Schemas['SendAllTripsResultDto'];
+
+/**
+ * ส่งแผนทั้งวัน (ST3-T18 "Send all" — POST /v1/trips/send-all) → 207 ผลต่อเที่ยว + สถานะส่งครบของวัน
+ * ส่งเฉพาะเที่ยวที่ติ๊ก (+ version ที่เห็น) เสมอ — ไม่ปล่อยเที่ยวที่ผู้ใช้ไม่เห็นในรายการ
+ */
+export function useSendAll() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: Schemas['SendAllTripsDto']): Promise<SendAllResults> => {
+      const key = crypto.randomUUID();
+      return idempotent(() =>
+        api.POST('/v1/trips/send-all', { body: v, headers: { 'Idempotency-Key': key } }),
+      );
+    },
+    onSettled: () => invalidateAll(qc),
+  });
+}
+
 /**
  * ตัวเลือก "รถ" / "คนขับ" ของการจัดรถใน drawer เที่ยว (ต้นแบบ SO drawer "จัดรถ": select รถ + คนขับ)
  * รถ: ใช้งานได้ ไม่ใช่หาง · รถบริษัท (เที่ยวที่ไม่มีรถร่วม) หรือรถของรถร่วมรายนั้น · คนขับ: พร้อมใช้ (ต้องมี `master:read`)

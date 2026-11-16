@@ -1,0 +1,283 @@
+import { Icon, useEscapeLayer } from '@tms/ui';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { formatDayHead, useI18n } from '../../i18n';
+import { sendHint, unsentOn, type Board, type BoardTrip } from './board';
+
+const CHECK: CSSProperties = {
+  width: 16,
+  height: 16,
+  accentColor: '#2257C4',
+  margin: 0,
+  flexShrink: 0,
+};
+const SELECT: CSSProperties = {
+  height: 32,
+  padding: '0 8px',
+  border: '1px solid #CDD1C8',
+  borderRadius: 8,
+  background: '#FFFFFF',
+  color: '#101418',
+  fontSize: 13,
+};
+
+/**
+ * "ส่งแผนให้คนขับ" (ST3-T18 Send all — docs/04 D2 "checkbox ส่งงานทั้งวันของทุกรถทีเดียว"; spec/03 §9 dialog):
+ * เลือกวัน → checkbox "ส่งงานทั้งวันของทุกรถ" (ติ๊กไว้ก่อน) + รายการเที่ยวที่ยังไม่ส่งของวันนั้นให้ติ๊กออกได้ ·
+ * เที่ยวที่คาดว่าส่งไม่ได้ (รอรถร่วมตอบ / ยังไม่ได้วางลงรถ / ติดเงื่อนไข) แสดงเหตุผลแต่ยังส่งได้ — server ตรวจและตอบผลต่อเที่ยว
+ * ต้นแบบมีแค่ปุ่มหัวหน้า "ส่งแผนให้คนขับ" (toast) — กรอบ dialog ชุดเดียวกับ BulkFailDialog (`tms-dialog`) · spec/12 §3 DECISION
+ */
+export function SendAllDialog({
+  board,
+  days,
+  initialDay,
+  busy,
+  onSend,
+  onClose,
+}: {
+  board: Board;
+  /** วันที่เลือกได้ (กระดาน 7 วัน) */
+  days: string[];
+  initialDay: string;
+  busy: boolean;
+  onSend: (day: string, trips: BoardTrip[]) => void;
+  onClose: () => void;
+}) {
+  const { t, lang } = useI18n();
+  useEscapeLayer(true, onClose);
+  const [day, setDay] = useState(initialDay);
+  const list = useMemo(() => unsentOn(board.trips, day), [board.trips, day]);
+  const [picked, setPicked] = useState<Set<string>>(() => new Set(list.map((x) => x.id)));
+  // เปลี่ยนวัน = ติ๊กทุกเที่ยวของวันใหม่ (ค่าเริ่มต้น "ส่งทั้งวัน")
+  const lastDay = useRef(day);
+  useEffect(() => {
+    if (lastDay.current === day) return;
+    lastDay.current = day;
+    setPicked(new Set(list.map((x) => x.id)));
+  }, [day, list]);
+  const chosen = list.filter((x) => picked.has(x.id));
+  const all = list.length > 0 && chosen.length === list.length;
+  const masterRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (masterRef.current) masterRef.current.indeterminate = chosen.length > 0 && !all;
+  }, [chosen.length, all]);
+  const state = board.days.find((d) => d.date === day);
+  const vehicles = new Set(list.flatMap((x) => (x.vehicleId ? [x.vehicleId] : []))).size;
+  const dayLabel = (d: string) =>
+    d === board.today ? t('plan.col.today', { d: formatDayHead(d, lang) }) : formatDayHead(d, lang);
+  /** คนขับประจำรถ (เที่ยวที่ยังไม่จัดรถ — ส่งแล้วใช้คนขับประจำรถเหมือน bulk จัดรถ) */
+  const defDriver = (x: BoardTrip) =>
+    board.vehicles.find((v) => v.id === x.vehicleId)?.driver?.name ?? null;
+  const driverText = (x: BoardTrip) => {
+    if (x.driverName) return x.driverName;
+    if (x.carrierName) return x.carrierName;
+    const d = defDriver(x);
+    return d ? t('plan.send.defaultDriver', { n: d }) : t('plan.send.noDriver');
+  };
+  const hintText = (x: BoardTrip) => {
+    const h = sendHint(x);
+    if (h === 'offered') return t('plan.send.hintOffered');
+    if (h === 'noVehicle') return t('plan.bulk.noVehicle');
+    if (x.status === 'PLANNING' && !defDriver(x)) return t('plan.send.noDriver');
+    if (h === 'rule') return x.pendingRules![0]!.message;
+    return null;
+  };
+  const toggle = (id: string) =>
+    setPicked((p) => {
+      const n = new Set(p);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+
+  return (
+    <div className="tms-dialog__scrim" onClick={onClose}>
+      <div
+        className="tms-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label={t('plan.send.title')}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="tms-dialog__head">
+          <div style={{ flex: 1 }}>
+            <h2 className="tms-dialog__title">{t('plan.send.title')}</h2>
+            <p className="tms-dialog__desc">{t('plan.send.desc')}</p>
+          </div>
+          <button
+            type="button"
+            className="tms-drawer__iconbtn"
+            aria-label={t('drawer.close')}
+            title={t('drawer.close')}
+            onClick={onClose}
+          >
+            <Icon n="x" s={18} />
+          </button>
+        </div>
+        <div className="tms-dialog__body">
+          <label style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 13, fontWeight: 500, color: '#3B424C' }}>
+              {t('plan.send.day')}
+            </span>
+            <select
+              aria-label={t('plan.send.day')}
+              value={day}
+              onChange={(e) => setDay(e.target.value)}
+              style={SELECT}
+            >
+              {days.map((d) => (
+                <option key={d} value={d}>
+                  {dayLabel(d)}
+                </option>
+              ))}
+            </select>
+            {state && state.trips > 0 && (
+              <span
+                className="tms-num"
+                style={{
+                  marginLeft: 'auto',
+                  fontSize: 12.5,
+                  color: state.complete ? '#17733F' : '#59606B',
+                }}
+              >
+                {t('plan.send.sentOf', { s: state.sent, n: state.trips })}
+              </span>
+            )}
+          </label>
+          {list.length === 0 ? (
+            <div
+              data-testid="send-all-empty"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: '12px 14px',
+                borderRadius: 10,
+                background: state?.complete ? '#E7F3EC' : '#F4F5F2',
+                color: state?.complete ? '#17733F' : '#3B424C',
+                fontWeight: 500,
+              }}
+            >
+              <Icon n={state?.complete ? 'circle-check' : 'calendar'} s={16} />
+              {state?.complete ? t('plan.send.allSent') : t('plan.send.none')}
+            </div>
+          ) : (
+            <>
+              <label
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  padding: '10px 12px',
+                  border: '1px solid #9DB6E3',
+                  borderRadius: 10,
+                  background: '#E9F0FA',
+                  cursor: 'pointer',
+                  fontWeight: 500,
+                }}
+              >
+                <input
+                  ref={masterRef}
+                  type="checkbox"
+                  data-testid="send-all-master"
+                  checked={all}
+                  onChange={() => setPicked(all ? new Set() : new Set(list.map((x) => x.id)))}
+                  style={CHECK}
+                />
+                {t('plan.send.all', { n: list.length, v: vehicles })}
+              </label>
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  border: '1px solid #E4E6E0',
+                  borderRadius: 10,
+                  maxHeight: 320,
+                  overflowY: 'auto',
+                }}
+              >
+                {list.map((x, i) => {
+                  const hint = hintText(x);
+                  return (
+                    <label
+                      key={x.id}
+                      data-testid="send-all-row"
+                      style={{
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: 10,
+                        padding: '10px 12px',
+                        borderTop: i ? '1px solid #EBEDE8' : 0,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={picked.has(x.id)}
+                        onChange={() => toggle(x.id)}
+                        aria-label={x.tripNo}
+                        style={{ ...CHECK, marginTop: 3 }}
+                      />
+                      <span
+                        style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}
+                      >
+                        <span style={{ display: 'flex', gap: 8, alignItems: 'baseline' }}>
+                          <span className="tms-num" style={{ fontWeight: 500, color: '#2257C4' }}>
+                            {x.tripNo}
+                          </span>
+                          <span style={{ color: '#101418' }}>
+                            {x.vehiclePlate ?? t('plan.bulk.noVehicle')}
+                          </span>
+                          <span
+                            style={{
+                              marginLeft: 'auto',
+                              fontSize: 12.5,
+                              color: '#59606B',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {t(`trip.st.${x.status}` as 'trip.st.PLANNING')}
+                          </span>
+                        </span>
+                        <span style={{ fontSize: 12.5, color: '#3B424C' }}>{driverText(x)}</span>
+                        {hint && (
+                          <span
+                            style={{
+                              display: 'flex',
+                              gap: 6,
+                              alignItems: 'center',
+                              fontSize: 12.5,
+                              color: '#8F5500',
+                            }}
+                          >
+                            <Icon n="triangle-alert" s={14} />
+                            {hint}
+                          </span>
+                        )}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </div>
+        <div className="tms-dialog__foot">
+          <button type="button" className="tms-dialog__cancel" onClick={onClose}>
+            {t('plan.send.cancel')}
+          </button>
+          <button
+            type="button"
+            className="tms-drawer__pri"
+            style={{ height: 36, padding: '0 16px' }}
+            disabled={!chosen.length || busy}
+            aria-busy={busy}
+            onClick={() => onSend(day, chosen)}
+          >
+            <Icon n="send" s={16} />
+            {t('plan.send.ok', { n: chosen.length })}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
