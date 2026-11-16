@@ -5,15 +5,21 @@ export type BoardTrip = Schemas['BoardTripDto'];
 export type BoardVehicle = Schemas['BoardVehicleDto'];
 export type PoolOrder = Schemas['BoardPoolOrderDto'];
 
-/** แกนเวลามุมมองวันนี้ตามต้นแบบ (vPlan: 14 ช่อง 06:00–20:00) — spec/03 §5 ช่วงปรับได้ = [PROPOSED] */
+/**
+ * แกนเวลามุมมองวันนี้ตามต้นแบบ (vPlan: 14 ช่อง 06:00–20:00) = ค่าเริ่มต้นของ spec/03 §5
+ * ช่วงปรับได้ต่อ tenant = [PROPOSED] และ 06:00–20:00 พอไหม = คำถามเปิด Q-D10 / OPEN-ORD-6 (ยังไม่ตัดสิน)
+ */
 export const DAY_START = 6;
 export const DAY_HOURS = 14;
+export const DAY_END = DAY_START + DAY_HOURS;
 /** ลากแนวนอน snap 15 นาที (spec/03 PLN-040) */
 export const SNAP_H = 0.25;
-/** ความยาวเที่ยวเริ่มต้นเมื่อวางงานใหม่ (ต้นแบบ assign(): อย่างน้อย 3 ชม.) — คำนวณจากระยะทาง = ST3-T16 */
+/** ความยาวเที่ยวเริ่มต้นเมื่อวางงานใหม่ (ต้นแบบ assign(): อย่างน้อย 3 ชม.) — คำนวณจากระยะทาง/stop = ST3-T16 */
 export const DEFAULT_DURATION_H = 3;
 /** วางในมุมมอง 7 วัน (ไม่มีชั่วโมง): ต่อท้ายเที่ยวสุดท้ายของวันนั้น หรือ 08:00 (ต้นแบบ assign()) */
 export const DEFAULT_START_H = 8;
+/** ความสูงการ์ดเที่ยว/ระยะ lane ในมุมมองวันนี้ (ต้นแบบ track: top = 8 + lane × 108, h 100) */
+export const LANE_H = 108;
 
 const HOUR = 3_600_000;
 
@@ -28,6 +34,16 @@ export function isoAt(day: string, hour: number): string {
   const bkk = new Date(d.getTime() + 7 * HOUR).toISOString();
   return `${bkk.slice(0, 19)}+07:00`;
 }
+
+/** วัน (เวลาไทย) ของเวลา ISO */
+export const bangkokDay = (iso: string) =>
+  new Date(Date.parse(iso) + 7 * HOUR).toISOString().slice(0, 10);
+
+export const addDays = (day: string, n: number) =>
+  new Date(Date.parse(`${day}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
+
+export const dayDiff = (a: string, b: string) =>
+  Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86_400_000);
 
 export const snap = (h: number) => Math.round(h / SNAP_H) * SNAP_H;
 
@@ -46,11 +62,15 @@ export function span(t: BoardTrip, day: string): { s: number; e: number; estimat
     const s = hourOf(t.plannedStartAt, day);
     return { s, e: s + DEFAULT_DURATION_H, estimated: true };
   }
-  const base = (Date.parse(`${t.tripDate}T00:00:00Z`) - Date.parse(`${day}T00:00:00Z`)) / HOUR;
-  return { s: base + DEFAULT_START_H, e: base + DEFAULT_START_H + DEFAULT_DURATION_H, estimated: true };
+  const base = dayDiff(day, t.tripDate) * 24;
+  return {
+    s: base + DEFAULT_START_H,
+    e: base + DEFAULT_START_H + DEFAULT_DURATION_H,
+    estimated: true,
+  };
 }
 
-/** เที่ยวนี้อยู่ในวัน `day` ไหม (ช่วงวิ่งทับวัน — เที่ยวข้ามคืนแสดงทั้งสองวัน; ไม่มีช่วง = วันเที่ยว) */
+/** เที่ยวนี้อยู่ในวัน `day` ไหม (ช่วงวิ่งทับวัน — เที่ยวข้ามคืนแสดงทั้งสองวัน spec/03 §4 ข้อ 8; ไม่มีช่วง = วันเที่ยว) */
 export function onDay(t: BoardTrip, day: string): boolean {
   if (!t.plannedStartAt || !t.plannedEndAt) return t.tripDate === day;
   const { s, e } = span(t, day);
@@ -76,23 +96,79 @@ export function lanes<T extends { id: string; s: number; e: number }>(
   return { lane, count: Math.max(1, ends.length) };
 }
 
+/**
+ * ตำแหน่งบนแกน 06:00–20:00 (สัดส่วน 0–1) — เที่ยวที่ล้นแกนตัดที่ขอบ; ทั้งเที่ยวอยู่นอกแกน = แถบ 1 ชม. ที่ขอบ
+ * (`clipped` บอกว่ามีส่วนนอกแกน — การ์ดยังแสดงเวลาจริง)
+ */
+export function axisBox(s: number, e: number): { left: number; width: number; clipped: boolean } {
+  let a = Math.max(s, DAY_START);
+  let b = Math.min(e, DAY_END);
+  if (b <= DAY_START) [a, b] = [DAY_START, DAY_START + 1];
+  else if (a >= DAY_END) [a, b] = [DAY_END - 1, DAY_END];
+  return {
+    left: (a - DAY_START) / DAY_HOURS,
+    width: (b - a) / DAY_HOURS,
+    clipped: s < DAY_START || e > DAY_END,
+  };
+}
+
+/** ตำแหน่ง x บนแถบเวลา (0–1) → ชั่วโมง */
+export const hourAt = (fraction: number) => DAY_START + fraction * DAY_HOURS;
+
 /** วางงานใหม่ในมุมมองวันนี้: เริ่มที่ชั่วโมงที่ปล่อย (snap) จำกัดให้อยู่ในแกน 06:00–20:00 (ต้นแบบ assign()) */
 export function dropWindow(hour: number, duration = DEFAULT_DURATION_H): { s: number; e: number } {
-  const s = Math.max(DAY_START, Math.min(snap(hour), DAY_START + DAY_HOURS - duration));
+  const s = Math.max(DAY_START, Math.min(snap(hour), DAY_END - duration));
   return { s, e: s + duration };
 }
 
-/** วางงานใหม่ในมุมมอง 7 วัน: ต่อท้ายเที่ยวสุดท้ายของรถในวันนั้น หรือ 08:00 */
+/** วางงานใหม่ในมุมมอง 7 วัน: ต่อท้ายเที่ยวสุดท้ายของรถในวันนั้น หรือ 08:00 (ต้นแบบ assign()) */
 export function weekDropWindow(trips: BoardTrip[], day: string): { s: number; e: number } {
   const ends = trips.filter((t) => onDay(t, day)).map((t) => span(t, day).e);
   return dropWindow(ends.length ? Math.max(...ends) : DEFAULT_START_H);
 }
 
+/** ช่วงใหม่ของเที่ยวที่ถูกลาก/ปรับขนาด → body ของ /schedule (วันเที่ยว = วันเริ่ม — spec/03 §4 ข้อ 8) */
+export function scheduleBody(day: string, s: number, e: number) {
+  const start = isoAt(day, s);
+  return { tripDate: bangkokDay(start), plannedStartAt: start, plannedEndAt: isoAt(day, e) };
+}
+
+/** ลากเที่ยวในมุมมองวันนี้: เวลาเริ่มใหม่ = ตำแหน่งที่ปล่อย − จุดที่จับ (snap) คงความยาวเดิม */
+export function movedWindow(
+  t: BoardTrip,
+  day: string,
+  dropHour: number,
+  grabOffset: number,
+): { s: number; e: number } {
+  const { s, e } = span(t, day);
+  const ns = snap(dropHour - grabOffset);
+  return { s: ns, e: ns + (e - s) };
+}
+
+/** ปรับขนาด (ลากขอบ): snap 15 นาที และยาวอย่างน้อย 15 นาที */
+export function resizedWindow(
+  s: number,
+  e: number,
+  edge: 's' | 'e',
+  hour: number,
+): { s: number; e: number } {
+  const h = snap(hour);
+  return edge === 's' ? { s: Math.min(h, e - SNAP_H), e } : { s, e: Math.max(h, s + SNAP_H) };
+}
+
 /** น้ำหนัก (สตริงทศนิยมจาก API) → ตัวเลขสำหรับแถบความจุ (แสดงผลเท่านั้น — ไม่ใช่เงิน) */
 export const kg = (v: string | null | undefined) => (v ? Number(v) : 0);
-export const fmtKg = (n: number) => Math.round(n).toLocaleString('en-US');
+export const fmtNum = (n: number) => Math.round(n).toLocaleString('en-US');
 
-/** สีแถบซ้ายของการ์ดเที่ยวตามสถานะ (spec/03 §5 legend) — ซ้อนเวลา = แดง (docs/04 D2) */
+/** ภาระรถ = น้ำหนักสูงสุดของเที่ยวในวันที่แสดง (ต้นแบบ vPlan load; spec/03 PLN-043) */
+export function rowLoad(trips: BoardTrip[]): number {
+  return trips.reduce((a, t) => Math.max(a, kg(t.weightKg)), 0);
+}
+
+/**
+ * สีแถบซ้ายของการ์ดเที่ยวตามสถานะ (spec/03 §5 legend — สถานะยึด spec ไม่ใช่ป้ายของต้นแบบ) ·
+ * ซ้อนเวลา = แดง (docs/04 D2 "trip ซ้อนเวลาบนรถเดียวแสดงสีแดง ยังบันทึกได้")
+ */
 export const STATUS_COLOR: Record<string, string> = {
   PLANNING: '#3B424C',
   OFFERED: '#8F5500',
@@ -109,14 +185,77 @@ export function tripColor(t: BoardTrip): string {
   return t.overlapsWith.length ? CLASH : (STATUS_COLOR[t.status] ?? '#3B424C');
 }
 
-/** เที่ยวที่ยังย้าย/ปรับเวลาบนกระดานได้ (ก่อนปล่อยรถ — TripService.isTripEditable) */
+/** เที่ยวที่ยังย้าย/ปรับเวลาบนกระดานได้ (ก่อนปล่อยรถ — `isTripEditable` ของ domain) */
 export const movable = (t: BoardTrip) => t.status === 'PLANNING' || t.status === 'ASSIGNED';
 
-/** ชื่อสั้นของลูกค้า (ต้นแบบ custShort — ตัดคำนำหน้านิติบุคคล) */
-export function custShort(n: string | null | undefined): string {
-  return String(n ?? '').replace(/^(\u0e1a\u0e08\u0e01|\u0e1a\u0e21\u0e08|\u0e2b\u0e08\u0e01)\.\s*/, '');
+/** ชื่อสั้นของลูกค้า (ต้นแบบ custShort — ตัดคำนำหน้านิติบุคคล; รายการคำนำหน้าจาก i18n คั่นด้วย |) */
+export function custShort(n: string | null | undefined, prefixes: string): string {
+  const name = String(n ?? '');
+  for (const p of prefixes.split('|'))
+    if (p && name.startsWith(p)) return name.slice(p.length).trim();
+  return name;
 }
 
 /** ที่ตั้งสำหรับแสดงเส้นทาง: จังหวัด หรือชื่อจุด */
 export const placeText = (p: { name: string; province: string | null } | null | undefined) =>
   p ? (p.province ?? p.name) : '—';
+
+/** ตัวกรอง "SO รอจัด" (ต้นแบบ planF: วัน / ประเภทรถ / ลูกค้า) */
+export interface PoolFilter {
+  d: 'all' | 'today' | 'tomorrow';
+  vt: string;
+  c: string;
+}
+export const POOL_FILTER: PoolFilter = { d: 'all', vt: '', c: '' };
+
+/** กรอง + เรียง "SO รอจัด": กำหนดส่ง → น้ำหนักมากก่อน (spec/03 §5) */
+export function poolView(pool: PoolOrder[], f: PoolFilter, today: string): PoolOrder[] {
+  const tomorrow = addDays(today, 1);
+  return pool
+    .filter(
+      (o) =>
+        (f.d === 'all' ||
+          (f.d === 'today' ? o.requestedDate <= today : o.requestedDate === tomorrow)) &&
+        (!f.vt || o.vehicleTypeId === f.vt) &&
+        (!f.c || o.customerId === f.c),
+    )
+    .sort(
+      (a, b) =>
+        a.requestedDate.localeCompare(b.requestedDate) ||
+        kg(b.weightKg) - kg(a.weightKg) ||
+        a.orderNo.localeCompare(b.orderNo),
+    );
+}
+
+/** ตัวเลือกของตัวกรองจากงานที่มี (ไม่ซ้ำ เรียงชื่อ) */
+export function poolOptions(pool: PoolOrder[]) {
+  const vt = new Map<string, string>();
+  const c = new Map<string, string>();
+  for (const o of pool) {
+    if (o.vehicleTypeId) vt.set(o.vehicleTypeId, o.vehicleTypeName ?? o.vehicleTypeId);
+    if (o.customerId) c.set(o.customerId, o.customerName ?? o.customerId);
+  }
+  const sorted = (m: Map<string, string>) =>
+    [...m].map(([v, l]) => ({ v, l })).sort((a, b) => a.l.localeCompare(b.l, 'th'));
+  return { vt: sorted(vt), c: sorted(c) };
+}
+
+/** สรุปของกระดาน (ต้นแบบ vPlanStats + แถบล่าง): รถว่างวันนี้ / ใช้งาน / น้ำหนัก / ระยะทาง / ปัญหารอแก้ */
+export function boardStats(b: Board, days: string[]) {
+  const vis = b.trips.filter((t) => t.vehicleId && days.some((d) => onDay(t, d)));
+  const used = new Set(
+    b.trips.filter((t) => t.vehicleId && onDay(t, b.today)).map((t) => t.vehicleId),
+  );
+  const total = b.vehicles.length;
+  const free = b.vehicles.filter((v) => !used.has(v.id)).length;
+  return {
+    pend: b.pool.length,
+    total,
+    free,
+    used: total - free,
+    w: vis.reduce((a, t) => a + kg(t.weightKg), 0),
+    km: vis.reduce((a, t) => a + kg(t.plannedDistanceKm), 0),
+    iss: vis.filter((t) => t.overlapsWith.length > 0 || t.warningCount > 0).length,
+    count: vis.length,
+  };
+}

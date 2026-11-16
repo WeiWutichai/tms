@@ -27,3 +27,8 @@
   white-space: nowrap;
   border: 0;
 }
+
+/* กระดานวางแผน (ST3-T12) — การ์ด SO/เที่ยว: style-hover ของต้นแบบ vPlan (border-color:#9DB6E3) */
+.tms-plan-card:hover {
+  border-color: #9db6e3 !important;
+}

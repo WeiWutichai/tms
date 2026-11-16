@@ -12,7 +12,9 @@ export function useBoard(date: string, days: 1 | 7) {
     queryKey: [KEY, date, days],
     staleTime: 0,
     queryFn: () =>
-      unwrap(api.GET('/v1/planning/board', { params: { query: { date, days } } })) as Promise<Board>,
+      unwrap(
+        api.GET('/v1/planning/board', { params: { query: { date, days } } }),
+      ) as Promise<Board>,
   });
 }
 
@@ -20,10 +22,7 @@ export function useBoard(date: string, days: 1 | 7) {
 export function useDropOrder() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (v: {
-      body: Schemas['CreateTripDto'];
-      idempotencyKey: string;
-    }): Promise<Trip> =>
+    mutationFn: (v: { body: Schemas['CreateTripDto']; idempotencyKey: string }): Promise<Trip> =>
       idempotent(() =>
         api.POST('/v1/trips', {
           body: v.body,
@@ -34,44 +33,43 @@ export function useDropOrder() {
   });
 }
 
-/** ย้าย/ปรับขนาดเที่ยว → POST /v1/trips/{id}/schedule (If-Match = version บนกระดาน) */
-export function useScheduleTrip() {
+/**
+ * ย้าย/ปรับขนาดเที่ยว → POST /v1/trips/{id}/schedule (If-Match = version บนกระดาน)
+ * เที่ยวที่จัดรถแล้ว (ASSIGNED) ย้ายไปรถอื่น → POST /{id}/assign ก่อน (คนขับ = คนขับประจำของรถใหม่ — snapshot ชุดเดียวกับ
+ * การจัดรถ ST3-T11) แล้วจึง /schedule ด้วย version ใหม่
+ */
+export function useMoveTrip() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (v: {
+    mutationFn: async (v: {
       id: string;
       version: number;
+      status: string;
+      vehicleId?: string;
       body: Schemas['ScheduleTripDto'];
-      idempotencyKey: string;
-    }): Promise<Trip> =>
-      idempotent(() =>
+    }): Promise<Trip> => {
+      let version = v.version;
+      let body = v.body;
+      if (v.vehicleId && v.status === 'ASSIGNED') {
+        const key = crypto.randomUUID();
+        const t = await idempotent(() =>
+          api.POST('/v1/trips/{id}/assign', {
+            params: { path: { id: v.id } },
+            body: { vehicleId: v.vehicleId! },
+            headers: { 'If-Match': `"${version}"`, 'Idempotency-Key': key },
+          }),
+        );
+        version = t.version;
+      } else if (v.vehicleId) body = { ...body, vehicleId: v.vehicleId };
+      const key = crypto.randomUUID();
+      return idempotent(() =>
         api.POST('/v1/trips/{id}/schedule', {
           params: { path: { id: v.id } },
-          body: v.body,
-          headers: { 'If-Match': `"${v.version}"`, 'Idempotency-Key': v.idempotencyKey },
+          body,
+          headers: { 'If-Match': `"${version}"`, 'Idempotency-Key': key },
         }),
-      ),
-    onSettled: () => qc.invalidateQueries({ queryKey: [KEY] }),
-  });
-}
-
-/** ย้ายเที่ยวที่จัดรถแล้ว (ASSIGNED) ไปรถอื่น → POST /v1/trips/{id}/assign (คนขับ = คนขับประจำของรถใหม่) */
-export function useReassignTrip() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (v: {
-      id: string;
-      version: number;
-      vehicleId: string;
-      idempotencyKey: string;
-    }): Promise<Trip> =>
-      idempotent(() =>
-        api.POST('/v1/trips/{id}/assign', {
-          params: { path: { id: v.id } },
-          body: { vehicleId: v.vehicleId },
-          headers: { 'If-Match': `"${v.version}"`, 'Idempotency-Key': v.idempotencyKey },
-        }),
-      ),
+      );
+    },
     onSettled: () => qc.invalidateQueries({ queryKey: [KEY] }),
   });
 }

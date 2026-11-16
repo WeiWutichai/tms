@@ -9,6 +9,7 @@ import { SettingsPage } from './features/settings/Settings';
 import { CustomersPage } from './features/customers/CustomersPage';
 import { HoldPage } from './features/orders/HoldPage';
 import { OrdersPage } from './features/orders/OrdersPage';
+import { PlanningPage } from './features/planning/PlanningPage';
 import { SitesPage } from './features/sites/SitesPage';
 import { ProductsPage } from './features/products/ProductsPage';
 import { RoutesPage } from './features/routes/RoutesPage';
@@ -47,6 +48,7 @@ function Guard({ perm, path, children }: { perm?: string[]; path?: string; child
 
 /** หน้าที่ทำแล้ว (path → หน้า) — เมนูอื่นที่ยังไม่ทำแสดง "ยังไม่เปิดใช้" */
 const READY: Record<string, () => ReactNode> = {
+  '/plan': () => <PlanningPage />,
   '/so': () => <OrdersPage />,
   '/so/hold': () => <HoldPage />,
   '/master/customers': () => <CustomersPage />,
