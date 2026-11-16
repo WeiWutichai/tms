@@ -215,7 +215,13 @@ export function TripDrawer({
   const dispatch = useDispatchTrip();
   /** ฟอร์มจัดรถ (ต้นแบบ pf.pick) — ค่าเริ่มจากเที่ยว (รถที่วางไว้ + คนขับเดิม) */
   const [picking, setPicking] = useState(false);
-  const [form, setForm] = useState<{ veh: string; drv: string; relief: string } | null>(null);
+  /** `auto` = คนขับตามคนขับประจำของรถที่เลือก (ยังไม่เลือกเอง — ต้นแบบ onVeh: d = V[n].d) */
+  const [form, setForm] = useState<{
+    veh: string;
+    drv: string;
+    relief: string;
+    auto: boolean;
+  } | null>(null);
   /** 409 กฎตอนจัด → dialog · `retry(reason, keys)` ส่งคำขอเดิมซ้ำพร้อมกุญแจที่ยืนยันแล้วทั้งหมด */
   const [rule, setRule] = useState<
     (RuleProblem & { retry: (reason: string, keys: string[]) => void }) | null
@@ -248,16 +254,18 @@ export function TripDrawer({
 
   const ed = canEdit && EDITABLE.has(tr.status);
   const busy = reorder.isPending || detach.isPending || assign.isPending || dispatch.isPending;
-  const f = form ?? {
+  const defaultDriverOf = (veh: string) => {
+    const ds = (opts.drivers.data ?? []).filter((d) => d.defaultVehicle?.id === veh);
+    return ds.length === 1 ? ds[0]!.id : '';
+  };
+  const f0 = form ?? {
     veh: tr.vehicle?.id ?? '',
     drv: tr.driver?.id ?? '',
     relief: tr.reliefDriver?.id ?? '',
+    auto: !tr.driver,
   };
+  const f = f0.auto ? { ...f0, drv: defaultDriverOf(f0.veh) } : f0;
   const drivers = opts.drivers.data ?? [];
-  const defaultDriverOf = (veh: string) => {
-    const ds = drivers.filter((d) => d.defaultVehicle?.id === veh);
-    return ds.length === 1 ? ds[0]!.id : '';
-  };
   const startPick = () => {
     setErr(null);
     setForm(f);
@@ -573,10 +581,9 @@ export function TripDrawer({
               <label style={PICK_LABEL}>
                 <span style={PICK_CAP}>{t('trip.as.vehicle')}</span>
                 <select
+                  aria-label={t('trip.as.vehicle')}
                   value={f.veh}
-                  onChange={(e) =>
-                    setForm({ ...f, veh: e.target.value, drv: defaultDriverOf(e.target.value) })
-                  }
+                  onChange={(e) => setForm({ ...f, veh: e.target.value, auto: true })}
                   style={PICK_SELECT}
                 >
                   {!f.veh && <option value="">—</option>}
@@ -599,8 +606,9 @@ export function TripDrawer({
               <label style={PICK_LABEL}>
                 <span style={PICK_CAP}>{t('trip.as.driver')}</span>
                 <select
+                  aria-label={t('trip.as.driver')}
                   value={f.drv}
-                  onChange={(e) => setForm({ ...f, drv: e.target.value })}
+                  onChange={(e) => setForm({ ...f, drv: e.target.value, auto: false })}
                   style={PICK_SELECT}
                 >
                   <option value="">{t('trip.as.pickDriver')}</option>
@@ -622,6 +630,7 @@ export function TripDrawer({
               <label style={PICK_LABEL}>
                 <span style={PICK_CAP}>{t('trip.as.relief')}</span>
                 <select
+                  aria-label={t('trip.as.relief')}
                   value={f.relief}
                   onChange={(e) => setForm({ ...f, relief: e.target.value })}
                   style={PICK_SELECT}

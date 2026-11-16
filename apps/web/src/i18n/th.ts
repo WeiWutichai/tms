@@ -2894,6 +2894,7 @@ export const th = {
   'plan.bulk.ok': '{n} เที่ยวสำเร็จ',
   'plan.bulk.open': 'เปิดเที่ยว',
   'plan.bulk.close': 'ปิด',
+  'plan.bulk.noVehicle': 'ยังไม่ได้วางลงรถ',
   'problem.stop_order_invalid':
     'ลำดับจุดไม่ถูกต้อง — จุดส่งของใบส่งของต้องอยู่หลังจุดรับของใบเดียวกัน',
   'ord.veh.plate': 'ทะเบียน',
