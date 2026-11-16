@@ -74,6 +74,7 @@ import {
 } from './modules/rate-cards/rate-cards.controller';
 import { RateCardsService } from './modules/rate-cards/rate-cards.service';
 import { PricingService } from './modules/pricing/pricing.service';
+import { OrderMatchingService } from './modules/orders/order-matching.service';
 import { OrderIntakeService } from './modules/orders/order-intake.service';
 import { DeliveryOrderService } from './modules/delivery-orders/delivery-order.service';
 import { DeliveryOrdersController } from './modules/delivery-orders/delivery-orders.controller';
@@ -82,6 +83,7 @@ import { TripService } from './modules/trips/trip.service';
 import { TripsController } from './modules/trips/trips.controller';
 import { OrdersController } from './modules/orders/orders.controller';
 import { OrdersService } from './modules/orders/orders.service';
+import { OrderLockService } from './modules/orders/order-lock.service';
 import { OrderTemplatesController } from './modules/orders/order-templates.controller';
 import { OrderTemplatesService } from './modules/orders/order-templates.service';
 import { OrderImports } from './modules/orders/order.import';
@@ -198,10 +200,12 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     RateCardsService,
     PricingService,
     OrderIntakeService,
+    OrderMatchingService,
     DeliveryOrderService,
     OrderStateService,
     TripService,
     OrdersService,
+    OrderLockService,
     OrderTemplatesService,
     OrderImports,
     OrderSourceRegistry,

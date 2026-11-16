@@ -1,14 +1,11 @@
-# CI — ทุก PR และ push เข้า main (ST0-T03)
+# CI — รันด้วยมือเท่านั้น (workflow_dispatch) · ขั้นตอนเดียวกับ `pnpm ci:local` (ST0-T03)
 # job รันใน image ทางการของ Playwright 1.65 (amd64) เพื่อให้ภาพ golden ของ PDF (test/golden/*.linux.png) ตรงกับที่สร้างในเครื่อง
 # ยังไม่มี: deploy staging/production (รอบัญชี cloud — PLAN §1.1 ข้อ 10), error tracking
 name: ci
 on:
-  # แก้เฉพาะเอกสาร/ต้นแบบ ไม่ต้องรัน CI (ประหยัดนาที CI) — ก่อน push ให้รัน `pnpm ci:local` ให้เขียวก่อนเสมอ
-  pull_request:
-    paths-ignore: ['**/*.md', 'docs/**', 'spec/**', 'plan/**', 'research/**', 'design/prototype/**', 'design/compare/**']
-  push:
-    branches: [main]
-    paths-ignore: ['**/*.md', 'docs/**', 'spec/**', 'plan/**', 'research/**', 'design/prototype/**', 'design/compare/**']
+  # ไม่รันอัตโนมัติ (PO สั่ง 16 พ.ย. 2569 — ประหยัดนาที CI): ตรวจด้วย `pnpm ci:local` ในเครื่องให้เขียวก่อน push ทุกครั้ง
+  # ต้องการรันบน GitHub (เช่น ตรวจภาพ golden PDF บน Linux) → Actions → ci → Run workflow หรือ `gh workflow run ci --ref <branch>`
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}

@@ -18,6 +18,12 @@ vi.mock('./useOrders', () => ({
   searchSites: () => vi.fn(),
   searchUnits: vi.fn(),
   searchProducts: vi.fn(),
+  useForceUnlock: () => ({ mutate: vi.fn(), reset: vi.fn(), isPending: false, error: null }),
+}));
+// ST3-T08: สถานะล็อกการแก้ของฟอร์ม (ค่าตั้งต้น = ถือล็อกเอง)
+const lockState: { state: unknown } = { state: { kind: 'mine', lock: {} } };
+vi.mock('./editLock', () => ({
+  useOrderEditLock: () => ({ state: lockState.state, retry: vi.fn() }),
 }));
 vi.mock('../../shell/AppShell', () => ({
   useMe: () => ({ data: { tenant: { yearStyle: 'BE' } } }),
@@ -108,5 +114,58 @@ describe('OrderFormDrawer แก้ไข (ST3-T02)', () => {
     view();
     expect(screen.getByRole('combobox', { name: /ลูกค้า/ })).toBeEnabled();
     expect(screen.queryByText(/สถานะ "/)).toBeNull();
+  });
+});
+
+describe('OrderFormDrawer ล็อกการแก้ (ST3-T08)', () => {
+  it('ผู้อื่นแก้อยู่ → ป้าย "กำลังแก้ไขโดย …" ทุกช่องปิด ปุ่มบันทึกกดไม่ได้; ไม่มีสิทธิ์ปลด = ไม่มีปุ่มปลดล็อก', () => {
+    live.data = BASE;
+    lockState.state = {
+      kind: 'other',
+      lock: {
+        userId: 'usr_a',
+        userName: 'สมชาย ใจดี',
+        acquiredAt: '2026-11-13T02:00:00.000Z',
+        lastSeenAt: '2026-11-13T02:00:00.000Z',
+        expiresAt: '2026-11-13T02:10:00.000Z',
+        mine: false,
+      },
+    };
+    view();
+    expect(screen.getByText(/กำลังแก้ไขโดย สมชาย ใจดี/)).toBeInTheDocument();
+    expect(screen.getByText(/09:10 น\./)).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: /ลูกค้า/ })).toBeDisabled();
+    expect(screen.getByLabelText(/เลข PO ลูกค้า/)).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'บันทึกการแก้ไข' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'ปลดล็อก' })).toBeNull();
+    lockState.state = { kind: 'mine', lock: {} };
+  });
+
+  it('กำลังขอล็อก → ปุ่มบันทึกรอ; ได้ล็อกแล้วแก้ได้', () => {
+    live.data = BASE;
+    lockState.state = { kind: 'pending' };
+    const { unmount } = view();
+    expect(screen.getByRole('button', { name: 'บันทึกการแก้ไข' })).toBeDisabled();
+    unmount();
+    lockState.state = { kind: 'mine', lock: {} };
+    view();
+    expect(screen.getByRole('button', { name: 'บันทึกการแก้ไข' })).toBeEnabled();
+    expect(screen.queryByTestId('edit-lock-banner')).toBeNull();
+  });
+
+  it('QA: ล็อกถูกปลด → "ถูกปลดล็อกโดย …" + เหตุผล ทุกช่องปิด บันทึกไม่ได้', () => {
+    live.data = BASE;
+    lockState.state = {
+      kind: 'released',
+      by: 'ผู้จัดการ ตัวอย่าง',
+      reason: 'ต้องแก้วันรับของด่วน',
+    };
+    view();
+    expect(screen.getByTestId('edit-lock-released')).toHaveTextContent(
+      /ถูกปลดล็อกโดย ผู้จัดการ ตัวอย่าง.*เหตุผล: ต้องแก้วันรับของด่วน/,
+    );
+    expect(screen.getByLabelText(/เลข PO ลูกค้า/)).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'บันทึกการแก้ไข' })).toBeDisabled();
+    lockState.state = { kind: 'mine', lock: {} };
   });
 });

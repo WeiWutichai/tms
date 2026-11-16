@@ -3,6 +3,7 @@ import { Type } from 'class-transformer';
 import {
   Allow,
   IsArray,
+  IsBoolean,
   IsIn,
   IsInt,
   IsISO8601,
@@ -14,6 +15,7 @@ import {
   MaxLength,
   Min,
   MinLength,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import {
@@ -282,6 +284,32 @@ export class UpdateOrderDto {
 
 // ---------- ขาออก ----------
 
+export class OrderMatchCandidateDto {
+  @ApiProperty({ example: 'loc_3f2a…', description: 'id สาธารณะ (loc_ สถานที่ / cus_ ลูกค้า)' })
+  id!: string;
+  @ApiProperty({ example: 'LOC-00012' }) code!: string;
+  @ApiProperty({ example: 'คลังสินค้าบางนา' }) name!: string;
+  @ApiProperty({ example: 0.82, description: 'ความคล้าย 0–1 (1 = ตรงตัวหลัง normalize)' })
+  score!: number;
+}
+
+export class OrderCustomerMatchDto {
+  @ApiProperty({
+    nullable: true,
+    enum: ['INPUT', 'EXTERNAL_ID', 'ALIAS', 'MANUAL'],
+    description:
+      'ได้ลูกค้ามาอย่างไร (ST3-T06): INPUT = ระบุ id มา · EXTERNAL_ID = รหัสต้นทางตรง externalId ของลูกค้า · ' +
+      'ALIAS = รหัส/ชื่อที่คนเคยจับคู่ไว้ · MANUAL = คนเลือก · null = ยังไม่ได้',
+  })
+  method!: string | null;
+  @ApiProperty({
+    type: [OrderMatchCandidateDto],
+    description:
+      'ลูกค้าที่ชื่อคล้าย (แนะนำเมื่อยังจับคู่ไม่ได้ — ระบบไม่จับคู่ลูกค้าเองด้วยความคล้าย)',
+  })
+  candidates!: OrderMatchCandidateDto[];
+}
+
 export class OrderCustomerDto {
   @ApiProperty({ nullable: true, type: String, description: 'null = ยังจับคู่ลูกค้าไม่ได้' })
   id!: string | null;
@@ -291,6 +319,7 @@ export class OrderCustomerDto {
   @ApiProperty({ nullable: true, type: String }) externalId!: string | null;
   @ApiProperty({ nullable: true, type: String, description: 'ข้อความลูกค้าตามต้นทาง' })
   name!: string | null;
+  @ApiProperty({ type: OrderCustomerMatchDto }) match!: OrderCustomerMatchDto;
 }
 
 export class OrderHoldReasonDto {
@@ -300,6 +329,30 @@ export class OrderHoldReasonDto {
   note!: string | null;
 }
 
+export class OrderStopMatchDto {
+  @ApiProperty({
+    nullable: true,
+    enum: ['ALIAS', 'NAME', 'FUZZY', 'MANUAL'],
+    description:
+      'ได้สถานที่มาอย่างไร (ST3-T06): ALIAS = ข้อความตรง alias ที่เรียนรู้ · NAME = ตรงชื่อสถานที่ · ' +
+      'FUZZY = ความคล้ายเกินเกณฑ์ (ปิดในเฟส 0 — ความคล้ายเป็นรายการแนะนำเท่านั้น) · MANUAL = คนเลือก · null = ต้นทางระบุ siteId มาเอง หรือยังจับคู่ไม่ได้',
+  })
+  method!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: Number,
+    example: 0.94,
+    description: 'ความคล้ายตอนจับคู่อัตโนมัติ',
+  })
+  score!: number | null;
+  @ApiProperty({
+    type: [OrderMatchCandidateDto],
+    description:
+      'สถานที่ที่แนะนำเมื่อยังจับคู่ไม่ได้/กำกวม (หน้าใบค้าง) — เรียงคะแนนมาก → น้อย ≤ 5',
+  })
+  candidates!: OrderMatchCandidateDto[];
+}
+
 export class OrderStopDto {
   @ApiProperty() sequence!: number;
   @ApiProperty({ enum: STOP_TYPES }) type!: string;
@@ -307,6 +360,7 @@ export class OrderStopDto {
   @ApiProperty() siteText!: string;
   @ApiProperty({ nullable: true, type: String }) windowStart!: string | null;
   @ApiProperty({ nullable: true, type: String }) windowEnd!: string | null;
+  @ApiProperty({ type: OrderStopMatchDto }) match!: OrderStopMatchDto;
 }
 
 export class OrderLineDto {
@@ -495,9 +549,57 @@ export class OrderDto {
       'ชุดการเปลี่ยนแปลงจากต้นทางที่รอตัดสิน (รับ: POST …/source-changes/{changeId}/accept · ไม่รับ: …/reject)',
   })
   sourceChange!: OrderSourceChangeDto | null;
+  @ApiPropertyOptional({
+    type: () => OrderEditLockDto,
+    nullable: true,
+    description:
+      'ผู้ที่เปิดแก้ใบนี้อยู่ (ST3-T08 — ล็อกที่ยังไม่หมดอายุ) · null = ไม่มีใครแก้ · มีเฉพาะ GET ทีละใบและผลของ POST/PUT/PATCH (ไม่อยู่ในรายการ)',
+  })
+  editLock?: OrderEditLockDto | null;
   @ApiProperty() version!: number;
   @ApiProperty() createdAt!: string;
   @ApiProperty() updatedAt!: string;
+}
+
+/** ล็อกการแก้จากหน้าจอ (ST3-T08; docs/04 C Edit lock) — หมดอายุเมื่อไม่มีกิจกรรม 10 นาที */
+export class OrderEditLockDto {
+  @ApiProperty({ example: 'usr_3f2a…', description: 'ผู้ถือล็อก' }) userId!: string;
+  @ApiProperty({ example: 'สมชาย ใจดี', description: 'ชื่อผู้ถือล็อก (ป้าย "กำลังแก้ไขโดย …")' })
+  userName!: string;
+  @ApiProperty({ format: 'date-time' }) acquiredAt!: string;
+  @ApiProperty({ format: 'date-time', description: 'กิจกรรมล่าสุด' }) lastSeenAt!: string;
+  @ApiProperty({
+    format: 'date-time',
+    description: 'หมดอายุ = กิจกรรมล่าสุด + 10 นาที — หลังเวลานี้คนอื่นขอล็อกได้ทันที',
+  })
+  expiresAt!: string;
+  @ApiProperty({ description: 'ผู้เรียกเป็นผู้ถือล็อกเอง' }) mine!: boolean;
+}
+
+/** ขอล็อก (ST3-T08) — ไม่ส่ง/`heartbeat: false` = เปิดแก้ (ล้างการแจ้งว่าถูกปลด) · `heartbeat: true` = ต่ออายุระหว่างแก้ */
+export class OrderLockDto {
+  @ApiPropertyOptional({
+    description:
+      'true = ต่ออายุระหว่างแก้ (หน้าจอส่งเมื่อผู้ใช้มีกิจกรรม) — ถ้าล็อกเดิมถูกผู้อื่นปลดแล้วได้ 409 `order_lock_released` ' +
+      '(ไม่ได้ล็อกคืนเอง) · ไม่ส่ง/false = เปิดแก้ใหม่',
+  })
+  @IsOptional()
+  @IsBoolean()
+  heartbeat?: boolean;
+}
+
+/** ปลดล็อก — ของตัวเองไม่ต้องมีเหตุผล · ปลดของคนอื่น (`orders:unlock`) ต้องมีเหตุผล ≥ 10 ตัวอักษร (ลง audit) */
+export class OrderUnlockDto {
+  @ApiPropertyOptional({
+    maxLength: 500,
+    example: 'ผู้แก้ลาป่วย ต้องแก้วันรับของด่วน',
+    description: 'บังคับ (≥ 10 ตัวอักษร) เมื่อปลดล็อกของผู้ใช้อื่น',
+  })
+  @IsOptional()
+  @CleanText()
+  @IsString()
+  @MaxLength(500)
+  reason?: string;
 }
 
 /** ตัวนับของหน้ารายการใบสั่งขนส่ง (แถบสรุป + แท็บ — ต้นแบบ TMS v4 kpisX('so')) */
@@ -615,4 +717,65 @@ export class OrderListQuery {
   @IsString()
   @MaxLength(100)
   q?: string;
+}
+
+// ---------- จับคู่ด้วยมือ + เรียนรู้ alias (ST3-T06) ----------
+
+export class MapStopSiteDto {
+  @ApiProperty({
+    example: 'loc_3f2a…',
+    description: 'สถานที่ (ของลูกค้าของใบ หรือของบริษัท) ที่ใช้งานอยู่',
+  })
+  @IsString()
+  @MaxLength(100)
+  siteId!: string;
+}
+
+export class MapCustomerDto {
+  @ApiProperty({ example: 'cus_3f2a…', description: 'ลูกค้าที่ใช้งานอยู่' })
+  @IsString()
+  @MaxLength(100)
+  customerId!: string;
+
+  @ApiPropertyOptional({
+    description:
+      'รหัส/ชื่อตามต้นทางนี้เคยจับคู่กับลูกค้ารายอื่น (409 `alias_conflict`) → ส่ง true + `reason` เพื่อย้ายมาลูกค้านี้',
+  })
+  @IsOptional()
+  @IsBoolean()
+  confirmReassign?: boolean;
+
+  @ApiPropertyOptional({
+    minLength: 10,
+    maxLength: 500,
+    description: 'เหตุผลการย้าย (บังคับเมื่อ confirmReassign = true, ≥ 10 ตัวอักษร — ลง audit)',
+  })
+  @ValidateIf((o: MapCustomerDto) => o.confirmReassign === true || o.reason !== undefined)
+  @CleanText()
+  @IsString()
+  @MinLength(10)
+  @MaxLength(500)
+  reason?: string;
+}
+
+export class OrderMapResultDto extends OrderDto {
+  @ApiProperty({
+    enum: [
+      'learned',
+      'exists',
+      'name',
+      'full',
+      'too_long',
+      'empty',
+      'generic',
+      'conflict',
+      'not_permitted',
+    ],
+    description:
+      'ผลการเรียนรู้ alias (ใบนี้จับคู่แล้วทุกกรณี): learned = จำแล้ว (ใบถัดไปข้อความเดิมจับคู่เอง) · exists = จำไว้แล้ว · ' +
+      'name = ข้อความตรงชื่อสถานที่อยู่แล้ว · full = alias ครบ 50 · too_long = ข้อความยาวเกิน · empty = ไม่มีข้อความ · ' +
+      'generic = ข้อความทั่วไป/สั้นเกินไป (เช่น "คลัง", "เงินสด") ไม่จำ · conflict = ข้อความนี้เป็นชื่อ/alias ของสถานที่อื่น ' +
+      'ในขอบเขตเดียวกัน ไม่จำ · not_permitted = สถานที่ของบริษัท (มีผลกับทุกลูกค้า) ต้องมีสิทธิ์ `master:write` จึงจำ',
+  })
+  aliasLearning!: string;
 }

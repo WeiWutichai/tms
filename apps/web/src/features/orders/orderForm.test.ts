@@ -24,6 +24,7 @@ const ORDER: Order = {
   connector: null,
   externalId: null,
   customer: {
+    match: { method: 'INPUT', candidates: [] },
     id: 'cus_1',
     code: 'CUS-0001',
     legalName: 'บจก. ตัวอย่าง',
@@ -43,6 +44,7 @@ const ORDER: Order = {
   stops: [
     {
       sequence: 1,
+      match: { method: null, score: null, candidates: [] },
       type: 'PICKUP',
       siteId: 'loc_a',
       siteText: 'คลังบางนา',
@@ -51,6 +53,7 @@ const ORDER: Order = {
     },
     {
       sequence: 2,
+      match: { method: null, score: null, candidates: [] },
       type: 'DELIVERY',
       siteId: 'loc_b',
       siteText: 'โรงงานชลบุรี',

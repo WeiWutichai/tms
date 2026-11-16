@@ -12,6 +12,7 @@ import { formatDateTime, useI18n, type T } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
 import { problemText } from '../master/problems';
 import { bangkokToday, money, useDateText } from '../rate-cards/rateFormat';
+import { EditLockBanner } from './EditLockBanner';
 import { orderSourceLabel, orderSourceText } from './OrderSource';
 import { STOP_COLOR } from './OrderFormDrawer';
 import { editableOf, toBangkok, totalWeightKg, type Order } from './orderForm';
@@ -144,6 +145,7 @@ export function OrderDrawer({
   canWrite,
   canCancel = false,
   canSeePrice,
+  canUnlock = false,
   onClose,
   onEdit,
   onCopy,
@@ -155,6 +157,8 @@ export function OrderDrawer({
   /** `orders:cancel` — เมนู "ยกเลิกเอกสาร" (ST3-T10) */
   canCancel?: boolean;
   canSeePrice: boolean;
+  /** ปลดล็อกการแก้ของผู้อื่นได้ (`orders:unlock` — ST3-T08) */
+  canUnlock?: boolean;
   onClose: () => void;
   onEdit: (o: Order) => void;
   onCopy: (o: Order) => void;
@@ -188,7 +192,9 @@ export function OrderDrawer({
       </Drawer>
     );
 
-  const ed = editableOf(o);
+  // ผู้อื่นเปิดแก้อยู่ (ST3-T08) → ป้าย "กำลังแก้ไขโดย …" + ปิดปุ่มแก้/ยืนยัน (spec/03 ORD-031 "ปุ่มแก้ถูกปิด")
+  const lockedBy = o.editLock && !o.editLock.mine ? o.editLock : null;
+  const ed = editableOf(lockedBy ? { ...o, editableFields: [] } : o);
   const vt = vts.data?.data.find((v) => v.id === o.vehicleTypeId);
   const weight = totalWeightKg(o.lines);
   const cbm = totalWeightKg(o.lines.map((l) => ({ weightKg: l.cbm })));
@@ -217,7 +223,7 @@ export function OrderDrawer({
         ]
       : []),
     // ต้นแบบ askCancelDoc: รายการสุดท้ายของเมนู ⋯ สีแดง
-    ...(canCancel && CANCELLABLE.has(o.status)
+    ...(canCancel && CANCELLABLE.has(o.status) && !lockedBy
       ? [
           {
             label: t('ord.menu.cancel'),
@@ -317,7 +323,7 @@ export function OrderDrawer({
               {problemText(confirm.error, t)}
             </span>
           )}
-          {canWrite && sc && (
+          {canWrite && sc && !lockedBy && (
             <DrawerFooterButtons
               secondary={
                 // รับได้เฉพาะใบที่ยังไม่ออกรถ (ออกรถ/ส่ง/ปิดแล้ว API ตอบ 409) — ไม่รับได้เสมอ
@@ -333,7 +339,7 @@ export function OrderDrawer({
               primary={{ label: t('ord.src.keep'), icon: 'check', onClick: () => setDlg('keep') }}
             />
           )}
-          {canWrite && o.status === 'draft' && (
+          {canWrite && o.status === 'draft' && !lockedBy && (
             <DrawerFooterButtons
               primary={{
                 label: t('ord.confirm'),
@@ -448,6 +454,19 @@ export function OrderDrawer({
                 </div>
               </div>
             </>
+          )}
+          {lockedBy && (
+            <EditLockBanner
+              orderId={o.id}
+              soNo={o.soNo ?? t('ord.draftNo')}
+              lock={lockedBy}
+              canUnlock={canUnlock}
+              onUnlocked={(msg) => {
+                onDone(msg);
+                // ผู้ปลดตั้งใจแก้เอง (QA) → เปิดฟอร์มแก้ทันที = ขอล็อกต่อ (ผู้ถือเดิมได้ 409 "ถูกปลดล็อกโดย …")
+                if (canWrite) onEdit(o);
+              }}
+            />
           )}
           {o.status === 'on_hold' && o.holdReason && (
             <div

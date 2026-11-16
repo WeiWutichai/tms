@@ -322,7 +322,8 @@ describe('order templates + form API (ST3-T02)', () => {
           billingCompanyId: src.billingCompanyId,
           requestedDate: src.requestedDate,
           vehicleTypeId: src.vehicleTypeId,
-          stops: src.stops.map(({ sequence: _s, ...x }: Record<string, unknown>) => x),
+          // `match` = ข้อมูลอ่านอย่างเดียว (ST3-T06) ไม่ใช่ input
+          stops: src.stops.map(({ sequence: _s, match: _m, ...x }: Record<string, unknown>) => x),
           lines: src.lines.map(({ lineNo: _n, ...x }: Record<string, unknown>) => x),
         })
         .expect(201)

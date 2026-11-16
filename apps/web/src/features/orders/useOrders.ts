@@ -43,6 +43,11 @@ export function useOrder(id: string | null) {
     queryKey: [KEY, 'one', id],
     enabled: !!id,
     staleTime: 0,
+    // ผู้อื่นแก้อยู่ (ST3-T08) → ตรวจซ้ำทุก 30 วินาที ให้ป้าย "กำลังแก้ไขโดย …" หายเองเมื่อเขาปิด/ล็อกหมดอายุ
+    refetchInterval: (q) => {
+      const l = (q.state.data as Order | undefined)?.editLock;
+      return l && !l.mine ? 30_000 : false;
+    },
     queryFn: () =>
       unwrap(api.GET('/v1/orders/{id}', { params: { path: { id: id! } } })) as Promise<Order>,
   });
@@ -125,6 +130,23 @@ export function useDecideSourceChange() {
       ) as Promise<Order>,
     onError: refetchOnStale(qc, KEY),
     onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
+  });
+}
+
+// ---------- ล็อกการแก้ (ST3-T08) ----------
+
+/** ปลดล็อกของผู้อื่น (`orders:unlock`) พร้อมเหตุผล ≥ 10 ตัวอักษร — server ลง audit */
+export function useForceUnlock() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { id: string; reason: string }) =>
+      unwrap(
+        api.POST('/v1/orders/{id}/unlock', {
+          params: { path: { id: v.id } },
+          body: { reason: v.reason },
+        }),
+      ),
+    onSettled: (_d, _e, v) => qc.invalidateQueries({ queryKey: [KEY, 'one', v.id] }),
   });
 }
 
