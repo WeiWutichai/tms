@@ -12,6 +12,15 @@ import { formatDateTime, useI18n, type T } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
 import { problemText } from '../master/problems';
 import { bangkokToday, money, useDateText } from '../rate-cards/rateFormat';
+import { holdMeta, RECHECKABLE } from './hold';
+import {
+  HoldActions,
+  holdStopIndexes,
+  ManualPrice,
+  MatchCustomerBox,
+  StopSitePicker,
+  useCustomerMatch,
+} from './HoldClear';
 import { EditLockBanner } from './EditLockBanner';
 import { orderSourceLabel, orderSourceText } from './OrderSource';
 import { STOP_COLOR } from './OrderFormDrawer';
@@ -145,6 +154,7 @@ export function OrderDrawer({
   canWrite,
   canCancel = false,
   canSeePrice,
+  canEditPrice = false,
   canUnlock = false,
   onClose,
   onEdit,
@@ -157,12 +167,15 @@ export function OrderDrawer({
   /** `orders:cancel` — เมนู "ยกเลิกเอกสาร" (ST3-T10) */
   canCancel?: boolean;
   canSeePrice: boolean;
+  /** `prices.sell:write` — "กำหนดราคาเอง" (ORD-043, ST3-T07) */
+  canEditPrice?: boolean;
   /** ปลดล็อกการแก้ของผู้อื่นได้ (`orders:unlock` — ST3-T08) */
   canUnlock?: boolean;
   onClose: () => void;
   onEdit: (o: Order) => void;
-  onCopy: (o: Order) => void;
-  onSaveTemplate: (o: Order) => void;
+  /** ไม่ส่ง = ไม่มีเมนูคัดลอก (หน้าใบค้าง ST3-T07) */
+  onCopy?: (o: Order) => void;
+  onSaveTemplate?: (o: Order) => void;
   onDone: (msg: string) => void;
 }) {
   const { t, lang } = useI18n();
@@ -175,6 +188,8 @@ export function OrderDrawer({
   const [dlg, setDlg] = useState<null | 'cancel' | 'accept' | 'keep'>(null);
   const [tab, setTab] = useState('sum');
   const o = q.data;
+  // หน้าใบค้าง (ST3-T07): จับคู่ลูกค้า — กล่องในเนื้อ + ปุ่ม footer ใช้ state เดียวกัน
+  const match = useCustomerMatch(o, onDone);
   const labels = { close: t('drawer.close'), more: t('drawer.more') };
 
   if (!o)
@@ -214,12 +229,18 @@ export function OrderDrawer({
           ...(ed.any
             ? [{ label: t('ord.menu.edit'), icon: 'pencil', onClick: () => onEdit(o) }]
             : []),
-          { label: t('ord.menu.copy'), icon: 'copy', onClick: () => onCopy(o) },
-          {
-            label: t('ord.menu.template'),
-            icon: 'bookmark-plus',
-            onClick: () => onSaveTemplate(o),
-          },
+          ...(onCopy
+            ? [{ label: t('ord.menu.copy'), icon: 'copy', onClick: () => onCopy(o) }]
+            : []),
+          ...(onSaveTemplate
+            ? [
+                {
+                  label: t('ord.menu.template'),
+                  icon: 'bookmark-plus',
+                  onClick: () => onSaveTemplate(o),
+                },
+              ]
+            : []),
         ]
       : []),
     // ต้นแบบ askCancelDoc: รายการสุดท้ายของเมนู ⋯ สีแดง
@@ -283,6 +304,29 @@ export function OrderDrawer({
         },
       );
   };
+  const unmatched =
+    o.status === 'on_hold' && o.holdReason?.code === 'CUSTOMER_UNMAPPED' && canWrite && ed.customer;
+  // เลือก/เปลี่ยนสถานที่ของจุดได้ก่อนวางแผน (ต้นแบบ soStops canChg = รอจัด) — map-site (ST3-T06)
+  const canMapSite = canWrite && ed.stops && (o.status === 'received' || o.status === 'on_hold');
+  // ทุกจุดที่หาพิกัดไม่ได้ (review ST3-T07)
+  const geoStops = o.holdReason?.code === 'GEOCODING_ERROR' ? holdStopIndexes(o) : [];
+  const manualFreight = (o.sellCharges ?? []).some(
+    (c) => c.origin === 'MANUAL' && c.kind === 'FREIGHT',
+  );
+  // กำหนดราคาเอง (ORD-043): ก่อนวางแผน + ไม่ติดล็อกผู้อื่น + ไม่ใช่ใบที่ค้างด้วยเหตุตอนจัดรถ/ส่ง (API ตอบ 409)
+  const canSetPrice =
+    canWrite &&
+    canEditPrice &&
+    ed.lines &&
+    (o.status !== 'on_hold' ||
+      RECHECKABLE.includes(o.holdReason?.code ?? '') ||
+      o.holdReason?.code === 'SOURCE_ERROR');
+  // ป้ายหัว drawer: ใบค้าง/ต้นทางแก้ = ป้ายเหตุชุดเดียวกับตารางใบค้าง (สี/ไอคอนจาก hold.ts)
+  const badgeMeta = o.sourceChangedAfterPlan
+    ? holdMeta('SOURCE_CHANGED_AFTER_PLAN')
+    : o.status === 'on_hold' && o.holdReason
+      ? holdMeta(o.holdReason.code)
+      : null;
   const submit = () =>
     confirm.mutate(
       { id: o.id, version: o.version, body: { draft: false } },
@@ -295,7 +339,13 @@ export function OrderDrawer({
       onClose={onClose}
       kind={t('ord.kind')}
       title={o.soNo ?? t('ord.draftNo')}
-      badge={<Badge label={orderStatusLabel(t, o)} tone={statusTone(o)} />}
+      badge={
+        <Badge
+          label={orderStatusLabel(t, o)}
+          tone={badgeMeta?.tone ?? statusTone(o)}
+          {...(badgeMeta ? { icon: badgeMeta.icon } : {})}
+        />
+      }
       subtitle={[custName, o.customerRef].filter(Boolean).join(' · ')}
       menu={menu}
       tabs={[
@@ -322,6 +372,21 @@ export function OrderDrawer({
             <span className="tms-field-error" role="alert">
               {problemText(confirm.error, t)}
             </span>
+          )}
+          {match.error && unmatched && (
+            <span className="tms-field-error" role="alert">
+              {match.error}
+            </span>
+          )}
+          {unmatched && (
+            <DrawerFooterButtons
+              primary={{
+                label: t('hold.act.customer'),
+                icon: 'link',
+                onClick: match.run,
+                disabled: !match.picked || match.busy,
+              }}
+            />
           )}
           {canWrite && sc && !lockedBy && (
             <DrawerFooterButtons
@@ -354,6 +419,14 @@ export function OrderDrawer({
     >
       {tab === 'sum' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+          {unmatched && (
+            <MatchCustomerBox
+              order={o}
+              value={match.picked}
+              onChange={match.setPicked}
+              disabled={match.busy}
+            />
+          )}
           {sc && (
             <>
               <div
@@ -468,7 +541,7 @@ export function OrderDrawer({
               }}
             />
           )}
-          {o.status === 'on_hold' && o.holdReason && (
+          {o.status === 'on_hold' && o.holdReason && !unmatched && (
             <div
               role="note"
               style={{
@@ -476,20 +549,31 @@ export function OrderDrawer({
                 borderRadius: 8,
                 padding: '12px 14px',
                 display: 'flex',
-                gap: 8,
+                flexDirection: 'column',
+                gap: 10,
               }}
             >
-              <Icon
-                n="triangle-alert"
-                s={16}
-                style={{ color: '#8F5500', marginTop: 3, flexShrink: 0 }}
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Icon
+                  n="triangle-alert"
+                  s={16}
+                  style={{ color: '#8F5500', marginTop: 3, flexShrink: 0 }}
+                />
+                <span>
+                  {t('ord.hold', { r: o.holdReason.label })}
+                  {o.holdReason.note ? ` — ${o.holdReason.note}` : ''}
+                </span>
+              </div>
+              <HoldActions
+                order={o}
+                canWrite={canWrite && !lockedBy}
+                canEdit={ed.any}
+                onEdit={() => onEdit(o)}
+                onDone={onDone}
               />
-              <span>
-                {t('ord.hold', { r: o.holdReason.label })}
-                {o.holdReason.note ? ` — ${o.holdReason.note}` : ''}
-              </span>
             </div>
           )}
+          {match.dialog}
           <Sec title={t('ord.sec.job')}>
             <div style={grid2}>
               <Kv k={t('ord.f.customer')} v={custName} />
@@ -578,6 +662,17 @@ export function OrderDrawer({
                           {t('ord.siteUnmapped')}
                         </span>
                       )}
+                      {geoStops.includes(i) && (
+                        <span
+                          style={{ display: 'flex', gap: 6, color: '#B3322A', fontWeight: 500 }}
+                        >
+                          <Icon n="map-pin-off" s={16} style={{ marginTop: 3, flexShrink: 0 }} />
+                          {t('hold.site.noCoords')}
+                        </span>
+                      )}
+                      {canMapSite && (
+                        <StopSitePicker order={o} sequence={s.sequence} onDone={onDone} />
+                      )}
                     </div>
                   </div>
                 );
@@ -592,18 +687,9 @@ export function OrderDrawer({
               <span style={{ color: '#3B424C' }}>—</span>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column' }}>
-                {o.pricingStatus !== 'AVAILABLE' && (
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 10,
-                      color: '#8F5500',
-                      paddingBottom: 6,
-                    }}
-                  >
-                    <Icon n="triangle-alert" s={16} />
-                    <span style={{ flex: 1 }}>{t('ord.noRate')}</span>
+                {o.pricingStatus !== 'AVAILABLE' && !manualFreight && (
+                  <div style={{ paddingBottom: 6 }}>
+                    <ManualPrice order={o} allowed={canSetPrice} onDone={onDone} />
                   </div>
                 )}
                 {(o.sellCharges ?? []).map((c) => (
@@ -612,7 +698,11 @@ export function OrderDrawer({
                     style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '6px 0' }}
                   >
                     <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-                      <span>{c.description}</span>
+                      <span>
+                        {c.origin === 'MANUAL' && c.kind === 'FREIGHT'
+                          ? t('ord.mp.line')
+                          : c.description}
+                      </span>
                       {c.rateCardCode && (
                         <span style={{ fontSize: 12.5, color: '#59606B' }}>
                           {t('ord.rateRef', { code: c.rateCardCode, v: c.rateCardRevision ?? 1 })}

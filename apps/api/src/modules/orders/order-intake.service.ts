@@ -43,6 +43,8 @@ import {
   type RefTable,
 } from '../master/master-kit';
 import { PricingService, type Quote } from '../pricing/pricing.service';
+import { snapshotServiceItem } from '../service-items/snapshot';
+import { SitesService } from '../sites/sites.service';
 import { resolveDocumentEntity } from '../routing/document-routing';
 import { issueNumber } from '../sequences/sequences.service';
 import {
@@ -63,6 +65,8 @@ export type { UpsertOrderInput } from './order-input';
 interface ActiveRefs {
   customer: boolean;
   sites: Set<string>;
+  /** สถานที่ (ใช้งานอยู่) ที่หาพิกัดไม่ได้ — geocode_status FAILED → ใบค้าง GEOCODING_ERROR (ST3-T07) */
+  geocodeFailed: Set<string>;
   vehicleType: boolean;
 }
 
@@ -184,7 +188,11 @@ export class OrderIntakeService {
     private readonly audit: AuditService,
     private readonly deliveryOrders: DeliveryOrderService,
     private readonly matching: OrderMatchingService,
-  ) {}
+    sites: SitesService,
+  ) {
+    // สถานที่หาพิกัดไม่ได้/แก้แล้ว → ใบก่อนวางแผนที่ใช้สถานที่นี้ขึ้น/พ้นใบค้าง GEOCODING_ERROR เอง (ST3-T07)
+    sites.onGeocodeFailedChange((siteId) => this.reevaluateForSite(siteId));
+  }
 
   async upsertOrder(
     input: UpsertOrderInput,
@@ -559,6 +567,196 @@ export class OrderIntakeService {
       before: orderEventView(current, { lines: true }),
     });
     return { ...r, aliasLearning };
+  }
+
+  /**
+   * หน้าใบค้าง (ST3-T07) "ตรวจอีกครั้ง" — `POST /orders/{id}/reevaluate`: คิดราคา + ประเมินใบค้างใหม่จากข้อมูลหลักปัจจุบัน
+   * (เพิ่ม/อนุมัติ rate card แล้ว · ปักพิกัดสถานที่แล้ว · เปิดใช้ลูกค้า/สถานที่แล้ว · จับคู่อัตโนมัติด้วย alias ที่เพิ่งเรียนรู้)
+   * ไม่แก้ข้อมูลงาน · ผลเหมือนเดิม = ไม่เพิ่ม version · ใช้ได้ก่อนวางแผนเท่านั้น (ร่าง/รับคำสั่ง/ค้าง) — ไม่งั้น 409
+   * `invalid_state_transition` · เหตุค้างที่ flow อื่นตั้ง (CARRIER_REJECTED …) ไม่ถูกปล่อย (planIntake)
+   */
+  async recheck(
+    orderId: string,
+    opts: { expectedVersion?: number | '*' } = {},
+    tx: Tx = this.db.tx,
+  ): Promise<UpsertOrderResult> {
+    const current = await this.lockAndLoad(tx, orderId);
+    if (!current) throw new ProblemException('not_found');
+    if (
+      opts.expectedVersion !== undefined &&
+      opts.expectedVersion !== '*' &&
+      opts.expectedVersion !== current.version
+    )
+      throw new ProblemException('precondition_failed');
+    if (!isIntakeEditable(current.status as SoStatus))
+      throw new ProblemException('invalid_state_transition', undefined, undefined, {
+        from: current.status,
+        event: 'reevaluate',
+      });
+    this.assertIntakeHold(current, 'reevaluate');
+    return this.evaluate(tx, current, {
+      draft: current.status === 'DRAFT',
+      created: false,
+      dataChanged: false,
+    });
+  }
+
+  /**
+   * หน้าใบค้าง (ST3-T07) เหตุ SOURCE_ERROR "แก้มือ" (docs/01 §4.1: ดู raw_payload, แก้มือ หรือรอ connector แก้) —
+   * `POST /orders/{id}/resolve-source-error`: คนตรวจ/แก้ข้อมูลใบแล้วยืนยันว่าใช้ได้ → ล้างข้อความปัญหาจากต้นทาง
+   * (`source_issues`) แล้วประเมินใบค้างใหม่ · เป็นการ override ข้อมูลต้นทาง → บังคับเหตุผล + audit
+   * ต้นทางส่งใบนี้มาใหม่ (ข้อมูลเปลี่ยน) = ใช้ปัญหาชุดใหม่ของต้นทาง · ไม่มีปัญหาค้าง → 409 `invalid_state_transition`
+   */
+  async resolveSourceError(
+    orderId: string,
+    reason: string,
+    opts: { expectedVersion?: number | '*' } = {},
+    tx: Tx = this.db.tx,
+  ): Promise<UpsertOrderResult> {
+    const current = await this.lockForMapping(tx, orderId, opts.expectedVersion, 'sourceIssues');
+    this.assertIntakeHold(current, 'resolve_source_error');
+    const issues = (current.sourceIssues as string[] | null) ?? [];
+    if (!issues.length)
+      throw new ProblemException('invalid_state_transition', undefined, undefined, {
+        from: current.status,
+        event: 'resolve_source_error',
+      });
+    await tx.salesOrder.update({
+      where: { id: orderId },
+      data: { sourceIssues: [], version: { increment: 1 } },
+    });
+    await this.audit.record({
+      action: `${ENTITY}.source_error_resolved`,
+      entityType: ENTITY,
+      entityId: orderId,
+      before: { sourceIssues: issues },
+      after: { sourceIssues: [] },
+      reason,
+    });
+    const loaded = (await tx.salesOrder.findUnique({ where: { id: orderId }, include: INCLUDE }))!;
+    return this.evaluate(tx, loaded, {
+      draft: current.status === 'DRAFT',
+      created: false,
+      dataChanged: true,
+      before: orderEventView(current, { lines: true }),
+    });
+  }
+
+  /**
+   * ใบค้างด้วยเหตุที่ flow อื่นตั้ง (เหตุตอนจัดรถ/ส่ง — CARRIER_REJECTED ฯลฯ ใบเหล่านี้เคยวางแผนแล้ว) → 409
+   * กติกา "แก้หลังวางแผนไม่คิดราคาใหม่" (spec/12 §3): ตรวจอีกครั้ง/กำหนดราคาเอง ใช้ได้เฉพาะเหตุของทางเข้า (review ST3-T07)
+   */
+  private assertIntakeHold(current: OrderRecord, event: string) {
+    const code = current.holdReasonCode?.code ?? null;
+    if (current.status === 'ON_HOLD' && !isIntakeHoldCode(code))
+      throw new ProblemException('invalid_state_transition', undefined, undefined, {
+        from: current.status,
+        event,
+        holdReason: code,
+      });
+  }
+
+  /**
+   * "กำหนดราคาเอง" (spec/03 ORD-043, spec/02 MD-113; ต้นแบบ drawer SO ส่วนราคา) — `POST /orders/{id}/manual-price`
+   * ไม่พบ rate → คนกำหนดค่าขนส่ง = บรรทัด FREIGHT ที่มา MANUAL (รายการบริการระบบ FREIGHT — snapshot vat_type/wht_rate
+   * ตาม catalog ไม่คิดภาษีที่นี่) · มีบรรทัด MANUAL อยู่แล้ว = แก้จำนวนเงินของบรรทัดเดิม · บรรทัด MANUAL ไม่ถูกลบตอนคิดใหม่
+   * และมีค่าขนส่ง MANUAL = ไม่ค้าง RATE_MISSING (evaluateIntakeHolds) → ประเมินใบค้างใหม่ (เหตุหมด → RECEIVED)
+   * สิทธิ์ `prices.sell:write` (ผู้เรียกตรวจ) + เหตุผล (audit `sales_order.manual_price_set`)
+   * ใช้ได้ก่อนวางแผน · มีค่าขนส่งจาก rate card อยู่แล้ว → 409 (ใช้ "เปลี่ยนเรท" — ยังไม่มีในเฟสนี้)
+   */
+  async setManualPrice(
+    orderId: string,
+    amount: string,
+    reason: string,
+    opts: { expectedVersion?: number | '*' } = {},
+    tx: Tx = this.db.tx,
+  ): Promise<UpsertOrderResult> {
+    const current = await this.lockForMapping(tx, orderId, opts.expectedVersion, 'lines');
+    this.assertIntakeHold(current, 'manual_price');
+    const existing = current.charges.find((c) => c.origin === 'MANUAL' && c.kind === 'FREIGHT');
+    if (!existing && current.charges.some((c) => c.origin === 'RATE_CARD' && c.kind === 'FREIGHT'))
+      throw new ProblemException('invalid_state_transition', undefined, undefined, {
+        from: current.status,
+        event: 'manual_price',
+        pricingStatus: current.pricingStatus,
+      });
+    const amt = new Prisma.Decimal(amount);
+    if (amt.lte(0)) throw field422('sellAmount', 'must_be_positive', 'sellAmount must be > 0');
+    const value = amt.toFixed(2);
+    if (existing) {
+      await tx.salesOrderCharge.update({
+        where: { id: existing.id },
+        data: { unitPrice: value, amount: value, calculatedAmount: value },
+      });
+    } else {
+      const item = await tx.serviceItem.findFirst({
+        where: { systemKey: 'FREIGHT', deletedAt: null },
+      });
+      if (!item) throw new ProblemException('conflict', 'system service item FREIGHT missing');
+      const snap = snapshotServiceItem(item);
+      await tx.salesOrderCharge.create({
+        data: {
+          tenantId: current.tenantId,
+          salesOrderId: orderId,
+          lineNo: current.charges.reduce((m, c) => Math.max(m, c.lineNo), 0) + 1,
+          kind: 'FREIGHT',
+          origin: 'MANUAL',
+          serviceItemId: snap.sourceItemId,
+          serviceItemVersion: snap.sourceVersion,
+          serviceItemSnapshot: JSON.parse(JSON.stringify(snap)) as Prisma.InputJsonValue,
+          description: snap.name,
+          qty: '1',
+          qtyExact: '1',
+          unitPrice: value,
+          amount: value,
+          calculatedAmount: value,
+          minChargeApplied: false,
+          vatType: snap.vatType,
+          whtRate: snap.whtRate,
+        },
+      });
+    }
+    await tx.salesOrder.update({ where: { id: orderId }, data: { version: { increment: 1 } } });
+    await this.audit.record({
+      action: `${ENTITY}.manual_price_set`,
+      entityType: ENTITY,
+      entityId: orderId,
+      before: { manualFreight: existing ? existing.amount.toFixed(2) : null },
+      after: { manualFreight: value },
+      reason,
+    });
+    const loaded = (await tx.salesOrder.findUnique({ where: { id: orderId }, include: INCLUDE }))!;
+    return this.evaluate(tx, loaded, {
+      draft: current.status === 'DRAFT',
+      created: false,
+      dataChanged: true,
+      before: orderEventView(current, { lines: true }),
+    });
+  }
+
+  /**
+   * สถานที่เปลี่ยนสถานะพิกัด (หาไม่ได้ ↔ ได้/รอ — ผล geocode, ปักหมุด, ยืนยัน/ปฏิเสธข้อเสนอ, ลองใหม่) → ประเมินใบค้าง
+   * ของใบก่อนวางแผนที่ใช้สถานที่นี้ใหม่ (docs/04 B "จุด geocode ไม่ได้ขึ้นใบค้าง") ใน transaction เดียวกับการเปลี่ยน
+   * ไม่รวมร่าง · ใบค้างด้วยเหตุที่ flow อื่นตั้งไม่แตะ (assertIntakeHold) · คืนจำนวนใบที่ประเมิน
+   */
+  async reevaluateForSite(siteId: string, tx: Tx = this.db.tx): Promise<number> {
+    const rows = await tx.salesOrder.findMany({
+      where: {
+        status: { in: ['RECEIVED', 'ON_HOLD'] },
+        stops: { some: { siteId } },
+      },
+      select: { id: true },
+      orderBy: { id: 'asc' }, // ลำดับล็อกคงที่ กัน deadlock
+    });
+    let n = 0;
+    for (const r of rows) {
+      const current = await this.lockAndLoad(tx, r.id);
+      if (!current || !['RECEIVED', 'ON_HOLD'].includes(current.status)) continue;
+      if (current.status === 'ON_HOLD' && !isIntakeHoldCode(current.holdReasonCode?.code)) continue;
+      await this.evaluate(tx, current, { draft: false, created: false, dataChanged: false });
+      n++;
+    }
+    return n;
   }
 
   // ---------------------------------------------------------------------------------------------
@@ -1312,6 +1510,7 @@ export class OrderIntakeService {
       stops: order.stops.map((s) => ({
         type: s.type,
         mapped: s.siteId !== null && act.sites.has(s.siteId),
+        geocodeFailed: s.siteId !== null && act.geocodeFailed.has(s.siteId),
       })),
       pricingStatus: quote.pricingStatus,
       manualFreight,
@@ -1630,7 +1829,7 @@ export class OrderIntakeService {
       siteIds.length
         ? tx.customerSite.findMany({
             where: { id: { in: siteIds }, status: 'ACTIVE', deletedAt: null },
-            select: { id: true },
+            select: { id: true, geocodeStatus: true },
           })
         : [],
       o.vehicleTypeId
@@ -1639,7 +1838,12 @@ export class OrderIntakeService {
           })
         : 0,
     ]);
-    return { customer: cust > 0, sites: new Set(sites.map((x) => x.id)), vehicleType: vt > 0 };
+    return {
+      customer: cust > 0,
+      sites: new Set(sites.map((x) => x.id)),
+      geocodeFailed: new Set(sites.filter((x) => x.geocodeStatus === 'FAILED').map((x) => x.id)),
+      vehicleType: vt > 0,
+    };
   }
 
   /**

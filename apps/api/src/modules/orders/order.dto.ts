@@ -20,6 +20,7 @@ import {
 } from 'class-validator';
 import {
   INTAKE_HOLD_CODES,
+  ORDER_HOLD_CODES,
   ORDER_SOURCES,
   SO_FIELD_GROUPS,
   SO_STATUSES,
@@ -327,6 +328,21 @@ export class OrderHoldReasonDto {
   @ApiProperty({ example: 'ไม่มีเรท' }) label!: string;
   @ApiProperty({ nullable: true, type: String, description: 'รายละเอียดเหตุค้าง (ไทย)' })
   note!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: 'stops[1].site',
+    description:
+      'ช่องที่เป็นต้นเหตุ (เหตุของทางเข้า: `customer`, `stops[i].site`, `stops.pickup`, `pricing`, `source`) · เหตุที่ flow อื่นตั้ง = null',
+  })
+  field!: string | null;
+  @ApiProperty({
+    type: [String],
+    example: ['stops[0].site', 'stops[2].site'],
+    description:
+      'ช่องต้นเหตุทั้งหมดของเหตุหลัก (เช่น ทุกจุดที่หาพิกัดไม่ได้ของ GEOCODING_ERROR) — `field` = ช่องแรก · เหตุที่ flow อื่นตั้ง = []',
+  })
+  fields!: string[];
 }
 
 export class OrderStopMatchDto {
@@ -621,6 +637,24 @@ export class OrderSummaryDto {
   @ApiProperty({ description: 'วางแผนแล้ว (PLANNED) ทั้งหมด' }) planned!: number;
   @ApiProperty({ description: 'วางแผนแล้ว (PLANNED) ที่วันรับของ = วันนี้ (เวลาไทย)' })
   plannedToday!: number;
+  @ApiProperty({
+    description:
+      'หน้าใบค้าง (ST3-T07): ใบค้างทั้งหมด = ON_HOLD + ใบที่ต้นทางแก้หลังวางแผนรอตัดสิน (สถานะ PLANNED — เงื่อนไขเดียวกับ `held=true`)',
+  })
+  heldTotal!: number;
+  @ApiProperty({
+    type: () => [OrderHoldCountDto],
+    description:
+      'หน้าใบค้าง (ST3-T07): จำนวนใบค้างต่อเหตุ ครบ 12 รหัสของ docs/04 C (ไม่มี = 0) — นับเหตุหลักหรือเหตุรอง ' +
+      '(เงื่อนไขเดียวกับตัวกรอง `held=true&holdReason=`) ใบหนึ่งจึงอาจนับในหลายเหตุ · ' +
+      'SOURCE_CHANGED_AFTER_PLAN = ใบที่ต้นทางแก้หลังวางแผน (สถานะยัง PLANNED)',
+  })
+  holdReasons!: OrderHoldCountDto[];
+}
+
+export class OrderHoldCountDto {
+  @ApiProperty({ enum: ORDER_HOLD_CODES, example: 'CUSTOMER_UNMAPPED' }) code!: string;
+  @ApiProperty() count!: number;
 }
 
 export class OrderPageDto {
@@ -676,6 +710,16 @@ export class OrderListQuery {
   @IsOptional()
   @Matches(/^[A-Z][A-Z0-9_]{0,49}(,[A-Z][A-Z0-9_]{0,49}){0,19}$/)
   holdReason?: string;
+
+  @ApiPropertyOptional({
+    enum: ['true', 'false'],
+    description:
+      'หน้าใบค้าง (ST3-T07): true = เฉพาะใบค้าง (ON_HOLD + ใบที่ต้นทางแก้หลังวางแผนรอตัดสิน ซึ่งสถานะยัง PLANNED) · ' +
+      'false = ไม่รวมใบค้างทั้งสองแบบ — ใช้คู่กับ `holdReason` ได้',
+  })
+  @IsOptional()
+  @IsIn(['true', 'false'])
+  held?: 'true' | 'false';
 
   @ApiPropertyOptional({ example: 'cus_3f2a…', description: 'ลูกค้า' })
   @IsOptional()
@@ -756,6 +800,48 @@ export class MapCustomerDto {
   @MinLength(10)
   @MaxLength(500)
   reason?: string;
+}
+
+export class ResolveSourceErrorDto {
+  @ApiProperty({
+    minLength: 10,
+    maxLength: 500,
+    example: 'ตรวจกับเอกสารต้นฉบับแล้ว แก้วันรับของและจำนวนในใบให้ถูกต้อง',
+    description:
+      'เหตุผลที่ยืนยันว่าข้อมูลใบใช้ได้แม้ต้นทางแจ้งว่าไม่ครบ (≥ 10 ตัวอักษร — ลง audit)',
+  })
+  @CleanText()
+  @IsString()
+  @MinLength(10)
+  @MaxLength(500)
+  reason!: string;
+}
+
+export class ManualPriceDto {
+  @ApiProperty({
+    example: '4200.00',
+    type: String,
+    description:
+      'ค่าขนส่งที่กำหนดเอง (บาท ก่อน VAT, > 0, ทศนิยม ≤ 2) — ต้องมีสิทธิ์ `prices.sell:write` (ไม่มี → 403)',
+  })
+  @PriceField('sell')
+  @IsString()
+  @Matches(/^\d{1,12}(\.\d{1,2})?$/, {
+    message: 'sellAmount must be a decimal string with ≤ 2 decimals',
+  })
+  sellAmount!: string;
+
+  @ApiProperty({
+    minLength: 10,
+    maxLength: 500,
+    example: 'ลูกค้ารายใหม่ ยังไม่มีสัญญาราคา ตกลงราคาทางโทรศัพท์',
+    description: 'เหตุผลที่กำหนดราคาเอง (≥ 10 ตัวอักษร — ลง audit)',
+  })
+  @CleanText()
+  @IsString()
+  @MinLength(10)
+  @MaxLength(500)
+  reason!: string;
 }
 
 export class OrderMapResultDto extends OrderDto {

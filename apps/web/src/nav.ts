@@ -96,6 +96,15 @@ export const NAV: NavGroup[] = [
         stage: 'ST3',
       },
       {
+        // หน้าใบค้าง (ST3-T07) — ต้นแบบไม่มีเมนูนี้ [DECISION — ย้อนได้ spec/12 §3, PO 16 พ.ย. 2569]
+        key: 'hold',
+        perm: ['orders:read'],
+        page: 'hold',
+        label: 'nav.ops.hold',
+        path: '/so/hold',
+        stage: 'ST3',
+      },
+      {
         key: 'do',
         perm: ['orders:read'],
         page: 'do',

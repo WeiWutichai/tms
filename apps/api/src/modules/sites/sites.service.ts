@@ -123,6 +123,12 @@ function auditView(s: CustomerSite): Record<string, unknown> {
 @Injectable()
 export class SitesService implements OnModuleInit {
   private readonly logger = new Logger('SitesService');
+  /**
+   * ผู้ฟังเมื่อสถานที่ "หาพิกัดไม่ได้" (FAILED) ↔ ไม่ใช่ — เรียกใน transaction เดียวกับการเปลี่ยน
+   * (ST3-T07: ใบสั่งขนส่งก่อนวางแผนที่ใช้สถานที่นี้ประเมินใบค้าง GEOCODING_ERROR ใหม่ — โมดูล orders ลงทะเบียน
+   * เพราะ orders พึ่ง sites อยู่แล้ว ฉีดกลับไม่ได้)
+   */
+  private readonly geocodeListeners: ((siteId: string) => Promise<unknown>)[] = [];
   constructor(
     private readonly db: DbService,
     private readonly state: StateService,
@@ -682,7 +688,8 @@ export class SitesService implements OnModuleInit {
     if (r.count !== 1) return 'skipped';
     const after = (await tx.customerSite.findUnique({ where: { id: s.id } }))!;
     await this.audit.changed(`${EVENT}.geocoded`, ENTITY, s.id, auditView(s), auditView(after));
-    // ใบค้าง (ST3-T07): SO ที่ใช้จุด FAILED → ON_HOLD `GEOCODE_FAILED` (docs/01 §4.1) — ตอนนี้ส่ง event ให้ผู้ฟัง
+    // ใบค้าง (ST3-T07): SO ก่อนวางแผนที่ใช้จุดนี้ → ประเมินใหม่ (GEOCODING_ERROR — docs/04 B, docs/01 §4.1 GEOCODE_FAILED)
+    await this.notifyGeocode(s, after);
     await emitMasterEvent(tx, `${EVENT}.updated`, ENTITY, s.id, await this.dto(after), {
       changedFields: best ? ['geocodeProposal'] : ['geocodeStatus'],
     });
@@ -793,6 +800,17 @@ export class SitesService implements OnModuleInit {
     return s;
   }
 
+  /** ลงทะเบียนผู้ฟังการเปลี่ยน "หาพิกัดไม่ได้" ของสถานที่ (ดู `geocodeListeners`) */
+  onGeocodeFailedChange(fn: (siteId: string) => Promise<unknown>): void {
+    this.geocodeListeners.push(fn);
+  }
+
+  /** สถานะ FAILED เปลี่ยน (เข้า/ออก) → แจ้งผู้ฟัง (ใน transaction ของ request/job เดียวกัน) */
+  private async notifyGeocode(before: CustomerSite, after: CustomerSite): Promise<void> {
+    if ((before.geocodeStatus === 'FAILED') === (after.geocodeStatus === 'FAILED')) return;
+    for (const fn of this.geocodeListeners) await fn(after.id);
+  }
+
   /** optimistic lock: update เฉพาะเมื่อ version ยังเท่าเดิม ไม่งั้น 412 */
   private async bumpVersion(
     current: CustomerSite,
@@ -804,6 +822,8 @@ export class SitesService implements OnModuleInit {
       data: { ...data, version: { increment: 1 } },
     });
     if (r.count !== 1) throw new ProblemException('precondition_failed');
-    return (await tx.customerSite.findUnique({ where: { id: current.id } }))!;
+    const s = (await tx.customerSite.findUnique({ where: { id: current.id } }))!;
+    await this.notifyGeocode(current, s);
+    return s;
   }
 }

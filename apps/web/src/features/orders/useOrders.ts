@@ -268,3 +268,122 @@ export const searchProducts = (q: string) =>
       unit: p.unit ? { id: p.unit.id, label: p.unit.name } : null,
     })),
   );
+
+// ---------- หน้าใบค้าง (ST3-T07) ----------
+
+const ifMatch = (version: number) => ({ 'If-Match': `"${version}"` });
+
+/** ตารางใบค้าง: ON_HOLD ทุกเหตุ (held=true) + กรองเหตุ/ค้นหา/ที่มา */
+export function useHoldList(filters: { holdReason: string; q: string; source: string }) {
+  return useCursorList<Order>(
+    KEY,
+    { held: 'true', ...filters },
+    (query) => unwrap(api.GET('/v1/orders', { params: { query: query as never } })),
+    { sort: '-updatedAt', size: 10, persist: 'hold.list' },
+  );
+}
+
+/** จับคู่ลูกค้า (endpoint ST3-T06) — 409 alias_conflict ให้ผู้เรียกถามเหตุผลแล้วส่ง confirmReassign */
+export function useMapCustomer() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { id: string; version: number; body: Schemas['MapCustomerDto'] }) =>
+      unwrap(
+        api.POST('/v1/orders/{id}/map-customer', {
+          params: { path: { id: v.id }, header: ifMatch(v.version) as never },
+          body: v.body,
+        }),
+      ) as Promise<Order>,
+    onError: refetchOnStale(qc, KEY),
+    onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
+  });
+}
+
+/** เลือกสถานที่ของจุด (endpoint ST3-T06) */
+export function useMapSite() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { id: string; version: number; sequence: number; siteId: string }) =>
+      unwrap(
+        api.POST('/v1/orders/{id}/stops/{sequence}/map-site', {
+          params: {
+            path: { id: v.id, sequence: String(v.sequence) },
+            header: ifMatch(v.version) as never,
+          },
+          body: { siteId: v.siteId },
+        }),
+      ) as Promise<Order>,
+    onError: refetchOnStale(qc, KEY),
+    onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
+  });
+}
+
+/** ตรวจอีกครั้ง — คิดราคา + ประเมินเหตุค้างใหม่จากข้อมูลหลักปัจจุบัน */
+export function useReevaluate() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { id: string; version: number }) =>
+      unwrap(
+        api.POST('/v1/orders/{id}/reevaluate', {
+          params: { path: { id: v.id }, header: ifMatch(v.version) as never },
+        }),
+      ) as Promise<Order>,
+    onError: refetchOnStale(qc, KEY),
+    onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
+  });
+}
+
+/** ยืนยันข้อมูลใบที่ต้นทางแจ้งว่าไม่ครบ (SOURCE_ERROR) — เหตุผล ≥ 10 */
+export function useResolveSourceError() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { id: string; version: number; reason: string }) =>
+      unwrap(
+        api.POST('/v1/orders/{id}/resolve-source-error', {
+          params: { path: { id: v.id }, header: ifMatch(v.version) as never },
+          body: { reason: v.reason },
+        }),
+      ) as Promise<Order>,
+    onError: refetchOnStale(qc, KEY),
+    onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
+  });
+}
+
+export type SiteOption = Schemas['SiteDto'];
+
+/**
+ * สถานที่ให้เลือกสำหรับจุด: ของลูกค้าของใบก่อน แล้วของบริษัท — สถานที่ของลูกค้าอื่นไม่แสดง
+ * (เลือกไม่ได้ — 422 site_other_customer) · ใบยังไม่มีลูกค้า = เฉพาะของบริษัท
+ */
+export async function searchStopSites(customerId: string | null, q: string) {
+  const query = { status: 'active', limit: PICK, ...(q ? { q } : {}) };
+  const get = (extra: Record<string, string>) =>
+    unwrap(
+      api.GET('/v1/customer-sites', { params: { query: { ...query, ...extra } as never } }),
+    ).then((r) => r.data);
+  const [mine, all] = await Promise.all([customerId ? get({ customerId }) : [], get({})]);
+  const seen = new Set<string>();
+  return [...mine, ...all]
+    .filter((s) => {
+      if (seen.has(s.id)) return false;
+      seen.add(s.id);
+      return !s.customer || s.customer.id === customerId;
+    })
+    .slice(0, PICK);
+}
+
+/** กำหนดราคาเอง (ORD-043) — ค่าขนส่ง MANUAL + เหตุผล ≥ 10 · ต้องมี `prices.sell:write` */
+export function useManualPrice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { id: string; version: number; sellAmount: string; reason: string }) =>
+      unwrap(
+        api.POST('/v1/orders/{id}/manual-price', {
+          params: { path: { id: v.id }, header: ifMatch(v.version) as never },
+          body: { sellAmount: v.sellAmount, reason: v.reason },
+        }),
+      ) as Promise<Order>,
+    onError: refetchOnStale(qc, KEY),
+    onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
+  });
+}

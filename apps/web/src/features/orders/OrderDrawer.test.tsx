@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { MemoryRouter } from 'react-router-dom';
 import { I18nProvider } from '../../i18n';
 import type { Order } from './orderForm';
 
@@ -10,6 +11,15 @@ import type { Order } from './orderForm';
 const live: { data: Order | undefined } = { data: undefined };
 const cancelMutate = vi.fn();
 const decideMutate = vi.fn();
+const recheckMutate = vi.fn();
+const priceMutate = vi.fn();
+const mut = () => ({
+  mutate: vi.fn(),
+  mutateAsync: vi.fn(() => new Promise(() => {})),
+  isPending: false,
+  error: null,
+  reset: vi.fn(),
+});
 vi.mock('./useOrders', () => ({
   useOrder: () => live,
   useUpdateOrder: () => ({ mutate: vi.fn(), isPending: false, error: null }),
@@ -21,6 +31,15 @@ vi.mock('./useOrders', () => ({
     reset: vi.fn(),
   }),
   useVehicleTypeOptions: () => ({ data: { data: [{ id: 'vty_1', name: '6 ล้อ' }] } }),
+  useForceUnlock: () => mut(),
+  // หน้าใบค้าง (ST3-T07)
+  useMapCustomer: () => mut(),
+  useMapSite: () => mut(),
+  useReevaluate: () => ({ ...mut(), mutateAsync: recheckMutate }),
+  useResolveSourceError: () => mut(),
+  useManualPrice: () => ({ ...mut(), mutateAsync: priceMutate }),
+  searchCustomers: async () => [],
+  searchStopSites: async () => [],
 }));
 vi.mock('../../shell/AppShell', () => ({
   useMe: () => ({ data: { tenant: { yearStyle: 'BE' } } }),
@@ -101,22 +120,32 @@ const BASE = {
   updatedAt: '2026-11-13T03:00:00.000Z',
 } as unknown as Order;
 
-const view = (p: { canWrite?: boolean; canCancel?: boolean } = {}) =>
+const view = (
+  p: {
+    canWrite?: boolean;
+    canCancel?: boolean;
+    canSeePrice?: boolean;
+    canEditPrice?: boolean;
+  } = {},
+) =>
   render(
     <QueryClientProvider client={new QueryClient()}>
-      <I18nProvider lang="th">
-        <OrderDrawer
-          id="ord_1"
-          canWrite={p.canWrite ?? true}
-          canCancel={p.canCancel ?? true}
-          canSeePrice={false}
-          onClose={() => {}}
-          onEdit={() => {}}
-          onCopy={() => {}}
-          onSaveTemplate={() => {}}
-          onDone={() => {}}
-        />
-      </I18nProvider>
+      <MemoryRouter>
+        <I18nProvider lang="th">
+          <OrderDrawer
+            id="ord_1"
+            canWrite={p.canWrite ?? true}
+            canCancel={p.canCancel ?? true}
+            canSeePrice={p.canSeePrice ?? false}
+            canEditPrice={p.canEditPrice ?? false}
+            onClose={() => {}}
+            onEdit={() => {}}
+            onCopy={() => {}}
+            onSaveTemplate={() => {}}
+            onDone={() => {}}
+          />
+        </I18nProvider>
+      </MemoryRouter>
     </QueryClientProvider>,
   );
 
@@ -124,6 +153,8 @@ describe('OrderDrawer (ST3-T10)', () => {
   beforeEach(() => {
     cancelMutate.mockReset();
     decideMutate.mockReset();
+    recheckMutate.mockReset();
+    priceMutate.mockReset().mockReturnValue(new Promise(() => {}));
   });
 
   it('ต้นทางแก้หลังวางแผน: ป้าย + ตารางเทียบ TMS กับ KRS (ชื่อช่องไทย, เวลาไทย) + ปุ่มรับ/ใช้ค่า TMS', () => {
@@ -204,5 +235,129 @@ describe('OrderDrawer (ST3-T10)', () => {
     view();
     expect(screen.queryByRole('button', { name: 'รับค่า KRS' })).toBeNull();
     expect(screen.getByRole('button', { name: /ใช้ค่า TMS/ })).toBeInTheDocument();
+  });
+
+  // ---------- หน้าใบค้าง (ST3-T07) ----------
+
+  /** ใบค้าง RATE_MISSING ก่อนวางแผน (แก้ได้ทุกช่อง) */
+  const RATE_HELD = {
+    ...BASE,
+    status: 'on_hold',
+    holdReason: {
+      code: 'RATE_MISSING',
+      label: 'ไม่มีเรท',
+      note: 'ยังไม่มีราคาขาย',
+      field: 'pricing',
+      fields: ['pricing'],
+    },
+    holdCodes: ['RATE_MISSING'],
+    pricingStatus: 'RATE_MISSING',
+    sellCharges: [],
+    sellTotal: null,
+    stops: BASE.stops.map((x) => ({ ...x, match: { method: null, score: null, candidates: [] } })),
+    customer: { ...BASE.customer, match: { method: 'INPUT', candidates: [] } },
+    sourceChangedAfterPlan: false,
+    sourceChange: null,
+    editLock: null,
+    editableFields: [
+      'customer',
+      'billingCompanyId',
+      'customerRef',
+      'requestedDate',
+      'vehicleTypeId',
+      'stops',
+      'stops.window',
+      'lines',
+      'sourceIssues',
+    ],
+  } as unknown as Order;
+
+  it('RATE_MISSING: แถวเตือนตามต้นแบบ + "กำหนดราคาเอง" → ช่องราคา → dialog เหตุผล (ตารางเทียบ) → ส่ง manual-price · ไม่มีปุ่มเปิดหน้า Rate card', () => {
+    live.data = RATE_HELD;
+    view({ canSeePrice: true, canEditPrice: true });
+    expect(screen.getByText('ไม่พบ rate card ของลูกค้านี้สำหรับเส้นทางนี้')).toBeInTheDocument();
+    expect(screen.queryByText(/เปิดหน้า Rate card/)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'กำหนดราคาเอง' }));
+    expect(screen.getByText('ค่าขนส่ง (กำหนดเอง)')).toBeInTheDocument();
+    const input = screen.getByRole('textbox', { name: 'ค่าขนส่ง (บาท)' });
+    fireEvent.change(input, { target: { value: '0' } });
+    fireEvent.click(screen.getByRole('button', { name: 'บันทึกราคา' }));
+    expect(screen.getByText('กรอกจำนวนเงินมากกว่า 0 ทศนิยมไม่เกิน 2 ตำแหน่ง')).toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: /กำหนดราคาเอง SO/ })).toBeNull();
+    fireEvent.change(input, { target: { value: '4,200.50' } });
+    fireEvent.click(screen.getByRole('button', { name: 'บันทึกราคา' }));
+    const dlg = screen.getByRole('dialog', { name: 'กำหนดราคาเอง SO-6911-0001' });
+    expect(within(dlg).getByRole('cell', { name: '4,200.50' })).toBeInTheDocument();
+    fireEvent.change(within(dlg).getByRole('textbox'), {
+      target: { value: 'ลูกค้ารายใหม่ ตกลงราคาทางโทรศัพท์' },
+    });
+    fireEvent.click(within(dlg).getByRole('button', { name: 'บันทึกราคา' }));
+    expect(priceMutate).toHaveBeenCalledWith({
+      id: 'ord_1',
+      version: 3,
+      sellAmount: '4200.50',
+      reason: 'ลูกค้ารายใหม่ ตกลงราคาทางโทรศัพท์',
+    });
+  });
+
+  it('ไม่มีสิทธิ์แก้ราคาขาย (prices.sell:write) → เห็นแถวเตือนแต่ไม่มีปุ่มกำหนดราคาเอง · บรรทัด MANUAL แสดง "ค่าขนส่ง (กำหนดเอง)"', () => {
+    live.data = RATE_HELD;
+    view({ canSeePrice: true, canEditPrice: false });
+    expect(screen.getByText('ไม่พบ rate card ของลูกค้านี้สำหรับเส้นทางนี้')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'กำหนดราคาเอง' })).toBeNull();
+    expect(screen.getByRole('button', { name: /ตรวจอีกครั้ง/ })).toBeInTheDocument();
+  });
+
+  it('บรรทัดค่าขนส่ง MANUAL → ป้าย "ค่าขนส่ง (กำหนดเอง)" ไม่มีแถวเตือน', () => {
+    live.data = {
+      ...RATE_HELD,
+      status: 'received',
+      holdReason: null,
+      holdCodes: [],
+      sellTotal: '4200.00',
+      sellCharges: [
+        {
+          lineNo: 1,
+          kind: 'FREIGHT',
+          origin: 'MANUAL',
+          description: 'ค่าขนส่ง',
+          sellAmount: '4200.00',
+          rateCardCode: null,
+          rateCardRevision: null,
+        },
+      ],
+    } as unknown as Order;
+    view({ canSeePrice: true, canEditPrice: true });
+    expect(screen.getByText('ค่าขนส่ง (กำหนดเอง)')).toBeInTheDocument();
+    expect(screen.queryByText('ไม่พบ rate card ของลูกค้านี้สำหรับเส้นทางนี้')).toBeNull();
+  });
+
+  it('ผู้อื่นเปิดแก้อยู่ (ST3-T08) → ไม่มีปุ่มเคลียร์ใบค้าง (ตรวจอีกครั้ง / กำหนดราคาเอง / ยืนยันข้อมูลถูกต้อง)', () => {
+    const lock = {
+      userId: 'usr_2',
+      userName: 'สมชาย ใจดี',
+      acquiredAt: '2026-11-13T02:00:00.000Z',
+      lastSeenAt: '2026-11-13T02:00:00.000Z',
+      expiresAt: '2026-11-13T02:10:00.000Z',
+      mine: false,
+    };
+    live.data = { ...RATE_HELD, editLock: lock } as unknown as Order;
+    view({ canSeePrice: true, canEditPrice: true });
+    expect(screen.getByText(/กำลังแก้ไขโดย/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /ตรวจอีกครั้ง/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'กำหนดราคาเอง' })).toBeNull();
+    live.data = {
+      ...RATE_HELD,
+      editLock: lock,
+      holdReason: {
+        code: 'SOURCE_ERROR',
+        label: 'ข้อมูลต้นทางผิด',
+        note: null,
+        field: 'source',
+        fields: ['source'],
+      },
+    } as unknown as Order;
+    view({ canSeePrice: true, canEditPrice: true });
+    expect(screen.queryByRole('button', { name: /ยืนยันข้อมูลถูกต้อง/ })).toBeNull();
   });
 });
