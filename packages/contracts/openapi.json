@@ -15152,6 +15152,7 @@
     },
     "/v1/trips/{id}/attach": {
       "post": {
+        "description": "กฎตอนจัด (ST3-T14) **ไม่บังคับตอนเพิ่ม/ถอด DO** — ตรวจใหม่และเก็บใน `warnings` (กระดานแสดงเป็นค้างยกเว้น/ยืนยัน) แล้วบังคับอีกครั้งตอน `/dispatch` (บล็อกค้าง → 409 `assignment_blocked`, คำเตือนค้าง → 409 `assignment_warnings`) · น้ำหนักที่เพิ่มขึ้นทำให้การยืนยัน \"น้ำหนักเกิน\" เดิมหมดผล",
         "operationId": "Trips_attach",
         "parameters": [
           {
@@ -15386,6 +15387,7 @@
             "bearer": []
           }
         ],
+        "summary": "เพิ่มใบส่งของเข้าเที่ยว",
         "tags": [
           "trips"
         ]
@@ -31548,7 +31550,20 @@
           },
           "active": {
             "type": "boolean",
-            "description": "ยังตรงกับผลตรวจล่าสุด (เปลี่ยนรถ/คนขับ = หมดผล)"
+            "description": "ยังมีผล (ข้อเท็จจริงเปลี่ยน/แย่ลง = หมดผล)"
+          },
+          "supersededAt": {
+            "type": "string",
+            "nullable": true,
+            "description": "หมดผลเมื่อ"
+          },
+          "supersededReason": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "CHANGED",
+              "WORSENED"
+            ]
           }
         },
         "required": [
@@ -31559,7 +31574,9 @@
           "actorId",
           "at",
           "message",
-          "active"
+          "active",
+          "supersededAt",
+          "supersededReason"
         ]
       },
       "TripDto": {
@@ -31785,13 +31802,16 @@
               "type": "string"
             }
           },
-          "acknowledgeWarnings": {
-            "type": "boolean",
-            "description": "ยืนยันคำเตือนทั้งหมดของผลตรวจนี้ (น้ำหนักเกิน, รถไม่เข้ากับงาน/จุดส่ง, ชั่วโมงขับ, ซ้อนเวลา ฯลฯ) — ต้องมี `overrideReason`"
-          },
-          "overrideBlocks": {
-            "type": "boolean",
-            "description": "ยกเว้นบล็อก (เอกสารรถบังคับหมด/ไม่มี, ใบขับขี่ไม่มี/หมด/ชั้นไม่ถึง) — ต้องมี scope `trips:override` (ผู้จัดการ/ผู้ดูแล) + `overrideReason`"
+          "ruleKeys": {
+            "maxItems": 50,
+            "example": [
+              "OVERWEIGHT|v=…"
+            ],
+            "description": "กุญแจของกฎที่ค้างที่ผู้ใช้ยกเว้น/ยืนยัน (`warnings[].key` หรือ `blocks[].key`/`warnings[].key` ของ 409) — มีผลเฉพาะกฎเหล่านี้ · กุญแจที่ไม่ค้างแล้ว → 422 `not_pending` · บล็อกต้องมี scope `trips:override` · ต้องมี `overrideReason`",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           },
           "overrideReason": {
             "type": "string",
@@ -31833,13 +31853,16 @@
       "ScheduleTripDto": {
         "type": "object",
         "properties": {
-          "acknowledgeWarnings": {
-            "type": "boolean",
-            "description": "ยืนยันคำเตือนทั้งหมดของผลตรวจนี้ (น้ำหนักเกิน, รถไม่เข้ากับงาน/จุดส่ง, ชั่วโมงขับ, ซ้อนเวลา ฯลฯ) — ต้องมี `overrideReason`"
-          },
-          "overrideBlocks": {
-            "type": "boolean",
-            "description": "ยกเว้นบล็อก (เอกสารรถบังคับหมด/ไม่มี, ใบขับขี่ไม่มี/หมด/ชั้นไม่ถึง) — ต้องมี scope `trips:override` (ผู้จัดการ/ผู้ดูแล) + `overrideReason`"
+          "ruleKeys": {
+            "maxItems": 50,
+            "example": [
+              "OVERWEIGHT|v=…"
+            ],
+            "description": "กุญแจของกฎที่ค้างที่ผู้ใช้ยกเว้น/ยืนยัน (`warnings[].key` หรือ `blocks[].key`/`warnings[].key` ของ 409) — มีผลเฉพาะกฎเหล่านี้ · กุญแจที่ไม่ค้างแล้ว → 422 `not_pending` · บล็อกต้องมี scope `trips:override` · ต้องมี `overrideReason`",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           },
           "overrideReason": {
             "type": "string",
@@ -31917,13 +31940,16 @@
       "AssignTripDto": {
         "type": "object",
         "properties": {
-          "acknowledgeWarnings": {
-            "type": "boolean",
-            "description": "ยืนยันคำเตือนทั้งหมดของผลตรวจนี้ (น้ำหนักเกิน, รถไม่เข้ากับงาน/จุดส่ง, ชั่วโมงขับ, ซ้อนเวลา ฯลฯ) — ต้องมี `overrideReason`"
-          },
-          "overrideBlocks": {
-            "type": "boolean",
-            "description": "ยกเว้นบล็อก (เอกสารรถบังคับหมด/ไม่มี, ใบขับขี่ไม่มี/หมด/ชั้นไม่ถึง) — ต้องมี scope `trips:override` (ผู้จัดการ/ผู้ดูแล) + `overrideReason`"
+          "ruleKeys": {
+            "maxItems": 50,
+            "example": [
+              "OVERWEIGHT|v=…"
+            ],
+            "description": "กุญแจของกฎที่ค้างที่ผู้ใช้ยกเว้น/ยืนยัน (`warnings[].key` หรือ `blocks[].key`/`warnings[].key` ของ 409) — มีผลเฉพาะกฎเหล่านี้ · กุญแจที่ไม่ค้างแล้ว → 422 `not_pending` · บล็อกต้องมี scope `trips:override` · ต้องมี `overrideReason`",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           },
           "overrideReason": {
             "type": "string",
@@ -31977,13 +32003,16 @@
       "DispatchTripDto": {
         "type": "object",
         "properties": {
-          "acknowledgeWarnings": {
-            "type": "boolean",
-            "description": "ยืนยันคำเตือนทั้งหมดของผลตรวจนี้ (น้ำหนักเกิน, รถไม่เข้ากับงาน/จุดส่ง, ชั่วโมงขับ, ซ้อนเวลา ฯลฯ) — ต้องมี `overrideReason`"
-          },
-          "overrideBlocks": {
-            "type": "boolean",
-            "description": "ยกเว้นบล็อก (เอกสารรถบังคับหมด/ไม่มี, ใบขับขี่ไม่มี/หมด/ชั้นไม่ถึง) — ต้องมี scope `trips:override` (ผู้จัดการ/ผู้ดูแล) + `overrideReason`"
+          "ruleKeys": {
+            "maxItems": 50,
+            "example": [
+              "OVERWEIGHT|v=…"
+            ],
+            "description": "กุญแจของกฎที่ค้างที่ผู้ใช้ยกเว้น/ยืนยัน (`warnings[].key` หรือ `blocks[].key`/`warnings[].key` ของ 409) — มีผลเฉพาะกฎเหล่านี้ · กุญแจที่ไม่ค้างแล้ว → 422 `not_pending` · บล็อกต้องมี scope `trips:override` · ต้องมี `overrideReason`",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           },
           "overrideReason": {
             "type": "string",
@@ -31998,9 +32027,14 @@
       "ConfirmRulesDto": {
         "type": "object",
         "properties": {
-          "overrideBlocks": {
-            "type": "boolean",
-            "description": "ยกเว้นบล็อกที่ค้างด้วย — ต้องมี scope `trips:override` (ผู้จัดการ/ผู้ดูแล)"
+          "ruleKeys": {
+            "minItems": 1,
+            "maxItems": 50,
+            "description": "กุญแจของกฎที่ค้าง (`warnings[].key`) — บล็อกต้องมี scope `trips:override`",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           },
           "overrideReason": {
             "type": "string",
@@ -32011,6 +32045,7 @@
           }
         },
         "required": [
+          "ruleKeys",
           "overrideReason"
         ]
       },
@@ -32217,6 +32252,10 @@
       "BoardRuleDto": {
         "type": "object",
         "properties": {
+          "key": {
+            "type": "string",
+            "description": "กุญแจของกฎ (ส่งใน `ruleKeys` ของ /confirm-rules)"
+          },
           "code": {
             "type": "string",
             "example": "OVERWEIGHT"
@@ -32234,6 +32273,7 @@
           }
         },
         "required": [
+          "key",
           "code",
           "severity",
           "message"

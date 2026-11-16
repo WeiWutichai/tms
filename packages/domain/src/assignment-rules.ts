@@ -84,7 +84,7 @@ export function checkLoad(input: LoadInput): LoadIssue[] {
 export const DRIVING_HOURS_PER_DAY = 8;
 
 export interface DrivingSpan {
-  /** วันเที่ยว (YYYY-MM-DD) */
+  /** วันเที่ยว (YYYY-MM-DD) — ไม่ใช้ตัดวัน (ใช้ช่วงวิ่งจริงตามแผน) */
   tripDate: string;
   start: string | null;
   end: string | null;
@@ -97,20 +97,42 @@ export interface DrivingHoursIssue {
   params: { hours: string; limit: number; date: string };
 }
 
+/** วันไทย (YYYY-MM-DD) ของเวลา ISO */
+export const bangkokDay = (iso: string): string =>
+  new Date(Date.parse(iso) + 7 * 3_600_000).toISOString().slice(0, 10);
+
+/** วันไทยที่ช่วงวิ่งคาบเกี่ยว (เที่ยวข้ามเที่ยงคืน = 2 วัน) — ไม่มีช่วงวิ่ง = วันเที่ยว */
+export function drivingDays(span: DrivingSpan): string[] {
+  if (!span.start || !span.end) return [span.tripDate];
+  const out: string[] = [];
+  const endMs = Date.parse(span.end) - 1;
+  let d = bangkokDay(span.start);
+  const last = bangkokDay(new Date(endMs).toISOString());
+  while (d <= last && out.length < 7) {
+    out.push(d);
+    d = new Date(Date.parse(`${d}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10);
+  }
+  return out;
+}
+
 /**
- * รวมชั่วโมงตามแผนของคนขับในวันเที่ยว `date` (เที่ยวนี้ + เที่ยวอื่นที่ยังไม่จบ) — เกิน `limit` → คำเตือน
- * เที่ยวที่ไม่มีช่วงวิ่งไม่นับ (ไม่ทราบระยะเวลา) · ทศนิยม 1 ตำแหน่ง
+ * รวมชั่วโมงตามแผนของคนขับใน**วันไทย** `date` (เที่ยวนี้ + เที่ยวอื่นที่ยังไม่จบ) — เกิน `limit` → คำเตือน
+ * ตัดช่วงวิ่งตามขอบวัน (เที่ยวข้ามเที่ยงคืนนับแต่ละวันเฉพาะส่วนของวันนั้น; เที่ยวเมื่อวานที่ล้นมาวันนี้นับด้วย — review L6)
+ * เที่ยวที่ไม่มีช่วงวิ่งไม่นับ · ทศนิยม 1 ตำแหน่ง
  */
 export function checkDrivingHours(
   date: string,
   spans: readonly DrivingSpan[],
   limit: number = DRIVING_HOURS_PER_DAY,
 ): DrivingHoursIssue[] {
+  const dayStart = Date.parse(`${date}T00:00:00+07:00`);
+  const dayEnd = dayStart + 86_400_000;
   let ms = 0;
   for (const s of spans) {
-    if (s.tripDate !== date || !s.start || !s.end) continue;
-    const d = Date.parse(s.end) - Date.parse(s.start);
-    if (Number.isFinite(d) && d > 0) ms += d;
+    if (!s.start || !s.end) continue;
+    const a = Math.max(Date.parse(s.start), dayStart);
+    const b = Math.min(Date.parse(s.end), dayEnd);
+    if (Number.isFinite(a) && Number.isFinite(b) && b > a) ms += b - a;
   }
   const hours = Math.round(ms / 360_000) / 10;
   if (hours <= limit) return [];
@@ -133,7 +155,7 @@ export interface RuleResult {
   params: Record<string, unknown>;
 }
 
-/** การยกเว้น/ยืนยันที่บันทึกไว้บนเที่ยว (`trip.rule_overrides`) */
+/** การยกเว้น/ยืนยันที่บันทึกไว้บนเที่ยว (`trip.rule_overrides` — append-only; หมดผลด้วย `supersededAt`) */
 export interface RuleOverride {
   key: string;
   code: string;
@@ -144,10 +166,20 @@ export interface RuleOverride {
   actorId: string | null;
   at: string;
   message: string;
+  /** ค่าของกฎ ณ ตอนยกเว้น (ใช้เทียบ "แย่ลง") */
   params: Record<string, unknown>;
+  /** หมดผลเมื่อ — ข้อเท็จจริงเปลี่ยน (`CHANGED`: รถ/คนขับ/ชุดเที่ยวที่ซ้อนเปลี่ยน หรือกฎหายไป) / แย่ลง (`WORSENED`) */
+  supersededAt?: string | null;
+  supersededReason?: 'CHANGED' | 'WORSENED' | null;
 }
 
-/** ส่วนของ params ที่ระบุ "ตัว" ของกฎ (ไม่ใช่ค่า) — เอกสารประเภทไหน / คนขับคนไหน / จุดไหน */
+export interface RuleCtx {
+  vehicleId: string | null;
+  driverId: string | null;
+  reliefDriverId?: string | null;
+}
+
+/** ส่วนของ params ที่ระบุ "ตัว" ของกฎ (ไม่ใช่ค่า) */
 const IDENTITY_PARAMS = [
   'docType',
   'title',
@@ -155,26 +187,74 @@ const IDENTITY_PARAMS = [
   'sequence',
   'capability',
   'maxVehicleClass',
+  'requestedClass',
+  'status',
+  'date',
+  'trips',
 ] as const;
 
+/** กฎที่ "แย่ลง" แล้วการยืนยันเดิมหมดผล: รหัส → param ตัวเลขที่เทียบ (มากขึ้น = แย่ลง) */
+const WORSEN_PARAM: Record<string, string> = {
+  OVERWEIGHT: 'load',
+  OVER_VOLUME: 'load',
+  DRIVING_HOURS_EXCEEDED: 'hours',
+};
+
+/** กฎที่ผูกกับคนขับ (ไม่ใช่รถ) */
+export const isDriverRule = (code: string): boolean =>
+  code.startsWith('DRIVER_LICENCE_') ||
+  code === 'DRIVING_HOURS_EXCEEDED' ||
+  code.startsWith('driver_') ||
+  code.startsWith('relief_driver_');
+
 /**
- * กุญแจของกฎหนึ่งข้อบนเที่ยว — การยกเว้นผูกกับ **รถ + คนขับ** ณ ตอนนั้น (PLN-090 "ข้อมูลกฎเปลี่ยนหลัง override → override
- * เดิมหมดผล"): เปลี่ยนรถ/คนขับ → กุญแจใหม่ ต้องยกเว้น/ยืนยันใหม่ · ค่าที่เปลี่ยนในกฎเดิม (เช่น น้ำหนักเพิ่ม) ไม่ทำให้หมดผล
+ * กุญแจของกฎหนึ่งข้อบนเที่ยว (ST3-T14 — review M3/QA M1, PO อนุมัติ 17 พ.ย. 2569):
+ * - `DOC_*` และกฎรถ (น้ำหนัก/ความเข้ากันได้/สถานะรถ/ซ้อนเวลารถ) ผูกกับ **รถ** เท่านั้น
+ * - `DRIVER_*`/ชั่วโมงขับ/ซ้อนเวลาคนขับ/ลา ผูกกับ **คนขับคนนั้น** (หลักหรือสำรองตาม `driverRole`) เท่านั้น
+ * - ซ้อนเวลา: รวมชุดเที่ยวที่ซ้อน (`trips`) — ชุดเปลี่ยน = กุญแจใหม่ · ชั่วโมงขับ: รวมวัน (`date`)
  */
-export function ruleKey(
-  r: Pick<RuleResult, 'code' | 'params'>,
-  ctx: { vehicleId: string | null; driverId: string | null; reliefDriverId?: string | null },
-): string {
-  const id = IDENTITY_PARAMS.flatMap((p) =>
-    r.params[p] === undefined || r.params[p] === null ? [] : [`${p}=${String(r.params[p])}`],
-  );
-  return [
-    r.code,
-    `v=${ctx.vehicleId ?? '-'}`,
-    `d=${ctx.driverId ?? '-'}`,
-    `r=${ctx.reliefDriverId ?? '-'}`,
-    ...id,
-  ].join('|');
+export function ruleKey(r: Pick<RuleResult, 'code' | 'params'>, ctx: RuleCtx): string {
+  const role = r.params.driverRole === 'relief' ? 'relief' : 'driver';
+  const subject = r.code.startsWith('stop_')
+    ? 'trip'
+    : isDriverRule(r.code)
+      ? `d=${(role === 'relief' ? ctx.reliefDriverId : ctx.driverId) ?? '-'}`
+      : `v=${ctx.vehicleId ?? '-'}`;
+  const id = IDENTITY_PARAMS.flatMap((p) => {
+    const v = r.params[p];
+    if (v === undefined || v === null) return [];
+    return [`${p}=${Array.isArray(v) ? [...v].map(String).sort().join(',') : String(v)}`];
+  });
+  return [r.code, subject, ...id].join('|');
+}
+
+const num = (v: unknown) => (v === undefined || v === null ? NaN : Number(v));
+const worsened = (r: RuleResult, o: Pick<RuleOverride, 'params'>) => {
+  const p = WORSEN_PARAM[r.code];
+  return p !== undefined && num(r.params[p]) > num(o.params?.[p]);
+};
+
+/**
+ * ตรวจการยกเว้นที่ยังมีผลกับผลตรวจล่าสุด → ทำเครื่องหมายหมดผล (`supersededAt`) ข้อที่กฎหายไป/เปลี่ยนตัว (CHANGED)
+ * หรือค่าแย่ลง (WORSENED) — หมดผลแล้วไม่กลับมาอีก (สลับรถไปแล้วกลับมา = ต้องยกเว้นใหม่)
+ */
+export function reconcileOverrides(
+  results: readonly RuleResult[],
+  overrides: readonly RuleOverride[],
+  ctx: RuleCtx,
+  now: string,
+): { overrides: RuleOverride[]; changed: boolean } {
+  const byKey = new Map(results.map((r) => [ruleKey(r, ctx), r]));
+  let changed = false;
+  const out = overrides.map((o) => {
+    if (o.supersededAt) return o;
+    const r = byKey.get(o.key);
+    const why = !r ? 'CHANGED' : worsened(r, o) ? 'WORSENED' : null;
+    if (!why) return o;
+    changed = true;
+    return { ...o, supersededAt: now, supersededReason: why } as RuleOverride;
+  });
+  return { overrides: out, changed };
 }
 
 export interface PendingRules<T extends RuleResult> {
@@ -182,21 +262,22 @@ export interface PendingRules<T extends RuleResult> {
   blocks: T[];
   /** คำเตือนที่ยังไม่ถูกยืนยัน (ไม่นับ `info`) */
   warnings: T[];
-  /** กฎที่ยกเว้น/ยืนยันแล้ว (ยังตรงกับผลตรวจล่าสุด) */
+  /** กฎที่ยกเว้น/ยืนยันแล้ว (ยังมีผล) */
   covered: T[];
 }
 
-/** แยกผลตรวจล่าสุดเป็น ค้างยกเว้น / ค้างยืนยัน / ยกเว้นแล้ว */
+/** แยกผลตรวจล่าสุดเป็น ค้างยกเว้น / ค้างยืนยัน / ยกเว้นแล้ว — นับเฉพาะการยกเว้นที่ยังไม่หมดผลและค่าไม่แย่ลง */
 export function pendingRules<T extends RuleResult>(
   results: readonly T[],
-  overrides: readonly Pick<RuleOverride, 'key'>[],
-  ctx: { vehicleId: string | null; driverId: string | null; reliefDriverId?: string | null },
+  overrides: readonly Pick<RuleOverride, 'key' | 'params' | 'supersededAt'>[],
+  ctx: RuleCtx,
 ): PendingRules<T> {
-  const done = new Set(overrides.map((o) => o.key));
+  const active = new Map(overrides.filter((o) => !o.supersededAt).map((o) => [o.key, o]));
   const out: PendingRules<T> = { blocks: [], warnings: [], covered: [] };
   for (const r of results) {
     if (r.severity === 'info') continue;
-    if (done.has(ruleKey(r, ctx))) out.covered.push(r);
+    const o = active.get(ruleKey(r, ctx));
+    if (o && !worsened(r, o)) out.covered.push(r);
     else if (r.severity === 'block') out.blocks.push(r);
     else out.warnings.push(r);
   }

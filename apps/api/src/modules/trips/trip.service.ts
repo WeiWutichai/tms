@@ -9,7 +9,9 @@ import {
   isTripEditable,
   checkDrivingHours,
   checkLoad,
+  drivingDays,
   pendingRules,
+  reconcileOverrides,
   planStops,
   ruleKey,
   RULE_OVERRIDE_SCOPE,
@@ -75,12 +77,11 @@ export interface TripFilter extends ListQuery {
 }
 
 /**
- * ST3-T14 (D-07): ยกเว้นบล็อก/ยืนยันคำเตือนในคำขอเดียวกับการจัดรถ — เหตุผล ≥ 10 ตัวอักษร (ใช้ร่วมกันทุกกฎในคำขอนั้น)
- * `canOverride` = ผู้เรียกมี scope `trips:override` (controller ตรวจจาก token)
+ * ST3-T14 (D-07 + PO 17 พ.ย. 2569): ยกเว้นบล็อก/ยืนยันคำเตือน **เฉพาะกฎที่ผู้ใช้เห็น** — `ruleKeys` = กุญแจของกฎที่ค้าง
+ * (`warnings[].key` / extension `blocks[].key` ของ 409) + เหตุผล ≥ 10 ตัว · `canOverride` = ผู้เรียกมี `trips:override`
  */
 export interface RuleConfirmInput {
-  acknowledgeWarnings?: boolean;
-  overrideBlocks?: boolean;
+  ruleKeys?: string[];
   reason?: string | null;
   canOverride?: boolean;
 }
@@ -137,9 +138,10 @@ const field422 = (field: string, code: string, message: string) =>
  *   (คนขับประจำ/ชื่อ/ทะเบียนเปลี่ยนแล้วเที่ยวเดิมไม่เปลี่ยน) · หลังปล่อยรถแก้ไม่ได้ (ตาราง transition)
  * - จุดแวะจัดจาก DO (`planStops`) ทุกครั้งที่เพิ่ม/ถอด DO ก่อนปล่อยรถ — จุดที่ไม่มี DO ใช้ตั้ง removed_at (ไม่ลบจริง)
  * - กฎตอนจัด (ST3-T14 — D-07 PO 16 พ.ย. 2569): ผลตรวจเก็บใน `rule_warnings` (คืนใน `warnings`) ·
- *   **บล็อก** (กฎเอกสาร/ใบขับขี่) → create(+รถ)/schedule/assign/dispatch ตอบ 409 `assignment_blocked` เว้นแต่ `overrideBlocks`
- *   + เหตุผล โดยผู้มี `trips:override` · **คำเตือน** → บันทึกได้ (ค้าง "รอยืนยัน") แต่ต้องยืนยันพร้อมเหตุผลก่อนปล่อยรถ
- *   (`acknowledgeWarnings` ในคำขอ หรือ `/confirm-rules` ภายหลัง; dispatch ที่ยังค้าง → 409 `assignment_warnings`)
+ *   **บล็อก** (กฎเอกสาร/ใบขับขี่) → create(+รถ)/schedule/assign/dispatch ตอบ 409 `assignment_blocked` เว้นแต่ส่งกุญแจ
+ *   ของบล็อกนั้นใน `ruleKeys` + เหตุผล โดยผู้มี `trips:override` · **คำเตือน** → บันทึกได้ (ค้าง "รอยืนยัน") แต่ต้องยืนยัน
+ *   พร้อมเหตุผลก่อนปล่อยรถ (`ruleKeys` ในคำขอ หรือ `/confirm-rules`; dispatch ที่ยังค้าง → 409 `assignment_warnings`)
+ *   การยกเว้นหมดผลเมื่อข้อเท็จจริงเปลี่ยน/แย่ลง (`reconcileOverrides` ทุกครั้งที่ตรวจใหม่)
  *   การยกเว้น/ยืนยันเก็บใน `rule_overrides` (append-only) + audit `trip.rules_overridden`
  * - ยกเลิก: เหตุผล ≥ 10 + audit · DO ที่ยังไม่รับของกลับ DRAFT นอกเที่ยว (ล้าง trip_id) · SO ตาม DO
  */
@@ -604,9 +606,9 @@ export class TripService {
   }
 
   /**
-   * ยืนยันคำเตือน / ยกเว้นบล็อกของเที่ยวภายหลัง (ST3-T14 — กระดาน "… · ขออนุมัติ" / "ห้ามจ่ายงาน" → ยกเว้นและบันทึก log)
-   * ตรวจกฎใหม่ก่อน (ผลล่าสุด) แล้วยืนยันคำเตือนที่ค้างทั้งหมด + ยกเว้นบล็อกที่ค้างเมื่อ `overrideBlocks` (ต้องมี `trips:override`)
-   * ไม่มีอะไรค้าง = ไม่เปลี่ยน (version เดิม) · เที่ยวที่ปล่อยแล้ว/จบ/ยกเลิก → 409 `invalid_state_transition`
+   * ยืนยันคำเตือน / ยกเว้นบล็อกของเที่ยวภายหลัง (ST3-T14 — กระดาน "… · ขออนุมัติ" / "ต้องย้ายรถ" → dialog)
+   * ตรวจกฎใหม่ก่อน (ผลล่าสุด) แล้วยกเว้น/ยืนยัน **เฉพาะ `ruleKeys`** (กุญแจที่ไม่ค้างแล้ว → 422) · บล็อกต้องมี `trips:override`
+   * บล็อกอื่นที่ค้างไม่ขวาง (เที่ยวมีอยู่แล้ว) · เที่ยวที่ปล่อยแล้ว/จบ/ยกเลิก → 409 `invalid_state_transition`
    */
   async confirmRules(
     id: string,
@@ -614,24 +616,18 @@ export class TripService {
     tx: Tx = this.db.tx,
     expectedVersion?: number,
   ): Promise<TripRecord> {
-    const reason = this.ruleReason({ ...rules, acknowledgeWarnings: true });
+    const reason = this.ruleReason(rules);
     const { trip } = await this.lock(tx, id, expectedVersion);
     this.assertEditable(trip);
     const checked = await this.refreshWarnings(tx, trip.id);
-    return this.enforceRules(
-      tx,
-      checked,
-      { ...rules, acknowledgeWarnings: true },
-      reason,
-      'confirm',
-    );
+    return this.enforceRules(tx, checked, rules, reason, 'confirm');
   }
 
   // ---------------------------------------------------------------------------------------------
 
   /** เหตุผลของการยืนยัน/ยกเว้น — ส่งธงใดธงหนึ่งแล้วต้องมีเหตุผล ≥ 10 ตัวอักษร (ตรวจก่อนทำงาน) */
   private ruleReason(rules?: RuleConfirmInput): string | null {
-    if (!rules?.acknowledgeWarnings && !rules?.overrideBlocks) return null;
+    if (!rules?.ruleKeys?.length) return null;
     const reason = cleanLine(String(rules.reason ?? '')).trim();
     if ([...reason].length < RULE_REASON_MIN_LENGTH)
       throw field422(
@@ -644,8 +640,9 @@ export class TripService {
 
   /**
    * บังคับกฎตอนจัด (D-07) กับผลตรวจล่าสุดของเที่ยว — **ตัวเดียวกันทุกทางเข้า** (create+รถ / schedule / assign / dispatch / confirm)
-   * - บล็อกที่ยังไม่ยกเว้น: ไม่ส่ง `overrideBlocks` → 409 `assignment_blocked` (+ `blocks`, `warnings`) · ส่งแต่ไม่มี
-   *   `trips:override` → 403 `permission_denied`
+   * - `ruleKeys` ต้องเป็นกุญแจของกฎที่ค้างอยู่ (มิฉะนั้น 422 `not_pending`) — ยกเว้น/ยืนยันเฉพาะกฎเหล่านั้น
+   * - บล็อกที่ค้างและไม่อยู่ใน `ruleKeys` → 409 `assignment_blocked` (+ `blocks[].key`, `warnings`) ยกเว้น `/confirm-rules`
+   * - บล็อกใน `ruleKeys` แต่ไม่มี `trips:override` → 403 `permission_denied`
    * - คำเตือนที่ยังไม่ยืนยัน: `dispatch` → 409 `assignment_warnings` · ทางเข้าอื่นบันทึกได้ (ค้างให้ยืนยันภายหลัง)
    * - ยกเว้น/ยืนยัน → ต่อท้าย `rule_overrides` (กุญแจผูกรถ + คนขับ — `ruleKey`) + audit `trip.rules_overridden` พร้อมเหตุผล
    * ทั้งหมดอยู่ใน transaction ของคำขอ — ตอบ error แล้วการเปลี่ยนแปลงของคำขอนั้นย้อนกลับทั้งหมด
@@ -665,7 +662,9 @@ export class TripService {
     const results = (trip.ruleWarnings as unknown as TripWarning[]) ?? [];
     const done = (trip.ruleOverrides as unknown as RuleOverride[]) ?? [];
     const p = pendingRules(results, done, ctx);
+    const keyOf = (w: TripWarning) => ruleKey(w, ctx);
     const brief = (w: TripWarning) => ({
+      key: keyOf(w),
       code: w.code,
       severity: w.severity,
       source: w.source,
@@ -673,23 +672,36 @@ export class TripService {
       message: w.message,
       params: w.params,
     });
-    if (p.blocks.length && !rules?.overrideBlocks)
+    const wanted = rules?.ruleKeys ?? [];
+    const pending = new Set([...p.blocks, ...p.warnings].map(keyOf));
+    // กุญแจที่ไม่ค้าง (ไม่ใช่สิ่งที่ผู้ใช้เห็นตอนนี้) → 422 รายช่อง
+    const stale = wanted.flatMap((k, i) =>
+      pending.has(k)
+        ? []
+        : [{ field: `ruleKeys[${i}]`, code: 'not_pending', message: 'rule is not pending' }],
+    );
+    if (stale.length) throw new ProblemException('validation_failed', undefined, stale);
+    const chosen = new Set(wanted);
+    const blocksLeft = p.blocks.filter((b) => !chosen.has(keyOf(b)));
+    if (blocksLeft.length && gate !== 'confirm')
       throw new ProblemException('assignment_blocked', undefined, undefined, {
-        blocks: p.blocks.map(brief),
+        blocks: blocksLeft.map(brief),
         warnings: p.warnings.map(brief),
         overrideScope: RULE_OVERRIDE_SCOPE,
       });
-    if (p.blocks.length && !rules?.canOverride)
+    const overriding = p.blocks.filter((b) => chosen.has(keyOf(b)));
+    if (overriding.length && !rules?.canOverride)
       throw new ProblemException('permission_denied', undefined, undefined, {
         module: 'trips',
         action: 'override',
         required: [RULE_OVERRIDE_SCOPE],
       });
-    if (gate === 'dispatch' && p.warnings.length && !rules?.acknowledgeWarnings)
+    const warnLeft = p.warnings.filter((w) => !chosen.has(keyOf(w)));
+    if (gate === 'dispatch' && warnLeft.length)
       throw new ProblemException('assignment_warnings', undefined, undefined, {
-        warnings: p.warnings.map(brief),
+        warnings: warnLeft.map(brief),
       });
-    const add = [...p.blocks, ...(rules?.acknowledgeWarnings ? p.warnings : [])];
+    const add = [...p.blocks, ...p.warnings].filter((w) => chosen.has(keyOf(w)));
     if (!add.length || reason === null) return trip;
     const ctxReq = requestContext.require();
     const at = new Date().toISOString();
@@ -724,7 +736,12 @@ export class TripService {
       },
       reason,
     });
-    return this.get(trip.id, tx);
+    const final = await this.get(trip.id, tx);
+    // PLN-090: `trip.rule_overridden` + การเปลี่ยนแปลงของเที่ยว (review L7)
+    const ruled = entries.map((e) => ({ key: e.key, code: e.code, kind: e.kind, reason }));
+    await this.emit(tx, 'trip.rule_overridden', final, { rules: ruled });
+    await this.emit(tx, 'trip.updated', final, { ruleOverrides: ruled });
+    return final;
   }
 
   private tenantId(): string {
@@ -1222,11 +1239,26 @@ export class TripService {
         params: { sequence: seq },
       });
     const json = JSON.parse(JSON.stringify(out)) as Prisma.InputJsonValue;
+    // การยกเว้นที่ข้อเท็จจริงเปลี่ยน/แย่ลง → หมดผล (ไม่กลับมามีผลอีก — PO 17 พ.ย. 2569)
+    const rec = reconcileOverrides(
+      out,
+      (trip.ruleOverrides as unknown as RuleOverride[]) ?? [],
+      { vehicleId: trip.vehicleId, driverId: trip.driverId, reliefDriverId: trip.reliefDriverId },
+      new Date().toISOString(),
+    );
     // เทียบแบบเรียง key (jsonb เรียง key ใหม่ — เทียบตรง ๆ จะต่างทุกครั้งแล้ว version ขยับโดยไม่มีอะไรเปลี่ยน)
-    if (canonJson(trip.ruleWarnings) !== canonJson(json))
+    if (canonJson(trip.ruleWarnings) !== canonJson(json) || rec.changed)
       await tx.trip.update({
         where: { id },
-        data: { ruleWarnings: json, version: { increment: 1 } },
+        data: {
+          ruleWarnings: json,
+          ...(rec.changed
+            ? {
+                ruleOverrides: JSON.parse(JSON.stringify(rec.overrides)) as Prisma.InputJsonValue,
+              }
+            : {}),
+          version: { increment: 1 },
+        },
       });
     return this.get(id, tx);
   }
@@ -1242,7 +1274,7 @@ export class TripService {
         originSiteId: true,
         destSiteId: true,
         salesOrder: { select: { vehicleTypeId: true } },
-        lines: { select: { salesOrderLine: { select: { productId: true } } } },
+        lines: { select: { salesOrderLine: { select: { productId: true, isDangerous: true } } } },
       },
     });
     const bySo = new Map<string, typeof dos>();
@@ -1256,9 +1288,12 @@ export class TripService {
         ),
       ),
     ];
-    const hazmat = productIds.length
-      ? (await tx.product.count({ where: { id: { in: productIds }, hazardous: true } })) > 0
-      : false;
+    // สินค้าอันตราย (PLN-084): สินค้าใน master `hazardous` หรือบรรทัด SO `is_dangerous` (ต้นทาง/connector) — QA M2
+    const hazmat =
+      dos.some((d) => d.lines.some((l) => l.salesOrderLine?.isDangerous)) ||
+      (productIds.length
+        ? (await tx.product.count({ where: { id: { in: productIds }, hazardous: true } })) > 0
+        : false);
     for (const group of bySo.values()) {
       const r = await this.compatibility.check(
         {
@@ -1338,16 +1373,6 @@ export class TripService {
     trip: TripRecord,
     who: { driverId: string; name: string; role: 'driver' | 'relief' },
   ): Promise<TripWarning[]> {
-    const others = await tx.trip.findMany({
-      where: {
-        id: { not: trip.id },
-        status: { in: [...TRIP_OPEN_STATUSES] },
-        tripDate: trip.tripDate,
-        OR: [{ driverId: who.driverId }, { reliefDriverId: who.driverId }],
-      },
-      select: { tripDate: true, plannedStartAt: true, plannedEndAt: true },
-    });
-    const date = trip.tripDate.toISOString().slice(0, 10);
     const span = (t: {
       tripDate: Date;
       plannedStartAt: Date | null;
@@ -1357,14 +1382,32 @@ export class TripService {
       start: t.plannedStartAt?.toISOString() ?? null,
       end: t.plannedEndAt?.toISOString() ?? null,
     });
-    return checkDrivingHours(date, [span(trip), ...others.map(span)]).map((i) => ({
-      code: i.code,
-      severity: 'warning',
-      source: 'schedule',
-      messageKey: i.messageKey,
-      message: `${who.role === 'driver' ? 'คนขับ' : 'คนขับสำรอง'} ${who.name} มีเวลาขับตามแผน ${i.params.hours} ชม. ในวันนี้ (เกิน ${i.params.limit} ชม.)`,
-      params: { ...i.params, driverRole: who.role },
-    }));
+    // วันไทยที่เที่ยวนี้วิ่ง (ข้ามเที่ยงคืน = 2 วัน) · เที่ยวอื่นวันก่อน/หลังที่อาจล้นเข้ามา (review L6)
+    const days = drivingDays(span(trip));
+    const day0 = Date.parse(`${days[0]}T00:00:00Z`);
+    const others = await tx.trip.findMany({
+      where: {
+        id: { not: trip.id },
+        status: { in: [...TRIP_OPEN_STATUSES] },
+        tripDate: {
+          gte: new Date(day0 - 86_400_000),
+          lte: new Date(Date.parse(`${days[days.length - 1]}T00:00:00Z`) + 86_400_000),
+        },
+        OR: [{ driverId: who.driverId }, { reliefDriverId: who.driverId }],
+      },
+      select: { tripDate: true, plannedStartAt: true, plannedEndAt: true },
+    });
+    const spans = [span(trip), ...others.map(span)];
+    return days.flatMap((date) =>
+      checkDrivingHours(date, spans).map((i): TripWarning => ({
+        code: i.code,
+        severity: 'warning',
+        source: 'schedule',
+        messageKey: i.messageKey,
+        message: `${who.role === 'driver' ? 'คนขับ' : 'คนขับสำรอง'} ${who.name} มีเวลาขับตามแผน ${i.params.hours} ชม. ในวันที่ ${i.params.date} (เกิน ${i.params.limit} ชม.)`,
+        params: { ...i.params, driverRole: who.role },
+      })),
+    );
   }
 
   /** รถ/คนขับคนเดียวกันมีเที่ยวอื่นที่ยังไม่จบในวันเดียวกัน (ช่วงวิ่งทับกันเมื่อมีทั้งสองฝั่ง) — เตือน ไม่บล็อก (docs/04 D2) */

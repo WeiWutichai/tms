@@ -3,8 +3,10 @@ import { describe, expect, it, vi } from 'vitest';
 import { I18nProvider } from '../../i18n';
 import { BlockedDialog, ruleTagKey } from './RuleDialogs';
 
-const REASONS = [{ code: 'DOC_CMI_EXPIRED', message: 'พ.ร.บ. หมดอายุ 15 พ.ย. 2569' }];
-const setup = (canOverride: boolean) => {
+const REASONS = [
+  { key: 'DOC_CMI_EXPIRED|v=1', code: 'DOC_CMI_EXPIRED', message: 'พ.ร.บ. หมดอายุ 15 พ.ย. 2569' },
+];
+const setup = (canOverride: boolean, extra: { initialReason?: string; nothing?: boolean } = {}) => {
   const onOk = vi.fn();
   const onLink = vi.fn();
   render(
@@ -15,6 +17,7 @@ const setup = (canOverride: boolean) => {
         sub="6 ล้อ · สมชาย · รถคันนี้จ่ายงานไม่ได้"
         reasons={REASONS}
         canOverride={canOverride}
+        {...extra}
         onLink={onLink}
         onOk={onOk}
         onClose={() => {}}
@@ -52,7 +55,20 @@ describe('BlockedDialog', () => {
     fireEvent.click(btn);
     fireEvent.click(btn);
     expect(onOk).toHaveBeenCalledTimes(1);
-    expect(onOk).toHaveBeenCalledWith('ต่ออายุแล้วรอกรมธรรม์');
+    expect(onOk).toHaveBeenCalledWith('ต่ออายุแล้วรอกรมธรรม์', ['DOC_CMI_EXPIRED|v=1']);
+  });
+});
+
+describe('BlockedDialog — ยกเว้นทีละเที่ยว (PO 17 พ.ย. 2569)', () => {
+  it('เติมเหตุผลล่าสุดให้ แต่ต้องกดยืนยันเอง', () => {
+    const { onOk } = setup(true, { initialReason: 'เหตุผลเดิมของรถคันนี้' });
+    expect(screen.getByRole('textbox')).toHaveValue('เหตุผลเดิมของรถคันนี้');
+    expect(onOk).not.toHaveBeenCalled();
+  });
+  it('ไม่มีเที่ยวให้ยกเว้น → ปุ่ม/ช่องปิด พร้อมคำอธิบาย', () => {
+    setup(true, { nothing: true });
+    expect(screen.getByRole('textbox')).toBeDisabled();
+    expect(screen.getByText(/ยังไม่มีเที่ยวที่ติดกฎบนรถคันนี้/)).toBeInTheDocument();
   });
 });
 

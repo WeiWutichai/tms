@@ -39,6 +39,8 @@ export function ruleTagKey(code: string): MessageKey {
 export interface BlockedReason {
   code: string;
   message: string;
+  /** กุญแจของกฎ (409 `blocks[].key` / กระดาน `pendingRules[].key`) — ยกเว้นเฉพาะกฎที่แสดง; ป้ายรายวันของแถวรถไม่มี */
+  key?: string;
 }
 
 /**
@@ -52,6 +54,8 @@ export function BlockedDialog({
   sub,
   reasons,
   canOverride,
+  initialReason = '',
+  nothing = false,
   busy,
   error,
   onLink,
@@ -63,10 +67,15 @@ export function BlockedDialog({
   sub: string;
   reasons: BlockedReason[];
   canOverride: boolean;
+  /** เติมเหตุผลล่าสุด (ผู้ใช้ยังต้องกดยืนยันเอง) */
+  initialReason?: string;
+  /** ไม่มีเที่ยวให้ยกเว้น (เปิดจาก (i) ของแถวรถที่ยังไม่มีงานติดกฎ) → ยกเว้นไม่ได้ */
+  nothing?: boolean;
   busy?: boolean;
   error?: string | null;
   onLink: (code: string) => void;
-  onOk: (reason: string) => void;
+  /** `keys` = กุญแจของกฎที่แสดง (เฉพาะที่มี key) */
+  onOk: (reason: string, keys: string[]) => void;
   onClose: () => void;
 }) {
   const { t } = useI18n();
@@ -75,9 +84,10 @@ export function BlockedDialog({
   const sent = useRef(false);
   useEffect(() => {
     if (open) {
-      setReason('');
+      setReason(initialReason);
       sent.current = false;
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
   useEffect(() => {
     if (error || !busy) sent.current = false;
@@ -89,7 +99,8 @@ export function BlockedDialog({
     return () => window.removeEventListener('keydown', k);
   }, [open, onClose]);
   if (!open) return null;
-  const ok = canOverride && reason.trim().length >= RULE_REASON_MIN && !busy;
+  const allowed = canOverride && !nothing;
+  const ok = allowed && reason.trim().length >= RULE_REASON_MIN && !busy;
   const btn = ok ? '#2257C4' : '#E4E6E0';
   return (
     <div
@@ -186,7 +197,7 @@ export function BlockedDialog({
             id={id}
             rows={2}
             value={reason}
-            disabled={!canOverride}
+            disabled={!allowed}
             onChange={(e) => setReason(e.target.value)}
             placeholder={t('plan.bp.ph')}
             style={{
@@ -199,7 +210,7 @@ export function BlockedDialog({
             }}
           />
           <span style={{ fontSize: 12.5, color: '#3B424C' }}>
-            {t(canOverride ? 'plan.bp.hintYes' : 'plan.bp.hintNo')}
+            {t(!canOverride ? 'plan.bp.hintNo' : nothing ? 'plan.bp.noTrips' : 'plan.bp.hintYes')}
           </span>
           {error && <span className="tms-field-error">{error}</span>}
         </div>
@@ -235,7 +246,10 @@ export function BlockedDialog({
             onClick={() => {
               if (!ok || sent.current) return;
               sent.current = true;
-              onOk(reason.trim());
+              onOk(
+                reason.trim(),
+                reasons.flatMap((r) => (r.key ? [r.key] : [])),
+              );
             }}
             style={{
               display: 'inline-flex',

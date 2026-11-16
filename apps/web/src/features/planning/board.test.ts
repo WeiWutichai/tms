@@ -131,9 +131,24 @@ describe('lane + ซ้อนเวลา', () => {
   });
 
   it('ST3-T14 กฎตอนจัด: บล็อกค้าง = แดง (ต้องย้ายรถ) · คำเตือนค้าง = ส้ม (รออนุมัติ) · ยกเว้นครบ = เทา', () => {
-    const w = { code: 'OVERWEIGHT', severity: 'warning' as const, message: 'น้ำหนักเกิน' };
-    const ov = { code: 'vehicle_overlap', severity: 'warning' as const, message: 'ซ้อน' };
-    const b = { code: 'DOC_CMI_EXPIRED', severity: 'block' as const, message: 'พ.ร.บ. หมด' };
+    const w = {
+      key: 'k1',
+      code: 'OVERWEIGHT',
+      severity: 'warning' as const,
+      message: 'น้ำหนักเกิน',
+    };
+    const ov = {
+      key: 'k2',
+      code: 'vehicle_overlap',
+      severity: 'warning' as const,
+      message: 'ซ้อน',
+    };
+    const b = {
+      key: 'k3',
+      code: 'DOC_CMI_EXPIRED',
+      severity: 'block' as const,
+      message: 'พ.ร.บ. หมด',
+    };
     expect(ruleState(trip())).toBeNull();
     expect(ruleState(trip({ pendingRules: [w, b] }))).toBe('block');
     expect(tripColor(trip({ pendingRules: [b] }))).toBe('#B3322A');

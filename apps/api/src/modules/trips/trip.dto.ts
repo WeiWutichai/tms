@@ -74,20 +74,19 @@ class DeliveryOrderIdsDto {
  */
 export class RuleConfirmDto {
   @ApiPropertyOptional({
+    type: [String],
+    maxItems: 50,
+    example: ['OVERWEIGHT|v=…'],
     description:
-      'ยืนยันคำเตือนทั้งหมดของผลตรวจนี้ (น้ำหนักเกิน, รถไม่เข้ากับงาน/จุดส่ง, ชั่วโมงขับ, ซ้อนเวลา ฯลฯ) — ต้องมี `overrideReason`',
+      'กุญแจของกฎที่ค้างที่ผู้ใช้ยกเว้น/ยืนยัน (`warnings[].key` หรือ `blocks[].key`/`warnings[].key` ของ 409) — ' +
+      'มีผลเฉพาะกฎเหล่านี้ · กุญแจที่ไม่ค้างแล้ว → 422 `not_pending` · บล็อกต้องมี scope `trips:override` · ต้องมี `overrideReason`',
   })
   @IsOptional()
-  @IsBoolean()
-  acknowledgeWarnings?: boolean;
-
-  @ApiPropertyOptional({
-    description:
-      'ยกเว้นบล็อก (เอกสารรถบังคับหมด/ไม่มี, ใบขับขี่ไม่มี/หมด/ชั้นไม่ถึง) — ต้องมี scope `trips:override` (ผู้จัดการ/ผู้ดูแล) + `overrideReason`',
-  })
-  @IsOptional()
-  @IsBoolean()
-  overrideBlocks?: boolean;
+  @IsArray()
+  @ArrayMaxSize(50)
+  @IsString({ each: true })
+  @MaxLength(400, { each: true })
+  ruleKeys?: string[];
 
   @ApiPropertyOptional({
     type: String,
@@ -230,14 +229,20 @@ export class AssignTripDto extends RuleConfirmDto {
 /** ปล่อยรถ — ยืนยัน/ยกเว้นกฎที่ค้างในคำขอนี้ได้ (ST3-T14) */
 export class DispatchTripDto extends RuleConfirmDto {}
 
-/** ยืนยันคำเตือนที่ค้าง + ยกเว้นบล็อก (ถ้า `overrideBlocks` และมี `trips:override`) ของเที่ยวภายหลัง (ST3-T14) */
+/** ยกเว้น/ยืนยันกฎที่ค้างของเที่ยวภายหลัง — เฉพาะ `ruleKeys` ที่ส่ง (ST3-T14) */
 export class ConfirmRulesDto {
-  @ApiPropertyOptional({
-    description: 'ยกเว้นบล็อกที่ค้างด้วย — ต้องมี scope `trips:override` (ผู้จัดการ/ผู้ดูแล)',
+  @ApiProperty({
+    type: [String],
+    minItems: 1,
+    maxItems: 50,
+    description: 'กุญแจของกฎที่ค้าง (`warnings[].key`) — บล็อกต้องมี scope `trips:override`',
   })
-  @IsOptional()
-  @IsBoolean()
-  overrideBlocks?: boolean;
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(50)
+  @IsString({ each: true })
+  @MaxLength(400, { each: true })
+  ruleKeys!: string[];
 
   @ApiProperty({
     minLength: 10,
@@ -310,7 +315,11 @@ export class TripRuleOverrideDto {
   actorId!: string | null;
   @ApiProperty() at!: string;
   @ApiProperty({ description: 'ข้อความกฎ ณ ตอนยกเว้น' }) message!: string;
-  @ApiProperty({ description: 'ยังตรงกับผลตรวจล่าสุด (เปลี่ยนรถ/คนขับ = หมดผล)' }) active!: boolean;
+  @ApiProperty({ description: 'ยังมีผล (ข้อเท็จจริงเปลี่ยน/แย่ลง = หมดผล)' }) active!: boolean;
+  @ApiProperty({ nullable: true, type: String, description: 'หมดผลเมื่อ' }) supersededAt!:
+    string | null;
+  @ApiProperty({ nullable: true, enum: ['CHANGED', 'WORSENED'], type: String })
+  supersededReason!: string | null;
 }
 
 export class TripStopDto {

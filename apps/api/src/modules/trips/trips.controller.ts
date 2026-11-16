@@ -4,6 +4,7 @@ import {
   ApiCreatedResponse,
   ApiHeader,
   ApiOkResponse,
+  ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
 import {
@@ -51,8 +52,7 @@ const iso = (d: Date | null) => (d ? d.toISOString() : null);
 /** ช่องยืนยัน/ยกเว้นกฎ (ST3-T14) จาก body + สิทธิ์ `trips:override` ของผู้เรียก */
 function rulesOf(b: RuleConfirmDto): RuleConfirmInput {
   return {
-    acknowledgeWarnings: b.acknowledgeWarnings ?? false,
-    overrideBlocks: b.overrideBlocks ?? false,
+    ruleKeys: b.ruleKeys ?? [],
     reason: b.overrideReason ?? null,
     canOverride: scopeAllows(requestContext.require().scopes ?? [], RULE_OVERRIDE_SCOPE),
   };
@@ -65,8 +65,8 @@ export function tripRules(t: TripRecord) {
   const overrides = (t.ruleOverrides as unknown as RuleOverride[]) ?? [];
   const p = pendingRules(results, overrides, ctx);
   const covered = new Set(p.covered);
-  const keys = new Set(results.map((w) => ruleKey(w, ctx)));
-  return { results, overrides, pending: p, covered, keys };
+  const activeKeys = new Set(p.covered.map((w) => ruleKey(w, ctx)));
+  return { results, overrides, pending: p, covered, activeKeys, ctx };
 }
 
 export function toTripDto(t: TripRecord): TripDto {
@@ -141,6 +141,7 @@ export function toTripDto(t: TripRecord): TripDto {
       return {
         warnings: r.results.map((w) => ({
           ...w,
+          key: ruleKey(w, r.ctx),
           confirmed: w.severity === 'info' || r.covered.has(w),
         })),
         ruleOverrides: r.overrides.map((o) => ({
@@ -151,7 +152,9 @@ export function toTripDto(t: TripRecord): TripDto {
           actorId: o.actorId,
           at: o.at,
           message: o.message,
-          active: r.keys.has(o.key),
+          active: !o.supersededAt && r.activeKeys.has(o.key),
+          supersededAt: o.supersededAt ?? null,
+          supersededReason: o.supersededReason ?? null,
         })),
       };
     })(),
@@ -294,6 +297,13 @@ export class TripsController {
 
   /** เพิ่ม DO เข้าเที่ยว (PLANNING/ASSIGNED) */
   @Post(':id/attach')
+  @ApiOperation({
+    summary: 'เพิ่มใบส่งของเข้าเที่ยว',
+    description:
+      'กฎตอนจัด (ST3-T14) **ไม่บังคับตอนเพิ่ม/ถอด DO** — ตรวจใหม่และเก็บใน `warnings` (กระดานแสดงเป็นค้างยกเว้น/ยืนยัน) ' +
+      'แล้วบังคับอีกครั้งตอน `/dispatch` (บล็อกค้าง → 409 `assignment_blocked`, คำเตือนค้าง → 409 `assignment_warnings`) · ' +
+      'น้ำหนักที่เพิ่มขึ้นทำให้การยืนยัน "น้ำหนักเกิน" เดิมหมดผล',
+  })
   @ApiProblems(
     T403('trips:assign'),
     T404,
@@ -472,7 +482,7 @@ export class TripsController {
     const t = await this.trips.confirmRules(
       trip.id,
       {
-        overrideBlocks: body.overrideBlocks ?? false,
+        ruleKeys: body.ruleKeys,
         reason: body.overrideReason,
         canOverride: scopeAllows(requestContext.require().scopes ?? [], RULE_OVERRIDE_SCOPE),
       },

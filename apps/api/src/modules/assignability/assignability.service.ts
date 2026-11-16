@@ -77,8 +77,15 @@ export function assignabilityMessageTh(i: AssignabilityIssue): string {
       return `ใบขับขี่คนขับหมดอายุ ${thDay(i.expiredOn)}`;
     case 'assign.licenceMissing':
       return 'ยังไม่มีวันหมดอายุใบขับขี่ของคนขับ';
-    case 'assign.licenceClass':
-      return `ใบขับขี่${i.params.licenceClass ? ` ${LIC_TH[i.params.licenceClass] ?? i.params.licenceClass}` : ''} ไม่ถึงชั้น ${LIC_TH[i.params.required ?? ''] ?? i.params.required} ที่รถคันนี้ต้องใช้`;
+    case 'assign.licenceClass': {
+      const have = i.params.licenceClass
+        ? ` ${LIC_TH[i.params.licenceClass] ?? i.params.licenceClass}`
+        : '';
+      const need = LIC_TH[i.params.required ?? ''] ?? i.params.required;
+      return i.params.basis === 'DANGEROUS_GOODS'
+        ? `สินค้าอันตรายต้องใช้ใบขับขี่ ${need} — ใบขับขี่คนขับ${have} ไม่ถึงชั้น`
+        : `ใบขับขี่${have} ไม่ถึงชั้น ${need} ที่รถคันนี้ต้องใช้`;
+    }
     default:
       return i.code;
   }

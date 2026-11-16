@@ -39,6 +39,7 @@ class BoardBlockIssueDto {
 }
 
 class BoardRuleDto {
+  @ApiProperty({ description: 'กุญแจของกฎ (ส่งใน `ruleKeys` ของ /confirm-rules)' }) key!: string;
   @ApiProperty({ example: 'OVERWEIGHT' }) code!: string;
   @ApiProperty({ enum: ['block', 'warning'] }) severity!: 'block' | 'warning';
   @ApiProperty({ example: 'น้ำหนักเกิน 800 กก. (6,800 / 6,000 กก.)' }) message!: string;

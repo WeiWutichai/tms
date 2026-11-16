@@ -611,7 +611,7 @@ const BODY_FOR_SUFFIX: Record<string, object> = {
   assign: { vehicleId: `veh_${'0'.repeat(32)}` },
   offer: { carrierId: `car_${'0'.repeat(32)}` },
   schedule: { plannedStartAt: '2026-11-13T08:00:00+07:00' }, // ST3-T12 /trips/:id/schedule
-  'confirm-rules': { overrideReason: 'isolation test reason' }, // ST3-T14 /trips/:id/confirm-rules
+  'confirm-rules': { ruleKeys: ['x'], overrideReason: 'isolation test reason' }, // ST3-T14 /trips/:id/confirm-rules
   approve: { reason: 'isolation test reason' }, // ST2-T13 /rate-cards/:id/approve
   reject: { reason: 'isolation test reason' }, // ST2-T03 /customer-sites/:id/geocode/reject + ST3-T10 source-changes
   accept: { reason: 'isolation test reason' }, // ST3-T10 /orders/:id/source-changes/:changeId/accept

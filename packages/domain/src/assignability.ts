@@ -313,7 +313,12 @@ export function checkAssignability(input: AssignabilityInput): AssignabilityResu
         code: 'DRIVER_LICENCE_CLASS',
         severity,
         messageKey: 'assign.licenceClass',
-        params: { required: need, licenceClass: drv.licenceClass ?? null },
+        params: {
+          required: need,
+          licenceClass: drv.licenceClass ?? null,
+          // ชั้นที่ต้องการมาจากสินค้าอันตราย (ท.4 — PLN-084) หรือจากประเภทรถ (MD-090)
+          basis: need !== min ? 'DANGEROUS_GOODS' : 'VEHICLE_TYPE',
+        },
       });
   }
 

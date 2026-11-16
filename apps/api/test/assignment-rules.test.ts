@@ -218,40 +218,53 @@ describe('assignment rules (ST3-T14)', () => {
     });
   const codes = (ws: { code: string }[]) => ws.map((w) => w.code);
 
-  it('create + รถติดกฎเอกสาร → 409 assignment_blocked (ไม่สร้างอะไร) · planner ยกเว้น → 403 · เหตุผลสั้น → 422 · ผู้จัดการยกเว้น → 201 + rule_overrides + audit', async () => {
+  type Rule = {
+    key: string;
+    code: string;
+    severity: string;
+    confirmed?: boolean;
+    params?: Record<string, unknown>;
+  };
+  /** body ยกเว้น/ยืนยันเฉพาะกฎ `rs` */
+  const keys = (rs: Rule[], reason = REASON) => ({
+    ruleKeys: rs.map((r) => r.key),
+    overrideReason: reason,
+  });
+  const trip = async (id: string) =>
+    (await api(app, admin).get(`/v1/trips/${id}`).expect(200)).body;
+  const pending = async (id: string) =>
+    ((await trip(id)).warnings as Rule[]).filter((w) => !w.confirmed);
+
+  it('create + รถติดกฎเอกสาร → 409 (ไม่สร้างอะไร, มี key) · planner ยกเว้น → 403 · เหตุผลสั้น → 422 · ผู้จัดการยกเว้นเฉพาะ key → 201 + rule_overrides + audit + event', async () => {
     const v = await blockedVehicle();
     const doId = await newDo();
     const before = await db.trip.count({ where: { tenantId } });
     const r = await create(doId, v.id).expect(409);
     expect(r.body.code).toBe('assignment_blocked');
-    expect(
-      r.body.blocks.map((b: { code: string; severity: string }) => [b.code, b.severity]),
-    ).toEqual([['DOC_CMI_EXPIRED', 'block']]);
+    expect(r.body.blocks.map((b: Rule) => [b.code, b.severity])).toEqual([
+      ['DOC_CMI_EXPIRED', 'block'],
+    ]);
+    expect(r.body.blocks[0].key).toContain('DOC_CMI_EXPIRED|v=');
     expect(r.body.overrideScope).toBe('trips:override');
     expect(await db.trip.count({ where: { tenantId } })).toBe(before);
-    expect(
-      (await db.deliveryOrder.findUniqueOrThrow({ where: { id: uuid('deliveryOrder', doId) } }))
-        .tripId,
-    ).toBeNull();
-    // planner (ไม่มี trips:override) ส่งยกเว้น → 403
-    const p = await create(doId, v.id, { overrideBlocks: true, overrideReason: REASON }, planner);
+    const p = await create(doId, v.id, keys(r.body.blocks), planner);
     expect(p.status).toBe(403);
     expect(p.body).toMatchObject({ code: 'permission_denied', required: ['trips:override'] });
-    // เหตุผลสั้น → 422 (ก่อนทำงาน)
-    const s = await create(doId, v.id, { overrideBlocks: true, overrideReason: 'สั้นไป' }, manager);
+    const s = await create(doId, v.id, keys(r.body.blocks, 'สั้นไป'), manager);
     expect(s.status).toBe(422);
     expect(s.body.errors[0]).toMatchObject({ field: 'overrideReason', code: 'too_short' });
-    // ผู้จัดการยกเว้น
-    const ok = await create(
+    // กุญแจที่ไม่ใช่กฎค้าง → 422
+    const bad = await create(
       doId,
       v.id,
-      { overrideBlocks: true, overrideReason: REASON },
+      keys([{ key: 'OVERWEIGHT|v=x', code: '', severity: '' }]),
       manager,
-    ).expect(201);
+    );
+    expect(bad.status).toBe(422);
+    expect(bad.body.errors[0]).toMatchObject({ field: 'ruleKeys[0]', code: 'not_pending' });
+    const ok = await create(doId, v.id, keys(r.body.blocks), manager).expect(201);
     expect(ok.body.status).toBe('PLANNING');
-    expect(
-      ok.body.warnings.find((w: { code: string }) => w.code === 'DOC_CMI_EXPIRED'),
-    ).toMatchObject({
+    expect(ok.body.warnings.find((w: Rule) => w.code === 'DOC_CMI_EXPIRED')).toMatchObject({
       severity: 'block',
       confirmed: true,
     });
@@ -268,53 +281,74 @@ describe('assignment rules (ST3-T14)', () => {
     expect(a).toHaveLength(1);
     expect(a[0]).toMatchObject({ reason: REASON, actorId: 'u-mgr' });
     expect(JSON.stringify(a[0]!.after)).toContain('DOC_CMI_EXPIRED');
-    // ยกเว้นแล้ว → schedule ปรับเวลาบนรถเดิมได้โดยไม่ต้องยกเว้นซ้ำ
+    // PLN-090 event
+    expect(
+      await db.domainEvent.count({
+        where: { localId: uuid('trip', ok.body.id), type: 'trip.rule_overridden' },
+      }),
+    ).toBe(1);
+    // ยกเว้นแล้ว → ปรับเวลาบนรถเดิมได้โดยไม่ต้องยกเว้นซ้ำ
     await act(ok.body.id, 'schedule', { plannedEndAt: at('11:00') }, planner).expect(200);
   });
 
-  it('schedule ย้ายไปรถติดกฎ → 409 · ยกเว้นผูกกับรถ: ย้ายไปรถติดกฎคันอื่นต้องยกเว้นใหม่ (PLN-090)', async () => {
+  it('ยกเว้นบล็อกไม่ยืนยันคำเตือนให้เอง (QA H1) · ยืนยันเฉพาะ key ที่ส่ง', async () => {
+    const v = await blockedVehicle();
+    const doId = await newDo('6800');
+    const r = await create(doId, v.id).expect(409);
+    expect(codes(r.body.warnings)).toContain('OVERWEIGHT');
+    const t = (await create(doId, v.id, keys(r.body.blocks), manager).expect(201)).body;
+    expect(t.ruleOverrides.map((o: Rule) => o.code)).toEqual(['DOC_CMI_EXPIRED']);
+    expect((await pending(t.id)).map((w) => w.code)).toEqual(['OVERWEIGHT']);
+  });
+
+  it('schedule ไปรถติดกฎ → 409 · ยกเว้นผูกกับรถ: ไปคันอื่นต้องยกเว้นใหม่ · ย้ายกลับคันเดิม การยกเว้นเดิมไม่กลับมา', async () => {
     const ok = await newVehicle();
     const b1 = await blockedVehicle();
     const b2 = await blockedVehicle();
     const t = (await create(await newDo(), ok.id).expect(201)).body;
     const r = await act(t.id, 'schedule', { vehicleId: b1.id }, planner).expect(409);
     expect(r.body.code).toBe('assignment_blocked');
-    // ไม่เปลี่ยนอะไร (rollback ทั้งคำขอ)
-    expect((await api(app, admin).get(`/v1/trips/${t.id}`).expect(200)).body.vehicle.id).toBe(
-      ok.id,
-    );
+    expect((await trip(t.id)).vehicle.id).toBe(ok.id);
     const m = await act(
       t.id,
       'schedule',
-      { vehicleId: b1.id, overrideBlocks: true, overrideReason: REASON },
+      { vehicleId: b1.id, ...keys(r.body.blocks) },
       manager,
     ).expect(200);
     expect(m.body.vehicle.id).toBe(b1.id);
-    expect((await act(t.id, 'schedule', { vehicleId: b2.id }, manager).expect(409)).body.code).toBe(
-      'assignment_blocked',
-    );
+    const r2 = await act(t.id, 'schedule', { vehicleId: b2.id }, manager).expect(409);
     const back = await act(
       t.id,
       'schedule',
-      { vehicleId: b2.id, overrideBlocks: true, overrideReason: REASON },
+      { vehicleId: b2.id, ...keys(r2.body.blocks) },
       manager,
     ).expect(200);
-    expect(back.body.ruleOverrides.map((o: { active: boolean }) => o.active)).toEqual([
-      false,
-      true,
+    expect(
+      back.body.ruleOverrides.map((o: { active: boolean; supersededReason: string | null }) => [
+        o.active,
+        o.supersededReason,
+      ]),
+    ).toEqual([
+      [false, 'CHANGED'],
+      [true, null],
     ]);
+    // กลับไป b1 → การยกเว้นเดิมของ b1 หมดผลแล้ว ต้องยกเว้นใหม่
+    expect((await act(t.id, 'schedule', { vehicleId: b1.id }, manager).expect(409)).body.code).toBe(
+      'assignment_blocked',
+    );
     expect(await audits(t.id)).toHaveLength(2);
   });
 
-  it('assign: ใบขับขี่หมด / ชั้นไม่ถึงรถพ่วง (MD-090) → 409 บล็อก · ผู้จัดการยกเว้นได้', async () => {
+  it('assign: ใบขับขี่หมด / ชั้นไม่ถึงรถพ่วง (MD-090) → 409 · ยกเว้นใบขับขี่ผูกคนขับคนนั้น (เปลี่ยนคนขับ = ยกเว้นใหม่)', async () => {
     const v = await newVehicle();
     const expired = await newDriver({ licenceExpiresOn: addDays(today, -1) });
+    const expired2 = await newDriver({ licenceExpiresOn: addDays(today, -2) });
     const t = (await create(await newDo(), null).expect(201)).body;
     const r = await act(t.id, 'assign', { vehicleId: v.id, driverId: expired.id }, planner).expect(
       409,
     );
     expect(codes(r.body.blocks)).toEqual(['DRIVER_LICENCE_EXPIRED']);
-    // รถพ่วง (ใบขับขี่ขั้นต่ำ ท.3) + คนขับ ท.2
+    expect(r.body.blocks[0].key).toContain('|d=');
     const trl = await newVehicle({ vehicleTypeId: vtTrl });
     const t2 = (await create(await newDo(), null).expect(201)).body;
     const cls = await act(t2.id, 'assign', {
@@ -322,14 +356,46 @@ describe('assignment rules (ST3-T14)', () => {
       driverId: (await newDriver()).id,
     }).expect(409);
     expect(codes(cls.body.blocks)).toEqual(['DRIVER_LICENCE_CLASS']);
-    expect(cls.body.blocks[0].message).toMatch(/ไม่ถึงชั้น ท\.3/);
-    const ok = await act(
+    expect(cls.body.blocks[0].message).toMatch(/ไม่ถึงชั้น ท\.3 ที่รถคันนี้ต้องใช้/);
+    await act(
       t.id,
       'assign',
-      { vehicleId: v.id, driverId: expired.id, overrideBlocks: true, overrideReason: REASON },
+      { vehicleId: v.id, driverId: expired.id, ...keys(r.body.blocks) },
       manager,
     ).expect(200);
-    expect(ok.body.status).toBe('ASSIGNED');
+    // ใบขับขี่ของคนใหม่ → ต้องยกเว้นใหม่
+    const r3 = await act(
+      t.id,
+      'assign',
+      { vehicleId: v.id, driverId: expired2.id },
+      manager,
+    ).expect(409);
+    expect(codes(r3.body.blocks)).toEqual(['DRIVER_LICENCE_EXPIRED']);
+  });
+
+  it('สินค้าอันตราย (บรรทัด SO is_dangerous) → ต้อง ท.4 · ข้อความบอกว่าสินค้าต้องการ (QA M2/L1)', async () => {
+    const v = await newVehicle();
+    const drv = await newDriver({ licenceClass: 'T3' });
+    const doId = await newDo();
+    const so = await db.deliveryOrder.findUniqueOrThrow({
+      where: { id: uuid('deliveryOrder', doId) },
+    });
+    await db.salesOrderLine.updateMany({
+      where: { salesOrderId: so.salesOrderId },
+      data: { isDangerous: true },
+    });
+    const t = (await create(doId, null).expect(201)).body;
+    const r = await act(t.id, 'assign', { vehicleId: v.id, driverId: drv.id }).expect(409);
+    expect(r.body.blocks.map((b: Rule) => [b.code, b.params?.required, b.params?.basis])).toEqual([
+      ['DRIVER_LICENCE_CLASS', 'T4', 'DANGEROUS_GOODS'],
+    ]);
+    expect(r.body.blocks[0].message).toBe(
+      'สินค้าอันตรายต้องใช้ใบขับขี่ ท.4 — ใบขับขี่คนขับ ท.3 ไม่ถึงชั้น',
+    );
+    await act(t.id, 'assign', {
+      vehicleId: v.id,
+      driverId: (await newDriver({ licenceClass: 'T4' })).id,
+    }).expect(200);
   });
 
   it('เกณฑ์ตรวจรับ: รถร่วม พ.ร.บ. หมด assign ไม่ได้ถ้าไม่ใช่ผู้มีสิทธิ์ยกเว้น', async () => {
@@ -344,56 +410,51 @@ describe('assignment rules (ST3-T14)', () => {
     await addDoc(sub.id, 'COMPULSORY_ACT', -3);
     const t = (await create(await newDo(), null).expect(201)).body;
     await act(t.id, 'offer', { carrierId: car.id }, planner).expect(200);
-    expect((await act(t.id, 'assign', { vehicleId: sub.id }, planner).expect(409)).body.code).toBe(
-      'assignment_blocked',
-    );
+    const r = await act(t.id, 'assign', { vehicleId: sub.id }, planner).expect(409);
+    expect(r.body.code).toBe('assignment_blocked');
     expect(
       (
-        await act(
-          t.id,
-          'assign',
-          { vehicleId: sub.id, overrideBlocks: true, overrideReason: REASON },
-          planner,
-        ).expect(403)
+        await act(t.id, 'assign', { vehicleId: sub.id, ...keys(r.body.blocks) }, planner).expect(
+          403,
+        )
       ).body.code,
     ).toBe('permission_denied');
     const ok = await act(
       t.id,
       'assign',
-      { vehicleId: sub.id, overrideBlocks: true, overrideReason: REASON },
+      { vehicleId: sub.id, ...keys(r.body.blocks) },
       admin,
     ).expect(200);
     expect(ok.body).toMatchObject({ status: 'ASSIGNED', assignmentStatus: 'ACCEPTED' });
     expect(await audits(t.id)).toHaveLength(1);
   });
 
-  it('เกณฑ์ตรวจรับ: จัดงานเกินน้ำหนัก → คำเตือน (บันทึกได้) · กระดานค้าง "รออนุมัติ" · ปล่อยรถไม่ได้จนยืนยัน · ยืนยันต้องมีเหตุผลและอยู่ใน audit', async () => {
+  it('เกณฑ์ตรวจรับ: เกินน้ำหนัก → คำเตือน (บันทึกได้) · กระดานค้าง · ปล่อยรถไม่ได้จนยืนยัน · น้ำหนักเพิ่มหลังยืนยัน → ค้างใหม่ (WORSENED)', async () => {
     const v = await newVehicle();
     const drv = await newDriver({ defaultVehicleId: v.id });
     const t = (await create(await newDo('6800'), v.id).expect(201)).body;
-    const ow = t.warnings.find((w: { code: string }) => w.code === 'OVERWEIGHT');
+    const ow = t.warnings.find((w: Rule) => w.code === 'OVERWEIGHT');
     expect(ow).toMatchObject({ severity: 'warning', confirmed: false, params: { over: '800' } });
     expect(ow.message).toBe('น้ำหนักเกิน 800 กก. (6,800 / 6,000 กก.)');
     const board = async () =>
       (
         (await api(app, admin).get(`/v1/planning/board?date=${today}`).expect(200)).body.trips as {
           id: string;
-          pendingRules: { code: string; severity: string }[];
+          pendingRules: Rule[];
           confirmedRules: number;
         }[]
       ).find((x) => x.id === t.id)!;
     expect((await board()).pendingRules).toEqual([
-      expect.objectContaining({ code: 'OVERWEIGHT', severity: 'warning' }),
+      expect.objectContaining({ code: 'OVERWEIGHT', key: ow.key }),
     ]);
-    const a = await act(t.id, 'assign', { vehicleId: v.id, driverId: drv.id }).expect(200);
-    const d = await act(a.body.id, 'dispatch').expect(409);
+    await act(t.id, 'assign', { vehicleId: v.id, driverId: drv.id }).expect(200);
+    const d = await act(t.id, 'dispatch').expect(409);
     expect(d.body.code).toBe('assignment_warnings');
     expect(codes(d.body.warnings)).toEqual(['OVERWEIGHT']);
-    // ยืนยันภายหลัง (กระดาน "… · ขออนุมัติ") — เหตุผลบังคับ
-    expect((await act(t.id, 'confirm-rules', {}, planner).expect(422)).body.code).toBe(
-      'validation_failed',
-    );
-    const c = await act(t.id, 'confirm-rules', { overrideReason: REASON }, planner).expect(200);
+    expect(
+      (await act(t.id, 'confirm-rules', { overrideReason: REASON }, planner).expect(422)).body.code,
+    ).toBe('validation_failed');
+    const c = await act(t.id, 'confirm-rules', keys([ow]), planner).expect(200);
     expect(c.body.ruleOverrides).toEqual([
       expect.objectContaining({
         code: 'OVERWEIGHT',
@@ -404,29 +465,33 @@ describe('assignment rules (ST3-T14)', () => {
     ]);
     expect(await board()).toMatchObject({ pendingRules: [], confirmedRules: 1 });
     expect((await audits(t.id))[0]).toMatchObject({ reason: REASON, actorId: 'u-plan' });
-    // ไม่มีอะไรค้าง → confirm ซ้ำไม่เปลี่ยน
-    expect(
-      (await act(t.id, 'confirm-rules', { overrideReason: REASON }, planner).expect(200)).body
-        .version,
-    ).toBe(c.body.version);
-    await act(t.id, 'dispatch').expect(200);
+    // ยืนยันแล้วยืนยันซ้ำ → กุญแจไม่ค้าง 422
+    await act(t.id, 'confirm-rules', keys([ow]), planner).expect(422);
+    // น้ำหนักเพิ่ม (เพิ่ม DO) → การยืนยันหมดผล ต้องยืนยันใหม่
+    await act(t.id, 'attach', { deliveryOrderIds: [await newDo('500')] }).expect(200);
+    const again = await pending(t.id);
+    expect(again.map((w) => [w.code, w.params?.load])).toEqual([['OVERWEIGHT', '7300']]);
+    expect((await trip(t.id)).ruleOverrides[0]).toMatchObject({
+      active: false,
+      supersededReason: 'WORSENED',
+    });
+    await act(t.id, 'dispatch').expect(409);
+    await act(t.id, 'dispatch', keys(again)).expect(200);
   });
 
-  it('ปล่อยรถ: ยืนยันคำเตือนในคำขอเดียวกันได้ (acknowledgeWarnings + เหตุผล)', async () => {
+  it('ปล่อยรถ: ยืนยันคำเตือนในคำขอเดียวกันได้ (ruleKeys + เหตุผล)', async () => {
     const v = await newVehicle();
     const drv = await newDriver();
     const t = (await create(await newDo('7000'), null).expect(201)).body;
     await act(t.id, 'assign', { vehicleId: v.id, driverId: drv.id }).expect(200);
-    await act(t.id, 'dispatch', { acknowledgeWarnings: true, overrideReason: 'สั้น' }).expect(422);
-    const r = await act(t.id, 'dispatch', {
-      acknowledgeWarnings: true,
-      overrideReason: REASON,
-    }).expect(200);
+    const ws = await pending(t.id);
+    await act(t.id, 'dispatch', keys(ws, 'สั้น')).expect(422);
+    const r = await act(t.id, 'dispatch', keys(ws)).expect(200);
     expect(r.body.status).toBe('DISPATCHED');
-    expect(r.body.ruleOverrides.map((o: { code: string }) => o.code)).toEqual(['OVERWEIGHT']);
+    expect(r.body.ruleOverrides.map((o: Rule) => o.code)).toEqual(['OVERWEIGHT']);
   });
 
-  it('คำเตือนอื่นตาม D-07: จุดส่งไม่รับประเภทรถ (LOCATION_VEHICLE_LIMIT), ชั่วโมงขับเกิน 8 ชม., ซ้อนเวลา — ไม่บล็อก', async () => {
+  it('คำเตือนอื่น: จุดส่งไม่รับประเภทรถ, ชั่วโมงขับเกิน 8 ชม., ซ้อนเวลา (ชุดเที่ยวซ้อนเปลี่ยน = ค้างใหม่)', async () => {
     const v = await newVehicle({ vehicleTypeId: vtTrl });
     const drv = await newDriver({ licenceClass: 'T3' });
     const narrow = await site({ maxVehicleClass: '6W' });
@@ -436,9 +501,7 @@ describe('assignment rules (ST3-T14)', () => {
         plannedEndAt: at('11:00'),
       }).expect(201)
     ).body;
-    expect(
-      t1.warnings.find((w: { code: string }) => w.code === 'LOCATION_VEHICLE_LIMIT'),
-    ).toMatchObject({
+    expect(t1.warnings.find((w: Rule) => w.code === 'LOCATION_VEHICLE_LIMIT')).toMatchObject({
       severity: 'warning',
     });
     await act(t1.id, 'assign', { vehicleId: v.id, driverId: drv.id }).expect(200);
@@ -448,15 +511,51 @@ describe('assignment rules (ST3-T14)', () => {
         plannedEndAt: at('15:00'),
       }).expect(201)
     ).body;
-    expect(codes(t2.warnings)).toContain('vehicle_overlap');
+    const ovl = t2.warnings.find((w: Rule) => w.code === 'vehicle_overlap');
+    expect(ovl.key).toContain('trips=');
+    await act(t2.id, 'confirm-rules', keys([ovl]), planner).expect(200);
     const a2 = await act(t2.id, 'assign', { vehicleId: v.id, driverId: drv.id }).expect(200);
-    const dh = a2.body.warnings.find((w: { code: string }) => w.code === 'DRIVING_HOURS_EXCEEDED');
+    const dh = a2.body.warnings.find((w: Rule) => w.code === 'DRIVING_HOURS_EXCEEDED');
     expect(dh).toMatchObject({ severity: 'warning', params: { hours: '10.0', limit: 8 } });
-    expect(a2.body.warnings.every((w: { severity: string }) => w.severity !== 'block')).toBe(true);
+    expect(a2.body.warnings.every((w: Rule) => w.severity !== 'block')).toBe(true);
+    // เที่ยวที่ 3 มาซ้อน → ชุดเที่ยวซ้อนของ t2 เปลี่ยนเมื่อ t2 ถูกตรวจใหม่ → ค้างใหม่
+    await create(await newDo(), v.id, {
+      plannedStartAt: at('12:00'),
+      plannedEndAt: at('13:00'),
+    }).expect(201);
+    await act(t2.id, 'schedule', { plannedEndAt: at('15:30') }).expect(200);
+    expect((await pending(t2.id)).map((w) => w.code)).toContain('vehicle_overlap');
+  });
+
+  it('ชั่วโมงขับข้ามเที่ยงคืน: เที่ยวเมื่อวานที่ล้นมานับในวันนี้ (review L6)', async () => {
+    const v1 = await newVehicle();
+    const v2 = await newVehicle();
+    const drv = await newDriver();
+    const y = addDays(today, -1);
+    const night = (
+      await create(await newDo(), null, {
+        tripDate: y,
+        plannedStartAt: `${y}T20:00:00+07:00`,
+        plannedEndAt: `${today}T04:00:00+07:00`,
+      }).expect(201)
+    ).body;
+    await act(night.id, 'assign', { vehicleId: v1.id, driverId: drv.id }).expect(200);
+    const day = (
+      await create(await newDo(), null, {
+        plannedStartAt: at('06:00'),
+        plannedEndAt: at('11:00'),
+      }).expect(201)
+    ).body;
+    const r = await act(day.id, 'assign', { vehicleId: v2.id, driverId: drv.id }).expect(200);
+    expect(r.body.warnings.find((w: Rule) => w.code === 'DRIVING_HOURS_EXCEEDED')).toMatchObject({
+      params: { hours: '9.0', date: today },
+    });
   });
 
   it('แยก tenant: confirm-rules เที่ยวของบริษัทอื่น → 404', async () => {
     const t = (await create(await newDo(), null).expect(201)).body;
-    await act(t.id, 'confirm-rules', { overrideReason: REASON }, other).expect(404);
+    await act(t.id, 'confirm-rules', { ruleKeys: ['x'], overrideReason: REASON }, other).expect(
+      404,
+    );
   });
 });

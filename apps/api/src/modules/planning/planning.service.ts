@@ -3,6 +3,7 @@ import type { Prisma } from '@prisma/client';
 import {
   checkAssignability,
   pendingRules,
+  ruleKey,
   vehicleOverlaps,
   type RuleOverride,
   type RuleResult,
@@ -229,13 +230,19 @@ export class PlanningService {
         overlapsWith: (overlaps.get(t.id) ?? []).map((id) => no.get(id)!).sort(),
         ...(() => {
           const results = (t.ruleWarnings as unknown as (RuleResult & { message: string })[]) ?? [];
-          const p = pendingRules(results, (t.ruleOverrides as unknown as RuleOverride[]) ?? [], {
+          const ctx = {
             vehicleId: t.vehicleId,
             driverId: t.driverId,
             reliefDriverId: t.reliefDriverId,
-          });
+          };
+          const p = pendingRules(
+            results,
+            (t.ruleOverrides as unknown as RuleOverride[]) ?? [],
+            ctx,
+          );
           return {
             pendingRules: [...p.blocks, ...p.warnings].map((w) => ({
+              key: ruleKey(w, ctx),
               code: w.code,
               severity: w.severity as 'block' | 'warning',
               message: w.message,

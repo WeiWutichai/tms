@@ -104,7 +104,7 @@ async function seed(page: Page, email: string) {
     carrierId: carrier.id,
     payloadKg: 6000,
   });
-  for (const w of ['6800', '2000'])
+  for (const w of ['6800', '2000', '1500'])
     so.push(
       await post('/v1/orders', {
         customer: { id: cust.id },
@@ -214,28 +214,44 @@ test.describe.serial('กฎตอนจัดรถ (ST3-T14)', () => {
     test.use({ loginEmail: 'manager@demo-a.test' });
     test.beforeEach(async ({ page }) => seed(page, 'manager@demo-a.test'));
 
-    test('ยกเว้นกฎพร้อมเหตุผล → วางลงรถร่วมได้ · เที่ยวมีบันทึกการยกเว้น', async ({ page }) => {
+    test('ยกเว้นทีละเที่ยว: วางลงรถร่วมติดกฎ → "ห้ามจ่ายงาน" → ยกเว้นพร้อมเหตุผล → เกิดเที่ยว · เที่ยวถัดไปต้องยืนยันเอง (เติมเหตุผลให้)', async ({
+      page,
+    }) => {
       await open(page);
+      const why = 'รถร่วมส่งกรมธรรม์ใหม่แล้ว รอบันทึกในระบบ';
+      // (i) ของแถวรถที่ยังไม่มีเที่ยวติดกฎ → ยกเว้นล่วงหน้าทั้งคันไม่ได้
       const row = page.getByTestId(`plan-row-${SUB}`);
       await row.scrollIntoViewIfNeeded();
       await row.getByRole('button', { name: 'ดูสาเหตุ' }).click();
       const dlg = page.getByTestId('plan-blocked-dialog');
-      await expect(dlg).toContainText('การยกเว้นจะบันทึกลง log กิจกรรมของเที่ยวรถ');
-      await dlg.getByRole('textbox').fill('รถร่วมส่งกรมธรรม์ใหม่แล้ว รอบันทึกในระบบ');
-      await dlg.getByRole('button', { name: /ยกเว้นและบันทึก log/ }).click();
-      await expect(page.getByRole('status')).toContainText(`ยกเว้นกฎสำหรับ ${SUB}`);
+      await expect(dlg).toContainText('ยังไม่มีเที่ยวที่ติดกฎบนรถคันนี้');
+      await expect(dlg.getByRole('textbox')).toBeDisabled();
+      await dlg.getByRole('button', { name: 'ปิด' }).click();
+      // วางลงรถ → server 409 → dialog ยกเว้นเฉพาะเที่ยวนี้
       const track = page.getByTestId(`plan-track-${SUB}`);
-      await expect(track).not.toHaveCSS('background-image', /135deg/);
-      const box = (await track.boundingBox())!;
+      let box = (await track.boundingBox())!;
       await dragTo(page, page.getByTestId(`plan-pool-${so[1]!.soNo}`), xAt(box, 13.05), box.y + 40);
+      await expect(page.getByRole('status')).toContainText('วางไม่ได้: รถติดกฎห้ามจ่ายงาน');
+      await expect(dlg).toContainText('การยกเว้นจะบันทึกลง log กิจกรรมของเที่ยวรถ');
+      await dlg.getByRole('textbox').fill(why);
+      await dlg.getByRole('button', { name: /ยกเว้นและบันทึก log/ }).click();
       await expect(page.getByRole('status')).toContainText(`จัด ${so[1]!.soNo} ให้ ${SUB} แล้ว`);
       const t = (await tripOf(page, so[1]!.soNo))!;
       expect(t.vehiclePlate).toBe(SUB);
-      expect(t.confirmedRules).toBeGreaterThan(0);
       const ov = await ruleOverrides(page, t.id);
-      expect(ov.every((o) => o.kind === 'OVERRIDE')).toBe(true);
-      expect(ov[0]!.reason).toBe('รถร่วมส่งกรมธรรม์ใหม่แล้ว รอบันทึกในระบบ');
+      expect(ov.length).toBeGreaterThan(0);
+      expect(ov.every((o) => o.kind === 'OVERRIDE' && o.code.startsWith('DOC_'))).toBe(true);
+      expect(ov[0]!.reason).toBe(why);
       await expect(page.getByTestId(`plan-overridden-${t.tripNo}`)).toBeVisible();
+      // เที่ยวถัดไปบนรถคันเดิม: ต้องยืนยันอีกครั้ง (เหตุผลเดิมเติมให้)
+      box = (await track.boundingBox())!;
+      await dragTo(page, page.getByTestId(`plan-pool-${so[2]!.soNo}`), xAt(box, 6.55), box.y + 40);
+      await expect(dlg).toBeVisible();
+      await expect(dlg.getByRole('textbox')).toHaveValue(why);
+      expect(await tripOf(page, so[2]!.soNo)).toBeUndefined();
+      await dlg.getByRole('button', { name: /ยกเว้นและบันทึก log/ }).click();
+      await expect(page.getByRole('status')).toContainText(`จัด ${so[2]!.soNo} ให้ ${SUB} แล้ว`);
+      expect((await tripOf(page, so[2]!.soNo))!.vehiclePlate).toBe(SUB);
     });
   });
 });
