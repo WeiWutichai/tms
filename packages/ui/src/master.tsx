@@ -319,10 +319,24 @@ export function ReasonDialog({
   error,
   busy,
   okIcon,
+  diff,
+  hint,
   onOk,
   onClose,
 }: {
   open: boolean;
+  /**
+   * ตารางเทียบ "ฟิลด์ | เดิม | ใหม่" เหนือช่องเหตุผล (ต้นแบบ TMS v4 vDialog `diff` — แถวพื้นแดงอ่อน ค่าเดิมขีดฆ่า)
+   * `labels` = หัวคอลัมน์ [ฟิลด์, เดิม, ใหม่]
+   */
+  /** ข้อความใต้ช่องเหตุผล ตามจำนวนอักษร (ต้นแบบ vDialog: "กรอกอย่างน้อย 10 ตัวอักษร (n/10)" / ผ่านแล้วสีเขียว) */
+  hint?: (count: number, ok: boolean) => ReactNode;
+  diff?: {
+    rows: { f: ReactNode; b: ReactNode; a: ReactNode }[];
+    labels: [string, string, string];
+    /** คอลัมน์ที่ขีดฆ่า (ค่าที่จะถูกทิ้ง) — ค่าตั้งต้น 'before' ตามต้นแบบ */
+    strike?: 'before' | 'after';
+  };
   title: ReactNode;
   description?: ReactNode;
   label: ReactNode;
@@ -402,6 +416,34 @@ export function ReasonDialog({
           </button>
         </div>
         <div className="tms-dialog__body">
+          {diff && diff.rows.length > 0 && (
+            <div className="tms-dialog__diff" role="table">
+              <div className="tms-dialog__diffhead" role="row">
+                {diff.labels.map((l) => (
+                  <span key={l} role="columnheader">
+                    {l}
+                  </span>
+                ))}
+              </div>
+              {diff.rows.map((r, i) => (
+                <div key={i} className="tms-dialog__diffrow" role="row">
+                  <span role="cell">{r.f}</span>
+                  <span
+                    role="cell"
+                    className={diff.strike === 'after' ? 'tms-dialog__diffa' : 'tms-dialog__diffb'}
+                  >
+                    {r.b}
+                  </span>
+                  <span
+                    role="cell"
+                    className={diff.strike === 'after' ? 'tms-dialog__diffb' : 'tms-dialog__diffa'}
+                  >
+                    {r.a}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
           <label className="tms-field" htmlFor={id}>
             <span className="tms-label">
               {label} <span style={{ color: '#B3322A' }}>*</span>
@@ -416,6 +458,16 @@ export function ReasonDialog({
               autoFocus
             />
           </label>
+          {hint && (
+            <span
+              style={{
+                fontSize: 13,
+                color: reason.trim().length >= minLength ? '#17733F' : '#3B424C',
+              }}
+            >
+              {hint(reason.trim().length, reason.trim().length >= minLength)}
+            </span>
+          )}
           {error && <span className="tms-field-error">{error}</span>}
         </div>
         <div className="tms-dialog__foot">

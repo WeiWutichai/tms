@@ -43,6 +43,11 @@ export function useOrder(id: string | null) {
     queryKey: [KEY, 'one', id],
     enabled: !!id,
     staleTime: 0,
+    // ผู้อื่นแก้อยู่ (ST3-T08) → ตรวจซ้ำทุก 30 วินาที ให้ป้าย "กำลังแก้ไขโดย …" หายเองเมื่อเขาปิด/ล็อกหมดอายุ
+    refetchInterval: (q) => {
+      const l = (q.state.data as Order | undefined)?.editLock;
+      return l && !l.mine ? 30_000 : false;
+    },
     queryFn: () =>
       unwrap(api.GET('/v1/orders/{id}', { params: { path: { id: id! } } })) as Promise<Order>,
   });
@@ -75,6 +80,73 @@ export function useUpdateOrder() {
       ),
     onError: refetchOnStale(qc, KEY),
     onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
+  });
+}
+
+/** ยกเลิกใบสั่งขนส่ง (ST3-T10) — เหตุผล ≥ 10 ตัวอักษร · If-Match = version ที่เห็นใน drawer */
+export function useCancelOrder() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { id: string; version: number; reason: string }) =>
+      unwrap(
+        api.POST('/v1/orders/{id}/cancel', {
+          params: { path: { id: v.id }, header: { 'If-Match': `"${v.version}"` } },
+          body: { reason: v.reason },
+        }),
+      ) as Promise<Order>,
+    onError: refetchOnStale(qc, KEY),
+    onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
+  });
+}
+
+/** รับ/ไม่รับ การเปลี่ยนแปลงจากต้นทาง (ST3-T10) */
+export function useDecideSourceChange() {
+  const qc = useQueryClient();
+  return useMutation({
+    /** If-Match = version ของใบที่ผู้ใช้เห็น diff (diff คำนวณกับข้อมูลตอนอ่าน) */
+    mutationFn: (v: {
+      id: string;
+      version: number;
+      changeId: string;
+      accept: boolean;
+      reason: string;
+    }) =>
+      unwrap(
+        v.accept
+          ? api.POST('/v1/orders/{id}/source-changes/{changeId}/accept', {
+              params: {
+                path: { id: v.id, changeId: v.changeId },
+                header: { 'If-Match': `"${v.version}"` },
+              },
+              body: { reason: v.reason },
+            })
+          : api.POST('/v1/orders/{id}/source-changes/{changeId}/reject', {
+              params: {
+                path: { id: v.id, changeId: v.changeId },
+                header: { 'If-Match': `"${v.version}"` },
+              },
+              body: { reason: v.reason },
+            }),
+      ) as Promise<Order>,
+    onError: refetchOnStale(qc, KEY),
+    onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
+  });
+}
+
+// ---------- ล็อกการแก้ (ST3-T08) ----------
+
+/** ปลดล็อกของผู้อื่น (`orders:unlock`) พร้อมเหตุผล ≥ 10 ตัวอักษร — server ลง audit */
+export function useForceUnlock() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { id: string; reason: string }) =>
+      unwrap(
+        api.POST('/v1/orders/{id}/unlock', {
+          params: { path: { id: v.id } },
+          body: { reason: v.reason },
+        }),
+      ),
+    onSettled: (_d, _e, v) => qc.invalidateQueries({ queryKey: [KEY, 'one', v.id] }),
   });
 }
 
@@ -196,3 +268,122 @@ export const searchProducts = (q: string) =>
       unit: p.unit ? { id: p.unit.id, label: p.unit.name } : null,
     })),
   );
+
+// ---------- หน้าใบค้าง (ST3-T07) ----------
+
+const ifMatch = (version: number) => ({ 'If-Match': `"${version}"` });
+
+/** ตารางใบค้าง: ON_HOLD ทุกเหตุ (held=true) + กรองเหตุ/ค้นหา/ที่มา */
+export function useHoldList(filters: { holdReason: string; q: string; source: string }) {
+  return useCursorList<Order>(
+    KEY,
+    { held: 'true', ...filters },
+    (query) => unwrap(api.GET('/v1/orders', { params: { query: query as never } })),
+    { sort: '-updatedAt', size: 10, persist: 'hold.list' },
+  );
+}
+
+/** จับคู่ลูกค้า (endpoint ST3-T06) — 409 alias_conflict ให้ผู้เรียกถามเหตุผลแล้วส่ง confirmReassign */
+export function useMapCustomer() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { id: string; version: number; body: Schemas['MapCustomerDto'] }) =>
+      unwrap(
+        api.POST('/v1/orders/{id}/map-customer', {
+          params: { path: { id: v.id }, header: ifMatch(v.version) as never },
+          body: v.body,
+        }),
+      ) as Promise<Order>,
+    onError: refetchOnStale(qc, KEY),
+    onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
+  });
+}
+
+/** เลือกสถานที่ของจุด (endpoint ST3-T06) */
+export function useMapSite() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { id: string; version: number; sequence: number; siteId: string }) =>
+      unwrap(
+        api.POST('/v1/orders/{id}/stops/{sequence}/map-site', {
+          params: {
+            path: { id: v.id, sequence: String(v.sequence) },
+            header: ifMatch(v.version) as never,
+          },
+          body: { siteId: v.siteId },
+        }),
+      ) as Promise<Order>,
+    onError: refetchOnStale(qc, KEY),
+    onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
+  });
+}
+
+/** ตรวจอีกครั้ง — คิดราคา + ประเมินเหตุค้างใหม่จากข้อมูลหลักปัจจุบัน */
+export function useReevaluate() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { id: string; version: number }) =>
+      unwrap(
+        api.POST('/v1/orders/{id}/reevaluate', {
+          params: { path: { id: v.id }, header: ifMatch(v.version) as never },
+        }),
+      ) as Promise<Order>,
+    onError: refetchOnStale(qc, KEY),
+    onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
+  });
+}
+
+/** ยืนยันข้อมูลใบที่ต้นทางแจ้งว่าไม่ครบ (SOURCE_ERROR) — เหตุผล ≥ 10 */
+export function useResolveSourceError() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { id: string; version: number; reason: string }) =>
+      unwrap(
+        api.POST('/v1/orders/{id}/resolve-source-error', {
+          params: { path: { id: v.id }, header: ifMatch(v.version) as never },
+          body: { reason: v.reason },
+        }),
+      ) as Promise<Order>,
+    onError: refetchOnStale(qc, KEY),
+    onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
+  });
+}
+
+export type SiteOption = Schemas['SiteDto'];
+
+/**
+ * สถานที่ให้เลือกสำหรับจุด: ของลูกค้าของใบก่อน แล้วของบริษัท — สถานที่ของลูกค้าอื่นไม่แสดง
+ * (เลือกไม่ได้ — 422 site_other_customer) · ใบยังไม่มีลูกค้า = เฉพาะของบริษัท
+ */
+export async function searchStopSites(customerId: string | null, q: string) {
+  const query = { status: 'active', limit: PICK, ...(q ? { q } : {}) };
+  const get = (extra: Record<string, string>) =>
+    unwrap(
+      api.GET('/v1/customer-sites', { params: { query: { ...query, ...extra } as never } }),
+    ).then((r) => r.data);
+  const [mine, all] = await Promise.all([customerId ? get({ customerId }) : [], get({})]);
+  const seen = new Set<string>();
+  return [...mine, ...all]
+    .filter((s) => {
+      if (seen.has(s.id)) return false;
+      seen.add(s.id);
+      return !s.customer || s.customer.id === customerId;
+    })
+    .slice(0, PICK);
+}
+
+/** กำหนดราคาเอง (ORD-043) — ค่าขนส่ง MANUAL + เหตุผล ≥ 10 · ต้องมี `prices.sell:write` */
+export function useManualPrice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { id: string; version: number; sellAmount: string; reason: string }) =>
+      unwrap(
+        api.POST('/v1/orders/{id}/manual-price', {
+          params: { path: { id: v.id }, header: ifMatch(v.version) as never },
+          body: { sellAmount: v.sellAmount, reason: v.reason },
+        }),
+      ) as Promise<Order>,
+    onError: refetchOnStale(qc, KEY),
+    onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
+  });
+}

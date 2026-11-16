@@ -3949,6 +3949,19 @@
             }
           },
           {
+            "name": "held",
+            "required": false,
+            "in": "query",
+            "description": "หน้าใบค้าง (ST3-T07): true = เฉพาะใบค้าง (ON_HOLD + ใบที่ต้นทางแก้หลังวางแผนรอตัดสิน ซึ่งสถานะยัง PLANNED) · false = ไม่รวมใบค้างทั้งสองแบบ — ใช้คู่กับ `holdReason` ได้",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          },
+          {
             "name": "customerId",
             "required": false,
             "in": "query",
@@ -4637,7 +4650,7 @@
         ],
         "responses": {
           "200": {
-            "description": "`{id}` รับ `ext:{externalId}` ได้",
+            "description": "`{id}` รับ `ext:{externalId}` ได้ · ETag = version ของใบ (ใช้กับ If-Match) — `editLock`/`editableFields` เปลี่ยนได้โดย version ไม่เปลี่ยน จึงไม่รองรับ conditional GET (`If-None-Match` ถูกละเลย ตอบ 200 เสมอ) + `Cache-Control: no-store`",
             "content": {
               "application/json": {
                 "schema": {
@@ -4706,6 +4719,7 @@
         ]
       },
       "patch": {
+        "description": "ผู้ใช้อื่นเปิดแก้อยู่ (ล็อกการแก้ยังไม่หมดอายุ — ST3-T08) → 409 `order_locked_by_user` · ผู้ถือล็อกแก้ได้และนับเป็นกิจกรรม (ต่ออายุ) · ล็อกของผู้เรียกถูกผู้อื่นปลด → 409 `order_lock_released` จนกว่าจะเปิดแก้ใหม่ (POST /lock) · ไม่มีล็อก = แก้ได้ตามปกติ · ทางเข้า POST/PUT external (API/connector/นำเข้า) ไม่ติดล็อก",
         "operationId": "Orders_update",
         "parameters": [
           {
@@ -4819,7 +4833,7 @@
             }
           },
           "409": {
-            "description": "409 `order_locked_for_update` — แก้ช่องที่สถานะไม่อนุญาต (errors[] = ช่อง, `editableFields` = ช่องที่แก้ได้): ก่อนวางแผนแก้ได้ทุกช่อง · PLANNED แก้ได้เฉพาะช่วงเวลาของจุด + customerRef · ตั้งแต่ in_transit แก้ได้เฉพาะ customerRef · ปิดงาน/ยกเลิกแก้ไม่ได้ · 409 `external_id_conflict` — externalId นี้เป็นของใบจากช่องทางอื่น",
+            "description": "409 `order_locked_for_update` — แก้ช่องที่สถานะไม่อนุญาต (errors[] = ช่อง, `editableFields` = ช่องที่แก้ได้): ก่อนวางแผนแก้ได้ทุกช่อง · PLANNED แก้ได้เฉพาะช่วงเวลาของจุด + customerRef · ตั้งแต่ in_transit แก้ได้เฉพาะ customerRef · ปิดงาน/ยกเลิกแก้ไม่ได้ · 409 `external_id_conflict` — externalId นี้เป็นของใบจากช่องทางอื่น · 409 `order_locked_by_user` — ผู้ใช้อื่นเปิดแก้อยู่",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -4862,6 +4876,40 @@
                       "requestId": "b6a1c2d3-…",
                       "from": "RECEIVED",
                       "event": "save_draft"
+                    }
+                  },
+                  "order_locked_by_user": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/order_locked_by_user",
+                      "title": "ใบสั่งขนส่งนี้กำลังถูกแก้ไขโดยผู้ใช้อื่น",
+                      "status": 409,
+                      "code": "order_locked_by_user",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "editLock": {
+                        "userId": "usr_7c1d…",
+                        "userName": "สมชาย ใจดี",
+                        "acquiredAt": "2026-11-13T02:00:00.000Z",
+                        "lastSeenAt": "2026-11-13T02:04:00.000Z",
+                        "expiresAt": "2026-11-13T02:14:00.000Z",
+                        "mine": false
+                      }
+                    }
+                  },
+                  "order_lock_released": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/order_lock_released",
+                      "title": "การแก้ไขของคุณถูกปลดล็อกโดยผู้อื่นแล้ว — โหลดใหม่ก่อนแก้ต่อ",
+                      "status": 409,
+                      "code": "order_lock_released",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "releasedBy": {
+                        "userId": "usr_9b2e…",
+                        "userName": "ผู้จัดการ ตัวอย่าง"
+                      },
+                      "releasedAt": "2026-11-13T02:06:00.000Z",
+                      "reason": "ผู้แก้ไม่อยู่ ต้องแก้วันรับของด่วน"
                     }
                   }
                 }
@@ -4967,6 +5015,1044 @@
             "bearer": []
           }
         ],
+        "summary": "แก้บางช่อง",
+        "tags": [
+          "orders"
+        ]
+      }
+    },
+    "/v1/orders/{id}/cancel": {
+      "post": {
+        "operationId": "Orders_cancel",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelOrderDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "JSON เสีย",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "bad_request": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/bad_request",
+                      "title": "คำขอไม่ถูกต้อง",
+                      "status": 400,
+                      "code": "bad_request",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`orders:read` / `orders:write`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "orders",
+                      "action": "write",
+                      "required": [
+                        "orders:write"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ไม่พบ (รวมใบของบริษัทอื่น)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`order_on_trip` — มีใบส่งของอยู่ในเที่ยว (ถอดออกจากเที่ยวก่อน) · `invalid_state_transition` — สถานะนี้ยกเลิกไม่ได้ (ออกรถ/ส่ง/ปิด/ยกเลิกแล้ว) · `order_locked_by_user` — ผู้ใช้อื่นเปิดแก้อยู่ · `order_lock_released` — ล็อกของผู้เรียกถูกปลด",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "order_on_trip": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/order_on_trip",
+                      "title": "ใบสั่งขนส่งนี้มีใบส่งของอยู่ในเที่ยวรถ — ถอดออกจากเที่ยวก่อน",
+                      "status": 409,
+                      "code": "order_on_trip",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "deliveryOrders": [
+                        "DO-6911-0001"
+                      ]
+                    }
+                  },
+                  "invalid_state_transition": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/invalid_state_transition",
+                      "title": "ทำรายการนี้ไม่ได้ในสถานะปัจจุบัน",
+                      "status": 409,
+                      "code": "invalid_state_transition",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "from": "IN_TRANSIT",
+                      "event": "cancel"
+                    }
+                  },
+                  "order_locked_by_user": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/order_locked_by_user",
+                      "title": "ใบสั่งขนส่งนี้กำลังถูกแก้ไขโดยผู้ใช้อื่น",
+                      "status": 409,
+                      "code": "order_locked_by_user",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "editLock": {
+                        "userId": "usr_7c1d…",
+                        "userName": "สมชาย ใจดี",
+                        "acquiredAt": "2026-11-13T02:00:00.000Z",
+                        "lastSeenAt": "2026-11-13T02:04:00.000Z",
+                        "expiresAt": "2026-11-13T02:14:00.000Z",
+                        "mine": false
+                      }
+                    }
+                  },
+                  "order_lock_released": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/order_lock_released",
+                      "title": "การแก้ไขของคุณถูกปลดล็อกโดยผู้อื่นแล้ว — โหลดใหม่ก่อนแก้ต่อ",
+                      "status": 409,
+                      "code": "order_lock_released",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "releasedBy": {
+                        "userId": "usr_9b2e…",
+                        "userName": "ผู้จัดการ ตัวอย่าง"
+                      },
+                      "releasedAt": "2026-11-13T02:06:00.000Z",
+                      "reason": "ผู้แก้ไม่อยู่ ต้องแก้วันรับของด่วน"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "If-Match ไม่ตรง version / ส่ง If-Match แต่ยังไม่มีใบ",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "precondition_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/precondition_failed",
+                      "title": "ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่",
+                      "status": 412,
+                      "code": "precondition_failed",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "เหตุผลสั้นกว่า 10 ตัวอักษร / reason code ไม่ใช่หมวด CANCEL",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "reason",
+                          "code": "minLength",
+                          "message": "reason must be longer than or equal to 10 characters"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "orders"
+        ]
+      }
+    },
+    "/v1/orders/{id}/source-changes/{changeId}/accept": {
+      "post": {
+        "operationId": "Orders_acceptSourceChange",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "changeId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag ของใบที่ผู้ใช้เห็น diff — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SourceChangeDecisionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "JSON เสีย",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "bad_request": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/bad_request",
+                      "title": "คำขอไม่ถูกต้อง",
+                      "status": 400,
+                      "code": "bad_request",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`orders:read` / `orders:write`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "orders",
+                      "action": "write",
+                      "required": [
+                        "orders:write"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ไม่พบ (รวมใบของบริษัทอื่น)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`order_on_trip` — ช่องที่ต้นทางแก้ยังล็อกเพราะมีใบส่งของในเที่ยว (ถอดออกจากเที่ยวก่อนแล้วรับ) · `order_locked_for_update` — ใบออกรถ/ปิด/ยกเลิกแล้ว · `source_change_not_pending` — ชุดนี้ถูกตัดสิน/มีชุดใหม่มาแทนแล้ว · `order_locked_by_user` — ผู้ใช้อื่นเปิดแก้อยู่ · `order_lock_released` — ล็อกของผู้เรียกถูกปลด",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "order_on_trip": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/order_on_trip",
+                      "title": "ใบสั่งขนส่งนี้มีใบส่งของอยู่ในเที่ยวรถ — ถอดออกจากเที่ยวก่อน",
+                      "status": 409,
+                      "code": "order_on_trip",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "orderStatus": "PLANNED",
+                      "lockedFields": [
+                        "stops"
+                      ]
+                    }
+                  },
+                  "source_change_not_pending": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/source_change_not_pending",
+                      "title": "การเปลี่ยนแปลงจากต้นทางชุดนี้ถูกตัดสินไปแล้ว หรือมีชุดใหม่มาแทน — โหลดใหม่",
+                      "status": 409,
+                      "code": "source_change_not_pending",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "changeStatus": "SUPERSEDED"
+                    }
+                  },
+                  "order_locked_by_user": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/order_locked_by_user",
+                      "title": "ใบสั่งขนส่งนี้กำลังถูกแก้ไขโดยผู้ใช้อื่น",
+                      "status": 409,
+                      "code": "order_locked_by_user",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "editLock": {
+                        "userId": "usr_7c1d…",
+                        "userName": "สมชาย ใจดี",
+                        "acquiredAt": "2026-11-13T02:00:00.000Z",
+                        "lastSeenAt": "2026-11-13T02:04:00.000Z",
+                        "expiresAt": "2026-11-13T02:14:00.000Z",
+                        "mine": false
+                      }
+                    }
+                  },
+                  "order_lock_released": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/order_lock_released",
+                      "title": "การแก้ไขของคุณถูกปลดล็อกโดยผู้อื่นแล้ว — โหลดใหม่ก่อนแก้ต่อ",
+                      "status": 409,
+                      "code": "order_lock_released",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "releasedBy": {
+                        "userId": "usr_9b2e…",
+                        "userName": "ผู้จัดการ ตัวอย่าง"
+                      },
+                      "releasedAt": "2026-11-13T02:06:00.000Z",
+                      "reason": "ผู้แก้ไม่อยู่ ต้องแก้วันรับของด่วน"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "If-Match ไม่ตรง version / ส่ง If-Match แต่ยังไม่มีใบ",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "precondition_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/precondition_failed",
+                      "title": "ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่",
+                      "status": 412,
+                      "code": "precondition_failed",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "เหตุผลสั้นกว่า 10 ตัวอักษร / reason code ไม่ใช่หมวด CANCEL",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "reason",
+                          "code": "minLength",
+                          "message": "reason must be longer than or equal to 10 characters"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "orders"
+        ]
+      }
+    },
+    "/v1/orders/{id}/source-changes/{changeId}/reject": {
+      "post": {
+        "operationId": "Orders_rejectSourceChange",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "changeId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag ของใบที่ผู้ใช้เห็น diff — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SourceChangeDecisionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "JSON เสีย",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "bad_request": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/bad_request",
+                      "title": "คำขอไม่ถูกต้อง",
+                      "status": 400,
+                      "code": "bad_request",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`orders:read` / `orders:write`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "orders",
+                      "action": "write",
+                      "required": [
+                        "orders:write"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ไม่พบ (รวมใบของบริษัทอื่น)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`order_on_trip` — ช่องที่ต้นทางแก้ยังล็อกเพราะมีใบส่งของในเที่ยว (ถอดออกจากเที่ยวก่อนแล้วรับ) · `order_locked_for_update` — ใบออกรถ/ปิด/ยกเลิกแล้ว · `source_change_not_pending` — ชุดนี้ถูกตัดสิน/มีชุดใหม่มาแทนแล้ว · `order_locked_by_user` — ผู้ใช้อื่นเปิดแก้อยู่ · `order_lock_released` — ล็อกของผู้เรียกถูกปลด",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "order_on_trip": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/order_on_trip",
+                      "title": "ใบสั่งขนส่งนี้มีใบส่งของอยู่ในเที่ยวรถ — ถอดออกจากเที่ยวก่อน",
+                      "status": 409,
+                      "code": "order_on_trip",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "orderStatus": "PLANNED",
+                      "lockedFields": [
+                        "stops"
+                      ]
+                    }
+                  },
+                  "source_change_not_pending": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/source_change_not_pending",
+                      "title": "การเปลี่ยนแปลงจากต้นทางชุดนี้ถูกตัดสินไปแล้ว หรือมีชุดใหม่มาแทน — โหลดใหม่",
+                      "status": 409,
+                      "code": "source_change_not_pending",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "changeStatus": "SUPERSEDED"
+                    }
+                  },
+                  "order_locked_by_user": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/order_locked_by_user",
+                      "title": "ใบสั่งขนส่งนี้กำลังถูกแก้ไขโดยผู้ใช้อื่น",
+                      "status": 409,
+                      "code": "order_locked_by_user",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "editLock": {
+                        "userId": "usr_7c1d…",
+                        "userName": "สมชาย ใจดี",
+                        "acquiredAt": "2026-11-13T02:00:00.000Z",
+                        "lastSeenAt": "2026-11-13T02:04:00.000Z",
+                        "expiresAt": "2026-11-13T02:14:00.000Z",
+                        "mine": false
+                      }
+                    }
+                  },
+                  "order_lock_released": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/order_lock_released",
+                      "title": "การแก้ไขของคุณถูกปลดล็อกโดยผู้อื่นแล้ว — โหลดใหม่ก่อนแก้ต่อ",
+                      "status": 409,
+                      "code": "order_lock_released",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "releasedBy": {
+                        "userId": "usr_9b2e…",
+                        "userName": "ผู้จัดการ ตัวอย่าง"
+                      },
+                      "releasedAt": "2026-11-13T02:06:00.000Z",
+                      "reason": "ผู้แก้ไม่อยู่ ต้องแก้วันรับของด่วน"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "If-Match ไม่ตรง version / ส่ง If-Match แต่ยังไม่มีใบ",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "precondition_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/precondition_failed",
+                      "title": "ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่",
+                      "status": 412,
+                      "code": "precondition_failed",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "เหตุผลสั้นกว่า 10 ตัวอักษร / reason code ไม่ใช่หมวด CANCEL",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "reason",
+                          "code": "minLength",
+                          "message": "reason must be longer than or equal to 10 characters"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "orders"
+        ]
+      }
+    },
+    "/v1/orders/{id}/lock": {
+      "post": {
+        "description": "ได้ล็อก (หรือต่ออายุของตัวเอง) → 200 + ผู้ถือ/เวลาหมดอายุ (กิจกรรมล่าสุด + 10 นาที) · ผู้อื่นถืออยู่ → 409 `order_locked_by_user` · ล็อกของผู้อื่นที่หมดอายุแล้วถูกแทนที่ทันที · ใช้ได้เฉพาะผู้ใช้ในบริษัท (token อื่น → 403 `edit_lock_user_required`)",
+        "operationId": "Orders_lock",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrderLockDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderEditLockDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`orders:read` / `orders:write`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "orders",
+                      "action": "write",
+                      "required": [
+                        "orders:write"
+                      ]
+                    }
+                  },
+                  "edit_lock_user_required": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/edit_lock_user_required",
+                      "title": "การล็อกเพื่อแก้ไขใช้ได้เฉพาะผู้ใช้ในระบบ",
+                      "status": 403,
+                      "code": "edit_lock_user_required",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ไม่พบ (รวมใบของบริษัทอื่น)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "409 `order_locked_by_user` — ผู้ใช้อื่นเปิดแก้อยู่ (`editLock` = ผู้ถือ + เวลาหมดอายุ) · `order_lock_released` — ล็อกของผู้เรียกถูกผู้อื่นปลด (heartbeat/PATCH) จนกว่าจะเปิดแก้ใหม่ · `concurrent_update` — ล็อกเปลี่ยนมือระหว่างขอ ลองใหม่ได้",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "order_locked_by_user": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/order_locked_by_user",
+                      "title": "ใบสั่งขนส่งนี้กำลังถูกแก้ไขโดยผู้ใช้อื่น",
+                      "status": 409,
+                      "code": "order_locked_by_user",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "editLock": {
+                        "userId": "usr_7c1d…",
+                        "userName": "สมชาย ใจดี",
+                        "acquiredAt": "2026-11-13T02:00:00.000Z",
+                        "lastSeenAt": "2026-11-13T02:04:00.000Z",
+                        "expiresAt": "2026-11-13T02:14:00.000Z",
+                        "mine": false
+                      }
+                    }
+                  },
+                  "order_lock_released": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/order_lock_released",
+                      "title": "การแก้ไขของคุณถูกปลดล็อกโดยผู้อื่นแล้ว — โหลดใหม่ก่อนแก้ต่อ",
+                      "status": 409,
+                      "code": "order_lock_released",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "releasedBy": {
+                        "userId": "usr_9b2e…",
+                        "userName": "ผู้จัดการ ตัวอย่าง"
+                      },
+                      "releasedAt": "2026-11-13T02:06:00.000Z",
+                      "reason": "ผู้แก้ไม่อยู่ ต้องแก้วันรับของด่วน"
+                    }
+                  },
+                  "concurrent_update": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/concurrent_update",
+                      "title": "มีการแก้ไขข้อมูลเดียวกันพร้อมกัน กรุณาลองใหม่อีกครั้ง",
+                      "status": 409,
+                      "code": "concurrent_update",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "ขอ/ต่ออายุล็อกการแก้",
+        "tags": [
+          "orders"
+        ]
+      }
+    },
+    "/v1/orders/{id}/unlock": {
+      "post": {
+        "description": "ของตัวเอง/ไม่มีล็อก/หมดอายุ → 204 · ล็อกของผู้อื่น: ต้องมีสิทธิ์ `orders:unlock` (ไม่มี → 403) และ `reason` ≥ 10 ตัวอักษร (422) — ลง audit พร้อมเหตุผล · ผู้ถือเดิมต่ออายุ/บันทึกไม่ได้ (409 `order_lock_released`) จนกว่าจะเปิดแก้ใหม่ — คนอื่นขอล็อกได้ทันที",
+        "operationId": "Orders_unlock",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrderUnlockDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`orders:write`; ปลดล็อกของผู้อื่นต้องมี `orders:unlock`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "orders",
+                      "action": "unlock",
+                      "required": [
+                        "orders:unlock"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ไม่พบ (รวมใบของบริษัทอื่น)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ปลดล็อกของผู้อื่นโดยไม่มีเหตุผล / เหตุผลสั้นกว่า 10 ตัวอักษร",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "reason",
+                          "code": "minLength",
+                          "message": "reason must be at least 10 characters"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "ปลดล็อกการแก้",
         "tags": [
           "orders"
         ]
@@ -5223,6 +6309,771 @@
           }
         ],
         "summary": "เลือกสถานที่ให้จุดที่ยังจับคู่ไม่ได้ + จำข้อความเป็น alias (ST3-T06)",
+        "tags": [
+          "orders"
+        ]
+      }
+    },
+    "/v1/orders/{id}/reevaluate": {
+      "post": {
+        "description": "หน้าใบค้างเรียกหลังเคลียร์เหตุที่ข้อมูลหลัก (เพิ่ม/อนุมัติ rate card → RATE_MISSING, ปักพิกัดสถานที่ → GEOCODING_ERROR, เปิดใช้ลูกค้า/สถานที่) · จับคู่อัตโนมัติด้วย alias ที่เรียนรู้ล่าสุดด้วย · ไม่แก้ข้อมูลงาน · ผลเหมือนเดิม = ไม่เพิ่ม version · เหตุหมด → กลับ `received` · เหตุที่ flow อื่นตั้ง (CARRIER_REJECTED ฯลฯ) ไม่ถูกปล่อย · ใช้ได้ก่อนวางแผน (draft/received/on_hold) — ไม่งั้น 409 `invalid_state_transition` · ใบค้างด้วยเหตุตอนจัดรถ/ส่ง (CARRIER_REJECTED ฯลฯ — เคยวางแผนแล้ว ไม่คิดราคาใหม่) → 409 `invalid_state_transition` (`holdReason`) · ผู้ใช้อื่นเปิดแก้อยู่ → 409 `order_locked_by_user`",
+        "operationId": "Orders_reevaluate",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`orders:read` / `orders:write`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "orders",
+                      "action": "write",
+                      "required": [
+                        "orders:write"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ไม่พบ (รวมใบของบริษัทอื่น)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`invalid_state_transition` — ใบวางแผน/ออกรถ/ปิด/ยกเลิกแล้ว (ประเมินใหม่ได้เฉพาะก่อนวางแผน) หรือไม่มีปัญหาจากต้นทางให้ยืนยัน · `order_locked_by_user` — ผู้ใช้อื่นเปิดแก้อยู่ · `order_lock_released` — ล็อกของผู้เรียกถูกปลด",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "invalid_state_transition": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/invalid_state_transition",
+                      "title": "ทำรายการนี้ไม่ได้ในสถานะปัจจุบัน",
+                      "status": 409,
+                      "code": "invalid_state_transition",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "from": "PLANNED",
+                      "event": "reevaluate"
+                    }
+                  },
+                  "order_locked_for_update": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/order_locked_for_update",
+                      "title": "แก้ข้อมูลนี้ของใบสั่งขนส่งไม่ได้ในสถานะปัจจุบัน",
+                      "status": 409,
+                      "code": "order_locked_for_update",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "stops[1].siteId",
+                          "code": "locked",
+                          "message": "cannot change stops when order is IN_TRANSIT"
+                        },
+                        {
+                          "field": "lines[0].qty",
+                          "code": "locked",
+                          "message": "cannot change lines when order is IN_TRANSIT"
+                        }
+                      ],
+                      "orderStatus": "IN_TRANSIT",
+                      "editableFields": [
+                        "customerRef"
+                      ]
+                    }
+                  },
+                  "order_locked_by_user": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/order_locked_by_user",
+                      "title": "ใบสั่งขนส่งนี้กำลังถูกแก้ไขโดยผู้ใช้อื่น",
+                      "status": 409,
+                      "code": "order_locked_by_user",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "editLock": {
+                        "userId": "usr_7c1d…",
+                        "userName": "สมชาย ใจดี",
+                        "acquiredAt": "2026-11-13T02:00:00.000Z",
+                        "lastSeenAt": "2026-11-13T02:04:00.000Z",
+                        "expiresAt": "2026-11-13T02:14:00.000Z",
+                        "mine": false
+                      }
+                    }
+                  },
+                  "order_lock_released": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/order_lock_released",
+                      "title": "การแก้ไขของคุณถูกปลดล็อกโดยผู้อื่นแล้ว — โหลดใหม่ก่อนแก้ต่อ",
+                      "status": 409,
+                      "code": "order_lock_released",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "releasedBy": {
+                        "userId": "usr_9b2e…",
+                        "userName": "ผู้จัดการ ตัวอย่าง"
+                      },
+                      "releasedAt": "2026-11-13T02:06:00.000Z",
+                      "reason": "ผู้แก้ไม่อยู่ ต้องแก้วันรับของด่วน"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "If-Match ไม่ตรง version / ส่ง If-Match แต่ยังไม่มีใบ",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "precondition_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/precondition_failed",
+                      "title": "ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่",
+                      "status": 412,
+                      "code": "precondition_failed",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "ตรวจใบค้างอีกครั้ง — คิดราคา + ประเมินเหตุค้างใหม่จากข้อมูลหลักปัจจุบัน (ST3-T07)",
+        "tags": [
+          "orders"
+        ]
+      }
+    },
+    "/v1/orders/{id}/manual-price": {
+      "post": {
+        "description": "สร้างบรรทัด FREIGHT ที่มา `MANUAL` (รายการบริการระบบ FREIGHT — vat_type/wht_rate ตาม catalog) หรือแก้จำนวนเงินของบรรทัด MANUAL เดิม → ประเมินใบค้างใหม่ (มีค่าขนส่ง MANUAL = ไม่ค้าง RATE_MISSING · เหตุหมด → `received`) · บรรทัด MANUAL ไม่ถูกลบตอนคิดราคาใหม่ · ต้องมี `orders:write` + `prices.sell:write` (ไม่มี → 403) · เหตุผล ≥ 10 ตัวอักษร (audit `sales_order.manual_price_set`) · ใช้ได้ก่อนวางแผน (หลังวางแผน → 409 `order_locked_for_update`) · มีค่าขนส่งจาก rate card แล้ว หรือใบค้างด้วยเหตุตอนจัดรถ/ส่ง → 409 `invalid_state_transition`",
+        "operationId": "Orders_manualPrice",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManualPriceDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "JSON เสีย",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "bad_request": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/bad_request",
+                      "title": "คำขอไม่ถูกต้อง",
+                      "status": 400,
+                      "code": "bad_request",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`orders:read` / `orders:write`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "orders",
+                      "action": "write",
+                      "required": [
+                        "orders:write"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ไม่พบ (รวมใบของบริษัทอื่น)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`invalid_state_transition` — ใบวางแผน/ออกรถ/ปิด/ยกเลิกแล้ว (ประเมินใหม่ได้เฉพาะก่อนวางแผน) หรือไม่มีปัญหาจากต้นทางให้ยืนยัน · `order_locked_by_user` — ผู้ใช้อื่นเปิดแก้อยู่ · `order_lock_released` — ล็อกของผู้เรียกถูกปลด",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "invalid_state_transition": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/invalid_state_transition",
+                      "title": "ทำรายการนี้ไม่ได้ในสถานะปัจจุบัน",
+                      "status": 409,
+                      "code": "invalid_state_transition",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "from": "PLANNED",
+                      "event": "reevaluate"
+                    }
+                  },
+                  "order_locked_for_update": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/order_locked_for_update",
+                      "title": "แก้ข้อมูลนี้ของใบสั่งขนส่งไม่ได้ในสถานะปัจจุบัน",
+                      "status": 409,
+                      "code": "order_locked_for_update",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "stops[1].siteId",
+                          "code": "locked",
+                          "message": "cannot change stops when order is IN_TRANSIT"
+                        },
+                        {
+                          "field": "lines[0].qty",
+                          "code": "locked",
+                          "message": "cannot change lines when order is IN_TRANSIT"
+                        }
+                      ],
+                      "orderStatus": "IN_TRANSIT",
+                      "editableFields": [
+                        "customerRef"
+                      ]
+                    }
+                  },
+                  "order_locked_by_user": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/order_locked_by_user",
+                      "title": "ใบสั่งขนส่งนี้กำลังถูกแก้ไขโดยผู้ใช้อื่น",
+                      "status": 409,
+                      "code": "order_locked_by_user",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "editLock": {
+                        "userId": "usr_7c1d…",
+                        "userName": "สมชาย ใจดี",
+                        "acquiredAt": "2026-11-13T02:00:00.000Z",
+                        "lastSeenAt": "2026-11-13T02:04:00.000Z",
+                        "expiresAt": "2026-11-13T02:14:00.000Z",
+                        "mine": false
+                      }
+                    }
+                  },
+                  "order_lock_released": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/order_lock_released",
+                      "title": "การแก้ไขของคุณถูกปลดล็อกโดยผู้อื่นแล้ว — โหลดใหม่ก่อนแก้ต่อ",
+                      "status": 409,
+                      "code": "order_lock_released",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "releasedBy": {
+                        "userId": "usr_9b2e…",
+                        "userName": "ผู้จัดการ ตัวอย่าง"
+                      },
+                      "releasedAt": "2026-11-13T02:06:00.000Z",
+                      "reason": "ผู้แก้ไม่อยู่ ต้องแก้วันรับของด่วน"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "If-Match ไม่ตรง version / ส่ง If-Match แต่ยังไม่มีใบ",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "precondition_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/precondition_failed",
+                      "title": "ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่",
+                      "status": 412,
+                      "code": "precondition_failed",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "รูปแบบผิด — `errors[]` รวมทุกช่อง (path แบบ `stops[0].siteId`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "requestedDate",
+                          "code": "invalid_date",
+                          "message": "must be YYYY-MM-DD"
+                        },
+                        {
+                          "field": "stops[0].siteId",
+                          "code": "invalid_id",
+                          "message": "must be a uuid"
+                        },
+                        {
+                          "field": "lines[0].qty",
+                          "code": "invalid_type",
+                          "message": "must be a decimal string"
+                        }
+                      ]
+                    }
+                  },
+                  "idempotency_mismatch": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_mismatch",
+                      "title": "Idempotency-Key นี้เคยใช้กับข้อมูลอื่น",
+                      "status": 422,
+                      "code": "idempotency_mismatch",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "กำหนดราคาเอง — ค่าขนส่งเมื่อไม่พบ rate card (spec/03 ORD-043 · ใบค้าง RATE_MISSING — ST3-T07)",
+        "tags": [
+          "orders"
+        ]
+      }
+    },
+    "/v1/orders/{id}/resolve-source-error": {
+      "post": {
+        "description": "docs/01 §4.1 SOURCE_ERROR \"ดู raw_payload, แก้มือ หรือรอ connector แก้\": คนแก้ข้อมูลใบ (PATCH) แล้วยืนยัน → ล้างรายการปัญหาจากต้นทาง แล้วประเมินใบค้างใหม่ (เหตุอื่นยังค้างได้) · บังคับเหตุผล ≥ 10 ตัวอักษร (ลง audit `sales_order.source_error_resolved`) · ต้นทางส่งใบนี้มาใหม่ด้วยข้อมูลที่เปลี่ยน = ใช้ผลตรวจของต้นทางชุดใหม่ · ไม่มีปัญหาค้าง → 409 `invalid_state_transition` · หลังวางแผน → 409 `order_locked_for_update`",
+        "operationId": "Orders_resolveSourceError",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveSourceErrorDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "JSON เสีย",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "bad_request": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/bad_request",
+                      "title": "คำขอไม่ถูกต้อง",
+                      "status": 400,
+                      "code": "bad_request",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`orders:read` / `orders:write`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "orders",
+                      "action": "write",
+                      "required": [
+                        "orders:write"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ไม่พบ (รวมใบของบริษัทอื่น)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`invalid_state_transition` — ใบวางแผน/ออกรถ/ปิด/ยกเลิกแล้ว (ประเมินใหม่ได้เฉพาะก่อนวางแผน) หรือไม่มีปัญหาจากต้นทางให้ยืนยัน · `order_locked_by_user` — ผู้ใช้อื่นเปิดแก้อยู่ · `order_lock_released` — ล็อกของผู้เรียกถูกปลด",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "invalid_state_transition": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/invalid_state_transition",
+                      "title": "ทำรายการนี้ไม่ได้ในสถานะปัจจุบัน",
+                      "status": 409,
+                      "code": "invalid_state_transition",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "from": "PLANNED",
+                      "event": "reevaluate"
+                    }
+                  },
+                  "order_locked_for_update": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/order_locked_for_update",
+                      "title": "แก้ข้อมูลนี้ของใบสั่งขนส่งไม่ได้ในสถานะปัจจุบัน",
+                      "status": 409,
+                      "code": "order_locked_for_update",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "stops[1].siteId",
+                          "code": "locked",
+                          "message": "cannot change stops when order is IN_TRANSIT"
+                        },
+                        {
+                          "field": "lines[0].qty",
+                          "code": "locked",
+                          "message": "cannot change lines when order is IN_TRANSIT"
+                        }
+                      ],
+                      "orderStatus": "IN_TRANSIT",
+                      "editableFields": [
+                        "customerRef"
+                      ]
+                    }
+                  },
+                  "order_locked_by_user": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/order_locked_by_user",
+                      "title": "ใบสั่งขนส่งนี้กำลังถูกแก้ไขโดยผู้ใช้อื่น",
+                      "status": 409,
+                      "code": "order_locked_by_user",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "editLock": {
+                        "userId": "usr_7c1d…",
+                        "userName": "สมชาย ใจดี",
+                        "acquiredAt": "2026-11-13T02:00:00.000Z",
+                        "lastSeenAt": "2026-11-13T02:04:00.000Z",
+                        "expiresAt": "2026-11-13T02:14:00.000Z",
+                        "mine": false
+                      }
+                    }
+                  },
+                  "order_lock_released": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/order_lock_released",
+                      "title": "การแก้ไขของคุณถูกปลดล็อกโดยผู้อื่นแล้ว — โหลดใหม่ก่อนแก้ต่อ",
+                      "status": 409,
+                      "code": "order_lock_released",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "releasedBy": {
+                        "userId": "usr_9b2e…",
+                        "userName": "ผู้จัดการ ตัวอย่าง"
+                      },
+                      "releasedAt": "2026-11-13T02:06:00.000Z",
+                      "reason": "ผู้แก้ไม่อยู่ ต้องแก้วันรับของด่วน"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "If-Match ไม่ตรง version / ส่ง If-Match แต่ยังไม่มีใบ",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "precondition_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/precondition_failed",
+                      "title": "ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่",
+                      "status": 412,
+                      "code": "precondition_failed",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "รูปแบบผิด — `errors[]` รวมทุกช่อง (path แบบ `stops[0].siteId`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "requestedDate",
+                          "code": "invalid_date",
+                          "message": "must be YYYY-MM-DD"
+                        },
+                        {
+                          "field": "stops[0].siteId",
+                          "code": "invalid_id",
+                          "message": "must be a uuid"
+                        },
+                        {
+                          "field": "lines[0].qty",
+                          "code": "invalid_type",
+                          "message": "must be a decimal string"
+                        }
+                      ]
+                    }
+                  },
+                  "idempotency_mismatch": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_mismatch",
+                      "title": "Idempotency-Key นี้เคยใช้กับข้อมูลอื่น",
+                      "status": 422,
+                      "code": "idempotency_mismatch",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "ยืนยันข้อมูลใบที่ต้นทางแจ้งว่าไม่ครบ (ใบค้าง SOURCE_ERROR — ST3-T07)",
         "tags": [
           "orders"
         ]
@@ -22291,6 +24142,36 @@
           "requestId"
         ]
       },
+      "OrderHoldCountDto": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "CUSTOMER_UNMAPPED",
+              "LOCATION_UNMAPPED",
+              "GEOCODING_ERROR",
+              "RATE_MISSING",
+              "UNALLOCATED_NO_VEHICLE",
+              "CAPACITY_EXCEEDED",
+              "VEHICLE_TYPE_INCOMPATIBLE",
+              "CARRIER_REJECTED",
+              "DELIVERY_WINDOW_EXHAUSTED",
+              "RESCHEDULES_EXHAUSTED",
+              "SOURCE_CHANGED_AFTER_PLAN",
+              "SOURCE_ERROR"
+            ],
+            "example": "CUSTOMER_UNMAPPED"
+          },
+          "count": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "code",
+          "count"
+        ]
+      },
       "OrderSummaryDto": {
         "type": "object",
         "properties": {
@@ -22325,6 +24206,17 @@
           "plannedToday": {
             "type": "number",
             "description": "วางแผนแล้ว (PLANNED) ที่วันรับของ = วันนี้ (เวลาไทย)"
+          },
+          "heldTotal": {
+            "type": "number",
+            "description": "หน้าใบค้าง (ST3-T07): ใบค้างทั้งหมด = ON_HOLD + ใบที่ต้นทางแก้หลังวางแผนรอตัดสิน (สถานะ PLANNED — เงื่อนไขเดียวกับ `held=true`)"
+          },
+          "holdReasons": {
+            "description": "หน้าใบค้าง (ST3-T07): จำนวนใบค้างต่อเหตุ ครบ 12 รหัสของ docs/04 C (ไม่มี = 0) — นับเหตุหลักหรือเหตุรอง (เงื่อนไขเดียวกับตัวกรอง `held=true&holdReason=`) ใบหนึ่งจึงอาจนับในหลายเหตุ · SOURCE_CHANGED_AFTER_PLAN = ใบที่ต้นทางแก้หลังวางแผน (สถานะยัง PLANNED)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderHoldCountDto"
+            }
           }
         },
         "required": [
@@ -22335,7 +24227,9 @@
           "customerUnmapped",
           "overdue",
           "planned",
-          "plannedToday"
+          "plannedToday",
+          "heldTotal",
+          "holdReasons"
         ]
       },
       "OrderMatchCandidateDto": {
@@ -22448,12 +24342,31 @@
             "type": "string",
             "nullable": true,
             "description": "รายละเอียดเหตุค้าง (ไทย)"
+          },
+          "field": {
+            "type": "string",
+            "nullable": true,
+            "example": "stops[1].site",
+            "description": "ช่องที่เป็นต้นเหตุ (เหตุของทางเข้า: `customer`, `stops[i].site`, `stops.pickup`, `pricing`, `source`) · เหตุที่ flow อื่นตั้ง = null"
+          },
+          "fields": {
+            "example": [
+              "stops[0].site",
+              "stops[2].site"
+            ],
+            "description": "ช่องต้นเหตุทั้งหมดของเหตุหลัก (เช่น ทุกจุดที่หาพิกัดไม่ได้ของ GEOCODING_ERROR) — `field` = ช่องแรก · เหตุที่ flow อื่นตั้ง = []",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
         "required": [
           "code",
           "label",
-          "note"
+          "note",
+          "field",
+          "fields"
         ]
       },
       "OrderPricingReasonDto": {
@@ -22697,6 +24610,156 @@
           "tempMax"
         ]
       },
+      "SourceChangeEntryDto": {
+        "type": "object",
+        "properties": {
+          "group": {
+            "type": "string",
+            "enum": [
+              "customer",
+              "billingCompanyId",
+              "customerRef",
+              "requestedDate",
+              "vehicleTypeId",
+              "stops",
+              "stops.window",
+              "lines",
+              "sourceIssues"
+            ],
+            "example": "stops"
+          },
+          "field": {
+            "type": "string",
+            "example": "stops[1].siteId",
+            "description": "path ของช่อง"
+          },
+          "before": {
+            "type": "string",
+            "nullable": true,
+            "example": "คลังสินค้า บางนา",
+            "description": "ค่าใน TMS"
+          },
+          "after": {
+            "type": "string",
+            "nullable": true,
+            "example": "คลังสินค้า ลาดกระบัง",
+            "description": "ค่าตามต้นทาง"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "text",
+              "date",
+              "datetime"
+            ],
+            "description": "วิธีแสดงค่า: date = YYYY-MM-DD, datetime = ISO 8601"
+          }
+        },
+        "required": [
+          "group",
+          "field",
+          "before",
+          "after",
+          "kind"
+        ]
+      },
+      "OrderSourceChangeDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "osc_3f2a…"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "ACCEPTED",
+              "REJECTED",
+              "SUPERSEDED"
+            ]
+          },
+          "source": {
+            "type": "string",
+            "example": "ERP:krs",
+            "description": "ต้นทางที่ส่งมา"
+          },
+          "orderStatus": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "received",
+              "on_hold",
+              "planned",
+              "in_transit",
+              "partially_delivered",
+              "delivered",
+              "closed",
+              "cancelled"
+            ],
+            "description": "สถานะใบตอนต้นทางส่งมา"
+          },
+          "receivedAt": {
+            "type": "string",
+            "description": "เวลาที่ต้นทางส่งมา"
+          },
+          "changes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SourceChangeEntryDto"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "source",
+          "orderStatus",
+          "receivedAt",
+          "changes"
+        ]
+      },
+      "OrderEditLockDto": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "example": "usr_3f2a…",
+            "description": "ผู้ถือล็อก"
+          },
+          "userName": {
+            "type": "string",
+            "example": "สมชาย ใจดี",
+            "description": "ชื่อผู้ถือล็อก (ป้าย \"กำลังแก้ไขโดย …\")"
+          },
+          "acquiredAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "lastSeenAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "กิจกรรมล่าสุด"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "หมดอายุ = กิจกรรมล่าสุด + 10 นาที — หลังเวลานี้คนอื่นขอล็อกได้ทันที"
+          },
+          "mine": {
+            "type": "boolean",
+            "description": "ผู้เรียกเป็นผู้ถือล็อกเอง"
+          }
+        },
+        "required": [
+          "userId",
+          "userName",
+          "acquiredAt",
+          "lastSeenAt",
+          "expiresAt",
+          "mine"
+        ]
+      },
       "OrderDto": {
         "type": "object",
         "properties": {
@@ -22788,6 +24851,7 @@
                 "SOURCE_ERROR",
                 "CUSTOMER_UNMAPPED",
                 "LOCATION_UNMAPPED",
+                "GEOCODING_ERROR",
                 "RATE_MISSING"
               ]
             }
@@ -22849,6 +24913,30 @@
               ]
             }
           },
+          "sourceChangedAfterPlan": {
+            "type": "boolean",
+            "description": "ต้นทาง (connector) แก้ใบหลังวางแผน — ไม่ทับข้อมูล รอคนรับ/ไม่รับ (`sourceChange`) · สถานะใบไม่เปลี่ยน (docs/01 §4.1)"
+          },
+          "sourceChange": {
+            "nullable": true,
+            "description": "ชุดการเปลี่ยนแปลงจากต้นทางที่รอตัดสิน (รับ: POST …/source-changes/{changeId}/accept · ไม่รับ: …/reject)",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/OrderSourceChangeDto"
+              }
+            ]
+          },
+          "editLock": {
+            "nullable": true,
+            "description": "ผู้ที่เปิดแก้ใบนี้อยู่ (ST3-T08 — ล็อกที่ยังไม่หมดอายุ) · null = ไม่มีใครแก้ · มีเฉพาะ GET ทีละใบและผลของ POST/PUT/PATCH (ไม่อยู่ในรายการ)",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/OrderEditLockDto"
+              }
+            ]
+          },
           "version": {
             "type": "number"
           },
@@ -22878,6 +24966,8 @@
           "pricingReasons",
           "stops",
           "lines",
+          "sourceChangedAfterPlan",
+          "sourceChange",
           "version",
           "createdAt",
           "updatedAt"
@@ -23180,6 +25270,60 @@
           }
         }
       },
+      "CancelOrderDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 10,
+            "maxLength": 500,
+            "example": "ลูกค้ายกเลิกคำสั่งทางอีเมล"
+          },
+          "reasonCodeId": {
+            "type": "string",
+            "nullable": true,
+            "example": "rsn_3f2a…",
+            "description": "เหตุผลมาตรฐานหมวด CANCEL (ไม่บังคับ)"
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      },
+      "SourceChangeDecisionDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 10,
+            "maxLength": 500,
+            "example": "ลูกค้ายืนยันเปลี่ยนจุดส่งทางโทรศัพท์"
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      },
+      "OrderLockDto": {
+        "type": "object",
+        "properties": {
+          "heartbeat": {
+            "type": "boolean",
+            "description": "true = ต่ออายุระหว่างแก้ (หน้าจอส่งเมื่อผู้ใช้มีกิจกรรม) — ถ้าล็อกเดิมถูกผู้อื่นปลดแล้วได้ 409 `order_lock_released` (ไม่ได้ล็อกคืนเอง) · ไม่ส่ง/false = เปิดแก้ใหม่"
+          }
+        }
+      },
+      "OrderUnlockDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "maxLength": 500,
+            "example": "ผู้แก้ลาป่วย ต้องแก้วันรับของด่วน",
+            "description": "บังคับ (≥ 10 ตัวอักษร) เมื่อปลดล็อกของผู้ใช้อื่น"
+          }
+        }
+      },
       "MapStopSiteDto": {
         "type": "object",
         "properties": {
@@ -23284,6 +25428,7 @@
                 "SOURCE_ERROR",
                 "CUSTOMER_UNMAPPED",
                 "LOCATION_UNMAPPED",
+                "GEOCODING_ERROR",
                 "RATE_MISSING"
               ]
             }
@@ -23345,6 +25490,30 @@
               ]
             }
           },
+          "sourceChangedAfterPlan": {
+            "type": "boolean",
+            "description": "ต้นทาง (connector) แก้ใบหลังวางแผน — ไม่ทับข้อมูล รอคนรับ/ไม่รับ (`sourceChange`) · สถานะใบไม่เปลี่ยน (docs/01 §4.1)"
+          },
+          "sourceChange": {
+            "nullable": true,
+            "description": "ชุดการเปลี่ยนแปลงจากต้นทางที่รอตัดสิน (รับ: POST …/source-changes/{changeId}/accept · ไม่รับ: …/reject)",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/OrderSourceChangeDto"
+              }
+            ]
+          },
+          "editLock": {
+            "nullable": true,
+            "description": "ผู้ที่เปิดแก้ใบนี้อยู่ (ST3-T08 — ล็อกที่ยังไม่หมดอายุ) · null = ไม่มีใครแก้ · มีเฉพาะ GET ทีละใบและผลของ POST/PUT/PATCH (ไม่อยู่ในรายการ)",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/OrderEditLockDto"
+              }
+            ]
+          },
           "version": {
             "type": "number"
           },
@@ -23389,10 +25558,48 @@
           "pricingReasons",
           "stops",
           "lines",
+          "sourceChangedAfterPlan",
+          "sourceChange",
           "version",
           "createdAt",
           "updatedAt",
           "aliasLearning"
+        ]
+      },
+      "ManualPriceDto": {
+        "type": "object",
+        "properties": {
+          "sellAmount": {
+            "type": "string",
+            "example": "4200.00",
+            "description": "ค่าขนส่งที่กำหนดเอง (บาท ก่อน VAT, > 0, ทศนิยม ≤ 2) — ต้องมีสิทธิ์ `prices.sell:write` (ไม่มี → 403)"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 10,
+            "maxLength": 500,
+            "example": "ลูกค้ารายใหม่ ยังไม่มีสัญญาราคา ตกลงราคาทางโทรศัพท์",
+            "description": "เหตุผลที่กำหนดราคาเอง (≥ 10 ตัวอักษร — ลง audit)"
+          }
+        },
+        "required": [
+          "sellAmount",
+          "reason"
+        ]
+      },
+      "ResolveSourceErrorDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 10,
+            "maxLength": 500,
+            "example": "ตรวจกับเอกสารต้นฉบับแล้ว แก้วันรับของและจำนวนในใบให้ถูกต้อง",
+            "description": "เหตุผลที่ยืนยันว่าข้อมูลใบใช้ได้แม้ต้นทางแจ้งว่าไม่ครบ (≥ 10 ตัวอักษร — ลง audit)"
+          }
+        },
+        "required": [
+          "reason"
         ]
       },
       "MapCustomerDto": {

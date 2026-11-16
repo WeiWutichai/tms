@@ -191,7 +191,10 @@ model AppUser {
   createdAt           DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  invitations UserInvitation[]
+  invitations        UserInvitation[]
+  orderLocks         OrderEditLock[]
+  orderLockReleases  OrderEditLockRelease[] @relation("OrderLockReleaseHolder")
+  orderLocksReleased OrderEditLockRelease[] @relation("OrderLockReleaseBy")
 
   @@unique([tenantId, email])
   @@map("app_user")
@@ -1290,6 +1293,9 @@ model SalesOrder {
   lines          SalesOrderLine[]
   charges        SalesOrderCharge[]
   deliveryOrders DeliveryOrder[]
+  sourceChanges  OrderSourceChange[]
+  editLock       OrderEditLock?
+  lockReleases   OrderEditLockRelease[]
 
   @@unique([tenantId, soNo])
   @@unique([tenantId, externalId])
@@ -1297,6 +1303,51 @@ model SalesOrder {
   @@index([tenantId, customerId])
   @@index([tenantId, updatedAt, id])
   @@map("sales_order")
+}
+
+/// ผลตัดสินชุดการเปลี่ยนแปลงจากต้นทาง (ST3-T10)
+enum SourceChangeStatus {
+  PENDING /// รอคนรับ/ไม่รับ — SO ตั้ง source_changed_after_plan
+  ACCEPTED /// รับแล้ว — ข้อมูลเขียนผ่าน upsertOrder
+  REJECTED /// ไม่รับ — ข้อมูล TMS คงเดิม (ต้นทางส่งชุดเดิมซ้ำ = ไม่ขึ้นใหม่)
+  SUPERSEDED /// ต้นทางส่งชุดใหม่มาแทน / ต้นทางกลับเป็นค่าเดิม / ใบถูกยกเลิก (ระบบปิดเอง)
+
+  @@map("source_change_status")
+}
+
+/// ชุดการเปลี่ยนแปลงจากต้นทางหลังวางแผน (ST3-T10; docs/01 §3.3 + §4.1 "ไม่ overwrite แต่เก็บ diff", docs/04 C)
+/// — ไม่ทับข้อมูลอัตโนมัติ: เก็บ input ทั้งชุด + diff ต่อช่อง รอคนรับ (apply ผ่าน upsertOrder) หรือไม่รับ (พร้อมเหตุผล)
+/// PENDING ได้ครั้งละ 1 ชุดต่อ SO (unique partial index) · เขียนจาก OrderIntakeService เท่านั้น · ไม่มีการลบจริง
+model OrderSourceChange {
+  id              String              @id @default(uuid()) @db.Uuid
+  tenantId        String              @map("tenant_id") @db.Uuid
+  salesOrderId    String              @map("sales_order_id") @db.Uuid
+  salesOrder      SalesOrder          @relation(fields: [salesOrderId], references: [id], onDelete: Restrict)
+  status          SourceChangeStatus  @default(PENDING)
+  source          OrderSource
+  sourceConnector String              @default("") @map("source_connector")
+  /// สถานะ/version ของ SO ตอนต้นทางส่งมา
+  orderStatus     SoStatus            @map("order_status")
+  baseVersion     Int                 @map("base_version")
+  /// input_hash ของ SO ตอนต้นทางส่งมา — ชุดเดียวกันบนข้อมูล TMS ชุดเดียวกันที่ไม่รับไปแล้ว = ไม่ขึ้นใหม่
+  baseInputHash   String?             @map("base_input_hash")
+  /// ข้อมูลขาเข้าที่ normalize แล้ว (UpsertOrderInput — uuid) — ใช้ตอน "รับ"
+  input           Json
+  inputHash       String              @map("input_hash")
+  /// [{group, field, before, after}] — ค่าแสดงผล (ไม่มีราคา)
+  changes         Json
+  rawPayload      Json?               @map("raw_payload")
+  decidedBy       String?             @map("decided_by")
+  decidedAt       DateTime?           @map("decided_at") @db.Timestamptz(6)
+  decisionReason  String?             @map("decision_reason")
+  supersededById  String?             @map("superseded_by_id") @db.Uuid
+  supersededBy    OrderSourceChange?  @relation("SourceChangeSupersede", fields: [supersededById], references: [id], onDelete: Restrict)
+  supersedes      OrderSourceChange[] @relation("SourceChangeSupersede")
+  createdAt       DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([tenantId, salesOrderId, createdAt])
+  @@map("order_source_change")
 }
 
 /// ผลคิดราคาของ order (เหมือน PricingStatus ใน @tms/domain)
@@ -1412,6 +1463,47 @@ model SalesOrderCharge {
 /// เทมเพลตงานประจำ (ST3-T02; docs/04 C "กรอกมือ … template งานประจำ") — เก็บข้อมูลฟอร์มใบสั่งขนส่ง
 /// (payload รูปเดียวกับ body ของ POST /v1/orders ตรวจด้วยกฎชุดเดียว) ไว้สร้างใบใหม่ · ตั้งเวลาสร้างอัตโนมัติ = P1
 /// ชื่อ unique ต่อบริษัทเฉพาะที่ยังไม่ลบ (partial index ใน migration 0063) · ลบ = soft delete + เหตุผล
+/// ล็อกการแก้ใบสั่งขนส่งจากหน้าจอ (ST3-T08; docs/04 C "Edit lock", spec/03 ORD-031) — 1 แถวต่อใบ
+/// หมดอายุตามเวลา (`expires_at` = กิจกรรมล่าสุด + 10 นาที) ไม่มี job ล้าง — แถวที่หมดอายุแล้วนับว่าไม่มีล็อก
+/// ปลด = ลบแถว (ข้อมูลชั่วคราว ไม่ใช่เอกสาร) · ปลดของคนอื่น (`orders:unlock`) ลง audit พร้อมเหตุผล
+/// คอลัมน์ `sales_order.locked_by/locked_at` ของ schema v0 ไม่ใช้ (heartbeat ไม่แตะแถว SO/version)
+model OrderEditLock {
+  id           String     @id @default(uuid()) @db.Uuid
+  tenantId     String     @map("tenant_id") @db.Uuid
+  salesOrderId String     @map("sales_order_id") @db.Uuid
+  salesOrder   SalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
+  userId       String     @map("user_id") @db.Uuid
+  user         AppUser    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  acquiredAt   DateTime   @map("acquired_at") @db.Timestamptz(6)
+  lastSeenAt   DateTime   @map("last_seen_at") @db.Timestamptz(6)
+  expiresAt    DateTime   @map("expires_at") @db.Timestamptz(6)
+
+  @@unique([salesOrderId])
+  @@index([tenantId, userId])
+  @@map("order_edit_lock")
+}
+
+/// การปลดล็อกของผู้อื่น (ST3-T08 QA) — ผู้ถือเดิม (user_id) ต่ออายุ/PATCH ได้ 409 `order_lock_released`
+/// ("ถูกปลดล็อกโดย …") จนกว่าจะเปิดแก้ใหม่ (POST /lock แบบเปิด = ลบแถว) หรือหมดอายุ (ปลด + 10 นาที)
+/// แยกจาก order_edit_lock: คงอยู่แม้ผู้ปลดเปิดแก้แล้วปิดไป (ผู้ถือเดิมไม่ได้ล็อกคืนเงียบ ๆ)
+model OrderEditLockRelease {
+  id           String     @id @default(uuid()) @db.Uuid
+  tenantId     String     @map("tenant_id") @db.Uuid
+  salesOrderId String     @map("sales_order_id") @db.Uuid
+  salesOrder   SalesOrder @relation(fields: [salesOrderId], references: [id], onDelete: Cascade)
+  userId       String     @map("user_id") @db.Uuid
+  user         AppUser    @relation("OrderLockReleaseHolder", fields: [userId], references: [id], onDelete: Cascade)
+  releasedBy   String     @map("released_by") @db.Uuid
+  releaser     AppUser    @relation("OrderLockReleaseBy", fields: [releasedBy], references: [id], onDelete: Cascade)
+  releasedAt   DateTime   @map("released_at") @db.Timestamptz(6)
+  reason       String
+  expiresAt    DateTime   @map("expires_at") @db.Timestamptz(6)
+
+  @@unique([salesOrderId, userId])
+  @@index([tenantId, userId])
+  @@map("order_edit_lock_release")
+}
+
 model OrderTemplate {
   id            String    @id @default(uuid()) @db.Uuid
   tenantId      String    @map("tenant_id") @db.Uuid

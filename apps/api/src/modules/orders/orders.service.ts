@@ -2,8 +2,10 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
   formatOrderSource,
+  ORDER_HOLD_CODES,
   parseOrderSource,
   soEditableFields,
+  SOURCE_CHANGED_HOLD_CODE,
   type IntakeHold,
   type SoStatus,
   type OrderSource,
@@ -17,6 +19,7 @@ import { DbService } from '../../db/db.service';
 import { likeEscape } from '../master/master-kit';
 import type { UpsertOrderInput } from './order-input';
 import { OrderIntakeService, type UpsertOrderResult } from './order-intake.service';
+import { OrderStateService } from './order-state.service';
 import type { MatchSuggestion } from './order-matching.service';
 import type {
   CreateOrderDto,
@@ -25,6 +28,7 @@ import type {
   OrderListQuery,
   OrderSummaryDto,
   SoStatusValue,
+  SourceChangeEntryDto,
   UpdateOrderDto,
 } from './order.dto';
 
@@ -34,6 +38,8 @@ const READ_INCLUDE = {
   charges: { orderBy: { lineNo: 'asc' } },
   holdReasonCode: { select: { code: true, labelTh: true } },
   customer: { select: { code: true, legalName: true } },
+  // ชุดการเปลี่ยนแปลงจากต้นทางที่รอตัดสิน (ST3-T10 — ได้ครั้งละ 1 ชุด)
+  sourceChanges: { where: { status: 'PENDING' }, take: 1 },
 } as const satisfies Prisma.SalesOrderInclude;
 
 type OrderRow = Prisma.SalesOrderGetPayload<{ include: typeof READ_INCLUDE }>;
@@ -60,6 +66,8 @@ const ORDER_FIELDS = new Set([
   'sellCharges',
   'stops',
   'lines',
+  'sourceChangedAfterPlan',
+  'sourceChange',
   'version',
   'createdAt',
   'updatedAt',
@@ -72,6 +80,9 @@ export function toOrderDto(o: OrderRow): OrderDto {
     reasons?: { code: string; message: string; field?: string }[];
     holds?: IntakeHold[];
   };
+  const primaryHold = o.holdReasonCode
+    ? (detail.holds ?? []).find((h) => h.code === o.holdReasonCode!.code)
+    : undefined;
   return {
     id: encodeId('salesOrder', o.id),
     soNo: o.soNo,
@@ -96,9 +107,16 @@ export function toOrderDto(o: OrderRow): OrderDto {
     requestedDate: o.requestedDate.toISOString().slice(0, 10),
     vehicleTypeId: o.vehicleTypeId ? encodeId('vehicleType', o.vehicleTypeId) : null,
     holdReason: o.holdReasonCode
-      ? { code: o.holdReasonCode.code, label: o.holdReasonCode.labelTh, note: o.holdNote }
+      ? {
+          code: o.holdReasonCode.code,
+          label: o.holdReasonCode.labelTh,
+          note: o.holdNote,
+          // ช่องต้นเหตุ (เหตุของทางเข้า — เช่น stops[1].site) ให้หน้าใบค้างพาไปจุดที่ต้องแก้ (ST3-T07)
+          field: primaryHold?.field ?? null,
+          fields: primaryHold?.fields ?? (primaryHold?.field ? [primaryHold.field] : []),
+        }
       : null,
-    holdCodes: (detail.holds ?? []).map((h) => h.code),
+    holdCodes: [...new Set((detail.holds ?? []).map((h) => h.code))],
     pricingStatus: o.pricingStatus,
     pricingReasons: (detail.reasons ?? []).map((r) => ({
       code: r.code,
@@ -149,6 +167,20 @@ export function toOrderDto(o: OrderRow): OrderDto {
       tempMin: dec(l.tempMin),
       tempMax: dec(l.tempMax),
     })),
+    sourceChangedAfterPlan: o.sourceChangedAfterPlan,
+    sourceChange: o.sourceChanges[0]
+      ? {
+          id: encodeId('orderSourceChange', o.sourceChanges[0].id),
+          status: o.sourceChanges[0].status,
+          source: formatOrderSource({
+            source: o.sourceChanges[0].source as OrderSource,
+            connector: o.sourceChanges[0].sourceConnector,
+          }),
+          orderStatus: o.sourceChanges[0].orderStatus.toLowerCase(),
+          receivedAt: o.sourceChanges[0].createdAt.toISOString(),
+          changes: o.sourceChanges[0].changes as unknown as SourceChangeEntryDto[],
+        }
+      : null,
     version: o.version,
     createdAt: o.createdAt.toISOString(),
     updatedAt: o.updatedAt.toISOString(),
@@ -195,7 +227,52 @@ export class OrdersService {
   constructor(
     private readonly db: DbService,
     private readonly intake: OrderIntakeService,
+    private readonly state: OrderStateService,
   ) {}
+
+  // ---------- ST3-T10 ยกเลิก + ชุดการเปลี่ยนแปลงจากต้นทาง ----------
+
+  /** POST /orders/{id}/cancel — public id ของ reason code → uuid (ผิดรูป/ไม่พบ = 422 ที่ช่องเดียวกัน) */
+  cancel(
+    id: string,
+    body: { reason: string; reasonCodeId?: string | null },
+    expectedVersion?: number | '*',
+  ) {
+    let reasonCodeId: string | null = null;
+    if (body.reasonCodeId) {
+      reasonCodeId = tryDecodeId('reasonCode', body.reasonCodeId);
+      if (!reasonCodeId)
+        throw new ProblemException('validation_failed', undefined, [
+          { field: 'reasonCodeId', code: 'invalid_reference', message: 'reason code not found' },
+        ]);
+    }
+    return this.state.cancel(id, {
+      reason: body.reason,
+      reasonCodeId,
+      ...(typeof expectedVersion === 'number' ? { expectedVersion } : {}),
+    });
+  }
+
+  /** รับ/ไม่รับ ชุดการเปลี่ยนแปลงจากต้นทาง — changeId ผิดรูป = 404 */
+  decideSourceChange(
+    id: string,
+    changeId: string,
+    accept: boolean,
+    reason: string,
+    expectedVersion?: number | '*',
+  ) {
+    const change = tryDecodeId('orderSourceChange', changeId);
+    if (!change) throw new ProblemException('not_found');
+    const ev = typeof expectedVersion === 'number' ? expectedVersion : undefined;
+    return accept
+      ? this.intake.acceptSourceChange(id, change, reason, undefined, ev)
+      : this.intake.rejectSourceChange(id, change, reason, undefined, ev);
+  }
+
+  /** diff ของชุดที่รอ เทียบข้อมูล TMS ตอนนี้ (ค่า "เดิม" คำนวณตอนอ่าน) — ใช้ใน GET ทีละใบ */
+  previewSourceChange(orderId: string, changeId: string) {
+    return this.intake.previewSourceChange(orderId, changeId);
+  }
 
   // ---------- read ----------
 
@@ -237,13 +314,22 @@ export class OrdersService {
       tx.salesOrder.count(),
       tx.salesOrder.count({ where: { status: 'DRAFT' } }),
       tx.salesOrder.count({ where: { status: 'ON_HOLD' } }),
-      tx.salesOrder.count({ where: { status: 'PLANNED' } }),
-      tx.salesOrder.count({ where: { status: 'PLANNED', requestedDate: today } }),
+      // จัดรถแล้ว: ไม่นับใบที่ต้นทางแก้หลังวางแผนรอตัดสิน (อยู่กลุ่มงานค้าง — docs/01 §4.1, QA ST3-T10)
+      tx.salesOrder.count({ where: { status: 'PLANNED', sourceChangedAfterPlan: false } }),
+      tx.salesOrder.count({
+        where: { status: 'PLANNED', sourceChangedAfterPlan: false, requestedDate: today },
+      }),
       tx.salesOrder.count({
         where: { status: { in: ['RECEIVED', 'ON_HOLD', 'PLANNED'] }, requestedDate: { lt: today } },
       }),
       this.countHeld('LOCATION_UNMAPPED'),
       this.countHeld('CUSTOMER_UNMAPPED'),
+    ]);
+    const [holdReasons, heldTotal] = await Promise.all([
+      this.holdReasonCounts(),
+      tx.salesOrder.count({
+        where: { OR: [{ status: 'ON_HOLD' }, { sourceChangedAfterPlan: true }] },
+      }),
     ]);
     return {
       total,
@@ -254,7 +340,34 @@ export class OrdersService {
       overdue,
       planned,
       plannedToday,
+      heldTotal,
+      holdReasons,
     };
+  }
+
+  /**
+   * หน้าใบค้าง (ST3-T07): จำนวนใบค้างต่อเหตุ (เหตุหลักบนใบ ∪ เหตุของการรับงานครั้งล่าสุด) ครบ 12 รหัส — query เดียว (RLS จำกัด tenant)
+   * เงื่อนไขเดียวกับ `held=true&holdReason={code}` ของรายการ · ใบที่ต้นทางแก้หลังวางแผน (ธง — สถานะ PLANNED)
+   * นับใต้ SOURCE_CHANGED_AFTER_PLAN
+   */
+  private async holdReasonCounts(): Promise<{ code: string; count: number }[]> {
+    const rows = await this.db.tx.$queryRaw<{ code: string; n: bigint }[]>`
+      SELECT c.code, count(DISTINCT o.id) AS n
+        FROM sales_order o
+        LEFT JOIN reason_code r ON r.id = o.hold_reason_code_id
+       CROSS JOIN LATERAL (
+             SELECT r.code WHERE o.status = 'ON_HOLD'
+             UNION
+             SELECT h->>'code' FROM jsonb_array_elements(
+               CASE WHEN o.status = 'ON_HOLD' THEN COALESCE(o.pricing_detail->'holds', '[]'::jsonb)
+                    ELSE '[]'::jsonb END) h
+             UNION
+             SELECT ${SOURCE_CHANGED_HOLD_CODE}::text WHERE o.source_changed_after_plan
+           ) c(code)
+       WHERE (o.status = 'ON_HOLD' OR o.source_changed_after_plan) AND c.code IS NOT NULL
+       GROUP BY c.code`;
+    const n = new Map(rows.map((r) => [r.code, Number(r.n)]));
+    return ORDER_HOLD_CODES.map((code) => ({ code, count: n.get(code) ?? 0 }));
   }
 
   /** ใบค้างที่มีเหตุนี้ (เหตุหลักหรือเหตุรอง — เงื่อนไขเดียวกับตัวกรอง `status=on_hold&holdReason=`) */
@@ -281,8 +394,6 @@ export class OrdersService {
       and.push({
         status: { in: q.status.split(',').map((s) => s.toUpperCase()) as OrderRow['status'][] },
       });
-    // เหตุค้าง: ตรงกับเหตุใดก็ได้ของการรับงานครั้งล่าสุด (`holdCodes` — เหตุหลัก + เหตุรอง) หรือเหตุหลักบนใบ
-    // (เหตุที่ flow อื่นตั้ง เช่น CARRIER_REJECTED) — หน้าใบค้าง (ST3-T07) กรองเหตุรองได้
     // เหตุค้าง: เหตุหลักบนใบ (รวมเหตุที่ flow อื่นตั้ง) หรือเหตุใดก็ได้ของ `holdCodes` (เหตุรอง) — หน้าใบค้าง ST3-T07
     if (q.holdReason) {
       const codes = q.holdReason.split(',');
@@ -290,9 +401,17 @@ export class OrdersService {
         OR: [
           { holdReasonCode: { code: { in: codes } } },
           { id: { in: await this.heldIds(codes) } },
+          // ต้นทางแก้หลังวางแผน = ธงข้างสถานะ (ไม่ใช่ ON_HOLD) แต่อยู่หน้างานค้างกลุ่มเดียวกัน (docs/01 §4.1)
+          ...(codes.includes(SOURCE_CHANGED_HOLD_CODE) ? [{ sourceChangedAfterPlan: true }] : []),
         ],
       });
     }
+    // หน้าใบค้าง (ST3-T07): ใบค้างทั้งหมดในตารางเดียว — รวมใบที่ต้นทางแก้หลังวางแผน (สถานะยัง PLANNED ตาม ST3-T10
+    // แต่อยู่หน้างานค้าง — PO ตัดสิน 16 พ.ย. 2569)
+    if (q.held === 'true')
+      and.push({ OR: [{ status: 'ON_HOLD' }, { sourceChangedAfterPlan: true }] });
+    if (q.held === 'false')
+      and.push({ status: { not: 'ON_HOLD' } }, { sourceChangedAfterPlan: false });
     if (q.customerId) and.push({ customerId: tryDecodeId('customer', q.customerId)! });
     if (q.source) {
       const or: Prisma.SalesOrderWhereInput[] = q.source.split(',').map((v) => {
@@ -426,6 +545,21 @@ export class OrdersService {
     return this.intake.mapStopSite(id, sequence, publicIdOr422(siteId, 'site', 'siteId'), {
       expectedVersion,
     });
+  }
+
+  /** POST /orders/{id}/reevaluate — หน้าใบค้าง "ตรวจอีกครั้ง" (ST3-T07) */
+  recheck(id: string, expectedVersion?: number | '*') {
+    return this.intake.recheck(id, { expectedVersion });
+  }
+
+  /** POST /orders/{id}/manual-price — กำหนดราคาเอง (ORD-043; ST3-T07) */
+  setManualPrice(id: string, amount: string, reason: string, expectedVersion?: number | '*') {
+    return this.intake.setManualPrice(id, amount, reason, { expectedVersion });
+  }
+
+  /** POST /orders/{id}/resolve-source-error — ยืนยันข้อมูลใบที่ต้นทางแจ้งว่าไม่ครบ (ST3-T07) */
+  resolveSourceError(id: string, reason: string, expectedVersion?: number | '*') {
+    return this.intake.resolveSourceError(id, reason, { expectedVersion });
   }
 
   /** POST /orders/{id}/map-customer — คนเลือกลูกค้า + เรียนรู้ alias รหัส/ชื่อตามต้นทาง (ST3-T06) */

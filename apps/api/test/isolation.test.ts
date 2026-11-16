@@ -612,7 +612,8 @@ const BODY_FOR_SUFFIX: Record<string, object> = {
   offer: { carrierId: `car_${'0'.repeat(32)}` },
   schedule: { plannedStartAt: '2026-11-13T08:00:00+07:00' }, // ST3-T12 /trips/:id/schedule
   approve: { reason: 'isolation test reason' }, // ST2-T13 /rate-cards/:id/approve
-  reject: { reason: 'isolation test reason' }, // ST2-T03 /customer-sites/:id/geocode/reject
+  reject: { reason: 'isolation test reason' }, // ST2-T03 /customer-sites/:id/geocode/reject + ST3-T10 source-changes
+  accept: { reason: 'isolation test reason' }, // ST3-T10 /orders/:id/source-changes/:changeId/accept
   reveal: { field: 'bankAccountNo', reason: 'isolation test reason' }, // ST2-T05 /carriers/:id/reveal
   status: { status: 'parked', reason: 'isolation test reason' }, // ST2-T06 /vehicles/:id/status
   odometer: { readingKm: 1 }, // ST2-T06 /vehicles/:id/odometer
@@ -640,6 +641,8 @@ const BODY_FOR_PATH: Record<string, object> = {
   // ST3-T06 จับคู่ด้วยมือ (`:sequence` ไม่ถูกแทน — ใบของ tenant อื่นต้อง 404 ก่อนตรวจลำดับจุด)
   '/v1/orders/:id/stops/:sequence/map-site': { siteId: `loc_${'0'.repeat(32)}` },
   '/v1/orders/:id/map-customer': { customerId: `cus_${'0'.repeat(32)}` },
+  '/v1/orders/:id/resolve-source-error': { reason: 'isolation test reason' }, // ST3-T07
+  '/v1/orders/:id/manual-price': { sellAmount: '1000.00', reason: 'isolation test reason' }, // ST3-T07
 };
 
 interface RouteInfo {

@@ -85,6 +85,7 @@ import { PlanningController } from './modules/planning/planning.controller';
 import { PlanningService } from './modules/planning/planning.service';
 import { OrdersController } from './modules/orders/orders.controller';
 import { OrdersService } from './modules/orders/orders.service';
+import { OrderLockService } from './modules/orders/order-lock.service';
 import { OrderTemplatesController } from './modules/orders/order-templates.controller';
 import { OrderTemplatesService } from './modules/orders/order-templates.service';
 import { OrderImports } from './modules/orders/order.import';
@@ -208,6 +209,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     TripService,
     PlanningService,
     OrdersService,
+    OrderLockService,
     OrderTemplatesService,
     OrderImports,
     OrderSourceRegistry,

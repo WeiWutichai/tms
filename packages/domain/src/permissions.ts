@@ -7,6 +7,9 @@
  * `prices.buy:write` (ST2-T14 — แก้/อนุมัติ rate card ขาซื้อ): A3 มีแค่แถว "ดูราคาซื้อรถร่วม" → [DECISION — ย้อนได้ spec/12 §3]
  *   ให้ role ที่แก้ข้อมูลหลักได้ (`master:write`) และเห็นราคาซื้อ = owner, admin, manager, planner
  *
+ * `orders:unlock` (ST3-T08 — docs/04 C Edit lock เขียน `orders.unlock`; A3 ไม่มีแถวนี้ ตั้งชื่อตามรูปแบบ `resource:verb`)
+ *   → owner, admin, manager (spec/03 ORD-031 "manager ปลดล็อกได้") [DECISION — ย้อนได้ spec/12 §3]
+ *
  * "เลือกได้" ในตาราง A3 = ค่าเริ่มต้นไม่ให้ (owner เปิดเพิ่มได้เมื่อมี custom role — P1)
  */
 export const PERMISSIONS = [
@@ -26,6 +29,7 @@ export const PERMISSIONS = [
   'orders:read',
   'orders:write',
   'orders:cancel',
+  'orders:unlock',
   'trips:read',
   'trips:assign',
   'trips:dispatch',
@@ -96,6 +100,8 @@ export const SYSTEM_ROLES: Record<RoleCode, { th: string; en: string; permission
         'orders:read',
         'orders:write',
         'orders:cancel',
+        // ST3-T08: ปลดล็อกการแก้ของคนอื่น — spec/03 ORD-031 "manager ปลดล็อกได้"
+        'orders:unlock',
         'trips:read',
         'trips:assign',
         'trips:dispatch',
