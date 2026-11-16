@@ -1,6 +1,15 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsIn, IsInt, IsOptional, Matches } from 'class-validator';
+import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  ArrayUnique,
+  IsArray,
+  IsIn,
+  IsInt,
+  IsOptional,
+  Matches,
+} from 'class-validator';
 import { TRIP_STATUSES, type TripStatus } from '@tms/domain';
 
 export class PlanningBoardQuery {
@@ -172,4 +181,51 @@ export class PlanningBoardDto {
     description: 'SO รอจัด (จัดกลุ่ม DO ตาม SO) เรียงกำหนดส่ง',
   })
   pool!: BoardPoolOrderDto[];
+}
+
+/**
+ * มุมมองกระดาน (ST3-T13; docs/04 D2 "View") — ข้อมูลชุดเดียวกัน (รถ + เที่ยว) จัดกลุ่ม/เรียงแถวต่างกัน
+ * FLEET = "รถบริษัท + รถร่วม" (ค่าเริ่มต้น — PLN-049) · VEHICLE = ตามรถ · DRIVER = ตามคนขับ · CARRIER = ตาม carrier
+ */
+export const BOARD_VIEWS = ['FLEET', 'VEHICLE', 'DRIVER', 'CARRIER'] as const;
+export type BoardView = (typeof BOARD_VIEWS)[number];
+/** field บนการ์ดเที่ยว (spec/03 §5 การ์ดงาน: เลข SO · ลูกค้า / ช่วงเวลา · เส้นทาง / น้ำหนักต่อความจุ) */
+export const BOARD_CARD_FIELDS = ['ORDER_NO', 'CUSTOMER', 'TIME', 'ROUTE', 'WEIGHT'] as const;
+export type BoardCardField = (typeof BOARD_CARD_FIELDS)[number];
+
+export class BoardPreferencesDto {
+  @ApiProperty({
+    enum: BOARD_VIEWS,
+    description:
+      'มุมมองกระดาน: FLEET = รถบริษัท + รถร่วม (ค่าเริ่มต้น) · VEHICLE = ตามรถ · DRIVER = ตามคนขับ · CARRIER = ตาม carrier',
+  })
+  view!: string;
+
+  @ApiProperty({
+    enum: BOARD_CARD_FIELDS,
+    isArray: true,
+    description: 'field ที่แสดงบนการ์ดเที่ยว (เรียงตามลำดับมาตรฐาน) — ค่าเริ่มต้น = ทุก field',
+  })
+  cardFields!: string[];
+
+  @ApiProperty({ description: 'version ของค่าที่บันทึก (0 = ยังไม่เคยบันทึก ใช้ค่าเริ่มต้น)' })
+  version!: number;
+}
+
+export class UpdateBoardPreferencesDto {
+  @ApiProperty({ enum: BOARD_VIEWS })
+  @IsIn([...BOARD_VIEWS])
+  view!: BoardView;
+
+  @ApiProperty({
+    enum: BOARD_CARD_FIELDS,
+    isArray: true,
+    description: 'อย่างน้อย 1 field ไม่ซ้ำ — ระบบเรียงตามลำดับมาตรฐานเอง',
+  })
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(BOARD_CARD_FIELDS.length)
+  @ArrayUnique()
+  @IsIn([...BOARD_CARD_FIELDS], { each: true })
+  cardFields!: BoardCardField[];
 }

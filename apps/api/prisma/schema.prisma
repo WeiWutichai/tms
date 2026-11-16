@@ -195,9 +195,27 @@ model AppUser {
   orderLocks         OrderEditLock[]
   orderLockReleases  OrderEditLockRelease[] @relation("OrderLockReleaseHolder")
   orderLocksReleased OrderEditLockRelease[] @relation("OrderLockReleaseBy")
+  preferences        UserPreference[]
 
   @@unique([tenantId, email])
   @@map("app_user")
+}
+
+/// ค่าที่ผู้ใช้เลือกไว้ต่อหน้าจอ (ST3-T13: มุมมอง/field การ์ดบนกระดานวางแผน — docs/04 D2 "View" จำต่อผู้ใช้)
+/// 1 แถวต่อ (ผู้ใช้, key) · value = JSON ที่ API ตรวจรูปแบบตาม key (ไม่ใช่เอกสาร — แทนค่าได้ ไม่มี audit)
+model UserPreference {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  user      AppUser  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  key       String
+  value     Json
+  version   Int      @default(1)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([userId, key])
+  @@index([tenantId])
+  @@map("user_preference")
 }
 
 /// role ของ tenant (ชุดระบบ 8 role — plan/11 ข้อ 11) — permission แบบ `resource:verb`

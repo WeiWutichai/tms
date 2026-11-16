@@ -83,6 +83,7 @@ import { TripService } from './modules/trips/trip.service';
 import { TripsController } from './modules/trips/trips.controller';
 import { PlanningController } from './modules/planning/planning.controller';
 import { PlanningService } from './modules/planning/planning.service';
+import { BoardPreferencesService } from './modules/planning/board-preferences.service';
 import { OrdersController } from './modules/orders/orders.controller';
 import { OrdersService } from './modules/orders/orders.service';
 import { OrderLockService } from './modules/orders/order-lock.service';
@@ -208,6 +209,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     OrderStateService,
     TripService,
     PlanningService,
+    BoardPreferencesService,
     OrdersService,
     OrderLockService,
     OrderTemplatesService,
