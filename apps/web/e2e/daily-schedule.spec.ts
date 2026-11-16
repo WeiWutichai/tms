@@ -13,6 +13,8 @@ import { expect, test } from './fixtures';
 const RUN = String(Date.now()).slice(-6);
 const PLATE = `3${RUN.slice(-1)}-${RUN.slice(-4)}`;
 const DRIVER = `คนขับตารางรถ ${RUN}`;
+const PLATE2 = `2${RUN.slice(-1)}-${RUN.slice(-4)}`;
+const DRIVER2 = `คนขับไม่มีรถประจำ ${RUN}`;
 const today = new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10);
 const plus = (n: number) =>
   new Date(Date.parse(`${today}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
@@ -40,6 +42,7 @@ test.describe.serial('ตารางรถ/คนขับรายวัน (S
   let H: Record<string, string> = {};
   let tripId = '';
   let tripNo = '';
+  let trip2No = '';
 
   const post = async <X>(page: Page, path: string, data: object) => {
     const r = await page.request.post(path, {
@@ -124,6 +127,41 @@ test.describe.serial('ตารางรถ/คนขับรายวัน (S
     await post(page, `/v1/trips/${t.id}/assign`, { vehicleId: v.id, driverId: d.id });
     tripId = t.id;
     tripNo = t.tripNo;
+    // คนขับที่ไม่มีรถประจำ จัดให้เที่ยวของรถอีกคัน (QA M1 — ป้ายลาต้องเห็นจากคนขับจริงของเที่ยว)
+    const v2 = await post<{ id: string }>(page, '/v1/vehicles', {
+      plate: PLATE2,
+      plateProvince: 'TH-10',
+      vehicleTypeId: vt6,
+      ownership: 'OWN',
+      payloadKg: 6000,
+    });
+    const d2 = await post<{ id: string }>(page, '/v1/drivers', {
+      name: DRIVER2,
+      phone: `087-${RUN.slice(0, 3)}-${RUN.slice(-4)}`,
+      employmentType: 'EMPLOYEE_SALARIED',
+      licenceClass: 'T2',
+      licenceExpiresOn: '2030-03-31',
+    });
+    const so2 = await post<{ id: string }>(page, '/v1/orders', {
+      customer: { id: cust.id },
+      requestedDate: DAY,
+      vehicleTypeId: vt6,
+      stops: [
+        { type: 'PICKUP', siteId: a.id },
+        { type: 'DELIVERY', siteId: b.id },
+      ],
+      lines: [{ description: 'ทราย', qty: '1', unitId: ton, weightKg: '1000' }],
+    });
+    const do2 = (await get<Page1>(`/v1/delivery-orders?orderId=${so2.id}`)).data[0]!.id;
+    const t2 = await post<{ id: string; tripNo: string }>(page, '/v1/trips', {
+      tripDate: DAY,
+      deliveryOrderIds: [do2],
+      vehicleId: v2.id,
+      plannedStartAt: `${DAY}T09:00:00+07:00`,
+      plannedEndAt: `${DAY}T11:00:00+07:00`,
+    });
+    await post(page, `/v1/trips/${t2.id}/assign`, { vehicleId: v2.id, driverId: d2.id });
+    trip2No = t2.tripNo;
   });
 
   test('เกณฑ์ตรวจรับ: คลิกขวาใส่วันลาคนขับ → ช่องวันนั้นเป็น "ลา" ไม่ใช่ "ว่าง" · เที่ยวในวันลามีคำเตือน', async ({
@@ -147,7 +185,7 @@ test.describe.serial('ตารางรถ/คนขับรายวัน (S
     await menu.getByRole('menuitem', { name: `ใส่วันลา · ${DRIVER}` }).click();
     const dlg = page.getByRole('dialog', { name: 'ใส่วันลาคนขับ' });
     await expect(dlg).toBeVisible();
-    await expect(dlg.getByLabel('คนขับ')).toHaveValue(/^drv_/);
+    await expect(dlg.getByRole('combobox', { name: 'คนขับ' })).toHaveValue(DRIVER);
     await expect(dlg.getByLabel('ตั้งแต่วันที่')).toHaveValue(DAY);
     await dlg.getByLabel('ถึงวันที่').fill(DAY2);
     await dlg.getByLabel('เหตุผลการลา').fill('ลาป่วย');
@@ -202,5 +240,50 @@ test.describe.serial('ตารางรถ/คนขับรายวัน (S
     await expect(state).toHaveText('ว่าง');
     await expect(page.getByTestId(`plan-note-${PLATE}-${DAY}`)).toBeVisible();
     expect((await warnings(page)).map((x) => x.code)).not.toContain('driver_on_leave');
+  });
+
+  test('คีย์บอร์ด + คนขับที่ไม่มีรถประจำ: Shift+F10 เปิดเมนู → ใส่วันลา → การ์ดเที่ยวขึ้น "คนขับลา" · หาวันลาใน dialog แล้วยกเลิก', async ({
+    page,
+  }) => {
+    await week(page);
+    const cell = page.getByTestId(`plan-cell-${PLATE2}-${DAY}`);
+    await expect(cell.getByTestId(`plan-trip-${trip2No}`)).toBeVisible();
+    await expect(page.getByTestId(`plan-trip-leave-${trip2No}`)).toHaveCount(0);
+    await cell.focus();
+    await page.keyboard.press('Shift+F10');
+    const menu = page.getByTestId('plan-ctx');
+    await expect(menu.getByRole('menuitem').first()).toBeFocused();
+    await page.keyboard.press('ArrowDown');
+    await expect(menu.getByRole('menuitem', { name: 'เพิ่มโน้ต' })).toBeFocused();
+    await page.keyboard.press('ArrowUp');
+    await page.keyboard.press('Enter');
+    const dlg = page.getByRole('dialog', { name: 'ใส่วันลาคนขับ' });
+    const pick = async () => {
+      await dlg.getByRole('combobox', { name: 'คนขับ' }).fill(DRIVER2);
+      // รอผลค้น (หน่วง 250 ms) ให้เหลือคนเดียวก่อนคลิก
+      await expect(dlg.getByRole('option')).toHaveCount(1);
+      await dlg.getByRole('option', { name: new RegExp(DRIVER2) }).click();
+      await dlg.getByRole('heading', { name: 'ใส่วันลาคนขับ' }).click(); // ปิดรายการค้น
+      await expect(dlg.getByRole('combobox', { name: 'คนขับ' })).toHaveValue(DRIVER2);
+    };
+    await pick();
+    await dlg.getByLabel('เหตุผลการลา').fill('ลากิจ');
+    await dlg.getByRole('button', { name: 'บันทึก' }).click();
+    await expect(dlg).toBeHidden();
+    await expect(page.getByTestId(`plan-trip-leave-${trip2No}`)).toHaveText(`คนขับลา · ${DRIVER2}`);
+    // คนขับไม่มีแถวรถ → หาวันลาจาก dialog แล้วยกเลิก
+    await cell.click({ button: 'right' });
+    await menu.getByRole('menuitem', { name: 'ใส่วันลาคนขับ' }).click();
+    await pick();
+    const ex = dlg.getByTestId('schedule-existing');
+    await expect(ex).toContainText('ลากิจ');
+    await ex.getByRole('button', { name: 'ยกเลิกวันลา' }).click();
+    const rd = page.getByRole('dialog', { name: `ยกเลิกวันลา · ${DRIVER2}` });
+    await rd.getByRole('textbox').fill('คนขับแจ้งมาทำงานได้ตามปกติ');
+    await rd.getByRole('button', { name: 'ยืนยัน' }).click();
+    await expect(rd).toBeHidden();
+    await expect(ex).toBeHidden();
+    await dlg.getByRole('button', { name: 'ยกเลิก', exact: true }).click();
+    await expect(page.getByTestId(`plan-trip-leave-${trip2No}`)).toHaveCount(0);
   });
 });

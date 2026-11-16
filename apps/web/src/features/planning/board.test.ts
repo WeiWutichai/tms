@@ -7,6 +7,7 @@ import {
   cellState,
   driverLeaveOn,
   notesOn,
+  tripLeaveNames,
   cardLine,
   custShort,
   dropWindow,
@@ -52,6 +53,9 @@ const trip = (o: Partial<BoardTrip> = {}): BoardTrip => ({
   plannedStartAt: `${D}T09:00:00+07:00`,
   plannedEndAt: `${D}T12:00:00+07:00`,
   driverName: null,
+  driverId: null,
+  reliefDriverId: null,
+  reliefDriverName: null,
   carrierName: null,
   orders: [{ id: 'ord_1', orderNo: 'SO-1', customerName: 'บจก. ทดสอบ' }],
   origin: null,
@@ -517,5 +521,21 @@ describe('ตารางรถ/คนขับรายวัน (ST3-T19)', ()
     });
     expect(notesOn(b, v(), D).map((e) => e.id)).toEqual(['n1', 'n2']);
     expect(notesOn(b, v(), D2).map((e) => e.id)).toEqual(['n2']);
+  });
+  it('QA M1: คนขับจริงของเที่ยว (หลัก/สำรอง) ที่ลาวันนั้น — ไม่ขึ้นกับคนขับประจำรถ', () => {
+    const t = {
+      driverId: 'drv_9',
+      driverName: 'ก้อง',
+      reliefDriverId: 'drv_1',
+      reliefDriverName: 'สมชาย',
+    } as unknown as BoardTrip;
+    const b = board({
+      schedule: [
+        entry({}),
+        entry({ id: 's2', driver: { id: 'drv_9', name: 'ก้อง' }, startsOn: D2, endsOn: D2 }),
+      ],
+    });
+    expect(tripLeaveNames(b, t, D)).toEqual(['สมชาย']);
+    expect(tripLeaveNames(b, t, D2)).toEqual(['ก้อง']);
   });
 });

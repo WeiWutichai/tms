@@ -1,6 +1,8 @@
 import { Icon, useEscapeLayer } from '@tms/ui';
 import { useEffect, useId, useRef, useState, type CSSProperties } from 'react';
 import { useI18n } from '../../i18n';
+import { RefPicker, type RefOption } from '../master/RefPicker';
+import type { ScheduleEntry } from './board';
 
 const INPUT: CSSProperties = {
   height: 36,
@@ -31,7 +33,11 @@ export function ScheduleDialog({
   title,
   description,
   initial,
-  drivers,
+  initialDriver,
+  searchDrivers,
+  useLeaves,
+  dayRange,
+  onCancelLeave,
   busy,
   error,
   fieldErrors,
@@ -42,8 +48,14 @@ export function ScheduleDialog({
   title: string;
   description: string;
   initial: ScheduleDraft;
-  /** ตัวเลือกคนขับ (วันลา) */
-  drivers: { id: string; name: string }[];
+  /** คนขับที่เลือกไว้ตอนเปิด (คนขับประจำของรถ) */
+  initialDriver: RefOption | null;
+  /** ค้นคนขับ (ACTIVE) — ค้นหาแทนรายการ 200 คน (review L4) */
+  searchDrivers: (q: string) => Promise<RefOption[]>;
+  /** วันลาที่ยังไม่ยกเลิกของคนขับที่เลือก (QA M1 — หา/ยกเลิกวันลาของคนขับที่ไม่มีแถวรถได้) */
+  useLeaves: (driverId: string | null) => { data?: ScheduleEntry[] };
+  dayRange: (e: ScheduleEntry) => string;
+  onCancelLeave: (e: ScheduleEntry) => void;
   busy?: boolean;
   error?: string | null;
   fieldErrors?: Record<string, string>;
@@ -53,6 +65,8 @@ export function ScheduleDialog({
   const { t } = useI18n();
   const id = useId();
   const [d, setD] = useState(initial);
+  const [drv, setDrv] = useState<RefOption | null>(initialDriver);
+  const leaves = useLeaves(kind === 'LEAVE' ? d.driverId || null : null).data ?? [];
   const sent = useRef(false);
   useEscapeLayer(true, onClose);
   // คำขอจบ (ผิดพลาด) → กดบันทึกใหม่ได้ · สำเร็จ = parent ปิด dialog
@@ -107,22 +121,84 @@ export function ScheduleDialog({
           {kind === 'LEAVE' && (
             <label className="tms-field" htmlFor={`${id}-d`}>
               {label(t('plan.sch.driver'))}
-              <select
+              <RefPicker
                 id={`${id}-d`}
-                value={d.driverId}
-                onChange={(e) => set('driverId')(e.target.value)}
-                style={INPUT}
-                aria-invalid={!!fe.driverId}
-              >
-                <option value="">{t('plan.sch.pickDriver')}</option>
-                {drivers.map((x) => (
-                  <option key={x.id} value={x.id}>
-                    {x.name}
-                  </option>
-                ))}
-              </select>
+                value={drv}
+                onChange={(v) => {
+                  setDrv(v);
+                  set('driverId')(v?.id ?? '');
+                }}
+                search={searchDrivers}
+                queryKey="plan-leave-drivers"
+                placeholder={t('plan.sch.pickDriver')}
+                noResult={t('plan.sch.noDriver')}
+                invalid={!!fe.driverId}
+                style={{ height: 36 }}
+              />
               {fe.driverId && <span className="tms-field-error">{fe.driverId}</span>}
             </label>
+          )}
+          {kind === 'LEAVE' && leaves.length > 0 && (
+            <div
+              data-testid="schedule-existing"
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 6,
+                padding: '10px 12px',
+                borderRadius: 10,
+                background: '#F4F5F2',
+              }}
+            >
+              <span style={{ fontSize: 12.5, fontWeight: 600, color: '#3B424C' }}>
+                {t('plan.sch.existing')}
+              </span>
+              {leaves.map((e) => (
+                <div
+                  key={e.id}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    fontSize: 13,
+                    minWidth: 0,
+                  }}
+                >
+                  <Icon n="coffee" s={14} style={{ color: '#59606B', flexShrink: 0 }} />
+                  <span className="tms-num" style={{ whiteSpace: 'nowrap' }}>
+                    {dayRange(e)}
+                  </span>
+                  <span
+                    style={{
+                      color: '#3B424C',
+                      flex: 1,
+                      minWidth: 0,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {e.note}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => onCancelLeave(e)}
+                    style={{
+                      border: 0,
+                      background: 'transparent',
+                      padding: 0,
+                      color: '#B3322A',
+                      fontSize: 13,
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {t('plan.sch.cancelShort')}
+                  </button>
+                </div>
+              ))}
+            </div>
           )}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <label className="tms-field" htmlFor={`${id}-f`}>

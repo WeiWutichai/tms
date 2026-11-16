@@ -18248,7 +18248,7 @@
                       "code": "conflict",
                       "instance": "/v1/schedule-entries/sch_3f2a…",
                       "requestId": "b6a1c2d3-…",
-                      "detail": "มีวันลาของคนขับคนนี้ทับช่วงนี้อยู่แล้ว (2026-11-18 – 2026-11-19)"
+                      "detail": "มีวันลาของคนขับคนนี้ทับช่วงนี้อยู่แล้ว (18 พ.ย. 2569 – 19 พ.ย. 2569)"
                     }
                   },
                   "invalid_state_transition": {
@@ -18513,7 +18513,7 @@
                       "code": "conflict",
                       "instance": "/v1/schedule-entries/sch_3f2a…",
                       "requestId": "b6a1c2d3-…",
-                      "detail": "มีวันลาของคนขับคนนี้ทับช่วงนี้อยู่แล้ว (2026-11-18 – 2026-11-19)"
+                      "detail": "มีวันลาของคนขับคนนี้ทับช่วงนี้อยู่แล้ว (18 พ.ย. 2569 – 19 พ.ย. 2569)"
                     }
                   },
                   "invalid_state_transition": {
@@ -33983,6 +33983,21 @@
             "type": "string",
             "nullable": true
           },
+          "driverId": {
+            "type": "string",
+            "nullable": true,
+            "example": "drv_3f2a…",
+            "description": "คนขับของเที่ยว (ST3-T19 — ป้าย \"คนขับลา\" ใช้คนขับจริงของเที่ยว ไม่ใช่คนขับประจำรถ)"
+          },
+          "reliefDriverId": {
+            "type": "string",
+            "nullable": true,
+            "example": "drv_3f2a…"
+          },
+          "reliefDriverName": {
+            "type": "string",
+            "nullable": true
+          },
           "carrierName": {
             "type": "string",
             "nullable": true
@@ -34074,6 +34089,9 @@
           "plannedStartAt",
           "plannedEndAt",
           "driverName",
+          "driverId",
+          "reliefDriverId",
+          "reliefDriverName",
           "carrierName",
           "orders",
           "origin",
@@ -34641,7 +34659,7 @@
             "type": "string",
             "example": "2026-11-19",
             "format": "date",
-            "description": "วันสุดท้าย (รวม) ≥ startsOn · ช่วงไม่เกิน 366 วัน"
+            "description": "วันสุดท้าย (รวม) ≥ startsOn · ช่วงไม่เกิน 366 วันรวมวันแรกและวันสุดท้าย"
           },
           "note": {
             "type": "string",

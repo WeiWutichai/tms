@@ -1650,7 +1650,12 @@ export class TripService {
           source: 'assignment',
           messageKey: role === 'driver' ? 'trip.driverOnLeave' : 'trip.reliefDriverOnLeave',
           message: driverOnLeaveMessageTh(role, name, d?.status === 'ON_LEAVE' ? [] : leaveDays),
-          params: { driverRole: role, ...(leaveDays.length ? { dates: leaveDays } : {}) },
+          // ตัวตนของคำเตือน (review M1): สถานะลาพัก = `status` · วันลา = ชุดวัน `dates` — เปลี่ยน/เพิ่มวัน = ต้องยืนยันใหม่
+          params: {
+            driverRole: role,
+            ...(d?.status === 'ON_LEAVE' ? { status: 'ON_LEAVE' } : {}),
+            ...(leaveDays.length ? { dates: leaveDays } : {}),
+          },
         });
       out.push(...(await this.overlapWarnings(tx, trip, { driverId, name: name ?? '', role })));
       out.push(
@@ -1794,10 +1799,6 @@ export class TripService {
     }));
   }
 
-  /**
-   * ชั่วโมงขับตามแผนของคนขับในวันเที่ยว (ST3-T14 — คำเตือน; เฟส 0 ไม่มีบันทึกเวลาขับจริง → ใช้ช่วงวิ่งตามแผนของเที่ยวที่ยังไม่จบ
-   * ที่คนนี้เป็นคนขับหลัก/สำรอง ในวันเดียวกัน · เพดาน `DRIVING_HOURS_PER_DAY` [OPEN] FLT-Q5)
-   */
   /** วันลา (ตารางรถ/คนขับรายวัน — ST3-T19) ของคนขับที่ทับวันของเที่ยว: วันเที่ยว + วันไทยของช่วงวิ่ง (ข้ามคืน) */
   private async leaveDays(tx: Tx, trip: TripRecord, driverId: string): Promise<string[]> {
     const days = [
@@ -1831,7 +1832,7 @@ export class TripService {
 
   /**
    * ใส่/ยกเลิกวันลาคนขับ (ST3-T19) → ตรวจกฎเที่ยวที่ยังไม่จบของคนขับคนนั้น (หลัก/สำรอง) ในช่วงนั้นใหม่
-   * (spec/03 PLN-088 "ประเมินใหม่เมื่อข้อมูลต้นทางเปลี่ยน") — คำเตือนเปลี่ยน = version +1 · คืนเลขเที่ยวที่ตรวจใหม่
+   * (spec/03 PLN-088 "ประเมินใหม่เมื่อข้อมูลต้นทางเปลี่ยน") — คำเตือนเปลี่ยน = version +1 + `trip.updated` · คืนเลขเที่ยวที่เปลี่ยน
    */
   async refreshForDriverLeave(
     driverId: string,
@@ -1844,22 +1845,37 @@ export class TripService {
       where: {
         status: { in: [...TRIP_OPEN_STATUSES] },
         OR: [{ driverId }, { reliefDriverId: driverId }],
-        // เที่ยวข้ามคืนของวันก่อนหน้าล้นเข้ามาในช่วงได้
+        // เที่ยวยาว/ข้ามคืนที่เริ่มก่อนช่วงล้นเข้ามาได้ถึง 7 วัน (ช่วงเดียวกับ `drivingDays` — review L1)
         tripDate: {
-          gte: new Date(Date.parse(`${from}T00:00:00Z`) - DAY),
+          gte: new Date(Date.parse(`${from}T00:00:00Z`) - 7 * DAY),
           lte: new Date(`${to}T00:00:00Z`),
         },
       },
-      select: { id: true, tripNo: true },
-      orderBy: { tripNo: 'asc' },
+      select: { id: true, tripNo: true, version: true },
+      // ล็อกตามลำดับ id ชุดเดียวกับ bulk/send-all (กัน deadlock — review M2)
+      orderBy: { id: 'asc' },
     });
+    const changed: string[] = [];
     for (const r of rows) {
       await tx.$queryRaw`SELECT id FROM trip WHERE id = ${r.id}::uuid FOR UPDATE`;
-      await this.refreshWarnings(tx, r.id);
+      const before = await tx.trip.findUniqueOrThrow({
+        where: { id: r.id },
+        select: { version: true, ruleWarnings: true },
+      });
+      const after = await this.refreshWarnings(tx, r.id);
+      // คำเตือนเปลี่ยน → `trip.updated` (outbox — review L2)
+      if (after.version !== before.version) {
+        await this.emit(tx, 'trip.updated', after, { ruleWarnings: before.ruleWarnings });
+        changed.push(after.tripNo ?? after.id);
+      }
     }
-    return rows.map((r) => r.tripNo ?? r.id);
+    return changed;
   }
 
+  /**
+   * ชั่วโมงขับตามแผนของคนขับในวันเที่ยว (ST3-T14 — คำเตือน; เฟส 0 ไม่มีบันทึกเวลาขับจริง → ใช้ช่วงวิ่งตามแผนของเที่ยวที่ยังไม่จบ
+   * ที่คนนี้เป็นคนขับหลัก/สำรอง ในวันเดียวกัน · เพดาน `DRIVING_HOURS_PER_DAY` [OPEN] FLT-Q5)
+   */
   private async drivingHoursWarnings(
     tx: Tx,
     trip: TripRecord,

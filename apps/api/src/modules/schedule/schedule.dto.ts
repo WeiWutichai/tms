@@ -55,7 +55,7 @@ export class CreateScheduleEntryDto {
   @ApiProperty({
     example: '2026-11-19',
     format: 'date',
-    description: 'วันสุดท้าย (รวม) ≥ startsOn · ช่วงไม่เกิน 366 วัน',
+    description: 'วันสุดท้าย (รวม) ≥ startsOn · ช่วงไม่เกิน 366 วันรวมวันแรกและวันสุดท้าย',
   })
   @Matches(DATE_RE)
   endsOn!: string;

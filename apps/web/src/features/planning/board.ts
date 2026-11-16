@@ -319,6 +319,21 @@ export function driverLeaveOn(
   );
 }
 
+/**
+ * คนขับจริงของเที่ยว (หลัก/สำรอง) ที่มีวันลาในวันนั้น (QA M1 — คนขับที่ไม่ใช่คนขับประจำรถก็ต้องเห็น "ลา")
+ * สถานะ "ลาพัก" ของคนขับที่ไม่ใช่คนขับประจำไม่มีในกระดาน — ดูจากคำเตือนของเที่ยว (`pendingRules`)
+ */
+export function tripLeaveNames(b: Pick<Board, 'schedule'>, t: BoardTrip, day: string): string[] {
+  const out: string[] = [];
+  for (const [id, name] of [
+    [t.driverId, t.driverName],
+    [t.reliefDriverId, t.reliefDriverName],
+  ] as const)
+    if (id && b.schedule.some((e) => e.kind === 'LEAVE' && e.driver?.id === id && covers(e, day)))
+      out.push(name ?? '');
+  return out;
+}
+
 /** โน้ตรายวันของรถหรือคนขับประจำในวันนั้น */
 export const notesOn = (b: Pick<Board, 'schedule'>, v: BoardVehicle, day: string) =>
   b.schedule.filter(

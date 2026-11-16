@@ -4,9 +4,12 @@ import { api, idempotent, unwrap } from '../../api';
 import { useRef, useState } from 'react';
 import { DEFAULT_PREFS, type Board, type BoardPrefs, type Eligibility } from './board';
 import { createPrefSaver } from './prefSaver';
+import type { RefOption } from '../master/RefPicker';
 
 export type Trip = Schemas['TripDto'];
 const KEY = 'planning-board';
+/** query key ของเที่ยว (useTrips) — invalidate drawer เที่ยวเมื่อคำเตือนเปลี่ยน */
+const TRIPS_KEY = 'trip';
 const PREFS_KEY = ['planning-board-prefs'];
 
 /** กระดาน (GET /v1/planning/board) — เริ่มวันนี้ตาม server (เวลาไทย) + จำนวนวัน (1 / 7) */
@@ -181,7 +184,8 @@ export function useAddScheduleEntry() {
         api.POST('/v1/schedule-entries', { body, headers: { 'Idempotency-Key': key } }),
       );
     },
-    onSettled: () => qc.invalidateQueries({ queryKey: [KEY] }),
+    // คำเตือนของเที่ยวเปลี่ยน (ตรวจใหม่ฝั่ง server) → drawer เที่ยวด้วย (review L2)
+    onSettled: () => invalidateSchedule(qc),
   });
 }
 
@@ -197,19 +201,48 @@ export function useCancelScheduleEntry() {
           headers: { 'If-Match': `"${v.version}"` },
         }),
       ),
-    onSettled: () => qc.invalidateQueries({ queryKey: [KEY] }),
+    onSettled: () => invalidateSchedule(qc),
   });
 }
 
-/** คนขับที่ใส่วันลาได้ (ACTIVE — ชุดเดียวกับตัวเลือกคนขับตอนจัดรถ) */
-export function useLeaveDrivers(enabled: boolean) {
+const invalidateSchedule = (qc: ReturnType<typeof useQueryClient>) =>
+  Promise.all([
+    qc.invalidateQueries({ queryKey: [KEY] }),
+    qc.invalidateQueries({ queryKey: [TRIPS_KEY] }),
+  ]);
+
+/** ค้นคนขับที่ใส่วันลาได้ (ACTIVE) แบบค้นหา — ไม่โหลดทั้งตาราง (review L4; แบบเดียวกับ RefPicker ของข้อมูลหลัก) */
+export async function searchLeaveDrivers(q: string): Promise<RefOption[]> {
+  const r = await unwrap(
+    api.GET('/v1/drivers', {
+      params: { query: { status: 'active', limit: 20, ...(q ? { q } : {}) } as never },
+    }),
+  );
+  return r.data.map((d) => ({ id: d.id, label: d.name, sub: d.code }));
+}
+
+/**
+ * วันลาที่ยังไม่ยกเลิกของคนขับ (วันนี้ถึง 61 วันข้างหน้า — ช่วงสูงสุดของ API) — แสดงใน dialog ใส่วันลา
+ * ให้หา/ยกเลิกวันลาของคนขับที่ไม่มีแถวรถบนกระดานได้ (QA M1)
+ */
+export function useDriverLeaves(driverId: string | null, from: string) {
   return useQuery({
-    queryKey: [KEY, 'leave-drivers'],
-    enabled,
-    staleTime: 60_000,
+    queryKey: [KEY, 'driver-leaves', driverId, from],
+    enabled: !!driverId,
+    staleTime: 0,
     queryFn: () =>
       unwrap(
-        api.GET('/v1/drivers', { params: { query: { limit: 200, status: 'active' } as never } }),
-      ).then((p) => p.data),
+        api.GET('/v1/schedule-entries', {
+          params: {
+            query: {
+              from,
+              to: new Date(Date.parse(`${from}T00:00:00Z`) + 61 * 86_400_000)
+                .toISOString()
+                .slice(0, 10),
+              driverId: driverId!,
+            },
+          },
+        }),
+      ).then((p) => p.data.filter((e) => e.kind === 'LEAVE')),
   });
 }

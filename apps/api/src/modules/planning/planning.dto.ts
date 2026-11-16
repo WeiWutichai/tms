@@ -118,6 +118,16 @@ export class BoardTripDto {
   @ApiProperty({ nullable: true, type: String }) plannedStartAt!: string | null;
   @ApiProperty({ nullable: true, type: String }) plannedEndAt!: string | null;
   @ApiProperty({ nullable: true, type: String }) driverName!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: 'drv_3f2a…',
+    description: 'คนขับของเที่ยว (ST3-T19 — ป้าย "คนขับลา" ใช้คนขับจริงของเที่ยว ไม่ใช่คนขับประจำรถ)',
+  })
+  driverId!: string | null;
+  @ApiProperty({ nullable: true, type: String, example: 'drv_3f2a…' })
+  reliefDriverId!: string | null;
+  @ApiProperty({ nullable: true, type: String }) reliefDriverName!: string | null;
   @ApiProperty({ nullable: true, type: String }) carrierName!: string | null;
   @ApiProperty({ type: [BoardOrderRefDto] }) orders!: BoardOrderRefDto[];
   @ApiProperty({ nullable: true, type: BoardPlaceDto, description: 'จุดรับแรก' })

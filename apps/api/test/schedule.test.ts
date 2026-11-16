@@ -396,6 +396,156 @@ describe('schedule entries (ST3-T19)', () => {
     ).body.data;
     expect(list).toEqual([]);
   });
+
+  /** เที่ยวที่จัดรถ + คนขับแล้ว (ช่วงวิ่งตามที่ให้) */
+  const assignedTrip = async (
+    driverId: string,
+    date: string,
+    start: string,
+    end: string,
+    extra: object = {},
+  ) => {
+    const v = await newVehicle();
+    const t = (
+      await api(app, admin)
+        .post('/v1/trips')
+        .send({
+          tripDate: date,
+          deliveryOrderIds: [await newDo(date)],
+          plannedStartAt: start,
+          plannedEndAt: end,
+        })
+        .expect(201)
+    ).body as { id: string };
+    await api(app, admin)
+      .post(`/v1/trips/${t.id}/assign`)
+      .send({ vehicleId: v.id, driverId, ...extra })
+      .expect(200);
+    return t.id;
+  };
+  type W = { code: string; key: string; confirmed: boolean; message: string };
+  const tripWarnings = async (id: string) =>
+    (await api(app, admin).get(`/v1/trips/${id}`).expect(200)).body.warnings as W[];
+
+  it('review M1: ยืนยันคำเตือนลาวันแรกแล้ว เพิ่มวันลาวันที่สองของเที่ยวข้ามคืน → ต้องยืนยันใหม่', async () => {
+    const d = await newDriver();
+    const id = await assignedTrip(d.id, d1, `${d1}T20:00:00+07:00`, `${d2}T04:00:00+07:00`);
+    await leave(d.id, d1);
+    const w1 = (await tripWarnings(id)).find((w) => w.code === 'driver_on_leave')!;
+    expect(w1).toMatchObject({ confirmed: false });
+    await api(app, admin)
+      .post(`/v1/trips/${id}/confirm-rules`)
+      .send({ ruleKeys: [w1.key], overrideReason: 'คนขับยืนยันมาทำงานคืนนั้นได้' })
+      .expect(200);
+    expect((await tripWarnings(id)).find((w) => w.code === 'driver_on_leave')!.confirmed).toBe(
+      true,
+    );
+    await leave(d.id, d2);
+    const w2 = (await tripWarnings(id)).find((w) => w.code === 'driver_on_leave')!;
+    expect(w2.confirmed).toBe(false);
+    expect(w2.key).not.toBe(w1.key);
+    expect(w2.message).toBe(`คนขับ ${d.name} ลาวันที่ ${thai(d1)}, ${thai(d2)}`);
+  });
+
+  it('review L1/L2: เที่ยวข้ามหลายวันที่เริ่มก่อนช่วงลาถูกตรวจใหม่ + trip.updated', async () => {
+    const d = await newDriver();
+    // เที่ยววันที่ d2 เริ่มคืนก่อน (d1) จบ d3 — ลาเฉพาะ d3
+    const end = addDays(d2, 1);
+    const id = await assignedTrip(d.id, d2, `${d1}T20:00:00+07:00`, `${end}T08:00:00+07:00`);
+    const before = await db.domainEvent.count({
+      where: { localId: uuid('trip', id), type: 'trip.updated' },
+    });
+    await leave(d.id, end);
+    expect((await tripWarnings(id)).map((w) => w.code)).toContain('driver_on_leave');
+    expect(
+      await db.domainEvent.count({ where: { localId: uuid('trip', id), type: 'trip.updated' } }),
+    ).toBe(before + 1);
+  });
+
+  it('review M2: ใส่วันลาซ้อนกันพร้อมกัน = 201 หนึ่ง 409 หนึ่ง · ใส่วันลา ∥ ตั้งคนขับสำรอง ไม่ deadlock', async () => {
+    const d = await newDriver();
+    const body = { kind: 'LEAVE', driverId: d.id, startsOn: d1, endsOn: d2, note: 'ลาป่วย' };
+    const rs = await Promise.all([addEntry(body), addEntry(body)]);
+    expect(rs.map((r) => r.status).sort()).toEqual([201, 409]);
+
+    const relief = await newDriver();
+    const main = await newDriver();
+    const v = await newVehicle();
+    const t = (
+      await api(app, admin)
+        .post('/v1/trips')
+        .send({ tripDate: addDays(d2, 1), deliveryOrderIds: [await newDo(addDays(d2, 1))] })
+        .expect(201)
+    ).body as { id: string };
+    const [a, b] = await Promise.all([
+      api(app, admin)
+        .post(`/v1/trips/${t.id}/assign`)
+        .send({ vehicleId: v.id, driverId: main.id, reliefDriverId: relief.id }),
+      addEntry({
+        kind: 'LEAVE',
+        driverId: relief.id,
+        startsOn: addDays(d2, 1),
+        endsOn: addDays(d2, 1),
+        note: 'ลากิจ',
+      }),
+    ]);
+    expect([a.status, b.status]).toEqual([200, 201]);
+    expect((await tripWarnings(t.id)).map((w) => w.code)).toContain('relief_driver_on_leave');
+  });
+
+  it('doc conflict: เขียนได้ด้วย trips:assign หรือ master:write (fleet) · ไม่มีทั้งคู่ = 403', async () => {
+    const fleet = await tokenFor(tenantId, 'trips:read master:read master:write', 'u-fleet');
+    const disp = await tokenFor(tenantId, 'trips:read trips:assign', 'u-assign');
+    const d = await newDriver();
+    const e = (
+      await addEntry(
+        { kind: 'LEAVE', driverId: d.id, startsOn: d1, endsOn: d1, note: 'ลา' },
+        fleet,
+      ).expect(201)
+    ).body as Entry;
+    await api(app, disp)
+      .post(`/v1/schedule-entries/${e.id}/cancel`)
+      .send({ reason: 'ฝ่ายจัดรถยกเลิกให้ตามที่แจ้ง' })
+      .expect(200);
+    await addEntry(
+      { kind: 'LEAVE', driverId: d.id, startsOn: d1, endsOn: d1, note: 'ลา' },
+      disp,
+    ).expect(201);
+    await addEntry(
+      { kind: 'NOTE', driverId: d.id, startsOn: d1, endsOn: d1, note: 'x' },
+      viewer,
+    ).expect(403);
+  });
+
+  it('QA L2/L4: 409 วันที่แบบไทย · 366 วันรวมสองปลาย', async () => {
+    const d = await newDriver();
+    await leave(d.id, d1, d2);
+    const r = await addEntry({
+      kind: 'LEAVE',
+      driverId: d.id,
+      startsOn: d2,
+      endsOn: d2,
+      note: 'ลา',
+    }).expect(409);
+    expect(r.body.detail).toBe(
+      `มีวันลาของคนขับคนนี้ทับช่วงนี้อยู่แล้ว (${thai(d1)} – ${thai(d2)})`,
+    );
+    const s0 = addDays(d2, 10);
+    await addEntry({
+      kind: 'NOTE',
+      driverId: d.id,
+      startsOn: s0,
+      endsOn: addDays(s0, 366),
+      note: 'ยาว',
+    }).expect(422);
+    await addEntry({
+      kind: 'NOTE',
+      driverId: d.id,
+      startsOn: s0,
+      endsOn: addDays(s0, 365),
+      note: 'ยาว',
+    }).expect(201);
+  });
 });
 
 const M = [

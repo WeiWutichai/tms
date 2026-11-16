@@ -41,7 +41,7 @@ const S409 = {
   description: 'วันลาทับวันลาเดิมของคนขับ (`conflict`) / ยกเลิกไปแล้ว (`invalid_state_transition`)',
   examples: {
     conflict: P('conflict', {
-      detail: 'มีวันลาของคนขับคนนี้ทับช่วงนี้อยู่แล้ว (2026-11-18 – 2026-11-19)',
+      detail: 'มีวันลาของคนขับคนนี้ทับช่วงนี้อยู่แล้ว (18 พ.ย. 2569 – 19 พ.ย. 2569)',
     }),
     invalid_state_transition: P('invalid_state_transition', { detail: 'รายการนี้ถูกยกเลิกแล้ว' }),
   },
@@ -50,6 +50,7 @@ const S409 = {
 /**
  * ตารางรถ/คนขับรายวัน (ST3-T19; docs/04 D2) — วันลาคนขับ / โน้ตรายวันของคนขับหรือรถ
  * สิทธิ์: อ่าน `trips:read` (ชุดเดียวกับกระดาน) · เพิ่ม/ยกเลิก `trips:assign` (ผู้จัดรถ — คลิกขวาบนกระดาน)
+ * **หรือ** `master:write` (ผู้ดูแลข้อมูลคนขับ ST2-T08 — spec/06 ให้ fleet จัดการวันลา; review doc conflict)
  * กระดาน (`GET /v1/planning/board`) คืนรายการชุดเดียวกันใน `schedule`
  */
 @ApiTags('schedule')
@@ -71,7 +72,7 @@ export class ScheduleController {
 
   @Post()
   @ApiProblems(T403('trips:assign'), S409, T422)
-  @RequireScope('trips:assign')
+  @RequireScope('trips:assign', 'master:write')
   @ApiHeader({ name: 'Idempotency-Key', required: false })
   @ApiCreatedResponse({
     type: ScheduleEntryDto,
@@ -107,7 +108,7 @@ export class ScheduleController {
   @TenantResource('scheduleEntry')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
   @ApiProblems(T403('trips:assign'), S404, S409, T412, T422)
-  @RequireScope('trips:assign')
+  @RequireScope('trips:assign', 'master:write')
   @ApiOkResponse({ type: ScheduleEntryDto })
   async cancel(
     @Param('id') id: string,

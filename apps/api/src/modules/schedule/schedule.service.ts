@@ -6,6 +6,7 @@ import { encodeId, tryDecodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
+import { thaiShortDate } from '../trips/rule-messages';
 import { TripService } from '../trips/trip.service';
 import { daysBetween, isRealDate } from '../vehicle-documents/expiry';
 import type {
@@ -27,6 +28,9 @@ const field422 = (field: string, code: string, message: string) =>
   new ProblemException('validation_failed', undefined, [{ field, code, message }]);
 const ymd = (d: Date) => d.toISOString().slice(0, 10);
 const dbDate = (day: string) => new Date(`${day}T00:00:00Z`);
+/** "22 พ.ย. 2569" หรือ "22 – 23 พ.ย. 2569" แบบเต็มทั้งสองฝั่ง (QA L2) */
+const thaiRange = (a: string, b: string) =>
+  a === b ? thaiShortDate(a) : `${thaiShortDate(a)} – ${thaiShortDate(b)}`;
 
 export function toDto(r: Row): ScheduleEntryDto {
   return {
@@ -133,7 +137,8 @@ export class ScheduleService {
         throw field422(f, 'invalid_date', 'must be a real date between 2000 and 2100');
     if (b.endsOn < b.startsOn)
       throw field422('endsOn', 'before_start', 'endsOn must not be before startsOn');
-    if (daysBetween(b.startsOn, b.endsOn) > SCHEDULE_MAX_SPAN_DAYS)
+    // รวมสองปลาย: 366 วัน = endsOn − startsOn ≤ 365 (QA L4)
+    if (daysBetween(b.startsOn, b.endsOn) + 1 > SCHEDULE_MAX_SPAN_DAYS)
       throw field422(
         'endsOn',
         'range_too_long',
@@ -154,10 +159,10 @@ export class ScheduleService {
     let vehicleId: string | null = null;
     if (b.driverId !== undefined) {
       const id = tryDecodeId('driver', b.driverId);
-      // ล็อกแถวคนขับ — กันวันลาทับกันจากสองคำขอพร้อมกัน
+      // ล็อกแถวคนขับ — กันวันลาทับกันจากสองคำขอพร้อมกัน · NO KEY UPDATE ไม่ชนกับ FK (ตั้งคนขับให้เที่ยว) — กัน deadlock (review M2)
       const [d] = id
         ? await tx.$queryRaw<{ id: string; status: string; deleted_at: Date | null }[]>`
-            SELECT id, status::text AS status, deleted_at FROM driver WHERE id = ${id}::uuid FOR UPDATE`
+            SELECT id, status::text AS status, deleted_at FROM driver WHERE id = ${id}::uuid FOR NO KEY UPDATE`
         : [];
       if (!d || d.deleted_at) throw field422('driverId', 'invalid_reference', 'driver not found');
       if (d.status === 'INACTIVE')
@@ -177,7 +182,7 @@ export class ScheduleService {
         if (clash)
           throw new ProblemException(
             'conflict',
-            `มีวันลาของคนขับคนนี้ทับช่วงนี้อยู่แล้ว (${ymd(clash.startsOn)} – ${ymd(clash.endsOn)})`,
+            `มีวันลาของคนขับคนนี้ทับช่วงนี้อยู่แล้ว (${thaiRange(ymd(clash.startsOn), ymd(clash.endsOn))})`,
             [{ field: 'startsOn', code: 'leave_overlap', message: 'overlaps an existing leave' }],
             { existing: toDto(clash) },
           );

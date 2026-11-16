@@ -6,7 +6,7 @@
 export const SCHEDULE_ENTRY_KINDS = ['LEAVE', 'NOTE'] as const;
 export type ScheduleEntryKind = (typeof SCHEDULE_ENTRY_KINDS)[number];
 
-/** ช่วงยาวสุดของรายการเดียว (วัน) — ตรงกับ CHECK ในฐาน */
+/** ช่วงยาวสุดของรายการเดียว = 366 วัน**รวมสองปลาย** (`endsOn - startsOn ≤ 365` — CHECK ในฐาน 0074, QA L4) */
 export const SCHEDULE_MAX_SPAN_DAYS = 366;
 
 export interface DaySpan {
