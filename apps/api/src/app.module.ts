@@ -121,6 +121,11 @@ import { ProfileController } from './modules/me/profile.controller';
 import { UsersController } from './modules/users/users.controller';
 import { UserLifecycleController } from './modules/users/user-lifecycle.controller';
 import { PdfRenderer } from './pdf/pdf-renderer';
+import {
+  TripSheetsController,
+  TripSheetsPublicController,
+} from './modules/trip-sheets/trip-sheets.controller';
+import { TripSheetsService } from './modules/trip-sheets/trip-sheets.service';
 import { StateService } from './state/state.service';
 import { ExpiryReminderService } from './modules/reminders/expiry-reminder.service';
 
@@ -163,6 +168,8 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     RateCardsController,
     DeliveryOrdersController,
     TripsController,
+    TripSheetsController,
+    TripSheetsPublicController,
     PlanningController,
     ScheduleController,
     CarrierRecentPricesController,
@@ -212,6 +219,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     DeliveryOrderService,
     OrderStateService,
     TripService,
+    TripSheetsService,
     PlanningService,
     ScheduleService,
     BoardPreferencesService,

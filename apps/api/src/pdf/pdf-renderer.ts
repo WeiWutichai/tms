@@ -21,9 +21,23 @@ export class PdfRenderer implements OnModuleDestroy {
   private browser: Promise<Browser> | null = null;
 
   private getBrowser(): Promise<Browser> {
-    this.browser ??= chromium.launch({ headless: true, args: ['--font-render-hinting=none'] });
+    // Chromium ตาย/ถูกปิด → เปิดใหม่ในคำขอถัดไป (ไม่ค้าง promise ของ browser ที่ใช้ไม่ได้แล้ว — ST3-T20)
+    this.browser ??= chromium
+      .launch({ headless: true, args: ['--font-render-hinting=none'] })
+      .then((b) => {
+        b.on('disconnected', () => {
+          if (this.current === b) this.browser = null;
+        });
+        this.current = b;
+        return b;
+      })
+      .catch((e: unknown) => {
+        this.browser = null;
+        throw e;
+      });
     return this.browser;
   }
+  private current: Browser | null = null;
 
   html(opts: RenderOptions): string {
     return `<!doctype html><html lang="th"><head><meta charset="utf-8"><title>${escapeHtml(opts.title ?? '')}</title><style>${sarabunFontCss()}
@@ -66,8 +80,10 @@ ${opts.css ?? ''}</style></head><body>${opts.body}</body></html>`;
   }
 
   async onModuleDestroy(): Promise<void> {
-    if (this.browser) await (await this.browser).close();
+    const b = this.browser;
     this.browser = null;
+    this.current = null;
+    if (b) await (await b).close();
   }
 }
 
