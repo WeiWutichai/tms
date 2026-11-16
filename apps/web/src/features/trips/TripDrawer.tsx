@@ -25,6 +25,7 @@ import {
   type TripDetail,
 } from './useTrips';
 import { sortVehicles } from './assignForm';
+import { tripProblemText } from './tripProblem';
 
 /** ป้ายสถานะเที่ยว — สี/ไอคอนตามกลุ่มสถานะของต้นแบบ (วางแผน / จัดรถแล้ว / ระหว่างส่ง / ส่งแล้ว) */
 const TONE: Record<string, { tone: 'off' | 'ok' | 'info' | 'warn' | 'err'; icon: string }> = {
@@ -284,8 +285,8 @@ export function TripDrawer({
     (e: unknown) => {
       const r = ruleProblem(e);
       if (!r) {
-        if (fromDialog) setRuleErr(problemText(e, t));
-        else setErr(problemText(e, t));
+        if (fromDialog) setRuleErr(tripProblemText(e, t));
+        else setErr(tripProblemText(e, t));
         return;
       }
       setRuleErr(null);

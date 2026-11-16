@@ -38,6 +38,7 @@ describe('trips: assign / dispatch / bulk (ST3-T17)', () => {
   let seed = 0;
   let unitTon: string;
   let vt6: string;
+  let vtTrl: string;
   const today = bangkokToday();
   const uuid = (kind: Parameters<typeof tryDecodeId>[0], id: string) => tryDecodeId(kind, id)!;
   const ADDR = { line1: '1 ถ.ทดสอบ', district: 'เมือง', province: 'ชลบุรี', postcode: '20000' };
@@ -86,6 +87,7 @@ describe('trips: assign / dispatch / bulk (ST3-T17)', () => {
     const types = (await api(app, admin).get('/v1/vehicle-types?limit=50').expect(200)).body
       .data as { id: string; code: string }[];
     vt6 = types.find((t) => t.code === '6W')!.id;
+    vtTrl = types.find((t) => t.code === 'TRL')!.id;
   });
   afterAll(async () => {
     await app.close();
@@ -290,49 +292,69 @@ describe('trips: assign / dispatch / bulk (ST3-T17)', () => {
     expect(await audit(t2.id, 'trip.rules_overridden')).toHaveLength(1);
   });
 
-  it('เปลี่ยนรถของเที่ยว ASSIGNED ผ่าน /schedule = จัดรถใหม่ในคำขอเดียว (คนขับประจำรถใหม่, คนขับสำรองคงไว้, หางล้าง) · ถอดรถ → 409 · รถไม่มีคนขับประจำ → 422', async () => {
-    const { v, t } = await planned();
+  it('เปลี่ยนรถของเที่ยว ASSIGNED ผ่าน /schedule = จัดรถใหม่ในคำขอเดียว: คงคนขับ/คนขับสำรองเดิมถ้าผ่านกฎใบขับขี่ของรถใหม่ · ไม่ผ่าน → คนขับประจำรถใหม่ · ไม่มี → 422 ไทย · ถอดรถ → 409 · version +1', async () => {
+    const { v, d, t } = await planned();
     const relief = await newDriver();
     const asg = await act(t.id, 'assign', { vehicleId: v.id, reliefDriverId: relief.id }).expect(
       200,
     );
-    const v2 = await newVehicle();
-    const d2 = await newDriver({ defaultVehicleId: v2.id });
     // ถอดรถของเที่ยวที่จัดแล้ว — docs/01 §4.2 ไม่มี ASSIGNED → PLANNING
     const un = await act(t.id, 'schedule', { vehicleId: null });
     expect(un.status).toBe(409);
     expect(un.body).toMatchObject({ code: 'invalid_state_transition', event: 'unassign' });
-    // รถที่ไม่มีคนขับประจำ → 422 driverId (ไม่มีอะไรเปลี่ยน)
-    const lone = await newVehicle();
-    const nd = await act(t.id, 'schedule', { vehicleId: lone.id });
-    expect(nd.status).toBe(422);
-    expect(nd.body.errors[0]).toMatchObject({ field: 'driverId', code: 'required' });
-    const mv = await act(t.id, 'schedule', { vehicleId: v2.id })
+    // รถ 6 ล้อคันอื่น (มีคนขับประจำของตัวเอง): คนขับเดิม (ท.2) ผ่าน → คงเดิมทั้งคนขับและคนขับสำรอง
+    const v2 = await newVehicle();
+    await newDriver({ defaultVehicleId: v2.id });
+    const mv = await act(t.id, 'schedule', {
+      vehicleId: v2.id,
+      plannedStartAt: `${today}T13:00:00+07:00`,
+      plannedEndAt: `${today}T15:00:00+07:00`,
+    })
       .set('If-Match', `"${asg.body.version}"`)
       .expect(200);
     expect(mv.body).toMatchObject({
       status: 'ASSIGNED',
       vehicle: { id: v2.id, plate: v2.plate },
-      driver: { id: d2.id },
+      driver: { id: d.id },
       reliefDriver: { id: relief.id },
       trailer: null,
     });
+    // QA: 1 คำขอ = version +1 (ย้ายเวลา + จัดรถใหม่ + ตรวจกฎ)
+    expect(mv.body.version).toBe(asg.body.version + 1);
     expect(await hist(t.id)).toEqual(['create', 'assign', 'reassign']);
     expect(await audit(t.id, 'trip.reassigned')).toHaveLength(1);
     expect(await audit(t.id, 'trip.rescheduled')).toHaveLength(1);
-    // คนขับสำรองเป็นคนขับประจำของรถใหม่ → ล้างคนขับสำรอง (ไม่ให้ซ้ำคนขับหลัก)
-    const v3 = await newVehicle();
-    const cur = (await api(app, admin).get(`/v1/drivers/${relief.id}`).expect(200)).body;
-    await api(app, admin)
-      .patch(`/v1/drivers/${relief.id}`)
-      .set('If-Match', `"${cur.version}"`)
-      .send({ defaultVehicleId: v3.id })
-      .expect(200);
-    const mv2 = await act(t.id, 'schedule', { vehicleId: v3.id }).expect(200);
-    expect(mv2.body).toMatchObject({ driver: { id: relief.id }, reliefDriver: null });
+    // รถพ่วง (ต้อง ท.3) ไม่มีคนขับประจำ: คนขับเดิม ท.2 ไม่ผ่าน → 422 ข้อความไทย ไม่มีอะไรเปลี่ยน
+    const trlLone = await newVehicle({ vehicleTypeId: vtTrl });
+    const nd = await act(t.id, 'schedule', { vehicleId: trlLone.id });
+    expect(nd.status).toBe(422);
+    expect(nd.body.errors[0]).toMatchObject({ field: 'driverId', code: 'required' });
+    expect(nd.body.detail).toContain('ใช้กับรถคันนี้ไม่ได้');
+    // รถพ่วงที่มีคนขับประจำ ท.3 → เปลี่ยนเป็นคนขับประจำ · คนขับสำรอง ท.2 ไม่ผ่าน → ล้าง
+    const trl = await newVehicle({ vehicleTypeId: vtTrl });
+    const d3 = await newDriver({ defaultVehicleId: trl.id, licenceClass: 'T3' });
+    const mv2 = await act(t.id, 'schedule', { vehicleId: trl.id }).expect(200);
+    expect(mv2.body).toMatchObject({ driver: { id: d3.id }, reliefDriver: null });
     // หลังปล่อยรถ เปลี่ยนรถไม่ได้
     await act(t.id, 'dispatch', {}, dispatcher).expect(200);
     expect((await act(t.id, 'schedule', { vehicleId: v.id })).status).toBe(409);
+  });
+
+  it('bulk ทำตามลำดับ id เที่ยว: สองคำขอชุดเดียวกันสลับลำดับพร้อมกัน → 207 ทั้งคู่ ไม่ deadlock', async () => {
+    const xs = await Promise.all([planned(), planned(), planned()]);
+    const ids = xs.map((x) => x.t.id);
+    const send = (items: string[]) =>
+      api(app, dispatcher)
+        .post('/v1/trips/bulk-assign')
+        .send({ items: items.map((tripId) => ({ tripId })), dispatch: true });
+    const [r1, r2] = await Promise.all([send(ids), send([...ids].reverse())]);
+    expect(r1.status).toBe(207);
+    expect(r2.status).toBe(207);
+    // คำขอแรกที่ได้ล็อกปล่อยครบ · อีกคำขอเห็นปล่อยแล้ว (409 ต่อรายการ) — ผลเรียงตามคำขอ
+    const all = [...r1.body.results, ...r2.body.results];
+    expect(all.filter((x: { outcome: string }) => x.outcome === 'DISPATCHED')).toHaveLength(3);
+    expect(r1.body.results.map((x: { tripId: string }) => x.tripId)).toEqual(ids);
+    expect(r2.body.results.map((x: { tripId: string }) => x.tripId)).toEqual([...ids].reverse());
   });
 
   it('bulk: ผลต่อรายการ (207) — สำเร็จบางรายการ ไม่ใช่ all-or-nothing · 409 กฎพร้อม key · 412/404/422 ต่อรายการ · สิทธิ์ · รายการซ้ำ', async () => {
@@ -367,7 +389,7 @@ describe('trips: assign / dispatch / bulk (ST3-T17)', () => {
       .post('/v1/trips/bulk-assign')
       .send({ items, dispatch: true })
       .expect(207);
-    expect(r.body).toMatchObject({ succeeded: 2, failed: 4 });
+    expect(r.body).toMatchObject({ succeeded: 2, unchanged: 0, failed: 4 });
     const by = r.body.results as {
       tripId: string;
       status: number;
@@ -386,6 +408,20 @@ describe('trips: assign / dispatch / bulk (ST3-T17)', () => {
     // รายการที่ไม่ผ่านย้อนเฉพาะของตัวเอง (บล็อกหลังจัดรถ → ไม่จัดรถ)
     const t6now = (await api(app, admin).get(`/v1/trips/${t6.id}`).expect(200)).body;
     expect(t6now).toMatchObject({ status: 'PLANNING', driver: null });
+    // review L4: รายการที่ไม่ผ่านไม่ทิ้ง audit/domain event/ประวัติสถานะ
+    for (const id of [t6.id, p4.t.id]) {
+      expect(
+        await db.auditLog.count({
+          where: { entityId: uuid('trip', id), action: { not: 'trip.created' } },
+        }),
+      ).toBe(0);
+      expect(
+        await db.domainEvent.count({
+          where: { localId: uuid('trip', id), type: { not: 'trip.created' } },
+        }),
+      ).toBe(0);
+      expect(await hist(id)).toEqual(['create']);
+    }
     expect((await api(app, admin).get(`/v1/trips/${p4.t.id}`).expect(200)).body.status).toBe(
       'PLANNING',
     );
@@ -412,6 +448,8 @@ describe('trips: assign / dispatch / bulk (ST3-T17)', () => {
       .post('/v1/trips/bulk-assign')
       .send({ items: [{ tripId: t6.id }] })
       .expect(207);
+    expect(same.body.results[0]).toMatchObject({ status: 200, outcome: 'UNCHANGED' });
+    expect(same.body).toMatchObject({ succeeded: 0, unchanged: 1, failed: 0 });
     expect(same.body.results[0].trip.version).toBe(ovr.body.results[0].trip.version);
   });
 });

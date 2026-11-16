@@ -13,6 +13,7 @@ import { useSessionState } from '../master/useCursorList';
 import { HoldBadge, holdLabel } from '../orders/HoldPage';
 import { OrderDrawer } from '../orders/OrderDrawer';
 import { TripDrawer } from '../trips/TripDrawer';
+import { tripProblemText } from '../trips/tripProblem';
 import { useBulkAssign, type BulkResults } from '../trips/useTrips';
 import { OrderFormDrawer } from '../orders/OrderFormDrawer';
 import { fromOrder, type Order, type OrderForm } from '../orders/orderForm';
@@ -411,7 +412,18 @@ export function PlanningPage() {
     endDrag();
     if (why) setToast(t('plan.cantDrop', { m: why }));
   };
-  const fail = (err: unknown) => setToast(t('plan.cantDrop', { m: problemText(err, t) ?? '' }));
+  // ข้อความไทยรายช่อง/กฎ ชุดเดียวกับ dialog ผล bulk (QA ST3-T17 M)
+  /**
+   * ผลคนขับเมื่อย้ายเที่ยวที่จัดรถแล้วไปรถอื่น (ST3-T17 review M1): " · คนขับ: … (คงเดิม)" / "(เปลี่ยนเป็นคนขับประจำ)"
+   * เที่ยวที่ยังไม่จัดรถไม่มีคนขับ = ไม่ต่อท้าย
+   */
+  const driverNote = (x: BoardTrip, r: Trip) =>
+    x.status !== 'ASSIGNED' || !r.driver
+      ? ''
+      : t(r.driver.name === x.driverName ? 'plan.toast.driverKept' : 'plan.toast.driverChanged', {
+          n: r.driver.name,
+        });
+  const fail = (err: unknown) => setToast(t('plan.cantDrop', { m: tripProblemText(err, t) }));
   /**
    * ผลปฏิเสธของ API: 409 `assignment_blocked` → toast "ห้ามจ่ายงานให้ …" + เปิด BP (ต้นแบบ assignToast) พร้อม `retry`
    * (ผู้จัดการกรอกเหตุผลแล้วส่งคำขอเดิมซ้ำพร้อมยกเว้น) · อื่น ๆ → toast "วางไม่ได้: …"
@@ -466,11 +478,12 @@ export function PlanningPage() {
         {
           onSuccess: (r) => {
             if (viaDialog) setBp(null);
-            const m = t('plan.toast.moved', {
-              so: soText(x),
-              from: x.vehiclePlate ?? '—',
-              to: v.plate,
-            });
+            const m =
+              t('plan.toast.moved', {
+                so: soText(x),
+                from: x.vehiclePlate ?? '—',
+                to: v.plate,
+              }) + driverNote(x, r);
             const i = issueText(r);
             setToast(i ? t('plan.toast.issue', { m, i }) : m);
           },
@@ -590,7 +603,7 @@ export function PlanningPage() {
                   so: soText(x),
                   from: x.vehiclePlate ?? '—',
                   to: v.plate,
-                })
+                }) + driverNote(x, r)
               : t('plan.toast.time', {
                   so: soText(x),
                   t: `${hhmm(hourOf(body.plannedStartAt, d))}–${hhmm(hourOf(body.plannedEndAt, d))}`,
@@ -1055,8 +1068,21 @@ export function PlanningPage() {
     }
     if (x.orders[0]) setOpenId(x.orders[0].id);
   };
-  const pickStyle = (x: BoardTrip): CSSProperties =>
-    picked.includes(x.id) ? { background: '#E9F0FA', borderColor: '#9DB6E3' } : {};
+  /** การ์ดที่เลือก (ต้นแบบ: พื้น `#E9F0FA` ขอบ `#9DB6E3`) — ระบุขอบทีละด้าน (ไม่ปน shorthand — QA) + เงาขอบให้เห็นชัด */
+  const cardBorder = (x: BoardTrip): CSSProperties => {
+    const on = picked.includes(x.id);
+    const side = `1px solid ${on ? '#9DB6E3' : '#CDD1C8'}`;
+    return {
+      background: on ? '#E9F0FA' : '#FFFFFF',
+      borderTop: side,
+      borderRight: side,
+      borderBottom: side,
+      borderLeft: `3px solid ${tripColor(x)}`,
+      boxShadow: on
+        ? '0 0 0 2px #9DB6E3, 0 1px 2px rgba(16,20,24,.06)'
+        : '0 1px 2px rgba(16,20,24,.06)',
+    };
+  };
   const runBulk = (release: boolean) => {
     const xs = pickedOn;
     if (!xs.length || bulk.isPending) return;
@@ -1072,7 +1098,17 @@ export function PlanningPage() {
           if (failed.length) setBulkFail(r.results);
           else
             setToast(
-              t(release ? 'trip.toast.released' : 'plan.bulk.doneAssign', { n: r.succeeded }),
+              [
+                ...(r.succeeded || !r.unchanged
+                  ? [
+                      t(release ? 'trip.toast.released' : 'plan.bulk.doneAssign', {
+                        n: r.succeeded,
+                      }),
+                    ]
+                  : []),
+                // review L3: เที่ยวที่จัดรถแล้วอยู่ก่อนไม่นับเป็นสำเร็จ
+                ...(r.unchanged ? [t('plan.bulk.unchanged', { n: r.unchanged })] : []),
+              ].join(' · '),
             );
         },
         onError: fail,
@@ -1168,20 +1204,15 @@ export function PlanningPage() {
                   style={{
                     height: '100%',
                     boxSizing: 'border-box',
-                    background: '#FFFFFF',
-                    border: '1px solid #CDD1C8',
-                    borderLeft: `3px solid ${tripColor(x)}`,
                     borderRadius: 8,
                     padding: '6px 8px',
                     display: 'flex',
                     flexDirection: 'column',
                     gap: 1,
                     overflow: 'hidden',
-                    boxShadow: '0 1px 2px rgba(16,20,24,.06)',
                     cursor: canMove ? 'grab' : 'pointer',
                     minWidth: 0,
-                    ...pickStyle(x),
-                    borderLeftColor: tripColor(x),
+                    ...cardBorder(x),
                   }}
                 >
                   {(cf.includes('ORDER_NO') || cf.includes('CUSTOMER')) && (

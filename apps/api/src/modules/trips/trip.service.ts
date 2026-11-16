@@ -120,6 +120,13 @@ export interface ScheduleInput {
   vehicleId?: string | null;
 }
 
+/** ผลต่อรายการของ bulk (ST3-T17) — `UNCHANGED` = จัดรถแล้วอยู่ก่อน ไม่ได้ทำอะไร (review L3) */
+export interface BulkOutcome {
+  trip: TripRecord | null;
+  outcome: 'ASSIGNED' | 'DISPATCHED' | 'UNCHANGED' | 'FAILED';
+  error: unknown;
+}
+
 export interface AssignInput {
   rules?: RuleConfirmInput;
   vehicleId: string;
@@ -491,16 +498,15 @@ export class TripService {
     if (reassign) {
       // ช่วงเวลาใหม่มีผลก่อน → ตรวจกฎ (ซ้อนเวลา/เอกสารตามช่วงวิ่ง) ของรถใหม่ด้วยช่วงใหม่
       const cur = await this.get(trip.id, tx);
-      const relief = trip.reliefDriverId;
-      const driverId = await this.defaultDriverOf(tx, input.vehicleId!);
+      const crew = await this.crewFor(tx, cur, input.vehicleId!);
       final = await this.assignLocked(
         tx,
         cur,
         dos,
         {
           vehicleId: input.vehicleId!,
-          driverId: driverId ?? undefined,
-          reliefDriverId: relief && relief !== driverId ? relief : null,
+          driverId: crew.driverId,
+          reliefDriverId: crew.reliefDriverId,
           trailerId: null,
           rules: input.rules,
         },
@@ -511,6 +517,7 @@ export class TripService {
       final = await this.refreshWarnings(tx, trip.id);
       if (final.vehicleId) final = await this.enforceRules(tx, final, input.rules, reason, 'entry');
     }
+    final = await this.oneBump(tx, final, trip.version);
     await this.emit(tx, 'trip.updated', final, before);
     await this.audit.record({
       action: `${ENTITY}.rescheduled`,
@@ -520,6 +527,57 @@ export class TripService {
       after: schedView(final),
     });
     return final;
+  }
+
+  /**
+   * คนขับของเที่ยว ASSIGNED ที่ย้ายไปรถอื่น (ST3-T17 review M1): **คงคนขับ/คนขับสำรองเดิม** ถ้ายังผ่านกฎใบขับขี่ของรถใหม่
+   * (บล็อก `DRIVER_*` ของ ST2-T20/ST3-T14 — ลา/ซ้อนเวลา/ชั่วโมงขับไม่ขึ้นกับรถ จึงคงไว้และตรวจตามปกติ) ·
+   * ไม่ผ่าน → คนขับประจำของรถใหม่ (ACTIVE คนเดียว) · ไม่มีทั้งคู่ → 422 `driverId` พร้อมข้อความไทย
+   */
+  private async crewFor(tx: Tx, trip: TripRecord, vehicleId: string) {
+    const { hazmat } = await this.compatWarnings(tx, trip);
+    const points = [trip.tripDate, trip.plannedStartAt, trip.plannedEndAt].filter(
+      (d): d is Date => d !== null,
+    );
+    const window = {
+      from: new Date(Math.min(...points.map((d) => d.getTime()))),
+      to: new Date(Math.max(...points.map((d) => d.getTime()))),
+    };
+    const fits = async (driverId: string | null) => {
+      if (!driverId) return false;
+      const d = await tx.driver.findFirst({
+        where: { id: driverId, deletedAt: null, status: { not: 'INACTIVE' } },
+        select: { id: true },
+      });
+      if (!d) return false;
+      const a = await this.assignability.isAssignable({ vehicleId, driverId, window, hazmat }, tx);
+      return !a.blocks.some((b) => b.code.startsWith('DRIVER_'));
+    };
+    const keep = await fits(trip.driverId);
+    const driverId = keep ? trip.driverId! : await this.defaultDriverOf(tx, vehicleId);
+    if (!driverId)
+      throw new ProblemException(
+        'validation_failed',
+        trip.driverNameSnapshot
+          ? `คนขับ ${trip.driverNameSnapshot} ใช้กับรถคันนี้ไม่ได้ (ใบขับขี่) และรถไม่มีคนขับประจำ — เปิดเที่ยวเพื่อเลือกคนขับ`
+          : 'รถคันนี้ไม่มีคนขับประจำ — เปิดเที่ยวเพื่อเลือกคนขับ',
+        [{ field: 'driverId', code: 'required', message: 'no eligible driver for this vehicle' }],
+      );
+    const relief =
+      trip.reliefDriverId && trip.reliefDriverId !== driverId && (await fits(trip.reliefDriverId))
+        ? trip.reliefDriverId
+        : null;
+    return { driverId, reliefDriverId: relief, kept: keep };
+  }
+
+  /**
+   * 1 คำขอ = version +1 (QA ST3-T17 L): ขั้นย่อยในคำขอเดียว (เวลา/จัดรถ/ตรวจกฎ/ยกเว้น/ปล่อย) ขยับ version หลายครั้ง —
+   * แถวเที่ยวถูกล็อก FOR UPDATE ทั้งคำขอ จึงตั้งเป็น `from + 1` ได้ปลอดภัย
+   */
+  private async oneBump(tx: Tx, t: TripRecord, from: number): Promise<TripRecord> {
+    if (t.version <= from + 1) return t;
+    await tx.trip.updateMany({ where: { id: t.id }, data: { version: from + 1 } });
+    return this.get(t.id, tx);
   }
 
   /** คนขับประจำของรถ ณ ตอนนี้ (ACTIVE คนเดียว — กติกาเดียวกับ /assign ที่ไม่ส่ง driverId) */
@@ -559,8 +617,10 @@ export class TripService {
       reason,
       opts.dispatch ? 'dispatch' : 'entry',
     );
-    if (!opts.dispatch) return assigned;
-    return this.dispatchLocked(tx, assigned, dos, undefined, null);
+    const done = opts.dispatch
+      ? await this.dispatchLocked(tx, assigned, dos, undefined, null)
+      : assigned;
+    return this.oneBump(tx, done, trip.version);
   }
 
   /** ส่วนจัดรถของ `assign` / `schedule` (เปลี่ยนรถของเที่ยว ASSIGNED) — ผู้เรียกล็อกเที่ยว + DO แล้ว */
@@ -618,16 +678,20 @@ export class TripService {
    * จัดรถ / จัดรถและปล่อยเที่ยว หลายเที่ยว (ST3-T17 bulk — spec/03 PLN-047/048) · **แต่ละรายการแยกกัน** (SAVEPOINT ต่อรายการ:
    * รายการที่ไม่ผ่านย้อนเฉพาะของตัวเอง — ไม่ใช่ all-or-nothing) · error ที่ไม่ใช่ problem (ฐานข้อมูลล่ม ฯลฯ) → ทั้งคำขอล้ม
    * - PLANNING: จัดรถด้วยรถที่วางไว้ + คนขับประจำรถ (`/assign` ไม่ส่ง driverId) — ไม่มีรถ → 422 `vehicleId` required
-   * - ASSIGNED: `dispatch` = ปล่อยรถ (`/dispatch`) · ไม่ dispatch = จัดแล้ว ไม่ทำอะไร (สำเร็จ ไม่เปลี่ยน version)
+   * - ASSIGNED: `dispatch` = ปล่อยรถ (`/dispatch`) · ไม่ dispatch = จัดแล้ว ไม่ทำอะไร (`UNCHANGED`, ไม่เปลี่ยน version)
    * - สถานะอื่น → 409 `invalid_state_transition`
    */
   async bulkAssign(
     items: { tripId: string | null; version?: number; ruleKeys?: string[] }[],
     o: { dispatch: boolean; reason?: string | null; canOverride: boolean },
     tx: Tx = this.db.tx,
-  ): Promise<{ trip: TripRecord | null; error: unknown }[]> {
-    const out: { trip: TripRecord | null; error: unknown }[] = [];
-    for (const it of items) {
+  ): Promise<BulkOutcome[]> {
+    const out: BulkOutcome[] = new Array(items.length);
+    // ทำตามลำดับ id เที่ยว (กัน deadlock เมื่อสองคำขอส่งชุดเดียวกันสลับลำดับ — review M2) แล้วคืนผลตามลำดับคำขอ
+    const order = items
+      .map((it, i) => ({ it, i }))
+      .sort((x, y) => (x.it.tripId ?? '').localeCompare(y.it.tripId ?? ''));
+    for (const { it, i } of order) {
       await tx.$executeRawUnsafe('SAVEPOINT tms_trip_bulk');
       try {
         if (!it.tripId) throw new ProblemException('not_found');
@@ -637,31 +701,36 @@ export class TripService {
           canOverride: o.canOverride,
         };
         const cur = await this.get(it.tripId, tx);
-        let trip: TripRecord;
+        let r: BulkOutcome;
         if (cur.status === 'ASSIGNED' && o.dispatch)
-          trip = await this.dispatch(cur.id, tx, it.version, rules);
+          r = {
+            trip: await this.dispatch(cur.id, tx, it.version, rules),
+            outcome: 'DISPATCHED',
+            error: null,
+          };
         else if (cur.status === 'ASSIGNED') {
           if (it.version !== undefined && it.version !== cur.version)
             throw new ProblemException('precondition_failed');
-          trip = cur;
+          r = { trip: cur, outcome: 'UNCHANGED', error: null };
         } else if (cur.status === 'PLANNING') {
           if (!cur.vehicleId)
             throw field422('vehicleId', 'required', 'trip has no planned vehicle');
-          trip = await this.assign(cur.id, { vehicleId: cur.vehicleId, rules }, tx, it.version, {
+          const t = await this.assign(cur.id, { vehicleId: cur.vehicleId, rules }, tx, it.version, {
             dispatch: o.dispatch,
           });
+          r = { trip: t, outcome: o.dispatch ? 'DISPATCHED' : 'ASSIGNED', error: null };
         } else
           throw new ProblemException('invalid_state_transition', undefined, undefined, {
             from: cur.status,
             event: o.dispatch ? 'dispatch' : 'assign',
           });
         await tx.$executeRawUnsafe('RELEASE SAVEPOINT tms_trip_bulk');
-        out.push({ trip, error: null });
+        out[i] = r;
       } catch (e) {
         if (!(e instanceof ProblemException) && !(e instanceof InvalidTransitionError)) throw e;
         await tx.$executeRawUnsafe('ROLLBACK TO SAVEPOINT tms_trip_bulk');
         await tx.$executeRawUnsafe('RELEASE SAVEPOINT tms_trip_bulk');
-        out.push({ trip: null, error: e });
+        out[i] = { trip: null, outcome: 'FAILED', error: e };
       }
     }
     return out;
@@ -719,7 +788,7 @@ export class TripService {
   ): Promise<TripRecord> {
     const reason = this.ruleReason(rules);
     const { trip, dos } = await this.lock(tx, id, expectedVersion);
-    return this.dispatchLocked(tx, trip, dos, rules, reason);
+    return this.oneBump(tx, await this.dispatchLocked(tx, trip, dos, rules, reason), trip.version);
   }
 
   private async dispatchLocked(

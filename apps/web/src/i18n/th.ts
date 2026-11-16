@@ -2895,6 +2895,9 @@ export const th = {
   'plan.bulk.open': 'เปิดเที่ยว',
   'plan.bulk.close': 'ปิด',
   'plan.bulk.noVehicle': 'ยังไม่ได้วางลงรถ',
+  'plan.bulk.unchanged': 'จัดรถแล้วอยู่ก่อน {n} เที่ยว (ไม่เปลี่ยน)',
+  'plan.toast.driverKept': ' · คนขับ: {n} (คงเดิม)',
+  'plan.toast.driverChanged': ' · คนขับ: {n} (เปลี่ยนเป็นคนขับประจำ)',
   'problem.stop_order_invalid':
     'ลำดับจุดไม่ถูกต้อง — จุดส่งของใบส่งของต้องอยู่หลังจุดรับของใบเดียวกัน',
   'ord.veh.plate': 'ทะเบียน',

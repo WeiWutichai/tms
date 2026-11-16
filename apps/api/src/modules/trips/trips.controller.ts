@@ -310,28 +310,34 @@ export class TripsController {
         canOverride: scopeAllows(requestContext.require().scopes ?? [], RULE_OVERRIDE_SCOPE),
       },
     );
-    const results = out.map((r, i) =>
-      r.trip
-        ? {
-            tripId: body.items[i]!.tripId,
-            tripNo: r.trip.tripNo,
-            status: 200,
-            trip: toTripDto(r.trip),
-            problem: null,
-          }
-        : (() => {
-            const problem = problemOf(r.error);
-            return {
-              tripId: body.items[i]!.tripId,
-              tripNo: null,
-              status: problem.status,
-              trip: null,
-              problem,
-            };
-          })(),
-    );
-    const succeeded = results.filter((r) => r.trip).length;
-    return { results, succeeded, failed: results.length - succeeded };
+    const results = out.map((r, i) => {
+      const tripId = body.items[i]!.tripId;
+      if (r.trip)
+        return {
+          tripId,
+          tripNo: r.trip.tripNo,
+          status: 200,
+          outcome: r.outcome,
+          trip: toTripDto(r.trip),
+          problem: null,
+        };
+      const problem = problemOf(r.error);
+      return {
+        tripId,
+        tripNo: null,
+        status: problem.status,
+        outcome: r.outcome,
+        trip: null,
+        problem,
+      };
+    });
+    const n = (o: string) => results.filter((r) => r.outcome === o).length;
+    return {
+      results,
+      succeeded: n('ASSIGNED') + n('DISPATCHED'),
+      unchanged: n('UNCHANGED'),
+      failed: n('FAILED'),
+    };
   }
 
   @Get(':id')

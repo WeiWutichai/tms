@@ -1,7 +1,6 @@
 import { Icon, useEscapeLayer } from '@tms/ui';
-import { ApiError } from '../../api';
-import { useI18n, type T } from '../../i18n';
-import { fieldErrors, problemText } from '../master/problems';
+import { useI18n } from '../../i18n';
+import { tripProblemText } from '../trips/tripProblem';
 import type { BulkResults } from '../trips/useTrips';
 
 /**
@@ -24,7 +23,7 @@ export function BulkFailDialog({
   const { t } = useI18n();
   useEscapeLayer(true, onClose);
   const failed = results.filter((r) => !r.trip);
-  const ok = results.length - failed.length;
+  const ok = results.filter((r) => r.outcome === 'ASSIGNED' || r.outcome === 'DISPATCHED').length;
   return (
     <div className="tms-dialog__scrim" onClick={onClose}>
       <div
@@ -68,7 +67,9 @@ export function BulkFailDialog({
                 <span className="tms-num" style={{ fontWeight: 500, color: '#2257C4' }}>
                   {tripNo(r.tripId) || r.tripId}
                 </span>
-                <span style={{ color: '#3B424C' }}>{problemLine(r.problem, t)}</span>
+                <span style={{ color: '#3B424C' }}>
+                  {r.problem ? tripProblemText(r.problem, t) : ''}
+                </span>
               </div>
               <button
                 type="button"
@@ -96,28 +97,4 @@ export function BulkFailDialog({
       </div>
     </div>
   );
-}
-
-/**
- * ข้อความเหตุผลของรายการ: หัวข้อ problem (ไทย) + กฎที่ค้าง (409 — ข้อความไทยจาก API) หรือช่องที่ผิด (422)
- * ช่องที่พบบ่อยของการจัดรถ: ไม่มีคนขับ (`driverId`) / ยังไม่วางลงรถ (`vehicleId`)
- */
-function problemLine(p: BulkResults['results'][number]['problem'], t: T): string {
-  if (!p) return '';
-  const err = new ApiError(p as never);
-  const title = problemText(err, t) ?? p.title;
-  const rules = [...(p.blocks ?? []), ...(p.warnings ?? [])]
-    .map((x) => String((x as { message?: unknown }).message ?? ''))
-    .filter(Boolean);
-  const fe = fieldErrors(err, t);
-  const errs = (p.errors ?? []) as { field: string; code: string }[];
-  const fields = errs.map((e) =>
-    e.field === 'driverId' && e.code === 'required'
-      ? t('plan.noDriver')
-      : e.field === 'vehicleId' && e.code === 'required'
-        ? t('plan.bulk.noVehicle')
-        : (fe[e.field] ?? ''),
-  );
-  const detail = [...rules, ...fields].filter(Boolean).join(' · ');
-  return detail ? `${title} — ${detail}` : title;
 }

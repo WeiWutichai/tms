@@ -32540,7 +32540,17 @@
           "status": {
             "type": "number",
             "example": 200,
-            "description": "สถานะ HTTP ของรายการนี้ (200 = สำเร็จ)"
+            "description": "สถานะ HTTP ของรายการนี้ (200 = สำเร็จ/ไม่เปลี่ยน)"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "ASSIGNED",
+              "DISPATCHED",
+              "UNCHANGED",
+              "FAILED"
+            ],
+            "description": "ผลของรายการ — `UNCHANGED` = เที่ยวจัดรถแล้วอยู่ก่อน (จัดรถโดยไม่ปล่อย) ไม่ได้ทำอะไร"
           },
           "trip": {
             "nullable": true,
@@ -32567,6 +32577,7 @@
           "tripId",
           "tripNo",
           "status",
+          "outcome",
           "trip",
           "problem"
         ]
@@ -32583,7 +32594,13 @@
           },
           "succeeded": {
             "type": "number",
-            "example": 3
+            "example": 3,
+            "description": "จัดรถ/ปล่อยสำเร็จ (ไม่นับ `UNCHANGED`)"
+          },
+          "unchanged": {
+            "type": "number",
+            "example": 0,
+            "description": "จัดรถแล้วอยู่ก่อน ไม่เปลี่ยน"
           },
           "failed": {
             "type": "number",
@@ -32593,6 +32610,7 @@
         "required": [
           "results",
           "succeeded",
+          "unchanged",
           "failed"
         ]
       },

@@ -606,8 +606,14 @@ export class BulkTripProblemDto {
 export class BulkTripResultDto {
   @ApiProperty({ example: 'trp_3f2a…' }) tripId!: string;
   @ApiProperty({ nullable: true, type: String, example: 'TRP-6911-0001' }) tripNo!: string | null;
-  @ApiProperty({ example: 200, description: 'สถานะ HTTP ของรายการนี้ (200 = สำเร็จ)' })
+  @ApiProperty({ example: 200, description: 'สถานะ HTTP ของรายการนี้ (200 = สำเร็จ/ไม่เปลี่ยน)' })
   status!: number;
+  @ApiProperty({
+    enum: ['ASSIGNED', 'DISPATCHED', 'UNCHANGED', 'FAILED'],
+    description:
+      'ผลของรายการ — `UNCHANGED` = เที่ยวจัดรถแล้วอยู่ก่อน (จัดรถโดยไม่ปล่อย) ไม่ได้ทำอะไร',
+  })
+  outcome!: 'ASSIGNED' | 'DISPATCHED' | 'UNCHANGED' | 'FAILED';
   @ApiProperty({ nullable: true, type: TripDto, description: 'เที่ยวหลังทำ (สำเร็จ)' })
   trip!: TripDto | null;
   @ApiProperty({ nullable: true, type: BulkTripProblemDto, description: 'เหตุที่ไม่สำเร็จ' })
@@ -617,6 +623,8 @@ export class BulkTripResultDto {
 export class BulkTripResultsDto {
   @ApiProperty({ type: [BulkTripResultDto], description: 'ผลต่อรายการ เรียงตามคำขอ' })
   results!: BulkTripResultDto[];
-  @ApiProperty({ example: 3 }) succeeded!: number;
+  @ApiProperty({ example: 3, description: 'จัดรถ/ปล่อยสำเร็จ (ไม่นับ `UNCHANGED`)' })
+  succeeded!: number;
+  @ApiProperty({ example: 0, description: 'จัดรถแล้วอยู่ก่อน ไม่เปลี่ยน' }) unchanged!: number;
   @ApiProperty({ example: 1 }) failed!: number;
 }
