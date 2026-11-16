@@ -564,6 +564,99 @@ describe('hold page (ใบค้าง)', () => {
     expect(d.body.code).toBe('order_locked_for_update');
   });
 
+  it('ราคาที่กำหนดเองชนะ rate card (PO 16 พ.ย. 2569): มีค่าขนส่ง MANUAL แล้วได้ rate ภายหลัง → คิดใหม่ไม่เพิ่ม FREIGHT/EXTRA_STOP จาก rate card (ไม่ซ้อนค่าขนส่ง) · ไม่มี MANUAL = คิดตาม rate ตามเดิม', async () => {
+    const cust = await newCustomer();
+    const origin = await newSite('คลังต้นทาง ราคาเองชนะ');
+    const mid = await newSite('จุดส่งกลาง ราคาเองชนะ', cust);
+    const dest = await newSite('ปลายทาง ราคาเองชนะ', cust);
+    // 3 จุด (รับ 1 + ส่ง 2) · rate รวม 2 จุด + ค่าจุดเพิ่ม 500/จุด → ใบที่ไม่มี MANUAL ได้ FREIGHT 3800 + EXTRA_STOP 500
+    const threeStops = (ext: string): UpsertOrderInput => ({
+      ...order(ext, { custId: cust, origin, dest }),
+      stops: [
+        { type: 'PICKUP', siteId: origin },
+        { type: 'DELIVERY', siteId: mid },
+        { type: 'DELIVERY', siteId: dest },
+      ],
+    });
+    const a = await upsert(threeStops('HOLD-MPW'));
+    const plain = await upsert(threeStops('HOLD-MPW-2'));
+    expect(a.order.holdReasonCode?.code).toBe('RATE_MISSING');
+    expect(plain.order.holdReasonCode?.code).toBe('RATE_MISSING');
+    const id = pub(a.order.id);
+    await api(app, pricer)
+      .post(`/v1/orders/${id}/manual-price`)
+      .send({ sellAmount: '4200.50', reason: 'ลูกค้ารายใหม่ ตกลงราคาทางโทรศัพท์' })
+      .expect(200);
+
+    const r = (
+      await api(app, admin)
+        .post('/v1/rate-cards')
+        .send({
+          customerId: encodeId('customer', cust),
+          originId: encodeId('site', origin),
+          destinationId: encodeId('site', dest),
+          vehicleTypeId: encodeId('vehicleType', vt6),
+          validFrom: addDays(today, -30),
+          pricingModel: 'PER_TRIP',
+          sellRate: '3800',
+          sellExtraStopRate: '500',
+          includedStops: 2,
+        })
+        .expect(201)
+    ).body;
+    await api(app, admin)
+      .post(`/v1/rate-cards/${r.id}/approve`)
+      .send({ reason: 'อนุมัติตามใบเสนอราคา' })
+      .expect(200);
+
+    // มี MANUAL → คิดใหม่ (ตรวจอีกครั้ง) ได้บรรทัด MANUAL บรรทัดเดียว · ยอด = ราคาที่กำหนดเอง · ไม่ค้าง RATE_MISSING
+    const re = await api(app, admin).post(`/v1/orders/${id}/reevaluate`).expect(200);
+    expect(re.body).toMatchObject({
+      status: 'received',
+      holdReason: null,
+      holdCodes: [],
+      pricingStatus: 'AVAILABLE',
+      sellTotal: '4200.50',
+    });
+    expect(re.body.sellCharges).toEqual([
+      expect.objectContaining({ kind: 'FREIGHT', origin: 'MANUAL', sellAmount: '4200.50' }),
+    ]);
+    // ส่งซ้ำจากต้นทาง (upsert) ก็ไม่เพิ่มบรรทัด rate card
+    await upsert(threeStops('HOLD-MPW'));
+    const rows = await db.salesOrderCharge.findMany({ where: { salesOrderId: a.order.id } });
+    expect(rows.map((c) => [c.kind, c.origin, c.amount.toFixed(2)])).toEqual([
+      ['FREIGHT', 'MANUAL', '4200.50'],
+    ]);
+    const so = await db.salesOrder.findUniqueOrThrow({ where: { id: a.order.id } });
+    expect(so.priceTotal?.toFixed(2)).toBe('4200.50');
+    expect(so.status).toBe('RECEIVED');
+
+    // ไม่มี MANUAL (regression) → คิดตาม rate card: FREIGHT + EXTRA_STOP
+    const p = await api(app, admin)
+      .post(`/v1/orders/${pub(plain.order.id)}/reevaluate`)
+      .expect(200);
+    expect(p.body).toMatchObject({ status: 'received', sellTotal: '4300.00' });
+    expect(
+      (p.body.sellCharges as { kind: string; origin: string; sellAmount: string }[]).map((c) => [
+        c.kind,
+        c.origin,
+        c.sellAmount,
+      ]),
+    ).toEqual([
+      ['FREIGHT', 'RATE_CARD', '3800.00'],
+      ['EXTRA_STOP', 'RATE_CARD', '500.00'],
+    ]);
+
+    // คนเอาบรรทัด MANUAL ออก → คิดใหม่กลับไปใช้ rate card
+    await db.salesOrderCharge.deleteMany({ where: { salesOrderId: a.order.id, origin: 'MANUAL' } });
+    const back = await api(app, admin).post(`/v1/orders/${id}/reevaluate`).expect(200);
+    expect(back.body).toMatchObject({ status: 'received', sellTotal: '4300.00' });
+    expect(back.body.sellCharges.map((c: { origin: string }) => c.origin)).toEqual([
+      'RATE_CARD',
+      'RATE_CARD',
+    ]);
+  });
+
   it('ใบค้างด้วยเหตุตอนจัดรถ/ส่ง (เคยวางแผนแล้ว) → ตรวจอีกครั้ง/กำหนดราคาเอง 409 ไม่คิดราคาใหม่', async () => {
     const cust = await newCustomer();
     const origin = await newSite('คลังต้นทาง ใบค้าง รถร่วม');
