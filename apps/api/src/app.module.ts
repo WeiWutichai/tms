@@ -80,6 +80,7 @@ import { DeliveryOrderService } from './modules/delivery-orders/delivery-order.s
 import { DeliveryOrdersController } from './modules/delivery-orders/delivery-orders.controller';
 import { OrderStateService } from './modules/orders/order-state.service';
 import { TripService } from './modules/trips/trip.service';
+import { SubconHireService } from './modules/trips/subcon-hire.service';
 import { TripsController } from './modules/trips/trips.controller';
 import { PlanningController } from './modules/planning/planning.controller';
 import { PlanningService } from './modules/planning/planning.service';
@@ -220,6 +221,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     DeliveryOrderService,
     OrderStateService,
     TripService,
+    SubconHireService,
     TripSheetsService,
     TripSheetLinks,
     PlanningService,

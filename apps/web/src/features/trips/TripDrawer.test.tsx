@@ -19,6 +19,8 @@ const printMutate = vi.fn();
 const shareMutate = vi.fn();
 const revokeMutate = vi.fn();
 vi.mock('./useTrips', () => ({
+  useHireOptions: () => ({ data: undefined, isError: false }),
+  useHireTrip: () => ({ mutate: vi.fn(), isPending: false }),
   useRevokeTripSheetLinks: () => ({ mutate: revokeMutate, isPending: false }),
   usePrintTripSheet: () => ({ mutate: printMutate, isPending: false }),
   useTripSheetLink: () => ({ mutate: shareMutate, isPending: false }),
@@ -149,7 +151,7 @@ const TRIP = {
 } as unknown as TripDetail;
 
 const onDone = vi.fn();
-const show = (canEdit = true, canDispatch = false, canPrint = false) =>
+const show = (canEdit = true, canDispatch = false, canPrint = false, canHire = false) =>
   render(
     <MemoryRouter>
       <QueryClientProvider client={new QueryClient()}>
@@ -159,6 +161,7 @@ const show = (canEdit = true, canDispatch = false, canPrint = false) =>
             canEdit={canEdit}
             canDispatch={canDispatch}
             canPrint={canPrint}
+            canHire={canHire}
             onDone={onDone}
             onClose={() => {}}
           />
@@ -168,6 +171,24 @@ const show = (canEdit = true, canDispatch = false, canPrint = false) =>
   );
 
 describe('TripDrawer (ST3-T16)', () => {
+  it('ST3-T22 ปุ่ม "ส่งต่อรถร่วม": ต้องมีสิทธิ์จ้าง + เที่ยว PLANNING ยังไม่จ้าง → เปิด drawer จ่ายงานรถร่วม', () => {
+    live.data = TRIP;
+    const r = show(true, false, false, false);
+    expect(screen.queryByRole('button', { name: 'ส่งต่อรถร่วม' })).toBeNull();
+    r.unmount();
+    const r2 = show(true, false, false, true);
+    fireEvent.click(screen.getByRole('button', { name: 'ส่งต่อรถร่วม' }));
+    expect(screen.getByText('จ่ายงานรถร่วม')).toBeTruthy();
+    r2.unmount();
+    live.data = {
+      ...TRIP,
+      status: 'OFFERED',
+      carrier: { id: 'car_1', name: 'หจก. บี' },
+    } as TripDetail;
+    show(true, false, false, true);
+    expect(screen.queryByRole('button', { name: 'ส่งต่อรถร่วม' })).toBeNull();
+  });
+
   beforeEach(() => {
     live.data = TRIP;
     reorderMutate.mockReset();

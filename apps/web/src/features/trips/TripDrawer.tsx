@@ -29,6 +29,7 @@ import {
   type TripSheetLink,
 } from './useTrips';
 import { sortVehicles } from './assignForm';
+import { SubconHireDrawer } from './SubconHireDrawer';
 import { tripProblemText } from './tripProblem';
 
 /** ป้ายสถานะเที่ยว — สี/ไอคอนตามกลุ่มสถานะของต้นแบบ (วางแผน / จัดรถแล้ว / ระหว่างส่ง / ส่งแล้ว) */
@@ -317,6 +318,7 @@ export function TripDrawer({
   canDispatch = false,
   canOverride = false,
   canPrint = false,
+  canHire = false,
   onDone,
   onClose,
 }: {
@@ -329,6 +331,8 @@ export function TripDrawer({
   canOverride?: boolean;
   /** `documents:write` — พิมพ์ใบคุมรถ (สร้างไฟล์ PDF) · ส่งให้คนขับต้องมี `trips:dispatch` ด้วย */
   canPrint?: boolean;
+  /** ST3-T22 จ้างรถร่วม: `trips:assign` + `prices.buy:read` — ปุ่ม "ส่งต่อรถร่วม" ของเที่ยวที่ยังวางแผน */
+  canHire?: boolean;
   /** ปล่อยเที่ยวสำเร็จ → ผู้เรียกแสดง toast แล้วปิด drawer (ต้นแบบ releaseTrp: ปิดแผง + toast) */
   onDone?: (message: string) => void;
   onClose: () => void;
@@ -363,6 +367,8 @@ export function TripDrawer({
     (RuleProblem & { retry: (reason: string, keys: string[]) => void }) | null
   >(null);
   const [ruleErr, setRuleErr] = useState<string | null>(null);
+  /** ST3-T22 เปิด drawer "จ่ายงานรถร่วม" ของเที่ยวนี้ */
+  const [hiring, setHiring] = useState(false);
   const labels = { close: t('drawer.close'), more: t('drawer.more') };
   const tr = q.data;
   const assignable =
@@ -388,6 +394,20 @@ export function TripDrawer({
       </Drawer>
     );
 
+  if (hiring && tr.status === 'PLANNING')
+    return (
+      <SubconHireDrawer
+        trip={tr}
+        onClose={() => setHiring(false)}
+        onDone={(m) => {
+          setHiring(false);
+          if (onDone) {
+            onDone(m);
+            onClose();
+          } else setToast(m);
+        }}
+      />
+    );
   const ed = canEdit && EDITABLE.has(tr.status);
   const busy = reorder.isPending || detach.isPending || assign.isPending || dispatch.isPending;
   const defaultDriverOf = (veh: string) => {
@@ -498,6 +518,9 @@ export function TripDrawer({
     (assignedNow || (tr.status === 'PLANNING' && assignable));
   // ST3-T20 ใบคุมรถ: เที่ยวที่ยกเลิกไม่มีปุ่ม (API 409) · ไม่มีจุดแวะ = กดไม่ได้ (API 409 trip_empty)
   const showPrint = canPrint && tr.status !== 'CANCELLED';
+  // ST3-T22 ส่งต่อรถร่วม: เที่ยวที่ยังวางแผน มีใบส่งของ และยังไม่จ้าง (ต้นแบบ footer drawer SO "ส่งต่อรถร่วม")
+  const showHire =
+    canHire && canEdit && tr.status === 'PLANNING' && !tr.carrier && tr.deliveryOrders.length > 0;
   // ไม่มีคนขับ (ยังไม่จัด/รถร่วมยังไม่ใส่คนขับ) = ไม่มีผู้รับลิงก์ (review ST3-T20 L6)
   const showShare = showPrint && canDispatch && !!tr.driver;
   const sheetBusy = print.isPending || shareLink.isPending;
@@ -603,7 +626,7 @@ export function TripDrawer({
               {err}
             </span>
           )}
-          {(showAssignBtn || showRelease || showPrint) && (
+          {(showAssignBtn || showRelease || showPrint || showHire) && (
             <div
               style={{
                 display: 'flex',
@@ -631,6 +654,19 @@ export function TripDrawer({
                   onClick={openShare}
                 >
                   {t('trip.foot.share')}
+                </button>
+              )}
+              {showHire && (
+                <button
+                  type="button"
+                  className="tms-drawer__sec"
+                  disabled={busy}
+                  onClick={() => {
+                    setErr(null);
+                    setHiring(true);
+                  }}
+                >
+                  {t('trip.foot.subcon')}
                 </button>
               )}
               {showAssignBtn && (

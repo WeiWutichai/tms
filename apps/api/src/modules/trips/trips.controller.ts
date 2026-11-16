@@ -39,6 +39,8 @@ import {
   ConfirmRulesDto,
   CreateTripDto,
   DetachDeliveryOrdersDto,
+  HireOptionsDto,
+  HireOptionsQuery,
   DispatchTripDto,
   OfferTripDto,
   ReorderStopsDto,
@@ -55,6 +57,7 @@ import {
   type TripRecord,
   type TripWarning,
 } from './trip.service';
+import { SubconHireService } from './subcon-hire.service';
 
 const iso = (d: Date | null) => (d ? d.toISOString() : null);
 const kg = (vs: (Prisma.Decimal | null)[]) =>
@@ -81,6 +84,25 @@ export function tripRules(t: TripRecord) {
   const covered = new Set(p.covered);
   const activeKeys = new Set(p.covered.map((w) => ruleKey(w, ctx)));
   return { results, overrides, pending: p, covered, activeKeys, ctx };
+}
+
+/** การจ้างรถร่วมที่ใช้งานอยู่ (ST3-T22) — ราคาซื้อถูกตัดที่ serializer เมื่อไม่มี `prices.buy:read` */
+function hireDto(t: TripRecord): TripDto['hire'] {
+  const o = t.subconOffers?.[0];
+  if (!o) return null;
+  const q = (o.rateQuote ?? {}) as { rateCardCode?: string | null };
+  return {
+    id: encodeId('subconOffer', o.id),
+    carrierId: encodeId('carrier', o.carrierId),
+    status: o.status,
+    buyAmount: o.buyAmount.toFixed(2),
+    priceSource: o.priceSource,
+    rateCardCode: q.rateCardCode ?? null,
+    selectionKind: o.selectionKind,
+    selectionReason: o.selectionReason,
+    offeredBy: o.offeredBy,
+    offeredAt: o.offeredAt.toISOString(),
+  };
 }
 
 export function toTripDto(t: TripRecord): TripDto {
@@ -122,6 +144,7 @@ export function toTripDto(t: TripRecord): TripDto {
     assignmentStatus: t.assignmentStatus,
     offeredAt: iso(t.offeredAt),
     offerExpiresAt: iso(t.assignmentExpiresAt),
+    hire: hireDto(t),
     assignedAt: iso(t.assignedAt),
     dispatchedAt: iso(t.dispatchedAt),
     completedAt: iso(t.completedAt),
@@ -271,13 +294,16 @@ const optRef = (kind: IdKind, v: string | null | undefined, field: string) =>
  * (`/assign` `/offer` `/dispatch` `/complete` `/cancel`) · `/attach` `/detach` ไม่อยู่ในรายการ docs §5.2 (spec/12 §3)
  * สิทธิ์ (docs/04 A3 "Trip: assign / dispatch / ปิด"): อ่าน `trips:read` · สร้าง/เพิ่ม-ถอด/จัดรถ/เสนอ/ยกเลิก `trips:assign`
  * (ยกเลิกเที่ยวที่ปล่อยแล้วต้องมี `trips:dispatch` ด้วย) · ปล่อยรถ `trips:dispatch` · ปิดเที่ยว `trips:close`
- * ไม่มีราคาซื้อ/ขายใน payload (buy_rate_snapshot = ST3-T22)
+ * ราคาซื้อ (ST3-T22 `hire.buyAmount`) ถูกตัดที่ serializer เมื่อไม่มี `prices.buy:read` · ไม่มีราคาขายใน payload
  */
 @ApiTags('trips')
 @ApiBearerAuth()
 @Controller('trips')
 export class TripsController {
-  constructor(private readonly trips: TripService) {}
+  constructor(
+    private readonly trips: TripService,
+    private readonly subcon: SubconHireService,
+  ) {}
 
   @Get()
   @ApiProblems(T403('trips:read'), T422)
@@ -676,7 +702,28 @@ export class TripsController {
     return toTripDto(t);
   }
 
-  /** เสนองานรถร่วม → OFFERED (ลิงก์รับงาน = ST3-T23) */
+  /**
+   * ตัวเลือกจ้างรถร่วมของเที่ยว (ST3-T22; docs/04 D3): รถร่วมที่ใช้งานอยู่ทุกราย + ราคาขาซื้อจาก rate card + ราคา 5 ครั้งล่าสุด
+   * + รายที่ถูกสุด · ต้องมี `trips:assign` + `prices.buy:read` · ราคาขายของเที่ยวเห็นเมื่อมี `prices.sell:read`
+   */
+  @Get(':id/hire-options')
+  @ApiProblems(T403('prices.buy:read'), T404, T422)
+  @TenantResource('trip')
+  @RequireScope('trips:assign')
+  @ApiOkResponse({ type: HireOptionsDto })
+  async hireOptions(
+    @Param('id') id: string,
+    @Query() q: HireOptionsQuery,
+  ): Promise<HireOptionsDto> {
+    requireAlso('prices.buy:read');
+    const trip = await this.trips.get(decodeIdOr404('trip', id));
+    return this.subcon.optionsDto(trip, optRef('vehicleType', q.vehicleTypeId, 'vehicleTypeId'));
+  }
+
+  /**
+   * จ้างรถร่วม = เสนองาน → OFFERED (ST3-T22; ลิงก์รับงาน = ST3-T23): ราคาซื้อ → `trip_cost` CARRIER_FEE + `selectionReason`
+   * ไม่ใช่ราคาถูกสุด/ไม่มีราคาให้เทียบ → ต้องมีเหตุผล (422 `selection_reason_required`) · ต้องมี `prices.buy:read` ด้วย
+   */
   @Post(':id/offer')
   @ApiProblems(T403('trips:assign'), T404, T409('trip_empty'), T412, T422)
   @HttpCode(200)
@@ -691,11 +738,16 @@ export class TripsController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<TripDto> {
+    requireAlso('prices.buy:read');
     const trip = await this.trips.get(decodeIdOr404('trip', id));
-    const t = await this.trips.offer(
+    const t = await this.subcon.hire(
       trip.id,
-      ref('carrier', body.carrierId, 'carrierId'),
-      undefined,
+      {
+        carrierId: ref('carrier', body.carrierId, 'carrierId'),
+        cost: body.cost ?? null,
+        selectionReason: body.selectionReason ?? null,
+        vehicleTypeId: optRef('vehicleType', body.vehicleTypeId, 'vehicleTypeId') ?? null,
+      },
       expectedVersion(req),
     );
     setEtag(res, t.version);
