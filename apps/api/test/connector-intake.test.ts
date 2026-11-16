@@ -319,6 +319,61 @@ describe('connector intake (pullOrders)', () => {
     expect((await byExt('BAD-DATE')).sourceIssues).toEqual([]);
   });
 
+  it('QA: ใบวางแผนแล้วต้นทางส่งบรรทัดเสีย (mapper ทิ้งบรรทัด + SOURCE_ERROR) → locked ไม่เก็บ diff ไม่ลบบรรทัด', async () => {
+    mock.push(tenantId, ext('PLAN-BAD'));
+    await svc.pull(tenantId, 'mock');
+    const o = await db.salesOrder.findFirstOrThrow({
+      where: { tenantId, externalId: 'PLAN-BAD' },
+      include: { lines: true },
+    });
+    await db.salesOrder.update({ where: { id: o.id }, data: { status: 'PLANNED' } });
+    mock.push(
+      tenantId,
+      ext('PLAN-BAD', {
+        lines: [{ itemCode: 'CEM-01', description: 'ปูนซีเมนต์', unit: 'TON' } as never],
+      }),
+    );
+    const r = await svc.pull(tenantId, 'mock');
+    expect(r.results[0]).toMatchObject({
+      outcome: 'locked',
+      error: { code: 'order_locked_for_update' },
+    });
+    expect(await db.orderSourceChange.count({ where: { salesOrderId: o.id } })).toBe(0);
+    const after = await db.salesOrder.findUniqueOrThrow({
+      where: { id: o.id },
+      include: { lines: true },
+    });
+    expect([after.version, after.lines.length]).toEqual([o.version + 0, o.lines.length]);
+  });
+
+  it('ใบสำรองของใบที่วางแผนแล้ว → locked (ห้ามเก็บข้อมูลลดรูปเป็นชุดรอตัดสิน)', async () => {
+    mock.push(tenantId, ext('PLAN-FB'));
+    await svc.pull(tenantId, 'mock');
+    const o = await db.salesOrder.findFirstOrThrow({ where: { tenantId, externalId: 'PLAN-FB' } });
+    await db.salesOrder.update({ where: { id: o.id }, data: { status: 'PLANNED' } });
+    const intake = app.get(OrderIntakeService);
+    const real = intake.upsertOrder.bind(intake);
+    const spy = vi
+      .spyOn(intake, 'upsertOrder')
+      .mockImplementationOnce(async (input, tx) =>
+        real({ ...input, vehicleTypeId: 'not-a-uuid' }, tx),
+      );
+    try {
+      mock.push(tenantId, ext('PLAN-FB', { customerRef: 'PO-FB-ใหม่' }));
+      const r = await svc.pull(tenantId, 'mock');
+      expect(r.results[0]).toMatchObject({
+        outcome: 'locked',
+        error: { code: 'order_locked_for_update' },
+      });
+      expect(await db.orderSourceChange.count({ where: { salesOrderId: o.id } })).toBe(0);
+      expect((await db.salesOrder.findUniqueOrThrow({ where: { id: o.id } })).version).toBe(
+        o.version,
+      );
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it('upsert ยังปฏิเสธรูปแบบ (422) → รับเป็นใบสำรอง SOURCE_ERROR ไม่ทิ้ง', async () => {
     const intake = app.get(OrderIntakeService);
     const real = intake.upsertOrder.bind(intake);
@@ -373,7 +428,7 @@ describe('connector intake (pullOrders)', () => {
     expect((await cursorRow())!.cursor).toBe(String(start + 1));
   });
 
-  it('ต้นทางแก้ใบหลังวางแผน → locked (ไม่ทับข้อมูล — diff เป็นงาน ST3-T10) · ช่องที่แก้ได้ (เลข PO) ยังรับ', async () => {
+  it('ต้นทางแก้ใบหลังวางแผน → source_changed (ไม่ทับ เก็บชุดรอตัดสิน — ST3-T10) · ส่งซ้ำ/ไม่รับแล้ว = unchanged + reason · ช่องที่แก้ได้ (เลข PO) ยังรับ', async () => {
     mock.push(tenantId, ext('PLAN-1'));
     await svc.pull(tenantId, 'mock');
     const o = await db.salesOrder.findFirstOrThrow({
@@ -391,18 +446,52 @@ describe('connector intake (pullOrders)', () => {
         ],
       }),
     );
+    const moved = ext('PLAN-1', {
+      stops: [
+        { type: 'PICKUP', siteCode: 'S-ORG' },
+        { type: 'DELIVERY', text: 'ปลายทางใหม่' },
+      ],
+    });
     const r = await svc.pull(tenantId, 'mock');
+    expect(r.counts).toMatchObject({ source_changed: 1, locked: 0 });
     expect(r.results[0]).toMatchObject({
       externalId: 'PLAN-1',
-      outcome: 'locked',
-      error: { code: 'order_locked_for_update' },
+      outcome: 'source_changed',
+      status: 'PLANNED',
     });
+    const changeId = r.results[0]!.sourceChangeId!;
     const after = await db.salesOrder.findUniqueOrThrow({
       where: { id: o.id },
       include: { stops: true },
     });
-    expect(after.version).toBe(o.version);
+    // ไม่ทับ: จุดเดิม สถานะเดิม + ธง/diff
     expect(after.stops.map((s) => s.siteId)).toEqual(o.stops.map((s) => s.siteId));
+    expect(after).toMatchObject({ status: 'PLANNED', sourceChangedAfterPlan: true });
+    // ส่งชุดเดิมซ้ำ → unchanged (ชุดเดิมยังรอ)
+    mock.push(tenantId, moved);
+    const again = await svc.pull(tenantId, 'mock');
+    expect(again.results[0]).toMatchObject({
+      outcome: 'unchanged',
+      reason: 'source_change_pending',
+      sourceChangeId: changeId,
+    });
+    // คนไม่รับ → ต้นทางส่งชุดเดิมซ้ำ = unchanged + source_change_rejected
+    await api(app, admin)
+      .post(
+        `/v1/orders/ord_${o.id.replace(/-/g, '')}/source-changes/osc_${changeId.replace(/-/g, '')}/reject`,
+      )
+      .send({ reason: 'ลูกค้ายืนยันปลายทางเดิมแล้ว' })
+      .expect(200);
+    mock.push(tenantId, moved);
+    const rej = await svc.pull(tenantId, 'mock');
+    expect(rej.results[0]).toMatchObject({
+      outcome: 'unchanged',
+      reason: 'source_change_rejected',
+    });
+    // ไม่รับแล้ว ไม่มีชุดรอตัดสินเหลือ
+    expect(
+      await db.orderSourceChange.count({ where: { salesOrderId: o.id, status: 'PENDING' } }),
+    ).toBe(0);
     // เลข PO แก้ได้ที่ PLANNED
     mock.push(tenantId, ext('PLAN-1', { customerRef: 'PO-ใหม่' }));
     const r2 = await svc.pull(tenantId, 'mock');

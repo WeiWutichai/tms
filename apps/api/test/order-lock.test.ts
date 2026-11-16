@@ -153,6 +153,33 @@ describe('order edit lock (ST3-T08)', () => {
     expect(a.body.editLock.expiresAt).toBe(new Date(T0.getTime() + 17 * MIN).toISOString());
   });
 
+  it('ST3-T10: ยกเลิกใบ / รับ-ไม่รับข้อมูลต้นทาง ระหว่างที่คนอื่นแก้อยู่ → 409 order_locked_by_user (ใบไม่เปลี่ยน)', async () => {
+    clock.set(T0);
+    const o = await newOrder();
+    await lock(o.id, tokA).expect(200);
+    const c = await api(app, tokB)
+      .post(`/v1/orders/${o.id}/cancel`)
+      .send({ reason: 'ลูกค้ายกเลิกงานนี้แล้ว' })
+      .expect(409);
+    expect(c.body.code).toBe('order_locked_by_user');
+    const row = await db.salesOrder.findUnique({ where: { id: tryDecodeId('salesOrder', o.id)! } });
+    expect(row!.status).toBe('DRAFT');
+    for (const d of ['accept', 'reject'])
+      expect(
+        (
+          await api(app, tokB)
+            .post(`/v1/orders/${o.id}/source-changes/00000000-0000-4000-8000-000000000000/${d}`)
+            .send({ reason: 'ตรวจกับต้นทางแล้วถูกต้อง' })
+            .expect(409)
+        ).body.code,
+      ).toBe('order_locked_by_user');
+    // ผู้ถือล็อกยกเลิกเองได้
+    await api(app, tokA)
+      .post(`/v1/orders/${o.id}/cancel`)
+      .send({ reason: 'ลูกค้ายกเลิกงานนี้แล้ว' })
+      .expect(200);
+  });
+
   it('heartbeat ของผู้ถือต่ออายุ (acquiredAt เดิม) — ครบ 10 นาทีไม่มีกิจกรรม ล็อกหลุด: B ได้ล็อก, A ถูกปฏิเสธ', async () => {
     clock.set(T0);
     const o = await newOrder();

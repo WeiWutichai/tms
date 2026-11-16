@@ -1396,6 +1396,45 @@ body:has(.tms-drawer__foot) .tms-toast {
   cursor: pointer;
 }
 
+/* ตารางเทียบในกล่องเหตุผล (ต้นแบบ vDialog diff: grid 1.3fr 1fr 1fr, หัว #EBEDE8, แถว #FBE9E7) */
+.tms-dialog__diff {
+  border: 1px solid #d9dcd4;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.tms-dialog__diffhead,
+.tms-dialog__diffrow {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr 1fr;
+}
+.tms-dialog__diffhead {
+  background: #ebede8;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: #3b424c;
+}
+.tms-dialog__diffrow {
+  border-top: 1px solid #d9dcd4;
+  background: #fbe9e7;
+}
+.tms-dialog__diffhead > span,
+.tms-dialog__diffrow > span {
+  padding: 8px 12px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.tms-dialog__diffb {
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  color: #3b424c;
+  text-decoration: line-through;
+}
+.tms-dialog__diffa {
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  font-weight: 600;
+}
+
 /* toast (ต้นแบบ toast()) */
 .tms-toast {
   position: fixed;

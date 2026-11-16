@@ -83,6 +83,56 @@ export function useUpdateOrder() {
   });
 }
 
+/** ยกเลิกใบสั่งขนส่ง (ST3-T10) — เหตุผล ≥ 10 ตัวอักษร · If-Match = version ที่เห็นใน drawer */
+export function useCancelOrder() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { id: string; version: number; reason: string }) =>
+      unwrap(
+        api.POST('/v1/orders/{id}/cancel', {
+          params: { path: { id: v.id }, header: { 'If-Match': `"${v.version}"` } },
+          body: { reason: v.reason },
+        }),
+      ) as Promise<Order>,
+    onError: refetchOnStale(qc, KEY),
+    onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
+  });
+}
+
+/** รับ/ไม่รับ การเปลี่ยนแปลงจากต้นทาง (ST3-T10) */
+export function useDecideSourceChange() {
+  const qc = useQueryClient();
+  return useMutation({
+    /** If-Match = version ของใบที่ผู้ใช้เห็น diff (diff คำนวณกับข้อมูลตอนอ่าน) */
+    mutationFn: (v: {
+      id: string;
+      version: number;
+      changeId: string;
+      accept: boolean;
+      reason: string;
+    }) =>
+      unwrap(
+        v.accept
+          ? api.POST('/v1/orders/{id}/source-changes/{changeId}/accept', {
+              params: {
+                path: { id: v.id, changeId: v.changeId },
+                header: { 'If-Match': `"${v.version}"` },
+              },
+              body: { reason: v.reason },
+            })
+          : api.POST('/v1/orders/{id}/source-changes/{changeId}/reject', {
+              params: {
+                path: { id: v.id, changeId: v.changeId },
+                header: { 'If-Match': `"${v.version}"` },
+              },
+              body: { reason: v.reason },
+            }),
+      ) as Promise<Order>,
+    onError: refetchOnStale(qc, KEY),
+    onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
+  });
+}
+
 // ---------- ล็อกการแก้ (ST3-T08) ----------
 
 /** ปลดล็อกของผู้อื่น (`orders:unlock`) พร้อมเหตุผล ≥ 10 ตัวอักษร — server ลง audit */

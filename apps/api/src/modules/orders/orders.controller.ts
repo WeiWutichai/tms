@@ -27,7 +27,9 @@ import { decodeIdOr404 } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { ApiProblems } from '../../common/problem.dto';
 import {
+  CancelOrderDto,
   CreateOrderDto,
+  SourceChangeDecisionDto,
   MapCustomerDto,
   MapStopSiteDto,
   OrderDto,
@@ -174,6 +176,70 @@ const E409 = (withConflict: boolean, idem = false) => ({
   },
 });
 
+const E422R = {
+  status: 422,
+  description: 'เหตุผลสั้นกว่า 10 ตัวอักษร / reason code ไม่ใช่หมวด CANCEL',
+  examples: {
+    validation_failed: P('validation_failed', 422, 'ข้อมูลไม่ถูกต้อง', {
+      errors: [
+        {
+          field: 'reason',
+          code: 'minLength',
+          message: 'reason must be longer than or equal to 10 characters',
+        },
+      ],
+    }),
+  },
+};
+const ON_TRIP = P(
+  'order_on_trip',
+  409,
+  'ใบสั่งขนส่งนี้มีใบส่งของอยู่ในเที่ยวรถ — ถอดออกจากเที่ยวก่อน',
+  {
+    deliveryOrders: ['DO-6911-0001'],
+  },
+);
+const E409C = {
+  status: 409,
+  description:
+    '`order_on_trip` — มีใบส่งของอยู่ในเที่ยว (ถอดออกจากเที่ยวก่อน) · `invalid_state_transition` — สถานะนี้ยกเลิกไม่ได้ (ออกรถ/ส่ง/ปิด/ยกเลิกแล้ว)',
+  examples: {
+    order_on_trip: ON_TRIP,
+    invalid_state_transition: P(
+      'invalid_state_transition',
+      409,
+      'ทำรายการนี้ไม่ได้ในสถานะปัจจุบัน',
+      {
+        from: 'IN_TRANSIT',
+        event: 'cancel',
+      },
+    ),
+  },
+};
+const E409S = {
+  status: 409,
+  description:
+    '`order_on_trip` — ช่องที่ต้นทางแก้ยังล็อกเพราะมีใบส่งของในเที่ยว (ถอดออกจากเที่ยวก่อนแล้วรับ) · ' +
+    '`order_locked_for_update` — ใบออกรถ/ปิด/ยกเลิกแล้ว · `source_change_not_pending` — ชุดนี้ถูกตัดสิน/มีชุดใหม่มาแทนแล้ว',
+  examples: {
+    order_on_trip: P(
+      'order_on_trip',
+      409,
+      'ใบสั่งขนส่งนี้มีใบส่งของอยู่ในเที่ยวรถ — ถอดออกจากเที่ยวก่อน',
+      {
+        orderStatus: 'PLANNED',
+        lockedFields: ['stops'],
+      },
+    ),
+    source_change_not_pending: P(
+      'source_change_not_pending',
+      409,
+      'การเปลี่ยนแปลงจากต้นทางชุดนี้ถูกตัดสินไปแล้ว หรือมีชุดใหม่มาแทน — โหลดใหม่',
+      { changeStatus: 'SUPERSEDED' },
+    ),
+  },
+};
+
 const LOCK_EX = {
   userId: 'usr_7c1d…',
   userName: 'สมชาย ใจดี',
@@ -211,6 +277,21 @@ const E409_LOCK = {
   },
 };
 
+/** 409 ของ action ที่ติดล็อกการแก้ (ST3-T08) — รวม example ล็อกเข้ากับ 409 เดิมของ endpoint */
+const withLock = (e: {
+  status: number;
+  description: string;
+  examples: Record<string, unknown>;
+}) => ({
+  ...e,
+  description: `${e.description} · \`order_locked_by_user\` — ผู้ใช้อื่นเปิดแก้อยู่ · \`order_lock_released\` — ล็อกของผู้เรียกถูกปลด`,
+  examples: {
+    ...e.examples,
+    order_locked_by_user: LOCKED_BY_USER,
+    order_lock_released: E409_LOCK.examples.order_lock_released,
+  },
+});
+
 const E409_ALIAS = {
   ...E409(false),
   examples: {
@@ -245,11 +326,17 @@ export class OrdersController {
 
   /** ใบเดียว + ช่องที่แก้ได้ตามสถานะ (ฟอร์ม ST3-T02 ใช้ปิดช่อง) + ผู้ที่เปิดแก้อยู่ (ST3-T08) */
   private async full(row: Awaited<ReturnType<OrdersService['get']>>): Promise<OrderDto> {
-    return {
+    const dto: OrderDto = {
       ...toOrderDto(row),
       editableFields: await this.orders.editableFields(row),
       editLock: await this.locks.view(row.id),
     };
+    // ชุดที่รอตัดสิน: ค่า "เดิม" เทียบข้อมูล TMS ตอนนี้ (list ใช้ diff ตอนรับ)
+    if (dto.sourceChange && row.sourceChanges[0]) {
+      const live = await this.orders.previewSourceChange(row.id, row.sourceChanges[0].id);
+      if (live) dto.sourceChange.changes = live as typeof dto.sourceChange.changes;
+    }
+    return dto;
   }
 
   private async respond(r: UpsertOrderResult, res: Response): Promise<OrderDto> {
@@ -397,6 +484,93 @@ export class OrdersController {
     await this.locks.assertWritable(current.id);
     const r = await this.orders.update(current.id, body, ifMatch(req));
     return this.respond(r, res);
+  }
+
+  /**
+   * ยกเลิกใบสั่งขนส่ง (ST3-T10; docs/04 C "ยกเลิก / คืนสถานะ", docs/01 §4.1) — เหตุผล ≥ 10 ตัวอักษร + reason code หมวด CANCEL (ไม่บังคับ)
+   * ใบส่งของ (DO) ร่างถูกยกเลิกตามไปทั้งหมด · มี DO อยู่ในเที่ยว → 409 `order_on_trip` (ถอดออกจากเที่ยวก่อน)
+   * ยกเลิกแล้วย้อนกลับไม่ได้ (สถานะสิ้นสุด) · event `order.cancelled`
+   */
+  @Post(':id/cancel')
+  @HttpCode(200)
+  @TenantResource('salesOrder')
+  @RequireScope('orders:cancel')
+  @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
+  @ApiOkResponse({ type: OrderDto })
+  @ApiProblems(E400(false), E403, E404, withLock(E409C), E412, E422R)
+  async cancel(
+    @Param('id') id: string,
+    @Body() body: CancelOrderDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<OrderDto> {
+    const current = await this.resolve(id);
+    await this.locks.assertWritable(current.id);
+    await this.orders.cancel(current.id, body, ifMatch(req));
+    const row = await this.orders.get(current.id);
+    setEtag(res, row.version);
+    return this.full(row);
+  }
+
+  /**
+   * รับการเปลี่ยนแปลงจากต้นทาง (ST3-T10) — เขียนข้อมูลชุดนั้นด้วยกฎเดียวกับทางเข้า (คิดราคา/ใบค้าง/ใบส่งของใหม่)
+   * ช่องที่ยังล็อก: มีใบส่งของในเที่ยว → 409 `order_on_trip` (ถอดออกจากเที่ยวก่อน) · เหตุผล ≥ 10 ตัวอักษร + audit
+   */
+  @Post(':id/source-changes/:changeId/accept')
+  @HttpCode(200)
+  @TenantResource('salesOrder')
+  @RequireScope('orders:write')
+  @ApiHeader({
+    name: 'If-Match',
+    required: false,
+    description: 'ETag ของใบที่ผู้ใช้เห็น diff — ไม่ตรง → 412',
+  })
+  @ApiOkResponse({ type: OrderDto })
+  @ApiProblems(E400(false), E403, E404, withLock(E409S), E412, E422R)
+  async acceptSourceChange(
+    @Param('id') id: string,
+    @Param('changeId') changeId: string,
+    @Body() body: SourceChangeDecisionDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<OrderDto> {
+    const current = await this.resolve(id);
+    await this.locks.assertWritable(current.id);
+    const r = await this.orders.decideSourceChange(
+      current.id,
+      changeId,
+      true,
+      body.reason,
+      ifMatch(req),
+    );
+    return this.respond(r as UpsertOrderResult, res);
+  }
+
+  /** ไม่รับการเปลี่ยนแปลงจากต้นทาง — ข้อมูล TMS คงเดิม ปลดธง (ต้นทางส่งชุดเดิมซ้ำ = ไม่ขึ้นใหม่) · เหตุผล ≥ 10 ตัวอักษร + audit */
+  @Post(':id/source-changes/:changeId/reject')
+  @HttpCode(200)
+  @TenantResource('salesOrder')
+  @RequireScope('orders:write')
+  @ApiHeader({
+    name: 'If-Match',
+    required: false,
+    description: 'ETag ของใบที่ผู้ใช้เห็น diff — ไม่ตรง → 412',
+  })
+  @ApiOkResponse({ type: OrderDto })
+  @ApiProblems(E400(false), E403, E404, withLock(E409S), E412, E422R)
+  async rejectSourceChange(
+    @Param('id') id: string,
+    @Param('changeId') changeId: string,
+    @Body() body: SourceChangeDecisionDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<OrderDto> {
+    const current = await this.resolve(id);
+    await this.locks.assertWritable(current.id);
+    await this.orders.decideSourceChange(current.id, changeId, false, body.reason, ifMatch(req));
+    const row = await this.orders.get(current.id);
+    setEtag(res, row.version);
+    return this.full(row);
   }
 
   /**

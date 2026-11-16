@@ -4,6 +4,7 @@ import {
   formatOrderSource,
   parseOrderSource,
   soEditableFields,
+  SOURCE_CHANGED_HOLD_CODE,
   type IntakeHold,
   type SoStatus,
   type OrderSource,
@@ -17,6 +18,7 @@ import { DbService } from '../../db/db.service';
 import { likeEscape } from '../master/master-kit';
 import type { UpsertOrderInput } from './order-input';
 import { OrderIntakeService, type UpsertOrderResult } from './order-intake.service';
+import { OrderStateService } from './order-state.service';
 import type { MatchSuggestion } from './order-matching.service';
 import type {
   CreateOrderDto,
@@ -25,6 +27,7 @@ import type {
   OrderListQuery,
   OrderSummaryDto,
   SoStatusValue,
+  SourceChangeEntryDto,
   UpdateOrderDto,
 } from './order.dto';
 
@@ -34,6 +37,8 @@ const READ_INCLUDE = {
   charges: { orderBy: { lineNo: 'asc' } },
   holdReasonCode: { select: { code: true, labelTh: true } },
   customer: { select: { code: true, legalName: true } },
+  // ชุดการเปลี่ยนแปลงจากต้นทางที่รอตัดสิน (ST3-T10 — ได้ครั้งละ 1 ชุด)
+  sourceChanges: { where: { status: 'PENDING' }, take: 1 },
 } as const satisfies Prisma.SalesOrderInclude;
 
 type OrderRow = Prisma.SalesOrderGetPayload<{ include: typeof READ_INCLUDE }>;
@@ -60,6 +65,8 @@ const ORDER_FIELDS = new Set([
   'sellCharges',
   'stops',
   'lines',
+  'sourceChangedAfterPlan',
+  'sourceChange',
   'version',
   'createdAt',
   'updatedAt',
@@ -149,6 +156,20 @@ export function toOrderDto(o: OrderRow): OrderDto {
       tempMin: dec(l.tempMin),
       tempMax: dec(l.tempMax),
     })),
+    sourceChangedAfterPlan: o.sourceChangedAfterPlan,
+    sourceChange: o.sourceChanges[0]
+      ? {
+          id: encodeId('orderSourceChange', o.sourceChanges[0].id),
+          status: o.sourceChanges[0].status,
+          source: formatOrderSource({
+            source: o.sourceChanges[0].source as OrderSource,
+            connector: o.sourceChanges[0].sourceConnector,
+          }),
+          orderStatus: o.sourceChanges[0].orderStatus.toLowerCase(),
+          receivedAt: o.sourceChanges[0].createdAt.toISOString(),
+          changes: o.sourceChanges[0].changes as unknown as SourceChangeEntryDto[],
+        }
+      : null,
     version: o.version,
     createdAt: o.createdAt.toISOString(),
     updatedAt: o.updatedAt.toISOString(),
@@ -195,7 +216,52 @@ export class OrdersService {
   constructor(
     private readonly db: DbService,
     private readonly intake: OrderIntakeService,
+    private readonly state: OrderStateService,
   ) {}
+
+  // ---------- ST3-T10 ยกเลิก + ชุดการเปลี่ยนแปลงจากต้นทาง ----------
+
+  /** POST /orders/{id}/cancel — public id ของ reason code → uuid (ผิดรูป/ไม่พบ = 422 ที่ช่องเดียวกัน) */
+  cancel(
+    id: string,
+    body: { reason: string; reasonCodeId?: string | null },
+    expectedVersion?: number | '*',
+  ) {
+    let reasonCodeId: string | null = null;
+    if (body.reasonCodeId) {
+      reasonCodeId = tryDecodeId('reasonCode', body.reasonCodeId);
+      if (!reasonCodeId)
+        throw new ProblemException('validation_failed', undefined, [
+          { field: 'reasonCodeId', code: 'invalid_reference', message: 'reason code not found' },
+        ]);
+    }
+    return this.state.cancel(id, {
+      reason: body.reason,
+      reasonCodeId,
+      ...(typeof expectedVersion === 'number' ? { expectedVersion } : {}),
+    });
+  }
+
+  /** รับ/ไม่รับ ชุดการเปลี่ยนแปลงจากต้นทาง — changeId ผิดรูป = 404 */
+  decideSourceChange(
+    id: string,
+    changeId: string,
+    accept: boolean,
+    reason: string,
+    expectedVersion?: number | '*',
+  ) {
+    const change = tryDecodeId('orderSourceChange', changeId);
+    if (!change) throw new ProblemException('not_found');
+    const ev = typeof expectedVersion === 'number' ? expectedVersion : undefined;
+    return accept
+      ? this.intake.acceptSourceChange(id, change, reason, undefined, ev)
+      : this.intake.rejectSourceChange(id, change, reason, undefined, ev);
+  }
+
+  /** diff ของชุดที่รอ เทียบข้อมูล TMS ตอนนี้ (ค่า "เดิม" คำนวณตอนอ่าน) — ใช้ใน GET ทีละใบ */
+  previewSourceChange(orderId: string, changeId: string) {
+    return this.intake.previewSourceChange(orderId, changeId);
+  }
 
   // ---------- read ----------
 
@@ -237,8 +303,11 @@ export class OrdersService {
       tx.salesOrder.count(),
       tx.salesOrder.count({ where: { status: 'DRAFT' } }),
       tx.salesOrder.count({ where: { status: 'ON_HOLD' } }),
-      tx.salesOrder.count({ where: { status: 'PLANNED' } }),
-      tx.salesOrder.count({ where: { status: 'PLANNED', requestedDate: today } }),
+      // จัดรถแล้ว: ไม่นับใบที่ต้นทางแก้หลังวางแผนรอตัดสิน (อยู่กลุ่มงานค้าง — docs/01 §4.1, QA ST3-T10)
+      tx.salesOrder.count({ where: { status: 'PLANNED', sourceChangedAfterPlan: false } }),
+      tx.salesOrder.count({
+        where: { status: 'PLANNED', sourceChangedAfterPlan: false, requestedDate: today },
+      }),
       tx.salesOrder.count({
         where: { status: { in: ['RECEIVED', 'ON_HOLD', 'PLANNED'] }, requestedDate: { lt: today } },
       }),
@@ -290,6 +359,8 @@ export class OrdersService {
         OR: [
           { holdReasonCode: { code: { in: codes } } },
           { id: { in: await this.heldIds(codes) } },
+          // ต้นทางแก้หลังวางแผน = ธงข้างสถานะ (ไม่ใช่ ON_HOLD) แต่อยู่หน้างานค้างกลุ่มเดียวกัน (docs/01 §4.1)
+          ...(codes.includes(SOURCE_CHANGED_HOLD_CODE) ? [{ sourceChangedAfterPlan: true }] : []),
         ],
       });
     }

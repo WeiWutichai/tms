@@ -235,6 +235,24 @@ export const PROBLEMS = {
     th: 'ใบส่งของนี้อยู่ในเที่ยวรถแล้ว — ถอดออกจากเที่ยวก่อน',
     en: 'Delivery order is on a trip — remove it from the trip first',
   },
+  /** ST3-T10 docs/04 C: ยกเลิก/รับข้อมูลต้นทางของใบที่มีใบส่งของอยู่ในเที่ยว → ต้องถอดออกจากเที่ยวก่อน */
+  order_on_trip: {
+    status: 409,
+    th: 'ใบสั่งขนส่งนี้มีใบส่งของอยู่ในเที่ยวรถ — ถอดออกจากเที่ยวก่อน',
+    en: 'This order has delivery orders on a trip — remove them from the trip first',
+  },
+  /** ST3-T10: ชุดการเปลี่ยนแปลงจากต้นทางถูกตัดสินแล้ว (รับ/ไม่รับ/ต้นทางส่งชุดใหม่มาแทน) */
+  source_change_not_pending: {
+    status: 409,
+    th: 'การเปลี่ยนแปลงจากต้นทางชุดนี้ถูกตัดสินไปแล้ว หรือมีชุดใหม่มาแทน — โหลดใหม่',
+    en: 'This source change was already decided or superseded — reload',
+  },
+  /** ST3-T10: ใบที่ต้นทางแก้หลังวางแผนยังรอตัดสิน (รับ/ไม่รับ) — ลงเที่ยวไม่ได้ [OPEN #56] */
+  order_source_change_pending: {
+    status: 409,
+    th: 'ต้นทางแก้ใบสั่งขนส่งนี้หลังวางแผน — เลือกรับค่าต้นทางหรือใช้ค่า TMS ก่อนจัดลงเที่ยว',
+    en: 'The source changed this order after planning — accept or reject the change before planning it',
+  },
   invalid_grant: { status: 400, th: 'รหัสยืนยันหมดอายุหรือไม่ถูกต้อง', en: 'Invalid grant' },
   /** ST3-T21 ช่องส่ง LINE/SMS ปิดหรือยังไม่ตั้งค่า — ผู้ใช้คัดลอกลิงก์ไปส่งเองได้ */
   channel_unavailable: {
