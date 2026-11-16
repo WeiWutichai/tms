@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { I18nProvider } from '../../i18n';
 import type { TripDetail } from './useTrips';
@@ -167,5 +167,48 @@ describe('TripDrawer (ST3-T16)', () => {
     live.data = { ...TRIP, status: 'DISPATCHED' } as TripDetail;
     show(true);
     expect(screen.queryByTitle('เลื่อนขึ้น')).toBeNull();
+  });
+
+  it('× ที่จุดที่มีหลายใบส่งของ → dialog ยืนยัน เลือกบางใบได้ (QA ST3-T16)', () => {
+    live.data = {
+      ...TRIP,
+      stops: [TRIP.stops[0]!, { ...TRIP.stops[1]!, deliveryOrderIds: ['do_1', 'do_2'] }],
+      deliveryOrders: TRIP.deliveryOrders.map((d) => ({ ...d, dropStopId: 'q1' })),
+    } as TripDetail;
+    show();
+    fireEvent.click(screen.getByTitle('นำออกจากเที่ยว'));
+    expect(detachMutate).not.toHaveBeenCalled();
+    const dlg = screen.getByRole('dialog', { name: 'นำใบส่งของออกจากเที่ยว' });
+    fireEvent.click(within(dlg).getByLabelText('DO-6911-0002'));
+    fireEvent.click(within(dlg).getByRole('button', { name: 'นำออก 1 ใบ' }));
+    expect(detachMutate).toHaveBeenCalledWith(
+      { id: 'trp_1', version: 3, doIds: ['do_1'] },
+      expect.anything(),
+    );
+  });
+
+  it('เรียงสำเร็จ → toast + คำเตือนใหม่ · จุดเดียวกันไม่แสดง +0.0 กม.', () => {
+    reorderMutate.mockImplementation((_v, o: { onSuccess: (x: TripDetail) => void }) =>
+      o.onSuccess({
+        ...TRIP,
+        warnings: [
+          { code: 'stop_sequence_window_order', message: 'จุดที่ 3: เวลาตามแผนก่อนจุดก่อนหน้า' },
+        ],
+      } as unknown as TripDetail),
+    );
+    live.data = {
+      ...TRIP,
+      stops: [
+        TRIP.stops[0]!,
+        { ...TRIP.stops[1]!, legDistanceKm: '0.0', legSource: 'SAME_SITE' },
+        TRIP.stops[2]!,
+      ],
+    } as TripDetail;
+    show();
+    expect(screen.getAllByTestId('trip-stop')[1]!.textContent).not.toContain('กม.');
+    fireEvent.click(screen.getAllByTitle('เลื่อนขึ้น')[2]!);
+    expect(screen.getByRole('status').textContent).toContain(
+      'เรียงลำดับจุดของ TRP-6911-0001 แล้ว · พบปัญหา: จุดที่ 3: เวลาตามแผนก่อนจุดก่อนหน้า',
+    );
   });
 });

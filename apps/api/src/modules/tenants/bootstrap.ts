@@ -6,6 +6,7 @@ import { ensureDefaultUnits } from '../products/unit-defaults';
 import { ensureDefaultReasonCodes } from '../reason-codes/defaults';
 import { ensureDefaultServiceItems } from '../service-items/defaults';
 import { ensureDefaultVehicleTypes } from '../vehicle-types/defaults';
+import { backfillTripLegs } from '../trips/trip-legs';
 
 type Db = PrismaClient | Prisma.TransactionClient;
 
@@ -60,6 +61,8 @@ const STEPS: readonly BootstrapStep[] = [
   { name: 'service-items', run: (db, t) => ensureDefaultServiceItems(db, t) },
   // ST2-T12: เหตุผลมาตรฐานภาษาไทยครบทุกหมวด (docs/04 B Reason master) — รหัสใบค้าง 12 รหัส + "อื่น ๆ" เป็นรหัสระบบ
   { name: 'reason-codes', run: (db, t) => ensureDefaultReasonCodes(db, t) },
+  // ST3-T16: ระยะ/เวลาช่วงวิ่งของเที่ยวที่สร้างก่อน migration 0072 (PLANNING/ASSIGNED ที่ยังไม่เคยคำนวณ) — รันซ้ำไม่แตะซ้ำ
+  { name: 'trip-legs-backfill', run: async (db, t) => void (await backfillTripLegs(db, t)) },
 ];
 
 export function bootstrapSteps(): readonly BootstrapStep[] {

@@ -1558,7 +1558,11 @@ export function PlanningPage() {
           { value: stats?.pend ?? '—', label: t('plan.kpi.pend'), color: '#8F5500' },
           { value: stats?.free ?? '—', label: t('plan.kpi.free'), color: '#17733F' },
           { value: stats ? fmtNum(stats.w) : '—', label: t('plan.kpi.weight'), color: '#101418' },
-          { value: stats ? fmtNum(stats.km) : '—', label: t('plan.kpi.km'), color: '#2257C4' },
+          {
+            value: stats ? `${stats.kmIncomplete ? '≥ ' : ''}${fmtNum(stats.km)}` : '—',
+            label: t('plan.kpi.km'),
+            color: '#2257C4',
+          },
         ]}
       />
       <StatusTabs
@@ -1968,7 +1972,9 @@ export function PlanningPage() {
           },
           {
             l: t('plan.sum.km'),
-            v: stats ? t('plan.km', { n: fmtNum(stats.km) }) : '—',
+            v: stats
+              ? t(stats.kmIncomplete ? 'plan.kmMin' : 'plan.km', { n: fmtNum(stats.km) })
+              : '—',
             c: '#101418',
           },
           {

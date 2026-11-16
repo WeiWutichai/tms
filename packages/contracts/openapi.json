@@ -32900,6 +32900,11 @@
             "example": "120.5",
             "description": "ระยะทางตามแผน (กม.)"
           },
+          "missingLegs": {
+            "type": "number",
+            "example": 0,
+            "description": "ST3-T16 จำนวนช่วงวิ่งที่ไม่ทราบระยะ (ไม่มีเส้นทาง/พิกัด) — > 0 = `plannedDistanceKm` ยังไม่ครบ (นับเฉพาะช่วงที่ทราบ)"
+          },
           "overlapsWith": {
             "description": "เที่ยวอื่นของรถคันเดียวกันที่ซ้อนเวลา (คำนวณ ณ ตอนอ่าน — ช่วงวิ่งทับกัน หรือวันเดียวกันเมื่อไม่มีช่วงวิ่ง) — เตือน ไม่บล็อก",
             "type": "array",
@@ -32943,6 +32948,7 @@
           "weightKg",
           "doNos",
           "plannedDistanceKm",
+          "missingLegs",
           "overlapsWith",
           "warningCount",
           "pendingRules",

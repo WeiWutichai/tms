@@ -1,4 +1,4 @@
-import { Badge, Drawer, EmptyState, Icon } from '@tms/ui';
+import { Badge, Drawer, EmptyState, Icon, Toast, useEscapeLayer } from '@tms/ui';
 import { useState, type ReactNode } from 'react';
 import { useI18n } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
@@ -48,6 +48,86 @@ function Kv({ k, v }: { k: ReactNode; v: ReactNode }) {
   );
 }
 
+/**
+ * ยืนยันนำใบส่งของออกจากเที่ยว เมื่อจุดนั้นมีหลายใบ (QA ST3-T16 — ต้นแบบลบทันทีเพราะ 1 จุด = 1 DO) · เลือกบางใบได้
+ * ใช้ dialog ชุดเดียวกับ ReasonDialog (`tms-dialog`) · ไม่ต้องใส่เหตุผล (`/detach` ไม่บังคับ — เป็นงานก่อนปล่อยรถ)
+ */
+function DetachDialog({
+  dos,
+  busy,
+  error,
+  onOk,
+  onClose,
+}: {
+  dos: { id: string; doNo: string }[];
+  busy: boolean;
+  error: string | null;
+  onOk: (ids: string[]) => void;
+  onClose: () => void;
+}) {
+  const { t } = useI18n();
+  const [picked, setPicked] = useState<string[]>(dos.map((d) => d.id));
+  useEscapeLayer(true, onClose);
+  return (
+    <div className="tms-dialog__scrim" onClick={onClose}>
+      <div
+        className="tms-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label={t('trip.detach.title')}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="tms-dialog__head">
+          <div style={{ flex: 1 }}>
+            <h2 className="tms-dialog__title">{t('trip.detach.title')}</h2>
+            <p className="tms-dialog__desc">{t('trip.detach.desc', { n: dos.length })}</p>
+          </div>
+          <button
+            type="button"
+            className="tms-drawer__iconbtn"
+            aria-label={t('drawer.close')}
+            title={t('drawer.close')}
+            onClick={onClose}
+          >
+            <Icon n="x" s={18} />
+          </button>
+        </div>
+        <div className="tms-dialog__body">
+          {dos.map((d) => (
+            <label key={d.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input
+                type="checkbox"
+                checked={picked.includes(d.id)}
+                onChange={(e) =>
+                  setPicked((p) => (e.target.checked ? [...p, d.id] : p.filter((x) => x !== d.id)))
+                }
+              />
+              <span className="tms-num" style={{ color: '#2257C4' }}>
+                {d.doNo}
+              </span>
+            </label>
+          ))}
+          {error && <span className="tms-field-error">{error}</span>}
+        </div>
+        <div className="tms-dialog__foot">
+          <button type="button" className="tms-dialog__cancel" onClick={onClose}>
+            {t('trip.detach.cancel')}
+          </button>
+          <button
+            type="button"
+            className="tms-drawer__pri"
+            style={{ height: 36, padding: '0 16px', background: '#B3322A', borderColor: '#B3322A' }}
+            disabled={!picked.length || busy}
+            onClick={() => onOk(dos.filter((d) => picked.includes(d.id)).map((d) => d.id))}
+          >
+            {t('trip.detach.ok', { n: picked.length })}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const ROUND_BTN = {
   width: 28,
   height: 28,
@@ -81,6 +161,10 @@ export function TripDrawer({
   const reorder = useReorderStops();
   const detach = useDetachFromTrip();
   const [err, setErr] = useState<string | null>(null);
+  /** จุดที่กด × และมีหลายใบส่งของ → dialog ยืนยัน */
+  const [ask, setAsk] = useState<TripDetail['stops'][number] | null>(null);
+  const [askErr, setAskErr] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
   const labels = { close: t('drawer.close'), more: t('drawer.more') };
   const tr = q.data;
   if (!tr)
@@ -111,18 +195,46 @@ export function TripDrawer({
       return;
     }
     setErr(null);
+    const wk = (w: TripDetail['warnings'][number]) => `${w.code}|${w.message}`;
+    const before = new Set(tr.warnings.map(wk));
     reorder.mutate(
       { id: tr.id, version: tr.version, stopIds: next },
-      { onError: (e) => setErr(problemText(e, t)) },
+      {
+        onError: (e) => setErr(problemText(e, t)),
+        // คำเตือนใหม่หลังเรียง (เช่น เวลาตามแผนถอยหลัง) — drawer ไม่มีส่วนคำเตือนในต้นแบบ → toast แบบเดียวกับกระดาน (QA ST3-T16)
+        onSuccess: (x) => {
+          const m = t('trip.toast.reordered', { no: x.tripNo });
+          const i = [
+            ...new Set(x.warnings.filter((w) => !before.has(wk(w))).map((w) => w.message)),
+          ].join(' · ');
+          setToast(i ? t('plan.toast.issue', { m, i }) : m);
+        },
+      },
+    );
+  };
+  const detachDos = (doIds: string[], fromDialog: boolean) => {
+    setErr(null);
+    setAskErr(null);
+    detach.mutate(
+      { id: tr.id, version: tr.version, doIds },
+      {
+        onSuccess: () => {
+          setAsk(null);
+          setToast(t('trip.toast.detached', { dos: doIds.map(doNo).join(', ') }));
+        },
+        onError: (e) => (fromDialog ? setAskErr(problemText(e, t)) : setErr(problemText(e, t))),
+      },
     );
   };
   const rm = (s: TripDetail['stops'][number]) => {
     if (busy || !s.deliveryOrderIds.length) return;
-    setErr(null);
-    detach.mutate(
-      { id: tr.id, version: tr.version, doIds: s.deliveryOrderIds },
-      { onError: (e) => setErr(problemText(e, t)) },
-    );
+    // 1 ใบ = ลบทันทีตามต้นแบบ · หลายใบ = ยืนยันก่อน (เลือกบางใบได้)
+    if (s.deliveryOrderIds.length > 1) {
+      setAskErr(null);
+      setAsk(s);
+      return;
+    }
+    detachDos(s.deliveryOrderIds, false);
   };
   const st = TONE[tr.status] ?? TONE.PLANNING!;
   const time = (s: TripDetail['stops'][number]) => {
@@ -332,6 +444,16 @@ export function TripDrawer({
           </div>
         )}
       </div>
+      {ask && (
+        <DetachDialog
+          dos={ask.deliveryOrderIds.map((x) => ({ id: x, doNo: doNo(x) }))}
+          busy={detach.isPending}
+          error={askErr}
+          onOk={(ids) => detachDos(ids, true)}
+          onClose={() => setAsk(null)}
+        />
+      )}
+      <Toast message={toast} onClose={() => setToast(null)} closeLabel={t('drawer.close')} />
     </Drawer>
   );
 }

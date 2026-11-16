@@ -314,6 +314,8 @@ export function boardStats(b: Board, days: string[]) {
     used: total - free,
     w: vis.reduce((a, t) => a + kg(t.weightKg), 0),
     km: vis.reduce((a, t) => a + kg(t.plannedDistanceKm), 0),
+    /** มีเที่ยวที่ไม่ทราบระยะบางช่วง (ST3-T16) → ระยะรวมเป็นค่าต่ำสุด แสดง "≥" */
+    kmIncomplete: vis.some((t) => (t.missingLegs ?? 0) > 0),
     iss: vis.filter((t) => t.overlapsWith.length > 0 || t.warningCount > 0).length,
     count: vis.length,
   };

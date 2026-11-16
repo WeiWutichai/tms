@@ -53,7 +53,8 @@ export function routeDistanceText(t: T, r: TripDetail['route']): string {
 
 /** ช่วงวิ่งของจุด (ช่องขวาของแถว): "+45.2 กม." · ค่าประมาณ "≈ +45.2 กม." · ไม่ทราบ "ไม่ทราบระยะ" · จุดแรก = '' */
 export function legText(t: T, s: TripDetail['stops'][number], first: boolean): string {
-  if (first) return '';
+  // จุดแรก / จุดเดียวกับจุดก่อนหน้า (0 กม.) — ไม่แสดง (QA ST3-T16)
+  if (first || s.legSource === 'SAME_SITE') return '';
   if (s.legSource === null || s.legDistanceKm === null) return t('trip.leg.unknown');
   const v = t('trip.leg.km', { km: kmText(s.legDistanceKm) });
   return s.legSource === 'ESTIMATE' ? `≈ ${v}` : v;

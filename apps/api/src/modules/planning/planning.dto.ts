@@ -128,6 +128,12 @@ export class BoardTripDto {
   })
   plannedDistanceKm!: string | null;
   @ApiProperty({
+    example: 0,
+    description:
+      'ST3-T16 จำนวนช่วงวิ่งที่ไม่ทราบระยะ (ไม่มีเส้นทาง/พิกัด) — > 0 = `plannedDistanceKm` ยังไม่ครบ (นับเฉพาะช่วงที่ทราบ)',
+  })
+  missingLegs!: number;
+  @ApiProperty({
     type: [String],
     description:
       'เที่ยวอื่นของรถคันเดียวกันที่ซ้อนเวลา (คำนวณ ณ ตอนอ่าน — ช่วงวิ่งทับกัน หรือวันเดียวกันเมื่อไม่มีช่วงวิ่ง) — เตือน ไม่บล็อก',

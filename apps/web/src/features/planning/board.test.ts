@@ -56,6 +56,7 @@ const trip = (o: Partial<BoardTrip> = {}): BoardTrip => ({
   weightKg: '5400',
   doNos: ['DO-1'],
   plannedDistanceKm: '120',
+  missingLegs: 0,
   overlapsWith: [],
   warningCount: 0,
   pendingRules: [],
@@ -239,8 +240,11 @@ describe('SO รอจัด + สรุป', () => {
       used: 1,
       w: 10800,
       km: 120,
+      kmIncomplete: false,
       iss: 1,
     });
+    const b2 = { ...b, trips: [trip({ missingLegs: 1 })] } as unknown as Board;
+    expect(boardStats(b2, [D]).kmIncomplete).toBe(true);
   });
   it('วันที่รถติดกฎห้ามจ่ายงาน', () => {
     const v = {

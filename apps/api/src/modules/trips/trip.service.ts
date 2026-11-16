@@ -4,8 +4,6 @@ import type { Trip, TripStop, TripStatus as DbTripStatus } from '@prisma/client'
 import {
   STOP_TERMINAL_STATUSES,
   backwardStops,
-  estimateLeg,
-  routeTotals,
   stopOrderViolations,
   TRIP_OPEN_STATUSES,
   TRIP_TRANSITIONS,
@@ -19,7 +17,6 @@ import {
   ruleKey,
   RULE_OVERRIDE_SCOPE,
   RULE_REASON_MIN_LENGTH,
-  type Leg,
   type RuleOverride,
   type TripDoInput,
   type TripEvent,
@@ -41,8 +38,8 @@ import {
 import { cleanLine } from '../master/master-kit';
 import { bangkokToday } from '../vehicle-documents/expiry';
 import { OrderStateService } from '../orders/order-state.service';
-import { RoutesService } from '../routes/routes.service';
 import { issueNumber } from '../sequences/sequences.service';
+import { refreshTripLegs } from './trip-legs';
 import {
   driverOnLeaveMessageTh,
   loadMessageTh,
@@ -172,7 +169,6 @@ export class TripService {
     private readonly orderState: OrderStateService,
     private readonly compatibility: CompatibilityService,
     private readonly assignability: AssignabilityService,
-    private readonly routes: RoutesService,
   ) {}
 
   // ---------------------------------------------------------------------------------------------
@@ -407,7 +403,7 @@ export class TripService {
       await tx.tripStop.update({ where: { id: sid }, data: { sequence: i + 1 } });
     await this.refreshLegs(tx, trip.id);
     await this.bump(tx, trip);
-    const final = await this.refreshWarnings(tx, trip.id, conflicts);
+    const final = await this.refreshWarnings(tx, trip.id, conflicts, false);
     await this.emit(tx, 'trip.updated', final, { stops: before });
     await this.audit.record({
       action: `${ENTITY}.stops_reordered`,
@@ -1065,65 +1061,9 @@ export class TripService {
     return plan;
   }
 
-  /**
-   * ระยะ/เวลาช่วงวิ่งของทุกจุด (ST3-T16) — จุดก่อนหน้า → จุดนี้ (จุดแรกไม่มีช่วง): route master ที่ใช้งาน (ทิศทางมีผล —
-   * `RoutesService.getRouteDistance`) ก่อน · ไม่มี → ค่าประมาณจากพิกัดที่ยืนยันแล้ว (`estimateLeg`) · ไม่มีทั้งคู่ = ไม่ทราบ
-   * ยอดรวมเขียนที่ `trip.planned_distance_km` / `planned_duration_min` (จุด < 2 = null) — เรียกทุกครั้งที่จุดเปลี่ยน
-   * (ไม่ขยับ version เอง — ผู้เรียกขยับแล้ว) · ข้อมูลหลักเปลี่ยนภายหลังไม่ย้อนมาอัปเดตจนกว่าจุดจะเปลี่ยนอีกครั้ง
-   */
+  /** ระยะ/เวลาช่วงวิ่งของทุกจุด + ยอดรวม (ST3-T16 — `refreshTripLegs`) */
   private async refreshLegs(tx: Tx, tripId: string) {
-    const stops = await tx.tripStop.findMany({
-      where: { tripId, removedAt: null },
-      orderBy: { sequence: 'asc' },
-      select: { id: true, siteId: true, legDistanceKm: true, legMinutes: true, legSource: true },
-    });
-    const sites = await tx.customerSite.findMany({
-      where: { id: { in: [...new Set(stops.map((st) => st.siteId))] } },
-      select: { id: true, lat: true, lng: true },
-    });
-    const pt = (id: string) => {
-      const x = sites.find((y) => y.id === id);
-      return x && x.lat !== null && x.lng !== null
-        ? { lat: Number(x.lat), lng: Number(x.lng) }
-        : null;
-    };
-    const legs: Leg[] = [];
-    for (const [i, st] of stops.entries()) {
-      let leg: Leg = { km: null, minutes: null, source: null };
-      if (i > 0) {
-        const from = stops[i - 1]!.siteId;
-        const r =
-          from === st.siteId ? null : await this.routes.getRouteDistance(from, st.siteId, tx);
-        leg = estimateLeg({
-          fromSiteId: from,
-          toSiteId: st.siteId,
-          route: r
-            ? { distanceKm: Number(r.distanceKm), standardMinutes: r.standardMinutes }
-            : null,
-          from: pt(from),
-          to: pt(st.siteId),
-        });
-        legs.push(leg);
-      }
-      const km = leg.km === null ? null : leg.km.toFixed(1);
-      if (
-        (st.legDistanceKm?.toFixed(1) ?? null) !== km ||
-        st.legMinutes !== leg.minutes ||
-        st.legSource !== leg.source
-      )
-        await tx.tripStop.update({
-          where: { id: st.id },
-          data: { legDistanceKm: km, legMinutes: leg.minutes, legSource: leg.source },
-        });
-    }
-    const tot = stops.length < 2 ? null : routeTotals(legs);
-    await tx.trip.update({
-      where: { id: tripId },
-      data: {
-        plannedDistanceKm: tot?.distanceKm == null ? null : tot.distanceKm.toFixed(1),
-        plannedDurationMin: tot?.minutes ?? null,
-      },
-    });
+    await refreshTripLegs(tx, tripId);
   }
 
   /** DO → จุดรับ/ส่ง + ช่วงเวลาของจุดนั้นใน SO */
@@ -1274,6 +1214,8 @@ export class TripService {
     tx: Tx,
     id: string,
     windowConflicts?: number[],
+    /** false = ผู้เรียกขยับ version ในคำขอนี้แล้ว (เช่น reorder — QA ST3-T16: 1 คำขอ = +1) */
+    bump = true,
   ): Promise<TripRecord> {
     const trip = await this.get(id, tx);
     const out: TripWarning[] = [];
@@ -1422,7 +1364,7 @@ export class TripService {
                 ruleOverrides: JSON.parse(JSON.stringify(rec.overrides)) as Prisma.InputJsonValue,
               }
             : {}),
-          version: { increment: 1 },
+          ...(bump ? { version: { increment: 1 } } : {}),
         },
       });
     return this.get(id, tx);

@@ -803,6 +803,7 @@ export const en: Partial<Record<MessageKey, string>> = {
   'trip.stops.PICKUP': 'Pickup',
   'trip.stops.DELIVERY': 'Drop',
   'trip.stops.RETURN': 'returned',
+  'trip.detach.cancel': 'Cancel',
   'ord.veh.plate': 'Plate',
   'ord.veh.driver': 'Driver',
   'ord.veh.trip': 'Trips',

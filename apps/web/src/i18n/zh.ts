@@ -803,6 +803,7 @@ export const zh: Partial<Record<MessageKey, string>> = {
   'trip.stops.PICKUP': '提货',
   'trip.stops.DELIVERY': '送货',
   'trip.stops.RETURN': '退回',
+  'trip.detach.cancel': '取消',
   'ord.veh.plate': '车牌',
   'ord.veh.driver': '司机',
   'ord.veh.trip': '车次',

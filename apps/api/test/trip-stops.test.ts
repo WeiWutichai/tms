@@ -10,7 +10,7 @@ import {
   OrderIntakeService,
   type UpsertOrderInput,
 } from '../src/modules/orders/order-intake.service';
-import { createTenantWithDefaults } from '../src/modules/tenants/bootstrap';
+import { bootstrapTenant, createTenantWithDefaults } from '../src/modules/tenants/bootstrap';
 import { bangkokToday } from '../src/modules/vehicle-documents/expiry';
 import { api, bootApp, platform, tokenFor, truncateAll, validTaxId } from './helpers';
 
@@ -321,6 +321,8 @@ describe('trip stops — multi-drop (ST3-T16)', () => {
     expect(t.warnings.map((w) => w.code)).not.toContain('stop_sequence_window_order');
     // ส่ง B (14:00) ก่อน A (10:00)
     const r = (await reorder(t.id, [s.pA, s.pB, s.qB, s.qA]).expect(200)).body as Trip;
+    // 1 คำขอ = version +1 แม้คำเตือนเปลี่ยน (QA ST3-T16)
+    expect(r.version).toBe(t.version + 1);
     const w = r.warnings.find((x) => x.code === 'stop_sequence_window_order');
     expect(w?.params.sequence).toBe(4);
     const back = (await reorder(t.id, [s.pA, s.pB, s.qA, s.qB]).expect(200)).body as Trip;
@@ -355,5 +357,37 @@ describe('trip stops — multi-drop (ST3-T16)', () => {
       .expect(200);
     const r = await reorder(t.id, [s.pA, s.pB, s.qA, s.qB]).expect(409);
     expect(r.body.code).toBe('invalid_state_transition');
+  });
+
+  it('กระดาน: missingLegs ของเที่ยวที่ไม่ทราบระยะบางช่วง (review ST3-T16)', async () => {
+    const { t } = await twoDropTrip(true);
+    const b = (await api(app, admin).get('/v1/planning/board?days=7').expect(200)).body as {
+      trips: { id: string; missingLegs: number; plannedDistanceKm: string | null }[];
+    };
+    const row = b.trips.find((x) => x.id === t.id)!;
+    expect(row.missingLegs).toBe(1);
+    expect(row.plannedDistanceKm).toBe(t.route.distanceKm!.replace(/\.0$/, ''));
+  });
+
+  it('backfill ตอน bootstrap: เที่ยว PLANNING ที่ยังไม่เคยคำนวณช่วงวิ่ง → คำนวณ · รันซ้ำไม่เปลี่ยน · version ไม่ขยับ', async () => {
+    const { t } = await twoDropTrip();
+    const tid = uuid('trip', t.id);
+    // จำลองเที่ยวที่สร้างก่อน migration 0072
+    await db.tripStop.updateMany({
+      where: { tripId: tid },
+      data: { legDistanceKm: null, legMinutes: null, legSource: null },
+    });
+    await db.trip.update({
+      where: { id: tid },
+      data: { plannedDistanceKm: null, plannedDurationMin: null },
+    });
+    await bootstrapTenant(db, tenantId);
+    const after = await getTrip(t.id);
+    expect(after.route).toEqual(t.route);
+    expect(after.stops.map((x) => x.legSource)).toEqual(t.stops.map((x) => x.legSource));
+    expect(after.version).toBe(t.version);
+    const stamp = (await db.trip.findUniqueOrThrow({ where: { id: tid } })).updatedAt;
+    await bootstrapTenant(db, tenantId);
+    expect((await db.trip.findUniqueOrThrow({ where: { id: tid } })).updatedAt).toEqual(stamp);
   });
 });
