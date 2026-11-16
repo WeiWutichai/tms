@@ -665,6 +665,15 @@ export class SendAllTripsDto {
   @IsString()
   @MaxLength(500)
   overrideReason?: string | null;
+
+  @ApiPropertyOptional({
+    description:
+      'true = ตรวจล่วงหน้า: ประเมินทุกขั้นเหมือนส่งจริง (กฎ T14 ตอนปล่อยรถ) แล้วย้อนทั้งหมด — ไม่เปลี่ยนข้อมูล ไม่ลง audit/event · ' +
+      '`outcome` = ผลที่คาดว่าจะได้ · `day` = สถานะปัจจุบัน',
+  })
+  @IsOptional()
+  @IsBoolean()
+  dryRun?: boolean;
 }
 
 /** สถานะการส่งของวัน — ส่งครบ = มีเที่ยว ≥ 1 และทุกเที่ยวที่ไม่ยกเลิกปล่อยรถแล้ว (หรือเลยไป) */

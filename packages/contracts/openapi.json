@@ -14955,7 +14955,7 @@
     },
     "/v1/trips/send-all": {
       "post": {
-        "description": "ไม่ส่ง `items` = ทุกเที่ยว PLANNING/OFFERED/ASSIGNED ของวันนั้น (≤ 400) · ส่ง `items` = เฉพาะที่เลือก (ต้องเป็นเที่ยวของวันนั้น) · แต่ละเที่ยวทำแยกกันเหมือน `bulk-assign` + `dispatch: true` (ติดกฎ/ไม่มีรถ/รอรถร่วมตอบ = ไม่ผ่านพร้อม `problem`) · ตอบ 207 พร้อม `day` (ส่งครบ = มีเที่ยวและทุกเที่ยวปล่อยรถแล้ว) · ต้องมี `trips:dispatch` + `trips:assign` · audit `trip.sent_all`",
+        "description": "ไม่ส่ง `items` = ทุกเที่ยว PLANNING/OFFERED/ASSIGNED ของวันนั้น (≤ 400) · ส่ง `items` = เฉพาะที่เลือก (ต้องเป็นเที่ยวของวันนั้น) · แต่ละเที่ยวทำแยกกันเหมือน `bulk-assign` + `dispatch: true` (ติดกฎ/ไม่มีรถ/รอรถร่วมตอบ = ไม่ผ่านพร้อม `problem`) · เที่ยวที่ส่งแล้ว = `UNCHANGED` · `dryRun` = ตรวจล่วงหน้าไม่เปลี่ยนข้อมูล · ตอบ 207 พร้อม `day` (ส่งครบ = มีเที่ยวและทุกเที่ยวปล่อยรถแล้ว) · ต้องมี `trips:dispatch` + `trips:assign` · audit `trip.sent_all`",
         "operationId": "Trips_sendAll",
         "parameters": [
           {
@@ -32755,6 +32755,10 @@
             "minLength": 10,
             "maxLength": 500,
             "description": "เหตุผลการยกเว้น/ยืนยันกฎ (≥ 10 ตัวอักษร) — ใช้กับทุกรายการที่ส่ง `ruleKeys`"
+          },
+          "dryRun": {
+            "type": "boolean",
+            "description": "true = ตรวจล่วงหน้า: ประเมินทุกขั้นเหมือนส่งจริง (กฎ T14 ตอนปล่อยรถ) แล้วย้อนทั้งหมด — ไม่เปลี่ยนข้อมูล ไม่ลง audit/event · `outcome` = ผลที่คาดว่าจะได้ · `day` = สถานะปัจจุบัน"
           }
         },
         "required": [

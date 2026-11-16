@@ -8,6 +8,7 @@ import {
   stopOrderViolations,
   TRIP_OPEN_STATUSES,
   TRIP_UNSENT_STATUSES,
+  TRIP_SENT_STATUSES,
   daySendState,
   TRIP_TRANSITIONS,
   isTripEditable,
@@ -687,7 +688,13 @@ export class TripService {
    */
   async bulkAssign(
     items: { tripId: string | null; version?: number; ruleKeys?: string[] }[],
-    o: { dispatch: boolean; reason?: string | null; canOverride: boolean },
+    o: {
+      dispatch: boolean;
+      reason?: string | null;
+      canOverride: boolean;
+      /** Send all (ST3-T18): เที่ยวที่ส่งแล้ว (DISPATCHED หรือเลยไป) = `UNCHANGED` ไม่ใช่ 409 — ตรวจก่อน version */
+      sentUnchanged?: boolean;
+    },
     tx: Tx = this.db.tx,
   ): Promise<BulkOutcome[]> {
     const out: BulkOutcome[] = new Array(items.length);
@@ -706,7 +713,9 @@ export class TripService {
         };
         const cur = await this.get(it.tripId, tx);
         let r: BulkOutcome;
-        if (cur.status === 'ASSIGNED' && o.dispatch)
+        if (o.sentUnchanged && (TRIP_SENT_STATUSES as readonly string[]).includes(cur.status))
+          r = { trip: cur, outcome: 'UNCHANGED', error: null };
+        else if (cur.status === 'ASSIGNED' && o.dispatch)
           r = {
             trip: await this.dispatch(cur.id, tx, it.version, rules),
             outcome: 'DISPATCHED',
@@ -724,10 +733,16 @@ export class TripService {
           });
           r = { trip: t, outcome: o.dispatch ? 'DISPATCHED' : 'ASSIGNED', error: null };
         } else
-          throw new ProblemException('invalid_state_transition', undefined, undefined, {
-            from: cur.status,
-            event: o.dispatch ? 'dispatch' : 'assign',
-          });
+          throw new ProblemException(
+            'invalid_state_transition',
+            // รอรถร่วมตอบ (review ST3-T18 M1): บอกเหตุเฉพาะเป็นไทย — ส่ง/จัดรถได้หลังรถร่วมรับงาน (`from` = สถานะเดิม)
+            cur.status === 'OFFERED' ? 'รอรถร่วมตอบรับ — ส่งได้หลังรถร่วมรับงาน' : undefined,
+            undefined,
+            {
+              from: cur.status,
+              event: o.dispatch ? 'dispatch' : 'assign',
+            },
+          );
         await tx.$executeRawUnsafe('RELEASE SAVEPOINT tms_trip_bulk');
         out[i] = r;
       } catch (e) {
@@ -750,7 +765,7 @@ export class TripService {
   async sendAll(
     date: string,
     items: { tripId: string | null; version?: number; ruleKeys?: string[] }[] | undefined,
-    o: { reason?: string | null; canOverride: boolean },
+    o: { reason?: string | null; canOverride: boolean; dryRun?: boolean },
     tx: Tx = this.db.tx,
   ): Promise<{
     items: { tripId: string | null; tripNo: string | null }[];
@@ -793,11 +808,22 @@ export class TripService {
       for (const r of rows) numbers.set(r.id, r.tripNo);
       list = items;
     }
+    // ตรวจล่วงหน้า (dryRun — QA ST3-T18 L2): ทำจริงทุกขั้น (กฎ T14 ชุดเดียวกับตอนส่ง) แล้วย้อนทั้งหมด ไม่มี audit/event
+    if (o.dryRun) await tx.$executeRawUnsafe('SAVEPOINT tms_send_all_dry');
     const outcomes = await this.bulkAssign(
       list,
-      { dispatch: true, reason: o.reason ?? null, canOverride: o.canOverride },
+      {
+        dispatch: true,
+        reason: o.reason ?? null,
+        canOverride: o.canOverride,
+        sentUnchanged: true,
+      },
       tx,
     );
+    if (o.dryRun) {
+      await tx.$executeRawUnsafe('ROLLBACK TO SAVEPOINT tms_send_all_dry');
+      await tx.$executeRawUnsafe('RELEASE SAVEPOINT tms_send_all_dry');
+    }
     const after = await tx.trip.findMany({ where: { tripDate: day }, select: { status: true } });
     const state = daySendState(after.map((r) => r.status as TripStatus));
     const no = (id: string | null) => (id ? (numbers.get(id) ?? null) : null);
@@ -805,25 +831,29 @@ export class TripService {
       e instanceof InvalidTransitionError
         ? 'invalid_state_transition'
         : ((e as ProblemException | null)?.code ?? null);
-    await this.audit.record({
-      action: `${ENTITY}.sent_all`,
-      entityType: ENTITY,
-      ...(o.reason ? { reason: o.reason } : {}),
-      after: {
-        date,
-        scope: items === undefined ? 'ALL' : 'SELECTED',
-        requested: list.length,
-        dispatched: outcomes.flatMap((r, i) =>
-          r.outcome === 'DISPATCHED' ? [no(list[i]!.tripId)] : [],
-        ),
-        failed: outcomes.flatMap((r, i) =>
-          r.outcome === 'FAILED' ? [{ tripNo: no(list[i]!.tripId), code: code(r.error) }] : [],
-        ),
-        dayTrips: state.trips,
-        daySent: state.sent,
-        dayComplete: state.complete,
-      },
-    });
+    if (!o.dryRun)
+      await this.audit.record({
+        action: `${ENTITY}.sent_all`,
+        entityType: ENTITY,
+        ...(o.reason ? { reason: o.reason } : {}),
+        after: {
+          date,
+          scope: items === undefined ? 'ALL' : 'SELECTED',
+          requested: list.length,
+          dispatched: outcomes.flatMap((r, i) =>
+            r.outcome === 'DISPATCHED' ? [no(list[i]!.tripId)] : [],
+          ),
+          alreadySent: outcomes.flatMap((r, i) =>
+            r.outcome === 'UNCHANGED' ? [no(list[i]!.tripId)] : [],
+          ),
+          failed: outcomes.flatMap((r, i) =>
+            r.outcome === 'FAILED' ? [{ tripNo: no(list[i]!.tripId), code: code(r.error) }] : [],
+          ),
+          dayTrips: state.trips,
+          daySent: state.sent,
+          dayComplete: state.complete,
+        },
+      });
     return {
       items: list.map((i) => ({ tripId: i.tripId, tripNo: no(i.tripId) })),
       outcomes,

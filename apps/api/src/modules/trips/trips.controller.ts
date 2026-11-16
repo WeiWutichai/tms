@@ -357,7 +357,7 @@ export class TripsController {
     description:
       'ไม่ส่ง `items` = ทุกเที่ยว PLANNING/OFFERED/ASSIGNED ของวันนั้น (≤ 400) · ส่ง `items` = เฉพาะที่เลือก (ต้องเป็นเที่ยวของวันนั้น) · ' +
       'แต่ละเที่ยวทำแยกกันเหมือน `bulk-assign` + `dispatch: true` (ติดกฎ/ไม่มีรถ/รอรถร่วมตอบ = ไม่ผ่านพร้อม `problem`) · ' +
-      'ตอบ 207 พร้อม `day` (ส่งครบ = มีเที่ยวและทุกเที่ยวปล่อยรถแล้ว) · ต้องมี `trips:dispatch` + `trips:assign` · audit `trip.sent_all`',
+      'เที่ยวที่ส่งแล้ว = `UNCHANGED` · `dryRun` = ตรวจล่วงหน้าไม่เปลี่ยนข้อมูล · ตอบ 207 พร้อม `day` (ส่งครบ = มีเที่ยวและทุกเที่ยวปล่อยรถแล้ว) · ต้องมี `trips:dispatch` + `trips:assign` · audit `trip.sent_all`',
   })
   @ApiProblems(T403('trips:dispatch'), T422)
   @HttpCode(207)
@@ -391,6 +391,7 @@ export class TripsController {
       {
         reason: body.overrideReason ?? null,
         canOverride: scopeAllows(requestContext.require().scopes ?? [], RULE_OVERRIDE_SCOPE),
+        dryRun: body.dryRun === true,
       },
     );
     return {

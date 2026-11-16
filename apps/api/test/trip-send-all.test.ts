@@ -323,7 +323,11 @@ describe('trips: send all (ST3-T18)', () => {
     });
     expect(by.get(offered.id)).toMatchObject({
       status: 409,
-      problem: { code: 'invalid_state_transition' },
+      problem: {
+        code: 'invalid_state_transition',
+        from: 'OFFERED',
+        detail: 'รอรถร่วมตอบรับ — ส่งได้หลังรถร่วมรับงาน',
+      },
     });
     expect((await board(D)).days[0]!.complete).toBe(false);
     const au = (await sentAudits()).at(-1)!;
@@ -391,5 +395,57 @@ describe('trips: send all (ST3-T18)', () => {
     expect((await api(app, admin).get(`/v1/trips/${a.t.id}`).expect(200)).body.status).toBe(
       'PLANNING',
     );
+  });
+
+  it('เที่ยวที่ส่งแล้ว = UNCHANGED (ตรวจก่อน version) ไม่ใช่ 409 · dryRun ตรวจล่วงหน้า: ผลที่คาดตรงกับกฎ T14 แต่ไม่เปลี่ยนข้อมูล/ไม่ลง audit/event', async () => {
+    const D = addDays(today, 6);
+    const sent = await planned(D);
+    const d1 = await act(sent.t.id, 'assign', { vehicleId: sent.v.id, dispatch: true }).expect(200);
+    const p = await planned(D);
+    const v6 = await newVehicle();
+    await newDriver({ defaultVehicleId: v6.id, licenceExpiresOn: '2020-01-01' });
+    const blocked = (
+      await createTrip([(await newDo()).id], { vehicleId: v6.id, tripDate: D }).expect(201)
+    ).body;
+    const audits = (await sentAudits()).length;
+
+    const dry = await sendAll({
+      date: D,
+      dryRun: true,
+      items: [{ tripId: p.t.id, version: p.t.version }, { tripId: blocked.id }],
+    }).expect(207);
+    expect(dry.body.results.map((x: { outcome: string }) => x.outcome)).toEqual([
+      'DISPATCHED',
+      'FAILED',
+    ]);
+    expect(dry.body.results[1].problem.code).toBe('assignment_blocked');
+    expect(dry.body.day).toMatchObject({ trips: 3, sent: 1, complete: false });
+    const still = (await api(app, admin).get(`/v1/trips/${p.t.id}`).expect(200)).body;
+    expect(still).toMatchObject({ status: 'PLANNING', version: p.t.version, driver: null });
+    expect((await doRow(p.a.uuid)).status).toBe('DRAFT');
+    expect((await sentAudits()).length).toBe(audits);
+    expect(
+      await db.domainEvent.count({
+        where: { localId: uuid('trip', p.t.id), type: { not: 'trip.created' } },
+      }),
+    ).toBe(0);
+
+    // ส่งจริง: เที่ยวที่ส่งแล้ว (version เก่า) = UNCHANGED 200 · นับเป็นส่งแล้ว
+    const r = await sendAll({
+      date: D,
+      items: [
+        { tripId: sent.t.id, version: d1.body.version - 1 },
+        { tripId: p.t.id, version: p.t.version },
+      ],
+    }).expect(207);
+    expect(
+      r.body.results.map((x: { status: number; outcome: string }) => [x.status, x.outcome]),
+    ).toEqual([
+      [200, 'UNCHANGED'],
+      [200, 'DISPATCHED'],
+    ]);
+    expect(r.body).toMatchObject({ succeeded: 1, unchanged: 1, failed: 0 });
+    expect(r.body.day).toMatchObject({ trips: 3, sent: 2 });
+    expect((await sentAudits()).at(-1)!.after).toMatchObject({ alreadySent: [sent.t.tripNo] });
   });
 });
