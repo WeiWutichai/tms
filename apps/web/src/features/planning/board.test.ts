@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   axisBox,
+  blocksOn,
   boardStats,
   custShort,
   dropWindow,
@@ -17,6 +18,7 @@ import {
   scheduleBody,
   span,
   tripColor,
+  tripMoveBlock,
   weekDropWindow,
   type Board,
   type BoardTrip,
@@ -89,7 +91,15 @@ describe('เวลาไทยบนแกน (ST3-T12)', () => {
     expect(onDay(night, '2026-11-18')).toBe(false);
   });
   it('แกน 06:00–20:00 ตัดที่ขอบ · ทั้งเที่ยวนอกแกน = แถบ 1 ชม. ที่ขอบ', () => {
-    expect(axisBox(9, 12)).toEqual({ left: 3 / 14, width: 3 / 14, clipped: false });
+    expect(axisBox(9, 12)).toEqual({
+      left: 3 / 14,
+      width: 3 / 14,
+      clipped: false,
+      clipS: false,
+      clipE: false,
+    });
+    expect(axisBox(18, 23)).toMatchObject({ clipS: false, clipE: true });
+    expect(axisBox(-2, 3)).toMatchObject({ clipS: true, clipE: true }); // 22:00–03:00 วันที่สอง
     expect(axisBox(19, 22)).toMatchObject({ left: 13 / 14, width: 1 / 14, clipped: true });
     expect(axisBox(21, 23)).toMatchObject({ left: 13 / 14, width: 1 / 14 });
     expect(axisBox(2, 4)).toMatchObject({ left: 0, width: 1 / 14 });
@@ -112,6 +122,10 @@ describe('lane + ซ้อนเวลา', () => {
     expect(tripColor(trip({ status: 'DISPATCHED' }))).toBe('#2257C4');
     expect(movable(trip({ status: 'ASSIGNED' }))).toBe(true);
     expect(movable(trip({ status: 'DISPATCHED' }))).toBe(false);
+    expect(tripMoveBlock(trip({ status: 'DISPATCHED' }), 'veh_1')).toBe('locked');
+    expect(tripMoveBlock(trip({ status: 'ASSIGNED' }), 'veh_2')).toBe('assigned');
+    expect(tripMoveBlock(trip({ status: 'ASSIGNED' }), 'veh_1')).toBeNull();
+    expect(tripMoveBlock(trip(), 'veh_2')).toBeNull();
   });
 });
 
@@ -128,6 +142,12 @@ describe('ลากวาง / ย้าย / ปรับขนาด', () => {
     expect(resizedWindow(9, 12, 'e', 14.6)).toEqual({ s: 9, e: 14.5 });
     expect(resizedWindow(9, 12, 's', 13)).toEqual({ s: 11.75, e: 12 });
     expect(resizedWindow(9, 12, 'e', 8)).toEqual({ s: 9, e: 9.25 });
+    // ขอบที่ลากไม่ออกนอกแกน 06:00–20:00 ของวันที่แสดง (เปลี่ยนวันเที่ยวไม่ได้)
+    expect(resizedWindow(9, 12, 'e', 26)).toEqual({ s: 9, e: 20 });
+    expect(resizedWindow(9, 12, 's', 2)).toEqual({ s: 6, e: 12 });
+    // ลากทั้งเที่ยวก็อยู่ในแกน
+    expect(movedWindow(trip(), D, 21, 0)).toEqual({ s: 17, e: 20 });
+    expect(movedWindow(trip(), D, 4, 1)).toEqual({ s: 6, e: 9 });
   });
   it('body ของ /schedule: วันเที่ยว = วันเริ่ม (เวลาไทย)', () => {
     expect(scheduleBody(D, 9, 12)).toEqual({
@@ -136,6 +156,8 @@ describe('ลากวาง / ย้าย / ปรับขนาด', () => {
       plannedEndAt: `${D}T12:00:00+07:00`,
     });
     expect(scheduleBody(D, 24.5, 26).tripDate).toBe('2026-11-17');
+    // ปรับขนาดส่งวันเที่ยวเดิม
+    expect(scheduleBody(D, 6, 8, '2026-11-15').tripDate).toBe('2026-11-15');
   });
 });
 
@@ -173,6 +195,13 @@ describe('SO รอจัด + สรุป', () => {
       km: 120,
       iss: 1,
     });
+  });
+  it('วันที่รถติดกฎห้ามจ่ายงาน', () => {
+    const v = {
+      blocks: [{ date: D, issues: [{ code: 'DOC_MISSING', message: 'ยังไม่มี ประกันภัย' }] }],
+    } as unknown as Board['vehicles'][number];
+    expect(blocksOn(v, D).map((i) => i.code)).toEqual(['DOC_MISSING']);
+    expect(blocksOn(v, '2026-11-17')).toEqual([]);
   });
   it('ชื่อลูกค้าสั้น ตัดคำนำหน้า', () => {
     expect(custShort('บจก. สยามพลาสติก', 'บจก.|บมจ.')).toBe('สยามพลาสติก');

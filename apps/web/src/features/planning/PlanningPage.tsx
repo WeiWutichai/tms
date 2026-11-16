@@ -18,6 +18,7 @@ import { bangkokToday, useDateText } from '../rate-cards/rateFormat';
 import {
   addDays,
   axisBox,
+  blocksOn,
   boardStats,
   CLASH,
   custShort,
@@ -45,6 +46,7 @@ import {
   span,
   STATUS_COLOR,
   tripColor,
+  tripMoveBlock,
   dropWindow,
   weekDropWindow,
   type BoardTrip,
@@ -88,6 +90,8 @@ const SELECT: CSSProperties = {
 };
 const ELL: CSSProperties = { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' };
 const HATCH = 'repeating-linear-gradient(135deg,rgba(179,50,42,.18) 0 2px,transparent 2px 5px)';
+/** แถวรถติดกฎห้ามจ่ายงาน (ต้นแบบ vPlan HATCH) */
+const HATCH_ROW = 'repeating-linear-gradient(135deg,rgba(179,50,42,.07) 0 2px,transparent 2px 9px)';
 const GRID =
   'repeating-linear-gradient(90deg,transparent 0,transparent calc(100% / 14 - 1px),#EBEDE8 calc(100% / 14 - 1px),#EBEDE8 calc(100% / 14))';
 const RING_OK = 'inset 0 0 0 2px #17733F';
@@ -147,10 +151,10 @@ export function PlanningPage() {
   const canSeePrice = can(scopes, 'prices.sell:read');
   const canEditPrice = can(scopes, 'prices.sell:write');
   const canUnlock = can(scopes, 'orders:unlock');
-  const today = bangkokToday();
   const [tab, setTab] = useSessionState<Tab>('plan.tab', 'today');
   const [pf, setPf] = useSessionState<PoolFilter>('plan.pool', POOL_FILTER);
-  const board = useBoard(today, 7);
+  // วันนี้ตาม server (เวลาไทย) — ไม่ส่ง date ทั้งตอนโหลดและแท็บ (review ST3-T12)
+  const board = useBoard(7);
   const drop = useDropOrder();
   const move = useMoveTrip();
   const nowH = useNowHour();
@@ -158,13 +162,14 @@ export function PlanningPage() {
   const [over, setOver] = useState<{ v: string; d: string } | null>(null);
   const [resize, setResize] = useState<Resize | null>(null);
   const resizeRef = useRef<Resize | null>(null);
+  const badRef = useRef('');
   const [pop, setPop] = useState<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
   const [form, setForm] = useState<{ key: number; initial: OrderForm; order: Order } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
   const b = board.data;
-  const day0 = b?.today ?? today;
+  const day0 = b?.today ?? bangkokToday();
   const week = tab === '7d';
   const days = useMemo(
     () =>
@@ -191,31 +196,56 @@ export function PlanningPage() {
   const orderOf = (id: string) => b?.pool.find((o) => o.id === id);
   const tripOf = (id: string) => b?.trips.find((x) => x.id === id);
   const vehOf = (id: string | null) => b?.vehicles.find((v) => v.id === id);
-  /** เหตุที่วางไม่ได้ของสิ่งที่กำลังลาก (กฎเต็มฝั่ง client = ST3-T14/T15; server ตรวจซ้ำเสมอ — PLN-042) */
-  const badOf = (d: Drag): string => {
+  /**
+   * เหตุที่วางสิ่งที่กำลังลากลงแถวรถ `v` วัน `day` ไม่ได้ (server ตรวจซ้ำเสมอ — PLN-042; กฎเต็ม = ST3-T14/T15):
+   * รถติดกฎห้ามจ่ายงาน (ต้นแบบ "รถติดกฎห้ามจ่ายงาน (…)") · SO ต้นทางแก้รอตรวจ · เที่ยวปล่อยรถแล้ว ·
+   * เที่ยวจัดรถแล้ว (ASSIGNED) ย้ายไปรถอื่น = ทางจัดรถใหม่ของ ST3-T17 (ไม่ทำ /assign + /schedule สองคำขอ)
+   */
+  const badOf = (d: Drag, v: BoardVehicle | undefined, day: string): string => {
     if (!d || !canPlan) return '';
-    if (d.kind === 'order') return orderOf(d.id)?.sourceChangePending ? t('plan.bad.source') : '';
-    const x = tripOf(d.id);
-    return x && !movable(x) ? t('plan.bad.locked', { no: x.tripNo }) : '';
+    if (d.kind === 'order' && orderOf(d.id)?.sourceChangePending) return t('plan.bad.source');
+    if (d.kind === 'trip') {
+      const x = tripOf(d.id);
+      const why = x ? tripMoveBlock(x, v?.id ?? x.vehicleId ?? '') : null;
+      if (x && why === 'locked') return t('plan.bad.locked', { no: x.tripNo });
+      if (x && why === 'assigned') return t('plan.bad.assigned', { no: x.tripNo });
+      if (x && v && v.id === x.vehicleId) return '';
+    }
+    const blk = v ? blocksOn(v, day) : [];
+    return blk.length ? t('plan.bad.blocked', { m: blk[0]!.message }) : '';
   };
-  const bad = badOf(drag);
+  const overVeh = over ? vehOf(over.v) : undefined;
+  const bad = over ? badOf(drag, overVeh, over.d) : '';
   const ringOf = (v: string, d: string) =>
     drag && over && over.v === v && over.d === d ? (bad ? RING_BAD : RING_OK) : 'none';
   const dragOver = (v: string, d: string) => (e: DragEvent) => {
     if (!drag) return;
     e.preventDefault();
-    e.dataTransfer.dropEffect = bad ? 'none' : 'move';
+    const why = badOf(drag, vehOf(v), d);
+    badRef.current = why;
+    e.dataTransfer.dropEffect = why ? 'none' : 'move';
     if (!over || over.v !== v || over.d !== d) setOver({ v, d });
   };
+  // ไม่ล้าง badRef ตอนออกจากแถว — ปล่อยบนแถวที่วางไม่ได้ Chromium ยิง dragleave ก่อน dragend
+  const leave = () => setOver(null);
   const endDrag = () => {
     setDrag(null);
     setOver(null);
+    badRef.current = '';
+  };
+  /** ปล่อยบนแถวที่วางไม่ได้ (dropEffect none → ไม่มี drop event) → ย้อนการ์ด + toast เหตุผล (PLN-042) */
+  const dragEnd = () => {
+    const why = badRef.current;
+    endDrag();
+    if (why) setToast(t('plan.cantDrop', { m: why }));
   };
   const fail = (err: unknown) => setToast(t('plan.cantDrop', { m: problemText(err, t) ?? '' }));
+  /** คำเตือนทั้งหมดของเที่ยว (QA ST3-T12) — ซ้อนเวลารถ = "เวลาชนกัน" */
   const issueText = (x: Trip) => {
-    const w = x.warnings?.[0];
-    if (!w) return null;
-    return w.code === 'vehicle_overlap' ? t('plan.clash') : w.message;
+    const ws = (x.warnings ?? []).map((w) =>
+      w.code === 'vehicle_overlap' ? t('plan.clash') : w.message,
+    );
+    return ws.length ? [...new Set(ws)].join(' · ') : null;
   };
 
   /** ปล่อยบนแถวรถ `v` วัน `d` — `hour` = ชั่วโมงที่ปล่อย (มุมมองวันนี้) หรือ null (มุมมอง 7 วัน) */
@@ -223,7 +253,7 @@ export function PlanningPage() {
     const cur = drag;
     endDrag();
     if (!cur || !canPlan) return;
-    const why = badOf(cur);
+    const why = badOf(cur, v, d);
     if (why) return setToast(t('plan.cantDrop', { m: why }));
     const own = tripsBy.get(v.id) ?? [];
     if (cur.kind === 'order') {
@@ -268,13 +298,7 @@ export function PlanningPage() {
     )
       return;
     move.mutate(
-      {
-        id: x.id,
-        version: x.version,
-        status: x.status,
-        ...(changeVeh ? { vehicleId: v.id } : {}),
-        body,
-      },
+      { id: x.id, version: x.version, body: changeVeh ? { ...body, vehicleId: v.id } : body },
       {
         onSuccess: (r) => {
           const m = changeVeh
@@ -311,9 +335,10 @@ export function PlanningPage() {
       setResize(null);
       const x = r && tripOf(r.id);
       if (!r || !x || (r.s === r.s0 && r.e === r.e0)) return;
-      const body = scheduleBody(r.day, r.s, r.e);
+      // ปรับขนาดไม่เปลี่ยนวันเที่ยว (review ST3-T12)
+      const body = scheduleBody(r.day, r.s, r.e, x.tripDate);
       move.mutate(
-        { id: x.id, version: x.version, status: x.status, body },
+        { id: x.id, version: x.version, body },
         {
           onSuccess: (res) => {
             const m = t('plan.toast.time', { so: soText(x), t: `${hhmm(r.s)}–${hhmm(r.e)}` });
@@ -368,7 +393,8 @@ export function PlanningPage() {
     const k = `provAbbr.${v.plateProvince}` as MessageKey;
     return t(k) === k ? v.plate : `${v.plate} ${t(k)}`;
   };
-  const vehicleCell = (v: BoardVehicle, load: number) => {
+  type Issue = BoardVehicle['blocks'][number]['issues'][number];
+  const vehicleCell = (v: BoardVehicle, load: number, blk: Issue[]) => {
     const cap = kg(v.capacityKg);
     const overCap = cap > 0 && load > cap;
     return (
@@ -391,6 +417,40 @@ export function PlanningPage() {
           <span style={{ fontSize: 13, color: '#3B424C', whiteSpace: 'nowrap' }}>
             {v.vehicleTypeName}
           </span>
+          {blk.length > 0 && (
+            <button
+              type="button"
+              title={t('plan.why')}
+              aria-label={t('plan.why')}
+              onClick={(e) => {
+                e.stopPropagation();
+                setToast(
+                  t('plan.whyText', {
+                    plate: plateText(v),
+                    m: [...new Set(blk.map((i) => i.message))].join(' · '),
+                  }),
+                );
+              }}
+              className="tms-plan-why"
+              style={{
+                marginLeft: 'auto',
+                width: 24,
+                height: 24,
+                border: 0,
+                borderRadius: 999,
+                background: 'transparent',
+                color: '#B3322A',
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0,
+                padding: 0,
+              }}
+            >
+              <Icon n="info" s={16} />
+            </button>
+          )}
         </div>
         {v.ownership === 'SUBCONTRACT' ? (
           <span style={{ fontSize: 13, color: '#3B424C', ...ELL }}>
@@ -432,6 +492,53 @@ export function PlanningPage() {
               : t('plan.kg', { n: fmtNum(load) })}
           </span>
         </div>
+        {blk.length > 0 && (
+          <div
+            data-testid={`plan-blocked-${v.plate}`}
+            style={{ display: 'flex', alignItems: 'center', gap: 4, minWidth: 0 }}
+          >
+            <span
+              title={blk.map((i) => i.message).join('\n')}
+              style={{
+                height: 22,
+                padding: '0 8px',
+                borderRadius: 999,
+                background: '#FBE9E7',
+                color: '#B3322A',
+                fontSize: 12,
+                fontWeight: 600,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                minWidth: 0,
+              }}
+            >
+              <Icon n="ban" s={12} />
+              {blk[0]!.message}
+            </span>
+            {blk.length > 1 && (
+              <span
+                style={{
+                  height: 22,
+                  padding: '0 6px',
+                  borderRadius: 999,
+                  background: '#EEF0EC',
+                  color: '#3B424C',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                +{blk.length - 1}
+              </span>
+            )}
+          </div>
+        )}
       </div>
     );
   };
@@ -511,22 +618,22 @@ export function PlanningPage() {
           borderBottom: '1px solid #E4E6E0',
         }}
       >
-        {vehicleCell(v, rowLoad(ts))}
+        {vehicleCell(v, rowLoad(ts), blocksOn(v, dsel))}
         <div
           data-track
           data-testid={`plan-track-${v.plate}`}
           onDragOver={dragOver(v.id, dsel)}
-          onDragLeave={() => setOver(null)}
+          onDragLeave={leave}
           onDrop={(e) => {
             e.preventDefault();
             const rc = e.currentTarget.getBoundingClientRect();
             onDropAt(v, dsel, hourAt((e.clientX - rc.left) / rc.width));
           }}
-          title={over?.v === v.id ? bad : undefined}
+          title={over?.v === v.id ? bad : blocksOn(v, dsel)[0]?.message}
           style={{
             position: 'relative',
             minHeight: ln.count * LANE_H + 16,
-            background: GRID,
+            background: blocksOn(v, dsel).length ? `${HATCH_ROW},${GRID}` : GRID,
             boxShadow: ringOf(v.id, dsel),
           }}
         >
@@ -570,7 +677,7 @@ export function PlanningPage() {
                 <div
                   draggable={canMove}
                   onDragStart={tripDragStart(x, dsel)}
-                  onDragEnd={endDrag}
+                  onDragEnd={dragEnd}
                   onClick={() => x.orders[0] && setOpenId(x.orders[0].id)}
                   title={tipOf(x, dsel)}
                   className="tms-plan-card"
@@ -611,39 +718,40 @@ export function PlanningPage() {
                   </div>
                   {x.overlapsWith.length > 0 && clashBadge}
                 </div>
-                {canMove && (
-                  <>
-                    <span
-                      role="separator"
-                      aria-label={t('plan.resize.s')}
-                      data-testid={`plan-resize-s-${x.tripNo}`}
-                      onMouseDown={startResize(x, 's', dsel)}
-                      style={{
-                        position: 'absolute',
-                        left: 0,
-                        top: 0,
-                        bottom: 0,
-                        width: 8,
-                        cursor: 'ew-resize',
-                        zIndex: 2,
-                      }}
-                    />
-                    <span
-                      role="separator"
-                      aria-label={t('plan.resize.e')}
-                      data-testid={`plan-resize-e-${x.tripNo}`}
-                      onMouseDown={startResize(x, 'e', dsel)}
-                      style={{
-                        position: 'absolute',
-                        right: 0,
-                        top: 0,
-                        bottom: 0,
-                        width: 8,
-                        cursor: 'ew-resize',
-                        zIndex: 2,
-                      }}
-                    />
-                  </>
+                {/* ขอบที่ล้นแกน 06:00–20:00 ไม่มีที่จับ (กันตัดเที่ยวนอกช่วง/ข้ามคืน — review ST3-T12) */}
+                {canMove && !box.clipS && (
+                  <span
+                    role="separator"
+                    aria-label={t('plan.resize.s')}
+                    data-testid={`plan-resize-s-${x.tripNo}`}
+                    onMouseDown={startResize(x, 's', dsel)}
+                    style={{
+                      position: 'absolute',
+                      left: 0,
+                      top: 0,
+                      bottom: 0,
+                      width: 8,
+                      cursor: 'ew-resize',
+                      zIndex: 2,
+                    }}
+                  />
+                )}
+                {canMove && !box.clipE && (
+                  <span
+                    role="separator"
+                    aria-label={t('plan.resize.e')}
+                    data-testid={`plan-resize-e-${x.tripNo}`}
+                    onMouseDown={startResize(x, 'e', dsel)}
+                    style={{
+                      position: 'absolute',
+                      right: 0,
+                      top: 0,
+                      bottom: 0,
+                      width: 8,
+                      cursor: 'ew-resize',
+                      zIndex: 2,
+                    }}
+                  />
                 )}
               </div>
             );
@@ -666,7 +774,13 @@ export function PlanningPage() {
           borderBottom: '1px solid #E4E6E0',
         }}
       >
-        {vehicleCell(v, load)}
+        {vehicleCell(
+          v,
+          load,
+          days
+            .flatMap((d) => blocksOn(v, d))
+            .filter((i, n, a) => a.findIndex((j) => j.message === i.message) === n),
+        )}
         {days.map((d) => {
           const ts = own.filter((x) => onDay(x, d)).sort((a, c) => span(a, d).s - span(c, d).s);
           return (
@@ -674,19 +788,19 @@ export function PlanningPage() {
               key={d}
               data-testid={`plan-cell-${v.plate}-${d}`}
               onDragOver={dragOver(v.id, d)}
-              onDragLeave={() => setOver(null)}
+              onDragLeave={leave}
               onDrop={(e) => {
                 e.preventDefault();
                 onDropAt(v, d, null);
               }}
-              title={over?.v === v.id && over.d === d ? bad : undefined}
+              title={over?.v === v.id && over.d === d ? bad : blocksOn(v, d)[0]?.message}
               style={{
                 borderLeft: '1px solid #E4E6E0',
                 padding: 6,
                 display: 'flex',
                 flexDirection: 'column',
                 gap: 6,
-                background: d === day0 ? '#F7F8F5' : '#FFFFFF',
+                background: blocksOn(v, d).length ? HATCH_ROW : d === day0 ? '#F7F8F5' : '#FFFFFF',
                 boxShadow: ringOf(v.id, d),
                 minWidth: 0,
                 minHeight: 96,
@@ -703,7 +817,7 @@ export function PlanningPage() {
                       data-clash={x.overlapsWith.length > 0 ? 'true' : 'false'}
                       draggable={canMove}
                       onDragStart={tripDragStart(x, d)}
-                      onDragEnd={endDrag}
+                      onDragEnd={dragEnd}
                       onClick={(e) => {
                         e.stopPropagation();
                         setPop((p) => (p === key ? null : key));
@@ -860,7 +974,7 @@ export function PlanningPage() {
           e.dataTransfer.effectAllowed = 'move';
           setDrag({ kind: 'order', id: o.id });
         }}
-        onDragEnd={endDrag}
+        onDragEnd={dragEnd}
         onClick={() => setOpenId(o.id)}
         title={[
           `${o.orderNo} · ${o.customerName ?? '—'}`,

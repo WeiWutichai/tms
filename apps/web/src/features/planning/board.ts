@@ -100,17 +100,28 @@ export function lanes<T extends { id: string; s: number; e: number }>(
  * ตำแหน่งบนแกน 06:00–20:00 (สัดส่วน 0–1) — เที่ยวที่ล้นแกนตัดที่ขอบ; ทั้งเที่ยวอยู่นอกแกน = แถบ 1 ชม. ที่ขอบ
  * (`clipped` บอกว่ามีส่วนนอกแกน — การ์ดยังแสดงเวลาจริง)
  */
-export function axisBox(s: number, e: number): { left: number; width: number; clipped: boolean } {
+export function axisBox(
+  s: number,
+  e: number,
+): { left: number; width: number; clipped: boolean; clipS: boolean; clipE: boolean } {
   let a = Math.max(s, DAY_START);
   let b = Math.min(e, DAY_END);
   if (b <= DAY_START) [a, b] = [DAY_START, DAY_START + 1];
   else if (a >= DAY_END) [a, b] = [DAY_END - 1, DAY_END];
+  // ขอบที่ไม่อยู่ในแกนจริง (ล้น หรือทั้งเที่ยวอยู่นอกแกน) = ไม่มีที่จับปรับขนาด
+  const clipS = s < DAY_START || s >= DAY_END;
+  const clipE = e > DAY_END || e <= DAY_START;
   return {
     left: (a - DAY_START) / DAY_HOURS,
     width: (b - a) / DAY_HOURS,
-    clipped: s < DAY_START || e > DAY_END,
+    clipped: clipS || clipE,
+    clipS,
+    clipE,
   };
 }
+
+/** ชั่วโมงในแกน 06:00–20:00 (ลาก/ปรับขนาดไม่ออกนอกแกนของวันที่แสดง — review ST3-T12) */
+export const clampAxis = (h: number) => Math.max(DAY_START, Math.min(DAY_END, h));
 
 /** ตำแหน่ง x บนแถบเวลา (0–1) → ชั่วโมง */
 export const hourAt = (fraction: number) => DAY_START + fraction * DAY_HOURS;
@@ -127,11 +138,19 @@ export function weekDropWindow(trips: BoardTrip[], day: string): { s: number; e:
   return dropWindow(ends.length ? Math.max(...ends) : DEFAULT_START_H);
 }
 
-/** ช่วงใหม่ของเที่ยวที่ถูกลาก/ปรับขนาด → body ของ /schedule (วันเที่ยว = วันเริ่ม — spec/03 §4 ข้อ 8) */
-export function scheduleBody(day: string, s: number, e: number) {
+/** ช่วงใหม่ของเที่ยวที่ถูกลาก → body ของ /schedule (วันเที่ยว = วันเริ่ม — spec/03 §4 ข้อ 8; ปรับขนาดส่ง `tripDate` เดิม) */
+export function scheduleBody(day: string, s: number, e: number, tripDate?: string) {
   const start = isoAt(day, s);
-  return { tripDate: bangkokDay(start), plannedStartAt: start, plannedEndAt: isoAt(day, e) };
+  return {
+    tripDate: tripDate ?? bangkokDay(start),
+    plannedStartAt: start,
+    plannedEndAt: isoAt(day, e),
+  };
 }
+
+/** วันที่รถติดกฎห้ามจ่ายงาน → เหตุผล (ว่าง = ไม่ติด) */
+export const blocksOn = (v: BoardVehicle, day: string) =>
+  v.blocks.find((b) => b.date === day)?.issues ?? [];
 
 /** ลากเที่ยวในมุมมองวันนี้: เวลาเริ่มใหม่ = ตำแหน่งที่ปล่อย − จุดที่จับ (snap) คงความยาวเดิม */
 export function movedWindow(
@@ -141,18 +160,23 @@ export function movedWindow(
   grabOffset: number,
 ): { s: number; e: number } {
   const { s, e } = span(t, day);
-  const ns = snap(dropHour - grabOffset);
-  return { s: ns, e: ns + (e - s) };
+  const dur = e - s;
+  // เริ่ม/จบอยู่ในแกนของวันที่แสดง (เที่ยวยาวกว่าแกน = เริ่ม 06:00)
+  const ns = Math.max(DAY_START, Math.min(snap(dropHour - grabOffset), DAY_END - dur));
+  return { s: ns, e: ns + dur };
 }
 
-/** ปรับขนาด (ลากขอบ): snap 15 นาที และยาวอย่างน้อย 15 นาที */
+/**
+ * ปรับขนาด (ลากขอบ): snap 15 นาที, ยาวอย่างน้อย 15 นาที, ขอบที่ลากอยู่ในแกน 06:00–20:00 ของวันที่แสดง
+ * (ขอบที่ล้นแกนไม่มีที่จับ — กันตัดเที่ยวข้ามคืน/นอกช่วงโดยไม่ตั้งใจ)
+ */
 export function resizedWindow(
   s: number,
   e: number,
   edge: 's' | 'e',
   hour: number,
 ): { s: number; e: number } {
-  const h = snap(hour);
+  const h = snap(clampAxis(hour));
   return edge === 's' ? { s: Math.min(h, e - SNAP_H), e } : { s, e: Math.max(h, s + SNAP_H) };
 }
 
@@ -187,6 +211,16 @@ export function tripColor(t: BoardTrip): string {
 
 /** เที่ยวที่ยังย้าย/ปรับเวลาบนกระดานได้ (ก่อนปล่อยรถ — `isTripEditable` ของ domain) */
 export const movable = (t: BoardTrip) => t.status === 'PLANNING' || t.status === 'ASSIGNED';
+
+/**
+ * ย้ายเที่ยวลงแถวรถ `vehicleId` ได้ไหมบนกระดาน: ปล่อยรถแล้ว = `locked` · จัดรถแล้ว (ASSIGNED) ไปรถอื่น = `assigned`
+ * (จัดรถใหม่ = ST3-T17 — ไม่ทำ /assign + /schedule สองคำขอ) · ย้ายเวลาบนรถเดิมได้
+ */
+export function tripMoveBlock(t: BoardTrip, vehicleId: string): 'locked' | 'assigned' | null {
+  if (!movable(t)) return 'locked';
+  if (t.status === 'ASSIGNED' && vehicleId !== t.vehicleId) return 'assigned';
+  return null;
+}
 
 /** ชื่อสั้นของลูกค้า (ต้นแบบ custShort — ตัดคำนำหน้านิติบุคคล; รายการคำนำหน้าจาก i18n คั่นด้วย |) */
 export function custShort(n: string | null | undefined, prefixes: string): string {

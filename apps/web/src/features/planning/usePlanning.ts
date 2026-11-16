@@ -6,15 +6,13 @@ import type { Board } from './board';
 export type Trip = Schemas['TripDto'];
 const KEY = 'planning-board';
 
-/** กระดาน (GET /v1/planning/board) — วันแรก + จำนวนวัน (1 / 7) */
-export function useBoard(date: string, days: 1 | 7) {
+/** กระดาน (GET /v1/planning/board) — เริ่มวันนี้ตาม server (เวลาไทย) + จำนวนวัน (1 / 7) */
+export function useBoard(days: 1 | 7) {
   return useQuery({
-    queryKey: [KEY, date, days],
+    queryKey: [KEY, days],
     staleTime: 0,
     queryFn: () =>
-      unwrap(
-        api.GET('/v1/planning/board', { params: { query: { date, days } } }),
-      ) as Promise<Board>,
+      unwrap(api.GET('/v1/planning/board', { params: { query: { days } } })) as Promise<Board>,
   });
 }
 
@@ -34,39 +32,23 @@ export function useDropOrder() {
 }
 
 /**
- * ย้าย/ปรับขนาดเที่ยว → POST /v1/trips/{id}/schedule (If-Match = version บนกระดาน)
- * เที่ยวที่จัดรถแล้ว (ASSIGNED) ย้ายไปรถอื่น → POST /{id}/assign ก่อน (คนขับ = คนขับประจำของรถใหม่ — snapshot ชุดเดียวกับ
- * การจัดรถ ST3-T11) แล้วจึง /schedule ด้วย version ใหม่
+ * ย้าย/ปรับขนาดเที่ยว → POST /v1/trips/{id}/schedule (If-Match = version บนกระดาน) — คำขอเดียว
+ * (เที่ยว ASSIGNED ย้ายไปรถอื่น = ทางจัดรถใหม่ของ ST3-T17 กระดานบล็อกไว้ — ไม่ทำ /assign + /schedule สองคำขอ)
  */
 export function useMoveTrip() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (v: {
+    mutationFn: (v: {
       id: string;
       version: number;
-      status: string;
-      vehicleId?: string;
       body: Schemas['ScheduleTripDto'];
     }): Promise<Trip> => {
-      let version = v.version;
-      let body = v.body;
-      if (v.vehicleId && v.status === 'ASSIGNED') {
-        const key = crypto.randomUUID();
-        const t = await idempotent(() =>
-          api.POST('/v1/trips/{id}/assign', {
-            params: { path: { id: v.id } },
-            body: { vehicleId: v.vehicleId! },
-            headers: { 'If-Match': `"${version}"`, 'Idempotency-Key': key },
-          }),
-        );
-        version = t.version;
-      } else if (v.vehicleId) body = { ...body, vehicleId: v.vehicleId };
       const key = crypto.randomUUID();
       return idempotent(() =>
         api.POST('/v1/trips/{id}/schedule', {
           params: { path: { id: v.id } },
-          body,
-          headers: { 'If-Match': `"${version}"`, 'Idempotency-Key': key },
+          body: v.body,
+          headers: { 'If-Match': `"${v.version}"`, 'Idempotency-Key': key },
         }),
       );
     },

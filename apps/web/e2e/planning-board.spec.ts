@@ -10,6 +10,13 @@ import { expect, test } from './fixtures';
 const RUN = String(Date.now()).slice(-6);
 const CUST = `ลูกค้ากระดานอีทูอี ${RUN}`;
 const PLATE = `8${RUN.slice(-1)}-${RUN.slice(-4)}`;
+const SUB = `9${RUN.slice(-1)}-${RUN.slice(-4)}`;
+const jur = (n: number) => {
+  const base = `0105${String(n).padStart(8, '0')}`;
+  let sum = 0;
+  for (let i = 0; i < 12; i++) sum += Number(base[i]) * (13 - i);
+  return base + String((11 - (sum % 11)) % 10);
+};
 const today = new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10);
 
 async function token(page: Page): Promise<string> {
@@ -82,7 +89,21 @@ test.describe.serial('กระดานวางแผน (ST3-T12)', () => {
       ownership: 'OWN',
       payloadKg: 6000,
     });
-    for (const w of ['5400', '4200'])
+    // รถร่วมที่ยังไม่มีเอกสารบังคับ (ประกัน/พ.ร.บ.) = ติดกฎห้ามจ่ายงาน (ST2-T20)
+    const carrier = await post('/v1/carriers', {
+      legalName: `หจก. รถร่วมกระดาน ${RUN}`,
+      entityType: 'JURISTIC',
+      taxId: jur(Number(RUN)),
+    });
+    await post('/v1/vehicles', {
+      plate: SUB,
+      plateProvince: 'TH-10',
+      vehicleTypeId: vt6,
+      ownership: 'SUBCONTRACT',
+      carrierId: carrier.id,
+      payloadKg: 6000,
+    });
+    for (const w of ['5400', '4200', '3000'])
       so.push(
         await post('/v1/orders', {
           customer: { id: cust.id },
@@ -196,5 +217,33 @@ test.describe.serial('กระดานวางแผน (ST3-T12)', () => {
     const after = (await boardTrip(page, so[1]!.soNo))!;
     expect(after.overlapsWith).toEqual([]);
     expect(Date.parse(after.plannedStartAt!)).toBe(Date.parse(`${today}T13:00:00+07:00`));
+    // ลากขอบขวาเลยแกน → หยุดที่ 20:00 (ไม่เปลี่ยนวัน/ไม่ข้ามคืน)
+    const e2 = (await page.getByTestId(`plan-resize-e-${b.tripNo}`).boundingBox())!;
+    await page.mouse.move(e2.x + e2.width / 2, e2.y + e2.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width + 300, e2.y + e2.height / 2, { steps: 10 });
+    await page.mouse.up();
+    await expect(page.getByRole('status')).toContainText(
+      `ปรับเวลา ${so[1]!.soNo} เป็น 13:00–20:00 แล้ว`,
+    );
+    const end = (await boardTrip(page, so[1]!.soNo))!;
+    expect(Date.parse(end.plannedEndAt!)).toBe(Date.parse(`${today}T20:00:00+07:00`));
+    // ขอบที่ชนแกน 20:00 พอดียังจับได้ · เที่ยวที่ล้นแกนไม่มีที่จับ (unit test board.test.ts)
+  });
+
+  test('รถติดกฎห้ามจ่ายงาน: ลาย hatch + ป้ายเหตุผล · วางไม่ได้ (ขอบแดง + toast) ไม่เกิดเที่ยว', async ({
+    page,
+  }) => {
+    await open(page);
+    const row = page.getByTestId(`plan-row-${SUB}`);
+    await row.scrollIntoViewIfNeeded();
+    await expect(page.getByTestId(`plan-blocked-${SUB}`)).toContainText('ยังไม่มี');
+    const track = page.getByTestId(`plan-track-${SUB}`);
+    await expect(track).toHaveCSS('background-image', /repeating-linear-gradient/);
+    const box = (await track.boundingBox())!;
+    await dragTo(page, page.getByTestId(`plan-pool-${so[2]!.soNo}`), xAt(box, 9.05), box.y + 40);
+    await expect(page.getByRole('status')).toContainText('วางไม่ได้: รถติดกฎห้ามจ่ายงาน');
+    await expect(page.getByTestId(`plan-pool-${so[2]!.soNo}`)).toBeVisible();
+    expect(await boardTrip(page, so[2]!.soNo)).toBeUndefined();
   });
 });
