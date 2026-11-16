@@ -68,3 +68,31 @@ export function useMoveTrip() {
     onSettled: () => qc.invalidateQueries({ queryKey: [KEY] }),
   });
 }
+
+/** บันทึกมุมมอง + field บนการ์ด (PUT /v1/planning/board/preferences, If-Match = version ที่อ่านไว้) — เห็นผลทันที */
+export function useSaveBoardPrefs() {
+  const qc = useQueryClient();
+  const key = ['planning-board-prefs'];
+  return useMutation({
+    mutationFn: (v: {
+      body: Schemas['UpdateBoardPreferencesDto'];
+      version: number;
+    }): Promise<BoardPrefs> =>
+      unwrap(
+        api.PUT('/v1/planning/board/preferences', {
+          body: v.body,
+          headers: { 'If-Match': `"${v.version}"` },
+        }),
+      ) as Promise<BoardPrefs>,
+    onMutate: (v) => {
+      const prev = qc.getQueryData<BoardPrefs>(key);
+      qc.setQueryData<BoardPrefs>(key, { ...v.body, version: v.version });
+      return { prev };
+    },
+    onSuccess: (r) => qc.setQueryData(key, r),
+    onError: (_e, _v, ctx) => {
+      if (ctx?.prev) qc.setQueryData(key, ctx.prev);
+      void qc.invalidateQueries({ queryKey: key });
+    },
+  });
+}

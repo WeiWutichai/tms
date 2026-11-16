@@ -769,4 +769,7 @@ export const en: Partial<Record<MessageKey, string>> = {
   'plan.why': 'View reason',
   'plan.pop.open': 'Open sales order',
   'plan.noVeh.add': 'Add vehicle',
+  'plan.field.ORDER_NO': 'SO No.',
+  'plan.field.CUSTOMER': 'Customers',
+  'plan.field.ROUTE': 'Route',
 };

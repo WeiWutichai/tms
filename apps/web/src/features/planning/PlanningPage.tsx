@@ -58,7 +58,15 @@ import {
   orderVehicles,
   type BoardView,
 } from './board';
-import { useBoard, useBoardPrefs, useDropOrder, useMoveTrip, type Trip } from './usePlanning';
+import { BoardViewMenu } from './BoardViewMenu';
+import {
+  useBoard,
+  useBoardPrefs,
+  useDropOrder,
+  useMoveTrip,
+  useSaveBoardPrefs,
+  type Trip,
+} from './usePlanning';
 
 type Tab = 'today' | 'tomorrow' | '7d';
 type Drag =
@@ -163,6 +171,7 @@ export function PlanningPage() {
   const prefs = useBoardPrefs();
   const view = (prefs.data?.view ?? DEFAULT_PREFS.view) as BoardView;
   const cf: readonly string[] = prefs.data?.cardFields ?? DEFAULT_PREFS.cardFields;
+  const savePrefs = useSaveBoardPrefs();
   const drop = useDropOrder();
   const move = useMoveTrip();
   const nowH = useNowHour();
@@ -1098,6 +1107,16 @@ export function PlanningPage() {
             count: tabCount(Array.from({ length: 7 }, (_, i) => addDays(day0, i))),
           },
         ].map((x) => (x.count === undefined ? { key: x.key, label: x.label } : x))}
+      />
+      <BoardViewMenu
+        view={view}
+        fields={cf}
+        onChange={(body) =>
+          savePrefs.mutate(
+            { body, version: prefs.data?.version ?? 0 },
+            { onError: () => setToast(t('plan.view.saveError')) },
+          )
+        }
       />
       <div
         onClick={() => setPop(null)}

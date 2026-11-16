@@ -2740,6 +2740,18 @@ export const th = {
   'plan.noVeh.desc': 'เพิ่มรถในทะเบียนรถก่อน แล้วลาก SO มาวางที่แถวรถ',
   'plan.noVeh.add': 'เพิ่มรถ',
   'plan.custPrefixes': 'บจก.|บมจ.|หจก.|บริษัท',
+  'plan.view.btn': 'มุมมอง: {v}',
+  'plan.view.FLEET': 'รถบริษัท + รถร่วม',
+  'plan.view.VEHICLE': 'ตามรถ',
+  'plan.view.DRIVER': 'ตามคนขับ',
+  'plan.view.CARRIER': 'ตามรถร่วม',
+  'plan.view.fields': 'ข้อมูลบนการ์ด',
+  'plan.field.ORDER_NO': 'เลข SO',
+  'plan.field.CUSTOMER': 'ลูกค้า',
+  'plan.field.TIME': 'ช่วงเวลา',
+  'plan.field.ROUTE': 'เส้นทาง',
+  'plan.field.WEIGHT': 'น้ำหนักต่อความจุ',
+  'plan.view.saveError': 'บันทึกมุมมองไม่สำเร็จ',
 } as const;
 
 export type MessageKey = keyof typeof th;

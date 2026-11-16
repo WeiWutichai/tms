@@ -2,8 +2,8 @@
 // ต้องมี web dev (4420) + API dev (4410) ที่รันโค้ด ST3-T13 + seed · ใช้: node scripts/compare-board-views.mjs
 // (web อื่น: WEB=http://localhost:5720 node scripts/compare-board-views.mjs)
 // ข้อมูลตัวอย่าง (สมมติ) ชุดเดียวกับ compare-planning.mjs + รถร่วม 1 คัน (DEMO-PLAN-V5)
-// ภาพ: fleet = มุมมองเริ่มต้น "รถบริษัท + รถร่วม" · vehicle = "ตามรถ" (ตั้งผ่าน PUT /v1/planning/board/preferences —
-// ตัวสลับบนจอยังไม่มีในต้นแบบ spec/12 §3 ST3-T13) · ต้นแบบมีมุมมองเดียว (วันนี้) ทั้งสองภาพ
+// ภาพ: fleet = มุมมองเริ่มต้น "รถบริษัท + รถร่วม" · vehicle = "ตามรถ" (เลือกจากปุ่ม "มุมมอง: …") ·
+// menu = เมนูมุมมองเปิด เทียบกับเมนู "มุมมอง:" ของหน้าใบสั่งขนส่งในต้นแบบ (PO 16 พ.ย. 2569: ใช้ปุ่มเดียวกันบนกระดาน)
 import { chromium } from '@playwright/test';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { createReadStream, existsSync } from 'node:fs';
@@ -41,6 +41,14 @@ await P.getByRole('button', { name: /^วันนี้/ })
   .click();
 await P.waitForTimeout(800);
 a.day = await P.screenshot();
+// เมนู "มุมมอง:" ของหน้ารายการ (ใบสั่งขนส่ง) — ต้นแบบของปุ่มบนกระดาน
+await P.getByText('ใบสั่งขนส่ง (SO)', { exact: true }).filter({ visible: true }).first().click();
+await P.waitForTimeout(1200);
+await P.getByRole('button', { name: /^มุมมอง:/ })
+  .first()
+  .click();
+await P.waitForTimeout(500);
+a.menu = await P.screenshot();
 
 // ---------- ของจริง ----------
 const ctx = await b.newContext({ viewport: vp, locale: 'th-TH', baseURL: WEB });
@@ -180,21 +188,34 @@ const pref = (view) =>
     view,
     cardFields: ['ORDER_NO', 'CUSTOMER', 'TIME', 'ROUTE', 'WEIGHT'],
   });
+await pref('FLEET');
 const c = {};
-for (const view of ['VEHICLE', 'FLEET']) {
-  await pref(view);
-  await W.goto('/plan');
-  await W.waitForTimeout(2000);
-  await W.getByRole('tab', { name: /^วันนี้/ }).click();
-  await W.waitForTimeout(1200);
-  c[view.toLowerCase()] = await W.screenshot();
-}
+await W.goto('/plan');
+await W.waitForTimeout(2000);
+await W.getByRole('tab', { name: /^วันนี้/ }).click();
+await W.waitForTimeout(1200);
+c.fleet = await W.screenshot();
+await W.getByRole('button', { name: /^มุมมอง:/ }).click();
+await W.waitForTimeout(400);
+c.menu = await W.screenshot();
+await W.getByRole('menuitemradio', { name: 'ตามรถ', exact: true }).click();
+await W.waitForTimeout(1200);
+c.vehicle = await W.screenshot();
+await pref('FLEET');
 
-const LABEL = { fleet: 'รถบริษัท + รถร่วม (ค่าเริ่มต้น)', vehicle: 'ตามรถ' };
-for (const tag of ['fleet', 'vehicle']) {
+const LABEL = {
+  fleet: ['กระดานวางแผน · วันนี้', 'มุมมอง รถบริษัท + รถร่วม (ค่าเริ่มต้น)'],
+  vehicle: ['กระดานวางแผน · วันนี้', 'มุมมอง ตามรถ'],
+  menu: [
+    'ใบสั่งขนส่ง · เมนู "มุมมอง:" (ปุ่มที่ใช้บนกระดาน)',
+    'กระดาน · เมนูมุมมอง + ข้อมูลบนการ์ด',
+  ],
+};
+for (const tag of ['fleet', 'vehicle', 'menu']) {
   const M = await (await b.newContext({ viewport: { width: 2900, height: 960 } })).newPage();
+  const proto = tag === 'menu' ? a.menu : a.day;
   await M.setContent(
-    `<body style="margin:0;display:flex;gap:20px;background:#333;font:16px sans-serif;color:#fff"><div><div style="padding:8px">ต้นแบบ (TMS v4) กระดานวางแผน · วันนี้ (ไม่มีตัวสลับมุมมอง)</div><img src="data:image/png;base64,${a.day.toString('base64')}"></div><div><div style="padding:8px">ของจริง (apps/web /plan) · มุมมอง ${LABEL[tag]}</div><img src="data:image/png;base64,${c[tag].toString('base64')}"></div></body>`,
+    `<body style="margin:0;display:flex;gap:20px;background:#333;font:16px sans-serif;color:#fff"><div><div style="padding:8px">ต้นแบบ (TMS v4) ${LABEL[tag][0]}</div><img src="data:image/png;base64,${proto.toString('base64')}"></div><div><div style="padding:8px">ของจริง (apps/web /plan) · ${LABEL[tag][1]}</div><img src="data:image/png;base64,${c[tag].toString('base64')}"></div></body>`,
   );
   await M.screenshot({ path: `${out}st3-board-views-${tag}-1440.png` });
   console.log(`wrote design/compare/st3-board-views-${tag}-1440.png`);

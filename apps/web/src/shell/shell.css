@@ -35,3 +35,8 @@
 .tms-plan-why:hover {
   background: #fbe9e7 !important;
 }
+/* ST3-T13 ปุ่ม/เมนู "มุมมอง: …" ของกระดาน (ต้นแบบ toggleView: style-hover background #EEF0EC) */
+.tms-plan-viewbtn:hover,
+.tms-plan-viewitem:hover {
+  background: #eef0ec !important;
+}
