@@ -12,6 +12,7 @@ import { formatDateTime, useI18n, type T } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
 import { problemText } from '../master/problems';
 import { bangkokToday, money, useDateText } from '../rate-cards/rateFormat';
+import { useOrderTrips } from '../trips/useTrips';
 import { holdMeta, RECHECKABLE } from './hold';
 import {
   HoldActions,
@@ -161,6 +162,8 @@ export function OrderDrawer({
   onCopy,
   onSaveTemplate,
   onDone,
+  canSeeTrips = false,
+  onOpenTrip,
 }: {
   id: string;
   canWrite: boolean;
@@ -177,6 +180,10 @@ export function OrderDrawer({
   onCopy?: (o: Order) => void;
   onSaveTemplate?: (o: Order) => void;
   onDone: (msg: string) => void;
+  /** `trips:read` — ส่วน "รถ / คนขับ" แสดงเที่ยวที่ใบส่งของอยู่ (ST3-T16) */
+  canSeeTrips?: boolean;
+  /** คลิกเลขเที่ยว → drawer เที่ยวรถ (ต้นแบบ openTrp) */
+  onOpenTrip?: (tripId: string) => void;
 }) {
   const { t, lang } = useI18n();
   const dateText = useDateText();
@@ -190,6 +197,7 @@ export function OrderDrawer({
   const o = q.data;
   // หน้าใบค้าง (ST3-T07): จับคู่ลูกค้า — กล่องในเนื้อ + ปุ่ม footer ใช้ state เดียวกัน
   const match = useCustomerMatch(o, onDone);
+  const trips = useOrderTrips(id, canSeeTrips);
   const labels = { close: t('drawer.close'), more: t('drawer.more') };
 
   if (!o)
@@ -680,7 +688,60 @@ export function OrderDrawer({
             </div>
           </Sec>
           <Sec title={t('ord.sec.vehicle')}>
-            <span style={{ color: '#3B424C' }}>{t('ord.notAssigned')}</span>
+            {trips.length === 0 ? (
+              <span style={{ color: '#3B424C' }}>{t('ord.notAssigned')}</span>
+            ) : (
+              trips.map((tr) => (
+                <div
+                  key={tr.id}
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(3,minmax(0,1fr))',
+                    gap: '14px 20px',
+                  }}
+                >
+                  <Kv
+                    k={t('ord.veh.plate')}
+                    v={
+                      tr.vehicle
+                        ? [tr.vehicle.plate, tr.vehicle.vehicleTypeName].filter(Boolean).join(' · ')
+                        : '—'
+                    }
+                  />
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+                    <span style={{ fontSize: 12.5, fontWeight: 500, color: '#59606B' }}>
+                      {t('ord.veh.driver')}
+                    </span>
+                    <span>{tr.driver?.name ?? '—'}</span>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+                    <span style={{ fontSize: 12.5, fontWeight: 500, color: '#59606B' }}>
+                      {t('ord.veh.trip')}
+                    </span>
+                    {onOpenTrip ? (
+                      <button
+                        type="button"
+                        className="tms-num"
+                        onClick={() => onOpenTrip(tr.id)}
+                        style={{
+                          border: 0,
+                          background: 'transparent',
+                          padding: 0,
+                          color: '#2257C4',
+                          cursor: 'pointer',
+                          textAlign: 'left',
+                          fontWeight: 500,
+                        }}
+                      >
+                        {tr.tripNo}
+                      </button>
+                    ) : (
+                      <span className="tms-num">{tr.tripNo}</span>
+                    )}
+                  </div>
+                </div>
+              ))
+            )}
           </Sec>
           <Sec title={t('ord.sec.price')} last>
             {!canSeePrice ? (

@@ -24,6 +24,7 @@ import { listTotal, useSessionState } from '../master/useCursorList';
 import { addDays, bangkokToday, useDateText } from '../rate-cards/rateFormat';
 import { OrderSourceBadge } from './OrderSource';
 import { dueOf, orderStatusLabel, OrderDrawer, overdueDays, statusTone } from './OrderDrawer';
+import { TripDrawer } from '../trips/TripDrawer';
 import { OrderFormDrawer, type FormMode } from './OrderFormDrawer';
 import {
   copyFromOrder,
@@ -111,6 +112,8 @@ export function OrdersPage() {
   const summary = useOrderSummary();
   const s = summary.data;
   const [openId, setOpenId] = useState<string | null>(null);
+  /** drawer เที่ยวรถ (ST3-T16) — เปิดจากเลขเที่ยวใน drawer SO (ต้นแบบ openTrp แทนที่ drawer เดิม) */
+  const [tripId, setTripId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState | null>(null);
   const [tplOpen, setTplOpen] = useState(false);
   const [saveTpl, setSaveTpl] = useState<Order | null>(null);
@@ -441,6 +444,11 @@ export function OrdersPage() {
           canSeePrice={canSeePrice}
           canEditPrice={canEditPrice}
           canUnlock={canUnlock}
+          canSeeTrips={can(scopes, 'trips:read')}
+          onOpenTrip={(x) => {
+            setOpenId(null);
+            setTripId(x);
+          }}
           onClose={() => setOpenId(null)}
           onEdit={(o) =>
             openForm({ mode: 'edit', initial: fromOrder(o), order: o, subtitle: t('ord.kind') })
@@ -454,6 +462,14 @@ export function OrdersPage() {
           }
           onSaveTemplate={(o) => setSaveTpl(o)}
           onDone={(m) => setToast(m)}
+        />
+      )}
+      {tripId && (
+        <TripDrawer
+          key={tripId}
+          id={tripId}
+          canEdit={can(scopes, 'trips:assign')}
+          onClose={() => setTripId(null)}
         />
       )}
       {form && (

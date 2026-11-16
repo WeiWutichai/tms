@@ -12,6 +12,7 @@ import { problemText } from '../master/problems';
 import { useSessionState } from '../master/useCursorList';
 import { HoldBadge, holdLabel } from '../orders/HoldPage';
 import { OrderDrawer } from '../orders/OrderDrawer';
+import { TripDrawer } from '../trips/TripDrawer';
 import { OrderFormDrawer } from '../orders/OrderFormDrawer';
 import { fromOrder, type Order, type OrderForm } from '../orders/orderForm';
 import { bangkokToday, useDateText } from '../rate-cards/rateFormat';
@@ -243,6 +244,8 @@ export function PlanningPage() {
   const badRef = useRef('');
   const [pop, setPop] = useState<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
+  /** drawer เที่ยวรถ (ST3-T16) — เปิดจากเลขเที่ยวใน drawer SO (ต้นแบบ openTrp แทนที่ drawer เดิม) */
+  const [tripId, setTripId] = useState<string | null>(null);
   const [form, setForm] = useState<{ key: number; initial: OrderForm; order: Order } | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
@@ -1991,12 +1994,25 @@ export function PlanningPage() {
           canSeePrice={canSeePrice}
           canEditPrice={canEditPrice}
           canUnlock={canUnlock}
+          canSeeTrips={can(scopes, 'trips:read')}
+          onOpenTrip={(x) => {
+            setOpenId(null);
+            setTripId(x);
+          }}
           onClose={() => setOpenId(null)}
           onEdit={openEdit}
           onDone={(m) => {
             setToast(m);
             void board.refetch();
           }}
+        />
+      )}
+      {tripId && (
+        <TripDrawer
+          key={tripId}
+          id={tripId}
+          canEdit={can(scopes, 'trips:assign')}
+          onClose={() => setTripId(null)}
         />
       )}
       {form && (
