@@ -206,6 +206,13 @@
 
 ## บันทึกรายวัน
 
+### 16 พ.ย. 2569 (แก้บั๊ก: ราคาที่กำหนดเองชนะ rate card)
+
+- บั๊ก: ใบที่มีค่าขนส่ง MANUAL ("กำหนดราคาเอง" ORD-043) แล้วได้ rate card ภายหลัง → คิดใหม่ (ตรวจอีกครั้ง/ส่งซ้ำ/เรียนรู้ alias) ได้ทั้งบรรทัด FREIGHT MANUAL และ FREIGHT (+ EXTRA_STOP) จาก rate card → ค่าขนส่งซ้อน `price_total` เกิน · สาเหตุ: `evaluate()` ใช้บรรทัดจาก quote ทั้งหมดโดยไม่ดูว่ามีค่าขนส่ง MANUAL
+- ทำ: [DECISION — PO 16 พ.ย. 2569] มีค่าขนส่ง MANUAL → ตัดบรรทัด FREIGHT + EXTRA_STOP ของ rate card ออกก่อนเขียน/รวมยอด (ACCESSORIAL คิดตามปกติ) จนกว่าคนเอาบรรทัด MANUAL ออก · ไม่ค้าง RATE_MISSING ตามเดิม · test: มี MANUAL + rate (3 จุด, ค่าจุดเพิ่ม) → บรรทัด MANUAL เดียว ยอด 4200.50 RECEIVED ทั้งตรวจอีกครั้งและส่งซ้ำ · ไม่มี MANUAL = FREIGHT + EXTRA_STOP 4300.00 · เอา MANUAL ออก → กลับใช้ rate
+- ไฟล์: `apps/api/src/modules/orders/order-intake.service.ts`, `apps/api/test/order-hold.test.ts`, `spec/12` §3 (แถว ST3-T01)
+- ค้าง: **[OPEN — ถาม PO]** ค่าจุดเพิ่มรวมในราคาที่กำหนดเองหรือคิดแยก · FSC % (P1) จะคิดจากยอด MANUAL ไหม · `pricing_status`/`pricing_detail` ยังแสดงผล rate card · ไม่มี API ลบบรรทัด MANUAL (เฟส 0) · ยังไม่ push/PR
+
 ### 16 พ.ย. 2569 (ST3-T13 View บนกระดาน)
 
 - ทำ: เก็บมุมมองกระดาน + field บนการ์ดต่อผู้ใช้ฝั่ง server (ไม่มีกลไก user preference เดิม — สร้างตาราง `user_preference` ใช้ซ้ำได้) · `GET/PUT /v1/planning/board/preferences` · **รอบ 2 (PO 16 พ.ย.):** ปุ่ม "มุมมอง: …" แบบหน้ารายการของต้นแบบใต้แท็บกระดาน — 4 มุมมอง + ส่วน checkbox "ข้อมูลบนการ์ด" (บันทึกทันที แบบ optimistic, ผิดพลาด → toast + ย้อนค่า) · กระดานเรียงแถวรถใหม่ (ข้อมูลชุดเดียวกัน) และแสดงเฉพาะ field ที่เลือก · ฐาน dev `tms` ไม่มีตาราง `_prisma_migrations` → ตรวจด้วย `prisma migrate diff --from-url tms_test --to-url tms` (tms_test migrate ครบ 0001–0070) ได้ต่างกันแค่ตาราง `user_preference` ของ 0070 → baseline `prisma migrate resolve --applied` 0001–0069 แล้ว deploy 0070 (ไม่ล้างข้อมูล — tenant 0 แถว) + seed

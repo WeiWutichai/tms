@@ -139,6 +139,8 @@ export const SUPERSEDE_NOTE = {
 };
 
 const ENTITY = 'sales_order';
+/** บรรทัดของ rate card ที่เป็น "ค่าขนส่ง" — มีค่าขนส่ง MANUAL แล้วไม่เพิ่ม (ราคาที่กำหนดเองชนะ — PO 16 พ.ย. 2569) */
+const RATE_CARD_FREIGHT_KINDS: ReadonlySet<string> = new Set(['FREIGHT', 'EXTRA_STOP']);
 const INCLUDE = {
   stops: { orderBy: { sequence: 'asc' } },
   lines: { orderBy: { lineNo: 'asc' } },
@@ -176,6 +178,7 @@ const CREATE_FROM = 'NONE';
  * - คิดราคาด้วย `PricingService.quote` (ขาขาย) → `pricing_status` + บรรทัดราคาระบบ (RATE_CARD) snapshot ใน
  *   `sales_order_charge` (MD-117 พารามิเตอร์ใน `pricing_detail.params`, vat_type/wht_rate(%) ต่อบรรทัด) — ไม่คิด VAT/WHT ที่นี่
  *   บรรทัดที่คนกำหนด (MANUAL, ORD-043 — ST3-T02) ไม่ถูกลบตอนคิดใหม่ และ `price_total` = ทุกบรรทัด
+ *   มีค่าขนส่ง MANUAL = ไม่เพิ่ม FREIGHT/EXTRA_STOP จาก rate card (ราคาที่กำหนดเองชนะ — PO 16 พ.ย. 2569)
  * - เลข SO จาก document_series `SO` ตอนพ้นร่าง · transition ผ่าน StateService (กันชนด้วย where status = from)
  * - `tx` = transaction ที่ตั้ง tenant แล้ว (ค่าเริ่มต้น = ของ request) — นอก HTTP (worker) ต้องมี requestContext ด้วย
  */
@@ -1426,7 +1429,14 @@ export class OrderIntakeService {
     const quote = await this.quote(tx, order, act);
     const manual = order.charges.filter((c) => c.origin !== 'RATE_CARD');
     const system = order.charges.filter((c) => c.origin === 'RATE_CARD');
-    const want = quote.pricingStatus === 'AVAILABLE' ? quote.lines : [];
+    // ราคาที่กำหนดเองชนะ rate card ([DECISION — PO 16 พ.ย. 2569] spec/12 §3): มีค่าขนส่ง MANUAL = ไม่เพิ่มค่าขนส่งจาก
+    // rate card (FREIGHT + EXTRA_STOP ค่าจุดเพิ่ม — ส่วนของค่าขนส่งตาม rate, MD-115) จนกว่าคนจะเอาบรรทัด MANUAL ออก
+    // ค่าบริการเสริม (ACCESSORIAL) ยังคิดตามปกติ
+    const manualFreight = manual.some((c) => c.kind === 'FREIGHT');
+    const want =
+      quote.pricingStatus === 'AVAILABLE'
+        ? quote.lines.filter((l) => !(manualFreight && RATE_CARD_FREIGHT_KINDS.has(l.kind)))
+        : [];
     const chargeKey = (x: {
       kind: string;
       serviceItemId: string;
@@ -1501,7 +1511,6 @@ export class OrderIntakeService {
     const priceTotal = amounts.length
       ? amounts.reduce((s, a) => s.add(new Prisma.Decimal(a)), new Prisma.Decimal(0)).toFixed(2)
       : null;
-    const manualFreight = manual.some((c) => c.kind === 'FREIGHT');
 
     const sourceIssues = (order.sourceIssues as string[] | null) ?? [];
     const holds = evaluateIntakeHolds({
