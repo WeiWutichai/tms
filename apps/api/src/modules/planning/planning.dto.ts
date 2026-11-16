@@ -122,7 +122,8 @@ export class BoardTripDto {
     nullable: true,
     type: String,
     example: 'drv_3f2a…',
-    description: 'คนขับของเที่ยว (ST3-T19 — ป้าย "คนขับลา" ใช้คนขับจริงของเที่ยว ไม่ใช่คนขับประจำรถ)',
+    description:
+      'คนขับของเที่ยว (ST3-T19 — ป้าย "คนขับลา" ใช้คนขับจริงของเที่ยว ไม่ใช่คนขับประจำรถ)',
   })
   driverId!: string | null;
   @ApiProperty({ nullable: true, type: String, example: 'drv_3f2a…' })
