@@ -159,6 +159,56 @@ export function useBulkAssign() {
   });
 }
 
+export type SendAllResults = Schemas['SendAllTripsResultDto'];
+
+/**
+ * ส่งแผนทั้งวัน (ST3-T18 "Send all" — POST /v1/trips/send-all) → 207 ผลต่อเที่ยว + สถานะส่งครบของวัน
+ * ส่งเฉพาะเที่ยวที่ติ๊ก (+ version ที่เห็น) เสมอ — ไม่ปล่อยเที่ยวที่ผู้ใช้ไม่เห็นในรายการ
+ */
+export function useSendAll() {
+  const qc = useQueryClient();
+  return useMutation({
+    /** `key` = Idempotency-Key ต่อการส่ง 1 ครั้งของ dialog (QA M1 — กดซ้ำได้ผลเดิม ไม่ส่งสองรอบ) */
+    mutationFn: ({
+      key,
+      ...v
+    }: Schemas['SendAllTripsDto'] & { key: string }): Promise<SendAllResults> =>
+      idempotent(() =>
+        api.POST('/v1/trips/send-all', { body: v, headers: { 'Idempotency-Key': key } }),
+      ),
+    onSettled: () => invalidateAll(qc),
+  });
+}
+
+/**
+ * ตรวจล่วงหน้าก่อนส่งแผน (ST3-T18 QA L2 — `dryRun`: กฎ T14 ชุดเดียวกับตอนปล่อย แล้วย้อน) → tripId → problem (null = ผ่าน)
+ * ไม่มีเที่ยว/ไม่มีสิทธิ์ = ไม่เรียก
+ */
+export function useSendCheck(
+  date: string,
+  trips: { id: string; version: number }[],
+  enabled: boolean,
+): Record<string, unknown> | undefined {
+  const q = useQuery({
+    queryKey: [KEY, 'send-check', date, trips.map((x) => `${x.id}:${x.version}`).join(',')],
+    enabled: enabled && trips.length > 0,
+    staleTime: 0,
+    retry: false,
+    queryFn: () =>
+      unwrap(
+        api.POST('/v1/trips/send-all', {
+          body: {
+            date,
+            dryRun: true,
+            items: trips.map((x) => ({ tripId: x.id, version: x.version })),
+          },
+        }),
+      ) as Promise<SendAllResults>,
+  });
+  if (!q.data) return undefined;
+  return Object.fromEntries(q.data.results.map((r) => [r.tripId, r.trip ? null : r.problem]));
+}
+
 /**
  * ตัวเลือก "รถ" / "คนขับ" ของการจัดรถใน drawer เที่ยว (ต้นแบบ SO drawer "จัดรถ": select รถ + คนขับ)
  * รถ: ใช้งานได้ ไม่ใช่หาง · รถบริษัท (เที่ยวที่ไม่มีรถร่วม) หรือรถของรถร่วมรายนั้น · คนขับ: พร้อมใช้ (ต้องมี `master:read`)

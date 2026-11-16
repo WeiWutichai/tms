@@ -12,6 +12,7 @@ import {
   Matches,
 } from 'class-validator';
 import { TRIP_STATUSES, type TripStatus } from '@tms/domain';
+import { DaySendStateDto } from '../trips/trip.dto';
 
 export class PlanningBoardQuery {
   @ApiPropertyOptional({
@@ -206,6 +207,12 @@ export class PlanningBoardDto {
     description: 'SO รอจัด (จัดกลุ่ม DO ตาม SO) เรียงกำหนดส่ง',
   })
   pool!: BoardPoolOrderDto[];
+  @ApiProperty({
+    type: [DaySendStateDto],
+    description:
+      'สถานะการส่งต่อวันในช่วง from–to (ST3-T18 ปฏิทินขึ้นเขียวเมื่อส่งครบ) — นับตามวันเที่ยว `tripDate`',
+  })
+  days!: DaySendStateDto[];
 }
 
 /** ST3-T15 Filter รถที่รับได้สองทาง — ส่ง `orderId` / `vehicleId` / `tripId` อย่างใดอย่างหนึ่ง */
