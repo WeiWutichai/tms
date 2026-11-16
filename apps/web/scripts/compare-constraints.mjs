@@ -148,23 +148,77 @@ const so = await call('put', '/v1/orders/external/DEMO-PLAN-K1', {
   ],
   lines: [{ description: 'สินค้าตัวอย่าง', qty: '5', unitId: ton, weightKg: '6800' }],
 });
+// SO ที่สอง (ยังไม่จัด) ไว้ลากลงรถร่วมติดกฎในภาพผู้จัดการ
+const so2 = await call('put', '/v1/orders/external/DEMO-PLAN-K2', {
+  customer: { id: c1.id },
+  requestedDate: bkk(),
+  vehicleTypeId: vt('6W'),
+  stops: [
+    { type: 'PICKUP', siteId: s1.id },
+    { type: 'DELIVERY', siteId: s2.id },
+  ],
+  lines: [{ description: 'สินค้าตัวอย่าง', qty: '2', unitId: ton, weightKg: '1500' }],
+});
+// รถแถวแรกของกระดาน (10 ล้อ 15,000 กก.) + SO 16,000 กก. → การ์ด "น้ำหนักเกิน · ขออนุมัติ" อยู่ในภาพพร้อม legend/คอลัมน์รถ
+const v10 = await call('put', '/v1/vehicles/external/DEMO-PLAN-V4', {
+  plate: '70-3312',
+  plateProvince: 'TH-10',
+  vehicleTypeId: vt('10W'),
+  ownership: 'OWN',
+  payloadKg: 15000,
+});
+const so3 = await call('put', '/v1/orders/external/DEMO-PLAN-K3', {
+  customer: { id: c1.id },
+  requestedDate: bkk(),
+  vehicleTypeId: vt('10W'),
+  stops: [
+    { type: 'PICKUP', siteId: s1.id },
+    { type: 'DELIVERY', siteId: s2.id },
+  ],
+  lines: [{ description: 'สินค้าตัวอย่าง', qty: '16', unitId: ton, weightKg: '16000' }],
+});
+{
+  const b0 = await call('get', `/v1/planning/board?date=${bkk()}&days=1`);
+  const p3 = b0.pool.find((x) => x.orderNo === so3?.soNo);
+  if (p3 && v10)
+    await call('post', '/v1/trips', {
+      tripDate: bkk(),
+      deliveryOrderIds: p3.deliveryOrders.map((d) => d.id),
+      vehicleId: v10.id,
+      plannedStartAt: `${bkk()}T07:00:00+07:00`,
+      plannedEndAt: `${bkk()}T10:00:00+07:00`,
+    });
+}
 const board = await call('get', `/v1/planning/board?date=${bkk()}&days=1`);
 const p = board.pool.find((x) => x.orderNo === so?.soNo);
+const win = { plannedStartAt: `${bkk()}T07:00:00+07:00`, plannedEndAt: `${bkk()}T10:00:00+07:00` };
 if (p && veh)
   await call('post', '/v1/trips', {
     tripDate: bkk(),
     deliveryOrderIds: p.deliveryOrders.map((d) => d.id),
     vehicleId: veh.id,
-    plannedStartAt: `${bkk()}T14:00:00+07:00`,
-    plannedEndAt: `${bkk()}T18:00:00+07:00`,
+    ...win,
   });
+else {
+  // รอบก่อนสร้างไว้แล้ว → ย้ายให้อยู่ช่วงที่มองเห็นพร้อมคอลัมน์รถ
+  const tr = board.trips.find((x) => x.orders.some((o) => o.orderNo === so?.soNo));
+  if (tr)
+    await W.request.post(`/v1/trips/${tr.id}/schedule`, {
+      headers: { ...H, 'If-Match': `"${tr.version}"`, 'Idempotency-Key': randomUUID() },
+      data: win,
+    });
+}
 const c = {};
 await W.goto('/plan');
 await W.waitForTimeout(2000);
 await W.getByRole('tab', { name: /^วันนี้/ }).click();
 await W.waitForTimeout(1200);
-const ask = W.getByTestId(/^plan-ask-/).first();
-await ask.scrollIntoViewIfNeeded().catch(() => {});
+const ask = W.getByTestId('plan-row-70-3312')
+  .getByTestId(/^plan-ask-/)
+  .first();
+// เลื่อนหน้าเฉพาะแนวตั้ง — ให้เห็น legend + คอลัมน์รถ (review L8)
+await W.evaluate(() => window.scrollTo(0, 260));
+await W.waitForTimeout(300);
 c.warning = await W.screenshot();
 await ask.click().catch(() => console.error('real: ไม่พบปุ่ม · ขออนุมัติ'));
 await W.waitForTimeout(500);
@@ -181,9 +235,19 @@ await M.W.goto('/plan');
 await M.W.waitForTimeout(2000);
 await M.W.getByRole('tab', { name: /^วันนี้/ }).click();
 await M.W.waitForTimeout(1200);
-const mrow = M.W.getByTestId('plan-row-65-0912');
-await mrow.scrollIntoViewIfNeeded();
-await mrow.getByRole('button', { name: 'ดูสาเหตุ' }).click();
+// ผู้จัดการลาก SO ลงรถร่วมติดกฎ → 409 → "ห้ามจ่ายงาน" ยกเว้นเฉพาะเที่ยวนี้ (ไม่กดยืนยันในภาพ)
+const mtrack = M.W.getByTestId('plan-track-65-0912');
+await mtrack.scrollIntoViewIfNeeded();
+const src = M.W.getByTestId(`plan-pool-${so2?.soNo}`);
+await src.scrollIntoViewIfNeeded();
+const sa = await src.boundingBox();
+const tb = await mtrack.boundingBox();
+await M.W.mouse.move(sa.x + sa.width / 2, sa.y + sa.height / 2);
+await M.W.mouse.down();
+await M.W.mouse.move(sa.x + sa.width / 2 + 10, sa.y + sa.height / 2 + 10, { steps: 3 });
+await M.W.mouse.move(tb.x + (1.05 / 14) * tb.width, tb.y + 40, { steps: 12 });
+await M.W.mouse.up();
+await M.W.waitForTimeout(800);
 await M.W.getByTestId('plan-blocked-dialog')
   .getByRole('textbox')
   .fill('รถร่วมส่งกรมธรรม์ใหม่แล้ว รอบันทึกในระบบ');
@@ -197,7 +261,10 @@ const LABEL = {
   ],
   ack: ['dialog "ขออนุมัติจากผู้จัดการ"', 'dialog ยืนยันพร้อมเหตุผล (D-07: ผู้วางแผนยืนยันเอง)'],
   blocked: ['"ห้ามจ่ายงาน" · ผู้วางแผน', '"ห้ามจ่ายงาน" · ผู้วางแผน (ยกเว้นไม่ได้)'],
-  override: ['"ห้ามจ่ายงาน" · ผู้จัดการ', '"ห้ามจ่ายงาน" · ผู้จัดการ (trips:override)'],
+  override: [
+    '"ห้ามจ่ายงาน" · ผู้จัดการ',
+    '"ห้ามจ่ายงาน" · ผู้จัดการ ลากงานลงรถติดกฎ → ยกเว้นเฉพาะเที่ยวนี้ (trips:override)',
+  ],
 };
 for (const tag of Object.keys(LABEL)) {
   const X = await (await b.newContext({ viewport: { width: 2900, height: 960 } })).newPage();
