@@ -17128,6 +17128,180 @@
         ]
       }
     },
+    "/v1/planning/eligibility": {
+      "get": {
+        "operationId": "Planning_eligibility",
+        "parameters": [
+          {
+            "name": "orderId",
+            "required": false,
+            "in": "query",
+            "description": "SO (การ์ดใน \"SO รอจัด\") → ประเมินรถทุกคันบนกระดาน",
+            "schema": {
+              "example": "so_3f2a…",
+              "type": "string"
+            }
+          },
+          {
+            "name": "vehicleId",
+            "required": false,
+            "in": "query",
+            "description": "รถ (แถวรถ) → ประเมิน SO รอจัดทุกใบ",
+            "schema": {
+              "example": "veh_3f2a…",
+              "type": "string"
+            }
+          },
+          {
+            "name": "tripId",
+            "required": false,
+            "in": "query",
+            "description": "เที่ยว (\"ย้ายไปรถอื่น\") → ประเมินรถทุกคันกับ DO ทั้งหมดของเที่ยว ในช่วงวิ่งของเที่ยว (รวมซ้อนเวลา)",
+            "schema": {
+              "example": "trp_3f2a…",
+              "type": "string"
+            }
+          },
+          {
+            "name": "date",
+            "required": false,
+            "in": "query",
+            "description": "วันแรก (YYYY-MM-DD) ที่ตรวจเอกสารรถ/ใบขับขี่ — ไม่ส่ง = วันนี้ (เวลาไทย) · ไม่ใช้กับ `tripId`",
+            "schema": {
+              "example": "2026-11-13",
+              "type": "string"
+            }
+          },
+          {
+            "name": "days",
+            "required": false,
+            "in": "query",
+            "description": "จำนวนวัน: 1 / 7",
+            "schema": {
+              "default": 1,
+              "type": "number",
+              "enum": [
+                1,
+                7
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanningEligibilityDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`trips:read`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "trips",
+                      "action": "read",
+                      "required": [
+                        "trips:read"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ไม่พบเที่ยว (รวมของบริษัทอื่น)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "deliveryOrderIds[0]",
+                          "code": "invalid_reference",
+                          "message": "not found"
+                        },
+                        {
+                          "field": "plannedEndAt",
+                          "code": "outside_trip_date",
+                          "message": "must be on tripDate"
+                        }
+                      ]
+                    }
+                  },
+                  "idempotency_mismatch": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_mismatch",
+                      "title": "Idempotency-Key นี้เคยใช้กับข้อมูลอื่น",
+                      "status": 422,
+                      "code": "idempotency_mismatch",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "planning"
+        ]
+      }
+    },
     "/v1/planning/board/preferences": {
       "get": {
         "operationId": "Planning_getPreferences",
@@ -32589,6 +32763,116 @@
           "vehicles",
           "trips",
           "pool"
+        ]
+      },
+      "EligibilityIssueDto": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "example": "CAPABILITY_MISSING",
+            "description": "รหัสกฎชุดเดียวกับ `warnings` ของเที่ยว (ST3-T14)"
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "block",
+              "warning",
+              "info"
+            ],
+            "description": "block = ห้ามจ่ายงาน (ยกเว้นได้โดย `trips:override`) · warning = วางได้แต่ต้องยืนยันพร้อมเหตุผล · info = แจ้งเฉย ๆ"
+          },
+          "message": {
+            "type": "string",
+            "example": "งานนี้ต้องใช้รถห้องเย็น แต่ประเภทรถที่เลือกไม่มี"
+          },
+          "date": {
+            "type": "string",
+            "nullable": true,
+            "example": "2026-11-14",
+            "description": "วันที่ติดกฎนี้ (เอกสาร/ใบขับขี่ที่หมดระหว่างช่วง) · null = ทุกวันในช่วง"
+          }
+        },
+        "required": [
+          "code",
+          "severity",
+          "message",
+          "date"
+        ]
+      },
+      "EligibilityItemDto": {
+        "type": "object",
+        "properties": {
+          "vehicleId": {
+            "type": "string",
+            "example": "veh_3f2a…"
+          },
+          "orderId": {
+            "type": "string",
+            "nullable": true,
+            "example": "so_3f2a…"
+          },
+          "tripId": {
+            "type": "string",
+            "nullable": true,
+            "example": "trp_3f2a…"
+          },
+          "level": {
+            "type": "string",
+            "enum": [
+              "OK",
+              "WARNING",
+              "BLOCK"
+            ],
+            "description": "ระดับรวมทั้งช่วง: OK = ผ่านทุกกฎ (เน้น) · WARNING = มีคำเตือน · BLOCK = ติดกฎห้ามจ่ายงาน"
+          },
+          "issues": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EligibilityIssueDto"
+            }
+          }
+        },
+        "required": [
+          "vehicleId",
+          "orderId",
+          "tripId",
+          "level",
+          "issues"
+        ]
+      },
+      "PlanningEligibilityDto": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "example": "2026-11-13"
+          },
+          "to": {
+            "type": "string",
+            "example": "2026-11-19"
+          },
+          "subject": {
+            "type": "string",
+            "enum": [
+              "ORDER",
+              "VEHICLE",
+              "TRIP"
+            ]
+          },
+          "items": {
+            "description": "ORDER/TRIP = หนึ่งรายการต่อรถ · VEHICLE = หนึ่งรายการต่อ SO รอจัด",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EligibilityItemDto"
+            }
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "subject",
+          "items"
         ]
       },
       "BoardPreferencesDto": {

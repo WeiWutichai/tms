@@ -93,6 +93,87 @@ export function compatibilityMessageTh(w: CompatibilityWarning, sourceLabel?: st
   }
 }
 
+/** สินค้า/จุด/ประเภทรถที่อ่านจากฐานแล้ว (ชุดที่ `compatibilityViews` ต้องใช้) */
+export interface CompatProductRow {
+  id: string;
+  code: string;
+  nameTh: string;
+  tempControlled: boolean;
+  tempMinC: { toString(): string } | null;
+  tempMaxC: { toString(): string } | null;
+  hazardous: boolean;
+}
+export interface CompatSiteRow {
+  id: string;
+  code: string;
+  name: string;
+  maxVehicleClass: string | null;
+}
+export interface CompatTypeRow {
+  vehicleClass: string;
+  capabilityTags: string[];
+  tempMinC: { toString(): string } | null;
+  tempMaxC: { toString(): string } | null;
+}
+
+/**
+ * ตัวตรวจความเข้ากันได้จากข้อมูลที่อ่านแล้ว (ไม่มี I/O) — `check()` และการเน้นรถที่รับได้ (ST3-T15) ใช้ตัวเดียวกัน
+ * `job` ไม่ส่ง/null = ไม่มีความต้องการของงาน · `requested` = ประเภทรถที่ SO ขอ (ป้ายความสามารถนับเป็นความต้องการด้วย)
+ */
+export function compatibilityViews(input: {
+  vehicleType: CompatTypeRow;
+  products: readonly CompatProductRow[];
+  sites: readonly CompatSiteRow[];
+  requested: { vehicleClass: string; capabilityTags: string[] } | null;
+  job: { requiredCapabilities?: readonly VehicleCapability[] } | null;
+}): CompatibilityWarningView[] {
+  const { vehicleType: vt, requested } = input;
+  const job: CompatJob | null = input.job
+    ? {
+        requestedVehicleClass: requested?.vehicleClass ?? null,
+        // ประเภทรถที่ SO ขอ = ความต้องการของงาน: ขอ "6 ล้อ ห้องเย็น" → ต้องมีป้าย REFRIGERATED ด้วย (domain ตัดซ้ำ)
+        requiredCapabilities: [
+          ...(input.job.requiredCapabilities ?? []),
+          ...((requested?.capabilityTags ?? []) as VehicleCapability[]),
+        ],
+      }
+    : null;
+  const pById = new Map(input.products.map((p) => [p.id, p]));
+  const sById = new Map(input.sites.map((s) => [s.id, s]));
+  const raw = checkVehicleCompatibility({
+    vehicleType: {
+      vehicleClass: vt.vehicleClass,
+      capabilityTags: vt.capabilityTags,
+      tempMinC: vt.tempMinC?.toString() ?? null,
+      tempMaxC: vt.tempMaxC?.toString() ?? null,
+    },
+    products: input.products.map((p) => ({
+      id: p.id,
+      code: p.code,
+      tempControlled: p.tempControlled,
+      tempMinC: p.tempMinC?.toString() ?? null,
+      tempMaxC: p.tempMaxC?.toString() ?? null,
+      hazardous: p.hazardous,
+    })),
+    sites: input.sites.map((s) => ({ id: s.id, code: s.code, maxVehicleClass: s.maxVehicleClass })),
+    job,
+  });
+  return raw.map((w): CompatibilityWarningView => {
+    let label: string | undefined;
+    const source = { ...w.source };
+    if (w.source.kind === 'product' && w.source.id) {
+      const p = pById.get(w.source.id)!;
+      label = `${p.code} ${p.nameTh}`;
+      source.id = encodeId('product', p.id);
+    } else if (w.source.kind === 'site' && w.source.id) {
+      const s = sById.get(w.source.id)!;
+      label = `${s.code} ${s.name}`;
+      source.id = encodeId('site', s.id);
+    }
+    return { ...w, source, message: compatibilityMessageTh(w, label) };
+  });
+}
+
 @Injectable()
 export class CompatibilityService {
   constructor(private readonly db: DbService) {}
@@ -191,53 +272,12 @@ export class CompatibilityService {
       });
     if (errors.length) throw new ProblemException('validation_failed', undefined, errors);
 
-    const job: CompatJob | null = input.job
-      ? {
-          requestedVehicleClass: requested?.vehicleClass ?? null,
-          // ประเภทรถที่ SO ขอ = ความต้องการของงาน: ขอ "6 ล้อ ห้องเย็น" → ต้องมีป้าย REFRIGERATED ด้วย (domain ตัดซ้ำ)
-          requiredCapabilities: [
-            ...(input.job.requiredCapabilities ?? []),
-            ...((requested?.capabilityTags ?? []) as VehicleCapability[]),
-          ],
-        }
-      : null;
-
-    const raw = checkVehicleCompatibility({
-      vehicleType: {
-        vehicleClass: vt.vehicleClass,
-        capabilityTags: vt.capabilityTags,
-        tempMinC: vt.tempMinC?.toString() ?? null,
-        tempMaxC: vt.tempMaxC?.toString() ?? null,
-      },
-      products: orderedProducts.map((p) => ({
-        id: p.id,
-        code: p.code,
-        tempControlled: p.tempControlled,
-        tempMinC: p.tempMinC?.toString() ?? null,
-        tempMaxC: p.tempMaxC?.toString() ?? null,
-        hazardous: p.hazardous,
-      })),
-      sites: orderedSites.map((s) => ({
-        id: s.id,
-        code: s.code,
-        maxVehicleClass: s.maxVehicleClass,
-      })),
-      job,
-    });
-
-    const warnings = raw.map((w): CompatibilityWarningView => {
-      let label: string | undefined;
-      const source = { ...w.source };
-      if (w.source.kind === 'product' && w.source.id) {
-        const p = pById.get(w.source.id)!;
-        label = `${p.code} ${p.nameTh}`;
-        source.id = encodeId('product', p.id);
-      } else if (w.source.kind === 'site' && w.source.id) {
-        const s = sById.get(w.source.id)!;
-        label = `${s.code} ${s.name}`;
-        source.id = encodeId('site', s.id);
-      }
-      return { ...w, source, message: compatibilityMessageTh(w, label) };
+    const warnings = compatibilityViews({
+      vehicleType: vt,
+      products: orderedProducts,
+      sites: orderedSites,
+      requested: requested ?? null,
+      job: input.job ?? null,
     });
 
     return {
