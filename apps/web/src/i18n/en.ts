@@ -766,6 +766,7 @@ export const en: Partial<Record<MessageKey, string>> = {
   'plan.sum.free': 'Free vehicles today',
   'plan.sum.used': 'Active',
   'plan.sum.weight': 'Total weight',
+  'plan.why': 'View reason',
   'plan.pop.open': 'Open sales order',
   'plan.noVeh.add': 'Add vehicle',
 };

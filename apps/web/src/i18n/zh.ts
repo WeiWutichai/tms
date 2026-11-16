@@ -766,6 +766,7 @@ export const zh: Partial<Record<MessageKey, string>> = {
   'plan.sum.free': '今日空闲车辆',
   'plan.sum.used': '启用',
   'plan.sum.weight': '总重量',
+  'plan.why': '查看原因',
   'plan.pop.open': '打开运输单',
   'plan.noVeh.add': '新增车辆',
 };
