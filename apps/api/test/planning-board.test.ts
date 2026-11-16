@@ -174,7 +174,13 @@ describe('planning board (ST3-T12)', () => {
       from: string;
       to: string;
       today: string;
-      vehicles: { id: string; plate: string; capacityKg: string | null; driver: unknown }[];
+      vehicles: {
+        id: string;
+        plate: string;
+        plateProvince: string;
+        capacityKg: string | null;
+        driver: unknown;
+      }[];
       trips: BoardTrip[];
       pool: BoardPool[];
     };
@@ -205,7 +211,10 @@ describe('planning board (ST3-T12)', () => {
     });
     expect(card.customerName).toMatch(/^ลูกค้า /);
     expect(card.deliveryOrders.map((d) => d.id)).toEqual(o.doIds);
-    expect(before.vehicles.find((x) => x.id === v.id)).toMatchObject({ capacityKg: '6000' });
+    expect(before.vehicles.find((x) => x.id === v.id)).toMatchObject({
+      capacityKg: '6000',
+      plateProvince: 'TH-10',
+    });
 
     const r = await drop(o.doIds, v.id, '09:00', '12:00').expect(201);
     expect(r.body).toMatchObject({

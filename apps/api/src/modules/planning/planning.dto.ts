@@ -33,6 +33,8 @@ class BoardDriverDto {
 export class BoardVehicleDto {
   @ApiProperty({ example: 'veh_3f2a…' }) id!: string;
   @ApiProperty({ example: '70-1234' }) plate!: string;
+  @ApiProperty({ example: 'TH-10', description: 'จังหวัดของทะเบียน (ISO 3166-2:TH)' })
+  plateProvince!: string;
   @ApiProperty({ example: 'vty_3f2a…' }) vehicleTypeId!: string;
   @ApiProperty({ example: '6 ล้อ' }) vehicleTypeName!: string;
   @ApiProperty({

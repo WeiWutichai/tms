@@ -94,6 +94,7 @@ export class PlanningService {
         return {
           id: encodeId('vehicle', v.id),
           plate: v.plate,
+          plateProvince: v.plateProvince,
           vehicleTypeId: encodeId('vehicleType', v.vehicleTypeId),
           vehicleTypeName: v.vehicleType.nameTh,
           capacityKg: dec(v.capacityKg ?? v.vehicleType.capacityKg),

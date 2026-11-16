@@ -31341,6 +31341,11 @@
             "type": "string",
             "example": "70-1234"
           },
+          "plateProvince": {
+            "type": "string",
+            "example": "TH-10",
+            "description": "จังหวัดของทะเบียน (ISO 3166-2:TH)"
+          },
           "vehicleTypeId": {
             "type": "string",
             "example": "vty_3f2a…"
@@ -31390,6 +31395,7 @@
         "required": [
           "id",
           "plate",
+          "plateProvince",
           "vehicleTypeId",
           "vehicleTypeName",
           "capacityKg",

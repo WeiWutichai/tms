@@ -11,7 +11,6 @@ import {
   planStops,
   vehicleOverlaps,
   type OverlapTrip,
-  type TripStatus,
   type TripDoInput,
   type TripEvent,
   type TripStatus,
