@@ -1,6 +1,25 @@
-import { Button, EmptyState, Icon, ReasonDialog, StatusTabs, SummaryStrip, Toast } from '@tms/ui';
+import {
+  Button,
+  EmptyState,
+  Icon,
+  ReasonDialog,
+  StatusTabs,
+  SummaryStrip,
+  Toast,
+  tone as TONE,
+  type Tone,
+} from '@tms/ui';
 import { useQueryClient } from '@tanstack/react-query';
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type DragEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
+} from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, ApiError, unwrap } from '../../api';
 import { formatDayHead, useI18n, type T } from '../../i18n';
@@ -8,7 +27,7 @@ import type { MessageKey } from '../../i18n/th';
 import { can } from '../../nav';
 import { PageHeader } from '../../shell/Header';
 import { useMe } from '../../shell/AppShell';
-import { problemText } from '../master/problems';
+import { fieldErrors, problemText } from '../master/problems';
 import { useSessionState } from '../master/useCursorList';
 import { HoldBadge, holdLabel } from '../orders/HoldPage';
 import { OrderDrawer } from '../orders/OrderDrawer';
@@ -76,14 +95,24 @@ import {
   type EligLevel,
   dayComplete,
   unsentOn,
+  cellState,
+  driverLeaveOn,
+  notesOn,
+  tripLeaveNames,
+  type ScheduleEntry,
 } from './board';
+import { ScheduleDialog } from './ScheduleDialog';
 import { BoardViewMenu } from './BoardViewMenu';
 import { BulkFailDialog } from './BulkFailDialog';
 import { SendAllDialog } from './SendAllDialog';
 import { BlockedDialog, ruleTagKey, type BlockedReason } from './RuleDialogs';
 import {
+  useAddScheduleEntry,
   useBoard,
   useBoardPrefs,
+  useCancelScheduleEntry,
+  searchLeaveDrivers,
+  useDriverLeaves,
   useConfirmRules,
   useDropOrder,
   useEligibility,
@@ -127,6 +156,25 @@ const SELECT: CSSProperties = {
   minWidth: 0,
 };
 const ELL: CSSProperties = { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' };
+
+/** ป้ายสถานะช่องตารางรถ (ST3-T19) — สี/ขนาดเดียวกับ Badge ของต้นแบบ (24px, 12/600, radius เต็ม) แต่ตัดข้อความยาวด้วย … ในช่องแคบ */
+function CellBadge({ label, tone, icon }: { label: string; tone: Tone; icon: string }) {
+  return (
+    <span
+      className="tms-badge"
+      style={{
+        background: TONE[tone].bg,
+        color: TONE[tone].c,
+        maxWidth: '100%',
+        minWidth: 0,
+        flexShrink: 1,
+      }}
+    >
+      <Icon n={icon} s={12} style={{ flexShrink: 0 }} />
+      <span style={ELL}>{label}</span>
+    </span>
+  );
+}
 const HATCH = 'repeating-linear-gradient(135deg,rgba(179,50,42,.18) 0 2px,transparent 2px 5px)';
 /** แถวรถติดกฎห้ามจ่ายงาน (ต้นแบบ vPlan HATCH) */
 const HATCH_ROW = 'repeating-linear-gradient(135deg,rgba(179,50,42,.07) 0 2px,transparent 2px 9px)';
@@ -265,6 +313,40 @@ export function PlanningPage() {
   const sendAll = useSendAll();
   const sendKey = useRef('');
   const sendingRef = useRef(false);
+  /** ST3-T19 ตารางรถ/คนขับรายวัน: เมนูคลิกขวาของช่อง (รถ × วัน) → ใส่วันลา/โน้ต · ยกเลิกวันลา/ลบโน้ต */
+  const [ctx, setCtx] = useState<{ v: BoardVehicle; d: string; x: number; y: number } | null>(null);
+  const [sch, setSch] = useState<{ kind: 'LEAVE' | 'NOTE'; v: BoardVehicle; d: string } | null>(
+    null,
+  );
+  const [schErr, setSchErr] = useState<unknown>(null);
+  const [unsch, setUnsch] = useState<ScheduleEntry | null>(null);
+  const [unschErr, setUnschErr] = useState<string | null>(null);
+  const addSch = useAddScheduleEntry();
+  /** วันลาของคนขับที่เลือกใน dialog (ตั้งแต่วันนี้ตาม server) */
+  const useLeavesOf = (id: string | null) => useDriverLeaves(id, day0);
+  const cancelSch = useCancelScheduleEntry();
+  useEffect(() => {
+    if (!ctx) return;
+    const close = () => setCtx(null);
+    const esc = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      close();
+      ctxOpener.current?.focus();
+    };
+    // เปิดแล้วโฟกัสรายการแรก (QA L3)
+    ctxRef.current?.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
+    // ปิดเมื่อคลิกที่อื่น / Esc / หมุนล้อเลื่อน / ย่อขยายจอ (ไม่ผูก scroll — การเลื่อนช่องเข้าจอก่อนคลิกขวาจะปิดเมนูทันที)
+    window.addEventListener('click', close);
+    window.addEventListener('wheel', close, { capture: true, passive: true });
+    window.addEventListener('keydown', esc);
+    window.addEventListener('resize', close);
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('wheel', close, { capture: true });
+      window.removeEventListener('keydown', esc);
+      window.removeEventListener('resize', close);
+    };
+  }, [ctx]);
   /** ตรวจล่วงหน้าใน dialog (dryRun — QA L2) */
   const useSendDialogCheck = (day: string, xs: BoardTrip[]) => useSendCheck(day, xs, sendOpen);
 
@@ -706,8 +788,127 @@ export function PlanningPage() {
     const k = `provAbbr.${v.plateProvince}` as MessageKey;
     return t(k) === k ? v.plate : `${v.plate} ${t(k)}`;
   };
+  // ---------------------------------------------------------------- ตารางรถ/คนขับรายวัน (ST3-T19)
+  /** คลิกขวาช่อง (รถ × วัน) → เมนูใส่วันลา/โน้ต (เฉพาะผู้จัดรถ `trips:assign`; คนอื่น = เมนูปกติของเบราว์เซอร์) */
+  const openCtx = (v: BoardVehicle, d: string) => (e: ReactMouseEvent) => {
+    if (!canPlan || !b) return;
+    e.preventDefault();
+    e.stopPropagation();
+    ctxOpener.current = e.currentTarget as HTMLElement;
+    setPop(null);
+    setCtx({ v, d, x: e.clientX, y: e.clientY });
+  };
+  /** คีย์บอร์ด (QA L3): ปุ่ม ContextMenu หรือ Shift+F10 บนช่องที่โฟกัส = เปิดเมนูที่มุมช่อง */
+  const ctxKey = (v: BoardVehicle, d: string) => (e: ReactKeyboardEvent<HTMLElement>) => {
+    if (!canPlan || !b) return;
+    if (e.key !== 'ContextMenu' && !(e.shiftKey && e.key === 'F10')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const r = e.currentTarget.getBoundingClientRect();
+    ctxOpener.current = e.currentTarget;
+    setPop(null);
+    setCtx({ v, d, x: r.left + 8, y: r.top + 8 });
+  };
+  /** โฟกัสเดิมก่อนเปิดเมนู — คืนโฟกัสเมื่อกด Esc */
+  const ctxOpener = useRef<HTMLElement | null>(null);
+  const ctxRef = useRef<HTMLDivElement | null>(null);
+  const ctxTip = canPlan ? t('plan.cell.ctxTip') : undefined;
+  const dayRange = (e: ScheduleEntry) =>
+    e.startsOn === e.endsOn
+      ? dateText(e.startsOn)
+      : `${dateText(e.startsOn)} – ${dateText(e.endsOn)}`;
+  /** ป้ายลาของคนขับประจำในวันนั้น (ไม่มี = null) */
+  const leaveBadge = (v: BoardVehicle, d: string) => {
+    if (!b || !v.driver) return null;
+    const l = driverLeaveOn(b, v, d);
+    if (!l) return null;
+    return (
+      <span
+        data-testid={`plan-leave-${v.plate}-${d}`}
+        title={
+          l === 'STATUS'
+            ? undefined
+            : t('plan.cell.leaveTip', { n: v.driver.name, d: dayRange(l), r: l.note })
+        }
+        style={{ display: 'inline-flex', minWidth: 0, maxWidth: '100%' }}
+      >
+        <CellBadge
+          label={t(l === 'STATUS' ? 'plan.cell.leaveStatus' : 'plan.cell.leave', {
+            n: v.driver.name,
+          })}
+          tone="off"
+          icon="coffee"
+        />
+      </span>
+    );
+  };
+  /** สถานะช่อง: ว่าง / ซ่อม / จอด / ลา · มีเที่ยว (BUSY) = การ์ดเที่ยวคือภาระงาน — แสดงเฉพาะป้ายลาถ้าคนขับลา */
+  const cellStatus = (v: BoardVehicle, d: string) => {
+    if (!b) return null;
+    const st = cellState(b, v, d);
+    const badge =
+      st === 'FREE' ? (
+        <CellBadge label={t('plan.cell.free')} tone="ok" icon="circle-check" />
+      ) : st === 'REPAIR' ? (
+        <CellBadge label={t('plan.cell.repair')} tone="warn" icon="wrench" />
+      ) : st === 'PARKED' ? (
+        <CellBadge label={t('plan.cell.parked')} tone="off" icon="circle-pause" />
+      ) : (
+        leaveBadge(v, d)
+      );
+    if (!badge) return null;
+    return (
+      <div
+        data-testid={`plan-cellstate-${v.plate}-${d}`}
+        data-state={st}
+        style={{ display: 'flex', flexWrap: 'wrap', gap: 4, minWidth: 0 }}
+      >
+        {badge}
+      </div>
+    );
+  };
+  /** ป้าย "คนขับลา" บนการ์ดเที่ยว — คนขับจริงของเที่ยว (หลัก/สำรอง) ไม่ใช่คนขับประจำรถ (QA M1) */
+  const tripLeave = (x: BoardTrip, d: string) => {
+    const ns = b ? tripLeaveNames(b, x, d) : [];
+    return ns.length ? (
+      <span
+        data-testid={`plan-trip-leave-${x.tripNo}`}
+        style={{ fontSize: 12, fontWeight: 600, color: '#8F5500', lineHeight: 1.45, ...ELL }}
+      >
+        {t('plan.card.leave', { n: ns.join(', ') })}
+      </span>
+    ) : null;
+  };
+  /** โน้ตรายวันของรถ/คนขับประจำ */
+  const cellNotes = (v: BoardVehicle, d: string) =>
+    b
+      ? notesOn(b, v, d).map((n) => (
+          <div
+            key={n.id}
+            data-testid={`plan-note-${v.plate}-${d}`}
+            title={`${n.note}\n${dayRange(n)}`}
+            style={{
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: 4,
+              fontSize: 12.5,
+              color: '#3B424C',
+              lineHeight: 1.45,
+              minWidth: 0,
+              overflowWrap: 'anywhere',
+            }}
+          >
+            <Icon n="sticky-note" s={12} style={{ flexShrink: 0, marginTop: 3 }} />
+            <span style={{ minWidth: 0 }}>
+              {n.driver && !n.vehicle ? `${n.driver.name}: ` : ''}
+              {n.note}
+            </span>
+          </div>
+        ))
+      : [];
+
   type Issue = BoardVehicle['blocks'][number]['issues'][number];
-  const vehicleCell = (v: BoardVehicle, load: number, blk: Issue[]) => {
+  const vehicleCell = (v: BoardVehicle, load: number, blk: Issue[], ctxDay?: string) => {
     const cap = kg(v.capacityKg);
     const overCap = cap > 0 && load > cap;
     const picked = selOn?.kind === 'vehicle' && selOn.id === v.id;
@@ -720,11 +921,12 @@ export function PlanningPage() {
         title={t('plan.elig.pickVehicle')}
         aria-label={t('plan.elig.pickVehicleAria', { plate: v.plate })}
         onClick={() => pickVehicle(v)}
+        onContextMenu={openCtx(v, ctxDay ?? days[0]!)}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
             pickVehicle(v);
-          }
+          } else ctxKey(v, ctxDay ?? days[0]!)(e);
         }}
         style={{
           position: 'relative',
@@ -1199,10 +1401,16 @@ export function PlanningPage() {
           opacity: lv && lv !== 'OK' ? DIM : 1,
         }}
       >
-        {vehicleCell(v, rowLoad(ts), blkOn(v, dsel))}
+        {vehicleCell(v, rowLoad(ts), blkOn(v, dsel), dsel)}
         <div
           data-track
           data-testid={`plan-track-${v.plate}`}
+          onContextMenu={openCtx(v, dsel)}
+          tabIndex={canPlan ? 0 : undefined}
+          aria-label={
+            canPlan ? t('plan.ctx.aria', { p: plateText(v), d: dateText(dsel) }) : undefined
+          }
+          onKeyDown={ctxKey(v, dsel)}
           onDragOver={dragOver(v.id, dsel)}
           onDragLeave={leave}
           onDrop={(e) => {
@@ -1210,7 +1418,9 @@ export function PlanningPage() {
             const rc = e.currentTarget.getBoundingClientRect();
             onDropAt(v, dsel, hourAt((e.clientX - rc.left) / rc.width));
           }}
-          title={over?.v === v.id ? bad : (vehTip(v.id, dsel) ?? blkOn(v, dsel)[0]?.message)}
+          title={
+            over?.v === v.id ? bad : (vehTip(v.id, dsel) ?? blkOn(v, dsel)[0]?.message ?? ctxTip)
+          }
           style={{
             position: 'relative',
             minHeight: ln.count * LANE_H + 16,
@@ -1218,6 +1428,29 @@ export function PlanningPage() {
             boxShadow: ringOf(v.id, dsel),
           }}
         >
+          {/* ตารางรถ/คนขับรายวัน (ST3-T19): ว่าง/ซ่อม/จอด/ลา + โน้ต — มีเที่ยว = ป้ายลาอย่างเดียว */}
+          {(() => {
+            const status = cellStatus(v, dsel);
+            const notes = cellNotes(v, dsel);
+            if (!status && !notes.length) return null;
+            return (
+              <div
+                style={{
+                  position: 'absolute',
+                  zIndex: 1,
+                  pointerEvents: 'none',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 4,
+                  maxWidth: 360,
+                  ...(items.length ? { right: 8, bottom: 6 } : { left: 8, top: 8 }),
+                }}
+              >
+                {status}
+                {!items.length && notes}
+              </div>
+            );
+          })()}
           {showNow && (
             <span
               style={{
@@ -1308,6 +1541,7 @@ export function PlanningPage() {
                     </div>
                   )}
                   {x.overlapsWith.length > 0 && clashBadge}
+                  {tripLeave(x, dsel)}
                   {rulePill(x)}
                 </div>
                 {/* ขอบที่ล้นแกน 06:00–20:00 ไม่มีที่จับ (กันตัดเที่ยวนอกช่วง/ข้ามคืน — review ST3-T12) */}
@@ -1385,6 +1619,12 @@ export function PlanningPage() {
               key={d}
               data-testid={`plan-cell-${v.plate}-${d}`}
               data-elig={vehLevel(v.id, d) ?? undefined}
+              onContextMenu={openCtx(v, d)}
+              tabIndex={canPlan ? 0 : undefined}
+              aria-label={
+                canPlan ? t('plan.ctx.aria', { p: plateText(v), d: dateText(d) }) : undefined
+              }
+              onKeyDown={ctxKey(v, d)}
               onDragOver={dragOver(v.id, d)}
               onDragLeave={leave}
               onDrop={(e) => {
@@ -1394,7 +1634,7 @@ export function PlanningPage() {
               title={
                 over?.v === v.id && over.d === d
                   ? bad
-                  : (vehTip(v.id, d) ?? blkOn(v, d)[0]?.message)
+                  : (vehTip(v.id, d) ?? blkOn(v, d)[0]?.message ?? ctxTip)
               }
               style={{
                 borderLeft: '1px solid #E4E6E0',
@@ -1408,6 +1648,7 @@ export function PlanningPage() {
                 minHeight: 96,
               }}
             >
+              {cellStatus(v, d)}
               {ts.map((x) => {
                 const wl = weightLine(x);
                 const canMove = canPlan && movable(x);
@@ -1444,11 +1685,13 @@ export function PlanningPage() {
                       {wf.includes('ORDER_NO') && (
                         <span
                           className="tms-num"
+                          title={soText(x)}
                           style={{
                             color: '#2257C4',
                             fontWeight: 500,
-                            whiteSpace: 'nowrap',
                             lineHeight: 1.45,
+                            // ไม่ล้นไปทับช่องวันถัดไป (QA L5 — การ์ดต้นแบบตัดด้วย …)
+                            ...ELL,
                           }}
                         >
                           {soText(x)}
@@ -1474,7 +1717,7 @@ export function PlanningPage() {
                             fontSize: 12.5,
                             color: wl.color,
                             lineHeight: 1.45,
-                            whiteSpace: 'nowrap',
+                            ...ELL,
                           }}
                         >
                           {wl.short}
@@ -1492,6 +1735,7 @@ export function PlanningPage() {
                           {t('plan.clash')}
                         </span>
                       )}
+                      {tripLeave(x, d)}
                       {rulePill(x)}
                     </div>
                     {pop === key && (
@@ -1565,6 +1809,7 @@ export function PlanningPage() {
                   </div>
                 );
               })}
+              {cellNotes(v, d)}
             </div>
           );
         })}
@@ -2395,6 +2640,215 @@ export function PlanningPage() {
           setLastReason((m) => ({ ...m, [v.id]: reason }));
           setBp(null);
           setToast(t('plan.bp.done', { plate: plateText(v) }));
+        }}
+      />
+      {ctx && b && (
+        <div
+          className="tms-menu"
+          role="menu"
+          aria-label={t('plan.ctx.aria', { p: plateText(ctx.v), d: dateText(ctx.d) })}
+          data-testid="plan-ctx"
+          ref={ctxRef}
+          onKeyDown={(e) => {
+            const items = [
+              ...e.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'),
+            ];
+            const i = items.indexOf(document.activeElement as HTMLButtonElement);
+            const go =
+              e.key === 'ArrowDown'
+                ? (i + 1) % items.length
+                : e.key === 'ArrowUp'
+                  ? (i - 1 + items.length) % items.length
+                  : e.key === 'Home'
+                    ? 0
+                    : e.key === 'End'
+                      ? items.length - 1
+                      : e.key === 'Tab'
+                        ? -2
+                        : -1;
+            if (go === -2) setCtx(null);
+            if (go < 0) return;
+            e.preventDefault();
+            items[go]?.focus();
+          }}
+          onClick={(e) => e.stopPropagation()}
+          onContextMenu={(e) => e.preventDefault()}
+          style={{
+            position: 'fixed',
+            zIndex: 60,
+            left: Math.min(ctx.x, window.innerWidth - 280),
+            top: Math.min(ctx.y, window.innerHeight - 220),
+            maxWidth: 320,
+          }}
+        >
+          {(() => {
+            const { v, d } = ctx;
+            const close = () => setCtx(null);
+            const l = driverLeaveOn(b, v, d);
+            return (
+              <>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    close();
+                    setSchErr(null);
+                    setSch({ kind: 'LEAVE', v, d });
+                  }}
+                >
+                  <Icon n="coffee" s={16} />
+                  {v.driver ? t('plan.ctx.leaveOf', { n: v.driver.name }) : t('plan.ctx.leave')}
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    close();
+                    setSchErr(null);
+                    setSch({ kind: 'NOTE', v, d });
+                  }}
+                >
+                  <Icon n="sticky-note" s={16} />
+                  {t('plan.ctx.note')}
+                </button>
+                {l && l !== 'STATUS' && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      close();
+                      setUnschErr(null);
+                      setUnsch(l);
+                    }}
+                  >
+                    <Icon n="calendar-x" s={16} />
+                    {t('plan.ctx.cancelLeave', { n: l.driver?.name ?? '' })}
+                  </button>
+                )}
+                {notesOn(b, v, d).map((n) => (
+                  <button
+                    key={n.id}
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      close();
+                      setUnschErr(null);
+                      setUnsch(n);
+                    }}
+                    style={{ minWidth: 0 }}
+                  >
+                    <Icon n="x" s={16} />
+                    <span style={ELL}>{t('plan.ctx.cancelNote', { n: n.note })}</span>
+                  </button>
+                ))}
+              </>
+            );
+          })()}
+        </div>
+      )}
+      {sch && (
+        <ScheduleDialog
+          key={`${sch.kind}:${sch.v.id}:${sch.d}`}
+          kind={sch.kind}
+          title={
+            sch.kind === 'LEAVE'
+              ? t('plan.sch.leaveTitle')
+              : t('plan.sch.noteTitle', { p: plateText(sch.v) })
+          }
+          description={sch.kind === 'LEAVE' ? t('plan.sch.leaveDesc') : t('plan.sch.noteDesc')}
+          initial={{
+            driverId: sch.kind === 'LEAVE' ? (sch.v.driver?.id ?? '') : '',
+            startsOn: sch.d,
+            endsOn: sch.d,
+            note: '',
+          }}
+          initialDriver={
+            sch.kind === 'LEAVE' && sch.v.driver
+              ? { id: sch.v.driver.id, label: sch.v.driver.name }
+              : null
+          }
+          searchDrivers={searchLeaveDrivers}
+          useLeaves={useLeavesOf}
+          dayRange={dayRange}
+          onCancelLeave={(e) => {
+            setUnschErr(null);
+            setUnsch(e);
+          }}
+          busy={addSch.isPending}
+          error={
+            schErr
+              ? schErr instanceof ApiError &&
+                schErr.problem.detail &&
+                /[\u0E00-\u0E7F]/.test(schErr.problem.detail)
+                ? schErr.problem.detail
+                : Object.keys(fieldErrors(schErr, t)).length
+                  ? null
+                  : problemText(schErr, t)
+              : null
+          }
+          // ช่องผิดเฉพาะ 422 — 409 วันลาทับ แสดงข้อความ server อย่างเดียว (QA L2)
+          fieldErrors={
+            schErr instanceof ApiError && schErr.problem.code === 'validation_failed'
+              ? fieldErrors(schErr, t)
+              : {}
+          }
+          onClose={() => setSch(null)}
+          onOk={(x) => {
+            const cur = sch;
+            setSchErr(null);
+            addSch.mutate(
+              {
+                kind: cur.kind,
+                ...(cur.kind === 'LEAVE' ? { driverId: x.driverId } : { vehicleId: cur.v.id }),
+                startsOn: x.startsOn,
+                endsOn: x.endsOn,
+                note: x.note,
+              },
+              {
+                onSuccess: (e) => {
+                  setSch(null);
+                  setToast(
+                    e.kind === 'LEAVE'
+                      ? t('plan.sch.savedLeave', { n: e.driver?.name ?? '' })
+                      : t('plan.sch.savedNote'),
+                  );
+                },
+                onError: setSchErr,
+              },
+            );
+          }}
+        />
+      )}
+      <ReasonDialog
+        open={unsch !== null}
+        title={
+          unsch?.kind === 'LEAVE'
+            ? t('plan.sch.cancelLeaveTitle', { n: unsch.driver?.name ?? '' })
+            : t('plan.sch.cancelNoteTitle')
+        }
+        description={unsch ? t('plan.sch.cancelDesc', { r: unsch.note, d: dayRange(unsch) }) : ''}
+        label={t('plan.sch.cancelReason')}
+        placeholder={t('plan.sch.cancelPh')}
+        okLabel={t('plan.sch.cancelOk')}
+        cancelLabel={t('plan.send.cancel')}
+        closeLabel={t('drawer.close')}
+        minLength={10}
+        hint={(n, ok) => (ok ? t('ord.dlg.hintOk') : t('ord.dlg.hintMin', { n }))}
+        busy={cancelSch.isPending}
+        error={unschErr}
+        onClose={() => setUnsch(null)}
+        onOk={(reason) => {
+          if (!unsch) return;
+          cancelSch.mutate(
+            { id: unsch.id, version: unsch.version, reason },
+            {
+              onSuccess: () => {
+                setUnsch(null);
+                setToast(t('plan.sch.cancelled'));
+              },
+              onError: (e) => setUnschErr(problemText(e, t)),
+            },
+          );
         }}
       />
       <Toast message={toast} onClose={() => setToast(null)} closeLabel={t('drawer.close')} />

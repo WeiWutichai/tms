@@ -1,6 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
-import { checkAssignability, checkLoad, TRIP_OPEN_STATUSES } from '@tms/domain';
+import {
+  checkAssignability,
+  checkLoad,
+  leaveDaysIn,
+  TRIP_OPEN_STATUSES,
+  type DaySpan,
+} from '@tms/domain';
 import { decodeIdOr404, encodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { DbService, type Tx } from '../../db/db.service';
@@ -84,7 +90,7 @@ const VEHICLE_INCLUDE = {
   // คนขับประจำ — `/assign` เลือกเองเมื่อมีคนขับประจำ ACTIVE คนเดียว (ชุดเดียวกับ `assignmentSnapshot`)
   defaultDrivers: {
     where: { deletedAt: null, status: { not: 'INACTIVE' as const } },
-    select: { name: true, status: true, licenceClass: true, licenceExpiresAt: true },
+    select: { id: true, name: true, status: true, licenceClass: true, licenceExpiresAt: true },
     orderBy: { code: 'asc' as const },
     take: 3,
   },
@@ -182,7 +188,7 @@ export class EligibilityService {
         to: bangkokToday(new Date(Math.max(...points.map((d) => d.getTime())))),
       };
       const overlaps = await this.overlaps(tx, trip, vehicles);
-      const ref = await this.refs(tx, job ? [job] : []);
+      const ref = await this.refs(tx, job ? [job] : [], window);
       const subject: Job = job ?? {
         orderId: null,
         tripId: null,
@@ -235,7 +241,7 @@ export class EligibilityService {
         groups: [],
       };
       job.orderId = encodeId('salesOrder', id);
-      const [vehicles, ref] = [await this.vehicles(tx), await this.refs(tx, [job])];
+      const [vehicles, ref] = [await this.vehicles(tx), await this.refs(tx, [job], { from, to })];
       return {
         from,
         to,
@@ -255,7 +261,7 @@ export class EligibilityService {
         })
       : [];
     const jobs = this.jobs(dos, (d) => d.salesOrderId);
-    const ref = await this.refs(tx, jobs);
+    const ref = await this.refs(tx, jobs, { from, to });
     return {
       from,
       to,
@@ -307,7 +313,7 @@ export class EligibilityService {
   }
 
   /** สินค้า/จุด/ประเภทรถที่ SO ขอ ของทุกงาน — อ่านครั้งเดียว */
-  private async refs(tx: Tx, jobs: Job[]) {
+  private async refs(tx: Tx, jobs: Job[], range: { from: string; to: string }) {
     const uniq = (xs: (string | null)[]) => [...new Set(xs.filter((x): x is string => !!x))];
     const productIds = uniq(jobs.flatMap((j) => j.groups.flatMap((g) => g.productIds)));
     const siteIds = uniq(jobs.flatMap((j) => j.groups.flatMap((g) => g.siteIds)));
@@ -338,7 +344,25 @@ export class EligibilityService {
           select: { id: true, vehicleClass: true, capabilityTags: true },
         })
       : [];
+    // วันลาคนขับในตารางรถ/คนขับรายวัน (ST3-T19) ที่ทับช่วง — ใช้กับคนขับประจำ (driverHints)
+    const leaveRows = await tx.scheduleEntry.findMany({
+      where: {
+        kind: 'LEAVE',
+        cancelledAt: null,
+        driverId: { not: null },
+        startsOn: { lte: new Date(`${range.to}T00:00:00Z`) },
+        endsOn: { gte: new Date(`${range.from}T00:00:00Z`) },
+      },
+      select: { driverId: true, startsOn: true, endsOn: true },
+    });
+    const leaves = new Map<string, DaySpan[]>();
+    for (const l of leaveRows)
+      leaves.set(l.driverId!, [
+        ...(leaves.get(l.driverId!) ?? []),
+        { startsOn: ymd(l.startsOn), endsOn: ymd(l.endsOn) },
+      ]);
     return {
+      leaves,
       products: new Map<string, CompatProductRow>(products.map((p) => [p.id, p])),
       sites: new Map<string, CompatSiteRow>(sites.map((s) => [s.id, s])),
       types: new Map(types.map((t) => [t.id, t])),
@@ -483,6 +507,26 @@ export class EligibilityService {
           message: assignabilityMessageTh(x.i),
           date: x.date,
         });
+    // วันลาของคนขับประจำ (ST3-T19): ลาทุกวันที่ประเมิน = date null · ลาบางวัน = รายวัน
+    if (d) {
+      const days = 'window' in when ? daysOf(when.window.from, when.window.to) : when.dates;
+      const off = leaveDaysIn(ref.leaves.get(d.id) ?? [], days);
+      if (off.length === days.length)
+        hints.push({
+          code: 'driver_on_leave',
+          severity: 'info',
+          message: driverOnLeaveMessageTh('driver', d.name, off),
+          date: null,
+        });
+      else
+        for (const date of off)
+          hints.push({
+            code: 'driver_on_leave',
+            severity: 'info',
+            message: driverOnLeaveMessageTh('driver', d.name, [date]),
+            date,
+          });
+    }
     const leave = v.defaultDrivers.find((x) => x.status === 'ON_LEAVE');
     if (!d && leave)
       hints.push({

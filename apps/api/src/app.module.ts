@@ -83,6 +83,8 @@ import { TripService } from './modules/trips/trip.service';
 import { TripsController } from './modules/trips/trips.controller';
 import { PlanningController } from './modules/planning/planning.controller';
 import { PlanningService } from './modules/planning/planning.service';
+import { ScheduleController } from './modules/schedule/schedule.controller';
+import { ScheduleService } from './modules/schedule/schedule.service';
 import { BoardPreferencesService } from './modules/planning/board-preferences.service';
 import { EligibilityService } from './modules/planning/eligibility.service';
 import { OrdersController } from './modules/orders/orders.controller';
@@ -162,6 +164,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     DeliveryOrdersController,
     TripsController,
     PlanningController,
+    ScheduleController,
     CarrierRecentPricesController,
     CarriersController,
     VehiclesController,
@@ -210,6 +213,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     OrderStateService,
     TripService,
     PlanningService,
+    ScheduleService,
     BoardPreferencesService,
     EligibilityService,
     OrdersService,

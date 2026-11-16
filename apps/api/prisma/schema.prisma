@@ -817,6 +817,7 @@ model Vehicle {
   docSubmissions     CarrierDocSubmission[]
   costs              VehicleCost[]
   defaultDrivers     Driver[]                 @relation("DriverDefaultVehicle")
+  scheduleEntries    ScheduleEntry[]
   trips              Trip[]                   @relation("TripVehicle")
   trailerTrips       Trip[]                   @relation("TripTrailer")
 
@@ -897,6 +898,7 @@ model Driver {
   docSubmissions    CarrierDocSubmission[]
   trips             Trip[]                 @relation("TripDriver")
   reliefTrips       Trip[]                 @relation("TripReliefDriver")
+  scheduleEntries   ScheduleEntry[]
 
   @@unique([tenantId, externalId])
   @@unique([tenantId, code])
@@ -905,6 +907,40 @@ model Driver {
   @@index([tenantId, defaultVehicleId])
   @@index([tenantId, licenceExpiresAt])
   @@map("driver")
+}
+
+/// ชนิดรายการในตารางรถ/คนขับรายวัน (ST3-T19): LEAVE = วันลาคนขับ · NOTE = โน้ตรายวันของรถหรือคนขับ
+enum ScheduleEntryKind {
+  LEAVE
+  NOTE
+
+  @@map("schedule_entry_kind")
+}
+
+/// ตารางรถ/คนขับรายวัน (ST3-T19; docs/04 D2 "คลิกขวาใส่วันลา/โน้ต", spec/06 FLT-302 "on_leave ตามช่วงวันที่")
+/// ช่วงวันที่ (วันไทย, รวมสองปลาย) ของคนขับ (LEAVE/NOTE) หรือรถ (NOTE) · ไม่ลบ — ยกเลิกพร้อมเหตุผล + audit
+model ScheduleEntry {
+  id            String            @id @default(uuid()) @db.Uuid
+  tenantId      String            @map("tenant_id") @db.Uuid
+  kind          ScheduleEntryKind
+  driverId      String?           @map("driver_id") @db.Uuid
+  driver        Driver?           @relation(fields: [driverId], references: [id], onDelete: Restrict)
+  vehicleId     String?           @map("vehicle_id") @db.Uuid
+  vehicle       Vehicle?          @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
+  startsOn      DateTime          @map("starts_on") @db.Date
+  endsOn        DateTime          @map("ends_on") @db.Date
+  /// เหตุผลการลา / ข้อความโน้ต
+  note          String
+  cancelledAt   DateTime?         @map("cancelled_at") @db.Timestamptz(6)
+  cancelReason  String?           @map("cancel_reason")
+  version       Int               @default(1)
+  createdAt     DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([tenantId, startsOn, endsOn])
+  @@index([tenantId, driverId])
+  @@index([tenantId, vehicleId])
+  @@map("schedule_entry")
 }
 
 /// docs/01 §3.8 (ST2-T17 เปลี่ยนชื่อจาก schema v0: ACT → COMPULSORY_ACT, OPERATING_LICENCE → TRANSPORT_LICENSE, GPS_DLT → GPS_DLT_CERT)

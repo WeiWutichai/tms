@@ -15,6 +15,7 @@ import { encodeId } from '../../common/ids';
 import { DbService, type Tx } from '../../db/db.service';
 import { NOT_READY_HOLDS, PLANNABLE_SO_STATUSES } from '../delivery-orders/delivery-order.service';
 import { addDays, bangkokToday } from '../vehicle-documents/expiry';
+import { ScheduleService } from '../schedule/schedule.service';
 import type {
   BoardPoolOrderDto,
   BoardTripDto,
@@ -49,7 +50,10 @@ const place = (s: { name: string; address: Prisma.JsonValue }) => ({
  */
 @Injectable()
 export class PlanningService {
-  constructor(private readonly db: DbService) {}
+  constructor(
+    private readonly db: DbService,
+    private readonly schedule: ScheduleService,
+  ) {}
 
   async board(q: { date?: string; days?: number }, tx: Tx = this.db.tx): Promise<PlanningBoardDto> {
     const today = bangkokToday();
@@ -60,6 +64,7 @@ export class PlanningService {
     const vehicles = await this.vehicles(tx, days);
     const trips = await this.trips(tx, from, to);
     const pool = await this.pool(tx);
+    const schedule = await this.schedule.range(tx, from, to);
     // รถที่มีเที่ยวในช่วงแต่ไม่อยู่ในรายการ (ปลดระวาง/ลบภายหลัง) — ยังแสดงแถวให้เห็นเที่ยว
     const known = new Set(vehicles.map((v) => v.id));
     const missing = [
@@ -80,6 +85,8 @@ export class PlanningService {
         date,
         ...daySendState(trips.filter((t) => t.tripDate === date).map((t) => t.status)),
       })),
+      // ตารางรถ/คนขับรายวัน (ST3-T19): วันลา/โน้ตที่ทับช่วง — หน้าเว็บคำนวณช่อง ภาระงาน/ว่าง/ซ่อม/ลา
+      schedule,
     };
   }
 
@@ -106,7 +113,7 @@ export class PlanningService {
         },
         defaultDrivers: {
           where: { deletedAt: null, status: { not: 'INACTIVE' } },
-          select: { id: true, name: true, licenceClass: true },
+          select: { id: true, name: true, licenceClass: true, status: true },
           orderBy: { code: 'asc' },
           take: 1,
         },
@@ -157,7 +164,12 @@ export class PlanningService {
           carrierName: v.carrier?.legalName ?? null,
           status: v.status,
           driver: d
-            ? { id: encodeId('driver', d.id), name: d.name, licenceClass: d.licenceClass }
+            ? {
+                id: encodeId('driver', d.id),
+                name: d.name,
+                licenceClass: d.licenceClass,
+                status: d.status === 'ON_LEAVE' ? ('ON_LEAVE' as const) : ('ACTIVE' as const),
+              }
             : null,
           blocks,
         };
@@ -228,6 +240,9 @@ export class PlanningService {
         plannedStartAt: t.plannedStartAt?.toISOString() ?? null,
         plannedEndAt: t.plannedEndAt?.toISOString() ?? null,
         driverName: t.driverNameSnapshot,
+        driverId: t.driverId ? encodeId('driver', t.driverId) : null,
+        reliefDriverId: t.reliefDriverId ? encodeId('driver', t.reliefDriverId) : null,
+        reliefDriverName: t.reliefDriverNameSnapshot,
         carrierName: t.carrierNameSnapshot,
         orders: [...orders.values()],
         origin: pick ? place(pick.site) : null,

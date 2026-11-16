@@ -4,6 +4,7 @@ export type Board = Schemas['PlanningBoardDto'];
 export type BoardTrip = Schemas['BoardTripDto'];
 export type BoardVehicle = Schemas['BoardVehicleDto'];
 export type PoolOrder = Schemas['BoardPoolOrderDto'];
+export type ScheduleEntry = Schemas['ScheduleEntryDto'];
 
 /**
  * แกนเวลามุมมองวันนี้ตามต้นแบบ (vPlan: 14 ช่อง 06:00–20:00) = ค่าเริ่มต้นของ spec/03 §5
@@ -297,19 +298,79 @@ export function poolOptions(pool: PoolOrder[]) {
   return { vt: sorted(vt), c: sorted(c) };
 }
 
-/** สรุปของกระดาน (ต้นแบบ vPlanStats + แถบล่าง): รถว่างวันนี้ / ใช้งาน / น้ำหนัก / ระยะทาง / ปัญหารอแก้ */
+/** รายการตาราง (วันลา/โน้ต) ครอบวันนั้น — วันไทยรวมสองปลาย */
+export const covers = (e: { startsOn: string; endsOn: string }, day: string) =>
+  e.startsOn <= day && day <= e.endsOn;
+
+/**
+ * วันลาของคนขับประจำของรถในวันนั้น (ST3-T19): สถานะ "ลาพัก" (ทุกวัน) หรือวันลาในตารางรถ/คนขับรายวัน
+ * คืนรายการลา (หรือ `'STATUS'` เมื่อเป็นสถานะลาพักที่ไม่มีวัน) · ไม่มีคนขับประจำ/ไม่ลา = null
+ */
+export function driverLeaveOn(
+  b: Pick<Board, 'schedule'>,
+  v: BoardVehicle,
+  day: string,
+): ScheduleEntry | 'STATUS' | null {
+  if (!v.driver) return null;
+  if (v.driver.status === 'ON_LEAVE') return 'STATUS';
+  return (
+    b.schedule.find((e) => e.kind === 'LEAVE' && e.driver?.id === v.driver!.id && covers(e, day)) ??
+    null
+  );
+}
+
+/**
+ * คนขับจริงของเที่ยว (หลัก/สำรอง) ที่มีวันลาในวันนั้น (QA M1 — คนขับที่ไม่ใช่คนขับประจำรถก็ต้องเห็น "ลา")
+ * สถานะ "ลาพัก" ของคนขับที่ไม่ใช่คนขับประจำไม่มีในกระดาน — ดูจากคำเตือนของเที่ยว (`pendingRules`)
+ */
+export function tripLeaveNames(b: Pick<Board, 'schedule'>, t: BoardTrip, day: string): string[] {
+  const out: string[] = [];
+  for (const [id, name] of [
+    [t.driverId, t.driverName],
+    [t.reliefDriverId, t.reliefDriverName],
+  ] as const)
+    if (id && b.schedule.some((e) => e.kind === 'LEAVE' && e.driver?.id === id && covers(e, day)))
+      out.push(name ?? '');
+  return out;
+}
+
+/** โน้ตรายวันของรถหรือคนขับประจำในวันนั้น */
+export const notesOn = (b: Pick<Board, 'schedule'>, v: BoardVehicle, day: string) =>
+  b.schedule.filter(
+    (e) =>
+      e.kind === 'NOTE' &&
+      covers(e, day) &&
+      (e.vehicle?.id === v.id || (!!v.driver && e.driver?.id === v.driver.id)),
+  );
+
+/**
+ * สถานะช่องตาราง (แถวรถ × วัน — ST3-T19; docs/04 D2 "ภาระงาน ว่าง ซ่อม ลา") — กฎเดียวกับ `dayCellState` ของ @tms/domain:
+ * มีเที่ยว = BUSY (ภาระงาน) · ไม่มีเที่ยว: รถซ่อม → REPAIR · จอด → PARKED · คนขับประจำลา → LEAVE · อื่น ๆ → FREE (ว่าง)
+ * สถานะรถเป็นสถานะปัจจุบัน (ไม่มีวัน) จึงมีผลทุกวันบนกระดาน
+ */
+export type CellState = 'BUSY' | 'REPAIR' | 'PARKED' | 'LEAVE' | 'FREE';
+export function cellState(b: Board, v: BoardVehicle, day: string): CellState {
+  if (b.trips.some((t) => t.vehicleId === v.id && onDay(t, day))) return 'BUSY';
+  if (v.status === 'MAINTENANCE') return 'REPAIR';
+  if (v.status === 'PARKED') return 'PARKED';
+  if (driverLeaveOn(b, v, day)) return 'LEAVE';
+  return 'FREE';
+}
+
+/**
+ * สรุปของกระดาน (ต้นแบบ vPlanStats + แถบล่าง): รถว่างวันนี้ / ใช้งาน / น้ำหนัก / ระยะทาง / ปัญหารอแก้
+ * "รถว่างวันนี้" = ช่องวันนี้เป็น "ว่าง" (ไม่มีเที่ยว, ไม่ซ่อม/จอด, คนขับประจำไม่ลา — ST3-T19) · "ใช้งาน" = มีเที่ยววันนี้
+ */
 export function boardStats(b: Board, days: string[]) {
   const vis = b.trips.filter((t) => t.vehicleId && days.some((d) => onDay(t, d)));
-  const used = new Set(
-    b.trips.filter((t) => t.vehicleId && onDay(t, b.today)).map((t) => t.vehicleId),
-  );
   const total = b.vehicles.length;
-  const free = b.vehicles.filter((v) => !used.has(v.id)).length;
+  const states = b.vehicles.map((v) => cellState(b, v, b.today));
+  const free = states.filter((s) => s === 'FREE').length;
   return {
     pend: b.pool.length,
     total,
     free,
-    used: total - free,
+    used: states.filter((s) => s === 'BUSY').length,
     w: vis.reduce((a, t) => a + kg(t.weightKg), 0),
     km: vis.reduce((a, t) => a + kg(t.plannedDistanceKm), 0),
     /** มีเที่ยวที่ไม่ทราบระยะบางช่วง (ST3-T16) → ระยะรวมเป็นค่าต่ำสุด แสดง "≥" */

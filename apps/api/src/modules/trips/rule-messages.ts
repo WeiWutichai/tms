@@ -16,9 +16,36 @@ export const loadMessageTh = (i: LoadIssue): string =>
 export const vehicleNotReadyMessageTh = (plate: string | null, status: string): string =>
   `รถ ${plate ?? ''} อยู่ในสถานะ${status === 'MAINTENANCE' ? 'ซ่อม' : 'จอด'}`;
 
-/** คนขับ/คนขับสำรองลา */
-export const driverOnLeaveMessageTh = (role: 'driver' | 'relief', name: string | null): string =>
-  `${role === 'driver' ? 'คนขับ' : 'คนขับสำรอง'} ${name ?? ''} ลาอยู่`;
+const TH_MONTHS_SHORT = [
+  'ม.ค.',
+  'ก.พ.',
+  'มี.ค.',
+  'เม.ย.',
+  'พ.ค.',
+  'มิ.ย.',
+  'ก.ค.',
+  'ส.ค.',
+  'ก.ย.',
+  'ต.ค.',
+  'พ.ย.',
+  'ธ.ค.',
+];
+/** "2026-11-18" → "18 พ.ย. 2569" */
+export const thaiShortDate = (ymd: string): string => {
+  const [y, m, d] = ymd.split('-').map(Number);
+  return `${d} ${TH_MONTHS_SHORT[m! - 1]} ${y! + 543}`;
+};
+
+/**
+ * คนขับ/คนขับสำรองลา — สถานะ "ลาพัก" (ไม่มีวัน) หรือวันลาในตารางรถ/คนขับรายวัน (ST3-T19 — ระบุวัน)
+ */
+export const driverOnLeaveMessageTh = (
+  role: 'driver' | 'relief',
+  name: string | null,
+  dates: readonly string[] = [],
+): string =>
+  `${role === 'driver' ? 'คนขับ' : 'คนขับสำรอง'} ${name ?? ''} ` +
+  (dates.length ? `ลาวันที่ ${dates.map(thaiShortDate).join(', ')}` : 'ลาอยู่');
 
 /** รถมีเที่ยวอื่นในช่วงเวลาเดียวกัน */
 export const vehicleOverlapMessageTh = (plate: string | null, tripNos: string[]): string =>

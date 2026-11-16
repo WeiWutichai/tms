@@ -325,6 +325,30 @@ const FIXTURES: Record<string, (db: PrismaClient, tenantId: string, n: number) =
       });
       return encodeId('vehicleDocument', d.id);
     },
+    // ST3-T19 ตารางรถ/คนขับรายวัน (วันลาคนขับ)
+    scheduleEntry: async (db, tenantId, n) => {
+      const d = await db.driver.create({
+        data: {
+          tenantId,
+          code: `DRV-S${n}`,
+          name: `Driver s${n}`,
+          phone: `08${String(20_000_000 + n).padStart(8, '0')}`,
+          phoneNorm: `08${String(20_000_000 + n).padStart(8, '0')}`,
+          employmentType: 'EMPLOYEE_SALARIED',
+        },
+      });
+      const e = await db.scheduleEntry.create({
+        data: {
+          tenantId,
+          kind: 'LEAVE',
+          driverId: d.id,
+          startsOn: new Date('2026-12-01'),
+          endsOn: new Date('2026-12-02'),
+          note: 'ลา',
+        },
+      });
+      return encodeId('scheduleEntry', e.id);
+    },
     // ST2-T21 ลิงก์อัปโหลดเอกสารของรถร่วม (magic_link purpose carrier_docs)
     magicLink: async (db, tenantId, n) => {
       const c = await db.carrier.create({
