@@ -3,6 +3,7 @@ import {
   axisBox,
   blocksOn,
   boardStats,
+  cardLine,
   custShort,
   dropWindow,
   hhmm,
@@ -12,6 +13,7 @@ import {
   movable,
   movedWindow,
   onDay,
+  orderVehicles,
   poolView,
   resizedWindow,
   rowLoad,
@@ -19,9 +21,11 @@ import {
   span,
   tripColor,
   tripMoveBlock,
+  weekFields,
   weekDropWindow,
   type Board,
   type BoardTrip,
+  type BoardVehicle,
   type PoolOrder,
 } from './board';
 
@@ -206,5 +210,103 @@ describe('SO รอจัด + สรุป', () => {
   it('ชื่อลูกค้าสั้น ตัดคำนำหน้า', () => {
     expect(custShort('บจก. สยามพลาสติก', 'บจก.|บมจ.')).toBe('สยามพลาสติก');
     expect(custShort('ร้านทดสอบ', 'บจก.')).toBe('ร้านทดสอบ');
+  });
+});
+
+describe('มุมมองกระดาน (ST3-T13)', () => {
+  const veh = (plate: string, o: Partial<BoardVehicle> = {}): BoardVehicle => ({
+    id: `veh_${plate}`,
+    plate,
+    plateProvince: 'TH-10',
+    vehicleTypeId: 'vty_6',
+    vehicleTypeName: '6 ล้อ',
+    capacityKg: '6000',
+    ownership: 'OWN',
+    carrierName: null,
+    status: 'READY',
+    driver: null,
+    blocks: [],
+    ...o,
+  });
+  const sub = (plate: string, carrierName: string) =>
+    veh(plate, { ownership: 'SUBCONTRACT', carrierName });
+  const drv = (name: string) => ({ id: `drv_${name}`, name, licenceClass: 'T2' });
+  // ลำดับจาก server = "รถบริษัท + รถร่วม" (PLN-049)
+  const rows = [
+    veh('70-2222', { driver: drv('สมศักดิ์') }),
+    veh('70-1111'),
+    sub('10-9999', 'หจก. ข'),
+    sub('10-5555', 'หจก. ก'),
+    veh('70-3333', { driver: drv('กมล') }),
+  ];
+  const plates = (v: BoardVehicle[]) => v.map((x) => x.plate);
+
+  it('FLEET (ค่าเริ่มต้น) = ลำดับ server ไม่เปลี่ยน', () => {
+    expect(orderVehicles(rows, 'FLEET')).toBe(rows);
+  });
+  it('ตามรถ = เรียงทะเบียน', () => {
+    expect(plates(orderVehicles(rows, 'VEHICLE'))).toEqual([
+      '10-5555',
+      '10-9999',
+      '70-1111',
+      '70-2222',
+      '70-3333',
+    ]);
+  });
+  it('ตามคนขับ = ชื่อคนขับประจำ ยังไม่กำหนดไว้ท้าย (ตามทะเบียน)', () => {
+    expect(plates(orderVehicles(rows, 'DRIVER'))).toEqual([
+      '70-3333',
+      '70-2222',
+      '10-5555',
+      '10-9999',
+      '70-1111',
+    ]);
+  });
+  it('ตาม carrier = รถบริษัทก่อน แล้วตามชื่อรถร่วม', () => {
+    expect(plates(orderVehicles(rows, 'CARRIER'))).toEqual([
+      '70-1111',
+      '70-2222',
+      '70-3333',
+      '10-5555',
+      '10-9999',
+    ]);
+  });
+  it('ตาม carrier ตัดสินด้วย ownership: รถร่วมไม่มีชื่อ = ท้ายกลุ่มรถร่วม · รถบริษัทที่มี carrierName ยังเป็นรถบริษัท', () => {
+    const v = [
+      sub('10-1111', 'หจก. ข'),
+      veh('10-0000', { ownership: 'SUBCONTRACT', carrierName: null }),
+      veh('70-9999', { carrierName: 'ข้อมูลเก่า' }),
+      veh('70-0001'),
+    ];
+    expect(plates(orderVehicles(v, 'CARRIER'))).toEqual([
+      '70-0001',
+      '70-9999',
+      '10-1111',
+      '10-0000',
+    ]);
+  });
+  it('การ์ด 7 วัน: เฉพาะ field ที่แสดงได้ · เลือกแค่ช่วงเวลา/เส้นทาง → เลข SO', () => {
+    expect(weekFields(['ORDER_NO', 'CUSTOMER', 'TIME', 'ROUTE', 'WEIGHT'])).toEqual([
+      'ORDER_NO',
+      'CUSTOMER',
+      'WEIGHT',
+    ]);
+    expect(weekFields(['TIME', 'WEIGHT'])).toEqual(['WEIGHT']);
+    expect(weekFields(['TIME', 'ROUTE'])).toEqual(['ORDER_NO']);
+  });
+  it('สลับมุมมอง = ข้อมูลชุดเดียวกัน (ไม่เพิ่ม/ไม่ตัดแถว) และไม่แก้ array เดิม', () => {
+    const before = plates(rows);
+    for (const v of ['FLEET', 'VEHICLE', 'DRIVER', 'CARRIER'] as const)
+      expect(plates(orderVehicles(rows, v)).sort()).toEqual([...before].sort());
+    expect(plates(rows)).toEqual(before);
+  });
+  it('ข้อความการ์ดตาม field ที่เลือก', () => {
+    const parts: Parameters<typeof cardLine>[1] = [
+      ['TIME', '09:00–12:00'],
+      ['ROUTE', 'บางนา → ชลบุรี'],
+    ];
+    expect(cardLine(['TIME', 'ROUTE'], parts)).toBe('09:00–12:00 · บางนา → ชลบุรี');
+    expect(cardLine(['ROUTE'], parts)).toBe('บางนา → ชลบุรี');
+    expect(cardLine(['ORDER_NO'], parts)).toBe('');
   });
 });
