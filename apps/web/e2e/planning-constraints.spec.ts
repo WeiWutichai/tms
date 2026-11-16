@@ -167,6 +167,8 @@ test.describe.serial('กฎตอนจัดรถ (ST3-T14)', () => {
       const t = (await tripOf(page, so[0]!.soNo))!;
       expect(t.pendingRules.map((r) => r.code)).toEqual(['OVERWEIGHT']);
       const card = page.getByTestId(`plan-trip-${t.tripNo}`).locator('.tms-plan-card');
+      // เมาส์ค้างบนการ์ดหลังลาก = :hover ทาขอบทุกด้าน #9DB6E3 (ต้นแบบ style-hover) — ย้ายเมาส์ออกก่อนตรวจสีขอบซ้าย
+      await page.mouse.move(0, 0);
       await expect(card).toHaveCSS('border-left-color', 'rgb(143, 85, 0)');
       await page.getByTestId(`plan-ask-${t.tripNo}`).click();
       const dlg = page.getByRole('dialog');
@@ -181,6 +183,7 @@ test.describe.serial('กฎตอนจัดรถ (ST3-T14)', () => {
         `อนุมัติยกเว้น ${so[0]!.soNo} แล้ว · บันทึก log แล้ว`,
       );
       await expect(page.getByTestId(`plan-overridden-${t.tripNo}`)).toHaveText('อนุมัติยกเว้นแล้ว');
+      await page.mouse.move(0, 0);
       await expect(card).toHaveCSS('border-left-color', 'rgb(89, 96, 107)');
       expect(await ruleOverrides(page, t.id)).toEqual([
         expect.objectContaining({ code: 'OVERWEIGHT', kind: 'ACKNOWLEDGE', reason: REASON }),

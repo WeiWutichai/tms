@@ -6,7 +6,11 @@ import {
   TRIP_STATUS_LABEL_TH,
   TRIP_TRANSITIONS,
   backwardStops,
+  estimateLeg,
   intersectWindows,
+  routeTotals,
+  stopOrderViolations,
+  TRIP_AVG_SPEED_KMH,
   isTripEditable,
   planStops,
   vehicleOverlaps,
@@ -213,5 +217,102 @@ describe('vehicleOverlaps (ST3-T12)', () => {
     ]);
     expect(m.get('a')).toEqual(['b']);
     expect(m.has('c')).toBe(false);
+  });
+});
+
+describe('stopOrderViolations (ST3-T16)', () => {
+  const dos = [
+    { id: 'd1', pickupStopId: 'p1', dropStopId: 'q1' },
+    { id: 'd2', pickupStopId: 'p1', dropStopId: 'q2' },
+  ];
+  it('ลำดับถูก (รับก่อนส่ง) → ไม่มีข้อผิด', () => {
+    expect(stopOrderViolations(['p1', 'q2', 'q1'], dos)).toEqual([]);
+  });
+  it('ย้ายจุดส่งไปก่อนจุดรับของ DO เดียวกัน → ชี้ DO นั้นพร้อมลำดับใหม่', () => {
+    expect(stopOrderViolations(['q1', 'p1', 'q2'], dos)).toEqual([
+      {
+        deliveryOrderId: 'd1',
+        pickupStopId: 'p1',
+        dropStopId: 'q1',
+        pickupSequence: 2,
+        dropSequence: 1,
+      },
+    ]);
+  });
+  it('ย้ายจุดรับไปท้ายสุด → ทุก DO ที่รับที่นั่นผิด', () => {
+    expect(stopOrderViolations(['q1', 'q2', 'p1'], dos).map((v) => v.deliveryOrderId)).toEqual([
+      'd1',
+      'd2',
+    ]);
+  });
+  it('DO ที่ไม่มีจุด/จุดไม่อยู่ในลำดับ → ข้าม', () => {
+    expect(
+      stopOrderViolations(['q1'], [{ id: 'd3', pickupStopId: null, dropStopId: 'q1' }, ...dos]),
+    ).toEqual([]);
+  });
+});
+
+describe('estimateLeg / routeTotals (ST3-T16)', () => {
+  const bkk = { lat: 13.7563, lng: 100.5018 };
+  const cbi = { lat: 13.3611, lng: 100.9847 };
+  it('จุดเดียวกัน = 0', () => {
+    expect(
+      estimateLeg({ fromSiteId: 'a', toSiteId: 'a', route: null, from: null, to: null }),
+    ).toEqual({ km: 0, minutes: 0, source: 'SAME_SITE' });
+  });
+  it('route master มาก่อนค่าประมาณ · เวลามาตรฐานว่าง → ระยะ ÷ ความเร็วเฉลี่ย', () => {
+    expect(
+      estimateLeg({
+        fromSiteId: 'a',
+        toSiteId: 'b',
+        route: { distanceKm: 82.4, standardMinutes: 95 },
+        from: bkk,
+        to: cbi,
+      }),
+    ).toEqual({ km: 82.4, minutes: 95, source: 'ROUTE' });
+    expect(
+      estimateLeg({
+        fromSiteId: 'a',
+        toSiteId: 'b',
+        route: { distanceKm: 100, standardMinutes: null },
+        from: null,
+        to: null,
+      }),
+    ).toEqual({ km: 100, minutes: Math.round((100 / TRIP_AVG_SPEED_KMH) * 60), source: 'ROUTE' });
+  });
+  it('ไม่มีเส้นทาง แต่มีพิกัด → ค่าประมาณ (เส้นตรง × 1.3)', () => {
+    const l = estimateLeg({ fromSiteId: 'a', toSiteId: 'b', route: null, from: bkk, to: cbi });
+    expect(l.source).toBe('ESTIMATE');
+    // เส้นตรงกรุงเทพ–ชลบุรี ≈ 68 กม. → × 1.3 ≈ 88 กม.
+    expect(l.km).toBeGreaterThan(80);
+    expect(l.km).toBeLessThan(95);
+    expect(l.minutes).toBe(Math.round((l.km! / TRIP_AVG_SPEED_KMH) * 60));
+  });
+  it('ไม่มีทั้งเส้นทางและพิกัด → ไม่ทราบ', () => {
+    expect(
+      estimateLeg({ fromSiteId: 'a', toSiteId: 'b', route: null, from: bkk, to: null }),
+    ).toEqual({ km: null, minutes: null, source: null });
+  });
+  it('ยอดรวมนับเฉพาะช่วงที่ทราบ + บอกจำนวนช่วงที่ขาด', () => {
+    expect(
+      routeTotals([
+        { km: 10.15, minutes: 12, source: 'ROUTE' },
+        { km: 0, minutes: 0, source: 'SAME_SITE' },
+        { km: 5, minutes: 6, source: 'ESTIMATE' },
+        { km: null, minutes: null, source: null },
+      ]),
+    ).toEqual({ distanceKm: 15.2, minutes: 18, missingLegs: 1, estimated: true });
+    expect(routeTotals([])).toEqual({
+      distanceKm: 0,
+      minutes: 0,
+      missingLegs: 0,
+      estimated: false,
+    });
+    expect(routeTotals([{ km: null, minutes: null, source: null }])).toEqual({
+      distanceKm: null,
+      minutes: null,
+      missingLegs: 1,
+      estimated: false,
+    });
   });
 });

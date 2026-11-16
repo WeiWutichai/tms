@@ -228,25 +228,7 @@ export class RoutesService {
     destSiteId: string,
     tx: Tx = this.db.tx,
   ): Promise<RouteDistance | null> {
-    const r = await tx.route.findFirst({
-      where: {
-        originSiteId,
-        destSiteId,
-        deletedAt: null,
-        status: 'ACTIVE',
-        origin: { status: 'ACTIVE', deletedAt: null },
-        dest: { status: 'ACTIVE', deletedAt: null },
-      },
-      select: { id: true, code: true, distanceKm: true, standardMinutes: true, tollAmount: true },
-    });
-    if (!r) return null;
-    return {
-      routeId: r.id,
-      code: r.code,
-      distanceKm: r.distanceKm,
-      standardMinutes: r.standardMinutes,
-      tollAmount: r.tollAmount,
-    };
+    return findRouteDistance(tx, originSiteId, destSiteId);
   }
 
   /**
@@ -562,4 +544,34 @@ export class RoutesService {
     if (r.count !== 1) throw new ProblemException('precondition_failed');
     return (await tx.route.findUnique({ where: { id: current.id }, include: INCLUDE }))!;
   }
+}
+
+/**
+ * กติกาเดียวกับ `RoutesService.getRouteDistance` สำหรับผู้เรียกนอก DI (เช่น backfill ตอน bootstrap — ST3-T16)
+ * เส้นทางใช้งาน + ไม่ถูกลบ และต้นทาง/ปลายทางใช้งาน + ไม่ถูกลบ · `tx` ต้องตั้ง tenant แล้ว
+ */
+export async function findRouteDistance(
+  tx: Pick<Tx, 'route'>,
+  originSiteId: string,
+  destSiteId: string,
+): Promise<RouteDistance | null> {
+  const r = await tx.route.findFirst({
+    where: {
+      originSiteId,
+      destSiteId,
+      deletedAt: null,
+      status: 'ACTIVE',
+      origin: { status: 'ACTIVE', deletedAt: null },
+      dest: { status: 'ACTIVE', deletedAt: null },
+    },
+    select: { id: true, code: true, distanceKm: true, standardMinutes: true, tollAmount: true },
+  });
+  if (!r) return null;
+  return {
+    routeId: r.id,
+    code: r.code,
+    distanceKm: r.distanceKm,
+    standardMinutes: r.standardMinutes,
+    tollAmount: r.tollAmount,
+  };
 }

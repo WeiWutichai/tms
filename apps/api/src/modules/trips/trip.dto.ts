@@ -19,6 +19,7 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const DO_ID = /^do_[0-9a-f]{32}$/;
 const VEH_ID = /^veh_[0-9a-f]{32}$/;
 const DRV_ID = /^drv_[0-9a-f]{32}$/;
+const STP_ID = /^stp_[0-9a-f]{32}$/;
 
 export class TripListQuery extends ListQuery {
   @ApiPropertyOptional({
@@ -176,6 +177,22 @@ export class ScheduleTripDto extends RuleConfirmDto {
 }
 
 export class AttachDeliveryOrdersDto extends DeliveryOrderIdsDto {}
+
+/** ST3-T16 เรียงจุดแวะเอง — id ของจุดที่ยังใช้ครบทุกจุดตามลำดับใหม่ */
+export class ReorderStopsDto {
+  @ApiProperty({
+    type: [String],
+    example: ['stp_3f2a…', 'stp_8c1d…', 'stp_77b0…'],
+    description:
+      'จุดแวะทุกจุดของเที่ยว (`stops[].id`) ตามลำดับใหม่ — ขาด/เกิน/ซ้ำ → 422 `stop_set_mismatch` · ' +
+      'จุดส่งของใบส่งของอยู่ก่อนจุดรับของใบเดียวกัน → 422 `stop_order_invalid`',
+  })
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(200)
+  @Matches(STP_ID, { each: true })
+  stopIds!: string[];
+}
 
 export class DetachDeliveryOrdersDto extends DeliveryOrderIdsDto {
   @ApiPropertyOptional({ type: String, nullable: true, maxLength: 500, example: 'ย้ายไปรถคันอื่น' })
@@ -339,6 +356,54 @@ export class TripStopDto {
   @ApiProperty({ nullable: true, type: String }) plannedDeparture!: string | null;
   @ApiProperty({ type: [String], description: 'DO ที่รับ (PICKUP) / ส่ง (DELIVERY) ที่จุดนี้' })
   deliveryOrderIds!: string[];
+  @ApiProperty({ example: 'คลังสินค้าบางนา', description: 'ชื่อสถานที่ (ปัจจุบัน)' })
+  siteName!: string;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: '45.2',
+    description: 'ST3-T16 ระยะช่วงวิ่งจากจุดก่อนหน้า (กม.) — จุดแรก/ไม่ทราบ = null',
+  })
+  legDistanceKm!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: Number,
+    example: 55,
+    description: 'เวลาเดินทางช่วงนี้ (นาที)',
+  })
+  legMinutes!: number | null;
+  @ApiProperty({
+    nullable: true,
+    enum: ['ROUTE', 'ESTIMATE', 'SAME_SITE'],
+    type: String,
+    description:
+      'ที่มา: ROUTE = เส้นทางใน route master · ESTIMATE = ค่าประมาณจากพิกัด (เส้นตรง × 1.3, 50 กม./ชม.) · SAME_SITE = จุดเดียวกัน',
+  })
+  legSource!: string | null;
+}
+
+class TripRouteSummaryDto {
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: '182.4',
+    description: 'ระยะรวมของช่วงที่ทราบ (กม.) — จุด < 2 หรือไม่ทราบทุกช่วง = null',
+  })
+  distanceKm!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: Number,
+    example: 230,
+    description: 'เวลาเดินทางรวม (นาที) ไม่รวมเวลาที่จุด',
+  })
+  minutes!: number | null;
+  @ApiProperty({
+    example: 0,
+    description: 'จำนวนช่วงที่ไม่ทราบระยะ (ไม่มีเส้นทางและไม่มีพิกัด) — > 0 = ยอดรวมยังไม่ครบ',
+  })
+  missingLegs!: number;
+  @ApiProperty({ description: 'มีช่วงที่เป็นค่าประมาณจากพิกัด' })
+  estimated!: boolean;
 }
 
 export class TripDeliveryOrderDto {
@@ -400,6 +465,16 @@ export class TripDto {
   @ApiProperty({ nullable: true, type: String }) cancelReason!: string | null;
   @ApiProperty({ type: [TripStopDto] }) stops!: TripStopDto[];
   @ApiProperty({ type: [TripDeliveryOrderDto] }) deliveryOrders!: TripDeliveryOrderDto[];
+  @ApiProperty({
+    example: '5400',
+    description: 'น้ำหนักรวมของ DO ในเที่ยว (กก.)',
+  })
+  weightKg!: string;
+  @ApiProperty({
+    type: TripRouteSummaryDto,
+    description: 'ST3-T16 ระยะ/เวลารวมตามลำดับจุดปัจจุบัน (คำนวณใหม่ทุกครั้งที่จุดเปลี่ยน)',
+  })
+  route!: TripRouteSummaryDto;
   @ApiProperty({
     type: [TripWarningDto],
     description:

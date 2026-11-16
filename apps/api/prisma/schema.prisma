@@ -1600,7 +1600,8 @@ model Trip {
   assignmentStatus          AssignmentStatus? @map("assignment_status")
   assignmentTokenHash       String?           @map("assignment_token_hash")
   assignmentExpiresAt       DateTime?         @map("assignment_expires_at") @db.Timestamptz(6)
-  plannedDistanceKm         Decimal?          @map("planned_distance_km") @db.Decimal(10, 1)
+  plannedDistanceKm         Decimal?          @map("planned_distance_km") @db.Decimal(10, 1) /// ST3-T16: ผลรวมระยะช่วงวิ่งที่ทราบ (คำนวณใหม่ทุกครั้งที่จุดเปลี่ยน)
+  plannedDurationMin        Int?              @map("planned_duration_min") /// ST3-T16: ผลรวมเวลาเดินทางของช่วงที่ทราบ (นาที — ไม่รวมเวลาที่จุด)
   plannedRoute              Json?             @map("planned_route") /// GeoJSON LineString (T-18)
   actualDistanceKm          Decimal?          @map("actual_distance_km") @db.Decimal(10, 1)
   ruleWarnings              Json              @default("[]") @map("rule_warnings") /// ผลตรวจกฎตอนจัดงานล่าสุด (คำนวณใหม่ทุกการกระทำ — D-07)
@@ -1665,6 +1666,10 @@ model TripStop {
   lastEventId      String?      @map("last_event_id") @db.Uuid
   /// จุดที่ไม่มี DO ใช้แล้ว (ถอด DO ก่อนปล่อยรถ) — ไม่ลบจริง (REVOKE DELETE)
   removedAt        DateTime?    @map("removed_at") @db.Timestamptz(6)
+  /// ST3-T16 ช่วงวิ่งจากจุดก่อนหน้า → จุดนี้ (จุดแรก = null): route master / ค่าประมาณจากพิกัด / จุดเดียวกัน · ไม่ทราบ = null ทั้งสาม
+  legDistanceKm    Decimal?     @map("leg_distance_km") @db.Decimal(10, 1)
+  legMinutes       Int?         @map("leg_minutes")
+  legSource        String?      @map("leg_source")
 
   deliveryOrders DeliveryOrder[] @relation("DoDropStop")
   pickupOrders   DeliveryOrder[] @relation("DoPickupStop")

@@ -229,6 +229,7 @@ export class PlanningService {
         weightKg: sum(t.deliveryOrders.map((d) => d.weightKg)),
         doNos: t.deliveryOrders.map((d) => d.doNo!),
         plannedDistanceKm: dec(t.plannedDistanceKm),
+        missingLegs: t.stops.slice(1).filter((s) => s.legSource === null).length,
         overlapsWith: (overlaps.get(t.id) ?? []).map((id) => no.get(id)!).sort(),
         ...(() => {
           const results = (t.ruleWarnings as unknown as (RuleResult & { message: string })[]) ?? [];
