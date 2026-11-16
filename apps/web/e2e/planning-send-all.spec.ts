@@ -195,10 +195,19 @@ test.describe.serial('ส่งแผนทั้งวัน (ST3-T18)', () => 
     await dlg.getByRole('combobox', { name: 'วันที่' }).selectOption(DAY);
     await expect(dlg).toContainText('ส่งแล้ว 2 / 3 เที่ยว');
     await expect(dlg.getByTestId('send-all-row')).toHaveCount(1);
-    await dlg.getByRole('button', { name: 'ส่งแผน 1 เที่ยว' }).click();
+    // QA M1: ดับเบิลคลิก = ส่งครั้งเดียว (audit trip.sent_all ของวันนั้นเพิ่ม 1 แถว)
+    const sentAudits = async () =>
+      (
+        (await (
+          await page.request.get('/v1/audit-logs?entityType=trip&limit=100', { headers: H })
+        ).json()) as { data: { action: string; after: { date?: string } | null }[] }
+      ).data.filter((x) => x.action === 'trip.sent_all' && x.after?.date === DAY).length;
+    const before = await sentAudits();
+    await dlg.getByRole('button', { name: 'ส่งแผน 1 เที่ยว' }).dblclick();
     await expect(page.getByRole('status').filter({ hasText: 'ส่งแผน 1 เที่ยวแล้ว' })).toContainText(
       'ส่งครบแล้ว',
     );
+    await expect.poll(sentAudits).toBe(before + 1);
     for (const t of [T.a!, T.b!, T.c!]) {
       const x = await tripNow(page, t.id);
       expect(x.status).toBe('DISPATCHED');

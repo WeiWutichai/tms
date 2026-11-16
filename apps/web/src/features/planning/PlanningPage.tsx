@@ -14,7 +14,7 @@ import { HoldBadge, holdLabel } from '../orders/HoldPage';
 import { OrderDrawer } from '../orders/OrderDrawer';
 import { TripDrawer } from '../trips/TripDrawer';
 import { tripProblemText } from '../trips/tripProblem';
-import { useBulkAssign, useSendAll, type BulkResults } from '../trips/useTrips';
+import { useBulkAssign, useSendAll, useSendCheck, type BulkResults } from '../trips/useTrips';
 import { OrderFormDrawer } from '../orders/OrderFormDrawer';
 import { fromOrder, type Order, type OrderForm } from '../orders/orderForm';
 import { bangkokToday, useDateText } from '../rate-cards/rateFormat';
@@ -263,6 +263,10 @@ export function PlanningPage() {
   /** ST3-T18 Send all: dialog "ส่งแผนให้คนขับ" (ปุ่มหัวหน้าตามต้นแบบ) */
   const [sendOpen, setSendOpen] = useState(false);
   const sendAll = useSendAll();
+  const sendKey = useRef('');
+  const sendingRef = useRef(false);
+  /** ตรวจล่วงหน้าใน dialog (dryRun — QA L2) */
+  const useSendDialogCheck = (day: string, xs: BoardTrip[]) => useSendCheck(day, xs, sendOpen);
 
   const b = board.data;
   const day0 = b?.today ?? bangkokToday();
@@ -1123,26 +1127,40 @@ export function PlanningPage() {
   };
 
   /** ส่งเที่ยวที่ติ๊กของวัน `day` (ST3-T18) — ไม่สำเร็จบางเที่ยว → dialog รายการเหตุผล (ชุดเดียวกับ bulk) */
+  const openSend = () => {
+    sendKey.current = crypto.randomUUID();
+    setSendOpen(true);
+  };
   const runSendAll = (day: string, xs: BoardTrip[]) => {
-    if (!xs.length || sendAll.isPending) return;
+    // ref กันกดซ้ำแบบ synchronous + key เดียวต่อการส่งหนึ่งครั้ง (QA M1)
+    if (!xs.length || sendingRef.current) return;
+    sendingRef.current = true;
     sendAll.mutate(
-      { date: day, items: xs.map((x) => ({ tripId: x.id, version: x.version })) },
+      {
+        key: sendKey.current,
+        date: day,
+        items: xs.map((x) => ({ tripId: x.id, version: x.version })),
+      },
       {
         onSuccess: (r) => {
           setSendOpen(false);
           setPicked([]);
           if (r.failed) setBulkFail(r.results);
-          else
-            setToast(
-              [
-                t('plan.send.done', { n: r.succeeded }),
-                ...(r.day.complete
-                  ? [t('plan.send.doneDay', { d: formatDayHead(day, lang) })]
-                  : []),
-              ].join(' · '),
-            );
+          // เที่ยวของวันที่ไม่ได้อยู่ในรายการที่ส่ง (เกิดใหม่/ไม่ได้ติ๊ก — review L5) ยังค้างส่ง
+          const left = Math.max(0, r.day.trips - r.day.sent - r.failed);
+          const parts = [
+            ...(r.succeeded ? [t('plan.send.done', { n: r.succeeded })] : []),
+            ...(r.unchanged ? [t('plan.send.already', { n: r.unchanged })] : []),
+            ...(r.day.complete ? [t('plan.send.doneDay', { d: formatDayHead(day, lang) })] : []),
+            ...(left ? [t('plan.send.left', { n: left })] : []),
+          ];
+          if ((!r.failed || left) && parts.length) setToast(parts.join(' · '));
         },
         onError: fail,
+        onSettled: () => {
+          sendingRef.current = false;
+          sendKey.current = crypto.randomUUID();
+        },
       },
     );
   };
@@ -1685,7 +1703,7 @@ export function PlanningPage() {
         sub={t('page.plan.sub')}
         actions={
           canPlan && canDispatch ? (
-            <Button variant="secondary" icon="send" disabled={!b} onClick={() => setSendOpen(true)}>
+            <Button variant="secondary" icon="send" disabled={!b} onClick={openSend}>
               {t('plan.send.btn')}
             </Button>
           ) : undefined
@@ -2323,6 +2341,7 @@ export function PlanningPage() {
           initialDay={week ? (days.find((d) => unsentOn(b.trips, d).length) ?? day0) : dsel}
           busy={sendAll.isPending}
           onSend={runSendAll}
+          useCheck={useSendDialogCheck}
           onClose={() => setSendOpen(false)}
         />
       )}

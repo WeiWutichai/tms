@@ -1,6 +1,7 @@
 import { Icon, useEscapeLayer } from '@tms/ui';
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { formatDayHead, useI18n } from '../../i18n';
+import { tripProblemText } from '../trips/tripProblem';
 import { sendHint, unsentOn, type Board, type BoardTrip } from './board';
 
 const CHECK: CSSProperties = {
@@ -20,6 +21,10 @@ const SELECT: CSSProperties = {
   fontSize: 13,
 };
 
+/** ส่งได้ครั้งละไม่เกิน (ตาม API `SEND_ALL_MAX`) */
+export const SEND_MAX = 400;
+const noCheck = (): Record<string, unknown> | undefined => undefined;
+
 /**
  * "ส่งแผนให้คนขับ" (ST3-T18 Send all — docs/04 D2 "checkbox ส่งงานทั้งวันของทุกรถทีเดียว"; spec/03 §9 dialog):
  * เลือกวัน → checkbox "ส่งงานทั้งวันของทุกรถ" (ติ๊กไว้ก่อน) + รายการเที่ยวที่ยังไม่ส่งของวันนั้นให้ติ๊กออกได้ ·
@@ -33,6 +38,7 @@ export function SendAllDialog({
   busy,
   onSend,
   onClose,
+  useCheck = noCheck,
 }: {
   board: Board;
   /** วันที่เลือกได้ (กระดาน 7 วัน) */
@@ -41,27 +47,51 @@ export function SendAllDialog({
   busy: boolean;
   onSend: (day: string, trips: BoardTrip[]) => void;
   onClose: () => void;
+  /**
+   * ตรวจล่วงหน้า (dryRun ของ API — กฎ T14 ชุดเดียวกับตอนส่ง): tripId → problem ที่คาดว่าจะไม่ผ่าน (null = ผ่าน) ·
+   * undefined = ยังไม่รู้ (ใช้คำใบ้จากกระดาน)
+   */
+  useCheck?: (day: string, trips: BoardTrip[]) => Record<string, unknown> | undefined;
 }) {
   const { t, lang } = useI18n();
   useEscapeLayer(true, onClose);
   const [day, setDay] = useState(initialDay);
   const list = useMemo(() => unsentOn(board.trips, day), [board.trips, day]);
-  const [picked, setPicked] = useState<Set<string>>(() => new Set(list.map((x) => x.id)));
-  // เปลี่ยนวัน = ติ๊กทุกเที่ยวของวันใหม่ (ค่าเริ่มต้น "ส่งทั้งวัน")
+  /** ส่งได้ตามสถานะ — รอรถร่วมตอบ (OFFERED) ไม่ติ๊กไว้ก่อน (review M1 — ติ๊กเองได้ แต่จะไม่ผ่าน) */
+  const sendable = useMemo(() => list.filter((x) => x.status !== 'OFFERED'), [list]);
+  const [picked, setPicked] = useState<Set<string>>(() => new Set(sendable.map((x) => x.id)));
+  // เปลี่ยนวัน = ติ๊กทุกเที่ยวที่ส่งได้ของวันใหม่ (ค่าเริ่มต้น "ส่งทั้งวัน")
   const lastDay = useRef(day);
   useEffect(() => {
     if (lastDay.current === day) return;
     lastDay.current = day;
-    setPicked(new Set(list.map((x) => x.id)));
-  }, [day, list]);
+    setPicked(new Set(sendable.map((x) => x.id)));
+  }, [day, sendable]);
   const chosen = list.filter((x) => picked.has(x.id));
-  const all = list.length > 0 && chosen.length === list.length;
+  const all = sendable.length > 0 && sendable.every((x) => picked.has(x.id));
+  const tooMany = chosen.length > SEND_MAX;
+  const check = useCheck(day, list.length <= SEND_MAX ? list : []);
+  // กดซ้ำ/ดับเบิลคลิก (QA M1): ปิดปุ่มทันทีแบบ synchronous จนคำขอจบ
+  const sentRef = useRef(false);
+  const [sending, setSending] = useState(false);
+  useEffect(() => {
+    if (!busy) {
+      sentRef.current = false;
+      setSending(false);
+    }
+  }, [busy]);
   const masterRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     if (masterRef.current) masterRef.current.indeterminate = chosen.length > 0 && !all;
   }, [chosen.length, all]);
+  const send = () => {
+    if (sentRef.current || busy || !chosen.length || tooMany) return;
+    sentRef.current = true;
+    setSending(true);
+    onSend(day, chosen);
+  };
   const state = board.days.find((d) => d.date === day);
-  const vehicles = new Set(list.flatMap((x) => (x.vehicleId ? [x.vehicleId] : []))).size;
+  const vehicles = new Set(sendable.flatMap((x) => (x.vehicleId ? [x.vehicleId] : []))).size;
   const dayLabel = (d: string) =>
     d === board.today ? t('plan.col.today', { d: formatDayHead(d, lang) }) : formatDayHead(d, lang);
   /** คนขับประจำรถ (เที่ยวที่ยังไม่จัดรถ — ส่งแล้วใช้คนขับประจำรถเหมือน bulk จัดรถ) */
@@ -71,11 +101,16 @@ export function SendAllDialog({
     if (x.driverName) return x.driverName;
     if (x.carrierName) return x.carrierName;
     const d = defDriver(x);
-    return d ? t('plan.send.defaultDriver', { n: d }) : t('plan.send.noDriver');
+    // ไม่มีคนขับ = "—" (เหตุผลอยู่ในบรรทัดคำเตือน ไม่พิมพ์ซ้ำ — QA L3)
+    return d ? t('plan.send.defaultDriver', { n: d }) : '—';
   };
   const hintText = (x: BoardTrip) => {
     const h = sendHint(x);
     if (h === 'offered') return t('plan.send.hintOffered');
+    // ผลตรวจล่วงหน้าจาก server (รวมบล็อกที่จะติดตอนปล่อย เช่น ใบขับขี่หมดอายุ — QA L2)
+    const c = check?.[x.id];
+    if (c) return tripProblemText(c, t);
+    if (check && c === null) return null;
     if (h === 'noVehicle') return t('plan.bulk.noVehicle');
     if (x.status === 'PLANNING' && !defDriver(x)) return t('plan.send.noDriver');
     if (h === 'rule') return x.pendingRules![0]!.message;
@@ -180,10 +215,10 @@ export function SendAllDialog({
                   type="checkbox"
                   data-testid="send-all-master"
                   checked={all}
-                  onChange={() => setPicked(all ? new Set() : new Set(list.map((x) => x.id)))}
+                  onChange={() => setPicked(all ? new Set() : new Set(sendable.map((x) => x.id)))}
                   style={CHECK}
                 />
-                {t('plan.send.all', { n: list.length, v: vehicles })}
+                {t('plan.send.all', { n: sendable.length, v: vehicles })}
               </label>
               <div
                 style={{
@@ -196,7 +231,11 @@ export function SendAllDialog({
                 }}
               >
                 {list.map((x, i) => {
-                  const hint = hintText(x);
+                  const plateText = x.vehiclePlate ?? '—';
+                  const drv = driverText(x);
+                  const raw = hintText(x);
+                  // ไม่ซ้ำกับบรรทัดทะเบียน/คนขับ (QA L3)
+                  const hint = raw && raw !== plateText && raw !== drv ? raw : null;
                   return (
                     <label
                       key={x.id}
@@ -224,9 +263,7 @@ export function SendAllDialog({
                           <span className="tms-num" style={{ fontWeight: 500, color: '#2257C4' }}>
                             {x.tripNo}
                           </span>
-                          <span style={{ color: '#101418' }}>
-                            {x.vehiclePlate ?? t('plan.bulk.noVehicle')}
-                          </span>
+                          <span style={{ color: '#101418' }}>{plateText}</span>
                           <span
                             style={{
                               marginLeft: 'auto',
@@ -238,7 +275,7 @@ export function SendAllDialog({
                             {t(`trip.st.${x.status}` as 'trip.st.PLANNING')}
                           </span>
                         </span>
-                        <span style={{ fontSize: 12.5, color: '#3B424C' }}>{driverText(x)}</span>
+                        <span style={{ fontSize: 12.5, color: '#3B424C' }}>{drv}</span>
                         {hint && (
                           <span
                             style={{
@@ -261,6 +298,15 @@ export function SendAllDialog({
             </>
           )}
         </div>
+        {tooMany && (
+          <p
+            className="tms-field-error"
+            data-testid="send-all-too-many"
+            style={{ margin: 0, padding: '0 24px 12px' }}
+          >
+            {t('plan.send.tooMany', { n: SEND_MAX })}
+          </p>
+        )}
         <div className="tms-dialog__foot">
           <button type="button" className="tms-dialog__cancel" onClick={onClose}>
             {t('plan.send.cancel')}
@@ -269,9 +315,9 @@ export function SendAllDialog({
             type="button"
             className="tms-drawer__pri"
             style={{ height: 36, padding: '0 16px' }}
-            disabled={!chosen.length || busy}
-            aria-busy={busy}
-            onClick={() => onSend(day, chosen)}
+            disabled={!chosen.length || busy || sending || tooMany}
+            aria-busy={busy || sending}
+            onClick={send}
           >
             <Icon n="send" s={16} />
             {t('plan.send.ok', { n: chosen.length })}

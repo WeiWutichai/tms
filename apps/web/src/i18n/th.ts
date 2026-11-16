@@ -2914,6 +2914,9 @@ export const th = {
   'plan.send.done': 'ส่งแผน {n} เที่ยวแล้ว',
   'plan.send.doneDay': '{d} ส่งครบแล้ว',
   'plan.send.dayDone': 'ส่งครบแล้ว',
+  'plan.send.already': 'ส่งแล้วอยู่ก่อน {n} เที่ยว',
+  'plan.send.left': 'วันนั้นยังมีเที่ยวที่ยังไม่ส่ง {n} เที่ยว',
+  'plan.send.tooMany': 'ส่งได้ครั้งละไม่เกิน {n} เที่ยว — ติ๊กออกบางเที่ยวแล้วส่งเป็นรอบ',
   'plan.toast.driverKept': ' · คนขับ: {n} (คงเดิม)',
   'plan.toast.driverChanged': ' · คนขับ: {n} (เปลี่ยนเป็นคนขับประจำ)',
   'problem.stop_order_invalid':

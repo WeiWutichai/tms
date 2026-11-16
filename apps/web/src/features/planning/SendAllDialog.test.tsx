@@ -95,38 +95,84 @@ describe('board send-all helpers (ST3-T18)', () => {
 });
 
 describe('SendAllDialog (ST3-T18 Send all)', () => {
-  it('checkbox "ส่งงานทั้งวันของทุกรถ" ติ๊กไว้ก่อน → ส่งทุกเที่ยวที่ยังไม่ส่งของวัน พร้อมเหตุผลที่คาดว่าส่งไม่ได้', () => {
+  it('checkbox "ส่งงานทั้งวันของทุกรถ" ติ๊กไว้ก่อน (ยกเว้นรอรถร่วมตอบ) → ส่งเที่ยวที่ติ๊ก · ดับเบิลคลิกส่งครั้งเดียว', () => {
     const { onSend } = setup();
     const master = screen.getByTestId('send-all-master') as HTMLInputElement;
     expect(master.checked).toBe(true);
-    expect(screen.getByText('ส่งงานทั้งวันของทุกรถ (3 เที่ยว · 1 คัน)')).toBeInTheDocument();
+    expect(screen.getByText('ส่งงานทั้งวันของทุกรถ (2 เที่ยว · 1 คัน)')).toBeInTheDocument();
     expect(screen.getAllByTestId('send-all-row')).toHaveLength(3);
     expect(screen.getByText('สมชาย (คนขับประจำรถ)')).toBeInTheDocument();
+    // review M1: รอรถร่วมตอบ ไม่ติ๊กไว้ก่อน + เหตุผลเฉพาะ
+    expect(screen.getByRole('checkbox', { name: 'TRP-6911-0003' })).not.toBeChecked();
     expect(screen.getByText('รอรถร่วมตอบรับ — ส่งได้หลังรถร่วมรับงาน')).toBeInTheDocument();
     expect(screen.getByText('ส่งแล้ว 1 / 4 เที่ยว')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'ส่งแผน 3 เที่ยว' }));
-    expect(onSend).toHaveBeenCalledWith(
-      D0,
-      expect.arrayContaining([
-        expect.objectContaining({ id: '1' }),
-        expect.objectContaining({ id: '2' }),
-        expect.objectContaining({ id: '3' }),
-      ]),
-    );
+    const btn = screen.getByRole('button', { name: 'ส่งแผน 2 เที่ยว' });
+    fireEvent.click(btn);
+    fireEvent.click(btn);
+    expect(onSend).toHaveBeenCalledTimes(1);
+    expect(onSend.mock.calls[0]![0]).toBe(D0);
+    expect(onSend.mock.calls[0]![1].map((x: BoardTrip) => x.id)).toEqual(['1', '2']);
+    expect(btn).toBeDisabled();
   });
 
-  it('ติ๊กออกบางเที่ยว = ส่งเฉพาะที่เลือก (master indeterminate) · ติ๊ก master ออก = ส่งไม่ได้', () => {
-    const { onSend } = setup();
-    fireEvent.click(screen.getByRole('checkbox', { name: 'TRP-6911-0003' }));
+  it('ติ๊กออกบางเที่ยว = master indeterminate · master = ทุกเที่ยวที่ส่งได้ · ติ๊กรอรถร่วมตอบเองได้', () => {
+    setup();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'TRP-6911-0002' }));
     const master = screen.getByTestId('send-all-master') as HTMLInputElement;
     expect(master.checked).toBe(false);
     expect(master.indeterminate).toBe(true);
-    fireEvent.click(screen.getByRole('button', { name: 'ส่งแผน 2 เที่ยว' }));
-    expect(onSend.mock.calls[0]![1].map((x: BoardTrip) => x.id)).toEqual(['1', '2']);
-    fireEvent.click(master); // บางส่วน → ติ๊กทั้งหมด
+    expect(screen.getByRole('button', { name: 'ส่งแผน 1 เที่ยว' })).toBeEnabled();
+    fireEvent.click(master); // บางส่วน → ทุกเที่ยวที่ส่งได้
     expect(master.checked).toBe(true);
+    expect(screen.getByRole('checkbox', { name: 'TRP-6911-0003' })).not.toBeChecked();
     fireEvent.click(master); // ทั้งหมด → ไม่เลือก
     expect(screen.getByRole('button', { name: 'ส่งแผน 0 เที่ยว' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'TRP-6911-0003' }));
+    expect(screen.getByRole('button', { name: 'ส่งแผน 1 เที่ยว' })).toBeEnabled();
+  });
+
+  it('ผลตรวจล่วงหน้า (dryRun) แสดงบล็อกที่จะติดตอนปล่อย · เหตุผลไม่ซ้ำกับบรรทัดทะเบียน/คนขับ', () => {
+    const trips = [
+      trip('1'),
+      trip('2', { status: 'ASSIGNED', driverName: 'สมศักดิ์' }),
+      trip('6', { vehicleId: null, vehiclePlate: null }),
+    ];
+    const useCheck = () => ({
+      '1': null,
+      '2': {
+        code: 'assignment_blocked',
+        title: 'ติดกฎห้ามจ่ายงาน',
+        blocks: [{ message: 'ใบขับขี่หมดอายุ 1 ม.ค. 2563' }],
+      },
+    });
+    render(
+      <I18nProvider lang="th">
+        <SendAllDialog
+          board={board(trips, DAYS)}
+          days={[D0, D1]}
+          initialDay={D0}
+          busy={false}
+          onSend={() => {}}
+          onClose={() => {}}
+          useCheck={useCheck}
+        />
+      </I18nProvider>,
+    );
+    const rows = screen.getAllByTestId('send-all-row');
+    expect(rows[1]).toHaveTextContent('ใบขับขี่หมดอายุ 1 ม.ค. 2563');
+    expect(rows[0]).not.toHaveTextContent('ใบขับขี่');
+    // QA L3: "ยังไม่ได้วางลงรถ" ครั้งเดียว
+    const noVeh = rows.find((r) => r.textContent!.includes('TRP-6911-0006'))!;
+    expect(noVeh.textContent!.split('ยังไม่ได้วางลงรถ')).toHaveLength(2);
+  });
+
+  it('เลือกเกิน 400 เที่ยว → ปุ่มส่งปิด + บอกให้แบ่งส่ง', () => {
+    const many = Array.from({ length: 401 }, (_, i) => trip(`x${i}`, { tripNo: `TRP-X-${i}` }));
+    setup(board(many, [{ date: D0, trips: 401, sent: 0, complete: false }]));
+    expect(screen.getByTestId('send-all-too-many')).toHaveTextContent(
+      'ส่งได้ครั้งละไม่เกิน 400 เที่ยว',
+    );
+    expect(screen.getByRole('button', { name: 'ส่งแผน 401 เที่ยว' })).toBeDisabled();
   });
 
   it('เปลี่ยนเป็นวันที่ส่งครบแล้ว → แถบเขียว "ส่งแผนครบทุกเที่ยวแล้ว" และปุ่มส่งปิด', () => {

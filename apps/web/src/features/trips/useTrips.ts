@@ -168,14 +168,45 @@ export type SendAllResults = Schemas['SendAllTripsResultDto'];
 export function useSendAll() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (v: Schemas['SendAllTripsDto']): Promise<SendAllResults> => {
-      const key = crypto.randomUUID();
-      return idempotent(() =>
+    /** `key` = Idempotency-Key ต่อการส่ง 1 ครั้งของ dialog (QA M1 — กดซ้ำได้ผลเดิม ไม่ส่งสองรอบ) */
+    mutationFn: ({
+      key,
+      ...v
+    }: Schemas['SendAllTripsDto'] & { key: string }): Promise<SendAllResults> =>
+      idempotent(() =>
         api.POST('/v1/trips/send-all', { body: v, headers: { 'Idempotency-Key': key } }),
-      );
-    },
+      ),
     onSettled: () => invalidateAll(qc),
   });
+}
+
+/**
+ * ตรวจล่วงหน้าก่อนส่งแผน (ST3-T18 QA L2 — `dryRun`: กฎ T14 ชุดเดียวกับตอนปล่อย แล้วย้อน) → tripId → problem (null = ผ่าน)
+ * ไม่มีเที่ยว/ไม่มีสิทธิ์ = ไม่เรียก
+ */
+export function useSendCheck(
+  date: string,
+  trips: { id: string; version: number }[],
+  enabled: boolean,
+): Record<string, unknown> | undefined {
+  const q = useQuery({
+    queryKey: [KEY, 'send-check', date, trips.map((x) => `${x.id}:${x.version}`).join(',')],
+    enabled: enabled && trips.length > 0,
+    staleTime: 0,
+    retry: false,
+    queryFn: () =>
+      unwrap(
+        api.POST('/v1/trips/send-all', {
+          body: {
+            date,
+            dryRun: true,
+            items: trips.map((x) => ({ tripId: x.id, version: x.version })),
+          },
+        }),
+      ) as Promise<SendAllResults>,
+  });
+  if (!q.data) return undefined;
+  return Object.fromEntries(q.data.results.map((r) => [r.tripId, r.trip ? null : r.problem]));
 }
 
 /**
