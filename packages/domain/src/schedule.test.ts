@@ -18,7 +18,9 @@ describe('ตารางรถ/คนขับรายวัน (ST3-T19)', ()
     expect(leaveDaysIn([], ['2026-11-18'])).toEqual([]);
   });
   it('สถานะช่อง: เที่ยว > ซ่อม > จอด > ลา > ว่าง', () => {
-    expect(dayCellState({ trips: 1, vehicleStatus: 'MAINTENANCE', driverOnLeave: true })).toBe('BUSY');
+    expect(dayCellState({ trips: 1, vehicleStatus: 'MAINTENANCE', driverOnLeave: true })).toBe(
+      'BUSY',
+    );
     expect(dayCellState({ trips: 0, vehicleStatus: 'MAINTENANCE', driverOnLeave: true })).toBe(
       'REPAIR',
     );
