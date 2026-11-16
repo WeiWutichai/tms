@@ -80,6 +80,7 @@ export function OrdersPage() {
   const canCancel = can(scopes, 'orders:cancel');
   const canSeePrice = can(scopes, 'prices.sell:read');
   const canUnlock = can(scopes, 'orders:unlock');
+  const canEditPrice = can(scopes, 'prices.sell:write');
   const [tab, setTab] = useSessionState<Tab>('so.tab', 'all');
   const [overdue, setOverdue] = useSessionState('so.over', false);
   // "จัดแล้ววันนี้" (ต้นแบบ kpisX so): แท็บจัดรถแล้ว + วันรับของ = วันนี้ — ตัวเลขเดียวกับ summary.plannedToday
@@ -438,6 +439,7 @@ export function OrdersPage() {
           canWrite={canWrite}
           canCancel={canCancel}
           canSeePrice={canSeePrice}
+          canEditPrice={canEditPrice}
           canUnlock={canUnlock}
           onClose={() => setOpenId(null)}
           onEdit={(o) =>

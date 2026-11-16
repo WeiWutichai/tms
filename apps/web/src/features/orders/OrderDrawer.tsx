@@ -12,9 +12,11 @@ import { formatDateTime, useI18n, type T } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
 import { problemText } from '../master/problems';
 import { bangkokToday, money, useDateText } from '../rate-cards/rateFormat';
+import { holdMeta, RECHECKABLE } from './hold';
 import {
   HoldActions,
-  holdStopIndex,
+  holdStopIndexes,
+  ManualPrice,
   MatchCustomerBox,
   StopSitePicker,
   useCustomerMatch,
@@ -152,6 +154,7 @@ export function OrderDrawer({
   canWrite,
   canCancel = false,
   canSeePrice,
+  canEditPrice = false,
   canUnlock = false,
   onClose,
   onEdit,
@@ -164,6 +167,8 @@ export function OrderDrawer({
   /** `orders:cancel` — เมนู "ยกเลิกเอกสาร" (ST3-T10) */
   canCancel?: boolean;
   canSeePrice: boolean;
+  /** `prices.sell:write` — "กำหนดราคาเอง" (ORD-043, ST3-T07) */
+  canEditPrice?: boolean;
   /** ปลดล็อกการแก้ของผู้อื่นได้ (`orders:unlock` — ST3-T08) */
   canUnlock?: boolean;
   onClose: () => void;
@@ -303,7 +308,25 @@ export function OrderDrawer({
     o.status === 'on_hold' && o.holdReason?.code === 'CUSTOMER_UNMAPPED' && canWrite && ed.customer;
   // เลือก/เปลี่ยนสถานที่ของจุดได้ก่อนวางแผน (ต้นแบบ soStops canChg = รอจัด) — map-site (ST3-T06)
   const canMapSite = canWrite && ed.stops && (o.status === 'received' || o.status === 'on_hold');
-  const geoStop = o.holdReason?.code === 'GEOCODING_ERROR' ? holdStopIndex(o) : null;
+  // ทุกจุดที่หาพิกัดไม่ได้ (review ST3-T07)
+  const geoStops = o.holdReason?.code === 'GEOCODING_ERROR' ? holdStopIndexes(o) : [];
+  const manualFreight = (o.sellCharges ?? []).some(
+    (c) => c.origin === 'MANUAL' && c.kind === 'FREIGHT',
+  );
+  // กำหนดราคาเอง (ORD-043): ก่อนวางแผน + ไม่ติดล็อกผู้อื่น + ไม่ใช่ใบที่ค้างด้วยเหตุตอนจัดรถ/ส่ง (API ตอบ 409)
+  const canSetPrice =
+    canWrite &&
+    canEditPrice &&
+    ed.lines &&
+    (o.status !== 'on_hold' ||
+      RECHECKABLE.includes(o.holdReason?.code ?? '') ||
+      o.holdReason?.code === 'SOURCE_ERROR');
+  // ป้ายหัว drawer: ใบค้าง/ต้นทางแก้ = ป้ายเหตุชุดเดียวกับตารางใบค้าง (สี/ไอคอนจาก hold.ts)
+  const badgeMeta = o.sourceChangedAfterPlan
+    ? holdMeta('SOURCE_CHANGED_AFTER_PLAN')
+    : o.status === 'on_hold' && o.holdReason
+      ? holdMeta(o.holdReason.code)
+      : null;
   const submit = () =>
     confirm.mutate(
       { id: o.id, version: o.version, body: { draft: false } },
@@ -316,7 +339,13 @@ export function OrderDrawer({
       onClose={onClose}
       kind={t('ord.kind')}
       title={o.soNo ?? t('ord.draftNo')}
-      badge={<Badge label={orderStatusLabel(t, o)} tone={statusTone(o)} />}
+      badge={
+        <Badge
+          label={orderStatusLabel(t, o)}
+          tone={badgeMeta?.tone ?? statusTone(o)}
+          {...(badgeMeta ? { icon: badgeMeta.icon } : {})}
+        />
+      }
       subtitle={[custName, o.customerRef].filter(Boolean).join(' · ')}
       menu={menu}
       tabs={[
@@ -537,7 +566,7 @@ export function OrderDrawer({
               </div>
               <HoldActions
                 order={o}
-                canWrite={canWrite}
+                canWrite={canWrite && !lockedBy}
                 canEdit={ed.any}
                 onEdit={() => onEdit(o)}
                 onDone={onDone}
@@ -633,7 +662,7 @@ export function OrderDrawer({
                           {t('ord.siteUnmapped')}
                         </span>
                       )}
-                      {geoStop === i && (
+                      {geoStops.includes(i) && (
                         <span
                           style={{ display: 'flex', gap: 6, color: '#B3322A', fontWeight: 500 }}
                         >
@@ -658,18 +687,9 @@ export function OrderDrawer({
               <span style={{ color: '#3B424C' }}>—</span>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column' }}>
-                {o.pricingStatus !== 'AVAILABLE' && (
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 10,
-                      color: '#8F5500',
-                      paddingBottom: 6,
-                    }}
-                  >
-                    <Icon n="triangle-alert" s={16} />
-                    <span style={{ flex: 1 }}>{t('ord.noRate')}</span>
+                {o.pricingStatus !== 'AVAILABLE' && !manualFreight && (
+                  <div style={{ paddingBottom: 6 }}>
+                    <ManualPrice order={o} allowed={canSetPrice} onDone={onDone} />
                   </div>
                 )}
                 {(o.sellCharges ?? []).map((c) => (
@@ -678,7 +698,11 @@ export function OrderDrawer({
                     style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '6px 0' }}
                   >
                     <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-                      <span>{c.description}</span>
+                      <span>
+                        {c.origin === 'MANUAL' && c.kind === 'FREIGHT'
+                          ? t('ord.mp.line')
+                          : c.description}
+                      </span>
                       {c.rateCardCode && (
                         <span style={{ fontSize: 12.5, color: '#59606B' }}>
                           {t('ord.rateRef', { code: c.rateCardCode, v: c.rateCardRevision ?? 1 })}

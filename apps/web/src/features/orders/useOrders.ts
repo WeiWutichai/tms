@@ -371,3 +371,19 @@ export async function searchStopSites(customerId: string | null, q: string) {
     })
     .slice(0, PICK);
 }
+
+/** กำหนดราคาเอง (ORD-043) — ค่าขนส่ง MANUAL + เหตุผล ≥ 10 · ต้องมี `prices.sell:write` */
+export function useManualPrice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { id: string; version: number; sellAmount: string; reason: string }) =>
+      unwrap(
+        api.POST('/v1/orders/{id}/manual-price', {
+          params: { path: { id: v.id }, header: ifMatch(v.version) as never },
+          body: { sellAmount: v.sellAmount, reason: v.reason },
+        }),
+      ) as Promise<Order>,
+    onError: refetchOnStale(qc, KEY),
+    onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
+  });
+}

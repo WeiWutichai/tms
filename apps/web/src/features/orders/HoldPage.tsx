@@ -41,9 +41,15 @@ export function HoldBadge({ code, label }: { code: string; label: string }) {
   return <Badge label={label} tone={m.tone} icon={m.icon} />;
 }
 
-/** เหตุทั้งหมดของใบ: เหตุหลักก่อน แล้วเหตุรองของการรับงานครั้งล่าสุด (ไม่ซ้ำ) */
-export function holdCodesOf(o: Pick<Order, 'holdReason' | 'holdCodes'>): string[] {
-  const out = o.holdReason ? [o.holdReason.code] : [];
+/**
+ * เหตุทั้งหมดของใบ: เหตุหลักก่อน แล้วเหตุรองของการรับงานครั้งล่าสุด (ไม่ซ้ำ)
+ * ใบที่ต้นทางแก้หลังวางแผน (สถานะยัง PLANNED — ST3-T10) = SOURCE_CHANGED_AFTER_PLAN (PO 16 พ.ย. 2569)
+ */
+export function holdCodesOf(
+  o: Pick<Order, 'holdReason' | 'holdCodes'> & { sourceChangedAfterPlan?: boolean },
+): string[] {
+  const out = o.sourceChangedAfterPlan ? ['SOURCE_CHANGED_AFTER_PLAN'] : [];
+  if (o.holdReason && !out.includes(o.holdReason.code)) out.push(o.holdReason.code);
   for (const c of o.holdCodes) if (!out.includes(c)) out.push(c);
   return out;
 }
@@ -67,8 +73,12 @@ export function HoldPage() {
   const me = useMe();
   const dateText = useDateText();
   const scopes = me.data?.scopes ?? [];
+  // สิทธิ์ชุดเดียวกับหน้า SO (OrdersPage) — drawer/ฟอร์มทำงานเหมือนกัน
   const canWrite = can(scopes, 'orders:write');
+  const canCancel = can(scopes, 'orders:cancel');
   const canSeePrice = can(scopes, 'prices.sell:read');
+  const canEditPrice = can(scopes, 'prices.sell:write');
+  const canUnlock = can(scopes, 'orders:unlock');
   const [reason, setReason] = useSessionState('hold.reason', '');
   const [col, setCol] = useSessionState('hold.cols', { q: '', source: '' });
   const today = bangkokToday();
@@ -221,11 +231,12 @@ export function HoldPage() {
       label: t('hold.col.action'),
       width: '1%',
       render: (r) => {
-        const a = holdMeta(r.holdReason?.code ?? '').action;
+        const a = holdMeta(holdCodesOf(r)[0] ?? '').action;
         return (
           <button
             type="button"
             className="tms-textlink"
+            style={{ whiteSpace: 'nowrap' }}
             onClick={(e) => {
               e.stopPropagation();
               setOpenId(r.id);
@@ -244,7 +255,7 @@ export function HoldPage() {
     list,
     { reason, ...col },
     ['reason'],
-    reason ? count(reason) : s?.onHold,
+    reason ? count(reason) : s?.heldTotal,
   );
   const err = clearErrorText(recheck.error, t);
 
@@ -268,7 +279,7 @@ export function HoldPage() {
             {
               key: 'all',
               label: t('table.all'),
-              ...(s ? { count: s.onHold } : {}),
+              ...(s ? { count: s.heldTotal } : {}),
             },
             ...tabCodes.map((c) => ({
               key: c,
@@ -356,7 +367,10 @@ export function HoldPage() {
           key={openId}
           id={openId}
           canWrite={canWrite}
+          canCancel={canCancel}
           canSeePrice={canSeePrice}
+          canEditPrice={canEditPrice}
+          canUnlock={canUnlock}
           onClose={() => setOpenId(null)}
           onEdit={openEdit}
           onDone={(m) => setToast(m)}
@@ -370,6 +384,7 @@ export function HoldPage() {
           order={form.order}
           subtitle={t('ord.kind')}
           canSeePrice={canSeePrice}
+          canUnlock={canUnlock}
           onClose={() => setForm(null)}
           onReload={() => void reloadEdit(form.order.id)}
           onSaved={(o) => {

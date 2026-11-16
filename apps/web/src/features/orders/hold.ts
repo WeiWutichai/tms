@@ -3,7 +3,7 @@ import type { MessageKey } from '../../i18n/th';
 
 /**
  * เหตุค้างครบชุด 12 รหัส (docs/04 C "หน้าใบค้าง + reason code ครบชุด"; plan/11 ข้อ 4) — ลำดับ = ลำดับใน docs/04 C
- * ค่าเดียวกับ `ORDER_HOLD_CODES` ใน @tms/domain (web ไม่ได้พึ่ง domain — test ตรวจให้ตรงกับ OpenAPI)
+ * ค่าเดียวกับ `ORDER_HOLD_CODES` ใน @tms/domain (web ไม่ได้พึ่ง domain — `hold.test.ts` ตรวจให้ตรงกับ enum ใน OpenAPI)
  */
 export const HOLD_CODES = [
   'CUSTOMER_UNMAPPED',
@@ -31,7 +31,8 @@ export type HoldCode = (typeof HOLD_CODES)[number];
 export type HoldAction = 'customer' | 'site' | 'pin' | 'rate' | 'source' | 'review' | 'view';
 
 export const HOLD_META: Record<HoldCode, { tone: Tone; icon: string; action: HoldAction }> = {
-  // ป้าย/ไอคอนตามต้นแบบ (BM: รอกำหนดเส้นทาง = clock, ยังไม่จับคู่ลูกค้า = user-x) — ที่เหลือ [OPEN] spec/12 §3
+  // ป้าย/ไอคอนตามต้นแบบ (BM: รอกำหนดเส้นทาง = clock, ยังไม่จับคู่ลูกค้า = user-x) — ที่เหลือคิดเอง
+  // [DECISION — ย้อนได้ spec/12 §3, PO 16 พ.ย. 2569] · ใช้ทั้งตารางใบค้างและป้ายหัว drawer SO (ชุดเดียว)
   CUSTOMER_UNMAPPED: { tone: 'warn', icon: 'user-x', action: 'customer' },
   LOCATION_UNMAPPED: { tone: 'warn', icon: 'clock', action: 'site' },
   GEOCODING_ERROR: { tone: 'warn', icon: 'map-pin-off', action: 'pin' },

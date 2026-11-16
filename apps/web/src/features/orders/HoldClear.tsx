@@ -7,6 +7,7 @@ import { useI18n } from '../../i18n';
 import { fieldErrors, problemText } from '../master/problems';
 import { RefPicker, type RefOption } from '../master/RefPicker';
 import { useDebounced } from '../master/useCursorList';
+import { money } from '../rate-cards/rateFormat';
 import type { Order } from './orderForm';
 import { RECHECKABLE } from './hold';
 import {
@@ -15,6 +16,7 @@ import {
   useMapCustomer,
   useMapSite,
   useReevaluate,
+  useManualPrice,
   useResolveSourceError,
   type SiteOption,
 } from './useOrders';
@@ -23,8 +25,8 @@ import {
  * การเคลียร์ใบค้างใน drawer SO (ST3-T07) — ต้นแบบ TMS v4 vPanel 'so':
  * - ยังไม่จับคู่ลูกค้า: กล่องเตือน #FCF0DC "ไม่พบลูกค้า "…" ในข้อมูลหลัก …" + ช่องเลือก + ปุ่ม footer "จับคู่ลูกค้า" (link)
  * - จุดรับ–ส่ง: ลิงก์ "เปลี่ยนสถานที่" + popover ค้นหา "ค้นหาชื่อหรือที่อยู่" / "ไม่พบสถานที่" / "+ เพิ่มสถานที่ใหม่" (soStops)
- * - ราคา: ปุ่ม pill (#9DB6E3) แบบ "เปิดหน้า Rate card กรองลูกค้านี้" ของ drawer ลูกค้า
- * endpoint: map-customer / map-site (ST3-T06) · reevaluate / resolve-source-error (ST3-T07)
+ * - ราคา: แถวเตือน "ไม่พบ rate card ของลูกค้านี้สำหรับเส้นทางนี้" + pill "กำหนดราคาเอง" → ช่องราคา 140px (sox.noRate/setManual/mp)
+ * endpoint: map-customer / map-site (ST3-T06) · reevaluate / resolve-source-error / manual-price (ST3-T07)
  */
 
 /** ข้อความผลหลังเคลียร์: กลับรอจัดรถ / ยังค้างด้วยเหตุอื่น */
@@ -53,7 +55,8 @@ export function PillButton({
   onClick,
   disabled,
 }: {
-  icon: string;
+  /** ไม่ส่ง = ไม่มีไอคอน (pill "กำหนดราคาเอง" ของต้นแบบ) */
+  icon?: string;
   children: ReactNode;
   onClick: () => void;
   disabled?: boolean;
@@ -80,7 +83,7 @@ export function PillButton({
         font: 'inherit',
       }}
     >
-      <Icon n={icon} s={16} />
+      {icon && <Icon n={icon} s={16} />}
       {children}
     </button>
   );
@@ -90,6 +93,19 @@ export function PillButton({
 export function holdStopIndex(o: Pick<Order, 'holdReason'>): number | null {
   const m = /^stops\[(\d+)\]/.exec(o.holdReason?.field ?? '');
   return m ? Number(m[1]) : null;
+}
+
+/** ทุกจุดที่เป็นต้นเหตุของเหตุค้างหลัก (`holdReason.fields` — เช่น ทุกจุดที่หาพิกัดไม่ได้) */
+export function holdStopIndexes(o: Pick<Order, 'holdReason'>): number[] {
+  const f = o.holdReason?.fields?.length
+    ? o.holdReason.fields
+    : o.holdReason?.field
+      ? [o.holdReason.field]
+      : [];
+  return f.flatMap((x) => {
+    const m = /^stops\[(\d+)\]/.exec(x);
+    return m ? [Number(m[1])] : [];
+  });
 }
 
 // ---------- ยังไม่จับคู่ลูกค้า ----------
@@ -390,8 +406,9 @@ export function StopSitePicker({
 // ---------- ปุ่มเคลียร์ในกล่องเหตุค้าง ----------
 
 /**
- * ปุ่มใต้ข้อความ "ค้าง: …" ตามเหตุหลัก:
- * RATE_MISSING → เปิดหน้า Rate card กรองลูกค้านี้ + ตรวจอีกครั้ง · GEOCODING_ERROR → ปักหมุด (หน้าสถานที่) + ตรวจอีกครั้ง
+ * ปุ่มใต้ข้อความ "ค้าง: …" ตามเหตุหลัก (ผู้อื่นเปิดแก้อยู่ — ST3-T08 — ผู้เรียกส่ง canWrite = false):
+ * RATE_MISSING → ตรวจอีกครั้ง (เพิ่ม/อนุมัติ rate แล้ว) — "กำหนดราคาเอง" อยู่ในส่วนราคาตามต้นแบบ
+ * GEOCODING_ERROR → ปักหมุด (หน้าสถานที่ — ปักแล้วใบพ้นค้างเอง) + ตรวจอีกครั้ง
  * SOURCE_ERROR → แก้ไขใบ + ยืนยันข้อมูลถูกต้อง (เหตุผล) · CUSTOMER/LOCATION_UNMAPPED → ตรวจอีกครั้ง (alias/ข้อมูลหลักที่เพิ่งแก้)
  * เหตุจากการจัดรถ/เวลาส่ง → ข้อความ "เคลียร์ได้เมื่อจัดรถใหม่ที่กระดานวางแผน"
  */
@@ -422,32 +439,22 @@ export function HoldActions({
       { onSuccess: (x) => onDone(cleared(x)) },
     );
   const btns: ReactNode[] = [];
-  if (canWrite && code === 'RATE_MISSING' && order.customer.id)
-    btns.push(
-      <PillButton
-        key="rate"
-        icon="tags"
-        onClick={() =>
-          nav(
-            `/master/rate-cards?customer=${encodeURIComponent(order.customer.id!)}&party=${encodeURIComponent(order.customer.legalName ?? '')}`,
-          )
-        }
-      >
-        {t('rc.cust.go')}
-      </PillButton>,
-    );
   if (canWrite && code === 'GEOCODING_ERROR') {
-    const site = order.stops[holdStopIndex(order) ?? -1]?.siteId;
-    if (site)
-      btns.push(
-        <PillButton
-          key="pin"
-          icon="map-pin"
-          onClick={() => nav(`/master/locations?open=${encodeURIComponent(site)}`)}
-        >
-          {t('hold.act.pin')}
-        </PillButton>,
-      );
+    // ทุกจุดที่หาพิกัดไม่ได้ (review ST3-T07) — หลายจุด = ปุ่มต่อจุด "ปักหมุดสถานที่ · จุดที่ n"
+    const idx = holdStopIndexes(order);
+    for (const i of idx) {
+      const site = order.stops[i]?.siteId;
+      if (site)
+        btns.push(
+          <PillButton
+            key={`pin${i}`}
+            icon="map-pin"
+            onClick={() => nav(`/master/locations?open=${encodeURIComponent(site)}`)}
+          >
+            {idx.length > 1 ? t('hold.act.pinStop', { n: i + 1 }) : t('hold.act.pin')}
+          </PillButton>,
+        );
+    }
   }
   if (canWrite && code === 'SOURCE_ERROR') {
     if (canEdit)
@@ -512,5 +519,143 @@ export function HoldActions({
         onClose={() => setConfirmSrc(false)}
       />
     </>
+  );
+}
+
+// ---------- ราคา: กำหนดราคาเอง (ORD-043) ----------
+
+const MONEY = /^\d{1,12}(\.\d{1,2})?$/;
+
+/**
+ * ต้นแบบ drawer SO ส่วนราคา (sox.noRate / setManual / mp): แถวเตือนสี #8F5500 "ไม่พบ rate card …" + pill "กำหนดราคาเอง"
+ * → แถว "ค่าขนส่ง (กำหนดเอง)" + ช่องราคา 140×34 ชิดขวา · บันทึก = dialog เหตุผล ≥ 10 (กฎ ORD-043 — ต้นแบบไม่มี)
+ * `allowed` = orders:write + prices.sell:write + ไม่ติดล็อกผู้อื่น + ก่อนวางแผน (ผู้เรียกตัดสิน)
+ */
+export function ManualPrice({
+  order,
+  allowed,
+  onDone,
+}: {
+  order: Order;
+  allowed: boolean;
+  onDone: (msg: string) => void;
+}) {
+  const { t } = useI18n();
+  const save = useManualPrice();
+  const cleared = useClearedText();
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState('');
+  const [touched, setTouched] = useState(false);
+  const [dlg, setDlg] = useState(false);
+  const amount = value.replace(/,/g, '').trim();
+  const valid = MONEY.test(amount) && Number(amount) > 0;
+  const no = order.soNo ?? t('ord.draftNo');
+  const first = order.stops[0]?.siteText;
+  const last = order.stops[order.stops.length - 1]?.siteText;
+  if (!editing)
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#8F5500' }}>
+        <Icon n="triangle-alert" s={16} />
+        <span style={{ flex: 1 }}>{t('ord.noRate')}</span>
+        {allowed && <PillButton onClick={() => setEditing(true)}>{t('ord.mp.btn')}</PillButton>}
+      </div>
+    );
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '6px 0' }}>
+        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+          <span>{t('ord.mp.line')}</span>
+          {first && last && first !== last && (
+            <span style={{ fontSize: 12.5, color: '#59606B' }}>{`${first} → ${last}`}</span>
+          )}
+        </div>
+        <input
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onBlur={() => setTouched(true)}
+          inputMode="decimal"
+          autoFocus
+          aria-label={t('ord.mp.amount')}
+          aria-invalid={touched && !valid}
+          className="tms-num"
+          style={{
+            width: 140,
+            height: 34,
+            padding: '0 10px',
+            border: `1px solid ${touched && !valid ? '#B3322A' : '#CDD1C8'}`,
+            borderRadius: 8,
+            textAlign: 'right',
+            fontVariantNumeric: 'tabular-nums',
+            font: 'inherit',
+          }}
+        />
+      </div>
+      {touched && !valid && (
+        <span className="tms-field-error" role="alert" style={{ alignSelf: 'flex-end' }}>
+          {t('ord.mp.invalid')}
+        </span>
+      )}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 12 }}>
+        <button
+          type="button"
+          className="tms-textlink"
+          onClick={() => {
+            setEditing(false);
+            setValue('');
+            setTouched(false);
+          }}
+        >
+          {t('common.cancel')}
+        </button>
+        <PillButton
+          onClick={() => {
+            setTouched(true);
+            if (valid) setDlg(true);
+          }}
+          disabled={save.isPending}
+        >
+          {t('ord.mp.save')}
+        </PillButton>
+      </div>
+      <ReasonDialog
+        open={dlg}
+        title={t('ord.mp.title', { no })}
+        description={t('ord.mp.desc')}
+        diff={{
+          rows: [
+            {
+              f: t('ord.mp.field'),
+              b: '—',
+              a: valid ? money(amount) : '—',
+            },
+          ],
+          labels: [t('ord.dlg.field'), t('ord.dlg.before'), t('ord.dlg.after')],
+        }}
+        hint={(n, ok) => (ok ? t('ord.dlg.hintOk') : t('ord.dlg.hintMin', { n }))}
+        label={t('hold.reasonLabel')}
+        placeholder={t('ord.mp.ph')}
+        okLabel={t('ord.mp.save')}
+        cancelLabel={t('common.cancel')}
+        closeLabel={t('drawer.close')}
+        busy={save.isPending}
+        error={clearErrorText(save.error, t)}
+        onClose={() => {
+          setDlg(false);
+          save.reset();
+        }}
+        onOk={(reason) =>
+          save.mutate(
+            { id: order.id, version: order.version, sellAmount: amount, reason },
+            {
+              onSuccess: (x) => {
+                setDlg(false);
+                setEditing(false);
+                onDone(`${t('ord.mp.toast', { no })} · ${cleared(x)}`);
+              },
+            },
+          )
+        }
+      />
+    </div>
   );
 }
