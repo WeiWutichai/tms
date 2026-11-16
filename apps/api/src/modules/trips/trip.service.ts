@@ -176,7 +176,7 @@ export class TripService {
     const dos = await this.dos.lockForTrip(tx, input.deliveryOrderIds);
     let vehicle = {};
     if (input.vehicleId) {
-      vehicle = await this.vehicleSnapshot(tx, input.vehicleId);
+      vehicle = await this.plannedVehicle(tx, input.vehicleId);
       await this.lockVehicle(tx, input.vehicleId);
     }
     const trip = await tx.trip.create({
@@ -316,7 +316,7 @@ export class TripService {
       });
     let vehicle: Prisma.TripUncheckedUpdateManyInput = {};
     if (vehicleChange && input.vehicleId) {
-      vehicle = await this.vehicleSnapshot(tx, input.vehicleId);
+      vehicle = await this.plannedVehicle(tx, input.vehicleId);
       await this.lockVehicle(tx, input.vehicleId);
     } else if (vehicleChange)
       vehicle = {
@@ -818,6 +818,25 @@ export class TripService {
       vehicleTypeId: v.vehicleTypeId,
       vehicleTypeSnapshot: v.vehicleType.nameTh,
     };
+  }
+
+  /**
+   * รถที่วางไว้บนกระดาน (create/schedule — ST3-T12): ตรวจการอ้างอิงชุดเดียวกับ /assign (รถ + รถร่วมของรถต้องมีอยู่และใช้งาน)
+   * กฎห้ามจ่ายงาน (ST2-T20 `isAssignable`) เก็บใน `warnings` เหมือน /assign — บังคับ + override = ST3-T14
+   */
+  private async plannedVehicle(tx: Tx, vehicleId: string) {
+    const snap = await this.vehicleSnapshot(tx, vehicleId);
+    const v = (await tx.vehicle.findUnique({
+      where: { id: vehicleId },
+      include: { carrier: true },
+    }))!;
+    if (v.ownership === 'SUBCONTRACT') {
+      if (!v.carrier || v.carrier.deletedAt)
+        throw field422('vehicleId', 'invalid_reference', 'carrier of vehicle not found');
+      if (v.carrier.status !== 'ACTIVE')
+        throw field422('vehicleId', 'carrier_inactive', 'carrier of vehicle is suspended');
+    }
+    return snap;
   }
 
   private async driverRow(tx: Tx, id: string, field: string) {

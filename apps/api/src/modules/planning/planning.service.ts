@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
-import { vehicleOverlaps, type TripStatus } from '@tms/domain';
+import { checkAssignability, vehicleOverlaps, type TripStatus } from '@tms/domain';
+import { assignabilityMessageTh } from '../assignability/assignability.service';
 import { encodeId } from '../../common/ids';
 import { DbService, type Tx } from '../../db/db.service';
 import { NOT_READY_HOLDS, PLANNABLE_SO_STATUSES } from '../delivery-orders/delivery-order.service';
@@ -12,7 +13,7 @@ import type {
   PlanningBoardDto,
 } from './planning.dto';
 
-/** งานรอจัดสูงสุดต่อครั้ง (กระดานเฟส 0 — PLN-051 virtualized = งานถัดไป) */
+/** SO รอจัดสูงสุดต่อครั้ง (นับเป็น SO — กระดานเฟส 0; PLN-051 virtualized = งานถัดไป) */
 const POOL_LIMIT = 500;
 
 const dec = (v: Prisma.Decimal | null | undefined) =>
@@ -44,7 +45,8 @@ export class PlanningService {
     const from = q.date ?? today;
     const to = addDays(from, (q.days ?? 1) - 1);
     // ทีละคำสั่ง — transaction เดียวของ request (RLS) ไม่รันคู่ขนาน
-    const vehicles = await this.vehicles(tx);
+    const days = Array.from({ length: q.days ?? 1 }, (_, i) => addDays(from, i));
+    const vehicles = await this.vehicles(tx, days);
     const trips = await this.trips(tx, from, to);
     const pool = await this.pool(tx);
     // รถที่มีเที่ยวในช่วงแต่ไม่อยู่ในรายการ (ปลดระวาง/ลบภายหลัง) — ยังแสดงแถวให้เห็นเที่ยว
@@ -54,7 +56,7 @@ export class PlanningService {
         trips.flatMap((t) => (t.vehicleId && !known.has(t.vehicleId) ? [t.vehicleId] : [])),
       ),
     ];
-    const extra = missing.length ? await this.vehicles(tx, missing) : [];
+    const extra = missing.length ? await this.vehicles(tx, days, missing) : [];
     return {
       from,
       to,
@@ -66,7 +68,7 @@ export class PlanningService {
   }
 
   /** แถวรถ: ไม่ลบ/ไม่ปลดระวาง ไม่ใช่หาง · รถบริษัท → รถร่วม แล้วประเภท → ทะเบียน (PLN-049/050) */
-  private async vehicles(tx: Tx, ids?: string[]): Promise<BoardVehicleDto[]> {
+  private async vehicles(tx: Tx, days: string[], ids?: string[]): Promise<BoardVehicleDto[]> {
     const rows = await tx.vehicle.findMany({
       where: ids
         ? { id: { in: ids } }
@@ -74,6 +76,18 @@ export class PlanningService {
       include: {
         vehicleType: { select: { nameTh: true, capacityKg: true } },
         carrier: { select: { legalName: true } },
+        documents: {
+          select: {
+            id: true,
+            docType: true,
+            status: true,
+            startsOn: true,
+            expiresOn: true,
+            isRequiredForDispatch: true,
+            renewsId: true,
+            title: true,
+          },
+        },
         defaultDrivers: {
           where: { deletedAt: null, status: { not: 'INACTIVE' } },
           select: { id: true, name: true, licenceClass: true },
@@ -91,6 +105,31 @@ export class PlanningService {
       )
       .map((v) => {
         const d = v.defaultDrivers[0];
+        const docs = v.documents.map((x) => ({
+          ...x,
+          startsOn: x.startsOn.toISOString().slice(0, 10),
+          expiresOn: x.expiresOn.toISOString().slice(0, 10),
+        }));
+        // กฎห้ามจ่ายงานต่อวัน (ชุดเดียวกับ /assign — ST2-T20; รถบริษัท = คำเตือน จึงไม่ขึ้นที่นี่) · ใบขับขี่ = ตอนจัดคนขับ
+        const blocks = days.flatMap((date) => {
+          const r = checkAssignability({
+            vehicle: { ownership: v.ownership },
+            documents: docs,
+            driver: null,
+            date,
+          });
+          return r.blocks.length
+            ? [
+                {
+                  date,
+                  issues: r.blocks.map((i) => ({
+                    code: i.code,
+                    message: assignabilityMessageTh(i),
+                  })),
+                },
+              ]
+            : [];
+        });
         return {
           id: encodeId('vehicle', v.id),
           plate: v.plate,
@@ -104,6 +143,7 @@ export class PlanningService {
           driver: d
             ? { id: encodeId('driver', d.id), name: d.name, licenceClass: d.licenceClass }
             : null,
+          blocks,
         };
       });
   }
@@ -180,7 +220,10 @@ export class PlanningService {
         doNos: t.deliveryOrders.map((d) => d.doNo!),
         plannedDistanceKm: dec(t.plannedDistanceKm),
         overlapsWith: (overlaps.get(t.id) ?? []).map((id) => no.get(id)!).sort(),
-        warningCount: Array.isArray(t.ruleWarnings) ? t.ruleWarnings.length : 0,
+        warningCount: Array.isArray(t.ruleWarnings)
+          ? (t.ruleWarnings as { code?: string }[]).filter((w) => w?.code !== 'vehicle_overlap')
+              .length
+          : 0,
         version: t.version,
       };
     });
@@ -191,20 +234,24 @@ export class PlanningService {
    * จัดกลุ่มตาม SO (spec/03 §5 "การ์ด DO ที่ pending จัดกลุ่มตาม SO") · เรียงกำหนดส่ง → เลข SO
    */
   private async pool(tx: Tx): Promise<BoardPoolOrderDto[]> {
-    const dos = await tx.deliveryOrder.findMany({
+    // จำกัดจำนวน **ต่อ SO** (ไม่ตัด DO ของ SO เดียวกันออกจากกัน — review ST3-T12)
+    const pending = { status: 'DRAFT' as const, tripId: null };
+    const sos = await tx.salesOrder.findMany({
       where: {
-        status: 'DRAFT',
-        tripId: null,
-        salesOrder: {
-          status: { in: [...PLANNABLE_SO_STATUSES] },
-          OR: [
-            { holdReasonCodeId: null },
-            { holdReasonCode: { code: { notIn: [...NOT_READY_HOLDS] } } },
-          ],
-        },
+        status: { in: [...PLANNABLE_SO_STATUSES] },
+        OR: [
+          { holdReasonCodeId: null },
+          { holdReasonCode: { code: { notIn: [...NOT_READY_HOLDS] } } },
+        ],
+        deliveryOrders: { some: pending },
       },
-      orderBy: [{ salesOrder: { requestedDate: 'asc' } }, { doNo: 'asc' }],
+      orderBy: [{ requestedDate: 'asc' }, { soNo: 'asc' }],
       take: POOL_LIMIT,
+      select: { id: true },
+    });
+    const dos = await tx.deliveryOrder.findMany({
+      where: { ...pending, salesOrderId: { in: sos.map((x) => x.id) } },
+      orderBy: [{ salesOrder: { requestedDate: 'asc' } }, { doNo: 'asc' }],
       select: {
         id: true,
         doNo: true,

@@ -24,6 +24,16 @@ export class PlanningBoardQuery {
   days?: number;
 }
 
+class BoardBlockIssueDto {
+  @ApiProperty({ example: 'DOC_CMI_EXPIRED' }) code!: string;
+  @ApiProperty({ example: 'พ.ร.บ. หมดอายุ 1 พ.ย. 2569' }) message!: string;
+}
+
+class BoardBlockDayDto {
+  @ApiProperty({ example: '2026-11-13' }) date!: string;
+  @ApiProperty({ type: [BoardBlockIssueDto] }) issues!: BoardBlockIssueDto[];
+}
+
 class BoardDriverDto {
   @ApiProperty({ example: 'drv_3f2a…' }) id!: string;
   @ApiProperty() name!: string;
@@ -54,6 +64,12 @@ export class BoardVehicleDto {
     description: 'คนขับประจำ (ค่าเริ่มต้นตอนจัด)',
   })
   driver!: BoardDriverDto | null;
+  @ApiProperty({
+    type: [BoardBlockDayDto],
+    description:
+      'วันในช่วงกระดานที่รถติดกฎห้ามจ่ายงาน (ST2-T20 `checkAssignability` — รถร่วมเอกสารบังคับหมด/ไม่มี) · ไม่มี = ว่าง',
+  })
+  blocks!: BoardBlockDayDto[];
 }
 
 class BoardOrderRefDto {
@@ -100,7 +116,10 @@ export class BoardTripDto {
       'เที่ยวอื่นของรถคันเดียวกันที่ซ้อนเวลา (คำนวณ ณ ตอนอ่าน — ช่วงวิ่งทับกัน หรือวันเดียวกันเมื่อไม่มีช่วงวิ่ง) — เตือน ไม่บล็อก',
   })
   overlapsWith!: string[];
-  @ApiProperty({ description: 'จำนวนคำเตือนจากการตรวจล่าสุดของเที่ยว (warnings)' })
+  @ApiProperty({
+    description:
+      'จำนวนคำเตือนจากการตรวจล่าสุดของเที่ยว ไม่นับ `vehicle_overlap` (ซ้อนเวลารถใช้ `overlapsWith` ที่คำนวณ ณ ตอนอ่าน)',
+  })
   warningCount!: number;
   @ApiProperty() version!: number;
 }

@@ -22,6 +22,7 @@ interface BoardTrip {
   plannedStartAt: string | null;
   plannedEndAt: string | null;
   overlapsWith: string[];
+  warningCount: number;
   orders: { orderNo: string; customerName: string | null }[];
   weightKg: string;
   version: number;
@@ -176,6 +177,7 @@ describe('planning board (ST3-T12)', () => {
       today: string;
       vehicles: {
         id: string;
+        blocks: { date: string; issues: { code: string; message: string }[] }[];
         plate: string;
         plateProvince: string;
         capacityKg: string | null;
@@ -376,6 +378,73 @@ describe('planning board (ST3-T12)', () => {
     expect(nos).toContain(ok.soNo);
     expect(nos.indexOf(late.soNo)).toBeLessThan(nos.indexOf(ok.soNo));
     expect(nos).not.toContain(unmapped.soNo);
+  });
+
+  it('รถร่วมติดกฎห้ามจ่ายงาน: กระดานบอกรายวัน · วางได้แต่ warnings มีบล็อก (ชุดเดียวกับ /assign) · รถร่วมพักใช้ → 422', async () => {
+    const jur = (n: number) => {
+      const base = `0105${String(90_000 + n).padStart(8, '0')}`;
+      let sum = 0;
+      for (let i = 0; i < 12; i++) sum += Number(base[i]) * (13 - i);
+      return base + String((11 - (sum % 11)) % 10);
+    };
+    const carrier = (
+      await api(app, admin)
+        .post('/v1/carriers')
+        .send({ legalName: `หจก. รถร่วม ${++seed}`, entityType: 'JURISTIC', taxId: jur(seed) })
+        .expect(201)
+    ).body as { id: string };
+    const v = await newVehicle({ ownership: 'SUBCONTRACT', carrierId: carrier.id });
+    const bd = await board(`?date=${today}&days=7`);
+    const row = bd.vehicles.find((x) => x.id === v.id)!;
+    expect(row.blocks).toHaveLength(7);
+    expect(row.blocks[0]!.date).toBe(today);
+    expect(row.blocks[0]!.issues.map((i) => i.code)).toEqual(['DOC_MISSING', 'DOC_MISSING']);
+    expect(row.blocks[0]!.issues[0]!.message).toMatch(/ยังไม่มี/);
+    const r = await drop((await newOrder()).doIds, v.id, '09:00', '11:00').expect(201);
+    const assign = await api(app, admin)
+      .post('/v1/trips')
+      .set('Idempotency-Key', randomUUID())
+      .send({ tripDate: today, deliveryOrderIds: (await newOrder()).doIds })
+      .expect(201);
+    const a = await api(app, admin)
+      .post(`/v1/trips/${assign.body.id}/offer`)
+      .send({ carrierId: carrier.id })
+      .expect(200);
+    const viaAssign = await api(app, admin)
+      .post(`/v1/trips/${a.body.id}/assign`)
+      .send({ vehicleId: v.id })
+      .expect(200);
+    const blocks = (w: { code: string; severity: string }[]) =>
+      w.filter((x) => x.severity === 'block').map((x) => x.code);
+    expect(blocks(r.body.warnings)).toEqual(blocks(viaAssign.body.warnings));
+    expect(blocks(r.body.warnings).length).toBeGreaterThan(0);
+    // รถบริษัทไม่ติดกฎ (เอกสารรถบริษัท = คำเตือน)
+    const own = await newVehicle();
+    expect((await board()).vehicles.find((x) => x.id === own.id)!.blocks).toEqual([]);
+    // รถร่วมถูกพักใช้ → 422 ทั้ง create และ schedule (ชุดเดียวกับ /assign)
+    await db.carrier.update({
+      where: { id: uuid('carrier', carrier.id) },
+      data: { status: 'INACTIVE' },
+    });
+    expect(
+      (await drop((await newOrder()).doIds, v.id, '12:00', '13:00').expect(422)).body.errors[0],
+    ).toMatchObject({ field: 'vehicleId', code: 'carrier_inactive' });
+    const t = (await drop((await newOrder()).doIds, own.id, '12:00', '13:00').expect(201)).body;
+    expect((await schedule(t.id, { vehicleId: v.id }).expect(422)).body.errors[0].code).toBe(
+      'carrier_inactive',
+    );
+  });
+
+  it('warningCount ไม่นับซ้อนเวลาที่เก็บไว้ — ย้ายเที่ยวหนึ่งออก อีกเที่ยวหายแดงและไม่ค้างเป็นปัญหา', async () => {
+    const v = await newVehicle();
+    const a = await drop((await newOrder()).doIds, v.id, '09:00', '12:00').expect(201);
+    const b = await drop((await newOrder()).doIds, v.id, '10:00', '13:00').expect(201);
+    await schedule(b.body.id, { plannedStartAt: at('14:00'), plannedEndAt: at('16:00') }).expect(
+      200,
+    );
+    const ta = (await board()).trips.find((x) => x.id === a.body.id)!;
+    expect(ta.overlapsWith).toEqual([]);
+    expect(ta.warningCount).toBe(0);
   });
 
   it('สิทธิ์ + แยก tenant + query ผิด', async () => {

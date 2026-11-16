@@ -31330,6 +31330,42 @@
           "licenceClass"
         ]
       },
+      "BoardBlockIssueDto": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "example": "DOC_CMI_EXPIRED"
+          },
+          "message": {
+            "type": "string",
+            "example": "พ.ร.บ. หมดอายุ 1 พ.ย. 2569"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ]
+      },
+      "BoardBlockDayDto": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "example": "2026-11-13"
+          },
+          "issues": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BoardBlockIssueDto"
+            }
+          }
+        },
+        "required": [
+          "date",
+          "issues"
+        ]
+      },
       "BoardVehicleDto": {
         "type": "object",
         "properties": {
@@ -31390,6 +31426,13 @@
                 "$ref": "#/components/schemas/BoardDriverDto"
               }
             ]
+          },
+          "blocks": {
+            "description": "วันในช่วงกระดานที่รถติดกฎห้ามจ่ายงาน (ST2-T20 `checkAssignability` — รถร่วมเอกสารบังคับหมด/ไม่มี) · ไม่มี = ว่าง",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BoardBlockDayDto"
+            }
           }
         },
         "required": [
@@ -31402,7 +31445,8 @@
           "ownership",
           "carrierName",
           "status",
-          "driver"
+          "driver",
+          "blocks"
         ]
       },
       "BoardOrderRefDto": {
@@ -31553,7 +31597,7 @@
           },
           "warningCount": {
             "type": "number",
-            "description": "จำนวนคำเตือนจากการตรวจล่าสุดของเที่ยว (warnings)"
+            "description": "จำนวนคำเตือนจากการตรวจล่าสุดของเที่ยว ไม่นับ `vehicle_overlap` (ซ้อนเวลารถใช้ `overlapsWith` ที่คำนวณ ณ ตอนอ่าน)"
           },
           "version": {
             "type": "number"
