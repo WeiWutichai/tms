@@ -4,6 +4,9 @@ import {
   axisBox,
   blocksOn,
   boardStats,
+  cellState,
+  driverLeaveOn,
+  notesOn,
   cardLine,
   custShort,
   dropWindow,
@@ -229,9 +232,13 @@ describe('SO รอจัด + สรุป', () => {
       from: D,
       to: D,
       today: D,
-      vehicles: [{ id: 'veh_1' }, { id: 'veh_2' }],
+      vehicles: [
+        { id: 'veh_1', status: 'READY', driver: null },
+        { id: 'veh_2', status: 'READY', driver: null },
+      ],
       trips: [trip(), trip({ id: 'trp_2', overlapsWith: ['TRP-1'], plannedDistanceKm: null })],
       pool: [order({})],
+      schedule: [],
     } as unknown as Board;
     expect(boardStats(b, [D])).toMatchObject({
       pend: 1,
@@ -276,7 +283,12 @@ describe('มุมมองกระดาน (ST3-T13)', () => {
   });
   const sub = (plate: string, carrierName: string) =>
     veh(plate, { ownership: 'SUBCONTRACT', carrierName });
-  const drv = (name: string) => ({ id: `drv_${name}`, name, licenceClass: 'T2' });
+  const drv = (name: string) => ({
+    id: `drv_${name}`,
+    name,
+    licenceClass: 'T2',
+    status: 'ACTIVE' as const,
+  });
   // ลำดับจาก server = "รถบริษัท + รถร่วม" (PLN-049)
   const rows = [
     veh('70-2222', { driver: drv('สมศักดิ์') }),
@@ -441,5 +453,69 @@ describe('Filter รถที่รับได้สองทาง (ST3-T15)',
         vs,
       ),
     ).toBe('ต้องใช้รถห้องเย็น');
+  });
+});
+
+describe('ตารางรถ/คนขับรายวัน (ST3-T19)', () => {
+  const D = '2026-11-18';
+  const D2 = '2026-11-19';
+  const drv = { id: 'drv_1', name: 'สมชาย', licenceClass: 'T2', status: 'ACTIVE' as const };
+  const v = (o: Partial<Board['vehicles'][number]> = {}) =>
+    ({ id: 'veh_1', status: 'READY', driver: drv, ...o }) as Board['vehicles'][number];
+  const entry = (o: object) => ({
+    id: 'sch_1',
+    kind: 'LEAVE',
+    driver: { id: 'drv_1', name: 'สมชาย' },
+    vehicle: null,
+    startsOn: D,
+    endsOn: D,
+    note: 'ลาป่วย',
+    cancelledAt: null,
+    cancelReason: null,
+    createdAt: '',
+    version: 1,
+    ...o,
+  });
+  const board = (o: object = {}) =>
+    ({
+      today: D,
+      vehicles: [v()],
+      trips: [],
+      pool: [],
+      schedule: [entry({})],
+      ...o,
+    }) as unknown as Board;
+  it('เกณฑ์ตรวจรับ: คนขับประจำลาวันนั้น → ช่องเป็น "ลา" ไม่ใช่ "ว่าง" · วันถัดไปว่าง', () => {
+    const b = board();
+    expect(cellState(b, v(), D)).toBe('LEAVE');
+    expect(cellState(b, v(), D2)).toBe('FREE');
+    expect(driverLeaveOn(b, v(), D)).toMatchObject({ id: 'sch_1' });
+    expect(boardStats(b, [D])).toMatchObject({ free: 0, used: 0, total: 1 });
+  });
+  it('มีเที่ยว = ภาระงาน · รถซ่อม/จอดมาก่อนลา · สถานะลาพัก = ลาทุกวัน', () => {
+    const t = {
+      id: 'trp_1',
+      vehicleId: 'veh_1',
+      tripDate: D,
+      plannedStartAt: null,
+      plannedEndAt: null,
+    } as unknown as BoardTrip;
+    expect(cellState(board({ trips: [t] }), v(), D)).toBe('BUSY');
+    expect(cellState(board(), v({ status: 'MAINTENANCE' }), D)).toBe('REPAIR');
+    expect(cellState(board(), v({ status: 'PARKED' }), D)).toBe('PARKED');
+    const onLeave = v({ driver: { ...drv, status: 'ON_LEAVE' } });
+    expect(driverLeaveOn(board({ schedule: [] }), onLeave, D2)).toBe('STATUS');
+    expect(cellState(board({ schedule: [] }), v({ driver: null }), D)).toBe('FREE');
+  });
+  it('โน้ตของรถหรือคนขับประจำในวันนั้น', () => {
+    const b = board({
+      schedule: [
+        entry({ id: 'n1', kind: 'NOTE', driver: null, vehicle: { id: 'veh_1' }, note: 'ยาง' }),
+        entry({ id: 'n2', kind: 'NOTE', note: 'เวรเช้า', endsOn: D2 }),
+        entry({ id: 'n3', kind: 'NOTE', driver: null, vehicle: { id: 'veh_2' } }),
+      ],
+    });
+    expect(notesOn(b, v(), D).map((e) => e.id)).toEqual(['n1', 'n2']);
+    expect(notesOn(b, v(), D2).map((e) => e.id)).toEqual(['n2']);
   });
 });

@@ -167,3 +167,49 @@ export function useSaveBoardPrefs(onFail: (conflict: boolean) => void) {
   );
   return saver.save;
 }
+
+/**
+ * ตารางรถ/คนขับรายวัน (ST3-T19) — ใส่วันลาคนขับ / โน้ตรายวัน (POST /v1/schedule-entries) จากเมนูคลิกขวาบนกระดาน
+ * วันลาทับวันลาเดิม → 409 `conflict` (ข้อความไทยจาก server) · สำเร็จ → โหลดกระดานใหม่ (ช่อง "ว่าง"/"ลา" + คำเตือนเที่ยว)
+ */
+export function useAddScheduleEntry() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (body: Schemas['CreateScheduleEntryDto']) => {
+      const key = crypto.randomUUID();
+      return idempotent(() =>
+        api.POST('/v1/schedule-entries', { body, headers: { 'Idempotency-Key': key } }),
+      );
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: [KEY] }),
+  });
+}
+
+/** ยกเลิกวันลา/โน้ต (POST /v1/schedule-entries/{id}/cancel — เหตุผล ≥ 10 + audit, If-Match = version บนกระดาน) */
+export function useCancelScheduleEntry() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { id: string; version: number; reason: string }) =>
+      unwrap(
+        api.POST('/v1/schedule-entries/{id}/cancel', {
+          params: { path: { id: v.id } },
+          body: { reason: v.reason },
+          headers: { 'If-Match': `"${v.version}"` },
+        }),
+      ),
+    onSettled: () => qc.invalidateQueries({ queryKey: [KEY] }),
+  });
+}
+
+/** คนขับที่ใส่วันลาได้ (ACTIVE — ชุดเดียวกับตัวเลือกคนขับตอนจัดรถ) */
+export function useLeaveDrivers(enabled: boolean) {
+  return useQuery({
+    queryKey: [KEY, 'leave-drivers'],
+    enabled,
+    staleTime: 60_000,
+    queryFn: () =>
+      unwrap(
+        api.GET('/v1/drivers', { params: { query: { limit: 200, status: 'active' } as never } }),
+      ).then((p) => p.data),
+  });
+}
