@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  addDays,
   axisBox,
   blocksOn,
   boardStats,
@@ -29,6 +30,11 @@ import {
   type BoardTrip,
   type BoardVehicle,
   type PoolOrder,
+  issuesOn,
+  levelOn,
+  moveTarget,
+  orderDay,
+  type EligItem,
 } from './board';
 
 const D = '2026-11-16';
@@ -343,5 +349,65 @@ describe('มุมมองกระดาน (ST3-T13)', () => {
     expect(cardLine(['TIME', 'ROUTE'], parts)).toBe('09:00–12:00 · บางนา → ชลบุรี');
     expect(cardLine(['ROUTE'], parts)).toBe('บางนา → ชลบุรี');
     expect(cardLine(['ORDER_NO'], parts)).toBe('');
+  });
+});
+
+describe('Filter รถที่รับได้สองทาง (ST3-T15)', () => {
+  const item = (issues: EligItem['issues'], vehicleId = 'veh_2'): EligItem => ({
+    vehicleId,
+    orderId: null,
+    tripId: 'trp_1',
+    level: 'OK',
+    issues,
+  });
+  const iss = (
+    code: string,
+    severity: 'block' | 'warning' | 'info',
+    date: string | null = null,
+  ) => ({ code, severity, message: code, date });
+  it('ระดับต่อวัน: date null = ทุกวัน · info ไม่นับ · บล็อก > คำเตือน', () => {
+    const it = item([
+      iss('VEHICLE_LARGER_THAN_REQUESTED', 'info'),
+      iss('OVERWEIGHT', 'warning'),
+      iss('DOC_CMI_EXPIRED', 'block', '2026-11-18'),
+    ]);
+    expect(levelOn(it, D)).toBe('WARNING');
+    expect(levelOn(it, '2026-11-18')).toBe('BLOCK');
+    expect(levelOn(it, null)).toBe('BLOCK');
+    expect(issuesOn(it, D).map((i) => i.code)).toEqual(['OVERWEIGHT']);
+    expect(levelOn(item([iss('X', 'info')]), D)).toBe('OK');
+  });
+  it('วันของการ์ด SO: วันเดียว = วันนั้น · 7 วัน = กำหนดส่ง (ถ้าอยู่ในช่วง)', () => {
+    const week = Array.from({ length: 7 }, (_, i) => addDays(D, i));
+    expect(orderDay({ requestedDate: '2026-11-18' }, [D])).toBe(D);
+    expect(orderDay({ requestedDate: '2026-11-18' }, week)).toBe('2026-11-18');
+    expect(orderDay({ requestedDate: '2026-11-01' }, week)).toBe(D);
+  });
+  it('ย้ายไปรถอื่น: เฉพาะคันที่ผ่านทุกกฎ ไม่ใช่คันเดิม รับน้ำหนักได้ · ประเภทเดียวกันก่อน → ความจุพอดี', () => {
+    const v = (id: string, vt: string, cap: string | null): BoardVehicle =>
+      ({ id, plate: id, vehicleTypeId: vt, capacityKg: cap }) as BoardVehicle;
+    const vs = [
+      v('veh_1', 'vty_6', '6000'),
+      v('veh_big', 'vty_6', '9000'),
+      v('veh_fit', 'vty_6', '6000'),
+      v('veh_10', 'vty_10', '5500'),
+      v('veh_small', 'vty_6', '3000'),
+      v('veh_bad', 'vty_6', '5400'),
+    ];
+    const ok = [
+      ...vs.filter((x) => x.id !== 'veh_bad').map((x) => item([], x.id)),
+      item([iss('DOC_MISSING', 'block')], 'veh_bad'),
+    ];
+    const t = trip({ weightKg: '5400' });
+    expect(moveTarget(t, ok, vs)?.id).toBe('veh_fit');
+    expect(
+      moveTarget(
+        t,
+        ok,
+        vs.filter((x) => x.vehicleTypeId !== 'vty_6' || x.id === 'veh_1'),
+      )?.id,
+    ).toBe('veh_10');
+    expect(moveTarget(t, [item([], 'veh_small')], vs)).toBeNull();
+    expect(moveTarget(t, [item([iss('OVERWEIGHT', 'warning')], 'veh_big')], vs)).toBeNull();
   });
 });
