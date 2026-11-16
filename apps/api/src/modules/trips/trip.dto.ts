@@ -248,7 +248,6 @@ export class AssignTripDto extends RuleConfirmDto {
   trailerId?: string | null;
 
   @ApiPropertyOptional({
-    default: false,
     description:
       'ST3-T17 "จัดรถและปล่อยเที่ยว" (docs/04 D2 Assign & dispatch) — จัดรถแล้วปล่อยรถในคำขอเดียว (atomic: ปล่อยไม่ได้ = ไม่จัดรถด้วย) · ' +
       'ต้องมี scope `trips:dispatch` เพิ่ม · ตรวจกฎแบบตอนปล่อยรถ: คำเตือนที่ยังไม่ยืนยัน → 409 `assignment_warnings`',
@@ -303,7 +302,6 @@ export class BulkAssignTripsDto {
   items!: BulkTripItemDto[];
 
   @ApiPropertyOptional({
-    default: false,
     description:
       'true = จัดรถและปล่อยเที่ยว (เที่ยวที่จัดรถแล้ว = ปล่อยอย่างเดียว) — ต้องมี scope `trips:dispatch` เพิ่ม',
   })

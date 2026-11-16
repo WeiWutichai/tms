@@ -238,13 +238,11 @@ export function tripColor(t: BoardTrip): string {
 export const movable = (t: BoardTrip) => t.status === 'PLANNING' || t.status === 'ASSIGNED';
 
 /**
- * ย้ายเที่ยวลงแถวรถ `vehicleId` ได้ไหมบนกระดาน: ปล่อยรถแล้ว = `locked` · จัดรถแล้ว (ASSIGNED) ไปรถอื่น = `assigned`
- * (จัดรถใหม่ = ST3-T17 — ไม่ทำ /assign + /schedule สองคำขอ) · ย้ายเวลาบนรถเดิมได้
+ * ย้ายเที่ยวลงแถวรถ `vehicleId` ได้ไหมบนกระดาน: ปล่อยรถแล้ว = `locked` · ก่อนปล่อยรถย้ายได้ทั้งเวลาและรถ
+ * (ST3-T17: เที่ยว ASSIGNED ไปรถอื่น = `/schedule` จัดรถใหม่ในคำขอเดียว — คนขับประจำของรถใหม่)
  */
-export function tripMoveBlock(t: BoardTrip, vehicleId: string): 'locked' | 'assigned' | null {
-  if (!movable(t)) return 'locked';
-  if (t.status === 'ASSIGNED' && vehicleId !== t.vehicleId) return 'assigned';
-  return null;
+export function tripMoveBlock(t: BoardTrip, _vehicleId: string): 'locked' | null {
+  return movable(t) ? null : 'locked';
 }
 
 /** ชื่อสั้นของลูกค้า (ต้นแบบ custShort — ตัดคำนำหน้านิติบุคคล; รายการคำนำหน้าจาก i18n คั่นด้วย |) */

@@ -1,5 +1,7 @@
-import { Badge, Drawer, EmptyState, Icon, Toast, useEscapeLayer } from '@tms/ui';
-import { useState, type ReactNode } from 'react';
+import { Badge, Drawer, EmptyState, Icon, ReasonDialog, Toast, useEscapeLayer } from '@tms/ui';
+import { useMemo, useState, type ReactNode } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { ApiError } from '../../api';
 import { useI18n } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
 import { problemText } from '../master/problems';
@@ -12,7 +14,17 @@ import {
   moveStop,
   routeDistanceText,
 } from './tripStops';
-import { useDetachFromTrip, useReorderStops, useTrip, type TripDetail } from './useTrips';
+import { BlockedDialog, type BlockedReason } from '../planning/RuleDialogs';
+import {
+  useAssignOptions,
+  useAssignTrip,
+  useDetachFromTrip,
+  useDispatchTrip,
+  useReorderStops,
+  useTrip,
+  type TripDetail,
+} from './useTrips';
+import { sortVehicles } from './assignForm';
 
 /** ป้ายสถานะเที่ยว — สี/ไอคอนตามกลุ่มสถานะของต้นแบบ (วางแผน / จัดรถแล้ว / ระหว่างส่ง / ส่งแล้ว) */
 const TONE: Record<string, { tone: 'off' | 'ok' | 'info' | 'warn' | 'err'; icon: string }> = {
@@ -128,6 +140,17 @@ function DetachDialog({
   );
 }
 
+const PICK_LABEL = { display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0 } as const;
+const PICK_CAP = { fontSize: 12.5, fontWeight: 500, color: '#59606B' } as const;
+const PICK_SELECT = {
+  height: 40,
+  padding: '0 10px',
+  border: '1px solid #CDD1C8',
+  borderRadius: 8,
+  background: '#FFFFFF',
+  color: '#101418',
+} as const;
+
 const ROUND_BTN = {
   width: 28,
   height: 28,
@@ -140,23 +163,46 @@ const ROUND_BTN = {
   justifyContent: 'center',
 } as const;
 
+/** ปัญหา 409 กฎตอนจัด (ST3-T14) จาก /assign /dispatch → รายการบล็อก/คำเตือนพร้อม `key` */
+type RuleProblem = { kind: 'block' | 'warn'; reasons: BlockedReason[] };
+const ruleProblem = (err: unknown): RuleProblem | null => {
+  if (!(err instanceof ApiError)) return null;
+  const p = err.problem as unknown as { blocks?: BlockedReason[]; warnings?: BlockedReason[] };
+  if (err.problem.code === 'assignment_blocked') return { kind: 'block', reasons: p.blocks ?? [] };
+  if (err.problem.code === 'assignment_warnings')
+    return { kind: 'warn', reasons: p.warnings ?? [] };
+  return null;
+};
+
 /**
  * Drawer เที่ยวรถ / ใบคุมรถ (ST3-T16 — ต้นแบบ TMS v4 vPanel kind 'trp'): ข้อมูลเที่ยว + "จุดรับ / ส่ง ตามลำดับ"
  * เลื่อนขึ้น/ลง (เรียงจุดเอง — กันส่งก่อนรับ) · นำออกจากเที่ยว · ระยะ/เวลารวม (เพิ่มจากต้นแบบ — spec/12 §3 DECISION)
- * แท็บไทม์ไลน์/เอกสาร และปุ่ม "พิมพ์ใบคุมรถ"/"ปล่อยเที่ยว" ยังไม่ทำ (ST4 / ST3-T20 / ST3-T17)
+ * ST3-T17: ส่วน "รถ / คนขับ" (ต้นแบบ drawer SO: ลิงก์ "จัดรถ" → select รถ + คนขับ) + footer "จัดรถ" (→ ASSIGNED ยังไม่ส่งงาน)
+ * แยกจาก "ปล่อยเที่ยว" (จัดรถและปล่อย → DISPATCHED ทุก DO) — docs/04 D2 · 409 กฎตอนจัด → dialog ยกเว้น/ยืนยันแล้วส่งซ้ำ
+ * แท็บไทม์ไลน์/เอกสาร และปุ่ม "พิมพ์ใบคุมรถ" ยังไม่ทำ (ST4 / ST3-T20)
  */
 export function TripDrawer({
   id,
   canEdit,
+  canDispatch = false,
+  canOverride = false,
+  onDone,
   onClose,
 }: {
   id: string;
   /** `trips:assign` */
   canEdit: boolean;
+  /** `trips:dispatch` — ปุ่ม "ปล่อยเที่ยว" */
+  canDispatch?: boolean;
+  /** `trips:override` — ยกเว้นบล็อกกฎเอกสาร (D-07) */
+  canOverride?: boolean;
+  /** ปล่อยเที่ยวสำเร็จ → ผู้เรียกแสดง toast แล้วปิด drawer (ต้นแบบ releaseTrp: ปิดแผง + toast) */
+  onDone?: (message: string) => void;
   onClose: () => void;
 }) {
   const { t } = useI18n();
   const dateText = useDateText();
+  const nav = useNavigate();
   const q = useTrip(id);
   const reorder = useReorderStops();
   const detach = useDetachFromTrip();
@@ -165,8 +211,26 @@ export function TripDrawer({
   const [ask, setAsk] = useState<TripDetail['stops'][number] | null>(null);
   const [askErr, setAskErr] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const assign = useAssignTrip();
+  const dispatch = useDispatchTrip();
+  /** ฟอร์มจัดรถ (ต้นแบบ pf.pick) — ค่าเริ่มจากเที่ยว (รถที่วางไว้ + คนขับเดิม) */
+  const [picking, setPicking] = useState(false);
+  const [form, setForm] = useState<{ veh: string; drv: string; relief: string } | null>(null);
+  /** 409 กฎตอนจัด → dialog · `retry(reason, keys)` ส่งคำขอเดิมซ้ำพร้อมกุญแจที่ยืนยันแล้วทั้งหมด */
+  const [rule, setRule] = useState<
+    (RuleProblem & { retry: (reason: string, keys: string[]) => void }) | null
+  >(null);
+  const [ruleErr, setRuleErr] = useState<string | null>(null);
   const labels = { close: t('drawer.close'), more: t('drawer.more') };
   const tr = q.data;
+  const assignable =
+    !!tr && canEdit && (tr.status === 'PLANNING' || tr.status === 'ASSIGNED') && !tr.carrier;
+  const opts = useAssignOptions(tr?.carrier?.id ?? null, assignable && picking);
+  const vehicles = useMemo(
+    () =>
+      sortVehicles(opts.vehicles.data ?? [], tr?.vehicle?.id ?? null, Number(tr?.weightKg ?? 0)),
+    [opts.vehicles.data, tr?.vehicle?.id, tr?.weightKg],
+  );
   if (!tr)
     return (
       <Drawer open onClose={onClose} kind={t('trip.kind')} title="…" labels={labels}>
@@ -183,7 +247,111 @@ export function TripDrawer({
     );
 
   const ed = canEdit && EDITABLE.has(tr.status);
-  const busy = reorder.isPending || detach.isPending;
+  const busy = reorder.isPending || detach.isPending || assign.isPending || dispatch.isPending;
+  const f = form ?? {
+    veh: tr.vehicle?.id ?? '',
+    drv: tr.driver?.id ?? '',
+    relief: tr.reliefDriver?.id ?? '',
+  };
+  const drivers = opts.drivers.data ?? [];
+  const defaultDriverOf = (veh: string) => {
+    const ds = drivers.filter((d) => d.defaultVehicle?.id === veh);
+    return ds.length === 1 ? ds[0]!.id : '';
+  };
+  const startPick = () => {
+    setErr(null);
+    setForm(f);
+    setPicking(true);
+  };
+  const doneMsg = (x: TripDetail) =>
+    x.status === 'DISPATCHED'
+      ? t('trip.toast.released', { n: 1 })
+      : t('trip.toast.assigned', {
+          no: x.tripNo,
+          plate: x.vehicle?.plate ?? '—',
+          driver: x.driver?.name ?? '—',
+        });
+  const onFail =
+    (send: (keys: string[], reason: string | null) => void, keys: string[], fromDialog: boolean) =>
+    (e: unknown) => {
+      const r = ruleProblem(e);
+      if (!r) {
+        if (fromDialog) setRuleErr(problemText(e, t));
+        else setErr(problemText(e, t));
+        return;
+      }
+      setRuleErr(null);
+      // ส่งซ้ำพร้อมกุญแจที่ยืนยัน/ยกเว้นแล้วทั้งหมด (บล็อกก่อน → คำเตือนตอนปล่อยรถ อาจถามสองรอบ)
+      setRule({
+        ...r,
+        retry: (reason, more) => send([...new Set([...keys, ...more])], reason),
+      });
+    };
+  /**
+   * ส่งการจัดรถ: `release` = จัดรถและปล่อยเที่ยว · เที่ยว ASSIGNED ที่ไม่ได้เปิดฟอร์ม + ปล่อย = /dispatch อย่างเดียว
+   * ไม่ได้เปิดฟอร์ม = รถที่วางไว้ + คนขับเดิม/คนขับประจำรถ (server เลือก — ไม่มี → 422 แล้วเปิดฟอร์ม)
+   */
+  const submit = (release: boolean) => {
+    if (busy) return;
+    setErr(null);
+    const onlyDispatch = release && tr.status === 'ASSIGNED' && !picking;
+    if (!onlyDispatch && !f.veh) {
+      startPick();
+      return;
+    }
+    const send = (keys: string[], reason: string | null) => {
+      const rules = keys.length ? { ruleKeys: keys, overrideReason: reason } : {};
+      const ok = (x: TripDetail) => {
+        setRule(null);
+        setPicking(false);
+        setForm(null);
+        const m = doneMsg(x);
+        const i = x.warnings
+          .filter((w) => !w.confirmed && w.severity !== 'info')
+          .map((w) => w.message)
+          .join(' · ');
+        const msg = i ? t('plan.toast.issue', { m, i }) : m;
+        if (x.status === 'DISPATCHED' && onDone) {
+          onDone(msg);
+          onClose();
+        } else setToast(msg);
+      };
+      const fail = onFail(send, keys, reason !== null);
+      if (onlyDispatch)
+        dispatch.mutate(
+          { id: tr.id, version: tr.version, body: rules },
+          { onSuccess: ok, onError: fail },
+        );
+      else
+        assign.mutate(
+          {
+            id: tr.id,
+            version: tr.version,
+            body: {
+              vehicleId: f.veh,
+              ...(picking || tr.driver ? { driverId: f.drv || null } : {}),
+              ...(picking ? { reliefDriverId: f.relief || null } : {}),
+              ...(release ? { dispatch: true } : {}),
+              ...rules,
+            },
+          },
+          {
+            onSuccess: ok,
+            onError: (e) => {
+              if (!picking && !ruleProblem(e)) setPicking(true);
+              fail(e);
+            },
+          },
+        );
+    };
+    send([], null);
+  };
+  const assignedNow = tr.status === 'ASSIGNED';
+  const showAssignBtn = assignable && (!assignedNow || picking);
+  const showRelease =
+    canDispatch &&
+    tr.deliveryOrders.length > 0 &&
+    (assignedNow || (tr.status === 'PLANNING' && assignable));
   const ids = tr.stops.map((s) => s.id);
   const doNo = (x: string) => tr.deliveryOrders.find((d) => d.id === x)?.doNo ?? '';
   const mv = (i: number, d: -1 | 1) => {
@@ -272,6 +440,39 @@ export function TripDrawer({
               {err}
             </span>
           )}
+          {(showAssignBtn || showRelease) && (
+            <div
+              style={{
+                display: 'flex',
+                gap: 8,
+                justifyContent: 'flex-end',
+                flexWrap: 'wrap',
+                marginLeft: 'auto',
+              }}
+            >
+              {showAssignBtn && (
+                <button
+                  type="button"
+                  className="tms-drawer__sec"
+                  disabled={busy}
+                  onClick={() => submit(false)}
+                >
+                  {t('trip.foot.assign')}
+                </button>
+              )}
+              {showRelease && (
+                <button
+                  type="button"
+                  className="tms-drawer__pri"
+                  disabled={busy}
+                  onClick={() => submit(true)}
+                >
+                  <Icon n="send" s={16} />
+                  {t('trip.foot.release')}
+                </button>
+              )}
+            </div>
+          )}
         </>
       }
     >
@@ -317,6 +518,149 @@ export function TripDrawer({
           />
         </div>
       </section>
+      {assignable && (
+        <section
+          data-testid="trip-assign"
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 10,
+            paddingBottom: 20,
+            borderBottom: '1px solid #E4E6E0',
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 8,
+            }}
+          >
+            <span style={{ fontSize: 12.5, fontWeight: 600, color: '#3B424C' }}>
+              {t('trip.as.title')}
+            </span>
+          </div>
+          {!picking && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <span style={{ color: '#3B424C' }}>
+                {t(assignedNow ? 'trip.as.assigned' : 'trip.as.none')}
+              </span>
+              <button
+                type="button"
+                onClick={startPick}
+                style={{
+                  border: 0,
+                  background: 'transparent',
+                  padding: 0,
+                  color: '#2257C4',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                {t(assignedNow ? 'trip.as.change' : 'trip.as.pick')}
+              </button>
+            </div>
+          )}
+          {picking && (
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)',
+                gap: 12,
+              }}
+            >
+              <label style={PICK_LABEL}>
+                <span style={PICK_CAP}>{t('trip.as.vehicle')}</span>
+                <select
+                  value={f.veh}
+                  onChange={(e) =>
+                    setForm({ ...f, veh: e.target.value, drv: defaultDriverOf(e.target.value) })
+                  }
+                  style={PICK_SELECT}
+                >
+                  {!f.veh && <option value="">—</option>}
+                  {vehicles.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.payloadKg
+                        ? t('trip.as.vehOpt', {
+                            p: v.plate,
+                            t: v.vehicleType.name,
+                            w: v.payloadKg.toLocaleString('th-TH'),
+                          })
+                        : t('trip.as.vehOptNoCap', { p: v.plate, t: v.vehicleType.name })}
+                    </option>
+                  ))}
+                  {tr.vehicle && !vehicles.some((v) => v.id === tr.vehicle!.id) && (
+                    <option value={tr.vehicle.id}>{tr.vehicle.plate}</option>
+                  )}
+                </select>
+              </label>
+              <label style={PICK_LABEL}>
+                <span style={PICK_CAP}>{t('trip.as.driver')}</span>
+                <select
+                  value={f.drv}
+                  onChange={(e) => setForm({ ...f, drv: e.target.value })}
+                  style={PICK_SELECT}
+                >
+                  <option value="">{t('trip.as.pickDriver')}</option>
+                  {drivers.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.licenceClass
+                        ? t('plan.driver', {
+                            n: d.name,
+                            l: t(`vt.lic.${d.licenceClass}` as MessageKey),
+                          })
+                        : d.name}
+                    </option>
+                  ))}
+                  {tr.driver && !drivers.some((d) => d.id === tr.driver!.id) && (
+                    <option value={tr.driver.id}>{tr.driver.name}</option>
+                  )}
+                </select>
+              </label>
+              <label style={PICK_LABEL}>
+                <span style={PICK_CAP}>{t('trip.as.relief')}</span>
+                <select
+                  value={f.relief}
+                  onChange={(e) => setForm({ ...f, relief: e.target.value })}
+                  style={PICK_SELECT}
+                >
+                  <option value="">{t('trip.as.noRelief')}</option>
+                  {drivers
+                    .filter((d) => d.id !== f.drv)
+                    .map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.name}
+                      </option>
+                    ))}
+                  {tr.reliefDriver && !drivers.some((d) => d.id === tr.reliefDriver!.id) && (
+                    <option value={tr.reliefDriver.id}>{tr.reliefDriver.name}</option>
+                  )}
+                </select>
+              </label>
+            </div>
+          )}
+          {picking && (opts.vehicles.isError || opts.drivers.isError) && (
+            <span className="tms-field-error">{t('trip.as.loadError')}</span>
+          )}
+          {tr.warnings.some((w) => !w.confirmed && w.severity !== 'info') && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {tr.warnings
+                .filter((w) => !w.confirmed && w.severity !== 'info')
+                .map((w) => (
+                  <span
+                    key={`${w.code}|${w.message}`}
+                    style={{ display: 'flex', gap: 6, color: '#8F5500', fontWeight: 500 }}
+                  >
+                    <Icon n="triangle-alert" s={16} style={{ marginTop: 3, flexShrink: 0 }} />
+                    {w.message}
+                  </span>
+                ))}
+            </div>
+          )}
+        </section>
+      )}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: '#13213F' }}>
           {t('trip.stops.title')}
@@ -451,6 +795,52 @@ export function TripDrawer({
           error={askErr}
           onOk={(ids) => detachDos(ids, true)}
           onClose={() => setAsk(null)}
+        />
+      )}
+      <BlockedDialog
+        open={rule?.kind === 'block'}
+        plate={tr.vehicle?.plate ?? '—'}
+        sub={[tr.vehicle?.vehicleTypeName, tr.driver?.name].filter(Boolean).join(' · ')}
+        reasons={rule?.kind === 'block' ? rule.reasons : []}
+        canOverride={canOverride}
+        busy={busy}
+        error={ruleErr}
+        onLink={(code) => {
+          setRule(null);
+          onClose();
+          nav(code.startsWith('DRIVER_') ? '/fleet/drivers' : '/fleet/documents');
+        }}
+        onClose={() => setRule(null)}
+        onOk={(reason, keys) => rule?.retry(reason, keys)}
+      />
+      {rule?.kind === 'warn' && (
+        <ReasonDialog
+          open
+          title={t('trip.warn.title')}
+          description={t('trip.warn.desc', { no: tr.tripNo })}
+          diff={{
+            rows: rule.reasons.map((r) => ({
+              f: t('plan.ack.field'),
+              b: r.message,
+              a: t('plan.ack.approve'),
+            })),
+            labels: [t('plan.ack.field'), t('plan.ack.before'), t('plan.ack.after')],
+          }}
+          hint={(n, ok) => (ok ? t('ord.dlg.hintOk') : t('ord.dlg.hintMin', { n }))}
+          label={t('ord.dlg.reason')}
+          placeholder={t('plan.ack.ph')}
+          okLabel={t('plan.ack.ok')}
+          cancelLabel={t('common.cancel')}
+          closeLabel={t('drawer.close')}
+          busy={busy}
+          error={ruleErr}
+          onClose={() => setRule(null)}
+          onOk={(reason) =>
+            rule.retry(
+              reason,
+              rule.reasons.map((r) => r.key).filter((k): k is string => !!k),
+            )
+          }
         />
       )}
       <Toast message={toast} onClose={() => setToast(null)} closeLabel={t('drawer.close')} />

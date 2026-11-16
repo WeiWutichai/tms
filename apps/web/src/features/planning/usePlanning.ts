@@ -91,7 +91,7 @@ export function useDropOrder() {
 
 /**
  * ย้าย/ปรับขนาดเที่ยว → POST /v1/trips/{id}/schedule (If-Match = version บนกระดาน) — คำขอเดียว
- * (เที่ยว ASSIGNED ย้ายไปรถอื่น = ทางจัดรถใหม่ของ ST3-T17 กระดานบล็อกไว้ — ไม่ทำ /assign + /schedule สองคำขอ)
+ * (เที่ยว ASSIGNED ย้ายไปรถอื่น = จัดรถใหม่ในคำขอเดียวกัน — ST3-T17)
  */
 export function useMoveTrip() {
   const qc = useQueryClient();

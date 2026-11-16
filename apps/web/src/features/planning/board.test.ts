@@ -170,7 +170,7 @@ describe('lane + ซ้อนเวลา', () => {
     expect(movable(trip({ status: 'ASSIGNED' }))).toBe(true);
     expect(movable(trip({ status: 'DISPATCHED' }))).toBe(false);
     expect(tripMoveBlock(trip({ status: 'DISPATCHED' }), 'veh_1')).toBe('locked');
-    expect(tripMoveBlock(trip({ status: 'ASSIGNED' }), 'veh_2')).toBe('assigned');
+    expect(tripMoveBlock(trip({ status: 'ASSIGNED' }), 'veh_2')).toBeNull(); // ST3-T17 จัดรถใหม่
     expect(tripMoveBlock(trip({ status: 'ASSIGNED' }), 'veh_1')).toBeNull();
     expect(tripMoveBlock(trip(), 'veh_2')).toBeNull();
   });
