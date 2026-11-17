@@ -267,6 +267,9 @@ export class MfaController {
 
   private async currentUser() {
     const ctx = requestContext.require();
+    // ผู้ใช้จริงเท่านั้น — API key (`apikey:…`) / ลิงก์ ไม่มีบัญชีผู้ใช้ (ST7-T01)
+    if (!ctx.actorId || !/^[0-9a-f-]{36}$/i.test(ctx.actorId))
+      throw new ProblemException('unauthorized');
     const user = await this.prisma.platform.appUser.findFirst({
       where: { id: ctx.actorId, tenantId: ctx.tenantId, status: 'ACTIVE' },
     });

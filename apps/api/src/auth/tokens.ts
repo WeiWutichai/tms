@@ -8,7 +8,7 @@ import { jwtVerify, SignJWT } from 'jose';
  * - `tv` tokenVersion ของผู้ใช้ตอนออก token (bump แล้ว token เก่าใช้ไม่ได้ทันที — A1)
  *
  * เซ็นแบบ HS256 ด้วย `AUTH_JWT_SECRET` (fallback `AUTH_DEV_SECRET` เฉพาะเครื่อง dev/test)
- * RS256 + JWKS สำหรับ client ภายนอกมาใน ST7-T01 (ตอนนั้นมีผู้ตรวจ token นอกระบบ) — plan/02 T-04
+ * token ของ client ภายนอก (client credentials) เซ็น RS256 + JWKS — `signing-keys.ts` (ST7-T01)
  */
 export const ACCESS_TTL_SECONDS = 15 * 60;
 
@@ -28,8 +28,11 @@ function secret(): Uint8Array {
   return new TextEncoder().encode(s);
 }
 
-/** `imp` = ทีม Innovera เข้าใช้งานแทนผู้ใช้ของลูกค้า (ST1-T24) — sub = ผู้ใช้ที่สวม, act = platform user */
-export type PrincipalType = 'user' | 'dev' | 'imp';
+/**
+ * `imp` = ทีม Innovera เข้าใช้งานแทนผู้ใช้ของลูกค้า (ST1-T24) — sub = ผู้ใช้ที่สวม, act = platform user
+ * `client` = API key / OAuth2 client credentials (ST7-T01) — ออกโดย guard จาก key เท่านั้น (ไม่เคยมาจาก token HS256)
+ */
+export type PrincipalType = 'user' | 'dev' | 'imp' | 'client';
 
 export interface AccessClaims {
   sub: string;

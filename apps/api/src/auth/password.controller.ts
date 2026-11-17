@@ -44,6 +44,9 @@ export class PasswordController {
   async change(@Body() body: ChangePasswordDto, @Req() req: Request): Promise<void> {
     const ctx = requestContext.require();
     const db = this.prisma.platform;
+    // ผู้ใช้จริงเท่านั้น — API key (`apikey:…`) / ลิงก์ ไม่มีบัญชีผู้ใช้ (ST7-T01)
+    if (!ctx.actorId || !/^[0-9a-f-]{36}$/i.test(ctx.actorId))
+      throw new ProblemException('unauthorized');
     const user = await db.appUser.findFirst({
       where: { id: ctx.actorId, tenantId: ctx.tenantId, status: 'ACTIVE' },
     });

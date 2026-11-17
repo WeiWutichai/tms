@@ -1,5 +1,5 @@
 import { isLocalEnv } from './tokens';
-import { Body, Controller, HttpCode, Post, Req, Res } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Post, Req, Res } from '@nestjs/common';
 import {
   ApiConflictResponse,
   ApiNoContentResponse,
@@ -23,8 +23,10 @@ import type { CookieOptions, Request, Response } from 'express';
 import { Public } from '../common/decorators';
 import { decodeIdOr404 } from '../common/ids';
 import { ProblemException } from '../common/problem';
+import { ApiKeyAuthService } from '../modules/api-keys/api-key-auth.service';
 import { ApiServiceBusyResponse } from './auth-tx';
 import { AuthService, type ClientInfo, type TokenPair } from './auth.service';
+import { jwks } from './signing-keys';
 
 /** code_verifier/challenge ตาม RFC 7636 (43–128 ตัว unreserved) */
 const PKCE = /^[A-Za-z0-9\-._~]{43,128}$/;
@@ -60,9 +62,13 @@ export class LoginResultDto {
 }
 
 export class TokenRequestDto {
-  @ApiProperty({ enum: ['authorization_code', 'refresh_token'] })
-  @IsIn(['authorization_code', 'refresh_token'])
-  grantType!: 'authorization_code' | 'refresh_token';
+  @ApiProperty({
+    enum: ['authorization_code', 'refresh_token', 'client_credentials'],
+    description:
+      'client_credentials (ST7-T01) = client ภายนอกด้วย API key: clientId `key_…` + clientSecret `tk_live_…` (หรือ HTTP Basic) → JWT RS256 1 ชม.',
+  })
+  @IsIn(['authorization_code', 'refresh_token', 'client_credentials'])
+  grantType!: 'authorization_code' | 'refresh_token' | 'client_credentials';
 
   @ApiPropertyOptional({ description: 'grantType=authorization_code' })
   @IsOptional()
@@ -74,12 +80,64 @@ export class TokenRequestDto {
   @IsOptional()
   @Matches(PKCE)
   codeVerifier?: string;
+
+  @ApiPropertyOptional({
+    example: 'key_…',
+    description: 'grantType=client_credentials — หรือส่งใน Authorization: Basic',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  clientId?: string;
+
+  @ApiPropertyOptional({
+    description: 'grantType=client_credentials — API key เต็ม (`tk_live_…`)',
+    format: 'password',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  clientSecret?: string;
+
+  @ApiPropertyOptional({
+    example: 'orders:read orders:write',
+    description:
+      'grantType=client_credentials — scope ที่ขอ (คั่นด้วยช่องว่าง ⊆ scope ของ key; ไม่ส่ง = ทั้งหมด)',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  scope?: string;
 }
 
 export class TokenDto {
   @ApiProperty() accessToken!: string;
   @ApiProperty({ example: 'Bearer' }) tokenType!: string;
   @ApiProperty({ example: 900, description: 'วินาที' }) expiresIn!: number;
+  @ApiPropertyOptional({ description: 'client_credentials: scope ที่ได้จริง' }) scope?: string;
+}
+
+export class JwksDto {
+  @ApiProperty({
+    type: 'array',
+    items: { type: 'object', additionalProperties: true },
+    description: 'RSA public keys (RFC 7517) ที่ใช้ตรวจ token ของ client credentials',
+  })
+  keys!: Record<string, unknown>[];
+}
+
+/** HTTP Basic (RFC 6749 §2.3.1) → [client_id, client_secret] */
+function basicCredentials(req: Request): [string, string] | null {
+  const h = req.header('authorization') ?? '';
+  if (!h.startsWith('Basic ')) return null;
+  const raw = Buffer.from(h.slice(6), 'base64').toString('utf8');
+  const i = raw.indexOf(':');
+  if (i < 0) return null;
+  try {
+    return [decodeURIComponent(raw.slice(0, i)), decodeURIComponent(raw.slice(i + 1))];
+  } catch {
+    return null;
+  }
 }
 
 export const REFRESH_COOKIE = 'tms_rt';
@@ -108,7 +166,10 @@ function clientOf(req: Request): ClientInfo {
 @Public()
 @Controller()
 export class AuthController {
-  constructor(private readonly auth: AuthService) {}
+  constructor(
+    private readonly auth: AuthService,
+    private readonly apiKeys: ApiKeyAuthService,
+  ) {}
 
   @Post('auth/login')
   @HttpCode(200)
@@ -139,13 +200,32 @@ export class AuthController {
 
   @Post('oauth/token')
   @HttpCode(200)
-  @ApiOkResponse({ type: TokenDto, description: 'ตั้ง refresh token ใน cookie httpOnly `tms_rt`' })
+  @ApiOkResponse({
+    type: TokenDto,
+    description:
+      'authorization_code / refresh_token: ตั้ง refresh token ใน cookie httpOnly `tms_rt` · client_credentials: ไม่มี refresh token',
+  })
+  @ApiUnauthorizedResponse({ description: 'invalid_client / key_revoked / key_expired' })
   async token(
     @Body() body: TokenRequestDto,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<TokenDto> {
     let pair: TokenPair;
+    if (body.grantType === 'client_credentials') {
+      const basic = basicCredentials(req);
+      const id = basic?.[0] ?? body.clientId;
+      const sec = basic?.[1] ?? body.clientSecret;
+      if (!id || !sec) throw new ProblemException('invalid_client');
+      const t = await this.apiKeys.issueToken(id, sec, body.scope, req.ip);
+      res.setHeader('Cache-Control', 'no-store');
+      return {
+        accessToken: t.accessToken,
+        tokenType: 'Bearer',
+        expiresIn: t.expiresIn,
+        scope: t.scope,
+      };
+    }
     if (body.grantType === 'authorization_code') {
       if (!body.code || !body.codeVerifier) throw new ProblemException('invalid_grant');
       pair = await this.auth.exchangeCode(body.code, body.codeVerifier, clientOf(req));
@@ -163,6 +243,14 @@ export class AuthController {
     res.cookie(REFRESH_COOKIE, pair.refreshToken, cookieOptions(pair.refreshExpiresAt));
     res.setHeader('Cache-Control', 'no-store');
     return { accessToken: pair.accessToken, tokenType: 'Bearer', expiresIn: pair.expiresIn };
+  }
+
+  /** กุญแจสาธารณะสำหรับตรวจ token ของ client credentials (RS256) — หมุนกุญแจดู auth/signing-keys.ts */
+  @Get('.well-known/jwks.json')
+  @ApiOkResponse({ type: JwksDto })
+  async jwks(@Res({ passthrough: true }) res: Response): Promise<JwksDto> {
+    res.setHeader('Cache-Control', 'public, max-age=300');
+    return (await jwks()) as unknown as JwksDto;
   }
 
   @Post('oauth/revoke')

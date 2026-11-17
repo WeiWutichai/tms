@@ -24,6 +24,16 @@ export function buildOpenApi(app: NestExpressApplication): OpenAPIObject {
   });
 }
 
+/** ค่า `trust proxy` ของ Express จาก env (ไม่ตั้ง = 1 ชั้น) */
+export function trustProxy(v: string | undefined): number | string[] {
+  if (!v?.trim()) return 1;
+  if (/^\d+$/.test(v.trim())) return Number(v.trim());
+  return v
+    .split(',')
+    .map((x) => x.trim())
+    .filter(Boolean);
+}
+
 /** สร้างแอป (ใช้ร่วมกันระหว่าง main.ts และ test) */
 /** @param module สำหรับ test ที่ต้องเพิ่ม controller ชั่วคราว (ค่าเริ่ม = AppModule) */
 export async function createApp(module: unknown = AppModule): Promise<NestExpressApplication> {
@@ -31,7 +41,10 @@ export async function createApp(module: unknown = AppModule): Promise<NestExpres
     logger: process.env.NODE_ENV === 'test' ? ['error', 'warn'] : undefined,
   });
   app.disable('x-powered-by');
-  app.set('trust proxy', 1);
+  // IP ผู้เรียก (audit, rate limit, IP allowlist ของ API key — ST7-T01) มาจาก X-Forwarded-For ตามจำนวน proxy ที่ไว้ใจ
+  // ค่าเริ่ม 1 ชั้น (load balancer ตัวเดียว) · ตั้ง TRUST_PROXY ได้: จำนวนชั้น (`2`) หรือรายการ IP/CIDR ของ proxy
+  // (`10.0.0.0/8,loopback`) — ตั้งผิด = ผู้เรียกปลอม X-Forwarded-For เพื่อผ่าน allowlist ได้
+  app.set('trust proxy', trustProxy(process.env.TRUST_PROXY));
   // Security baseline (ST0-T12): HSTS, CSP (API คืน JSON ล้วน → default-src 'none'), frame deny, referrer
   app.use(
     helmet({

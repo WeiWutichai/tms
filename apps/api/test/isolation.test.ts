@@ -226,6 +226,23 @@ const FIXTURES: Record<string, (db: PrismaClient, tenantId: string, n: number) =
           })
         ).id,
       ),
+    apiKey: async (db, tenantId, n) =>
+      encodeId(
+        'apiKey',
+        (
+          await db.apiKey.create({
+            data: {
+              tenantId,
+              name: `ISO key ${n}`,
+              mode: 'live',
+              prefix: 'tk_live_0000',
+              secretHash: `iso-${tenantId}-${n}`,
+              scopes: ['orders:read'],
+              ipAllowlist: [],
+            },
+          })
+        ).id,
+      ),
     reasonCode: async (db, tenantId, n) =>
       encodeId(
         'reasonCode',
@@ -716,6 +733,7 @@ const BODY_FOR_SUFFIX: Record<string, object> = {
 
 /** body เฉพาะ route (suffix เดียวกันแต่ validation ต่างกัน) — มาก่อน BODY_FOR_SUFFIX */
 const BODY_FOR_PATH: Record<string, object> = {
+  '/v1/api-keys/:id/rotate': { reason: 'isolation test reason' }, // ST7-T01
   '/v1/drivers/:id/status': { status: 'on_leave', reason: 'isolation test reason' }, // ST2-T08
   '/v1/drivers/:id/reveal': { reason: 'isolation test reason' }, // ST2-T08
   // ST3-T06 จับคู่ด้วยมือ (`:sequence` ไม่ถูกแทน — ใบของ tenant อื่นต้อง 404 ก่อนตรวจลำดับจุด)
