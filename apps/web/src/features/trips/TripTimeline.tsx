@@ -265,22 +265,23 @@ export function TripTimeline({
                     className="tms-num"
                     style={{
                       display: 'flex',
-                      alignItems: 'center',
+                      alignItems: 'flex-start',
                       gap: 6,
-                      flexWrap: 'wrap',
                       fontSize: 12,
                       color: '#3B424C',
                     }}
                   >
-                    <Icon n="calendar-clock" s={14} />
-                    {r.attempt > 0
-                      ? t('trip.tl.resched', {
-                          n: r.attempt,
-                          from: r.fromDoNo,
-                          no: r.doNo,
-                          d: dd(r.doDate),
-                        })
-                      : t('trip.tl.redeliver', { from: r.fromDoNo, no: r.doNo, d: dd(r.doDate) })}
+                    <Icon n="calendar-clock" s={14} style={{ flex: 'none', marginTop: 1 }} />
+                    <span style={{ minWidth: 0 }}>
+                      {r.attempt > 0
+                        ? t('trip.tl.resched', {
+                            n: r.attempt,
+                            from: r.fromDoNo,
+                            no: r.doNo,
+                            d: dd(r.doDate),
+                          })
+                        : t('trip.tl.redeliver', { from: r.fromDoNo, no: r.doNo, d: dd(r.doDate) })}
+                    </span>
                   </span>
                 ))}
                 {flagged.length > 0 && (

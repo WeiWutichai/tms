@@ -1959,8 +1959,8 @@ export function PlanningPage() {
               )}
             />
           )}
-          {/* ป้าย "ส่งซ้ำ" (spec/03 ORD-087; ST4-T12 — ต้นแบบไม่มี: spec/12 §3) — ไม่ซ้อนป้ายเหตุค้าง */}
-          {!o.sourceChangePending && !o.holdReason && isRedelivery(o) && (
+          {/* ป้าย "ส่งซ้ำ" (spec/03 ORD-087; ST4-T12 — ต้นแบบไม่มี: spec/12 §3) ต่อท้ายป้ายเหตุค้าง */}
+          {isRedelivery(o) && (
             <span title={t('plan.pool.redeliveryOf', { no: redeliveryNos(o) })}>
               <Badge label={t('plan.pool.redelivery')} tone="info" icon="refresh-cw" />
             </span>
