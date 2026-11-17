@@ -68,7 +68,7 @@ describe('ส่งลิงก์ทาง LINE / SMS (messaging)', () => {
     carrierB = await carrier(2, { phone: '02-123-4567', lineContact: '@sapsomboon' });
   });
   beforeEach(async () => {
-    resetPublicRateLimit();
+    await resetPublicRateLimit();
     line = new MockMessagingProvider('LINE');
     sms = new MockMessagingProvider('SMS');
     providers.use('LINE', line);

@@ -34,6 +34,17 @@ export class ProblemDto {
   code!: string;
   @ApiProperty({ example: 'b6a1…' }) requestId!: string;
   @ApiPropertyOptional({ type: [ProblemFieldErrorDto] }) errors?: ProblemFieldErrorDto[];
+  @ApiPropertyOptional({
+    example: 2,
+    description: '429/503: วินาทีที่ควรรอก่อนส่งใหม่ (ตรงกับ header Retry-After)',
+  })
+  retryAfter?: number;
+  @ApiPropertyOptional({
+    example: 'tenant',
+    description:
+      '429 rate_limited: เพดานที่เต็ม — tenant · key · user · endpoint (คำขอหนัก) · ip · link · lookup',
+  })
+  scope?: string;
 }
 
 /** เอกสาร problem response ของ route พร้อมตัวอย่างต่อ code (`examples` ชื่อ = code) */

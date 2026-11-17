@@ -34,7 +34,7 @@ import {
   Min,
 } from 'class-validator';
 import type { Response } from 'express';
-import { TenantResource } from '../../common/decorators';
+import { TenantResource, RateLimitClass } from '../../common/decorators';
 import { decodeIdOr404, encodeId, tryDecodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
@@ -245,6 +245,7 @@ export class ImportsController {
   }
 
   @Get('kinds/:kind/template')
+  @RateLimitClass('heavy')
   @ApiProduces('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
   @ApiOkResponse({ description: 'ไฟล์ template .xlsx' })
   async template(
@@ -257,6 +258,7 @@ export class ImportsController {
 
   /** สร้างงานนำเข้า + ตรวจ (dry-run) — ไฟล์ > 1,000 แถวตอบ status validating + jobId แล้วตรวจใน job */
   @Post()
+  @RateLimitClass('heavy')
   @ApiCreatedResponse({ type: ImportDto })
   async create(@Body() body: CreateImportDto): Promise<ImportDto> {
     const ctx = requestContext.require();
@@ -383,6 +385,7 @@ export class ImportsController {
    * ตรวจซ้ำแล้วพบแถวผิด (all_or_nothing — ข้อมูลเปลี่ยนระหว่างรอ) = ไม่เขียนอะไร ตอบ status validated พร้อมผลตรวจใหม่
    */
   @Post(':id/commit')
+  @RateLimitClass('heavy')
   @HttpCode(200)
   @TenantResource('import')
   @ApiOkResponse({ type: ImportDto })
@@ -431,6 +434,7 @@ export class ImportsController {
 
   /** แถวที่ผิด + คอลัมน์ "ผลตรวจ" (.xlsx) — ตรวจใหม่ทั้งไฟล์ ได้ทุกแถวที่ผิด */
   @Get(':id/errors')
+  @RateLimitClass('heavy')
   @TenantResource('import')
   @ApiProduces('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
   @ApiOkResponse({ description: 'ไฟล์ .xlsx แถวที่ผิด' })

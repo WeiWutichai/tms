@@ -4,6 +4,7 @@ import { scopeAllows, WEBHOOK_DELIVERY_RETENTION_DAYS, WEBHOOK_EVENT_TYPES } fro
 import { randomUUID } from 'node:crypto';
 import { encodeId, tryDecodeId } from '../../common/ids';
 import { redactPrices } from '../../common/price-fields';
+import { RateLimitService, slidingWindow } from '../../http/rate-limit/rate-limit.service';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
@@ -103,6 +104,7 @@ export class WebhookOpsService {
     private readonly db: DbService,
     private readonly hooks: WebhooksService,
     private readonly dispatcher: OutboxDispatcher,
+    private readonly limiter: RateLimitService,
   ) {}
 
   // ---------- read ----------
@@ -192,30 +194,23 @@ export class WebhookOpsService {
 
   // ---------- resend ----------
 
-  private readonly hits = new Map<string, number[]>();
   /** งบรอผลจาก worker (test ปรับได้) */
   resultWaitMs = RESULT_WAIT_MS;
 
   /**
    * 429 เมื่อส่งซ้ำถี่เกิน — เรียกหลังตรวจผ่านแล้วเท่านั้น (คำขอที่ถูกปฏิเสธ 4xx ไม่กินโควตา)
-   * นับต่อบริษัท 1 ครั้งต่อ endpoint (redeliver ทุก endpoint = หลายครั้ง) · นับใน process [DECISION spec/12 §3]
+   * นับต่อบริษัท 1 ครั้งต่อ endpoint (redeliver ทุก endpoint = หลายครั้ง) + คู่ endpoint/event 1 ครั้ง / 2 วิ
+   * ST7-T08: ตัวจำกัดกลาง (ใช้ร่วมทุก instance; หน้าต่างเลื่อนเหมือนเดิม; ฐานใช้ไม่ได้ = 503) [DECISION spec/12 §3]
    */
-  private takeSlot(tenantId: string, pairs: string[], now = Date.now()) {
-    const recent = (key: string, windowMs: number) =>
-      (this.hits.get(key) ?? []).filter((t) => now - t < windowMs);
-    const tk = `t:${tenantId}`;
-    const tHits = recent(tk, TENANT_WINDOW_MS);
-    let w = 0;
-    if (tHits.length + pairs.length > TENANT_MAX)
-      w = Math.ceil((TENANT_WINDOW_MS - (now - (tHits[0] ?? now))) / 1000) || 1;
-    for (const p of pairs) {
-      const xs = recent(`p:${p}`, PAIR_WINDOW_MS);
-      if (xs.length) w = Math.max(w, Math.ceil((PAIR_WINDOW_MS - (now - xs[0]!)) / 1000));
-    }
-    if (w) throw new ProblemException('rate_limited', undefined, undefined, { retryAfter: w });
-    this.hits.set(tk, [...tHits, ...pairs.map(() => now)]);
-    for (const p of pairs) this.hits.set(`p:${p}`, [now]);
-    if (this.hits.size > 10_000) this.hits.clear();
+  private takeSlot(tenantId: string, all: string[]) {
+    const pairs = [...new Set(all)]; // review L4: คู่ซ้ำ (endpoint ซ้ำในรายการ) นับครั้งเดียว
+    return this.limiter.assert([
+      {
+        ...slidingWindow(`whr:t:${tenantId}`, TENANT_MAX, TENANT_WINDOW_MS, 'tenant'),
+        cost: pairs.length,
+      },
+      ...pairs.map((p) => slidingWindow(`whr:p:${p}`, 1, PAIR_WINDOW_MS, 'endpoint')),
+    ]);
   }
 
   private withTx<T>(tenantId: string, fn: (tx: Tx) => Promise<T>) {
@@ -231,7 +226,7 @@ export class WebhookOpsService {
     if (d.test || !d.eventId) throw new ProblemException('webhook_not_retryable');
     const p = await this.withTx(tenantId, async (tx) => {
       const c = await this.check(tx, d.endpointId, d.eventId!);
-      this.takeSlot(tenantId, [`${d.endpointId}:${d.eventId}`]);
+      await this.takeSlot(tenantId, [`${d.endpointId}:${d.eventId}`]);
       return this.insert(tx, tenantId, c, { source: 'retry', deliveryId: d.id });
     });
     return this.run(tenantId, p, started);
@@ -258,7 +253,7 @@ export class WebhookOpsService {
       }
       const checked: Checked[] = [];
       for (const t of targets) checked.push(await this.check(tx, t, eventId));
-      this.takeSlot(
+      await this.takeSlot(
         tenantId,
         targets.map((t) => `${t}:${eventId}`),
       );

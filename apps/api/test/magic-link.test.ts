@@ -188,13 +188,13 @@ describe('magic link', () => {
   });
 
   it('route /public/* จำกัดอัตราต่อ IP → 429 + Retry-After', async () => {
-    resetPublicRateLimit();
+    await resetPublicRateLimit();
     const l = await issue();
     let last = 0;
     for (let i = 0; i <= PUBLIC_LIMIT_PER_MIN; i++)
       last = (await get(l.token).set('X-Forwarded-For', '10.70.0.1')).status;
     expect(last).toBe(429);
     expect((await get(l.token).set('X-Forwarded-For', '10.70.0.2')).status).toBe(200);
-    resetPublicRateLimit();
+    await resetPublicRateLimit();
   }, 60_000);
 });

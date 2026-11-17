@@ -1,0 +1,888 @@
+import { Injectable, Logger } from '@nestjs/common';
+import { type Connector, Prisma } from '@prisma/client';
+import {
+  canConnectorTransition,
+  type ConnectorStatus,
+  ERP_CAPABILITIES,
+  unsupportedCapabilities,
+} from '@tms/domain';
+import { randomUUID } from 'node:crypto';
+import { isLocalEnv } from '../../auth/tokens';
+import { FieldCipher } from '../../common/crypto';
+import { encodeId, tryDecodeId } from '../../common/ids';
+import { ProblemException } from '../../common/problem';
+import { requestContext } from '../../common/request-context';
+import { DbService, type Tx } from '../../db/db.service';
+import { PrismaService } from '../../db/prisma.service';
+import { EntitlementService } from '../entitlements/entitlement.service';
+import type {
+  ConnectorActionDto,
+  ConnectorCredentialsDto,
+  ConnectorDto,
+  ConnectorHealthDto,
+  ConnectorListQuery,
+  ConnectorReasonDto,
+  CreateConnectorDto,
+  EffectiveConnectorDto,
+  EffectiveConnectorQuery,
+  ErpAdapterDto,
+  UpdateConnectorDto,
+} from './connector.dto';
+import { ConnectorResolver } from './connector-resolver';
+import type { ErpAdapter, ErpContext, HealthResult } from './erp-adapter';
+import { ErpAdapterRegistry } from './erp-adapter.registry';
+
+const HEALTH_TIMEOUT_MS = 15_000;
+const VALUE_MAX = 2048;
+
+const field422 = (field: string, code: string, message: string) =>
+  new ProblemException('validation_failed', undefined, [{ field, code, message }]);
+
+/** วันนี้ตามเวลาไทย (YYYY-MM-DD) */
+const todayTh = () => new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10);
+const iso = (d: Date | null) => (d ? d.toISOString() : null);
+
+/** แทนค่า credential ที่หลุดมาในข้อความ (ข้อความจาก adapter/ERP) ด้วย *** */
+export function redactSecrets(text: string, secrets: Iterable<string>): string {
+  let out = text;
+  for (const s of secrets) {
+    if (!s || s.length < 4) continue;
+    // รูปที่มักหลุดใน error ของ HTTP client: ตัวจริง, URL-encoded, base64 (Basic auth), base64url
+    const forms = new Set([
+      s,
+      encodeURIComponent(s),
+      Buffer.from(s).toString('base64'),
+      Buffer.from(s).toString('base64url'),
+      Buffer.from(s).toString('base64').replace(/=+$/, ''),
+    ]);
+    for (const f of [...forms].sort((a, b) => b.length - a.length))
+      if (f.length >= 4) out = out.split(f).join('***');
+  }
+  return out;
+}
+
+/** สิ่งที่ลง audit (ไม่มีค่า credential — มีแค่ชื่อช่องที่ตั้ง) */
+function auditView(c: Connector) {
+  return {
+    adapterKey: c.adapterKey,
+    companyId: c.companyId,
+    erpCompanyCode: c.erpCompanyCode,
+    branchMap: c.branchMap,
+    capabilitiesEnabled: c.capabilitiesEnabled,
+    settings: c.settings,
+    credentialKeys: c.credentialKeys,
+    syncFromDate: c.syncFromDate?.toISOString().slice(0, 10) ?? null,
+    status: c.status,
+  };
+}
+
+interface AuditInput {
+  action: string;
+  entityId: string;
+  before?: Record<string, unknown> | null;
+  after?: Record<string, unknown> | null;
+  reason?: string | null;
+}
+
+/**
+ * Connector ต่อ tenant (ST7-T13; docs/01 §3.7, §6.1; docs/04 G3; spec/07 §1)
+ * - สิทธิ์: อ่าน `settings:read` · จัดการ `settings:write` + ต้องเป็นผู้ใช้ (owner/admin — spec/07 §1.2) · ฟีเจอร์ `conn` + limit ของแพ็กเกจ
+ * - 1 connector ที่ยังไม่ยกเลิกต่อขอบเขต (นิติบุคคล / ทุกนิติบุคคล) — routing ตามนิติบุคคลทำใน ConnectorResolver
+ * - สร้างแล้วเป็น PAUSED (= configuring) · เปิดใช้ (resume) ได้เมื่อ healthCheck ผ่าน (INT-015)
+ * - credential เข้ารหัส FieldCipher ไม่ส่งกลับ ไม่ลง audit/log (INT-003: ทุกการเปลี่ยน credential ลง audit แบบไม่มีค่า)
+ * - ไม่มี hard delete: ยกเลิกการเชื่อม = DISCONNECTED + เหตุผล (INT-016)
+ */
+@Injectable()
+export class ConnectorsService {
+  private readonly logger = new Logger('ConnectorsService');
+  private cipherInstance?: FieldCipher;
+
+  constructor(
+    private readonly db: DbService,
+    private readonly adapters: ErpAdapterRegistry,
+    private readonly resolver: ConnectorResolver,
+    private readonly entitlements: EntitlementService,
+    private readonly prisma: PrismaService,
+  ) {}
+
+  get cipher(): FieldCipher {
+    return (this.cipherInstance ??= new FieldCipher());
+  }
+
+  assertHuman(): void {
+    const pt = requestContext.require().principalType;
+    if (pt !== 'user' && pt !== 'dev')
+      throw new ProblemException('permission_denied', undefined, undefined, {
+        module: 'connectors',
+        action: 'manage',
+        required: ['settings:write'],
+      });
+  }
+
+  // ---------- read ----------
+
+  adapterCatalog(): ErpAdapterDto[] {
+    return this.adapters.list().map((a) => ({
+      key: a.key,
+      displayName: a.displayName,
+      capabilities: ERP_CAPABILITIES.filter((c) => a.capabilities().has(c)),
+      configFields: a.configFields.map((f) => ({
+        key: f.key,
+        secret: f.secret,
+        required: f.required,
+        kind: f.kind,
+        maxLength: f.maxLength ?? null,
+      })),
+    }));
+  }
+
+  toDto(c: Connector): ConnectorDto {
+    const adapter = this.adapters.get(c.adapterKey);
+    const supported = adapter ? ERP_CAPABILITIES.filter((x) => adapter.capabilities().has(x)) : [];
+    const map = (c.branchMap ?? {}) as Record<string, string>;
+    return {
+      id: encodeId('connector', c.id),
+      adapterKey: c.adapterKey,
+      displayName: adapter?.displayName ?? null,
+      companyId: c.companyId ? encodeId('company', c.companyId) : null,
+      erpCompanyCode: c.erpCompanyCode,
+      branchMap: Object.fromEntries(
+        Object.entries(map).map(([k, v]) => [encodeId('branch', k), v]),
+      ),
+      status: c.status,
+      statusReason: c.statusReason,
+      statusChangedAt: iso(c.statusChangedAt),
+      capabilitiesSupported: supported,
+      capabilitiesEnabled: ERP_CAPABILITIES.filter((x) => c.capabilitiesEnabled.includes(x)),
+      capabilities: this.resolver.describe(c).capabilities,
+      settings: (c.settings ?? {}) as Record<string, string>,
+      credentialKeys: [...c.credentialKeys].sort(),
+      credentialsUpdatedAt: iso(c.credentialsUpdatedAt),
+      syncFromDate: c.syncFromDate?.toISOString().slice(0, 10) ?? null,
+      lastHealthAt: iso(c.lastHealthAt),
+      lastHealthOk: c.lastHealthOk,
+      lastHealthError: (c.lastHealthError as Record<string, unknown> | null) ?? null,
+      activatedAt: iso(c.activatedAt),
+      disconnectedAt: iso(c.disconnectedAt),
+      version: c.version,
+      createdAt: c.createdAt.toISOString(),
+      updatedAt: c.updatedAt.toISOString(),
+    };
+  }
+
+  async list(q: ConnectorListQuery): Promise<ConnectorDto[]> {
+    const rows = await this.db.tx.connector.findMany({
+      where: q.status
+        ? { status: q.status as ConnectorStatus }
+        : { status: { not: 'DISCONNECTED' } },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    });
+    return rows.map((r) => this.toDto(r));
+  }
+
+  async get(id: string, tx: Tx = this.db.tx): Promise<Connector> {
+    const c = await tx.connector.findUnique({ where: { id } });
+    if (!c) throw new ProblemException('not_found');
+    return c;
+  }
+
+  /** connector ที่เอกสารของนิติบุคคล/สาขาใช้ (routing ตามนิติบุคคล — ST1-T16) */
+  async effective(q: EffectiveConnectorQuery): Promise<EffectiveConnectorDto> {
+    const tx = this.db.tx;
+    const tenantId = requestContext.require().tenantId!;
+    const decode = (kind: 'company' | 'branch', field: string, v?: string) => {
+      if (!v) return null;
+      const id = tryDecodeId(kind, v);
+      if (!id) throw field422(field, 'invalid_id', `must be a ${kind} id`);
+      return id;
+    };
+    let companyId = decode('company', 'companyId', q.companyId);
+    const branchId = decode('branch', 'branchId', q.branchId);
+    // แพ็กเกจไม่มี connector → Standalone เสมอ (ไม่ 403 — หน้าจอทุกแพ็กเกจถามได้)
+    if (!(await this.entitlements.enabled(tenantId, 'conn')))
+      return {
+        standalone: true,
+        connectorId: null,
+        adapterKey: this.adapters.standalone.key,
+        displayName: null,
+        status: null,
+        capabilities: [],
+        sending: false,
+        scope: 'none',
+        erpCompanyCode: null,
+        companyId: q.companyId ?? null,
+        branchId: q.branchId ?? null,
+      };
+    // ระบุแค่สาขา → นิติบุคคลของสาขานั้น
+    if (branchId && !companyId) {
+      const b = await tx.branch.findUnique({
+        where: { id: branchId },
+        select: { companyId: true },
+      });
+      if (!b) throw field422('branchId', 'branch_unavailable', 'branch not found');
+      companyId = b.companyId;
+    }
+    // ไม่ระบุนิติบุคคล/สาขา = ค่าเริ่มต้นระดับ tenant (connector "ทุกนิติบุคคล" หรือ Standalone)
+    const r =
+      !companyId && !branchId
+        ? { ...(await this.resolver.forCompany(tx, null)), routing: null }
+        : await this.resolver.forDocument(tx, tenantId, {
+            kind: q.kind ?? 'invoice',
+            companyId,
+            branchId,
+          });
+    return {
+      standalone: r.standalone,
+      connectorId: r.connector ? encodeId('connector', r.connector.id) : null,
+      adapterKey: r.connector?.adapterKey ?? this.adapters.standalone.key,
+      displayName: r.standalone ? null : (r.adapter?.displayName ?? null),
+      status: r.status,
+      capabilities: r.capabilities,
+      sending: r.sending,
+      scope: r.scope,
+      erpCompanyCode: r.erpCompanyCode,
+      companyId: r.routing ? encodeId('company', r.routing.company.id) : null,
+      branchId: r.routing ? encodeId('branch', r.routing.branch.id) : null,
+    };
+  }
+
+  // ---------- validate ----------
+
+  private adapterOr422(key: string): ErpAdapter {
+    const a = this.adapters.get(key);
+    if (!a || a === this.adapters.standalone)
+      throw field422('adapterKey', 'unknown_adapter', `adapter '${key}' is not available`);
+    return a;
+  }
+
+  private checkValue(
+    adapter: ErpAdapter,
+    group: 'settings' | 'credentials',
+    key: string,
+    v: unknown,
+  ): string {
+    const f = adapter.configFields.find((x) => x.key === key);
+    const path = `${group}.${key}`;
+    if (!f || f.secret !== (group === 'credentials'))
+      throw field422(path, 'unknown_field', `'${key}' is not a ${group} field of this adapter`);
+    if (typeof v !== 'string') throw field422(path, 'invalid_type', 'must be a string');
+    const s = f.secret ? v : v.trim();
+    if (!s) throw field422(path, 'required', 'must not be empty');
+    if (s.length > (f.maxLength ?? VALUE_MAX))
+      throw field422(path, 'too_long', `at most ${f.maxLength ?? VALUE_MAX} characters`);
+    if (f.kind === 'url') {
+      let u: URL | null = null;
+      try {
+        u = new URL(s);
+      } catch {
+        /* ด้านล่าง */
+      }
+      const okProto = u?.protocol === 'https:' || (u?.protocol === 'http:' && isLocalEnv());
+      if (!u || !okProto) throw field422(path, 'invalid_url', 'must be an https:// URL');
+    }
+    return s;
+  }
+
+  private checkGroup(
+    adapter: ErpAdapter,
+    group: 'settings' | 'credentials',
+    input: Record<string, unknown> | undefined,
+  ): Record<string, string> {
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(input ?? {}))
+      out[k] = this.checkValue(adapter, group, k, v);
+    for (const f of adapter.configFields)
+      if (f.required && f.secret === (group === 'credentials') && !(f.key in out))
+        throw field422(`${group}.${f.key}`, 'required', 'required by this adapter');
+    return out;
+  }
+
+  private checkCapabilities(adapter: ErpAdapter, list: string[] | undefined): string[] {
+    const caps = adapter.capabilities();
+    if (list === undefined) return ERP_CAPABILITIES.filter((c) => caps.has(c));
+    const bad = unsupportedCapabilities(caps, list);
+    if (bad.length)
+      throw field422(
+        'capabilitiesEnabled',
+        'capability_not_supported',
+        `not supported by this adapter: ${bad.join(', ')}`,
+      );
+    return ERP_CAPABILITIES.filter((c) => list.includes(c));
+  }
+
+  private checkSyncFromDate(v: string | null | undefined): Date | null | undefined {
+    if (v === undefined || v === null) return v;
+    if (v > todayTh())
+      throw field422('syncFromDate', 'future_date', 'must not be later than today (spec/07 §1)');
+    return new Date(`${v}T00:00:00Z`);
+  }
+
+  private async checkCompany(tx: Tx, v: string | null | undefined): Promise<string | null> {
+    if (!v) return null;
+    const id = tryDecodeId('company', v);
+    const c = id ? await tx.company.findUnique({ where: { id }, select: { status: true } }) : null;
+    if (!c || c.status !== 'ACTIVE')
+      throw field422('companyId', 'company_unavailable', 'legal entity not found or inactive');
+    return id;
+  }
+
+  /** สาขา (brn_) → รหัส ERP · สาขาต้องเป็นของนิติบุคคลของ connector (ถ้าผูก) */
+  private async checkBranchMap(
+    tx: Tx,
+    companyId: string | null,
+    input: Record<string, unknown> | undefined,
+  ): Promise<Record<string, string> | undefined> {
+    if (input === undefined) return undefined;
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(input)) {
+      const path = `branchMap.${k}`;
+      const id = tryDecodeId('branch', k);
+      if (!id) throw field422(path, 'invalid_id', 'key must be a branch id');
+      if (typeof v !== 'string' || !v.trim() || v.trim().length > 64)
+        throw field422(path, 'invalid_code', 'ERP code must be 1–64 characters');
+      out[id] = v.trim();
+    }
+    const ids = Object.keys(out);
+    if (ids.length) {
+      const found = await tx.branch.findMany({
+        where: { id: { in: ids }, ...(companyId ? { companyId } : {}) },
+        select: { id: true },
+      });
+      const ok = new Set(found.map((b) => b.id));
+      const miss = ids.find((i) => !ok.has(i));
+      if (miss)
+        throw field422(
+          `branchMap.${encodeId('branch', miss)}`,
+          'branch_unavailable',
+          'branch not found for this legal entity',
+        );
+    }
+    return out;
+  }
+
+  private version(c: Connector, expected?: number) {
+    if (expected !== undefined && expected !== c.version)
+      throw new ProblemException('precondition_failed');
+  }
+
+  private async audit(tx: Tx, e: AuditInput) {
+    const ctx = requestContext.require();
+    await tx.auditLog.create({
+      data: {
+        tenantId: ctx.tenantId!,
+        actorId: ctx.actorId ?? null,
+        actAs: ctx.actAs ?? null,
+        action: e.action,
+        entityType: 'connector',
+        entityId: e.entityId,
+        before: (e.before ?? undefined) as Prisma.InputJsonValue | undefined,
+        after: (e.after ?? undefined) as Prisma.InputJsonValue | undefined,
+        reason: e.reason ?? null,
+        requestId: ctx.requestId,
+        ip: ctx.ip ?? null,
+      },
+    });
+  }
+
+  private async assertLimit(tx: Tx, tenantId: string) {
+    const limit = (await this.entitlements.resolve(tenantId)).conn?.limit ?? null;
+    if (limit === null) return;
+    const used = await tx.connector.count({ where: { status: { not: 'DISCONNECTED' } } });
+    if (used >= limit)
+      throw new ProblemException('connector_limit_reached', undefined, undefined, { limit });
+  }
+
+  private async assertScopeFree(tx: Tx, companyId: string | null) {
+    const dup = await tx.connector.findFirst({
+      where: { companyId, status: { not: 'DISCONNECTED' } },
+      select: { id: true },
+    });
+    if (dup)
+      throw new ProblemException('connector_scope_taken', undefined, undefined, {
+        connectorId: encodeId('connector', dup.id),
+      });
+  }
+
+  // ---------- write ----------
+
+  async create(body: CreateConnectorDto): Promise<Connector> {
+    this.assertHuman();
+    const ctx = requestContext.require();
+    const tx = this.db.tx;
+    const tenantId = ctx.tenantId!;
+    const adapter = this.adapterOr422(body.adapterKey);
+    const companyId = await this.checkCompany(tx, body.companyId);
+    const settings = this.checkGroup(adapter, 'settings', body.settings);
+    const credentials = this.checkGroup(adapter, 'credentials', body.credentials);
+    const caps = this.checkCapabilities(adapter, body.capabilitiesEnabled);
+    const syncFromDate = this.checkSyncFromDate(body.syncFromDate);
+    const branchMap = (await this.checkBranchMap(tx, companyId, body.branchMap)) ?? {};
+    // จำนวน/ขอบเขตต่อ tenant — serialize การสร้างพร้อมกัน (partial unique index กันซ้ำอีกชั้น)
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(13, hashtext(${tenantId}))`;
+    await this.assertScopeFree(tx, companyId);
+    await this.assertLimit(tx, tenantId);
+    const id = randomUUID();
+    const credKeys = Object.keys(credentials).sort();
+    let row: Connector;
+    try {
+      row = await tx.connector.create({
+        data: {
+          id,
+          tenantId,
+          adapterKey: adapter.key,
+          companyId,
+          erpCompanyCode: body.erpCompanyCode?.trim() || null,
+          branchMap,
+          capabilitiesEnabled: caps,
+          settings,
+          credentialsEnc: credKeys.length ? this.cipher.encrypt(JSON.stringify(credentials)) : null,
+          credentialKeys: credKeys,
+          credentialsUpdatedAt: credKeys.length ? new Date() : null,
+          syncFromDate: syncFromDate ?? null,
+          status: 'PAUSED',
+          statusChangedAt: new Date(),
+          createdBy: ctx.actorId ?? null,
+        },
+      });
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002')
+        throw new ProblemException('connector_scope_taken');
+      throw e;
+    }
+    await this.audit(tx, { action: 'connector.created', entityId: id, after: auditView(row) });
+    return row;
+  }
+
+  /**
+   * แก้ค่าตั้ง — ทำใน transaction ของตัวเอง (route เป็น @NoTransaction) เพื่อปลุกคำสั่งที่พักไว้หลัง commit
+   * เมื่อเปิด capability เพิ่ม (คำสั่งที่พักเพราะ `capability_off` ส่งต่อทันที)
+   */
+  async update(id: string, body: UpdateConnectorDto, expected?: number): Promise<Connector> {
+    this.assertHuman();
+    const tenantId = requestContext.require().tenantId!;
+    const { before, after } = await this.db.withTenant(tenantId, (tx) =>
+      this.updateIn(tx, id, body, expected),
+    );
+    if (after.capabilitiesEnabled.some((c) => !before.capabilitiesEnabled.includes(c)))
+      await this.wakeParked(tenantId, id);
+    return after;
+  }
+
+  private async updateIn(
+    tx: Tx,
+    id: string,
+    body: UpdateConnectorDto,
+    expected?: number,
+  ): Promise<{ before: Connector; after: Connector }> {
+    const cur = await this.get(id, tx);
+    this.version(cur, expected);
+    if (cur.status === 'DISCONNECTED') throw new ProblemException('invalid_state_transition');
+    const adapter = this.adapterOr422(cur.adapterKey);
+    const data: Prisma.ConnectorUpdateManyMutationInput = {};
+    if (body.erpCompanyCode !== undefined)
+      data.erpCompanyCode = body.erpCompanyCode?.trim() || null;
+    if (body.settings !== undefined)
+      data.settings = this.checkGroup(adapter, 'settings', body.settings);
+    if (body.capabilitiesEnabled !== undefined)
+      data.capabilitiesEnabled = this.checkCapabilities(adapter, body.capabilitiesEnabled);
+    if (body.syncFromDate !== undefined)
+      data.syncFromDate = this.checkSyncFromDate(body.syncFromDate);
+    const bm = await this.checkBranchMap(tx, cur.companyId, body.branchMap);
+    if (bm !== undefined) data.branchMap = bm;
+    if (!Object.keys(data).length) return { before: cur, after: cur };
+    const n = await tx.connector.updateMany({
+      where: { id, version: cur.version },
+      data: { ...data, version: { increment: 1 } },
+    });
+    if (n.count !== 1) throw new ProblemException('precondition_failed');
+    const after = await this.get(id, tx);
+    await this.auditChanged(tx, 'connector.updated', id, auditView(cur), auditView(after));
+    return { before: cur, after };
+  }
+
+  private async auditChanged(
+    tx: Tx,
+    action: string,
+    id: string,
+    before: Record<string, unknown>,
+    after: Record<string, unknown>,
+    reason?: string | null,
+  ) {
+    const b: Record<string, unknown> = {};
+    const a: Record<string, unknown> = {};
+    for (const k of new Set([...Object.keys(before), ...Object.keys(after)]))
+      if (JSON.stringify(before[k]) !== JSON.stringify(after[k])) {
+        b[k] = before[k];
+        a[k] = after[k];
+      }
+    if (!Object.keys(a).length && !reason) return;
+    await this.audit(tx, { action, entityId: id, before: b, after: a, reason });
+  }
+
+  /** แทน credential ทั้งชุด (หมุน key) — audit บันทึกเฉพาะชื่อช่อง; ผล healthCheck เดิมใช้ไม่ได้แล้ว */
+  async setCredentials(
+    id: string,
+    body: ConnectorCredentialsDto,
+    expected?: number,
+  ): Promise<Connector> {
+    this.assertHuman();
+    const tx = this.db.tx;
+    const cur = await this.get(id);
+    this.version(cur, expected);
+    if (cur.status === 'DISCONNECTED') throw new ProblemException('invalid_state_transition');
+    const adapter = this.adapterOr422(cur.adapterKey);
+    const credentials = this.checkGroup(adapter, 'credentials', body.credentials);
+    const keys = Object.keys(credentials).sort();
+    const n = await tx.connector.updateMany({
+      where: { id, version: cur.version },
+      data: {
+        credentialsEnc: keys.length ? this.cipher.encrypt(JSON.stringify(credentials)) : null,
+        credentialKeys: keys,
+        credentialsUpdatedAt: new Date(),
+        lastHealthOk: null,
+        lastHealthError: Prisma.DbNull,
+        version: { increment: 1 },
+      },
+    });
+    if (n.count !== 1) throw new ProblemException('precondition_failed');
+    await this.audit(tx, {
+      action: 'connector.credentials_changed',
+      entityId: id,
+      before: { credentialKeys: cur.credentialKeys },
+      after: { credentialKeys: keys },
+      reason: body.reason ?? null,
+    });
+    return this.get(id);
+  }
+
+  private async transition(
+    tx: Tx,
+    cur: Connector,
+    to: ConnectorStatus,
+    action: string,
+    reason: string | null,
+    extra: Prisma.ConnectorUpdateManyMutationInput = {},
+  ): Promise<Connector> {
+    const now = new Date();
+    const n = await tx.connector.updateMany({
+      where: { id: cur.id, version: cur.version, status: cur.status },
+      data: {
+        status: to,
+        statusReason: reason,
+        statusChangedAt: now,
+        ...extra,
+        version: { increment: 1 },
+      },
+    });
+    if (n.count !== 1) throw new ProblemException('precondition_failed');
+    await this.audit(tx, {
+      action,
+      entityId: cur.id,
+      before: { status: cur.status },
+      after: { status: to },
+      reason,
+    });
+    return this.get(cur.id, tx);
+  }
+
+  async pause(id: string, body: ConnectorActionDto, expected?: number): Promise<Connector> {
+    this.assertHuman();
+    const cur = await this.get(id);
+    this.version(cur, expected);
+    if (!canConnectorTransition('pause', cur.status))
+      throw new ProblemException('invalid_state_transition');
+    return this.transition(this.db.tx, cur, 'PAUSED', 'connector.paused', body.reason ?? null);
+  }
+
+  /** ยกเลิกการเชื่อม (INT-016): หยุดส่ง/ดึงทันที — คำสั่งที่ค้างถูกข้ามตอน worker หยิบ · mapping/log เก็บไว้ */
+  async disconnect(id: string, body: ConnectorReasonDto, expected?: number): Promise<Connector> {
+    this.assertHuman();
+    const cur = await this.get(id);
+    this.version(cur, expected);
+    if (!canConnectorTransition('disconnect', cur.status))
+      throw new ProblemException('invalid_state_transition');
+    const tx = this.db.tx;
+    // INT-016 หยุดส่ง/ดึงทันที — คำสั่งที่ค้างจะถูกข้ามตอน worker หยิบ (แต่ละใบลง `connector.command_skipped`)
+    const pending = await this.openCommands(tx, cur.id);
+    const row = await this.transition(
+      tx,
+      cur,
+      'DISCONNECTED',
+      'connector.disconnected',
+      body.reason,
+      {
+        disconnectedAt: new Date(),
+      },
+    );
+    if (pending)
+      await this.audit(tx, {
+        action: 'connector.commands_abandoned',
+        entityId: cur.id,
+        after: { pendingCommands: pending },
+        reason: body.reason,
+      });
+    return row;
+  }
+
+  // ---------- health (นอก transaction ของ request — เรียกปลายทาง) ----------
+
+  /** ค่าตั้งเต็ม (settings + credential ถอดแล้ว) — ใช้สร้าง ErpContext เท่านั้น ห้ามคืน/ลง log */
+  configOf(c: Connector): Record<string, string> {
+    const creds = c.credentialsEnc
+      ? (JSON.parse(this.cipher.decrypt(c.credentialsEnc)) as Record<string, string>)
+      : {};
+    return { ...((c.settings ?? {}) as Record<string, string>), ...creds };
+  }
+
+  /**
+   * บริบทของการเรียก adapter — `branchId` (สาขาของเอกสาร) ทำให้ `branch_map` มีผล: รหัส ERP = branch_map[สาขา] → erp_company_code
+   * คำสั่งใน outbox (ST7-T15/T16) ต้องใส่ `branchId` ใน payload เพื่อให้ routing ระดับสาขาทำงาน
+   */
+  contextOf(
+    c: Connector,
+    extra: Partial<Pick<ErpContext, 'idempotencyKey' | 'signal' | 'erpCompanyCode'>> & {
+      branchId?: string | null;
+    } = {},
+  ): ErpContext {
+    const map = (c.branchMap ?? {}) as Record<string, unknown>;
+    const byBranch =
+      extra.branchId && typeof map[extra.branchId] === 'string'
+        ? (map[extra.branchId] as string)
+        : null;
+    return {
+      tenantId: c.tenantId,
+      connectorId: c.id,
+      companyId: c.companyId,
+      erpCompanyCode: extra.erpCompanyCode ?? byBranch ?? c.erpCompanyCode,
+      config: Object.freeze(this.configOf(c)),
+      idempotencyKey: extra.idempotencyKey,
+      signal: extra.signal,
+    };
+  }
+
+  /** เรียก healthCheck แบบมีเพดานเวลา — ไม่ throw · ข้อความตัด credential แล้ว */
+  async runHealth(c: Connector): Promise<HealthResult> {
+    const adapter = this.adapters.get(c.adapterKey);
+    if (!adapter)
+      return {
+        ok: false,
+        errorClass: 'CAPABILITY',
+        problem: {
+          code: 'adapter_unavailable',
+          message: `adapter '${c.adapterKey}' not installed`,
+        },
+      };
+    let ctx: ErpContext;
+    try {
+      ctx = this.contextOf(c);
+    } catch {
+      return {
+        ok: false,
+        errorClass: 'AUTH',
+        problem: { code: 'credentials_unreadable', message: 'cannot decrypt credentials' },
+      };
+    }
+    const secrets = c.credentialKeys.map((k) => ctx.config[k] ?? '');
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      const r = await Promise.race([
+        adapter.healthCheck(ctx),
+        new Promise<HealthResult>((ok) => {
+          timer = setTimeout(
+            () =>
+              ok({
+                ok: false,
+                errorClass: 'TRANSIENT',
+                problem: { code: 'timeout', message: `no answer within ${HEALTH_TIMEOUT_MS} ms` },
+              }),
+            HEALTH_TIMEOUT_MS,
+          );
+        }),
+      ]);
+      if (r.ok) return { ok: true };
+      return {
+        ok: false,
+        errorClass: r.errorClass,
+        problem: {
+          code: redactSecrets(String(r.problem?.code ?? 'health_failed'), secrets).slice(0, 60),
+          message: redactSecrets(String(r.problem?.message ?? ''), secrets).slice(0, 500),
+        },
+      };
+    } catch (e) {
+      return {
+        ok: false,
+        errorClass: 'TRANSIENT',
+        problem: {
+          code: 'health_error',
+          message: redactSecrets(String((e as Error)?.message ?? e), secrets).slice(0, 500),
+        },
+      };
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  private healthData(r: HealthResult, at: Date) {
+    return {
+      lastHealthAt: at,
+      lastHealthOk: r.ok,
+      lastHealthError: r.ok
+        ? Prisma.DbNull
+        : ({
+            errorClass: r.errorClass,
+            code: r.problem.code,
+            message: r.problem.message,
+          } as Prisma.InputJsonValue),
+    };
+  }
+
+  /**
+   * ทดสอบการเชื่อมต่อ (docs/01 §5.2 #14 `POST /connectors/{id}/health`)
+   * ACTIVE + ล้มแบบ AUTH → ERROR (spec/07 §1.6) · ERROR + ผ่าน → ACTIVE (ส่งคิวค้างต่อ)
+   */
+  async health(id: string): Promise<ConnectorHealthDto> {
+    this.assertHuman();
+    const tenantId = requestContext.require().tenantId!;
+    const cur = await this.db.withTenant(tenantId, (tx) => this.get(id, tx));
+    if (cur.status === 'DISCONNECTED') throw new ProblemException('invalid_state_transition');
+    const r = await this.runHealth(cur);
+    const at = new Date();
+    const row = await this.db.withTenant(tenantId, async (tx) => {
+      const now = await this.get(id, tx);
+      await tx.connector.update({ where: { id }, data: this.healthData(r, at) });
+      await this.audit(tx, {
+        action: 'connector.health_checked',
+        entityId: id,
+        after: r.ok ? { ok: true } : { ok: false, errorClass: r.errorClass, code: r.problem.code },
+      });
+      if (now.status === 'ACTIVE' && !r.ok && r.errorClass === 'AUTH')
+        return this.transition(tx, now, 'ERROR', 'connector.error', r.problem.code);
+      if (now.status === 'ERROR' && r.ok)
+        return this.transition(tx, now, 'ACTIVE', 'connector.recovered', null);
+      return this.get(id, tx);
+    });
+    // ERROR → ACTIVE: ส่งคิวค้างต่อทันที (spec/07 §1.6) ไม่ต้องรอรอบพัก 15 นาที
+    if (cur.status !== 'ACTIVE' && row.status === 'ACTIVE') await this.wakeParked(tenantId, id);
+    return {
+      ok: r.ok,
+      errorClass: r.ok ? null : r.errorClass,
+      code: r.ok ? null : r.problem.code,
+      message: r.ok ? null : r.problem.message,
+      checkedAt: at.toISOString(),
+      connector: this.toDto(row),
+    };
+  }
+
+  /** เปิดใช้ (PAUSED/ERROR → ACTIVE) — ต้องทดสอบผ่านก่อน (INT-015) · ล้ม → 409 connector_health_failed */
+  async resume(id: string, body: ConnectorActionDto, expected?: number): Promise<Connector> {
+    this.assertHuman();
+    const tenantId = requestContext.require().tenantId!;
+    const cur = await this.db.withTenant(tenantId, (tx) => this.get(id, tx));
+    this.version(cur, expected);
+    if (!canConnectorTransition('resume', cur.status))
+      throw new ProblemException('invalid_state_transition');
+    const r = await this.runHealth(cur);
+    const at = new Date();
+    if (!r.ok) {
+      await this.db.withTenant(tenantId, (tx) =>
+        tx.connector.update({ where: { id }, data: this.healthData(r, at) }),
+      );
+      throw new ProblemException('connector_health_failed', undefined, undefined, {
+        errorClass: r.errorClass,
+        healthCode: r.problem.code,
+      });
+    }
+    const row = await this.db.withTenant(tenantId, (tx) =>
+      this.transition(tx, cur, 'ACTIVE', 'connector.resumed', body.reason ?? null, {
+        ...this.healthData(r, at),
+        activatedAt: cur.activatedAt ?? at,
+      }),
+    );
+    await this.wakeParked(tenantId, id); // คำสั่งที่พักระหว่าง PAUSED/ERROR ส่งต่อทันที
+    return row;
+  }
+
+  /**
+   * ระบบหยุด connector (docs/01 §6.3 AUTH: "หยุด connector ทั้งตัว status = ERROR") — เรียกจาก ErpAdapterSink
+   * ใน transaction ของ tenant · ไม่มีผู้ใช้ (actor null) · ไม่ทับสถานะที่ผู้ดูแลตั้ง (PAUSED/DISCONNECTED)
+   */
+  async markError(tx: Tx, c: Connector, problem: { code: string; message: string }) {
+    const n = await tx.connector.updateMany({
+      where: { id: c.id, status: 'ACTIVE' },
+      data: {
+        status: 'ERROR',
+        statusReason: problem.code.slice(0, 60),
+        statusChangedAt: new Date(),
+        lastHealthOk: false,
+        lastHealthError: { errorClass: 'AUTH', ...problem } as Prisma.InputJsonValue,
+        version: { increment: 1 },
+      },
+    });
+    if (n.count !== 1) return;
+    await tx.auditLog.create({
+      data: {
+        tenantId: c.tenantId,
+        action: 'connector.error',
+        entityType: 'connector',
+        entityId: c.id,
+        before: { status: 'ACTIVE' },
+        after: { status: 'ERROR', errorClass: 'AUTH', code: problem.code },
+        reason: problem.code.slice(0, 60),
+      },
+    });
+    this.logger.warn(`connector ${c.id} (${c.adapterKey}) → ERROR: ${problem.code}`);
+  }
+
+  /**
+   * ปลุกคำสั่งที่พักไว้ของ connector นี้ (PENDING จาก PAUSED/ERROR/capability ปิด) ให้ worker หยิบทันที
+   * เรียกหลัง commit ของ resume / ERROR → ACTIVE / เปิด capability — แก้ integration_outbox ได้เฉพาะ role platform
+   */
+  async wakeParked(tenantId: string, connectorId: string): Promise<number> {
+    return this.prisma.platform.$executeRaw`
+      UPDATE integration_outbox SET next_run_at = now(), updated_at = now()
+       WHERE tenant_id = ${tenantId}::uuid AND sink = 'erp' AND target_id = ${connectorId}
+         AND status = 'PENDING' AND next_run_at > now()`;
+  }
+
+  /** คำสั่งที่ยังไม่จบของ connector (ใช้นับตอนยกเลิกการเชื่อม — จะถูกข้าม) */
+  private async openCommands(tx: Tx, connectorId: string): Promise<number> {
+    return tx.integrationOutbox.count({
+      where: {
+        sink: 'erp',
+        targetId: connectorId,
+        status: { in: ['PENDING', 'IN_FLIGHT', 'FAILED_RETRYABLE'] },
+      },
+    });
+  }
+
+  /**
+   * คำสั่งถูกข้าม (SKIPPED) — docs/01 §6.3 CAPABILITY "SKIPPED + แจ้งบัญชี": ลง audit ของ connector ให้หน้าคิว (ST7-T19) แสดง/แจ้งบัญชี
+   * ระบบเป็นผู้กระทำ (actor null)
+   */
+  async recordSkipped(
+    tx: Tx,
+    c: { id: string; tenantId: string },
+    cmd: { id: string; operation: string; entityType: string; localId: string },
+    code: string,
+  ) {
+    await tx.auditLog.create({
+      data: {
+        tenantId: c.tenantId,
+        action: 'connector.command_skipped',
+        entityType: 'connector',
+        entityId: c.id,
+        after: {
+          outboxId: cmd.id,
+          operation: cmd.operation,
+          entityType: cmd.entityType,
+          localId: cmd.localId,
+          code,
+        },
+        reason: code,
+      },
+    });
+    this.logger.warn(
+      `connector ${c.id}: ${cmd.operation} ${cmd.entityType}/${cmd.localId} skipped (${code})`,
+    );
+  }
+}

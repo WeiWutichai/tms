@@ -68,7 +68,7 @@ export interface PullPage {
   hasMore: boolean;
 }
 
-/** สัญญาฝั่งขาเข้าของ adapter (subset ของ `ErpAdapter` — ST7-T13 รวมเป็น interface เต็ม) */
+/** สัญญาฝั่งขาเข้าของ adapter (= `ErpAdapter.pullOrders` ใน modules/erp/erp-adapter.ts — ST7-T13) */
 export interface OrderSourcePort {
   /** รหัส connector (CONNECTOR_KEY_RE) — ใบที่รับเข้ามี source `ERP:{key}` */
   readonly key: string;

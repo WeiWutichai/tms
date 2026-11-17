@@ -1,3 +1,4 @@
+import { RateLimitService } from '../src/http/rate-limit/rate-limit.service';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { WEBHOOK_EVENT_TYPES } from '@tms/domain';
 import { createServer, type IncomingHttpHeaders, type Server } from 'node:http';
@@ -102,8 +103,7 @@ describe('webhook ops (ST7-T05)', () => {
     }
   }
   const ep = (id: string) => tryDecodeId('webhookEndpoint', id)!;
-  const resetLimits = () =>
-    (app.get(WebhookOpsService) as unknown as { hits: Map<string, number[]> }).hits.clear();
+  const resetLimits = () => app.get(RateLimitService).reset('whr:');
 
   /** endpoint ที่ event แรกล้ม (500 → FAILED รอ retry) — คืน delivery ล่าสุด */
   async function failedDelivery(events = ['order.created']) {
@@ -136,7 +136,7 @@ describe('webhook ops (ST7-T05)', () => {
     rx.hits = [];
     rx.status = 200;
     rx.delayMs = 0;
-    resetLimits();
+    await resetLimits();
     (app.get(WebhookOpsService) as unknown as { resultWaitMs: number }).resultWaitMs = 10_500;
     app.get(WebhookEngine).sendOptions = { allowPrivate: true };
     await plat.$executeRaw`UPDATE integration_outbox SET status = 'SKIPPED', lease_id = NULL, lease_until = NULL
@@ -331,7 +331,7 @@ describe('webhook ops (ST7-T05)', () => {
     expect(again.status).toBe(429);
     expect(again.body.retryAfter).toBeGreaterThan(0);
 
-    resetLimits();
+    await resetLimits();
     const off = await api(app, token)
       .post(`/v1/webhooks/${h.id}/disable`)
       .set('If-Match', `"${(await api(app, token).get(`/v1/webhooks/${h.id}`)).body.version}"`)
@@ -350,7 +350,7 @@ describe('webhook ops (ST7-T05)', () => {
       (await api(app, token).post(`/v1/webhook-deliveries/${d.id}/retry`).send({})).status,
     ).toBe(200);
     // ยกเลิกสมัคร event นี้แล้ว → retry ตรวจ subscription ปัจจุบันเหมือน redeliver
-    resetLimits();
+    await resetLimits();
     const cur = (await api(app, token).get(`/v1/webhooks/${h.id}`)).body;
     await api(app, token)
       .patch(`/v1/webhooks/${h.id}`)
@@ -493,7 +493,7 @@ describe('webhook ops (ST7-T05)', () => {
     ]);
     expect(rx.hits.map((x) => x.headers['x-tms-attempt'])).toEqual(['1']);
 
-    resetLimits();
+    await resetLimits();
     const all = await api(app, token)
       .post(`/v1/events/${encodeId('event', ev.id)}/redeliver`)
       .send({});
@@ -506,7 +506,7 @@ describe('webhook ops (ST7-T05)', () => {
     );
     expect(byEp).toEqual({ [a.id]: [2, 'delivered'], [b.id]: [2, 'delivered'] });
 
-    resetLimits();
+    await resetLimits();
     const no = await api(app, token)
       .post(`/v1/events/${encodeId('event', ev.id)}/redeliver?endpointId=${c.id}`)
       .send({});

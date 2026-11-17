@@ -8,6 +8,7 @@ import { keysetArgs, toPage } from '../../common/pagination';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
+import { RateLimitService, slidingWindow } from '../../http/rate-limit/rate-limit.service';
 import { EntitlementService } from '../entitlements/entitlement.service';
 import { OutboxService } from '../integration/outbox.service';
 import { generateWebhookSecret } from './signature';
@@ -86,6 +87,7 @@ export class WebhooksService {
     private readonly outbox: OutboxService,
     private readonly engine: WebhookEngine,
     private readonly entitlements: EntitlementService,
+    private readonly limiter: RateLimitService,
   ) {}
 
   assertHuman(): void {
@@ -345,21 +347,13 @@ export class WebhooksService {
 
   /**
    * จำกัด "ส่ง event ทดสอบ" (กันใช้เป็นเครื่องยิงคำขอ): 1 ครั้ง / 5 วิ ต่อ endpoint และ 10 ครั้ง / นาที ต่อ tenant → 429
-   * นับใน process (API หลายเครื่อง = เพดานรวมคูณจำนวนเครื่อง — พอสำหรับกันกดรัว)
+   * ST7-T08: ตัวจำกัดกลาง (ใช้ร่วมทุก instance; หน้าต่างเลื่อนเหมือนเดิม; ฐานใช้ไม่ได้ = 503)
    */
-  private readonly testHits = new Map<string, number[]>();
-  private takeTestSlot(tenantId: string, id: string, now = Date.now()) {
-    const hit = (key: string, windowMs: number, max: number) => {
-      const xs = (this.testHits.get(key) ?? []).filter((t) => now - t < windowMs);
-      if (xs.length >= max) return Math.ceil((windowMs - (now - xs[0]!)) / 1000);
-      return 0;
-    };
-    const wait = Math.max(hit(`e:${id}`, 5000, 1), hit(`t:${tenantId}`, 60_000, 10));
-    if (wait)
-      throw new ProblemException('rate_limited', undefined, undefined, { retryAfter: wait });
-    for (const k of [`e:${id}`, `t:${tenantId}`])
-      this.testHits.set(k, [...(this.testHits.get(k) ?? []).filter((t) => now - t < 60_000), now]);
-    if (this.testHits.size > 10_000) this.testHits.clear();
+  private takeTestSlot(tenantId: string, id: string) {
+    return this.limiter.assert([
+      slidingWindow(`wht:e:${id}`, 1, 5000, 'endpoint'),
+      slidingWindow(`wht:t:${tenantId}`, 10, 60_000, 'tenant'),
+    ]);
   }
 
   async update(id: string, body: UpdateWebhookDto, expected?: number): Promise<WebhookEndpoint> {
@@ -536,7 +530,7 @@ export class WebhooksService {
     const withTx = <T>(fn: (tx: Tx) => Promise<T>) => this.db.withTenant(tenantId, fn);
     const e = await withTx((tx) => this.get(id, tx));
     if (e.status !== 'ACTIVE') throw new ProblemException('invalid_state_transition');
-    this.takeTestSlot(tenantId, id);
+    await this.takeTestSlot(tenantId, id);
     const type = body.eventType ?? e.events[0] ?? 'order.created';
     const envelope = this.engine.systemEnvelope(tenantId, 'webhook.test', sampleObject(type));
     const r = await this.engine.attempt({

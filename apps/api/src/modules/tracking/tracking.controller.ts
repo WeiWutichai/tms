@@ -27,7 +27,7 @@ import { decodeIdOr404 } from '../../common/ids';
 import { DbService } from '../../db/db.service';
 import { ApiProblems } from '../../common/problem.dto';
 import { requestContext } from '../../common/request-context';
-import { assertLinkWriteRate } from '../../http/link-rate-limit';
+import { RateLimitService } from '../../http/rate-limit/rate-limit.service';
 import { assertTrackingRate, reserveLookup } from '../../http/tracking-rate-limit';
 import { apiOrigin } from '../documents/documents.controller';
 import { MasterReasonDto } from '../master/master-kit';
@@ -52,7 +52,10 @@ const LINK_DESC =
 @ApiParam({ name: 'token', type: String, description: 'token ของลิงก์ติดตาม (ml1.…)' })
 @Controller('public/tracking')
 export class TrackingPublicController {
-  constructor(private readonly tracking: TrackingService) {}
+  constructor(
+    private readonly tracking: TrackingService,
+    private readonly limiter: RateLimitService,
+  ) {}
 
   @Get(':token')
   @LinkAction(TRACKING_ACTION)
@@ -65,8 +68,8 @@ export class TrackingPublicController {
   @ApiOkResponse({ type: TrackingViewDto })
   @ApiNotFoundResponse({ description: 'ลิงก์ใช้ไม่ได้ (ผิด/หมดอายุ/เพิกถอน/งานจบนานแล้ว)' })
   @ApiTooManyRequestsResponse({ description: 'เรียกถี่เกินไป (ต่อ IP)' })
-  view(@Req() req: Request): Promise<TrackingViewDto> {
-    assertTrackingRate(requestContext.get()?.ip ?? req.ip);
+  async view(@Req() req: Request): Promise<TrackingViewDto> {
+    await assertTrackingRate(this.limiter, requestContext.get()?.ip ?? req.ip);
     return this.tracking.view(apiOrigin(req));
   }
 
@@ -88,12 +91,10 @@ export class TrackingPublicController {
   async lookup(@Body() body: TrackingLookupDto, @Req() req: Request): Promise<TrackingShipmentDto> {
     const ip = requestContext.get()?.ip ?? req.ip;
     const linkId = requestContext.require().link!.id;
-    // ทั้งหมดนี้ synchronous ก่อน await แรก — คำขอพร้อมกันนับครบทุกครั้ง (review/QA High)
-    assertTrackingRate(ip);
-    assertLinkWriteRate(linkId);
-    const r = reserveLookup(ip, linkId, body.ref);
+    // จอง (ต่อ IP + ต่อลิงก์ + ครั้งที่ลอง) แบบ atomic ในที่เก็บกลาง — คำขอพร้อมกัน/หลาย instance นับครบทุกครั้ง
+    const r = await reserveLookup(this.limiter, ip, linkId, body.ref);
     const shipment = await this.tracking.lookup(body.ref, body.phoneLast4, apiOrigin(req));
-    r.refund();
+    await r.refund();
     return shipment;
   }
 

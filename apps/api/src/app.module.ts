@@ -3,6 +3,8 @@ import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { AuditService } from './audit/audit.service';
 import { MagicLinkService } from './modules/links/magic-link.service';
 import { PublicRateLimitMiddleware } from './http/public-rate-limit.middleware';
+import { RateLimitGuard } from './http/rate-limit/rate-limit.guard';
+import { RateLimitService } from './http/rate-limit/rate-limit.service';
 import { EntitlementService } from './modules/entitlements/entitlement.service';
 import { PriceFieldInterceptor } from './common/price-fields';
 import { AuthController } from './auth/auth.controller';
@@ -79,6 +81,15 @@ import { WebhooksController } from './modules/webhooks/webhooks.controller';
 import { WebhooksService } from './modules/webhooks/webhooks.service';
 import { WebhookEngine } from './modules/webhooks/webhook-engine';
 import { WebhookSink } from './modules/webhooks/webhook.sink';
+import {
+  ConnectorsController,
+  ConnectorsEffectiveController,
+} from './modules/erp/connectors.controller';
+import { ConnectorsService } from './modules/erp/connectors.service';
+import { ConnectorResolver } from './modules/erp/connector-resolver';
+import { ErpAdapterRegistry } from './modules/erp/erp-adapter.registry';
+import { ErpAdapterSink } from './modules/erp/erp-adapter.sink';
+import { ErpAdaptersBootstrap } from './erp-adapters';
 import {
   EventsController,
   WebhookDeliveriesController,
@@ -215,6 +226,8 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     ReasonCodesController,
     ApiKeysController,
     WebhooksController,
+    ConnectorsEffectiveController,
+    ConnectorsController,
     WebhookDeliveriesController,
     EventsController,
     RateCardsController,
@@ -323,6 +336,11 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     OutboxDispatcher,
     WebhookEngine,
     WebhookSink,
+    ErpAdapterRegistry,
+    ConnectorResolver,
+    ConnectorsService,
+    ErpAdapterSink,
+    ErpAdaptersBootstrap,
     WebhooksService,
     WebhookOpsService,
     WebhookRetentionService,
@@ -335,7 +353,10 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     BranchesService,
     SequencesService,
     SettingsService,
+    RateLimitService,
     { provide: APP_GUARD, useClass: AuthGuard },
+    // ST7-T08: หลัง AuthGuard (ต้องรู้ tenant/principal ก่อน) — Nest เรียก guard ตามลำดับที่ลงทะเบียน
+    { provide: APP_GUARD, useClass: RateLimitGuard },
     { provide: APP_FILTER, useClass: ProblemFilter },
     // ลำดับสำคัญ: ราคา (นอกสุด) → idempotency → transaction (ใน)
     // ST1-T13: ตัด field ราคาตามสิทธิ์ของ "ผู้เรียกปัจจุบัน" — อยู่นอกสุด เพื่อให้ response ที่ replay จาก

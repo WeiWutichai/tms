@@ -19,7 +19,7 @@ import {
 } from '@tms/domain';
 import { Prisma } from '@prisma/client';
 import type { Request, Response } from 'express';
-import { RequireScope, TenantResource } from '../../common/decorators';
+import { RequireScope, TenantResource, RateLimitClass } from '../../common/decorators';
 import { expectedVersion, setEtag } from '../../common/etag';
 import { decodeIdOr404, encodeId, tryDecodeId, type IdKind } from '../../common/ids';
 import { toPage } from '../../common/pagination';
@@ -371,6 +371,7 @@ export class TripsController {
    * ไม่ใช่ all-or-nothing: แต่ละเที่ยวสำเร็จ/ไม่สำเร็จแยกกัน (ไม่สำเร็จ = `problem` รูปเดียวกับคำขอเดี่ยว เช่น 409 `assignment_warnings`)
    */
   @Post('bulk-assign')
+  @RateLimitClass('heavy')
   @ApiOperation({
     summary: 'จัดรถ / จัดรถและปล่อยเที่ยว หลายเที่ยว',
     description:
@@ -415,6 +416,7 @@ export class TripsController {
    * งานต่อเที่ยว = bulk จัดรถและปล่อย (207 ผลต่อรายการ) + `day` สถานะการส่งของวันหลังทำ (ส่งครบ = เขียว)
    */
   @Post('send-all')
+  @RateLimitClass('heavy')
   @ApiOperation({
     summary: 'ส่งแผนทั้งวัน (ปล่อยทุกเที่ยวของวัน)',
     description:
