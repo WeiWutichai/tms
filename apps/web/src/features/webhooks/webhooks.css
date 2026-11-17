@@ -1,0 +1,47 @@
+/* ST7-T04 Webhooks — ค่าจากต้นแบบ TMS v4 (vPanelApi apx.codes: กล่องโค้ด + ปุ่มคัดลอก) */
+.whk-code {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid #e4e6e0;
+}
+.whk-code__h {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.whk-code__h > span {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #3b424c;
+}
+.whk-code__h > button {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: #2257c4;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.whk-code pre {
+  margin: 0;
+  padding: 14px 16px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: #101418;
+  overflow: auto;
+  white-space: pre;
+  max-height: 300px;
+  background: #f7f8f5;
+  border: 1px solid #e4e6e0;
+  border-radius: 8px;
+}

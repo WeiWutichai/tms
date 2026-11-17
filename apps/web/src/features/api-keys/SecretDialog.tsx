@@ -9,6 +9,7 @@ export function SecretDialog({
   title,
   sub,
   warn,
+  label,
   value,
   copied,
   onCopy,
@@ -17,12 +18,15 @@ export function SecretDialog({
   title: string;
   sub: string;
   warn: string;
+  /** ป้ายช่อง (ค่าเริ่ม "Secret key" — webhook = "Signing secret") */
+  label?: string;
   value: string;
   copied: boolean;
   onCopy: () => void;
   onClose: () => void;
 }) {
   const { t } = useI18n();
+  const name = label ?? t('akey.secret.label');
   return (
     <div className="akey-sec__scrim">
       <div className="akey-sec" role="dialog" aria-modal="true" aria-label={title}>
@@ -36,12 +40,12 @@ export function SecretDialog({
             <span>{warn}</span>
           </div>
           <label className="akey-sec__label">
-            <span>{t('akey.secret.label')}</span>
+            <span>{name}</span>
             <div className="akey-sec__row">
               <input
                 readOnly
                 value={value}
-                aria-label={t('akey.secret.label')}
+                aria-label={name}
                 onFocus={(e) => e.target.select()}
                 onClick={(e) => e.currentTarget.select()}
               />

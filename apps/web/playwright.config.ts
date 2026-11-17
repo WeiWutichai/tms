@@ -56,6 +56,8 @@ export default defineConfig({
         API_PORT: process.env.E2E_API_PORT,
         NODE_ENV: 'test',
         PUBLIC_WEB_BASE_URL: WEB,
+        // ST7-T04: E2E ใช้ปลายทาง webhook ในเครื่อง (127.0.0.1) — ใช้ได้เฉพาะ NODE_ENV=test/development
+        WEBHOOK_ALLOW_PRIVATE_TARGETS: '1',
       },
       reuseExistingServer: false,
       timeout: 60_000,

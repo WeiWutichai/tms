@@ -39,11 +39,19 @@ test.describe.serial('ศูนย์ข้อยกเว้น: event ส่�
   let trip: Trip | undefined;
   let conflictId = '';
 
-  const ev = (hhmm: string, extra: object = {}) => ({
-    clientEventId: randomUUID(),
-    occurredAt: `${today}T${hhmm}:00+07:00`,
-    ...extra,
-  });
+  /**
+   * เวลาเกิดเหตุการณ์ตามสคริปต์ (นาฬิกาสมมติเริ่ม 08:00) แปลงเป็นเวลาจริงย้อนจากตอนนี้ — ฐาน = ตอนนี้ − 4 ชม.
+   * (08:00 → −4 ชม., 11:00 → −1 ชม.) · เดิมใช้ "วันนี้ HH:MM" ซึ่งเป็นเวลาอนาคตเมื่อรันหลังเที่ยงคืน → server ปฏิเสธ
+   */
+  const BASE = Date.now() - 4 * 3600_000;
+  const ev = (hhmm: string, extra: object = {}) => {
+    const [h, m] = hhmm.split(':').map(Number);
+    return {
+      clientEventId: randomUUID(),
+      occurredAt: new Date(BASE + ((h! - 8) * 60 + m!) * 60_000).toISOString(),
+      ...extra,
+    };
+  };
 
   test.beforeEach(async ({ page }) => {
     H = { Authorization: `Bearer ${await token(page)}` };

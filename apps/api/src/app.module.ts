@@ -75,6 +75,10 @@ import { ServiceItemsService } from './modules/service-items/service-items.servi
 import { ApiKeysController } from './modules/api-keys/api-keys.controller';
 import { ApiKeyAuthService } from './modules/api-keys/api-key-auth.service';
 import { ApiKeysService } from './modules/api-keys/api-keys.service';
+import { WebhooksController } from './modules/webhooks/webhooks.controller';
+import { WebhooksService } from './modules/webhooks/webhooks.service';
+import { WebhookEngine } from './modules/webhooks/webhook-engine';
+import { WebhookSink } from './modules/webhooks/webhook.sink';
 import { ReasonCodesController } from './modules/reason-codes/reason-codes.controller';
 import { ReasonCodesService } from './modules/reason-codes/reason-codes.service';
 import {
@@ -197,6 +201,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     ServiceItemsController,
     ReasonCodesController,
     ApiKeysController,
+    WebhooksController,
     RateCardsController,
     DeliveryOrdersController,
     PodController,
@@ -296,6 +301,9 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     OutboxSinkRegistry,
     OutboxService,
     OutboxDispatcher,
+    WebhookEngine,
+    WebhookSink,
+    WebhooksService,
     VehicleDocumentsService,
     Clock,
     ExpiryReminderService,

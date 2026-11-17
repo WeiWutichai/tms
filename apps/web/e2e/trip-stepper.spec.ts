@@ -18,7 +18,14 @@ const ago = (min: number) => {
   const d = new Date(Date.now() - min * 60_000 + BKK).toISOString();
   const date = d.slice(0, 10);
   const time = d.slice(11, 16);
-  return { date, time, iso: new Date(`${date}T${time}:00+07:00`).toISOString() };
+  const iso = new Date(`${date}T${time}:00+07:00`).toISOString();
+  // ข้อความในไทม์ไลน์: วันเดียวกับวันของเที่ยว (= today) แสดงแค่เวลา · ข้ามวัน (รันช่วงหลังเที่ยงคืน) แสดงวันที่เต็ม
+  // — ตรงกับ TripTimeline `hm()` ทำให้ test ไม่ขึ้นกับเวลานาฬิกาที่รัน
+  const shown =
+    date === today
+      ? time
+      : `${new Intl.DateTimeFormat('th-TH', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Bangkok' }).format(new Date(iso))} ${time}`;
+  return { date, time, iso, shown };
 };
 
 async function login(page: Page, email: string): Promise<string> {
@@ -198,14 +205,14 @@ test.describe.serial('บันทึกสถานะแทนคนขับ�
     ).toBeVisible();
 
     await expect(steps.nth(0).getByRole('img', { name: 'สำเร็จ' })).toBeVisible();
-    await expect(steps.nth(0)).toContainText(`ถึง ${arr.time}`);
+    await expect(steps.nth(0)).toContainText(`ถึง ${arr.shown}`);
     const lines = steps.nth(0).getByTestId('trip-event');
     await expect(lines).toHaveCount(2);
     await expect(lines.nth(0)).toContainText(
-      `ถึงจุด ${arr.time} · บันทึกโดย ${DISPATCHER_NAME} · บันทึกผ่านเว็บ`,
+      `ถึงจุด ${arr.shown} · บันทึกโดย ${DISPATCHER_NAME} · บันทึกผ่านเว็บ`,
     );
     await expect(lines.nth(1)).toContainText(
-      `ปิดงาน (รับสำเร็จ) ${done.time} · บันทึกโดย ${DISPATCHER_NAME}`,
+      `ปิดงาน (รับสำเร็จ) ${done.shown} · บันทึกโดย ${DISPATCHER_NAME}`,
     );
 
     const tl = await timeline(page);
@@ -236,10 +243,10 @@ test.describe.serial('บันทึกสถานะแทนคนขับ�
     await dep.getByLabel(/วันที่/).fill(left.date);
     await dep.getByLabel(/เวลาที่เกิดจริง/).fill(left.time);
     await dep.getByRole('button', { name: 'บันทึก' }).click();
-    await expect(steps.nth(0)).toContainText(`ออก ${left.time}`);
+    await expect(steps.nth(0)).toContainText(`ออก ${left.shown}`);
     await expect(steps.nth(0).getByRole('button', { name: 'ออกจากจุด' })).toHaveCount(0);
     await expect(steps.nth(1).getByTestId('trip-event')).toContainText(
-      `ออกจากจุดก่อนหน้า ${left.time} · บันทึกโดย ${DISPATCHER_NAME}`,
+      `ออกจากจุดก่อนหน้า ${left.shown} · บันทึกโดย ${DISPATCHER_NAME}`,
     );
     let tl = await timeline(page);
     expect(tl.map((e) => [e.stopId, e.type])).toContainEqual([trip!.stops[1]!.id, 'DEPART']);

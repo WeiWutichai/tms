@@ -137,6 +137,12 @@ export const PROBLEMS = {
     th: 'อีเมลนี้เป็นสมาชิกของบริษัทแล้ว',
     en: 'This email is already a member',
   },
+  /** ST7-T04 จำนวน webhook endpoint ครบตามแพ็กเกจ (entitlement `webhook`) — มี `limit` */
+  webhook_limit_reached: {
+    status: 409,
+    th: 'จำนวน webhook endpoint ครบตามแพ็กเกจแล้ว',
+    en: 'Webhook endpoint limit of your plan reached',
+  },
   seat_limit_reached: {
     status: 409,
     th: 'จำนวนผู้ใช้ครบตามแพ็กเกจแล้ว',
