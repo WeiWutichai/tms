@@ -1,5 +1,5 @@
 import { Badge, EmptyState, Icon } from '@tms/ui';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useI18n } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
 import { can, canAny } from '../../nav';
@@ -15,16 +15,18 @@ import './settings.css';
 
 /**
  * เมนูหน้า "ตั้งค่า" — ลำดับ/ไอคอนตาม vSet() ของต้นแบบ
- * เฉพาะหัวข้อในเฟส 0 (นักพัฒนา/Open API, ฟิลด์เพิ่มเติม, AI, วงเงินอนุมัติซ่อม, แพ็กเกจ อยู่นอกเฟส — PLAN.md §3)
+ * เฉพาะหัวข้อในเฟส 0 (ฟิลด์เพิ่มเติม, AI, วงเงินอนุมัติซ่อม, แพ็กเกจ อยู่นอกเฟส — PLAN.md §3)
  * `stage` = งานที่ทำหัวข้อนั้น (หัวข้อที่ยังไม่ทำแสดง "ยังไม่เปิดใช้")
  */
-const SECTIONS: Array<{ k: string; icon: string; perm: string[]; stage?: string }> = [
+const SECTIONS: Array<{ k: string; icon: string; perm: string[]; stage?: string; go?: string }> = [
   { k: 'org', icon: 'building-2', perm: ['settings:read'] },
   { k: 'ent', icon: 'landmark', perm: ['settings:read'] },
   { k: 'num', icon: 'hash', perm: ['settings:read'] },
   { k: 'users', icon: 'users', perm: ['users:read'] },
   { k: 'tax', icon: 'percent', perm: ['settings:read'] },
   { k: 'conn', icon: 'plug', perm: ['settings:read'], stage: 'ST7' },
+  // ST7-T01: ต้นแบบ vSet — กดแล้วไปหน้า "นักพัฒนา / Open API" (this.go('api')) · เห็นเฉพาะผู้ดูแล (canDev)
+  { k: 'api', icon: 'code-xml', perm: ['settings:write'], go: '/settings/api' },
   { k: 'noti', icon: 'bell', perm: ['settings:read'], stage: 'ST1-T23' },
   // ST2-T12: เหตุผลเป็นข้อมูลหลัก (docs/04 A3 แถว Master data) — อ่าน master:read แก้ master:write
   { k: 'reason', icon: 'list-checks', perm: ['master:read'] },
@@ -39,8 +41,9 @@ export function SettingsPage() {
   const me = useMe();
   const scopes = me.data?.scopes ?? [];
   const [params, setParams] = useSearchParams();
+  const go = useNavigate();
   const menu = SECTIONS.filter((s) => canAny(scopes, s.perm));
-  const sec = menu.find((s) => s.k === params.get('sec')) ?? menu[0];
+  const sec = menu.find((s) => s.k === params.get('sec') && !s.go) ?? menu[0];
   const canWrite = can(scopes, 'settings:write');
 
   return (
@@ -53,7 +56,7 @@ export function SettingsPage() {
               key={s.k}
               type="button"
               aria-current={s.k === sec?.k ? 'page' : undefined}
-              onClick={() => setParams({ sec: s.k }, { replace: true })}
+              onClick={() => (s.go ? go(s.go) : setParams({ sec: s.k }, { replace: true }))}
             >
               <Icon n={s.icon} s={16} />
               {t(`set.menu.${s.k}` as MessageKey)}

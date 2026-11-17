@@ -68,11 +68,32 @@
         },
         "responses": {
           "200": {
-            "description": "ตั้ง refresh token ใน cookie httpOnly `tms_rt`",
+            "description": "authorization_code / refresh_token: ตั้ง refresh token ใน cookie httpOnly `tms_rt` · client_credentials: ไม่มี refresh token (error: 401 invalid_client / key_revoked / key_expired, 400 invalid_scope, 403 ip_not_allowed)",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/TokenDto"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/v1/.well-known/jwks.json": {
+      "get": {
+        "operationId": "Auth_jwks",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JwksDto"
                 }
               }
             }
@@ -13135,6 +13156,456 @@
         ]
       }
     },
+    "/v1/api-keys": {
+      "get": {
+        "operationId": "ApiKeys_list",
+        "parameters": [
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "ค่า nextCursor จากหน้าก่อน",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "updatedAfter",
+            "required": false,
+            "in": "query",
+            "description": "คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sort",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "updatedAt",
+              "type": "string",
+              "enum": [
+                "updatedAt",
+                "-updatedAt"
+              ]
+            }
+          },
+          {
+            "name": "fields",
+            "required": false,
+            "in": "query",
+            "description": "รายชื่อ field คั่นด้วย , เช่น id,legalName",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "description": "สถานะคั่นด้วย , (active / expiring / rotating / expired / revoked) — expiring = active ที่หมดอายุใน 30 วัน",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "required": false,
+            "in": "query",
+            "description": "ค้นชื่อ key",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "createdBy",
+            "required": false,
+            "in": "query",
+            "description": "ค้นชื่อผู้สร้าง",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "scope",
+            "required": false,
+            "in": "query",
+            "description": "มี scope นี้ (ค้นบางส่วนได้ เช่น orders)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiKeyPageDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "api-keys"
+        ]
+      },
+      "post": {
+        "operationId": "ApiKeys_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateApiKeyDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "`secret` แสดงครั้งเดียว — ไม่รับ Idempotency-Key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiKeySecretDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "api-keys"
+        ]
+      }
+    },
+    "/v1/api-keys/summary": {
+      "get": {
+        "operationId": "ApiKeys_summary",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "จำนวน key ต่อสถานะ (แท็บ)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiKeySummaryDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "api-keys"
+        ]
+      }
+    },
+    "/v1/api-keys/scopes": {
+      "get": {
+        "operationId": "ApiKeys_scopes",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "scope ที่ให้ key ได้ (`resource:verb`) + ผู้เรียกให้ได้ไหม (INT-073)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScopeListDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "api-keys"
+        ]
+      }
+    },
+    "/v1/api-keys/{id}": {
+      "get": {
+        "operationId": "ApiKeys_get",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiKeyDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "api-keys"
+        ]
+      },
+      "patch": {
+        "operationId": "ApiKeys_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateApiKeyDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "แก้ชื่อ / scope / IP allowlist — มีผลทันที",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiKeyDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "api-keys"
+        ]
+      }
+    },
+    "/v1/api-keys/{id}/history": {
+      "get": {
+        "operationId": "ApiKeys_history",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "ค่า nextCursor จากหน้าก่อน",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ประวัติจาก audit log ใหม่สุดก่อน",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditPageDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "api-keys"
+        ]
+      }
+    },
+    "/v1/api-keys/{id}/rotate": {
+      "post": {
+        "operationId": "ApiKeys_rotate",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RotateApiKeyDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "key ใหม่ (scope/IP เดิม) + secret แสดงครั้งเดียว · key เดิมใช้ได้ถึง `revokeAt` (graceHours ≤ 168) · ไม่รับ Idempotency-Key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiKeySecretDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "api-keys"
+        ]
+      }
+    },
+    "/v1/api-keys/{id}/revoke": {
+      "post": {
+        "operationId": "ApiKeys_revoke",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RevokeApiKeyDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "เพิกถอนทันที (เหตุผล ≥ 10 ตัว) — ย้อนกลับไม่ได้",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiKeyDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "api-keys"
+        ]
+      }
+    },
     "/v1/rate-cards": {
       "get": {
         "operationId": "RateCards_list",
@@ -25223,8 +25694,10 @@
             "type": "string",
             "enum": [
               "authorization_code",
-              "refresh_token"
-            ]
+              "refresh_token",
+              "client_credentials"
+            ],
+            "description": "client_credentials (ST7-T01) = client ภายนอกด้วย API key: clientId `key_…` + clientSecret `tk_live_…` (หรือ HTTP Basic) → JWT RS256 1 ชม."
           },
           "code": {
             "type": "string",
@@ -25233,6 +25706,21 @@
           "codeVerifier": {
             "type": "string",
             "description": "grantType=authorization_code (PKCE)"
+          },
+          "clientId": {
+            "type": "string",
+            "example": "tk_live_8f3a",
+            "description": "grantType=client_credentials — id ของ key (`key_…`) หรือ prefix ที่แสดงในหน้าจอ · หรือส่งใน Authorization: Basic"
+          },
+          "clientSecret": {
+            "type": "string",
+            "description": "grantType=client_credentials — API key เต็ม (`tk_live_…`)",
+            "format": "password"
+          },
+          "scope": {
+            "type": "string",
+            "example": "orders:read orders:write",
+            "description": "grantType=client_credentials — scope ที่ขอ (คั่นด้วยช่องว่าง ⊆ scope ของ key; ไม่ส่ง = ทั้งหมด)"
           }
         },
         "required": [
@@ -25253,12 +25741,32 @@
             "type": "number",
             "example": 900,
             "description": "วินาที"
+          },
+          "scope": {
+            "type": "string",
+            "description": "client_credentials: scope ที่ได้จริง"
           }
         },
         "required": [
           "accessToken",
           "tokenType",
           "expiresIn"
+        ]
+      },
+      "JwksDto": {
+        "type": "object",
+        "properties": {
+          "keys": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "description": "RSA public keys (RFC 7517) ที่ใช้ตรวจ token ของ client credentials"
+          }
+        },
+        "required": [
+          "keys"
         ]
       },
       "MfaVerifyDto": {
@@ -34041,6 +34549,518 @@
             "description": "null = ลบการผูก"
           }
         }
+      },
+      "ApiKeyDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "key_8f3a…"
+          },
+          "name": {
+            "type": "string",
+            "example": "ERP sync"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "live",
+              "test"
+            ]
+          },
+          "prefix": {
+            "type": "string",
+            "example": "tk_live_8f3a",
+            "description": "ส่วนต้นของ key (ไม่ใช่ secret)"
+          },
+          "scopes": {
+            "example": [
+              "orders:read",
+              "orders:write"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "ipAllowlist": {
+            "example": [
+              "203.150.12.0/24"
+            ],
+            "description": "ว่าง = ทุก IP",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "expiring",
+              "rotating",
+              "expired",
+              "revoked"
+            ],
+            "description": "active · expiring (หมดอายุภายใน 30 วัน) · rotating (หมุนแล้ว ใช้ได้ถึง revokeAt) · expired · revoked"
+          },
+          "expiresAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "lastUsedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "lastUsedIp": {
+            "type": "string",
+            "nullable": true
+          },
+          "revokeAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "เวลาที่ key หยุดทำงาน (หมุน = อนาคต ≤ 7 วัน · เพิกถอน = เวลาที่เพิกถอน)"
+          },
+          "revokeReason": {
+            "type": "string",
+            "nullable": true
+          },
+          "rotatedToId": {
+            "type": "string",
+            "nullable": true,
+            "description": "key ใหม่ที่ออกแทน (หมุนแล้ว)"
+          },
+          "rotatedFromId": {
+            "type": "string",
+            "nullable": true,
+            "description": "key เดิมที่หมุนมา"
+          },
+          "createdBy": {
+            "type": "string",
+            "nullable": true,
+            "description": "ผู้สร้าง (usr_…)"
+          },
+          "createdByName": {
+            "type": "string",
+            "nullable": true
+          },
+          "creatorInactive": {
+            "type": "boolean",
+            "description": "ผู้สร้างถูกระงับ/ลบแล้ว (INT-076) — key ยังทำงาน ควรโอนให้ผู้ดูแลคนอื่นหมุนเวียนแทน"
+          },
+          "lastRejectedIp": {
+            "type": "string",
+            "nullable": true,
+            "description": "IP ล่าสุดที่ถูกปฏิเสธเพราะไม่อยู่ใน allowlist (INT-075)"
+          },
+          "lastRejectedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "version": {
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "mode",
+          "prefix",
+          "scopes",
+          "ipAllowlist",
+          "status",
+          "expiresAt",
+          "lastUsedAt",
+          "lastUsedIp",
+          "revokeAt",
+          "revokeReason",
+          "rotatedToId",
+          "rotatedFromId",
+          "createdBy",
+          "createdByName",
+          "creatorInactive",
+          "lastRejectedIp",
+          "lastRejectedAt",
+          "version",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "ApiKeyPageDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ApiKeyDto"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor",
+          "hasMore"
+        ]
+      },
+      "ApiKeySummaryDto": {
+        "type": "object",
+        "properties": {
+          "all": {
+            "type": "number"
+          },
+          "active": {
+            "type": "number"
+          },
+          "expiring": {
+            "type": "number",
+            "description": "ใช้งานและหมดอายุภายใน 30 วัน (ไม่นับใน active)"
+          },
+          "rotating": {
+            "type": "number"
+          },
+          "expired": {
+            "type": "number"
+          },
+          "revoked": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "all",
+          "active",
+          "expiring",
+          "rotating",
+          "expired",
+          "revoked"
+        ]
+      },
+      "ScopeOptionDto": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "example": "orders:read"
+          },
+          "grantable": {
+            "type": "boolean",
+            "description": "ผู้เรียกให้ scope นี้กับ key ได้ไหม (มีสิทธิ์นี้เอง — INT-073)"
+          }
+        },
+        "required": [
+          "scope",
+          "grantable"
+        ]
+      },
+      "ScopeListDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScopeOptionDto"
+            }
+          }
+        },
+        "required": [
+          "data"
+        ]
+      },
+      "CreateApiKeyDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 80,
+            "example": "ERP sync"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "live",
+              "test"
+            ],
+            "default": "live",
+            "description": "`test` ต้องมี sandbox (ST7-T09) — ตอนนี้ตอบ 422"
+          },
+          "expiresInDays": {
+            "type": "number",
+            "enum": [
+              30,
+              90,
+              365
+            ],
+            "nullable": true,
+            "default": 90,
+            "description": "อายุ key (วัน) — null = ไม่หมดอายุ"
+          },
+          "scopes": {
+            "example": [
+              "orders:read"
+            ],
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "ipAllowlist": {
+            "example": [
+              "203.150.12.0/24"
+            ],
+            "description": "IPv4/IPv6 หรือ CIDR สูงสุด 20 รายการ · ว่าง = ทุก IP",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "name",
+          "scopes"
+        ]
+      },
+      "ApiKeySecretDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "key_8f3a…"
+          },
+          "name": {
+            "type": "string",
+            "example": "ERP sync"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "live",
+              "test"
+            ]
+          },
+          "prefix": {
+            "type": "string",
+            "example": "tk_live_8f3a",
+            "description": "ส่วนต้นของ key (ไม่ใช่ secret)"
+          },
+          "scopes": {
+            "example": [
+              "orders:read",
+              "orders:write"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "ipAllowlist": {
+            "example": [
+              "203.150.12.0/24"
+            ],
+            "description": "ว่าง = ทุก IP",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "expiring",
+              "rotating",
+              "expired",
+              "revoked"
+            ],
+            "description": "active · expiring (หมดอายุภายใน 30 วัน) · rotating (หมุนแล้ว ใช้ได้ถึง revokeAt) · expired · revoked"
+          },
+          "expiresAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "lastUsedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "lastUsedIp": {
+            "type": "string",
+            "nullable": true
+          },
+          "revokeAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "เวลาที่ key หยุดทำงาน (หมุน = อนาคต ≤ 7 วัน · เพิกถอน = เวลาที่เพิกถอน)"
+          },
+          "revokeReason": {
+            "type": "string",
+            "nullable": true
+          },
+          "rotatedToId": {
+            "type": "string",
+            "nullable": true,
+            "description": "key ใหม่ที่ออกแทน (หมุนแล้ว)"
+          },
+          "rotatedFromId": {
+            "type": "string",
+            "nullable": true,
+            "description": "key เดิมที่หมุนมา"
+          },
+          "createdBy": {
+            "type": "string",
+            "nullable": true,
+            "description": "ผู้สร้าง (usr_…)"
+          },
+          "createdByName": {
+            "type": "string",
+            "nullable": true
+          },
+          "creatorInactive": {
+            "type": "boolean",
+            "description": "ผู้สร้างถูกระงับ/ลบแล้ว (INT-076) — key ยังทำงาน ควรโอนให้ผู้ดูแลคนอื่นหมุนเวียนแทน"
+          },
+          "lastRejectedIp": {
+            "type": "string",
+            "nullable": true,
+            "description": "IP ล่าสุดที่ถูกปฏิเสธเพราะไม่อยู่ใน allowlist (INT-075)"
+          },
+          "lastRejectedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "version": {
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "secret": {
+            "type": "string",
+            "example": "tk_live_8f3a…",
+            "description": "API key เต็ม — แสดงครั้งเดียว"
+          },
+          "clientId": {
+            "type": "string",
+            "example": "key_8f3a…",
+            "description": "client_id สำหรับ POST /oauth/token (grantType=client_credentials) — คู่กับ secret"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "mode",
+          "prefix",
+          "scopes",
+          "ipAllowlist",
+          "status",
+          "expiresAt",
+          "lastUsedAt",
+          "lastUsedIp",
+          "revokeAt",
+          "revokeReason",
+          "rotatedToId",
+          "rotatedFromId",
+          "createdBy",
+          "createdByName",
+          "creatorInactive",
+          "lastRejectedIp",
+          "lastRejectedAt",
+          "version",
+          "createdAt",
+          "updatedAt",
+          "secret",
+          "clientId"
+        ]
+      },
+      "UpdateApiKeyDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "scopes": {
+            "example": [
+              "orders:read"
+            ],
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "ipAllowlist": {
+            "example": [
+              "203.150.12.0/24"
+            ],
+            "description": "IPv4/IPv6 หรือ CIDR สูงสุด 20 รายการ · ว่าง = ทุก IP",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "RotateApiKeyDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 10,
+            "maxLength": 500,
+            "example": "เลิกใช้บริการตั้งแต่ ธ.ค. 2569"
+          },
+          "graceHours": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 168,
+            "default": 24,
+            "description": "ชั่วโมงที่ key เดิมยังใช้ได้ (0 = หยุดทันที, สูงสุด 168 = 7 วัน)"
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      },
+      "RevokeApiKeyDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 10,
+            "maxLength": 500,
+            "example": "เลิกใช้บริการตั้งแต่ ธ.ค. 2569"
+          }
+        },
+        "required": [
+          "reason"
+        ]
       },
       "RatePartyRefDto": {
         "type": "object",
