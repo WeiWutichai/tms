@@ -79,7 +79,8 @@ export function FlagDrawer({
         subtitle={t('exc.stop', { n: flag.stopSequence, site: flag.siteName })}
         labels={{ close: t('drawer.close'), more: t('drawer.more') }}
         menu={
-          isOpen && canResolve
+          // ธงแจ้งอย่างเดียว (ผลจุดขัด DO — ST4-T03) รับทราบได้อย่างเดียว ไม่มี "ไม่ใช้"
+          isOpen && canResolve && !flag.flags.every((f) => f === 'OUTCOME_MISMATCH')
             ? [
                 {
                   label: t('exc.act.ignore'),

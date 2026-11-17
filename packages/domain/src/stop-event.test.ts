@@ -274,3 +274,86 @@ describe('ST4-T02 นาฬิกาเพี้ยน / การรับ even
     ).toEqual([]);
   });
 });
+
+describe('ST4-T03 ธงจุดรับยังไม่ปิด / ผลไม่ตรง DO / ถึงจุดหลังปิดที่ยอมรับ', () => {
+  let n = 0;
+  const e = (
+    type: StopEventType,
+    at: string,
+    extra: Partial<StopSeqEvent> & { dec?: 'ACCEPT' | 'IGNORE'; decFlags?: string[] } = {},
+  ): StopSeqEvent => {
+    const { dec, decFlags, ...rest } = extra;
+    return {
+      id: `t${String(++n).padStart(3, '0')}`,
+      type,
+      outcome: type === 'COMPLETE' ? 'DELIVERED' : null,
+      occurredAt: new Date(`2026-11-17T${at}:00+07:00`),
+      receivedAt: new Date(`2026-11-17T12:00:${String(n % 60).padStart(2, '0')}+07:00`),
+      lateReason: null,
+      clockSkew: false,
+      resolutions: dec ? [{ decision: dec, flags: decFlags ?? [], at: new Date() }] : [],
+      ...rest,
+    };
+  };
+
+  it('ปิดงานส่งขณะจุดรับยังไม่ปิด → ธง PICKUP_NOT_DONE ไม่นับ · "ใช้" → นับ', () => {
+    const r = effectiveStopSequence([
+      e('ARRIVE', '09:00'),
+      e('COMPLETE', '09:30', { pickupPending: true }),
+    ]);
+    expect(r.state).toBe('ARRIVED');
+    expect(r.events[1]).toMatchObject({
+      seqStatus: 'PICKUP_PENDING',
+      counted: false,
+      flags: ['PICKUP_NOT_DONE'],
+    });
+    const ok = effectiveStopSequence([
+      e('ARRIVE', '09:00'),
+      e('COMPLETE', '09:30', {
+        pickupPending: true,
+        dec: 'ACCEPT',
+        decFlags: ['PICKUP_NOT_DONE'],
+      }),
+    ]);
+    expect(ok.state).toBe('COMPLETED');
+    expect(ok.events[1]!.seqStatus).toBe('ACCEPTED');
+  });
+
+  it('OUTCOME_MISMATCH เป็นธงแจ้ง: ไม่กระทบการนับ และไม่ทำให้การตัดสินเดิมหมดผล · ปิดธงได้ด้วยการตัดสินที่เห็นธงแล้ว', () => {
+    const accepted = e('COMPLETE', '09:30', {
+      outcomeMismatch: true,
+      dec: 'ACCEPT',
+      decFlags: ['SEQUENCE_CONFLICT'],
+    });
+    const r = effectiveStopSequence([e('DEPART', '08:00'), accepted]);
+    expect(r.state).toBe('COMPLETED');
+    expect(r.events[1]).toMatchObject({
+      counted: true,
+      flags: ['SEQUENCE_CONFLICT', 'OUTCOME_MISMATCH'],
+      resolution: null,
+    });
+    const pure = e('COMPLETE', '09:30', { outcomeMismatch: true });
+    const p = effectiveStopSequence([e('ARRIVE', '09:00'), pure]);
+    expect(p.events[1]).toMatchObject({ counted: true, flags: ['OUTCOME_MISMATCH'] });
+    const ack = effectiveStopSequence([
+      e('ARRIVE', '09:00'),
+      e('COMPLETE', '09:30', {
+        outcomeMismatch: true,
+        dec: 'ACCEPT',
+        decFlags: ['OUTCOME_MISMATCH'],
+      }),
+    ]);
+    expect(ack.events[1]!.resolution).not.toBeNull();
+    expect(ack.events[1]!.counted).toBe(true);
+  });
+
+  it('ยอมรับปิดงานขัดลำดับ (เวลาก่อนถึงจุด) → ถึงจุดที่ถูกต้องยังนับเวลา ไม่ขึ้นธง (QA L1)', () => {
+    const r = effectiveStopSequence([
+      e('ARRIVE', '09:10'),
+      e('COMPLETE', '09:00', { dec: 'ACCEPT', decFlags: ['SEQUENCE_CONFLICT'] }),
+    ]);
+    expect(r.state).toBe('COMPLETED');
+    expect(r.arrivedAt).toEqual(new Date('2026-11-17T09:10:00+07:00'));
+    expect(r.events[1]).toMatchObject({ type: 'ARRIVE', conflict: false, counted: true });
+  });
+});

@@ -17721,7 +17721,7 @@
     },
     "/v1/stops/{id}/events": {
       "get": {
-        "description": "ST4-T02 (docs/01 §3.9): ทุก event ของจุด (รวมที่ขัดลำดับ/มาหลังปิด/ผู้จัดรถไม่ใช้) เรียง `occurredAt` → ชนิด (ออก → ถึง → ปิด) → `receivedAt` พร้อมผลของแต่ละตัว (`seqStatus`) และสถานะที่มีผลของจุด — ยังไม่ลง `trip_stop` (ST4-T03)",
+        "description": "ST4-T02 (docs/01 §3.9): ทุก event ของจุด (รวมที่ขัดลำดับ/มาหลังปิด/ผู้จัดรถไม่ใช้) เรียง `occurredAt` → ชนิด (ออก → ถึง → ปิด) → `receivedAt` พร้อมผลของแต่ละตัว (`seqStatus`) และสถานะที่มีผลของจุด — ST4-T03 ลง `trip_stop` แล้ว (เที่ยวที่จบ/ยกเลิกไม่ไล่ต่อ)",
         "operationId": "Stops_events",
         "parameters": [
           {
@@ -18696,7 +18696,9 @@
               "enum": [
                 "LATE",
                 "SEQUENCE_CONFLICT",
-                "CLOCK_SKEW"
+                "PICKUP_NOT_DONE",
+                "CLOCK_SKEW",
+                "OUTCOME_MISMATCH"
               ]
             }
           },
@@ -36940,7 +36942,9 @@
               "enum": [
                 "LATE",
                 "SEQUENCE_CONFLICT",
-                "CLOCK_SKEW"
+                "PICKUP_NOT_DONE",
+                "CLOCK_SKEW",
+                "OUTCOME_MISMATCH"
               ]
             }
           },
@@ -37010,6 +37014,12 @@
             "format": "date-time",
             "description": "เวลาที่ server รับ (UTC)"
           },
+          "appliedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "ST4-T03: เวลาที่ event ถูกนับในสถานะจุด/เที่ยว/DO (projection) — null = ไม่นับ (ขัดลำดับ/มาหลังปิด/เวลาเพี้ยนที่ยังไม่ตัดสิน, ผู้จัดรถไม่ใช้, หรือเที่ยวจบ/ยกเลิกแล้ว = ประวัติเท่านั้น)"
+          },
           "lat": {
             "type": "number",
             "nullable": true
@@ -37077,7 +37087,9 @@
               "enum": [
                 "LATE",
                 "SEQUENCE_CONFLICT",
-                "CLOCK_SKEW"
+                "PICKUP_NOT_DONE",
+                "CLOCK_SKEW",
+                "OUTCOME_MISMATCH"
               ]
             }
           },
@@ -37117,6 +37129,7 @@
           "clientEventId",
           "occurredAt",
           "receivedAt",
+          "appliedAt",
           "lat",
           "lng",
           "accuracyM",
@@ -37312,6 +37325,12 @@
             "format": "date-time",
             "description": "เวลาที่ server รับ (UTC)"
           },
+          "appliedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "ST4-T03: เวลาที่ event ถูกนับในสถานะจุด/เที่ยว/DO (projection) — null = ไม่นับ (ขัดลำดับ/มาหลังปิด/เวลาเพี้ยนที่ยังไม่ตัดสิน, ผู้จัดรถไม่ใช้, หรือเที่ยวจบ/ยกเลิกแล้ว = ประวัติเท่านั้น)"
+          },
           "lat": {
             "type": "number",
             "nullable": true
@@ -37379,7 +37398,9 @@
               "enum": [
                 "LATE",
                 "SEQUENCE_CONFLICT",
-                "CLOCK_SKEW"
+                "PICKUP_NOT_DONE",
+                "CLOCK_SKEW",
+                "OUTCOME_MISMATCH"
               ]
             }
           }
@@ -37393,6 +37414,7 @@
           "clientEventId",
           "occurredAt",
           "receivedAt",
+          "appliedAt",
           "lat",
           "lng",
           "accuracyM",
@@ -37613,7 +37635,9 @@
               "enum": [
                 "LATE",
                 "SEQUENCE_CONFLICT",
-                "CLOCK_SKEW"
+                "PICKUP_NOT_DONE",
+                "CLOCK_SKEW",
+                "OUTCOME_MISMATCH"
               ]
             }
           },

@@ -26,6 +26,10 @@ import { DbService, type Tx } from '../../db/db.service';
 import { AuditService } from '../../audit/audit.service';
 import { ReasonCodesService } from '../reason-codes/reason-codes.service';
 import type { ReasonSnapshot } from '../reason-codes/snapshot';
+import { toSeqEvent } from './stop-event-seq';
+import { StopProjectionService } from './stop-projection.service';
+
+export { toSeqEvent, type StopEventWithResolution } from './stop-event-seq';
 
 export interface StopEventInput {
   clientEventId: string;
@@ -45,8 +49,6 @@ export interface StopEventPayload {
   reason?: ReasonSnapshot;
 }
 
-export type StopEventWithResolution = StopEvent & { resolutions: StopEventResolution[] };
-
 const field422 = (field: string, code: string, message: string) =>
   new ProblemException('validation_failed', undefined, [{ field, code, message }]);
 
@@ -60,29 +62,14 @@ export function stopEventSourceOf(principalType: string | undefined): StopEventS
   return 'API';
 }
 
-/** แถว → อินพุตของ domain `effectiveStopSequence` (การตัดสินทุกแถว — domain เลือกตัวที่ธงตรง) */
-export function toSeqEvent<E extends StopEventWithResolution>(
-  e: E,
-): E & StopSeqEvent<StopEventResolution & StopSeqResolution> {
-  return {
-    ...e,
-    type: e.type,
-    outcome: e.outcome as StopOutcome | null,
-    lateReason: e.lateReason as StopEventLateReason | null,
-    resolutions: e.resolutions.map((r) => ({
-      ...r,
-      decision: r.decision as StopEventDecision,
-      at: r.createdAt,
-    })),
-  };
-}
-
 /** ธงของแถว (ลำดับความสำคัญตาม domain) */
 export const flagsOf = (e: StopEvent): StopEventFlag[] =>
   stopEventFlagsOf({
     lateReason: e.lateReason,
     sequenceConflict: e.sequenceConflict,
     clockSkew: e.clockSkew,
+    pickupPending: e.pickupPending,
+    outcomeMismatch: e.outcomeMismatch,
   });
 
 interface FlagCursor {
@@ -96,7 +83,7 @@ interface FlagCursor {
  * T02: ส่งซ้ำ (clientEventId + จุด + ชนิดเดิม) = คืนแถวเดิม · เรียงตาม occurredAt แล้วตรวจ state machine ทุกครั้ง
  * (คอลัมน์ `sequence_conflict`) · เวลาเครื่องเพี้ยน → `clock_skew` · มาหลังจุดถูกถอด/เที่ยวยกเลิก/จบ → `late_reason`
  * (รับเก็บ ไม่ทิ้งหลักฐาน — spec/04 DRV-072/075) · dispatcher ตัดสินด้วยแถวใหม่ใน `stop_event_resolution` + เหตุผล + audit
- * ยังไม่ทำ: ไล่สถานะ trip_stop → trip → DO → SO + domain_event `stop.*` (ST4-T03 — ใช้ `sequence()` ของจุด)
+ * T03: ทุก event/การตัดสินใหม่ → ไล่สถานะ trip_stop → trip → DO → SO (`StopProjectionService`) ใน transaction เดียวกัน
  */
 @Injectable()
 export class StopEventsService {
@@ -105,18 +92,18 @@ export class StopEventsService {
     private readonly reasonCodes: ReasonCodesService,
     private readonly audit: AuditService,
     private readonly clock: Clock,
+    private readonly projection: StopProjectionService,
   ) {}
 
-  /** ล็อกเที่ยว: event/การตัดสินของเที่ยวเดียวกันเข้าแถวทีละรายการ (ST4-T03 ไล่สถานะเที่ยวต่อจากนี้) + กันชนกับยกเลิกเที่ยว */
+  /**
+   * ล็อกเที่ยว (SO → DO → trip): event/การตัดสินของเที่ยวเดียวกันเข้าแถวทีละรายการ + กันชนกับยกเลิกเที่ยว/ปล่อยรถ
+   * แล้วไล่สถานะ (ST4-T03) ภายใต้ล็อกเดียวกัน
+   */
   private async lockTrip(
     tx: Tx,
     tripId: string,
   ): Promise<{ status: TripStatus; dispatched: boolean }> {
-    const [trip] = await tx.$queryRaw<{ status: TripStatus; dispatched: boolean }[]>`
-      SELECT status::text AS status, dispatched_at IS NOT NULL AS dispatched
-        FROM trip WHERE id = ${tripId}::uuid FOR UPDATE`;
-    if (!trip) throw new ProblemException('not_found');
-    return trip;
+    return this.projection.lockTrip(tx, tripId);
   }
 
   /**
@@ -191,9 +178,12 @@ export class StopEventsService {
       if (again) return { event: again, replayed: true };
       throw new ProblemException('concurrent_update'); // ชนกับ id อื่น (ไม่ควรเกิด) — ลองใหม่ได้
     }
-    const seq = await this.resequence(tx, stop.id);
-    const mine = seq.events.find((e) => e.id === created.id)!;
-    return { event: { ...created, sequenceConflict: mine.conflict }, replayed: false };
+    await this.resequence(tx, stop.id);
+    await this.projection.project(tx, stop.tripId);
+    return {
+      event: await tx.stopEvent.findFirstOrThrow({ where: { id: created.id } }),
+      replayed: false,
+    };
   }
 
   /** แถวเดิมของ clientEventId: จุด + ชนิดเดียวกัน = คืนแถวเดิม · คนละจุด/ชนิด = 409 stop_event_duplicate */
@@ -267,6 +257,13 @@ export class StopEventsService {
     if (e.resolutionId) throw new ProblemException('stop_event_already_resolved');
     const flags = flagsOf(e);
     if (!flags.length) throw new ProblemException('stop_event_not_flagged');
+    // ธงแจ้งเท่านั้น (ผลจุดขัด DO) = รับทราบได้อย่างเดียว — "ไม่ใช้" ไม่มีผลกับการนับ (แก้ DO ด้วยงานส่งใหม่/คืนคลัง ST4-T11)
+    if (decision === 'IGNORE' && flags.every((f) => f === 'OUTCOME_MISMATCH'))
+      throw field422(
+        'decision',
+        'acknowledge_only',
+        'OUTCOME_MISMATCH can only be acknowledged (ACCEPT)',
+      );
 
     await tx.stopEventResolution.create({
       data: {
@@ -288,6 +285,7 @@ export class StopEventsService {
       reason,
     });
     await this.resequence(tx, e.tripStopId);
+    await this.projection.project(tx, e.tripId);
     return tx.stopEvent.findFirstOrThrow({ where: { id: e.id } });
   }
 
@@ -313,7 +311,8 @@ export class StopEventsService {
     cursor?: string;
   }) {
     const limit = q.limit ?? 25;
-    const flagged = Prisma.sql`(e.sequence_conflict OR e.clock_skew OR e.late_reason IS NOT NULL)`;
+    const flagged = Prisma.sql`(e.sequence_conflict OR e.clock_skew OR e.late_reason IS NOT NULL
+      OR e.pickup_pending OR e.outcome_mismatch)`;
     const conds: Prisma.Sql[] = [
       q.status === 'open'
         ? Prisma.sql`${flagged} AND e.resolution_id IS NULL`
@@ -327,6 +326,8 @@ export class StopEventsService {
     if (q.flag === 'LATE') conds.push(Prisma.sql`e.late_reason IS NOT NULL`);
     if (q.flag === 'SEQUENCE_CONFLICT') conds.push(Prisma.sql`e.sequence_conflict`);
     if (q.flag === 'CLOCK_SKEW') conds.push(Prisma.sql`e.clock_skew`);
+    if (q.flag === 'PICKUP_NOT_DONE') conds.push(Prisma.sql`e.pickup_pending`);
+    if (q.flag === 'OUTCOME_MISMATCH') conds.push(Prisma.sql`e.outcome_mismatch`);
     const text = q.q?.trim();
     if (text) {
       const like = `%${likeEscape(text)}%`;
@@ -375,7 +376,13 @@ export class StopEventsService {
   /** ตัวเลขบนการ์ด: ใหม่ (ยังไม่มีการตัดสินที่มีผล) · ตัดสินแล้ว · ตัดสินแล้ววันนี้ (วันตามเวลาไทย) */
   async flagSummary() {
     const flagged: Prisma.StopEventWhereInput = {
-      OR: [{ sequenceConflict: true }, { clockSkew: true }, { lateReason: { not: null } }],
+      OR: [
+        { sequenceConflict: true },
+        { clockSkew: true },
+        { lateReason: { not: null } },
+        { pickupPending: true },
+        { outcomeMismatch: true },
+      ],
     };
     const [open, resolved, resolvedToday] = await Promise.all([
       this.db.tx.stopEvent.count({ where: { AND: [flagged, { resolutionId: null }] } }),

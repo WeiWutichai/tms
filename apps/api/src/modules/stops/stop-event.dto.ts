@@ -174,6 +174,14 @@ export class StopEventDto {
   occurredAt!: string;
   @ApiProperty({ format: 'date-time', description: 'เวลาที่ server รับ (UTC)' })
   receivedAt!: string;
+  @ApiProperty({
+    format: 'date-time',
+    nullable: true,
+    type: String,
+    description:
+      'ST4-T03: เวลาที่ event ถูกนับในสถานะจุด/เที่ยว/DO (projection) — null = ไม่นับ (ขัดลำดับ/มาหลังปิด/เวลาเพี้ยนที่ยังไม่ตัดสิน, ผู้จัดรถไม่ใช้, หรือเที่ยวจบ/ยกเลิกแล้ว = ประวัติเท่านั้น)',
+  })
+  appliedAt!: string | null;
   @ApiProperty({ nullable: true, type: Number }) lat!: number | null;
   @ApiProperty({ nullable: true, type: Number }) lng!: number | null;
   @ApiProperty({ nullable: true, type: Number }) accuracyM!: number | null;
