@@ -19605,6 +19605,729 @@
         ]
       }
     },
+    "/v1/connectors/effective": {
+      "get": {
+        "operationId": "ConnectorsEffective_effective",
+        "parameters": [
+          {
+            "name": "companyId",
+            "required": false,
+            "in": "query",
+            "description": "นิติบุคคล — ไม่ระบุทั้งนิติบุคคลและสาขา = ค่าเริ่มต้นระดับ tenant (connector ทุกนิติบุคคล หรือ Standalone)",
+            "schema": {
+              "example": "cmp_…",
+              "type": "string"
+            }
+          },
+          {
+            "name": "branchId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "example": "brn_…",
+              "type": "string"
+            }
+          },
+          {
+            "name": "kind",
+            "required": false,
+            "in": "query",
+            "description": "ออกบิลในนาม / จ้างในนาม",
+            "schema": {
+              "default": "invoice",
+              "type": "string",
+              "enum": [
+                "invoice",
+                "tender"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "connector ที่เอกสารของนิติบุคคล/สาขานี้ใช้ (routing: นิติบุคคล → ทุกนิติบุคคล → Standalone) + capability ที่ใช้ได้",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EffectiveConnectorDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "connectors"
+        ]
+      }
+    },
+    "/v1/connectors": {
+      "get": {
+        "operationId": "Connectors_list",
+        "parameters": [
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "description": "ไม่ระบุ = ทุกสถานะยกเว้น DISCONNECTED",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "ACTIVE",
+                "PAUSED",
+                "ERROR",
+                "DISCONNECTED"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorListDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "connectors"
+        ]
+      },
+      "post": {
+        "operationId": "Connectors_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateConnectorDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "สร้างเป็น PAUSED (ยังไม่ส่ง) — เปิดด้วย /resume หลังทดสอบผ่าน · นิติบุคคลเดียวกันมีได้ 1 ตัว → 409 `connector_scope_taken` · เกิน limit → 409 `connector_limit_reached`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "connectors"
+        ]
+      }
+    },
+    "/v1/connectors/adapters": {
+      "get": {
+        "operationId": "Connectors_adapters",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "adapter ที่เปิดเป็น connector ได้ + capabilities + ช่องตั้งค่า (เรียงตามรหัส ไม่มีตัวใดเป็นค่าเริ่มต้น)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErpAdapterListDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "connectors"
+        ]
+      }
+    },
+    "/v1/connectors/{id}": {
+      "get": {
+        "operationId": "Connectors_get",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "connectors"
+        ]
+      },
+      "patch": {
+        "operationId": "Connectors_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateConnectorDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "แก้ capability ที่เปิด / syncFromDate / รหัสบริษัท ERP / branchMap / ค่าตั้งที่ไม่ลับ",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "connectors"
+        ]
+      }
+    },
+    "/v1/connectors/{id}/history": {
+      "get": {
+        "operationId": "Connectors_history",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "ค่า nextCursor จากหน้าก่อน",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ประวัติจาก audit log ใหม่สุดก่อน",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditPageDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "connectors"
+        ]
+      }
+    },
+    "/v1/connectors/{id}/credentials": {
+      "put": {
+        "operationId": "Connectors_credentials",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectorCredentialsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "แทน credential ทั้งชุด (หมุน key) — เก็บเข้ารหัส ไม่ส่งกลับ · audit บันทึกเฉพาะชื่อช่อง",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "connectors"
+        ]
+      }
+    },
+    "/v1/connectors/{id}/health": {
+      "post": {
+        "operationId": "Connectors_health",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ทดสอบการเชื่อมต่อ (healthCheck ≤ 15 วิ) — ACTIVE + AUTH ล้ม → ERROR · ERROR + ผ่าน → ACTIVE",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorHealthDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "connectors"
+        ]
+      }
+    },
+    "/v1/connectors/{id}/resume": {
+      "post": {
+        "operationId": "Connectors_resume",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectorActionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "เปิดใช้ (PAUSED/ERROR → ACTIVE) หลัง healthCheck ผ่าน · ไม่ผ่าน → 409 `connector_health_failed`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "connectors"
+        ]
+      }
+    },
+    "/v1/connectors/{id}/pause": {
+      "post": {
+        "operationId": "Connectors_pause",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectorActionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "หยุดชั่วคราว — เอกสารใหม่เข้าคิวรอ (ไม่ส่ง) จนกว่าจะเปิดใหม่",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "connectors"
+        ]
+      }
+    },
+    "/v1/connectors/{id}/disconnect": {
+      "post": {
+        "operationId": "Connectors_disconnect",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectorReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ยกเลิกการเชื่อม (เหตุผล ≥ 10 ตัว) — หยุดส่ง/ดึงทันที กลับเป็น Standalone · เก็บ mapping/log ไว้ (INT-016)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "connectors"
+        ]
+      }
+    },
     "/v1/webhook-deliveries": {
       "get": {
         "operationId": "WebhookDeliveries_list",
@@ -49182,6 +49905,603 @@
           "durationMs",
           "errorCode",
           "eventId"
+        ]
+      },
+      "EffectiveConnectorDto": {
+        "type": "object",
+        "properties": {
+          "standalone": {
+            "type": "boolean",
+            "description": "true = ไม่เชื่อม ERP (ทุก flow ทำใน TMS)"
+          },
+          "connectorId": {
+            "type": "string",
+            "nullable": true
+          },
+          "adapterKey": {
+            "type": "string",
+            "example": "standalone"
+          },
+          "displayName": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "ACTIVE",
+              "PAUSED",
+              "ERROR",
+              "DISCONNECTED"
+            ]
+          },
+          "capabilities": {
+            "type": "array",
+            "description": "ใช้ได้จริง (UI แสดงเฉพาะที่อยู่ในรายการนี้)",
+            "items": {
+              "type": "string",
+              "enum": [
+                "pullOrders",
+                "pushInvoice",
+                "pushCreditNote",
+                "pushSettlement",
+                "fetchDocument",
+                "fetchPaymentStatus",
+                "listDocuments",
+                "replaceDocument",
+                "postedStatus",
+                "ownsDocumentNumber"
+              ]
+            }
+          },
+          "sending": {
+            "type": "boolean",
+            "description": "ส่ง/ดึงได้ตอนนี้ (ACTIVE) — false = เอกสารเข้าคิวรอ"
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "company",
+              "tenant",
+              "none"
+            ]
+          },
+          "erpCompanyCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "companyId": {
+            "type": "string",
+            "nullable": true,
+            "example": "cmp_…",
+            "description": "นิติบุคคลที่ routing เลือก (null = ไม่ได้ระบุ — ค่าระดับ tenant)"
+          },
+          "branchId": {
+            "type": "string",
+            "nullable": true,
+            "example": "brn_…"
+          }
+        },
+        "required": [
+          "standalone",
+          "connectorId",
+          "adapterKey",
+          "displayName",
+          "status",
+          "capabilities",
+          "sending",
+          "scope",
+          "erpCompanyCode",
+          "companyId",
+          "branchId"
+        ]
+      },
+      "ConnectorDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "con_8f3a…"
+          },
+          "adapterKey": {
+            "type": "string",
+            "example": "demo"
+          },
+          "displayName": {
+            "type": "string",
+            "example": "Demo ERP",
+            "nullable": true,
+            "description": "null = adapter ไม่ได้ติดตั้งในระบบนี้"
+          },
+          "companyId": {
+            "type": "string",
+            "nullable": true,
+            "example": "cmp_…",
+            "description": "นิติบุคคลที่ใช้ connector นี้ (Invoice As / Tender As) · null = ทุกนิติบุคคลที่ไม่มีของตัวเอง"
+          },
+          "erpCompanyCode": {
+            "type": "string",
+            "nullable": true,
+            "example": "PP01"
+          },
+          "branchMap": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "example": {
+              "brn_8f3a": "PP01-BKK"
+            },
+            "description": "สาขา TMS → รหัสบริษัท/สาขาฝั่ง ERP (ไม่มี = ใช้ erpCompanyCode)"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "PAUSED",
+              "ERROR",
+              "DISCONNECTED"
+            ]
+          },
+          "statusReason": {
+            "type": "string",
+            "nullable": true
+          },
+          "statusChangedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "capabilitiesSupported": {
+            "type": "array",
+            "description": "capability ที่ adapter รองรับทั้งหมด",
+            "items": {
+              "type": "string",
+              "enum": [
+                "pullOrders",
+                "pushInvoice",
+                "pushCreditNote",
+                "pushSettlement",
+                "fetchDocument",
+                "fetchPaymentStatus",
+                "listDocuments",
+                "replaceDocument",
+                "postedStatus",
+                "ownsDocumentNumber"
+              ]
+            }
+          },
+          "capabilitiesEnabled": {
+            "type": "array",
+            "description": "ที่ tenant เปิด",
+            "items": {
+              "type": "string",
+              "enum": [
+                "pullOrders",
+                "pushInvoice",
+                "pushCreditNote",
+                "pushSettlement",
+                "fetchDocument",
+                "fetchPaymentStatus",
+                "listDocuments",
+                "replaceDocument",
+                "postedStatus",
+                "ownsDocumentNumber"
+              ]
+            }
+          },
+          "capabilities": {
+            "type": "array",
+            "description": "ใช้ได้จริง = รองรับ ∩ เปิด (ว่างเมื่อยกเลิกการเชื่อม)",
+            "items": {
+              "type": "string",
+              "enum": [
+                "pullOrders",
+                "pushInvoice",
+                "pushCreditNote",
+                "pushSettlement",
+                "fetchDocument",
+                "fetchPaymentStatus",
+                "listDocuments",
+                "replaceDocument",
+                "postedStatus",
+                "ownsDocumentNumber"
+              ]
+            }
+          },
+          "settings": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "ค่าตั้งที่ไม่ลับ (base URL ฯลฯ)"
+          },
+          "credentialKeys": {
+            "example": [
+              "apiKey"
+            ],
+            "description": "ชื่อช่อง credential ที่ตั้งแล้ว — ค่าไม่ส่งกลับเด็ดขาด",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "credentialsUpdatedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "syncFromDate": {
+            "type": "string",
+            "nullable": true,
+            "format": "date",
+            "example": "2026-12-01"
+          },
+          "lastHealthAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "lastHealthOk": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "lastHealthError": {
+            "type": "object",
+            "nullable": true,
+            "additionalProperties": true,
+            "description": "{errorClass, code, message} ของ healthCheck ล่าสุดที่ล้ม"
+          },
+          "activatedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "disconnectedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "version": {
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "adapterKey",
+          "displayName",
+          "companyId",
+          "erpCompanyCode",
+          "branchMap",
+          "status",
+          "statusReason",
+          "statusChangedAt",
+          "capabilitiesSupported",
+          "capabilitiesEnabled",
+          "capabilities",
+          "settings",
+          "credentialKeys",
+          "credentialsUpdatedAt",
+          "syncFromDate",
+          "lastHealthAt",
+          "lastHealthOk",
+          "lastHealthError",
+          "activatedAt",
+          "disconnectedAt",
+          "version",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "ConnectorListDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConnectorDto"
+            }
+          }
+        },
+        "required": [
+          "data"
+        ]
+      },
+      "ConnectorConfigFieldDto": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "example": "baseUrl"
+          },
+          "secret": {
+            "type": "boolean",
+            "description": "credential — ไม่ส่งค่ากลับ, แสดงได้แค่ \"ตั้งแล้ว\""
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "string",
+              "url"
+            ]
+          },
+          "maxLength": {
+            "type": "number",
+            "nullable": true
+          }
+        },
+        "required": [
+          "key",
+          "secret",
+          "required",
+          "kind",
+          "maxLength"
+        ]
+      },
+      "ErpAdapterDto": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "example": "demo",
+            "description": "`adapterKey` ที่ใช้ตอนสร้าง connector"
+          },
+          "displayName": {
+            "type": "string",
+            "example": "Demo ERP"
+          },
+          "capabilities": {
+            "type": "array",
+            "description": "capability ที่ adapter รองรับ (docs/01 §6.1) — UI แสดงเฉพาะที่อยู่ในรายการนี้",
+            "items": {
+              "type": "string",
+              "enum": [
+                "pullOrders",
+                "pushInvoice",
+                "pushCreditNote",
+                "pushSettlement",
+                "fetchDocument",
+                "fetchPaymentStatus",
+                "listDocuments",
+                "replaceDocument",
+                "postedStatus",
+                "ownsDocumentNumber"
+              ]
+            }
+          },
+          "configFields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConnectorConfigFieldDto"
+            }
+          }
+        },
+        "required": [
+          "key",
+          "displayName",
+          "capabilities",
+          "configFields"
+        ]
+      },
+      "ErpAdapterListDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ErpAdapterDto"
+            }
+          }
+        },
+        "required": [
+          "data"
+        ]
+      },
+      "CreateConnectorDto": {
+        "type": "object",
+        "properties": {
+          "adapterKey": {
+            "type": "string",
+            "example": "demo",
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,31}$",
+            "description": "จาก GET /connectors/adapters"
+          },
+          "companyId": {
+            "type": "string",
+            "nullable": true,
+            "example": "cmp_…",
+            "description": "ไม่ส่ง/null = ทุกนิติบุคคล"
+          },
+          "erpCompanyCode": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 64,
+            "example": "PP01"
+          },
+          "branchMap": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "capabilitiesEnabled": {
+            "type": "array",
+            "description": "ไม่ส่ง = เปิดทุกตัวที่ adapter รองรับ",
+            "items": {
+              "type": "string",
+              "enum": [
+                "pullOrders",
+                "pushInvoice",
+                "pushCreditNote",
+                "pushSettlement",
+                "fetchDocument",
+                "fetchPaymentStatus",
+                "listDocuments",
+                "replaceDocument",
+                "postedStatus",
+                "ownsDocumentNumber"
+              ]
+            }
+          },
+          "settings": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "ค่าที่ไม่ลับตาม configFields"
+          },
+          "credentials": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "ช่อง secret ตาม configFields — เก็บเข้ารหัส ไม่ส่งกลับ"
+          },
+          "syncFromDate": {
+            "type": "string",
+            "nullable": true,
+            "format": "date",
+            "description": "≤ วันนี้ (เวลาไทย)"
+          }
+        },
+        "required": [
+          "adapterKey"
+        ]
+      },
+      "UpdateConnectorDto": {
+        "type": "object",
+        "properties": {
+          "erpCompanyCode": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 64
+          },
+          "branchMap": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "capabilitiesEnabled": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "pullOrders",
+                "pushInvoice",
+                "pushCreditNote",
+                "pushSettlement",
+                "fetchDocument",
+                "fetchPaymentStatus",
+                "listDocuments",
+                "replaceDocument",
+                "postedStatus",
+                "ownsDocumentNumber"
+              ]
+            }
+          },
+          "settings": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "แทนค่าที่ไม่ลับทั้งชุด"
+          },
+          "syncFromDate": {
+            "type": "string",
+            "nullable": true,
+            "format": "date"
+          }
+        }
+      },
+      "ConnectorCredentialsDto": {
+        "type": "object",
+        "properties": {
+          "credentials": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "credential ชุดใหม่ (แทนทั้งชุด) — ช่อง secret ที่บังคับต้องครบ"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "credentials"
+        ]
+      },
+      "ConnectorHealthDto": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "errorClass": {
+            "type": "string",
+            "nullable": true,
+            "example": "AUTH"
+          },
+          "code": {
+            "type": "string",
+            "nullable": true
+          },
+          "message": {
+            "type": "string",
+            "nullable": true
+          },
+          "checkedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "connector": {
+            "$ref": "#/components/schemas/ConnectorDto"
+          }
+        },
+        "required": [
+          "ok",
+          "errorClass",
+          "code",
+          "message",
+          "checkedAt",
+          "connector"
+        ]
+      },
+      "ConnectorActionDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "maxLength": 500
+          }
+        }
+      },
+      "ConnectorReasonDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 10,
+            "maxLength": 500,
+            "example": "เลิกใช้บริการตั้งแต่ ธ.ค. 2569"
+          }
+        },
+        "required": [
+          "reason"
         ]
       },
       "WebhookDeliveryDto": {
