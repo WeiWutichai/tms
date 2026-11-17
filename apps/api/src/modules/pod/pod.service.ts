@@ -103,7 +103,13 @@ export class PodService {
     const doLines = await tx.deliveryOrderLine.findMany({
       where: { deliveryOrderId },
       orderBy: { lineNo: 'asc' },
-      select: { lineNo: true, description: true, unit: true, qtyPlanned: true },
+      select: {
+        lineNo: true,
+        description: true,
+        unit: true,
+        qtyPlanned: true,
+        salesOrderLine: { select: { unitRef: { select: { nameTh: true } } } },
+      },
     });
     return {
       deliveryOrderId: encodeId('deliveryOrder', d.id),
@@ -724,7 +730,13 @@ const LINE_MESSAGES: Record<ActualLineErrorCode, string> = {
 
 /** บรรทัด DO + ค่าปัจจุบัน (ไม่มีในฉบับ = ยังไม่บันทึก) */
 function linesDto(
-  doLines: { lineNo: number; description: string; unit: string; qtyPlanned: Prisma.Decimal }[],
+  doLines: {
+    lineNo: number;
+    description: string;
+    unit: string;
+    qtyPlanned: Prisma.Decimal;
+    salesOrderLine: { unitRef: { nameTh: string } | null } | null;
+  }[],
   stored: StoredLine[],
 ): PodLineDto[] {
   const by = new Map(stored.map((l) => [l.lineNo, l]));
@@ -733,7 +745,8 @@ function linesDto(
     return {
       lineNo: d.lineNo,
       description: d.description,
-      unit: d.unit,
+      // ชื่อหน่วยที่ผู้ใช้เห็น (ตัน ถุง …) — ไม่มีหน่วยใน master = ข้อความหน่วย snapshot
+      unit: d.salesOrderLine?.unitRef?.nameTh ?? d.unit,
       qtyPlanned: dec(d.qtyPlanned)!,
       qtyActual: l?.qtyActual ?? null,
       rejectQty: l?.rejectQty ?? null,

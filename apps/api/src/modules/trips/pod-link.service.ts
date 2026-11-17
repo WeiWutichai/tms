@@ -188,7 +188,13 @@ export class PodLinkService {
         tx.deliveryOrderLine.findMany({
           where: { deliveryOrderId: hit.id },
           orderBy: { lineNo: 'asc' },
-          select: { lineNo: true, description: true, unit: true, qtyPlanned: true },
+          select: {
+            lineNo: true,
+            description: true,
+            unit: true,
+            qtyPlanned: true,
+            salesOrderLine: { select: { unitRef: { select: { nameTh: true } } } },
+          },
         }),
         tx.reasonCode.findMany({
           where: { category: 'REJECTED_BY_RECEIVER', status: 'ACTIVE', deletedAt: null },
@@ -222,7 +228,7 @@ export class PodLinkService {
         lines: doLines.map((l) => ({
           lineNo: l.lineNo,
           description: l.description,
-          unit: l.unit,
+          unit: l.salesOrderLine?.unitRef?.nameTh ?? l.unit,
           qtyPlanned: l.qtyPlanned.toFixed(3).replace(/\.?0+$/, '') || '0',
         })),
         rejectReasons: reasons.map((r) => ({

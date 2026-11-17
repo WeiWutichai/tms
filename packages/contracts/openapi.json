@@ -42920,7 +42920,8 @@
           },
           "unit": {
             "type": "string",
-            "example": "กล่อง"
+            "example": "ตัน",
+            "description": "ชื่อหน่วยที่แสดง (ไม่มีหน่วยใน master = ข้อความหน่วยของบรรทัด)"
           },
           "qtyPlanned": {
             "type": "string",
@@ -46851,7 +46852,8 @@
           },
           "unit": {
             "type": "string",
-            "example": "ถุง"
+            "example": "ถุง",
+            "description": "ชื่อหน่วยที่แสดง"
           },
           "qtyPlanned": {
             "type": "string",

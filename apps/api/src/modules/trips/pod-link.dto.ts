@@ -90,7 +90,7 @@ export class PodRetryDto {
 export class PodLinkLineDto {
   @ApiProperty({ example: 1 }) lineNo!: number;
   @ApiProperty({ example: 'ปูนซีเมนต์ 50 กก.' }) description!: string;
-  @ApiProperty({ example: 'ถุง' }) unit!: string;
+  @ApiProperty({ example: 'ถุง', description: 'ชื่อหน่วยที่แสดง' }) unit!: string;
   @ApiProperty({ example: '100' }) qtyPlanned!: string;
 }
 

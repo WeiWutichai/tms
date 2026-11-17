@@ -370,7 +370,11 @@ export class PodLineReasonDto {
 export class PodLineDto {
   @ApiProperty({ example: 1 }) lineNo!: number;
   @ApiProperty() description!: string;
-  @ApiProperty({ example: 'กล่อง' }) unit!: string;
+  @ApiProperty({
+    example: 'ตัน',
+    description: 'ชื่อหน่วยที่แสดง (ไม่มีหน่วยใน master = ข้อความหน่วยของบรรทัด)',
+  })
+  unit!: string;
   @ApiProperty({ example: '100' }) qtyPlanned!: string;
   @ApiProperty({
     nullable: true,
