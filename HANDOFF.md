@@ -49,6 +49,7 @@ ST0 เริ่มแล้ว 10 พ.ย. — งานที่เหลื�
 - **Prisma บล็อก `migrate reset` ถ้าไม่มีคนยืนยัน** — อย่าแก้ migration ที่ deploy แล้ว ให้สร้าง migration ใหม่
 - **อย่าปรับหน้าตา UI เอง** — ต้องตรงต้นแบบ `design/prototype/` อย่างเคร่งครัด; ต่างได้เฉพาะข้อยกเว้นใน `design/README.md`
 - **deploy หลัง load balancer ต้องตั้ง `TRUST_PROXY`** (ST7-T01) — ไม่ตั้ง = นอก dev/test ไม่เชื่อ X-Forwarded-For (IP ทุกคำขอ = IP ของ LB: rate limit ต่อ IP/IP allowlist ของ API key ใช้ไม่ได้ตามตั้งใจ) · และต้องตั้ง `API_KEY_PEPPER` + `OAUTH_SIGNING_KEYS_DIR` ไม่งั้น API ไม่ยอมเริ่ม — ดู `.env.example`
+- **หน้าติดตามสาธารณะ (ST4-T14)** ล็อกค้นผิด 5 ครั้ง/ชม. ต่อ IP (EXE-062) — ไม่ตั้ง `TRUST_PROXY` = ผู้รับทุกคนเป็น IP ของ load balancer ล็อกพร้อมกันทั้งระบบ · ผู้รับหลัง CGNAT เดียวกันใช้เพดานร่วมกัน (ยอมรับตาม spec/12 §3) · ตัวนับอยู่ในหน่วยความจำต่อ instance — หลาย instance ให้ตั้งที่ WAF ซ้อน
 - **อย่าใช้ tile แผนที่สาธารณะของ OSM ใน production** (ต้นแบบใช้ชั่วคราว) — D-31/D-52
 - **อย่าใช้โค้ด/โมเดลจาก repo อ้างอิงที่ไม่มี license** (เช่น ตัวอย่าง 3D ของ BC WareHouse)
 - ดีไซน์ต้องไม่ดูเป็น AI: ไม่มี gradient ม่วง, glassmorphism, emoji, eyebrow label, icon grid ซ้ำ ๆ; ฟอนต์ IBM Plex Sans Thai Looped; น้ำหนักไม่เกิน 600

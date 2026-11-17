@@ -348,6 +348,14 @@ export class AppModule implements NestModule {
     consumer.apply(RequestContextMiddleware).forRoutes('{*path}');
     // ST1-T06: ลิงก์สาธารณะ (ไม่ login) จำกัดอัตราต่อ IP
     consumer.apply(PublicRateLimitMiddleware).forRoutes('public/{*path}');
+    // ST4-T14 หน้าติดตาม: ห้าม index/ส่ง referrer ทุกคำตอบ (รวม 404/429 ที่ออกก่อนถึง handler)
+    consumer
+      .apply((_req: unknown, res: { setHeader(k: string, v: string): void }, next: () => void) => {
+        res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+        res.setHeader('Referrer-Policy', 'no-referrer');
+        next();
+      })
+      .forRoutes('public/tracking/{*path}');
     // ST1-T24: login ของ Console จำกัดต่อ IP ด้วย (กันล็อกบัญชีทีมงานซ้ำ ๆ)
     consumer.apply(PublicRateLimitMiddleware).forRoutes('platform/auth/{*path}');
   }

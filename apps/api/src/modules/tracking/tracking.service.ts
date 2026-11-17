@@ -2,11 +2,13 @@ import { Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { webBaseUrl } from '../../auth/password-reset.controller';
 import { Clock } from '../../common/clock';
-import { encodeId } from '../../common/ids';
+import { encodeId, tryDecodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
-import { signDocumentUrl, UPLOAD_TTL_S } from '../documents/signed-url';
+import { stripImageMetadata } from '../../common/image-meta';
+import { store } from '../documents/documents.controller';
+import { signDocumentUrl, UPLOAD_TTL_S, verifyDocumentUrl } from '../documents/signed-url';
 import { encodeLinkToken, MagicLinkService } from '../links/magic-link.service';
 import { lockKey } from '../master/master-kit';
 import { readSettings } from '../settings/settings.service';
@@ -124,7 +126,10 @@ export class TrackingService {
   private async assertEntity(tx: Tx, kind: keyof typeof TRACKING_ENTITIES, id: string) {
     const row =
       kind === 'do'
-        ? await tx.deliveryOrder.findFirst({ where: { id }, select: { id: true, status: true } })
+        ? await tx.deliveryOrder.findFirst({
+            where: { id },
+            select: { id: true, status: true, doNo: true },
+          })
         : await tx.customer.findFirst({
             where: { id, deletedAt: null },
             select: { id: true, status: true },
@@ -149,6 +154,10 @@ export class TrackingService {
         'invalid_state_transition',
         'ใบส่งของที่ยกเลิกแล้วออกลิงก์ติดตามไม่ได้',
       );
+    if (kind === 'do' && !('doNo' in entity && entity.doNo))
+      throw new ProblemException('validation_failed', 'ใบส่งของยังไม่มีเลข', [
+        { field: 'id', code: 'do_no_missing', message: 'delivery order has no number yet' },
+      ]);
     const entityType = TRACKING_ENTITIES[kind];
     await lockKey(tx, `tracking-link:${entityType}:${id}`);
     const actor = requestContext.get()?.actorId ?? undefined;
@@ -206,11 +215,7 @@ export class TrackingService {
     const s = await this.settings(tx);
     const company = { name: s.name, phone: s.phone };
     if (link.entityType === TRACKING_ENTITIES.customer) {
-      const c = await tx.customer.findFirst({
-        where: { id: link.entityId, deletedAt: null },
-        select: { id: true },
-      });
-      if (!c) throw new ProblemException('not_found');
+      if (!(await this.customerUsable(tx, link.entityId))) throw new ProblemException('not_found');
       return { company, mode: 'SEARCH', shipment: null };
     }
     if (link.entityType !== TRACKING_ENTITIES.do) throw new ProblemException('not_found');
@@ -222,6 +227,14 @@ export class TrackingService {
     );
     if (!shipment) throw new ProblemException('not_found');
     return { company, mode: 'SHIPMENT', shipment };
+  }
+
+  /** ลูกค้าของลิงก์ยังใช้งาน (ลบแบบ soft / ปิดใช้ → ลิงก์ใช้ไม่ได้) */
+  private async customerUsable(tx: Tx, id: string) {
+    return !!(await tx.customer.findFirst({
+      where: { id, deletedAt: null, status: 'ACTIVE' },
+      select: { id: true },
+    }));
   }
 
   /**
@@ -266,6 +279,7 @@ export class TrackingService {
     const tx = this.db.tx;
     const link = this.linkOf();
     if (link.entityType !== TRACKING_ENTITIES.customer) throw new ProblemException('not_found');
+    if (!(await this.customerUsable(tx, link.entityId))) throw new ProblemException('not_found');
     const q = ref.trim();
     const candidates = await tx.deliveryOrder.findMany({
       where: {
@@ -289,7 +303,8 @@ export class TrackingService {
     const pick = matched.find((d) => d.status !== 'CANCELLED') ?? matched[0];
     if (!pick) throw new ProblemException('not_found');
     const s = await this.settings(tx);
-    const shipment = await this.shipment(tx, pick.id, s, origin);
+    // เลขของใบเดิมที่ถูกนัดส่งใหม่ → ใบใหม่ (เหมือนลิงก์ต่อ DO)
+    const shipment = await this.shipment(tx, await this.followRedelivery(tx, pick.id), s, origin);
     if (!shipment) throw new ProblemException('not_found');
     return shipment;
   }
@@ -318,6 +333,8 @@ export class TrackingService {
         originSite: { select: { address: true } },
         destSite: { select: { address: true } },
         tripId: true,
+        tripStopId: true,
+        pickupTripStopId: true,
         tripStop: {
           select: { windowStart: true, windowEnd: true, plannedArrival: true },
         },
@@ -334,13 +351,11 @@ export class TrackingService {
           where: { id: d.tripId },
           select: {
             status: true,
+            assignedAt: true,
+            dispatchedAt: true,
             vehiclePlateSnapshot: true,
             vehicleTypeSnapshot: true,
             vehicleType: { select: { nameTh: true } },
-            stops: {
-              where: { removedAt: null },
-              select: { arrivedAt: true },
-            },
           },
         })
       : null;
@@ -353,24 +368,33 @@ export class TrackingService {
     const lastAt = (to: string[]) =>
       [...history].reverse().find((h) => to.includes(h.toStatus))?.at ?? null;
 
+    // เวลาของแต่ละขั้น = เวลาเกิดจริง (occurredAt) ของ event ที่นับแล้ว — สำรองด้วยเวลาในประวัติสถานะ
+    const events = d.tripId
+      ? await tx.stopEvent.findMany({
+          where: { tripId: d.tripId, appliedAt: { not: null } },
+          orderBy: { occurredAt: 'asc' },
+          select: { type: true, tripStopId: true, occurredAt: true },
+        })
+      : [];
+    const evAt = (types: string[], stopId?: string | null) =>
+      [...events]
+        .reverse()
+        .find((e) => types.includes(e.type) && (stopId === undefined || e.tripStopId === stopId))
+        ?.occurredAt ?? null;
     const pickupDone =
       d.pickupTripStop?.status === 'COMPLETED' || history.some((h) => h.toStatus === 'PICKED_UP');
-    const arrivals = (trip?.stops ?? [])
-      .map((x) => x.arrivedAt)
-      .filter((x): x is Date => !!x)
-      .sort((a, b) => a.getTime() - b.getTime());
-    const started = trip?.status === 'IN_PROGRESS' || trip?.status === 'COMPLETED' || !!arrivals[0];
+    const started =
+      trip?.status === 'IN_PROGRESS' || trip?.status === 'COMPLETED' || events.length > 0;
     const stage = trackingStage(d.status, { started, pickupDone });
 
-    // เวลาจบงาน (ส่งแล้ว/ไม่สำเร็จ/ยกเลิก) + linkDays วัน → ลิงก์ใช้ไม่ได้ (spec/04 §4 expiresAt)
-    const deliveredAt = stage === 'DELIVERED' ? lastAt(['DELIVERED']) : null;
+    // เวลาจบงาน (ส่งแล้ว/ไม่สำเร็จ/ยกเลิก) จากประวัติสถานะ + linkDays วัน → ลิงก์ใช้ไม่ได้ (spec/04 §4 expiresAt)
     const endedAt =
       stage === 'DELIVERED'
-        ? (deliveredAt ?? d.updatedAt)
+        ? lastAt(['DELIVERED'])
         : stage === 'FAILED'
-          ? (lastAt(['FAILED', 'RETURNED']) ?? d.updatedAt)
+          ? lastAt(['FAILED', 'RETURNED'])
           : stage === 'CANCELLED'
-            ? (lastAt(['CANCELLED']) ?? d.updatedAt)
+            ? lastAt(['CANCELLED'])
             : null;
     if (endedAt && endedAt.getTime() + s.linkDays * 86_400_000 < this.clock.now().getTime())
       return null;
@@ -378,17 +402,26 @@ export class TrackingService {
     const order: TrackingStage[] = [...TRACKING_STEPS];
     const reached =
       stage === 'FAILED' ? 3 : stage === 'CANCELLED' ? -1 : order.indexOf(stage as never);
-    const stepAt: Record<string, Date | null> = {
-      ACCEPTED: d.createdAt,
-      DEPARTED: arrivals[0] ?? firstAt(['DISPATCHED']),
-      IN_TRANSIT: firstAt(['PICKED_UP']),
-      DELIVERED: stage === 'FAILED' ? lastAt(['FAILED', 'RETURNED']) : deliveredAt,
-    };
-    const steps = TRACKING_STEPS.map((key, i) => ({
-      key,
-      done: i <= reached,
-      at: i <= reached ? iso(stepAt[key]) : null,
-    }));
+    const departAll = events.filter((e) => e.type === 'DEPART');
+    const raw: (Date | null)[] = [
+      trip?.assignedAt ?? trip?.dispatchedAt ?? d.createdAt,
+      departAll[0]?.occurredAt ?? events[0]?.occurredAt ?? firstAt(['DISPATCHED']),
+      evAt(['COMPLETE'], d.pickupTripStopId) ?? firstAt(['PICKED_UP']),
+      stage === 'FAILED'
+        ? (evAt(['FAIL', 'COMPLETE'], d.tripStopId) ?? lastAt(['FAILED', 'RETURNED']))
+        : (evAt(['COMPLETE'], d.tripStopId) ?? lastAt(['DELIVERED'])),
+    ];
+    // เรียงเวลาไม่ถอยหลัง (ขั้นหลังไม่ก่อนขั้นก่อน)
+    let floor = 0;
+    const steps = TRACKING_STEPS.map((key, i) => {
+      let at = i <= reached ? raw[i] : null;
+      if (at) {
+        if (at.getTime() < floor) at = new Date(floor);
+        floor = at.getTime();
+      }
+      return { key, done: i <= reached, at: iso(at) };
+    });
+    const deliveredAt = stage === 'DELIVERED' && steps[3]!.at ? new Date(steps[3]!.at) : null;
 
     // ETA = ช่วงเวลาตามแผน (จุดส่งในเที่ยว → ช่วงที่ลูกค้าขอในใบสั่ง) — ยังไม่มี ETA สด (P1)
     let win: { from: Date | null; to: Date | null } = {
@@ -402,7 +435,15 @@ export class TrackingService {
         where: { salesOrderId: d.salesOrderId, sequence: d.destStopSeq },
         select: { windowStart: true, windowEnd: true },
       });
-      if (so?.windowStart) win = { from: so.windowStart, to: so.windowEnd };
+      // ช่วงในใบสั่งเป็นของวันรับเดิม — เลื่อนไปวันของ DO (นัดส่งใหม่/แยกใบ — QA M3)
+      if (so?.windowStart) {
+        const bkkDay = (x: Date) =>
+          new Date(x.getTime() + 7 * 3_600_000).toISOString().slice(0, 10);
+        const shift =
+          Date.parse(d.doDate.toISOString().slice(0, 10)) - Date.parse(bkkDay(so.windowStart));
+        const mv = (x: Date) => new Date(x.getTime() + shift);
+        win = { from: mv(so.windowStart), to: so.windowEnd ? mv(so.windowEnd) : null };
+      }
     }
     const eta =
       win.from && (stage === 'ACCEPTED' || stage === 'DEPARTED' || stage === 'IN_TRANSIT')
@@ -477,9 +518,9 @@ export class TrackingService {
     const img = (id: string | null) => {
       const doc = id ? ready.find((r) => r.id === id) : undefined;
       if (!doc) return null;
-      const sgn = signDocumentUrl('download', doc.tenantId, doc.id, POD_URL_TTL_S);
+      const sgn = signDocumentUrl('preview', doc.tenantId, doc.id, POD_URL_TTL_S);
       return {
-        url: `${origin.replace(/\/+$/, '')}/v1/documents/${encodeId('document', doc.id)}/content?${sgn.query}`,
+        url: `${origin.replace(/\/+$/, '')}/v1/public/tracking/pod-image/${encodeId('document', doc.id)}?${sgn.query}`,
         expiresAt: sgn.expiresAt.toISOString(),
       };
     };
@@ -492,5 +533,32 @@ export class TrackingService {
         .filter((x): x is NonNullable<typeof x> => !!x),
       signature: img(p.signatureDocumentId),
     };
+  }
+
+  /**
+   * รูปหลักฐานสำหรับหน้าติดตาม (URL `preview` มีลายเซ็น 15 นาที) — เฉพาะรูป POD ที่อัปโหลดเสร็จ ตัด EXIF/GPS/ข้อความแฝง
+   * (EXE-064) · ย่อ ≤ 1280px ยังไม่ทำ (plan/01 §5 #26)
+   */
+  async podImage(
+    ref: string,
+    q: { t?: string; exp?: string; sig?: string },
+  ): Promise<{ mime: string; data: Buffer }> {
+    const docId = tryDecodeId('document', ref);
+    const tenantId = docId ? verifyDocumentUrl('preview', docId, q) : null;
+    if (!docId || !tenantId) throw new ProblemException('not_found');
+    const doc = await this.db.withTenant(tenantId, (tx) =>
+      tx.storedDocument.findUnique({ where: { id: docId } }),
+    );
+    if (
+      !doc ||
+      doc.status !== 'READY' ||
+      !doc.fileKey ||
+      !doc.kind.startsWith('POD_') ||
+      !doc.mimeType.startsWith('image/')
+    )
+      throw new ProblemException('not_found');
+    const clean = stripImageMetadata(await store().get(doc.fileKey), doc.mimeType);
+    if (!clean) throw new ProblemException('not_found');
+    return { mime: doc.mimeType, data: clean };
   }
 }

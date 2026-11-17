@@ -6,7 +6,8 @@ import { isLocalEnv } from '../../auth/tokens';
  * ลายเซ็นครอบ (การกระทำ, tenant, id เอกสาร, เวลาหมดอายุ) — แก้ส่วนใดส่วนหนึ่ง = ลายเซ็นไม่ตรง
  * production เปลี่ยนเป็น presigned URL ของ S3 ได้โดยไม่เปลี่ยนสัญญา API (uploadUrl / downloadUrl + expiresAt)
  */
-export type UrlAction = 'upload' | 'download';
+/** `preview` = รูปหลักฐานบนหน้าติดตามสาธารณะ (ST4-T14 — ตัด EXIF แสดง inline) แยกจาก download */
+export type UrlAction = 'upload' | 'download' | 'preview';
 export const UPLOAD_TTL_S = 15 * 60;
 export const DOWNLOAD_TTL_S = 5 * 60;
 

@@ -1,4 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -9,6 +12,7 @@ import { DbService, type Tx } from '../src/db/db.service';
 import { resetPublicRateLimit } from '../src/http/public-rate-limit.middleware';
 import { resetTrackingRate } from '../src/http/tracking-rate-limit';
 import { DeliveryOrderService } from '../src/modules/delivery-orders/delivery-order.service';
+import { store } from '../src/modules/documents/documents.controller';
 import { encodeLinkToken } from '../src/modules/links/magic-link.service';
 import {
   OrderIntakeService,
@@ -32,6 +36,7 @@ describe('tracking link (ST4-T14)', () => {
   let otherTenant: string;
   let admin: string;
   let viewer: string;
+  let dispatcher: string;
   let seed = 0;
   let unitTon: string;
   let vt6: string;
@@ -65,6 +70,7 @@ describe('tracking link (ST4-T14)', () => {
   }
 
   beforeAll(async () => {
+    process.env.FILES_ROOT = mkdtempSync(join(tmpdir(), 'tms-trk-'));
     await truncateAll();
     app = await bootApp();
     tenantId = (await createTenantWithDefaults(db, { name: 'ศรีไทยขนส่ง' })).id;
@@ -84,6 +90,7 @@ describe('tracking link (ST4-T14)', () => {
     });
     admin = await tokenFor(tenantId);
     viewer = await tokenFor(tenantId, SYSTEM_ROLES.viewer.permissions.join(' '), 'u-view');
+    dispatcher = await tokenFor(tenantId, 'orders:read trips:read trips:dispatch', 'u-disp');
     const us = (await api(app, admin).get('/v1/units?limit=50').expect(200)).body.data as {
       id: string;
       code: string;
@@ -320,6 +327,10 @@ describe('tracking link (ST4-T14)', () => {
       eta: null,
     });
     expect(r.body.steps.map((x: { done: boolean }) => x.done)).toEqual([true, true, true, true]);
+    // เวลาแต่ละขั้น = occurredAt ของ event · เรียงไม่ถอยหลัง
+    const ts = r.body.steps.map((x: { at: string }) => Date.parse(x.at));
+    expect(ts.every((t: number) => Number.isFinite(t))).toBe(true);
+    expect([...ts].sort((a, b) => a - b)).toEqual(ts);
     expect(r.body.deliveredAt).toEqual(expect.any(String));
     expect(r.body.vehicle.plateMasked).toMatch(/xx/);
     // ราคาขายมีอยู่ในฐาน (rate card ไม่มี → ใส่ revenue ตรง ๆ) แต่ไม่ออกทาง response
@@ -392,12 +403,18 @@ describe('tracking link (ST4-T14)', () => {
     assertPublicSafe(r.body, [s.plate, 'ลับเฉพาะ']);
     await lookup(tokenOf(first.url), 'PO-ETA', '4507').expect(404);
 
-    const state = await api(app, viewer).get(`/v1/delivery-orders/${s.doId}/tracking-link`);
+    // ผู้จ่ายงาน (trips:dispatch) ดู/ออกลิงก์ได้ (spec/04 §4) · viewer ดู URL ไม่ได้ (มี token)
+    const state = await api(app, dispatcher).get(`/v1/delivery-orders/${s.doId}/tracking-link`);
     expect(state.status).toBe(200);
     expect(state.body.link.url).toBe(first.url);
-    // viewer ออก/เพิกถอนไม่ได้
+    await api(app, viewer).get(`/v1/delivery-orders/${s.doId}/tracking-link`).expect(403);
     await api(app, viewer).post(`/v1/delivery-orders/${s.doId}/tracking-link`).expect(403);
-    const second = await doLink(s.doId);
+    await api(app, viewer)
+      .get(`/v1/customers/${encodeId('customer', s.customerId)}/tracking-link`)
+      .expect(403);
+    const second = (
+      await api(app, dispatcher).post(`/v1/delivery-orders/${s.doId}/tracking-link`).expect(201)
+    ).body as { url: string };
     await view(tokenOf(first.url)).expect(404);
     await view(tokenOf(second.url)).expect(200);
     const audit = await db.auditLog.findMany({
@@ -429,7 +446,8 @@ describe('tracking link (ST4-T14)', () => {
     ).toEqual({ link: null });
     await view(token).expect(404);
     await view(`${token.slice(0, -2)}xx`).expect(404);
-    await view('ml1.nope').expect(404);
+    const nope = await view('ml1.nope').expect(404);
+    expect(nope.headers['x-robots-tag']).toBe('noindex, nofollow');
 
     // หมดอายุตาม token
     const past = new Date(Date.now() - 60_000);
@@ -492,10 +510,13 @@ describe('tracking link (ST4-T14)', () => {
     const rows = await db.deliveryOrder.findMany({
       where: { OR: [{ id: re.uuid }, { redeliveryOfId: re.uuid }] },
     });
-    if (rows.some((x) => x.redeliveryOfId === re.uuid)) {
-      expect(reLink.body.shipment.status).toBe('ACCEPTED');
-      expect(reLink.body.shipment.doNo).not.toBe(re.doNo);
-    }
+    expect(rows.some((x) => x.redeliveryOfId === re.uuid)).toBe(true);
+    expect(reLink.body.shipment.status).toBe('ACCEPTED');
+    expect(reLink.body.shipment.doNo).not.toBe(re.doNo);
+    // ค้นด้วยเลขใบเดิมผ่านลิงก์ลูกค้า → ใบใหม่ (QA L4)
+    const ct = tokenOf((await custLink(re.customerId)).url);
+    const byOld = await lookup(ct, re.doNo, '4507', '10.9.4.1').expect(200);
+    expect(byOld.body.doNo).toBe(reLink.body.shipment.doNo);
     const c = await shipment({ upTo: 'NONE' });
     await db.deliveryOrder.update({ where: { id: c.uuid }, data: { status: 'CANCELLED' } });
     await api(app, admin).post(`/v1/delivery-orders/${c.doId}/tracking-link`).expect(409);
@@ -503,8 +524,23 @@ describe('tracking link (ST4-T14)', () => {
 
   it('POD เฉพาะเมื่อบริษัทเปิด tracking.showPod: ชื่อผู้รับ + รูป/ลายเซ็นผ่าน URL มีลายเซ็น 15 นาที · ไม่มี PIN/โน้ต', async () => {
     const s = await shipment({ upTo: 'DELIVERED' });
-    const doc = async (kind: string) =>
-      encodeId(
+    // JPEG ที่มี EXIF (APP1 มีพิกัด) — หน้าติดตามต้องตัดออก (EXE-064)
+    const exif = Buffer.concat([
+      Buffer.from('Exif\0\0', 'latin1'),
+      Buffer.from('GPS-13.7563,100.5018'),
+    ]);
+    const app1 = Buffer.alloc(4);
+    app1.writeUInt16BE(0xffe1, 0);
+    app1.writeUInt16BE(exif.length + 2, 2);
+    const JPEG = Buffer.concat([
+      Buffer.from([0xff, 0xd8]),
+      app1,
+      exif,
+      Buffer.from([0xff, 0xda, 0x00, 0x02, 0x11, 0x22, 0xff, 0xd9]),
+    ]);
+    const doc = async (kind: string) => {
+      const f = await store().put(tenantId, JPEG, 'jpg');
+      return encodeId(
         'document',
         (
           await db.storedDocument.create({
@@ -513,15 +549,16 @@ describe('tracking link (ST4-T14)', () => {
               status: 'READY',
               kind,
               mimeType: 'image/jpeg',
-              sizeBytes: 1234,
+              sizeBytes: JPEG.length,
               filename: `${kind}-${++seed}.jpg`,
               createdBy: 'user-test',
-              fileKey: `k/${seed}`,
-              sha256: 'x'.repeat(64),
+              fileKey: f.key,
+              sha256: f.sha256,
             },
           })
         ).id,
       );
+    };
     await api(app, admin)
       .put(`/v1/delivery-orders/${s.doId}/pod`)
       .send({
@@ -542,7 +579,27 @@ describe('tracking link (ST4-T14)', () => {
       const pod = r.body.shipment.pod;
       expect(pod).toMatchObject({ receiverName: 'คุณสมศรี', recordedAt: expect.any(String) });
       expect(pod.photos).toHaveLength(1);
-      expect(pod.photos[0].url).toMatch(/\/v1\/documents\/doc_[0-9a-f]{32}\/content\?t=/);
+      expect(pod.photos[0].url).toMatch(/\/v1\/public\/tracking\/pod-image\/doc_[0-9a-f]{32}\?t=/);
+      const u = new URL(pod.photos[0].url);
+      const img = await pub()
+        .get(u.pathname + u.search)
+        .buffer(true)
+        .parse((res, cb) => {
+          const chunks: Buffer[] = [];
+          res.on('data', (c: Buffer) => chunks.push(c));
+          res.on('end', () => cb(null, Buffer.concat(chunks)));
+        })
+        .expect(200);
+      expect(img.headers['content-type']).toContain('image/jpeg');
+      expect(img.headers['content-disposition']).toBe('inline');
+      const bytes = img.body as Buffer;
+      expect(bytes.subarray(0, 2).equals(Buffer.from([0xff, 0xd8]))).toBe(true);
+      expect(bytes.includes(Buffer.from('GPS-13.7563'))).toBe(false);
+      expect(bytes.includes(Buffer.from('Exif'))).toBe(false);
+      // URL download/ลายเซ็นปลอม ใช้กับ preview ไม่ได้
+      await pub()
+        .get(`${u.pathname}?${u.searchParams.toString().replace(/sig=[^&]+/, 'sig=x')}`)
+        .expect(404);
       expect(pod.signature.url).toMatch(/sig=/);
       const ttl = Date.parse(pod.photos[0].expiresAt) - Date.now();
       expect(ttl).toBeGreaterThan(14 * 60_000);
@@ -554,6 +611,53 @@ describe('tracking link (ST4-T14)', () => {
         .send({ values: { 'tracking.showPod': false } })
         .expect(200);
     }
+  });
+
+  it('คำขอพร้อมกัน: 10 ครั้งผิดจาก IP เดียว → 404 ไม่เกิน 5 ที่เหลือ 429 · 60 IP บนลิงก์เดียว → ไม่เกินเพดานลิงก์', async () => {
+    const customerId = await newCustomer();
+    await shipment({ customerId, po: 'PO-RACE', upTo: 'NONE' });
+    const token = tokenOf((await custLink(customerId)).url);
+    const one = await Promise.all(
+      Array.from({ length: 10 }, () => lookup(token, 'PO-RACE', '0000', '10.9.5.1')),
+    );
+    expect(one.filter((r) => r.status === 404).length).toBeLessThanOrEqual(5);
+    expect(one.filter((r) => r.status === 429).length).toBeGreaterThanOrEqual(5);
+    resetTrackingRate();
+    const many = await Promise.all(
+      Array.from({ length: 60 }, (_, i) => lookup(token, `PO-X${i}`, '0000', `10.9.6.${i + 1}`)),
+    );
+    expect(many.filter((r) => r.status === 404).length).toBeLessThanOrEqual(30);
+    expect(many.every((r) => r.status === 404 || r.status === 429)).toBe(true);
+  });
+
+  it('เลขเดียวจากหลาย IP: เดาเบอร์ได้ 10 ครั้ง/ชม. ต่อเลข · เลขอื่นในลิงก์เดียวกันยังค้นได้ · ค้นพบไม่นับ', async () => {
+    const customerId = await newCustomer();
+    const s = await shipment({ customerId, po: 'PO-REF', upTo: 'NONE' });
+    const token = tokenOf((await custLink(customerId)).url);
+    for (let i = 0; i < 3; i++) await lookup(token, 'PO-REF', '4507', '10.9.7.1').expect(200);
+    for (let i = 0; i < 10; i++) await lookup(token, 'PO-REF', '0000', `10.9.8.${i}`).expect(404);
+    await lookup(token, 'po-ref', '4507', '10.9.8.99').expect(429);
+    expect((await lookup(token, s.doNo, '4507', '10.9.8.98').expect(200)).body.doNo).toBe(s.doNo);
+  });
+
+  it('ETA ของใบที่วันส่งเลื่อน (doDate ≠ วันในใบสั่ง) ใช้ช่วงเวลาเดิมของวัน DO · ลูกค้าปิดใช้ → ค้น/เปิดลิงก์ 404', async () => {
+    const customerId = await newCustomer();
+    const s = await shipment({
+      customerId,
+      po: 'PO-SHIFT',
+      upTo: 'NONE',
+      window: [`${today}T10:30:00+07:00`, `${today}T11:00:00+07:00`],
+    });
+    const tomorrow = new Date(Date.parse(`${today}T00:00:00Z`) + 86_400_000);
+    await db.deliveryOrder.update({ where: { id: s.uuid }, data: { doDate: tomorrow } });
+    const day2 = tomorrow.toISOString().slice(0, 10);
+    const token = tokenOf((await custLink(customerId)).url);
+    const r = await lookup(token, 'PO-SHIFT', '4507').expect(200);
+    expect(Date.parse(r.body.eta.from)).toBe(Date.parse(`${day2}T10:30:00+07:00`));
+    expect(Date.parse(r.body.eta.to)).toBe(Date.parse(`${day2}T11:00:00+07:00`));
+    await db.customer.update({ where: { id: customerId }, data: { status: 'INACTIVE' } });
+    await lookup(token, 'PO-SHIFT', '4507', '10.9.9.1').expect(404);
+    await view(token).expect(404);
   });
 
   it('ค่าตั้ง tracking.*: เบอร์ผิดรูป/วันนอกช่วง → 422', async () => {

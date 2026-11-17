@@ -69,6 +69,9 @@ const call = async (method, path, data) => {
   return r.json();
 };
 const post = (path, data) => call('POST', path, data);
+// ค่าเดิมของ tracking.showPod — คืนค่าเมื่อจบ (QA)
+const prevShowPod =
+  (await get('/v1/settings')).data.find((x) => x.key === 'tracking.showPod')?.value ?? false;
 await call('PATCH', '/v1/settings', {
   values: { 'tracking.contactPhone': '02-118-4400', 'tracking.showPod': true },
 });
@@ -224,5 +227,6 @@ for (const vp of [
     'ของจริง (ลิงก์ของลูกค้า — การ์ดค้นหา)',
   ]);
 }
+await call('PATCH', '/v1/settings', { values: { 'tracking.showPod': prevShowPod } });
 await b.close();
 srv.close();

@@ -26077,7 +26077,7 @@
     },
     "/v1/public/tracking/{token}/lookup": {
       "post": {
-        "description": "เฉพาะ DO ของลูกค้าที่ลิงก์ชี้ · PO ซ้ำหลายใบ = ใบล่าสุดที่ยังไม่ยกเลิก · ไม่พบ/เบอร์ไม่ตรง = 404 เดียวกัน · ค้นผิด 5 ครั้ง/ชม./IP → 429 ล็อก 1 ชม. (EXE-062)",
+        "description": "เฉพาะ DO ของลูกค้าที่ลิงก์ชี้ · PO ซ้ำหลายใบ = ใบล่าสุดที่ยังไม่ยกเลิก · ไม่พบ/เบอร์ไม่ตรง = 404 เดียวกัน · นับทุกครั้งที่ไม่พบ: 5 ครั้ง/ชม./IP (EXE-062), 10 ครั้ง/ชม. ต่อเลขที่ค้นในลิงก์, 200 ครั้ง/ชม. ต่อลิงก์ → 429 · 30 คำขอ/นาที ต่อลิงก์",
         "operationId": "TrackingPublic_lookup",
         "parameters": [
           {
@@ -26159,10 +26159,47 @@
             }
           },
           "429": {
-            "description": "เรียกถี่เกินไป หรือค้นผิดเกินเพดาน (5 ครั้ง/ชม. ต่อ IP, 30 ครั้ง/ชม. ต่อลิงก์)"
+            "description": "เรียกถี่เกินไป หรือค้นไม่พบเกินเพดาน (ต่อ IP / ต่อเลข / ต่อลิงก์)"
           }
         },
         "summary": "ค้นด้วยเลขใบส่งของ (DO) หรือเลข PO ลูกค้า + เบอร์ผู้รับ 4 ตัวท้าย (ลิงก์ของลูกค้าเท่านั้น)",
+        "tags": [
+          "public"
+        ]
+      }
+    },
+    "/v1/public/tracking/pod-image/{doc}": {
+      "get": {
+        "operationId": "TrackingPublic_podImage",
+        "parameters": [
+          {
+            "name": "doc",
+            "required": true,
+            "in": "path",
+            "description": "id รูปหลักฐาน (doc_…)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "token",
+            "required": true,
+            "in": "path",
+            "description": "token ของลิงก์ติดตาม (ml1.…)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "รูป (image/jpeg | image/png | image/webp)"
+          },
+          "404": {
+            "description": "ลายเซ็นผิด/หมดอายุ/ไม่ใช่รูป"
+          }
+        },
+        "summary": "รูปหลักฐานส่งบนหน้าติดตาม — URL มีลายเซ็นอายุ 15 นาที (จาก shipment.pod) · ตัด EXIF/GPS/ข้อความแฝงออก · แสดงในหน้า (inline)",
         "tags": [
           "public"
         ]
@@ -26183,7 +26220,7 @@
         ],
         "responses": {
           "200": {
-            "description": "ลิงก์หน้าติดตามของผู้รับ (`/t/{token}` — magic link `tracking`, อายุ token 90 วัน; งานจบเกิน `tracking.linkDays` วัน = ใช้ไม่ได้) · ห้าม cache (มี token)",
+            "description": "URL มี token — ต้องมีสิทธิ์ออกลิงก์ · ลิงก์หน้าติดตามของผู้รับ (`/t/{token}` — magic link `tracking`, อายุ token 90 วัน; งานจบเกิน `tracking.linkDays` วัน = ใช้ไม่ได้) · ห้าม cache (มี token)",
             "content": {
               "application/json": {
                 "schema": {
@@ -26193,7 +26230,7 @@
             }
           },
           "403": {
-            "description": "ไม่มีสิทธิ์ (`orders:read`)",
+            "description": "ไม่มีสิทธิ์ (`orders:write | trips:dispatch`)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -26209,9 +26246,9 @@
                       "instance": "/v1/trips/trp_3f2a…",
                       "requestId": "b6a1c2d3-…",
                       "module": "trips",
-                      "action": "read",
+                      "action": "write | trips",
                       "required": [
-                        "orders:read"
+                        "orders:write | trips:dispatch"
                       ]
                     }
                   }
@@ -26265,7 +26302,7 @@
         ],
         "responses": {
           "201": {
-            "description": "ออกลิงก์ใหม่ — ลิงก์เดิมถูกเพิกถอน (1 ลิงก์ต่อ DO) · DO ยกเลิกแล้ว → 409 · ลิงก์หน้าติดตามของผู้รับ (`/t/{token}` — magic link `tracking`, อายุ token 90 วัน; งานจบเกิน `tracking.linkDays` วัน = ใช้ไม่ได้) · ห้าม cache (มี token)",
+            "description": "ออกลิงก์ใหม่ — ลิงก์เดิมถูกเพิกถอน (1 ลิงก์ต่อ DO) · DO ยกเลิกแล้ว → 409 · URL มี token — ต้องมีสิทธิ์ออกลิงก์ · ลิงก์หน้าติดตามของผู้รับ (`/t/{token}` — magic link `tracking`, อายุ token 90 วัน; งานจบเกิน `tracking.linkDays` วัน = ใช้ไม่ได้) · ห้าม cache (มี token)",
             "content": {
               "application/json": {
                 "schema": {
@@ -26275,7 +26312,7 @@
             }
           },
           "403": {
-            "description": "ไม่มีสิทธิ์ (`orders:write`)",
+            "description": "ไม่มีสิทธิ์ (`orders:write | trips:dispatch`)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -26291,9 +26328,9 @@
                       "instance": "/v1/trips/trp_3f2a…",
                       "requestId": "b6a1c2d3-…",
                       "module": "trips",
-                      "action": "write",
+                      "action": "write | trips",
                       "required": [
-                        "orders:write"
+                        "orders:write | trips:dispatch"
                       ]
                     }
                   }
@@ -26411,7 +26448,7 @@
             }
           },
           "403": {
-            "description": "ไม่มีสิทธิ์ (`orders:write`)",
+            "description": "ไม่มีสิทธิ์ (`orders:write | trips:dispatch`)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -26427,9 +26464,9 @@
                       "instance": "/v1/trips/trp_3f2a…",
                       "requestId": "b6a1c2d3-…",
                       "module": "trips",
-                      "action": "write",
+                      "action": "write | trips",
                       "required": [
-                        "orders:write"
+                        "orders:write | trips:dispatch"
                       ]
                     }
                   }
@@ -26530,7 +26567,7 @@
         ],
         "responses": {
           "200": {
-            "description": "ลิงก์หน้าติดตามของผู้รับ (`/t/{token}` — magic link `tracking`, อายุ token 90 วัน; งานจบเกิน `tracking.linkDays` วัน = ใช้ไม่ได้) · ห้าม cache (มี token)",
+            "description": "URL มี token — ต้องมีสิทธิ์ออกลิงก์ · ลิงก์หน้าติดตามของผู้รับ (`/t/{token}` — magic link `tracking`, อายุ token 90 วัน; งานจบเกิน `tracking.linkDays` วัน = ใช้ไม่ได้) · ห้าม cache (มี token)",
             "content": {
               "application/json": {
                 "schema": {
@@ -26540,7 +26577,7 @@
             }
           },
           "403": {
-            "description": "ไม่มีสิทธิ์ (`master:read`)",
+            "description": "ไม่มีสิทธิ์ (`master:write`)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -26556,9 +26593,9 @@
                       "instance": "/v1/trips/trp_3f2a…",
                       "requestId": "b6a1c2d3-…",
                       "module": "trips",
-                      "action": "read",
+                      "action": "write",
                       "required": [
-                        "master:read"
+                        "master:write"
                       ]
                     }
                   }
@@ -26613,7 +26650,7 @@
         ],
         "responses": {
           "201": {
-            "description": "ออกลิงก์ใหม่ของลูกค้า — ลิงก์เดิมถูกเพิกถอน · ลิงก์หน้าติดตามของผู้รับ (`/t/{token}` — magic link `tracking`, อายุ token 90 วัน; งานจบเกิน `tracking.linkDays` วัน = ใช้ไม่ได้) · ห้าม cache (มี token)",
+            "description": "ออกลิงก์ใหม่ของลูกค้า — ลิงก์เดิมถูกเพิกถอน · URL มี token — ต้องมีสิทธิ์ออกลิงก์ · ลิงก์หน้าติดตามของผู้รับ (`/t/{token}` — magic link `tracking`, อายุ token 90 วัน; งานจบเกิน `tracking.linkDays` วัน = ใช้ไม่ได้) · ห้าม cache (มี token)",
             "content": {
               "application/json": {
                 "schema": {
