@@ -5,7 +5,7 @@ import { chromium } from '@playwright/test';
 import { createHash, randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
-const WEB = process.env.WEB ?? 'http://localhost:4420';
+const WEB = process.env.WEB ?? `http://localhost:${process.env.WEB_PORT ?? 4420}`;
 const out = fileURLToPath(new URL('../../../design/compare/', import.meta.url));
 const proto = 'file://' + fileURLToPath(new URL('../../../design/prototype/TMS v4.dc.html', import.meta.url));
 const vp = { width: 1440, height: 1000 };

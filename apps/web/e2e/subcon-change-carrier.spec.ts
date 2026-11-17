@@ -2,7 +2,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import type { Page } from '@playwright/test';
-import { expect, test } from './fixtures';
+import { E2E_WEB, expect, test } from './fixtures';
 
 /**
  * E2E ST3-T25 เปลี่ยนผู้รับเหมา (docs/04 D3 "เปลี่ยน carrier — ยกเลิกการจ้างเดิมแล้วจ้างใหม่ (ประวัติคงอยู่)")
@@ -308,7 +308,7 @@ test.describe.serial('เปลี่ยนผู้รับเหมา (ST3-T
     // ลิงก์ของรายเดิมใช้ไม่ได้แล้ว (หน้าไม่ login)
     const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
     const p = await ctx.newPage();
-    await p.goto(`http://localhost:4520${new URL(S.url2!).pathname}`);
+    await p.goto(`${E2E_WEB}${new URL(S.url2!).pathname}`);
     await expect(p.getByText('ลิงก์นี้ใช้ไม่ได้')).toBeVisible();
     await ctx.close();
   });

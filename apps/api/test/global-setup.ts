@@ -1,18 +1,21 @@
 import { execSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { PrismaClient } from '@prisma/client';
-import { testEnv } from './env';
+import { dbName, testEnv, withDb } from './env';
 
-/** สร้างฐานข้อมูล tms_test (ถ้ายังไม่มี) แล้ว migrate ให้ล่าสุด — ทางเดียวกับทุกที่ (`db:migrate` = migrate + bootstrap tenant) */
+/** สร้างฐานข้อมูล `<ฐาน dev>_test` เช่น tms_test (ถ้ายังไม่มี) แล้ว migrate ให้ล่าสุด — ทางเดียวกับทุกที่ (`db:migrate` = migrate + bootstrap tenant) */
 export default async function setup() {
   const env = testEnv();
+  const name = dbName(env.DATABASE_URL!);
+  // กันสร้าง/migrate ฐาน dev โดยไม่ตั้งใจ — ใช้ได้เฉพาะฐานที่ชื่อลงท้าย _test
+  if (!/^[a-z0-9_]+_test$/.test(name)) throw new Error(`global-setup ปฏิเสธฐาน "${name}"`);
   const admin = new PrismaClient({
-    datasources: { db: { url: env.DATABASE_URL!.replace('/tms_test?', '/postgres?') } },
+    datasources: { db: { url: withDb(env.DATABASE_URL!, 'postgres') } },
   });
   const exists = await admin.$queryRaw<
     unknown[]
-  >`SELECT 1 FROM pg_database WHERE datname = 'tms_test'`;
-  if (exists.length === 0) await admin.$executeRawUnsafe('CREATE DATABASE tms_test');
+  >`SELECT 1 FROM pg_database WHERE datname = ${name}`;
+  if (exists.length === 0) await admin.$executeRawUnsafe(`CREATE DATABASE "${name}"`);
   await admin.$disconnect();
   execSync('pnpm -s db:migrate', {
     cwd: resolve(__dirname, '..'),

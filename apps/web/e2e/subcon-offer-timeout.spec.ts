@@ -3,7 +3,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import type { Page } from '@playwright/test';
-import { DEMO_IDS, expect, test } from './fixtures';
+import { DEMO_IDS, E2E_WEB, expect, test } from './fixtures';
 
 /**
  * E2E ST3-T24 หมดเวลาข้อเสนองานรถร่วม (docs/04 D3 "ไม่ตอบใน N ชม. → แจ้งเตือน + ปุ่มส่งรายถัดไป"; ลิงก์หมดอายุ → EXPIRED)
@@ -61,7 +61,7 @@ async function runWorker(done: () => Promise<boolean>) {
       ...env,
       NODE_ENV: 'test',
       SWC_NODE_PROJECT: 'tsconfig.json',
-      PUBLIC_WEB_BASE_URL: 'http://localhost:4520',
+      PUBLIC_WEB_BASE_URL: E2E_WEB,
     },
     stdio: 'ignore',
   });

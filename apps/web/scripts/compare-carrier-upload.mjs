@@ -10,7 +10,7 @@ import { createServer } from 'node:http';
 import { extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const WEB = process.env.WEB ?? 'http://localhost:4420';
+const WEB = process.env.WEB ?? `http://localhost:${process.env.WEB_PORT ?? 4420}`;
 const TOKEN = process.env.TOKEN;
 const CARRIER = process.env.CARRIER;
 if (!TOKEN || !CARRIER) throw new Error('ต้องตั้ง TOKEN และ CARRIER');

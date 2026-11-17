@@ -52,6 +52,24 @@ ST0 เริ่มแล้ว 10 พ.ย. — งานที่เหลื�
 - **อย่าใช้โค้ด/โมเดลจาก repo อ้างอิงที่ไม่มี license** (เช่น ตัวอย่าง 3D ของ BC WareHouse)
 - ดีไซน์ต้องไม่ดูเป็น AI: ไม่มี gradient ม่วง, glassmorphism, emoji, eyebrow label, icon grid ซ้ำ ๆ; ฟอนต์ IBM Plex Sans Thai Looped; น้ำหนักไม่เกิน 600
 
+## 5.1 ทำงานขนานหลาย worktree (lane)
+
+แต่ละ worktree ใช้ฐานข้อมูลและพอร์ตของตัวเอง ("lane") จึงรัน dev server / `pnpm test` / `pnpm ci:local` พร้อมกันได้โดยไม่ชนกัน — ใช้ PostgreSQL container เดียวกัน (`pnpm db:up`) แยกกันที่ชื่อฐาน
+
+```bash
+git worktree add .claude/worktrees/<ชื่อ> -b <branch> origin/main && cd .claude/worktrees/<ชื่อ>
+pnpm install
+bash scripts/lane-init.sh l2 4600    # เขียน .env + สร้างฐาน tms_l2 + migrate + seed (รันซ้ำได้ ไม่ลบอะไร)
+pnpm ci:local                        # ใช้ tms_l2_test / tms_l2_e2e + พอร์ต E2E 4600/4601
+```
+
+- `lane-init.sh <lane> <portBase>` ตั้งใน `.env`: `DATABASE_URL`/`APP_DATABASE_URL`/`PLATFORM_DATABASE_URL` → ฐาน `tms_<lane>` · `E2E_API_PORT`=base · `E2E_WEB_PORT`=base+1 · `API_PORT`=base+2 · `WEB_PORT`=base+3 (เตือนถ้าพอร์ตมีคนใช้)
+- ฐาน test/e2e ตามชื่อฐานใน `DATABASE_URL` เสมอ: `<ฐาน>_test` (vitest `apps/api/test/env.ts`) · `<ฐาน>_e2e` (`apps/web/e2e/prepare.mjs`) — สร้างเองตอนรัน; ค่าเริ่มต้น `tms` → `tms_test` / `tms_e2e` เหมือนเดิม · สร้าง/ล้างได้เฉพาะฐานที่ลงท้าย `_test`/`_e2e`/`_qa`
+- พอร์ต E2E: `E2E_API_PORT` (4510) / `E2E_WEB_PORT` (4520) จาก env หรือ `.env` (`apps/web/playwright.config.ts` → spec ใช้ `E2E_WEB` จาก `e2e/fixtures.ts`) · web dev อ่าน `WEB_PORT` (4420) และ proxy `/v1` → `VITE_API_TARGET` หรือ `API_PORT` (4410) จาก `.env` ราก · สคริปต์ `compare-*.mjs` ใช้ `WEB` หรือ `WEB_PORT`
+- API dev/worker ไม่อ่าน `.env` เอง: `set -a; . ./.env; set +a; pnpm --filter @tms/api dev`
+- อย่าตั้ง `PUBLIC_WEB_BASE_URL` ใน `.env` ของ lane (test ตรวจลิงก์ค่าเริ่มต้น 4420) — ลิงก์ในอีเมลของ API dev ใน lane จึงชี้ 4420 ให้แก้พอร์ตเองตอนเปิด
+- ลบ lane: ลบ worktree แล้ว `DROP DATABASE tms_<lane>, tms_<lane>_test, tms_<lane>_e2e` (ห้ามแตะ `tms`)
+
 ## 6. วิธีทำงานกับ Claude Design (ถ้าต้องส่งรอบต่อ)
 
 - เปิดไฟล์ด้วย URL โปรเจกต์ + `?file=<ชื่อไฟล์>.dc.html`; ต่อ `&present=1` เพื่อดูแบบใช้งานจริง

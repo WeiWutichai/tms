@@ -28,12 +28,12 @@ for (const el of await P.getByText('ตั้งค่า', { exact: true }).fil
   if (await P.getByText('นิติบุคคลและสาขา', { exact: true }).filter({ visible: true }).count()) break;
 }
 
-const ctx = await b.newContext({ viewport: vp, locale: 'th-TH', baseURL: 'http://localhost:4420' });
+const ctx = await b.newContext({ viewport: vp, locale: 'th-TH', baseURL: (process.env.WEB ?? `http://localhost:${process.env.WEB_PORT ?? 4420}`) });
 await ctx.addCookies([
   {
     name: 'tms_td',
     value: 'demo-trusted-device-e2e-only-0000000000000:00000000-0000-4000-8000-0000000e0a01',
-    url: 'http://localhost:4420/v1/auth',
+    url: `${process.env.WEB ?? `http://localhost:${process.env.WEB_PORT ?? 4420}`}/v1/auth`,
   },
 ]);
 const W = await ctx.newPage();
