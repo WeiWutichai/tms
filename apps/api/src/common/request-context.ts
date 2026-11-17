@@ -17,6 +17,10 @@ export interface RequestContext {
   platformUser?: { id: string; role: string };
   /** magic link ที่ยืนยันแล้ว (route ที่ติด @LinkAction) — โมดูลใช้ entityId จำกัดข้อมูลที่ส่งกลับ */
   link?: { id: string; purpose: string; entityType: string; entityId: string; actions: string[] };
+  /** ST7-T07: เวอร์ชันที่ pin ไว้บน API key ที่ใช้เรียก (null/ไม่มี = ตามวันสร้างบริษัท) */
+  apiVersionPin?: string | null;
+  /** ST7-T07: วันที่ pin ของคำขอนี้ (ตั้งโดย ApiVersionInterceptor) */
+  apiVersion?: string;
   locale: 'th' | 'en';
   /** IP ผู้เรียก (trust proxy 1 ชั้น) — ลง audit log */
   ip?: string;

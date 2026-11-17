@@ -24,6 +24,7 @@ import { expectedVersion, setEtag } from '../../common/etag';
 import { decodeIdOr404 } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { DbService } from '../../db/db.service';
+import { VersionGate } from '../../http/api-version/api-version.decorators';
 import { entityHistory, HistoryQuery } from '../master/history';
 import {
   ApiKeyDto,
@@ -67,6 +68,7 @@ export class ApiKeysController {
 
   @Get()
   @RequireScope('settings:read')
+  @VersionGate('api_key.status_rotating')
   @ApiOkResponse({ type: ApiKeyPageDto })
   list(@Query() q: ApiKeyListQuery) {
     return this.keys.list(q);
@@ -74,6 +76,7 @@ export class ApiKeysController {
 
   @Get('summary')
   @RequireScope('settings:read')
+  @VersionGate('api_key.status_rotating')
   @ApiOkResponse({ type: ApiKeySummaryDto, description: 'จำนวน key ต่อสถานะ (แท็บ)' })
   summary(): Promise<ApiKeySummaryDto> {
     return this.keys.summary();
@@ -91,6 +94,7 @@ export class ApiKeysController {
 
   @Post()
   @RequireScope('settings:write')
+  @VersionGate('api_key.status_rotating')
   @ApiCreatedResponse({
     type: ApiKeySecretDto,
     description: '`secret` แสดงครั้งเดียว — ไม่รับ Idempotency-Key',
@@ -110,6 +114,7 @@ export class ApiKeysController {
   @Get(':id')
   @TenantResource('apiKey')
   @RequireScope('settings:read')
+  @VersionGate('api_key.status_rotating')
   @ApiOkResponse({ type: ApiKeyDto })
   async get(
     @Param('id') id: string,
@@ -132,6 +137,7 @@ export class ApiKeysController {
   @Patch(':id')
   @TenantResource('apiKey')
   @RequireScope('settings:write')
+  @VersionGate('api_key.status_rotating')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
   @ApiOkResponse({ type: ApiKeyDto, description: 'แก้ชื่อ / scope / IP allowlist — มีผลทันที' })
   async update(
@@ -149,6 +155,7 @@ export class ApiKeysController {
   @HttpCode(201)
   @TenantResource('apiKey')
   @RequireScope('settings:write')
+  @VersionGate('api_key.status_rotating')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
   @ApiCreatedResponse({
     type: ApiKeySecretDto,
@@ -172,6 +179,7 @@ export class ApiKeysController {
   @HttpCode(200)
   @TenantResource('apiKey')
   @RequireScope('settings:write')
+  @VersionGate('api_key.status_rotating')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
   @ApiOkResponse({
     type: ApiKeyDto,

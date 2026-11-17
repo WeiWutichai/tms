@@ -7,6 +7,12 @@ import { HttpException } from '@nestjs/common';
 export const PROBLEMS = {
   validation_failed: { status: 422, th: 'ข้อมูลไม่ถูกต้อง', en: 'Validation failed' },
   bad_request: { status: 400, th: 'คำขอไม่ถูกต้อง', en: 'Bad request' },
+  /** ST7-T07: header X-Api-Version ผิดรูปแบบ / ก่อนเวอร์ชันแรก / วันในอนาคต (`reason`: format | before_first | future) */
+  invalid_api_version: {
+    status: 400,
+    th: 'X-Api-Version ไม่ถูกต้อง (ต้องเป็นวันที่ YYYY-MM-DD)',
+    en: 'Invalid X-Api-Version (expected a YYYY-MM-DD date)',
+  },
   unauthorized: { status: 401, th: 'ต้องเข้าสู่ระบบ', en: 'Authentication required' },
   forbidden: { status: 403, th: 'ไม่มีสิทธิ์ทำรายการนี้', en: 'Forbidden' },
   not_found: { status: 404, th: 'ไม่พบข้อมูล', en: 'Not found' },

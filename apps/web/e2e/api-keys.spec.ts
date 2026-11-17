@@ -12,11 +12,19 @@ test.describe.serial('นักพัฒนา / Open API → API keys', () => {
 
   test('สร้าง key → secret แสดงครั้งเดียว → ใช้เรียก API ได้ตาม scope', async ({ page }) => {
     await page.goto('/settings');
+    // ST7-T07: UI ส่ง X-Api-Version ล่าสุดเสมอ (ไม่ขึ้นกับวันสร้างบริษัท) และ API ตอบเวอร์ชันเดียวกันกลับ
+    const listRes = page.waitForResponse(
+      (r) => new URL(r.url()).pathname === '/v1/api-keys' && r.request().method() === 'GET',
+    );
     await page
       .getByRole('navigation', { name: 'ตั้งค่า' })
       .getByRole('button', { name: 'นักพัฒนา / Open API' })
       .click();
     await expect(page).toHaveURL(/\/settings\/api$/);
+    const lr = await listRes;
+    const sent = lr.request().headers()['x-api-version'];
+    expect(sent).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(lr.headers()['x-api-version']).toBe(sent);
     await expect(
       page.getByRole('heading', { name: 'นักพัฒนา / Open API', level: 1 }),
     ).toBeVisible();

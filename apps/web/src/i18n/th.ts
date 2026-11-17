@@ -3747,6 +3747,7 @@ export const th = {
   'akey.h.mode': 'โหมด',
   'akey.h.prefix': 'Prefix',
   'problem.key_revoked': 'API key ถูกเพิกถอนแล้ว',
+  'problem.invalid_api_version': 'X-Api-Version ไม่ถูกต้อง (ต้องเป็นวันที่ YYYY-MM-DD)',
   'problem.key_expired': 'API key หมดอายุแล้ว',
   'problem.ip_not_allowed': 'IP นี้ไม่ได้รับอนุญาตให้ใช้ API key นี้',
   'field.scope_not_grantable': 'บทบาทของคุณไม่มีสิทธิ์ scope นี้ จึงให้ key ไม่ได้',
