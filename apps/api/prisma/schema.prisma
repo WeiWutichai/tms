@@ -1863,6 +1863,10 @@ model TripCost {
   reversalOfId     String?      @unique @map("reversal_of_id") @db.Uuid
   reversalOf       TripCost?    @relation("TripCostReversal", fields: [reversalOfId], references: [id], onDelete: Restrict)
   reversedBy       TripCost?    @relation("TripCostReversal")
+  /// ที่มาของบรรทัด (แนวคิด ST6-T01 `sourceType/sourceId`): SUBCON_OFFER = ราคาที่ตกลงตอนจ้างรถร่วม (source_id = subcon_offer.id)
+  /// — **ล็อก: งาน rebuild บรรทัดระบบของ ST6-T01 ห้ามแก้/สร้างใหม่ทับ** · null = บรรทัดก่อน ST3-T22
+  sourceType       String?      @map("source_type")
+  sourceId         String?      @map("source_id") @db.Uuid
   createdBy        String?      @map("created_by")
   createdAt        DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
 

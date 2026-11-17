@@ -109,12 +109,49 @@ const bb = await post('/v1/customer-sites', {
 });
 const ton = (await get('/v1/units?limit=50')).data.find((u) => u.code === 'TON').id;
 const vt6 = (await get('/v1/vehicle-types?limit=50')).data.find((x) => x.code === '6W').id;
+const PDF = Buffer.from('%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n');
+const day = (n) =>
+  new Date(Date.parse(`${today}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
+/** รถ 6 ล้อของรถร่วม + ประกัน/พ.ร.บ. ครบ (จ้างได้จริง — กฎเอกสารบังคับ) */
+const fleet = async (carrierId, n) => {
+  const v = await post('/v1/vehicles', {
+    plate: `9${n % 10}-${RUN.slice(-4)}`,
+    plateProvince: 'TH-10',
+    vehicleTypeId: vt6,
+    ownership: 'SUBCONTRACT',
+    carrierId,
+  });
+  for (const docType of ['INSURANCE', 'COMPULSORY_ACT']) {
+    const f = await post('/v1/documents', {
+      kind: 'VEHICLE_DOC',
+      mime: 'application/pdf',
+      bytes: PDF.length,
+      filename: `${docType}.pdf`,
+    });
+    const u = new URL(f.uploadUrl);
+    await W.request.put(u.pathname + u.search, {
+      headers: { ...H, 'Content-Type': 'application/octet-stream' },
+      data: PDF,
+    });
+    await post(`/v1/vehicles/${v.id}/documents`, {
+      docType,
+      docNo: `${docType.slice(0, 3)}-${RUN}-${n}`,
+      ...(docType === 'INSURANCE'
+        ? { issuer: 'บริษัท ประกันสมมติ จำกัด', insuranceClass: '1' }
+        : {}),
+      startsOn: day(-100),
+      expiresOn: day(200),
+      fileDocumentIds: [f.id],
+    });
+  }
+};
 const carrier = async (name, n, rate) => {
   const c = await post('/v1/carriers', {
     legalName: name,
     entityType: 'JURISTIC',
     taxId: jurTax(Number(RUN) + n),
   });
+  await fleet(c.id, n);
   const rc = await post('/v1/rate-cards', {
     side: 'BUY',
     carrierId: c.id,
@@ -154,7 +191,9 @@ await W.waitForTimeout(1200);
 const d = W.getByRole('dialog');
 const cDefault = await W.screenshot();
 await d.getByRole('combobox', { name: 'ผู้รับเหมา' }).selectOption(dear);
-await d.getByRole('textbox', { name: 'เหตุผลที่เลือกรายนี้' }).fill('รายที่ถูกกว่ารถไม่ว่างช่วงเช้า');
+await d
+  .getByRole('textbox', { name: 'เหตุผลที่เลือกรายนี้' })
+  .fill('รายที่ถูกกว่ารถไม่ว่างช่วงเช้า');
 await W.waitForTimeout(400);
 const cReason = await W.screenshot();
 await d.getByRole('tab', { name: 'ใบสั่งงาน' }).click();

@@ -32,6 +32,7 @@ describe('subcon hire (ST3-T22)', () => {
   let seed = 0;
   let unitTon: string;
   let vt6: string;
+  let vt10: string;
   const today = bangkokToday();
   const uuid = (kind: Parameters<typeof tryDecodeId>[0], id: string) => tryDecodeId(kind, id)!;
   const ADDR = { line1: '1 ถ.ทดสอบ', district: 'เมือง', province: 'ชลบุรี', postcode: '20000' };
@@ -83,6 +84,7 @@ describe('subcon hire (ST3-T22)', () => {
     const types = (await api(app, admin).get('/v1/vehicle-types?limit=50').expect(200)).body
       .data as { id: string; code: string }[];
     vt6 = types.find((t) => t.code === '6W')!.id;
+    vt10 = types.find((t) => t.code === '10W')!.id;
   });
   afterAll(async () => {
     await app.close();
@@ -120,7 +122,13 @@ describe('subcon hire (ST3-T22)', () => {
         .expect(201)
     ).body as { id: string; code: string; legalName: string; version: number };
   /** rate card ขาซื้อ (อนุมัติแล้ว) ของเส้นทาง a → b รถ 6 ล้อ */
-  const buyRate = async (carrierId: string, a: string, b: string, rate: string) => {
+  const buyRate = async (
+    carrierId: string,
+    a: string,
+    b: string,
+    rate: string,
+    extra: object = {},
+  ) => {
     const r = await api(app, admin)
       .post('/v1/rate-cards')
       .send({
@@ -132,6 +140,7 @@ describe('subcon hire (ST3-T22)', () => {
         pricingModel: 'PER_TRIP',
         buyRate: rate,
         validFrom: today,
+        ...extra,
       })
       .expect(201);
     await api(app, admin)
@@ -182,22 +191,54 @@ describe('subcon hire (ST3-T22)', () => {
     });
 
   /** เส้นทาง + รถร่วม 4 ราย: A 5,200 · B 4,800.50 · C ไม่มี rate · D ระงับ (ไม่อยู่ในตัวเลือก) */
+  /** รถ 6 ล้อของรถร่วมที่เอกสารบังคับ (ประกัน + พ.ร.บ.) ครบ → จ้างได้จริง (ST3-T14) */
+  const fleet = async (carrierId: string) => {
+    const v = (
+      await api(app, admin)
+        .post('/v1/vehicles')
+        .send({
+          plate: `9${seed % 10}-${String(3000 + ++seed)}`,
+          plateProvince: 'TH-10',
+          vehicleTypeId: vt6,
+          ownership: 'SUBCONTRACT',
+          carrierId,
+        })
+        .expect(201)
+    ).body as { id: string };
+    for (const docType of ['INSURANCE', 'COMPULSORY_ACT'] as const)
+      await db.vehicleDocument.create({
+        data: {
+          tenantId,
+          vehicleId: uuid('vehicle', v.id),
+          docType,
+          startsOn: new Date(Date.parse(`${today}T00:00:00Z`) - 200 * 86_400_000),
+          expiresOn: new Date(Date.parse(`${today}T00:00:00Z`) + 200 * 86_400_000),
+          isRequiredForDispatch: true,
+        },
+      });
+    return v;
+  };
+
+  /** เส้นทาง + รถร่วม: A 5,200 · B 4,800.50 · C ไม่มี rate (จ้างได้ทั้งสาม) · D ระงับ (ไม่อยู่) · E 4,000 แต่ไม่มีรถ (ติดกฎ) */
   async function lane() {
     const [a, b] = [await newSite(), await newSite()];
     const A = await newCarrier();
     const B = await newCarrier();
     const C = await newCarrier();
     const D = await newCarrier();
+    const E = await newCarrier();
+    for (const c of [A, B, C]) await fleet(c.id);
     await buyRate(A.id, a, b, '5200');
     const rb = await buyRate(B.id, a, b, '4800.50');
     await buyRate(D.id, a, b, '100');
+    await buyRate(E.id, a, b, '4000');
     const d = await api(app, admin).get(`/v1/carriers/${D.id}`).expect(200);
     await api(app, admin)
       .post(`/v1/carriers/${D.id}/deactivate`)
       .set('If-Match', `"${d.body.version}"`)
       .send({ reason: 'ระงับชั่วคราวทดสอบ' })
       .expect(200);
-    return { a, b, A, B, C, D, rb };
+    return { a, b, A, B, C, D, E, rb };
   }
 
   it('ตัวเลือก: รายที่ใช้งาน + ราคา rate card ขาซื้อ (ถูกก่อน) + ถูกสุด + เส้นทาง/ประเภทรถ · รายระงับไม่อยู่', async () => {
@@ -214,8 +255,8 @@ describe('subcon hire (ST3-T22)', () => {
     });
     const ids = (r.body.options as { carrier: { id: string } }[]).map((o) => o.carrier.id);
     expect(ids).not.toContain(L.D.id);
-    const mine = ids.filter((x) => [L.A.id, L.B.id, L.C.id].includes(x));
-    expect(mine).toEqual([L.B.id, L.A.id, L.C.id]);
+    const mine = ids.filter((x) => [L.A.id, L.B.id, L.C.id, L.E.id].includes(x));
+    expect(mine).toEqual([L.B.id, L.A.id, L.C.id, L.E.id]);
     const by = (id: string) =>
       r.body.options.find((o: { carrier: { id: string } }) => o.carrier.id === id);
     expect(by(L.B.id)).toMatchObject({
@@ -226,7 +267,14 @@ describe('subcon hire (ST3-T22)', () => {
       buyRecentAmounts: [],
       carrier: { whtRateDefault: '1.00', paymentTermDays: 30, requirePodToPay: true },
     });
-    expect(by(L.A.id)).toMatchObject({ buyRateAmount: '5200.00', cheapest: false });
+    expect(by(L.A.id)).toMatchObject({
+      buyRateAmount: '5200.00',
+      cheapest: false,
+      blockedReason: null,
+    });
+    // E ถูกกว่าแต่ไม่มีรถที่เอกสารบังคับผ่าน → ติดกฎ ไม่นับเป็นถูกสุด (review M4)
+    expect(by(L.E.id)).toMatchObject({ buyRateAmount: '4000.00', cheapest: false });
+    expect(by(L.E.id).blockedReason).toContain('ยังไม่มีรถ');
     expect(by(L.C.id)).toMatchObject({ pricingStatus: 'RATE_MISSING', buyRateAmount: null });
     expect(by(L.C.id).pricingReasons.length).toBeGreaterThan(0);
   });
@@ -243,9 +291,9 @@ describe('subcon hire (ST3-T22)', () => {
         carrierId: L.B.id,
         status: 'OFFERED',
         buyAmount: '4800.50',
-        priceSource: 'RATE_CARD',
+        buyPriceSource: 'RATE_CARD',
         rateCardCode: L.rb.code,
-        selectionKind: 'CHEAPEST',
+        buySelectionKind: 'CHEAPEST',
         offeredBy: 'u-disp',
       },
     });
@@ -259,14 +307,16 @@ describe('subcon hire (ST3-T22)', () => {
       settlementLineId: null,
       reversalOfId: null,
       createdBy: 'u-disp',
+      sourceType: 'SUBCON_OFFER',
     });
     expect(c!.amount.toFixed(2)).toBe('4800.50');
-    // ธงภาษีคัดลอกจากรายการบริการค่าขนส่งของ rate card (ค่าขนส่งในประเทศ = ยกเว้น VAT, หัก 1%)
+    // ธงภาษีคัดลอกจากรายการบริการค่าขนส่งของ rate card · vat_amount = 0 (ยังไม่คำนวณ VAT ขาซื้อ — #58)
     expect(c!.vatType).toBe('EXEMPT_TRANSPORT');
     expect(c!.whtRate!.toFixed(2)).toBe('1.00');
     expect(c!.vatAmount.toFixed(2)).toBe('0.00');
     const [o] = await offers(t.id);
     expect(c!.subconOfferId).toBe(o!.id);
+    expect(c!.sourceId).toBe(o!.id);
     expect(o).toMatchObject({
       status: 'OFFERED',
       priceSource: 'RATE_CARD',
@@ -284,7 +334,7 @@ describe('subcon hire (ST3-T22)', () => {
       where: { action: 'trip.offered', entityId: uuid('trip', t.id) },
     });
     expect(au.reason).toBe(o!.selectionReason);
-    expect(au.after).toMatchObject({ buyAmount: '4800.50', selectionKind: 'CHEAPEST' });
+    expect(au.after).toMatchObject({ buyAmount: '4800.50', buySelectionKind: 'CHEAPEST' });
   });
 
   it('เกณฑ์ตรวจรับ: จ้างรายที่ไม่ใช่ถูกสุดต้องใส่เหตุผล (ไม่ใส่/สั้น → 422 ไม่มีอะไรถูกเขียน) · ใส่แล้ว OVERRIDE เก็บเหตุผล', async () => {
@@ -309,8 +359,8 @@ describe('subcon hire (ST3-T22)', () => {
     );
     expect(ok.body.hire).toMatchObject({
       buyAmount: '5200.00',
-      priceSource: 'RATE_CARD',
-      selectionKind: 'OVERRIDE',
+      buyPriceSource: 'RATE_CARD',
+      buySelectionKind: 'OVERRIDE',
       selectionReason: REASON,
     });
     const [o] = await offers(t.id);
@@ -326,11 +376,18 @@ describe('subcon hire (ST3-T22)', () => {
     const r1 = await hire(t1.id, { carrierId: L.A.id, cost: '4500' }).expect(200);
     expect(r1.body.hire).toMatchObject({
       buyAmount: '4500.00',
-      priceSource: 'MANUAL',
-      selectionKind: 'CHEAPEST',
+      buyPriceSource: 'MANUAL',
+      buySelectionKind: 'CHEAPEST',
     });
-    const [c1] = await costs(t1.id);
-    expect(c1).toMatchObject({ source: 'MANUAL', vatType: 'EXEMPT_TRANSPORT' });
+    // กรอกราคาเอง → 1 บรรทัดราคาที่ตกลง ธงภาษีว่าง (#58)
+    const c1s = await costs(t1.id);
+    expect(c1s).toHaveLength(1);
+    expect(c1s[0]).toMatchObject({
+      source: 'MANUAL',
+      vatType: null,
+      whtRate: null,
+      sourceType: 'SUBCON_OFFER',
+    });
 
     const t2 = await newTrip(L.a, L.b);
     const e = await hire(t2.id, { carrierId: L.C.id }).expect(422);
@@ -377,6 +434,8 @@ describe('subcon hire (ST3-T22)', () => {
     await hire(t.id, { carrierId: L.B.id }).expect(200);
     const v = await api(app, viewer).get(`/v1/trips/${t.id}`).expect(200);
     expect(v.body.hire.buyAmount).toBeUndefined();
+    expect(v.body.hire.buyPriceSource).toBeUndefined();
+    expect(v.body.hire.buySelectionKind).toBeUndefined();
     expect(v.body.hire.selectionReason).toBeTruthy();
     expect(JSON.stringify(v.body)).not.toContain('4800');
   });
@@ -444,6 +503,14 @@ describe('subcon hire (ST3-T22)', () => {
     expect(w).toMatchObject({ status: 'WITHDRAWN' });
     expect(w!.closedAt).not.toBeNull();
     expect(w!.closedReason).toContain('ลูกค้ายกเลิก');
+    // ยกเลิกเที่ยว → ค่าจ้างที่ยังไม่จ่ายกลับรายการ (review M3) + audit
+    const cs2 = await costs(t2.id);
+    expect(cs2.map((c) => c.amount.toFixed(2))).toEqual(['4800.50', '-4800.50']);
+    expect(cs2[1]!.reversalOfId).toBe(cs2[0]!.id);
+    const au = await db.auditLog.findFirstOrThrow({
+      where: { action: 'trip.cancelled', entityId: uuid('trip', t2.id) },
+    });
+    expect(au.after).toMatchObject({ reversedCarrierFees: 1 });
   });
 
   it('จ้างใหม่หลังข้อเสนอเดิมจบ (ปฏิเสธ — ST3-T23) → บรรทัดค่าจ้างเดิมกลับรายการ (ยอดติดลบ) ประวัติคงอยู่', async () => {
@@ -469,6 +536,48 @@ describe('subcon hire (ST3-T22)', () => {
     ]);
     expect(cs[1]!.reversalOfId).toBe(cs[0]!.id);
     expect((await offers(t.id)).map((o) => o.status)).toEqual(['REJECTED', 'OFFERED']);
+  });
+
+  it('ยอมรับราคา rate card = 1 บรรทัดค่าจ้างต่อบรรทัดผลคิด (ค่าขนส่ง + จุดเพิ่ม) รวมเท่าราคาจ้าง · กรอกเอง = 1 บรรทัด', async () => {
+    const [a, b] = [await newSite(), await newSite()];
+    const F = await newCarrier();
+    await fleet(F.id);
+    await buyRate(F.id, a, b, '5000', { buyExtraStopRate: '300', includedStops: 1 });
+    const t = await newTrip(a, b);
+    const r = await hire(t.id, { carrierId: F.id }).expect(200);
+    expect(r.body.hire.buyAmount).toBe('5300.00');
+    const cs = await costs(t.id);
+    expect(cs.map((c) => c.amount.toFixed(2)).sort()).toEqual(['300.00', '5000.00']);
+    expect(cs.every((c) => c.source === 'RATE_CARD' && c.sourceType === 'SUBCON_OFFER')).toBe(true);
+    expect(new Set(cs.map((c) => c.serviceItemId)).size).toBe(2);
+    expect(cs.every((c) => c.vatAmount.toFixed(2) === '0.00')).toBe(true);
+    const sum = cs.reduce((x, c) => x + Number(c.amount.toFixed(2).replace('.', '')), 0);
+    expect(sum).toBe(530000);
+
+    const t2 = await newTrip(a, b);
+    await hire(t2.id, { carrierId: F.id, cost: '5100' }).expect(200);
+    const m = await costs(t2.id);
+    expect(m).toHaveLength(1);
+    expect(m[0]).toMatchObject({ source: 'MANUAL', serviceItemId: null, vatType: null });
+  });
+
+  it('รายที่ติดกฎ (ไม่มีรถที่เอกสารบังคับผ่าน) ไม่นับเป็นถูกสุด: จ้างต้องมีเหตุผลแม้ราคาต่ำสุด · ประเภทรถไม่ตรงใบสั่ง → 422', async () => {
+    const L = await lane();
+    const t = await newTrip(L.a, L.b);
+    const e = await hire(t.id, { carrierId: L.E.id }).expect(422);
+    expect(e.body.errors[0].code).toBe('selection_reason_required');
+    expect(e.body.detail).toContain('ยังไม่มีรถ');
+    expect(
+      (await hire(t.id, { carrierId: L.B.id, vehicleTypeId: vt10 }).expect(422)).body.errors[0]
+        .code,
+    ).toBe('vehicle_type_mismatch');
+    const ok = await hire(t.id, { carrierId: L.E.id, selectionReason: REASON }).expect(200);
+    expect(ok.body.hire).toMatchObject({ buyAmount: '4000.00', buySelectionKind: 'OVERRIDE' });
+    const [o] = await offers(t.id);
+    expect(o!.comparison).toMatchObject({
+      cheapestAmount: '4800.50',
+      blockedCarrierIds: expect.arrayContaining([uuid('carrier', L.E.id)]),
+    });
   });
 
   it('constraint: selection_reason ว่าง/ราคา ≤ 0 ถูกปฏิเสธ · ข้อเสนอที่ใช้งานได้ 1 ต่อเที่ยว · ลบไม่ได้ (app role)', async () => {

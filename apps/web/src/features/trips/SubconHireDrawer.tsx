@@ -13,6 +13,7 @@ import {
   plainNum,
   reasonRequired,
   SELECTION_REASON_MIN,
+  toSatang,
 } from './subconHire';
 import { useHireOptions, useHireTrip, type TripDetail } from './useTrips';
 
@@ -105,9 +106,11 @@ export function SubconHireDrawer({
   const cid = pick ?? defaultCarrier(o);
   const opt = o.options.find((x) => x.carrier.id === cid) ?? o.options[0]!;
   const rate = opt.buyRateAmount ?? null;
-  const shown = price ?? (rate ? plainNum(rate) : '');
+  const shown = price ?? (rate ? money(rate) : '');
   const cost = parseCost(shown);
-  const needReason = reasonRequired(cost, o.buyCheapestAmount);
+  /** ราคาที่ส่ง = ราคา rate card ของรายนี้ (ยังไม่แก้ หรือแก้แล้วเท่าเดิม) */
+  const asRate = rate !== null && cost !== null && toSatang(cost) === toSatang(rate);
+  const needReason = !!opt.blockedReason || reasonRequired(cost, o.buyCheapestAmount);
   const cheapestName =
     o.options.find((x) => x.cheapest)?.carrier.name ?? o.options[0]!.carrier.name;
   const m = margin(o.sellAmount, cost);
@@ -115,15 +118,17 @@ export function SubconHireDrawer({
   const km = trip.route.distanceKm;
   const first = trip.stops[0];
   const pickupIso = first?.plannedArrival ?? first?.windowStart ?? null;
-  const wht = opt.whtRate ?? opt.carrier.whtRateDefault;
+  // ใบสั่งงาน: แสดงเฉพาะค่าที่มาจากข้อมูล — หัก ณ ที่จ่าย = ธงที่คัดลอกจาก rate card (ราคาตาม rate เท่านั้น — ราคากรอกเอง
+  // ธงว่าง #58 → ไม่แสดง) · เงื่อนไขจ่าย = ข้อมูลผู้รับเหมา (paymentTermDays / requirePodToPay)
+  const wht = asRate ? opt.whtRate : null;
   const recent = opt.buyRecentAmounts ?? [];
   const optLabel = (x: (typeof o.options)[number]) =>
     x.buyRateAmount
       ? t(x.cheapest ? 'sub.optCheapest' : 'sub.opt', {
           n: x.carrier.name,
-          p: plainNum(x.buyRateAmount),
-        })
-      : t('sub.optNoRate', { n: x.carrier.name });
+          p: money(x.buyRateAmount),
+        }) + (x.blockedReason ? t('sub.optBlocked') : '')
+      : t('sub.optNoRate', { n: x.carrier.name }) + (x.blockedReason ? t('sub.optBlocked') : '');
 
   const submit = () => {
     if (hire.isPending) return;
@@ -183,10 +188,12 @@ export function SubconHireDrawer({
     ['sub.wo.price', cost ? t('sub.wo.priceV', { p: money(cost) }) : '—'],
     [
       'sub.wo.terms',
-      t(opt.carrier.requirePodToPay ? 'sub.wo.termsPod' : 'sub.wo.termsNoPod', {
-        w: plainNum(wht),
-        d: opt.carrier.paymentTermDays,
-      }),
+      [
+        ...(wht ? [t('sub.wo.wht', { w: plainNum(wht) })] : []),
+        t(opt.carrier.requirePodToPay ? 'sub.wo.payPod' : 'sub.wo.pay', {
+          d: opt.carrier.paymentTermDays,
+        }),
+      ].join(' · '),
     ],
     ['sub.wo.contact', me.data?.user?.name ?? '—'],
   ];
@@ -286,7 +293,7 @@ export function SubconHireDrawer({
               </div>
               <div style={BOX}>
                 <div style={NUM} data-testid="sub-last">
-                  {recent.length ? recent.map(plainNum).join(' · ') : '—'}
+                  {recent.length ? recent.map(money).join(' · ') : '—'}
                 </div>
                 <div style={LABEL}>{t('sub.last')}</div>
               </div>
@@ -304,11 +311,23 @@ export function SubconHireDrawer({
                   setPrice(e.target.value);
                   setFe({});
                 }}
+                onBlur={() => {
+                  if (cost !== null) setPrice(money(cost));
+                }}
                 style={{ ...CONTROL, ...NUM, textAlign: 'right' }}
               />
               <span style={{ fontSize: 13, color: '#3B424C' }}>
-                {t(rate ? 'sub.prefill' : 'sub.prefillNone', { n: opt.carrier.name })}
+                {asRate
+                  ? t('sub.prefill', { n: opt.carrier.name })
+                  : rate
+                    ? t('sub.manual', { p: money(rate) })
+                    : t('sub.prefillNone', { n: opt.carrier.name })}
               </span>
+              {opt.blockedReason && (
+                <span style={{ fontSize: 13, color: '#8F5500' }} data-testid="sub-blocked">
+                  {t('sub.blocked', { r: opt.blockedReason })}
+                </span>
+              )}
               {fe.cost && <span className="tms-field-error">{fe.cost}</span>}
             </label>
             <div style={{ border: '1px solid #D9DCD4', borderRadius: 8, overflow: 'hidden' }}>
@@ -380,12 +399,14 @@ export function SubconHireDrawer({
                   style={{ ...CONTROL, height: 'auto', padding: '8px 10px', resize: 'vertical' }}
                 />
                 <span style={{ fontSize: 13, color: '#8F5500' }} data-testid="sub-reason-hint">
-                  {o.buyCheapestAmount
-                    ? t('sub.reasonNotCheapest', {
-                        p: plainNum(o.buyCheapestAmount),
-                        n: cheapestName,
-                      })
-                    : t('sub.reasonNoCompare')}
+                  {opt.blockedReason
+                    ? t('sub.reasonBlocked')
+                    : o.buyCheapestAmount
+                      ? t('sub.reasonNotCheapest', {
+                          p: money(o.buyCheapestAmount),
+                          n: cheapestName,
+                        })
+                      : t('sub.reasonNoCompare')}
                 </span>
                 {fe.selectionReason && (
                   <span className="tms-field-error">{fe.selectionReason}</span>

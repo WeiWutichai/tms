@@ -46,8 +46,8 @@ type Trip = {
   hire: {
     carrierId: string;
     buyAmount?: string;
-    priceSource: string;
-    selectionKind: string;
+    buyPriceSource: string;
+    buySelectionKind: string;
     selectionReason: string;
   } | null;
 };
@@ -93,12 +93,50 @@ test.describe.serial('จ้างรถร่วม (ST3-T22)', () => {
     const vt6 = (await get<Page1>('/v1/vehicle-types?limit=50')).data.find(
       (x) => x.code === '6W',
     )!.id;
+    const PDF = Buffer.from('%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n');
+    const day = (n: number) =>
+      new Date(Date.parse(`${today}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
+    /** รถ 6 ล้อของรถร่วม + ประกัน/พ.ร.บ. ครบ → จ้างได้จริง (กฎเอกสารบังคับ ST3-T14) */
+    const fleet = async (carrierId: string, n: number) => {
+      const v = await post<{ id: string }>('/v1/vehicles', {
+        plate: `9${n % 10}-${RUN.slice(-4)}`,
+        plateProvince: 'TH-10',
+        vehicleTypeId: vt6,
+        ownership: 'SUBCONTRACT',
+        carrierId,
+      });
+      for (const docType of ['INSURANCE', 'COMPULSORY_ACT']) {
+        const f = await post<{ id: string; uploadUrl: string }>('/v1/documents', {
+          kind: 'VEHICLE_DOC',
+          mime: 'application/pdf',
+          bytes: PDF.length,
+          filename: `${docType}.pdf`,
+        });
+        const u = new URL(f.uploadUrl);
+        const put = await page.request.put(u.pathname + u.search, {
+          headers: { ...H, 'Content-Type': 'application/octet-stream' },
+          data: PDF,
+        });
+        expect(put.status(), await put.text()).toBe(200);
+        await post(`/v1/vehicles/${v.id}/documents`, {
+          docType,
+          docNo: `${docType.slice(0, 3)}-${RUN}-${n}`,
+          ...(docType === 'INSURANCE'
+            ? { issuer: 'บริษัท ประกันสมมติ จำกัด', insuranceClass: '1' }
+            : {}),
+          startsOn: day(-100),
+          expiresOn: day(200),
+          fileDocumentIds: [f.id],
+        });
+      }
+    };
     const carrier = async (name: string, n: number, rate: string) => {
       const c = await post<{ id: string }>('/v1/carriers', {
         legalName: name,
         entityType: 'JURISTIC',
         taxId: jurTax(Number(RUN) + n),
       });
+      await fleet(c.id, n);
       const rc = await post<{ id: string }>('/v1/rate-cards', {
         side: 'BUY',
         carrierId: c.id,
@@ -159,15 +197,19 @@ test.describe.serial('จ้างรถร่วม (ST3-T22)', () => {
     const sel = d.getByRole('combobox', { name: 'ผู้รับเหมา' });
     // ค่าเริ่มต้น = รายที่ถูกสุด ราคาตาม rate card
     await expect(sel).toHaveValue(S.cheap!);
-    await expect(d.getByRole('textbox', { name: 'ราคาซื้อ (฿ ต่อเที่ยว)' })).toHaveValue('4,500');
+    await expect(d.getByRole('textbox', { name: 'ราคาซื้อ (฿ ต่อเที่ยว)' })).toHaveValue(
+      '4,500.00',
+    );
     await expect(d.getByText(`ราคาตั้งต้นจาก rate card ขาซื้อของ ${CHEAP}`)).toBeVisible();
     await expect(d.getByText('เหตุผลที่เลือกรายนี้')).toHaveCount(0);
     await page.screenshot({ path: 'test-results/st3-subcon-hire-sum.png' });
 
     await sel.selectOption(S.dear!);
-    await expect(d.getByRole('textbox', { name: 'ราคาซื้อ (฿ ต่อเที่ยว)' })).toHaveValue('5,200');
+    await expect(d.getByRole('textbox', { name: 'ราคาซื้อ (฿ ต่อเที่ยว)' })).toHaveValue(
+      '5,200.00',
+    );
     await expect(d.getByTestId('sub-reason-hint')).toHaveText(
-      `ไม่ใช่ราคาถูกสุด (ถูกสุด ฿4,500 · ${CHEAP}) — ระบุเหตุผลอย่างน้อย 10 ตัวอักษร`,
+      `ไม่ใช่ราคาถูกสุด (ถูกสุด ฿4,500.00 · ${CHEAP}) — ระบุเหตุผลอย่างน้อย 10 ตัวอักษร`,
     );
     await d.getByRole('button', { name: 'ส่งข้อเสนอ' }).click();
     await expect(d.getByText('ระบุเหตุผลอย่างน้อย 10 ตัวอักษร', { exact: true })).toBeVisible();
@@ -193,8 +235,8 @@ test.describe.serial('จ้างรถร่วม (ST3-T22)', () => {
     expect(t.hire).toMatchObject({
       carrierId: S.dear,
       buyAmount: '5200.00',
-      priceSource: 'RATE_CARD',
-      selectionKind: 'OVERRIDE',
+      buyPriceSource: 'RATE_CARD',
+      buySelectionKind: 'OVERRIDE',
       selectionReason: REASON,
     });
   });
@@ -212,7 +254,7 @@ test.describe.serial('จ้างรถร่วม (ST3-T22)', () => {
     expect(t.hire).toMatchObject({
       carrierId: S.cheap,
       buyAmount: '4500.00',
-      selectionKind: 'CHEAPEST',
+      buySelectionKind: 'CHEAPEST',
     });
     expect(t.hire!.selectionReason.trim().length).toBeGreaterThan(0);
   });

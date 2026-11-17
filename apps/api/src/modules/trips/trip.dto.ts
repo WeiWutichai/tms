@@ -415,17 +415,21 @@ export class TripHireDto {
   })
   @PriceField('buy')
   buyAmount?: string;
-  @ApiProperty({
+  @ApiPropertyOptional({
     enum: ['RATE_CARD', 'MANUAL'],
-    description: 'RATE_CARD = ตามราคา rate card ขาซื้อของรายนี้ · MANUAL = กรอก/แก้ราคาเอง',
+    description:
+      'RATE_CARD = ตามราคา rate card ขาซื้อของรายนี้ · MANUAL = กรอก/แก้ราคาเอง — เห็นเมื่อมี `prices.buy:read`',
   })
-  priceSource!: string;
+  @PriceField('buy')
+  buyPriceSource?: string;
   @ApiProperty({ nullable: true, type: String, example: 'RC-B-0001' }) rateCardCode!: string | null;
-  @ApiProperty({
+  @ApiPropertyOptional({
     enum: ['CHEAPEST', 'OVERRIDE'],
-    description: 'CHEAPEST = ราคาไม่เกินรายที่ถูกสุด · OVERRIDE = เลือกด้วยเหตุผลของผู้จ้าง',
+    description:
+      'CHEAPEST = ราคาไม่เกินรายที่ถูกสุด · OVERRIDE = เลือกด้วยเหตุผลของผู้จ้าง — เห็นเมื่อมี `prices.buy:read`',
   })
-  selectionKind!: string;
+  @PriceField('buy')
+  buySelectionKind?: string;
   @ApiProperty({ description: 'เหตุผลการเลือก (ไม่ว่างเสมอ — docs/04 D3)' })
   selectionReason!: string;
   @ApiProperty({ nullable: true, type: String, description: 'ผู้จ้าง (actor id)' })
@@ -837,6 +841,14 @@ export class HireOptionDto {
       'อัตราหัก ณ ที่จ่าย (%) ของรายการบริการค่าขนส่งใน rate card — null = ไม่มี rate card (ใช้ค่าตั้งต้นของรายนี้)',
   })
   whtRate!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: 'เอกสารบังคับของรถ (ประกัน/พ.ร.บ.) ไม่ครบหรือหมดอายุ ณ วันที่เที่ยว',
+    description:
+      'จ้างไม่ได้จริง ณ วันเที่ยว (กฎเอกสารบังคับ ST3-T14 / ไม่มีรถที่ลงทะเบียน) — ไม่นับในการเทียบถูกสุด, จ้างได้แต่ต้องมีเหตุผล',
+  })
+  blockedReason!: string | null;
   @ApiProperty({ description: 'ราคาต่ำสุดของตัวเลือก (เท่ากันได้หลายราย)' }) cheapest!: boolean;
   @ApiPropertyOptional({
     type: [String],

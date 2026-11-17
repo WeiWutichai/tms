@@ -33319,26 +33319,26 @@
             "example": "6800.00",
             "description": "ราคาซื้อที่ตกลง (ก่อน VAT) — เห็นเมื่อมี `prices.buy:read`"
           },
-          "priceSource": {
+          "buyPriceSource": {
             "type": "string",
             "enum": [
               "RATE_CARD",
               "MANUAL"
             ],
-            "description": "RATE_CARD = ตามราคา rate card ขาซื้อของรายนี้ · MANUAL = กรอก/แก้ราคาเอง"
+            "description": "RATE_CARD = ตามราคา rate card ขาซื้อของรายนี้ · MANUAL = กรอก/แก้ราคาเอง — เห็นเมื่อมี `prices.buy:read`"
           },
           "rateCardCode": {
             "type": "string",
             "nullable": true,
             "example": "RC-B-0001"
           },
-          "selectionKind": {
+          "buySelectionKind": {
             "type": "string",
             "enum": [
               "CHEAPEST",
               "OVERRIDE"
             ],
-            "description": "CHEAPEST = ราคาไม่เกินรายที่ถูกสุด · OVERRIDE = เลือกด้วยเหตุผลของผู้จ้าง"
+            "description": "CHEAPEST = ราคาไม่เกินรายที่ถูกสุด · OVERRIDE = เลือกด้วยเหตุผลของผู้จ้าง — เห็นเมื่อมี `prices.buy:read`"
           },
           "selectionReason": {
             "type": "string",
@@ -33357,9 +33357,7 @@
           "id",
           "carrierId",
           "status",
-          "priceSource",
           "rateCardCode",
-          "selectionKind",
           "selectionReason",
           "offeredBy",
           "offeredAt"
@@ -34526,6 +34524,12 @@
             "example": "1.00",
             "description": "อัตราหัก ณ ที่จ่าย (%) ของรายการบริการค่าขนส่งใน rate card — null = ไม่มี rate card (ใช้ค่าตั้งต้นของรายนี้)"
           },
+          "blockedReason": {
+            "type": "string",
+            "nullable": true,
+            "example": "เอกสารบังคับของรถ (ประกัน/พ.ร.บ.) ไม่ครบหรือหมดอายุ ณ วันที่เที่ยว",
+            "description": "จ้างไม่ได้จริง ณ วันเที่ยว (กฎเอกสารบังคับ ST3-T14 / ไม่มีรถที่ลงทะเบียน) — ไม่นับในการเทียบถูกสุด, จ้างได้แต่ต้องมีเหตุผล"
+          },
           "cheapest": {
             "type": "boolean",
             "description": "ราคาต่ำสุดของตัวเลือก (เท่ากันได้หลายราย)"
@@ -34549,6 +34553,7 @@
           "pricingReasons",
           "vatType",
           "whtRate",
+          "blockedReason",
           "cheapest"
         ]
       },

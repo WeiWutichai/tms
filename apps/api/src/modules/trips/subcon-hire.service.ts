@@ -1,14 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
+  checkAssignability,
   cheapestReasonTh,
-  computeDocumentTax,
   decimalFromSatang,
   decideSelection,
   satangFromDecimal,
   SELECTION_REASON_MIN_LENGTH,
-  toCalcVatType,
-  toCalcWhtRate,
   type PricingStatus,
   type SelectionKind,
   type ServiceItemVatType,
@@ -21,6 +19,7 @@ import { cleanLine } from '../master/master-kit';
 import { PricingService } from '../pricing/pricing.service';
 import { RateCardsService } from '../rate-cards/rate-cards.service';
 import type { HireOptionsDto } from './trip.dto';
+import { reverseCarrierFees } from './carrier-fees';
 import { TripService, type TripRecord } from './trip.service';
 
 const field422 = (field: string, code: string, message: string, detail?: string) =>
@@ -38,6 +37,15 @@ export interface BuyQuote {
   vatType: ServiceItemVatType | null;
   whtRate: string | null;
   serviceItemId: string | null;
+  /** บรรทัดของผลคิด (ค่าขนส่ง / จุดเพิ่ม …) — ยอมรับราคา rate card ตามนั้น = 1 บรรทัดค่าจ้างต่อบรรทัด (review M2) */
+  lines: {
+    kind: string;
+    serviceItemId: string;
+    name: string;
+    amount: string;
+    vatType: ServiceItemVatType;
+    whtRate: string;
+  }[];
   reasons: string[];
 }
 
@@ -64,6 +72,8 @@ export interface HireCarrierOption {
     requirePodToPay: boolean;
   };
   quote: BuyQuote;
+  /** จ้างไม่ได้จริง ณ วันเที่ยว (ไม่มีรถที่ลงทะเบียน/เอกสารบังคับไม่ครบ — ST3-T14) — ไม่นับในการเทียบ "ถูกสุด" */
+  blocked: string | null;
 }
 
 export interface HireInput {
@@ -84,6 +94,7 @@ const NO_QUOTE = (reason: string): BuyQuote => ({
   vatType: null,
   whtRate: null,
   serviceItemId: null,
+  lines: [],
   reasons: [reason],
 });
 
@@ -94,7 +105,7 @@ const MONEY_RE = /^\d{1,12}(\.\d{1,2})?$/;
  * - ตัวเลือก: รถร่วมที่ใช้งานอยู่ทุกราย + ราคาขาซื้อจาก rate card (pricing engine ST2-T15) + ราคา 5 ครั้งล่าสุด (ST2-T14)
  * - จ้าง = `/offer` (PLANNING → OFFERED) + `subcon_offer` + `trip_cost` CARRIER_FEE ในล็อกเดียวกัน
  * - ไม่ใช่ราคาถูกสุด (หรือไม่มีราคาให้เทียบ) → ต้องมีเหตุผล ≥ 10 ตัว · ถูกสุด → ระบบเขียนเหตุผลให้ (`selectionReason` ไม่ว่างเสมอ)
- * - ส่งลิงก์ให้รถร่วม = ST3-T23 · หมดเวลา = ST3-T24 · เปลี่ยนรถร่วม = ST3-T25 (บรรทัดค่าจ้างเดิมกลับรายการ — มีตัวช่วยแล้ว)
+ * - ส่งลิงก์ให้รถร่วม = ST3-T23 · หมดเวลา = ST3-T24 · เปลี่ยนรถร่วม = ST3-T25 (กลับรายการ — `reverseCarrierFees`)
  */
 @Injectable()
 export class SubconHireService {
@@ -135,6 +146,17 @@ export class SubconHireService {
       : null;
     if (vehicleTypeId && !vtRow)
       throw field422('vehicleTypeId', 'invalid_reference', 'vehicle type not found');
+    // ประเภทรถที่ระบุต้องตรงกับที่ใบสั่งขอ (ถ้าใบสั่งระบุ) — กันเลี่ยง rate ด้วยประเภทรถอื่น (review ST3-T22)
+    const asked = new Set(
+      dos.flatMap((d) => (d.salesOrder.vehicleTypeId ? [d.salesOrder.vehicleTypeId] : [])),
+    );
+    if (vehicleTypeId && asked.size && !asked.has(vehicleTypeId))
+      throw field422(
+        'vehicleTypeId',
+        'vehicle_type_mismatch',
+        'vehicle type differs from the type requested on the order',
+        'ประเภทรถไม่ตรงกับที่ใบสั่งขนส่งระบุ',
+      );
     const revenue = dos.map((d) => d.revenueAmount);
     const sell =
       revenue.length && revenue.every((r) => r !== null)
@@ -192,6 +214,17 @@ export class SubconHireService {
       vatType: same('vatType') as ServiceItemVatType | null,
       whtRate: same('whtRate') as string | null,
       serviceItemId: freight?.serviceItem.sourceItemId ?? null,
+      lines:
+        q.pricingStatus === 'AVAILABLE'
+          ? q.lines.map((l) => ({
+              kind: l.kind,
+              serviceItemId: l.serviceItem.sourceItemId,
+              name: l.serviceItem.name,
+              amount: l.amount,
+              vatType: l.vatType,
+              whtRate: l.whtRate,
+            }))
+          : [],
       reasons: q.reasons.map((r) => r.message),
     };
   }
@@ -229,11 +262,21 @@ export class SubconHireService {
       });
       for (const r of rows) if (r.carrierId) priced.add(r.carrierId);
     }
+    const blocked = await this.blockedCarriers(
+      tx,
+      carriers.map((c) => c.id),
+      ctx,
+    );
     const out: HireCarrierOption[] = [];
     for (const c of carriers)
-      out.push({ carrier: c, quote: await this.quote(tx, ctx, c.id, priced.has(c.id)) });
-    // ราคาถูกก่อน → รายที่คิดราคาไม่ได้ตามชื่อ
+      out.push({
+        carrier: c,
+        quote: await this.quote(tx, ctx, c.id, priced.has(c.id)),
+        blocked: blocked.get(c.id) ?? null,
+      });
+    // จ้างได้ก่อน → ราคาถูกก่อน → รายที่คิดราคาไม่ได้ตามชื่อ
     return out.sort((a, b) => {
+      if (!a.blocked !== !b.blocked) return a.blocked ? 1 : -1;
       const x = a.quote.total;
       const y = b.quote.total;
       if (x !== null && y !== null) {
@@ -246,14 +289,99 @@ export class SubconHireService {
     });
   }
 
-  /** ราคา 5 ครั้งล่าสุดที่จ้างรายนี้ในเส้นทาง/ประเภทรถเดียวกัน (ST2-T14 — ใหม่สุดก่อน) */
-  async recent(carrierId: string, ctx: HireContext): Promise<string[]> {
-    const rows = await this.rateCards.recentCarrierPrices(carrierId, {
-      originId: ctx.originSiteId ? encodeId('site', ctx.originSiteId) : undefined,
-      destinationId: ctx.destSiteId ? encodeId('site', ctx.destSiteId) : undefined,
-      vehicleTypeId: ctx.vehicleTypeId ? encodeId('vehicleType', ctx.vehicleTypeId) : undefined,
+  /**
+   * รถร่วมที่จ้างไม่ได้จริง ณ วันเที่ยว (review M4 — กฎ ST3-T14 เอกสารบังคับ D-07): ต้องมีรถของรายนั้นที่ยังไม่ปลด/ลบ
+   * (ประเภทตรงงานเมื่อทราบ) อย่างน้อย 1 คันที่เอกสารบังคับผ่าน (`checkAssignability` ไม่มีคนขับ) — ไม่งั้นคืนเหตุ (ไทย)
+   * [DECISION spec/12 §3] ใช้ประเภทรถตรงตัว (ยังไม่ใช้ตาราง compatibility ST2-T16)
+   */
+  async blockedCarriers(
+    tx: Tx,
+    carrierIds: string[],
+    ctx: HireContext,
+  ): Promise<Map<string, string>> {
+    const out = new Map<string, string>();
+    if (!carrierIds.length) return out;
+    const vehicles = await tx.vehicle.findMany({
+      where: {
+        carrierId: { in: carrierIds },
+        ownership: 'SUBCONTRACT',
+        deletedAt: null,
+        status: { not: 'RETIRED' },
+        ...(ctx.vehicleTypeId ? { vehicleTypeId: ctx.vehicleTypeId } : {}),
+      },
+      select: {
+        carrierId: true,
+        ownership: true,
+        documents: {
+          select: {
+            id: true,
+            docType: true,
+            status: true,
+            startsOn: true,
+            expiresOn: true,
+            isRequiredForDispatch: true,
+            renewsId: true,
+            title: true,
+          },
+        },
+      },
     });
-    return rows.map((r) => r.buyAmount);
+    const ok = new Set<string>();
+    const has = new Set<string>();
+    const ymd = (d: Date) => d.toISOString().slice(0, 10);
+    for (const v of vehicles) {
+      if (!v.carrierId) continue;
+      has.add(v.carrierId);
+      const r = checkAssignability({
+        vehicle: { ownership: v.ownership },
+        documents: v.documents.map((d) => ({
+          id: d.id,
+          docType: d.docType,
+          status: d.status,
+          startsOn: ymd(d.startsOn),
+          expiresOn: ymd(d.expiresOn),
+          isRequiredForDispatch: d.isRequiredForDispatch,
+          renewsId: d.renewsId,
+          title: d.title,
+        })),
+        driver: null,
+        date: ctx.date,
+      });
+      if (!r.blocks.length) ok.add(v.carrierId);
+    }
+    for (const id of carrierIds)
+      if (!ok.has(id))
+        out.set(
+          id,
+          has.has(id)
+            ? 'เอกสารบังคับของรถ (ประกัน/พ.ร.บ.) ไม่ครบหรือหมดอายุ ณ วันที่เที่ยว'
+            : ctx.vehicleTypeName
+              ? `ยังไม่มีรถ${ctx.vehicleTypeName}ที่ลงทะเบียน`
+              : 'ยังไม่มีรถที่ลงทะเบียน',
+        );
+    return out;
+  }
+
+  /** ราคา 5 ครั้งล่าสุดของทุกรายในเส้นทาง/ประเภทรถเดียวกัน (คำขอเดียว) — ไม่ทราบเส้นทาง/ประเภทรถ = ไม่มี */
+  async recent(tx: Tx, carrierIds: string[], ctx: HireContext): Promise<Map<string, string[]>> {
+    if (!ctx.originSiteId || !ctx.destSiteId || !ctx.vehicleTypeId) return new Map();
+    return this.rateCards.recentPricesForCarriers(
+      carrierIds,
+      {
+        originSiteId: ctx.originSiteId,
+        destSiteId: ctx.destSiteId,
+        vehicleTypeId: ctx.vehicleTypeId,
+      },
+      tx,
+    );
+  }
+
+  /** ตัวเลือกที่นับในการเทียบ "ถูกสุด" = จ้างได้จริง (ไม่ติดเอกสารบังคับ) */
+  private comparable(options: HireCarrierOption[]) {
+    return options.map((o) => ({
+      carrierId: o.carrier.id,
+      amount: o.blocked ? null : o.quote.total,
+    }));
   }
 
   /** GET /trips/{id}/hire-options — ตัวเลือก + ราคา 5 ครั้งล่าสุด + รายที่ถูกสุด (อ่านอย่างเดียว) */
@@ -261,11 +389,13 @@ export class SubconHireService {
     const tx = this.db.tx;
     const ctx = await this.context(tx, trip, vehicleTypeId);
     const options = await this.candidates(tx, ctx);
-    const decision = decideSelection(
-      '0.00',
-      options.map((o) => ({ carrierId: o.carrier.id, amount: o.quote.total })),
-    );
+    const decision = decideSelection('0.00', this.comparable(options));
     const cheapest = new Set(decision.cheapestCarrierIds);
+    const recent = await this.recent(
+      tx,
+      options.map((o) => o.carrier.id),
+      ctx,
+    );
     const sites = await tx.customerSite.findMany({
       where: { id: { in: [ctx.originSiteId, ctx.destSiteId].filter((x): x is string => !!x) } },
       select: { id: true, code: true, name: true },
@@ -292,7 +422,8 @@ export class SubconHireService {
         vatType: o.quote.vatType,
         whtRate: o.quote.whtRate,
         cheapest: cheapest.has(o.carrier.id),
-        buyRecentAmounts: await this.recent(o.carrier.id, ctx),
+        blockedReason: o.blocked,
+        buyRecentAmounts: recent.get(o.carrier.id) ?? [],
       });
     return {
       tripId: encodeId('trip', trip.id),
@@ -325,9 +456,8 @@ export class SubconHireService {
       async (tx, trip, carrier) => {
         const ctx = await this.context(tx, trip, input.vehicleTypeId);
         const options = await this.candidates(tx, ctx);
-        const mine =
-          options.find((o) => o.carrier.id === carrier.id)?.quote ??
-          (await this.quote(tx, ctx, carrier.id));
+        const me = options.find((o) => o.carrier.id === carrier.id);
+        const mine = me?.quote ?? (await this.quote(tx, ctx, carrier.id));
         const amount = cost ?? mine.total;
         if (amount === null)
           throw field422(
@@ -337,19 +467,22 @@ export class SubconHireService {
             `ไม่มี rate card ขาซื้อของ ${carrier.legalName} สำหรับงานนี้ — กรอกราคาซื้อเอง`,
           );
         const buy = decimalFromSatang(satangFromDecimal(amount));
-        const priced = options.filter((o) => o.quote.total !== null);
-        const decision = decideSelection(
-          buy,
-          options.map((o) => ({ carrierId: o.carrier.id, amount: o.quote.total })),
-        );
+        const priced = options.filter((o) => o.quote.total !== null && !o.blocked);
+        const base = decideSelection(buy, this.comparable(options));
+        // รายที่ติดเอกสารบังคับ ไม่นับเป็น "ถูกสุด" เสมอ (review M4) — เลือกได้แต่ต้องมีเหตุผล
+        const decision = me?.blocked
+          ? { ...base, isCheapest: false, kind: 'OVERRIDE' as const, reasonRequired: true }
+          : base;
         if (decision.reasonRequired && [...typed].length < SELECTION_REASON_MIN_LENGTH)
           throw field422(
             'selectionReason',
             'selection_reason_required',
             `selection reason (≥ ${SELECTION_REASON_MIN_LENGTH} characters) is required when not hiring the cheapest carrier`,
-            decision.cheapestAmount === null
-              ? 'ไม่มีราคาจาก rate card ขาซื้อให้เทียบ — ระบุเหตุผลที่เลือกรายนี้ (อย่างน้อย 10 ตัวอักษร)'
-              : 'รายนี้ไม่ใช่ราคาถูกสุด — ระบุเหตุผลที่เลือก (อย่างน้อย 10 ตัวอักษร)',
+            me?.blocked
+              ? `${me.blocked} — ระบุเหตุผลที่เลือกรายนี้ (อย่างน้อย 10 ตัวอักษร)`
+              : decision.cheapestAmount === null
+                ? 'ไม่มีราคาจาก rate card ขาซื้อให้เทียบ — ระบุเหตุผลที่เลือกรายนี้ (อย่างน้อย 10 ตัวอักษร)'
+                : 'รายนี้ไม่ใช่ราคาถูกสุด — ระบุเหตุผลที่เลือก (อย่างน้อย 10 ตัวอักษร)',
           );
         const kind: SelectionKind = decision.kind;
         const reason =
@@ -373,9 +506,15 @@ export class SubconHireService {
             amount: o.quote.total,
             rateCardCode: o.quote.rateCardCode,
           })),
+          blockedCarrierIds: options.filter((o) => o.blocked).map((o) => o.carrier.id),
         };
         // บรรทัดค่าจ้างของการจ้างครั้งก่อนที่จบไปแล้ว (ปฏิเสธ/หมดเวลา — ST3-T23/T24) และยังไม่จ่าย → กลับรายการ
-        const reversed = await this.reversePriorFees(tx, trip.id, actor);
+        const reversed = await reverseCarrierFees(
+          tx,
+          trip.id,
+          actor,
+          'กลับรายการค่าจ้างรถร่วม (จ้างใหม่)',
+        );
         const offer = await tx.subconOffer.create({
           data: {
             tenantId: trip.tenantId,
@@ -393,35 +532,48 @@ export class SubconHireService {
             offeredBy: actor,
           },
         });
-        // ภาษีของบรรทัด = ธงที่คัดลอกจากรายการบริการค่าขนส่งของ rate card (ไม่ตัดสินเอง) · ไม่มี rate card = ว่าง [OPEN spec/12 §3]
-        const vat =
-          mine.vatType && mine.whtRate
-            ? decimalFromSatang(
-                computeDocumentTax([
-                  {
-                    amount: satangFromDecimal(buy),
-                    vatType: toCalcVatType(mine.vatType),
-                    whtRate: toCalcWhtRate(mine.whtRate),
-                  },
-                ]).vat,
-              )
-            : '0.00';
-        await tx.tripCost.create({
-          data: {
+        // บรรทัดค่าจ้าง = ราคาที่ตกลง (ล็อก — source_type SUBCON_OFFER: ST6-T01 rebuild ห้ามแก้ทับ · review M2)
+        // ยอมรับราคา rate card ตามนั้น → 1 บรรทัดต่อบรรทัดของผลคิด (ค่าขนส่ง/จุดเพิ่ม …) พร้อมรายการบริการ + ธงภาษีที่คัดลอก
+        // กรอกราคาเอง → 1 บรรทัด MANUAL ธงภาษีว่าง [OPEN #58] · vat_amount = 0 เสมอ: VAT ขาซื้อขึ้นกับการจด VAT ของรถร่วม
+        // (ยังไม่มีข้อมูล) — ST6 คำนวณหลังนักบัญชีตอบ #58 (review M1)
+        const lines =
+          priceSource === 'RATE_CARD' && mine.lines.length
+            ? mine.lines.map((l) => ({
+                amount: l.amount,
+                source: 'RATE_CARD',
+                serviceItemId: l.serviceItemId,
+                vatType: l.vatType as string | null,
+                whtRate: l.whtRate as string | null,
+                description: l.name,
+              }))
+            : [
+                {
+                  amount: buy,
+                  source: 'MANUAL',
+                  serviceItemId: null,
+                  vatType: null,
+                  whtRate: null,
+                  description: 'ค่าจ้างรถร่วม (ราคาที่ตกลง)',
+                },
+              ];
+        await tx.tripCost.createMany({
+          data: lines.map((l) => ({
             tenantId: trip.tenantId,
             tripId: trip.id,
             costType: 'CARRIER_FEE',
-            amount: buy,
-            vatAmount: vat,
-            source: priceSource,
+            amount: l.amount,
+            vatAmount: '0.00',
+            source: l.source,
             carrierId: carrier.id,
-            serviceItemId: mine.serviceItemId,
-            vatType: mine.vatType,
-            whtRate: mine.whtRate,
-            description: 'ค่าจ้างรถร่วม',
+            serviceItemId: l.serviceItemId,
+            vatType: l.vatType,
+            whtRate: l.whtRate,
+            description: l.description,
             subconOfferId: offer.id,
+            sourceType: 'SUBCON_OFFER',
+            sourceId: offer.id,
             createdBy: actor,
-          },
+          })),
         });
         return {
           trip: {
@@ -441,9 +593,9 @@ export class SubconHireService {
           },
           audit: {
             buyAmount: buy,
-            priceSource,
+            buyPriceSource: priceSource,
             rateCardCode: mine.rateCardCode,
-            selectionKind: kind,
+            buySelectionKind: kind,
             selectionReason: reason,
             ...(reversed ? { reversedFees: reversed } : {}),
           },
@@ -451,46 +603,5 @@ export class SubconHireService {
         };
       },
     );
-  }
-
-  /**
-   * กลับรายการบรรทัด CARRIER_FEE ของการจ้างที่ปิดแล้ว (ไม่ใช่ OFFERED/ACCEPTED) ที่ยังไม่จ่ายและยังไม่ถูกกลับ —
-   * ยอดติดลบ อ้าง `reversal_of_id` (ไม่ลบ/ไม่แก้ยอดเดิม) · ใช้ตอนจ้างใหม่ และ ST3-T25 เปลี่ยนรถร่วม
-   */
-  async reversePriorFees(tx: Tx, tripId: string, actor: string | null): Promise<number> {
-    const rows = await tx.tripCost.findMany({
-      where: {
-        tripId,
-        costType: 'CARRIER_FEE',
-        amount: { gt: 0 },
-        settlementLineId: null,
-        reversedBy: null,
-        OR: [
-          { subconOfferId: null },
-          { subconOffer: { status: { notIn: ['OFFERED', 'ACCEPTED'] } } },
-        ],
-      },
-      orderBy: { createdAt: 'asc' },
-    });
-    for (const r of rows)
-      await tx.tripCost.create({
-        data: {
-          tenantId: r.tenantId,
-          tripId,
-          costType: 'CARRIER_FEE',
-          amount: r.amount.neg(),
-          vatAmount: r.vatAmount.neg(),
-          source: r.source,
-          carrierId: r.carrierId,
-          serviceItemId: r.serviceItemId,
-          vatType: r.vatType,
-          whtRate: r.whtRate,
-          description: 'กลับรายการค่าจ้างรถร่วม (จ้างใหม่)',
-          subconOfferId: r.subconOfferId,
-          reversalOfId: r.id,
-          createdBy: actor,
-        },
-      });
-    return rows.length;
   }
 }

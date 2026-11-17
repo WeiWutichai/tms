@@ -35,8 +35,9 @@ export const plainNum = (v: string) =>
     .replace(/(\.\d*?)0+$/, '$1')
     .replace(/\.$/, '');
 
-/** รายเริ่มต้น = ตัวเลือกแรก (API เรียงถูกก่อน) */
-export const defaultCarrier = (o: HireOptions) => o.options[0]?.carrier.id ?? '';
+/** รายเริ่มต้น = รายแรกที่จ้างได้ (API เรียง จ้างได้ → ถูกก่อน) */
+export const defaultCarrier = (o: HireOptions) =>
+  (o.options.find((x) => !x.blockedReason) ?? o.options[0])?.carrier.id ?? '';
 
 /** ต้องให้เหตุผลไหม (ราคาไม่ถูกต้อง = ยังตัดสินไม่ได้ → ไม่แสดงช่อง) */
 export function reasonRequired(cost: string | null, cheapest: string | null | undefined): boolean {

@@ -50,6 +50,7 @@ const OPTS = {
       vatType: 'EXEMPT_TRANSPORT',
       whtRate: '1.00',
       cheapest: true,
+      blockedReason: null,
       buyRecentAmounts: ['4700.00', '5200.00'],
     },
     {
@@ -61,6 +62,7 @@ const OPTS = {
       vatType: 'EXEMPT_TRANSPORT',
       whtRate: '1.00',
       cheapest: false,
+      blockedReason: null,
       buyRecentAmounts: [],
     },
     {
@@ -72,6 +74,7 @@ const OPTS = {
       vatType: null,
       whtRate: null,
       cheapest: false,
+      blockedReason: null,
       buyRecentAmounts: [],
     },
   ],
@@ -137,10 +140,10 @@ describe('SubconHireDrawer (ST3-T22)', () => {
     expect(screen.getByText('จ่ายงานรถร่วม')).toBeTruthy();
     const sel = screen.getByRole('combobox', { name: 'ผู้รับเหมา' }) as HTMLSelectElement;
     expect(sel.value).toBe('car_b');
-    expect(screen.getByRole('option', { name: 'หจก. บี · ฿4,800.5 · ถูกสุด' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: 'หจก. บี · ฿4,800.50 · ถูกสุด' })).toBeTruthy();
     expect(screen.getByRole('option', { name: 'หจก. ซี · ไม่มี rate card' })).toBeTruthy();
-    expect(screen.getByTestId('sub-last').textContent).toBe('4,700 · 5,200');
-    expect((screen.getByDisplayValue('4,800.5') as HTMLInputElement).value).toBe('4,800.5');
+    expect(screen.getByTestId('sub-last').textContent).toBe('4,700.00 · 5,200.00');
+    expect((screen.getByDisplayValue('4,800.50') as HTMLInputElement).value).toBe('4,800.50');
     expect(screen.getByText('ราคาตั้งต้นจาก rate card ขาซื้อของ หจก. บี')).toBeTruthy();
     expect(screen.getAllByText('1,199.50').length).toBeGreaterThan(0);
     expect(screen.queryByText('เหตุผลที่เลือกรายนี้')).toBeNull();
@@ -163,7 +166,7 @@ describe('SubconHireDrawer (ST3-T22)', () => {
       target: { value: 'car_a' },
     });
     expect(screen.getByTestId('sub-reason-hint').textContent).toBe(
-      'ไม่ใช่ราคาถูกสุด (ถูกสุด ฿4,800.5 · หจก. บี) — ระบุเหตุผลอย่างน้อย 10 ตัวอักษร',
+      'ไม่ใช่ราคาถูกสุด (ถูกสุด ฿4,800.50 · หจก. บี) — ระบุเหตุผลอย่างน้อย 10 ตัวอักษร',
     );
     fireEvent.click(screen.getByRole('button', { name: 'ส่งข้อเสนอ' }));
     expect(hireMutate).not.toHaveBeenCalled();
@@ -192,6 +195,8 @@ describe('SubconHireDrawer (ST3-T22)', () => {
     expect(screen.getByText('กรอกราคาซื้อมากกว่า 0 (ทศนิยมไม่เกิน 2 ตำแหน่ง)')).toBeTruthy();
     const input = screen.getByRole('textbox', { name: 'ราคาซื้อ (฿ ต่อเที่ยว)' });
     fireEvent.change(input, { target: { value: '4500' } });
+    fireEvent.blur(input);
+    expect((input as HTMLInputElement).value).toBe('4,500.00');
     expect(screen.queryByText('เหตุผลที่เลือกรายนี้')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'ส่งข้อเสนอ' }));
     expect(hireMutate.mock.calls[0]![0].body).toMatchObject({
@@ -212,6 +217,37 @@ describe('SubconHireDrawer (ST3-T22)', () => {
     expect(wo.textContent).toContain('หัก ณ ที่จ่าย 1% · จ่ายภายใน 15 วันหลังส่ง POD');
     expect(wo.textContent).toContain('พรทิพย์ ศรีวงศ์');
     expect(wo.textContent).not.toContain('6,000');
+  });
+
+  it('QA: แก้ราคา → คำใบ้ "ราคาที่กรอกเอง" + ใบสั่งงานไม่แสดงหัก ณ ที่จ่าย (ธงว่าง #58) · รายติดกฎ → เตือน + ต้องมีเหตุผล', () => {
+    opts.data = {
+      ...OPTS,
+      options: [
+        ...OPTS.options,
+        {
+          ...OPTS.options[0]!,
+          carrier: carrier('car_e', 'หจก. อี'),
+          buyRateAmount: '4000.00',
+          cheapest: false,
+          blockedReason: 'ยังไม่มีรถ6 ล้อที่ลงทะเบียน',
+        },
+      ],
+    } as HireOptions;
+    show();
+    const input = screen.getByRole('textbox', { name: 'ราคาซื้อ (฿ ต่อเที่ยว)' });
+    fireEvent.change(input, { target: { value: '4700' } });
+    expect(screen.getByText('ราคาที่กรอกเอง (rate card ฿4,800.50)')).toBeTruthy();
+    fireEvent.click(screen.getByRole('tab', { name: 'ใบสั่งงาน' }));
+    const wo = screen.getByTestId('sub-wo');
+    expect(wo.textContent).not.toContain('หัก ณ ที่จ่าย');
+    expect(wo.textContent).toContain('จ่ายภายใน 15 วันหลังส่ง POD');
+    fireEvent.click(screen.getByRole('tab', { name: 'ส่งข้อเสนอ' }));
+    fireEvent.change(screen.getByRole('combobox', { name: 'ผู้รับเหมา' }), {
+      target: { value: 'car_e' },
+    });
+    expect(screen.getByRole('option', { name: 'หจก. อี · ฿4,000.00 · ติดกฎ' })).toBeTruthy();
+    expect(screen.getByTestId('sub-blocked').textContent).toContain('ยังไม่มีรถ');
+    expect(screen.getByTestId('sub-reason-hint').textContent).toContain('ติดกฎ');
   });
 
   it('ไม่มีผู้รับเหมา → empty state · โหลดไม่สำเร็จ → error', () => {

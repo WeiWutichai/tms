@@ -45,6 +45,7 @@ import { cleanLine } from '../master/master-kit';
 import { bangkokToday } from '../vehicle-documents/expiry';
 import { OrderStateService } from '../orders/order-state.service';
 import { issueNumber } from '../sequences/sequences.service';
+import { reverseCarrierFees } from './carrier-fees';
 import { refreshTripLegs } from './trip-legs';
 import {
   driverOnLeaveMessageTh,
@@ -1062,6 +1063,13 @@ export class TripService {
       where: { tripId: trip.id, status: { in: ['OFFERED', 'ACCEPTED'] } },
       data: { status: 'WITHDRAWN', closedAt: new Date(), closedReason: `ยกเลิกเที่ยว: ${reason}` },
     });
+    // ค่าจ้างรถร่วมที่ยังไม่จ่ายของเที่ยวที่ยกเลิก → กลับรายการ (review ST3-T22 M3 — ค่าชดเชยการยกเลิก = ST6/PLN-155)
+    const reversedFees = await reverseCarrierFees(
+      tx,
+      trip.id,
+      requestContext.require().actorId ?? null,
+      `กลับรายการค่าจ้างรถร่วม (ยกเลิกเที่ยว)`,
+    );
     // ลิงก์ใบคุมรถที่ส่งให้คนขับหมดผล (ST3-T20 review/QA)
     await this.sheetLinks.revokeForTrip(tx, trip.id, 'TRIP_CANCELLED');
     const final = await this.get(trip.id, tx);
@@ -1070,7 +1078,11 @@ export class TripService {
       entityType: ENTITY,
       entityId: trip.id,
       before,
-      after: { status: final.status, releasedOrders: dos.map((d) => d.doNo) },
+      after: {
+        status: final.status,
+        releasedOrders: dos.map((d) => d.doNo),
+        ...(reversedFees ? { reversedCarrierFees: reversedFees } : {}),
+      },
       reason,
     });
     return final;
