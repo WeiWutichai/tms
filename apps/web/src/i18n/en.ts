@@ -763,6 +763,7 @@ export const en: Partial<Record<MessageKey, string>> = {
   'plan.pool.title': 'SO to plan',
   'plan.f.vt': 'Vehicle type',
   'plan.f.cust': 'Customers',
+  'plan.pool.redelivery': 'Resend',
   'plan.lg.IN_PROGRESS': 'En route',
   'plan.lg.COMPLETED': 'End trip',
   'plan.lg.clash': 'Time conflict',

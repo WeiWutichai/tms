@@ -763,6 +763,7 @@ export const zh: Partial<Record<MessageKey, string>> = {
   'plan.pool.title': '待调度 SO',
   'plan.f.vt': '车型',
   'plan.f.cust': '客户',
+  'plan.pool.redelivery': '重发',
   'plan.lg.IN_PROGRESS': '行驶中',
   'plan.lg.COMPLETED': '结束行程',
   'plan.lg.clash': '时间冲突',

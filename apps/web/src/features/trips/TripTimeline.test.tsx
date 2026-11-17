@@ -58,6 +58,7 @@ const stop = (id: string, sequence: number, type: string, name: string, x: objec
   departedAt: null,
   outcome: null,
   lastEventId: null,
+  reschedules: [],
   ...x,
 });
 
@@ -345,5 +346,46 @@ describe('TripTimeline (ST4-T04)', () => {
     expect(q).toHaveTextContent(/ถึง 16 พ.ย. 2569 \d\d:10/);
     expect(within(q).getByText('ส่งบางส่วน')).toBeInTheDocument();
     expect(within(q).getAllByTestId('trip-event')[1]).toHaveTextContent('ซ้ำ');
+  });
+
+  it('ST4-T12 จุดที่ไม่สำเร็จ → บรรทัดนัดส่งใหม่อัตโนมัติ / ส่งซ้ำ (เลข DO ใหม่ + วันที่นัด)', () => {
+    events.data = [];
+    show(
+      trip([
+        stop('p', 1, 'PICKUP', 'คลังบางนา', { status: 'COMPLETED', outcome: 'DELIVERED' }),
+        stop('q', 2, 'DELIVERY', 'ร้านชลบุรี', {
+          status: 'FAILED',
+          outcome: 'UNDELIVERED_RETAIN',
+          reschedules: [
+            {
+              fromDeliveryOrderId: 'do_1',
+              fromDoNo: 'DO-6911-0001',
+              deliveryOrderId: 'do_9',
+              doNo: 'DO-6911-0009',
+              doDate: '2026-11-18',
+              status: 'DRAFT',
+              attempt: 1,
+            },
+            {
+              fromDeliveryOrderId: 'do_2',
+              fromDoNo: 'DO-6911-0002',
+              deliveryOrderId: 'do_10',
+              doNo: 'DO-6911-0010',
+              doDate: '2026-11-19',
+              status: 'DRAFT',
+              attempt: 0,
+            },
+          ],
+        }),
+      ]),
+    );
+    const lines = screen.getAllByTestId('trip-reschedule');
+    expect(lines[0]).toHaveTextContent(
+      'นัดส่งใหม่อัตโนมัติ ครั้งที่ 1: DO-6911-0001 → DO-6911-0009 ส่ง 18 พ.ย. 2569 (รอจัดรถ)',
+    );
+    expect(lines[1]).toHaveTextContent('ส่งซ้ำ: DO-6911-0002 → DO-6911-0010 ส่ง 19 พ.ย. 2569');
+    expect(
+      within(screen.getAllByTestId('trip-step')[0]!).queryByTestId('trip-reschedule'),
+    ).toBeNull();
   });
 });

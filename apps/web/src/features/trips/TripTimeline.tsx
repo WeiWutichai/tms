@@ -5,7 +5,7 @@ import { useI18n, type T } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
 import { problemText } from '../master/problems';
 import { fromBangkok, toBangkok } from '../orders/orderForm';
-import { useDateTimeText } from '../rate-cards/rateFormat';
+import { useDateText, useDateTimeText } from '../rate-cards/rateFormat';
 import { CATEGORIES, useReasonCodes } from '../settings/useReasonCodes';
 import {
   beforeFloor,
@@ -113,6 +113,7 @@ export function TripTimeline({
 }) {
   const { t } = useI18n();
   const dt = useDateTimeText();
+  const dd = useDateText();
   const qc = useQueryClient();
   const q = useTripEvents(trip.id, true);
   const events = q.data ?? [];
@@ -255,6 +256,32 @@ export function TripTimeline({
                 {dos && <span style={{ color: '#3B424C' }}>{dos}</span>}
                 {evs.map((e) => (
                   <EventLine key={e.id} e={e} t={t} hm={hm} stopType={s.type} />
+                ))}
+                {/* ST4-T12 จุดที่ไม่สำเร็จ → DO ส่งใหม่ (นัดส่งใหม่อัตโนมัติ/ส่งซ้ำ) — ต้นแบบไม่มี: spec/12 §3 */}
+                {s.reschedules.map((r) => (
+                  <span
+                    key={r.deliveryOrderId}
+                    data-testid="trip-reschedule"
+                    className="tms-num"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      flexWrap: 'wrap',
+                      fontSize: 12,
+                      color: '#3B424C',
+                    }}
+                  >
+                    <Icon n="calendar-clock" s={14} />
+                    {r.attempt > 0
+                      ? t('trip.tl.resched', {
+                          n: r.attempt,
+                          from: r.fromDoNo,
+                          no: r.doNo,
+                          d: dd(r.doDate),
+                        })
+                      : t('trip.tl.redeliver', { from: r.fromDoNo, no: r.doNo, d: dd(r.doDate) })}
+                  </span>
                 ))}
                 {flagged.length > 0 && (
                   <span
