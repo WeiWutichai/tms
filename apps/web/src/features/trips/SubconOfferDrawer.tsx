@@ -89,7 +89,9 @@ export function SubconOfferDrawer({ trip, onClose }: { trip: TripDetail; onClose
   }`;
   const first = trip.stops[0];
   const pickupIso = first?.plannedArrival ?? first?.windowStart ?? null;
-  const url = link.data?.url ?? null;
+  const url = link.data?.link?.url ?? null;
+  // "ส่งผ่าน LINE" เฉพาะเมื่อส่งถึงรายนี้ได้ (ช่อง LINE เปิด + ผู้รับเหมามี LINE userId — #49) ไม่งั้นเหลือคัดลอกลิงก์
+  const canLine = !!link.data?.channels.line;
 
   const copy = () => {
     if (!url) {
@@ -207,7 +209,7 @@ export function SubconOfferDrawer({ trip, onClose }: { trip: TripDetail; onClose
             <button type="button" className="tms-drawer__sec" onClick={copy}>
               {t('sub.foot.copy')}
             </button>
-            {!acc && (
+            {!acc && canLine && (
               <button
                 type="button"
                 className="tms-drawer__pri"

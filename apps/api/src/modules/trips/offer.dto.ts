@@ -128,7 +128,14 @@ export class OfferLinkDto {
   @ApiProperty() issuedAt!: string;
 }
 
+export class OfferChannelsDto {
+  @ApiProperty({ description: 'ส่งทาง LINE ได้ (เปิดใช้ + ผู้รับเหมามี LINE userId)' })
+  line!: boolean;
+  @ApiProperty({ description: 'ส่ง SMS ได้ (เปิดใช้ + ผู้รับเหมามีเบอร์มือถือ)' }) sms!: boolean;
+}
+
 export class OfferLinkStateDto {
+  @ApiProperty({ type: OfferChannelsDto }) channels!: OfferChannelsDto;
   @ApiProperty({
     nullable: true,
     type: OfferLinkDto,

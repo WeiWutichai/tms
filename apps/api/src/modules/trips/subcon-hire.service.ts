@@ -511,6 +511,17 @@ export class SubconHireService {
           blockedCarrierIds: options.filter((o) => o.blocked).map((o) => o.carrier.id),
         };
         // บรรทัดค่าจ้างของการจ้างครั้งก่อนที่จบไปแล้ว (ปฏิเสธ/หมดเวลา — ST3-T23/T24) และยังไม่จ่าย → กลับรายการ
+        // ข้อเสนอเดิมที่ปิดแล้ว (ปฏิเสธ/หมดเวลา) → เพิกถอนลิงก์ — รายเดิมไม่เห็นงาน/ลูกค้า/เส้นทางของการจ้างใหม่ (review L5)
+        const closed = await tx.subconOffer.findMany({
+          where: { tripId: trip.id, status: { notIn: ['OFFERED', 'ACCEPTED'] } },
+          select: { id: true },
+        });
+        await this.offerLinks.revoke(
+          tx,
+          closed.map((x) => x.id),
+          'REHIRED',
+          trip.id,
+        );
         const expiresAt = new Date(at.getTime() + OFFER_TTL_MS);
         const reversed = await reverseCarrierFees(
           tx,

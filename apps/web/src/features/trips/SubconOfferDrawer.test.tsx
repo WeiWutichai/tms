@@ -8,6 +8,7 @@ import type { SubconOffer, TripDetail } from './useTrips';
 const URL1 = 'https://app.example/link/offer/ml1.abc';
 const sendMutate = vi.fn();
 let offers: SubconOffer[] = [];
+let canLine = true;
 vi.mock('./useTrips', () => ({
   useHireOptions: () => ({
     data: {
@@ -23,7 +24,7 @@ vi.mock('./useTrips', () => ({
       ],
     },
   }),
-  useOfferLink: () => ({ data: { url: URL1 } }),
+  useOfferLink: () => ({ data: { link: { url: URL1 }, channels: { line: canLine, sms: false } } }),
   useTripOffers: () => ({ data: offers }),
   useSendOfferLink: () => ({ mutate: sendMutate, isPending: false }),
 }));
@@ -95,6 +96,7 @@ describe('SubconOfferDrawer (ST3-T23)', () => {
   beforeEach(() => {
     sendMutate.mockReset();
     offers = [offer()];
+    canLine = true;
     Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } });
   });
 
@@ -117,6 +119,13 @@ describe('SubconOfferDrawer (ST3-T23)', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'ใบสั่งงาน' }));
     expect(screen.getByTestId('sub-link').textContent).toBe(URL1);
     expect(screen.getByText('หัก ณ ที่จ่าย 1% · จ่ายภายใน 15 วันหลังส่ง POD')).toBeTruthy();
+  });
+
+  it('ผู้รับเหมาไม่มี LINE userId → ไม่มีปุ่ม "ส่งผ่าน LINE" เหลือคัดลอกลิงก์', () => {
+    canLine = false;
+    show(trip());
+    expect(screen.queryByRole('button', { name: 'ส่งผ่าน LINE' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'คัดลอกลิงก์' })).toBeTruthy();
   });
 
   it('รับงานแล้ว: กล่อง "… รับงานแล้ว" ทะเบียน/คนขับ · footer ราคาจ้าง + คัดลอกลิงก์ (ไม่มีส่งผ่าน LINE)', () => {

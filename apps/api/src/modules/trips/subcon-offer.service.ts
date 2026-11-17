@@ -9,6 +9,8 @@ import { DbService, type Tx } from '../../db/db.service';
 import { isThaiPhone, phoneNorm } from '../drivers/drivers.service';
 import { PROVINCES } from '../vehicles/provinces';
 import { arabicDigits, plateNorm } from '../vehicles/vehicles.service';
+import { LINE_USER_ID_RE } from '../messaging/messaging.dto';
+import { MessagingService } from '../messaging/messaging.service';
 import { OfferLinks } from './offer-links';
 import type {
   AcceptOfferDto,
@@ -36,7 +38,12 @@ export function parseOfferPlate(input: string): { norm: string; province: string
   const s = arabicDigits(input).replace(/\./g, ' ').replace(/\s+/g, ' ').trim();
   for (const p of PROVINCE_WORDS) {
     if (!s.endsWith(p.word)) continue;
-    const head = s.slice(0, -p.word.length).trim();
+    // "จ. ชลบุรี" / "จังหวัดชลบุรี" — ตัดคำนำหน้าจังหวัดด้วย (QA L1)
+    const head = s
+      .slice(0, -p.word.length)
+      .trim()
+      .replace(/\s*(?:จังหวัด|จ)$/, '')
+      .trim();
     if (/\d$/.test(head)) return { norm: plateNorm(head), province: p.code };
   }
   return { norm: plateNorm(s), province: null };
@@ -72,6 +79,7 @@ export class SubconOfferService {
     private readonly trips: TripService,
     private readonly links: OfferLinks,
     private readonly audit: AuditService,
+    private readonly messaging: MessagingService,
   ) {}
 
   private async load(tx: Tx, offerId: string): Promise<OfferRow> {
@@ -216,21 +224,6 @@ export class SubconOfferService {
       select: { id: true, plate: true, plateProvince: true },
     });
     const vs = plate.province ? cands.filter((v) => v.plateProvince === plate.province) : cands;
-    if (!vs.length)
-      throw field422(
-        'vehiclePlate',
-        'vehicle_not_registered',
-        'plate is not a registered vehicle of this carrier',
-        'ไม่พบทะเบียนนี้ในรถที่ลงทะเบียนไว้ — ติดต่อผู้จัดรถเพื่อเพิ่มรถและเอกสารก่อน',
-      );
-    if (vs.length > 1)
-      throw field422(
-        'vehiclePlate',
-        'plate_ambiguous',
-        'more than one vehicle has this plate — add the province',
-        'มีรถทะเบียนนี้หลายจังหวัด — พิมพ์จังหวัดต่อท้าย เช่น 74-5521 ชบ.',
-      );
-    const vehicle = vs[0]!;
 
     // คนขับ: เบอร์ของคนขับรถร่วมรายนี้ที่ลงทะเบียนไว้ (ใบขับขี่ตรวจตามกฎ ST3-T14)
     const phone = phoneNorm(body.driverPhone.trim());
@@ -252,13 +245,36 @@ export class SubconOfferService {
       select: { id: true, name: true },
       orderBy: { createdAt: 'asc' },
     });
-    if (!driver)
+    // ไม่ตรง → 422 แบบเดียว (ไม่บอกว่าทะเบียนหรือเบอร์ผิด — กันไล่เดาข้อมูล: review L3) · เหตุจริงลง audit (คงอยู่แม้ rollback)
+    const miss =
+      vs.length === 0
+        ? 'vehicle_not_registered'
+        : vs.length > 1
+          ? 'plate_ambiguous'
+          : !driver
+            ? 'driver_not_registered'
+            : null;
+    if (miss) {
+      await this.audit.recordDetached({
+        action: 'subcon_offer.accept_failed',
+        entityType: 'trip',
+        entityId: o.tripId,
+        after: {
+          offerId: encodeId('subconOffer', o.id),
+          cause: miss,
+          vehiclePlate: body.vehiclePlate,
+          driverName: body.driverName,
+        },
+      });
       throw field422(
-        'driverPhone',
-        'driver_not_registered',
-        'phone is not a registered driver of this carrier',
-        'ไม่พบคนขับเบอร์นี้ในรายชื่อคนขับที่ลงทะเบียนไว้ — ติดต่อผู้จัดรถเพื่อเพิ่มคนขับและใบขับขี่ก่อน',
+        'vehiclePlate',
+        'registration_mismatch',
+        'vehicle plate or driver phone does not match the registered data of this carrier',
+        'ทะเบียนหรือเบอร์คนขับไม่ตรงกับข้อมูลที่ลงทะเบียนไว้กับบริษัท',
       );
+    }
+    const vehicle = vs[0]!;
+    const drv = driver!;
 
     // กดซ้ำ/refresh ด้วยรถ+คนขับเดิม = ผลเดิม
     const same = (x: {
@@ -268,7 +284,7 @@ export class SubconOfferService {
     }) =>
       x.status === 'ACCEPTED' &&
       x.acceptedVehicleId === vehicle.id &&
-      x.acceptedDriverId === driver.id;
+      x.acceptedDriverId === drv.id;
     if (o.status === 'ACCEPTED') {
       if (same(o)) return this.viewDto(tx, o);
       throw this.closed(o);
@@ -276,7 +292,7 @@ export class SubconOfferService {
     try {
       await this.trips.assign(
         o.tripId,
-        { vehicleId: vehicle.id, driverId: driver.id },
+        { vehicleId: vehicle.id, driverId: drv.id },
         tx,
         undefined,
         { viaOffer: o.id },
@@ -307,7 +323,9 @@ export class SubconOfferService {
       after: {
         offerId: encodeId('subconOffer', o.id),
         vehiclePlate: vehicle.plate,
-        driver: driver.name,
+        driver: drv.name,
+        // ชื่อที่รถร่วมพิมพ์ (ระบบใช้ชื่อตามที่ลงทะเบียน — review L4)
+        typedDriverName: body.driverName,
         via: 'LINK',
       },
     });
@@ -348,17 +366,31 @@ export class SubconOfferService {
 
   // ---------- ฝั่งผู้จัดรถ ----------
 
-  /** ลิงก์ที่ใช้ได้ของการจ้างที่ใช้งานอยู่ (รอตอบ/รับแล้ว) ของเที่ยว — ไม่มี = null */
-  async currentLink(tripId: string): Promise<OfferLinkDto | null> {
+  /** ลิงก์ที่ใช้ได้ของการจ้างที่ใช้งานอยู่ (รอตอบ/รับแล้ว) ของเที่ยว — ไม่มี = null · ช่องทางที่ส่งถึงรถร่วมรายนี้ได้ */
+  async currentLink(
+    tripId: string,
+  ): Promise<{ link: OfferLinkDto | null; channels: { line: boolean; sms: boolean } }> {
     const tx = this.db.tx;
     const offer = await tx.subconOffer.findFirst({
       where: { tripId, status: { in: ['OFFERED', 'ACCEPTED'] } },
       orderBy: { offeredAt: 'desc' },
-      select: { id: true },
+      select: { id: true, carrier: { select: { phone: true, lineContact: true } } },
     });
-    if (!offer) return null;
+    if (!offer) return { link: null, channels: { line: false, sms: false } };
     const [l] = await this.links.active(tx, [offer.id]);
-    return l ? this.linkDto(offer.id, l) : null;
+    // ส่งได้ = ช่องเปิดใช้ + ผู้รับเหมามีผู้รับที่ส่งได้ (LINE userId / มือถือ — สูตรเดียวกับ /messages/send-link: QA L7)
+    const open = new Set(
+      (await this.messaging.channels()).filter((c) => c.available).map((c) => c.channel),
+    );
+    const mobile = /^0[689]\d{8}$/.test(phoneNorm((offer.carrier.phone ?? '').trim()));
+    return {
+      link: l ? this.linkDto(offer.id, l) : null,
+      channels: {
+        line:
+          !!l && open.has('line') && LINE_USER_ID_RE.test((offer.carrier.lineContact ?? '').trim()),
+        sms: !!l && open.has('sms') && mobile,
+      },
+    };
   }
 
   private linkDto(offerId: string, l: { id: string; expiresAt: Date; createdAt: Date }) {

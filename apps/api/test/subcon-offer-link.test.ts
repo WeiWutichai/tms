@@ -153,7 +153,7 @@ describe('subcon offer link (ST3-T23)', () => {
         })
         .expect(201)
     ).body as { id: string; name: string };
-  const newTrip = async () => {
+  const newTrip = async (opts: { split?: boolean } = {}) => {
     const [a, b] = [await newSite('คลังบางปู'), await newSite('ท่าเรือแหลมฉบัง ประตู 3')];
     const cust = (
       await api(app, admin)
@@ -192,14 +192,33 @@ describe('subcon offer link (ST3-T23)', () => {
       lines: [{ description: 'ปูนซีเมนต์', qty: '5', unitId: unitTon, weightKg: '8600' }],
     };
     const { order: so } = await run((tx) => app.get(OrderIntakeService).upsertOrder(input, tx));
-    const [d] = await run((tx) => app.get(DeliveryOrderService).listForOrder(so.id, {}, tx));
+    let [d] = await run((tx) => app.get(DeliveryOrderService).listForOrder(so.id, {}, tx));
+    let extraDo: string | null = null;
+    if (opts.split) {
+      // SO เดียวแยกเป็น 2 DO (ใบที่สองไปอยู่อีกเที่ยว)
+      const [line] = await db.salesOrderLine.findMany({ where: { salesOrderId: so.id } });
+      const kids = await run((tx) =>
+        app
+          .get(DeliveryOrderService)
+          .split(
+            d!.id,
+            [
+              [{ salesOrderLineId: line!.id, qty: '2' }],
+              [{ salesOrderLineId: line!.id, qty: '3' }],
+            ],
+            tx,
+          ),
+      );
+      d = kids[0]!;
+      extraDo = encodeId('deliveryOrder', kids[1]!.id);
+    }
     const t = (
       await api(app, admin)
         .post('/v1/trips')
         .send({ tripDate: today, deliveryOrderIds: [encodeId('deliveryOrder', d!.id)] })
         .expect(201)
     ).body as { id: string; tripNo: string; version: number };
-    return { ...t, soId: so.id };
+    return { ...t, soId: so.id, extraDo };
   };
   /** จ้างรถร่วม (ราคากรอกเอง + เหตุผล) → OFFERED + ลิงก์ */
   const hire = async (tripId: string, carrierId: string, cost = '5600') => {
@@ -235,6 +254,9 @@ describe('subcon offer link (ST3-T23)', () => {
     expect(parseOfferPlate('74-5521')).toEqual({ norm: '745521', province: null });
     expect(parseOfferPlate('1กข 1234 กทม.')).toEqual({ norm: '1กข1234', province: 'TH-10' });
     expect(parseOfferPlate('กท 1234')).toEqual({ norm: 'กท1234', province: null });
+    expect(parseOfferPlate('74-5521 จ.ชลบุรี')).toEqual({ norm: '745521', province: 'TH-20' });
+    expect(parseOfferPlate('74-5521 จังหวัดชลบุรี')).toEqual({ norm: '745521', province: 'TH-20' });
+    expect(parseOfferPlate('74-5521 จ. ชบ.')).toEqual({ norm: '745521', province: 'TH-20' });
   });
 
   it('จ้าง → ลิงก์ 48 ชม. · เปิดโดยไม่ login เห็นใบสั่งงาน + ราคาจ้าง แต่ไม่มีราคาขาย/ที่อยู่ลูกค้า · no-store · viewedAt ครั้งเดียว', async () => {
@@ -380,23 +402,38 @@ describe('subcon offer link (ST3-T23)', () => {
     expect(
       (await err({ vehiclePlate: '99-9999', driverName: 'ก', driverPhone: phone }, 422)).errors,
     ).toBeTruthy();
-    expect(
-      (await err({ vehiclePlate: '99-9999', driverName: 'สมชาย', driverPhone: phone }, 422))
-        .errors?.[0],
-    ).toMatchObject({ field: 'vehiclePlate', code: 'vehicle_not_registered' });
-    expect(
-      (await err({ vehiclePlate: otherPlate, driverName: 'สมชาย', driverPhone: phone }, 422))
-        .errors?.[0],
-    ).toMatchObject({ field: 'vehiclePlate', code: 'vehicle_not_registered' });
-    // จังหวัดไม่ตรง
-    expect(
-      (await err({ vehiclePlate: `${plate} กทม.`, driverName: 'สมชาย', driverPhone: phone }, 422))
-        .errors?.[0]?.code,
-    ).toBe('vehicle_not_registered');
-    expect(
-      (await err({ vehiclePlate: plate, driverName: 'สมชาย', driverPhone: '0899999999' }, 422))
-        .errors?.[0],
-    ).toMatchObject({ field: 'driverPhone', code: 'driver_not_registered' });
+    // ทะเบียน/คนขับไม่ตรง → 422 แบบเดียว (ไม่บอกว่าช่องไหนผิด — review L3) · เหตุจริงอยู่ใน audit
+    const GENERIC = {
+      field: 'vehiclePlate',
+      code: 'registration_mismatch',
+    };
+    for (const [body, cause] of [
+      [
+        { vehiclePlate: '99-9999', driverName: 'สมชาย', driverPhone: phone },
+        'vehicle_not_registered',
+      ],
+      [
+        { vehiclePlate: otherPlate, driverName: 'สมชาย', driverPhone: phone },
+        'vehicle_not_registered',
+      ],
+      [
+        { vehiclePlate: `${plate} กทม.`, driverName: 'สมชาย', driverPhone: phone },
+        'vehicle_not_registered',
+      ],
+      [
+        { vehiclePlate: plate, driverName: 'สมชาย', driverPhone: '0899999999' },
+        'driver_not_registered',
+      ],
+    ] as const) {
+      const e = await err(body, 422);
+      expect(e.errors?.[0]).toMatchObject(GENERIC);
+      expect(e.detail).toBe('ทะเบียนหรือเบอร์คนขับไม่ตรงกับข้อมูลที่ลงทะเบียนไว้กับบริษัท');
+      const a = await db.auditLog.findFirst({
+        where: { action: 'subcon_offer.accept_failed', entityId: uuid('trip', t.id) },
+        orderBy: { seq: 'desc' },
+      });
+      expect((a?.after as { cause: string }).cause).toBe(cause);
+    }
     expect(
       (await err({ vehiclePlate: plate, driverName: 'สมชาย', driverPhone: '12345' }, 422))
         .errors?.[0]?.field,
@@ -675,5 +712,173 @@ describe('subcon offer link (ST3-T23)', () => {
     await expect(
       db.subconOffer.update({ where: { id }, data: { respondedVia: 'LINK' } }),
     ).rejects.toThrow(/subcon_offer_response/);
+  });
+
+  it('ค้าง CARRIER_REJECTED คงอยู่เมื่อ attach/assign/detach เที่ยวอื่นของ SO เดียวกัน · เคลียร์เมื่อจัดรถเที่ยวที่ถูกปฏิเสธ (review M1)', async () => {
+    const C = await newCarrier();
+    const t = await newTrip({ split: true });
+    const link = await hire(t.id, C.id);
+    await pub()
+      .post(`/v1/public/offers/${link.token}/reject`)
+      .send({ reason: 'PRICE_TOO_LOW' })
+      .expect(200);
+    const held = async () => {
+      const x = await so(t.soId);
+      expect([x.status, x.holdReasonCode?.code]).toEqual(['ON_HOLD', 'CARRIER_REJECTED']);
+    };
+    await held();
+    // DO ที่สองของ SO เดียวกัน → เที่ยวใหม่ (attach) → ยังค้าง
+    const b = (
+      await api(app, admin)
+        .post('/v1/trips')
+        .send({ tripDate: today, deliveryOrderIds: [t.extraDo] })
+        .expect(201)
+    ).body as { id: string; version: number };
+    await held();
+    // จัดรถบริษัทให้เที่ยวอื่น (assign) → ยังค้าง
+    const own = (
+      await api(app, admin)
+        .post('/v1/vehicles')
+        .send({
+          plate: `79-${String(9000 + ++seed)}`,
+          plateProvince: 'TH-10',
+          vehicleTypeId: vt6,
+          ownership: 'OWN',
+        })
+        .expect(201)
+    ).body as { id: string };
+    const drv = (
+      await api(app, admin)
+        .post('/v1/drivers')
+        .send({
+          name: `คนขับบริษัท ${++seed}`,
+          phone: `09${String(10_000_000 + seed).slice(-8)}`,
+          employmentType: 'EMPLOYEE_SALARIED',
+          licenceClass: 'T2',
+          licenceExpiresOn: day(300),
+        })
+        .expect(201)
+    ).body as { id: string };
+    const assign = async (id: string) => {
+      const cur = (await trip(id)).body;
+      const body = { vehicleId: own.id, driverId: drv.id };
+      const r = await api(app, admin)
+        .post(`/v1/trips/${id}/assign`)
+        .set('If-Match', `"${cur.version}"`)
+        .send(body);
+      if (r.status === 409 && r.body.code === 'assignment_blocked')
+        await api(app, admin)
+          .post(`/v1/trips/${id}/assign`)
+          .set('If-Match', `"${cur.version}"`)
+          .send({
+            ...body,
+            ruleKeys: (r.body.blocks as { key: string }[]).map((x) => x.key),
+            overrideReason: 'ทดสอบยกเว้นเอกสารรถ',
+          })
+          .expect(200);
+      else expect(r.status, JSON.stringify(r.body)).toBe(200);
+    };
+    await assign(b.id);
+    await held();
+    // ถอด DO ออกจากเที่ยวอื่น (detach) → ยังค้าง
+    const bt = (await trip(b.id)).body;
+    await api(app, admin)
+      .post(`/v1/trips/${b.id}/detach`)
+      .set('If-Match', `"${bt.version}"`)
+      .send({ deliveryOrderIds: [t.extraDo] })
+      .expect(200);
+    await held();
+    // จัดรถให้เที่ยวที่ถูกปฏิเสธ → เคลียร์
+    await assign(t.id);
+    expect((await so(t.soId)).status).toBe('PLANNED');
+  });
+
+  it('ถอด DO ออกจากเที่ยวที่ถูกปฏิเสธ → ยังค้าง · จัดลงเที่ยวใหม่ → เคลียร์', async () => {
+    const C = await newCarrier();
+    const t = await newTrip();
+    const link = await hire(t.id, C.id);
+    await pub()
+      .post(`/v1/public/offers/${link.token}/reject`)
+      .send({ reason: 'ROUTE_INCONVENIENT' })
+      .expect(200);
+    const tr = (await trip(t.id)).body;
+    const doId = tr.deliveryOrders[0].id as string;
+    await api(app, admin)
+      .post(`/v1/trips/${t.id}/detach`)
+      .set('If-Match', `"${tr.version}"`)
+      .send({ deliveryOrderIds: [doId] })
+      .expect(200);
+    expect((await so(t.soId)).holdReasonCode?.code).toBe('CARRIER_REJECTED');
+    await api(app, admin)
+      .post('/v1/trips')
+      .send({ tripDate: today, deliveryOrderIds: [doId] })
+      .expect(201);
+    expect((await so(t.soId)).status).toBe('PLANNED');
+  });
+
+  it('สองเครื่อง: รับงาน ∥ ปฏิเสธ พร้อมกัน → ชนะหนึ่งเดียว สถานะสอดคล้อง', async () => {
+    const { t, plate, phone, link } = await offered();
+    const [a, r] = await Promise.all([
+      pub()
+        .post(`/v1/public/offers/${link.token}/accept`)
+        .send({ vehiclePlate: plate, driverName: 'สมชาย', driverPhone: phone }),
+      pub().post(`/v1/public/offers/${link.token}/reject`).send({ reason: 'PRICE_TOO_LOW' }),
+    ]);
+    expect([a.status, r.status].sort()).toEqual([200, 409]);
+    const tr = (await trip(t.id)).body;
+    const o = await db.subconOffer.findUniqueOrThrow({
+      where: { id: uuid('subconOffer', link.offerId) },
+    });
+    if (a.status === 200) {
+      expect(tr.status).toBe('ASSIGNED');
+      expect(o.status).toBe('ACCEPTED');
+      expect((await so(t.soId)).status).toBe('PLANNED');
+    } else {
+      expect(tr.status).toBe('PLANNING');
+      expect(o.status).toBe('REJECTED');
+      expect((await so(t.soId)).holdReasonCode?.code).toBe('CARRIER_REJECTED');
+    }
+    expect((a.status === 409 ? a : r).body.code).toBe('offer_closed');
+  });
+
+  it('จ้างรายใหม่หลังถูกปฏิเสธ → ลิงก์ของรายเดิมถูกเพิกถอน (review L5) · ก่อนจ้างใหม่ยังเปิดดูผลได้', async () => {
+    const { t, link } = await offered();
+    await pub()
+      .post(`/v1/public/offers/${link.token}/reject`)
+      .send({ reason: 'PRICE_TOO_LOW' })
+      .expect(200);
+    await pub().get(`/v1/public/offers/${link.token}`).expect(200);
+    const C2 = await newCarrier();
+    await hire(t.id, C2.id);
+    await pub().get(`/v1/public/offers/${link.token}`).expect(404);
+  });
+
+  it('เวลาหมดระหว่างรอ (หลังล็อก) → 409 offer_closed · offer-link บอกช่องทางที่ส่งได้ · เจ้าของเห็นราคาขายของเที่ยวที่รอตอบ', async () => {
+    const { t, plate, phone, link } = await offered();
+    const l = (await api(app, admin).get(`/v1/trips/${t.id}/offer-link`).expect(200)).body;
+    expect(l.channels).toEqual({ line: false, sms: expect.any(Boolean) });
+    // ราคาขาย/กำไรของ drawer รอตอบ (hire-options) ไม่ถูกตัดสำหรับเจ้าของ (review: ต้นแบบ)
+    // รายได้ DO (ST6 จะเขียน — ตอนนี้ตั้งตรงในฐาน)
+    await db.deliveryOrder.updateMany({
+      where: { tripId: uuid('trip', t.id) },
+      data: { revenueAmount: '7800.00' },
+    });
+    const h = (await api(app, admin).get(`/v1/trips/${t.id}/hire-options`).expect(200)).body;
+    expect(h.sellAmount).toBe('7800.00');
+    // ไม่มี prices.sell:read → ตัดราคาขาย (ไม่ใช่ตัดผิดฝั่ง)
+    const buyOnly = await tokenFor(tenantId, 'trips:read trips:assign prices.buy:read', 'u-buy');
+    const hb = (await api(app, buyOnly).get(`/v1/trips/${t.id}/hire-options`).expect(200)).body;
+    expect(hb.sellAmount).toBeUndefined();
+    expect(hb.options.length).toBeGreaterThan(0);
+    await db.subconOffer.update({
+      where: { id: uuid('subconOffer', link.offerId) },
+      data: { expiresAt: new Date(Date.now() - 1000) },
+    });
+    const r = await pub()
+      .post(`/v1/public/offers/${link.token}/accept`)
+      .send({ vehiclePlate: plate, driverName: 'สมชาย', driverPhone: phone })
+      .expect(409);
+    expect(r.body.code).toBe('offer_closed');
+    expect((await trip(t.id)).body.status).toBe('OFFERED');
   });
 });

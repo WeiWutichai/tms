@@ -49,7 +49,7 @@ export class TripOffersController {
   })
   async link(@Param('id') id: string): Promise<OfferLinkStateDto> {
     const trip = await this.trips.get(decodeIdOr404('trip', id));
-    return { link: await this.offers.currentLink(trip.id) };
+    return this.offers.currentLink(trip.id);
   }
 
   @Post(':id/offer-link')

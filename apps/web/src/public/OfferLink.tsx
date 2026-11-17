@@ -40,6 +40,8 @@ export function OfferLinkPage() {
   const [ph, setPh] = useState('');
   const [why, setWhy] = useState('');
   const [err, setErr] = useState<string | null>(null);
+  /** ชื่อคนขับที่พิมพ์ (ระบบใช้ชื่อที่ลงทะเบียน — review L4) */
+  const [typed, setTyped] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const sending = useRef(false);
   const [, tick] = useState(0);
@@ -74,10 +76,15 @@ export function OfferLinkPage() {
       return t('ofl.e.blocked', { r: (p.reasons ?? []).join(' · ') });
     if (p.code === 'offer_closed') return t('ofl.e.closed');
     const map: Record<string, MessageKey> = {
-      vehicle_not_registered: 'ofl.e.vehicle',
+      registration_mismatch: 'ofl.e.mismatch',
+      carrier_mismatch: 'ofl.e.mismatch',
+      vehicle_not_registered: 'ofl.e.mismatch',
+      driver_not_registered: 'ofl.e.mismatch',
+      vehicle_retired: 'ofl.e.mismatch',
+      driver_inactive: 'ofl.e.mismatch',
       plate_ambiguous: 'ofl.e.ambiguous',
-      driver_not_registered: 'ofl.e.driver',
       invalid_phone: 'ofl.f.phReq',
+      carrier_inactive: 'ofl.e.carrierInactive',
     };
     const code = p.errors?.[0]?.code;
     return code && map[code] ? t(map[code]) : t('ofl.e.failed');
@@ -88,6 +95,7 @@ export function OfferLinkPage() {
     setToast(msg);
   };
   const onFail = (e: unknown) => {
+    // เครื่องที่ค้างหน้าเก่า: 409 offer_closed → ข้อความยังแสดงแม้หน้าเปลี่ยนเป็นสถานะสุดท้าย (QA L2)
     setErr(serverErr(e));
     if (e instanceof ApiError && e.problem.code === 'offer_closed') {
       setMode('');
@@ -111,7 +119,10 @@ export function OfferLinkPage() {
         body: { vehiclePlate: plate.trim(), driverName: drv.trim(), driverPhone: ph.trim() },
       },
       {
-        onSuccess: () => onDone(t('ofl.toast.acc', { no: v.tripNo, c: v.company })),
+        onSuccess: () => {
+          setTyped(drv.trim());
+          onDone(t('ofl.toast.acc', { no: v.tripNo, c: v.company }));
+        },
         onError: onFail,
         onSettled: () => {
           sending.current = false;
@@ -186,7 +197,15 @@ export function OfferLinkPage() {
               {wait && left && (
                 <div className="cdl__notice">
                   <span className="cdl__dot" style={{ background: '#8F5500' }} />
-                  <span>{t(left.unit === 'h' ? 'ofl.wait.h' : 'ofl.wait.m', { n: left.n })}</span>
+                  <span>
+                    {t(left.unit === 'h' ? 'ofl.wait.h' : 'ofl.wait.m', {
+                      n: left.n,
+                      at: t('ofl.at', {
+                        d: day(toBangkok(v.expiresAt).date),
+                        t: toBangkok(v.expiresAt).time,
+                      }),
+                    })}
+                  </span>
                 </div>
               )}
               {wait && mode === 'acc' && (
@@ -315,6 +334,11 @@ export function OfferLinkPage() {
                   )}
                 </>
               )}
+              {!wait && err && (
+                <span className="cdl__err" role="alert">
+                  {err}
+                </span>
+              )}
               {status === 'ACCEPTED' && (
                 <div className="ofl__done ofl__done--ok" data-testid="ofl-accepted">
                   <b>{t('ofl.accd')}</b>
@@ -324,6 +348,13 @@ export function OfferLinkPage() {
                       d: v.accepted?.driverName ?? '—',
                     })}
                   </span>
+                  {typed &&
+                    v.accepted?.driverName &&
+                    typed.replace(/\s+/g, ' ') !== v.accepted.driverName.replace(/\s+/g, ' ') && (
+                      <span className="cdl__muted" data-testid="ofl-name-note">
+                        {t('ofl.nameNote', { n: v.accepted.driverName })}
+                      </span>
+                    )}
                 </div>
               )}
               {status === 'REJECTED' && (

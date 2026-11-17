@@ -353,7 +353,6 @@ export function useOfferLink(id: string, enabled: boolean) {
   return useQuery({
     queryKey: [KEY, id, 'offer-link'],
     queryFn: () => unwrap(api.GET('/v1/trips/{id}/offer-link', { params: { path: { id } } })),
-    select: (r) => r.link,
     enabled,
   });
 }

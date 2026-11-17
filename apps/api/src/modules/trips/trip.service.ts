@@ -648,7 +648,13 @@ export class TripService {
     const { trip, dos } = await this.lock(tx, id, expectedVersion);
     if (opts.viaOffer) {
       const o = trip.subconOffers[0];
-      if (trip.status !== 'OFFERED' || o?.id !== opts.viaOffer || o.status !== 'OFFERED')
+      // ตรวจหลังล็อก: ข้อเสนอยังรอตอบ + ยังไม่หมดเวลา (server time — review L7)
+      if (
+        trip.status !== 'OFFERED' ||
+        o?.id !== opts.viaOffer ||
+        o.status !== 'OFFERED' ||
+        (o.expiresAt && o.expiresAt.getTime() <= Date.now())
+      )
         throw new ProblemException('offer_closed');
     }
     const assigned = await this.assignLocked(
@@ -1000,7 +1006,12 @@ export class TripService {
   ): Promise<TripRecord> {
     const { trip, dos } = await this.lock(tx, id);
     const o = trip.subconOffers[0];
-    if (trip.status !== 'OFFERED' || o?.id !== offerId || o.status !== 'OFFERED')
+    if (
+      trip.status !== 'OFFERED' ||
+      o?.id !== offerId ||
+      o.status !== 'OFFERED' ||
+      (o.expiresAt && o.expiresAt.getTime() <= Date.now())
+    )
       throw new ProblemException('offer_closed');
     this.assertCan(trip, 'reject');
     const note = input.note ? cleanLine(input.note).trim() : '';

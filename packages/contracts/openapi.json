@@ -35356,6 +35356,23 @@
           "reason"
         ]
       },
+      "OfferChannelsDto": {
+        "type": "object",
+        "properties": {
+          "line": {
+            "type": "boolean",
+            "description": "ส่งทาง LINE ได้ (เปิดใช้ + ผู้รับเหมามี LINE userId)"
+          },
+          "sms": {
+            "type": "boolean",
+            "description": "ส่ง SMS ได้ (เปิดใช้ + ผู้รับเหมามีเบอร์มือถือ)"
+          }
+        },
+        "required": [
+          "line",
+          "sms"
+        ]
+      },
       "OfferLinkDto": {
         "type": "object",
         "properties": {
@@ -35389,6 +35406,9 @@
       "OfferLinkStateDto": {
         "type": "object",
         "properties": {
+          "channels": {
+            "$ref": "#/components/schemas/OfferChannelsDto"
+          },
           "link": {
             "nullable": true,
             "description": "null = ไม่มีลิงก์ที่ใช้ได้ (ยังไม่จ้าง / ปฏิเสธ-หมดเวลา-ยกเลิกแล้ว / ลิงก์หมดอายุ)",
@@ -35401,6 +35421,7 @@
           }
         },
         "required": [
+          "channels",
           "link"
         ]
       },

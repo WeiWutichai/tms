@@ -203,20 +203,25 @@ test.describe.serial('ลิงก์ข้อเสนองานรถร่�
     await expect(p.getByTestId('ofl-status')).toHaveText('รอตอบ');
     await expect(p.getByText(S.t1!.tripNo)).toBeVisible();
     await expect(p.getByTestId('ofl-price')).toHaveText('5,600.00');
-    await expect(p.getByText(/ลิงก์หมดอายุใน 4[78] ชม\./)).toBeVisible();
+    await expect(p.getByText(/ลิงก์หมดอายุใน 4[78] ชม\. · ตอบได้ถึง /)).toBeVisible();
     await expect(p.getByText('1 ถนนทดสอบ')).toHaveCount(0);
     await p.getByRole('button', { name: 'รับงาน' }).click();
     await p.getByPlaceholder('เช่น 74-5521 ชบ.').fill('99-9999');
-    await p.getByPlaceholder('ชื่อ-นามสกุล').fill('สมชาย');
+    await p.getByPlaceholder('ชื่อ-นามสกุล').fill('สมชาย'); // ต่างจากชื่อที่ลงทะเบียน → หมายเหตุหลังรับงาน
     await p.getByPlaceholder('08x-xxx-xxxx').fill(PHONE);
     await p.getByRole('button', { name: 'ยืนยันรับงาน' }).click();
     // ทะเบียนที่ไม่ได้ลงทะเบียน → แจ้งบนจอ ยังไม่รับงาน
-    await expect(p.getByRole('alert')).toContainText('ไม่พบทะเบียนนี้ในรถที่ลงทะเบียนไว้');
+    await expect(p.getByRole('alert')).toHaveText(
+      'ทะเบียนหรือเบอร์คนขับไม่ตรงกับข้อมูลที่ลงทะเบียนไว้กับบริษัท',
+    );
     await p.getByPlaceholder('เช่น 74-5521 ชบ.').fill(`${PLATE} ชบ.`);
     await p.getByRole('button', { name: 'ยืนยันรับงาน' }).click();
     await expect(p.getByTestId('ofl-status')).toHaveText('รับงาน');
     await expect(p.getByTestId('ofl-accepted')).toContainText(`รถ ${PLATE} · ${DRIVER}`);
     await expect(p.getByRole('status')).toContainText(`รับงาน ${S.t1!.tripNo} แล้ว`);
+    await expect(p.getByTestId('ofl-name-note')).toHaveText(
+      `ระบบใช้ชื่อคนขับตามที่ลงทะเบียน: ${DRIVER}`,
+    );
     await ctx.close();
 
     const tr = await get<Trip>(page, `/v1/trips/${S.t1!.id}`);
@@ -248,7 +253,8 @@ test.describe.serial('ลิงก์ข้อเสนองานรถร่�
     await d.getByRole('button', { name: 'จ่ายงานรถร่วม' }).click();
     await expect(d.getByText('ส่งข้อเสนอล่าสุด')).toBeVisible();
     await expect(d.getByRole('button', { name: 'คัดลอกลิงก์' })).toBeVisible();
-    await expect(d.getByRole('button', { name: 'ส่งผ่าน LINE' })).toBeVisible();
+    // ผู้รับเหมาไม่มี LINE userId → ไม่มีปุ่ม "ส่งผ่าน LINE" (คัดลอกลิงก์ไปส่งเอง — #49)
+    await expect(d.getByRole('button', { name: 'ส่งผ่าน LINE' })).toHaveCount(0);
     await d.getByRole('tab', { name: 'ใบสั่งงาน' }).click();
     await expect(d.getByTestId('sub-link')).toHaveText(S.url2!);
 

@@ -8,6 +8,26 @@ import { isThaiPhone, timeLeft } from './offerTime';
 
 /** ST3-T23 หน้าลิงก์ข้อเสนองาน (ต้นแบบ TMS Subcon แท็บ "งาน") */
 const H = 3600_000;
+/** วันเวลาหมดอายุตามเวลาไทย "19 พ.ย. 2569 10:14 น." */
+const TH_M = [
+  'ม.ค.',
+  'ก.พ.',
+  'มี.ค.',
+  'เม.ย.',
+  'พ.ค.',
+  'มิ.ย.',
+  'ก.ค.',
+  'ส.ค.',
+  'ก.ย.',
+  'ต.ค.',
+  'พ.ย.',
+  'ธ.ค.',
+];
+const expAt = () => {
+  const d = new Date(Date.parse(q.data!.expiresAt) + 7 * H);
+  const hm = d.toISOString().slice(11, 16);
+  return `${d.getUTCDate()} ${TH_M[d.getUTCMonth()]} ${d.getUTCFullYear() + 543} ${hm} น.`;
+};
 const view = (o: Partial<OfferView> = {}): OfferView => ({
   company: 'ศรีไทยขนส่ง',
   carrierName: 'หจก. ศรีราชาโลจิสติกส์',
@@ -80,9 +100,7 @@ describe('OfferLinkPage (ST3-T23)', () => {
     ).toBeTruthy();
     expect(screen.getByTestId('ofl-price').textContent).toBe('5,600.00');
     expect(screen.getByTestId('ofl-status').textContent).toBe('รอตอบ');
-    expect(
-      screen.getByText('ลิงก์หมดอายุใน 36 ชม. · หากไม่ตอบ งานจะส่งต่อให้ผู้รับเหมาลำดับถัดไป'),
-    ).toBeTruthy();
+    expect(screen.getByText(`ลิงก์หมดอายุใน 36 ชม. · ตอบได้ถึง ${expAt()}`)).toBeTruthy();
     expect(screen.getByRole('button', { name: 'รับงาน' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'ปฏิเสธ' })).toBeTruthy();
   });
@@ -175,6 +193,93 @@ describe('OfferLinkPage (ST3-T23)', () => {
     });
     show();
     expect(screen.getByText('ลิงก์นี้ใช้ไม่ได้')).toBeTruthy();
+  });
+
+  it('ทะเบียน/เบอร์ไม่ตรง → ข้อความเดียว · ผู้รับเหมาถูกระงับ → ข้อความไทย', () => {
+    show();
+    fireEvent.click(screen.getByRole('button', { name: 'รับงาน' }));
+    fireEvent.change(screen.getByPlaceholderText('เช่น 74-5521 ชบ.'), {
+      target: { value: '74-1' },
+    });
+    fireEvent.change(screen.getByPlaceholderText('ชื่อ-นามสกุล'), { target: { value: 'ก ข' } });
+    fireEvent.change(screen.getByPlaceholderText('08x-xxx-xxxx'), {
+      target: { value: '0812345678' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'ยืนยันรับงาน' }));
+    const cb = mutate.mock.calls[0]![1] as { onError: (e: unknown) => void };
+    const fail = (code: string) =>
+      act(() =>
+        cb.onError(
+          new ApiError({
+            type: '',
+            title: '',
+            status: 422,
+            code: 'validation_failed',
+            errors: [{ field: 'vehiclePlate', code, message: '' }],
+          } as never),
+        ),
+      );
+    fail('registration_mismatch');
+    expect(screen.getByRole('alert').textContent).toBe(
+      'ทะเบียนหรือเบอร์คนขับไม่ตรงกับข้อมูลที่ลงทะเบียนไว้กับบริษัท',
+    );
+    fail('carrier_inactive');
+    expect(screen.getByRole('alert').textContent).toBe(
+      'บัญชีผู้รับเหมาถูกระงับชั่วคราว — ติดต่อผู้ว่าจ้าง',
+    );
+  });
+
+  it('รับงานด้วยชื่อที่ต่างจากที่ลงทะเบียน → หมายเหตุ · เครื่องค้างหน้าเก่าได้ 409 → ข้อความยังแสดง', () => {
+    const r = show();
+    fireEvent.click(screen.getByRole('button', { name: 'รับงาน' }));
+    fireEvent.change(screen.getByPlaceholderText('เช่น 74-5521 ชบ.'), {
+      target: { value: '74-5521' },
+    });
+    fireEvent.change(screen.getByPlaceholderText('ชื่อ-นามสกุล'), { target: { value: 'สมชาย' } });
+    fireEvent.change(screen.getByPlaceholderText('08x-xxx-xxxx'), {
+      target: { value: '0812345678' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'ยืนยันรับงาน' }));
+    const cb = mutate.mock.calls[0]![1] as { onSuccess: () => void };
+    q.data = view({ status: 'ACCEPTED', accepted: { plate: '74-5521', driverName: 'สมชาย ใจดี' } });
+    act(() => cb.onSuccess());
+    r.rerender(
+      <I18nProvider>
+        <MemoryRouter initialEntries={['/link/offer/ml1.x']}>
+          <Routes>
+            <Route path="/link/offer/:token" element={<OfferLinkPage />} />
+          </Routes>
+        </MemoryRouter>
+      </I18nProvider>,
+    );
+    expect(screen.getByTestId('ofl-name-note').textContent).toBe(
+      'ระบบใช้ชื่อคนขับตามที่ลงทะเบียน: สมชาย ใจดี',
+    );
+    r.unmount();
+    mutate.mockReset();
+    q.data = view();
+    const r2 = show();
+    fireEvent.click(screen.getByRole('button', { name: 'ปฏิเสธ' }));
+    fireEvent.click(screen.getByRole('button', { name: 'ราคาไม่คุ้มต้นทุน' }));
+    fireEvent.click(screen.getByRole('button', { name: 'ยืนยันปฏิเสธ' }));
+    const cb2 = mutate.mock.calls[0]![1] as { onError: (e: unknown) => void };
+    q.data = view({ status: 'ACCEPTED', accepted: { plate: '74-5521', driverName: 'สมชาย ใจดี' } });
+    act(() =>
+      cb2.onError(new ApiError({ type: '', title: '', status: 409, code: 'offer_closed' })),
+    );
+    r2.rerender(
+      <I18nProvider>
+        <MemoryRouter initialEntries={['/link/offer/ml1.x']}>
+          <Routes>
+            <Route path="/link/offer/:token" element={<OfferLinkPage />} />
+          </Routes>
+        </MemoryRouter>
+      </I18nProvider>,
+    );
+    expect(screen.getByTestId('ofl-accepted')).toBeTruthy();
+    expect(screen.getByRole('alert').textContent).toBe(
+      'ข้อเสนองานนี้ปิดแล้ว — ดูสถานะล่าสุดด้านบน',
+    );
   });
 
   it('timeLeft / isThaiPhone', () => {
