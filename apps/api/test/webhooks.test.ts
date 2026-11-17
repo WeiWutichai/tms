@@ -422,12 +422,13 @@ describe('webhooks (ST7-T04)', () => {
   it('4xx (400/401/410) และ redirect 3xx ไม่ retry → EXHAUSTED ครั้งแรก · ไม่ follow redirect', async () => {
     const h = await createHook({ url: rx.url(), events: ['stop.arrived'] });
     await skipVerification();
-    for (const [status, extra] of [
+    const cases: [number, Record<string, string>][] = [
       [400, {}],
       [401, {}],
       [410, {}],
       [302, { location: 'http://127.0.0.1:1/elsewhere' }],
-    ] as const) {
+    ];
+    for (const [status, extra] of cases) {
       rx.reset();
       rx.reply = () => ({ status, headers: extra });
       await emit(tenantId, 'stop.arrived', { id: `stp_${status}` });
@@ -735,6 +736,15 @@ describe('webhooks (ST7-T04)', () => {
       .post('/v1/webhooks')
       .send({ url: rx.url('/d'), events: ['order.created'] });
     expect(again.status).toBe(201);
+  });
+
+  it('event-types: รายการ event สาธารณะ (docs/01 §5.3) ไม่มี `*`', async () => {
+    const r = await api(app, token).get('/v1/webhooks/event-types').expect(200);
+    const types = r.body.data.map((x: { type: string }) => x.type);
+    expect(types).toContain('order.created');
+    expect(types).toContain('delivery_order.status_changed');
+    expect(types).not.toContain('*');
+    expect(types).not.toContain('webhook.test');
   });
 
   it('แก้ event (PATCH) → subscription ตาม · tenant อื่นมองไม่เห็น (404)', async () => {

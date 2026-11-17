@@ -21,7 +21,8 @@ export type HistoryPath =
   | '/v1/units/{id}/history'
   | '/v1/service-items/{id}/history'
   | '/v1/rate-cards/{id}/history'
-  | '/v1/api-keys/{id}/history';
+  | '/v1/api-keys/{id}/history'
+  | '/v1/webhooks/{id}/history';
 
 const VERB: Record<
   string,

@@ -16111,6 +16111,32 @@
         ]
       }
     },
+    "/v1/webhooks/event-types": {
+      "get": {
+        "operationId": "Webhooks_eventTypes",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "event สาธารณะที่สมัครได้ (docs/01 §5.3) — คำอธิบาย/ตัวอย่าง payload เพิ่มใน ST7-T05",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookEventTypeListDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "webhooks"
+        ]
+      }
+    },
     "/v1/webhooks/{id}": {
       "get": {
         "operationId": "Webhooks_get",
@@ -39642,6 +39668,32 @@
           "failing",
           "disabled",
           "limit"
+        ]
+      },
+      "WebhookEventTypeDto": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "example": "order.created"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "WebhookEventTypeListDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WebhookEventTypeDto"
+            }
+          }
+        },
+        "required": [
+          "data"
         ]
       },
       "WebhookHeaderDto": {

@@ -31,6 +31,7 @@ import { expectedVersion, setEtag } from '../../common/etag';
 import { decodeIdOr404 } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { DbService } from '../../db/db.service';
+import { WEBHOOK_EVENT_TYPES } from '@tms/domain';
 import { entityHistory, HistoryQuery } from '../master/history';
 import {
   CreateWebhookDto,
@@ -38,6 +39,7 @@ import {
   WebhookActionDto,
   WebhookEndpointDto,
   WebhookEndpointSecretDto,
+  WebhookEventTypeListDto,
   WebhookListQuery,
   WebhookPageDto,
   WebhookSummaryDto,
@@ -90,6 +92,17 @@ export class WebhooksController {
   })
   summary(): Promise<WebhookSummaryDto> {
     return this.hooks.summary();
+  }
+
+  @Get('event-types')
+  @RequireScope('settings:read')
+  @ApiOkResponse({
+    type: WebhookEventTypeListDto,
+    description:
+      'event สาธารณะที่สมัครได้ (docs/01 §5.3) — คำอธิบาย/ตัวอย่าง payload เพิ่มใน ST7-T05',
+  })
+  eventTypes(): WebhookEventTypeListDto {
+    return { data: WEBHOOK_EVENT_TYPES.map((type) => ({ type })) };
   }
 
   @Post()

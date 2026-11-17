@@ -248,3 +248,11 @@ export class WebhookTestResultDto {
   errorCode!: string | null;
   @ApiProperty({ example: 'evt_…', description: 'id ของ envelope ที่ส่ง' }) eventId!: string;
 }
+
+export class WebhookEventTypeDto {
+  @ApiProperty({ example: 'order.created' }) type!: string;
+}
+
+export class WebhookEventTypeListDto {
+  @ApiProperty({ type: [WebhookEventTypeDto] }) data!: WebhookEventTypeDto[];
+}
