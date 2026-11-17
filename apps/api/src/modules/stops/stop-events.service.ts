@@ -109,7 +109,10 @@ export class StopEventsService {
     if (note) payload.note = note;
     if (reason) payload.reason = reason;
 
-    return tx.stopEvent.create({
+    // ON CONFLICT DO NOTHING (skipDuplicates): คำขอพร้อมกันด้วย clientEventId เดียวกันคนละเที่ยว (ล็อกเที่ยวไม่ครอบ)
+    // → รอแถวของอีกคำขอ commit แล้วไม่แทรก (transaction ไม่พังจาก unique violation) → อ่านแถวเดิมแล้วตอบ 409 เหมือนส่งซ้ำ
+    const [created] = await tx.stopEvent.createManyAndReturn({
+      skipDuplicates: true,
       data: {
         tenantId,
         tripStopId: stop.id,
@@ -126,6 +129,15 @@ export class StopEventsService {
         occurredAt: new Date(input.occurredAt),
         payload: payload as Prisma.InputJsonValue,
       },
+    });
+    if (created) return created;
+    const existing = await tx.stopEvent.findUnique({
+      where: { tenantId_clientEventId: { tenantId, clientEventId: input.clientEventId } },
+      select: { id: true },
+    });
+    if (!existing) throw new ProblemException('concurrent_update'); // ชนกับ id อื่น (ไม่ควรเกิด) — ลองใหม่ได้
+    throw new ProblemException('stop_event_duplicate', undefined, undefined, {
+      eventId: encodeId('event', existing.id),
     });
   }
 

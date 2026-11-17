@@ -19,10 +19,8 @@ import {
   STOP_OUTCOMES,
   type StopOutcome,
 } from '@tms/domain';
+import { IsDateTimeWithOffset } from '../../common/validation';
 import { CleanText, IsNullable } from '../master/master-kit';
-
-/** เวลาต้องมี offset (เวลาเครื่องที่ไม่มีเขตเวลาตีความผิดได้) */
-const TZ_RE = /(Z|[+-]\d{2}:?\d{2})$/i;
 
 /**
  * ช่องร่วมของทุก action (docs/04 E1: `clientEventId`, `occurredAt`, GPS, accuracy) — `receivedAt` = เวลา server,
@@ -39,17 +37,20 @@ export class StopEventBaseDto {
   clientEventId!: string;
 
   @ApiProperty({
+    format: 'date-time',
     example: '2026-11-17T09:42:00+07:00',
     description:
-      'เวลาที่เกิดจริงบนเครื่อง (ISO 8601 พร้อม offset) — ใช้เรียงลำดับและเป็นเวลาถึง/ออก · บันทึกย้อนหลังได้',
+      'เวลาที่เกิดจริงบนเครื่อง (RFC 3339 `YYYY-MM-DDTHH:MM:SS[.fff]` + `Z`/`±HH:MM` — รับ `±HHMM`) — ใช้เรียงลำดับและเป็นเวลาถึง/ออก · บันทึกย้อนหลังได้',
   })
   @IsISO8601({ strict: true })
-  @Matches(TZ_RE, { message: 'occurredAt must include a timezone offset' })
+  @IsDateTimeWithOffset()
   occurredAt!: string;
 
   @ApiPropertyOptional({
     type: Number,
     nullable: true,
+    minimum: -90,
+    maximum: 90,
     example: 13.6447,
     description:
       'ละติจูด ณ เวลากด (ส่งคู่กับ lng; เก็บทศนิยม 6 ตำแหน่ง) — null/ไม่ส่ง = ไม่ได้ให้สิทธิ์ตำแหน่ง',
@@ -61,7 +62,13 @@ export class StopEventBaseDto {
   @Max(90)
   lat?: number | null;
 
-  @ApiPropertyOptional({ type: Number, nullable: true, example: 100.6089 })
+  @ApiPropertyOptional({
+    type: Number,
+    nullable: true,
+    minimum: -180,
+    maximum: 180,
+    example: 100.6089,
+  })
   @IsOptional()
   @IsNullable()
   @IsNumber({ allowNaN: false, allowInfinity: false })
@@ -72,6 +79,8 @@ export class StopEventBaseDto {
   @ApiPropertyOptional({
     type: Number,
     nullable: true,
+    minimum: 0,
+    maximum: 9_999_999,
     example: 12.5,
     description: 'ความแม่นของพิกัด (เมตร)',
   })
@@ -155,8 +164,10 @@ export class StopEventDto {
   @ApiProperty({ enum: STOP_EVENT_TYPES }) type!: string;
   @ApiProperty({ enum: STOP_OUTCOMES, nullable: true, type: String }) outcome!: string | null;
   @ApiProperty({ format: 'uuid' }) clientEventId!: string;
-  @ApiProperty({ description: 'เวลาเกิดจริงบนเครื่อง (UTC)' }) occurredAt!: string;
-  @ApiProperty({ description: 'เวลาที่ server รับ (UTC)' }) receivedAt!: string;
+  @ApiProperty({ format: 'date-time', description: 'เวลาเกิดจริงบนเครื่อง (UTC)' })
+  occurredAt!: string;
+  @ApiProperty({ format: 'date-time', description: 'เวลาที่ server รับ (UTC)' })
+  receivedAt!: string;
   @ApiProperty({ nullable: true, type: Number }) lat!: number | null;
   @ApiProperty({ nullable: true, type: Number }) lng!: number | null;
   @ApiProperty({ nullable: true, type: Number }) accuracyM!: number | null;

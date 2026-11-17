@@ -143,7 +143,7 @@
 
 | งาน | สถานะ | หลักฐาน / ที่ยังขาด |
 |---|---|---|
-| T01 `stop_event` + `POST /stops/{id}/arrive` `/depart` `/complete` `/fail` | dev เสร็จ — รอ review/QA | migration `0082_stop_event` (ขยายร่าง 0004: `trip_id` + FK คู่ (จุด, เที่ยว), FK reason, CHECK source/outcome/GPS, ช่อง projection `attachments_pending`/`sequence_conflict`/`applied_at`, trigger append-only ทุก role, index ตาม docs/01 §3.9) · domain `stop-event.ts` (ชนิด/ผล/แหล่ง, `stopOutcomeError`, `stopEventReasonRule`, `isTripExecutable`) · `src/modules/stops/` (`StopsController`, `StopEventsService`) · `test/stop-events.test.ts` (11) + isolation fixture `tripStop` · ยังไม่ไล่สถานะ (T03), ส่งซ้ำ = 409 (T02 → คืนผลเดิม) · ตัดสินใจใน spec/12 §3 แถว "Stop event:" |
+| T01 `stop_event` + `POST /stops/{id}/arrive` `/depart` `/complete` `/fail` | dev เสร็จ + แก้ตาม review/QA (ไม่มี High) — รอ merge | migration `0082_stop_event` + `0083_stop_event_fk_restrict` (ขยายร่าง 0004: `trip_id` + FK คู่ (จุด, เที่ยว), FK reason, CHECK source/outcome/GPS, ช่อง projection `attachments_pending`/`sequence_conflict`/`applied_at`, trigger append-only ทุก role, index ตาม docs/01 §3.9) · domain `stop-event.ts` (ชนิด/ผล/แหล่ง, `stopOutcomeError`, `stopEventReasonRule`, `isTripExecutable`) · `src/modules/stops/` (`StopsController`, `StopEventsService`) · `test/stop-events.test.ts` (11) + isolation fixture `tripStop` · ยังไม่ไล่สถานะ (T03), ส่งซ้ำ = 409 (T02 → คืนผลเดิม) · ตัดสินใจใน spec/12 §3 แถว "Stop event:" |
 
 ## สัปดาห์นี้ (สัปดาห์ 10–14 พ.ย. 2569)
 
@@ -224,6 +224,13 @@
 - (11 พ.ย., พบระหว่าง T19 — **แก้แล้วใน T04**: `db:migrate` รัน bootstrap ทุก tenant ซึ่ง sync role ระบบ) **role ระบบของ tenant ที่มีอยู่ไม่ได้สิทธิ์ใหม่อัตโนมัติ** — `ensureSystemRoles` รันแค่ตอนสร้าง tenant/seed; เมื่อโค้ดเพิ่ม permission (เช่น `documents:write` ใน T08) tenant เดิมไม่ได้ จนกว่าจะรัน seed · ฐาน dev แก้ด้วย seed แล้ว · ต้องมี sync ตอน deploy/บูต ก่อนมี tenant จริง (เสนอทำใน T24 admin portal หรือ migration step) 
 
 ## บันทึกรายวัน
+
+### 17 พ.ย. 2569 (ST4-T01 แก้ตาม review/QA)
+
+- ทำ: (review M) 0082 ไม่ลบแถวแล้ว — แถว stop_event ที่ไม่มีจุดจริง → `RAISE EXCEPTION` (fail-fast) · (review L) FK ทั้งสามของ stop_event `ON UPDATE RESTRICT` (migration ใหม่ `0083_stop_event_fk_restrict`) · (review L) `occurredAt` ตัวตรวจ `IsDateTimeWithOffset` (RFC 3339 + `Z`/`±HH:MM`/`±HHMM`, ตรวจ `Date` ไม่ NaN) — รูปย่อ `2026-11-17T09Z` ฯลฯ ได้ 422 แทน 500 · (QA/review L) `clientEventId` ซ้ำพร้อมกันคนละเที่ยว: insert ON CONFLICT DO NOTHING (`createManyAndReturn skipDuplicates`) → อ่านแถวเดิม → 409 `stop_event_duplicate` + `eventId` · (QA L) OpenAPI `format: date-time`, min/max lat/lng/accuracyM · test เพิ่ม 2 เคส + รูปแบบเวลา 5 แบบ (`stop-events.test.ts` 13)
+- ฐานที่ใช้ร่วม (แก้ 0082 บน branch ที่ยังไม่ merge): ตรวจแถวกำพร้าใน `tms`/`tms_test`/`tms_e2e` = 0 ทุกฐาน (ไม่ต้อง TRUNCATE) · `tms_test`: `ALTER TABLE stop_event VALIDATE CONSTRAINT stop_event_outcome` (เดิมสร้างแบบ NOT VALID ตอนแก้มือ) · ทั้งสามฐาน: `UPDATE _prisma_migrations SET checksum='c77130c9308ea521714891ff88fadae8d8a47a93de68a18112132c40a7d68865' WHERE migration_name='0082_stop_event'` (tms_test มี 2 แถว — แถว rolled back เดิม + แถวที่ apply) · migrate ใหม่ตั้งแต่ 0001 ผ่าน (shadow DB + ci:local)
+- ไฟล์: `migrations/0082_stop_event`, `migrations/0083_stop_event_fk_restrict`, `schema.prisma`, `common/validation.ts`, `stops/{stop-event.dto,stop-events.service}.ts`, `test/stop-events.test.ts`, `openapi.json`, `spec/12` §3
+- ค้าง (สำหรับ T02): การตัดสินของ dispatcher เมื่อ event ขัดแย้งต้องเก็บเป็น**แถวใหม่ + เหตุผล + audit** (ไม่ใช่แค่พลิกธง `sequence_conflict`) · trigger ปล่อยให้ทุก role (รวม `tms_platform`) แก้ 3 ช่อง projection ได้ — T02/T03 พิจารณาจำกัดเพิ่ม · ช่องเวลาใน `trip.dto.ts` ยังใช้ `IsISO8601` อย่างเดียว (รูปย่ออาจ 500 — ตรวจแยก ไม่ได้แก้ในงานนี้)
 
 ### 17 พ.ย. 2569 (ST4-T01 stop_event + action arrive/depart/complete/fail)
 

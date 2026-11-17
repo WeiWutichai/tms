@@ -1974,15 +1974,15 @@ model StopEvent {
   id                 String        @id @default(uuid()) @db.Uuid
   tenantId           String        @map("tenant_id") @db.Uuid
   tripStopId         String        @map("trip_stop_id") @db.Uuid
-  tripStop           TripStop      @relation(fields: [tripStopId, tripId], references: [id, tripId], onDelete: Restrict, map: "stop_event_trip_stop_same_trip_fkey")
+  tripStop           TripStop      @relation(fields: [tripStopId, tripId], references: [id, tripId], onDelete: Restrict, onUpdate: Restrict, map: "stop_event_trip_stop_same_trip_fkey")
   /// denormalize จาก trip_stop (FK คู่ (trip_stop_id, trip_id) กันไม่ตรงเที่ยว)
   tripId             String        @map("trip_id") @db.Uuid
-  trip               Trip          @relation(fields: [tripId], references: [id], onDelete: Restrict)
+  trip               Trip          @relation(fields: [tripId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   type               StopEventType
   /// DELIVERED / PARTIAL / FAILED / UNDELIVERED_RETAIN — COMPLETE ต้องมี · FAIL มีได้ (FAILED / UNDELIVERED_RETAIN) · CHECK
   outcome            String?
   reasonCodeId       String?       @map("reason_code_id") @db.Uuid
-  reasonCode         ReasonCode?   @relation(fields: [reasonCodeId], references: [id], onDelete: Restrict)
+  reasonCode         ReasonCode?   @relation(fields: [reasonCodeId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   clientEventId      String        @map("client_event_id") @db.Uuid
   /// APP / LINK / WEB / API / GPS (CHECK) — server กำหนดจากชนิดผู้เรียก ไม่รับจาก body
   source             String

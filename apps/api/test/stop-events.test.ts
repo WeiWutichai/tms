@@ -264,12 +264,48 @@ describe('stop events (ST4-T01)', () => {
       ev({ lat: 13.6, lng: 100.5, accuracyM: -1 }),
       ev({ occurredAt: '2026-11-17T09:00:00' }),
       ev({ occurredAt: 'yesterday' }),
+      // รูปย่อ ISO 8601 ที่ IsISO8601 ผ่านแต่ new Date() = NaN (เคยได้ 500 — review)
+      ev({ occurredAt: '2026-11-17T09Z' }),
+      ev({ occurredAt: '2026-11-17T0900+0700' }),
+      ev({ occurredAt: '20261117T090000+0700' }),
+      ev({ occurredAt: '2026-11-17T09:00+07:00' }),
+      ev({ occurredAt: '2026-02-30T09:00:00+07:00' }),
       ev({ clientEventId: 'abc' }),
       ev({ source: 'APP' }),
       { occurredAt: '2026-11-17T09:00:00+07:00' },
     ];
     for (const body of bad) await api(app, admin).post(url(drop, 'arrive')).send(body).expect(422);
     expect(await db.stopEvent.count({ where: { tripStopId: drop.id } })).toBe(0);
+  });
+
+  it('occurredAt รับ RFC 3339 พร้อม offset (`Z`, `±HH:MM`, `±HHMM`, เศษวินาที)', async () => {
+    const { drop, url } = await trip();
+    for (const [occurredAt, iso] of [
+      ['2026-11-17T09:00:00Z', '2026-11-17T09:00:00.000Z'],
+      ['2026-11-17T09:00:00.250+07:00', '2026-11-17T02:00:00.250Z'],
+      ['2026-11-17T09:00:00+0700', '2026-11-17T02:00:00.000Z'],
+    ] as const) {
+      const res = await api(app, admin)
+        .post(url(drop, 'arrive'))
+        .send(ev({ occurredAt }))
+        .expect(201);
+      expect(res.body.occurredAt).toBe(iso);
+    }
+  });
+
+  it('clientEventId เดียวกันพร้อมกันคนละเที่ยว → 1 แถว อีกคำขอ 409 stop_event_duplicate + eventId เดิม', async () => {
+    const [a, b] = [await trip(), await trip()];
+    const body = ev();
+    const rs = await Promise.all([
+      api(app, admin).post(a.url(a.drop, 'arrive')).send(body),
+      api(app, admin).post(b.url(b.drop, 'arrive')).send(body),
+    ]);
+    const ok = rs.filter((r) => r.status === 201);
+    const dup = rs.filter((r) => r.status === 409);
+    expect(ok).toHaveLength(1);
+    expect(dup).toHaveLength(1);
+    expect(dup[0]!.body).toMatchObject({ code: 'stop_event_duplicate', eventId: ok[0]!.body.id });
+    expect(await db.stopEvent.count({ where: { clientEventId: body.clientEventId } })).toBe(1);
   });
 
   it('จุดที่ถอดออกแล้ว / id ผิดรูป / ของบริษัทอื่น → 404', async () => {

@@ -58,3 +58,29 @@ export const IsDecimal = (places: number, options?: ValidationOptions) =>
     },
     options,
   );
+
+/** RFC 3339 แบบขยาย: วันที่ + เวลาถึงวินาที (+ เศษวินาที) + offset `Z` / `±HH:MM` (รับ `±HHMM` ที่ `Date` อ่านถูก) */
+const DATE_TIME_OFFSET = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,9})?(Z|[+-]\d{2}:?\d{2})$/;
+
+/** ตรวจรูปแบบ (ไม่ใช้ IsISO8601 อย่างเดียว — รูปย่อเช่น `2026-11-17T09Z` ผ่าน แต่ `new Date()` = NaN → 500) */
+export function isDateTimeWithOffset(v: unknown): boolean {
+  return typeof v === 'string' && DATE_TIME_OFFSET.test(v) && !Number.isNaN(new Date(v).getTime());
+}
+
+/** เวลา (timestamptz) ที่ต้องมี offset — ST4-T01 `occurredAt` (review) */
+export function IsDateTimeWithOffset(options?: ValidationOptions): PropertyDecorator {
+  return ValidateBy(
+    {
+      name: 'isDateTimeWithOffset',
+      validator: {
+        validate: (v) => isDateTimeWithOffset(v),
+        defaultMessage: buildMessage(
+          (each) =>
+            `${each}$property must be an RFC 3339 date-time with offset (YYYY-MM-DDTHH:MM:SS±HH:MM)`,
+          options,
+        ),
+      },
+    },
+    options,
+  );
+}

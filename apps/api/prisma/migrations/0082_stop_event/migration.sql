@@ -1,9 +1,14 @@
 -- ST4-T01 stop_event (docs/01 §3.9, docs/04 E1 "Stop event") — ขยายร่างของ 0004 (ไม่แก้ migration เก่า)
 -- event หน้างานต่อจุดแวะ: append-only, แหล่งความจริงของเวลาถึง/ออก/ปิดงาน · ไม่มีโค้ดแอปใดเขียนตารางนี้ก่อน T01
 
--- แถวที่ไม่มีจุดแวะจริง = เศษจาก test ของ schema v0 (ก่อน T01 ไม่มีโค้ดแอป/seed/API ใดเขียนตารางนี้ และยังไม่มี trigger)
--- ล้างก่อนใส่ FK — ฐานที่มีข้อมูลจริงจะไม่มีแถวแบบนี้
-DELETE FROM "stop_event" e WHERE NOT EXISTS (SELECT 1 FROM "trip_stop" s WHERE s."id" = e."trip_stop_id");
+-- แถวที่ไม่มีจุดแวะจริงใส่ FK ไม่ได้ — หยุด migration (ไม่ลบข้อมูลของตาราง append-only) ให้คนตรวจแล้วตัดสินเอง
+-- (ก่อน T01 มีเพียง test ของ schema v0 ที่เคยเขียนตารางนี้ — ฐาน test ล้างด้วย TRUNCATE ได้)
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM "stop_event" e WHERE NOT EXISTS (SELECT 1 FROM "trip_stop" s WHERE s."id" = e."trip_stop_id")) THEN
+    RAISE EXCEPTION 'stop_event has rows without a trip_stop — resolve them manually before migration 0082 (no automatic delete)';
+  END IF;
+END $$;
 
 -- trip_id denormalize (docs/01 §3.9 "trip_id denormalize เพื่อ query") — เติมจาก trip_stop แล้วบังคับ NOT NULL
 ALTER TABLE "stop_event" ADD COLUMN "trip_id" UUID;
