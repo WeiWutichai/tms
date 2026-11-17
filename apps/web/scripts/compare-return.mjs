@@ -176,7 +176,6 @@ for (const s of trip.stops)
       ...extra,
     });
 
-
 // ต้นแบบ 1440 — drawer DO (ปุ่ม "ตีกลับบางส่วน") แล้ว dialog
 const P = await (await b.newContext({ viewport: vt, locale: 'th-TH' })).newPage();
 await P.goto(`http://localhost:${port}/TMS%20v4.dc.html`);
@@ -227,7 +226,9 @@ await dlg.getByPlaceholder(/กล่องบุบ/).fill('ถุงแตก 
 await W.waitForTimeout(400);
 const cDlg = await shot(W);
 await dlg.getByRole('button', { name: 'บันทึกตีกลับ' }).click();
-await W.getByTestId('do-return').getByText(/ส่งซ้ำแล้ว/).waitFor();
+await W.getByTestId('do-return')
+  .getByText(/ส่งซ้ำแล้ว/)
+  .waitFor();
 await W.getByTestId('do-return').scrollIntoViewIfNeeded();
 await W.waitForTimeout(800);
 const cAfter = await shot(W);

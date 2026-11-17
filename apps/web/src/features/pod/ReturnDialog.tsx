@@ -250,7 +250,9 @@ export function ReturnDialog({
             </select>
           </label>
           <div style={FIELD}>
-            <span style={LABEL}>{flags?.requiresPhoto ? t('prt.photoReq') : t('prt.photoOpt')}</span>
+            <span style={LABEL}>
+              {flags?.requiresPhoto ? t('prt.photoReq') : t('prt.photoOpt')}
+            </span>
             {photos > 0 ? (
               <div
                 style={{
