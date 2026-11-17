@@ -1,16 +1,18 @@
-import { Body, Controller, HttpCode, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Post, Res } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
   ApiHeader,
+  ApiOkResponse,
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
-import type { StopEvent } from '@prisma/client';
+import type { StopEvent, StopEventResolution } from '@prisma/client';
 import type { StopEventType, StopOutcome } from '@tms/domain';
+import type { Response } from 'express';
 import { RequireScope, TenantResource } from '../../common/decorators';
 import { decodeIdOr404, encodeId } from '../../common/ids';
-import { PROBLEMS, type ProblemCode } from '../../common/problem';
+import { PROBLEMS, ProblemException, type ProblemCode } from '../../common/problem';
 import { ApiProblems } from '../../common/problem.dto';
 import type { ReasonSnapshot } from '../reason-codes/snapshot';
 import {
@@ -19,9 +21,10 @@ import {
   DepartStopDto,
   FailStopDto,
   StopEventDto,
+  StopEventSequenceDto,
   type StopEventBaseDto,
 } from './stop-event.dto';
-import { StopEventsService, type StopEventPayload } from './stop-events.service';
+import { flagsOf, StopEventsService, type StopEventPayload } from './stop-events.service';
 
 const num = (v: { toNumber(): number } | null) => (v === null ? null : v.toNumber());
 
@@ -51,8 +54,26 @@ export function toStopEventDto(e: StopEvent): StopEventDto {
         }
       : null,
     note: p.note ?? null,
+    sequenceConflict: e.sequenceConflict,
+    clockSkew: e.clockSkew,
+    lateReason: e.lateReason,
+    flags: flagsOf(e),
   };
 }
+
+export function toResolutionDto(r: StopEventResolution | undefined) {
+  return r
+    ? {
+        decision: r.decision,
+        reason: r.reason,
+        flags: r.flags,
+        resolvedBy: r.resolvedBy,
+        resolvedAt: r.createdAt.toISOString(),
+      }
+    : null;
+}
+
+const iso = (d: Date | null) => (d ? d.toISOString() : null);
 
 /** ตัวอย่าง problem+json ของ `/v1/stops` (OpenAPI) */
 const P = (code: ProblemCode, extra: Record<string, unknown> = {}) => ({
@@ -75,14 +96,27 @@ const S403 = {
     }),
   },
 };
+const T403R = {
+  status: 403,
+  description: 'ไม่มีสิทธิ์ (`trips:read`)',
+  examples: {
+    permission_denied: P('permission_denied', {
+      module: 'trips',
+      action: 'read',
+      required: ['trips:read'],
+    }),
+  },
+};
 const S404 = {
   status: 404,
-  description: 'ไม่พบจุดแวะ (รวมของบริษัทอื่น และจุดที่ถอดออกจากเที่ยวแล้ว)',
+  description:
+    'ไม่พบจุดแวะ (รวมของบริษัทอื่น) — จุดที่ถอดออกแล้วยังรับ event ได้ (ธง LATE: STOP_REMOVED)',
   examples: { not_found: P('not_found') },
 };
 const S409 = {
   status: 409,
-  description: 'เที่ยวไม่อยู่ระหว่างวิ่ง / clientEventId ซ้ำ / ชนกับการแก้ไขพร้อมกัน',
+  description:
+    'เที่ยวยังไม่ปล่อยรถ / clientEventId ถูกใช้กับ event อื่น (คนละจุดหรือคนละชนิด) / ชนกับการแก้ไขพร้อมกัน',
   examples: {
     trip_not_in_progress: P('trip_not_in_progress', { tripStatus: 'ASSIGNED' }),
     stop_event_duplicate: P('stop_event_duplicate', { eventId: 'evt_3f2a…' }),
@@ -115,15 +149,54 @@ const S422 = {
 @ApiBearerAuth()
 @Controller('stops')
 export class StopsController {
-  constructor(private readonly events: StopEventsService) {}
+  constructor(private readonly events_: StopEventsService) {}
 
+  /** สร้างใหม่ = 201 · ส่งซ้ำ (clientEventId + จุด + ชนิดเดิม) = 200 + event เดิม (ST4-T02; spec/04 DRV-061) */
   private async record(
     id: string,
     type: StopEventType,
     body: StopEventBaseDto & { outcome?: StopOutcome | null },
+    res: Response,
   ) {
-    const e = await this.events.record(decodeIdOr404('tripStop', id), type, body);
-    return toStopEventDto(e);
+    const { event, replayed } = await this.events_.record(
+      decodeIdOr404('tripStop', id),
+      type,
+      body,
+    );
+    res.status(replayed ? 200 : 201);
+    return toStopEventDto(event);
+  }
+
+  @Get(':id/events')
+  @ApiOperation({
+    summary: 'ลำดับ event ของจุด (เรียงตาม occurredAt) + สถานะที่มีผล',
+    description:
+      'ST4-T02 (docs/01 §3.9): ทุก event ของจุด (รวมที่ขัดลำดับ/มาหลังปิด/ผู้จัดรถไม่ใช้) เรียง `occurredAt` → ชนิด (ออก → ถึง → ปิด) → `receivedAt` พร้อมผลของแต่ละตัว (`seqStatus`) และสถานะที่มีผลของจุด — ยังไม่ลง `trip_stop` (ST4-T03)',
+  })
+  @ApiProblems(T403R, S404)
+  @TenantResource('tripStop')
+  @RequireScope('trips:read')
+  @ApiOkResponse({ type: StopEventSequenceDto })
+  async events(@Param('id') id: string): Promise<StopEventSequenceDto> {
+    const stopId = decodeIdOr404('tripStop', id);
+    if (!(await this.events_.stopExists(stopId))) throw new ProblemException('not_found');
+    const seq = await this.events_.sequence(stopId);
+    return {
+      data: seq.events.map((e) => ({
+        ...toStopEventDto(e),
+        seqStatus: e.seqStatus,
+        counted: e.counted,
+        resolution: toResolutionDto(e.resolution ?? undefined),
+      })),
+      effective: {
+        state: seq.state,
+        outcome: seq.outcome,
+        enRouteAt: iso(seq.enRouteAt),
+        arrivedAt: iso(seq.arrivedAt),
+        closedAt: iso(seq.closedAt),
+        lastEventId: seq.lastEventId ? encodeId('event', seq.lastEventId) : null,
+      },
+    };
   }
 
   @Post(':id/arrive')
@@ -133,9 +206,18 @@ export class StopsController {
   @TenantResource('tripStop')
   @RequireScope('trips:dispatch')
   @ApiHeader({ name: 'Idempotency-Key', required: false })
-  @ApiCreatedResponse({ type: StopEventDto })
-  arrive(@Param('id') id: string, @Body() body: ArriveStopDto): Promise<StopEventDto> {
-    return this.record(id, 'ARRIVE', body);
+  @ApiCreatedResponse({ type: StopEventDto, description: 'สร้าง event ใหม่' })
+  @ApiOkResponse({
+    type: StopEventDto,
+    description:
+      'ส่งซ้ำ (clientEventId + จุด + ชนิดเดิม) → event เดิม ไม่สร้างแถวใหม่ (ST4-T02 — เดิม T01 ตอบ 409)',
+  })
+  arrive(
+    @Param('id') id: string,
+    @Body() body: ArriveStopDto,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StopEventDto> {
+    return this.record(id, 'ARRIVE', body, res);
   }
 
   @Post(':id/depart')
@@ -145,9 +227,18 @@ export class StopsController {
   @TenantResource('tripStop')
   @RequireScope('trips:dispatch')
   @ApiHeader({ name: 'Idempotency-Key', required: false })
-  @ApiCreatedResponse({ type: StopEventDto })
-  depart(@Param('id') id: string, @Body() body: DepartStopDto): Promise<StopEventDto> {
-    return this.record(id, 'DEPART', body);
+  @ApiCreatedResponse({ type: StopEventDto, description: 'สร้าง event ใหม่' })
+  @ApiOkResponse({
+    type: StopEventDto,
+    description:
+      'ส่งซ้ำ (clientEventId + จุด + ชนิดเดิม) → event เดิม ไม่สร้างแถวใหม่ (ST4-T02 — เดิม T01 ตอบ 409)',
+  })
+  depart(
+    @Param('id') id: string,
+    @Body() body: DepartStopDto,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StopEventDto> {
+    return this.record(id, 'DEPART', body, res);
   }
 
   @Post(':id/complete')
@@ -159,9 +250,18 @@ export class StopsController {
   @TenantResource('tripStop')
   @RequireScope('trips:dispatch')
   @ApiHeader({ name: 'Idempotency-Key', required: false })
-  @ApiCreatedResponse({ type: StopEventDto })
-  complete(@Param('id') id: string, @Body() body: CompleteStopDto): Promise<StopEventDto> {
-    return this.record(id, 'COMPLETE', body);
+  @ApiCreatedResponse({ type: StopEventDto, description: 'สร้าง event ใหม่' })
+  @ApiOkResponse({
+    type: StopEventDto,
+    description:
+      'ส่งซ้ำ (clientEventId + จุด + ชนิดเดิม) → event เดิม ไม่สร้างแถวใหม่ (ST4-T02 — เดิม T01 ตอบ 409)',
+  })
+  complete(
+    @Param('id') id: string,
+    @Body() body: CompleteStopDto,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StopEventDto> {
+    return this.record(id, 'COMPLETE', body, res);
   }
 
   @Post(':id/fail')
@@ -171,8 +271,17 @@ export class StopsController {
   @TenantResource('tripStop')
   @RequireScope('trips:dispatch')
   @ApiHeader({ name: 'Idempotency-Key', required: false })
-  @ApiCreatedResponse({ type: StopEventDto })
-  fail(@Param('id') id: string, @Body() body: FailStopDto): Promise<StopEventDto> {
-    return this.record(id, 'FAIL', body);
+  @ApiCreatedResponse({ type: StopEventDto, description: 'สร้าง event ใหม่' })
+  @ApiOkResponse({
+    type: StopEventDto,
+    description:
+      'ส่งซ้ำ (clientEventId + จุด + ชนิดเดิม) → event เดิม ไม่สร้างแถวใหม่ (ST4-T02 — เดิม T01 ตอบ 409)',
+  })
+  fail(
+    @Param('id') id: string,
+    @Body() body: FailStopDto,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StopEventDto> {
+    return this.record(id, 'FAIL', body, res);
   }
 }

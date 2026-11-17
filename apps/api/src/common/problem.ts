@@ -272,13 +272,25 @@ export const PROBLEMS = {
     en: 'Stop events can only be recorded on a dispatched trip that is not finished',
   },
   /**
-   * ST4-T01: `clientEventId` นี้ถูกบันทึกแล้ว (unique ต่อ tenant — docs/01 §3.9) — extension `eventId`
-   * ST4-T02 จะเปลี่ยนเป็น "คืนผลเดิม" สำหรับคำขอเดียวกัน
+   * `clientEventId` นี้ถูกใช้กับ event อื่นแล้ว (คนละจุด/คนละชนิด — unique ต่อ tenant, docs/01 §3.9) — extension `eventId`
+   * ST4-T02: ส่งซ้ำด้วยจุด + ชนิดเดียวกัน = คืนผลเดิม 200 (ไม่ใช่ error นี้)
    */
   stop_event_duplicate: {
     status: 409,
-    th: 'event นี้ถูกบันทึกไปแล้ว (clientEventId ซ้ำ)',
-    en: 'This event was already recorded (duplicate clientEventId)',
+    th: 'clientEventId นี้ถูกใช้กับ event อื่นแล้ว',
+    en: 'This clientEventId was already used for a different event',
+  },
+  /** ST4-T02: event นี้ไม่มีธงให้ตัดสิน (ลำดับถูกต้องแล้ว / เวลาไม่เพี้ยน / ไม่ได้มาหลังปิด) */
+  stop_event_not_flagged: {
+    status: 409,
+    th: 'เหตุการณ์นี้ไม่มีข้อขัดแย้งให้ตัดสิน',
+    en: 'This stop event has no flag to resolve',
+  },
+  /** ST4-T02: ตัดสินไปแล้ว (1 event ตัดสินได้ครั้งเดียว — แถวใน stop_event_resolution) */
+  stop_event_already_resolved: {
+    status: 409,
+    th: 'เหตุการณ์นี้ถูกตัดสินไปแล้ว',
+    en: 'This stop event flag was already resolved',
   },
   delivery_order_on_trip: {
     status: 409,

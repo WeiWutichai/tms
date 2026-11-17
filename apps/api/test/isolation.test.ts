@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { RequestMethod } from '@nestjs/common';
 import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants';
 import { ModulesContainer } from '@nestjs/core';
@@ -626,10 +627,37 @@ const FIXTURES: Record<string, (db: PrismaClient, tenantId: string, n: number) =
       });
       return encodeId('tripStop', s.id);
     },
+    // ST4-T02 ธงของ stop event (/stop-event-flags/:id/resolve) — event ขัดลำดับ (ปิดงานก่อนถึงจุด)
+    stopEvent: async (db, tenantId, n) => {
+      const site = await db.customerSite.create({
+        data: { tenantId, code: `ISO-E${n}`, name: `Event site ${n}`, address: { line1: 'x' } },
+      });
+      const t = await db.trip.create({
+        data: { tenantId, tripNo: `TRP-ISO-E${n}`, tripDate: new Date('2026-11-17') },
+      });
+      const s = await db.tripStop.create({
+        data: { tenantId, tripId: t.id, sequence: 1, type: 'DELIVERY', siteId: site.id },
+      });
+      const e = await db.stopEvent.create({
+        data: {
+          tenantId,
+          tripId: t.id,
+          tripStopId: s.id,
+          type: 'COMPLETE',
+          outcome: 'DELIVERED',
+          clientEventId: randomUUID(),
+          source: 'WEB',
+          occurredAt: new Date(),
+          sequenceConflict: true,
+        },
+      });
+      return encodeId('event', e.id);
+    },
   };
 
 /** body ขั้นต่ำที่ผ่าน validation ของ action แต่ละแบบ (ให้ไปถึง handler แล้วได้ 404 จริง) */
 const BODY_FOR_SUFFIX: Record<string, object> = {
+  resolve: { decision: 'IGNORE', reason: 'isolation test reason' },
   deactivate: { reason: 'isolation test reason' },
   activate: { reason: 'isolation test' },
   roles: { roles: ['viewer'], reason: 'isolation test' },

@@ -3,11 +3,16 @@ import {
   STOP_EVENT_TYPES,
   STOP_OUTCOMES,
   TRIP_EXECUTION_STATUSES,
+  effectiveStopSequence,
+  isClockSkewed,
   isTripExecutable,
+  stopEventAdmission,
+  stopEventFlagsOf,
   stopEventReasonRule,
   stopOutcomeError,
   type StopEventType,
   type StopOutcome,
+  type StopSeqEvent,
 } from './stop-event';
 import { TRIP_STATUSES } from './trip';
 
@@ -60,5 +65,212 @@ describe('stop event (ST4-T01)', () => {
     expect(stopEventReasonRule('FAIL', 'UNDELIVERED_RETAIN').categories).toEqual([
       'DELIVERY_FAILED',
     ]);
+  });
+});
+
+describe('ST4-T02 ลำดับ event ต่อจุด (effectiveStopSequence)', () => {
+  let n = 0;
+  type Ex = Partial<Omit<StopSeqEvent, 'resolutions'>> & {
+    dec?: 'ACCEPT' | 'IGNORE';
+    decFlags?: string[];
+  };
+  const e = (type: StopEventType, at: string, extra: Ex = {}): StopSeqEvent => {
+    const { dec, decFlags, ...rest } = extra;
+    return {
+      id: `e${String(++n).padStart(3, '0')}`,
+      type,
+      outcome: type === 'COMPLETE' ? 'DELIVERED' : null,
+      occurredAt: new Date(`2026-11-17T${at}:00+07:00`),
+      receivedAt: new Date(`2026-11-17T12:00:${String(n % 60).padStart(2, '0')}+07:00`),
+      lateReason: null,
+      clockSkew: false,
+      resolutions: dec
+        ? [{ decision: dec, flags: decFlags ?? ['SEQUENCE_CONFLICT'], at: new Date() }]
+        : [],
+      ...rest,
+    };
+  };
+
+  it('ลำดับปกติ ออก → ถึง → ปิดงาน = COMPLETED ไม่มีขัดแย้ง', () => {
+    const r = effectiveStopSequence([
+      e('DEPART', '08:00'),
+      e('ARRIVE', '09:00'),
+      e('COMPLETE', '09:30'),
+    ]);
+    expect(r.state).toBe('COMPLETED');
+    expect(r.outcome).toBe('DELIVERED');
+    expect(r.events.map((x) => x.seqStatus)).toEqual(['APPLIED', 'APPLIED', 'APPLIED']);
+    expect(r.enRouteAt?.toISOString()).toBe('2026-11-17T01:00:00.000Z');
+    expect(r.arrivedAt?.toISOString()).toBe('2026-11-17T02:00:00.000Z');
+    expect(r.closedAt?.toISOString()).toBe('2026-11-17T02:30:00.000Z');
+  });
+
+  it('มาถึงสลับลำดับ แต่เวลาเครื่องถูก → ผลเท่าเดิมไม่ว่าลำดับรับ', () => {
+    const evs = [e('COMPLETE', '09:30'), e('ARRIVE', '09:00'), e('DEPART', '08:00')];
+    const a = effectiveStopSequence(evs);
+    const b = effectiveStopSequence([...evs].reverse());
+    expect(a.state).toBe('COMPLETED');
+    expect(a.events.map((x) => x.id)).toEqual(b.events.map((x) => x.id));
+    expect(a.events.every((x) => !x.conflict && x.flags.length === 0)).toBe(true);
+  });
+
+  it('ปิดงานก่อนถึงจุด (docs/01 §3.9) = ขัดแย้ง ไม่นับ · dispatcher ยอมรับ → นับ', () => {
+    const r = effectiveStopSequence([e('DEPART', '08:00'), e('COMPLETE', '09:30')]);
+    expect(r.state).toBe('EN_ROUTE');
+    expect(r.events[1]).toMatchObject({
+      seqStatus: 'CONFLICT',
+      conflict: true,
+      counted: false,
+      flags: ['SEQUENCE_CONFLICT'],
+    });
+    const ok = effectiveStopSequence([
+      e('DEPART', '08:00'),
+      e('COMPLETE', '09:30', { dec: 'ACCEPT' }),
+    ]);
+    expect(ok.state).toBe('COMPLETED');
+    expect(ok.events[1]).toMatchObject({ seqStatus: 'ACCEPTED', conflict: true, counted: true });
+  });
+
+  it('การตัดสินหมดผลเมื่อธงเปลี่ยน: ไม่ใช้ (ขัดลำดับ) แล้ว "ถึงจุด" ที่เวลาก่อนมาถึง → ธงหาย ปิดงานนับตามปกติ', () => {
+    const c = e('COMPLETE', '09:40', { dec: 'IGNORE' });
+    const before = effectiveStopSequence([c]);
+    expect(before.events[0]).toMatchObject({ seqStatus: 'IGNORED' });
+    expect(before.events[0]!.resolution?.decision).toBe('IGNORE');
+    const after = effectiveStopSequence([c, e('ARRIVE', '09:10')]);
+    const done = after.events.find((x) => x.id === c.id)!;
+    expect(done).toMatchObject({ seqStatus: 'APPLIED', flags: [], resolution: null });
+    expect(after.state).toBe('COMPLETED');
+  });
+
+  it('ถึงซ้ำ = ไม่ขัด arrivedAt = เวลาแรก · ออกเดินทางหลังถึงแล้ว = ขัด', () => {
+    const r = effectiveStopSequence([
+      e('ARRIVE', '09:05'),
+      e('ARRIVE', '09:00'),
+      e('DEPART', '09:10'),
+    ]);
+    expect(r.events.map((x) => x.seqStatus)).toEqual(['APPLIED', 'REDUNDANT', 'CONFLICT']);
+    expect(r.arrivedAt?.toISOString()).toBe('2026-11-17T02:00:00.000Z');
+  });
+
+  it('ปิดงานแข่งกัน: ทั้งคู่ขึ้นธง · ผลคงตามตัวที่ server รับก่อน แม้ตัวมาทีหลังมีเวลาก่อน · ยอมรับ/ไม่ใช้ เปลี่ยนตัวที่มีผล', () => {
+    const arrive = e('ARRIVE', '09:00');
+    const first = e('COMPLETE', '10:30', { receivedAt: new Date('2026-11-17T04:00:00Z') });
+    const late = e('COMPLETE', '10:20', {
+      outcome: 'PARTIAL',
+      receivedAt: new Date('2026-11-17T05:00:00Z'),
+    });
+    const r = effectiveStopSequence([arrive, first, late]);
+    expect(r).toMatchObject({ state: 'COMPLETED', outcome: 'DELIVERED' });
+    const byId = (x: typeof r, id: string) => x.events.find((y) => y.id === id)!;
+    expect(byId(r, first.id)).toMatchObject({ conflict: true, seqStatus: 'APPLIED' });
+    expect(byId(r, late.id)).toMatchObject({ conflict: true, seqStatus: 'CONFLICT' });
+    // ยอมรับตัวที่มาทีหลัง → ผลเปลี่ยนเป็นของตัวนั้น
+    const acc = effectiveStopSequence([
+      arrive,
+      first,
+      { ...late, ...e('COMPLETE', '10:20', { dec: 'ACCEPT' }), id: late.id, outcome: 'PARTIAL' },
+    ]);
+    expect(acc.outcome).toBe('PARTIAL');
+    // ไม่ใช้ตัวที่รับก่อน → ตัวที่เหลือมีผล
+    const ign = effectiveStopSequence([
+      arrive,
+      {
+        ...first,
+        resolutions: [{ decision: 'IGNORE', flags: ['SEQUENCE_CONFLICT'], at: new Date() }],
+      },
+      late,
+    ]);
+    expect(ign.outcome).toBe('PARTIAL');
+  });
+
+  it('ส่งไม่สำเร็จได้โดยไม่ถึงจุด · outcome ของ FAIL ว่าง = FAILED', () => {
+    expect(effectiveStopSequence([e('FAIL', '10:00')])).toMatchObject({
+      state: 'FAILED',
+      outcome: 'FAILED',
+    });
+  });
+
+  it('มาหลังปิดเที่ยว (LATE) / เวลาเพี้ยน (SKEWED) ไม่นับจนกว่ายอมรับ (ธงตรง)', () => {
+    const late = effectiveStopSequence([e('ARRIVE', '09:00', { lateReason: 'TRIP_CANCELLED' })]);
+    expect(late).toMatchObject({ state: 'PENDING', arrivedAt: null });
+    expect(late.events[0]!.seqStatus).toBe('LATE');
+    const acc = effectiveStopSequence([
+      e('ARRIVE', '09:00', { lateReason: 'TRIP_CANCELLED', dec: 'ACCEPT', decFlags: ['LATE'] }),
+    ]);
+    expect(acc.state).toBe('ARRIVED');
+    const sk = effectiveStopSequence([e('ARRIVE', '09:00', { clockSkew: true })]);
+    expect(sk).toMatchObject({ state: 'PENDING', arrivedAt: null });
+    expect(sk.events[0]).toMatchObject({ seqStatus: 'SKEWED', flags: ['CLOCK_SKEW'] });
+  });
+
+  it('ยอมรับเวลาเพี้ยนแล้ว event อื่นทำให้ขัดลำดับ → ธงเปลี่ยน การยอมรับหมดผล', () => {
+    const dep = e('DEPART', '11:00', { clockSkew: true, dec: 'ACCEPT', decFlags: ['CLOCK_SKEW'] });
+    expect(effectiveStopSequence([dep]).state).toBe('EN_ROUTE');
+    const r = effectiveStopSequence([dep, e('ARRIVE', '10:00')]);
+    const d = r.events.find((x) => x.id === dep.id)!;
+    expect(d).toMatchObject({
+      flags: ['SEQUENCE_CONFLICT', 'CLOCK_SKEW'],
+      resolution: null,
+      seqStatus: 'SKEWED',
+    });
+    expect(r.state).toBe('ARRIVED');
+  });
+
+  it('ยอมรับ event ที่ถอยสถานะ (ถึงจุดหลังปิดงาน) → นับเวลา แต่ไม่ถอยสถานะ', () => {
+    const r = effectiveStopSequence([
+      e('ARRIVE', '09:00'),
+      e('COMPLETE', '09:10'),
+      e('ARRIVE', '09:20', { dec: 'ACCEPT' }),
+    ]);
+    expect(r.state).toBe('COMPLETED');
+    expect(r.events[2]!.seqStatus).toBe('ACCEPTED');
+  });
+
+  it('เวลาเท่ากัน → เรียงตามชนิด (ออก → ถึง → ปิด) แล้วเวลารับ', () => {
+    const r = effectiveStopSequence([
+      e('COMPLETE', '09:00'),
+      e('ARRIVE', '09:00'),
+      e('DEPART', '09:00'),
+    ]);
+    expect(r.events.map((x) => x.type)).toEqual(['DEPART', 'ARRIVE', 'COMPLETE']);
+    expect(r.state).toBe('COMPLETED');
+  });
+});
+
+describe('ST4-T02 นาฬิกาเพี้ยน / การรับ event ของเที่ยวที่ปิดแล้ว / ธง', () => {
+  const recv = new Date('2026-11-17T12:00:00Z');
+  it('อนาคตเกิน 5 นาที หรือย้อนหลังเกิน 24 ชม. = เพี้ยน', () => {
+    expect(isClockSkewed(new Date('2026-11-17T12:05:00Z'), recv)).toBe(false);
+    expect(isClockSkewed(new Date('2026-11-17T12:05:01Z'), recv)).toBe(true);
+    expect(isClockSkewed(new Date('2026-11-16T12:00:00Z'), recv)).toBe(false);
+    expect(isClockSkewed(new Date('2026-11-16T11:59:59Z'), recv)).toBe(true);
+  });
+  it('เที่ยวยกเลิก/จบแล้ว/จุดถูกถอด = รับ + ธง · ยังไม่เคยปล่อยรถ = ปฏิเสธ', () => {
+    expect(stopEventAdmission('IN_PROGRESS', false, true)).toEqual({ kind: 'ok' });
+    expect(stopEventAdmission('DISPATCHED', true, true)).toEqual({
+      kind: 'late',
+      reason: 'STOP_REMOVED',
+    });
+    expect(stopEventAdmission('CANCELLED', false, true)).toEqual({
+      kind: 'late',
+      reason: 'TRIP_CANCELLED',
+    });
+    expect(stopEventAdmission('CANCELLED', false, false)).toEqual({ kind: 'reject' });
+    expect(stopEventAdmission('PLANNING', true, false)).toEqual({ kind: 'reject' });
+    for (const s of ['COMPLETED', 'COSTED', 'SETTLED'] as const)
+      expect(stopEventAdmission(s, false, true)).toEqual({
+        kind: 'late',
+        reason: 'TRIP_COMPLETED',
+      });
+    for (const s of ['PLANNING', 'OFFERED', 'ASSIGNED'] as const)
+      expect(stopEventAdmission(s, false, false)).toEqual({ kind: 'reject' });
+  });
+  it('ธงเรียงตามความสำคัญ', () => {
+    expect(
+      stopEventFlagsOf({ lateReason: 'TRIP_CANCELLED', sequenceConflict: true, clockSkew: true }),
+    ).toEqual(['LATE', 'SEQUENCE_CONFLICT', 'CLOCK_SKEW']);
+    expect(
+      stopEventFlagsOf({ lateReason: null, sequenceConflict: false, clockSkew: false }),
+    ).toEqual([]);
   });
 });

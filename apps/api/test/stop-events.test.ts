@@ -40,6 +40,7 @@ describe('stop events (ST4-T01)', () => {
   async function trip(
     status: 'ASSIGNED' | 'DISPATCHED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED' = 'DISPATCHED',
     tid = tenantId,
+    dispatched = true,
   ) {
     const n = ++seed;
     const vt = await db.vehicleType.create({
@@ -67,6 +68,8 @@ describe('stop events (ST4-T01)', () => {
         tripNo: `TRP-SE-${n}`,
         tripDate: new Date('2026-11-17'),
         status,
+        // ปล่อยรถแล้ว (event ของเที่ยวที่จบ/ยกเลิกรับแบบ late เฉพาะเที่ยวที่เคยปล่อยรถ)
+        ...(status !== 'ASSIGNED' && dispatched ? { dispatchedAt: new Date() } : {}),
         vehicleId: v.id,
         vehiclePlateSnapshot: v.plate,
         vehicleTypeId: vt.id,
@@ -145,7 +148,8 @@ describe('stop events (ST4-T01)', () => {
       expect(r.receivedAt.getTime()).toBeLessThanOrEqual(Date.now() + 1000);
       expect(r.tripId).toBe(t.id);
       expect(r.appliedAt).toBeNull();
-      expect(r.sequenceConflict).toBe(false);
+      // ST4-T02: DEPART = ออกเดินทางมุ่งหน้าไปจุดนี้ (docs/01 §3.9) → DEPART หลังถึงจุดแล้ว = ขัดลำดับ (เก็บไว้ + ธง)
+      expect(r.sequenceConflict).toBe(r.type === 'DEPART');
     }
     // T01 ยังไม่ไล่สถานะ (ST4-T03)
     expect((await db.tripStop.findUniqueOrThrow({ where: { id: drop.id } })).status).toBe(
@@ -153,7 +157,7 @@ describe('stop events (ST4-T01)', () => {
     );
   });
 
-  it('clientEventId ซ้ำ → 409 stop_event_duplicate (ไม่มีแถวใหม่) · คนละ tenant ใช้ค่าเดียวกันได้', async () => {
+  it('clientEventId ใช้กับคนละชนิด → 409 stop_event_duplicate (ไม่มีแถวใหม่) · คนละ tenant ใช้ค่าเดียวกันได้ (ส่งซ้ำแบบเดิม = 200: stop-event-flags.test.ts)', async () => {
     const { pickup, url } = await trip();
     const body = ev();
     const first = await api(app, admin).post(url(pickup, 'arrive')).send(body).expect(201);
@@ -166,11 +170,19 @@ describe('stop events (ST4-T01)', () => {
     await api(app, other).post(o.url(o.pickup, 'arrive')).send(body).expect(201);
   });
 
-  it('บันทึกได้เฉพาะเที่ยว DISPATCHED / IN_PROGRESS', async () => {
-    for (const status of ['ASSIGNED', 'COMPLETED', 'CANCELLED'] as const) {
-      const { drop, url } = await trip(status);
+  it('เที่ยวยังไม่ปล่อยรถ → 409 · จบ/ยกเลิกแล้ว → รับ + ธง LATE (ST4-T02)', async () => {
+    {
+      const { drop, url } = await trip('ASSIGNED');
       const res = await api(app, admin).post(url(drop, 'arrive')).send(ev()).expect(409);
-      expect(res.body).toMatchObject({ code: 'trip_not_in_progress', tripStatus: status });
+      expect(res.body).toMatchObject({ code: 'trip_not_in_progress', tripStatus: 'ASSIGNED' });
+    }
+    for (const [status, late] of [
+      ['COMPLETED', 'TRIP_COMPLETED'],
+      ['CANCELLED', 'TRIP_CANCELLED'],
+    ] as const) {
+      const { drop, url } = await trip(status);
+      const res = await api(app, admin).post(url(drop, 'arrive')).send(ev()).expect(201);
+      expect(res.body).toMatchObject({ lateReason: late, flags: ['LATE'] });
     }
     const { drop, url } = await trip('IN_PROGRESS');
     await api(app, admin).post(url(drop, 'arrive')).send(ev()).expect(201);
@@ -308,10 +320,11 @@ describe('stop events (ST4-T01)', () => {
     expect(await db.stopEvent.count({ where: { clientEventId: body.clientEventId } })).toBe(1);
   });
 
-  it('จุดที่ถอดออกแล้ว / id ผิดรูป / ของบริษัทอื่น → 404', async () => {
+  it('จุดที่ถอดออกแล้ว → รับ + ธง LATE STOP_REMOVED (ST4-T02) · id ผิดรูป / ของบริษัทอื่น → 404', async () => {
     const { drop, url } = await trip();
     await db.tripStop.update({ where: { id: drop.id }, data: { removedAt: new Date() } });
-    await api(app, admin).post(url(drop, 'arrive')).send(ev()).expect(404);
+    const r = await api(app, admin).post(url(drop, 'arrive')).send(ev()).expect(201);
+    expect(r.body).toMatchObject({ lateReason: 'STOP_REMOVED', flags: ['LATE'] });
     await api(app, admin).post('/v1/stops/stp_123/arrive').send(ev()).expect(404);
     const o = await trip();
     const res = await api(app, other).post(o.url(o.drop, 'arrive')).send(ev()).expect(404);
