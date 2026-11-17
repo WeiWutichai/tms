@@ -72,7 +72,9 @@ export class WebhookDeliveryListQuery {
   @Matches(/^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$/)
   eventType?: string;
 
-  @ApiPropertyOptional({ description: 'true = เฉพาะ event ทดสอบ/ยืนยันปลายทาง · false = เฉพาะ event จริง' })
+  @ApiPropertyOptional({
+    description: 'true = เฉพาะ event ทดสอบ/ยืนยันปลายทาง · false = เฉพาะ event จริง',
+  })
   @IsOptional()
   @Transform(({ value }) => (value === 'true' ? true : value === 'false' ? false : value))
   @IsBoolean()
@@ -102,7 +104,11 @@ export class WebhookDeliveryDto {
   @ApiProperty({ description: 'event ทดสอบ / ยืนยันปลายทาง (ส่งซ้ำไม่ได้)' }) test!: boolean;
   @ApiProperty({ enum: DELIVERY_STATUSES }) status!: DeliveryStatus;
   @ApiProperty({ example: 'https://erp.example.co.th/tms/webhook' }) requestUrl!: string;
-  @ApiProperty({ nullable: true, type: Number, description: 'HTTP status (null = ไม่ได้ response)' })
+  @ApiProperty({
+    nullable: true,
+    type: Number,
+    description: 'HTTP status (null = ไม่ได้ response)',
+  })
   responseStatus!: number | null;
   @ApiProperty() durationMs!: number;
   @ApiProperty({ nullable: true, type: String, enum: ERROR_CODES }) errorCode!: string | null;
@@ -156,7 +162,9 @@ export const RESEND_STATES = ['delivered', 'failed', 'queued', 'skipped'] as con
 export class WebhookResendResultDto {
   @ApiProperty({ example: 'whe_8f3a…' }) endpointId!: string;
   @ApiProperty({ example: 'evt_8f3a…' }) eventId!: string;
-  @ApiProperty({ description: 'ครั้งที่ส่ง (X-TMS-Attempt) — ต่อจากครั้งล่าสุดของ event นี้ที่ endpoint นี้' })
+  @ApiProperty({
+    description: 'ครั้งที่ส่ง (X-TMS-Attempt) — ต่อจากครั้งล่าสุดของ event นี้ที่ endpoint นี้',
+  })
   attempt!: number;
   @ApiProperty({
     enum: RESEND_STATES,

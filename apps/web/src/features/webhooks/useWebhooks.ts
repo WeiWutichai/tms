@@ -121,3 +121,34 @@ export function parseHeaders(s: string): { name: string; value: string }[] | nul
 
 /** URL ตามกฎของต้นแบบ (cfHook) — https และมีโดเมน */
 export const HOOK_URL_RE = /^https:\/\/[^\s/$.?#][^\s]*\.[^\s]+$/i;
+
+export type WebhookDelivery = Schemas['WebhookDeliveryDto'];
+export type WebhookDeliveryDetail = Schemas['WebhookDeliveryDetailDto'];
+export type WebhookResendResult = Schemas['WebhookResendResultDto'];
+
+/** ประวัติการส่งใน drawer (ST7-T05) — 50 ครั้งล่าสุดของ endpoint (รวมทุก attempt; จัดกลุ่มต่อ event ที่หน้าจอ) */
+export function useWebhookDeliveries(endpointId: string) {
+  return useQuery({
+    queryKey: [KEY, 'deliveries', endpointId],
+    queryFn: () =>
+      unwrap(api.GET('/v1/webhook-deliveries', { params: { query: { endpointId, limit: 50 } } })),
+  });
+}
+
+/** รายละเอียด 1 ครั้ง (payload/response — ค่า header เพิ่มเติมเป็น ***) — เรียกตอนกด "ดูข้อมูล" */
+export function fetchDelivery(id: string): Promise<WebhookDeliveryDetail> {
+  return unwrap(api.GET('/v1/webhook-deliveries/{id}', { params: { path: { id } } }));
+}
+
+/** ส่งซ้ำ (ผ่าน outbox รอผล ≤ 10 วิ) */
+export function useRetryDelivery() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      unwrap(api.POST('/v1/webhook-deliveries/{id}/retry', { params: { path: { id } } })),
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: [KEY] });
+      qc.invalidateQueries({ queryKey: ['history'] });
+    },
+  });
+}

@@ -6,6 +6,7 @@ import type { MessageKey } from '../../i18n/th';
 import { HistoryTab } from '../master/HistoryTab';
 import { useHookFormat } from './format';
 import type { Webhook } from './useWebhooks';
+import { DeliveryHistory } from './WebhookDeliveries';
 
 type Tab = 'info' | 'act';
 
@@ -24,7 +25,7 @@ function Kv({ k, v }: { k: string; v: ReactNode }) {
  * Drawer ของ webhook endpoint — ต้นแบบ TMS v4 vPanelApi hook: หัว "Webhook endpoint · Production", รหัส, ป้ายสถานะ, URL ·
  * แท็บ รายละเอียด / กิจกรรม · ข้อมูล (URL, อัตราสำเร็จ 7 วัน, ล้มเหลวติดต่อกัน, ส่งล่าสุด, นโยบายลองใหม่) · ชิป Event ที่สมัคร ·
  * กล่องโค้ด "ตรวจลายเซ็น (Node.js)" + คัดลอก · ปุ่มล่าง: ปิด/เปิดใช้งาน · หมุน signing secret · ส่ง event ทดสอบ
- * - "ประวัติการส่ง" (รายการ delivery + ดูข้อมูล/ส่งซ้ำ) มาใน ST7-T05 [DECISION spec/12 §3]
+ * - "ประวัติการส่ง" (ST7-T05): แถวละ event · ดูข้อมูล (payload/response) · ส่งซ้ำ — อยู่ระหว่างชิป event กับกล่องโค้ดตามต้นแบบ
  * - นโยบายลองใหม่ตาม docs/04 G1 (8 ครั้ง ~3 วัน · ปิดเมื่อ 50 event ล้มติด) แทนข้อความต้นแบบ "8 ครั้งใน 24 ชม. · 8 ครั้ง"
  */
 export function WebhookDrawer({
@@ -35,6 +36,7 @@ export function WebhookDrawer({
   onTest,
   onCopied,
   onClose,
+  toast,
 }: {
   h: Webhook;
   canWrite: boolean;
@@ -43,6 +45,7 @@ export function WebhookDrawer({
   onTest: () => void;
   onCopied: () => void;
   onClose: () => void;
+  toast: (s: string) => void;
 }) {
   const { t } = useI18n();
   const fm = useHookFormat();
@@ -98,6 +101,7 @@ export function WebhookDrawer({
               ))}
             </div>
           </section>
+          <DeliveryHistory endpointId={h.id} canWrite={canWrite} toast={toast} />
           <section className="whk-code">
             <div className="whk-code__h">
               <span>{t('whk.code.title')}</span>
@@ -147,6 +151,18 @@ function describe(
       return { title: t('whk.menu.on'), tone: 'ok', icon: 'power' };
     case 'webhook_endpoint.auto_disabled':
       return { title: t('whk.h.auto'), tone: 'err', icon: 'webhook' };
+    case 'webhook_endpoint.delivery_retried':
+      return {
+        title: t('whk.dlog.retried', { ev: String(r.after?.eventType ?? '') }),
+        tone: 'info',
+        icon: 'refresh-cw',
+      };
+    case 'webhook_endpoint.event_redelivered':
+      return {
+        title: t('whk.dlog.redelivered', { ev: String(r.after?.eventType ?? '') }),
+        tone: 'info',
+        icon: 'refresh-cw',
+      };
     case 'webhook_endpoint.test_sent':
       return { title: t('whk.menu.test'), tone: 'info', icon: 'send' };
     default:

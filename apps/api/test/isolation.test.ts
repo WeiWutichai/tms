@@ -270,7 +270,13 @@ const FIXTURES: Record<string, (db: PrismaClient, tenantId: string, n: number) =
         },
       });
       const ev = await db.domainEvent.create({
-        data: { tenantId, type: 'order.created', entityType: 'order', localId: randomUUID(), snapshot: {} },
+        data: {
+          tenantId,
+          type: 'order.created',
+          entityType: 'order',
+          localId: randomUUID(),
+          snapshot: {},
+        },
       });
       const d = await db.webhookDelivery.create({
         data: {

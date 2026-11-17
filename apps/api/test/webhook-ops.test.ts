@@ -192,9 +192,7 @@ describe('webhook ops (ST7-T05)', () => {
     expect(
       (await api(app, token).get('/v1/webhook-deliveries?cursor=bad').expect(422)).body.code,
     ).toBe('validation_failed');
-    expect(
-      (await api(app, token).get('/v1/webhook-deliveries?status=ok')).status,
-    ).toBe(422);
+    expect((await api(app, token).get('/v1/webhook-deliveries?status=ok')).status).toBe(422);
 
     const det = await api(app, token).get(`/v1/webhook-deliveries/${d.id}`).expect(200);
     expect(det.body.requestHeaders['X-Client-Token']).toBe('***');
@@ -250,7 +248,9 @@ describe('webhook ops (ST7-T05)', () => {
     const list = await api(app, token)
       .get(`/v1/webhook-deliveries?eventId=${encodeId('event', ev.id)}`)
       .expect(200);
-    expect(list.body.data.map((x: { attempt: number; status: string }) => [x.attempt, x.status])).toEqual([
+    expect(
+      list.body.data.map((x: { attempt: number; status: string }) => [x.attempt, x.status]),
+    ).toEqual([
       [2, 'delivered'],
       [1, 'failed'],
     ]);
@@ -258,7 +258,11 @@ describe('webhook ops (ST7-T05)', () => {
       where: { entityId: ep(h.id), action: 'webhook_endpoint.delivery_retried' },
     });
     expect(audit.actorId).toBe(userId);
-    expect(audit.after).toMatchObject({ eventId: encodeId('event', ev.id), attempt: 2, deliveryId: d.id });
+    expect(audit.after).toMatchObject({
+      eventId: encodeId('event', ev.id),
+      attempt: 2,
+      deliveryId: d.id,
+    });
   });
 
   it('retry ที่ยังล้ม: ครั้งเดียว ไม่ retry อัตโนมัติ · ไม่นับเข้าการปิดอัตโนมัติ · รอบอัตโนมัติเดิมยังเดินต่อ', async () => {
@@ -302,15 +306,17 @@ describe('webhook ops (ST7-T05)', () => {
 
     const viewer = await tokenFor(tenantId, 'settings:read', userId);
     expect((await api(app, viewer).get(`/v1/webhook-deliveries/${d.id}`)).status).toBe(200);
-    expect((await api(app, viewer).post(`/v1/webhook-deliveries/${d.id}/retry`).send({})).status).toBe(
+    expect(
+      (await api(app, viewer).post(`/v1/webhook-deliveries/${d.id}/retry`).send({})).status,
+    ).toBe(403);
+    const ev = (d.eventId as string).slice(4);
+    expect((await api(app, viewer).post(`/v1/events/evt_${ev}/redeliver`).send({})).status).toBe(
       403,
     );
-    const ev = (d.eventId as string).slice(4);
-    expect(
-      (await api(app, viewer).post(`/v1/events/evt_${ev}/redeliver`).send({})).status,
-    ).toBe(403);
 
-    expect((await api(app, token).post(`/v1/webhook-deliveries/${d.id}/retry`).send({})).status).toBe(200);
+    expect(
+      (await api(app, token).post(`/v1/webhook-deliveries/${d.id}/retry`).send({})).status,
+    ).toBe(200);
     const again = await api(app, token).post(`/v1/webhook-deliveries/${d.id}/retry`).send({});
     expect(again.status).toBe(429);
     expect(again.body.retryAfter).toBeGreaterThan(0);
@@ -384,7 +390,11 @@ describe('webhook ops (ST7-T05)', () => {
     expect(exp.status).toBe(422);
     expect(exp.body.code).toBe('webhook_event_expired');
     expect(
-      (await api(app, token).post(`/v1/events/evt_${'0'.repeat(32)}/redeliver`).send({})).status,
+      (
+        await api(app, token)
+          .post(`/v1/events/evt_${'0'.repeat(32)}/redeliver`)
+          .send({})
+      ).status,
     ).toBe(404);
     const audit = await plat.auditLog.count({
       where: { entityId: ep(a.id), action: 'webhook_endpoint.event_redelivered' },
@@ -400,8 +410,11 @@ describe('webhook ops (ST7-T05)', () => {
     expect(r.body.data).toEqual([]);
     expect((await api(app, tok).get(`/v1/webhook-deliveries/${d.id}`)).status).toBe(404);
     expect(
-      (await api(app, tok).post(`/v1/events/${encodeId('event', ev.id)}/redeliver`).send({}))
-        .status,
+      (
+        await api(app, tok)
+          .post(`/v1/events/${encodeId('event', ev.id)}/redeliver`)
+          .send({})
+      ).status,
     ).toBe(404);
   });
 
@@ -446,14 +459,16 @@ describe('webhook ops (ST7-T05)', () => {
     expect(r.parkedDropped).toBe(1);
     expect(await plat.webhookDelivery.count({ where: { id: oldId } })).toBe(0);
     expect(
-      await plat.webhookDelivery.count({ where: { id: tryDecodeId('webhookDelivery', d.id as string)! } }),
+      await plat.webhookDelivery.count({
+        where: { id: tryDecodeId('webhookDelivery', d.id as string)! },
+      }),
     ).toBe(1);
     const p = await plat.integrationOutbox.findUniqueOrThrow({ where: { id: parked.id } });
     expect(p.status).toBe('SKIPPED');
     expect((p.lastError as { code: string }).code).toBe('parked_expired');
-    expect((await plat.integrationOutbox.findUniqueOrThrow({ where: { id: fresh.id } })).status).toBe(
-      'PENDING',
-    );
+    expect(
+      (await plat.integrationOutbox.findUniqueOrThrow({ where: { id: fresh.id } })).status,
+    ).toBe('PENDING');
     // role แอปลบประวัติเองไม่ได้
     await expect(
       db.withTenant(tenantId, (tx) => tx.webhookDelivery.deleteMany({})),

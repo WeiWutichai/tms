@@ -21,8 +21,8 @@ import { WebhooksService } from './webhooks.service';
 const DAY = 24 * 60 * 60 * 1000;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** จำกัดการส่งซ้ำ: event เดิมที่ endpoint เดิม 1 ครั้ง / 5 วิ · ต่อบริษัท 20 ครั้ง / นาที (นับใน process เหมือน "ส่ง event ทดสอบ") */
-const PAIR_WINDOW_MS = 5_000;
+/** จำกัดการส่งซ้ำ: event เดิมที่ endpoint เดิม 1 ครั้ง / 2 วิ (กันกดรัว) · ต่อบริษัท 20 ครั้ง / นาที (นับใน process เหมือน "ส่ง event ทดสอบ") */
+const PAIR_WINDOW_MS = 2_000;
 const TENANT_WINDOW_MS = 60_000;
 const TENANT_MAX = 20;
 
@@ -180,7 +180,10 @@ export class WebhookOpsService {
     );
     if (w) throw new ProblemException('rate_limited', undefined, undefined, { retryAfter: w });
     for (const k of [`t:${tenantId}`, ...pairs.map((p) => `p:${p}`)])
-      this.hits.set(k, [...(this.hits.get(k) ?? []).filter((t) => now - t < TENANT_WINDOW_MS), now]);
+      this.hits.set(k, [
+        ...(this.hits.get(k) ?? []).filter((t) => now - t < TENANT_WINDOW_MS),
+        now,
+      ]);
     if (this.hits.size > 10_000) this.hits.clear();
   }
 
