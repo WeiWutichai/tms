@@ -1,8 +1,12 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma, type SoStatus as DbSoStatus } from '@prisma/client';
 import {
+  DO_DELIVERED_STATUSES,
+  DO_MOVING_STATUSES,
+  DO_UNDELIVERED_STATUSES,
   SO_TRANSITIONS,
   canCancelOrder,
+  orderDeliveryEvent,
   transition,
   type SoEvent,
   type SoStatus,
@@ -28,8 +32,6 @@ export interface CancelOrderInput {
 }
 
 const ENTITY = 'sales_order';
-/** DO ที่ออกรถแล้วแต่ยังไม่จบการส่ง */
-const MOVING = new Set(['DISPATCHED', 'PICKED_UP']);
 
 /**
  * สถานะ SO ตาม DO (ST3-T11; docs/01 §4.1) — **ทางเดียว** นอกทางเข้า (OrderIntakeService) ที่เปลี่ยนสถานะ sales_order
@@ -38,8 +40,10 @@ const MOVING = new Set(['DISPATCHED', 'PICKED_UP']);
  * - RECEIVED/ON_HOLD + มี DO อยู่ในเที่ยวที่ยังใช้ → `plan` → PLANNED (เคลียร์เหตุค้าง — §4.1 "ON_HOLD → PLANNED คนจัดรถให้โดยตรง")
  * - PLANNED + มี DO ออกรถแล้ว → `dispatch` → IN_TRANSIT ("trip ของ DO แรก DISPATCHED")
  * - PLANNED + ไม่มี DO ในเที่ยวแล้ว (ถอด/ยกเลิกเที่ยว) → `unplan` → RECEIVED แล้วประเมินใบค้างใหม่ (`reevaluate` — เช่น RATE_MISSING กลับมา)
- * - IN_TRANSIT + ไม่มี DO ที่ออกรถแล้ว (ยกเลิกเที่ยวที่ปล่อยแล้วก่อนรับของ) → `recall` → PLANNED (→ `unplan` ถ้าไม่มี DO ในเที่ยว)
- * - ส่งแล้ว/ส่งบางส่วน (ST4) — ยังไม่แตะ
+ * - IN_TRANSIT + ไม่มี DO ที่ออกรถแล้ว และไม่มี DO ที่ส่งถึง/ส่งไม่สำเร็จ (ยกเลิกเที่ยวที่ปล่อยแล้วก่อนรับของ) → `recall` → PLANNED
+ *   (→ `unplan` ถ้าไม่มี DO ในเที่ยว)
+ * - ST4-T03 ความคืบหน้าการส่ง (domain `orderDeliveryEvent`): ส่งครบทุกบรรทัด → DELIVERED · ส่งบางส่วนและไม่มี DO วิ่ง →
+ *   PARTIALLY_DELIVERED · DO ที่เหลือออกรถ → IN_TRANSIT (`resume`) · DO ส่งไม่สำเร็จทั้งหมด → คง IN_TRANSIT (ส่งใหม่/คืนคลัง ST4-T11)
  */
 @Injectable()
 export class OrderStateService {
@@ -190,10 +194,14 @@ export class OrderStateService {
     if (!so) return;
     const onTrip =
       (await tx.deliveryOrder.count({ where: { salesOrderId: id, ...ON_ACTIVE_TRIP_WHERE } })) > 0;
-    const moving =
-      (await tx.deliveryOrder.count({
-        where: { salesOrderId: id, status: { in: [...MOVING] as never[] } },
-      })) > 0;
+    const dos = await tx.deliveryOrder.findMany({
+      where: { salesOrderId: id, status: { not: 'CANCELLED' } },
+      select: { status: true },
+    });
+    const has = (set: readonly string[]) => dos.some((d) => set.includes(d.status));
+    const moving = has(DO_MOVING_STATUSES);
+    const anyDelivered = has(DO_DELIVERED_STATUSES);
+    const finished = anyDelivered || has(DO_UNDELIVERED_STATUSES);
     let status = so.status as SoStatus;
     const events: SoEvent[] = [];
     const step = (e: SoEvent) => {
@@ -214,9 +222,17 @@ export class OrderStateService {
         },
       })) > 0;
     if ((status === 'RECEIVED' || status === 'ON_HOLD') && onTrip && !rejectedPending) step('plan');
-    if (status === 'IN_TRANSIT' && !moving) step('recall');
+    if (status === 'IN_TRANSIT' && !moving && !finished) step('recall');
     if (status === 'PLANNED' && moving) step('dispatch');
     else if (status === 'PLANNED' && !onTrip) step('unplan');
+    if (status === 'IN_TRANSIT' || status === 'PARTIALLY_DELIVERED') {
+      const allDelivered =
+        anyDelivered &&
+        dos.every((d) => (DO_DELIVERED_STATUSES as readonly string[]).includes(d.status)) &&
+        (await this.deliveryOrders.allocation(id, tx)).every((l) => Number(l.remaining) <= 0);
+      const ev = orderDeliveryEvent(status, { anyDelivered, allDelivered, moving });
+      if (ev) step(ev);
+    }
     let from = so.status as SoStatus;
     for (const event of events) {
       await this.state.transition<SoStatus, SoEvent>(tx, {

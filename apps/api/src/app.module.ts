@@ -91,6 +91,7 @@ import { TripsController } from './modules/trips/trips.controller';
 import { StopEventFlagsController } from './modules/stops/stop-event-flags.controller';
 import { StopsController } from './modules/stops/stops.controller';
 import { StopEventsService } from './modules/stops/stop-events.service';
+import { StopProjectionService } from './modules/stops/stop-projection.service';
 import { PlanningController } from './modules/planning/planning.controller';
 import { PlanningService } from './modules/planning/planning.service';
 import { ScheduleController } from './modules/schedule/schedule.controller';
@@ -236,6 +237,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     OrderStateService,
     TripService,
     StopEventsService,
+    StopProjectionService,
     SubconHireService,
     SubconOfferService,
     SubconTimeoutService,

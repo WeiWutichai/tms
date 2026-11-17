@@ -178,6 +178,7 @@ const EVENT_TYPE: Partial<Record<TripEvent, string>> = {
   assign: 'trip.assigned',
   reassign: 'trip.assigned',
   dispatch: 'trip.dispatched',
+  start: 'trip.started',
   complete: 'trip.completed',
   cancel: 'trip.cancelled',
 };
@@ -1385,6 +1386,26 @@ export class TripService {
   }
 
   /**
+   * ไล่สถานะเที่ยวจากจุดแวะ (ST4-T03 — `StopProjectionService` ถือล็อก SO → DO → trip แล้ว): `start` DISPATCHED → IN_PROGRESS
+   * (`trip.started` — plan/00a เพิ่มจาก spec/07; payload `startedAt` = เวลาถึงจุดแรก) · `complete` IN_PROGRESS → COMPLETED
+   * (`trip.completed`; `completedAt` = เวลาปิดจุดสุดท้าย)
+   * ไม่ตรวจ If-Match (ระบบทำตาม event) แต่เพิ่ม version
+   */
+  async applyExecution(
+    tx: Tx,
+    tripId: string,
+    event: Extract<TripEvent, 'start' | 'complete'>,
+    at: Date,
+  ): Promise<TripRecord> {
+    const trip = await this.get(tripId, tx);
+    await this.transition(tx, trip, event, event === 'complete' ? { completedAt: at } : {}, {
+      snapshot:
+        event === 'start' ? { startedAt: at.toISOString() } : { completedAt: at.toISOString() },
+    });
+    return this.get(tripId, tx);
+  }
+
+  /**
    * ยกเลิกเที่ยว (PLANNING/OFFERED/ASSIGNED/DISPATCHED): เหตุผล ≥ 10 ตัวอักษร + reason code หมวด CANCEL (ไม่บังคับ) + audit
    * DO ที่ยังไม่รับของ (DRAFT/PLANNED/DISPATCHED) → DRAFT นอกเที่ยว (ล้าง trip_id/จุด) · รับของแล้ว → 409 `trip_has_loaded_orders`
    * SO ตาม DO (PLANNED/IN_TRANSIT → RECEIVED + ประเมินใบค้างใหม่) · ค่าชดเชยรถร่วม (PLN-012) = ST3-T25/ST6
@@ -1714,7 +1735,13 @@ export class TripService {
     trip: TripRecord,
     event: TripEvent,
     data: Prisma.TripUncheckedUpdateManyInput,
-    extra: { reasonCodeId?: string | null; note?: string | null; bump?: boolean } = {},
+    extra: {
+      reasonCodeId?: string | null;
+      note?: string | null;
+      bump?: boolean;
+      /** ช่องเพิ่มใน payload ของ domain_event (ST4-T03 startedAt/completedAt) */
+      snapshot?: Record<string, unknown>;
+    } = {},
   ) {
     await this.state.transition<TripStatus, TripEvent>(tx, {
       docType: ENTITY,
@@ -1735,7 +1762,7 @@ export class TripService {
           },
         });
         if (r.count === 0) throw new ProblemException('concurrent_update');
-        return eventView(await this.get(trip.id, tx));
+        return { ...eventView(await this.get(trip.id, tx)), ...(extra.snapshot ?? {}) };
       },
     });
   }

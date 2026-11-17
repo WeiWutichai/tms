@@ -76,6 +76,10 @@ describe('stop event idempotency / ordering / flags (ST4-T02)', () => {
     const stop = await db.tripStop.create({
       data: { tenantId: tid, tripId: t.id, sequence: 1, type: 'DELIVERY', siteId: site.id },
     });
+    // จุดที่ 2 ยังไม่ปิด → ปิดจุดที่ 1 แล้วเที่ยวยังวิ่ง (ST4-T03 ไล่เที่ยวเป็น COMPLETED เมื่อทุกจุดจบ — event ต่อจากนั้น = LATE)
+    await db.tripStop.create({
+      data: { tenantId: tid, tripId: t.id, sequence: 2, type: 'DELIVERY', siteId: site.id },
+    });
     const sid = encodeId('tripStop', stop.id);
     return {
       trip: t,
