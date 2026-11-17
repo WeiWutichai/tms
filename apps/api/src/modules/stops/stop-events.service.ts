@@ -421,15 +421,46 @@ export class StopEventsService {
     return stops.flatMap((evs) => effectiveStopSequence(evs.map(toSeqEvent)).events);
   }
 
-  /** ชื่อผู้ใช้ภายในจาก id (ผู้บันทึก/ผู้ตัดสิน) — id ที่ไม่ใช่ uuid (dev token / ระบบ) = ไม่มีชื่อ */
+  /**
+   * ชื่อผู้ใช้ภายในจาก id (ผู้บันทึก/ผู้ตัดสิน) — id ที่ไม่ใช่ uuid (dev token / ระบบ) = ไม่มีชื่อ
+   * · ST4-T08 `link:{id}` = ชื่อรถร่วมของลิงก์
+   */
   async userNames(ids: (string | null | undefined)[]): Promise<Map<string, string>> {
     const uuids = [...new Set(ids.filter((x): x is string => !!x && /^[0-9a-f-]{36}$/i.test(x)))];
-    if (!uuids.length) return new Map();
-    const users = await this.db.tx.appUser.findMany({
-      where: { id: { in: uuids } },
-      select: { id: true, name: true },
-    });
-    return new Map(users.map((u) => [u.id, u.name]));
+    const users = !uuids.length
+      ? []
+      : await this.db.tx.appUser.findMany({
+          where: { id: { in: uuids } },
+          select: { id: true, name: true },
+        });
+    const out = new Map(users.map((u) => [u.id, u.name]));
+    // ST4-T08 ผู้บันทึกผ่านลิงก์รถร่วม (`link:{magic_link.id}`) → ชื่อรถร่วมของการจ้างที่ลิงก์ชี้
+    const linkIds = [
+      ...new Set(
+        ids.flatMap((x) => {
+          const m = x ? /^link:([0-9a-f-]{36})$/i.exec(x) : null;
+          return m ? [m[1]!] : [];
+        }),
+      ),
+    ];
+    if (linkIds.length) {
+      const links = await this.db.tx.magicLink.findMany({
+        where: { id: { in: linkIds }, entityType: 'subcon_offer' },
+        select: { id: true, entityId: true },
+      });
+      const offers = links.length
+        ? await this.db.tx.subconOffer.findMany({
+            where: { id: { in: links.map((l) => l.entityId) } },
+            select: { id: true, carrierNameSnapshot: true },
+          })
+        : [];
+      const nameOf = new Map(offers.map((o) => [o.id, o.carrierNameSnapshot]));
+      for (const l of links) {
+        const n = nameOf.get(l.entityId);
+        if (n) out.set(`link:${l.id}`, n);
+      }
+    }
+    return out;
   }
 
   /** ธงของ event เดียว (รูปเดียวกับรายการ) */

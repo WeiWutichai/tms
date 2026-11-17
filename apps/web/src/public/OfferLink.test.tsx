@@ -53,6 +53,7 @@ const view = (o: Partial<OfferView> = {}): OfferView => ({
     { code: 'NO_VEHICLE_TYPE', label: 'ไม่มีรถประเภทที่ต้องการ' },
     { code: 'ROUTE_INCONVENIENT', label: 'เส้นทางไม่สะดวก' },
   ],
+  podUrl: null,
   ...o,
 });
 const q: { data: OfferView | undefined; error: unknown; isError: boolean; isLoading: boolean } = {
@@ -280,6 +281,32 @@ describe('OfferLinkPage (ST3-T23)', () => {
     expect(screen.getByRole('alert').textContent).toBe(
       'ข้อเสนองานนี้ปิดแล้ว — ดูสถานะล่าสุดด้านบน',
     );
+  });
+
+  it('ST4-T08: รับงานแล้ว → แท็บ "ส่ง POD" ไปหน้าลิงก์งาน + ข้อความในการ์ดรับงาน', () => {
+    q.data = view({
+      status: 'ACCEPTED',
+      accepted: { plate: '74-5521', driverName: 'สมชาย ใจดี' },
+      podUrl: 'https://app.example/link/pod/ml1.pod',
+    });
+    render(
+      <I18nProvider>
+        <MemoryRouter initialEntries={['/link/offer/ml1.x']}>
+          <Routes>
+            <Route path="/link/offer/:token" element={<OfferLinkPage />} />
+            <Route path="/link/pod/:token" element={<span>POD PAGE</span>} />
+          </Routes>
+        </MemoryRouter>
+      </I18nProvider>,
+    );
+    expect(screen.getByText('หลังส่งงาน อัปโหลด POD ได้ที่แท็บ "ส่ง POD"')).toBeTruthy();
+    fireEvent.click(screen.getByRole('tab', { name: 'ส่ง POD' }));
+    expect(screen.getByText('POD PAGE')).toBeTruthy();
+  });
+
+  it('ยังไม่รับงาน → ไม่มีแท็บ "ส่ง POD"', () => {
+    show();
+    expect(screen.queryByRole('tab', { name: 'ส่ง POD' })).toBeNull();
   });
 
   it('timeLeft / isThaiPhone', () => {
