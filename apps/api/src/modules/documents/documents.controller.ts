@@ -30,6 +30,7 @@ import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
 import { LocalFileStore } from '../../pdf/file-store';
+import { POD_LINK_PURPOSE, podLinkUsable } from '../trips/offer-links';
 import { ALLOWED_MIME, EXT, IMPORT_MIME, sniffMime, type AllowedMime } from './mime';
 import { DOWNLOAD_TTL_S, signDocumentUrl, UPLOAD_TTL_S, verifyDocumentUrl } from './signed-url';
 
@@ -218,6 +219,21 @@ export class DocumentsController {
         const link = await tx.magicLink.findUnique({ where: { id: doc.createdBy.slice(5) } });
         if (!link || link.revokedAt || link.expiresAt.getTime() <= Date.now())
           throw new ProblemException('not_found');
+        // ST4-T09 ลิงก์งานรถร่วม: ใช้ได้ตามเที่ยว (เที่ยวจบเกิน 7 วัน / การจ้างไม่ ACCEPTED แล้ว → 404) เหมือน /public/pod
+        if (link.purpose === POD_LINK_PURPOSE) {
+          const offer = await tx.subconOffer.findUnique({
+            where: { id: link.entityId },
+            select: { status: true, carrierId: true, tripId: true },
+          });
+          const trip = offer
+            ? await tx.trip.findUnique({
+                where: { id: offer.tripId },
+                select: { status: true, carrierId: true, completedAt: true },
+              })
+            : null;
+          if (!offer || !trip || !podLinkUsable(offer, trip, new Date()))
+            throw new ProblemException('not_found');
+        }
       }
       const fail = (code: string, message: string) =>
         new ProblemException('validation_failed', undefined, [{ field: 'content', code, message }]);
