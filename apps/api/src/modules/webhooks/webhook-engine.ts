@@ -43,7 +43,8 @@ export interface WebhookEnvelope {
   request: { id: string | null; idempotencyKey: string | null };
 }
 
-export type Outcome = 'DELIVERED' | 'FAILED' | 'EXHAUSTED';
+/** ABORTED = ถูกยกเลิกกลางส่ง (lease หาย/ปิด worker) — ไม่บันทึก delivery ไม่นับล้มเหลว */
+export type Outcome = 'DELIVERED' | 'FAILED' | 'EXHAUSTED' | 'ABORTED';
 
 export interface AttemptResult {
   outcome: Outcome;
@@ -175,6 +176,15 @@ export class WebhookEngine {
       ...this.sendOptions,
       ...(input.signal ? { signal: input.signal } : {}),
     });
+    if (send.errorCode === 'aborted')
+      return {
+        outcome: 'ABORTED',
+        retryable: false,
+        send,
+        errorCode: 'aborted',
+        nextRetryAt: null,
+        deliveryId: '',
+      };
     const cls = classifySend(send);
     const last = input.test || !cls.retryable || input.attempt >= WEBHOOK_MAX_ATTEMPTS;
     const outcome: Outcome = cls.ok ? 'DELIVERED' : last ? 'EXHAUSTED' : 'FAILED';
@@ -210,7 +220,14 @@ export class WebhookEngine {
         },
         select: { id: true },
       });
-      await this.afterAttempt(tx, input.tenantId, e, outcome, input.test);
+      // invalid_request = ประกอบคำขอไม่ได้ (ฝั่งเรา) — ไม่ใช่ความล้มเหลวของผู้รับ จึงไม่นับเข้าการปิดอัตโนมัติ
+      await this.afterAttempt(
+        tx,
+        input.tenantId,
+        e,
+        outcome,
+        input.test || cls.errorCode === 'invalid_request',
+      );
       if (cls.ok && input.onDelivered) await input.onDelivered(tx, send);
       return d.id;
     });
@@ -319,7 +336,11 @@ export class WebhookEngine {
   }
 }
 
-function truncate(s: string): string {
-  if (s.length <= WEBHOOK_STORED_RESPONSE_BYTES) return s;
-  return s.slice(0, WEBHOOK_STORED_RESPONSE_BYTES);
+/** ตัดที่ 4 KB ตามจำนวน byte (UTF-8) ไม่ตัดกลางอักขระ */
+export function truncate(s: string): string {
+  const b = Buffer.from(s, 'utf8');
+  if (b.length <= WEBHOOK_STORED_RESPONSE_BYTES) return s;
+  return new TextDecoder('utf-8', { fatal: false })
+    .decode(b.subarray(0, WEBHOOK_STORED_RESPONSE_BYTES))
+    .replace(/\uFFFD+$/, '');
 }

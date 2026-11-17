@@ -73,6 +73,7 @@ export class WebhookSink implements OutboxSink, OnModuleInit {
       ms: r.send.durationMs,
     };
     if (r.outcome === 'DELIVERED') return { result: detail };
+    if (r.outcome === 'ABORTED') throw new Error('aborted'); // ไม่ได้บันทึก/ไม่นับ — lease หาย/ปิด worker
     if (d.signal.aborted) throw new Error('aborted'); // lease หาย/ปิด worker — dispatcher ไม่เขียนทับ
     const msg = r.send.status ? `endpoint responded ${r.send.status}` : (r.errorCode ?? 'failed');
     if (r.retryable)
@@ -110,6 +111,7 @@ export class WebhookSink implements OutboxSink, OnModuleInit {
           });
       },
     });
+    if (r.outcome === 'ABORTED') throw new Error('aborted');
     return {
       result: { verified, status: r.send.status, code: r.errorCode, deliveryId: r.deliveryId },
     };

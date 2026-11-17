@@ -19,6 +19,7 @@ import {
   IsNullable,
   IsOptionalNotNull,
   MasterOptionalReasonDto,
+  MasterReasonDto,
 } from '../master/master-kit';
 
 /**
@@ -40,7 +41,8 @@ export class WebhookHeaderDto {
   @IsString()
   @MinLength(1)
   @MaxLength(500)
-  @Matches(/^[^\r\n]*$/)
+  // ค่า header ได้เฉพาะ ASCII ที่พิมพ์ได้ + tab (RFC 9110 field-value) — อักขระอื่นทำให้ส่งไม่ได้ทุกครั้ง
+  @Matches(/^[\t\x20-\x7e]*$/)
   value!: string;
 }
 
@@ -217,8 +219,11 @@ export class UpdateWebhookDto {
   extraHeaders?: WebhookHeaderDto[];
 }
 
-/** ปิด / หมุน secret — เหตุผลไม่บังคับ (ต้นแบบทำทันทีไม่มีหน้าต่างเหตุผล; ลง audit เสมอ) */
+/** เปิดใช้อีกครั้ง / หมุน secret — เหตุผลไม่บังคับ (ลง audit เสมอ) */
 export class WebhookActionDto extends MasterOptionalReasonDto {}
+
+/** ปิดใช้งาน / ลบ — ต้องมีเหตุผล ≥ 10 ตัว (CLAUDE.md: ทุกการยกเลิกต้องมีเหตุผล + audit) */
+export class WebhookReasonDto extends MasterReasonDto {}
 
 export class WebhookTestDto {
   @ApiPropertyOptional({

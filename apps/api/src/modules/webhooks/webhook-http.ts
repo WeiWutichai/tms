@@ -18,7 +18,23 @@ export const WEBHOOK_MAX_RESPONSE_BYTES = 64 * 1024;
 /** เก็บ response ใน webhook_delivery ไม่เกิน 4 KB (docs/01 §3.7) */
 export const WEBHOOK_STORED_RESPONSE_BYTES = 4096;
 
-export type SendErrorCode = 'timeout' | 'network' | 'ssrf_blocked' | 'invalid_url';
+/**
+ * timeout / network = ลองใหม่ได้ · ssrf_blocked / invalid_url / invalid_request (สร้างคำขอไม่ได้ เช่น ค่า header ผิดอักขระ)
+ * = ไม่ลองใหม่ · aborted = ถูกยกเลิกเพราะ lease หาย/ปิด worker (ไม่ใช่ผลของปลายทาง — ไม่บันทึก/ไม่นับ)
+ */
+export type SendErrorCode =
+  'timeout' | 'network' | 'ssrf_blocked' | 'invalid_url' | 'invalid_request' | 'aborted';
+
+/** error ตอนประกอบคำขอ (ไม่ได้ส่งออกไป) — ฝั่งเราผิด ไม่ใช่เครือข่าย */
+const REQUEST_BUILD_ERRORS = new Set([
+  'ERR_INVALID_CHAR',
+  'ERR_INVALID_HTTP_TOKEN',
+  'ERR_HTTP_INVALID_HEADER_VALUE',
+  'ERR_INVALID_ARG_TYPE',
+  'ERR_INVALID_ARG_VALUE',
+  'ERR_INVALID_URL',
+  'ERR_UNESCAPED_CHARACTERS',
+]);
 
 export interface SendResult {
   /** null = ไม่ได้ response (ดู errorCode) */
@@ -67,10 +83,15 @@ export async function postWebhook(
     return done({
       status: null,
       body: '',
-      errorCode: shape.code === 'url_not_allowed' ? 'ssrf_blocked' : 'invalid_url',
+      errorCode:
+        shape.code === 'url_not_allowed' || shape.code === 'port_not_allowed'
+          ? 'ssrf_blocked'
+          : 'invalid_url',
       errorMessage: shape.message,
     });
   const u = new URL(url);
+  if (opts.signal?.aborted)
+    return done({ status: null, body: '', errorCode: 'aborted', errorMessage: 'aborted' });
 
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(new Timeout('timeout')), timeoutMs);
@@ -135,6 +156,16 @@ export async function postWebhook(
     return done({ status: res.status, body: res.body });
   } catch (e) {
     const reason = ctl.signal.aborted ? ctl.signal.reason : e;
+    if (opts.signal?.aborted && !(reason instanceof Timeout))
+      return done({ status: null, body: '', errorCode: 'aborted', errorMessage: 'aborted' });
+    const code = (e as { code?: string })?.code;
+    if (!ctl.signal.aborted && code && REQUEST_BUILD_ERRORS.has(code))
+      return done({
+        status: null,
+        body: '',
+        errorCode: 'invalid_request',
+        errorMessage: networkMessage(e),
+      });
     if (reason instanceof Timeout)
       return done({
         status: null,

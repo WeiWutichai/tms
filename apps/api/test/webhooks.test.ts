@@ -9,6 +9,7 @@ import { DbService, type Tx } from '../src/db/db.service';
 import { OutboxDispatcher } from '../src/modules/integration/outbox.dispatcher';
 import { verifyWebhookSignature } from '../src/modules/webhooks/signature';
 import { WebhookEngine } from '../src/modules/webhooks/webhook-engine';
+import { WebhooksService } from '../src/modules/webhooks/webhooks.service';
 import { api, bootApp, createTenant, platform, tokenFor, truncateAll } from './helpers';
 
 interface Hit {
@@ -126,6 +127,9 @@ describe('webhooks (ST7-T04)', () => {
     }
   }
   const uuid = (id: string) => tryDecodeId('webhookEndpoint', id)!;
+  /** ล้างตัวจำกัด "ส่ง event ทดสอบ" (1 ครั้ง/5 วิ ต่อ endpoint) ระหว่าง test */
+  const resetTestLimits = () =>
+    (app.get(WebhooksService) as unknown as { testHits: Map<string, number[]> }).testHits.clear();
   /** ข้ามคำสั่ง verification ที่เกิดตอนสร้าง (test ส่วนใหญ่สนใจเฉพาะ event) */
   const skipVerification = () =>
     plat.$executeRaw`UPDATE integration_outbox SET status = 'SKIPPED'
@@ -148,6 +152,7 @@ describe('webhooks (ST7-T04)', () => {
   });
   beforeEach(async () => {
     rx.reset();
+    resetTestLimits();
     engine.sendOptions = { allowPrivate: true };
     await plat.$executeRaw`UPDATE integration_outbox SET status = 'SKIPPED', lease_id = NULL, lease_until = NULL
                             WHERE status IN ('PENDING', 'IN_FLIGHT', 'FAILED_RETRYABLE')`;
@@ -647,6 +652,12 @@ describe('webhooks (ST7-T04)', () => {
         rawBody: rx.hits[0]!.body,
       }).ok,
     ).toBe(true);
+    // ส่งทดสอบซ้ำภายใน 5 วิ → 429 (กันใช้เป็นเครื่องยิงคำขอ)
+    const fast = await api(app, token).post(`/v1/webhooks/${h.id}/test`).send({});
+    expect(fast.status).toBe(429);
+    expect(fast.body.code).toBe('rate_limited');
+    expect(rx.hits).toHaveLength(1);
+    resetTestLimits();
     rx.reply = () => ({ status: 503 });
     const f = await api(app, token)
       .post(`/v1/webhooks/${h.id}/test`)
@@ -697,6 +708,11 @@ describe('webhooks (ST7-T04)', () => {
       .post(`/v1/webhooks/${h.id}/disable`)
       .set('If-Match', `"${g.body.version}"`)
       .send({})
+      .expect(422); // ต้องมีเหตุผล
+    await api(app, token)
+      .post(`/v1/webhooks/${h.id}/disable`)
+      .set('If-Match', `"${g.body.version}"`)
+      .send({ reason: 'ปิดชั่วคราวระหว่างย้ายระบบ' })
       .expect(200);
     await drainAll();
     expect(rx.hits).toHaveLength(0);
@@ -728,7 +744,7 @@ describe('webhooks (ST7-T04)', () => {
     await api(app, token)
       .delete(`/v1/webhooks/${h.id}`)
       .set('If-Match', `"${cur.body.version}"`)
-      .send({})
+      .send({ reason: 'เลิกใช้ระบบปลายทางนี้แล้ว' })
       .expect(204);
     expect((await api(app, token).get(`/v1/webhooks/${h.id}`)).status).toBe(404);
     // ลบแล้วช่องว่างคืน
@@ -736,6 +752,107 @@ describe('webhooks (ST7-T04)', () => {
       .post('/v1/webhooks')
       .send({ url: rx.url('/d'), events: ['order.created'] });
     expect(again.status).toBe(201);
+  });
+
+  it('ค่า header เพิ่มเติมนอก ASCII → 422 · ค่าที่ประกอบคำขอไม่ได้ (ข้อมูลเก่า) = invalid_request ไม่ retry ไม่นับปิดอัตโนมัติ', async () => {
+    const bad = await api(app, token)
+      .post('/v1/webhooks')
+      .send({
+        url: 'https://hooks.example.com/hdr',
+        events: ['order.created'],
+        extraHeaders: [{ name: 'X-Name', value: 'ศรีไทย' }],
+      });
+    expect(bad.status).toBe(422);
+    const h = await createHook({ url: rx.url('/hdr'), events: ['order.updated'] });
+    await skipVerification();
+    // จำลองข้อมูลที่หลุด validation มาก่อน (เช่น ค่าเดิมก่อนกฎนี้)
+    await plat.webhookEndpoint.update({
+      where: { id: uuid(h.id) },
+      data: {
+        extraHeadersEnc: engine.cipher.encrypt(
+          JSON.stringify([{ name: 'X-Bad', value: 'ก\u0001' }]),
+        ),
+        extraHeaderNames: ['X-Bad'],
+      },
+    });
+    const ev = await emit(tenantId, 'order.updated', { id: 'ord_hdr' });
+    await drainAll();
+    expect(rx.hits).toHaveLength(0);
+    const d = await plat.webhookDelivery.findMany({ where: { endpointId: uuid(h.id) } });
+    expect(d).toHaveLength(1);
+    expect(d[0]).toMatchObject({ status: 'EXHAUSTED', errorCode: 'invalid_request', attempt: 1 });
+    const ob = await plat.integrationOutbox.findFirstOrThrow({
+      where: { eventId: ev.id, sink: 'webhook' },
+    });
+    expect(ob.status).toBe('FAILED_FINAL');
+    const e = await plat.webhookEndpoint.findUniqueOrThrow({ where: { id: uuid(h.id) } });
+    expect(e.consecutiveFailures).toBe(0);
+  });
+
+  it('แก้ URL → ล้าง verifiedAt + ส่ง challenge ใหม่ · URL มีช่องว่าง/พอร์ตต้องห้าม → 422 · เก็บรูปมาตรฐาน', async () => {
+    rx.reply = (hit) => {
+      const env = JSON.parse(hit.body);
+      return env.type === 'webhook.verification'
+        ? { status: 200, body: env.data.object.challenge }
+        : { status: 200 };
+    };
+    const h = await createHook({ url: rx.url('/v1'), events: ['order.held'] });
+    await drainAll();
+    expect(
+      (await api(app, token).get(`/v1/webhooks/${h.id}`).expect(200)).body.verifiedAt,
+    ).toBeTruthy();
+    for (const [url, code] of [
+      ['https://hooks.example.com/a b', 'invalid_url'],
+      ['https://hooks.example.com:25/x', 'port_not_allowed'],
+    ] as const) {
+      const r = await api(app, token)
+        .patch(`/v1/webhooks/${h.id}`)
+        .set('If-Match', `"${h.version}"`)
+        .send({ url });
+      expect(r.status, url).toBe(422);
+      expect(r.body.errors[0].code).toBe(code);
+    }
+    rx.reply = () => ({ status: 200 }); // ปลายทางใหม่ไม่ echo
+    process.env.WEBHOOK_ALLOW_PRIVATE_TARGETS = '1';
+    const p = await api(app, token)
+      .patch(`/v1/webhooks/${h.id}`)
+      .set('If-Match', `"${h.version}"`)
+      .send({ url: `HTTP://127.0.0.1:${rx.port}/v2` });
+    expect(p.status, JSON.stringify(p.body)).toBe(200);
+    expect(p.body).toMatchObject({ url: `http://127.0.0.1:${rx.port}/v2`, verifiedAt: null });
+    const cmds = await plat.integrationOutbox.findMany({
+      where: { targetId: uuid(h.id), operation: 'webhook.verification', status: 'PENDING' },
+    });
+    expect(cmds).toHaveLength(1);
+    rx.reset();
+    await drainAll();
+    expect(rx.hits[0]!.headers['x-tms-event']).toBe('webhook.verification');
+    expect(
+      (await api(app, token).get(`/v1/webhooks/${h.id}`).expect(200)).body.verifiedAt,
+    ).toBeNull();
+  });
+
+  it('ยกเลิกกลางส่ง (lease หาย/ปิด worker) → ไม่บันทึก delivery ไม่นับล้มเหลว', async () => {
+    const h = await createHook({ url: rx.url('/slow'), events: ['order.created'] });
+    await skipVerification();
+    rx.reply = () => ({ status: 200, delayMs: 2000 });
+    const e = await plat.webhookEndpoint.findUniqueOrThrow({ where: { id: uuid(h.id) } });
+    const ctl = new AbortController();
+    setTimeout(() => ctl.abort(new Error('outbox lease lost')), 150);
+    const r = await engine.attempt({
+      tenantId,
+      endpoint: e,
+      envelope: engine.systemEnvelope(tenantId, 'order.created', {}),
+      attempt: 9,
+      test: false,
+      signal: ctl.signal,
+      withTx: (fn) => db.withTenant(tenantId, fn),
+    });
+    expect(r.outcome).toBe('ABORTED');
+    expect(await plat.webhookDelivery.count({ where: { endpointId: e.id } })).toBe(0);
+    const after = await plat.webhookEndpoint.findUniqueOrThrow({ where: { id: e.id } });
+    expect(after.consecutiveFailures).toBe(0);
+    expect(after.lastFailureAt).toBeNull();
   });
 
   it('event-types: รายการ event สาธารณะ (docs/01 §5.3) ไม่มี `*`', async () => {

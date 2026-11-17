@@ -37,6 +37,7 @@ import {
   CreateWebhookDto,
   UpdateWebhookDto,
   WebhookActionDto,
+  WebhookReasonDto,
   WebhookEndpointDto,
   WebhookEndpointSecretDto,
   WebhookEventTypeListDto,
@@ -207,7 +208,7 @@ export class WebhooksController {
   })
   async disable(
     @Param('id') id: string,
-    @Body() body: WebhookActionDto,
+    @Body() body: WebhookReasonDto,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<WebhookEndpointDto> {
@@ -263,10 +264,12 @@ export class WebhooksController {
   @TenantResource('webhookEndpoint')
   @RequireScope('settings:write')
   @ApiHeader(IF_MATCH)
-  @ApiNoContentResponse({ description: 'ลบ (เก็บประวัติการส่งตาม retention) — หยุดส่งทันที' })
+  @ApiNoContentResponse({
+    description: 'ลบ (เหตุผล ≥ 10 ตัว · เก็บประวัติการส่งตาม retention) — หยุดส่งทันที',
+  })
   async remove(
     @Param('id') id: string,
-    @Body() body: WebhookActionDto,
+    @Body() body: WebhookReasonDto,
     @Req() req: Request,
   ): Promise<void> {
     await this.hooks.remove(decodeIdOr404('webhookEndpoint', id), body, expectedVersion(req));

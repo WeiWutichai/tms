@@ -141,6 +141,8 @@ test.describe.serial('นักพัฒนา / Open API → Webhooks', () => {
     await sec.getByRole('button', { name: 'คัดลอกแล้ว · ปิดหน้าต่าง' }).click();
 
     hits.length = 0;
+    // ส่งทดสอบได้ 1 ครั้ง / 5 วิ ต่อ endpoint (429 rate_limited)
+    await page.waitForTimeout(5200);
     // drawer ยังเปิดอยู่หลังปิดหน้าต่าง secret
     await page.getByRole('dialog').getByRole('button', { name: 'ส่ง event ทดสอบ' }).click();
     await expect(page.getByRole('status')).toContainText('endpoint ตอบ 200');
@@ -151,6 +153,10 @@ test.describe.serial('นักพัฒนา / Open API → Webhooks', () => {
     expect(verify(created.secret, sig, h2.body)).toBe(true);
 
     await page.getByRole('dialog').getByRole('button', { name: 'ปิดใช้งาน' }).click();
+    // ปิด = ต้องมีเหตุผล ≥ 10 ตัว
+    const off = page.getByRole('dialog', { name: /ปิดใช้งาน endpoint/ });
+    await off.getByRole('textbox').fill('ปิดชั่วคราวระหว่างย้ายระบบ ERP');
+    await off.getByRole('button', { name: 'ปิดใช้งาน' }).click();
     await expect(page.getByRole('status')).toContainText('ปิดใช้งาน endpoint แล้ว');
     await page.keyboard.press('Escape');
     await expect(row).toContainText('ปิด');

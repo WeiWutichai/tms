@@ -12,7 +12,7 @@ import {
   verifyWebhookSignature,
 } from './signature';
 import { checkUrlShape, isBlockedAddress, resolvePublic, SsrfBlockedError } from './ssrf';
-import { classifySend, webhookRetryDelayMs } from './webhook-engine';
+import { classifySend, truncate, webhookRetryDelayMs } from './webhook-engine';
 import { echoes } from './webhook.sink';
 
 /** ST7-T04 ส่วนที่ไม่แตะฐานข้อมูล: ลายเซ็น, กัน SSRF, จัดประเภทผลส่ง, ตาราง retry */
@@ -99,6 +99,7 @@ describe('webhook — กัน SSRF', () => {
     '::ffff:a9fe:a9fe', // mapped 169.254.169.254 (hex)
     '64:ff9b::a9fe:a9fe', // NAT64
     '2002:7f00:1::', // 6to4 ของ 127.0.0.1
+    '::ffff:0:7f00:1', // IPv4-translated (SIIT) ของ 127.0.0.1
   ])('ปิด %s', (ip) => expect(isBlockedAddress(ip)).toBe(true));
 
   it.each(['8.8.8.8', '1.1.1.1', '203.150.12.5', '2606:4700:4700::1111'])('เปิด %s', (ip) =>
@@ -124,7 +125,25 @@ describe('webhook — กัน SSRF', () => {
       'https://intranet/',
     ])
       expect(checkUrlShape(u, o)?.code, u).toBe('url_not_allowed');
-    expect(checkUrlShape('http://127.0.0.1:9/x', { allowPrivate: true })).toBeNull();
+    expect(checkUrlShape('http://127.0.0.1:9000/x', { allowPrivate: true })).toBeNull();
+    // ช่องว่าง/อักขระควบคุม (new URL จะตัด/encode เงียบ ๆ)
+    for (const u of [
+      'https://hooks.example.com/a b',
+      'https://hooks.example.com/\tx',
+      ' https://hooks.example.com/x',
+      'https://hooks.example.com/x\u200b',
+    ])
+      expect(checkUrlShape(u, o)?.code, JSON.stringify(u)).toBe('invalid_url');
+    // พอร์ต: < 1024 ยกเว้น 80/443 ปิด (แม้ปลายทางในเครื่องที่อนุญาต)
+    for (const p of [22, 25, 6379 - 6000, 1023])
+      expect(checkUrlShape(`https://hooks.example.com:${p}/x`, o)?.code, String(p)).toBe(
+        'port_not_allowed',
+      );
+    expect(checkUrlShape('http://127.0.0.1:25/x', { allowPrivate: true })?.code).toBe(
+      'port_not_allowed',
+    );
+    for (const p of [80, 443, 1024, 8080, 8443, 65535])
+      expect(checkUrlShape(`https://hooks.example.com:${p}/x`, o), String(p)).toBeNull();
   });
 
   it('production: http ไม่ได้', () => {
@@ -197,6 +216,23 @@ describe('webhook — ผลส่ง + ตาราง retry (INT-103, docs/04 
       expect(ms).toBeGreaterThanOrEqual(m * 60_000 * 0.9 - 1);
       expect(ms).toBeLessThanOrEqual(m * 60_000 * 1.1 + 1);
     });
+  });
+
+  it('invalid_request (ประกอบคำขอไม่ได้) ไม่ลองใหม่ · aborted ไม่ใช่ผลของปลายทาง', () => {
+    expect(classifySend(r(null, 'invalid_request' as never))).toEqual({
+      ok: false,
+      retryable: false,
+      errorCode: 'invalid_request',
+    });
+  });
+
+  it('เก็บ response ตัดที่ 4096 byte (UTF-8) ไม่ตัดกลางอักขระไทย', () => {
+    const th = 'ก'.repeat(3000); // 3 byte ต่อตัว
+    const out = truncate(th);
+    expect(Buffer.byteLength(out)).toBeLessThanOrEqual(4096);
+    expect(Buffer.byteLength(out)).toBeGreaterThan(4090);
+    expect(out).toBe('ก'.repeat(out.length));
+    expect(truncate('abc')).toBe('abc');
   });
 
   it('verification: body = challenge หรือ JSON {challenge}', () => {

@@ -3742,6 +3742,9 @@ export const th = {
   'whk.toast.testTimeout': 'ส่ง event ทดสอบแล้ว · endpoint ไม่ตอบภายใน 10 วินาที',
   'whk.toast.testFail': 'ส่ง event ทดสอบไม่สำเร็จ · เชื่อมต่อ endpoint ไม่ได้',
   'whk.toast.on': 'เปิดใช้งาน endpoint แล้ว',
+  'whk.off.title': 'ปิดใช้งาน endpoint {url}',
+  'whk.off.desc':
+    'event ใหม่จะไม่ถูกส่งไปปลายทางนี้ และ event ที่รอส่งจะถูกข้าม · เปิดใช้อีกครั้งได้ภายหลัง',
   'whk.toast.off': 'ปิดใช้งาน endpoint แล้ว',
   'whk.toast.copied': 'คัดลอกแล้ว',
   'whk.toast.secretCopied': 'คัดลอก Signing secret แล้ว',

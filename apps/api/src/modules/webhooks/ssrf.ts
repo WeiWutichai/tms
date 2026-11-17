@@ -35,6 +35,7 @@ for (const [net, prefix] of [
 for (const [net, prefix] of [
   ['::', 96], // unspecified, loopback ::1, IPv4-compatible
   ['::ffff:0:0', 96], // IPv4-mapped
+  ['::ffff:0:0:0', 96], // IPv4-translated (SIIT)
   ['64:ff9b::', 96], // NAT64
   ['64:ff9b:1::', 48],
   ['100::', 64], // discard
@@ -81,8 +82,26 @@ export function urlHost(u: URL): string {
   return u.hostname.replace(/^\[(.*)\]$/, '$1');
 }
 
+/**
+ * พอร์ตปลายทาง: ปิด well-known port < 1024 ยกเว้น 80/443 (กันยิงบริการภายใน เช่น SMTP 25, SSH 22, Redis ฯลฯ ผ่าน host สาธารณะ)
+ * [DECISION spec/12 §3] — 1024–65535 ใช้ได้ (ผู้รับหลายรายใช้ 8443/8080)
+ */
+export function portAllowed(u: URL): boolean {
+  if (!u.port) return true;
+  const p = Number(u.port);
+  return p === 80 || p === 443 || (p >= 1024 && p <= 65535);
+}
+
+/** มีช่องว่าง/อักขระควบคุมใน URL ดิบ (new URL จะตัด/encode เงียบ ๆ) */
+const BAD_CHARS = /[\s\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028\u2029\ufeff]/;
+
 export interface UrlProblem {
-  code: 'invalid_url' | 'https_required' | 'credentials_in_url' | 'url_not_allowed';
+  code:
+    | 'invalid_url'
+    | 'https_required'
+    | 'credentials_in_url'
+    | 'url_not_allowed'
+    | 'port_not_allowed';
   message: string;
 }
 
@@ -91,6 +110,8 @@ export function checkUrlShape(
   raw: string,
   opts = { allowPrivate: allowPrivateTargets() },
 ): UrlProblem | null {
+  if (BAD_CHARS.test(raw))
+    return { code: 'invalid_url', message: 'URL must not contain spaces or control characters' };
   let u: URL;
   try {
     u = new URL(raw);
@@ -103,6 +124,11 @@ export function checkUrlShape(
     return { code: 'credentials_in_url', message: 'URL must not contain user:password' };
   const host = urlHost(u);
   if (!host) return { code: 'invalid_url', message: 'invalid URL' };
+  if (!portAllowed(u))
+    return {
+      code: 'port_not_allowed',
+      message: 'ports below 1024 other than 80/443 are not allowed',
+    };
   if (opts.allowPrivate) return null;
   if (isIP(host)) {
     if (isBlockedAddress(host))

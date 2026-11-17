@@ -1,4 +1,12 @@
-import { Button, DataTable, EmptyState, StatusDot, StatusTabs, type Column } from '@tms/ui';
+import {
+  Button,
+  DataTable,
+  EmptyState,
+  ReasonDialog,
+  StatusDot,
+  StatusTabs,
+  type Column,
+} from '@tms/ui';
 import { useState } from 'react';
 import { ApiError } from '../../api';
 import { useI18n } from '../../i18n';
@@ -89,14 +97,19 @@ export function WebhooksTab({
         ),
     });
   };
+  /** เปิด = ทันที (ต้นแบบ togHook) · ปิด = ต้องมีเหตุผล (CLAUDE.md การยกเลิกต้องมีเหตุผล + audit) [DECISION spec/12 §3] */
+  const [offFor, setOffFor] = useState<Webhook | null>(null);
   const toggle = (h: Webhook) => {
-    const on = fm.off(h);
+    if (!fm.off(h)) {
+      action.reset();
+      return setOffFor(h);
+    }
     action.mutate(
-      { id: h.id, version: h.version, action: on ? 'enable' : 'disable' },
+      { id: h.id, version: h.version, action: 'enable' },
       {
         onSuccess: (r) => {
           if (openId === h.id) setSelected(r.hook);
-          toast(t(on ? 'whk.toast.on' : 'whk.toast.off'));
+          toast(t('whk.toast.on'));
         },
         onError: (e) => toast(problemText(e, t) ?? ''),
       },
@@ -144,7 +157,7 @@ export function WebhooksTab({
       label: t('whk.col.url'),
       filter: { type: 'text', placeholder: t('table.search') },
       render: (r) => (
-        <div className="akey-two">
+        <div className="akey-two" style={{ overflowWrap: 'anywhere', minWidth: 220 }}>
           <span>{r.url}</span>
           <span>{t('whk.nEvent', { n: r.events.length })}</span>
         </div>
@@ -154,7 +167,8 @@ export function WebhooksTab({
     {
       key: 'ev',
       label: t('whk.col.ev'),
-      render: (r) => <span style={cell}>{fm.events(r)}</span>,
+      // ไม่บังคับบรรทัดเดียว — URL/event ยาวไม่ดันคอลัมน์ "ส่งล่าสุด" ตกขอบที่ 1440 (QA L3)
+      render: (r) => <span style={{ color: '#101418' }}>{fm.events(r)}</span>,
       csv: (r) => r.events.join(' '),
     },
     {
@@ -290,6 +304,45 @@ export function WebhooksTab({
             warn: t('whk.secret.warn'),
             value: h.secret,
           });
+        }}
+      />
+      <ReasonDialog
+        open={!!offFor}
+        title={offFor ? t('whk.off.title', { url: offFor.url }) : ''}
+        description={t('whk.off.desc')}
+        {...(offFor
+          ? {
+              diff: {
+                labels: [t('ord.dlg.field'), t('ord.dlg.before'), t('ord.dlg.after')],
+                rows: [{ f: t('akey.dlg.status'), b: fm.status(offFor), a: t('whk.st.disabled') }],
+              },
+            }
+          : {})}
+        label={t('ord.dlg.reason')}
+        placeholder={t('ord.dlg.reasonPh')}
+        hint={(n, ok) => (ok ? t('ord.dlg.hintOk') : t('ord.dlg.hintMin', { n }))}
+        okLabel={t('whk.menu.off')}
+        cancelLabel={t('common.cancel')}
+        closeLabel={t('drawer.close')}
+        busy={action.isPending}
+        error={problemText(action.error, t)}
+        onClose={() => {
+          setOffFor(null);
+          action.reset();
+        }}
+        onOk={(reason) => {
+          if (!offFor) return;
+          const h = offFor;
+          action.mutate(
+            { id: h.id, version: h.version, action: 'disable', reason },
+            {
+              onSuccess: (r) => {
+                setOffFor(null);
+                if (openId === h.id) setSelected(r.hook);
+                toast(t('whk.toast.off'));
+              },
+            },
+          );
         }}
       />
       {secret && (

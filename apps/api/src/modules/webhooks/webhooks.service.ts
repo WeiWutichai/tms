@@ -16,6 +16,7 @@ import type {
   CreateWebhookDto,
   UpdateWebhookDto,
   WebhookActionDto,
+  WebhookReasonDto,
   WebhookEndpointDto,
   WebhookEndpointSecretDto,
   WebhookHeaderDto,
@@ -225,7 +226,8 @@ export class WebhooksService {
       // ชี้ IP ภายใน = ปฏิเสธ · resolve ไม่ได้ (ยังไม่ตั้ง DNS/เครือข่าย) = ยอม — ตรวจซ้ำตอนส่งทุกครั้ง
       if (e instanceof SsrfBlockedError) throw field422('url', 'url_not_allowed', e.message);
     }
-    return url;
+    // เก็บรูปมาตรฐานของ URL (host ตัวเล็ก, percent-encode) — ตรวจซ้ำ/ส่งด้วยค่าเดียวกัน
+    return new URL(url).href;
   }
 
   private checkHeaders(list: WebhookHeaderDto[] | undefined): WebhookHeaderDto[] {
@@ -317,6 +319,17 @@ export class WebhooksService {
       throw e;
     }
     // verification `challenge` (docs/04 G1) — ส่งหลัง commit ผ่าน outbox ครั้งเดียว ผลไม่บล็อก (spec/07 §10.6)
+    await this.enqueueVerification(tx, tenantId, id);
+    await this.audit.record({
+      action: 'webhook_endpoint.created',
+      entityType: 'webhook_endpoint',
+      entityId: id,
+      after: auditView(row),
+    });
+    return { ...(await this.dto(row)), secret };
+  }
+
+  private async enqueueVerification(tx: Tx, tenantId: string, id: string) {
     await this.outbox.enqueueCommand(tx, {
       tenantId,
       kind: 'WEBHOOK',
@@ -328,13 +341,25 @@ export class WebhooksService {
       payload: { challenge: randomBytes(16).toString('hex') },
       maxAttempt: 1,
     });
-    await this.audit.record({
-      action: 'webhook_endpoint.created',
-      entityType: 'webhook_endpoint',
-      entityId: id,
-      after: auditView(row),
-    });
-    return { ...(await this.dto(row)), secret };
+  }
+
+  /**
+   * จำกัด "ส่ง event ทดสอบ" (กันใช้เป็นเครื่องยิงคำขอ): 1 ครั้ง / 5 วิ ต่อ endpoint และ 10 ครั้ง / นาที ต่อ tenant → 429
+   * นับใน process (API หลายเครื่อง = เพดานรวมคูณจำนวนเครื่อง — พอสำหรับกันกดรัว)
+   */
+  private readonly testHits = new Map<string, number[]>();
+  private takeTestSlot(tenantId: string, id: string, now = Date.now()) {
+    const hit = (key: string, windowMs: number, max: number) => {
+      const xs = (this.testHits.get(key) ?? []).filter((t) => now - t < windowMs);
+      if (xs.length >= max) return Math.ceil((windowMs - (now - xs[0]!)) / 1000);
+      return 0;
+    };
+    const wait = Math.max(hit(`e:${id}`, 5000, 1), hit(`t:${tenantId}`, 60_000, 10));
+    if (wait)
+      throw new ProblemException('rate_limited', undefined, undefined, { retryAfter: wait });
+    for (const k of [`e:${id}`, `t:${tenantId}`])
+      this.testHits.set(k, [...(this.testHits.get(k) ?? []).filter((t) => now - t < 60_000), now]);
+    if (this.testHits.size > 10_000) this.testHits.clear();
   }
 
   async update(id: string, body: UpdateWebhookDto, expected?: number): Promise<WebhookEndpoint> {
@@ -343,9 +368,16 @@ export class WebhooksService {
     const cur = await this.get(id);
     this.version(cur, expected);
     const data: Prisma.WebhookEndpointUpdateInput = {};
-    if (body.url !== undefined && body.url !== cur.url) {
-      data.url = await this.checkUrl(body.url);
-      await this.assertUrlFree(tx, body.url, cur.id);
+    let urlChanged = false;
+    if (body.url !== undefined) {
+      const url = await this.checkUrl(body.url);
+      if (url !== cur.url) {
+        await this.assertUrlFree(tx, url, cur.id);
+        data.url = url;
+        // ปลายทางใหม่ยังไม่ได้ยืนยัน — ล้าง verifiedAt แล้วส่ง challenge ใหม่หลัง commit
+        data.verifiedAt = null;
+        urlChanged = true;
+      }
     }
     if (body.events !== undefined) {
       const ev = this.sortedEvents(body.events);
@@ -369,6 +401,7 @@ export class WebhooksService {
       },
     });
     if (n.count !== 1) throw new ProblemException('precondition_failed');
+    if (urlChanged) await this.enqueueVerification(tx, cur.tenantId, id);
     if (data.events)
       await tx.integrationSubscription.updateMany({
         where: { sink: WEBHOOK_SINK, targetId: id },
@@ -416,7 +449,7 @@ export class WebhooksService {
     return { ...(await this.dto(row)), secret };
   }
 
-  async disable(id: string, body: WebhookActionDto, expected?: number): Promise<WebhookEndpoint> {
+  async disable(id: string, body: WebhookReasonDto, expected?: number): Promise<WebhookEndpoint> {
     return this.setActive(id, false, body, expected);
   }
 
@@ -469,7 +502,7 @@ export class WebhooksService {
   }
 
   /** ลบ (soft) — หยุดรับ event ทันที · ประวัติการส่งเก็บตาม retention */
-  async remove(id: string, body: WebhookActionDto, expected?: number): Promise<void> {
+  async remove(id: string, body: WebhookReasonDto, expected?: number): Promise<void> {
     this.assertHuman();
     const tx = this.db.tx;
     const cur = await this.get(id);
@@ -503,6 +536,7 @@ export class WebhooksService {
     const withTx = <T>(fn: (tx: Tx) => Promise<T>) => this.db.withTenant(tenantId, fn);
     const e = await withTx((tx) => this.get(id, tx));
     if (e.status !== 'ACTIVE') throw new ProblemException('invalid_state_transition');
+    this.takeTestSlot(tenantId, id);
     const type = body.eventType ?? e.events[0] ?? 'order.created';
     const envelope = this.engine.systemEnvelope(tenantId, 'webhook.test', sampleObject(type));
     const r = await this.engine.attempt({

@@ -160,7 +160,7 @@ for (const x of (await (await W.request.get('/v1/webhooks?limit=200', { headers:
   if (/^https:\/\/erp\d+\.example\.co\.th/.test(x.url))
     await W.request.delete(`/v1/webhooks/${x.id}`, {
       headers: { ...auth, 'If-Match': `"${x.version}"` },
-      data: {},
+      data: { reason: 'ลบ endpoint ตัวอย่างหลังถ่ายภาพเทียบ' },
     });
 
 for (const tag of Object.keys(c)) {

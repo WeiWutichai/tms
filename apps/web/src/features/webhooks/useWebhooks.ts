@@ -63,7 +63,7 @@ export function useCreateWebhook() {
   });
 }
 
-/** ปิด / เปิด / หมุน signing secret (ต้นแบบทำทันที — ไม่มีหน้าต่างเหตุผล) */
+/** ปิด (มีเหตุผล) / เปิด / หมุน signing secret */
 export function useWebhookAction() {
   const qc = useQueryClient();
   return useMutation({
@@ -71,6 +71,8 @@ export function useWebhookAction() {
       id: string;
       version: number;
       action: 'disable' | 'enable' | 'rotate';
+      /** ปิดใช้งาน: เหตุผล ≥ 10 ตัว (บังคับ) */
+      reason?: string;
     }): Promise<{ hook: Webhook; secret?: string }> => {
       const params = { path: { id: v.id }, header: { 'If-Match': `"${v.version}"` } as never };
       if (v.action === 'rotate') {
@@ -79,7 +81,7 @@ export function useWebhookAction() {
       }
       const r = await unwrap(
         v.action === 'disable'
-          ? api.POST('/v1/webhooks/{id}/disable', { params, body: {} })
+          ? api.POST('/v1/webhooks/{id}/disable', { params, body: { reason: v.reason ?? '' } })
           : api.POST('/v1/webhooks/{id}/enable', { params, body: {} }),
       );
       return { hook: r };
