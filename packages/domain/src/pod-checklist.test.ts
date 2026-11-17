@@ -77,10 +77,8 @@ describe('parsePodChecklist', () => {
 
 describe('parsePodRequirements', () => {
   it('ค่าองค์กรต้องมีชุด success; ของลูกค้า {} = ใช้ค่าองค์กร', () => {
-    expect(parsePodRequirements({}, true).errors[0]).toMatchObject({
-      path: 'success',
-      code: 'required',
-    });
+    // ชุดที่ไม่ส่ง: ค่าองค์กร = เติมค่าระบบ (เพิ่มชุดใหม่ใน T06 แล้วข้อมูลเดิมไม่ 422)
+    expect(parsePodRequirements({}, true)).toEqual({ value: DEFAULT_POD_REQUIREMENTS, errors: [] });
     expect(parsePodRequirements({}, false)).toEqual({ value: {}, errors: [] });
     expect(parsePodRequirements({ failure: { fields: [] } }, false).errors[0]!.code).toBe(
       'unknown_property',
@@ -102,6 +100,19 @@ describe('resolvePodChecklist', () => {
     expect(resolvePodChecklist(undefined, null).checklist).toEqual(
       DEFAULT_POD_REQUIREMENTS.success,
     );
+  });
+});
+
+describe('resolvePodChecklist: ค่าในฐานผิดรูป', () => {
+  it('override ลูกค้าผิดรูป → ใช้ค่าองค์กร และคืน fallbacks ให้ผู้เรียก log', () => {
+    const r = resolvePodChecklist(
+      { success: { fields: [{ type: 'NOTE', level: 'REQUIRED' }] } },
+      { success: { fields: [{ type: 'PHOTO', level: 'BAD' }] } },
+    );
+    expect(r.source).toBe('TENANT');
+    expect(r.fallbacks).toHaveLength(1);
+    expect(r.fallbacks[0]!.layer).toBe('CUSTOMER');
+    expect(resolvePodChecklist(undefined, {}).fallbacks).toEqual([]);
   });
 });
 

@@ -219,12 +219,13 @@ export function parsePodChecklist(
 }
 
 /**
- * ตรวจ `pod_requirements` ทั้งก้อน
- * @param requireAll true = ค่าเริ่มต้นของ tenant (ต้องมีครบทุกชุด) · false = override ของลูกค้า (ชุดที่ไม่ส่ง = ใช้ค่าองค์กร)
+ * ตรวจ `pod_requirements` ทั้งก้อน — **ทุกชุดไม่บังคับส่ง** (เพิ่มชุดใหม่ใน T06 แล้วข้อมูล/หน้าจอเดิมยังบันทึกได้)
+ * @param fillDefaults true = ค่าเริ่มต้นของ tenant: ชุดที่ไม่ส่ง = เติมค่าเริ่มต้นของระบบ ·
+ *   false = override ของลูกค้า: ชุดที่ไม่ส่ง = ไม่ override (ใช้ค่าองค์กรของชุดนั้น — override แยกต่อชุด)
  */
 export function parsePodRequirements(
   raw: unknown,
-  requireAll: boolean,
+  fillDefaults: boolean,
 ): { value: PodRequirements | null; errors: PodConfigError[] } {
   if (!isObj(raw))
     return { value: null, errors: [{ path: '', code: 'invalid', message: 'must be an object' }] };
@@ -240,7 +241,10 @@ export function parsePodRequirements(
   const out: PodRequirements = {};
   for (const k of setKeys) {
     if (raw[k] === undefined || raw[k] === null) {
-      if (requireAll) errors.push({ path: k, code: 'required', message: `${k} is required` });
+      if (fillDefaults) {
+        const o = POD_OUTCOMES.find((x) => POD_SET_KEY[x] === k)!;
+        (out as Record<string, PodChecklist>)[k] = DEFAULT_POD_SETS[o];
+      }
       continue;
     }
     const r = parsePodChecklist(raw[k], k);
@@ -252,25 +256,39 @@ export function parsePodRequirements(
 
 export type PodChecklistSource = 'TENANT' | 'CUSTOMER';
 
+/** ชั้นที่อ่านจากฐานแล้วผิดรูปจนต้องข้าม — ผู้เรียกต้อง log (ไม่เงียบ) */
+export interface PodResolveFallback {
+  layer: PodChecklistSource;
+  errors: PodConfigError[];
+}
+
 /**
- * checklist ที่ใช้จริงของลูกค้าหนึ่งรายต่อผลการส่ง: override ของลูกค้า (ถ้ามีชุดนั้น) → ค่าองค์กร → ค่าเริ่มต้นของระบบ
- * ค่าที่อ่านจากฐานแต่ผิดรูป (ไม่ควรเกิด — เขียนผ่านตัวตรวจเสมอ) → ข้ามไปชั้นถัดไป
+ * checklist ที่ใช้จริงของลูกค้าหนึ่งรายต่อผลการส่ง (แยกต่อชุด): override ของลูกค้า (ถ้ามีชุดนั้น) → ค่าองค์กร → ค่าเริ่มต้นของระบบ
+ * ค่าที่อ่านจากฐานแต่ผิดรูป (ไม่ควรเกิด — เขียนผ่านตัวตรวจเสมอ) → ข้ามไปชั้นถัดไป และคืนใน `fallbacks`
  */
 export function resolvePodChecklist(
   tenantDefault: unknown,
   customerOverride: unknown,
   outcome: PodOutcome = 'SUCCESS',
-): { source: PodChecklistSource; checklist: PodChecklist } {
+): { source: PodChecklistSource; checklist: PodChecklist; fallbacks: PodResolveFallback[] } {
   const k = POD_SET_KEY[outcome];
+  const fallbacks: PodResolveFallback[] = [];
+  if (customerOverride != null && !isObj(customerOverride))
+    fallbacks.push({
+      layer: 'CUSTOMER',
+      errors: [{ path: '', code: 'invalid', message: 'not an object' }],
+    });
   if (isObj(customerOverride) && customerOverride[k] != null) {
     const r = parsePodChecklist(customerOverride[k], k);
-    if (r.value) return { source: 'CUSTOMER', checklist: r.value };
+    if (r.value) return { source: 'CUSTOMER', checklist: r.value, fallbacks };
+    fallbacks.push({ layer: 'CUSTOMER', errors: r.errors });
   }
   if (isObj(tenantDefault) && tenantDefault[k] != null) {
     const r = parsePodChecklist(tenantDefault[k], k);
-    if (r.value) return { source: 'TENANT', checklist: r.value };
+    if (r.value) return { source: 'TENANT', checklist: r.value, fallbacks };
+    fallbacks.push({ layer: 'TENANT', errors: r.errors });
   }
-  return { source: 'TENANT', checklist: DEFAULT_POD_SETS[outcome] };
+  return { source: 'TENANT', checklist: DEFAULT_POD_SETS[outcome], fallbacks };
 }
 
 /** หลักฐานที่ส่งมาตรวจ (ผู้เรียกแปลงจาก payload ของตัวเอง — จำนวนรูป/มีลายเซ็น/หมายเหตุ/คำตอบข้อยืนยัน) */

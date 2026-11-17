@@ -5,8 +5,10 @@ import { tryDecodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
+import { stableStringify } from '../master/master-kit';
 import {
   normalizeSetting,
+  settingFieldErrors,
   SETTING_KEYS,
   SETTINGS,
   validateSetting,
@@ -96,6 +98,13 @@ export class SettingsService {
         return [
           { field: `values.${key}`, code: 'unknown_setting', message: 'unknown setting key' },
         ];
+      const detail = settingFieldErrors(key as SettingKey, v);
+      if (detail.length)
+        return detail.map((e) => ({
+          field: e.path ? `values.${key}.${e.path}` : `values.${key}`,
+          code: e.code,
+          message: e.message,
+        }));
       const msg = validateSetting(key as SettingKey, v);
       return msg ? [{ field: `values.${key}`, code: 'invalid_setting', message: msg }] : [];
     });
@@ -135,7 +144,8 @@ export class SettingsService {
     const actor = requestContext.require().actorId ?? null;
     for (const [k, v] of Object.entries(values)) {
       const key = k as SettingKey;
-      if (JSON.stringify(before[key]) === JSON.stringify(v)) continue;
+      // เทียบแบบไม่สนลำดับ key (jsonb คืน key เรียงใหม่ — QA T05: บันทึกค่าเดิมต้องไม่เพิ่ม version/ไม่ลง audit)
+      if (stableStringify(before[key]) === stableStringify(v)) continue;
       const def = SETTINGS[key];
       if ('store' in def && def.store) {
         await tx.tenant.update({

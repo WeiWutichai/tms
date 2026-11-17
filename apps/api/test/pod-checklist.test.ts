@@ -94,15 +94,18 @@ describe('POD checklist', () => {
         values: { 'pod.checklist': { success: { fields: [{ type: 'PHOTO', level: 'MUST' }] } } },
       });
     expect(bad.status).toBe(422);
-    expect(bad.body.errors[0].field).toBe('values.pod.checklist');
-    expect(bad.body.errors[0].message).toContain('success.fields.0.level');
-    expect(
-      (
-        await api(app, admin)
-          .patch('/v1/settings')
-          .send({ values: { 'pod.checklist': {} } })
-      ).status,
-    ).toBe(422);
+    // field บอก path เต็มแบบเดียวกับ API ลูกค้า (QA L1)
+    expect(bad.body.errors[0].field).toBe('values.pod.checklist.success.fields.0.level');
+    const mc = await api(app, admin)
+      .patch('/v1/settings')
+      .send({
+        values: {
+          'pod.checklist': {
+            success: { fields: [{ type: 'PHOTO', level: 'REQUIRED', minCount: 9 }] },
+          },
+        },
+      });
+    expect(mc.body.errors[0].field).toBe('values.pod.checklist.success.fields.0.minCount');
 
     const res = await api(app, admin)
       .patch('/v1/settings')
@@ -131,6 +134,68 @@ describe('POD checklist', () => {
       where: { tenantId, action: 'tenant_setting.updated', entityId: 'pod.checklist' },
     });
     expect(audit).not.toBeNull();
+
+    // บันทึกค่าเดิม (ลำดับ key ต่างจากที่ jsonb คืน) → ไม่เพิ่ม version ไม่ลง audit (QA M)
+    const before = res.body.data.find((x: { key: string }) => x.key === 'pod.checklist');
+    const shuffled = {
+      success: {
+        fields: v.success.fields.map((f: Record<string, unknown>) =>
+          Object.fromEntries(Object.entries(f).reverse()),
+        ),
+      },
+    };
+    const again = await api(app, admin)
+      .patch('/v1/settings')
+      .send({
+        values: { 'pod.checklist': shuffled },
+        versions: { 'pod.checklist': before.version },
+      })
+      .expect(200);
+    expect(again.body.data.find((x: { key: string }) => x.key === 'pod.checklist').version).toBe(
+      before.version,
+    );
+    expect(
+      await db.auditLog.count({
+        where: { tenantId, action: 'tenant_setting.updated', entityId: 'pod.checklist' },
+      }),
+    ).toBe(1);
+  });
+
+  it('ชุดที่ไม่ส่ง: ค่าองค์กร {} = เติมค่าระบบ (เพิ่มชุดใหม่ใน T06 แล้วไม่ 422); override ลูกค้าผิดรูปในฐาน → ใช้ค่าองค์กร', async () => {
+    const s = await (
+      await api(app, admin).get('/v1/settings')
+    ).body.data.find((x: { key: string }) => x.key === 'pod.checklist');
+    const r = await api(app, admin)
+      .patch('/v1/settings')
+      .send({ values: { 'pod.checklist': {} }, versions: { 'pod.checklist': s.version } })
+      .expect(200);
+    expect(
+      r.body.data.find((x: { key: string }) => x.key === 'pod.checklist').value.success.fields[0],
+    ).toMatchObject({ type: 'PHOTO', level: 'REQUIRED', minCount: 1 });
+    // คืนค่าที่ test ถัดไปใช้ (หมายเหตุบังคับ รูป/ลายเซ็นไม่บังคับ)
+    await api(app, admin)
+      .patch('/v1/settings')
+      .send({
+        values: {
+          'pod.checklist': {
+            success: {
+              fields: [
+                { type: 'PHOTO', level: 'ENABLED' },
+                { type: 'NOTE', level: 'REQUIRED' },
+                { type: 'BOOLEAN', key: 'goods_ok', level: 'ENABLED', label: 'สินค้าครบ' },
+              ],
+            },
+          },
+        },
+      })
+      .expect(200);
+    const c = await newCustomer();
+    await db.customer.update({
+      where: { id: uuid(c.id) },
+      data: { podRequirements: { success: { fields: [{ type: 'PHOTO', level: 'BAD' }] } } },
+    });
+    const got = await run(() => svc().forCustomer(uuid(c.id)));
+    expect(got.source).toBe('TENANT');
   });
 
   it('ลูกค้า A บังคับรูป + ลายเซ็น: ปิดงานโดยไม่มีรูปถูกปฏิเสธ; ลูกค้า B ใช้ค่า default', async () => {

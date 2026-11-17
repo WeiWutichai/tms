@@ -156,8 +156,8 @@ export function validateSetting(key: SettingKey, value: unknown): string | null 
         ? null
         : 'must be a company id (cmp_…) or null';
     case 'podRequirements': {
-      const r = parsePodRequirements(value, true);
-      return r.errors.length ? r.errors.map((e) => `${e.path}: ${e.message}`).join('; ') : null;
+      const errs = settingFieldErrors(key, value);
+      return errs.length ? errs.map((e) => `${e.path}: ${e.message}`).join('; ') : null;
     }
     case 'int':
       if (value === null && t.nullable) return null;
@@ -172,4 +172,17 @@ export function normalizeSetting(key: SettingKey, value: unknown): unknown {
   const t: SettingType = SETTINGS[key].type;
   if (t.kind === 'podRequirements') return parsePodRequirements(value, true).value;
   return typeof value === 'string' ? value.trim() : value;
+}
+
+/**
+ * error ราย path ของค่าที่มีโครงสร้าง (POD checklist) — service ใส่ `values.<key>.<path>` ใน field
+ * (QA L1: บอกช่องที่ผิดแบบเดียวกับ API ลูกค้า) · ค่าแบบ scalar คืน [] (ใช้ validateSetting)
+ */
+export function settingFieldErrors(
+  key: SettingKey,
+  value: unknown,
+): { path: string; code: string; message: string }[] {
+  const t: SettingType = SETTINGS[key].type;
+  if (t.kind !== 'podRequirements') return [];
+  return parsePodRequirements(value, true).errors;
 }

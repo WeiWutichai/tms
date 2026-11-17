@@ -8,7 +8,7 @@ import { HistoryTab } from '../master/HistoryTab';
 import { CustomerSitesTab } from '../sites/CustomerSitesTab';
 import { CustomerRatesTab } from '../rate-cards/CustomerRatesTab';
 import { CustomerPodSection } from '../pod/CustomerPodSection';
-import { podChecklistInvalid, type PodField } from '../pod/PodChecklistTable';
+import { podChecklistInvalid, podSummary, type PodField } from '../pod/PodChecklistTable';
 import { fieldErrors, problemText } from '../master/problems';
 import {
   useCompanyOptions,
@@ -308,7 +308,7 @@ export function CustomerDrawer({
               label: t('common.save'),
               icon: 'save',
               onClick: submit,
-              disabled: save.isPending,
+              disabled: save.isPending || podBad,
             }}
           />
         ) : undefined
@@ -577,6 +577,7 @@ export function CustomerDrawer({
           path="/v1/customers/{id}/history"
           id={c.id}
           fieldLabel={(k) => fieldLabel(t, k)}
+          fieldValue={(k, v) => (k === 'podRequirements' ? podSummary(t, v) : undefined)}
         />
       )}
     </Drawer>

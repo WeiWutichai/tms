@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { I18nProvider } from '../../i18n';
 
 const mutate = vi.fn();
+const refetch = vi.fn();
 const DEFAULT = {
   success: {
     fields: [
@@ -12,17 +13,25 @@ const DEFAULT = {
     ],
   },
 };
+vi.mock('../../api', () => ({
+  ApiError: class ApiError extends Error {
+    constructor(public problem: { code: string }) {
+      super(problem.code);
+    }
+  },
+}));
 vi.mock('../settings/useSettings', () => ({
   useTenantSettings: () => ({
     isError: false,
     data: { data: [{ key: 'pod.checklist', value: DEFAULT, version: 3 }] },
-    refetch: vi.fn(),
+    refetch,
   }),
   useSaveTenantSettings: () => ({ isPending: false, mutate }),
 }));
 
 const { PodSection } = await import('./PodSection');
-const { nextCheckKey, podChecklistInvalid } = await import('./PodChecklistTable');
+const { nextCheckKey, podChecklistInvalid, podSummary } = await import('./PodChecklistTable');
+const { ApiError } = await import('../../api');
 
 const wrap = (canWrite = true) =>
   render(
@@ -79,6 +88,54 @@ describe('ตั้งค่า → หลักฐานส่ง (POD)', () =>
     expect(screen.getByRole('radio', { name: 'บังคับ — รูปหลักฐาน' })).toBeDisabled();
     expect(screen.queryByRole('button', { name: 'บันทึก' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'เพิ่มข้อยืนยัน' })).toBeNull();
+  });
+
+  it('เพิ่มข้อยืนยัน → โฟกัสช่องข้อความ; 412 → ทิ้งร่าง โหลดค่าล่าสุด แจ้งให้แก้ใหม่', () => {
+    mutate.mockReset();
+    wrap();
+    fireEvent.click(screen.getByRole('button', { name: 'เพิ่มข้อยืนยัน' }));
+    const input = screen.getByLabelText('ข้อความข้อยืนยัน');
+    expect(input).toHaveFocus();
+    fireEvent.change(input, { target: { value: 'ของครบ' } });
+    mutate.mockImplementation((_v, o: { onError: (e: unknown) => void }) =>
+      o.onError(
+        new (ApiError as unknown as new (p: { code: string }) => Error)({
+          code: 'precondition_failed',
+        }),
+      ),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'บันทึก' }));
+    expect(refetch).toHaveBeenCalled();
+    expect(screen.getByRole('status')).toHaveTextContent('ถูกแก้โดยผู้อื่นแล้ว');
+    expect(screen.queryByLabelText('ข้อความข้อยืนยัน')).toBeNull(); // ร่างถูกทิ้ง
+  });
+
+  it('อ่านอย่างเดียว: จำนวนรูปเป็นข้อความ ไม่ใช่ select', () => {
+    wrap(false);
+    expect(screen.queryByLabelText('จำนวนรูปขั้นต่ำ')).toBeNull();
+    expect(screen.getByText('อย่างน้อย 1 รูป')).toBeInTheDocument();
+  });
+
+  it('สรุปสำหรับแท็บกิจกรรม อ่านง่าย', () => {
+    const t = (k: string) =>
+      ({
+        'pod.cust.default': 'ใช้ค่าเริ่มต้นขององค์กร',
+        'pod.type.PHOTO': 'รูปหลักฐาน',
+        'pod.type.NOTE': 'หมายเหตุ',
+        'pod.lv.REQUIRED': 'บังคับ',
+        'pod.lv.DISABLED': 'ไม่ใช้',
+      })[k] ?? k;
+    expect(podSummary(t as never, {})).toBe('ใช้ค่าเริ่มต้นขององค์กร');
+    expect(
+      podSummary(t as never, {
+        success: {
+          fields: [
+            { key: 'photo', type: 'PHOTO', level: 'REQUIRED', minCount: 2 },
+            { key: 'note', type: 'NOTE', level: 'DISABLED' },
+          ],
+        },
+      }),
+    ).toBe('รูปหลักฐาน: บังคับ (≥ 2) · หมายเหตุ: ไม่ใช้');
   });
 
   it('helper: key ข้อยืนยันไม่ซ้ำ และตรวจข้อความว่าง', () => {

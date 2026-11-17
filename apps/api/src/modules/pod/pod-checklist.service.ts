@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import {
   POD_OUTCOMES,
   resolvePodChecklist,
@@ -31,6 +31,7 @@ export interface EffectivePodChecklist {
  */
 @Injectable()
 export class PodChecklistService {
+  private readonly log = new Logger(PodChecklistService.name);
   constructor(private readonly db: DbService) {}
 
   /** checklist ที่ใช้จริงของลูกค้า (override ของลูกค้า → ค่าองค์กร → ค่าเริ่มต้นของระบบ) */
@@ -48,6 +49,13 @@ export class PodChecklistService {
     const s = await readSettings(tx, tenantId, ['pod.checklist']);
     const r = resolvePodChecklist(s['pod.checklist'], c.podRequirements, outcome);
     const d = resolvePodChecklist(s['pod.checklist'], {}, outcome);
+    // ค่าในฐานผิดรูป (ไม่ควรเกิด — เขียนผ่านตัวตรวจเสมอ) → ใช้ชั้นถัดไป แต่ไม่เงียบ (review T05 M1)
+    for (const f of r.fallbacks)
+      this.log.warn(
+        `pod checklist ${f.layer === 'CUSTOMER' ? `customer ${customerId}` : `tenant ${tenantId}`} (${outcome}) malformed — fell back: ${f.errors
+          .map((e) => `${e.path} ${e.message}`)
+          .join('; ')}`,
+      );
     return {
       outcome,
       source: r.source,

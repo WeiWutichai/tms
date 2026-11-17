@@ -55,7 +55,12 @@ export function PodSection({ canWrite }: { canWrite: boolean }) {
         },
         onError: (e) => {
           const code = e instanceof ApiError ? e.problem.code : 'internal_error';
-          if (code === 'precondition_failed') void q.refetch();
+          if (code === 'precondition_failed') {
+            // ผู้อื่นแก้ไปก่อน → ทิ้งร่าง โหลดค่าล่าสุด ให้ผู้ใช้แก้ใหม่บนค่านั้น (ไม่ทับงานคนอื่น — QA L2)
+            setDraft(null);
+            void q.refetch();
+            return setError(t('pod.stale'));
+          }
           setError(t(`problem.${code}` as MessageKey));
         },
       },
@@ -91,7 +96,7 @@ export function PodSection({ canWrite }: { canWrite: boolean }) {
           {...(canWrite ? { onChange: setDraft } : {})}
         />
       )}
-      {canWrite && (
+      {canWrite && q.data && (
         <SaveBar
           dirty={dirty}
           busy={save.isPending || !q.data}

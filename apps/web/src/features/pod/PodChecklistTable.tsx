@@ -1,6 +1,6 @@
 import type { Schemas } from '@tms/contracts';
 import { Icon } from '@tms/ui';
-import { useId } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { useI18n } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
 
@@ -36,6 +36,27 @@ export function nextCheckKey(fields: PodField[]): string {
   return `check_${i}`;
 }
 
+/** สรุปอ่านง่ายสำหรับแท็บ กิจกรรม (ไม่แสดง JSON ดิบ — review T05 L3) */
+export function podSummary(
+  t: (k: MessageKey, p?: Record<string, string | number>) => string,
+  v: unknown,
+): string {
+  const fields = (v as { success?: { fields?: PodField[] } } | null)?.success?.fields;
+  if (!fields) return t('pod.cust.default');
+  return fields
+    .map((f) => {
+      const name =
+        f.type === 'BOOLEAN'
+          ? f.label || t('pod.type.BOOLEAN')
+          : t(`pod.type.${f.type}` as MessageKey);
+      const lv = t(`pod.lv.${f.level}` as MessageKey);
+      return f.type === 'PHOTO' && f.level === 'REQUIRED' && (f.minCount ?? 1) > 1
+        ? `${name}: ${lv} (≥ ${f.minCount})`
+        : `${name}: ${lv}`;
+    })
+    .join(' · ');
+}
+
 /** ข้อยืนยันที่ยังไม่กรอกข้อความ (API ตอบ 422 — ตรวจก่อนส่ง) */
 export const podChecklistInvalid = (fields: PodField[]) =>
   fields.some((f) => f.type === 'BOOLEAN' && !(f.label ?? '').trim());
@@ -62,6 +83,18 @@ export function PodChecklistTable({
 }) {
   const { t } = useI18n();
   const gid = useId();
+  const box = useRef<HTMLDivElement>(null);
+  // ข้อยืนยันที่เพิ่งเพิ่ม → ย้ายโฟกัสไปช่องข้อความ (QA L4)
+  const [focusKey, setFocusKey] = useState<string | null>(null);
+  useEffect(() => {
+    if (!focusKey) return;
+    box.current
+      ?.querySelector<HTMLInputElement>(
+        `tr[data-pod="${focusKey}"] input[type="text"], tr[data-pod="${focusKey}"] input:not([type])`,
+      )
+      ?.focus();
+    setFocusKey(null);
+  }, [focusKey]);
   const ro = disabled || !onChange;
   const put = (i: number, p: Partial<PodField>) =>
     onChange?.(fields.map((f, j) => (j === i ? { ...f, ...p } : f)));
@@ -69,7 +102,7 @@ export function PodChecklistTable({
     f.type === 'BOOLEAN' ? f.label || t('pod.type.BOOLEAN') : t(`pod.type.${f.type}` as MessageKey);
   const checks = fields.filter((f) => f.type === 'BOOLEAN').length;
   return (
-    <div className="set-scroll" role="group" aria-label={label}>
+    <div className="set-scroll" role="group" aria-label={label} ref={box}>
       <table className="set-tbl">
         <thead>
           <tr>
@@ -108,7 +141,13 @@ export function PodChecklistTable({
                       {t('pod.type.BOOLEAN')}
                     </span>
                   )}
-                  {f.type === 'PHOTO' && f.level === 'REQUIRED' && (
+                  {f.type === 'PHOTO' && f.level === 'REQUIRED' && ro && (
+                    // อ่านอย่างเดียว: แสดงเป็นข้อความ ไม่ใช่ select ที่กดไม่ได้ (QA L5)
+                    <span style={{ color: '#3B424C' }}>
+                      {t('pod.minCount')} {f.minCount ?? 1} {t('pod.photoUnit')}
+                    </span>
+                  )}
+                  {f.type === 'PHOTO' && f.level === 'REQUIRED' && !ro && (
                     <label
                       style={{
                         display: 'inline-flex',
@@ -190,12 +229,11 @@ export function PodChecklistTable({
             type="button"
             className="set-btn2"
             disabled={checks >= POD_BOOLEAN_MAX}
-            onClick={() =>
-              onChange?.([
-                ...fields,
-                { key: nextCheckKey(fields), type: 'BOOLEAN', level: 'REQUIRED', label: '' },
-              ])
-            }
+            onClick={() => {
+              const key = nextCheckKey(fields);
+              onChange?.([...fields, { key, type: 'BOOLEAN', level: 'REQUIRED', label: '' }]);
+              setFocusKey(key);
+            }}
           >
             <Icon n="plus" s={16} />
             {t('pod.addCheck')}
