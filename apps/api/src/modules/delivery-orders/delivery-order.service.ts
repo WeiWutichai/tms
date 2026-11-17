@@ -696,6 +696,26 @@ export class DeliveryOrderService {
   }
 
   /**
+   * ผลคำนวณหลักฐานส่ง (ST4-T07; docs/01 §4.3): เขียน `pod_status` และไล่ DELIVERED → POD_PENDING / UNBILLED,
+   * POD_PENDING → UNBILLED (domain `podDoEvent`) — ผู้เรียก (PodService) ถือล็อกแถว DO แล้ว · ไม่เปลี่ยน = ไม่เขียน
+   */
+  async applyPodResult(
+    tx: Tx,
+    d: Pick<DeliveryOrderRecord, 'id' | 'status' | 'version' | 'podStatus'>,
+    podStatus: string,
+    event: Extract<DoEvent, 'pod_wait' | 'pod_accept'> | null,
+    note: string | null,
+  ): Promise<void> {
+    if (event) return this.move(tx, d, event, { podStatus }, note);
+    if (d.podStatus === podStatus) return;
+    const r = await tx.deliveryOrder.updateMany({
+      where: { id: d.id, status: d.status as DbDoStatus, version: d.version },
+      data: { podStatus, version: { increment: 1 } },
+    });
+    if (r.count === 0) throw new ProblemException('concurrent_update');
+  }
+
+  /**
    * ปลด DO ออกจากเที่ยว (ถอด DO / ยกเลิกเที่ยว): ล้าง trip_id + จุด (สัญญากับ T09) แล้ว
    * DRAFT คงเดิม · PLANNED → `unplan` → DRAFT · DISPATCHED → `recall` → DRAFT (ยกเลิกเที่ยวที่ปล่อยแล้วก่อนรับของ)
    * PICKED_UP ขึ้นไป (ของอยู่บนรถ/ส่งแล้ว) → 409 `trip_has_loaded_orders` (ปิดเที่ยวบางส่วน + เที่ยวใหม่ — ST4)
@@ -729,7 +749,15 @@ export class DeliveryOrderService {
     d: Pick<DeliveryOrderRecord, 'id' | 'status' | 'version'>,
     event: Extract<
       DoEvent,
-      'plan' | 'unplan' | 'dispatch' | 'recall' | 'pick_up' | 'deliver' | 'fail'
+      | 'plan'
+      | 'unplan'
+      | 'dispatch'
+      | 'recall'
+      | 'pick_up'
+      | 'deliver'
+      | 'fail'
+      | 'pod_wait'
+      | 'pod_accept'
     >,
     data: Prisma.DeliveryOrderUncheckedUpdateManyInput,
     note: string | null,

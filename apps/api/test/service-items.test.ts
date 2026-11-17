@@ -18,7 +18,7 @@ describe('ค่าบริการเสริม (service-items)', () => {
   let app: NestExpressApplication;
   const db = platform();
 
-  /** DO ขั้นต่ำให้บรรทัด `do_surcharge` อ้าง (FK ตั้งแต่ ST4-T13 migration 0091) */
+  /** DO ขั้นต่ำให้บรรทัด `do_surcharge` อ้าง (FK ตั้งแต่ ST4-T13 migration 0092) */
   let doSeed = 0;
   async function makeDo(tenantId: string): Promise<string> {
     const n = ++doSeed;

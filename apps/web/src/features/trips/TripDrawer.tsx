@@ -36,6 +36,7 @@ import { tripProblemText } from './tripProblem';
 import { RECORDABLE, restStops } from './tripStepper';
 import { useTripEvents } from './useTripTimeline';
 import { TripTimeline } from './TripTimeline';
+import { TripDocsTab } from '../pod/TripDocsTab';
 import { FieldChargesTab } from './FieldChargesTab';
 
 /** ป้ายสถานะเที่ยว — สี/ไอคอนตามกลุ่มสถานะของต้นแบบ (วางแผน / จัดรถแล้ว / ระหว่างส่ง / ส่งแล้ว) */
@@ -382,8 +383,8 @@ export function TripDrawer({
   const [nextHire, setNextHire] = useState(false);
   /** ST3-T25 เปลี่ยนผู้รับเหมา: เหตุผลจาก ReasonDialog ใน drawer จ่ายงานรถร่วม → drawer จ้างแบบเปลี่ยนราย */
   const [changeWhy, setChangeWhy] = useState<string | null>(null);
-  /** ST4-T04 แท็บ รายละเอียด / ไทม์ไลน์ */
-  const [tab, setTab] = useState<'sum' | 'tl' | 'exp'>('sum');
+  /** ST4-T04 แท็บ รายละเอียด / ไทม์ไลน์ · ST4-T07 เอกสาร (ป้าย "เอกสารแนบ" ตามต้นแบบ) · ST4-T13 ค่าใช้จ่ายหน้างาน */
+  const [tab, setTab] = useState<'sum' | 'tl' | 'docs' | 'exp'>('sum');
   const [failRest, setFailRest] = useState(false);
   /** ไทม์ไลน์ (แชร์ cache กับแท็บ) — footer "ส่งไม่สำเร็จจุดที่เหลือ" ไม่นับจุดที่มีปิดงานรอตัดสิน */
   const tl = useTripEvents(id, tab === 'tl');
@@ -667,11 +668,12 @@ export function TripDrawer({
       tabs={[
         { key: 'sum', label: t('drawer.tab.sum') },
         { key: 'tl', label: t('trip.tab.tl') },
+        { key: 'docs', label: t('trip.tab.docs') },
         // ST4-T13 ค่าใช้จ่ายหน้างาน (ต้นแบบ: แท็บของ drawer DO — ระบบยังไม่มี drawer DO)
         { key: 'exp', label: t('trip.tab.exp') },
       ]}
       tab={tab}
-      onTab={(k) => setTab(k === 'tl' || k === 'exp' ? k : 'sum')}
+      onTab={(k) => setTab(k === 'tl' || k === 'docs' || k === 'exp' ? k : 'sum')}
       labels={labels}
       footer={
         <>
@@ -790,6 +792,14 @@ export function TripDrawer({
     >
       {tab === 'exp' ? (
         <FieldChargesTab trip={tr} onToast={setToast} />
+      ) : tab === 'docs' ? (
+        <TripDocsTab
+          trip={tr}
+          canEdit={canDispatch}
+          onPrintSheet={showPrint && tr.stops.length ? printSheet : undefined}
+          printBusy={sheetBusy}
+          onToast={setToast}
+        />
       ) : tab === 'tl' ? (
         <TripTimeline
           trip={tr}

@@ -164,51 +164,65 @@ function OptionsEditor({
     <div
       role="group"
       aria-label={`${t('pod.options')} — ${podFieldName(t, f)}`}
-      style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', width: '100%' }}
+      style={{ display: 'flex', alignItems: 'flex-start', gap: 6, width: '100%' }}
     >
-      <span style={{ color: '#3B424C' }}>{t('pod.options')}</span>
-      {opts.map((o, j) => (
-        <span key={j} style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
-          <input
-            aria-label={t('pod.optionN', { n: j + 1 })}
-            placeholder={t('pod.optionN', { n: j + 1 })}
-            maxLength={50}
-            value={o}
-            onChange={(e) => onChange(opts.map((x, i) => (i === j ? e.target.value : x)))}
-            style={{
-              ...inp,
-              width: 120,
-              borderColor:
-                !o.trim() || opts.filter((x) => x.trim() === o.trim()).length > 1
-                  ? '#B3322A'
-                  : '#C9CDC3',
-            }}
-          />
-          {opts.length > OPTIONS_MIN && (
-            <button
-              type="button"
-              aria-label={`${t('pod.removeOption')} ${j + 1}`}
-              title={t('pod.removeOption')}
-              onClick={() => onChange(opts.filter((_, i) => i !== j))}
-              style={optBtn}
-            >
-              <Icon n="x" s={14} />
-            </button>
-          )}
-        </span>
-      ))}
-      {opts.length < OPTIONS_MAX && (
-        <button
-          type="button"
-          className="set-btn2"
-          onClick={() => onChange([...opts, ''])}
-          style={{ height: 32 }}
-        >
-          <Icon n="plus" s={14} />
-          {t('pod.addOption')}
-        </button>
-      )}
-      {bad && <span className="tms-field-error">{t('pod.v.options')}</span>}
+      {/* ป้ายเป็นคอลัมน์ของตัวเอง — ช่องตัวเลือกที่ขึ้นบรรทัดใหม่เริ่มแนวเดียวกับช่องแรก (T06 Low) */}
+      <span style={{ color: '#3B424C', lineHeight: '32px', flexShrink: 0 }}>
+        {t('pod.options')}
+      </span>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          flexWrap: 'wrap',
+          flex: 1,
+          minWidth: 0,
+        }}
+      >
+        {opts.map((o, j) => (
+          <span key={j} style={{ display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+            <input
+              aria-label={t('pod.optionN', { n: j + 1 })}
+              placeholder={t('pod.optionN', { n: j + 1 })}
+              maxLength={50}
+              value={o}
+              onChange={(e) => onChange(opts.map((x, i) => (i === j ? e.target.value : x)))}
+              style={{
+                ...inp,
+                width: 120,
+                borderColor:
+                  !o.trim() || opts.filter((x) => x.trim() === o.trim()).length > 1
+                    ? '#B3322A'
+                    : '#C9CDC3',
+              }}
+            />
+            {opts.length > OPTIONS_MIN && (
+              <button
+                type="button"
+                aria-label={`${t('pod.removeOption')} ${j + 1}`}
+                title={t('pod.removeOption')}
+                onClick={() => onChange(opts.filter((_, i) => i !== j))}
+                style={optBtn}
+              >
+                <Icon n="x" s={14} />
+              </button>
+            )}
+          </span>
+        ))}
+        {opts.length < OPTIONS_MAX && (
+          <button
+            type="button"
+            className="set-btn2"
+            onClick={() => onChange([...opts, ''])}
+            style={{ height: 32 }}
+          >
+            <Icon n="plus" s={14} />
+            {t('pod.addOption')}
+          </button>
+        )}
+        {bad && <span className="tms-field-error">{t('pod.v.options')}</span>}
+      </div>
     </div>
   );
 }
@@ -284,7 +298,15 @@ export function PodChecklistTable({
     );
   return (
     <div className="set-scroll" role="group" aria-label={label} ref={box}>
-      <table className="set-tbl">
+      {/* ความกว้างคอลัมน์คงที่ — ตำแหน่งปุ่มเลือกไม่ขยับเมื่อสลับแท็บชุด/แถวมีตัวเลือกยาว (T06 Low) */}
+      <table className="set-tbl" style={{ tableLayout: 'fixed', width: '100%' }}>
+        <colgroup>
+          <col />
+          {LEVELS.map((l) => (
+            <col key={l} style={{ width: 76 }} />
+          ))}
+          <col style={{ width: 48 }} />
+        </colgroup>
         <thead>
           <tr>
             <th>{t('pod.col.item')}</th>

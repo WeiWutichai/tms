@@ -22,6 +22,7 @@ import { requestContext } from '../../common/request-context';
 import type { Tx } from '../../db/db.service';
 import { DeliveryOrderService } from '../delivery-orders/delivery-order.service';
 import { OrderStateService } from '../orders/order-state.service';
+import { PodService } from '../pod/pod.service';
 import { TripService } from '../trips/trip.service';
 import { VehiclesService } from '../vehicles/vehicles.service';
 import { toSeqEvent, type StopEventWithResolution } from './stop-event-seq';
@@ -57,6 +58,7 @@ interface TripDo {
  * 1. จุดรับก่อน → ธง `PICKUP_NOT_DONE` ของการปิดงานส่งที่จุดส่งซึ่งจุดรับของ DO ยังไม่ปิดสำเร็จ (ไม่นับจนรับของเสร็จ/ "ใช้")
  * 2. `trip_stop` (status / outcome / arrived_at / departed_at / last_event_id / fail_reason_code_id) + domain_event `stop.*`
  * 3. DO: จุดรับปิด → PICKED_UP · จุดส่งปิด → DELIVERED / FAILED (`delivery_order.status_changed`) — ไม่ถอยหลัง
+ *    DELIVERED → UNBILLED / POD_PENDING ทันทีตามหลักฐานส่งที่มีเทียบ checklist ของลูกค้า (ST4-T07 `PodService.settleDelivered`)
  *    ผลจุดขัดกับ DO ที่ไล่แล้ว → ธงแจ้ง `OUTCOME_MISMATCH` (+ audit ครั้งแรกที่ขึ้น)
  * 4. เที่ยว: ถึง/ปิดจุดแรก → IN_PROGRESS (`trip.started` เวลา = ถึงจุดแรก) · ทุกจุดจบ → COMPLETED + เลขไมล์ประมาณ (แหล่ง TRIP)
  * 5. SO ตาม DO · 6. ช่อง projection ของ stop_event (ธง / การตัดสินที่มีผล / applied_at)
@@ -71,6 +73,7 @@ export class StopProjectionService {
     private readonly vehicles: VehiclesService,
     private readonly audit: AuditService,
     private readonly clock: Clock,
+    private readonly pods: PodService,
   ) {}
 
   /**
@@ -222,6 +225,11 @@ export class StopProjectionService {
           select: { status: true, version: true },
         });
         d = { ...d, ...r };
+      }
+      // ST4-T07: ส่งถึงแล้ว → เทียบหลักฐานกับ checklist ของลูกค้า → UNBILLED / POD_PENDING (docs/01 §4.3)
+      if (d.status === 'DELIVERED') {
+        await this.pods.settleDelivered(tx, d.id);
+        moved.add(d.salesOrderId);
       }
     }
     if (moved.size) dos = await this.loadDos(tx, tripId);

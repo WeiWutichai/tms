@@ -346,6 +346,12 @@ export const PROBLEMS = {
     th: 'หลักฐานการส่ง (POD) ยังไม่ครบตามที่ลูกค้ากำหนด',
     en: 'Proof of delivery is incomplete for this customer checklist',
   },
+  /** ST4-T07 บันทึก/แก้หลักฐานส่งได้เฉพาะ DO ที่ส่งแล้ว/ส่งไม่สำเร็จและยังไม่วางบิล — `doStatus` บอกสถานะปัจจุบัน */
+  pod_not_allowed: {
+    status: 409,
+    th: 'บันทึกหลักฐานส่งของใบส่งของนี้ไม่ได้ในสถานะปัจจุบัน',
+    en: 'Proof of delivery cannot be recorded for this delivery order in its current status',
+  },
   /** ST7-T01 OAuth2 client credentials (RFC 6749 §5.2): client_id/secret ผิด — ไม่บอกว่าผิดส่วนไหน */
   invalid_client: {
     status: 401,
