@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
   POD_OUTCOMES,
+  podOutcomeFor,
   resolvePodChecklist,
   validatePod,
   type PodChecklist,
@@ -8,6 +9,7 @@ import {
   type PodMissing,
   type PodOutcome,
   type PodSubmission,
+  type StopOutcome,
 } from '@tms/domain';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
@@ -70,20 +72,23 @@ export class PodChecklistService {
     return out;
   }
 
-  /** ตรวจหลักฐานกับ checklist ของลูกค้า — คืนรายการที่ขาด (ว่าง = ครบ) ใช้คำนวณ pod_status โดยไม่ปฏิเสธ */
+  /**
+   * ตรวจหลักฐานกับ checklist ของลูกค้า — คืนรายการที่ขาด (ว่าง = ครบ) ใช้คำนวณ pod_status โดยไม่ปฏิเสธ
+   * @param outcome ชุด (SUCCESS/FAILURE) หรือผลปิดจุด — FAILED/UNDELIVERED_RETAIN ใช้ชุด "ไม่สำเร็จ" (ST4-T06)
+   */
   async check(
     customerId: string,
-    outcome: PodOutcome,
+    outcome: PodOutcome | StopOutcome,
     submission: PodSubmission,
   ): Promise<{ ok: boolean; missing: PodMissing[]; checklist: EffectivePodChecklist }> {
-    const checklist = await this.forCustomer(customerId, outcome);
+    const checklist = await this.forCustomer(customerId, podOutcomeFor(outcome));
     return { ...validatePod(checklist, submission), checklist };
   }
 
   /** ปิดงาน: ขาด field ที่บังคับ → 422 `pod_incomplete` พร้อม `missing[]` และ errors ต่อ field */
   async assertComplete(
     customerId: string,
-    outcome: PodOutcome,
+    outcome: PodOutcome | StopOutcome,
     submission: PodSubmission,
   ): Promise<EffectivePodChecklist> {
     const r = await this.check(customerId, outcome, submission);
@@ -97,7 +102,9 @@ export class PodChecklistService {
           message:
             m.code === 'min_count'
               ? `at least ${m.expected} photo(s) required, got ${m.actual}`
-              : `${m.type} is required`,
+              : m.code === 'invalid'
+                ? `${m.type} value is not valid`
+                : `${m.type} is required`,
         })),
         { missing: r.missing },
       );

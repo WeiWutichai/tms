@@ -32065,7 +32065,7 @@
           "key": {
             "type": "string",
             "example": "photo",
-            "description": "อ้างอิงในหลักฐานที่ส่ง — PHOTO/SIGNATURE/NOTE = photo/signature/note (ไม่ต้องส่ง); BOOLEAN ตั้งเอง ^[a-z][a-z0-9_]{0,39}$"
+            "description": "อ้างอิงในหลักฐานที่ส่ง — PHOTO/SIGNATURE/NOTE/BARCODE/PIN/RATING = ชื่อชนิดตัวเล็ก (ไม่ต้องส่ง); BOOLEAN/SINGLE_CHOICE ตั้งเอง ^[a-z][a-z0-9_]{0,39}$"
           },
           "type": {
             "type": "string",
@@ -32073,7 +32073,11 @@
               "PHOTO",
               "SIGNATURE",
               "NOTE",
-              "BOOLEAN"
+              "BARCODE",
+              "PIN",
+              "RATING",
+              "BOOLEAN",
+              "SINGLE_CHOICE"
             ]
           },
           "level": {
@@ -32083,18 +32087,39 @@
               "ENABLED",
               "REQUIRED"
             ],
-            "description": "DISABLED = ไม่ใช้ · ENABLED = ใช้ ไม่บังคับ · REQUIRED = บังคับ (ขาด → ปิดงานไม่ได้)"
+            "description": "DISABLED = ไม่ใช้ · ENABLED = ใช้ ไม่บังคับ (ค่าที่ส่งของ BARCODE/SINGLE_CHOICE/PIN/RATING ยังต้องถูกรูปแบบ) · REQUIRED = บังคับ (ขาด → ปิดงานไม่ได้)"
           },
           "label": {
             "type": "string",
             "maxLength": 100,
-            "description": "ข้อความที่ผู้รับ/คนขับต้องยืนยัน — บังคับสำหรับ BOOLEAN เท่านั้น"
+            "description": "BOOLEAN = ข้อความที่ผู้รับ/คนขับต้องยืนยัน · SINGLE_CHOICE = คำถาม — บังคับสำหรับสองชนิดนี้เท่านั้น"
           },
           "minCount": {
             "type": "number",
             "minimum": 1,
             "maximum": 5,
             "description": "จำนวนรูปขั้นต่ำเมื่อบังคับ — PHOTO เท่านั้น (ไม่ส่ง = 1)"
+          },
+          "options": {
+            "minItems": 2,
+            "maxItems": 10,
+            "description": "ตัวเลือก — SINGLE_CHOICE เท่านั้น (บังคับ, 2–10 ข้อ ข้อละ 1–50 ตัวอักษร ไม่ซ้ำ)",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "length": {
+            "type": "number",
+            "minimum": 4,
+            "maximum": 8,
+            "description": "จำนวนหลักของรหัสที่ผู้รับกรอก — PIN เท่านั้น (ไม่ส่ง = 4) · PIN เก็บเป็นค่าที่บันทึก ตรวจรูปแบบตัวเลขครบหลัก ยังไม่เทียบกับรหัสที่ส่งล่วงหน้า"
+          },
+          "max": {
+            "type": "number",
+            "minimum": 3,
+            "maximum": 10,
+            "description": "คะแนนเต็ม — RATING เท่านั้น (ไม่ส่ง = 5; ผู้รับให้คะแนน 1–max)"
           }
         },
         "required": [
@@ -32107,7 +32132,7 @@
         "type": "object",
         "properties": {
           "fields": {
-            "description": "PHOTO/SIGNATURE/NOTE มีได้อย่างละ 1 (ไม่ส่ง = DISABLED) · BOOLEAN ได้สูงสุด 10 ข้อ — response เรียงตามชนิดเสมอ",
+            "description": "PHOTO/SIGNATURE/NOTE/BARCODE/PIN/RATING มีได้อย่างละ 1 (ไม่ส่ง = DISABLED) · BOOLEAN และ SINGLE_CHOICE ได้อย่างละสูงสุด 10 ข้อ — response เรียงตามชนิดเสมอ",
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/PodFieldDto"
@@ -32123,6 +32148,14 @@
         "properties": {
           "success": {
             "description": "ชุดเมื่อส่งสำเร็จ — ของลูกค้า: ไม่ส่ง = ใช้ค่าเริ่มต้นขององค์กร",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PodChecklistDto"
+              }
+            ]
+          },
+          "failure": {
+            "description": "ชุดเมื่อส่งไม่สำเร็จ (outcome FAILED / UNDELIVERED_RETAIN) — ของลูกค้า: ไม่ส่ง = ใช้ค่าเริ่มต้นขององค์กร · ค่าองค์กร: ไม่ส่ง = ค่าระบบ (รูป ≥ 1 + หมายเหตุ บังคับ)",
             "allOf": [
               {
                 "$ref": "#/components/schemas/PodChecklistDto"
@@ -32697,8 +32730,10 @@
           "outcome": {
             "type": "string",
             "enum": [
-              "SUCCESS"
-            ]
+              "SUCCESS",
+              "FAILURE"
+            ],
+            "description": "SUCCESS = ส่งสำเร็จ (DELIVERED/PARTIAL) · FAILURE = ส่งไม่สำเร็จ (FAILED/UNDELIVERED_RETAIN)"
           },
           "source": {
             "type": "string",

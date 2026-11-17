@@ -8,6 +8,7 @@ import { DbService, type Tx } from '../../db/db.service';
 import { stableStringify } from '../master/master-kit';
 import {
   normalizeSetting,
+  presentSetting,
   settingFieldErrors,
   SETTING_KEYS,
   SETTINGS,
@@ -70,7 +71,7 @@ export class SettingsService {
       const value = stored !== undefined ? stored : row ? row.value : def.default;
       return {
         key,
-        value,
+        value: presentSetting(key, value),
         default: def.default,
         isDefault: stored !== undefined ? false : !row,
         version: row?.version ?? 0,

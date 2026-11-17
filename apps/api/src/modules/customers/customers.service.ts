@@ -62,7 +62,10 @@ export function toCustomerDto(c: Customer, salesOwnerName?: string | null): Cust
     vatRegistered: c.vatRegistered,
     etaxCapable: c.etaxCapable,
     freeTimeMin: c.freeTimeMin,
-    podRequirements: (c.podRequirements as CustomerDto['podRequirements'] | null) ?? {},
+    // ST4-T06: แสดงรูปมาตรฐานปัจจุบัน (ข้อมูล T05 ได้แถวชนิดใหม่เป็น DISABLED) — ผิดรูป (ไม่ควรเกิด) = คืนค่าเดิม
+    podRequirements: (parsePodRequirements(c.podRequirements ?? {}, false).value ??
+      c.podRequirements ??
+      {}) as CustomerDto['podRequirements'],
     billingCompanyId: c.defaultBillingCompanyId
       ? encodeId('company', c.defaultBillingCompanyId)
       : null,

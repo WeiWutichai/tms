@@ -84,7 +84,20 @@ describe('POD checklist', () => {
     expect(s).toMatchObject({ isDefault: true });
     expect(
       s.value.success.fields.map((f: { type: string; level: string }) => `${f.type}:${f.level}`),
-    ).toEqual(['PHOTO:REQUIRED', 'SIGNATURE:REQUIRED', 'NOTE:ENABLED']);
+    ).toEqual([
+      'PHOTO:REQUIRED',
+      'SIGNATURE:REQUIRED',
+      'NOTE:ENABLED',
+      'BARCODE:DISABLED',
+      'PIN:DISABLED',
+      'RATING:DISABLED',
+    ]);
+    // ST4-T06 ชุดไม่สำเร็จ: รูป ≥ 1 + หมายเหตุ บังคับ, ลายเซ็นไม่ใช้
+    expect(
+      s.value.failure.fields
+        .slice(0, 3)
+        .map((f: { type: string; level: string }) => `${f.type}:${f.level}`),
+    ).toEqual(['PHOTO:REQUIRED', 'SIGNATURE:DISABLED', 'NOTE:REQUIRED']);
   });
 
   it('แก้ค่าเริ่มต้นขององค์กร: ทำให้เป็นรูปมาตรฐาน + ลง audit; ค่าผิดรูป → 422 พร้อม path', async () => {
@@ -128,6 +141,9 @@ describe('POD checklist', () => {
       { key: 'photo', type: 'PHOTO', level: 'ENABLED', minCount: 1 },
       { key: 'signature', type: 'SIGNATURE', level: 'DISABLED' },
       { key: 'note', type: 'NOTE', level: 'REQUIRED' },
+      { key: 'barcode', type: 'BARCODE', level: 'DISABLED' },
+      { key: 'pin', type: 'PIN', level: 'DISABLED', length: 4 },
+      { key: 'rating', type: 'RATING', level: 'DISABLED', max: 5 },
       { key: 'goods_ok', type: 'BOOLEAN', level: 'ENABLED', label: 'สินค้าครบ' },
     ]);
     const audit = await db.auditLog.findFirst({
@@ -137,13 +153,10 @@ describe('POD checklist', () => {
 
     // บันทึกค่าเดิม (ลำดับ key ต่างจากที่ jsonb คืน) → ไม่เพิ่ม version ไม่ลง audit (QA M)
     const before = res.body.data.find((x: { key: string }) => x.key === 'pod.checklist');
-    const shuffled = {
-      success: {
-        fields: v.success.fields.map((f: Record<string, unknown>) =>
-          Object.fromEntries(Object.entries(f).reverse()),
-        ),
-      },
-    };
+    const rev = (set: { fields: Record<string, unknown>[] }) => ({
+      fields: set.fields.map((f) => Object.fromEntries(Object.entries(f).reverse())),
+    });
+    const shuffled = { failure: rev(v.failure), success: rev(v.success) };
     const again = await api(app, admin)
       .patch('/v1/settings')
       .send({
@@ -202,7 +215,7 @@ describe('POD checklist', () => {
     const a = await newCustomer({ podRequirements: photoSig });
     const b = await newCustomer();
     expect(b.podRequirements).toEqual({});
-    expect((a.podRequirements as typeof photoSig).success.fields).toHaveLength(3);
+    expect((a.podRequirements as typeof photoSig).success.fields).toHaveLength(6);
 
     const noPhoto: PodSubmission = { photoCount: 0, hasSignature: true, note: 'วางไว้หน้าร้าน' };
     const e = await errOf(run(() => svc().assertComplete(uuid(a.id), 'SUCCESS', noPhoto)));
@@ -244,9 +257,14 @@ describe('POD checklist', () => {
           { key: 'photo', type: 'PHOTO', level: 'REQUIRED', minCount: 1 },
           { key: 'signature', type: 'SIGNATURE', level: 'REQUIRED' },
           { key: 'note', type: 'NOTE', level: 'DISABLED' },
+          { key: 'barcode', type: 'BARCODE', level: 'DISABLED' },
+          { key: 'pin', type: 'PIN', level: 'DISABLED', length: 4 },
+          { key: 'rating', type: 'RATING', level: 'DISABLED', max: 5 },
         ],
         tenantFields: expect.arrayContaining([{ key: 'note', type: 'NOTE', level: 'REQUIRED' }]),
       },
+      // ชุดไม่สำเร็จ: ลูกค้าไม่ได้ตั้ง + องค์กรไม่ได้ตั้ง → ค่าระบบ
+      expect.objectContaining({ outcome: 'FAILURE', source: 'TENANT' }),
     ]);
     const rb = await api(app, reader).get(`/v1/customers/${b.id}/pod-checklist`).expect(200);
     expect(rb.body.data[0]).toMatchObject({ source: 'TENANT' });
@@ -269,9 +287,9 @@ describe('POD checklist', () => {
     });
     const unk = await api(app, admin)
       .patch(`/v1/customers/${c.id}`)
-      .send({ podRequirements: { failure: { fields: [] } } });
+      .send({ podRequirements: { partial: { fields: [] } } });
     expect(unk.body.errors[0]).toMatchObject({
-      field: 'podRequirements.failure',
+      field: 'podRequirements.partial',
       code: 'unknown_property',
     });
     expect(
@@ -294,6 +312,8 @@ describe('POD checklist', () => {
       .send({ podRequirements: {} })
       .expect(200);
     expect(back.body.podRequirements).toEqual({});
+    const setFull = set.body.podRequirements as { success: { fields: unknown[] } };
+    expect(setFull.success.fields).toHaveLength(6);
     const hist = await api(app, admin).get(`/v1/customers/${c.id}/history`).expect(200);
     expect(
       hist.body.data.filter(
@@ -315,5 +335,192 @@ describe('POD checklist', () => {
       .patch('/v1/settings')
       .send({ values: { 'pod.checklist': photoSig } })
       .expect(403);
+  });
+
+  describe('ST4-T06 ชนิดเพิ่ม + ชุดไม่สำเร็จ', () => {
+    it('422 ราย path: ตัวเลือก SINGLE_CHOICE / PIN length / RATING max / ตัวเลือกบนชนิดอื่น', async () => {
+      const c = await newCustomer();
+      const bad = await api(app, admin)
+        .patch(`/v1/customers/${c.id}`)
+        .send({
+          podRequirements: {
+            failure: {
+              fields: [
+                {
+                  type: 'SINGLE_CHOICE',
+                  key: 'why',
+                  level: 'REQUIRED',
+                  label: 'สาเหตุ',
+                  options: ['ก'],
+                },
+                { type: 'PIN', level: 'REQUIRED', length: 12 },
+                { type: 'RATING', level: 'ENABLED', max: 2 },
+                { type: 'BARCODE', level: 'REQUIRED', length: 4 },
+              ],
+            },
+          },
+        });
+      expect(bad.status).toBe(422);
+      expect(
+        bad.body.errors.map((e: { field: string; code: string }) => `${e.field}:${e.code}`),
+      ).toEqual(
+        expect.arrayContaining([
+          'podRequirements.failure.fields.0.options:invalid',
+          'podRequirements.failure.fields.1.length:invalid',
+          'podRequirements.failure.fields.2.max:invalid',
+          'podRequirements.failure.fields.3.length:not_allowed',
+        ]),
+      );
+      const s = await api(app, admin)
+        .patch('/v1/settings')
+        .send({
+          values: {
+            'pod.checklist': {
+              failure: {
+                fields: [
+                  {
+                    type: 'SINGLE_CHOICE',
+                    key: 'why',
+                    level: 'REQUIRED',
+                    label: 'x',
+                    options: ['ก', 'ก'],
+                  },
+                ],
+              },
+            },
+          },
+        });
+      expect(s.status).toBe(422);
+      expect(s.body.errors[0]).toMatchObject({
+        field: 'values.pod.checklist.failure.fields.0.options.1',
+        code: 'duplicate',
+      });
+    });
+
+    it('ข้อมูล T05 ในฐาน (มีแค่ success 3 แถว) → GET แสดงรูปมาตรฐานใหม่ + ชุด failure ตามองค์กร', async () => {
+      const c = await newCustomer();
+      await db.customer.update({
+        where: { id: uuid(c.id) },
+        data: {
+          podRequirements: {
+            success: {
+              fields: [
+                { key: 'photo', type: 'PHOTO', level: 'REQUIRED', minCount: 2 },
+                { key: 'signature', type: 'SIGNATURE', level: 'REQUIRED' },
+                { key: 'note', type: 'NOTE', level: 'DISABLED' },
+              ],
+            },
+          },
+        },
+      });
+      const got = await api(app, admin).get(`/v1/customers/${c.id}`).expect(200);
+      expect(got.body.podRequirements.success.fields).toHaveLength(6);
+      expect(got.body.podRequirements.failure).toBeUndefined();
+      const eff = await api(app, admin).get(`/v1/customers/${c.id}/pod-checklist`).expect(200);
+      expect(
+        eff.body.data.map((x: { outcome: string; source: string }) => `${x.outcome}:${x.source}`),
+      ).toEqual(['SUCCESS:CUSTOMER', 'FAILURE:TENANT']);
+      // ค่าองค์กรแบบ T05 (ไม่มีชุด failure) → GET /settings เติมค่าระบบ
+      await db.tenantSetting.update({
+        where: { tenantId_key: { tenantId, key: 'pod.checklist' } },
+        data: {
+          value: {
+            success: { fields: [{ key: 'photo', type: 'PHOTO', level: 'ENABLED', minCount: 1 }] },
+          },
+        },
+      });
+      const st = (await api(app, admin).get('/v1/settings').expect(200)).body.data.find(
+        (x: { key: string }) => x.key === 'pod.checklist',
+      );
+      expect(st.value.success.fields).toHaveLength(6);
+      expect(st.value.failure.fields[0]).toMatchObject({ type: 'PHOTO', level: 'REQUIRED' });
+    });
+
+    it('เกณฑ์ตรวจรับ: ตั้งชุด "ไม่สำเร็จ" บังคับรูป → ปิดงานแบบ failed ต้องมีรูป (ชุดสำเร็จไม่กระทบ)', async () => {
+      const c = await newCustomer({
+        podRequirements: {
+          success: { fields: [{ type: 'NOTE', level: 'ENABLED' }] },
+          failure: {
+            fields: [
+              { type: 'PHOTO', level: 'REQUIRED', minCount: 1 },
+              {
+                type: 'SINGLE_CHOICE',
+                key: 'why',
+                level: 'ENABLED',
+                label: 'ผู้รับแจ้งว่า',
+                options: ['นัดใหม่', 'ปฏิเสธรับ'],
+              },
+            ],
+          },
+        },
+      });
+      const id = uuid(c.id);
+      const none: PodSubmission = { photoCount: 0, hasSignature: false };
+      for (const outcome of ['FAILED', 'UNDELIVERED_RETAIN', 'FAILURE'] as const) {
+        const e = await errOf(run(() => svc().assertComplete(id, outcome, none)));
+        expect(e.code).toBe('pod_incomplete');
+        expect(e.errors.map((x) => x.field)).toEqual(['pod.photo']);
+      }
+      const ok = await run(() => svc().assertComplete(id, 'FAILED', { ...none, photoCount: 1 }));
+      expect(ok).toMatchObject({ outcome: 'FAILURE', source: 'CUSTOMER' });
+      // สำเร็จไม่ต้องมีรูป
+      await run(() => svc().assertComplete(id, 'DELIVERED', none));
+      // ค่าตัวเลือกที่ไม่อยู่ในรายการ (ไม่บังคับ) → invalid
+      const inv = await errOf(
+        run(() =>
+          svc().assertComplete(id, 'FAILED', {
+            ...none,
+            photoCount: 1,
+            choices: { why: 'อื่น ๆ' },
+          }),
+        ),
+      );
+      expect(inv.errors).toEqual([
+        { field: 'pod.why', code: 'invalid', message: expect.any(String) },
+      ]);
+    });
+
+    it('ชนิดใหม่บังคับ: BARCODE / PIN / RATING / SINGLE_CHOICE ขาด → missing ครบทุกข้อ', async () => {
+      const c = await newCustomer({
+        podRequirements: {
+          success: {
+            fields: [
+              { type: 'BARCODE', level: 'REQUIRED' },
+              { type: 'PIN', level: 'REQUIRED', length: 6 },
+              { type: 'RATING', level: 'REQUIRED', max: 5 },
+              {
+                type: 'SINGLE_CHOICE',
+                key: 'box',
+                level: 'REQUIRED',
+                label: 'กล่อง',
+                options: ['ดี', 'บุบ'],
+              },
+            ],
+          },
+        },
+      });
+      const id = uuid(c.id);
+      const e = await errOf(
+        run(() =>
+          svc().assertComplete(id, 'DELIVERED', { photoCount: 0, hasSignature: false, pin: '123' }),
+        ),
+      );
+      expect(e.errors.map((x) => `${x.field}:${x.code}`)).toEqual([
+        'pod.barcode:required',
+        'pod.pin:invalid',
+        'pod.rating:required',
+        'pod.box:required',
+      ]);
+      await run(() =>
+        svc().assertComplete(id, 'DELIVERED', {
+          photoCount: 0,
+          hasSignature: false,
+          scanCodes: ['SO-001'],
+          pin: '123456',
+          rating: 5,
+          choices: { box: 'ดี' },
+        }),
+      );
+    });
   });
 });
