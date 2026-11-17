@@ -9,6 +9,10 @@ import { purgeAuthData } from './auth/maintenance';
 import { PrismaService } from './db/prisma.service';
 import { ExpiryReminderService } from './modules/reminders/expiry-reminder.service';
 import { DepreciationService } from './modules/depreciation/depreciation.service';
+import {
+  OFFER_TIMEOUT_EVERY_MS,
+  SubconTimeoutService,
+} from './modules/trips/subcon-timeout.service';
 
 /**
  * Worker process (outbox, webhook, job) — ใช้โค้ดร่วมกับ api (plan/02 T-01)
@@ -52,6 +56,15 @@ async function main() {
       .catch((e) => log.error(e));
   void scheduleDepreciation();
   const depreciationTimer = setInterval(scheduleDepreciation, 10 * 60 * 1000);
+  // ST3-T24 ข้อเสนองานรถร่วม: ครบ N ชม. ยังไม่ตอบ → แจ้งผู้จัดรถ · ลิงก์หมดอายุ → EXPIRED — ตรวจทุก 1 นาที (spec/03 PLN-154)
+  const offerTimeouts = ctx.get(SubconTimeoutService);
+  const scheduleOfferTimeouts = () =>
+    offerTimeouts
+      .scheduleDue()
+      .then((n) => n && log.info({ tenants: n }, 'offer timeouts scheduled'))
+      .catch((e) => log.error(e));
+  void scheduleOfferTimeouts();
+  const offerTimeoutTimer = setInterval(scheduleOfferTimeouts, OFFER_TIMEOUT_EVERY_MS);
   while (!stopping) {
     // ST1-T03: อีเมลใน outbox ส่งก่อน job (ลิงก์ลืมรหัสผ่านมีอายุ 30 นาที)
     const mailed = await mail.runOnce().catch((e) => (log.error(e), false));
@@ -62,6 +75,7 @@ async function main() {
   clearInterval(timer);
   clearInterval(reminderTimer);
   clearInterval(depreciationTimer);
+  clearInterval(offerTimeoutTimer);
   await ctx.close();
 }
 

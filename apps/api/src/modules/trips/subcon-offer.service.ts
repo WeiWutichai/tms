@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { isSubconRejectReason, SUBCON_REJECT_REASONS, subconRejectLabelTh } from '@tms/domain';
 import { AuditService } from '../../audit/audit.service';
+import { Clock } from '../../common/clock';
 import { encodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
@@ -80,6 +81,8 @@ export class SubconOfferService {
     private readonly links: OfferLinks,
     private readonly audit: AuditService,
     private readonly messaging: MessagingService,
+    /** ST3-T24 (review L1): ตัดสินหมดเวลาด้วย Clock (server time) ชุดเดียวกับ job */
+    private readonly clock: Clock,
   ) {}
 
   private async load(tx: Tx, offerId: string): Promise<OfferRow> {
@@ -107,7 +110,9 @@ export class SubconOfferService {
   }
 
   private expired(o: { status: string; expiresAt: Date | null }) {
-    return o.status === 'OFFERED' && !!o.expiresAt && o.expiresAt.getTime() <= Date.now();
+    return (
+      o.status === 'OFFERED' && !!o.expiresAt && o.expiresAt.getTime() <= this.clock.now().getTime()
+    );
   }
 
   // ---------- หน้า public ----------
@@ -119,7 +124,7 @@ export class SubconOfferService {
       // เปิดลิงก์ครั้งแรก (PLN-150 `viewedAt`) — ครั้งเดียว (updateMany ตามเงื่อนไข กันสองเครื่องพร้อมกัน)
       const r = await tx.subconOffer.updateMany({
         where: { id: o.id, viewedAt: null },
-        data: { viewedAt: new Date() },
+        data: { viewedAt: this.clock.now() },
       });
       if (r.count)
         await this.audit.record({
@@ -183,7 +188,7 @@ export class SubconOfferService {
       },
       contactName: user?.name ?? null,
       expiresAt: (o.expiresAt ?? new Date(o.offeredAt.getTime() + 48 * 3600_000)).toISOString(),
-      serverTime: new Date().toISOString(),
+      serverTime: this.clock.now().toISOString(),
       accepted:
         o.status === 'ACCEPTED' && o.acceptedPlate
           ? { plate: o.acceptedPlate, driverName: o.acceptedDriverName }

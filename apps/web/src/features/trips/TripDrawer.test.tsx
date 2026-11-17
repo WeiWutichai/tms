@@ -189,6 +189,17 @@ describe('TripDrawer (ST3-T16)', () => {
     expect(screen.queryByRole('button', { name: 'ส่งต่อรถร่วม' })).toBeNull();
   });
 
+  it('ST3-T24 รถร่วมปฏิเสธ/ข้อเสนอหมดเวลา → ปุ่มเดิมชื่อ "ส่งรายถัดไป" → เปิด drawer จ่ายงานรถร่วม', () => {
+    for (const assignmentStatus of ['REJECTED', 'EXPIRED']) {
+      live.data = { ...TRIP, assignmentStatus } as TripDetail;
+      const r = show(true, false, false, true);
+      expect(screen.queryByRole('button', { name: 'ส่งต่อรถร่วม' })).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: 'ส่งรายถัดไป' }));
+      expect(screen.getByText('จ่ายงานรถร่วม')).toBeTruthy();
+      r.unmount();
+    }
+  });
+
   beforeEach(() => {
     live.data = TRIP;
     reorderMutate.mockReset();

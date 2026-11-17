@@ -31,6 +31,7 @@ const EXPECTED: Partial<Record<`${TripStatus}.${TripEvent}`, TripStatus>> = {
   'OFFERED.accept': 'ASSIGNED',
   'OFFERED.reject': 'PLANNING',
   'OFFERED.expire': 'PLANNING',
+  'OFFERED.withdraw': 'PLANNING',
   'OFFERED.cancel': 'CANCELLED',
   'ASSIGNED.reassign': 'ASSIGNED',
   'ASSIGNED.dispatch': 'DISPATCHED',

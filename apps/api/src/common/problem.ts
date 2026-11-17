@@ -226,6 +226,12 @@ export const PROBLEMS = {
     th: 'ข้อเสนองานนี้ปิดแล้ว (ตอบไปแล้วหรือถูกยกเลิก)',
     en: 'This job offer is closed (already answered or withdrawn)',
   },
+  /** ST3-T24 "ส่งรายถัดไป" ระหว่างรอตอบ: ยังไม่ครบเวลาตอบ N ชม. (extension `responseDueAt`) */
+  offer_not_timed_out: {
+    status: 409,
+    th: 'รถร่วมรายนี้ยังอยู่ในเวลาตอบรับ — ส่งรายถัดไปได้เมื่อครบเวลา',
+    en: 'The carrier still has time to respond — send to the next carrier after the response time',
+  },
   carrier_change_requires_cancel: {
     status: 409,
     th: 'เปลี่ยนรถร่วมหรือสลับรถร่วม/รถบริษัทไม่ได้ — ยกเลิกการจ้างเดิมก่อน',

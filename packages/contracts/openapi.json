@@ -16669,6 +16669,26 @@
                       "instance": "/v1/trips/trp_3f2a…",
                       "requestId": "b6a1c2d3-…"
                     }
+                  },
+                  "offer_closed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/offer_closed",
+                      "title": "ข้อเสนองานนี้ปิดแล้ว (ตอบไปแล้วหรือถูกยกเลิก)",
+                      "status": 409,
+                      "code": "offer_closed",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  },
+                  "offer_not_timed_out": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/offer_not_timed_out",
+                      "title": "รถร่วมรายนี้ยังอยู่ในเวลาตอบรับ — ส่งรายถัดไปได้เมื่อครบเวลา",
+                      "status": 409,
+                      "code": "offer_not_timed_out",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
                   }
                 }
               }
@@ -33977,6 +33997,11 @@
           },
           "offeredAt": {
             "type": "string"
+          },
+          "responseDueAt": {
+            "type": "string",
+            "nullable": true,
+            "description": "ST3-T24 ครบเวลาตอบ (เวลาเสนอ + N ชม. ตามค่าตั้ง `dispatch.subconResponseHours`) — เลยแล้วยังไม่ตอบ = แจ้งผู้จัดรถ + \"ส่งรายถัดไป\" ได้"
           }
         },
         "required": [
@@ -33986,7 +34011,8 @@
           "rateCardCode",
           "selectionReason",
           "offeredBy",
-          "offeredAt"
+          "offeredAt",
+          "responseDueAt"
         ]
       },
       "TripStopDto": {
@@ -35156,6 +35182,16 @@
             "example": "เอกสารบังคับของรถ (ประกัน/พ.ร.บ.) ไม่ครบหรือหมดอายุ ณ วันที่เที่ยว",
             "description": "จ้างไม่ได้จริง ณ วันเที่ยว (กฎเอกสารบังคับ ST3-T14 / ไม่มีรถที่ลงทะเบียน) — ไม่นับในการเทียบถูกสุด, จ้างได้แต่ต้องมีเหตุผล"
           },
+          "priorOutcome": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "REJECTED",
+              "EXPIRED",
+              "NO_RESPONSE"
+            ],
+            "description": "ST3-T24 รายนี้เคยได้ข้อเสนอของเที่ยวนี้แล้วไม่รับ: ปฏิเสธ / ลิงก์หมดอายุ / ไม่ตอบใน N ชม. (รวมรายที่รอตอบอยู่และครบเวลาแล้ว) — ไม่นับในการเทียบถูกสุด (รายถัดไปที่ถูกสุด = ถูกสุด)"
+          },
           "cheapest": {
             "type": "boolean",
             "description": "ราคาต่ำสุดของตัวเลือก (เท่ากันได้หลายราย)"
@@ -35180,6 +35216,7 @@
           "vatType",
           "whtRate",
           "blockedReason",
+          "priorOutcome",
           "cheapest"
         ]
       },
@@ -35281,6 +35318,17 @@
             "nullable": true,
             "example": "vty_3f2a…",
             "description": "ประเภทรถที่จ้าง (ใช้หา rate card ขาซื้อ) — ไม่ส่ง = ตามเที่ยว/ใบสั่งขาย"
+          },
+          "replaceOffer": {
+            "type": "boolean",
+            "description": "ST3-T24 \"ส่งรายถัดไป\" ระหว่างรอตอบ: true = ปิดการจ้างที่รอตอบซึ่งครบเวลาตอบ N ชม. แล้ว (WITHDRAWN — ลิงก์เดิมใช้ไม่ได้, ค่าจ้างเดิมกลับรายการ) แล้วจ้างรายนี้ในคำขอเดียว · ยังไม่ครบเวลา → 409 `offer_not_timed_out` · ไม่ส่ง = เที่ยวต้องเป็น PLANNING"
+          },
+          "replaceNote": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 500,
+            "example": "โทรตามแล้วไม่รับสาย",
+            "description": "ST3-T24 หมายเหตุการถอนรายเดิมเมื่อ `replaceOffer` (ไม่บังคับ) — ต่อท้ายเหตุผลระบบ \"… ไม่ตอบรับใน N ชม. — ส่งรายถัดไป\""
           }
         },
         "required": [

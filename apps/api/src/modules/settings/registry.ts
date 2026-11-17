@@ -15,7 +15,7 @@ export interface SettingDef {
   type: SettingType;
   default: unknown;
   /** กลุ่มในหน้า ตั้งค่า (org / tax / sec / billing) */
-  group: 'org' | 'tax' | 'sec' | 'billing' | 'routing';
+  group: 'org' | 'tax' | 'sec' | 'billing' | 'routing' | 'dispatch';
   store?: { table: 'tenant'; column: 'name' | 'yearStyle' };
   description: string;
 }
@@ -97,6 +97,13 @@ export const SETTINGS = {
     default: null,
     description:
       'จ้างในนาม (Tender As) ค่าเริ่มต้นของ tenant — รถร่วม override ได้ (ST2-T05); null = นิติบุคคลเดียวที่มี',
+  },
+  'dispatch.subconResponseHours': {
+    group: 'dispatch',
+    type: { kind: 'int', min: 1, max: 47 },
+    default: 2,
+    description:
+      'รถร่วมไม่ตอบข้อเสนองานภายในกี่ชั่วโมง → แจ้งผู้จัดรถ + ปุ่ม "ส่งรายถัดไป" (docs/04 D3 — ต้องน้อยกว่าอายุลิงก์ 48 ชม.; ใช้กับข้อเสนอใหม่)',
   },
   'security.require2faAll': {
     group: 'sec',

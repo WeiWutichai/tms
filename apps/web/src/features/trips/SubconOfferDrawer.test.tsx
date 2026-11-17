@@ -92,6 +92,81 @@ const show = (t: TripDetail) =>
     </QueryClientProvider>,
   );
 
+describe('SubconOfferDrawer — หมดเวลาตอบ (ST3-T24)', () => {
+  const due = (h: number) => {
+    const offeredAt = new Date(Date.now() - (h + 1) * 3600_000).toISOString();
+    return {
+      offeredAt,
+      responseDueAt: new Date(Date.parse(offeredAt) + h * 3600_000).toISOString(),
+    };
+  };
+  beforeEach(() => {
+    offers = [offer()];
+  });
+
+  it('ครบ N ชม. ยังไม่ตอบ → ข้อความ "ยังไม่ตอบรับใน N ชม." + ปุ่ม "ส่งรายถัดไป" → onNext', () => {
+    const onNext = vi.fn();
+    const base = trip();
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <I18nProvider>
+          <SubconOfferDrawer
+            trip={{ ...base, hire: { ...base.hire!, ...due(2) } } as TripDetail}
+            onClose={() => undefined}
+            onNext={onNext}
+          />
+        </I18nProvider>
+      </QueryClientProvider>,
+    );
+    expect(screen.getByTestId('sub-timeout').textContent).toBe(
+      'หจก. เอ ยังไม่ตอบรับใน 2 ชม. — ส่งข้อเสนอให้รายถัดไปได้',
+    );
+    expect(screen.queryByTestId('sub-wait')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'ส่งรายถัดไป' }));
+    expect(onNext).toHaveBeenCalledTimes(1);
+  });
+
+  it('ยังไม่ครบเวลาตอบ / รับงานแล้ว → ไม่มีปุ่ม "ส่งรายถัดไป"', () => {
+    const base = trip();
+    const future = {
+      offeredAt: new Date().toISOString(),
+      responseDueAt: new Date(Date.now() + 3600_000).toISOString(),
+    };
+    const { unmount } = render(
+      <QueryClientProvider client={new QueryClient()}>
+        <I18nProvider>
+          <SubconOfferDrawer
+            trip={{ ...base, hire: { ...base.hire!, ...future } } as TripDetail}
+            onClose={() => undefined}
+            onNext={() => undefined}
+          />
+        </I18nProvider>
+      </QueryClientProvider>,
+    );
+    expect(screen.queryByRole('button', { name: 'ส่งรายถัดไป' })).toBeNull();
+    expect(screen.getByTestId('sub-wait')).toBeTruthy();
+    unmount();
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <I18nProvider>
+          <SubconOfferDrawer
+            trip={
+              {
+                ...base,
+                status: 'ASSIGNED',
+                hire: { ...base.hire!, status: 'ACCEPTED', ...due(2) },
+              } as TripDetail
+            }
+            onClose={() => undefined}
+            onNext={() => undefined}
+          />
+        </I18nProvider>
+      </QueryClientProvider>,
+    );
+    expect(screen.queryByRole('button', { name: 'ส่งรายถัดไป' })).toBeNull();
+  });
+});
+
 describe('SubconOfferDrawer (ST3-T23)', () => {
   beforeEach(() => {
     sendMutate.mockReset();

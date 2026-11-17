@@ -107,6 +107,7 @@ import { CarriersService } from './modules/carriers/carriers.service';
 import { VehicleDocumentsController } from './modules/vehicle-documents/vehicle-documents.controller';
 import { VehicleDocumentsService } from './modules/vehicle-documents/vehicle-documents.service';
 import { Clock } from './common/clock';
+import { SubconTimeoutService } from './modules/trips/subcon-timeout.service';
 import { DepreciationService } from './modules/depreciation/depreciation.service';
 import { ConnectorIntakeService } from './modules/connectors/connector-intake.service';
 import { OrderSourceRegistry } from './modules/connectors/order-source-registry';
@@ -231,6 +232,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     TripService,
     SubconHireService,
     SubconOfferService,
+    SubconTimeoutService,
     OfferLinks,
     TripSheetsService,
     TripSheetLinks,
