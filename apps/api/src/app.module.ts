@@ -57,6 +57,7 @@ import { JobQueue } from './jobs/job-queue.service';
 import { CompaniesController } from './modules/companies/companies.controller';
 import { CustomersController } from './modules/customers/customers.controller';
 import { CustomersService } from './modules/customers/customers.service';
+import { PodChecklistService } from './modules/pod/pod-checklist.service';
 import { SitesController } from './modules/sites/sites.controller';
 import { ProductsController } from './modules/products/products.controller';
 import { ProductsService } from './modules/products/products.service';
@@ -228,6 +229,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     PdfRenderer,
     CompaniesService,
     CustomersService,
+    PodChecklistService,
     SitesService,
     RoutesService,
     CompatibilityService,

@@ -41,6 +41,8 @@ import {
   UpsertCustomerDto,
 } from './customer.dto';
 import { CustomersService } from './customers.service';
+import { CustomerPodChecklistDto } from '../pod/pod-checklist.dto';
+import { PodChecklistService } from '../pod/pod-checklist.service';
 import { DbService } from '../../db/db.service';
 import {
   ApiExternalPatch,
@@ -90,6 +92,7 @@ export class CustomersController {
   constructor(
     private readonly customers: CustomersService,
     private readonly db: DbService,
+    private readonly pod: PodChecklistService,
   ) {}
 
   private async resolve(id: string) {
@@ -197,6 +200,16 @@ export class CustomersController {
   async history(@Param('id') id: string, @Query() q: HistoryQuery): Promise<AuditPageDto> {
     const c = await this.resolve(id);
     return entityHistory(this.db.tx, 'customer', c.id, q);
+  }
+
+  /** POD checklist ที่ใช้จริงของลูกค้า (ST4-T05) — override ของลูกค้า หรือค่าเริ่มต้นขององค์กร */
+  @Get(':id/pod-checklist')
+  @TenantResource('customer')
+  @RequireScope('master:read')
+  @ApiOkResponse({ type: CustomerPodChecklistDto })
+  async podChecklist(@Param('id') id: string): Promise<CustomerPodChecklistDto> {
+    const c = await this.resolve(id);
+    return { data: await this.pod.allForCustomer(c.id) };
   }
 
   @Patch('external/:externalId')

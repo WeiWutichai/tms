@@ -7,6 +7,8 @@ import type { MessageKey } from '../../i18n/th';
 import { HistoryTab } from '../master/HistoryTab';
 import { CustomerSitesTab } from '../sites/CustomerSitesTab';
 import { CustomerRatesTab } from '../rate-cards/CustomerRatesTab';
+import { CustomerPodSection } from '../pod/CustomerPodSection';
+import { podChecklistInvalid, podSummary, type PodField } from '../pod/PodChecklistTable';
 import { fieldErrors, problemText } from '../master/problems';
 import {
   useCompanyOptions,
@@ -37,6 +39,9 @@ interface Form {
   vatRegistered: 'yes' | 'no';
   etaxCapable: 'yes' | 'no';
   freeTimeMin: string;
+  /** ST4-T05 POD checklist: default = ใช้ค่าองค์กร (`{}`) · custom = กำหนดเองทั้งชุด */
+  podMode: 'default' | 'custom';
+  podFields: PodField[];
 }
 
 function toForm(c: Customer): Form {
@@ -62,6 +67,8 @@ function toForm(c: Customer): Form {
     vatRegistered: c.vatRegistered ? 'yes' : 'no',
     etaxCapable: c.etaxCapable ? 'yes' : 'no',
     freeTimeMin: c.freeTimeMin === null ? '' : String(c.freeTimeMin),
+    podMode: c.podRequirements.success ? 'custom' : 'default',
+    podFields: c.podRequirements.success?.fields ?? [],
   };
 }
 
@@ -108,6 +115,14 @@ function diffBody(c: Customer, a: Form, b: Form): CustomerInput {
   if (a.etaxCapable !== b.etaxCapable) out.etaxCapable = b.etaxCapable === 'yes';
   if (a.freeTimeMin !== b.freeTimeMin)
     out.freeTimeMin = b.freeTimeMin.trim() === '' ? null : Number(b.freeTimeMin);
+  if (
+    a.podMode !== b.podMode ||
+    (b.podMode === 'custom' && JSON.stringify(a.podFields) !== JSON.stringify(b.podFields))
+  )
+    out.podRequirements =
+      b.podMode === 'custom'
+        ? { success: { fields: b.podFields.map((f) => ({ ...f, label: f.label?.trim() })) } }
+        : {};
   return out;
 }
 
@@ -201,6 +216,7 @@ export function CustomerDrawer({
   if (dup) errs.taxId = t('cust.v.dup', { code: dup.code, name: dup.legalName });
   const creditBad = f.credit.trim() === '' || Number(f.credit) > 365;
   if (creditBad) errs.creditTermDays = t('cust.v.credit');
+  const podBad = f.podMode === 'custom' && podChecklistInvalid(f.podFields);
   const top =
     save.error && !Object.keys(fieldErrors(save.error, t)).length && !dup
       ? problemText(save.error, t)
@@ -221,7 +237,7 @@ export function CustomerDrawer({
   }, [c.version]);
 
   const submit = () => {
-    if (!dirty || creditBad || stale) return;
+    if (!dirty || creditBad || podBad || stale) return;
     save.mutate(
       { id: c.id, version: baseVersion, body },
       {
@@ -292,7 +308,7 @@ export function CustomerDrawer({
               label: t('common.save'),
               icon: 'save',
               onClick: submit,
-              disabled: save.isPending,
+              disabled: save.isPending || podBad,
             }}
           />
         ) : undefined
@@ -541,6 +557,15 @@ export function CustomerDrawer({
               )}
             </Fld>
           </div>
+          <CustomerPodSection
+            customerId={c.id}
+            version={c.version}
+            readOnly={ro}
+            mode={f.podMode}
+            fields={f.podFields}
+            invalid={podBad}
+            onChange={(mode, fields) => setF((x) => ({ ...x, podMode: mode, podFields: fields }))}
+          />
         </div>
       )}
       {tab === 'addr' && (
@@ -552,6 +577,7 @@ export function CustomerDrawer({
           path="/v1/customers/{id}/history"
           id={c.id}
           fieldLabel={(k) => fieldLabel(t, k)}
+          fieldValue={(k, v) => (k === 'podRequirements' ? podSummary(t, v) : undefined)}
         />
       )}
     </Drawer>
@@ -575,6 +601,7 @@ const FIELD_KEYS: Record<string, MessageKey> = {
   vatRegistered: 'cust.c.vatReg',
   etaxCapable: 'cust.c.etax',
   freeTimeMin: 'cust.c.free',
+  podRequirements: 'pod.cust.title',
   status: 'cust.col.status',
 };
 function fieldLabel(t: (k: MessageKey) => string, k: string): string {
