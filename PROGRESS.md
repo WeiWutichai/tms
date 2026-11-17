@@ -24,7 +24,7 @@
 | ST1 Platform และองค์กร | **เสร็จ** (PR #17–#22; ค้างบางส่วนตามหมายเหตุในตาราง) | 10 พ.ย. | 11 พ.ย. | ตารางงาน ST1 ด้านล่าง |
 | ST2 Master data + Fleet | **เสร็จ** (12 พ.ย. — PR #23–#45) | 11 พ.ย. | 12 พ.ย. | ตารางงาน ST2 ด้านล่าง |
 | ST3 Order intake + Planning/Dispatch | **เสร็จ** (T01–T25 ครบ — T25 นับเมื่อ merge PR ของ `st3/t25-change-carrier`) | 12 พ.ย. | 17 พ.ย. 2569 | ตารางงาน ST3 ด้านล่าง · สรุป: รับ order ทุกทาง (มือ/Excel/API/connector) ผ่าน `upsertOrder()` เดียว + ใบค้าง + DO/trip state machine + กระดานวางแผน (constraint/multi-drop/assign-dispatch/send all/ตารางรถ) + ใบคุมรถ PDF + LINE/SMS + จ้างรถร่วมครบวงจร (ลิงก์รับ/ปฏิเสธ, หมดเวลา, เปลี่ยนผู้รับเหมา) |
-| ST4 Execution และ POD | **กำลังทำ** 2/15 (T01, T02) | 17 พ.ย. 2569 | — | ตารางงาน ST4 ด้านล่าง |
+| ST4 Execution และ POD | **กำลังทำ** 3/15 (T01, T02, T05 รอ review) | 17 พ.ย. 2569 | — | ตารางงาน ST4 ด้านล่าง |
 | ST5–ST9 | ยังไม่เริ่ม | | | |
 
 ### งาน ST0 (เกณฑ์ตรวจรับใน `plan/01-phase0-backlog.md`)
@@ -147,6 +147,7 @@
 | T02 Server idempotent (ส่งซ้ำ/ลำดับ/ธง) + ศูนย์ข้อยกเว้น (เฉพาะธง stop event) | dev + แก้ตาม review/QA เสร็จ (ไม่มี High) — รอ merge | migration `0084_stop_event_flags` + `0085_stop_event_resolution_lapse` (การตัดสินหมดผลเมื่อธงเปลี่ยน, `resolution_id`) (`clock_skew`, `late_reason`, GRANT UPDATE `sequence_conflict`, ตาราง `stop_event_resolution` append-only + RLS) · domain `effectiveStopSequence`/`stopEventTransition`/`stopEventAdmission`/`isClockSkewed` · API ส่งซ้ำ = 200 ผลเดิม, `GET /v1/stops/{id}/events`, `GET /v1/stop-event-flags` (+`/summary`), `POST /v1/stop-event-flags/{id}/resolve` · web `/exceptions` · test `stop-event-flags.test.ts` (11) + E2E `stop-event-flags.spec.ts` · ภาพเทียบ `design/compare/st4-flags-*-1440.png` · ตัดสินใจ spec/12 §3 (12 แถว) |
 | T03 ไล่สถานะ (ยังไม่เริ่ม) | — | ส่งต่อจาก T02: ใช้ `StopEventsService.sequence()` (`effective`) · event late ที่ผู้จัดรถ "ใช้" ต้อง**ไม่**ไล่สถานะเข้า DO/เที่ยวที่ยกเลิกหรือจบแล้ว (DRV-072) — บันทึกเป็นประวัติเท่านั้น |
 | T04 อัปเดตสถานะผ่านเว็บ (ยังไม่เริ่ม) | — | ส่งต่อจาก T02: ปุ่ม "ออกจากจุด" = บันทึก **DEPART ของจุดถัดไป** (จุดสุดท้าย = ไม่บันทึก/COMPLETE) ตาม docs/01 §3.9 (spec/12 §3 "ความหมาย DEPART") — บันทึก DEPART บนจุดเดิมหลังถึงแล้วจะขึ้นธงขัดลำดับ |
+| T05 POD checklist config (แกน) | dev เสร็จ — รอ review/QA | **domain** `packages/domain/src/pod-checklist.ts` (ชนิด PHOTO/SIGNATURE/NOTE/BOOLEAN × DISABLED/ENABLED/REQUIRED, `parsePodRequirements`/`resolvePodChecklist`/`validatePod`, ค่าระบบตาม spec/04 §13) · ค่าองค์กร tenant_setting `pod.checklist` (registry kind `podRequirements`, ทำเป็นรูปมาตรฐานก่อนเก็บ, audit) · ลูกค้า `podRequirements` ใน GET/POST/PATCH/PUT external (`{}` = ใช้ค่าองค์กร, override ทั้งชุด, 422 พร้อม path) · `GET /v1/customers/{id}/pod-checklist` (ที่ใช้จริง + source + tenantFields) · **ตัวตรวจ** `PodChecklistService.assertComplete()` → 422 `pod_incomplete` + `missing[]` / `check()` ไม่ปฏิเสธ (สำหรับ T07/T09/แอปคนขับ) · ไม่มี migration (คอลัมน์ `pod_requirements` มีตั้งแต่ 0004) · UI ตั้งค่า → หลักฐานส่ง (POD) + drawer ลูกค้า แท็บ เงื่อนไข · test domain 9, API `pod-checklist.test.ts` 7, web 4, E2E `pod-checklist.spec.ts` 2 · ภาพเทียบ `design/compare/st4-pod-{settings,default,custom}-1440.png` · DECISION spec/12 §3 ×3 · ส่งต่อ T06: เพิ่มชนิด/ชุด `failure` ที่ไฟล์ domain เดียว · T07: เรียก `check()` คำนวณ pod_status · T09: เรียก `assertComplete()` ตอนปิดงาน |
 | T08 ลิงก์รถร่วม ส่วนสถานะ (ยังไม่เริ่ม) | — | ส่งต่อจาก T02: ปุ่ม "ออก" แมปเหมือน T04 (DEPART ของจุดถัดไป) · ส่งซ้ำด้วย clientEventId เดิม = 200 ผลเดิม |
 
 ## สัปดาห์นี้ (สัปดาห์ 10–14 พ.ย. 2569)
@@ -228,6 +229,12 @@
 - (11 พ.ย., พบระหว่าง T19 — **แก้แล้วใน T04**: `db:migrate` รัน bootstrap ทุก tenant ซึ่ง sync role ระบบ) **role ระบบของ tenant ที่มีอยู่ไม่ได้สิทธิ์ใหม่อัตโนมัติ** — `ensureSystemRoles` รันแค่ตอนสร้าง tenant/seed; เมื่อโค้ดเพิ่ม permission (เช่น `documents:write` ใน T08) tenant เดิมไม่ได้ จนกว่าจะรัน seed · ฐาน dev แก้ด้วย seed แล้ว · ต้องมี sync ตอน deploy/บูต ก่อนมี tenant จริง (เสนอทำใน T24 admin portal หรือ migration step) 
 
 ## บันทึกรายวัน
+
+### 17 พ.ย. 2569 (ST4-T05 POD checklist config แกน — lane B)
+
+- ทำ: POD checklist ต่อลูกค้า — ค่าเริ่มต้นขององค์กร (`pod.checklist`) + override ต่อลูกค้า (`customer.pod_requirements`, `{}` = ใช้ค่าองค์กร) + ตัวตรวจ POD ที่งานอื่นเรียกใช้ (`PodChecklistService.check/assertComplete` → 422 `pod_incomplete` + `missing[]`) + `GET /v1/customers/{id}/pod-checklist` · หน้าตั้งค่า "หลักฐานส่ง (POD)" + ส่วน POD ในแท็บ เงื่อนไข ของ drawer ลูกค้า (ต้นแบบไม่มี — DECISION spec/12 §3)
+- ไฟล์: `packages/domain/src/pod-checklist{,.test}.ts` · `apps/api/src/modules/pod/` · `modules/settings/registry.ts` + `settings.service.ts` · `modules/customers/{customer.dto,customers.service,customers.controller}.ts` · `common/problem.ts` · `test/pod-checklist.test.ts` · web `src/features/pod/` (PodChecklistTable, PodSection, CustomerPodSection + test) · `features/settings/Settings.tsx` · `features/customers/CustomerDrawer.tsx` · `e2e/pod-checklist.spec.ts` · `scripts/compare-pod.mjs` · spec/12 §3 +3 แถว
+- ค้าง: ชุด "ไม่สำเร็จ" + BARCODE/SINGLE_CHOICE/PIN/RATING (T06) · ผูกตัวตรวจกับการปิดงาน: ePOD เว็บ/pod_status (T07), ลิงก์รถร่วม (T09), `/driver/stops/{id}/pod` + `podRequirements` ใน `/driver/today` (แอปคนขับ P1) · ออกแบบหน้าจริง (ส่ง Claude Design)
 
 ### 17 พ.ย. 2569 (infra: แยกฐาน/พอร์ตต่อ worktree เพื่อทำงานขนาน)
 

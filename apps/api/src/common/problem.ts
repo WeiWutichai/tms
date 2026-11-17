@@ -340,6 +340,12 @@ export const PROBLEMS = {
     th: 'ส่งทางช่องทางนี้ไม่ได้ตอนนี้ คัดลอกลิงก์ไปส่งเองได้',
     en: 'This channel is not available — copy the link and send it yourself',
   },
+  /** ST4-T05 ตัวตรวจ POD: หลักฐานขาด field ที่ checklist ของลูกค้าตั้ง "บังคับ" — `missing[]` บอกรายการที่ขาด */
+  pod_incomplete: {
+    status: 422,
+    th: 'หลักฐานการส่ง (POD) ยังไม่ครบตามที่ลูกค้ากำหนด',
+    en: 'Proof of delivery is incomplete for this customer checklist',
+  },
   internal_error: { status: 500, th: 'ระบบขัดข้อง', en: 'Internal error' },
 } as const;
 

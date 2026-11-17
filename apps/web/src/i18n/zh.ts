@@ -917,4 +917,11 @@ export const zh: Partial<Record<MessageKey, string>> = {
   'exc.dlg.reason': '原因',
   'exc.retry': '重试',
   'exc.menu.view': '查看详情',
+  'pod.col.item': '项',
+  'pod.lv.ENABLED': '可选',
+  'pod.lv.REQUIRED': '必填',
+  'pod.type.PHOTO': '凭证照片',
+  'pod.type.SIGNATURE': '收货人签名',
+  'pod.type.NOTE': '备注',
+  'pod.photoUnit': '张照片',
 };

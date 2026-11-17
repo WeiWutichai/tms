@@ -3667,6 +3667,41 @@
         ]
       }
     },
+    "/v1/customers/{id}/pod-checklist": {
+      "get": {
+        "operationId": "Customers_podChecklist",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerPodChecklistDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "customers"
+        ]
+      }
+    },
     "/v1/customers/{id}/deactivate": {
       "post": {
         "operationId": "Customers_deactivate",
@@ -27922,6 +27957,78 @@
           "name"
         ]
       },
+      "PodFieldDto": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "example": "photo",
+            "description": "อ้างอิงในหลักฐานที่ส่ง — PHOTO/SIGNATURE/NOTE = photo/signature/note (ไม่ต้องส่ง); BOOLEAN ตั้งเอง ^[a-z][a-z0-9_]{0,39}$"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "PHOTO",
+              "SIGNATURE",
+              "NOTE",
+              "BOOLEAN"
+            ]
+          },
+          "level": {
+            "type": "string",
+            "enum": [
+              "DISABLED",
+              "ENABLED",
+              "REQUIRED"
+            ],
+            "description": "DISABLED = ไม่ใช้ · ENABLED = ใช้ ไม่บังคับ · REQUIRED = บังคับ (ขาด → ปิดงานไม่ได้)"
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 100,
+            "description": "ข้อความที่ผู้รับ/คนขับต้องยืนยัน — บังคับสำหรับ BOOLEAN เท่านั้น"
+          },
+          "minCount": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 5,
+            "description": "จำนวนรูปขั้นต่ำเมื่อบังคับ — PHOTO เท่านั้น (ไม่ส่ง = 1)"
+          }
+        },
+        "required": [
+          "key",
+          "type",
+          "level"
+        ]
+      },
+      "PodChecklistDto": {
+        "type": "object",
+        "properties": {
+          "fields": {
+            "description": "PHOTO/SIGNATURE/NOTE มีได้อย่างละ 1 (ไม่ส่ง = DISABLED) · BOOLEAN ได้สูงสุด 10 ข้อ — response เรียงตามชนิดเสมอ",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PodFieldDto"
+            }
+          }
+        },
+        "required": [
+          "fields"
+        ]
+      },
+      "PodRequirementsDto": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "description": "ชุดเมื่อส่งสำเร็จ — ของลูกค้า: ไม่ส่ง = ใช้ค่าเริ่มต้นขององค์กร",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PodChecklistDto"
+              }
+            ]
+          }
+        }
+      },
       "CustomerRefDto": {
         "type": "object",
         "properties": {
@@ -28031,6 +28138,14 @@
             "nullable": true,
             "description": "ออกบิลในนาม (cmp_…)"
           },
+          "podRequirements": {
+            "description": "POD checklist ที่ลูกค้ากำหนดเอง — `{}` = ใช้ค่าเริ่มต้นขององค์กร (ดูที่ใช้จริงที่ `GET /customers/{id}/pod-checklist`)",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PodRequirementsDto"
+              }
+            ]
+          },
           "salesOwner": {
             "nullable": true,
             "type": "object",
@@ -28084,6 +28199,7 @@
           "etaxCapable",
           "freeTimeMin",
           "billingCompanyId",
+          "podRequirements",
           "salesOwner",
           "status",
           "version",
@@ -28241,6 +28357,14 @@
             "nullable": true,
             "description": "free time ค่ารอ (นาที) — null = ใช้ค่าตั้งองค์กร `billing.freeTimeMinutes`"
           },
+          "podRequirements": {
+            "description": "POD checklist ของลูกค้านี้ (ST4-T05; docs/04 E2) — `{}` = ใช้ค่าเริ่มต้นขององค์กร (`pod.checklist`); ส่งชุด `success` = กำหนดเองทั้งชุด",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PodRequirementsDto"
+              }
+            ]
+          },
           "billingCompanyId": {
             "type": "string",
             "example": "cmp_…",
@@ -28362,6 +28486,14 @@
             "nullable": true,
             "description": "free time ค่ารอ (นาที) — null = ใช้ค่าตั้งองค์กร `billing.freeTimeMinutes`"
           },
+          "podRequirements": {
+            "description": "POD checklist ของลูกค้านี้ (ST4-T05; docs/04 E2) — `{}` = ใช้ค่าเริ่มต้นขององค์กร (`pod.checklist`); ส่งชุด `success` = กำหนดเองทั้งชุด",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PodRequirementsDto"
+              }
+            ]
+          },
           "billingCompanyId": {
             "type": "string",
             "example": "cmp_…",
@@ -28386,6 +28518,59 @@
         },
         "required": [
           "legalName"
+        ]
+      },
+      "EffectivePodChecklistDto": {
+        "type": "object",
+        "properties": {
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "SUCCESS"
+            ]
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "TENANT",
+              "CUSTOMER"
+            ],
+            "description": "TENANT = ใช้ค่าเริ่มต้นขององค์กร · CUSTOMER = ลูกค้ากำหนดเอง"
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PodFieldDto"
+            }
+          },
+          "tenantFields": {
+            "description": "ชุดค่าเริ่มต้นขององค์กร (ใช้เมื่อลูกค้าไม่กำหนดเอง) — แสดง/ตั้งต้นเมื่อสลับโหมดใน drawer ลูกค้า",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PodFieldDto"
+            }
+          }
+        },
+        "required": [
+          "outcome",
+          "source",
+          "fields",
+          "tenantFields"
+        ]
+      },
+      "CustomerPodChecklistDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "description": "checklist ที่ใช้จริงต่อผลการส่ง",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EffectivePodChecklistDto"
+            }
+          }
+        },
+        "required": [
+          "data"
         ]
       },
       "UpdateCustomerDto": {
@@ -28478,6 +28663,14 @@
             "maximum": 1440,
             "nullable": true,
             "description": "free time ค่ารอ (นาที) — null = ใช้ค่าตั้งองค์กร `billing.freeTimeMinutes`"
+          },
+          "podRequirements": {
+            "description": "POD checklist ของลูกค้านี้ (ST4-T05; docs/04 E2) — `{}` = ใช้ค่าเริ่มต้นขององค์กร (`pod.checklist`); ส่งชุด `success` = กำหนดเองทั้งชุด",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PodRequirementsDto"
+              }
+            ]
           },
           "billingCompanyId": {
             "type": "string",

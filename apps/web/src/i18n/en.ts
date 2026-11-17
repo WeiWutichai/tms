@@ -917,4 +917,11 @@ export const en: Partial<Record<MessageKey, string>> = {
   'exc.dlg.reason': 'Reasons',
   'exc.retry': 'Retry',
   'exc.menu.view': 'View details',
+  'pod.col.item': 'items',
+  'pod.lv.ENABLED': 'Optional',
+  'pod.lv.REQUIRED': 'Required',
+  'pod.type.PHOTO': 'Proof photos',
+  'pod.type.SIGNATURE': 'Recipient signature',
+  'pod.type.NOTE': 'Notes',
+  'pod.photoUnit': 'photos',
 };

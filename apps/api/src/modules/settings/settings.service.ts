@@ -5,7 +5,13 @@ import { tryDecodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
-import { SETTING_KEYS, SETTINGS, validateSetting, type SettingKey } from './registry';
+import {
+  normalizeSetting,
+  SETTING_KEYS,
+  SETTINGS,
+  validateSetting,
+  type SettingKey,
+} from './registry';
 
 export interface SettingValue {
   key: SettingKey;
@@ -113,7 +119,7 @@ export class SettingsService {
         });
     }
     if (errors.length) throw new ProblemException('validation_failed', undefined, errors);
-    for (const [k, v] of Object.entries(values)) if (typeof v === 'string') values[k] = v.trim();
+    for (const [k, v] of Object.entries(values)) values[k] = normalizeSetting(k as SettingKey, v);
     const keys = Object.keys(values) as SettingKey[];
     // ล็อกแถวของ key ที่จะแก้ก่อนตรวจ version (กันสองคนบันทึกพร้อมกัน)
     await tx.$queryRaw`SELECT key FROM tenant_setting WHERE key = ANY(${keys}::text[]) FOR UPDATE`;
