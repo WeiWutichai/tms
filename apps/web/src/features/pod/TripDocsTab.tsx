@@ -1007,7 +1007,11 @@ function PodForm({
           <span style={{ fontSize: 12.5, color: '#59606B' }}>
             {t('pod.e.version', {
               v: last.version,
-              who: last.recordedByName ?? t('pod.e.system'),
+              // ST4-T09 ส่งผ่านลิงก์รถร่วม → "บันทึกโดย {รถร่วม} · ลิงก์รถร่วม"
+              who:
+                last.source === 'LINK'
+                  ? [last.recordedByName, t('exc.src.LINK')].filter(Boolean).join(' · ')
+                  : (last.recordedByName ?? t('pod.e.system')),
               at: dt(last.recordedAt),
             })}
             {last.reason ? ` · ${last.reason}` : ''}

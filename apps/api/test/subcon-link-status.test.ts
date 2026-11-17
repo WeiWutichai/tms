@@ -422,7 +422,7 @@ describe('subcon link status (ST4-T08)', () => {
     const e1 = (
       await press(podToken, m.delivery.id, { type: 'COMPLETE', outcome: 'DELIVERED' }).expect(422)
     ).body;
-    expect(e1.errors[0]).toMatchObject({ field: 'type', code: 'pod_required' });
+    expect(e1.errors[0]).toMatchObject({ field: 'pod', code: 'pod_required' });
     await press(podToken, m.pickup.id, { type: 'ARRIVE' }).expect(201);
     expect(
       (await press(podToken, m.pickup.id, { type: 'COMPLETE' }).expect(422)).body.errors[0].field,

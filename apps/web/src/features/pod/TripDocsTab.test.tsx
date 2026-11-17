@@ -203,6 +203,47 @@ describe('TripDocsTab', () => {
     });
   });
 
+  it('ST4-T09 ฉบับที่ส่งผ่านลิงก์รถร่วม → "บันทึกโดย {รถร่วม} · ลิงก์รถร่วม"', () => {
+    const v = {
+      version: 1,
+      podStatus: 'COMPLETE',
+      source: 'LINK',
+      reason: null,
+      recordedBy: 'link:6b1e0f5e-1111-4222-8333-944455556666',
+      recordedByName: 'หจก. ศรีราชาโลจิสติกส์',
+      recordedAt: '2026-11-17T03:00:00.000Z',
+    } as const;
+    // DO ยังรอหลักฐาน (เปิดบล็อกอัตโนมัติ)
+    pods.do_1 = pod({
+      podStatus: 'PARTIAL',
+      missing: [{ key: 'signature', type: 'SIGNATURE', code: 'required' }],
+      current: {
+        ...v,
+        outcome: 'SUCCESS',
+        receiverName: null,
+        receiverRelation: null,
+        signature: null,
+        photos: [],
+        files: [],
+        weighedKg: null,
+        customerRef: null,
+        note: null,
+        checks: {},
+        choices: {},
+        barcodes: [],
+        pinMasked: null,
+        pinUnreadable: false,
+        rating: null,
+        missing: [],
+      },
+      versions: [v],
+    } as Partial<DoPod>);
+    renderTab();
+    expect(
+      screen.getByText(/ฉบับที่ 1 · บันทึกโดย หจก\. ศรีราชาโลจิสติกส์ · ลิงก์รถร่วม/),
+    ).toBeTruthy();
+  });
+
   it('อ่านอย่างเดียว (ไม่มีสิทธิ์ / วางบิลแล้ว): ไม่มีปุ่มอัปโหลด/บันทึก', () => {
     pods.do_1 = pod({ editable: false, doStatus: 'BILLED', podStatus: 'COMPLETE' });
     renderTab();

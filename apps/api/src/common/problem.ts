@@ -364,6 +364,30 @@ export const PROBLEMS = {
     th: 'บันทึกหลักฐานส่งของใบส่งของนี้ไม่ได้ในสถานะปัจจุบัน',
     en: 'Proof of delivery cannot be recorded for this delivery order in its current status',
   },
+  /** ST4-T09 ลิงก์รถร่วม: DO นี้มีหลักฐานส่งแล้ว (ส่งผ่านลิงก์ครั้งเดียว — แก้ = ผู้จัดรถในเว็บ) */
+  pod_exists: {
+    status: 409,
+    th: 'ส่ง POD ของใบส่งของนี้แล้ว',
+    en: 'Proof of delivery has already been sent for this delivery order',
+  },
+  /** ST4-T09 ลิงก์รถร่วม: ปิดงานจุดส่งได้หลังกด "ถึงจุดส่ง" เท่านั้น */
+  stop_not_arrived: {
+    status: 409,
+    th: 'ยังไม่ได้บันทึกถึงจุดนี้',
+    en: 'The stop has not been arrived at yet',
+  },
+  /** ST4-T09 ลิงก์รถร่วม: ปิดงานจุดส่งไม่มีผล — จุดก่อนหน้า (จุดรับ) ยังไม่ปิด/ลำดับขัด */
+  stop_not_ready: {
+    status: 409,
+    th: 'ปิดงานจุดก่อนหน้าก่อน',
+    en: 'Close the previous stop first',
+  },
+  /** ST4-T09 ลิงก์รถร่วม: จุดนี้ถูกปิดแล้ว (ผู้จัดรถปิดแทน/คำขออื่นมาก่อน) — ส่ง POD อย่างเดียวได้ */
+  stop_already_closed: {
+    status: 409,
+    th: 'จุดนี้ถูกปิดแล้ว — ส่ง POD ของ DO นี้ได้',
+    en: 'This stop is already closed — send the proof of delivery only',
+  },
   /** ST7-T01 OAuth2 client credentials (RFC 6749 §5.2): client_id/secret ผิด — ไม่บอกว่าผิดส่วนไหน */
   invalid_client: {
     status: 401,
