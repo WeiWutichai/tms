@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { SYSTEM_ROLES } from '@tms/domain';
 import request from 'supertest';
@@ -688,7 +689,7 @@ describe('subcon offer timeout (ST3-T24)', () => {
   });
 
   it('ลิงก์ในแจ้งเตือนชี้ route ที่มีจริงของเว็บ (QA M1)', () => {
-    const app = readFileSync(new URL('../../web/src/App.tsx', import.meta.url), 'utf8');
+    const app = readFileSync(resolve(__dirname, '../../web/src/App.tsx'), 'utf8');
     const routes = new Set([...app.matchAll(/^\s+'(\/[^']*)': \(\) =>/gm)].map((m) => m[1]));
     const links = [
       tripLink('00000000-0000-4000-8000-000000000001'),
