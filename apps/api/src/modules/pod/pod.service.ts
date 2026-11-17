@@ -90,7 +90,7 @@ export class PodService {
     return {
       deliveryOrderId: encodeId('deliveryOrder', d.id),
       doNo: d.doNo ?? '',
-      doStatus: d.status.toLowerCase(),
+      doStatus: d.status,
       podStatus: d.podStatus,
       editable: isPodEditable(d.status as DoStatus),
       plannedWeightKg: dec(d.weightKg),
@@ -122,7 +122,7 @@ export class PodService {
     const status = d.status as DoStatus;
     if (!isPodEditable(status))
       throw new ProblemException('pod_not_allowed', undefined, undefined, {
-        doStatus: status.toLowerCase(),
+        doStatus: status,
       });
     const latest = await tx.deliveryOrderPod.findFirst({
       where: { deliveryOrderId },
@@ -176,6 +176,45 @@ export class PodService {
     checkDocs(photoIds, 'photoDocumentIds', 'POD_PHOTO', IMAGE);
     checkDocs(fileIds, 'fileDocumentIds', 'POD_FILE', FILE);
     checkDocs(sigIds, 'signatureDocumentId', 'POD_SIGNATURE', IMAGE);
+    // เจ้าของไฟล์: ผูกกับ DO นี้ครั้งแรกที่ใช้ — ไฟล์ที่ผูกกับเอกสารอื่น/ถูกใช้ใน POD ของ DO อื่น (ฉบับใดก็ได้) ใช้ไม่ได้
+    const elsewhere = all.length
+      ? await tx.deliveryOrderPod.findMany({
+          where: {
+            deliveryOrderId: { not: deliveryOrderId },
+            OR: [
+              { photoDocumentIds: { hasSome: all } },
+              { fileDocumentIds: { hasSome: all } },
+              { signatureDocumentId: { in: all } },
+            ],
+          },
+          select: { photoDocumentIds: true, fileDocumentIds: true, signatureDocumentId: true },
+        })
+      : [];
+    const taken = new Set(
+      elsewhere.flatMap((r) => [
+        ...r.photoDocumentIds,
+        ...r.fileDocumentIds,
+        ...(r.signatureDocumentId ? [r.signatureDocumentId] : []),
+      ]),
+    );
+    const owned = (ids: string[], field: string) =>
+      ids.forEach((id, i) => {
+        const doc = docs.get(id);
+        if (!doc) return;
+        const foreign =
+          taken.has(id) ||
+          (doc.entityId !== null &&
+            (doc.entityType !== POD_ENTITY || doc.entityId !== deliveryOrderId));
+        if (foreign)
+          errors.push({
+            field: field === 'signatureDocumentId' ? field : `${field}.${i}`,
+            code: 'document_in_use',
+            message: 'document belongs to another record',
+          });
+      });
+    owned(photoIds, 'photoDocumentIds');
+    owned(fileIds, 'fileDocumentIds');
+    owned(sigIds, 'signatureDocumentId');
 
     const bc = normalizeBarcodes(input.barcodes, input.scanCodes);
     if (bc.conflict)
@@ -231,6 +270,38 @@ export class PodService {
         message: `${m.type} value is not valid`,
       });
     if (errors.length) throw new ProblemException('validation_failed', undefined, errors);
+    // ด่านวางบิล: DO ที่รอวางบิลแล้ว (UNBILLED) แก้หลักฐานจนไม่ครบไม่ได้ (POD_PENDING ยังบันทึกบางส่วนได้)
+    if (mustStayComplete(status) && !check.ok)
+      throw new ProblemException(
+        'pod_incomplete',
+        undefined,
+        check.missing.map((m) => ({
+          field:
+            FIELD_OF_MISSING[m.type] ?? `${m.type === 'BOOLEAN' ? 'checks' : 'choices'}.${m.key}`,
+          code: m.code,
+          message: `${m.type} is ${m.code}`,
+        })),
+        { missing: check.missing, doStatus: status },
+      );
+
+    // ผูกไฟล์กับ DO นี้ (ล็อกแถวไฟล์ — สองคำขอแย่งไฟล์เดียวกันได้ผลเดียว)
+    if (all.length) {
+      const bound = await tx.storedDocument.updateMany({
+        where: {
+          id: { in: all },
+          OR: [{ entityId: null }, { entityType: POD_ENTITY, entityId: deliveryOrderId }],
+        },
+        data: { entityType: POD_ENTITY, entityId: deliveryOrderId },
+      });
+      if (bound.count !== all.length)
+        throw new ProblemException('validation_failed', undefined, [
+          {
+            field: 'photoDocumentIds',
+            code: 'document_in_use',
+            message: 'document belongs to another record',
+          },
+        ]);
+    }
 
     const podStatus = podStatusOf(true, check.ok);
     const row = await tx.deliveryOrderPod.create({
@@ -342,8 +413,12 @@ export class PodService {
     if (r.pinEnc)
       try {
         pin = this.cipher.decrypt(r.pinEnc);
-      } catch {
-        this.log.warn(`pod ${r.id}: cannot decrypt PIN — treated as not entered`);
+      } catch (e) {
+        // กุญแจหาย/หมุนผิด — ไม่ลดสถานะเงียบ ๆ: นับว่ากรอกแล้ว (ตรวจรูปแบบตอนบันทึก) + log error + ธง pinUnreadable
+        this.log.error(
+          `pod ${r.id}: cannot decrypt PIN (${(e as Error).message}) — treated as entered; check FIELD_ENCRYPTION_KEYS`,
+        );
+        pin = '0'.repeat(r.pinLength ?? 4);
       }
     return {
       photoCount: r.photoDocumentIds.length,
@@ -355,6 +430,15 @@ export class PodService {
       pin,
       rating: r.rating,
     };
+  }
+
+  private canDecrypt(v: string): boolean {
+    try {
+      this.cipher.decrypt(v);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   private decodeDocs(ids: string[] | undefined, field: string, errors: FieldError[]): string[] {
@@ -435,6 +519,7 @@ export class PodService {
       choices: (r.choices ?? {}) as Record<string, string>,
       barcodes: r.barcodes,
       pinMasked: r.pinLength ? '•'.repeat(r.pinLength) : null,
+      pinUnreadable: !!r.pinEnc && !this.canDecrypt(r.pinEnc),
       rating: r.rating,
       missing: (r.missing ?? []) as unknown as PodMissing[],
     };
@@ -456,6 +541,20 @@ export class PodService {
 }
 
 const EMPTY: PodSubmission = { photoCount: 0, hasSignature: false };
+
+/** entity_type ของ stored_document ที่ผูกกับหลักฐานส่ง (entity_id = DO) */
+const POD_ENTITY = 'delivery_order';
+/** DO ที่ต้องคงหลักฐานครบ (ผ่านด่านวางบิลแล้ว) */
+const mustStayComplete = (s: DoStatus) => s === 'UNBILLED';
+
+const FIELD_OF_MISSING: Record<string, string> = {
+  PHOTO: 'photoDocumentIds',
+  SIGNATURE: 'signatureDocumentId',
+  NOTE: 'note',
+  BARCODE: 'barcodes',
+  PIN: 'pin',
+  RATING: 'rating',
+};
 
 const FIELD_OF: Record<string, string> = {
   BARCODE: 'barcodes',

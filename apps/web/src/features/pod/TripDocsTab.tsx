@@ -90,6 +90,25 @@ const ext = (d: PodDoc) =>
     d.mime
   ] ?? d.mime;
 
+/** errors[] ของ API (field + code) → ข้อความไทยใต้ช่องนั้น (QA L3) */
+export function podFieldError(
+  t: T,
+  e: { field: string; code: string },
+  lim: { pin?: number; max?: number },
+): string {
+  if (e.code === 'document_in_use') return t('pod.e.v.inUse');
+  if (e.code === 'not_ready') return t('pod.e.v.notReady');
+  if (e.code === 'invalid_kind') return t('pod.e.badFile');
+  if (e.code === 'not_found') return t('pod.e.v.docNotFound');
+  if (e.code === 'required' || e.code === 'min_count') return t('pod.e.v.required');
+  if (e.code === 'unknown_key') return t('pod.e.v.unknown');
+  if (e.field === 'pin') return t('pod.e.v.pin', { n: lim.pin ?? 4 });
+  if (e.field === 'rating') return t('pod.e.v.rating', { max: lim.max ?? 5 });
+  if (e.field === 'barcodes' || e.field === 'scanCodes') return t('pod.e.v.barcode');
+  if (e.field.startsWith('choices.')) return t('pod.e.v.choice');
+  return t('pod.e.v.invalid');
+}
+
 /** รายการที่ขาด → ข้อความอ่านง่าย */
 export function missingText(t: T, m: PodMissing, fields: DoPod['checklist']['fields']): string {
   const f = fields.find((x) => x.key === m.key);
@@ -268,7 +287,7 @@ function DoPodBlock({
           )}
           {pod && (
             <PodForm
-              key={`${pod.versions[0]?.version ?? 0}`}
+              key={doId}
               doId={doId}
               pod={pod}
               canEdit={canEdit && pod.editable}
@@ -295,6 +314,8 @@ interface Draft {
   choices: Record<string, string>;
   barcodes: string;
   pin: string;
+  /** ล้าง PIN เดิม (ส่ง null) — ยืนยันแล้ว */
+  pinClear: boolean;
   rating: string;
 }
 
@@ -313,6 +334,7 @@ function draftOf(pod: DoPod): Draft {
     choices: { ...(c?.choices ?? {}) },
     barcodes: (c?.barcodes ?? []).join('\n'),
     pin: '',
+    pinClear: false,
     rating: c?.rating ? String(c.rating) : '',
   };
 }
@@ -335,7 +357,7 @@ export function bodyOfDraft(d: Draft): PodBody {
       .split(/\r?\n/)
       .map((x) => x.trim())
       .filter(Boolean),
-    ...(d.pin.trim() ? { pin: d.pin.trim() } : {}),
+    ...(d.pin.trim() ? { pin: d.pin.trim() } : d.pinClear ? { pin: null } : {}),
     rating: d.rating ? Number(d.rating) : null,
   };
 }
@@ -356,9 +378,12 @@ function PodForm({
   const { t } = useI18n();
   const dt = useDateTimeText();
   const save = useSavePod();
+  /** ฉบับที่ผู้ใช้แก้อยู่ (If-Match) — ฉบับใหม่มาขณะยังไม่แก้ = ตามทันที · แก้ค้างอยู่ = คงสิ่งที่แก้ + แจ้งให้โหลดใหม่ */
+  const [base, setBase] = useState<DoPod>(pod);
   const [d, setD] = useState<Draft>(() => draftOf(pod));
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [fieldErrs, setFieldErrs] = useState<Record<string, string>>({});
   const [sigOpen, setSigOpen] = useState(false);
   const [asking, setAsking] = useState(false);
   const photoIn = useRef<HTMLInputElement>(null);
@@ -378,8 +403,35 @@ function PodForm({
   const put = (p: Partial<Draft>) => setD((x) => ({ ...x, ...p }));
   const body = bodyOfDraft(d);
   // เปลี่ยนจากฉบับปัจจุบัน (หรือจากฟอร์มว่างเมื่อยังไม่มี) จึงบันทึกได้
-  const dirty = !same(body, bodyOfDraft(draftOf(pod)));
-  const version = pod.versions[0]?.version ?? 0;
+  const dirty = !same(body, bodyOfDraft(draftOf(base)));
+  const version = base.versions[0]?.version ?? 0;
+  const latestV = pod.versions[0]?.version ?? 0;
+  const stale = latestV !== version;
+  useEffect(() => {
+    if (latestV === version) return;
+    if (!dirty) {
+      setBase(pod);
+      setD(draftOf(pod));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [latestV]);
+  const reload = () => {
+    setBase(pod);
+    setD(draftOf(pod));
+    setErr(null);
+    setFieldErrs({});
+  };
+  /** ข้อความผิดของช่อง (errors[].field ของ API) */
+  const fe = (...prefixes: string[]) => {
+    const k = Object.keys(fieldErrs).find((f) =>
+      prefixes.some((p) => f === p || f.startsWith(`${p}.`)),
+    );
+    return k ? (
+      <span className="tms-field-error" role="alert">
+        {fieldErrs[k]}
+      </span>
+    ) : null;
+  };
   const req = (f?: { level: string }) =>
     f?.level === 'REQUIRED' ? <span style={{ color: '#B3322A' }}> *</span> : null;
 
@@ -427,6 +479,9 @@ function PodForm({
       {
         onSuccess: (r) => {
           setAsking(false);
+          setBase(r);
+          setD(draftOf(r));
+          setFieldErrs({});
           onToast(
             t('pod.e.saved', {
               no: r.doNo,
@@ -436,10 +491,23 @@ function PodForm({
         },
         onError: (e) => {
           setAsking(false);
+          if (!(e instanceof ApiError)) return setErr(t('pod.e.saveError'));
+          if (e.problem.status === 412) return setErr(t('pod.e.stale'));
+          const errs = (e.problem.errors ?? []) as { field: string; code: string }[];
+          setFieldErrs(
+            Object.fromEntries(
+              errs.map((x) => [
+                x.field,
+                podFieldError(t, x, { pin: pinF?.length, max: rateF?.max }),
+              ]),
+            ),
+          );
           setErr(
-            e instanceof ApiError && e.problem.status === 412
-              ? t('pod.stale')
-              : (problemText(e, t) ?? t('pod.e.saveError')),
+            e.problem.code === 'pod_incomplete'
+              ? t('pod.e.v.billGate')
+              : errs.length && e.problem.code === 'validation_failed'
+                ? t('pod.e.v.fix')
+                : (problemText(e, t) ?? t('pod.e.saveError')),
           );
         },
       },
@@ -457,7 +525,7 @@ function PodForm({
     <>
       {!pod.editable && (
         <span style={{ color: '#3B424C' }} role="note">
-          {t(pod.doStatus === 'billed' ? 'pod.e.billed' : 'pod.e.notYet')}
+          {t(pod.doStatus === 'BILLED' ? 'pod.e.billed' : 'pod.e.notYet')}
         </span>
       )}
       {/* รูปหลักฐานส่ง (ต้นแบบ dox.photos) */}
@@ -560,6 +628,7 @@ function PodForm({
             )}
           </div>
         )}
+        {fe('photoDocumentIds')}
       </div>
 
       {/* ลายเซ็นผู้รับ (ต้นแบบ dox.sig) */}
@@ -639,6 +708,7 @@ function PodForm({
               {t('pod.e.takeSig')}
             </button>
           )}
+          {fe('signatureDocumentId')}
         </div>
       )}
 
@@ -713,6 +783,7 @@ function PodForm({
               {f.label}
               {req(f)}
             </span>
+            {fe(`checks.${f.key}`)}
           </label>
         ) : (
           <label key={f.key} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -733,6 +804,7 @@ function PodForm({
                 </option>
               ))}
             </select>
+            {fe(`choices.${f.key}`)}
           </label>
         ),
       )}
@@ -750,6 +822,7 @@ function PodForm({
             placeholder={t('pod.e.barcodePh')}
             onChange={(e) => put({ barcodes: e.target.value })}
           />
+          {fe('barcodes', 'scanCodes')}
         </label>
       )}
       {(pinF || rateF) && (
@@ -770,9 +843,32 @@ function PodForm({
                 maxLength={pinF.length ?? 8}
                 value={d.pin}
                 placeholder={pod.current?.pinMasked ?? t('pod.e.pinPh', { n: pinF.length ?? 4 })}
-                onChange={(e) => put({ pin: e.target.value.replace(/\D/g, '') })}
+                onChange={(e) => put({ pin: e.target.value.replace(/\D/g, ''), pinClear: false })}
                 style={{ ...INPUT, fontVariantNumeric: 'tabular-nums' }}
               />
+              {fe('pin')}
+              {!ro && base.current?.pinMasked && !d.pin && (
+                <span style={{ fontSize: 12.5, color: '#3B424C' }}>
+                  {d.pinClear ? t('pod.e.pinWillClear') : t('pod.e.pinKept')}{' '}
+                  <button
+                    type="button"
+                    onClick={() => put({ pinClear: !d.pinClear })}
+                    style={{
+                      border: 0,
+                      background: 'transparent',
+                      padding: 0,
+                      color: '#2257C4',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {d.pinClear ? t('pod.e.pinUndo') : t('pod.e.pinClear')}
+                  </button>
+                </span>
+              )}
+              {base.current?.pinUnreadable && (
+                <span className="tms-field-error">{t('pod.e.pinUnreadable')}</span>
+              )}
             </label>
           ) : (
             <span />
@@ -796,6 +892,7 @@ function PodForm({
                   </option>
                 ))}
               </select>
+              {fe('rating')}
             </label>
           )}
         </div>
@@ -814,6 +911,7 @@ function PodForm({
             value={d.note}
             onChange={(e) => put({ note: e.target.value })}
           />
+          {fe('note')}
         </label>
       )}
 
@@ -881,6 +979,7 @@ function PodForm({
           </div>
         ))}
         {!d.files.length && <span style={{ color: '#3B424C' }}>{t('pod.e.noFiles')}</span>}
+        {fe('fileDocumentIds')}
       </div>
 
       {/* สถานะ + สิ่งที่ขาด + ฉบับ */}
@@ -914,7 +1013,25 @@ function PodForm({
             {last.reason ? ` · ${last.reason}` : ''}
           </span>
         )}
-        {err && (
+        {stale && dirty && (
+          <span
+            role="alert"
+            style={{
+              color: '#B3322A',
+              display: 'flex',
+              gap: 8,
+              alignItems: 'center',
+              flexWrap: 'wrap',
+            }}
+          >
+            {t('pod.e.stale')}
+            <button type="button" style={PILL} onClick={reload}>
+              <Icon n="refresh-cw" s={14} />
+              {t('pod.e.reload')}
+            </button>
+          </span>
+        )}
+        {err && !(stale && dirty && err === t('pod.e.stale')) && (
           <span className="tms-field-error" role="alert">
             {err}
           </span>
@@ -925,8 +1042,8 @@ function PodForm({
               type="button"
               className="tms-drawer__pri"
               style={{ height: 36, padding: '0 16px' }}
-              disabled={busy || save.isPending || !dirty}
-              onClick={() => (pod.current ? setAsking(true) : submit())}
+              disabled={busy || save.isPending || !dirty || stale}
+              onClick={() => (base.current ? setAsking(true) : submit())}
             >
               <Icon n="circle-check" s={16} />
               {t('pod.e.save')}

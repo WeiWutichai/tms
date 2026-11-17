@@ -231,7 +231,7 @@ describe('ePOD web (ST4-T07)', () => {
       .set('If-Match', '"0"')
       .expect(200);
     expect(p1.headers.etag).toBe('"1"');
-    expect(p1.body).toMatchObject({ podStatus: 'PARTIAL', doStatus: 'pod_pending' });
+    expect(p1.body).toMatchObject({ podStatus: 'PARTIAL', doStatus: 'POD_PENDING' });
     expect(p1.body.current).toMatchObject({
       version: 1,
       podStatus: 'PARTIAL',
@@ -258,7 +258,7 @@ describe('ePOD web (ST4-T07)', () => {
     })
       .set('If-Match', '"1"')
       .expect(200);
-    expect(p2.body).toMatchObject({ podStatus: 'COMPLETE', doStatus: 'unbilled', missing: [] });
+    expect(p2.body).toMatchObject({ podStatus: 'COMPLETE', doStatus: 'UNBILLED', missing: [] });
     expect(p2.body.versions.map((v: { version: number }) => v.version)).toEqual([2, 1]);
     expect(p2.body.current.signature.id).toBe(sig);
     expect(await doRow(d.uuid)).toMatchObject({ status: 'UNBILLED', podStatus: 'COMPLETE' });
@@ -285,7 +285,7 @@ describe('ePOD web (ST4-T07)', () => {
     expect(await doRow(d.uuid)).toMatchObject({ status: 'UNBILLED', podStatus: 'NONE' });
   });
 
-  it('If-Match ไม่ตรง → 412 · แก้โดยไม่มีเหตุผล → 422 · UNBILLED ที่แก้จนไม่ครบคงสถานะ (PARTIAL)', async () => {
+  it('If-Match ไม่ตรง → 412 · แก้โดยไม่มีเหตุผล → 422 · ด่านวางบิล: UNBILLED แก้จนไม่ครบ → 422 pod_incomplete', async () => {
     const d = await delivered();
     const photo = await doc('POD_PHOTO');
     const sig = await doc('POD_SIGNATURE', 'image/png');
@@ -302,16 +302,27 @@ describe('ePOD web (ST4-T07)', () => {
     const amend = await putPod(d.doId, {
       photoDocumentIds: [photo],
       reason: 'ลายเซ็นเดิมผิดคน ขอเก็บใหม่',
+    });
+    expect(amend.status).toBe(422);
+    expect(amend.body).toMatchObject({ code: 'pod_incomplete', doStatus: 'UNBILLED' });
+    expect(amend.body.missing).toEqual([{ key: 'signature', type: 'SIGNATURE', code: 'required' }]);
+    expect(amend.body.errors[0]).toMatchObject({ field: 'signatureDocumentId', code: 'required' });
+    expect(await doRow(d.uuid)).toMatchObject({ status: 'UNBILLED', podStatus: 'COMPLETE' });
+    // แก้แบบยังครบ (ใส่น้ำหนัก) ได้ → ฉบับ 2
+    const ok = await putPod(d.doId, {
+      photoDocumentIds: [photo],
+      signatureDocumentId: sig,
+      weighedKg: '1490.5',
+      reason: 'เพิ่มน้ำหนักจากใบชั่งปลายทาง',
     }).expect(200);
-    expect(amend.body).toMatchObject({ podStatus: 'PARTIAL', doStatus: 'unbilled' });
-    expect(await doRow(d.uuid)).toMatchObject({ status: 'UNBILLED', podStatus: 'PARTIAL' });
+    expect(ok.body.current).toMatchObject({ version: 2, weighedKg: '1490.5' });
   });
 
   it('DO ยังไม่ส่ง → 409 pod_not_allowed · วางบิลแล้ว → 409', async () => {
     const d = await delivered({ outcome: 'NONE' });
     const r = await putPod(d.doId, {});
     expect(r.status).toBe(409);
-    expect(r.body).toMatchObject({ code: 'pod_not_allowed', doStatus: 'dispatched' });
+    expect(r.body).toMatchObject({ code: 'pod_not_allowed', doStatus: 'DISPATCHED' });
     const g = await api(app, admin).get(`/v1/delivery-orders/${d.doId}/pod`).expect(200);
     expect(g.body.editable).toBe(false);
   });
@@ -383,7 +394,7 @@ describe('ePOD web (ST4-T07)', () => {
       checks: { goods_ok: true },
       choices: { box: 'ดี' },
     }).expect(200);
-    expect(ok.body).toMatchObject({ podStatus: 'COMPLETE', doStatus: 'unbilled' });
+    expect(ok.body).toMatchObject({ podStatus: 'COMPLETE', doStatus: 'UNBILLED' });
     expect(ok.body.current).toMatchObject({
       pinMasked: '••••',
       barcodes: ['SKU-1', 'SKU-2'],
@@ -414,13 +425,14 @@ describe('ePOD web (ST4-T07)', () => {
     }).expect(200);
     expect(keep.body).toMatchObject({ podStatus: 'COMPLETE' });
     expect(keep.body.current).toMatchObject({ version: 2, pinMasked: '••••', rating: 5 });
+    // ล้าง PIN ที่บังคับของ DO ที่รอวางบิลแล้ว = ไม่ครบ → ด่านวางบิลปฏิเสธ
     const clear = await putPod(d.doId, {
       checks: { goods_ok: true },
       pin: null,
       reason: 'ผู้รับขอยกเลิกรหัสที่กรอกผิด',
-    }).expect(200);
-    expect(clear.body.current.pinMasked).toBeNull();
-    expect(clear.body.podStatus).toBe('PARTIAL');
+    });
+    expect(clear.status).toBe(422);
+    expect(clear.body.errors[0]).toMatchObject({ field: 'pin', code: 'required' });
   });
 
   it('DO ส่งไม่สำเร็จ ใช้ชุด "ไม่สำเร็จ" (รูป + หมายเหตุ) และคง FAILED', async () => {
@@ -434,7 +446,7 @@ describe('ePOD web (ST4-T07)', () => {
       photoDocumentIds: [photo],
       note: 'ร้านปิด ไม่มีผู้รับ',
     }).expect(200);
-    expect(r.body).toMatchObject({ podStatus: 'COMPLETE', doStatus: 'failed' });
+    expect(r.body).toMatchObject({ podStatus: 'COMPLETE', doStatus: 'FAILED' });
     expect(r.body.current.outcome).toBe('FAILURE');
   });
 
@@ -446,6 +458,56 @@ describe('ePOD web (ST4-T07)', () => {
     const other = await tokenFor(otherTenant);
     expect((await api(app, other).get(`/v1/delivery-orders/${d.doId}/pod`)).status).toBe(404);
     expect((await putPod(d.doId, {}, other)).status).toBe(404);
+  });
+
+  it('เจ้าของไฟล์: ใช้แล้วผูกกับ DO · ไฟล์ของ DO อื่น/เอกสารอื่น → 422 document_in_use', async () => {
+    const a = await delivered();
+    const b = await delivered();
+    const photo = await doc('POD_PHOTO');
+    await putPod(a.doId, { photoDocumentIds: [photo] }).expect(200);
+    const row = await db.storedDocument.findUniqueOrThrow({
+      where: { id: uuid('document', photo) },
+    });
+    expect(row).toMatchObject({ entityType: 'delivery_order', entityId: a.uuid });
+    const r = await putPod(b.doId, { photoDocumentIds: [photo] });
+    expect(r.status).toBe(422);
+    expect(r.body.errors[0]).toMatchObject({
+      field: 'photoDocumentIds.0',
+      code: 'document_in_use',
+    });
+    // ไฟล์ที่ผูกกับเอกสารอื่นอยู่แล้ว
+    const other = await doc('POD_PHOTO');
+    await db.storedDocument.update({
+      where: { id: uuid('document', other) },
+      data: { entityType: 'trip_stop', entityId: randomUUID() },
+    });
+    const r2 = await putPod(b.doId, { photoDocumentIds: [other] });
+    expect(r2.status).toBe(422);
+    expect(r2.body.errors[0].code).toBe('document_in_use');
+    // ใช้ซ้ำใน DO เดิม (ฉบับใหม่) ได้
+    await putPod(a.doId, { photoDocumentIds: [photo], reason: 'เพิ่มชื่อผู้รับภายหลัง' }).expect(
+      200,
+    );
+  });
+
+  it('PIN ถอดรหัสไม่ได้ → ไม่ลดสถานะเงียบ ๆ (นับว่ากรอกแล้ว) + ธง pinUnreadable', async () => {
+    const success = { fields: [{ type: 'PIN', level: 'REQUIRED', length: 4 }] };
+    const d = await delivered({ podRequirements: { success } });
+    await db.deliveryOrderPod.create({
+      data: {
+        tenantId,
+        deliveryOrderId: d.uuid,
+        version: 1,
+        outcome: 'SUCCESS',
+        source: 'WEB',
+        pinEnc: 'v1.lost.AAAA.BBBB.CCCC',
+        pinLength: 4,
+        podStatus: 'COMPLETE',
+      },
+    });
+    const g = await api(app, admin).get(`/v1/delivery-orders/${d.doId}/pod`).expect(200);
+    expect(g.body.missing).toEqual([]);
+    expect(g.body.current).toMatchObject({ pinMasked: '••••', pinUnreadable: true });
   });
 
   it('append-only: แก้/ลบแถวหลักฐานที่ฐานไม่ได้', async () => {

@@ -52,7 +52,7 @@ const W409 = {
   status: 409,
   description: 'DO ยังไม่ส่ง / วางบิลแล้ว / ยกเลิก (`doStatus`) — หรือชนกับการแก้ไขพร้อมกัน',
   examples: {
-    pod_not_allowed: P('pod_not_allowed', { doStatus: 'billed' }),
+    pod_not_allowed: P('pod_not_allowed', { doStatus: 'BILLED' }),
     concurrent_update: P('concurrent_update'),
   },
 };
@@ -64,7 +64,7 @@ const W412 = {
 const W422 = {
   status: 422,
   description:
-    'ข้อมูลไม่ถูกต้อง — ไฟล์ไม่ใช่ของหลักฐานส่ง/ยังอัปโหลดไม่เสร็จ, ค่าผิดรูปแบบ (PIN ไม่ครบหลัก ตัวเลือกไม่อยู่ในรายการ คะแนนเกิน), key ไม่อยู่ใน checklist, แก้ฉบับเดิมโดยไม่มีเหตุผล · **หลักฐานที่ยังไม่ครบไม่ถูกปฏิเสธ** (บันทึกเป็น PARTIAL)',
+    'ข้อมูลไม่ถูกต้อง — ไฟล์ไม่ใช่ของหลักฐานส่ง/ยังอัปโหลดไม่เสร็จ/ผูกกับเอกสารหรือ DO อื่นแล้ว (`document_in_use`), ค่าผิดรูปแบบ (PIN ไม่ครบหลัก ตัวเลือกไม่อยู่ในรายการ คะแนนเกิน), key ไม่อยู่ใน checklist, แก้ฉบับเดิมโดยไม่มีเหตุผล · **หลักฐานที่ยังไม่ครบไม่ถูกปฏิเสธ** (บันทึกเป็น PARTIAL) ยกเว้น DO ที่รอวางบิลแล้ว (UNBILLED) → `pod_incomplete` + `missing[]`',
   examples: {
     validation_failed: P('validation_failed', {
       errors: [
@@ -75,11 +75,23 @@ const W422 = {
         },
         { field: 'pin', code: 'invalid', message: 'PIN value is not valid' },
         {
+          field: 'photoDocumentIds.1',
+          code: 'document_in_use',
+          message: 'document belongs to another record',
+        },
+        {
           field: 'reason',
           code: 'required',
           message: 'reason (≥ 10 chars) is required to amend an existing proof of delivery',
         },
       ],
+    }),
+    pod_incomplete: P('pod_incomplete', {
+      doStatus: 'UNBILLED',
+      errors: [
+        { field: 'signatureDocumentId', code: 'required', message: 'SIGNATURE is required' },
+      ],
+      missing: [{ key: 'signature', type: 'SIGNATURE', code: 'required' }],
     }),
   },
 };
@@ -120,7 +132,7 @@ export class PodController {
     description:
       'ส่งทั้งฉบับ (ชื่อช่องตาม docs/01 §5.3) → ฉบับใหม่ (version + 1) · แก้ฉบับเดิมต้องมี `reason` ≥ 10 ตัวอักษร (audit `pod.amended`) · ' +
       'คำนวณ `pod_status` กับ checklist ของลูกค้า (DO ส่งไม่สำเร็จใช้ชุดไม่สำเร็จ): ครบ = COMPLETE, ไม่ครบ = PARTIAL (ไม่ปฏิเสธ) · ' +
-      'DO DELIVERED → UNBILLED (ครบ) / POD_PENDING (ไม่ครบ), POD_PENDING → UNBILLED เมื่อครบ — UNBILLED ที่แก้จนไม่ครบคงสถานะเดิม (pod_status = PARTIAL) · ' +
+      'DO DELIVERED → UNBILLED (ครบ) / POD_PENDING (ไม่ครบ), POD_PENDING → UNBILLED เมื่อครบ — DO ที่ UNBILLED แล้วแก้จนไม่ครบ → 422 `pod_incomplete` (ด่านวางบิล) · ไฟล์ที่ใช้ถูกผูกกับ DO นี้ (`stored_document.entity_type/entity_id`) ใช้กับ DO อื่นไม่ได้ · ' +
       'domain_event `pod.captured` · บันทึกได้เมื่อ DO ส่งแล้ว/ส่งไม่สำเร็จ ยังไม่วางบิล',
   })
   @ApiProblems(W403, N404, W409, W412, W422)

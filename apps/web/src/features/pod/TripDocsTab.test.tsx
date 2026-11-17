@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { I18nProvider } from '../../i18n';
 import type { TripDetail } from '../trips/useTrips';
@@ -20,7 +20,8 @@ vi.mock('../vehicles/useVehicleDocs', () => ({ openDocFile: vi.fn() }));
 vi.mock('../../shell/AppShell', () => ({
   useMe: () => ({ data: { tenant: { yearStyle: 'BE' } } }),
 }));
-const { TripDocsTab, bodyOfDraft } = await import('./TripDocsTab');
+const { TripDocsTab, bodyOfDraft, podFieldError } = await import('./TripDocsTab');
+const { ApiError } = await import('../../api');
 const { weightDiff } = await import('./usePod');
 
 const fields = (over: Partial<Record<string, string>> = {}) =>
@@ -37,7 +38,7 @@ const pod = (x: Partial<DoPod> = {}): DoPod =>
   ({
     deliveryOrderId: 'do_1',
     doNo: 'DO-6911-0001',
-    doStatus: 'pod_pending',
+    doStatus: 'POD_PENDING',
     podStatus: 'NONE',
     editable: true,
     plannedWeightKg: '15000',
@@ -167,6 +168,7 @@ describe('TripDocsTab', () => {
         choices: {},
         barcodes: [],
         pinMasked: null,
+        pinUnreadable: false,
         rating: null,
         missing: [],
       },
@@ -202,7 +204,7 @@ describe('TripDocsTab', () => {
   });
 
   it('อ่านอย่างเดียว (ไม่มีสิทธิ์ / วางบิลแล้ว): ไม่มีปุ่มอัปโหลด/บันทึก', () => {
-    pods.do_1 = pod({ editable: false, doStatus: 'billed', podStatus: 'COMPLETE' });
+    pods.do_1 = pod({ editable: false, doStatus: 'BILLED', podStatus: 'COMPLETE' });
     renderTab();
     fireEvent.click(screen.getByRole('button', { name: /DO-6911-0001/ }));
     expect(screen.getByText('วางบิลแล้ว แก้หลักฐานส่งไม่ได้')).toBeTruthy();
@@ -233,6 +235,89 @@ describe('TripDocsTab', () => {
   });
 });
 
+describe('TripDocsTab errors', () => {
+  it('422 รายช่อง → ข้อความใต้ช่อง PIN · 412 → คงสิ่งที่แก้ + ปุ่มโหลดฉบับล่าสุด', () => {
+    pods.do_1 = pod({
+      checklist: {
+        outcome: 'SUCCESS',
+        source: 'CUSTOMER',
+        fields: fields({ PIN: 'REQUIRED' }),
+        tenantFields: [],
+      } as DoPod['checklist'],
+    });
+    const { rerender } = render(
+      <QueryClientProvider client={new QueryClient()}>
+        <I18nProvider>
+          <TripDocsTab trip={trip} canEdit onToast={vi.fn()} />
+        </I18nProvider>
+      </QueryClientProvider>,
+    );
+    fireEvent.change(screen.getByLabelText(/รหัส PIN จากผู้รับ/), { target: { value: '12' } });
+    fireEvent.click(screen.getByRole('button', { name: 'บันทึกหลักฐานส่ง' }));
+    const opts = mutate.mock.calls[0]![1];
+    act(() =>
+      opts.onError(
+        new ApiError({
+          code: 'validation_failed',
+          status: 422,
+          title: '',
+          type: '',
+          errors: [{ field: 'pin', code: 'invalid', message: '' }],
+        } as never),
+      ),
+    );
+    expect(screen.getByText('รหัส PIN ต้องเป็นตัวเลข 4 หลัก')).toBeTruthy();
+    // คนอื่นบันทึกฉบับ 1 ระหว่างนี้ → 412 + ข้อมูลใหม่มา: ยังเห็นค่าที่กรอก + ปุ่มโหลดใหม่
+    act(() =>
+      mutate.mock.calls[0]![1].onError(
+        new ApiError({ code: 'precondition_failed', status: 412, title: '', type: '' } as never),
+      ),
+    );
+    pods.do_1 = pod({
+      checklist: pods.do_1!.checklist,
+      versions: [
+        {
+          version: 1,
+          podStatus: 'PARTIAL',
+          source: 'WEB',
+          reason: null,
+          recordedBy: 'u2',
+          recordedByName: 'คนอื่น',
+          recordedAt: '2026-11-17T03:00:00.000Z',
+        },
+      ],
+    } as Partial<DoPod>);
+    rerender(
+      <QueryClientProvider client={new QueryClient()}>
+        <I18nProvider>
+          <TripDocsTab trip={trip} canEdit onToast={vi.fn()} />
+        </I18nProvider>
+      </QueryClientProvider>,
+    );
+    expect((screen.getByLabelText(/รหัส PIN จากผู้รับ/) as HTMLInputElement).value).toBe('12');
+    expect(screen.getAllByText(/ถูกแก้โดยผู้อื่นแล้ว/).length).toBeGreaterThan(0);
+    expect(
+      (screen.getByRole('button', { name: 'บันทึกหลักฐานส่ง' }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'โหลดฉบับล่าสุด' }));
+    expect((screen.getByLabelText(/รหัส PIN จากผู้รับ/) as HTMLInputElement).value).toBe('');
+  });
+
+  it('podFieldError แปลงรหัสข้อผิดพลาดเป็นข้อความ', () => {
+    const t = ((k: string, p?: Record<string, unknown>) =>
+      `${k}${p ? JSON.stringify(p) : ''}`) as never;
+    expect(podFieldError(t, { field: 'photoDocumentIds.0', code: 'document_in_use' }, {})).toBe(
+      'pod.e.v.inUse',
+    );
+    expect(podFieldError(t, { field: 'rating', code: 'invalid' }, { max: 5 })).toBe(
+      'pod.e.v.rating{"max":5}',
+    );
+    expect(podFieldError(t, { field: 'signatureDocumentId', code: 'required' }, {})).toBe(
+      'pod.e.v.required',
+    );
+  });
+});
+
 describe('helpers', () => {
   it('weightDiff ใช้ทศนิยม 3 ตำแหน่งแบบจำนวนเต็ม', () => {
     expect(weightDiff('14940', '15000')).toBe('-60');
@@ -255,6 +340,7 @@ describe('helpers', () => {
       choices: { box: '' },
       barcodes: ' A \n\nB',
       pin: '',
+      pinClear: false,
       rating: '3',
     });
     expect(b).toMatchObject({
@@ -266,5 +352,23 @@ describe('helpers', () => {
       rating: 3,
     });
     expect('pin' in b).toBe(false);
+    expect(
+      bodyOfDraft({
+        photos: [],
+        files: [],
+        signature: null,
+        receiverName: '',
+        receiverRelation: '',
+        weighedKg: '',
+        customerRef: '',
+        note: '',
+        checks: {},
+        choices: {},
+        barcodes: '',
+        pin: '',
+        pinClear: true,
+        rating: '',
+      }).pin,
+    ).toBeNull();
   });
 });

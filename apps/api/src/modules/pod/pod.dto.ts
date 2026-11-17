@@ -275,6 +275,11 @@ export class PodRecordDto extends PodVersionDto {
     description: 'PIN แบบปิดบัง (ไม่มีทางอ่านค่าจริงผ่าน API)',
   })
   pinMasked!: string | null;
+  @ApiProperty({
+    description:
+      'อ่าน PIN ที่เก็บไม่ได้ (กุญแจเข้ารหัสหาย/หมุนผิด) — ยังนับว่ากรอกแล้ว แจ้งผู้ดูแลตรวจกุญแจ',
+  })
+  pinUnreadable!: boolean;
   @ApiProperty({ nullable: true, type: Number }) rating!: number | null;
   @ApiProperty({ type: [PodMissingDto], description: 'รายการที่ขาดตอนบันทึก' })
   missing!: PodMissingDto[];
@@ -284,7 +289,11 @@ export class PodRecordDto extends PodVersionDto {
 export class DeliveryOrderPodDto {
   @ApiProperty({ example: 'do_…' }) deliveryOrderId!: string;
   @ApiProperty({ example: 'DO-2611-00052' }) doNo!: string;
-  @ApiProperty({ example: 'unbilled', description: 'สถานะ DO (ตัวเล็ก)' }) doStatus!: string;
+  @ApiProperty({
+    example: 'UNBILLED',
+    description: 'สถานะ DO (ตัวใหญ่ — เหมือน GET /v1/delivery-orders/{id})',
+  })
+  doStatus!: string;
   @ApiProperty({ enum: POD_STATUSES }) podStatus!: string;
   @ApiProperty({
     description: 'บันทึก/แก้หลักฐานได้ในสถานะ DO ปัจจุบัน (ส่งแล้ว/ส่งไม่สำเร็จ ยังไม่วางบิล)',
