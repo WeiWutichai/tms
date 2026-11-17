@@ -21,12 +21,12 @@ import {
   ApiProduces,
   ApiTags,
   ApiTooManyRequestsResponse,
+  ApiOperation,
 } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { AuditPageDto } from '../../audit/audit.controller';
 import { NoTransaction, RequireScope, TenantResource } from '../../common/decorators';
 import { expectedVersion, setEtag } from '../../common/etag';
-import { decodeIdOr404 } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService } from '../../db/db.service';
@@ -48,6 +48,7 @@ import {
   UpsertRouteDto,
 } from './route.dto';
 import { RoutesService, toRouteDto } from './routes.service';
+import { ExternalIdPipe, extRef, resolveRef } from '../../common/external-id';
 
 /** เพดานปุ่ม "คำนวณจากพิกัด" ต่อ tenant ต่อนาที (`ROUTE_ESTIMATE_RATE_PER_MIN`, ค่าเริ่มต้น 60) */
 const ESTIMATE_RATE_PER_MIN = Number(process.env.ROUTE_ESTIMATE_RATE_PER_MIN) || 60;
@@ -85,8 +86,12 @@ export class RoutesController {
   ) {}
 
   private async resolve(id: string) {
-    if (id.startsWith('ext:')) return this.routes.getByExternalId(id.slice(4));
-    return this.routes.get(decodeIdOr404('route', id));
+    return resolveRef(
+      'route',
+      id,
+      (u) => this.routes.get(u),
+      (e) => this.routes.getByExternalId(e),
+    );
   }
 
   @Get()
@@ -165,19 +170,11 @@ export class RoutesController {
   @ApiOkResponse({ type: RouteDto, description: 'มีอยู่แล้ว → อัปเดต (ส่งซ้ำได้ ไม่เกิดแถวใหม่)' })
   @ApiCreatedResponse({ type: RouteDto, description: 'ยังไม่มี → สร้าง' })
   async upsertExternal(
-    @Param('externalId') externalId: string,
+    @Param('externalId', ExternalIdPipe) externalId: string,
     @Body() body: UpsertRouteDto,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<RouteDto> {
-    if (!/^[\x21-\x7e]{1,100}$/.test(externalId))
-      throw new ProblemException('validation_failed', undefined, [
-        {
-          field: 'externalId',
-          code: 'matches',
-          message: 'externalId must be 1-100 printable ASCII',
-        },
-      ]);
     const { row, created } = await this.routes.upsertExternal(
       externalId,
       body,
@@ -205,6 +202,24 @@ export class RoutesController {
   async history(@Param('id') id: string, @Query() q: HistoryQuery): Promise<AuditPageDto> {
     const r = await this.resolve(id);
     return entityHistory(this.db.tx, 'route', r.id, q);
+  }
+
+  @Patch('external/:externalId')
+  @RequireScope('master:write')
+  @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
+  @ApiOperation({
+    summary: 'แก้บางช่องด้วย externalId',
+    description:
+      'เหมือน `PATCH /routes/ext:{externalId}` (กติกาเดียวกับ PATCH ด้วย id) · ยังไม่มีแถวนี้ → 404 — สร้างใหม่ใช้ PUT',
+  })
+  @ApiOkResponse({ type: RouteDto })
+  patchExternal(
+    @Param('externalId', ExternalIdPipe) externalId: string,
+    @Body() body: UpdateRouteDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<RouteDto> {
+    return this.update(extRef(externalId), body, req, res);
   }
 
   @Patch(':id')

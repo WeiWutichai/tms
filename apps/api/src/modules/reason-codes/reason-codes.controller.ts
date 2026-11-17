@@ -20,13 +20,12 @@ import {
   ApiOkResponse,
   ApiProduces,
   ApiTags,
+  ApiOperation,
 } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { AuditPageDto } from '../../audit/audit.controller';
 import { RequireScope, TenantResource } from '../../common/decorators';
 import { expectedVersion, setEtag } from '../../common/etag';
-import { decodeIdOr404 } from '../../common/ids';
-import { ProblemException } from '../../common/problem';
 import { DbService } from '../../db/db.service';
 import { NextCodeDto } from '../customers/customer.dto';
 import { sendExport, type ExportColumn } from '../master/export';
@@ -43,6 +42,7 @@ import {
   type ReasonCategoryApi,
 } from './reason-code.dto';
 import { ReasonCodesService, toReasonCodeDto } from './reason-codes.service';
+import { ExternalIdPipe, extRef, resolveRef } from '../../common/external-id';
 
 /** ชื่อหมวดภาษาไทย (ตรงกับหน้าจอ — ต้นแบบ TMS v4 ตั้งค่า → เหตุผล) */
 const CATEGORY_TH: Record<ReasonCategoryApi, string> = {
@@ -86,8 +86,12 @@ export class ReasonCodesController {
   ) {}
 
   private async resolve(id: string) {
-    if (id.startsWith('ext:')) return this.reasons.getByExternalId(id.slice(4));
-    return this.reasons.get(decodeIdOr404('reasonCode', id));
+    return resolveRef(
+      'reasonCode',
+      id,
+      (u) => this.reasons.get(u),
+      (e) => this.reasons.getByExternalId(e),
+    );
   }
 
   @Get()
@@ -140,19 +144,11 @@ export class ReasonCodesController {
   })
   @ApiCreatedResponse({ type: ReasonCodeDto, description: 'ยังไม่มี → สร้าง' })
   async upsertExternal(
-    @Param('externalId') externalId: string,
+    @Param('externalId', ExternalIdPipe) externalId: string,
     @Body() body: UpsertReasonCodeDto,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<ReasonCodeDto> {
-    if (!/^[\x21-\x7e]{1,100}$/.test(externalId))
-      throw new ProblemException('validation_failed', undefined, [
-        {
-          field: 'externalId',
-          code: 'matches',
-          message: 'externalId must be 1-100 printable ASCII',
-        },
-      ]);
     const { row, created } = await this.reasons.upsertExternal(
       externalId,
       body,
@@ -183,6 +179,24 @@ export class ReasonCodesController {
   async history(@Param('id') id: string, @Query() q: HistoryQuery): Promise<AuditPageDto> {
     const r = await this.resolve(id);
     return entityHistory(this.db.tx, 'reason_code', r.id, q);
+  }
+
+  @Patch('external/:externalId')
+  @RequireScope('master:write')
+  @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
+  @ApiOperation({
+    summary: 'แก้บางช่องด้วย externalId',
+    description:
+      'เหมือน `PATCH /reason-codes/ext:{externalId}` (กติกาเดียวกับ PATCH ด้วย id) · ยังไม่มีแถวนี้ → 404 — สร้างใหม่ใช้ PUT',
+  })
+  @ApiOkResponse({ type: ReasonCodeDto })
+  patchExternal(
+    @Param('externalId', ExternalIdPipe) externalId: string,
+    @Body() body: UpdateReasonCodeDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<ReasonCodeDto> {
+    return this.update(extRef(externalId), body, req, res);
   }
 
   @Patch(':id')

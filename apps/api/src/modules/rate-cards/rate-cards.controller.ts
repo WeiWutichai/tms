@@ -20,14 +20,13 @@ import {
   ApiOkResponse,
   ApiProduces,
   ApiTags,
+  ApiOperation,
 } from '@nestjs/swagger';
 import { scopeAllows } from '@tms/domain';
 import type { Request, Response } from 'express';
 import { AuditPageDto } from '../../audit/audit.controller';
 import { RequireScope, TenantResource } from '../../common/decorators';
 import { expectedVersion, setEtag } from '../../common/etag';
-import { decodeIdOr404 } from '../../common/ids';
-import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService } from '../../db/db.service';
 import { sendExport, type ExportColumn } from '../master/export';
@@ -49,6 +48,7 @@ import {
   type RateStatusKey,
 } from './rate-card.dto';
 import { listSide, RateCardsService, toRateCardDto } from './rate-cards.service';
+import { ExternalIdPipe, extRef, refToId, resolveRef } from '../../common/external-id';
 
 const MODEL_TH: Record<string, string> = {
   PER_TRIP: 'เหมาเที่ยว',
@@ -125,8 +125,12 @@ export class RateCardsController {
   ) {}
 
   private async resolve(id: string) {
-    if (id.startsWith('ext:')) return this.rates.getByExternalId(id.slice(4));
-    return this.rates.get(decodeIdOr404('rateCard', id));
+    return resolveRef(
+      'rateCard',
+      id,
+      (u) => this.rates.get(u),
+      (e) => this.rates.getByExternalId(e),
+    );
   }
 
   @Get()
@@ -192,19 +196,11 @@ export class RateCardsController {
   })
   @ApiCreatedResponse({ type: RateCardDto, description: 'ยังไม่มี → สร้างร่าง' })
   async upsertExternal(
-    @Param('externalId') externalId: string,
+    @Param('externalId', ExternalIdPipe) externalId: string,
     @Body() body: UpsertRateCardDto,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<RateCardDto> {
-    if (!/^[\x21-\x7e]{1,100}$/.test(externalId))
-      throw new ProblemException('validation_failed', undefined, [
-        {
-          field: 'externalId',
-          code: 'matches',
-          message: 'externalId must be 1-100 printable ASCII',
-        },
-      ]);
     const { row, created } = await this.rates.upsertExternal(
       externalId,
       body,
@@ -242,6 +238,24 @@ export class RateCardsController {
   }
 
   /** แก้ร่าง — อนุมัติแล้ว → 409 `not_editable` (ใช้ `POST /{id}/revise`) */
+  @Patch('external/:externalId')
+  @RequireScope('prices.sell:write', 'prices.buy:write')
+  @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
+  @ApiOperation({
+    summary: 'แก้บางช่องด้วย externalId',
+    description:
+      'เหมือน `PATCH /rate-cards/ext:{externalId}` (กติกาเดียวกับ PATCH ด้วย id) · ยังไม่มีแถวนี้ → 404 — สร้างใหม่ใช้ PUT',
+  })
+  @ApiOkResponse({ type: RateCardDto })
+  patchExternal(
+    @Param('externalId', ExternalIdPipe) externalId: string,
+    @Body() body: UpdateRateCardDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<RateCardDto> {
+    return this.update(extRef(externalId), body, req, res);
+  }
+
   @Patch(':id')
   @TenantResource('rateCard')
   @RequireScope('prices.sell:write', 'prices.buy:write')
@@ -340,7 +354,10 @@ export class RateCardsController {
 @ApiBearerAuth()
 @Controller('carriers')
 export class CarrierRecentPricesController {
-  constructor(private readonly rates: RateCardsService) {}
+  constructor(
+    private readonly rates: RateCardsService,
+    private readonly db: DbService,
+  ) {}
 
   @Get(':id/recent-prices')
   @TenantResource('carrier')
@@ -350,6 +367,7 @@ export class CarrierRecentPricesController {
     @Param('id') id: string,
     @Query() q: CarrierRecentPricesQuery,
   ): Promise<CarrierRecentPricesDto> {
-    return { data: await this.rates.recentCarrierPrices(decodeIdOr404('carrier', id), q) };
+    const carrierId = await refToId('carrier', id, this.db.tx.carrier);
+    return { data: await this.rates.recentCarrierPrices(carrierId, q) };
   }
 }

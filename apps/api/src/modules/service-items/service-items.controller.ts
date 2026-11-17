@@ -20,13 +20,12 @@ import {
   ApiOkResponse,
   ApiProduces,
   ApiTags,
+  ApiOperation,
 } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { AuditPageDto } from '../../audit/audit.controller';
 import { RequireScope, TenantResource } from '../../common/decorators';
 import { expectedVersion, setEtag } from '../../common/etag';
-import { decodeIdOr404 } from '../../common/ids';
-import { ProblemException } from '../../common/problem';
 import { DbService } from '../../db/db.service';
 import { NextCodeDto } from '../customers/customer.dto';
 import { sendExport, type ExportColumn } from '../master/export';
@@ -48,6 +47,7 @@ import {
   type ServiceItemWhtRate,
 } from './service-item.dto';
 import { ServiceItemsService } from './service-items.service';
+import { ExternalIdPipe, extRef, resolveRef } from '../../common/external-id';
 
 const UNIT_TH: Record<CalcUnit, string> = {
   PER_TRIP: 'ต่อเที่ยว',
@@ -100,8 +100,12 @@ export class ServiceItemsController {
   ) {}
 
   private async resolve(id: string) {
-    if (id.startsWith('ext:')) return this.items.getByExternalId(id.slice(4));
-    return this.items.get(decodeIdOr404('serviceItem', id));
+    return resolveRef(
+      'serviceItem',
+      id,
+      (u) => this.items.get(u),
+      (e) => this.items.getByExternalId(e),
+    );
   }
 
   @Get()
@@ -161,19 +165,11 @@ export class ServiceItemsController {
   })
   @ApiCreatedResponse({ type: ServiceItemWriteResultDto, description: 'ยังไม่มี → สร้าง' })
   async upsertExternal(
-    @Param('externalId') externalId: string,
+    @Param('externalId', ExternalIdPipe) externalId: string,
     @Body() body: UpsertServiceItemDto,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<ServiceItemWriteResultDto> {
-    if (!/^[\x21-\x7e]{1,100}$/.test(externalId))
-      throw new ProblemException('validation_failed', undefined, [
-        {
-          field: 'externalId',
-          code: 'matches',
-          message: 'externalId must be 1-100 printable ASCII',
-        },
-      ]);
     const { row, created } = await this.items.upsertExternal(
       externalId,
       body,
@@ -204,6 +200,24 @@ export class ServiceItemsController {
   async history(@Param('id') id: string, @Query() q: HistoryQuery): Promise<AuditPageDto> {
     const v = await this.resolve(id);
     return entityHistory(this.db.tx, 'service_item', v.id, q);
+  }
+
+  @Patch('external/:externalId')
+  @RequireScope('master:write')
+  @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
+  @ApiOperation({
+    summary: 'แก้บางช่องด้วย externalId',
+    description:
+      'เหมือน `PATCH /service-items/ext:{externalId}` (กติกาเดียวกับ PATCH ด้วย id) · ยังไม่มีแถวนี้ → 404 — สร้างใหม่ใช้ PUT',
+  })
+  @ApiOkResponse({ type: ServiceItemWriteResultDto })
+  patchExternal(
+    @Param('externalId', ExternalIdPipe) externalId: string,
+    @Body() body: UpdateServiceItemDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<ServiceItemWriteResultDto> {
+    return this.update(extRef(externalId), body, req, res);
   }
 
   @Patch(':id')
