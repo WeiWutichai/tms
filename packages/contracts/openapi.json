@@ -43473,8 +43473,7 @@
               "DELIVERY_WINDOW_EXHAUSTED",
               "RESCHEDULES_EXHAUSTED",
               "SOURCE_CHANGED_AFTER_PLAN",
-              "SOURCE_ERROR",
-              "ALL_RETURNED"
+              "SOURCE_ERROR"
             ],
             "example": "CUSTOMER_UNMAPPED"
           },
