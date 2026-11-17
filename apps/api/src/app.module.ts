@@ -97,6 +97,12 @@ import { SubconHireService } from './modules/trips/subcon-hire.service';
 import { SubconOfferService } from './modules/trips/subcon-offer.service';
 import { OfferLinks } from './modules/trips/offer-links';
 import { PodLinkPublicController } from './modules/trips/pod-link.controller';
+import {
+  CustomerTrackingController,
+  DeliveryOrderTrackingController,
+  TrackingPublicController,
+} from './modules/tracking/tracking.controller';
+import { TrackingService } from './modules/tracking/tracking.service';
 import { PodLinkService } from './modules/trips/pod-link.service';
 import {
   SubconOfferPublicController,
@@ -215,6 +221,9 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     TripOffersController,
     SubconOfferPublicController,
     PodLinkPublicController,
+    TrackingPublicController,
+    DeliveryOrderTrackingController,
+    CustomerTrackingController,
     TripSheetsController,
     TripSheetsPublicController,
     PlanningController,
@@ -279,6 +288,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     SubconTimeoutService,
     OfferLinks,
     PodLinkService,
+    TrackingService,
     TripSheetsService,
     TripSheetLinks,
     PlanningService,
