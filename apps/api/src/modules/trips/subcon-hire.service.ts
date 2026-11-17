@@ -11,6 +11,7 @@ import {
   type SelectionKind,
   type ServiceItemVatType,
 } from '@tms/domain';
+import { Clock } from '../../common/clock';
 import { encodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
@@ -18,6 +19,7 @@ import { DbService, type Tx } from '../../db/db.service';
 import { cleanLine } from '../master/master-kit';
 import { PricingService } from '../pricing/pricing.service';
 import { RateCardsService } from '../rate-cards/rate-cards.service';
+import { readSettings } from '../settings/settings.service';
 import type { HireOptionsDto } from './trip.dto';
 import { reverseCarrierFees } from './carrier-fees';
 import { OfferLinks, OFFER_TTL_MS } from './offer-links';
@@ -75,7 +77,13 @@ export interface HireCarrierOption {
   quote: BuyQuote;
   /** จ้างไม่ได้จริง ณ วันเที่ยว (ไม่มีรถที่ลงทะเบียน/เอกสารบังคับไม่ครบ — ST3-T14) — ไม่นับในการเทียบ "ถูกสุด" */
   blocked: string | null;
+  /** ST3-T24 เคยได้ข้อเสนอของเที่ยวนี้แล้วไม่รับ (ปฏิเสธ/หมดอายุ/ไม่ตอบใน N ชม.) — ไม่นับในการเทียบ "ถูกสุด" */
+  prior: PriorOutcome | null;
 }
+
+export type PriorOutcome = 'REJECTED' | 'EXPIRED' | 'NO_RESPONSE';
+/** ค่าตั้ง N ชม. (docs/04 D3 "ไม่ตอบใน N ชม.") — registry `dispatch.subconResponseHours` */
+export const RESPONSE_HOURS_KEY = 'dispatch.subconResponseHours' as const;
 
 export interface HireInput {
   carrierId: string;
@@ -84,6 +92,8 @@ export interface HireInput {
   selectionReason?: string | null;
   /** ประเภทรถที่จ้าง (ไม่ส่ง = ตามเที่ยว/ใบสั่ง) */
   vehicleTypeId?: string | null;
+  /** ST3-T24 "ส่งรายถัดไป" ระหว่างรอตอบ: ปิดการจ้างที่ครบเวลาตอบแล้วก่อนจ้างรายนี้ (คำขอเดียว) */
+  replaceOffer?: boolean;
 }
 
 const NO_QUOTE = (reason: string): BuyQuote => ({
@@ -116,7 +126,47 @@ export class SubconHireService {
     private readonly pricing: PricingService,
     private readonly rateCards: RateCardsService,
     private readonly offerLinks: OfferLinks,
+    private readonly clock: Clock,
   ) {}
+
+  /**
+   * รถร่วมที่เคยได้ข้อเสนอของเที่ยวนี้แล้วไม่รับ (ST3-T24 "ส่งรายถัดไป"): ปฏิเสธ / ลิงก์หมดอายุ / ถอนเพราะไม่ตอบใน N ชม.
+   * + รายที่รอตอบอยู่และครบเวลาตอบแล้ว (`response_due_at` ≤ now) — ไม่นับในการเทียบถูกสุด (รายถัดไปที่ถูกสุด = ถูกสุด)
+   * ถอนเพราะยกเลิกเที่ยว/เหตุอื่นไม่นับ · ล่าสุดของแต่ละรายเป็นตัวตัดสิน
+   */
+  async priorOutcomes(tx: Tx, tripId: string, now: Date): Promise<Map<string, PriorOutcome>> {
+    const rows = await tx.subconOffer.findMany({
+      where: { tripId },
+      select: {
+        carrierId: true,
+        status: true,
+        responseDueAt: true,
+        closedAt: true,
+        respondedAt: true,
+      },
+      orderBy: { offeredAt: 'asc' },
+    });
+    const out = new Map<string, PriorOutcome>();
+    for (const r of rows) {
+      const due = r.responseDueAt;
+      const outcome: PriorOutcome | null =
+        r.status === 'REJECTED'
+          ? 'REJECTED'
+          : r.status === 'EXPIRED'
+            ? 'EXPIRED'
+            : (r.status === 'WITHDRAWN' &&
+                  !r.respondedAt &&
+                  due &&
+                  r.closedAt &&
+                  due.getTime() <= r.closedAt.getTime()) ||
+                (r.status === 'OFFERED' && due && due.getTime() <= now.getTime())
+              ? 'NO_RESPONSE'
+              : null;
+      if (outcome) out.set(r.carrierId, outcome);
+      else out.delete(r.carrierId);
+    }
+    return out;
+  }
 
   /** บริบทคิดราคาของเที่ยว — ประเภทรถ: ที่ระบุ → ของเที่ยว → ของใบสั่ง (ทุกใบตรงกัน) */
   async context(tx: Tx, trip: TripRecord, vehicleTypeId?: string | null): Promise<HireContext> {
@@ -232,7 +282,11 @@ export class SubconHireService {
   }
 
   /** รถร่วมที่ใช้งานอยู่ทุกราย + ราคาขาซื้อของเที่ยวนี้ (คิดเฉพาะรายที่มี rate card ตรงเส้นทาง/ประเภทรถ/วันที่) */
-  async candidates(tx: Tx, ctx: HireContext): Promise<HireCarrierOption[]> {
+  async candidates(
+    tx: Tx,
+    ctx: HireContext,
+    prior: Map<string, PriorOutcome> = new Map(),
+  ): Promise<HireCarrierOption[]> {
     const carriers = await tx.carrier.findMany({
       where: { status: 'ACTIVE', deletedAt: null },
       select: {
@@ -275,10 +329,12 @@ export class SubconHireService {
         carrier: c,
         quote: await this.quote(tx, ctx, c.id, priced.has(c.id)),
         blocked: blocked.get(c.id) ?? null,
+        prior: prior.get(c.id) ?? null,
       });
-    // จ้างได้ก่อน → ราคาถูกก่อน → รายที่คิดราคาไม่ได้ตามชื่อ
+    // จ้างได้ก่อน → ยังไม่เคยไม่รับงานนี้ก่อน (ST3-T24 รายถัดไป) → ราคาถูกก่อน → รายที่คิดราคาไม่ได้ตามชื่อ
     return out.sort((a, b) => {
       if (!a.blocked !== !b.blocked) return a.blocked ? 1 : -1;
+      if (!a.prior !== !b.prior) return a.prior ? 1 : -1;
       const x = a.quote.total;
       const y = b.quote.total;
       if (x !== null && y !== null) {
@@ -378,11 +434,11 @@ export class SubconHireService {
     );
   }
 
-  /** ตัวเลือกที่นับในการเทียบ "ถูกสุด" = จ้างได้จริง (ไม่ติดเอกสารบังคับ) */
+  /** ตัวเลือกที่นับในการเทียบ "ถูกสุด" = จ้างได้จริง (ไม่ติดเอกสารบังคับ) และยังไม่เคยไม่รับงานนี้ (ST3-T24) */
   private comparable(options: HireCarrierOption[]) {
     return options.map((o) => ({
       carrierId: o.carrier.id,
-      amount: o.blocked ? null : o.quote.total,
+      amount: o.blocked || o.prior ? null : o.quote.total,
     }));
   }
 
@@ -390,7 +446,11 @@ export class SubconHireService {
   async optionsDto(trip: TripRecord, vehicleTypeId?: string | null): Promise<HireOptionsDto> {
     const tx = this.db.tx;
     const ctx = await this.context(tx, trip, vehicleTypeId);
-    const options = await this.candidates(tx, ctx);
+    const options = await this.candidates(
+      tx,
+      ctx,
+      await this.priorOutcomes(tx, trip.id, this.clock.now()),
+    );
     const decision = decideSelection('0.00', this.comparable(options));
     const cheapest = new Set(decision.cheapestCarrierIds);
     const recent = await this.recent(
@@ -425,6 +485,7 @@ export class SubconHireService {
         whtRate: o.quote.whtRate,
         cheapest: cheapest.has(o.carrier.id),
         blockedReason: o.blocked,
+        priorOutcome: o.prior,
         buyRecentAmounts: recent.get(o.carrier.id) ?? [],
       });
     return {
@@ -450,14 +511,21 @@ export class SubconHireService {
       throw field422('cost', 'invalid_amount', 'cost must be a positive amount with ≤ 2 decimals');
     const typed = input.selectionReason ? cleanLine(String(input.selectionReason)).trim() : '';
     const actor = requestContext.require().actorId ?? null;
+    const now = this.clock.now();
+    let version = expectedVersion;
+    if (input.replaceOffer) {
+      // ST3-T24 "ส่งรายถัดไป" ระหว่างรอตอบ: ปิดการจ้างที่ครบเวลาตอบก่อน (ล็อก/ตรวจ If-Match ที่นี่) แล้วจ้างรายใหม่ในล็อกเดียวกัน
+      await this.trips.withdrawTimedOutOffer(id, now, this.db.tx, expectedVersion);
+      version = undefined;
+    }
     return this.trips.offer(
       id,
       input.carrierId,
       this.db.tx,
-      expectedVersion,
+      version,
       async (tx, trip, carrier, at) => {
         const ctx = await this.context(tx, trip, input.vehicleTypeId);
-        const options = await this.candidates(tx, ctx);
+        const options = await this.candidates(tx, ctx, await this.priorOutcomes(tx, trip.id, now));
         const me = options.find((o) => o.carrier.id === carrier.id);
         const mine = me?.quote ?? (await this.quote(tx, ctx, carrier.id));
         const amount = cost ?? mine.total;
@@ -469,12 +537,13 @@ export class SubconHireService {
             `ไม่มี rate card ขาซื้อของ ${carrier.legalName} สำหรับงานนี้ — กรอกราคาซื้อเอง`,
           );
         const buy = decimalFromSatang(satangFromDecimal(amount));
-        const priced = options.filter((o) => o.quote.total !== null && !o.blocked);
+        const priced = options.filter((o) => o.quote.total !== null && !o.blocked && !o.prior);
         const base = decideSelection(buy, this.comparable(options));
-        // รายที่ติดเอกสารบังคับ ไม่นับเป็น "ถูกสุด" เสมอ (review M4) — เลือกได้แต่ต้องมีเหตุผล
-        const decision = me?.blocked
-          ? { ...base, isCheapest: false, kind: 'OVERRIDE' as const, reasonRequired: true }
-          : base;
+        // รายที่ติดเอกสารบังคับ/เคยไม่รับงานนี้ ไม่นับเป็น "ถูกสุด" เสมอ (review M4, ST3-T24) — เลือกได้แต่ต้องมีเหตุผล
+        const decision =
+          me?.blocked || me?.prior
+            ? { ...base, isCheapest: false, kind: 'OVERRIDE' as const, reasonRequired: true }
+            : base;
         if (decision.reasonRequired && [...typed].length < SELECTION_REASON_MIN_LENGTH)
           throw field422(
             'selectionReason',
@@ -482,16 +551,21 @@ export class SubconHireService {
             `selection reason (≥ ${SELECTION_REASON_MIN_LENGTH} characters) is required when not hiring the cheapest carrier`,
             me?.blocked
               ? `${me.blocked} — ระบุเหตุผลที่เลือกรายนี้ (อย่างน้อย 10 ตัวอักษร)`
-              : decision.cheapestAmount === null
-                ? 'ไม่มีราคาจาก rate card ขาซื้อให้เทียบ — ระบุเหตุผลที่เลือกรายนี้ (อย่างน้อย 10 ตัวอักษร)'
-                : 'รายนี้ไม่ใช่ราคาถูกสุด — ระบุเหตุผลที่เลือก (อย่างน้อย 10 ตัวอักษร)',
+              : me?.prior
+                ? 'รายนี้ไม่รับงานเที่ยวนี้มาแล้ว — ระบุเหตุผลที่เสนอให้อีกครั้ง (อย่างน้อย 10 ตัวอักษร)'
+                : decision.cheapestAmount === null
+                  ? 'ไม่มีราคาจาก rate card ขาซื้อให้เทียบ — ระบุเหตุผลที่เลือกรายนี้ (อย่างน้อย 10 ตัวอักษร)'
+                  : 'รายนี้ไม่ใช่ราคาถูกสุด — ระบุเหตุผลที่เลือก (อย่างน้อย 10 ตัวอักษร)',
           );
         const kind: SelectionKind = decision.kind;
         const reason =
           kind === 'CHEAPEST'
             ? typed.length >= SELECTION_REASON_MIN_LENGTH
               ? typed
-              : cheapestReasonTh(priced.length)
+              : cheapestReasonTh(priced.length) +
+                (options.some((o) => o.prior)
+                  ? ` (ไม่นับ ${options.filter((o) => o.prior).length} รายที่ไม่รับงานเที่ยวนี้)`
+                  : '')
             : typed;
         // ตรงกับราคา rate card ของรายนี้ = RATE_CARD · แก้ราคา/ไม่มี rate card = MANUAL
         const priceSource =
@@ -509,7 +583,15 @@ export class SubconHireService {
             rateCardCode: o.quote.rateCardCode,
           })),
           blockedCarrierIds: options.filter((o) => o.blocked).map((o) => o.carrier.id),
+          // ST3-T24 รายที่ไม่รับงานเที่ยวนี้มาก่อน (ไม่นับในการเทียบ) {carrierId, outcome}
+          priorCarriers: options
+            .filter((o) => o.prior)
+            .map((o) => ({ carrierId: o.carrier.id, outcome: o.prior })),
         };
+        // ST3-T24 ครบเวลาตอบ = เวลาเสนอ + N ชม. (ค่าตั้งองค์กร ณ ตอนจ้าง — เปลี่ยนค่าภายหลังไม่กระทบข้อเสนอเดิม)
+        const hours = Number(
+          (await readSettings(tx, trip.tenantId, [RESPONSE_HOURS_KEY]))[RESPONSE_HOURS_KEY],
+        );
         // บรรทัดค่าจ้างของการจ้างครั้งก่อนที่จบไปแล้ว (ปฏิเสธ/หมดเวลา — ST3-T23/T24) และยังไม่จ่าย → กลับรายการ
         // ข้อเสนอเดิมที่ปิดแล้ว (ปฏิเสธ/หมดเวลา) → เพิกถอนลิงก์ — รายเดิมไม่เห็นงาน/ลูกค้า/เส้นทางของการจ้างใหม่ (review L5)
         const closed = await tx.subconOffer.findMany({
@@ -546,6 +628,7 @@ export class SubconHireService {
             offeredBy: actor,
             offeredAt: at,
             expiresAt,
+            responseDueAt: new Date(at.getTime() + hours * 3600_000),
           },
         });
         // ลิงก์ข้อเสนองาน (ST3-T23) อายุเท่าข้อเสนอ — ส่งทาง LINE/SMS (`/messages/send-link`) หรือคัดลอกจาก `/offer-link`

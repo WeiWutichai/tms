@@ -102,6 +102,7 @@ function hireDto(t: TripRecord): TripDto['hire'] {
     selectionReason: o.selectionReason,
     offeredBy: o.offeredBy,
     offeredAt: o.offeredAt.toISOString(),
+    responseDueAt: o.responseDueAt ? o.responseDueAt.toISOString() : null,
   };
 }
 
@@ -725,7 +726,13 @@ export class TripsController {
    * ไม่ใช่ราคาถูกสุด/ไม่มีราคาให้เทียบ → ต้องมีเหตุผล (422 `selection_reason_required`) · ต้องมี `prices.buy:read` ด้วย
    */
   @Post(':id/offer')
-  @ApiProblems(T403('trips:assign'), T404, T409('trip_empty'), T412, T422)
+  @ApiProblems(
+    T403('trips:assign'),
+    T404,
+    T409('trip_empty', 'offer_closed', 'offer_not_timed_out'),
+    T412,
+    T422,
+  )
   @HttpCode(200)
   @TenantResource('trip')
   @RequireScope('trips:assign')
@@ -747,6 +754,7 @@ export class TripsController {
         cost: body.cost ?? null,
         selectionReason: body.selectionReason ?? null,
         vehicleTypeId: optRef('vehicleType', body.vehicleTypeId, 'vehicleTypeId') ?? null,
+        replaceOffer: body.replaceOffer === true,
       },
       expectedVersion(req),
     );

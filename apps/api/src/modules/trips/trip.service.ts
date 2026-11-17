@@ -171,6 +171,7 @@ const EVENT_TYPE: Partial<Record<TripEvent, string>> = {
   offer: 'trip.offered',
   accept: 'trip.assigned',
   reject: 'trip.offer_rejected',
+  expire: 'trip.offer_expired',
   assign: 'trip.assigned',
   reassign: 'trip.assigned',
   dispatch: 'trip.dispatched',
@@ -1073,6 +1074,131 @@ export class TripService {
       rejectReason: input.reasonCode,
     });
     return final;
+  }
+
+  /**
+   * ข้อเสนองานรถร่วมหมดเวลา (ST3-T24; docs/01 §4.2 "OFFERED → PLANNING : ปฏิเสธ/หมดอายุ → SO กลับ ON_HOLD(CARRIER_REJECTED)",
+   * docs/01 §4.1 `CARRIER_REJECTED` "รถร่วมกดปฏิเสธหรือลิงก์หมดอายุ", spec/03 PLN-154) — เรียกจาก job (ไม่มีผู้ใช้)
+   * - ล็อก SO → DO → trip แล้วตรวจซ้ำ: การจ้างที่รอตอบยังเป็น `offerId` และถึง `expiresAt` แล้ว ณ `now` — ไม่ใช่ (รับ/ปฏิเสธ/
+   *   ถอน/จ้างใหม่ไปก่อน) → คืน null ไม่ทำอะไร (การกระทำแรกชนะ — job รันซ้ำ/สอง worker ได้ผลเดียว)
+   * - เที่ยว → PLANNING (`assignment_status` EXPIRED เป็นร่องรอย) · การจ้าง → EXPIRED · ลิงก์เพิกถอน · ค่าจ้างที่ยังไม่จ่ายกลับรายการ
+   *   · SO → ON_HOLD `CARRIER_REJECTED` (ชุดเดียวกับปฏิเสธ) · audit `trip.offer_expired` + event `subcon_offer.expired`
+   */
+  async expireOffer(
+    id: string,
+    offerId: string,
+    now: Date,
+    tx: Tx = this.db.tx,
+  ): Promise<{ trip: TripRecord; carrierId: string; heldOrders: number } | null> {
+    const { trip, dos } = await this.lock(tx, id);
+    const o = trip.subconOffers[0];
+    if (
+      trip.status !== 'OFFERED' ||
+      o?.id !== offerId ||
+      o.status !== 'OFFERED' ||
+      !o.expiresAt ||
+      o.expiresAt.getTime() > now.getTime()
+    )
+      return null;
+    this.assertCan(trip, 'expire');
+    const why = `รถร่วมไม่ตอบรับภายในเวลา: ${o.carrierNameSnapshot} (ลิงก์หมดอายุ)`;
+    await this.transition(
+      tx,
+      trip,
+      'expire',
+      { ...CLEAR_OFFER, assignmentStatus: 'EXPIRED', buyRateSnapshot: Prisma.DbNull },
+      { note: why },
+    );
+    await tx.subconOffer.update({
+      where: { id: offerId },
+      data: { status: 'EXPIRED', closedAt: now, closedReason: why },
+    });
+    await this.offerLinks.revoke(tx, [offerId], 'OFFER_EXPIRED', trip.id);
+    const reversed = await reverseCarrierFees(
+      tx,
+      trip.id,
+      requestContext.require().actorId ?? null,
+      'กลับรายการค่าจ้างรถร่วม (ข้อเสนอหมดเวลา)',
+    );
+    const held = await this.orderState.holdCarrierRejected(
+      tx,
+      dos.map((d) => d.salesOrderId),
+      why,
+    );
+    const final = await this.refreshWarnings(tx, trip.id);
+    await this.audit.record({
+      action: `${ENTITY}.offer_expired`,
+      entityType: ENTITY,
+      entityId: trip.id,
+      before: { status: trip.status, carrier: trip.carrierNameSnapshot },
+      after: {
+        status: final.status,
+        offerId: encodeId('subconOffer', offerId),
+        expiresAt: o.expiresAt.toISOString(),
+        heldOrders: held.length,
+        ...(reversed ? { reversedCarrierFees: reversed } : {}),
+      },
+      reason: why,
+    });
+    await this.emitOffer(tx, 'subcon_offer.expired', {
+      id: offerId,
+      tripId: trip.id,
+      carrierId: o.carrierId,
+      status: 'EXPIRED',
+    });
+    return { trip: final, carrierId: o.carrierId, heldOrders: held.length };
+  }
+
+  /**
+   * "ส่งรายถัดไป" ระหว่างรอตอบ (ST3-T24; docs/04 D3 "ไม่ตอบใน N ชม. → แจ้งเตือน + ปุ่มส่งรายถัดไป"): ปิดการจ้างที่ครบเวลาตอบ
+   * (`response_due_at` ≤ now) แต่ลิงก์ยังไม่หมดอายุ → การจ้าง WITHDRAWN (เหตุผล "ไม่ตอบรับใน N ชม. — ส่งรายถัดไป") ·
+   * เที่ยว → PLANNING (transition `expire`) · ไม่ตั้งใบค้าง — ผู้เรียก (`SubconHireService.hire`) จ้างรายใหม่ต่อในล็อกเดียวกัน
+   * (ไม่ผ่าน = rollback ทั้งคู่) · ลิงก์/ค่าจ้างของรายเดิม: `hire` เพิกถอน/กลับรายการให้ (ชุดเดียวกับจ้างใหม่หลังปฏิเสธ)
+   * ยังไม่ครบเวลา → 409 `offer_not_timed_out` · ตอบไปแล้ว/ไม่ได้รอตอบ → 409 `offer_closed`
+   */
+  async withdrawTimedOutOffer(
+    id: string,
+    now: Date,
+    tx: Tx = this.db.tx,
+    expectedVersion?: number,
+  ): Promise<{ offerId: string; carrierId: string }> {
+    const { trip } = await this.lock(tx, id, expectedVersion);
+    const o = trip.subconOffers[0];
+    if (trip.status !== 'OFFERED' || !o || o.status !== 'OFFERED')
+      throw new ProblemException('offer_closed');
+    if (!o.responseDueAt || o.responseDueAt.getTime() > now.getTime())
+      throw new ProblemException('offer_not_timed_out', undefined, undefined, {
+        responseDueAt: o.responseDueAt?.toISOString() ?? null,
+      });
+    this.assertCan(trip, 'expire');
+    const hours = Math.round((o.responseDueAt.getTime() - o.offeredAt.getTime()) / 3600_000);
+    const why = `${o.carrierNameSnapshot} ไม่ตอบรับใน ${hours} ชม. — ส่งรายถัดไป`;
+    await this.transition(
+      tx,
+      trip,
+      'expire',
+      { ...CLEAR_OFFER, assignmentStatus: 'EXPIRED', buyRateSnapshot: Prisma.DbNull },
+      { note: why },
+    );
+    await tx.subconOffer.update({
+      where: { id: o.id },
+      data: { status: 'WITHDRAWN', closedAt: now, closedReason: why },
+    });
+    await this.audit.record({
+      action: 'subcon_offer.withdrawn',
+      entityType: ENTITY,
+      entityId: trip.id,
+      before: { status: trip.status, carrier: trip.carrierNameSnapshot },
+      after: { offerId: encodeId('subconOffer', o.id), cause: 'NO_RESPONSE_SEND_NEXT' },
+      reason: why,
+    });
+    await this.emitOffer(tx, 'subcon_offer.withdrawn', {
+      id: o.id,
+      tripId: trip.id,
+      carrierId: o.carrierId,
+      status: 'WITHDRAWN',
+    });
+    return { offerId: o.id, carrierId: o.carrierId };
   }
 
   /**

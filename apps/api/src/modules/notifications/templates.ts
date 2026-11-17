@@ -25,6 +25,10 @@ export interface NotificationVars {
    * items = รายการที่ถึงระดับเตือนวันนี้ (สูงสุด DIGEST_MAX_ITEMS) · more = ที่เหลือที่ไม่แสดง
    */
   'expiry.digest': { total: number; more: number; items: ExpiryDigestItem[] };
+  /** ST3-T24 รถร่วมไม่ตอบข้อเสนองานใน N ชม. (docs/04 D3/I "งานรถร่วมหมดเวลา") — ครั้งเดียวต่อข้อเสนอ */
+  'subcon_offer.no_response': { tripNo: string; carrier: string; hours: number };
+  /** ST3-T24 ลิงก์ข้อเสนองานหมดอายุ (48 ชม.) → เที่ยวกลับไปรอจัดรถ ใบสั่งค้าง "รถร่วมปฏิเสธ" */
+  'subcon_offer.expired': { tripNo: string; carrier: string };
 }
 export type ExpiryLevel = 'D60' | 'D30' | 'D7' | 'EXPIRED';
 export interface ExpiryDigestItem {
@@ -213,6 +217,26 @@ const TEMPLATES: {
   'expiry.digest': {
     th: (v) => renderDigest(v, 'th'),
     en: (v) => renderDigest(v, 'en'),
+  },
+  'subcon_offer.no_response': {
+    th: (v) => ({
+      title: 'รถร่วมยังไม่ตอบรับงาน',
+      body: `${v.tripNo} · ${v.carrier} ไม่ตอบรับใน ${n(v.hours)} ชม. — ส่งรายถัดไปได้ที่เที่ยวรถ`,
+    }),
+    en: (v) => ({
+      title: 'Carrier has not responded',
+      body: `${v.tripNo} · ${v.carrier} has not responded within ${n(v.hours)} h — send to the next carrier from the trip.`,
+    }),
+  },
+  'subcon_offer.expired': {
+    th: (v) => ({
+      title: 'ข้อเสนองานรถร่วมหมดเวลา',
+      body: `${v.tripNo} · ${v.carrier} ไม่ตอบรับภายใน 48 ชม. — เที่ยวกลับไปรอจัดรถ`,
+    }),
+    en: (v) => ({
+      title: 'Carrier offer expired',
+      body: `${v.tripNo} · ${v.carrier} did not respond within 48 h — the trip is back in planning.`,
+    }),
   },
 };
 

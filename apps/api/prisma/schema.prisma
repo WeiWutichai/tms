@@ -1919,6 +1919,9 @@ model SubconOffer {
   viewedAt            DateTime?         @map("viewed_at") @db.Timestamptz(6)
   respondedAt         DateTime?         @map("responded_at") @db.Timestamptz(6)
   respondedVia        String?           @map("responded_via")
+  /// ST3-T24 ครบเวลาตอบ (เวลาเสนอ + N ชม. ตามค่าตั้ง `dispatch.subconResponseHours` ณ ตอนจ้าง) · แจ้งผู้จัดรถแล้วเมื่อ (ครั้งเดียว)
+  responseDueAt       DateTime?         @map("response_due_at") @db.Timestamptz(6)
+  timeoutNotifiedAt   DateTime?         @map("timeout_notified_at") @db.Timestamptz(6)
   /// ปฏิเสธ: รหัสเหตุผล (SUBCON_REJECT_REASONS) + หมายเหตุ
   rejectReasonCode    String?           @map("reject_reason_code")
   rejectNote          String?           @map("reject_note")

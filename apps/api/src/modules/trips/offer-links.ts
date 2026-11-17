@@ -15,12 +15,14 @@ export const OFFER_LINK_ACTIONS = { view: 'offer.view', respond: 'offer.respond'
 export const OFFER_TTL_MS = 48 * 3600_000;
 
 /** เหตุที่เพิกถอนลิงก์ข้อเสนองาน (docs/04 A1 "เพิกถอนได้") */
-export type OfferLinkRevokeCause = 'REISSUED' | 'TRIP_CANCELLED' | 'CARRIER_CHANGED' | 'REHIRED';
+export type OfferLinkRevokeCause =
+  'REISSUED' | 'TRIP_CANCELLED' | 'CARRIER_CHANGED' | 'REHIRED' | 'OFFER_EXPIRED';
 export const OFFER_REVOKE_REASON: Record<OfferLinkRevokeCause, string> = {
   REISSUED: 'ออกลิงก์ข้อเสนองานใหม่ — ลิงก์เดิมใช้ไม่ได้แล้ว',
   TRIP_CANCELLED: 'ยกเลิกเที่ยว — ลิงก์ข้อเสนองานใช้ไม่ได้แล้ว',
   CARRIER_CHANGED: 'เปลี่ยนรถร่วม — ลิงก์ข้อเสนองานของรายเดิมใช้ไม่ได้แล้ว',
   REHIRED: 'จ้างรถร่วมใหม่ — ลิงก์ข้อเสนอที่ปิดแล้วใช้ไม่ได้',
+  OFFER_EXPIRED: 'ข้อเสนองานหมดเวลาตอบรับ — ลิงก์ใช้ไม่ได้แล้ว',
 };
 
 export interface OfferLinkRow {

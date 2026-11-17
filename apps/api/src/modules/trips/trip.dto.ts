@@ -401,6 +401,16 @@ export class OfferTripDto {
   @IsNullable()
   @Matches(/^vty_[0-9a-f]{32}$/)
   vehicleTypeId?: string | null;
+
+  @ApiPropertyOptional({
+    type: Boolean,
+    description:
+      'ST3-T24 "ส่งรายถัดไป" ระหว่างรอตอบ: true = ปิดการจ้างที่รอตอบซึ่งครบเวลาตอบ N ชม. แล้ว (WITHDRAWN — ลิงก์เดิมใช้ไม่ได้, ' +
+      'ค่าจ้างเดิมกลับรายการ) แล้วจ้างรายนี้ในคำขอเดียว · ยังไม่ครบเวลา → 409 `offer_not_timed_out` · ไม่ส่ง = เที่ยวต้องเป็น PLANNING',
+  })
+  @IsOptional()
+  @IsBoolean()
+  replaceOffer?: boolean;
 }
 
 /** การจ้างรถร่วมที่ใช้งานอยู่ของเที่ยว (ST3-T22) */
@@ -435,6 +445,13 @@ export class TripHireDto {
   @ApiProperty({ nullable: true, type: String, description: 'ผู้จ้าง (actor id)' })
   offeredBy!: string | null;
   @ApiProperty() offeredAt!: string;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description:
+      'ST3-T24 ครบเวลาตอบ (เวลาเสนอ + N ชม. ตามค่าตั้ง `dispatch.subconResponseHours`) — เลยแล้วยังไม่ตอบ = แจ้งผู้จัดรถ + "ส่งรายถัดไป" ได้',
+  })
+  responseDueAt!: string | null;
 }
 
 export class CancelTripDto {
@@ -849,6 +866,15 @@ export class HireOptionDto {
       'จ้างไม่ได้จริง ณ วันเที่ยว (กฎเอกสารบังคับ ST3-T14 / ไม่มีรถที่ลงทะเบียน) — ไม่นับในการเทียบถูกสุด, จ้างได้แต่ต้องมีเหตุผล',
   })
   blockedReason!: string | null;
+  @ApiProperty({
+    nullable: true,
+    enum: ['REJECTED', 'EXPIRED', 'NO_RESPONSE'],
+    type: String,
+    description:
+      'ST3-T24 รายนี้เคยได้ข้อเสนอของเที่ยวนี้แล้วไม่รับ: ปฏิเสธ / ลิงก์หมดอายุ / ไม่ตอบใน N ชม. (รวมรายที่รอตอบอยู่และครบเวลาแล้ว) — ' +
+      'ไม่นับในการเทียบถูกสุด (รายถัดไปที่ถูกสุด = ถูกสุด)',
+  })
+  priorOutcome!: string | null;
   @ApiProperty({ description: 'ราคาต่ำสุดของตัวเลือก (เท่ากันได้หลายราย)' }) cheapest!: boolean;
   @ApiPropertyOptional({
     type: [String],
