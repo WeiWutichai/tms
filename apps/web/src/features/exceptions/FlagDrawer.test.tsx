@@ -33,6 +33,7 @@ const ev = (over: Partial<StopEventFlag['event']> = {}): StopEventFlag['event'] 
   clientEventId: '6f1d3c1e-8a7b-4c2d-9e0f-1a2b3c4d5e6f',
   occurredAt: '2026-11-17T02:40:00.000Z',
   receivedAt: '2026-11-17T03:00:00.000Z',
+  appliedAt: null,
   lat: null,
   lng: null,
   accuracyM: null,
