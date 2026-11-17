@@ -457,11 +457,45 @@ describe('tracking link (ST4-T14)', () => {
   });
 
   it('ส่งไม่สำเร็จ → FAILED (ขั้นสุดท้าย) ไม่มีเหตุผล/โน้ตภายใน · DO ยกเลิกออกลิงก์ไม่ได้', async () => {
+    // ไม่นัดส่งใหม่อัตโนมัติ (ST4-T12) — ให้ DO คงสถานะส่งไม่สำเร็จ
+    await db.reasonCode.updateMany({
+      where: { tenantId, code: 'SHOP_CLOSED' },
+      data: { autoReschedule: false },
+    });
     const s = await shipment({ upTo: 'FAILED' });
     const r = await view(tokenOf((await doLink(s.doId)).url)).expect(200);
     expect(r.body.shipment.status).toBe('FAILED');
     expect(r.body.shipment.eta).toBeNull();
     assertPublicSafe(r.body, ['ร้านปิด', 'SHOP_CLOSED']);
+    await db.reasonCode.updateMany({
+      where: { tenantId, code: 'SHOP_CLOSED' },
+      data: { autoReschedule: true },
+    });
+    // นัดส่งใหม่อัตโนมัติ: ใบเดิมยกเลิก + ใบใหม่ → ลิงก์เดิมตามไปใบใหม่ (รับงาน)
+    const re = await shipment({ upTo: 'FAILED' });
+    // ลิงก์ที่ออกไว้ก่อนส่งไม่สำเร็จ (ใบยกเลิกแล้วออกใหม่ไม่ได้ — สร้างแถวตรง)
+    const exp = new Date(Date.now() + 86_400_000);
+    const pre = await db.magicLink.create({
+      data: {
+        tenantId,
+        purpose: 'tracking',
+        entityType: 'delivery_order',
+        entityId: re.uuid,
+        actions: ['tracking.view'],
+        scopes: [],
+        expiresAt: exp,
+      },
+    });
+    const reLink = await view(encodeLinkToken(pre.id, Math.floor(exp.getTime() / 1000))).expect(
+      200,
+    );
+    const rows = await db.deliveryOrder.findMany({
+      where: { OR: [{ id: re.uuid }, { redeliveryOfId: re.uuid }] },
+    });
+    if (rows.some((x) => x.redeliveryOfId === re.uuid)) {
+      expect(reLink.body.shipment.status).toBe('ACCEPTED');
+      expect(reLink.body.shipment.doNo).not.toBe(re.doNo);
+    }
     const c = await shipment({ upTo: 'NONE' });
     await db.deliveryOrder.update({ where: { id: c.uuid }, data: { status: 'CANCELLED' } });
     await api(app, admin).post(`/v1/delivery-orders/${c.doId}/tracking-link`).expect(409);

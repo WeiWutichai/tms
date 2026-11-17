@@ -214,9 +214,34 @@ export class TrackingService {
       return { company, mode: 'SEARCH', shipment: null };
     }
     if (link.entityType !== TRACKING_ENTITIES.do) throw new ProblemException('not_found');
-    const shipment = await this.shipment(tx, link.entityId, s, origin);
+    const shipment = await this.shipment(
+      tx,
+      await this.followRedelivery(tx, link.entityId),
+      s,
+      origin,
+    );
     if (!shipment) throw new ProblemException('not_found');
     return { company, mode: 'SHIPMENT', shipment };
+  }
+
+  /**
+   * DO ที่ยกเลิกเพราะนัดส่งใหม่ (ST4-T12 redeliver = ใบใหม่อ้าง `redelivery_of`) → ตามไปใบใหม่ล่าสุด
+   * ผู้รับเปิดลิงก์เดิมแล้วเห็นสถานะของรอบส่งใหม่ (ไม่ใช่ "ยกเลิก")
+   */
+  private async followRedelivery(tx: Tx, doId: string): Promise<string> {
+    let id = doId;
+    for (let i = 0; i < 5; i++) {
+      const d = await tx.deliveryOrder.findFirst({ where: { id }, select: { status: true } });
+      if (d?.status !== 'CANCELLED') break;
+      const next = await tx.deliveryOrder.findFirst({
+        where: { redeliveryOfId: id },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        select: { id: true },
+      });
+      if (!next) break;
+      id = next.id;
+    }
+    return id;
   }
 
   /**

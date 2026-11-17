@@ -11,7 +11,9 @@ import {
 } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { LinkAction, RequireScope, TenantResource } from '../../common/decorators';
+import { refToId } from '../../common/external-id';
 import { decodeIdOr404 } from '../../common/ids';
+import { DbService } from '../../db/db.service';
 import { ProblemException } from '../../common/problem';
 import { ApiProblems } from '../../common/problem.dto';
 import { requestContext } from '../../common/request-context';
@@ -142,15 +144,23 @@ export class DeliveryOrderTrackingController {
 @ApiBearerAuth()
 @Controller('customers')
 export class CustomerTrackingController {
-  constructor(private readonly tracking: TrackingService) {}
+  constructor(
+    private readonly tracking: TrackingService,
+    private readonly db: DbService,
+  ) {}
+
+  /** `cus_…` หรือ `ext:{externalId}` (ST7-T02) */
+  private ref(id: string) {
+    return refToId('customer', id, this.db.tx.customer);
+  }
 
   @Get(':id/tracking-link')
   @TenantResource('customer')
   @RequireScope('master:read')
   @ApiProblems(T403('master:read'), T404)
   @ApiOkResponse({ type: TrackingLinkStateDto, description: LINK_DESC })
-  get(@Param('id') id: string): Promise<TrackingLinkStateDto> {
-    return this.tracking.current('customer', decodeIdOr404('customer', id));
+  async get(@Param('id') id: string): Promise<TrackingLinkStateDto> {
+    return this.tracking.current('customer', await this.ref(id));
   }
 
   @Post(':id/tracking-link')
@@ -162,8 +172,8 @@ export class CustomerTrackingController {
     type: TrackingLinkDto,
     description: `ออกลิงก์ใหม่ของลูกค้า — ลิงก์เดิมถูกเพิกถอน · ${LINK_DESC}`,
   })
-  issue(@Param('id') id: string): Promise<TrackingLinkDto> {
-    return this.tracking.issue('customer', decodeIdOr404('customer', id));
+  async issue(@Param('id') id: string): Promise<TrackingLinkDto> {
+    return this.tracking.issue('customer', await this.ref(id));
   }
 
   @Post(':id/tracking-link/revoke')
@@ -175,7 +185,10 @@ export class CustomerTrackingController {
     type: TrackingLinkStateDto,
     description: 'เพิกถอนลิงก์ที่ใช้ได้ (เหตุผล + audit)',
   })
-  revoke(@Param('id') id: string, @Body() body: MasterReasonDto): Promise<TrackingLinkStateDto> {
-    return this.tracking.revoke('customer', decodeIdOr404('customer', id), body.reason);
+  async revoke(
+    @Param('id') id: string,
+    @Body() body: MasterReasonDto,
+  ): Promise<TrackingLinkStateDto> {
+    return this.tracking.revoke('customer', await this.ref(id), body.reason);
   }
 }
