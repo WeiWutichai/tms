@@ -327,7 +327,8 @@ function guardedVersion(req: Request, body: { lines?: unknown[] }): number | und
       {
         field: 'If-Match',
         code: 'if_match_required',
-        message: 'send If-Match (or Idempotency-Key) when redelivering/returning part of the quantity',
+        message:
+          'send If-Match (or Idempotency-Key) when redelivering/returning part of the quantity',
       },
     ]);
   return v;

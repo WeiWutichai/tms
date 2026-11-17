@@ -565,9 +565,7 @@ export class DeliveryOrderService {
     input: { note: string; reasonCodeId: string | null },
   ): Promise<string[]> {
     // ST4-T11: ใบคืนคลัง (RETURNED — สิ้นสุด) คงไว้ ไม่กันการยกเลิกใบสั่ง (ใบค้าง ALL_RETURNED)
-    const active = (await this.lockActive(tx, salesOrderId)).filter(
-      (d) => d.status !== 'RETURNED',
-    );
+    const active = (await this.lockActive(tx, salesOrderId)).filter((d) => d.status !== 'RETURNED');
     const onTrip = active.filter((d) => isOnActiveTrip(d));
     if (onTrip.length)
       throw new ProblemException('order_on_trip', undefined, undefined, {

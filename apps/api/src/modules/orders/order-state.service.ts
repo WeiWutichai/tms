@@ -281,9 +281,7 @@ export class OrderStateService {
             (DO_DELIVERED_STATUSES as readonly string[]).includes(d.status) ||
             d.status === 'RETURNED',
         ) &&
-        (await this.deliveryOrders.allocation(id, tx, true)).every(
-          (l) => Number(l.remaining) <= 0,
-        );
+        (await this.deliveryOrders.allocation(id, tx, true)).every((l) => Number(l.remaining) <= 0);
       const ev = orderDeliveryEvent(status, { anyDelivered, allDelivered, moving });
       if (ev) step(ev);
     }
