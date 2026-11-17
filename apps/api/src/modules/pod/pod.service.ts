@@ -433,18 +433,16 @@ export class PodService {
     });
     // ฉายยอดส่งจริงลงบรรทัด DO (ค่าปัจจุบันสำหรับวางบิล/ตีกลับ — ST5-T01, ST4-T11)
     if (stableLines(lines) !== stableLines(prevLines) || (!latest && lines.length))
-      for (const l of lines) {
-        const dl = doLines.find((x) => x.lineNo === l.lineNo);
-        if (!dl) continue;
-        await tx.deliveryOrderLine.update({
-          where: { id: dl.id },
-          data: {
-            qtyActual: l.qtyActual,
-            rejectQty: l.rejectQty,
-            rejectReasonCodeId: l.reason?.sourceId ?? null,
-          },
-        });
-      }
+      await this.dos.applyActualQty(
+        tx,
+        deliveryOrderId,
+        lines.map((l) => ({
+          lineNo: l.lineNo,
+          qtyActual: l.qtyActual,
+          rejectQty: l.rejectQty,
+          rejectReasonCodeId: l.reason?.sourceId ?? null,
+        })),
+      );
 
     await this.dos.applyPodResult(
       tx,
