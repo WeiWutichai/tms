@@ -20,6 +20,7 @@ import { ProblemException, type FieldError } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
 import { DeliveryOrderService } from '../delivery-orders/delivery-order.service';
+import { actorNames } from '../stops/actor-names';
 import { PodChecklistService } from './pod-checklist.service';
 import type { DeliveryOrderPodDto, PodDocumentDto, PodRecordDto, SubmitPodDto } from './pod.dto';
 
@@ -462,14 +463,9 @@ export class PodService {
     return new Map(rows.map((r) => [r.id, r]));
   }
 
-  private async userNames(ids: (string | null)[]): Promise<Map<string, string>> {
-    const uuids = [...new Set(ids.filter((x): x is string => !!x && /^[0-9a-f-]{36}$/i.test(x)))];
-    if (!uuids.length) return new Map();
-    const users = await this.db.tx.appUser.findMany({
-      where: { id: { in: uuids } },
-      select: { id: true, name: true },
-    });
-    return new Map(users.map((u) => [u.id, u.name]));
+  /** ผู้ใช้ภายใน + ST4-T09 `link:{id}` = ชื่อรถร่วมของลิงก์ */
+  private userNames(ids: (string | null)[]): Promise<Map<string, string>> {
+    return actorNames(this.db.tx, ids);
   }
 
   private versionDto(r: DeliveryOrderPod, names: Map<string, string>) {

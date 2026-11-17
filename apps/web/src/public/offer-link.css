@@ -117,3 +117,101 @@
 .cdl__card.pdl__do {
   gap: 4px;
 }
+/* ST4-T09 ส่ง POD ผ่านลิงก์ — รูป grid/"+ เพิ่มรูป" จากต้นแบบ TMS Subcon (cdl__photos/cdl__add) ·
+   แผ่นเซ็นจากต้นแบบ TMS Driver App M4 (สูง 160 ขอบ #D9DCD4 มุม 12, "ล้าง" มุมขวาบน) ·
+   ตัวเลือก/ข้อยืนยันใช้ปุ่มตัวเลือกของต้นแบบ TMS Subcon (เหตุผลที่ปฏิเสธ) สีเลือกแบบแท็บ */
+.pdl__photo {
+  position: relative;
+}
+.pdl__x {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(16, 20, 24, 0.55);
+  color: #ffffff;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+.pdl__sig {
+  position: relative;
+  height: 160px;
+  border: 1px solid #d9dcd4;
+  border-radius: 12px;
+  background: #ffffff;
+  overflow: hidden;
+}
+.pdl__sig canvas {
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  cursor: crosshair;
+  display: block;
+}
+.pdl__sigph {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  text-align: center;
+  color: #59606b;
+  pointer-events: none;
+}
+.pdl__sigclr {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-height: 48px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #2257c4;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.pdl__opts {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.pdl__opts--row {
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+.pdl__opt {
+  min-height: 48px;
+  padding: 0 14px;
+  border: 1px solid #d9dcd4;
+  border-radius: 14px;
+  background: #ffffff;
+  text-align: left;
+  cursor: pointer;
+  color: #101418;
+  font-size: 15px;
+  font-weight: 400;
+}
+.pdl__opts--row .pdl__opt {
+  min-width: 48px;
+  text-align: center;
+}
+.pdl__opt[aria-pressed='true'] {
+  border-color: #2257c4;
+  background: #e9f0fa;
+  color: #2257c4;
+  font-weight: 600;
+}
+.cdl__input.pdl__area {
+  height: auto;
+  min-height: 88px;
+  padding: 10px 12px;
+  resize: vertical;
+  font-family: inherit;
+  font-size: 15px;
+}

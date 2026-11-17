@@ -2,6 +2,7 @@ import type { AuditLog } from '@prisma/client';
 import { encodeId, type IdKind } from '../common/ids';
 import { ProblemException } from '../common/problem';
 import type { Tx } from '../db/db.service';
+import { actorNames } from '../modules/stops/actor-names';
 
 /** entity_type → prefix ของ id ใน API (ตารางที่ไม่มี prefix คืน uuid ตามเดิม) — master ใหม่เพิ่มที่นี่ */
 export const AUDIT_ID_KIND: Record<string, IdKind> = {
@@ -53,11 +54,8 @@ export async function toAuditPage(
   const hasMore = rows.length > limit;
   const page = rows.slice(0, limit);
   const actorIds = [...new Set(page.map((r) => r.actorId).filter((x): x is string => !!x))];
-  const users = await tx.appUser.findMany({
-    where: { id: { in: actorIds.filter((a) => UUID.test(a)) } },
-    select: { id: true, name: true },
-  });
-  const names = new Map(users.map((u) => [u.id, u.name]));
+  // ผู้ใช้ภายใน + ST4-T09 `link:{id}` = ชื่อรถร่วมของลิงก์
+  const names = await actorNames(tx, actorIds);
   const last = page[page.length - 1];
   return {
     data: page.map((r) => ({

@@ -271,9 +271,9 @@ test.describe.serial('ลิงก์รถร่วม ส่วนสถาน
     await p.getByRole('button', { name: 'ถึงจุดส่ง' }).click();
     await expect(p.getByRole('status')).toContainText('บันทึกถึงจุดส่งแล้ว');
     await expect(p.getByTestId('pdl-stop-DELIVERY')).toContainText(/ถึงแล้ว/);
-    await expect(p.getByTestId('pdl-hint')).toHaveText(
-      'ถึงจุดส่งแล้ว · แจ้งฝ่ายจัดรถเพื่อปิดงานและส่ง POD',
-    );
+    // ST4-T09: ถึงจุดส่งแล้ว → ฟอร์มส่ง POD (ปิดงานพร้อม POD) แทนข้อความให้แจ้งฝ่ายจัดรถ
+    await expect(p.getByTestId('pdl-pod-submit')).toBeVisible();
+    await expect(p.getByTestId('pdl-hint')).toHaveCount(0);
     await expect(p.getByTestId('pdl-act')).toHaveCount(0);
     // แท็บงาน = ใบสั่งงาน + รับงานแล้ว
     await p.getByRole('tab', { name: 'งาน' }).click();
