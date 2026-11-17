@@ -8,7 +8,7 @@ import { DEFAULT_SERVICE_ITEMS } from '../src/modules/service-items/defaults';
 import { ServiceItemsService } from '../src/modules/service-items/service-items.service';
 import { snapshotServiceItem } from '../src/modules/service-items/snapshot';
 import { bootstrapTenant, createTenantWithDefaults } from '../src/modules/tenants/bootstrap';
-import { api, bootApp, createTenant, platform, tokenFor, truncateAll } from './helpers';
+import { api, bootApp, createTenant, platform, tokenFor, truncateAll, validTaxId } from './helpers';
 
 const BASE = { calcUnit: 'PER_TRIP', defaultPrice: '500.00', vatType: 'VAT_7', whtRate: '3.00' };
 type Item = { id: string; code: string; name: string; version: number; [k: string]: unknown };
@@ -17,6 +17,48 @@ type Item = { id: string; code: string; name: string; version: number; [k: strin
 describe('ค่าบริการเสริม (service-items)', () => {
   let app: NestExpressApplication;
   const db = platform();
+
+  /** DO ขั้นต่ำให้บรรทัด `do_surcharge` อ้าง (FK ตั้งแต่ ST4-T13 migration 0092) */
+  let doSeed = 0;
+  async function makeDo(tenantId: string): Promise<string> {
+    const n = ++doSeed;
+    const co = await db.company.create({
+      data: { tenantId, legalName: `Co SI ${n}`, taxId: validTaxId(4100 + n) },
+    });
+    const cus = await db.customer.create({
+      data: { tenantId, code: `SI-${n}`, legalName: `ลูกค้า SI ${n}`, taxId: validTaxId(4300 + n) },
+    });
+    const site = (k: string) =>
+      db.customerSite.create({
+        data: { tenantId, code: `SI-${k}${n}`, name: `จุด SI ${k}${n}`, address: { line1: 'x' } },
+      });
+    const [a, b] = [await site('A'), await site('B')];
+    const so = await db.salesOrder.create({
+      data: {
+        tenantId,
+        soNo: `SO-SI-${n}`,
+        source: 'MANUAL',
+        customerId: cus.id,
+        billingCompanyId: co.id,
+        requestedDate: new Date('2026-11-17'),
+        status: 'RECEIVED',
+      },
+    });
+    const d = await db.deliveryOrder.create({
+      data: {
+        tenantId,
+        doNo: `DO-SI-${n}`,
+        doDate: new Date('2026-11-17'),
+        salesOrderId: so.id,
+        customerId: cus.id,
+        originSiteId: a.id,
+        destSiteId: b.id,
+        originStopSeq: 1,
+        destStopSeq: 2,
+      },
+    });
+    return d.id;
+  }
   let tenantId: string;
   let admin: string;
   let seed = 0;
@@ -78,7 +120,7 @@ describe('ค่าบริการเสริม (service-items)', () => {
     const line = await db.doSurcharge.create({
       data: {
         tenantId: t.id,
-        deliveryOrderId: randomUUID(),
+        deliveryOrderId: await makeDo(t.id),
         serviceItemId: snap.sourceItemId,
         vatType: snap.vatType,
         whtRate: snap.whtRate,
@@ -428,7 +470,7 @@ describe('ค่าบริการเสริม (service-items)', () => {
     await db.doSurcharge.create({
       data: {
         tenantId,
-        deliveryOrderId: randomUUID(),
+        deliveryOrderId: await makeDo(tenantId),
         serviceItemId: uuid,
         vatType: 'VAT_7',
         whtRate: '3.00',
