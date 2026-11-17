@@ -337,6 +337,7 @@ export function CustomersPage() {
           customer={current}
           canWrite={canWrite}
           canListUsers={can(scopes, 'users:read')}
+          canBillBasis={can(scopes, 'prices.sell:write')}
           onSaved={(c) => {
             setSelected(c);
             setToast(t('cust.toast.saved', { n: c.legalName }));

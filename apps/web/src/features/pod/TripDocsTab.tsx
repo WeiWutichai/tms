@@ -7,6 +7,8 @@ import { problemText } from '../master/problems';
 import { useDateTimeText } from '../rate-cards/rateFormat';
 import type { TripDetail } from '../trips/useTrips';
 import { openDocFile } from '../vehicles/useVehicleDocs';
+import { ActualQtySection } from './ActualQtySection';
+import { linesBody, linesDraftOf, type LinesDraft } from './actualQty';
 import { podFieldName } from './PodChecklistTable';
 import {
   POD_FILE_MIME,
@@ -102,6 +104,14 @@ export function podFieldError(
   if (e.code === 'not_found') return t('pod.e.v.docNotFound');
   if (e.code === 'required' || e.code === 'min_count') return t('pod.e.v.required');
   if (e.code === 'unknown_key') return t('pod.e.v.unknown');
+  // ST4-T10 ยอดส่งจริง
+  if (e.code === 'reason_required') return t('pod.q.v.reasonRequired');
+  if (e.code === 'exceeds_planned') return t('pod.q.v.exceeds');
+  if (e.code === 'note_required') return t('pod.q.v.noteRequired');
+  if (e.code === 'photo_required') return t('pod.q.v.photoRequired');
+  if (e.code === 'reason_category' || e.code === 'reason_inactive' || e.code === 'reason_not_found')
+    return t('pod.q.v.reasonInvalid');
+  if (e.field.startsWith('lines.') && e.field.endsWith('.qtyActual')) return t('pod.q.v.qty');
   if (e.field === 'pin') return t('pod.e.v.pin', { n: lim.pin ?? 4 });
   if (e.field === 'rating') return t('pod.e.v.rating', { max: lim.max ?? 5 });
   if (e.field === 'barcodes' || e.field === 'scanCodes') return t('pod.e.v.barcode');
@@ -317,6 +327,8 @@ interface Draft {
   /** ล้าง PIN เดิม (ส่ง null) — ยืนยันแล้ว */
   pinClear: boolean;
   rating: string;
+  /** ST4-T10 ยอดส่งจริงต่อรายการ */
+  lines: LinesDraft;
 }
 
 function draftOf(pod: DoPod): Draft {
@@ -336,12 +348,14 @@ function draftOf(pod: DoPod): Draft {
     pin: '',
     pinClear: false,
     rating: c?.rating ? String(c.rating) : '',
+    lines: linesDraftOf(pod),
   };
 }
 
-/** ร่าง → body ของ PUT (ส่งทั้งฉบับ — PIN ว่าง = คงของเดิม) */
-export function bodyOfDraft(d: Draft): PodBody {
+/** ร่าง → body ของ PUT (ส่งทั้งฉบับ — PIN ว่าง = คงของเดิม · ยอดส่งจริงไม่แก้ = ไม่ส่ง/คงเดิม) */
+export function bodyOfDraft(d: Draft, pod?: DoPod): PodBody {
   const s = (v: string) => v.trim() || null;
+  const lines = pod ? linesBody(pod, d.lines) : undefined;
   return {
     receiverName: s(d.receiverName),
     receiverRelation: (s(d.receiverRelation) as PodBody['receiverRelation']) ?? null,
@@ -359,6 +373,7 @@ export function bodyOfDraft(d: Draft): PodBody {
       .filter(Boolean),
     ...(d.pin.trim() ? { pin: d.pin.trim() } : d.pinClear ? { pin: null } : {}),
     rating: d.rating ? Number(d.rating) : null,
+    ...(lines ? { lines } : {}),
   };
 }
 
@@ -401,9 +416,9 @@ function PodForm({
   );
   const ro = !canEdit;
   const put = (p: Partial<Draft>) => setD((x) => ({ ...x, ...p }));
-  const body = bodyOfDraft(d);
+  const body = bodyOfDraft(d, base);
   // เปลี่ยนจากฉบับปัจจุบัน (หรือจากฟอร์มว่างเมื่อยังไม่มี) จึงบันทึกได้
-  const dirty = !same(body, bodyOfDraft(draftOf(base)));
+  const dirty = !same(body, bodyOfDraft(draftOf(base), base));
   const version = base.versions[0]?.version ?? 0;
   const latestV = pod.versions[0]?.version ?? 0;
   const stale = latestV !== version;
@@ -726,6 +741,17 @@ function PodForm({
         />
         <span style={{ fontSize: 13, color: '#3B424C' }}>{wNote}</span>
       </label>
+
+      {/* ST4-T10 จำนวนที่ส่งจริง + เหตุผลปฏิเสธรับ (เฉพาะชุดส่งสำเร็จ) — DECISION spec/12 §3 */}
+      {pod.checklist.outcome === 'SUCCESS' && (pod.lines ?? []).length > 0 && (
+        <ActualQtySection
+          pod={base}
+          draft={d.lines}
+          readOnly={ro}
+          onChange={(lines) => put({ lines })}
+          error={fe('lines')}
+        />
+      )}
 
       {/* ส่วนที่ต้นแบบไม่มี (docs/04 E2 ePOD เว็บ + checklist T05/T06) — DECISION spec/12 §3 */}
       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)', gap: 12 }}>

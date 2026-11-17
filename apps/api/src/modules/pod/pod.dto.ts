@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
@@ -12,8 +13,10 @@ import {
   MaxLength,
   Min,
   MinLength,
+  ValidateNested,
 } from 'class-validator';
 import {
+  ACTUAL_QTY_NOTE_MAX,
   POD_BARCODES_MAX,
   POD_CUSTOMER_REF_MAX,
   POD_FILES_MAX,
@@ -31,6 +34,64 @@ import { CleanText, IsNullable } from '../master/master-kit';
 import { EffectivePodChecklistDto } from './pod-checklist.dto';
 
 const DOC_ID = /^doc_[0-9a-f]{32}$/;
+
+/** ST4-T10 ยอดส่งจริงของบรรทัด DO หนึ่งบรรทัด (docs/01 §5.3 `lines[]` — อ้างบรรทัดด้วย `lineNo` ของ DO) */
+export class PodLineInputDto {
+  @ApiProperty({
+    example: 1,
+    description: 'ลำดับบรรทัดของ DO (`lines[].lineNo` ของ GET /v1/delivery-orders/{id})',
+  })
+  @IsInt()
+  @Min(1)
+  lineNo!: number;
+
+  @ApiProperty({
+    example: '90',
+    description:
+      'จำนวนที่ส่งได้จริง (หน่วยเดียวกับบรรทัด) 0 ≤ ค่า ≤ แผน ทศนิยมไม่เกิน 3 ตำแหน่ง — สตริง (ห้าม float) · เกินแผน → 422 `exceeds_planned`',
+  })
+  @IsString()
+  @Matches(/^\d{1,11}(\.\d{1,3})?$/)
+  qtyActual!: string;
+
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    example: '10',
+    description:
+      'จำนวนที่ผู้รับปฏิเสธ — ไม่ส่งได้ (ระบบคิด = แผน − ส่งจริง) · ส่งมาต้องเท่ากัน ไม่งั้น 422 `reject_qty_mismatch`',
+  })
+  @IsOptional()
+  @IsNullable()
+  @Matches(/^\d{1,11}(\.\d{1,3})?$/)
+  rejectQty?: string | null;
+
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    example: 'rsn_3f2a…',
+    description:
+      'เหตุผลมาตรฐานหมวด `REJECTED_BY_RECEIVER` (ปฏิเสธรับ/ตีกลับ) — **บังคับเมื่อส่งจริงน้อยกว่าแผน** (ไม่มี → 422 `reason_required`) · ส่งครบแต่ส่งเหตุผลมา → 422 `reason_not_applicable` · เหตุผลที่บังคับรูป = หลักฐานต้องมีรูป ≥ 1 · บังคับโน้ต = ต้องมี `note`',
+  })
+  @IsOptional()
+  @IsNullable()
+  @IsString()
+  @MaxLength(80)
+  rejectReasonCodeId?: string | null;
+
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    maxLength: ACTUAL_QTY_NOTE_MAX,
+    description: 'โน้ตของรายการที่ปฏิเสธ',
+  })
+  @IsOptional()
+  @IsNullable()
+  @CleanText()
+  @IsString()
+  @MaxLength(ACTUAL_QTY_NOTE_MAX)
+  note?: string | null;
+}
 
 /**
  * PUT /v1/delivery-orders/{id}/pod — บันทึกหลักฐานส่งฉบับใหม่ (ST4-T07; docs/01 §5.3 ชื่อช่องเดียวกับ `/driver/stops/{id}/pod`)
@@ -206,6 +267,19 @@ export class SubmitPodDto {
   rating?: number | null;
 
   @ApiPropertyOptional({
+    type: [PodLineInputDto],
+    maxItems: 500,
+    description:
+      'ST4-T10 ยอดส่งจริงต่อรายการ (เฉพาะ DO ที่ส่งแล้ว — ชุดสำเร็จ; DO ส่งไม่สำเร็จ/ตีกลับ → 422 `not_applicable`) · **ไม่ส่ง = คงค่าของฉบับก่อน** · บรรทัดที่ไม่อยู่ในรายการ = คงค่าเดิม (ยังไม่เคยบันทึก = ตามแผน)',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(500)
+  @ValidateNested({ each: true })
+  @Type(() => PodLineInputDto)
+  lines?: PodLineInputDto[];
+
+  @ApiPropertyOptional({
     type: String,
     nullable: true,
     minLength: POD_REASON_MIN,
@@ -285,6 +359,35 @@ export class PodRecordDto extends PodVersionDto {
   missing!: PodMissingDto[];
 }
 
+export class PodLineReasonDto {
+  @ApiProperty({ example: 'rsn_3f2a…' }) id!: string;
+  @ApiProperty({ example: 'SHORT_QTY' }) code!: string;
+  @ApiProperty({ example: 'จำนวนไม่ครบ', description: 'ข้อความ ณ เวลาที่บันทึก (snapshot)' })
+  label!: string;
+}
+
+/** ST4-T10 บรรทัด DO + ยอดส่งจริงปัจจุบัน (ฉบับล่าสุด) */
+export class PodLineDto {
+  @ApiProperty({ example: 1 }) lineNo!: number;
+  @ApiProperty() description!: string;
+  @ApiProperty({
+    example: 'ตัน',
+    description: 'ชื่อหน่วยที่แสดง (ไม่มีหน่วยใน master = ข้อความหน่วยของบรรทัด)',
+  })
+  unit!: string;
+  @ApiProperty({ example: '100' }) qtyPlanned!: string;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: '90',
+    description: 'null = ยังไม่บันทึก (ถือว่าตามแผน)',
+  })
+  qtyActual!: string | null;
+  @ApiProperty({ nullable: true, type: String, example: '10' }) rejectQty!: string | null;
+  @ApiProperty({ type: PodLineReasonDto, nullable: true }) rejectReason!: PodLineReasonDto | null;
+  @ApiProperty({ nullable: true, type: String }) note!: string | null;
+}
+
 /** GET/PUT /v1/delivery-orders/{id}/pod */
 export class DeliveryOrderPodDto {
   @ApiProperty({ example: 'do_…' }) deliveryOrderId!: string;
@@ -319,4 +422,9 @@ export class DeliveryOrderPodDto {
   current!: PodRecordDto | null;
   @ApiProperty({ type: [PodVersionDto], description: 'ทุกฉบับ ใหม่ → เก่า' })
   versions!: PodVersionDto[];
+  @ApiProperty({
+    type: [PodLineDto],
+    description: 'ST4-T10 บรรทัดของ DO (แผน vs ส่งจริง vs ปฏิเสธ + เหตุผล) ตามฉบับล่าสุด',
+  })
+  lines!: PodLineDto[];
 }

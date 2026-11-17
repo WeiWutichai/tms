@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma, type DeliveryOrderPod, type StoredDocument } from '@prisma/client';
 import {
+  checkActualLines,
   isPodEditable,
   normalizeBarcodes,
   podDoEvent,
@@ -11,6 +12,8 @@ import {
   type DoStatus,
   type PodMissing,
   type PodSource,
+  type ActualLineErrorCode,
+  type ActualLineValue,
   type PodSubmission,
 } from '@tms/domain';
 import { AuditService } from '../../audit/audit.service';
@@ -20,9 +23,17 @@ import { ProblemException, type FieldError } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
 import { DeliveryOrderService } from '../delivery-orders/delivery-order.service';
+import { ReasonCodesService, toReasonUuid } from '../reason-codes/reason-codes.service';
+import type { ReasonSnapshot } from '../reason-codes/snapshot';
 import { actorNames } from '../stops/actor-names';
 import { PodChecklistService } from './pod-checklist.service';
-import type { DeliveryOrderPodDto, PodDocumentDto, PodRecordDto, SubmitPodDto } from './pod.dto';
+import type {
+  DeliveryOrderPodDto,
+  PodDocumentDto,
+  PodLineDto,
+  PodRecordDto,
+  SubmitPodDto,
+} from './pod.dto';
 
 const IMAGE = ['image/png', 'image/jpeg', 'image/webp'];
 const FILE = ['application/pdf', ...IMAGE];
@@ -57,6 +68,7 @@ export class PodService {
     private readonly dos: DeliveryOrderService,
     private readonly checklist: PodChecklistService,
     private readonly audit: AuditService,
+    private readonly reasons: ReasonCodesService,
   ) {}
 
   private get cipher(): FieldCipher {
@@ -88,6 +100,17 @@ export class PodService {
     const missing = validatePod(cl, cur ? this.submissionOf(cur) : EMPTY).missing;
     const names = await this.userNames(rows.map((r) => r.createdBy));
     const docs = cur ? await this.documents(tx, docIdsOf(cur)) : new Map<string, StoredDocument>();
+    const doLines = await tx.deliveryOrderLine.findMany({
+      where: { deliveryOrderId },
+      orderBy: { lineNo: 'asc' },
+      select: {
+        lineNo: true,
+        description: true,
+        unit: true,
+        qtyPlanned: true,
+        salesOrderLine: { select: { unitRef: { select: { nameTh: true } } } },
+      },
+    });
     return {
       deliveryOrderId: encodeId('deliveryOrder', d.id),
       doNo: d.doNo ?? '',
@@ -99,6 +122,7 @@ export class PodService {
       missing,
       current: cur ? this.recordDto(cur, docs, names) : null,
       versions: rows.map((r) => this.versionDto(r, names)),
+      lines: linesDto(doLines, cur ? storedLines(cur) : []),
     };
   }
 
@@ -249,6 +273,83 @@ export class PodService {
       else if (v.trim()) choices[k] = v.trim();
     }
 
+    // ST4-T10 ยอดส่งจริงต่อรายการ — ไม่ส่ง = คงค่าเดิมของฉบับก่อน · เฉพาะชุดสำเร็จ (DO ส่งแล้ว)
+    const prevLines = latest ? storedLines(latest) : [];
+    let lines: StoredLine[] = prevLines;
+    const doLines = await tx.deliveryOrderLine.findMany({
+      where: { deliveryOrderId },
+      orderBy: { lineNo: 'asc' },
+      select: { id: true, lineNo: true, qtyPlanned: true },
+    });
+    if (input.lines !== undefined && input.lines.length && set !== 'SUCCESS')
+      errors.push({
+        field: 'lines',
+        code: 'not_applicable',
+        message: 'actual quantities are recorded for delivered orders only',
+      });
+    else if (input.lines?.length) {
+      const checked = checkActualLines(
+        doLines.map((l) => ({ lineNo: l.lineNo, qtyPlanned: l.qtyPlanned.toFixed() })),
+        input.lines,
+        prevLines.map(valueOf),
+      );
+      for (const e of checked.errors)
+        errors.push({
+          field: `lines.${e.index}.${e.field}`,
+          code: e.code,
+          message: LINE_MESSAGES[e.code],
+        });
+      if (!checked.errors.length) {
+        // เหตุผล: ตรวจหมวด/ใช้งาน + snapshot เฉพาะบรรทัดที่ส่งมา (บรรทัดที่คงเดิมใช้ snapshot เดิม)
+        const sent = new Map(input.lines.map((l, i) => [l.lineNo, i]));
+        const prevBy = new Map(prevLines.map((l) => [l.lineNo, l]));
+        lines = [];
+        for (const v of checked.lines) {
+          const i = sent.get(v.lineNo);
+          if (i === undefined) {
+            lines.push(prevBy.get(v.lineNo)!);
+            continue;
+          }
+          // เหตุผลเดิมของบรรทัด (ส่งซ้ำ/ฉบับแก้) ใช้ snapshot เดิม — ปิดใช้ภายหลังไม่ทำให้ส่งซ้ำล้ม (ตรวจเฉพาะเมื่อเปลี่ยนเหตุผล)
+          const prevReason = prevBy.get(v.lineNo)?.reason ?? null;
+          const reason = !v.rejectReasonCodeId
+            ? null
+            : prevReason && toReasonUuid(v.rejectReasonCodeId) === prevReason.sourceId
+              ? prevReason
+              : await this.reasons.snapshotFor(
+                  v.rejectReasonCodeId,
+                  'REJECTED_BY_RECEIVER',
+                  `lines.${i}.rejectReasonCodeId`,
+                );
+          lines.push({
+            lineNo: v.lineNo,
+            qtyPlanned: v.qtyPlanned,
+            qtyActual: v.qtyActual,
+            rejectQty: v.rejectQty,
+            reason: reason ? { ...reason, flags: { ...reason.flags } } : null,
+            note: v.note,
+          });
+        }
+      }
+    }
+    // ธงของเหตุผล (ทุกบรรทัดที่มีปฏิเสธ รวมที่คงเดิม): บังคับโน้ต / บังคับรูป (รูปของหลักฐานส่งฉบับนี้)
+    lines.forEach((l) => {
+      if (!l.reason) return;
+      const i = input.lines?.findIndex((x) => x.lineNo === l.lineNo) ?? -1;
+      if (l.reason.flags.requiresNote && !l.note)
+        errors.push({
+          field: i >= 0 ? `lines.${i}.note` : 'lines',
+          code: 'note_required',
+          message: `reason ${l.reason.code} requires a note`,
+        });
+      if (l.reason.flags.requiresPhoto && photoIds.length === 0)
+        errors.push({
+          field: 'photoDocumentIds',
+          code: 'photo_required',
+          message: `reason ${l.reason.code} requires at least one photo`,
+        });
+    });
+
     // PIN: ไม่ส่ง (undefined) = คงค่าเดิมของฉบับก่อน (อ่านค่าจริงผ่าน API ไม่ได้ จึงส่งซ้ำไม่ได้) · null/ว่าง = ล้าง
     const keepPin = input.pin === undefined && !!latest?.pinEnc;
     const pin = keepPin ? (this.submissionOf(latest!).pin ?? null) : input.pin?.trim() || null;
@@ -330,9 +431,22 @@ export class PodService {
         podStatus,
         missing: check.missing as unknown as Prisma.InputJsonValue,
         reason: latest ? reason : null,
+        lines: lines as unknown as Prisma.InputJsonValue,
         createdBy: ctx.actorId ?? null,
       },
     });
+    // ฉายยอดส่งจริงลงบรรทัด DO (ค่าปัจจุบันสำหรับวางบิล/ตีกลับ — ST5-T01, ST4-T11)
+    if (stableLines(lines) !== stableLines(prevLines) || (!latest && lines.length))
+      await this.dos.applyActualQty(
+        tx,
+        deliveryOrderId,
+        lines.map((l) => ({
+          lineNo: l.lineNo,
+          qtyActual: l.qtyActual,
+          rejectQty: l.rejectQty,
+          rejectReasonCodeId: l.reason?.sourceId ?? null,
+        })),
+      );
 
     await this.dos.applyPodResult(
       tx,
@@ -359,6 +473,13 @@ export class PodService {
           hasSignature: sigIds.length > 0,
           receiverName: row.receiverName,
           weighedKg: dec(row.weighedKg),
+          lines: lines.map((l) => ({
+            lineNo: l.lineNo,
+            qtyPlanned: l.qtyPlanned,
+            qtyActual: l.qtyActual,
+            rejectQty: l.rejectQty,
+            rejectReasonCode: l.reason?.code ?? null,
+          })),
           missing: check.missing.map((m) => ({ key: m.key, type: m.type, code: m.code })),
         } as Prisma.InputJsonValue,
         requestId: ctx.requestId ?? null,
@@ -532,6 +653,13 @@ export class PodService {
       weighedKg: dec(r.weighedKg),
       customerRef: r.customerRef,
       pinEntered: !!r.pinEnc,
+      lines: storedLines(r).map((l) => ({
+        lineNo: l.lineNo,
+        qtyActual: l.qtyActual,
+        rejectQty: l.rejectQty,
+        reason: l.reason?.code ?? null,
+        note: l.note,
+      })),
     };
   }
 }
@@ -563,3 +691,75 @@ const docIdsOf = (r: DeliveryOrderPod) => [
   ...r.fileDocumentIds,
   ...(r.signatureDocumentId ? [r.signatureDocumentId] : []),
 ];
+
+/** ยอดส่งจริงของบรรทัดหนึ่งที่เก็บในฉบับ (`delivery_order_pod.lines`) */
+interface StoredLine {
+  lineNo: number;
+  qtyPlanned: string;
+  qtyActual: string;
+  rejectQty: string;
+  reason: ReasonSnapshot | null;
+  note: string | null;
+}
+
+const storedLines = (r: DeliveryOrderPod): StoredLine[] =>
+  Array.isArray(r.lines) ? (r.lines as unknown as StoredLine[]) : [];
+
+const valueOf = (l: StoredLine): ActualLineValue => ({
+  lineNo: l.lineNo,
+  qtyPlanned: l.qtyPlanned,
+  qtyActual: l.qtyActual,
+  rejectQty: l.rejectQty,
+  rejectReasonCodeId: l.reason?.sourceId ?? null,
+  note: l.note,
+});
+
+const stableLines = (ls: StoredLine[]) =>
+  JSON.stringify(
+    ls.map((l) => [l.lineNo, l.qtyActual, l.rejectQty, l.reason?.sourceId ?? null, l.note]),
+  );
+
+const LINE_MESSAGES: Record<ActualLineErrorCode, string> = {
+  unknown_line: 'line not found on this delivery order',
+  duplicate: 'line is listed more than once',
+  invalid: 'quantity must be a decimal ≥ 0 with up to 3 places',
+  exceeds_planned: 'actual quantity exceeds the planned quantity',
+  reason_required: 'a reject reason (REJECTED_BY_RECEIVER) is required when actual < planned',
+  reason_not_applicable: 'no reject reason when the full planned quantity was delivered',
+  reject_qty_mismatch: 'rejectQty must equal planned − actual',
+  too_long: 'note is too long',
+};
+
+/** บรรทัด DO + ค่าปัจจุบัน (ไม่มีในฉบับ = ยังไม่บันทึก) */
+function linesDto(
+  doLines: {
+    lineNo: number;
+    description: string;
+    unit: string;
+    qtyPlanned: Prisma.Decimal;
+    salesOrderLine: { unitRef: { nameTh: string } | null } | null;
+  }[],
+  stored: StoredLine[],
+): PodLineDto[] {
+  const by = new Map(stored.map((l) => [l.lineNo, l]));
+  return doLines.map((d) => {
+    const l = by.get(d.lineNo);
+    return {
+      lineNo: d.lineNo,
+      description: d.description,
+      // ชื่อหน่วยที่ผู้ใช้เห็น (ตัน ถุง …) — ไม่มีหน่วยใน master = ข้อความหน่วย snapshot
+      unit: d.salesOrderLine?.unitRef?.nameTh ?? d.unit,
+      qtyPlanned: dec(d.qtyPlanned)!,
+      qtyActual: l?.qtyActual ?? null,
+      rejectQty: l?.rejectQty ?? null,
+      rejectReason: l?.reason
+        ? {
+            id: encodeId('reasonCode', l.reason.sourceId),
+            code: l.reason.code,
+            label: l.reason.label,
+          }
+        : null,
+      note: l?.note ?? null,
+    };
+  });
+}
