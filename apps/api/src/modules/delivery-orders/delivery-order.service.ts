@@ -368,6 +368,9 @@ export class DeliveryOrderService {
           split: { fromId: src.id, rootNo: root, index },
           sourceHash: src.sourceHash,
           redeliveryOfId: src.redeliveryOfId,
+          doDate: src.doDate.toISOString().slice(0, 10),
+          rescheduleCount: src.rescheduleCount,
+          rescheduleExhausted: src.rescheduleExhausted,
         }),
       );
     }
@@ -756,6 +759,145 @@ export class DeliveryOrderService {
     });
   }
 
+  /**
+   * ส่งใหม่ (docs/01 §4.3 `FAILED → redeliver`; D-23 "DO ใบใหม่ — ไม่วน DO เดิม"): DO เดิม FAILED → CANCELLED
+   * (event `redeliver` + เหตุผลของการส่งไม่สำเร็จ) แล้วสร้าง DO ใหม่ DRAFT **นอกเที่ยว** อ้าง `redelivery_of` —
+   * บรรทัด/จุดรับ-ส่ง/น้ำหนักเท่าใบเดิม, วันส่ง `doDate` (ST4-T12 นัดส่งใหม่อัตโนมัติ = วันถัดไป) → ลงกล่อง "SO รอจัด" ของกระดาน
+   * (ไม่จัดรถให้เอง) · ผู้เรียกถือล็อก SO → DO แล้ว (projection: `StopProjectionService.lockTrip`) · ST4-T11 (ส่งซ้ำมือ) ใช้ทางเดียวกัน
+   * ไม่ใช่ FAILED → 409 `invalid_state_transition` (ส่งใหม่ไปแล้ว = ใบเดิม CANCELLED — กันสร้างซ้ำ)
+   */
+  async redeliver(
+    tx: Tx,
+    id: string,
+    o: {
+      doDate: string;
+      rescheduleCount: number;
+      /** ST4-T12 ครั้งนี้เกินค่าตั้ง (เหตุรอง RESCHEDULES_EXHAUSTED ของใบสั่ง) */
+      exhausted?: boolean;
+      reasonCodeId: string | null;
+      note: string;
+      mode: 'auto' | 'manual';
+    },
+  ): Promise<DeliveryOrderRecord> {
+    const src = await this.get(id, tx);
+    if (src.status !== 'FAILED')
+      throw new ProblemException('invalid_state_transition', undefined, undefined, {
+        deliveryOrderId: src.id,
+        doNo: src.doNo,
+        from: src.status,
+      });
+    const so = await this.lockOrder(tx, src.salesOrderId);
+    if (!so) throw new ProblemException('not_found');
+    await this.cancelOne(tx, src, 'redeliver', o.reasonCodeId, o.note);
+    const d = await this.insert(tx, so, src.lines.filter(linked).map(linePlan), {
+      originStopSeq: src.originStopSeq,
+      destStopSeq: src.destStopSeq,
+      doNo: await issueNumber(tx, this.tenantId(), { docType: 'DO' }),
+      split: null,
+      sourceHash: src.sourceHash,
+      redeliveryOfId: src.id,
+      doDate: o.doDate,
+      rescheduleCount: o.rescheduleCount,
+      rescheduleExhausted: o.exhausted ?? false,
+    });
+    await this.audit.record({
+      action: `${ENTITY}.redelivered`,
+      entityType: ENTITY,
+      entityId: src.id,
+      before: view(src),
+      after: {
+        ...view(d),
+        id: d.id,
+        doDate: o.doDate,
+        rescheduleCount: o.rescheduleCount,
+        mode: o.mode,
+      },
+      reason: o.note,
+    });
+    return d;
+  }
+
+  /**
+   * ใบนี้ถูกยกเลิกด้วย `redeliver` ไหม (สถานะล่าสุดในประวัติ = redeliver) — หลักฐานชุดไม่สำเร็จยังบันทึกได้ (review H2),
+   * คืนได้เมื่อผลส่งไม่สำเร็จถูกพลิก (review H1b)
+   */
+  async isRedeliverCancelled(tx: Tx, id: string, status?: string): Promise<boolean> {
+    if (status === undefined)
+      status = (await tx.deliveryOrder.findUnique({ where: { id }, select: { status: true } }))
+        ?.status;
+    if (status !== 'CANCELLED') return false;
+    // เวลาในประวัติเท่ากันภายใน transaction เดียว (now()) — นับจำนวนแทนการเรียงเวลา:
+    // ส่งใหม่มากกว่าคืน = ยกเลิกครั้งล่าสุดมาจาก redeliver (ใบที่คืนแล้วยกเลิกทางอื่นต้องผ่าน DRAFT → cancel)
+    const rows = await tx.docStatusHistory.groupBy({
+      by: ['event'],
+      where: { docType: ENTITY, docId: id, event: { in: ['redeliver', 'restore'] } },
+      _count: { _all: true },
+    });
+    const n = (e: string) => rows.find((r) => r.event === e)?._count._all ?? 0;
+    return n('redeliver') > n('restore');
+  }
+
+  /**
+   * ST4-T12 (review H1b; [DECISION spec/12 §3]): ผลส่งไม่สำเร็จที่ทำให้นัดส่งใหม่ถูกพลิก (ผู้จัดรถไม่ใช้ event /
+   * event อื่นชนะ) และ DO ส่งใหม่ทุกใบยัง DRAFT นอกเที่ยว → ระบบยกเลิก DO ส่งใหม่ (เหตุผล + audit) แล้วคืนใบเดิม
+   * CANCELLED → `restore` → DISPATCHED (กลับไปไล่จากจุดแวะ) · DO ส่งใหม่ถูกจัดรถแล้ว → คืน false (ผู้เรียกขึ้นธง
+   * OUTCOME_MISMATCH ให้ผู้จัดรถ) · ผู้เรียกถือล็อก SO → DO ของใบเดิมแล้ว
+   */
+  async restoreRedelivered(tx: Tx, id: string, note: string): Promise<boolean> {
+    const src = await this.get(id, tx);
+    if (!(await this.isRedeliverCancelled(tx, id, src.status))) return false;
+    // ลูกหลานทั้งหมด = ใบที่อ้างใบนี้ (ใบส่งใหม่ + ใบที่แยกจากใบส่งใหม่ — แยกคง redelivery_of เดิม)
+    await tx.$queryRaw`
+      SELECT id FROM delivery_order WHERE redelivery_of_id = ${id}::uuid ORDER BY id FOR UPDATE`;
+    const all = await tx.deliveryOrder.findMany({
+      where: { redeliveryOfId: id },
+      include: INCLUDE,
+      orderBy: { id: 'asc' },
+    });
+    // review M: คืนได้เฉพาะเมื่อลูกหลานทุกใบ "ยังไม่เคยไปไหน" — DRAFT นอกเที่ยว ไม่เคยแก้/ถูกรวมเข้า (version 1)
+    // และประวัติมีแค่การสร้าง · ใบที่ยกเลิกได้เฉพาะเพราะถูกแยก · อื่น (เคยจัดรถ/ส่งใหม่ต่อ/ถูกรวม/คนยกเลิก) → false (ผู้เรียกขึ้นธง)
+    const hist = await tx.docStatusHistory.findMany({
+      where: { docType: ENTITY, docId: { in: all.map((d) => d.id) } },
+      select: { docId: true, event: true },
+    });
+    const CREATE = ['create', 'redelivery_create', 'split_create'];
+    const clean = all.every((d) => {
+      const evs = hist.filter((h) => h.docId === d.id).map((h) => h.event);
+      if (d.status === 'DRAFT')
+        return d.tripId === null && d.version === 1 && evs.every((e) => CREATE.includes(e));
+      return d.status === 'CANCELLED' && evs.every((e) => CREATE.includes(e) || e === 'split');
+    });
+    if (!all.length || !clean) return false;
+    const kids = all.filter((d) => d.status === 'DRAFT');
+    for (const k of kids) await this.systemCancel(tx, k, note);
+    await this.state.transition<DoStatus, DoEvent>(tx, {
+      docType: ENTITY,
+      docId: src.id,
+      table: DO_TRANSITIONS,
+      from: 'CANCELLED',
+      event: 'restore',
+      note,
+      eventType: EVENT_TYPE,
+      apply: async (to) => {
+        const r = await tx.deliveryOrder.updateMany({
+          where: { id: src.id, status: 'CANCELLED', version: src.version },
+          data: { status: to as DbDoStatus, version: { increment: 1 } },
+        });
+        if (r.count === 0) throw new ProblemException('concurrent_update');
+        return eventView(await this.get(src.id, tx));
+      },
+    });
+    await this.audit.record({
+      action: `${ENTITY}.redelivery_reverted`,
+      entityType: ENTITY,
+      entityId: src.id,
+      before: { status: 'CANCELLED', redeliveries: kids.map((k) => k.doNo) },
+      after: { status: 'DISPATCHED' },
+      reason: note,
+    });
+    return true;
+  }
+
   private async write(
     tx: Tx,
     d: DeliveryOrderRecord,
@@ -927,6 +1069,10 @@ export class DeliveryOrderService {
       split: { fromId: string; rootNo: string; index: number } | null;
       sourceHash: string | null;
       redeliveryOfId: string | null;
+      /** วันส่ง (YYYY-MM-DD) — ไม่ระบุ = วันที่ลูกค้าขอของ SO (ส่งใหม่ = วันที่นัด — ST4-T12) */
+      doDate?: string;
+      rescheduleCount?: number;
+      rescheduleExhausted?: boolean;
     },
   ): Promise<DeliveryOrderRecord> {
     const tenantId = this.tenantId();
@@ -936,7 +1082,7 @@ export class DeliveryOrderService {
       data: {
         tenantId,
         doNo: o.doNo,
-        doDate: so.requestedDate,
+        doDate: o.doDate ? new Date(`${o.doDate}T00:00:00Z`) : so.requestedDate,
         salesOrderId: so.id,
         customerId: so.customerId!,
         originSiteId: origin.siteId!,
@@ -947,6 +1093,8 @@ export class DeliveryOrderService {
         customerRef: so.customerRef,
         sourceHash: o.sourceHash,
         redeliveryOfId: o.redeliveryOfId,
+        rescheduleCount: o.rescheduleCount ?? 0,
+        rescheduleExhausted: o.rescheduleExhausted ?? false,
         splitFromId: o.split?.fromId ?? null,
         splitRootNo: o.split?.rootNo ?? null,
         splitIndex: o.split?.index ?? null,
@@ -967,19 +1115,25 @@ export class DeliveryOrderService {
       },
       include: INCLUDE,
     });
-    await this.history(tx, row.id, CREATE_FROM, 'DRAFT', o.split ? 'split_create' : 'create');
+    await this.history(
+      tx,
+      row.id,
+      CREATE_FROM,
+      'DRAFT',
+      o.split ? 'split_create' : o.redeliveryOfId ? 'redelivery_create' : 'create',
+    );
     await this.emit(tx, row, { status: null });
     return row;
   }
 
   /**
-   * DRAFT → CANCELLED ด้วย event cancel/split/merge (กันชน where status = DRAFT)
+   * DRAFT → CANCELLED ด้วย event cancel/split/merge · FAILED → CANCELLED ด้วย redeliver (กันชน where status เดิม)
    * source_hash ถูกล้าง **ยกเว้นคนยกเลิก** (`keepHash`) — ใบที่ถูกแยก/รวม/ระบบยกเลิก ไม่กันการสร้าง DO อัตโนมัติจากข้อมูลชุดนั้น
    */
   private async cancelOne(
     tx: Tx,
     d: DeliveryOrderRecord,
-    event: Extract<DoEvent, 'cancel' | 'split' | 'merge'>,
+    event: Extract<DoEvent, 'cancel' | 'split' | 'merge' | 'redeliver'>,
     reasonCodeId: string | null,
     note: string,
     keepHash = false,
@@ -1010,7 +1164,11 @@ export class DeliveryOrderService {
 
   /** แก้ข้อมูลหัว/ชื่อสินค้าของ DO ตาม SO (ไม่กระทบปริมาณ) — ใบ DRAFT นอกเที่ยวเท่านั้น */
   private async refreshHeader(tx: Tx, so: OrderForDo, d: DeliveryOrderRecord) {
-    const head = { customerRef: so.customerRef, doDate: so.requestedDate };
+    // DO ส่งใหม่ (redelivery_of) คงวันที่นัดไว้ — ไม่ย้อนกลับไปวันที่ลูกค้าขอเดิมของ SO (ST4-T12)
+    const head = {
+      customerRef: so.customerRef,
+      doDate: d.redeliveryOfId ? d.doDate : so.requestedDate,
+    };
     const names = new Map(so.lines.map((l) => [l.id, l.description]));
     const stale = d.lines.filter(
       (l) => l.salesOrderLineId !== null && names.get(l.salesOrderLineId) !== l.description,

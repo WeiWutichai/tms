@@ -140,18 +140,52 @@ export class OrderStateService {
    * ผู้เรียกถือล็อก SO แล้ว (ลำดับ SO → DO → trip)
    */
   async holdCarrierRejected(tx: Tx, salesOrderIds: string[], note: string): Promise<string[]> {
+    return this.holdSystem(tx, salesOrderIds, 'CARRIER_REJECTED', note);
+  }
+
+  /**
+   * นัดส่งใหม่อัตโนมัติเกินจำนวนครั้ง (ST4-T12; docs/04 E2 "นับครั้ง → RESCHEDULES_EXHAUSTED") — SO ที่ PLANNED/RECEIVED
+   * (หลัง DO ส่งใหม่ลงกล่องรอจัด) → ค้าง `RESCHEDULES_EXHAUSTED` · ค้างด้วยเหตุอื่นอยู่แล้ว/ยังมี DO วิ่งอยู่ = ไม่แตะ
+   * เคลียร์เมื่อจัดรถใหม่ที่กระดาน (`plan` ล้างเหตุค้าง — ST3-T07) · ผู้เรียกถือล็อก SO แล้ว
+   */
+  async holdReschedulesExhausted(tx: Tx, salesOrderIds: string[], note: string): Promise<string[]> {
+    return this.holdSystem(tx, salesOrderIds, 'RESCHEDULES_EXHAUSTED', note);
+  }
+
+  private async holdSystem(
+    tx: Tx,
+    salesOrderIds: string[],
+    code: 'CARRIER_REJECTED' | 'RESCHEDULES_EXHAUSTED',
+    note: string,
+  ): Promise<string[]> {
     const ids = [...new Set(salesOrderIds)].sort();
     if (!ids.length) return [];
     const rc = await tx.reasonCode.findFirst({
-      where: { category: 'ORDER_HOLD', code: 'CARRIER_REJECTED', deletedAt: null },
+      where: { category: 'ORDER_HOLD', code, deletedAt: null },
       select: { id: true },
     });
     // รหัสระบบ (is_system) bootstrap สร้างให้ทุก tenant — ไม่พบ = ข้อมูลตั้งต้นของ tenant เสีย
-    if (!rc)
-      throw new Error('ORDER_HOLD reason code CARRIER_REJECTED missing — run tenants:bootstrap');
+    if (!rc) throw new Error(`ORDER_HOLD reason code ${code} missing — run tenants:bootstrap`);
     const held: string[] = [];
     for (const id of ids) {
-      const so = await tx.salesOrder.findUnique({ where: { id }, select: { status: true } });
+      const so = await tx.salesOrder.findUnique({
+        where: { id },
+        select: { status: true, holdReasonCode: { select: { code: true } } },
+      });
+      // ST4-T12 (review M1): ค้างด้วยเหตุอื่นอยู่แล้ว (RATE_MISSING / ไม่พร้อม ฯลฯ) → คงเหตุหลักเดิม
+      // RESCHEDULES_EXHAUSTED เป็นเหตุรอง (holdCodes จาก DO `reschedule_exhausted`) + audit ให้เห็น
+      if (so?.status === 'ON_HOLD' && code === 'RESCHEDULES_EXHAUSTED') {
+        await this.audit.record({
+          action: `${ENTITY}.hold_code_added`,
+          entityType: ENTITY,
+          entityId: id,
+          before: { holdReason: so.holdReasonCode?.code ?? null },
+          after: { holdReason: so.holdReasonCode?.code ?? null, added: code },
+          reason: note,
+        });
+        held.push(id);
+        continue;
+      }
       if (!so || (so.status !== 'PLANNED' && so.status !== 'RECEIVED')) continue;
       const from = so.status as SoStatus;
       await this.state.transition<SoStatus, SoEvent>(tx, {
@@ -182,11 +216,17 @@ export class OrderStateService {
     return held;
   }
 
-  async syncFromDeliveryOrders(tx: Tx, salesOrderIds: string[]): Promise<void> {
-    for (const id of [...new Set(salesOrderIds)].sort()) await this.syncOne(tx, id);
+  /** `notes` = หมายเหตุในประวัติสถานะต่อ SO (ST4-T12: ถอยกลับรอจัดเพราะนัดส่งใหม่ — ไม่ใช่การถอนรถธรรมดา) */
+  async syncFromDeliveryOrders(
+    tx: Tx,
+    salesOrderIds: string[],
+    notes: ReadonlyMap<string, string> = new Map(),
+  ): Promise<void> {
+    for (const id of [...new Set(salesOrderIds)].sort())
+      await this.syncOne(tx, id, notes.get(id) ?? null);
   }
 
-  private async syncOne(tx: Tx, id: string): Promise<void> {
+  private async syncOne(tx: Tx, id: string, note: string | null = null): Promise<void> {
     const so = await tx.salesOrder.findUnique({
       where: { id },
       select: { status: true, holdReasonCode: { select: { code: true } } },
@@ -223,7 +263,8 @@ export class OrderStateService {
       })) > 0;
     if ((status === 'RECEIVED' || status === 'ON_HOLD') && onTrip && !rejectedPending) step('plan');
     if (status === 'IN_TRANSIT' && !moving && !finished) step('recall');
-    if (status === 'PLANNED' && moving) step('dispatch');
+    // ST4-T12: ใบที่คืนจาก redeliver (ส่งไม่สำเร็จถูกพลิก) อาจส่งถึงแล้วขณะ SO ยัง PLANNED → ผ่าน IN_TRANSIT แล้วไล่การส่ง
+    if (status === 'PLANNED' && (moving || (onTrip && finished))) step('dispatch');
     else if (status === 'PLANNED' && !onTrip) step('unplan');
     if (status === 'IN_TRANSIT' || status === 'PARTIALLY_DELIVERED') {
       const allDelivered =
@@ -241,6 +282,7 @@ export class OrderStateService {
         table: SO_TRANSITIONS,
         from,
         event,
+        note: event === 'recall' || event === 'unplan' ? note : null,
         eventType: 'order.updated',
         apply: async (next) => {
           const r = await tx.salesOrder.updateMany({

@@ -26,6 +26,7 @@ import {
   type TripDoInput,
   type TripEvent,
   type TripStatus,
+  shiftWindowToDay,
 } from '@tms/domain';
 import { AuditService } from '../../audit/audit.service';
 import { encodeId } from '../../common/ids';
@@ -85,6 +86,22 @@ export const TRIP_INCLUDE = {
 } as const satisfies Prisma.TripInclude;
 
 export type TripRecord = Prisma.TripGetPayload<{ include: typeof TRIP_INCLUDE }>;
+
+export interface TripRescheduled {
+  id: string;
+  doNo: string | null;
+  tripStopId: string | null;
+  pickupTripStopId: string | null;
+  pickupTripStop: { status: string } | null;
+  redeliveries: {
+    id: string;
+    doNo: string | null;
+    doDate: Date;
+    status: string;
+    rescheduleCount: number;
+    rescheduleExhausted: boolean;
+  }[];
+}
 
 export interface TripWarning {
   code: string;
@@ -242,6 +259,36 @@ export class TripService {
       take: k.take,
     });
     return { rows, k };
+  }
+
+  /**
+   * ST4-T12 DO ของเที่ยวที่ส่งไม่สำเร็จแล้วนัดส่งใหม่ (ใบเดิม CANCELLED event redeliver) + ใบใหม่ — อ่านเฉพาะ GET เที่ยว
+   * (ไม่อยู่ใน TRIP_INCLUDE — review L) · ไม่นับใบใหม่ที่ถูกแยกต่อ (นับลูกแทน)
+   */
+  rescheduled(tripId: string, tx: Tx = this.db.tx): Promise<TripRescheduled[]> {
+    return tx.deliveryOrder.findMany({
+      where: { tripId, status: 'CANCELLED', redeliveries: { some: {} } },
+      orderBy: [{ doNo: 'asc' }],
+      select: {
+        id: true,
+        doNo: true,
+        tripStopId: true,
+        pickupTripStopId: true,
+        pickupTripStop: { select: { status: true } },
+        redeliveries: {
+          where: { NOT: { status: 'CANCELLED', splitChildren: { some: {} } } },
+          orderBy: [{ createdAt: 'asc' }, { doNo: 'asc' }],
+          select: {
+            id: true,
+            doNo: true,
+            doDate: true,
+            status: true,
+            rescheduleCount: true,
+            rescheduleExhausted: true,
+          },
+        },
+      },
+    });
   }
 
   async get(id: string, tx: Tx = this.db.tx): Promise<TripRecord> {
@@ -1878,13 +1925,19 @@ export class TripService {
     };
     return [...dos]
       .sort((a, b) => (a.doNo ?? '').localeCompare(b.doNo ?? ''))
-      .map((d) => ({
-        id: d.id,
-        originSiteId: d.originSiteId,
-        destSiteId: d.destSiteId,
-        pickupWindow: win(d.salesOrderId, d.originStopSeq),
-        dropWindow: win(d.salesOrderId, d.destStopSeq),
-      }));
+      .map((d) => {
+        // ST4-T12 DO ส่งใหม่ (redelivery_of) — ช่วงเวลาของ SO เป็นของวันเดิม → เลื่อนให้ตรงวันส่งของ DO (คงเวลาในวัน)
+        const day = d.redeliveryOfId ? d.doDate.toISOString().slice(0, 10) : null;
+        const at = (w: { start: string | null; end: string | null }) =>
+          day ? shiftWindowToDay(w, day) : w;
+        return {
+          id: d.id,
+          originSiteId: d.originSiteId,
+          destSiteId: d.destSiteId,
+          pickupWindow: at(win(d.salesOrderId, d.originStopSeq)),
+          dropWindow: at(win(d.salesOrderId, d.destStopSeq)),
+        };
+      });
   }
 
   /** snapshot รถ + ประเภทรถ (id + ชื่อ) — รถไม่พบ/ลบ/ปลดระวาง/เป็นหาง → 422 */

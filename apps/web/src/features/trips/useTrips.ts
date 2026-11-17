@@ -33,7 +33,13 @@ export function useOrderTrips(orderId: string, enabled: boolean) {
       ) as Promise<Schemas['DeliveryOrderPageDto']>,
   });
   const ids = [
-    ...new Set((dos.data?.data ?? []).map((d) => d.tripId).filter((x): x is string => !!x)),
+    // ใบที่ยกเลิก (เช่น ส่งไม่สำเร็จแล้วนัดส่งใหม่ — ST4-T12) ไม่ใช่เที่ยวปัจจุบันของใบสั่ง
+    ...new Set(
+      (dos.data?.data ?? [])
+        .filter((d) => d.status !== 'CANCELLED')
+        .map((d) => d.tripId)
+        .filter((x): x is string => !!x),
+    ),
   ];
   const trips = useQueries({
     queries: ids.map((id) => ({

@@ -97,6 +97,7 @@ const stop = (
     legDistanceKm: null,
     legMinutes: null,
     legSource: null,
+    reschedules: [],
     ...leg,
   }) as TripDetail['stops'][number];
 

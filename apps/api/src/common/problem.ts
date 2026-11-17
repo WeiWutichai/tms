@@ -388,6 +388,12 @@ export const PROBLEMS = {
     th: 'ส่ง POD ของใบส่งของนี้แล้ว',
     en: 'Proof of delivery has already been sent for this delivery order',
   },
+  /** ST4-T12: จุดที่ DO ทุกใบถูกนัดส่งใหม่แล้ว (สถานะ ข้าม) — บันทึกถึง/ออก/ปิดงานไม่ได้ */
+  stop_skipped: {
+    status: 409,
+    th: 'จุดนี้ไม่มีใบส่งของแล้ว (นัดส่งใหม่ไปเที่ยวอื่น) — ไม่ต้องบันทึกที่จุดนี้',
+    en: 'This stop has no delivery orders left (rescheduled) — nothing to record here',
+  },
   /** ST4-T09 ลิงก์รถร่วม: ปิดงานจุดส่งได้หลังกด "ถึงจุดส่ง" เท่านั้น */
   stop_not_arrived: {
     status: 409,
