@@ -1927,7 +1927,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           }
         ],
         "responses": {
@@ -1960,7 +1961,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -2014,7 +2016,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           }
         ],
         "requestBody": {
@@ -2059,7 +2062,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           }
         ],
         "requestBody": {
@@ -3490,8 +3494,11 @@
             "name": "externalId",
             "required": true,
             "in": "path",
+            "description": "เลขของระบบต้นทาง (ASCII ที่พิมพ์ได้ 1–100 ตัว ไม่มีช่องว่าง) — unique ต่อ tenant ต่อ resource",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "pattern": "^[\\x21-\\x7e]{1,100}$",
+              "maxLength": 100
             }
           },
           {
@@ -3534,6 +3541,106 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "ไม่มี scope ที่ต้องใช้",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "forbidden": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/forbidden",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "forbidden",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "ขัดกับข้อมูลที่มีอยู่ (เช่น รหัส/ชื่อซ้ำ, สถานะไม่อนุญาตให้แก้)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "conflict": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/conflict",
+                      "title": "ข้อมูลขัดแย้งกับที่มีอยู่",
+                      "status": 409,
+                      "code": "conflict",
+                      "requestId": "b6a1…"
+                    }
+                  },
+                  "duplicate": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/duplicate",
+                      "title": "ข้อมูลซ้ำกับที่มีอยู่",
+                      "status": 409,
+                      "code": "duplicate",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "If-Match ไม่ตรงกับ version ปัจจุบัน",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "precondition_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/precondition_failed",
+                      "title": "ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่",
+                      "status": 412,
+                      "code": "precondition_failed",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง (รวมทุกช่องใน errors[]) — externalId ใน path ผิดรูปแบบ = field `externalId`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "requestId": "b6a1…",
+                      "errors": [
+                        {
+                          "field": "externalId",
+                          "code": "matches",
+                          "message": "externalId must be 1-100 printable ASCII"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
           }
         },
         "security": [
@@ -3541,6 +3648,184 @@
             "bearer": []
           }
         ],
+        "tags": [
+          "customers"
+        ]
+      },
+      "patch": {
+        "description": "เหมือน `PATCH /customers/ext:{externalId}` (กติกาเดียวกับ PATCH ด้วย id) · ยังไม่มีแถวนี้ → 404 — สร้างใหม่ใช้ PUT",
+        "operationId": "Customers_patchExternal",
+        "parameters": [
+          {
+            "name": "externalId",
+            "required": true,
+            "in": "path",
+            "description": "เลขของระบบต้นทาง (ASCII ที่พิมพ์ได้ 1–100 ตัว ไม่มีช่องว่าง) — unique ต่อ tenant ต่อ resource",
+            "schema": {
+              "type": "string",
+              "pattern": "^[\\x21-\\x7e]{1,100}$",
+              "maxLength": 100
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCustomerDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CustomerDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ไม่มี scope ที่ต้องใช้",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "forbidden": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/forbidden",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "forbidden",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ยังไม่มีแถวที่ externalId นี้ (สร้างใหม่ใช้ PUT) หรืออยู่ tenant อื่น",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "ขัดกับข้อมูลที่มีอยู่ (เช่น รหัส/ชื่อซ้ำ, สถานะไม่อนุญาตให้แก้)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "conflict": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/conflict",
+                      "title": "ข้อมูลขัดแย้งกับที่มีอยู่",
+                      "status": 409,
+                      "code": "conflict",
+                      "requestId": "b6a1…"
+                    }
+                  },
+                  "duplicate": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/duplicate",
+                      "title": "ข้อมูลซ้ำกับที่มีอยู่",
+                      "status": 409,
+                      "code": "duplicate",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "If-Match ไม่ตรงกับ version ปัจจุบัน",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "precondition_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/precondition_failed",
+                      "title": "ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่",
+                      "status": 412,
+                      "code": "precondition_failed",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง (รวมทุกช่องใน errors[]) — externalId ใน path ผิดรูปแบบ = field `externalId`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "requestId": "b6a1…",
+                      "errors": [
+                        {
+                          "field": "externalId",
+                          "code": "matches",
+                          "message": "externalId must be 1-100 printable ASCII"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "แก้บางช่องด้วย externalId",
         "tags": [
           "customers"
         ]
@@ -3556,7 +3841,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           }
         ],
         "responses": {
@@ -3589,7 +3875,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -3643,7 +3930,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "limit",
@@ -3698,7 +3986,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -3752,7 +4041,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -3806,7 +4096,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -4395,8 +4686,11 @@
             "name": "externalId",
             "required": true,
             "in": "path",
+            "description": "เลขของระบบต้นทาง (ASCII ที่พิมพ์ได้ 1–100 ตัว ไม่มีช่องว่าง) — unique ต่อ tenant ต่อ resource",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "pattern": "^[\\x21-\\x7e]{1,100}$",
+              "maxLength": 100
             }
           },
           {
@@ -4654,6 +4948,323 @@
         "tags": [
           "orders"
         ]
+      },
+      "patch": {
+        "description": "แก้บางช่องของใบที่มีอยู่ (กติกาเดียวกับ `PATCH /orders/{id}`) · ยังไม่มีใบนี้ → 404 — สร้างใหม่ใช้ PUT · ช่องทางเดียวกับ PUT: ใบที่ไม่ได้มาจาก API (กรอกมือ/Excel/connector) → 409 `external_id_conflict` · **ต่างจาก PUT: ติดล็อกการแก้ (ST3-T08)** — ผู้ใช้อื่นเปิดแก้อยู่ → 409 `order_locked_by_user`",
+        "operationId": "Orders_patchExternal",
+        "parameters": [
+          {
+            "name": "externalId",
+            "required": true,
+            "in": "path",
+            "description": "เลขของระบบต้นทาง (ASCII ที่พิมพ์ได้ 1–100 ตัว ไม่มีช่องว่าง) — unique ต่อ tenant ต่อ resource",
+            "schema": {
+              "type": "string",
+              "pattern": "^[\\x21-\\x7e]{1,100}$",
+              "maxLength": 100
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateOrderDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "JSON เสีย",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "bad_request": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/bad_request",
+                      "title": "คำขอไม่ถูกต้อง",
+                      "status": 400,
+                      "code": "bad_request",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`orders:read` / `orders:write`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "orders",
+                      "action": "write",
+                      "required": [
+                        "orders:write"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ไม่พบ (รวมใบของบริษัทอื่น)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "409 `order_locked_for_update` — แก้ช่องที่สถานะไม่อนุญาต (errors[] = ช่อง, `editableFields` = ช่องที่แก้ได้): ก่อนวางแผนแก้ได้ทุกช่อง · PLANNED แก้ได้เฉพาะช่วงเวลาของจุด + customerRef · ตั้งแต่ in_transit แก้ได้เฉพาะ customerRef · ปิดงาน/ยกเลิกแก้ไม่ได้ · 409 `external_id_conflict` — externalId นี้เป็นของใบจากช่องทางอื่น · 409 `order_locked_by_user` — ผู้ใช้อื่นเปิดแก้อยู่ · 409 `external_id_conflict` — ใบจากช่องทางอื่น",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "order_locked_for_update": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/order_locked_for_update",
+                      "title": "แก้ข้อมูลนี้ของใบสั่งขนส่งไม่ได้ในสถานะปัจจุบัน",
+                      "status": 409,
+                      "code": "order_locked_for_update",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "stops[1].siteId",
+                          "code": "locked",
+                          "message": "cannot change stops when order is IN_TRANSIT"
+                        },
+                        {
+                          "field": "lines[0].qty",
+                          "code": "locked",
+                          "message": "cannot change lines when order is IN_TRANSIT"
+                        }
+                      ],
+                      "orderStatus": "IN_TRANSIT",
+                      "editableFields": [
+                        "customerRef"
+                      ]
+                    }
+                  },
+                  "external_id_conflict": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/external_id_conflict",
+                      "title": "เลขอ้างอิงต้นทางนี้ถูกใช้กับใบสั่งขนส่งจากช่องทางอื่นแล้ว",
+                      "status": 409,
+                      "code": "external_id_conflict",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "existingSource": "CONNECTOR",
+                      "existingConnector": "krs"
+                    }
+                  },
+                  "invalid_state_transition": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/invalid_state_transition",
+                      "title": "ทำรายการนี้ไม่ได้ในสถานะปัจจุบัน",
+                      "status": 409,
+                      "code": "invalid_state_transition",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "from": "RECEIVED",
+                      "event": "save_draft"
+                    }
+                  },
+                  "order_locked_by_user": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/order_locked_by_user",
+                      "title": "ใบสั่งขนส่งนี้กำลังถูกแก้ไขโดยผู้ใช้อื่น",
+                      "status": 409,
+                      "code": "order_locked_by_user",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "editLock": {
+                        "userId": "usr_7c1d…",
+                        "userName": "สมชาย ใจดี",
+                        "acquiredAt": "2026-11-13T02:00:00.000Z",
+                        "lastSeenAt": "2026-11-13T02:04:00.000Z",
+                        "expiresAt": "2026-11-13T02:14:00.000Z",
+                        "mine": false
+                      }
+                    }
+                  },
+                  "order_lock_released": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/order_lock_released",
+                      "title": "การแก้ไขของคุณถูกปลดล็อกโดยผู้อื่นแล้ว — โหลดใหม่ก่อนแก้ต่อ",
+                      "status": 409,
+                      "code": "order_lock_released",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "releasedBy": {
+                        "userId": "usr_9b2e…",
+                        "userName": "ผู้จัดการ ตัวอย่าง"
+                      },
+                      "releasedAt": "2026-11-13T02:06:00.000Z",
+                      "reason": "ผู้แก้ไม่อยู่ ต้องแก้วันรับของด่วน"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "If-Match ไม่ตรง version / ส่ง If-Match แต่ยังไม่มีใบ",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "precondition_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/precondition_failed",
+                      "title": "ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่",
+                      "status": 412,
+                      "code": "precondition_failed",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "body ใหญ่เกินกำหนด",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "payload_too_large": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/payload_too_large",
+                      "title": "ไฟล์หรือข้อมูลมีขนาดใหญ่เกินกำหนด",
+                      "status": 413,
+                      "code": "payload_too_large",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "รูปแบบผิด — `errors[]` รวมทุกช่อง (path แบบ `stops[0].siteId`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "requestedDate",
+                          "code": "invalid_date",
+                          "message": "must be YYYY-MM-DD"
+                        },
+                        {
+                          "field": "stops[0].siteId",
+                          "code": "invalid_id",
+                          "message": "must be a uuid"
+                        },
+                        {
+                          "field": "lines[0].qty",
+                          "code": "invalid_type",
+                          "message": "must be a decimal string"
+                        }
+                      ]
+                    }
+                  },
+                  "idempotency_mismatch": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_mismatch",
+                      "title": "Idempotency-Key นี้เคยใช้กับข้อมูลอื่น",
+                      "status": 422,
+                      "code": "idempotency_mismatch",
+                      "instance": "/v1/orders/ord_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "แก้บางช่องด้วย externalId",
+        "tags": [
+          "orders"
+        ]
       }
     },
     "/v1/orders/{id}": {
@@ -4666,7 +5277,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           }
         ],
         "responses": {
@@ -4749,7 +5361,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -5052,7 +5665,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -5299,7 +5913,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "changeId",
@@ -5554,7 +6169,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "changeId",
@@ -5810,7 +6426,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           }
         ],
         "requestBody": {
@@ -5972,7 +6589,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           }
         ],
         "requestBody": {
@@ -6090,7 +6708,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "sequence",
@@ -6346,7 +6965,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -6547,7 +7167,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -6829,7 +7450,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -7111,7 +7733,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -8183,8 +8806,11 @@
             "name": "externalId",
             "required": true,
             "in": "path",
+            "description": "เลขของระบบต้นทาง (ASCII ที่พิมพ์ได้ 1–100 ตัว ไม่มีช่องว่าง) — unique ต่อ tenant ต่อ resource",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "pattern": "^[\\x21-\\x7e]{1,100}$",
+              "maxLength": 100
             }
           },
           {
@@ -8227,6 +8853,106 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "ไม่มี scope ที่ต้องใช้",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "forbidden": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/forbidden",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "forbidden",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "ขัดกับข้อมูลที่มีอยู่ (เช่น รหัส/ชื่อซ้ำ, สถานะไม่อนุญาตให้แก้)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "conflict": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/conflict",
+                      "title": "ข้อมูลขัดแย้งกับที่มีอยู่",
+                      "status": 409,
+                      "code": "conflict",
+                      "requestId": "b6a1…"
+                    }
+                  },
+                  "duplicate": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/duplicate",
+                      "title": "ข้อมูลซ้ำกับที่มีอยู่",
+                      "status": 409,
+                      "code": "duplicate",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "If-Match ไม่ตรงกับ version ปัจจุบัน",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "precondition_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/precondition_failed",
+                      "title": "ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่",
+                      "status": 412,
+                      "code": "precondition_failed",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง (รวมทุกช่องใน errors[]) — externalId ใน path ผิดรูปแบบ = field `externalId`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "requestId": "b6a1…",
+                      "errors": [
+                        {
+                          "field": "externalId",
+                          "code": "matches",
+                          "message": "externalId must be 1-100 printable ASCII"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
           }
         },
         "security": [
@@ -8234,6 +8960,184 @@
             "bearer": []
           }
         ],
+        "tags": [
+          "customer-sites"
+        ]
+      },
+      "patch": {
+        "description": "เหมือน `PATCH /customer-sites/ext:{externalId}` (กติกาเดียวกับ PATCH ด้วย id) · ยังไม่มีแถวนี้ → 404 — สร้างใหม่ใช้ PUT",
+        "operationId": "Sites_patchExternal",
+        "parameters": [
+          {
+            "name": "externalId",
+            "required": true,
+            "in": "path",
+            "description": "เลขของระบบต้นทาง (ASCII ที่พิมพ์ได้ 1–100 ตัว ไม่มีช่องว่าง) — unique ต่อ tenant ต่อ resource",
+            "schema": {
+              "type": "string",
+              "pattern": "^[\\x21-\\x7e]{1,100}$",
+              "maxLength": 100
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSiteDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SiteDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ไม่มี scope ที่ต้องใช้",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "forbidden": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/forbidden",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "forbidden",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ยังไม่มีแถวที่ externalId นี้ (สร้างใหม่ใช้ PUT) หรืออยู่ tenant อื่น",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "ขัดกับข้อมูลที่มีอยู่ (เช่น รหัส/ชื่อซ้ำ, สถานะไม่อนุญาตให้แก้)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "conflict": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/conflict",
+                      "title": "ข้อมูลขัดแย้งกับที่มีอยู่",
+                      "status": 409,
+                      "code": "conflict",
+                      "requestId": "b6a1…"
+                    }
+                  },
+                  "duplicate": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/duplicate",
+                      "title": "ข้อมูลซ้ำกับที่มีอยู่",
+                      "status": 409,
+                      "code": "duplicate",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "If-Match ไม่ตรงกับ version ปัจจุบัน",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "precondition_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/precondition_failed",
+                      "title": "ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่",
+                      "status": 412,
+                      "code": "precondition_failed",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง (รวมทุกช่องใน errors[]) — externalId ใน path ผิดรูปแบบ = field `externalId`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "requestId": "b6a1…",
+                      "errors": [
+                        {
+                          "field": "externalId",
+                          "code": "matches",
+                          "message": "externalId must be 1-100 printable ASCII"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "แก้บางช่องด้วย externalId",
         "tags": [
           "customer-sites"
         ]
@@ -8249,7 +9153,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           }
         ],
         "responses": {
@@ -8282,7 +9187,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -8336,7 +9242,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "limit",
@@ -8391,7 +9298,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -8445,7 +9353,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -8499,7 +9408,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -8553,7 +9463,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -8597,7 +9508,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -8651,7 +9563,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -9151,8 +10064,11 @@
             "name": "externalId",
             "required": true,
             "in": "path",
+            "description": "เลขของระบบต้นทาง (ASCII ที่พิมพ์ได้ 1–100 ตัว ไม่มีช่องว่าง) — unique ต่อ tenant ต่อ resource",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "pattern": "^[\\x21-\\x7e]{1,100}$",
+              "maxLength": 100
             }
           },
           {
@@ -9195,6 +10111,106 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "ไม่มี scope ที่ต้องใช้",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "forbidden": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/forbidden",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "forbidden",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "ขัดกับข้อมูลที่มีอยู่ (เช่น รหัส/ชื่อซ้ำ, สถานะไม่อนุญาตให้แก้)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "conflict": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/conflict",
+                      "title": "ข้อมูลขัดแย้งกับที่มีอยู่",
+                      "status": 409,
+                      "code": "conflict",
+                      "requestId": "b6a1…"
+                    }
+                  },
+                  "duplicate": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/duplicate",
+                      "title": "ข้อมูลซ้ำกับที่มีอยู่",
+                      "status": 409,
+                      "code": "duplicate",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "If-Match ไม่ตรงกับ version ปัจจุบัน",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "precondition_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/precondition_failed",
+                      "title": "ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่",
+                      "status": 412,
+                      "code": "precondition_failed",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง (รวมทุกช่องใน errors[]) — externalId ใน path ผิดรูปแบบ = field `externalId`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "requestId": "b6a1…",
+                      "errors": [
+                        {
+                          "field": "externalId",
+                          "code": "matches",
+                          "message": "externalId must be 1-100 printable ASCII"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
           }
         },
         "security": [
@@ -9202,6 +10218,184 @@
             "bearer": []
           }
         ],
+        "tags": [
+          "routes"
+        ]
+      },
+      "patch": {
+        "description": "เหมือน `PATCH /routes/ext:{externalId}` (กติกาเดียวกับ PATCH ด้วย id) · ยังไม่มีแถวนี้ → 404 — สร้างใหม่ใช้ PUT",
+        "operationId": "Routes_patchExternal",
+        "parameters": [
+          {
+            "name": "externalId",
+            "required": true,
+            "in": "path",
+            "description": "เลขของระบบต้นทาง (ASCII ที่พิมพ์ได้ 1–100 ตัว ไม่มีช่องว่าง) — unique ต่อ tenant ต่อ resource",
+            "schema": {
+              "type": "string",
+              "pattern": "^[\\x21-\\x7e]{1,100}$",
+              "maxLength": 100
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateRouteDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RouteDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ไม่มี scope ที่ต้องใช้",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "forbidden": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/forbidden",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "forbidden",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ยังไม่มีแถวที่ externalId นี้ (สร้างใหม่ใช้ PUT) หรืออยู่ tenant อื่น",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "ขัดกับข้อมูลที่มีอยู่ (เช่น รหัส/ชื่อซ้ำ, สถานะไม่อนุญาตให้แก้)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "conflict": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/conflict",
+                      "title": "ข้อมูลขัดแย้งกับที่มีอยู่",
+                      "status": 409,
+                      "code": "conflict",
+                      "requestId": "b6a1…"
+                    }
+                  },
+                  "duplicate": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/duplicate",
+                      "title": "ข้อมูลซ้ำกับที่มีอยู่",
+                      "status": 409,
+                      "code": "duplicate",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "If-Match ไม่ตรงกับ version ปัจจุบัน",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "precondition_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/precondition_failed",
+                      "title": "ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่",
+                      "status": 412,
+                      "code": "precondition_failed",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง (รวมทุกช่องใน errors[]) — externalId ใน path ผิดรูปแบบ = field `externalId`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "requestId": "b6a1…",
+                      "errors": [
+                        {
+                          "field": "externalId",
+                          "code": "matches",
+                          "message": "externalId must be 1-100 printable ASCII"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "แก้บางช่องด้วย externalId",
         "tags": [
           "routes"
         ]
@@ -9217,7 +10411,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           }
         ],
         "responses": {
@@ -9250,7 +10445,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -9304,7 +10500,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "limit",
@@ -9359,7 +10556,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -9413,7 +10611,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -9467,7 +10666,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -9942,8 +11142,11 @@
             "name": "externalId",
             "required": true,
             "in": "path",
+            "description": "เลขของระบบต้นทาง (ASCII ที่พิมพ์ได้ 1–100 ตัว ไม่มีช่องว่าง) — unique ต่อ tenant ต่อ resource",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "pattern": "^[\\x21-\\x7e]{1,100}$",
+              "maxLength": 100
             }
           },
           {
@@ -9986,6 +11189,106 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "ไม่มี scope ที่ต้องใช้",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "forbidden": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/forbidden",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "forbidden",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "ขัดกับข้อมูลที่มีอยู่ (เช่น รหัส/ชื่อซ้ำ, สถานะไม่อนุญาตให้แก้)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "conflict": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/conflict",
+                      "title": "ข้อมูลขัดแย้งกับที่มีอยู่",
+                      "status": 409,
+                      "code": "conflict",
+                      "requestId": "b6a1…"
+                    }
+                  },
+                  "duplicate": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/duplicate",
+                      "title": "ข้อมูลซ้ำกับที่มีอยู่",
+                      "status": 409,
+                      "code": "duplicate",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "If-Match ไม่ตรงกับ version ปัจจุบัน",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "precondition_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/precondition_failed",
+                      "title": "ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่",
+                      "status": 412,
+                      "code": "precondition_failed",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง (รวมทุกช่องใน errors[]) — externalId ใน path ผิดรูปแบบ = field `externalId`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "requestId": "b6a1…",
+                      "errors": [
+                        {
+                          "field": "externalId",
+                          "code": "matches",
+                          "message": "externalId must be 1-100 printable ASCII"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
           }
         },
         "security": [
@@ -9993,6 +11296,184 @@
             "bearer": []
           }
         ],
+        "tags": [
+          "products"
+        ]
+      },
+      "patch": {
+        "description": "เหมือน `PATCH /products/ext:{externalId}` (กติกาเดียวกับ PATCH ด้วย id) · ยังไม่มีแถวนี้ → 404 — สร้างใหม่ใช้ PUT",
+        "operationId": "Products_patchExternal",
+        "parameters": [
+          {
+            "name": "externalId",
+            "required": true,
+            "in": "path",
+            "description": "เลขของระบบต้นทาง (ASCII ที่พิมพ์ได้ 1–100 ตัว ไม่มีช่องว่าง) — unique ต่อ tenant ต่อ resource",
+            "schema": {
+              "type": "string",
+              "pattern": "^[\\x21-\\x7e]{1,100}$",
+              "maxLength": 100
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProductDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ไม่มี scope ที่ต้องใช้",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "forbidden": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/forbidden",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "forbidden",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ยังไม่มีแถวที่ externalId นี้ (สร้างใหม่ใช้ PUT) หรืออยู่ tenant อื่น",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "ขัดกับข้อมูลที่มีอยู่ (เช่น รหัส/ชื่อซ้ำ, สถานะไม่อนุญาตให้แก้)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "conflict": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/conflict",
+                      "title": "ข้อมูลขัดแย้งกับที่มีอยู่",
+                      "status": 409,
+                      "code": "conflict",
+                      "requestId": "b6a1…"
+                    }
+                  },
+                  "duplicate": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/duplicate",
+                      "title": "ข้อมูลซ้ำกับที่มีอยู่",
+                      "status": 409,
+                      "code": "duplicate",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "If-Match ไม่ตรงกับ version ปัจจุบัน",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "precondition_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/precondition_failed",
+                      "title": "ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่",
+                      "status": 412,
+                      "code": "precondition_failed",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง (รวมทุกช่องใน errors[]) — externalId ใน path ผิดรูปแบบ = field `externalId`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "requestId": "b6a1…",
+                      "errors": [
+                        {
+                          "field": "externalId",
+                          "code": "matches",
+                          "message": "externalId must be 1-100 printable ASCII"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "แก้บางช่องด้วย externalId",
         "tags": [
           "products"
         ]
@@ -10008,7 +11489,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           }
         ],
         "responses": {
@@ -10041,7 +11523,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -10095,7 +11578,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "limit",
@@ -10150,7 +11634,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -10204,7 +11689,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -10258,7 +11744,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -11225,8 +12712,11 @@
             "name": "externalId",
             "required": true,
             "in": "path",
+            "description": "เลขของระบบต้นทาง (ASCII ที่พิมพ์ได้ 1–100 ตัว ไม่มีช่องว่าง) — unique ต่อ tenant ต่อ resource",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "pattern": "^[\\x21-\\x7e]{1,100}$",
+              "maxLength": 100
             }
           },
           {
@@ -11269,6 +12759,106 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "ไม่มี scope ที่ต้องใช้",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "forbidden": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/forbidden",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "forbidden",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "ขัดกับข้อมูลที่มีอยู่ (เช่น รหัส/ชื่อซ้ำ, สถานะไม่อนุญาตให้แก้)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "conflict": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/conflict",
+                      "title": "ข้อมูลขัดแย้งกับที่มีอยู่",
+                      "status": 409,
+                      "code": "conflict",
+                      "requestId": "b6a1…"
+                    }
+                  },
+                  "duplicate": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/duplicate",
+                      "title": "ข้อมูลซ้ำกับที่มีอยู่",
+                      "status": 409,
+                      "code": "duplicate",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "If-Match ไม่ตรงกับ version ปัจจุบัน",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "precondition_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/precondition_failed",
+                      "title": "ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่",
+                      "status": 412,
+                      "code": "precondition_failed",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง (รวมทุกช่องใน errors[]) — externalId ใน path ผิดรูปแบบ = field `externalId`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "requestId": "b6a1…",
+                      "errors": [
+                        {
+                          "field": "externalId",
+                          "code": "matches",
+                          "message": "externalId must be 1-100 printable ASCII"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
           }
         },
         "security": [
@@ -11276,6 +12866,184 @@
             "bearer": []
           }
         ],
+        "tags": [
+          "vehicle-types"
+        ]
+      },
+      "patch": {
+        "description": "เหมือน `PATCH /vehicle-types/ext:{externalId}` (กติกาเดียวกับ PATCH ด้วย id) · ยังไม่มีแถวนี้ → 404 — สร้างใหม่ใช้ PUT",
+        "operationId": "VehicleTypes_patchExternal",
+        "parameters": [
+          {
+            "name": "externalId",
+            "required": true,
+            "in": "path",
+            "description": "เลขของระบบต้นทาง (ASCII ที่พิมพ์ได้ 1–100 ตัว ไม่มีช่องว่าง) — unique ต่อ tenant ต่อ resource",
+            "schema": {
+              "type": "string",
+              "pattern": "^[\\x21-\\x7e]{1,100}$",
+              "maxLength": 100
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateVehicleTypeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VehicleTypeDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ไม่มี scope ที่ต้องใช้",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "forbidden": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/forbidden",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "forbidden",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ยังไม่มีแถวที่ externalId นี้ (สร้างใหม่ใช้ PUT) หรืออยู่ tenant อื่น",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "ขัดกับข้อมูลที่มีอยู่ (เช่น รหัส/ชื่อซ้ำ, สถานะไม่อนุญาตให้แก้)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "conflict": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/conflict",
+                      "title": "ข้อมูลขัดแย้งกับที่มีอยู่",
+                      "status": 409,
+                      "code": "conflict",
+                      "requestId": "b6a1…"
+                    }
+                  },
+                  "duplicate": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/duplicate",
+                      "title": "ข้อมูลซ้ำกับที่มีอยู่",
+                      "status": 409,
+                      "code": "duplicate",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "If-Match ไม่ตรงกับ version ปัจจุบัน",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "precondition_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/precondition_failed",
+                      "title": "ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่",
+                      "status": 412,
+                      "code": "precondition_failed",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง (รวมทุกช่องใน errors[]) — externalId ใน path ผิดรูปแบบ = field `externalId`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "requestId": "b6a1…",
+                      "errors": [
+                        {
+                          "field": "externalId",
+                          "code": "matches",
+                          "message": "externalId must be 1-100 printable ASCII"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "แก้บางช่องด้วย externalId",
         "tags": [
           "vehicle-types"
         ]
@@ -11291,7 +13059,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           }
         ],
         "responses": {
@@ -11324,7 +13093,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -11378,7 +13148,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "limit",
@@ -11433,7 +13204,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -11487,7 +13259,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -11541,7 +13314,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -12034,8 +13808,11 @@
             "name": "externalId",
             "required": true,
             "in": "path",
+            "description": "เลขของระบบต้นทาง (ASCII ที่พิมพ์ได้ 1–100 ตัว ไม่มีช่องว่าง) — unique ต่อ tenant ต่อ resource",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "pattern": "^[\\x21-\\x7e]{1,100}$",
+              "maxLength": 100
             }
           },
           {
@@ -12078,6 +13855,106 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "ไม่มี scope ที่ต้องใช้",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "forbidden": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/forbidden",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "forbidden",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "ขัดกับข้อมูลที่มีอยู่ (เช่น รหัส/ชื่อซ้ำ, สถานะไม่อนุญาตให้แก้)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "conflict": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/conflict",
+                      "title": "ข้อมูลขัดแย้งกับที่มีอยู่",
+                      "status": 409,
+                      "code": "conflict",
+                      "requestId": "b6a1…"
+                    }
+                  },
+                  "duplicate": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/duplicate",
+                      "title": "ข้อมูลซ้ำกับที่มีอยู่",
+                      "status": 409,
+                      "code": "duplicate",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "If-Match ไม่ตรงกับ version ปัจจุบัน",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "precondition_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/precondition_failed",
+                      "title": "ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่",
+                      "status": 412,
+                      "code": "precondition_failed",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง (รวมทุกช่องใน errors[]) — externalId ใน path ผิดรูปแบบ = field `externalId`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "requestId": "b6a1…",
+                      "errors": [
+                        {
+                          "field": "externalId",
+                          "code": "matches",
+                          "message": "externalId must be 1-100 printable ASCII"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
           }
         },
         "security": [
@@ -12085,6 +13962,184 @@
             "bearer": []
           }
         ],
+        "tags": [
+          "service-items"
+        ]
+      },
+      "patch": {
+        "description": "เหมือน `PATCH /service-items/ext:{externalId}` (กติกาเดียวกับ PATCH ด้วย id) · ยังไม่มีแถวนี้ → 404 — สร้างใหม่ใช้ PUT",
+        "operationId": "ServiceItems_patchExternal",
+        "parameters": [
+          {
+            "name": "externalId",
+            "required": true,
+            "in": "path",
+            "description": "เลขของระบบต้นทาง (ASCII ที่พิมพ์ได้ 1–100 ตัว ไม่มีช่องว่าง) — unique ต่อ tenant ต่อ resource",
+            "schema": {
+              "type": "string",
+              "pattern": "^[\\x21-\\x7e]{1,100}$",
+              "maxLength": 100
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateServiceItemDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServiceItemWriteResultDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ไม่มี scope ที่ต้องใช้",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "forbidden": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/forbidden",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "forbidden",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ยังไม่มีแถวที่ externalId นี้ (สร้างใหม่ใช้ PUT) หรืออยู่ tenant อื่น",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "ขัดกับข้อมูลที่มีอยู่ (เช่น รหัส/ชื่อซ้ำ, สถานะไม่อนุญาตให้แก้)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "conflict": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/conflict",
+                      "title": "ข้อมูลขัดแย้งกับที่มีอยู่",
+                      "status": 409,
+                      "code": "conflict",
+                      "requestId": "b6a1…"
+                    }
+                  },
+                  "duplicate": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/duplicate",
+                      "title": "ข้อมูลซ้ำกับที่มีอยู่",
+                      "status": 409,
+                      "code": "duplicate",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "If-Match ไม่ตรงกับ version ปัจจุบัน",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "precondition_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/precondition_failed",
+                      "title": "ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่",
+                      "status": 412,
+                      "code": "precondition_failed",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง (รวมทุกช่องใน errors[]) — externalId ใน path ผิดรูปแบบ = field `externalId`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "requestId": "b6a1…",
+                      "errors": [
+                        {
+                          "field": "externalId",
+                          "code": "matches",
+                          "message": "externalId must be 1-100 printable ASCII"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "แก้บางช่องด้วย externalId",
         "tags": [
           "service-items"
         ]
@@ -12100,7 +14155,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           }
         ],
         "responses": {
@@ -12133,7 +14189,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -12187,7 +14244,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "limit",
@@ -12242,7 +14300,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -12296,7 +14355,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -12350,7 +14410,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -12768,8 +14829,11 @@
             "name": "externalId",
             "required": true,
             "in": "path",
+            "description": "เลขของระบบต้นทาง (ASCII ที่พิมพ์ได้ 1–100 ตัว ไม่มีช่องว่าง) — unique ต่อ tenant ต่อ resource",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "pattern": "^[\\x21-\\x7e]{1,100}$",
+              "maxLength": 100
             }
           },
           {
@@ -12812,6 +14876,106 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "ไม่มี scope ที่ต้องใช้",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "forbidden": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/forbidden",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "forbidden",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "ขัดกับข้อมูลที่มีอยู่ (เช่น รหัส/ชื่อซ้ำ, สถานะไม่อนุญาตให้แก้)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "conflict": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/conflict",
+                      "title": "ข้อมูลขัดแย้งกับที่มีอยู่",
+                      "status": 409,
+                      "code": "conflict",
+                      "requestId": "b6a1…"
+                    }
+                  },
+                  "duplicate": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/duplicate",
+                      "title": "ข้อมูลซ้ำกับที่มีอยู่",
+                      "status": 409,
+                      "code": "duplicate",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "If-Match ไม่ตรงกับ version ปัจจุบัน",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "precondition_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/precondition_failed",
+                      "title": "ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่",
+                      "status": 412,
+                      "code": "precondition_failed",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง (รวมทุกช่องใน errors[]) — externalId ใน path ผิดรูปแบบ = field `externalId`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "requestId": "b6a1…",
+                      "errors": [
+                        {
+                          "field": "externalId",
+                          "code": "matches",
+                          "message": "externalId must be 1-100 printable ASCII"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
           }
         },
         "security": [
@@ -12819,6 +14983,184 @@
             "bearer": []
           }
         ],
+        "tags": [
+          "reason-codes"
+        ]
+      },
+      "patch": {
+        "description": "เหมือน `PATCH /reason-codes/ext:{externalId}` (กติกาเดียวกับ PATCH ด้วย id) · ยังไม่มีแถวนี้ → 404 — สร้างใหม่ใช้ PUT",
+        "operationId": "ReasonCodes_patchExternal",
+        "parameters": [
+          {
+            "name": "externalId",
+            "required": true,
+            "in": "path",
+            "description": "เลขของระบบต้นทาง (ASCII ที่พิมพ์ได้ 1–100 ตัว ไม่มีช่องว่าง) — unique ต่อ tenant ต่อ resource",
+            "schema": {
+              "type": "string",
+              "pattern": "^[\\x21-\\x7e]{1,100}$",
+              "maxLength": 100
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateReasonCodeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReasonCodeDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ไม่มี scope ที่ต้องใช้",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "forbidden": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/forbidden",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "forbidden",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ยังไม่มีแถวที่ externalId นี้ (สร้างใหม่ใช้ PUT) หรืออยู่ tenant อื่น",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "ขัดกับข้อมูลที่มีอยู่ (เช่น รหัส/ชื่อซ้ำ, สถานะไม่อนุญาตให้แก้)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "conflict": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/conflict",
+                      "title": "ข้อมูลขัดแย้งกับที่มีอยู่",
+                      "status": 409,
+                      "code": "conflict",
+                      "requestId": "b6a1…"
+                    }
+                  },
+                  "duplicate": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/duplicate",
+                      "title": "ข้อมูลซ้ำกับที่มีอยู่",
+                      "status": 409,
+                      "code": "duplicate",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "If-Match ไม่ตรงกับ version ปัจจุบัน",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "precondition_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/precondition_failed",
+                      "title": "ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่",
+                      "status": 412,
+                      "code": "precondition_failed",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง (รวมทุกช่องใน errors[]) — externalId ใน path ผิดรูปแบบ = field `externalId`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "requestId": "b6a1…",
+                      "errors": [
+                        {
+                          "field": "externalId",
+                          "code": "matches",
+                          "message": "externalId must be 1-100 printable ASCII"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "แก้บางช่องด้วย externalId",
         "tags": [
           "reason-codes"
         ]
@@ -12834,7 +15176,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           }
         ],
         "responses": {
@@ -12867,7 +15210,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -12921,7 +15265,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "limit",
@@ -12976,7 +15321,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -13030,7 +15376,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -13084,7 +15431,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -14137,8 +16485,11 @@
             "name": "externalId",
             "required": true,
             "in": "path",
+            "description": "เลขของระบบต้นทาง (ASCII ที่พิมพ์ได้ 1–100 ตัว ไม่มีช่องว่าง) — unique ต่อ tenant ต่อ resource",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "pattern": "^[\\x21-\\x7e]{1,100}$",
+              "maxLength": 100
             }
           },
           {
@@ -14181,6 +16532,106 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "ไม่มี scope ที่ต้องใช้",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "forbidden": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/forbidden",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "forbidden",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "ขัดกับข้อมูลที่มีอยู่ (เช่น รหัส/ชื่อซ้ำ, สถานะไม่อนุญาตให้แก้)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "conflict": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/conflict",
+                      "title": "ข้อมูลขัดแย้งกับที่มีอยู่",
+                      "status": 409,
+                      "code": "conflict",
+                      "requestId": "b6a1…"
+                    }
+                  },
+                  "duplicate": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/duplicate",
+                      "title": "ข้อมูลซ้ำกับที่มีอยู่",
+                      "status": 409,
+                      "code": "duplicate",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "If-Match ไม่ตรงกับ version ปัจจุบัน",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "precondition_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/precondition_failed",
+                      "title": "ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่",
+                      "status": 412,
+                      "code": "precondition_failed",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง (รวมทุกช่องใน errors[]) — externalId ใน path ผิดรูปแบบ = field `externalId`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "requestId": "b6a1…",
+                      "errors": [
+                        {
+                          "field": "externalId",
+                          "code": "matches",
+                          "message": "externalId must be 1-100 printable ASCII"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
           }
         },
         "security": [
@@ -14188,6 +16639,184 @@
             "bearer": []
           }
         ],
+        "tags": [
+          "rate-cards"
+        ]
+      },
+      "patch": {
+        "description": "เหมือน `PATCH /rate-cards/ext:{externalId}` (กติกาเดียวกับ PATCH ด้วย id) · ยังไม่มีแถวนี้ → 404 — สร้างใหม่ใช้ PUT",
+        "operationId": "RateCards_patchExternal",
+        "parameters": [
+          {
+            "name": "externalId",
+            "required": true,
+            "in": "path",
+            "description": "เลขของระบบต้นทาง (ASCII ที่พิมพ์ได้ 1–100 ตัว ไม่มีช่องว่าง) — unique ต่อ tenant ต่อ resource",
+            "schema": {
+              "type": "string",
+              "pattern": "^[\\x21-\\x7e]{1,100}$",
+              "maxLength": 100
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateRateCardDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateCardDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ไม่มี scope ที่ต้องใช้",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "forbidden": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/forbidden",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "forbidden",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ยังไม่มีแถวที่ externalId นี้ (สร้างใหม่ใช้ PUT) หรืออยู่ tenant อื่น",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "ขัดกับข้อมูลที่มีอยู่ (เช่น รหัส/ชื่อซ้ำ, สถานะไม่อนุญาตให้แก้)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "conflict": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/conflict",
+                      "title": "ข้อมูลขัดแย้งกับที่มีอยู่",
+                      "status": 409,
+                      "code": "conflict",
+                      "requestId": "b6a1…"
+                    }
+                  },
+                  "duplicate": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/duplicate",
+                      "title": "ข้อมูลซ้ำกับที่มีอยู่",
+                      "status": 409,
+                      "code": "duplicate",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "If-Match ไม่ตรงกับ version ปัจจุบัน",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "precondition_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/precondition_failed",
+                      "title": "ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่",
+                      "status": 412,
+                      "code": "precondition_failed",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง (รวมทุกช่องใน errors[]) — externalId ใน path ผิดรูปแบบ = field `externalId`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "requestId": "b6a1…",
+                      "errors": [
+                        {
+                          "field": "externalId",
+                          "code": "matches",
+                          "message": "externalId must be 1-100 printable ASCII"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "แก้บางช่องด้วย externalId",
         "tags": [
           "rate-cards"
         ]
@@ -14203,7 +16832,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           }
         ],
         "responses": {
@@ -14236,7 +16866,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -14290,7 +16921,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "limit",
@@ -14345,7 +16977,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -14399,7 +17032,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -14453,7 +17087,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -14507,7 +17142,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -21727,7 +24363,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "originId",
@@ -22191,8 +24828,11 @@
             "name": "externalId",
             "required": true,
             "in": "path",
+            "description": "เลขของระบบต้นทาง (ASCII ที่พิมพ์ได้ 1–100 ตัว ไม่มีช่องว่าง) — unique ต่อ tenant ต่อ resource",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "pattern": "^[\\x21-\\x7e]{1,100}$",
+              "maxLength": 100
             }
           },
           {
@@ -22235,6 +24875,106 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "ไม่มี scope ที่ต้องใช้",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "forbidden": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/forbidden",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "forbidden",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "ขัดกับข้อมูลที่มีอยู่ (เช่น รหัส/ชื่อซ้ำ, สถานะไม่อนุญาตให้แก้)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "conflict": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/conflict",
+                      "title": "ข้อมูลขัดแย้งกับที่มีอยู่",
+                      "status": 409,
+                      "code": "conflict",
+                      "requestId": "b6a1…"
+                    }
+                  },
+                  "duplicate": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/duplicate",
+                      "title": "ข้อมูลซ้ำกับที่มีอยู่",
+                      "status": 409,
+                      "code": "duplicate",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "If-Match ไม่ตรงกับ version ปัจจุบัน",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "precondition_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/precondition_failed",
+                      "title": "ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่",
+                      "status": 412,
+                      "code": "precondition_failed",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง (รวมทุกช่องใน errors[]) — externalId ใน path ผิดรูปแบบ = field `externalId`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "requestId": "b6a1…",
+                      "errors": [
+                        {
+                          "field": "externalId",
+                          "code": "matches",
+                          "message": "externalId must be 1-100 printable ASCII"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
           }
         },
         "security": [
@@ -22242,6 +24982,184 @@
             "bearer": []
           }
         ],
+        "tags": [
+          "carriers"
+        ]
+      },
+      "patch": {
+        "description": "เหมือน `PATCH /carriers/ext:{externalId}` (กติกาเดียวกับ PATCH ด้วย id) · ยังไม่มีแถวนี้ → 404 — สร้างใหม่ใช้ PUT",
+        "operationId": "Carriers_patchExternal",
+        "parameters": [
+          {
+            "name": "externalId",
+            "required": true,
+            "in": "path",
+            "description": "เลขของระบบต้นทาง (ASCII ที่พิมพ์ได้ 1–100 ตัว ไม่มีช่องว่าง) — unique ต่อ tenant ต่อ resource",
+            "schema": {
+              "type": "string",
+              "pattern": "^[\\x21-\\x7e]{1,100}$",
+              "maxLength": 100
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCarrierDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CarrierDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ไม่มี scope ที่ต้องใช้",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "forbidden": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/forbidden",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "forbidden",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ยังไม่มีแถวที่ externalId นี้ (สร้างใหม่ใช้ PUT) หรืออยู่ tenant อื่น",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "ขัดกับข้อมูลที่มีอยู่ (เช่น รหัส/ชื่อซ้ำ, สถานะไม่อนุญาตให้แก้)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "conflict": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/conflict",
+                      "title": "ข้อมูลขัดแย้งกับที่มีอยู่",
+                      "status": 409,
+                      "code": "conflict",
+                      "requestId": "b6a1…"
+                    }
+                  },
+                  "duplicate": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/duplicate",
+                      "title": "ข้อมูลซ้ำกับที่มีอยู่",
+                      "status": 409,
+                      "code": "duplicate",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "If-Match ไม่ตรงกับ version ปัจจุบัน",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "precondition_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/precondition_failed",
+                      "title": "ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่",
+                      "status": 412,
+                      "code": "precondition_failed",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง (รวมทุกช่องใน errors[]) — externalId ใน path ผิดรูปแบบ = field `externalId`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "requestId": "b6a1…",
+                      "errors": [
+                        {
+                          "field": "externalId",
+                          "code": "matches",
+                          "message": "externalId must be 1-100 printable ASCII"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "แก้บางช่องด้วย externalId",
         "tags": [
           "carriers"
         ]
@@ -22257,7 +25175,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           }
         ],
         "responses": {
@@ -22290,7 +25209,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -22344,7 +25264,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "limit",
@@ -22399,7 +25320,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           }
         ],
         "requestBody": {
@@ -22447,7 +25369,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -22501,7 +25424,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -22555,7 +25479,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -23066,8 +25991,11 @@
             "name": "externalId",
             "required": true,
             "in": "path",
+            "description": "เลขของระบบต้นทาง (ASCII ที่พิมพ์ได้ 1–100 ตัว ไม่มีช่องว่าง) — unique ต่อ tenant ต่อ resource",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "pattern": "^[\\x21-\\x7e]{1,100}$",
+              "maxLength": 100
             }
           },
           {
@@ -23110,6 +26038,106 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "ไม่มี scope ที่ต้องใช้",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "forbidden": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/forbidden",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "forbidden",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "ขัดกับข้อมูลที่มีอยู่ (เช่น รหัส/ชื่อซ้ำ, สถานะไม่อนุญาตให้แก้)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "conflict": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/conflict",
+                      "title": "ข้อมูลขัดแย้งกับที่มีอยู่",
+                      "status": 409,
+                      "code": "conflict",
+                      "requestId": "b6a1…"
+                    }
+                  },
+                  "duplicate": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/duplicate",
+                      "title": "ข้อมูลซ้ำกับที่มีอยู่",
+                      "status": 409,
+                      "code": "duplicate",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "If-Match ไม่ตรงกับ version ปัจจุบัน",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "precondition_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/precondition_failed",
+                      "title": "ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่",
+                      "status": 412,
+                      "code": "precondition_failed",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง (รวมทุกช่องใน errors[]) — externalId ใน path ผิดรูปแบบ = field `externalId`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "requestId": "b6a1…",
+                      "errors": [
+                        {
+                          "field": "externalId",
+                          "code": "matches",
+                          "message": "externalId must be 1-100 printable ASCII"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
           }
         },
         "security": [
@@ -23117,6 +26145,184 @@
             "bearer": []
           }
         ],
+        "tags": [
+          "vehicles"
+        ]
+      },
+      "patch": {
+        "description": "เหมือน `PATCH /vehicles/ext:{externalId}` (กติกาเดียวกับ PATCH ด้วย id) · ยังไม่มีแถวนี้ → 404 — สร้างใหม่ใช้ PUT",
+        "operationId": "Vehicles_patchExternal",
+        "parameters": [
+          {
+            "name": "externalId",
+            "required": true,
+            "in": "path",
+            "description": "เลขของระบบต้นทาง (ASCII ที่พิมพ์ได้ 1–100 ตัว ไม่มีช่องว่าง) — unique ต่อ tenant ต่อ resource",
+            "schema": {
+              "type": "string",
+              "pattern": "^[\\x21-\\x7e]{1,100}$",
+              "maxLength": 100
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateVehicleDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VehicleDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ไม่มี scope ที่ต้องใช้",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "forbidden": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/forbidden",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "forbidden",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ยังไม่มีแถวที่ externalId นี้ (สร้างใหม่ใช้ PUT) หรืออยู่ tenant อื่น",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "ขัดกับข้อมูลที่มีอยู่ (เช่น รหัส/ชื่อซ้ำ, สถานะไม่อนุญาตให้แก้)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "conflict": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/conflict",
+                      "title": "ข้อมูลขัดแย้งกับที่มีอยู่",
+                      "status": 409,
+                      "code": "conflict",
+                      "requestId": "b6a1…"
+                    }
+                  },
+                  "duplicate": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/duplicate",
+                      "title": "ข้อมูลซ้ำกับที่มีอยู่",
+                      "status": 409,
+                      "code": "duplicate",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "If-Match ไม่ตรงกับ version ปัจจุบัน",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "precondition_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/precondition_failed",
+                      "title": "ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่",
+                      "status": 412,
+                      "code": "precondition_failed",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง (รวมทุกช่องใน errors[]) — externalId ใน path ผิดรูปแบบ = field `externalId`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "requestId": "b6a1…",
+                      "errors": [
+                        {
+                          "field": "externalId",
+                          "code": "matches",
+                          "message": "externalId must be 1-100 printable ASCII"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "แก้บางช่องด้วย externalId",
         "tags": [
           "vehicles"
         ]
@@ -23132,7 +26338,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           }
         ],
         "responses": {
@@ -23165,7 +26372,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -23219,7 +26427,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "limit",
@@ -23274,7 +26483,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -23328,7 +26538,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -23375,7 +26586,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "limit",
@@ -23419,7 +26631,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "Idempotency-Key",
@@ -23481,7 +26694,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -24031,8 +27245,11 @@
             "name": "externalId",
             "required": true,
             "in": "path",
+            "description": "เลขของระบบต้นทาง (ASCII ที่พิมพ์ได้ 1–100 ตัว ไม่มีช่องว่าง) — unique ต่อ tenant ต่อ resource",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "pattern": "^[\\x21-\\x7e]{1,100}$",
+              "maxLength": 100
             }
           },
           {
@@ -24075,6 +27292,106 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "ไม่มี scope ที่ต้องใช้",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "forbidden": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/forbidden",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "forbidden",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "ขัดกับข้อมูลที่มีอยู่ (เช่น รหัส/ชื่อซ้ำ, สถานะไม่อนุญาตให้แก้)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "conflict": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/conflict",
+                      "title": "ข้อมูลขัดแย้งกับที่มีอยู่",
+                      "status": 409,
+                      "code": "conflict",
+                      "requestId": "b6a1…"
+                    }
+                  },
+                  "duplicate": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/duplicate",
+                      "title": "ข้อมูลซ้ำกับที่มีอยู่",
+                      "status": 409,
+                      "code": "duplicate",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "If-Match ไม่ตรงกับ version ปัจจุบัน",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "precondition_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/precondition_failed",
+                      "title": "ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่",
+                      "status": 412,
+                      "code": "precondition_failed",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง (รวมทุกช่องใน errors[]) — externalId ใน path ผิดรูปแบบ = field `externalId`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "requestId": "b6a1…",
+                      "errors": [
+                        {
+                          "field": "externalId",
+                          "code": "matches",
+                          "message": "externalId must be 1-100 printable ASCII"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
           }
         },
         "security": [
@@ -24082,6 +27399,184 @@
             "bearer": []
           }
         ],
+        "tags": [
+          "drivers"
+        ]
+      },
+      "patch": {
+        "description": "เหมือน `PATCH /drivers/ext:{externalId}` (กติกาเดียวกับ PATCH ด้วย id) · ยังไม่มีแถวนี้ → 404 — สร้างใหม่ใช้ PUT",
+        "operationId": "Drivers_patchExternal",
+        "parameters": [
+          {
+            "name": "externalId",
+            "required": true,
+            "in": "path",
+            "description": "เลขของระบบต้นทาง (ASCII ที่พิมพ์ได้ 1–100 ตัว ไม่มีช่องว่าง) — unique ต่อ tenant ต่อ resource",
+            "schema": {
+              "type": "string",
+              "pattern": "^[\\x21-\\x7e]{1,100}$",
+              "maxLength": 100
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateDriverDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DriverDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ไม่มี scope ที่ต้องใช้",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "forbidden": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/forbidden",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "forbidden",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ยังไม่มีแถวที่ externalId นี้ (สร้างใหม่ใช้ PUT) หรืออยู่ tenant อื่น",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "ขัดกับข้อมูลที่มีอยู่ (เช่น รหัส/ชื่อซ้ำ, สถานะไม่อนุญาตให้แก้)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "conflict": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/conflict",
+                      "title": "ข้อมูลขัดแย้งกับที่มีอยู่",
+                      "status": 409,
+                      "code": "conflict",
+                      "requestId": "b6a1…"
+                    }
+                  },
+                  "duplicate": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/duplicate",
+                      "title": "ข้อมูลซ้ำกับที่มีอยู่",
+                      "status": 409,
+                      "code": "duplicate",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "If-Match ไม่ตรงกับ version ปัจจุบัน",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "precondition_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/precondition_failed",
+                      "title": "ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่",
+                      "status": 412,
+                      "code": "precondition_failed",
+                      "requestId": "b6a1…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง (รวมทุกช่องใน errors[]) — externalId ใน path ผิดรูปแบบ = field `externalId`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "requestId": "b6a1…",
+                      "errors": [
+                        {
+                          "field": "externalId",
+                          "code": "matches",
+                          "message": "externalId must be 1-100 printable ASCII"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "แก้บางช่องด้วย externalId",
         "tags": [
           "drivers"
         ]
@@ -24097,7 +27592,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           }
         ],
         "responses": {
@@ -24130,7 +27626,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -24184,7 +27681,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "limit",
@@ -24239,7 +27737,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           }
         ],
         "requestBody": {
@@ -24287,7 +27786,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -24341,7 +27841,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "If-Match",
@@ -24388,7 +27889,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           }
         ],
         "responses": {
@@ -24421,7 +27923,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           },
           {
             "name": "Idempotency-Key",
@@ -24952,7 +28455,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           }
         ],
         "requestBody": {
@@ -24995,7 +28499,8 @@
             "in": "path",
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
           }
         ],
         "responses": {
@@ -28781,6 +32286,75 @@
           "legalName"
         ]
       },
+      "ProblemFieldErrorDto": {
+        "type": "object",
+        "properties": {
+          "field": {
+            "type": "string",
+            "example": "stops[1].siteId"
+          },
+          "code": {
+            "type": "string",
+            "example": "locked"
+          },
+          "message": {
+            "type": "string",
+            "example": "cannot change stops when order is IN_TRANSIT"
+          }
+        },
+        "required": [
+          "field",
+          "code",
+          "message"
+        ]
+      },
+      "ProblemDto": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "example": "https://docs.tms.example/problems/order_locked_for_update"
+          },
+          "title": {
+            "type": "string",
+            "example": "แก้ข้อมูลนี้ของใบสั่งขนส่งไม่ได้ในสถานะปัจจุบัน"
+          },
+          "status": {
+            "type": "number",
+            "example": 409,
+            "description": "HTTP status"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "instance": {
+            "type": "string",
+            "example": "/v1/orders/ord_3f2a…"
+          },
+          "code": {
+            "type": "string",
+            "example": "order_locked_for_update",
+            "description": "รหัสคงที่ (catalog)"
+          },
+          "requestId": {
+            "type": "string",
+            "example": "b6a1…"
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProblemFieldErrorDto"
+            }
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "requestId"
+        ]
+      },
       "UpsertCustomerDto": {
         "type": "object",
         "properties": {
@@ -29035,75 +32609,6 @@
             "maxLength": 500
           }
         }
-      },
-      "ProblemFieldErrorDto": {
-        "type": "object",
-        "properties": {
-          "field": {
-            "type": "string",
-            "example": "stops[1].siteId"
-          },
-          "code": {
-            "type": "string",
-            "example": "locked"
-          },
-          "message": {
-            "type": "string",
-            "example": "cannot change stops when order is IN_TRANSIT"
-          }
-        },
-        "required": [
-          "field",
-          "code",
-          "message"
-        ]
-      },
-      "ProblemDto": {
-        "type": "object",
-        "properties": {
-          "type": {
-            "type": "string",
-            "example": "https://docs.tms.example/problems/order_locked_for_update"
-          },
-          "title": {
-            "type": "string",
-            "example": "แก้ข้อมูลนี้ของใบสั่งขนส่งไม่ได้ในสถานะปัจจุบัน"
-          },
-          "status": {
-            "type": "number",
-            "example": 409,
-            "description": "HTTP status"
-          },
-          "detail": {
-            "type": "string"
-          },
-          "instance": {
-            "type": "string",
-            "example": "/v1/orders/ord_3f2a…"
-          },
-          "code": {
-            "type": "string",
-            "example": "order_locked_for_update",
-            "description": "รหัสคงที่ (catalog)"
-          },
-          "requestId": {
-            "type": "string",
-            "example": "b6a1…"
-          },
-          "errors": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ProblemFieldErrorDto"
-            }
-          }
-        },
-        "required": [
-          "type",
-          "title",
-          "status",
-          "code",
-          "requestId"
-        ]
       },
       "OrderHoldCountDto": {
         "type": "object",
@@ -30132,7 +33637,7 @@
             "example": "PO-2026-0001",
             "nullable": true,
             "maxLength": 100,
-            "description": "externalRef ของระบบต้นทาง — unique ต่อบริษัท; มีใบเดิมจากช่องทางเดียวกัน = อัปเดตใบเดิม (เหมือน PUT external)"
+            "description": "externalRef ของระบบต้นทาง (ASCII ที่พิมพ์ได้ 1–100 ตัว ไม่มีช่องว่าง — ผิด = 422) — unique ต่อบริษัท; มีใบเดิมจากช่องทางเดียวกัน = อัปเดตใบเดิม (เหมือน PUT external)"
           }
         },
         "required": [

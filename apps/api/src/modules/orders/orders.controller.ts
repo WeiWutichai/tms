@@ -23,7 +23,6 @@ import {
 import type { Request, Response } from 'express';
 import { RequireScope, TenantResource } from '../../common/decorators';
 import { ifMatch, setEtag } from '../../common/etag';
-import { decodeIdOr404 } from '../../common/ids';
 import { assertPriceWriteAllowed } from '../../common/price-fields';
 import { ProblemException } from '../../common/problem';
 import { ApiProblems } from '../../common/problem.dto';
@@ -49,6 +48,7 @@ import {
 import { OrderLockService } from './order-lock.service';
 import { OrdersService, toOrderDto } from './orders.service';
 import type { UpsertOrderResult } from './order-intake.service';
+import { ApiExternalIdParam, ExternalIdPipe, extRef, resolveRef } from '../../common/external-id';
 
 const LOCKED_DOC =
   '409 `order_locked_for_update` — แก้ช่องที่สถานะไม่อนุญาต (errors[] = ช่อง, `editableFields` = ช่องที่แก้ได้): ' +
@@ -338,8 +338,12 @@ export class OrdersController {
   ) {}
 
   private async resolve(id: string) {
-    if (id.startsWith('ext:')) return this.orders.getByExternalId(id.slice(4));
-    return this.orders.get(decodeIdOr404('salesOrder', id));
+    return resolveRef(
+      'salesOrder',
+      id,
+      (u) => this.orders.get(u),
+      (e) => this.orders.getByExternalId(e),
+    );
   }
 
   /** ใบเดียว + ช่องที่แก้ได้ตามสถานะ (ฟอร์ม ST3-T02 ใช้ปิดช่อง) + ผู้ที่เปิดแก้อยู่ (ST3-T08) */
@@ -408,6 +412,7 @@ export class OrdersController {
   }
 
   @Put('external/:externalId')
+  @ApiExternalIdParam()
   @RequireScope('orders:write')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag — ใช้เมื่อใบมีอยู่แล้ว' })
   @ApiOperation({
@@ -421,19 +426,11 @@ export class OrdersController {
   @ApiCreatedResponse({ type: OrderDto, description: 'ยังไม่มี → สร้าง (ที่มา API)' })
   @ApiProblems(E400(false), E403, E409(true), E412, E413, E422)
   async upsertExternal(
-    @Param('externalId') externalId: string,
+    @Param('externalId', ExternalIdPipe) externalId: string,
     @Body() body: UpsertOrderDto,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<OrderDto> {
-    if (!/^[\x21-\x7e]{1,100}$/.test(externalId))
-      throw new ProblemException('validation_failed', undefined, [
-        {
-          field: 'externalId',
-          code: 'matches',
-          message: 'externalId must be 1-100 printable ASCII',
-        },
-      ]);
     const r = await this.orders.upsertExternal(externalId, body, ifMatch(req));
     res.status(r.created ? 201 : 200);
     return this.respond(r, res);
@@ -461,6 +458,45 @@ export class OrdersController {
     res.setHeader('Cache-Control', 'no-store');
     delete req.headers['if-none-match'];
     return this.full(o);
+  }
+
+  @Patch('external/:externalId')
+  @RequireScope('orders:write')
+  @ApiExternalIdParam()
+  @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
+  @ApiOperation({
+    summary: 'แก้บางช่องด้วย externalId',
+    description:
+      'แก้บางช่องของใบที่มีอยู่ (กติกาเดียวกับ `PATCH /orders/{id}`) · ยังไม่มีใบนี้ → 404 — สร้างใหม่ใช้ PUT · ' +
+      'ช่องทางเดียวกับ PUT: ใบที่ไม่ได้มาจาก API (กรอกมือ/Excel/connector) → 409 `external_id_conflict` · ' +
+      '**ต่างจาก PUT: ติดล็อกการแก้ (ST3-T08)** — ผู้ใช้อื่นเปิดแก้อยู่ → 409 `order_locked_by_user`',
+  })
+  @ApiOkResponse({ type: OrderDto })
+  @ApiProblems(
+    E400(false),
+    E403,
+    E404,
+    {
+      ...E409(true),
+      description: `${LOCKED_DOC} · 409 \`order_locked_by_user\` — ผู้ใช้อื่นเปิดแก้อยู่ · 409 \`external_id_conflict\` — ใบจากช่องทางอื่น`,
+      examples: {
+        ...E409(true).examples,
+        order_locked_by_user: LOCKED_BY_USER,
+        order_lock_released: E409_LOCK.examples.order_lock_released,
+      },
+    },
+    E412,
+    E413,
+    E422,
+  )
+  async patchExternal(
+    @Param('externalId', ExternalIdPipe) externalId: string,
+    @Body() body: UpdateOrderDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<OrderDto> {
+    await this.orders.assertExternalSource(externalId);
+    return this.update(extRef(externalId), body, req, res);
   }
 
   @Patch(':id')

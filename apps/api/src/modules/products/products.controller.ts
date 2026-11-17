@@ -20,13 +20,12 @@ import {
   ApiOkResponse,
   ApiProduces,
   ApiTags,
+  ApiOperation,
 } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { AuditPageDto } from '../../audit/audit.controller';
 import { RequireScope, TenantResource } from '../../common/decorators';
 import { expectedVersion, setEtag } from '../../common/etag';
-import { decodeIdOr404 } from '../../common/ids';
-import { ProblemException } from '../../common/problem';
 import { DbService } from '../../db/db.service';
 import { NextCodeDto } from '../customers/customer.dto';
 import { sendExport, type ExportColumn } from '../master/export';
@@ -43,6 +42,13 @@ import {
   UpsertProductDto,
 } from './product.dto';
 import { ProductsService, toProductDto } from './products.service';
+import {
+  ApiExternalPatch,
+  ApiExternalPut,
+  ExternalIdPipe,
+  extRef,
+  resolveRef,
+} from '../../common/external-id';
 
 const yes = (b: boolean) => (b ? 'ใช่' : '');
 /** คอลัมน์ไฟล์ส่งออก — หัวคอลัมน์ไทยตรงกับ template นำเข้า (ST2-T23) */
@@ -86,8 +92,12 @@ export class ProductsController {
   ) {}
 
   private async resolve(id: string) {
-    if (id.startsWith('ext:')) return this.products.getByExternalId(id.slice(4));
-    return this.products.get(decodeIdOr404('product', id));
+    return resolveRef(
+      'product',
+      id,
+      (u) => this.products.get(u),
+      (e) => this.products.getByExternalId(e),
+    );
   }
 
   @Get()
@@ -140,6 +150,7 @@ export class ProductsController {
   }
 
   @Put('external/:externalId')
+  @ApiExternalPut()
   @RequireScope('master:write')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag — ใช้เมื่อแถวมีอยู่แล้ว' })
   @ApiOkResponse({
@@ -148,19 +159,11 @@ export class ProductsController {
   })
   @ApiCreatedResponse({ type: ProductDto, description: 'ยังไม่มี → สร้าง' })
   async upsertExternal(
-    @Param('externalId') externalId: string,
+    @Param('externalId', ExternalIdPipe) externalId: string,
     @Body() body: UpsertProductDto,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<ProductDto> {
-    if (!/^[\x21-\x7e]{1,100}$/.test(externalId))
-      throw new ProblemException('validation_failed', undefined, [
-        {
-          field: 'externalId',
-          code: 'matches',
-          message: 'externalId must be 1-100 printable ASCII',
-        },
-      ]);
     const { row, created } = await this.products.upsertExternal(
       externalId,
       body,
@@ -191,6 +194,25 @@ export class ProductsController {
   async history(@Param('id') id: string, @Query() q: HistoryQuery): Promise<AuditPageDto> {
     const p = await this.resolve(id);
     return entityHistory(this.db.tx, 'product', p.id, q);
+  }
+
+  @Patch('external/:externalId')
+  @ApiExternalPatch()
+  @RequireScope('master:write')
+  @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
+  @ApiOperation({
+    summary: 'แก้บางช่องด้วย externalId',
+    description:
+      'เหมือน `PATCH /products/ext:{externalId}` (กติกาเดียวกับ PATCH ด้วย id) · ยังไม่มีแถวนี้ → 404 — สร้างใหม่ใช้ PUT',
+  })
+  @ApiOkResponse({ type: ProductDto })
+  patchExternal(
+    @Param('externalId', ExternalIdPipe) externalId: string,
+    @Body() body: UpdateProductDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<ProductDto> {
+    return this.update(extRef(externalId), body, req, res);
   }
 
   @Patch(':id')

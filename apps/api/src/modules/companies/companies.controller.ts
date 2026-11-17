@@ -20,7 +20,6 @@ import {
 import type { Request, Response } from 'express';
 import { RequireScope, TenantResource } from '../../common/decorators';
 import { expectedVersion, setEtag } from '../../common/etag';
-import { decodeIdOr404 } from '../../common/ids';
 import { CompaniesService, toCompanyDto } from './companies.service';
 import {
   CompanyDto,
@@ -30,6 +29,7 @@ import {
   StatusChangeDto,
   UpdateCompanyDto,
 } from './company.dto';
+import { resolveRef } from '../../common/external-id';
 
 /**
  * นิติบุคคล (docs/01 §3.1, §5.2 #7) — ST0 ใช้เป็น endpoint ตัวอย่างของ plumbing ทั้งหมด
@@ -42,8 +42,12 @@ export class CompaniesController {
   constructor(private readonly companies: CompaniesService) {}
 
   private async resolve(id: string) {
-    if (id.startsWith('ext:')) return this.companies.getByExternalId(id.slice(4));
-    return this.companies.get(decodeIdOr404('company', id));
+    return resolveRef(
+      'company',
+      id,
+      (u) => this.companies.get(u),
+      (e) => this.companies.getByExternalId(e),
+    );
   }
 
   @Post()

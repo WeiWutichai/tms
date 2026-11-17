@@ -11,6 +11,8 @@ import type { Request } from 'express';
 import { LinkAction, RequireScope, TenantResource } from '../../common/decorators';
 import { decodeIdOr404 } from '../../common/ids';
 import { requestContext } from '../../common/request-context';
+import { refToId } from '../../common/external-id';
+import { DbService } from '../../db/db.service';
 import { MasterReasonDto } from '../master/master-kit';
 import {
   CarrierDocSubmissionDto,
@@ -43,7 +45,10 @@ import { ProblemException } from '../../common/problem';
 @ApiBearerAuth()
 @Controller()
 export class CarrierDocsController {
-  constructor(private readonly svc: CarrierDocsService) {}
+  constructor(
+    private readonly svc: CarrierDocsService,
+    private readonly db: DbService,
+  ) {}
 
   @Post('carriers/:id/upload-links')
   @TenantResource('carrier')
@@ -53,8 +58,11 @@ export class CarrierDocsController {
     description:
       'ออกลิงก์อัปโหลดเอกสารให้ผู้รับเหมา — ส่งทาง LINE/SMS ด้วย POST /v1/messages/send-link (ST3-T21) หรือคัดลอก url ไปส่งเอง',
   })
-  issue(@Param('id') id: string, @Body() body: CreateUploadLinkDto): Promise<IssuedUploadLinkDto> {
-    return this.svc.issueLink(decodeIdOr404('carrier', id), body.ttlDays);
+  async issue(
+    @Param('id') id: string,
+    @Body() body: CreateUploadLinkDto,
+  ): Promise<IssuedUploadLinkDto> {
+    return this.svc.issueLink(await refToId('carrier', id, this.db.tx.carrier), body.ttlDays);
   }
 
   @Get('carriers/:id/upload-links')
@@ -65,7 +73,7 @@ export class CarrierDocsController {
     description: 'ลิงก์ที่เคยออก (ไม่มี token) ใหม่สุดก่อน',
   })
   async links(@Param('id') id: string): Promise<UploadLinkListDto> {
-    return { data: await this.svc.listLinks(decodeIdOr404('carrier', id)) };
+    return { data: await this.svc.listLinks(await refToId('carrier', id, this.db.tx.carrier)) };
   }
 
   @Post('carrier-upload-links/:id/revoke')
