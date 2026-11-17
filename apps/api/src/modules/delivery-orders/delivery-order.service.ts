@@ -822,15 +822,29 @@ export class DeliveryOrderService {
   async restoreRedelivered(tx: Tx, id: string, note: string): Promise<boolean> {
     const src = await this.get(id, tx);
     if (!(await this.isRedeliverCancelled(tx, id, src.status))) return false;
+    // ลูกหลานทั้งหมด = ใบที่อ้างใบนี้ (ใบส่งใหม่ + ใบที่แยกจากใบส่งใหม่ — แยกคง redelivery_of เดิม)
     await tx.$queryRaw`
-      SELECT id FROM delivery_order WHERE redelivery_of_id = ${id}::uuid AND status <> 'CANCELLED'
-      ORDER BY id FOR UPDATE`;
-    const kids = await tx.deliveryOrder.findMany({
-      where: { redeliveryOfId: id, status: { not: 'CANCELLED' } },
+      SELECT id FROM delivery_order WHERE redelivery_of_id = ${id}::uuid ORDER BY id FOR UPDATE`;
+    const all = await tx.deliveryOrder.findMany({
+      where: { redeliveryOfId: id },
       include: INCLUDE,
       orderBy: { id: 'asc' },
     });
-    if (kids.some((k) => k.status !== 'DRAFT' || k.tripId !== null)) return false;
+    // review M: คืนได้เฉพาะเมื่อลูกหลานทุกใบ "ยังไม่เคยไปไหน" — DRAFT นอกเที่ยว ไม่เคยแก้/ถูกรวมเข้า (version 1)
+    // และประวัติมีแค่การสร้าง · ใบที่ยกเลิกได้เฉพาะเพราะถูกแยก · อื่น (เคยจัดรถ/ส่งใหม่ต่อ/ถูกรวม/คนยกเลิก) → false (ผู้เรียกขึ้นธง)
+    const hist = await tx.docStatusHistory.findMany({
+      where: { docType: ENTITY, docId: { in: all.map((d) => d.id) } },
+      select: { docId: true, event: true },
+    });
+    const CREATE = ['create', 'redelivery_create', 'split_create'];
+    const clean = all.every((d) => {
+      const evs = hist.filter((h) => h.docId === d.id).map((h) => h.event);
+      if (d.status === 'DRAFT')
+        return d.tripId === null && d.version === 1 && evs.every((e) => CREATE.includes(e));
+      return d.status === 'CANCELLED' && evs.every((e) => CREATE.includes(e) || e === 'split');
+    });
+    if (!all.length || !clean) return false;
+    const kids = all.filter((d) => d.status === 'DRAFT');
     for (const k of kids) await this.systemCancel(tx, k, note);
     await this.state.transition<DoStatus, DoEvent>(tx, {
       docType: ENTITY,

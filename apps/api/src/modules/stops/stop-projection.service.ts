@@ -246,6 +246,11 @@ export class StopProjectionService {
       const drop = c.tripStopId ? statusOf.get(c.tripStopId) : undefined;
       const pickup = c.pickupTripStopId ? statusOf.get(c.pickupTripStopId) : undefined;
       if (drop?.status === 'FAILED' || pickup?.status === 'FAILED') continue;
+      // review L: จุดส่งเดิมถูกถอดออกจากเที่ยว → ไม่คืนเอง (ขึ้นธงที่จุดรับถ้ามี)
+      if (!drop) {
+        if (c.pickupTripStopId && pickup) conflictStops.add(c.pickupTripStopId);
+        continue;
+      }
       const note = 'ผลส่งไม่สำเร็จถูกเปลี่ยน — ยกเลิกใบนัดส่งใหม่และคืนใบเดิมเข้าเที่ยว (ST4-T12)';
       if (await this.dos.restoreRedelivered(tx, c.id, note)) {
         moved.add(c.salesOrderId);

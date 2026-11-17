@@ -657,4 +657,98 @@ describe('auto-reschedule (ST4-T12)', () => {
     const [nd] = await redeliveries(doId);
     expect(nd!.status).toBe('CANCELLED');
   });
+
+  /** ผลถูกพลิก: ปิดสำเร็จมาทีหลัง + ผู้จัดรถใช้ตัวสำเร็จ */
+  const flipToDelivered = async (dropId: string) => {
+    const done = await post(dropId, 'complete', 20, { outcome: 'DELIVERED' }).expect(201);
+    await api(app, admin)
+      .post(`/v1/stop-event-flags/${done.body.id}/resolve`)
+      .send({ decision: 'ACCEPT', reason: 'คนขับส่งได้จริงหลังร้านเปิด' })
+      .expect(200);
+    return db.stopEvent.findUniqueOrThrow({ where: { id: uuid('event', done.body.id) } });
+  };
+  const status = async (id: string) =>
+    (await db.deliveryOrder.findUniqueOrThrow({ where: { id } })).status;
+
+  it('re-review M: DO ใหม่ถูกแยกแล้วรวม (มีใบถูกรวม) → ไม่คืนเอง ขึ้นธง OUTCOME_MISMATCH', async () => {
+    const { doId, t } = await running();
+    await failAtDrop(t, 'SHOP_CLOSED');
+    const [nd] = await redeliveries(doId);
+    const kids = (
+      await api(app, admin)
+        .post(`/v1/delivery-orders/${encodeId('deliveryOrder', nd!.id)}/split`)
+        .send({
+          parts: [[{ soLineNo: 1, qty: '1' }], [{ soLineNo: 1, qty: '1' }]].map((lines) => ({
+            lines,
+          })),
+        })
+        .expect(200)
+    ).body.data as { id: string }[];
+    await api(app, admin)
+      .post(`/v1/delivery-orders/${kids[0]!.id}/merge`)
+      .send({ deliveryOrderIds: [kids[1]!.id] })
+      .expect(200);
+    const ev = await flipToDelivered(t.drop.id);
+    expect(await status(doId)).toBe('CANCELLED');
+    expect(await status(uuid('deliveryOrder', kids[0]!.id))).toBe('DRAFT');
+    expect(ev.outcomeMismatch).toBe(true);
+  });
+
+  it('re-review M: รุ่นที่ 3 (DO ใหม่ออกรถแล้วส่งไม่สำเร็จอีก) → ไม่คืนใบแรก ขึ้นธง', async () => {
+    const { doId, t } = await running();
+    await failAtDrop(t, 'SHOP_CLOSED');
+    const [d1] = await redeliveries(doId);
+    const t2 = await dispatched(d1!.id);
+    await failAtDrop(t2, 'SHOP_CLOSED');
+    const [d2] = await redeliveries(d1!.id);
+    expect(d2!.status).toBe('DRAFT');
+    const ev = await flipToDelivered(t.drop.id);
+    expect(await status(doId)).toBe('CANCELLED');
+    expect(await status(d2!.id)).toBe('DRAFT');
+    expect(ev.outcomeMismatch).toBe(true);
+  });
+
+  it('re-review: คืนใบเดิมหลังเกินจำนวนครั้ง (ค่าตั้ง 0) → DO ใหม่ยกเลิก · เหตุรองหาย · ใบสั่งกลับมาวิ่ง (เหตุค้างล้าง)', async () => {
+    await api(app, admin)
+      .patch('/v1/settings')
+      .send({ values: { 'dispatch.maxAutoReschedules': 0 } })
+      .expect(200);
+    try {
+      const { soId, doId, t } = await running();
+      await failAtDrop(t, 'SHOP_CLOSED');
+      const [nd] = await redeliveries(doId);
+      expect(nd!.rescheduleExhausted).toBe(true);
+      const id = encodeId('salesOrder', soId);
+      expect((await api(app, admin).get(`/v1/orders/${id}`).expect(200)).body.holdCodes).toContain(
+        'RESCHEDULES_EXHAUSTED',
+      );
+      await flipToDelivered(t.drop.id);
+      expect(await status(nd!.id)).toBe('CANCELLED');
+      expect(['DELIVERED', 'POD_PENDING', 'UNBILLED']).toContain(await status(doId));
+      const dto = (await api(app, admin).get(`/v1/orders/${id}`).expect(200)).body;
+      expect(dto.holdCodes).not.toContain('RESCHEDULES_EXHAUSTED');
+      expect(dto.rescheduledDate).toBeNull();
+      expect(dto.status).not.toBe('on_hold');
+      expect(dto.holdReason).toBeNull();
+    } finally {
+      await api(app, admin)
+        .patch('/v1/settings')
+        .send({ values: { 'dispatch.maxAutoReschedules': 2 } })
+        .expect(200);
+    }
+  });
+
+  it('re-review: DO ที่คนยกเลิก (ไม่ใช่ redeliver) → หลักฐานแก้ไม่ได้ (editable false, PUT 409)', async () => {
+    const { doId } = await newOrder();
+    const pub = encodeId('deliveryOrder', doId);
+    await api(app, admin)
+      .post(`/v1/delivery-orders/${pub}/cancel`)
+      .send({ reason: 'ลูกค้ายกเลิกการส่งรอบนี้' })
+      .expect(200);
+    const g = await api(app, admin).get(`/v1/delivery-orders/${pub}/pod`).expect(200);
+    expect(g.body.editable).toBe(false);
+    const r = await api(app, admin).put(`/v1/delivery-orders/${pub}/pod`).send({ note: 'ทดสอบ' });
+    expect(r.status).toBe(409);
+    expect(r.body.code).toBe('pod_not_allowed');
+  });
 });
