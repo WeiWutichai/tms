@@ -183,12 +183,9 @@ async function failed() {
   return { so, trip };
 }
 const one = await failed();
-await W.goto('/so');
-await W.waitForTimeout(1500);
-await W.getByRole('row', { name: new RegExp(one.so.soNo) }).click();
-await W.waitForTimeout(800);
-await W.getByRole('dialog').getByRole('button', { name: one.trip.tripNo }).click();
-await W.waitForTimeout(1000);
+// drawer SO ไม่แสดงเที่ยวของใบที่ยกเลิก (นัดส่งใหม่) → เปิดเที่ยวจากกระดานวางแผน
+await W.goto(`/plan?trip=${one.trip.id}`);
+await W.waitForTimeout(2500);
 await W.getByRole('tab', { name: 'ไทม์ไลน์' }).click();
 await W.waitForTimeout(1200);
 const c = { timeline: await W.screenshot() };

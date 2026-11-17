@@ -370,6 +370,7 @@ export class DeliveryOrderService {
           redeliveryOfId: src.redeliveryOfId,
           doDate: src.doDate.toISOString().slice(0, 10),
           rescheduleCount: src.rescheduleCount,
+          rescheduleExhausted: src.rescheduleExhausted,
         }),
       );
     }
@@ -747,6 +748,8 @@ export class DeliveryOrderService {
     o: {
       doDate: string;
       rescheduleCount: number;
+      /** ST4-T12 ครั้งนี้เกินค่าตั้ง (เหตุรอง RESCHEDULES_EXHAUSTED ของใบสั่ง) */
+      exhausted?: boolean;
       reasonCodeId: string | null;
       note: string;
       mode: 'auto' | 'manual';
@@ -771,6 +774,7 @@ export class DeliveryOrderService {
       redeliveryOfId: src.id,
       doDate: o.doDate,
       rescheduleCount: o.rescheduleCount,
+      rescheduleExhausted: o.exhausted ?? false,
     });
     await this.audit.record({
       action: `${ENTITY}.redelivered`,
@@ -787,6 +791,73 @@ export class DeliveryOrderService {
       reason: o.note,
     });
     return d;
+  }
+
+  /**
+   * ใบนี้ถูกยกเลิกด้วย `redeliver` ไหม (สถานะล่าสุดในประวัติ = redeliver) — หลักฐานชุดไม่สำเร็จยังบันทึกได้ (review H2),
+   * คืนได้เมื่อผลส่งไม่สำเร็จถูกพลิก (review H1b)
+   */
+  async isRedeliverCancelled(tx: Tx, id: string, status?: string): Promise<boolean> {
+    if (status === undefined)
+      status = (await tx.deliveryOrder.findUnique({ where: { id }, select: { status: true } }))
+        ?.status;
+    if (status !== 'CANCELLED') return false;
+    // เวลาในประวัติเท่ากันภายใน transaction เดียว (now()) — นับจำนวนแทนการเรียงเวลา:
+    // ส่งใหม่มากกว่าคืน = ยกเลิกครั้งล่าสุดมาจาก redeliver (ใบที่คืนแล้วยกเลิกทางอื่นต้องผ่าน DRAFT → cancel)
+    const rows = await tx.docStatusHistory.groupBy({
+      by: ['event'],
+      where: { docType: ENTITY, docId: id, event: { in: ['redeliver', 'restore'] } },
+      _count: { _all: true },
+    });
+    const n = (e: string) => rows.find((r) => r.event === e)?._count._all ?? 0;
+    return n('redeliver') > n('restore');
+  }
+
+  /**
+   * ST4-T12 (review H1b; [DECISION spec/12 §3]): ผลส่งไม่สำเร็จที่ทำให้นัดส่งใหม่ถูกพลิก (ผู้จัดรถไม่ใช้ event /
+   * event อื่นชนะ) และ DO ส่งใหม่ทุกใบยัง DRAFT นอกเที่ยว → ระบบยกเลิก DO ส่งใหม่ (เหตุผล + audit) แล้วคืนใบเดิม
+   * CANCELLED → `restore` → DISPATCHED (กลับไปไล่จากจุดแวะ) · DO ส่งใหม่ถูกจัดรถแล้ว → คืน false (ผู้เรียกขึ้นธง
+   * OUTCOME_MISMATCH ให้ผู้จัดรถ) · ผู้เรียกถือล็อก SO → DO ของใบเดิมแล้ว
+   */
+  async restoreRedelivered(tx: Tx, id: string, note: string): Promise<boolean> {
+    const src = await this.get(id, tx);
+    if (!(await this.isRedeliverCancelled(tx, id, src.status))) return false;
+    await tx.$queryRaw`
+      SELECT id FROM delivery_order WHERE redelivery_of_id = ${id}::uuid AND status <> 'CANCELLED'
+      ORDER BY id FOR UPDATE`;
+    const kids = await tx.deliveryOrder.findMany({
+      where: { redeliveryOfId: id, status: { not: 'CANCELLED' } },
+      include: INCLUDE,
+      orderBy: { id: 'asc' },
+    });
+    if (kids.some((k) => k.status !== 'DRAFT' || k.tripId !== null)) return false;
+    for (const k of kids) await this.systemCancel(tx, k, note);
+    await this.state.transition<DoStatus, DoEvent>(tx, {
+      docType: ENTITY,
+      docId: src.id,
+      table: DO_TRANSITIONS,
+      from: 'CANCELLED',
+      event: 'restore',
+      note,
+      eventType: EVENT_TYPE,
+      apply: async (to) => {
+        const r = await tx.deliveryOrder.updateMany({
+          where: { id: src.id, status: 'CANCELLED', version: src.version },
+          data: { status: to as DbDoStatus, version: { increment: 1 } },
+        });
+        if (r.count === 0) throw new ProblemException('concurrent_update');
+        return eventView(await this.get(src.id, tx));
+      },
+    });
+    await this.audit.record({
+      action: `${ENTITY}.redelivery_reverted`,
+      entityType: ENTITY,
+      entityId: src.id,
+      before: { status: 'CANCELLED', redeliveries: kids.map((k) => k.doNo) },
+      after: { status: 'DISPATCHED' },
+      reason: note,
+    });
+    return true;
   }
 
   private async write(
@@ -963,6 +1034,7 @@ export class DeliveryOrderService {
       /** วันส่ง (YYYY-MM-DD) — ไม่ระบุ = วันที่ลูกค้าขอของ SO (ส่งใหม่ = วันที่นัด — ST4-T12) */
       doDate?: string;
       rescheduleCount?: number;
+      rescheduleExhausted?: boolean;
     },
   ): Promise<DeliveryOrderRecord> {
     const tenantId = this.tenantId();
@@ -984,6 +1056,7 @@ export class DeliveryOrderService {
         sourceHash: o.sourceHash,
         redeliveryOfId: o.redeliveryOfId,
         rescheduleCount: o.rescheduleCount ?? 0,
+        rescheduleExhausted: o.rescheduleExhausted ?? false,
         splitFromId: o.split?.fromId ?? null,
         splitRootNo: o.split?.rootNo ?? null,
         splitIndex: o.split?.index ?? null,

@@ -348,7 +348,7 @@ describe('TripTimeline (ST4-T04)', () => {
     expect(within(q).getAllByTestId('trip-event')[1]).toHaveTextContent('ซ้ำ');
   });
 
-  it('ST4-T12 จุดที่ไม่สำเร็จ → บรรทัดนัดส่งใหม่อัตโนมัติ / ส่งซ้ำ (เลข DO ใหม่ + วันที่นัด)', () => {
+  it('ST4-T12 จุดที่ไม่สำเร็จ → บรรทัดนัดส่งใหม่อัตโนมัติ / ส่งซ้ำ (เลข DO ใหม่ + วันที่นัด + สถานะจริง + เกินจำนวนครั้ง)', () => {
     events.data = [];
     show(
       trip([
@@ -372,8 +372,18 @@ describe('TripTimeline (ST4-T04)', () => {
               deliveryOrderId: 'do_10',
               doNo: 'DO-6911-0010',
               doDate: '2026-11-19',
-              status: 'DRAFT',
+              status: 'PLANNED',
               attempt: 0,
+            },
+            {
+              fromDeliveryOrderId: 'do_3',
+              fromDoNo: 'DO-6911-0003',
+              deliveryOrderId: 'do_11',
+              doNo: 'DO-6911-0011',
+              doDate: '2026-11-19',
+              status: 'DRAFT',
+              attempt: 3,
+              exhausted: true,
             },
           ],
         }),
@@ -383,7 +393,12 @@ describe('TripTimeline (ST4-T04)', () => {
     expect(lines[0]).toHaveTextContent(
       'นัดส่งใหม่อัตโนมัติ ครั้งที่ 1: DO-6911-0001 → DO-6911-0009 ส่ง 18 พ.ย. 2569 (รอจัดรถ)',
     );
-    expect(lines[1]).toHaveTextContent('ส่งซ้ำ: DO-6911-0002 → DO-6911-0010 ส่ง 19 พ.ย. 2569');
+    expect(lines[1]).toHaveTextContent(
+      'ส่งซ้ำ: DO-6911-0002 → DO-6911-0010 ส่ง 19 พ.ย. 2569 (อยู่ในเที่ยว)',
+    );
+    expect(lines[2]).toHaveTextContent(
+      'นัดส่งใหม่อัตโนมัติ ครั้งที่ 3: DO-6911-0003 → DO-6911-0011 ส่ง 19 พ.ย. 2569 (รอจัดรถ) · เกินจำนวนครั้งที่ตั้งไว้ — ขึ้นใบค้าง',
+    );
     expect(
       within(screen.getAllByTestId('trip-step')[0]!).queryByTestId('trip-reschedule'),
     ).toBeNull();

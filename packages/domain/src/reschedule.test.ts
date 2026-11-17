@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { addCalendarDays, planAutoReschedule, shiftWindowToDay } from './reschedule';
+import {
+  addCalendarDays,
+  hasUnresolvedStopFlags,
+  planAutoReschedule,
+  rescheduleExhaustedNoteTh,
+  shiftWindowToDay,
+} from './reschedule';
 
 describe('planAutoReschedule (ST4-T12)', () => {
   const base = { previousCount: 0, max: 2, today: '2026-11-17' };
@@ -76,5 +82,36 @@ describe('shiftWindowToDay', () => {
     });
     const w = { start: '2026-11-18T01:00:00.000Z', end: null };
     expect(shiftWindowToDay(w, '2026-11-18')).toBe(w);
+  });
+});
+
+describe('hasUnresolvedStopFlags / ข้อความครบจำนวน (review H1, L)', () => {
+  const at = new Date('2026-11-17T03:00:00Z');
+  it('ไม่มีธง / ธงที่ตัดสินแล้ว = นิ่ง · ธงค้าง = ยังไม่นัด', () => {
+    expect(hasUnresolvedStopFlags([{ flags: [], resolutions: [] }])).toBe(false);
+    expect(hasUnresolvedStopFlags([{ flags: ['SEQUENCE_CONFLICT'], resolutions: [] }])).toBe(true);
+    expect(
+      hasUnresolvedStopFlags([
+        {
+          flags: ['SEQUENCE_CONFLICT'],
+          resolutions: [{ decision: 'IGNORE', flags: ['SEQUENCE_CONFLICT'], at }],
+        },
+      ]),
+    ).toBe(false);
+    // ตัดสินกับธงชุดเก่า = หมดผล
+    expect(
+      hasUnresolvedStopFlags([
+        { flags: ['CLOCK_SKEW'], resolutions: [{ decision: 'ACCEPT', flags: ['LATE'], at }] },
+      ]),
+    ).toBe(true);
+    expect(hasUnresolvedStopFlags([{ flags: ['OUTCOME_MISMATCH'], resolutions: [] }])).toBe(true);
+  });
+  it('ค่าตั้ง 0 ใช้ถ้อยคำ "ไม่นัดอัตโนมัติ"', () => {
+    expect(rescheduleExhaustedNoteTh(0, 'ร้านปิด')).toBe(
+      'ไม่นัดส่งใหม่อัตโนมัติ (ตั้งไว้ 0 ครั้ง) — ร้านปิด',
+    );
+    expect(rescheduleExhaustedNoteTh(2, 'ร้านปิด')).toBe(
+      'นัดส่งใหม่อัตโนมัติครบ 2 ครั้งแล้ว — ร้านปิด',
+    );
   });
 });

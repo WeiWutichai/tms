@@ -10,7 +10,9 @@ import {
   OrderIntakeService,
   type UpsertOrderInput,
 } from '../src/modules/orders/order-intake.service';
+import { OrderStateService } from '../src/modules/orders/order-state.service';
 import { StopProjectionService } from '../src/modules/stops/stop-projection.service';
+import { SHEET_INCLUDE, sheetPage } from '../src/modules/trip-sheets/trip-sheets.service';
 import { createTenantWithDefaults } from '../src/modules/tenants/bootstrap';
 import { bangkokToday } from '../src/modules/vehicle-documents/expiry';
 import { api, bootApp, platform, tokenFor, truncateAll, validTaxId } from './helpers';
@@ -181,6 +183,46 @@ describe('auto-reschedule (ST4-T12)', () => {
     };
   };
 
+  /** เที่ยวที่ยังวิ่ง: DO ที่ทดสอบ + DO อีกใบที่ยังไม่ปิด (เที่ยวไม่จบ — projection ยังไล่การตัดสินภายหลังได้) */
+  const running = async () => {
+    const a = await newOrder();
+    const b = await newOrder();
+    const vid = (await newVehicle()).id;
+    const tr = (
+      await api(app, admin)
+        .post('/v1/trips')
+        .send({
+          tripDate: today,
+          deliveryOrderIds: [a.doId, b.doId].map((x) => encodeId('deliveryOrder', x)),
+          vehicleId: vid,
+        })
+        .expect(201)
+    ).body;
+    const r = await api(app, admin)
+      .post(`/v1/trips/${tr.id}/assign`)
+      .send({ vehicleId: vid, dispatch: true });
+    if (r.status !== 200)
+      await api(app, admin)
+        .post(`/v1/trips/${tr.id}/assign`)
+        .send({
+          vehicleId: vid,
+          dispatch: true,
+          ruleKeys: r.body.warnings.map((x: { key: string }) => x.key),
+          overrideReason: 'ทดสอบนัดส่งใหม่อัตโนมัติ',
+        })
+        .expect(200);
+    const row = await db.deliveryOrder.findUniqueOrThrow({ where: { id: a.doId } });
+    return {
+      ...a,
+      t: {
+        id: tr.id as string,
+        uuid: uuid('trip', tr.id),
+        pickup: { id: encodeId('tripStop', row.pickupTripStopId!) },
+        drop: { id: encodeId('tripStop', row.tripStopId!) },
+      },
+    };
+  };
+
   const ago = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
   const post = (stop: string, action: string, min: number, extra: object = {}) =>
     api(app, admin)
@@ -197,7 +239,7 @@ describe('auto-reschedule (ST4-T12)', () => {
     );
   /** รับของแล้วไปจุดส่ง → ปิดไม่สำเร็จด้วยเหตุผล (คืน body ของ event ปิด + เวลา) */
   const failAtDrop = async (
-    t: Awaited<ReturnType<typeof dispatched>>,
+    t: { pickup: { id: string }; drop: { id: string } },
     code: string,
     outcome: 'UNDELIVERED_RETAIN' | 'FAILED' = 'UNDELIVERED_RETAIN',
   ) => {
@@ -317,7 +359,18 @@ describe('auto-reschedule (ST4-T12)', () => {
         doDate: expectedDate(at),
         status: 'DRAFT',
         attempt: 1,
+        exhausted: false,
       },
+    ]);
+    // ใบคุมรถพิมพ์ซ้ำยังเห็นใบเดิม + หมายเหตุ (review M3)
+    const sheet = sheetPage(
+      await db.trip.findUniqueOrThrow({ where: { id: t.uuid }, include: SHEET_INCLUDE }),
+    );
+    expect(sheet.stops.find((x) => x.type === 'DELIVERY')!.dos).toEqual([
+      expect.objectContaining({ doNo: old.doNo, note: 'ส่งไม่สำเร็จ · นัดส่งใหม่' }),
+    ]);
+    expect(trip.rescheduledDeliveryOrders).toEqual([
+      expect.objectContaining({ id: encodeId('deliveryOrder', doId), doNo: old.doNo }),
     ]);
     expect(trip.stops.find((s: { type: string }) => s.type === 'PICKUP').reschedules).toEqual([]);
 
@@ -395,10 +448,25 @@ describe('auto-reschedule (ST4-T12)', () => {
       await failAtDrop(t2, 'SHOP_CLOSED');
       const [d2] = await redeliveries(d1!.id);
       expect(d2).toMatchObject({ status: 'DRAFT', tripId: null, rescheduleCount: 2 });
+      // review M1: ค้าง RATE_MISSING อยู่แล้ว (ไม่มี rate card) → คงเหตุหลัก + เหตุรอง RESCHEDULES_EXHAUSTED + audit
       const held = await so(soId);
       expect(held.status).toBe('ON_HOLD');
-      expect(held.holdReasonCode?.code).toBe('RESCHEDULES_EXHAUSTED');
-      expect(held.holdNote).toContain('นัดส่งใหม่อัตโนมัติครบ 1 ครั้งแล้ว');
+      expect(held.holdReasonCode?.code).toBe('RATE_MISSING');
+      expect(d2!.rescheduleExhausted).toBe(true);
+      const dto = (
+        await api(app, admin)
+          .get(`/v1/orders/${encodeId('salesOrder', soId)}`)
+          .expect(200)
+      ).body;
+      expect(dto.holdCodes).toContain('RESCHEDULES_EXHAUSTED');
+      expect(dto.rescheduledDate).toBe(d2!.doDate.toISOString().slice(0, 10));
+      expect(
+        (
+          await db.auditLog.findFirstOrThrow({
+            where: { tenantId, action: 'sales_order.hold_code_added', entityId: soId },
+          })
+        ).reason,
+      ).toContain('นัดส่งใหม่อัตโนมัติครบ 1 ครั้งแล้ว');
       const ev = await db.domainEvent.findFirstOrThrow({
         where: { tenantId, type: 'delivery_order.rescheduled', localId: d2!.id },
       });
@@ -408,16 +476,14 @@ describe('auto-reschedule (ST4-T12)', () => {
         await api(app, admin)
           .get('/v1/orders?held=true&holdReason=RESCHEDULES_EXHAUSTED&limit=100')
           .expect(200)
-      ).body.data as { id: string; holdReason: { code: string } | null }[];
-      expect(list.find((o) => o.id === encodeId('salesOrder', soId))?.holdReason?.code).toBe(
-        'RESCHEDULES_EXHAUSTED',
-      );
-      // กระดาน: ยังอยู่ใน SO รอจัด (ป้ายเหตุค้าง) → จัดรถใหม่ = เคลียร์
+      ).body.data as { id: string }[];
+      expect(list.map((o) => o.id)).toContain(encodeId('salesOrder', soId));
+      // กระดาน: ยังอยู่ใน SO รอจัด (ป้ายเหตุค้างหลักเดิม) → จัดรถใหม่ = เคลียร์
       const board = (await api(app, admin).get(`/v1/planning/board?date=${today}`).expect(200))
         .body;
       expect(
         board.pool.find((p: { id: string }) => p.id === encodeId('salesOrder', soId))?.holdReason,
-      ).toBe('RESCHEDULES_EXHAUSTED');
+      ).toBe('RATE_MISSING');
       await dispatched(d2!.id);
       const cleared = await so(soId);
       expect(cleared.status).toBe('IN_TRANSIT');
@@ -463,5 +529,132 @@ describe('auto-reschedule (ST4-T12)', () => {
       .expect(404);
     const board = (await api(app, tok).get(`/v1/planning/board?date=${today}`).expect(200)).body;
     expect(board.pool).toEqual([]);
+  });
+
+  it('review M1: ใบสั่งที่ไม่ได้ค้าง → RESCHEDULES_EXHAUSTED เป็นเหตุหลัก (transition hold ปกติ) · ค่าตั้ง 0 ใช้ถ้อยคำ "ไม่นัดอัตโนมัติ"', async () => {
+    const { soId } = await newOrder();
+    await db.salesOrder.update({
+      where: { id: soId },
+      data: { status: 'RECEIVED', holdReasonCodeId: null, holdNote: null },
+    });
+    const note = 'ไม่นัดส่งใหม่อัตโนมัติ (ตั้งไว้ 0 ครั้ง) — ลูกค้าปิดทำการ';
+    await run((tx) => app.get(OrderStateService).holdReschedulesExhausted(tx, [soId], note));
+    const x = await so(soId);
+    expect(x).toMatchObject({ status: 'ON_HOLD', holdNote: note });
+    expect(x.holdReasonCode?.code).toBe('RESCHEDULES_EXHAUSTED');
+    const h = await db.docStatusHistory.findFirstOrThrow({
+      where: { docType: 'sales_order', docId: soId, event: 'hold' },
+      orderBy: { at: 'desc' },
+    });
+    expect(h.toStatus).toBe('ON_HOLD');
+  });
+
+  it('review H1a: ปิดไม่สำเร็จที่เวลาเพี้ยน (ธงค้าง) → ยังไม่นัด · ผู้จัดรถ "ใช้" → นัดตอนนั้น', async () => {
+    const { doId } = await newOrder();
+    const t = await dispatched(doId);
+    await post(t.pickup.id, 'arrive', 55).expect(201);
+    await post(t.pickup.id, 'complete', 50, { outcome: 'DELIVERED' }).expect(201);
+    const skew = await post(t.drop.id, 'fail', -30, {
+      outcome: 'UNDELIVERED_RETAIN',
+      reasonCodeId: await reason('SHOP_CLOSED'),
+      note: 'ร้านปิด',
+    }).expect(201);
+    expect(skew.body.flags).toContain('CLOCK_SKEW');
+    expect(await redeliveries(doId)).toHaveLength(0);
+    await api(app, admin)
+      .post(`/v1/stop-event-flags/${skew.body.id}/resolve`)
+      .send({ decision: 'ACCEPT', reason: 'นาฬิกาเครื่องคนขับเดินเร็ว ใช้ได้' })
+      .expect(200);
+    expect(await redeliveries(doId)).toHaveLength(1);
+    expect((await db.deliveryOrder.findUniqueOrThrow({ where: { id: doId } })).status).toBe(
+      'CANCELLED',
+    );
+  });
+
+  it('review H1b: นัดแล้วผลถูกพลิก (ปิดสำเร็จมาทีหลัง + ผู้จัดรถใช้ตัวสำเร็จ) และ DO ใหม่ยังไม่จัดรถ → ยกเลิก DO ใหม่ + คืนใบเดิม → ส่งสำเร็จ', async () => {
+    const { soId, doId, t } = await running();
+    await failAtDrop(t, 'SHOP_CLOSED');
+    const [nd] = await redeliveries(doId);
+    expect(nd!.status).toBe('DRAFT');
+    // ปิดสำเร็จมาทีหลัง → ปิดแข่งกัน (ตัวที่รับก่อน = ไม่สำเร็จ ยังมีผล) — ไม่คืนเอง
+    const done = await post(t.drop.id, 'complete', 20, { outcome: 'DELIVERED' }).expect(201);
+    expect(done.body.flags).toEqual(['SEQUENCE_CONFLICT']);
+    expect((await db.deliveryOrder.findUniqueOrThrow({ where: { id: nd!.id } })).status).toBe(
+      'DRAFT',
+    );
+    await api(app, admin)
+      .post(`/v1/stop-event-flags/${done.body.id}/resolve`)
+      .send({ decision: 'ACCEPT', reason: 'คนขับส่งได้จริงหลังร้านเปิด' })
+      .expect(200);
+    expect((await db.deliveryOrder.findUniqueOrThrow({ where: { id: nd!.id } })).status).toBe(
+      'CANCELLED',
+    );
+    const back = await db.deliveryOrder.findUniqueOrThrow({ where: { id: doId } });
+    expect(['DELIVERED', 'POD_PENDING', 'UNBILLED']).toContain(back.status);
+    const h = await db.docStatusHistory.findMany({
+      where: { docType: 'delivery_order', docId: doId, event: 'restore' },
+    });
+    expect(h).toHaveLength(1);
+    expect(
+      await db.auditLog.count({
+        where: { tenantId, action: 'delivery_order.redelivery_reverted', entityId: doId },
+      }),
+    ).toBe(1);
+    expect(['IN_TRANSIT', 'DELIVERED']).toContain((await so(soId)).status);
+    // คำนวณซ้ำ → ผลเดิม ไม่คืน/ไม่นัดซ้ำ
+    await run(async (tx) => {
+      const p = app.get(StopProjectionService);
+      await p.lockTrip(tx, t.uuid);
+      await p.project(tx, t.uuid);
+    });
+    expect(await redeliveries(doId)).toHaveLength(1);
+    expect(
+      await db.docStatusHistory.count({
+        where: { docType: 'delivery_order', docId: doId, event: 'restore' },
+      }),
+    ).toBe(1);
+  });
+
+  it('review H1b: ผลถูกพลิกแต่ DO ใหม่ถูกจัดรถแล้ว → ไม่คืนเอง ขึ้นธง OUTCOME_MISMATCH ให้ผู้จัดรถ', async () => {
+    const { doId, t } = await running();
+    await failAtDrop(t, 'SHOP_CLOSED');
+    const [nd] = await redeliveries(doId);
+    await dispatched(nd!.id);
+    const done = await post(t.drop.id, 'complete', 20, { outcome: 'DELIVERED' }).expect(201);
+    await api(app, admin)
+      .post(`/v1/stop-event-flags/${done.body.id}/resolve`)
+      .send({ decision: 'ACCEPT', reason: 'คนขับส่งได้จริงหลังร้านเปิด' })
+      .expect(200);
+    expect((await db.deliveryOrder.findUniqueOrThrow({ where: { id: doId } })).status).toBe(
+      'CANCELLED',
+    );
+    expect((await db.deliveryOrder.findUniqueOrThrow({ where: { id: nd!.id } })).status).toBe(
+      'DISPATCHED',
+    );
+    const ev = await db.stopEvent.findUniqueOrThrow({ where: { id: uuid('event', done.body.id) } });
+    expect(ev.outcomeMismatch).toBe(true);
+    expect(
+      await db.auditLog.count({
+        where: { action: 'stop_event.outcome_mismatch', entityId: ev.id },
+      }),
+    ).toBe(1);
+  });
+
+  it('review H1b: ผู้จัดรถ "ไม่ใช้" event ไม่สำเร็จ (ปิดแข่งกัน) → จุดกลับรอดำเนินการ → คืนใบเดิม', async () => {
+    const { doId, t } = await running();
+    const { res } = await failAtDrop(t, 'NO_RECEIVER');
+    expect(await redeliveries(doId)).toHaveLength(1);
+    const other = await post(t.drop.id, 'complete', 25, { outcome: 'DELIVERED' }).expect(201);
+    // ไม่ใช้ทั้งสองตัว (ไม่สำเร็จ = ไม่ใช้ · สำเร็จ = ไม่ใช้) → จุดไม่มีการปิดที่มีผล
+    for (const id of [res.id, other.body.id])
+      await api(app, admin)
+        .post(`/v1/stop-event-flags/${id}/resolve`)
+        .send({ decision: 'IGNORE', reason: 'บันทึกผิดทั้งคู่ รอคนขับยืนยัน' })
+        .expect(200);
+    expect((await db.deliveryOrder.findUniqueOrThrow({ where: { id: doId } })).status).not.toBe(
+      'CANCELLED',
+    );
+    const [nd] = await redeliveries(doId);
+    expect(nd!.status).toBe('CANCELLED');
   });
 });

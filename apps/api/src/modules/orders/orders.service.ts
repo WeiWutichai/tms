@@ -40,7 +40,17 @@ const READ_INCLUDE = {
   customer: { select: { code: true, legalName: true } },
   // ชุดการเปลี่ยนแปลงจากต้นทางที่รอตัดสิน (ST3-T10 — ได้ครั้งละ 1 ชุด)
   sourceChanges: { where: { status: 'PENDING' }, take: 1 },
+  // ST4-T12 DO ส่งใหม่ที่ยังรอจัด → วันที่นัด + เหตุรอง RESCHEDULES_EXHAUSTED (review M1/L)
+  deliveryOrders: {
+    where: { status: 'DRAFT', redeliveryOfId: { not: null } },
+    select: { doDate: true, rescheduleExhausted: true },
+  },
 } as const satisfies Prisma.SalesOrderInclude;
+
+/** ใบสั่งที่มี DO ส่งใหม่เกินจำนวนครั้งรอจัด (เหตุรอง — ไม่ทับเหตุหลักของทางเข้า) */
+const EXHAUSTED_WHERE = {
+  deliveryOrders: { some: { status: 'DRAFT', rescheduleExhausted: true } },
+} as const satisfies Prisma.SalesOrderWhereInput;
 
 type OrderRow = Prisma.SalesOrderGetPayload<{ include: typeof READ_INCLUDE }>;
 
@@ -60,6 +70,7 @@ const ORDER_FIELDS = new Set([
   'vehicleTypeId',
   'holdReason',
   'holdCodes',
+  'rescheduledDate',
   'pricingStatus',
   'pricingReasons',
   'sellTotal',
@@ -116,7 +127,17 @@ export function toOrderDto(o: OrderRow): OrderDto {
           fields: primaryHold?.fields ?? (primaryHold?.field ? [primaryHold.field] : []),
         }
       : null,
-    holdCodes: [...new Set((detail.holds ?? []).map((h) => h.code))],
+    holdCodes: [
+      ...new Set([
+        ...(detail.holds ?? []).map((h) => h.code),
+        ...(o.deliveryOrders.some((d) => d.rescheduleExhausted) ? ['RESCHEDULES_EXHAUSTED'] : []),
+      ]),
+    ],
+    rescheduledDate:
+      o.deliveryOrders
+        .map((d) => d.doDate.toISOString().slice(0, 10))
+        .sort()
+        .at(-1) ?? null,
     pricingStatus: o.pricingStatus,
     pricingReasons: (detail.reasons ?? []).map((r) => ({
       code: r.code,
@@ -401,6 +422,7 @@ export class OrdersService {
         OR: [
           { holdReasonCode: { code: { in: codes } } },
           { id: { in: await this.heldIds(codes) } },
+          ...(codes.includes('RESCHEDULES_EXHAUSTED') ? [EXHAUSTED_WHERE] : []),
           // ต้นทางแก้หลังวางแผน = ธงข้างสถานะ (ไม่ใช่ ON_HOLD) แต่อยู่หน้างานค้างกลุ่มเดียวกัน (docs/01 §4.1)
           ...(codes.includes(SOURCE_CHANGED_HOLD_CODE) ? [{ sourceChangedAfterPlan: true }] : []),
         ],

@@ -142,8 +142,11 @@ export function TripDocsTab({
   // DO ที่มีจุดส่งในเที่ยว เรียงตามลำดับจุดส่ง
   const dos = useMemo(() => {
     const seq = new Map(trip.stops.map((s) => [s.id, s]));
-    return trip.deliveryOrders
-      .filter((d) => d.status !== 'CANCELLED' && d.status !== 'cancelled')
+    // ST4-T12 (review H2): ใบที่ส่งไม่สำเร็จแล้วนัดส่งใหม่ยังบันทึกหลักฐานชุด "ไม่สำเร็จ" ได้
+    return [
+      ...trip.deliveryOrders.filter((d) => d.status !== 'CANCELLED' && d.status !== 'cancelled'),
+      ...(trip.rescheduledDeliveryOrders ?? []),
+    ]
       .map((d) => ({ d, stop: d.dropStopId ? seq.get(d.dropStopId) : undefined }))
       .sort((a, b) => (a.stop?.sequence ?? 999) - (b.stop?.sequence ?? 999));
   }, [trip]);

@@ -36632,6 +36632,12 @@
               ]
             }
           },
+          "rescheduledDate": {
+            "type": "string",
+            "nullable": true,
+            "example": "2026-11-18",
+            "description": "ST4-T12 วันที่นัดส่งใหม่ล่าสุดของ DO ส่งใหม่ที่ยังรอจัด (null = ไม่มี) — หน้าใบค้าง/รายการแสดงแทนกำหนดส่งเดิม"
+          },
           "pricingStatus": {
             "type": "string",
             "enum": [
@@ -36738,6 +36744,7 @@
           "vehicleTypeId",
           "holdReason",
           "holdCodes",
+          "rescheduledDate",
           "pricingStatus",
           "pricingReasons",
           "stops",
@@ -37209,6 +37216,12 @@
               ]
             }
           },
+          "rescheduledDate": {
+            "type": "string",
+            "nullable": true,
+            "example": "2026-11-18",
+            "description": "ST4-T12 วันที่นัดส่งใหม่ล่าสุดของ DO ส่งใหม่ที่ยังรอจัด (null = ไม่มี) — หน้าใบค้าง/รายการแสดงแทนกำหนดส่งเดิม"
+          },
           "pricingStatus": {
             "type": "string",
             "enum": [
@@ -37330,6 +37343,7 @@
           "vehicleTypeId",
           "holdReason",
           "holdCodes",
+          "rescheduledDate",
           "pricingStatus",
           "pricingReasons",
           "stops",
@@ -44267,6 +44281,10 @@
             "type": "number",
             "example": 1,
             "description": "ครั้งที่นัดส่งใหม่อัตโนมัติ (0 = ส่งซ้ำมือ)"
+          },
+          "exhausted": {
+            "type": "boolean",
+            "description": "ครั้งนี้เกินค่าตั้ง `dispatch.maxAutoReschedules` (ใบสั่งค้าง/เหตุรอง RESCHEDULES_EXHAUSTED)"
           }
         },
         "required": [
@@ -44276,7 +44294,8 @@
           "doNo",
           "doDate",
           "status",
-          "attempt"
+          "attempt",
+          "exhausted"
         ]
       },
       "TripStopDto": {
@@ -44458,6 +44477,33 @@
           "status",
           "orderId",
           "customerId",
+          "pickupStopId",
+          "dropStopId"
+        ]
+      },
+      "TripRescheduledDoDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "do_3f2a…"
+          },
+          "doNo": {
+            "type": "string",
+            "example": "DO-6911-0001"
+          },
+          "pickupStopId": {
+            "type": "string",
+            "nullable": true
+          },
+          "dropStopId": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "doNo",
           "pickupStopId",
           "dropStopId"
         ]
@@ -44762,6 +44808,13 @@
               "$ref": "#/components/schemas/TripDeliveryOrderDto"
             }
           },
+          "rescheduledDeliveryOrders": {
+            "description": "ST4-T12 DO ที่ส่งไม่สำเร็จในเที่ยวนี้แล้วนัดส่งใหม่ (ใบเดิม CANCELLED) — \"ส่งไม่สำเร็จ · นัดส่งใหม่\" · มีค่าเฉพาะ GET /trips/{id} (อื่น = [])",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TripRescheduledDoDto"
+            }
+          },
           "weightKg": {
             "type": "string",
             "example": "5400",
@@ -44822,6 +44875,7 @@
           "cancelReason",
           "stops",
           "deliveryOrders",
+          "rescheduledDeliveryOrders",
           "weightKg",
           "route",
           "warnings",
@@ -48811,6 +48865,25 @@
           "version"
         ]
       },
+      "BoardRetainedDto": {
+        "type": "object",
+        "properties": {
+          "plate": {
+            "type": "string",
+            "nullable": true,
+            "example": "70-1234 กทม."
+          },
+          "tripNo": {
+            "type": "string",
+            "nullable": true,
+            "example": "TRP-6911-0001"
+          }
+        },
+        "required": [
+          "plate",
+          "tripNo"
+        ]
+      },
       "BoardPoolDoDto": {
         "type": "object",
         "properties": {
@@ -48841,6 +48914,16 @@
             "type": "number",
             "example": 0,
             "description": "ครั้งที่นัดส่งใหม่อัตโนมัติ (0 = ไม่ใช่)"
+          },
+          "retainedOn": {
+            "nullable": true,
+            "description": "ST4-T12 ส่งไม่สำเร็จแบบ \"ของยังอยู่บนรถ\" — ของอยู่บนรถ/เที่ยวเดิม (null = ไม่ใช่) · จุดรับของใบใหม่ยังเป็นต้นทางเดิม [OPEN PO]",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/BoardRetainedDto"
+              }
+            ]
           }
         },
         "required": [
@@ -48849,7 +48932,8 @@
           "weightKg",
           "doDate",
           "redeliveryOfNo",
-          "rescheduleCount"
+          "rescheduleCount",
+          "retainedOn"
         ]
       },
       "BoardPoolOrderDto": {

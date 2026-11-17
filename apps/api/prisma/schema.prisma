@@ -1780,6 +1780,8 @@ model DeliveryOrder {
   redeliveries        DeliveryOrder[] @relation("DoRedelivery")
   /// ST4-T12 จำนวนครั้งที่สายงานนี้ถูกนัดส่งใหม่อัตโนมัติ (ใบเดิม + 1) — เกินค่าตั้ง `dispatch.maxAutoReschedules` → SO ค้าง RESCHEDULES_EXHAUSTED
   rescheduleCount     Int             @default(0) @map("reschedule_count")
+  /// ST4-T12 ใบนี้เกิดจากนัดส่งใหม่ที่เกินค่าตั้ง (ใบสั่งค้าง/เหตุรอง RESCHEDULES_EXHAUSTED จนกว่าจะจัดรถ)
+  rescheduleExhausted Boolean         @default(false) @map("reschedule_exhausted")
   /// แยก DO (ORD-084): ใบแม่ CANCELLED (event split) → ใบลูกเลข `{split_root_no}-{split_index}`
   splitFromId         String?         @map("split_from_id") @db.Uuid
   splitFrom           DeliveryOrder?  @relation("DoSplit", fields: [splitFromId], references: [id], onDelete: Restrict)

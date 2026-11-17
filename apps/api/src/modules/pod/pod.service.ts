@@ -84,7 +84,8 @@ export class PodService {
       orderBy: { version: 'desc' },
     });
     const cur = rows[0] ?? null;
-    const cl = await this.checklist.forCustomer(d.customerId, podSetForDo(d.status as DoStatus));
+    const eff = await this.effectiveStatus(tx, d.id, d.status as DoStatus);
+    const cl = await this.checklist.forCustomer(d.customerId, podSetForDo(eff));
     const missing = validatePod(cl, cur ? this.submissionOf(cur) : EMPTY).missing;
     const names = await this.userNames(rows.map((r) => r.createdBy));
     const docs = cur ? await this.documents(tx, docIdsOf(cur)) : new Map<string, StoredDocument>();
@@ -93,7 +94,7 @@ export class PodService {
       doNo: d.doNo ?? '',
       doStatus: d.status,
       podStatus: d.podStatus,
-      editable: isPodEditable(d.status as DoStatus),
+      editable: isPodEditable(eff),
       plannedWeightKg: dec(d.weightKg),
       checklist: cl,
       missing,
@@ -120,7 +121,7 @@ export class PodService {
     // ลำดับล็อกเดียวกับงานเที่ยว/ไล่สถานะ (SO → DO) — กัน deadlock กับ StopProjectionService
     const [d] = await this.dos.lockForTrip(tx, [deliveryOrderId]);
     if (!d) throw new ProblemException('not_found');
-    const status = d.status as DoStatus;
+    const status = await this.effectiveStatus(tx, d.id, d.status as DoStatus);
     if (!isPodEditable(status))
       throw new ProblemException('pod_not_allowed', undefined, undefined, {
         doStatus: status,
@@ -382,6 +383,16 @@ export class PodService {
    * DO เพิ่งเป็น DELIVERED จากการปิดจุด (ST4-T03 projection — ผู้เรียกถือล็อก SO → DO → trip แล้ว):
    * เทียบหลักฐานที่มี (ไม่มี = ว่าง) กับ checklist ชุดสำเร็จ → UNBILLED / POD_PENDING
    */
+  /**
+   * ST4-T12 (review H2): ใบที่ยกเลิกด้วย redeliver (นัดส่งใหม่) = ส่งไม่สำเร็จ สำหรับหลักฐาน — ยังบันทึก/แก้หลักฐานชุด
+   * "ไม่สำเร็จ" ได้ (รูปหน้าร้านปิด ฯลฯ ที่จุดนั้น) · สถานะ DO ไม่เปลี่ยน (`podDoEvent(FAILED)` = ไม่มี transition)
+   */
+  private async effectiveStatus(tx: Tx, id: string, status: DoStatus): Promise<DoStatus> {
+    return status === 'CANCELLED' && (await this.dos.isRedeliverCancelled(tx, id, status))
+      ? 'FAILED'
+      : status;
+  }
+
   async settleDelivered(tx: Tx, deliveryOrderId: string): Promise<void> {
     const d = await tx.deliveryOrder.findUniqueOrThrow({
       where: { id: deliveryOrderId },

@@ -1848,6 +1848,7 @@ export function PlanningPage() {
 
   const poolCard = (o: PoolOrder) => {
     const due = poolDue(o);
+    const retained = o.deliveryOrders.find((d) => d.retainedOn)?.retainedOn ?? null;
     const late = due < day0;
     const route = `${placeText(o.origin)} → ${placeText(o.dest)}`;
     const w = fmtNum(kg(o.weightKg));
@@ -1933,6 +1934,18 @@ export function PlanningPage() {
           {t('plan.pool.l2', { d: dateText(due), r: route })}
           {late && <span style={{ color: '#B3322A', fontWeight: 600 }}>{t('plan.pool.over')}</span>}
         </div>
+        {/* ST4-T12 review M2: ส่งไม่สำเร็จแบบของยังอยู่บนรถ — ของอยู่รถคันไหน (จุดรับยังเป็นต้นทางเดิม: spec/12 §3 [OPEN PO]) */}
+        {retained && (
+          <div
+            data-testid="plan-pool-retained"
+            style={{ fontSize: 12.5, color: '#8F5500', ...ELL, lineHeight: 1.45 }}
+          >
+            {t('plan.pool.retained', {
+              plate: retained.plate ?? '—',
+              trip: retained.tripNo ?? '—',
+            })}
+          </div>
+        )}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span
             className="tms-num"

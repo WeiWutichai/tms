@@ -1,4 +1,5 @@
 import { bangkokDay } from './assignment-rules';
+import { displayResolution, type StopSeqResolution } from './stop-event';
 
 /**
  * Undelivered-retain + auto-reschedule (ST4-T12; docs/04 E2, docs/01 §4.3 `FAILED → redeliver`, spec/04 DRV-171,
@@ -73,4 +74,22 @@ export function shiftWindowToDay(
   if (!delta) return window;
   const move = (v: string | null) => (v ? new Date(Date.parse(v) + delta).toISOString() : null);
   return { start: move(window.start), end: move(window.end) };
+}
+
+/**
+ * ผลไม่สำเร็จของจุด "นิ่งแล้ว" ไหม (review H1): ไม่มี event ของจุดที่ยังมีธงค้างรอผู้จัดรถตัดสิน
+ * (ขัดลำดับ/ปิดแข่งกัน/มาหลังปิด/เวลาเพี้ยน/รับของยังไม่เสร็จ/ผลขัดกับ DO) — ยังค้าง = ยังไม่นัดส่งใหม่
+ * (ผู้จัดรถตัดสินแล้ว projection คำนวณใหม่และนัดตอนนั้น)
+ */
+export function hasUnresolvedStopFlags(
+  events: readonly { flags: readonly string[]; resolutions: readonly StopSeqResolution[] }[],
+): boolean {
+  return events.some((e) => e.flags.length > 0 && !displayResolution(e.resolutions, e.flags));
+}
+
+/** ข้อความเหตุค้าง/หมายเหตุเมื่อนัดส่งใหม่เกินค่าตั้ง (ค่าตั้ง 0 = ไม่นัดอัตโนมัติ) */
+export function rescheduleExhaustedNoteTh(max: number, label: string): string {
+  return max <= 0
+    ? `ไม่นัดส่งใหม่อัตโนมัติ (ตั้งไว้ 0 ครั้ง) — ${label}`
+    : `นัดส่งใหม่อัตโนมัติครบ ${max} ครั้งแล้ว — ${label}`;
 }

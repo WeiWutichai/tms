@@ -682,7 +682,14 @@ export function TripDrawer({
               {t('trip.foot.dos')}
             </span>
             <span className="tms-num" style={{ fontSize: 20, fontWeight: 600, color: '#101418' }}>
-              {t('trip.foot.n', { n: tr.deliveryOrders.length })}
+              {t('trip.foot.n', {
+                n: tr.deliveryOrders.length + (tr.rescheduledDeliveryOrders?.length ?? 0),
+              })}
+              {(tr.rescheduledDeliveryOrders?.length ?? 0) > 0 && (
+                <span style={{ fontSize: 13, fontWeight: 500, color: '#3B424C' }}>
+                  {t('trip.foot.rescheduled', { n: tr.rescheduledDeliveryOrders.length })}
+                </span>
+              )}
             </span>
           </div>
           <span style={{ flex: 1 }} />

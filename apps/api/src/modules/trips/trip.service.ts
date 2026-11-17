@@ -57,30 +57,11 @@ import {
   vehicleOverlapMessageTh,
 } from './rule-messages';
 
-/** ST4-T12 DO ของจุดที่ถูกส่งใหม่ (ใบเดิม CANCELLED event redeliver) → ใบใหม่ (ไม่นับใบที่ถูกแยกต่อ — นับลูกแทน) */
-const RESCHEDULED_DOS = {
-  where: { status: 'CANCELLED', redeliveries: { some: {} } },
-  orderBy: [{ doNo: 'asc' }],
-  select: {
-    id: true,
-    doNo: true,
-    redeliveries: {
-      where: { NOT: { status: 'CANCELLED', splitChildren: { some: {} } } },
-      orderBy: [{ createdAt: 'asc' }, { doNo: 'asc' }],
-      select: { id: true, doNo: true, doDate: true, status: true, rescheduleCount: true },
-    },
-  },
-} as const satisfies Prisma.TripStop$deliveryOrdersArgs;
-
 export const TRIP_INCLUDE = {
   stops: {
     where: { removedAt: null },
     orderBy: { sequence: 'asc' },
-    include: {
-      site: { select: { name: true } },
-      deliveryOrders: RESCHEDULED_DOS,
-      pickupOrders: RESCHEDULED_DOS,
-    },
+    include: { site: { select: { name: true } } },
   },
   deliveryOrders: {
     where: { status: { not: 'CANCELLED' } },
@@ -105,6 +86,22 @@ export const TRIP_INCLUDE = {
 } as const satisfies Prisma.TripInclude;
 
 export type TripRecord = Prisma.TripGetPayload<{ include: typeof TRIP_INCLUDE }>;
+
+export interface TripRescheduled {
+  id: string;
+  doNo: string | null;
+  tripStopId: string | null;
+  pickupTripStopId: string | null;
+  pickupTripStop: { status: string } | null;
+  redeliveries: {
+    id: string;
+    doNo: string | null;
+    doDate: Date;
+    status: string;
+    rescheduleCount: number;
+    rescheduleExhausted: boolean;
+  }[];
+}
 
 export interface TripWarning {
   code: string;
@@ -262,6 +259,36 @@ export class TripService {
       take: k.take,
     });
     return { rows, k };
+  }
+
+  /**
+   * ST4-T12 DO ของเที่ยวที่ส่งไม่สำเร็จแล้วนัดส่งใหม่ (ใบเดิม CANCELLED event redeliver) + ใบใหม่ — อ่านเฉพาะ GET เที่ยว
+   * (ไม่อยู่ใน TRIP_INCLUDE — review L) · ไม่นับใบใหม่ที่ถูกแยกต่อ (นับลูกแทน)
+   */
+  rescheduled(tripId: string, tx: Tx = this.db.tx): Promise<TripRescheduled[]> {
+    return tx.deliveryOrder.findMany({
+      where: { tripId, status: 'CANCELLED', redeliveries: { some: {} } },
+      orderBy: [{ doNo: 'asc' }],
+      select: {
+        id: true,
+        doNo: true,
+        tripStopId: true,
+        pickupTripStopId: true,
+        pickupTripStop: { select: { status: true } },
+        redeliveries: {
+          where: { NOT: { status: 'CANCELLED', splitChildren: { some: {} } } },
+          orderBy: [{ createdAt: 'asc' }, { doNo: 'asc' }],
+          select: {
+            id: true,
+            doNo: true,
+            doDate: true,
+            status: true,
+            rescheduleCount: true,
+            rescheduleExhausted: true,
+          },
+        },
+      },
+    });
   }
 
   async get(id: string, tx: Tx = this.db.tx): Promise<TripRecord> {

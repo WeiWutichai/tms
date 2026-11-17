@@ -257,6 +257,9 @@ export function TripTimeline({
                 {evs.map((e) => (
                   <EventLine key={e.id} e={e} t={t} hm={hm} stopType={s.type} />
                 ))}
+                {s.status === 'SKIPPED' && (
+                  <span style={{ fontSize: 12, color: '#3B424C' }}>{t('trip.tl.skippedNote')}</span>
+                )}
                 {/* ST4-T12 จุดที่ไม่สำเร็จ → DO ส่งใหม่ (นัดส่งใหม่อัตโนมัติ/ส่งซ้ำ) — ต้นแบบไม่มี: spec/12 §3 */}
                 {s.reschedules.map((r) => (
                   <span
@@ -279,8 +282,15 @@ export function TripTimeline({
                             from: r.fromDoNo,
                             no: r.doNo,
                             d: dd(r.doDate),
+                            st: t(`do.st.${r.status}` as MessageKey),
                           })
-                        : t('trip.tl.redeliver', { from: r.fromDoNo, no: r.doNo, d: dd(r.doDate) })}
+                        : t('trip.tl.redeliver', {
+                            from: r.fromDoNo,
+                            no: r.doNo,
+                            d: dd(r.doDate),
+                            st: t(`do.st.${r.status}` as MessageKey),
+                          })}
+                      {r.exhausted && t('trip.tl.reschedExhausted')}
                     </span>
                   </span>
                 ))}

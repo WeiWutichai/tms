@@ -213,6 +213,11 @@ test.describe.serial('นัดส่งใหม่อัตโนมัติ 
     await expect(card).toBeVisible();
     await expect(card).toContainText('ส่งซ้ำ');
     await expect(card).not.toContainText('เกินกำหนด');
+    // ของยังอยู่บนรถ → บอกรถ/เที่ยวเดิม (review M2)
+    await expect(card.getByTestId('plan-pool-retained')).toContainText(
+      `ของอยู่บนรถ 9${seq}-${RUN.slice(2)}`,
+    );
+    await expect(card.getByTestId('plan-pool-retained')).toContainText(x.trip.tripNo);
     await page.screenshot({ path: 'test-results/st4-reschedule-pool.png' });
     const tripsOfNew = (await (
       await page.request.get(`/v1/delivery-orders/${nd.id}`, { headers: owner })

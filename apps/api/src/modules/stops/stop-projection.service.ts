@@ -6,12 +6,15 @@ import {
   isDeliveringClose,
   isOutcomeMismatch,
   isTerminalStopState,
+  hasUnresolvedStopFlags,
   isTripExecutable,
   planAutoReschedule,
+  rescheduleExhaustedNoteTh,
   projectStops,
   tripExecutionEvents,
   type DoStatus,
   type StopProjection,
+  type StopSeqResolution,
   type StopOutcome,
   type StopRowStatus,
   type TripStatus,
@@ -55,6 +58,9 @@ interface TripDo {
   pickupTripStopId: string | null;
   rescheduleCount: number;
 }
+
+/** ธง + การตัดสินของ event ในลำดับ (ตรวจผลนิ่ง — hasUnresolvedStopFlags) */
+type SeqFlags = { flags: string[]; resolutions: StopSeqResolution[] };
 
 /** ค่าตั้งจำนวนครั้งนัดส่งใหม่อัตโนมัติ (registry) */
 export const MAX_AUTO_RESCHEDULES_KEY = 'dispatch.maxAutoReschedules' as const;
@@ -108,9 +114,13 @@ export class StopProjectionService {
     throw new ProblemException('concurrent_update');
   }
 
+  /** DO ของเที่ยวที่ต้องล็อก: ใบที่ใช้อยู่ + ใบที่ยกเลิกด้วย redeliver (อาจถูกคืน — ST4-T12 review H1b) */
   private async tripDoIds(tx: Tx, tripId: string): Promise<string[]> {
     const rows = await tx.deliveryOrder.findMany({
-      where: { tripId, status: { not: 'CANCELLED' } },
+      where: {
+        tripId,
+        OR: [{ status: { not: 'CANCELLED' } }, { status: 'CANCELLED', redeliveries: { some: {} } }],
+      },
       select: { id: true },
       orderBy: { id: 'asc' },
     });
@@ -134,7 +144,7 @@ export class StopProjectionService {
   }
 
   /** คำนวณและเขียน projection ทั้งเที่ยว — ผู้เรียกต้องถือ `lockTrip` แล้ว */
-  async project(tx: Tx, tripId: string): Promise<void> {
+  async project(tx: Tx, tripId: string, pass = 0): Promise<void> {
     const trip = await tx.trip.findUniqueOrThrow({
       where: { id: tripId },
       select: {
@@ -158,6 +168,8 @@ export class StopProjectionService {
     const byStop = new Map<string, StopEventWithResolution[]>();
     for (const r of rows) byStop.set(r.tripStopId, [...(byStop.get(r.tripStopId) ?? []), r]);
     const reasonOf = new Map(rows.map((r) => [r.id, r.reasonCodeId]));
+    // ST4-T12 ใบที่ยกเลิกด้วย redeliver (ส่งใหม่แล้ว) — คืนได้เมื่อผลไม่สำเร็จถูกพลิก · จุดที่เหลือแต่ใบเหล่านี้ = ข้าม
+    const redelivered = await this.redeliveredDos(tx, tripId);
     let dos = await this.loadDos(tx, tripId);
 
     // 1. จุดรับก่อน แล้วจุดส่ง (ธงจุดรับยังไม่ปิดขึ้นกับผลของจุดรับ)
@@ -195,7 +207,13 @@ export class StopProjectionService {
         return {
           id: s.id,
           sequence: s.sequence,
-          currentStatus: s.status as StopRowStatus,
+          // ST4-T12 (review L): จุดที่ไม่มี DO ที่ใช้อยู่แล้ว (ทุกใบส่งใหม่) และยังไม่มี event = ข้าม (ปิดงานไม่ได้)
+          // ใบถูกคืน → กลับมารอดำเนินการ · SKIPPED มาจากที่นี่ที่เดียว
+          currentStatus: (stopWithoutActiveDo(s.id, dos, redelivered)
+            ? 'SKIPPED'
+            : s.status === 'SKIPPED'
+              ? 'PENDING'
+              : s.status) as StopRowStatus,
           state: seq.state,
           outcome: seq.outcome,
           enRouteAt: seq.enRouteAt,
@@ -221,6 +239,20 @@ export class StopProjectionService {
     // 3. DO (โหลดเต็มเฉพาะใบที่เปลี่ยน — move ใช้ id/status/version)
     const statusOf = new Map(projections.map((p) => [p.id, p]));
     const moved = new Set<string>();
+    // 3a. ST4-T12 (review H1b): ผลไม่สำเร็จที่ทำให้ส่งใหม่ถูกพลิก → คืนใบเดิม (DO ส่งใหม่ยังไม่จัดรถ) หรือขึ้นธงให้ผู้จัดรถ
+    const conflictStops = new Set<string>();
+    let restored = false;
+    for (const c of redelivered) {
+      const drop = c.tripStopId ? statusOf.get(c.tripStopId) : undefined;
+      const pickup = c.pickupTripStopId ? statusOf.get(c.pickupTripStopId) : undefined;
+      if (drop?.status === 'FAILED' || pickup?.status === 'FAILED') continue;
+      const note = 'ผลส่งไม่สำเร็จถูกเปลี่ยน — ยกเลิกใบนัดส่งใหม่และคืนใบเดิมเข้าเที่ยว (ST4-T12)';
+      if (await this.dos.restoreRedelivered(tx, c.id, note)) {
+        moved.add(c.salesOrderId);
+        restored = true;
+      } else if (c.tripStopId) conflictStops.add(c.tripStopId);
+    }
+    if (restored) dos = await this.loadDos(tx, tripId);
     for (const d0 of dos) {
       let d: TripDo = d0;
       for (let i = 0; i < 3; i++) {
@@ -250,7 +282,15 @@ export class StopProjectionService {
     if (moved.size) dos = await this.loadDos(tx, tripId);
 
     // 3b. ST4-T12 นัดส่งใหม่อัตโนมัติ: DO ส่งไม่สำเร็จด้วยเหตุผลที่ติ๊ก auto-reschedule → DO ใหม่วันถัดไป (นอกเที่ยวนี้)
-    const exhausted = await this.autoReschedule(tx, tripId, dos, statusOf, rows);
+    const exhausted = await this.autoReschedule(
+      tx,
+      tripId,
+      dos,
+      statusOf,
+      rows,
+      // resolutions ผ่าน toSeqEvent แล้ว (มี `at`) — ชนิดของ Prisma ซ้อนอยู่จึงแปลงชนิดที่นี่
+      seqs as unknown as Map<string, { events: SeqFlags[] }>,
+    );
     if (exhausted) {
       for (const so of exhausted.moved) moved.add(so);
       if (exhausted.moved.length) dos = await this.loadDos(tx, tripId);
@@ -264,6 +304,13 @@ export class StopProjectionService {
         (d) => d.tripStopId === p.id && isOutcomeMismatch(p.status, d.status as DoStatus),
       );
       if (hit.length) mismatch.add(p.lastEventId);
+    }
+    // DO ส่งใหม่ถูกจัดรถแล้ว แต่ผลของจุดเปลี่ยนเป็นไม่ใช่ไม่สำเร็จ → ธงแจ้งที่ event ปิดงานล่าสุดของจุด (ไม่เงียบ)
+    for (const stopId of conflictStops) {
+      const close = (byStop.get(stopId) ?? [])
+        .filter((e) => e.type === 'COMPLETE' || e.type === 'FAIL')
+        .sort((a, b) => b.receivedAt.getTime() - a.receivedAt.getTime())[0];
+      if (close) mismatch.add(close.id);
     }
 
     // 4. เที่ยว (+ เลขไมล์เมื่อจบ)
@@ -291,12 +338,46 @@ export class StopProjectionService {
     }
 
     // 5. SO (+ ค้าง RESCHEDULES_EXHAUSTED หลัง DO ส่งใหม่ลงกล่องรอจัด)
-    if (moved.size) await this.orderState.syncFromDeliveryOrders(tx, [...moved]);
+    if (moved.size)
+      await this.orderState.syncFromDeliveryOrders(
+        tx,
+        [...moved],
+        new Map(
+          (exhausted?.moved ?? []).map((so) => [
+            so,
+            'นัดส่งใหม่อัตโนมัติ — ใบส่งของใหม่กลับรอจัดรถ (ST4-T12)',
+          ]),
+        ),
+      );
     for (const [so, note] of exhausted?.hold ?? [])
       await this.orderState.holdReschedulesExhausted(tx, [so], note);
 
     // 6. ช่อง projection ของ stop_event (ธงล่าสุด → การตัดสินที่มีผลคำนวณใหม่)
     await this.writeEventColumns(tx, stops, byStop, pending, mismatch, counted);
+
+    // ส่งใหม่/คืนใบในรอบนี้ → คำนวณอีกรอบ (จุดที่ไม่เหลือ DO = ข้าม, เที่ยวจบ, ใบที่คืนไล่ตามจุด) — ผลเดิมไม่ออก event ซ้ำ
+    if (pass === 0 && (restored || (exhausted?.moved.length ?? 0) > 0))
+      await this.project(tx, tripId, 1);
+  }
+
+  /** ใบของเที่ยวที่ยกเลิกด้วย redeliver (ยังไม่ถูกคืน) */
+  private async redeliveredDos(tx: Tx, tripId: string): Promise<TripDo[]> {
+    const rows = await tx.deliveryOrder.findMany({
+      where: { tripId, status: 'CANCELLED', redeliveries: { some: {} } },
+      select: {
+        id: true,
+        status: true,
+        version: true,
+        salesOrderId: true,
+        tripStopId: true,
+        pickupTripStopId: true,
+        rescheduleCount: true,
+      },
+      orderBy: { id: 'asc' },
+    });
+    const out: TripDo[] = [];
+    for (const r of rows) if (await this.dos.isRedeliverCancelled(tx, r.id, r.status)) out.push(r);
+    return out;
   }
 
   /**
@@ -312,6 +393,7 @@ export class StopProjectionService {
     dos: TripDo[],
     statusOf: Map<string, StopProjection>,
     rows: StopEventWithResolution[],
+    seqs: Map<string, { events: SeqFlags[] }>,
   ): Promise<{ moved: string[]; hold: Map<string, string> } | null> {
     const failed = dos.filter((d) => d.status === 'FAILED');
     if (!failed.length) return null;
@@ -327,6 +409,8 @@ export class StopProjectionService {
       const stop = drop?.status === 'FAILED' ? drop : pickup?.status === 'FAILED' ? pickup : null;
       const ev = stop?.lastEventId ? events.get(stop.lastEventId) : undefined;
       if (!stop || !ev) continue;
+      // review H1: ผลยังไม่นิ่ง (ธงค้าง/ปิดแข่งกันรอตัดสิน) → ยังไม่นัด — ตัดสินแล้วคำนวณใหม่จะนัดตอนนั้น
+      if (hasUnresolvedStopFlags(seqs.get(stop.id)?.events ?? [])) continue;
       const reason = (ev.payload as { reason?: PayloadReason } | null)?.reason ?? null;
       if (reason?.flags?.autoReschedule !== true) continue;
       max ??= Number(
@@ -343,11 +427,12 @@ export class StopProjectionService {
       })!;
       const label = reason.label ?? reason.code ?? '';
       const note = plan.exhausted
-        ? `นัดส่งใหม่อัตโนมัติครบ ${max} ครั้งแล้ว — ${label}`
+        ? rescheduleExhaustedNoteTh(max, label)
         : `นัดส่งใหม่อัตโนมัติ ครั้งที่ ${plan.attempt} (${plan.doDate}) — ${label}`;
       const nd = await this.dos.redeliver(tx, d.id, {
         doDate: plan.doDate,
         rescheduleCount: plan.attempt,
+        exhausted: plan.exhausted,
         reasonCodeId: ev.reasonCodeId,
         note,
         mode: 'auto',
@@ -472,4 +557,15 @@ export class StopProjectionService {
       });
     return true;
   }
+}
+
+/** จุดที่ DO ทุกใบถูกส่งใหม่ (ไม่มีใบที่ใช้อยู่ — ST4-T12) */
+function stopWithoutActiveDo(
+  stopId: string,
+  active: { tripStopId: string | null; pickupTripStopId: string | null }[],
+  redelivered: { tripStopId: string | null; pickupTripStopId: string | null }[],
+): boolean {
+  const on = (d: { tripStopId: string | null; pickupTripStopId: string | null }) =>
+    d.tripStopId === stopId || d.pickupTripStopId === stopId;
+  return redelivered.some(on) && !active.some(on);
 }

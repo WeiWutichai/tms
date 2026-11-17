@@ -526,6 +526,14 @@ export class OrderDto {
     description: 'เหตุค้างทั้งหมดของการรับงานครั้งล่าสุด (ตัวแรก = holdReason)',
   })
   holdCodes!: string[];
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: '2026-11-18',
+    description:
+      'ST4-T12 วันที่นัดส่งใหม่ล่าสุดของ DO ส่งใหม่ที่ยังรอจัด (null = ไม่มี) — หน้าใบค้าง/รายการแสดงแทนกำหนดส่งเดิม',
+  })
+  rescheduledDate!: string | null;
   @ApiProperty({ enum: ['AVAILABLE', 'RATE_MISSING', 'CALCULATION_FAILURE'] })
   pricingStatus!: string;
   @ApiProperty({ type: [OrderPricingReasonDto] }) pricingReasons!: OrderPricingReasonDto[];

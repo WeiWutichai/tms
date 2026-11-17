@@ -322,7 +322,13 @@ export class PlanningService {
         destStopSeq: true,
         doDate: true,
         rescheduleCount: true,
-        redeliveryOf: { select: { doNo: true } },
+        redeliveryOf: {
+          select: {
+            doNo: true,
+            tripStop: { select: { outcome: true } },
+            trip: { select: { tripNo: true, vehiclePlateSnapshot: true } },
+          },
+        },
         originSite: { select: { name: true, address: true } },
         destSite: { select: { name: true, address: true } },
         salesOrder: {
@@ -381,6 +387,14 @@ export class PlanningService {
             weightKg: dec(d.weightKg),
             doDate: d.doDate.toISOString().slice(0, 10),
             redeliveryOfNo: d.redeliveryOf?.doNo ?? null,
+            // review M2: ส่งไม่สำเร็จแบบของยังอยู่บนรถ → บอกว่าของอยู่รถคันไหน/เที่ยวไหน (จุดรับยังเป็นต้นทางเดิม — [OPEN PO])
+            retainedOn:
+              d.redeliveryOf?.tripStop?.outcome === 'UNDELIVERED_RETAIN' && d.redeliveryOf.trip
+                ? {
+                    plate: d.redeliveryOf.trip.vehiclePlateSnapshot,
+                    tripNo: d.redeliveryOf.trip.tripNo,
+                  }
+                : null,
             rescheduleCount: d.rescheduleCount,
           })),
         };

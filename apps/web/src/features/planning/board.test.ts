@@ -417,6 +417,7 @@ describe('Filter รถที่รับได้สองทาง (ST3-T15)',
       doDate,
       redeliveryOfNo,
       rescheduleCount: redeliveryOfNo ? 1 : 0,
+      retainedOn: null,
     });
     const plain = { requestedDate: '2026-11-16', deliveryOrders: [d('2026-11-16', null)] };
     const again = {

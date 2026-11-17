@@ -6,7 +6,6 @@ import {
   DO_UNDELIVERED_STATUSES,
   SO_TRANSITIONS,
   canCancelOrder,
-  isIntakeHoldCode,
   orderDeliveryEvent,
   transition,
   type SoEvent,
@@ -14,7 +13,6 @@ import {
 } from '@tms/domain';
 import { AuditService } from '../../audit/audit.service';
 import { ProblemException } from '../../common/problem';
-import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
 import { StateService } from '../../state/state.service';
 import {
@@ -174,30 +172,16 @@ export class OrderStateService {
         where: { id },
         select: { status: true, holdReasonCode: { select: { code: true } } },
       });
-      // ST4-T12: DO ส่งใหม่กลับกล่องรอจัดแล้วทางเข้าประเมินใบค้างใหม่ (เช่น RATE_MISSING) → เหตุนัดส่งใหม่ครบสำคัญกว่า
-      // แทนเหตุของทางเข้า (ไม่ใช่ transition — ON_HOLD คงเดิม, ลงประวัติ hold_reason_changed) · เคลียร์ตอนจัดรถใหม่เหมือนกัน
-      if (
-        so?.status === 'ON_HOLD' &&
-        code === 'RESCHEDULES_EXHAUSTED' &&
-        isIntakeHoldCode(so.holdReasonCode?.code)
-      ) {
-        await tx.salesOrder.update({
-          where: { id },
-          data: { holdReasonCodeId: rc.id, holdNote: note, version: { increment: 1 } },
-        });
-        const ctx = requestContext.require();
-        await tx.docStatusHistory.create({
-          data: {
-            tenantId: ctx.tenantId!,
-            docType: ENTITY,
-            docId: id,
-            fromStatus: 'ON_HOLD',
-            toStatus: 'ON_HOLD',
-            event: 'hold_reason_changed',
-            actorId: ctx.actorId ?? null,
-            reasonCodeId: rc.id,
-            note,
-          },
+      // ST4-T12 (review M1): ค้างด้วยเหตุอื่นอยู่แล้ว (RATE_MISSING / ไม่พร้อม ฯลฯ) → คงเหตุหลักเดิม
+      // RESCHEDULES_EXHAUSTED เป็นเหตุรอง (holdCodes จาก DO `reschedule_exhausted`) + audit ให้เห็น
+      if (so?.status === 'ON_HOLD' && code === 'RESCHEDULES_EXHAUSTED') {
+        await this.audit.record({
+          action: `${ENTITY}.hold_code_added`,
+          entityType: ENTITY,
+          entityId: id,
+          before: { holdReason: so.holdReasonCode?.code ?? null },
+          after: { holdReason: so.holdReasonCode?.code ?? null, added: code },
+          reason: note,
         });
         held.push(id);
         continue;
@@ -232,11 +216,17 @@ export class OrderStateService {
     return held;
   }
 
-  async syncFromDeliveryOrders(tx: Tx, salesOrderIds: string[]): Promise<void> {
-    for (const id of [...new Set(salesOrderIds)].sort()) await this.syncOne(tx, id);
+  /** `notes` = หมายเหตุในประวัติสถานะต่อ SO (ST4-T12: ถอยกลับรอจัดเพราะนัดส่งใหม่ — ไม่ใช่การถอนรถธรรมดา) */
+  async syncFromDeliveryOrders(
+    tx: Tx,
+    salesOrderIds: string[],
+    notes: ReadonlyMap<string, string> = new Map(),
+  ): Promise<void> {
+    for (const id of [...new Set(salesOrderIds)].sort())
+      await this.syncOne(tx, id, notes.get(id) ?? null);
   }
 
-  private async syncOne(tx: Tx, id: string): Promise<void> {
+  private async syncOne(tx: Tx, id: string, note: string | null = null): Promise<void> {
     const so = await tx.salesOrder.findUnique({
       where: { id },
       select: { status: true, holdReasonCode: { select: { code: true } } },
@@ -273,7 +263,8 @@ export class OrderStateService {
       })) > 0;
     if ((status === 'RECEIVED' || status === 'ON_HOLD') && onTrip && !rejectedPending) step('plan');
     if (status === 'IN_TRANSIT' && !moving && !finished) step('recall');
-    if (status === 'PLANNED' && moving) step('dispatch');
+    // ST4-T12: ใบที่คืนจาก redeliver (ส่งไม่สำเร็จถูกพลิก) อาจส่งถึงแล้วขณะ SO ยัง PLANNED → ผ่าน IN_TRANSIT แล้วไล่การส่ง
+    if (status === 'PLANNED' && (moving || (onTrip && finished))) step('dispatch');
     else if (status === 'PLANNED' && !onTrip) step('unplan');
     if (status === 'IN_TRANSIT' || status === 'PARTIALLY_DELIVERED') {
       const allDelivered =
@@ -291,6 +282,7 @@ export class OrderStateService {
         table: SO_TRANSITIONS,
         from,
         event,
+        note: event === 'recall' || event === 'unplan' ? note : null,
         eventType: 'order.updated',
         apply: async (next) => {
           const r = await tx.salesOrder.updateMany({

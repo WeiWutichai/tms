@@ -639,6 +639,18 @@ export class TripStopRescheduleDto {
   @ApiProperty({ example: 'DRAFT', description: 'สถานะปัจจุบันของ DO ใบใหม่' }) status!: string;
   @ApiProperty({ example: 1, description: 'ครั้งที่นัดส่งใหม่อัตโนมัติ (0 = ส่งซ้ำมือ)' })
   attempt!: number;
+  @ApiProperty({
+    description:
+      'ครั้งนี้เกินค่าตั้ง `dispatch.maxAutoReschedules` (ใบสั่งค้าง/เหตุรอง RESCHEDULES_EXHAUSTED)',
+  })
+  exhausted!: boolean;
+}
+
+export class TripRescheduledDoDto {
+  @ApiProperty({ example: 'do_3f2a…' }) id!: string;
+  @ApiProperty({ example: 'DO-6911-0001' }) doNo!: string;
+  @ApiProperty({ nullable: true, type: String }) pickupStopId!: string | null;
+  @ApiProperty({ nullable: true, type: String }) dropStopId!: string | null;
 }
 
 class TripRouteSummaryDto {
@@ -731,6 +743,12 @@ export class TripDto {
   @ApiProperty({ nullable: true, type: String }) cancelReason!: string | null;
   @ApiProperty({ type: [TripStopDto] }) stops!: TripStopDto[];
   @ApiProperty({ type: [TripDeliveryOrderDto] }) deliveryOrders!: TripDeliveryOrderDto[];
+  @ApiProperty({
+    type: () => [TripRescheduledDoDto],
+    description:
+      'ST4-T12 DO ที่ส่งไม่สำเร็จในเที่ยวนี้แล้วนัดส่งใหม่ (ใบเดิม CANCELLED) — "ส่งไม่สำเร็จ · นัดส่งใหม่" · มีค่าเฉพาะ GET /trips/{id} (อื่น = [])',
+  })
+  rescheduledDeliveryOrders!: TripRescheduledDoDto[];
   @ApiProperty({
     example: '5400',
     description: 'น้ำหนักรวมของ DO ในเที่ยว (กก.)',
