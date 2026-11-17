@@ -590,6 +590,36 @@ export class TripStopDto {
       'ที่มา: ROUTE = เส้นทางใน route master · ESTIMATE = ค่าประมาณจากพิกัด (เส้นตรง × 1.3, 50 กม./ชม.) · SAME_SITE = จุดเดียวกัน',
   })
   legSource!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    format: 'date-time',
+    description: 'ST4-T04 เวลาถึงจุด (ARRIVE แรกที่นับ — projection ST4-T03)',
+  })
+  arrivedAt!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    format: 'date-time',
+    description:
+      'เวลาออกจากจุด = DEPART ของจุดถัดไป (docs/01 §3.9) ถ้าไม่มี = เวลาปิดงานของจุดนี้ · ไม่เคยถึง = null',
+  })
+  departedAt!: string | null;
+  @ApiProperty({
+    nullable: true,
+    enum: ['DELIVERED', 'PARTIAL', 'FAILED', 'UNDELIVERED_RETAIN'],
+    type: String,
+    description: 'ผลของจุดที่ปิดแล้ว',
+  })
+  outcome!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: 'evt_3f2a…',
+    description:
+      'event ล่าสุดที่เปลี่ยนสถานะจุด — รายละเอียด/ชื่อผู้บันทึกจาก `GET /v1/trips/{id}/events`',
+  })
+  lastEventId!: string | null;
 }
 
 class TripRouteSummaryDto {
