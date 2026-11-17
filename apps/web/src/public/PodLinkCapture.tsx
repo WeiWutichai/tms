@@ -144,6 +144,8 @@ export function PodLinkCapture({
     }
     if (p.code === 'pod_exists') return t('pdl.pod.e.exists');
     if (p.code === 'stop_not_arrived') return t('pdl.pod.e.notArrived');
+    if (p.code === 'stop_not_ready') return t('pdl.pod.e.notReady');
+    if (p.code === 'stop_already_closed') return t('pdl.pod.e.alreadyClosed');
     if (p.code === 'pod_not_allowed') return t('pdl.pod.e.notAllowed');
     if (p.code === 'trip_not_in_progress') return t('pdl.e.notInProgress');
     if (p.code === 'validation_failed' && p.errors?.some((x) => /Document/.test(x.field ?? '')))

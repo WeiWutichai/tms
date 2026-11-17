@@ -236,7 +236,7 @@ export class PodLinkService {
   /**
    * กดถึง/ออก/ปิดงาน — จุดต้องอยู่ในเที่ยวของลิงก์ (ไม่ใช่ = 404 กันเดา id ข้ามเที่ยว/บริษัท)
    * ST4-T09 ปิดงานจุดส่ง = COMPLETE + `pod` (หลักฐานของ DO ที่จุดนี้) ในคำขอ/transaction เดียว:
-   * ต้องกดถึงจุดส่งแล้ว (409 `stop_not_arrived`) · POD ต้องครบ checklist (422 `pod_incomplete` — ไม่ปิดงาน) ·
+   * ต้องกดถึงจุดส่งแล้ว (409 `stop_not_arrived`; ปิดแล้ว/แข่งกัน `stop_already_closed`; จุดก่อนหน้ายังไม่ปิด/ขัดลำดับ `stop_not_ready`) · POD ต้องครบ checklist (422 `pod_incomplete` — ไม่ปิดงาน) ·
    * DO อื่นที่จุดเดียวกันเป็น DELIVERED → POD_PENDING/UNBILLED ตาม checklist ของตัวเอง (เหมือนปิดงานในเว็บ) แล้วส่ง POD ภายหลังได้
    * · ส่งซ้ำ clientEventId เดิม = 200 + ผลเดิม (ไม่บันทึก POD ซ้ำ)
    */
@@ -266,7 +266,10 @@ export class PodLinkService {
       throw new ProblemException('trip_not_in_progress', undefined, undefined, {
         tripStatus: trip.status,
       });
-    const closeDrop = body.type === 'COMPLETE' && stop.type !== 'PICKUP';
+    // จุดคืนสินค้า (RETURN) ปิดงานผ่านลิงก์ไม่ได้ (ผู้จัดรถทำในเว็บ)
+    if (body.type === 'COMPLETE' && stop.type === 'RETURN')
+      throw field422('type', 'not_applicable', 'return stops cannot be closed via this link');
+    const closeDrop = body.type === 'COMPLETE' && stop.type === 'DELIVERY';
     if (closeDrop && !body.pod)
       throw field422(
         'pod',
@@ -299,7 +302,9 @@ export class PodLinkService {
       if (!dropDo)
         throw field422('pod.doNo', 'not_found', 'delivery order is not delivered at this stop');
       if (!isReplay) {
-        if (stop.status !== 'ARRIVED') throw new ProblemException('stop_not_arrived');
+        if (stop.status === 'PENDING') throw new ProblemException('stop_not_arrived');
+        // ปิด/ข้ามไปแล้ว (เช่น ผู้จัดรถปิดแทน) → ส่ง POD อย่างเดียวที่ POST …/pod
+        if (stop.status !== 'ARRIVED') throw new ProblemException('stop_already_closed');
         if (await tx.deliveryOrderPod.count({ where: { deliveryOrderId: dropDo.id } }))
           throw new ProblemException('pod_exists');
         await this.assertLinkFiles(linkId, dropDo.id, body.pod!);
@@ -335,8 +340,18 @@ export class PodLinkService {
         const v = await this.pods.view(dropDo.id, tx);
         pod = v.current ? captureResult(dropDo.doNo!, v, true) : undefined;
       } else {
-        // ปิดงานไม่มีผล (ธง/ขัดลำดับ) → DO ยังไม่ส่ง บันทึก POD ไม่ได้ — ยกเลิกทั้งคำขอ ให้ผู้จัดรถตรวจสอบ
-        if (me && !me.counted) throw new ProblemException('stop_not_arrived');
+        // ปิดงานไม่มีผล → DO ยังไม่ส่ง บันทึก POD ไม่ได้ — ยกเลิกทั้งคำขอ (rollback event ด้วย):
+        // จุดถูกปิดโดยคำขออื่นที่มาก่อน (แข่งกัน) = `stop_already_closed` · อื่น ๆ (จุดรับยังไม่ปิด/ขัดลำดับ) = `stop_not_ready`
+        const now = await tx.deliveryOrder.findFirst({
+          where: { id: dropDo.id },
+          select: { status: true },
+        });
+        if ((me && !me.counted) || !now || !SUBMITTABLE.has(now.status)) {
+          const closedByOther = seq.events.some(
+            (e) => e.id !== out.event.id && e.type === 'COMPLETE' && e.counted,
+          );
+          throw new ProblemException(closedByOther ? 'stop_already_closed' : 'stop_not_ready');
+        }
         pod = await this.submitPod(dropDo, body.pod!);
       }
     }
@@ -416,8 +431,29 @@ export class PodLinkService {
         createdAt: { gt: new Date(this.clock.now().getTime() - 3600_000) },
       },
     });
-    if (hour >= LINK_POD_FILES_PER_HOUR)
-      throw new ProblemException('rate_limited', 'too many files for this link — try again later');
+    if (hour >= LINK_POD_FILES_PER_HOUR) {
+      // retryAfter = เมื่อไฟล์เก่าสุดในชั่วโมงหลุดหน้าต่าง (วินาที)
+      const oldest = await tx.storedDocument.findFirst({
+        where: {
+          createdBy: actor,
+          createdAt: { gt: new Date(this.clock.now().getTime() - 3600_000) },
+        },
+        orderBy: { createdAt: 'asc' },
+        select: { createdAt: true },
+      });
+      const retryAfter = Math.max(
+        1,
+        Math.ceil(
+          ((oldest?.createdAt.getTime() ?? 0) + 3600_000 - this.clock.now().getTime()) / 1000,
+        ),
+      );
+      throw new ProblemException(
+        'rate_limited',
+        'too many files for this link — try again later',
+        undefined,
+        { retryAfter },
+      );
+    }
     const doc = await tx.storedDocument.create({
       data: {
         tenantId: requestContext.require().tenantId!,

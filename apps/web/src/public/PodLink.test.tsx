@@ -464,6 +464,24 @@ describe('ส่ง POD ผ่านลิงก์ (ST4-T09)', () => {
     expect((screen.getByTestId('pdl-q') as HTMLInputElement).value).toBe('');
   });
 
+  it('review L: ปิดงานไม่ได้ → ข้อความตามรหัส (stop_not_ready / stop_already_closed)', async () => {
+    search['DO-2611-00069'] = pv({ query: 'DO-2611-00069', match: atDropDo() });
+    show();
+    await type('DO-2611-00069');
+    await pickPhotos([png(1)]);
+    sign();
+    const err = (code: string) =>
+      new ApiError({ type: 'x', title: 'x', status: 409, code } as never);
+    mutateAsync.mockRejectedValueOnce(err('stop_not_ready'));
+    fireEvent.click(screen.getByTestId('pdl-pod-submit'));
+    expect(await screen.findByText('ปิดงานจุดก่อนหน้าก่อน')).toBeTruthy();
+    mutateAsync.mockRejectedValueOnce(err('stop_already_closed'));
+    fireEvent.click(screen.getByTestId('pdl-pod-submit'));
+    expect(
+      await screen.findByText('จุดนี้ถูกปิดแล้ว — ส่ง POD ของ DO นี้ได้ (ค้นเลข DO อีกครั้ง)'),
+    ).toBeTruthy();
+  });
+
   it('เกณฑ์ตรวจรับ: รูปที่ 6 ถูกปฏิเสธ — อัปโหลดได้ 5 รูป ปุ่ม "+ เพิ่มรูป" หาย + ข้อความ', async () => {
     search['DO-2611-00069'] = pv({ query: 'DO-2611-00069', match: atDropDo() });
     show();

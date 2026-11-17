@@ -157,7 +157,7 @@ describe('subcon link POD (ST4-T09)', () => {
         })
         .expect(201)
     ).body as { id: string; name: string };
-  const newTrip = async (opts: { split?: boolean } = {}) => {
+  const newTrip = async (opts: { split?: boolean; both?: boolean } = {}) => {
     const [a, b] = [await newSite('คลังบางปู'), await newSite('ท่าเรือแหลมฉบัง ประตู 3')];
     const cust = (
       await api(app, admin)
@@ -219,7 +219,13 @@ describe('subcon link POD (ST4-T09)', () => {
     const t = (
       await api(app, admin)
         .post('/v1/trips')
-        .send({ tripDate: today, deliveryOrderIds: [encodeId('deliveryOrder', d!.id)] })
+        .send({
+          tripDate: today,
+          deliveryOrderIds: [
+            encodeId('deliveryOrder', d!.id),
+            ...(opts.both && extraDo ? [extraDo] : []),
+          ],
+        })
         .expect(201)
     ).body as { id: string; tripNo: string; version: number };
     return { ...t, soId: so.id, extraDo };
@@ -235,13 +241,13 @@ describe('subcon link POD (ST4-T09)', () => {
     return { ...l, token: new URL(l.url).pathname.split('/').pop()! };
   };
   /** รถร่วมพร้อมรถ + คนขับ + เที่ยวที่เสนองานแล้ว */
-  async function offered(opts: { docUntil?: number; licence?: string } = {}) {
+  async function offered(opts: { docUntil?: number; licence?: string; twoDos?: boolean } = {}) {
     const C = await newCarrier('0812345678');
     const plate = `74-${String(5000 + ++seed)}`;
     const v = await vehicle(C.id, plate, opts.docUntil ?? 200);
     const phone = `08${String(10_000_000 + ++seed).slice(-8)}`;
     const d = await driver(C.id, phone, opts.licence);
-    const t = await newTrip();
+    const t = await newTrip(opts.twoDos ? { split: true, both: true } : {});
     const link = await hire(t.id, C.id);
     return { C, v, d, t, plate, phone, link };
   }
@@ -253,8 +259,8 @@ describe('subcon link POD (ST4-T09)', () => {
     });
 
   /** รถร่วมรับงานผ่านลิงก์ข้อเสนอ → ลิงก์งาน (pod) */
-  async function accepted() {
-    const o = await offered();
+  async function accepted(opts: { twoDos?: boolean } = {}) {
+    const o = await offered(opts);
     await pub()
       .post(`/v1/public/offers/${o.link.token}/accept`)
       .send({ vehiclePlate: o.plate, driverName: 'สมชาย', driverPhone: o.phone })
@@ -768,5 +774,163 @@ describe('subcon link POD (ST4-T09)', () => {
     let last = 0;
     for (let i = 0; i < 31; i++) last = (await capture(tok, { doNo: 'DO-0000-00000' })).status;
     expect(last).toBe(429);
+  });
+
+  it('review L: รหัสข้อผิดพลาด — จุดรับยังไม่ปิด → 409 stop_not_ready · ปิดพร้อมกันสองคำขอ → หนึ่ง 201 อีกหนึ่ง 409 (ไม่ปิดซ้ำ ไม่มี POD ซ้ำ)', async () => {
+    // ถึงจุดส่งโดยไม่ปิดจุดรับ
+    const a = await accepted();
+    await dispatch(a.t.id);
+    const m = (await view(a.podToken, a.doNo).expect(200)).body.match;
+    await press(a.podToken, m.delivery.id, { type: 'ARRIVE', occurredAt: bkk(5) }).expect(201);
+    const p1 = await upload(a.podToken, a.doNo);
+    const sig = await upload(a.podToken, a.doNo, 'POD_SIGNATURE');
+    const pod = { doNo: a.doNo, photoDocumentIds: [p1], signatureDocumentId: sig };
+    const nr = (await close(a.podToken, m.delivery.id, pod).expect(409)).body;
+    expect(nr.code).toBe('stop_not_ready');
+    expect(nr.title).toBe('ปิดงานจุดก่อนหน้าก่อน');
+    expect(
+      await db.stopEvent.count({
+        where: { tripStopId: uuid('tripStop', m.delivery.id), type: 'COMPLETE' },
+      }),
+    ).toBe(0);
+
+    // แข่งกัน: สองเครื่องกดส่งพร้อมกัน (clientEventId ต่างกัน)
+    const b = await atDrop();
+    const q1 = await upload(b.podToken, b.doNo);
+    const s1 = await upload(b.podToken, b.doNo, 'POD_SIGNATURE');
+    const body = { doNo: b.doNo, photoDocumentIds: [q1], signatureDocumentId: s1 };
+    const rs = await Promise.all([
+      close(b.podToken, b.m.delivery.id, body),
+      close(b.podToken, b.m.delivery.id, body),
+    ]);
+    expect(rs.map((r) => r.status).sort()).toEqual([201, 409]);
+    expect(['stop_already_closed', 'trip_not_in_progress', 'pod_exists']).toContain(
+      rs.find((r) => r.status === 409)!.body.code,
+    );
+    expect(await db.deliveryOrderPod.count({ where: { deliveryOrderId: b.doId } })).toBe(1);
+  });
+
+  it('review L: ส่ง POD อย่างเดียวพร้อมกันสองคำขอ → หนึ่ง 201 อีกหนึ่ง 409 pod_exists · จองไฟล์เกิน 60/ชม. → 429 + retryAfter', async () => {
+    const a = await atDrop();
+    await api(app, admin)
+      .post(`/v1/stops/${a.m.delivery.id}/complete`)
+      .send({
+        clientEventId: randomUUID(),
+        occurredAt: new Date().toISOString(),
+        outcome: 'DELIVERED',
+      })
+      .expect(201);
+    const p1 = await upload(a.podToken, a.doNo);
+    const p2 = await upload(a.podToken, a.doNo);
+    const sig = await upload(a.podToken, a.doNo, 'POD_SIGNATURE');
+    const rs = await Promise.all([
+      capture(a.podToken, { doNo: a.doNo, photoDocumentIds: [p1], signatureDocumentId: sig }),
+      capture(a.podToken, { doNo: a.doNo, photoDocumentIds: [p2], signatureDocumentId: sig }),
+    ]);
+    expect(rs.map((r) => r.status).sort()).toEqual([201, 409]);
+    expect(rs.find((r) => r.status === 409)!.body.code).toBe('pod_exists');
+    expect(await db.deliveryOrderPod.count({ where: { deliveryOrderId: a.doId } })).toBe(1);
+
+    // เพดาน 60 ไฟล์/ชม. ต่อลิงก์ (นับทุก DO)
+    const b = await atDrop();
+    const link = `link:${uuid('magicLink', b.pod.linkId)}`;
+    await db.storedDocument.createMany({
+      data: Array.from({ length: 60 }, () => ({
+        tenantId,
+        status: 'PENDING',
+        kind: 'POD_PHOTO',
+        mimeType: 'image/png',
+        sizeBytes: 10,
+        entityType: 'delivery_order',
+        entityId: randomUUID(),
+        createdBy: link,
+      })),
+    });
+    const lim = (
+      await reserve(b.podToken, {
+        doNo: b.doNo,
+        kind: 'POD_PHOTO',
+        mime: 'image/png',
+        bytes: 10,
+      }).expect(429)
+    ).body;
+    expect(lim.code).toBe('rate_limited');
+    expect(lim.retryAfter).toBeGreaterThan(3000);
+    expect(lim.retryAfter).toBeLessThanOrEqual(3600);
+  });
+
+  it('review L: จุดส่งเดียวมีหลาย DO — ปิดงานพร้อม POD ของ DO หนึ่ง → อีก DO เป็น POD_PENDING (checklist บังคับ) แล้วส่ง POD ทีหลังได้', async () => {
+    // SO เดียวแยกเป็น 2 DO ไปจุดส่งเดียวกัน แล้วใส่เที่ยวเดียวกัน
+    const a = await accepted({ twoDos: true });
+    const dos = await db.deliveryOrder.findMany({
+      where: { tripId: uuid('trip', a.t.id) },
+      select: { id: true, doNo: true, tripId: true, tripStopId: true },
+      orderBy: { doNo: 'asc' },
+    });
+    expect(dos).toHaveLength(2);
+    // ทั้งสองใบอยู่ในเที่ยว + จุดส่งเดียวกัน
+    expect(new Set(dos.map((d) => d.tripId)).size).toBe(1);
+    expect(dos[0]!.tripId).toBe(uuid('trip', a.t.id));
+    expect(new Set(dos.map((d) => d.tripStopId)).size).toBe(1);
+    const [x, y] = dos as { id: string; doNo: string }[];
+    await dispatch(a.t.id);
+    const m = (await view(a.podToken, x!.doNo).expect(200)).body.match;
+    await press(a.podToken, m.pickup.id, { type: 'ARRIVE', occurredAt: bkk(30) }).expect(201);
+    await press(a.podToken, m.pickup.id, {
+      type: 'COMPLETE',
+      outcome: 'DELIVERED',
+      occurredAt: bkk(25),
+    }).expect(201);
+    await press(a.podToken, m.delivery.id, { type: 'ARRIVE', occurredAt: bkk(5) }).expect(201);
+    const p1 = await upload(a.podToken, x!.doNo);
+    const s1 = await upload(a.podToken, x!.doNo, 'POD_SIGNATURE');
+    await close(a.podToken, m.delivery.id, {
+      doNo: x!.doNo,
+      photoDocumentIds: [p1],
+      signatureDocumentId: s1,
+    }).expect(201);
+    const st = async (id: string) =>
+      (await db.deliveryOrder.findUniqueOrThrow({ where: { id } })).status;
+    expect(await st(x!.id)).toBe('UNBILLED');
+    expect(await st(y!.id)).toBe('POD_PENDING');
+    // DO ที่สอง: หน้าลิงก์ = ส่ง POD อย่างเดียว · ไฟล์ของ DO แรกใช้ไม่ได้
+    expect((await view(a.podToken, y!.doNo).expect(200)).body.match.pod.mode).toBe('SUBMIT');
+    const p2 = await upload(a.podToken, y!.doNo);
+    const s2 = await upload(a.podToken, y!.doNo, 'POD_SIGNATURE');
+    expect(
+      (
+        await capture(a.podToken, {
+          doNo: y!.doNo,
+          photoDocumentIds: [p1],
+          signatureDocumentId: s2,
+        }).expect(422)
+      ).body.errors[0],
+    ).toMatchObject({ field: 'photoDocumentIds.0', code: 'not_found' });
+    await capture(a.podToken, {
+      doNo: y!.doNo,
+      photoDocumentIds: [p2],
+      signatureDocumentId: s2,
+    }).expect(201);
+    expect(await st(y!.id)).toBe('UNBILLED');
+  });
+
+  it('review L: อัปโหลดเนื้อไฟล์ที่จองไว้หลังเที่ยวจบเกิน 7 วัน → 404 (กฎเดียวกับหน้าลิงก์)', async () => {
+    const a = await atDrop();
+    const r = (
+      await reserve(a.podToken, {
+        doNo: a.doNo,
+        kind: 'POD_PHOTO',
+        mime: 'image/png',
+        bytes: PNG.length,
+      }).expect(201)
+    ).body;
+    const tid = uuid('trip', a.t.id);
+    await db.$executeRaw`UPDATE trip SET status = 'COMPLETED', completed_at = now() - interval '8 days' WHERE id = ${tid}::uuid`;
+    const u = new URL(r.uploadUrl);
+    await pub()
+      .put(u.pathname + u.search)
+      .set('Content-Type', 'application/octet-stream')
+      .send(PNG)
+      .expect(404);
   });
 });

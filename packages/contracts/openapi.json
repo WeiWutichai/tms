@@ -23286,6 +23286,26 @@
                       "requestId": "b6a1c2d3-…"
                     }
                   },
+                  "stop_not_ready": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/stop_not_ready",
+                      "title": "ปิดงานจุดก่อนหน้าก่อน",
+                      "status": 409,
+                      "code": "stop_not_ready",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  },
+                  "stop_already_closed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/stop_already_closed",
+                      "title": "จุดนี้ถูกปิดแล้ว — ส่ง POD ของ DO นี้ได้",
+                      "status": 409,
+                      "code": "stop_already_closed",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  },
                   "pod_exists": {
                     "value": {
                       "type": "https://docs.tms.example/problems/pod_exists",

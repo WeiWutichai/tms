@@ -67,7 +67,14 @@ export class PodLinkPublicController {
   })
   @ApiParam({ name: 'stopId', type: String, description: 'จุดในเที่ยวของลิงก์ (stp_…)' })
   @ApiProblems(
-    T409('trip_not_in_progress', 'stop_event_duplicate', 'stop_not_arrived', 'pod_exists'),
+    T409(
+      'trip_not_in_progress',
+      'stop_event_duplicate',
+      'stop_not_arrived',
+      'stop_not_ready',
+      'stop_already_closed',
+      'pod_exists',
+    ),
     T422,
   )
   @ApiTooManyRequestsResponse({
