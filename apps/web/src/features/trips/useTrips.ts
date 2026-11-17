@@ -341,3 +341,82 @@ export function useHireTrip() {
     onSettled: () => invalidateAll(qc),
   });
 }
+
+// ---------- ST3-T23 ลิงก์ข้อเสนองานรถร่วม ----------
+
+export type OfferLink = Schemas['OfferLinkDto'];
+export type SubconOffer = Schemas['SubconOfferDto'];
+export type OfferView = Schemas['OfferLinkViewDto'];
+
+/** ลิงก์ที่ใช้ได้ของการจ้างปัจจุบัน (`trips:assign`) — null = ไม่มี */
+export function useOfferLink(id: string, enabled: boolean) {
+  return useQuery({
+    queryKey: [KEY, id, 'offer-link'],
+    queryFn: () => unwrap(api.GET('/v1/trips/{id}/offer-link', { params: { path: { id } } })),
+    enabled,
+  });
+}
+
+/** ประวัติการจ้าง + การส่งลิงก์ (แท็บกิจกรรม) — มีรายการรอส่ง = โหลดซ้ำทุก 3 วิ */
+export function useTripOffers(id: string, enabled: boolean) {
+  return useQuery({
+    queryKey: [KEY, id, 'offers'],
+    queryFn: () => unwrap(api.GET('/v1/trips/{id}/offers', { params: { path: { id } } })),
+    select: (r) => r.data,
+    enabled,
+    refetchInterval: (q) =>
+      q.state.data?.data.some((o) =>
+        o.messages.some((m) => m.status === 'queued' || m.status === 'sending'),
+      )
+        ? 3000
+        : false,
+  });
+}
+
+/** ส่งลิงก์ข้อเสนองานทาง LINE/SMS (ST3-T21 `/messages/send-link`) */
+export function useSendOfferLink(tripId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: { channel: 'line' | 'sms'; url: string; idempotencyKey: string }) =>
+      idempotent(() =>
+        api.POST('/v1/messages/send-link', {
+          body: { channel: v.channel, url: v.url },
+          headers: { 'Idempotency-Key': v.idempotencyKey },
+        }),
+      ),
+    onSettled: () => void qc.invalidateQueries({ queryKey: [KEY, tripId, 'offers'] }),
+  });
+}
+
+// ---------- หน้าลิงก์ของรถร่วม (public — ไม่ login) ----------
+
+export function useOfferView(token: string) {
+  return useQuery({
+    queryKey: ['offer-link', token],
+    queryFn: () => unwrap(api.GET('/v1/public/offers/{token}', { params: { path: { token } } })),
+    retry: false,
+  });
+}
+
+export function useRespondOffer(token: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (
+      v:
+        | { kind: 'accept'; body: Schemas['AcceptOfferDto'] }
+        | { kind: 'reject'; body: Schemas['RejectOfferDto'] },
+    ) =>
+      unwrap(
+        v.kind === 'accept'
+          ? api.POST('/v1/public/offers/{token}/accept', {
+              params: { path: { token } },
+              body: v.body,
+            })
+          : api.POST('/v1/public/offers/{token}/reject', {
+              params: { path: { token } },
+              body: v.body,
+            }),
+      ),
+    onSuccess: (view) => qc.setQueryData(['offer-link', token], view),
+  });
+}

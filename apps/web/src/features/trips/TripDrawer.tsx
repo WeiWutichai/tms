@@ -30,6 +30,7 @@ import {
 } from './useTrips';
 import { sortVehicles } from './assignForm';
 import { SubconHireDrawer } from './SubconHireDrawer';
+import { SubconOfferDrawer } from './SubconOfferDrawer';
 import { tripProblemText } from './tripProblem';
 
 /** ป้ายสถานะเที่ยว — สี/ไอคอนตามกลุ่มสถานะของต้นแบบ (วางแผน / จัดรถแล้ว / ระหว่างส่ง / ส่งแล้ว) */
@@ -394,6 +395,8 @@ export function TripDrawer({
       </Drawer>
     );
 
+  // ST3-T23 หลังส่งข้อเสนอ: drawer "จ่ายงานรถร่วม" สถานะรอตอบ/รับงาน (ลิงก์ · ส่ง LINE · กิจกรรม)
+  if (hiring && tr.hire) return <SubconOfferDrawer trip={tr} onClose={() => setHiring(false)} />;
   if (hiring && tr.status === 'PLANNING')
     return (
       <SubconHireDrawer
@@ -521,6 +524,8 @@ export function TripDrawer({
   // ST3-T22 ส่งต่อรถร่วม: เที่ยวที่ยังวางแผน มีใบส่งของ และยังไม่จ้าง (ต้นแบบ footer drawer SO "ส่งต่อรถร่วม")
   const showHire =
     canHire && canEdit && tr.status === 'PLANNING' && !tr.carrier && tr.deliveryOrders.length > 0;
+  // ST3-T23 การจ้างที่ใช้งานอยู่ (รอตอบ/รับงาน) → เปิด drawer "จ่ายงานรถร่วม" ดูลิงก์/ส่ง LINE/กิจกรรม
+  const showOffer = canHire && !!tr.hire && tr.status !== 'CANCELLED';
   // ไม่มีคนขับ (ยังไม่จัด/รถร่วมยังไม่ใส่คนขับ) = ไม่มีผู้รับลิงก์ (review ST3-T20 L6)
   const showShare = showPrint && canDispatch && !!tr.driver;
   const sheetBusy = print.isPending || shareLink.isPending;
@@ -626,7 +631,7 @@ export function TripDrawer({
               {err}
             </span>
           )}
-          {(showAssignBtn || showRelease || showPrint || showHire) && (
+          {(showAssignBtn || showRelease || showPrint || showHire || showOffer) && (
             <div
               style={{
                 display: 'flex',
@@ -654,6 +659,19 @@ export function TripDrawer({
                   onClick={openShare}
                 >
                   {t('trip.foot.share')}
+                </button>
+              )}
+              {showOffer && (
+                <button
+                  type="button"
+                  className="tms-drawer__sec"
+                  disabled={busy}
+                  onClick={() => {
+                    setErr(null);
+                    setHiring(true);
+                  }}
+                >
+                  {t('trip.foot.subconView')}
                 </button>
               )}
               {showHire && (
