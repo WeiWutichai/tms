@@ -87,7 +87,7 @@ const cust = await r.json();
 await W.goto('/settings?sec=pod');
 await W.waitForTimeout(1500);
 await W.getByRole('button', { name: 'เพิ่มข้อยืนยัน' }).click();
-await W.getByLabel('ข้อความข้อยืนยัน').fill('สินค้าครบ ไม่เสียหาย');
+await W.getByLabel('ข้อความข้อยืนยัน').last().fill('สินค้าครบ ไม่เสียหาย');
 const c = { settings: await W.screenshot() };
 
 await W.goto('/master/customers');
@@ -97,12 +97,16 @@ await W.waitForTimeout(900);
 const d = W.getByRole('dialog');
 await d.getByRole('tab', { name: 'เงื่อนไข' }).click();
 await W.waitForTimeout(800);
-await d.getByRole('radiogroup', { name: 'หลักฐานส่ง (POD)' }).scrollIntoViewIfNeeded();
+await d
+  .getByRole('radiogroup', { name: 'ใช้เมื่อปิดงานแบบส่งสำเร็จหรือส่งบางส่วน' })
+  .scrollIntoViewIfNeeded();
 c.default = await W.screenshot();
 await d.getByRole('radio', { name: 'กำหนดเองสำหรับลูกค้านี้' }).click();
 await d.getByRole('radio', { name: 'บังคับ — หมายเหตุ', exact: true }).check();
 await W.waitForTimeout(300);
-await d.getByRole('radiogroup', { name: 'หลักฐานส่ง (POD)' }).scrollIntoViewIfNeeded();
+await d
+  .getByRole('radiogroup', { name: 'ใช้เมื่อปิดงานแบบส่งสำเร็จหรือส่งบางส่วน' })
+  .scrollIntoViewIfNeeded();
 c.custom = await W.screenshot();
 
 const NOTE = {

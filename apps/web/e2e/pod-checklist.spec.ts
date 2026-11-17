@@ -83,7 +83,8 @@ test.describe.serial('POD checklist (ST4-T05)', () => {
     const d = page.getByRole('dialog');
     await expect(d.getByText(/^CUS-\d{4}$/)).toBeVisible();
     await d.getByRole('tab', { name: 'เงื่อนไข' }).click();
-    const pod = d.getByRole('radiogroup', { name: 'หลักฐานส่ง (POD)' });
+    // ST4-T06: ตัวเลือกต่อชุด — แท็บ ส่งสำเร็จ (ค่าเริ่มต้น)
+    const pod = d.getByRole('radiogroup', { name: 'ใช้เมื่อปิดงานแบบส่งสำเร็จหรือส่งบางส่วน' });
     await expect(pod.getByRole('radio', { name: 'ใช้ค่าเริ่มต้นขององค์กร' })).toBeChecked();
     // ค่าองค์กรแสดงแบบอ่านอย่างเดียว (หมายเหตุบังคับจาก test ก่อนหน้า)
     await expect(d.getByRole('radio', { name: 'บังคับ — หมายเหตุ', exact: true })).toBeChecked();
@@ -103,6 +104,9 @@ test.describe.serial('POD checklist (ST4-T05)', () => {
       { key: 'photo', type: 'PHOTO', level: 'REQUIRED', minCount: 2 },
       { key: 'signature', type: 'SIGNATURE', level: 'REQUIRED' },
       { key: 'note', type: 'NOTE', level: 'DISABLED' },
+      { key: 'barcode', type: 'BARCODE', level: 'DISABLED' },
+      { key: 'pin', type: 'PIN', level: 'DISABLED', length: 4 },
+      { key: 'rating', type: 'RATING', level: 'DISABLED', max: 5 },
     ]);
     const rb = await page.request.get(`/v1/customers/${ids.b}/pod-checklist`, { headers: H });
     expect(((await rb.json()) as { data: { source: string }[] }).data[0]!.source).toBe('TENANT');
