@@ -2814,3 +2814,103 @@ model IntegrationOutbox {
   @@index([eventId])
   @@map("integration_outbox")
 }
+
+/// ST7-T04 สถานะ webhook endpoint (docs/01 §3.7 webhook_endpoint.status; spec/07 §10.6)
+enum WebhookEndpointStatus {
+  ACTIVE
+  /// ผู้ใช้ปิด
+  DISABLED
+  /// ระบบปิดเอง — event ล้มเหลวขั้นสุดท้ายติดกัน 50 รายการ (docs/04 G1)
+  AUTO_DISABLED
+}
+
+/// ST7-T04 ผลของการส่ง 1 ครั้ง (docs/01 §3.7 webhook_delivery.status)
+enum WebhookDeliveryStatus {
+  /// ปลายทางตอบ 2xx
+  DELIVERED
+  /// ล้มเหลว — จะลองใหม่ตามตาราง (next_retry_at)
+  FAILED
+  /// ล้มเหลวและไม่ลองใหม่แล้ว (ครบ 1 + 8 ครั้ง หรือ error ที่ไม่ retry: 4xx/redirect/SSRF)
+  EXHAUSTED
+}
+
+/// ST7-T04 ปลายทาง webhook ของ tenant (docs/01 §3.7; docs/04 G1 Webhook; spec/07 §10)
+/// secret เก็บแบบเข้ารหัสถอดได้ (FieldCipher) — ต้องใช้เซ็น HMAC (plan/00a: hash ใช้ไม่ได้) · ไม่มี hard delete (deleted_at)
+/// รับ event ผ่าน integration_subscription (sink `webhook`, target = id ของ endpoint) — ไม่มีคิวแยก
+model WebhookEndpoint {
+  id                  String                @id @default(uuid()) @db.Uuid
+  tenantId            String                @map("tenant_id") @db.Uuid
+  url                 String                @db.VarChar(2048)
+  description         String?               @db.VarChar(200)
+  /// ชื่อ event เต็ม (ไม่รับ `*` — spec/07 §10)
+  events              String[]
+  /// header เพิ่มเติม [{name,value}] เข้ารหัส (อาจมี token ของผู้รับ) — ชื่อ header แยกไว้แสดง
+  extraHeadersEnc     String?               @map("extra_headers_enc")
+  extraHeaderNames    String[]              @map("extra_header_names")
+  /// `whsec_…` เข้ารหัสด้วย FieldCipher
+  secretEnc           String                @map("secret_enc")
+  /// secret เดิมหลังหมุน — ยังเซ็นคู่จนถึง secret_prev_expires_at (24 ชม.)
+  secretPrevEnc       String?               @map("secret_prev_enc")
+  secretPrevExpiresAt DateTime?             @map("secret_prev_expires_at") @db.Timestamptz(6)
+  secretRotatedAt     DateTime?             @map("secret_rotated_at") @db.Timestamptz(6)
+  status              WebhookEndpointStatus @default(ACTIVE)
+  /// event ที่ล้มเหลวขั้นสุดท้ายติดกัน (ส่งสำเร็จ = 0; ครบ 50 → AUTO_DISABLED)
+  consecutiveFailures Int                   @default(0) @map("consecutive_failures")
+  disabledAt          DateTime?             @map("disabled_at") @db.Timestamptz(6)
+  disabledReason      String?               @map("disabled_reason")
+  disabledBy          String?               @map("disabled_by")
+  /// ผู้รับตอบ challenge ของ `webhook.verification` ถูกต้อง
+  verifiedAt          DateTime?             @map("verified_at") @db.Timestamptz(6)
+  lastDeliveryAt      DateTime?             @map("last_delivery_at") @db.Timestamptz(6)
+  lastSuccessAt       DateTime?             @map("last_success_at") @db.Timestamptz(6)
+  /// ครั้งล่าสุดที่ส่ง event จริงไม่สำเร็จ (ล้างตอนเปิดใช้อีกครั้ง) — ใหม่กว่า last_success_at = "ล้มเหลวต่อเนื่อง"
+  lastFailureAt       DateTime?             @map("last_failure_at") @db.Timestamptz(6)
+  subscriptionId      String?               @map("subscription_id") @db.Uuid
+  createdBy           String?               @map("created_by")
+  version             Int                   @default(1)
+  deletedAt           DateTime?             @map("deleted_at") @db.Timestamptz(6)
+  createdAt           DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  deliveries WebhookDelivery[]
+
+  @@index([tenantId, createdAt, id])
+  @@map("webhook_endpoint")
+}
+
+/// ST7-T04 บันทึกการส่ง 1 ครั้ง (1 แถว/attempt) — ใช้แสดงประวัติ/ส่งซ้ำใน ST7-T05 · เก็บ 30 วัน (ล้างใน T05)
+/// ไม่มี secret: header ที่เก็บตัดค่า header เพิ่มเติมของผู้ใช้ออก · response ตัดที่ 4 KB
+model WebhookDelivery {
+  id             String                @id @default(uuid()) @db.Uuid
+  tenantId       String                @map("tenant_id") @db.Uuid
+  endpointId     String                @map("endpoint_id") @db.Uuid
+  outboxId       String?               @map("outbox_id") @db.Uuid
+  eventId        String?               @map("event_id") @db.Uuid
+  /// id ใน envelope (`evt_…`) — ผู้รับใช้กันซ้ำ
+  envelopeId     String                @map("envelope_id")
+  eventType      String                @map("event_type")
+  attempt        Int
+  /// event ทดสอบ / verification — ไม่นับอัตราสำเร็จและการปิดอัตโนมัติ
+  test           Boolean               @default(false)
+  status         WebhookDeliveryStatus
+  requestUrl     String                @map("request_url")
+  requestHeaders Json                  @map("request_headers")
+  requestBody    String                @map("request_body")
+  responseStatus Int?                  @map("response_status")
+  responseBody   String?               @map("response_body")
+  durationMs     Int                   @map("duration_ms")
+  /// timeout / network / ssrf_blocked / redirect / http_status / response_too_large / invalid_url
+  errorCode      String?               @map("error_code") @db.VarChar(40)
+  errorClass     String?               @map("error_class") @db.VarChar(20)
+  errorMessage   String?               @map("error_message")
+  sentAt         DateTime              @map("sent_at") @db.Timestamptz(6)
+  nextRetryAt    DateTime?             @map("next_retry_at") @db.Timestamptz(6)
+  createdAt      DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  endpoint WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([tenantId, endpointId, sentAt])
+  @@index([tenantId, eventId])
+  @@index([tenantId, sentAt])
+  @@map("webhook_delivery")
+}

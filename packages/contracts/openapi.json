@@ -15955,6 +15955,582 @@
         ]
       }
     },
+    "/v1/webhooks": {
+      "get": {
+        "operationId": "Webhooks_list",
+        "parameters": [
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "ค่า nextCursor จากหน้าก่อน",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "updatedAfter",
+            "required": false,
+            "in": "query",
+            "description": "คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sort",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "updatedAt",
+              "type": "string",
+              "enum": [
+                "updatedAt",
+                "-updatedAt"
+              ]
+            }
+          },
+          {
+            "name": "fields",
+            "required": false,
+            "in": "query",
+            "description": "รายชื่อ field คั่นด้วย , เช่น id,legalName",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "description": "สถานะคั่นด้วย , (active / failing / disabled / auto_disabled)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "url",
+            "required": false,
+            "in": "query",
+            "description": "ค้น URL บางส่วน",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookPageDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "webhooks"
+        ]
+      },
+      "post": {
+        "operationId": "Webhooks_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateWebhookDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "`secret` แสดงครั้งเดียว · ส่ง `webhook.verification` (challenge) หลังบันทึก 1 ครั้ง — ผลไม่บล็อก · ไม่รับ Idempotency-Key · เกิน limit ของแพ็กเกจ → 409 `webhook_limit_reached`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookEndpointSecretDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "webhooks"
+        ]
+      }
+    },
+    "/v1/webhooks/summary": {
+      "get": {
+        "operationId": "Webhooks_summary",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "จำนวนต่อสถานะ (แท็บ) + limit ของแพ็กเกจ",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookSummaryDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "webhooks"
+        ]
+      }
+    },
+    "/v1/webhooks/event-types": {
+      "get": {
+        "operationId": "Webhooks_eventTypes",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "event สาธารณะที่สมัครได้ (docs/01 §5.3) — คำอธิบาย/ตัวอย่าง payload เพิ่มใน ST7-T05",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookEventTypeListDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "webhooks"
+        ]
+      }
+    },
+    "/v1/webhooks/{id}": {
+      "get": {
+        "operationId": "Webhooks_get",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookEndpointDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "webhooks"
+        ]
+      },
+      "patch": {
+        "operationId": "Webhooks_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateWebhookDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "แก้ URL / event / คำอธิบาย / header เพิ่มเติม",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookEndpointDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "webhooks"
+        ]
+      },
+      "delete": {
+        "operationId": "Webhooks_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WebhookReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "ลบ (เหตุผล ≥ 10 ตัว · เก็บประวัติการส่งตาม retention) — หยุดส่งทันที"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "webhooks"
+        ]
+      }
+    },
+    "/v1/webhooks/{id}/history": {
+      "get": {
+        "operationId": "Webhooks_history",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "ค่า nextCursor จากหน้าก่อน",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ประวัติจาก audit log ใหม่สุดก่อน",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditPageDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "webhooks"
+        ]
+      }
+    },
+    "/v1/webhooks/{id}/rotate-secret": {
+      "post": {
+        "operationId": "Webhooks_rotate",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WebhookActionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "secret ใหม่ (แสดงครั้งเดียว) · 24 ชม. ส่ง `v1` ของ secret ใหม่และเดิมคู่กัน · ไม่รับ Idempotency-Key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookEndpointSecretDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "webhooks"
+        ]
+      }
+    },
+    "/v1/webhooks/{id}/disable": {
+      "post": {
+        "operationId": "Webhooks_disable",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WebhookReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ปิดใช้งาน — event ใหม่ไม่เข้าคิว · ที่ค้างอยู่ถูกข้าม",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookEndpointDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "webhooks"
+        ]
+      }
+    },
+    "/v1/webhooks/{id}/enable": {
+      "post": {
+        "operationId": "Webhooks_enable",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WebhookActionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "เปิดใช้อีกครั้ง (รวมที่ระบบปิดอัตโนมัติ) — ตัวนับล้มเหลวเริ่มใหม่",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookEndpointDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "webhooks"
+        ]
+      }
+    },
+    "/v1/webhooks/{id}/test": {
+      "post": {
+        "operationId": "Webhooks_test",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WebhookTestDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ส่ง `webhook.test` ทันที (รอผลไม่เกิน 10 วิ) — ไม่นับอัตราสำเร็จ · endpoint ปิดอยู่ → 409",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookTestResultDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "webhooks"
+        ]
+      }
+    },
     "/v1/rate-cards": {
       "get": {
         "operationId": "RateCards_list",
@@ -41104,6 +41680,613 @@
         },
         "required": [
           "reason"
+        ]
+      },
+      "WebhookEndpointDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "whe_8f3a…"
+          },
+          "url": {
+            "type": "string",
+            "example": "https://erp.example.co.th/tms/webhook"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "events": {
+            "example": [
+              "order.created",
+              "trip.dispatched"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "extraHeaderNames": {
+            "example": [
+              "X-Client-Id"
+            ],
+            "description": "ชื่อ header เพิ่มเติม (ค่าไม่แสดง — อาจเป็น credential ของผู้รับ)",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "failing",
+              "disabled",
+              "auto_disabled"
+            ]
+          },
+          "consecutiveFailures": {
+            "type": "number",
+            "description": "event ที่ล้มเหลวขั้นสุดท้ายติดกัน (ครบ 50 → ปิดอัตโนมัติ)"
+          },
+          "successRate7d": {
+            "type": "number",
+            "nullable": true,
+            "example": 99.6,
+            "description": "อัตราส่งสำเร็จ 7 วัน (% ของครั้งที่ส่ง event จริง — ไม่นับ event ทดสอบ) · null = ยังไม่มีการส่ง"
+          },
+          "lastDeliveryAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "lastSuccessAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "verifiedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "ผู้รับตอบ challenge ของ `webhook.verification` ถูกต้อง (ไม่บังคับ — ไม่บล็อกการส่ง)"
+          },
+          "secretRotatedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "previousSecretExpiresAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "หลังหมุน secret: ส่ง 2 ลายเซ็น (ใหม่ + เดิม) ถึงเวลานี้"
+          },
+          "disabledAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "disabledReason": {
+            "type": "string",
+            "nullable": true
+          },
+          "createdBy": {
+            "type": "string",
+            "nullable": true,
+            "description": "ผู้สร้าง (usr_…)"
+          },
+          "createdByName": {
+            "type": "string",
+            "nullable": true
+          },
+          "version": {
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "url",
+          "description",
+          "events",
+          "extraHeaderNames",
+          "status",
+          "consecutiveFailures",
+          "successRate7d",
+          "lastDeliveryAt",
+          "lastSuccessAt",
+          "verifiedAt",
+          "secretRotatedAt",
+          "previousSecretExpiresAt",
+          "disabledAt",
+          "disabledReason",
+          "createdBy",
+          "createdByName",
+          "version",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "WebhookPageDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WebhookEndpointDto"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor",
+          "hasMore"
+        ]
+      },
+      "WebhookSummaryDto": {
+        "type": "object",
+        "properties": {
+          "all": {
+            "type": "number"
+          },
+          "active": {
+            "type": "number"
+          },
+          "failing": {
+            "type": "number"
+          },
+          "disabled": {
+            "type": "number",
+            "description": "ปิด (ผู้ใช้ปิด + ระบบปิดอัตโนมัติ)"
+          },
+          "limit": {
+            "type": "number",
+            "description": "จำนวน endpoint ที่แพ็กเกจให้ (null = ไม่จำกัด)",
+            "nullable": true
+          }
+        },
+        "required": [
+          "all",
+          "active",
+          "failing",
+          "disabled",
+          "limit"
+        ]
+      },
+      "WebhookEventTypeDto": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "example": "order.created"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "WebhookEventTypeListDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WebhookEventTypeDto"
+            }
+          }
+        },
+        "required": [
+          "data"
+        ]
+      },
+      "WebhookHeaderDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "X-Client-Id",
+            "pattern": "^[A-Za-z0-9-]{1,64}$"
+          },
+          "value": {
+            "type": "string",
+            "example": "srithai-erp",
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "name",
+          "value"
+        ]
+      },
+      "CreateWebhookDto": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "maxLength": 2048,
+            "example": "https://erp.example.co.th/tms/webhook",
+            "description": "https:// เท่านั้น (dev/test ยอม http) · ห้าม IP ภายใน/localhost/metadata (กัน SSRF — ตรวจซ้ำทุกครั้งที่ส่ง)"
+          },
+          "events": {
+            "type": "array",
+            "minItems": 1,
+            "description": "event ที่สมัคร (ชื่อเต็ม — ไม่รับ `*`)",
+            "items": {
+              "type": "string",
+              "enum": [
+                "order.created",
+                "order.updated",
+                "order.held",
+                "order.released",
+                "order.cancelled",
+                "trip.assigned",
+                "trip.dispatched",
+                "trip.started",
+                "trip.completed",
+                "trip.cancelled",
+                "stop.arrived",
+                "stop.departed",
+                "stop.completed",
+                "stop.failed",
+                "delivery_order.status_changed",
+                "pod.captured",
+                "invoice.finalized",
+                "invoice.adjusted",
+                "invoice.paid",
+                "invoice.voided",
+                "credit_note.finalized",
+                "debit_note.finalized",
+                "payment.recorded",
+                "payment.reversed",
+                "receipt.issued",
+                "settlement.approved",
+                "settlement.paid",
+                "wht_certificate.issued",
+                "connector.health_changed",
+                "reconcile.mismatch_found",
+                "job.completed"
+              ]
+            }
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 200,
+            "nullable": true
+          },
+          "extraHeaders": {
+            "description": "header เพิ่มเติม ≤ 5 รายการ (ห้ามทับ X-TMS-* / Content-Type) — เก็บเข้ารหัส",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WebhookHeaderDto"
+            }
+          }
+        },
+        "required": [
+          "url",
+          "events"
+        ]
+      },
+      "WebhookEndpointSecretDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "whe_8f3a…"
+          },
+          "url": {
+            "type": "string",
+            "example": "https://erp.example.co.th/tms/webhook"
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          },
+          "events": {
+            "example": [
+              "order.created",
+              "trip.dispatched"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "extraHeaderNames": {
+            "example": [
+              "X-Client-Id"
+            ],
+            "description": "ชื่อ header เพิ่มเติม (ค่าไม่แสดง — อาจเป็น credential ของผู้รับ)",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "failing",
+              "disabled",
+              "auto_disabled"
+            ]
+          },
+          "consecutiveFailures": {
+            "type": "number",
+            "description": "event ที่ล้มเหลวขั้นสุดท้ายติดกัน (ครบ 50 → ปิดอัตโนมัติ)"
+          },
+          "successRate7d": {
+            "type": "number",
+            "nullable": true,
+            "example": 99.6,
+            "description": "อัตราส่งสำเร็จ 7 วัน (% ของครั้งที่ส่ง event จริง — ไม่นับ event ทดสอบ) · null = ยังไม่มีการส่ง"
+          },
+          "lastDeliveryAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "lastSuccessAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "verifiedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "ผู้รับตอบ challenge ของ `webhook.verification` ถูกต้อง (ไม่บังคับ — ไม่บล็อกการส่ง)"
+          },
+          "secretRotatedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "previousSecretExpiresAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "หลังหมุน secret: ส่ง 2 ลายเซ็น (ใหม่ + เดิม) ถึงเวลานี้"
+          },
+          "disabledAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "disabledReason": {
+            "type": "string",
+            "nullable": true
+          },
+          "createdBy": {
+            "type": "string",
+            "nullable": true,
+            "description": "ผู้สร้าง (usr_…)"
+          },
+          "createdByName": {
+            "type": "string",
+            "nullable": true
+          },
+          "version": {
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "secret": {
+            "type": "string",
+            "example": "whsec_Zx81…",
+            "description": "signing secret (HMAC-SHA256 ของ `t.rawBody`) — แสดงครั้งเดียว"
+          }
+        },
+        "required": [
+          "id",
+          "url",
+          "description",
+          "events",
+          "extraHeaderNames",
+          "status",
+          "consecutiveFailures",
+          "successRate7d",
+          "lastDeliveryAt",
+          "lastSuccessAt",
+          "verifiedAt",
+          "secretRotatedAt",
+          "previousSecretExpiresAt",
+          "disabledAt",
+          "disabledReason",
+          "createdBy",
+          "createdByName",
+          "version",
+          "createdAt",
+          "updatedAt",
+          "secret"
+        ]
+      },
+      "UpdateWebhookDto": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "maxLength": 2048
+          },
+          "events": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "enum": [
+                "order.created",
+                "order.updated",
+                "order.held",
+                "order.released",
+                "order.cancelled",
+                "trip.assigned",
+                "trip.dispatched",
+                "trip.started",
+                "trip.completed",
+                "trip.cancelled",
+                "stop.arrived",
+                "stop.departed",
+                "stop.completed",
+                "stop.failed",
+                "delivery_order.status_changed",
+                "pod.captured",
+                "invoice.finalized",
+                "invoice.adjusted",
+                "invoice.paid",
+                "invoice.voided",
+                "credit_note.finalized",
+                "debit_note.finalized",
+                "payment.recorded",
+                "payment.reversed",
+                "receipt.issued",
+                "settlement.approved",
+                "settlement.paid",
+                "wht_certificate.issued",
+                "connector.health_changed",
+                "reconcile.mismatch_found",
+                "job.completed"
+              ]
+            }
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 200,
+            "nullable": true
+          },
+          "extraHeaders": {
+            "description": "แทนที่ header เพิ่มเติมทั้งชุด ([] = ล้าง)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WebhookHeaderDto"
+            }
+          }
+        }
+      },
+      "WebhookActionDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "maxLength": 500
+          }
+        }
+      },
+      "WebhookReasonDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 10,
+            "maxLength": 500,
+            "example": "เลิกใช้บริการตั้งแต่ ธ.ค. 2569"
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      },
+      "WebhookTestDto": {
+        "type": "object",
+        "properties": {
+          "eventType": {
+            "type": "string",
+            "enum": [
+              "order.created",
+              "order.updated",
+              "order.held",
+              "order.released",
+              "order.cancelled",
+              "trip.assigned",
+              "trip.dispatched",
+              "trip.started",
+              "trip.completed",
+              "trip.cancelled",
+              "stop.arrived",
+              "stop.departed",
+              "stop.completed",
+              "stop.failed",
+              "delivery_order.status_changed",
+              "pod.captured",
+              "invoice.finalized",
+              "invoice.adjusted",
+              "invoice.paid",
+              "invoice.voided",
+              "credit_note.finalized",
+              "debit_note.finalized",
+              "payment.recorded",
+              "payment.reversed",
+              "receipt.issued",
+              "settlement.approved",
+              "settlement.paid",
+              "wht_certificate.issued",
+              "connector.health_changed",
+              "reconcile.mismatch_found",
+              "job.completed"
+            ],
+            "description": "event ตัวอย่างใน payload ของ `webhook.test` (ค่าเริ่ม = event แรกที่สมัคร — INT-107)"
+          }
+        }
+      },
+      "WebhookTestResultDto": {
+        "type": "object",
+        "properties": {
+          "delivered": {
+            "type": "boolean",
+            "description": "ปลายทางตอบ 2xx"
+          },
+          "status": {
+            "type": "number",
+            "nullable": true,
+            "description": "HTTP status (null = ไม่ได้ response)"
+          },
+          "durationMs": {
+            "type": "number"
+          },
+          "errorCode": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "http_status",
+              "redirect",
+              "timeout",
+              "network",
+              "ssrf_blocked",
+              "invalid_url"
+            ]
+          },
+          "eventId": {
+            "type": "string",
+            "example": "evt_…",
+            "description": "id ของ envelope ที่ส่ง"
+          }
+        },
+        "required": [
+          "delivered",
+          "status",
+          "durationMs",
+          "errorCode",
+          "eventId"
         ]
       },
       "RatePartyRefDto": {

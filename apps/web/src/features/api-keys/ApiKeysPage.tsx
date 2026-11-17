@@ -10,6 +10,8 @@ import {
   type Column,
 } from '@tms/ui';
 import { useState } from 'react';
+import { WebhooksTab } from '../webhooks/WebhooksTab';
+import { useWebhookSummary } from '../webhooks/useWebhooks';
 import { useI18n } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
 import { can } from '../../nav';
@@ -34,19 +36,43 @@ import {
 import './api-keys.css';
 
 const EMPTY: ApiKeyFilters = { status: '', name: '', scope: '', createdBy: '' };
+type PageTab = 'keys' | 'hooks';
+
+/** แท็บเริ่มจาก `?tab=hooks` (ลิงก์ในแจ้งเตือน webhook ปิดอัตโนมัติ) */
+function initialTab(): PageTab {
+  try {
+    return new URLSearchParams(window.location.search).get('tab') === 'hooks' ? 'hooks' : 'keys';
+  } catch {
+    return 'keys';
+  }
+}
 const cell = { color: '#101418', whiteSpace: 'nowrap' } as const;
 
 /**
  * ตั้งค่า → นักพัฒนา / Open API (ST7-T01) — ต้นแบบ TMS v4 vApi + specApi('keys') + cfKey/cfKeyScope + rotateKey/revokeKey + vSec
- * เฟส 0 มีเฉพาะแท็บ "API keys" [DECISION spec/12 §3]: ภาพรวม/KPI การเรียก, Log, จับคู่ฟิลด์, MCP, ขีดจำกัด ยังไม่มีข้อมูล
- * (log การเรียก/โควตา/MCP อยู่นอก backlog เฟส 0) · Webhooks (ST7-T04/T05) และเอกสาร (ST7-T12) เพิ่มแท็บเมื่อทำ ·
- * สวิตช์ Production/Sandbox ซ่อนจนกว่าจะมี sandbox (ST7-T09)
+ * เฟส 0 มีแท็บ "API keys" + "Webhooks" (ST7-T04) [DECISION spec/12 §3]: ภาพรวม/KPI การเรียก, Log, จับคู่ฟิลด์, MCP, ขีดจำกัด
+ * ยังไม่มีข้อมูล (log การเรียก/โควตา/MCP อยู่นอก backlog เฟส 0) · เอกสาร (ST7-T12) เพิ่มแท็บเมื่อทำ ·
+ * สวิตช์ Production/Sandbox ซ่อนจนกว่าจะมี sandbox (ST7-T09) · ปุ่มหัวหน้าเปลี่ยนตามแท็บ (สร้าง API key / เพิ่ม endpoint)
  */
 export function ApiKeysPage() {
   const { t } = useI18n();
   const me = useMe();
   const fm = useKeyFormat();
   const canWrite = can(me.data?.scopes ?? [], 'settings:write');
+  const [pageTab, setPageTab] = useState<PageTab>(initialTab);
+  const [hookForm, setHookForm] = useState(false);
+  const hookSum = useWebhookSummary();
+  const switchTab = (k: PageTab) => {
+    setPageTab(k);
+    try {
+      const u = new URL(window.location.href);
+      if (k === 'hooks') u.searchParams.set('tab', 'hooks');
+      else u.searchParams.delete('tab');
+      window.history.replaceState(window.history.state, '', u.toString());
+    } catch {
+      /* ไม่มี history (test) */
+    }
+  };
   const [filters, setFilters] = useState<ApiKeyFilters>(EMPTY);
   const list = useApiKeyList(filters);
   const summary = useApiKeySummary();
@@ -206,205 +232,237 @@ export function ApiKeysPage() {
         title={t('page.api.title')}
         sub={t('page.api.sub')}
         actions={
-          canWrite && (
+          canWrite &&
+          (pageTab === 'hooks' ? (
+            <Button variant="primary" icon="plus" onClick={() => setHookForm(true)}>
+              {t('whk.add')}
+            </Button>
+          ) : (
             <Button variant="primary" icon="plus" onClick={() => setForm({ edit: null })}>
               {t('akey.add')}
             </Button>
-          )
+          ))
         }
       />
       <div className="akey-tabs">
         <div className="akey-tabs__list" role="tablist">
-          <button type="button" role="tab" aria-selected="true" className="akey-tabs__tab">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={pageTab === 'keys'}
+            className="akey-tabs__tab"
+            onClick={() => switchTab('keys')}
+          >
             {t('akey.tab.keys')}
             {liveCount !== undefined && <span className="akey-tabs__n">{liveCount}</span>}
           </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={pageTab === 'hooks'}
+            className="akey-tabs__tab"
+            onClick={() => switchTab('hooks')}
+          >
+            {t('whk.tab')}
+            {hookSum.data && <span className="akey-tabs__n">{hookSum.data.all}</span>}
+          </button>
         </div>
       </div>
-      <div className="tms-listbody">
-        <StatusTabs
-          value={filters.status || 'all'}
-          onChange={(k) => setF('status', k === 'all' ? '' : k)}
-          items={[
-            { key: 'all', label: t('akey.tab.all'), ...(sum ? { count: sum.all } : {}) },
-            ...STATUS_TABS.map((s) => ({
-              key: s,
-              label: t(`akey.st.${s}` as MessageKey),
-              ...(sum ? { count: tabCount(s) } : {}),
-            })),
-          ]}
-        />
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 32 }}>
-          <span style={{ marginLeft: 'auto', color: '#3B424C', fontSize: 13 }}>
-            {shownTotal !== undefined && t('table.total', { n: shownTotal })}
-          </span>
-        </div>
-        {list.q.isError ? (
-          <EmptyState
-            icon="circle-alert"
-            title={t('akey.loadError')}
-            description={problemText(list.q.error, t) ?? ''}
-            action={
-              <Button variant="secondary" icon="refresh-cw" onClick={() => list.q.refetch()}>
-                {t('akey.retry')}
-              </Button>
-            }
-          />
-        ) : (
-          <DataTable
-            columns={columns}
-            rows={list.rows}
-            rowId={(r) => r.id}
-            activeId={openId}
-            loading={list.loading}
-            labels={tableLabels(t)}
-            filters={{ ...filters }}
-            onFilterChange={(k, v) => setF(k as keyof ApiKeyFilters, v)}
-            onRowClick={open}
-            // ต้นแบบมีช่องเลือกแถวแต่ไม่มี bulk action ของ key (bulk: []) และ "มุมมอง" ที่บันทึกไว้ยังไม่มีในระบบ
-            // → ไม่แสดงทั้งคู่ [DECISION spec/12 §3]
-            selectable={false}
-            rowMenu={menuFor}
-            empty={
-              filtered ? (
-                <EmptyState
-                  icon="search-x"
-                  title={t('table.emptyTitle')}
-                  description={t('table.noMatch')}
-                />
-              ) : (
-                <EmptyState
-                  icon="key-round"
-                  title={t('akey.emptyTitle')}
-                  description={t('akey.emptyDesc')}
-                />
-              )
-            }
-            page={{ ...list.page, ...(shownTotal !== undefined ? { total: shownTotal } : {}) }}
-            onPageSize={list.setSize}
-            onNext={list.next}
-            onPrev={list.prev}
-            onGoto={list.goto}
-          />
-        )}
-      </div>
-      {current && (
-        <ApiKeyDrawer
-          key={current.id}
-          k={current}
+      {pageTab === 'hooks' ? (
+        <WebhooksTab
           canWrite={canWrite}
-          onScope={() => setForm({ edit: current })}
-          onRotate={() => setDialog({ kind: 'rotate', k: current })}
-          onRevoke={() => setDialog({ kind: 'revoke', k: current })}
-          onClose={() => {
-            setOpenId(null);
-            setSelected(null);
-          }}
+          formOpen={hookForm}
+          onFormClose={() => setHookForm(false)}
+          toast={setToast}
         />
-      )}
-      <ApiKeyFormDrawer
-        open={!!form}
-        edit={form?.edit ?? null}
-        onClose={() => setForm(null)}
-        onCreated={(k) => {
-          setForm(null);
-          showSecret(k, false);
-        }}
-        onSaved={(k) => {
-          setForm(null);
-          if (openId === k.id) setSelected(k);
-          setToast(t('akey.toast.scope', { n: k.name }));
-        }}
-      />
-      <ReasonDialog
-        open={!!dialog}
-        title={
-          dialog
-            ? t(dialog.kind === 'rotate' ? 'akey.rotate.title' : 'akey.revoke.title', {
-                n: dialog.k.name,
-              })
-            : ''
-        }
-        description={
-          dialog ? t(dialog.kind === 'rotate' ? 'akey.rotate.desc' : 'akey.revoke.desc') : ''
-        }
-        {...(dialog
-          ? {
-              diff: {
-                labels: [t('ord.dlg.field'), t('ord.dlg.before'), t('ord.dlg.after')],
-                rows:
-                  dialog.kind === 'rotate'
-                    ? [
-                        {
-                          f: t('akey.col.prefix'),
-                          b: `${dialog.k.prefix}…`,
-                          a: t('akey.rotate.new', { mode: `tk_${dialog.k.mode}` }),
-                        },
-                      ]
-                    : [
-                        {
-                          f: t('akey.dlg.status'),
-                          b: fm.status(dialog.k),
-                          a: t('akey.st.revoked'),
-                        },
-                      ],
-              },
-            }
-          : {})}
-        label={t('ord.dlg.reason')}
-        placeholder={t('ord.dlg.reasonPh')}
-        hint={(n, ok) => (ok ? t('ord.dlg.hintOk') : t('ord.dlg.hintMin', { n }))}
-        okLabel={dialog?.kind === 'rotate' ? t('akey.menu.rotate') : t('akey.revoke.ok')}
-        cancelLabel={t('common.cancel')}
-        closeLabel={t('drawer.close')}
-        busy={action.isPending}
-        error={problemText(action.error, t)}
-        onClose={() => {
-          setDialog(null);
-          action.reset();
-        }}
-        onOk={(reason) => {
-          if (!dialog) return;
-          const { k, kind } = dialog;
-          action.mutate(
-            { id: k.id, version: k.version, action: kind, reason },
-            {
-              onSuccess: (r) => {
-                setDialog(null);
-                if (kind === 'rotate' && r.secret) {
-                  setOpenId(null);
-                  setSelected(null);
-                  showSecret(r.secret, true);
-                } else {
-                  if (openId === k.id) setSelected({ ...k, ...r.key });
-                  setToast(t('akey.toast.revoked', { n: k.name }));
+      ) : (
+        <>
+          <div className="tms-listbody">
+            <StatusTabs
+              value={filters.status || 'all'}
+              onChange={(k) => setF('status', k === 'all' ? '' : k)}
+              items={[
+                { key: 'all', label: t('akey.tab.all'), ...(sum ? { count: sum.all } : {}) },
+                ...STATUS_TABS.map((s) => ({
+                  key: s,
+                  label: t(`akey.st.${s}` as MessageKey),
+                  ...(sum ? { count: tabCount(s) } : {}),
+                })),
+              ]}
+            />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 32 }}>
+              <span style={{ marginLeft: 'auto', color: '#3B424C', fontSize: 13 }}>
+                {shownTotal !== undefined && t('table.total', { n: shownTotal })}
+              </span>
+            </div>
+            {list.q.isError ? (
+              <EmptyState
+                icon="circle-alert"
+                title={t('akey.loadError')}
+                description={problemText(list.q.error, t) ?? ''}
+                action={
+                  <Button variant="secondary" icon="refresh-cw" onClick={() => list.q.refetch()}>
+                    {t('akey.retry')}
+                  </Button>
                 }
-              },
-            },
-          );
-        }}
-      />
-      {secret && (
-        <SecretDialog
-          title={t(secret.rotated ? 'akey.secret.rotated' : 'akey.secret.created')}
-          sub={t('akey.secret.sub', {
-            n: secret.k.name,
-            mode: fm.mode(secret.k),
-            scopes: secret.k.scopes.join(', '),
-          })}
-          warn={t(secret.rotated ? 'akey.secret.warnRotate' : 'akey.secret.warn')}
-          value={secret.k.secret}
-          copied={copied}
-          onCopy={() => {
-            void navigator.clipboard?.writeText(secret.k.secret).catch(() => undefined);
-            setCopied(true);
-            setToast(t('akey.toast.copied'));
-          }}
-          onClose={() => {
-            if (!copied) setToast(t('akey.toast.closed'));
-            setSecret(null);
-          }}
-        />
+              />
+            ) : (
+              <DataTable
+                columns={columns}
+                rows={list.rows}
+                rowId={(r) => r.id}
+                activeId={openId}
+                loading={list.loading}
+                labels={tableLabels(t)}
+                filters={{ ...filters }}
+                onFilterChange={(k, v) => setF(k as keyof ApiKeyFilters, v)}
+                onRowClick={open}
+                // ต้นแบบมีช่องเลือกแถวแต่ไม่มี bulk action ของ key (bulk: []) และ "มุมมอง" ที่บันทึกไว้ยังไม่มีในระบบ
+                // → ไม่แสดงทั้งคู่ [DECISION spec/12 §3]
+                selectable={false}
+                rowMenu={menuFor}
+                empty={
+                  filtered ? (
+                    <EmptyState
+                      icon="search-x"
+                      title={t('table.emptyTitle')}
+                      description={t('table.noMatch')}
+                    />
+                  ) : (
+                    <EmptyState
+                      icon="key-round"
+                      title={t('akey.emptyTitle')}
+                      description={t('akey.emptyDesc')}
+                    />
+                  )
+                }
+                page={{ ...list.page, ...(shownTotal !== undefined ? { total: shownTotal } : {}) }}
+                onPageSize={list.setSize}
+                onNext={list.next}
+                onPrev={list.prev}
+                onGoto={list.goto}
+              />
+            )}
+          </div>
+          {current && (
+            <ApiKeyDrawer
+              key={current.id}
+              k={current}
+              canWrite={canWrite}
+              onScope={() => setForm({ edit: current })}
+              onRotate={() => setDialog({ kind: 'rotate', k: current })}
+              onRevoke={() => setDialog({ kind: 'revoke', k: current })}
+              onClose={() => {
+                setOpenId(null);
+                setSelected(null);
+              }}
+            />
+          )}
+          <ApiKeyFormDrawer
+            open={!!form}
+            edit={form?.edit ?? null}
+            onClose={() => setForm(null)}
+            onCreated={(k) => {
+              setForm(null);
+              showSecret(k, false);
+            }}
+            onSaved={(k) => {
+              setForm(null);
+              if (openId === k.id) setSelected(k);
+              setToast(t('akey.toast.scope', { n: k.name }));
+            }}
+          />
+          <ReasonDialog
+            open={!!dialog}
+            title={
+              dialog
+                ? t(dialog.kind === 'rotate' ? 'akey.rotate.title' : 'akey.revoke.title', {
+                    n: dialog.k.name,
+                  })
+                : ''
+            }
+            description={
+              dialog ? t(dialog.kind === 'rotate' ? 'akey.rotate.desc' : 'akey.revoke.desc') : ''
+            }
+            {...(dialog
+              ? {
+                  diff: {
+                    labels: [t('ord.dlg.field'), t('ord.dlg.before'), t('ord.dlg.after')],
+                    rows:
+                      dialog.kind === 'rotate'
+                        ? [
+                            {
+                              f: t('akey.col.prefix'),
+                              b: `${dialog.k.prefix}…`,
+                              a: t('akey.rotate.new', { mode: `tk_${dialog.k.mode}` }),
+                            },
+                          ]
+                        : [
+                            {
+                              f: t('akey.dlg.status'),
+                              b: fm.status(dialog.k),
+                              a: t('akey.st.revoked'),
+                            },
+                          ],
+                  },
+                }
+              : {})}
+            label={t('ord.dlg.reason')}
+            placeholder={t('ord.dlg.reasonPh')}
+            hint={(n, ok) => (ok ? t('ord.dlg.hintOk') : t('ord.dlg.hintMin', { n }))}
+            okLabel={dialog?.kind === 'rotate' ? t('akey.menu.rotate') : t('akey.revoke.ok')}
+            cancelLabel={t('common.cancel')}
+            closeLabel={t('drawer.close')}
+            busy={action.isPending}
+            error={problemText(action.error, t)}
+            onClose={() => {
+              setDialog(null);
+              action.reset();
+            }}
+            onOk={(reason) => {
+              if (!dialog) return;
+              const { k, kind } = dialog;
+              action.mutate(
+                { id: k.id, version: k.version, action: kind, reason },
+                {
+                  onSuccess: (r) => {
+                    setDialog(null);
+                    if (kind === 'rotate' && r.secret) {
+                      setOpenId(null);
+                      setSelected(null);
+                      showSecret(r.secret, true);
+                    } else {
+                      if (openId === k.id) setSelected({ ...k, ...r.key });
+                      setToast(t('akey.toast.revoked', { n: k.name }));
+                    }
+                  },
+                },
+              );
+            }}
+          />
+          {secret && (
+            <SecretDialog
+              title={t(secret.rotated ? 'akey.secret.rotated' : 'akey.secret.created')}
+              sub={t('akey.secret.sub', {
+                n: secret.k.name,
+                mode: fm.mode(secret.k),
+                scopes: secret.k.scopes.join(', '),
+              })}
+              warn={t(secret.rotated ? 'akey.secret.warnRotate' : 'akey.secret.warn')}
+              value={secret.k.secret}
+              copied={copied}
+              onCopy={() => {
+                void navigator.clipboard?.writeText(secret.k.secret).catch(() => undefined);
+                setCopied(true);
+                setToast(t('akey.toast.copied'));
+              }}
+              onClose={() => {
+                if (!copied) setToast(t('akey.toast.closed'));
+                setSecret(null);
+              }}
+            />
+          )}
+        </>
       )}
       <Toast message={toast} onClose={() => setToast(null)} closeLabel={t('drawer.close')} />
     </>

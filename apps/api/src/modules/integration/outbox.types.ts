@@ -23,6 +23,11 @@ export class OutboxSinkError extends Error {
     readonly errorClass: ErrorClass,
     /** รายละเอียดที่เก็บใน last_error (ห้ามมี secret — sink ตัดเองก่อนโยน) */
     readonly detail?: Record<string, unknown>,
+    /**
+     * sink กำหนดเวลารอก่อนลองใหม่เอง (ms) แทนตาราง retry — ใช้เมื่อ sink ต้องบันทึกเวลาลองครั้งถัดไปให้ตรงกับที่ dispatcher ตั้ง
+     * (webhook ST7-T04 เก็บ next_retry_at ใน webhook_delivery) · มีผลกับ TRANSIENT เท่านั้น
+     */
+    readonly retryInMs?: number,
   ) {
     super(message);
   }
