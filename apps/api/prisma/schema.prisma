@@ -1855,7 +1855,7 @@ model DoSurcharge {
   evidenceDocumentId  String?         @unique @map("evidence_document_id") @db.Uuid
   evidenceDocument    StoredDocument? @relation(fields: [evidenceDocumentId], references: [id], onDelete: Restrict)
   note                String?
-  /// PENDING_CONFIRM / CONFIRMED / REJECTED / CANCELLED (CHECK ใน migration 0090)
+  /// PENDING_CONFIRM / CONFIRMED / REJECTED / CANCELLED (CHECK ใน migration 0091)
   status              String          @default("PENDING_CONFIRM")
   approvedBy          String?         @map("approved_by") /// ผู้ยืนยัน (docs/01 §3.3)
   decidedBy           String?         @map("decided_by")
@@ -1902,7 +1902,7 @@ model TripCost {
   sourceType         String?         @map("source_type")
   sourceId           String?         @map("source_id") @db.Uuid
   /// ST4-T13 ค่าใช้จ่ายหน้างานฝั่งซื้อ (source MANUAL, source_type FIELD หรือ DO_SURCHARGE เมื่อบันทึกคู่กับฝั่งขาย)
-  /// สถานะ: บรรทัดระบบ = CONFIRMED · หน้างาน PENDING_CONFIRM → CONFIRMED / REJECTED / CANCELLED (CHECK ใน migration 0090)
+  /// สถานะ: บรรทัดระบบ = CONFIRMED · หน้างาน PENDING_CONFIRM → CONFIRMED / REJECTED / CANCELLED (CHECK ใน migration 0091)
   status             String          @default("CONFIRMED")
   doSurchargeId      String?         @map("do_surcharge_id") @db.Uuid /// บรรทัดฝั่งขายที่บันทึกคู่กัน (ใช้รูปหลักฐานเดียวกัน)
   doSurcharge        DoSurcharge?    @relation(fields: [doSurchargeId], references: [id], onDelete: Restrict)
