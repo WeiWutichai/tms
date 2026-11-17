@@ -1,3 +1,4 @@
+import { ipKey, RateLimitService, slidingWindow } from '../../http/rate-limit/rate-limit.service';
 import {
   Body,
   Controller,
@@ -101,6 +102,8 @@ export class DocumentDto {
 export const store = () =>
   new LocalFileStore(process.env.FILES_ROOT ?? join(process.cwd(), '.data', 'files'));
 const enc = (id: string) => encodeId('document', id);
+/** ST7-T08: URL ลายเซ็นผิดต่อ IP ต่อนาที ก่อนตอบ 429 */
+export const BAD_SIGNATURE_PER_MIN = 30;
 
 /** DTO + ลิงก์ดาวน์โหลดอายุสั้น (READY) — ใช้ร่วมกับเอกสารที่ระบบสร้างเอง เช่น ใบคุมรถ ST3-T20 */
 export function readyDocumentDto(doc: StoredDocument, origin: string): DocumentDto {
@@ -135,7 +138,21 @@ function toDto(d: StoredDocument): DocumentDto {
 @ApiTags('documents')
 @Controller('documents')
 export class DocumentsController {
-  constructor(private readonly db: DbService) {}
+  constructor(
+    private readonly db: DbService,
+    private readonly limiter: RateLimitService,
+  ) {}
+
+  /**
+   * ST7-T08 (review L1): URL ลายเซ็นผิด/หมดอายุ → นับต่อ IP (30 ครั้ง/นาที) เกินแล้วตอบ 429 แทน 404 — กันสแกน id/ลายเซ็น
+   * (นับเฉพาะครั้งที่ผิด — คำขอที่ลายเซ็นถูกไม่ถูกจำกัด)
+   */
+  private async badSignature(req: Request): Promise<never> {
+    await this.limiter.assert([
+      slidingWindow(`docsig:${ipKey(req.ip)}`, BAD_SIGNATURE_PER_MIN, 60_000, 'ip'),
+    ]);
+    throw new ProblemException('not_found');
+  }
 
   @Post()
   @ApiBearerAuth()
@@ -206,7 +223,7 @@ export class DocumentsController {
   ): Promise<DocumentDto> {
     const docId = tryDecodeId('document', id);
     const tenantId = docId ? verifyDocumentUrl('upload', docId, q) : null;
-    if (!docId || !tenantId) throw new ProblemException('not_found');
+    if (!docId || !tenantId) return this.badSignature(req);
     const data = Buffer.isBuffer(req.body) ? (req.body as Buffer) : Buffer.alloc(0);
     return this.db.withTenant(tenantId, async (tx) => {
       // ล็อกแถว — อัปโหลดซ้ำพร้อมกันได้ผลเดียว
@@ -260,11 +277,12 @@ export class DocumentsController {
   async download(
     @Param('id') id: string,
     @Query() q: { t?: string; exp?: string; sig?: string },
+    @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<StreamableFile> {
     const docId = tryDecodeId('document', id);
     const tenantId = docId ? verifyDocumentUrl('download', docId, q) : null;
-    if (!docId || !tenantId) throw new ProblemException('not_found');
+    if (!docId || !tenantId) return this.badSignature(req);
     const doc = await this.db.withTenant(tenantId, (tx: Tx) =>
       tx.storedDocument.findUnique({ where: { id: docId } }),
     );

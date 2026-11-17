@@ -77,9 +77,9 @@ describe('subcon link status (ST4-T08)', () => {
       .data as { id: string; code: string }[];
     vt6 = types.find((t) => t.code === '6W')!.id;
   });
-  beforeEach(() => {
-    resetPublicRateLimit();
-    resetLinkWriteRate();
+  beforeEach(async () => {
+    await resetPublicRateLimit();
+    await resetLinkWriteRate();
   });
   afterAll(async () => {
     await app.close();

@@ -5,6 +5,7 @@ import {
   RequireFeature,
   RequireScope,
   TenantResource,
+  RateLimitClass,
 } from '../../common/decorators';
 import { decodeIdOr404 } from '../../common/ids';
 import {
@@ -52,6 +53,7 @@ export class WebhookDeliveriesController {
   }
 
   @Post(':id/retry')
+  @RateLimitClass('heavy')
   @HttpCode(200)
   @NoTransaction()
   @TenantResource('webhookDelivery')
@@ -76,6 +78,7 @@ export class EventsController {
   constructor(private readonly ops: WebhookOpsService) {}
 
   @Post(':id/redeliver')
+  @RateLimitClass('heavy')
   @HttpCode(200)
   @NoTransaction()
   @TenantResource('event')

@@ -3,6 +3,8 @@ import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { AuditService } from './audit/audit.service';
 import { MagicLinkService } from './modules/links/magic-link.service';
 import { PublicRateLimitMiddleware } from './http/public-rate-limit.middleware';
+import { RateLimitGuard } from './http/rate-limit/rate-limit.guard';
+import { RateLimitService } from './http/rate-limit/rate-limit.service';
 import { EntitlementService } from './modules/entitlements/entitlement.service';
 import { PriceFieldInterceptor } from './common/price-fields';
 import { AuthController } from './auth/auth.controller';
@@ -333,7 +335,10 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     BranchesService,
     SequencesService,
     SettingsService,
+    RateLimitService,
     { provide: APP_GUARD, useClass: AuthGuard },
+    // ST7-T08: หลัง AuthGuard (ต้องรู้ tenant/principal ก่อน) — Nest เรียก guard ตามลำดับที่ลงทะเบียน
+    { provide: APP_GUARD, useClass: RateLimitGuard },
     { provide: APP_FILTER, useClass: ProblemFilter },
     // ลำดับสำคัญ: ราคา (นอกสุด) → idempotency → transaction (ใน)
     // ST1-T13: ตัด field ราคาตามสิทธิ์ของ "ผู้เรียกปัจจุบัน" — อยู่นอกสุด เพื่อให้ response ที่ replay จาก
