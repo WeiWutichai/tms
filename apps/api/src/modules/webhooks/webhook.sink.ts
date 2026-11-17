@@ -1,6 +1,7 @@
-import { Injectable, type OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import type { WebhookEndpoint } from '@prisma/client';
 import { WEBHOOK_MAX_ATTEMPTS, WEBHOOK_RETRY_SCHEDULE_MIN } from '@tms/domain';
+import { PrismaService } from '../../db/prisma.service';
 import { EntitlementService } from '../entitlements/entitlement.service';
 import { OutboxSinkRegistry } from '../integration/outbox-sink.registry';
 import { OutboxSinkError, type OutboxDelivery, type OutboxSink } from '../integration/outbox.types';
@@ -9,6 +10,8 @@ import { WebhookEngine } from './webhook-engine';
 export const WEBHOOK_SINK = 'webhook';
 /** คำสั่งยืนยันปลายทาง (สร้างตอนเพิ่ม endpoint) — operation ของ outbox */
 export const VERIFICATION_OP = 'webhook.verification';
+/** คำสั่งส่งซ้ำด้วยมือ (ST7-T05 retry/redeliver) — ส่ง 1 ครั้ง ไม่ retry อัตโนมัติ (operation ของ outbox) */
+export const MANUAL_OP = 'webhook.redeliver';
 
 /**
  * Sink `webhook` ของ integration outbox (ST7-T04) — subscription ของแต่ละ endpoint (target = id) สร้างคำสั่งต่อ event
@@ -21,6 +24,7 @@ export const VERIFICATION_OP = 'webhook.verification';
 @Injectable()
 export class WebhookSink implements OutboxSink, OnModuleInit {
   readonly key = WEBHOOK_SINK;
+  private readonly logger = new Logger('WebhookSink');
   /** timeout 10 วิ — lease 1 นาทีพอ (worker ตายแล้วหยิบใหม่เร็ว) */
   readonly leaseMs = 60_000;
   readonly retry = { maxAttempts: WEBHOOK_MAX_ATTEMPTS, scheduleMin: WEBHOOK_RETRY_SCHEDULE_MIN };
@@ -29,6 +33,7 @@ export class WebhookSink implements OutboxSink, OnModuleInit {
     private readonly registry: OutboxSinkRegistry,
     private readonly engine: WebhookEngine,
     private readonly entitlements: EntitlementService,
+    private readonly prisma: PrismaService,
   ) {}
 
   onModuleInit() {
@@ -55,12 +60,15 @@ export class WebhookSink implements OutboxSink, OnModuleInit {
     if (d.operation === VERIFICATION_OP) return this.verify(d, e);
 
     if (!d.event) throw new OutboxSinkError('event not found', 'VALIDATION', { code: 'no_event' });
+    const manual = d.operation === MANUAL_OP;
+    const attempt = await this.allocateAttempt(d, d.event.id);
     const r = await this.engine.attempt({
       tenantId: d.tenantId,
       endpoint: e,
       envelope: this.engine.envelopeOf(d.tenantId, d.event),
-      attempt: d.attempt,
+      attempt,
       test: false,
+      manual,
       outboxId: d.id,
       eventId: d.event.id,
       signal: d.signal,
@@ -72,11 +80,18 @@ export class WebhookSink implements OutboxSink, OnModuleInit {
       deliveryId: r.deliveryId,
       ms: r.send.durationMs,
     };
-    if (r.outcome === 'DELIVERED') return { result: detail };
+    if (r.outcome === 'DELIVERED') {
+      // ส่งถึงแล้ว — ยกเลิกรอบอัตโนมัติไม่สำเร็จต้องไม่ทำให้คำสั่งนี้กลายเป็นล้ม (ผู้รับกันซ้ำด้วย id อยู่แล้ว)
+      if (manual)
+        await this.supersede(d, d.event.id).catch((e: unknown) =>
+          this.logger.error(`supersede after manual redelivery ${d.id} failed: ${String(e)}`),
+        );
+      return { result: detail };
+    }
     if (r.outcome === 'ABORTED') throw new Error('aborted'); // ไม่ได้บันทึก/ไม่นับ — lease หาย/ปิด worker
     if (d.signal.aborted) throw new Error('aborted'); // lease หาย/ปิด worker — dispatcher ไม่เขียนทับ
     const msg = r.send.status ? `endpoint responded ${r.send.status}` : (r.errorCode ?? 'failed');
-    if (r.retryable)
+    if (r.retryable && !manual)
       throw new OutboxSinkError(
         msg,
         'TRANSIENT',
@@ -84,6 +99,46 @@ export class WebhookSink implements OutboxSink, OnModuleInit {
         r.nextRetryAt ? r.nextRetryAt.getTime() - Date.now() : undefined,
       );
     throw new OutboxSinkError(msg, 'VALIDATION', detail);
+  }
+
+  /**
+   * ครั้งที่ของการส่งนี้ (X-TMS-Attempt / webhook_delivery.attempt) ไม่ซ้ำและเพิ่มขึ้นต่อคู่ (endpoint, event)
+   * แม้รอบอัตโนมัติกับการส่งซ้ำด้วยมือส่งพร้อมกัน: ใต้ advisory lock คู่เดียวกับ WebhookOpsService
+   * = max(ครั้งของคำสั่งนี้, ครั้งที่บันทึกแล้ว + 1, ครั้งของคำสั่งอื่นที่กำลังส่ง + 1) แล้วเขียนกลับที่คำสั่ง (คำสั่งอื่นเห็น)
+   */
+  private async allocateAttempt(d: OutboxDelivery, eventId: string): Promise<number> {
+    const target = d.targetId ?? '';
+    return this.prisma.platform.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(8, hashtext(${`${target}:${eventId}`}))`;
+      const [row] = await tx.$queryRaw<{ n: number }[]>`
+        SELECT greatest(
+          ${d.attempt}::int,
+          (SELECT coalesce(max(attempt), 0) + 1 FROM webhook_delivery
+            WHERE tenant_id = ${d.tenantId}::uuid AND endpoint_id = ${target}::uuid AND event_id = ${eventId}::uuid),
+          (SELECT coalesce(max(attempt), 0) + 1 FROM integration_outbox
+            WHERE tenant_id = ${d.tenantId}::uuid AND sink = ${WEBHOOK_SINK} AND target_id = ${target}
+              AND event_id = ${eventId}::uuid AND status = 'IN_FLIGHT' AND id <> ${d.id}::uuid)
+        )::int AS n`;
+      const n = row?.n ?? d.attempt;
+      if (n !== d.attempt)
+        await tx.$executeRaw`UPDATE integration_outbox SET attempt = ${n}, updated_at = now()
+                              WHERE id = ${d.id}::uuid AND status = 'IN_FLIGHT'`;
+      return n;
+    });
+  }
+
+  /**
+   * ส่งซ้ำด้วยมือสำเร็จ → คำสั่งรอบอัตโนมัติของ event เดียวกันที่ endpoint นี้ที่ยังรอ retry ไม่ต้องส่งอีก (SKIPPED)
+   * เขียนด้วย role platform (role แอปแก้คิวไม่ได้ — migration 0090) · คำสั่งที่กำลังส่งอยู่ (IN_FLIGHT) ปล่อยไว้ — ผู้รับกันซ้ำด้วย id
+   */
+  private async supersede(d: OutboxDelivery, eventId: string): Promise<void> {
+    await this.prisma.platform.$executeRaw`
+      UPDATE integration_outbox
+         SET status = 'SKIPPED', done_at = now(), updated_at = now(),
+             last_error = jsonb_build_object('code', 'superseded_by_manual', 'by', ${d.id}::text)
+       WHERE tenant_id = ${d.tenantId}::uuid AND sink = ${WEBHOOK_SINK} AND target_id = ${d.targetId}
+         AND event_id = ${eventId}::uuid AND id <> ${d.id}::uuid
+         AND status IN ('PENDING', 'FAILED_RETRYABLE')`;
   }
 
   /** `webhook.verification`: ส่ง challenge ครั้งเดียว — ผู้รับ echo กลับ (ทั้ง body หรือ JSON `{challenge}`) → verified_at (ผลไม่บล็อก) */

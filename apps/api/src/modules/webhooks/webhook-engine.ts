@@ -150,6 +150,11 @@ export class WebhookEngine {
     envelope: WebhookEnvelope;
     attempt: number;
     test: boolean;
+    /**
+     * ส่งซ้ำด้วยมือ (ST7-T05 retry/redeliver) — ครั้งเดียว ไม่ตั้งรอบ retry อัตโนมัติ · ล้มไม่นับเข้าการปิดอัตโนมัติ
+     * (event นี้นับไปแล้วตอนรอบอัตโนมัติ) · สำเร็จ = ล้างตัวนับเหมือนการส่งปกติ
+     */
+    manual?: boolean;
     outboxId?: string | null;
     eventId?: string | null;
     signal?: AbortSignal;
@@ -186,7 +191,8 @@ export class WebhookEngine {
         deliveryId: '',
       };
     const cls = classifySend(send);
-    const last = input.test || !cls.retryable || input.attempt >= WEBHOOK_MAX_ATTEMPTS;
+    const last =
+      input.test || input.manual || !cls.retryable || input.attempt >= WEBHOOK_MAX_ATTEMPTS;
     const outcome: Outcome = cls.ok ? 'DELIVERED' : last ? 'EXHAUSTED' : 'FAILED';
     const nextRetryAt =
       outcome === 'FAILED' ? new Date(Date.now() + webhookRetryDelayMs(input.attempt)) : null;
@@ -227,6 +233,7 @@ export class WebhookEngine {
         e,
         outcome,
         input.test || cls.errorCode === 'invalid_request',
+        !!input.manual,
       );
       if (cls.ok && input.onDelivered) await input.onDelivered(tx, send);
       return d.id;
@@ -248,6 +255,7 @@ export class WebhookEngine {
     e: WebhookEndpoint,
     outcome: Outcome,
     test: boolean,
+    manual = false,
   ): Promise<void> {
     const now = new Date();
     // ทดสอบ/verification ไม่นับเป็นการส่ง event (INT-107) — ไม่แตะส่งล่าสุด/อัตราสำเร็จ/ตัวนับ
@@ -259,7 +267,7 @@ export class WebhookEngine {
       });
       return;
     }
-    if (outcome === 'FAILED') {
+    if (outcome === 'FAILED' || (manual && outcome === 'EXHAUSTED')) {
       await tx.webhookEndpoint.update({
         where: { id: e.id },
         data: { lastDeliveryAt: now, lastFailureAt: now },
