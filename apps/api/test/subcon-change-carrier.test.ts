@@ -457,6 +457,50 @@ describe('subcon change carrier (ST3-T25)', () => {
     expect(await costs(t3.id)).toEqual(['5600.00']);
   });
 
+  it('รายที่ถูกเปลี่ยนออก (QA M1): ไม่นับถูกสุด · ไม่เป็นค่าเริ่มต้น · อยู่ท้าย ป้าย CHANGED · เลือกซ้ำต้องมีเหตุผล · 1 คำขอ = 1 version', async () => {
+    const A = await newCarrier();
+    const B = await newCarrier();
+    const C = await newCarrier();
+    const t = await newTrip();
+    await buyRate(A.id, t.a, t.b, '5000');
+    await buyRate(B.id, t.a, t.b, '5400');
+    await buyRate(C.id, t.a, t.b, '5600');
+    await api(app, dispatcher)
+      .post(`/v1/trips/${t.id}/offer`)
+      .send({ carrierId: A.id })
+      .expect(200);
+    const v = (await trip(t.id)).body.version as number;
+    // A → B (B ถูกสุดเมื่อไม่นับ A — ไม่ต้องใส่เหตุผลเลือก)
+    const r = await change(t.id, v, { carrierId: B.id, changeReason: REASON }).expect(200);
+    expect(r.body.version).toBe(v + 1);
+    expect(r.body.hire.buySelectionKind).toBe('CHEAPEST');
+    // เปลี่ยนอีกครั้ง (B ออก): A ถูกเปลี่ยนออกแล้ว → ไม่ใช่ถูกสุด/ไม่อยู่ต้นรายการ · C = ถูกสุด
+    const opts = (
+      await api(app, admin).get(`/v1/trips/${t.id}/hire-options?change=true`).expect(200)
+    ).body;
+    const ids = opts.options.map((o: { carrier: { id: string } }) => o.carrier.id);
+    expect(ids).not.toContain(B.id);
+    expect(ids.indexOf(A.id)).toBeGreaterThan(ids.indexOf(C.id));
+    expect(opts.options[0]).toMatchObject({ carrier: { id: C.id }, cheapest: true });
+    expect(
+      opts.options.find((o: { carrier: { id: string } }) => o.carrier.id === A.id),
+    ).toMatchObject({ priorOutcome: 'CHANGED', cheapest: false });
+    expect(opts.buyCheapestAmount).toBe('5600.00');
+    const v2 = r.body.version as number;
+    const again = await change(t.id, v2, { carrierId: A.id, changeReason: REASON }).expect(422);
+    expect(again.body.errors[0]).toMatchObject({
+      field: 'selectionReason',
+      code: 'selection_reason_required',
+    });
+    const ok = await change(t.id, v2, {
+      carrierId: A.id,
+      changeReason: REASON,
+      selectionReason: 'ผู้รับเหมา A ซ่อมรถเสร็จแล้วและพร้อมรับงาน',
+    }).expect(200);
+    expect(ok.body).toMatchObject({ version: v2 + 1, carrier: { id: A.id } });
+    expect(ok.body.hire.buySelectionKind).toBe('OVERRIDE');
+  });
+
   it('ST3-T24 คงเดิม: replaceOffer ไม่มี changeReason ยังต้องครบ N ชม. (409 offer_not_timed_out)', async () => {
     const A = await newCarrier();
     const B = await newCarrier();

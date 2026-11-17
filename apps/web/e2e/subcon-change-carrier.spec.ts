@@ -258,6 +258,20 @@ test.describe.serial('เปลี่ยนผู้รับเหมา (ST3-T
     ]);
     expect(hist.data[1]!.closedReason).toBe(`เปลี่ยนผู้รับเหมา (${S.A!.name}): ${REASON}`);
     expect(await costs(S.t1!.tripNo)).toEqual(['5000.00', '-5000.00', '5400.00']);
+
+    // เปลี่ยนอีกครั้ง (QA M1): รายที่ถูกเปลี่ยนออก (A) ไม่เป็นค่าเริ่มต้น · ป้าย "ถูกเปลี่ยนออก" · เลือกซ้ำต้องมีเหตุผล
+    const again = await openChange(page, S.t1!);
+    await again.dlg.getByPlaceholder('เช่น รถของผู้รับเหมาเดิมเสียก่อนเข้ารับสินค้า').fill(REASON);
+    await again.dlg.getByRole('button', { name: 'เลือกผู้รับเหมารายใหม่' }).click();
+    const sel2 = again.d.getByRole('combobox', { name: 'ผู้รับเหมา' });
+    await expect(sel2.locator('option:checked')).not.toContainText(S.A!.name);
+    await expect(sel2.locator('option', { hasText: S.A!.name })).toHaveText(
+      `${S.A!.name} · ฿5,000.00 · ถูกเปลี่ยนออก`,
+    );
+    await sel2.selectOption({ label: `${S.A!.name} · ฿5,000.00 · ถูกเปลี่ยนออก` });
+    await expect(again.d.getByTestId('sub-reason-hint')).toHaveText(
+      'รายนี้ถูกเปลี่ยนออกจากเที่ยวนี้แล้ว — ระบุเหตุผลอย่างน้อย 10 ตัวอักษร',
+    );
   });
 
   test('รับงานแล้ว: ยกเลิกการจ้าง (ถอดรถ/คนขับรายเดิม) → จ้างรายใหม่ · กิจกรรมแสดงรับงาน + ยกเลิกการจ้าง · ลิงก์เดิมใช้ไม่ได้', async ({

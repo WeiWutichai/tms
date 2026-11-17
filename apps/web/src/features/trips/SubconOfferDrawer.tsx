@@ -580,7 +580,7 @@ export function SubconOfferDrawer({
         cancelLabel={t('common.cancel')}
         closeLabel={t('drawer.close')}
         minLength={10}
-        hint={(n, ok) => (ok ? t('ord.dlg.hintOk') : t('ord.dlg.hintMin', { n }))}
+        hint={(n, ok) => (ok ? t('sub.change.hintOk') : t('ord.dlg.hintMin', { n }))}
         onClose={() => setAsking(false)}
         onOk={(reason) => {
           setAsking(false);

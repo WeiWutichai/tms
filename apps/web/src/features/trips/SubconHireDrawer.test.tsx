@@ -385,3 +385,35 @@ describe('SubconHireDrawer — เปลี่ยนผู้รับเหม�
     expect(onDone).toHaveBeenCalledWith('เปลี่ยนผู้รับเหมาเป็น หจก. เอ แล้ว · รอรถร่วมตอบรับ');
   });
 });
+
+describe('SubconHireDrawer — รายที่ถูกเปลี่ยนออก (ST3-T25 QA M1)', () => {
+  beforeEach(() => {
+    hireMutate.mockReset();
+    opts.isError = false;
+    // API เรียงรายที่ถูกเปลี่ยนออกไว้ท้าย · ถูกสุด = ซี (ไม่นับเอ)
+    const [, a, c] = OPTS.options;
+    opts.data = {
+      ...OPTS,
+      buyCheapestAmount: '5600.00',
+      options: [
+        { ...c!, buyRateAmount: '5600.00', pricingStatus: 'AVAILABLE', cheapest: true },
+        { ...a!, buyRateAmount: '5000.00', cheapest: false, priorOutcome: 'CHANGED' },
+      ],
+    } as unknown as HireOptions;
+  });
+
+  it('ไม่ใช่ค่าเริ่มต้น · ป้าย "ถูกเปลี่ยนออก" · เลือกซ้ำต้องมีเหตุผล (คำใบ้เฉพาะ)', () => {
+    show();
+    const sel = screen.getByRole('combobox', { name: 'ผู้รับเหมา' }) as HTMLSelectElement;
+    expect(sel.value).toBe('car_c');
+    expect(
+      screen.getByRole('option', { name: 'หจก. เอ · ฿5,000.00 · ถูกเปลี่ยนออก' }),
+    ).toBeTruthy();
+    fireEvent.change(sel, { target: { value: 'car_a' } });
+    expect(screen.getByTestId('sub-reason-hint').textContent).toBe(
+      'รายนี้ถูกเปลี่ยนออกจากเที่ยวนี้แล้ว — ระบุเหตุผลอย่างน้อย 10 ตัวอักษร',
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'ส่งข้อเสนอ' }));
+    expect(hireMutate).not.toHaveBeenCalled();
+  });
+});

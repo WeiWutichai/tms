@@ -293,6 +293,8 @@ describe('SubconOfferDrawer — เปลี่ยนผู้รับเหม
     fireEvent.change(screen.getByPlaceholderText('เช่น รถของผู้รับเหมาเดิมเสียก่อนเข้ารับสินค้า'), {
       target: { value: 'รถของผู้รับเหมาเดิมเสียก่อนเข้ารับสินค้า' },
     });
+    expect(screen.getByText('บันทึกพร้อมชื่อผู้ทำรายการและเวลา')).toBeTruthy();
+    expect(screen.queryByText('บันทึกพร้อมชื่อผู้อนุมัติและเวลา')).toBeNull();
     fireEvent.click(ok);
     expect(onChange).toHaveBeenCalledWith('รถของผู้รับเหมาเดิมเสียก่อนเข้ารับสินค้า');
   });

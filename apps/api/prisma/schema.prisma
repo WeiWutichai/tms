@@ -1914,6 +1914,8 @@ model SubconOffer {
   offeredAt           DateTime          @default(now()) @map("offered_at") @db.Timestamptz(6)
   closedAt            DateTime?         @map("closed_at") @db.Timestamptz(6)
   closedReason        String?           @map("closed_reason")
+  /// ST3-T25 เหตุที่ปิด (ระบบ): CARRIER_CHANGED = เปลี่ยนผู้รับเหมา — ไม่นับรายนั้นเป็นถูกสุดในการจ้างครั้งต่อไป
+  closedCause         String?           @map("closed_cause")
   /// ST3-T23 ลิงก์ข้อเสนองาน: หมดเวลาตอบ (48 ชม. — docs/04 D3) · เปิดดูครั้งแรก · ตอบเมื่อ/ทางไหน (LINK / USER)
   expiresAt           DateTime?         @map("expires_at") @db.Timestamptz(6)
   viewedAt            DateTime?         @map("viewed_at") @db.Timestamptz(6)

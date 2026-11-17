@@ -1249,15 +1249,22 @@ export class TripService {
         buyRateSnapshot: Prisma.DbNull,
         ...(accepted ? { ...CLEAR_CREW, assignedAt: null } : {}),
       },
-      { note: why },
+      // ไม่เพิ่ม version ที่ขั้นนี้ — การจ้างรายใหม่ในคำขอเดียวกันเพิ่มให้ 1 ครั้ง (review L3: 1 คำขอ = 1 version)
+      { note: why, bump: false },
     );
     if (accepted) {
       for (const d of await this.reload(tx, dos)) await this.dos.unplanForTrip(tx, d, why);
-      if (trip.driverId) await this.sheetLinks.revokeForTrip(tx, trip.id, 'DRIVER_CHANGED');
+      // ลิงก์ใบคุมรถของเที่ยวนี้หมดผลเสมอ (review L1 — ไม่ขึ้นกับว่ามีคนขับใน snapshot)
+      await this.sheetLinks.revokeForTrip(tx, trip.id, 'DRIVER_CHANGED');
     }
     await tx.subconOffer.update({
       where: { id: o.id },
-      data: { status: 'WITHDRAWN', closedAt: now, closedReason: why },
+      data: {
+        status: 'WITHDRAWN',
+        closedAt: now,
+        closedReason: why,
+        closedCause: 'CARRIER_CHANGED',
+      },
     });
     await this.offerLinks.revoke(tx, [o.id], 'CARRIER_CHANGED', trip.id);
     const actor = requestContext.require().actorId ?? null;
@@ -1707,7 +1714,7 @@ export class TripService {
     trip: TripRecord,
     event: TripEvent,
     data: Prisma.TripUncheckedUpdateManyInput,
-    extra: { reasonCodeId?: string | null; note?: string | null } = {},
+    extra: { reasonCodeId?: string | null; note?: string | null; bump?: boolean } = {},
   ) {
     await this.state.transition<TripStatus, TripEvent>(tx, {
       docType: ENTITY,
@@ -1721,7 +1728,11 @@ export class TripService {
       apply: async (to) => {
         const r = await tx.trip.updateMany({
           where: { id: trip.id, status: trip.status, version: trip.version },
-          data: { ...data, status: to as DbTripStatus, version: { increment: 1 } },
+          data: {
+            ...data,
+            status: to as DbTripStatus,
+            ...(extra.bump === false ? {} : { version: { increment: 1 } }),
+          },
         });
         if (r.count === 0) throw new ProblemException('concurrent_update');
         return eventView(await this.get(trip.id, tx));

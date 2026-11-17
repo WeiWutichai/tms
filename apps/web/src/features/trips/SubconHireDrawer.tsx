@@ -432,7 +432,7 @@ export function SubconHireDrawer({
                   {opt.blockedReason
                     ? t('sub.reasonBlocked')
                     : opt.priorOutcome
-                      ? t('sub.reasonPrior')
+                      ? t(opt.priorOutcome === 'CHANGED' ? 'sub.reasonChanged' : 'sub.reasonPrior')
                       : o.buyCheapestAmount
                         ? t('sub.reasonNotCheapest', {
                             p: money(o.buyCheapestAmount),

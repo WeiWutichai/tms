@@ -225,6 +225,7 @@ const openSub = async () => {
   await W.waitForTimeout(1800);
   const d = W.getByRole('dialog');
   await d.getByRole('button', { name: 'จ่ายงานรถร่วม' }).click();
+  await d.getByText('จ่ายงานรถร่วม', { exact: true }).first().waitFor();
   await W.waitForTimeout(1200);
   return d;
 };
@@ -256,11 +257,16 @@ await W.getByRole('button', { name: 'เลือกผู้รับเหม�
 await W.waitForTimeout(1500);
 const cHire = await W.screenshot();
 await W.getByRole('dialog').getByRole('button', { name: 'ส่งข้อเสนอ' }).click();
-await W.waitForTimeout(1500);
+await W.getByRole('status').filter({ hasText: 'เปลี่ยนผู้รับเหมาเป็น' }).waitFor();
+await W.waitForTimeout(800);
 // 3) หลังเปลี่ยน: กิจกรรม (รายเดิมรับงาน → ยกเลิกการจ้าง → ส่งข้อเสนอรายใหม่)
 d = await openSub();
 await d.getByRole('tab', { name: 'กิจกรรม' }).click();
-await W.waitForTimeout(800);
+// ต้องเห็นครบ: รายเดิมรับงาน → ยกเลิกการจ้าง → ส่งข้อเสนอรายใหม่ (review M1)
+await d.getByText(/^ผู้รับเหมารับงาน · กรอกรถ /).waitFor();
+await d.getByText('ยกเลิกการจ้าง', { exact: true }).waitFor();
+await d.getByText(`ส่งข้อเสนอให้ ${B.name}`, { exact: true }).waitFor();
+await W.waitForTimeout(500);
 const cLog = await W.screenshot();
 console.log('changed to', B.name);
 

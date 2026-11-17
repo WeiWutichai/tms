@@ -3152,6 +3152,8 @@ export const th = {
   'sub.optPrior.REJECTED': ' · ปฏิเสธแล้ว',
   'sub.optPrior.EXPIRED': ' · หมดเวลา',
   'sub.optPrior.NO_RESPONSE': ' · ไม่ตอบรับ',
+  'sub.optPrior.CHANGED': ' · ถูกเปลี่ยนออก',
+  'sub.reasonChanged': 'รายนี้ถูกเปลี่ยนออกจากเที่ยวนี้แล้ว — ระบุเหตุผลอย่างน้อย 10 ตัวอักษร',
   'sub.reasonPrior': 'รายนี้ไม่รับงานเที่ยวนี้มาแล้ว — ระบุเหตุผลอย่างน้อย 10 ตัวอักษร',
   'problem.offer_not_timed_out': 'รถร่วมรายนี้ยังอยู่ในเวลาตอบรับ — ส่งรายถัดไปได้เมื่อครบเวลา',
   // ST3-T25 เปลี่ยนผู้รับเหมา (docs/04 D3 — ต้นแบบไม่มีเมนูนี้: spec/12 §3)
@@ -3166,7 +3168,7 @@ export const th = {
   'sub.change.ok': 'เลือกผู้รับเหมารายใหม่',
   'sub.change.note':
     'เมื่อส่งข้อเสนอ การจ้าง {n} จะถูกยกเลิก (ลิงก์เดิมใช้ไม่ได้ · ค่าจ้างเดิมกลับรายการ)',
-  'sub.change.why': 'เหตุผลที่เปลี่ยน: {r}',
+  'sub.change.hintOk': 'บันทึกพร้อมชื่อผู้ทำรายการและเวลา',
   'sub.toast.changed': 'เปลี่ยนผู้รับเหมาเป็น {n} แล้ว · รอรถร่วมตอบรับ',
   'sub.log.cancelled': 'ยกเลิกการจ้าง',
   'problem.carrier_change_not_allowed':

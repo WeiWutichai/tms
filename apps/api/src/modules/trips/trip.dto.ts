@@ -912,11 +912,11 @@ export class HireOptionDto {
   blockedReason!: string | null;
   @ApiProperty({
     nullable: true,
-    enum: ['REJECTED', 'EXPIRED', 'NO_RESPONSE'],
+    enum: ['REJECTED', 'EXPIRED', 'NO_RESPONSE', 'CHANGED'],
     type: String,
     description:
-      'ST3-T24 รายนี้เคยได้ข้อเสนอของเที่ยวนี้แล้วไม่รับ: ปฏิเสธ / ลิงก์หมดอายุ / ไม่ตอบใน N ชม. (รวมรายที่รอตอบอยู่และครบเวลาแล้ว) — ' +
-      'ไม่นับในการเทียบถูกสุด (รายถัดไปที่ถูกสุด = ถูกสุด)',
+      'ST3-T24 รายนี้เคยได้ข้อเสนอของเที่ยวนี้แล้วไม่รับ: ปฏิเสธ / ลิงก์หมดอายุ / ไม่ตอบใน N ชม. (รวมรายที่รอตอบอยู่และครบเวลาแล้ว) · ' +
+      'ST3-T25 `CHANGED` = ถูกเปลี่ยนออกจากเที่ยวนี้ (ยกเลิกการจ้าง) — ไม่นับในการเทียบถูกสุด (รายถัดไปที่ถูกสุด = ถูกสุด), เลือกซ้ำต้องมีเหตุผล',
   })
   priorOutcome!: string | null;
   @ApiProperty({ description: 'ราคาต่ำสุดของตัวเลือก (เท่ากันได้หลายราย)' }) cheapest!: boolean;

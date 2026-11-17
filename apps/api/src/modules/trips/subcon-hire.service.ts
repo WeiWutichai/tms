@@ -81,7 +81,8 @@ export interface HireCarrierOption {
   prior: PriorOutcome | null;
 }
 
-export type PriorOutcome = 'REJECTED' | 'EXPIRED' | 'NO_RESPONSE';
+/** ST3-T25 CHANGED = ผู้จัดรถเปลี่ยนรายนี้ออกจากเที่ยวนี้ (ยกเลิกการจ้าง) — ไม่นับถูกสุด/ไม่เลือกเป็นค่าเริ่มต้น เลือกซ้ำต้องมีเหตุผล */
+export type PriorOutcome = 'REJECTED' | 'EXPIRED' | 'NO_RESPONSE' | 'CHANGED';
 /** ค่าตั้ง N ชม. (docs/04 D3 "ไม่ตอบใน N ชม.") — registry `dispatch.subconResponseHours` */
 export const RESPONSE_HOURS_KEY = 'dispatch.subconResponseHours' as const;
 
@@ -121,6 +122,17 @@ const NO_QUOTE = (reason: string): BuyQuote => ({
 
 const MONEY_RE = /^\d{1,12}(\.\d{1,2})?$/;
 
+/** ต่อท้ายเหตุผลระบบ "ถูกสุด": รายที่ไม่นับ (ไม่รับงานเที่ยวนี้ — ST3-T24 · ถูกเปลี่ยนออก — ST3-T25) */
+function excludedNote(options: { prior: PriorOutcome | null }[]): string {
+  const changed = options.filter((o) => o.prior === 'CHANGED').length;
+  const declined = options.filter((o) => o.prior && o.prior !== 'CHANGED').length;
+  const parts = [
+    ...(declined ? [`${declined} รายที่ไม่รับงานเที่ยวนี้`] : []),
+    ...(changed ? [`${changed} รายที่ถูกเปลี่ยนออก`] : []),
+  ];
+  return parts.length ? ` (ไม่นับ ${parts.join(' และ ')})` : '';
+}
+
 /**
  * จ้างรถร่วม (ST3-T22; docs/04 D3 "เลือก carrier + ราคาซื้อ" + "บันทึกเหตุผลการเลือก", spec/03 §8)
  * - ตัวเลือก: รถร่วมที่ใช้งานอยู่ทุกราย + ราคาขาซื้อจาก rate card (pricing engine ST2-T15) + ราคา 5 ครั้งล่าสุด (ST2-T14)
@@ -152,6 +164,7 @@ export class SubconHireService {
         status: true,
         responseDueAt: true,
         closedAt: true,
+        closedCause: true,
         respondedAt: true,
       },
       orderBy: { offeredAt: 'asc' },
@@ -160,18 +173,20 @@ export class SubconHireService {
     for (const r of rows) {
       const due = r.responseDueAt;
       const outcome: PriorOutcome | null =
-        r.status === 'REJECTED'
-          ? 'REJECTED'
-          : r.status === 'EXPIRED'
-            ? 'EXPIRED'
-            : (r.status === 'WITHDRAWN' &&
-                  !r.respondedAt &&
-                  due &&
-                  r.closedAt &&
-                  due.getTime() <= r.closedAt.getTime()) ||
-                (r.status === 'OFFERED' && due && due.getTime() <= now.getTime())
-              ? 'NO_RESPONSE'
-              : null;
+        r.status === 'WITHDRAWN' && r.closedCause === 'CARRIER_CHANGED'
+          ? 'CHANGED'
+          : r.status === 'REJECTED'
+            ? 'REJECTED'
+            : r.status === 'EXPIRED'
+              ? 'EXPIRED'
+              : (r.status === 'WITHDRAWN' &&
+                    !r.respondedAt &&
+                    due &&
+                    r.closedAt &&
+                    due.getTime() <= r.closedAt.getTime()) ||
+                  (r.status === 'OFFERED' && due && due.getTime() <= now.getTime())
+                ? 'NO_RESPONSE'
+                : null;
       if (outcome) out.set(r.carrierId, outcome);
       else out.delete(r.carrierId);
     }
@@ -603,21 +618,20 @@ export class SubconHireService {
             `selection reason (≥ ${SELECTION_REASON_MIN_LENGTH} characters) is required when not hiring the cheapest carrier`,
             me?.blocked
               ? `${me.blocked} — ระบุเหตุผลที่เลือกรายนี้ (อย่างน้อย 10 ตัวอักษร)`
-              : me?.prior
-                ? 'รายนี้ไม่รับงานเที่ยวนี้มาแล้ว — ระบุเหตุผลที่เสนอให้อีกครั้ง (อย่างน้อย 10 ตัวอักษร)'
-                : decision.cheapestAmount === null
-                  ? 'ไม่มีราคาจาก rate card ขาซื้อให้เทียบ — ระบุเหตุผลที่เลือกรายนี้ (อย่างน้อย 10 ตัวอักษร)'
-                  : 'รายนี้ไม่ใช่ราคาถูกสุด — ระบุเหตุผลที่เลือก (อย่างน้อย 10 ตัวอักษร)',
+              : me?.prior === 'CHANGED'
+                ? 'รายนี้ถูกเปลี่ยนออกจากเที่ยวนี้แล้ว — ระบุเหตุผลที่จ้างอีกครั้ง (อย่างน้อย 10 ตัวอักษร)'
+                : me?.prior
+                  ? 'รายนี้ไม่รับงานเที่ยวนี้มาแล้ว — ระบุเหตุผลที่เสนอให้อีกครั้ง (อย่างน้อย 10 ตัวอักษร)'
+                  : decision.cheapestAmount === null
+                    ? 'ไม่มีราคาจาก rate card ขาซื้อให้เทียบ — ระบุเหตุผลที่เลือกรายนี้ (อย่างน้อย 10 ตัวอักษร)'
+                    : 'รายนี้ไม่ใช่ราคาถูกสุด — ระบุเหตุผลที่เลือก (อย่างน้อย 10 ตัวอักษร)',
           );
         const kind: SelectionKind = decision.kind;
         const reason =
           kind === 'CHEAPEST'
             ? typed.length >= SELECTION_REASON_MIN_LENGTH
               ? typed
-              : cheapestReasonTh(priced.length) +
-                (options.some((o) => o.prior)
-                  ? ` (ไม่นับ ${options.filter((o) => o.prior).length} รายที่ไม่รับงานเที่ยวนี้)`
-                  : '')
+              : cheapestReasonTh(priced.length) + excludedNote(options)
             : typed;
         // ตรงกับราคา rate card ของรายนี้ = RATE_CARD · แก้ราคา/ไม่มี rate card = MANUAL
         const priceSource =
