@@ -90,6 +90,7 @@ describe('ประวัติการส่ง webhook (ST7-T05)', () => {
         errorMessage: '10.0.0.5',
       }),
     ).not.toContain('10.0.0.5');
+    expect(payloadText(t, { ...d, requestBody: null })).toContain('ไม่แสดง body');
   });
 
   it('toast ส่งซ้ำ ตามต้นแบบ resendDeliv', () => {

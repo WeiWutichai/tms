@@ -60,12 +60,14 @@ export function codeLabel(t: T, d: Pick<WebhookDelivery, 'responseStatus' | 'err
  * header ที่แสดงมาจาก API (ค่า header เพิ่มเติม = *** · ลายเซ็นแสดงบางส่วน)
  */
 export function payloadText(t: T, d: WebhookDeliveryDetail): string {
-  let body = d.requestBody;
-  try {
-    body = JSON.stringify(JSON.parse(d.requestBody), null, 2);
-  } catch {
-    /* ไม่ใช่ JSON — แสดงตามที่ส่ง */
-  }
+  // null = body ไม่ใช่ JSON และผู้ดูไม่มีสิทธิ์อ่านราคาทั้งสองฝั่ง (API ตัดราคาไม่ได้จึงไม่ส่ง)
+  let body = d.requestBody ?? t('whk.dl.bodyHidden');
+  if (d.requestBody !== null)
+    try {
+      body = JSON.stringify(JSON.parse(d.requestBody), null, 2);
+    } catch {
+      /* ไม่ใช่ JSON — แสดงตามที่ส่ง */
+    }
   const heads = Object.entries(d.requestHeaders)
     .filter(([k]) => !/^(content-type|user-agent)$/i.test(k))
     .map(([k, v]) => `${k}: ${v}`);

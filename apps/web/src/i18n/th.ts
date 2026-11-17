@@ -3860,6 +3860,7 @@ export const th = {
   'whk.dl.invalid': 'ไม่ได้ส่ง — ประกอบคำขอไม่ได้ (URL หรือ header ไม่ถูกต้อง)',
   'whk.dl.network': 'ไม่ได้รับ response — เชื่อมต่อปลายทางไม่ได้ (DNS / ปฏิเสธการเชื่อมต่อ)',
   'whk.dl.close': 'ปิด',
+  'whk.dl.bodyHidden': '(ไม่แสดง body — ต้องมีสิทธิ์ดูราคาขายและราคาซื้อ)',
   'whk.toast.reOk': 'ส่งซ้ำสำเร็จ · {code}',
   'whk.toast.reFail': 'ส่งซ้ำไม่สำเร็จ · {code}',
   'whk.toast.reQueued': 'เข้าคิวส่งซ้ำแล้ว · ระบบจะส่งให้ในไม่ช้า',
