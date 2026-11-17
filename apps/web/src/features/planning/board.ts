@@ -258,6 +258,20 @@ export function custShort(n: string | null | undefined, prefixes: string): strin
 export const placeText = (p: { name: string; province: string | null } | null | undefined) =>
   p ? (p.province ?? p.name) : '—';
 
+/**
+ * กำหนดส่งของการ์ด SO รอจัด — DO ส่งซ้ำ (นัดส่งใหม่อัตโนมัติ ST4-T12) ใช้วันที่นัด (วันหลังสุด) แทนวันที่ลูกค้าขอเดิมของ SO
+ * (ไม่ขึ้น "เกินกำหนด" เพราะวันเดิมผ่านไปแล้ว)
+ */
+export function poolDue(o: Pick<PoolOrder, 'requestedDate' | 'deliveryOrders'>): string {
+  let due = o.requestedDate;
+  for (const d of o.deliveryOrders) if (d.redeliveryOfNo && d.doDate > due) due = d.doDate;
+  return due;
+}
+
+/** การ์ดมี DO ส่งซ้ำ (ป้าย "ส่งซ้ำ" — spec/03 ORD-087) */
+export const isRedelivery = (o: Pick<PoolOrder, 'deliveryOrders'>) =>
+  o.deliveryOrders.some((d) => d.redeliveryOfNo !== null);
+
 /** ตัวกรอง "SO รอจัด" (ต้นแบบ planF: วัน / ประเภทรถ / ลูกค้า) */
 export interface PoolFilter {
   d: 'all' | 'today' | 'tomorrow';
@@ -272,14 +286,13 @@ export function poolView(pool: PoolOrder[], f: PoolFilter, today: string): PoolO
   return pool
     .filter(
       (o) =>
-        (f.d === 'all' ||
-          (f.d === 'today' ? o.requestedDate <= today : o.requestedDate === tomorrow)) &&
+        (f.d === 'all' || (f.d === 'today' ? poolDue(o) <= today : poolDue(o) === tomorrow)) &&
         (!f.vt || o.vehicleTypeId === f.vt) &&
         (!f.c || o.customerId === f.c),
     )
     .sort(
       (a, b) =>
-        a.requestedDate.localeCompare(b.requestedDate) ||
+        poolDue(a).localeCompare(poolDue(b)) ||
         kg(b.weightKg) - kg(a.weightKg) ||
         a.orderNo.localeCompare(b.orderNo),
     );
@@ -474,9 +487,13 @@ export const LEVEL_COLOR: Record<EligLevel, string> = {
 export const DIM = 0.6;
 
 /** วันที่ใช้ประเมินการ์ด SO เมื่อเลือกรถ: มุมมองวันเดียว = วันนั้น · 7 วัน = กำหนดส่ง (ถ้าอยู่ในช่วง) มิฉะนั้นวันแรก */
-export function orderDay(o: Pick<PoolOrder, 'requestedDate'>, days: string[]): string {
+export function orderDay(
+  o: Pick<PoolOrder, 'requestedDate' | 'deliveryOrders'>,
+  days: string[],
+): string {
   if (days.length === 1) return days[0]!;
-  return days.includes(o.requestedDate) ? o.requestedDate : days[0]!;
+  const due = poolDue(o);
+  return days.includes(due) ? due : days[0]!;
 }
 
 /**

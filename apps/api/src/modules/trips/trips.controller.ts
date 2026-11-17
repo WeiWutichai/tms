@@ -56,6 +56,7 @@ import {
   type RuleConfirmInput,
   type TripRecord,
   type TripWarning,
+  type TripRescheduled,
 } from './trip.service';
 import { SubconHireService } from './subcon-hire.service';
 
@@ -106,7 +107,7 @@ function hireDto(t: TripRecord): TripDto['hire'] {
   };
 }
 
-export function toTripDto(t: TripRecord): TripDto {
+export function toTripDto(t: TripRecord, rescheduled: TripRescheduled[] = []): TripDto {
   return {
     id: encodeId('trip', t.id),
     tripNo: t.tripNo!,
@@ -172,6 +173,31 @@ export function toTripDto(t: TripRecord): TripDto {
       departedAt: iso(s.departedAt),
       outcome: s.outcome,
       lastEventId: s.lastEventId ? encodeId('event', s.lastEventId) : null,
+      // ST4-T12 DO ที่ส่งไม่สำเร็จที่จุดนี้ → ใบนัดส่งใหม่ (แสดงทุกสถานะจุด — review H1c) · รับของไม่ได้ = ที่จุดรับ
+      reschedules: rescheduled
+        .filter((d) =>
+          d.pickupTripStop?.status === 'FAILED'
+            ? d.pickupTripStopId === s.id
+            : d.tripStopId === s.id,
+        )
+        .flatMap((d) =>
+          d.redeliveries.map((n) => ({
+            fromDeliveryOrderId: encodeId('deliveryOrder', d.id),
+            fromDoNo: d.doNo!,
+            deliveryOrderId: encodeId('deliveryOrder', n.id),
+            doNo: n.doNo!,
+            doDate: n.doDate.toISOString().slice(0, 10),
+            status: n.status,
+            attempt: n.rescheduleCount,
+            exhausted: n.rescheduleExhausted,
+          })),
+        ),
+    })),
+    rescheduledDeliveryOrders: rescheduled.map((d) => ({
+      id: encodeId('deliveryOrder', d.id),
+      doNo: d.doNo!,
+      pickupStopId: d.pickupTripStopId ? encodeId('tripStop', d.pickupTripStopId) : null,
+      dropStopId: d.tripStopId ? encodeId('tripStop', d.tripStopId) : null,
     })),
     deliveryOrders: t.deliveryOrders.map((d) => ({
       id: encodeId('deliveryOrder', d.id),
@@ -445,7 +471,7 @@ export class TripsController {
   async get(@Param('id') id: string, @Res({ passthrough: true }) res: Response): Promise<TripDto> {
     const t = await this.trips.get(decodeIdOr404('trip', id));
     setEtag(res, t.version);
-    return toTripDto(t);
+    return toTripDto(t, await this.trips.rescheduled(t.id));
   }
 
   /** สร้างเที่ยว PLANNING จาก DO (DRAFT ไม่อยู่ในเที่ยวอื่น) — จุดแวะจัดจาก DO, เลขเที่ยวจาก document_series TRIP */

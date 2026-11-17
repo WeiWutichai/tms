@@ -39,6 +39,8 @@ import {
   moveNoneReason,
   moveTarget,
   orderDay,
+  poolDue,
+  isRedelivery,
   type EligItem,
 } from './board';
 
@@ -402,9 +404,32 @@ describe('Filter รถที่รับได้สองทาง (ST3-T15)',
   });
   it('วันของการ์ด SO: วันเดียว = วันนั้น · 7 วัน = กำหนดส่ง (ถ้าอยู่ในช่วง)', () => {
     const week = Array.from({ length: 7 }, (_, i) => addDays(D, i));
-    expect(orderDay({ requestedDate: '2026-11-18' }, [D])).toBe(D);
-    expect(orderDay({ requestedDate: '2026-11-18' }, week)).toBe('2026-11-18');
-    expect(orderDay({ requestedDate: '2026-11-01' }, week)).toBe(D);
+    const o = (requestedDate: string) => ({ requestedDate, deliveryOrders: [] });
+    expect(orderDay(o('2026-11-18'), [D])).toBe(D);
+    expect(orderDay(o('2026-11-18'), week)).toBe('2026-11-18');
+    expect(orderDay(o('2026-11-01'), week)).toBe(D);
+  });
+  it('ST4-T12 DO ส่งซ้ำ: กำหนดส่งของการ์ด = วันที่นัด (วันหลังสุด) · ป้ายส่งซ้ำ', () => {
+    const d = (doDate: string, redeliveryOfNo: string | null) => ({
+      id: `do_${doDate}`,
+      doNo: 'DO-1',
+      weightKg: null,
+      doDate,
+      redeliveryOfNo,
+      rescheduleCount: redeliveryOfNo ? 1 : 0,
+      retainedOn: null,
+    });
+    const plain = { requestedDate: '2026-11-16', deliveryOrders: [d('2026-11-16', null)] };
+    const again = {
+      requestedDate: '2026-11-16',
+      deliveryOrders: [d('2026-11-16', null), d('2026-11-18', 'DO-0')],
+    };
+    expect(poolDue(plain)).toBe('2026-11-16');
+    expect(isRedelivery(plain)).toBe(false);
+    expect(poolDue(again)).toBe('2026-11-18');
+    expect(isRedelivery(again)).toBe(true);
+    const week = Array.from({ length: 7 }, (_, i) => addDays(D, i));
+    expect(orderDay(again, week)).toBe('2026-11-18');
   });
   it('ย้ายไปรถอื่น: เฉพาะคันที่ผ่านทุกกฎ ไม่ใช่คันเดิม รับน้ำหนักได้ · ประเภทเดียวกันก่อน → ความจุพอดี', () => {
     const v = (id: string, vt: string, cap: string | null): BoardVehicle =>

@@ -24,11 +24,14 @@ const LINES = {
   orderBy: { lineNo: 'asc' },
   select: { description: true, qtyPlanned: true, unit: true },
 } as const;
+/** DO ของจุด: ใบที่ใช้อยู่ + ใบที่ส่งไม่สำเร็จแล้วนัดส่งใหม่ (ST4-T12 review M3 — พิมพ์ซ้ำยังเห็นว่าไปส่งอะไร) */
 const DO_SELECT = {
-  where: { status: { not: 'CANCELLED' } },
+  where: { NOT: { status: 'CANCELLED', redeliveries: { none: {} } } },
   orderBy: { doNo: 'asc' },
-  select: { doNo: true, lines: LINES },
+  select: { doNo: true, status: true, lines: LINES },
 } as const;
+/** หมายเหตุของใบที่ส่งไม่สำเร็จแล้วนัดส่งใหม่บนใบคุมรถ */
+export const SHEET_RESCHEDULED_NOTE = 'ส่งไม่สำเร็จ · นัดส่งใหม่';
 
 export const SHEET_INCLUDE = {
   stops: {
@@ -102,6 +105,7 @@ export function sheetPage(
         contactPhone: c.phone,
         dos: dos.map((d) => ({
           doNo: d.doNo ?? '—',
+          ...(d.status === 'CANCELLED' ? { note: SHEET_RESCHEDULED_NOTE } : {}),
           goods: d.lines.map(
             (l) =>
               `${l.description} ${qty(l.qtyPlanned)} ${units.get(l.unit.toUpperCase()) ?? l.unit}`,

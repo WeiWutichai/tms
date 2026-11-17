@@ -180,6 +180,32 @@ class BoardPoolDoDto {
   @ApiProperty({ example: 'do_3f2a…' }) id!: string;
   @ApiProperty({ example: 'DO-6911-0001' }) doNo!: string;
   @ApiProperty({ nullable: true, type: String }) weightKg!: string | null;
+  @ApiProperty({
+    example: '2026-11-13',
+    description: 'วันส่งของ DO (ส่งใหม่ = วันที่นัด — ST4-T12)',
+  })
+  doDate!: string;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: 'DO-6911-0001',
+    description: 'ST4-T12 ส่งซ้ำของ DO ใบนี้ (redelivery_of) — ป้าย "ส่งซ้ำ" (spec/03 ORD-087)',
+  })
+  redeliveryOfNo!: string | null;
+  @ApiProperty({ example: 0, description: 'ครั้งที่นัดส่งใหม่อัตโนมัติ (0 = ไม่ใช่)' })
+  rescheduleCount!: number;
+  @ApiProperty({
+    nullable: true,
+    type: () => BoardRetainedDto,
+    description:
+      'ST4-T12 ส่งไม่สำเร็จแบบ "ของยังอยู่บนรถ" — ของอยู่บนรถ/เที่ยวเดิม (null = ไม่ใช่) · จุดรับของใบใหม่ยังเป็นต้นทางเดิม [OPEN PO]',
+  })
+  retainedOn!: BoardRetainedDto | null;
+}
+
+class BoardRetainedDto {
+  @ApiProperty({ nullable: true, type: String, example: '70-1234 กทม.' }) plate!: string | null;
+  @ApiProperty({ nullable: true, type: String, example: 'TRP-6911-0001' }) tripNo!: string | null;
 }
 
 export class BoardPoolOrderDto {

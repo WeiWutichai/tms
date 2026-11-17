@@ -17,7 +17,8 @@ export interface TripSheetStop {
   appointment: string | null;
   contactName: string | null;
   contactPhone: string | null;
-  dos: { doNo: string; goods: string[] }[];
+  /** `note` = ST4-T12 ใบที่ส่งไม่สำเร็จแล้วนัดส่งใหม่ ("ส่งไม่สำเร็จ · นัดส่งใหม่") */
+  dos: { doNo: string; goods: string[]; note?: string | null }[];
 }
 
 export interface TripSheetPage {
@@ -90,9 +91,9 @@ function stopRow(s: TripSheetStop): string {
     ? s.dos
         .map(
           (d) =>
-            `<div class="dob"><div style="${NUM};white-space:nowrap">${e(d.doNo)}</div>${d.goods
-              .map((g) => `<div style="${MINOR}">${e(g)}</div>`)
-              .join('')}</div>`,
+            `<div class="dob"><div style="${NUM};white-space:nowrap">${e(d.doNo)}</div>${
+              d.note ? `<div style="${MINOR}">${e(d.note)}</div>` : ''
+            }${d.goods.map((g) => `<div style="${MINOR}">${e(g)}</div>`).join('')}</div>`,
         )
         .join('')
     : '—';
