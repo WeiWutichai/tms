@@ -5,36 +5,83 @@
  *   (`{}` = ใช้ค่าเริ่มต้นขององค์กร)
  * - ฟังก์ชันในไฟล์นี้เป็น pure — งานอื่นเรียกใช้: T07 ePOD เว็บ, T09 ลิงก์รถร่วม, แอปคนขับ (`POST /driver/stops/{id}/pod`)
  *
- * จุดต่อขยาย T06 (ทำที่นี่ที่เดียว):
- *   1. เพิ่มชนิดใน `POD_FIELD_TYPES` (BARCODE / SINGLE_CHOICE / PIN / RATING) + กฎใน `parseField` / `missingFor`
- *   2. เพิ่ม 'FAILURE' ใน `POD_OUTCOMES` → ชุดแยก `failure` (ค่าเริ่มต้นของชุดใหม่อยู่ใน `DEFAULT_POD_SETS`)
+ * ST4-T06: ชนิดเพิ่ม BARCODE / SINGLE_CHOICE / PIN / RATING + ชุดแยก "ไม่สำเร็จ" (`failure`)
+ *   - BARCODE = สแกนบาร์โค้ด/QR อย่างน้อย 1 รหัส (spec/04 §13 `barcodeScan`, `Pod.scanCodes[]`)
+ *   - SINGLE_CHOICE = คำถามเลือกตอบ 1 ข้อ (ตั้งคำถาม + ตัวเลือก 2–10) — เพิ่มได้หลายข้อแบบ BOOLEAN
+ *   - PIN = รหัสตัวเลขที่ผู้รับกรอก **เก็บเป็นค่าที่บันทึกเท่านั้น** (ตรวจรูปแบบ: ตัวเลขครบ `length` หลัก) —
+ *     ยังไม่เทียบกับรหัสที่ส่งให้ผู้รับล่วงหน้า (docs/spec ไม่ได้กำหนดที่มาของรหัส — DECISION spec/12 §3)
+ *   - RATING = คะแนนความพึงพอใจของผู้รับ 1–`max` ดาว
  */
 
-/** ชนิด field ของเฟสนี้ — T06 ต่อท้าย BARCODE / SINGLE_CHOICE / PIN / RATING */
-export const POD_FIELD_TYPES = ['PHOTO', 'SIGNATURE', 'NOTE', 'BOOLEAN'] as const;
+/** ชนิด field (docs/04 E2) */
+export const POD_FIELD_TYPES = [
+  'PHOTO',
+  'SIGNATURE',
+  'NOTE',
+  'BARCODE',
+  'PIN',
+  'RATING',
+  'BOOLEAN',
+  'SINGLE_CHOICE',
+] as const;
 export type PodFieldType = (typeof POD_FIELD_TYPES)[number];
 
 /** Disabled = ไม่แสดง · Enabled = แสดง ไม่บังคับ · Required = ต้องมีจึงปิดงานได้ */
 export const POD_FIELD_LEVELS = ['DISABLED', 'ENABLED', 'REQUIRED'] as const;
 export type PodFieldLevel = (typeof POD_FIELD_LEVELS)[number];
 
-/** ชุด checklist ต่อผลการส่ง — เฟสนี้มีเฉพาะ "สำเร็จ"; T06 เพิ่ม FAILURE */
-export const POD_OUTCOMES = ['SUCCESS'] as const;
+/** ชุด checklist ต่อผลการส่ง: SUCCESS = ส่งสำเร็จ (DELIVERED/PARTIAL) · FAILURE = ส่งไม่สำเร็จ (FAILED/UNDELIVERED_RETAIN) */
+export const POD_OUTCOMES = ['SUCCESS', 'FAILURE'] as const;
 export type PodOutcome = (typeof POD_OUTCOMES)[number];
 /** ชื่อ key ใน JSON ต่อชุด */
-export const POD_SET_KEY: Record<PodOutcome, string> = { SUCCESS: 'success' };
+export const POD_SET_KEY: Record<PodOutcome, 'success' | 'failure'> = {
+  SUCCESS: 'success',
+  FAILURE: 'failure',
+};
 
-/** ชนิดที่มีได้ชิ้นเดียวต่อชุด (key = ชื่อชนิดตัวเล็ก) — ที่เหลือ (BOOLEAN) เพิ่มได้หลายข้อ */
+/** ผลปิดจุด (stop outcome — `stop-event.ts`) → ชุด checklist ที่ใช้ตรวจ */
+export function podOutcomeFor(
+  outcome: 'DELIVERED' | 'PARTIAL' | 'FAILED' | 'UNDELIVERED_RETAIN' | PodOutcome,
+): PodOutcome {
+  return outcome === 'FAILED' || outcome === 'UNDELIVERED_RETAIN' || outcome === 'FAILURE'
+    ? 'FAILURE'
+    : 'SUCCESS';
+}
+
+/** ชนิดที่มีได้ชิ้นเดียวต่อชุด (key = ชื่อชนิดตัวเล็ก) — ที่เหลือ (BOOLEAN / SINGLE_CHOICE) เพิ่มได้หลายข้อ */
 export const POD_SINGLETON_TYPES = [
   'PHOTO',
   'SIGNATURE',
   'NOTE',
+  'BARCODE',
+  'PIN',
+  'RATING',
+] as const satisfies readonly PodFieldType[];
+/** ชนิดที่ผู้ใช้ตั้งข้อความเอง (ต้องมี label + key) */
+export const POD_CUSTOM_TYPES = [
+  'BOOLEAN',
+  'SINGLE_CHOICE',
 ] as const satisfies readonly PodFieldType[];
 
 /** รูปสูงสุดต่อ stop ของลิงก์รถร่วม = 5 (ST4-T09) → จำนวนขั้นต่ำที่ตั้งได้ไม่เกิน 5 */
 export const POD_PHOTO_MIN_COUNT_MAX = 5;
 export const POD_BOOLEAN_MAX = 10;
+export const POD_CHOICE_MAX = 10;
 export const POD_LABEL_MAX = 100;
+/** ตัวเลือกของ SINGLE_CHOICE: 2–10 ข้อ ข้อละ 1–50 ตัวอักษร ไม่ซ้ำ */
+export const POD_OPTIONS_MIN = 2;
+export const POD_OPTIONS_MAX = 10;
+export const POD_OPTION_MAX = 50;
+/** PIN: จำนวนหลัก 4–8 (ค่าเริ่มต้น 4) */
+export const POD_PIN_LENGTH_MIN = 4;
+export const POD_PIN_LENGTH_MAX = 8;
+export const POD_PIN_LENGTH_DEFAULT = 4;
+/** RATING: คะแนนเต็ม 3–10 (ค่าเริ่มต้น 5 ดาว) */
+export const POD_RATING_MAX_MIN = 3;
+export const POD_RATING_MAX_MAX = 10;
+export const POD_RATING_MAX_DEFAULT = 5;
+/** รหัสที่สแกนได้ ยาวไม่เกิน 200 ตัว */
+export const POD_SCAN_CODE_MAX = 200;
 const KEY_RE = /^[a-z][a-z0-9_]{0,39}$/;
 
 export interface PodField {
@@ -42,10 +89,16 @@ export interface PodField {
   key: string;
   type: PodFieldType;
   level: PodFieldLevel;
-  /** ข้อความที่ผู้ส่งต้องยืนยัน (BOOLEAN — บังคับ) */
+  /** ข้อความที่ผู้ส่งต้องยืนยัน (BOOLEAN) / คำถาม (SINGLE_CHOICE) — บังคับสำหรับสองชนิดนี้เท่านั้น */
   label?: string;
   /** จำนวนรูปขั้นต่ำเมื่อ REQUIRED (PHOTO เท่านั้น, 1–5) */
   minCount?: number;
+  /** ตัวเลือก (SINGLE_CHOICE เท่านั้น, 2–10 ข้อ) */
+  options?: string[];
+  /** จำนวนหลักของรหัส (PIN เท่านั้น, 4–8) */
+  length?: number;
+  /** คะแนนเต็ม (RATING เท่านั้น, 3–10) */
+  max?: number;
 }
 
 export interface PodChecklist {
@@ -53,21 +106,42 @@ export interface PodChecklist {
 }
 
 /** รูปที่เก็บใน JSON (tenant default เต็มชุด / customer override บางชุดหรือ `{}`) */
-export type PodRequirements = Partial<Record<'success', PodChecklist>>;
+export type PodRequirements = Partial<Record<'success' | 'failure', PodChecklist>>;
 
-/** ค่าเริ่มต้นของระบบ (spec/04 §13 PodProfile: รูป ≥ 1 บังคับ, ลายเซ็นบังคับ, หมายเหตุไม่บังคับ) */
+/** ชนิดเดี่ยวที่ไม่ได้ตั้ง = DISABLED (พร้อมค่าตั้งต้นของตัวเลือกประจำชนิด) */
+function disabledSingleton(t: (typeof POD_SINGLETON_TYPES)[number]): PodField {
+  return {
+    key: t.toLowerCase(),
+    type: t,
+    level: 'DISABLED',
+    ...(t === 'PHOTO' ? { minCount: 1 } : {}),
+    ...(t === 'PIN' ? { length: POD_PIN_LENGTH_DEFAULT } : {}),
+    ...(t === 'RATING' ? { max: POD_RATING_MAX_DEFAULT } : {}),
+  };
+}
+const withSingletons = (on: Partial<Record<string, Partial<PodField>>>): PodChecklist => ({
+  fields: POD_SINGLETON_TYPES.map((t) => ({ ...disabledSingleton(t), ...(on[t] ?? {}) })),
+});
+
+/**
+ * ค่าเริ่มต้นของระบบ (spec/04 §13 PodProfile คอลัมน์ สำเร็จ / ไม่สำเร็จ):
+ * สำเร็จ = รูป ≥ 1 บังคับ, ลายเซ็นบังคับ, หมายเหตุไม่บังคับ · ไม่สำเร็จ = รูป ≥ 1 บังคับ, ลายเซ็นไม่ใช้, หมายเหตุบังคับ
+ */
 export const DEFAULT_POD_SETS: Record<PodOutcome, PodChecklist> = {
-  SUCCESS: {
-    fields: [
-      { key: 'photo', type: 'PHOTO', level: 'REQUIRED', minCount: 1 },
-      { key: 'signature', type: 'SIGNATURE', level: 'REQUIRED' },
-      { key: 'note', type: 'NOTE', level: 'ENABLED' },
-    ],
-  },
+  SUCCESS: withSingletons({
+    PHOTO: { level: 'REQUIRED' },
+    SIGNATURE: { level: 'REQUIRED' },
+    NOTE: { level: 'ENABLED' },
+  }),
+  FAILURE: withSingletons({
+    PHOTO: { level: 'REQUIRED' },
+    NOTE: { level: 'REQUIRED' },
+  }),
 };
 
 export const DEFAULT_POD_REQUIREMENTS: Required<PodRequirements> = {
   success: DEFAULT_POD_SETS.SUCCESS,
+  failure: DEFAULT_POD_SETS.FAILURE,
 };
 
 export interface PodConfigError {
@@ -85,7 +159,7 @@ function parseField(raw: unknown, path: string, errors: PodConfigError[]): PodFi
     errors.push({ path, code: 'invalid', message: 'field must be an object' });
     return null;
   }
-  const allowed = ['key', 'type', 'level', 'label', 'minCount'];
+  const allowed = ['key', 'type', 'level', 'label', 'minCount', 'options', 'length', 'max'];
   for (const k of Object.keys(raw))
     if (!allowed.includes(k))
       errors.push({ path: `${path}.${k}`, code: 'unknown_property', message: 'unknown property' });
@@ -122,42 +196,77 @@ function parseField(raw: unknown, path: string, errors: PodConfigError[]): PodFi
     errors.push({
       path: `${path}.key`,
       code: 'invalid',
-      message: 'key must match ^[a-z][a-z0-9_]{0,39}$ and not be photo/signature/note',
+      message: `key must match ^[a-z][a-z0-9_]{0,39}$ and not be ${POD_SINGLETON_TYPES.map((t) => t.toLowerCase()).join('/')}`,
     });
   }
   const f: PodField = { key: key as string, type, level };
-  if (type === 'BOOLEAN') {
+  const notAllowed = (prop: string, only: string) => {
+    if (raw[prop] !== undefined && raw[prop] !== null)
+      errors.push({
+        path: `${path}.${prop}`,
+        code: 'not_allowed',
+        message: `${prop} is only for ${only}`,
+      });
+  };
+  const intIn = (prop: 'minCount' | 'length' | 'max', def: number, min: number, max: number) => {
+    const v = raw[prop] ?? def;
+    if (!Number.isInteger(v) || (v as number) < min || (v as number) > max)
+      errors.push({
+        path: `${path}.${prop}`,
+        code: 'invalid',
+        message: `${prop} must be an integer ${min}–${max}`,
+      });
+    f[prop] = v as number;
+  };
+  if ((POD_CUSTOM_TYPES as readonly string[]).includes(type)) {
     const label = typeof raw.label === 'string' ? raw.label.trim() : '';
     if (!label || label.length > POD_LABEL_MAX)
       errors.push({
         path: `${path}.label`,
         code: 'invalid',
-        message: `label is required for BOOLEAN (1–${POD_LABEL_MAX} chars)`,
+        message: `label is required for ${type} (1–${POD_LABEL_MAX} chars)`,
       });
     f.label = label;
-  } else if (raw.label !== undefined && raw.label !== null) {
-    errors.push({
-      path: `${path}.label`,
-      code: 'not_allowed',
-      message: `label is only for BOOLEAN`,
-    });
-  }
-  if (type === 'PHOTO') {
-    const mc = raw.minCount ?? 1;
-    if (!Number.isInteger(mc) || (mc as number) < 1 || (mc as number) > POD_PHOTO_MIN_COUNT_MAX)
+  } else notAllowed('label', POD_CUSTOM_TYPES.join('/'));
+  if (type === 'PHOTO') intIn('minCount', 1, 1, POD_PHOTO_MIN_COUNT_MAX);
+  else notAllowed('minCount', 'PHOTO');
+  if (type === 'PIN')
+    intIn('length', POD_PIN_LENGTH_DEFAULT, POD_PIN_LENGTH_MIN, POD_PIN_LENGTH_MAX);
+  else notAllowed('length', 'PIN');
+  if (type === 'RATING')
+    intIn('max', POD_RATING_MAX_DEFAULT, POD_RATING_MAX_MIN, POD_RATING_MAX_MAX);
+  else notAllowed('max', 'RATING');
+  if (type === 'SINGLE_CHOICE') {
+    const opts = raw.options;
+    if (!Array.isArray(opts) || opts.length < POD_OPTIONS_MIN || opts.length > POD_OPTIONS_MAX) {
       errors.push({
-        path: `${path}.minCount`,
+        path: `${path}.options`,
         code: 'invalid',
-        message: `minCount must be an integer 1–${POD_PHOTO_MIN_COUNT_MAX}`,
+        message: `options must be an array of ${POD_OPTIONS_MIN}–${POD_OPTIONS_MAX} strings`,
       });
-    f.minCount = mc as number;
-  } else if (raw.minCount !== undefined && raw.minCount !== null) {
-    errors.push({
-      path: `${path}.minCount`,
-      code: 'not_allowed',
-      message: 'minCount is only for PHOTO',
-    });
-  }
+    } else {
+      const seen = new Set<string>();
+      const out: string[] = [];
+      opts.forEach((o, j) => {
+        const v = typeof o === 'string' ? o.trim() : '';
+        if (!v || v.length > POD_OPTION_MAX)
+          errors.push({
+            path: `${path}.options.${j}`,
+            code: 'invalid',
+            message: `option must be 1–${POD_OPTION_MAX} chars`,
+          });
+        else if (seen.has(v))
+          errors.push({
+            path: `${path}.options.${j}`,
+            code: 'duplicate',
+            message: `duplicate option "${v}"`,
+          });
+        seen.add(v);
+        out.push(v);
+      });
+      f.options = out;
+    }
+  } else notAllowed('options', 'SINGLE_CHOICE');
   return f;
 }
 
@@ -199,19 +308,16 @@ export function parsePodChecklist(
       code: 'too_many',
       message: `at most ${POD_BOOLEAN_MAX} BOOLEAN fields`,
     });
+  if (parsed.filter((f) => f.type === 'SINGLE_CHOICE').length > POD_CHOICE_MAX)
+    errors.push({
+      path: `${pre}fields`,
+      code: 'too_many',
+      message: `at most ${POD_CHOICE_MAX} SINGLE_CHOICE fields`,
+    });
   if (errors.length) return { value: null, errors };
   const fields: PodField[] = [];
-  for (const t of POD_SINGLETON_TYPES) {
-    const f = parsed.find((x) => x.type === t);
-    fields.push(
-      f ?? {
-        key: t.toLowerCase(),
-        type: t,
-        level: 'DISABLED',
-        ...(t === 'PHOTO' ? { minCount: 1 } : {}),
-      },
-    );
-  }
+  for (const t of POD_SINGLETON_TYPES)
+    fields.push(parsed.find((x) => x.type === t) ?? disabledSingleton(t));
   fields.push(
     ...parsed.filter((x) => !(POD_SINGLETON_TYPES as readonly string[]).includes(x.type)),
   );
@@ -230,7 +336,7 @@ export function parsePodRequirements(
   if (!isObj(raw))
     return { value: null, errors: [{ path: '', code: 'invalid', message: 'must be an object' }] };
   const errors: PodConfigError[] = [];
-  const setKeys = POD_OUTCOMES.map((o) => POD_SET_KEY[o]);
+  const setKeys: string[] = POD_OUTCOMES.map((o) => POD_SET_KEY[o]);
   for (const k of Object.keys(raw))
     if (!setKeys.includes(k))
       errors.push({
@@ -298,20 +404,81 @@ export interface PodSubmission {
   note?: string | null;
   /** key ของ BOOLEAN → true = ยืนยันแล้ว */
   checks?: Record<string, boolean | null | undefined>;
+  /** รหัสที่สแกนได้ (BARCODE — spec/04 §13 `Pod.scanCodes[]`) */
+  scanCodes?: (string | null | undefined)[] | null;
+  /** key ของ SINGLE_CHOICE → ตัวเลือกที่ตอบ (ต้องตรงกับ `options` ตัวใดตัวหนึ่ง) */
+  choices?: Record<string, string | null | undefined>;
+  /** รหัสที่ผู้รับกรอก (PIN — ตัวเลขครบ `length` หลัก) */
+  pin?: string | null;
+  /** คะแนนของผู้รับ (RATING — จำนวนเต็ม 1–`max`) */
+  rating?: number | null;
 }
 
 export interface PodMissing {
   key: string;
   type: PodFieldType;
-  /** `required` = ไม่มี · `min_count` = รูปไม่ถึงจำนวนขั้นต่ำ */
-  code: 'required' | 'min_count';
+  /**
+   * `required` = ไม่มี · `min_count` = รูปไม่ถึงจำนวนขั้นต่ำ ·
+   * `invalid` = ส่งค่ามาแต่ผิดรูปแบบ (ตัวเลือกไม่อยู่ในรายการ / PIN ไม่ใช่ตัวเลขครบหลัก / คะแนนนอกช่วง / รหัสสแกนยาวเกิน)
+   */
+  code: 'required' | 'min_count' | 'invalid';
   /** จำนวนที่ต้องมี (min_count) */
   expected?: number;
   actual?: number;
   label?: string;
 }
 
+const blank = (v: unknown) => v === undefined || v === null || (typeof v === 'string' && !v.trim());
+
+/**
+ * ค่าของชนิดที่มีรูปแบบ (BARCODE / SINGLE_CHOICE / PIN / RATING): ไม่ส่ง → `required` เมื่อบังคับ ·
+ * ส่งมาแต่ผิดรูปแบบ → `invalid` ทั้งบังคับและไม่บังคับ (ไม่เก็บค่าผิดรูป) · DISABLED ไม่ตรวจ
+ */
+function formatIssue(f: PodField, s: PodSubmission): 'required' | 'invalid' | null {
+  const need = f.level === 'REQUIRED';
+  switch (f.type) {
+    case 'BARCODE': {
+      const codes = (s.scanCodes ?? []).filter((c) => !blank(c)) as string[];
+      if (!codes.length) return need ? 'required' : null;
+      return codes.some((c) => typeof c !== 'string' || c.trim().length > POD_SCAN_CODE_MAX)
+        ? 'invalid'
+        : null;
+    }
+    case 'SINGLE_CHOICE': {
+      const v = s.choices?.[f.key];
+      if (blank(v)) return need ? 'required' : null;
+      return typeof v === 'string' && (f.options ?? []).includes(v.trim()) ? null : 'invalid';
+    }
+    case 'PIN': {
+      const v = s.pin;
+      if (blank(v)) return need ? 'required' : null;
+      const len = f.length ?? POD_PIN_LENGTH_DEFAULT;
+      return typeof v === 'string' && new RegExp(`^[0-9]{${len}}$`).test(v.trim())
+        ? null
+        : 'invalid';
+    }
+    case 'RATING': {
+      const v = s.rating;
+      if (v === undefined || v === null) return need ? 'required' : null;
+      const max = f.max ?? POD_RATING_MAX_DEFAULT;
+      return Number.isInteger(v) && v >= 1 && v <= max ? null : 'invalid';
+    }
+    default:
+      return null;
+  }
+}
+
 function missingFor(f: PodField, s: PodSubmission): PodMissing | null {
+  if (f.level === 'DISABLED') return null;
+  if (
+    f.type === 'BARCODE' ||
+    f.type === 'SINGLE_CHOICE' ||
+    f.type === 'PIN' ||
+    f.type === 'RATING'
+  ) {
+    const code = formatIssue(f, s);
+    return code ? { key: f.key, type: f.type, code, ...(f.label ? { label: f.label } : {}) } : null;
+  }
   if (f.level !== 'REQUIRED') return null;
   switch (f.type) {
     case 'PHOTO': {
@@ -334,7 +501,10 @@ function missingFor(f: PodField, s: PodSubmission): PodMissing | null {
   }
 }
 
-/** ตัวตรวจ POD — คืนรายการที่ขาด (ว่าง = ครบ) · field ที่ DISABLED/ENABLED ไม่ตรวจ ส่งมาเกินก็ไม่ปฏิเสธ */
+/**
+ * ตัวตรวจ POD — คืนรายการที่ขาด (ว่าง = ครบ) · DISABLED ไม่ตรวจ ส่งมาเกินก็ไม่ปฏิเสธ ·
+ * ENABLED ไม่บังคับ แต่ค่าที่ส่งมาของ BARCODE/SINGLE_CHOICE/PIN/RATING ต้องถูกรูปแบบ (`invalid`)
+ */
 export function validatePod(
   checklist: PodChecklist,
   submission: PodSubmission,
