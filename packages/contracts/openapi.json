@@ -18159,6 +18159,114 @@
         ]
       }
     },
+    "/v1/delivery-orders/{id}/redeliver": {
+      "post": {
+        "operationId": "DeliveryOrders_redeliver",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag ของใบเดิม — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RedeliverDeliveryOrderDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RedeliverResultDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "delivery-orders"
+        ]
+      }
+    },
+    "/v1/delivery-orders/{id}/return": {
+      "post": {
+        "operationId": "DeliveryOrders_return",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReturnDeliveryOrderDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeliveryOrderDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "delivery-orders"
+        ]
+      }
+    },
     "/v1/delivery-orders/{id}/pod": {
       "get": {
         "description": "ETag = เลขฉบับปัจจุบัน (ยังไม่มี = \"0\") ใช้เป็น If-Match ตอน PUT · `missing[]` เทียบกับ checklist ของลูกค้า **ตอนนี้** (`podStatus` ของ DO คำนวณตอนบันทึก/ตอนส่งถึง)",
@@ -43497,6 +43605,21 @@
             "example": "rsn_3f2a…",
             "description": "ST4-T10 เหตุผลปฏิเสธรับ (หมวด REJECTED_BY_RECEIVER) — ข้อความ ณ เวลาบันทึกดูที่ GET …/pod"
           },
+          "redeliveredQty": {
+            "type": "string",
+            "example": "4",
+            "description": "ST4-T11 ของที่ปฏิเสธรับซึ่งส่งซ้ำแล้ว (ผลรวมบรรทัดของ DO ใหม่ที่ยังไม่ยกเลิก — `rejectedFromId` = ใบนี้)"
+          },
+          "returnedQty": {
+            "type": "string",
+            "example": "0",
+            "description": "ST4-T11 ของที่ปฏิเสธรับซึ่งคืนคลังแล้ว"
+          },
+          "openRejectQty": {
+            "type": "string",
+            "example": "6",
+            "description": "ST4-T11 ปฏิเสธรับที่ยังไม่ได้จัดการ (ปฏิเสธ − ส่งซ้ำ − คืนคลัง)"
+          },
           "unit": {
             "type": "string",
             "example": "TON"
@@ -43518,6 +43641,9 @@
           "qtyActual",
           "rejectQty",
           "rejectReasonCodeId",
+          "redeliveredQty",
+          "returnedQty",
+          "openRejectQty",
           "unit",
           "weightKg",
           "cbm"
@@ -43614,6 +43740,15 @@
             "example": 0,
             "description": "ST4-T12 ครั้งที่นัดส่งใหม่อัตโนมัติของสายงานนี้ (0 = ใบแรก) — เกินค่าตั้ง `dispatch.maxAutoReschedules` → ใบสั่งค้าง RESCHEDULES_EXHAUSTED"
           },
+          "redeliveryManual": {
+            "type": "boolean",
+            "description": "ST4-T11 ส่งซ้ำโดยผู้ใช้ (ไม่ใช่นัดส่งใหม่อัตโนมัติ) — ผลส่งไม่สำเร็จถูกพลิกภายหลังระบบไม่คืนใบเดิมเอง"
+          },
+          "rejectedFromId": {
+            "type": "string",
+            "nullable": true,
+            "description": "ST4-T11 ใบส่งซ้ำของที่ลูกค้าปฏิเสธรับจาก DO นี้ (ใบเดิมคงส่งแล้ว) — ไม่นับปริมาณจัดสรรของ SO"
+          },
           "podStatus": {
             "type": "string",
             "example": "NONE"
@@ -43653,6 +43788,8 @@
           "splitIndex",
           "redeliveryOfId",
           "rescheduleCount",
+          "redeliveryManual",
+          "rejectedFromId",
           "podStatus",
           "lines",
           "version",
@@ -43816,6 +43953,107 @@
         },
         "required": [
           "reason"
+        ]
+      },
+      "ReturnLineInputDto": {
+        "type": "object",
+        "properties": {
+          "lineNo": {
+            "type": "number",
+            "example": 1,
+            "description": "ลำดับบรรทัดของ DO (`lines[].lineNo`)"
+          },
+          "qty": {
+            "type": "string",
+            "example": "10",
+            "description": "> 0 และไม่เกินที่ปฏิเสธรับคงเหลือ (`openRejectQty`) — ทศนิยม ≤ 3 ตำแหน่ง"
+          }
+        },
+        "required": [
+          "lineNo",
+          "qty"
+        ]
+      },
+      "RedeliverDeliveryOrderDto": {
+        "type": "object",
+        "properties": {
+          "reasonCodeId": {
+            "type": "string",
+            "example": "rsn_3f2a…",
+            "description": "เหตุผล: DO ส่งแล้ว (ปฏิเสธรับบางส่วน/ทั้งหมด) = หมวด REJECTED_BY_RECEIVER · DO ส่งไม่สำเร็จ = หมวด DELIVERY_FAILED"
+          },
+          "note": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 500,
+            "description": "โน้ต — บังคับเมื่อเหตุผลติ๊ก \"บังคับโน้ต\"; ชื่อเหตุผล + โน้ต รวม ≥ 10 ตัวอักษร (MD-222)"
+          },
+          "lines": {
+            "description": "เฉพาะ DO ส่งแล้ว: บรรทัด + ปริมาณ (ไม่ส่ง = ทุกบรรทัดที่ยังปฏิเสธคงเหลือ ทั้งจำนวน) · DO ส่งไม่สำเร็จ = ทั้งใบเสมอ (ส่งมา → 422)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReturnLineInputDto"
+            }
+          },
+          "doDate": {
+            "type": "string",
+            "example": "2026-11-19",
+            "description": "วันส่งของ DO ใหม่ (เวลาไทย) — ไม่ส่ง = วันนี้ · ก่อนวันนี้ → 422"
+          }
+        },
+        "required": [
+          "reasonCodeId"
+        ]
+      },
+      "RedeliverResultDto": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "description": "ใบเดิม — ส่งแล้ว: คงสถานะ (ยอดส่งซ้ำ/คงเหลือใหม่) · ส่งไม่สำเร็จ: CANCELLED (event redeliver)",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/DeliveryOrderDto"
+              }
+            ]
+          },
+          "redelivery": {
+            "description": "DO ใหม่ (DRAFT รอจัดรถ) อ้าง `redeliveryOfId`",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/DeliveryOrderDto"
+              }
+            ]
+          }
+        },
+        "required": [
+          "source",
+          "redelivery"
+        ]
+      },
+      "ReturnDeliveryOrderDto": {
+        "type": "object",
+        "properties": {
+          "reasonCodeId": {
+            "type": "string",
+            "example": "rsn_3f2a…",
+            "description": "เหตุผล: DO ส่งแล้ว (ปฏิเสธรับบางส่วน/ทั้งหมด) = หมวด REJECTED_BY_RECEIVER · DO ส่งไม่สำเร็จ = หมวด DELIVERY_FAILED"
+          },
+          "note": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 500,
+            "description": "โน้ต — บังคับเมื่อเหตุผลติ๊ก \"บังคับโน้ต\"; ชื่อเหตุผล + โน้ต รวม ≥ 10 ตัวอักษร (MD-222)"
+          },
+          "lines": {
+            "description": "เฉพาะ DO ส่งแล้ว: บรรทัด + ปริมาณ (ไม่ส่ง = ทุกบรรทัดที่ยังปฏิเสธคงเหลือ ทั้งจำนวน) · DO ส่งไม่สำเร็จ = ทั้งใบเสมอ (ส่งมา → 422)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ReturnLineInputDto"
+            }
+          }
+        },
+        "required": [
+          "reasonCodeId"
         ]
       },
       "PodMissingDto": {
@@ -44628,6 +44866,10 @@
             "example": 1,
             "description": "ครั้งที่นัดส่งใหม่อัตโนมัติ (0 = ส่งซ้ำมือ)"
           },
+          "manual": {
+            "type": "boolean",
+            "description": "ST4-T11 ส่งซ้ำโดยผู้ใช้ (ส่งไม่สำเร็จทั้งใบ หรือของที่ลูกค้าปฏิเสธรับ — ใบเดิมคงส่งแล้ว) — ไม่ใช่นัดส่งใหม่อัตโนมัติ"
+          },
           "exhausted": {
             "type": "boolean",
             "description": "ครั้งนี้เกินค่าตั้ง `dispatch.maxAutoReschedules` (ใบสั่งค้าง/เหตุรอง RESCHEDULES_EXHAUSTED)"
@@ -44641,6 +44883,7 @@
           "doDate",
           "status",
           "attempt",
+          "manual",
           "exhausted"
         ]
       },

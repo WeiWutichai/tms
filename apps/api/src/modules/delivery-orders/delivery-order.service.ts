@@ -69,6 +69,16 @@ export interface CancelInput {
   reasonCodeId?: string | null;
 }
 
+/** ST4-T11 ยอดปฏิเสธรับของบรรทัด DO หนึ่งบรรทัด */
+export interface RejectionLine {
+  line: DeliveryOrderLine;
+  reject: Prisma.Decimal;
+  redelivered: Prisma.Decimal;
+  returned: Prisma.Decimal;
+  /** ยังไม่ได้ส่งซ้ำ/คืนคลัง */
+  open: Prisma.Decimal;
+}
+
 export interface LineAllocation {
   salesOrderLineId: string;
   lineNo: number;
@@ -221,7 +231,8 @@ export class DeliveryOrderService {
       by: ['salesOrderLineId'],
       where: {
         salesOrderLineId: { in: lines.map((l) => l.id) },
-        deliveryOrder: { status: { not: 'CANCELLED' } },
+        // ST4-T11 ใบส่งซ้ำของที่ถูกปฏิเสธรับไม่นับ — ปริมาณยังอยู่ที่ใบเดิม (ส่งแล้วตามส่งจริง)
+        deliveryOrder: { status: { not: 'CANCELLED' }, rejectedFromId: null },
       },
       _sum: { qtyPlanned: true },
     });
@@ -325,7 +336,9 @@ export class DeliveryOrderService {
     const stops = resolveStops(so, input);
     let lines: DoLinePlan[] = [];
     if (so.lines.length > 0) {
-      const allocated = active.flatMap((d) => d.lines.filter(linked).map(lineAllocated));
+      const allocated = active
+        .filter((d) => d.rejectedFromId === null)
+        .flatMap((d) => d.lines.filter(linked).map(lineAllocated));
       lines = this.plan(() => planAllocation(soLines(so), allocated, input.lines));
       if (lines.length === 0)
         throw field422('lines', 'fully_allocated', 'every order line is already allocated');
@@ -371,6 +384,8 @@ export class DeliveryOrderService {
           doDate: src.doDate.toISOString().slice(0, 10),
           rescheduleCount: src.rescheduleCount,
           rescheduleExhausted: src.rescheduleExhausted,
+          redeliveryManual: src.redeliveryManual,
+          rejectedFromId: src.rejectedFromId,
         }),
       );
     }
@@ -447,6 +462,13 @@ export class DeliveryOrderService {
         })),
       ),
     );
+    // ST4-T11: ใบส่งซ้ำของที่ถูกปฏิเสธรับรวมได้เฉพาะกับใบที่อ้างใบเดิมเดียวกัน (ปริมาณจัดสรรของ SO ไม่เพี้ยน)
+    if (new Set(ordered.map((d) => d.rejectedFromId)).size > 1)
+      throw field422(
+        'deliveryOrderIds',
+        'redelivery_mismatch',
+        'a redelivery of rejected goods merges only with redeliveries of the same delivery order',
+      );
     const [target, ...others] = ordered as [DeliveryOrderRecord, ...DeliveryOrderRecord[]];
     const merged = this.plan(() =>
       planMerge(ordered.map((d) => d.lines.filter(linked).map(linePlan))),
@@ -799,6 +821,9 @@ export class DeliveryOrderService {
       doDate: o.doDate,
       rescheduleCount: o.rescheduleCount,
       rescheduleExhausted: o.exhausted ?? false,
+      redeliveryManual: o.mode === 'manual',
+      // ใบส่งซ้ำของที่ถูกปฏิเสธรับส่งไม่สำเร็จอีก → ใบใหม่ยังเป็นของชุดเดิม (ไม่นับจัดสรร SO)
+      rejectedFromId: src.rejectedFromId,
     });
     await this.audit.record({
       action: `${ENTITY}.redelivered`,
@@ -815,6 +840,148 @@ export class DeliveryOrderService {
       reason: o.note,
     });
     return d;
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // ST4-T11 ตีกลับบางส่วน/ทั้งหมด (docs/04 E2; docs/01 §4.3) — ผู้เรียก (DeliveryOrderReturnService) ถือล็อก SO → DO แล้ว
+
+  /**
+   * ยอดที่ลูกค้าปฏิเสธรับต่อบรรทัด (POD ฉบับล่าสุด) / ส่งซ้ำแล้ว (DO ที่ยังไม่ยกเลิกซึ่งอ้าง `rejected_from` ใบนี้ —
+   * รวมใบที่แยก/ส่งใหม่ต่อ) / คืนคลังแล้ว / **คงเหลือรอจัดการ** — กันส่งซ้ำ/คืนคลังเกินที่ปฏิเสธ (กดซ้ำได้ 422)
+   */
+  async rejectionBalance(
+    tx: Tx,
+    srcs: Pick<DeliveryOrderRecord, 'id' | 'lines'>[],
+  ): Promise<Map<string, RejectionLine[]>> {
+    const kids = srcs.length
+      ? await tx.deliveryOrder.findMany({
+          where: { rejectedFromId: { in: srcs.map((d) => d.id) }, status: { not: 'CANCELLED' } },
+          select: {
+            rejectedFromId: true,
+            lines: { select: { salesOrderLineId: true, qtyPlanned: true } },
+          },
+        })
+      : [];
+    const zero = new Prisma.Decimal(0);
+    const out = new Map<string, RejectionLine[]>();
+    for (const src of srcs) {
+      const got = new Map<string, Prisma.Decimal>();
+      for (const k of kids.filter((x) => x.rejectedFromId === src.id))
+        for (const l of k.lines)
+          if (l.salesOrderLineId)
+            got.set(l.salesOrderLineId, (got.get(l.salesOrderLineId) ?? zero).add(l.qtyPlanned));
+      out.set(
+        src.id,
+        src.lines.map((l) => {
+          const reject = l.rejectQty ?? zero;
+          const redelivered = (l.salesOrderLineId && got.get(l.salesOrderLineId)) || zero;
+          const open = reject.sub(redelivered).sub(l.returnedQty);
+          return {
+            line: l,
+            reject,
+            redelivered,
+            returned: l.returnedQty,
+            open: open.lt(0) ? zero : open,
+          };
+        }),
+      );
+    }
+    return out;
+  }
+
+  /**
+   * ส่งซ้ำของที่ถูกปฏิเสธรับ: **ใบเดิมคงส่งแล้ว** (ยอดตามส่งจริง — วางบิล/ยอดประมาณไม่เปลี่ยน) + DO ใหม่ DRAFT นอกเที่ยว
+   * อ้าง `redelivery_of` + `rejected_from` = ใบเดิม ปริมาณ = ที่เลือก (น้ำหนัก/ปริมาตรตามสัดส่วน) จุดรับ-ส่งเดิม
+   * ใบเดิม version + 1 (If-Match ของคำขอซ้ำ → 412) + audit
+   */
+  async redeliverRejected(
+    tx: Tx,
+    src: DeliveryOrderRecord,
+    take: { lineId: string; qty: Prisma.Decimal }[],
+    o: { doDate: string; reasonCodeId: string; reason: string; before: unknown },
+  ): Promise<DeliveryOrderRecord> {
+    const so = await this.lockOrder(tx, src.salesOrderId);
+    if (!so) throw new ProblemException('not_found');
+    const lines: DoLinePlan[] = take.map((t) => {
+      const l = src.lines.find((x) => x.id === t.lineId)!;
+      return {
+        salesOrderLineId: l.salesOrderLineId!,
+        soLineNo: l.soLineNo,
+        description: l.description,
+        qty: dec(t.qty)!,
+        unit: l.unit,
+        weightKg: part(l.weightKg, t.qty, l.qtyPlanned),
+        cbm: part(l.cbm, t.qty, l.qtyPlanned),
+      };
+    });
+    const d = await this.insert(tx, so, lines, {
+      originStopSeq: src.originStopSeq,
+      destStopSeq: src.destStopSeq,
+      doNo: await issueNumber(tx, this.tenantId(), { docType: 'DO' }),
+      split: null,
+      sourceHash: src.sourceHash,
+      redeliveryOfId: src.id,
+      doDate: o.doDate,
+      rescheduleCount: 0,
+      redeliveryManual: true,
+      rejectedFromId: src.id,
+    });
+    await this.write(tx, src, {});
+    await this.audit.record({
+      action: `${ENTITY}.rejected_redelivered`,
+      entityType: ENTITY,
+      entityId: src.id,
+      before: { doNo: src.doNo, status: src.status, rejection: o.before },
+      after: { ...view(d), id: d.id, doDate: o.doDate, reasonCodeId: o.reasonCodeId },
+      reason: o.reason,
+    });
+    return d;
+  }
+
+  /** คืนคลังของที่ถูกปฏิเสธรับ (ใบเดิมคงส่งแล้ว): `returned_qty` ต่อบรรทัด + version + 1 + audit */
+  async returnRejected(
+    tx: Tx,
+    src: DeliveryOrderRecord,
+    take: { lineId: string; qty: Prisma.Decimal }[],
+    o: { reasonCodeId: string; reason: string; before: unknown },
+  ): Promise<void> {
+    for (const t of take)
+      await tx.deliveryOrderLine.update({
+        where: { id: t.lineId },
+        data: { returnedQty: { increment: t.qty } },
+      });
+    await this.write(tx, src, {});
+    await this.audit.record({
+      action: `${ENTITY}.rejected_returned`,
+      entityType: ENTITY,
+      entityId: src.id,
+      before: { doNo: src.doNo, status: src.status, rejection: o.before },
+      after: {
+        returned: take.map((t) => ({
+          lineNo: src.lines.find((l) => l.id === t.lineId)!.lineNo,
+          qty: dec(t.qty),
+        })),
+        reasonCodeId: o.reasonCodeId,
+      },
+      reason: o.reason,
+    });
+  }
+
+  /** ส่งไม่สำเร็จทั้งใบ → คืนคลัง (docs/01 §4.3 FAILED → RETURNED) + เหตุผล + audit */
+  async returnFailed(
+    tx: Tx,
+    src: DeliveryOrderRecord,
+    o: { reasonCodeId: string; reason: string },
+  ): Promise<void> {
+    await this.move(tx, src, 'return', {}, o.reason, o.reasonCodeId);
+    await this.audit.record({
+      action: `${ENTITY}.returned`,
+      entityType: ENTITY,
+      entityId: src.id,
+      before: { doNo: src.doNo, status: src.status },
+      after: { status: 'RETURNED', reasonCodeId: o.reasonCodeId },
+      reason: o.reason,
+    });
   }
 
   /**
@@ -867,7 +1034,8 @@ export class DeliveryOrderService {
         return d.tripId === null && d.version === 1 && evs.every((e) => CREATE.includes(e));
       return d.status === 'CANCELLED' && evs.every((e) => CREATE.includes(e) || e === 'split');
     });
-    if (!all.length || !clean) return false;
+    // ST4-T11: ส่งซ้ำมือ (ผู้ใช้ตัดสินแล้ว) → ไม่คืนเอง (ผู้เรียกขึ้นธง OUTCOME_MISMATCH)
+    if (!all.length || !clean || all.some((d) => d.redeliveryManual)) return false;
     const kids = all.filter((d) => d.status === 'DRAFT');
     for (const k of kids) await this.systemCancel(tx, k, note);
     await this.state.transition<DoStatus, DoEvent>(tx, {
@@ -924,6 +1092,7 @@ export class DeliveryOrderService {
       | 'fail'
       | 'pod_wait'
       | 'pod_accept'
+      | 'return'
     >,
     data: Prisma.DeliveryOrderUncheckedUpdateManyInput,
     note: string | null,
@@ -1073,6 +1242,10 @@ export class DeliveryOrderService {
       doDate?: string;
       rescheduleCount?: number;
       rescheduleExhausted?: boolean;
+      /** ST4-T11 ส่งซ้ำมือ (ไม่คืนใบเดิมเอง) */
+      redeliveryManual?: boolean;
+      /** ST4-T11 ใบส่งซ้ำของที่ถูกปฏิเสธรับจากใบนี้ (ไม่นับจัดสรร SO) */
+      rejectedFromId?: string | null;
     },
   ): Promise<DeliveryOrderRecord> {
     const tenantId = this.tenantId();
@@ -1095,6 +1268,8 @@ export class DeliveryOrderService {
         redeliveryOfId: o.redeliveryOfId,
         rescheduleCount: o.rescheduleCount ?? 0,
         rescheduleExhausted: o.rescheduleExhausted ?? false,
+        redeliveryManual: o.redeliveryManual ?? false,
+        rejectedFromId: o.rejectedFromId ?? null,
         splitFromId: o.split?.fromId ?? null,
         splitRootNo: o.split?.rootNo ?? null,
         splitIndex: o.split?.index ?? null,
@@ -1270,6 +1445,17 @@ function dec(v: Prisma.Decimal | null): string | null {
 }
 
 const linked = (l: DeliveryOrderLine) => l.salesOrderLineId !== null;
+
+/** ส่วนของน้ำหนัก/ปริมาตรตามปริมาณ (ทศนิยม 3 ตำแหน่ง ปัดครึ่งขึ้น — Decimal ไม่ใช้ float) */
+function part(
+  total: Prisma.Decimal | null,
+  qty: Prisma.Decimal,
+  of: Prisma.Decimal,
+): string | null {
+  if (total === null) return null;
+  if (qty.eq(of) || of.isZero()) return dec(total);
+  return dec(total.mul(qty).div(of).toDecimalPlaces(3, Prisma.Decimal.ROUND_HALF_UP));
+}
 
 function linePlan(l: DeliveryOrderLine): DoLinePlan {
   return {

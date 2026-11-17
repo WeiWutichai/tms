@@ -266,12 +266,23 @@ export class OrderStateService {
     // ST4-T12: ใบที่คืนจาก redeliver (ส่งไม่สำเร็จถูกพลิก) อาจส่งถึงแล้วขณะ SO ยัง PLANNED → ผ่าน IN_TRANSIT แล้วไล่การส่ง
     if (status === 'PLANNED' && (moving || (onTrip && finished))) step('dispatch');
     else if (status === 'PLANNED' && !onTrip) step('unplan');
+    // ST4-T11: SO ส่งครบแล้วมี DO ส่งซ้ำของที่ถูกปฏิเสธรับ (ยังไม่ส่ง) → reopen → ส่งบางส่วน แล้วไล่ต่อ (ออกรถ → resume)
+    const pending = moving || has(['DRAFT', 'PLANNED']);
+    if (status === 'DELIVERED') {
+      const ev = orderDeliveryEvent(status, {
+        anyDelivered,
+        allDelivered: !pending,
+        moving,
+        pending,
+      });
+      if (ev) step(ev);
+    }
     if (status === 'IN_TRANSIT' || status === 'PARTIALLY_DELIVERED') {
       const allDelivered =
         anyDelivered &&
         dos.every((d) => (DO_DELIVERED_STATUSES as readonly string[]).includes(d.status)) &&
         (await this.deliveryOrders.allocation(id, tx)).every((l) => Number(l.remaining) <= 0);
-      const ev = orderDeliveryEvent(status, { anyDelivered, allDelivered, moving });
+      const ev = orderDeliveryEvent(status, { anyDelivered, allDelivered, moving, pending });
       if (ev) step(ev);
     }
     let from = so.status as SoStatus;
@@ -282,7 +293,7 @@ export class OrderStateService {
         table: SO_TRANSITIONS,
         from,
         event,
-        note: event === 'recall' || event === 'unplan' ? note : null,
+        note: event === 'recall' || event === 'unplan' || event === 'reopen' ? note : null,
         eventType: 'order.updated',
         apply: async (next) => {
           const r = await tx.salesOrder.updateMany({

@@ -360,6 +360,7 @@ describe('auto-reschedule (ST4-T12)', () => {
         status: 'DRAFT',
         attempt: 1,
         exhausted: false,
+        manual: false, // ST4-T11
       },
     ]);
     // ใบคุมรถพิมพ์ซ้ำยังเห็นใบเดิม + หมายเหตุ (review M3)

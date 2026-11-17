@@ -35,6 +35,7 @@ export const SO_EVENTS = [
   'close',
   'unplan',
   'recall',
+  'reopen',
 ] as const;
 export type SoEvent = (typeof SO_EVENTS)[number];
 
@@ -45,6 +46,7 @@ export type SoEvent = (typeof SO_EVENTS)[number];
  *   **ไม่เปลี่ยนสถานะ** (ตั้งธง `source_changed_after_plan` — ST3-T10)
  * - `unplan` = DO ทุกใบหลุดจากเที่ยว (ถอด/ยกเลิกเที่ยว — ST3-T11) → RECEIVED แล้วประเมินใบค้างใหม่
  *   `recall` = เที่ยวที่ปล่อยแล้วถูกยกเลิกก่อนรับของ → กลับ PLANNED (เพิ่มจาก docs §4.1 — [OPEN] spec/12 §3)
+ * - `reopen` = SO ส่งครบแล้วแต่มี DO ส่งซ้ำของที่ถูกปฏิเสธรับ (ST4-T11 — เพิ่มจาก docs §4.1) → PARTIALLY_DELIVERED
  * - ยกเลิกได้ก่อนออกรถเท่านั้น (PLANNED ต้องยกเลิก DO ก่อน — ST3-T10 ตรวจ)
  */
 export const SO_TRANSITIONS: TransitionTable<SoStatus, SoEvent> = {
@@ -54,7 +56,8 @@ export const SO_TRANSITIONS: TransitionTable<SoStatus, SoEvent> = {
   PLANNED: { hold: 'ON_HOLD', dispatch: 'IN_TRANSIT', cancel: 'CANCELLED', unplan: 'RECEIVED' },
   IN_TRANSIT: { deliver_partial: 'PARTIALLY_DELIVERED', deliver: 'DELIVERED', recall: 'PLANNED' },
   PARTIALLY_DELIVERED: { resume: 'IN_TRANSIT', deliver: 'DELIVERED' },
-  DELIVERED: { close: 'CLOSED' },
+  // ST4-T11 [DECISION spec/12 §3]: ส่งซ้ำของที่ลูกค้าปฏิเสธรับ (DO ใหม่) หลัง SO ส่งครบแล้ว → กลับ "ส่งบางส่วน" จนใบใหม่ส่งถึง
+  DELIVERED: { close: 'CLOSED', reopen: 'PARTIALLY_DELIVERED' },
   // CLOSED / CANCELLED = สถานะสิ้นสุด
 };
 

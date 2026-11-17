@@ -46,17 +46,21 @@ export class OrderBillingService {
         deliveryOrders: {
           where: { status: { not: 'CANCELLED' } },
           select: {
+            status: true,
             lines: { select: { salesOrderLineId: true, qtyPlanned: true, qtyActual: true } },
           },
         },
       },
     });
     const basis = o.customer?.billByActualQty ? 'ACTUAL' : 'PLANNED';
+    // ST4-T11 [OPEN money — spec/12 §3]: DO คืนคลังทั้งใบ (RETURNED) = ส่งได้ 0 · ใบส่งซ้ำของที่ปฏิเสธรับ
+    // (DRAFT, ยังไม่บันทึก = แผน) รวมกับยอดส่งจริงของใบเดิม → ยอดของ SO เดิมไม่เกินที่สั่ง
     const doLines = o.deliveryOrders.flatMap((d) =>
       d.lines.map((l) => ({
         salesOrderLineId: l.salesOrderLineId,
         qtyPlanned: l.qtyPlanned.toFixed(),
-        qtyActual: l.qtyActual === null ? null : l.qtyActual.toFixed(),
+        qtyActual:
+          d.status === 'RETURNED' ? '0' : l.qtyActual === null ? null : l.qtyActual.toFixed(),
       })),
     );
     const actualRecorded = doLines.some((l) => l.qtyActual !== null);

@@ -186,6 +186,19 @@ export class DeliveryOrderLineDto {
       'ST4-T10 เหตุผลปฏิเสธรับ (หมวด REJECTED_BY_RECEIVER) — ข้อความ ณ เวลาบันทึกดูที่ GET …/pod',
   })
   rejectReasonCodeId!: string | null;
+  @ApiProperty({
+    example: '4',
+    description:
+      'ST4-T11 ของที่ปฏิเสธรับซึ่งส่งซ้ำแล้ว (ผลรวมบรรทัดของ DO ใหม่ที่ยังไม่ยกเลิก — `rejectedFromId` = ใบนี้)',
+  })
+  redeliveredQty!: string;
+  @ApiProperty({ example: '0', description: 'ST4-T11 ของที่ปฏิเสธรับซึ่งคืนคลังแล้ว' })
+  returnedQty!: string;
+  @ApiProperty({
+    example: '6',
+    description: 'ST4-T11 ปฏิเสธรับที่ยังไม่ได้จัดการ (ปฏิเสธ − ส่งซ้ำ − คืนคลัง)',
+  })
+  openRejectQty!: string;
   @ApiProperty({ example: 'TON' }) unit!: string;
   @ApiProperty({ nullable: true, type: String }) weightKg!: string | null;
   @ApiProperty({ nullable: true, type: String }) cbm!: string | null;
@@ -218,6 +231,18 @@ export class DeliveryOrderDto {
       'ST4-T12 ครั้งที่นัดส่งใหม่อัตโนมัติของสายงานนี้ (0 = ใบแรก) — เกินค่าตั้ง `dispatch.maxAutoReschedules` → ใบสั่งค้าง RESCHEDULES_EXHAUSTED',
   })
   rescheduleCount!: number;
+  @ApiProperty({
+    description:
+      'ST4-T11 ส่งซ้ำโดยผู้ใช้ (ไม่ใช่นัดส่งใหม่อัตโนมัติ) — ผลส่งไม่สำเร็จถูกพลิกภายหลังระบบไม่คืนใบเดิมเอง',
+  })
+  redeliveryManual!: boolean;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description:
+      'ST4-T11 ใบส่งซ้ำของที่ลูกค้าปฏิเสธรับจาก DO นี้ (ใบเดิมคงส่งแล้ว) — ไม่นับปริมาณจัดสรรของ SO',
+  })
+  rejectedFromId!: string | null;
   @ApiProperty({ example: 'NONE' }) podStatus!: string;
   @ApiProperty({ type: [DeliveryOrderLineDto] }) lines!: DeliveryOrderLineDto[];
   @ApiProperty() version!: number;
@@ -234,4 +259,83 @@ export class DeliveryOrderPageDto {
 export class DeliveryOrderSplitResultDto {
   @ApiProperty({ type: [DeliveryOrderDto], description: 'ใบลูกที่สร้างจากการแยก' })
   data!: DeliveryOrderDto[];
+}
+
+/** ST4-T11 ปริมาณที่จะส่งซ้ำ/คืนคลังของบรรทัด DO หนึ่งบรรทัด */
+export class ReturnLineInputDto {
+  @ApiProperty({ example: 1, description: 'ลำดับบรรทัดของ DO (`lines[].lineNo`)' })
+  @IsInt()
+  @Min(1)
+  lineNo!: number;
+
+  @ApiProperty({
+    example: '10',
+    description: '> 0 และไม่เกินที่ปฏิเสธรับคงเหลือ (`openRejectQty`) — ทศนิยม ≤ 3 ตำแหน่ง',
+  })
+  @IsString()
+  @Matches(QTY_RE)
+  qty!: string;
+}
+
+/** ST4-T11 ส่งซ้ำ / คืนคลัง (POST …/redeliver, …/return) */
+export class ResolveRejectionDto {
+  @ApiProperty({
+    example: 'rsn_3f2a…',
+    description:
+      'เหตุผล: DO ส่งแล้ว (ปฏิเสธรับบางส่วน/ทั้งหมด) = หมวด REJECTED_BY_RECEIVER · DO ส่งไม่สำเร็จ = หมวด DELIVERY_FAILED',
+  })
+  @Matches(/^rsn_[0-9a-f]{32}$/)
+  reasonCodeId!: string;
+
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    maxLength: 500,
+    description:
+      'โน้ต — บังคับเมื่อเหตุผลติ๊ก "บังคับโน้ต"; ชื่อเหตุผล + โน้ต รวม ≥ 10 ตัวอักษร (MD-222)',
+  })
+  @IsOptional()
+  @IsNullable()
+  @CleanText()
+  @IsString()
+  @MaxLength(500)
+  note?: string | null;
+
+  @ApiPropertyOptional({
+    type: [ReturnLineInputDto],
+    description:
+      'เฉพาะ DO ส่งแล้ว: บรรทัด + ปริมาณ (ไม่ส่ง = ทุกบรรทัดที่ยังปฏิเสธคงเหลือ ทั้งจำนวน) · DO ส่งไม่สำเร็จ = ทั้งใบเสมอ (ส่งมา → 422)',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(200)
+  @ValidateNested({ each: true })
+  @Type(() => ReturnLineInputDto)
+  lines?: ReturnLineInputDto[];
+}
+
+export class RedeliverDeliveryOrderDto extends ResolveRejectionDto {
+  @ApiPropertyOptional({
+    example: '2026-11-19',
+    description: 'วันส่งของ DO ใหม่ (เวลาไทย) — ไม่ส่ง = วันนี้ · ก่อนวันนี้ → 422',
+  })
+  @IsOptional()
+  @Matches(DATE_RE)
+  doDate?: string;
+}
+
+export class ReturnDeliveryOrderDto extends ResolveRejectionDto {}
+
+export class RedeliverResultDto {
+  @ApiProperty({
+    type: DeliveryOrderDto,
+    description:
+      'ใบเดิม — ส่งแล้ว: คงสถานะ (ยอดส่งซ้ำ/คงเหลือใหม่) · ส่งไม่สำเร็จ: CANCELLED (event redeliver)',
+  })
+  source!: DeliveryOrderDto;
+  @ApiProperty({
+    type: DeliveryOrderDto,
+    description: 'DO ใหม่ (DRAFT รอจัดรถ) อ้าง `redeliveryOfId`',
+  })
+  redelivery!: DeliveryOrderDto;
 }

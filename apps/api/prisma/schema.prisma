@@ -1784,6 +1784,12 @@ model DeliveryOrder {
   rescheduleCount     Int             @default(0) @map("reschedule_count")
   /// ST4-T12 ใบนี้เกิดจากนัดส่งใหม่ที่เกินค่าตั้ง (ใบสั่งค้าง/เหตุรอง RESCHEDULES_EXHAUSTED จนกว่าจะจัดรถ)
   rescheduleExhausted Boolean         @default(false) @map("reschedule_exhausted")
+  /// ST4-T11 ส่งซ้ำมือ (ผู้ใช้สั่ง) — ระบบไม่คืนใบเดิมเองเมื่อผลส่งไม่สำเร็จถูกพลิก (ต่างจากนัดส่งใหม่อัตโนมัติ ST4-T12)
+  redeliveryManual    Boolean         @default(false) @map("redelivery_manual")
+  /// ST4-T11 ใบส่งซ้ำของที่ลูกค้าปฏิเสธรับจากใบนี้ (ใบเดิมคงส่งแล้ว) — ไม่นับปริมาณจัดสรรของ SO · ส่งต่อผ่านแยก/ส่งใหม่
+  rejectedFromId      String?         @map("rejected_from_id") @db.Uuid
+  rejectedFrom        DeliveryOrder?  @relation("DoRejectedRedelivery", fields: [rejectedFromId], references: [id], onDelete: Restrict)
+  rejectedRedeliveries DeliveryOrder[] @relation("DoRejectedRedelivery")
   /// แยก DO (ORD-084): ใบแม่ CANCELLED (event split) → ใบลูกเลข `{split_root_no}-{split_index}`
   splitFromId         String?         @map("split_from_id") @db.Uuid
   splitFrom           DeliveryOrder?  @relation("DoSplit", fields: [splitFromId], references: [id], onDelete: Restrict)
@@ -1809,6 +1815,7 @@ model DeliveryOrder {
   @@index([tenantId, pickupTripStopId])
   @@index([tenantId, salesOrderId])
   @@index([tenantId, redeliveryOfId])
+  @@index([tenantId, rejectedFromId])
   @@index([tenantId, updatedAt, id])
   @@map("delivery_order")
 }
@@ -1880,6 +1887,8 @@ model DeliveryOrderLine {
   rejectQty          Decimal?        @map("reject_qty") @db.Decimal(14, 3)
   rejectReasonCodeId String?         @map("reject_reason_code_id") @db.Uuid
   rejectReasonCode   ReasonCode?     @relation(fields: [rejectReasonCodeId], references: [id], onDelete: Restrict)
+  /// ST4-T11 ของที่ปฏิเสธรับแล้วคืนคลัง (ไม่ส่งซ้ำ) — CHECK ≤ reject_qty · ส่งซ้ำนับจาก DO ใบใหม่ (`rejected_from_id`)
+  returnedQty        Decimal         @default(0) @map("returned_qty") @db.Decimal(14, 3)
   unit               String
   weightKg           Decimal?        @map("weight_kg") @db.Decimal(14, 3) /// สัดส่วนจากบรรทัด SO (เศษปัดไปใบสุดท้าย — รวมเท่าเดิม)
   cbm                Decimal?        @db.Decimal(14, 3)
