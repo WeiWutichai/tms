@@ -1,0 +1,335 @@
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { CONNECTOR_KEY_RE, CONNECTOR_STATUSES, ERP_CAPABILITIES } from '@tms/domain';
+import { Transform } from 'class-transformer';
+import {
+  ArrayMaxSize,
+  IsArray,
+  IsIn,
+  IsISO8601,
+  IsObject,
+  IsOptional,
+  IsString,
+  Matches,
+  MaxLength,
+} from 'class-validator';
+import {
+  CleanText,
+  IsNullable,
+  IsOptionalNotNull,
+  MasterOptionalReasonDto,
+  MasterReasonDto,
+} from '../master/master-kit';
+
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+const ERP_CODE_EXAMPLE = 'PP01';
+
+export class ConnectorConfigFieldDto {
+  @ApiProperty({ example: 'baseUrl' }) key!: string;
+  @ApiProperty({ description: 'credential — ไม่ส่งค่ากลับ, แสดงได้แค่ "ตั้งแล้ว"' })
+  secret!: boolean;
+  @ApiProperty() required!: boolean;
+  @ApiProperty({ enum: ['string', 'url'] }) kind!: 'string' | 'url';
+  @ApiProperty({ nullable: true, type: Number }) maxLength!: number | null;
+}
+
+/** adapter ที่เปิดเป็น connector ได้ (catalog ในโค้ด — ไม่มีตัวใดเป็นค่าเริ่มต้น, spec/07 INT-010) */
+export class ErpAdapterDto {
+  @ApiProperty({ example: 'demo', description: '`adapterKey` ที่ใช้ตอนสร้าง connector' })
+  key!: string;
+  @ApiProperty({ example: 'Demo ERP' }) displayName!: string;
+  @ApiProperty({
+    type: [String],
+    enum: ERP_CAPABILITIES,
+    description: 'capability ที่ adapter รองรับ (docs/01 §6.1) — UI แสดงเฉพาะที่อยู่ในรายการนี้',
+  })
+  capabilities!: string[];
+  @ApiProperty({ type: [ConnectorConfigFieldDto] }) configFields!: ConnectorConfigFieldDto[];
+}
+
+export class ErpAdapterListDto {
+  @ApiProperty({ type: [ErpAdapterDto] }) data!: ErpAdapterDto[];
+}
+
+export class ConnectorDto {
+  @ApiProperty({ example: 'con_8f3a…' }) id!: string;
+  @ApiProperty({ example: 'demo' }) adapterKey!: string;
+  @ApiProperty({
+    example: 'Demo ERP',
+    nullable: true,
+    type: String,
+    description: 'null = adapter ไม่ได้ติดตั้งในระบบนี้',
+  })
+  displayName!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: 'cmp_…',
+    description:
+      'นิติบุคคลที่ใช้ connector นี้ (Invoice As / Tender As) · null = ทุกนิติบุคคลที่ไม่มีของตัวเอง',
+  })
+  companyId!: string | null;
+  @ApiProperty({ nullable: true, type: String, example: ERP_CODE_EXAMPLE }) erpCompanyCode!:
+    string | null;
+  @ApiProperty({
+    type: 'object',
+    additionalProperties: { type: 'string' },
+    example: { brn_8f3a: 'PP01-BKK' },
+    description: 'สาขา TMS → รหัสบริษัท/สาขาฝั่ง ERP (ไม่มี = ใช้ erpCompanyCode)',
+  })
+  branchMap!: Record<string, string>;
+  @ApiProperty({ enum: CONNECTOR_STATUSES }) status!: string;
+  @ApiProperty({ nullable: true, type: String }) statusReason!: string | null;
+  @ApiProperty({ nullable: true, type: String, format: 'date-time' }) statusChangedAt!:
+    string | null;
+  @ApiProperty({
+    type: [String],
+    enum: ERP_CAPABILITIES,
+    description: 'capability ที่ adapter รองรับทั้งหมด',
+  })
+  capabilitiesSupported!: string[];
+  @ApiProperty({ type: [String], enum: ERP_CAPABILITIES, description: 'ที่ tenant เปิด' })
+  capabilitiesEnabled!: string[];
+  @ApiProperty({
+    type: [String],
+    enum: ERP_CAPABILITIES,
+    description: 'ใช้ได้จริง = รองรับ ∩ เปิด (ว่างเมื่อยกเลิกการเชื่อม)',
+  })
+  capabilities!: string[];
+  @ApiProperty({
+    type: 'object',
+    additionalProperties: { type: 'string' },
+    description: 'ค่าตั้งที่ไม่ลับ (base URL ฯลฯ)',
+  })
+  settings!: Record<string, string>;
+  @ApiProperty({
+    type: [String],
+    example: ['apiKey'],
+    description: 'ชื่อช่อง credential ที่ตั้งแล้ว — ค่าไม่ส่งกลับเด็ดขาด',
+  })
+  credentialKeys!: string[];
+  @ApiProperty({ nullable: true, type: String, format: 'date-time' }) credentialsUpdatedAt!:
+    string | null;
+  @ApiProperty({ nullable: true, type: String, format: 'date', example: '2026-12-01' })
+  syncFromDate!: string | null;
+  @ApiProperty({ nullable: true, type: String, format: 'date-time' }) lastHealthAt!: string | null;
+  @ApiProperty({ nullable: true, type: Boolean }) lastHealthOk!: boolean | null;
+  @ApiProperty({
+    nullable: true,
+    type: 'object',
+    additionalProperties: true,
+    description: '{errorClass, code, message} ของ healthCheck ล่าสุดที่ล้ม',
+  })
+  lastHealthError!: Record<string, unknown> | null;
+  @ApiProperty({ nullable: true, type: String, format: 'date-time' }) activatedAt!: string | null;
+  @ApiProperty({ nullable: true, type: String, format: 'date-time' }) disconnectedAt!:
+    string | null;
+  @ApiProperty() version!: number;
+  @ApiProperty({ format: 'date-time' }) createdAt!: string;
+  @ApiProperty({ format: 'date-time' }) updatedAt!: string;
+}
+
+export class ConnectorListDto {
+  @ApiProperty({ type: [ConnectorDto] }) data!: ConnectorDto[];
+}
+
+export class ConnectorListQuery {
+  @ApiPropertyOptional({
+    enum: CONNECTOR_STATUSES,
+    description: 'ไม่ระบุ = ทุกสถานะยกเว้น DISCONNECTED',
+  })
+  @IsOptional()
+  @IsIn(CONNECTOR_STATUSES)
+  status?: string;
+}
+
+export class CreateConnectorDto {
+  @ApiProperty({
+    example: 'demo',
+    pattern: CONNECTOR_KEY_RE.source,
+    description: 'จาก GET /connectors/adapters',
+  })
+  @IsString()
+  @Matches(CONNECTOR_KEY_RE)
+  adapterKey!: string;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    type: String,
+    example: 'cmp_…',
+    description: 'ไม่ส่ง/null = ทุกนิติบุคคล',
+  })
+  @IsNullable()
+  @IsString()
+  companyId?: string | null;
+
+  @ApiPropertyOptional({ nullable: true, type: String, maxLength: 64, example: ERP_CODE_EXAMPLE })
+  @IsNullable()
+  @CleanText()
+  @IsString()
+  @MaxLength(64)
+  erpCompanyCode?: string | null;
+
+  @ApiPropertyOptional({ type: 'object', additionalProperties: { type: 'string' } })
+  @IsOptionalNotNull()
+  @IsObject()
+  branchMap?: Record<string, string>;
+
+  @ApiPropertyOptional({
+    type: [String],
+    enum: ERP_CAPABILITIES,
+    description: 'ไม่ส่ง = เปิดทุกตัวที่ adapter รองรับ',
+  })
+  @IsOptionalNotNull()
+  @IsArray()
+  @ArrayMaxSize(ERP_CAPABILITIES.length)
+  @IsIn(ERP_CAPABILITIES, { each: true })
+  capabilitiesEnabled?: string[];
+
+  @ApiPropertyOptional({
+    type: 'object',
+    additionalProperties: { type: 'string' },
+    description: 'ค่าที่ไม่ลับตาม configFields',
+  })
+  @IsOptionalNotNull()
+  @IsObject()
+  settings?: Record<string, string>;
+
+  @ApiPropertyOptional({
+    type: 'object',
+    additionalProperties: { type: 'string' },
+    description: 'ช่อง secret ตาม configFields — เก็บเข้ารหัส ไม่ส่งกลับ',
+  })
+  @IsOptionalNotNull()
+  @IsObject()
+  credentials?: Record<string, string>;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    type: String,
+    format: 'date',
+    description: '≤ วันนี้ (เวลาไทย)',
+  })
+  @IsNullable()
+  @Matches(DATE_ONLY)
+  @IsISO8601({ strict: true })
+  syncFromDate?: string | null;
+}
+
+/** แก้ค่าตั้ง (ไม่แก้นิติบุคคล/adapter — ยกเลิกแล้วสร้างใหม่) */
+export class UpdateConnectorDto {
+  @ApiPropertyOptional({ nullable: true, type: String, maxLength: 64 })
+  @IsNullable()
+  @CleanText()
+  @IsString()
+  @MaxLength(64)
+  erpCompanyCode?: string | null;
+
+  @ApiPropertyOptional({ type: 'object', additionalProperties: { type: 'string' } })
+  @IsOptionalNotNull()
+  @IsObject()
+  branchMap?: Record<string, string>;
+
+  @ApiPropertyOptional({ type: [String], enum: ERP_CAPABILITIES })
+  @IsOptionalNotNull()
+  @IsArray()
+  @ArrayMaxSize(ERP_CAPABILITIES.length)
+  @IsIn(ERP_CAPABILITIES, { each: true })
+  capabilitiesEnabled?: string[];
+
+  @ApiPropertyOptional({
+    type: 'object',
+    additionalProperties: { type: 'string' },
+    description: 'แทนค่าที่ไม่ลับทั้งชุด',
+  })
+  @IsOptionalNotNull()
+  @IsObject()
+  settings?: Record<string, string>;
+
+  @ApiPropertyOptional({ nullable: true, type: String, format: 'date' })
+  @IsNullable()
+  @Matches(DATE_ONLY)
+  @IsISO8601({ strict: true })
+  syncFromDate?: string | null;
+}
+
+export class ConnectorCredentialsDto {
+  @ApiProperty({
+    type: 'object',
+    additionalProperties: { type: 'string' },
+    description: 'credential ชุดใหม่ (แทนทั้งชุด) — ช่อง secret ที่บังคับต้องครบ',
+  })
+  @IsObject()
+  credentials!: Record<string, string>;
+
+  @ApiPropertyOptional({ maxLength: 500 })
+  @IsOptional()
+  @CleanText()
+  @IsString()
+  @MaxLength(500)
+  @Transform(({ value }: { value: unknown }) => (value === '' ? undefined : value))
+  reason?: string;
+}
+
+export class ConnectorActionDto extends MasterOptionalReasonDto {}
+export class ConnectorReasonDto extends MasterReasonDto {}
+
+export class ConnectorHealthDto {
+  @ApiProperty() ok!: boolean;
+  @ApiProperty({ nullable: true, type: String, example: 'AUTH' }) errorClass!: string | null;
+  @ApiProperty({ nullable: true, type: String }) code!: string | null;
+  @ApiProperty({ nullable: true, type: String }) message!: string | null;
+  @ApiProperty({ format: 'date-time' }) checkedAt!: string;
+  @ApiProperty({ type: ConnectorDto }) connector!: ConnectorDto;
+}
+
+export class EffectiveConnectorQuery {
+  @ApiPropertyOptional({
+    example: 'cmp_…',
+    description:
+      'นิติบุคคล — ไม่ระบุทั้งนิติบุคคลและสาขา = ค่าเริ่มต้นระดับ tenant (connector ทุกนิติบุคคล หรือ Standalone)',
+  })
+  @IsOptional()
+  @IsString()
+  companyId?: string;
+
+  @ApiPropertyOptional({ example: 'brn_…' })
+  @IsOptional()
+  @IsString()
+  branchId?: string;
+
+  @ApiPropertyOptional({
+    enum: ['invoice', 'tender'],
+    default: 'invoice',
+    description: 'ออกบิลในนาม / จ้างในนาม',
+  })
+  @IsOptional()
+  @IsIn(['invoice', 'tender'])
+  kind?: 'invoice' | 'tender';
+}
+
+/** connector ที่เอกสารของนิติบุคคล/สาขาใช้ (routing ตามนิติบุคคล) — standalone = ไม่มี */
+export class EffectiveConnectorDto {
+  @ApiProperty({ description: 'true = ไม่เชื่อม ERP (ทุก flow ทำใน TMS)' }) standalone!: boolean;
+  @ApiProperty({ nullable: true, type: String }) connectorId!: string | null;
+  @ApiProperty({ example: 'standalone' }) adapterKey!: string;
+  @ApiProperty({ nullable: true, type: String }) displayName!: string | null;
+  @ApiProperty({ nullable: true, enum: CONNECTOR_STATUSES }) status!: string | null;
+  @ApiProperty({
+    type: [String],
+    enum: ERP_CAPABILITIES,
+    description: 'ใช้ได้จริง (UI แสดงเฉพาะที่อยู่ในรายการนี้)',
+  })
+  capabilities!: string[];
+  @ApiProperty({ description: 'ส่ง/ดึงได้ตอนนี้ (ACTIVE) — false = เอกสารเข้าคิวรอ' })
+  sending!: boolean;
+  @ApiProperty({ enum: ['company', 'tenant', 'none'] }) scope!: string;
+  @ApiProperty({ nullable: true, type: String }) erpCompanyCode!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: 'cmp_…',
+    description: 'นิติบุคคลที่ routing เลือก (null = ไม่ได้ระบุ — ค่าระดับ tenant)',
+  })
+  companyId!: string | null;
+  @ApiProperty({ nullable: true, type: String, example: 'brn_…' }) branchId!: string | null;
+}

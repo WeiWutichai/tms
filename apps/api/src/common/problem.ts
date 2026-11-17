@@ -137,6 +137,24 @@ export const PROBLEMS = {
     th: 'อีเมลนี้เป็นสมาชิกของบริษัทแล้ว',
     en: 'This email is already a member',
   },
+  /** ST7-T13 จำนวน connector ครบตามแพ็กเกจ (entitlement `conn`) — มี `limit` */
+  connector_limit_reached: {
+    status: 409,
+    th: 'จำนวนการเชื่อมระบบบัญชีครบตามแพ็กเกจแล้ว',
+    en: 'Connector limit of your plan reached',
+  },
+  /** ST7-T13 นิติบุคคลนี้ (หรือขอบเขต "ทุกนิติบุคคล") มี connector ที่ยังไม่ยกเลิกอยู่แล้ว */
+  connector_scope_taken: {
+    status: 409,
+    th: 'นิติบุคคลนี้เชื่อมระบบบัญชีอยู่แล้ว ยกเลิกการเชื่อมเดิมก่อน',
+    en: 'This legal entity already has a connector — disconnect it first',
+  },
+  /** ST7-T13 เปิดใช้ไม่ได้เพราะทดสอบการเชื่อมต่อไม่ผ่าน (spec/07 INT-015) — มี `errorClass`, `code` */
+  connector_health_failed: {
+    status: 409,
+    th: 'ทดสอบการเชื่อมต่อไม่ผ่าน ตรวจค่าตั้งและ credential แล้วลองใหม่',
+    en: 'Connection test failed — check settings and credentials',
+  },
   /** ST7-T04 จำนวน webhook endpoint ครบตามแพ็กเกจ (entitlement `webhook`) — มี `limit` */
   webhook_limit_reached: {
     status: 409,

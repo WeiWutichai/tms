@@ -50,6 +50,8 @@ export const ID_PREFIX = {
   webhookDelivery: 'whd',
   doSurcharge: 'dsc', // ST4-T13 ค่าใช้จ่ายหน้างานฝั่งขาย
   tripCost: 'tco', // ST4-T13 ต้นทุนเที่ยว (ค่าใช้จ่ายหน้างานฝั่งซื้อ)
+  /** ST7-T13 การตั้งค่า ErpAdapter ต่อ tenant (docs/01 §3.7 `con_`) */
+  connector: 'con',
 } as const;
 export type IdKind = keyof typeof ID_PREFIX;
 

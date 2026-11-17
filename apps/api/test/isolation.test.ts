@@ -258,6 +258,24 @@ const FIXTURES: Record<string, (db: PrismaClient, tenantId: string, n: number) =
           })
         ).id,
       ),
+    // ST7-T13 การตั้งค่า ErpAdapter ต่อ tenant
+    connector: async (db, tenantId, n) =>
+      encodeId(
+        'connector',
+        (
+          await db.connector.create({
+            data: {
+              tenantId,
+              adapterKey: `iso-${n}`,
+              capabilitiesEnabled: [],
+              credentialKeys: [],
+              // หลายแถวต่อ tenant (1 ต่อ route) — ขอบเขตเดียวกันมีตัวที่ยังไม่ยกเลิกได้ตัวเดียว
+              status: 'DISCONNECTED',
+              disconnectedAt: new Date(),
+            },
+          })
+        ).id,
+      ),
     // ST7-T05 บันทึกการส่ง webhook + event (redeliver)
     webhookDelivery: async (db, tenantId, n) => {
       const e = await db.webhookEndpoint.create({
@@ -858,6 +876,8 @@ const BODY_FOR_SUFFIX: Record<string, object> = {
 const BODY_FOR_PATH: Record<string, object> = {
   '/v1/api-keys/:id/rotate': { reason: 'isolation test reason' }, // ST7-T01
   '/v1/webhooks/:id/disable': { reason: 'isolation test reason' }, // ST7-T04
+  '/v1/connectors/:id/credentials': { credentials: { apiKey: 'isolation' } }, // ST7-T13
+  '/v1/connectors/:id/disconnect': { reason: 'isolation test reason' }, // ST7-T13
   // DELETE ที่มี body (เหตุผลบังคับ) — key `DELETE <path>`
   'DELETE /v1/webhooks/:id': { reason: 'isolation test reason' }, // ST7-T04
   '/v1/drivers/:id/status': { status: 'on_leave', reason: 'isolation test reason' }, // ST2-T08

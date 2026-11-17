@@ -2704,6 +2704,60 @@ model ConnectorCursor {
   @@map("connector_cursor")
 }
 
+/// ST7-T13 สถานะ connector (docs/01 §3.7 ACTIVE/PAUSED/ERROR + DISCONNECTED = ยกเลิกการเชื่อม — spec/07 §1.6; ไม่มี hard delete)
+enum ConnectorStatus {
+  ACTIVE
+  PAUSED
+  ERROR
+  DISCONNECTED
+}
+
+/// ST7-T13 การตั้งค่า ErpAdapter ต่อ tenant (docs/01 §3.7 `connector`, §6.1; docs/04 G3) — ไม่มีแถว = Standalone
+/// routing ตามนิติบุคคล: company_id = ใช้กับนิติบุคคลนี้ (Invoice As / Tender As) · null = ทุกนิติบุคคลที่ไม่มีของตัวเอง
+/// 1 connector ที่ยังไม่ยกเลิกต่อขอบเขต (tenant, company) — partial unique index ใน migration 0099
+/// credential เข้ารหัส (FieldCipher) ไม่ส่งกลับทาง API · ค่าที่ไม่ลับ (base URL ฯลฯ) อยู่ใน settings
+model Connector {
+  id                   String          @id @default(uuid()) @db.Uuid
+  tenantId             String          @map("tenant_id") @db.Uuid
+  /// `ErpAdapter.key` ที่ลงทะเบียนใน ErpAdapterRegistry (CONNECTOR_KEY_RE) — ไม่มี enum ของ ERP ใน schema
+  adapterKey           String          @map("adapter_key") @db.VarChar(32)
+  /// นิติบุคคลที่ใช้ connector นี้ (FK company) — null = ค่าเริ่มต้นทุกนิติบุคคล
+  companyId            String?         @map("company_id") @db.Uuid
+  /// รหัสบริษัท/ฐานข้อมูลฝั่ง ERP ของนิติบุคคลนี้ (docs/04 A4 "map 1 สาขา ↔ 1 company ใน ERP")
+  erpCompanyCode       String?         @map("erp_company_code") @db.VarChar(64)
+  /// สาขา TMS (uuid) → รหัสบริษัท/สาขาฝั่ง ERP — ไม่มี = ใช้ erp_company_code
+  branchMap            Json            @default("{}") @map("branch_map")
+  /// subset ของ adapter.capabilities() ที่ tenant เปิด
+  capabilitiesEnabled  String[]        @map("capabilities_enabled")
+  /// ค่าตั้งที่ไม่ลับตาม configFields ของ adapter (base URL ฯลฯ)
+  settings             Json            @default("{}")
+  /// credential (ช่อง secret ของ adapter) JSON เข้ารหัส FieldCipher — ไม่ส่งกลับ ไม่ลง log/audit
+  credentialsEnc       String?         @map("credentials_enc")
+  /// ชื่อช่อง credential ที่ตั้งแล้ว (แสดง "ตั้งแล้ว" ได้โดยไม่ถอดรหัส)
+  credentialKeys       String[]        @map("credential_keys")
+  credentialsUpdatedAt DateTime?       @map("credentials_updated_at") @db.Timestamptz(6)
+  /// ไม่ push เอกสารที่ issue_date ก่อนวันนี้ (docs/01 §6.4)
+  syncFromDate         DateTime?       @map("sync_from_date") @db.Date
+  status               ConnectorStatus @default(PAUSED)
+  /// เหตุผลของสถานะล่าสุด (หยุด/ผิดพลาด/ยกเลิก)
+  statusReason         String?         @map("status_reason")
+  statusChangedAt      DateTime?       @map("status_changed_at") @db.Timestamptz(6)
+  lastHealthAt         DateTime?       @map("last_health_at") @db.Timestamptz(6)
+  lastHealthOk         Boolean?        @map("last_health_ok")
+  /// ผล healthCheck ล่าสุดที่ล้ม {errorClass, code, message} (ตัด secret แล้ว)
+  lastHealthError      Json?           @map("last_health_error")
+  activatedAt          DateTime?       @map("activated_at") @db.Timestamptz(6)
+  disconnectedAt       DateTime?       @map("disconnected_at") @db.Timestamptz(6)
+  createdBy            String?         @map("created_by")
+  version              Int             @default(1)
+  createdAt            DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([tenantId, createdAt, id])
+  @@index([tenantId, companyId])
+  @@map("connector")
+}
+
 /// ST7-T01 API key ของ tenant (docs/04 G1 Auth; spec/07 §6) — principal `client` ตัวเดียวกับ OAuth2 client credentials
 /// secret แสดงครั้งเดียว: เก็บเฉพาะ HMAC-SHA256(pepper) + prefix แสดงผล · ไม่มี hard delete (เพิกถอน = revoke_at)
 /// สถานะคำนวณ: revoke_at ≤ now → revoked · revoke_at > now → rotating (หมุนแล้ว ใช้ได้ถึง revoke_at ≤ 7 วัน) · expires_at ≤ now → expired · อื่น ๆ active
