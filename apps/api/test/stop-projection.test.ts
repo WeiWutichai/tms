@@ -374,7 +374,7 @@ describe('stop projection / status cascade (ST4-T03)', () => {
     expect(await soStatus(a.soId)).toBe('DELIVERED');
     expect((await tripRow(t.uuid)).status).toBe('IN_PROGRESS');
 
-    const failed = await reason('DELIVERY_FAILED', 'SHOP_CLOSED');
+    const failed = await reason('DELIVERY_FAILED', 'WRONG_ADDRESS'); // ไม่ติ๊กนัดส่งใหม่อัตโนมัติ (ST4-T12) — DO คง FAILED
     await post(bStop, 'fail', 30, {
       outcome: 'FAILED',
       reasonCodeId: encodeId('reasonCode', failed),
@@ -397,6 +397,35 @@ describe('stop projection / status cascade (ST4-T03)', () => {
     // ไม่เคยถึงจุด → ไม่มีเวลาออก/ไม่มี stop.departed (review L2)
     expect(evs.map((e) => e.type)).toEqual(['stop.failed']);
     expect((await stopRow(bStop)).departedAt).toBeNull();
+  });
+
+  it('ST4-T12: FAIL ด้วยเหตุผลแบบนัดส่งใหม่ (SHOP_CLOSED) → ประวัติ fail + redeliver (เหตุผลเดียวกัน) · DO ใหม่รอจัด · SO กลับรอจัด · เที่ยวจบ', async () => {
+    const a = await newOrder();
+    const t = await dispatched([encodeId('deliveryOrder', a.dos[0]!.id)]);
+    const [pk, dr] = [...t.stops].sort((x, y) => x.sequence - y.sequence);
+    await post(pk!.id, 'arrive', 90).expect(201);
+    await post(pk!.id, 'complete', 85, { outcome: 'DELIVERED' }).expect(201);
+    const failed = await reason('DELIVERY_FAILED', 'SHOP_CLOSED');
+    await post(dr!.id, 'fail', 30, {
+      outcome: 'FAILED',
+      reasonCodeId: encodeId('reasonCode', failed),
+      note: 'ร้านปิด',
+    }).expect(201);
+    expect(await doStatus(a.dos[0]!.id)).toBe('CANCELLED');
+    const h = await db.docStatusHistory.findMany({
+      where: {
+        docType: 'delivery_order',
+        docId: a.dos[0]!.id,
+        event: { in: ['fail', 'redeliver'] },
+      },
+    });
+    expect(h.map((x) => [x.event, x.reasonCodeId]).sort()).toEqual([
+      ['fail', failed],
+      ['redeliver', failed],
+    ]);
+    expect(['RECEIVED', 'ON_HOLD']).toContain(await soStatus(a.soId));
+    expect((await stopRow(dr!.id)).status).toBe('FAILED');
+    expect((await tripRow(t.uuid)).status).toBe('COMPLETED');
   });
 
   it('SO หลาย DO: ส่งแล้วบางใบ + ใบที่เหลือยังไม่ออก → PARTIALLY_DELIVERED · ใบที่เหลือออกรถ → IN_TRANSIT · ส่งครบ → DELIVERED', async () => {
@@ -675,7 +704,7 @@ describe('stop projection / status cascade (ST4-T03)', () => {
     const two = await newOrder();
     const t2 = await dispatched([encodeId('deliveryOrder', two.dos[0]!.id)]);
     const [pk2, dr2] = [...t2.stops].sort((x, y) => x.sequence - y.sequence);
-    const failed = await reason('DELIVERY_FAILED', 'SHOP_CLOSED');
+    const failed = await reason('DELIVERY_FAILED', 'WRONG_ADDRESS'); // ไม่ติ๊กนัดส่งใหม่อัตโนมัติ (ST4-T12)
     await post(pk2!.id, 'fail', 40, {
       outcome: 'FAILED',
       reasonCodeId: encodeId('reasonCode', failed),
@@ -691,6 +720,31 @@ describe('stop projection / status cascade (ST4-T03)', () => {
     }).expect(201);
     expect((await tripRow(t2.uuid)).status).toBe('COMPLETED');
     expect(await doStatus(two.dos[0]!.id)).toBe('FAILED');
+
+    // ST4-T12 (review L): จุดรับไม่สำเร็จด้วยเหตุผลแบบนัดส่งใหม่ (SHOP_CLOSED) → DO ส่งใหม่ · จุดส่งที่ไม่เหลือ DO = ข้าม (ปิดไม่ได้) · เที่ยวจบ
+    const three = await newOrder();
+    const t3 = await dispatched([encodeId('deliveryOrder', three.dos[0]!.id)]);
+    const [pk3, dr3] = [...t3.stops].sort((x, y) => x.sequence - y.sequence);
+    const closed = await reason('DELIVERY_FAILED', 'SHOP_CLOSED');
+    await post(pk3!.id, 'fail', 40, {
+      outcome: 'FAILED',
+      reasonCodeId: encodeId('reasonCode', closed),
+      note: 'คลังปิด',
+    }).expect(201);
+    expect(await doStatus(three.dos[0]!.id)).toBe('CANCELLED');
+    expect(
+      await db.deliveryOrder.count({
+        where: { redeliveryOfId: three.dos[0]!.id, status: 'DRAFT' },
+      }),
+    ).toBe(1);
+    expect((await stopRow(dr3!.id)).status).toBe('SKIPPED');
+    expect((await tripRow(t3.uuid)).status).toBe('COMPLETED');
+    const r = await post(dr3!.id, 'fail', 30, {
+      outcome: 'FAILED',
+      reasonCodeId: encodeId('reasonCode', closed),
+      note: 'ไม่มีของส่ง',
+    });
+    expect(r.status).toBe(409);
   });
 
   it('พร้อมกัน: สองเที่ยวของ SO เดียวส่ง event พร้อมกัน · event ∥ resolve บนเที่ยวเดียว — ไม่ deadlock สถานะสุดท้ายถูก', async () => {

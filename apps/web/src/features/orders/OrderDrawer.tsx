@@ -59,8 +59,12 @@ export const statusTone = (o: Pick<Order, 'status'> & { sourceChangedAfterPlan?:
         ? ('info' as const)
         : ('ok' as const);
 
-/** กำหนดส่ง = ปลายช่วงเวลาของจุดส่งสุดท้าย (ไม่มี = วันรับของ) — เวลาไทย */
+/**
+ * กำหนดส่ง = ปลายช่วงเวลาของจุดส่งสุดท้าย (ไม่มี = วันรับของ) — เวลาไทย
+ * ST4-T12: มี DO นัดส่งใหม่ที่รอจัด → วันที่นัด (ไม่ขึ้นเกินกำหนดเพราะวันเดิมผ่านไปแล้ว)
+ */
 export function dueOf(o: Order): { date: string; time: string | null } {
+  if (o.rescheduledDate) return { date: o.rescheduledDate, time: null };
   const last = [...o.stops].reverse().find((s) => s.type === 'DELIVERY');
   const iso = last?.windowEnd ?? last?.windowStart;
   if (!iso) return { date: o.requestedDate, time: null };

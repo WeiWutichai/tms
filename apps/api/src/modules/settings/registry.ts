@@ -3,7 +3,12 @@
  * ทุก key มี type + default; ค่าที่ผิด type ถูกปฏิเสธ (422) · ไม่มีแถวใน tenant_setting = ใช้ default
  * `store: 'tenant'` = เก็บในคอลัมน์ของตาราง tenant (ใช้ร่วมกับส่วนอื่นที่อ่านอยู่แล้ว)
  */
-import { DEFAULT_POD_REQUIREMENTS, parsePodRequirements } from '@tms/domain';
+import {
+  DEFAULT_MAX_AUTO_RESCHEDULES,
+  DEFAULT_POD_REQUIREMENTS,
+  MAX_AUTO_RESCHEDULES_LIMIT,
+  parsePodRequirements,
+} from '@tms/domain';
 
 export type SettingType =
   | { kind: 'string'; max: number }
@@ -108,6 +113,13 @@ export const SETTINGS = {
     default: 2,
     description:
       'รถร่วมไม่ตอบข้อเสนองานภายในกี่ชั่วโมง → แจ้งผู้จัดรถ + ปุ่ม "ส่งรายถัดไป" (docs/04 D3 — ต้องน้อยกว่าอายุลิงก์ 48 ชม.; ใช้กับข้อเสนอใหม่)',
+  },
+  'dispatch.maxAutoReschedules': {
+    group: 'dispatch',
+    type: { kind: 'int', min: 0, max: MAX_AUTO_RESCHEDULES_LIMIT },
+    default: DEFAULT_MAX_AUTO_RESCHEDULES,
+    description:
+      'นัดส่งใหม่อัตโนมัติได้กี่ครั้งต่อใบส่งของ (ST4-T12; docs/04 E2) — เกินแล้วใบสั่งขึ้นใบค้าง RESCHEDULES_EXHAUSTED · 0 = ขึ้นใบค้างทันที',
   },
   'pod.checklist': {
     group: 'pod',

@@ -1,4 +1,5 @@
 import {
+  Badge,
   Button,
   EmptyState,
   Icon,
@@ -45,6 +46,8 @@ import { fromOrder, type Order, type OrderForm } from '../orders/orderForm';
 import { bangkokToday, useDateText } from '../rate-cards/rateFormat';
 import {
   addDays,
+  isRedelivery,
+  poolDue,
   axisBox,
   blocksOn,
   boardStats,
@@ -130,6 +133,10 @@ import {
 } from './usePlanning';
 
 type Tab = 'today' | 'tomorrow' | '7d';
+
+/** เลข DO ใบเดิมของ DO ส่งซ้ำบนการ์ด (คำอธิบายป้าย "ส่งซ้ำ") */
+const redeliveryNos = (o: PoolOrder) =>
+  o.deliveryOrders.flatMap((d) => (d.redeliveryOfNo ? [d.redeliveryOfNo] : [])).join(', ');
 type Drag =
   { kind: 'order'; id: string } | { kind: 'trip'; id: string; day: string; grab: number } | null;
 interface Resize {
@@ -1840,7 +1847,9 @@ export function PlanningPage() {
   };
 
   const poolCard = (o: PoolOrder) => {
-    const late = o.requestedDate < day0;
+    const due = poolDue(o);
+    const retained = o.deliveryOrders.find((d) => d.retainedOn)?.retainedOn ?? null;
+    const late = due < day0;
     const route = `${placeText(o.origin)} → ${placeText(o.dest)}`;
     const w = fmtNum(kg(o.weightKg));
     const picked = selOn?.kind === 'order' && selOn.id === o.id;
@@ -1871,7 +1880,7 @@ export function PlanningPage() {
         title={[
           `${o.orderNo} · ${o.customerName ?? '—'}`,
           route,
-          dateText(o.requestedDate) + (late ? t('plan.pool.over') : ''),
+          dateText(due) + (late ? t('plan.pool.over') : ''),
           t('plan.kg', { n: w }),
           ...(it ? why : [t('plan.elig.pickOrder')]),
         ].join('\n')}
@@ -1922,9 +1931,21 @@ export function PlanningPage() {
           · {o.customerName ?? '—'}
         </div>
         <div style={{ fontSize: 12.5, color: '#3B424C', ...ELL, lineHeight: 1.45 }}>
-          {t('plan.pool.l2', { d: dateText(o.requestedDate), r: route })}
+          {t('plan.pool.l2', { d: dateText(due), r: route })}
           {late && <span style={{ color: '#B3322A', fontWeight: 600 }}>{t('plan.pool.over')}</span>}
         </div>
+        {/* ST4-T12 review M2: ส่งไม่สำเร็จแบบของยังอยู่บนรถ — ของอยู่รถคันไหน (จุดรับยังเป็นต้นทางเดิม: spec/12 §3 [OPEN PO]) */}
+        {retained && (
+          <div
+            data-testid="plan-pool-retained"
+            style={{ fontSize: 12.5, color: '#8F5500', ...ELL, lineHeight: 1.45 }}
+          >
+            {t('plan.pool.retained', {
+              plate: retained.plate ?? '—',
+              trip: retained.tripNo ?? '—',
+            })}
+          </div>
+        )}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span
             className="tms-num"
@@ -1950,6 +1971,12 @@ export function PlanningPage() {
                 o.sourceChangePending ? 'SOURCE_CHANGED_AFTER_PLAN' : o.holdReason!,
               )}
             />
+          )}
+          {/* ป้าย "ส่งซ้ำ" (spec/03 ORD-087; ST4-T12 — ต้นแบบไม่มี: spec/12 §3) ต่อท้ายป้ายเหตุค้าง */}
+          {isRedelivery(o) && (
+            <span title={t('plan.pool.redeliveryOf', { no: redeliveryNos(o) })}>
+              <Badge label={t('plan.pool.redelivery')} tone="info" icon="refresh-cw" />
+            </span>
           )}
         </div>
       </div>

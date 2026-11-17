@@ -129,6 +129,14 @@ export class StopEventsService {
     const replay = await this.replayOf(tx, tenantId, input.clientEventId, stop.id, type);
     if (replay) return { event: replay, replayed: true };
 
+    // ST4-T12: จุดที่ DO ทุกใบถูกนัดส่งใหม่ไปแล้ว (ข้าม) — ไม่มีของให้ส่ง/รับที่จุดนี้
+    const now = await tx.tripStop.findUniqueOrThrow({
+      where: { id: stop.id },
+      select: { status: true },
+    });
+    if (now.status === 'SKIPPED' && stop.removedAt === null)
+      throw new ProblemException('stop_skipped');
+
     const admission = stopEventAdmission(tripStatus, stop.removedAt !== null, dispatched);
     if (admission.kind === 'reject')
       throw new ProblemException('trip_not_in_progress', undefined, undefined, { tripStatus });

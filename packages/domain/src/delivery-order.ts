@@ -41,6 +41,7 @@ export const DO_EVENTS = [
   'split',
   'merge',
   'recall',
+  'restore',
 ] as const;
 export type DoEvent = (typeof DO_EVENTS)[number];
 
@@ -65,7 +66,11 @@ export const DO_TRANSITIONS: TransitionTable<DoStatus, DoEvent> = {
   POD_PENDING: { pod_accept: 'UNBILLED' },
   UNBILLED: { bill: 'BILLED' },
   BILLED: { unbill: 'UNBILLED' },
-  // RETURNED / CANCELLED = สถานะสิ้นสุด
+  // ST4-T12 [DECISION spec/12 §3]: `restore` = ระบบคืนใบที่ถูกยกเลิกด้วย `redeliver` เมื่อผลส่งไม่สำเร็จถูกพลิก
+  // (ผู้จัดรถไม่ใช้ event / event ที่มาทีหลังชนะ) และ DO ส่งใหม่ยังไม่ถูกจัดรถ → กลับไปไล่สถานะจากจุดแวะอีกครั้ง
+  // ผู้เรียกต้องตรวจว่ายกเลิกด้วย redeliver เท่านั้น (`DeliveryOrderService.restoreRedelivered`) — ยกเลิกแบบอื่นคงสิ้นสุด
+  CANCELLED: { restore: 'DISPATCHED' },
+  // RETURNED = สถานะสิ้นสุด
 };
 
 /** สถานะที่ยังแก้ปริมาณ/แยก/รวม/ยกเลิกได้ (ก่อนพ้น DRAFT — ORD-083/086) */

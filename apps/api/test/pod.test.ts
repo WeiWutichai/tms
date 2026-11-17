@@ -130,7 +130,12 @@ describe('ePOD web (ST4-T07)', () => {
 
   /** SO → DO → เที่ยวปล่อยรถ → (ไม่บังคับ) ปิดจุดรับ + จุดส่ง · คืน DO (public id) */
   const delivered = async (
-    opts: { podRequirements?: object; outcome?: 'DELIVERED' | 'FAIL' | 'NONE' } = {},
+    opts: {
+      podRequirements?: object;
+      outcome?: 'DELIVERED' | 'FAIL' | 'NONE';
+      /** เหตุผลส่งไม่สำเร็จ — ค่าเริ่มต้นไม่ติ๊กนัดส่งใหม่ (SHOP_CLOSED = นัดส่งใหม่อัตโนมัติ ST4-T12) */
+      failReason?: string;
+    } = {},
   ) => {
     const input: UpsertOrderInput = {
       source: 'MANUAL',
@@ -175,7 +180,11 @@ describe('ePOD web (ST4-T07)', () => {
       await post(drop.id, 'arrive', 20).expect(201);
       if (opts.outcome === 'FAIL') {
         const rsn = await db.reasonCode.findFirstOrThrow({
-          where: { tenantId, category: 'DELIVERY_FAILED', code: 'SHOP_CLOSED' },
+          where: {
+            tenantId,
+            category: 'DELIVERY_FAILED',
+            code: opts.failReason ?? 'WRONG_ADDRESS',
+          },
         });
         await post(drop.id, 'fail', 10, {
           outcome: 'FAILED',
@@ -448,6 +457,23 @@ describe('ePOD web (ST4-T07)', () => {
     }).expect(200);
     expect(r.body).toMatchObject({ podStatus: 'COMPLETE', doStatus: 'FAILED' });
     expect(r.body.current.outcome).toBe('FAILURE');
+  });
+
+  it('ST4-T12 (review H2): ร้านปิด (นัดส่งใหม่อัตโนมัติ) → ใบเดิมยกเลิกด้วย redeliver แต่ยังบันทึกหลักฐานชุด "ไม่สำเร็จ" ได้', async () => {
+    const d = await delivered({ outcome: 'FAIL', failReason: 'SHOP_CLOSED' });
+    expect((await doRow(d.uuid)).status).toBe('CANCELLED');
+    expect(await db.deliveryOrder.count({ where: { redeliveryOfId: d.uuid } })).toBe(1);
+    const g = await api(app, admin).get(`/v1/delivery-orders/${d.doId}/pod`).expect(200);
+    expect(g.body).toMatchObject({ editable: true, doStatus: 'CANCELLED' });
+    expect(g.body.checklist.outcome).toBe('FAILURE');
+    const photo = await doc('POD_PHOTO');
+    const r = await putPod(d.doId, {
+      photoDocumentIds: [photo],
+      note: 'ร้านปิด ไม่มีผู้รับ',
+    }).expect(200);
+    expect(r.body).toMatchObject({ podStatus: 'COMPLETE', doStatus: 'CANCELLED' });
+    expect(r.body.current.outcome).toBe('FAILURE');
+    expect((await doRow(d.uuid)).status).toBe('CANCELLED');
   });
 
   it('สิทธิ์: viewer อ่านได้ บันทึกไม่ได้ (403) · บริษัทอื่น 404', async () => {

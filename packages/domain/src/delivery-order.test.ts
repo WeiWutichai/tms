@@ -42,6 +42,7 @@ const EXPECTED: Record<string, DoStatus> = {
   'POD_PENDING.pod_accept': 'UNBILLED',
   'UNBILLED.bill': 'BILLED',
   'BILLED.unbill': 'UNBILLED',
+  'CANCELLED.restore': 'DISPATCHED', // ST4-T12 คืนใบที่ยกเลิกด้วย redeliver (ผู้เรียกตรวจ)
 };
 
 const line = (
@@ -95,8 +96,9 @@ describe('DO state machine (docs/01 §4.3 + D-23)', () => {
     expect(allowed).toBe(Object.keys(EXPECTED).length);
   });
 
-  it('RETURNED / CANCELLED สิ้นสุด · ยกเลิก/แยก/รวมได้เฉพาะ DRAFT · ส่งใหม่ = ใบเดิมยกเลิก (D-23)', () => {
-    for (const s of ['RETURNED', 'CANCELLED'] as const) expect(DO_TRANSITIONS[s]).toBeUndefined();
+  it('RETURNED สิ้นสุด · CANCELLED ไปได้ทางเดียว restore (ST4-T12) · ยกเลิก/แยก/รวมได้เฉพาะ DRAFT · ส่งใหม่ = ใบเดิมยกเลิก (D-23)', () => {
+    expect(DO_TRANSITIONS.RETURNED).toBeUndefined();
+    expect(DO_TRANSITIONS.CANCELLED).toEqual({ restore: 'DISPATCHED' });
     for (const s of DO_STATUSES)
       for (const e of ['cancel', 'split', 'merge'] as const)
         expect(canTransition(DO_TRANSITIONS, s, e)).toBe(s === 'DRAFT');

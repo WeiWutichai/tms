@@ -50,6 +50,7 @@ export function toDeliveryOrderDto(d: DeliveryOrderRecord): DeliveryOrderDto {
     splitFromId: d.splitFromId ? encodeId('deliveryOrder', d.splitFromId) : null,
     splitIndex: d.splitIndex,
     redeliveryOfId: d.redeliveryOfId ? encodeId('deliveryOrder', d.redeliveryOfId) : null,
+    rescheduleCount: d.rescheduleCount,
     podStatus: d.podStatus,
     lines: d.lines.map((l) => ({
       lineNo: l.lineNo,
