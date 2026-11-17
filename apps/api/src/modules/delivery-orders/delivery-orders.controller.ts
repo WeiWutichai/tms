@@ -283,7 +283,7 @@ export class DeliveryOrdersController {
     const r = await this.returns.redeliver(
       decodeIdOr404('deliveryOrder', id),
       body,
-      expectedVersion(req),
+      guardedVersion(req, body),
     );
     setEtag(res, r.source.version);
     const [source, redelivery] = await this.dtos([r.source, r.redelivery]);
@@ -309,11 +309,28 @@ export class DeliveryOrdersController {
     const d = await this.returns.return(
       decodeIdOr404('deliveryOrder', id),
       body,
-      expectedVersion(req),
+      guardedVersion(req, body),
     );
     setEtag(res, d.version);
     return (await this.dtos([d]))[0]!;
   }
+}
+
+/**
+ * ST4-T11 (review M): ระบุปริมาณบางส่วน (`lines`) ต้องส่ง If-Match หรือ Idempotency-Key — ไม่งั้นคำขอที่ลองใหม่สร้างใบส่งซ้ำ/คืนคลังซ้ำได้
+ * (ไม่ส่ง `lines` = ทั้งหมดที่คงเหลือ → ครั้งที่สองได้ 422 `nothing_open` อยู่แล้ว)
+ */
+function guardedVersion(req: Request, body: { lines?: unknown[] }): number | undefined {
+  const v = expectedVersion(req);
+  if (body.lines?.length && v === undefined && !req.header('idempotency-key'))
+    throw new ProblemException('validation_failed', undefined, [
+      {
+        field: 'If-Match',
+        code: 'if_match_required',
+        message: 'send If-Match (or Idempotency-Key) when redelivering/returning part of the quantity',
+      },
+    ]);
+  return v;
 }
 
 /** soLineNo → id ของบรรทัด SO (ไม่รู้จัก → 422 รวมทุกช่อง) */

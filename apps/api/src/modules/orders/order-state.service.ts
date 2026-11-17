@@ -155,7 +155,7 @@ export class OrderStateService {
   private async holdSystem(
     tx: Tx,
     salesOrderIds: string[],
-    code: 'CARRIER_REJECTED' | 'RESCHEDULES_EXHAUSTED',
+    code: 'CARRIER_REJECTED' | 'RESCHEDULES_EXHAUSTED' | 'ALL_RETURNED',
     note: string,
   ): Promise<string[]> {
     const ids = [...new Set(salesOrderIds)].sort();
@@ -232,10 +232,13 @@ export class OrderStateService {
       select: { status: true, holdReasonCode: { select: { code: true } } },
     });
     if (!so) return;
+    // ST4-T11: ใบส่งซ้ำของที่ถูกปฏิเสธรับ (rejected_from) ไม่นับในความคืบหน้าของ SO — SO ที่ส่งครบแล้วคงสถานะ (ไม่ถอยหลัง)
     const onTrip =
-      (await tx.deliveryOrder.count({ where: { salesOrderId: id, ...ON_ACTIVE_TRIP_WHERE } })) > 0;
+      (await tx.deliveryOrder.count({
+        where: { salesOrderId: id, rejectedFromId: null, ...ON_ACTIVE_TRIP_WHERE },
+      })) > 0;
     const dos = await tx.deliveryOrder.findMany({
-      where: { salesOrderId: id, status: { not: 'CANCELLED' } },
+      where: { salesOrderId: id, status: { not: 'CANCELLED' }, rejectedFromId: null },
       select: { status: true },
     });
     const has = (set: readonly string[]) => dos.some((d) => set.includes(d.status));
@@ -261,28 +264,27 @@ export class OrderStateService {
           trip: { is: { status: 'PLANNING', assignmentStatus: 'REJECTED' } },
         },
       })) > 0;
+    // ST4-T11 [DECISION spec/12 §3]: ทุกใบคืนคลัง (RETURNED) → ถอยกลับรอจัด แล้วค้าง ALL_RETURNED (ท้ายฟังก์ชัน)
+    const allReturned = dos.length > 0 && dos.every((d) => d.status === 'RETURNED');
     if ((status === 'RECEIVED' || status === 'ON_HOLD') && onTrip && !rejectedPending) step('plan');
-    if (status === 'IN_TRANSIT' && !moving && !finished) step('recall');
+    if (status === 'IN_TRANSIT' && !moving && (!finished || allReturned)) step('recall');
     // ST4-T12: ใบที่คืนจาก redeliver (ส่งไม่สำเร็จถูกพลิก) อาจส่งถึงแล้วขณะ SO ยัง PLANNED → ผ่าน IN_TRANSIT แล้วไล่การส่ง
     if (status === 'PLANNED' && (moving || (onTrip && finished))) step('dispatch');
-    else if (status === 'PLANNED' && !onTrip) step('unplan');
-    // ST4-T11: SO ส่งครบแล้วมี DO ส่งซ้ำของที่ถูกปฏิเสธรับ (ยังไม่ส่ง) → reopen → ส่งบางส่วน แล้วไล่ต่อ (ออกรถ → resume)
-    const pending = moving || has(['DRAFT', 'PLANNED']);
-    if (status === 'DELIVERED') {
-      const ev = orderDeliveryEvent(status, {
-        anyDelivered,
-        allDelivered: !pending,
-        moving,
-        pending,
-      });
-      if (ev) step(ev);
-    }
+    // ทุกใบคืนคลัง: ค้างจาก PLANNED เลย (ไม่ถอยไปรับงานใหม่ — ประเมินราคา/ใบค้างทางเข้าเมื่อจัดรถใหม่)
+    else if (status === 'PLANNED' && !onTrip && !allReturned) step('unplan');
     if (status === 'IN_TRANSIT' || status === 'PARTIALLY_DELIVERED') {
+      // ST4-T11 (review High): ใบคืนคลัง (RETURNED) นับว่าจบ — มีใบส่งถึงอย่างน้อย 1 ใบ → SO ส่งครบ (คืนคลังนับจัดสรรแล้ว)
       const allDelivered =
         anyDelivered &&
-        dos.every((d) => (DO_DELIVERED_STATUSES as readonly string[]).includes(d.status)) &&
-        (await this.deliveryOrders.allocation(id, tx)).every((l) => Number(l.remaining) <= 0);
-      const ev = orderDeliveryEvent(status, { anyDelivered, allDelivered, moving, pending });
+        dos.every(
+          (d) =>
+            (DO_DELIVERED_STATUSES as readonly string[]).includes(d.status) ||
+            d.status === 'RETURNED',
+        ) &&
+        (await this.deliveryOrders.allocation(id, tx, true)).every(
+          (l) => Number(l.remaining) <= 0,
+        );
+      const ev = orderDeliveryEvent(status, { anyDelivered, allDelivered, moving });
       if (ev) step(ev);
     }
     let from = so.status as SoStatus;
@@ -293,7 +295,7 @@ export class OrderStateService {
         table: SO_TRANSITIONS,
         from,
         event,
-        note: event === 'recall' || event === 'unplan' || event === 'reopen' ? note : null,
+        note: event === 'recall' || event === 'unplan' ? note : null,
         eventType: 'order.updated',
         apply: async (next) => {
           const r = await tx.salesOrder.updateMany({
@@ -316,5 +318,14 @@ export class OrderStateService {
     }
     // กลับเข้ากองงานค้างจัด → ประเมินราคา/ใบค้างใหม่ด้วยกฎทางเข้าชุดเดียว (ไม่แต่งกฎเอง)
     if (events.at(-1) === 'unplan') await this.intake.reevaluate(id, tx);
+    // ST4-T11 [DECISION spec/12 §3]: ทุกใบคืนคลัง → ใบค้าง ALL_RETURNED (ผู้จัดรถยกเลิกใบสั่ง + เหตุผล หรือสร้าง/จัดรถใหม่)
+    // ค้างด้วยเหตุทางเข้าอยู่แล้ว (เช่น RATE_MISSING) = คงเหตุเดิม · [OPEN — PO] สถานะสุดท้ายของ SO ที่คืนทั้งหมด
+    if (allReturned)
+      await this.holdSystem(
+        tx,
+        [id],
+        'ALL_RETURNED',
+        note ?? 'ใบส่งของทุกใบคืนคลัง — ยกเลิกใบสั่งหรือสร้าง/จัดรถใหม่ (ST4-T11)',
+      );
   }
 }

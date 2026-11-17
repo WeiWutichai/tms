@@ -18,6 +18,7 @@ export const HOLD_CODES = [
   'RESCHEDULES_EXHAUSTED',
   'SOURCE_CHANGED_AFTER_PLAN',
   'SOURCE_ERROR',
+  'ALL_RETURNED', // ST4-T11
 ] as const;
 export type HoldCode = (typeof HOLD_CODES)[number];
 
@@ -45,6 +46,8 @@ export const HOLD_META: Record<HoldCode, { tone: Tone; icon: string; action: Hol
   RESCHEDULES_EXHAUSTED: { tone: 'err', icon: 'calendar-x', action: 'view' },
   SOURCE_CHANGED_AFTER_PLAN: { tone: 'warn', icon: 'pencil', action: 'review' },
   SOURCE_ERROR: { tone: 'err', icon: 'circle-alert', action: 'source' },
+  // ST4-T11 ทุกใบคืนคลัง — ยกเลิกใบสั่ง (+ เหตุผล) หรือสร้าง/จัดรถใหม่ (ต้นแบบไม่มี — spec/12 §3)
+  ALL_RETURNED: { tone: 'err', icon: 'undo-2', action: 'view' },
 };
 
 export const isHoldCode = (c: string | null | undefined): c is HoldCode =>

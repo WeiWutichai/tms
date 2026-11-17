@@ -37,7 +37,7 @@ export const POD_EDITABLE_DO_STATUSES = [
   'POD_PENDING',
   'UNBILLED',
   'FAILED',
-  'RETURNED',
+  // ST4-T11 [DECISION spec/12 §3]: RETURNED = สถานะสิ้นสุด → หลักฐานอ่านอย่างเดียว
 ] as const satisfies readonly DoStatus[];
 
 export function isPodEditable(status: DoStatus): boolean {

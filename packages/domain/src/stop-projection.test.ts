@@ -131,15 +131,6 @@ describe('orderDeliveryEvent', () => {
     expect(orderDeliveryEvent('DELIVERED', f(true, true, false))).toBeNull();
     expect(orderDeliveryEvent('CLOSED', f(true, true, false))).toBeNull();
   });
-  it('ST4-T11 SO ส่งครบแล้วมี DO ส่งซ้ำของที่ถูกปฏิเสธรับ → reopen (ส่งบางส่วน)', () => {
-    expect(orderDeliveryEvent('DELIVERED', { ...f(true, false, false), pending: true })).toBe(
-      'reopen',
-    );
-    expect(
-      orderDeliveryEvent('DELIVERED', { ...f(true, false, false), pending: false }),
-    ).toBeNull();
-    expect(orderDeliveryEvent('DELIVERED', { ...f(true, true, false), pending: true })).toBeNull();
-  });
 });
 
 describe('tripOdometerReading', () => {

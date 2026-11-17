@@ -37124,7 +37124,8 @@
               "DELIVERY_WINDOW_EXHAUSTED",
               "RESCHEDULES_EXHAUSTED",
               "SOURCE_CHANGED_AFTER_PLAN",
-              "SOURCE_ERROR"
+              "SOURCE_ERROR",
+              "ALL_RETURNED"
             ],
             "example": "CUSTOMER_UNMAPPED"
           },

@@ -147,8 +147,6 @@ export interface OrderDeliveryFacts {
   allDelivered: boolean;
   /** มี DO ออกรถอยู่ (DISPATCHED/PICKED_UP) */
   moving: boolean;
-  /** ST4-T11 มี DO ที่ยังไม่ออกรถ/ยังไม่จบ (DRAFT/PLANNED/ออกรถ) — เช่น ใบส่งซ้ำของที่ถูกปฏิเสธรับ */
-  pending?: boolean;
 }
 
 /**
@@ -161,10 +159,9 @@ export interface OrderDeliveryFacts {
 export function orderDeliveryEvent(
   status: SoStatus,
   f: OrderDeliveryFacts,
-): Extract<SoEvent, 'deliver' | 'deliver_partial' | 'resume' | 'reopen'> | null {
-  let ev: Extract<SoEvent, 'deliver' | 'deliver_partial' | 'resume' | 'reopen'> | null = null;
-  if (status === 'DELIVERED') ev = !f.allDelivered && f.pending ? 'reopen' : null;
-  else if (f.allDelivered) ev = 'deliver';
+): Extract<SoEvent, 'deliver' | 'deliver_partial' | 'resume'> | null {
+  let ev: Extract<SoEvent, 'deliver' | 'deliver_partial' | 'resume'> | null = null;
+  if (f.allDelivered) ev = 'deliver';
   else if (status === 'IN_TRANSIT' && f.anyDelivered && !f.moving) ev = 'deliver_partial';
   else if (status === 'PARTIALLY_DELIVERED' && f.moving) ev = 'resume';
   if (!ev) return null;

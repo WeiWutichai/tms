@@ -234,11 +234,11 @@ test.describe.serial('ตีกลับบางส่วน → ส่งซ�
     // ไม่มีอะไรเหลือให้จัดการ → ปุ่มหาย เหลือสรุป
     await expect(d.getByText('ปูนซีเมนต์: ส่งซ้ำแล้ว 10 · คืนคลังแล้ว 0 ตัน')).toBeVisible();
     await expect(d.getByTestId('do-return').getByRole('button')).toHaveCount(0);
-    // ใบสั่ง: ส่งครบแล้ว → ส่งบางส่วน (รอส่งซ้ำ)
+    // ใบสั่ง: คงส่งครบ (ใบส่งซ้ำไม่นับความคืบหน้า)
     const so = (await (await page.request.get(`/v1/orders/${soId}`, { headers: H })).json()) as {
       status: string;
     };
-    expect(so.status).toBe('partially_delivered');
+    expect(so.status).toBe('delivered'); // SO ส่งครบแล้วไม่ถอยสถานะ (review M)
   });
 
   test('ใบส่งซ้ำลงกล่อง "SO รอจัด" บนกระดานพร้อมป้าย "ส่งซ้ำ"', async ({ page }) => {

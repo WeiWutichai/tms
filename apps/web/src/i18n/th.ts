@@ -2399,6 +2399,7 @@ export const th = {
   'ord.hold.CARRIER_REJECTED': 'รถร่วมปฏิเสธ',
   'ord.hold.DELIVERY_WINDOW_EXHAUSTED': 'หลุดช่วงเวลา',
   'ord.hold.RESCHEDULES_EXHAUSTED': 'นัดส่งใหม่ครบแล้ว',
+  'ord.hold.ALL_RETURNED': 'ทุกใบคืนคลัง',
   'ord.hold.SOURCE_CHANGED_AFTER_PLAN': 'ต้นทางแก้หลังวางแผน',
   'hold.col.reason': 'เหตุผล',
   'hold.col.action': 'การเคลียร์',

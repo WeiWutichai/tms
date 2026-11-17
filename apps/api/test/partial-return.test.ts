@@ -158,6 +158,48 @@ describe('partial/full return (ST4-T11)', () => {
    * SO (2 บรรทัด: 20 ตัน + 5 ตัน) → DO → เที่ยวปล่อยรถ → ปิดจุดรับ + จุดส่ง
    * `rateBody` = rate card ขาขายของลูกค้า/เส้นทางนี้ · `manualPrice` = ไม่มี rate → กำหนดราคาเอง
    */
+  /** DO → เที่ยวปล่อยรถ → ปิดจุดรับ + จุดส่ง (สำเร็จ / ไม่สำเร็จด้วย `failCode`) */
+  const runTrip = async (doId: string, opts: { fail?: boolean; failCode?: string } = {}) => {
+    const vid = (await newVehicle()).id;
+    const t = (
+      await api(app, admin)
+        .post('/v1/trips')
+        .send({ tripDate: today, deliveryOrderIds: [doId], vehicleId: vid })
+        .expect(201)
+    ).body;
+    const r = await api(app, admin)
+      .post(`/v1/trips/${t.id}/assign`)
+      .send({ vehicleId: vid, dispatch: true });
+    if (r.status !== 200)
+      await api(app, admin)
+        .post(`/v1/trips/${t.id}/assign`)
+        .send({
+          vehicleId: vid,
+          dispatch: true,
+          ruleKeys: r.body.warnings.map((x: { key: string }) => x.key),
+          overrideReason: 'ทดสอบตีกลับ',
+        })
+        .expect(200);
+    const full = (await api(app, admin).get(`/v1/trips/${t.id}`).expect(200)).body;
+    const [pickup, drop] = [...full.stops].sort(
+      (a: { sequence: number }, b: { sequence: number }) => a.sequence - b.sequence,
+    );
+    await post(pickup.id, 'arrive', 60).expect(201);
+    await post(pickup.id, 'complete', 55, { outcome: 'DELIVERED' }).expect(201);
+    await post(drop.id, 'arrive', 20).expect(201);
+    if (opts.fail) {
+      const rsn = await db.reasonCode.findFirstOrThrow({
+        where: { tenantId, category: 'DELIVERY_FAILED', code: opts.failCode ?? 'SHOP_CLOSED' },
+      });
+      await post(drop.id, 'fail', 10, {
+        outcome: 'FAILED',
+        reasonCodeId: encodeId('reasonCode', rsn.id),
+        note: 'ร้านปิด',
+      }).expect(201);
+    } else await post(drop.id, 'complete', 10, { outcome: 'DELIVERED' }).expect(201);
+    return { tripId: t.id as string, dropId: drop.id as string };
+  };
+
   const delivered = async (
     opts: {
       byActual?: boolean;
@@ -165,7 +207,10 @@ describe('partial/full return (ST4-T11)', () => {
       manualPrice?: string;
       podRequirements?: object;
       fail?: boolean;
+      failCode?: string;
       productId?: string;
+      /** แยก DO ก่อนจัดรถ (ไม่วิ่งเที่ยว — ผู้เรียกใช้ runTrip ต่อใบ) */
+      parts?: { soLineNo: number; qty: string }[][];
     } = {},
   ) => {
     const customer = await newCustomer(opts.byActual ?? false, opts.podRequirements);
@@ -205,44 +250,17 @@ describe('partial/full return (ST4-T11)', () => {
       [d] = await run((tx) => app.get(DeliveryOrderService).listForOrder(so.id, {}, tx));
     }
     const doId = encodeId('deliveryOrder', d!.id);
-    const vid = (await newVehicle()).id;
-    const t = (
-      await api(app, admin)
-        .post('/v1/trips')
-        .send({ tripDate: today, deliveryOrderIds: [doId], vehicleId: vid })
-        .expect(201)
-    ).body;
-    const r = await api(app, admin)
-      .post(`/v1/trips/${t.id}/assign`)
-      .send({ vehicleId: vid, dispatch: true });
-    if (r.status !== 200)
-      await api(app, admin)
-        .post(`/v1/trips/${t.id}/assign`)
-        .send({
-          vehicleId: vid,
-          dispatch: true,
-          ruleKeys: r.body.warnings.map((x: { key: string }) => x.key),
-          overrideReason: 'ทดสอบตีกลับ',
-        })
-        .expect(200);
-    const full = (await api(app, admin).get(`/v1/trips/${t.id}`).expect(200)).body;
-    const [pickup, drop] = [...full.stops].sort(
-      (a: { sequence: number }, b: { sequence: number }) => a.sequence - b.sequence,
-    );
-    await post(pickup.id, 'arrive', 60).expect(201);
-    await post(pickup.id, 'complete', 55, { outcome: 'DELIVERED' }).expect(201);
-    await post(drop.id, 'arrive', 20).expect(201);
-    if (opts.fail) {
-      const rsn = await db.reasonCode.findFirstOrThrow({
-        where: { tenantId, category: 'DELIVERY_FAILED', code: 'SHOP_CLOSED' },
-      });
-      await post(drop.id, 'fail', 10, {
-        outcome: 'FAILED',
-        reasonCodeId: encodeId('reasonCode', rsn.id),
-        note: 'ร้านปิด',
-      }).expect(201);
-    } else await post(drop.id, 'complete', 10, { outcome: 'DELIVERED' }).expect(201);
-    return { doId, uuid: d!.id, soId };
+    if (opts.parts) {
+      const kids = (
+        await api(app, admin)
+          .post(`/v1/delivery-orders/${doId}/split`)
+          .send({ parts: opts.parts.map((lines) => ({ lines })) })
+          .expect(200)
+      ).body.data as { id: string }[];
+      return { doId, uuid: d!.id, soId, kids: kids.map((k) => k.id), tripId: '', dropId: '' };
+    }
+    const tr = await runTrip(doId, opts);
+    return { doId, uuid: d!.id, soId, kids: [] as string[], ...tr };
   };
 
   const reason = async (category: string, code: string) =>
@@ -291,10 +309,15 @@ describe('partial/full return (ST4-T11)', () => {
       .expect(200);
     return { ...d, short, photo };
   };
-  const redeliver = (doId: string, body: object, token = admin) =>
-    api(app, token).post(`/v1/delivery-orders/${doId}/redeliver`).send(body);
-  const ret = (doId: string, body: object, token = admin) =>
-    api(app, token).post(`/v1/delivery-orders/${doId}/return`).send(body);
+  /** ระบุ `lines` ต้องมี If-Match หรือ Idempotency-Key (review M) — test ใส่ key ใหม่ทุกครั้ง เว้นแต่ส่ง `key: null` */
+  const call =
+    (action: 'redeliver' | 'return') =>
+    (doId: string, body: object, token = admin, key: string | null = randomUUID()) => {
+      const r = api(app, token).post(`/v1/delivery-orders/${doId}/${action}`);
+      return (key ? r.set('Idempotency-Key', key) : r).send(body);
+    };
+  const redeliver = call('redeliver');
+  const ret = call('return');
   const soStatus = async (soId: string) =>
     (await db.salesOrder.findUniqueOrThrow({ where: { id: uuid('salesOrder', soId) } })).status;
   const errs = (r: { body: { errors?: { field: string; code: string }[] } }) =>
@@ -338,8 +361,13 @@ describe('partial/full return (ST4-T11)', () => {
         qtyActual: null,
       }),
     ]);
-    // SO: ส่งครบ → ส่งบางส่วน (reopen) · ปริมาณจัดสรรไม่เกินที่สั่ง (ใบส่งซ้ำไม่นับ)
-    expect(await soStatus(d.soId)).toBe('PARTIALLY_DELIVERED');
+    // SO คงส่งครบ (ไม่ถอยสถานะ — review M) · ปริมาณจัดสรรไม่เกินที่สั่ง (ใบส่งซ้ำไม่นับ)
+    expect(await soStatus(d.soId)).toBe('DELIVERED');
+    expect(
+      await db.docStatusHistory.count({
+        where: { docType: 'sales_order', docId: uuid('salesOrder', d.soId), event: 'reopen' },
+      }),
+    ).toBe(0);
     const alloc = await run((tx) =>
       app.get(DeliveryOrderService).allocation(uuid('salesOrder', d.soId), tx),
     );
@@ -349,11 +377,7 @@ describe('partial/full return (ST4-T11)', () => {
       where: { tenantId, action: 'delivery_order.rejected_redelivered', entityId: d.uuid },
     });
     expect(audit.reason).toBe('จำนวนไม่ครบ');
-    const h = await db.docStatusHistory.findFirstOrThrow({
-      where: { docType: 'sales_order', docId: uuid('salesOrder', d.soId), event: 'reopen' },
-    });
-    expect(h.note).toContain(r.body.redelivery.doNo);
-    // ลงกล่อง SO รอจัดของกระดาน (SO ส่งบางส่วนยังลงเที่ยวได้)
+    // ลงกล่อง SO รอจัดของกระดาน (SO ส่งครบแล้วยังจัดใบส่งซ้ำได้)
     const pool = (await api(app, admin).get(`/v1/planning/board?date=${today}`).expect(200)).body;
     expect(JSON.stringify(pool)).toContain(r.body.redelivery.doNo);
   });
@@ -464,7 +488,7 @@ describe('partial/full return (ST4-T11)', () => {
           overrideReason: 'ทดสอบส่งซ้ำของที่ตีกลับ',
         })
         .expect(200);
-    expect(await soStatus(d.soId)).toBe('IN_TRANSIT');
+    expect(await soStatus(d.soId)).toBe('DELIVERED'); // ใบส่งซ้ำไม่ทำให้ SO ถอยสถานะ
     const full = (await api(app, admin).get(`/v1/trips/${t.id}`).expect(200)).body;
     const [pickup, drop] = [...full.stops].sort(
       (x: { sequence: number }, y: { sequence: number }) => x.sequence - y.sequence,
@@ -622,5 +646,107 @@ describe('partial/full return (ST4-T11)', () => {
       note: 'กล่องบุบสองใบ',
     }).expect(200);
     await redeliver(r.body.redelivery.id, { reasonCodeId: d.short }).expect(409);
+  });
+
+  /** เหตุผลส่งไม่สำเร็จที่ไม่ติ๊กนัดส่งใหม่อัตโนมัติ (ไม่บังคับรูป/โน้ต) → คืน code + id */
+  const plainFail = async () => {
+    const r = await db.reasonCode.create({
+      data: {
+        tenantId,
+        category: 'DELIVERY_FAILED',
+        code: `T11P_${++seed}`,
+        labelTh: `ลูกค้าขอเลื่อนรับ ชุด ${seed}`,
+      },
+    });
+    return { code: r.code, id: encodeId('reasonCode', r.id) };
+  };
+
+  it('review M: ระบุ lines โดยไม่มี If-Match/Idempotency-Key → 422 · ลองใหม่ด้วย key เดิม = ผลเดิม ไม่สร้างซ้ำ · If-Match เก่า → 412', async () => {
+    const d = await rejected('10');
+    const body = { reasonCodeId: d.short, lines: [{ lineNo: 1, qty: '4' }] };
+    expect(errs(await redeliver(d.doId, body, admin, null).expect(422))).toEqual([
+      'If-Match:if_match_required',
+    ]);
+    const key = randomUUID();
+    const a = await redeliver(d.doId, body, admin, key).expect(200);
+    const b = await redeliver(d.doId, body, admin, key).expect(200);
+    expect(b.body.redelivery.id).toBe(a.body.redelivery.id);
+    expect(await db.deliveryOrder.count({ where: { rejectedFromId: d.uuid } })).toBe(1);
+    await redeliver(d.doId, body, admin, null)
+      .set('If-Match', `"${a.body.source.version - 1}"`)
+      .expect(412);
+    await redeliver(d.doId, body, admin, null)
+      .set('If-Match', `"${a.body.source.version}"`)
+      .expect(200);
+    expect(await db.deliveryOrder.count({ where: { rejectedFromId: d.uuid } })).toBe(2);
+  });
+
+  it('review High: ใบส่งแล้ว + ใบคืนคลัง → SO ส่งครบ (DELIVERED)', async () => {
+    const pf = await plainFail();
+    const d = await delivered({
+      parts: [
+        [
+          { soLineNo: 1, qty: '10' },
+          { soLineNo: 2, qty: '5' },
+        ],
+        [{ soLineNo: 1, qty: '10' }],
+      ],
+    });
+    await runTrip(d.kids[0]!);
+    await runTrip(d.kids[1]!, { fail: true, failCode: pf.code });
+    expect(await soStatus(d.soId)).toBe('PARTIALLY_DELIVERED');
+    await ret(d.kids[1]!, { reasonCodeId: pf.id }).expect(200);
+    expect(await soStatus(d.soId)).toBe('DELIVERED');
+  });
+
+  it('review High: ส่งซ้ำของที่ปฏิเสธ → ใบส่งซ้ำส่งไม่สำเร็จ → คืนคลัง · SO คงส่งครบ · ยอดปฏิเสธคงเหลือ 0', async () => {
+    const pf = await plainFail();
+    const d = await rejected('10');
+    const r = await redeliver(d.doId, { reasonCodeId: d.short }).expect(200);
+    await runTrip(r.body.redelivery.id, { fail: true, failCode: pf.code });
+    expect(await soStatus(d.soId)).toBe('DELIVERED');
+    const back = await ret(r.body.redelivery.id, { reasonCodeId: pf.id }).expect(200);
+    expect(back.body.status).toBe('RETURNED');
+    expect(await soStatus(d.soId)).toBe('DELIVERED');
+    const g = await api(app, admin).get(`/v1/delivery-orders/${d.doId}`).expect(200);
+    expect(g.body.lines[0]).toMatchObject({ redeliveredQty: '10', openRejectQty: '0' });
+  });
+
+  it('QA M1/M2/L1: ทุกใบคืนคลัง → SO ค้าง ALL_RETURNED · สร้าง DO ใหม่ได้ · ยกเลิกใบสั่งได้ · ยอดประมาณ 0 · หลักฐานอ่านอย่างเดียว', async () => {
+    const pf = await plainFail();
+    const d = await delivered({
+      fail: true,
+      failCode: pf.code,
+      byActual: true,
+      rateBody: { pricingModel: 'PER_TON', sellRate: '350' },
+    });
+    expect(await soStatus(d.soId)).toBe('IN_TRANSIT');
+    await ret(d.doId, { reasonCodeId: pf.id }).expect(200);
+    const so = await db.salesOrder.findUniqueOrThrow({
+      where: { id: uuid('salesOrder', d.soId) },
+      include: { holdReasonCode: true },
+    });
+    expect(so.status).toBe('ON_HOLD');
+    expect(so.holdReasonCode?.code).toBe('ALL_RETURNED');
+    // ยอดประมาณตามส่งจริง: คืนคลัง = ส่งได้ 0 (ไม่ใช่คิดไม่ได้)
+    const bill = await billing(d.soId);
+    expect(bill).toMatchObject({ status: 'ACTUAL', sellBillableTotal: '0.00' });
+    // หลักฐานส่งของใบคืนคลัง = อ่านอย่างเดียว
+    await putPod(d.doId, { note: 'แก้หลังคืนคลัง' }).expect(409);
+    // ของกลับคลัง → สร้างใบส่งของใหม่ได้ (ไม่นับปริมาณที่คืน)
+    const nd = await api(app, admin)
+      .post('/v1/delivery-orders')
+      .send({ orderId: d.soId })
+      .expect(201);
+    expect(nd.body.lines.map((l: { qtyPlanned: string }) => l.qtyPlanned)).toEqual(['20', '5']);
+    // หรือยกเลิกใบสั่ง (+ เหตุผล) — ใบคืนคลังคงไว้
+    await api(app, admin)
+      .post(`/v1/orders/${d.soId}/cancel`)
+      .send({ reason: 'ลูกค้ายกเลิกคำสั่งซื้อหลังคืนคลัง' })
+      .expect(200);
+    expect(await soStatus(d.soId)).toBe('CANCELLED');
+    expect((await db.deliveryOrder.findUniqueOrThrow({ where: { id: d.uuid } })).status).toBe(
+      'RETURNED',
+    );
   });
 });

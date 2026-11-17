@@ -90,6 +90,12 @@ export const DEFAULT_REASONS: readonly DefaultReason[] = [
   },
   {
     category: 'ORDER_HOLD',
+    code: 'ALL_RETURNED',
+    labelTh: 'ใบส่งของทุกใบคืนคลัง',
+    system: true,
+  },
+  {
+    category: 'ORDER_HOLD',
     code: 'SOURCE_CHANGED_AFTER_PLAN',
     labelTh: 'ต้นทางแก้ข้อมูลหลังวางแผน',
     system: true,

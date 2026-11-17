@@ -102,7 +102,8 @@ const INCLUDE = {
  * (นิยามนี้ยังถูกแม้ trip_id ค้าง) — `ON_ACTIVE_TRIP_WHERE` (query) กับ `isOnActiveTrip` (แถวที่โหลดแล้ว) ต้องตรงกันเสมอ
  */
 export const ON_ACTIVE_TRIP_WHERE = {
-  status: { not: 'CANCELLED' },
+  // ST4-T11: คืนคลังแล้ว (RETURNED — สิ้นสุด ของกลับคลัง) ไม่นับว่าอยู่ในเที่ยว
+  status: { notIn: ['CANCELLED', 'RETURNED'] },
   tripId: { not: null },
   trip: { is: { status: { not: 'CANCELLED' } } },
 } as const satisfies Prisma.DeliveryOrderWhereInput;
@@ -113,6 +114,7 @@ export function isOnActiveTrip(d: {
 }): boolean {
   return (
     d.status !== 'CANCELLED' &&
+    d.status !== 'RETURNED' &&
     d.tripId !== null &&
     d.trip !== null &&
     d.trip.status !== 'CANCELLED'
@@ -222,7 +224,12 @@ export class DeliveryOrderService {
   }
 
   /** ปริมาณสั่ง / จัดสรรแล้ว (DO ที่ไม่ยกเลิก) / คงเหลือ ต่อบรรทัด SO — ใช้ตรวจ "จัดครบ" (ST3-T11/T12) */
-  async allocation(salesOrderId: string, tx: Tx = this.db.tx): Promise<LineAllocation[]> {
+  async allocation(
+    salesOrderId: string,
+    tx: Tx = this.db.tx,
+    /** ST4-T11: นับใบคืนคลัง (RETURNED) เป็นจัดสรรแล้ว — ใช้ตรวจ "จบครบ" ของ SO · ปกติไม่นับ (ของกลับคลัง สร้าง DO ใหม่ได้) */
+    includeReturned = false,
+  ): Promise<LineAllocation[]> {
     const lines = await tx.salesOrderLine.findMany({
       where: { salesOrderId },
       orderBy: { lineNo: 'asc' },
@@ -232,7 +239,10 @@ export class DeliveryOrderService {
       where: {
         salesOrderLineId: { in: lines.map((l) => l.id) },
         // ST4-T11 ใบส่งซ้ำของที่ถูกปฏิเสธรับไม่นับ — ปริมาณยังอยู่ที่ใบเดิม (ส่งแล้วตามส่งจริง)
-        deliveryOrder: { status: { not: 'CANCELLED' }, rejectedFromId: null },
+        deliveryOrder: {
+          status: { notIn: includeReturned ? ['CANCELLED'] : ['CANCELLED', 'RETURNED'] },
+          rejectedFromId: null,
+        },
       },
       _sum: { qtyPlanned: true },
     });
@@ -337,7 +347,7 @@ export class DeliveryOrderService {
     let lines: DoLinePlan[] = [];
     if (so.lines.length > 0) {
       const allocated = active
-        .filter((d) => d.rejectedFromId === null)
+        .filter((d) => d.rejectedFromId === null && d.status !== 'RETURNED')
         .flatMap((d) => d.lines.filter(linked).map(lineAllocated));
       lines = this.plan(() => planAllocation(soLines(so), allocated, input.lines));
       if (lines.length === 0)
@@ -554,7 +564,10 @@ export class DeliveryOrderService {
     salesOrderId: string,
     input: { note: string; reasonCodeId: string | null },
   ): Promise<string[]> {
-    const active = await this.lockActive(tx, salesOrderId);
+    // ST4-T11: ใบคืนคลัง (RETURNED — สิ้นสุด) คงไว้ ไม่กันการยกเลิกใบสั่ง (ใบค้าง ALL_RETURNED)
+    const active = (await this.lockActive(tx, salesOrderId)).filter(
+      (d) => d.status !== 'RETURNED',
+    );
     const onTrip = active.filter((d) => isOnActiveTrip(d));
     if (onTrip.length)
       throw new ProblemException('order_on_trip', undefined, undefined, {
@@ -656,7 +669,7 @@ export class DeliveryOrderService {
         deliveryOrderId: d.id,
         doNo: d.doNo,
       });
-    if (!(await this.isOrderPlannable(tx, d.salesOrderId)))
+    if (!(await this.isOrderPlannable(tx, d.salesOrderId, d.rejectedFromId !== null)))
       throw new ProblemException('order_not_ready_for_delivery', undefined, undefined, {
         deliveryOrderId: d.id,
         doNo: d.doNo,
@@ -670,11 +683,17 @@ export class DeliveryOrderService {
    * SO ของ DO ลงเที่ยวได้ไหม: ไม่ใช่ร่าง/ยกเลิก/ปิด และไม่ค้างเพราะลูกค้า/สถานที่/ข้อมูลต้นทาง
    * (ต่างจาก `isOrderReady` ตรงที่ SO PLANNED/IN_TRANSIT แล้วก็ลง DO ใบอื่นของ SO เดียวกันได้ — หลายจุดส่ง/แยก DO)
    */
-  private async isOrderPlannable(tx: Tx, salesOrderId: string): Promise<boolean> {
+  private async isOrderPlannable(
+    tx: Tx,
+    salesOrderId: string,
+    /** ST4-T11 ใบส่งซ้ำของที่ถูกปฏิเสธรับ — ลงเที่ยวได้แม้ SO ส่งครบแล้ว (SO คง DELIVERED ไม่ถอยสถานะ) */
+    rejectedRedelivery = false,
+  ): Promise<boolean> {
     const so = await tx.salesOrder.findUnique({
       where: { id: salesOrderId },
       select: { status: true, holdReasonCode: { select: { code: true } } },
     });
+    if (so && rejectedRedelivery && so.status === 'DELIVERED') return true;
     return (
       !!so &&
       (PLANNABLE_SO_STATUSES as readonly string[]).includes(so.status) &&
