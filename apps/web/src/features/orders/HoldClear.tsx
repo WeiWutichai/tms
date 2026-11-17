@@ -485,6 +485,7 @@ export function HoldActions({
     'CARRIER_REJECTED',
     'DELIVERY_WINDOW_EXHAUSTED',
     'RESCHEDULES_EXHAUSTED',
+    'ALL_RETURNED',
   ].includes(code);
   if (!btns.length && !planNote) return null;
   const err = clearErrorText(recheck.error, t);

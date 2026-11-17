@@ -295,12 +295,21 @@ export class PlanningService {
   async poolOrderIds(tx: Tx): Promise<string[]> {
     const sos = await tx.salesOrder.findMany({
       where: {
-        status: { in: [...PLANNABLE_SO_STATUSES] },
         OR: [
-          { holdReasonCodeId: null },
-          { holdReasonCode: { code: { notIn: [...NOT_READY_HOLDS] } } },
+          {
+            status: { in: [...PLANNABLE_SO_STATUSES] },
+            OR: [
+              { holdReasonCodeId: null },
+              { holdReasonCode: { code: { notIn: [...NOT_READY_HOLDS] } } },
+            ],
+            deliveryOrders: { some: POOL_DO },
+          },
+          // ST4-T11: SO ส่งครบแล้ว (คงสถานะ) ที่มีใบส่งซ้ำของที่ถูกปฏิเสธรับรอจัด
+          {
+            status: 'DELIVERED',
+            deliveryOrders: { some: { ...POOL_DO, rejectedFromId: { not: null } } },
+          },
         ],
-        deliveryOrders: { some: POOL_DO },
       },
       orderBy: [{ requestedDate: 'asc' }, { soNo: 'asc' }],
       take: POOL_LIMIT,

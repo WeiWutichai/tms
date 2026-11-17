@@ -279,6 +279,22 @@ export class StopEventsService {
         'OUTCOME_MISMATCH can only be acknowledged (ACCEPT)',
       );
 
+    // ST4-T11 (QA M3): ธงที่กระทบการนับยังไม่ตัดสิน → การตัดสินนี้ = ของธงเหล่านั้นเท่านั้น (ธงแจ้ง OUTCOME_MISMATCH
+    // ที่ขึ้นพร้อมกัน/ขึ้นใหม่หลังผลพลิก ยังเปิดอยู่ให้รับทราบแยก) · ตัดสินแล้ว → นี่คือการรับทราบธงแจ้ง (ACCEPT เท่านั้น)
+    const core = flags.filter((f) => f !== 'OUTCOME_MISMATCH');
+    const key = (fs: readonly string[]) => [...fs].sort().join();
+    const coreDone =
+      core.length > 0 &&
+      (await tx.stopEventResolution.findMany({ where: { stopEventId: e.id } })).some(
+        (r) => key(r.flags.filter((f) => f !== 'OUTCOME_MISMATCH')) === key(core),
+      );
+    const stored = !core.length || coreDone ? flags.filter((f) => f === 'OUTCOME_MISMATCH') : core;
+    if (coreDone && decision === 'IGNORE')
+      throw field422(
+        'decision',
+        'acknowledge_only',
+        'OUTCOME_MISMATCH can only be acknowledged (ACCEPT)',
+      );
     await tx.stopEventResolution.create({
       data: {
         tenantId: ctx.tenantId!,
@@ -286,7 +302,7 @@ export class StopEventsService {
         tripId: e.tripId,
         decision,
         reason,
-        flags,
+        flags: stored,
         resolvedBy: ctx.actorId ?? null,
       },
     });

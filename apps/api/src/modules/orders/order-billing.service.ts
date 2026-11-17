@@ -46,20 +46,26 @@ export class OrderBillingService {
         deliveryOrders: {
           where: { status: { not: 'CANCELLED' } },
           select: {
+            status: true,
             lines: { select: { salesOrderLineId: true, qtyPlanned: true, qtyActual: true } },
           },
         },
       },
     });
     const basis = o.customer?.billByActualQty ? 'ACTUAL' : 'PLANNED';
+    // ST4-T11 [OPEN money — spec/12 §3]: DO คืนคลังทั้งใบ (RETURNED) = ส่งได้ 0 · ใบส่งซ้ำของที่ปฏิเสธรับ
+    // (DRAFT, ยังไม่บันทึก = แผน) รวมกับยอดส่งจริงของใบเดิม → ยอดของ SO เดิมไม่เกินที่สั่ง
     const doLines = o.deliveryOrders.flatMap((d) =>
       d.lines.map((l) => ({
         salesOrderLineId: l.salesOrderLineId,
         qtyPlanned: l.qtyPlanned.toFixed(),
-        qtyActual: l.qtyActual === null ? null : l.qtyActual.toFixed(),
+        qtyActual:
+          d.status === 'RETURNED' ? '0' : l.qtyActual === null ? null : l.qtyActual.toFixed(),
       })),
     );
     const actualRecorded = doLines.some((l) => l.qtyActual !== null);
+    const allReturned =
+      o.deliveryOrders.length > 0 && o.deliveryOrders.every((d) => d.status === 'RETURNED');
     const charges: OrderBillingChargeDto[] = o.charges.map((c) => ({
       lineNo: c.lineNo,
       kind: c.kind,
@@ -123,6 +129,13 @@ export class OrderBillingService {
       });
       if (!isQtyBasedPricing(rc.pricingModel)) {
         out.note = 'NOT_QTY_BASED';
+        continue;
+      }
+      // ST4-T11 (QA M2) [OPEN เงิน spec/12 §3]: ทุกใบคืนคลัง → ส่งได้ 0 = ค่าขนส่งตามจำนวน 0 (ไม่ใช่คิดไม่ได้)
+      if (allReturned) {
+        out.qty = '0';
+        out.sellAmount = '0.00';
+        out.adjusted = out.sellPlannedAmount !== '0.00';
         continue;
       }
       // ปัญหาใด ๆ ของการคิดใหม่ (ข้อมูลหลักหาย/ผิด) = CALCULATION_FAILURE — ห้ามทำให้ GET ใบสั่งล้ม
