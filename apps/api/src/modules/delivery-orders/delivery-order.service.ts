@@ -25,6 +25,7 @@ import {
   type SoLineInfo,
 } from '@tms/domain';
 import { AuditService } from '../../audit/audit.service';
+import { encodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
@@ -1590,17 +1591,20 @@ function view(d: DeliveryOrderRecord) {
   };
 }
 
-/** payload ของ `delivery_order.status_changed` (ไม่มีราคา) */
+/**
+ * payload ของ `delivery_order.status_changed` = `data.object` ของ webhook (ไม่มีราคา)
+ * ST7-T06: id แบบ prefix (docs/01 §5.1) + `orderId` ตามชื่อใน DeliveryOrderDto (เดิม uuid ดิบ + `salesOrderId`)
+ */
 function eventView(d: DeliveryOrderRecord) {
   return {
-    id: d.id,
+    id: encodeId('deliveryOrder', d.id),
     doNo: d.doNo,
     status: d.status,
-    salesOrderId: d.salesOrderId,
-    customerId: d.customerId,
-    tripId: d.tripId,
+    orderId: encodeId('salesOrder', d.salesOrderId),
+    customerId: encodeId('customer', d.customerId),
+    tripId: d.tripId ? encodeId('trip', d.tripId) : null,
     destStopSeq: d.destStopSeq,
-    splitFromId: d.splitFromId,
+    splitFromId: d.splitFromId ? encodeId('deliveryOrder', d.splitFromId) : null,
     weightKg: dec(d.weightKg),
     cbm: dec(d.cbm),
     lines: d.lines.map((l) => ({

@@ -1,0 +1,504 @@
+import { randomUUID } from 'node:crypto';
+import type { NestExpressApplication } from '@nestjs/platform-express';
+import {
+  ACTIVE_EVENT_TYPES,
+  EVENT_REGISTRY,
+  PENDING_EVENT_TYPES,
+  WEBHOOK_EVENT_TYPES,
+  eventDefinition,
+  eventSchemaName,
+  type EventSchema,
+} from '@tms/domain';
+import Ajv, { type ValidateFunction } from 'ajv';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { encodeId, tryDecodeId } from '../src/common/ids';
+import { requestContext } from '../src/common/request-context';
+import { DbService, type Tx } from '../src/db/db.service';
+import { JobQueue } from '../src/jobs/job-queue.service';
+import { DeliveryOrderService } from '../src/modules/delivery-orders/delivery-order.service';
+import { ErpAdapterRegistry } from '../src/modules/erp/erp-adapter.registry';
+import { OutboxService } from '../src/modules/integration/outbox.service';
+import {
+  OrderIntakeService,
+  type UpsertOrderInput,
+} from '../src/modules/orders/order-intake.service';
+import { createTenantWithDefaults } from '../src/modules/tenants/bootstrap';
+import { bangkokToday } from '../src/modules/vehicle-documents/expiry';
+import { WebhookEngine } from '../src/modules/webhooks/webhook-engine';
+import { FakeErpAdapter, GOOD_KEY } from './fake-erp-adapter';
+import { api, bootApp, platform, tokenFor, truncateAll, validTaxId } from './helpers';
+
+/**
+ * ST7-T06 contract test ของ event สาธารณะ (docs/01 §5.3; docs/04 G1) — เกณฑ์ตรวจรับ:
+ * "ทุก event ใน 01§5.3 ที่เป็นของเฟส 0 ถูกยิงจริงใน test และตรง schema"
+ * - รัน flow จริงผ่าน API/service (order → DO → เที่ยว → จุด → POD → ส่งไม่สำเร็จ/นัดส่งใหม่ → ยกเลิก, connector, งานนำเข้า)
+ * - เก็บ domain_event + คำสั่ง outbox ของ subscription `*` แล้วตรวจ `data.object` กับ schema ในทะเบียน (ajv)
+ *   + previousAttributes ใช้ชื่อ field ของ object + ไม่มี field ราคา + envelope ตาม G1
+ * - event `phase: pending` (invoice/payment/settlement/… ST5–ST6, reconcile ST8) ไม่อยู่ในเกณฑ์ — ตรวจว่าไม่มีใครยิง
+ */
+describe('event registry contract (ST7-T06)', () => {
+  let app: NestExpressApplication;
+  const db = platform();
+  let tenantId: string;
+  let admin: string;
+  let seed = 0;
+  let unitTon: string;
+  let vt6: string;
+  const today = bangkokToday();
+  const ADDR = { line1: '1 ถ.ทดสอบ', district: 'เมือง', province: 'ชลบุรี', postcode: '20000' };
+  const uuid = (kind: Parameters<typeof tryDecodeId>[0], id: string) => tryDecodeId(kind, id)!;
+  const fake = new FakeErpAdapter('contract-erp', ['pushInvoice']);
+
+  const ajv = new Ajv({ strict: false, allErrors: true, validateFormats: false });
+  const validators = new Map<string, ValidateFunction>();
+  const validatorOf = (type: string) => {
+    const s = eventDefinition(type)?.schema;
+    if (!s) return null;
+    if (!validators.has(type)) validators.set(type, ajv.compile(s));
+    return validators.get(type)!;
+  };
+
+  beforeAll(async () => {
+    await truncateAll();
+    app = await bootApp();
+    app.get(ErpAdapterRegistry).replace(fake);
+    tenantId = (await createTenantWithDefaults(db, { name: 'บริษัท สัญญา event' })).id;
+    await db.tenant.update({ where: { id: tenantId }, data: { planCode: 'ent' } });
+    const c = await db.company.create({
+      data: { tenantId, legalName: 'บริษัท ผู้ออกบิล', taxId: validTaxId(931) },
+    });
+    await db.branch.create({
+      data: {
+        tenantId,
+        companyId: c.id,
+        branchCode: '00000',
+        branchLabel: 'สำนักงานใหญ่',
+        address: ADDR,
+        isDefaultIssuer: true,
+      },
+    });
+    const userId = (
+      await db.appUser.create({
+        data: { tenantId, email: 'owner@event.test', name: 'ผู้ดูแล event', status: 'ACTIVE' },
+      })
+    ).id;
+    admin = await tokenFor(tenantId, '*', userId);
+    // ผู้รับทุก event (`*`) — trigger บน domain_event ต้องสร้างคำสั่งให้ทุก event (ไม่มี event ที่หลุด outbox)
+    await app
+      .get(DbService)
+      .withTenant(tenantId, (tx) =>
+        app
+          .get(OutboxService)
+          .subscribe(tx, { tenantId, kind: 'ADAPTER', sink: 'contract', eventTypes: ['*'] }),
+      );
+    const us = (await api(app, admin).get('/v1/units?limit=50').expect(200)).body.data as {
+      id: string;
+      code: string;
+    }[];
+    unitTon = uuid('unit', us.find((u) => u.code === 'TON')!.id);
+    const types = (await api(app, admin).get('/v1/vehicle-types?limit=50').expect(200)).body
+      .data as { id: string; code: string }[];
+    vt6 = types.find((t) => t.code === '6W')!.id;
+  });
+  afterAll(async () => {
+    app.get(ErpAdapterRegistry).unregister(fake.key);
+    await app.close();
+    await db.$disconnect();
+  });
+
+  const run = <T>(fn: (tx: Tx) => Promise<T>) =>
+    app
+      .get(DbService)
+      .withTenant(tenantId, (tx) =>
+        requestContext.run(
+          { requestId: randomUUID(), tenantId, actorId: 'user-test', locale: 'th', tx },
+          () => fn(tx),
+        ),
+      );
+  const newSite = async () =>
+    uuid(
+      'site',
+      (
+        await api(app, admin)
+          .post('/v1/customer-sites')
+          .send({ name: `จุด ${++seed}`, kind: 'DROPOFF', address: ADDR })
+          .expect(201)
+      ).body.id,
+    );
+  const newCustomer = async () =>
+    uuid(
+      'customer',
+      (
+        await api(app, admin)
+          .post('/v1/customers')
+          .send({ legalName: `ลูกค้า ${++seed}`, taxId: validTaxId(9300 + seed) })
+          .expect(201)
+      ).body.id,
+    );
+  /** SO 1 ใบ (ไม่มี rate card → ค้าง RATE_MISSING) + DO ใบแรก */
+  const newOrder = async () => {
+    const input: UpsertOrderInput = {
+      source: 'MANUAL',
+      customer: { id: await newCustomer() },
+      requestedDate: today,
+      stops: [
+        { type: 'PICKUP', siteId: await newSite() },
+        {
+          type: 'DELIVERY',
+          siteId: await newSite(),
+          windowStart: `${today}T09:00:00+07:00`,
+          windowEnd: `${today}T12:00:00+07:00`,
+        },
+      ],
+      lines: [{ description: 'ปูนซีเมนต์', qty: '2', unitId: unitTon, weightKg: '2000' }],
+    };
+    const { order: so } = await run((tx) => app.get(OrderIntakeService).upsertOrder(input, tx));
+    const dos = await run((tx) => app.get(DeliveryOrderService).listForOrder(so.id, {}, tx));
+    return { soId: so.id, pub: encodeId('salesOrder', so.id), doId: dos[0]!.id };
+  };
+  const newVehicle = async () => {
+    const v = (
+      await api(app, admin)
+        .post('/v1/vehicles')
+        .send({
+          plate: `7${++seed % 10}-${String(3000 + seed)}`,
+          plateProvince: 'TH-10',
+          vehicleTypeId: vt6,
+          ownership: 'OWN',
+        })
+        .expect(201)
+    ).body as { id: string };
+    const n = ++seed;
+    await api(app, admin)
+      .post('/v1/drivers')
+      .send({
+        name: `คนขับ ${n}`,
+        phone: `089-${String(n).padStart(3, '0')}-${String(n).padStart(4, '0')}`,
+        employmentType: 'EMPLOYEE_SALARIED',
+        licenceClass: 'T2',
+        licenceExpiresOn: '2030-03-31',
+        defaultVehicleId: v.id,
+      })
+      .expect(201);
+    return v.id;
+  };
+  /** เที่ยวจาก DO → จัดรถ (+ ปล่อยรถ) — ข้ามคำเตือนกฎด้วยเหตุผล */
+  const trip = async (doId: string, dispatch: boolean) => {
+    const vid = await newVehicle();
+    const t = (
+      await api(app, admin)
+        .post('/v1/trips')
+        .send({
+          tripDate: today,
+          deliveryOrderIds: [encodeId('deliveryOrder', doId)],
+          vehicleId: vid,
+        })
+        .expect(201)
+    ).body;
+    const r = await api(app, admin)
+      .post(`/v1/trips/${t.id}/assign`)
+      .send({ vehicleId: vid, dispatch });
+    if (r.status !== 200)
+      await api(app, admin)
+        .post(`/v1/trips/${t.id}/assign`)
+        .send({
+          vehicleId: vid,
+          dispatch,
+          ruleKeys: r.body.warnings.map((x: { key: string }) => x.key),
+          overrideReason: 'ทดสอบสัญญา event',
+        })
+        .expect(200);
+    const row = await db.deliveryOrder.findUniqueOrThrow({ where: { id: doId } });
+    return {
+      id: t.id as string,
+      pickup: encodeId('tripStop', row.pickupTripStopId!),
+      drop: encodeId('tripStop', row.tripStopId!),
+    };
+  };
+  const ago = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
+  const post = (stop: string, action: string, min: number, extra: object = {}) =>
+    api(app, admin)
+      .post(`/v1/stops/${stop}/${action}`)
+      .send({ clientEventId: randomUUID(), occurredAt: ago(min), ...extra })
+      .expect(201);
+  const reason = async (category: string, code?: string) =>
+    encodeId(
+      'reasonCode',
+      (
+        await db.reasonCode.findFirstOrThrow({
+          where: { tenantId, category, ...(code ? { code } : {}) },
+        })
+      ).id,
+    );
+
+  it('ทะเบียน: ครบทุกชื่อใน WEBHOOK_EVENT_TYPES · active มี schema · pending มี task · ตัวอย่างตรง schema', () => {
+    expect(EVENT_REGISTRY.map((d) => d.type)).toEqual([...WEBHOOK_EVENT_TYPES]);
+    for (const d of EVENT_REGISTRY) {
+      expect(d.type.split('.')[0]).toBe(d.type.startsWith('pod.') ? 'pod' : d.resource);
+      expect(d.description).toMatch(/[ก-๙]/);
+      if (d.phase === 'active') {
+        expect(d.schema, d.type).not.toBeNull();
+        expect(d.pendingTask).toBeNull();
+        const v = validatorOf(d.type)!;
+        expect(v(d.example), `${d.type} ${ajv.errorsText(v.errors)}`).toBe(true);
+      } else {
+        expect(d.pendingTask, d.type).toMatch(/^ST\d-T\d+$/);
+      }
+    }
+    expect(PENDING_EVENT_TYPES).toEqual([
+      'invoice.finalized',
+      'invoice.adjusted',
+      'invoice.paid',
+      'invoice.voided',
+      'credit_note.finalized',
+      'debit_note.finalized',
+      'payment.recorded',
+      'payment.reversed',
+      'receipt.issued',
+      'settlement.approved',
+      'settlement.paid',
+      'wht_certificate.issued',
+      'reconcile.mismatch_found',
+    ]);
+  });
+
+  it('GET /v1/webhooks/event-types และ openapi.json เผยแพร่ schema จากทะเบียน', async () => {
+    const r = await api(app, admin).get('/v1/webhooks/event-types').expect(200);
+    expect(r.body.data.map((x: { type: string }) => x.type)).toEqual([...WEBHOOK_EVENT_TYPES]);
+    for (const x of r.body.data as {
+      type: string;
+      phase: string;
+      schema: EventSchema | null;
+      sample: Record<string, unknown>;
+    }[]) {
+      const d = eventDefinition(x.type)!;
+      expect(x.phase).toBe(d.phase);
+      expect(x.schema).toEqual(d.schema);
+      expect(x.sample).toMatchObject(d.example);
+    }
+    const doc = (await api(app).get('/v1/openapi.json').expect(200)).body;
+    for (const d of EVENT_REGISTRY) {
+      expect(doc['x-webhooks'][d.type]).toMatchObject({ phase: d.phase });
+      if (d.schema)
+        expect(doc.components.schemas[eventSchemaName(d.type)]).toMatchObject({
+          properties: d.schema.properties,
+          required: d.schema.required,
+        });
+    }
+    expect(doc.components.schemas.WebhookEnvelope.required).toContain('data');
+  });
+
+  it('schema ใช้ชื่อ field ของ DTO สาธารณะ (ยกเว้นที่ระบุ) และไม่มี field ราคา', async () => {
+    const doc = (await api(app).get('/v1/openapi.json').expect(200)).body;
+    const props = (n: string) => Object.keys(doc.components.schemas[n].properties);
+    // field ที่ event มีแต่ DTO ไม่มี (มุมมองแบน/ไม่ expand) — ต้องตั้งใจเพิ่มที่นี่เท่านั้น
+    const dto: Record<string, { name: string; extra: string[] }> = {
+      order: {
+        name: 'OrderDto',
+        extra: ['customerId', 'customerExternalId', 'customerText', 'holdNote'],
+      },
+      trip: {
+        name: 'TripDto',
+        extra: [
+          'vehicleId',
+          'vehiclePlate',
+          'vehicleTypeId',
+          'driverId',
+          'carrierId',
+          'deliveryOrderIds',
+          'startedAt',
+        ],
+      },
+      stop: { name: 'TripStopDto', extra: ['tripId', 'failReasonCodeId'] },
+      delivery_order: { name: 'DeliveryOrderDto', extra: [] },
+      pod: {
+        name: 'PodRecordDto',
+        extra: [
+          'deliveryOrderId',
+          'doNo',
+          'outcome',
+          'photoCount',
+          'fileCount',
+          'hasSignature',
+          'lines',
+          'missing',
+        ],
+      },
+      connector: { name: 'ConnectorDto', extra: [] },
+      job: { name: 'JobDto', extra: [] },
+    };
+    for (const d of EVENT_REGISTRY.filter((x) => x.schema)) {
+      const m = dto[d.resource]!;
+      const allowed = new Set([...props(m.name), ...m.extra]);
+      const keys = Object.keys(d.schema!.properties!);
+      expect(
+        keys.filter((k) => !allowed.has(k)),
+        d.type,
+      ).toEqual([]);
+      expect(
+        keys.filter((k) => PRICE_WORD.test(k)),
+        d.type,
+      ).toEqual([]);
+    }
+  });
+
+  it('เกณฑ์ตรวจรับ: flow จริงยิงทุก event ของเฟส 0 · payload ตรง schema · มีคำสั่ง outbox · envelope ตาม G1', async () => {
+    // ---- order: created + held (RATE_MISSING) → updated (PATCH) → released (ตั้งราคาเอง) ----
+    const a = await newOrder();
+    await api(app, admin)
+      .patch(`/v1/orders/${a.pub}`)
+      .send({ customerRef: 'PO-EVENT-1' })
+      .expect(200);
+    await api(app, admin)
+      .post(`/v1/orders/${a.pub}/manual-price`)
+      .send({ sellAmount: '1500.00', reason: 'ตกลงราคากับลูกค้าแล้ว' })
+      .expect(200);
+
+    // ---- trip: assigned + dispatched → stops arrived/completed/departed → trip started/completed + DO ----
+    const t = await trip(a.doId, true);
+    await post(t.pickup, 'arrive', 55);
+    await post(t.pickup, 'complete', 50, { outcome: 'DELIVERED' });
+    await post(t.drop, 'arrive', 40);
+    await post(t.drop, 'complete', 30, { outcome: 'DELIVERED' });
+    // ---- POD ----
+    await api(app, admin)
+      .put(`/v1/delivery-orders/${encodeId('deliveryOrder', a.doId)}/pod`)
+      .send({ receiverName: 'สมชาย ใจดี', receiverRelation: 'SELF' })
+      .expect(200);
+
+    // ---- stop.failed + นัดส่งใหม่อัตโนมัติ (ของยังอยู่บนรถ) ----
+    const b = await newOrder();
+    const tb = await trip(b.doId, true);
+    await post(tb.pickup, 'arrive', 55);
+    await post(tb.pickup, 'complete', 50, { outcome: 'DELIVERED' });
+    await post(tb.drop, 'arrive', 40);
+    await post(tb.drop, 'complete', 30, {
+      outcome: 'UNDELIVERED_RETAIN',
+      reasonCodeId: await reason('DELIVERY_FAILED', 'SHOP_CLOSED'),
+      note: 'ร้านปิด โทรไม่ติด',
+    });
+
+    // ---- trip.cancelled + order.cancelled ----
+    const c = await newOrder();
+    const tc = await trip(c.doId, false);
+    await api(app, admin)
+      .post(`/v1/trips/${tc.id}/cancel`)
+      .send({ reason: 'ลูกค้ายกเลิกงานทั้งเที่ยว' })
+      .expect(200);
+    const so = await db.salesOrder.findUniqueOrThrow({ where: { id: c.soId } });
+    await api(app, admin)
+      .post(`/v1/orders/${c.pub}/cancel`)
+      .set('If-Match', `"${so.version}"`)
+      .send({ reason: 'ลูกค้ายกเลิกคำสั่งทางอีเมล' })
+      .expect(200);
+
+    // ---- connector.health_changed: เปิดใช้ (PAUSED → ACTIVE) แล้วพัก ----
+    const con = (
+      await api(app, admin)
+        .post('/v1/connectors')
+        .send({
+          adapterKey: fake.key,
+          settings: { baseUrl: 'https://erp.example.com/api' },
+          credentials: { apiKey: GOOD_KEY },
+        })
+        .expect(201)
+    ).body;
+    await api(app, admin).post(`/v1/connectors/${con.id}/resume`).send({}).expect(200);
+    await api(app, admin)
+      .post(`/v1/connectors/${con.id}/pause`)
+      .send({ reason: 'ปิดชั่วคราวระหว่างทดสอบ' })
+      .expect(200);
+
+    // ---- job.completed: งานนำเข้า (publicEvent) — งานระบบอื่นไม่ยิง ----
+    const job = await db.job.create({
+      data: { tenantId, type: 'import.validate', payload: { importJobId: randomUUID() } },
+    });
+    const queue = app.get(JobQueue);
+    while (await queue.runOnce());
+    expect((await db.job.findUniqueOrThrow({ where: { id: job.id } })).status).toBe('SUCCEEDED');
+
+    // ---------------- ตรวจ ----------------
+    const events = await db.domainEvent.findMany({
+      where: { tenantId },
+      orderBy: { occurredAt: 'asc' },
+    });
+    const registered = events.filter((e) => eventDefinition(e.type));
+    const seen = new Set(registered.map((e) => e.type));
+    expect(
+      ACTIVE_EVENT_TYPES.filter((x) => !seen.has(x)),
+      'event ที่ยังไม่ถูกยิง',
+    ).toEqual([]);
+    expect(PENDING_EVENT_TYPES.filter((x) => seen.has(x))).toEqual([]);
+
+    const engine = app.get(WebhookEngine);
+    const outbox = await db.integrationOutbox.findMany({
+      where: { tenantId, sink: 'contract' },
+      select: { eventId: true, eventType: true },
+    });
+    const queued = new Map(outbox.map((o) => [o.eventId, o.eventType]));
+    const failures: string[] = [];
+    for (const e of registered) {
+      const def = eventDefinition(e.type)!;
+      const v = validatorOf(e.type)!;
+      if (!v(e.snapshot)) failures.push(`${e.type}: ${ajv.errorsText(v.errors)}`);
+      // previousAttributes: ชื่อ field ชุดเดียวกับ object
+      const prev = (e.previousAttributes ?? {}) as Record<string, unknown>;
+      const extra = Object.keys(prev).filter((k) => !(k in def.schema!.properties!));
+      if (extra.length)
+        failures.push(`${e.type}: previousAttributes นอก schema ${extra.join(',')}`);
+      // ไม่มีราคา / uuid ดิบ (id สาธารณะเป็น prefix เสมอ)
+      const raw = JSON.stringify([e.snapshot, prev]);
+      if (PRICE_KEY.test(raw)) failures.push(`${e.type}: มี field ราคา`);
+      if (/"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"/.test(raw))
+        failures.push(`${e.type}: มี uuid ดิบ`);
+      // ทุก event ลง outbox ใน transaction เดียวกัน (trigger)
+      if (queued.get(e.id) !== e.type) failures.push(`${e.type}: ไม่มีคำสั่ง outbox`);
+      // envelope G1 — data.object = payload ที่ตรวจแล้ว
+      const env = engine.envelopeOf(tenantId, e);
+      expect(env).toMatchObject({
+        id: encodeId('event', e.id),
+        type: e.type,
+        version: '1',
+        tenantId: encodeId('tenant', tenantId),
+        mode: 'live',
+        data: { object: e.snapshot },
+      });
+      expect(env.occurredAt).toMatch(/Z$/);
+    }
+    expect(failures).toEqual([]);
+
+    // รายละเอียดที่ต้องถูกต้อง (ไม่ใช่แค่รูปร่าง)
+    const one = (type: string) => registered.find((e) => e.type === type)!;
+    expect(one('order.held').snapshot).toMatchObject({ id: a.pub, status: 'ON_HOLD' });
+    expect(one('order.released').previousAttributes).toEqual({ status: 'ON_HOLD' });
+    expect(one('trip.started').snapshot).toMatchObject({ id: t.id, status: 'IN_PROGRESS' });
+    expect(one('stop.arrived').snapshot).toMatchObject({ id: t.pickup, tripId: t.id });
+    expect(
+      registered.find(
+        (e) => e.type === 'stop.failed' && (e.snapshot as { id: string }).id === tb.drop,
+      )?.snapshot,
+    ).toMatchObject({ status: 'FAILED', outcome: 'UNDELIVERED_RETAIN' });
+    expect(one('pod.captured').snapshot).toMatchObject({
+      deliveryOrderId: encodeId('deliveryOrder', a.doId),
+      receiverName: 'สมชาย ใจดี',
+    });
+    expect(
+      registered
+        .filter((e) => e.type === 'connector.health_changed')
+        .map((e) => [
+          (e.previousAttributes as { status: string }).status,
+          (e.snapshot as { status: string }).status,
+        ]),
+    ).toEqual([
+      ['PAUSED', 'ACTIVE'],
+      ['ACTIVE', 'PAUSED'],
+    ]);
+    expect(registered.filter((e) => e.type === 'job.completed').map((e) => e.snapshot)).toEqual([
+      expect.objectContaining({ id: encodeId('job', job.id), status: 'succeeded' }),
+    ]);
+  });
+});
+
+/** ชื่อ field ที่สื่อถึงราคา/ต้นทุน — ห้ามอยู่ใน payload ของ event (ดูรายละเอียดราคาผ่าน API ที่ตรวจสิทธิ์) */
+const PRICE_WORD = /price|amount|total|cost|revenue|charge|rate/i;
+const PRICE_KEY = /"(\w*(price|amount|total|cost|revenue|charge|rate)\w*)"\s*:/i;

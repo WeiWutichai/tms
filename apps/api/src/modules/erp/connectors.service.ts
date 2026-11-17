@@ -582,7 +582,49 @@ export class ConnectorsService {
       after: { status: to },
       reason,
     });
-    return this.get(cur.id, tx);
+    const row = await this.get(cur.id, tx);
+    const ctx = requestContext.require();
+    await this.emitHealthChanged(tx, row, cur.status, ctx.requestId ?? null, ctx.actorId ?? null);
+    return row;
+  }
+
+  /**
+   * webhook `connector.health_changed` (docs/01 §5.3; ST7-T06) ทุกครั้งที่สถานะการเชื่อมต่อเปลี่ยน — ใน transaction เดียวกับการเปลี่ยน
+   * payload ไม่มี settings/credential/ข้อความ error ของปลายทาง (เฉพาะ errorClass + code)
+   */
+  private async emitHealthChanged(
+    tx: Tx,
+    c: Connector,
+    from: ConnectorStatus,
+    requestId: string | null,
+    actorId: string | null,
+  ) {
+    const err = c.lastHealthError as { errorClass?: unknown; code?: unknown } | null;
+    await tx.domainEvent.create({
+      data: {
+        tenantId: c.tenantId,
+        type: 'connector.health_changed',
+        entityType: 'connector',
+        localId: c.id,
+        snapshot: {
+          id: encodeId('connector', c.id),
+          adapterKey: c.adapterKey,
+          displayName: this.adapters.get(c.adapterKey)?.displayName ?? null,
+          companyId: c.companyId ? encodeId('company', c.companyId) : null,
+          status: c.status,
+          statusReason: c.statusReason,
+          statusChangedAt: iso(c.statusChangedAt),
+          lastHealthAt: iso(c.lastHealthAt),
+          lastHealthOk: c.lastHealthOk,
+          lastHealthError: err
+            ? { errorClass: String(err.errorClass ?? ''), code: String(err.code ?? '') }
+            : null,
+        },
+        previousAttributes: { status: from },
+        requestId,
+        actorId,
+      },
+    });
   }
 
   async pause(id: string, body: ConnectorActionDto, expected?: number): Promise<Connector> {
@@ -819,6 +861,8 @@ export class ConnectorsService {
       },
     });
     if (n.count !== 1) return;
+    const row = await tx.connector.findUniqueOrThrow({ where: { id: c.id } });
+    await this.emitHealthChanged(tx, row, 'ACTIVE', null, null);
     await tx.auditLog.create({
       data: {
         tenantId: c.tenantId,

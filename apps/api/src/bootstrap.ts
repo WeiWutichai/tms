@@ -9,6 +9,7 @@ import { AppModule } from './app.module';
 import { Public } from './common/decorators';
 import { describeExternalIdParams } from './common/external-id';
 import { describeRateLimits } from './http/rate-limit/openapi';
+import { describeWebhookEvents } from './modules/webhooks/event-openapi';
 import { createValidationPipe } from './common/validation';
 import { Logger } from '@nestjs/common';
 import { isLocalEnv } from './auth/tokens';
@@ -24,12 +25,14 @@ export function buildOpenApi(app: NestExpressApplication): OpenAPIObject {
     .setVersion('v1')
     .addBearerAuth()
     .build();
-  return describeRateLimits(
-    describeExternalIdParams(
-      SwaggerModule.createDocument(app, config, {
-        operationIdFactory: (controllerKey, methodKey) =>
-          `${controllerKey.replace(/Controller$/, '')}_${methodKey}`,
-      }),
+  return describeWebhookEvents(
+    describeRateLimits(
+      describeExternalIdParams(
+        SwaggerModule.createDocument(app, config, {
+          operationIdFactory: (controllerKey, methodKey) =>
+            `${controllerKey.replace(/Controller$/, '')}_${methodKey}`,
+        }),
+      ),
     ),
   );
 }

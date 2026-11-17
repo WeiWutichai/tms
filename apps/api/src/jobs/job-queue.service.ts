@@ -1,6 +1,6 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { EntitlementService } from '../modules/entitlements/entitlement.service';
-import type { Job } from '@prisma/client';
+import type { Job, Prisma } from '@prisma/client';
 import { PrismaService } from '../db/prisma.service';
 import { encodeId } from '../common/ids';
 import { DbService, type Tx } from '../db/db.service';
@@ -18,6 +18,11 @@ export interface JobTypeOptions {
    * ใช้กับงานที่เรียกระบบภายนอก (เช่น geocode ST2-T03) เพื่อไม่ถือ connection/lock ระหว่างรอ
    */
   outsideTransaction?: boolean;
+  /**
+   * ST7-T06: งาน async ที่ client สั่งเองแล้วได้ `jobId` (เช่น นำเข้าไฟล์) — จบ (สำเร็จ/ล้มครั้งสุดท้าย) ยิง webhook `job.completed`
+   * (docs/01 §5.1 Bulk/async, §5.3) ใน transaction เดียวกับการปิดสถานะงาน · งานระบบ (เตือน/หมดเวลา/geocode) ไม่ยิง
+   */
+  publicEvent?: boolean;
 }
 
 /** แจ้งผู้สั่งงานเมื่อจบ (ST1-T23; docs/04 I "งานใหญ่ background + แจ้งเมื่อเสร็จ") — เก็บใน payload._notify */
@@ -166,15 +171,12 @@ export class JobQueue {
         ? await handler({ ...base, tx: NO_TX })
         : await this.db.withTenant(job.tenantId, (tx) => handler({ ...base, tx }), o?.timeoutMs);
       // เขียนผลเฉพาะถ้ายังเป็นรอบที่เราหยิบ (lease หมดแล้ว worker อื่นหยิบซ้ำได้) — กันแจ้งเตือนซ้ำ/ทับผลกัน
-      const done = await this.prisma.platform.job.updateMany({
-        where: { id: job.id, status: 'RUNNING', attempts: job.attempts },
-        data: {
-          status: 'SUCCEEDED',
-          progress: 100,
-          result: (result ?? null) as any,
-          finishedAt: new Date(),
-          lockedUntil: null,
-        },
+      const done = await this.finish(job, true, {
+        status: 'SUCCEEDED',
+        progress: 100,
+        result: (result ?? null) as any,
+        finishedAt: new Date(),
+        lockedUntil: null,
       });
       if (done.count === 1) await this.notifyDone(job, 'job.succeeded');
     } catch (err) {
@@ -182,9 +184,10 @@ export class JobQueue {
       this.logger.warn(
         `job ${job.id} (${job.type}) failed attempt ${job.attempts}: ${String(err)}`,
       );
-      const done = await this.prisma.platform.job.updateMany({
-        where: { id: job.id, status: 'RUNNING', attempts: job.attempts },
-        data: retry
+      const done = await this.finish(
+        job,
+        !retry,
+        retry
           ? {
               status: 'PENDING',
               runAt: new Date(Date.now() + 2 ** job.attempts * 1000),
@@ -197,7 +200,7 @@ export class JobQueue {
               lockedUntil: null,
               error: { message: String(err) },
             },
-      });
+      );
       if (!retry && done.count === 1) {
         const onFail = this.opts.get(job.type)?.onFinalFailure;
         if (onFail)
@@ -210,6 +213,41 @@ export class JobQueue {
       }
     }
     return true;
+  }
+
+  /**
+   * เขียนผลเฉพาะถ้ายังเป็นรอบที่เราหยิบ · งาน `publicEvent` ที่จบแล้ว (final) → domain_event `job.completed`
+   * ใน transaction เดียวกัน (role platform — trigger สร้างคำสั่ง webhook ให้) — payload ไม่มี result/error (เรียก GET /v1/jobs/{id})
+   */
+  private async finish(job: Job, final: boolean, data: Prisma.JobUpdateManyMutationInput) {
+    const where = { id: job.id, status: 'RUNNING' as const, attempts: job.attempts };
+    if (!final || !this.opts.get(job.type)?.publicEvent)
+      return this.prisma.platform.job.updateMany({ where, data });
+    return this.prisma.platform.$transaction(async (tx) => {
+      const r = await tx.job.updateMany({ where, data });
+      if (r.count !== 1) return r;
+      const j = await tx.job.findUniqueOrThrow({ where: { id: job.id } });
+      await tx.domainEvent.create({
+        data: {
+          tenantId: j.tenantId,
+          type: 'job.completed',
+          entityType: 'job',
+          localId: j.id,
+          snapshot: {
+            id: encodeId('job', j.id),
+            type: j.type,
+            status: j.status.toLowerCase(),
+            progress: j.progress,
+            attempts: j.attempts,
+            createdAt: j.createdAt.toISOString(),
+            finishedAt: j.finishedAt?.toISOString() ?? null,
+          },
+          previousAttributes: { status: 'running' },
+          requestId: `job:${j.id}`,
+        },
+      });
+      return r;
+    });
   }
 
   /** แจ้งผลแยก transaction — แจ้งไม่สำเร็จไม่ทำให้สถานะงานเปลี่ยน */

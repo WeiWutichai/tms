@@ -2687,25 +2687,30 @@ function schedView(t: TripRecord) {
   };
 }
 
-/** payload ของ domain event เที่ยว (ไม่มีราคา/เบอร์โทร) */
+/**
+ * payload ของ domain event เที่ยว = `data.object` ของ webhook `trip.*` (ไม่มีราคา/เบอร์โทร)
+ * ST7-T06: id แบบ prefix (docs/01 §5.1) ตาม schema ใน EVENT_REGISTRY — เดิมเป็น uuid ดิบ
+ */
 function eventView(t: TripRecord) {
+  const enc = (kind: Parameters<typeof encodeId>[0], v: string | null) =>
+    v ? encodeId(kind, v) : null;
   return {
-    id: t.id,
+    id: encodeId('trip', t.id),
     tripNo: t.tripNo,
     tripDate: t.tripDate.toISOString().slice(0, 10),
     status: t.status,
-    vehicleId: t.vehicleId,
+    vehicleId: enc('vehicle', t.vehicleId),
     vehiclePlate: t.vehiclePlateSnapshot,
-    vehicleTypeId: t.vehicleTypeId,
-    driverId: t.driverId,
-    carrierId: t.carrierId,
+    vehicleTypeId: enc('vehicleType', t.vehicleTypeId),
+    driverId: enc('driver', t.driverId),
+    carrierId: enc('carrier', t.carrierId),
     assignmentStatus: t.assignmentStatus,
     stops: t.stops.map((s: TripStop) => ({
-      id: s.id,
+      id: encodeId('tripStop', s.id),
       sequence: s.sequence,
       type: s.type,
-      siteId: s.siteId,
+      siteId: enc('site', s.siteId),
     })),
-    deliveryOrderIds: t.deliveryOrders.map((d) => d.id),
+    deliveryOrderIds: t.deliveryOrders.map((d) => encodeId('deliveryOrder', d.id)),
   };
 }

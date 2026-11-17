@@ -19065,7 +19065,7 @@
         "parameters": [],
         "responses": {
           "200": {
-            "description": "event สาธารณะที่สมัครได้ (docs/01 §5.3) พร้อมคำอธิบายและตัวอย่าง `data.object` (ข้อมูลสมมติ) — JSON schema เต็มต่อ event = ST7-T06",
+            "description": "ทะเบียน event สาธารณะ (docs/01 §5.3 — ST7-T06): คำอธิบาย, ระยะ (`active` = ยิงแล้ว / `pending` = รอโมดูล — สมัครรอได้), JSON schema ของ `data.object` และตัวอย่าง (ข้อมูลสมมติ) — schema เดียวกับ `components.schemas.WebhookEvent_*` ใน openapi.json",
             "content": {
               "application/json": {
                 "schema": {
@@ -49623,16 +49623,39 @@
             "example": "สร้างใบสั่งงานใหม่",
             "description": "ความหมายของ event (ภาษาไทย)"
           },
+          "phase": {
+            "type": "string",
+            "enum": [
+              "active",
+              "pending"
+            ],
+            "description": "`active` = ระบบยิงแล้ว · `pending` = โมดูลยังไม่เปิด (สมัครรอได้ ยังไม่มี event)"
+          },
+          "pendingTask": {
+            "type": "string",
+            "nullable": true,
+            "example": null,
+            "description": "งานที่จะเริ่มยิง event นี้ (เฉพาะ pending)"
+          },
+          "schema": {
+            "type": "object",
+            "nullable": true,
+            "additionalProperties": true,
+            "description": "JSON schema (OpenAPI 3.0 Schema Object) ของ `data.object` — null = ยังไม่กำหนด (pending) · เพิ่ม field ภายหลัง = non-breaking"
+          },
           "sample": {
             "type": "object",
             "additionalProperties": true,
-            "description": "ตัวอย่าง `data.object` (ข้อมูลสมมติ — เดียวกับ `webhook.test`)"
+            "description": "ตัวอย่าง `data.object` (ข้อมูลสมมติ ตรง schema — เดียวกับ `webhook.test`)"
           }
         },
         "required": [
           "type",
           "resource",
           "description",
+          "phase",
+          "pendingTask",
+          "schema",
           "sample"
         ]
       },
@@ -63290,6 +63313,2287 @@
             "type": "boolean"
           }
         }
+      },
+      "WebhookEnvelope": {
+        "type": "object",
+        "description": "envelope ของ webhook (docs/04 G1) — `data.object` ตาม schema `WebhookEvent_*` ของ `type` · header `X-TMS-Event`, `X-TMS-Event-Id`, `X-TMS-Timestamp`, `X-TMS-Signature: t=,v1=`, `X-TMS-Attempt`",
+        "required": [
+          "id",
+          "type",
+          "version",
+          "occurredAt",
+          "tenantId",
+          "mode",
+          "data",
+          "request"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "evt_…",
+            "description": "เดิมทุกครั้งที่ส่งซ้ำ — ผู้รับกันซ้ำด้วย id"
+          },
+          "type": {
+            "type": "string",
+            "example": "order.created"
+          },
+          "version": {
+            "type": "string",
+            "example": "1"
+          },
+          "occurredAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "tenantId": {
+            "type": "string",
+            "example": "ten_…"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "live",
+              "test"
+            ]
+          },
+          "test": {
+            "type": "boolean",
+            "description": "มีเฉพาะ event ทดสอบ (`webhook.test`)"
+          },
+          "data": {
+            "type": "object",
+            "required": [
+              "object",
+              "previousAttributes"
+            ],
+            "properties": {
+              "object": {
+                "type": "object",
+                "additionalProperties": true
+              },
+              "previousAttributes": {
+                "type": "object",
+                "nullable": true,
+                "additionalProperties": true,
+                "description": "ค่าเดิมของ field ที่เปลี่ยน (ชื่อเดียวกับ `data.object`)"
+              }
+            }
+          },
+          "request": {
+            "type": "object",
+            "required": [
+              "id",
+              "idempotencyKey"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "nullable": true
+              },
+              "idempotencyKey": {
+                "type": "string",
+                "nullable": true
+              }
+            }
+          }
+        }
+      },
+      "WebhookEvent_order_created": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^ord_[0-9a-f]{32}$"
+          },
+          "soNo": {
+            "type": "string",
+            "nullable": true
+          },
+          "source": {
+            "type": "string"
+          },
+          "externalId": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "DRAFT",
+              "RECEIVED",
+              "ON_HOLD",
+              "PLANNED",
+              "IN_TRANSIT",
+              "PARTIALLY_DELIVERED",
+              "DELIVERED",
+              "CLOSED",
+              "CANCELLED"
+            ]
+          },
+          "holdReason": {
+            "type": "string",
+            "nullable": true
+          },
+          "customerId": {
+            "type": "string",
+            "pattern": "^cus_[0-9a-f]{32}$",
+            "nullable": true
+          },
+          "customerExternalId": {
+            "type": "string",
+            "nullable": true
+          },
+          "customerText": {
+            "type": "string",
+            "nullable": true
+          },
+          "billingCompanyId": {
+            "type": "string",
+            "pattern": "^cmp_[0-9a-f]{32}$"
+          },
+          "customerRef": {
+            "type": "string",
+            "nullable": true
+          },
+          "requestedDate": {
+            "type": "string",
+            "format": "date",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "vehicleTypeId": {
+            "type": "string",
+            "pattern": "^vty_[0-9a-f]{32}$",
+            "nullable": true
+          },
+          "pricingStatus": {
+            "type": "string",
+            "enum": [
+              "AVAILABLE",
+              "RATE_MISSING",
+              "CALCULATION_FAILURE",
+              null
+            ],
+            "nullable": true
+          },
+          "stops": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "sequence": {
+                  "type": "integer"
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "PICKUP",
+                    "DELIVERY",
+                    "RETURN"
+                  ]
+                },
+                "siteId": {
+                  "type": "string",
+                  "pattern": "^loc_[0-9a-f]{32}$",
+                  "nullable": true
+                },
+                "siteText": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "windowStart": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$",
+                  "nullable": true
+                },
+                "windowEnd": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$",
+                  "nullable": true
+                }
+              },
+              "required": [
+                "sequence",
+                "type",
+                "siteId",
+                "siteText",
+                "windowStart",
+                "windowEnd"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "holdNote": {
+            "type": "string",
+            "nullable": true
+          },
+          "sourceChangedAfterPlan": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "soNo",
+          "source",
+          "externalId",
+          "status",
+          "holdReason",
+          "customerId",
+          "customerExternalId",
+          "customerText",
+          "billingCompanyId",
+          "customerRef",
+          "requestedDate",
+          "vehicleTypeId",
+          "pricingStatus",
+          "stops",
+          "holdNote",
+          "sourceChangedAfterPlan",
+          "version"
+        ],
+        "additionalProperties": false,
+        "description": "`data.object` ของ order.created — สร้างใบสั่งงานใหม่ (หน้าจอ, Open API, นำเข้าไฟล์)"
+      },
+      "WebhookEvent_order_updated": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^ord_[0-9a-f]{32}$"
+          },
+          "soNo": {
+            "type": "string",
+            "nullable": true
+          },
+          "source": {
+            "type": "string"
+          },
+          "externalId": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "DRAFT",
+              "RECEIVED",
+              "ON_HOLD",
+              "PLANNED",
+              "IN_TRANSIT",
+              "PARTIALLY_DELIVERED",
+              "DELIVERED",
+              "CLOSED",
+              "CANCELLED"
+            ]
+          },
+          "holdReason": {
+            "type": "string",
+            "nullable": true
+          },
+          "customerId": {
+            "type": "string",
+            "pattern": "^cus_[0-9a-f]{32}$",
+            "nullable": true
+          },
+          "customerExternalId": {
+            "type": "string",
+            "nullable": true
+          },
+          "customerText": {
+            "type": "string",
+            "nullable": true
+          },
+          "billingCompanyId": {
+            "type": "string",
+            "pattern": "^cmp_[0-9a-f]{32}$"
+          },
+          "customerRef": {
+            "type": "string",
+            "nullable": true
+          },
+          "requestedDate": {
+            "type": "string",
+            "format": "date",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "vehicleTypeId": {
+            "type": "string",
+            "pattern": "^vty_[0-9a-f]{32}$",
+            "nullable": true
+          },
+          "pricingStatus": {
+            "type": "string",
+            "enum": [
+              "AVAILABLE",
+              "RATE_MISSING",
+              "CALCULATION_FAILURE",
+              null
+            ],
+            "nullable": true
+          },
+          "stops": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "sequence": {
+                  "type": "integer"
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "PICKUP",
+                    "DELIVERY",
+                    "RETURN"
+                  ]
+                },
+                "siteId": {
+                  "type": "string",
+                  "pattern": "^loc_[0-9a-f]{32}$",
+                  "nullable": true
+                },
+                "siteText": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "windowStart": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$",
+                  "nullable": true
+                },
+                "windowEnd": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$",
+                  "nullable": true
+                }
+              },
+              "required": [
+                "sequence",
+                "type",
+                "siteId",
+                "siteText",
+                "windowStart",
+                "windowEnd"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "holdNote": {
+            "type": "string",
+            "nullable": true
+          },
+          "sourceChangedAfterPlan": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "soNo",
+          "source",
+          "externalId",
+          "status",
+          "holdReason",
+          "customerId",
+          "customerExternalId",
+          "customerText",
+          "billingCompanyId",
+          "customerRef",
+          "requestedDate",
+          "vehicleTypeId",
+          "pricingStatus",
+          "stops",
+          "holdNote",
+          "sourceChangedAfterPlan",
+          "version"
+        ],
+        "additionalProperties": false,
+        "description": "`data.object` ของ order.updated — แก้ไขข้อมูลใบสั่งงาน"
+      },
+      "WebhookEvent_order_held": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^ord_[0-9a-f]{32}$"
+          },
+          "soNo": {
+            "type": "string",
+            "nullable": true
+          },
+          "source": {
+            "type": "string"
+          },
+          "externalId": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "DRAFT",
+              "RECEIVED",
+              "ON_HOLD",
+              "PLANNED",
+              "IN_TRANSIT",
+              "PARTIALLY_DELIVERED",
+              "DELIVERED",
+              "CLOSED",
+              "CANCELLED"
+            ]
+          },
+          "holdReason": {
+            "type": "string",
+            "nullable": true
+          },
+          "customerId": {
+            "type": "string",
+            "pattern": "^cus_[0-9a-f]{32}$",
+            "nullable": true
+          },
+          "customerExternalId": {
+            "type": "string",
+            "nullable": true
+          },
+          "customerText": {
+            "type": "string",
+            "nullable": true
+          },
+          "billingCompanyId": {
+            "type": "string",
+            "pattern": "^cmp_[0-9a-f]{32}$"
+          },
+          "customerRef": {
+            "type": "string",
+            "nullable": true
+          },
+          "requestedDate": {
+            "type": "string",
+            "format": "date",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "vehicleTypeId": {
+            "type": "string",
+            "pattern": "^vty_[0-9a-f]{32}$",
+            "nullable": true
+          },
+          "pricingStatus": {
+            "type": "string",
+            "enum": [
+              "AVAILABLE",
+              "RATE_MISSING",
+              "CALCULATION_FAILURE",
+              null
+            ],
+            "nullable": true
+          },
+          "stops": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "sequence": {
+                  "type": "integer"
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "PICKUP",
+                    "DELIVERY",
+                    "RETURN"
+                  ]
+                },
+                "siteId": {
+                  "type": "string",
+                  "pattern": "^loc_[0-9a-f]{32}$",
+                  "nullable": true
+                },
+                "siteText": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "windowStart": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$",
+                  "nullable": true
+                },
+                "windowEnd": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$",
+                  "nullable": true
+                }
+              },
+              "required": [
+                "sequence",
+                "type",
+                "siteId",
+                "siteText",
+                "windowStart",
+                "windowEnd"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "holdNote": {
+            "type": "string",
+            "nullable": true
+          },
+          "sourceChangedAfterPlan": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "soNo",
+          "source",
+          "externalId",
+          "status",
+          "holdReason",
+          "customerId",
+          "customerExternalId",
+          "customerText",
+          "billingCompanyId",
+          "customerRef",
+          "requestedDate",
+          "vehicleTypeId",
+          "pricingStatus",
+          "stops",
+          "holdNote",
+          "sourceChangedAfterPlan",
+          "version"
+        ],
+        "additionalProperties": false,
+        "description": "`data.object` ของ order.held — พักใบสั่งงาน (เช่น ข้อมูลไม่ครบ เกินวงเงิน)"
+      },
+      "WebhookEvent_order_released": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^ord_[0-9a-f]{32}$"
+          },
+          "soNo": {
+            "type": "string",
+            "nullable": true
+          },
+          "source": {
+            "type": "string"
+          },
+          "externalId": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "DRAFT",
+              "RECEIVED",
+              "ON_HOLD",
+              "PLANNED",
+              "IN_TRANSIT",
+              "PARTIALLY_DELIVERED",
+              "DELIVERED",
+              "CLOSED",
+              "CANCELLED"
+            ]
+          },
+          "holdReason": {
+            "type": "string",
+            "nullable": true
+          },
+          "customerId": {
+            "type": "string",
+            "pattern": "^cus_[0-9a-f]{32}$",
+            "nullable": true
+          },
+          "customerExternalId": {
+            "type": "string",
+            "nullable": true
+          },
+          "customerText": {
+            "type": "string",
+            "nullable": true
+          },
+          "billingCompanyId": {
+            "type": "string",
+            "pattern": "^cmp_[0-9a-f]{32}$"
+          },
+          "customerRef": {
+            "type": "string",
+            "nullable": true
+          },
+          "requestedDate": {
+            "type": "string",
+            "format": "date",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "vehicleTypeId": {
+            "type": "string",
+            "pattern": "^vty_[0-9a-f]{32}$",
+            "nullable": true
+          },
+          "pricingStatus": {
+            "type": "string",
+            "enum": [
+              "AVAILABLE",
+              "RATE_MISSING",
+              "CALCULATION_FAILURE",
+              null
+            ],
+            "nullable": true
+          },
+          "stops": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "sequence": {
+                  "type": "integer"
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "PICKUP",
+                    "DELIVERY",
+                    "RETURN"
+                  ]
+                },
+                "siteId": {
+                  "type": "string",
+                  "pattern": "^loc_[0-9a-f]{32}$",
+                  "nullable": true
+                },
+                "siteText": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "windowStart": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$",
+                  "nullable": true
+                },
+                "windowEnd": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$",
+                  "nullable": true
+                }
+              },
+              "required": [
+                "sequence",
+                "type",
+                "siteId",
+                "siteText",
+                "windowStart",
+                "windowEnd"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "holdNote": {
+            "type": "string",
+            "nullable": true
+          },
+          "sourceChangedAfterPlan": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "soNo",
+          "source",
+          "externalId",
+          "status",
+          "holdReason",
+          "customerId",
+          "customerExternalId",
+          "customerText",
+          "billingCompanyId",
+          "customerRef",
+          "requestedDate",
+          "vehicleTypeId",
+          "pricingStatus",
+          "stops",
+          "holdNote",
+          "sourceChangedAfterPlan",
+          "version"
+        ],
+        "additionalProperties": false,
+        "description": "`data.object` ของ order.released — ปล่อยใบสั่งงานที่พักไว้ให้วางแผนต่อ"
+      },
+      "WebhookEvent_order_cancelled": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^ord_[0-9a-f]{32}$"
+          },
+          "soNo": {
+            "type": "string",
+            "nullable": true
+          },
+          "source": {
+            "type": "string"
+          },
+          "externalId": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "DRAFT",
+              "RECEIVED",
+              "ON_HOLD",
+              "PLANNED",
+              "IN_TRANSIT",
+              "PARTIALLY_DELIVERED",
+              "DELIVERED",
+              "CLOSED",
+              "CANCELLED"
+            ]
+          },
+          "holdReason": {
+            "type": "string",
+            "nullable": true
+          },
+          "customerId": {
+            "type": "string",
+            "pattern": "^cus_[0-9a-f]{32}$",
+            "nullable": true
+          },
+          "customerExternalId": {
+            "type": "string",
+            "nullable": true
+          },
+          "customerText": {
+            "type": "string",
+            "nullable": true
+          },
+          "billingCompanyId": {
+            "type": "string",
+            "pattern": "^cmp_[0-9a-f]{32}$"
+          },
+          "customerRef": {
+            "type": "string",
+            "nullable": true
+          },
+          "requestedDate": {
+            "type": "string",
+            "format": "date",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "vehicleTypeId": {
+            "type": "string",
+            "pattern": "^vty_[0-9a-f]{32}$",
+            "nullable": true
+          },
+          "pricingStatus": {
+            "type": "string",
+            "enum": [
+              "AVAILABLE",
+              "RATE_MISSING",
+              "CALCULATION_FAILURE",
+              null
+            ],
+            "nullable": true
+          },
+          "stops": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "sequence": {
+                  "type": "integer"
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "PICKUP",
+                    "DELIVERY",
+                    "RETURN"
+                  ]
+                },
+                "siteId": {
+                  "type": "string",
+                  "pattern": "^loc_[0-9a-f]{32}$",
+                  "nullable": true
+                },
+                "siteText": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "windowStart": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$",
+                  "nullable": true
+                },
+                "windowEnd": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$",
+                  "nullable": true
+                }
+              },
+              "required": [
+                "sequence",
+                "type",
+                "siteId",
+                "siteText",
+                "windowStart",
+                "windowEnd"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "holdNote": {
+            "type": "string",
+            "nullable": true
+          },
+          "sourceChangedAfterPlan": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "soNo",
+          "source",
+          "externalId",
+          "status",
+          "holdReason",
+          "customerId",
+          "customerExternalId",
+          "customerText",
+          "billingCompanyId",
+          "customerRef",
+          "requestedDate",
+          "vehicleTypeId",
+          "pricingStatus",
+          "stops",
+          "holdNote",
+          "sourceChangedAfterPlan",
+          "version"
+        ],
+        "additionalProperties": false,
+        "description": "`data.object` ของ order.cancelled — ยกเลิกใบสั่งงาน"
+      },
+      "WebhookEvent_trip_assigned": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^trp_[0-9a-f]{32}$"
+          },
+          "tripNo": {
+            "type": "string",
+            "nullable": true
+          },
+          "tripDate": {
+            "type": "string",
+            "format": "date",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PLANNING",
+              "OFFERED",
+              "ASSIGNED",
+              "DISPATCHED",
+              "IN_PROGRESS",
+              "COMPLETED",
+              "COSTED",
+              "SETTLED",
+              "CANCELLED"
+            ]
+          },
+          "vehicleId": {
+            "type": "string",
+            "pattern": "^veh_[0-9a-f]{32}$",
+            "nullable": true
+          },
+          "vehiclePlate": {
+            "type": "string",
+            "nullable": true
+          },
+          "vehicleTypeId": {
+            "type": "string",
+            "pattern": "^vty_[0-9a-f]{32}$",
+            "nullable": true
+          },
+          "driverId": {
+            "type": "string",
+            "pattern": "^drv_[0-9a-f]{32}$",
+            "nullable": true
+          },
+          "carrierId": {
+            "type": "string",
+            "pattern": "^car_[0-9a-f]{32}$",
+            "nullable": true
+          },
+          "assignmentStatus": {
+            "type": "string",
+            "enum": [
+              "OFFERED",
+              "ACCEPTED",
+              "REJECTED",
+              "EXPIRED",
+              null
+            ],
+            "nullable": true
+          },
+          "stops": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^stp_[0-9a-f]{32}$"
+                },
+                "sequence": {
+                  "type": "integer"
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "PICKUP",
+                    "DELIVERY",
+                    "RETURN"
+                  ]
+                },
+                "siteId": {
+                  "type": "string",
+                  "pattern": "^loc_[0-9a-f]{32}$",
+                  "nullable": true
+                }
+              },
+              "required": [
+                "id",
+                "sequence",
+                "type",
+                "siteId"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "deliveryOrderIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^do_[0-9a-f]{32}$"
+            }
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$"
+          },
+          "completedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$"
+          }
+        },
+        "required": [
+          "id",
+          "tripNo",
+          "tripDate",
+          "status",
+          "vehicleId",
+          "vehiclePlate",
+          "vehicleTypeId",
+          "driverId",
+          "carrierId",
+          "assignmentStatus",
+          "stops",
+          "deliveryOrderIds"
+        ],
+        "additionalProperties": false,
+        "description": "`data.object` ของ trip.assigned — จัดรถ/คนขับ หรือรถร่วมให้เที่ยววิ่ง"
+      },
+      "WebhookEvent_trip_dispatched": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^trp_[0-9a-f]{32}$"
+          },
+          "tripNo": {
+            "type": "string",
+            "nullable": true
+          },
+          "tripDate": {
+            "type": "string",
+            "format": "date",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PLANNING",
+              "OFFERED",
+              "ASSIGNED",
+              "DISPATCHED",
+              "IN_PROGRESS",
+              "COMPLETED",
+              "COSTED",
+              "SETTLED",
+              "CANCELLED"
+            ]
+          },
+          "vehicleId": {
+            "type": "string",
+            "pattern": "^veh_[0-9a-f]{32}$",
+            "nullable": true
+          },
+          "vehiclePlate": {
+            "type": "string",
+            "nullable": true
+          },
+          "vehicleTypeId": {
+            "type": "string",
+            "pattern": "^vty_[0-9a-f]{32}$",
+            "nullable": true
+          },
+          "driverId": {
+            "type": "string",
+            "pattern": "^drv_[0-9a-f]{32}$",
+            "nullable": true
+          },
+          "carrierId": {
+            "type": "string",
+            "pattern": "^car_[0-9a-f]{32}$",
+            "nullable": true
+          },
+          "assignmentStatus": {
+            "type": "string",
+            "enum": [
+              "OFFERED",
+              "ACCEPTED",
+              "REJECTED",
+              "EXPIRED",
+              null
+            ],
+            "nullable": true
+          },
+          "stops": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^stp_[0-9a-f]{32}$"
+                },
+                "sequence": {
+                  "type": "integer"
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "PICKUP",
+                    "DELIVERY",
+                    "RETURN"
+                  ]
+                },
+                "siteId": {
+                  "type": "string",
+                  "pattern": "^loc_[0-9a-f]{32}$",
+                  "nullable": true
+                }
+              },
+              "required": [
+                "id",
+                "sequence",
+                "type",
+                "siteId"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "deliveryOrderIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^do_[0-9a-f]{32}$"
+            }
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$"
+          },
+          "completedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$"
+          }
+        },
+        "required": [
+          "id",
+          "tripNo",
+          "tripDate",
+          "status",
+          "vehicleId",
+          "vehiclePlate",
+          "vehicleTypeId",
+          "driverId",
+          "carrierId",
+          "assignmentStatus",
+          "stops",
+          "deliveryOrderIds"
+        ],
+        "additionalProperties": false,
+        "description": "`data.object` ของ trip.dispatched — ปล่อยเที่ยววิ่งให้คนขับ"
+      },
+      "WebhookEvent_trip_started": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^trp_[0-9a-f]{32}$"
+          },
+          "tripNo": {
+            "type": "string",
+            "nullable": true
+          },
+          "tripDate": {
+            "type": "string",
+            "format": "date",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PLANNING",
+              "OFFERED",
+              "ASSIGNED",
+              "DISPATCHED",
+              "IN_PROGRESS",
+              "COMPLETED",
+              "COSTED",
+              "SETTLED",
+              "CANCELLED"
+            ]
+          },
+          "vehicleId": {
+            "type": "string",
+            "pattern": "^veh_[0-9a-f]{32}$",
+            "nullable": true
+          },
+          "vehiclePlate": {
+            "type": "string",
+            "nullable": true
+          },
+          "vehicleTypeId": {
+            "type": "string",
+            "pattern": "^vty_[0-9a-f]{32}$",
+            "nullable": true
+          },
+          "driverId": {
+            "type": "string",
+            "pattern": "^drv_[0-9a-f]{32}$",
+            "nullable": true
+          },
+          "carrierId": {
+            "type": "string",
+            "pattern": "^car_[0-9a-f]{32}$",
+            "nullable": true
+          },
+          "assignmentStatus": {
+            "type": "string",
+            "enum": [
+              "OFFERED",
+              "ACCEPTED",
+              "REJECTED",
+              "EXPIRED",
+              null
+            ],
+            "nullable": true
+          },
+          "stops": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^stp_[0-9a-f]{32}$"
+                },
+                "sequence": {
+                  "type": "integer"
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "PICKUP",
+                    "DELIVERY",
+                    "RETURN"
+                  ]
+                },
+                "siteId": {
+                  "type": "string",
+                  "pattern": "^loc_[0-9a-f]{32}$",
+                  "nullable": true
+                }
+              },
+              "required": [
+                "id",
+                "sequence",
+                "type",
+                "siteId"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "deliveryOrderIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^do_[0-9a-f]{32}$"
+            }
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$"
+          },
+          "completedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$"
+          }
+        },
+        "required": [
+          "id",
+          "tripNo",
+          "tripDate",
+          "status",
+          "vehicleId",
+          "vehiclePlate",
+          "vehicleTypeId",
+          "driverId",
+          "carrierId",
+          "assignmentStatus",
+          "stops",
+          "deliveryOrderIds"
+        ],
+        "additionalProperties": false,
+        "description": "`data.object` ของ trip.started — คนขับเริ่มเที่ยววิ่ง"
+      },
+      "WebhookEvent_trip_completed": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^trp_[0-9a-f]{32}$"
+          },
+          "tripNo": {
+            "type": "string",
+            "nullable": true
+          },
+          "tripDate": {
+            "type": "string",
+            "format": "date",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PLANNING",
+              "OFFERED",
+              "ASSIGNED",
+              "DISPATCHED",
+              "IN_PROGRESS",
+              "COMPLETED",
+              "COSTED",
+              "SETTLED",
+              "CANCELLED"
+            ]
+          },
+          "vehicleId": {
+            "type": "string",
+            "pattern": "^veh_[0-9a-f]{32}$",
+            "nullable": true
+          },
+          "vehiclePlate": {
+            "type": "string",
+            "nullable": true
+          },
+          "vehicleTypeId": {
+            "type": "string",
+            "pattern": "^vty_[0-9a-f]{32}$",
+            "nullable": true
+          },
+          "driverId": {
+            "type": "string",
+            "pattern": "^drv_[0-9a-f]{32}$",
+            "nullable": true
+          },
+          "carrierId": {
+            "type": "string",
+            "pattern": "^car_[0-9a-f]{32}$",
+            "nullable": true
+          },
+          "assignmentStatus": {
+            "type": "string",
+            "enum": [
+              "OFFERED",
+              "ACCEPTED",
+              "REJECTED",
+              "EXPIRED",
+              null
+            ],
+            "nullable": true
+          },
+          "stops": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^stp_[0-9a-f]{32}$"
+                },
+                "sequence": {
+                  "type": "integer"
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "PICKUP",
+                    "DELIVERY",
+                    "RETURN"
+                  ]
+                },
+                "siteId": {
+                  "type": "string",
+                  "pattern": "^loc_[0-9a-f]{32}$",
+                  "nullable": true
+                }
+              },
+              "required": [
+                "id",
+                "sequence",
+                "type",
+                "siteId"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "deliveryOrderIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^do_[0-9a-f]{32}$"
+            }
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$"
+          },
+          "completedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$"
+          }
+        },
+        "required": [
+          "id",
+          "tripNo",
+          "tripDate",
+          "status",
+          "vehicleId",
+          "vehiclePlate",
+          "vehicleTypeId",
+          "driverId",
+          "carrierId",
+          "assignmentStatus",
+          "stops",
+          "deliveryOrderIds"
+        ],
+        "additionalProperties": false,
+        "description": "`data.object` ของ trip.completed — เที่ยววิ่งจบครบทุกจุด"
+      },
+      "WebhookEvent_trip_cancelled": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^trp_[0-9a-f]{32}$"
+          },
+          "tripNo": {
+            "type": "string",
+            "nullable": true
+          },
+          "tripDate": {
+            "type": "string",
+            "format": "date",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PLANNING",
+              "OFFERED",
+              "ASSIGNED",
+              "DISPATCHED",
+              "IN_PROGRESS",
+              "COMPLETED",
+              "COSTED",
+              "SETTLED",
+              "CANCELLED"
+            ]
+          },
+          "vehicleId": {
+            "type": "string",
+            "pattern": "^veh_[0-9a-f]{32}$",
+            "nullable": true
+          },
+          "vehiclePlate": {
+            "type": "string",
+            "nullable": true
+          },
+          "vehicleTypeId": {
+            "type": "string",
+            "pattern": "^vty_[0-9a-f]{32}$",
+            "nullable": true
+          },
+          "driverId": {
+            "type": "string",
+            "pattern": "^drv_[0-9a-f]{32}$",
+            "nullable": true
+          },
+          "carrierId": {
+            "type": "string",
+            "pattern": "^car_[0-9a-f]{32}$",
+            "nullable": true
+          },
+          "assignmentStatus": {
+            "type": "string",
+            "enum": [
+              "OFFERED",
+              "ACCEPTED",
+              "REJECTED",
+              "EXPIRED",
+              null
+            ],
+            "nullable": true
+          },
+          "stops": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^stp_[0-9a-f]{32}$"
+                },
+                "sequence": {
+                  "type": "integer"
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "PICKUP",
+                    "DELIVERY",
+                    "RETURN"
+                  ]
+                },
+                "siteId": {
+                  "type": "string",
+                  "pattern": "^loc_[0-9a-f]{32}$",
+                  "nullable": true
+                }
+              },
+              "required": [
+                "id",
+                "sequence",
+                "type",
+                "siteId"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "deliveryOrderIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^do_[0-9a-f]{32}$"
+            }
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$"
+          },
+          "completedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$"
+          }
+        },
+        "required": [
+          "id",
+          "tripNo",
+          "tripDate",
+          "status",
+          "vehicleId",
+          "vehiclePlate",
+          "vehicleTypeId",
+          "driverId",
+          "carrierId",
+          "assignmentStatus",
+          "stops",
+          "deliveryOrderIds"
+        ],
+        "additionalProperties": false,
+        "description": "`data.object` ของ trip.cancelled — ยกเลิกเที่ยววิ่ง"
+      },
+      "WebhookEvent_stop_arrived": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^stp_[0-9a-f]{32}$"
+          },
+          "tripId": {
+            "type": "string",
+            "pattern": "^trp_[0-9a-f]{32}$"
+          },
+          "sequence": {
+            "type": "integer"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "PICKUP",
+              "DELIVERY",
+              "RETURN"
+            ]
+          },
+          "siteId": {
+            "type": "string",
+            "pattern": "^loc_[0-9a-f]{32}$",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "ARRIVED",
+              "COMPLETED",
+              "FAILED",
+              "SKIPPED"
+            ]
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "DELIVERED",
+              "PARTIAL",
+              "FAILED",
+              "UNDELIVERED_RETAIN",
+              null
+            ],
+            "nullable": true
+          },
+          "arrivedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$",
+            "nullable": true
+          },
+          "departedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$",
+            "nullable": true
+          },
+          "lastEventId": {
+            "type": "string",
+            "pattern": "^evt_[0-9a-f]{32}$",
+            "nullable": true
+          },
+          "failReasonCodeId": {
+            "type": "string",
+            "pattern": "^rsn_[0-9a-f]{32}$",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "tripId",
+          "sequence",
+          "type",
+          "siteId",
+          "status",
+          "outcome",
+          "arrivedAt",
+          "departedAt",
+          "lastEventId",
+          "failReasonCodeId"
+        ],
+        "additionalProperties": false,
+        "description": "`data.object` ของ stop.arrived — รถถึงจุดรับ/ส่ง"
+      },
+      "WebhookEvent_stop_departed": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^stp_[0-9a-f]{32}$"
+          },
+          "tripId": {
+            "type": "string",
+            "pattern": "^trp_[0-9a-f]{32}$"
+          },
+          "sequence": {
+            "type": "integer"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "PICKUP",
+              "DELIVERY",
+              "RETURN"
+            ]
+          },
+          "siteId": {
+            "type": "string",
+            "pattern": "^loc_[0-9a-f]{32}$",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "ARRIVED",
+              "COMPLETED",
+              "FAILED",
+              "SKIPPED"
+            ]
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "DELIVERED",
+              "PARTIAL",
+              "FAILED",
+              "UNDELIVERED_RETAIN",
+              null
+            ],
+            "nullable": true
+          },
+          "arrivedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$",
+            "nullable": true
+          },
+          "departedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$",
+            "nullable": true
+          },
+          "lastEventId": {
+            "type": "string",
+            "pattern": "^evt_[0-9a-f]{32}$",
+            "nullable": true
+          },
+          "failReasonCodeId": {
+            "type": "string",
+            "pattern": "^rsn_[0-9a-f]{32}$",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "tripId",
+          "sequence",
+          "type",
+          "siteId",
+          "status",
+          "outcome",
+          "arrivedAt",
+          "departedAt",
+          "lastEventId",
+          "failReasonCodeId"
+        ],
+        "additionalProperties": false,
+        "description": "`data.object` ของ stop.departed — รถออกจากจุดรับ/ส่ง"
+      },
+      "WebhookEvent_stop_completed": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^stp_[0-9a-f]{32}$"
+          },
+          "tripId": {
+            "type": "string",
+            "pattern": "^trp_[0-9a-f]{32}$"
+          },
+          "sequence": {
+            "type": "integer"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "PICKUP",
+              "DELIVERY",
+              "RETURN"
+            ]
+          },
+          "siteId": {
+            "type": "string",
+            "pattern": "^loc_[0-9a-f]{32}$",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "ARRIVED",
+              "COMPLETED",
+              "FAILED",
+              "SKIPPED"
+            ]
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "DELIVERED",
+              "PARTIAL",
+              "FAILED",
+              "UNDELIVERED_RETAIN",
+              null
+            ],
+            "nullable": true
+          },
+          "arrivedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$",
+            "nullable": true
+          },
+          "departedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$",
+            "nullable": true
+          },
+          "lastEventId": {
+            "type": "string",
+            "pattern": "^evt_[0-9a-f]{32}$",
+            "nullable": true
+          },
+          "failReasonCodeId": {
+            "type": "string",
+            "pattern": "^rsn_[0-9a-f]{32}$",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "tripId",
+          "sequence",
+          "type",
+          "siteId",
+          "status",
+          "outcome",
+          "arrivedAt",
+          "departedAt",
+          "lastEventId",
+          "failReasonCodeId"
+        ],
+        "additionalProperties": false,
+        "description": "`data.object` ของ stop.completed — ปิดงานที่จุดรับ/ส่งสำเร็จ"
+      },
+      "WebhookEvent_stop_failed": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^stp_[0-9a-f]{32}$"
+          },
+          "tripId": {
+            "type": "string",
+            "pattern": "^trp_[0-9a-f]{32}$"
+          },
+          "sequence": {
+            "type": "integer"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "PICKUP",
+              "DELIVERY",
+              "RETURN"
+            ]
+          },
+          "siteId": {
+            "type": "string",
+            "pattern": "^loc_[0-9a-f]{32}$",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "ARRIVED",
+              "COMPLETED",
+              "FAILED",
+              "SKIPPED"
+            ]
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "DELIVERED",
+              "PARTIAL",
+              "FAILED",
+              "UNDELIVERED_RETAIN",
+              null
+            ],
+            "nullable": true
+          },
+          "arrivedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$",
+            "nullable": true
+          },
+          "departedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$",
+            "nullable": true
+          },
+          "lastEventId": {
+            "type": "string",
+            "pattern": "^evt_[0-9a-f]{32}$",
+            "nullable": true
+          },
+          "failReasonCodeId": {
+            "type": "string",
+            "pattern": "^rsn_[0-9a-f]{32}$",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "tripId",
+          "sequence",
+          "type",
+          "siteId",
+          "status",
+          "outcome",
+          "arrivedAt",
+          "departedAt",
+          "lastEventId",
+          "failReasonCodeId"
+        ],
+        "additionalProperties": false,
+        "description": "`data.object` ของ stop.failed — งานที่จุดรับ/ส่งไม่สำเร็จ (มีเหตุผล)"
+      },
+      "WebhookEvent_delivery_order_status_changed": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^do_[0-9a-f]{32}$"
+          },
+          "doNo": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "DRAFT",
+              "PLANNED",
+              "PICKED_UP",
+              "DISPATCHED",
+              "DELIVERED",
+              "FAILED",
+              "RETURNED",
+              "POD_PENDING",
+              "UNBILLED",
+              "BILLED",
+              "CANCELLED"
+            ]
+          },
+          "orderId": {
+            "type": "string",
+            "pattern": "^ord_[0-9a-f]{32}$"
+          },
+          "customerId": {
+            "type": "string",
+            "pattern": "^cus_[0-9a-f]{32}$"
+          },
+          "tripId": {
+            "type": "string",
+            "pattern": "^trp_[0-9a-f]{32}$",
+            "nullable": true
+          },
+          "destStopSeq": {
+            "type": "integer"
+          },
+          "splitFromId": {
+            "type": "string",
+            "pattern": "^do_[0-9a-f]{32}$",
+            "nullable": true
+          },
+          "weightKg": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d+)?$",
+            "nullable": true
+          },
+          "cbm": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d+)?$",
+            "nullable": true
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "lineNo": {
+                  "type": "integer"
+                },
+                "soLineNo": {
+                  "type": "integer"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "qty": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d+)?$",
+                  "nullable": true
+                },
+                "unit": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "lineNo",
+                "soLineNo",
+                "description",
+                "qty",
+                "unit"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "id",
+          "doNo",
+          "status",
+          "orderId",
+          "customerId",
+          "tripId",
+          "destStopSeq",
+          "splitFromId",
+          "weightKg",
+          "cbm",
+          "lines"
+        ],
+        "additionalProperties": false,
+        "description": "`data.object` ของ delivery_order.status_changed — สถานะใบส่งของ (DO) เปลี่ยน"
+      },
+      "WebhookEvent_pod_captured": {
+        "type": "object",
+        "properties": {
+          "deliveryOrderId": {
+            "type": "string",
+            "pattern": "^do_[0-9a-f]{32}$"
+          },
+          "doNo": {
+            "type": "string",
+            "nullable": true
+          },
+          "version": {
+            "type": "integer"
+          },
+          "podStatus": {
+            "type": "string",
+            "enum": [
+              "NONE",
+              "PARTIAL",
+              "COMPLETE"
+            ]
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "WEB",
+              "LINK",
+              "APP",
+              "API"
+            ]
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "SUCCESS",
+              "FAILURE"
+            ]
+          },
+          "photoCount": {
+            "type": "integer"
+          },
+          "fileCount": {
+            "type": "integer"
+          },
+          "hasSignature": {
+            "type": "boolean"
+          },
+          "receiverName": {
+            "type": "string",
+            "nullable": true
+          },
+          "weighedKg": {
+            "type": "string",
+            "pattern": "^-?\\d+(\\.\\d+)?$",
+            "nullable": true
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "lineNo": {
+                  "type": "integer"
+                },
+                "qtyPlanned": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d+)?$",
+                  "nullable": true
+                },
+                "qtyActual": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d+)?$",
+                  "nullable": true
+                },
+                "rejectQty": {
+                  "type": "string",
+                  "pattern": "^-?\\d+(\\.\\d+)?$",
+                  "nullable": true
+                },
+                "rejectReasonCode": {
+                  "type": "string",
+                  "nullable": true
+                }
+              },
+              "required": [
+                "lineNo",
+                "qtyPlanned",
+                "qtyActual",
+                "rejectQty",
+                "rejectReasonCode"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "missing": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                },
+                "code": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "key",
+                "type",
+                "code"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "deliveryOrderId",
+          "doNo",
+          "version",
+          "podStatus",
+          "source",
+          "outcome",
+          "photoCount",
+          "fileCount",
+          "hasSignature",
+          "receiverName",
+          "weighedKg",
+          "lines",
+          "missing"
+        ],
+        "additionalProperties": false,
+        "description": "`data.object` ของ pod.captured — บันทึกหลักฐานการส่ง (POD)"
+      },
+      "WebhookEvent_connector_health_changed": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^con_[0-9a-f]{32}$"
+          },
+          "adapterKey": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string",
+            "nullable": true
+          },
+          "companyId": {
+            "type": "string",
+            "pattern": "^cmp_[0-9a-f]{32}$",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "PAUSED",
+              "ERROR",
+              "DISCONNECTED"
+            ]
+          },
+          "statusReason": {
+            "type": "string",
+            "nullable": true
+          },
+          "statusChangedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$",
+            "nullable": true
+          },
+          "lastHealthAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$",
+            "nullable": true
+          },
+          "lastHealthOk": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "lastHealthError": {
+            "type": "object",
+            "properties": {
+              "errorClass": {
+                "type": "string"
+              },
+              "code": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "errorClass",
+              "code"
+            ],
+            "additionalProperties": false,
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "adapterKey",
+          "displayName",
+          "companyId",
+          "status",
+          "statusReason",
+          "statusChangedAt",
+          "lastHealthAt",
+          "lastHealthOk",
+          "lastHealthError"
+        ],
+        "additionalProperties": false,
+        "description": "`data.object` ของ connector.health_changed — สถานะการเชื่อมต่อระบบภายนอกเปลี่ยน"
+      },
+      "WebhookEvent_job_completed": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^job_[0-9a-f]{32}$"
+          },
+          "type": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "succeeded",
+              "failed"
+            ]
+          },
+          "progress": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "attempts": {
+            "type": "integer"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$"
+          },
+          "finishedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "status",
+          "progress",
+          "attempts",
+          "createdAt",
+          "finishedAt"
+        ],
+        "additionalProperties": false,
+        "description": "`data.object` ของ job.completed — งานเบื้องหลัง (นำเข้า/ส่งออก/รอบวางบิล) เสร็จ"
       }
     },
     "headers": {
@@ -63346,6 +65650,199 @@
             }
           }
         }
+      }
+    }
+  },
+  "x-webhooks": {
+    "order.created": {
+      "description": "สร้างใบสั่งงานใหม่ (หน้าจอ, Open API, นำเข้าไฟล์)",
+      "phase": "active",
+      "schema": {
+        "$ref": "#/components/schemas/WebhookEvent_order_created"
+      }
+    },
+    "order.updated": {
+      "description": "แก้ไขข้อมูลใบสั่งงาน",
+      "phase": "active",
+      "schema": {
+        "$ref": "#/components/schemas/WebhookEvent_order_updated"
+      }
+    },
+    "order.held": {
+      "description": "พักใบสั่งงาน (เช่น ข้อมูลไม่ครบ เกินวงเงิน)",
+      "phase": "active",
+      "schema": {
+        "$ref": "#/components/schemas/WebhookEvent_order_held"
+      }
+    },
+    "order.released": {
+      "description": "ปล่อยใบสั่งงานที่พักไว้ให้วางแผนต่อ",
+      "phase": "active",
+      "schema": {
+        "$ref": "#/components/schemas/WebhookEvent_order_released"
+      }
+    },
+    "order.cancelled": {
+      "description": "ยกเลิกใบสั่งงาน",
+      "phase": "active",
+      "schema": {
+        "$ref": "#/components/schemas/WebhookEvent_order_cancelled"
+      }
+    },
+    "trip.assigned": {
+      "description": "จัดรถ/คนขับ หรือรถร่วมให้เที่ยววิ่ง",
+      "phase": "active",
+      "schema": {
+        "$ref": "#/components/schemas/WebhookEvent_trip_assigned"
+      }
+    },
+    "trip.dispatched": {
+      "description": "ปล่อยเที่ยววิ่งให้คนขับ",
+      "phase": "active",
+      "schema": {
+        "$ref": "#/components/schemas/WebhookEvent_trip_dispatched"
+      }
+    },
+    "trip.started": {
+      "description": "คนขับเริ่มเที่ยววิ่ง",
+      "phase": "active",
+      "schema": {
+        "$ref": "#/components/schemas/WebhookEvent_trip_started"
+      }
+    },
+    "trip.completed": {
+      "description": "เที่ยววิ่งจบครบทุกจุด",
+      "phase": "active",
+      "schema": {
+        "$ref": "#/components/schemas/WebhookEvent_trip_completed"
+      }
+    },
+    "trip.cancelled": {
+      "description": "ยกเลิกเที่ยววิ่ง",
+      "phase": "active",
+      "schema": {
+        "$ref": "#/components/schemas/WebhookEvent_trip_cancelled"
+      }
+    },
+    "stop.arrived": {
+      "description": "รถถึงจุดรับ/ส่ง",
+      "phase": "active",
+      "schema": {
+        "$ref": "#/components/schemas/WebhookEvent_stop_arrived"
+      }
+    },
+    "stop.departed": {
+      "description": "รถออกจากจุดรับ/ส่ง",
+      "phase": "active",
+      "schema": {
+        "$ref": "#/components/schemas/WebhookEvent_stop_departed"
+      }
+    },
+    "stop.completed": {
+      "description": "ปิดงานที่จุดรับ/ส่งสำเร็จ",
+      "phase": "active",
+      "schema": {
+        "$ref": "#/components/schemas/WebhookEvent_stop_completed"
+      }
+    },
+    "stop.failed": {
+      "description": "งานที่จุดรับ/ส่งไม่สำเร็จ (มีเหตุผล)",
+      "phase": "active",
+      "schema": {
+        "$ref": "#/components/schemas/WebhookEvent_stop_failed"
+      }
+    },
+    "delivery_order.status_changed": {
+      "description": "สถานะใบส่งของ (DO) เปลี่ยน",
+      "phase": "active",
+      "schema": {
+        "$ref": "#/components/schemas/WebhookEvent_delivery_order_status_changed"
+      }
+    },
+    "pod.captured": {
+      "description": "บันทึกหลักฐานการส่ง (POD)",
+      "phase": "active",
+      "schema": {
+        "$ref": "#/components/schemas/WebhookEvent_pod_captured"
+      }
+    },
+    "invoice.finalized": {
+      "description": "ออกเลขใบแจ้งหนี้/ใบกำกับภาษีแล้ว",
+      "phase": "pending",
+      "pendingTask": "ST5-T09"
+    },
+    "invoice.adjusted": {
+      "description": "ปรับยอดใบแจ้งหนี้ด้วยใบลดหนี้/เพิ่มหนี้",
+      "phase": "pending",
+      "pendingTask": "ST5-T19"
+    },
+    "invoice.paid": {
+      "description": "ใบแจ้งหนี้ได้รับชำระครบ",
+      "phase": "pending",
+      "pendingTask": "ST5-T18"
+    },
+    "invoice.voided": {
+      "description": "ยกเลิกใบแจ้งหนี้",
+      "phase": "pending",
+      "pendingTask": "ST5-T10"
+    },
+    "credit_note.finalized": {
+      "description": "ออกเลขใบลดหนี้แล้ว",
+      "phase": "pending",
+      "pendingTask": "ST5-T19"
+    },
+    "debit_note.finalized": {
+      "description": "ออกเลขใบเพิ่มหนี้แล้ว",
+      "phase": "pending",
+      "pendingTask": "ST5-T20"
+    },
+    "payment.recorded": {
+      "description": "บันทึกรับชำระเงิน",
+      "phase": "pending",
+      "pendingTask": "ST5-T13"
+    },
+    "payment.reversed": {
+      "description": "กลับรายการรับชำระเงิน",
+      "phase": "pending",
+      "pendingTask": "ST5-T13"
+    },
+    "receipt.issued": {
+      "description": "ออกใบเสร็จรับเงินแล้ว",
+      "phase": "pending",
+      "pendingTask": "ST5-T14"
+    },
+    "settlement.approved": {
+      "description": "อนุมัติใบสรุปค่าขนส่งรถร่วม",
+      "phase": "pending",
+      "pendingTask": "ST6-T07"
+    },
+    "settlement.paid": {
+      "description": "จ่ายเงินตามใบสรุปค่าขนส่งรถร่วมแล้ว",
+      "phase": "pending",
+      "pendingTask": "ST6-T09"
+    },
+    "wht_certificate.issued": {
+      "description": "ออกหนังสือรับรองการหักภาษี ณ ที่จ่ายแล้ว",
+      "phase": "pending",
+      "pendingTask": "ST6-T10"
+    },
+    "connector.health_changed": {
+      "description": "สถานะการเชื่อมต่อระบบภายนอกเปลี่ยน",
+      "phase": "active",
+      "schema": {
+        "$ref": "#/components/schemas/WebhookEvent_connector_health_changed"
+      }
+    },
+    "reconcile.mismatch_found": {
+      "description": "พบข้อมูลไม่ตรงกันจากการกระทบยอดกับระบบภายนอก",
+      "phase": "pending",
+      "pendingTask": "ST8-T11"
+    },
+    "job.completed": {
+      "description": "งานเบื้องหลัง (นำเข้า/ส่งออก/รอบวางบิล) เสร็จ",
+      "phase": "active",
+      "schema": {
+        "$ref": "#/components/schemas/WebhookEvent_job_completed"
       }
     }
   }

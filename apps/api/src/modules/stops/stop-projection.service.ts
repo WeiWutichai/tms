@@ -21,6 +21,7 @@ import {
 } from '@tms/domain';
 import { AuditService } from '../../audit/audit.service';
 import { Clock } from '../../common/clock';
+import { encodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import type { Tx } from '../../db/db.service';
@@ -532,7 +533,7 @@ export class StopProjectionService {
         failReasonCodeId: p.failReasonCodeId,
       },
     });
-    const previous = Object.fromEntries(changed.map((f) => [f, row[f]]));
+    const previous = stopEventFields(Object.fromEntries(changed.map((f) => [f, row[f]])));
     const types: string[] = [];
     if (!row.arrivedAt && p.arrivedAt) types.push('stop.arrived');
     if (row.status !== p.status && p.status === 'COMPLETED') types.push('stop.completed');
@@ -548,11 +549,12 @@ export class StopProjectionService {
           localId: row.id,
           snapshot: JSON.parse(
             JSON.stringify({
-              tripId: row.tripId,
+              id: encodeId('tripStop', row.id),
+              tripId: encodeId('trip', row.tripId),
               sequence: row.sequence,
               type: row.type,
-              siteId: row.siteId,
-              ...p,
+              siteId: row.siteId ? encodeId('site', row.siteId) : null,
+              ...stopEventFields(p),
             }),
           ) as Prisma.InputJsonValue,
           previousAttributes: JSON.parse(JSON.stringify(previous)) as Prisma.InputJsonValue,
@@ -562,6 +564,27 @@ export class StopProjectionService {
       });
     return true;
   }
+}
+
+/**
+ * ช่อง projection ใน payload ของ `stop.*` (= `data.object` ของ webhook — ST7-T06): id แบบ prefix (docs/01 §5.1)
+ * เฉพาะช่องที่มีใน input (previousAttributes ส่งเฉพาะช่องที่เปลี่ยน) · ไม่ส่ง id ภายในของ projection
+ */
+function stopEventFields(
+  p: Partial<Record<(typeof FIELDS)[number], unknown>>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const f of FIELDS) {
+    if (!(f in p)) continue;
+    const v = p[f];
+    out[f] =
+      f === 'lastEventId' && typeof v === 'string'
+        ? encodeId('event', v)
+        : f === 'failReasonCodeId' && typeof v === 'string'
+          ? encodeId('reasonCode', v)
+          : v;
+  }
+  return out;
 }
 
 /** จุดที่ DO ทุกใบถูกส่งใหม่ (ไม่มีใบที่ใช้อยู่ — ST4-T12) */

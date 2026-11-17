@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma, type WebhookEndpoint } from '@prisma/client';
-import { WEBHOOK_ROTATION_GRACE_HOURS } from '@tms/domain';
+import { eventDefinition, WEBHOOK_ROTATION_GRACE_HOURS } from '@tms/domain';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { AuditService } from '../../audit/audit.service';
 import { encodeId } from '../../common/ids';
@@ -566,24 +566,7 @@ export class WebhooksService {
   }
 }
 
-/** payload ตัวอย่างของ event (INT-107) — ไม่ใช่ข้อมูลจริงของบริษัท */
+/** payload ตัวอย่างของ event (INT-107) — ตัวอย่างจากทะเบียน (ST7-T06) + `sampleEventType` · ไม่ใช่ข้อมูลจริงของบริษัท */
 export function sampleObject(type: string): Record<string, unknown> {
-  const entity = type.split('.')[0]!;
-  const zero = '0'.repeat(32);
-  const prefix: Record<string, string> = {
-    order: 'ord',
-    trip: 'trp',
-    stop: 'stp',
-    delivery_order: 'do',
-    pod: 'doc',
-    invoice: 'inv',
-    job: 'job',
-  };
-  return {
-    sampleEventType: type,
-    id: `${prefix[entity] ?? 'obj'}_${zero}`,
-    object: entity,
-    status: type.split('.')[1] ?? 'updated',
-    updatedAt: new Date().toISOString(),
-  };
+  return { sampleEventType: type, ...(eventDefinition(type)?.example ?? {}) };
 }
