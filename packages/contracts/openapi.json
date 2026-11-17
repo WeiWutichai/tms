@@ -21611,7 +21611,7 @@
             "bearer": []
           }
         ],
-        "summary": "ยืนยันค่าใช้จ่ายหน้างานฝั่งขาย (ผู้วางบิล) — เหตุผล ≥ 10 ตัวอักษร",
+        "summary": "ยืนยันค่าใช้จ่ายหน้างานฝั่งขาย (ผู้วางบิล · ผู้บันทึกเองไม่ได้) — เหตุผล ≥ 10 ตัวอักษร",
         "tags": [
           "trips"
         ]
@@ -21823,7 +21823,7 @@
             "bearer": []
           }
         ],
-        "summary": "ปฏิเสธค่าใช้จ่ายหน้างานฝั่งขาย (ผู้วางบิล) — เหตุผล ≥ 10 ตัวอักษร",
+        "summary": "ปฏิเสธค่าใช้จ่ายหน้างานฝั่งขาย (ผู้วางบิล · ผู้บันทึกเองไม่ได้) — เหตุผล ≥ 10 ตัวอักษร",
         "tags": [
           "trips"
         ]
@@ -22085,7 +22085,7 @@
             }
           },
           "403": {
-            "description": "ไม่มีสิทธิ์ (`invoices:draft`)",
+            "description": "ไม่มีสิทธิ์ (`settlements:approve`)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -22101,9 +22101,9 @@
                       "instance": "/v1/trips/trp_3f2a…",
                       "requestId": "b6a1c2d3-…",
                       "module": "trips",
-                      "action": "draft",
+                      "action": "approve",
                       "required": [
-                        "invoices:draft"
+                        "settlements:approve"
                       ]
                     }
                   }
@@ -22247,7 +22247,7 @@
             "bearer": []
           }
         ],
-        "summary": "ยืนยันค่าใช้จ่ายหน้างานฝั่งซื้อ (ผู้วางบิล) — เหตุผล ≥ 10 ตัวอักษร",
+        "summary": "ยืนยันค่าใช้จ่ายหน้างานฝั่งซื้อ (ผู้อนุมัติ settlement — `settlements:approve` · ผู้บันทึกเองไม่ได้) — เหตุผล ≥ 10 ตัวอักษร",
         "tags": [
           "trips"
         ]
@@ -22297,7 +22297,7 @@
             }
           },
           "403": {
-            "description": "ไม่มีสิทธิ์ (`invoices:draft`)",
+            "description": "ไม่มีสิทธิ์ (`settlements:approve`)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -22313,9 +22313,9 @@
                       "instance": "/v1/trips/trp_3f2a…",
                       "requestId": "b6a1c2d3-…",
                       "module": "trips",
-                      "action": "draft",
+                      "action": "approve",
                       "required": [
-                        "invoices:draft"
+                        "settlements:approve"
                       ]
                     }
                   }
@@ -22459,7 +22459,7 @@
             "bearer": []
           }
         ],
-        "summary": "ปฏิเสธค่าใช้จ่ายหน้างานฝั่งซื้อ (ผู้วางบิล) — เหตุผล ≥ 10 ตัวอักษร",
+        "summary": "ปฏิเสธค่าใช้จ่ายหน้างานฝั่งซื้อ (ผู้อนุมัติ settlement — `settlements:approve` · ผู้บันทึกเองไม่ได้) — เหตุผล ≥ 10 ตัวอักษร",
         "tags": [
           "trips"
         ]
@@ -44386,15 +44386,15 @@
             "example": "500.00",
             "description": "ราคาขายต่อหน่วยก่อน VAT (บาท) — บังคับเมื่อ side = SELL/BOTH · ต้องมีสิทธิ์ `prices.sell:write` (เห็นเมื่อมี `prices.sell:read`)"
           },
-          "buyAmount": {
+          "costAmount": {
             "type": "string",
             "example": "180.00",
-            "description": "ยอดต้นทุน (บาท ตามใบเสร็จ) — บังคับเมื่อ side = BUY/BOTH · ต้องมีสิทธิ์ `prices.buy:write` (เห็นเมื่อมี `prices.buy:read`)"
+            "description": "ยอดต้นทุนฝั่งซื้อ (บาท ตามใบเสร็จ) — บังคับเมื่อ side = BUY/BOTH · ต้องมีสิทธิ์ `prices.buy:write` หรือ `trips:dispatch` + `prices.buy:read` (ผู้จ่ายงานบันทึกหน้างาน — ยืนยันโดยผู้อื่น) · ตอบกลับเป็น `buyAmount`"
           },
           "evidenceDocumentId": {
             "type": "string",
             "example": "doc_…",
-            "description": "รูป/ไฟล์ใบเสร็จจาก POST /v1/documents (kind RECEIPT, อัปโหลดเสร็จแล้ว, ยังไม่ผูกกับรายการอื่น)"
+            "description": "รูป/ไฟล์ใบเสร็จ (บังคับ — spec M15) จาก POST /v1/documents (kind RECEIPT, อัปโหลดเสร็จแล้ว, ยังไม่ผูกกับรายการอื่น) · ไม่ส่ง → 422 `evidence_required`"
           },
           "note": {
             "type": "string",

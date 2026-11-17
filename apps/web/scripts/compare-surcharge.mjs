@@ -163,19 +163,23 @@ if (asg.status >= 300)
   throw new Error(`dispatch ${asg.status} ${JSON.stringify(asg.body).slice(0, 300)}`);
 const trip = await get(`/v1/trips/${t0.id}`);
 // รูปใบเสร็จ + บรรทัด: ค่ารอคิว (เก็บลูกค้า) 500 และ ค่าทางด่วน (ต้นทุน) 180
-const doc = (
-  await post('/v1/documents', {
-    kind: 'RECEIPT',
-    mime: 'image/png',
-    bytes: PNG.length,
-    filename: 'receipt.png',
-  })
-).body;
-const up = new URL(doc.uploadUrl);
-await W.request.put(up.pathname + up.search, {
-  data: PNG,
-  headers: { 'content-type': 'application/octet-stream' },
-});
+async function receipt() {
+  const d = (
+    await post('/v1/documents', {
+      kind: 'RECEIPT',
+      mime: 'image/png',
+      bytes: PNG.length,
+      filename: 'receipt.png',
+    })
+  ).body;
+  const up = new URL(d.uploadUrl);
+  await W.request.put(up.pathname + up.search, {
+    data: PNG,
+    headers: { 'content-type': 'application/octet-stream' },
+  });
+  return d;
+}
+const doc = await receipt();
 await post(`/v1/trips/${t0.id}/field-charges`, {
   side: 'SELL',
   serviceItemId: item.id,
@@ -186,7 +190,8 @@ await post(`/v1/trips/${t0.id}/field-charges`, {
 await post(`/v1/trips/${t0.id}/field-charges`, {
   side: 'BUY',
   serviceItemId: toll.id,
-  buyAmount: '180.00',
+  costAmount: '180.00',
+  evidenceDocumentId: (await receipt()).id,
 });
 
 await W.goto('/so');

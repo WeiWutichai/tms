@@ -758,7 +758,12 @@ const BODY_FOR_SUFFIX: Record<string, object> = {
   },
   approve: { reason: 'isolation test reason' }, // ST2-T13 /rate-cards/:id/approve
   confirm: { reason: 'isolation test reason' }, // ST4-T13 /do-surcharges|trip-costs/:id/confirm
-  'field-charges': { side: 'BUY', serviceItemId: `svc_${'0'.repeat(32)}`, buyAmount: '1.00' }, // ST4-T13
+  'field-charges': {
+    side: 'BUY',
+    serviceItemId: `svc_${'0'.repeat(32)}`,
+    costAmount: '1.00',
+    evidenceDocumentId: `doc_${'0'.repeat(32)}`,
+  }, // ST4-T13
   reject: { reason: 'isolation test reason' }, // ST2-T03 /customer-sites/:id/geocode/reject + ST3-T10 source-changes
   accept: { reason: 'isolation test reason' }, // ST3-T10 /orders/:id/source-changes/:changeId/accept
   reveal: { field: 'bankAccountNo', reason: 'isolation test reason' }, // ST2-T05 /carriers/:id/reveal

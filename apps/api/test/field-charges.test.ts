@@ -178,6 +178,14 @@ describe('field charges (ST4-T13)', () => {
     return r.body.id as string;
   }
 
+  /** body ที่ใส่รูปใบเสร็จใหม่ให้เสมอ (บังคับ) */
+  const withReceipt = async (body: Record<string, unknown>, token = admin) => ({
+    ...body,
+    evidenceDocumentId: await receipt(token),
+  });
+  const D = (line: { id: string }) =>
+    line.id.startsWith('dsc_') ? `/v1/do-surcharges/${line.id}` : `/v1/trip-costs/${line.id}`;
+
   it('เกณฑ์ตรวจรับ: "ค่ารอ" 500 บาท → บรรทัดฝั่งขาย VAT_7 พร้อมรูป รอผู้วางบิลยืนยัน → ยืนยัน', async () => {
     // บริษัทตั้ง "ค่ารอ" เป็น VAT 7% / หัก 3% เอง (ค่าเริ่มต้นของระบบ = ยกเว้น — รอนักบัญชี)
     const wait = await svc('WAIT');
@@ -238,14 +246,20 @@ describe('field charges (ST4-T13)', () => {
     expect(row).toMatchObject({ status: 'PENDING_CONFIRM', vatType: 'VAT_7' });
     expect(row.serviceItemVersion).toBe(wait.version + 1);
     expect((row.serviceItemSnapshot as { code: string }).code).toBe('WAIT');
-    // ไฟล์ผูกกับบรรทัดนี้
     const sd = await db.storedDocument.findFirstOrThrow({ where: { entityId: row.id } });
     expect(sd.entityType).toBe('do_surcharge');
+
+    // maker-checker: ผู้บันทึกยืนยันเองไม่ได้
+    const self = await api(app, admin)
+      .post(`${D(line)}/confirm`)
+      .send({ reason: REASON })
+      .expect(403);
+    expect(self.body.code).toBe('self_approval_forbidden');
 
     // ผู้วางบิลยืนยัน (เหตุผล + audit)
     const inv = await as('invoicer');
     const ok = await api(app, inv)
-      .post(`/v1/do-surcharges/${line.id}/confirm`)
+      .post(`${D(line)}/confirm`)
       .set('If-Match', '"1"')
       .send({ reason: REASON })
       .expect(200);
@@ -265,19 +279,24 @@ describe('field charges (ST4-T13)', () => {
     });
     expect(audits.map((a) => a.action)).toEqual(['do_surcharge.created', 'do_surcharge.confirmed']);
     expect(audits[1]!.reason).toBe(REASON);
-    // ยืนยันซ้ำ → 409
     await api(app, inv)
-      .post(`/v1/do-surcharges/${line.id}/confirm`)
+      .post(`${D(line)}/confirm`)
       .send({ reason: REASON })
       .expect(409);
   });
 
-  it('ฝั่งซื้อ: ทางด่วน 180 → trip_cost MANUAL รอยืนยัน (vat_amount 0, ธงภาษีจากรายการ, ผูกรถร่วมของเที่ยว)', async () => {
+  it('ฝั่งซื้อ: ทางด่วน 180 → trip_cost MANUAL รอยืนยัน (vat_amount 0, ธงภาษีจากรายการ, ผูกรถร่วมของเที่ยว) · ยืนยัน/ปฏิเสธ = settlements:approve', async () => {
     const t = await trip('IN_PROGRESS', { carrier: true });
     const toll = await svc('TOLL');
     const res = await api(app, admin)
       .post(t.url)
-      .send({ side: 'BUY', serviceItemId: encodeId('serviceItem', toll.id), buyAmount: '180.00' })
+      .send(
+        await withReceipt({
+          side: 'BUY',
+          serviceItemId: encodeId('serviceItem', toll.id),
+          costAmount: '180.00',
+        }),
+      )
       .expect(201);
     const line = res.body.data[0];
     expect(line).toMatchObject({
@@ -288,7 +307,6 @@ describe('field charges (ST4-T13)', () => {
       buyAmount: '180.00',
       vatType: toll.vatType,
       whtRate: toll.whtRate.toFixed(2),
-      evidence: null,
     });
     expect(line.id).toMatch(/^tco_[0-9a-f]{32}$/);
     const row = await db.tripCost.findFirstOrThrow({ where: { tripId: t.trip.id } });
@@ -301,20 +319,24 @@ describe('field charges (ST4-T13)', () => {
       settlementLineId: null,
     });
     expect(row.vatAmount.toFixed(2)).toBe('0.00');
-    // ผู้วางบิลปฏิเสธ
-    const inv = await as('invoicer');
-    const rj = await api(app, inv)
-      .post(`/v1/trip-costs/${line.id}/reject`)
+    // ผู้วางบิลไม่มี settlements:approve → 403 · ผู้อนุมัติปฏิเสธได้
+    await api(app, await as('invoicer'))
+      .post(`${D(line)}/reject`)
       .send({ reason: 'ไม่มีใบเสร็จทางด่วนแนบมา' })
+      .expect(403);
+    const approver = await as('approver');
+    const rj = await api(app, approver)
+      .post(`${D(line)}/reject`)
+      .send({ reason: 'ใบเสร็จอ่านไม่ออก ขอถ่ายใหม่' })
       .expect(200);
-    expect(rj.body).toMatchObject({ status: 'REJECTED', decidedBy: 'user-invoicer' });
-    await api(app, inv)
-      .post(`/v1/trip-costs/${line.id}/confirm`)
+    expect(rj.body).toMatchObject({ status: 'REJECTED', decidedBy: 'user-approver' });
+    await api(app, approver)
+      .post(`${D(line)}/confirm`)
       .send({ reason: REASON })
       .expect(409);
   });
 
-  it('ทั้งสองฝั่ง (BOTH): 2 บรรทัดคู่กัน ใช้รูปเดียวกัน · จำนวน × ราคา ปัดครึ่งขึ้นเป็นสตางค์', async () => {
+  it('ทั้งสองฝั่ง (BOTH): 2 บรรทัดคู่ รูปเดียวกัน · จำนวน × ราคา ปัดครึ่งขึ้น · ยกเลิกฝั่งหนึ่ง = ยกเลิกทั้งคู่ (audit ทั้งคู่)', async () => {
     const t = await trip('COMPLETED');
     const doc = await receipt();
     const res = await api(app, admin)
@@ -325,14 +347,12 @@ describe('field charges (ST4-T13)', () => {
         deliveryOrderId: t.doId,
         qty: '1.5',
         sellUnitPrice: '333.33',
-        buyAmount: '400',
+        costAmount: '400',
         evidenceDocumentId: doc,
       })
       .expect(201);
-    const [s, b] = [
-      res.body.data.find((x: { side: string }) => x.side === 'SELL'),
-      res.body.data.find((x: { side: string }) => x.side === 'BUY'),
-    ];
+    const s = res.body.data.find((x: { side: string }) => x.side === 'SELL');
+    const b = res.body.data.find((x: { side: string }) => x.side === 'BUY');
     expect(s).toMatchObject({ qty: '1.5', sellUnitPrice: '333.33', sellAmount: '500.00' });
     expect(b).toMatchObject({ buyAmount: '400.00', costType: 'OTHER', pairedId: s.id });
     expect(s.pairedId).toBe(b.id);
@@ -341,20 +361,58 @@ describe('field charges (ST4-T13)', () => {
     const cost = await db.tripCost.findFirstOrThrow({ where: { tripId: t.trip.id } });
     expect(cost).toMatchObject({ sourceType: 'DO_SURCHARGE' });
     expect(cost.sourceId).toBe(cost.doSurchargeId);
-    // ทั้งคู่อยู่ในรายการของเที่ยว
-    expect((await api(app, admin).get(t.url).expect(200)).body.data).toHaveLength(2);
+
+    const why = 'บันทึกผิดเที่ยว จะบันทึกใหม่';
+    await api(app, admin)
+      .post(`${D(b)}/cancel`)
+      .send({ reason: why })
+      .expect(200);
+    const all = (await api(app, admin).get(t.url).expect(200)).body.data;
+    expect(all.map((x: { status: string }) => x.status)).toEqual(['CANCELLED', 'CANCELLED']);
+    const audits = await db.auditLog.findMany({
+      where: { action: { in: ['do_surcharge.cancelled', 'trip_cost.cancelled'] } },
+    });
+    expect(audits.filter((a) => [cost.id, cost.doSurchargeId].includes(a.entityId))).toHaveLength(
+      2,
+    );
+    expect(audits.every((a) => a.reason === why)).toBe(true);
   });
 
-  it('ตรวจข้อมูล: ช่องที่ต้องมี/ไม่ใช้, DO ต้องอยู่ในเที่ยว, รายการต้องเป็นค่าบริการเสริมแบบบาท', async () => {
+  it('ตรวจข้อมูล: ช่องที่ต้องมี/ไม่ใช้, รูปบังคับ, ยอด > 0, DO ต้องอยู่ในเที่ยว, รายการต้องเป็นค่าบริการเสริมแบบบาท', async () => {
     const t = await trip();
     const t2 = await trip();
     const wait = await svcId('WAIT');
+    const doc = `doc_${'0'.repeat(32)}`;
     const bad: [object, string, string][] = [
-      [{ side: 'SELL', serviceItemId: wait, sellUnitPrice: '1' }, 'deliveryOrderId', 'required'],
-      [{ side: 'SELL', serviceItemId: wait, deliveryOrderId: t.doId }, 'sellUnitPrice', 'required'],
-      [{ side: 'BUY', serviceItemId: wait }, 'buyAmount', 'required'],
       [
-        { side: 'BUY', serviceItemId: wait, buyAmount: '1', sellUnitPrice: '1' },
+        { side: 'SELL', serviceItemId: wait, sellUnitPrice: '1', evidenceDocumentId: doc },
+        'deliveryOrderId',
+        'required',
+      ],
+      [
+        { side: 'SELL', serviceItemId: wait, deliveryOrderId: t.doId, evidenceDocumentId: doc },
+        'sellUnitPrice',
+        'required',
+      ],
+      [{ side: 'BUY', serviceItemId: wait, evidenceDocumentId: doc }, 'costAmount', 'required'],
+      [
+        { side: 'BUY', serviceItemId: wait, costAmount: '10' },
+        'evidenceDocumentId',
+        'evidence_required',
+      ],
+      [
+        { side: 'SELL', serviceItemId: wait, deliveryOrderId: t.doId, sellUnitPrice: '1' },
+        'evidenceDocumentId',
+        'evidence_required',
+      ],
+      [
+        {
+          side: 'BUY',
+          serviceItemId: wait,
+          costAmount: '1',
+          sellUnitPrice: '1',
+          evidenceDocumentId: doc,
+        },
         'sellUnitPrice',
         'not_applicable',
       ],
@@ -365,30 +423,26 @@ describe('field charges (ST4-T13)', () => {
           deliveryOrderId: t.doId,
           sellUnitPrice: '1',
           qty: '0',
+          evidenceDocumentId: doc,
         },
         'qty',
         'out_of_range',
       ],
-      [{ side: 'BUY', serviceItemId: wait, buyAmount: '0' }, 'buyAmount', 'out_of_range'],
       [
-        { side: 'SELL', serviceItemId: wait, deliveryOrderId: t2.doId, sellUnitPrice: '1' },
-        'deliveryOrderId',
-        'invalid_reference',
+        {
+          side: 'SELL',
+          serviceItemId: wait,
+          deliveryOrderId: t.doId,
+          sellUnitPrice: '0',
+          evidenceDocumentId: doc,
+        },
+        'sellUnitPrice',
+        'out_of_range',
       ],
       [
-        { side: 'BUY', serviceItemId: await svcId('FSC'), buyAmount: '1' },
-        'serviceItemId',
-        'service_item_not_field',
-      ],
-      [
-        { side: 'BUY', serviceItemId: await svcId('FREIGHT'), buyAmount: '1' },
-        'serviceItemId',
-        'service_item_not_field',
-      ],
-      [
-        { side: 'BUY', serviceItemId: `svc_${'0'.repeat(32)}`, buyAmount: '1' },
-        'serviceItemId',
-        'service_item_not_found',
+        { side: 'BUY', serviceItemId: wait, costAmount: '0', evidenceDocumentId: doc },
+        'costAmount',
+        'out_of_range',
       ],
     ];
     for (const [body, field, code] of bad) {
@@ -397,23 +451,55 @@ describe('field charges (ST4-T13)', () => {
         expect.objectContaining({ field, code }),
       );
     }
+    const ref: [object, string, string][] = [
+      [
+        { side: 'SELL', serviceItemId: wait, deliveryOrderId: t2.doId, sellUnitPrice: '1' },
+        'deliveryOrderId',
+        'invalid_reference',
+      ],
+      [
+        { side: 'BUY', serviceItemId: await svcId('FSC'), costAmount: '1' },
+        'serviceItemId',
+        'service_item_not_field',
+      ],
+      [
+        { side: 'BUY', serviceItemId: await svcId('FREIGHT'), costAmount: '1' },
+        'serviceItemId',
+        'service_item_not_field',
+      ],
+      [
+        { side: 'BUY', serviceItemId: `svc_${'0'.repeat(32)}`, costAmount: '1' },
+        'serviceItemId',
+        'service_item_not_found',
+      ],
+    ];
+    for (const [body, field, code] of ref) {
+      const r = await api(app, admin)
+        .post(t.url)
+        .send(await withReceipt(body as never))
+        .expect(422);
+      expect(r.body.errors, JSON.stringify(body)).toContainEqual(
+        expect.objectContaining({ field, code }),
+      );
+    }
     for (const body of [
       { side: 'SELL', serviceItemId: wait, deliveryOrderId: t.doId, sellUnitPrice: '1.234' },
       { side: 'X', serviceItemId: wait },
-      { side: 'BUY', serviceItemId: wait, buyAmount: '-5' },
+      { side: 'BUY', serviceItemId: wait, costAmount: '-5' },
     ])
       await api(app, admin).post(t.url).send(body).expect(422);
-    // ฝั่งของรายการ: รายการขายอย่างเดียวใช้ฝั่งซื้อ/ทั้งคู่ไม่ได้
     await db.serviceItem.updateMany({ where: { tenantId, code: 'LOAD' }, data: { side: 'SELL' } });
     const side = await api(app, admin)
       .post(t.url)
-      .send({
-        side: 'BOTH',
-        serviceItemId: await svcId('LOAD'),
-        deliveryOrderId: t.doId,
-        sellUnitPrice: '1',
-        buyAmount: '1',
-      })
+      .send(
+        await withReceipt({
+          side: 'BOTH',
+          serviceItemId: await svcId('LOAD'),
+          deliveryOrderId: t.doId,
+          sellUnitPrice: '1',
+          costAmount: '1',
+        }),
+      )
       .expect(422);
     expect(side.body.errors[0]).toMatchObject({
       field: 'serviceItemId',
@@ -421,107 +507,215 @@ describe('field charges (ST4-T13)', () => {
     });
     expect(await db.doSurcharge.count({ where: { tripId: t.trip.id } })).toBe(0);
     expect(await db.tripCost.count({ where: { tripId: t.trip.id } })).toBe(0);
+    // ฐาน: บรรทัดหน้างานยอด 0 ไม่ได้ (CHECK)
+    await expect(
+      db.tripCost.create({
+        data: {
+          tenantId,
+          tripId: t.trip.id,
+          costType: 'TOLL',
+          amount: '0',
+          source: 'MANUAL',
+          sourceType: 'FIELD',
+        },
+      }),
+    ).rejects.toThrow(/trip_cost_field_amount_check/);
   });
 
-  it('สถานะ: เที่ยวยังไม่ปล่อยรถ / คิดต้นทุนแล้ว → 409 · DO วางบิลแล้ว → 409', async () => {
+  it('สถานะ: บันทึกได้เฉพาะเที่ยวที่ปล่อยแล้ว · ยืนยันไม่ได้เมื่อ DO วางบิลแล้ว / เที่ยวคิดต้นทุนแล้ว (409)', async () => {
     const wait = await svcId('WAIT');
     for (const st of ['PLANNING', 'COSTED'] as const) {
       const t = await trip(st);
       const r = await api(app, admin)
         .post(t.url)
-        .send({ side: 'BUY', serviceItemId: wait, buyAmount: '100' })
+        .send(await withReceipt({ side: 'BUY', serviceItemId: wait, costAmount: '100' }))
         .expect(409);
       expect(r.body).toMatchObject({ code: 'invalid_state_transition', tripStatus: st });
     }
-    const t = await trip('COMPLETED', { doStatus: 'BILLED' });
+    const billed = await trip('COMPLETED', { doStatus: 'BILLED' });
     const r = await api(app, admin)
-      .post(t.url)
-      .send({ side: 'SELL', serviceItemId: wait, deliveryOrderId: t.doId, sellUnitPrice: '100' })
+      .post(billed.url)
+      .send(
+        await withReceipt({
+          side: 'SELL',
+          serviceItemId: wait,
+          deliveryOrderId: billed.doId,
+          sellUnitPrice: '100',
+        }),
+      )
       .expect(409);
     expect(r.body).toMatchObject({ code: 'invalid_state_transition', doStatus: 'BILLED' });
+
+    // บันทึกแล้ว → DO ถูกวางบิล / เที่ยวคิดต้นทุน → ยืนยันไม่ได้ (ปฏิเสธยังได้)
+    const t = await trip('COMPLETED');
+    const [s, b] = (
+      await api(app, admin)
+        .post(t.url)
+        .send(
+          await withReceipt({
+            side: 'BOTH',
+            serviceItemId: wait,
+            deliveryOrderId: t.doId,
+            sellUnitPrice: '100',
+            costAmount: '80',
+          }),
+        )
+        .expect(201)
+    ).body.data.sort((x: { side: string }, y: { side: string }) => (x.side > y.side ? -1 : 1));
+    await db.deliveryOrder.update({ where: { id: t.do.id }, data: { status: 'BILLED' } });
+    const c1 = await api(app, await as('invoicer'))
+      .post(`${D(s)}/confirm`)
+      .send({ reason: REASON })
+      .expect(409);
+    expect(c1.body).toMatchObject({ doStatus: 'BILLED' });
+    await db.trip.update({ where: { id: t.trip.id }, data: { status: 'COSTED' } });
+    const c2 = await api(app, await as('approver'))
+      .post(`${D(b)}/confirm`)
+      .send({ reason: REASON })
+      .expect(409);
+    expect(c2.body).toMatchObject({ tripStatus: 'COSTED' });
+    await api(app, await as('approver'))
+      .post(`${D(b)}/reject`)
+      .send({ reason: 'เที่ยวปิดต้นทุนแล้ว ไม่จ่ายเพิ่ม' })
+      .expect(200);
   });
 
-  it('สิทธิ์: บันทึกต้องมีสิทธิ์แก้ราคาฝั่งนั้น · ยืนยัน/ปฏิเสธ = ผู้วางบิล · ราคาถูกตัดตามสิทธิ์ดู', async () => {
+  it('สิทธิ์: ขายต้องแก้ราคาขายได้ · ซื้อ = แก้ราคาซื้อ หรือผู้จ่ายงาน · ยืนยันโดยผู้อื่น · ราคาถูกตัดตามสิทธิ์ดู', async () => {
     const t = await trip();
     const wait = await svcId('WAIT');
-    const sellBody = {
-      side: 'SELL',
-      serviceItemId: wait,
-      deliveryOrderId: t.doId,
-      sellUnitPrice: '500',
-    };
-    const buyBody = { side: 'BUY', serviceItemId: wait, buyAmount: '200' };
-    // dispatcher: ไม่เห็น/แก้ราคาขาย และแก้ราคาซื้อไม่ได้ (A3) → 403 ทั้งสองฝั่ง
+    const sellBody = () =>
+      withReceipt({
+        side: 'SELL',
+        serviceItemId: wait,
+        deliveryOrderId: t.doId,
+        sellUnitPrice: '500',
+      });
+    const buyBody = () => withReceipt({ side: 'BUY', serviceItemId: wait, costAmount: '200' });
+    // dispatcher: ฝั่งขายไม่ได้ (ไม่มี prices.sell:write) · ฝั่งซื้อได้ (trips:dispatch + prices.buy:read) · BOTH ไม่ได้
     const disp = await as('dispatcher');
-    await api(app, disp).post(t.url).send(sellBody).expect(403);
-    await api(app, disp).post(t.url).send(buyBody).expect(403);
-    // planner: แก้ราคาซื้อได้ ราคาขายไม่ได้
-    const planner = await as('planner');
-    await api(app, planner).post(t.url).send(sellBody).expect(403);
-    const b = (await api(app, planner).post(t.url).send(buyBody).expect(201)).body.data[0];
-    // invoicer: บันทึกฝั่งขายได้
-    const inv = await as('invoicer');
-    const s = (await api(app, inv).post(t.url).send(sellBody).expect(201)).body.data[0];
-    // viewer: เห็นรายการแต่ไม่เห็นยอด
+    await api(app, disp)
+      .post(t.url)
+      .send(await sellBody())
+      .expect(403);
+    await api(app, disp)
+      .post(t.url)
+      .send({ ...(await sellBody()), side: 'BOTH', costAmount: '1' })
+      .expect(403);
+    const b = (
+      await api(app, disp)
+        .post(t.url)
+        .send(await buyBody())
+        .expect(201)
+    ).body.data[0];
+    expect(b.createdBy).toBe('user-dispatcher');
+    // viewer: ฝั่งซื้อไม่ได้
     const viewer = await as('viewer');
+    await api(app, viewer)
+      .post(t.url)
+      .send(await buyBody())
+      .expect(403);
+    // planner: ราคาขายไม่ได้
+    const planner = await as('planner');
+    await api(app, planner)
+      .post(t.url)
+      .send(await sellBody())
+      .expect(403);
+    // invoicer: บันทึกฝั่งขายได้ แต่ยืนยันของตัวเองไม่ได้
+    const inv = await as('invoicer');
+    const s = (
+      await api(app, inv)
+        .post(t.url)
+        .send(await sellBody())
+        .expect(201)
+    ).body.data[0];
+    const self = await api(app, inv)
+      .post(`${D(s)}/reject`)
+      .send({ reason: REASON })
+      .expect(403);
+    expect(self.body.code).toBe('self_approval_forbidden');
+    // viewer เห็นรายการแต่ไม่เห็นยอด · dispatcher เห็นราคาซื้อ ไม่เห็นราคาขาย
     const v = await api(app, viewer).get(t.url).expect(200);
     expect(v.body.data).toHaveLength(2);
     for (const x of v.body.data) {
       expect(x.sellAmount).toBeUndefined();
-      expect(x.sellUnitPrice).toBeUndefined();
       expect(x.buyAmount).toBeUndefined();
     }
-    // dispatcher เห็นราคาซื้อ ไม่เห็นราคาขาย
     const dv = (await api(app, disp).get(t.url).expect(200)).body.data;
     expect(dv.find((x: { side: string }) => x.side === 'BUY').buyAmount).toBe('200.00');
     expect(dv.find((x: { side: string }) => x.side === 'SELL').sellAmount).toBeUndefined();
-    // ยืนยัน: dispatcher / planner / viewer ไม่ได้
+    // ยืนยันฝั่งขาย: dispatcher / planner / viewer ไม่ได้ · accounting ได้
     for (const tok of [disp, planner, viewer])
       await api(app, tok)
-        .post(`/v1/do-surcharges/${s.id}/confirm`)
+        .post(`${D(s)}/confirm`)
         .send({ reason: REASON })
         .expect(403);
-    // ยกเลิก: invoicer ยกเลิกฝั่งซื้อไม่ได้ (ไม่มี prices.buy:write) · planner ยกเลิกได้
+    await api(app, await as('accounting'))
+      .post(`${D(s)}/confirm`)
+      .send({ reason: REASON })
+      .expect(200);
+    // ยืนยันฝั่งซื้อ: ผู้บันทึก (dispatcher) ไม่มีสิทธิ์อยู่แล้ว · ผู้จัดการ (settlements:approve) ได้
+    await api(app, disp)
+      .post(`${D(b)}/confirm`)
+      .send({ reason: REASON })
+      .expect(403);
+    // ยกเลิก: invoicer ยกเลิกฝั่งซื้อไม่ได้ · ผู้จ่ายงานยกเลิกของที่บันทึกได้
+    const b2 = (
+      await api(app, disp)
+        .post(t.url)
+        .send(await buyBody())
+        .expect(201)
+    ).body.data[0];
     await api(app, inv)
-      .post(`/v1/trip-costs/${b.id}/cancel`)
+      .post(`${D(b2)}/cancel`)
       .send({ reason: 'บันทึกผิดเที่ยว ขอยกเลิก' })
       .expect(403);
-    const c = await api(app, planner)
-      .post(`/v1/trip-costs/${b.id}/cancel`)
+    const c = await api(app, disp)
+      .post(`${D(b2)}/cancel`)
       .send({ reason: 'บันทึกผิดเที่ยว ขอยกเลิก' })
       .expect(200);
-    expect(c.body).toMatchObject({ status: 'CANCELLED', decidedBy: 'user-planner' });
-    // ยกเลิกแล้วยืนยันไม่ได้
-    await api(app, inv).post(`/v1/trip-costs/${b.id}/confirm`).send({ reason: REASON }).expect(409);
+    expect(c.body).toMatchObject({ status: 'CANCELLED', decidedBy: 'user-dispatcher' });
+    const ok = await api(app, await as('manager'))
+      .post(`${D(b)}/confirm`)
+      .send({ reason: REASON })
+      .expect(200);
+    expect(ok.body).toMatchObject({ status: 'CONFIRMED', decidedBy: 'user-manager' });
   });
 
-  it('การตัดสิน: เหตุผล ≥ 10 ตัวอักษร · If-Match ไม่ตรง → 412 · บรรทัดระบบ (CARRIER_FEE) ไม่อยู่ในเส้นทางนี้ → 404', async () => {
+  it('การตัดสิน: เหตุผล 10–500 (error เดียวต่อช่อง) · If-Match ไม่ตรง → 412 · บรรทัดระบบ (CARRIER_FEE) ไม่อยู่ในเส้นทางนี้ → 404', async () => {
     const t = await trip();
     const s = (
       await api(app, admin)
         .post(t.url)
-        .send({
-          side: 'SELL',
-          serviceItemId: await svcId('WAIT'),
-          deliveryOrderId: t.doId,
-          sellUnitPrice: '100',
-        })
+        .send(
+          await withReceipt({
+            side: 'SELL',
+            serviceItemId: await svcId('WAIT'),
+            deliveryOrderId: t.doId,
+            sellUnitPrice: '100',
+          }),
+        )
         .expect(201)
     ).body.data[0];
-    await api(app, admin)
-      .post(`/v1/do-surcharges/${s.id}/reject`)
+    const inv = await as('invoicer');
+    await api(app, inv)
+      .post(`${D(s)}/reject`)
       .send({ reason: 'สั้น' })
       .expect(422);
-    await api(app, admin).post(`/v1/do-surcharges/${s.id}/reject`).send({}).expect(422);
-    await api(app, admin)
-      .post(`/v1/do-surcharges/${s.id}/reject`)
+    const empty = await api(app, inv)
+      .post(`${D(s)}/reject`)
+      .send({})
+      .expect(422);
+    expect(empty.body.errors).toEqual([
+      expect.objectContaining({ field: 'reason', code: 'reason' }),
+    ]);
+    await api(app, inv)
+      .post(`${D(s)}/reject`)
       .set('If-Match', '"7"')
       .send({ reason: REASON })
       .expect(412);
     expect((await db.doSurcharge.findFirstOrThrow({ where: { tripId: t.trip.id } })).status).toBe(
       'PENDING_CONFIRM',
     );
-    // ค่าจ้างรถร่วม (บรรทัดระบบ) ยืนยัน/ยกเลิกผ่านเส้นทางนี้ไม่ได้
     const fee = await db.tripCost.create({
       data: {
         tenantId,
@@ -535,7 +729,6 @@ describe('field charges (ST4-T13)', () => {
       .post(`/v1/trip-costs/${encodeId('tripCost', fee.id)}/cancel`)
       .send({ reason: REASON })
       .expect(404);
-    // รายการเที่ยวไม่รวมบรรทัดระบบ
     expect((await api(app, admin).get(t.url).expect(200)).body.data).toHaveLength(1);
   });
 
@@ -545,7 +738,7 @@ describe('field charges (ST4-T13)', () => {
     const body = (doc: string) => ({
       side: 'BUY',
       serviceItemId: wait,
-      buyAmount: '50',
+      costAmount: '50',
       evidenceDocumentId: doc,
     });
     const doc = await receipt();
@@ -565,7 +758,6 @@ describe('field charges (ST4-T13)', () => {
       .send(body(await receipt(admin, 'POD_PHOTO')))
       .expect(422);
     expect(kind.body.errors[0].code).toBe('invalid_kind');
-    // ไฟล์ที่ผูกกับรายการอื่นอยู่แล้ว (เช่น หลักฐานส่งของ DO)
     const pod = await receipt();
     await db.storedDocument.update({
       where: { id: pod.replace(/^doc_/, '').replace(/^(.{8})(.{4})(.{4})(.{4})/, '$1-$2-$3-$4-') },
@@ -573,11 +765,9 @@ describe('field charges (ST4-T13)', () => {
     });
     const foreign = await api(app, admin).post(t.url).send(body(pod)).expect(422);
     expect(foreign.body.errors[0].code).toBe('document_in_use');
-    // ไฟล์ของบริษัทอื่น = ไม่พบ
     const otherDoc = await receipt(other);
     const nf = await api(app, admin).post(t.url).send(body(otherDoc)).expect(422);
     expect(nf.body.errors[0].code).toBe('not_found');
-    // สองคำขอแย่งไฟล์เดียวกันพร้อมกัน → ได้บรรทัดเดียว
     const race = await receipt();
     const rs = await Promise.all([
       api(app, admin).post(t.url).send(body(race)),
@@ -591,25 +781,36 @@ describe('field charges (ST4-T13)', () => {
     const s = (
       await api(app, admin)
         .post(t.url)
-        .send({ side: 'BUY', serviceItemId: await svcId('WAIT'), buyAmount: '10' })
+        .send(
+          await withReceipt({ side: 'BUY', serviceItemId: await svcId('WAIT'), costAmount: '10' }),
+        )
         .expect(201)
     ).body.data[0];
     await api(app, other).get(t.url).expect(404);
     await api(app, other)
       .post(t.url)
-      .send({ side: 'BUY', serviceItemId: await svcId('WAIT', otherId), buyAmount: '10' })
+      .send(
+        await withReceipt(
+          { side: 'BUY', serviceItemId: await svcId('WAIT', otherId), costAmount: '10' },
+          other,
+        ),
+      )
       .expect(404);
     await api(app, other)
-      .post(`/v1/trip-costs/${s.id}/confirm`)
+      .post(`${D(s)}/confirm`)
       .send({ reason: REASON })
       .expect(404);
-    // รายการบริการของบริษัทอื่น = ไม่พบ
     const r = await api(app, admin)
       .post(t.url)
-      .send({ side: 'BUY', serviceItemId: await svcId('WAIT', otherId), buyAmount: '10' })
+      .send(
+        await withReceipt({
+          side: 'BUY',
+          serviceItemId: await svcId('WAIT', otherId),
+          costAmount: '10',
+        }),
+      )
       .expect(422);
     expect(r.body.errors[0].code).toBe('service_item_not_found');
-    // tms_app ลบแถวไม่ได้
     await expect(
       appDb.$transaction(async (tx) => {
         await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;

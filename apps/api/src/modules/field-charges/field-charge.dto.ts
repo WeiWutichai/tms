@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsIn, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
+import { IsIn, IsOptional, IsString, Matches, MaxLength, ValidateBy } from 'class-validator';
 import { PriceField } from '../../common/price-fields';
 import { CleanText } from '../master/master-kit';
 
@@ -67,17 +67,17 @@ export class CreateFieldChargeDto {
   @ApiPropertyOptional({
     example: '180.00',
     description:
-      'ยอดต้นทุน (บาท ตามใบเสร็จ) — บังคับเมื่อ side = BUY/BOTH · ต้องมีสิทธิ์ `prices.buy:write` (เห็นเมื่อมี `prices.buy:read`)',
+      'ยอดต้นทุนฝั่งซื้อ (บาท ตามใบเสร็จ) — บังคับเมื่อ side = BUY/BOTH · ต้องมีสิทธิ์ `prices.buy:write` หรือ ' +
+      '`trips:dispatch` + `prices.buy:read` (ผู้จ่ายงานบันทึกหน้างาน — ยืนยันโดยผู้อื่น) · ตอบกลับเป็น `buyAmount`',
   })
   @IsOptional()
-  @Matches(MONEY, { message: 'buyAmount must be money (2 decimals)' })
-  @PriceField('buy')
-  buyAmount?: string;
+  @Matches(MONEY, { message: 'costAmount must be money (2 decimals)' })
+  costAmount?: string;
 
   @ApiPropertyOptional({
     example: 'doc_…',
     description:
-      'รูป/ไฟล์ใบเสร็จจาก POST /v1/documents (kind RECEIPT, อัปโหลดเสร็จแล้ว, ยังไม่ผูกกับรายการอื่น)',
+      'รูป/ไฟล์ใบเสร็จ (บังคับ — spec M15) จาก POST /v1/documents (kind RECEIPT, อัปโหลดเสร็จแล้ว, ยังไม่ผูกกับรายการอื่น) · ไม่ส่ง → 422 `evidence_required`',
   })
   @IsOptional()
   @IsString()
@@ -91,13 +91,21 @@ export class CreateFieldChargeDto {
   note?: string;
 }
 
+/** ข้อความเหตุผล 10–500 ตัวอักษร — error เดียวต่อช่อง (ไม่ปน minLength/maxLength/isString — QA ST4-T13) */
+const IsReason = () =>
+  ValidateBy({
+    name: 'reason',
+    validator: {
+      validate: (v: unknown) => typeof v === 'string' && v.length >= 10 && v.length <= 500,
+      defaultMessage: () => 'reason must be 10–500 characters',
+    },
+  });
+
 /** เหตุผลของการยืนยัน/ปฏิเสธ/ยกเลิก (CLAUDE.md: ทุกการยกเลิก/อนุมัติต้องมีเหตุผล) */
 export class FieldChargeReasonDto {
   @ApiProperty({ minLength: 10, maxLength: 500, example: 'ตรวจใบเสร็จแล้ว ตรงกับที่ตกลงกับลูกค้า' })
   @CleanText()
-  @IsString()
-  @MinLength(10)
-  @MaxLength(500)
+  @IsReason()
   reason!: string;
 }
 

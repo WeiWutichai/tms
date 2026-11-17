@@ -6,11 +6,17 @@ import type { TripDetail } from './useTrips';
 import type { FieldCharge } from './useFieldCharges';
 
 /** ST4-T13 แท็บค่าใช้จ่ายหน้างาน: แถวตามต้นแบบ, เพิ่มรายการ (ฝั่ง/รูป), สิทธิ์, ยืนยัน/ปฏิเสธ/ลบด้วยเหตุผล, ยอดรวม */
-const state: { lines: FieldCharge[]; scopes: string[] } = { lines: [], scopes: ['*'] };
+const state: { lines: FieldCharge[]; scopes: string[]; actorId: string } = {
+  lines: [],
+  scopes: ['*'],
+  actorId: 'usr_me',
+};
 const create = vi.fn();
 const decide = vi.fn();
 vi.mock('../../shell/AppShell', () => ({
-  useMe: () => ({ data: { scopes: state.scopes, tenant: { yearStyle: 'BE' } } }),
+  useMe: () => ({
+    data: { scopes: state.scopes, actorId: state.actorId, tenant: { yearStyle: 'BE' } },
+  }),
 }));
 vi.mock('./useFieldCharges', async (orig) => {
   const real = await orig<typeof import('./useFieldCharges')>();
@@ -127,7 +133,7 @@ describe('FieldChargesTab (ST4-T13)', () => {
     });
   });
 
-  it('ทั้งสองฝั่ง: รายการขายอย่างเดียวไม่อยู่ในตัวเลือก + ช่องต้นทุนแยก · ยอดผิดรูป → ข้อความเตือน ไม่ส่ง', () => {
+  it('ทั้งสองฝั่ง: รายการขายอย่างเดียวไม่อยู่ในตัวเลือก + ช่องต้นทุนแยก · ยอดผิดรูป/ไม่มีรูป → ข้อความเตือน ไม่ส่ง', async () => {
     show();
     fireEvent.click(screen.getByRole('button', { name: /เพิ่มรายการ/ }));
     const draft = screen.getByTestId('fc-draft');
@@ -147,12 +153,22 @@ describe('FieldChargesTab (ST4-T13)', () => {
       target: { value: '1200.5' },
     });
     fireEvent.click(within(draft).getByRole('button', { name: /บันทึกรายการ/ }));
+    // ยังไม่แนบรูป → ไม่ส่ง (รูปบังคับ)
+    fireEvent.click(within(draft).getByRole('button', { name: /บันทึกรายการ/ }));
+    expect(create).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert').textContent).toContain('แนบรูปใบเสร็จก่อนบันทึก');
+    fireEvent.change(within(draft).getByLabelText('อัปโหลดรูปใบเสร็จ'), {
+      target: { files: [new File(['x'], 'r.png', { type: 'image/png' })] },
+    });
+    await screen.findByText('r.png');
+    fireEvent.click(within(draft).getByRole('button', { name: /บันทึกรายการ/ }));
     expect(create.mock.calls[0]![0]).toEqual({
       side: 'BOTH',
       serviceItemId: 'svc_wait',
       deliveryOrderId: 'do_1',
       sellUnitPrice: '1500.00',
-      buyAmount: '1200.50',
+      costAmount: '1200.50',
+      evidenceDocumentId: 'doc_1',
     });
   });
 
@@ -226,6 +242,29 @@ describe('FieldChargesTab (ST4-T13)', () => {
     expect((within(row).getByLabelText('จำนวนเงิน (บาท)') as HTMLInputElement).value).toBe('—');
     // ลบ (ยกเลิก) ฝั่งขายต้องมีสิทธิ์แก้ราคาขาย
     expect(within(row).queryByRole('button', { name: 'ลบ' })).toBeNull();
+  });
+
+  it('maker-checker: บรรทัดที่ตัวเองบันทึก → ปุ่มยืนยัน/ปฏิเสธปิด + tooltip · ผู้จ่ายงานเพิ่มฝั่งซื้อได้ ไม่มีฝั่งขาย · ยืนยันฝั่งซื้อต้อง settlements:approve', () => {
+    state.lines = [line({ createdBy: 'usr_me' })];
+    const { unmount } = show();
+    const row = screen.getByTestId('fc-line');
+    expect(
+      (within(row).getByRole('button', { name: 'ยืนยัน' }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    expect(row.querySelector('[title="รายการที่คุณบันทึกเอง ต้องให้ผู้อื่นยืนยัน"]')).toBeTruthy();
+    unmount();
+    state.scopes = ['trips:read', 'trips:dispatch', 'prices.buy:read', 'invoices:draft'];
+    state.lines = [line({ id: 'tco_1', side: 'BUY', buyAmount: '180.00', createdBy: 'usr_x' })];
+    show();
+    // ยืนยันฝั่งซื้อไม่มี (ไม่มี settlements:approve)
+    expect(
+      within(screen.getByTestId('fc-line')).queryByRole('button', { name: 'ยืนยัน' }),
+    ).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /เพิ่มรายการ/ }));
+    const draft = screen.getByTestId('fc-draft');
+    // มีฝั่งเดียว (ต้นทุนเที่ยว) → ไม่มีตัวเลือกฝั่ง
+    expect(within(draft).queryByRole('button', { name: 'เก็บเงินลูกค้า' })).toBeNull();
+    expect(within(draft).getByLabelText('ต้นทุนตามใบเสร็จ (บาท)')).toBeTruthy();
   });
 
   it('ตัวช่วยเงิน: แปลงข้อความ → สตริง 2 ตำแหน่ง, รวมแบบสตางค์, ฝั่งของรายการ', () => {

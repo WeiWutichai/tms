@@ -84,6 +84,7 @@ const LINK: CSSProperties = {
   whiteSpace: 'nowrap',
   fontSize: 13,
 };
+const DISABLED: CSSProperties = { opacity: 0.45, cursor: 'not-allowed' };
 const LABEL: CSSProperties = { fontSize: 12.5, fontWeight: 500, color: '#3B424C' };
 const META: CSSProperties = {
   display: 'flex',
@@ -132,10 +133,18 @@ export function FieldChargesTab({
   const me = useMe();
   const scopes = me.data?.scopes ?? [];
   const canSell = can(scopes, 'prices.sell:write');
-  const canBuy = can(scopes, 'prices.buy:write');
+  // ฝั่งซื้อ: แก้ราคาซื้อ หรือผู้จ่ายงานที่เห็นราคาซื้อ (ตรงกับ API — ยืนยันโดยผู้อื่น)
+  const canBuy =
+    can(scopes, 'prices.buy:write') ||
+    (can(scopes, 'trips:dispatch') && can(scopes, 'prices.buy:read'));
   const seeSell = can(scopes, 'prices.sell:read');
   const seeBuy = can(scopes, 'prices.buy:read');
-  const canDecide = can(scopes, 'invoices:draft');
+  /** ยืนยัน/ปฏิเสธ: ฝั่งขาย ผู้วางบิล · ฝั่งซื้อ ผู้อนุมัติ settlement (docs/04 A3) */
+  const canDecide = (l: FieldCharge) =>
+    can(scopes, l.side === 'SELL' ? 'invoices:draft' : 'settlements:approve');
+  const me_ = me.data?.actorId ?? null;
+  /** maker-checker: ผู้บันทึกยืนยัน/ปฏิเสธของตัวเองไม่ได้ */
+  const own = (l: FieldCharge) => !!me_ && l.createdBy === me_;
   const dos = trip.deliveryOrders.filter((d) => d.status !== 'CANCELLED' && d.status !== 'BILLED');
   const open = FIELD_CHARGE_TRIP.has(trip.status);
   const sides: FieldChargeSide[] = [
@@ -217,12 +226,13 @@ export function FieldChargesTab({
     if (!draft.itemId) return setErr(t('fc.err.item'));
     if (!main || (buy && !cost) || main === '0.00' || cost === '0.00')
       return setErr(t('fc.err.amount'));
+    if (!draft.docId) return setErr(t('fc.err.receipt'));
     const body: FieldChargeBody = {
       side: draft.side,
       serviceItemId: draft.itemId,
       ...(sell ? { deliveryOrderId: draft.doId, sellUnitPrice: main } : {}),
-      ...(buy ? { buyAmount: cost! } : {}),
-      ...(draft.docId ? { evidenceDocumentId: draft.docId } : {}),
+      ...(buy ? { costAmount: cost! } : {}),
+      evidenceDocumentId: draft.docId,
     };
     setErr(null);
     create.mutate(body, {
@@ -321,11 +331,15 @@ export function FieldChargesTab({
                   at: dt(l.createdAt),
                 })}
               </span>
-              {l.status === 'PENDING_CONFIRM' && canDecide && (
-                <span style={{ display: 'inline-flex', gap: 12, marginLeft: 'auto' }}>
+              {l.status === 'PENDING_CONFIRM' && canDecide(l) && (
+                <span
+                  style={{ display: 'inline-flex', gap: 12, marginLeft: 'auto' }}
+                  title={own(l) ? t('fc.ownLine') : undefined}
+                >
                   <button
                     type="button"
-                    style={LINK}
+                    disabled={own(l)}
+                    style={{ ...LINK, ...(own(l) ? DISABLED : {}) }}
                     onClick={() => {
                       setAskErr(null);
                       setAsk({ line: l, action: 'confirm' });
@@ -335,7 +349,8 @@ export function FieldChargesTab({
                   </button>
                   <button
                     type="button"
-                    style={{ ...LINK, color: '#B3322A' }}
+                    disabled={own(l)}
+                    style={{ ...LINK, color: '#B3322A', ...(own(l) ? DISABLED : {}) }}
                     onClick={() => {
                       setAskErr(null);
                       setAsk({ line: l, action: 'reject' });
@@ -538,10 +553,12 @@ export function FieldChargesTab({
         <ReasonDialog
           open
           title={t(`fc.dlg.${ask.action}.title` as MessageKey)}
-          description={t('fc.dlg.desc', {
-            item: ask.line.description,
-            amount: amountOf(ask.line) ? t('fc.baht', { v: fmtMoney(amountOf(ask.line)!) }) : '',
-          })}
+          description={
+            t('fc.dlg.desc', {
+              item: ask.line.description,
+              amount: amountOf(ask.line) ? t('fc.baht', { v: fmtMoney(amountOf(ask.line)!) }) : '',
+            }) + (ask.action === 'cancel' && ask.line.pairedId ? ` · ${t('fc.dlg.pairNote')}` : '')
+          }
           label={t('ord.dlg.reason')}
           placeholder={t(`fc.dlg.${ask.action}.ph` as MessageKey)}
           okLabel={t(`fc.dlg.${ask.action}.ok` as MessageKey)}

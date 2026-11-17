@@ -32,6 +32,22 @@ type SurchargeRow = DoSurcharge & {
 };
 type CostRow = TripCost & { evidenceDocument: StoredDocument | null };
 
+/** เที่ยวที่ปิดต้นทุน/จ่าย/ยกเลิกแล้ว — ยืนยันบรรทัดไม่ได้ (ST5/ST6 ต้องไม่ finalize/settle ขณะมีบรรทัดรอยืนยัน) */
+const CLOSED_TRIP = new Set(['COSTED', 'SETTLED', 'CANCELLED']);
+/** สิทธิ์บันทึก/ยกเลิกฝั่งซื้อ: `prices.buy:write` หรือ (`trips:dispatch` + `prices.buy:read`) */
+const BUY_RECORD_SCOPES = ['prices.buy:write', 'trips:dispatch+prices.buy:read'];
+export const canRecordBuy = (scopes: readonly string[]) =>
+  scopeAllows(scopes, 'prices.buy:write') ||
+  (scopeAllows(scopes, 'trips:dispatch') && scopeAllows(scopes, 'prices.buy:read'));
+const canCancel = (kind: Kind, scopes: readonly string[]) =>
+  kind === 'doSurcharge' ? scopeAllows(scopes, 'prices.sell:write') : canRecordBuy(scopes);
+const denied = (required: string[]) =>
+  new ProblemException('permission_denied', undefined, undefined, {
+    module: 'field-charges',
+    action: 'write',
+    required,
+  });
+
 const field422 = (field: string, code: string, message: string) =>
   new ProblemException('validation_failed', undefined, [{ field, code, message }]);
 
@@ -104,6 +120,11 @@ export class FieldChargesService {
 
     const sell = input.side !== 'BUY';
     const buy = input.side !== 'SELL';
+    // สิทธิ์ฝั่งซื้อ: แก้ราคาซื้อ หรือ ผู้จ่ายงานที่เห็นราคาซื้อ (บันทึกหน้างาน — ผู้อื่นยืนยัน: maker-checker)
+    // ฝั่งขาย: `prices.sell:write` (interceptor ราคาตรวจจาก `sellUnitPrice` อยู่แล้ว — ตรวจซ้ำที่นี่)
+    if (buy && !canRecordBuy(ctx.scopes ?? [])) throw denied(BUY_RECORD_SCOPES);
+    if (sell && !scopeAllows(ctx.scopes ?? [], 'prices.sell:write'))
+      throw denied(['prices.sell:write']);
     const errors: { field: string; code: string; message: string }[] = [];
     const need = (ok: boolean, field: string) => {
       if (!ok) errors.push({ field, code: 'required', message: `${field} is required` });
@@ -124,8 +145,15 @@ export class FieldChargesService {
       notFor(input.qty !== undefined, 'qty');
       notFor(input.deliveryOrderId !== undefined, 'deliveryOrderId');
     }
-    if (buy) need(input.buyAmount !== undefined, 'buyAmount');
-    else notFor(input.buyAmount !== undefined, 'buyAmount');
+    if (buy) need(input.costAmount !== undefined, 'costAmount');
+    else notFor(input.costAmount !== undefined, 'costAmount');
+    // รูปใบเสร็จบังคับทั้งสองฝั่ง (spec M15 "รูปใบเสร็จ (บังคับ)")
+    if (!input.evidenceDocumentId)
+      errors.push({
+        field: 'evidenceDocumentId',
+        code: 'evidence_required',
+        message: 'receipt photo is required',
+      });
 
     // จำนวน/ยอด (สตางค์ bigint — ไม่ใช้ float)
     const qty = input.qty ?? '1';
@@ -136,14 +164,24 @@ export class FieldChargesService {
       if (milli <= 0n)
         errors.push({ field: 'qty', code: 'out_of_range', message: 'qty must be > 0' });
       sellUnit = satangFromDecimal(input.sellUnitPrice);
+      if (sellUnit <= 0n)
+        errors.push({
+          field: 'sellUnitPrice',
+          code: 'out_of_range',
+          message: 'sellUnitPrice must be > 0',
+        });
       sellAmount = mulRateHalfUp(sellUnit, qty);
       if (sellAmount > MAX_SATANG)
         errors.push({ field: 'sellUnitPrice', code: 'too_large', message: 'amount is too large' });
     }
     const buyAmount =
-      buy && input.buyAmount !== undefined ? satangFromDecimal(input.buyAmount) : 0n;
-    if (buy && input.buyAmount !== undefined && buyAmount <= 0n)
-      errors.push({ field: 'buyAmount', code: 'out_of_range', message: 'buyAmount must be > 0' });
+      buy && input.costAmount !== undefined ? satangFromDecimal(input.costAmount) : 0n;
+    if (buy && input.costAmount !== undefined && buyAmount <= 0n)
+      errors.push({
+        field: 'costAmount',
+        code: 'out_of_range',
+        message: 'costAmount must be > 0',
+      });
     if (errors.length) throw new ProblemException('validation_failed', undefined, errors);
 
     // DO ในเที่ยวนี้
@@ -334,8 +372,10 @@ export class FieldChargesService {
   // ---------- decisions ----------
 
   /**
-   * ยืนยัน / ปฏิเสธ (ผู้วางบิล) / ยกเลิก (ผู้มีสิทธิ์แก้ราคาฝั่งนั้น) — เฉพาะบรรทัดที่รอยืนยัน · เหตุผลบังคับ + audit
-   * If-Match = version ของบรรทัด
+   * ยืนยัน / ปฏิเสธ / ยกเลิก — เฉพาะบรรทัดที่รอยืนยัน · เหตุผลบังคับ + audit · If-Match = version ของบรรทัด
+   * - ยืนยัน/ปฏิเสธ: ฝั่งขาย `invoices:draft` · ฝั่งซื้อ `settlements:approve` (controller) · ผู้บันทึกเองไม่ได้
+   *   (maker-checker → 403 `self_approval_forbidden`) · ยืนยันไม่ได้เมื่อ DO วางบิล/ยกเลิก หรือเที่ยวคิดต้นทุน/จ่าย/ยกเลิกแล้ว (409)
+   * - ยกเลิก: สิทธิ์บันทึกฝั่งนั้น · บรรทัดคู่ (BOTH) ที่ยังรอยืนยันถูกยกเลิกด้วยเหตุผลเดียวกัน (audit ทั้งคู่)
    */
   async decide(
     kind: Kind,
@@ -347,37 +387,99 @@ export class FieldChargesService {
   ): Promise<FieldChargeDto> {
     const tx = this.db.tx;
     const ctx = requestContext.require();
-    const table = kind === 'doSurcharge' ? 'do_surcharge' : 'trip_cost';
-    const [row] = await tx.$queryRawUnsafe<{ id: string; status: string; version: number }[]>(
-      `SELECT id::text AS id, status, version FROM ${table} WHERE id = $1::uuid FOR UPDATE`,
-      id,
-    );
-    // trip_cost ที่ไม่ใช่ค่าใช้จ่ายหน้างาน (เช่น CARRIER_FEE) ไม่มีในเส้นทางนี้ = 404
+    const row = await this.lockLine(kind, id);
     if (!row) throw new ProblemException('not_found');
-    if (kind === 'tripCost') {
-      const c = await tx.tripCost.findUniqueOrThrow({ where: { id } });
-      if (c.source !== 'MANUAL' || !['FIELD', 'DO_SURCHARGE'].includes(c.sourceType ?? ''))
-        throw new ProblemException('not_found');
-    }
-    if (action === 'cancel') {
-      // ยกเลิก = ผู้มีสิทธิ์แก้ราคาฝั่งนั้น (คนบันทึกได้สิทธิ์เดียวกัน)
-      const scope = kind === 'doSurcharge' ? 'prices.sell:write' : 'prices.buy:write';
-      if (!scopeAllows(ctx.scopes ?? [], scope))
-        throw new ProblemException('permission_denied', undefined, undefined, {
-          module: scope.split(':')[0],
-          action: 'write',
-          required: [scope],
-        });
-    }
+    const scopes = ctx.scopes ?? [];
+    if (action === 'cancel' && !canCancel(kind, scopes))
+      throw denied(kind === 'doSurcharge' ? ['prices.sell:write'] : BUY_RECORD_SCOPES);
     if (expected !== undefined && expected !== row.version)
       throw new ProblemException('precondition_failed');
     if (row.status !== 'PENDING_CONFIRM')
       throw new ProblemException('invalid_state_transition', undefined, undefined, {
         status: row.status,
       });
+    if (action !== 'cancel' && row.createdBy && row.createdBy === ctx.actorId)
+      throw new ProblemException('self_approval_forbidden');
+    if (action === 'confirm') {
+      const trip = row.tripId
+        ? await tx.trip.findUnique({ where: { id: row.tripId }, select: { status: true } })
+        : null;
+      if (trip && CLOSED_TRIP.has(trip.status))
+        throw new ProblemException('invalid_state_transition', undefined, undefined, {
+          tripStatus: trip.status,
+        });
+      if (kind === 'doSurcharge') {
+        const d = await tx.deliveryOrder.findUniqueOrThrow({
+          where: { id: row.deliveryOrderId! },
+          select: { status: true },
+        });
+        if (CLOSED_DO.has(d.status))
+          throw new ProblemException('invalid_state_transition', undefined, undefined, {
+            doStatus: d.status,
+          });
+      }
+    }
     const status: FieldChargeStatus =
       action === 'confirm' ? 'CONFIRMED' : action === 'reject' ? 'REJECTED' : 'CANCELLED';
-    const actor = ctx.actorId ?? 'unknown';
+    await this.apply(kind, id, row.status, status, reason);
+    // ยกเลิกบรรทัดคู่ (BOTH) ด้วย — ยืนยัน/ปฏิเสธยังแยกฝั่ง
+    if (action === 'cancel' && row.pairKind && row.pairId) {
+      if (!canCancel(row.pairKind, scopes))
+        throw denied(row.pairKind === 'doSurcharge' ? ['prices.sell:write'] : BUY_RECORD_SCOPES);
+      const pair = await this.lockLine(row.pairKind, row.pairId);
+      if (pair?.status === 'PENDING_CONFIRM')
+        await this.apply(row.pairKind, row.pairId, pair.status, 'CANCELLED', reason);
+    }
+    return this.one(kind, id, origin);
+  }
+
+  /** ล็อกบรรทัด (FOR UPDATE) — trip_cost ที่ไม่ใช่ค่าใช้จ่ายหน้างาน (เช่น CARRIER_FEE) = ไม่พบ */
+  private async lockLine(kind: Kind, id: string) {
+    const tx = this.db.tx;
+    const table = kind === 'doSurcharge' ? 'do_surcharge' : 'trip_cost';
+    const [r] = await tx.$queryRawUnsafe<{ id: string }[]>(
+      `SELECT id::text AS id FROM ${table} WHERE id = $1::uuid FOR UPDATE`,
+      id,
+    );
+    if (!r) return null;
+    if (kind === 'doSurcharge') {
+      const x = await tx.doSurcharge.findUniqueOrThrow({
+        where: { id },
+        include: { tripCosts: { select: { id: true } } },
+      });
+      return {
+        status: x.status,
+        version: x.version,
+        createdBy: x.createdBy,
+        tripId: x.tripId,
+        deliveryOrderId: x.deliveryOrderId as string | null,
+        pairKind: 'tripCost' as Kind,
+        pairId: x.tripCosts[0]?.id ?? null,
+      };
+    }
+    const c = await tx.tripCost.findUniqueOrThrow({ where: { id } });
+    if (c.source !== 'MANUAL' || !['FIELD', 'DO_SURCHARGE'].includes(c.sourceType ?? ''))
+      return null;
+    return {
+      status: c.status,
+      version: c.version,
+      createdBy: c.createdBy,
+      tripId: c.tripId as string | null,
+      deliveryOrderId: null as string | null,
+      pairKind: 'doSurcharge' as Kind,
+      pairId: c.doSurchargeId,
+    };
+  }
+
+  private async apply(
+    kind: Kind,
+    id: string,
+    before: string,
+    status: FieldChargeStatus,
+    reason: string,
+  ) {
+    const tx = this.db.tx;
+    const actor = requestContext.require().actorId ?? 'unknown';
     const data = {
       status,
       decidedBy: actor,
@@ -392,15 +494,16 @@ export class FieldChargesService {
       });
     else await tx.tripCost.update({ where: { id }, data });
     const entity = kind === 'doSurcharge' ? SELL_ENTITY : BUY_ENTITY;
+    const verb =
+      status === 'CONFIRMED' ? 'confirmed' : status === 'REJECTED' ? 'rejected' : 'cancelled';
     await this.audit.record({
-      action: `${entity}.${status === 'CONFIRMED' ? 'confirmed' : status === 'REJECTED' ? 'rejected' : 'cancelled'}`,
+      action: `${entity}.${verb}`,
       entityType: entity,
       entityId: id,
-      before: { status: row.status },
+      before: { status: before },
       after: { status },
       reason,
     });
-    return this.one(kind, id, origin);
   }
 
   private async one(kind: Kind, id: string, origin: string): Promise<FieldChargeDto> {

@@ -25,7 +25,8 @@ import { FieldChargesService } from './field-charges.service';
 /**
  * ค่าใช้จ่ายหน้างานของเที่ยว (ST4-T13; docs/04 E2, docs/01 §3.3 `do_surcharge` / `trip_cost`)
  * อ่าน `trips:read` (ยอดตัดตามสิทธิ์ราคา `prices.sell:read` / `prices.buy:read`)
- * บันทึก `trips:read` + สิทธิ์แก้ราคาฝั่งนั้น (`prices.sell:write` / `prices.buy:write` — interceptor ราคาตรวจจาก field ใน body)
+ * บันทึก: ฝั่งขาย `prices.sell:write` · ฝั่งซื้อ `prices.buy:write` หรือ `trips:dispatch` + `prices.buy:read` (ตรวจใน service)
+ * ยืนยัน/ปฏิเสธ: ฝั่งขาย `invoices:draft` · ฝั่งซื้อ `settlements:approve` · ผู้บันทึกเองไม่ได้ (403 `self_approval_forbidden`)
  */
 @ApiTags('trips')
 @ApiBearerAuth()
@@ -73,7 +74,10 @@ export class DoSurchargesController {
   @HttpCode(200)
   @TenantResource('doSurcharge')
   @RequireScope('invoices:draft')
-  @ApiOperation({ summary: 'ยืนยันค่าใช้จ่ายหน้างานฝั่งขาย (ผู้วางบิล) — เหตุผล ≥ 10 ตัวอักษร' })
+  @ApiOperation({
+    summary:
+      'ยืนยันค่าใช้จ่ายหน้างานฝั่งขาย (ผู้วางบิล · ผู้บันทึกเองไม่ได้) — เหตุผล ≥ 10 ตัวอักษร',
+  })
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag (version) — ไม่ตรง → 412' })
   @ApiProblems(T403('invoices:draft'), T404, T409('invalid_state_transition'), T412, T422)
   @ApiOkResponse({ type: FieldChargeDto })
@@ -90,7 +94,10 @@ export class DoSurchargesController {
   @HttpCode(200)
   @TenantResource('doSurcharge')
   @RequireScope('invoices:draft')
-  @ApiOperation({ summary: 'ปฏิเสธค่าใช้จ่ายหน้างานฝั่งขาย (ผู้วางบิล) — เหตุผล ≥ 10 ตัวอักษร' })
+  @ApiOperation({
+    summary:
+      'ปฏิเสธค่าใช้จ่ายหน้างานฝั่งขาย (ผู้วางบิล · ผู้บันทึกเองไม่ได้) — เหตุผล ≥ 10 ตัวอักษร',
+  })
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag (version) — ไม่ตรง → 412' })
   @ApiProblems(T403('invoices:draft'), T404, T409('invalid_state_transition'), T412, T422)
   @ApiOkResponse({ type: FieldChargeDto })
@@ -152,10 +159,13 @@ export class TripCostsController {
   @Post(':id/confirm')
   @HttpCode(200)
   @TenantResource('tripCost')
-  @RequireScope('invoices:draft')
-  @ApiOperation({ summary: 'ยืนยันค่าใช้จ่ายหน้างานฝั่งซื้อ (ผู้วางบิล) — เหตุผล ≥ 10 ตัวอักษร' })
+  @RequireScope('settlements:approve')
+  @ApiOperation({
+    summary:
+      'ยืนยันค่าใช้จ่ายหน้างานฝั่งซื้อ (ผู้อนุมัติ settlement — `settlements:approve` · ผู้บันทึกเองไม่ได้) — เหตุผล ≥ 10 ตัวอักษร',
+  })
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag (version) — ไม่ตรง → 412' })
-  @ApiProblems(T403('invoices:draft'), T404, T409('invalid_state_transition'), T412, T422)
+  @ApiProblems(T403('settlements:approve'), T404, T409('invalid_state_transition'), T412, T422)
   @ApiOkResponse({ type: FieldChargeDto })
   confirm(
     @Param('id') id: string,
@@ -169,10 +179,13 @@ export class TripCostsController {
   @Post(':id/reject')
   @HttpCode(200)
   @TenantResource('tripCost')
-  @RequireScope('invoices:draft')
-  @ApiOperation({ summary: 'ปฏิเสธค่าใช้จ่ายหน้างานฝั่งซื้อ (ผู้วางบิล) — เหตุผล ≥ 10 ตัวอักษร' })
+  @RequireScope('settlements:approve')
+  @ApiOperation({
+    summary:
+      'ปฏิเสธค่าใช้จ่ายหน้างานฝั่งซื้อ (ผู้อนุมัติ settlement — `settlements:approve` · ผู้บันทึกเองไม่ได้) — เหตุผล ≥ 10 ตัวอักษร',
+  })
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag (version) — ไม่ตรง → 412' })
-  @ApiProblems(T403('invoices:draft'), T404, T409('invalid_state_transition'), T412, T422)
+  @ApiProblems(T403('settlements:approve'), T404, T409('invalid_state_transition'), T412, T422)
   @ApiOkResponse({ type: FieldChargeDto })
   reject(
     @Param('id') id: string,
@@ -186,7 +199,7 @@ export class TripCostsController {
   @Post(':id/cancel')
   @HttpCode(200)
   @TenantResource('tripCost')
-  @RequireScope('prices.buy:write')
+  @RequireScope('prices.buy:write', 'trips:dispatch')
   @ApiOperation({
     summary: 'ยกเลิกค่าใช้จ่ายหน้างานฝั่งซื้อที่ยังรอยืนยัน — เหตุผล ≥ 10 ตัวอักษร',
   })

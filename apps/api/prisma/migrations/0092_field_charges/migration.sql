@@ -34,13 +34,17 @@ ALTER TABLE "do_surcharge"
   ADD CONSTRAINT "do_surcharge_decided_check" CHECK (
     "status" = 'PENDING_CONFIRM'
     OR ("decided_at" IS NOT NULL AND "decided_by" IS NOT NULL AND length(btrim("decision_reason")) >= 10)),
-  ADD CONSTRAINT "do_surcharge_amount_check" CHECK ("qty" > 0 AND "unit_price" >= 0 AND "amount" >= 0);
+  ADD CONSTRAINT "do_surcharge_amount_check" CHECK ("qty" > 0 AND "unit_price" >= 0 AND "amount" >= 0),
+  -- บรรทัดหน้างาน (มี trip_id — ST4-T13) ต้องมียอด > 0 (แถวก่อนหน้า trip_id ว่าง ไม่กระทบ)
+  ADD CONSTRAINT "do_surcharge_field_amount_check" CHECK ("trip_id" IS NULL OR ("unit_price" > 0 AND "amount" > 0));
 
 ALTER TABLE "trip_cost"
   ADD CONSTRAINT "trip_cost_status_check" CHECK ("status" IN ('PENDING_CONFIRM', 'CONFIRMED', 'REJECTED', 'CANCELLED')),
   ADD CONSTRAINT "trip_cost_decided_check" CHECK (
     "status" NOT IN ('REJECTED', 'CANCELLED')
-    OR ("decided_at" IS NOT NULL AND "decided_by" IS NOT NULL AND length(btrim("decision_reason")) >= 10));
+    OR ("decided_at" IS NOT NULL AND "decided_by" IS NOT NULL AND length(btrim("decision_reason")) >= 10)),
+  -- ค่าใช้จ่ายหน้างานฝั่งซื้อต้องมียอด > 0 (บรรทัดกลับรายการ CARRIER_FEE ติดลบได้เหมือนเดิม — source_type อื่น)
+  ADD CONSTRAINT "trip_cost_field_amount_check" CHECK ("source_type" IS NULL OR "source_type" NOT IN ('FIELD', 'DO_SURCHARGE') OR "amount" > 0);
 
 -- ที่มาของบรรทัด (0076): เพิ่ม FIELD (บันทึกหน้างาน ไม่มี source_id) และ DO_SURCHARGE (คู่กับบรรทัดฝั่งขาย)
 ALTER TABLE "trip_cost" DROP CONSTRAINT "trip_cost_source_ref";
@@ -57,8 +61,16 @@ CREATE INDEX "do_surcharge_tenant_id_trip_id_idx" ON "do_surcharge"("tenant_id",
 CREATE INDEX "do_surcharge_tenant_id_status_idx" ON "do_surcharge"("tenant_id", "status");
 CREATE INDEX "trip_cost_tenant_id_do_surcharge_id_idx" ON "trip_cost"("tenant_id", "do_surcharge_id");
 
--- AddForeignKey
-ALTER TABLE "do_surcharge" ADD CONSTRAINT "do_surcharge_delivery_order_id_fkey" FOREIGN KEY ("delivery_order_id") REFERENCES "delivery_order"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+-- AddForeignKey — do_surcharge.delivery_order_id ไม่มี FK ตั้งแต่ schema v0: ตรวจแถวกำพร้าก่อน (ไม่ลบข้อมูล — แจ้งชัด ๆ ให้แก้ด้วยมือ)
+DO $$ DECLARE n int; BEGIN
+  SELECT count(*) INTO n FROM do_surcharge s
+   WHERE NOT EXISTS (SELECT 1 FROM delivery_order d WHERE d.id = s.delivery_order_id);
+  IF n > 0 THEN
+    RAISE EXCEPTION 'migration 0092_field_charges: do_surcharge มี % แถวที่ delivery_order_id ไม่มีใบส่งของจริง — แก้/ย้ายแถวเหล่านี้ก่อน migrate', n;
+  END IF;
+END $$;
+ALTER TABLE "do_surcharge" ADD CONSTRAINT "do_surcharge_delivery_order_id_fkey" FOREIGN KEY ("delivery_order_id") REFERENCES "delivery_order"("id") ON DELETE RESTRICT ON UPDATE CASCADE NOT VALID;
+ALTER TABLE "do_surcharge" VALIDATE CONSTRAINT "do_surcharge_delivery_order_id_fkey";
 ALTER TABLE "do_surcharge" ADD CONSTRAINT "do_surcharge_trip_id_fkey" FOREIGN KEY ("trip_id") REFERENCES "trip"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 ALTER TABLE "do_surcharge" ADD CONSTRAINT "do_surcharge_evidence_document_id_fkey" FOREIGN KEY ("evidence_document_id") REFERENCES "stored_document"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 ALTER TABLE "trip_cost" ADD CONSTRAINT "trip_cost_do_surcharge_id_fkey" FOREIGN KEY ("do_surcharge_id") REFERENCES "do_surcharge"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
