@@ -6,6 +6,7 @@ import { JobQueue } from './jobs/job-queue.service';
 import { EmailDispatcher } from './modules/email/email.service';
 import { MessageDispatcher } from './modules/messaging/message-dispatcher';
 import { OutboxDispatcher } from './modules/integration/outbox.dispatcher';
+import { OutboxWorkerPool } from './modules/integration/outbox-worker';
 import { purgeAuthData } from './auth/maintenance';
 import { PrismaService } from './db/prisma.service';
 import { ExpiryReminderService } from './modules/reminders/expiry-reminder.service';
@@ -29,9 +30,22 @@ async function main() {
   const messages = ctx.get(MessageDispatcher);
   // ST7-T03 integration outbox (webhook ST7-T04 / ERP push ST7-T16 เสียบเป็น sink)
   const outbox = ctx.get(OutboxDispatcher);
+  // ST7-T03 outbox ลูปแยก (sink ช้าไม่ขวางอีเมล/job) — ส่งพร้อมกัน OUTBOX_CONCURRENCY (ค่าเริ่ม 4)
+  const outboxPool = new OutboxWorkerPool(outbox, {
+    concurrency: Number(process.env.OUTBOX_CONCURRENCY) || 4,
+  });
+  outboxPool.start();
   let stopping = false;
-  process.on('SIGTERM', () => (stopping = true));
-  process.on('SIGINT', () => (stopping = true));
+  // SIGTERM: หยุดหยิบ outbox ทันที → รอคำสั่งที่กำลังส่งไม่เกิน OUTBOX_SHUTDOWN_GRACE_MS (ค่าเริ่ม 8 วิ) → คืนที่ค้างเป็น PENDING
+  let outboxStopped: Promise<number> | undefined;
+  const shutdown = () => {
+    stopping = true;
+    outboxStopped ??= outboxPool
+      .stop(Number(process.env.OUTBOX_SHUTDOWN_GRACE_MS) || 8000)
+      .catch((e) => (log.error(e), 0));
+  };
+  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', shutdown);
   log.info('worker started');
   // งานบำรุงรักษารายวัน (ST1-T11 เก็บประวัติ login 1 ปี) — รันตอนเริ่มและทุก 24 ชม.
   const prisma = ctx.get(PrismaService);
@@ -74,14 +88,13 @@ async function main() {
       .stats()
       .then((s) => log.info({ outbox: s }, 'outbox stats'))
       .catch((e) => log.error(e));
+  void outboxStats(); // บรรทัดแรกตอนเริ่ม
   const outboxStatsTimer = setInterval(outboxStats, 5 * 60 * 1000);
   while (!stopping) {
     // ST1-T03: อีเมลใน outbox ส่งก่อน job (ลิงก์ลืมรหัสผ่านมีอายุ 30 นาที)
     const mailed = await mail.runOnce().catch((e) => (log.error(e), false));
     const sent = await messages.runOnce().catch((e) => (log.error(e), false));
-    const pushed = await outbox.runOnce().catch((e) => (log.error(e), false));
-    const worked =
-      (await queue.runOnce().catch((e) => (log.error(e), false))) || mailed || sent || pushed;
+    const worked = (await queue.runOnce().catch((e) => (log.error(e), false))) || mailed || sent;
     if (!worked) await new Promise((r) => setTimeout(r, 1000));
   }
   clearInterval(timer);
@@ -89,6 +102,9 @@ async function main() {
   clearInterval(depreciationTimer);
   clearInterval(offerTimeoutTimer);
   clearInterval(outboxStatsTimer);
+  shutdown();
+  const released = await outboxStopped!;
+  if (released) log.warn({ released }, 'outbox commands released on shutdown');
   await ctx.close();
 }
 

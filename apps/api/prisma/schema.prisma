@@ -2681,6 +2681,7 @@ model IntegrationSubscription {
 
 /// ST7-T03 คิวคำสั่งทุกอย่างที่ออกจาก core (docs/01 §3.7, §6.2) — worker หยิบด้วย FOR UPDATE SKIP LOCKED + lease
 /// เรียงต่อ serialize_key (ปลายทาง + ลูกค้า) · round-robin ต่อ tenant · ไม่มี hard delete
+/// role แอปสร้าง/อ่านได้อย่างเดียว (แก้สถานะโดย worker role platform — migration 0090) · index คิวที่ยังไม่จบเป็น partial index ใน SQL
 model IntegrationOutbox {
   id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   tenantId       String       @map("tenant_id") @db.Uuid
@@ -2717,7 +2718,6 @@ model IntegrationOutbox {
 
   @@unique([tenantId, idempotencyKey])
   @@index([status, nextRunAt])
-  @@index([tenantId, serializeKey, seq])
   @@index([tenantId, claimedAt])
   @@index([eventId])
   @@map("integration_outbox")

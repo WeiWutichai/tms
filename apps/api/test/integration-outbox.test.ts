@@ -7,6 +7,7 @@ import { DbService, type Tx } from '../src/db/db.service';
 import { PrismaService } from '../src/db/prisma.service';
 import { DemoSink } from '../src/modules/integration/demo-sink';
 import { OutboxDispatcher } from '../src/modules/integration/outbox.dispatcher';
+import { OutboxWorkerPool } from '../src/modules/integration/outbox-worker';
 import { OutboxService, eventMatches } from '../src/modules/integration/outbox.service';
 import { OutboxSinkRegistry } from '../src/modules/integration/outbox-sink.registry';
 import { OutboxSinkError, type OutboxDelivery } from '../src/modules/integration/outbox.types';
@@ -317,6 +318,7 @@ describe('integration outbox (ST7-T03)', () => {
         errorClass: 'AMBIGUOUS',
         lastError: { code: 'lease_expired' },
       });
+      expect(dead.doneAt).toBeInstanceOf(Date);
       expect(r1).toBeDefined();
     });
 
@@ -512,6 +514,108 @@ describe('integration outbox (ST7-T03)', () => {
       });
     });
 
+    it('sink กำหนด retry เอง (เช่น webhook 8 ครั้ง) → ครบตามของ sink ไม่ใช่ 7 ของแถว', async () => {
+      const t = (await createTenant(plat)).id;
+      await subscribe(t, ['*'], 'eight');
+      const s8 = Object.assign(new DemoSink(undefined, 'eight'), {
+        retry: { maxAttempts: 8, scheduleMin: [1] },
+      });
+      s8.fail = () => new Error('500');
+      registry.replace(s8);
+      await db.withTenant(t, (tx) => emit(tx, t, 'trip.updated'));
+      for (let i = 1; i <= 8; i++) {
+        await due();
+        await dispatcher.drain();
+        const [r] = await rows(t);
+        expect(r!.status).toBe(i < 8 ? 'FAILED_RETRYABLE' : 'FAILED_FINAL');
+      }
+      expect(s8.calls).toBe(8);
+    });
+
+    it('OutboxWorkerPool: sink ช้าไม่ขวางปลายทางอื่น + ส่งพร้อมกันต่อปลายทาง ≤ 3 ใน process เดียว', async () => {
+      const t = (await createTenant(plat)).id;
+      await subscribe(t, ['*'], 'slowpool');
+      await subscribe(t, ['customer.*'], 'demo');
+      let now = 0;
+      let peak = 0;
+      const slow = new DemoSink(undefined, 'slowpool');
+      const orig = slow.deliver.bind(slow);
+      slow.deliver = async (d) => {
+        peak = Math.max(peak, ++now);
+        await new Promise((r) => setTimeout(r, 400));
+        try {
+          return await orig(d);
+        } finally {
+          now--;
+        }
+      };
+      registry.replace(slow);
+      // 6 คำสั่ง trip (คีย์ต่างกัน) ไป slowpool + 1 คำสั่ง customer ไปทั้งคู่
+      await db.withTenant(t, async (tx) => {
+        for (let i = 0; i < 6; i++) await emit(tx, t, 'trip.updated');
+      });
+      const pool = new OutboxWorkerPool(dispatcher, { concurrency: 6, idleMs: 20 });
+      pool.start();
+      try {
+        await new Promise((r) => setTimeout(r, 150));
+        await db.withTenant(t, (tx) => emit(tx, t, 'customer.updated'));
+        // demo ได้ภายในเวลาที่ slowpool ยังส่งไม่หมด
+        const t0 = Date.now();
+        while (sink.received.size === 0 && Date.now() - t0 < 3000)
+          await new Promise((r) => setTimeout(r, 20));
+        expect(sink.received.size).toBe(1);
+        expect(slow.received.size).toBeLessThan(7);
+        while (slow.received.size < 7 && Date.now() - t0 < 10_000)
+          await new Promise((r) => setTimeout(r, 50));
+      } finally {
+        await pool.stop(2000);
+        registry.replace(sink);
+      }
+      expect(slow.received.size).toBe(7);
+      expect(peak).toBeLessThanOrEqual(3);
+      expect(peak).toBeGreaterThan(1);
+    });
+
+    it('SIGTERM: หยุดหยิบ รอไม่เกินเวลาผ่อนผัน แล้วคืนคำสั่งที่ค้างเป็น PENDING ให้หยิบได้ทันที (ไม่รอ lease หมด)', async () => {
+      const t = (await createTenant(plat)).id;
+      await subscribe(t, ['*'], 'stuck');
+      const stuck = new DemoSink(undefined, 'stuck');
+      let aborted = false;
+      stuck.deliver = (d) =>
+        new Promise((_, reject) =>
+          d.signal.addEventListener('abort', () => {
+            aborted = true;
+            reject(new Error('aborted'));
+          }),
+        );
+      registry.replace(stuck);
+      await db.withTenant(t, (tx) => emit(tx, t, 'trip.updated'));
+      const pool = new OutboxWorkerPool(dispatcher, { concurrency: 2, idleMs: 20 });
+      pool.start();
+      const t0 = Date.now();
+      while (pool.active === 0 && Date.now() - t0 < 3000)
+        await new Promise((r) => setTimeout(r, 20));
+      expect(pool.active).toBe(1);
+      const s0 = Date.now();
+      const released = await pool.stop(300);
+      expect(Date.now() - s0).toBeLessThan(2000);
+      expect(released).toBe(1);
+      expect(aborted).toBe(true);
+      const [r] = await rows(t);
+      expect(r).toMatchObject({
+        status: 'PENDING',
+        leaseId: null,
+        attempt: 1,
+        lastError: { code: 'worker_shutdown' },
+      });
+      // worker อื่นหยิบได้ทันที (key เดิม)
+      const ok = new DemoSink(undefined, 'stuck');
+      registry.replace(ok);
+      expect(await dispatcher.drain()).toBe(1);
+      expect(ok.received.size).toBe(1);
+      expect((await rows(t))[0]).toMatchObject({ status: 'DONE', attempt: 2 });
+    });
+
     it('stats(): นับตามสถานะ + อายุคิวค้าง', async () => {
       const s = await dispatcher.stats();
       expect(s.byStatus.DONE).toBeGreaterThan(0);
@@ -532,7 +636,7 @@ describe('integration outbox (ST7-T03)', () => {
       const seenB = await db.withTenant(b, async (tx) => ({
         outbox: await tx.integrationOutbox.count(),
         subs: await tx.integrationSubscription.count(),
-        upd: await tx.$executeRaw`UPDATE integration_outbox SET status = 'DONE'`,
+        upd: await tx.$executeRaw`UPDATE integration_subscription SET active = false`,
       }));
       expect(seenB).toEqual({ outbox: 0, subs: 0, upd: 0 });
       // B สร้าง subscription/คำสั่งให้ A ไม่ได้ (RLS WITH CHECK)
@@ -560,6 +664,34 @@ describe('integration outbox (ST7-T03)', () => {
         registry.replace(sink);
       }
       expect(visible).toBe(1); // เห็นคำสั่งของ A เท่านั้น
+    });
+
+    it('role แอปแก้สถานะ/ลบคำสั่ง และลบ subscription ไม่ได้ (worker role platform เท่านั้น) แต่ trigger/enqueue ยังสร้างได้', async () => {
+      const t = (await createTenant(plat)).id;
+      await subscribe(t, ['*']);
+      await db.withTenant(t, (tx) => emit(tx, t, 'trip.updated')); // trigger ใต้ tms_app
+      await db.withTenant(t, (tx) =>
+        outbox.enqueueCommand(tx, {
+          tenantId: t,
+          kind: 'ADAPTER',
+          sink: 'demo',
+          operation: 'PUSH_X',
+          entityType: 'invoice',
+          localId: randomUUID(),
+          payload: { a: 1 },
+        }),
+      );
+      expect(await plat.integrationOutbox.count({ where: { tenantId: t } })).toBe(2);
+      for (const sql of [
+        `UPDATE integration_outbox SET status = 'DONE'`,
+        `DELETE FROM integration_outbox`,
+        `DELETE FROM integration_subscription`,
+      ])
+        await expect(
+          db.withTenant(t, (tx) => tx.$executeRawUnsafe(sql)),
+          sql,
+        ).rejects.toThrow(/permission denied/);
+      expect(await plat.integrationOutbox.count({ where: { tenantId: t } })).toBe(2);
     });
   });
 });

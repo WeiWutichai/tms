@@ -73,5 +73,7 @@ export interface OutboxSink {
   readonly key: string;
   /** อายุ lease ของคำสั่ง (ms) — ค่าเริ่มต้น 5 นาที (docs/01 §6.2; ใบใหญ่ 15 นาที) */
   readonly leaseMs?: number;
+  /** นโยบาย retry ของ sink (ไม่กำหนด = max_attempt ของแถว 7 ครั้ง + 1, 2, 5, 15, 30, 60 นาที — docs/01 §6.3) */
+  readonly retry?: { maxAttempts: number; scheduleMin: readonly number[] };
   deliver(d: OutboxDelivery): Promise<{ result?: Record<string, unknown> } | void>;
 }

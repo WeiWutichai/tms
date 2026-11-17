@@ -45,8 +45,8 @@ export interface OutboxStats {
   oldestWaitingSec: number;
 }
 
-function retryDelayMin(attempt: number): number {
-  const base = RETRY_SCHEDULE_MIN[Math.min(attempt - 1, RETRY_SCHEDULE_MIN.length - 1)]!;
+function retryDelayMin(attempt: number, schedule: readonly number[]): number {
+  const base = schedule[Math.min(attempt - 1, schedule.length - 1)]!;
   return base * (0.9 + Math.random() * 0.2);
 }
 
@@ -66,6 +66,11 @@ function classify(err: unknown): { cls: ErrorClass; detail: Record<string, unkno
  * ST7-T03 Outbox worker (docs/01 §6.2 ชั้น worker; docs/04 G3 Outbox)
  * - หยิบด้วย role platform ข้าม tenant + `FOR UPDATE SKIP LOCKED` → IN_FLIGHT + lease (lease_id = fencing token)
  * - ส่งตามลำดับต่อ serialize_key: หยิบได้เฉพาะหัวคิว (seq ต่ำสุดที่ยังไม่จบ) — คำสั่งก่อนหน้า IN_FLIGHT/รอ retry = คีย์นั้นรอ
+ *   ⚠ ลำดับ = ลำดับ seq ตอน INSERT ไม่ใช่ลำดับ commit: transaction ที่ได้ seq น้อยกว่าแต่ commit ทีหลัง (หลังคำสั่ง seq มากกว่า
+ *   ถูกส่งไปแล้ว) จะถูกส่งทีหลัง — ไม่ใช้ advisory lock ใน trigger เพราะ transaction ที่ปล่อย event ของหลายลูกค้าสลับลำดับกัน
+ *   จะ deadlock แล้ว request ของผู้ใช้ล้ม (spec/12 §3) · เอกสารที่ต้องเรียงจริง (invoice → credit note) เรียงได้เพราะ
+ *   credit note สร้างได้หลัง invoice commit แล้วเท่านั้น · ปลายทาง webhook ใช้ occurredAt/version ตัดสินลำดับเอง
+ * - ใน process เดียว claim ทีละรายการ (mutex) → นับ IN_FLIGHT ต่อปลายทางจากฐานได้ตรง (cap MAX_IN_FLIGHT_PER_TARGET)
  * - round-robin ต่อ tenant: tenant ที่ถูกหยิบล่าสุดนานที่สุดก่อน · จำกัดส่งพร้อมกันต่อปลายทาง
  * - ระหว่างส่ง ต่อ lease (heartbeat) · worker ตาย → lease หมด → worker อื่นหยิบใหม่ด้วย idempotency key เดิม (ปลายทางกันซ้ำ)
  * - ผลเขียนเฉพาะถ้า lease ยังเป็นของเรา · ส่งถึงปลายทางแล้วแต่เขียนผลไม่ได้ → ไม่ตั้ง retry เอง ปล่อยให้ lease หมด
@@ -74,6 +79,8 @@ function classify(err: unknown): { cls: ErrorClass; detail: Record<string, unkno
 @Injectable()
 export class OutboxDispatcher {
   private readonly logger = new Logger('OutboxDispatcher');
+  /** claim ทีละรายการภายใน process — slot ของ OutboxWorkerPool ไม่แย่งนับ IN_FLIGHT ต่อปลายทางพร้อมกัน */
+  private claimChain: Promise<unknown> = Promise.resolve();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -82,12 +89,18 @@ export class OutboxDispatcher {
   ) {}
 
   /** หยิบคำสั่ง 1 รายการ (null = ไม่มีที่พร้อม) */
-  async claim(leaseMs = DEFAULT_LEASE_MS): Promise<ClaimedCommand | null> {
+  claim(leaseMs = DEFAULT_LEASE_MS): Promise<ClaimedCommand | null> {
+    const run = this.claimChain.then(() => this.claimNow(leaseMs));
+    this.claimChain = run.catch(() => undefined);
+    return run;
+  }
+
+  private async claimNow(leaseMs: number): Promise<ClaimedCommand | null> {
     const db = this.prisma.platform;
     // lease หมดในครั้งสุดท้าย (worker ตายระหว่างส่ง) → dead-letter ไม่วนไม่จบ (อาจส่งถึงแล้ว → AMBIGUOUS ให้คนตรวจ)
     await db.$executeRaw`
       UPDATE integration_outbox
-         SET status = 'FAILED_FINAL', error_class = 'AMBIGUOUS', lease_id = NULL, lease_until = NULL,
+         SET status = 'FAILED_FINAL', error_class = 'AMBIGUOUS', lease_id = NULL, lease_until = NULL, done_at = now(),
              last_error = jsonb_build_object('code', 'lease_expired', 'message', 'worker lease expired on last attempt'),
              updated_at = now()
        WHERE status = 'IN_FLIGHT' AND lease_until < now() AND attempt >= max_attempt`;
@@ -160,10 +173,15 @@ export class OutboxDispatcher {
   }
 
   /** ส่งคำสั่งที่หยิบแล้ว + เขียนผล (fencing ด้วย lease_id) */
-  async process(c: ClaimedCommand): Promise<void> {
+  async process(c: ClaimedCommand, stop?: AbortSignal): Promise<void> {
     const sink = this.sinks.get(c.sink);
     const leaseMs = sink?.leaseMs ?? DEFAULT_LEASE_MS;
     const abort = new AbortController();
+    // worker กำลังปิด (SIGTERM เกินเวลาผ่อนผัน) → แจ้ง sink ให้หยุด
+    if (stop) {
+      if (stop.aborted) abort.abort(stop.reason);
+      else stop.addEventListener('abort', () => abort.abort(stop.reason), { once: true });
+    }
     const extend = async () => {
       const n = await this.prisma.platform.$executeRaw`
         UPDATE integration_outbox SET lease_until = now() + (${leaseMs}::int * interval '1 millisecond'), updated_at = now()
@@ -213,13 +231,18 @@ export class OutboxDispatcher {
         this.logger.error(`outbox ${c.id} delivered but status update failed: ${String(err)}`);
         return;
       }
-      await this.fail(c, err, started);
+      await this.fail(c, sink, err, started);
     } finally {
       clearInterval(heartbeat);
     }
   }
 
-  private async fail(c: ClaimedCommand, err: unknown, started: number): Promise<void> {
+  private async fail(
+    c: ClaimedCommand,
+    sink: OutboxSink | undefined,
+    err: unknown,
+    started: number,
+  ): Promise<void> {
     const { cls, detail } = classify(err);
     let status: 'DONE' | 'SKIPPED' | 'FAILED_FINAL' | 'FAILED_RETRYABLE' | 'PENDING';
     let delayMin = 0;
@@ -242,9 +265,14 @@ export class OutboxDispatcher {
         attempt = c.attempt - 1;
         break;
       default: {
-        const final = c.attempt >= c.maxAttempt;
+        // sink กำหนดจำนวนครั้ง/ตาราง retry เองได้ (webhook ST7-T04 = 8 ครั้ง) — ไม่กำหนด = ของแถว (7) + ตาราง 01§6.3
+        const max = sink?.retry?.maxAttempts ?? c.maxAttempt;
+        const final = c.attempt >= max;
         status = final ? 'FAILED_FINAL' : 'FAILED_RETRYABLE';
-        delayMin = cls === 'AMBIGUOUS' ? AMBIGUOUS_DELAY_MIN : retryDelayMin(c.attempt);
+        delayMin =
+          cls === 'AMBIGUOUS'
+            ? AMBIGUOUS_DELAY_MIN
+            : retryDelayMin(c.attempt, sink?.retry?.scheduleMin ?? RETRY_SCHEDULE_MIN);
       }
     }
     await this.finish(c, {
@@ -302,8 +330,24 @@ export class OutboxDispatcher {
     };
   }
 
+  /**
+   * คืนคำสั่งที่ยังส่งไม่จบตอนปิด worker (SIGTERM เกินเวลาผ่อนผัน) → PENDING พร้อมหยิบทันที (ไม่ต้องรอ lease หมด)
+   * fencing ด้วย lease_id: ถ้า sink ยังทำงานต่อแล้วเขียนผล จะไม่ทับ · ปลายทางกันซ้ำด้วย idempotency key เดิม
+   */
+  async release(cmds: ClaimedCommand[]): Promise<number> {
+    let n = 0;
+    for (const c of cmds)
+      n += await this.prisma.platform.$executeRaw`
+        UPDATE integration_outbox SET status = 'PENDING', lease_id = NULL, lease_until = NULL, next_run_at = now(),
+               last_error = jsonb_build_object('code', 'worker_shutdown', 'attempt', attempt), updated_at = now()
+         WHERE id = ${c.id}::uuid AND status = 'IN_FLIGHT' AND lease_id = ${c.leaseId}::uuid`;
+    return n;
+  }
+
   private log(c: ClaimedCommand, outcome: string, started: number) {
-    this.logger.log(
+    // ล้ม/เสีย lease = warn (worker เปิด log ระดับ warn ขึ้นไป) · สำเร็จ = log
+    const ok = outcome === 'DONE' || outcome.startsWith('SKIPPED') || outcome === 'DONE:DUPLICATE';
+    this.logger[ok ? 'log' : 'warn'](
       JSON.stringify({
         msg: 'outbox',
         id: c.id,
