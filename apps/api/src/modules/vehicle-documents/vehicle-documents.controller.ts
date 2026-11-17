@@ -37,6 +37,7 @@ import {
   type VehicleDocTypeKey,
 } from './vehicle-document.dto';
 import { VehicleDocumentsService } from './vehicle-documents.service';
+import { resolveRef } from '../../common/external-id';
 
 const TYPE_TH: Record<VehicleDocTypeKey, string> = {
   INSURANCE: 'ประกันภัย',
@@ -87,8 +88,12 @@ export class VehicleDocumentsController {
   ) {}
 
   private vehicle(id: string): Promise<VehicleFull> {
-    if (id.startsWith('ext:')) return this.vehicles.getByExternalId(id.slice(4));
-    return this.vehicles.get(decodeIdOr404('vehicle', id));
+    return resolveRef(
+      'vehicle',
+      id,
+      (u) => this.vehicles.get(u),
+      (e) => this.vehicles.getByExternalId(e),
+    );
   }
 
   private async one(id: string): Promise<VehicleDocumentDto> {

@@ -20,13 +20,12 @@ import {
   ApiOkResponse,
   ApiProduces,
   ApiTags,
+  ApiOperation,
 } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { AuditPageDto } from '../../audit/audit.controller';
 import { RequireScope, TenantResource } from '../../common/decorators';
 import { expectedVersion, setEtag } from '../../common/etag';
-import { decodeIdOr404 } from '../../common/ids';
-import { ProblemException } from '../../common/problem';
 import { DbService } from '../../db/db.service';
 import { NextCodeDto } from '../customers/customer.dto';
 import { sendExport, type ExportColumn } from '../master/export';
@@ -46,6 +45,13 @@ import {
   type VehicleClass,
 } from './vehicle-type.dto';
 import { VehicleTypesService } from './vehicle-types.service';
+import {
+  ApiExternalPatch,
+  ApiExternalPut,
+  ExternalIdPipe,
+  extRef,
+  resolveRef,
+} from '../../common/external-id';
 
 const CLASS_TH: Record<VehicleClass, string> = {
   '4W': '4 ล้อ',
@@ -103,8 +109,12 @@ export class VehicleTypesController {
   ) {}
 
   private async resolve(id: string) {
-    if (id.startsWith('ext:')) return this.types.getByExternalId(id.slice(4));
-    return this.types.get(decodeIdOr404('vehicleType', id));
+    return resolveRef(
+      'vehicleType',
+      id,
+      (u) => this.types.get(u),
+      (e) => this.types.getByExternalId(e),
+    );
   }
 
   @Get()
@@ -156,6 +166,7 @@ export class VehicleTypesController {
   }
 
   @Put('external/:externalId')
+  @ApiExternalPut()
   @RequireScope('master:write')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag — ใช้เมื่อแถวมีอยู่แล้ว' })
   @ApiOkResponse({
@@ -164,19 +175,11 @@ export class VehicleTypesController {
   })
   @ApiCreatedResponse({ type: VehicleTypeDto, description: 'ยังไม่มี → สร้าง' })
   async upsertExternal(
-    @Param('externalId') externalId: string,
+    @Param('externalId', ExternalIdPipe) externalId: string,
     @Body() body: UpsertVehicleTypeDto,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<VehicleTypeDto> {
-    if (!/^[\x21-\x7e]{1,100}$/.test(externalId))
-      throw new ProblemException('validation_failed', undefined, [
-        {
-          field: 'externalId',
-          code: 'matches',
-          message: 'externalId must be 1-100 printable ASCII',
-        },
-      ]);
     const { row, created } = await this.types.upsertExternal(
       externalId,
       body,
@@ -207,6 +210,25 @@ export class VehicleTypesController {
   async history(@Param('id') id: string, @Query() q: HistoryQuery): Promise<AuditPageDto> {
     const v = await this.resolve(id);
     return entityHistory(this.db.tx, 'vehicle_type', v.id, q);
+  }
+
+  @Patch('external/:externalId')
+  @ApiExternalPatch()
+  @RequireScope('master:write')
+  @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
+  @ApiOperation({
+    summary: 'แก้บางช่องด้วย externalId',
+    description:
+      'เหมือน `PATCH /vehicle-types/ext:{externalId}` (กติกาเดียวกับ PATCH ด้วย id) · ยังไม่มีแถวนี้ → 404 — สร้างใหม่ใช้ PUT',
+  })
+  @ApiOkResponse({ type: VehicleTypeDto })
+  patchExternal(
+    @Param('externalId', ExternalIdPipe) externalId: string,
+    @Body() body: UpdateVehicleTypeDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<VehicleTypeDto> {
+    return this.update(extRef(externalId), body, req, res);
   }
 
   @Patch(':id')

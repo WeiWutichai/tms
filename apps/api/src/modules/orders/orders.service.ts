@@ -476,6 +476,20 @@ export class OrdersService {
     });
   }
 
+  /**
+   * PATCH /orders/external/{externalId} (ST7-T02) — ทางเข้าของระบบภายนอกเหมือน PUT: แก้ได้เฉพาะใบที่มาจาก API
+   * ใบจากช่องทางอื่น (MANUAL/EXCEL/PORTAL/ERP:{c}) → 409 `external_id_conflict` (กติกาเดียวกับ PUT — ไม่ทับใบของต้นทางอื่น)
+   * แก้ใบช่องทางอื่นใช้ `PATCH /orders/{id}` หรือ `ext:{externalId}`
+   */
+  async assertExternalSource(externalId: string): Promise<void> {
+    const o = await this.getByExternalId(externalId);
+    if (o.source !== 'API' || o.sourceConnector)
+      throw new ProblemException('external_id_conflict', undefined, undefined, {
+        existingSource: o.source,
+        existingConnector: o.sourceConnector || null,
+      });
+  }
+
   /** PUT /orders/external/{externalId} — ที่มา API เสมอ (ทางเข้าของระบบภายนอก); ใบของช่องทางอื่น → 409 */
   upsertExternal(
     externalId: string,

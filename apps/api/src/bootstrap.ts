@@ -7,6 +7,7 @@ import { isSignedUploadRequest } from './modules/documents/signed-url';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { Public } from './common/decorators';
+import { describeExternalIdParams } from './common/external-id';
 import { createValidationPipe } from './common/validation';
 import { Logger } from '@nestjs/common';
 import { isLocalEnv } from './auth/tokens';
@@ -22,10 +23,12 @@ export function buildOpenApi(app: NestExpressApplication): OpenAPIObject {
     .setVersion('v1')
     .addBearerAuth()
     .build();
-  return SwaggerModule.createDocument(app, config, {
-    operationIdFactory: (controllerKey, methodKey) =>
-      `${controllerKey.replace(/Controller$/, '')}_${methodKey}`,
-  });
+  return describeExternalIdParams(
+    SwaggerModule.createDocument(app, config, {
+      operationIdFactory: (controllerKey, methodKey) =>
+        `${controllerKey.replace(/Controller$/, '')}_${methodKey}`,
+    }),
+  );
 }
 
 /**

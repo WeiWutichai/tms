@@ -225,7 +225,7 @@ export class CreateOrderDto extends OrderFieldsDto {
     nullable: true,
     maxLength: 100,
     description:
-      'externalRef ของระบบต้นทาง — unique ต่อบริษัท; มีใบเดิมจากช่องทางเดียวกัน = อัปเดตใบเดิม (เหมือน PUT external)',
+      'externalRef ของระบบต้นทาง (ASCII ที่พิมพ์ได้ 1–100 ตัว ไม่มีช่องว่าง — ผิด = 422) — unique ต่อบริษัท; มีใบเดิมจากช่องทางเดียวกัน = อัปเดตใบเดิม (เหมือน PUT external)',
   })
   @Allow()
   externalId?: string | null;

@@ -21,6 +21,7 @@ import {
   ApiProduces,
   ApiTooManyRequestsResponse,
   ApiTags,
+  ApiOperation,
 } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { AuditPageDto } from '../../audit/audit.controller';
@@ -28,7 +29,6 @@ import { NoTransaction, RequireScope, TenantResource } from '../../common/decora
 import { requestContext } from '../../common/request-context';
 import { TenantRateLimiter } from '../geo/rate-limit';
 import { expectedVersion, setEtag } from '../../common/etag';
-import { decodeIdOr404 } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { DbService } from '../../db/db.service';
 import { NextCodeDto } from '../customers/customer.dto';
@@ -50,6 +50,13 @@ import {
   UpsertSiteDto,
 } from './site.dto';
 import { SitesService } from './sites.service';
+import {
+  ApiExternalPatch,
+  ApiExternalPut,
+  ExternalIdPipe,
+  extRef,
+  resolveRef,
+} from '../../common/external-id';
 
 const KIND_TH: Record<SiteDto['kind'], string> = {
   PICKUP: 'ต้นทาง',
@@ -118,8 +125,12 @@ export class SitesController {
   ) {}
 
   private async resolve(id: string) {
-    if (id.startsWith('ext:')) return this.sites.getByExternalId(id.slice(4));
-    return this.sites.get(decodeIdOr404('site', id));
+    return resolveRef(
+      'site',
+      id,
+      (u) => this.sites.get(u),
+      (e) => this.sites.getByExternalId(e),
+    );
   }
 
   @Get()
@@ -192,24 +203,17 @@ export class SitesController {
   }
 
   @Put('external/:externalId')
+  @ApiExternalPut()
   @RequireScope('master:write')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag — ใช้เมื่อแถวมีอยู่แล้ว' })
   @ApiOkResponse({ type: SiteDto, description: 'มีอยู่แล้ว → อัปเดต (ส่งซ้ำได้ ไม่เกิดแถวใหม่)' })
   @ApiCreatedResponse({ type: SiteDto, description: 'ยังไม่มี → สร้าง' })
   async upsertExternal(
-    @Param('externalId') externalId: string,
+    @Param('externalId', ExternalIdPipe) externalId: string,
     @Body() body: UpsertSiteDto,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<SiteDto> {
-    if (!/^[\x21-\x7e]{1,100}$/.test(externalId))
-      throw new ProblemException('validation_failed', undefined, [
-        {
-          field: 'externalId',
-          code: 'matches',
-          message: 'externalId must be 1-100 printable ASCII',
-        },
-      ]);
     const { row, created } = await this.sites.upsertExternal(
       externalId,
       body,
@@ -237,6 +241,25 @@ export class SitesController {
   async history(@Param('id') id: string, @Query() q: HistoryQuery): Promise<AuditPageDto> {
     const s = await this.resolve(id);
     return entityHistory(this.db.tx, 'customer_site', s.id, q);
+  }
+
+  @Patch('external/:externalId')
+  @ApiExternalPatch()
+  @RequireScope('master:write')
+  @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
+  @ApiOperation({
+    summary: 'แก้บางช่องด้วย externalId',
+    description:
+      'เหมือน `PATCH /customer-sites/ext:{externalId}` (กติกาเดียวกับ PATCH ด้วย id) · ยังไม่มีแถวนี้ → 404 — สร้างใหม่ใช้ PUT',
+  })
+  @ApiOkResponse({ type: SiteDto })
+  patchExternal(
+    @Param('externalId', ExternalIdPipe) externalId: string,
+    @Body() body: UpdateSiteDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<SiteDto> {
+    return this.update(extRef(externalId), body, req, res);
   }
 
   @Patch(':id')
