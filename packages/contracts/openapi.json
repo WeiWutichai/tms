@@ -16249,14 +16249,14 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/WebhookActionDto"
+                "$ref": "#/components/schemas/WebhookReasonDto"
               }
             }
           }
         },
         "responses": {
           "204": {
-            "description": "ลบ (เก็บประวัติการส่งตาม retention) — หยุดส่งทันที"
+            "description": "ลบ (เหตุผล ≥ 10 ตัว · เก็บประวัติการส่งตาม retention) — หยุดส่งทันที"
           }
         },
         "security": [
@@ -16405,7 +16405,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/WebhookActionDto"
+                "$ref": "#/components/schemas/WebhookReasonDto"
               }
             }
           }
@@ -40307,6 +40307,20 @@
             "maxLength": 500
           }
         }
+      },
+      "WebhookReasonDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 10,
+            "maxLength": 500,
+            "example": "เลิกใช้บริการตั้งแต่ ธ.ค. 2569"
+          }
+        },
+        "required": [
+          "reason"
+        ]
       },
       "WebhookTestDto": {
         "type": "object",
