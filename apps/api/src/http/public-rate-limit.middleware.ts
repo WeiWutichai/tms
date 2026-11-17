@@ -1,15 +1,20 @@
 import { Injectable, NestMiddleware } from '@nestjs/common';
 import type { NextFunction, Request, Response } from 'express';
+import { ProblemFilter } from '../common/problem.filter';
+import { ProblemException } from '../common/problem';
+import {
+  rateLimitInstance,
+  RateLimitService,
+  setRateHeaders,
+  slidingWindow,
+} from './rate-limit/rate-limit.service';
 
 /**
- * rate limit ของ route group `/v1/public/*` (ST1-T06; docs/04 J) — นับต่อ IP ในหน้าต่าง 1 นาที
- * ในหน่วยความจำต่อ process — หลาย instance ให้ตั้งที่ load balancer/WAF ซ้อนอีกชั้น (plan/02 T-08)
+ * rate limit ของ route group `/v1/public/*` และ `/v1/platform/auth/*` (ST1-T06/T24; docs/04 J) — ต่อ IP 120 ครั้งในหน้าต่างเลื่อน 1 นาที
+ * ST7-T08: ย้ายจากหน่วยความจำต่อ process มาที่ตัวจำกัดกลาง (ใช้ร่วมทุก instance; ความหมายเดิม) · ฐานใช้ไม่ได้ = 503 (fail-closed)
  */
 export const PUBLIC_LIMIT_PER_MIN = Number(process.env.PUBLIC_RATE_LIMIT_PER_MIN ?? 120);
 const WINDOW_MS = 60_000;
-/** เพดานจำนวน key — เกินแล้วทิ้ง key เก่าสุด (Map เรียงตามลำดับใส่) ไม่วนทั้ง map ต่อ request */
-const MAX_KEYS = 50_000;
-const hits = new Map<string, number[]>();
 /** IPv6 นับต่อ /64 (ผู้ใช้หนึ่งคนเปลี่ยนเลขท้ายได้ทั้ง block) */
 export function rateKey(ip: string): string {
   const v6 = ip.startsWith('::ffff:') ? null : ip.includes(':') ? ip : null;
@@ -17,44 +22,37 @@ export function rateKey(ip: string): string {
   const parts = v6.split(':');
   return `${parts.slice(0, 4).join(':')}::/64`;
 }
-// กวาด key ที่พ้นหน้าต่างทุก 1 นาที (ไม่ทำใน request)
-setInterval(() => {
-  const now = Date.now();
-  for (const [k, v] of hits) if (now - (v.at(-1) ?? 0) >= WINDOW_MS) hits.delete(k);
-}, WINDOW_MS).unref();
 
 @Injectable()
 export class PublicRateLimitMiddleware implements NestMiddleware {
-  use(req: Request, res: Response, next: NextFunction): void {
-    // ⚠ req.ip เชื่อ X-Forwarded-For 1 ชั้น (trust proxy 1) — deployment ต้องมี proxy หน้า API พอดี 1 ชั้น
-    const ip = rateKey(req.ip ?? 'unknown');
-    const now = Date.now();
-    const list = (hits.get(ip) ?? []).filter((t) => now - t < WINDOW_MS);
-    if (list.length >= PUBLIC_LIMIT_PER_MIN) {
-      const retry = Math.ceil((WINDOW_MS - (now - list[0]!)) / 1000);
-      res.setHeader('Retry-After', String(retry));
-      res.setHeader('Cache-Control', 'no-store');
-      res.status(429).type('application/problem+json').json({
-        type: 'https://docs.tms.example/problems/rate_limited',
-        title: 'เรียกถี่เกินไป',
-        status: 429,
-        code: 'rate_limited',
-        instance: req.originalUrl,
-        retryAfter: retry,
-      });
-      return;
-    }
-    list.push(now);
-    hits.delete(ip); // ย้ายไปท้าย (ใช้ล่าสุด)
-    hits.set(ip, list);
-    if (hits.size > MAX_KEYS) hits.delete(hits.keys().next().value!);
+  private readonly filter = new ProblemFilter();
+  constructor(private readonly limiter: RateLimitService) {}
+
+  async use(req: Request, res: Response, next: NextFunction): Promise<void> {
     // ข้อมูลที่เปิดด้วยลิงก์ห้าม cache (token อยู่ใน URL)
     res.setHeader('Cache-Control', 'no-store');
+    // ⚠ req.ip เชื่อ X-Forwarded-For ตาม TRUST_PROXY — deployment ต้องตั้งจำนวน proxy ให้ตรง
+    const ip = rateKey(req.ip ?? 'unknown');
+    try {
+      await this.limiter.assert(
+        [slidingWindow(`ip:${ip}`, PUBLIC_LIMIT_PER_MIN, WINDOW_MS, 'ip')],
+        res,
+      );
+    } catch (e) {
+      // middleware อยู่นอก exception filter ของ Nest — ส่ง problem+json รูปเดียวกับ ProblemFilter เอง
+      if (e instanceof ProblemException) {
+        this.filter.catch(e, {
+          switchToHttp: () => ({ getResponse: () => res, getRequest: () => req }),
+        } as never);
+        return;
+      }
+      return next(e);
+    }
     next();
   }
 }
 
-/** สำหรับ test */
-export function resetPublicRateLimit() {
-  hits.clear();
+/** สำหรับ test: ล้างตัวนับต่อ IP ของไฟล์ test นี้ */
+export async function resetPublicRateLimit(): Promise<void> {
+  await rateLimitInstance()?.reset('ip:');
 }

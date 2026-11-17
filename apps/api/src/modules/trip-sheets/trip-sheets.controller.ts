@@ -26,7 +26,13 @@ import {
 import { scopeAllows } from '@tms/domain';
 import { IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
 import type { Request, Response } from 'express';
-import { LinkAction, NoTransaction, RequireScope, TenantResource } from '../../common/decorators';
+import {
+  LinkAction,
+  NoTransaction,
+  RequireScope,
+  TenantResource,
+  RateLimitClass,
+} from '../../common/decorators';
 import { decodeIdOr404, encodeId, tryDecodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { ApiProblems } from '../../common/problem.dto';
@@ -116,6 +122,7 @@ export class TripSheetsController {
   constructor(private readonly svc: TripSheetsService) {}
 
   @Post('trips/:id/sheet')
+  @RateLimitClass('heavy')
   @HttpCode(201)
   @NoTransaction()
   @TenantResource('trip')
@@ -178,6 +185,7 @@ export class TripSheetsController {
   }
 
   @Post('trip-sheets')
+  @RateLimitClass('heavy')
   @HttpCode(201)
   @NoTransaction()
   @RequireScope('trips:read')

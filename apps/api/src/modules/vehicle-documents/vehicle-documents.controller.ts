@@ -18,7 +18,7 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import type { Response } from 'express';
-import { RequireScope, TenantResource } from '../../common/decorators';
+import { RequireScope, TenantResource, RateLimitClass } from '../../common/decorators';
 import { decodeIdOr404 } from '../../common/ids';
 import { sendExport, type ExportColumn } from '../master/export';
 import { provinceAbbr } from '../vehicles/provinces';
@@ -141,6 +141,7 @@ export class VehicleDocumentsController {
 
   /** ส่งออก (ST2-T19 "ส่งออกให้ฝ่ายธุรการ") — `export:run` เหมือน master อื่น */
   @Get('vehicle-documents/export')
+  @RateLimitClass('heavy')
   @RequireScope('export:run')
   @ApiProduces('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'text/csv')
   @ApiOkResponse({

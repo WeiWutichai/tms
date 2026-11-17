@@ -58,6 +58,8 @@ export default defineConfig({
         PUBLIC_WEB_BASE_URL: WEB,
         // ST7-T04: E2E ใช้ปลายทาง webhook ในเครื่อง (127.0.0.1) — ใช้ได้เฉพาะ NODE_ENV=test/development
         WEBHOOK_ALLOW_PRIVATE_TARGETS: '1',
+        // ST7-T08: เปิด rate limit ของ /v1 (NODE_ENV=test ปิดเป็นค่าเริ่ม) — ทุก spec ต้องไม่ชนเพดาน (UI ใช้เพดานเดียวกับลูกค้า)
+        RATE_LIMIT: 'on',
       },
       reuseExistingServer: false,
       timeout: 60_000,

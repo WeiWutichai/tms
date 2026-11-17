@@ -1,3 +1,4 @@
+import { RateLimitService } from '../src/http/rate-limit/rate-limit.service';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { WEBHOOK_RETRY_SCHEDULE_MIN } from '@tms/domain';
 import { createServer, type IncomingHttpHeaders, type Server } from 'node:http';
@@ -9,7 +10,6 @@ import { DbService, type Tx } from '../src/db/db.service';
 import { OutboxDispatcher } from '../src/modules/integration/outbox.dispatcher';
 import { verifyWebhookSignature } from '../src/modules/webhooks/signature';
 import { WebhookEngine } from '../src/modules/webhooks/webhook-engine';
-import { WebhooksService } from '../src/modules/webhooks/webhooks.service';
 import { api, bootApp, createTenant, platform, tokenFor, truncateAll } from './helpers';
 
 interface Hit {
@@ -128,8 +128,7 @@ describe('webhooks (ST7-T04)', () => {
   }
   const uuid = (id: string) => tryDecodeId('webhookEndpoint', id)!;
   /** ล้างตัวจำกัด "ส่ง event ทดสอบ" (1 ครั้ง/5 วิ ต่อ endpoint) ระหว่าง test */
-  const resetTestLimits = () =>
-    (app.get(WebhooksService) as unknown as { testHits: Map<string, number[]> }).testHits.clear();
+  const resetTestLimits = () => app.get(RateLimitService).reset('wht:');
   /** ข้ามคำสั่ง verification ที่เกิดตอนสร้าง (test ส่วนใหญ่สนใจเฉพาะ event) */
   const skipVerification = () =>
     plat.$executeRaw`UPDATE integration_outbox SET status = 'SKIPPED'
@@ -152,7 +151,7 @@ describe('webhooks (ST7-T04)', () => {
   });
   beforeEach(async () => {
     rx.reset();
-    resetTestLimits();
+    await resetTestLimits();
     engine.sendOptions = { allowPrivate: true };
     await plat.$executeRaw`UPDATE integration_outbox SET status = 'SKIPPED', lease_id = NULL, lease_until = NULL
                             WHERE status IN ('PENDING', 'IN_FLIGHT', 'FAILED_RETRYABLE')`;
@@ -657,7 +656,7 @@ describe('webhooks (ST7-T04)', () => {
     expect(fast.status).toBe(429);
     expect(fast.body.code).toBe('rate_limited');
     expect(rx.hits).toHaveLength(1);
-    resetTestLimits();
+    await resetTestLimits();
     rx.reply = () => ({ status: 503 });
     const f = await api(app, token)
       .post(`/v1/webhooks/${h.id}/test`)
