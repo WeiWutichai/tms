@@ -256,3 +256,19 @@ export function scopeAllows(granted: readonly string[], required: string): boole
   const [resource] = required.split(':');
   return granted.includes(`${resource}:*`);
 }
+
+/**
+ * scope ที่ห้ามให้ API key / OAuth client (ST7-T01 review M1) — งานบริหารผู้ใช้/บทบาท/ความปลอดภัย/การตั้งค่า
+ * (รวมการจัดการ API key ซึ่งใช้ `settings:write`) ต้องทำโดยคนที่ login + 2FA เท่านั้น
+ * [DECISION — ตามคำแนะนำ, PO อนุมัติล่วงหน้า 17 พ.ย. 2569 — ย้อนได้ spec/12 §3]
+ */
+export const API_KEY_DENIED_SCOPES: readonly Permission[] = [
+  'users:read',
+  'users:write',
+  'settings:write',
+];
+
+/** scope ที่ให้ API key ได้ = PERMISSIONS − API_KEY_DENIED_SCOPES */
+export const API_KEY_SCOPES: readonly Permission[] = PERMISSIONS.filter(
+  (p) => !API_KEY_DENIED_SCOPES.includes(p),
+);

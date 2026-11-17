@@ -17,12 +17,24 @@ import { requestContext } from '../common/request-context';
 import { AuthService } from './auth.service';
 import { PrismaService } from '../db/prisma.service';
 import { END_IMPERSONATION_PATH } from '../platform/impersonation.controller';
+import { ApiKeyAuthService, type KeyPrincipal } from '../modules/api-keys/api-key-auth.service';
+import { looksLikeApiKey } from '../modules/api-keys/key-material';
+import { isRs256, verifyClientToken } from './signing-keys';
 import {
   signAccessToken,
   verifyAccessToken,
   verifyPlatformToken,
   verifyStepUpToken,
+  type AccessClaims,
 } from './tokens';
+
+/** principal ของ API key / client credentials (ST7-T01) — actor = `apikey:<uuid>` ใน audit */
+const keyClaims = (p: KeyPrincipal): AccessClaims => ({
+  sub: `apikey:${p.keyId}`,
+  tid: p.tenantId,
+  scope: p.scopes.join(' '),
+  pt: 'client',
+});
 
 /**
  * token สำหรับพัฒนา/test (`pt=dev`) — production ปฏิเสธ (ดู tokens.ts)
@@ -46,7 +58,20 @@ export class AuthGuard implements CanActivate {
     private readonly entitlements: EntitlementService,
     private readonly links: MagicLinkService,
     private readonly prisma: PrismaService,
+    private readonly apiKeys: ApiKeyAuthService,
   ) {}
+
+  /** Bearer: API key `tk_…` → JWT RS256 ของ client credentials → JWT ของ UI (HS256) */
+  private async claimsOf(token: string, req: Request): Promise<AccessClaims | null> {
+    if (looksLikeApiKey(token))
+      return keyClaims(await this.apiKeys.authenticateSecret(token, req.ip));
+    if (isRs256(token)) {
+      const c = await verifyClientToken(token);
+      if (!c) return null;
+      return keyClaims(await this.apiKeys.authenticateClient(c, req.ip));
+    }
+    return verifyAccessToken(token);
+  }
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const targets = [context.getHandler(), context.getClass()];
@@ -80,7 +105,7 @@ export class AuthGuard implements CanActivate {
     const token = header.startsWith('Bearer ') ? header.slice(7) : '';
     if (!token) throw new ProblemException('unauthorized');
 
-    const claims = await verifyAccessToken(token);
+    const claims = await this.claimsOf(token, req);
     if (!claims) throw new ProblemException('unauthorized');
     // เข้าใช้งานแทน (ST1-T24): session ต้องยังไม่จบ/ไม่หมดเวลา · อ่านอย่างเดียว (spec/01 §11 เฟส 0)
     if (claims.pt === 'imp') {

@@ -25,7 +25,8 @@
 | ST2 Master data + Fleet | **เสร็จ** (12 พ.ย. — PR #23–#45) | 11 พ.ย. | 12 พ.ย. | ตารางงาน ST2 ด้านล่าง |
 | ST3 Order intake + Planning/Dispatch | **เสร็จ** (T01–T25 ครบ — T25 นับเมื่อ merge PR ของ `st3/t25-change-carrier`) | 12 พ.ย. | 17 พ.ย. 2569 | ตารางงาน ST3 ด้านล่าง · สรุป: รับ order ทุกทาง (มือ/Excel/API/connector) ผ่าน `upsertOrder()` เดียว + ใบค้าง + DO/trip state machine + กระดานวางแผน (constraint/multi-drop/assign-dispatch/send all/ตารางรถ) + ใบคุมรถ PDF + LINE/SMS + จ้างรถร่วมครบวงจร (ลิงก์รับ/ปฏิเสธ, หมดเวลา, เปลี่ยนผู้รับเหมา) |
 | ST4 Execution และ POD | **กำลังทำ** 2/15 (T01, T02) + T03 dev | 17 พ.ย. 2569 | — | ตารางงาน ST4 ด้านล่าง |
-| ST5–ST9 | ยังไม่เริ่ม | | | |
+| ST5–ST6, ST8–ST9 | ยังไม่เริ่ม | | | |
+| ST7 Open API + Integration | **กำลังทำ** 1/23 (T01 — แก้ตาม review/QA แล้ว รอ merge) · ทำ T01 ก่อน ST5/ST6 ได้เพราะไม่ใช้ event ของ ST5/ST6 | 17 พ.ย. 2569 | — | ตารางงาน ST7 ด้านล่าง |
 
 ### งาน ST0 (เกณฑ์ตรวจรับใน `plan/01-phase0-backlog.md`)
 
@@ -149,6 +150,12 @@
 | T04 อัปเดตสถานะผ่านเว็บ + stepper | dev เสร็จ — รอ review/QA | API `GET /v1/trips/{id}/events` (trips:read — ไทม์ไลน์ทุกจุด + `recordedByName`/`seqStatus`/`counted`/ธง/การตัดสิน) · TripDto `stops[].arrivedAt/departedAt/outcome/lastEventId` · projection เพิ่ม `trip.version` เมื่อจุดเปลี่ยน (ETag เดิม = 304 + จุดเก่า) · web drawer เที่ยวรถแท็บ "ไทม์ไลน์" ตามต้นแบบ (ความคืบหน้าเที่ยว: ขั้นต่อจุด ป้าย/ไอคอน/เวลา/DO) + บรรทัด event พร้อมผู้บันทึก/แหล่ง + ธง → ศูนย์ข้อยกเว้น (กรองเลขเที่ยว) · ปุ่มบันทึกแทนคนขับ (`trips:dispatch`, เที่ยว DISPATCHED/IN_PROGRESS): ถึงจุด / ปิดงาน (จุดที่ยังไม่ถึง = ถามเวลาถึงแล้วส่ง ARRIVE ก่อน COMPLETE) / ส่งไม่สำเร็จ / ออกจากจุด (= DEPART ของจุดถัดไป) · footer "ส่งไม่สำเร็จจุดที่เหลือ" (FAIL ทีละจุด เหตุผลบังคับ) · dialog วันที่+เวลา (ย้อนได้ ห้ามอนาคต) · clientEventId ต่อ (จุด, การกระทำ) คงที่ตลอด dialog · test: api `trip-timeline` 3, web `tripStepper` 4 + `TripTimeline` 6 + TripDrawer 1, E2E `trip-stepper.spec.ts` 2 · ภาพ `design/compare/st4-stepper-{timeline,dialog}-1440.png` |
 | T08 ลิงก์รถร่วม ส่วนสถานะ (ยังไม่เริ่ม) | — | ส่งต่อจาก T02: ปุ่ม "ออก" แมปเหมือน T04 (DEPART ของจุดถัดไป) · ส่งซ้ำด้วย clientEventId เดิม = 200 ผลเดิม |
 
+### งาน ST7 (เกณฑ์ตรวจรับใน `plan/01-phase0-backlog.md`)
+
+| งาน | สถานะ | หลักฐาน / ที่ยังขาด |
+|---|---|---|
+| T01 OAuth2 client credentials + API key `tk_live_` + หน้าจัดการ key | dev + แก้ตาม review/QA เสร็จ (ไม่มี High) — รอ merge | migration `0088_api_key` (HMAC-SHA256 + pepper, ไม่มี hard delete, ชื่อไม่ซ้ำเฉพาะ key ที่ยังไม่หมุน/เพิกถอน, RLS) · **API** `/v1/api-keys` list/summary/scopes/get/history/PATCH/`rotate`/`revoke` (settings:read/write, ฟีเจอร์ `api`, ผู้ใช้เท่านั้น) · guard: Bearer `tk_live_…` หรือ JWT RS256 จาก `POST /v1/oauth/token` grantType=client_credentials → principal `client` (`apikey:<uuid>`) ตรวจ key กับฐานทุก request (เพิกถอน/หมดอายุ/IP/scope ลดลงมีผลทันที) · JWKS `/v1/.well-known/jwks.json` · `TRUST_PROXY` · **UI** ตั้งค่า → นักพัฒนา / Open API (แท็บ API keys) · **ค้าง:** sandbox/`tk_test_` (T09), rate limit ต่อ key (T08), แจ้งเตือนใกล้หมดอายุ/IP ใหม่ (INT-074), log การเรียก |
+
 ## สัปดาห์นี้ (สัปดาห์ 10–14 พ.ย. 2569)
 
 งานที่หยิบ: ยังไม่มี task โค้ด · งานเอกสาร: เสร็จตามบันทึกด้านล่าง
@@ -234,6 +241,16 @@
 - ทำ: API ไทม์ไลน์เที่ยว `GET /v1/trips/{id}/events` (ชื่อผู้บันทึก, ผลในลำดับ, ธง, การตัดสิน; ตรวจเที่ยวของบริษัท → 404) + TripDto ต่อจุด `arrivedAt/departedAt/outcome/lastEventId` · projection เพิ่ม version เที่ยวเมื่อ trip_stop เปลี่ยน (พบใน E2E: ETag เดิม → เบราว์เซอร์ได้ 304 + เวลาออกเก่า) · web แท็บ "ไทม์ไลน์" ของ drawer เที่ยวรถตามต้นแบบ vPanel trp/tl + ปุ่มบันทึกแทนคนขับ + dialog เวลา (ย้อนได้) + "ส่งไม่สำเร็จจุดที่เหลือ" + ลิงก์ธงไปศูนย์ข้อยกเว้น (ตั้งตัวกรองเลขเที่ยว) · spec/12 §3 +1 แถว DECISION
 - ไฟล์: `apps/api/src/modules/stops/{stops.controller,stop-events.service,stop-event.dto,stop-projection.service}.ts`, `trips/{trip.dto,trips.controller}.ts`, `app.module.ts`, `test/trip-timeline.test.ts`, `openapi.json`, web `features/trips/{TripDrawer,TripTimeline,tripStepper,useTripTimeline}.tsx/ts` (+test), `features/master/useCursorList.ts` (export writeSession), `i18n/th.ts`, `e2e/trip-stepper.spec.ts`, `scripts/compare-stepper.mjs`, `design/compare/st4-stepper-*-1440.png`
 - ค้าง: แท็บ "เอกสาร" ของ drawer เที่ยว (POD/ใบคุมรถ — ST4-T07) · ส่งไม่สำเร็จจุดที่เหลือเป็นคำขอทีละจุด (ไม่ atomic — ลองซ้ำได้ด้วย clientEventId เดิม; bulk endpoint = ผู้สมัครเพิ่ม) · drawer เที่ยวจากศูนย์ข้อยกเว้นยังอ่านอย่างเดียว · ปุ่ม "ออกเดินทาง" ไปจุดแรก (DEPART จุด 1) ไม่ทำ
+
+### 17 พ.ย. 2569 (ST7-T01 แก้ตาม review/QA)
+- **ทำ:** (QA M) `TRUST_PROXY` ไม่ตั้ง = นอก dev/test ไม่เชื่อ X-Forwarded-For + เตือนตอนบูต, dev/test = 1 (rate limit ต่อ IP ใน dev/test เหมือนเดิม) + test ปลอม XFF ผ่าน allowlist ไม่ได้เมื่อ TRUST_PROXY=0 · (M1) `API_KEY_SCOPES`/`API_KEY_DENIED_SCOPES` ใน domain (ห้าม users:*, settings:write) + guard ตัดซ้ำ + ดู/จัดการ key ได้เฉพาะผู้ใช้ · (M2) นอก dev/test ตรวจ `API_KEY_PEPPER` (≥ 32, ห้ามค่า dev) และโหลดกุญแจเซ็นได้ตอนบูต ไม่ผ่าน = ไม่เริ่ม · (M3) INT-076 `creatorInactive` + ป้าย "ผู้สร้างถูกปิดใช้งาน" ในรายการ/drawer · (QA L) เพิกถอน key ใหม่ที่มาจากการหมุน → key เดิมหยุดทันที · (L) เก็บ `lastRejectedIp/At` (INT-075) · JWT client ตรวจ `aud=tms-api` + `typ=at+jwt` · HS256 ที่อ้าง `pt=client` ถูกปฏิเสธ · test alg none / HS256 / RS256 กุญแจอื่น · (L) ไม่แสดงช่องเลือกแถว/มุมมอง (DECISION) · migration เปลี่ยนเลขเป็น `0088_api_key` (main มี 0086/0087 ของ lane A) และสร้างฐาน lane l3 ใหม่
+- **ไฟล์:** `packages/domain/src/permissions.ts`, `apps/api/src/{bootstrap.ts,auth/{signing-keys,tokens}.ts,modules/api-keys/*}`, `prisma/migrations/0088_api_key`, `test/api-keys.test.ts`, `apps/web/src/features/api-keys/*`, `.env.example`, HANDOFF §5, spec/12 §3 (+4 DECISION)
+- **ค้าง:** เหมือนเดิม (T08, T09, INT-074)
+
+### 17 พ.ย. 2569 (ST7-T01 OAuth2 client credentials + API key + หน้าจัดการ key)
+- **ทำ:** API key `tk_live_` (เก็บ HMAC-SHA256 + `API_KEY_PEPPER`, แสดง secret ครั้งเดียว, เทียบเวลาคงที่) หลาย key ต่อ tenant · scope ⊆ PERMISSIONS และผู้สร้างต้องมีเอง (INT-073) · อายุ 30/90/365/ไม่หมด · IP allowlist (IPv4/IPv6/CIDR ≤ 20, `net.BlockList`, IP จาก `TRUST_PROXY`) · หมุน = key ใหม่ + key เดิมใช้ได้ถึง `revokeAt` (graceHours ≤ 168, UI 24 ชม.) · เพิกถอนทันที (เหตุผล ≥ 10 + audit) · `lastUsedAt/lastUsedIp` (เขียนไม่ถี่กว่า 1 นาที) · OAuth2 client credentials → JWT RS256 ≤ 1 ชม. (`OAUTH_SIGNING_KEYS_DIR`/`OAUTH_SIGNING_KEY`, dev สร้างกุญแจชั่วคราว, วิธีหมุนกุญแจใน `.env.example` + `auth/signing-keys.ts`) + JWKS · key/JWT client ใช้ guard/controller เดียวกับ UI (principal `client`) · แพ็กเกจไม่มี `api` → 403 · endpoint เฉพาะผู้ใช้ (เปลี่ยนรหัสผ่าน/2FA) ตอบ 401 แทน 500 เมื่อเรียกด้วย key · หน้า UI ตามต้นแบบ vApi/specApi/cfKey/cfKeyScope/rotateKey/revokeKey/vSec
+- **ไฟล์:** `apps/api/prisma/migrations/0088_api_key/`, `apps/api/src/modules/api-keys/*`, `apps/api/src/auth/{signing-keys,auth.guard,auth.controller,tokens}.ts`, `apps/api/src/bootstrap.ts` (TRUST_PROXY), `apps/api/test/api-keys.test.ts`, isolation fixture `apiKey` · `apps/web/src/features/api-keys/*`, `nav.ts`, `App.tsx`, `Settings.tsx` (เมนู นักพัฒนา / Open API), `e2e/api-keys.spec.ts`, `scripts/compare-api-keys.mjs`, `design/compare/st7-apikeys-*-1440.png` · spec/12 §3 (7 DECISION)
+- **ค้าง:** T08 rate limit ต่อ key · T09 sandbox + `tk_test_` · INT-074 แจ้งเตือน (ใกล้หมดอายุ/IP ใหม่) · KPI/log การเรียกของหน้า Open API (นอก backlog เฟส 0) · plan/05 D-05 (ค่าเริ่ม "แกนภายใน") ยังไม่มีคำตอบ — T01 ทำตาม backlog ที่สั่ง
 
 ### 17 พ.ย. 2569 (ST4-T03 แก้ตาม review/QA)
 

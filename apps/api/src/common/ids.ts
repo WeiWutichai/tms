@@ -43,6 +43,7 @@ export const ID_PREFIX = {
   messageDelivery: 'msg',
   scheduleEntry: 'sch',
   subconOffer: 'sco',
+  apiKey: 'key',
 } as const;
 export type IdKind = keyof typeof ID_PREFIX;
 

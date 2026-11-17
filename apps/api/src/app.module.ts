@@ -66,6 +66,9 @@ import { AssignabilityService } from './modules/assignability/assignability.serv
 import { SitesService } from './modules/sites/sites.service';
 import { ServiceItemsController } from './modules/service-items/service-items.controller';
 import { ServiceItemsService } from './modules/service-items/service-items.service';
+import { ApiKeysController } from './modules/api-keys/api-keys.controller';
+import { ApiKeyAuthService } from './modules/api-keys/api-key-auth.service';
+import { ApiKeysService } from './modules/api-keys/api-keys.service';
 import { ReasonCodesController } from './modules/reason-codes/reason-codes.controller';
 import { ReasonCodesService } from './modules/reason-codes/reason-codes.service';
 import {
@@ -178,6 +181,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     VehicleTypesController,
     ServiceItemsController,
     ReasonCodesController,
+    ApiKeysController,
     RateCardsController,
     DeliveryOrdersController,
     TripsController,
@@ -230,6 +234,8 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     VehicleTypesService,
     ServiceItemsService,
     ReasonCodesService,
+    ApiKeysService,
+    ApiKeyAuthService,
     RateCardsService,
     PricingService,
     OrderIntakeService,
