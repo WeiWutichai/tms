@@ -1714,9 +1714,10 @@ model TripStop {
   legMinutes       Int?         @map("leg_minutes")
   legSource        String?      @map("leg_source")
 
-  deliveryOrders DeliveryOrder[] @relation("DoDropStop")
-  pickupOrders   DeliveryOrder[] @relation("DoPickupStop")
+  deliveryOrders DeliveryOrder[]    @relation("DoDropStop")
+  pickupOrders   DeliveryOrder[]    @relation("DoPickupStop")
   events         StopEvent[]
+  pods           DeliveryOrderPod[]
 
   /// เป้าของ FK คู่ (จุด, เที่ยว) — migration 0064 (DO) / 0082 (stop_event)
   @@unique([id, tripId], map: "trip_stop_id_trip_id_key")
@@ -1791,6 +1792,7 @@ model DeliveryOrder {
   updatedAt           DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   lines DeliveryOrderLine[]
+  pods  DeliveryOrderPod[]
 
   @@unique([tenantId, doNo])
   @@index([tenantId, status])
@@ -1800,6 +1802,53 @@ model DeliveryOrder {
   @@index([tenantId, salesOrderId])
   @@index([tenantId, updatedAt, id])
   @@map("delivery_order")
+}
+
+/// หลักฐานส่ง (ePOD) ต่อ DO (ST4-T07; docs/04 E2, docs/01 §3.3 pod_status, §5.3 payload POD) — **append-only เป็นฉบับ**
+/// แก้ = ฉบับใหม่ (version + 1) + เหตุผล (spec/04 DRV-164) · ฉบับล่าสุด = ปัจจุบัน · ไฟล์อ้าง stored_document (เขียนครั้งเดียว)
+/// ใช้ร่วมทุกช่องทาง: เว็บ (T07) ลิงก์รถร่วม (T09) แอปคนขับ (P1) — `source`
+model DeliveryOrderPod {
+  id                  String        @id @default(uuid()) @db.Uuid
+  tenantId            String        @map("tenant_id") @db.Uuid
+  deliveryOrderId     String        @map("delivery_order_id") @db.Uuid
+  deliveryOrder       DeliveryOrder @relation(fields: [deliveryOrderId], references: [id], onDelete: Restrict)
+  /// จุดส่งของ DO ตอนบันทึก (snapshot)
+  tripStopId          String?       @map("trip_stop_id") @db.Uuid
+  tripStop            TripStop?     @relation(fields: [tripStopId], references: [id], onDelete: Restrict)
+  version             Int
+  /// ชุด checklist ที่ใช้ตรวจ SUCCESS / FAILURE
+  outcome             String
+  /// WEB / LINK / APP / API
+  source              String
+  receiverName        String?       @map("receiver_name")
+  /// SELF / SECURITY / STAFF / OTHER
+  receiverRelation    String?       @map("receiver_relation")
+  signatureDocumentId String?       @map("signature_document_id") @db.Uuid
+  photoDocumentIds    String[]      @default([]) @map("photo_document_ids") @db.Uuid
+  fileDocumentIds     String[]      @default([]) @map("file_document_ids") @db.Uuid
+  weighedKg           Decimal?      @map("weighed_kg") @db.Decimal(14, 3)
+  customerRef         String?       @map("customer_ref")
+  note                String?
+  /// BOOLEAN key → true/false
+  checks              Json          @default("{}")
+  /// SINGLE_CHOICE key → ตัวเลือก
+  choices             Json          @default("{}")
+  barcodes            String[]      @default([])
+  /// PIN ที่ผู้รับกรอก — เข้ารหัส (FieldCipher) ห้ามแสดง/บันทึก log แบบเปิด
+  pinEnc              String?       @map("pin_enc")
+  pinLength           Int?          @map("pin_length")
+  rating              Int?
+  /// ผลตรวจตอนบันทึก: PARTIAL / COMPLETE + รายการที่ขาด (PodMissing[])
+  podStatus           String        @map("pod_status")
+  missing             Json          @default("[]")
+  /// เหตุผลการแก้ (ฉบับที่ 2 ขึ้นไป)
+  reason              String?
+  createdBy           String?       @map("created_by")
+  createdAt           DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, deliveryOrderId, version])
+  @@index([tenantId, tripStopId])
+  @@map("delivery_order_pod")
 }
 
 model DeliveryOrderLine {

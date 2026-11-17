@@ -55,6 +55,8 @@ import { CompaniesController } from './modules/companies/companies.controller';
 import { CustomersController } from './modules/customers/customers.controller';
 import { CustomersService } from './modules/customers/customers.service';
 import { PodChecklistService } from './modules/pod/pod-checklist.service';
+import { PodController } from './modules/pod/pod.controller';
+import { PodService } from './modules/pod/pod.service';
 import { SitesController } from './modules/sites/sites.controller';
 import { ProductsController } from './modules/products/products.controller';
 import { ProductsService } from './modules/products/products.service';
@@ -185,6 +187,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     ApiKeysController,
     RateCardsController,
     DeliveryOrdersController,
+    PodController,
     TripsController,
     StopsController,
     TripEventsController,
@@ -227,6 +230,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     CompaniesService,
     CustomersService,
     PodChecklistService,
+    PodService,
     SitesService,
     RoutesService,
     CompatibilityService,

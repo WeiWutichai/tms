@@ -225,7 +225,8 @@ describe('stop projection / status cascade (ST4-T03)', () => {
     const trip = await tripRow(t.uuid);
     expect(trip.status).toBe('COMPLETED');
     expect(trip.completedAt!.toISOString()).toBe(new Date(last.body.occurredAt).toISOString());
-    expect(await doStatus(d.id)).toBe('DELIVERED');
+    // ST4-T07: ส่งถึง (DELIVERED) แล้วเทียบหลักฐานกับ checklist ทันที — ค่าเริ่มต้นบังคับรูป + ลายเซ็น ยังไม่มี → POD_PENDING
+    expect(await doStatus(d.id)).toBe('POD_PENDING');
     expect(await soStatus(soId)).toBe('DELIVERED');
 
     // ใน transaction/คำขอเดียวกัน: event ของจุด/เที่ยว/DO/SO ที่เกิดจากคำขอสุดท้ายมี requestId เดียวกัน
@@ -242,7 +243,8 @@ describe('stop projection / status cascade (ST4-T03)', () => {
         .sort(),
     ).toEqual(
       [
-        'delivery_order.status_changed',
+        'delivery_order.status_changed', // → DELIVERED
+        'delivery_order.status_changed', // → POD_PENDING (ST4-T07)
         'order.updated',
         'stop.completed',
         'stop.departed',
@@ -269,6 +271,7 @@ describe('stop projection / status cascade (ST4-T03)', () => {
       'dispatch',
       'pick_up',
       'deliver',
+      'pod_wait', // ST4-T07 ยังไม่มีหลักฐานส่ง → POD_PENDING
     ]);
     expect(
       (
@@ -367,7 +370,7 @@ describe('stop projection / status cascade (ST4-T03)', () => {
     await post(pk!.id, 'complete', 85, { outcome: 'DELIVERED' }).expect(201);
     await post(aStop, 'arrive', 60).expect(201);
     await post(aStop, 'complete', 55, { outcome: 'PARTIAL' }).expect(201);
-    expect(await doStatus(a.dos[0]!.id)).toBe('DELIVERED');
+    expect(await doStatus(a.dos[0]!.id)).toBe('POD_PENDING');
     expect(await soStatus(a.soId)).toBe('DELIVERED');
     expect((await tripRow(t.uuid)).status).toBe('IN_PROGRESS');
 
@@ -420,7 +423,7 @@ describe('stop projection / status cascade (ST4-T03)', () => {
     expect(await doStatus(kids[0]!.id)).toBe('PICKED_UP');
     await post(d1!.id, 'arrive', 90).expect(201);
     await post(d1!.id, 'complete', 85, { outcome: 'DELIVERED' }).expect(201);
-    expect(await doStatus(kids[0]!.id)).toBe('DELIVERED');
+    expect(await doStatus(kids[0]!.id)).toBe('POD_PENDING');
     expect(await soStatus(soId)).toBe('PARTIALLY_DELIVERED');
 
     const t2 = await dispatched([encodeId('deliveryOrder', kids[1]!.id)]);
@@ -473,7 +476,7 @@ describe('stop projection / status cascade (ST4-T03)', () => {
     await post(pk!.id, 'complete', 60, { outcome: 'DELIVERED' }).expect(201);
     await post(dr!.id, 'arrive', 40).expect(201);
     const ok = await post(dr!.id, 'complete', 35, { outcome: 'DELIVERED' }).expect(201);
-    expect(await doStatus(dos[0]!.id)).toBe('DELIVERED');
+    expect(await doStatus(dos[0]!.id)).toBe('POD_PENDING');
     expect((await tripRow(t.uuid)).status).toBe('COMPLETED');
     // เที่ยวจบแล้ว: event ที่มาทีหลัง = LATE · "ใช้" แล้วก็ไม่เปลี่ยนจุด/เที่ยว/DO (DRV-072)
     const failed = await reason('DELIVERY_FAILED', 'SHOP_CLOSED');
@@ -489,7 +492,7 @@ describe('stop projection / status cascade (ST4-T03)', () => {
       .send({ decision: 'ACCEPT', reason: 'ยืนยันว่าร้านปิดจริง แต่ส่งของแล้ว' })
       .expect(200);
     expect((await tripRow(t.uuid)).status).toBe('COMPLETED');
-    expect(await doStatus(dos[0]!.id)).toBe('DELIVERED');
+    expect(await doStatus(dos[0]!.id)).toBe('POD_PENDING');
     expect(await stopRow(dr!.id)).toMatchObject({ status: 'COMPLETED', outcome: 'DELIVERED' });
     expect((await stopRow(dr!.id)).lastEventId).toBe(uuid('event', ok.body.id));
     expect(
@@ -511,7 +514,7 @@ describe('stop projection / status cascade (ST4-T03)', () => {
     await post(pkStop, 'complete', 65, { outcome: 'DELIVERED' }).expect(201);
     await post(aStop, 'arrive', 60).expect(201);
     const first = await post(aStop, 'complete', 50, { outcome: 'DELIVERED' }).expect(201);
-    expect(await doStatus(a.dos[0]!.id)).toBe('DELIVERED');
+    expect(await doStatus(a.dos[0]!.id)).toBe('POD_PENDING');
     const failed = await reason('DELIVERY_FAILED', 'SHOP_CLOSED');
     const second = await post(aStop, 'fail', 45, {
       outcome: 'FAILED',
@@ -525,7 +528,7 @@ describe('stop projection / status cascade (ST4-T03)', () => {
       .send({ decision: 'IGNORE', reason: 'คนขับกดผิด จริง ๆ ร้านปิด' })
       .expect(200);
     expect(await stopRow(aStop)).toMatchObject({ status: 'FAILED', failReasonCodeId: failed });
-    expect(await doStatus(a.dos[0]!.id)).toBe('DELIVERED');
+    expect(await doStatus(a.dos[0]!.id)).toBe('POD_PENDING');
     // ผลจุดขัด DO → ธงแจ้ง OUTCOME_MISMATCH ที่ event ปิดงานที่มีผล + audit · รับทราบได้อย่างเดียว
     const sec = await db.stopEvent.findFirstOrThrow({
       where: { id: uuid('event', second.body.id) },
@@ -549,7 +552,7 @@ describe('stop projection / status cascade (ST4-T03)', () => {
       .expect(200);
     const after = await db.stopEvent.findFirstOrThrow({ where: { id: sec.id } });
     expect(after.resolutionId).not.toBeNull();
-    expect(await doStatus(a.dos[0]!.id)).toBe('DELIVERED');
+    expect(await doStatus(a.dos[0]!.id)).toBe('POD_PENDING');
     expect(
       (await db.stopEvent.findFirstOrThrow({ where: { id: uuid('event', first.body.id) } }))
         .appliedAt,
@@ -647,12 +650,12 @@ describe('stop projection / status cascade (ST4-T03)', () => {
     const row = await db.stopEvent.findFirstOrThrow({ where: { id: uuid('event', c.body.id) } });
     expect(row.pickupPending).toBe(false);
     expect(row.appliedAt).toBeTruthy();
-    expect(await doStatus(dos[0]!.id)).toBe('DELIVERED');
+    expect(await doStatus(dos[0]!.id)).toBe('POD_PENDING');
     const hist = await db.docStatusHistory.findMany({
       where: { docType: 'delivery_order', docId: dos[0]!.id },
       orderBy: { at: 'asc' },
     });
-    expect(hist.map((h) => h.event).slice(-2)).toEqual(['pick_up', 'deliver']);
+    expect(hist.map((h) => h.event).slice(-3)).toEqual(['pick_up', 'deliver', 'pod_wait']);
     expect((await tripRow(t.uuid)).status).toBe('COMPLETED');
   });
 
@@ -666,7 +669,7 @@ describe('stop projection / status cascade (ST4-T03)', () => {
       .post(`/v1/stop-event-flags/${c.body.id}/resolve`)
       .send({ decision: 'ACCEPT', reason: 'ขึ้นของแล้วแต่คนขับลืมกดปิดจุดรับ' })
       .expect(200);
-    expect(await doStatus(one.dos[0]!.id)).toBe('DELIVERED');
+    expect(await doStatus(one.dos[0]!.id)).toBe('POD_PENDING');
     expect((await tripRow(t.uuid)).status).toBe('IN_PROGRESS'); // จุดรับยังไม่ปิด
 
     const two = await newOrder();
