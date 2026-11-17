@@ -1663,6 +1663,7 @@ model Trip {
   subconOffers         SubconOffer[]
   stopEvents           StopEvent[]
   stopEventResolutions StopEventResolution[]
+  doSurcharges         DoSurcharge[]
 
   @@unique([tenantId, tripNo])
   @@index([tenantId, tripDate, status])
@@ -1791,8 +1792,9 @@ model DeliveryOrder {
   createdAt           DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  lines DeliveryOrderLine[]
-  pods  DeliveryOrderPod[]
+  lines        DeliveryOrderLine[]
+  pods         DeliveryOrderPod[]
+  doSurcharges DoSurcharge[]
 
   @@unique([tenantId, doNo])
   @@index([tenantId, status])
@@ -1879,55 +1881,93 @@ model DeliveryOrderLine {
 }
 
 /// ค่าใช้จ่ายหน้างานที่จะเป็นบรรทัดเพิ่มในใบแจ้งหนี้ (snapshot vat_type/wht_rate)
+/// ST4-T13: บันทึกจากหน้างาน (เที่ยว) → PENDING_CONFIRM → Invoicer ยืนยัน (CONFIRMED) / ปฏิเสธ (REJECTED) · ผู้บันทึกยกเลิก (CANCELLED)
+/// ไม่มีการลบ/แก้ยอด — ผิด = ปฏิเสธ/ยกเลิก แล้วบันทึกใหม่ · ST5-T01 อ่านเฉพาะ CONFIRMED เป็นบรรทัดรายได้ (ห้าม join service_item)
 model DoSurcharge {
-  id              String   @id @default(uuid()) @db.Uuid
-  tenantId        String   @map("tenant_id") @db.Uuid
-  deliveryOrderId String   @map("delivery_order_id") @db.Uuid
-  serviceItemId   String   @map("service_item_id") @db.Uuid
-  vatType         VatType  @map("vat_type")
-  whtRate         Decimal  @map("wht_rate") @db.Decimal(5, 2)
-  qty             Decimal  @db.Decimal(14, 3)
-  unitPrice       Decimal  @map("unit_price") @db.Decimal(14, 2)
-  amount          Decimal  @db.Decimal(14, 2)
-  evidenceFileKey String?  @map("evidence_file_key")
-  approvedBy      String?  @map("approved_by")
-  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  id                  String          @id @default(uuid()) @db.Uuid
+  tenantId            String          @map("tenant_id") @db.Uuid
+  deliveryOrderId     String          @map("delivery_order_id") @db.Uuid
+  deliveryOrder       DeliveryOrder   @relation(fields: [deliveryOrderId], references: [id], onDelete: Restrict)
+  /// เที่ยวที่บันทึก (ST4-T13) — null = แถวก่อน ST4-T13
+  tripId              String?         @map("trip_id") @db.Uuid
+  trip                Trip?           @relation(fields: [tripId], references: [id], onDelete: Restrict)
+  serviceItemId       String          @map("service_item_id") @db.Uuid
+  serviceItemVersion  Int?            @map("service_item_version")
+  serviceItemSnapshot Json?           @map("service_item_snapshot") /// ServiceItemSnapshot ทั้งก้อน ณ เวลาบันทึก
+  description         String          @default("") /// ชื่อรายการ ณ เวลาบันทึก
+  vatType             VatType         @map("vat_type")
+  whtRate             Decimal         @map("wht_rate") @db.Decimal(5, 2)
+  qty                 Decimal         @db.Decimal(14, 3)
+  unitPrice           Decimal         @map("unit_price") @db.Decimal(14, 2)
+  amount              Decimal         @db.Decimal(14, 2)
+  evidenceFileKey     String?         @map("evidence_file_key") /// schema v0 — ไม่ใช้ (ใช้ evidence_document_id)
+  evidenceDocumentId  String?         @unique @map("evidence_document_id") @db.Uuid
+  evidenceDocument    StoredDocument? @relation(fields: [evidenceDocumentId], references: [id], onDelete: Restrict)
+  note                String?
+  /// PENDING_CONFIRM / CONFIRMED / REJECTED / CANCELLED (CHECK ใน migration 0092)
+  status              String          @default("PENDING_CONFIRM")
+  approvedBy          String?         @map("approved_by") /// ผู้ยืนยัน (docs/01 §3.3)
+  decidedBy           String?         @map("decided_by")
+  decidedAt           DateTime?       @map("decided_at") @db.Timestamptz(6)
+  decisionReason      String?         @map("decision_reason")
+  createdBy           String?         @map("created_by")
+  version             Int             @default(1)
+  createdAt           DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  tripCosts TripCost[]
 
   @@index([tenantId, deliveryOrderId])
+  @@index([tenantId, tripId])
+  @@index([tenantId, status])
   @@map("do_surcharge")
 }
 
 model TripCost {
-  id               String       @id @default(uuid()) @db.Uuid
-  tenantId         String       @map("tenant_id") @db.Uuid
-  tripId           String       @map("trip_id") @db.Uuid
-  costType         String       @map("cost_type") /// FUEL / TOLL / DRIVER_WAGE / CARRIER_FEE / ALLOWANCE / REPAIR / OTHER
-  amount           Decimal      @db.Decimal(14, 2)
-  vatAmount        Decimal      @default(0) @map("vat_amount") @db.Decimal(14, 2)
-  source           String /// RATE_CARD / MANUAL / GPS / ADVANCE
-  carrierId        String?      @map("carrier_id") @db.Uuid
-  settlementLineId String?      @unique @map("settlement_line_id") @db.Uuid
-  allocated        Json         @default("{}")
+  id                 String          @id @default(uuid()) @db.Uuid
+  tenantId           String          @map("tenant_id") @db.Uuid
+  tripId             String          @map("trip_id") @db.Uuid
+  costType           String          @map("cost_type") /// FUEL / TOLL / DRIVER_WAGE / CARRIER_FEE / ALLOWANCE / REPAIR / OTHER
+  amount             Decimal         @db.Decimal(14, 2)
+  vatAmount          Decimal         @default(0) @map("vat_amount") @db.Decimal(14, 2)
+  source             String /// RATE_CARD / MANUAL / GPS / ADVANCE
+  carrierId          String?         @map("carrier_id") @db.Uuid
+  settlementLineId   String?         @unique @map("settlement_line_id") @db.Uuid
+  allocated          Json            @default("{}")
   /// ST3-T22: ธงภาษีของบรรทัด (snapshot จากรายการบริการค่าขนส่งของ rate card ขาซื้อ — null = ไม่มี rate card ให้คัดลอก [OPEN])
-  serviceItemId    String?      @map("service_item_id") @db.Uuid
-  vatType          String?      @map("vat_type") /// EXEMPT_TRANSPORT / VAT_7 / ZERO_RATED (ServiceItemVatType)
-  whtRate          Decimal?     @map("wht_rate") @db.Decimal(5, 2) /// เปอร์เซ็นต์ เช่น 1.00
-  description      String?
+  serviceItemId      String?         @map("service_item_id") @db.Uuid
+  vatType            String?         @map("vat_type") /// EXEMPT_TRANSPORT / VAT_7 / ZERO_RATED (ServiceItemVatType)
+  whtRate            Decimal?        @map("wht_rate") @db.Decimal(5, 2) /// เปอร์เซ็นต์ เช่น 1.00
+  description        String?
   /// ข้อเสนอ/การจ้างรถร่วมที่สร้างบรรทัดนี้ (CARRIER_FEE — ST3-T22)
-  subconOfferId    String?      @map("subcon_offer_id") @db.Uuid
-  subconOffer      SubconOffer? @relation(fields: [subconOfferId], references: [id], onDelete: Restrict)
+  subconOfferId      String?         @map("subcon_offer_id") @db.Uuid
+  subconOffer        SubconOffer?    @relation(fields: [subconOfferId], references: [id], onDelete: Restrict)
   /// บรรทัดกลับรายการ (ยอดติดลบ) ของบรรทัดเดิม — เปลี่ยนรถร่วม/จ้างใหม่ (ST3-T22/T25) · ไม่มีการลบ/แก้ยอด
-  reversalOfId     String?      @unique @map("reversal_of_id") @db.Uuid
-  reversalOf       TripCost?    @relation("TripCostReversal", fields: [reversalOfId], references: [id], onDelete: Restrict)
-  reversedBy       TripCost?    @relation("TripCostReversal")
+  reversalOfId       String?         @unique @map("reversal_of_id") @db.Uuid
+  reversalOf         TripCost?       @relation("TripCostReversal", fields: [reversalOfId], references: [id], onDelete: Restrict)
+  reversedBy         TripCost?       @relation("TripCostReversal")
   /// ที่มาของบรรทัด (แนวคิด ST6-T01 `sourceType/sourceId`): SUBCON_OFFER = ราคาที่ตกลงตอนจ้างรถร่วม (source_id = subcon_offer.id)
   /// — **ล็อก: งาน rebuild บรรทัดระบบของ ST6-T01 ห้ามแก้/สร้างใหม่ทับ** · null = บรรทัดก่อน ST3-T22
-  sourceType       String?      @map("source_type")
-  sourceId         String?      @map("source_id") @db.Uuid
-  createdBy        String?      @map("created_by")
-  createdAt        DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  sourceType         String?         @map("source_type")
+  sourceId           String?         @map("source_id") @db.Uuid
+  /// ST4-T13 ค่าใช้จ่ายหน้างานฝั่งซื้อ (source MANUAL, source_type FIELD หรือ DO_SURCHARGE เมื่อบันทึกคู่กับฝั่งขาย)
+  /// สถานะ: บรรทัดระบบ = CONFIRMED · หน้างาน PENDING_CONFIRM → CONFIRMED / REJECTED / CANCELLED (CHECK ใน migration 0092)
+  status             String          @default("CONFIRMED")
+  doSurchargeId      String?         @map("do_surcharge_id") @db.Uuid /// บรรทัดฝั่งขายที่บันทึกคู่กัน (ใช้รูปหลักฐานเดียวกัน)
+  doSurcharge        DoSurcharge?    @relation(fields: [doSurchargeId], references: [id], onDelete: Restrict)
+  evidenceDocumentId String?         @unique @map("evidence_document_id") @db.Uuid
+  evidenceDocument   StoredDocument? @relation(fields: [evidenceDocumentId], references: [id], onDelete: Restrict)
+  note               String?
+  decidedBy          String?         @map("decided_by")
+  decidedAt          DateTime?       @map("decided_at") @db.Timestamptz(6)
+  decisionReason     String?         @map("decision_reason")
+  version            Int             @default(1)
+  createdBy          String?         @map("created_by")
+  createdAt          DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@index([tenantId, tripId])
+  @@index([tenantId, doSurchargeId])
   @@map("trip_cost")
 }
 
@@ -2113,6 +2153,9 @@ model StoredDocument {
   entityId         String?  @map("entity_id") @db.Uuid
   createdBy        String?  @map("created_by")
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  doSurcharges DoSurcharge[]
+  tripCosts    TripCost[]
 
   @@unique([tenantId, clientDocumentId])
   @@index([tenantId, entityType, entityId])

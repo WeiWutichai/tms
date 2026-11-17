@@ -44,6 +44,8 @@ export const ID_PREFIX = {
   scheduleEntry: 'sch',
   subconOffer: 'sco',
   apiKey: 'key',
+  doSurcharge: 'dsc', // ST4-T13 ค่าใช้จ่ายหน้างานฝั่งขาย
+  tripCost: 'tco', // ST4-T13 ต้นทุนเที่ยว (ค่าใช้จ่ายหน้างานฝั่งซื้อ)
 } as const;
 export type IdKind = keyof typeof ID_PREFIX;
 

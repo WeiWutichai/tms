@@ -84,6 +84,12 @@ export const PROBLEMS = {
     th: 'ไม่มีสิทธิ์ทำรายการนี้',
     en: 'You do not have permission for this action',
   },
+  /** ST4-T13 maker-checker: ผู้บันทึกยืนยัน/ปฏิเสธรายการของตัวเองไม่ได้ */
+  self_approval_forbidden: {
+    status: 403,
+    th: 'ยืนยันหรือปฏิเสธรายการที่ตัวเองบันทึกไม่ได้ ต้องให้ผู้อื่นตรวจ',
+    en: 'You cannot approve or reject a line you recorded',
+  },
   payload_too_large: {
     status: 413,
     th: 'ไฟล์หรือข้อมูลมีขนาดใหญ่เกินกำหนด',
