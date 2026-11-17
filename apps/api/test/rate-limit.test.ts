@@ -34,16 +34,16 @@ describe('ตัวจำกัดกลาง: อัลกอริทึม (
     await app?.close();
   });
 
-  it('GCRA: ผ่านได้ burst ครั้งติดกัน แล้ว 429 พร้อม retry ≈ 1/rate · เติมคืนตามเวลา', async () => {
-    const b = gcra(k(), { rate: 10, burst: 3 }, 'tenant');
+  it('GCRA: ผ่านได้ burst ครั้งติดกัน แล้วปฏิเสธพร้อม retry ≈ 1/rate · เติมคืนตามเวลา', async () => {
+    const b = gcra(k(), { rate: 1, burst: 3 }, 'tenant');
     const rs = [];
     for (let i = 0; i < 4; i++) rs.push(await rl.take([b], { failOpen: false }));
     expect(rs.map((r) => r!.allowed)).toEqual([true, true, true, false]);
     expect(rs.slice(0, 3).map((r) => r!.remaining)).toEqual([2, 1, 0]);
     expect(rs[0]!.limit).toBe(3);
-    expect(rs[3]!.retryAfterS).toBe(1); // ~100 ms ปัดขึ้นเป็นวินาที
+    expect(rs[3]!.retryAfterS).toBe(1); // ≤ 1 วินาที ปัดขึ้น
     expect(rs[3]!.scope).toBe('tenant');
-    await sleep(120); // เติม 1 token (100 ms ต่อ token)
+    await sleep(1100); // เติม 1 token (1 วินาทีต่อ token)
     expect((await rl.take([b], { failOpen: false }))!.allowed).toBe(true);
     expect((await rl.take([b], { failOpen: false }))!.allowed).toBe(false);
   });

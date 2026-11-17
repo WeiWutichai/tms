@@ -18,13 +18,15 @@ export type SettingType =
   /** id ของ entity อื่น (เช่น `cmp_…`) — ตรวจว่ามีอยู่จริงที่ service */
   | { kind: 'ref'; entity: 'company'; nullable: true }
   /** POD checklist ค่าเริ่มต้นของ tenant (ST4-T05) — ตรวจด้วย `parsePodRequirements` ของ @tms/domain */
-  | { kind: 'podRequirements' };
+  | { kind: 'podRequirements' }
+  /** เบอร์โทร (ST4-T14 เบอร์บริษัทบนหน้าติดตาม) — null = ไม่ตั้ง */
+  | { kind: 'phone'; nullable: true };
 
 export interface SettingDef {
   type: SettingType;
   default: unknown;
   /** กลุ่มในหน้า ตั้งค่า (org / tax / sec / billing) */
-  group: 'org' | 'tax' | 'sec' | 'billing' | 'routing' | 'dispatch' | 'pod';
+  group: 'org' | 'tax' | 'sec' | 'billing' | 'routing' | 'dispatch' | 'pod' | 'tracking';
   store?: { table: 'tenant'; column: 'name' | 'yearStyle' };
   description: string;
 }
@@ -128,6 +130,27 @@ export const SETTINGS = {
     description:
       'POD checklist ค่าเริ่มต้นของลูกค้าทุกราย (docs/04 E2) — ชุด success/failure; ชนิด PHOTO/SIGNATURE/NOTE/BARCODE/PIN/RATING/BOOLEAN/SINGLE_CHOICE ตั้ง DISABLED/ENABLED/REQUIRED; ลูกค้า override ได้ที่ `podRequirements` (แยกต่อชุด)',
   },
+  'tracking.contactPhone': {
+    group: 'tracking',
+    type: { kind: 'phone', nullable: true },
+    default: null,
+    description:
+      'ST4-T14 เบอร์บริษัทขนส่งบนหน้าติดตามของผู้รับ (ปุ่มโทร + "ติดต่อ …" — spec/04 §4 ไม่ใช่เบอร์คนขับ) · null = ไม่แสดง',
+  },
+  'tracking.showPod': {
+    group: 'tracking',
+    type: { kind: 'bool' },
+    default: false,
+    description:
+      'ST4-T14 แสดงหลักฐานส่ง (รูป ลายเซ็น ชื่อผู้รับ) บนหน้าติดตามของผู้รับเมื่อส่งแล้ว (docs/04 E2 "POD (ถ้าเปิด)") — ค่าเริ่ม ปิด',
+  },
+  'tracking.linkDays': {
+    group: 'tracking',
+    type: { kind: 'int', min: 7, max: 90 },
+    default: 30,
+    description:
+      'ST4-T14 ลิงก์ติดตามใช้ได้ถึงกี่วันหลังงานจบ (ส่งแล้ว/ส่งไม่สำเร็จ/ยกเลิก — spec/04 §4 expiresAt 7–90 วัน ค่าเริ่ม 30)',
+  },
   'security.require2faAll': {
     group: 'sec',
     type: { kind: 'bool' },
@@ -171,6 +194,11 @@ export function validateSetting(key: SettingKey, value: unknown): string | null 
       const errs = settingFieldErrors(key, value);
       return errs.length ? errs.map((e) => `${e.path}: ${e.message}`).join('; ') : null;
     }
+    case 'phone':
+      if (value === null) return null;
+      return typeof value === 'string' && /^\+?[0-9][0-9 -]{5,24}$/.test(value.trim())
+        ? null
+        : 'must be a phone number (digits, space, -) or null';
     case 'int':
       if (value === null && t.nullable) return null;
       return Number.isInteger(value) && (value as number) >= t.min && (value as number) <= t.max
