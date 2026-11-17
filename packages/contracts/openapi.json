@@ -18159,6 +18159,320 @@
         ]
       }
     },
+    "/v1/delivery-orders/{id}/pod": {
+      "get": {
+        "description": "ETag = เลขฉบับปัจจุบัน (ยังไม่มี = \"0\") ใช้เป็น If-Match ตอน PUT · `missing[]` เทียบกับ checklist ของลูกค้า **ตอนนี้** (`podStatus` ของ DO คำนวณตอนบันทึก/ตอนส่งถึง)",
+        "operationId": "Pod_get",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeliveryOrderPodDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`trips:read`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/delivery-orders/do_3f2a…/pod",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "trips",
+                      "action": "read",
+                      "required": [
+                        "trips:read"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ไม่พบใบส่งของ (รวมของบริษัทอื่น)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "instance": "/v1/delivery-orders/do_3f2a…/pod",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "หลักฐานส่งของ DO (ฉบับปัจจุบัน + ประวัติ + checklist + สิ่งที่ขาด)",
+        "tags": [
+          "delivery-orders"
+        ]
+      },
+      "put": {
+        "description": "ส่งทั้งฉบับ (ชื่อช่องตาม docs/01 §5.3) → ฉบับใหม่ (version + 1) · แก้ฉบับเดิมต้องมี `reason` ≥ 10 ตัวอักษร (audit `pod.amended`) · คำนวณ `pod_status` กับ checklist ของลูกค้า (DO ส่งไม่สำเร็จใช้ชุดไม่สำเร็จ): ครบ = COMPLETE, ไม่ครบ = PARTIAL (ไม่ปฏิเสธ) · DO DELIVERED → UNBILLED (ครบ) / POD_PENDING (ไม่ครบ), POD_PENDING → UNBILLED เมื่อครบ — DO ที่ UNBILLED แล้วแก้จนไม่ครบ → 422 `pod_incomplete` (ด่านวางบิล) · ไฟล์ที่ใช้ถูกผูกกับ DO นี้ (`stored_document.entity_type/entity_id`) ใช้กับ DO อื่นไม่ได้ · domain_event `pod.captured` · บันทึกได้เมื่อ DO ส่งแล้ว/ส่งไม่สำเร็จ ยังไม่วางบิล",
+        "operationId": "Pod_put",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET (เลขฉบับ — ยังไม่มี = \"0\") · ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitPodDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeliveryOrderPodDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`trips:dispatch`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/delivery-orders/do_3f2a…/pod",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "trips",
+                      "action": "dispatch",
+                      "required": [
+                        "trips:dispatch"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ไม่พบใบส่งของ (รวมของบริษัทอื่น)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "instance": "/v1/delivery-orders/do_3f2a…/pod",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "DO ยังไม่ส่ง / วางบิลแล้ว / ยกเลิก (`doStatus`) — หรือชนกับการแก้ไขพร้อมกัน",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "pod_not_allowed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/pod_not_allowed",
+                      "title": "บันทึกหลักฐานส่งของใบส่งของนี้ไม่ได้ในสถานะปัจจุบัน",
+                      "status": 409,
+                      "code": "pod_not_allowed",
+                      "instance": "/v1/delivery-orders/do_3f2a…/pod",
+                      "requestId": "b6a1c2d3-…",
+                      "doStatus": "BILLED"
+                    }
+                  },
+                  "concurrent_update": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/concurrent_update",
+                      "title": "มีการแก้ไขข้อมูลเดียวกันพร้อมกัน กรุณาลองใหม่อีกครั้ง",
+                      "status": 409,
+                      "code": "concurrent_update",
+                      "instance": "/v1/delivery-orders/do_3f2a…/pod",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "If-Match ไม่ตรงกับเลขฉบับปัจจุบัน (`currentVersion`) — โหลดใหม่แล้วบันทึกอีกครั้ง",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "precondition_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/precondition_failed",
+                      "title": "ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่",
+                      "status": 412,
+                      "code": "precondition_failed",
+                      "instance": "/v1/delivery-orders/do_3f2a…/pod",
+                      "requestId": "b6a1c2d3-…",
+                      "currentVersion": 2
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง — ไฟล์ไม่ใช่ของหลักฐานส่ง/ยังอัปโหลดไม่เสร็จ/ผูกกับเอกสารหรือ DO อื่นแล้ว (`document_in_use`), ค่าผิดรูปแบบ (PIN ไม่ครบหลัก ตัวเลือกไม่อยู่ในรายการ คะแนนเกิน), key ไม่อยู่ใน checklist, แก้ฉบับเดิมโดยไม่มีเหตุผล · **หลักฐานที่ยังไม่ครบไม่ถูกปฏิเสธ** (บันทึกเป็น PARTIAL) ยกเว้น DO ที่รอวางบิลแล้ว (UNBILLED) → `pod_incomplete` + `missing[]`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "instance": "/v1/delivery-orders/do_3f2a…/pod",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "photoDocumentIds.0",
+                          "code": "not_ready",
+                          "message": "document upload is not complete"
+                        },
+                        {
+                          "field": "pin",
+                          "code": "invalid",
+                          "message": "PIN value is not valid"
+                        },
+                        {
+                          "field": "photoDocumentIds.1",
+                          "code": "document_in_use",
+                          "message": "document belongs to another record"
+                        },
+                        {
+                          "field": "reason",
+                          "code": "required",
+                          "message": "reason (≥ 10 chars) is required to amend an existing proof of delivery"
+                        }
+                      ]
+                    }
+                  },
+                  "pod_incomplete": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/pod_incomplete",
+                      "title": "หลักฐานการส่ง (POD) ยังไม่ครบตามที่ลูกค้ากำหนด",
+                      "status": 422,
+                      "code": "pod_incomplete",
+                      "instance": "/v1/delivery-orders/do_3f2a…/pod",
+                      "requestId": "b6a1c2d3-…",
+                      "doStatus": "UNBILLED",
+                      "errors": [
+                        {
+                          "field": "signatureDocumentId",
+                          "code": "required",
+                          "message": "SIGNATURE is required"
+                        }
+                      ],
+                      "missing": [
+                        {
+                          "key": "signature",
+                          "type": "SIGNATURE",
+                          "code": "required"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "บันทึก/แก้หลักฐานส่ง (ฉบับใหม่ทุกครั้ง)",
+        "tags": [
+          "delivery-orders"
+        ]
+      }
+    },
     "/v1/trips": {
       "get": {
         "operationId": "Trips_list",
@@ -32555,6 +32869,7 @@
             "enum": [
               "POD_PHOTO",
               "POD_SIGNATURE",
+              "POD_FILE",
               "SIGNATURE",
               "LOGO",
               "PDF",
@@ -32926,7 +33241,7 @@
         "type": "object",
         "properties": {
           "fields": {
-            "description": "PHOTO/SIGNATURE/NOTE/BARCODE/PIN/RATING มีได้อย่างละ 1 (ไม่ส่ง = DISABLED) · BOOLEAN และ SINGLE_CHOICE ได้อย่างละสูงสุด 10 ข้อ — response เรียงตามชนิดเสมอ",
+            "description": "PHOTO/SIGNATURE/NOTE/BARCODE/PIN/RATING มีได้อย่างละ 1 (ไม่ส่ง = DISABLED) · BOOLEAN และ SINGLE_CHOICE ได้อย่างละสูงสุด 10 ข้อ — response: ชนิดเดี่ยวครบ 6 ตัวตามลำดับ PHOTO, SIGNATURE, NOTE, BARCODE, PIN, RATING ก่อนเสมอ แล้วตามด้วย BOOLEAN/SINGLE_CHOICE ตามลำดับที่ส่งมา (ไม่จัดกลุ่มตามชนิด)",
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/PodFieldDto"
@@ -41369,6 +41684,491 @@
         "required": [
           "reason"
         ]
+      },
+      "PodMissingDto": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "example": "photo"
+          },
+          "type": {
+            "type": "string",
+            "example": "PHOTO"
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "required",
+              "min_count",
+              "invalid"
+            ]
+          },
+          "expected": {
+            "type": "number"
+          },
+          "actual": {
+            "type": "number"
+          },
+          "label": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "type",
+          "code"
+        ]
+      },
+      "PodDocumentDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "doc_…"
+          },
+          "kind": {
+            "type": "string",
+            "example": "POD_PHOTO"
+          },
+          "mime": {
+            "type": "string"
+          },
+          "bytes": {
+            "type": "number"
+          },
+          "filename": {
+            "type": "string",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "mime",
+          "bytes",
+          "filename",
+          "createdAt"
+        ]
+      },
+      "PodRecordDto": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "number",
+            "example": 2
+          },
+          "podStatus": {
+            "type": "string",
+            "enum": [
+              "PARTIAL",
+              "COMPLETE"
+            ]
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "WEB",
+              "LINK",
+              "APP",
+              "API"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true,
+            "description": "เหตุผลการแก้ (ฉบับแรก = null)"
+          },
+          "recordedBy": {
+            "type": "string",
+            "nullable": true
+          },
+          "recordedByName": {
+            "type": "string",
+            "nullable": true,
+            "description": "ชื่อผู้ใช้ภายในที่บันทึก"
+          },
+          "recordedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "SUCCESS",
+              "FAILURE"
+            ],
+            "description": "ชุด checklist ที่ใช้ตรวจตอนบันทึก"
+          },
+          "receiverName": {
+            "type": "string",
+            "nullable": true
+          },
+          "receiverRelation": {
+            "type": "string",
+            "enum": [
+              "SELF",
+              "SECURITY",
+              "STAFF",
+              "OTHER"
+            ],
+            "nullable": true
+          },
+          "signature": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PodDocumentDto"
+              }
+            ]
+          },
+          "photos": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PodDocumentDto"
+            }
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PodDocumentDto"
+            }
+          },
+          "weighedKg": {
+            "type": "string",
+            "nullable": true,
+            "example": "14940"
+          },
+          "customerRef": {
+            "type": "string",
+            "nullable": true
+          },
+          "note": {
+            "type": "string",
+            "nullable": true
+          },
+          "checks": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "boolean"
+            }
+          },
+          "choices": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "barcodes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "pinMasked": {
+            "type": "string",
+            "nullable": true,
+            "example": "••••",
+            "description": "PIN แบบปิดบัง (ไม่มีทางอ่านค่าจริงผ่าน API)"
+          },
+          "pinUnreadable": {
+            "type": "boolean",
+            "description": "อ่าน PIN ที่เก็บไม่ได้ (กุญแจเข้ารหัสหาย/หมุนผิด) — ยังนับว่ากรอกแล้ว แจ้งผู้ดูแลตรวจกุญแจ"
+          },
+          "rating": {
+            "type": "number",
+            "nullable": true
+          },
+          "missing": {
+            "description": "รายการที่ขาดตอนบันทึก",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PodMissingDto"
+            }
+          }
+        },
+        "required": [
+          "version",
+          "podStatus",
+          "source",
+          "reason",
+          "recordedBy",
+          "recordedByName",
+          "recordedAt",
+          "outcome",
+          "receiverName",
+          "receiverRelation",
+          "signature",
+          "photos",
+          "files",
+          "weighedKg",
+          "customerRef",
+          "note",
+          "checks",
+          "choices",
+          "barcodes",
+          "pinMasked",
+          "pinUnreadable",
+          "rating",
+          "missing"
+        ]
+      },
+      "PodVersionDto": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "number",
+            "example": 2
+          },
+          "podStatus": {
+            "type": "string",
+            "enum": [
+              "PARTIAL",
+              "COMPLETE"
+            ]
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "WEB",
+              "LINK",
+              "APP",
+              "API"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true,
+            "description": "เหตุผลการแก้ (ฉบับแรก = null)"
+          },
+          "recordedBy": {
+            "type": "string",
+            "nullable": true
+          },
+          "recordedByName": {
+            "type": "string",
+            "nullable": true,
+            "description": "ชื่อผู้ใช้ภายในที่บันทึก"
+          },
+          "recordedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "version",
+          "podStatus",
+          "source",
+          "reason",
+          "recordedBy",
+          "recordedByName",
+          "recordedAt"
+        ]
+      },
+      "DeliveryOrderPodDto": {
+        "type": "object",
+        "properties": {
+          "deliveryOrderId": {
+            "type": "string",
+            "example": "do_…"
+          },
+          "doNo": {
+            "type": "string",
+            "example": "DO-2611-00052"
+          },
+          "doStatus": {
+            "type": "string",
+            "example": "UNBILLED",
+            "description": "สถานะ DO (ตัวใหญ่ — เหมือน GET /v1/delivery-orders/{id})"
+          },
+          "podStatus": {
+            "type": "string",
+            "enum": [
+              "NONE",
+              "PARTIAL",
+              "COMPLETE"
+            ]
+          },
+          "editable": {
+            "type": "boolean",
+            "description": "บันทึก/แก้หลักฐานได้ในสถานะ DO ปัจจุบัน (ส่งแล้ว/ส่งไม่สำเร็จ ยังไม่วางบิล)"
+          },
+          "plannedWeightKg": {
+            "type": "string",
+            "nullable": true,
+            "example": "15000",
+            "description": "น้ำหนักตามใบสั่ง"
+          },
+          "checklist": {
+            "description": "checklist ที่ใช้จริงตอนนี้ (ชุดตามสถานะ DO: ส่งไม่สำเร็จ = ชุดไม่สำเร็จ)",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/EffectivePodChecklistDto"
+              }
+            ]
+          },
+          "missing": {
+            "description": "เทียบหลักฐานปัจจุบันกับ checklist ตอนนี้ (ว่าง = ครบ)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PodMissingDto"
+            }
+          },
+          "current": {
+            "nullable": true,
+            "description": "ฉบับปัจจุบัน — null = ยังไม่มี",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PodRecordDto"
+              }
+            ]
+          },
+          "versions": {
+            "description": "ทุกฉบับ ใหม่ → เก่า",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PodVersionDto"
+            }
+          }
+        },
+        "required": [
+          "deliveryOrderId",
+          "doNo",
+          "doStatus",
+          "podStatus",
+          "editable",
+          "plannedWeightKg",
+          "checklist",
+          "missing",
+          "current",
+          "versions"
+        ]
+      },
+      "SubmitPodDto": {
+        "type": "object",
+        "properties": {
+          "receiverName": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 100,
+            "example": "สมศรี ใจงาม",
+            "description": "ชื่อผู้รับ"
+          },
+          "receiverRelation": {
+            "type": "string",
+            "enum": [
+              "SELF",
+              "SECURITY",
+              "STAFF",
+              "OTHER"
+            ],
+            "nullable": true,
+            "description": "ความสัมพันธ์ของผู้รับ: SELF = ผู้รับเอง · SECURITY = รปภ. · STAFF = พนักงาน · OTHER = อื่น ๆ"
+          },
+          "signatureDocumentId": {
+            "type": "string",
+            "nullable": true,
+            "example": "doc_3f2a…",
+            "description": "ลายเซ็นผู้รับ — เอกสาร kind `POD_SIGNATURE` (PNG/JPEG/WebP) ที่อัปโหลดเสร็จแล้ว"
+          },
+          "photoDocumentIds": {
+            "maxItems": 20,
+            "description": "รูปหลักฐานส่ง — เอกสาร kind `POD_PHOTO` (รูป) ไม่เกิน 20 ใบ ไม่ซ้ำ · นับกับ \"รูปขั้นต่ำ\" ของ checklist",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "fileDocumentIds": {
+            "maxItems": 10,
+            "description": "ไฟล์อื่น (เช่น ใบส่งของที่เซ็นแล้ว ใบชั่ง) — เอกสาร kind `POD_FILE` (PDF/รูป) ไม่เกิน 10 ไฟล์ · ไม่นับเป็นรูปของ checklist",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "weighedKg": {
+            "type": "string",
+            "nullable": true,
+            "example": "14940",
+            "description": "น้ำหนักชั่งปลายทาง (กก.) ทศนิยมไม่เกิน 3 ตำแหน่ง — สตริง (ห้าม float)"
+          },
+          "customerRef": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 50,
+            "example": "GR-2611-0042",
+            "description": "เลขอ้างอิงของลูกค้าตอนรับของ (เช่น เลขใบรับสินค้า) — เก็บในหลักฐานส่ง **ไม่แก้** `customerRef` (เลข PO) ของ DO"
+          },
+          "note": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 500
+          },
+          "checks": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "example": {
+              "goods_ok": true
+            },
+            "description": "ข้อยืนยัน (BOOLEAN) ตาม key ใน checklist — key ที่ไม่มีใน checklist → 422"
+          },
+          "choices": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "example": {
+              "box_state": "ดี"
+            },
+            "description": "คำตอบคำถามเลือกตอบ (SINGLE_CHOICE) ตาม key — ต้องเป็นตัวเลือกในรายการ"
+          },
+          "barcodes": {
+            "maxItems": 50,
+            "description": "รหัสบาร์โค้ด/QR ที่สแกนได้ (BARCODE) ยาวไม่เกิน 200 — ชื่อตาม docs/01 §5.3",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "scanCodes": {
+            "maxItems": 50,
+            "deprecated": true,
+            "description": "ชื่อเดิมของ `barcodes` (spec/04 §13 `Pod.scanCodes[]`) — รับได้เพื่อความเข้ากันได้ · ส่งทั้งสองชื่อต้องเหมือนกัน",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "pin": {
+            "type": "string",
+            "nullable": true,
+            "example": "4821",
+            "description": "รหัส PIN ที่ผู้รับกรอก (ตัวเลขครบจำนวนหลักตาม checklist) — เก็บแบบเข้ารหัส response แสดงแบบปิดบังเท่านั้น · **ไม่ส่ง = คงค่าของฉบับก่อน** (อ่านค่าจริงคืนไม่ได้) · null = ล้าง"
+          },
+          "rating": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 1,
+            "maximum": 10,
+            "description": "คะแนนความพึงพอใจของผู้รับ (RATING) 1–คะแนนเต็มของ checklist"
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true,
+            "minLength": 10,
+            "maxLength": 500,
+            "description": "เหตุผลการแก้ — **บังคับเมื่อมีหลักฐานอยู่แล้ว** (ฉบับที่ 2 ขึ้นไป, ≥ 10 ตัวอักษร) ลง audit"
+          }
+        }
       },
       "TripVehicleDto": {
         "type": "object",

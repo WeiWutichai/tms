@@ -270,7 +270,10 @@ function parseField(raw: unknown, path: string, errors: PodConfigError[]): PodFi
   return f;
 }
 
-/** ตรวจ + ทำให้เป็นรูปมาตรฐาน: ชนิดเดี่ยวครบทุกตัว (ที่ไม่ส่ง = DISABLED) เรียงตาม POD_FIELD_TYPES */
+/**
+ * ตรวจ + ทำให้เป็นรูปมาตรฐาน: ชนิดเดี่ยวครบทุกตัว (ที่ไม่ส่ง = DISABLED) ตามลำดับ POD_SINGLETON_TYPES
+ * (PHOTO, SIGNATURE, NOTE, BARCODE, PIN, RATING) แล้วตามด้วย BOOLEAN / SINGLE_CHOICE **ตามลำดับที่ส่งมา** (ไม่จัดกลุ่มตามชนิด)
+ */
 export function parsePodChecklist(
   raw: unknown,
   path = '',
