@@ -2003,35 +2003,40 @@ model StopEvent {
   clockSkew          Boolean               @default(false) @map("clock_skew")
   /// ST4-T02: STOP_REMOVED / TRIP_CANCELLED / TRIP_COMPLETED — มาหลังปิด รับเก็บ + ธง (CHECK)
   lateReason         String?               @map("late_reason")
-  resolutions        StopEventResolution[]
+  resolutions        StopEventResolution[] @relation("StopEventResolutions")
+  /// ST4-T02: การตัดสินที่มีผลตอนนี้ (ธงตรงกับธงปัจจุบัน) — projection คำนวณใหม่ทุกครั้ง
+  resolutionId       String?               @map("resolution_id") @db.Uuid
+  resolution         StopEventResolution?  @relation("AppliedResolution", fields: [resolutionId], references: [id], onDelete: Restrict, onUpdate: Restrict)
 
   @@unique([tenantId, clientEventId])
   @@index([tenantId, tripStopId, occurredAt])
   @@index([tenantId, tripId, occurredAt])
   @@index([tenantId, receivedAt])
   @@index([tenantId, reasonCodeId])
+  @@index([resolutionId], map: "stop_event_resolution_id_idx")
   @@map("stop_event")
 }
 
-/// ST4-T02 การตัดสินของ dispatcher ต่อ stop_event ที่มีธง (append-only; 1 event ตัดสินครั้งเดียว) — ACCEPT ใช้ / IGNORE ไม่ใช้
+/// ST4-T02 การตัดสินของ dispatcher ต่อ stop_event ที่มีธง (append-only) — ACCEPT ใช้ / IGNORE ไม่ใช้ · หมดผลเมื่อธงเปลี่ยน (ตัดสินใหม่ = แถวใหม่)
 model StopEventResolution {
-  id          String    @id @default(uuid()) @db.Uuid
-  tenantId    String    @map("tenant_id") @db.Uuid
-  stopEventId String    @map("stop_event_id") @db.Uuid
-  stopEvent   StopEvent @relation(fields: [stopEventId], references: [id], onDelete: Restrict, onUpdate: Restrict)
-  tripId      String    @map("trip_id") @db.Uuid
-  trip        Trip      @relation(fields: [tripId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  id          String      @id @default(uuid()) @db.Uuid
+  tenantId    String      @map("tenant_id") @db.Uuid
+  stopEventId String      @map("stop_event_id") @db.Uuid
+  stopEvent   StopEvent   @relation("StopEventResolutions", fields: [stopEventId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  appliedTo   StopEvent[] @relation("AppliedResolution")
+  tripId      String      @map("trip_id") @db.Uuid
+  trip        Trip        @relation(fields: [tripId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   /// ACCEPT / IGNORE (CHECK)
   decision    String
   /// ≥ 10 ตัวอักษร (CHECK)
   reason      String
   /// ธงของ event ณ เวลาตัดสิน (LATE / SEQUENCE_CONFLICT / CLOCK_SKEW)
   flags       String[]
-  resolvedBy  String?   @map("resolved_by")
-  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  resolvedBy  String?     @map("resolved_by")
+  createdAt   DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  @@unique([tenantId, stopEventId])
+  @@index([tenantId, stopEventId, createdAt])
   @@index([tenantId, createdAt])
   @@index([tenantId, tripId])
   @@map("stop_event_resolution")

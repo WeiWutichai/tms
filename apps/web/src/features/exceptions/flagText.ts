@@ -52,9 +52,5 @@ export const SEQ_BADGE: Record<string, { tone: Tone; icon: string }> = {
   ACCEPTED: { tone: 'info', icon: 'circle-check' },
   IGNORED: { tone: 'off', icon: 'circle-slash' },
   LATE: { tone: 'warn', icon: 'clock' },
+  SKEWED: { tone: 'warn', icon: 'alarm-clock' },
 };
-
-/** ก่อนตัดสิน event นี้นับในลำดับแล้วหรือยัง (ขัดลำดับ/มาหลังปิด = ยังไม่นับ) */
-export function countedBefore(f: Pick<StopEventFlag, 'flags'>): boolean {
-  return !f.flags.includes('LATE') && !f.flags.includes('SEQUENCE_CONFLICT');
-}

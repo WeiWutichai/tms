@@ -34,7 +34,11 @@ describe('stop event idempotency / ordering / flags (ST4-T02)', () => {
     await db.$disconnect();
   });
 
-  async function trip(status: 'DISPATCHED' | 'CANCELLED' = 'DISPATCHED', tid = tenantId) {
+  async function trip(
+    status: 'DISPATCHED' | 'CANCELLED' | 'ASSIGNED' = 'DISPATCHED',
+    tid = tenantId,
+    dispatched = true,
+  ) {
     const n = ++seed;
     const vt = await db.vehicleType.create({
       data: { tenantId: tid, code: `SF${n}`, nameTh: `6 ล้อ ${n}`, vehicleClass: '6W' },
@@ -59,6 +63,8 @@ describe('stop event idempotency / ordering / flags (ST4-T02)', () => {
         tripNo: `TRP-SF-${n}`,
         tripDate: new Date('2026-11-17'),
         status,
+        // ปล่อยรถแล้ว (event ของเที่ยวที่จบ/ยกเลิกรับแบบ late เฉพาะเที่ยวที่เคยปล่อยรถ)
+        ...(status !== 'ASSIGNED' && dispatched ? { dispatchedAt: new Date() } : {}),
         vehicleId: v.id,
         vehiclePlateSnapshot: v.plate,
         vehicleTypeId: vt.id,
@@ -322,6 +328,99 @@ describe('stop event idempotency / ordering / flags (ST4-T02)', () => {
         data: { ...r, id: undefined, decision: 'MAYBE', stopEventId: r.stopEventId },
       }),
     ).rejects.toThrow();
+  });
+
+  it('ไม่เคยปล่อยรถ: เที่ยวยกเลิก / จุดที่ถอดออก → 409 trip_not_in_progress (ไม่รับแบบ late)', async () => {
+    const c = await trip('CANCELLED', tenantId, false);
+    const r = await c.post('arrive', ev('09:00')).expect(409);
+    expect(r.body.code).toBe('trip_not_in_progress');
+    const a = await trip('ASSIGNED', tenantId, false);
+    await db.tripStop.update({ where: { id: a.stop.id }, data: { removedAt: new Date() } });
+    expect((await a.post('arrive', ev('09:00')).expect(409)).body.code).toBe(
+      'trip_not_in_progress',
+    );
+  });
+
+  it('การตัดสินหมดผลเมื่อธงเปลี่ยน: "ไม่ใช้" (ขัดลำดับ) แล้ว "ถึงจุด" ที่เวลาก่อนมาถึง → ธงหาย ปิดงานนับตามปกติ', async () => {
+    const s = await trip();
+    const c = await s.post('complete', ev('09:40', { outcome: 'DELIVERED' })).expect(201);
+    await resolve(c.body.id, { decision: 'IGNORE', reason: 'คนขับกดปิดงานผิดจุด' }).expect(200);
+    expect((await s.seq()).effective.state).toBe('PENDING');
+    await s.post('arrive', ev('09:10')).expect(201);
+    const r = await s.seq();
+    expect(r.effective).toMatchObject({ state: 'COMPLETED', outcome: 'DELIVERED' });
+    const done = r.data.find((x: { id: string }) => x.id === c.body.id);
+    expect(done).toMatchObject({ seqStatus: 'APPLIED', flags: [], resolution: null });
+    const row = await db.stopEvent.findFirstOrThrow({ where: { id: dec(c.body.id) } });
+    expect(row.resolutionId).toBeNull();
+    // ไม่อยู่ทั้งรายการ "ใหม่" และ "ปิดแล้ว" (ไม่มีธง และการตัดสินเดิมหมดผล — แถวการตัดสินยังอยู่)
+    const all = await flags('?status=all');
+    expect(all.data.map((x: { id: string }) => x.id)).not.toContain(c.body.id);
+    expect(await db.stopEventResolution.count({ where: { stopEventId: row.id } })).toBe(1);
+  });
+
+  it('ยอมรับ "เวลาเพี้ยน" แล้ว event อื่นทำให้ขัดลำดับ → การยอมรับหมดผล กลับเป็นใหม่ ตัดสินใหม่ได้ (แถวที่ 2)', async () => {
+    const s = await trip();
+    const iso = (ms: number) => new Date(Date.now() + ms).toISOString();
+    const d = await s
+      .post('depart', { clientEventId: randomUUID(), occurredAt: iso(3600_000) })
+      .expect(201);
+    // ยังไม่ยอมรับ = ไม่นับ (ไม่ขับสถานะ/เวลา)
+    expect((await s.seq()).effective).toMatchObject({ state: 'PENDING', enRouteAt: null });
+    await resolve(d.body.id, {
+      decision: 'ACCEPT',
+      reason: 'นาฬิกาเครื่องคนขับเร็ว ตรวจแล้ว',
+    }).expect(200);
+    expect((await s.seq()).effective.state).toBe('EN_ROUTE');
+    await s.post('arrive', { clientEventId: randomUUID(), occurredAt: iso(0) }).expect(201);
+    const open = await flags('?status=open');
+    const f = open.data.find((x: { id: string }) => x.id === d.body.id);
+    expect(f).toMatchObject({
+      status: 'OPEN',
+      flags: ['SEQUENCE_CONFLICT', 'CLOCK_SKEW'],
+      resolution: null,
+    });
+    expect((await s.seq()).effective.state).toBe('ARRIVED');
+    await resolve(d.body.id, {
+      decision: 'IGNORE',
+      reason: 'ออกเดินทางกดซ้ำหลังถึงจุดแล้ว',
+    }).expect(200);
+    expect(await db.stopEventResolution.count({ where: { stopEventId: dec(d.body.id) } })).toBe(2);
+  });
+
+  it('ปิดงานแข่งกัน: ตัวที่มาทีหลัง (เวลาก่อน) ไม่พลิกผล — ขึ้นธงทั้งคู่ ผลคงตามตัวที่รับก่อน', async () => {
+    const s = await trip();
+    await s.post('arrive', ev('10:00')).expect(201);
+    const first = await s.post('complete', ev('10:30', { outcome: 'DELIVERED' })).expect(201);
+    expect(first.body.flags).toEqual([]);
+    const later = await s.post('complete', ev('10:20', { outcome: 'PARTIAL' })).expect(201);
+    expect(later.body.flags).toEqual(['SEQUENCE_CONFLICT']);
+    const r = await s.seq();
+    expect(r.effective).toMatchObject({ state: 'COMPLETED', outcome: 'DELIVERED' });
+    const ids = (await flags('?status=open')).data.map((x: { id: string }) => x.id);
+    expect(ids).toEqual(expect.arrayContaining([first.body.id, later.body.id]));
+    // ผู้จัดรถยอมรับตัวที่มาทีหลัง → ผลเปลี่ยนเป็นส่งบางส่วน
+    await resolve(later.body.id, { decision: 'ACCEPT', reason: 'ลูกค้าแจ้งรับไม่ครบจริง' }).expect(
+      200,
+    );
+    expect((await s.seq()).effective.outcome).toBe('PARTIAL');
+  });
+
+  it('ค้นหาด้วยเลข DO / ชื่อลูกค้า · ตัวกรอง resolvedToday', async () => {
+    const s = await trip();
+    const cust = await db.customer.create({
+      data: { tenantId, code: `SFC-${seed}`, legalName: `บจก. ค้นธง ${seed}` },
+    });
+    const c = await s.post('complete', ev('09:40', { outcome: 'DELIVERED' })).expect(201);
+    await db.customerSite.update({
+      where: { id: s.stop.siteId },
+      data: { customerId: cust.id },
+    });
+    const hit = await flags(`?q=${encodeURIComponent(cust.legalName)}`);
+    expect(hit.data.map((x: { id: string }) => x.id)).toEqual([c.body.id]);
+    await resolve(c.body.id, { decision: 'IGNORE', reason: 'ทดสอบตัวกรองวันนี้' }).expect(200);
+    const today = await flags('?status=resolved&resolvedToday=true');
+    expect(today.data.map((x: { id: string }) => x.id)).toContain(c.body.id);
   });
 
   it('แยก tenant: รายการ/สรุปไม่เห็นของบริษัทอื่น · ตัดสิน/ดูลำดับของบริษัทอื่น → 404', async () => {

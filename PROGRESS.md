@@ -144,7 +144,10 @@
 | งาน | สถานะ | หลักฐาน / ที่ยังขาด |
 |---|---|---|
 | T01 `stop_event` + `POST /stops/{id}/arrive` `/depart` `/complete` `/fail` | dev เสร็จ + แก้ตาม review/QA (ไม่มี High) — รอ merge | migration `0082_stop_event` + `0083_stop_event_fk_restrict` (ขยายร่าง 0004: `trip_id` + FK คู่ (จุด, เที่ยว), FK reason, CHECK source/outcome/GPS, ช่อง projection `attachments_pending`/`sequence_conflict`/`applied_at`, trigger append-only ทุก role, index ตาม docs/01 §3.9) · domain `stop-event.ts` (ชนิด/ผล/แหล่ง, `stopOutcomeError`, `stopEventReasonRule`, `isTripExecutable`) · `src/modules/stops/` (`StopsController`, `StopEventsService`) · `test/stop-events.test.ts` (11) + isolation fixture `tripStop` · ยังไม่ไล่สถานะ (T03), ส่งซ้ำ = 409 (T02 → คืนผลเดิม) · ตัดสินใจใน spec/12 §3 แถว "Stop event:" |
-| T02 Server idempotent (ส่งซ้ำ/ลำดับ/ธง) + ศูนย์ข้อยกเว้น (เฉพาะธง stop event) | dev เสร็จ — รอ review/QA | migration `0084_stop_event_flags` (`clock_skew`, `late_reason`, GRANT UPDATE `sequence_conflict`, ตาราง `stop_event_resolution` append-only + RLS) · domain `effectiveStopSequence`/`stopEventTransition`/`stopEventAdmission`/`isClockSkewed` · API ส่งซ้ำ = 200 ผลเดิม, `GET /v1/stops/{id}/events`, `GET /v1/stop-event-flags` (+`/summary`), `POST /v1/stop-event-flags/{id}/resolve` · web `/exceptions` · test `stop-event-flags.test.ts` (11) + E2E `stop-event-flags.spec.ts` · ภาพเทียบ `design/compare/st4-flags-*-1440.png` · ตัดสินใจ spec/12 §3 (6 แถว) |
+| T02 Server idempotent (ส่งซ้ำ/ลำดับ/ธง) + ศูนย์ข้อยกเว้น (เฉพาะธง stop event) | dev + แก้ตาม review/QA เสร็จ (ไม่มี High) — รอ merge | migration `0084_stop_event_flags` + `0085_stop_event_resolution_lapse` (การตัดสินหมดผลเมื่อธงเปลี่ยน, `resolution_id`) (`clock_skew`, `late_reason`, GRANT UPDATE `sequence_conflict`, ตาราง `stop_event_resolution` append-only + RLS) · domain `effectiveStopSequence`/`stopEventTransition`/`stopEventAdmission`/`isClockSkewed` · API ส่งซ้ำ = 200 ผลเดิม, `GET /v1/stops/{id}/events`, `GET /v1/stop-event-flags` (+`/summary`), `POST /v1/stop-event-flags/{id}/resolve` · web `/exceptions` · test `stop-event-flags.test.ts` (11) + E2E `stop-event-flags.spec.ts` · ภาพเทียบ `design/compare/st4-flags-*-1440.png` · ตัดสินใจ spec/12 §3 (12 แถว) |
+| T03 ไล่สถานะ (ยังไม่เริ่ม) | — | ส่งต่อจาก T02: ใช้ `StopEventsService.sequence()` (`effective`) · event late ที่ผู้จัดรถ "ใช้" ต้อง**ไม่**ไล่สถานะเข้า DO/เที่ยวที่ยกเลิกหรือจบแล้ว (DRV-072) — บันทึกเป็นประวัติเท่านั้น |
+| T04 อัปเดตสถานะผ่านเว็บ (ยังไม่เริ่ม) | — | ส่งต่อจาก T02: ปุ่ม "ออกจากจุด" = บันทึก **DEPART ของจุดถัดไป** (จุดสุดท้าย = ไม่บันทึก/COMPLETE) ตาม docs/01 §3.9 (spec/12 §3 "ความหมาย DEPART") — บันทึก DEPART บนจุดเดิมหลังถึงแล้วจะขึ้นธงขัดลำดับ |
+| T08 ลิงก์รถร่วม ส่วนสถานะ (ยังไม่เริ่ม) | — | ส่งต่อจาก T02: ปุ่ม "ออก" แมปเหมือน T04 (DEPART ของจุดถัดไป) · ส่งซ้ำด้วย clientEventId เดิม = 200 ผลเดิม |
 
 ## สัปดาห์นี้ (สัปดาห์ 10–14 พ.ย. 2569)
 
@@ -225,6 +228,12 @@
 - (11 พ.ย., พบระหว่าง T19 — **แก้แล้วใน T04**: `db:migrate` รัน bootstrap ทุก tenant ซึ่ง sync role ระบบ) **role ระบบของ tenant ที่มีอยู่ไม่ได้สิทธิ์ใหม่อัตโนมัติ** — `ensureSystemRoles` รันแค่ตอนสร้าง tenant/seed; เมื่อโค้ดเพิ่ม permission (เช่น `documents:write` ใน T08) tenant เดิมไม่ได้ จนกว่าจะรัน seed · ฐาน dev แก้ด้วย seed แล้ว · ต้องมี sync ตอน deploy/บูต ก่อนมี tenant จริง (เสนอทำใน T24 admin portal หรือ migration step) 
 
 ## บันทึกรายวัน
+
+### 17 พ.ย. 2569 (ST4-T02 แก้ตาม review/QA)
+
+- ทำ: (review M1) การตัดสินหมดผลเมื่อชุดธงเปลี่ยน — เลิก unique 1 แถว/event, ใหม่สุดที่ธงตรงมีผล, `stop_event.resolution_id` projection (migration `0085_stop_event_resolution_lapse`), ธงไม่ขึ้นกับการตัดสินของตัวเอง · (review M2/QA L1) รับแบบ late เฉพาะเที่ยวที่ `dispatched_at` ไม่ว่าง · (QA L2) ปิดงานแข่งกัน = ธงทุกตัว ผลคงตามตัวที่ server รับก่อน/ตัวที่ "ใช้" · (QA L5) เวลาเพี้ยนไม่นับจนกว่า "ใช้" (`SKEWED`) · (review M3) spec/12 แถวความหมาย DEPART (docs ชนะ) + หมายเหตุส่งต่อ T04/T08 · (Low) cursor µs (ข้อความจากฐาน + id, query แบบ SQL), ค้นด้วยเลข DO/ชื่อลูกค้า, การ์ด "ปิดแล้ววันนี้" กรอง `resolvedToday`, บันทึก Idempotency-Key replay, หมายเหตุ T03 (ไม่ไล่สถานะเข้า DO/เที่ยวที่ยกเลิก) · ตัวนับบนเมนู: sidebar ยังไม่รองรับ — ไม่ทำ (spec/12)
+- ไฟล์: `packages/domain/src/stop-event{,.test}.ts`, `migrations/0085_*`, `schema.prisma`, `stops/{stop-events.service,stop-event-flags.controller,stops.controller,stop-event.dto}.ts`, `test/{stop-event-flags,stop-events}.test.ts`, `openapi.json`, web `features/exceptions/*`, `i18n/th.ts`, `e2e/stop-event-flags.spec.ts`, spec/12 §3 (+6 แถว)
+- ค้าง: reopen/ตัวนับบนเมนู (ศูนย์ข้อยกเว้นเต็มรูป) · T03/T04/T08 ตามหมายเหตุในตาราง ST4
 
 ### 17 พ.ย. 2569 (ST4-T02 Server idempotent + ลำดับ event + ธงให้ผู้จัดรถตัดสิน)
 

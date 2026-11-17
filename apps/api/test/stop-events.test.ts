@@ -40,6 +40,7 @@ describe('stop events (ST4-T01)', () => {
   async function trip(
     status: 'ASSIGNED' | 'DISPATCHED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED' = 'DISPATCHED',
     tid = tenantId,
+    dispatched = true,
   ) {
     const n = ++seed;
     const vt = await db.vehicleType.create({
@@ -67,6 +68,8 @@ describe('stop events (ST4-T01)', () => {
         tripNo: `TRP-SE-${n}`,
         tripDate: new Date('2026-11-17'),
         status,
+        // ปล่อยรถแล้ว (event ของเที่ยวที่จบ/ยกเลิกรับแบบ late เฉพาะเที่ยวที่เคยปล่อยรถ)
+        ...(status !== 'ASSIGNED' && dispatched ? { dispatchedAt: new Date() } : {}),
         vehicleId: v.id,
         vehiclePlateSnapshot: v.plate,
         vehicleTypeId: vt.id,

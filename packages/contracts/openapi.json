@@ -18666,10 +18666,19 @@
             }
           },
           {
+            "name": "resolvedToday",
+            "required": false,
+            "in": "query",
+            "description": "true = เฉพาะที่ตัดสินวันนี้ (เวลาไทย) — การ์ด \"ปิดแล้ววันนี้\"",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "q",
             "required": false,
             "in": "query",
-            "description": "ค้นเลขเที่ยว / ทะเบียนรถ / ชื่อจุด",
+            "description": "ค้นเลขเที่ยว / ทะเบียนรถ / ชื่อจุด / เลข DO / ชื่อลูกค้า",
             "schema": {
               "type": "string"
             }
@@ -18781,7 +18790,7 @@
     },
     "/v1/stop-event-flags/{id}/resolve": {
       "post": {
-        "description": "สร้างแถวใหม่ใน `stop_event_resolution` (ไม่แก้ event) + audit `stop_event.resolve` แล้วคำนวณลำดับของจุดใหม่ · ตัดสินได้ครั้งเดียวต่อ event",
+        "description": "สร้างแถวใหม่ใน `stop_event_resolution` (ไม่แก้ event) + audit `stop_event.resolve` แล้วคำนวณลำดับของจุดใหม่ · การตัดสินมีผลตราบที่ชุดธงไม่เปลี่ยน — ธงเปลี่ยน (event อื่นมาถึง) = หมดผล กลับเป็น \"ใหม่\" ตัดสินใหม่ได้",
         "operationId": "StopEventFlags_resolve",
         "parameters": [
           {
@@ -36887,9 +36896,10 @@
               "CONFLICT",
               "ACCEPTED",
               "IGNORED",
-              "LATE"
+              "LATE",
+              "SKEWED"
             ],
-            "description": "APPLIED เปลี่ยนสถานะ · REDUNDANT ซ้ำความหมาย · CONFLICT ขัดลำดับ รอตัดสิน · ACCEPTED ผู้จัดรถยอมรับ · IGNORED ผู้จัดรถไม่ใช้ · LATE มาหลังปิด รอตัดสิน"
+            "description": "APPLIED เปลี่ยนสถานะ · REDUNDANT ซ้ำความหมาย · CONFLICT ขัดลำดับ รอตัดสิน · ACCEPTED ผู้จัดรถยอมรับ · IGNORED ผู้จัดรถไม่ใช้ · LATE มาหลังปิด รอตัดสิน · SKEWED เวลาเครื่องเพี้ยน รอตัดสิน"
           },
           "counted": {
             "type": "boolean",
@@ -37404,6 +37414,7 @@
           },
           "flags": {
             "type": "array",
+            "description": "ธงปัจจุบัน",
             "items": {
               "type": "string",
               "enum": [
@@ -37418,7 +37429,8 @@
             "enum": [
               "OPEN",
               "RESOLVED"
-            ]
+            ],
+            "description": "RESOLVED = มีการตัดสินที่ธงตรงกับธงปัจจุบัน"
           },
           "tripId": {
             "type": "string",
@@ -37485,6 +37497,7 @@
           },
           "resolution": {
             "nullable": true,
+            "description": "การตัดสินที่มีผล",
             "type": "object",
             "allOf": [
               {

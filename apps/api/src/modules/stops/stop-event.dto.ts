@@ -230,9 +230,9 @@ class StopEventResolutionDto {
 /** event ในลำดับที่มีผลของจุด (GET /stops/{id}/events) */
 export class SequencedStopEventDto extends StopEventDto {
   @ApiProperty({
-    enum: ['APPLIED', 'REDUNDANT', 'CONFLICT', 'ACCEPTED', 'IGNORED', 'LATE'],
+    enum: ['APPLIED', 'REDUNDANT', 'CONFLICT', 'ACCEPTED', 'IGNORED', 'LATE', 'SKEWED'],
     description:
-      'APPLIED เปลี่ยนสถานะ · REDUNDANT ซ้ำความหมาย · CONFLICT ขัดลำดับ รอตัดสิน · ACCEPTED ผู้จัดรถยอมรับ · IGNORED ผู้จัดรถไม่ใช้ · LATE มาหลังปิด รอตัดสิน',
+      'APPLIED เปลี่ยนสถานะ · REDUNDANT ซ้ำความหมาย · CONFLICT ขัดลำดับ รอตัดสิน · ACCEPTED ผู้จัดรถยอมรับ · IGNORED ผู้จัดรถไม่ใช้ · LATE มาหลังปิด รอตัดสิน · SKEWED เวลาเครื่องเพี้ยน รอตัดสิน',
   })
   seqStatus!: string;
   @ApiProperty({ description: 'นับในลำดับที่มีผล' }) counted!: boolean;
@@ -284,8 +284,13 @@ export class StopEventSequenceDto {
 export class StopEventFlagDto {
   @ApiProperty({ example: 'evt_3f2a…', description: 'id ของ event ที่มีธง' }) id!: string;
   @ApiProperty({ type: StopEventDto }) event!: StopEventDto;
-  @ApiProperty({ enum: STOP_EVENT_FLAGS, isArray: true }) flags!: string[];
-  @ApiProperty({ enum: ['OPEN', 'RESOLVED'] }) status!: string;
+  @ApiProperty({ enum: STOP_EVENT_FLAGS, isArray: true, description: 'ธงปัจจุบัน' })
+  flags!: string[];
+  @ApiProperty({
+    enum: ['OPEN', 'RESOLVED'],
+    description: 'RESOLVED = มีการตัดสินที่ธงตรงกับธงปัจจุบัน',
+  })
+  status!: string;
   @ApiProperty({ example: 'trp_3f2a…' }) tripId!: string;
   @ApiProperty({ nullable: true, type: String, example: 'TRP-2611-0042' }) tripNo!: string | null;
   @ApiProperty({ example: 'DISPATCHED' }) tripStatus!: string;
@@ -303,7 +308,7 @@ export class StopEventFlagDto {
     description: 'สถานะของจุดตามลำดับที่มีผล ก่อน event นี้ (เฉพาะธงขัดลำดับ)',
   })
   stateBefore!: string | null;
-  @ApiProperty({ nullable: true, type: StopEventResolutionDto })
+  @ApiProperty({ nullable: true, type: StopEventResolutionDto, description: 'การตัดสินที่มีผล' })
   resolution!: StopEventResolutionDto | null;
   @ApiProperty({ nullable: true, type: String, description: 'ชื่อผู้บันทึก event (ผู้ใช้ภายใน)' })
   recordedByName!: string | null;
@@ -347,7 +352,14 @@ export class StopEventFlagListQuery {
   @IsIn(STOP_EVENT_FLAGS)
   flag?: (typeof STOP_EVENT_FLAGS)[number];
 
-  @ApiPropertyOptional({ description: 'ค้นเลขเที่ยว / ทะเบียนรถ / ชื่อจุด' })
+  @ApiPropertyOptional({
+    description: 'true = เฉพาะที่ตัดสินวันนี้ (เวลาไทย) — การ์ด "ปิดแล้ววันนี้"',
+  })
+  @IsOptional()
+  @IsIn(['true', 'false'])
+  resolvedToday?: 'true' | 'false';
+
+  @ApiPropertyOptional({ description: 'ค้นเลขเที่ยว / ทะเบียนรถ / ชื่อจุด / เลข DO / ชื่อลูกค้า' })
   @IsOptional()
   @IsString()
   @MaxLength(100)

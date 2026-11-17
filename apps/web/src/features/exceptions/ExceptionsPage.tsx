@@ -57,7 +57,9 @@ export function ExceptionsPage() {
   const canResolve = can(me.data?.scopes ?? [], 'trips:dispatch');
   const [tab, setTab] = useSessionState<FlagTab>('exc.tab', 'all');
   const [col, setCol] = useSessionState('exc.cols', { flag: '', q: '' });
-  const list = useFlagList({ status: tab, flag: col.flag, q: col.q });
+  // การ์ด "ปิดแล้ววันนี้" = แท็บปิดแล้ว + เฉพาะที่ตัดสินวันนี้
+  const [today, setToday] = useSessionState('exc.today', false);
+  const list = useFlagList({ status: tab, flag: col.flag, q: col.q, today });
   const summary = useFlagSummary();
   const s = summary.data;
   const [open, setOpen] = useState<StopEventFlag | null>(null);
@@ -65,7 +67,7 @@ export function ExceptionsPage() {
 
   const tabCount = (k: FlagTab) =>
     !s ? undefined : k === 'open' ? s.open : k === 'resolved' ? s.resolved : s.open + s.resolved;
-  const shownTotal = listTotal(list, col, [], tabCount(tab));
+  const shownTotal = listTotal(list, col, [], today ? s?.resolvedToday : tabCount(tab));
   const filtered = !!(col.flag || col.q);
 
   const columns: Column<StopEventFlag>[] = [
@@ -125,7 +127,7 @@ export function ExceptionsPage() {
 
   const kpi = (k: 'open' | 'today', tone: 'err' | 'ok') => {
     const target: FlagTab = k === 'open' ? 'open' : 'resolved';
-    const active = tab === target;
+    const active = k === 'today' ? today : tab === 'open' && !today;
     return (
       <KpiCard
         label={t(`exc.kpi.${k}`)}
@@ -134,7 +136,15 @@ export function ExceptionsPage() {
         sub={active ? t('exc.kpi.clear') : t('exc.kpi.click')}
         active={active}
         activeLabel={t('exc.kpi.on')}
-        onClick={() => setTab((x) => (x === target ? 'all' : target))}
+        onClick={() => {
+          if (active) {
+            setTab('all');
+            setToday(false);
+          } else {
+            setTab(target);
+            setToday(k === 'today');
+          }
+        }}
       />
     );
   };
@@ -153,7 +163,10 @@ export function ExceptionsPage() {
       <div className="tms-listbody">
         <StatusTabs
           value={tab}
-          onChange={(k) => setTab(k as FlagTab)}
+          onChange={(k) => {
+            setTab(k as FlagTab);
+            setToday(false);
+          }}
           items={(['all', 'open', 'resolved'] as const).map((k) => {
             const n = tabCount(k);
             return {
@@ -193,7 +206,7 @@ export function ExceptionsPage() {
             onRowClick={(r) => setOpen(r)}
             rowMenu={(r) => [{ label: t('exc.menu.view'), icon: 'eye', run: () => setOpen(r) }]}
             empty={
-              filtered || tab !== 'all' ? (
+              filtered || today || tab !== 'all' ? (
                 <EmptyState
                   icon="search-x"
                   title={t('table.emptyTitle')}

@@ -27,7 +27,12 @@ async function token(page: Page): Promise<string> {
   return ((await r2.json()) as { accessToken: string }).accessToken;
 }
 
-type Trip = { id: string; tripNo: string; stops: { id: string }[] };
+type Trip = {
+  id: string;
+  tripNo: string;
+  stops: { id: string }[];
+  deliveryOrders: { doNo: string }[];
+};
 
 test.describe.serial('ศูนย์ข้อยกเว้น: event ส่งซ้ำ / สลับลำดับ / ขัดแย้ง (ST4-T02)', () => {
   let H: Record<string, string>;
@@ -160,6 +165,15 @@ test.describe.serial('ศูนย์ข้อยกเว้น: event ส่�
     const e = await r.json();
     expect(e.flags).toEqual(['SEQUENCE_CONFLICT']);
     conflictId = e.id;
+
+    // ค้นด้วยเลข DO ได้ (QA)
+    const byDo = await (
+      await page.request.get(
+        `/v1/stop-event-flags?q=${encodeURIComponent(trip!.deliveryOrders[0]!.doNo)}`,
+        { headers: H },
+      )
+    ).json();
+    expect(byDo.data.map((x: { id: string }) => x.id)).toContain(conflictId);
 
     await page.goto('/exceptions');
     await expect(page.getByRole('heading', { name: 'ศูนย์ข้อยกเว้น' })).toBeVisible();

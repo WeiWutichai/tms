@@ -100,7 +100,7 @@ describe('FlagDrawer (ST4-T02)', () => {
     show(flag());
     fireEvent.click(screen.getByRole('button', { name: /ปิดเหตุ/ }));
     const dlg = screen.getByRole('dialog', { name: 'ปิดเหตุ TRP-2611-0042' });
-    expect(within(dlg).getByText('ยังไม่นับ')).toBeTruthy();
+    expect(within(dlg).getByText('รอตัดสิน')).toBeTruthy();
     expect(within(dlg).getByText('ใช้เหตุการณ์นี้')).toBeTruthy();
     const ok = within(dlg)
       .getAllByRole('button', { name: /ปิดเหตุ/ })

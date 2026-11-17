@@ -21,11 +21,11 @@ type FlagRow = Prisma.StopEventGetPayload<{ include: typeof FLAG_INCLUDE }> & {
 
 export function toFlagDto(r: FlagRow, names: Map<string, string> = new Map()): StopEventFlagDto {
   const dos = r.tripStop.type === 'PICKUP' ? r.tripStop.pickupOrders : r.tripStop.deliveryOrders;
-  const res = r.resolutions[0];
+  const res = r.resolution ?? undefined;
   return {
     id: encodeId('event', r.id),
     event: toStopEventDto(r),
-    flags: res ? res.flags : flagsOf(r),
+    flags: flagsOf(r),
     status: res ? 'RESOLVED' : 'OPEN',
     tripId: encodeId('trip', r.tripId),
     tripNo: r.trip.tripNo,
@@ -45,7 +45,7 @@ export function toFlagDto(r: FlagRow, names: Map<string, string> = new Map()): S
 }
 
 const actorsOf = (rows: FlagRow[]) =>
-  rows.flatMap((r) => [r.actor, r.resolutions[0]?.resolvedBy ?? null]);
+  rows.flatMap((r) => [r.actor, r.resolution?.resolvedBy ?? null]);
 
 const P = (code: ProblemCode, extra: Record<string, unknown> = {}) => ({
   type: `https://docs.tms.example/problems/${code}`,
@@ -86,7 +86,7 @@ export class StopEventFlagsController {
   @RequireScope('trips:read')
   @ApiOkResponse({ type: StopEventFlagPageDto })
   async list(@Query() q: StopEventFlagListQuery): Promise<StopEventFlagPageDto> {
-    const page = await this.events.listFlags(q);
+    const page = await this.events.listFlags({ ...q, resolvedToday: q.resolvedToday === 'true' });
     const names = await this.events.userNames(actorsOf(page.rows));
     return {
       data: page.rows.map((r) => toFlagDto(r, names)),
@@ -109,7 +109,7 @@ export class StopEventFlagsController {
   @ApiOperation({
     summary: 'ตัดสินธง: ใช้ (ACCEPT) / ไม่ใช้ (IGNORE) event นี้ — เหตุผลบังคับ',
     description:
-      'สร้างแถวใหม่ใน `stop_event_resolution` (ไม่แก้ event) + audit `stop_event.resolve` แล้วคำนวณลำดับของจุดใหม่ · ตัดสินได้ครั้งเดียวต่อ event',
+      'สร้างแถวใหม่ใน `stop_event_resolution` (ไม่แก้ event) + audit `stop_event.resolve` แล้วคำนวณลำดับของจุดใหม่ · การตัดสินมีผลตราบที่ชุดธงไม่เปลี่ยน — ธงเปลี่ยน (event อื่นมาถึง) = หมดผล กลับเป็น "ใหม่" ตัดสินใหม่ได้',
   })
   @ApiProblems(
     F403('trips:dispatch'),

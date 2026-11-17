@@ -186,7 +186,7 @@ export class StopsController {
         ...toStopEventDto(e),
         seqStatus: e.seqStatus,
         counted: e.counted,
-        resolution: toResolutionDto(e.resolutions[0]),
+        resolution: toResolutionDto(e.resolution ?? undefined),
       })),
       effective: {
         state: seq.state,

@@ -12,8 +12,14 @@ export type Decision = 'ACCEPT' | 'IGNORE';
 const KEY = 'stop-event-flags';
 
 /** รายการธง (ST4-T02 — GET /v1/stop-event-flags; ล่าสุดก่อน) */
-export function useFlagList(filters: { status: FlagTab; flag: string; q: string }) {
+export function useFlagList(filters: {
+  status: FlagTab;
+  flag: string;
+  q: string;
+  today?: boolean;
+}) {
   const query: Record<string, string> = { status: filters.status };
+  if (filters.today) query.resolvedToday = 'true';
   if (filters.flag) query.flag = filters.flag;
   if (filters.q.trim()) query.q = filters.q.trim();
   return useCursorList<StopEventFlag>(

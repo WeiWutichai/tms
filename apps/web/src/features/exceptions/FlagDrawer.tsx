@@ -13,14 +13,7 @@ import type { MessageKey } from '../../i18n/th';
 import { problemText } from '../master/problems';
 import { useDateTimeText } from '../rate-cards/rateFormat';
 import { TripDrawer } from '../trips/TripDrawer';
-import {
-  countedBefore,
-  eventLabel,
-  flagDetail,
-  flagTypeLabel,
-  SEQ_BADGE,
-  STATUS_BADGE,
-} from './flagText';
+import { eventLabel, flagDetail, flagTypeLabel, SEQ_BADGE, STATUS_BADGE } from './flagText';
 import {
   useResolveFlag,
   useStopSequence,
@@ -196,7 +189,7 @@ export function FlagDrawer({
             { f: t('exc.dlg.status'), b: t('exc.st.OPEN'), a: t('exc.st.RESOLVED') },
             {
               f: t('exc.dlg.use'),
-              b: countedBefore(flag) ? t('exc.dlg.counted') : t('exc.dlg.notCounted'),
+              b: t('exc.dlg.pending'),
               a: t(dialog === 'IGNORE' ? 'exc.dec.IGNORE' : 'exc.dec.ACCEPT'),
             },
           ],
