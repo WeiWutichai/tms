@@ -8,6 +8,10 @@ import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { Public } from './common/decorators';
 import { createValidationPipe } from './common/validation';
+import { Logger } from '@nestjs/common';
+import { isLocalEnv } from './auth/tokens';
+import { assertSigningKeys } from './auth/signing-keys';
+import { assertApiKeyPepper } from './modules/api-keys/key-material';
 
 export function buildOpenApi(app: NestExpressApplication): OpenAPIObject {
   const config = new DocumentBuilder()
@@ -24,9 +28,13 @@ export function buildOpenApi(app: NestExpressApplication): OpenAPIObject {
   });
 }
 
-/** ค่า `trust proxy` ของ Express จาก env (ไม่ตั้ง = 1 ชั้น) */
-export function trustProxy(v: string | undefined): number | string[] {
-  if (!v?.trim()) return 1;
+/**
+ * ค่า `trust proxy` ของ Express จาก env (ST7-T01 QA M) — ไม่ตั้ง: production/staging = 0 (ไม่เชื่อ X-Forwarded-For เลย —
+ * ปลอดภัยกว่า: ผู้เรียกปลอม XFF ผ่าน IP allowlist/rate limit ไม่ได้) · dev/test = 1 (vite proxy / Playwright 1 ชั้น)
+ * deploy หลัง load balancer ต้องตั้ง TRUST_PROXY เอง (จำนวนชั้น หรือ IP/CIDR ของ proxy)
+ */
+export function trustProxy(v: string | undefined, local = isLocalEnv()): number | string[] {
+  if (!v?.trim()) return local ? 1 : 0;
   if (/^\d+$/.test(v.trim())) return Number(v.trim());
   return v
     .split(',')
@@ -45,6 +53,15 @@ export async function createApp(module: unknown = AppModule): Promise<NestExpres
   // ค่าเริ่ม 1 ชั้น (load balancer ตัวเดียว) · ตั้ง TRUST_PROXY ได้: จำนวนชั้น (`2`) หรือรายการ IP/CIDR ของ proxy
   // (`10.0.0.0/8,loopback`) — ตั้งผิด = ผู้เรียกปลอม X-Forwarded-For เพื่อผ่าน allowlist ได้
   app.set('trust proxy', trustProxy(process.env.TRUST_PROXY));
+  if (!isLocalEnv()) {
+    if (!process.env.TRUST_PROXY?.trim())
+      new Logger('Bootstrap').warn(
+        'TRUST_PROXY ไม่ได้ตั้ง → ไม่เชื่อ X-Forwarded-For (IP ผู้เรียก = IP ของ proxy) — หลัง load balancer ให้ตั้ง TRUST_PROXY',
+      );
+    // ไม่มี pepper / กุญแจเซ็น token = ไม่ยอมเริ่ม (fail closed ตั้งแต่บูต ไม่ใช่ตอนมีคนเรียก — review M2)
+    assertApiKeyPepper();
+    assertSigningKeys();
+  }
   // Security baseline (ST0-T12): HSTS, CSP (API คืน JSON ล้วน → default-src 'none'), frame deny, referrer
   app.use(
     helmet({

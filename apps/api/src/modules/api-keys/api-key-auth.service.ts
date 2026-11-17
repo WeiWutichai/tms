@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { API_KEY_SCOPES } from '@tms/domain';
 import type { ApiKey } from '@prisma/client';
 import {
   CLIENT_TOKEN_TTL_SECONDS,
@@ -11,6 +12,10 @@ import { PrismaService } from '../../db/prisma.service';
 import { EntitlementService } from '../entitlements/entitlement.service';
 import { apiKeyStatus } from './api-keys.service';
 import { API_KEY_RE, hashApiKey, ipAllowed, sameHash } from './key-material';
+
+/** กันชั้นที่ 2: scope ที่ห้ามให้ key (users/settings:write) ไม่ถูกใช้แม้มีค้างในแถว */
+const allowed = (scopes: string[]) =>
+  scopes.filter((s) => (API_KEY_SCOPES as readonly string[]).includes(s));
 
 /** tenant ที่เรียก API ได้ (เหมือน login — spec/01 PLT-001) */
 const API_TENANT_STATUSES = ['TRIAL', 'ACTIVE'];
@@ -51,7 +56,13 @@ export class ApiKeyAuthService {
     const st = apiKeyStatus(k);
     if (st === 'revoked') throw new ProblemException('key_revoked');
     if (st === 'expired') throw new ProblemException('key_expired');
-    if (!ipAllowed(k.ipAllowlist, ip)) throw new ProblemException('ip_not_allowed');
+    if (!ipAllowed(k.ipAllowlist, ip)) {
+      // INT-075: เก็บ IP ที่ถูกปฏิเสธล่าสุดไว้บน key (ไม่แตะ updated_at/version)
+      await this.db.$executeRaw`
+        UPDATE api_key SET last_rejected_ip = ${ip ?? null}, last_rejected_at = now()
+         WHERE id = ${k.id}::uuid`.catch(() => undefined);
+      throw new ProblemException('ip_not_allowed');
+    }
     if (!(await this.entitlements.enabled(k.tenantId, 'api')))
       throw new ProblemException('feature_not_in_plan', undefined, undefined, {
         featureKey: 'api',
@@ -88,7 +99,7 @@ export class ApiKeyAuthService {
     if (!k) throw new ProblemException('unauthorized');
     await this.check(k, ip);
     await this.touch(k, ip);
-    return { keyId: k.id, tenantId: k.tenantId, scopes: k.scopes };
+    return { keyId: k.id, tenantId: k.tenantId, scopes: allowed(k.scopes) };
   }
 
   /** Bearer JWT จาก client credentials — scope = ที่ token ได้ ∩ scope ปัจจุบันของ key */
@@ -102,7 +113,7 @@ export class ApiKeyAuthService {
     return {
       keyId: k.id,
       tenantId: k.tenantId,
-      scopes: granted.filter((s) => k.scopes.includes(s)),
+      scopes: allowed(granted.filter((s) => k.scopes.includes(s))),
     };
   }
 

@@ -15,7 +15,14 @@ const DEV_PEPPER = 'dev-only-api-key-pepper-0123456789abcdef';
 function pepper(): string {
   const p = process.env.API_KEY_PEPPER ?? (isLocalEnv() ? DEV_PEPPER : undefined);
   if (!p || p.length < 32) throw new Error('API_KEY_PEPPER (>= 32 chars) required');
+  if (!isLocalEnv() && p === DEV_PEPPER)
+    throw new Error('API_KEY_PEPPER must not be the dev value');
   return p;
+}
+
+/** ตรวจตอนบูต (นอก dev/test): pepper ต้องตั้งและแข็งแรง — ไม่ผ่าน = ไม่ยอมเริ่มระบบ (review M2) */
+export function assertApiKeyPepper(): void {
+  pepper();
 }
 
 /** ดูรูปแบบอย่างเดียว (ไม่ตรวจกับฐาน) — ใช้แยก Bearer ที่เป็น API key ออกจาก JWT */

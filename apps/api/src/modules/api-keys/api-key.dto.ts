@@ -60,6 +60,19 @@ export class ApiKeyDto {
   @ApiProperty({ nullable: true, type: String, description: 'ผู้สร้าง (usr_…)' })
   createdBy!: string | null;
   @ApiProperty({ nullable: true, type: String }) createdByName!: string | null;
+  @ApiProperty({
+    description:
+      'ผู้สร้างถูกระงับ/ลบแล้ว (INT-076) — key ยังทำงาน ควรโอนให้ผู้ดูแลคนอื่นหมุนเวียนแทน',
+  })
+  creatorInactive!: boolean;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description: 'IP ล่าสุดที่ถูกปฏิเสธเพราะไม่อยู่ใน allowlist (INT-075)',
+  })
+  lastRejectedIp!: string | null;
+  @ApiProperty({ nullable: true, type: String, format: 'date-time' })
+  lastRejectedAt!: string | null;
   @ApiProperty() version!: number;
   @ApiProperty({ format: 'date-time' }) createdAt!: string;
   @ApiProperty({ format: 'date-time' }) updatedAt!: string;

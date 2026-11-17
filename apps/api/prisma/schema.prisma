@@ -2601,32 +2601,35 @@ model ConnectorCursor {
 /// secret แสดงครั้งเดียว: เก็บเฉพาะ HMAC-SHA256(pepper) + prefix แสดงผล · ไม่มี hard delete (เพิกถอน = revoke_at)
 /// สถานะคำนวณ: revoke_at ≤ now → revoked · revoke_at > now → rotating (หมุนแล้ว ใช้ได้ถึง revoke_at ≤ 7 วัน) · expires_at ≤ now → expired · อื่น ๆ active
 model ApiKey {
-  id            String    @id @default(uuid()) @db.Uuid
-  tenantId      String    @map("tenant_id") @db.Uuid
-  name          String    @db.VarChar(80)
+  id             String    @id @default(uuid()) @db.Uuid
+  tenantId       String    @map("tenant_id") @db.Uuid
+  name           String    @db.VarChar(80)
   /// live / test (`tk_live_` / `tk_test_`) — test ต้องมี sandbox (ST7-T09) จึงยังออกไม่ได้
-  mode          String    @db.VarChar(8)
+  mode           String    @db.VarChar(8)
   /// `tk_live_` + 4 ตัวแรกของส่วนสุ่ม (แสดงในตาราง)
-  prefix        String    @db.VarChar(16)
+  prefix         String    @db.VarChar(16)
   /// HMAC-SHA256(API_KEY_PEPPER, key เต็ม) base64url — unique ทั้งระบบ (หา key จาก secret โดยไม่รู้ tenant)
-  secretHash    String    @unique @map("secret_hash")
+  secretHash     String    @unique @map("secret_hash")
   /// scope แบบ `resource:verb` ของ packages/domain PERMISSIONS
-  scopes        String[]
+  scopes         String[]
   /// CIDR/IP ที่อนุญาต (ว่าง = ทุก IP)
-  ipAllowlist   String[]  @map("ip_allowlist")
-  expiresAt     DateTime? @map("expires_at") @db.Timestamptz(6)
-  lastUsedAt    DateTime? @map("last_used_at") @db.Timestamptz(6)
-  lastUsedIp    String?   @map("last_used_ip")
-  revokeAt      DateTime? @map("revoke_at") @db.Timestamptz(6)
-  revokeReason  String?   @map("revoke_reason")
-  revokedBy     String?   @map("revoked_by")
+  ipAllowlist    String[]  @map("ip_allowlist")
+  expiresAt      DateTime? @map("expires_at") @db.Timestamptz(6)
+  lastUsedAt     DateTime? @map("last_used_at") @db.Timestamptz(6)
+  lastUsedIp     String?   @map("last_used_ip")
+  /// INT-075: IP ล่าสุดที่ถูกปฏิเสธ (ไม่อยู่ใน allowlist) + เวลา
+  lastRejectedIp String?   @map("last_rejected_ip")
+  lastRejectedAt DateTime? @map("last_rejected_at") @db.Timestamptz(6)
+  revokeAt       DateTime? @map("revoke_at") @db.Timestamptz(6)
+  revokeReason   String?   @map("revoke_reason")
+  revokedBy      String?   @map("revoked_by")
   /// key ใหม่ที่ออกแทนตอนหมุน (key เดิมชี้ไป key ใหม่)
-  rotatedToId   String?   @map("rotated_to_id") @db.Uuid
-  rotatedFromId String?   @map("rotated_from_id") @db.Uuid
-  createdBy     String?   @map("created_by")
-  version       Int       @default(1)
-  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  rotatedToId    String?   @map("rotated_to_id") @db.Uuid
+  rotatedFromId  String?   @map("rotated_from_id") @db.Uuid
+  createdBy      String?   @map("created_by")
+  version        Int       @default(1)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@index([tenantId, createdAt, id])
   @@map("api_key")

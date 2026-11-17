@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma, type ApiKey } from '@prisma/client';
-import { PERMISSIONS, scopeAllows } from '@tms/domain';
+import { API_KEY_SCOPES, PERMISSIONS, scopeAllows } from '@tms/domain';
 import { randomUUID } from 'node:crypto';
 import { AuditService, diff } from '../../audit/audit.service';
 import { encodeId } from '../../common/ids';
@@ -72,7 +72,12 @@ function statusWhere(s: ApiKeyStatus, now: Date): Prisma.ApiKeyWhereInput {
   }
 }
 
-export function toApiKeyDto(k: ApiKey, names?: Map<string, string>, now = new Date()): ApiKeyDto {
+export interface Creator {
+  name: string;
+  active: boolean;
+}
+
+export function toApiKeyDto(k: ApiKey, names?: Map<string, Creator>, now = new Date()): ApiKeyDto {
   const by = k.createdBy && UUID_RE.test(k.createdBy) ? k.createdBy : null;
   return {
     id: encodeId('apiKey', k.id),
@@ -90,7 +95,11 @@ export function toApiKeyDto(k: ApiKey, names?: Map<string, string>, now = new Da
     rotatedToId: k.rotatedToId ? encodeId('apiKey', k.rotatedToId) : null,
     rotatedFromId: k.rotatedFromId ? encodeId('apiKey', k.rotatedFromId) : null,
     createdBy: by ? encodeId('user', by) : null,
-    createdByName: by ? (names?.get(by) ?? null) : null,
+    createdByName: by ? (names?.get(by)?.name ?? null) : null,
+    // INT-076: ผู้สร้างถูกระงับ/ลบ → key ยังทำงาน แต่หน้าจอแสดงป้ายให้โอนเจ้าของ (key ที่ไม่มีผู้สร้างเป็นคน = ไม่แสดง)
+    creatorInactive: by ? names?.get(by)?.active === false || !names?.has(by) : false,
+    lastRejectedIp: k.lastRejectedIp,
+    lastRejectedAt: k.lastRejectedAt?.toISOString() ?? null,
     version: k.version,
     createdAt: k.createdAt.toISOString(),
     updatedAt: k.updatedAt.toISOString(),
@@ -142,14 +151,14 @@ export class ApiKeysService {
     return requestContext.require().scopes ?? [];
   }
 
-  private async names(rows: ApiKey[]): Promise<Map<string, string>> {
+  private async names(rows: ApiKey[]): Promise<Map<string, Creator>> {
     const ids = [...new Set(rows.map((r) => r.createdBy).filter((x) => x && UUID_RE.test(x)))];
     if (!ids.length) return new Map();
     const users = await this.db.tx.appUser.findMany({
       where: { id: { in: ids as string[] } },
-      select: { id: true, name: true },
+      select: { id: true, name: true, status: true },
     });
-    return new Map(users.map((u) => [u.id, u.name]));
+    return new Map(users.map((u) => [u.id, { name: u.name, active: u.status === 'ACTIVE' }]));
   }
 
   async dto(k: ApiKey): Promise<ApiKeyDto> {
@@ -159,6 +168,7 @@ export class ApiKeysService {
   // ---------- read ----------
 
   async list(q: ApiKeyListQuery) {
+    this.assertHuman();
     const now = new Date();
     const k = keysetArgs(q);
     const and: Prisma.ApiKeyWhereInput[] = [k.where as Prisma.ApiKeyWhereInput];
@@ -187,6 +197,7 @@ export class ApiKeysService {
   }
 
   async summary(): Promise<ApiKeySummaryDto> {
+    this.assertHuman();
     const now = new Date();
     const counts = await Promise.all(
       API_KEY_STATUSES.map((s) => this.db.tx.apiKey.count({ where: statusWhere(s, now) })),
@@ -199,22 +210,26 @@ export class ApiKeysService {
   }
 
   async get(id: string): Promise<ApiKey> {
+    this.assertHuman();
     const k = await this.db.tx.apiKey.findUnique({ where: { id } });
     if (!k) throw new ProblemException('not_found');
     return k;
   }
 
-  /** scope ที่ให้ key ได้ — ทุกตัวใน PERMISSIONS + ผู้เรียกให้ได้ไหม */
+  /** scope ที่ให้ key ได้ (API_KEY_SCOPES — ไม่มีงานบริหารผู้ใช้/ตั้งค่า) + ผู้เรียกให้ได้ไหม */
   scopeOptions() {
+    this.assertHuman();
     const mine = this.callerScopes();
-    return { data: PERMISSIONS.map((scope) => ({ scope, grantable: scopeAllows(mine, scope) })) };
+    return {
+      data: API_KEY_SCOPES.map((scope) => ({ scope, grantable: scopeAllows(mine, scope) })),
+    };
   }
 
   // ---------- validate ----------
 
   private checkScopes(scopes: string[]): string[] {
     const uniq = [...new Set(scopes)];
-    const known = new Set<string>(PERMISSIONS);
+    const known = new Set<string>(API_KEY_SCOPES);
     const mine = this.callerScopes();
     for (const s of uniq) {
       if (!known.has(s)) throw field422('scopes', 'unknown_scope', `unknown scope ${s}`);
@@ -312,7 +327,7 @@ export class ApiKeysService {
       // scope ที่ key มีอยู่แล้วคงไว้ได้แม้ผู้แก้ไม่มีสิทธิ์นั้น — ตรวจเฉพาะ scope ที่เพิ่มใหม่ (INT-073)
       const added = body.scopes.filter((s) => !cur.scopes.includes(s));
       this.checkScopes(added);
-      const known = new Set<string>(PERMISSIONS);
+      const known = new Set<string>(API_KEY_SCOPES);
       for (const s of body.scopes)
         if (!known.has(s)) throw field422('scopes', 'unknown_scope', `unknown scope ${s}`);
       const next = [...new Set(body.scopes)].sort();
@@ -436,6 +451,27 @@ export class ApiKeysService {
       },
     });
     if (n.count === 0) throw new ProblemException('precondition_failed');
+    // key นี้มาจากการหมุน: เพิกถอน key ใหม่ = จบช่วงผ่อนผันของ key เดิมทันทีด้วย (กรณี secret รั่ว — ไม่ให้ key เดิมใช้ต่อ)
+    // [DECISION spec/12 §3]
+    if (cur.rotatedFromId) {
+      const prev = await this.db.tx.apiKey.updateMany({
+        where: { id: cur.rotatedFromId, revokeAt: { gt: now } },
+        data: { revokeAt: now, version: { increment: 1 } },
+      });
+      if (prev.count)
+        await this.audit.record({
+          action: 'api_key.revoked',
+          entityType: 'api_key',
+          entityId: cur.rotatedFromId,
+          before: { status: 'rotating' },
+          after: {
+            status: 'revoked',
+            revokeAt: now.toISOString(),
+            bySuccessor: encodeId('apiKey', cur.id),
+          },
+          reason: body.reason,
+        });
+    }
     const row = await this.get(cur.id);
     await this.audit.record({
       action: 'api_key.revoked',

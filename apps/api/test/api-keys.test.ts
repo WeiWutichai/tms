@@ -332,14 +332,33 @@ describe('API keys + client credentials (ST7-T01)', () => {
       .post('/v1/api-keys')
       .send({ name: 'ไม่รู้จัก', scopes: ['nope:read'] })
       .expect(422);
-    // key ที่มี settings:write ก็สร้าง key ไม่ได้ (ต้องเป็นผู้ใช้)
-    const k = await createKey({ name: 'ตั้งค่า', scopes: ['settings:read', 'settings:write'] });
+    // งานบริหารผู้ใช้/ตั้งค่าให้ key ไม่ได้ (review M1) — แม้ผู้สร้างมี `*`
+    for (const sc of ['users:read', 'users:write', 'settings:write']) {
+      const r2 = await api(app, admin)
+        .post('/v1/api-keys')
+        .send({ name: `ห้าม ${sc}`, scopes: [sc] });
+      expect(r2.status).toBe(422);
+      expect(r2.body.errors[0].code).toBe('unknown_scope');
+    }
+    const all = (await api(app, admin).get('/v1/api-keys/scopes').expect(200)).body.data as {
+      scope: string;
+    }[];
+    expect(all.map((o) => o.scope)).not.toContain('users:write');
+    expect(all.map((o) => o.scope)).not.toContain('settings:write');
+    // key จัดการ/ดูรายการ key ไม่ได้ (ต้องเป็นผู้ใช้)
+    const k = await createKey({ name: 'ตั้งค่า', scopes: ['settings:read'] });
     const byKey = await request(srv())
       .post('/v1/api-keys')
       .set(bearer(k.secret))
       .send({ name: 'โดย key', scopes: ['settings:read'] });
     expect(byKey.status).toBe(403);
-    await request(srv()).get('/v1/api-keys').set(bearer(k.secret)).expect(200);
+    await request(srv()).get('/v1/api-keys').set(bearer(k.secret)).expect(403);
+    // แถวที่มี scope ต้องห้ามค้างอยู่ (ข้อมูลเก่า/แก้ตรงในฐาน) → guard ตัดทิ้ง
+    await db.apiKey.update({
+      where: { id: tryDecodeId('apiKey', k.id)! },
+      data: { scopes: ['settings:read', 'users:read'] },
+    });
+    await request(srv()).get('/v1/roles').set(bearer(k.secret)).expect(403);
     const viewer = await tokenFor(tenantId, 'settings:read', userId);
     await api(app, viewer).get('/v1/api-keys').expect(200);
     await api(app, viewer)
@@ -391,6 +410,89 @@ describe('API keys + client credentials (ST7-T01)', () => {
     }
   });
 
+  it('เพิกถอน key ใหม่ที่มาจากการหมุน → key เดิมหยุดทันทีด้วย', async () => {
+    const k = await createKey({ name: 'ต่อทอด', scopes: ['orders:read'] });
+    const nk = (
+      await api(app, admin)
+        .post(`/v1/api-keys/${k.id}/rotate`)
+        .send({ reason: 'หมุนตามรอบความปลอดภัย' })
+        .expect(201)
+    ).body as { id: string; secret: string };
+    await request(srv()).get('/v1/orders').set(bearer(k.secret)).expect(200);
+    await api(app, admin)
+      .post(`/v1/api-keys/${nk.id}/revoke`)
+      .send({ reason: 'secret ใหม่รั่วต้องหยุดทั้งคู่' })
+      .expect(200);
+    for (const sec of [k.secret, nk.secret])
+      expect((await request(srv()).get('/v1/orders').set(bearer(sec))).body.code).toBe(
+        'key_revoked',
+      );
+    const old = (await api(app, admin).get(`/v1/api-keys/${k.id}`).expect(200)).body;
+    expect(old.status).toBe('revoked');
+  });
+
+  it('IP ที่ถูกปฏิเสธบันทึกบน key (INT-075) · ผู้สร้างถูกระงับ → ป้าย creatorInactive แต่ key ยังทำงาน (INT-076)', async () => {
+    const k = await createKey({
+      name: 'บันทึก IP',
+      scopes: ['orders:read'],
+      ipAllowlist: ['10.0.0.0/8'],
+    });
+    await request(srv())
+      .get('/v1/orders')
+      .set(bearer(k.secret))
+      .set('X-Forwarded-For', '198.51.100.23')
+      .expect(403);
+    const g = (await api(app, admin).get(`/v1/api-keys/${k.id}`).expect(200)).body;
+    expect(g.lastRejectedIp).toBe('198.51.100.23');
+    expect(g.lastRejectedAt).not.toBeNull();
+    expect(g.creatorInactive).toBe(false);
+    const u2 = await db.appUser.create({
+      data: { tenantId, email: 'gone@a.test', name: 'ผู้ใช้ที่ออกแล้ว', status: 'ACTIVE' },
+    });
+    const t2 = await tokenFor(tenantId, '*', u2.id);
+    const k2 = await createKey({ name: 'ของคนที่ออก', scopes: ['orders:read'] }, t2);
+    await db.appUser.update({ where: { id: u2.id }, data: { status: 'SUSPENDED' } });
+    const g2 = (await api(app, admin).get(`/v1/api-keys/${k2.id}`).expect(200)).body;
+    expect(g2.creatorInactive).toBe(true);
+    await request(srv()).get('/v1/orders').set(bearer(k2.secret)).expect(200);
+  });
+
+  it('JWT ปลอม: alg none / HS256 อ้าง pt=client / RS256 กุญแจอื่น / aud ผิด → 401', async () => {
+    const { SignJWT, UnsecuredJWT, generateKeyPair } = await import('jose');
+    const k = await createKey({ name: 'ปลอม', scopes: ['orders:read'] });
+    const claims = { tid: tenantId, scope: 'orders:read', pt: 'client' };
+    const none = new UnsecuredJWT(claims).setSubject(k.id).setExpirationTime('1h').encode();
+    await request(srv()).get('/v1/orders').set(bearer(none)).expect(401);
+    const hs = await new SignJWT(claims)
+      .setProtectedHeader({ alg: 'HS256' })
+      .setSubject(k.id)
+      .setExpirationTime('1h')
+      .sign(new TextEncoder().encode(process.env.AUTH_DEV_SECRET!));
+    await request(srv()).get('/v1/orders').set(bearer(hs)).expect(401);
+    const other = await generateKeyPair('RS256');
+    const jwks = (await request(srv()).get('/v1/.well-known/jwks.json')).body.keys as {
+      kid: string;
+    }[];
+    const forged = await new SignJWT(claims)
+      .setProtectedHeader({ alg: 'RS256', kid: jwks[0]!.kid, typ: 'at+jwt' })
+      .setIssuer('tms')
+      .setAudience('tms-api')
+      .setSubject(k.id)
+      .setExpirationTime('1h')
+      .sign(other.privateKey);
+    await request(srv()).get('/v1/orders').set(bearer(forged)).expect(401);
+    // token จริงแต่ตรวจ aud/typ — ของจริงผ่าน
+    const real = (
+      await request(srv())
+        .post('/v1/oauth/token')
+        .send({ grantType: 'client_credentials', clientId: k.clientId, clientSecret: k.secret })
+        .expect(200)
+    ).body.accessToken as string;
+    const [h, p] = real.split('.').map((x) => JSON.parse(Buffer.from(x, 'base64url').toString()));
+    expect(h.typ).toBe('at+jwt');
+    expect(p.aud).toBe('tms-api');
+  });
+
   it('รายการ: กรองสถานะ + สรุปต่อแท็บ', async () => {
     const s = (await api(app, admin).get('/v1/api-keys/summary').expect(200)).body;
     expect(s.all).toBeGreaterThan(0);
@@ -433,8 +535,41 @@ describe('key-material / trust proxy (unit)', () => {
     expect(ipAllowed(['1.2.3.4'], undefined)).toBe(false);
   });
   it('trustProxy', () => {
-    expect(trustProxy(undefined)).toBe(1);
+    expect(trustProxy(undefined, true)).toBe(1);
+    // นอก dev/test ไม่ตั้ง = ไม่เชื่อ X-Forwarded-For (QA M)
+    expect(trustProxy(undefined, false)).toBe(0);
+    expect(trustProxy('', false)).toBe(0);
     expect(trustProxy('2')).toBe(2);
     expect(trustProxy('10.0.0.0/8, loopback')).toEqual(['10.0.0.0/8', 'loopback']);
+  });
+});
+
+describe('TRUST_PROXY=0: ปลอม X-Forwarded-For ผ่าน IP allowlist ไม่ได้', () => {
+  it('XFF ที่อยู่ใน allowlist ถูกเมิน (ใช้ IP ของ socket) → 403', async () => {
+    const db = platform();
+    const prev = process.env.TRUST_PROXY;
+    process.env.TRUST_PROXY = '0';
+    const app = await bootApp();
+    try {
+      const tid = (await createTenantWithDefaults(db, { name: 'บริษัท proxy' })).id;
+      const admin = await tokenFor(tid);
+      const k = (
+        await api(app, admin)
+          .post('/v1/api-keys')
+          .send({ name: 'XFF', scopes: ['orders:read'], ipAllowlist: ['203.0.113.0/24'] })
+          .expect(201)
+      ).body as { secret: string };
+      const r = await request(app.getHttpServer())
+        .get('/v1/orders')
+        .set('Authorization', `Bearer ${k.secret}`)
+        .set('X-Forwarded-For', '203.0.113.9');
+      expect(r.status).toBe(403);
+      expect(r.body.code).toBe('ip_not_allowed');
+    } finally {
+      if (prev === undefined) delete process.env.TRUST_PROXY;
+      else process.env.TRUST_PROXY = prev;
+      await app.close();
+      await db.$disconnect();
+    }
   });
 });

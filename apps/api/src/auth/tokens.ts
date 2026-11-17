@@ -68,6 +68,8 @@ export async function verifyAccessToken(token: string): Promise<AccessClaims | n
     const { payload } = await jwtVerify(token, secret(), { algorithms: ['HS256'] });
     if (typeof payload.tid !== 'string' || !payload.sub) return null;
     if (payload.pur !== undefined) return null; // token เฉพาะทาง (เช่น step-up) ใช้แทน access token ไม่ได้
+    // token ของ client ภายนอกออกเป็น RS256 เท่านั้น — HS256 ที่อ้าง pt=client ถือว่าปลอม (ST7-T01 review)
+    if (payload.pt === 'client') return null;
     const pt: PrincipalType = payload.pt === 'user' ? 'user' : payload.pt === 'imp' ? 'imp' : 'dev';
     if (pt === 'dev' && !isLocalEnv()) return null;
     if (pt === 'user' && typeof payload.tv !== 'number') return null;

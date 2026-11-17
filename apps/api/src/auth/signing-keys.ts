@@ -25,6 +25,9 @@ import { isLocalEnv } from './tokens';
  */
 export const CLIENT_TOKEN_TTL_SECONDS = 60 * 60;
 export const CLIENT_TOKEN_ISSUER = 'tms';
+/** audience ของ access token ที่ออกให้ client — ผู้ตรวจต้องเทียบค่านี้ */
+export const CLIENT_TOKEN_AUDIENCE = 'tms-api';
+const TOKEN_TYP = 'at+jwt';
 
 interface SigningKey {
   kid: string;
@@ -70,6 +73,11 @@ function keys(): SigningKey[] {
   return ring;
 }
 
+/** ตรวจตอนบูต (นอก dev/test): โหลดกุญแจได้จริง — ไม่ได้ = ไม่ยอมเริ่มระบบ (review M2) */
+export function assertSigningKeys(): void {
+  keys();
+}
+
 /** สำหรับ test: ล้างกุญแจที่โหลดไว้ (อ่าน env ใหม่) */
 export function resetSigningKeys(): void {
   ring = null;
@@ -86,8 +94,9 @@ export interface ClientClaims {
 export async function signClientToken(c: ClientClaims, expSeconds: number): Promise<string> {
   const k = keys()[0]!;
   return new SignJWT({ tid: c.tid, scope: c.scope, pt: 'client' })
-    .setProtectedHeader({ alg: 'RS256', kid: k.kid, typ: 'at+jwt' })
+    .setProtectedHeader({ alg: 'RS256', kid: k.kid, typ: TOKEN_TYP })
     .setIssuer(CLIENT_TOKEN_ISSUER)
+    .setAudience(CLIENT_TOKEN_AUDIENCE)
     .setSubject(c.sub)
     .setIssuedAt()
     .setExpirationTime(expSeconds)
@@ -112,7 +121,12 @@ export async function verifyClientToken(token: string): Promise<ClientClaims | n
         if (!k) throw new Error('unknown kid');
         return k.publicKey;
       },
-      { algorithms: ['RS256'], issuer: CLIENT_TOKEN_ISSUER },
+      {
+        algorithms: ['RS256'],
+        issuer: CLIENT_TOKEN_ISSUER,
+        audience: CLIENT_TOKEN_AUDIENCE,
+        typ: TOKEN_TYP,
+      },
     );
     if (payload.pt !== 'client' || typeof payload.tid !== 'string' || !payload.sub) return null;
     return {

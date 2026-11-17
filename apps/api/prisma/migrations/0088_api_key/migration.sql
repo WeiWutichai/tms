@@ -13,6 +13,8 @@ CREATE TABLE "api_key" (
     "expires_at" TIMESTAMPTZ(6),
     "last_used_at" TIMESTAMPTZ(6),
     "last_used_ip" TEXT,
+    "last_rejected_ip" TEXT,
+    "last_rejected_at" TIMESTAMPTZ(6),
     "revoke_at" TIMESTAMPTZ(6),
     "revoke_reason" TEXT,
     "revoked_by" TEXT,
