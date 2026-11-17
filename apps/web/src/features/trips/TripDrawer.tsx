@@ -36,6 +36,7 @@ import { tripProblemText } from './tripProblem';
 import { RECORDABLE, restStops } from './tripStepper';
 import { useTripEvents } from './useTripTimeline';
 import { TripTimeline } from './TripTimeline';
+import { FieldChargesTab } from './FieldChargesTab';
 
 /** ป้ายสถานะเที่ยว — สี/ไอคอนตามกลุ่มสถานะของต้นแบบ (วางแผน / จัดรถแล้ว / ระหว่างส่ง / ส่งแล้ว) */
 const TONE: Record<string, { tone: 'off' | 'ok' | 'info' | 'warn' | 'err'; icon: string }> = {
@@ -319,7 +320,7 @@ function ShareDialog({
  * แยกจาก "ปล่อยเที่ยว" (จัดรถและปล่อย → DISPATCHED ทุก DO) — docs/04 D2 · 409 กฎตอนจัด → dialog ยกเว้น/ยืนยันแล้วส่งซ้ำ
  * ST3-T20: footer "พิมพ์ใบคุมรถ" (ต้นแบบ sec — สร้าง PDF ใหม่แล้วดาวน์โหลด) + "ส่งให้คนขับ" (คัดลอกลิงก์ PDF — spec/12 §3)
  * ST4-T04: แท็บ "ไทม์ไลน์" (ต้นแบบ tl — ความคืบหน้าเที่ยวต่อจุด) + บันทึกแทนคนขับ (`trips:dispatch`) + footer
- * "ส่งไม่สำเร็จจุดที่เหลือ" · แท็บเอกสาร (POD/ใบคุมรถ) = ST4-T07
+ * "ส่งไม่สำเร็จจุดที่เหลือ" · แท็บเอกสาร (POD/ใบคุมรถ) = ST4-T07 · ST4-T13 แท็บ "ค่าใช้จ่ายหน้างาน" (FieldChargesTab)
  */
 export function TripDrawer({
   id,
@@ -382,7 +383,7 @@ export function TripDrawer({
   /** ST3-T25 เปลี่ยนผู้รับเหมา: เหตุผลจาก ReasonDialog ใน drawer จ่ายงานรถร่วม → drawer จ้างแบบเปลี่ยนราย */
   const [changeWhy, setChangeWhy] = useState<string | null>(null);
   /** ST4-T04 แท็บ รายละเอียด / ไทม์ไลน์ */
-  const [tab, setTab] = useState<'sum' | 'tl'>('sum');
+  const [tab, setTab] = useState<'sum' | 'tl' | 'exp'>('sum');
   const [failRest, setFailRest] = useState(false);
   /** ไทม์ไลน์ (แชร์ cache กับแท็บ) — footer "ส่งไม่สำเร็จจุดที่เหลือ" ไม่นับจุดที่มีปิดงานรอตัดสิน */
   const tl = useTripEvents(id, tab === 'tl');
@@ -666,9 +667,11 @@ export function TripDrawer({
       tabs={[
         { key: 'sum', label: t('drawer.tab.sum') },
         { key: 'tl', label: t('trip.tab.tl') },
+        // ST4-T13 ค่าใช้จ่ายหน้างาน (ต้นแบบ: แท็บของ drawer DO — ระบบยังไม่มี drawer DO)
+        { key: 'exp', label: t('trip.tab.exp') },
       ]}
       tab={tab}
-      onTab={(k) => setTab(k === 'tl' ? 'tl' : 'sum')}
+      onTab={(k) => setTab(k === 'tl' || k === 'exp' ? k : 'sum')}
       labels={labels}
       footer={
         <>
@@ -785,7 +788,9 @@ export function TripDrawer({
         </>
       }
     >
-      {tab === 'tl' ? (
+      {tab === 'exp' ? (
+        <FieldChargesTab trip={tr} onToast={setToast} />
+      ) : tab === 'tl' ? (
         <TripTimeline
           trip={tr}
           canRecord={canRecord}
