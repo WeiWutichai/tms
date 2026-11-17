@@ -38,15 +38,16 @@ enum JobStatus {
 
 /// tenant = ลูกค้าของแพลตฟอร์ม 1 ราย (RLS: เห็นเฉพาะแถวของตัวเอง)
 model Tenant {
-  id           String       @id @default(uuid()) @db.Uuid
-  name         String
-  status       TenantStatus @default(TRIAL)
-  yearStyle    String       @default("BE") @map("year_style") /// BE = พ.ศ., CE = ค.ศ. (D-30)
-  vehicleQuota Int?         @map("vehicle_quota") /// ST1-T24 จำนวนรถตามสัญญา (ตั้งจาก Console; null = ยังไม่กำหนด) — บังคับใช้ใน ST2
-  planCode     String       @default("std") @map("plan_code") /// ST1-T18 แพ็กเกจ (FK → plan.code, migration 0017) — ตั้งจาก Platform Console (T24)
-  plan         Plan         @relation(fields: [planCode], references: [code], onUpdate: Cascade, onDelete: Restrict)
-  createdAt    DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt    DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id               String       @id @default(uuid()) @db.Uuid
+  name             String
+  status           TenantStatus @default(TRIAL)
+  yearStyle        String       @default("BE") @map("year_style") /// BE = พ.ศ., CE = ค.ศ. (D-30)
+  vehicleQuota     Int?         @map("vehicle_quota") /// ST1-T24 จำนวนรถตามสัญญา (ตั้งจาก Console; null = ยังไม่กำหนด) — บังคับใช้ใน ST2
+  planCode         String       @default("std") @map("plan_code") /// ST1-T18 แพ็กเกจ (FK → plan.code, migration 0017) — ตั้งจาก Platform Console (T24)
+  rateLimitProfile String?      @map("rate_limit_profile") @db.VarChar(20) /// ST7-T08 ทับโปรไฟล์ rate limit ของแพ็กเกจ (null = ตามแพ็กเกจ) — standard | high (CHECK)
+  plan             Plan         @relation(fields: [planCode], references: [code], onUpdate: Cascade, onDelete: Restrict)
+  createdAt        DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@map("tenant")
 }
@@ -2194,6 +2195,16 @@ model VehiclePosition {
 
 // ───────────────────────── ST1-T01/T04 Auth (ตาราง platform: ใช้ก่อนรู้ tenant จึงไม่มี RLS และ tms_app เข้าไม่ได้) ─────────────────────────
 
+/// ST7-T08 bucket ของ rate limit กลาง (UNLOGGED, ไม่มี tenant_id/RLS) — เขียนผ่านฟังก์ชัน tms_rate_limit_take() เท่านั้น
+model RateLimitBucket {
+  key       String    @id
+  tat       Float?
+  hits      Float[]
+  expiresAt DateTime? @map("expires_at") @db.Timestamptz(6)
+
+  @@map("rate_limit_bucket")
+}
+
 /// ทุกครั้งที่พยายาม login (สำเร็จ/ล้มเหลว) — ใช้ทั้ง rate limit/ล็อก (A1) และประวัติ login (A2, ST1-T11; เก็บ 1 ปี)
 model LoginAttempt {
   id        String   @id @default(uuid()) @db.Uuid
@@ -2322,12 +2333,13 @@ model PasswordHistory {
 
 /// แพ็กเกจ (ST1-T18; spec/01 §6) — ข้อมูลตัวอย่างจาก design/prototype/plans.js (ราคา/โควตายังไม่สรุป)
 model Plan {
-  code         String            @id
-  nameTh       String            @map("name_th")
-  nameEn       String?           @map("name_en")
-  createdAt    DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
-  tenants      Tenant[]
-  entitlements PlanEntitlement[]
+  code             String            @id
+  nameTh           String            @map("name_th")
+  nameEn           String?           @map("name_en")
+  rateLimitProfile String            @default("standard") @map("rate_limit_profile") @db.VarChar(20) /// ST7-T08 standard | high (CHECK) — ค่าใน http/rate-limit/profiles.ts
+  createdAt        DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  tenants          Tenant[]
+  entitlements     PlanEntitlement[]
 
   @@map("plan")
 }

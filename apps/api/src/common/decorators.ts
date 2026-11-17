@@ -46,3 +46,10 @@ export const PLATFORM_ROLES = 'tms:platformRoles';
  */
 export const PlatformAuth = (...roles: ('SUPER_ADMIN' | 'SUPPORT' | 'BILLING')[]) =>
   SetMetadata(PLATFORM_ROLES, roles);
+
+export const RATE_LIMIT_CLASS = 'tms:rateLimitClass';
+/**
+ * ST7-T08: คำขอหนัก (export, นำเข้า, สร้าง PDF, ส่งทดสอบ, ทำหลายรายการในคำขอเดียว) — นับ bucket "heavy" ต่อบริษัท
+ * (5 req/s ใน profile standard) ซ้อนกับ tenant/key/user · route อื่นแบ่งเป็น read (GET/HEAD) / write โดยอัตโนมัติ
+ */
+export const RateLimitClass = (cls: 'heavy') => SetMetadata(RATE_LIMIT_CLASS, cls);

@@ -13,7 +13,8 @@ import type { DeliveryOrderPodDto, SubmitPodDto } from '../pod/pod.dto';
 import { PodService } from '../pod/pod.service';
 import { StopEventsService } from '../stops/stop-events.service';
 import { arabicDigits } from '../vehicles/vehicles.service';
-import { assertLinkWriteRate } from '../../http/link-rate-limit';
+import { linkWriteBucket } from '../../http/link-rate-limit';
+import { RateLimitService } from '../../http/rate-limit/rate-limit.service';
 import { podLinkUsable } from './offer-links';
 import {
   POD_LINK_FILE_MIME,
@@ -75,6 +76,7 @@ export class PodLinkService {
     private readonly clock: Clock,
     private readonly pods: PodService,
     private readonly checklist: PodChecklistService,
+    private readonly limiter: RateLimitService,
   ) {}
 
   /** การจ้าง + เที่ยวของลิงก์ — ใช้ไม่ได้แล้ว → 404 */
@@ -280,7 +282,7 @@ export class PodLinkService {
     const tx = this.db.tx;
     const { trip } = await this.context(offerId);
     // review L / NFR-1106: 30 คำขอเขียน/นาที ต่อลิงก์ (ซ้อนกับต่อ IP)
-    assertLinkWriteRate(linkId);
+    await this.limiter.assert([linkWriteBucket(linkId)]);
     const stop = await tx.tripStop.findFirst({
       where: { id: stopId, tripId: trip.id, removedAt: null },
       select: { id: true, type: true, status: true },
@@ -421,7 +423,7 @@ export class PodLinkService {
   ): Promise<{ result: PodLinkCaptureResultDto; replayed: boolean }> {
     const tx = this.db.tx;
     const { trip } = await this.context(offerId);
-    assertLinkWriteRate(linkId);
+    await this.limiter.assert([linkWriteBucket(linkId)]);
     const d = await this.doOf(trip.id, body.doNo);
     const latest = await tx.deliveryOrderPod.findFirst({
       where: { deliveryOrderId: d.id },
@@ -453,7 +455,7 @@ export class PodLinkService {
   ): Promise<PodLinkFileDto> {
     const tx = this.db.tx;
     const { trip } = await this.context(offerId);
-    assertLinkWriteRate(linkId);
+    await this.limiter.assert([linkWriteBucket(linkId)]);
     const d = await this.doOf(trip.id, body.doNo);
     const mimes: readonly string[] =
       body.kind === 'POD_FILE' ? POD_LINK_FILE_MIME : POD_LINK_IMAGE_MIME;

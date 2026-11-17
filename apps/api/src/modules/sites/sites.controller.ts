@@ -25,7 +25,12 @@ import {
 } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { AuditPageDto } from '../../audit/audit.controller';
-import { NoTransaction, RequireScope, TenantResource } from '../../common/decorators';
+import {
+  NoTransaction,
+  RequireScope,
+  TenantResource,
+  RateLimitClass,
+} from '../../common/decorators';
 import { requestContext } from '../../common/request-context';
 import { TenantRateLimiter } from '../geo/rate-limit';
 import { expectedVersion, setEtag } from '../../common/etag';
@@ -155,6 +160,7 @@ export class SitesController {
   }
 
   @Get('export')
+  @RateLimitClass('heavy')
   @RequireScope('export:run')
   @ApiProduces('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'text/csv')
   @ApiOkResponse({

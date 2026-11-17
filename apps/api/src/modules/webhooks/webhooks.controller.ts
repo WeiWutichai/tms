@@ -26,6 +26,7 @@ import {
   RequireFeature,
   RequireScope,
   TenantResource,
+  RateLimitClass,
 } from '../../common/decorators';
 import { expectedVersion, setEtag } from '../../common/etag';
 import { decodeIdOr404 } from '../../common/ids';
@@ -253,6 +254,7 @@ export class WebhooksController {
   }
 
   @Post(':id/test')
+  @RateLimitClass('heavy')
   @HttpCode(200)
   @NoTransaction()
   @TenantResource('webhookEndpoint')
