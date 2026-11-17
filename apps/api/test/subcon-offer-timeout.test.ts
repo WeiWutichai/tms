@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { SYSTEM_ROLES } from '@tms/domain';
 import request from 'supertest';
@@ -18,6 +19,7 @@ import { createTenantWithDefaults } from '../src/modules/tenants/bootstrap';
 import {
   OFFER_TIMEOUT_JOB,
   SubconTimeoutService,
+  tripLink,
 } from '../src/modules/trips/subcon-timeout.service';
 import { bangkokToday } from '../src/modules/vehicle-documents/expiry';
 import { api, bootApp, platform, tokenFor, truncateAll, validTaxId } from './helpers';
@@ -339,7 +341,7 @@ describe('subcon offer timeout (ST3-T24)', () => {
     expect(n.body).toBe(
       `${t.tripNo} · ${offer.carrierNameSnapshot} ไม่ตอบรับใน 2 ชม. — ส่งรายถัดไปได้ที่เที่ยวรถ`,
     );
-    expect(n.link).toBe('/planning');
+    expect(n.link).toBe(`/plan?trip=${tid}`);
     const row = await db.subconOffer.findUniqueOrThrow({ where: { id: offer.id } });
     expect(row.status).toBe('OFFERED');
     expect(row.timeoutNotifiedAt!.getTime()).toBe(at.getTime());
@@ -515,7 +517,7 @@ describe('subcon offer timeout (ST3-T24)', () => {
     const r = await api(app, dispatcher)
       .post(`/v1/trips/${t.id}/offer`)
       .set('If-Match', `"${v}"`)
-      .send({ carrierId: B.id, replaceOffer: true })
+      .send({ carrierId: B.id, replaceOffer: true, replaceNote: 'โทรตามแล้วไม่รับสาย' })
       .expect(200);
     expect(r.body).toMatchObject({
       status: 'OFFERED',
@@ -527,7 +529,20 @@ describe('subcon offer timeout (ST3-T24)', () => {
     );
     const old = await db.subconOffer.findUniqueOrThrow({ where: { id: oa } });
     expect(old.status).toBe('WITHDRAWN');
-    expect(old.closedReason).toBe(`${A.legalName} ไม่ตอบรับใน 2 ชม. — ส่งรายถัดไป`);
+    expect(old.closedReason).toBe(
+      `${A.legalName} ไม่ตอบรับใน 2 ชม. — ส่งรายถัดไป · โทรตามแล้วไม่รับสาย`,
+    );
+    // transition `withdraw` (ไม่ใช่ expire) + event (review L3)
+    expect(
+      await db.domainEvent.count({
+        where: { type: 'trip.offer_withdrawn', localId: uuid('trip', t.id) },
+      }),
+    ).toBe(1);
+    expect(
+      await db.docStatusHistory.count({
+        where: { docId: uuid('trip', t.id), event: 'withdraw' },
+      }),
+    ).toBe(1);
     await pub().get(`/v1/public/offers/${oldToken}`).expect(404);
     const costs = await db.tripCost.findMany({
       where: { tripId: uuid('trip', t.id) },
@@ -607,6 +622,83 @@ describe('subcon offer timeout (ST3-T24)', () => {
     await svc.runForTenant(tenantId, far);
     expect((await db.subconOffer.findUniqueOrThrow({ where: { id: offer.id } })).status).toBe(
       'EXPIRED',
+    );
+  });
+
+  it('Clock (review L1): หน้าลิงก์/รับงาน ตัดสินหมดเวลาด้วยเวลา server เดียวกับ job · จ้างตอนเวลาเลื่อน = เวลาเสนอตาม Clock', async () => {
+    const { offer, token, C } = await offered();
+    clock.set(new Date(offer.expiresAt!.getTime() + 1000));
+    const v = await pub().get(`/v1/public/offers/${token}`).expect(200);
+    expect(v.body.status).toBe('EXPIRED');
+    expect(v.body.serverTime).toBe(new Date(offer.expiresAt!.getTime() + 1000).toISOString());
+    const acc = await pub()
+      .post(`/v1/public/offers/${token}/accept`)
+      .send({ vehiclePlate: C.plate, driverName: 'สมศักดิ์', driverPhone: C.phone })
+      .expect(409);
+    expect(acc.body.code).toBe('offer_closed');
+    await pub()
+      .post(`/v1/public/offers/${token}/reject`)
+      .send({ reason: 'PRICE_TOO_LOW' })
+      .expect(409);
+    clock.set(null);
+    // จ้างตอน Clock เลื่อน (ย้อนหลัง 1 ชม.) → offeredAt/responseDueAt/expiresAt ตาม Clock
+    const C2 = await newCarrier();
+    const t2 = await newTrip();
+    const at = new Date(Date.now() - H);
+    clock.set(at);
+    const { offer: o2 } = await hire(t2.id, C2.id);
+    expect(o2.offeredAt.getTime()).toBe(at.getTime());
+    expect(o2.responseDueAt!.getTime()).toBe(at.getTime() + 2 * H);
+    expect(o2.expiresAt!.getTime()).toBe(at.getTime() + 48 * H);
+  });
+
+  it('backoff (review L2): ข้อมูลไม่สอดคล้องปิดไม่ได้ → นับครั้ง + เลื่อนรอบ ไม่ทำซ้ำก่อนถึงรอบ · ไม่บังแถวอื่น', async () => {
+    const bad = await offered();
+    const good = await offered();
+    // เที่ยวไม่ได้รอตอบแล้ว แต่การจ้างยังรอตอบ (จำลองข้อมูลเสีย)
+    await db.trip.update({ where: { id: bad.offer.tripId }, data: { status: 'PLANNING' } });
+    const at = new Date(
+      Math.max(bad.offer.expiresAt!.getTime(), good.offer.expiresAt!.getTime()) + 1000,
+    );
+    const r1 = await svc.runForTenant(tenantId, at);
+    expect(r1.failed).toBe(1);
+    let row = await db.subconOffer.findUniqueOrThrow({ where: { id: bad.offer.id } });
+    expect(row.timeoutAttempts).toBe(1);
+    expect(row.timeoutNextAt!.getTime()).toBe(at.getTime() + 2 * 60_000);
+    expect((await db.subconOffer.findUniqueOrThrow({ where: { id: good.offer.id } })).status).toBe(
+      'EXPIRED',
+    );
+    // ก่อนถึงรอบ: ไม่ลองซ้ำ และตัวตั้งเวลาไม่สร้าง job เพราะแถวนี้
+    expect((await svc.runForTenant(tenantId, new Date(at.getTime() + 60_000))).failed).toBe(0);
+    await db.job.deleteMany({ where: { type: OFFER_TIMEOUT_JOB } });
+    expect(await svc.scheduleDue(new Date(at.getTime() + 60_000))).toBe(0);
+    // ถึงรอบ → ลองใหม่ (ครั้งที่ 2, รอบถัดไป 4 นาที)
+    const at2 = new Date(at.getTime() + 2 * 60_000);
+    expect(await svc.scheduleDue(at2)).toBe(1);
+    expect((await svc.runForTenant(tenantId, at2)).failed).toBe(1);
+    row = await db.subconOffer.findUniqueOrThrow({ where: { id: bad.offer.id } });
+    expect(row.timeoutAttempts).toBe(2);
+    expect(row.timeoutNextAt!.getTime()).toBe(at2.getTime() + 4 * 60_000);
+    // เก็บกวาด: ปิดแถวเสียไม่ให้กระทบ test อื่น
+    await db.subconOffer.update({
+      where: { id: bad.offer.id },
+      data: { status: 'WITHDRAWN', closedAt: new Date(), closedReason: 'test cleanup' },
+    });
+    await db.job.deleteMany({ where: { type: OFFER_TIMEOUT_JOB } });
+  });
+
+  it('ลิงก์ในแจ้งเตือนชี้ route ที่มีจริงของเว็บ (QA M1)', () => {
+    const app = readFileSync(new URL('../../web/src/App.tsx', import.meta.url), 'utf8');
+    const routes = new Set([...app.matchAll(/^\s+'(\/[^']*)': \(\) =>/gm)].map((m) => m[1]));
+    const links = [
+      tripLink('00000000-0000-4000-8000-000000000001'),
+      '/fleet/documents',
+      '/fleet/drivers',
+      '/master/rate-cards',
+    ];
+    for (const l of links) expect(routes.has(new URL(l, 'http://x').pathname)).toBe(true);
+    expect(tripLink('00000000-0000-4000-8000-000000000001')).toMatch(
+      /^\/plan\?trip=trp_[0-9a-f]{32}$/,
     );
   });
 });

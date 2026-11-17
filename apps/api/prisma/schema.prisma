@@ -1922,6 +1922,9 @@ model SubconOffer {
   /// ST3-T24 ครบเวลาตอบ (เวลาเสนอ + N ชม. ตามค่าตั้ง `dispatch.subconResponseHours` ณ ตอนจ้าง) · แจ้งผู้จัดรถแล้วเมื่อ (ครั้งเดียว)
   responseDueAt       DateTime?         @map("response_due_at") @db.Timestamptz(6)
   timeoutNotifiedAt   DateTime?         @map("timeout_notified_at") @db.Timestamptz(6)
+  /// ST3-T24 (review L2) job ปิด/แจ้งล้ม → นับครั้ง + เลื่อนรอบถัดไป (backoff) ไม่ให้แถวเสียวนทุกนาที/บังแถวอื่น
+  timeoutAttempts     Int               @default(0) @map("timeout_attempts")
+  timeoutNextAt       DateTime?         @map("timeout_next_at") @db.Timestamptz(6)
   /// ปฏิเสธ: รหัสเหตุผล (SUBCON_REJECT_REASONS) + หมายเหตุ
   rejectReasonCode    String?           @map("reject_reason_code")
   rejectNote          String?           @map("reject_note")

@@ -259,11 +259,20 @@ test.describe.serial('หมดเวลาข้อเสนองานรถ�
       `${S.t1!.tripNo} · ${S.A!.name} ไม่ตอบรับใน 2 ชม. — ส่งรายถัดไปได้ที่เที่ยวรถ`,
     );
 
-    // drawer เที่ยว → "จ่ายงานรถร่วม" → ข้อความหมดเวลา + ปุ่ม "ส่งรายถัดไป"
-    await page.goto('/so');
-    await page.getByRole('row', { name: new RegExp(S.so1!.soNo) }).click();
-    await page.getByRole('dialog').getByRole('button', { name: S.t1!.tripNo }).click();
+    // ลิงก์ในแจ้งเตือน → กระดานวางแผนเปิด drawer เที่ยวนั้น (QA M1 — route จริง /plan?trip=…)
+    const n = (await db.notification.findFirstOrThrow({
+      where: {
+        recipientId: OWNER,
+        channel: 'in_app',
+        templateCode: 'subcon_offer.no_response',
+        payload: { path: ['tripNo'], equals: S.t1!.tripNo },
+      },
+    })) as { link: string };
+    expect(n.link).toBe(`/plan?trip=${S.t1!.id}`);
+    await page.goto(n.link);
     const d = page.getByRole('dialog');
+    await expect(d.getByText(S.t1!.tripNo, { exact: true }).first()).toBeVisible();
+    // drawer เที่ยว → "จ่ายงานรถร่วม" → ข้อความหมดเวลา + ปุ่ม "ส่งรายถัดไป"
     await d.getByRole('button', { name: 'จ่ายงานรถร่วม' }).click();
     await expect(d.getByTestId('sub-timeout')).toHaveText(
       `${S.A!.name} ยังไม่ตอบรับใน 2 ชม. — ส่งข้อเสนอให้รายถัดไปได้`,

@@ -755,6 +755,7 @@ export class TripsController {
         selectionReason: body.selectionReason ?? null,
         vehicleTypeId: optRef('vehicleType', body.vehicleTypeId, 'vehicleTypeId') ?? null,
         replaceOffer: body.replaceOffer === true,
+        replaceNote: body.replaceNote ?? null,
       },
       expectedVersion(req),
     );

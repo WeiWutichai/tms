@@ -19,6 +19,12 @@ const DISPATCH_SCOPE = 'trips:assign';
 const BATCH = 200;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ACTOR = 'system:subcon-offer-timeout';
+/** backoff ของแถวที่ล้ม (review L2): 2^ครั้ง นาที สูงสุด 60 นาที · ครบ ALERT_AFTER ครั้ง → log error (เตือนทีม) */
+export const ALERT_AFTER = 5;
+export const backoffMs = (attempts: number) => Math.min(60, 2 ** attempts) * 60_000;
+
+/** ลิงก์ในแจ้งเตือน = กระดานวางแผน เปิด drawer เที่ยวนั้น (QA M1 — route จริง `/plan`) */
+export const tripLink = (tripId: string) => `/plan?trip=${encodeId('trip', tripId)}`;
 
 type WithTx = <T>(fn: (tx: Tx) => Promise<T>) => Promise<T>;
 
@@ -62,10 +68,8 @@ export class SubconTimeoutService implements OnModuleInit {
     this.queue.register(
       OFFER_TIMEOUT_JOB,
       async ({ tenantId, job, withTx }) => {
-        const r = await this.runForTenant(tenantId, this.clock.now(), withTx, `job:${job.id}`);
-        if (r.failed > 0)
-          throw new Error(`offer timeout failed for ${r.failed} offer(s) — retrying`);
-        return r;
+        // แถวที่ล้มถูกเลื่อนรอบด้วย backoff ต่อแถวแล้ว — job ไม่ต้องล้ม/ลองซ้ำทันที
+        return this.runForTenant(tenantId, this.clock.now(), withTx, `job:${job.id}`);
       },
       { outsideTransaction: true },
     );
@@ -84,6 +88,7 @@ export class SubconTimeoutService implements OnModuleInit {
           JOIN tenant t ON t.id = o.tenant_id
          WHERE o.status = 'OFFERED'
            AND t.status IN ('TRIAL', 'ACTIVE')
+           AND (o.timeout_next_at IS NULL OR o.timeout_next_at <= ${now})
            AND ((o.timeout_notified_at IS NULL AND o.response_due_at <= ${now})
                 OR o.expires_at <= ${now})`;
       if (!rows.length) return 0;
@@ -119,9 +124,14 @@ export class SubconTimeoutService implements OnModuleInit {
       tx.subconOffer.findMany({
         where: {
           status: 'OFFERED',
-          OR: [
-            { timeoutNotifiedAt: null, responseDueAt: { lte: now } },
-            { expiresAt: { lte: now } },
+          AND: [
+            { OR: [{ timeoutNextAt: null }, { timeoutNextAt: { lte: now } }] },
+            {
+              OR: [
+                { timeoutNotifiedAt: null, responseDueAt: { lte: now } },
+                { expiresAt: { lte: now } },
+              ],
+            },
           ],
         },
         select: { id: true, expiresAt: true },
@@ -143,10 +153,43 @@ export class SubconTimeoutService implements OnModuleInit {
         if (done) out[expiring ? 'expired' : 'notified']++;
       } catch (e) {
         out.failed++;
-        this.logger.warn(`offer ${o.id} timeout failed: ${String(e)}`);
+        await this.deferFailed(tenantId, o.id, now, e, withTx);
       }
     }
     return out;
+  }
+
+  /**
+   * แถวที่ปิด/แจ้งไม่สำเร็จ (transaction หลัก rollback แล้ว): นับครั้ง + เลื่อนรอบถัดไป (backoff) — ตัวตั้งเวลาไม่สร้าง job
+   * ให้แถวนี้จนถึงรอบ และไม่บังแถวอื่นใน batch · ครบ ALERT_AFTER ครั้ง → log error (ทุกครั้งหลังจากนั้น)
+   */
+  private async deferFailed(
+    tenantId: string,
+    offerId: string,
+    now: Date,
+    e: unknown,
+    withTx: WithTx,
+  ) {
+    try {
+      const r = await withTx((tx) =>
+        tx.subconOffer.update({
+          where: { id: offerId },
+          data: { timeoutAttempts: { increment: 1 } },
+          select: { timeoutAttempts: true },
+        }),
+      );
+      await withTx((tx) =>
+        tx.subconOffer.update({
+          where: { id: offerId },
+          data: { timeoutNextAt: new Date(now.getTime() + backoffMs(r.timeoutAttempts)) },
+        }),
+      );
+      const msg = `offer ${offerId} (tenant ${tenantId}) timeout failed attempt ${r.timeoutAttempts}: ${String(e)}`;
+      if (r.timeoutAttempts >= ALERT_AFTER) this.logger.error(msg);
+      else this.logger.warn(msg);
+    } catch (e2) {
+      this.logger.error(`offer ${offerId} timeout failed and could not be deferred: ${String(e2)}`);
+    }
   }
 
   /** job ไม่มี request context — ตั้งให้ audit/event/state ทำงาน (ผู้กระทำ = ระบบ) */
@@ -197,7 +240,7 @@ export class SubconTimeoutService implements OnModuleInit {
           to: { userIds: to },
           template: 'subcon_offer.no_response',
           vars: { tripNo: o.trip.tripNo ?? '', carrier: o.carrierNameSnapshot, hours },
-          link: '/planning',
+          link: tripLink(o.tripId),
           entity: { type: 'trip', id: encodeId('trip', o.tripId) },
         })
       : 0;
@@ -223,7 +266,16 @@ export class SubconTimeoutService implements OnModuleInit {
     });
     if (!head) return false;
     const r = await this.trips.expireOffer(head.tripId, offerId, now, tx);
-    if (!r) return false;
+    if (!r) {
+      // ข้อเสนอยังรอตอบแต่เที่ยวไม่ได้รอตอบ (ข้อมูลไม่สอดคล้อง) → นับเป็นล้ม (backoff) ไม่วนทุกนาที
+      const still = await tx.subconOffer.findUnique({
+        where: { id: offerId },
+        select: { status: true },
+      });
+      if (still?.status === 'OFFERED')
+        throw new Error('offer is open but its trip is not awaiting a response');
+      return false;
+    }
     const to = await this.recipients(tx, tenantId, head.offeredBy);
     if (to.length)
       await this.notifications.notify(tx, {
@@ -231,7 +283,7 @@ export class SubconTimeoutService implements OnModuleInit {
         to: { userIds: to },
         template: 'subcon_offer.expired',
         vars: { tripNo: r.trip.tripNo ?? '', carrier: head.carrierNameSnapshot },
-        link: '/planning',
+        link: tripLink(head.tripId),
         entity: { type: 'trip', id: encodeId('trip', head.tripId) },
       });
     return true;

@@ -94,6 +94,8 @@ export interface HireInput {
   vehicleTypeId?: string | null;
   /** ST3-T24 "ส่งรายถัดไป" ระหว่างรอตอบ: ปิดการจ้างที่ครบเวลาตอบแล้วก่อนจ้างรายนี้ (คำขอเดียว) */
   replaceOffer?: boolean;
+  /** หมายเหตุการถอนรายเดิม (ไม่บังคับ — ต่อท้ายเหตุผลระบบ) */
+  replaceNote?: string | null;
 }
 
 const NO_QUOTE = (reason: string): BuyQuote => ({
@@ -515,7 +517,13 @@ export class SubconHireService {
     let version = expectedVersion;
     if (input.replaceOffer) {
       // ST3-T24 "ส่งรายถัดไป" ระหว่างรอตอบ: ปิดการจ้างที่ครบเวลาตอบก่อน (ล็อก/ตรวจ If-Match ที่นี่) แล้วจ้างรายใหม่ในล็อกเดียวกัน
-      await this.trips.withdrawTimedOutOffer(id, now, this.db.tx, expectedVersion);
+      await this.trips.withdrawTimedOutOffer(
+        id,
+        now,
+        this.db.tx,
+        expectedVersion,
+        input.replaceNote ?? null,
+      );
       version = undefined;
     }
     return this.trips.offer(

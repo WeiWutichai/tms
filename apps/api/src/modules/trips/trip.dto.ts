@@ -411,6 +411,21 @@ export class OfferTripDto {
   @IsOptional()
   @IsBoolean()
   replaceOffer?: boolean;
+
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    maxLength: 500,
+    example: 'โทรตามแล้วไม่รับสาย',
+    description:
+      'ST3-T24 หมายเหตุการถอนรายเดิมเมื่อ `replaceOffer` (ไม่บังคับ) — ต่อท้ายเหตุผลระบบ "… ไม่ตอบรับใน N ชม. — ส่งรายถัดไป"',
+  })
+  @IsOptional()
+  @IsNullable()
+  @CleanText()
+  @IsString()
+  @MaxLength(500)
+  replaceNote?: string | null;
 }
 
 /** การจ้างรถร่วมที่ใช้งานอยู่ของเที่ยว (ST3-T22) */
