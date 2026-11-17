@@ -75,8 +75,13 @@ test.describe.serial('POD checklist (ST4-T05)', () => {
     }
 
     await page.goto('/master/customers');
-    await page.getByRole('row', { name: new RegExp(A) }).click();
+    // รายการแบ่งหน้า (10 แถว เรียงตามรหัส) — กรองตามชื่อก่อน
+    await page.getByRole('columnheader').getByPlaceholder('ค้นหา').nth(1).fill(A);
+    await expect(page.getByText('1–1 จาก 1')).toBeVisible();
+    // แถวตัวกรองก็มีชื่อ (ค่าในช่องค้นหา) — คลิกแถวข้อมูลใน tbody
+    await page.locator('tbody tr', { hasText: A }).click();
     const d = page.getByRole('dialog');
+    await expect(d.getByText(/^CUS-\d{4}$/)).toBeVisible();
     await d.getByRole('tab', { name: 'เงื่อนไข' }).click();
     const pod = d.getByRole('radiogroup', { name: 'หลักฐานส่ง (POD)' });
     await expect(pod.getByRole('radio', { name: 'ใช้ค่าเริ่มต้นขององค์กร' })).toBeChecked();
