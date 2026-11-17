@@ -57,6 +57,10 @@ export function toDeliveryOrderDto(d: DeliveryOrderRecord): DeliveryOrderDto {
       description: l.description,
       qtyPlanned: dec(l.qtyPlanned)!,
       qtyActual: dec(l.qtyActual),
+      rejectQty: dec(l.rejectQty),
+      rejectReasonCodeId: l.rejectReasonCodeId
+        ? encodeId('reasonCode', l.rejectReasonCodeId)
+        : null,
       unit: l.unit,
       weightKg: dec(l.weightKg),
       cbm: dec(l.cbm),

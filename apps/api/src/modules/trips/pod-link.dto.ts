@@ -16,7 +16,7 @@ import {
 } from 'class-validator';
 import { POD_STATUSES, STOP_EVENT_SOURCES } from '@tms/domain';
 import { PodFieldDto } from '../pod/pod-checklist.dto';
-import { SubmitPodDto } from '../pod/pod.dto';
+import { PodLineInputDto, SubmitPodDto } from '../pod/pod.dto';
 import { StopEventBaseDto } from '../stops/stop-event.dto';
 import { OfferLinkViewDto } from './offer.dto';
 
@@ -86,6 +86,22 @@ export class PodRetryDto {
   @ApiProperty({ example: 1 }) n!: number;
 }
 
+/** ST4-T10 บรรทัดของ DO ที่ลิงก์กรอกยอดส่งจริง (ไม่มีราคา) */
+export class PodLinkLineDto {
+  @ApiProperty({ example: 1 }) lineNo!: number;
+  @ApiProperty({ example: 'ปูนซีเมนต์ 50 กก.' }) description!: string;
+  @ApiProperty({ example: 'ถุง', description: 'ชื่อหน่วยที่แสดง' }) unit!: string;
+  @ApiProperty({ example: '100' }) qtyPlanned!: string;
+}
+
+/** ST4-T10 เหตุผลปฏิเสธรับ (หมวด REJECTED_BY_RECEIVER ที่ใช้งานอยู่) */
+export class PodLinkReasonDto {
+  @ApiProperty({ example: 'rsn_3f2a…' }) id!: string;
+  @ApiProperty({ example: 'จำนวนไม่ครบ' }) label!: string;
+  @ApiProperty() requiresNote!: boolean;
+  @ApiProperty() requiresPhoto!: boolean;
+}
+
 /**
  * ส่ง POD ของ DO ผ่านลิงก์ได้หรือไม่ (ST4-T09) — ไม่มีรูป/ลิงก์ไฟล์/PIN/ชื่อผู้บันทึก
  * `mode`: CLOSE = ถึงจุดส่งแล้ว ส่ง POD = ปิดงานจุดส่ง (COMPLETE + POD ในคำขอเดียว) ·
@@ -105,6 +121,14 @@ export class PodLinkDoPodDto {
       'checklist ชุดส่งสำเร็จของลูกค้า (เฉพาะข้อที่ไม่ปิด) — ขาดข้อบังคับ = ส่งไม่ได้ (422)',
   })
   fields!: PodFieldDto[];
+  @ApiProperty({
+    type: [PodLinkLineDto],
+    description:
+      'ST4-T10 บรรทัดสินค้าของ DO — ค่าเริ่มต้น "ส่งจริง" = แผน · น้อยกว่าแผนต้องเลือกเหตุผล',
+  })
+  lines!: PodLinkLineDto[];
+  @ApiProperty({ type: [PodLinkReasonDto], description: 'ST4-T10 เหตุผลปฏิเสธรับที่เลือกได้' })
+  rejectReasons!: PodLinkReasonDto[];
 }
 
 /** DO ที่ส่ง POD ผ่านลิงก์นี้แล้ว (ต้นแบบ "ส่งแล้ว · n รูป · รอตรวจ") */
@@ -201,6 +225,19 @@ export class PodLinkCaptureDto extends PickType(SubmitPodDto, [
   @ArrayMaxSize(POD_LINK_FILES_MAX)
   @Matches(DOC_ID, { each: true })
   fileDocumentIds?: string[];
+
+  @ApiPropertyOptional({
+    type: [PodLineInputDto],
+    maxItems: 500,
+    description:
+      'ST4-T10 ยอดส่งจริงต่อรายการ (`lineNo` ของ DO) — ไม่ส่ง = ตามแผนทั้งหมด · ส่งน้อยกว่าแผนต้องมีเหตุผลหมวด REJECTED_BY_RECEIVER (ไม่มี → 422 `reason_required`)',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(500)
+  @ValidateNested({ each: true })
+  @Type(() => PodLineInputDto)
+  lines?: PodLineInputDto[];
 }
 
 /** ผลการส่ง POD ผ่านลิงก์ — ไม่มี PIN/ลิงก์ไฟล์ */

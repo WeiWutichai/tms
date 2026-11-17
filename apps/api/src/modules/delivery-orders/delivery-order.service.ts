@@ -699,6 +699,30 @@ export class DeliveryOrderService {
    * ผลคำนวณหลักฐานส่ง (ST4-T07; docs/01 §4.3): เขียน `pod_status` และไล่ DELIVERED → POD_PENDING / UNBILLED,
    * POD_PENDING → UNBILLED (domain `podDoEvent`) — ผู้เรียก (PodService) ถือล็อกแถว DO แล้ว · ไม่เปลี่ยน = ไม่เขียน
    */
+  /**
+   * ST4-T10 ฉายยอดส่งจริงจากหลักฐานส่งฉบับล่าสุดลงบรรทัด DO (ผู้เรียก = PodService ถือล็อก DO แล้ว · ตรวจค่าแล้ว — CHECK ฐานเป็นด่านสุดท้าย)
+   */
+  async applyActualQty(
+    tx: Tx,
+    deliveryOrderId: string,
+    lines: {
+      lineNo: number;
+      qtyActual: string;
+      rejectQty: string;
+      rejectReasonCodeId: string | null;
+    }[],
+  ): Promise<void> {
+    for (const l of lines)
+      await tx.deliveryOrderLine.updateMany({
+        where: { deliveryOrderId, lineNo: l.lineNo },
+        data: {
+          qtyActual: l.qtyActual,
+          rejectQty: l.rejectQty,
+          rejectReasonCodeId: l.rejectReasonCodeId,
+        },
+      });
+  }
+
   async applyPodResult(
     tx: Tx,
     d: Pick<DeliveryOrderRecord, 'id' | 'status' | 'version' | 'podStatus'>,

@@ -4,12 +4,16 @@ import { useI18n } from '../i18n';
 import { podFieldName } from '../features/pod/PodChecklistTable';
 import {
   currentPosition,
+  linkMilli,
+  linkQtyState,
   nowBangkokIso,
   podClientEventId,
   podLinkBody,
+  podLinkLines,
   podLinkMissing,
   POD_LINK_IMAGE_MIME,
   retryOf,
+  stepQty,
   uploadPodLinkFile,
   usePodCapture,
   usePodEvent,
@@ -59,6 +63,15 @@ export function PodLinkCapture({
   const [sigId, setSigId] = useState<string | null>(null);
   const [d, setD] = useState(EMPTY);
   const [err, setErr] = useState<string | null>(null);
+  // ST4-T10 ยอดส่งจริง (ค่าเริ่ม = แผน) + เหตุผลปฏิเสธรับ
+  const lines = pod.lines ?? [];
+  const [qty, setQty] = useState<Record<number, string>>(() =>
+    Object.fromEntries(lines.map((l) => [l.lineNo, l.qtyPlanned])),
+  );
+  const [reason, setReason] = useState<string | null>(null);
+  const [rNote, setRNote] = useState('');
+  const qs = linkQtyState(lines, qty);
+  const rsn = (pod.rejectReasons ?? []).find((r) => r.id === reason);
   const fileRef = useRef<HTMLInputElement>(null);
   const cv = useRef<HTMLCanvasElement>(null);
   const drawing = useRef(false);
@@ -143,6 +156,11 @@ export function PodLinkCapture({
       return t('pdl.pod.e.incomplete', { list: list.join(', ') || '—' });
     }
     if (p.code === 'pod_exists') return t('pdl.pod.e.exists');
+    const codes = (p.errors ?? []) as { field?: string; code?: string }[];
+    if (codes.some((x) => x.code === 'reason_required')) return t('pdl.q.e.reason');
+    if (codes.some((x) => x.code === 'note_required')) return t('pdl.q.e.note');
+    if (codes.some((x) => x.code === 'photo_required')) return t('pdl.q.e.photo');
+    if (codes.some((x) => /(^|\.)lines\./.test(x.field ?? ''))) return t('pdl.q.e.qty');
     if (p.code === 'stop_not_arrived') return t('pdl.pod.e.notArrived');
     if (p.code === 'stop_not_ready') return t('pdl.pod.e.notReady');
     if (p.code === 'stop_already_closed') return t('pdl.pod.e.alreadyClosed');
@@ -171,6 +189,10 @@ export function PodLinkCapture({
       setErr(t('pdl.pod.missing', { list: missing.map((f) => podFieldName(t, f)).join(', ') }));
       return;
     }
+    // ST4-T10: ส่งน้อยกว่าแผนต้องเลือกเหตุผล (+ โน้ตตามที่เหตุผลบังคับ)
+    if (qs.bad) return setErr(t('pdl.q.e.qty'));
+    if (qs.short && !reason) return setErr(t('pdl.q.e.reason'));
+    if (qs.short && rsn?.requiresNote && !rNote.trim()) return setErr(t('pdl.q.e.note'));
     sending.current = true;
     try {
       let sig = sigId;
@@ -181,6 +203,8 @@ export function PodLinkCapture({
         setSigId(sig);
       }
       const body = podLinkBody(m.doNo, fields, draft, { photos, signature: sig });
+      const ls = podLinkLines(lines, qty, reason, rNote);
+      if (ls) body.lines = ls;
       if (pod.mode === 'CLOSE' && m.delivery) {
         const step: PodStep = { stopId: m.delivery.id, type: 'COMPLETE' };
         const p = await currentPosition();
@@ -287,6 +311,92 @@ export function PodLinkCapture({
               </button>
             )}
           </div>
+        </div>
+      )}
+      {lines.length > 0 && (
+        <div className="cdl__label" data-testid="pdl-qty">
+          <span>{t('pdl.q.title')}</span>
+          <div className="pdl__qty">
+            {lines.map((l) => {
+              const v = qty[l.lineNo] ?? l.qtyPlanned;
+              const a = linkMilli(v);
+              const short = a !== null && a < (linkMilli(l.qtyPlanned) ?? 0n);
+              return (
+                <div key={l.lineNo} className="pdl__qrow">
+                  <span className="pdl__qname">
+                    <span>{l.description}</span>
+                    <span className="pdl__qplan cdl__num">
+                      {t('pdl.q.plan', { n: l.qtyPlanned, u: l.unit })}
+                    </span>
+                  </span>
+                  <span className="pdl__step">
+                    <button
+                      type="button"
+                      className="pdl__stepbtn"
+                      title={t('pdl.q.dec')}
+                      aria-label={`${t('pdl.q.dec')} ${l.description}`}
+                      onClick={() =>
+                        setQty((x) => ({ ...x, [l.lineNo]: stepQty(v, l.qtyPlanned, -1) }))
+                      }
+                    >
+                      −
+                    </button>
+                    <input
+                      className={`pdl__qin cdl__num${short ? ' pdl__qin--short' : ''}`}
+                      inputMode="decimal"
+                      aria-label={t('pdl.q.input', { name: l.description })}
+                      value={v}
+                      onChange={(e) => setQty((x) => ({ ...x, [l.lineNo]: e.target.value }))}
+                    />
+                    <button
+                      type="button"
+                      className="pdl__stepbtn"
+                      title={t('pdl.q.inc')}
+                      aria-label={`${t('pdl.q.inc')} ${l.description}`}
+                      onClick={() =>
+                        setQty((x) => ({ ...x, [l.lineNo]: stepQty(v, l.qtyPlanned, 1) }))
+                      }
+                    >
+                      +
+                    </button>
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+          {qs.short && <span className="pdl__short">{t('pdl.q.short')}</span>}
+        </div>
+      )}
+      {lines.length > 0 && qs.short && (
+        <div className="cdl__label" data-testid="pdl-reasons">
+          <span>{t('pdl.q.reason')}</span>
+          <div className="pdl__opts">
+            {(pod.rejectReasons ?? []).map((r) => (
+              <button
+                key={r.id}
+                type="button"
+                className="pdl__opt"
+                aria-pressed={reason === r.id}
+                onClick={() => {
+                  setReason(r.id);
+                  // QA L2: ข้อความเตือนเรื่องเหตุผลของรอบก่อนไม่ค้าง
+                  setErr(null);
+                }}
+              >
+                {r.label}
+              </button>
+            ))}
+          </div>
+          {rsn?.requiresNote && (
+            <textarea
+              className="cdl__input pdl__area"
+              maxLength={500}
+              aria-label={t('pdl.q.note')}
+              placeholder={t('pdl.q.note')}
+              value={rNote}
+              onChange={(e) => setRNote(e.target.value)}
+            />
+          )}
         </div>
       )}
       {extras.map((f) => (

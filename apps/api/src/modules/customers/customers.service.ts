@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma, type ActiveStatus, type Customer } from '@prisma/client';
-import { parsePodRequirements, type TransitionTable } from '@tms/domain';
+import { parsePodRequirements, scopeAllows, type TransitionTable } from '@tms/domain';
+import { requestContext } from '../../common/request-context';
 import { AuditService } from '../../audit/audit.service';
 import { encodeId, tryDecodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
@@ -61,6 +62,7 @@ export function toCustomerDto(c: Customer, salesOwnerName?: string | null): Cust
     creditLimit: c.creditLimit ? c.creditLimit.toFixed(2) : null,
     vatRegistered: c.vatRegistered,
     etaxCapable: c.etaxCapable,
+    billByActualQty: c.billByActualQty,
     freeTimeMin: c.freeTimeMin,
     // ST4-T06: แสดงรูปมาตรฐานปัจจุบัน (ข้อมูล T05 ได้แถวชนิดใหม่เป็น DISABLED) — ผิดรูป (ไม่ควรเกิด) = คืนค่าเดิม
     podRequirements: (parsePodRequirements(c.podRequirements ?? {}, false).value ??
@@ -81,6 +83,21 @@ export function toCustomerDto(c: Customer, salesOwnerName?: string | null): Cust
 }
 
 /** snapshot สำหรับ audit/event — ไม่มี updatedAt/version (diff ไม่นับ) */
+/**
+ * ST4-T10 (review L): "วางบิลตามยอดส่งจริง" เปลี่ยนยอดเงินที่วางบิล → ต้องมีสิทธิ์แก้ราคาขาย (`prices.sell:write`)
+ * นอกจาก `customers:write` (ผู้เรียกตรวจแล้ว) · การเปลี่ยนลง audit `customer.updated` (before/after มีช่องนี้)
+ */
+function assertBillingBasisWrite() {
+  const rc = requestContext.get();
+  if (!scopeAllows(rc?.scopes ?? [], 'prices.sell:write'))
+    throw new ProblemException('permission_denied', undefined, undefined, {
+      module: 'prices.sell',
+      action: 'write',
+      required: ['prices.sell:write'],
+      fields: ['billByActualQty'],
+    });
+}
+
 function auditView(c: Customer): Record<string, unknown> {
   const { updatedAt: _u, version: _v, ...rest } = toCustomerDto(c);
   return rest;
@@ -225,6 +242,7 @@ export class CustomersService {
     if (input.creditLimit !== undefined) data.creditLimit = input.creditLimit;
     if (input.vatRegistered !== undefined) data.vatRegistered = input.vatRegistered;
     if (input.etaxCapable !== undefined) data.etaxCapable = input.etaxCapable;
+    if (input.billByActualQty !== undefined) data.billByActualQty = input.billByActualQty;
     if (input.freeTimeMin !== undefined) data.freeTimeMin = input.freeTimeMin;
     if (input.podRequirements !== undefined) {
       // ST4-T05: ตรวจ + ทำให้เป็นรูปมาตรฐานด้วยตัวตรวจเดียวกับค่าองค์กร (ชุดที่ไม่ส่ง = ใช้ค่าองค์กร)
@@ -307,6 +325,7 @@ export class CustomersService {
     input: CreateCustomerDto | (UpsertCustomerDto & { externalId: string }),
   ): Promise<Customer> {
     const tx = this.db.tx;
+    if (input.billByActualQty) assertBillingBasisWrite();
     const data = await this.toData(input);
     const branchCode = input.branchCode ?? (input.taxId ? '00000' : null);
     await this.assertUniqueTax(input.taxId ?? null, branchCode);
@@ -346,6 +365,8 @@ export class CustomersService {
     const current = await this.get(id);
     if (expected !== undefined && expected !== current.version)
       throw new ProblemException('precondition_failed');
+    if (input.billByActualQty !== undefined && input.billByActualQty !== current.billByActualQty)
+      assertBillingBasisWrite();
     const data = await this.toData(input);
     const taxId = input.taxId !== undefined ? input.taxId : current.taxId;
     const branchCode = input.branchCode ?? current.branchCode ?? (taxId ? '00000' : null);

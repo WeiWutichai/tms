@@ -191,6 +191,14 @@ export class CustomerFieldsDto {
   etaxCapable?: boolean;
 
   @ApiPropertyOptional({
+    description:
+      'ST4-T10 วางบิลตามยอดส่งจริง (docs/04 E2) — true = ค่าขนส่งที่คิดตามน้ำหนัก/ปริมาตร/หน่วยนับ ใช้ปริมาณที่ส่งได้จริงจากหลักฐานส่ง (ค่าเริ่มต้น false = ตามใบสั่ง)',
+  })
+  @IsOptionalNotNull()
+  @IsBoolean()
+  billByActualQty?: boolean;
+
+  @ApiPropertyOptional({
     minimum: 0,
     maximum: 1440,
     nullable: true,
@@ -349,6 +357,7 @@ export class CustomerDto {
   @ApiProperty({ nullable: true, type: String }) creditLimit!: string | null;
   @ApiProperty() vatRegistered!: boolean;
   @ApiProperty() etaxCapable!: boolean;
+  @ApiProperty({ description: 'ST4-T10 วางบิลตามยอดส่งจริง' }) billByActualQty!: boolean;
   @ApiProperty({ nullable: true, type: Number }) freeTimeMin!: number | null;
   @ApiProperty({ nullable: true, type: String, description: 'ออกบิลในนาม (cmp_…)' })
   billingCompanyId!: string | null;
