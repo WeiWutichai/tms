@@ -65,6 +65,10 @@ vi.mock('./useTrips', () => ({
     },
   }),
 }));
+vi.mock('./useTripTimeline', () => ({
+  useTripEvents: () => ({ data: [], isError: false }),
+  useRecordStopEvents: () => ({ mutate: vi.fn(), isPending: false }),
+}));
 vi.mock('../../shell/AppShell', () => ({
   useMe: () => ({ data: { tenant: { yearStyle: 'BE' } } }),
 }));
@@ -171,6 +175,23 @@ const show = (canEdit = true, canDispatch = false, canPrint = false, canHire = f
   );
 
 describe('TripDrawer (ST3-T16)', () => {
+  it('ST4-T04 แท็บไทม์ไลน์: ขั้นต่อจุด + footer "ส่งไม่สำเร็จจุดที่เหลือ" เฉพาะผู้มี trips:dispatch และเที่ยวกำลังวิ่ง', () => {
+    live.data = { ...TRIP, status: 'IN_PROGRESS' } as TripDetail;
+    const { unmount } = show(false, true);
+    fireEvent.click(screen.getByRole('tab', { name: 'ไทม์ไลน์' }));
+    expect(screen.getByText('ความคืบหน้าเที่ยว')).toBeInTheDocument();
+    expect(screen.getAllByTestId('trip-step')).toHaveLength(3);
+    fireEvent.click(screen.getByRole('button', { name: 'ส่งไม่สำเร็จจุดที่เหลือ' }));
+    expect(
+      screen.getByRole('dialog', { name: 'ส่งไม่สำเร็จจุดที่เหลือ 3 จุด' }),
+    ).toBeInTheDocument();
+    unmount();
+    show(false, false);
+    fireEvent.click(screen.getByRole('tab', { name: 'ไทม์ไลน์' }));
+    expect(screen.queryByRole('button', { name: 'ส่งไม่สำเร็จจุดที่เหลือ' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'ถึงจุด' })).toBeNull();
+  });
+
   it('ST3-T22 ปุ่ม "ส่งต่อรถร่วม": ต้องมีสิทธิ์จ้าง + เที่ยว PLANNING ยังไม่จ้าง → เปิด drawer จ่ายงานรถร่วม', () => {
     live.data = TRIP;
     const r = show(true, false, false, false);

@@ -192,7 +192,13 @@ export class StopProjectionService {
 
     // 2. trip_stop + stop.*
     const stopById = new Map(stops.map((s) => [s.id, s]));
-    for (const p of projections) await this.writeStop(tx, stopById.get(p.id)!, p);
+    let stopsChanged = false;
+    for (const p of projections)
+      if (await this.writeStop(tx, stopById.get(p.id)!, p)) stopsChanged = true;
+    // ST4-T04: จุดเปลี่ยน = ตัวแทนของเที่ยว (TripDto stops[]) เปลี่ยน → version +1 ให้ ETag เปลี่ยน
+    // (ไม่งั้น GET แบบมีเงื่อนไข/cache ของเบราว์เซอร์ได้ 304 + จุดเก่า) · ถือล็อกเที่ยวอยู่แล้ว
+    if (stopsChanged)
+      await tx.trip.update({ where: { id: tripId }, data: { version: { increment: 1 } } });
 
     // 3. DO (โหลดเต็มเฉพาะใบที่เปลี่ยน — move ใช้ id/status/version)
     const statusOf = new Map(projections.map((p) => [p.id, p]));
@@ -305,9 +311,9 @@ export class StopProjectionService {
   }
 
   /** เขียน trip_stop เมื่อค่าเปลี่ยน + domain_event `stop.*` ตาม milestone ที่เพิ่งเกิด */
-  private async writeStop(tx: Tx, row: TripStop, p: StopProjection): Promise<void> {
+  private async writeStop(tx: Tx, row: TripStop, p: StopProjection): Promise<boolean> {
     const changed = FIELDS.filter((f) => !same(row[f], p[f]));
-    if (!changed.length) return;
+    if (!changed.length) return false;
     await tx.tripStop.update({
       where: { id: row.id },
       data: {
@@ -347,5 +353,6 @@ export class StopProjectionService {
           actorId: ctx.actorId ?? null,
         },
       });
+    return true;
   }
 }

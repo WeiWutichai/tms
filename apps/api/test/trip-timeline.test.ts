@@ -173,10 +173,17 @@ describe('trip timeline / web status updates (ST4-T04)', () => {
     const [pickup, drop] = t.stops;
     expect(await timeline(t.id)).toEqual([]);
 
+    const v0 = (await api(app, staff).get(`/v1/trips/${t.id}`).expect(200)).headers.etag;
     await rec(staff, pickup!.id, 'arrive', bkkAgo(180)).expect(201);
     await rec(staff, pickup!.id, 'complete', bkkAgo(150), { outcome: 'DELIVERED' }).expect(201);
-    // "ออกจากจุด" ที่จุดรับ = DEPART ของจุดส่ง (มุ่งหน้าไปจุดถัดไป)
+    const v1 = (await api(app, staff).get(`/v1/trips/${t.id}`).expect(200)).headers.etag;
+    expect(v1).not.toBe(v0);
+    // "ออกจากจุด" ที่จุดรับ = DEPART ของจุดส่ง (มุ่งหน้าไปจุดถัดไป) — สถานะเที่ยวไม่เปลี่ยน แต่ departedAt ของจุดรับเปลี่ยน
+    // → ETag ต้องเปลี่ยน (GET แบบมีเงื่อนไขไม่ได้ 304 + จุดเก่า)
     await rec(staff, drop!.id, 'depart', bkkAgo(140)).expect(201);
+    const r304 = await api(app, staff).get(`/v1/trips/${t.id}`).set('If-None-Match', v1!);
+    expect(r304.status).toBe(200);
+    expect(r304.body.stops[0].departedAt).toBe(new Date(bkkAgo(140)).toISOString());
     await rec(staff, drop!.id, 'arrive', bkkAgo(60)).expect(201);
     await rec(staff, drop!.id, 'complete', bkkAgo(30), { outcome: 'PARTIAL' }).expect(201);
 
