@@ -232,6 +232,15 @@ export const PROBLEMS = {
     th: 'รถร่วมรายนี้ยังอยู่ในเวลาตอบรับ — ส่งรายถัดไปได้เมื่อครบเวลา',
     en: 'The carrier still has time to respond — send to the next carrier after the response time',
   },
+  /**
+   * ST3-T25 เปลี่ยนผู้รับเหมา: ทำได้เฉพาะเที่ยวที่รอรถร่วมตอบ (OFFERED) หรือรถร่วมรับงานแล้วแต่ยังไม่ปล่อยรถ (ASSIGNED)
+   * — ปล่อยรถแล้ว/ไม่มีการจ้างรถร่วม → 409 (extension `from`)
+   */
+  carrier_change_not_allowed: {
+    status: 409,
+    th: 'เปลี่ยนผู้รับเหมาได้เฉพาะเที่ยวที่รอรถร่วมตอบ หรือรถร่วมรับงานแล้วแต่ยังไม่ปล่อยรถ',
+    en: 'The carrier can only be changed while the offer is open or accepted but not yet dispatched',
+  },
   carrier_change_requires_cancel: {
     status: 409,
     th: 'เปลี่ยนรถร่วมหรือสลับรถร่วม/รถบริษัทไม่ได้ — ยกเลิกการจ้างเดิมก่อน',

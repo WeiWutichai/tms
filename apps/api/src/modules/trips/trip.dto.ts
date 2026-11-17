@@ -4,6 +4,7 @@ import {
   ArrayMinSize,
   IsArray,
   IsBoolean,
+  IsIn,
   IsInt,
   IsISO8601,
   IsOptional,
@@ -426,6 +427,25 @@ export class OfferTripDto {
   @IsString()
   @MaxLength(500)
   replaceNote?: string | null;
+
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    minLength: 10,
+    maxLength: 500,
+    example: 'รถของผู้รับเหมาเดิมเสียกลางทางก่อนเข้ารับสินค้า',
+    description:
+      'ST3-T25 เปลี่ยนผู้รับเหมา (docs/04 D3): ส่งค่านี้ = ยกเลิกการจ้างที่ใช้งานอยู่แล้วจ้างรายนี้ในคำขอเดียว — รอตอบ (OFFERED) ได้ทุกเวลา, ' +
+      'รับงานแล้ว (ASSIGNED) ได้ก่อนปล่อยรถ · การจ้างเดิม → WITHDRAWN (ประวัติคงอยู่ — `GET /trips/{id}/offers`), ลิงก์เดิมใช้ไม่ได้, ' +
+      'ค่าจ้างที่ยังไม่จ่ายกลับรายการ, รถ/คนขับของรายเดิมถูกล้าง · เหตุผล ≥ 10 ตัวอักษร (422 `changeReason`) · ' +
+      'รายเดิม → 422 `same_carrier` · ปล่อยรถแล้ว/ไม่มีการจ้าง → 409 `carrier_change_not_allowed`',
+  })
+  @IsOptional()
+  @IsNullable()
+  @CleanText()
+  @IsString()
+  @MaxLength(500)
+  changeReason?: string | null;
 }
 
 /** การจ้างรถร่วมที่ใช้งานอยู่ของเที่ยว (ST3-T22) */
@@ -818,6 +838,15 @@ export class HireOptionsQuery {
   @IsOptional()
   @Matches(/^vty_[0-9a-f]{32}$/)
   vehicleTypeId?: string;
+
+  @ApiPropertyOptional({
+    enum: ['true', 'false'],
+    description:
+      'ST3-T25 ตัวเลือกสำหรับเปลี่ยนผู้รับเหมา: `true` = ไม่รวมผู้รับเหมาของการจ้างที่ใช้งานอยู่ (เลือกซ้ำไม่ได้ · ไม่นับเป็นถูกสุด)',
+  })
+  @IsOptional()
+  @IsIn(['true', 'false'])
+  change?: 'true' | 'false';
 }
 
 export class HireSiteDto {
