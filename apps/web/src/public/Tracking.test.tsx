@@ -7,7 +7,7 @@ import type { TrackingShipment, TrackingView } from './trackingApi';
 
 /** ST4-T14 หน้าติดตามของผู้รับ (ต้นแบบ TMS Tracking.dc.html) */
 const steps = (n: number): TrackingShipment['steps'] =>
-  ['ACCEPTED', 'DEPARTED', 'IN_TRANSIT', 'DELIVERED'].map((key, i) => ({
+  (['ACCEPTED', 'DEPARTED', 'IN_TRANSIT', 'DELIVERED'] as const).map((key, i) => ({
     key,
     done: i < n,
     at: i < n ? `2026-11-18T0${i}:10:00Z` : null,
