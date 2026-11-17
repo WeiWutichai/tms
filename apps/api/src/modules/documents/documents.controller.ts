@@ -38,6 +38,8 @@ export const MAX_BYTES = 10 * 1024 * 1024;
 export const DOCUMENT_KINDS = [
   'POD_PHOTO',
   'POD_SIGNATURE',
+  /** ไฟล์อื่นของหลักฐานส่ง เช่น ใบส่งของที่เซ็นแล้ว ใบชั่ง (ST4-T07) */
+  'POD_FILE',
   'SIGNATURE',
   'LOGO',
   'PDF',

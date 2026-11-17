@@ -68,7 +68,7 @@ export class PodChecklistDto {
   @ApiProperty({
     type: [PodFieldDto],
     description:
-      'PHOTO/SIGNATURE/NOTE/BARCODE/PIN/RATING มีได้อย่างละ 1 (ไม่ส่ง = DISABLED) · BOOLEAN และ SINGLE_CHOICE ได้อย่างละสูงสุด 10 ข้อ — response เรียงตามชนิดเสมอ',
+      'PHOTO/SIGNATURE/NOTE/BARCODE/PIN/RATING มีได้อย่างละ 1 (ไม่ส่ง = DISABLED) · BOOLEAN และ SINGLE_CHOICE ได้อย่างละสูงสุด 10 ข้อ — response: ชนิดเดี่ยวครบ 6 ตัวตามลำดับ PHOTO, SIGNATURE, NOTE, BARCODE, PIN, RATING ก่อนเสมอ แล้วตามด้วย BOOLEAN/SINGLE_CHOICE ตามลำดับที่ส่งมา (ไม่จัดกลุ่มตามชนิด)',
   })
   fields!: PodFieldDto[];
 }
