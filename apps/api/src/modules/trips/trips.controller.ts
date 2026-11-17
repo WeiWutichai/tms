@@ -168,6 +168,10 @@ export function toTripDto(t: TripRecord): TripDto {
       legDistanceKm: s.legDistanceKm?.toFixed(1) ?? null,
       legMinutes: s.legMinutes,
       legSource: s.legSource,
+      arrivedAt: iso(s.arrivedAt),
+      departedAt: iso(s.departedAt),
+      outcome: s.outcome,
+      lastEventId: s.lastEventId ? encodeId('event', s.lastEventId) : null,
     })),
     deliveryOrders: t.deliveryOrders.map((d) => ({
       id: encodeId('deliveryOrder', d.id),

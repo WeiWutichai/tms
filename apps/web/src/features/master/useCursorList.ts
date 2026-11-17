@@ -27,7 +27,7 @@ function readSession<T>(key: string | undefined): T | undefined {
     return undefined;
   }
 }
-function writeSession(key: string | undefined, value: unknown) {
+export function writeSession(key: string | undefined, value: unknown) {
   if (!key) return;
   try {
     sessionStorage.setItem(key, JSON.stringify(value));

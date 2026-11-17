@@ -209,6 +209,11 @@ export class StopEventsService {
     return !!(await this.db.tx.tripStop.findFirst({ where: { id: stopId }, select: { id: true } }));
   }
 
+  /** เที่ยวของ tenant นี้ */
+  async tripExists(tripId: string): Promise<boolean> {
+    return !!(await this.db.tx.trip.findFirst({ where: { id: tripId }, select: { id: true } }));
+  }
+
   /** event ทั้งหมดของจุด + การตัดสิน → ลำดับที่มีผล (domain) */
   async sequence(stopId: string, tx: Tx = this.db.tx) {
     const rows = await tx.stopEvent.findMany({
@@ -392,6 +397,28 @@ export class StopEventsService {
       }),
     ]);
     return { open, resolved, resolvedToday };
+  }
+
+  /**
+   * ไทม์ไลน์ของเที่ยว (ST4-T04): ทุก event ของทุกจุด (รวมจุดที่ถอดแล้ว) ตามลำดับจุด → ลำดับที่มีผลของจุด
+   * พร้อมผลของแต่ละตัว (`seqStatus`/`counted`) และการตัดสินที่มีผล — ผู้เรียกตรวจว่าเที่ยวอยู่ในบริษัทแล้ว
+   */
+  async tripTimeline(tripId: string, tx: Tx = this.db.tx) {
+    const rows = await tx.stopEvent.findMany({
+      where: { tripId },
+      include: {
+        resolutions: { orderBy: { createdAt: 'asc' } },
+        tripStop: { select: { sequence: true, removedAt: true } },
+      },
+    });
+    const byStop = new Map<string, typeof rows>();
+    for (const r of rows) byStop.set(r.tripStopId, [...(byStop.get(r.tripStopId) ?? []), r]);
+    const stops = [...byStop.values()].sort(
+      (a, b) =>
+        Number(a[0]!.tripStop.removedAt !== null) - Number(b[0]!.tripStop.removedAt !== null) ||
+        a[0]!.tripStop.sequence - b[0]!.tripStop.sequence,
+    );
+    return stops.flatMap((evs) => effectiveStopSequence(evs.map(toSeqEvent)).events);
   }
 
   /** ชื่อผู้ใช้ภายในจาก id (ผู้บันทึก/ผู้ตัดสิน) — id ที่ไม่ใช่ uuid (dev token / ระบบ) = ไม่มีชื่อ */

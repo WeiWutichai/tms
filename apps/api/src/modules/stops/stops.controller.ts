@@ -22,6 +22,7 @@ import {
   FailStopDto,
   StopEventDto,
   StopEventSequenceDto,
+  TripTimelineDto,
   type StopEventBaseDto,
 } from './stop-event.dto';
 import { flagsOf, StopEventsService, type StopEventPayload } from './stop-events.service';
@@ -284,5 +285,62 @@ export class StopsController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<StopEventDto> {
     return this.record(id, 'FAIL', body, res);
+  }
+}
+
+/**
+ * ไทม์ไลน์ของเที่ยว (ST4-T04 — แท็บ "ไทม์ไลน์" ของ drawer เที่ยวรถ, docs/04 E2 "เห็นชื่อผู้บันทึก"): ทุก event ของทุกจุด
+ * พร้อมชื่อผู้บันทึก ผล (`seqStatus`) และธง — หน้าเว็บใช้ endpoint เดียวกับลูกค้า (API-first)
+ */
+@ApiTags('stops')
+@ApiBearerAuth()
+@Controller('trips')
+export class TripEventsController {
+  constructor(private readonly events_: StopEventsService) {}
+
+  @Get(':id/events')
+  @ApiOperation({
+    summary: 'ไทม์ไลน์ event หน้างานของเที่ยว (ทุกจุด) พร้อมชื่อผู้บันทึก',
+    description:
+      'ST4-T04: เรียงตามลำดับจุด (จุดที่ถอดแล้วอยู่ท้าย) แล้วตามลำดับที่มีผลของจุด · `recordedByName` = ชื่อผู้ใช้ภายในที่บันทึก (บันทึกแทนคนขับผ่านเว็บ) · `flags` ไม่ว่าง = รอผู้จัดรถตัดสินในศูนย์ข้อยกเว้น',
+  })
+  @ApiProblems(
+    {
+      ...T403R,
+      examples: {
+        permission_denied: P('permission_denied', {
+          module: 'trips',
+          action: 'read',
+          required: ['trips:read'],
+          instance: '/v1/trips/trp_3f2a…/events',
+        }),
+      },
+    },
+    {
+      status: 404,
+      description: 'ไม่พบเที่ยว (รวมของบริษัทอื่น)',
+      examples: { not_found: P('not_found') },
+    },
+  )
+  @TenantResource('trip')
+  @RequireScope('trips:read')
+  @ApiOkResponse({ type: TripTimelineDto })
+  async timeline(@Param('id') id: string): Promise<TripTimelineDto> {
+    const tripId = decodeIdOr404('trip', id);
+    if (!(await this.events_.tripExists(tripId))) throw new ProblemException('not_found');
+    const rows = await this.events_.tripTimeline(tripId);
+    const names = await this.events_.userNames(
+      rows.flatMap((e) => [e.actor, e.resolution?.resolvedBy ?? null]),
+    );
+    return {
+      data: rows.map((e) => ({
+        ...toStopEventDto(e),
+        seqStatus: e.seqStatus,
+        counted: e.counted,
+        resolution: toResolutionDto(e.resolution ?? undefined),
+        recordedByName: (e.actor && names.get(e.actor)) ?? null,
+        resolvedByName: (e.resolution?.resolvedBy && names.get(e.resolution.resolvedBy)) ?? null,
+      })),
+    };
   }
 }
