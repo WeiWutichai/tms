@@ -61,6 +61,7 @@ export function toCustomerDto(c: Customer, salesOwnerName?: string | null): Cust
     creditLimit: c.creditLimit ? c.creditLimit.toFixed(2) : null,
     vatRegistered: c.vatRegistered,
     etaxCapable: c.etaxCapable,
+    billByActualQty: c.billByActualQty,
     freeTimeMin: c.freeTimeMin,
     // ST4-T06: แสดงรูปมาตรฐานปัจจุบัน (ข้อมูล T05 ได้แถวชนิดใหม่เป็น DISABLED) — ผิดรูป (ไม่ควรเกิด) = คืนค่าเดิม
     podRequirements: (parsePodRequirements(c.podRequirements ?? {}, false).value ??
@@ -225,6 +226,7 @@ export class CustomersService {
     if (input.creditLimit !== undefined) data.creditLimit = input.creditLimit;
     if (input.vatRegistered !== undefined) data.vatRegistered = input.vatRegistered;
     if (input.etaxCapable !== undefined) data.etaxCapable = input.etaxCapable;
+    if (input.billByActualQty !== undefined) data.billByActualQty = input.billByActualQty;
     if (input.freeTimeMin !== undefined) data.freeTimeMin = input.freeTimeMin;
     if (input.podRequirements !== undefined) {
       // ST4-T05: ตรวจ + ทำให้เป็นรูปมาตรฐานด้วยตัวตรวจเดียวกับค่าองค์กร (ชุดที่ไม่ส่ง = ใช้ค่าองค์กร)

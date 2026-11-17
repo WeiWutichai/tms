@@ -933,4 +933,56 @@ describe('subcon link POD (ST4-T09)', () => {
       .send(PNG)
       .expect(404);
   });
+
+  // ---------------------------------------------------------------------------------------------
+  // ST4-T10 ยอดส่งจริงผ่านลิงก์รถร่วม
+
+  it('ST4-T10: หน้าลิงก์ได้บรรทัดสินค้า + เหตุผลปฏิเสธรับ · ส่งน้อยกว่าแผนไม่มีเหตุผล → 422 ไม่ปิดงาน · มีเหตุผล → ปิดงาน + ยอดส่งจริงลงบรรทัด DO', async () => {
+    const a = await atDrop();
+    const v0 = (await view(a.podToken, a.doNo).expect(200)).body;
+    expect(v0.match.pod.lines).toEqual([
+      { lineNo: 1, description: 'ปูนซีเมนต์', unit: expect.any(String), qtyPlanned: '5' },
+    ]);
+    const reasons = v0.match.pod.rejectReasons as { id: string; label: string }[];
+    expect(reasons.map((r) => r.label)).toEqual(
+      expect.arrayContaining(['จำนวนไม่ครบ', 'สินค้าเสียหายระหว่างขนส่ง']),
+    );
+    const short = reasons.find((r) => r.label === 'จำนวนไม่ครบ')!;
+    expect(short).toMatchObject({ requiresPhoto: true, requiresNote: false });
+
+    const p1 = await upload(a.podToken, a.doNo);
+    const sig = await upload(a.podToken, a.doNo, 'POD_SIGNATURE');
+    const pod = { doNo: a.doNo, photoDocumentIds: [p1], signatureDocumentId: sig };
+    const bad = await close(a.podToken, a.m.delivery.id, {
+      ...pod,
+      lines: [{ lineNo: 1, qtyActual: '4' }],
+    }).expect(422);
+    expect(bad.body.errors).toEqual([
+      expect.objectContaining({ field: 'lines.0.rejectReasonCodeId', code: 'reason_required' }),
+    ]);
+    // ไม่ปิดงาน (rollback ทั้งคำขอ)
+    expect((await view(a.podToken, a.doNo).expect(200)).body.match.delivery.status).toBe('ARRIVED');
+    expect(await db.deliveryOrderPod.count({ where: { deliveryOrderId: a.doId } })).toBe(0);
+
+    const ok = await close(a.podToken, a.m.delivery.id, {
+      ...pod,
+      lines: [{ lineNo: 1, qtyActual: '4', rejectReasonCodeId: short.id }],
+    }).expect(201);
+    expect(ok.body.pod).toMatchObject({ doStatus: 'UNBILLED', podStatus: 'COMPLETE' });
+    const line = await db.deliveryOrderLine.findFirstOrThrow({
+      where: { deliveryOrderId: a.doId },
+    });
+    expect([line.qtyActual?.toFixed(), line.rejectQty?.toFixed()]).toEqual(['4', '1']);
+    const g = (
+      await api(app, admin)
+        .get(`/v1/delivery-orders/${encodeId('deliveryOrder', a.doId)}/pod`)
+        .expect(200)
+    ).body;
+    expect(g.current.source).toBe('LINK');
+    expect(g.lines[0]).toMatchObject({
+      qtyActual: '4',
+      rejectQty: '1',
+      rejectReason: { label: 'จำนวนไม่ครบ' },
+    });
+  });
 });

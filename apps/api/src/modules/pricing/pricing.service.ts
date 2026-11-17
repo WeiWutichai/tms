@@ -126,52 +126,11 @@ export class PricingService {
       return { serviceItem: snap.get(row.id)!, qty: a.qty };
     });
 
-    // หน่วย + สินค้า (แปลงหน่วย)
-    const qIn = input.quantities ?? [];
-    const unitIds = [...qIn.map((x) => x.unitId), ...(rate?.unitId ? [rate.unitId] : [])];
-    const productIds = qIn.flatMap((x) => (x.productId ? [x.productId] : []));
-    // หน่วยของ rate อ่านแม้ถูกลบแบบ soft (ใช้ตามที่ rate อ้าง) · หน่วยของงานต้องยังไม่ถูกลบ
-    const [units, products] = await Promise.all([
-      unitIds.length
-        ? tx.unit.findMany({
-            where: {
-              id: { in: unitIds },
-              OR: [{ deletedAt: null }, ...(rate?.unitId ? [{ id: rate.unitId }] : [])],
-            },
-          })
-        : Promise.resolve([]),
-      productIds.length
-        ? tx.product.findMany({
-            where: { id: { in: productIds }, deletedAt: null },
-            include: { baseUnit: true, altUnits: true },
-          })
-        : Promise.resolve([]),
-    ]);
-    const unitMap = new Map(units.map((u) => [u.id, unitOf(u)]));
-    const productMap = new Map(
-      products.map((p): [string, PricingProduct] => [
-        p.id,
-        {
-          baseUnit: unitOf(p.baseUnit),
-          weightPerUnitKg: dec(p.weightPerUnitKg),
-          volumePerUnitCbm: dec(p.volumePerUnitCbm),
-          altUnits: p.altUnits.map((a) => ({
-            unitId: a.unitId,
-            factorToBase: a.factorToBase.toFixed(),
-          })),
-        },
-      ]),
+    const { quantities, unitMap } = await this.loadQuantities(
+      input.quantities ?? [],
+      rate?.unitId ?? null,
+      tx,
     );
-    const quantities: PricingQuantity[] = qIn.map((x, i) => {
-      const unit = unitMap.get(x.unitId);
-      const live = units.find((u) => u.id === x.unitId)?.deletedAt === null;
-      if (!unit || !live)
-        throw field422(`quantities[${i}].unitId`, 'reference_not_found', 'unit not found');
-      const product = x.productId ? productMap.get(x.productId) : null;
-      if (x.productId && !product)
-        throw field422(`quantities[${i}].productId`, 'reference_not_found', 'product not found');
-      return { value: x.qty, unit, product };
-    });
 
     const extraStop = items.find((s) => s.systemKey === 'EXTRA_STOP');
     let engineRate: PricingRate<ServiceItemSnapshot> | null = null;
@@ -215,5 +174,108 @@ export class PricingService {
       accessorials,
     });
     return { ...result, routeId: route?.routeId ?? null };
+  }
+
+  /** หน่วย + สินค้า (แปลงหน่วย) ของจำนวนที่ส่งมา — หน่วยของ rate อ่านแม้ถูกลบแบบ soft · หน่วย/สินค้าของงานต้องยังไม่ถูกลบ (422) */
+  private async loadQuantities(
+    list: NonNullable<QuoteInput['quantities']>,
+    rateUnitId: string | null,
+    tx: Tx,
+  ): Promise<{ quantities: PricingQuantity[]; unitMap: Map<string, PricingUnit> }> {
+    // หน่วย + สินค้า (แปลงหน่วย)
+    const qIn = list;
+    const unitIds = [...qIn.map((x) => x.unitId), ...(rateUnitId ? [rateUnitId] : [])];
+    const productIds = qIn.flatMap((x) => (x.productId ? [x.productId] : []));
+    // หน่วยของ rate อ่านแม้ถูกลบแบบ soft (ใช้ตามที่ rate อ้าง) · หน่วยของงานต้องยังไม่ถูกลบ
+    const [units, products] = await Promise.all([
+      unitIds.length
+        ? tx.unit.findMany({
+            where: {
+              id: { in: unitIds },
+              OR: [{ deletedAt: null }, ...(rateUnitId ? [{ id: rateUnitId }] : [])],
+            },
+          })
+        : Promise.resolve([]),
+      productIds.length
+        ? tx.product.findMany({
+            where: { id: { in: productIds }, deletedAt: null },
+            include: { baseUnit: true, altUnits: true },
+          })
+        : Promise.resolve([]),
+    ]);
+    const unitMap = new Map(units.map((u) => [u.id, unitOf(u)]));
+    const productMap = new Map(
+      products.map((p): [string, PricingProduct] => [
+        p.id,
+        {
+          baseUnit: unitOf(p.baseUnit),
+          weightPerUnitKg: dec(p.weightPerUnitKg),
+          volumePerUnitCbm: dec(p.volumePerUnitCbm),
+          altUnits: p.altUnits.map((a) => ({
+            unitId: a.unitId,
+            factorToBase: a.factorToBase.toFixed(),
+          })),
+        },
+      ]),
+    );
+    const quantities: PricingQuantity[] = qIn.map((x, i) => {
+      const unit = unitMap.get(x.unitId);
+      const live = units.find((u) => u.id === x.unitId)?.deletedAt === null;
+      if (!unit || !live)
+        throw field422(`quantities[${i}].unitId`, 'reference_not_found', 'unit not found');
+      const product = x.productId ? productMap.get(x.productId) : null;
+      if (x.productId && !product)
+        throw field422(`quantities[${i}].productId`, 'reference_not_found', 'product not found');
+      return { value: x.qty, unit, product };
+    });
+
+    return { quantities, unitMap };
+  }
+
+  /**
+   * ST4-T10 วางบิลตามยอดส่งจริง: คิดบรรทัดค่าขนส่งใหม่ด้วย **engine เดิม** จาก rate card ฉบับที่บรรทัดอ้าง
+   * (ฉบับที่อนุมัติแล้วแก้ไม่ได้ — ได้ผลเดิมทุกครั้ง) + ราคาต่อหน่วย/รายการบริการตาม snapshot ของบรรทัด (vat_type/wht_rate ไม่เปลี่ยน)
+   * ไม่คิดค่าจุดเพิ่ม/ค่าบริการเสริม (ไม่ขึ้นกับจำนวนสินค้า — ผู้เรียกคงบรรทัดเดิม) · ไม่เขียนฐานข้อมูล
+   */
+  async repriceFreight(
+    input: {
+      rateCardId: string;
+      unitPrice: string;
+      serviceItem: ServiceItemSnapshot;
+      quantities: NonNullable<QuoteInput['quantities']>;
+    },
+    tx: Tx = this.db.tx,
+  ): Promise<PricingResult<ServiceItemSnapshot>> {
+    const rc = await tx.rateCard.findUniqueOrThrow({
+      where: { id: input.rateCardId },
+      select: {
+        id: true,
+        code: true,
+        revision: true,
+        pricingModel: true,
+        minCharge: true,
+        unitId: true,
+        includedStops: true,
+      },
+    });
+    const { quantities, unitMap } = await this.loadQuantities(input.quantities, rc.unitId, tx);
+    return priceShipment(
+      {
+        rateCardId: rc.id,
+        code: rc.code,
+        revision: rc.revision,
+        pricingModel: rc.pricingModel,
+        unitPrice: input.unitPrice,
+        minCharge: rc.minCharge?.toFixed(2) ?? null,
+        extraStopPrice: null,
+        includedStops: rc.includedStops,
+        unit: rc.unitId ? (unitMap.get(rc.unitId) ?? null) : null,
+        serviceItem: input.serviceItem,
+        extraStopItem: null,
+        fuelSurchargePct: null,
+        accessorials: [],
+      },
+      { quantities, stops: null, accessorials: [] },
+    );
   }
 }

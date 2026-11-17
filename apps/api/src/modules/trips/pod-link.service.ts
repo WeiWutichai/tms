@@ -183,6 +183,19 @@ export class PodLinkService {
       const delivery = await stopDto(hit.tripStopId, 'DELIVERY');
       const sent = latestPod.has(hit.id);
       const cl = await this.checklist.forCustomer(hit.customerId, 'SUCCESS');
+      // ST4-T10 บรรทัดสินค้า + เหตุผลปฏิเสธรับ (ไม่มีราคา)
+      const [doLines, reasons] = await Promise.all([
+        tx.deliveryOrderLine.findMany({
+          where: { deliveryOrderId: hit.id },
+          orderBy: { lineNo: 'asc' },
+          select: { lineNo: true, description: true, unit: true, qtyPlanned: true },
+        }),
+        tx.reasonCode.findMany({
+          where: { category: 'REJECTED_BY_RECEIVER', status: 'ACTIVE', deletedAt: null },
+          orderBy: [{ sortOrder: 'asc' }, { code: 'asc' }],
+          select: { id: true, labelTh: true, requiresNote: true, requiresPhoto: true },
+        }),
+      ]);
       const pod: PodLinkDoPodDto = {
         mode: sent
           ? null
@@ -206,6 +219,18 @@ export class PodLinkService {
             ...(f.length !== undefined ? { length: f.length } : {}),
             ...(f.max !== undefined ? { max: f.max } : {}),
           })),
+        lines: doLines.map((l) => ({
+          lineNo: l.lineNo,
+          description: l.description,
+          unit: l.unit,
+          qtyPlanned: l.qtyPlanned.toFixed(3).replace(/\.?0+$/, '') || '0',
+        })),
+        rejectReasons: reasons.map((r) => ({
+          id: encodeId('reasonCode', r.id),
+          label: r.labelTh,
+          requiresNote: r.requiresNote,
+          requiresPhoto: r.requiresPhoto,
+        })),
       };
       match = {
         doNo: hit.doNo!,
@@ -539,6 +564,7 @@ export class PodLinkService {
       barcodes: pod.barcodes ?? [],
       pin: pod.pin ?? null,
       rating: pod.rating ?? null,
+      ...(pod.lines?.length ? { lines: pod.lines } : {}),
     };
     let v: DeliveryOrderPodDto;
     try {
