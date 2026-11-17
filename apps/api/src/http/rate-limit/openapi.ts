@@ -12,10 +12,13 @@ const HEADERS = {
   'RateLimit-Reset': 'วินาทีจนกว่า bucket นั้นจะเต็มอีกครั้ง',
 } as const;
 
-const limited = (path: string, op: { security?: unknown[] }) => {
-  if (path.startsWith('/v1/public/') || path.startsWith('/v1/platform/auth/')) return true;
+/** 'all' = header บน 2xx + 429 · '429' = เฉพาะ 429 (จำกัดเฉพาะคำขอที่ผิด เช่น URL ลายเซ็นผิด) · false = ไม่จำกัด */
+const limited = (path: string, op: { security?: unknown[] }): 'all' | '429' | false => {
+  if (path.startsWith('/v1/public/') || path.startsWith('/v1/platform/auth/')) return 'all';
+  if (path === '/v1/oauth/token') return 'all';
+  if (path === '/v1/documents/{id}/content') return '429';
   if (path.startsWith('/v1/platform/')) return false;
-  return Boolean(op.security?.length);
+  return op.security?.length ? 'all' : false;
 };
 
 type Resp = {
@@ -54,9 +57,11 @@ export function describeRateLimits(doc: OpenAPIObject): OpenAPIObject {
     for (const op of Object.values(
       item as Record<string, { security?: unknown[]; responses?: Record<string, Resp> }>,
     )) {
-      if (!op?.responses || !limited(path, op)) continue;
-      for (const [code, r] of Object.entries(op.responses))
-        if (/^2\d\d$/.test(code) && !r.$ref) r.headers = { ...rlHeaders, ...(r.headers ?? {}) };
+      const mode = op?.responses ? limited(path, op) : false;
+      if (!op?.responses || !mode) continue;
+      if (mode === 'all')
+        for (const [code, r] of Object.entries(op.responses))
+          if (/^2\d\d$/.test(code) && !r.$ref) r.headers = { ...rlHeaders, ...(r.headers ?? {}) };
       const cur = op.responses['429'];
       if (!cur) op.responses['429'] = { $ref: '#/components/responses/RateLimited' };
       else if (!cur.$ref) {

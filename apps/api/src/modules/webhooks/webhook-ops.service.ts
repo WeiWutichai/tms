@@ -202,7 +202,8 @@ export class WebhookOpsService {
    * นับต่อบริษัท 1 ครั้งต่อ endpoint (redeliver ทุก endpoint = หลายครั้ง) + คู่ endpoint/event 1 ครั้ง / 2 วิ
    * ST7-T08: ตัวจำกัดกลาง (ใช้ร่วมทุก instance; หน้าต่างเลื่อนเหมือนเดิม; ฐานใช้ไม่ได้ = 503) [DECISION spec/12 §3]
    */
-  private takeSlot(tenantId: string, pairs: string[]) {
+  private takeSlot(tenantId: string, all: string[]) {
+    const pairs = [...new Set(all)]; // review L4: คู่ซ้ำ (endpoint ซ้ำในรายการ) นับครั้งเดียว
     return this.limiter.assert([
       {
         ...slidingWindow(`whr:t:${tenantId}`, TENANT_MAX, TENANT_WINDOW_MS, 'tenant'),

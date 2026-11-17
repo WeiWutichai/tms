@@ -1,3 +1,4 @@
+import { ipKey, RateLimitService, slidingWindow } from '../http/rate-limit/rate-limit.service';
 import { isLocalEnv } from './tokens';
 import { Body, Controller, Get, HttpCode, Post, Req, Res } from '@nestjs/common';
 import {
@@ -163,6 +164,10 @@ function clientOf(req: Request): ClientInfo {
  * 1) POST /auth/login → code  2) POST /oauth/token (authorization_code + codeVerifier) → access token + refresh cookie
  * 3) POST /oauth/token (refresh_token, อ่านจาก httpOnly cookie) → access token ใหม่  4) POST /oauth/revoke ออกจากระบบ
  */
+/** ST7-T08: เพดานขอ token (`POST /oauth/token`) — หน้าต่างเลื่อน 1 นาที */
+export const TOKEN_PER_IP_PER_MIN = Number(process.env.TOKEN_RATE_LIMIT_PER_IP_PER_MIN ?? 120);
+export const TOKEN_PER_CLIENT_PER_MIN = 30;
+
 @ApiTags('auth')
 @Public()
 @Controller()
@@ -170,6 +175,7 @@ export class AuthController {
   constructor(
     private readonly auth: AuthService,
     private readonly apiKeys: ApiKeyAuthService,
+    private readonly limiter: RateLimitService,
   ) {}
 
   @Post('auth/login')
@@ -206,15 +212,35 @@ export class AuthController {
     description:
       'authorization_code / refresh_token: ตั้ง refresh token ใน cookie httpOnly `tms_rt` · client_credentials: ไม่มี refresh token (error: 401 invalid_client / key_revoked / key_expired, 400 invalid_scope, 403 ip_not_allowed)',
   })
+  @ApiTooManyRequestsResponse({
+    description: `rate_limited — เกิน ${TOKEN_PER_IP_PER_MIN} ครั้ง/นาที ต่อ IP หรือ ${TOKEN_PER_CLIENT_PER_MIN} ครั้ง/นาที ต่อ client id (client_credentials) มี header Retry-After`,
+  })
   async token(
     @Body() body: TokenRequestDto,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<TokenDto> {
     let pair: TokenPair;
+    const basic = body.grantType === 'client_credentials' ? basicCredentials(req) : null;
+    const id = basic?.[0] ?? body.clientId;
+    // ST7-T08 (review M3): จำกัดก่อนตรวจรหัส (กันเดา secret) — ต่อ IP ทุก grant + ต่อ client id · ฐานใช้ไม่ได้ = 503
+    await this.limiter.assert(
+      [
+        slidingWindow(`otk:ip:${ipKey(req.ip)}`, TOKEN_PER_IP_PER_MIN, 60_000, 'ip'),
+        ...(body.grantType === 'client_credentials' && id
+          ? [
+              slidingWindow(
+                `otk:c:${String(id).slice(0, 100)}`,
+                TOKEN_PER_CLIENT_PER_MIN,
+                60_000,
+                'key',
+              ),
+            ]
+          : []),
+      ],
+      res,
+    );
     if (body.grantType === 'client_credentials') {
-      const basic = basicCredentials(req);
-      const id = basic?.[0] ?? body.clientId;
       const sec = basic?.[1] ?? body.clientSecret;
       if (!id || !sec) throw new ProblemException('invalid_client');
       const t = await this.apiKeys.issueToken(id, sec, body.scope, req.ip);

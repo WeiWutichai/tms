@@ -2197,9 +2197,10 @@ model VehiclePosition {
 
 /// ST7-T08 bucket ของ rate limit กลาง (UNLOGGED, ไม่มี tenant_id/RLS) — เขียนผ่านฟังก์ชัน tms_rate_limit_take() เท่านั้น
 model RateLimitBucket {
-  key  String     @id
-  tat  DateTime?  @db.Timestamptz(6)
-  hits DateTime[] @db.Timestamptz(6)
+  key       String    @id
+  tat       Float?
+  hits      Float[]
+  expiresAt DateTime? @map("expires_at") @db.Timestamptz(6)
 
   @@map("rate_limit_bucket")
 }

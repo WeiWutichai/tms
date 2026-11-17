@@ -245,6 +245,7 @@ export class ImportsController {
   }
 
   @Get('kinds/:kind/template')
+  @RateLimitClass('heavy')
   @ApiProduces('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
   @ApiOkResponse({ description: 'ไฟล์ template .xlsx' })
   async template(
@@ -433,6 +434,7 @@ export class ImportsController {
 
   /** แถวที่ผิด + คอลัมน์ "ผลตรวจ" (.xlsx) — ตรวจใหม่ทั้งไฟล์ ได้ทุกแถวที่ผิด */
   @Get(':id/errors')
+  @RateLimitClass('heavy')
   @TenantResource('import')
   @ApiProduces('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
   @ApiOkResponse({ description: 'ไฟล์ .xlsx แถวที่ผิด' })

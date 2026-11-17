@@ -75,6 +75,41 @@
                   "$ref": "#/components/schemas/TokenDto"
                 }
               }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              }
+            }
+          },
+          "429": {
+            "description": "rate_limited — เกิน 120 ครั้ง/นาที ต่อ IP หรือ 30 ครั้ง/นาที ต่อ client id (client_credentials) มี header Retry-After",
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "Retry-After": {
+                "$ref": "#/components/headers/Retry-After"
+              }
+            },
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                }
+              }
             }
           }
         },
@@ -3735,6 +3770,9 @@
                 }
               }
             }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
           }
         },
         "tags": [
@@ -3756,6 +3794,9 @@
         "responses": {
           "200": {
             "description": ""
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
           }
         },
         "tags": [
@@ -42202,6 +42243,16 @@
             "items": {
               "$ref": "#/components/schemas/ProblemFieldErrorDto"
             }
+          },
+          "retryAfter": {
+            "type": "number",
+            "example": 2,
+            "description": "429/503: วินาทีที่ควรรอก่อนส่งใหม่ (ตรงกับ header Retry-After)"
+          },
+          "scope": {
+            "type": "string",
+            "example": "tenant",
+            "description": "429 rate_limited: เพดานที่เต็ม — tenant · key · user · endpoint (คำขอหนัก) · ip · link · lookup"
           }
         },
         "required": [

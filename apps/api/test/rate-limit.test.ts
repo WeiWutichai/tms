@@ -2,13 +2,18 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { RATE_LIMIT_PROFILES } from '../src/http/rate-limit/profiles';
+import { PrismaClient } from '@prisma/client';
 import {
   gcra,
+  ipKey,
+  rateKey,
   RateLimitService,
+  storedKey,
   slidingWindow,
   type Bucket,
 } from '../src/http/rate-limit/rate-limit.service';
-import { PrismaService } from '../src/db/prisma.service';
+import { TOKEN_PER_CLIENT_PER_MIN, TOKEN_PER_IP_PER_MIN } from '../src/auth/auth.controller';
+import { BAD_SIGNATURE_PER_MIN } from '../src/modules/documents/documents.controller';
 import { createTenantWithDefaults } from '../src/modules/tenants/bootstrap';
 import { api, bootApp, platform, tokenFor, truncateAll } from './helpers';
 
@@ -18,6 +23,12 @@ import { api, bootApp, platform, tokenFor, truncateAll } from './helpers';
  */
 const STD = RATE_LIMIT_PROFILES.standard;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** ที่เก็บล่ม (ทุกคำสั่ง error) */
+const down = {
+  $queryRaw: () => Promise.reject(new Error('db down')),
+  $executeRaw: () => Promise.reject(new Error('db down')),
+  $disconnect: async () => undefined,
+} as unknown as RateLimitService['db'];
 
 describe('ตัวจำกัดกลาง: อัลกอริทึม (tms_rate_limit_take)', () => {
   let app: NestExpressApplication;
@@ -74,7 +85,7 @@ describe('ตัวจำกัดกลาง: อัลกอริทึม (
   });
 
   it('ใช้ร่วมทุก instance: service ตัวที่ 2 (API อีกเครื่อง) เห็น bucket เดียวกัน', async () => {
-    const other = new RateLimitService(app.get(PrismaService));
+    const other = new RateLimitService();
     try {
       const b = gcra(k(), { rate: 0.01, burst: 2 }, 'key');
       expect((await rl.take([b], { failOpen: false }))!.allowed).toBe(true);
@@ -83,7 +94,7 @@ describe('ตัวจำกัดกลาง: อัลกอริทึม (
       expect(d.allowed).toBe(false);
       expect(d.scope).toBe('key');
     } finally {
-      other.onModuleDestroy();
+      await other.onModuleDestroy();
     }
   });
 
@@ -96,17 +107,15 @@ describe('ตัวจำกัดกลาง: อัลกอริทึม (
   });
 
   it('ฐานใช้ไม่ได้: failOpen → ผ่าน (null) · fail-closed → 503 service_busy', async () => {
-    const real = (rl as unknown as { prisma: unknown }).prisma;
-    (rl as unknown as { prisma: unknown }).prisma = {
-      platform: { $queryRaw: () => Promise.reject(new Error('db down')) },
-    };
+    const real = rl.db;
+    rl.db = down;
     try {
       expect(await rl.take([gcra(k(), STD.tenant, 'tenant')], { failOpen: true })).toBeNull();
       await expect(rl.assert([gcra(k(), STD.tenant, 'tenant')])).rejects.toMatchObject({
         code: 'service_busy',
       });
     } finally {
-      (rl as unknown as { prisma: unknown }).prisma = real;
+      rl.db = real;
     }
   });
 
@@ -302,15 +311,13 @@ describe('Rate limit ของ /v1 (ST7-T08)', () => {
   it('ฐานของตัวจำกัดใช้ไม่ได้ → ชั้น /v1 fail-open (ผ่าน ไม่มี header)', async () => {
     const u = await user(tA);
     await api(app, u).get('/v1/customers').expect(200); // cache โปรไฟล์ไว้ก่อน
-    const real = (rl as unknown as { prisma: unknown }).prisma;
-    (rl as unknown as { prisma: unknown }).prisma = {
-      platform: { $queryRaw: () => Promise.reject(new Error('db down')) },
-    };
+    const real = rl.db;
+    rl.db = down;
     try {
       const r = await api(app, u).get('/v1/customers').expect(200);
       expect(r.headers['ratelimit-limit']).toBeUndefined();
     } finally {
-      (rl as unknown as { prisma: unknown }).prisma = real;
+      rl.db = real;
     }
   });
 
@@ -356,5 +363,186 @@ describe('Rate limit ของ /v1 (ST7-T08)', () => {
       expect.arrayContaining(['RateLimit-Limit', 'RateLimit-Remaining', 'RateLimit-Reset']),
     );
     expect(doc.paths['/v1/health'].get.responses['429']).toBeUndefined();
+  });
+});
+
+describe('ST7-T08 แก้ตาม review/QA: แยก pool, สิทธิ์, คืน, ล้าง, token, URL ลายเซ็น', () => {
+  let app: NestExpressApplication;
+  let rl: RateLimitService;
+  const db = platform();
+  const appDb = new PrismaClient({ datasources: { db: { url: process.env.APP_DATABASE_URL } } });
+  let tA: string;
+  let tB: string;
+  let n = 0;
+  const k = () => `fix:${Date.now()}:${n++}`;
+
+  beforeAll(async () => {
+    app = await bootApp();
+    rl = app.get(RateLimitService);
+    rl.enabled = true;
+    tA = (await createTenantWithDefaults(db, { name: 'บริษัท ร้อน เอ' })).id;
+    tB = (await createTenantWithDefaults(db, { name: 'บริษัท ร้อน บี' })).id;
+  });
+  afterAll(async () => {
+    await app?.close();
+    await db.$disconnect();
+    await appDb.$disconnect();
+  });
+
+  it('(M2) แอป tms_app อ่าน/เขียนที่เก็บและเรียกฟังก์ชันไม่ได้ · role platform ได้', async () => {
+    await expect(appDb.$queryRaw`SELECT * FROM rate_limit_bucket LIMIT 1`).rejects.toThrow(
+      /permission denied/,
+    );
+    await expect(
+      appDb.$executeRaw`INSERT INTO rate_limit_bucket ("key") VALUES ('x')`,
+    ).rejects.toThrow(/permission denied/);
+    await expect(
+      appDb.$queryRaw`SELECT * FROM tms_rate_limit_take(ARRAY['x'], ARRAY['g'], ARRAY[1000]::float8[], ARRAY[1], ARRAY[1])`,
+    ).rejects.toThrow(/permission denied/);
+    await expect(
+      appDb.$queryRaw`SELECT tms_rate_limit_refund(ARRAY['x'], 1::float8)`,
+    ).rejects.toThrow(/permission denied/);
+    expect((await rl.take([gcra(k(), STD.tenant, 'tenant')], { failOpen: false }))!.allowed).toBe(
+      true,
+    );
+  });
+
+  it('(M2) IP ในที่เก็บเป็น hash ไม่ใช่ IP ดิบ · IPv6 นับต่อ /64 · loopback', async () => {
+    expect(ipKey('203.0.113.7')).not.toContain('203');
+    expect(ipKey('::ffff:203.0.113.7')).toBe(ipKey('203.0.113.7'));
+    expect(rateKey('::1')).toBe('::1');
+    expect(rateKey('2001:db8::1')).toBe('2001:db8:0:0::/64');
+    expect(rateKey('2001:db8:0:0:aa::1')).toBe(rateKey('2001:0db8::ffff'));
+    const r = await request(app.getHttpServer())
+      .get('/v1/public/tracking/nope')
+      .set('X-Forwarded-For', '198.51.100.23');
+    expect(r.status).toBe(404);
+    const rows = await db.$queryRaw<{ key: string }[]>`
+      SELECT "key" FROM rate_limit_bucket WHERE "key" LIKE ${storedKey('%')}`;
+    expect(rows.some((x) => x.key.includes('198.51.100.23'))).toBe(false);
+  });
+
+  it('(M1) แถวร้อนถูกล็อกค้าง: คำขอของบริษัทนั้นผ่านแบบ fail-open ใน ≤ ~1 วิ · บริษัทอื่นและ /health ไม่กระทบ', async () => {
+    const ua = await tokenFor(tA, '*', 'hot-a');
+    const ub = await tokenFor(tB, '*', 'hot-b');
+    await api(app, ua).get('/v1/customers').expect(200); // สร้างแถว t:<tA> + cache โปรไฟล์
+    await api(app, ub).get('/v1/customers').expect(200);
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    let locked!: () => void;
+    const isLocked = new Promise<void>((r) => (locked = r));
+    const tx = db.$transaction(
+      async (t) => {
+        await t.$queryRaw`SELECT 1 FROM rate_limit_bucket WHERE "key" = ${storedKey(`t:${tA}`)} FOR UPDATE`;
+        locked();
+        await held;
+      },
+      { timeout: 20_000 },
+    );
+    await isLocked;
+    try {
+      const started = performance.now();
+      const burstA = Promise.all(
+        Array.from({ length: 40 }, () => api(app, ua).get('/v1/customers')),
+      );
+      await sleep(50);
+      const t0 = performance.now();
+      await api(app, ub).get('/v1/customers').expect(200);
+      const bMs = performance.now() - t0;
+      const t1 = performance.now();
+      await request(app.getHttpServer()).get('/v1/health').expect(200);
+      const hMs = performance.now() - t1;
+      const rs = await burstA;
+      const aMs = performance.now() - started;
+      process.stderr.write(
+        `hot row: tenant B ${bMs.toFixed(0)} ms · health ${hMs.toFixed(0)} ms · tenant A 40 คำขอ ${aMs.toFixed(0)} ms\n`,
+      );
+      expect(bMs).toBeLessThan(1000);
+      expect(hMs).toBeLessThan(1000);
+      expect(rs.every((r) => r.status === 200)).toBe(true); // fail-open (lock_timeout 200 ms)
+    } finally {
+      release();
+      await tx;
+    }
+  }, 30_000);
+
+  it('(M1) ถูกปฏิเสธแล้วจำในเครื่องจนถึง Retry-After — ไม่ถามฐานซ้ำ', async () => {
+    const b = gcra(k(), { rate: 0.5, burst: 1 }, 'user');
+    expect((await rl.take([b], { failOpen: true }))!.allowed).toBe(true);
+    expect((await rl.take([b], { failOpen: true }))!.allowed).toBe(false);
+    const real = rl.db;
+    let calls = 0;
+    rl.db = {
+      ...down,
+      $queryRaw: () => {
+        calls++;
+        return Promise.reject(new Error('should not be called'));
+      },
+    } as unknown as RateLimitService['db'];
+    try {
+      const d = (await rl.take([b], { failOpen: true }))!;
+      expect(d.allowed).toBe(false);
+      expect(d.scope).toBe('user');
+      expect(d.retryAfterS).toBeGreaterThanOrEqual(1);
+      expect(calls).toBe(0);
+    } finally {
+      rl.db = real;
+    }
+  });
+
+  it('(QA M3) คืนการจองของหน้าต่างเลื่อน (refund) → ใช้ช่องนั้นได้อีก', async () => {
+    const b = slidingWindow(k(), 1, 60_000, 'lookup');
+    const d = (await rl.take([b], { failOpen: false }))!;
+    expect((await rl.take([b], { failOpen: false }))!.allowed).toBe(false);
+    await rl.refund([b.key], d.atMs);
+    expect((await rl.take([b], { failOpen: false }))!.allowed).toBe(true);
+  });
+
+  it('(M4) ล้าง bucket ตามเวลาหมดของ bucket เอง (ไม่ใช่ 1 วัน) จนหมด', async () => {
+    const w = slidingWindow(k(), 5, 50, 'ip');
+    const g = gcra(k(), { rate: 20, burst: 1 }, 'user');
+    const long = slidingWindow(k(), 5, 3_600_000, 'ip');
+    await rl.take([w, g, long], { failOpen: false });
+    await sleep(120);
+    await rl.cleanup();
+    const rows = await db.$queryRaw<{ key: string }[]>`
+      SELECT "key" FROM rate_limit_bucket WHERE "key" = ANY(${[w.key, g.key, long.key].map(storedKey)})`;
+    expect(rows.map((r) => r.key)).toEqual([storedKey(long.key)]);
+  });
+
+  it('(M3) POST /oauth/token จำกัดต่อ client id และต่อ IP → 429 + Retry-After + scope', async () => {
+    const srv = app.getHttpServer();
+    const cc = (i: number) =>
+      request(srv)
+        .post('/v1/oauth/token')
+        .set('X-Forwarded-For', `192.0.2.${(i % 200) + 1}`)
+        .send({ grantType: 'client_credentials', clientId: 'cli-brute', clientSecret: 'x' });
+    const codes: number[] = [];
+    for (let i = 0; i < TOKEN_PER_CLIENT_PER_MIN + 1; i++) codes.push((await cc(i)).status);
+    expect(codes.slice(0, TOKEN_PER_CLIENT_PER_MIN).every((c) => c !== 429)).toBe(true);
+    const last = await cc(250);
+    expect(last.status).toBe(429);
+    expect(last.body.scope).toBe('key');
+    expect(Number(last.headers['retry-after'])).toBeGreaterThanOrEqual(1);
+    const ip = () =>
+      request(srv)
+        .post('/v1/oauth/token')
+        .set('X-Forwarded-For', '198.51.100.77')
+        .send({ grantType: 'authorization_code' });
+    for (let i = 0; i < TOKEN_PER_IP_PER_MIN; i++) expect((await ip()).status).not.toBe(429);
+    const r = await ip();
+    expect(r.status).toBe(429);
+    expect(r.body.scope).toBe('ip');
+  }, 60_000);
+
+  it('(L1) URL ไฟล์ลายเซ็นผิด: นับต่อ IP เกิน → 429 (ก่อนหน้านั้น 404)', async () => {
+    const bad = () =>
+      request(app.getHttpServer())
+        .get('/v1/documents/doc_zzzz/content?t=x&exp=1&sig=bad')
+        .set('X-Forwarded-For', '198.51.100.88');
+    for (let i = 0; i < BAD_SIGNATURE_PER_MIN; i++) expect((await bad()).status).toBe(404);
+    const r = await bad();
+    expect(r.status).toBe(429);
+    expect(r.body.scope).toBe('ip');
   });
 });

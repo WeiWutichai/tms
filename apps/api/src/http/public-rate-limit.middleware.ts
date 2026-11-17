@@ -3,9 +3,10 @@ import type { NextFunction, Request, Response } from 'express';
 import { ProblemFilter } from '../common/problem.filter';
 import { ProblemException } from '../common/problem';
 import {
+  ipKey,
+  rateKey,
   rateLimitInstance,
   RateLimitService,
-  setRateHeaders,
   slidingWindow,
 } from './rate-limit/rate-limit.service';
 
@@ -15,13 +16,7 @@ import {
  */
 export const PUBLIC_LIMIT_PER_MIN = Number(process.env.PUBLIC_RATE_LIMIT_PER_MIN ?? 120);
 const WINDOW_MS = 60_000;
-/** IPv6 นับต่อ /64 (ผู้ใช้หนึ่งคนเปลี่ยนเลขท้ายได้ทั้ง block) */
-export function rateKey(ip: string): string {
-  const v6 = ip.startsWith('::ffff:') ? null : ip.includes(':') ? ip : null;
-  if (!v6) return ip.replace(/^::ffff:/, '');
-  const parts = v6.split(':');
-  return `${parts.slice(0, 4).join(':')}::/64`;
-}
+export { rateKey };
 
 @Injectable()
 export class PublicRateLimitMiddleware implements NestMiddleware {
@@ -32,10 +27,9 @@ export class PublicRateLimitMiddleware implements NestMiddleware {
     // ข้อมูลที่เปิดด้วยลิงก์ห้าม cache (token อยู่ใน URL)
     res.setHeader('Cache-Control', 'no-store');
     // ⚠ req.ip เชื่อ X-Forwarded-For ตาม TRUST_PROXY — deployment ต้องตั้งจำนวน proxy ให้ตรง
-    const ip = rateKey(req.ip ?? 'unknown');
     try {
       await this.limiter.assert(
-        [slidingWindow(`ip:${ip}`, PUBLIC_LIMIT_PER_MIN, WINDOW_MS, 'ip')],
+        [slidingWindow(`ip:${ipKey(req.ip)}`, PUBLIC_LIMIT_PER_MIN, WINDOW_MS, 'ip')],
         res,
       );
     } catch (e) {

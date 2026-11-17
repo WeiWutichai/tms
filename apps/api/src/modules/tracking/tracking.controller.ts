@@ -27,7 +27,6 @@ import { decodeIdOr404 } from '../../common/ids';
 import { DbService } from '../../db/db.service';
 import { ApiProblems } from '../../common/problem.dto';
 import { requestContext } from '../../common/request-context';
-import { linkWriteBucket } from '../../http/link-rate-limit';
 import { RateLimitService } from '../../http/rate-limit/rate-limit.service';
 import { assertTrackingRate, reserveLookup } from '../../http/tracking-rate-limit';
 import { apiOrigin } from '../documents/documents.controller';
@@ -69,8 +68,8 @@ export class TrackingPublicController {
   @ApiOkResponse({ type: TrackingViewDto })
   @ApiNotFoundResponse({ description: 'ลิงก์ใช้ไม่ได้ (ผิด/หมดอายุ/เพิกถอน/งานจบนานแล้ว)' })
   @ApiTooManyRequestsResponse({ description: 'เรียกถี่เกินไป (ต่อ IP)' })
-  view(@Req() req: Request): Promise<TrackingViewDto> {
-    assertTrackingRate(requestContext.get()?.ip ?? req.ip);
+  async view(@Req() req: Request): Promise<TrackingViewDto> {
+    await assertTrackingRate(this.limiter, requestContext.get()?.ip ?? req.ip);
     return this.tracking.view(apiOrigin(req));
   }
 
@@ -92,18 +91,10 @@ export class TrackingPublicController {
   async lookup(@Body() body: TrackingLookupDto, @Req() req: Request): Promise<TrackingShipmentDto> {
     const ip = requestContext.get()?.ip ?? req.ip;
     const linkId = requestContext.require().link!.id;
-    // ตัวจำกัดในหน่วยความจำ synchronous ก่อน await แรก — คำขอพร้อมกันนับครบทุกครั้ง (review/QA High)
-    assertTrackingRate(ip);
-    const r = reserveLookup(ip, linkId, body.ref);
-    // ต่อลิงก์ (ST7-T08 ที่เก็บกลาง — atomic ในฐาน) · เกิน = ไม่นับเป็นครั้งที่ลองค้น
-    try {
-      await this.limiter.assert([linkWriteBucket(linkId)]);
-    } catch (e) {
-      r.refund();
-      throw e;
-    }
+    // จอง (ต่อ IP + ต่อลิงก์ + ครั้งที่ลอง) แบบ atomic ในที่เก็บกลาง — คำขอพร้อมกัน/หลาย instance นับครบทุกครั้ง
+    const r = await reserveLookup(this.limiter, ip, linkId, body.ref);
     const shipment = await this.tracking.lookup(body.ref, body.phoneLast4, apiOrigin(req));
-    r.refund();
+    await r.refund();
     return shipment;
   }
 

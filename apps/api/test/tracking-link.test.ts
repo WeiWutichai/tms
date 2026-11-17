@@ -106,7 +106,7 @@ describe('tracking link (ST4-T14)', () => {
   });
   beforeEach(async () => {
     await resetPublicRateLimit();
-    resetTrackingRate();
+    await resetTrackingRate();
   });
   afterAll(async () => {
     await app.close();
@@ -373,6 +373,7 @@ describe('tracking link (ST4-T14)', () => {
     for (let i = 0; i < 5; i++) await lookup(token, 'PO-LOCK', '0000', '10.9.2.1').expect(404);
     const locked = await lookup(token, 'PO-LOCK', '4507', '10.9.2.1').expect(429);
     expect(locked.body.code).toBe('rate_limited');
+    expect(locked.body.scope).toBe('ip');
     expect((await lookup(token, 'PO-LOCK', '4507', '10.9.2.2').expect(200)).body.doNo).toBe(s.doNo);
   });
 
@@ -622,7 +623,7 @@ describe('tracking link (ST4-T14)', () => {
     );
     expect(one.filter((r) => r.status === 404).length).toBeLessThanOrEqual(5);
     expect(one.filter((r) => r.status === 429).length).toBeGreaterThanOrEqual(5);
-    resetTrackingRate();
+    await resetTrackingRate();
     const many = await Promise.all(
       Array.from({ length: 60 }, (_, i) => lookup(token, `PO-X${i}`, '0000', `10.9.6.${i + 1}`)),
     );
