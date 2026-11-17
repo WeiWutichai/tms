@@ -32,6 +32,7 @@ import { ImpersonatePage } from './public/Impersonate';
 import { CarrierDocsLinkPage } from './public/CarrierDocsLink';
 import { OfferLinkPage } from './public/OfferLink';
 import { PodLinkPage } from './public/PodLink';
+import { TrackingPage } from './public/Tracking';
 import { ConsoleApp } from './console/ConsoleApp';
 import { AppShell, useMe } from './shell/AppShell';
 import type { ReactNode } from 'react';
@@ -143,6 +144,8 @@ export function App() {
             {/* ลิงก์ข้อเสนองานของรถร่วม (ST3-T23) — รับ/ปฏิเสธโดยไม่ต้อง login */}
             <Route path="/link/offer/:token" element={<OfferLinkPage />} />
             <Route path="/link/pod/:token" element={<PodLinkPage />} />
+            {/* หน้าติดตามของผู้รับ (ST4-T14) — ลิงก์ต่อ DO / ของลูกค้า ไม่ต้อง login */}
+            <Route path="/t/:token" element={<TrackingPage />} />
             {/* Platform Console (ST1-T24) — layout/login/token แยกจากแอปลูกค้า ไม่ผ่าน RequireAuth */}
             <Route path="/console/*" element={<ConsoleApp />} />
             <Route

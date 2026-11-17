@@ -53,7 +53,12 @@ export class TrackingEtaDto {
 }
 
 export class TrackingRouteDto {
-  @ApiProperty({ nullable: true, type: String, example: 'สมุทรปราการ', description: 'จังหวัดต้นทาง' })
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: 'สมุทรปราการ',
+    description: 'จังหวัดต้นทาง',
+  })
   from!: string | null;
   @ApiProperty({ nullable: true, type: String, example: 'ชลบุรี', description: 'จังหวัดปลายทาง' })
   to!: string | null;
@@ -127,7 +132,8 @@ export class TrackingViewDto {
   @ApiProperty({ type: TrackingCompanyDto }) company!: TrackingCompanyDto;
   @ApiProperty({
     enum: ['SHIPMENT', 'SEARCH'],
-    description: 'SHIPMENT = ลิงก์ต่อ DO (มี shipment) · SEARCH = ลิงก์ของลูกค้า ต้องค้นด้วย lookup',
+    description:
+      'SHIPMENT = ลิงก์ต่อ DO (มี shipment) · SEARCH = ลิงก์ของลูกค้า ต้องค้นด้วย lookup',
   })
   mode!: string;
   @ApiProperty({ type: TrackingShipmentDto, nullable: true }) shipment!: TrackingShipmentDto | null;

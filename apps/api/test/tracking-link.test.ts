@@ -54,7 +54,8 @@ describe('tracking link (ST4-T14)', () => {
       if (v && typeof v === 'object')
         for (const [k, x] of Object.entries(v)) {
           expect(k, `${path}.${k}`).not.toMatch(PRICE_KEY);
-          if (!(path === '$.company' && k === 'phone')) expect(k, `${path}.${k}`).not.toMatch(SECRET_KEY);
+          if (!(path === '$.company' && k === 'phone'))
+            expect(k, `${path}.${k}`).not.toMatch(SECRET_KEY);
           walk(x, `${path}.${k}`);
         }
     };
@@ -192,7 +193,10 @@ describe('tracking link (ST4-T14)', () => {
         { type: 'PICKUP', siteId: await newSite('สมุทรปราการ') },
         {
           type: 'DELIVERY',
-          siteId: await newSite('ชลบุรี', o.phone === undefined ? '081-234-4507' : (o.phone ?? undefined)),
+          siteId: await newSite(
+            'ชลบุรี',
+            o.phone === undefined ? '081-234-4507' : (o.phone ?? undefined),
+          ),
           ...(o.window ? { windowStart: o.window[0], windowEnd: o.window[1] } : {}),
         },
       ],
@@ -358,9 +362,7 @@ describe('tracking link (ST4-T14)', () => {
     for (let i = 0; i < 5; i++) await lookup(token, 'PO-LOCK', '0000', '10.9.2.1').expect(404);
     const locked = await lookup(token, 'PO-LOCK', '4507', '10.9.2.1').expect(429);
     expect(locked.body.code).toBe('rate_limited');
-    expect((await lookup(token, 'PO-LOCK', '4507', '10.9.2.2').expect(200)).body.doNo).toBe(
-      s.doNo,
-    );
+    expect((await lookup(token, 'PO-LOCK', '4507', '10.9.2.2').expect(200)).body.doNo).toBe(s.doNo);
   });
 
   it('ลิงก์ต่อ DO: เปิดแล้วเห็นงาน (กำลังส่ง + ETA ช่วงเวลาตามแผน) · lookup ด้วยลิงก์ DO = 404 · ออกใหม่ = อันเก่าใช้ไม่ได้', async () => {

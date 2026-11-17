@@ -69,7 +69,8 @@ export class TrackingPublicController {
   @Header('X-Robots-Tag', 'noindex, nofollow')
   @Header('Referrer-Policy', 'no-referrer')
   @ApiOperation({
-    summary: 'ค้นด้วยเลขใบส่งของ (DO) หรือเลข PO ลูกค้า + เบอร์ผู้รับ 4 ตัวท้าย (ลิงก์ของลูกค้าเท่านั้น)',
+    summary:
+      'ค้นด้วยเลขใบส่งของ (DO) หรือเลข PO ลูกค้า + เบอร์ผู้รับ 4 ตัวท้าย (ลิงก์ของลูกค้าเท่านั้น)',
     description:
       'เฉพาะ DO ของลูกค้าที่ลิงก์ชี้ · PO ซ้ำหลายใบ = ใบล่าสุดที่ยังไม่ยกเลิก · ไม่พบ/เบอร์ไม่ตรง = 404 เดียวกัน · ค้นผิด 5 ครั้ง/ชม./IP → 429 ล็อก 1 ชม. (EXE-062)',
   })
@@ -127,7 +128,10 @@ export class DeliveryOrderTrackingController {
   @TenantResource('deliveryOrder')
   @RequireScope('orders:write')
   @ApiProblems(T403('orders:write'), T404, T422)
-  @ApiOkResponse({ type: TrackingLinkStateDto, description: 'เพิกถอนลิงก์ที่ใช้ได้ (เหตุผล + audit)' })
+  @ApiOkResponse({
+    type: TrackingLinkStateDto,
+    description: 'เพิกถอนลิงก์ที่ใช้ได้ (เหตุผล + audit)',
+  })
   revoke(@Param('id') id: string, @Body() body: MasterReasonDto): Promise<TrackingLinkStateDto> {
     return this.tracking.revoke('do', decodeIdOr404('deliveryOrder', id), body.reason);
   }
@@ -167,7 +171,10 @@ export class CustomerTrackingController {
   @TenantResource('customer')
   @RequireScope('master:write')
   @ApiProblems(T403('master:write'), T404, T422)
-  @ApiOkResponse({ type: TrackingLinkStateDto, description: 'เพิกถอนลิงก์ที่ใช้ได้ (เหตุผล + audit)' })
+  @ApiOkResponse({
+    type: TrackingLinkStateDto,
+    description: 'เพิกถอนลิงก์ที่ใช้ได้ (เหตุผล + audit)',
+  })
   revoke(@Param('id') id: string, @Body() body: MasterReasonDto): Promise<TrackingLinkStateDto> {
     return this.tracking.revoke('customer', decodeIdOr404('customer', id), body.reason);
   }
