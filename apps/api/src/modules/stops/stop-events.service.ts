@@ -360,6 +360,17 @@ export class StopEventsService {
     };
   }
 
+  /** ชื่อผู้ใช้ภายในจาก id (ผู้บันทึก/ผู้ตัดสิน) — id ที่ไม่ใช่ uuid (dev token / ระบบ) = ไม่มีชื่อ */
+  async userNames(ids: (string | null | undefined)[]): Promise<Map<string, string>> {
+    const uuids = [...new Set(ids.filter((x): x is string => !!x && /^[0-9a-f-]{36}$/i.test(x)))];
+    if (!uuids.length) return new Map();
+    const users = await this.db.tx.appUser.findMany({
+      where: { id: { in: uuids } },
+      select: { id: true, name: true },
+    });
+    return new Map(users.map((u) => [u.id, u.name]));
+  }
+
   /** ธงของ event เดียว (รูปเดียวกับรายการ) */
   async flagById(eventId: string) {
     const r = await this.db.tx.stopEvent.findFirstOrThrow({

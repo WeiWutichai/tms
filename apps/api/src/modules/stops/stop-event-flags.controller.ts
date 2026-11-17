@@ -19,7 +19,7 @@ type FlagRow = Prisma.StopEventGetPayload<{ include: typeof FLAG_INCLUDE }> & {
   stateBefore?: string | null;
 };
 
-export function toFlagDto(r: FlagRow): StopEventFlagDto {
+export function toFlagDto(r: FlagRow, names: Map<string, string> = new Map()): StopEventFlagDto {
   const dos = r.tripStop.type === 'PICKUP' ? r.tripStop.pickupOrders : r.tripStop.deliveryOrders;
   const res = r.resolutions[0];
   return {
@@ -39,8 +39,13 @@ export function toFlagDto(r: FlagRow): StopEventFlagDto {
     doNos: dos.flatMap((d) => (d.doNo ? [d.doNo] : [])),
     stateBefore: r.stateBefore ?? null,
     resolution: toResolutionDto(res),
+    recordedByName: (r.actor && names.get(r.actor)) ?? null,
+    resolvedByName: (res?.resolvedBy && names.get(res.resolvedBy)) ?? null,
   };
 }
+
+const actorsOf = (rows: FlagRow[]) =>
+  rows.flatMap((r) => [r.actor, r.resolutions[0]?.resolvedBy ?? null]);
 
 const P = (code: ProblemCode, extra: Record<string, unknown> = {}) => ({
   type: `https://docs.tms.example/problems/${code}`,
@@ -82,7 +87,12 @@ export class StopEventFlagsController {
   @ApiOkResponse({ type: StopEventFlagPageDto })
   async list(@Query() q: StopEventFlagListQuery): Promise<StopEventFlagPageDto> {
     const page = await this.events.listFlags(q);
-    return { data: page.rows.map(toFlagDto), nextCursor: page.nextCursor, hasMore: page.hasMore };
+    const names = await this.events.userNames(actorsOf(page.rows));
+    return {
+      data: page.rows.map((r) => toFlagDto(r, names)),
+      nextCursor: page.nextCursor,
+      hasMore: page.hasMore,
+    };
   }
 
   @Get('summary')
@@ -134,6 +144,7 @@ export class StopEventFlagsController {
     @Body() body: ResolveStopEventFlagDto,
   ): Promise<StopEventFlagDto> {
     const e = await this.events.resolve(decodeIdOr404('event', id), body.decision, body.reason);
-    return toFlagDto(await this.events.flagById(e.id));
+    const row = await this.events.flagById(e.id);
+    return toFlagDto(row, await this.events.userNames(actorsOf([row])));
   }
 }

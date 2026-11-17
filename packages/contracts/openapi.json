@@ -37491,6 +37491,16 @@
                 "$ref": "#/components/schemas/StopEventResolutionDto"
               }
             ]
+          },
+          "recordedByName": {
+            "type": "string",
+            "nullable": true,
+            "description": "ชื่อผู้บันทึก event (ผู้ใช้ภายใน)"
+          },
+          "resolvedByName": {
+            "type": "string",
+            "nullable": true,
+            "description": "ชื่อผู้ตัดสิน"
           }
         },
         "required": [
@@ -37509,7 +37519,9 @@
           "customerName",
           "doNos",
           "stateBefore",
-          "resolution"
+          "resolution",
+          "recordedByName",
+          "resolvedByName"
         ]
       },
       "StopEventFlagPageDto": {

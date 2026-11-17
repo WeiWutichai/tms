@@ -305,6 +305,10 @@ export class StopEventFlagDto {
   stateBefore!: string | null;
   @ApiProperty({ nullable: true, type: StopEventResolutionDto })
   resolution!: StopEventResolutionDto | null;
+  @ApiProperty({ nullable: true, type: String, description: 'ชื่อผู้บันทึก event (ผู้ใช้ภายใน)' })
+  recordedByName!: string | null;
+  @ApiProperty({ nullable: true, type: String, description: 'ชื่อผู้ตัดสิน' })
+  resolvedByName!: string | null;
 }
 
 export class StopEventFlagPageDto {

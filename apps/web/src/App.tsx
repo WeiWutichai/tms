@@ -7,6 +7,7 @@ import { I18nProvider } from './i18n';
 import { canAny, featureOf, isLocked, NAV, permOf } from './nav';
 import { SettingsPage } from './features/settings/Settings';
 import { CustomersPage } from './features/customers/CustomersPage';
+import { ExceptionsPage } from './features/exceptions/ExceptionsPage';
 import { HoldPage } from './features/orders/HoldPage';
 import { OrdersPage } from './features/orders/OrdersPage';
 import { PlanningPage } from './features/planning/PlanningPage';
@@ -52,6 +53,7 @@ const READY: Record<string, () => ReactNode> = {
   '/plan': () => <PlanningPage />,
   '/so': () => <OrdersPage />,
   '/so/hold': () => <HoldPage />,
+  '/exceptions': () => <ExceptionsPage />,
   '/master/customers': () => <CustomersPage />,
   '/master/locations': () => <SitesPage />,
   '/master/routes': () => <RoutesPage />,
