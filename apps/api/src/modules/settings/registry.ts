@@ -114,7 +114,7 @@ export const SETTINGS = {
     type: { kind: 'podRequirements' },
     default: DEFAULT_POD_REQUIREMENTS,
     description:
-      'POD checklist ค่าเริ่มต้นของลูกค้าทุกราย (docs/04 E2) — ชนิด PHOTO/SIGNATURE/NOTE/BOOLEAN ตั้ง DISABLED/ENABLED/REQUIRED; ลูกค้า override ได้ที่ `podRequirements`',
+      'POD checklist ค่าเริ่มต้นของลูกค้าทุกราย (docs/04 E2) — ชุด success/failure; ชนิด PHOTO/SIGNATURE/NOTE/BARCODE/PIN/RATING/BOOLEAN/SINGLE_CHOICE ตั้ง DISABLED/ENABLED/REQUIRED; ลูกค้า override ได้ที่ `podRequirements` (แยกต่อชุด)',
   },
   'security.require2faAll': {
     group: 'sec',
@@ -165,6 +165,16 @@ export function validateSetting(key: SettingKey, value: unknown): string | null 
         ? null
         : `must be an integer ${t.min}–${t.max}${t.nullable ? ' or null' : ''}`;
   }
+}
+
+/**
+ * ค่าที่แสดงใน GET — ค่าที่มีโครงสร้างแสดงในรูปมาตรฐานปัจจุบัน (ST4-T06: ข้อมูล T05 ที่ไม่มีชุด failure/ชนิดใหม่
+ * → เติมค่าระบบ/DISABLED) · ผิดรูป (ไม่ควรเกิด) = คืนค่าเดิม
+ */
+export function presentSetting(key: SettingKey, value: unknown): unknown {
+  const t: SettingType = SETTINGS[key].type;
+  if (t.kind === 'podRequirements') return parsePodRequirements(value, true).value ?? value;
+  return value;
 }
 
 /** ทำค่าให้เป็นรูปมาตรฐานก่อนเก็บ (เรียกหลังผ่าน validateSetting) */

@@ -7,8 +7,14 @@ import type { MessageKey } from '../../i18n/th';
 import { HistoryTab } from '../master/HistoryTab';
 import { CustomerSitesTab } from '../sites/CustomerSitesTab';
 import { CustomerRatesTab } from '../rate-cards/CustomerRatesTab';
-import { CustomerPodSection } from '../pod/CustomerPodSection';
-import { podChecklistInvalid, podSummary, type PodField } from '../pod/PodChecklistTable';
+import {
+  CustomerPodSection,
+  podBodyOf,
+  podFormInvalid,
+  podFormOf,
+  type PodForm,
+} from '../pod/CustomerPodSection';
+import { podSummary } from '../pod/PodChecklistTable';
 import { fieldErrors, problemText } from '../master/problems';
 import {
   useCompanyOptions,
@@ -39,9 +45,8 @@ interface Form {
   vatRegistered: 'yes' | 'no';
   etaxCapable: 'yes' | 'no';
   freeTimeMin: string;
-  /** ST4-T05 POD checklist: default = ใช้ค่าองค์กร (`{}`) · custom = กำหนดเองทั้งชุด */
-  podMode: 'default' | 'custom';
-  podFields: PodField[];
+  /** ST4-T05/T06 POD checklist ต่อชุด (สำเร็จ/ไม่สำเร็จ): default = ใช้ค่าองค์กร · custom = กำหนดเองทั้งชุด */
+  pod: PodForm;
 }
 
 function toForm(c: Customer): Form {
@@ -67,8 +72,7 @@ function toForm(c: Customer): Form {
     vatRegistered: c.vatRegistered ? 'yes' : 'no',
     etaxCapable: c.etaxCapable ? 'yes' : 'no',
     freeTimeMin: c.freeTimeMin === null ? '' : String(c.freeTimeMin),
-    podMode: c.podRequirements.success ? 'custom' : 'default',
-    podFields: c.podRequirements.success?.fields ?? [],
+    pod: podFormOf(c.podRequirements),
   };
 }
 
@@ -115,14 +119,9 @@ function diffBody(c: Customer, a: Form, b: Form): CustomerInput {
   if (a.etaxCapable !== b.etaxCapable) out.etaxCapable = b.etaxCapable === 'yes';
   if (a.freeTimeMin !== b.freeTimeMin)
     out.freeTimeMin = b.freeTimeMin.trim() === '' ? null : Number(b.freeTimeMin);
-  if (
-    a.podMode !== b.podMode ||
-    (b.podMode === 'custom' && JSON.stringify(a.podFields) !== JSON.stringify(b.podFields))
-  )
-    out.podRequirements =
-      b.podMode === 'custom'
-        ? { success: { fields: b.podFields.map((f) => ({ ...f, label: f.label?.trim() })) } }
-        : {};
+  // override ทั้งก้อน (ชุดที่ใช้ค่าองค์กรไม่ส่ง) — ส่งเมื่อชุดใดชุดหนึ่งเปลี่ยน
+  if (JSON.stringify(podBodyOf(a.pod)) !== JSON.stringify(podBodyOf(b.pod)))
+    out.podRequirements = podBodyOf(b.pod);
   return out;
 }
 
@@ -216,7 +215,7 @@ export function CustomerDrawer({
   if (dup) errs.taxId = t('cust.v.dup', { code: dup.code, name: dup.legalName });
   const creditBad = f.credit.trim() === '' || Number(f.credit) > 365;
   if (creditBad) errs.creditTermDays = t('cust.v.credit');
-  const podBad = f.podMode === 'custom' && podChecklistInvalid(f.podFields);
+  const podBad = podFormInvalid(f.pod);
   const top =
     save.error && !Object.keys(fieldErrors(save.error, t)).length && !dup
       ? problemText(save.error, t)
@@ -561,10 +560,8 @@ export function CustomerDrawer({
             customerId={c.id}
             version={c.version}
             readOnly={ro}
-            mode={f.podMode}
-            fields={f.podFields}
-            invalid={podBad}
-            onChange={(mode, fields) => setF((x) => ({ ...x, podMode: mode, podFields: fields }))}
+            pod={f.pod}
+            onChange={(pod) => setF((x) => ({ ...x, pod }))}
           />
         </div>
       )}
