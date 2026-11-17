@@ -103,3 +103,48 @@ export function unsupportedCapabilities(
   const a = new Set(adapterCapabilities);
   return [...new Set(requested)].filter((c) => !isErpCapability(c) || !a.has(c));
 }
+
+/**
+ * ประเภทเอกสารที่ connector อาจรับ (ST7-T14) — ใช้ตัดสินว่า flow ของเอกสารนั้น "มีขั้น sync" ไหม
+ * (docs/01 §6.1 ตาราง "ถ้า adapter ไม่มี capability")
+ */
+export const ERP_SYNC_DOCUMENTS = ['invoice', 'creditNote', 'debitNote', 'settlement'] as const;
+export type ErpSyncDocument = (typeof ERP_SYNC_DOCUMENTS)[number];
+
+/**
+ * โหมด sync ของเอกสาร 1 ประเภทภายใต้ capability ที่ใช้ได้จริง (ST7-T14; docs/01 §6.1; spec/07 INT-011/INT-020)
+ * - `NOT_APPLICABLE` = ไม่มีขั้น sync เลย (Standalone / connector ไม่รองรับ / tenant ปิด) — เอกสารเดินสถานะใน TMS เอง
+ *   (invoice: `ISSUED → PAID` ตรง ไม่มี `SENT`) และหน้าจอไม่แสดงสถานะ sync (ไม่ใช่ "รอส่ง")
+ * - `PUSH` = ส่งด้วย method ของประเภทนั้น · `REPLACE` = ใบลด/เพิ่มหนี้ส่งเป็น "ภาพรวมหลังปรับ" ผ่าน `replaceDocument`
+ * - `MANUAL` = มี connector ส่งต้นฉบับได้แต่ส่งใบปรับไม่ได้ → คำสั่ง SKIPPED + แจ้งบัญชีทำมือ (docs/01 §6.3 CAPABILITY)
+ * สถานะเอกสารแยกจากสถานะ sync เสมอ — ผลนี้ไม่เปลี่ยนสถานะเอกสาร (spec/07 INT-020)
+ */
+export type ErpSyncMode = 'NOT_APPLICABLE' | 'PUSH' | 'REPLACE' | 'MANUAL';
+
+export function documentSyncMode(
+  capabilities: readonly string[],
+  doc: ErpSyncDocument,
+): ErpSyncMode {
+  const has = (c: ErpCapability) => capabilities.includes(c);
+  switch (doc) {
+    case 'invoice':
+      return has('pushInvoice') ? 'PUSH' : 'NOT_APPLICABLE';
+    case 'settlement':
+      return has('pushSettlement') ? 'PUSH' : 'NOT_APPLICABLE';
+    case 'creditNote':
+    case 'debitNote':
+      if (has('pushCreditNote')) return 'PUSH';
+      if (has('replaceDocument')) return 'REPLACE';
+      // ใบแจ้งหนี้ต้นฉบับอยู่ใน ERP แล้ว แต่ใบปรับส่งไม่ได้ → บัญชีต้องปรับมือ (ไม่ใช่ "ไม่เกี่ยว")
+      return has('pushInvoice') ? 'MANUAL' : 'NOT_APPLICABLE';
+  }
+}
+
+/** โหมด sync ของทุกประเภทเอกสาร (ใช้ใน `GET /connectors/effective`) */
+export function documentSyncModes(
+  capabilities: readonly string[],
+): Record<ErpSyncDocument, ErpSyncMode> {
+  return Object.fromEntries(
+    ERP_SYNC_DOCUMENTS.map((d) => [d, documentSyncMode(capabilities, d)]),
+  ) as Record<ErpSyncDocument, ErpSyncMode>;
+}

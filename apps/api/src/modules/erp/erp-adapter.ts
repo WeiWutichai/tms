@@ -40,6 +40,11 @@ export interface ConnectorConfigField {
   /** `url` = ต้องเป็น https:// (http:// ได้เฉพาะ dev/test) */
   readonly kind: 'string' | 'url';
   readonly maxLength?: number;
+  /**
+   * ค่าที่เลือกได้ (ST7-T14) — มี = ค่าต้องอยู่ในรายการ (422 `invalid_option`) · หน้า connector (ST7-T20) แสดงเป็นตัวเลือก
+   * ใช้กับช่องที่ไม่ลับเท่านั้น
+   */
+  readonly options?: readonly string[];
 }
 
 /** บริบทของการเรียก adapter 1 ครั้ง — สร้างโดย core ต่อ connector (ไม่ cache ข้ามคำขอ) */
@@ -127,7 +132,10 @@ export interface ErpAdapter {
   /** ชื่อแสดง (ชื่อผลิตภัณฑ์) — UI แสดงเฉพาะเมื่อเปิดใช้ (spec/07 INT-010) */
   readonly displayName: string;
   readonly configFields: readonly ConnectorConfigField[];
-  /** adapter จำลอง (Demo) — ลงทะเบียน/เปิดได้เฉพาะ dev/test/staging ที่อนุญาต */
+  /**
+   * adapter จำลอง (Demo) — ลงทะเบียน/เปิดได้เฉพาะ dev/test/staging ที่อนุญาต · catalog (`GET /connectors/adapters`)
+   * แสดง `demo: true` ให้หน้าจอติดป้าย "จำลอง" (ST7-T14) · ไม่มีวันเป็นค่าเริ่มต้น (ไม่มี connector = Standalone เสมอ)
+   */
   readonly localOnly?: boolean;
   capabilities(): ReadonlySet<ErpCapability>;
   /** ไม่ throw — ปลายทางล่ม/credential ผิด = `{ok:false}` */
@@ -195,6 +203,15 @@ export function adapterShapeProblems(a: ErpAdapter): string[] {
     seen.add(f.key);
     if (f.kind !== 'string' && f.kind !== 'url')
       out.push(`config field '${f.key}' kind must be string|url`);
+    if (f.options !== undefined) {
+      if (f.secret) out.push(`config field '${f.key}' is secret — options not allowed`);
+      if (
+        !Array.isArray(f.options) ||
+        !f.options.length ||
+        f.options.some((o) => typeof o !== 'string' || !o)
+      )
+        out.push(`config field '${f.key}' options must be non-empty strings`);
+    }
   }
   return out;
 }
@@ -202,7 +219,8 @@ export function adapterShapeProblems(a: ErpAdapter): string[] {
 /**
  * "ไม่เชื่อม — ใช้ TMS ออกเอกสารเอง" (spec/07 §1 การ์ดแรก; docs/01 §6.1 `StandaloneAdapter`)
  * ค่าเริ่มต้นของทุก tenant/นิติบุคคลที่ไม่มี connector — ไม่มี capability ใด, healthCheck ผ่านเสมอ, ไม่ติดต่อภายนอก
- * อยู่ใน core เพราะเป็นความหมายของ "ไม่มี connector" ไม่ใช่ ERP ตัวหนึ่ง (ST7-T14 ต่อยอดเป็น StandaloneProvider ใน flow invoice)
+ * อยู่ใน core เพราะเป็นความหมายของ "ไม่มี connector" ไม่ใช่ ERP ตัวหนึ่ง (= `StandaloneProvider` ของ docs/04 G3 — ST7-T14)
+ * flow เอกสารถามว่ามีขั้น sync ไหมจาก `documentSyncMode(capabilities, …)` ของ @tms/domain (Standalone = NOT_APPLICABLE ทุกประเภท)
  */
 export const STANDALONE_ADAPTER: ErpAdapter = Object.freeze({
   key: STANDALONE_KEY,

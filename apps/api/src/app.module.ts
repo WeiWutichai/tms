@@ -160,6 +160,7 @@ import { SubconTimeoutService } from './modules/trips/subcon-timeout.service';
 import { DepreciationService } from './modules/depreciation/depreciation.service';
 import { ConnectorIntakeService } from './modules/connectors/connector-intake.service';
 import { OrderSourceRegistry } from './modules/connectors/order-source-registry';
+import { ConnectorPullScheduler } from './modules/connectors/connector-pull.scheduler';
 import { DriversController } from './modules/drivers/drivers.controller';
 import {
   CarrierDocsController,
@@ -322,6 +323,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     OrderImports,
     OrderSourceRegistry,
     ConnectorIntakeService,
+    ConnectorPullScheduler,
     CarriersService,
     VehiclesService,
     DriversService,
