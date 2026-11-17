@@ -732,6 +732,13 @@ export class TripService {
           acceptedDriverId: cur.driverId,
         },
       });
+      // ST4-T08: ลิงก์งานของรถร่วม (กดถึง/ออก + POD ST4-T09) — ออกครั้งเดียวตอนรับงาน (ผ่านลิงก์หรือผู้จัดรถบันทึกแทน)
+      if (offer)
+        await this.offerLinks.issuePod(
+          tx,
+          { id: offer.id, tenantId: trip.tenantId },
+          requestContext.require().actorId ?? null,
+        );
       if (offer)
         await this.emitOffer(tx, 'subcon_offer.accepted', {
           id: offer.id,

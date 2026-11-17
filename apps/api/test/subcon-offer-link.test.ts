@@ -365,13 +365,13 @@ describe('subcon offer link (ST3-T23)', () => {
     expect((await pub().get(`/v1/public/offers/${link.token}`).expect(200)).body.status).toBe(
       'ACCEPTED',
     );
-    // ลิงก์ยังคัดลอกได้หลังรับงาน (ต้นแบบ "คัดลอกลิงก์") · ออกใหม่ไม่ได้ (ไม่รอตอบแล้ว)
+    // ลิงก์ยังคัดลอกได้หลังรับงาน (ต้นแบบ "คัดลอกลิงก์") · ST4-T08: มีลิงก์งาน (pod) · ออกใหม่ = ออกลิงก์งานใหม่
+    const st = (await api(app, admin).get(`/v1/trips/${t.id}/offer-link`).expect(200)).body;
+    expect(st.link).not.toBeNull();
+    expect(st.podLink?.url).toMatch(/\/link\/pod\//);
     expect(
-      (await api(app, admin).get(`/v1/trips/${t.id}/offer-link`).expect(200)).body.link,
-    ).not.toBeNull();
-    expect((await api(app, admin).post(`/v1/trips/${t.id}/offer-link`).expect(409)).body.code).toBe(
-      'offer_closed',
-    );
+      (await api(app, admin).post(`/v1/trips/${t.id}/offer-link`).expect(201)).body.url,
+    ).toMatch(/\/link\/pod\//);
   });
 
   it('สองเครื่องกดรับพร้อมกัน → เที่ยวรับงานครั้งเดียว (อีกคำขอได้ผลเดิมหรือ 409)', async () => {
