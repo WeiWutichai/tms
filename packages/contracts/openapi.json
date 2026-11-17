@@ -68,7 +68,7 @@
         },
         "responses": {
           "200": {
-            "description": "authorization_code / refresh_token: ตั้ง refresh token ใน cookie httpOnly `tms_rt` · client_credentials: ไม่มี refresh token",
+            "description": "authorization_code / refresh_token: ตั้ง refresh token ใน cookie httpOnly `tms_rt` · client_credentials: ไม่มี refresh token (error: 401 invalid_client / key_revoked / key_expired, 400 invalid_scope, 403 ip_not_allowed)",
             "content": {
               "application/json": {
                 "schema": {
@@ -76,9 +76,6 @@
                 }
               }
             }
-          },
-          "401": {
-            "description": "invalid_client / key_revoked / key_expired"
           }
         },
         "tags": [
@@ -13198,10 +13195,19 @@
             }
           },
           {
+            "name": "createdBy",
+            "required": false,
+            "in": "query",
+            "description": "ค้นชื่อผู้สร้าง",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "scope",
             "required": false,
             "in": "query",
-            "description": "มี scope นี้",
+            "description": "มี scope นี้ (ค้นบางส่วนได้ เช่น orders)",
             "schema": {
               "type": "string"
             }
@@ -25666,8 +25672,8 @@
           },
           "clientId": {
             "type": "string",
-            "example": "key_…",
-            "description": "grantType=client_credentials — หรือส่งใน Authorization: Basic"
+            "example": "tk_live_8f3a",
+            "description": "grantType=client_credentials — id ของ key (`key_…`) หรือ prefix ที่แสดงในหน้าจอ · หรือส่งใน Authorization: Basic"
           },
           "clientSecret": {
             "type": "string",
@@ -34514,7 +34520,7 @@
           },
           "expiring": {
             "type": "number",
-            "description": "ใช้งานและหมดอายุภายใน 30 วัน (นับรวมใน active ด้วย)"
+            "description": "ใช้งานและหมดอายุภายใน 30 วัน (ไม่นับใน active)"
           },
           "rotating": {
             "type": "number"

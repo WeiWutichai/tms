@@ -82,8 +82,9 @@ export class TokenRequestDto {
   codeVerifier?: string;
 
   @ApiPropertyOptional({
-    example: 'key_…',
-    description: 'grantType=client_credentials — หรือส่งใน Authorization: Basic',
+    example: 'tk_live_8f3a',
+    description:
+      'grantType=client_credentials — id ของ key (`key_…`) หรือ prefix ที่แสดงในหน้าจอ · หรือส่งใน Authorization: Basic',
   })
   @IsOptional()
   @IsString()
@@ -203,9 +204,8 @@ export class AuthController {
   @ApiOkResponse({
     type: TokenDto,
     description:
-      'authorization_code / refresh_token: ตั้ง refresh token ใน cookie httpOnly `tms_rt` · client_credentials: ไม่มี refresh token',
+      'authorization_code / refresh_token: ตั้ง refresh token ใน cookie httpOnly `tms_rt` · client_credentials: ไม่มี refresh token (error: 401 invalid_client / key_revoked / key_expired, 400 invalid_scope, 403 ip_not_allowed)',
   })
-  @ApiUnauthorizedResponse({ description: 'invalid_client / key_revoked / key_expired' })
   async token(
     @Body() body: TokenRequestDto,
     @Req() req: Request,

@@ -263,6 +263,15 @@ describe('API keys + client credentials (ST7-T01)', () => {
       .send({ grantType: 'client_credentials' })
       .expect(200);
     expect(t2.body.scope).toBe('orders:read orders:write');
+    // client_id = prefix ที่แสดงในหน้าจอก็ได้
+    await request(srv())
+      .post('/v1/oauth/token')
+      .send({
+        grantType: 'client_credentials',
+        clientId: k.secret.slice(0, 12),
+        clientSecret: k.secret,
+      })
+      .expect(200);
     // scope เกิน key → 400 invalid_scope · secret ผิด / client_id ไม่ตรง → 401 invalid_client
     const bad = await request(srv()).post('/v1/oauth/token').send({
       grantType: 'client_credentials',
@@ -393,6 +402,16 @@ describe('API keys + client credentials (ST7-T01)', () => {
     expect(rev.every((x) => x.status === 'revoked')).toBe(true);
     const byName = (await api(app, admin).get('/v1/api-keys?name=oauth').expect(200)).body.data;
     expect(byName.map((x: { name: string }) => x.name)).toEqual(['OAuth']);
+    const byScope = (await api(app, admin).get('/v1/api-keys?scope=settings&limit=200').expect(200))
+      .body.data as { name: string }[];
+    expect(byScope.map((x) => x.name)).toEqual(['ตั้งค่า']);
+    const byUser = (
+      await api(app, admin).get('/v1/api-keys?createdBy=ผู้ดูแล&limit=200').expect(200)
+    ).body.data as unknown[];
+    expect(byUser.length).toBe(s.all);
+    expect(
+      (await api(app, admin).get('/v1/api-keys?createdBy=ไม่มีคนนี้').expect(200)).body.data,
+    ).toEqual([]);
   });
 });
 

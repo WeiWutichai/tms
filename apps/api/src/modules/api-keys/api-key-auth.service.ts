@@ -117,7 +117,9 @@ export class ApiKeyAuthService {
     ip: string | undefined,
   ): Promise<{ accessToken: string; expiresIn: number; scope: string }> {
     const k = await this.bySecret(clientSecret);
-    if (!k || encodeId('apiKey', k.id) !== clientId) throw new ProblemException('invalid_client');
+    // client_id = `key_…` หรือ prefix ที่แสดงในหน้าจอ (`tk_live_8f3a`) — secret เป็นตัวยืนยันจริง client_id แค่ต้องตรงกัน
+    if (!k || (encodeId('apiKey', k.id) !== clientId && k.prefix !== clientId))
+      throw new ProblemException('invalid_client');
     await this.check(k, ip);
     const asked = scope?.trim() ? [...new Set(scope.trim().split(/\s+/))] : k.scopes;
     if (asked.some((s) => !k.scopes.includes(s))) throw new ProblemException('invalid_scope');

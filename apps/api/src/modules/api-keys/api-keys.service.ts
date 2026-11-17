@@ -61,8 +61,14 @@ function statusWhere(s: ApiKeyStatus, now: Date): Prisma.ApiKeyWhereInput {
         expiresAt: { gt: now, lte: new Date(now.getTime() + EXPIRING_DAYS * DAY) },
       };
     case 'active':
-      // ใช้งานได้ (รวมใกล้หมดอายุ) — ตรงกับแท็บ "ใช้งาน" ที่นับ key ที่ยังเรียกได้ตามปกติ
-      return { AND: [{ revokeAt: null }, notExpired] };
+      // ใช้งานและยังไม่ใกล้หมดอายุ — ตรงกับแท็บ "ใช้งาน" ของต้นแบบ (ใกล้หมดอายุแยกแท็บ)
+      return {
+        revokeAt: null,
+        OR: [
+          { expiresAt: null },
+          { expiresAt: { gt: new Date(now.getTime() + EXPIRING_DAYS * DAY) } },
+        ],
+      };
   }
 }
 
@@ -159,7 +165,18 @@ export class ApiKeysService {
     if (q.status)
       and.push({ OR: q.status.split(',').map((s) => statusWhere(s as ApiKeyStatus, now)) });
     if (q.name) and.push({ name: { contains: q.name, mode: 'insensitive' } });
-    if (q.scope) and.push({ scopes: { has: q.scope } });
+    if (q.scope) {
+      // ค้นบางส่วน (ช่องกรองคอลัมน์ Scope ของต้นแบบเป็นช่องพิมพ์) — scope ที่ตรงจาก registry
+      const hit = PERMISSIONS.filter((s) => s.includes(q.scope!.trim().toLowerCase()));
+      and.push({ scopes: { hasSome: hit.length ? hit : ['-'] } });
+    }
+    if (q.createdBy) {
+      const users = await this.db.tx.appUser.findMany({
+        where: { name: { contains: q.createdBy, mode: 'insensitive' } },
+        select: { id: true },
+      });
+      and.push({ createdBy: { in: users.map((u) => u.id) } });
+    }
     const rows = await this.db.tx.apiKey.findMany({
       where: { AND: and },
       orderBy: k.orderBy as unknown as Prisma.ApiKeyOrderByWithRelationInput[],

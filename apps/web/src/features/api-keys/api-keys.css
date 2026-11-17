@@ -1,0 +1,263 @@
+/* ST7-T01 นักพัฒนา / Open API — ค่าจากต้นแบบ TMS v4 (is.api: แถบแท็บ, vSec, chk field, apx chips) */
+
+/* แถบแท็บของหน้า (ภาพรวม / API keys / …) — เฟส 0 มีแท็บ API keys */
+.akey-tabs {
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+  border-bottom: 1px solid #d9dcd4;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.akey-tabs__list {
+  display: flex;
+  gap: 24px;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+}
+.akey-tabs__tab {
+  height: 44px;
+  padding: 0;
+  margin-bottom: -1px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: #3b424c;
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.akey-tabs__tab[aria-selected='true'] {
+  border-bottom-color: #2257c4;
+  color: #2257c4;
+  font-weight: 600;
+}
+.akey-tabs__n {
+  min-width: 22px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: #ffffff;
+  border: 1px solid #d9dcd4;
+  color: #3b424c;
+  font-size: 12px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  font-variant-numeric: tabular-nums;
+}
+
+/* เซลล์ 2 บรรทัด (cW) */
+.akey-two {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.4;
+}
+.akey-two > span:first-child {
+  color: #101418;
+}
+.akey-two > span + span {
+  color: #3b424c;
+}
+
+/* ช่อง Scope แบบ checkbox 2 คอลัมน์ (ต้นแบบ cfOpen type chk) */
+.akey-chk {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 16px;
+  padding: 10px 12px;
+  border: 1px solid #cdd1c8;
+  border-radius: 8px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+.akey-chk[aria-invalid='true'] {
+  border-color: #b3322a;
+}
+.akey-chk label {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  cursor: pointer;
+  min-width: 0;
+}
+.akey-chk label[data-off] {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.akey-chk input {
+  width: 16px;
+  height: 16px;
+  accent-color: #2257c4;
+  margin: 3px 0 0;
+  flex-shrink: 0;
+}
+.akey-chk__t {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.akey-chk__t > span:first-child {
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.akey-chk__t > span + span {
+  font-size: 12.5px;
+  color: #59606b;
+}
+
+/* ชิป scope ใน drawer (apx chips) */
+.akey-chips {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid #e4e6e0;
+}
+.akey-chips__h {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #3b424c;
+}
+.akey-chips__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.akey-chips__list > span {
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: #eef0ec;
+  color: #101418;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+/* หน้าต่าง secret แสดงครั้งเดียว (vSec) */
+.akey-sec__scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 75;
+  background: rgba(10, 23, 52, 0.32);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.akey-sec {
+  width: 600px;
+  max-width: 100%;
+  background: #ffffff;
+  border: 1px solid #cdd1c8;
+  border-radius: 16px;
+  box-shadow: 0 18px 44px rgba(10, 23, 52, 0.14);
+  display: flex;
+  flex-direction: column;
+}
+.akey-sec__head {
+  padding: 20px 24px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.akey-sec__head h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+.akey-sec__head span {
+  color: #3b424c;
+  word-break: break-word;
+}
+.akey-sec__body {
+  padding: 16px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.akey-sec__warn {
+  display: flex;
+  gap: 10px;
+  padding: 10px 14px;
+  background: #fcf0dc;
+  border-radius: 8px;
+  color: #5c3a00;
+}
+.akey-sec__warn svg {
+  color: #8f5500;
+  margin-top: 3px;
+  flex-shrink: 0;
+}
+.akey-sec__label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.akey-sec__label > span {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: #59606b;
+}
+.akey-sec__row {
+  display: flex;
+  gap: 8px;
+}
+.akey-sec__row input {
+  flex: 1;
+  min-width: 0;
+  height: 42px;
+  padding: 0 12px;
+  border: 1px solid #cdd1c8;
+  border-radius: 8px;
+  background: #f7f8f5;
+  color: #101418;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 13px;
+}
+.akey-sec__copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 42px;
+  padding: 0 14px;
+  border: 1px solid #9db6e3;
+  border-radius: 999px;
+  background: #ffffff;
+  color: #2257c4;
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.akey-sec__foot {
+  padding: 14px 24px;
+  border-top: 1px solid #e4e6e0;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.akey-sec__close {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 18px;
+  border: 1px solid #2257c4;
+  border-radius: 999px;
+  background: #2257c4;
+  color: #ffffff;
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}

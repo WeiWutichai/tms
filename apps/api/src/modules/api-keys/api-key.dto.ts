@@ -86,7 +86,7 @@ export class ApiKeyPageDto {
 export class ApiKeySummaryDto {
   @ApiProperty() all!: number;
   @ApiProperty() active!: number;
-  @ApiProperty({ description: 'ใช้งานและหมดอายุภายใน 30 วัน (นับรวมใน active ด้วย)' })
+  @ApiProperty({ description: 'ใช้งานและหมดอายุภายใน 30 วัน (ไม่นับใน active)' })
   expiring!: number;
   @ApiProperty() rotating!: number;
   @ApiProperty() expired!: number;
@@ -107,7 +107,13 @@ export class ApiKeyListQuery extends ListQuery {
   @MaxLength(80)
   name?: string;
 
-  @ApiPropertyOptional({ description: 'มี scope นี้' })
+  @ApiPropertyOptional({ description: 'ค้นชื่อผู้สร้าง' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  createdBy?: string;
+
+  @ApiPropertyOptional({ description: 'มี scope นี้ (ค้นบางส่วนได้ เช่น orders)' })
   @IsOptional()
   @IsString()
   @MaxLength(60)
