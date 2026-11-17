@@ -40,6 +40,7 @@ export function toStopEventDto(e: StopEvent): StopEventDto {
     clientEventId: e.clientEventId,
     occurredAt: e.occurredAt.toISOString(),
     receivedAt: e.receivedAt.toISOString(),
+    appliedAt: e.appliedAt?.toISOString() ?? null,
     lat: num(e.lat),
     lng: num(e.lng),
     accuracyM: num(e.accuracyM),
@@ -143,7 +144,7 @@ const S422 = {
  * แต่ละคำขอ = event 1 แถวใน `stop_event` (append-only) พร้อม `occurredAt` (เครื่อง) + `receivedAt` (server)
  * สิทธิ์: `trips:dispatch` (docs/04 A3 "Trip: assign / dispatch / ปิด" — ผู้จ่ายงาน/ผู้จัดการ/ผู้ดูแล บันทึกแทนคนขับ)
  * ลิงก์รถร่วม (ST4-T08) และแอปคนขับ (P1) เรียก service เดียวกันโดย source = LINK / APP
- * สถานะจุด/เที่ยว/DO ยังไม่เปลี่ยนจาก event (ST4-T03)
+ * ST4-T03: ทุก event ใหม่ไล่สถานะจุด → เที่ยว → DO → SO ในคำขอเดียวกัน (`StopProjectionService`)
  */
 @ApiTags('stops')
 @ApiBearerAuth()
@@ -171,7 +172,7 @@ export class StopsController {
   @ApiOperation({
     summary: 'ลำดับ event ของจุด (เรียงตาม occurredAt) + สถานะที่มีผล',
     description:
-      'ST4-T02 (docs/01 §3.9): ทุก event ของจุด (รวมที่ขัดลำดับ/มาหลังปิด/ผู้จัดรถไม่ใช้) เรียง `occurredAt` → ชนิด (ออก → ถึง → ปิด) → `receivedAt` พร้อมผลของแต่ละตัว (`seqStatus`) และสถานะที่มีผลของจุด — ยังไม่ลง `trip_stop` (ST4-T03)',
+      'ST4-T02 (docs/01 §3.9): ทุก event ของจุด (รวมที่ขัดลำดับ/มาหลังปิด/ผู้จัดรถไม่ใช้) เรียง `occurredAt` → ชนิด (ออก → ถึง → ปิด) → `receivedAt` พร้อมผลของแต่ละตัว (`seqStatus`) และสถานะที่มีผลของจุด — ST4-T03 ลง `trip_stop` แล้ว (เที่ยวที่จบ/ยกเลิกไม่ไล่ต่อ)',
   })
   @ApiProblems(T403R, S404)
   @TenantResource('tripStop')

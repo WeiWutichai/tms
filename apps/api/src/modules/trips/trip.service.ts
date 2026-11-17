@@ -178,6 +178,7 @@ const EVENT_TYPE: Partial<Record<TripEvent, string>> = {
   assign: 'trip.assigned',
   reassign: 'trip.assigned',
   dispatch: 'trip.dispatched',
+  start: 'trip.started',
   complete: 'trip.completed',
   cancel: 'trip.cancelled',
 };
@@ -1382,6 +1383,22 @@ export class TripService {
       after: view(final),
     });
     return final;
+  }
+
+  /**
+   * ไล่สถานะเที่ยวจากจุดแวะ (ST4-T03 — `StopProjectionService` ถือล็อก SO → DO → trip แล้ว): `start` DISPATCHED → IN_PROGRESS
+   * (`trip.started` — plan/00a เพิ่มจาก spec/07) · `complete` IN_PROGRESS → COMPLETED (`trip.completed`) เวลาจบ = เวลาปิดจุดสุดท้าย
+   * ไม่ตรวจ If-Match (ระบบทำตาม event) แต่เพิ่ม version
+   */
+  async applyExecution(
+    tx: Tx,
+    tripId: string,
+    event: Extract<TripEvent, 'start' | 'complete'>,
+    at: Date,
+  ): Promise<TripRecord> {
+    const trip = await this.get(tripId, tx);
+    await this.transition(tx, trip, event, event === 'complete' ? { completedAt: at } : {});
+    return this.get(tripId, tx);
   }
 
   /**

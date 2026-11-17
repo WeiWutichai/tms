@@ -682,6 +682,20 @@ export class DeliveryOrderService {
   }
 
   /**
+   * ไล่สถานะจากจุดแวะ (ST4-T03; docs/01 §4.3): `pick_up` จุดรับปิด · `deliver` จุดส่งปิดสำเร็จ/บางส่วน · `fail` ส่งไม่สำเร็จ
+   * (+ เหตุผลจาก event ที่ปิดจุด) — ผู้เรียกถือล็อก SO → DO → trip แล้ว และตรวจ transition ด้วย domain `deliveryOrderStopEvent`
+   */
+  async applyStopResult(
+    tx: Tx,
+    d: DeliveryOrderRecord,
+    event: Extract<DoEvent, 'pick_up' | 'deliver' | 'fail'>,
+    reasonCodeId: string | null,
+    note: string | null,
+  ): Promise<void> {
+    await this.move(tx, d, event, {}, note, reasonCodeId);
+  }
+
+  /**
    * ปลด DO ออกจากเที่ยว (ถอด DO / ยกเลิกเที่ยว): ล้าง trip_id + จุด (สัญญากับ T09) แล้ว
    * DRAFT คงเดิม · PLANNED → `unplan` → DRAFT · DISPATCHED → `recall` → DRAFT (ยกเลิกเที่ยวที่ปล่อยแล้วก่อนรับของ)
    * PICKED_UP ขึ้นไป (ของอยู่บนรถ/ส่งแล้ว) → 409 `trip_has_loaded_orders` (ปิดเที่ยวบางส่วน + เที่ยวใหม่ — ST4)
@@ -713,9 +727,13 @@ export class DeliveryOrderService {
   private async move(
     tx: Tx,
     d: DeliveryOrderRecord,
-    event: Extract<DoEvent, 'plan' | 'unplan' | 'dispatch' | 'recall'>,
+    event: Extract<
+      DoEvent,
+      'plan' | 'unplan' | 'dispatch' | 'recall' | 'pick_up' | 'deliver' | 'fail'
+    >,
     data: Prisma.DeliveryOrderUncheckedUpdateManyInput,
     note: string | null,
+    reasonCodeId: string | null = null,
   ): Promise<void> {
     await this.state.transition<DoStatus, DoEvent>(tx, {
       docType: ENTITY,
@@ -724,6 +742,7 @@ export class DeliveryOrderService {
       from: d.status as DoStatus,
       event,
       note,
+      reasonCodeId,
       eventType: EVENT_TYPE,
       apply: async (to) => {
         const r = await tx.deliveryOrder.updateMany({

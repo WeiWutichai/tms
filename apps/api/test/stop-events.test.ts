@@ -147,13 +147,14 @@ describe('stop events (ST4-T01)', () => {
       expect(r.receivedAt.getTime()).toBeGreaterThanOrEqual(before - 1000);
       expect(r.receivedAt.getTime()).toBeLessThanOrEqual(Date.now() + 1000);
       expect(r.tripId).toBe(t.id);
-      expect(r.appliedAt).toBeNull();
       // ST4-T02: DEPART = ออกเดินทางมุ่งหน้าไปจุดนี้ (docs/01 §3.9) → DEPART หลังถึงจุดแล้ว = ขัดลำดับ (เก็บไว้ + ธง)
       expect(r.sequenceConflict).toBe(r.type === 'DEPART');
+      // ST4-T03: event ที่นับ = มี applied_at · ที่ขัดลำดับ (ไม่นับ) = null
+      expect(r.appliedAt === null).toBe(r.type === 'DEPART');
     }
-    // T01 ยังไม่ไล่สถานะ (ST4-T03)
+    // ST4-T03 ไล่สถานะจุดแล้ว
     expect((await db.tripStop.findUniqueOrThrow({ where: { id: drop.id } })).status).toBe(
-      'PENDING',
+      'COMPLETED',
     );
   });
 
@@ -392,10 +393,15 @@ describe('stop events (ST4-T01)', () => {
       appDb.$transaction(async (tx) => {
         await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
         await tx.$executeRawUnsafe(
-          `UPDATE stop_event SET applied_at = now() WHERE id = '${row.id}'`,
+          `UPDATE stop_event SET attachments_pending = 1 WHERE id = '${row.id}'`,
         );
       }),
     ).rejects.toThrow(/permission denied/);
+    // ST4-T03: แอปแก้ applied_at ได้ (GRANT เฉพาะคอลัมน์) แต่ช่องอื่นยังไม่ได้
+    await appDb.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
+      await tx.$executeRawUnsafe(`UPDATE stop_event SET applied_at = now() WHERE id = '${row.id}'`);
+    });
     expect(res.body.id).toBe(encodeId('event', row.id));
   });
 
