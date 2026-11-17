@@ -44,6 +44,8 @@ export const ID_PREFIX = {
   scheduleEntry: 'sch',
   subconOffer: 'sco',
   apiKey: 'key',
+  /** docs/01 §3.7 webhook_endpoint (`whe_`) — spec/07 INT-052 เขียน `whk_` แต่ docs มาก่อน */
+  webhookEndpoint: 'whe',
 } as const;
 export type IdKind = keyof typeof ID_PREFIX;
 

@@ -45,7 +45,7 @@ export interface OutboxStats {
   oldestWaitingSec: number;
 }
 
-function retryDelayMin(attempt: number, schedule: readonly number[]): number {
+export function retryDelayMin(attempt: number, schedule: readonly number[]): number {
   const base = schedule[Math.min(attempt - 1, schedule.length - 1)]!;
   return base * (0.9 + Math.random() * 0.2);
 }
@@ -269,10 +269,14 @@ export class OutboxDispatcher {
         const max = sink?.retry?.maxAttempts ?? c.maxAttempt;
         const final = c.attempt >= max;
         status = final ? 'FAILED_FINAL' : 'FAILED_RETRYABLE';
+        const own =
+          err instanceof OutboxSinkError && cls === 'TRANSIENT' && err.retryInMs !== undefined
+            ? Math.max(0, err.retryInMs) / 60_000
+            : undefined;
         delayMin =
           cls === 'AMBIGUOUS'
             ? AMBIGUOUS_DELAY_MIN
-            : retryDelayMin(c.attempt, sink?.retry?.scheduleMin ?? RETRY_SCHEDULE_MIN);
+            : (own ?? retryDelayMin(c.attempt, sink?.retry?.scheduleMin ?? RETRY_SCHEDULE_MIN));
       }
     }
     await this.finish(c, {

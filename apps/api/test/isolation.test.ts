@@ -243,6 +243,21 @@ const FIXTURES: Record<string, (db: PrismaClient, tenantId: string, n: number) =
           })
         ).id,
       ),
+    webhookEndpoint: async (db, tenantId, n) =>
+      encodeId(
+        'webhookEndpoint',
+        (
+          await db.webhookEndpoint.create({
+            data: {
+              tenantId,
+              url: `https://iso-${n}.example.com/hook`,
+              events: ['order.created'],
+              extraHeaderNames: [],
+              secretEnc: 'v1.k1.x.x.x',
+            },
+          })
+        ).id,
+      ),
     reasonCode: async (db, tenantId, n) =>
       encodeId(
         'reasonCode',

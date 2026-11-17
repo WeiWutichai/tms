@@ -29,6 +29,8 @@ export interface NotificationVars {
   'subcon_offer.no_response': { tripNo: string; carrier: string; hours: number };
   /** ST3-T24 ลิงก์ข้อเสนองานหมดอายุ (48 ชม.) → เที่ยวกลับไปรอจัดรถ ใบสั่งค้าง "รถร่วมปฏิเสธ" */
   'subcon_offer.expired': { tripNo: string; carrier: string };
+  /** ST7-T04 webhook endpoint ถูกปิดอัตโนมัติ (event ล้มเหลวติดกัน 50 รายการ — docs/04 G1) · label = คำอธิบาย/รหัส endpoint (ไม่ใส่ URL — safeName) */
+  'webhook.auto_disabled': { label: string; failures: number };
 }
 export type ExpiryLevel = 'D60' | 'D30' | 'D7' | 'EXPIRED';
 export interface ExpiryDigestItem {
@@ -226,6 +228,16 @@ const TEMPLATES: {
     en: (v) => ({
       title: 'Carrier has not responded',
       body: `${v.tripNo} · ${v.carrier} has not responded within ${n(v.hours)} h — send to the next carrier from the trip.`,
+    }),
+  },
+  'webhook.auto_disabled': {
+    th: (v) => ({
+      title: 'Webhook ถูกปิดอัตโนมัติ',
+      body: `${v.label} ส่ง event ไม่สำเร็จติดกัน ${n(v.failures)} รายการ — ระบบหยุดส่งแล้ว ตรวจปลายทางแล้วเปิดใช้อีกครั้งที่ ตั้งค่า → นักพัฒนา / Open API → Webhooks`,
+    }),
+    en: (v) => ({
+      title: 'Webhook endpoint auto-disabled',
+      body: `${v.label} failed ${n(v.failures)} events in a row — delivery has stopped. Fix the receiver, then re-enable it in Settings → Developer / Open API → Webhooks.`,
     }),
   },
   'subcon_offer.expired': {
