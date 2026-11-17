@@ -16382,6 +16382,144 @@
         ]
       }
     },
+    "/v1/trips/{id}/hire-options": {
+      "get": {
+        "operationId": "Trips_hireOptions",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "vehicleTypeId",
+            "required": false,
+            "in": "query",
+            "description": "ประเภทรถที่จะจ้าง (ใช้หา rate card ขาซื้อ) — ไม่ส่ง = ตามเที่ยว/ใบสั่งขาย",
+            "schema": {
+              "example": "vty_3f2a…",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HireOptionsDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`prices.buy:read`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "trips",
+                      "action": "read",
+                      "required": [
+                        "prices.buy:read"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ไม่พบเที่ยว (รวมของบริษัทอื่น)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "deliveryOrderIds[0]",
+                          "code": "invalid_reference",
+                          "message": "not found"
+                        },
+                        {
+                          "field": "plannedEndAt",
+                          "code": "outside_trip_date",
+                          "message": "must be on tripDate"
+                        }
+                      ]
+                    }
+                  },
+                  "idempotency_mismatch": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_mismatch",
+                      "title": "Idempotency-Key นี้เคยใช้กับข้อมูลอื่น",
+                      "status": 422,
+                      "code": "idempotency_mismatch",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "trips"
+        ]
+      }
+    },
     "/v1/trips/{id}/offer": {
       "post": {
         "operationId": "Trips_offer",
@@ -33158,6 +33296,73 @@
           "name"
         ]
       },
+      "TripHireDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "sco_3f2a…"
+          },
+          "carrierId": {
+            "type": "string",
+            "example": "car_3f2a…"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "OFFERED",
+              "ACCEPTED"
+            ]
+          },
+          "buyAmount": {
+            "type": "string",
+            "example": "6800.00",
+            "description": "ราคาซื้อที่ตกลง (ก่อน VAT) — เห็นเมื่อมี `prices.buy:read`"
+          },
+          "buyPriceSource": {
+            "type": "string",
+            "enum": [
+              "RATE_CARD",
+              "MANUAL"
+            ],
+            "description": "RATE_CARD = ตามราคา rate card ขาซื้อของรายนี้ · MANUAL = กรอก/แก้ราคาเอง — เห็นเมื่อมี `prices.buy:read`"
+          },
+          "rateCardCode": {
+            "type": "string",
+            "nullable": true,
+            "example": "RC-B-0001"
+          },
+          "buySelectionKind": {
+            "type": "string",
+            "enum": [
+              "CHEAPEST",
+              "OVERRIDE"
+            ],
+            "description": "CHEAPEST = ราคาไม่เกินรายที่ถูกสุด · OVERRIDE = เลือกด้วยเหตุผลของผู้จ้าง — เห็นเมื่อมี `prices.buy:read`"
+          },
+          "selectionReason": {
+            "type": "string",
+            "description": "เหตุผลการเลือก (ไม่ว่างเสมอ — docs/04 D3)"
+          },
+          "offeredBy": {
+            "type": "string",
+            "nullable": true,
+            "description": "ผู้จ้าง (actor id)"
+          },
+          "offeredAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "carrierId",
+          "status",
+          "rateCardCode",
+          "selectionReason",
+          "offeredBy",
+          "offeredAt"
+        ]
+      },
       "TripStopDto": {
         "type": "object",
         "properties": {
@@ -33558,6 +33763,16 @@
             "nullable": true,
             "description": "ข้อเสนอหมดอายุ (48 ชม.)"
           },
+          "hire": {
+            "nullable": true,
+            "description": "ST3-T22 การจ้างรถร่วมที่ใช้งานอยู่ (รอตอบ/รับแล้ว) — ราคาซื้อเห็นเมื่อมี `prices.buy:read`",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TripHireDto"
+              }
+            ]
+          },
           "assignedAt": {
             "type": "string",
             "nullable": true
@@ -33642,6 +33857,7 @@
           "assignmentStatus",
           "offeredAt",
           "offerExpiresAt",
+          "hire",
           "assignedAt",
           "dispatchedAt",
           "completedAt",
@@ -34200,13 +34416,245 @@
           "vehicleId"
         ]
       },
+      "HireSiteDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "loc_3f2a…"
+          },
+          "code": {
+            "type": "string",
+            "example": "LOC-0001"
+          },
+          "name": {
+            "type": "string",
+            "example": "คลังบางนา"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "name"
+        ]
+      },
+      "HireCarrierDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "car_3f2a…"
+          },
+          "code": {
+            "type": "string",
+            "example": "SUB-0001"
+          },
+          "name": {
+            "type": "string",
+            "example": "สมบูรณ์ทรานสปอร์ต"
+          },
+          "whtRateDefault": {
+            "type": "string",
+            "example": "1.00",
+            "description": "อัตราหัก ณ ที่จ่ายตั้งต้นของรายนี้ (%) — ค่าจริงอยู่ที่บรรทัด settlement"
+          },
+          "paymentTermDays": {
+            "type": "number",
+            "example": 30
+          },
+          "requirePodToPay": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "name",
+          "whtRateDefault",
+          "paymentTermDays",
+          "requirePodToPay"
+        ]
+      },
+      "HireOptionDto": {
+        "type": "object",
+        "properties": {
+          "carrier": {
+            "$ref": "#/components/schemas/HireCarrierDto"
+          },
+          "pricingStatus": {
+            "type": "string",
+            "enum": [
+              "AVAILABLE",
+              "RATE_MISSING",
+              "CALCULATION_FAILURE"
+            ],
+            "description": "ผลคิดราคาขาซื้อจาก rate card ของรายนี้สำหรับเที่ยวนี้"
+          },
+          "buyRateAmount": {
+            "type": "string",
+            "nullable": true,
+            "example": "6800.00",
+            "description": "ราคาขาซื้อจาก rate card (ก่อน VAT) — null = คิดไม่ได้"
+          },
+          "rateCardCode": {
+            "type": "string",
+            "nullable": true,
+            "example": "RC-B-0001"
+          },
+          "pricingReasons": {
+            "description": "เหตุที่คิดราคาไม่ได้ (ไทย)",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "vatType": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "EXEMPT_TRANSPORT",
+              "VAT_7",
+              "ZERO_RATED"
+            ],
+            "description": "ธง VAT ของรายการบริการค่าขนส่งใน rate card (คัดลอกลงบรรทัดค่าจ้าง) — null = ไม่มี rate card"
+          },
+          "whtRate": {
+            "type": "string",
+            "nullable": true,
+            "example": "1.00",
+            "description": "อัตราหัก ณ ที่จ่าย (%) ของรายการบริการค่าขนส่งใน rate card — null = ไม่มี rate card (ใช้ค่าตั้งต้นของรายนี้)"
+          },
+          "blockedReason": {
+            "type": "string",
+            "nullable": true,
+            "example": "เอกสารบังคับของรถ (ประกัน/พ.ร.บ.) ไม่ครบหรือหมดอายุ ณ วันที่เที่ยว",
+            "description": "จ้างไม่ได้จริง ณ วันเที่ยว (กฎเอกสารบังคับ ST3-T14 / ไม่มีรถที่ลงทะเบียน) — ไม่นับในการเทียบถูกสุด, จ้างได้แต่ต้องมีเหตุผล"
+          },
+          "cheapest": {
+            "type": "boolean",
+            "description": "ราคาต่ำสุดของตัวเลือก (เท่ากันได้หลายราย)"
+          },
+          "buyRecentAmounts": {
+            "example": [
+              "6800.00",
+              "6500.00"
+            ],
+            "description": "ราคา 5 ครั้งล่าสุดที่จ้างรายนี้ในเส้นทาง/ประเภทรถเดียวกัน (ใหม่สุดก่อน — ST2-T14)",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "carrier",
+          "pricingStatus",
+          "rateCardCode",
+          "pricingReasons",
+          "vatType",
+          "whtRate",
+          "blockedReason",
+          "cheapest"
+        ]
+      },
+      "HireOptionsDto": {
+        "type": "object",
+        "properties": {
+          "tripId": {
+            "type": "string",
+            "example": "trp_3f2a…"
+          },
+          "tripNo": {
+            "type": "string",
+            "example": "TRP-6911-0001"
+          },
+          "origin": {
+            "nullable": true,
+            "description": "จุดแรกของเที่ยว",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/HireSiteDto"
+              }
+            ]
+          },
+          "destination": {
+            "nullable": true,
+            "description": "จุดสุดท้ายของเที่ยว",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/HireSiteDto"
+              }
+            ]
+          },
+          "vehicleTypeId": {
+            "type": "string",
+            "nullable": true,
+            "example": "vty_3f2a…"
+          },
+          "vehicleTypeName": {
+            "type": "string",
+            "nullable": true,
+            "example": "6 ล้อ"
+          },
+          "sellAmount": {
+            "type": "string",
+            "nullable": true,
+            "example": "9500.00",
+            "description": "รายได้ของเที่ยว (ผลรวมรายได้ DO ก่อน VAT) — เห็นเมื่อมี `prices.sell:read` · null = ยังไม่มีราคา"
+          },
+          "buyCheapestAmount": {
+            "type": "string",
+            "nullable": true,
+            "example": "6500.00",
+            "description": "ราคาต่ำสุดจาก rate card ขาซื้อของตัวเลือก — null = ไม่มีให้เทียบ (การจ้างต้องมีเหตุผล)"
+          },
+          "options": {
+            "description": "รถร่วมที่ใช้งานอยู่ทุกราย — ราคาถูกก่อน แล้วรายที่คิดราคาไม่ได้ตามชื่อ",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HireOptionDto"
+            }
+          }
+        },
+        "required": [
+          "tripId",
+          "tripNo",
+          "origin",
+          "destination",
+          "vehicleTypeId",
+          "vehicleTypeName",
+          "options"
+        ]
+      },
       "OfferTripDto": {
         "type": "object",
         "properties": {
           "carrierId": {
             "type": "string",
             "example": "car_3f2a…",
-            "description": "รถร่วมที่เสนองาน (ลิงก์รับงาน = ST3-T23)"
+            "description": "รถร่วมที่จ้าง (ลิงก์รับงาน = ST3-T23)"
+          },
+          "cost": {
+            "type": "string",
+            "nullable": true,
+            "example": "6800.00",
+            "description": "ราคาซื้อที่ตกลงต่อเที่ยว (บาท ก่อน VAT ก่อนหัก ณ ที่จ่าย, > 0, ทศนิยม ≤ 2) — ไม่ส่ง = ราคาตาม rate card ขาซื้อของรายนี้ (ไม่มี rate card → 422 `cost_required`)"
+          },
+          "selectionReason": {
+            "type": "string",
+            "nullable": true,
+            "minLength": 10,
+            "maxLength": 500,
+            "example": "รายที่ถูกกว่ารถไม่ว่างช่วงเช้า ลูกค้าต้องการรถเข้าก่อน 8 โมง",
+            "description": "เหตุผลที่เลือกรายนี้ — **บังคับ (≥ 10 ตัวอักษร)** เมื่อราคาที่จ้างสูงกว่ารายที่ถูกสุด หรือไม่มีราคาจาก rate card ให้เทียบ (422 `selection_reason_required`) · เลือกรายที่ถูกสุด = ระบบเขียนเหตุผลให้"
+          },
+          "vehicleTypeId": {
+            "type": "string",
+            "nullable": true,
+            "example": "vty_3f2a…",
+            "description": "ประเภทรถที่จ้าง (ใช้หา rate card ขาซื้อ) — ไม่ส่ง = ตามเที่ยว/ใบสั่งขาย"
           }
         },
         "required": [

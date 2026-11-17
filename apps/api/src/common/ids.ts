@@ -42,6 +42,7 @@ export const ID_PREFIX = {
   carrierDocSubmission: 'cds',
   messageDelivery: 'msg',
   scheduleEntry: 'sch',
+  subconOffer: 'sco',
 } as const;
 export type IdKind = keyof typeof ID_PREFIX;
 

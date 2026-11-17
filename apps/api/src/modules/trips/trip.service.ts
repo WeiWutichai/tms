@@ -45,6 +45,7 @@ import { cleanLine } from '../master/master-kit';
 import { bangkokToday } from '../vehicle-documents/expiry';
 import { OrderStateService } from '../orders/order-state.service';
 import { issueNumber } from '../sequences/sequences.service';
+import { reverseCarrierFees } from './carrier-fees';
 import { refreshTripLegs } from './trip-legs';
 import {
   driverOnLeaveMessageTh,
@@ -72,6 +73,12 @@ export const TRIP_INCLUDE = {
       tripStopId: true,
       weightKg: true,
     },
+  },
+  // ST3-T22 การจ้างรถร่วมที่ใช้งานอยู่ (รอตอบ/รับแล้ว — มีได้ครั้งละ 1: unique partial index)
+  subconOffers: {
+    where: { status: { in: ['OFFERED', 'ACCEPTED'] } },
+    orderBy: { offeredAt: 'desc' },
+    take: 1,
   },
 } as const satisfies Prisma.TripInclude;
 
@@ -139,6 +146,20 @@ export interface AssignInput {
   reliefDriverId?: string | null;
   trailerId?: string | null;
 }
+
+/**
+ * ส่วนจ้างรถร่วมของ `/offer` (ST3-T22) — เรียกหลังล็อกเที่ยว + ตรวจรถร่วมแล้ว ก่อนเปลี่ยนสถานะ:
+ * เขียน `subcon_offer` + `trip_cost` เอง แล้วคืนช่องของเที่ยวที่ต้องเขียนพร้อม transition + ข้อมูลลง audit
+ */
+export type OfferHireHook = (
+  tx: Tx,
+  trip: TripRecord,
+  carrier: { id: string; code: string; legalName: string },
+) => Promise<{
+  trip: Prisma.TripUncheckedUpdateManyInput;
+  audit: Record<string, unknown>;
+  reason?: string;
+}>;
 
 const ENTITY = 'trip';
 /** Send all ทั้งวันสูงสุดต่อคำขอ (≥ รถ 200 คัน × 1–2 เที่ยว — PLN-051) */
@@ -665,6 +686,12 @@ export class TripService {
       ...(event === 'accept' ? { assignmentStatus: 'ACCEPTED' } : {}),
       ...(event === 'assign' ? CLEAR_OFFER : {}),
     });
+    // ST3-T22: รถร่วมรับงาน (ผู้จัดรถบันทึกแทน — ลิงก์ = ST3-T23) → การจ้างที่รอตอบเป็น ACCEPTED
+    if (event === 'accept')
+      await tx.subconOffer.updateMany({
+        where: { tripId: trip.id, status: 'OFFERED' },
+        data: { status: 'ACCEPTED' },
+      });
     for (const d of await this.reload(tx, dos)) await this.dos.planForTrip(tx, d);
     await this.orderState.syncFromDeliveryOrders(
       tx,
@@ -867,12 +894,17 @@ export class TripService {
     };
   }
 
-  /** เสนองานรถร่วม (PLANNING → OFFERED): รถร่วม + ผู้เสนอ + เวลา (ลิงก์/token = ST3-T23) */
+  /**
+   * เสนองาน/จ้างรถร่วม (PLANNING → OFFERED): รถร่วม + ผู้เสนอ + เวลา (ลิงก์/token = ST3-T23)
+   * ST3-T22: `hire` = ส่วนจ้าง (ราคาซื้อ + `trip_cost` CARRIER_FEE + `subcon_offer` + เหตุผลการเลือก) ทำในล็อกเดียวกัน
+   * — เรียกผ่าน `SubconHireService.hire` เท่านั้น (`/offer` ไม่มีทางสร้างข้อเสนอที่ไม่มีราคาซื้อ)
+   */
   async offer(
     id: string,
     carrierId: string,
     tx: Tx = this.db.tx,
     expectedVersion?: number,
+    hire?: OfferHireHook,
   ): Promise<TripRecord> {
     const { trip } = await this.lock(tx, id, expectedVersion);
     this.assertCan(trip, 'offer');
@@ -885,6 +917,7 @@ export class TripService {
     if (carrier.status !== 'ACTIVE')
       throw field422('carrierId', 'carrier_inactive', 'carrier is suspended');
     const now = new Date();
+    const extra = hire ? await hire(tx, trip, carrier) : null;
     // PLANNING ไม่มีคนขับ (assign ไป ASSIGNED) แต่อาจมีรถที่วางไว้บนกระดาน (ST3-T12) — ล้างไว้ (รถร่วมใส่ทะเบียนเองตอนรับงาน)
     await this.transition(tx, trip, 'offer', {
       carrierId,
@@ -894,13 +927,15 @@ export class TripService {
       offeredBy: requestContext.require().actorId ?? null,
       assignmentExpiresAt: new Date(now.getTime() + OFFER_TTL_MS),
       ...CLEAR_VEHICLE,
+      ...(extra?.trip ?? {}),
     });
     const final = await this.refreshWarnings(tx, trip.id);
     await this.audit.record({
       action: `${ENTITY}.offered`,
       entityType: ENTITY,
       entityId: trip.id,
-      after: { carrier: carrier.code, carrierName: carrier.legalName },
+      after: { carrier: carrier.code, carrierName: carrier.legalName, ...(extra?.audit ?? {}) },
+      ...(extra?.reason ? { reason: extra.reason } : {}),
     });
     return final;
   }
@@ -1023,6 +1058,18 @@ export class TripService {
       tx,
       dos.map((d) => d.salesOrderId),
     );
+    // ST3-T22: การจ้างรถร่วมที่ยังใช้งาน → ถอน (ประวัติคงอยู่) · บรรทัดค่าจ้างไม่ลบ — เที่ยวที่ยกเลิกไม่เข้าคิวจ่าย (ST6)
+    await tx.subconOffer.updateMany({
+      where: { tripId: trip.id, status: { in: ['OFFERED', 'ACCEPTED'] } },
+      data: { status: 'WITHDRAWN', closedAt: new Date(), closedReason: `ยกเลิกเที่ยว: ${reason}` },
+    });
+    // ค่าจ้างรถร่วมที่ยังไม่จ่ายของเที่ยวที่ยกเลิก → กลับรายการ (review ST3-T22 M3 — ค่าชดเชยการยกเลิก = ST6/PLN-155)
+    const reversedFees = await reverseCarrierFees(
+      tx,
+      trip.id,
+      requestContext.require().actorId ?? null,
+      `กลับรายการค่าจ้างรถร่วม (ยกเลิกเที่ยว)`,
+    );
     // ลิงก์ใบคุมรถที่ส่งให้คนขับหมดผล (ST3-T20 review/QA)
     await this.sheetLinks.revokeForTrip(tx, trip.id, 'TRIP_CANCELLED');
     const final = await this.get(trip.id, tx);
@@ -1031,7 +1078,11 @@ export class TripService {
       entityType: ENTITY,
       entityId: trip.id,
       before,
-      after: { status: final.status, releasedOrders: dos.map((d) => d.doNo) },
+      after: {
+        status: final.status,
+        releasedOrders: dos.map((d) => d.doNo),
+        ...(reversedFees ? { reversedCarrierFees: reversedFees } : {}),
+      },
       reason,
     });
     return final;

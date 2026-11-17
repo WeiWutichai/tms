@@ -743,6 +743,48 @@ export class RateCardsService {
     }));
   }
 
+  /**
+   * ราคา 5 ครั้งล่าสุดของ**หลายราย**ในคำขอเดียว (ST3-T22 จ้างรถร่วม — กันยิงทีละราย) · กฎ "จ้างแล้ว" ชุดเดียวกับ
+   * `recentCarrierPrices` · เส้นทาง (จุดแรก/สุดท้าย) + ประเภทรถ **บังคับ** (ไม่กรอง = ไม่คืนราคาข้ามเส้นทาง)
+   * คืน uuid ผู้รับเหมา → ยอดใหม่สุดก่อน (≤ 5)
+   */
+  async recentPricesForCarriers(
+    carrierIds: string[],
+    f: { originSiteId: string; destSiteId: string; vehicleTypeId: string },
+    tx: Tx = this.db.tx,
+  ): Promise<Map<string, string[]>> {
+    const out = new Map<string, string[]>();
+    if (!carrierIds.length) return out;
+    const rows = await tx.$queryRaw<{ carrier_id: string; amount: Prisma.Decimal }[]>`
+      WITH hired AS (
+        SELECT t.id, t.carrier_id, t.trip_date FROM trip t
+         WHERE t.carrier_id = ANY(${carrierIds}::uuid[])
+           AND t.status IN ('ASSIGNED', 'DISPATCHED', 'IN_PROGRESS', 'COMPLETED', 'COSTED', 'SETTLED')
+           AND (t.assignment_status IS NULL OR t.assignment_status = 'ACCEPTED')
+           AND t.trip_date <= ${toDate(bangkokToday())}::date
+           AND t.vehicle_type_id = ${f.vehicleTypeId}::uuid
+           AND (SELECT s.site_id FROM trip_stop s WHERE s.trip_id = t.id ORDER BY s.sequence ASC LIMIT 1) = ${f.originSiteId}::uuid
+           AND (SELECT s.site_id FROM trip_stop s WHERE s.trip_id = t.id ORDER BY s.sequence DESC LIMIT 1) = ${f.destSiteId}::uuid
+      ), fee AS (
+        SELECT h.id, h.carrier_id, h.trip_date, sum(tc.amount) AS amount, max(tc.created_at) AS last_at
+          FROM trip_cost tc JOIN hired h ON h.id = tc.trip_id
+         WHERE tc.cost_type = 'CARRIER_FEE'
+           AND (tc.carrier_id IS NULL OR tc.carrier_id = h.carrier_id)
+         GROUP BY h.id, h.carrier_id, h.trip_date
+      ), ranked AS (
+        SELECT carrier_id, amount,
+               row_number() OVER (PARTITION BY carrier_id ORDER BY trip_date DESC, last_at DESC, id) AS n
+          FROM fee
+      )
+      SELECT carrier_id::text AS carrier_id, amount FROM ranked WHERE n <= 5 ORDER BY carrier_id, n`;
+    for (const r of rows) {
+      const l = out.get(r.carrier_id) ?? [];
+      l.push(new Prisma.Decimal(r.amount).toFixed(2));
+      out.set(r.carrier_id, l);
+    }
+    return out;
+  }
+
   // ---------- write helpers ----------
 
   private keyOf(r: Complete): string {

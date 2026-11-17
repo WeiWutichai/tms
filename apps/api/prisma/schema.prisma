@@ -598,6 +598,7 @@ model Carrier {
 
   rateCards      RateCard[]
   docSubmissions CarrierDocSubmission[]
+  subconOffers   SubconOffer[]
   trips          Trip[]
 
   @@unique([tenantId, code])
@@ -920,22 +921,22 @@ enum ScheduleEntryKind {
 /// ตารางรถ/คนขับรายวัน (ST3-T19; docs/04 D2 "คลิกขวาใส่วันลา/โน้ต", spec/06 FLT-302 "on_leave ตามช่วงวันที่")
 /// ช่วงวันที่ (วันไทย, รวมสองปลาย) ของคนขับ (LEAVE/NOTE) หรือรถ (NOTE) · ไม่ลบ — ยกเลิกพร้อมเหตุผล + audit
 model ScheduleEntry {
-  id            String            @id @default(uuid()) @db.Uuid
-  tenantId      String            @map("tenant_id") @db.Uuid
-  kind          ScheduleEntryKind
-  driverId      String?           @map("driver_id") @db.Uuid
-  driver        Driver?           @relation(fields: [driverId], references: [id], onDelete: Restrict)
-  vehicleId     String?           @map("vehicle_id") @db.Uuid
-  vehicle       Vehicle?          @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
-  startsOn      DateTime          @map("starts_on") @db.Date
-  endsOn        DateTime          @map("ends_on") @db.Date
+  id           String            @id @default(uuid()) @db.Uuid
+  tenantId     String            @map("tenant_id") @db.Uuid
+  kind         ScheduleEntryKind
+  driverId     String?           @map("driver_id") @db.Uuid
+  driver       Driver?           @relation(fields: [driverId], references: [id], onDelete: Restrict)
+  vehicleId    String?           @map("vehicle_id") @db.Uuid
+  vehicle      Vehicle?          @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
+  startsOn     DateTime          @map("starts_on") @db.Date
+  endsOn       DateTime          @map("ends_on") @db.Date
   /// เหตุผลการลา / ข้อความโน้ต
-  note          String
-  cancelledAt   DateTime?         @map("cancelled_at") @db.Timestamptz(6)
-  cancelReason  String?           @map("cancel_reason")
-  version       Int               @default(1)
-  createdAt     DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt     DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  note         String
+  cancelledAt  DateTime?         @map("cancelled_at") @db.Timestamptz(6)
+  cancelReason String?           @map("cancel_reason")
+  version      Int               @default(1)
+  createdAt    DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@index([tenantId, startsOn, endsOn])
   @@index([tenantId, driverId])
@@ -1656,6 +1657,7 @@ model Trip {
 
   deliveryOrders DeliveryOrder[]
   stops          TripStop[]
+  subconOffers   SubconOffer[]
 
   @@unique([tenantId, tripNo])
   @@index([tenantId, tripDate, status])
@@ -1839,20 +1841,85 @@ model DoSurcharge {
 }
 
 model TripCost {
-  id               String   @id @default(uuid()) @db.Uuid
-  tenantId         String   @map("tenant_id") @db.Uuid
-  tripId           String   @map("trip_id") @db.Uuid
-  costType         String   @map("cost_type") /// FUEL / TOLL / DRIVER_WAGE / CARRIER_FEE / ALLOWANCE / REPAIR / OTHER
-  amount           Decimal  @db.Decimal(14, 2)
-  vatAmount        Decimal  @default(0) @map("vat_amount") @db.Decimal(14, 2)
+  id               String       @id @default(uuid()) @db.Uuid
+  tenantId         String       @map("tenant_id") @db.Uuid
+  tripId           String       @map("trip_id") @db.Uuid
+  costType         String       @map("cost_type") /// FUEL / TOLL / DRIVER_WAGE / CARRIER_FEE / ALLOWANCE / REPAIR / OTHER
+  amount           Decimal      @db.Decimal(14, 2)
+  vatAmount        Decimal      @default(0) @map("vat_amount") @db.Decimal(14, 2)
   source           String /// RATE_CARD / MANUAL / GPS / ADVANCE
-  carrierId        String?  @map("carrier_id") @db.Uuid
-  settlementLineId String?  @unique @map("settlement_line_id") @db.Uuid
-  allocated        Json     @default("{}")
-  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  carrierId        String?      @map("carrier_id") @db.Uuid
+  settlementLineId String?      @unique @map("settlement_line_id") @db.Uuid
+  allocated        Json         @default("{}")
+  /// ST3-T22: ธงภาษีของบรรทัด (snapshot จากรายการบริการค่าขนส่งของ rate card ขาซื้อ — null = ไม่มี rate card ให้คัดลอก [OPEN])
+  serviceItemId    String?      @map("service_item_id") @db.Uuid
+  vatType          String?      @map("vat_type") /// EXEMPT_TRANSPORT / VAT_7 / ZERO_RATED (ServiceItemVatType)
+  whtRate          Decimal?     @map("wht_rate") @db.Decimal(5, 2) /// เปอร์เซ็นต์ เช่น 1.00
+  description      String?
+  /// ข้อเสนอ/การจ้างรถร่วมที่สร้างบรรทัดนี้ (CARRIER_FEE — ST3-T22)
+  subconOfferId    String?      @map("subcon_offer_id") @db.Uuid
+  subconOffer      SubconOffer? @relation(fields: [subconOfferId], references: [id], onDelete: Restrict)
+  /// บรรทัดกลับรายการ (ยอดติดลบ) ของบรรทัดเดิม — เปลี่ยนรถร่วม/จ้างใหม่ (ST3-T22/T25) · ไม่มีการลบ/แก้ยอด
+  reversalOfId     String?      @unique @map("reversal_of_id") @db.Uuid
+  reversalOf       TripCost?    @relation("TripCostReversal", fields: [reversalOfId], references: [id], onDelete: Restrict)
+  reversedBy       TripCost?    @relation("TripCostReversal")
+  /// ที่มาของบรรทัด (แนวคิด ST6-T01 `sourceType/sourceId`): SUBCON_OFFER = ราคาที่ตกลงตอนจ้างรถร่วม (source_id = subcon_offer.id)
+  /// — **ล็อก: งาน rebuild บรรทัดระบบของ ST6-T01 ห้ามแก้/สร้างใหม่ทับ** · null = บรรทัดก่อน ST3-T22
+  sourceType       String?      @map("source_type")
+  sourceId         String?      @map("source_id") @db.Uuid
+  createdBy        String?      @map("created_by")
+  createdAt        DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
 
   @@index([tenantId, tripId])
   @@map("trip_cost")
+}
+
+/// สถานะข้อเสนองาน/การจ้างรถร่วม (ST3-T22; spec/03 §8 SubconOffer — ชุดย่อยเฟส 0) · ACCEPTED = รถร่วมรับ (ผู้จัดรถบันทึกแทนผ่าน /assign หรือ ST3-T23)
+enum SubconOfferStatus {
+  OFFERED
+  ACCEPTED
+  REJECTED
+  EXPIRED
+  WITHDRAWN
+
+  @@map("subcon_offer_status")
+}
+
+/// การจ้างรถร่วมต่อเที่ยว (ST3-T22; docs/04 D3 "เลือก carrier + ราคาซื้อ" + "บันทึกเหตุผลการเลือก `selectionReason`") —
+/// เก็บทุกครั้งที่จ้าง (ประวัติคงอยู่ — ST3-T25) · ใช้งานได้ครั้งละ 1 ข้อเสนอต่อเที่ยว (OFFERED/ACCEPTED — unique partial)
+model SubconOffer {
+  id                  String            @id @default(uuid()) @db.Uuid
+  tenantId            String            @map("tenant_id") @db.Uuid
+  tripId              String            @map("trip_id") @db.Uuid
+  trip                Trip              @relation(fields: [tripId], references: [id], onDelete: Restrict)
+  carrierId           String            @map("carrier_id") @db.Uuid
+  carrier             Carrier           @relation(fields: [carrierId], references: [id], onDelete: Restrict)
+  carrierNameSnapshot String            @map("carrier_name_snapshot")
+  status              SubconOfferStatus @default(OFFERED)
+  /// ราคาซื้อที่ตกลง (ก่อน VAT ก่อนหัก ณ ที่จ่าย)
+  buyAmount           Decimal           @map("buy_amount") @db.Decimal(14, 2)
+  priceSource         String            @map("price_source") /// RATE_CARD (ตาม rate card) / MANUAL (กรอกเอง)
+  /// ผลคิดราคาขาซื้อของรายนี้ ณ ตอนจ้าง {status, total, rateCardId, rateCardCode, revision, vatType, whtRate, serviceItemId}
+  rateQuote           Json              @map("rate_quote")
+  /// ตัวเลือกที่เทียบ ณ ตอนจ้าง {cheapestAmount, candidates: [{carrierId, code, name, amount, rateCardCode}]}
+  comparison          Json
+  /// CHEAPEST = ราคาไม่เกินรายที่ถูกสุด · OVERRIDE = ไม่ใช่ถูกสุด/เทียบไม่ได้ ต้องมีเหตุผลจากผู้จ้าง
+  selectionKind       String            @map("selection_kind")
+  selectionReason     String            @map("selection_reason") /// ไม่ว่างเสมอ (CHECK)
+  vehicleTypeId       String?           @map("vehicle_type_id") @db.Uuid
+  sellAmount          Decimal?          @map("sell_amount") @db.Decimal(14, 2) /// รายได้ของเที่ยว ณ ตอนจ้าง (ไม่ส่งถึงรถร่วม)
+  offeredBy           String?           @map("offered_by")
+  offeredAt           DateTime          @default(now()) @map("offered_at") @db.Timestamptz(6)
+  closedAt            DateTime?         @map("closed_at") @db.Timestamptz(6)
+  closedReason        String?           @map("closed_reason")
+  createdAt           DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  costs TripCost[]
+
+  @@index([tenantId, tripId])
+  @@index([tenantId, carrierId, offeredAt])
+  @@map("subcon_offer")
 }
 
 // ---------- ST4 Execution (ร่าง) ----------

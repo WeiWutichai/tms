@@ -11,3 +11,4 @@ export * from './trip';
 export * from './matching';
 export * from './assignment-rules';
 export * from './schedule';
+export * from './subcon';

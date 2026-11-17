@@ -409,7 +409,12 @@ describe('assignment rules (ST3-T14)', () => {
     await addDoc(sub.id, 'INSURANCE', 200);
     await addDoc(sub.id, 'COMPULSORY_ACT', -3);
     const t = (await create(await newDo(), null).expect(201)).body;
-    await act(t.id, 'offer', { carrierId: car.id }, planner).expect(200);
+    await act(
+      t.id,
+      'offer',
+      { carrierId: car.id, cost: '5000.00', selectionReason: 'ทดสอบจ้างรถร่วมราคาตกลง' },
+      planner,
+    ).expect(200);
     const r = await act(t.id, 'assign', { vehicleId: sub.id }, planner).expect(409);
     expect(r.body.code).toBe('assignment_blocked');
     expect(

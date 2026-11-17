@@ -329,7 +329,11 @@ describe('trips (ST3-T11)', () => {
       code: 'required',
     });
     await act(t.id, 'assign', { vehicleId: v.id, driverId: drv.id }).expect(200);
-    await code409('offer', { carrierId: (await newCarrier()).id });
+    await code409('offer', {
+      carrierId: (await newCarrier()).id,
+      cost: '5000.00',
+      selectionReason: 'ทดสอบจ้างรถร่วมราคาตกลง',
+    });
     await code409('complete');
     // If-Match เก่า → 412
     expect((await act(t.id, 'dispatch').set('If-Match', '"1"')).status).toBe(412);
@@ -478,7 +482,12 @@ describe('trips (ST3-T11)', () => {
     const own = await newVehicle();
     const x = await newDo();
     const t = (await createTrip([x.id]).expect(201)).body;
-    const off = await act(t.id, 'offer', { carrierId: car.id }, planner).expect(200);
+    const off = await act(
+      t.id,
+      'offer',
+      { carrierId: car.id, cost: '5000.00', selectionReason: 'ทดสอบจ้างรถร่วมราคาตกลง' },
+      planner,
+    ).expect(200);
     expect(off.body).toMatchObject({
       status: 'OFFERED',
       assignmentStatus: 'OFFERED',
@@ -549,13 +558,23 @@ describe('trips (ST3-T11)', () => {
         )
       ).body.code,
     ).toBe('trip_empty');
-    expect((await act(t3.id, 'offer', { carrierId: car.id }).expect(409)).body.code).toBe(
-      'trip_empty',
-    );
+    expect(
+      (
+        await act(t3.id, 'offer', {
+          carrierId: car.id,
+          cost: '5000.00',
+          selectionReason: 'ทดสอบจ้างรถร่วมราคาตกลง',
+        }).expect(409)
+      ).body.code,
+    ).toBe('trip_empty');
     // เที่ยวอื่น: ยกเลิกระหว่างรอรถร่วมตอบ
     const y = await newDo();
     const t2 = (await createTrip([y.id]).expect(201)).body;
-    await act(t2.id, 'offer', { carrierId: car.id }).expect(200);
+    await act(t2.id, 'offer', {
+      carrierId: car.id,
+      cost: '5000.00',
+      selectionReason: 'ทดสอบจ้างรถร่วมราคาตกลง',
+    }).expect(200);
     const c = await act(t2.id, 'cancel', { reason: 'รถร่วมไม่ตอบรับทางโทรศัพท์' }, planner).expect(
       200,
     );

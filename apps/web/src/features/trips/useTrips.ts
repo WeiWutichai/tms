@@ -303,3 +303,41 @@ export function useRevokeTripSheetLinks() {
       ) as Promise<{ revoked: number }>,
   });
 }
+
+export type HireOptions = Schemas['HireOptionsDto'];
+
+/** ST3-T22 ตัวเลือกจ้างรถร่วมของเที่ยว (GET /v1/trips/{id}/hire-options) — ราคา rate card ขาซื้อ + 5 ครั้งล่าสุด + ถูกสุด */
+export function useHireOptions(id: string, enabled: boolean) {
+  return useQuery({
+    queryKey: [KEY, id, 'hire-options'],
+    enabled,
+    staleTime: 0,
+    queryFn: () =>
+      unwrap(
+        api.GET('/v1/trips/{id}/hire-options', { params: { path: { id } } }),
+      ) as Promise<HireOptions>,
+  });
+}
+
+/** ST3-T22 จ้างรถร่วม = เสนองาน (POST /v1/trips/{id}/offer) — ราคาซื้อ + เหตุผลการเลือก · If-Match = version ที่เห็น */
+export function useHireTrip() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (v: {
+      id: string;
+      version: number;
+      body: Schemas['OfferTripDto'];
+    }): Promise<TripDetail> => {
+      const key = crypto.randomUUID();
+      return idempotent(() =>
+        api.POST('/v1/trips/{id}/offer', {
+          params: { path: { id: v.id } },
+          body: v.body,
+          headers: { 'If-Match': `"${v.version}"`, 'Idempotency-Key': key },
+        }),
+      );
+    },
+    onSuccess: (t) => qc.setQueryData([KEY, t.id], t),
+    onSettled: () => invalidateAll(qc),
+  });
+}

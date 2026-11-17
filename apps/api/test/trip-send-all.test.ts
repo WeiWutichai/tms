@@ -297,7 +297,11 @@ describe('trips: send all (ST3-T18)', () => {
       await createTrip([(await newDo()).id], { vehicleId: v6.id, tripDate: D }).expect(201)
     ).body;
     const offered = (await createTrip([(await newDo()).id], { tripDate: D }).expect(201)).body;
-    await act(offered.id, 'offer', { carrierId: (await newCarrier()).id }).expect(200);
+    await act(offered.id, 'offer', {
+      carrierId: (await newCarrier()).id,
+      cost: '5000.00',
+      selectionReason: 'ทดสอบจ้างรถร่วมราคาตกลง',
+    }).expect(200);
 
     const r = await sendAll({ date: D }).expect(207);
     expect(r.body).toMatchObject({

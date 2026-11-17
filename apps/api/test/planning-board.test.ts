@@ -416,7 +416,7 @@ describe('planning board (ST3-T12)', () => {
       .expect(201);
     const a = await api(app, admin)
       .post(`/v1/trips/${assign.body.id}/offer`)
-      .send({ carrierId: carrier.id })
+      .send({ carrierId: carrier.id, cost: '5000.00', selectionReason: 'ทดสอบจ้างรถร่วมราคาตกลง' })
       .expect(200);
     const viaAssign = await api(app, admin)
       .post(`/v1/trips/${a.body.id}/assign`)

@@ -17,6 +17,7 @@ import {
 import { Type } from 'class-transformer';
 import { TRIP_STATUSES, type TripStatus } from '@tms/domain';
 import { ListQuery } from '../../common/pagination';
+import { PriceField } from '../../common/price-fields';
 import { CleanText, IsNullable } from '../master/master-kit';
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -351,10 +352,89 @@ export class ConfirmRulesDto {
   overrideReason!: string;
 }
 
+/**
+ * จ้างรถร่วม = เสนองาน (ST3-T22; docs/04 D3) — ทุกการจ้างมีราคาซื้อ (`trip_cost` CARRIER_FEE) และ `selectionReason`
+ * ต้องมี `trips:assign` + `prices.buy:read`
+ */
 export class OfferTripDto {
-  @ApiProperty({ example: 'car_3f2a…', description: 'รถร่วมที่เสนองาน (ลิงก์รับงาน = ST3-T23)' })
+  @ApiProperty({ example: 'car_3f2a…', description: 'รถร่วมที่จ้าง (ลิงก์รับงาน = ST3-T23)' })
   @Matches(/^car_[0-9a-f]{32}$/)
   carrierId!: string;
+
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    example: '6800.00',
+    description:
+      'ราคาซื้อที่ตกลงต่อเที่ยว (บาท ก่อน VAT ก่อนหัก ณ ที่จ่าย, > 0, ทศนิยม ≤ 2) — ไม่ส่ง = ราคาตาม rate card ขาซื้อของรายนี้ ' +
+      '(ไม่มี rate card → 422 `cost_required`)',
+  })
+  @IsOptional()
+  @IsNullable()
+  @Matches(/^\d{1,12}(\.\d{1,2})?$/)
+  cost?: string | null;
+
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    minLength: 10,
+    maxLength: 500,
+    example: 'รายที่ถูกกว่ารถไม่ว่างช่วงเช้า ลูกค้าต้องการรถเข้าก่อน 8 โมง',
+    description:
+      'เหตุผลที่เลือกรายนี้ — **บังคับ (≥ 10 ตัวอักษร)** เมื่อราคาที่จ้างสูงกว่ารายที่ถูกสุด หรือไม่มีราคาจาก rate card ให้เทียบ ' +
+      '(422 `selection_reason_required`) · เลือกรายที่ถูกสุด = ระบบเขียนเหตุผลให้',
+  })
+  @IsOptional()
+  @IsNullable()
+  @CleanText()
+  @IsString()
+  @MaxLength(500)
+  selectionReason?: string | null;
+
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    example: 'vty_3f2a…',
+    description: 'ประเภทรถที่จ้าง (ใช้หา rate card ขาซื้อ) — ไม่ส่ง = ตามเที่ยว/ใบสั่งขาย',
+  })
+  @IsOptional()
+  @IsNullable()
+  @Matches(/^vty_[0-9a-f]{32}$/)
+  vehicleTypeId?: string | null;
+}
+
+/** การจ้างรถร่วมที่ใช้งานอยู่ของเที่ยว (ST3-T22) */
+export class TripHireDto {
+  @ApiProperty({ example: 'sco_3f2a…' }) id!: string;
+  @ApiProperty({ example: 'car_3f2a…' }) carrierId!: string;
+  @ApiProperty({ enum: ['OFFERED', 'ACCEPTED'] }) status!: string;
+  @ApiPropertyOptional({
+    type: String,
+    example: '6800.00',
+    description: 'ราคาซื้อที่ตกลง (ก่อน VAT) — เห็นเมื่อมี `prices.buy:read`',
+  })
+  @PriceField('buy')
+  buyAmount?: string;
+  @ApiPropertyOptional({
+    enum: ['RATE_CARD', 'MANUAL'],
+    description:
+      'RATE_CARD = ตามราคา rate card ขาซื้อของรายนี้ · MANUAL = กรอก/แก้ราคาเอง — เห็นเมื่อมี `prices.buy:read`',
+  })
+  @PriceField('buy')
+  buyPriceSource?: string;
+  @ApiProperty({ nullable: true, type: String, example: 'RC-B-0001' }) rateCardCode!: string | null;
+  @ApiPropertyOptional({
+    enum: ['CHEAPEST', 'OVERRIDE'],
+    description:
+      'CHEAPEST = ราคาไม่เกินรายที่ถูกสุด · OVERRIDE = เลือกด้วยเหตุผลของผู้จ้าง — เห็นเมื่อมี `prices.buy:read`',
+  })
+  @PriceField('buy')
+  buySelectionKind?: string;
+  @ApiProperty({ description: 'เหตุผลการเลือก (ไม่ว่างเสมอ — docs/04 D3)' })
+  selectionReason!: string;
+  @ApiProperty({ nullable: true, type: String, description: 'ผู้จ้าง (actor id)' })
+  offeredBy!: string | null;
+  @ApiProperty() offeredAt!: string;
 }
 
 export class CancelTripDto {
@@ -536,6 +616,13 @@ export class TripDto {
   @ApiProperty({ nullable: true, type: String }) offeredAt!: string | null;
   @ApiProperty({ nullable: true, type: String, description: 'ข้อเสนอหมดอายุ (48 ชม.)' })
   offerExpiresAt!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: TripHireDto,
+    description:
+      'ST3-T22 การจ้างรถร่วมที่ใช้งานอยู่ (รอตอบ/รับแล้ว) — ราคาซื้อเห็นเมื่อมี `prices.buy:read`',
+  })
+  hire!: TripHireDto | null;
   @ApiProperty({ nullable: true, type: String }) assignedAt!: string | null;
   @ApiProperty({ nullable: true, type: String }) dispatchedAt!: string | null;
   @ApiProperty({ nullable: true, type: String }) completedAt!: string | null;
@@ -687,4 +774,123 @@ export class DaySendStateDto {
 export class SendAllTripsResultDto extends BulkTripResultsDto {
   @ApiProperty({ type: DaySendStateDto, description: 'สถานะการส่งของวันหลังทำ' })
   day!: DaySendStateDto;
+}
+
+// ---------- ST3-T22 จ้างรถร่วม: ตัวเลือก ----------
+
+export class HireOptionsQuery {
+  @ApiPropertyOptional({
+    description: 'ประเภทรถที่จะจ้าง (ใช้หา rate card ขาซื้อ) — ไม่ส่ง = ตามเที่ยว/ใบสั่งขาย',
+    example: 'vty_3f2a…',
+  })
+  @IsOptional()
+  @Matches(/^vty_[0-9a-f]{32}$/)
+  vehicleTypeId?: string;
+}
+
+export class HireSiteDto {
+  @ApiProperty({ example: 'loc_3f2a…' }) id!: string;
+  @ApiProperty({ example: 'LOC-0001' }) code!: string;
+  @ApiProperty({ example: 'คลังบางนา' }) name!: string;
+}
+
+export class HireCarrierDto {
+  @ApiProperty({ example: 'car_3f2a…' }) id!: string;
+  @ApiProperty({ example: 'SUB-0001' }) code!: string;
+  @ApiProperty({ example: 'สมบูรณ์ทรานสปอร์ต' }) name!: string;
+  @ApiProperty({
+    example: '1.00',
+    description: 'อัตราหัก ณ ที่จ่ายตั้งต้นของรายนี้ (%) — ค่าจริงอยู่ที่บรรทัด settlement',
+  })
+  whtRateDefault!: string;
+  @ApiProperty({ example: 30 }) paymentTermDays!: number;
+  @ApiProperty() requirePodToPay!: boolean;
+}
+
+export class HireOptionDto {
+  @ApiProperty({ type: HireCarrierDto }) carrier!: HireCarrierDto;
+  @ApiProperty({
+    enum: ['AVAILABLE', 'RATE_MISSING', 'CALCULATION_FAILURE'],
+    description: 'ผลคิดราคาขาซื้อจาก rate card ของรายนี้สำหรับเที่ยวนี้',
+  })
+  pricingStatus!: string;
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    example: '6800.00',
+    description: 'ราคาขาซื้อจาก rate card (ก่อน VAT) — null = คิดไม่ได้',
+  })
+  @PriceField('buy')
+  buyRateAmount?: string | null;
+  @ApiProperty({ nullable: true, type: String, example: 'RC-B-0001' }) rateCardCode!: string | null;
+  @ApiProperty({ type: [String], description: 'เหตุที่คิดราคาไม่ได้ (ไทย)' })
+  pricingReasons!: string[];
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    enum: ['EXEMPT_TRANSPORT', 'VAT_7', 'ZERO_RATED'],
+    description:
+      'ธง VAT ของรายการบริการค่าขนส่งใน rate card (คัดลอกลงบรรทัดค่าจ้าง) — null = ไม่มี rate card',
+  })
+  vatType!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: '1.00',
+    description:
+      'อัตราหัก ณ ที่จ่าย (%) ของรายการบริการค่าขนส่งใน rate card — null = ไม่มี rate card (ใช้ค่าตั้งต้นของรายนี้)',
+  })
+  whtRate!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: 'เอกสารบังคับของรถ (ประกัน/พ.ร.บ.) ไม่ครบหรือหมดอายุ ณ วันที่เที่ยว',
+    description:
+      'จ้างไม่ได้จริง ณ วันเที่ยว (กฎเอกสารบังคับ ST3-T14 / ไม่มีรถที่ลงทะเบียน) — ไม่นับในการเทียบถูกสุด, จ้างได้แต่ต้องมีเหตุผล',
+  })
+  blockedReason!: string | null;
+  @ApiProperty({ description: 'ราคาต่ำสุดของตัวเลือก (เท่ากันได้หลายราย)' }) cheapest!: boolean;
+  @ApiPropertyOptional({
+    type: [String],
+    example: ['6800.00', '6500.00'],
+    description:
+      'ราคา 5 ครั้งล่าสุดที่จ้างรายนี้ในเส้นทาง/ประเภทรถเดียวกัน (ใหม่สุดก่อน — ST2-T14)',
+  })
+  @PriceField('buy')
+  buyRecentAmounts?: string[];
+}
+
+export class HireOptionsDto {
+  @ApiProperty({ example: 'trp_3f2a…' }) tripId!: string;
+  @ApiProperty({ example: 'TRP-6911-0001' }) tripNo!: string;
+  @ApiProperty({ type: HireSiteDto, nullable: true, description: 'จุดแรกของเที่ยว' })
+  origin!: HireSiteDto | null;
+  @ApiProperty({ type: HireSiteDto, nullable: true, description: 'จุดสุดท้ายของเที่ยว' })
+  destination!: HireSiteDto | null;
+  @ApiProperty({ nullable: true, type: String, example: 'vty_3f2a…' }) vehicleTypeId!:
+    string | null;
+  @ApiProperty({ nullable: true, type: String, example: '6 ล้อ' }) vehicleTypeName!: string | null;
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    example: '9500.00',
+    description:
+      'รายได้ของเที่ยว (ผลรวมรายได้ DO ก่อน VAT) — เห็นเมื่อมี `prices.sell:read` · null = ยังไม่มีราคา',
+  })
+  @PriceField('sell')
+  sellAmount?: string | null;
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    example: '6500.00',
+    description:
+      'ราคาต่ำสุดจาก rate card ขาซื้อของตัวเลือก — null = ไม่มีให้เทียบ (การจ้างต้องมีเหตุผล)',
+  })
+  @PriceField('buy')
+  buyCheapestAmount?: string | null;
+  @ApiProperty({
+    type: [HireOptionDto],
+    description: 'รถร่วมที่ใช้งานอยู่ทุกราย — ราคาถูกก่อน แล้วรายที่คิดราคาไม่ได้ตามชื่อ',
+  })
+  options!: HireOptionDto[];
 }
