@@ -821,6 +821,7 @@ model Vehicle {
   scheduleEntries    ScheduleEntry[]
   trips              Trip[]                   @relation("TripVehicle")
   trailerTrips       Trip[]                   @relation("TripTrailer")
+  acceptedOffers     SubconOffer[]            @relation("SubconOfferVehicle")
 
   @@unique([tenantId, externalId])
   @@index([tenantId, updatedAt, id])
@@ -899,6 +900,7 @@ model Driver {
   docSubmissions    CarrierDocSubmission[]
   trips             Trip[]                 @relation("TripDriver")
   reliefTrips       Trip[]                 @relation("TripReliefDriver")
+  acceptedOffers    SubconOffer[]          @relation("SubconOfferDriver")
   scheduleEntries   ScheduleEntry[]
 
   @@unique([tenantId, externalId])
@@ -1912,6 +1914,22 @@ model SubconOffer {
   offeredAt           DateTime          @default(now()) @map("offered_at") @db.Timestamptz(6)
   closedAt            DateTime?         @map("closed_at") @db.Timestamptz(6)
   closedReason        String?           @map("closed_reason")
+  /// ST3-T23 ลิงก์ข้อเสนองาน: หมดเวลาตอบ (48 ชม. — docs/04 D3) · เปิดดูครั้งแรก · ตอบเมื่อ/ทางไหน (LINK / USER)
+  expiresAt           DateTime?         @map("expires_at") @db.Timestamptz(6)
+  viewedAt            DateTime?         @map("viewed_at") @db.Timestamptz(6)
+  respondedAt         DateTime?         @map("responded_at") @db.Timestamptz(6)
+  respondedVia        String?           @map("responded_via")
+  /// ปฏิเสธ: รหัสเหตุผล (SUBCON_REJECT_REASONS) + หมายเหตุ
+  rejectReasonCode    String?           @map("reject_reason_code")
+  rejectNote          String?           @map("reject_note")
+  /// รับงาน: ทะเบียน/คนขับตามที่รถร่วมกรอก (snapshot) + รถ/คนขับที่จับคู่ได้
+  acceptedPlate       String?           @map("accepted_plate")
+  acceptedVehicleId   String?           @map("accepted_vehicle_id") @db.Uuid
+  acceptedVehicle     Vehicle?          @relation("SubconOfferVehicle", fields: [acceptedVehicleId], references: [id], onDelete: Restrict)
+  acceptedDriverName  String?           @map("accepted_driver_name")
+  acceptedDriverPhone String?           @map("accepted_driver_phone")
+  acceptedDriverId    String?           @map("accepted_driver_id") @db.Uuid
+  acceptedDriver      Driver?           @relation("SubconOfferDriver", fields: [acceptedDriverId], references: [id], onDelete: Restrict)
   createdAt           DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -2185,6 +2203,7 @@ model MagicLink {
   createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
   @@index([tenantId, entityType, entityId])
+  @@index([tenantId, purpose, entityId])
   @@map("magic_link")
 }
 

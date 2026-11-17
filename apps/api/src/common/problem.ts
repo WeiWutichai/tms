@@ -220,6 +220,12 @@ export const PROBLEMS = {
     th: 'รถคันนี้เป็นรถร่วม — ต้องเสนองานให้รถร่วมก่อน แล้วจึงบันทึกการรับงาน',
     en: 'Subcontract vehicle — offer the trip to the carrier first',
   },
+  /** ST3-T23 ลิงก์ข้อเสนองาน: ข้อเสนอนี้ตอบไปแล้ว/ถูกถอน/เที่ยวเปลี่ยนไปแล้ว (คนอื่นกดก่อน — การกระทำแรกชนะ) */
+  offer_closed: {
+    status: 409,
+    th: 'ข้อเสนองานนี้ปิดแล้ว (ตอบไปแล้วหรือถูกยกเลิก)',
+    en: 'This job offer is closed (already answered or withdrawn)',
+  },
   carrier_change_requires_cancel: {
     status: 409,
     th: 'เปลี่ยนรถร่วมหรือสลับรถร่วม/รถบริษัทไม่ได้ — ยกเลิกการจ้างเดิมก่อน',

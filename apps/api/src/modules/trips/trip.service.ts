@@ -46,6 +46,7 @@ import { bangkokToday } from '../vehicle-documents/expiry';
 import { OrderStateService } from '../orders/order-state.service';
 import { issueNumber } from '../sequences/sequences.service';
 import { reverseCarrierFees } from './carrier-fees';
+import { OfferLinks, OFFER_TTL_MS } from './offer-links';
 import { refreshTripLegs } from './trip-legs';
 import {
   driverOnLeaveMessageTh,
@@ -155,6 +156,8 @@ export type OfferHireHook = (
   tx: Tx,
   trip: TripRecord,
   carrier: { id: string; code: string; legalName: string },
+  /** เวลาเสนอ (ใช้ตั้งเวลาหมดอายุของข้อเสนอ/ลิงก์ให้ตรงกับเที่ยว — ST3-T23) */
+  at: Date,
 ) => Promise<{
   trip: Prisma.TripUncheckedUpdateManyInput;
   audit: Record<string, unknown>;
@@ -167,13 +170,13 @@ export const SEND_ALL_MAX = 400;
 const EVENT_TYPE: Partial<Record<TripEvent, string>> = {
   offer: 'trip.offered',
   accept: 'trip.assigned',
+  reject: 'trip.offer_rejected',
   assign: 'trip.assigned',
   reassign: 'trip.assigned',
   dispatch: 'trip.dispatched',
   complete: 'trip.completed',
   cancel: 'trip.cancelled',
 };
-const OFFER_TTL_MS = 48 * 3600_000; // docs/01 §3.3 ลิงก์รับงาน 48 ชม. (ลิงก์/หมดอายุ = ST3-T23/T24)
 
 const field422 = (field: string, code: string, message: string) =>
   new ProblemException('validation_failed', undefined, [{ field, code, message }]);
@@ -206,6 +209,7 @@ export class TripService {
     private readonly compatibility: CompatibilityService,
     private readonly assignability: AssignabilityService,
     private readonly sheetLinks: TripSheetLinks,
+    private readonly offerLinks: OfferLinks,
   ) {}
 
   // ---------------------------------------------------------------------------------------------
@@ -634,10 +638,19 @@ export class TripService {
     input: AssignInput,
     tx: Tx = this.db.tx,
     expectedVersion?: number,
-    opts: { dispatch?: boolean } = {},
+    /**
+     * `viaOffer` (ST3-T23 ลิงก์ข้อเสนองาน): รับงานของการจ้างนี้เท่านั้น — เที่ยวไม่รอตอบแล้ว/การจ้างที่รอตอบไม่ใช่รายนี้
+     * (ตอบไปแล้ว ถูกถอน จ้างใหม่) → 409 `offer_closed` (ตรวจหลังล็อก — สองเครื่องกดพร้อมกัน การกระทำแรกชนะ)
+     */
+    opts: { dispatch?: boolean; viaOffer?: string } = {},
   ): Promise<TripRecord> {
     const reason = this.ruleReason(input.rules);
     const { trip, dos } = await this.lock(tx, id, expectedVersion);
+    if (opts.viaOffer) {
+      const o = trip.subconOffers[0];
+      if (trip.status !== 'OFFERED' || o?.id !== opts.viaOffer || o.status !== 'OFFERED')
+        throw new ProblemException('offer_closed');
+    }
     const assigned = await this.assignLocked(
       tx,
       trip,
@@ -645,6 +658,7 @@ export class TripService {
       input,
       reason,
       opts.dispatch ? 'dispatch' : 'entry',
+      opts.viaOffer ? 'LINK' : 'USER',
     );
     const done = opts.dispatch
       ? await this.dispatchLocked(tx, assigned, dos, undefined, null)
@@ -660,6 +674,8 @@ export class TripService {
     input: AssignInput,
     reason: string | null,
     gate: 'entry' | 'dispatch',
+    /** ช่องทางที่รถร่วมรับงาน (ST3-T23): LINK = ผ่านลิงก์ · USER = ผู้จัดรถบันทึกแทน */
+    via: 'LINK' | 'USER' = 'USER',
   ): Promise<TripRecord> {
     const event: TripEvent =
       trip.status === 'OFFERED' ? 'accept' : trip.status === 'ASSIGNED' ? 'reassign' : 'assign';
@@ -686,12 +702,35 @@ export class TripService {
       ...(event === 'accept' ? { assignmentStatus: 'ACCEPTED' } : {}),
       ...(event === 'assign' ? CLEAR_OFFER : {}),
     });
-    // ST3-T22: รถร่วมรับงาน (ผู้จัดรถบันทึกแทน — ลิงก์ = ST3-T23) → การจ้างที่รอตอบเป็น ACCEPTED
-    if (event === 'accept')
+    // ST3-T22/T23: รถร่วมรับงาน (ผ่านลิงก์ หรือผู้จัดรถบันทึกแทน) → การจ้างที่รอตอบเป็น ACCEPTED + ทะเบียน/คนขับที่รับ
+    if (event === 'accept') {
+      const cur = await this.get(trip.id, tx);
+      const offer = trip.subconOffers[0];
       await tx.subconOffer.updateMany({
         where: { tripId: trip.id, status: 'OFFERED' },
-        data: { status: 'ACCEPTED' },
+        data: {
+          status: 'ACCEPTED',
+          respondedAt: new Date(),
+          respondedVia: via,
+          acceptedPlate: cur.vehiclePlateSnapshot,
+          acceptedVehicleId: cur.vehicleId,
+          acceptedDriverName: cur.driverNameSnapshot,
+          acceptedDriverPhone: cur.driverPhoneSnapshot,
+          acceptedDriverId: cur.driverId,
+        },
       });
+      if (offer)
+        await this.emitOffer(tx, 'subcon_offer.accepted', {
+          id: offer.id,
+          tripId: trip.id,
+          carrierId: offer.carrierId,
+          status: 'ACCEPTED',
+          respondedVia: via,
+          vehicleId: cur.vehicleId,
+          vehiclePlate: cur.vehiclePlateSnapshot,
+          driverId: cur.driverId,
+        });
+    }
     for (const d of await this.reload(tx, dos)) await this.dos.planForTrip(tx, d);
     await this.orderState.syncFromDeliveryOrders(
       tx,
@@ -906,7 +945,7 @@ export class TripService {
     expectedVersion?: number,
     hire?: OfferHireHook,
   ): Promise<TripRecord> {
-    const { trip } = await this.lock(tx, id, expectedVersion);
+    const { trip, dos } = await this.lock(tx, id, expectedVersion);
     this.assertCan(trip, 'offer');
     const on = await tx.deliveryOrder.count({
       where: { tripId: trip.id, status: { not: 'CANCELLED' } },
@@ -917,7 +956,7 @@ export class TripService {
     if (carrier.status !== 'ACTIVE')
       throw field422('carrierId', 'carrier_inactive', 'carrier is suspended');
     const now = new Date();
-    const extra = hire ? await hire(tx, trip, carrier) : null;
+    const extra = hire ? await hire(tx, trip, carrier, now) : null;
     // PLANNING ไม่มีคนขับ (assign ไป ASSIGNED) แต่อาจมีรถที่วางไว้บนกระดาน (ST3-T12) — ล้างไว้ (รถร่วมใส่ทะเบียนเองตอนรับงาน)
     await this.transition(tx, trip, 'offer', {
       carrierId,
@@ -929,6 +968,11 @@ export class TripService {
       ...CLEAR_VEHICLE,
       ...(extra?.trip ?? {}),
     });
+    // เสนองานใหม่หลังรถร่วมปฏิเสธ (ST3-T23) → SO ที่ค้าง CARRIER_REJECTED กลับเป็นวางแผนแล้ว (cascade รายถัดไป — docs/01 §4.1)
+    await this.orderState.syncFromDeliveryOrders(
+      tx,
+      dos.map((d) => d.salesOrderId),
+    );
     const final = await this.refreshWarnings(tx, trip.id);
     await this.audit.record({
       action: `${ENTITY}.offered`,
@@ -936,6 +980,86 @@ export class TripService {
       entityId: trip.id,
       after: { carrier: carrier.code, carrierName: carrier.legalName, ...(extra?.audit ?? {}) },
       ...(extra?.reason ? { reason: extra.reason } : {}),
+    });
+    return final;
+  }
+
+  /**
+   * รถร่วมปฏิเสธข้อเสนองาน (ST3-T23; docs/01 §4.2 "OFFERED → PLANNING : ปฏิเสธ → SO กลับ ON_HOLD(CARRIER_REJECTED)",
+   * docs/04 D3 "ปฏิเสธ + เหตุผล", spec/03 PLN-151):
+   * - ล็อก SO → DO → trip แล้วตรวจว่าการจ้างที่รอตอบยังเป็น `offerId` (ไม่ใช่ → 409 `offer_closed` — การกระทำแรกชนะ)
+   * - เที่ยว → PLANNING (ล้างรถร่วม/หมดเวลา, `assignment_status` = REJECTED เป็นร่องรอย) · DO คงอยู่ในเที่ยว (จ้างรายถัดไปได้ทันที)
+   * - การจ้าง → REJECTED + เหตุผล · ค่าจ้างที่ยังไม่จ่ายกลับรายการ (`reverseCarrierFees`) · SO → ON_HOLD `CARRIER_REJECTED`
+   * - audit `trip.offer_rejected` + event `trip.offer_rejected` / `subcon_offer.rejected`
+   */
+  async rejectOffer(
+    id: string,
+    offerId: string,
+    input: { reasonCode: string; reasonLabel: string; note?: string | null; via: 'LINK' | 'USER' },
+    tx: Tx = this.db.tx,
+  ): Promise<TripRecord> {
+    const { trip, dos } = await this.lock(tx, id);
+    const o = trip.subconOffers[0];
+    if (trip.status !== 'OFFERED' || o?.id !== offerId || o.status !== 'OFFERED')
+      throw new ProblemException('offer_closed');
+    this.assertCan(trip, 'reject');
+    const note = input.note ? cleanLine(input.note).trim() : '';
+    const why = `รถร่วมปฏิเสธ: ${input.reasonLabel}${note ? ` — ${note}` : ''}`;
+    const now = new Date();
+    await this.transition(
+      tx,
+      trip,
+      'reject',
+      { ...CLEAR_OFFER, assignmentStatus: 'REJECTED', buyRateSnapshot: Prisma.DbNull },
+      { note: why },
+    );
+    await tx.subconOffer.update({
+      where: { id: offerId },
+      data: {
+        status: 'REJECTED',
+        closedAt: now,
+        closedReason: why,
+        respondedAt: now,
+        respondedVia: input.via,
+        rejectReasonCode: input.reasonCode,
+        rejectNote: note || null,
+      },
+    });
+    const actor = requestContext.require().actorId ?? null;
+    const reversed = await reverseCarrierFees(
+      tx,
+      trip.id,
+      actor,
+      'กลับรายการค่าจ้างรถร่วม (รถร่วมปฏิเสธงาน)',
+    );
+    const held = await this.orderState.holdCarrierRejected(
+      tx,
+      dos.map((d) => d.salesOrderId),
+      why,
+    );
+    const final = await this.refreshWarnings(tx, trip.id);
+    await this.audit.record({
+      action: `${ENTITY}.offer_rejected`,
+      entityType: ENTITY,
+      entityId: trip.id,
+      before: { status: trip.status, carrier: trip.carrierNameSnapshot },
+      after: {
+        status: final.status,
+        offerId: encodeId('subconOffer', offerId),
+        rejectReason: input.reasonCode,
+        via: input.via,
+        heldOrders: held.length,
+        ...(reversed ? { reversedCarrierFees: reversed } : {}),
+      },
+      reason: why,
+    });
+    await this.emitOffer(tx, 'subcon_offer.rejected', {
+      id: offerId,
+      tripId: trip.id,
+      carrierId: o.carrierId,
+      status: 'REJECTED',
+      respondedVia: input.via,
+      rejectReason: input.reasonCode,
     });
     return final;
   }
@@ -1070,8 +1194,9 @@ export class TripService {
       requestContext.require().actorId ?? null,
       `กลับรายการค่าจ้างรถร่วม (ยกเลิกเที่ยว)`,
     );
-    // ลิงก์ใบคุมรถที่ส่งให้คนขับหมดผล (ST3-T20 review/QA)
+    // ลิงก์ใบคุมรถที่ส่งให้คนขับหมดผล (ST3-T20 review/QA) · ลิงก์ข้อเสนองานของรถร่วม (ST3-T23)
     await this.sheetLinks.revokeForTrip(tx, trip.id, 'TRIP_CANCELLED');
+    await this.offerLinks.revokeForTrip(tx, trip.id, 'TRIP_CANCELLED');
     const final = await this.get(trip.id, tx);
     await this.audit.record({
       action: `${ENTITY}.cancelled`,
@@ -2060,6 +2185,26 @@ export class TripService {
         fromStatus,
         toStatus,
         event,
+        actorId: ctx.actorId ?? null,
+      },
+    });
+  }
+
+  /** event ของการจ้างรถร่วม (ST3-T23 — spec/03 §8 ข้อ 7 `subcon_offer.*`; ไม่มีราคา) */
+  private async emitOffer(
+    tx: Tx,
+    type: string,
+    snapshot: Record<string, unknown> & { id: string },
+  ) {
+    const ctx = requestContext.require();
+    await tx.domainEvent.create({
+      data: {
+        tenantId: ctx.tenantId!,
+        type,
+        entityType: 'subcon_offer',
+        localId: snapshot.id,
+        snapshot: JSON.parse(JSON.stringify(snapshot)) as Prisma.InputJsonValue,
+        requestId: ctx.requestId ?? null,
         actorId: ctx.actorId ?? null,
       },
     });

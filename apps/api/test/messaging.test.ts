@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -421,7 +422,7 @@ describe('ส่งลิงก์ทาง LINE / SMS (messaging)', () => {
     const linkB = await issue(carrierB);
     expect(await code({ channel: 'line', url: linkB.url })).toBe('recipient_missing');
     expect(await code({ channel: 'sms', url: linkB.url })).toBe('recipient_missing');
-    // ข้อเสนองาน (trip_offer) ยังส่งไม่ได้จนกว่า ST3-T23 ตรวจว่าเที่ยวเสนอให้ผู้รับเหมารายนั้น
+    // ข้อเสนองาน (trip_offer — ST3-T23): ลิงก์ต้องชี้การจ้าง (subcon_offer) ที่ยังรอตอบ · ชี้ชนิดอื่น = ลิงก์ไม่ถูกต้อง
     const offer = await db.magicLink.create({
       data: {
         tenantId,
@@ -435,7 +436,20 @@ describe('ส่งลิงก์ทาง LINE / SMS (messaging)', () => {
     });
     const { encodeLinkToken } = await import('../src/modules/links/magic-link.service');
     const offerUrl = `${new URL(link.url).origin}/link/offer/${encodeLinkToken(offer.id, Math.floor(offer.expiresAt.getTime() / 1000))}`;
-    expect(await code({ channel: 'line', url: offerUrl })).toBe('link_kind_not_supported');
+    expect(await code({ channel: 'line', url: offerUrl })).toBe('link_invalid');
+    const ghost = await db.magicLink.create({
+      data: {
+        tenantId,
+        purpose: 'trip_offer',
+        entityType: 'subcon_offer',
+        entityId: randomUUID(),
+        actions: ['offer.respond'],
+        scopes: [],
+        expiresAt: new Date(Math.floor(Date.now() / 1000 + 86400) * 1000),
+      },
+    });
+    const ghostUrl = `${new URL(link.url).origin}/link/offer/${encodeLinkToken(ghost.id, Math.floor(ghost.expiresAt.getTime() / 1000))}`;
+    expect(await code({ channel: 'line', url: ghostUrl })).toBe('offer_closed');
     // ลิงก์ที่เพิกถอนแล้ว
     await api(app, admin)
       .post(`/v1/carrier-upload-links/${link.id}/revoke`)

@@ -85,3 +85,35 @@ export function formatBaht(amount: string): string {
   const [w, f = '00'] = amount.replace('-', '').split('.') as [string, string?];
   return `${neg ? '-' : ''}${w.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}.${(f + '00').slice(0, 2)}`;
 }
+
+/**
+ * ลิงก์ข้อเสนองาน (ST3-T23; docs/04 D3 "ปฏิเสธ + เหตุผล", spec/03 PLN-151, spec/04 §5 S3)
+ * [DECISION spec/12 §3 — ย้อนได้] เหตุผลปฏิเสธ = ชุดคงที่ 4 ข้อตามต้นแบบ TMS Subcon (ยังไม่มีหมวด reason code `subcon_reject`
+ * ที่ตั้งค่าได้ต่อบริษัท) · หมายเหตุไม่บังคับ (API รับได้ ≤ 500 ตัว — ต้นแบบไม่มีช่อง)
+ */
+export const SUBCON_REJECT_REASONS = [
+  { code: 'VEHICLE_UNAVAILABLE', labelTh: 'รถไม่ว่างวันที่รับงาน' },
+  { code: 'PRICE_TOO_LOW', labelTh: 'ราคาไม่คุ้มต้นทุน' },
+  { code: 'NO_VEHICLE_TYPE', labelTh: 'ไม่มีรถประเภทที่ต้องการ' },
+  { code: 'ROUTE_INCONVENIENT', labelTh: 'เส้นทางไม่สะดวก' },
+] as const;
+export type SubconRejectReason = (typeof SUBCON_REJECT_REASONS)[number]['code'];
+export const SUBCON_REJECT_CODES = SUBCON_REJECT_REASONS.map((r) => r.code) as SubconRejectReason[];
+export const isSubconRejectReason = (v: unknown): v is SubconRejectReason =>
+  typeof v === 'string' && (SUBCON_REJECT_CODES as string[]).includes(v);
+export const subconRejectLabelTh = (code: string): string =>
+  SUBCON_REJECT_REASONS.find((r) => r.code === code)?.labelTh ?? code;
+
+/**
+ * เวลาที่เหลือก่อนข้อเสนอหมดอายุ (แสดง "ลิงก์หมดอายุใน 36 ชม." / "เหลือ 36 ชม.")
+ * ≥ 1 ชม. = ชั่วโมง (ปัดลง) · < 1 ชม. = นาที (ปัดขึ้น อย่างน้อย 1) · หมดแล้ว = null
+ */
+export function offerTimeLeft(
+  expiresAt: string | Date,
+  now: Date = new Date(),
+): { unit: 'h' | 'm'; n: number } | null {
+  const ms = new Date(expiresAt).getTime() - now.getTime();
+  if (!(ms > 0)) return null;
+  if (ms >= 3600_000) return { unit: 'h', n: Math.floor(ms / 3600_000) };
+  return { unit: 'm', n: Math.max(1, Math.ceil(ms / 60_000)) };
+}

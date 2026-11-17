@@ -20,6 +20,7 @@ import { PricingService } from '../pricing/pricing.service';
 import { RateCardsService } from '../rate-cards/rate-cards.service';
 import type { HireOptionsDto } from './trip.dto';
 import { reverseCarrierFees } from './carrier-fees';
+import { OfferLinks, OFFER_TTL_MS } from './offer-links';
 import { TripService, type TripRecord } from './trip.service';
 
 const field422 = (field: string, code: string, message: string, detail?: string) =>
@@ -105,7 +106,7 @@ const MONEY_RE = /^\d{1,12}(\.\d{1,2})?$/;
  * - ตัวเลือก: รถร่วมที่ใช้งานอยู่ทุกราย + ราคาขาซื้อจาก rate card (pricing engine ST2-T15) + ราคา 5 ครั้งล่าสุด (ST2-T14)
  * - จ้าง = `/offer` (PLANNING → OFFERED) + `subcon_offer` + `trip_cost` CARRIER_FEE ในล็อกเดียวกัน
  * - ไม่ใช่ราคาถูกสุด (หรือไม่มีราคาให้เทียบ) → ต้องมีเหตุผล ≥ 10 ตัว · ถูกสุด → ระบบเขียนเหตุผลให้ (`selectionReason` ไม่ว่างเสมอ)
- * - ส่งลิงก์ให้รถร่วม = ST3-T23 · หมดเวลา = ST3-T24 · เปลี่ยนรถร่วม = ST3-T25 (กลับรายการ — `reverseCarrierFees`)
+ * - ลิงก์ข้อเสนองาน (ST3-T23) ออกพร้อมการจ้าง · หมดเวลา = ST3-T24 · เปลี่ยนรถร่วม = ST3-T25 (กลับรายการ — `reverseCarrierFees`)
  */
 @Injectable()
 export class SubconHireService {
@@ -114,6 +115,7 @@ export class SubconHireService {
     private readonly trips: TripService,
     private readonly pricing: PricingService,
     private readonly rateCards: RateCardsService,
+    private readonly offerLinks: OfferLinks,
   ) {}
 
   /** บริบทคิดราคาของเที่ยว — ประเภทรถ: ที่ระบุ → ของเที่ยว → ของใบสั่ง (ทุกใบตรงกัน) */
@@ -453,7 +455,7 @@ export class SubconHireService {
       input.carrierId,
       this.db.tx,
       expectedVersion,
-      async (tx, trip, carrier) => {
+      async (tx, trip, carrier, at) => {
         const ctx = await this.context(tx, trip, input.vehicleTypeId);
         const options = await this.candidates(tx, ctx);
         const me = options.find((o) => o.carrier.id === carrier.id);
@@ -509,6 +511,7 @@ export class SubconHireService {
           blockedCarrierIds: options.filter((o) => o.blocked).map((o) => o.carrier.id),
         };
         // บรรทัดค่าจ้างของการจ้างครั้งก่อนที่จบไปแล้ว (ปฏิเสธ/หมดเวลา — ST3-T23/T24) และยังไม่จ่าย → กลับรายการ
+        const expiresAt = new Date(at.getTime() + OFFER_TTL_MS);
         const reversed = await reverseCarrierFees(
           tx,
           trip.id,
@@ -530,8 +533,16 @@ export class SubconHireService {
             vehicleTypeId: ctx.vehicleTypeId,
             sellAmount: ctx.sellAmount,
             offeredBy: actor,
+            offeredAt: at,
+            expiresAt,
           },
         });
+        // ลิงก์ข้อเสนองาน (ST3-T23) อายุเท่าข้อเสนอ — ส่งทาง LINE/SMS (`/messages/send-link`) หรือคัดลอกจาก `/offer-link`
+        await this.offerLinks.issue(
+          tx,
+          { id: offer.id, tenantId: trip.tenantId, expiresAt },
+          actor,
+        );
         // บรรทัดค่าจ้าง = ราคาที่ตกลง (ล็อก — source_type SUBCON_OFFER: ST6-T01 rebuild ห้ามแก้ทับ · review M2)
         // ยอมรับราคา rate card ตามนั้น → 1 บรรทัดต่อบรรทัดของผลคิด (ค่าขนส่ง/จุดเพิ่ม …) พร้อมรายการบริการ + ธงภาษีที่คัดลอก
         // กรอกราคาเอง → 1 บรรทัด MANUAL ธงภาษีว่าง [OPEN #58] · vat_amount = 0 เสมอ: VAT ขาซื้อขึ้นกับการจด VAT ของรถร่วม
@@ -577,6 +588,7 @@ export class SubconHireService {
         });
         return {
           trip: {
+            assignmentExpiresAt: expiresAt,
             vehicleTypeId: ctx.vehicleTypeId,
             vehicleTypeSnapshot: ctx.vehicleTypeName,
             buyRateSnapshot: {

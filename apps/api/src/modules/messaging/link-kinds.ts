@@ -4,7 +4,8 @@ import type { MessageTemplate } from './templates';
 
 /**
  * ชนิดลิงก์ที่ส่งทาง LINE/SMS ได้ — path หน้าเว็บ + template + สิทธิ์ส่ง/ดูบันทึก (docs/04 A3)
- * `enabled: false` = ยังส่งไม่ได้ (trip_offer: ST3-T23 ต้องตรวจว่าเที่ยวถูกเสนอให้ผู้รับเหมารายนั้นก่อน — review ST3-T21)
+ * `enabled: false` = ยังส่งไม่ได้ · trip_offer (ST3-T23): ลิงก์ชี้การจ้าง (`subcon_offer`) — ผู้รับ = รถร่วมของการจ้างนั้น
+ * และส่งได้เฉพาะข้อเสนอที่ยังรอตอบ (ตรวจใน MessagingService — review ST3-T21)
  */
 export const LINK_KINDS = {
   carrier_docs: {
@@ -20,8 +21,8 @@ export const LINK_KINDS = {
     template: 'job_offer_link',
     sendScope: 'trips:assign',
     readScope: 'trips:read',
-    entityType: 'trip',
-    enabled: false,
+    entityType: 'subcon_offer',
+    enabled: true,
   },
 } as const satisfies Record<
   string,

@@ -61,7 +61,11 @@ const SAFE_SELECT = {
 } satisfies Prisma.MessageDeliverySelect;
 type SafeRow = Prisma.MessageDeliveryGetPayload<{ select: typeof SAFE_SELECT }>;
 
-const ENTITY_KIND: Record<string, IdKind> = { carrier: 'carrier', trip: 'trip' };
+const ENTITY_KIND: Record<string, IdKind> = {
+  carrier: 'carrier',
+  trip: 'trip',
+  subcon_offer: 'subconOffer',
+};
 
 const bad = (field: string, code: string, message: string) =>
   new ProblemException('validation_failed', message, [{ field, code, message }]);
@@ -130,9 +134,25 @@ export class MessagingService {
     if (!scopeAllows(ctx.scopes ?? [], k.sendScope))
       throw new ProblemException('permission_denied');
 
-    // ผู้รับ = ผู้รับเหมาเจ้าของลิงก์ (ช่องทางที่บันทึกไว้เท่านั้น)
+    // ผู้รับ = ผู้รับเหมาเจ้าของลิงก์ (ช่องทางที่บันทึกไว้เท่านั้น) · ข้อเสนองาน (ST3-T23) = รถร่วมของการจ้างที่ยังรอตอบ
+    let carrierId = link.entityId;
+    let ref: string | null = null;
+    if (kind === 'trip_offer') {
+      const offer = await tx.subconOffer.findFirst({
+        where: { id: link.entityId },
+        select: { carrierId: true, status: true, trip: { select: { tripNo: true } } },
+      });
+      if (!offer || offer.status !== 'OFFERED')
+        throw bad(
+          'url',
+          'offer_closed',
+          'the job offer of this link is no longer awaiting a reply',
+        );
+      carrierId = offer.carrierId;
+      ref = offer.trip.tripNo;
+    }
     const carrier = await tx.carrier.findFirst({
-      where: { id: link.entityId, deletedAt: null },
+      where: { id: carrierId, deletedAt: null },
       select: { id: true, legalName: true, phone: true, lineContact: true },
     });
     if (!carrier) throw bad('url', 'link_invalid', 'the carrier of this link no longer exists');
@@ -189,6 +209,7 @@ export class MessagingService {
     const vars = {
       sender: messageName(tenant?.name ?? '') || 'TMS',
       recipientName: messageName(carrier.legalName) || null,
+      ...(ref ? { ref } : {}),
       yearStyle: tenant?.yearStyle === 'CE' ? 'CE' : 'BE',
     };
     const id = randomUUID();
@@ -254,8 +275,8 @@ export class MessagingService {
       Math.floor(link.expiresAt.getTime() / 1000) !== t.exp
     )
       throw invalid();
-    if (!isLinkKind(link.purpose)) throw invalid();
-    // ข้อเสนองาน: ต้องตรวจว่าเที่ยวถูกเสนอให้ผู้รับเหมารายนั้น (ST3-T23) — ยังไม่มี = ยังส่งไม่ได้
+    if (!isLinkKind(link.purpose) || link.entityType !== LINK_KINDS[kind].entityType)
+      throw invalid();
     if (!LINK_KINDS[kind].enabled)
       throw bad('url', 'link_kind_not_supported', 'this link type cannot be sent yet');
     return { kind, link };

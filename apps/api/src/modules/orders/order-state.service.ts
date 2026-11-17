@@ -129,6 +129,55 @@ export class OrderStateService {
     return { id, cancelledDeliveryOrders: cancelledDos };
   }
 
+  /**
+   * รถร่วมปฏิเสธข้อเสนองาน (ST3-T23; docs/01 §4.1 "PLANNED → ON_HOLD : รถร่วมปฏิเสธ" + reason code `CARRIER_REJECTED`)
+   * SO ที่ PLANNED/RECEIVED → `hold` ด้วยรหัสระบบ CARRIER_REJECTED (+ หมายเหตุเหตุผล) · ค้างด้วยเหตุอื่นอยู่แล้ว/ออกรถแล้ว = ไม่แตะ
+   * เคลียร์: จัดรถ/เสนองานใหม่ที่เที่ยวเดิม (`syncFromDeliveryOrders` → `plan` ล้างเหตุค้าง — ST3-T07 "เคลียร์ได้เมื่อจัดรถใหม่")
+   * ผู้เรียกถือล็อก SO แล้ว (ลำดับ SO → DO → trip)
+   */
+  async holdCarrierRejected(tx: Tx, salesOrderIds: string[], note: string): Promise<string[]> {
+    const ids = [...new Set(salesOrderIds)].sort();
+    if (!ids.length) return [];
+    const rc = await tx.reasonCode.findFirst({
+      where: { category: 'ORDER_HOLD', code: 'CARRIER_REJECTED', deletedAt: null },
+      select: { id: true },
+    });
+    // รหัสระบบ (is_system) bootstrap สร้างให้ทุก tenant — ไม่พบ = ข้อมูลตั้งต้นของ tenant เสีย
+    if (!rc)
+      throw new Error('ORDER_HOLD reason code CARRIER_REJECTED missing — run tenants:bootstrap');
+    const held: string[] = [];
+    for (const id of ids) {
+      const so = await tx.salesOrder.findUnique({ where: { id }, select: { status: true } });
+      if (!so || (so.status !== 'PLANNED' && so.status !== 'RECEIVED')) continue;
+      const from = so.status as SoStatus;
+      await this.state.transition<SoStatus, SoEvent>(tx, {
+        docType: ENTITY,
+        docId: id,
+        table: SO_TRANSITIONS,
+        from,
+        event: 'hold',
+        reasonCodeId: rc.id,
+        note,
+        eventType: 'order.updated',
+        apply: async (next) => {
+          const r = await tx.salesOrder.updateMany({
+            where: { id, status: from as DbSoStatus },
+            data: {
+              status: next as DbSoStatus,
+              holdReasonCodeId: rc.id,
+              holdNote: note,
+              version: { increment: 1 },
+            },
+          });
+          if (r.count === 0) throw new ProblemException('concurrent_update');
+          return orderEventView(await tx.salesOrder.findUniqueOrThrow({ where: { id } }));
+        },
+      });
+      held.push(id);
+    }
+    return held;
+  }
+
   async syncFromDeliveryOrders(tx: Tx, salesOrderIds: string[]): Promise<void> {
     for (const id of [...new Set(salesOrderIds)].sort()) await this.syncOne(tx, id);
   }

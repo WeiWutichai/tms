@@ -81,6 +81,12 @@ import { DeliveryOrdersController } from './modules/delivery-orders/delivery-ord
 import { OrderStateService } from './modules/orders/order-state.service';
 import { TripService } from './modules/trips/trip.service';
 import { SubconHireService } from './modules/trips/subcon-hire.service';
+import { SubconOfferService } from './modules/trips/subcon-offer.service';
+import { OfferLinks } from './modules/trips/offer-links';
+import {
+  SubconOfferPublicController,
+  TripOffersController,
+} from './modules/trips/subcon-offer.controller';
 import { TripsController } from './modules/trips/trips.controller';
 import { PlanningController } from './modules/planning/planning.controller';
 import { PlanningService } from './modules/planning/planning.service';
@@ -170,6 +176,8 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     RateCardsController,
     DeliveryOrdersController,
     TripsController,
+    TripOffersController,
+    SubconOfferPublicController,
     TripSheetsController,
     TripSheetsPublicController,
     PlanningController,
@@ -222,6 +230,8 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     OrderStateService,
     TripService,
     SubconHireService,
+    SubconOfferService,
+    OfferLinks,
     TripSheetsService,
     TripSheetLinks,
     PlanningService,
