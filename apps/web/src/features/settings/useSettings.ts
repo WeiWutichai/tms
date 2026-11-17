@@ -98,6 +98,10 @@ export function useSaveTenantSettings() {
       ),
     onSuccess: (data) => {
       qc.setQueryData(['tenant-settings'], data);
+      // POD checklist ของลูกค้าที่ใช้ค่าองค์กร (drawer ลูกค้า) — โหลดใหม่เมื่อค่าองค์กรเปลี่ยน (review T05 L4)
+      void qc.invalidateQueries({
+        predicate: (q) => q.queryKey[0] === 'customers' && q.queryKey[2] === 'pod-checklist',
+      });
       void qc.invalidateQueries({ queryKey: ['me'] });
     },
   });

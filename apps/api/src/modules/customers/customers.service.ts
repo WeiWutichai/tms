@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma, type ActiveStatus, type Customer } from '@prisma/client';
-import type { TransitionTable } from '@tms/domain';
+import { parsePodRequirements, type TransitionTable } from '@tms/domain';
 import { AuditService } from '../../audit/audit.service';
 import { encodeId, tryDecodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
@@ -62,6 +62,7 @@ export function toCustomerDto(c: Customer, salesOwnerName?: string | null): Cust
     vatRegistered: c.vatRegistered,
     etaxCapable: c.etaxCapable,
     freeTimeMin: c.freeTimeMin,
+    podRequirements: (c.podRequirements as CustomerDto['podRequirements'] | null) ?? {},
     billingCompanyId: c.defaultBillingCompanyId
       ? encodeId('company', c.defaultBillingCompanyId)
       : null,
@@ -222,6 +223,21 @@ export class CustomersService {
     if (input.vatRegistered !== undefined) data.vatRegistered = input.vatRegistered;
     if (input.etaxCapable !== undefined) data.etaxCapable = input.etaxCapable;
     if (input.freeTimeMin !== undefined) data.freeTimeMin = input.freeTimeMin;
+    if (input.podRequirements !== undefined) {
+      // ST4-T05: ตรวจ + ทำให้เป็นรูปมาตรฐานด้วยตัวตรวจเดียวกับค่าองค์กร (ชุดที่ไม่ส่ง = ใช้ค่าองค์กร)
+      const r = parsePodRequirements(input.podRequirements, false);
+      if (!r.value)
+        throw new ProblemException(
+          'validation_failed',
+          undefined,
+          r.errors.map((e) => ({
+            field: e.path ? `podRequirements.${e.path}` : 'podRequirements',
+            code: e.code,
+            message: e.message,
+          })),
+        );
+      data.podRequirements = r.value as object;
+    }
     if (input.billingCompanyId !== undefined) {
       if (input.billingCompanyId === null) data.defaultBillingCompanyId = null;
       else {

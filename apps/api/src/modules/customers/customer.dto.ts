@@ -8,6 +8,7 @@ import {
   IsIn,
   IsInt,
   IsNotEmpty,
+  IsObject,
   IsOptional,
   IsString,
   Matches,
@@ -25,6 +26,7 @@ import {
   MasterListQuery,
   NormalizeCode,
 } from '../master/master-kit';
+import { PodRequirementsDto } from '../pod/pod-checklist.dto';
 
 export const BILLING_CYCLES = ['PER_DO', 'WEEKLY', 'MONTHLY', 'MANUAL'] as const;
 export const TAX_INVOICE_MODES = ['ON_PAYMENT', 'ON_ISSUE'] as const;
@@ -202,6 +204,15 @@ export class CustomerFieldsDto {
   freeTimeMin?: number | null;
 
   @ApiPropertyOptional({
+    type: PodRequirementsDto,
+    description:
+      'POD checklist ของลูกค้านี้ (ST4-T05; docs/04 E2) — `{}` = ใช้ค่าเริ่มต้นขององค์กร (`pod.checklist`); ส่งชุด `success` = กำหนดเองทั้งชุด',
+  })
+  @IsOptionalNotNull()
+  @IsObject()
+  podRequirements?: PodRequirementsDto;
+
+  @ApiPropertyOptional({
     example: 'cmp_…',
     nullable: true,
     type: String,
@@ -341,6 +352,12 @@ export class CustomerDto {
   @ApiProperty({ nullable: true, type: Number }) freeTimeMin!: number | null;
   @ApiProperty({ nullable: true, type: String, description: 'ออกบิลในนาม (cmp_…)' })
   billingCompanyId!: string | null;
+  @ApiProperty({
+    type: PodRequirementsDto,
+    description:
+      'POD checklist ที่ลูกค้ากำหนดเอง — `{}` = ใช้ค่าเริ่มต้นขององค์กร (ดูที่ใช้จริงที่ `GET /customers/{id}/pod-checklist`)',
+  })
+  podRequirements!: PodRequirementsDto;
   @ApiProperty({ type: CustomerRefDto, nullable: true }) salesOwner!: CustomerRefDto | null;
   @ApiProperty({ enum: ['active', 'inactive'] }) status!: 'active' | 'inactive';
   @ApiPropertyOptional({

@@ -3,19 +3,23 @@
  * ทุก key มี type + default; ค่าที่ผิด type ถูกปฏิเสธ (422) · ไม่มีแถวใน tenant_setting = ใช้ default
  * `store: 'tenant'` = เก็บในคอลัมน์ของตาราง tenant (ใช้ร่วมกับส่วนอื่นที่อ่านอยู่แล้ว)
  */
+import { DEFAULT_POD_REQUIREMENTS, parsePodRequirements } from '@tms/domain';
+
 export type SettingType =
   | { kind: 'string'; max: number }
   | { kind: 'enum'; values: readonly (string | number)[] }
   | { kind: 'bool' }
   | { kind: 'int'; min: number; max: number; nullable?: boolean }
   /** id ของ entity อื่น (เช่น `cmp_…`) — ตรวจว่ามีอยู่จริงที่ service */
-  | { kind: 'ref'; entity: 'company'; nullable: true };
+  | { kind: 'ref'; entity: 'company'; nullable: true }
+  /** POD checklist ค่าเริ่มต้นของ tenant (ST4-T05) — ตรวจด้วย `parsePodRequirements` ของ @tms/domain */
+  | { kind: 'podRequirements' };
 
 export interface SettingDef {
   type: SettingType;
   default: unknown;
   /** กลุ่มในหน้า ตั้งค่า (org / tax / sec / billing) */
-  group: 'org' | 'tax' | 'sec' | 'billing' | 'routing' | 'dispatch';
+  group: 'org' | 'tax' | 'sec' | 'billing' | 'routing' | 'dispatch' | 'pod';
   store?: { table: 'tenant'; column: 'name' | 'yearStyle' };
   description: string;
 }
@@ -105,6 +109,13 @@ export const SETTINGS = {
     description:
       'รถร่วมไม่ตอบข้อเสนองานภายในกี่ชั่วโมง → แจ้งผู้จัดรถ + ปุ่ม "ส่งรายถัดไป" (docs/04 D3 — ต้องน้อยกว่าอายุลิงก์ 48 ชม.; ใช้กับข้อเสนอใหม่)',
   },
+  'pod.checklist': {
+    group: 'pod',
+    type: { kind: 'podRequirements' },
+    default: DEFAULT_POD_REQUIREMENTS,
+    description:
+      'POD checklist ค่าเริ่มต้นของลูกค้าทุกราย (docs/04 E2) — ชนิด PHOTO/SIGNATURE/NOTE/BOOLEAN ตั้ง DISABLED/ENABLED/REQUIRED; ลูกค้า override ได้ที่ `podRequirements`',
+  },
   'security.require2faAll': {
     group: 'sec',
     type: { kind: 'bool' },
@@ -144,10 +155,34 @@ export function validateSetting(key: SettingKey, value: unknown): string | null 
       return value === null || (typeof value === 'string' && /^cmp_[0-9a-f]{32}$/i.test(value))
         ? null
         : 'must be a company id (cmp_…) or null';
+    case 'podRequirements': {
+      const errs = settingFieldErrors(key, value);
+      return errs.length ? errs.map((e) => `${e.path}: ${e.message}`).join('; ') : null;
+    }
     case 'int':
       if (value === null && t.nullable) return null;
       return Number.isInteger(value) && (value as number) >= t.min && (value as number) <= t.max
         ? null
         : `must be an integer ${t.min}–${t.max}${t.nullable ? ' or null' : ''}`;
   }
+}
+
+/** ทำค่าให้เป็นรูปมาตรฐานก่อนเก็บ (เรียกหลังผ่าน validateSetting) */
+export function normalizeSetting(key: SettingKey, value: unknown): unknown {
+  const t: SettingType = SETTINGS[key].type;
+  if (t.kind === 'podRequirements') return parsePodRequirements(value, true).value;
+  return typeof value === 'string' ? value.trim() : value;
+}
+
+/**
+ * error ราย path ของค่าที่มีโครงสร้าง (POD checklist) — service ใส่ `values.<key>.<path>` ใน field
+ * (QA L1: บอกช่องที่ผิดแบบเดียวกับ API ลูกค้า) · ค่าแบบ scalar คืน [] (ใช้ validateSetting)
+ */
+export function settingFieldErrors(
+  key: SettingKey,
+  value: unknown,
+): { path: string; code: string; message: string }[] {
+  const t: SettingType = SETTINGS[key].type;
+  if (t.kind !== 'podRequirements') return [];
+  return parsePodRequirements(value, true).errors;
 }
