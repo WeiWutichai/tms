@@ -620,6 +620,25 @@ export class TripStopDto {
       'event ล่าสุดที่เปลี่ยนสถานะจุด — รายละเอียด/ชื่อผู้บันทึกจาก `GET /v1/trips/{id}/events`',
   })
   lastEventId!: string | null;
+  @ApiProperty({
+    type: () => [TripStopRescheduleDto],
+    description:
+      'ST4-T12 DO ที่ส่งไม่สำเร็จที่จุดนี้แล้วถูกส่งใหม่ (นัดส่งใหม่อัตโนมัติ/ส่งซ้ำ) — DO ใบเดิมเป็น CANCELLED จึงไม่อยู่ใน `deliveryOrders`',
+  })
+  reschedules!: TripStopRescheduleDto[];
+}
+
+export class TripStopRescheduleDto {
+  @ApiProperty({ example: 'do_3f2a…', description: 'DO ใบเดิม (CANCELLED event redeliver)' })
+  fromDeliveryOrderId!: string;
+  @ApiProperty({ example: 'DO-6911-0001' }) fromDoNo!: string;
+  @ApiProperty({ example: 'do_9b1c…', description: 'DO ใบใหม่ (รอจัดรถ)' })
+  deliveryOrderId!: string;
+  @ApiProperty({ example: 'DO-6911-0002' }) doNo!: string;
+  @ApiProperty({ example: '2026-11-14', description: 'วันส่งที่นัดใหม่' }) doDate!: string;
+  @ApiProperty({ example: 'DRAFT', description: 'สถานะปัจจุบันของ DO ใบใหม่' }) status!: string;
+  @ApiProperty({ example: 1, description: 'ครั้งที่นัดส่งใหม่อัตโนมัติ (0 = ส่งซ้ำมือ)' })
+  attempt!: number;
 }
 
 class TripRouteSummaryDto {

@@ -192,6 +192,12 @@ export class DeliveryOrderDto {
   @ApiProperty({ nullable: true, type: Number }) splitIndex!: number | null;
   @ApiProperty({ nullable: true, type: String, description: 'ส่งใหม่ของ DO ใบนี้ (D-23)' })
   redeliveryOfId!: string | null;
+  @ApiProperty({
+    example: 0,
+    description:
+      'ST4-T12 ครั้งที่นัดส่งใหม่อัตโนมัติของสายงานนี้ (0 = ใบแรก) — เกินค่าตั้ง `dispatch.maxAutoReschedules` → ใบสั่งค้าง RESCHEDULES_EXHAUSTED',
+  })
+  rescheduleCount!: number;
   @ApiProperty({ example: 'NONE' }) podStatus!: string;
   @ApiProperty({ type: [DeliveryOrderLineDto] }) lines!: DeliveryOrderLineDto[];
   @ApiProperty() version!: number;

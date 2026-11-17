@@ -1778,6 +1778,8 @@ model DeliveryOrder {
   redeliveryOfId      String?         @map("redelivery_of_id") @db.Uuid /// D-23 ส่งใหม่ = DO ใบใหม่
   redeliveryOf        DeliveryOrder?  @relation("DoRedelivery", fields: [redeliveryOfId], references: [id], onDelete: Restrict)
   redeliveries        DeliveryOrder[] @relation("DoRedelivery")
+  /// ST4-T12 จำนวนครั้งที่สายงานนี้ถูกนัดส่งใหม่อัตโนมัติ (ใบเดิม + 1) — เกินค่าตั้ง `dispatch.maxAutoReschedules` → SO ค้าง RESCHEDULES_EXHAUSTED
+  rescheduleCount     Int             @default(0) @map("reschedule_count")
   /// แยก DO (ORD-084): ใบแม่ CANCELLED (event split) → ใบลูกเลข `{split_root_no}-{split_index}`
   splitFromId         String?         @map("split_from_id") @db.Uuid
   splitFrom           DeliveryOrder?  @relation("DoSplit", fields: [splitFromId], references: [id], onDelete: Restrict)
@@ -1802,6 +1804,7 @@ model DeliveryOrder {
   @@index([tenantId, tripStopId])
   @@index([tenantId, pickupTripStopId])
   @@index([tenantId, salesOrderId])
+  @@index([tenantId, redeliveryOfId])
   @@index([tenantId, updatedAt, id])
   @@map("delivery_order")
 }

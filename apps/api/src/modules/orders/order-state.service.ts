@@ -6,6 +6,7 @@ import {
   DO_UNDELIVERED_STATUSES,
   SO_TRANSITIONS,
   canCancelOrder,
+  isIntakeHoldCode,
   orderDeliveryEvent,
   transition,
   type SoEvent,
@@ -13,6 +14,7 @@ import {
 } from '@tms/domain';
 import { AuditService } from '../../audit/audit.service';
 import { ProblemException } from '../../common/problem';
+import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
 import { StateService } from '../../state/state.service';
 import {
@@ -140,18 +142,66 @@ export class OrderStateService {
    * ผู้เรียกถือล็อก SO แล้ว (ลำดับ SO → DO → trip)
    */
   async holdCarrierRejected(tx: Tx, salesOrderIds: string[], note: string): Promise<string[]> {
+    return this.holdSystem(tx, salesOrderIds, 'CARRIER_REJECTED', note);
+  }
+
+  /**
+   * นัดส่งใหม่อัตโนมัติเกินจำนวนครั้ง (ST4-T12; docs/04 E2 "นับครั้ง → RESCHEDULES_EXHAUSTED") — SO ที่ PLANNED/RECEIVED
+   * (หลัง DO ส่งใหม่ลงกล่องรอจัด) → ค้าง `RESCHEDULES_EXHAUSTED` · ค้างด้วยเหตุอื่นอยู่แล้ว/ยังมี DO วิ่งอยู่ = ไม่แตะ
+   * เคลียร์เมื่อจัดรถใหม่ที่กระดาน (`plan` ล้างเหตุค้าง — ST3-T07) · ผู้เรียกถือล็อก SO แล้ว
+   */
+  async holdReschedulesExhausted(tx: Tx, salesOrderIds: string[], note: string): Promise<string[]> {
+    return this.holdSystem(tx, salesOrderIds, 'RESCHEDULES_EXHAUSTED', note);
+  }
+
+  private async holdSystem(
+    tx: Tx,
+    salesOrderIds: string[],
+    code: 'CARRIER_REJECTED' | 'RESCHEDULES_EXHAUSTED',
+    note: string,
+  ): Promise<string[]> {
     const ids = [...new Set(salesOrderIds)].sort();
     if (!ids.length) return [];
     const rc = await tx.reasonCode.findFirst({
-      where: { category: 'ORDER_HOLD', code: 'CARRIER_REJECTED', deletedAt: null },
+      where: { category: 'ORDER_HOLD', code, deletedAt: null },
       select: { id: true },
     });
     // รหัสระบบ (is_system) bootstrap สร้างให้ทุก tenant — ไม่พบ = ข้อมูลตั้งต้นของ tenant เสีย
-    if (!rc)
-      throw new Error('ORDER_HOLD reason code CARRIER_REJECTED missing — run tenants:bootstrap');
+    if (!rc) throw new Error(`ORDER_HOLD reason code ${code} missing — run tenants:bootstrap`);
     const held: string[] = [];
     for (const id of ids) {
-      const so = await tx.salesOrder.findUnique({ where: { id }, select: { status: true } });
+      const so = await tx.salesOrder.findUnique({
+        where: { id },
+        select: { status: true, holdReasonCode: { select: { code: true } } },
+      });
+      // ST4-T12: DO ส่งใหม่กลับกล่องรอจัดแล้วทางเข้าประเมินใบค้างใหม่ (เช่น RATE_MISSING) → เหตุนัดส่งใหม่ครบสำคัญกว่า
+      // แทนเหตุของทางเข้า (ไม่ใช่ transition — ON_HOLD คงเดิม, ลงประวัติ hold_reason_changed) · เคลียร์ตอนจัดรถใหม่เหมือนกัน
+      if (
+        so?.status === 'ON_HOLD' &&
+        code === 'RESCHEDULES_EXHAUSTED' &&
+        isIntakeHoldCode(so.holdReasonCode?.code)
+      ) {
+        await tx.salesOrder.update({
+          where: { id },
+          data: { holdReasonCodeId: rc.id, holdNote: note, version: { increment: 1 } },
+        });
+        const ctx = requestContext.require();
+        await tx.docStatusHistory.create({
+          data: {
+            tenantId: ctx.tenantId!,
+            docType: ENTITY,
+            docId: id,
+            fromStatus: 'ON_HOLD',
+            toStatus: 'ON_HOLD',
+            event: 'hold_reason_changed',
+            actorId: ctx.actorId ?? null,
+            reasonCodeId: rc.id,
+            note,
+          },
+        });
+        held.push(id);
+        continue;
+      }
       if (!so || (so.status !== 'PLANNED' && so.status !== 'RECEIVED')) continue;
       const from = so.status as SoStatus;
       await this.state.transition<SoStatus, SoEvent>(tx, {

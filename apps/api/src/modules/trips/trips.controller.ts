@@ -172,6 +172,21 @@ export function toTripDto(t: TripRecord): TripDto {
       departedAt: iso(s.departedAt),
       outcome: s.outcome,
       lastEventId: s.lastEventId ? encodeId('event', s.lastEventId) : null,
+      // ST4-T12 จุดที่ไม่สำเร็จ → DO ส่งใหม่ (จุดรับ: รับของไม่ได้ · จุดส่ง: ส่งไม่ได้)
+      reschedules:
+        s.status !== 'FAILED'
+          ? []
+          : (s.type === 'PICKUP' ? s.pickupOrders : s.deliveryOrders).flatMap((d) =>
+              d.redeliveries.map((n) => ({
+                fromDeliveryOrderId: encodeId('deliveryOrder', d.id),
+                fromDoNo: d.doNo!,
+                deliveryOrderId: encodeId('deliveryOrder', n.id),
+                doNo: n.doNo!,
+                doDate: n.doDate.toISOString().slice(0, 10),
+                status: n.status,
+                attempt: n.rescheduleCount,
+              })),
+            ),
     })),
     deliveryOrders: t.deliveryOrders.map((d) => ({
       id: encodeId('deliveryOrder', d.id),

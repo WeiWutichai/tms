@@ -7,6 +7,7 @@ import {
   isOutcomeMismatch,
   isTerminalStopState,
   isTripExecutable,
+  planAutoReschedule,
   projectStops,
   tripExecutionEvents,
   type DoStatus,
@@ -25,6 +26,8 @@ import { OrderStateService } from '../orders/order-state.service';
 import { PodService } from '../pod/pod.service';
 import { TripService } from '../trips/trip.service';
 import { VehiclesService } from '../vehicles/vehicles.service';
+import { readSettings } from '../settings/settings.service';
+import { bangkokToday } from '../vehicle-documents/expiry';
 import { toSeqEvent, type StopEventWithResolution } from './stop-event-seq';
 
 /** ช่อง projection ของ trip_stop ที่ติดตาม (เทียบก่อนเขียน — ไม่เปลี่ยน = ไม่เขียน ไม่ออก event) */
@@ -50,6 +53,17 @@ interface TripDo {
   salesOrderId: string;
   tripStopId: string | null;
   pickupTripStopId: string | null;
+  rescheduleCount: number;
+}
+
+/** ค่าตั้งจำนวนครั้งนัดส่งใหม่อัตโนมัติ (registry) */
+export const MAX_AUTO_RESCHEDULES_KEY = 'dispatch.maxAutoReschedules' as const;
+
+/** snapshot เหตุผลใน payload ของ stop_event (ReasonSnapshot — reason-codes/snapshot.ts) */
+interface PayloadReason {
+  code?: string;
+  label?: string;
+  flags?: { autoReschedule?: boolean };
 }
 
 /**
@@ -113,6 +127,7 @@ export class StopProjectionService {
         salesOrderId: true,
         tripStopId: true,
         pickupTripStopId: true,
+        rescheduleCount: true,
       },
       orderBy: { id: 'asc' },
     });
@@ -234,6 +249,13 @@ export class StopProjectionService {
     }
     if (moved.size) dos = await this.loadDos(tx, tripId);
 
+    // 3b. ST4-T12 นัดส่งใหม่อัตโนมัติ: DO ส่งไม่สำเร็จด้วยเหตุผลที่ติ๊ก auto-reschedule → DO ใหม่วันถัดไป (นอกเที่ยวนี้)
+    const exhausted = await this.autoReschedule(tx, tripId, dos, statusOf, rows);
+    if (exhausted) {
+      for (const so of exhausted.moved) moved.add(so);
+      if (exhausted.moved.length) dos = await this.loadDos(tx, tripId);
+    }
+
     // ผลจุดขัดกับ DO ที่ไล่แล้ว → ธงแจ้งที่ event ปิดงานที่มีผลของจุด
     const mismatch = new Set<string>();
     for (const p of projections) {
@@ -268,11 +290,98 @@ export class StopProjectionService {
       }
     }
 
-    // 5. SO
+    // 5. SO (+ ค้าง RESCHEDULES_EXHAUSTED หลัง DO ส่งใหม่ลงกล่องรอจัด)
     if (moved.size) await this.orderState.syncFromDeliveryOrders(tx, [...moved]);
+    for (const [so, note] of exhausted?.hold ?? [])
+      await this.orderState.holdReschedulesExhausted(tx, [so], note);
 
     // 6. ช่อง projection ของ stop_event (ธงล่าสุด → การตัดสินที่มีผลคำนวณใหม่)
     await this.writeEventColumns(tx, stops, byStop, pending, mismatch, counted);
+  }
+
+  /**
+   * ST4-T12 (docs/04 E2 Undelivered-retain + auto-reschedule; docs/01 §4.3 `FAILED → redeliver`; spec/04 DRV-171):
+   * DO ที่ FAILED และจุดที่ทำให้ไม่สำเร็จ (จุดส่ง หรือจุดรับเมื่อรับของไม่ได้) ปิดด้วย event ที่ **snapshot เหตุผล** ติ๊ก autoReschedule
+   * → `DeliveryOrderService.redeliver` (DO เดิม CANCELLED + DO ใหม่ DRAFT วันถัดไปเวลาไทย นอกเที่ยว — ไม่จัดรถให้เอง)
+   * + domain_event `delivery_order.rescheduled` · ครั้งที่เกินค่าตั้ง `dispatch.maxAutoReschedules` → DO ใหม่ยังสร้าง + SO ค้าง
+   * idempotent: DO เดิมเป็น CANCELLED แล้ว คำนวณซ้ำ/event ซ้ำ ไม่สร้างอีก · ทำจากสถานะ (ไม่ใช่จังหวะ) — event ที่ผู้จัดรถ "ใช้" ภายหลังก็นับ
+   */
+  private async autoReschedule(
+    tx: Tx,
+    tripId: string,
+    dos: TripDo[],
+    statusOf: Map<string, StopProjection>,
+    rows: StopEventWithResolution[],
+  ): Promise<{ moved: string[]; hold: Map<string, string> } | null> {
+    const failed = dos.filter((d) => d.status === 'FAILED');
+    if (!failed.length) return null;
+    const events = new Map(rows.map((r) => [r.id, r]));
+    const ctx = requestContext.require();
+    const today = bangkokToday(this.clock.now());
+    let max: number | null = null;
+    const moved: string[] = [];
+    const hold = new Map<string, string>();
+    for (const d of failed) {
+      const drop = d.tripStopId ? statusOf.get(d.tripStopId) : undefined;
+      const pickup = d.pickupTripStopId ? statusOf.get(d.pickupTripStopId) : undefined;
+      const stop = drop?.status === 'FAILED' ? drop : pickup?.status === 'FAILED' ? pickup : null;
+      const ev = stop?.lastEventId ? events.get(stop.lastEventId) : undefined;
+      if (!stop || !ev) continue;
+      const reason = (ev.payload as { reason?: PayloadReason } | null)?.reason ?? null;
+      if (reason?.flags?.autoReschedule !== true) continue;
+      max ??= Number(
+        (await readSettings(tx, ctx.tenantId!, [MAX_AUTO_RESCHEDULES_KEY]))[
+          MAX_AUTO_RESCHEDULES_KEY
+        ],
+      );
+      const plan = planAutoReschedule({
+        autoReschedule: true,
+        previousCount: d.rescheduleCount,
+        max,
+        failedAt: ev.occurredAt.toISOString(),
+        today,
+      })!;
+      const label = reason.label ?? reason.code ?? '';
+      const note = plan.exhausted
+        ? `นัดส่งใหม่อัตโนมัติครบ ${max} ครั้งแล้ว — ${label}`
+        : `นัดส่งใหม่อัตโนมัติ ครั้งที่ ${plan.attempt} (${plan.doDate}) — ${label}`;
+      const nd = await this.dos.redeliver(tx, d.id, {
+        doDate: plan.doDate,
+        rescheduleCount: plan.attempt,
+        reasonCodeId: ev.reasonCodeId,
+        note,
+        mode: 'auto',
+      });
+      await tx.domainEvent.create({
+        data: {
+          tenantId: ctx.tenantId!,
+          type: 'delivery_order.rescheduled',
+          entityType: 'delivery_order',
+          localId: nd.id,
+          snapshot: {
+            id: nd.id,
+            doNo: nd.doNo,
+            doDate: plan.doDate,
+            salesOrderId: nd.salesOrderId,
+            redeliveryOfId: d.id,
+            tripId,
+            tripStopId: stop.id,
+            stopEventId: ev.id,
+            outcome: ev.outcome,
+            reasonCode: reason.code ?? null,
+            attempt: plan.attempt,
+            max,
+            exhausted: plan.exhausted,
+          },
+          previousAttributes: {},
+          requestId: ctx.requestId ?? null,
+          actorId: ctx.actorId ?? null,
+        },
+      });
+      moved.push(d.salesOrderId);
+      if (plan.exhausted) hold.set(d.salesOrderId, `${note} (${nd.doNo})`);
+    }
+    return { moved, hold };
   }
 
   private async writeEventColumns(

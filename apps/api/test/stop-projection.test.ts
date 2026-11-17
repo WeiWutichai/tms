@@ -374,7 +374,7 @@ describe('stop projection / status cascade (ST4-T03)', () => {
     expect(await soStatus(a.soId)).toBe('DELIVERED');
     expect((await tripRow(t.uuid)).status).toBe('IN_PROGRESS');
 
-    const failed = await reason('DELIVERY_FAILED', 'SHOP_CLOSED');
+    const failed = await reason('DELIVERY_FAILED', 'WRONG_ADDRESS'); // ไม่ติ๊กนัดส่งใหม่อัตโนมัติ (ST4-T12) — DO คง FAILED
     await post(bStop, 'fail', 30, {
       outcome: 'FAILED',
       reasonCodeId: encodeId('reasonCode', failed),
@@ -675,7 +675,7 @@ describe('stop projection / status cascade (ST4-T03)', () => {
     const two = await newOrder();
     const t2 = await dispatched([encodeId('deliveryOrder', two.dos[0]!.id)]);
     const [pk2, dr2] = [...t2.stops].sort((x, y) => x.sequence - y.sequence);
-    const failed = await reason('DELIVERY_FAILED', 'SHOP_CLOSED');
+    const failed = await reason('DELIVERY_FAILED', 'WRONG_ADDRESS'); // ไม่ติ๊กนัดส่งใหม่อัตโนมัติ (ST4-T12)
     await post(pk2!.id, 'fail', 40, {
       outcome: 'FAILED',
       reasonCodeId: encodeId('reasonCode', failed),

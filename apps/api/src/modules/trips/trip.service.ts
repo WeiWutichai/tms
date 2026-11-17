@@ -26,6 +26,7 @@ import {
   type TripDoInput,
   type TripEvent,
   type TripStatus,
+  shiftWindowToDay,
 } from '@tms/domain';
 import { AuditService } from '../../audit/audit.service';
 import { encodeId } from '../../common/ids';
@@ -56,11 +57,30 @@ import {
   vehicleOverlapMessageTh,
 } from './rule-messages';
 
+/** ST4-T12 DO ของจุดที่ถูกส่งใหม่ (ใบเดิม CANCELLED event redeliver) → ใบใหม่ (ไม่นับใบที่ถูกแยกต่อ — นับลูกแทน) */
+const RESCHEDULED_DOS = {
+  where: { status: 'CANCELLED', redeliveries: { some: {} } },
+  orderBy: [{ doNo: 'asc' }],
+  select: {
+    id: true,
+    doNo: true,
+    redeliveries: {
+      where: { NOT: { status: 'CANCELLED', splitChildren: { some: {} } } },
+      orderBy: [{ createdAt: 'asc' }, { doNo: 'asc' }],
+      select: { id: true, doNo: true, doDate: true, status: true, rescheduleCount: true },
+    },
+  },
+} as const satisfies Prisma.TripStop$deliveryOrdersArgs;
+
 export const TRIP_INCLUDE = {
   stops: {
     where: { removedAt: null },
     orderBy: { sequence: 'asc' },
-    include: { site: { select: { name: true } } },
+    include: {
+      site: { select: { name: true } },
+      deliveryOrders: RESCHEDULED_DOS,
+      pickupOrders: RESCHEDULED_DOS,
+    },
   },
   deliveryOrders: {
     where: { status: { not: 'CANCELLED' } },
@@ -1878,13 +1898,19 @@ export class TripService {
     };
     return [...dos]
       .sort((a, b) => (a.doNo ?? '').localeCompare(b.doNo ?? ''))
-      .map((d) => ({
-        id: d.id,
-        originSiteId: d.originSiteId,
-        destSiteId: d.destSiteId,
-        pickupWindow: win(d.salesOrderId, d.originStopSeq),
-        dropWindow: win(d.salesOrderId, d.destStopSeq),
-      }));
+      .map((d) => {
+        // ST4-T12 DO ส่งใหม่ (redelivery_of) — ช่วงเวลาของ SO เป็นของวันเดิม → เลื่อนให้ตรงวันส่งของ DO (คงเวลาในวัน)
+        const day = d.redeliveryOfId ? d.doDate.toISOString().slice(0, 10) : null;
+        const at = (w: { start: string | null; end: string | null }) =>
+          day ? shiftWindowToDay(w, day) : w;
+        return {
+          id: d.id,
+          originSiteId: d.originSiteId,
+          destSiteId: d.destSiteId,
+          pickupWindow: at(win(d.salesOrderId, d.originStopSeq)),
+          dropWindow: at(win(d.salesOrderId, d.destStopSeq)),
+        };
+      });
   }
 
   /** snapshot รถ + ประเภทรถ (id + ชื่อ) — รถไม่พบ/ลบ/ปลดระวาง/เป็นหาง → 422 */

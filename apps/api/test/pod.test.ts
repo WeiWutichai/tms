@@ -175,7 +175,7 @@ describe('ePOD web (ST4-T07)', () => {
       await post(drop.id, 'arrive', 20).expect(201);
       if (opts.outcome === 'FAIL') {
         const rsn = await db.reasonCode.findFirstOrThrow({
-          where: { tenantId, category: 'DELIVERY_FAILED', code: 'SHOP_CLOSED' },
+          where: { tenantId, category: 'DELIVERY_FAILED', code: 'WRONG_ADDRESS' }, // ไม่ติ๊กนัดส่งใหม่อัตโนมัติ (ST4-T12)
         });
         await post(drop.id, 'fail', 10, {
           outcome: 'FAILED',

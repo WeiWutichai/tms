@@ -5,6 +5,7 @@ import {
   daySendState,
   pendingRules,
   ruleKey,
+  shiftWindowToDay,
   vehicleOverlaps,
   type RuleOverride,
   type RuleResult,
@@ -319,6 +320,9 @@ export class PlanningService {
         doNo: true,
         weightKg: true,
         destStopSeq: true,
+        doDate: true,
+        rescheduleCount: true,
+        redeliveryOf: { select: { doNo: true } },
         originSite: { select: { name: true, address: true } },
         destSite: { select: { name: true, address: true } },
         salesOrder: {
@@ -345,6 +349,16 @@ export class PlanningService {
         const first = group[0]!;
         const so = first.salesOrder;
         const stop = so.stops.find((s) => s.sequence === first.destStopSeq);
+        // ST4-T12 DO ส่งใหม่: ช่วงเวลาของ SO เป็นของวันเดิม → แสดงตามวันที่นัด (ชุดเดียวกับจุดในเที่ยว — TripService.doInputs)
+        const window = (() => {
+          const w = {
+            start: stop?.windowStart?.toISOString() ?? null,
+            end: stop?.windowEnd?.toISOString() ?? null,
+          };
+          return first.redeliveryOf
+            ? shiftWindowToDay(w, first.doDate.toISOString().slice(0, 10))
+            : w;
+        })();
         return {
           id: encodeId('salesOrder', so.id),
           orderNo: so.soNo ?? '',
@@ -358,13 +372,16 @@ export class PlanningService {
           vehicleTypeName: so.vehicleType?.nameTh ?? null,
           origin: place(first.originSite),
           dest: place(group[group.length - 1]!.destSite),
-          windowStart: stop?.windowStart?.toISOString() ?? null,
-          windowEnd: stop?.windowEnd?.toISOString() ?? null,
+          windowStart: window.start,
+          windowEnd: window.end,
           weightKg: sum(group.map((d) => d.weightKg)),
           deliveryOrders: group.map((d) => ({
             id: encodeId('deliveryOrder', d.id),
             doNo: d.doNo!,
             weightKg: dec(d.weightKg),
+            doDate: d.doDate.toISOString().slice(0, 10),
+            redeliveryOfNo: d.redeliveryOf?.doNo ?? null,
+            rescheduleCount: d.rescheduleCount,
           })),
         };
       })
