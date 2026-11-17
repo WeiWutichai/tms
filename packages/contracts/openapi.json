@@ -16117,7 +16117,7 @@
         "parameters": [],
         "responses": {
           "200": {
-            "description": "event สาธารณะที่สมัครได้ (docs/01 §5.3) — คำอธิบาย/ตัวอย่าง payload เพิ่มใน ST7-T05",
+            "description": "event สาธารณะที่สมัครได้ (docs/01 §5.3) พร้อมคำอธิบายและตัวอย่าง `data.object` (ข้อมูลสมมติ) — JSON schema เต็มต่อ event = ST7-T06",
             "content": {
               "application/json": {
                 "schema": {
@@ -16516,6 +16516,248 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/WebhookTestResultDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "webhooks"
+        ]
+      }
+    },
+    "/v1/webhook-deliveries": {
+      "get": {
+        "operationId": "WebhookDeliveries_list",
+        "parameters": [
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "ค่า nextCursor จากหน้าก่อน",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sort",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "-sentAt",
+              "type": "string",
+              "enum": [
+                "sentAt",
+                "-sentAt"
+              ]
+            }
+          },
+          {
+            "name": "eventId",
+            "required": false,
+            "in": "query",
+            "description": "id ของ event (`id` ใน envelope / header X-TMS-Event-Id)",
+            "schema": {
+              "example": "evt_8f3a…",
+              "type": "string"
+            }
+          },
+          {
+            "name": "endpointId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "example": "whe_8f3a…",
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "description": "คั่นด้วย , เช่น `failed,exhausted`",
+            "schema": {
+              "example": "failed,exhausted",
+              "type": "string"
+            }
+          },
+          {
+            "name": "eventType",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "example": "order.created",
+              "type": "string"
+            }
+          },
+          {
+            "name": "test",
+            "required": false,
+            "in": "query",
+            "description": "true = เฉพาะ event ทดสอบ/ยืนยันปลายทาง · false = เฉพาะ event จริง",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "sentFrom",
+            "required": false,
+            "in": "query",
+            "description": "ส่งตั้งแต่เวลานี้",
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          },
+          {
+            "name": "sentTo",
+            "required": false,
+            "in": "query",
+            "description": "ส่งก่อนเวลานี้",
+            "schema": {
+              "format": "date-time",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "การส่งทีละครั้ง (1 แถว/attempt) ใหม่สุดก่อน · กรอง `eventId`, `endpointId`, `status`, `eventType`, `test`, ช่วงเวลา · เก็บ 30 วัน",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookDeliveryPageDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "webhooks"
+        ]
+      }
+    },
+    "/v1/webhook-deliveries/{id}": {
+      "get": {
+        "operationId": "WebhookDeliveries_get",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "รายละเอียด + payload ที่ส่ง/response ที่ได้ · ค่า header เพิ่มเติมเป็น `***` · ลายเซ็นแสดงบางส่วน",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookDeliveryDetailDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "webhooks"
+        ]
+      }
+    },
+    "/v1/webhook-deliveries/{id}/retry": {
+      "post": {
+        "operationId": "WebhookDeliveries_retry",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ส่ง event ของรายการนี้ไป endpoint เดิมอีกครั้งผ่าน outbox (id เดิม, X-TMS-Attempt +1) รอผล ≤ 10 วิ · event ทดสอบ → 422 `webhook_not_retryable` · endpoint ปิด → 409 · เกิน 30 วัน → 422 `webhook_event_expired` · ถี่เกิน → 429",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookResendResultDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "webhooks"
+        ]
+      }
+    },
+    "/v1/events/{id}/redeliver": {
+      "post": {
+        "operationId": "Events_redeliver",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "endpointId",
+            "required": false,
+            "in": "query",
+            "description": "ส่งเฉพาะ endpoint นี้ · ไม่ระบุ = ทุก endpoint ที่เปิดอยู่และสมัคร event ชนิดนี้",
+            "schema": {
+              "example": "whe_8f3a…",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ส่ง event ซ้ำไป `endpointId` หรือทุก endpoint ที่เปิดอยู่และสมัคร event นี้ (เช่น event ที่เกิดระหว่างปิด endpoint — INT-105) · ผ่าน outbox รอผล ≤ 10 วิ ต่อ endpoint · ภายใน 30 วัน · ไม่ได้สมัคร → 422 `webhook_event_not_subscribed`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookRedeliverResultDto"
                 }
               }
             }
@@ -42090,10 +42332,28 @@
           "type": {
             "type": "string",
             "example": "order.created"
+          },
+          "resource": {
+            "type": "string",
+            "example": "order",
+            "description": "resource ของ event (ส่วนหน้าจุด)"
+          },
+          "description": {
+            "type": "string",
+            "example": "สร้างใบสั่งงานใหม่",
+            "description": "ความหมายของ event (ภาษาไทย)"
+          },
+          "sample": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "ตัวอย่าง `data.object` (ข้อมูลสมมติ — เดียวกับ `webhook.test`)"
           }
         },
         "required": [
-          "type"
+          "type",
+          "resource",
+          "description",
+          "sample"
         ]
       },
       "WebhookEventTypeListDto": {
@@ -42502,6 +42762,308 @@
           "durationMs",
           "errorCode",
           "eventId"
+        ]
+      },
+      "WebhookDeliveryDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "whd_8f3a…"
+          },
+          "endpointId": {
+            "type": "string",
+            "example": "whe_8f3a…"
+          },
+          "eventId": {
+            "type": "string",
+            "example": "evt_8f3a…",
+            "description": "id ใน envelope — เท่ากันทุกครั้งที่ส่ง event เดิม (ผู้รับกันซ้ำด้วยค่านี้)"
+          },
+          "eventType": {
+            "type": "string",
+            "example": "order.created"
+          },
+          "attempt": {
+            "type": "number",
+            "description": "ครั้งที่ส่ง (= header X-TMS-Attempt)"
+          },
+          "test": {
+            "type": "boolean",
+            "description": "event ทดสอบ / ยืนยันปลายทาง (ส่งซ้ำไม่ได้)"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "delivered",
+              "failed",
+              "exhausted"
+            ]
+          },
+          "requestUrl": {
+            "type": "string",
+            "example": "https://erp.example.co.th/tms/webhook"
+          },
+          "responseStatus": {
+            "type": "number",
+            "nullable": true,
+            "description": "HTTP status (null = ไม่ได้ response)"
+          },
+          "durationMs": {
+            "type": "number"
+          },
+          "errorCode": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "http_status",
+              "redirect",
+              "timeout",
+              "network",
+              "ssrf_blocked",
+              "invalid_url",
+              "invalid_request"
+            ]
+          },
+          "sentAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "nextRetryAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "เวลาลองใหม่อัตโนมัติครั้งถัดไป (status = failed)"
+          }
+        },
+        "required": [
+          "id",
+          "endpointId",
+          "eventId",
+          "eventType",
+          "attempt",
+          "test",
+          "status",
+          "requestUrl",
+          "responseStatus",
+          "durationMs",
+          "errorCode",
+          "sentAt",
+          "nextRetryAt"
+        ]
+      },
+      "WebhookDeliveryPageDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WebhookDeliveryDto"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor",
+          "hasMore"
+        ]
+      },
+      "WebhookDeliveryDetailDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "whd_8f3a…"
+          },
+          "endpointId": {
+            "type": "string",
+            "example": "whe_8f3a…"
+          },
+          "eventId": {
+            "type": "string",
+            "example": "evt_8f3a…",
+            "description": "id ใน envelope — เท่ากันทุกครั้งที่ส่ง event เดิม (ผู้รับกันซ้ำด้วยค่านี้)"
+          },
+          "eventType": {
+            "type": "string",
+            "example": "order.created"
+          },
+          "attempt": {
+            "type": "number",
+            "description": "ครั้งที่ส่ง (= header X-TMS-Attempt)"
+          },
+          "test": {
+            "type": "boolean",
+            "description": "event ทดสอบ / ยืนยันปลายทาง (ส่งซ้ำไม่ได้)"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "delivered",
+              "failed",
+              "exhausted"
+            ]
+          },
+          "requestUrl": {
+            "type": "string",
+            "example": "https://erp.example.co.th/tms/webhook"
+          },
+          "responseStatus": {
+            "type": "number",
+            "nullable": true,
+            "description": "HTTP status (null = ไม่ได้ response)"
+          },
+          "durationMs": {
+            "type": "number"
+          },
+          "errorCode": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "http_status",
+              "redirect",
+              "timeout",
+              "network",
+              "ssrf_blocked",
+              "invalid_url",
+              "invalid_request"
+            ]
+          },
+          "sentAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "nextRetryAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "เวลาลองใหม่อัตโนมัติครั้งถัดไป (status = failed)"
+          },
+          "requestHeaders": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "header ที่ส่ง — ค่าของ header เพิ่มเติมแสดงเป็น `***` · ลายเซ็นแสดงบางส่วน (ไม่มี secret)"
+          },
+          "requestBody": {
+            "type": "string",
+            "nullable": true,
+            "description": "body ที่ส่ง (JSON envelope) — field ราคาที่ผู้ดูไม่มีสิทธิ์ `prices.sell:read`/`prices.buy:read` ถูกตัดออก · body ที่ไม่ใช่ JSON ต้องมีทั้งสองสิทธิ์ ไม่งั้น null"
+          },
+          "responseBody": {
+            "type": "string",
+            "nullable": true,
+            "description": "body ที่ผู้รับตอบ (ตัดที่ 4 KB)"
+          },
+          "errorMessage": {
+            "type": "string",
+            "nullable": true,
+            "description": "รายละเอียดข้อผิดพลาดการเชื่อมต่อ"
+          }
+        },
+        "required": [
+          "id",
+          "endpointId",
+          "eventId",
+          "eventType",
+          "attempt",
+          "test",
+          "status",
+          "requestUrl",
+          "responseStatus",
+          "durationMs",
+          "errorCode",
+          "sentAt",
+          "nextRetryAt",
+          "requestHeaders",
+          "requestBody",
+          "responseBody",
+          "errorMessage"
+        ]
+      },
+      "WebhookResendResultDto": {
+        "type": "object",
+        "properties": {
+          "endpointId": {
+            "type": "string",
+            "example": "whe_8f3a…"
+          },
+          "eventId": {
+            "type": "string",
+            "example": "evt_8f3a…"
+          },
+          "attempt": {
+            "type": "number",
+            "description": "ครั้งที่ส่ง (X-TMS-Attempt) — ต่อจากครั้งล่าสุดของ event นี้ที่ endpoint นี้"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "delivered",
+              "failed",
+              "queued",
+              "skipped"
+            ],
+            "description": "delivered = ผู้รับตอบ 2xx · failed = ไม่สำเร็จ (ไม่ลองใหม่อัตโนมัติ) · queued = เข้าคิวแล้ว worker จะส่ง · skipped = endpoint ถูกปิดระหว่างส่ง"
+          },
+          "deliveryId": {
+            "type": "string",
+            "nullable": true,
+            "example": "whd_8f3a…"
+          },
+          "status": {
+            "type": "number",
+            "nullable": true
+          },
+          "durationMs": {
+            "type": "number",
+            "nullable": true
+          },
+          "errorCode": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "http_status",
+              "redirect",
+              "timeout",
+              "network",
+              "ssrf_blocked",
+              "invalid_url",
+              "invalid_request"
+            ]
+          }
+        },
+        "required": [
+          "endpointId",
+          "eventId",
+          "attempt",
+          "state",
+          "deliveryId",
+          "status",
+          "durationMs",
+          "errorCode"
+        ]
+      },
+      "WebhookRedeliverResultDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WebhookResendResultDto"
+            }
+          }
+        },
+        "required": [
+          "data"
         ]
       },
       "RatePartyRefDto": {

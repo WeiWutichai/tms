@@ -287,6 +287,7 @@ export function WebhooksTab({
           onRotate={() => rotate(current)}
           onTest={() => test(current)}
           onCopied={() => toast(t('whk.toast.copied'))}
+          toast={toast}
           onClose={() => {
             setOpenId(null);
             setSelected(null);

@@ -157,6 +157,40 @@ export class OutboxDispatcher {
     return rows[0] ?? null;
   }
 
+  /**
+   * หยิบคำสั่งที่ระบุแล้วส่งทันที (ST7-T05 ส่งซ้ำ webhook ด้วยมือ — ผู้ใช้รอผล) — ผ่าน lease/fencing เดียวกับ worker
+   * หยิบได้เฉพาะคำสั่ง PENDING ที่ถึงเวลา เป็นหัวคิวของ serialize_key และปลายทางยังส่งพร้อมกันไม่ครบ MAX_IN_FLIGHT_PER_TARGET
+   * หยิบไม่ได้ (worker หยิบไปแล้ว/ยังไม่ถึงคิว/เต็มเพดาน) → false (worker ส่งให้)
+   */
+  async runNow(id: string): Promise<boolean> {
+    const [row] = await this.prisma.platform.$queryRaw<{ sink: string }[]>`
+      SELECT sink FROM integration_outbox WHERE id = ${id}::uuid`;
+    if (!row) return false;
+    const leaseMs = this.sinks.get(row.sink)?.leaseMs ?? DEFAULT_LEASE_MS;
+    const rows = await this.prisma.platform.$queryRaw<ClaimedCommand[]>`
+      UPDATE integration_outbox u
+         SET status = 'IN_FLIGHT', attempt = u.attempt + 1, lease_id = gen_random_uuid(),
+             lease_until = now() + (${leaseMs}::int * interval '1 millisecond'),
+             claimed_at = clock_timestamp(), updated_at = now()
+       WHERE u.id = ${id}::uuid AND u.status = 'PENDING' AND u.next_run_at <= now()
+         -- เพดานส่งพร้อมกันต่อปลายทางเดียวกับ worker (เต็ม = ให้ worker ส่งเมื่อว่าง)
+         AND (SELECT count(*) FROM integration_outbox b
+               WHERE b.tenant_id = u.tenant_id AND b.sink = u.sink
+                 AND coalesce(b.target_id, '-') = coalesce(u.target_id, '-')
+                 AND b.status = 'IN_FLIGHT' AND b.lease_until >= now()) < ${MAX_IN_FLIGHT_PER_TARGET}
+         AND NOT EXISTS (
+           SELECT 1 FROM integration_outbox p
+            WHERE p.tenant_id = u.tenant_id AND p.serialize_key = u.serialize_key AND p.seq < u.seq
+              AND p.status IN ('PENDING', 'IN_FLIGHT', 'FAILED_RETRYABLE'))
+      RETURNING u.id, u.tenant_id AS "tenantId", u.kind::text AS kind, u.sink, u.target_id AS "targetId",
+                u.operation, u.entity_type AS "entityType", u.local_id AS "localId", u.event_id AS "eventId",
+                u.serialize_key AS "serializeKey", u.idempotency_key AS "idempotencyKey", u.payload,
+                u.attempt, u.max_attempt AS "maxAttempt", u.lease_id AS "leaseId"`;
+    if (!rows[0]) return false;
+    await this.process(rows[0]);
+    return true;
+  }
+
   /** หยิบแล้วส่ง 1 รายการ — คืน true ถ้ามีงาน */
   async runOnce(): Promise<boolean> {
     const c = await this.claim();
@@ -310,6 +344,9 @@ export class OutboxDispatcher {
              error_class = ${r.errorClass}, last_error = ${r.lastError ? JSON.stringify(r.lastError) : null}::jsonb,
              result = coalesce(${r.result ? JSON.stringify(r.result) : null}::jsonb, result),
              done_at = CASE WHEN ${terminal} THEN now() ELSE NULL END,
+             -- INT-109 เวลาที่เริ่มพัก (tenant ถูกระงับ = AUTH → PENDING) — คงค่าเดิมระหว่างพักต่อเนื่อง ล้างเมื่อพ้นสถานะพัก
+             parked_at = CASE WHEN ${r.status === 'PENDING' && r.errorClass === 'AUTH'}
+                              THEN coalesce(parked_at, now()) ELSE NULL END,
              next_run_at = CASE WHEN ${terminal} THEN next_run_at
                                 ELSE now() + (${r.delayMs ?? 0}::int * interval '1 millisecond') END,
              updated_at = now()

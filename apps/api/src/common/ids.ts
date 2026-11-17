@@ -46,6 +46,8 @@ export const ID_PREFIX = {
   apiKey: 'key',
   /** docs/01 §3.7 webhook_endpoint (`whe_`) — spec/07 INT-052 เขียน `whk_` แต่ docs มาก่อน */
   webhookEndpoint: 'whe',
+  /** ST7-T05 บันทึกการส่ง webhook 1 ครั้ง (webhook_delivery) */
+  webhookDelivery: 'whd',
   doSurcharge: 'dsc', // ST4-T13 ค่าใช้จ่ายหน้างานฝั่งขาย
   tripCost: 'tco', // ST4-T13 ต้นทุนเที่ยว (ค่าใช้จ่ายหน้างานฝั่งซื้อ)
 } as const;
