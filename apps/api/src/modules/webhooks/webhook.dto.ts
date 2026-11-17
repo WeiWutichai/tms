@@ -163,7 +163,7 @@ export class CreateWebhookDto {
   @IsIn(WEBHOOK_EVENT_TYPES as unknown as string[], { each: true })
   events!: string[];
 
-  @ApiPropertyOptional({ maxLength: 200, nullable: true })
+  @ApiPropertyOptional({ maxLength: 200, nullable: true, type: String })
   @IsNullable()
   @CleanText()
   @IsString()
@@ -198,7 +198,7 @@ export class UpdateWebhookDto {
   @IsIn(WEBHOOK_EVENT_TYPES as unknown as string[], { each: true })
   events?: string[];
 
-  @ApiPropertyOptional({ maxLength: 200, nullable: true })
+  @ApiPropertyOptional({ maxLength: 200, nullable: true, type: String })
   @IsNullable()
   @CleanText()
   @IsString()

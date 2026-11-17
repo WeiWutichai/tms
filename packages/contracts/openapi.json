@@ -39766,7 +39766,7 @@
             }
           },
           "description": {
-            "type": "object",
+            "type": "string",
             "maxLength": 200,
             "nullable": true
           },
@@ -39971,7 +39971,7 @@
             }
           },
           "description": {
-            "type": "object",
+            "type": "string",
             "maxLength": 200,
             "nullable": true
           },
