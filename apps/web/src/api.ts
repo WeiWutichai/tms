@@ -10,7 +10,8 @@ export const api = createTmsClient({
   baseUrl: '',
   // หน้าลิงก์สาธารณะ (/link/*) ไม่ใช้ session ของผู้ใช้ — ไม่ต่ออายุ token (QA ST4-T08 L5)
   getToken: () =>
-    typeof location !== 'undefined' && location.pathname.startsWith('/link/')
+    typeof location !== 'undefined' &&
+    (location.pathname.startsWith('/link/') || location.pathname.startsWith('/t/'))
       ? null
       : getAccessToken(),
   locale: () => (document.documentElement.lang === 'en' ? 'en' : 'th'),
