@@ -21,7 +21,16 @@ import type { PullPage } from '../connectors/order-source.port';
  * - canonical payload ละเอียด (docs/01 §7) มาใน ST7-T15 — ที่นี่ประกาศเฉพาะช่องที่ทุก adapter อาศัย
  */
 
-/** ช่องตั้งค่าของ adapter (หน้า connector ST7-T20 สร้างฟอร์มจากรายการนี้ — ป้ายภาษาไทยอยู่ใน i18n ของเว็บตาม key) */
+/**
+ * ช่องตั้งค่าของ adapter (หน้า connector ST7-T20 สร้างฟอร์มจากรายการนี้ — ป้ายภาษาไทยอยู่ใน i18n ของเว็บตาม key)
+ * กติกา `secret` (ST7-T13):
+ * - ค่าใดที่ใช้ยืนยันตัวตน/ให้สิทธิ์ (API key, password, client secret, token, private key, connection string ที่มีรหัสผ่าน) **ต้อง** `secret: true`
+ * - `secret: true` → เก็บใน `connector.credentials_enc` (FieldCipher) · ส่งผ่าน `PUT /connectors/{id}/credentials` หรือ `credentials` ตอนสร้าง
+ *   · API คืนแค่ชื่อช่องใน `credentialKeys` · audit บันทึกแค่ชื่อช่อง · ข้อความ error ถูกตัดค่า (ตัวจริง/URL-encoded/base64)
+ * - `secret: false` → เก็บใน `connector.settings` แบบอ่านได้ ส่งกลับทาง API — ใช้กับค่าที่เปิดเผยได้เท่านั้น (base URL, รหัสบริษัท, timeout)
+ * - ห้ามใส่ credential ใน URL ของช่อง `kind: 'url'` (เช่น `https://user:pass@…`) — แยกเป็นช่อง secret
+ * - เปลี่ยนช่องจาก secret เป็นไม่ secret (หรือกลับกัน) = ต้องย้ายข้อมูลของ connector เดิม — ห้ามทำโดยไม่มี migration
+ */
 export interface ConnectorConfigField {
   /** a-z/0-9/camelCase */
   readonly key: string;
@@ -109,7 +118,7 @@ export interface ListDocumentsQuery {
 }
 
 /**
- * docs/01 §6.1 — method ที่มี ⇔ ประกาศ capability ชื่อเดียวกัน (`assertAdapterShape`)
+ * docs/01 §6.1 — method ที่มี ⇔ ประกาศ capability ชื่อเดียวกัน (`adapterShapeProblems`)
  * ธง `postedStatus` / `ownsDocumentNumber` ไม่มี method
  */
 export interface ErpAdapter {

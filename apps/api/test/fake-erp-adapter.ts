@@ -28,6 +28,8 @@ export class FakeErpAdapter implements ErpAdapter {
   calls: { op: string; ctx: ErpContext; doc?: unknown }[] = [];
   fail?: { errorClass: ErrorClass; message?: string };
   health?: HealthResult;
+  /** test: push ครั้งถัดไป throw ด้วยข้อความนี้ (จำลอง HTTP client ใส่ credential ใน error) */
+  throwWith?: string;
 
   constructor(
     readonly key = 'fake-erp',
@@ -36,7 +38,7 @@ export class FakeErpAdapter implements ErpAdapter {
     this.caps = caps;
     this.displayName = `Fake ${key}`;
     const self = this as unknown as Record<string, unknown>;
-    // method ⇔ capability (assertAdapterShape)
+    // method ⇔ capability (adapterShapeProblems)
     if (!caps.includes('pushInvoice')) self.pushInvoice = undefined;
     if (!caps.includes('pushCreditNote')) self.pushCreditNote = undefined;
     if (!caps.includes('fetchDocument')) self.fetchDocument = undefined;
@@ -59,6 +61,7 @@ export class FakeErpAdapter implements ErpAdapter {
 
   private push(op: string, ctx: ErpContext, doc: CanonicalDocument): PushResult {
     this.calls.push({ op, ctx, doc });
+    if (this.throwWith) throw new Error(this.throwWith);
     if (ctx.config.apiKey !== GOOD_KEY)
       return {
         ok: false,
@@ -100,5 +103,6 @@ export class FakeErpAdapter implements ErpAdapter {
     this.calls = [];
     this.fail = undefined;
     this.health = undefined;
+    this.throwWith = undefined;
   }
 }

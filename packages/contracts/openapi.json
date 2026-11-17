@@ -16531,6 +16531,66 @@
         ]
       }
     },
+    "/v1/connectors/effective": {
+      "get": {
+        "operationId": "ConnectorsEffective_effective",
+        "parameters": [
+          {
+            "name": "companyId",
+            "required": false,
+            "in": "query",
+            "description": "นิติบุคคล — ไม่ระบุทั้งนิติบุคคลและสาขา = ค่าเริ่มต้นระดับ tenant (connector ทุกนิติบุคคล หรือ Standalone)",
+            "schema": {
+              "example": "cmp_…",
+              "type": "string"
+            }
+          },
+          {
+            "name": "branchId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "example": "brn_…",
+              "type": "string"
+            }
+          },
+          {
+            "name": "kind",
+            "required": false,
+            "in": "query",
+            "description": "ออกบิลในนาม / จ้างในนาม",
+            "schema": {
+              "default": "invoice",
+              "type": "string",
+              "enum": [
+                "invoice",
+                "tender"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "connector ที่เอกสารของนิติบุคคล/สาขานี้ใช้ (routing: นิติบุคคล → ทุกนิติบุคคล → Standalone) + capability ที่ใช้ได้",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EffectiveConnectorDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "connectors"
+        ]
+      }
+    },
     "/v1/connectors": {
       "get": {
         "operationId": "Connectors_list",
@@ -16618,66 +16678,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErpAdapterListDto"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "tags": [
-          "connectors"
-        ]
-      }
-    },
-    "/v1/connectors/effective": {
-      "get": {
-        "operationId": "Connectors_effective",
-        "parameters": [
-          {
-            "name": "companyId",
-            "required": false,
-            "in": "query",
-            "description": "นิติบุคคล — ไม่ระบุทั้งนิติบุคคลและสาขา = ค่าเริ่มต้นระดับ tenant (connector ทุกนิติบุคคล หรือ Standalone)",
-            "schema": {
-              "example": "cmp_…",
-              "type": "string"
-            }
-          },
-          {
-            "name": "branchId",
-            "required": false,
-            "in": "query",
-            "schema": {
-              "example": "brn_…",
-              "type": "string"
-            }
-          },
-          {
-            "name": "kind",
-            "required": false,
-            "in": "query",
-            "description": "ออกบิลในนาม / จ้างในนาม",
-            "schema": {
-              "default": "invoice",
-              "type": "string",
-              "enum": [
-                "invoice",
-                "tender"
-              ]
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "connector ที่เอกสารของนิติบุคคล/สาขานี้ใช้ (routing: นิติบุคคล → ทุกนิติบุคคล → Standalone) + capability ที่ใช้ได้",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/EffectiveConnectorDto"
                 }
               }
             }
@@ -44141,6 +44141,96 @@
           "eventId"
         ]
       },
+      "EffectiveConnectorDto": {
+        "type": "object",
+        "properties": {
+          "standalone": {
+            "type": "boolean",
+            "description": "true = ไม่เชื่อม ERP (ทุก flow ทำใน TMS)"
+          },
+          "connectorId": {
+            "type": "string",
+            "nullable": true
+          },
+          "adapterKey": {
+            "type": "string",
+            "example": "standalone"
+          },
+          "displayName": {
+            "type": "string",
+            "nullable": true
+          },
+          "status": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "ACTIVE",
+              "PAUSED",
+              "ERROR",
+              "DISCONNECTED"
+            ]
+          },
+          "capabilities": {
+            "type": "array",
+            "description": "ใช้ได้จริง (UI แสดงเฉพาะที่อยู่ในรายการนี้)",
+            "items": {
+              "type": "string",
+              "enum": [
+                "pullOrders",
+                "pushInvoice",
+                "pushCreditNote",
+                "pushSettlement",
+                "fetchDocument",
+                "fetchPaymentStatus",
+                "listDocuments",
+                "replaceDocument",
+                "postedStatus",
+                "ownsDocumentNumber"
+              ]
+            }
+          },
+          "sending": {
+            "type": "boolean",
+            "description": "ส่ง/ดึงได้ตอนนี้ (ACTIVE) — false = เอกสารเข้าคิวรอ"
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "company",
+              "tenant",
+              "none"
+            ]
+          },
+          "erpCompanyCode": {
+            "type": "string",
+            "nullable": true
+          },
+          "companyId": {
+            "type": "string",
+            "nullable": true,
+            "example": "cmp_…",
+            "description": "นิติบุคคลที่ routing เลือก (null = ไม่ได้ระบุ — ค่าระดับ tenant)"
+          },
+          "branchId": {
+            "type": "string",
+            "nullable": true,
+            "example": "brn_…"
+          }
+        },
+        "required": [
+          "standalone",
+          "connectorId",
+          "adapterKey",
+          "displayName",
+          "status",
+          "capabilities",
+          "sending",
+          "scope",
+          "erpCompanyCode",
+          "companyId",
+          "branchId"
+        ]
+      },
       "ConnectorDto": {
         "type": "object",
         "properties": {
@@ -44451,96 +44541,6 @@
         },
         "required": [
           "data"
-        ]
-      },
-      "EffectiveConnectorDto": {
-        "type": "object",
-        "properties": {
-          "standalone": {
-            "type": "boolean",
-            "description": "true = ไม่เชื่อม ERP (ทุก flow ทำใน TMS)"
-          },
-          "connectorId": {
-            "type": "string",
-            "nullable": true
-          },
-          "adapterKey": {
-            "type": "string",
-            "example": "standalone"
-          },
-          "displayName": {
-            "type": "string",
-            "nullable": true
-          },
-          "status": {
-            "type": "string",
-            "nullable": true,
-            "enum": [
-              "ACTIVE",
-              "PAUSED",
-              "ERROR",
-              "DISCONNECTED"
-            ]
-          },
-          "capabilities": {
-            "type": "array",
-            "description": "ใช้ได้จริง (UI แสดงเฉพาะที่อยู่ในรายการนี้)",
-            "items": {
-              "type": "string",
-              "enum": [
-                "pullOrders",
-                "pushInvoice",
-                "pushCreditNote",
-                "pushSettlement",
-                "fetchDocument",
-                "fetchPaymentStatus",
-                "listDocuments",
-                "replaceDocument",
-                "postedStatus",
-                "ownsDocumentNumber"
-              ]
-            }
-          },
-          "sending": {
-            "type": "boolean",
-            "description": "ส่ง/ดึงได้ตอนนี้ (ACTIVE) — false = เอกสารเข้าคิวรอ"
-          },
-          "scope": {
-            "type": "string",
-            "enum": [
-              "company",
-              "tenant",
-              "none"
-            ]
-          },
-          "erpCompanyCode": {
-            "type": "string",
-            "nullable": true
-          },
-          "companyId": {
-            "type": "string",
-            "nullable": true,
-            "example": "cmp_…",
-            "description": "นิติบุคคลที่ routing เลือก (null = ไม่ได้ระบุ — ค่าระดับ tenant)"
-          },
-          "branchId": {
-            "type": "string",
-            "nullable": true,
-            "example": "brn_…"
-          }
-        },
-        "required": [
-          "standalone",
-          "connectorId",
-          "adapterKey",
-          "displayName",
-          "status",
-          "capabilities",
-          "sending",
-          "scope",
-          "erpCompanyCode",
-          "companyId",
-          "branchId"
         ]
       },
       "CreateConnectorDto": {

@@ -13,6 +13,7 @@ import { encodeId, tryDecodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
+import { PrismaService } from '../../db/prisma.service';
 import { EntitlementService } from '../entitlements/entitlement.service';
 import type {
   ConnectorActionDto,
@@ -44,7 +45,19 @@ const iso = (d: Date | null) => (d ? d.toISOString() : null);
 /** แทนค่า credential ที่หลุดมาในข้อความ (ข้อความจาก adapter/ERP) ด้วย *** */
 export function redactSecrets(text: string, secrets: Iterable<string>): string {
   let out = text;
-  for (const s of secrets) if (s && s.length >= 4) out = out.split(s).join('***');
+  for (const s of secrets) {
+    if (!s || s.length < 4) continue;
+    // รูปที่มักหลุดใน error ของ HTTP client: ตัวจริง, URL-encoded, base64 (Basic auth), base64url
+    const forms = new Set([
+      s,
+      encodeURIComponent(s),
+      Buffer.from(s).toString('base64'),
+      Buffer.from(s).toString('base64url'),
+      Buffer.from(s).toString('base64').replace(/=+$/, ''),
+    ]);
+    for (const f of [...forms].sort((a, b) => b.length - a.length))
+      if (f.length >= 4) out = out.split(f).join('***');
+  }
   return out;
 }
 
@@ -89,6 +102,7 @@ export class ConnectorsService {
     private readonly adapters: ErpAdapterRegistry,
     private readonly resolver: ConnectorResolver,
     private readonly entitlements: EntitlementService,
+    private readonly prisma: PrismaService,
   ) {}
 
   get cipher(): FieldCipher {
@@ -182,8 +196,32 @@ export class ConnectorsService {
       if (!id) throw field422(field, 'invalid_id', `must be a ${kind} id`);
       return id;
     };
-    const companyId = decode('company', 'companyId', q.companyId);
+    let companyId = decode('company', 'companyId', q.companyId);
     const branchId = decode('branch', 'branchId', q.branchId);
+    // แพ็กเกจไม่มี connector → Standalone เสมอ (ไม่ 403 — หน้าจอทุกแพ็กเกจถามได้)
+    if (!(await this.entitlements.enabled(tenantId, 'conn')))
+      return {
+        standalone: true,
+        connectorId: null,
+        adapterKey: this.adapters.standalone.key,
+        displayName: null,
+        status: null,
+        capabilities: [],
+        sending: false,
+        scope: 'none',
+        erpCompanyCode: null,
+        companyId: q.companyId ?? null,
+        branchId: q.branchId ?? null,
+      };
+    // ระบุแค่สาขา → นิติบุคคลของสาขานั้น
+    if (branchId && !companyId) {
+      const b = await tx.branch.findUnique({
+        where: { id: branchId },
+        select: { companyId: true },
+      });
+      if (!b) throw field422('branchId', 'branch_unavailable', 'branch not found');
+      companyId = b.companyId;
+    }
     // ไม่ระบุนิติบุคคล/สาขา = ค่าเริ่มต้นระดับ tenant (connector "ทุกนิติบุคคล" หรือ Standalone)
     const r =
       !companyId && !branchId
@@ -415,10 +453,28 @@ export class ConnectorsService {
     return row;
   }
 
+  /**
+   * แก้ค่าตั้ง — ทำใน transaction ของตัวเอง (route เป็น @NoTransaction) เพื่อปลุกคำสั่งที่พักไว้หลัง commit
+   * เมื่อเปิด capability เพิ่ม (คำสั่งที่พักเพราะ `capability_off` ส่งต่อทันที)
+   */
   async update(id: string, body: UpdateConnectorDto, expected?: number): Promise<Connector> {
     this.assertHuman();
-    const tx = this.db.tx;
-    const cur = await this.get(id);
+    const tenantId = requestContext.require().tenantId!;
+    const { before, after } = await this.db.withTenant(tenantId, (tx) =>
+      this.updateIn(tx, id, body, expected),
+    );
+    if (after.capabilitiesEnabled.some((c) => !before.capabilitiesEnabled.includes(c)))
+      await this.wakeParked(tenantId, id);
+    return after;
+  }
+
+  private async updateIn(
+    tx: Tx,
+    id: string,
+    body: UpdateConnectorDto,
+    expected?: number,
+  ): Promise<{ before: Connector; after: Connector }> {
+    const cur = await this.get(id, tx);
     this.version(cur, expected);
     if (cur.status === 'DISCONNECTED') throw new ProblemException('invalid_state_transition');
     const adapter = this.adapterOr422(cur.adapterKey);
@@ -433,15 +489,15 @@ export class ConnectorsService {
       data.syncFromDate = this.checkSyncFromDate(body.syncFromDate);
     const bm = await this.checkBranchMap(tx, cur.companyId, body.branchMap);
     if (bm !== undefined) data.branchMap = bm;
-    if (!Object.keys(data).length) return cur;
+    if (!Object.keys(data).length) return { before: cur, after: cur };
     const n = await tx.connector.updateMany({
       where: { id, version: cur.version },
       data: { ...data, version: { increment: 1 } },
     });
     if (n.count !== 1) throw new ProblemException('precondition_failed');
-    const after = await this.get(id);
+    const after = await this.get(id, tx);
     await this.auditChanged(tx, 'connector.updated', id, auditView(cur), auditView(after));
-    return after;
+    return { before: cur, after };
   }
 
   private async auditChanged(
@@ -545,9 +601,27 @@ export class ConnectorsService {
     this.version(cur, expected);
     if (!canConnectorTransition('disconnect', cur.status))
       throw new ProblemException('invalid_state_transition');
-    return this.transition(this.db.tx, cur, 'DISCONNECTED', 'connector.disconnected', body.reason, {
-      disconnectedAt: new Date(),
-    });
+    const tx = this.db.tx;
+    // INT-016 หยุดส่ง/ดึงทันที — คำสั่งที่ค้างจะถูกข้ามตอน worker หยิบ (แต่ละใบลง `connector.command_skipped`)
+    const pending = await this.openCommands(tx, cur.id);
+    const row = await this.transition(
+      tx,
+      cur,
+      'DISCONNECTED',
+      'connector.disconnected',
+      body.reason,
+      {
+        disconnectedAt: new Date(),
+      },
+    );
+    if (pending)
+      await this.audit(tx, {
+        action: 'connector.commands_abandoned',
+        entityId: cur.id,
+        after: { pendingCommands: pending },
+        reason: body.reason,
+      });
+    return row;
   }
 
   // ---------- health (นอก transaction ของ request — เรียกปลายทาง) ----------
@@ -560,15 +634,26 @@ export class ConnectorsService {
     return { ...((c.settings ?? {}) as Record<string, string>), ...creds };
   }
 
+  /**
+   * บริบทของการเรียก adapter — `branchId` (สาขาของเอกสาร) ทำให้ `branch_map` มีผล: รหัส ERP = branch_map[สาขา] → erp_company_code
+   * คำสั่งใน outbox (ST7-T15/T16) ต้องใส่ `branchId` ใน payload เพื่อให้ routing ระดับสาขาทำงาน
+   */
   contextOf(
     c: Connector,
-    extra: Partial<Pick<ErpContext, 'idempotencyKey' | 'signal' | 'erpCompanyCode'>> = {},
+    extra: Partial<Pick<ErpContext, 'idempotencyKey' | 'signal' | 'erpCompanyCode'>> & {
+      branchId?: string | null;
+    } = {},
   ): ErpContext {
+    const map = (c.branchMap ?? {}) as Record<string, unknown>;
+    const byBranch =
+      extra.branchId && typeof map[extra.branchId] === 'string'
+        ? (map[extra.branchId] as string)
+        : null;
     return {
       tenantId: c.tenantId,
       connectorId: c.id,
       companyId: c.companyId,
-      erpCompanyCode: extra.erpCompanyCode ?? c.erpCompanyCode,
+      erpCompanyCode: extra.erpCompanyCode ?? byBranch ?? c.erpCompanyCode,
       config: Object.freeze(this.configOf(c)),
       idempotencyKey: extra.idempotencyKey,
       signal: extra.signal,
@@ -676,6 +761,8 @@ export class ConnectorsService {
         return this.transition(tx, now, 'ACTIVE', 'connector.recovered', null);
       return this.get(id, tx);
     });
+    // ERROR → ACTIVE: ส่งคิวค้างต่อทันที (spec/07 §1.6) ไม่ต้องรอรอบพัก 15 นาที
+    if (cur.status !== 'ACTIVE' && row.status === 'ACTIVE') await this.wakeParked(tenantId, id);
     return {
       ok: r.ok,
       errorClass: r.ok ? null : r.errorClass,
@@ -705,12 +792,14 @@ export class ConnectorsService {
         healthCode: r.problem.code,
       });
     }
-    return this.db.withTenant(tenantId, (tx) =>
+    const row = await this.db.withTenant(tenantId, (tx) =>
       this.transition(tx, cur, 'ACTIVE', 'connector.resumed', body.reason ?? null, {
         ...this.healthData(r, at),
         activatedAt: cur.activatedAt ?? at,
       }),
     );
+    await this.wakeParked(tenantId, id); // คำสั่งที่พักระหว่าง PAUSED/ERROR ส่งต่อทันที
+    return row;
   }
 
   /**
@@ -742,5 +831,58 @@ export class ConnectorsService {
       },
     });
     this.logger.warn(`connector ${c.id} (${c.adapterKey}) → ERROR: ${problem.code}`);
+  }
+
+  /**
+   * ปลุกคำสั่งที่พักไว้ของ connector นี้ (PENDING จาก PAUSED/ERROR/capability ปิด) ให้ worker หยิบทันที
+   * เรียกหลัง commit ของ resume / ERROR → ACTIVE / เปิด capability — แก้ integration_outbox ได้เฉพาะ role platform
+   */
+  async wakeParked(tenantId: string, connectorId: string): Promise<number> {
+    return this.prisma.platform.$executeRaw`
+      UPDATE integration_outbox SET next_run_at = now(), updated_at = now()
+       WHERE tenant_id = ${tenantId}::uuid AND sink = 'erp' AND target_id = ${connectorId}
+         AND status = 'PENDING' AND next_run_at > now()`;
+  }
+
+  /** คำสั่งที่ยังไม่จบของ connector (ใช้นับตอนยกเลิกการเชื่อม — จะถูกข้าม) */
+  private async openCommands(tx: Tx, connectorId: string): Promise<number> {
+    return tx.integrationOutbox.count({
+      where: {
+        sink: 'erp',
+        targetId: connectorId,
+        status: { in: ['PENDING', 'IN_FLIGHT', 'FAILED_RETRYABLE'] },
+      },
+    });
+  }
+
+  /**
+   * คำสั่งถูกข้าม (SKIPPED) — docs/01 §6.3 CAPABILITY "SKIPPED + แจ้งบัญชี": ลง audit ของ connector ให้หน้าคิว (ST7-T19) แสดง/แจ้งบัญชี
+   * ระบบเป็นผู้กระทำ (actor null)
+   */
+  async recordSkipped(
+    tx: Tx,
+    c: { id: string; tenantId: string },
+    cmd: { id: string; operation: string; entityType: string; localId: string },
+    code: string,
+  ) {
+    await tx.auditLog.create({
+      data: {
+        tenantId: c.tenantId,
+        action: 'connector.command_skipped',
+        entityType: 'connector',
+        entityId: c.id,
+        after: {
+          outboxId: cmd.id,
+          operation: cmd.operation,
+          entityType: cmd.entityType,
+          localId: cmd.localId,
+          code,
+        },
+        reason: code,
+      },
+    });
+    this.logger.warn(
+      `connector ${c.id}: ${cmd.operation} ${cmd.entityType}/${cmd.localId} skipped (${code})`,
+    );
   }
 }

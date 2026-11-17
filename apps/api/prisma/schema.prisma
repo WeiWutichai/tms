@@ -2728,13 +2728,13 @@ model Connector {
   /// สาขา TMS (uuid) → รหัสบริษัท/สาขาฝั่ง ERP — ไม่มี = ใช้ erp_company_code
   branchMap            Json            @default("{}") @map("branch_map")
   /// subset ของ adapter.capabilities() ที่ tenant เปิด
-  capabilitiesEnabled  String[]        @map("capabilities_enabled")
+  capabilitiesEnabled  String[]        @default([]) @map("capabilities_enabled")
   /// ค่าตั้งที่ไม่ลับตาม configFields ของ adapter (base URL ฯลฯ)
   settings             Json            @default("{}")
   /// credential (ช่อง secret ของ adapter) JSON เข้ารหัส FieldCipher — ไม่ส่งกลับ ไม่ลง log/audit
   credentialsEnc       String?         @map("credentials_enc")
   /// ชื่อช่อง credential ที่ตั้งแล้ว (แสดง "ตั้งแล้ว" ได้โดยไม่ถอดรหัส)
-  credentialKeys       String[]        @map("credential_keys")
+  credentialKeys       String[]        @default([]) @map("credential_keys")
   credentialsUpdatedAt DateTime?       @map("credentials_updated_at") @db.Timestamptz(6)
   /// ไม่ push เอกสารที่ issue_date ก่อนวันนี้ (docs/01 §6.4)
   syncFromDate         DateTime?       @map("sync_from_date") @db.Date

@@ -17,7 +17,11 @@ import { ErpAdapterRegistry } from './erp-adapter.registry';
 
 /** ผลการหา connector ของเอกสาร/นิติบุคคล — core ตัดสิน flow จากที่นี่เท่านั้น (ไม่ดู adapter_key) */
 export interface ResolvedConnector {
-  /** true = ไม่มี connector (หรือยกเลิกแล้ว) → ทุก flow เดินใน TMS เอง */
+  /**
+   * true = ไม่มี connector (หรือยกเลิกแล้ว / แพ็กเกจไม่มี `conn`) → ทุก flow เดินใน TMS เอง
+   * connector ที่ปิดทุก capability ไว้ = `standalone: false` แต่ `capabilities: []` และ `sending: false`
+   * (flow ใดจะมีขั้น sync ให้ดู `capabilities` เสมอ ไม่ใช่ `standalone`)
+   */
   standalone: boolean;
   connector: Connector | null;
   /** STANDALONE_ADAPTER เมื่อ standalone · null เมื่อมี connector แต่ adapter ไม่ได้ลงทะเบียน (deploy ไม่ครบ) */
@@ -25,7 +29,7 @@ export interface ResolvedConnector {
   status: ConnectorStatus | null;
   /** adapter ประกาศ ∩ tenant เปิด (ว่าง = Standalone) — ใช้ตัดสินว่า flow ไหนมีขั้น sync */
   capabilities: ErpCapability[];
-  /** ส่ง/ดึงได้ตอนนี้ (ACTIVE + มี adapter) — false = คำสั่งรอคิว (PAUSED/ERROR/adapter หาย) */
+  /** ส่ง/ดึงได้ตอนนี้ (ACTIVE + มี adapter + เปิดอย่างน้อย 1 capability) — false = คำสั่งรอคิว (PAUSED/ERROR/adapter หาย) */
   sending: boolean;
   /** รหัสบริษัท/สาขาฝั่ง ERP ของเอกสาร (branch_map[สาขา] → erp_company_code) */
   erpCompanyCode: string | null;
@@ -97,13 +101,14 @@ export class ConnectorResolver {
     const map = (row.branchMap ?? {}) as Record<string, unknown>;
     const branchCode =
       branchId && typeof map[branchId] === 'string' ? (map[branchId] as string) : null;
+    const capabilities = effectiveCapabilities(declared, row.capabilitiesEnabled, row.status);
     return {
       standalone: false,
       connector: row,
       adapter,
       status: row.status,
-      capabilities: effectiveCapabilities(declared, row.capabilitiesEnabled, row.status),
-      sending: row.status === 'ACTIVE' && !!adapter,
+      capabilities,
+      sending: row.status === 'ACTIVE' && !!adapter && capabilities.length > 0,
       erpCompanyCode: branchCode ?? row.erpCompanyCode,
       scope,
     };

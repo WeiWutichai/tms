@@ -236,6 +236,21 @@ describe('connectors (ST7-T13)', () => {
       erpCompanyCode: 'B01',
       capabilities: ['pushInvoice'],
     });
+    // ระบุแค่สาขา → นิติบุคคลของสาขานั้น
+    expect(await eff(`branchId=${b.brn}`)).toMatchObject({
+      connectorId: cb.body.id,
+      companyId: b.cmp,
+    });
+    // ปิดทุก capability: ยังไม่ใช่ Standalone แต่ไม่มีอะไรส่ง
+    await api(app, token)
+      .patch(`/v1/connectors/${cb.body.id}`)
+      .send({ capabilitiesEnabled: [] })
+      .expect(200);
+    expect(await eff(`companyId=${b.cmp}`)).toMatchObject({
+      standalone: false,
+      capabilities: [],
+      sending: false,
+    });
     // นิติบุคคลที่ 3 ไม่มีของตัวเอง + ยังไม่มีค่าเริ่มต้น → Standalone
     expect(await eff(`companyId=${c.cmp}`)).toMatchObject({ standalone: true, scope: 'none' });
     // เพิ่มค่าเริ่มต้นทุกนิติบุคคล → นิติบุคคลที่ 3 ใช้ตัวนั้น, A/B ยังใช้ของตัวเอง
@@ -343,6 +358,12 @@ describe('connectors (ST7-T13)', () => {
     await plat.tenant.update({ where: { id: t2 }, data: { planCode: 'start' } });
     app.get(EntitlementService).invalidate(t2);
     await api(app, tok2).get('/v1/connectors').expect(403);
+    // แพ็กเกจไม่มี conn: effective ตอบ Standalone (ไม่ 403) ทั้งที่ยังมีแถว connector ค้างอยู่
+    expect((await api(app, tok2).get('/v1/connectors/effective').expect(200)).body).toMatchObject({
+      standalone: true,
+      capabilities: [],
+      sending: false,
+    });
     // tenant อื่นมองไม่เห็น connector ของกัน
     const mine = await api(app, readToken).get('/v1/connectors').expect(200);
     expect(mine.body.data.every((c: { id: string }) => c.id)).toBe(true);
@@ -397,33 +418,91 @@ describe('connectors (ST7-T13)', () => {
       });
     });
 
-    it('capability ไม่ได้เปิด → SKIPPED · operation ไม่รู้จัก → FAILED_FINAL', async () => {
+    const skippedAudits = (cid: string) =>
+      plat.auditLog.findMany({ where: { entityId: cid, action: 'connector.command_skipped' } });
+
+    it('adapter ไม่รองรับ → SKIPPED + audit (แจ้งบัญชี) · tenant ปิด capability → พัก (capability_off) แล้วเปิดกลับส่งต่อทันที · operation ไม่รู้จัก → FAILED_FINAL', async () => {
       const cid = await activeConnector(['pushInvoice']);
-      const a = await enqueue(cid, 'PUSH_CREDIT_NOTE');
-      const b = await enqueue(cid, 'PUSH_SETTLEMENT');
+      const a = await enqueue(cid, 'PUSH_CREDIT_NOTE'); // adapter รองรับ แต่ tenant ไม่เปิด
+      const b = await enqueue(cid, 'PUSH_SETTLEMENT'); // adapter ไม่รองรับ
       const x = await enqueue(cid, 'DELETE_EVERYTHING');
       await drain();
-      expect((await cmd(a)).status).toBe('SKIPPED');
-      expect((await cmd(a)).errorClass).toBe('CAPABILITY');
-      expect((await cmd(b)).status).toBe('SKIPPED');
+      expect(await cmd(a)).toMatchObject({ status: 'PENDING', attempt: 0, errorClass: 'AUTH' });
+      expect((await cmd(a)).lastError).toMatchObject({ code: 'capability_off' });
+      expect(await cmd(b)).toMatchObject({ status: 'SKIPPED', errorClass: 'CAPABILITY' });
       expect((await cmd(x)).status).toBe('FAILED_FINAL');
       expect(fake.calls).toHaveLength(0);
+      const audits = await skippedAudits(cid);
+      expect(audits.map((r) => (r.after as { code: string }).code)).toEqual([
+        'capability_not_supported',
+      ]);
+      expect(audits[0]!.after).toMatchObject({ outboxId: b, operation: 'PUSH_SETTLEMENT' });
+      // เปิด capability กลับ → คำสั่งที่พักถูกปลุก (ไม่ต้องรอรอบพัก 15 นาที)
+      expect((await cmd(a)).nextRunAt.getTime()).toBeGreaterThan(Date.now() + 60_000);
+      await api(app, token)
+        .patch(`/v1/connectors/${encodeId('connector', cid)}`)
+        .send({ capabilitiesEnabled: ['pushInvoice', 'pushCreditNote'] })
+        .expect(200);
+      await dispatcher.drain();
+      expect(await cmd(a)).toMatchObject({ status: 'DONE' });
+      expect(fake.calls.map((c) => c.op)).toEqual(['pushCreditNote']);
     });
 
-    it('PAUSED → คำสั่งรอ (PENDING ไม่นับครั้ง) · DISCONNECTED → SKIPPED', async () => {
+    it('PAUSED → คำสั่งรอ · resume ปลุกทันที · DISCONNECTED → SKIPPED + audit นับคำสั่งค้าง', async () => {
       const cid = await activeConnector();
       const conId = encodeId('connector', cid);
       await api(app, token).post(`/v1/connectors/${conId}/pause`).send({}).expect(200);
       const id = await enqueue(cid, 'PUSH_INVOICE');
       await drain();
       expect(await cmd(id)).toMatchObject({ status: 'PENDING', attempt: 0, errorClass: 'AUTH' });
+      await api(app, token).post(`/v1/connectors/${conId}/resume`).send({}).expect(200);
+      await dispatcher.drain(); // ไม่เลื่อนเวลาเอง — resume ตั้ง next_run_at = now()
+      expect((await cmd(id)).status).toBe('DONE');
+
+      await api(app, token).post(`/v1/connectors/${conId}/pause`).send({}).expect(200);
+      const id2 = await enqueue(cid, 'PUSH_INVOICE');
+      await drain();
       await api(app, token)
         .post(`/v1/connectors/${conId}/disconnect`)
         .send({ reason: 'ยกเลิกการเชื่อมระหว่างทดสอบ' })
         .expect(200);
+      const abandoned = await plat.auditLog.findFirst({
+        where: { entityId: cid, action: 'connector.commands_abandoned' },
+      });
+      expect(abandoned?.after).toMatchObject({ pendingCommands: 1 });
       await drain();
-      expect((await cmd(id)).status).toBe('SKIPPED');
-      expect(fake.calls).toHaveLength(0);
+      expect((await cmd(id2)).status).toBe('SKIPPED');
+      expect((await skippedAudits(cid)).map((r) => (r.after as { code: string }).code)).toEqual([
+        'connector_disconnected',
+      ]);
+      expect(fake.calls).toHaveLength(1);
+    });
+
+    it('ERROR → ทดสอบผ่าน (ACTIVE) ปลุกคิวค้างทันที', async () => {
+      const cid = await activeConnector();
+      fake.fail = { errorClass: 'AUTH', message: 'expired' };
+      const id = await enqueue(cid, 'PUSH_INVOICE');
+      await drain();
+      expect((await plat.connector.findUniqueOrThrow({ where: { id: cid } })).status).toBe('ERROR');
+      fake.fail = undefined;
+      await api(app, token)
+        .post(`/v1/connectors/${encodeId('connector', cid)}/health`)
+        .expect(200);
+      await dispatcher.drain();
+      expect((await cmd(id)).status).toBe('DONE');
+    });
+
+    it('adapter throw → TRANSIENT · ข้อความตัด credential ทุกรูป (ตัวจริง/URL-encoded/base64)', async () => {
+      const cid = await activeConnector();
+      fake.throwWith = `connect ECONNREFUSED https://erp/?key=${encodeURIComponent(GOOD_KEY)} raw=${GOOD_KEY} b=${Buffer.from(GOOD_KEY).toString('base64')}`;
+      const id = await enqueue(cid, 'PUSH_INVOICE');
+      await drain();
+      const c = await cmd(id);
+      expect(c).toMatchObject({ status: 'FAILED_RETRYABLE', errorClass: 'TRANSIENT' });
+      const text = JSON.stringify(c.lastError);
+      expect(text).toContain('ECONNREFUSED');
+      expect(text).not.toContain(GOOD_KEY);
+      expect(text).not.toContain(Buffer.from(GOOD_KEY).toString('base64').replace(/=+$/, ''));
     });
 
     it('adapter ตอบ AUTH → connector ERROR (หยุดทั้งตัว) + คำสั่งรอ · ข้อความไม่มี credential', async () => {

@@ -82,17 +82,6 @@ export class ConnectorsController {
     return { data: this.connectors.adapterCatalog() };
   }
 
-  @Get('effective')
-  @RequireScope('settings:read')
-  @ApiOkResponse({
-    type: EffectiveConnectorDto,
-    description:
-      'connector ที่เอกสารของนิติบุคคล/สาขานี้ใช้ (routing: นิติบุคคล → ทุกนิติบุคคล → Standalone) + capability ที่ใช้ได้',
-  })
-  effective(@Query() q: EffectiveConnectorQuery): Promise<EffectiveConnectorDto> {
-    return this.connectors.effective(q);
-  }
-
   @Post()
   @RequireScope('settings:write')
   @ApiCreatedResponse({
@@ -132,6 +121,7 @@ export class ConnectorsController {
   }
 
   @Patch(':id')
+  @NoTransaction()
   @TenantResource('connector')
   @RequireScope('settings:write')
   @ApiHeader(IF_MATCH)
@@ -267,5 +257,27 @@ export class ConnectorsController {
     );
     setEtag(res, c.version);
     return this.connectors.toDto(c);
+  }
+}
+
+/**
+ * connector ที่เอกสารใช้ (ST7-T13) — แยก controller เพราะต้องตอบได้ทุกแพ็กเกจ (ไม่มีฟีเจอร์ `conn` = Standalone ไม่ใช่ 403)
+ * ลงทะเบียนก่อน ConnectorsController ใน app.module (ไม่ให้ `GET /connectors/:id` จับ path `effective`)
+ */
+@ApiTags('connectors')
+@ApiBearerAuth()
+@Controller('connectors')
+export class ConnectorsEffectiveController {
+  constructor(private readonly connectors: ConnectorsService) {}
+
+  @Get('effective')
+  @RequireScope('settings:read')
+  @ApiOkResponse({
+    type: EffectiveConnectorDto,
+    description:
+      'connector ที่เอกสารของนิติบุคคล/สาขานี้ใช้ (routing: นิติบุคคล → ทุกนิติบุคคล → Standalone) + capability ที่ใช้ได้',
+  })
+  effective(@Query() q: EffectiveConnectorQuery): Promise<EffectiveConnectorDto> {
+    return this.connectors.effective(q);
   }
 }

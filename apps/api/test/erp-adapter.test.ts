@@ -173,10 +173,19 @@ describe('ConnectorResolver.describe — Standalone default + capability gating 
     expect(lines.join('')).not.toContain(GOOD_KEY);
   });
 
-  it('redactSecrets ตัดค่า credential ออกจากข้อความของปลายทาง', () => {
+  it('redactSecrets ตัดค่า credential ออกจากข้อความของปลายทาง (ตัวจริง / URL-encoded / base64)', () => {
     expect(redactSecrets(`401 key=${GOOD_KEY} rejected`, [GOOD_KEY, ''])).toBe(
       '401 key=*** rejected',
     );
+    const s = 'p@ss/w0rd+ok';
+    const b64 = Buffer.from(s).toString('base64');
+    const out = redactSecrets(
+      `GET https://x/?k=${encodeURIComponent(s)} Authorization: Basic ${b64} url=${Buffer.from(s).toString('base64url')}`,
+      [s],
+    );
+    expect(out).not.toContain(encodeURIComponent(s));
+    expect(out).not.toContain(b64.replace(/=+$/, ''));
+    expect(out).not.toContain(Buffer.from(s).toString('base64url'));
   });
 });
 
@@ -246,6 +255,23 @@ describe('lint rule: core ไม่ import adapter ตรง (เกณฑ์ต
       ['modules/billing/z.ts', 'const a = new KrsAdapter();'],
     ] as const) {
       const r = run(tree({ ...base, [file]: src }));
+      expect(r.ok, file).toBe(false);
+      expect(r.out).toContain(file);
+    }
+  });
+
+  it('dynamic import แบบ template literal / require.resolve / ไฟล์ .mjs / อ้างชื่อ Provider ของ adapter → ล้ม', () => {
+    const withDemo = {
+      ...base,
+      'erp-adapters/demo/demo.provider.ts': 'export class DemoProvider {}\n',
+    };
+    for (const [file, src] of [
+      ['modules/a.ts', 'const k = "krs"; await import(`../erp-adapters/${k}/krs.adapter`);'],
+      ['modules/b.ts', "const p = require.resolve('../erp-adapters/krs/krs.adapter');"],
+      ['modules/c.mjs', "import { KrsAdapter } from '../erp-adapters/krs/krs.adapter.ts';"],
+      ['modules/d.ts', 'export const make = () => DemoProvider;'],
+    ] as const) {
+      const r = run(tree({ ...withDemo, [file]: src }));
       expect(r.ok, file).toBe(false);
       expect(r.out).toContain(file);
     }

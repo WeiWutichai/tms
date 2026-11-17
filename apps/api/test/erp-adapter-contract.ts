@@ -16,7 +16,7 @@ import {
  * ใช้: `describeErpAdapterContract('demo', { make: () => new DemoAdapter(), config: {...}, samples: {...} })` ในไฟล์ test ของ adapter
  *
  * ตรวจ: รูป (method ⇔ capability, key, configFields) · capabilities คงที่และแก้จากภายนอกไม่ได้ ·
- * healthCheck ไม่ throw ทั้งค่าถูก/ผิด · PushResult ถูกรูปและ ErrorClass อยู่ในรายการกลาง ·
+ * healthCheck ไม่ throw ทั้งค่าถูก/ผิด · error ที่ throw จาก push/fetch/pull ต้องไม่มี credential (core ถือ throw = TRANSIENT) · PushResult ถูกรูปและ ErrorClass อยู่ในรายการกลาง ·
  * ส่งซ้ำด้วย idempotencyKey เดิมไม่สร้างเอกสารซ้ำ (externalId เดิม หรือ DUPLICATE) · ไม่มีค่า credential ในผลลัพธ์ใด ๆ
  */
 export interface ErpAdapterContractOptions {
@@ -86,7 +86,21 @@ export function describeErpAdapterContract(name: string, opts: ErpAdapterContrac
       ...opts.config,
       ...Object.fromEntries(secretKeys().map((k) => [k, `${SENTINEL}-${k}`])),
     });
-    const noLeak = (v: unknown) => expect(JSON.stringify(v ?? null)).not.toContain(SENTINEL);
+    /**
+     * ไม่มี credential ในผล **และใน error ที่ throw** (core ตัดซ้ำอีกชั้นใน ErpAdapterSink/runHealth แต่ adapter ต้องไม่ใส่เอง)
+     * — รวมรูป URL-encoded/base64 ที่ HTTP client มักใส่ใน error
+     */
+    const noLeak = async (call: () => Promise<unknown>) => {
+      let out: unknown;
+      try {
+        out = await call();
+      } catch (e) {
+        out = { thrown: String((e as Error)?.message ?? e), stack: (e as Error)?.stack ?? '' };
+      }
+      const text = JSON.stringify(out ?? null);
+      expect(text).not.toContain(SENTINEL);
+      expect(text).not.toContain(Buffer.from(SENTINEL).toString('base64').slice(0, 20));
+    };
 
     it('รูปถูกต้อง: key, displayName, method ⇔ capability, configFields', () => {
       const a = opts.make();
@@ -116,7 +130,7 @@ export function describeErpAdapterContract(name: string, opts: ErpAdapterContrac
         expectHealthShape(bad);
         expect(bad.ok).toBe(false);
       }
-      noLeak(await a.healthCheck(ctxOf(a, leakConfig())));
+      await noLeak(() => a.healthCheck(ctxOf(a, leakConfig())));
     });
 
     it('push/fetch ที่ประกาศ: ผลถูกรูป · ส่งซ้ำ key เดิมไม่สร้างซ้ำ · ไม่มี credential ในผล', async () => {
@@ -138,10 +152,10 @@ export function describeErpAdapterContract(name: string, opts: ErpAdapterContrac
         expectPushShape(r2);
         if (r1.ok)
           expect(r2.ok ? r2.externalId : r2.errorClass).toBe(r2.ok ? r1.externalId : 'DUPLICATE');
-        noLeak(await fn.call(a, ctxOf(a, leakConfig(), `contract:leak:${cap}`), doc));
+        await noLeak(() => fn.call(a, ctxOf(a, leakConfig(), `contract:leak:${cap}`), doc));
       }
       if (s.ref && caps.has('fetchDocument'))
-        noLeak(await a.fetchDocument!(ctxOf(a, leakConfig()), s.ref));
+        await noLeak(() => a.fetchDocument!(ctxOf(a, leakConfig()), s.ref!));
       if (s.ref && caps.has('fetchPaymentStatus')) {
         const p = await a.fetchPaymentStatus!(ctxOf(a, opts.config), s.ref);
         if (p) {
@@ -159,7 +173,7 @@ export function describeErpAdapterContract(name: string, opts: ErpAdapterContrac
       expect(page.orders.length).toBeLessThanOrEqual(5);
       expect(page.nextCursor === null || typeof page.nextCursor === 'string').toBe(true);
       expect(typeof page.hasMore).toBe('boolean');
-      noLeak(await a.pullOrders!(ctxOf(a, leakConfig()), null, 5));
+      await noLeak(() => a.pullOrders!(ctxOf(a, leakConfig()), null, 5));
     });
   });
 }
