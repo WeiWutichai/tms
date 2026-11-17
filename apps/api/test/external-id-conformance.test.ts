@@ -4,6 +4,8 @@ import { ModulesContainer } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Prisma } from '@prisma/client';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import type { IdKind } from '../src/common/ids';
+import { EXT_REF_RESOURCES } from '../src/common/external-id';
 import { createTenantWithDefaults } from '../src/modules/tenants/bootstrap';
 import { bangkokToday } from '../src/modules/vehicle-documents/expiry';
 import { api, bootApp, platform, tokenFor, truncateAll, validTaxId } from './helpers';
@@ -33,12 +35,18 @@ interface ExtResource {
   path: string;
   /** ชื่อ Prisma model */
   model: string;
+  /** ชนิด id (prefix) — route ใต้ resource ห้ามถอด `{id}` ตรง ๆ ด้วย decodeIdOr404 (ต้องผ่าน resolveRef/refToId) */
+  kind: IdKind;
+  /** POST sub-route ที่เรียกด้วย `ext:` แล้วต้องสำเร็จ (2xx) — [suffix, body] */
+  action: [string, object];
   /** body เต็มของ PUT /external/{externalId} (สร้างข้อมูลอ้างอิงที่ต้องใช้ใน tenant ของ token) */
   body: (c: Ctx) => Promise<object>;
   /** PATCH ที่เปลี่ยนค่า (ส่งครั้งที่สอง = ไม่เปลี่ยน) */
   patch: object;
 }
 
+const REASON = 'ทดสอบเรียกด้วย ext id';
+const DEACTIVATE: [string, object] = ['deactivate', { reason: REASON }];
 const ADDR = { line1: '22 หมู่ 3 ต.บางพลีใหญ่ อ.บางพลี จ.สมุทรปราการ 10540' };
 const today = bangkokToday();
 
@@ -71,6 +79,8 @@ const REGISTRY: ExtResource[] = [
   {
     path: 'customers',
     model: 'Customer',
+    kind: 'customer',
+    action: DEACTIVATE,
     body: async (c) => ({
       legalName: `บจก. ต้นทาง ${c.n()}`,
       taxId: validTaxId(70_000 + c.n()),
@@ -81,12 +91,16 @@ const REGISTRY: ExtResource[] = [
   {
     path: 'customer-sites',
     model: 'CustomerSite',
+    kind: 'site',
+    action: DEACTIVATE,
     body: async (c) => ({ name: `คลังต้นทาง ${c.n()}`, kind: 'WAREHOUSE', address: ADDR }),
     patch: { contact: { name: 'คุณแก้ไข', phone: '02-000-0009' } },
   },
   {
     path: 'routes',
     model: 'Route',
+    kind: 'route',
+    action: DEACTIVATE,
     body: async (c) => ({
       originId: await site(c),
       destinationId: await site(c),
@@ -97,6 +111,8 @@ const REGISTRY: ExtResource[] = [
   {
     path: 'carriers',
     model: 'Carrier',
+    kind: 'carrier',
+    action: DEACTIVATE,
     body: async (c) => ({
       legalName: `หจก. รถร่วมต้นทาง ${c.n()}`,
       entityType: 'JURISTIC',
@@ -107,6 +123,8 @@ const REGISTRY: ExtResource[] = [
   {
     path: 'vehicle-types',
     model: 'VehicleType',
+    kind: 'vehicleType',
+    action: DEACTIVATE,
     body: async (c) => ({
       name: `ประเภทรถต้นทาง ${c.n()}`,
       vehicleClass: '10W',
@@ -118,6 +136,8 @@ const REGISTRY: ExtResource[] = [
   {
     path: 'products',
     model: 'Product',
+    kind: 'product',
+    action: DEACTIVATE,
     body: async (c) => ({
       name: `สินค้าต้นทาง ${c.n()}`,
       unitId: await lookup(c, '/v1/units', 'BAG'),
@@ -128,6 +148,8 @@ const REGISTRY: ExtResource[] = [
   {
     path: 'vehicles',
     model: 'Vehicle',
+    kind: 'vehicle',
+    action: ['status', { status: 'parked', reason: REASON }],
     body: async (c) => ({
       plate: `71-${String(c.n()).padStart(4, '0')}`,
       plateProvince: 'TH-11',
@@ -139,6 +161,8 @@ const REGISTRY: ExtResource[] = [
   {
     path: 'drivers',
     model: 'Driver',
+    kind: 'driver',
+    action: ['status', { status: 'on_leave', reason: REASON }],
     body: async (c) => {
       const n = c.n();
       return {
@@ -154,6 +178,8 @@ const REGISTRY: ExtResource[] = [
   {
     path: 'service-items',
     model: 'ServiceItem',
+    kind: 'serviceItem',
+    action: DEACTIVATE,
     body: async (c) => ({
       name: `ค่าบริการต้นทาง ${c.n()}`,
       calcUnit: 'PER_TRIP',
@@ -166,6 +192,8 @@ const REGISTRY: ExtResource[] = [
   {
     path: 'rate-cards',
     model: 'RateCard',
+    kind: 'rateCard',
+    action: ['approve', { reason: 'อนุมัติตามใบเสนอราคา ext' }],
     body: async (c) => ({
       customerId: await customer(c),
       originId: await site(c),
@@ -180,12 +208,16 @@ const REGISTRY: ExtResource[] = [
   {
     path: 'reason-codes',
     model: 'ReasonCode',
+    kind: 'reasonCode',
+    action: DEACTIVATE,
     body: async (c) => ({ category: 'CANCEL', label: `ยกเลิกจากต้นทาง ${c.n()}` }),
     patch: { requiresNote: true },
   },
   {
     path: 'orders',
     model: 'SalesOrder',
+    kind: 'salesOrder',
+    action: ['reevaluate', {}],
     body: async (c) => ({
       customer: { id: await customer(c) },
       requestedDate: today,
@@ -240,10 +272,33 @@ const G2_EXCLUDED: Record<string, string> = {
 };
 /** G2 P0 ที่ docs กำหนด PUT /external — `locations` = `customer-sites` (docs/01 §5.2 #6) */
 const G2_EXTERNAL = ['orders', 'customers', 'customer-sites', 'drivers', 'vehicles', 'carriers'];
+/** resource ทุกแถว P0 ของ docs/04 G2 (#1–#8, #10) — `locations` = `customer-sites` */
+const G2_P0 = [
+  'orders',
+  'webhooks',
+  'events',
+  'webhook-deliveries',
+  'event-types',
+  'stops',
+  'documents',
+  'customers',
+  'locations',
+  'invoices',
+  'invoice-runs',
+  'payments',
+  'trips',
+  'drivers',
+  'vehicles',
+  'carriers',
+  'jobs',
+  'api-keys',
+].map((r) => (r === 'locations' ? 'customer-sites' : r));
 
 interface RouteInfo {
   method: string;
   path: string;
+  /** source ของ handler (ตรวจว่าไม่ถอด `{id}` ตรง ๆ) */
+  src: string;
 }
 function collectRoutes(app: NestExpressApplication): RouteInfo[] {
   const routes: RouteInfo[] = [];
@@ -264,6 +319,7 @@ function collectRoutes(app: NestExpressApplication): RouteInfo[] {
             /\/+/g,
             '/',
           ),
+          src: String(handler),
         });
       }
     }
@@ -343,6 +399,65 @@ describe('external id conformance (ST7-T02)', () => {
     const paths = REGISTRY.map((r) => r.path);
     for (const p of G2_EXTERNAL) expect(paths, p).toContain(p);
     for (const p of Object.keys(G2_EXCLUDED)) expect(paths, p).not.toContain(p);
+    // G2 ทุกแถว = มี external id (G2_EXTERNAL) หรือยกเว้นพร้อมเหตุผล — ไม่ขาด ไม่เกิน
+    expect([...G2_EXTERNAL, ...Object.keys(G2_EXCLUDED)].sort()).toEqual([...G2_P0].sort());
+  });
+
+  it('(5) ทุก route `/{resource}/:id…` ของ resource ในทะเบียนแปลง `{id}` ผ่าน resolveRef/refToId (ไม่ถอดตรง)', () => {
+    // คำอธิบาย `{id}` ใน OpenAPI ใช้รายการเดียวกัน
+    expect([...EXT_REF_RESOURCES].sort()).toEqual(
+      [...REGISTRY.map((r) => r.path), ...Object.values(EXT_ONLY).map((e) => e.path)].sort(),
+    );
+    const bad: string[] = [];
+    for (const res of REGISTRY) {
+      const direct = new RegExp(
+        `(decodeIdOr404|tryDecodeId)\\)?\\(\\s*['"]${res.kind}['"]\\s*,\\s*id\\b`,
+      );
+      for (const r of routes)
+        if (r.path.startsWith(`/v1/${res.path}/:id`) && direct.test(r.src))
+          bad.push(`${r.method} ${r.path}`);
+    }
+    expect(bad, 'route ที่ไม่รับ ext: (ใช้ resolveRef / refToId)').toEqual([]);
+  });
+
+  it('(6) orders: externalId ทุกทางเขียนใช้กฎเดียวกับ master · PATCH external กันใบช่องทางอื่น (409)', async () => {
+    const res = REGISTRY.find((r) => r.path === 'orders')!;
+    const body = await res.body(ctx(tokenA));
+    for (const bad of ['มี ช่องว่าง', 'SO 001', 'ใบสั่ง-1']) {
+      const r = await http(tokenA)
+        .post('/v1/orders')
+        .send({ ...body, externalId: bad });
+      expect(r.status, bad).toBe(422);
+      expect(r.body.errors.map((e: { field: string }) => e.field)).toContain('externalId');
+    }
+    // ใบที่มาจากช่องทางอื่น (เช่น Excel) — PUT/PATCH external ไม่ทับ; แก้ด้วย id หรือ ext: ได้
+    const ext = `XLS-${++seq}`;
+    const c = await http(tokenA).put(`/v1/orders/external/${ext}`).send(body);
+    expect(c.status).toBe(201);
+    await db.salesOrder.updateMany({ where: { externalId: ext }, data: { source: 'IMPORT' } });
+    const p = await http(tokenA).patch(`/v1/orders/external/${ext}`).send(res.patch);
+    expect(p.status).toBe(409);
+    expect(p.body).toMatchObject({ code: 'external_id_conflict', existingSource: 'IMPORT' });
+    expect((await http(tokenA).put(`/v1/orders/external/${ext}`).send(body)).status).toBe(409);
+    expect((await http(tokenA).patch(`/v1/orders/ext:${ext}`).send(res.patch)).status).toBe(200);
+  });
+
+  it('(7) OpenAPI: `{externalId}` มี pattern · `{id}` ของ resource ในทะเบียนอธิบาย ext:', async () => {
+    const doc = (await http(tokenA).get('/v1/openapi.json')).body;
+    for (const res of REGISTRY) {
+      for (const m of ['put', 'patch']) {
+        const op = doc.paths[`/v1/${res.path}/external/{externalId}`][m];
+        const prm = op.parameters.find((x: { name: string }) => x.name === 'externalId');
+        expect(prm.schema.pattern, `${m} ${res.path}`).toBe('^[\\x21-\\x7e]{1,100}$');
+        expect(Object.keys(op.responses), `${m} ${res.path}`).toEqual(
+          expect.arrayContaining(m === 'patch' ? ['404', '412', '422'] : ['412', '422']),
+        );
+      }
+      const one = doc.paths[`/v1/${res.path}/{id}`].get;
+      expect(one.parameters.find((x: { name: string }) => x.name === 'id').description).toContain(
+        'ext:',
+      );
+    }
   });
 
   it('EXT_ONLY: GET ด้วย ext: ได้', async () => {
@@ -433,5 +548,10 @@ describe('external id conformance (ST7-T02)', () => {
       // ของ A ไม่ถูกแตะ
       const again = await http(tokenA).get(`${base}/ext:${ext}`);
       expect(again.body.version).toBe(p1.body.version);
+
+      // POST sub-route ด้วย ext: (อย่างน้อย 1 ต่อ resource)
+      const [suffix, actionBody] = res.action;
+      const act = await http(tokenA).post(`${base}/ext:${ext}/${suffix}`).send(actionBody);
+      expect(act.status, `${suffix} ${JSON.stringify(act.body)}`).toBeLessThan(300);
     });
 });

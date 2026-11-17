@@ -50,7 +50,13 @@ import {
   UpsertSiteDto,
 } from './site.dto';
 import { SitesService } from './sites.service';
-import { ExternalIdPipe, extRef, resolveRef } from '../../common/external-id';
+import {
+  ApiExternalPatch,
+  ApiExternalPut,
+  ExternalIdPipe,
+  extRef,
+  resolveRef,
+} from '../../common/external-id';
 
 const KIND_TH: Record<SiteDto['kind'], string> = {
   PICKUP: 'ต้นทาง',
@@ -197,6 +203,7 @@ export class SitesController {
   }
 
   @Put('external/:externalId')
+  @ApiExternalPut()
   @RequireScope('master:write')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag — ใช้เมื่อแถวมีอยู่แล้ว' })
   @ApiOkResponse({ type: SiteDto, description: 'มีอยู่แล้ว → อัปเดต (ส่งซ้ำได้ ไม่เกิดแถวใหม่)' })
@@ -237,6 +244,7 @@ export class SitesController {
   }
 
   @Patch('external/:externalId')
+  @ApiExternalPatch()
   @RequireScope('master:write')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
   @ApiOperation({

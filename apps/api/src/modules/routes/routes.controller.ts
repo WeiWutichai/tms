@@ -48,7 +48,13 @@ import {
   UpsertRouteDto,
 } from './route.dto';
 import { RoutesService, toRouteDto } from './routes.service';
-import { ExternalIdPipe, extRef, resolveRef } from '../../common/external-id';
+import {
+  ApiExternalPatch,
+  ApiExternalPut,
+  ExternalIdPipe,
+  extRef,
+  resolveRef,
+} from '../../common/external-id';
 
 /** เพดานปุ่ม "คำนวณจากพิกัด" ต่อ tenant ต่อนาที (`ROUTE_ESTIMATE_RATE_PER_MIN`, ค่าเริ่มต้น 60) */
 const ESTIMATE_RATE_PER_MIN = Number(process.env.ROUTE_ESTIMATE_RATE_PER_MIN) || 60;
@@ -165,6 +171,7 @@ export class RoutesController {
   }
 
   @Put('external/:externalId')
+  @ApiExternalPut()
   @RequireScope('master:write')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag — ใช้เมื่อแถวมีอยู่แล้ว' })
   @ApiOkResponse({ type: RouteDto, description: 'มีอยู่แล้ว → อัปเดต (ส่งซ้ำได้ ไม่เกิดแถวใหม่)' })
@@ -205,6 +212,7 @@ export class RoutesController {
   }
 
   @Patch('external/:externalId')
+  @ApiExternalPatch()
   @RequireScope('master:write')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
   @ApiOperation({

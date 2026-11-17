@@ -149,6 +149,12 @@ describe('mapExternalOrder (ST3-T05)', () => {
       externalKey({ externalId: long, raw: { other: 1 } }, 'k').value,
     );
     expect(externalKey({ externalId: long }, 'k').value).toMatch(/^k-longid-[0-9a-f]{32}$/);
+    // ST7-T02: เลขที่มีช่องว่าง/อักขระนอก ASCII → เลขแทนคงที่ (ใช้เป็น ext:{externalId} ได้)
+    const thai = externalKey({ externalId: 'ใบสั่ง 001' }, 'k');
+    expect(thai.value).toMatch(/^k-refid-[0-9a-f]{32}$/);
+    expect(thai.issue).toContain('ASCII');
+    expect(externalKey({ externalId: 'ใบสั่ง 001', raw: { x: 1 } }, 'k').value).toBe(thai.value);
+    expect(externalKey({ externalId: 'SO-001' }, 'k')).toEqual({ value: 'SO-001', issue: null });
     expect(externalKey({ externalId: null, raw: circ }, 'k').value).toMatch(/^k-nokey-/);
     expect(externalKey({ externalId: 7n }, 'k').value).toBe('7');
     const m = minimalOrder({ externalId: 'P' }, 'k', '2026-11-13', new Error('boom'));

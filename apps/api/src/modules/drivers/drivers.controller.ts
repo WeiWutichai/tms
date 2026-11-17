@@ -50,7 +50,13 @@ import {
   UpsertDriverDto,
 } from './driver.dto';
 import { DriversService, mask, REVEAL_SCOPE } from './drivers.service';
-import { ExternalIdPipe, extRef, resolveRef } from '../../common/external-id';
+import {
+  ApiExternalPatch,
+  ApiExternalPut,
+  ExternalIdPipe,
+  extRef,
+  resolveRef,
+} from '../../common/external-id';
 
 export const DRIVER_REVEAL_PER_MIN = 20;
 
@@ -163,6 +169,7 @@ export class DriversController {
   }
 
   @Put('external/:externalId')
+  @ApiExternalPut()
   @RequireScope('master:write')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag — ใช้เมื่อแถวมีอยู่แล้ว' })
   @ApiOkResponse({ type: DriverDto, description: 'มีอยู่แล้ว → อัปเดต (ส่งซ้ำได้ ไม่เกิดแถวใหม่)' })
@@ -237,6 +244,7 @@ export class DriversController {
   }
 
   @Patch('external/:externalId')
+  @ApiExternalPatch()
   @RequireScope('master:write')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
   @ApiOperation({

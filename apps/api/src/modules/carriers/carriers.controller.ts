@@ -48,7 +48,13 @@ import {
   UpsertCarrierDto,
 } from './carrier.dto';
 import { CarriersService, mask } from './carriers.service';
-import { ExternalIdPipe, extRef, resolveRef } from '../../common/external-id';
+import {
+  ApiExternalPatch,
+  ApiExternalPut,
+  ExternalIdPipe,
+  extRef,
+  resolveRef,
+} from '../../common/external-id';
 
 export const REVEAL_PER_MIN = 20;
 
@@ -159,6 +165,7 @@ export class CarriersController {
   }
 
   @Put('external/:externalId')
+  @ApiExternalPut()
   @RequireScope('master:write')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag — ใช้เมื่อแถวมีอยู่แล้ว' })
   @ApiOkResponse({
@@ -236,6 +243,7 @@ export class CarriersController {
   }
 
   @Patch('external/:externalId')
+  @ApiExternalPatch()
   @RequireScope('master:write')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
   @ApiOperation({

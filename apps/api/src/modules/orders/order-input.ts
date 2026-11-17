@@ -5,6 +5,7 @@ import {
   type OrderSourceRef,
   type OrderStopType,
 } from '@tms/domain';
+import { EXTERNAL_ID_RE } from '../../common/external-id';
 import { ProblemException, type FieldError } from '../../common/problem';
 import { cleanLine } from '../master/master-kit';
 import { isRealDate } from '../vehicle-documents/expiry';
@@ -216,6 +217,18 @@ export function normalizeOrderInput(input: UpsertOrderInput): NormalizedOrder {
     err('source', 'invalid_source', 'must be MANUAL, EXCEL, API, PORTAL or ERP:{connector}');
 
   const externalId = text(input.externalId, 'externalId', ORDER_LIMITS.ref);
+  // ST7-T02: กฎเดียวกับ externalId ของ master (ASCII ที่พิมพ์ได้ 1–100 ไม่มีช่องว่าง) — ใช้เป็น path `ext:{externalId}` ได้เสมอ
+  // ใบเดิมที่เก็บค่านอกกฎไว้ก่อน ST7-T02 ไม่ถูกแตะ (แก้ด้วย id — PATCH ด้วย id ไม่ส่ง externalId มาตรวจ)
+  if (
+    externalId !== null &&
+    externalId.length <= ORDER_LIMITS.ref &&
+    !EXTERNAL_ID_RE.test(externalId)
+  )
+    err(
+      'externalId',
+      'matches',
+      'externalId must be 1-100 printable ASCII characters without spaces',
+    );
   // ช่วงวันที่เดียวกับโมดูลอื่น (เอกสารรถ ST2-T17) — กันปีพิมพ์ผิด (พ.ศ./ค.ศ.)
   const requestedDate =
     typeof input.requestedDate === 'string' &&

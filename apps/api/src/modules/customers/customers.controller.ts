@@ -42,7 +42,13 @@ import {
 } from './customer.dto';
 import { CustomersService } from './customers.service';
 import { DbService } from '../../db/db.service';
-import { ExternalIdPipe, extRef, resolveRef } from '../../common/external-id';
+import {
+  ApiExternalPatch,
+  ApiExternalPut,
+  ExternalIdPipe,
+  extRef,
+  resolveRef,
+} from '../../common/external-id';
 
 const CYCLE_TH: Record<CustomerDto['billingCycle'], string> = {
   PER_DO: 'ต่อเที่ยว',
@@ -147,6 +153,7 @@ export class CustomersController {
   }
 
   @Put('external/:externalId')
+  @ApiExternalPut()
   @RequireScope('master:write')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag — ใช้เมื่อแถวมีอยู่แล้ว' })
   @ApiOkResponse({
@@ -193,6 +200,7 @@ export class CustomersController {
   }
 
   @Patch('external/:externalId')
+  @ApiExternalPatch()
   @RequireScope('master:write')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
   @ApiOperation({

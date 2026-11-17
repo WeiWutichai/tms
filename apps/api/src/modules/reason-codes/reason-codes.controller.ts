@@ -42,7 +42,13 @@ import {
   type ReasonCategoryApi,
 } from './reason-code.dto';
 import { ReasonCodesService, toReasonCodeDto } from './reason-codes.service';
-import { ExternalIdPipe, extRef, resolveRef } from '../../common/external-id';
+import {
+  ApiExternalPatch,
+  ApiExternalPut,
+  ExternalIdPipe,
+  extRef,
+  resolveRef,
+} from '../../common/external-id';
 
 /** ชื่อหมวดภาษาไทย (ตรงกับหน้าจอ — ต้นแบบ TMS v4 ตั้งค่า → เหตุผล) */
 const CATEGORY_TH: Record<ReasonCategoryApi, string> = {
@@ -136,6 +142,7 @@ export class ReasonCodesController {
   }
 
   @Put('external/:externalId')
+  @ApiExternalPut()
   @RequireScope('master:write')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag — ใช้เมื่อแถวมีอยู่แล้ว' })
   @ApiOkResponse({
@@ -182,6 +189,7 @@ export class ReasonCodesController {
   }
 
   @Patch('external/:externalId')
+  @ApiExternalPatch()
   @RequireScope('master:write')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
   @ApiOperation({

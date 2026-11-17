@@ -45,7 +45,13 @@ import {
   type VehicleClass,
 } from './vehicle-type.dto';
 import { VehicleTypesService } from './vehicle-types.service';
-import { ExternalIdPipe, extRef, resolveRef } from '../../common/external-id';
+import {
+  ApiExternalPatch,
+  ApiExternalPut,
+  ExternalIdPipe,
+  extRef,
+  resolveRef,
+} from '../../common/external-id';
 
 const CLASS_TH: Record<VehicleClass, string> = {
   '4W': '4 ล้อ',
@@ -160,6 +166,7 @@ export class VehicleTypesController {
   }
 
   @Put('external/:externalId')
+  @ApiExternalPut()
   @RequireScope('master:write')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag — ใช้เมื่อแถวมีอยู่แล้ว' })
   @ApiOkResponse({
@@ -206,6 +213,7 @@ export class VehicleTypesController {
   }
 
   @Patch('external/:externalId')
+  @ApiExternalPatch()
   @RequireScope('master:write')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
   @ApiOperation({

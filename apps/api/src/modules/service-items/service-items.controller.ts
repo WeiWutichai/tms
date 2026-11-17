@@ -47,7 +47,13 @@ import {
   type ServiceItemWhtRate,
 } from './service-item.dto';
 import { ServiceItemsService } from './service-items.service';
-import { ExternalIdPipe, extRef, resolveRef } from '../../common/external-id';
+import {
+  ApiExternalPatch,
+  ApiExternalPut,
+  ExternalIdPipe,
+  extRef,
+  resolveRef,
+} from '../../common/external-id';
 
 const UNIT_TH: Record<CalcUnit, string> = {
   PER_TRIP: 'ต่อเที่ยว',
@@ -157,6 +163,7 @@ export class ServiceItemsController {
   }
 
   @Put('external/:externalId')
+  @ApiExternalPut()
   @RequireScope('master:write')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag — ใช้เมื่อแถวมีอยู่แล้ว' })
   @ApiOkResponse({
@@ -203,6 +210,7 @@ export class ServiceItemsController {
   }
 
   @Patch('external/:externalId')
+  @ApiExternalPatch()
   @RequireScope('master:write')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
   @ApiOperation({

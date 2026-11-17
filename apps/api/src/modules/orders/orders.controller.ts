@@ -48,7 +48,7 @@ import {
 import { OrderLockService } from './order-lock.service';
 import { OrdersService, toOrderDto } from './orders.service';
 import type { UpsertOrderResult } from './order-intake.service';
-import { ExternalIdPipe, extRef, resolveRef } from '../../common/external-id';
+import { ApiExternalIdParam, ExternalIdPipe, extRef, resolveRef } from '../../common/external-id';
 
 const LOCKED_DOC =
   '409 `order_locked_for_update` — แก้ช่องที่สถานะไม่อนุญาต (errors[] = ช่อง, `editableFields` = ช่องที่แก้ได้): ' +
@@ -412,6 +412,7 @@ export class OrdersController {
   }
 
   @Put('external/:externalId')
+  @ApiExternalIdParam()
   @RequireScope('orders:write')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag — ใช้เมื่อใบมีอยู่แล้ว' })
   @ApiOperation({
@@ -461,11 +462,14 @@ export class OrdersController {
 
   @Patch('external/:externalId')
   @RequireScope('orders:write')
+  @ApiExternalIdParam()
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
   @ApiOperation({
     summary: 'แก้บางช่องด้วย externalId',
     description:
-      'เหมือน `PATCH /orders/ext:{externalId}` (กติกาเดียวกับ PATCH ด้วย id) · ยังไม่มีแถวนี้ → 404 — สร้างใหม่ใช้ PUT',
+      'แก้บางช่องของใบที่มีอยู่ (กติกาเดียวกับ `PATCH /orders/{id}`) · ยังไม่มีใบนี้ → 404 — สร้างใหม่ใช้ PUT · ' +
+      'ช่องทางเดียวกับ PUT: ใบที่ไม่ได้มาจาก API (กรอกมือ/Excel/connector) → 409 `external_id_conflict` · ' +
+      '**ต่างจาก PUT: ติดล็อกการแก้ (ST3-T08)** — ผู้ใช้อื่นเปิดแก้อยู่ → 409 `order_locked_by_user`',
   })
   @ApiOkResponse({ type: OrderDto })
   @ApiProblems(
@@ -473,10 +477,10 @@ export class OrdersController {
     E403,
     E404,
     {
-      ...E409(false),
-      description: `${LOCKED_DOC} · 409 \`order_locked_by_user\` — ผู้ใช้อื่นเปิดแก้อยู่`,
+      ...E409(true),
+      description: `${LOCKED_DOC} · 409 \`order_locked_by_user\` — ผู้ใช้อื่นเปิดแก้อยู่ · 409 \`external_id_conflict\` — ใบจากช่องทางอื่น`,
       examples: {
-        ...E409(false).examples,
+        ...E409(true).examples,
         order_locked_by_user: LOCKED_BY_USER,
         order_lock_released: E409_LOCK.examples.order_lock_released,
       },
@@ -485,12 +489,13 @@ export class OrdersController {
     E413,
     E422,
   )
-  patchExternal(
+  async patchExternal(
     @Param('externalId', ExternalIdPipe) externalId: string,
     @Body() body: UpdateOrderDto,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<OrderDto> {
+    await this.orders.assertExternalSource(externalId);
     return this.update(extRef(externalId), body, req, res);
   }
 

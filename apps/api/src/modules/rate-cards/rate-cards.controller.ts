@@ -48,7 +48,14 @@ import {
   type RateStatusKey,
 } from './rate-card.dto';
 import { listSide, RateCardsService, toRateCardDto } from './rate-cards.service';
-import { ExternalIdPipe, extRef, refToId, resolveRef } from '../../common/external-id';
+import {
+  ApiExternalPatch,
+  ApiExternalPut,
+  ExternalIdPipe,
+  extRef,
+  refToId,
+  resolveRef,
+} from '../../common/external-id';
 
 const MODEL_TH: Record<string, string> = {
   PER_TRIP: 'เหมาเที่ยว',
@@ -188,6 +195,7 @@ export class RateCardsController {
   }
 
   @Put('external/:externalId')
+  @ApiExternalPut()
   @RequireScope('prices.sell:write', 'prices.buy:write')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag — ใช้เมื่อแถวมีอยู่แล้ว' })
   @ApiOkResponse({
@@ -237,8 +245,9 @@ export class RateCardsController {
     return entityHistory(this.db.tx, 'rate_card', r.id, q);
   }
 
-  /** แก้ร่าง — อนุมัติแล้ว → 409 `not_editable` (ใช้ `POST /{id}/revise`) */
+  /** แก้ร่างด้วย externalId — กติกาเดียวกับ `update` */
   @Patch('external/:externalId')
+  @ApiExternalPatch()
   @RequireScope('prices.sell:write', 'prices.buy:write')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
   @ApiOperation({
@@ -256,6 +265,7 @@ export class RateCardsController {
     return this.update(extRef(externalId), body, req, res);
   }
 
+  /** แก้ร่าง — อนุมัติแล้ว → 409 `not_editable` (ใช้ `POST /{id}/revise`) */
   @Patch(':id')
   @TenantResource('rateCard')
   @RequireScope('prices.sell:write', 'prices.buy:write')
