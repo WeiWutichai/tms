@@ -1270,6 +1270,7 @@ model ReasonCode {
   doLineRejects DeliveryOrderLine[]
   tripCancels   Trip[]              @relation("TripCancelReason")
   stopFailures  TripStop[]
+  stopEvents    StopEvent[]
 
   @@unique([tenantId, category, code])
   @@unique([tenantId, externalId])
@@ -1660,6 +1661,7 @@ model Trip {
   deliveryOrders DeliveryOrder[]
   stops          TripStop[]
   subconOffers   SubconOffer[]
+  stopEvents     StopEvent[]
 
   @@unique([tenantId, tripNo])
   @@index([tenantId, tripDate, status])
@@ -1713,7 +1715,10 @@ model TripStop {
 
   deliveryOrders DeliveryOrder[] @relation("DoDropStop")
   pickupOrders   DeliveryOrder[] @relation("DoPickupStop")
+  events         StopEvent[]
 
+  /// เป้าของ FK คู่ (จุด, เที่ยว) — migration 0064 (DO) / 0082 (stop_event)
+  @@unique([id, tripId], map: "trip_stop_id_trip_id_key")
   @@index([tenantId, tripId])
   @@index([tenantId, siteId])
   @@map("trip_stop")
@@ -1950,7 +1955,9 @@ model SubconOffer {
   @@map("subcon_offer")
 }
 
-// ---------- ST4 Execution (ร่าง) ----------
+// ---------- ST4 Execution ----------
+/// ชนิด event หน้างาน (ST4-T01; docs/04 E1 Stop event) — DEPART = ออกเดินทางมุ่งหน้าไปจุดนี้ (docs/01 §3.9)
+/// LOADED / DELAY / NOTE ของ docs/01 §3.9 ยังไม่เปิด (แอปคนขับ P1 — เพิ่มค่า enum ภายหลัง)
 enum StopEventType {
   ARRIVE
   DEPART
@@ -1960,26 +1967,43 @@ enum StopEventType {
   @@map("stop_event_type")
 }
 
-/// event ต่อจุดแวะ (append-only; idempotent ด้วย client_event_id) — docs/01 §3.9
+/// event ต่อจุดแวะ (ST4-T01; docs/01 §3.9) — append-only (trigger + REVOKE): แหล่งความจริงของเวลาถึง/ออก/ปิดงาน
+/// idempotent ด้วย unique (tenant_id, client_event_id) · เวลาสองชุด occurred_at (เครื่อง) / received_at (server)
+/// แก้ได้เฉพาะช่องทำบัญชีของ projection: attachments_pending (T07), sequence_conflict (T02), applied_at (T03)
 model StopEvent {
-  id            String        @id @default(uuid()) @db.Uuid
-  tenantId      String        @map("tenant_id") @db.Uuid
-  tripStopId    String        @map("trip_stop_id") @db.Uuid
-  type          StopEventType
-  outcome       String?
-  reasonCodeId  String?       @map("reason_code_id") @db.Uuid
-  clientEventId String        @map("client_event_id") @db.Uuid
-  source        String /// APP / WEB / LINK / API
-  actor         String?
-  lat           Decimal?      @db.Decimal(9, 6)
-  lng           Decimal?      @db.Decimal(9, 6)
-  accuracyM     Int?          @map("accuracy_m")
-  occurredAt    DateTime      @map("occurred_at") @db.Timestamptz(6)
-  receivedAt    DateTime      @default(now()) @map("received_at") @db.Timestamptz(6)
-  payload       Json?
+  id                 String        @id @default(uuid()) @db.Uuid
+  tenantId           String        @map("tenant_id") @db.Uuid
+  tripStopId         String        @map("trip_stop_id") @db.Uuid
+  tripStop           TripStop      @relation(fields: [tripStopId, tripId], references: [id, tripId], onDelete: Restrict, onUpdate: Restrict, map: "stop_event_trip_stop_same_trip_fkey")
+  /// denormalize จาก trip_stop (FK คู่ (trip_stop_id, trip_id) กันไม่ตรงเที่ยว)
+  tripId             String        @map("trip_id") @db.Uuid
+  trip               Trip          @relation(fields: [tripId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  type               StopEventType
+  /// DELIVERED / PARTIAL / FAILED / UNDELIVERED_RETAIN — COMPLETE ต้องมี · FAIL มีได้ (FAILED / UNDELIVERED_RETAIN) · CHECK
+  outcome            String?
+  reasonCodeId       String?       @map("reason_code_id") @db.Uuid
+  reasonCode         ReasonCode?   @relation(fields: [reasonCodeId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  clientEventId      String        @map("client_event_id") @db.Uuid
+  /// APP / LINK / WEB / API / GPS (CHECK) — server กำหนดจากชนิดผู้เรียก ไม่รับจาก body
+  source             String
+  /// ผู้บันทึก (user id) — docs/01 §3.9 `created_by`
+  actor              String?
+  lat                Decimal?      @db.Decimal(9, 6)
+  lng                Decimal?      @db.Decimal(9, 6)
+  accuracyM          Decimal?      @map("accuracy_m") @db.Decimal(8, 1)
+  occurredAt         DateTime      @map("occurred_at") @db.Timestamptz(6)
+  receivedAt         DateTime      @default(now()) @map("received_at") @db.Timestamptz(6)
+  /// {note?, reason?: ReasonSnapshot} — ข้อมูลเฉพาะชนิด (POD lines/รูป = T07/T09)
+  payload            Json?
+  attachmentsPending Int           @default(0) @map("attachments_pending")
+  sequenceConflict   Boolean       @default(false) @map("sequence_conflict")
+  appliedAt          DateTime?     @map("applied_at") @db.Timestamptz(6)
 
   @@unique([tenantId, clientEventId])
   @@index([tenantId, tripStopId, occurredAt])
+  @@index([tenantId, tripId, occurredAt])
+  @@index([tenantId, receivedAt])
+  @@index([tenantId, reasonCodeId])
   @@map("stop_event")
 }
 
