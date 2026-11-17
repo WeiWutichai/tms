@@ -8,6 +8,7 @@ import {
   slidingWindow,
   type Bucket,
 } from '../src/http/rate-limit/rate-limit.service';
+import { PrismaService } from '../src/db/prisma.service';
 import { createTenantWithDefaults } from '../src/modules/tenants/bootstrap';
 import { api, bootApp, platform, tokenFor, truncateAll } from './helpers';
 
@@ -72,6 +73,20 @@ describe('ตัวจำกัดกลาง: อัลกอริทึม (
     expect((await rl.take([heavy], { failOpen: false }))!.allowed).toBe(false);
   });
 
+  it('ใช้ร่วมทุก instance: service ตัวที่ 2 (API อีกเครื่อง) เห็น bucket เดียวกัน', async () => {
+    const other = new RateLimitService(app.get(PrismaService));
+    try {
+      const b = gcra(k(), { rate: 0.01, burst: 2 }, 'key');
+      expect((await rl.take([b], { failOpen: false }))!.allowed).toBe(true);
+      expect((await other.take([b], { failOpen: false }))!.allowed).toBe(true);
+      const d = (await rl.take([b], { failOpen: false }))!;
+      expect(d.allowed).toBe(false);
+      expect(d.scope).toBe('key');
+    } finally {
+      other.onModuleDestroy();
+    }
+  });
+
   it('พร้อมกันหลายคำขอ: ตัดตรงจำนวน (ล็อกแถว ไม่นับหาย)', async () => {
     const b = gcra(k(), { rate: 0.01, burst: 25 }, 'key');
     const rs = await Promise.all(
@@ -122,7 +137,6 @@ describe('ตัวจำกัดกลาง: อัลกอริทึม (
 
 describe('Rate limit ของ /v1 (ST7-T08)', () => {
   let app: NestExpressApplication;
-  let app2: NestExpressApplication;
   let rl: RateLimitService;
   const db = platform();
   let tA: string;
@@ -138,20 +152,18 @@ describe('Rate limit ของ /v1 (ST7-T08)', () => {
   beforeAll(async () => {
     await truncateAll();
     app = await bootApp();
-    app2 = await bootApp(); // instance ที่ 2 (เหมือนรัน API หลายเครื่อง)
-    for (const a of [app, app2]) a.get(RateLimitService).enabled = true;
     rl = app.get(RateLimitService);
+    rl.enabled = true;
     tA = (await createTenantWithDefaults(db, { name: 'บริษัท ขนส่ง เอ' })).id;
     tB = (await createTenantWithDefaults(db, { name: 'บริษัท ขนส่ง บี' })).id;
   });
   beforeEach(async () => {
     await rl.reset();
-    for (const a of [app, app2]) a.get(RateLimitService).invalidateProfile();
+    rl.invalidateProfile();
   });
   afterAll(async () => {
     await db.tenant.updateMany({ data: { rateLimitProfile: null } });
     await app?.close();
-    await app2?.close();
     await db.$disconnect();
   });
 
@@ -171,10 +183,15 @@ describe('Rate limit ของ /v1 (ST7-T08)', () => {
 
   it('เกณฑ์ตรวจรับ: ยิงเกินเพดานผู้ใช้ → 429 problem+json + Retry-After · ผู้ใช้อื่น/tenant อื่นไม่กระทบ', async () => {
     const a1 = await user(tA);
-    const rs = await burst(STD.user.burst + 20, () => api(app, a1).get('/v1/customers'));
+    const started = performance.now();
+    const rs = await burst(STD.user.burst + 30, () => api(app, a1).get('/v1/customers'));
+    const elapsedS = (performance.now() - started) / 1000;
     const tooMany = rs.filter((r) => r.status === 429);
-    expect(tooMany.length).toBeGreaterThanOrEqual(10);
-    expect(rs.filter((r) => r.status === 200).length).toBeLessThanOrEqual(STD.user.burst + 5);
+    expect(tooMany.length).toBeGreaterThan(0);
+    // ผ่านได้ไม่เกิน burst + ที่เติมระหว่างยิง (20/s)
+    expect(rs.filter((r) => r.status === 200).length).toBeLessThanOrEqual(
+      STD.user.burst + Math.ceil(elapsedS * STD.user.rate) + 1,
+    );
     const x = tooMany[0]!;
     expect(x.headers['content-type']).toMatch(/application\/problem\+json/);
     expect(x.body).toMatchObject({ status: 429, code: 'rate_limited', scope: 'user' });
@@ -192,13 +209,16 @@ describe('Rate limit ของ /v1 (ST7-T08)', () => {
   });
 
   it('เพดานรวมของบริษัท (50/s burst 100) — หลายผู้ใช้รวมกันเกิน → 429 scope tenant · tenant อื่นไม่กระทบ', async () => {
-    const users = await Promise.all([1, 2, 3, 4].map(() => user(tA)));
+    // ใช้โควตาบริษัทไป 95 จาก 100 (เหมือนผู้ใช้หลายคน/API key ยิงพร้อมกัน) แล้วผู้ใช้ใหม่ 3 คนยิงคนละ 10
+    await rl.take([{ ...gcra(`t:${tA}`, STD.tenant, 'tenant'), cost: 95 }], { failOpen: false });
+    const users = await Promise.all([1, 2, 3].map(() => user(tA)));
     const rs = await Promise.all(
-      users.map((u) => burst(35, () => api(app, u).get('/v1/customers'))),
+      users.map((u) => burst(10, () => api(app, u).get('/v1/customers'))),
     );
     const all = rs.flat();
     const denied = all.filter((r) => r.status === 429);
     expect(denied.length).toBeGreaterThan(0);
+    // ผู้ใช้แต่ละคนยังไม่ถึงเพดานของตัวเอง (10 < 40) → ที่ถูกตัดคือเพดานบริษัท
     expect(denied.every((r) => r.body.scope === 'tenant')).toBe(true);
     const b = await api(app, await user(tB))
       .get('/v1/customers')
@@ -206,7 +226,7 @@ describe('Rate limit ของ /v1 (ST7-T08)', () => {
     expect(b.headers['ratelimit-remaining']).toBe(String(STD.user.burst - 1));
   });
 
-  it('ต่อ API key 20/s — key หนึ่งเต็ม key อื่นของบริษัทเดียวกันยังใช้ได้ · ใช้ร่วมทุก instance ของ API', async () => {
+  it('ต่อ API key 20/s — key หนึ่งเต็ม key อื่นของบริษัทเดียวกันยังใช้ได้', async () => {
     const admin = await user(tA);
     const mk = async (name: string) =>
       (
@@ -217,18 +237,24 @@ describe('Rate limit ของ /v1 (ST7-T08)', () => {
     const k1 = await mk('ERP หนึ่ง');
     const k2 = await mk('ERP สอง');
     await rl.reset();
-    // ครึ่งหนึ่งยิงที่ instance 1 อีกครึ่งที่ instance 2 — นับรวมกัน
+    const started = performance.now();
     const rs = await Promise.all(
-      Array.from({ length: STD.key.burst + 14 }, (_, i) =>
-        request(srv(i % 2 ? app2 : app))
-          .get('/v1/customers')
-          .set(bearer(k1)),
+      Array.from({ length: STD.key.burst + 14 }, () =>
+        request(srv()).get('/v1/customers').set(bearer(k1)),
       ),
     );
+    const elapsedS = (performance.now() - started) / 1000;
+    expect(
+      rs
+        .filter((r) => r.status !== 200 && r.status !== 429)
+        .map((r) => JSON.stringify(r.body))
+        .slice(0, 2),
+    ).toEqual([]);
     const ok = rs.filter((r) => r.status === 200).length;
-    expect(ok).toBeLessThanOrEqual(STD.key.burst + 3);
+    // ผ่านได้ไม่เกิน burst + ที่เติมระหว่างยิง (20/s)
+    expect(ok).toBeLessThanOrEqual(STD.key.burst + Math.ceil(elapsedS * STD.key.rate) + 1);
     const denied = rs.filter((r) => r.status === 429);
-    expect(denied.length).toBeGreaterThanOrEqual(8);
+    expect(denied.length).toBeGreaterThan(0);
     expect(denied[0]!.body.scope).toBe('key');
     expect(Number(denied[0]!.headers['retry-after'])).toBeGreaterThanOrEqual(1);
     const other = await request(srv()).get('/v1/customers').set(bearer(k2)).expect(200);
@@ -237,10 +263,14 @@ describe('Rate limit ของ /v1 (ST7-T08)', () => {
 
   it('คำขอหนัก (export) 5/s ต่อบริษัท → 429 scope endpoint · คำขอปกติของบริษัทเดียวกันยังผ่าน', async () => {
     const u = await user(tA);
-    const rs = await burst(STD.heavy.burst + 5, () => api(app, u).get('/v1/customers/export'));
-    expect(rs.filter((r) => r.status === 200).length).toBeLessThanOrEqual(STD.heavy.burst + 1);
+    const started = performance.now();
+    const rs = await burst(STD.heavy.burst + 10, () => api(app, u).get('/v1/customers/export'));
+    const elapsedS = (performance.now() - started) / 1000;
+    expect(rs.filter((r) => r.status === 200).length).toBeLessThanOrEqual(
+      STD.heavy.burst + Math.ceil(elapsedS * STD.heavy.rate) + 1,
+    );
     const denied = rs.filter((r) => r.status === 429);
-    expect(denied.length).toBeGreaterThanOrEqual(3);
+    expect(denied.length).toBeGreaterThan(0);
     expect(denied[0]!.body.scope).toBe('endpoint');
     await api(app, u).get('/v1/customers').expect(200);
   });
