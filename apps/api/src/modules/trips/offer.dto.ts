@@ -75,6 +75,13 @@ export class OfferLinkViewDto {
   @ApiProperty({ nullable: true, enum: SUBCON_REJECT_CODES, type: String })
   rejectReason!: string | null;
   @ApiProperty({ type: [OfferRejectReasonDto] }) rejectReasons!: OfferRejectReasonDto[];
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description:
+      'ST4-T08: รับงานแล้ว → URL หน้าลิงก์งาน (แท็บ "ส่ง POD": ค้นเลข DO + กดถึง/ออก) · อื่น = null',
+  })
+  podUrl!: string | null;
 }
 
 /** รับงาน: ทะเบียนรถ (+ จังหวัดต่อท้ายได้) + ชื่อ/เบอร์คนขับ (docs/04 D3, docs/01 §5.5 `/accept`) */
@@ -143,6 +150,13 @@ export class OfferLinkStateDto {
       'null = ไม่มีลิงก์ที่ใช้ได้ (ยังไม่จ้าง / ปฏิเสธ-หมดเวลา-ยกเลิกแล้ว / ลิงก์หมดอายุ)',
   })
   link!: OfferLinkDto | null;
+  @ApiProperty({
+    nullable: true,
+    type: OfferLinkDto,
+    description:
+      'ST4-T08 ลิงก์งานหลังรับงาน (`/link/pod/…` — ค้น DO + กดถึง/ออก, POD ST4-T09) · null = ยังไม่รับงาน/เพิกถอนแล้ว · ออกใหม่ด้วย POST offer-link',
+  })
+  podLink!: OfferLinkDto | null;
 }
 
 export class OfferMessageDto {

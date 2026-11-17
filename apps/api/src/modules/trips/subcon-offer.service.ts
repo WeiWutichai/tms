@@ -12,7 +12,7 @@ import { PROVINCES } from '../vehicles/provinces';
 import { arabicDigits, plateNorm } from '../vehicles/vehicles.service';
 import { LINE_USER_ID_RE } from '../messaging/messaging.dto';
 import { MessagingService } from '../messaging/messaging.service';
-import { OfferLinks } from './offer-links';
+import { OFFER_LINK_PURPOSE, OfferLinks, POD_LINK_PURPOSE } from './offer-links';
 import type {
   AcceptOfferDto,
   OfferLinkDto,
@@ -167,6 +167,9 @@ export class SubconOfferService {
       : null;
     const q = (o.rateQuote ?? {}) as { whtRate?: string | null };
     const status = this.expired(o) ? 'EXPIRED' : o.status;
+    // ST4-T08: รับงานแล้ว → ลิงก์งาน (แท็บ "ส่ง POD": ค้น DO + กดถึง/ออก) — ผู้ถือลิงก์ข้อเสนอคือรถร่วมรายเดียวกัน
+    const [pod] =
+      o.status === 'ACCEPTED' ? await this.links.active(tx, [o.id], [POD_LINK_PURPOSE]) : [];
     return {
       company: tenant?.name ?? '',
       carrierName: o.carrierNameSnapshot,
@@ -195,6 +198,7 @@ export class SubconOfferService {
           : null,
       rejectReason: o.status === 'REJECTED' ? o.rejectReasonCode : null,
       rejectReasons: SUBCON_REJECT_REASONS.map((r) => ({ code: r.code, label: r.labelTh })),
+      podUrl: pod ? this.links.podUrl(pod) : null,
     };
   }
 
@@ -372,17 +376,24 @@ export class SubconOfferService {
   // ---------- ฝั่งผู้จัดรถ ----------
 
   /** ลิงก์ที่ใช้ได้ของการจ้างที่ใช้งานอยู่ (รอตอบ/รับแล้ว) ของเที่ยว — ไม่มี = null · ช่องทางที่ส่งถึงรถร่วมรายนี้ได้ */
-  async currentLink(
-    tripId: string,
-  ): Promise<{ link: OfferLinkDto | null; channels: { line: boolean; sms: boolean } }> {
+  async currentLink(tripId: string): Promise<{
+    link: OfferLinkDto | null;
+    podLink: OfferLinkDto | null;
+    channels: { line: boolean; sms: boolean };
+  }> {
     const tx = this.db.tx;
     const offer = await tx.subconOffer.findFirst({
       where: { tripId, status: { in: ['OFFERED', 'ACCEPTED'] } },
       orderBy: { offeredAt: 'desc' },
-      select: { id: true, carrier: { select: { phone: true, lineContact: true } } },
+      select: { id: true, status: true, carrier: { select: { phone: true, lineContact: true } } },
     });
-    if (!offer) return { link: null, channels: { line: false, sms: false } };
+    if (!offer) return { link: null, podLink: null, channels: { line: false, sms: false } };
     const [l] = await this.links.active(tx, [offer.id]);
+    // ST4-T08 ลิงก์งานหลังรับงาน (ค้น DO + กดถึง/ออก)
+    const [pod] =
+      offer.status === 'ACCEPTED'
+        ? await this.links.active(tx, [offer.id], [POD_LINK_PURPOSE])
+        : [];
     // ส่งได้ = ช่องเปิดใช้ + ผู้รับเหมามีผู้รับที่ส่งได้ (LINE userId / มือถือ — สูตรเดียวกับ /messages/send-link: QA L7)
     const open = new Set(
       (await this.messaging.channels()).filter((c) => c.available).map((c) => c.channel),
@@ -390,6 +401,7 @@ export class SubconOfferService {
     const mobile = /^0[689]\d{8}$/.test(phoneNorm((offer.carrier.phone ?? '').trim()));
     return {
       link: l ? this.linkDto(offer.id, l) : null,
+      podLink: pod ? this.linkDto(offer.id, pod, true) : null,
       channels: {
         line:
           !!l && open.has('line') && LINE_USER_ID_RE.test((offer.carrier.lineContact ?? '').trim()),
@@ -398,11 +410,15 @@ export class SubconOfferService {
     };
   }
 
-  private linkDto(offerId: string, l: { id: string; expiresAt: Date; createdAt: Date }) {
+  private linkDto(
+    offerId: string,
+    l: { id: string; expiresAt: Date; createdAt: Date },
+    pod = false,
+  ) {
     return {
       offerId: encodeId('subconOffer', offerId),
       linkId: encodeId('magicLink', l.id),
-      url: this.links.url(l),
+      url: pod ? this.links.podUrl(l) : this.links.url(l),
       expiresAt: l.expiresAt.toISOString(),
       issuedAt: l.createdAt.toISOString(),
     };
@@ -415,14 +431,15 @@ export class SubconOfferService {
   async reissue(tripId: string): Promise<OfferLinkDto> {
     const tx = this.db.tx;
     const head = await tx.subconOffer.findFirst({
-      where: { tripId, status: 'OFFERED' },
-      select: { id: true },
+      where: { tripId, status: { in: ['OFFERED', 'ACCEPTED'] } },
+      select: { id: true, status: true },
     });
     if (!head) throw new ProblemException('offer_closed');
+    if (head.status === 'ACCEPTED') return this.reissuePod(tripId, head.id);
     await tx.$queryRaw`SELECT id FROM subcon_offer WHERE id = ${head.id}::uuid FOR UPDATE`;
     const o = await tx.subconOffer.findUniqueOrThrow({ where: { id: head.id } });
     if (o.status !== 'OFFERED' || this.expired(o)) throw this.closed(o);
-    await this.links.revoke(tx, [o.id], 'REISSUED', tripId);
+    await this.links.revoke(tx, [o.id], 'REISSUED', tripId, [OFFER_LINK_PURPOSE]);
     const actor = requestContext.require().actorId ?? null;
     const l = await this.links.issue(tx, o, actor);
     await this.audit.record({
@@ -432,6 +449,33 @@ export class SubconOfferService {
       after: { offerId: encodeId('subconOffer', o.id), linkId: encodeId('magicLink', l.id) },
     });
     return this.linkDto(o.id, { id: l.id, expiresAt: l.expiresAt, createdAt: new Date() });
+  }
+
+  /**
+   * ST4-T08: รับงานแล้ว → ออกลิงก์งานใหม่ (ลิงก์เดิมรั่ว/หาย หรือรับงานก่อนมีลิงก์งาน) — เพิกถอนลิงก์งานเดิม + audit
+   * เที่ยวจบ/ยกเลิกแล้ว → 409 `offer_closed`
+   */
+  private async reissuePod(tripId: string, offerId: string): Promise<OfferLinkDto> {
+    const tx = this.db.tx;
+    await tx.$queryRaw`SELECT id FROM subcon_offer WHERE id = ${offerId}::uuid FOR UPDATE`;
+    const o = await tx.subconOffer.findUniqueOrThrow({
+      where: { id: offerId },
+      include: { trip: { select: { status: true } } },
+    });
+    if (
+      o.status !== 'ACCEPTED' ||
+      !['ASSIGNED', 'DISPATCHED', 'IN_PROGRESS'].includes(o.trip.status)
+    )
+      throw this.closed(o);
+    await this.links.revoke(tx, [o.id], 'POD_REISSUED', tripId, [POD_LINK_PURPOSE]);
+    const l = await this.links.issuePod(tx, o, requestContext.require().actorId ?? null);
+    await this.audit.record({
+      action: 'subcon_offer.pod_link_reissued',
+      entityType: 'trip',
+      entityId: tripId,
+      after: { offerId: encodeId('subconOffer', o.id), linkId: encodeId('magicLink', l.id) },
+    });
+    return this.linkDto(o.id, { id: l.id, expiresAt: l.expiresAt, createdAt: new Date() }, true);
   }
 
   /** ประวัติการจ้างของเที่ยว (ใหม่สุดก่อน) + การส่งลิงก์ทาง LINE/SMS */

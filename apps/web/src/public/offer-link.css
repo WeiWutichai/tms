@@ -109,3 +109,11 @@
 .ofl__done--ok b {
   color: #17733f;
 }
+/* ST4-T08 แท็บ "ส่ง POD" ของลิงก์งาน — ช่องเลข DO + การ์ด DO (ต้นแบบ TMS Subcon แท็บ pod) */
+.pdl__q {
+  height: 52px;
+  padding: 0 14px;
+}
+.cdl__card.pdl__do {
+  gap: 4px;
+}

@@ -22237,7 +22237,7 @@
         ],
         "responses": {
           "201": {
-            "description": "ออกลิงก์ใหม่ให้ข้อเสนอที่รอตอบ (ลิงก์เดิมถูกเพิกถอน + audit) — อายุเท่าเดิม ไม่ต่อเวลาตอบ · ไม่รอตอบแล้ว → 409 `offer_closed`",
+            "description": "ออกลิงก์ใหม่ให้ข้อเสนอที่รอตอบ (ลิงก์เดิมถูกเพิกถอน + audit) — อายุเท่าเดิม ไม่ต่อเวลาตอบ · ST4-T08: รับงานแล้ว (เที่ยวยังไม่จบ) = ออกลิงก์งาน (`/link/pod/…`) ใหม่ · อื่น → 409 `offer_closed`",
             "content": {
               "application/json": {
                 "schema": {
@@ -22761,6 +22761,224 @@
             }
           }
         },
+        "tags": [
+          "public"
+        ]
+      }
+    },
+    "/v1/public/pod/{token}": {
+      "get": {
+        "operationId": "PodLinkPublic_view",
+        "parameters": [
+          {
+            "name": "doNo",
+            "required": false,
+            "in": "query",
+            "description": "เลข DO ที่ค้น (ไม่สนตัวพิมพ์/ช่องว่าง/เลขไทย) — ค้นเฉพาะ DO ในเที่ยวของลิงก์นี้ · ไม่ส่ง = ข้อมูลงานอย่างเดียว",
+            "schema": {
+              "maxLength": 40,
+              "example": "DO-2611-00069",
+              "type": "string"
+            }
+          },
+          {
+            "name": "token",
+            "required": true,
+            "in": "path",
+            "description": "token ของลิงก์งาน (ml1.…)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PodLinkViewDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "เรียกถี่เกินไป (ต่อ IP)"
+          }
+        },
+        "summary": "ข้อมูลงาน + ค้นเลข DO (เฉพาะในเที่ยวนี้) พร้อมสถานะจุดรับ/ส่ง",
+        "tags": [
+          "public"
+        ]
+      }
+    },
+    "/v1/public/pod/{token}/stops/{stopId}/events": {
+      "post": {
+        "operationId": "PodLinkPublic_record",
+        "parameters": [
+          {
+            "name": "stopId",
+            "required": true,
+            "in": "path",
+            "description": "จุดในเที่ยวของลิงก์ (stp_…)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "token",
+            "required": true,
+            "in": "path",
+            "description": "token ของลิงก์งาน (ml1.…)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PodLinkEventDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ส่งซ้ำ (clientEventId + จุด + ชนิดเดิม) → event เดิม ไม่สร้างใหม่",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PodLinkEventResultDto"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "สร้าง event ใหม่",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PodLinkEventResultDto"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "invalid_state_transition": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/invalid_state_transition",
+                      "title": "ทำรายการนี้ไม่ได้ในสถานะปัจจุบัน",
+                      "status": 409,
+                      "code": "invalid_state_transition",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "from": "PLANNING",
+                      "event": "dispatch"
+                    }
+                  },
+                  "concurrent_update": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/concurrent_update",
+                      "title": "มีการแก้ไขข้อมูลเดียวกันพร้อมกัน กรุณาลองใหม่อีกครั้ง",
+                      "status": 409,
+                      "code": "concurrent_update",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  },
+                  "idempotency_in_progress": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_in_progress",
+                      "title": "คำขอเดียวกันกำลังประมวลผลอยู่",
+                      "status": 409,
+                      "code": "idempotency_in_progress",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  },
+                  "trip_not_in_progress": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/trip_not_in_progress",
+                      "title": "บันทึกสถานะหน้างานได้เฉพาะเที่ยวที่ปล่อยรถแล้วและยังไม่จบ",
+                      "status": 409,
+                      "code": "trip_not_in_progress",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  },
+                  "stop_event_duplicate": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/stop_event_duplicate",
+                      "title": "clientEventId นี้ถูกใช้กับ event อื่นแล้ว",
+                      "status": 409,
+                      "code": "stop_event_duplicate",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "deliveryOrderIds[0]",
+                          "code": "invalid_reference",
+                          "message": "not found"
+                        },
+                        {
+                          "field": "plannedEndAt",
+                          "code": "outside_trip_date",
+                          "message": "must be on tripDate"
+                        }
+                      ]
+                    }
+                  },
+                  "idempotency_mismatch": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_mismatch",
+                      "title": "Idempotency-Key นี้เคยใช้กับข้อมูลอื่น",
+                      "status": 422,
+                      "code": "idempotency_mismatch",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "เรียกถี่เกินไป (ต่อ IP)"
+          }
+        },
+        "summary": "กดถึง/ออก (+ ปิดงานจุดรับ) ผ่านลิงก์ — event model เดียวกับเว็บ (source LINK)",
         "tags": [
           "public"
         ]
@@ -42543,11 +42761,22 @@
                 "$ref": "#/components/schemas/OfferLinkDto"
               }
             ]
+          },
+          "podLink": {
+            "nullable": true,
+            "description": "ST4-T08 ลิงก์งานหลังรับงาน (`/link/pod/…` — ค้น DO + กดถึง/ออก, POD ST4-T09) · null = ยังไม่รับงาน/เพิกถอนแล้ว · ออกใหม่ด้วย POST offer-link",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/OfferLinkDto"
+              }
+            ]
           }
         },
         "required": [
           "channels",
-          "link"
+          "link",
+          "podLink"
         ]
       },
       "OfferMessageDto": {
@@ -42897,6 +43126,11 @@
             "items": {
               "$ref": "#/components/schemas/OfferRejectReasonDto"
             }
+          },
+          "podUrl": {
+            "type": "string",
+            "nullable": true,
+            "description": "ST4-T08: รับงานแล้ว → URL หน้าลิงก์งาน (แท็บ \"ส่ง POD\": ค้นเลข DO + กดถึง/ออก) · อื่น = null"
           }
         },
         "required": [
@@ -42917,7 +43151,8 @@
           "serverTime",
           "accepted",
           "rejectReason",
-          "rejectReasons"
+          "rejectReasons",
+          "podUrl"
         ]
       },
       "AcceptOfferDto": {
@@ -42964,6 +43199,291 @@
         },
         "required": [
           "reason"
+        ]
+      },
+      "PodStopDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "stp_3f2a…"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "PICKUP",
+              "DELIVERY"
+            ],
+            "description": "บทบาทของจุดนี้ต่อ DO"
+          },
+          "sequence": {
+            "type": "number",
+            "example": 2,
+            "description": "ลำดับจุดในเที่ยว"
+          },
+          "siteName": {
+            "type": "string",
+            "example": "คลังบางปู"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "ARRIVED",
+              "COMPLETED",
+              "FAILED",
+              "SKIPPED"
+            ]
+          },
+          "outcome": {
+            "type": "string",
+            "nullable": true,
+            "example": "DELIVERED"
+          },
+          "arrivedAt": {
+            "type": "string",
+            "nullable": true,
+            "description": "เวลาถึงจุด"
+          },
+          "leftAt": {
+            "type": "string",
+            "nullable": true,
+            "description": "เวลาออกจากจุด = DEPART ของจุดถัดไป (docs/01 §3.9) — ยังไม่ออก/จุดสุดท้าย = null"
+          },
+          "nextStopId": {
+            "type": "string",
+            "nullable": true,
+            "example": "stp_9a1b…",
+            "description": "จุดถัดไปในเที่ยว — \"ออกจากจุด\" = ส่ง DEPART ที่จุดนี้ · จุดสุดท้าย = null"
+          }
+        },
+        "required": [
+          "id",
+          "role",
+          "sequence",
+          "siteName",
+          "status",
+          "outcome",
+          "arrivedAt",
+          "leftAt",
+          "nextStopId"
+        ]
+      },
+      "PodDoDto": {
+        "type": "object",
+        "properties": {
+          "doNo": {
+            "type": "string",
+            "example": "DO-2611-00069"
+          },
+          "doDate": {
+            "type": "string",
+            "example": "2026-11-17"
+          },
+          "customerName": {
+            "type": "string",
+            "nullable": true,
+            "description": "ชื่อลูกค้า (ไม่มีที่อยู่)"
+          },
+          "pickup": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PodStopDto"
+              }
+            ]
+          },
+          "delivery": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PodStopDto"
+              }
+            ]
+          }
+        },
+        "required": [
+          "doNo",
+          "doDate",
+          "customerName",
+          "pickup",
+          "delivery"
+        ]
+      },
+      "PodLinkViewDto": {
+        "type": "object",
+        "properties": {
+          "job": {
+            "$ref": "#/components/schemas/OfferLinkViewDto"
+          },
+          "tripStatus": {
+            "type": "string",
+            "example": "DISPATCHED",
+            "description": "สถานะเที่ยว"
+          },
+          "recordable": {
+            "type": "boolean",
+            "description": "กดถึง/ออกได้ (เที่ยวปล่อยรถแล้วและยังไม่จบ — DISPATCHED / IN_PROGRESS)"
+          },
+          "doHint": {
+            "type": "string",
+            "nullable": true,
+            "example": "DO-2611-00069",
+            "description": "เลข DO แรกของงานนี้ (ข้อความช่วยเมื่อค้นไม่พบ — ต้นแบบ \"หรือดู DO-…\")"
+          },
+          "query": {
+            "type": "string",
+            "nullable": true,
+            "description": "เลข DO ที่ค้น (ปรับรูปแล้ว)"
+          },
+          "match": {
+            "nullable": true,
+            "description": "null = ไม่ได้ค้น หรือไม่พบในงานนี้",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PodDoDto"
+              }
+            ]
+          },
+          "serverTime": {
+            "type": "string",
+            "description": "เวลาเซิร์ฟเวอร์"
+          }
+        },
+        "required": [
+          "job",
+          "tripStatus",
+          "recordable",
+          "doHint",
+          "query",
+          "match",
+          "serverTime"
+        ]
+      },
+      "PodLinkEventDto": {
+        "type": "object",
+        "properties": {
+          "clientEventId": {
+            "type": "string",
+            "format": "uuid",
+            "example": "6f1d3c1e-8a7b-4c2d-9e0f-1a2b3c4d5e6f",
+            "description": "UUID ที่ client สร้างตอนกดปุ่ม (UUIDv4) — unique ต่อบริษัท: ส่งซ้ำ (จุด + ชนิดเดิม) → **200 + event เดิม** ไม่สร้างแถวใหม่ · ใช้กับจุด/ชนิดอื่น → 409 `stop_event_duplicate`"
+          },
+          "occurredAt": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-11-17T09:42:00+07:00",
+            "description": "เวลาที่เกิดจริงบนเครื่อง (RFC 3339 `YYYY-MM-DDTHH:MM:SS[.fff]` + `Z`/`±HH:MM` — รับ `±HHMM`) — ใช้เรียงลำดับและเป็นเวลาถึง/ออก · บันทึกย้อนหลังได้"
+          },
+          "lat": {
+            "type": "number",
+            "nullable": true,
+            "minimum": -90,
+            "maximum": 90,
+            "example": 13.6447,
+            "description": "ละติจูด ณ เวลากด (ส่งคู่กับ lng; เก็บทศนิยม 6 ตำแหน่ง) — null/ไม่ส่ง = ไม่ได้ให้สิทธิ์ตำแหน่ง"
+          },
+          "lng": {
+            "type": "number",
+            "nullable": true,
+            "minimum": -180,
+            "maximum": 180,
+            "example": 100.6089
+          },
+          "accuracyM": {
+            "type": "number",
+            "nullable": true,
+            "minimum": 0,
+            "maximum": 9999999,
+            "example": 12.5,
+            "description": "ความแม่นของพิกัด (เมตร)"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "ARRIVE",
+              "DEPART",
+              "COMPLETE"
+            ],
+            "description": "ARRIVE ถึงจุด · DEPART ออกเดินทางมุ่งหน้าไปจุดนี้ (ปุ่ม \"ออกจากจุด\" ส่งที่จุดถัดไป) · COMPLETE ปิดงานจุดรับ (outcome `DELIVERED` เท่านั้น — จุดส่งปิดด้วย POD ST4-T09)"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "DELIVERED"
+            ],
+            "nullable": true,
+            "description": "เฉพาะ COMPLETE ของจุดรับ = DELIVERED (รับของครบ)"
+          }
+        },
+        "required": [
+          "clientEventId",
+          "occurredAt",
+          "type"
+        ]
+      },
+      "PodLinkEventResultDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "evt_3f2a…"
+          },
+          "stopId": {
+            "type": "string",
+            "example": "stp_3f2a…"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "ARRIVE",
+              "DEPART",
+              "COMPLETE"
+            ]
+          },
+          "outcome": {
+            "type": "string",
+            "nullable": true
+          },
+          "clientEventId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "occurredAt": {
+            "type": "string"
+          },
+          "receivedAt": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "APP",
+              "LINK",
+              "WEB",
+              "API",
+              "GPS"
+            ],
+            "example": "LINK"
+          },
+          "replayed": {
+            "type": "boolean",
+            "description": "true = ส่งซ้ำ (คืน event เดิม ไม่สร้างใหม่)"
+          }
+        },
+        "required": [
+          "id",
+          "stopId",
+          "type",
+          "outcome",
+          "clientEventId",
+          "occurredAt",
+          "receivedAt",
+          "source",
+          "replayed"
         ]
       },
       "TripSheetDto": {

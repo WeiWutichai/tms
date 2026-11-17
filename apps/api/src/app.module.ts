@@ -86,6 +86,8 @@ import { TripService } from './modules/trips/trip.service';
 import { SubconHireService } from './modules/trips/subcon-hire.service';
 import { SubconOfferService } from './modules/trips/subcon-offer.service';
 import { OfferLinks } from './modules/trips/offer-links';
+import { PodLinkPublicController } from './modules/trips/pod-link.controller';
+import { PodLinkService } from './modules/trips/pod-link.service';
 import {
   SubconOfferPublicController,
   TripOffersController,
@@ -190,6 +192,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     StopEventFlagsController,
     TripOffersController,
     SubconOfferPublicController,
+    PodLinkPublicController,
     TripSheetsController,
     TripSheetsPublicController,
     PlanningController,
@@ -249,6 +252,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     SubconOfferService,
     SubconTimeoutService,
     OfferLinks,
+    PodLinkService,
     TripSheetsService,
     TripSheetLinks,
     PlanningService,

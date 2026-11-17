@@ -1,6 +1,6 @@
 import type { Schemas } from '@tms/contracts';
 import { useEffect, useRef, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { ApiError } from '../api';
 import { formatDate, formatMoney, useI18n } from '../i18n';
 import type { MessageKey } from '../i18n/th';
@@ -11,7 +11,7 @@ import './carrier-link.css';
 import './offer-link.css';
 
 /* สีป้ายสถานะ (ต้นแบบ B: รอตอบ / รับงาน / ปฏิเสธ — หมดเวลา/ยกเลิกใช้สีกลาง) */
-const BADGE: Record<string, { bg: string; c: string }> = {
+export const BADGE: Record<string, { bg: string; c: string }> = {
   OFFERED: { bg: '#FCF0DC', c: '#8F5500' },
   ACCEPTED: { bg: '#E6F4EC', c: '#17733F' },
   REJECTED: { bg: '#FBE9E7', c: '#B3322A' },
@@ -19,19 +19,20 @@ const BADGE: Record<string, { bg: string; c: string }> = {
   WITHDRAWN: { bg: '#ECEDEA', c: '#3B424C' },
 };
 
-const day = (iso: string) => formatDate(new Date(`${iso}T00:00:00`), 'th', 'BE');
+export const day = (iso: string) => formatDate(new Date(`${iso}T00:00:00`), 'th', 'BE');
 const plainNum = (v: string) => v.replace(/\.?0+$/, '');
 
 /**
  * หน้าลิงก์ข้อเสนองานของรถร่วม (ST3-T23; docs/04 D3 "ส่งลิงก์ LINE/SMS ไม่ต้อง login", M10) — เปิดบนมือถือไม่ต้อง login
  * ต้นแบบ `TMS Subcon.dc.html` แท็บ "งาน": หัวพอร์ทัล · ใบสั่งงาน (เลขเที่ยว เส้นทาง เวลารับ ลูกค้า ประเภทรถ น้ำหนัก ส่งที่
  * เงื่อนไข ผู้ติดต่อ ราคาจ้าง) · แถบหมดอายุ · รับงาน (ทะเบียน + ชื่อ/เบอร์คนขับ) / ปฏิเสธ (เหตุผล 4 ข้อ) · การ์ดผล · toast
- * ต่างจากต้นแบบ [DECISION spec/12 §3]: แท็บ "ส่ง POD"/"การเงิน" ยังไม่มี (ST4/ST6) · เลขงาน = เลขเที่ยว · ไม่มีราคาขาย/ที่อยู่
+ * ต่างจากต้นแบบ [DECISION spec/12 §3]: แท็บ "ส่ง POD" แสดงเมื่อรับงานแล้ว (ไปหน้าลิงก์งาน ST4-T08) · "การเงิน" = ST6 · เลขงาน = เลขเที่ยว · ไม่มีราคาขาย/ที่อยู่
  * ลูกค้า · เบอร์คนขับบังคับ · สถานะหมดเวลา/ถูกยกเลิก
  */
 export function OfferLinkPage() {
   const { t } = useI18n();
   const { token = '' } = useParams();
+  const navigate = useNavigate();
   const q = useOfferView(token);
   const respond = useRespondOffer(token);
   const [mode, setMode] = useState<'' | 'acc' | 'dec'>('');
@@ -164,6 +165,18 @@ export function OfferLinkPage() {
             <button type="button" role="tab" className="cdl__tab" aria-selected>
               {t('ofl.tab.job')}
             </button>
+            {/* ST4-T08: รับงานแล้ว → แท็บ "ส่ง POD" เปิดหน้าลิงก์งาน (ค้น DO + กดถึง/ออก) */}
+            {v.podUrl && (
+              <button
+                type="button"
+                role="tab"
+                className="cdl__tab"
+                aria-selected={false}
+                onClick={() => navigate(new URL(v.podUrl!).pathname)}
+              >
+                {t('ofl.tab.pod')}
+              </button>
+            )}
           </div>
         )}
         <div className="cdl__body">
@@ -355,6 +368,7 @@ export function OfferLinkPage() {
                         {t('ofl.nameNote', { n: v.accepted.driverName })}
                       </span>
                     )}
+                  {v.podUrl && <span className="cdl__muted">{t('ofl.accdPod')}</span>}
                 </div>
               )}
               {status === 'REJECTED' && (
@@ -393,7 +407,7 @@ export function OfferLinkPage() {
 }
 
 /** การ์ดใบสั่งงาน (ต้นแบบ: หัวเลขงาน/เส้นทาง/เวลารับ + แถว 120px + แถบราคาจ้าง) */
-function Job({ v }: { v: OfferView }) {
+export function Job({ v }: { v: OfferView }) {
   const { t } = useI18n();
   const pick = v.pickupAt ? toBangkok(v.pickupAt) : null;
   const terms = [

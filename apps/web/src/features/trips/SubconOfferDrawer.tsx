@@ -114,7 +114,8 @@ export function SubconOfferDrawer({
   }`;
   const first = trip.stops[0];
   const pickupIso = first?.plannedArrival ?? first?.windowStart ?? null;
-  const url = link.data?.link?.url ?? null;
+  // ST4-T08: รับงานแล้ว → ลิงก์งาน (ค้น DO + กดถึง/ออก — มีแท็บใบสั่งงานด้วย) แทนลิงก์ข้อเสนอ
+  const url = (acc ? link.data?.podLink?.url : null) ?? link.data?.link?.url ?? null;
   // "ส่งผ่าน LINE" เฉพาะเมื่อส่งถึงรายนี้ได้ (ช่อง LINE เปิด + ผู้รับเหมามี LINE userId — #49) ไม่งั้นเหลือคัดลอกลิงก์
   const canLine = !!link.data?.channels.line;
 

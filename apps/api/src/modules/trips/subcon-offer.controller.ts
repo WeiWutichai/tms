@@ -60,7 +60,7 @@ export class TripOffersController {
   @ApiCreatedResponse({
     type: OfferLinkDto,
     description:
-      'ออกลิงก์ใหม่ให้ข้อเสนอที่รอตอบ (ลิงก์เดิมถูกเพิกถอน + audit) — อายุเท่าเดิม ไม่ต่อเวลาตอบ · ไม่รอตอบแล้ว → 409 `offer_closed`',
+      'ออกลิงก์ใหม่ให้ข้อเสนอที่รอตอบ (ลิงก์เดิมถูกเพิกถอน + audit) — อายุเท่าเดิม ไม่ต่อเวลาตอบ · ST4-T08: รับงานแล้ว (เที่ยวยังไม่จบ) = ออกลิงก์งาน (`/link/pod/…`) ใหม่ · อื่น → 409 `offer_closed`',
   })
   async reissue(@Param('id') id: string): Promise<OfferLinkDto> {
     const trip = await this.trips.get(decodeIdOr404('trip', id));

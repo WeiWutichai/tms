@@ -4,7 +4,8 @@ import { encodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import type { Tx } from '../../db/db.service';
-import { MagicLinkService } from '../links/magic-link.service';
+import { webBaseUrl } from '../../auth/password-reset.controller';
+import { encodeLinkToken, MagicLinkService } from '../links/magic-link.service';
 import { linkUrl } from '../messaging/link-kinds';
 
 export const OFFER_LINK_PURPOSE = 'trip_offer' as const;
@@ -14,11 +15,30 @@ export const OFFER_LINK_ACTIONS = { view: 'offer.view', respond: 'offer.respond'
 /** อายุข้อเสนอ/ลิงก์ (docs/04 D3 "ลิงก์อายุ 48 ชม.", docs/01 §4.2) */
 export const OFFER_TTL_MS = 48 * 3600_000;
 
-/** เหตุที่เพิกถอนลิงก์ข้อเสนองาน (docs/04 A1 "เพิกถอนได้") */
+/**
+ * ลิงก์งานของรถร่วมหลังรับงาน (ST4-T08 M10 ส่วนสถานะ — POD ST4-T09; docs/01 §5.5 `/public/pod/{token}`)
+ * ออกตอนการจ้างเป็น ACCEPTED · entity = การจ้าง (`subcon_offer`) จึงจำกัดเฉพาะเที่ยว + รถร่วมรายนั้น
+ * · เพิกถอนพร้อมลิงก์ข้อเสนอ (ยกเลิกเที่ยว / เปลี่ยนรถร่วม ST3-T25 / จ้างใหม่) · ใช้ได้จนเที่ยวจบ + 7 วัน (ตรวจที่ service)
+ */
+export const POD_LINK_PURPOSE = 'pod' as const;
+/** view = ดูงาน/ค้น DO · event = กดถึง/ออก (ST4-T08) · capture = ส่ง POD (ST4-T09) */
+export const POD_LINK_ACTIONS = {
+  view: 'pod.view',
+  event: 'pod.event',
+  capture: 'pod.capture',
+} as const;
+/** เพดานอายุ token (วัน) — อายุจริง "จนเที่ยวจบ + 7 วัน" ตรวจที่ `PodLinkService` (เที่ยวที่ยังไม่จบไม่รู้วันจบล่วงหน้า) */
+export const POD_LINK_MAX_DAYS = 45;
+/** หลังเที่ยวจบ (COMPLETED ขึ้นไป) ลิงก์ใช้ได้อีกกี่วัน (docs/01 §5.5 "จนปิด trip + 7 วัน") */
+export const POD_LINK_AFTER_CLOSE_DAYS = 7;
+const LINK_PURPOSES_OF_OFFER = [OFFER_LINK_PURPOSE, POD_LINK_PURPOSE];
+
+/** เหตุที่เพิกถอนลิงก์ข้อเสนองาน/ลิงก์งาน (docs/04 A1 "เพิกถอนได้") */
 export type OfferLinkRevokeCause =
-  'REISSUED' | 'TRIP_CANCELLED' | 'CARRIER_CHANGED' | 'REHIRED' | 'OFFER_EXPIRED';
+  'REISSUED' | 'POD_REISSUED' | 'TRIP_CANCELLED' | 'CARRIER_CHANGED' | 'REHIRED' | 'OFFER_EXPIRED';
 export const OFFER_REVOKE_REASON: Record<OfferLinkRevokeCause, string> = {
   REISSUED: 'ออกลิงก์ข้อเสนองานใหม่ — ลิงก์เดิมใช้ไม่ได้แล้ว',
+  POD_REISSUED: 'ออกลิงก์งานรถร่วมใหม่ — ลิงก์เดิมใช้ไม่ได้แล้ว',
   TRIP_CANCELLED: 'ยกเลิกเที่ยว — ลิงก์ข้อเสนองานใช้ไม่ได้แล้ว',
   CARRIER_CHANGED: 'เปลี่ยนรถร่วม — ลิงก์ข้อเสนองานของรายเดิมใช้ไม่ได้แล้ว',
   REHIRED: 'จ้างรถร่วมใหม่ — ลิงก์ข้อเสนอที่ปิดแล้วใช้ไม่ได้',
@@ -66,12 +86,39 @@ export class OfferLinks {
     return { id: l.id, expiresAt: l.expiresAt, url: linkUrl('trip_offer', l) };
   }
 
-  /** ลิงก์ที่ยังใช้ได้ของการจ้าง (ใหม่สุดก่อน) */
-  async active(tx: Tx, offerIds: string[]): Promise<OfferLinkRow[]> {
+  /**
+   * ออกลิงก์งานหลังรับงาน (ST4-T08) — ดู/ค้น DO/กดถึง-ออก (+ ส่ง POD ST4-T09) · scope ราคาซื้อของตัวเอง (แท็บ "งาน")
+   * อายุ token = เพดาน `POD_LINK_MAX_DAYS` วัน (เที่ยวจบ + 7 วัน ตรวจที่ service)
+   */
+  async issuePod(tx: Tx, offer: { id: string; tenantId: string }, createdBy: string | null) {
+    const l = await this.links.issue(tx, offer.tenantId, {
+      purpose: POD_LINK_PURPOSE,
+      entityType: OFFER_LINK_ENTITY,
+      entityId: offer.id,
+      actions: [POD_LINK_ACTIONS.view, POD_LINK_ACTIONS.event, POD_LINK_ACTIONS.capture],
+      scopes: ['prices.buy:read'],
+      ttlSeconds: POD_LINK_MAX_DAYS * 86_400,
+      ...(createdBy ? { createdBy } : {}),
+    });
+    return { id: l.id, expiresAt: l.expiresAt, url: this.podUrl(l) };
+  }
+
+  /** URL หน้าลิงก์งานของรถร่วม (`/link/pod/{token}`) */
+  podUrl(link: { id: string; expiresAt: Date }): string {
+    const token = encodeLinkToken(link.id, Math.floor(link.expiresAt.getTime() / 1000));
+    return `${webBaseUrl()}/link/pod/${token}`;
+  }
+
+  /** ลิงก์ที่ยังใช้ได้ของการจ้าง (ใหม่สุดก่อน) — ค่าเริ่ม = ลิงก์ข้อเสนองาน · ST4-T08 ลิงก์งาน = `[POD_LINK_PURPOSE]` */
+  async active(
+    tx: Tx,
+    offerIds: string[],
+    purposes: string[] = [OFFER_LINK_PURPOSE],
+  ): Promise<OfferLinkRow[]> {
     if (!offerIds.length) return [];
     return tx.magicLink.findMany({
       where: {
-        purpose: OFFER_LINK_PURPOSE,
+        purpose: { in: purposes },
         entityType: OFFER_LINK_ENTITY,
         entityId: { in: offerIds },
         revokedAt: null,
@@ -86,7 +133,7 @@ export class OfferLinks {
     return linkUrl('trip_offer', link);
   }
 
-  /** เพิกถอนลิงก์ที่ใช้ได้ทั้งหมดของการจ้างในเที่ยว (คืนจำนวน — ไม่มี = 0 ไม่ลง audit) */
+  /** เพิกถอนลิงก์ที่ใช้ได้ทั้งหมด (ข้อเสนอ + ลิงก์งาน ST4-T08) ของการจ้างในเที่ยว (คืนจำนวน — ไม่มี = 0 ไม่ลง audit) */
   async revokeForTrip(tx: Tx, tripId: string, cause: OfferLinkRevokeCause): Promise<number> {
     const offers = await tx.subconOffer.findMany({ where: { tripId }, select: { id: true } });
     return this.revoke(
@@ -102,8 +149,9 @@ export class OfferLinks {
     offerIds: string[],
     cause: OfferLinkRevokeCause,
     tripId: string,
+    purposes: string[] = LINK_PURPOSES_OF_OFFER,
   ): Promise<number> {
-    const ls = await this.active(tx, offerIds);
+    const ls = await this.active(tx, offerIds, purposes);
     if (!ls.length) return 0;
     const reason = OFFER_REVOKE_REASON[cause];
     const actor = requestContext.get()?.actorId ?? undefined;
