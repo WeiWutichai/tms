@@ -846,9 +846,6 @@ model VehicleOdometerReading {
   reasonType        String?  @map("reason_type") /// แก้ไข: TYPO / METER_REPLACED / GPS_ERROR / MISSED_ENTRY / OTHER
   note              String?
   originalReadingId String?  @map("original_reading_id") @db.Uuid
-  /// ST4-T03: เลขไมล์ประมาณเมื่อจบเที่ยว (source TRIP) — 1 แถวต่อเที่ยว (unique บางส่วนใน migration 0086)
-  tripId            String?  @map("trip_id") @db.Uuid
-  trip              Trip?    @relation(fields: [tripId], references: [id], onDelete: Restrict)
   createdBy         String?  @map("created_by")
   createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6) /// receivedAt
 
@@ -1666,7 +1663,6 @@ model Trip {
   subconOffers         SubconOffer[]
   stopEvents           StopEvent[]
   stopEventResolutions StopEventResolution[]
-  odometerReadings     VehicleOdometerReading[]
 
   @@unique([tenantId, tripNo])
   @@index([tenantId, tripDate, status])
@@ -2007,6 +2003,10 @@ model StopEvent {
   clockSkew          Boolean               @default(false) @map("clock_skew")
   /// ST4-T02: STOP_REMOVED / TRIP_CANCELLED / TRIP_COMPLETED — มาหลังปิด รับเก็บ + ธง (CHECK)
   lateReason         String?               @map("late_reason")
+  /// ST4-T03: ปิดงานส่งขณะจุดรับของ DO ยังไม่ปิดสำเร็จ (ธง PICKUP_NOT_DONE — projection)
+  pickupPending      Boolean               @default(false) @map("pickup_pending")
+  /// ST4-T03: ผลปิดจุดขัดกับสถานะ DO ที่ไล่แล้ว (ธงแจ้ง OUTCOME_MISMATCH — projection)
+  outcomeMismatch    Boolean               @default(false) @map("outcome_mismatch")
   resolutions        StopEventResolution[] @relation("StopEventResolutions")
   /// ST4-T02: การตัดสินที่มีผลตอนนี้ (ธงตรงกับธงปัจจุบัน) — projection คำนวณใหม่ทุกครั้ง
   resolutionId       String?               @map("resolution_id") @db.Uuid

@@ -202,20 +202,38 @@ export function isClockSkewed(occurredAt: Date, receivedAt: Date): boolean {
   return d > CLOCK_SKEW_FUTURE_MS || -d > CLOCK_SKEW_PAST_MS;
 }
 
-/** ธงที่ dispatcher ต้องตัดสิน (หน้า ศูนย์ข้อยกเว้น) — event หนึ่งมีได้หลายธง เรียงตามความสำคัญ */
-export const STOP_EVENT_FLAGS = ['LATE', 'SEQUENCE_CONFLICT', 'CLOCK_SKEW'] as const;
+/**
+ * ธงที่ dispatcher ต้องตัดสิน (หน้า ศูนย์ข้อยกเว้น) — event หนึ่งมีได้หลายธง เรียงตามความสำคัญ
+ * ST4-T03: `PICKUP_NOT_DONE` = ปิดงานส่งสำเร็จ/บางส่วนที่จุดส่ง ขณะจุดรับของ DO ที่ส่งที่นี่ยังไม่ปิดสำเร็จ (ไม่นับจนกว่ารับของเสร็จหรือ "ใช้")
+ * · `OUTCOME_MISMATCH` = ผลปิดจุดที่มีผลขัดกับสถานะ DO ที่ไล่ไปแล้ว (DO ไม่ถอยหลัง) — **ธงแจ้งเท่านั้น** ไม่กระทบการนับ ตัดสินได้แค่ "รับทราบ" (ACCEPT)
+ */
+export const STOP_EVENT_FLAGS = [
+  'LATE',
+  'SEQUENCE_CONFLICT',
+  'PICKUP_NOT_DONE',
+  'CLOCK_SKEW',
+  'OUTCOME_MISMATCH',
+] as const;
 export type StopEventFlag = (typeof STOP_EVENT_FLAGS)[number];
 export function stopEventFlagsOf(e: {
   lateReason: string | null;
   sequenceConflict: boolean;
   clockSkew: boolean;
+  pickupPending?: boolean;
+  outcomeMismatch?: boolean;
 }): StopEventFlag[] {
   const out: StopEventFlag[] = [];
   if (e.lateReason) out.push('LATE');
   if (e.sequenceConflict) out.push('SEQUENCE_CONFLICT');
+  if (e.pickupPending) out.push('PICKUP_NOT_DONE');
   if (e.clockSkew) out.push('CLOCK_SKEW');
+  if (e.outcomeMismatch) out.push('OUTCOME_MISMATCH');
   return out;
 }
+
+/** ธงแจ้งเท่านั้น (ไม่กระทบการนับ — การตัดสิน = รับทราบ) */
+export const INFO_ONLY_FLAGS = ['OUTCOME_MISMATCH'] as const satisfies readonly StopEventFlag[];
+const isInfoFlag = (f: string) => (INFO_ONLY_FLAGS as readonly string[]).includes(f);
 
 /**
  * การตัดสินของ dispatcher (แถวใหม่ใน `stop_event_resolution` + เหตุผล + audit — ไม่ใช่พลิกธง)
@@ -242,6 +260,10 @@ export interface StopSeqEvent<R extends StopSeqResolution = StopSeqResolution> {
   receivedAt: Date;
   lateReason: StopEventLateReason | null;
   clockSkew: boolean;
+  /** ST4-T03: ปิดงานส่งขณะจุดรับยังไม่ปิด (คำนวณโดย projection ของเที่ยว) */
+  pickupPending?: boolean;
+  /** ST4-T03: ผลปิดจุดขัดกับ DO (ธงแจ้งเท่านั้น) */
+  outcomeMismatch?: boolean;
   /** การตัดสินทั้งหมดของ event (ลำดับใดก็ได้) */
   resolutions: readonly R[];
 }
@@ -252,7 +274,14 @@ export interface StopSeqEvent<R extends StopSeqResolution = StopSeqResolution> {
  * · LATE มาหลังเที่ยว/จุดปิด รอ dispatcher (ไม่นับ) · SKEWED เวลาเครื่องเพี้ยน รอ dispatcher (ไม่นับ)
  */
 export type StopSeqStatus =
-  'APPLIED' | 'REDUNDANT' | 'CONFLICT' | 'ACCEPTED' | 'IGNORED' | 'LATE' | 'SKEWED';
+  | 'APPLIED'
+  | 'REDUNDANT'
+  | 'CONFLICT'
+  | 'ACCEPTED'
+  | 'IGNORED'
+  | 'LATE'
+  | 'SKEWED'
+  | 'PICKUP_PENDING';
 
 export interface StopSeqResult<E extends StopSeqEvent, R extends StopSeqResolution> {
   /** event ทั้งหมดเรียงตามลำดับที่ใช้ตัดสิน */
@@ -293,16 +322,50 @@ export function compareStopEvents(a: StopSeqEvent, b: StopSeqEvent): number {
 const sameFlags = (a: readonly string[], b: readonly string[]) =>
   a.length === b.length && a.every((x) => b.includes(x));
 
-/** การตัดสินที่มีผล: ใหม่สุดที่ชุดธงตรงกับธงปัจจุบัน (ธงเปลี่ยน = การตัดสินเดิมหมดผล) */
+/**
+ * การตัดสินที่มีผล: ใหม่สุดที่ชุดธงตรงกับธงปัจจุบัน (ธงเปลี่ยน = การตัดสินเดิมหมดผล) — เทียบเฉพาะธงที่กระทบการนับ
+ * (ธงแจ้งเท่านั้นมา/หายไม่ทำให้การตัดสินเดิมหมดผล — กันวนไปมา) · ไม่มีธงที่กระทบการนับ = null
+ */
 export function applicableResolution<R extends StopSeqResolution>(
   resolutions: readonly R[],
   flags: readonly string[],
 ): R | null {
-  if (!flags.length) return null;
+  const core = flags.filter((f) => !isInfoFlag(f));
+  if (!core.length) return null;
+  return newestMatching(resolutions, core);
+}
+
+function newestMatching<R extends StopSeqResolution>(
+  resolutions: readonly R[],
+  core: readonly string[],
+): R | null {
   let best: R | null = null;
   for (const r of resolutions)
-    if (sameFlags(r.flags, flags) && (!best || r.at.getTime() >= best.at.getTime())) best = r;
+    if (
+      sameFlags(
+        r.flags.filter((f) => !isInfoFlag(f)),
+        core,
+      ) &&
+      (!best || r.at.getTime() >= best.at.getTime())
+    )
+      best = r;
   return best;
+}
+
+/**
+ * การตัดสินที่แสดง/ปิดธง (`resolution_id`): ไม่มีธงแจ้ง = ตัวเดียวกับที่นับ · มีธงแจ้ง (OUTCOME_MISMATCH) = ใหม่สุดที่ตรง
+ * และตัดสินหลังเห็นธงแจ้งแล้ว (ธงของการตัดสินมี OUTCOME_MISMATCH)
+ */
+export function displayResolution<R extends StopSeqResolution>(
+  resolutions: readonly R[],
+  flags: readonly string[],
+): R | null {
+  if (!flags.some(isInfoFlag)) return applicableResolution(resolutions, flags);
+  const r = newestMatching(
+    resolutions,
+    flags.filter((f) => !isInfoFlag(f)),
+  );
+  return r && r.flags.some(isInfoFlag) ? r : null;
 }
 
 const isClose = (t: StopEventType) => t === 'COMPLETE' || t === 'FAIL';
@@ -343,6 +406,8 @@ export function effectiveStopSequence<E extends StopSeqEvent>(
   const racing = new Set(rivals.length >= 2 ? rivals.map((e) => e.id) : []);
 
   let state: StopExecState = 'PENDING';
+  /** ปิดงานด้วย event ขัดลำดับที่ผู้จัดรถ "ใช้" → ถึง/ออกที่ตามมา (เวลาเครื่อง) นับเป็นเวลา ไม่ขึ้นธง (ไม่ลบเวลาถึงที่ถูกต้อง) */
+  let closedByAccept = false;
   let outcome: StopOutcome | null = null;
   let enRouteAt: Date | null = null;
   let arrivedAt: Date | null = null;
@@ -352,15 +417,25 @@ export function effectiveStopSequence<E extends StopSeqEvent>(
 
   for (const e of sorted) {
     const before = state;
-    const tr = stopEventTransition(state, e.type);
+    let tr = stopEventTransition(state, e.type);
+    if (
+      tr === 'conflict' &&
+      closedByAccept &&
+      (e.type === 'ARRIVE' || e.type === 'DEPART') &&
+      !racing.has(e.id)
+    )
+      tr = 'redundant';
     const conflict = tr === 'conflict' || racing.has(e.id);
     const flags = stopEventFlagsOf({
       lateReason: e.lateReason,
       sequenceConflict: conflict,
       clockSkew: e.clockSkew,
+      pickupPending: !!e.pickupPending,
+      outcomeMismatch: !!e.outcomeMismatch,
     });
-    const resolution: R | null = applicableResolution<R>(e.resolutions, flags);
-    const decision = resolution?.decision ?? null;
+    const counting: R | null = applicableResolution<R>(e.resolutions, flags);
+    const resolution: R | null = displayResolution<R>(e.resolutions, flags);
+    const decision = counting?.decision ?? null;
     const base = { ...e, stateBefore: before, conflict, flags, resolution };
     const hold = (seqStatus: StopSeqStatus) => events.push({ ...base, seqStatus, counted: false });
     if (decision === 'IGNORE') {
@@ -373,6 +448,10 @@ export function effectiveStopSequence<E extends StopSeqEvent>(
     }
     if (e.clockSkew && decision !== 'ACCEPT') {
       hold('SKEWED');
+      continue;
+    }
+    if (e.pickupPending && decision !== 'ACCEPT') {
+      hold('PICKUP_PENDING');
       continue;
     }
     // ปิดงานแข่งกัน: นับเฉพาะตัวที่มีผล
@@ -390,6 +469,7 @@ export function effectiveStopSequence<E extends StopSeqEvent>(
       if (isTerminalStopState(target)) {
         outcome = e.type === 'FAIL' ? (e.outcome ?? 'FAILED') : e.outcome;
         closedAt = e.occurredAt;
+        closedByAccept = tr === 'conflict';
       }
       lastEventId = e.id;
     }

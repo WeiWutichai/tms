@@ -205,6 +205,7 @@ describe('stop projection / status cascade (ST4-T03)', () => {
       .send({ readingKm: 1000, readAt: ago(180) })
       .expect(201);
     await db.trip.update({ where: { id: t.uuid }, data: { plannedDistanceKm: 85.5 } });
+    const vBefore = await db.vehicle.findUniqueOrThrow({ where: { id: t.vehicleId } });
     const [pickup, drop] = [...t.stops].sort((a, b) => a.sequence - b.sequence);
     expect([pickup!.type, drop!.type]).toEqual(['PICKUP', 'DELIVERY']);
     expect(await soStatus(soId)).toBe('IN_TRANSIT');
@@ -297,13 +298,21 @@ describe('stop projection / status cascade (ST4-T03)', () => {
     expect(ds.lastEventId).toBe(uuid('event', last.body.id));
     expect(await db.stopEvent.count({ where: { tripId: t.uuid, appliedAt: null } })).toBe(0);
 
-    // เลขไมล์: 1000 + 85.5 แหล่ง TRIP ผูกเที่ยว
+    // trip.started payload = เวลาถึงจุดแรก
+    const started = all.find((e) => e.type === 'trip.started')!;
+    expect((started.snapshot as { startedAt: string }).startedAt).toBe(
+      (await stopRow(pickup!.id)).arrivedAt!.toISOString(),
+    );
+
+    // เลขไมล์ประมาณ: 1000 + 85.5 แหล่ง TRIP — ไม่ลงประวัติเลขไมล์ ไม่เพิ่ม version ของรถ
     const v = await db.vehicle.findUniqueOrThrow({ where: { id: t.vehicleId } });
     expect(Number(v.odometerKm)).toBe(1085.5);
     expect(v.odometerSource).toBe('TRIP');
-    const readings = await db.vehicleOdometerReading.findMany({ where: { tripId: t.uuid } });
-    expect(readings).toHaveLength(1);
-    expect(readings[0]!.readAt.toISOString()).toBe(trip.completedAt!.toISOString());
+    expect(v.version).toBe(vBefore.version);
+    expect(await db.vehicleOdometerReading.count({ where: { vehicleId: t.vehicleId } })).toBe(1);
+    expect(
+      await db.domainEvent.count({ where: { localId: t.vehicleId, type: 'odometer.estimated' } }),
+    ).toBe(1);
 
     // คำนวณซ้ำ (idempotent): ไม่มี domain_event / เลขไมล์ใหม่ · ส่ง event เดิมซ้ำ = 200 ไม่ไล่ซ้ำ
     const n = await db.domainEvent.count({ where: { tenantId } });
@@ -324,7 +333,18 @@ describe('stop projection / status cascade (ST4-T03)', () => {
       })
       .expect(200);
     expect(await db.domainEvent.count({ where: { tenantId } })).toBe(n);
-    expect(await db.vehicleOdometerReading.count({ where: { tripId: t.uuid } })).toBe(1);
+    expect(
+      Number((await db.vehicle.findUniqueOrThrow({ where: { id: t.vehicleId } })).odometerKm),
+    ).toBe(1085.5);
+
+    // เลขไมล์จริงที่ต่ำกว่าค่าประมาณกรอกได้ และแทนที่ค่าประมาณ (review H1 / QA M1)
+    await api(app, admin)
+      .post(`/v1/vehicles/${encodeId('vehicle', t.vehicleId)}/odometer`)
+      .send({ readingKm: 1070, readAt: ago(1) })
+      .expect(201);
+    const real = await db.vehicle.findUniqueOrThrow({ where: { id: t.vehicleId } });
+    expect(Number(real.odometerKm)).toBe(1070);
+    expect(real.odometerSource).toBe('MANUAL');
   });
 
   it('ส่งบางส่วน / ไม่สำเร็จ: DO PARTIAL = DELIVERED · FAIL + เหตุผล → DO FAILED (เหตุผลในประวัติ) · SO ที่ส่งไม่สำเร็จคง IN_TRANSIT · เที่ยวจบเมื่อทุกจุดจบ', async () => {
@@ -371,7 +391,9 @@ describe('stop projection / status cascade (ST4-T03)', () => {
     expect(h.reasonCodeId).toBe(failed);
     expect((await tripRow(t.uuid)).status).toBe('COMPLETED');
     const evs = await events([uuid('tripStop', bStop)]);
-    expect(evs.map((e) => e.type)).toEqual(['stop.failed', 'stop.departed']);
+    // ไม่เคยถึงจุด → ไม่มีเวลาออก/ไม่มี stop.departed (review L2)
+    expect(evs.map((e) => e.type)).toEqual(['stop.failed']);
+    expect((await stopRow(bStop)).departedAt).toBeNull();
   });
 
   it('SO หลาย DO: ส่งแล้วบางใบ + ใบที่เหลือยังไม่ออก → PARTIALLY_DELIVERED · ใบที่เหลือออกรถ → IN_TRANSIT · ส่งครบ → DELIVERED', async () => {
@@ -482,10 +504,11 @@ describe('stop projection / status cascade (ST4-T03)', () => {
     const a = await newOrder('2', origin);
     const b = await newOrder('2', origin);
     const t = await dispatched(a.dos.concat(b.dos).map((d) => encodeId('deliveryOrder', d.id)));
-    const aStop = encodeId(
-      'tripStop',
-      (await db.deliveryOrder.findUniqueOrThrow({ where: { id: a.dos[0]!.id } })).tripStopId!,
-    );
+    const aRow = await db.deliveryOrder.findUniqueOrThrow({ where: { id: a.dos[0]!.id } });
+    const aStop = encodeId('tripStop', aRow.tripStopId!);
+    const pkStop = encodeId('tripStop', aRow.pickupTripStopId!);
+    await post(pkStop, 'arrive', 70).expect(201);
+    await post(pkStop, 'complete', 65, { outcome: 'DELIVERED' }).expect(201);
     await post(aStop, 'arrive', 60).expect(201);
     const first = await post(aStop, 'complete', 50, { outcome: 'DELIVERED' }).expect(201);
     expect(await doStatus(a.dos[0]!.id)).toBe('DELIVERED');
@@ -502,6 +525,30 @@ describe('stop projection / status cascade (ST4-T03)', () => {
       .send({ decision: 'IGNORE', reason: 'คนขับกดผิด จริง ๆ ร้านปิด' })
       .expect(200);
     expect(await stopRow(aStop)).toMatchObject({ status: 'FAILED', failReasonCodeId: failed });
+    expect(await doStatus(a.dos[0]!.id)).toBe('DELIVERED');
+    // ผลจุดขัด DO → ธงแจ้ง OUTCOME_MISMATCH ที่ event ปิดงานที่มีผล + audit · รับทราบได้อย่างเดียว
+    const sec = await db.stopEvent.findFirstOrThrow({
+      where: { id: uuid('event', second.body.id) },
+    });
+    expect(sec.outcomeMismatch).toBe(true);
+    expect(
+      await db.auditLog.count({
+        where: { entityId: sec.id, action: 'stop_event.outcome_mismatch' },
+      }),
+    ).toBe(1);
+    const open = (
+      await api(app, admin)
+        .get('/v1/stop-event-flags?status=open&flag=OUTCOME_MISMATCH')
+        .expect(200)
+    ).body.data.map((f: { id: string }) => f.id);
+    expect(open).toContain(second.body.id);
+    // ธงขัดลำดับของตัวนี้ยังไม่ตัดสิน → ตัดสินพร้อมกัน (ACCEPT = ใช้ + รับทราบ)
+    await api(app, admin)
+      .post(`/v1/stop-event-flags/${second.body.id}/resolve`)
+      .send({ decision: 'ACCEPT', reason: 'รับทราบ ร้านปิดจริง จะเปิดงานส่งใหม่' })
+      .expect(200);
+    const after = await db.stopEvent.findFirstOrThrow({ where: { id: sec.id } });
+    expect(after.resolutionId).not.toBeNull();
     expect(await doStatus(a.dos[0]!.id)).toBe('DELIVERED');
     expect(
       (await db.stopEvent.findFirstOrThrow({ where: { id: uuid('event', first.body.id) } }))
@@ -531,46 +578,170 @@ describe('stop projection / status cascade (ST4-T03)', () => {
     expect(await soStatus(soId)).not.toBe('IN_TRANSIT');
   });
 
-  it('เลขไมล์: ไม่มีค่าก่อนหน้า / ระยะไม่ทราบ → ไม่บันทึก · ค่าที่บันทึกหลังจากนั้นต่ำกว่า → ไม่บันทึก (ไม่ถอยหลัง)', async () => {
-    const one = async (setup: (vehicleId: string, tripId: string) => Promise<void>) => {
+  it('เลขไมล์ประมาณ: ไม่มีเลขไมล์ / ไม่ทราบระยะ / มีเลขไมล์จริงหลังจบเที่ยว → ไม่แตะ · หลายเที่ยวต่อกันสะสม', async () => {
+    const run1 = async (
+      vid: string | undefined,
+      setup: (vehicleId: string, tripId: string) => Promise<void>,
+    ) => {
       const { dos } = await newOrder();
-      const t = await dispatched([encodeId('deliveryOrder', dos[0]!.id)]);
+      const t = await dispatched([encodeId('deliveryOrder', dos[0]!.id)], vid);
       await setup(t.vehicleId, t.uuid);
       for (const s of [...t.stops].sort((x, y) => x.sequence - y.sequence)) {
         await post(s.id, 'arrive', 40 - s.sequence * 10).expect(201);
         await post(s.id, 'complete', 35 - s.sequence * 10, { outcome: 'DELIVERED' }).expect(201);
       }
       expect((await tripRow(t.uuid)).status).toBe('COMPLETED');
-      return db.vehicleOdometerReading.count({ where: { tripId: t.uuid } });
+      const v = await db.vehicle.findUniqueOrThrow({ where: { id: t.vehicleId } });
+      return {
+        km: v.odometerKm === null ? null : Number(v.odometerKm),
+        src: v.odometerSource,
+        vid: t.vehicleId,
+      };
     };
-    // ไม่มีค่าก่อนหน้า
+    const odo = (vid: string, km: number, min: number) =>
+      api(app, admin)
+        .post(`/v1/vehicles/${encodeId('vehicle', vid)}/odometer`)
+        .send({ readingKm: km, readAt: ago(min) })
+        .expect(201);
+    // ไม่มีเลขไมล์
     expect(
-      await one(async (_v, tid) => {
-        await db.trip.update({ where: { id: tid }, data: { plannedDistanceKm: 10 } });
-      }),
-    ).toBe(0);
+      (
+        await run1(undefined, async (_v, tid) => {
+          await db.trip.update({ where: { id: tid }, data: { plannedDistanceKm: 10 } });
+        })
+      ).km,
+    ).toBeNull();
     // ไม่ทราบระยะ
-    expect(
-      await one(async (vid) => {
-        await api(app, admin)
-          .post(`/v1/vehicles/${encodeId('vehicle', vid)}/odometer`)
-          .send({ readingKm: 500, readAt: ago(120) })
-          .expect(201);
-      }),
-    ).toBe(0);
-    // ค่าหลังจากเวลาจบเที่ยวต่ำกว่าค่าประมาณ → ไม่บันทึก
-    expect(
-      await one(async (vid, tid) => {
-        await api(app, admin)
-          .post(`/v1/vehicles/${encodeId('vehicle', vid)}/odometer`)
-          .send({ readingKm: 500, readAt: ago(120) })
-          .expect(201);
-        await api(app, admin)
-          .post(`/v1/vehicles/${encodeId('vehicle', vid)}/odometer`)
-          .send({ readingKm: 505, readAt: ago(1) })
-          .expect(201);
-        await db.trip.update({ where: { id: tid }, data: { plannedDistanceKm: 50 } });
-      }),
-    ).toBe(0);
+    expect((await run1(undefined, (vid) => odo(vid, 500, 120).then(() => undefined))).km).toBe(500);
+    // มีเลขไมล์จริงหลังเวลาจบเที่ยว → ค่าจริงคงอยู่
+    const late = await run1(undefined, async (vid, tid) => {
+      await odo(vid, 500, 120);
+      await odo(vid, 505, 1);
+      await db.trip.update({ where: { id: tid }, data: { plannedDistanceKm: 50 } });
+    });
+    expect(late).toMatchObject({ km: 505, src: 'MANUAL' });
+    // สองเที่ยวต่อกันบนรถคันเดียว: สะสมจากค่าประมาณก่อนหน้า
+    const a = await run1(undefined, async (vid, tid) => {
+      await odo(vid, 1000, 180);
+      await db.trip.update({ where: { id: tid }, data: { plannedDistanceKm: 20 } });
+    });
+    expect(a.km).toBe(1020);
+    const b = await run1(encodeId('vehicle', a.vid), async (_v, tid) => {
+      await db.trip.update({ where: { id: tid }, data: { plannedDistanceKm: 30 } });
+    });
+    expect(b).toMatchObject({ km: 1050, src: 'TRIP' });
+  });
+
+  it('ปิดงานส่งก่อนจุดรับปิด → ธง PICKUP_NOT_DONE ไม่ไล่ DO · รับของเสร็จ → ธงหายเอง DO ผ่าน PICKED_UP → DELIVERED (QA M2)', async () => {
+    const { dos } = await newOrder();
+    const t = await dispatched([encodeId('deliveryOrder', dos[0]!.id)]);
+    const [pk, dr] = [...t.stops].sort((x, y) => x.sequence - y.sequence);
+    await post(dr!.id, 'arrive', 30).expect(201);
+    const c = await post(dr!.id, 'complete', 25, { outcome: 'DELIVERED' }).expect(201);
+    expect(c.body.flags).toEqual(['PICKUP_NOT_DONE']);
+    expect(c.body.appliedAt).toBeNull();
+    expect(await doStatus(dos[0]!.id)).toBe('DISPATCHED');
+    expect((await stopRow(dr!.id)).status).toBe('ARRIVED');
+    await post(pk!.id, 'arrive', 60).expect(201);
+    await post(pk!.id, 'complete', 55, { outcome: 'DELIVERED' }).expect(201);
+    const row = await db.stopEvent.findFirstOrThrow({ where: { id: uuid('event', c.body.id) } });
+    expect(row.pickupPending).toBe(false);
+    expect(row.appliedAt).toBeTruthy();
+    expect(await doStatus(dos[0]!.id)).toBe('DELIVERED');
+    const hist = await db.docStatusHistory.findMany({
+      where: { docType: 'delivery_order', docId: dos[0]!.id },
+      orderBy: { at: 'asc' },
+    });
+    expect(hist.map((h) => h.event).slice(-2)).toEqual(['pick_up', 'deliver']);
+    expect((await tripRow(t.uuid)).status).toBe('COMPLETED');
+  });
+
+  it('ผู้จัดรถ "ใช้" การปิดงานที่ติด PICKUP_NOT_DONE → ไล่ DO ได้โดยจุดรับยังไม่ปิด · จุดรับไม่สำเร็จ → DO FAILED, เที่ยวยังวิ่งจนจุดส่งปิด', async () => {
+    const one = await newOrder();
+    const t = await dispatched([encodeId('deliveryOrder', one.dos[0]!.id)]);
+    const [, dr] = [...t.stops].sort((x, y) => x.sequence - y.sequence);
+    await post(dr!.id, 'arrive', 30).expect(201);
+    const c = await post(dr!.id, 'complete', 25, { outcome: 'DELIVERED' }).expect(201);
+    await api(app, admin)
+      .post(`/v1/stop-event-flags/${c.body.id}/resolve`)
+      .send({ decision: 'ACCEPT', reason: 'ขึ้นของแล้วแต่คนขับลืมกดปิดจุดรับ' })
+      .expect(200);
+    expect(await doStatus(one.dos[0]!.id)).toBe('DELIVERED');
+    expect((await tripRow(t.uuid)).status).toBe('IN_PROGRESS'); // จุดรับยังไม่ปิด
+
+    const two = await newOrder();
+    const t2 = await dispatched([encodeId('deliveryOrder', two.dos[0]!.id)]);
+    const [pk2, dr2] = [...t2.stops].sort((x, y) => x.sequence - y.sequence);
+    const failed = await reason('DELIVERY_FAILED', 'SHOP_CLOSED');
+    await post(pk2!.id, 'fail', 40, {
+      outcome: 'FAILED',
+      reasonCodeId: encodeId('reasonCode', failed),
+      note: 'คลังปิด',
+    }).expect(201);
+    expect(await doStatus(two.dos[0]!.id)).toBe('FAILED');
+    expect((await stopRow(dr2!.id)).status).toBe('PENDING');
+    expect((await tripRow(t2.uuid)).status).toBe('IN_PROGRESS');
+    await post(dr2!.id, 'fail', 30, {
+      outcome: 'FAILED',
+      reasonCodeId: encodeId('reasonCode', failed),
+      note: 'ไม่มีของส่ง',
+    }).expect(201);
+    expect((await tripRow(t2.uuid)).status).toBe('COMPLETED');
+    expect(await doStatus(two.dos[0]!.id)).toBe('FAILED');
+  });
+
+  it('พร้อมกัน: สองเที่ยวของ SO เดียวส่ง event พร้อมกัน · event ∥ resolve บนเที่ยวเดียว — ไม่ deadlock สถานะสุดท้ายถูก', async () => {
+    const { soId, dos } = await newOrder('2');
+    const lines = await db.salesOrderLine.findMany({ where: { salesOrderId: soId } });
+    const kids = await run((tx) =>
+      app
+        .get(DeliveryOrderService)
+        .split(
+          dos[0]!.id,
+          [
+            [{ salesOrderLineId: lines[0]!.id, qty: '1' }],
+            [{ salesOrderLineId: lines[0]!.id, qty: '1' }],
+          ],
+          tx,
+        ),
+    );
+    const t1 = await dispatched([encodeId('deliveryOrder', kids[0]!.id)]);
+    const t2 = await dispatched([encodeId('deliveryOrder', kids[1]!.id)]);
+    const st = (t: typeof t1) => [...t.stops].sort((x, y) => x.sequence - y.sequence);
+    const [p1, d1] = st(t1);
+    const [p2, d2] = st(t2);
+    const flow = async (p: string, d: string) => {
+      await post(p, 'arrive', 60).expect(201);
+      await post(p, 'complete', 55, { outcome: 'DELIVERED' }).expect(201);
+      await post(d, 'arrive', 30).expect(201);
+      return post(d, 'complete', 25, { outcome: 'DELIVERED' });
+    };
+    const rs = await Promise.all([flow(p1!.id, d1!.id), flow(p2!.id, d2!.id)]);
+    expect(rs.map((r) => r.status)).toEqual([201, 201]);
+    expect(await soStatus(soId)).toBe('DELIVERED');
+    expect((await tripRow(t1.uuid)).status).toBe('COMPLETED');
+    expect((await tripRow(t2.uuid)).status).toBe('COMPLETED');
+
+    // event ∥ resolve บนเที่ยวเดียวกัน
+    const x = await newOrder();
+    const t3 = await dispatched([encodeId('deliveryOrder', x.dos[0]!.id)]);
+    const [p3, d3] = st(t3);
+    const skew = await api(app, admin)
+      .post(`/v1/stops/${p3!.id}/arrive`)
+      .send({
+        clientEventId: randomUUID(),
+        occurredAt: new Date(Date.now() - 48 * 3600_000).toISOString(),
+      })
+      .expect(201);
+    const [r1, r2] = await Promise.all([
+      api(app, admin)
+        .post(`/v1/stop-event-flags/${skew.body.id}/resolve`)
+        .send({ decision: 'ACCEPT', reason: 'เวลาเครื่องผิด ยืนยันแล้ว' }),
+      post(d3!.id, 'arrive', 20),
+    ]);
+    expect([r1.status, r2.status]).toEqual([200, 201]);
+    expect((await tripRow(t3.uuid)).status).toBe('IN_PROGRESS');
+    expect((await stopRow(p3!.id)).status).toBe('ARRIVED');
+    expect((await stopRow(d3!.id)).status).toBe('ARRIVED');
   });
 });

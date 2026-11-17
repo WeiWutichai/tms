@@ -1212,58 +1212,46 @@ export class VehiclesService {
   }
 
   /**
-   * เลขไมล์เมื่อจบเที่ยว (ST4-T03; docs/04 B2.1 ส่วน 1 "อัปเดตอัตโนมัติจาก DO ที่ปิด") — ประมาณ = ค่าก่อนหน้า (ตามเวลา) + ระยะเที่ยว
-   * แหล่ง `TRIP` + `trip_id` (1 แถวต่อเที่ยว — เรียกซ้ำไม่บันทึกซ้ำ) · เฉพาะรถบริษัท (OWN) ที่ไม่ปลดระวาง/ไม่ลบ
-   * ไม่มีค่าก่อนหน้า / ไม่ทราบระยะ / เกินค่าที่บันทึกหลังจากนั้น → ไม่บันทึก (ไม่ถอยหลัง — ST2-T06) · คืนแถวที่สร้าง หรือ null
-   * ผู้เรียกอยู่ใน transaction ของคำขอ (ล็อก `vehicle.odometer:{id}` เหมือนบันทึกมือ — ไม่ใช้ If-Match ของรถ)
+   * เลขไมล์ประมาณเมื่อจบเที่ยว (ST4-T03; docs/04 B2.1 ส่วน 1 "อัปเดตอัตโนมัติจาก DO ที่ปิด") = เลขไมล์ปัจจุบันของรถ + ระยะเที่ยว
+   * เขียนเฉพาะ `vehicle.odometer_km` (แหล่ง `TRIP`) — **ไม่ลงประวัติเลขไมล์** จึงไม่เป็นฐาน/เพดานตรวจถอยหลังของเลขไมล์จริง
+   * (review/QA ST4-T03) · เลขไมล์จริงที่บันทึกภายหลัง (แม้ต่ำกว่า) แทนที่เสมอ (`syncOdometer` = reading จริงล่าสุด)
+   * · ไม่เพิ่ม `version` ของรถ (ไม่ทำให้ผู้แก้ข้อมูลรถได้ 412) · event `odometer.estimated` เป็นประวัติ
+   * ข้าม: ไม่ใช่รถบริษัท / ปลดระวาง / ไม่มีเลขไมล์ / ไม่ทราบระยะ / มีเลขไมล์จริงหลังเวลาจบเที่ยว
+   * เรียกครั้งเดียวต่อเที่ยว (ตอนเที่ยว IN_PROGRESS → COMPLETED ซึ่งไม่ย้อน) · คืนค่าใหม่ หรือ null
    */
-  async recordTripReading(
+  async applyTripEstimate(
     vehicleId: string,
     tripId: string,
     distanceKm: number | null,
-    readAt: Date,
-  ): Promise<VehicleOdometerReading | null> {
+    at: Date,
+  ): Promise<number | null> {
     const tx = this.db.tx;
     await lockKey(tx, `vehicle.odometer:${vehicleId}`);
     const v = await tx.vehicle.findFirst({ where: { id: vehicleId, deletedAt: null } });
     if (!v || v.ownership !== 'OWN' || v.status === 'RETIRED') return null;
-    if (await tx.vehicleOdometerReading.count({ where: { tripId } })) return null;
-    const base = { vehicleId, status: 'ACCEPTED' };
-    const [prev, next] = await Promise.all([
-      tx.vehicleOdometerReading.findFirst({
-        where: { ...base, readAt: { lte: readAt } },
-        orderBy: [{ readAt: 'desc' }, { createdAt: 'desc' }],
-      }),
-      tx.vehicleOdometerReading.findFirst({
-        where: { ...base, readAt: { gt: readAt } },
-        orderBy: [{ readAt: 'asc' }, { createdAt: 'asc' }],
-      }),
-    ]);
+    const newer = await tx.vehicleOdometerReading.count({
+      where: { vehicleId, status: 'ACCEPTED', readAt: { gt: at } },
+    });
+    if (newer) return null;
     const km = tripOdometerReading(
-      prev ? Number(prev.readingKm) : null,
+      v.odometerKm === null ? null : Number(v.odometerKm),
       distanceKm,
-      next ? Number(next.readingKm) : null,
+      null,
     );
     if (km === null) return null;
-    const r = await this.insertReading(vehicleId, km, readAt, 'TRIP', {
-      tripId,
-      note: `ประมาณจากระยะเที่ยว ${distanceKm} กม.`,
-    });
-    const last = await tx.vehicleOdometerReading.findFirst({
-      where: base,
-      orderBy: [{ readAt: 'desc' }, { createdAt: 'desc' }],
-    });
     await tx.vehicle.update({
       where: { id: vehicleId },
-      data: {
-        odometerKm: last?.readingKm ?? null,
-        odometerSource: last?.source ?? null,
-        odometerUpdatedAt: new Date(),
-        version: { increment: 1 },
-      },
+      data: { odometerKm: km, odometerSource: 'TRIP', odometerUpdatedAt: at },
     });
-    await emitMasterEvent(tx, 'odometer.recorded', 'vehicle', vehicleId, toReadingDto(r, null));
-    return r;
+    await emitMasterEvent(tx, 'odometer.estimated', 'vehicle', vehicleId, {
+      vehicleId: encodeId('vehicle', vehicleId),
+      tripId: encodeId('trip', tripId),
+      previousKm: Number(v.odometerKm),
+      distanceKm,
+      odometerKm: km,
+      at: at.toISOString(),
+    });
+    return km;
   }
 
   /** optimistic lock: update เฉพาะเมื่อ version ยังเท่าเดิม ไม่งั้น 412 */

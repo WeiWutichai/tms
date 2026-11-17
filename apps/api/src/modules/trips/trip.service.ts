@@ -1387,7 +1387,8 @@ export class TripService {
 
   /**
    * ไล่สถานะเที่ยวจากจุดแวะ (ST4-T03 — `StopProjectionService` ถือล็อก SO → DO → trip แล้ว): `start` DISPATCHED → IN_PROGRESS
-   * (`trip.started` — plan/00a เพิ่มจาก spec/07) · `complete` IN_PROGRESS → COMPLETED (`trip.completed`) เวลาจบ = เวลาปิดจุดสุดท้าย
+   * (`trip.started` — plan/00a เพิ่มจาก spec/07; payload `startedAt` = เวลาถึงจุดแรก) · `complete` IN_PROGRESS → COMPLETED
+   * (`trip.completed`; `completedAt` = เวลาปิดจุดสุดท้าย)
    * ไม่ตรวจ If-Match (ระบบทำตาม event) แต่เพิ่ม version
    */
   async applyExecution(
@@ -1397,7 +1398,10 @@ export class TripService {
     at: Date,
   ): Promise<TripRecord> {
     const trip = await this.get(tripId, tx);
-    await this.transition(tx, trip, event, event === 'complete' ? { completedAt: at } : {});
+    await this.transition(tx, trip, event, event === 'complete' ? { completedAt: at } : {}, {
+      snapshot:
+        event === 'start' ? { startedAt: at.toISOString() } : { completedAt: at.toISOString() },
+    });
     return this.get(tripId, tx);
   }
 
@@ -1731,7 +1735,13 @@ export class TripService {
     trip: TripRecord,
     event: TripEvent,
     data: Prisma.TripUncheckedUpdateManyInput,
-    extra: { reasonCodeId?: string | null; note?: string | null; bump?: boolean } = {},
+    extra: {
+      reasonCodeId?: string | null;
+      note?: string | null;
+      bump?: boolean;
+      /** ช่องเพิ่มใน payload ของ domain_event (ST4-T03 startedAt/completedAt) */
+      snapshot?: Record<string, unknown>;
+    } = {},
   ) {
     await this.state.transition<TripStatus, TripEvent>(tx, {
       docType: ENTITY,
@@ -1752,7 +1762,7 @@ export class TripService {
           },
         });
         if (r.count === 0) throw new ProblemException('concurrent_update');
-        return eventView(await this.get(trip.id, tx));
+        return { ...eventView(await this.get(trip.id, tx)), ...(extra.snapshot ?? {}) };
       },
     });
   }

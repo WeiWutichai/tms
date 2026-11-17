@@ -687,7 +687,7 @@ export class DeliveryOrderService {
    */
   async applyStopResult(
     tx: Tx,
-    d: DeliveryOrderRecord,
+    d: Pick<DeliveryOrderRecord, 'id' | 'status' | 'version'>,
     event: Extract<DoEvent, 'pick_up' | 'deliver' | 'fail'>,
     reasonCodeId: string | null,
     note: string | null,
@@ -726,7 +726,7 @@ export class DeliveryOrderService {
 
   private async move(
     tx: Tx,
-    d: DeliveryOrderRecord,
+    d: Pick<DeliveryOrderRecord, 'id' | 'status' | 'version'>,
     event: Extract<
       DoEvent,
       'plan' | 'unplan' | 'dispatch' | 'recall' | 'pick_up' | 'deliver' | 'fail'

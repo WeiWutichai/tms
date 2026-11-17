@@ -18661,7 +18661,9 @@
               "enum": [
                 "LATE",
                 "SEQUENCE_CONFLICT",
-                "CLOCK_SKEW"
+                "PICKUP_NOT_DONE",
+                "CLOCK_SKEW",
+                "OUTCOME_MISMATCH"
               ]
             }
           },
@@ -36747,7 +36749,9 @@
               "enum": [
                 "LATE",
                 "SEQUENCE_CONFLICT",
-                "CLOCK_SKEW"
+                "PICKUP_NOT_DONE",
+                "CLOCK_SKEW",
+                "OUTCOME_MISMATCH"
               ]
             }
           },
@@ -36890,7 +36894,9 @@
               "enum": [
                 "LATE",
                 "SEQUENCE_CONFLICT",
-                "CLOCK_SKEW"
+                "PICKUP_NOT_DONE",
+                "CLOCK_SKEW",
+                "OUTCOME_MISMATCH"
               ]
             }
           },
@@ -37199,7 +37205,9 @@
               "enum": [
                 "LATE",
                 "SEQUENCE_CONFLICT",
-                "CLOCK_SKEW"
+                "PICKUP_NOT_DONE",
+                "CLOCK_SKEW",
+                "OUTCOME_MISMATCH"
               ]
             }
           }
@@ -37434,7 +37442,9 @@
               "enum": [
                 "LATE",
                 "SEQUENCE_CONFLICT",
-                "CLOCK_SKEW"
+                "PICKUP_NOT_DONE",
+                "CLOCK_SKEW",
+                "OUTCOME_MISMATCH"
               ]
             }
           },

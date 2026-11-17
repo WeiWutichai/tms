@@ -68,6 +68,8 @@ export const flagsOf = (e: StopEvent): StopEventFlag[] =>
     lateReason: e.lateReason,
     sequenceConflict: e.sequenceConflict,
     clockSkew: e.clockSkew,
+    pickupPending: e.pickupPending,
+    outcomeMismatch: e.outcomeMismatch,
   });
 
 interface FlagCursor {
@@ -255,6 +257,13 @@ export class StopEventsService {
     if (e.resolutionId) throw new ProblemException('stop_event_already_resolved');
     const flags = flagsOf(e);
     if (!flags.length) throw new ProblemException('stop_event_not_flagged');
+    // ธงแจ้งเท่านั้น (ผลจุดขัด DO) = รับทราบได้อย่างเดียว — "ไม่ใช้" ไม่มีผลกับการนับ (แก้ DO ด้วยงานส่งใหม่/คืนคลัง ST4-T11)
+    if (decision === 'IGNORE' && flags.every((f) => f === 'OUTCOME_MISMATCH'))
+      throw field422(
+        'decision',
+        'acknowledge_only',
+        'OUTCOME_MISMATCH can only be acknowledged (ACCEPT)',
+      );
 
     await tx.stopEventResolution.create({
       data: {
@@ -302,7 +311,8 @@ export class StopEventsService {
     cursor?: string;
   }) {
     const limit = q.limit ?? 25;
-    const flagged = Prisma.sql`(e.sequence_conflict OR e.clock_skew OR e.late_reason IS NOT NULL)`;
+    const flagged = Prisma.sql`(e.sequence_conflict OR e.clock_skew OR e.late_reason IS NOT NULL
+      OR e.pickup_pending OR e.outcome_mismatch)`;
     const conds: Prisma.Sql[] = [
       q.status === 'open'
         ? Prisma.sql`${flagged} AND e.resolution_id IS NULL`
@@ -316,6 +326,8 @@ export class StopEventsService {
     if (q.flag === 'LATE') conds.push(Prisma.sql`e.late_reason IS NOT NULL`);
     if (q.flag === 'SEQUENCE_CONFLICT') conds.push(Prisma.sql`e.sequence_conflict`);
     if (q.flag === 'CLOCK_SKEW') conds.push(Prisma.sql`e.clock_skew`);
+    if (q.flag === 'PICKUP_NOT_DONE') conds.push(Prisma.sql`e.pickup_pending`);
+    if (q.flag === 'OUTCOME_MISMATCH') conds.push(Prisma.sql`e.outcome_mismatch`);
     const text = q.q?.trim();
     if (text) {
       const like = `%${likeEscape(text)}%`;
@@ -364,7 +376,13 @@ export class StopEventsService {
   /** ตัวเลขบนการ์ด: ใหม่ (ยังไม่มีการตัดสินที่มีผล) · ตัดสินแล้ว · ตัดสินแล้ววันนี้ (วันตามเวลาไทย) */
   async flagSummary() {
     const flagged: Prisma.StopEventWhereInput = {
-      OR: [{ sequenceConflict: true }, { clockSkew: true }, { lateReason: { not: null } }],
+      OR: [
+        { sequenceConflict: true },
+        { clockSkew: true },
+        { lateReason: { not: null } },
+        { pickupPending: true },
+        { outcomeMismatch: true },
+      ],
     };
     const [open, resolved, resolvedToday] = await Promise.all([
       this.db.tx.stopEvent.count({ where: { AND: [flagged, { resolutionId: null }] } }),

@@ -57,7 +57,8 @@ export interface StopProjection {
 
 /**
  * projection ของทุกจุดที่ยังใช้ของเที่ยว (docs/01 §3.9): `arrived_at = min(ARRIVE)` ·
- * `departed_at` = DEPART ของจุดถัดไป (ตามลำดับ) ถ้ามี ไม่งั้นเวลาปิดงานของจุดนี้ (COMPLETE/FAIL) · `last_event_id` = event ที่เปลี่ยนสถานะล่าสุด
+ * `departed_at` = DEPART ของจุดถัดไป (ตามลำดับ) ถ้ามี ไม่งั้นเวลาปิดงานของจุดนี้ (COMPLETE/FAIL) — เฉพาะจุดที่ถึงแล้ว
+ * · `last_event_id` = event ที่เปลี่ยนสถานะล่าสุด
  */
 export function projectStops(stops: readonly StopProjectionInput[]): StopProjection[] {
   const ordered = [...stops].sort((a, b) => a.sequence - b.sequence);
@@ -70,7 +71,8 @@ export function projectStops(stops: readonly StopProjectionInput[]): StopProject
       status,
       outcome: status === 'COMPLETED' || status === 'FAILED' ? s.outcome : null,
       arrivedAt: s.arrivedAt,
-      departedAt: next?.enRouteAt ?? s.closedAt,
+      // ไม่เคยถึงจุด (เช่น ส่งไม่สำเร็จระหว่างทาง) = ไม่มีเวลาออกจากจุด (review L2)
+      departedAt: s.arrivedAt ? (next?.enRouteAt ?? s.closedAt) : null,
       lastEventId: s.lastEventId,
       failReasonCodeId: status === 'FAILED' ? s.closeReasonCodeId : null,
     };
@@ -180,4 +182,20 @@ export function tripOdometerReading(
   const km = Math.round((floorKm + distanceKm) * 10) / 10;
   if (nextKm !== null && km > nextKm) return null;
   return km;
+}
+
+/**
+ * ผลปิดจุดขัดกับสถานะ DO ที่ไล่ไปแล้ว (DO ไม่ถอยหลัง — ธง `OUTCOME_MISMATCH` ให้ผู้จัดรถรับทราบ):
+ * จุดส่ง COMPLETED แต่ DO ส่งไม่สำเร็จ/คืนคลัง · จุดส่ง FAILED แต่ DO ส่งถึงแล้ว
+ */
+export function isOutcomeMismatch(drop: StopRowStatus, doStatus: DoStatus): boolean {
+  if (drop === 'COMPLETED')
+    return (DO_UNDELIVERED_STATUSES as readonly string[]).includes(doStatus);
+  if (drop === 'FAILED') return (DO_DELIVERED_STATUSES as readonly string[]).includes(doStatus);
+  return false;
+}
+
+/** ปิดงานแบบส่งของ (DELIVERED/PARTIAL) — ต้องรับของที่จุดรับก่อน (ธง PICKUP_NOT_DONE) */
+export function isDeliveringClose(type: string, outcome: StopOutcome | null): boolean {
+  return type === 'COMPLETE' && (outcome === 'DELIVERED' || outcome === 'PARTIAL');
 }

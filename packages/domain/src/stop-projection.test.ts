@@ -62,7 +62,8 @@ describe('projectStops', () => {
       failReasonCodeId: null,
     });
     expect(p[1]).toMatchObject({ status: 'PENDING', outcome: null, departedAt: null });
-    expect(p[2]).toMatchObject({ status: 'FAILED', departedAt: t(5), failReasonCodeId: 'r2' });
+    // ไม่เคยถึงจุด → ไม่มีเวลาออก
+    expect(p[2]).toMatchObject({ status: 'FAILED', departedAt: null, failReasonCodeId: 'r2' });
   });
 
   it('จุดที่ผู้จัดรถข้าม (SKIPPED) ไม่มี event → คงเดิม', () => {
@@ -142,5 +143,18 @@ describe('tripOdometerReading', () => {
     expect(tripOdometerReading(1000, 0, null)).toBeNull();
     expect(tripOdometerReading(1000, 50, 1020)).toBeNull();
     expect(tripOdometerReading(1000, 20, 1020)).toBe(1020);
+  });
+});
+
+describe('isOutcomeMismatch / isDeliveringClose', () => {
+  it('ผลจุดขัด DO', async () => {
+    const { isOutcomeMismatch, isDeliveringClose } = await import('./stop-projection');
+    expect(isOutcomeMismatch('FAILED', 'DELIVERED')).toBe(true);
+    expect(isOutcomeMismatch('COMPLETED', 'FAILED')).toBe(true);
+    expect(isOutcomeMismatch('COMPLETED', 'DELIVERED')).toBe(false);
+    expect(isOutcomeMismatch('ARRIVED', 'DELIVERED')).toBe(false);
+    expect(isDeliveringClose('COMPLETE', 'PARTIAL')).toBe(true);
+    expect(isDeliveringClose('COMPLETE', 'FAILED')).toBe(false);
+    expect(isDeliveringClose('FAIL', null)).toBe(false);
   });
 });
