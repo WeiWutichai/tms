@@ -21757,6 +21757,92 @@
         ]
       }
     },
+    "/v1/trips/{id}/events": {
+      "get": {
+        "description": "ST4-T04: เรียงตามลำดับจุด (จุดที่ถอดแล้วอยู่ท้าย) แล้วตามลำดับที่มีผลของจุด · `recordedByName` = ชื่อผู้ใช้ภายในที่บันทึก (บันทึกแทนคนขับผ่านเว็บ) · `flags` ไม่ว่าง = รอผู้จัดรถตัดสินในศูนย์ข้อยกเว้น",
+        "operationId": "TripEvents_timeline",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TripTimelineDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`trips:read`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/trips/trp_3f2a…/events",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "trips",
+                      "action": "read",
+                      "required": [
+                        "trips:read"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ไม่พบเที่ยว (รวมของบริษัทอื่น)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "instance": "/v1/stops/stp_3f2a…/arrive",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "ไทม์ไลน์ event หน้างานของเที่ยว (ทุกจุด) พร้อมชื่อผู้บันทึก",
+        "tags": [
+          "stops"
+        ]
+      }
+    },
     "/v1/stop-event-flags": {
       "get": {
         "operationId": "StopEventFlags_list",
@@ -40102,6 +40188,35 @@
               "SAME_SITE"
             ],
             "description": "ที่มา: ROUTE = เส้นทางใน route master · ESTIMATE = ค่าประมาณจากพิกัด (เส้นตรง × 1.3, 50 กม./ชม.) · SAME_SITE = จุดเดียวกัน"
+          },
+          "arrivedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "ST4-T04 เวลาถึงจุด (ARRIVE แรกที่นับ — projection ST4-T03)"
+          },
+          "departedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "เวลาออกจากจุด = DEPART ของจุดถัดไป (docs/01 §3.9) ถ้าไม่มี = เวลาปิดงานของจุดนี้ · ไม่เคยถึง = null"
+          },
+          "outcome": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "DELIVERED",
+              "PARTIAL",
+              "FAILED",
+              "UNDELIVERED_RETAIN"
+            ],
+            "description": "ผลของจุดที่ปิดแล้ว"
+          },
+          "lastEventId": {
+            "type": "string",
+            "nullable": true,
+            "example": "evt_3f2a…",
+            "description": "event ล่าสุดที่เปลี่ยนสถานะจุด — รายละเอียด/ชื่อผู้บันทึกจาก `GET /v1/trips/{id}/events`"
           }
         },
         "required": [
@@ -40118,7 +40233,11 @@
           "siteName",
           "legDistanceKm",
           "legMinutes",
-          "legSource"
+          "legSource",
+          "arrivedAt",
+          "departedAt",
+          "outcome",
+          "lastEventId"
         ]
       },
       "TripDeliveryOrderDto": {
@@ -42140,6 +42259,214 @@
         "required": [
           "clientEventId",
           "occurredAt"
+        ]
+      },
+      "TripTimelineEventDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "evt_3f2a…"
+          },
+          "stopId": {
+            "type": "string",
+            "example": "stp_3f2a…"
+          },
+          "tripId": {
+            "type": "string",
+            "example": "trp_3f2a…"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "ARRIVE",
+              "DEPART",
+              "COMPLETE",
+              "FAIL"
+            ]
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "DELIVERED",
+              "PARTIAL",
+              "FAILED",
+              "UNDELIVERED_RETAIN"
+            ],
+            "nullable": true
+          },
+          "clientEventId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "occurredAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "เวลาเกิดจริงบนเครื่อง (UTC)"
+          },
+          "receivedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "เวลาที่ server รับ (UTC)"
+          },
+          "appliedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "ST4-T03: เวลาที่ event ถูกนับในสถานะจุด/เที่ยว/DO (projection) — null = ไม่นับ (ขัดลำดับ/มาหลังปิด/เวลาเพี้ยนที่ยังไม่ตัดสิน, ผู้จัดรถไม่ใช้, หรือเที่ยวจบ/ยกเลิกแล้ว = ประวัติเท่านั้น)"
+          },
+          "lat": {
+            "type": "number",
+            "nullable": true
+          },
+          "lng": {
+            "type": "number",
+            "nullable": true
+          },
+          "accuracyM": {
+            "type": "number",
+            "nullable": true
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "APP",
+              "LINK",
+              "WEB",
+              "API",
+              "GPS"
+            ],
+            "description": "WEB = ผู้ใช้บันทึกแทนผ่านเว็บ/ผู้ใช้ภายใน · LINK = ลิงก์รถร่วม · API = ระบบภายนอก"
+          },
+          "recordedBy": {
+            "type": "string",
+            "nullable": true,
+            "description": "ผู้บันทึก (user id)"
+          },
+          "reason": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/StopEventReasonDto"
+              }
+            ]
+          },
+          "note": {
+            "type": "string",
+            "nullable": true
+          },
+          "sequenceConflict": {
+            "type": "boolean",
+            "description": "ขัด state machine ของจุดเมื่อเรียงตาม occurredAt (เช่น ปิดงานก่อนถึงจุด) — คำนวณใหม่ทุกครั้งที่มี event/การตัดสินใหม่ของจุด"
+          },
+          "clockSkew": {
+            "type": "boolean",
+            "description": "occurredAt อนาคตเกิน 5 นาที หรือย้อนหลังเกิน 24 ชม. จาก receivedAt (ธง ไม่แก้เวลา)"
+          },
+          "lateReason": {
+            "type": "string",
+            "enum": [
+              "STOP_REMOVED",
+              "TRIP_CANCELLED",
+              "TRIP_COMPLETED"
+            ],
+            "nullable": true,
+            "description": "event มาหลังจุดถูกถอด / เที่ยวยกเลิก / เที่ยวจบ — รับเก็บเป็นประวัติ ไม่นับจนกว่าผู้จัดรถยอมรับ"
+          },
+          "flags": {
+            "type": "array",
+            "description": "ธงที่รอผู้จัดรถตัดสิน (หน้า ศูนย์ข้อยกเว้น) — ว่าง = ปกติ",
+            "items": {
+              "type": "string",
+              "enum": [
+                "LATE",
+                "SEQUENCE_CONFLICT",
+                "PICKUP_NOT_DONE",
+                "CLOCK_SKEW",
+                "OUTCOME_MISMATCH"
+              ]
+            }
+          },
+          "seqStatus": {
+            "type": "string",
+            "enum": [
+              "APPLIED",
+              "REDUNDANT",
+              "CONFLICT",
+              "ACCEPTED",
+              "IGNORED",
+              "LATE",
+              "SKEWED"
+            ],
+            "description": "APPLIED เปลี่ยนสถานะ · REDUNDANT ซ้ำความหมาย · CONFLICT ขัดลำดับ รอตัดสิน · ACCEPTED ผู้จัดรถยอมรับ · IGNORED ผู้จัดรถไม่ใช้ · LATE มาหลังปิด รอตัดสิน · SKEWED เวลาเครื่องเพี้ยน รอตัดสิน"
+          },
+          "counted": {
+            "type": "boolean",
+            "description": "นับในลำดับที่มีผล"
+          },
+          "resolution": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/StopEventResolutionDto"
+              }
+            ]
+          },
+          "recordedByName": {
+            "type": "string",
+            "nullable": true,
+            "example": "สมศักดิ์ ใจดี",
+            "description": "ชื่อผู้บันทึก (ผู้ใช้ภายใน) — ลิงก์รถร่วม/ระบบ = null"
+          },
+          "resolvedByName": {
+            "type": "string",
+            "nullable": true,
+            "description": "ชื่อผู้ตัดสินธง (ถ้ามี)"
+          }
+        },
+        "required": [
+          "id",
+          "stopId",
+          "tripId",
+          "type",
+          "outcome",
+          "clientEventId",
+          "occurredAt",
+          "receivedAt",
+          "appliedAt",
+          "lat",
+          "lng",
+          "accuracyM",
+          "source",
+          "recordedBy",
+          "reason",
+          "note",
+          "sequenceConflict",
+          "clockSkew",
+          "lateReason",
+          "flags",
+          "seqStatus",
+          "counted",
+          "resolution",
+          "recordedByName",
+          "resolvedByName"
+        ]
+      },
+      "TripTimelineDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "description": "ทุก event ของเที่ยว (รวมจุดที่ถอดแล้ว) เรียงตามลำดับจุด แล้วตามลำดับที่มีผลของจุด (occurredAt → ชนิด → receivedAt)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TripTimelineEventDto"
+            }
+          }
+        },
+        "required": [
+          "data"
         ]
       },
       "StopEventFlagDto": {

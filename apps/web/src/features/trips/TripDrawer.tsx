@@ -5,6 +5,7 @@ import { ApiError } from '../../api';
 import { useI18n } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
 import { problemText } from '../master/problems';
+import { writeSession } from '../master/useCursorList';
 import { toBangkok } from '../orders/orderForm';
 import { useDateText, useDateTimeText } from '../rate-cards/rateFormat';
 import {
@@ -32,6 +33,9 @@ import { sortVehicles } from './assignForm';
 import { SubconHireDrawer } from './SubconHireDrawer';
 import { SubconOfferDrawer } from './SubconOfferDrawer';
 import { tripProblemText } from './tripProblem';
+import { RECORDABLE, restStops } from './tripStepper';
+import { useTripEvents } from './useTripTimeline';
+import { TripTimeline } from './TripTimeline';
 
 /** ป้ายสถานะเที่ยว — สี/ไอคอนตามกลุ่มสถานะของต้นแบบ (วางแผน / จัดรถแล้ว / ระหว่างส่ง / ส่งแล้ว) */
 const TONE: Record<string, { tone: 'off' | 'ok' | 'info' | 'warn' | 'err'; icon: string }> = {
@@ -45,6 +49,9 @@ const TONE: Record<string, { tone: 'off' | 'ok' | 'info' | 'warn' | 'err'; icon:
   SETTLED: { tone: 'ok', icon: 'circle-check' },
   CANCELLED: { tone: 'off', icon: 'ban' },
 };
+
+/** เที่ยวที่ไม่ส่งลิงก์ใบคุมรถให้คนขับแล้ว */
+const DONE_FOR_SHARE = new Set(['COMPLETED', 'COSTED', 'SETTLED', 'CANCELLED']);
 
 /** แก้จุดได้เฉพาะก่อนปล่อยรถ (API: PLANNING/ASSIGNED — ต้นแบบ `ed = t.st === 'วางแผน'`) */
 const EDITABLE = new Set(['PLANNING', 'ASSIGNED']);
@@ -311,7 +318,8 @@ function ShareDialog({
  * ST3-T17: ส่วน "รถ / คนขับ" (ต้นแบบ drawer SO: ลิงก์ "จัดรถ" → select รถ + คนขับ) + footer "จัดรถ" (→ ASSIGNED ยังไม่ส่งงาน)
  * แยกจาก "ปล่อยเที่ยว" (จัดรถและปล่อย → DISPATCHED ทุก DO) — docs/04 D2 · 409 กฎตอนจัด → dialog ยกเว้น/ยืนยันแล้วส่งซ้ำ
  * ST3-T20: footer "พิมพ์ใบคุมรถ" (ต้นแบบ sec — สร้าง PDF ใหม่แล้วดาวน์โหลด) + "ส่งให้คนขับ" (คัดลอกลิงก์ PDF — spec/12 §3)
- * แท็บไทม์ไลน์/เอกสาร ยังไม่ทำ (ST4)
+ * ST4-T04: แท็บ "ไทม์ไลน์" (ต้นแบบ tl — ความคืบหน้าเที่ยวต่อจุด) + บันทึกแทนคนขับ (`trips:dispatch`) + footer
+ * "ส่งไม่สำเร็จจุดที่เหลือ" · แท็บเอกสาร (POD/ใบคุมรถ) = ST4-T07
  */
 export function TripDrawer({
   id,
@@ -373,6 +381,11 @@ export function TripDrawer({
   const [nextHire, setNextHire] = useState(false);
   /** ST3-T25 เปลี่ยนผู้รับเหมา: เหตุผลจาก ReasonDialog ใน drawer จ่ายงานรถร่วม → drawer จ้างแบบเปลี่ยนราย */
   const [changeWhy, setChangeWhy] = useState<string | null>(null);
+  /** ST4-T04 แท็บ รายละเอียด / ไทม์ไลน์ */
+  const [tab, setTab] = useState<'sum' | 'tl'>('sum');
+  const [failRest, setFailRest] = useState(false);
+  /** ไทม์ไลน์ (แชร์ cache กับแท็บ) — footer "ส่งไม่สำเร็จจุดที่เหลือ" ไม่นับจุดที่มีปิดงานรอตัดสิน */
+  const tl = useTripEvents(id, tab === 'tl');
   const labels = { close: t('drawer.close'), more: t('drawer.more') };
   const tr = q.data;
   const assignable =
@@ -554,7 +567,8 @@ export function TripDrawer({
   // ST3-T23 การจ้างที่ใช้งานอยู่ (รอตอบ/รับงาน) → เปิด drawer "จ่ายงานรถร่วม" ดูลิงก์/ส่ง LINE/กิจกรรม
   const showOffer = canHire && !!tr.hire && tr.status !== 'CANCELLED';
   // ไม่มีคนขับ (ยังไม่จัด/รถร่วมยังไม่ใส่คนขับ) = ไม่มีผู้รับลิงก์ (review ST3-T20 L6)
-  const showShare = showPrint && canDispatch && !!tr.driver;
+  // ST4-T04 (review L5): เที่ยวจบ/ยกเลิกแล้วไม่ส่งลิงก์ใบคุมรถให้คนขับ · ระหว่างวิ่งยังส่งซ้ำได้ (คนขับทำลิงก์หาย)
+  const showShare = showPrint && canDispatch && !!tr.driver && !DONE_FOR_SHARE.has(tr.status);
   const sheetBusy = print.isPending || shareLink.isPending;
   const printSheet = () => {
     setErr(null);
@@ -623,6 +637,17 @@ export function TripDrawer({
     detachDos(s.deliveryOrderIds, false);
   };
   const st = TONE[tr.status] ?? TONE.PLANNING!;
+  // ST4-T04 บันทึกแทนคนขับ: เที่ยวปล่อยแล้ว/กำลังวิ่ง + `trips:dispatch` (API เดียวกับลิงก์/แอป)
+  const canRecord = canDispatch && RECORDABLE.has(tr.status);
+  const showFailRest = tab === 'tl' && canRecord && restStops(tr.stops, tl.data ?? []).length > 0;
+  /** ธงของเที่ยวนี้ → ศูนย์ข้อยกเว้น กรองเลขเที่ยว แท็บ "ใหม่" */
+  const openFlags = () => {
+    writeSession('exc.tab', 'open');
+    writeSession('exc.today', false);
+    writeSession('exc.cols', { flag: '', q: tr.tripNo });
+    onClose();
+    nav('/exceptions');
+  };
   const time = (s: TripDetail['stops'][number]) => {
     const iso = s.plannedArrival ?? s.windowStart;
     return iso ? toBangkok(iso).time : '';
@@ -638,9 +663,12 @@ export function TripDrawer({
       badge={
         <Badge label={t(`trip.st.${tr.status}` as MessageKey)} tone={st.tone} icon={st.icon} />
       }
-      tabs={[{ key: 'sum', label: t('drawer.tab.sum') }]}
-      tab="sum"
-      onTab={() => undefined}
+      tabs={[
+        { key: 'sum', label: t('drawer.tab.sum') },
+        { key: 'tl', label: t('trip.tab.tl') },
+      ]}
+      tab={tab}
+      onTab={(k) => setTab(k === 'tl' ? 'tl' : 'sum')}
       labels={labels}
       footer={
         <>
@@ -658,7 +686,7 @@ export function TripDrawer({
               {err}
             </span>
           )}
-          {(showAssignBtn || showRelease || showPrint || showHire || showOffer) && (
+          {(showAssignBtn || showRelease || showPrint || showHire || showOffer || showFailRest) && (
             <div
               style={{
                 display: 'flex',
@@ -668,6 +696,19 @@ export function TripDrawer({
                 marginLeft: 'auto',
               }}
             >
+              {showFailRest && (
+                <button
+                  type="button"
+                  className="tms-drawer__sec"
+                  style={{ color: '#B3322A' }}
+                  onClick={() => {
+                    setErr(null);
+                    setFailRest(true);
+                  }}
+                >
+                  {t('trip.tl.failRest')}
+                </button>
+              )}
               {showPrint && (
                 <button
                   type="button"
@@ -744,319 +785,332 @@ export function TripDrawer({
         </>
       }
     >
-      <section
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 10,
-          paddingBottom: 20,
-          borderBottom: '1px solid #E4E6E0',
-        }}
-      >
-        <span style={{ fontSize: 12.5, fontWeight: 600, color: '#3B424C' }}>
-          {t('drawer.info')}
-        </span>
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)',
-            gap: '14px 20px',
-          }}
-        >
-          <Kv k={t('trip.kv.date')} v={dateText(tr.tripDate)} />
-          <Kv
-            k={t('trip.kv.vehicle')}
-            v={
-              tr.vehicle
-                ? [tr.vehicle.plate, tr.vehicle.vehicleTypeName].filter(Boolean).join(' · ')
-                : '—'
-            }
-          />
-          <Kv k={t('trip.kv.trailer')} v={tr.trailer?.plate ?? '—'} />
-          <Kv k={t('trip.kv.driver')} v={tr.driver?.name ?? '—'} />
-          {tr.carrier && <Kv k={t('trip.kv.carrier')} v={tr.carrier.name} />}
-          <Kv
-            k={t('trip.kv.weight')}
-            v={t('trip.kg', { n: Number(tr.weightKg).toLocaleString('th-TH') })}
-          />
-          <Kv k={t('trip.kv.distance')} v={routeDistanceText(t, tr.route)} />
-          <Kv
-            k={t('trip.kv.duration')}
-            v={tr.route.minutes === null ? '—' : durationText(t, tr.route.minutes)}
-          />
-        </div>
-      </section>
-      {assignable && (
-        <section
-          data-testid="trip-assign"
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 10,
-            paddingBottom: 20,
-            borderBottom: '1px solid #E4E6E0',
-          }}
-        >
-          <div
+      {tab === 'tl' ? (
+        <TripTimeline
+          trip={tr}
+          canRecord={canRecord}
+          failRest={failRest && canRecord}
+          onFailRestClose={() => setFailRest(false)}
+          onToast={setToast}
+          onOpenFlags={openFlags}
+        />
+      ) : (
+        <>
+          <section
             style={{
               display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              gap: 8,
+              flexDirection: 'column',
+              gap: 10,
+              paddingBottom: 20,
+              borderBottom: '1px solid #E4E6E0',
             }}
           >
             <span style={{ fontSize: 12.5, fontWeight: 600, color: '#3B424C' }}>
-              {t('trip.as.title')}
+              {t('drawer.info')}
             </span>
-          </div>
-          {!picking && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <span style={{ color: '#3B424C' }}>
-                {t(assignedNow ? 'trip.as.assigned' : 'trip.as.none')}
-              </span>
-              <button
-                type="button"
-                onClick={startPick}
-                style={{
-                  border: 0,
-                  background: 'transparent',
-                  padding: 0,
-                  color: '#2257C4',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                }}
-              >
-                {t(assignedNow ? 'trip.as.change' : 'trip.as.pick')}
-              </button>
-            </div>
-          )}
-          {picking && (
             <div
               style={{
                 display: 'grid',
                 gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)',
-                gap: 12,
+                gap: '14px 20px',
               }}
             >
-              <label style={PICK_LABEL}>
-                <span style={PICK_CAP}>{t('trip.as.vehicle')}</span>
-                <select
-                  aria-label={t('trip.as.vehicle')}
-                  value={f.veh}
-                  onChange={(e) => setForm({ ...f, veh: e.target.value, auto: true })}
-                  style={PICK_SELECT}
-                >
-                  {!f.veh && <option value="">—</option>}
-                  {vehicles.map((v) => (
-                    <option key={v.id} value={v.id}>
-                      {v.payloadKg
-                        ? t('trip.as.vehOpt', {
-                            p: v.plate,
-                            t: v.vehicleType.name,
-                            w: v.payloadKg.toLocaleString('th-TH'),
-                          })
-                        : t('trip.as.vehOptNoCap', { p: v.plate, t: v.vehicleType.name })}
-                    </option>
-                  ))}
-                  {tr.vehicle && !vehicles.some((v) => v.id === tr.vehicle!.id) && (
-                    <option value={tr.vehicle.id}>{tr.vehicle.plate}</option>
-                  )}
-                </select>
-              </label>
-              <label style={PICK_LABEL}>
-                <span style={PICK_CAP}>{t('trip.as.driver')}</span>
-                <select
-                  aria-label={t('trip.as.driver')}
-                  value={f.drv}
-                  onChange={(e) => setForm({ ...f, drv: e.target.value, auto: false })}
-                  style={PICK_SELECT}
-                >
-                  <option value="">{t('trip.as.pickDriver')}</option>
-                  {drivers.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.licenceClass
-                        ? t('plan.driver', {
-                            n: d.name,
-                            l: t(`vt.lic.${d.licenceClass}` as MessageKey),
-                          })
-                        : d.name}
-                    </option>
-                  ))}
-                  {tr.driver && !drivers.some((d) => d.id === tr.driver!.id) && (
-                    <option value={tr.driver.id}>{tr.driver.name}</option>
-                  )}
-                </select>
-              </label>
-              <label style={PICK_LABEL}>
-                <span style={PICK_CAP}>{t('trip.as.relief')}</span>
-                <select
-                  aria-label={t('trip.as.relief')}
-                  value={f.relief}
-                  onChange={(e) => setForm({ ...f, relief: e.target.value })}
-                  style={PICK_SELECT}
-                >
-                  <option value="">{t('trip.as.noRelief')}</option>
-                  {drivers
-                    .filter((d) => d.id !== f.drv)
-                    .map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {d.name}
-                      </option>
-                    ))}
-                  {tr.reliefDriver && !drivers.some((d) => d.id === tr.reliefDriver!.id) && (
-                    <option value={tr.reliefDriver.id}>{tr.reliefDriver.name}</option>
-                  )}
-                </select>
-              </label>
+              <Kv k={t('trip.kv.date')} v={dateText(tr.tripDate)} />
+              <Kv
+                k={t('trip.kv.vehicle')}
+                v={
+                  tr.vehicle
+                    ? [tr.vehicle.plate, tr.vehicle.vehicleTypeName].filter(Boolean).join(' · ')
+                    : '—'
+                }
+              />
+              <Kv k={t('trip.kv.trailer')} v={tr.trailer?.plate ?? '—'} />
+              <Kv k={t('trip.kv.driver')} v={tr.driver?.name ?? '—'} />
+              {tr.carrier && <Kv k={t('trip.kv.carrier')} v={tr.carrier.name} />}
+              <Kv
+                k={t('trip.kv.weight')}
+                v={t('trip.kg', { n: Number(tr.weightKg).toLocaleString('th-TH') })}
+              />
+              <Kv k={t('trip.kv.distance')} v={routeDistanceText(t, tr.route)} />
+              <Kv
+                k={t('trip.kv.duration')}
+                v={tr.route.minutes === null ? '—' : durationText(t, tr.route.minutes)}
+              />
             </div>
-          )}
-          {picking && (opts.vehicles.isError || opts.drivers.isError) && (
-            <span className="tms-field-error">{t('trip.as.loadError')}</span>
-          )}
-          {tr.warnings.some((w) => !w.confirmed && w.severity !== 'info') && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              {tr.warnings
-                .filter((w) => !w.confirmed && w.severity !== 'info')
-                .map((w) => (
-                  <span
-                    key={`${w.code}|${w.message}`}
-                    style={{ display: 'flex', gap: 6, color: '#8F5500', fontWeight: 500 }}
-                  >
-                    <Icon n="triangle-alert" s={16} style={{ marginTop: 3, flexShrink: 0 }} />
-                    {w.message}
-                  </span>
-                ))}
-            </div>
-          )}
-        </section>
-      )}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: '#13213F' }}>
-          {t('trip.stops.title')}
-        </h3>
-        {tr.stops.map((s, i) => {
-          const chip = CHIP[s.type] ?? CHIP.DELIVERY!;
-          // ต้นแบบ: เลข DO แสดงที่จุดส่ง (จุดรับไม่แสดง)
-          const dos =
-            s.type === 'PICKUP' ? '' : s.deliveryOrderIds.map(doNo).filter(Boolean).join(', ');
-          const right = [legText(t, s, i === 0), time(s)].filter(Boolean).join(' · ');
-          return (
-            <div
-              key={s.id}
-              data-testid="trip-stop"
+          </section>
+          {assignable && (
+            <section
+              data-testid="trip-assign"
               style={{
                 display: 'flex',
-                alignItems: 'center',
+                flexDirection: 'column',
                 gap: 10,
-                padding: '10px 12px',
-                background: '#F4F5F2',
-                border: '1px solid #E4E6E0',
-                borderRadius: 12,
+                paddingBottom: 20,
+                borderBottom: '1px solid #E4E6E0',
               }}
             >
-              <span
+              <div
                 style={{
-                  width: 24,
-                  height: 24,
-                  borderRadius: '50%',
-                  background: '#FFFFFF',
-                  border: '1px solid #D9DCD4',
-                  fontSize: 12,
-                  fontWeight: 600,
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0,
+                  justifyContent: 'space-between',
+                  gap: 8,
                 }}
               >
-                {i + 1}
-              </span>
-              <span
-                style={{
-                  height: 22,
-                  padding: '0 8px',
-                  borderRadius: 999,
-                  background: chip.bg,
-                  color: chip.c,
-                  fontSize: 12,
-                  fontWeight: 600,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  flexShrink: 0,
-                }}
-              >
-                {t(`trip.stops.${s.type}` as MessageKey)}
-              </span>
-              <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-                <span
-                  style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
-                >
-                  {s.siteName}
+                <span style={{ fontSize: 12.5, fontWeight: 600, color: '#3B424C' }}>
+                  {t('trip.as.title')}
                 </span>
-                {dos && (
-                  <span className="tms-num" style={{ fontSize: 13, color: '#2257C4' }}>
-                    {dos}
-                  </span>
-                )}
               </div>
-              {right && (
-                <span className="tms-num" style={{ fontSize: 12, color: '#3B424C' }}>
-                  {right}
-                </span>
-              )}
-              {ed && (
-                <div style={{ display: 'flex', gap: 2 }}>
+              {!picking && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <span style={{ color: '#3B424C' }}>
+                    {t(assignedNow ? 'trip.as.assigned' : 'trip.as.none')}
+                  </span>
                   <button
                     type="button"
-                    title={t('trip.stops.up')}
-                    aria-label={t('trip.stops.up')}
-                    onClick={() => mv(i, -1)}
-                    disabled={busy}
-                    style={{ ...ROUND_BTN, color: '#3B424C' }}
+                    onClick={startPick}
+                    style={{
+                      border: 0,
+                      background: 'transparent',
+                      padding: 0,
+                      color: '#2257C4',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                    }}
                   >
-                    <Icon n="chevron-up" s={16} />
+                    {t(assignedNow ? 'trip.as.change' : 'trip.as.pick')}
                   </button>
-                  <button
-                    type="button"
-                    title={t('trip.stops.down')}
-                    aria-label={t('trip.stops.down')}
-                    onClick={() => mv(i, 1)}
-                    disabled={busy}
-                    style={{ ...ROUND_BTN, color: '#3B424C' }}
-                  >
-                    <Icon n="chevron-down" s={16} />
-                  </button>
-                  {s.type !== 'PICKUP' && s.deliveryOrderIds.length > 0 && (
-                    <button
-                      type="button"
-                      title={t('trip.stops.remove')}
-                      aria-label={t('trip.stops.remove')}
-                      onClick={() => rm(s)}
-                      disabled={busy}
-                      style={{ ...ROUND_BTN, color: '#B3322A' }}
-                    >
-                      <Icon n="x" s={16} />
-                    </button>
-                  )}
                 </div>
               )}
-            </div>
-          );
-        })}
-        {tr.stops.length === 0 && (
-          <div
-            style={{
-              border: '1.5px dashed #C9CDC3',
-              borderRadius: 12,
-              padding: 20,
-              textAlign: 'center',
-              color: '#3B424C',
-            }}
-          >
-            {t('trip.stops.empty')}
+              {picking && (
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)',
+                    gap: 12,
+                  }}
+                >
+                  <label style={PICK_LABEL}>
+                    <span style={PICK_CAP}>{t('trip.as.vehicle')}</span>
+                    <select
+                      aria-label={t('trip.as.vehicle')}
+                      value={f.veh}
+                      onChange={(e) => setForm({ ...f, veh: e.target.value, auto: true })}
+                      style={PICK_SELECT}
+                    >
+                      {!f.veh && <option value="">—</option>}
+                      {vehicles.map((v) => (
+                        <option key={v.id} value={v.id}>
+                          {v.payloadKg
+                            ? t('trip.as.vehOpt', {
+                                p: v.plate,
+                                t: v.vehicleType.name,
+                                w: v.payloadKg.toLocaleString('th-TH'),
+                              })
+                            : t('trip.as.vehOptNoCap', { p: v.plate, t: v.vehicleType.name })}
+                        </option>
+                      ))}
+                      {tr.vehicle && !vehicles.some((v) => v.id === tr.vehicle!.id) && (
+                        <option value={tr.vehicle.id}>{tr.vehicle.plate}</option>
+                      )}
+                    </select>
+                  </label>
+                  <label style={PICK_LABEL}>
+                    <span style={PICK_CAP}>{t('trip.as.driver')}</span>
+                    <select
+                      aria-label={t('trip.as.driver')}
+                      value={f.drv}
+                      onChange={(e) => setForm({ ...f, drv: e.target.value, auto: false })}
+                      style={PICK_SELECT}
+                    >
+                      <option value="">{t('trip.as.pickDriver')}</option>
+                      {drivers.map((d) => (
+                        <option key={d.id} value={d.id}>
+                          {d.licenceClass
+                            ? t('plan.driver', {
+                                n: d.name,
+                                l: t(`vt.lic.${d.licenceClass}` as MessageKey),
+                              })
+                            : d.name}
+                        </option>
+                      ))}
+                      {tr.driver && !drivers.some((d) => d.id === tr.driver!.id) && (
+                        <option value={tr.driver.id}>{tr.driver.name}</option>
+                      )}
+                    </select>
+                  </label>
+                  <label style={PICK_LABEL}>
+                    <span style={PICK_CAP}>{t('trip.as.relief')}</span>
+                    <select
+                      aria-label={t('trip.as.relief')}
+                      value={f.relief}
+                      onChange={(e) => setForm({ ...f, relief: e.target.value })}
+                      style={PICK_SELECT}
+                    >
+                      <option value="">{t('trip.as.noRelief')}</option>
+                      {drivers
+                        .filter((d) => d.id !== f.drv)
+                        .map((d) => (
+                          <option key={d.id} value={d.id}>
+                            {d.name}
+                          </option>
+                        ))}
+                      {tr.reliefDriver && !drivers.some((d) => d.id === tr.reliefDriver!.id) && (
+                        <option value={tr.reliefDriver.id}>{tr.reliefDriver.name}</option>
+                      )}
+                    </select>
+                  </label>
+                </div>
+              )}
+              {picking && (opts.vehicles.isError || opts.drivers.isError) && (
+                <span className="tms-field-error">{t('trip.as.loadError')}</span>
+              )}
+              {tr.warnings.some((w) => !w.confirmed && w.severity !== 'info') && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {tr.warnings
+                    .filter((w) => !w.confirmed && w.severity !== 'info')
+                    .map((w) => (
+                      <span
+                        key={`${w.code}|${w.message}`}
+                        style={{ display: 'flex', gap: 6, color: '#8F5500', fontWeight: 500 }}
+                      >
+                        <Icon n="triangle-alert" s={16} style={{ marginTop: 3, flexShrink: 0 }} />
+                        {w.message}
+                      </span>
+                    ))}
+                </div>
+              )}
+            </section>
+          )}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: '#13213F' }}>
+              {t('trip.stops.title')}
+            </h3>
+            {tr.stops.map((s, i) => {
+              const chip = CHIP[s.type] ?? CHIP.DELIVERY!;
+              // ต้นแบบ: เลข DO แสดงที่จุดส่ง (จุดรับไม่แสดง)
+              const dos =
+                s.type === 'PICKUP' ? '' : s.deliveryOrderIds.map(doNo).filter(Boolean).join(', ');
+              const right = [legText(t, s, i === 0), time(s)].filter(Boolean).join(' · ');
+              return (
+                <div
+                  key={s.id}
+                  data-testid="trip-stop"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    padding: '10px 12px',
+                    background: '#F4F5F2',
+                    border: '1px solid #E4E6E0',
+                    borderRadius: 12,
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 24,
+                      height: 24,
+                      borderRadius: '50%',
+                      background: '#FFFFFF',
+                      border: '1px solid #D9DCD4',
+                      fontSize: 12,
+                      fontWeight: 600,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                    }}
+                  >
+                    {i + 1}
+                  </span>
+                  <span
+                    style={{
+                      height: 22,
+                      padding: '0 8px',
+                      borderRadius: 999,
+                      background: chip.bg,
+                      color: chip.c,
+                      fontSize: 12,
+                      fontWeight: 600,
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      flexShrink: 0,
+                    }}
+                  >
+                    {t(`trip.stops.${s.type}` as MessageKey)}
+                  </span>
+                  <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+                    <span
+                      style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                    >
+                      {s.siteName}
+                    </span>
+                    {dos && (
+                      <span className="tms-num" style={{ fontSize: 13, color: '#2257C4' }}>
+                        {dos}
+                      </span>
+                    )}
+                  </div>
+                  {right && (
+                    <span className="tms-num" style={{ fontSize: 12, color: '#3B424C' }}>
+                      {right}
+                    </span>
+                  )}
+                  {ed && (
+                    <div style={{ display: 'flex', gap: 2 }}>
+                      <button
+                        type="button"
+                        title={t('trip.stops.up')}
+                        aria-label={t('trip.stops.up')}
+                        onClick={() => mv(i, -1)}
+                        disabled={busy}
+                        style={{ ...ROUND_BTN, color: '#3B424C' }}
+                      >
+                        <Icon n="chevron-up" s={16} />
+                      </button>
+                      <button
+                        type="button"
+                        title={t('trip.stops.down')}
+                        aria-label={t('trip.stops.down')}
+                        onClick={() => mv(i, 1)}
+                        disabled={busy}
+                        style={{ ...ROUND_BTN, color: '#3B424C' }}
+                      >
+                        <Icon n="chevron-down" s={16} />
+                      </button>
+                      {s.type !== 'PICKUP' && s.deliveryOrderIds.length > 0 && (
+                        <button
+                          type="button"
+                          title={t('trip.stops.remove')}
+                          aria-label={t('trip.stops.remove')}
+                          onClick={() => rm(s)}
+                          disabled={busy}
+                          style={{ ...ROUND_BTN, color: '#B3322A' }}
+                        >
+                          <Icon n="x" s={16} />
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {tr.stops.length === 0 && (
+              <div
+                style={{
+                  border: '1.5px dashed #C9CDC3',
+                  borderRadius: 12,
+                  padding: 20,
+                  textAlign: 'center',
+                  color: '#3B424C',
+                }}
+              >
+                {t('trip.stops.empty')}
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        </>
+      )}
       {ask && (
         <DetachDialog
           dos={ask.deliveryOrderIds.map((x) => ({ id: x, doNo: doNo(x) }))}

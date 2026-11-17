@@ -248,6 +248,28 @@ export class SequencedStopEventDto extends StopEventDto {
   resolution!: StopEventResolutionDto | null;
 }
 
+/** event ของเที่ยว (GET /trips/{id}/events — ST4-T04 ไทม์ไลน์ของ drawer เที่ยวรถ) */
+export class TripTimelineEventDto extends SequencedStopEventDto {
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: 'สมศักดิ์ ใจดี',
+    description: 'ชื่อผู้บันทึก (ผู้ใช้ภายใน) — ลิงก์รถร่วม/ระบบ = null',
+  })
+  recordedByName!: string | null;
+  @ApiProperty({ nullable: true, type: String, description: 'ชื่อผู้ตัดสินธง (ถ้ามี)' })
+  resolvedByName!: string | null;
+}
+
+export class TripTimelineDto {
+  @ApiProperty({
+    type: [TripTimelineEventDto],
+    description:
+      'ทุก event ของเที่ยว (รวมจุดที่ถอดแล้ว) เรียงตามลำดับจุด แล้วตามลำดับที่มีผลของจุด (occurredAt → ชนิด → receivedAt)',
+  })
+  data!: TripTimelineEventDto[];
+}
+
 class StopEffectiveDto {
   @ApiProperty({
     enum: STOP_EXEC_STATES,
