@@ -44859,6 +44859,7 @@
           "note": {
             "type": "string",
             "nullable": true,
+            "maxLength": 500,
             "description": "โน้ตของรายการที่ปฏิเสธ"
           }
         },
