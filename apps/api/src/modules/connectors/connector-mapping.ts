@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { EXTERNAL_ID_RE } from '../../common/external-id';
 import type { OrderStopType } from '@tms/domain';
 import { cleanLine, stableStringify } from '../master/master-kit';
 import {
@@ -35,6 +36,7 @@ export interface MappedOrder {
 /**
  * key idempotent ของใบ:
  * - เลขอ้างอิงปกติ → ใช้ตรงตัว
+ * - มีช่องว่าง/อักขระนอก ASCII (ST7-T02) → `{connector}-refid-{sha256(เลขเต็ม)}`
  * - ยาวเกิน 100 → `{connector}-longid-{sha256(เลขเต็ม)}` (คงที่แม้ต้นทางแก้ข้อมูลใบ)
  * - ไม่มีเลขเลย → `{connector}-nokey-{hash payload}` (ส่งซ้ำค่าเดิม = ใบเดิม แต่ต้นทาง**แก้**ใบ = ใบใหม่ — #53)
  * ไม่ล้มกับค่าใด ๆ
@@ -45,7 +47,14 @@ export function externalKey(
 ): { value: string; issue: string | null } {
   const raw = scalar(ext?.externalId);
   const full = raw === null ? '' : cleanLine(raw);
-  if (full && full.length <= ORDER_LIMITS.ref) return { value: full, issue: null };
+  if (full && full.length <= ORDER_LIMITS.ref && EXTERNAL_ID_RE.test(full))
+    return { value: full, issue: null };
+  // ST7-T02: เลขที่มีช่องว่าง/อักขระนอก ASCII ใช้เป็น externalId (`ext:`) ไม่ได้ → เลขแทนคงที่จาก hash ของเลขเต็ม
+  if (full && full.length <= ORDER_LIMITS.ref)
+    return {
+      value: `${connector}-refid-${sha256(full).slice(0, 32)}`,
+      issue: 'เลขอ้างอิงจากต้นทางมีช่องว่างหรืออักขระที่ไม่ใช่ ASCII — ใช้เลขแทน',
+    };
   if (full)
     return {
       value: `${connector}-longid-${sha256(full).slice(0, 32)}`,

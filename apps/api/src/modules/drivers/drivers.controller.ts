@@ -21,12 +21,12 @@ import {
   ApiProduces,
   ApiTags,
   ApiTooManyRequestsResponse,
+  ApiOperation,
 } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { AuditPageDto } from '../../audit/audit.controller';
 import { RequireScope, TenantResource } from '../../common/decorators';
 import { expectedVersion, setEtag } from '../../common/etag';
-import { decodeIdOr404 } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService } from '../../db/db.service';
@@ -50,6 +50,13 @@ import {
   UpsertDriverDto,
 } from './driver.dto';
 import { DriversService, mask, REVEAL_SCOPE } from './drivers.service';
+import {
+  ApiExternalPatch,
+  ApiExternalPut,
+  ExternalIdPipe,
+  extRef,
+  resolveRef,
+} from '../../common/external-id';
 
 export const DRIVER_REVEAL_PER_MIN = 20;
 
@@ -104,8 +111,12 @@ export class DriversController {
   revealLimiter = new TenantRateLimiter(DRIVER_REVEAL_PER_MIN);
 
   private async resolve(id: string) {
-    if (id.startsWith('ext:')) return this.drivers.getByExternalId(id.slice(4));
-    return this.drivers.get(decodeIdOr404('driver', id));
+    return resolveRef(
+      'driver',
+      id,
+      (u) => this.drivers.get(u),
+      (e) => this.drivers.getByExternalId(e),
+    );
   }
 
   @Get()
@@ -158,24 +169,17 @@ export class DriversController {
   }
 
   @Put('external/:externalId')
+  @ApiExternalPut()
   @RequireScope('master:write')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag — ใช้เมื่อแถวมีอยู่แล้ว' })
   @ApiOkResponse({ type: DriverDto, description: 'มีอยู่แล้ว → อัปเดต (ส่งซ้ำได้ ไม่เกิดแถวใหม่)' })
   @ApiCreatedResponse({ type: DriverDto, description: 'ยังไม่มี → สร้าง' })
   async upsertExternal(
-    @Param('externalId') externalId: string,
+    @Param('externalId', ExternalIdPipe) externalId: string,
     @Body() body: UpsertDriverDto,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<DriverDto> {
-    if (!/^[\x21-\x7e]{1,100}$/.test(externalId))
-      throw new ProblemException('validation_failed', undefined, [
-        {
-          field: 'externalId',
-          code: 'matches',
-          message: 'externalId must be 1-100 printable ASCII',
-        },
-      ]);
     const { row, created } = await this.drivers.upsertExternal(
       externalId,
       body,
@@ -237,6 +241,25 @@ export class DriversController {
     const d = await this.resolve(id);
     res.setHeader('Cache-Control', 'no-store');
     return { field: 'nationalId', value: await this.drivers.reveal(d, body.reason) };
+  }
+
+  @Patch('external/:externalId')
+  @ApiExternalPatch()
+  @RequireScope('master:write')
+  @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
+  @ApiOperation({
+    summary: 'แก้บางช่องด้วย externalId',
+    description:
+      'เหมือน `PATCH /drivers/ext:{externalId}` (กติกาเดียวกับ PATCH ด้วย id) · ยังไม่มีแถวนี้ → 404 — สร้างใหม่ใช้ PUT',
+  })
+  @ApiOkResponse({ type: DriverDto })
+  patchExternal(
+    @Param('externalId', ExternalIdPipe) externalId: string,
+    @Body() body: UpdateDriverDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<DriverDto> {
+    return this.update(extRef(externalId), body, req, res);
   }
 
   @Patch(':id')

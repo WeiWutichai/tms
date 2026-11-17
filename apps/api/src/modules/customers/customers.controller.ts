@@ -20,13 +20,12 @@ import {
   ApiOkResponse,
   ApiProduces,
   ApiTags,
+  ApiOperation,
 } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { AuditPageDto } from '../../audit/audit.controller';
 import { RequireScope, TenantResource } from '../../common/decorators';
 import { expectedVersion, setEtag } from '../../common/etag';
-import { decodeIdOr404 } from '../../common/ids';
-import { ProblemException } from '../../common/problem';
 import { sendExport, type ExportColumn } from '../master/export';
 import { entityHistory, HistoryQuery } from '../master/history';
 import { MasterOptionalReasonDto, MasterReasonDto } from '../master/master-kit';
@@ -45,6 +44,13 @@ import { CustomersService } from './customers.service';
 import { CustomerPodChecklistDto } from '../pod/pod-checklist.dto';
 import { PodChecklistService } from '../pod/pod-checklist.service';
 import { DbService } from '../../db/db.service';
+import {
+  ApiExternalPatch,
+  ApiExternalPut,
+  ExternalIdPipe,
+  extRef,
+  resolveRef,
+} from '../../common/external-id';
 
 const CYCLE_TH: Record<CustomerDto['billingCycle'], string> = {
   PER_DO: 'ต่อเที่ยว',
@@ -90,8 +96,12 @@ export class CustomersController {
   ) {}
 
   private async resolve(id: string) {
-    if (id.startsWith('ext:')) return this.customers.getByExternalId(id.slice(4));
-    return this.customers.get(decodeIdOr404('customer', id));
+    return resolveRef(
+      'customer',
+      id,
+      (u) => this.customers.get(u),
+      (e) => this.customers.getByExternalId(e),
+    );
   }
 
   @Get()
@@ -146,6 +156,7 @@ export class CustomersController {
   }
 
   @Put('external/:externalId')
+  @ApiExternalPut()
   @RequireScope('master:write')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag — ใช้เมื่อแถวมีอยู่แล้ว' })
   @ApiOkResponse({
@@ -154,19 +165,11 @@ export class CustomersController {
   })
   @ApiCreatedResponse({ type: CustomerDto, description: 'ยังไม่มี → สร้าง' })
   async upsertExternal(
-    @Param('externalId') externalId: string,
+    @Param('externalId', ExternalIdPipe) externalId: string,
     @Body() body: UpsertCustomerDto,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<CustomerDto> {
-    if (!/^[\x21-\x7e]{1,100}$/.test(externalId))
-      throw new ProblemException('validation_failed', undefined, [
-        {
-          field: 'externalId',
-          code: 'matches',
-          message: 'externalId must be 1-100 printable ASCII',
-        },
-      ]);
     const { row, created } = await this.customers.upsertExternal(
       externalId,
       body,
@@ -207,6 +210,25 @@ export class CustomersController {
   async podChecklist(@Param('id') id: string): Promise<CustomerPodChecklistDto> {
     const c = await this.resolve(id);
     return { data: await this.pod.allForCustomer(c.id) };
+  }
+
+  @Patch('external/:externalId')
+  @ApiExternalPatch()
+  @RequireScope('master:write')
+  @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
+  @ApiOperation({
+    summary: 'แก้บางช่องด้วย externalId',
+    description:
+      'เหมือน `PATCH /customers/ext:{externalId}` (กติกาเดียวกับ PATCH ด้วย id) · ยังไม่มีแถวนี้ → 404 — สร้างใหม่ใช้ PUT',
+  })
+  @ApiOkResponse({ type: CustomerDto })
+  patchExternal(
+    @Param('externalId', ExternalIdPipe) externalId: string,
+    @Body() body: UpdateCustomerDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<CustomerDto> {
+    return this.update(extRef(externalId), body, req, res);
   }
 
   @Patch(':id')

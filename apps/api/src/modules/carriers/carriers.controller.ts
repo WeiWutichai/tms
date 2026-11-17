@@ -21,12 +21,12 @@ import {
   ApiProduces,
   ApiTags,
   ApiTooManyRequestsResponse,
+  ApiOperation,
 } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { AuditPageDto } from '../../audit/audit.controller';
 import { RequireScope, TenantResource } from '../../common/decorators';
 import { expectedVersion, setEtag } from '../../common/etag';
-import { decodeIdOr404 } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { TenantRateLimiter } from '../geo/rate-limit';
@@ -48,6 +48,13 @@ import {
   UpsertCarrierDto,
 } from './carrier.dto';
 import { CarriersService, mask } from './carriers.service';
+import {
+  ApiExternalPatch,
+  ApiExternalPut,
+  ExternalIdPipe,
+  extRef,
+  resolveRef,
+} from '../../common/external-id';
 
 export const REVEAL_PER_MIN = 20;
 
@@ -97,8 +104,12 @@ export class CarriersController {
   revealLimiter = new TenantRateLimiter(REVEAL_PER_MIN);
 
   private async resolve(id: string) {
-    if (id.startsWith('ext:')) return this.carriers.getByExternalId(id.slice(4));
-    return this.carriers.get(decodeIdOr404('carrier', id));
+    return resolveRef(
+      'carrier',
+      id,
+      (u) => this.carriers.get(u),
+      (e) => this.carriers.getByExternalId(e),
+    );
   }
 
   @Get()
@@ -154,6 +165,7 @@ export class CarriersController {
   }
 
   @Put('external/:externalId')
+  @ApiExternalPut()
   @RequireScope('master:write')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag — ใช้เมื่อแถวมีอยู่แล้ว' })
   @ApiOkResponse({
@@ -162,19 +174,11 @@ export class CarriersController {
   })
   @ApiCreatedResponse({ type: CarrierDto, description: 'ยังไม่มี → สร้าง' })
   async upsertExternal(
-    @Param('externalId') externalId: string,
+    @Param('externalId', ExternalIdPipe) externalId: string,
     @Body() body: UpsertCarrierDto,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<CarrierDto> {
-    if (!/^[\x21-\x7e]{1,100}$/.test(externalId))
-      throw new ProblemException('validation_failed', undefined, [
-        {
-          field: 'externalId',
-          code: 'matches',
-          message: 'externalId must be 1-100 printable ASCII',
-        },
-      ]);
     const { row, created } = await this.carriers.upsertExternal(
       externalId,
       body,
@@ -236,6 +240,25 @@ export class CarriersController {
     const c = await this.resolve(id);
     res.setHeader('Cache-Control', 'no-store');
     return { field: body.field, value: await this.carriers.reveal(c, body.field, body.reason) };
+  }
+
+  @Patch('external/:externalId')
+  @ApiExternalPatch()
+  @RequireScope('master:write')
+  @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
+  @ApiOperation({
+    summary: 'แก้บางช่องด้วย externalId',
+    description:
+      'เหมือน `PATCH /carriers/ext:{externalId}` (กติกาเดียวกับ PATCH ด้วย id) · ยังไม่มีแถวนี้ → 404 — สร้างใหม่ใช้ PUT',
+  })
+  @ApiOkResponse({ type: CarrierDto })
+  patchExternal(
+    @Param('externalId', ExternalIdPipe) externalId: string,
+    @Body() body: UpdateCarrierDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<CarrierDto> {
+    return this.update(extRef(externalId), body, req, res);
   }
 
   @Patch(':id')
