@@ -1,6 +1,6 @@
 import type { Schemas } from '@tms/contracts';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { api, unwrap } from '../api';
+import { api, ApiError, unwrap } from '../api';
 
 /**
  * ลิงก์งานของรถร่วม — ส่วนสถานะ (ST4-T08; docs/04 E2 "ePOD ผ่านลิงก์", docs/01 §5.5 `/public/pod/{token}`)
@@ -12,6 +12,12 @@ export type PodDo = Schemas['PodDoDto'];
 export type PodStop = Schemas['PodStopDto'];
 export type PodEventBody = Schemas['PodLinkEventDto'];
 export type PodEventResult = Schemas['PodLinkEventResultDto'];
+/** ST4-T09 หลักฐานส่งผ่านลิงก์ */
+export type PodLinkPod = Schemas['PodLinkDoPodDto'];
+export type PodLinkField = PodLinkPod['fields'][number];
+export type PodCaptureBody = Schemas['PodLinkCaptureDto'];
+export type PodCaptureResult = Schemas['PodLinkCaptureResultDto'];
+export type PodFileKind = Schemas['PodLinkFileReserveDto']['kind'];
 
 export type PodActionKey = 'arrivePickup' | 'leavePickup' | 'arriveDrop' | 'leaveDrop';
 
@@ -160,5 +166,115 @@ export function usePodEvent(token: string) {
           body: v.body,
         }),
       ),
+  });
+}
+
+// ---------------------------------------------------------------------------------------------
+// ST4-T09 ส่ง POD ผ่านลิงก์
+
+/** ชนิดรูปที่ API รับ (รูป/ลายเซ็น) + เพดาน 10 MB/ไฟล์ (เท่า /v1/documents) */
+export const POD_LINK_IMAGE_MIME = ['image/jpeg', 'image/png', 'image/webp'] as const;
+export const POD_LINK_FILE_MAX = 10 * 1024 * 1024;
+
+/** ร่างหลักฐานบนหน้าลิงก์ (ข้อที่ checklist บังคับนอกจากรูป/ลายเซ็น) */
+export interface PodLinkDraft {
+  photos: number;
+  signed: boolean;
+  note: string;
+  checks: Record<string, boolean>;
+  choices: Record<string, string>;
+  barcodes: string;
+  pin: string;
+  rating: number | null;
+}
+
+/**
+ * ข้อบังคับที่ยังขาด (ตรวจก่อนส่ง — server ตรวจซ้ำด้วย checklist จริง) เรียงตาม checklist
+ * PHOTO นับขั้นต่ำ `minCount` (ไม่ส่ง = 1) · BOOLEAN ต้องติ๊ก "ใช่" · PIN ตัวเลขครบหลัก
+ */
+export function podLinkMissing(fields: PodLinkField[], d: PodLinkDraft): PodLinkField[] {
+  return fields.filter((f) => {
+    if (f.level !== 'REQUIRED') return false;
+    switch (f.type) {
+      case 'PHOTO':
+        return d.photos < (f.minCount ?? 1);
+      case 'SIGNATURE':
+        return !d.signed;
+      case 'NOTE':
+        return !d.note.trim();
+      case 'BOOLEAN':
+        return d.checks[f.key] !== true;
+      case 'SINGLE_CHOICE':
+        return !d.choices[f.key];
+      case 'BARCODE':
+        return !barcodeList(d.barcodes).length;
+      case 'PIN':
+        return !new RegExp(`^[0-9]{${f.length ?? 4}}$`).test(d.pin);
+      case 'RATING':
+        return d.rating === null;
+      default:
+        return false;
+    }
+  });
+}
+
+/** รหัสสแกน: บรรทัดละ 1 ตัดช่องว่าง/บรรทัดว่าง */
+export const barcodeList = (v: string) =>
+  v
+    .split(/\r?\n/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+
+/** body ของ POD จากร่าง (ส่งเฉพาะข้อที่ checklist ใช้) */
+export function podLinkBody(
+  doNo: string,
+  fields: PodLinkField[],
+  d: PodLinkDraft,
+  files: { photos: string[]; signature: string | null },
+): PodCaptureBody {
+  const has = (t: string) => fields.some((f) => f.type === t);
+  const body: PodCaptureBody = { doNo, photoDocumentIds: files.photos };
+  if (files.signature) body.signatureDocumentId = files.signature;
+  if (has('NOTE') && d.note.trim()) body.note = d.note.trim();
+  const keys = (t: string) => new Set(fields.filter((f) => f.type === t).map((f) => f.key));
+  const ck = keys('BOOLEAN');
+  const checks = Object.fromEntries(Object.entries(d.checks).filter(([k]) => ck.has(k)));
+  if (Object.keys(checks).length) body.checks = checks;
+  const ch = keys('SINGLE_CHOICE');
+  const choices = Object.fromEntries(Object.entries(d.choices).filter(([k, v]) => ch.has(k) && v));
+  if (Object.keys(choices).length) body.choices = choices;
+  if (has('BARCODE') && barcodeList(d.barcodes).length) body.barcodes = barcodeList(d.barcodes);
+  if (has('PIN') && d.pin) body.pin = d.pin;
+  if (has('RATING') && d.rating !== null) body.rating = d.rating;
+  return body;
+}
+
+/** จองไฟล์ผ่านลิงก์ (ผูกกับ DO นี้) → PUT เนื้อไฟล์ → id · ชนิด/ขนาดผิด → Error('bad_file') */
+export async function uploadPodLinkFile(
+  token: string,
+  doNo: string,
+  f: Blob,
+  kind: PodFileKind,
+  name: string,
+): Promise<string> {
+  const mime = POD_LINK_IMAGE_MIME.find((m) => m === f.type);
+  if (!mime || f.size > POD_LINK_FILE_MAX || f.size === 0) throw new Error('bad_file');
+  const r = await unwrap(
+    api.POST('/v1/public/pod/{token}/files', {
+      params: { path: { token } },
+      body: { doNo, kind, mime, bytes: f.size, filename: name },
+    }),
+  );
+  const u = new URL(r.uploadUrl, location.origin);
+  const up = await fetch(u.pathname + u.search, { method: 'PUT', body: f });
+  if (!up.ok) throw new ApiError((await up.json()) as never);
+  return r.id;
+}
+
+/** ส่ง POD อย่างเดียว (จุดส่งปิดแล้ว) */
+export function usePodCapture(token: string) {
+  return useMutation({
+    mutationFn: (body: PodCaptureBody) =>
+      unwrap(api.POST('/v1/public/pod/{token}/pod', { params: { path: { token } }, body })),
   });
 }

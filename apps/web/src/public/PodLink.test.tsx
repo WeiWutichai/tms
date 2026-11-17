@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../api';
 import { I18nProvider } from '../i18n';
 import type { OfferView } from '../features/trips/useTrips';
-import type { PodDo, PodStop, PodView } from './podLinkApi';
+import type { PodDo, PodLinkPod, PodStop, PodView } from './podLinkApi';
 
 /** ST4-T08 หน้าลิงก์งานของรถร่วม (ต้นแบบ TMS Subcon แท็บ "ส่ง POD" + ปุ่มสถานะ S4) */
 const job: OfferView = {
@@ -42,6 +42,19 @@ const stop = (o: Partial<PodStop>): PodStop => ({
   nextOpen: true,
   ...o,
 });
+/** ST4-T09 หลักฐานของ DO — ค่าเริ่ม = ยังส่งไม่ได้ (ยังไม่ถึงจุดส่ง) · checklist ค่าระบบ (รูป ≥ 1 + ลายเซ็น บังคับ) */
+const podOf = (o: Partial<PodLinkPod> = {}): PodLinkPod => ({
+  mode: null,
+  sent: false,
+  podStatus: 'NONE',
+  photosMax: 5,
+  fields: [
+    { key: 'photo', type: 'PHOTO', level: 'REQUIRED', minCount: 1 },
+    { key: 'signature', type: 'SIGNATURE', level: 'REQUIRED' },
+    { key: 'note', type: 'NOTE', level: 'ENABLED' },
+  ],
+  ...o,
+});
 const doc = (p: Partial<PodStop> = {}, d: Partial<PodStop> = {}): PodDo => ({
   doNo: 'DO-2611-00069',
   doDate: '2026-11-18',
@@ -57,6 +70,7 @@ const doc = (p: Partial<PodStop> = {}, d: Partial<PodStop> = {}): PodDo => ({
     ...d,
   }),
   retries: [],
+  pod: podOf(),
 });
 const pv = (o: Partial<PodView> = {}): PodView => ({
   job,
@@ -65,6 +79,7 @@ const pv = (o: Partial<PodView> = {}): PodView => ({
   doHint: 'DO-2611-00069',
   query: null,
   match: null,
+  sent: [],
   serverTime: new Date().toISOString(),
   ...o,
 });
@@ -72,6 +87,8 @@ const pv = (o: Partial<PodView> = {}): PodView => ({
 let base: PodView = pv();
 let search: Record<string, PodView> = {};
 const mutateAsync = vi.fn();
+const captureAsync = vi.fn();
+const upload = vi.fn();
 vi.mock('./podLinkApi', async (orig) => {
   const real = await orig<typeof import('./podLinkApi')>();
   return {
@@ -85,11 +102,21 @@ vi.mock('./podLinkApi', async (orig) => {
       refetch: vi.fn(),
     }),
     usePodEvent: () => ({ mutateAsync, isPending: false }),
+    usePodCapture: () => ({ mutateAsync: captureAsync, isPending: false }),
+    uploadPodLinkFile: (...a: unknown[]) => upload(...a),
   };
 });
 const { PodLinkPage } = await import('./PodLink');
-const { nextPodAction, podHint, podClientEventId, normalizeDoNo, stopState, retryOf } =
-  await import('./podLinkApi');
+const {
+  nextPodAction,
+  podHint,
+  podClientEventId,
+  normalizeDoNo,
+  stopState,
+  retryOf,
+  podLinkMissing,
+  podLinkBody,
+} = await import('./podLinkApi');
 
 const show = () =>
   render(
@@ -320,5 +347,197 @@ describe('PodLinkPage (ST4-T08)', () => {
       'ยังกดสถานะไม่ได้ — รอฝ่ายจัดรถปล่อยงาน',
     );
     expect(screen.queryByTestId('pdl-act')).toBeNull();
+  });
+});
+
+describe('ส่ง POD ผ่านลิงก์ (ST4-T09)', () => {
+  const atDropDo = (pod: Partial<PodLinkPod> = {}) =>
+    ({
+      ...doc(
+        { status: 'COMPLETED', leftAt: '2026-11-18T03:00:00Z', nextOpen: false },
+        { status: 'ARRIVED' },
+      ),
+      pod: podOf({ mode: 'CLOSE', ...pod }),
+    }) as PodDo;
+  const png = (n: number) => new File([`p${n}`], `p${n}.png`, { type: 'image/png' });
+  const pickPhotos = async (files: File[]) => {
+    fireEvent.change(screen.getByTestId('pdl-photo-input'), { target: { files } });
+    await waitFor(() => expect(upload).toHaveBeenCalled());
+  };
+  const sign = () => fireEvent.pointerDown(screen.getByTestId('pdl-sig'), { pointerId: 1 });
+
+  beforeEach(() => {
+    base = pv();
+    search = {};
+    mutateAsync.mockReset();
+    mutateAsync.mockResolvedValue({});
+    captureAsync.mockReset();
+    captureAsync.mockResolvedValue({});
+    upload.mockReset();
+    let n = 0;
+    upload.mockImplementation(() => Promise.resolve(`doc_${String(++n).padStart(32, '0')}`));
+    // jsdom ไม่มี canvas — วาดไม่ได้ แต่กดแผ่นเซ็น = เซ็นแล้ว · toBlob คืน PNG จำลอง
+    HTMLCanvasElement.prototype.getContext = (() => null) as never;
+    HTMLCanvasElement.prototype.toBlob = function (cb: BlobCallback) {
+      cb(new Blob(['sig'], { type: 'image/png' }));
+    };
+  });
+
+  it('podLinkMissing / podLinkBody: ข้อบังคับตาม checklist · ส่งเฉพาะข้อที่ checklist ใช้', () => {
+    const fields = [
+      ...podOf().fields,
+      { key: 'goods_ok', type: 'BOOLEAN', level: 'REQUIRED', label: 'สินค้าครบ' },
+      { key: 'pin', type: 'PIN', level: 'REQUIRED', length: 4 },
+    ] as PodLinkPod['fields'];
+    const d = {
+      photos: 0,
+      signed: false,
+      note: '',
+      checks: {},
+      choices: {},
+      barcodes: '',
+      pin: '12',
+      rating: null,
+    };
+    expect(podLinkMissing(fields, d).map((f) => f.key)).toEqual([
+      'photo',
+      'signature',
+      'goods_ok',
+      'pin',
+    ]);
+    const ok = {
+      ...d,
+      photos: 2,
+      signed: true,
+      checks: { goods_ok: true, junk: true },
+      pin: '4821',
+    };
+    expect(podLinkMissing(fields, ok)).toEqual([]);
+    expect(
+      podLinkBody('DO-1', fields, { ...ok, rating: 5 }, { photos: ['a', 'b'], signature: 's' }),
+    ).toEqual({
+      doNo: 'DO-1',
+      photoDocumentIds: ['a', 'b'],
+      signatureDocumentId: 's',
+      checks: { goods_ok: true },
+      pin: '4821',
+    });
+  });
+
+  it('เกณฑ์ตรวจรับ: ถึงจุดส่ง → รูป 2 ใบ + ลายเซ็น → "ส่ง POD" = COMPLETE + pod ในคำขอเดียว → toast + ล้างช่องค้น', async () => {
+    search['DO-2611-00069'] = pv({ query: 'DO-2611-00069', match: atDropDo() });
+    show();
+    await type('DO-2611-00069');
+    expect(screen.queryByTestId('pdl-hint')).toBeNull();
+    expect(
+      screen.getByText('แนบรูปใบส่งของที่มีลายเซ็นผู้รับ และรูปสินค้าที่ปลายทาง'),
+    ).toBeTruthy();
+    // ไม่มีรูป → toast ตามต้นแบบ
+    fireEvent.click(screen.getByTestId('pdl-pod-submit'));
+    expect(await screen.findByText('แนบรูปอย่างน้อย 1 รูป')).toBeTruthy();
+    expect(mutateAsync).not.toHaveBeenCalled();
+    await pickPhotos([png(1), png(2)]);
+    await waitFor(() => expect(screen.getByText('รูปที่ 2')).toBeTruthy());
+    // ยังไม่เซ็น
+    fireEvent.click(screen.getByTestId('pdl-pod-submit'));
+    expect(await screen.findByText('ให้ผู้รับเซ็นชื่อ')).toBeTruthy();
+    sign();
+    fireEvent.click(screen.getByTestId('pdl-pod-submit'));
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(1));
+    expect(upload).toHaveBeenCalledTimes(3);
+    expect(upload.mock.calls[2]!.slice(0, 2)).toEqual(['ml1.p', 'DO-2611-00069']);
+    expect(upload.mock.calls[2]![3]).toBe('POD_SIGNATURE');
+    const call = mutateAsync.mock.calls[0]![0];
+    expect(call.stopId).toBe('stp_d');
+    expect(call.body).toMatchObject({
+      type: 'COMPLETE',
+      outcome: 'DELIVERED',
+      clientEventId: await podClientEventId('ml1.p', { stopId: 'stp_d', type: 'COMPLETE' }),
+      pod: {
+        doNo: 'DO-2611-00069',
+        photoDocumentIds: [`doc_${'1'.padStart(32, '0')}`, `doc_${'2'.padStart(32, '0')}`],
+        signatureDocumentId: `doc_${'3'.padStart(32, '0')}`,
+      },
+    });
+    expect(call.body.occurredAt).toMatch(/\+07:00$/);
+    expect(await screen.findByText('ส่ง POD DO-2611-00069 แล้ว')).toBeTruthy();
+    expect((screen.getByTestId('pdl-q') as HTMLInputElement).value).toBe('');
+  });
+
+  it('เกณฑ์ตรวจรับ: รูปที่ 6 ถูกปฏิเสธ — อัปโหลดได้ 5 รูป ปุ่ม "+ เพิ่มรูป" หาย + ข้อความ', async () => {
+    search['DO-2611-00069'] = pv({ query: 'DO-2611-00069', match: atDropDo() });
+    show();
+    await type('DO-2611-00069');
+    await pickPhotos([1, 2, 3, 4, 5, 6].map(png));
+    await waitFor(() => expect(screen.getByText('รูปที่ 5')).toBeTruthy());
+    expect(upload).toHaveBeenCalledTimes(5);
+    expect(screen.queryByText('รูปที่ 6')).toBeNull();
+    expect(screen.queryByTestId('pdl-add-photo')).toBeNull();
+    expect(screen.getByText('แนบรูปได้ไม่เกิน 5 รูป')).toBeTruthy();
+    // ลบรูป → เพิ่มได้อีก
+    fireEvent.click(screen.getByLabelText('ลบรูปที่ 5'));
+    expect(screen.getByTestId('pdl-add-photo')).toBeTruthy();
+  });
+
+  it('จุดส่งปิดแล้ว (SUBMIT) → ส่ง POD อย่างเดียว · server ตอบไม่ครบ → ข้อความรายการที่ขาด · ข้อบังคับอื่นของ checklist แสดงเฉพาะที่บังคับ', async () => {
+    const fields = [
+      ...podOf().fields,
+      { key: 'goods_ok', type: 'BOOLEAN', level: 'REQUIRED', label: 'สินค้าครบ ไม่เสียหาย' },
+      { key: 'box', type: 'SINGLE_CHOICE', level: 'ENABLED', label: 'สภาพกล่อง', options: ['ดี'] },
+    ] as PodLinkPod['fields'];
+    const m = {
+      ...doc(
+        { status: 'COMPLETED', leftAt: '2026-11-18T03:00:00Z', nextOpen: false },
+        { status: 'COMPLETED' },
+      ),
+      pod: podOf({ mode: 'SUBMIT', fields }),
+    } as PodDo;
+    search['DO-2611-00069'] = pv({ query: 'DO-2611-00069', match: m, recordable: false });
+    show();
+    await type('DO-2611-00069');
+    expect(screen.queryByTestId('pdl-locked')).toBeNull();
+    expect(screen.queryByText('สภาพกล่อง')).toBeNull();
+    await pickPhotos([png(1)]);
+    sign();
+    fireEvent.click(screen.getByTestId('pdl-pod-submit'));
+    expect(await screen.findByText('ยังขาด: สินค้าครบ ไม่เสียหาย')).toBeTruthy();
+    fireEvent.click(screen.getByText('สินค้าครบ ไม่เสียหาย'));
+    captureAsync.mockRejectedValueOnce(
+      new ApiError({
+        type: 'x',
+        title: 'x',
+        status: 422,
+        code: 'pod_incomplete',
+        missing: [{ key: 'signature', type: 'SIGNATURE', code: 'required' }],
+      } as never),
+    );
+    fireEvent.click(screen.getByTestId('pdl-pod-submit'));
+    expect(
+      await screen.findByText('หลักฐานยังไม่ครบตามที่ลูกค้ากำหนด: ลายเซ็นผู้รับ'),
+    ).toBeTruthy();
+    expect(captureAsync.mock.calls[0]![0]).toMatchObject({
+      doNo: 'DO-2611-00069',
+      checks: { goods_ok: true },
+    });
+    expect(mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it('DO ส่ง POD แล้ว → "ส่ง POD ของ DO นี้แล้ว / รอ…ตรวจสอบ" ไม่มีฟอร์ม · รายการ "ส่งแล้ว n รูป · รอตรวจ"', async () => {
+    base = pv({ sent: [{ doNo: 'DO-2611-00069', photoCount: 2 }] });
+    search['DO-2611-00069'] = pv({
+      query: 'DO-2611-00069',
+      match: {
+        ...doc({ status: 'COMPLETED', leftAt: '2026-11-18T03:00:00Z' }, { status: 'COMPLETED' }),
+        pod: podOf({ sent: true, podStatus: 'COMPLETE' }),
+      },
+    });
+    show();
+    expect(screen.getByTestId('pdl-sent').textContent).toContain('DO-2611-00069');
+    expect(screen.getByText('2 รูป · รอตรวจ')).toBeTruthy();
+    await type('DO-2611-00069');
+    expect(screen.getByText('ส่ง POD ของ DO นี้แล้ว')).toBeTruthy();
+    expect(screen.getByText('รอศรีไทยขนส่งตรวจสอบ')).toBeTruthy();
+    expect(screen.queryByTestId('pdl-pod-submit')).toBeNull();
+    expect(screen.queryByTestId('pdl-hint')).toBeNull();
   });
 });

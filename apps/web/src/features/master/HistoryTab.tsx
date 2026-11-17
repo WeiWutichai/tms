@@ -139,7 +139,12 @@ export function HistoryTab({
     return {
       key: r.id,
       title: custom?.title ?? t(verb.key),
-      sub: `${formatDateTime(r.at, lang)} · ${r.actor?.name ?? r.actor?.id ?? t('hist.system')}`,
+      // ST4-T09 ผู้ทำผ่านลิงก์รถร่วม (`link:{id}`) → "{รถร่วม} · ลิงก์รถร่วม"
+      sub: `${formatDateTime(r.at, lang)} · ${
+        r.actor?.id.startsWith('link:')
+          ? [r.actor.name, t('exc.src.LINK')].filter(Boolean).join(' · ')
+          : (r.actor?.name ?? r.actor?.id ?? t('hist.system'))
+      }`,
       badge: {
         label: t('hist.ok'),
         tone: custom?.tone ?? verb.tone,

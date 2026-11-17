@@ -6,6 +6,7 @@ import type { MessageKey } from '../i18n/th';
 import { toBangkok } from '../features/orders/orderForm';
 import { BADGE, day, Job } from './OfferLink';
 import { initials } from './offerTime';
+import { PodLinkCapture } from './PodLinkCapture';
 import {
   currentPosition,
   nextPodAction,
@@ -31,7 +32,8 @@ const hm = (iso: string | null) => (iso ? toBangkok(iso).time : '');
  * หน้าลิงก์งานของรถร่วม (ST4-T08 — M10 ส่วนสถานะ; docs/04 E2 "ePOD ผ่านลิงก์", docs/01 §5.5) — มือถือ ไม่ต้อง login
  * ต้นแบบ `TMS Subcon.dc.html`: หัวพอร์ทัล + แท็บ "งาน" (ใบสั่งงาน + การ์ดรับงานแล้ว) / "ส่ง POD" (ค้นเลข DO → การ์ด DO)
  * ส่วนที่ต้นแบบไม่มี [DECISION spec/12 §3]: แถวจุดรับ/ส่งพร้อมสถานะ + ปุ่มสถานะถัดไป (spec/04 §5 S4) ใต้การ์ด DO ·
- * รูป/ลายเซ็น/ส่ง POD = ST4-T09 · แท็บ "การเงิน" = ST6 · ไม่มี outbox — ส่งไม่สำเร็จ = แจ้งให้ลองใหม่ (clientEventId เดิม)
+ * ST4-T09 รูป/ลายเซ็น/ส่ง POD (`PodLinkCapture`) + "ส่งแล้ว" ตามต้นแบบ · แท็บ "การเงิน" = ST6 ·
+ * ไม่มี outbox — ส่งไม่สำเร็จ = แจ้งให้ลองใหม่ (clientEventId เดิม)
  */
 export function PodLinkPage() {
   const { t } = useI18n();
@@ -207,12 +209,24 @@ export function PodLinkPage() {
               </label>
               {match && (
                 <DoStatus
+                  key={match.doNo}
+                  token={token}
+                  company={v.job.company}
                   m={match}
                   recordable={recordable}
                   ended={(res ?? v).tripStatus !== 'ASSIGNED' && !recordable}
                   pending={send.isPending}
                   err={err}
                   onAct={(a) => void run(a, match)}
+                  say={setToast}
+                  onPodDone={(no) => {
+                    // ต้นแบบ: ส่งแล้ว → toast + ล้างช่องค้น + ขึ้นในรายการ "ส่งแล้ว"
+                    setToast(t('pdl.pod.toast', { no }));
+                    setQ('');
+                    setDoNo(null);
+                    void base.refetch();
+                    void found.refetch();
+                  }}
                 />
               )}
               {notFound && (
@@ -222,6 +236,22 @@ export function PodLinkPage() {
                   <span className="cdl__muted">
                     {v.doHint ? t('pdl.nfHint', { no: v.doHint }) : t('pdl.nfD')}
                   </span>
+                </div>
+              )}
+              {v.sent.length > 0 && (
+                <div className="cdl__sent" data-testid="pdl-sent">
+                  <span className="cdl__senthd">{t('pdl.pod.sentHd')}</span>
+                  {v.sent.map((x) => (
+                    <div key={x.doNo} className="cdl__row">
+                      <div className="cdl__rowtop">
+                        <span>{x.doNo}</span>
+                        <span className="cdl__state" style={{ color: '#17733F' }}>
+                          <span className="cdl__dot" style={{ background: '#17733F' }} />
+                          {t('pdl.pod.sentRow', { n: x.photoCount })}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
             </>
@@ -237,26 +267,36 @@ export function PodLinkPage() {
   );
 }
 
-/** การ์ด DO (ต้นแบบ) + แถวจุดรับ/ส่ง + ปุ่มสถานะถัดไป */
+/** การ์ด DO (ต้นแบบ) + แถวจุดรับ/ส่ง + ปุ่มสถานะถัดไป + ส่ง POD (ST4-T09) */
 function DoStatus({
+  token,
+  company,
   m,
   recordable,
   ended,
   pending,
   err,
   onAct,
+  say,
+  onPodDone,
 }: {
+  token: string;
+  company: string;
   m: PodDo;
   recordable: boolean;
   ended: boolean;
   pending: boolean;
   err: string | null;
   onAct: (a: PodAction) => void;
+  say: (msg: string) => void;
+  onPodDone: (doNo: string) => void;
 }) {
   const { t } = useI18n();
   const route = `${m.pickup?.siteName ?? '—'} → ${m.delivery?.siteName ?? '—'}`;
   const action = recordable ? nextPodAction(m) : null;
-  const hint = podHint(m);
+  // ST4-T09: ถึงจุดส่งแล้ว (ปิดงาน + POD) หรือจุดส่งปิดแล้วยังไม่มี POD → ฟอร์มส่ง POD แทนข้อความ "แจ้งฝ่ายจัดรถ"
+  const showPod = m.pod.mode === 'SUBMIT' || (m.pod.mode === 'CLOSE' && recordable);
+  const hint = showPod || m.pod.sent ? null : podHint(m);
   return (
     <>
       <div className="cdl__card pdl__do" data-testid="pdl-do">
@@ -273,10 +313,18 @@ function DoStatus({
             <StopRow key={`${s.role}-${s.id}`} s={s} />
           ))}
       </div>
-      {!recordable && (
+      {!recordable && !showPod && !m.pod.sent && (
         <div className="cdl__notice" data-testid="pdl-locked">
           <span className="cdl__dot" style={{ background: '#8F5500' }} />
           <span>{t(ended ? 'pdl.ended' : 'pdl.notReady')}</span>
+        </div>
+      )}
+      {showPod && <PodLinkCapture token={token} m={m} say={say} onDone={onPodDone} />}
+      {m.pod.sent && (
+        <div className="cdl__empty" data-testid="pdl-pod-sent">
+          <i>⌕</i>
+          <b>{t('pdl.pod.sent')}</b>
+          <span className="cdl__muted">{t('pdl.pod.sentD', { c: company })}</span>
         </div>
       )}
       {err && (
