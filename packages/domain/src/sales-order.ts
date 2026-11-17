@@ -228,6 +228,8 @@ export const ORDER_HOLD_CODES = [
   'RESCHEDULES_EXHAUSTED',
   'SOURCE_CHANGED_AFTER_PLAN',
   'SOURCE_ERROR',
+  // ST4-T11 [DECISION spec/12 §3]: ใบส่งของทุกใบคืนคลัง (RETURNED) — ผู้จัดรถยกเลิกใบสั่ง (+ เหตุผล) หรือสร้าง/จัดรถใหม่
+  'ALL_RETURNED',
 ] as const;
 export type OrderHoldCode = (typeof ORDER_HOLD_CODES)[number];
 

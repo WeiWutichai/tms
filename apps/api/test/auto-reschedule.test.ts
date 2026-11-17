@@ -360,6 +360,7 @@ describe('auto-reschedule (ST4-T12)', () => {
         status: 'DRAFT',
         attempt: 1,
         exhausted: false,
+        manual: false, // ST4-T11
       },
     ]);
     // ใบคุมรถพิมพ์ซ้ำยังเห็นใบเดิม + หมายเหตุ (review M3)
@@ -669,6 +670,56 @@ describe('auto-reschedule (ST4-T12)', () => {
   };
   const status = async (id: string) =>
     (await db.deliveryOrder.findUniqueOrThrow({ where: { id } })).status;
+
+  it('ST4-T11 QA M3: ส่งซ้ำมือ (ใบเดิม CANCELLED) แล้วผลถูกพลิก → ไม่คืนเอง + ธง OUTCOME_MISMATCH ใหม่ที่ยังไม่ตัดสิน (open)', async () => {
+    const { doId, t } = await running();
+    const plain = await db.reasonCode.create({
+      data: {
+        tenantId,
+        category: 'DELIVERY_FAILED',
+        code: 'T11_M3',
+        labelTh: 'ลูกค้าขอเลื่อนวันรับ M3',
+      },
+    });
+    const { res } = await failAtDrop(t, 'T11_M3', 'FAILED');
+    expect(await status(doId)).toBe('FAILED');
+    await api(app, admin)
+      .post(`/v1/delivery-orders/${encodeId('deliveryOrder', doId)}/redeliver`)
+      .send({ reasonCodeId: encodeId('reasonCode', plain.id), note: 'ส่งซ้ำพรุ่งนี้' })
+      .expect(200);
+    // ปิดแข่งกัน: ใช้ตัวสำเร็จก่อน แล้วไม่ใช้ตัวไม่สำเร็จ (ลำดับที่ QA พบ)
+    const done = await post(t.drop.id, 'complete', 20, { outcome: 'DELIVERED' }).expect(201);
+    await api(app, admin)
+      .post(`/v1/stop-event-flags/${res.id}/resolve`)
+      .send({ decision: 'IGNORE', reason: 'คนขับกดผิด ส่งได้จริง' })
+      .expect(200);
+    await api(app, admin)
+      .post(`/v1/stop-event-flags/${done.body.id}/resolve`)
+      .send({ decision: 'ACCEPT', reason: 'คนขับส่งได้จริงหลังร้านเปิด' })
+      .expect(200);
+    const ev = await db.stopEvent.findUniqueOrThrow({ where: { id: uuid('event', done.body.id) } });
+    expect(await status(doId)).toBe('CANCELLED');
+    expect(ev.outcomeMismatch).toBe(true);
+    expect(ev.resolutionId).toBeNull();
+    const open = (
+      await api(app, admin)
+        .get('/v1/stop-event-flags?status=open&flag=OUTCOME_MISMATCH&limit=100')
+        .expect(200)
+    ).body.data as { id: string }[];
+    expect(open.map((x) => x.id)).toContain(encodeId('event', ev.id));
+    // รับทราบธงแจ้ง (ACCEPT เท่านั้น — IGNORE → 422) → ปิด · การนับไม่เปลี่ยน
+    await api(app, admin)
+      .post(`/v1/stop-event-flags/${done.body.id}/resolve`)
+      .send({ decision: 'IGNORE', reason: 'ไม่ใช้ธงแจ้งนี้' })
+      .expect(422);
+    await api(app, admin)
+      .post(`/v1/stop-event-flags/${done.body.id}/resolve`)
+      .send({ decision: 'ACCEPT', reason: 'รับทราบ ส่งซ้ำมือแล้ว' })
+      .expect(200);
+    const acked = await db.stopEvent.findUniqueOrThrow({ where: { id: ev.id } });
+    expect(acked.resolutionId).not.toBeNull();
+    expect(await status(doId)).toBe('CANCELLED');
+  });
 
   it('re-review M: DO ใหม่ถูกแยกแล้วรวม (มีใบถูกรวม) → ไม่คืนเอง ขึ้นธง OUTCOME_MISMATCH', async () => {
     const { doId, t } = await running();

@@ -7,8 +7,19 @@ import { problemText } from '../master/problems';
 import { useDateTimeText } from '../rate-cards/rateFormat';
 import type { TripDetail } from '../trips/useTrips';
 import { openDocFile } from '../vehicles/useVehicleDocs';
+import { can } from '../../nav';
+import { useMe } from '../../shell/AppShell';
 import { ActualQtySection } from './ActualQtySection';
-import { linesBody, linesDraftOf, type LinesDraft } from './actualQty';
+import { linesBody, linesDraftOf, milli, type LinesDraft } from './actualQty';
+import { ReturnDialog } from './ReturnDialog';
+import {
+  RESOLVABLE_DELIVERED,
+  canResolve as canResolveDo,
+  fmtQty,
+  modeOf,
+  resolvedLines,
+} from './returnForm';
+import { useDeliveryOrder } from './useReturn';
 import { podFieldName } from './PodChecklistTable';
 import {
   POD_FILE_MIME,
@@ -109,6 +120,7 @@ export function podFieldError(
   if (e.code === 'exceeds_planned') return t('pod.q.v.exceeds');
   if (e.code === 'note_required') return t('pod.q.v.noteRequired');
   if (e.code === 'photo_required') return t('pod.q.v.photoRequired');
+  if (e.code === 'reject_resolved') return t('pod.q.v.resolved');
   if (e.code === 'reason_category' || e.code === 'reason_inactive' || e.code === 'reason_not_found')
     return t('pod.q.v.reasonInvalid');
   if (e.field.startsWith('lines.') && e.field.endsWith('.qtyActual')) return t('pod.q.v.qty');
@@ -149,6 +161,9 @@ export function TripDocsTab({
   onToast: (msg: string) => void;
 }) {
   const { t } = useI18n();
+  // ST4-T11 ส่งซ้ำ/คืนคลังสร้าง/เปลี่ยนใบส่งของ → สิทธิ์ orders:write (เหมือนสร้าง/แยก DO)
+  const me = useMe();
+  const canResolve = can(me.data?.scopes ?? [], 'orders:write');
   // DO ที่มีจุดส่งในเที่ยว เรียงตามลำดับจุดส่ง
   const dos = useMemo(() => {
     const seq = new Map(trip.stops.map((s) => [s.id, s]));
@@ -211,6 +226,7 @@ export function TripDocsTab({
             onToggle={() => setOpen(open === d.id ? null : d.id)}
             doId={d.id}
             canEdit={canEdit}
+            canResolve={canResolve}
             onToast={onToast}
           />
         );
@@ -230,6 +246,7 @@ function DoPodBlock({
   open,
   onToggle,
   canEdit,
+  canResolve = false,
   onToast,
 }: {
   doId: string;
@@ -241,11 +258,22 @@ function DoPodBlock({
   open: boolean;
   onToggle: () => void;
   canEdit: boolean;
+  /** ST4-T11 ส่งซ้ำ/คืนคลัง (orders:write) */
+  canResolve?: boolean;
   onToast: (msg: string) => void;
 }) {
   const { t } = useI18n();
   const st = (pod?.podStatus ?? 'NONE') as keyof typeof POD_TONE;
   const panelId = `pod-${doId}`;
+  // ST4-T11 ป้าย "ตีกลับบางส่วน" (ต้นแบบ: warn + undo-2) เมื่อหลักฐานส่งมีปฏิเสธรับ · ปุ่ม/dialog ส่งซ้ำ-คืนคลัง
+  const rejected =
+    !!pod &&
+    RESOLVABLE_DELIVERED.includes(pod.doStatus) &&
+    (pod.lines ?? []).some((l) => (milli(l.rejectQty ?? '0') ?? 0n) > 0n);
+  const candidate = canResolve && !!pod && (rejected || pod.doStatus === 'FAILED');
+  const doQ = useDeliveryOrder(doId, open && candidate);
+  const [rtOpen, setRtOpen] = useState(false);
+  const mode = doQ.data ? modeOf(doQ.data.status) : null;
   return (
     <div style={{ border: '1px solid #D9DCD4', borderRadius: 8 }} data-testid="do-pod">
       <button
@@ -272,6 +300,7 @@ function DoPodBlock({
             {[siteName, t('pod.e.sub')].filter(Boolean).join(' · ')}
           </span>
         </div>
+        {rejected && <Badge label={t('prt.badge')} tone="warn" icon="undo-2" />}
         {pod && (
           <Badge
             label={t(`pod.e.st.${st}` as MessageKey)}
@@ -307,7 +336,47 @@ function DoPodBlock({
               onToast={onToast}
             />
           )}
+          {doQ.data && (resolvedLines(doQ.data).length > 0 || canResolveDo(doQ.data)) && (
+            <div
+              style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}
+              data-testid="do-return"
+            >
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {resolvedLines(doQ.data).map((l) => (
+                  <span
+                    key={l.lineNo}
+                    style={{ fontSize: 13, color: '#3B424C', fontVariantNumeric: 'tabular-nums' }}
+                  >
+                    {t('prt.doneLine', {
+                      d: l.description,
+                      r: fmtQty(l.redeliveredQty),
+                      b: fmtQty(l.returnedQty),
+                      u: pod?.lines.find((x) => x.lineNo === l.lineNo)?.unit ?? '',
+                    })}
+                  </span>
+                ))}
+              </div>
+              {canResolveDo(doQ.data) && (
+                <button type="button" style={PILL} onClick={() => setRtOpen(true)}>
+                  <Icon n="undo-2" s={16} />
+                  {mode === 'failed' ? t('prt.btnFailed') : t('prt.btn')}
+                </button>
+              )}
+            </div>
+          )}
         </div>
+      )}
+      {rtOpen && doQ.data && pod && mode && (
+        <ReturnDialog
+          d={doQ.data}
+          pod={pod}
+          mode={mode}
+          onClose={() => setRtOpen(false)}
+          onDone={(msg) => {
+            setRtOpen(false);
+            onToast(msg);
+          }}
+        />
       )}
     </div>
   );

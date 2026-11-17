@@ -23,15 +23,32 @@ import {
   DeliveryOrderPageDto,
   DeliveryOrderSplitResultDto,
   MergeDeliveryOrdersDto,
+  RedeliverDeliveryOrderDto,
+  RedeliverResultDto,
+  ReturnDeliveryOrderDto,
   SplitDeliveryOrderDto,
   type DeliveryOrderLineQtyDto,
 } from './delivery-order.dto';
-import { DeliveryOrderService, type DeliveryOrderRecord } from './delivery-order.service';
+import { OrderStateService } from '../orders/order-state.service';
+import { DeliveryOrderReturnService } from './delivery-order-return.service';
+import {
+  DeliveryOrderService,
+  type DeliveryOrderRecord,
+  type RejectionLine,
+} from './delivery-order.service';
 
 const dec = (v: { toFixed: (n: number) => string } | null) =>
   v === null ? null : v.toFixed(3).replace(/\.?0+$/, '') || '0';
 
-export function toDeliveryOrderDto(d: DeliveryOrderRecord): DeliveryOrderDto {
+/**
+ * DTO ของ DO — `balance` (ST4-T11) = ยอดปฏิเสธรับที่ส่งซ้ำ/คืนคลัง/คงเหลือต่อบรรทัด (`DeliveryOrderService.rejectionBalance`)
+ * ไม่ส่ง = ส่งซ้ำ 0 (ใช้เฉพาะที่ไม่มีใบลูก เช่น ใบเพิ่งสร้าง)
+ */
+export function toDeliveryOrderDto(
+  d: DeliveryOrderRecord,
+  balance?: RejectionLine[],
+): DeliveryOrderDto {
+  const bal = new Map((balance ?? []).map((b) => [b.line.id, b]));
   return {
     id: encodeId('deliveryOrder', d.id),
     doNo: d.doNo!,
@@ -51,6 +68,8 @@ export function toDeliveryOrderDto(d: DeliveryOrderRecord): DeliveryOrderDto {
     splitIndex: d.splitIndex,
     redeliveryOfId: d.redeliveryOfId ? encodeId('deliveryOrder', d.redeliveryOfId) : null,
     rescheduleCount: d.rescheduleCount,
+    redeliveryManual: d.redeliveryManual,
+    rejectedFromId: d.rejectedFromId ? encodeId('deliveryOrder', d.rejectedFromId) : null,
     podStatus: d.podStatus,
     lines: d.lines.map((l) => ({
       lineNo: l.lineNo,
@@ -62,6 +81,10 @@ export function toDeliveryOrderDto(d: DeliveryOrderRecord): DeliveryOrderDto {
       rejectReasonCodeId: l.rejectReasonCodeId
         ? encodeId('reasonCode', l.rejectReasonCodeId)
         : null,
+      redeliveredQty: dec(bal.get(l.id)?.redelivered ?? null) ?? '0',
+      returnedQty: dec(l.returnedQty)!,
+      openRejectQty:
+        dec(bal.get(l.id)?.open ?? (l.rejectQty ? l.rejectQty.sub(l.returnedQty) : null)) ?? '0',
       unit: l.unit,
       weightKg: dec(l.weightKg),
       cbm: dec(l.cbm),
@@ -85,7 +108,15 @@ export class DeliveryOrdersController {
   constructor(
     private readonly dos: DeliveryOrderService,
     private readonly db: DbService,
+    private readonly returns: DeliveryOrderReturnService,
+    private readonly orderState: OrderStateService,
   ) {}
+
+  /** DTO พร้อมยอดปฏิเสธรับ (ST4-T11) */
+  private async dtos(rows: DeliveryOrderRecord[]): Promise<DeliveryOrderDto[]> {
+    const bal = await this.dos.rejectionBalance(this.db.tx, rows);
+    return rows.map((d) => toDeliveryOrderDto(d, bal.get(d.id)));
+  }
 
   @Get()
   @RequireScope('orders:read')
@@ -108,7 +139,8 @@ export class DeliveryOrdersController {
       customerId: decode('customer', q.customerId),
       statuses: q.status ? (q.status.split(',') as DoStatus[]) : undefined,
     });
-    return toPage(rows, limit, toDeliveryOrderDto, q.fields);
+    const bal = await this.dos.rejectionBalance(this.db.tx, rows);
+    return toPage(rows, limit, (d) => toDeliveryOrderDto(d, bal.get(d.id)), q.fields);
   }
 
   @Get(':id')
@@ -121,7 +153,7 @@ export class DeliveryOrdersController {
   ): Promise<DeliveryOrderDto> {
     const d = await this.dos.get(decodeIdOr404('deliveryOrder', id));
     setEtag(res, d.version);
-    return toDeliveryOrderDto(d);
+    return (await this.dtos([d]))[0]!;
   }
 
   /** สร้าง DO จาก SO (ปริมาณคงเหลือทั้งหมด หรือบางส่วน/ต่อจุดส่ง) — ห้ามเกินที่สั่ง (422 `over_allocated`) */
@@ -174,7 +206,7 @@ export class DeliveryOrdersController {
     );
     const parts = body.parts.map((p, i) => mapLines(p.lines, known, `parts[${i}].lines`));
     const kids = await this.dos.split(d.id, parts, undefined, expectedVersion(req));
-    return { data: kids.map(toDeliveryOrderDto) };
+    return { data: kids.map((k) => toDeliveryOrderDto(k)) };
   }
 
   /** รวม DO อื่นของ SO + จุดส่งเดียวกันเข้าใบนี้ (ORD-086) — ใบที่ถูกรวม CANCELLED */
@@ -225,9 +257,81 @@ export class DeliveryOrdersController {
       undefined,
       expectedVersion(req),
     );
+    // ST4-T11: ยกเลิกใบส่งซ้ำของที่ถูกปฏิเสธรับ → ใบสั่งที่เหลือแต่ใบส่งแล้วกลับเป็นส่งครบ (ไล่สถานะตาม DO — ไม่มีผลกับ SO รอจัด)
+    await this.orderState.syncFromDeliveryOrders(this.db.tx, [d.salesOrderId]);
     setEtag(res, d.version);
     return toDeliveryOrderDto(d);
   }
+
+  /**
+   * ST4-T11 ส่งซ้ำ (docs/01 §5.2 `/redeliver`; docs/04 E2 ตีกลับบางส่วน/ทั้งหมด) [DECISION spec/12 §3]:
+   * DO ส่งแล้วที่มีปฏิเสธรับ → ใบเดิมคงสถานะ + DO ใหม่เฉพาะปริมาณที่ปฏิเสธ (ไม่เกินคงเหลือ) ·
+   * DO ส่งไม่สำเร็จ → ใบเดิม CANCELLED + DO ใหม่ทั้งใบ · DO ใหม่ DRAFT นอกเที่ยว (รอจัดรถ) · เหตุผล + audit
+   */
+  @Post(':id/redeliver')
+  @HttpCode(200)
+  @TenantResource('deliveryOrder')
+  @RequireScope('orders:write')
+  @ApiHeader({ name: 'If-Match', required: false, description: 'ETag ของใบเดิม — ไม่ตรง → 412' })
+  @ApiOkResponse({ type: RedeliverResultDto })
+  async redeliver(
+    @Param('id') id: string,
+    @Body() body: RedeliverDeliveryOrderDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<RedeliverResultDto> {
+    const r = await this.returns.redeliver(
+      decodeIdOr404('deliveryOrder', id),
+      body,
+      guardedVersion(req, body),
+    );
+    setEtag(res, r.source.version);
+    const [source, redelivery] = await this.dtos([r.source, r.redelivery]);
+    return { source: source!, redelivery: redelivery! };
+  }
+
+  /**
+   * ST4-T11 คืนคลัง: DO ส่งแล้วที่มีปฏิเสธรับ → บันทึกปริมาณคืนคลังต่อบรรทัด (ใบเดิมคงสถานะ) ·
+   * DO ส่งไม่สำเร็จ → RETURNED (docs/01 §4.3) · เหตุผล + audit
+   */
+  @Post(':id/return')
+  @HttpCode(200)
+  @TenantResource('deliveryOrder')
+  @RequireScope('orders:write')
+  @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
+  @ApiOkResponse({ type: DeliveryOrderDto })
+  async return(
+    @Param('id') id: string,
+    @Body() body: ReturnDeliveryOrderDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<DeliveryOrderDto> {
+    const d = await this.returns.return(
+      decodeIdOr404('deliveryOrder', id),
+      body,
+      guardedVersion(req, body),
+    );
+    setEtag(res, d.version);
+    return (await this.dtos([d]))[0]!;
+  }
+}
+
+/**
+ * ST4-T11 (review M): ระบุปริมาณบางส่วน (`lines`) ต้องส่ง If-Match หรือ Idempotency-Key — ไม่งั้นคำขอที่ลองใหม่สร้างใบส่งซ้ำ/คืนคลังซ้ำได้
+ * (ไม่ส่ง `lines` = ทั้งหมดที่คงเหลือ → ครั้งที่สองได้ 422 `nothing_open` อยู่แล้ว)
+ */
+function guardedVersion(req: Request, body: { lines?: unknown[] }): number | undefined {
+  const v = expectedVersion(req);
+  if (body.lines?.length && v === undefined && !req.header('idempotency-key'))
+    throw new ProblemException('validation_failed', undefined, [
+      {
+        field: 'If-Match',
+        code: 'if_match_required',
+        message:
+          'send If-Match (or Idempotency-Key) when redelivering/returning part of the quantity',
+      },
+    ]);
+  return v;
 }
 
 /** soLineNo → id ของบรรทัด SO (ไม่รู้จัก → 422 รวมทุกช่อง) */

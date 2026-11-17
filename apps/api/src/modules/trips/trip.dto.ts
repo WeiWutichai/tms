@@ -641,6 +641,11 @@ export class TripStopRescheduleDto {
   attempt!: number;
   @ApiProperty({
     description:
+      'ST4-T11 ส่งซ้ำโดยผู้ใช้ (ส่งไม่สำเร็จทั้งใบ หรือของที่ลูกค้าปฏิเสธรับ — ใบเดิมคงส่งแล้ว) — ไม่ใช่นัดส่งใหม่อัตโนมัติ',
+  })
+  manual!: boolean;
+  @ApiProperty({
+    description:
       'ครั้งนี้เกินค่าตั้ง `dispatch.maxAutoReschedules` (ใบสั่งค้าง/เหตุรอง RESCHEDULES_EXHAUSTED)',
   })
   exhausted!: boolean;

@@ -87,6 +87,16 @@ export const TRIP_INCLUDE = {
 
 export type TripRecord = Prisma.TripGetPayload<{ include: typeof TRIP_INCLUDE }>;
 
+const REDELIVERY_SELECT = {
+  id: true,
+  doNo: true,
+  doDate: true,
+  status: true,
+  rescheduleCount: true,
+  rescheduleExhausted: true,
+  redeliveryManual: true,
+} as const satisfies Prisma.DeliveryOrderSelect;
+
 export interface TripRescheduled {
   id: string;
   doNo: string | null;
@@ -100,6 +110,8 @@ export interface TripRescheduled {
     status: string;
     rescheduleCount: number;
     rescheduleExhausted: boolean;
+    /** ST4-T11 ส่งซ้ำมือ */
+    redeliveryManual: boolean;
   }[];
 }
 
@@ -278,17 +290,39 @@ export class TripService {
         redeliveries: {
           where: { NOT: { status: 'CANCELLED', splitChildren: { some: {} } } },
           orderBy: [{ createdAt: 'asc' }, { doNo: 'asc' }],
-          select: {
-            id: true,
-            doNo: true,
-            doDate: true,
-            status: true,
-            rescheduleCount: true,
-            rescheduleExhausted: true,
-          },
+          select: REDELIVERY_SELECT,
         },
       },
     });
+  }
+
+  /**
+   * ST4-T11 DO ของเที่ยวที่ส่งแล้ว (ใบเดิมคงอยู่) ซึ่งของที่ลูกค้าปฏิเสธรับถูกส่งซ้ำเป็น DO ใหม่ — แสดงในไทม์ไลน์ใต้จุดส่ง
+   * ("ส่งซ้ำ: เดิม → ใหม่") · ไม่นับใบที่ถูกแยกต่อ (นับลูกแทน)
+   */
+  async rejectedRedelivered(tripId: string, tx: Tx = this.db.tx): Promise<TripRescheduled[]> {
+    const rows = await tx.deliveryOrder.findMany({
+      where: { tripId, status: { not: 'CANCELLED' }, rejectedRedeliveries: { some: {} } },
+      orderBy: [{ doNo: 'asc' }],
+      select: {
+        id: true,
+        doNo: true,
+        tripStopId: true,
+        rejectedRedeliveries: {
+          where: { NOT: { status: 'CANCELLED', splitChildren: { some: {} } } },
+          orderBy: [{ createdAt: 'asc' }, { doNo: 'asc' }],
+          select: REDELIVERY_SELECT,
+        },
+      },
+    });
+    return rows.map((r) => ({
+      id: r.id,
+      doNo: r.doNo,
+      tripStopId: r.tripStopId,
+      pickupTripStopId: null,
+      pickupTripStop: null,
+      redeliveries: r.rejectedRedeliveries,
+    }));
   }
 
   async get(id: string, tx: Tx = this.db.tx): Promise<TripRecord> {

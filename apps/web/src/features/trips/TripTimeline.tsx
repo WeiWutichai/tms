@@ -276,7 +276,7 @@ export function TripTimeline({
                   >
                     <Icon n="calendar-clock" s={14} style={{ flex: 'none', marginTop: 1 }} />
                     <span style={{ minWidth: 0 }}>
-                      {r.attempt > 0
+                      {r.attempt > 0 && !r.manual
                         ? t('trip.tl.resched', {
                             n: r.attempt,
                             from: r.fromDoNo,

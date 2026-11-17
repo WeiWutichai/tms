@@ -102,6 +102,7 @@ describe('เหตุผลมาตรฐาน (reason-codes)', () => {
         'RESCHEDULES_EXHAUSTED',
         'SOURCE_CHANGED_AFTER_PLAN',
         'SOURCE_ERROR',
+        'ALL_RETURNED', // ST4-T11
       ].sort(),
     );
     expect(hold.every((r) => r.system)).toBe(true);

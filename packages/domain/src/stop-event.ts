@@ -361,11 +361,18 @@ export function displayResolution<R extends StopSeqResolution>(
   flags: readonly string[],
 ): R | null {
   if (!flags.some(isInfoFlag)) return applicableResolution(resolutions, flags);
-  const r = newestMatching(
-    resolutions,
-    flags.filter((f) => !isInfoFlag(f)),
-  );
-  return r && r.flags.some(isInfoFlag) ? r : null;
+  const core = flags.filter((f) => !isInfoFlag(f));
+  // ธงที่กระทบการนับต้องตัดสินแล้วก่อน แล้วธงแจ้งต้องมีการ "รับทราบ" ของมันเอง (ST4-T11 QA M3):
+  // การตัดสินแบบเดิมที่บันทึกธงครบ (หลักธง + ธงแจ้ง) หรือการรับทราบธงแจ้งอย่างเดียว (หลักธงว่าง) — ใหม่สุด
+  if (core.length && !newestMatching(resolutions, core)) return null;
+  let best: R | null = null;
+  for (const r of resolutions) {
+    if (!r.flags.some(isInfoFlag)) continue;
+    const rc = r.flags.filter((f) => !isInfoFlag(f));
+    if (rc.length && !sameFlags(rc, core)) continue;
+    if (!best || r.at.getTime() >= best.at.getTime()) best = r;
+  }
+  return best;
 }
 
 const isClose = (t: StopEventType) => t === 'COMPLETE' || t === 'FAIL';
