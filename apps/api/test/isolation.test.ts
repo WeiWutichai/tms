@@ -258,6 +258,53 @@ const FIXTURES: Record<string, (db: PrismaClient, tenantId: string, n: number) =
           })
         ).id,
       ),
+    // ST7-T05 บันทึกการส่ง webhook + event (redeliver)
+    webhookDelivery: async (db, tenantId, n) => {
+      const e = await db.webhookEndpoint.create({
+        data: {
+          tenantId,
+          url: `https://iso-d${n}.example.com/hook`,
+          events: ['order.created'],
+          extraHeaderNames: [],
+          secretEnc: 'v1.k1.x.x.x',
+        },
+      });
+      const ev = await db.domainEvent.create({
+        data: { tenantId, type: 'order.created', entityType: 'order', localId: randomUUID(), snapshot: {} },
+      });
+      const d = await db.webhookDelivery.create({
+        data: {
+          tenantId,
+          endpointId: e.id,
+          eventId: ev.id,
+          envelopeId: encodeId('event', ev.id),
+          eventType: 'order.created',
+          attempt: 1,
+          status: 'EXHAUSTED',
+          requestUrl: e.url,
+          requestHeaders: {},
+          requestBody: '{}',
+          durationMs: 1,
+          sentAt: new Date(),
+        },
+      });
+      return encodeId('webhookDelivery', d.id);
+    },
+    event: async (db, tenantId) =>
+      encodeId(
+        'event',
+        (
+          await db.domainEvent.create({
+            data: {
+              tenantId,
+              type: 'order.created',
+              entityType: 'order',
+              localId: randomUUID(),
+              snapshot: {},
+            },
+          })
+        ).id,
+      ),
     reasonCode: async (db, tenantId, n) =>
       encodeId(
         'reasonCode',

@@ -9,6 +9,7 @@ import { OutboxDispatcher } from './modules/integration/outbox.dispatcher';
 import { OutboxWorkerPool } from './modules/integration/outbox-worker';
 import { purgeAuthData } from './auth/maintenance';
 import { PrismaService } from './db/prisma.service';
+import { WebhookRetentionService } from './modules/webhooks/webhook-retention';
 import { ExpiryReminderService } from './modules/reminders/expiry-reminder.service';
 import { DepreciationService } from './modules/depreciation/depreciation.service';
 import {
@@ -49,10 +50,18 @@ async function main() {
   log.info('worker started');
   // งานบำรุงรักษารายวัน (ST1-T11 เก็บประวัติ login 1 ปี) — รันตอนเริ่มและทุก 24 ชม.
   const prisma = ctx.get(PrismaService);
+  // ST7-T05 ประวัติการส่ง webhook เก็บ 30 วัน + คำสั่งที่พักเพราะบริษัทถูกระงับเกิน 30 วันทิ้ง (INT-109)
+  const webhookRetention = ctx.get(WebhookRetentionService);
   const daily = () =>
-    purgeAuthData(prisma.platform)
-      .then((r) => log.info({ purged: r }, 'auth maintenance'))
-      .catch((e) => log.error(e));
+    Promise.all([
+      purgeAuthData(prisma.platform)
+        .then((r) => log.info({ purged: r }, 'auth maintenance'))
+        .catch((e) => log.error(e)),
+      webhookRetention
+        .purge()
+        .then((r) => log.info({ webhook: r }, 'webhook retention'))
+        .catch((e) => log.error(e)),
+    ]);
   void daily();
   const timer = setInterval(daily, 24 * 60 * 60 * 1000);
   // ST2-T18 เตือนต่ออายุ: ตรวจทุก 10 นาที — ตั้งแต่ 08:00 เวลาไทย (docs/04 I) สร้าง job ของวันนี้ให้ tenant ที่ยังไม่มี (ซ้ำได้ ไม่เตือนซ้ำ)
