@@ -371,6 +371,8 @@ export function TripDrawer({
   /** ST3-T22 เปิด drawer "จ่ายงานรถร่วม" ของเที่ยวนี้ */
   const [hiring, setHiring] = useState(false);
   const [nextHire, setNextHire] = useState(false);
+  /** ST3-T25 เปลี่ยนผู้รับเหมา: เหตุผลจาก ReasonDialog ใน drawer จ่ายงานรถร่วม → drawer จ้างแบบเปลี่ยนราย */
+  const [changeWhy, setChangeWhy] = useState<string | null>(null);
   const labels = { close: t('drawer.close'), more: t('drawer.more') };
   const tr = q.data;
   const assignable =
@@ -398,27 +400,37 @@ export function TripDrawer({
 
   // ST3-T23 หลังส่งข้อเสนอ: drawer "จ่ายงานรถร่วม" สถานะรอตอบ/รับงาน (ลิงก์ · ส่ง LINE · กิจกรรม)
   // ST3-T24 "ส่งรายถัดไป" ระหว่างรอตอบ (ครบ N ชม.) → drawer จ้างรถร่วมแบบแทนรายเดิม (replaceOffer)
+  // ST3-T25 เปลี่ยนผู้รับเหมา (รอตอบ / รับงานแล้วแต่ยังไม่ปล่อยรถ) → drawer จ้างแบบเปลี่ยนราย (changeReason)
   const replacing = hiring && nextHire && tr.status === 'OFFERED' && !!tr.hire;
-  if (hiring && tr.hire && !replacing)
+  const changing =
+    hiring &&
+    changeWhy !== null &&
+    !!tr.hire &&
+    (tr.status === 'OFFERED' || tr.status === 'ASSIGNED');
+  if (hiring && tr.hire && !replacing && !changing)
     return (
       <SubconOfferDrawer
         trip={tr}
         onClose={() => setHiring(false)}
         onNext={() => setNextHire(true)}
+        onChangeCarrier={(why) => setChangeWhy(why)}
       />
     );
-  if (hiring && (tr.status === 'PLANNING' || replacing))
+  if (hiring && (tr.status === 'PLANNING' || replacing || changing))
     return (
       <SubconHireDrawer
         trip={tr}
-        replace={replacing}
+        replace={replacing && !changing}
+        change={changing ? changeWhy : null}
         onClose={() => {
           setHiring(false);
           setNextHire(false);
+          setChangeWhy(null);
         }}
         onDone={(m) => {
           setHiring(false);
           setNextHire(false);
+          setChangeWhy(null);
           if (onDone) {
             onDone(m);
             onClose();

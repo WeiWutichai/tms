@@ -307,14 +307,17 @@ export function useRevokeTripSheetLinks() {
 export type HireOptions = Schemas['HireOptionsDto'];
 
 /** ST3-T22 ตัวเลือกจ้างรถร่วมของเที่ยว (GET /v1/trips/{id}/hire-options) — ราคา rate card ขาซื้อ + 5 ครั้งล่าสุด + ถูกสุด */
-export function useHireOptions(id: string, enabled: boolean) {
+export function useHireOptions(id: string, enabled: boolean, change = false) {
   return useQuery({
-    queryKey: [KEY, id, 'hire-options'],
+    queryKey: [KEY, id, 'hire-options', change],
     enabled,
     staleTime: 0,
     queryFn: () =>
       unwrap(
-        api.GET('/v1/trips/{id}/hire-options', { params: { path: { id } } }),
+        api.GET('/v1/trips/{id}/hire-options', {
+          // ST3-T25 เปลี่ยนผู้รับเหมา: ไม่รวมรายของการจ้างที่ใช้งานอยู่
+          params: { path: { id }, ...(change ? { query: { change: 'true' as const } } : {}) },
+        }),
       ) as Promise<HireOptions>,
   });
 }
