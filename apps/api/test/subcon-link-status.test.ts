@@ -6,6 +6,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { encodeId, tryDecodeId } from '../src/common/ids';
 import { requestContext } from '../src/common/request-context';
 import { DbService, type Tx } from '../src/db/db.service';
+import { resetLinkWriteRate } from '../src/http/link-rate-limit';
 import { resetPublicRateLimit } from '../src/http/public-rate-limit.middleware';
 import { DeliveryOrderService } from '../src/modules/delivery-orders/delivery-order.service';
 import {
@@ -76,7 +77,10 @@ describe('subcon link status (ST4-T08)', () => {
       .data as { id: string; code: string }[];
     vt6 = types.find((t) => t.code === '6W')!.id;
   });
-  beforeEach(() => resetPublicRateLimit());
+  beforeEach(() => {
+    resetPublicRateLimit();
+    resetLinkWriteRate();
+  });
   afterAll(async () => {
     await app.close();
     await db.$disconnect();
@@ -494,8 +498,76 @@ describe('subcon link status (ST4-T08)', () => {
     const tid = uuid('trip', b.t.id);
     await db.$executeRaw`UPDATE trip SET status = 'COMPLETED', completed_at = now() - interval '6 days' WHERE id = ${tid}::uuid`;
     expect((await view(b.podToken).expect(200)).body.recordable).toBe(false);
+    // เที่ยวจบแล้ว: ลิงก์ไม่รับ event (ไม่มี outbox — review M) · หน้าข้อเสนอยังเห็น podUrl
+    const mb = (await view(b.podToken, b.doNo).expect(200)).body.match;
+    expect((await press(b.podToken, mb.pickup.id, { type: 'ARRIVE' }).expect(409)).body.code).toBe(
+      'trip_not_in_progress',
+    );
+    expect((await pub().get(`/v1/public/offers/${b.link.token}`).expect(200)).body.podUrl).toBe(
+      b.pod.url,
+    );
     await db.$executeRaw`UPDATE trip SET completed_at = now() - interval '8 days' WHERE id = ${tid}::uuid`;
     await view(b.podToken).expect(404);
+    // QA L4: ลิงก์งานหมดผลแล้ว → หน้าข้อเสนอไม่ชี้ไปอีก
+    expect(
+      (await pub().get(`/v1/public/offers/${b.link.token}`).expect(200)).body.podUrl,
+    ).toBeNull();
+    // QA L3: เหตุผลเพิกถอนของลิงก์งานแยกจากลิงก์ข้อเสนอ
+    const revoked = await db.magicLink.findFirstOrThrow({
+      where: { id: uuid('magicLink', a.pod.linkId) },
+    });
+    expect(revoked.revokedReason).toBe('ออกลิงก์งานรถร่วมใหม่ — ลิงก์งานเดิมใช้ไม่ได้แล้ว');
+    const cancelled = await db.magicLink.findFirstOrThrow({
+      where: { entityId: uuid('subconOffer', a.link.offerId), purpose: 'pod' },
+      orderBy: { createdAt: 'desc' },
+    });
+    expect(cancelled.revokedReason).toBe('ยกเลิกเที่ยว — ลิงก์งานรถร่วมใช้ไม่ได้แล้ว');
+  });
+
+  it('ผลในลำดับ: event ที่ไม่นับคืน counted=false · ปุ่มออกไม่เปิดเมื่อจุดถัดไปมี event แล้ว · ผู้จัดรถ "ไม่ใช้" → retries n (กดใหม่ด้วย id ใหม่ได้)', async () => {
+    const { t, podToken, doNo } = await accepted();
+    await dispatch(t.id);
+    const m0 = (await view(podToken, doNo).expect(200)).body.match;
+    expect(m0.pickup.nextOpen).toBe(true);
+    expect(m0.delivery.nextOpen).toBe(false);
+    expect(m0.retries).toEqual([]);
+    const ok = await press(podToken, m0.pickup.id, { type: 'ARRIVE', occurredAt: bkk(4) }).expect(
+      201,
+    );
+    expect(ok.body).toMatchObject({ seqStatus: 'APPLIED', counted: true });
+    // ถึงจุดส่งก่อนออกจากจุดรับ → จุดส่ง ARRIVED → ปุ่มออกจากจุดรับต้องไม่เปิด (DEPART ที่จุดส่งจะขัดลำดับ)
+    await press(podToken, m0.delivery.id, { type: 'ARRIVE', occurredAt: bkk(2) }).expect(201);
+    expect((await view(podToken, doNo).expect(200)).body.match.pickup.nextOpen).toBe(false);
+    // ส่ง DEPART จุดส่งหลังถึงแล้ว (เครื่องค้างหน้าเก่า) → ขัดลำดับ ไม่นับ
+    const bad = await press(podToken, m0.delivery.id, { type: 'DEPART' }).expect(201);
+    expect(bad.body).toMatchObject({ seqStatus: 'CONFLICT', counted: false });
+    // ผู้จัดรถ "ไม่ใช้" → retries
+    await api(app, admin)
+      .post(`/v1/stop-event-flags/${bad.body.id}/resolve`)
+      .send({ decision: 'IGNORE', reason: 'กดผิดจากหน้าเก่า ไม่ใช้เวลานี้' })
+      .expect(200);
+    expect((await view(podToken, doNo).expect(200)).body.match.retries).toEqual([
+      { stopId: m0.delivery.id, type: 'DEPART', n: 1 },
+    ]);
+  });
+
+  it('rate limit ต่อลิงก์: 30 คำขอเขียน/นาที แล้ว 429 (ลิงก์อื่นไม่กระทบ)', async () => {
+    const a = await accepted();
+    const b = await accepted();
+    await dispatch(a.t.id);
+    await dispatch(b.t.id);
+    const ma = (await view(a.podToken, a.doNo).expect(200)).body.match;
+    const cid = randomUUID();
+    for (let i = 0; i < 30; i++)
+      await press(a.podToken, ma.pickup.id, { type: 'ARRIVE', clientEventId: cid }).expect(
+        i === 0 ? 201 : 200,
+      );
+    const r = await press(a.podToken, ma.pickup.id, { type: 'ARRIVE', clientEventId: cid }).expect(
+      429,
+    );
+    expect(r.body.code).toBe('rate_limited');
+    const mb = (await view(b.podToken, b.doNo).expect(200)).body.match;
+    await press(b.podToken, mb.pickup.id, { type: 'ARRIVE' }).expect(201);
   });
 
   it('เปลี่ยนรถร่วม (ST3-T25) → ลิงก์งานของรายเดิม 404 · ผู้ใช้ภายในไม่มีสิทธิ์ก็เรียก public ด้วย token อื่นไม่ได้', async () => {

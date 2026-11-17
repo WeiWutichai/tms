@@ -46,6 +46,8 @@ type Trip = {
 type Ev = { type: string; source: string; recordedByName: string | null; stopId: string };
 
 test.describe.serial('ลิงก์รถร่วม ส่วนสถานะ (ST4-T08)', () => {
+  // สองเครื่อง + drawer ผู้จัดรถในข้อเดียว — เผื่อเวลาเมื่อเครื่องโหลดสูง
+  test.describe.configure({ timeout: 90_000 });
   let H: Record<string, string> = {};
   const S: {
     t?: Trip;

@@ -11,6 +11,7 @@ export type PodView = Schemas['PodLinkViewDto'];
 export type PodDo = Schemas['PodDoDto'];
 export type PodStop = Schemas['PodStopDto'];
 export type PodEventBody = Schemas['PodLinkEventDto'];
+export type PodEventResult = Schemas['PodLinkEventResultDto'];
 
 export type PodActionKey = 'arrivePickup' | 'leavePickup' | 'arriveDrop' | 'leaveDrop';
 
@@ -41,22 +42,29 @@ export function nextPodAction(m: PodDo): PodAction | null {
         key: 'leavePickup',
         steps: [
           { stopId: P.id, type: 'COMPLETE' },
-          ...(P.nextStopId ? [{ stopId: P.nextStopId, type: 'DEPART' as const }] : []),
+          // DEPART เฉพาะเมื่อจุดถัดไปยังว่าง (QA M1 — กันสร้าง event ขัดลำดับ)
+          ...(P.nextStopId && P.nextOpen
+            ? [{ stopId: P.nextStopId, type: 'DEPART' as const }]
+            : []),
         ],
       };
     if (P.status === 'FAILED') return null;
     // ปิดจุดรับแล้ว (เช่น ผู้จัดรถบันทึกแทน) แต่ยังไม่ออก → ออกจากจุดรับ = DEPART จุดถัดไปอย่างเดียว
-    if (P.status === 'COMPLETED' && !P.leftAt && P.nextStopId && D?.status === 'PENDING')
+    if (P.status === 'COMPLETED' && P.nextOpen && P.nextStopId && D?.status === 'PENDING')
       return { key: 'leavePickup', steps: [{ stopId: P.nextStopId, type: 'DEPART' }] };
   }
   if (D) {
     if (D.status === 'PENDING')
       return { key: 'arriveDrop', steps: [{ stopId: D.id, type: 'ARRIVE' }] };
-    if (closed(D) && D.nextStopId && !D.leftAt)
+    if (closed(D) && D.nextStopId && D.nextOpen)
       return { key: 'leaveDrop', steps: [{ stopId: D.nextStopId, type: 'DEPART' }] };
   }
   return null;
 }
+
+/** รอบของ clientEventId ต่อ (จุด, ชนิด) จาก `match.retries` */
+export const retryOf = (m: PodDo, step: PodStep): number =>
+  m.retries.find((r) => r.stopId === step.stopId && r.type === step.type)?.n ?? 0;
 
 export function podHint(m: PodDo): PodHint {
   if (m.pickup?.status === 'FAILED') return 'pickupFailed';
@@ -90,8 +98,10 @@ export function normalizeDoNo(v: string): string {
  * `clientEventId` คงที่ต่อ (ลิงก์, จุด, ชนิด) — refresh หน้าแล้วกดซ้ำ/เปิดสองเครื่อง ได้ id เดิม → server คืน event เดิม
  * (docs/01 §5.5 "ไม่มี outbox แต่ idempotent เท่ากัน") · UUID รูปแบบ v4 จาก SHA-256
  */
-export async function podClientEventId(token: string, step: PodStep): Promise<string> {
-  const data = new TextEncoder().encode(`tms-pod|${token}|${step.stopId}|${step.type}`);
+export async function podClientEventId(token: string, step: PodStep, attempt = 0): Promise<string> {
+  // attempt = ครั้งที่ผู้จัดรถ "ไม่ใช้" event ชนิดนี้ของจุดนี้ (`match.retries`) → กดใหม่ได้ event ใหม่ (QA M2)
+  const base = `tms-pod|${token}|${step.stopId}|${step.type}`;
+  const data = new TextEncoder().encode(attempt > 0 ? `${base}|${attempt}` : base);
   const h = new Uint8Array(await crypto.subtle.digest('SHA-256', data)).slice(0, 16);
   h[6] = (h[6]! & 0x0f) | 0x40;
   h[8] = (h[8]! & 0x3f) | 0x80;

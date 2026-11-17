@@ -13,11 +13,13 @@ import {
   nowBangkokIso,
   podClientEventId,
   podHint,
+  retryOf,
   stopState,
   usePodEvent,
   usePodView,
   type PodAction,
   type PodDo,
+  type PodEventResult,
   type PodStop,
 } from './podLinkApi';
 import './carrier-link.css';
@@ -70,28 +72,49 @@ export function PodLinkPage() {
     return t('pdl.e.failed');
   };
 
-  const run = async (a: PodAction) => {
+  // QA L2: ข้อผิดพลาดของปุ่มหนึ่ง — โหลดใหม่แล้วปุ่มถัดไปเปลี่ยน (event ถึง server แล้ว) → ล้างข้อความแดง
+  const [failedKey, setFailedKey] = useState<string | null>(null);
+  const nextKey = match && recordable ? (nextPodAction(match)?.key ?? null) : null;
+  useEffect(() => {
+    if (failedKey && nextKey !== failedKey) {
+      setErr(null);
+      setFailedKey(null);
+    }
+  }, [failedKey, nextKey]);
+
+  const run = async (a: PodAction, m: PodDo) => {
     if (busy.current) return;
     busy.current = true;
     setErr(null);
+    setFailedKey(null);
     try {
       const pos = await currentPosition();
       const occurredAt = nowBangkokIso();
       // ทีละขั้นตามลำดับ (ปิดงานจุดรับก่อน DEPART ของจุดถัดไป) · clientEventId คงที่ → กดซ้ำได้ผลเดิม
+      const results: PodEventResult[] = [];
       for (const s of a.steps)
-        await send.mutateAsync({
-          stopId: s.stopId,
-          body: {
-            type: s.type,
-            clientEventId: await podClientEventId(token, s),
-            occurredAt,
-            ...(s.type === 'COMPLETE' ? { outcome: 'DELIVERED' as const } : {}),
-            ...(pos ?? {}),
-          },
-        });
-      setToast(t(`pdl.toast.${a.key}` as MessageKey, { t: hm(occurredAt) }));
+        results.push(
+          await send.mutateAsync({
+            stopId: s.stopId,
+            body: {
+              type: s.type,
+              clientEventId: await podClientEventId(token, s, retryOf(m, s)),
+              occurredAt,
+              ...(s.type === 'COMPLETE' ? { outcome: 'DELIVERED' as const } : {}),
+              ...(pos ?? {}),
+            },
+          }),
+        );
+      // QA M2: ไม่นับ (ธง/ขัดลำดับ) → แจ้งรอตรวจสอบ · ส่งซ้ำ = เวลาเดิมของ event ที่บันทึกไว้
+      const last = results[results.length - 1];
+      setToast(
+        results.some((r) => r.counted === false)
+          ? t('pdl.toast.pending')
+          : t(`pdl.toast.${a.key}` as MessageKey, { t: hm(last?.occurredAt ?? occurredAt) }),
+      );
     } catch (e) {
       setErr(errText(e));
+      setFailedKey(a.key);
     } finally {
       busy.current = false;
       void found.refetch();
@@ -189,7 +212,7 @@ export function PodLinkPage() {
                   ended={(res ?? v).tripStatus !== 'ASSIGNED' && !recordable}
                   pending={send.isPending}
                   err={err}
-                  onAct={(a) => void run(a)}
+                  onAct={(a) => void run(a, match)}
                 />
               )}
               {notFound && (

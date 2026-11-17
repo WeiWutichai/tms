@@ -12,7 +12,7 @@ import { PROVINCES } from '../vehicles/provinces';
 import { arabicDigits, plateNorm } from '../vehicles/vehicles.service';
 import { LINE_USER_ID_RE } from '../messaging/messaging.dto';
 import { MessagingService } from '../messaging/messaging.service';
-import { OFFER_LINK_PURPOSE, OfferLinks, POD_LINK_PURPOSE } from './offer-links';
+import { OFFER_LINK_PURPOSE, OfferLinks, POD_LINK_PURPOSE, podLinkUsable } from './offer-links';
 import type {
   AcceptOfferDto,
   OfferLinkDto,
@@ -168,8 +168,10 @@ export class SubconOfferService {
     const q = (o.rateQuote ?? {}) as { whtRate?: string | null };
     const status = this.expired(o) ? 'EXPIRED' : o.status;
     // ST4-T08: รับงานแล้ว → ลิงก์งาน (แท็บ "ส่ง POD": ค้น DO + กดถึง/ออก) — ผู้ถือลิงก์ข้อเสนอคือรถร่วมรายเดียวกัน
-    const [pod] =
-      o.status === 'ACCEPTED' ? await this.links.active(tx, [o.id], [POD_LINK_PURPOSE]) : [];
+    // ลิงก์งานหมดอายุ/เพิกถอน/เที่ยวจบเกิน 7 วัน → null (QA L4)
+    const [pod] = podLinkUsable(o, t, this.clock.now())
+      ? await this.links.active(tx, [o.id], [POD_LINK_PURPOSE])
+      : [];
     return {
       company: tenant?.name ?? '',
       carrierName: o.carrierNameSnapshot,

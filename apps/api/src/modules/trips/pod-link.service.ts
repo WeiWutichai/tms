@@ -6,7 +6,8 @@ import { ProblemException } from '../../common/problem';
 import { DbService } from '../../db/db.service';
 import { StopEventsService } from '../stops/stop-events.service';
 import { arabicDigits } from '../vehicles/vehicles.service';
-import { POD_LINK_AFTER_CLOSE_DAYS } from './offer-links';
+import { assertLinkWriteRate } from '../../http/link-rate-limit';
+import { podLinkUsable } from './offer-links';
 import type {
   PodDoDto,
   PodLinkEventDto,
@@ -17,7 +18,6 @@ import type {
 import { SubconOfferService } from './subcon-offer.service';
 
 const RECORDABLE = new Set(['DISPATCHED', 'IN_PROGRESS']);
-const CLOSED = new Set(['COMPLETED', 'COSTED', 'SETTLED']);
 const iso = (d: Date | null | undefined) => (d ? d.toISOString() : null);
 
 /** เลข DO ที่รถร่วมพิมพ์ → รูปเดียวกับ `do_no` (ตัวใหญ่, ไม่มีช่องว่าง, เลขอารบิก) */
@@ -51,18 +51,13 @@ export class PodLinkService {
       where: { id: offerId },
       select: { id: true, status: true, tripId: true, carrierId: true },
     });
-    if (!offer || offer.status !== 'ACCEPTED') throw new ProblemException('not_found');
+    if (!offer) throw new ProblemException('not_found');
     const trip = await tx.trip.findFirst({
       where: { id: offer.tripId },
       select: { id: true, status: true, carrierId: true, completedAt: true },
     });
-    if (!trip || trip.carrierId !== offer.carrierId || trip.status === 'CANCELLED')
+    if (!trip || !podLinkUsable(offer, trip, this.clock.now()))
       throw new ProblemException('not_found');
-    if (CLOSED.has(trip.status)) {
-      const end = (trip.completedAt ?? this.clock.now()).getTime();
-      if (end + POD_LINK_AFTER_CLOSE_DAYS * 86_400_000 <= this.clock.now().getTime())
-        throw new ProblemException('not_found');
-    }
     return { offer, trip };
   }
 
@@ -98,13 +93,28 @@ export class PodLinkService {
           site: { select: { name: true } },
         },
       });
+      const seqOf = async (id: string) => this.events.sequence(id, tx);
+      const retries: { stopId: string; type: string; n: number }[] = [];
+      /** ครั้งที่ผู้จัดรถ "ไม่ใช้" event ชนิดนี้ของจุดนี้ → ลิงก์สร้าง clientEventId ใหม่ได้ (review/QA M2) */
+      const countIgnored = (
+        stopId: string,
+        seq: Awaited<ReturnType<typeof seqOf>>,
+        types: string[],
+      ) => {
+        for (const ty of types) {
+          const n = seq.events.filter((e) => e.type === ty && e.seqStatus === 'IGNORED').length;
+          if (n) retries.push({ stopId: encodeId('tripStop', stopId), type: ty, n });
+        }
+      };
       const stopDto = async (id: string | null, role: 'PICKUP' | 'DELIVERY') => {
         const i = stops.findIndex((s) => s.id === id);
         if (i < 0) return null;
         const s = stops[i]!;
         const next = stops[i + 1];
+        countIgnored(s.id, await seqOf(s.id), ['ARRIVE', 'COMPLETE']);
         // ออกจากจุด = DEPART ที่นับของจุดถัดไป (docs/01 §3.9 — ไม่ใช้ departed_at ที่ถอยเป็นเวลาปิดงาน)
-        const leftAt = next ? (await this.events.sequence(next.id, tx)).enRouteAt : null;
+        const ns = next ? await seqOf(next.id) : null;
+        if (next && ns) countIgnored(next.id, ns, ['DEPART']);
         const dto: PodStopDto = {
           id: encodeId('tripStop', s.id),
           role,
@@ -113,8 +123,10 @@ export class PodLinkService {
           status: s.status,
           outcome: s.outcome,
           arrivedAt: iso(s.arrivedAt),
-          leftAt: iso(leftAt),
+          leftAt: iso(ns?.enRouteAt ?? null),
           nextStopId: next ? encodeId('tripStop', next.id) : null,
+          // QA M1: กด "ออก" ได้เฉพาะเมื่อจุดถัดไปยังไม่มี DEPART/ARRIVE/ปิดที่มีผล (ไม่สร้าง event ขัดลำดับ)
+          nextOpen: ns?.state === 'PENDING',
         };
         return dto;
       };
@@ -124,6 +136,7 @@ export class PodLinkService {
         customerName: hit.customer.legalName,
         pickup: await stopDto(hit.pickupTripStopId, 'PICKUP'),
         delivery: await stopDto(hit.tripStopId, 'DELIVERY'),
+        retries,
       };
     }
     return {
@@ -143,16 +156,24 @@ export class PodLinkService {
    */
   async record(
     offerId: string,
+    linkId: string,
     stopId: string,
     body: PodLinkEventDto,
   ): Promise<{ result: PodLinkEventResultDto; replayed: boolean }> {
     const tx = this.db.tx;
     const { trip } = await this.context(offerId);
+    // review L / NFR-1106: 30 คำขอเขียน/นาที ต่อลิงก์ (ซ้อนกับต่อ IP)
+    assertLinkWriteRate(linkId);
     const stop = await tx.tripStop.findFirst({
       where: { id: stopId, tripId: trip.id, removedAt: null },
       select: { id: true, type: true },
     });
     if (!stop) throw new ProblemException('not_found');
+    // review M / QA L1: ลิงก์ไม่มี outbox — ไม่รับ event หลังเที่ยวจบ/ก่อนปล่อยรถ (ตรงกับ `recordable` ของหน้า)
+    if (!RECORDABLE.has(trip.status))
+      throw new ProblemException('trip_not_in_progress', undefined, undefined, {
+        tripStatus: trip.status,
+      });
     if (body.type === 'COMPLETE' && stop.type !== 'PICKUP')
       throw field422(
         'type',
@@ -185,11 +206,24 @@ export class PodLinkService {
         throw new ProblemException('stop_event_duplicate');
       throw e;
     }
-    return { result: toResult(out.event, out.replayed), replayed: out.replayed };
+    // ผลในลำดับของจุด (QA M2): ไม่นับ (ธง/ขัดลำดับ/เวลาเพี้ยน) → หน้าลิงก์แจ้ง "รอฝ่ายจัดรถตรวจสอบ"
+    const seq = await this.events.sequence(stop.id, tx);
+    const me = seq.events.find((e) => e.id === out.event.id);
+    return {
+      result: {
+        ...toResult(out.event, out.replayed),
+        seqStatus: me?.seqStatus ?? 'APPLIED',
+        counted: me?.counted ?? true,
+      },
+      replayed: out.replayed,
+    };
   }
 }
 
-function toResult(e: StopEvent, replayed: boolean): PodLinkEventResultDto {
+function toResult(
+  e: StopEvent,
+  replayed: boolean,
+): Omit<PodLinkEventResultDto, 'seqStatus' | 'counted'> {
   return {
     id: encodeId('event', e.id),
     stopId: encodeId('tripStop', e.tripStopId),

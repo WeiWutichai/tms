@@ -45,6 +45,18 @@ export class PodStopDto {
     description: 'จุดถัดไปในเที่ยว — "ออกจากจุด" = ส่ง DEPART ที่จุดนี้ · จุดสุดท้าย = null',
   })
   nextStopId!: string | null;
+  @ApiProperty({
+    description:
+      'จุดถัดไปยังไม่มี DEPART/ARRIVE/ปิดงานที่มีผล — กด "ออกจากจุด" ได้โดยไม่เกิด event ขัดลำดับ (จุดสุดท้าย = false)',
+  })
+  nextOpen!: boolean;
+}
+
+/** จำนวนครั้งที่ผู้จัดรถ "ไม่ใช้" event ชนิดนี้ของจุดนี้ — หน้าลิงก์ใช้สร้าง clientEventId รอบใหม่ (กดใหม่ได้) */
+export class PodRetryDto {
+  @ApiProperty({ example: 'stp_3f2a…' }) stopId!: string;
+  @ApiProperty({ enum: POD_LINK_EVENT_TYPES }) type!: string;
+  @ApiProperty({ example: 1 }) n!: number;
 }
 
 export class PodDoDto {
@@ -54,6 +66,11 @@ export class PodDoDto {
   customerName!: string | null;
   @ApiProperty({ nullable: true, type: PodStopDto }) pickup!: PodStopDto | null;
   @ApiProperty({ nullable: true, type: PodStopDto }) delivery!: PodStopDto | null;
+  @ApiProperty({
+    type: [PodRetryDto],
+    description: 'event ที่ผู้จัดรถ "ไม่ใช้" ต่อ (จุด, ชนิด) — มีเฉพาะ n > 0',
+  })
+  retries!: PodRetryDto[];
 }
 
 /**
@@ -127,4 +144,22 @@ export class PodLinkEventResultDto {
   @ApiProperty() receivedAt!: string;
   @ApiProperty({ enum: STOP_EVENT_SOURCES, example: 'LINK' }) source!: string;
   @ApiProperty({ description: 'true = ส่งซ้ำ (คืน event เดิม ไม่สร้างใหม่)' }) replayed!: boolean;
+  @ApiProperty({
+    enum: [
+      'APPLIED',
+      'REDUNDANT',
+      'CONFLICT',
+      'ACCEPTED',
+      'IGNORED',
+      'LATE',
+      'SKEWED',
+      'PICKUP_PENDING',
+    ],
+    description: 'ผลของ event ในลำดับของจุด (ST4-T02)',
+  })
+  seqStatus!: string;
+  @ApiProperty({
+    description: 'false = ยังไม่นับ (ธง/ขัดลำดับ/เวลาเพี้ยน/ไม่ใช้) — รอฝ่ายจัดรถตรวจสอบ',
+  })
+  counted!: boolean;
 }

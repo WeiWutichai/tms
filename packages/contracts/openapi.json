@@ -23011,7 +23011,7 @@
             }
           },
           "429": {
-            "description": "เรียกถี่เกินไป (ต่อ IP)"
+            "description": "เรียกถี่เกินไป — ต่อ IP (`/v1/public/*`) และ 30 คำขอ/นาที ต่อลิงก์ (NFR-1106)"
           }
         },
         "summary": "กดถึง/ออก (+ ปิดงานจุดรับ) ผ่านลิงก์ — event model เดียวกับเว็บ (source LINK)",
@@ -43484,6 +43484,10 @@
             "nullable": true,
             "example": "stp_9a1b…",
             "description": "จุดถัดไปในเที่ยว — \"ออกจากจุด\" = ส่ง DEPART ที่จุดนี้ · จุดสุดท้าย = null"
+          },
+          "nextOpen": {
+            "type": "boolean",
+            "description": "จุดถัดไปยังไม่มี DEPART/ARRIVE/ปิดงานที่มีผล — กด \"ออกจากจุด\" ได้โดยไม่เกิด event ขัดลำดับ (จุดสุดท้าย = false)"
           }
         },
         "required": [
@@ -43495,7 +43499,34 @@
           "outcome",
           "arrivedAt",
           "leftAt",
-          "nextStopId"
+          "nextStopId",
+          "nextOpen"
+        ]
+      },
+      "PodRetryDto": {
+        "type": "object",
+        "properties": {
+          "stopId": {
+            "type": "string",
+            "example": "stp_3f2a…"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "ARRIVE",
+              "DEPART",
+              "COMPLETE"
+            ]
+          },
+          "n": {
+            "type": "number",
+            "example": 1
+          }
+        },
+        "required": [
+          "stopId",
+          "type",
+          "n"
         ]
       },
       "PodDoDto": {
@@ -43531,6 +43562,13 @@
                 "$ref": "#/components/schemas/PodStopDto"
               }
             ]
+          },
+          "retries": {
+            "description": "event ที่ผู้จัดรถ \"ไม่ใช้\" ต่อ (จุด, ชนิด) — มีเฉพาะ n > 0",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PodRetryDto"
+            }
           }
         },
         "required": [
@@ -43538,7 +43576,8 @@
           "doDate",
           "customerName",
           "pickup",
-          "delivery"
+          "delivery",
+          "retries"
         ]
       },
       "PodLinkViewDto": {
@@ -43701,6 +43740,24 @@
           "replayed": {
             "type": "boolean",
             "description": "true = ส่งซ้ำ (คืน event เดิม ไม่สร้างใหม่)"
+          },
+          "seqStatus": {
+            "type": "string",
+            "enum": [
+              "APPLIED",
+              "REDUNDANT",
+              "CONFLICT",
+              "ACCEPTED",
+              "IGNORED",
+              "LATE",
+              "SKEWED",
+              "PICKUP_PENDING"
+            ],
+            "description": "ผลของ event ในลำดับของจุด (ST4-T02)"
+          },
+          "counted": {
+            "type": "boolean",
+            "description": "false = ยังไม่นับ (ธง/ขัดลำดับ/เวลาเพี้ยน/ไม่ใช้) — รอฝ่ายจัดรถตรวจสอบ"
           }
         },
         "required": [
@@ -43712,7 +43769,9 @@
           "occurredAt",
           "receivedAt",
           "source",
-          "replayed"
+          "replayed",
+          "seqStatus",
+          "counted"
         ]
       },
       "TripSheetDto": {

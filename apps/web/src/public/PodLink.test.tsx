@@ -39,6 +39,7 @@ const stop = (o: Partial<PodStop>): PodStop => ({
   arrivedAt: null,
   leftAt: null,
   nextStopId: 'stp_d',
+  nextOpen: true,
   ...o,
 });
 const doc = (p: Partial<PodStop> = {}, d: Partial<PodStop> = {}): PodDo => ({
@@ -52,8 +53,10 @@ const doc = (p: Partial<PodStop> = {}, d: Partial<PodStop> = {}): PodDo => ({
     sequence: 2,
     siteName: 'ท่าเรือแหลมฉบัง ประตู 3',
     nextStopId: null,
+    nextOpen: false,
     ...d,
   }),
+  retries: [],
 });
 const pv = (o: Partial<PodView> = {}): PodView => ({
   job,
@@ -85,7 +88,7 @@ vi.mock('./podLinkApi', async (orig) => {
   };
 });
 const { PodLinkPage } = await import('./PodLink');
-const { nextPodAction, podHint, podClientEventId, normalizeDoNo, stopState } =
+const { nextPodAction, podHint, podClientEventId, normalizeDoNo, stopState, retryOf } =
   await import('./podLinkApi');
 
 const show = () =>
@@ -120,23 +123,57 @@ describe('podLinkApi (ST4-T08)', () => {
     expect(nextPodAction(doc({ status: 'COMPLETED' }))?.steps).toEqual([
       { stopId: 'stp_d', type: 'DEPART' },
     ]);
-    expect(nextPodAction(doc({ status: 'COMPLETED', leftAt: '2026-11-18T03:00:00Z' }))?.key).toBe(
-      'arriveDrop',
+    expect(
+      nextPodAction(doc({ status: 'COMPLETED', leftAt: '2026-11-18T03:00:00Z', nextOpen: false }))
+        ?.key,
+    ).toBe('arriveDrop');
+    const atDrop = doc(
+      { status: 'COMPLETED', leftAt: 'x', nextOpen: false },
+      { status: 'ARRIVED' },
     );
-    const atDrop = doc({ status: 'COMPLETED', leftAt: 'x' }, { status: 'ARRIVED' });
     expect(nextPodAction(atDrop)).toBeNull();
     expect(podHint(atDrop)).toBe('atDrop');
     // multi-drop: ส่งแล้ว มีจุดถัดไป → ออกจากจุดส่ง
     expect(
       nextPodAction(
-        doc({ status: 'COMPLETED', leftAt: 'x' }, { status: 'COMPLETED', nextStopId: 'stp_3' }),
+        doc(
+          { status: 'COMPLETED', leftAt: 'x', nextOpen: false },
+          { status: 'COMPLETED', nextStopId: 'stp_3', nextOpen: true },
+        ),
       ),
     ).toEqual({ key: 'leaveDrop', steps: [{ stopId: 'stp_3', type: 'DEPART' }] });
     expect(nextPodAction(doc({ status: 'FAILED' }))).toBeNull();
     expect(podHint(doc({ status: 'FAILED' }))).toBe('pickupFailed');
   });
 
+  it('QA M1: จุดถัดไปไม่ว่าง (ถึงแล้ว/มี DEPART) → ไม่เสนอ DEPART ที่จะขัดลำดับ', () => {
+    // จุดรับถึงแล้วแต่จุดส่งถึงไปก่อน → ออกจากจุดรับ = ปิดงานจุดรับอย่างเดียว
+    expect(
+      nextPodAction(doc({ status: 'ARRIVED', nextOpen: false }, { status: 'ARRIVED' })),
+    ).toEqual({
+      key: 'leavePickup',
+      steps: [{ stopId: 'stp_p', type: 'COMPLETE' }],
+    });
+    // ส่งแล้ว แต่จุดถัดไปมี event แล้ว → ไม่มีปุ่มออก
+    expect(
+      nextPodAction(
+        doc(
+          { status: 'COMPLETED', nextOpen: false },
+          { status: 'COMPLETED', nextStopId: 'stp_3', nextOpen: false },
+        ),
+      ),
+    ).toBeNull();
+  });
+
   it('clientEventId คงที่ต่อ (ลิงก์, จุด, ชนิด) รูป UUID v4 · normalizeDoNo · ป้ายสถานะ', async () => {
+    const step = { stopId: 'stp_p', type: 'ARRIVE' as const };
+    expect(await podClientEventId('ml1.p', step, 0)).toBe(await podClientEventId('ml1.p', step));
+    expect(await podClientEventId('ml1.p', step, 1)).not.toBe(
+      await podClientEventId('ml1.p', step),
+    );
+    expect(retryOf({ ...doc(), retries: [{ stopId: 'stp_p', type: 'ARRIVE', n: 2 }] }, step)).toBe(
+      2,
+    );
     const a = await podClientEventId('ml1.p', { stopId: 'stp_p', type: 'ARRIVE' });
     expect(a).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
     expect(await podClientEventId('ml1.p', { stopId: 'stp_p', type: 'ARRIVE' })).toBe(a);
@@ -226,6 +263,48 @@ describe('PodLinkPage (ST4-T08)', () => {
         'บันทึกไม่สำเร็จ ตรวจสัญญาณแล้วลองอีกครั้ง (ต้องออนไลน์)',
       ),
     );
+  });
+
+  it('QA M2: event ไม่ถูกนับ (ธง) → "บันทึกแล้ว · รอฝ่ายจัดรถตรวจสอบ" · retries → clientEventId รอบใหม่', async () => {
+    search['DO-2611-00069'] = pv({
+      query: 'DO-2611-00069',
+      match: { ...doc(), retries: [{ stopId: 'stp_p', type: 'ARRIVE', n: 1 }] },
+    });
+    mutateAsync.mockResolvedValue({ counted: false, occurredAt: '2026-11-18T01:00:00Z' });
+    show();
+    await type('DO-2611-00069');
+    fireEvent.click(screen.getByRole('button', { name: 'ถึงจุดรับ' }));
+    await waitFor(() =>
+      expect(screen.getByRole('status').textContent).toBe('บันทึกแล้ว · รอฝ่ายจัดรถตรวจสอบ'),
+    );
+    const { podClientEventId: id } = await import('./podLinkApi');
+    expect(mutateAsync.mock.calls[0]![0].body.clientEventId).toBe(
+      await id('ml1.p', { stopId: 'stp_p', type: 'ARRIVE' }, 1),
+    );
+  });
+
+  it('QA L2: ส่งล้มแล้วโหลดใหม่พบว่าบันทึกแล้ว (ปุ่มถัดไปเปลี่ยน) → ล้างข้อความแดง', async () => {
+    search['DO-2611-00069'] = pv({ query: 'DO-2611-00069', match: doc() });
+    mutateAsync.mockRejectedValueOnce(new Error('network'));
+    const r = show();
+    await type('DO-2611-00069');
+    fireEvent.click(screen.getByRole('button', { name: 'ถึงจุดรับ' }));
+    await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy());
+    search['DO-2611-00069'] = pv({
+      query: 'DO-2611-00069',
+      match: doc({ status: 'ARRIVED', arrivedAt: '2026-11-18T02:42:00Z' }),
+    });
+    r.rerender(
+      <I18nProvider>
+        <MemoryRouter initialEntries={['/link/pod/ml1.p']}>
+          <Routes>
+            <Route path="/link/pod/:token" element={<PodLinkPage />} />
+          </Routes>
+        </MemoryRouter>
+      </I18nProvider>,
+    );
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+    expect(screen.getByRole('button', { name: 'ออกจากจุดรับ' })).toBeTruthy();
   });
 
   it('ยังไม่ปล่อยรถ → ไม่มีปุ่ม + แถบรอฝ่ายจัดรถ', async () => {

@@ -59,12 +59,14 @@ export class PodLinkPublicController {
   })
   @ApiParam({ name: 'stopId', type: String, description: 'จุดในเที่ยวของลิงก์ (stp_…)' })
   @ApiProblems(T409('trip_not_in_progress', 'stop_event_duplicate'), T422)
+  @ApiTooManyRequestsResponse({
+    description: 'เรียกถี่เกินไป — ต่อ IP (`/v1/public/*`) และ 30 คำขอ/นาที ต่อลิงก์ (NFR-1106)',
+  })
   @ApiCreatedResponse({ type: PodLinkEventResultDto, description: 'สร้าง event ใหม่' })
   @ApiOkResponse({
     type: PodLinkEventResultDto,
     description: 'ส่งซ้ำ (clientEventId + จุด + ชนิดเดิม) → event เดิม ไม่สร้างใหม่',
   })
-  @ApiTooManyRequestsResponse({ description: 'เรียกถี่เกินไป (ต่อ IP)' })
   async record(
     @Param('stopId') stopId: string,
     @Body() body: PodLinkEventDto,
@@ -72,6 +74,7 @@ export class PodLinkPublicController {
   ): Promise<PodLinkEventResultDto> {
     const { result, replayed } = await this.pod.record(
       this.offerId(),
+      requestContext.require().link!.id,
       decodeIdOr404('tripStop', stopId),
       body,
     );

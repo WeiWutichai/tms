@@ -44,9 +44,38 @@ export const OFFER_REVOKE_REASON: Record<OfferLinkRevokeCause, string> = {
   REHIRED: 'จ้างรถร่วมใหม่ — ลิงก์ข้อเสนอที่ปิดแล้วใช้ไม่ได้',
   OFFER_EXPIRED: 'ข้อเสนองานหมดเวลาตอบรับ — ลิงก์ใช้ไม่ได้แล้ว',
 };
+/** เหตุผลเพิกถอนของลิงก์งาน (`pod` — ST4-T08 QA L3) แยกข้อความจากลิงก์ข้อเสนอ */
+export const POD_REVOKE_REASON: Record<OfferLinkRevokeCause, string> = {
+  REISSUED: 'ออกลิงก์ข้อเสนองานใหม่ — ลิงก์งานเดิมใช้ไม่ได้แล้ว',
+  POD_REISSUED: 'ออกลิงก์งานรถร่วมใหม่ — ลิงก์งานเดิมใช้ไม่ได้แล้ว',
+  TRIP_CANCELLED: 'ยกเลิกเที่ยว — ลิงก์งานรถร่วมใช้ไม่ได้แล้ว',
+  CARRIER_CHANGED: 'เปลี่ยนรถร่วม — ลิงก์งานของรายเดิมใช้ไม่ได้แล้ว',
+  REHIRED: 'จ้างรถร่วมใหม่ — ลิงก์งานของการจ้างที่ปิดแล้วใช้ไม่ได้',
+  OFFER_EXPIRED: 'ข้อเสนองานหมดเวลาตอบรับ — ลิงก์งานใช้ไม่ได้แล้ว',
+};
+
+const CLOSED_TRIP = new Set(['COMPLETED', 'COSTED', 'SETTLED']);
+/**
+ * ลิงก์งานยังใช้ได้ตามเที่ยว (docs/01 §5.5): การจ้าง ACCEPTED + เที่ยวยังเป็นของรถร่วมรายนี้ + ไม่ยกเลิก
+ * + จบแล้วไม่เกิน 7 วัน — ใช้ทั้งหน้าลิงก์งาน (404) และ `podUrl` ของหน้าข้อเสนอ (QA L4)
+ */
+export function podLinkUsable(
+  offer: { status: string; carrierId: string },
+  trip: { status: string; carrierId: string | null; completedAt: Date | null },
+  now: Date,
+): boolean {
+  if (offer.status !== 'ACCEPTED') return false;
+  if (trip.carrierId !== offer.carrierId || trip.status === 'CANCELLED') return false;
+  if (CLOSED_TRIP.has(trip.status)) {
+    const end = (trip.completedAt ?? now).getTime();
+    if (end + POD_LINK_AFTER_CLOSE_DAYS * 86_400_000 <= now.getTime()) return false;
+  }
+  return true;
+}
 
 export interface OfferLinkRow {
   id: string;
+  purpose: string;
   entityId: string;
   expiresAt: Date;
   createdAt: Date;
@@ -124,7 +153,7 @@ export class OfferLinks {
         revokedAt: null,
         expiresAt: { gt: new Date() },
       },
-      select: { id: true, entityId: true, expiresAt: true, createdAt: true },
+      select: { id: true, purpose: true, entityId: true, expiresAt: true, createdAt: true },
       orderBy: { createdAt: 'desc' },
     });
   }
@@ -156,7 +185,10 @@ export class OfferLinks {
     const reason = OFFER_REVOKE_REASON[cause];
     const actor = requestContext.get()?.actorId ?? undefined;
     const done: string[] = [];
-    for (const l of ls) if (await this.links.revoke(tx, l.id, reason, actor)) done.push(l.id);
+    for (const l of ls) {
+      const why = l.purpose === POD_LINK_PURPOSE ? POD_REVOKE_REASON[cause] : reason;
+      if (await this.links.revoke(tx, l.id, why, actor)) done.push(l.id);
+    }
     if (done.length)
       await this.audit.record({
         action: 'subcon_offer.links_revoked',
