@@ -574,7 +574,14 @@ describe('stop projection / status cascade (ST4-T03)', () => {
         .expect(200)
     ).body.data.map((f: { id: string }) => f.id);
     expect(open).toContain(second.body.id);
-    // ธงขัดลำดับของตัวนี้ยังไม่ตัดสิน → ตัดสินพร้อมกัน (ACCEPT = ใช้ + รับทราบ)
+    // ST4-T11 (QA M3) [DECISION spec/12 §3]: ตัดสินธงขัดลำดับก่อน (ACCEPT = ใช้) — ธงแจ้งยังเปิดอยู่ แล้วรับทราบแยก
+    await api(app, admin)
+      .post(`/v1/stop-event-flags/${second.body.id}/resolve`)
+      .send({ decision: 'ACCEPT', reason: 'ใช้ตัวนี้ ร้านปิดจริง' })
+      .expect(200);
+    expect(
+      (await db.stopEvent.findFirstOrThrow({ where: { id: sec.id } })).resolutionId,
+    ).toBeNull();
     await api(app, admin)
       .post(`/v1/stop-event-flags/${second.body.id}/resolve`)
       .send({ decision: 'ACCEPT', reason: 'รับทราบ ร้านปิดจริง จะเปิดงานส่งใหม่' })

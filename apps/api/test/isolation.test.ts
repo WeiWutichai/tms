@@ -821,6 +821,9 @@ const BODY_FOR_SUFFIX: Record<string, object> = {
     parts: [{ lines: [{ soLineNo: 1, qty: '1' }] }, { lines: [{ soLineNo: 1, qty: '1' }] }],
   },
   merge: { deliveryOrderIds: [`do_${'0'.repeat(32)}`] },
+  // ST4-T11 /delivery-orders/:id/redeliver และ /return
+  redeliver: { reasonCodeId: `rsn_${'0'.repeat(32)}` },
+  return: { reasonCodeId: `rsn_${'0'.repeat(32)}` },
   // ST3-T11 /trips/:id/attach|detach|assign|offer (dispatch/complete ไม่มี body)
   attach: { deliveryOrderIds: [`do_${'0'.repeat(32)}`] },
   detach: { deliveryOrderIds: [`do_${'0'.repeat(32)}`] },

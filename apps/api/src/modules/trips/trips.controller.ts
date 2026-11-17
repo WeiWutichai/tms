@@ -107,7 +107,12 @@ function hireDto(t: TripRecord): TripDto['hire'] {
   };
 }
 
-export function toTripDto(t: TripRecord, rescheduled: TripRescheduled[] = []): TripDto {
+export function toTripDto(
+  t: TripRecord,
+  rescheduled: TripRescheduled[] = [],
+  /** ST4-T11 ใบส่งแล้วที่ของปฏิเสธรับถูกส่งซ้ำ (ไม่อยู่ใน rescheduledDeliveryOrders — ใบเดิมยังอยู่ในเที่ยว) */
+  rejected: TripRescheduled[] = [],
+): TripDto {
   return {
     id: encodeId('trip', t.id),
     tripNo: t.tripNo!,
@@ -174,7 +179,7 @@ export function toTripDto(t: TripRecord, rescheduled: TripRescheduled[] = []): T
       outcome: s.outcome,
       lastEventId: s.lastEventId ? encodeId('event', s.lastEventId) : null,
       // ST4-T12 DO ที่ส่งไม่สำเร็จที่จุดนี้ → ใบนัดส่งใหม่ (แสดงทุกสถานะจุด — review H1c) · รับของไม่ได้ = ที่จุดรับ
-      reschedules: rescheduled
+      reschedules: [...rescheduled, ...rejected]
         .filter((d) =>
           d.pickupTripStop?.status === 'FAILED'
             ? d.pickupTripStopId === s.id
@@ -190,6 +195,7 @@ export function toTripDto(t: TripRecord, rescheduled: TripRescheduled[] = []): T
             status: n.status,
             attempt: n.rescheduleCount,
             exhausted: n.rescheduleExhausted,
+            manual: n.redeliveryManual,
           })),
         ),
     })),
@@ -473,7 +479,11 @@ export class TripsController {
   async get(@Param('id') id: string, @Res({ passthrough: true }) res: Response): Promise<TripDto> {
     const t = await this.trips.get(decodeIdOr404('trip', id));
     setEtag(res, t.version);
-    return toTripDto(t, await this.trips.rescheduled(t.id));
+    return toTripDto(
+      t,
+      await this.trips.rescheduled(t.id),
+      await this.trips.rejectedRedelivered(t.id),
+    );
   }
 
   /** สร้างเที่ยว PLANNING จาก DO (DRAFT ไม่อยู่ในเที่ยวอื่น) — จุดแวะจัดจาก DO, เลขเที่ยวจาก document_series TRIP */

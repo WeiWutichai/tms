@@ -351,6 +351,25 @@ export class PodService {
         });
     });
 
+    // ST4-T11: ของที่ปฏิเสธรับซึ่งส่งซ้ำ/คืนคลังไปแล้ว — ฉบับแก้ต้องคงยอดปฏิเสธ ≥ ที่จัดการแล้ว (ยกเลิกใบส่งซ้ำก่อน)
+    if (input.lines?.length && set === 'SUCCESS') {
+      const doRec = await this.dos.get(deliveryOrderId, tx);
+      const bal = (await this.dos.rejectionBalance(tx, [doRec])).get(deliveryOrderId) ?? [];
+      for (const b of bal) {
+        const done = b.redelivered.add(b.returned);
+        if (done.lte(0)) continue;
+        const l = lines.find((x) => x.lineNo === b.line.lineNo);
+        if (l && new Prisma.Decimal(l.rejectQty).lt(done)) {
+          const i = input.lines.findIndex((x) => x.lineNo === b.line.lineNo);
+          errors.push({
+            field: i >= 0 ? `lines.${i}.qtyActual` : 'lines',
+            code: 'reject_resolved',
+            message: `rejected quantity already redelivered/returned (${done.toFixed()}) — cancel the redelivery first`,
+          });
+        }
+      }
+    }
+
     // PIN: ไม่ส่ง (undefined) = คงค่าเดิมของฉบับก่อน (อ่านค่าจริงผ่าน API ไม่ได้ จึงส่งซ้ำไม่ได้) · null/ว่าง = ล้าง
     const keepPin = input.pin === undefined && !!latest?.pinEnc;
     const pin = keepPin ? (this.submissionOf(latest!).pin ?? null) : input.pin?.trim() || null;

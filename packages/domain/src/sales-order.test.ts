@@ -203,7 +203,7 @@ describe('กฎรับงานเข้า → ใบค้าง', () => {
   });
 
   it('ชุดเหตุค้างครบ 12 รหัสของ docs/04 C · เหตุของทางเข้าเป็นส่วนหนึ่งของชุด', () => {
-    expect(ORDER_HOLD_CODES).toHaveLength(12);
+    expect(ORDER_HOLD_CODES).toHaveLength(13); // + ALL_RETURNED (ST4-T11)
     for (const c of INTAKE_HOLD_CODES) expect(ORDER_HOLD_CODES).toContain(c);
   });
 

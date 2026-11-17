@@ -196,7 +196,7 @@ describe('hold page (ใบค้าง)', () => {
     expect(row).toMatchObject({ status: 'on_hold', holdReason: { code: 'CUSTOMER_UNMAPPED' } });
     expect(rows.every((r) => r.status === 'on_hold')).toBe(true);
     const c0 = await counts();
-    expect(Object.keys(c0)).toHaveLength(12);
+    expect(Object.keys(c0)).toHaveLength(13);
     expect(c0.CUSTOMER_UNMAPPED).toBe(1);
 
     const m = await api(app, admin)

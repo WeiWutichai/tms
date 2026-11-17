@@ -55,6 +55,7 @@ describe('podSetForDo / isPodEditable', () => {
     expect(isPodEditable('UNBILLED')).toBe(true);
     expect(isPodEditable('FAILED')).toBe(true);
     expect(isPodEditable('BILLED')).toBe(false);
+    expect(isPodEditable('RETURNED')).toBe(false); // ST4-T11
     expect(isPodEditable('DISPATCHED')).toBe(false);
     expect(isPodEditable('CANCELLED')).toBe(false);
   });
