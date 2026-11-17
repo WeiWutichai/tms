@@ -256,6 +256,16 @@ export class WebhookTestResultDto {
 
 export class WebhookEventTypeDto {
   @ApiProperty({ example: 'order.created' }) type!: string;
+  @ApiProperty({ example: 'order', description: 'resource ของ event (ส่วนหน้าจุด)' })
+  resource!: string;
+  @ApiProperty({ example: 'สร้างใบสั่งงานใหม่', description: 'ความหมายของ event (ภาษาไทย)' })
+  description!: string;
+  @ApiProperty({
+    type: 'object',
+    additionalProperties: true,
+    description: 'ตัวอย่าง `data.object` (ข้อมูลสมมติ — เดียวกับ `webhook.test`)',
+  })
+  sample!: Record<string, unknown>;
 }
 
 export class WebhookEventTypeListDto {

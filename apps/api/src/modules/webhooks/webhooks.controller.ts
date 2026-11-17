@@ -31,7 +31,7 @@ import { expectedVersion, setEtag } from '../../common/etag';
 import { decodeIdOr404 } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { DbService } from '../../db/db.service';
-import { WEBHOOK_EVENT_TYPES } from '@tms/domain';
+import { WEBHOOK_EVENT_DESCRIPTIONS, WEBHOOK_EVENT_TYPES } from '@tms/domain';
 import { entityHistory, HistoryQuery } from '../master/history';
 import {
   CreateWebhookDto,
@@ -47,7 +47,7 @@ import {
   WebhookTestDto,
   WebhookTestResultDto,
 } from './webhook.dto';
-import { WebhooksService } from './webhooks.service';
+import { sampleObject, WebhooksService } from './webhooks.service';
 
 /** ผลมี secret ที่แสดงครั้งเดียว — ห้ามเก็บลงตาราง idempotency (เหมือน API key ST7-T01) */
 function noIdempotencyKey(req: Request) {
@@ -66,7 +66,7 @@ const IF_MATCH = { name: 'If-Match', required: false, description: 'ETag จา�
  * ส่ง: envelope `{id,type,version,occurredAt,tenantId,mode,data{object,previousAttributes},request}` +
  * `X-TMS-Event/-Event-Id/-Timestamp/-Signature: t=,v1=/-Attempt` · HMAC-SHA256(secret, `t.rawBody`) · timeout 10 วิ ·
  * retry 8 ครั้ง (1m,5m,30m,2h,6h,12h,24h,24h) · at-least-once · ปิดอัตโนมัติหลัง 50 event ล้มติด + แจ้งอีเมล
- * ประวัติการส่ง/ส่งซ้ำ/event-types = ST7-T05
+ * ประวัติการส่ง/ส่งซ้ำ = webhook-ops.controller.ts (ST7-T05)
  */
 @ApiTags('webhooks')
 @ApiBearerAuth()
@@ -100,10 +100,17 @@ export class WebhooksController {
   @ApiOkResponse({
     type: WebhookEventTypeListDto,
     description:
-      'event สาธารณะที่สมัครได้ (docs/01 §5.3) — คำอธิบาย/ตัวอย่าง payload เพิ่มใน ST7-T05',
+      'event สาธารณะที่สมัครได้ (docs/01 §5.3) พร้อมคำอธิบายและตัวอย่าง `data.object` (ข้อมูลสมมติ) — JSON schema เต็มต่อ event = ST7-T06',
   })
   eventTypes(): WebhookEventTypeListDto {
-    return { data: WEBHOOK_EVENT_TYPES.map((type) => ({ type })) };
+    return {
+      data: WEBHOOK_EVENT_TYPES.map((type) => ({
+        type,
+        resource: type.split('.')[0]!,
+        description: WEBHOOK_EVENT_DESCRIPTIONS[type],
+        sample: sampleObject(type),
+      })),
+    };
   }
 
   @Post()

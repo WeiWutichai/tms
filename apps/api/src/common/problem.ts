@@ -143,6 +143,24 @@ export const PROBLEMS = {
     th: 'จำนวน webhook endpoint ครบตามแพ็กเกจแล้ว',
     en: 'Webhook endpoint limit of your plan reached',
   },
+  /** ST7-T05 ส่งซ้ำไม่ได้: event ทดสอบ/ยืนยันปลายทาง (ไม่มี event จริง) — ใช้ "ส่ง event ทดสอบ" แทน */
+  webhook_not_retryable: {
+    status: 422,
+    th: 'ส่งซ้ำรายการนี้ไม่ได้ (event ทดสอบ) ใช้ "ส่ง event ทดสอบ" แทน',
+    en: 'This delivery cannot be retried (test event) — send a test event instead',
+  },
+  /** ST7-T05 event เกิน 30 วัน — ส่งซ้ำด้วยมือได้ภายใน 30 วัน (INT-106) */
+  webhook_event_expired: {
+    status: 422,
+    th: 'event เกิน 30 วันแล้ว ส่งซ้ำไม่ได้',
+    en: 'The event is older than 30 days and can no longer be redelivered',
+  },
+  /** ST7-T05 redeliver ไปยัง endpoint ที่ไม่ได้สมัคร event ชนิดนี้ / event ไม่ใช่ event สาธารณะ */
+  webhook_event_not_subscribed: {
+    status: 422,
+    th: 'endpoint นี้ไม่ได้สมัคร event ชนิดนี้',
+    en: 'The endpoint is not subscribed to this event type',
+  },
   seat_limit_reached: {
     status: 409,
     th: 'จำนวนผู้ใช้ครบตามแพ็กเกจแล้ว',

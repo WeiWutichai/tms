@@ -45,3 +45,179 @@
   border: 1px solid #e4e6e0;
   border-radius: 8px;
 }
+
+/* ST7-T05 ประวัติการส่ง — ต้นแบบ TMS v4 vPanelApi hook apx.dl */
+.whk-dl {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid #e4e6e0;
+}
+.whk-dl__h {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.whk-dl__h > span {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #3b424c;
+}
+.whk-dl__list {
+  display: flex;
+  flex-direction: column;
+}
+.whk-dl__msg {
+  margin: 0;
+  color: #b3322a;
+  font-size: 13px;
+}
+.whk-dl__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid #ebede8;
+}
+.whk-dl__ev {
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.whk-dl__code {
+  justify-self: end;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: #fbe9e7;
+  color: #b3322a;
+  font-size: 12px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+}
+.whk-dl__code.is-ok {
+  background: #e7f3ec;
+  color: #17733f;
+}
+.whk-dl__meta {
+  font-size: 12.5px;
+  color: #59606b;
+  font-variant-numeric: tabular-nums;
+}
+.whk-dl__acts {
+  justify-self: end;
+  display: flex;
+  gap: 12px;
+}
+.whk-dl__acts > button {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: #2257c4;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.whk-dl__acts > button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* หน้าต่าง payload — ต้นแบบ PL */
+.whk-pl__scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(10, 23, 52, 0.32);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.whk-pl {
+  width: 640px;
+  max-width: 100%;
+  max-height: 86vh;
+  background: #ffffff;
+  border: 1px solid #d9dcd4;
+  border-radius: 20px;
+  box-shadow: 0 18px 44px rgba(10, 23, 52, 0.1);
+  display: flex;
+  flex-direction: column;
+}
+.whk-pl__head {
+  padding: 20px 24px 12px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.whk-pl__head > div {
+  flex: 1;
+  min-width: 0;
+}
+.whk-pl__head h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+.whk-pl__head p {
+  margin: 4px 0 0;
+  color: #3b424c;
+  overflow-wrap: anywhere;
+}
+.whk-pl__head > button {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #3b424c;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.whk-pl pre {
+  margin: 0 24px;
+  padding: 14px;
+  background: #ebede8;
+  border-radius: 8px;
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  line-height: 1.55;
+  overflow: auto;
+  flex: 1;
+  white-space: pre;
+}
+.whk-pl__foot {
+  padding: 14px 24px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.whk-pl__foot > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 999px;
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+.whk-pl__close {
+  border: 1px solid transparent;
+  background: transparent;
+  color: #3b424c;
+}
+.whk-pl__copy {
+  border: 1px solid #9db6e3;
+  background: #ffffff;
+  color: #2257c4;
+}

@@ -79,6 +79,12 @@ import { WebhooksController } from './modules/webhooks/webhooks.controller';
 import { WebhooksService } from './modules/webhooks/webhooks.service';
 import { WebhookEngine } from './modules/webhooks/webhook-engine';
 import { WebhookSink } from './modules/webhooks/webhook.sink';
+import {
+  EventsController,
+  WebhookDeliveriesController,
+} from './modules/webhooks/webhook-ops.controller';
+import { WebhookOpsService } from './modules/webhooks/webhook-ops.service';
+import { WebhookRetentionService } from './modules/webhooks/webhook-retention';
 import { ReasonCodesController } from './modules/reason-codes/reason-codes.controller';
 import { ReasonCodesService } from './modules/reason-codes/reason-codes.service';
 import {
@@ -208,6 +214,8 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     ReasonCodesController,
     ApiKeysController,
     WebhooksController,
+    WebhookDeliveriesController,
+    EventsController,
     RateCardsController,
     DeliveryOrdersController,
     PodController,
@@ -314,6 +322,8 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     WebhookEngine,
     WebhookSink,
     WebhooksService,
+    WebhookOpsService,
+    WebhookRetentionService,
     VehicleDocumentsService,
     Clock,
     ExpiryReminderService,
