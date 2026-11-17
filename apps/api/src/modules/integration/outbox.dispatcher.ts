@@ -159,7 +159,8 @@ export class OutboxDispatcher {
 
   /**
    * หยิบคำสั่งที่ระบุแล้วส่งทันที (ST7-T05 ส่งซ้ำ webhook ด้วยมือ — ผู้ใช้รอผล) — ผ่าน lease/fencing เดียวกับ worker
-   * หยิบได้เฉพาะคำสั่ง PENDING ที่ถึงเวลาและเป็นหัวคิวของ serialize_key · หยิบไม่ได้ (worker หยิบไปแล้ว/ยังไม่ถึงคิว) → false (worker ส่งให้)
+   * หยิบได้เฉพาะคำสั่ง PENDING ที่ถึงเวลา เป็นหัวคิวของ serialize_key และปลายทางยังส่งพร้อมกันไม่ครบ MAX_IN_FLIGHT_PER_TARGET
+   * หยิบไม่ได้ (worker หยิบไปแล้ว/ยังไม่ถึงคิว/เต็มเพดาน) → false (worker ส่งให้)
    */
   async runNow(id: string): Promise<boolean> {
     const [row] = await this.prisma.platform.$queryRaw<{ sink: string }[]>`
@@ -172,6 +173,11 @@ export class OutboxDispatcher {
              lease_until = now() + (${leaseMs}::int * interval '1 millisecond'),
              claimed_at = clock_timestamp(), updated_at = now()
        WHERE u.id = ${id}::uuid AND u.status = 'PENDING' AND u.next_run_at <= now()
+         -- เพดานส่งพร้อมกันต่อปลายทางเดียวกับ worker (เต็ม = ให้ worker ส่งเมื่อว่าง)
+         AND (SELECT count(*) FROM integration_outbox b
+               WHERE b.tenant_id = u.tenant_id AND b.sink = u.sink
+                 AND coalesce(b.target_id, '-') = coalesce(u.target_id, '-')
+                 AND b.status = 'IN_FLIGHT' AND b.lease_until >= now()) < ${MAX_IN_FLIGHT_PER_TARGET}
          AND NOT EXISTS (
            SELECT 1 FROM integration_outbox p
             WHERE p.tenant_id = u.tenant_id AND p.serialize_key = u.serialize_key AND p.seq < u.seq
@@ -338,6 +344,9 @@ export class OutboxDispatcher {
              error_class = ${r.errorClass}, last_error = ${r.lastError ? JSON.stringify(r.lastError) : null}::jsonb,
              result = coalesce(${r.result ? JSON.stringify(r.result) : null}::jsonb, result),
              done_at = CASE WHEN ${terminal} THEN now() ELSE NULL END,
+             -- INT-109 เวลาที่เริ่มพัก (tenant ถูกระงับ = AUTH → PENDING) — คงค่าเดิมระหว่างพักต่อเนื่อง ล้างเมื่อพ้นสถานะพัก
+             parked_at = CASE WHEN ${r.status === 'PENDING' && r.errorClass === 'AUTH'}
+                              THEN coalesce(parked_at, now()) ELSE NULL END,
              next_run_at = CASE WHEN ${terminal} THEN next_run_at
                                 ELSE now() + (${r.delayMs ?? 0}::int * interval '1 millisecond') END,
              updated_at = now()

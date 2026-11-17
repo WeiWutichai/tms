@@ -15,6 +15,38 @@ export function groupDeliveries(rows: WebhookDelivery[]): WebhookDelivery[] {
   return [...out.values()].sort((a, b) => (a.sentAt < b.sentAt ? 1 : -1));
 }
 
+/** reason phrase มาตรฐาน (RFC 9110) ของรหัสที่พบบ่อย — บรรทัดสถานะ "HTTP/1.1 200 OK" ตามต้นแบบ */
+const REASON: Record<number, string> = {
+  200: 'OK',
+  201: 'Created',
+  202: 'Accepted',
+  204: 'No Content',
+  301: 'Moved Permanently',
+  302: 'Found',
+  307: 'Temporary Redirect',
+  308: 'Permanent Redirect',
+  400: 'Bad Request',
+  401: 'Unauthorized',
+  403: 'Forbidden',
+  404: 'Not Found',
+  405: 'Method Not Allowed',
+  408: 'Request Timeout',
+  409: 'Conflict',
+  410: 'Gone',
+  413: 'Content Too Large',
+  415: 'Unsupported Media Type',
+  422: 'Unprocessable Content',
+  429: 'Too Many Requests',
+  500: 'Internal Server Error',
+  501: 'Not Implemented',
+  502: 'Bad Gateway',
+  503: 'Service Unavailable',
+  504: 'Gateway Timeout',
+};
+
+/** "200 OK" / "503 Service Unavailable" (รหัสที่ไม่รู้จัก = ตัวเลขอย่างเดียว) */
+export const statusLine = (s: number) => (REASON[s] ? `${s} ${REASON[s]}` : String(s));
+
 export const okStatus = (s: number | null | undefined) => !!s && s >= 200 && s < 300;
 
 /** ป้ายผล: รหัส HTTP · ไม่ได้ response = "หมดเวลา" (ต้นแบบ) หรือ "เชื่อมต่อไม่ได้" (DNS/ปฏิเสธ/SSRF) */
@@ -45,18 +77,29 @@ export function payloadText(t: T, d: WebhookDeliveryDetail): string {
     } catch {
       /* ตามที่ได้รับ */
     }
-    res = `HTTP/1.1 ${d.responseStatus}${rb ? `\n${rb}` : ''}`;
-  } else
-    res =
-      d.errorCode === 'timeout'
-        ? t('whk.dl.noResponse')
-        : `${t('whk.dl.noConn')}${d.errorMessage ? ` · ${d.errorMessage}` : ''}`;
+    res = `HTTP/1.1 ${statusLine(d.responseStatus)}${rb ? `\n${rb}` : ''}`;
+  } else res = noResponseText(t, d.errorCode);
   return [`POST ${d.requestUrl}`, ...heads, '', body, '', t('whk.dl.response'), res].join('\n');
+}
+
+/** ไม่ได้ response — ข้อความตามสาเหตุ (ต้นแบบมีเฉพาะ timeout) · ไม่แสดงข้อความ error ดิบ (อาจมี IP ภายใน) */
+export function noResponseText(t: T, code: string | null): string {
+  switch (code) {
+    case 'timeout':
+      return t('whk.dl.noResponse');
+    case 'ssrf_blocked':
+      return t('whk.dl.ssrf');
+    case 'invalid_url':
+    case 'invalid_request':
+      return t('whk.dl.invalid');
+    default:
+      return t('whk.dl.network');
+  }
 }
 
 /** toast หลังส่งซ้ำ (ต้นแบบ resendDeliv: "ส่งซ้ำสำเร็จ · 200 OK" / "ส่งซ้ำไม่สำเร็จ · 503") */
 export function resendToast(t: T, r: WebhookResendResult): string {
-  if (r.state === 'delivered') return t('whk.toast.reOk', { code: r.status ?? 200 });
+  if (r.state === 'delivered') return t('whk.toast.reOk', { code: statusLine(r.status ?? 200) });
   if (r.state === 'queued') return t('whk.toast.reQueued');
   if (r.state === 'skipped') return t('whk.toast.reEnableFirst');
   return t('whk.toast.reFail', {

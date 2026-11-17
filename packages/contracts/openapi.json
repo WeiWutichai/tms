@@ -42740,7 +42740,8 @@
           },
           "requestBody": {
             "type": "string",
-            "description": "body ที่ส่ง (JSON envelope ตรงตามที่ส่ง)"
+            "nullable": true,
+            "description": "body ที่ส่ง (JSON envelope) — field ราคาที่ผู้ดูไม่มีสิทธิ์ `prices.sell:read`/`prices.buy:read` ถูกตัดออก · body ที่ไม่ใช่ JSON ต้องมีทั้งสองสิทธิ์ ไม่งั้น null"
           },
           "responseBody": {
             "type": "string",

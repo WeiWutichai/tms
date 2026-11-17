@@ -42,6 +42,7 @@ export function DeliveryHistory({
         title: t('whk.dl.title', { ev: d.eventType }),
         sub: t('whk.dl.sub', {
           id: d.eventId,
+          did: d.id,
           t: when(d),
           code: codeLabel(t, d),
         }),

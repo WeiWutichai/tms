@@ -14,8 +14,10 @@ export interface WebhookPurgeResult {
 
 /**
  * งานบำรุงรักษา webhook รายวัน (ST7-T05) — worker เรียกพร้อมงานรายวันอื่น · ใช้ role platform (ข้าม tenant)
- * 1) ล้างประวัติการส่ง (webhook_delivery) ที่ส่งเกิน 30 วัน (docs/04 G1 "เก็บ 30 วัน") — role แอปลบไม่ได้ (migration 0093)
- * 2) INT-109: คำสั่ง webhook ที่พักไว้เพราะบริษัทถูกระงับ (outbox PENDING + error_class AUTH) นานเกิน 30 วัน → ทิ้ง (SKIPPED)
+ * 1) ล้างประวัติการส่ง (webhook_delivery) ที่ส่งเกิน 30 วัน (docs/04 G1 "เก็บ 30 วัน") ทีละ 5,000 แถวผ่าน index sent_at
+ *    (migration 0094) — role แอปลบไม่ได้ (migration 0093)
+ * 2) INT-109: คำสั่ง webhook ที่พักไว้เพราะบริษัทถูกระงับ (outbox PENDING + error_class AUTH) นานเกิน 30 วันนับจาก `parked_at`
+ *    (เวลาที่เริ่มพัก — ไม่ใช่เวลาสร้างคำสั่ง) → ทิ้ง (SKIPPED)
  *    พร้อม log ต่อบริษัท · คำสั่ง connector (ADAPTER) ไม่แตะ — นโยบาย AUTH ของ connector อยู่ใน ST7-T13/T16
  */
 @Injectable()
@@ -42,7 +44,8 @@ export class WebhookRetentionService {
            SET status = 'SKIPPED', done_at = now(), updated_at = now(), lease_id = NULL, lease_until = NULL,
                last_error = coalesce(last_error, '{}'::jsonb)
                             || jsonb_build_object('code', 'parked_expired', 'parkedDays', ${WEBHOOK_PARKED_MAX_DAYS}::int)
-         WHERE kind = 'WEBHOOK' AND status = 'PENDING' AND error_class = 'AUTH' AND created_at < ${parkedCutoff}
+         WHERE kind = 'WEBHOOK' AND status = 'PENDING' AND error_class = 'AUTH'
+           AND parked_at < ${parkedCutoff}
         RETURNING tenant_id
       )
       SELECT tenant_id::text, count(*)::int AS n FROM d GROUP BY tenant_id`;

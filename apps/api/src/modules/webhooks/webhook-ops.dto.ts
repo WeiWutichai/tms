@@ -130,7 +130,13 @@ export class WebhookDeliveryDetailDto extends WebhookDeliveryDto {
       'header ที่ส่ง — ค่าของ header เพิ่มเติมแสดงเป็น `***` · ลายเซ็นแสดงบางส่วน (ไม่มี secret)',
   })
   requestHeaders!: Record<string, string>;
-  @ApiProperty({ description: 'body ที่ส่ง (JSON envelope ตรงตามที่ส่ง)' }) requestBody!: string;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description:
+      'body ที่ส่ง (JSON envelope) — field ราคาที่ผู้ดูไม่มีสิทธิ์ `prices.sell:read`/`prices.buy:read` ถูกตัดออก · body ที่ไม่ใช่ JSON ต้องมีทั้งสองสิทธิ์ ไม่งั้น null',
+  })
+  requestBody!: string | null;
   @ApiProperty({
     nullable: true,
     type: String,

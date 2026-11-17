@@ -1,8 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma, type WebhookDelivery } from '@prisma/client';
-import { WEBHOOK_DELIVERY_RETENTION_DAYS, WEBHOOK_EVENT_TYPES } from '@tms/domain';
+import { scopeAllows, WEBHOOK_DELIVERY_RETENTION_DAYS, WEBHOOK_EVENT_TYPES } from '@tms/domain';
 import { randomUUID } from 'node:crypto';
 import { encodeId, tryDecodeId } from '../../common/ids';
+import { redactPrices } from '../../common/price-fields';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
@@ -31,6 +32,21 @@ export function maskSignature(v: string): string {
   return v.replace(/(v1=[0-9a-f]{4})[0-9a-f]+/g, '$1…');
 }
 
+/**
+ * body ที่ส่ง (envelope) ตามสิทธิ์ราคาของผู้ดู (price-fields.ts กติกาข้อ 3 — ช่องทางที่ไม่ผ่าน JSON response ต้องตัดเอง)
+ * JSON → ตัด field ราคาที่ไม่มีสิทธิ์อ่านแล้ว stringify · ไม่ใช่ JSON (ตรวจไม่ได้) → ต้องมีสิทธิ์อ่านราคาทั้งขายและซื้อ ไม่งั้น null
+ */
+export function viewBody(body: string, rc = requestContext.require()): string | null {
+  const scopes = rc.scopes ?? [];
+  try {
+    return JSON.stringify(redactPrices(JSON.parse(body), scopes, rc.principalType));
+  } catch {
+    return scopeAllows(scopes, 'prices.sell:read') && scopeAllows(scopes, 'prices.buy:read')
+      ? body
+      : null;
+  }
+}
+
 function cursorOf(r: { sentAt: Date; id: string }, sort: string): string {
   return Buffer.from(JSON.stringify({ u: r.sentAt.toISOString(), i: r.id, s: sort })).toString(
     'base64url',
@@ -51,6 +67,16 @@ function decodeCursor(c: string, sort: string): { u: Date; i: string } {
       { field: 'cursor', code: 'invalid_cursor', message: 'cursor is invalid' },
     ]);
   }
+}
+
+/** รอผลจาก worker เมื่อหยิบคำสั่งเองไม่ได้ (งบเดียวกับ timeout ของการส่ง) */
+const RESULT_WAIT_MS = 10_500;
+const POLL_MS = 250;
+
+interface Checked {
+  endpointId: string;
+  eventId: string;
+  ev: { type: string; entityType: string; localId: string };
 }
 
 interface Prepared {
@@ -109,7 +135,7 @@ export class WebhookOpsService {
     return {
       ...this.toDto(d),
       requestHeaders: headers,
-      requestBody: d.requestBody,
+      requestBody: viewBody(d.requestBody),
       responseBody: d.responseBody,
       errorMessage: d.errorMessage,
     };
@@ -167,23 +193,28 @@ export class WebhookOpsService {
   // ---------- resend ----------
 
   private readonly hits = new Map<string, number[]>();
+  /** งบรอผลจาก worker (test ปรับได้) */
+  resultWaitMs = RESULT_WAIT_MS;
 
-  /** 429 เมื่อส่งซ้ำถี่เกิน — คืนเฉพาะเมื่อผ่าน (บันทึกครั้ง) */
+  /**
+   * 429 เมื่อส่งซ้ำถี่เกิน — เรียกหลังตรวจผ่านแล้วเท่านั้น (คำขอที่ถูกปฏิเสธ 4xx ไม่กินโควตา)
+   * นับต่อบริษัท 1 ครั้งต่อ endpoint (redeliver ทุก endpoint = หลายครั้ง) · นับใน process [DECISION spec/12 §3]
+   */
   private takeSlot(tenantId: string, pairs: string[], now = Date.now()) {
-    const wait = (key: string, windowMs: number, max: number) => {
-      const xs = (this.hits.get(key) ?? []).filter((t) => now - t < windowMs);
-      return xs.length >= max ? Math.ceil((windowMs - (now - xs[0]!)) / 1000) : 0;
-    };
-    const w = Math.max(
-      wait(`t:${tenantId}`, TENANT_WINDOW_MS, TENANT_MAX),
-      ...pairs.map((p) => wait(`p:${p}`, PAIR_WINDOW_MS, 1)),
-    );
+    const recent = (key: string, windowMs: number) =>
+      (this.hits.get(key) ?? []).filter((t) => now - t < windowMs);
+    const tk = `t:${tenantId}`;
+    const tHits = recent(tk, TENANT_WINDOW_MS);
+    let w = 0;
+    if (tHits.length + pairs.length > TENANT_MAX)
+      w = Math.ceil((TENANT_WINDOW_MS - (now - (tHits[0] ?? now))) / 1000) || 1;
+    for (const p of pairs) {
+      const xs = recent(`p:${p}`, PAIR_WINDOW_MS);
+      if (xs.length) w = Math.max(w, Math.ceil((PAIR_WINDOW_MS - (now - xs[0]!)) / 1000));
+    }
     if (w) throw new ProblemException('rate_limited', undefined, undefined, { retryAfter: w });
-    for (const k of [`t:${tenantId}`, ...pairs.map((p) => `p:${p}`)])
-      this.hits.set(k, [
-        ...(this.hits.get(k) ?? []).filter((t) => now - t < TENANT_WINDOW_MS),
-        now,
-      ]);
+    this.hits.set(tk, [...tHits, ...pairs.map(() => now)]);
+    for (const p of pairs) this.hits.set(`p:${p}`, [now]);
     if (this.hits.size > 10_000) this.hits.clear();
   }
 
@@ -195,23 +226,22 @@ export class WebhookOpsService {
   async retry(id: string): Promise<WebhookResendResultDto> {
     this.hooks.assertHuman();
     const tenantId = requestContext.require().tenantId!;
+    const started = Date.now();
     const d = await this.withTx(tenantId, (tx) => this.get(id, tx));
     if (d.test || !d.eventId) throw new ProblemException('webhook_not_retryable');
     const p = await this.withTx(tenantId, async (tx) => {
+      const c = await this.check(tx, d.endpointId, d.eventId!);
       this.takeSlot(tenantId, [`${d.endpointId}:${d.eventId}`]);
-      return this.prepare(tx, tenantId, d.endpointId, d.eventId!, {
-        source: 'retry',
-        deliveryId: d.id,
-        checkSubscribed: false,
-      });
+      return this.insert(tx, tenantId, c, { source: 'retry', deliveryId: d.id });
     });
-    return this.run(tenantId, p);
+    return this.run(tenantId, p, started);
   }
 
   /** `POST /events/{id}/redeliver?endpointId=` — ส่ง event ไปยัง endpoint ที่ระบุ หรือทุก endpoint ที่เปิดอยู่และสมัคร event นี้ */
   async redeliver(eventId: string, endpointId?: string): Promise<WebhookResendResultDto[]> {
     this.hooks.assertHuman();
     const tenantId = requestContext.require().tenantId!;
+    const started = Date.now();
     const prepared = await this.withTx(tenantId, async (tx) => {
       const ev = await tx.domainEvent.findFirst({ where: { id: eventId }, select: { type: true } });
       if (!ev) throw new ProblemException('not_found');
@@ -226,34 +256,24 @@ export class WebhookOpsService {
         targets = eps.filter((e) => eventMatches(ev.type, e.events)).map((e) => e.id);
         if (!targets.length) throw new ProblemException('webhook_event_not_subscribed');
       }
+      const checked: Checked[] = [];
+      for (const t of targets) checked.push(await this.check(tx, t, eventId));
       this.takeSlot(
         tenantId,
         targets.map((t) => `${t}:${eventId}`),
       );
       const out: Prepared[] = [];
-      for (const t of targets)
-        out.push(
-          await this.prepare(tx, tenantId, t, eventId, {
-            source: 'redeliver',
-            checkSubscribed: true,
-          }),
-        );
+      for (const c of checked)
+        out.push(await this.insert(tx, tenantId, c, { source: 'redeliver' }));
       return out;
     });
-    return Promise.all(prepared.map((p) => this.run(tenantId, p)));
+    return Promise.all(prepared.map((p) => this.run(tenantId, p, started)));
   }
 
   /**
-   * สร้างคำสั่ง outbox `webhook.redeliver` (transaction ของ tenant — commit ก่อนส่ง)
-   * attempt เริ่ม = ครั้งล่าสุดของคู่ (endpoint, event) → worker/runNow +1 = X-TMS-Attempt ถัดไป (INT-106)
+   * ตรวจก่อนส่งซ้ำ: endpoint ยังอยู่และเปิด · event ภายใน 30 วัน · endpoint ยังสมัคร event ชนิดนี้ (ทั้ง retry และ redeliver)
    */
-  private async prepare(
-    tx: Tx,
-    tenantId: string,
-    endpointId: string,
-    eventId: string,
-    o: { source: 'retry' | 'redeliver'; deliveryId?: string; checkSubscribed: boolean },
-  ): Promise<Prepared> {
+  private async check(tx: Tx, endpointId: string, eventId: string): Promise<Checked> {
     const e = await tx.webhookEndpoint.findFirst({ where: { id: endpointId, deletedAt: null } });
     if (!e) throw new ProblemException('not_found');
     // endpoint ปิดอยู่ → sink จะข้าม (SKIPPED) — แจ้งให้เปิดก่อน (เปิดแล้วส่ง event ที่ค้างระหว่างปิดได้ — INT-105)
@@ -266,12 +286,26 @@ export class WebhookOpsService {
     if (ev.occurredAt.getTime() < Date.now() - WEBHOOK_DELIVERY_RETENTION_DAYS * DAY)
       throw new ProblemException('webhook_event_expired');
     if (
-      o.checkSubscribed &&
-      (!(WEBHOOK_EVENT_TYPES as readonly string[]).includes(ev.type) ||
-        !eventMatches(ev.type, e.events))
+      !(WEBHOOK_EVENT_TYPES as readonly string[]).includes(ev.type) ||
+      !eventMatches(ev.type, e.events)
     )
       throw new ProblemException('webhook_event_not_subscribed');
-    // คู่เดียวกันทีละคำขอ (กันกดพร้อมกันสร้างคำสั่งซ้ำ)
+    return { endpointId, eventId, ev };
+  }
+
+  /**
+   * สร้างคำสั่ง outbox `webhook.redeliver` (transaction ของ tenant — commit ก่อนส่ง)
+   * ครั้งที่คาด = มากสุดของ (ครั้งที่บันทึกแล้ว, ครั้งที่กำลังส่ง IN_FLIGHT) + 1 — ค่าจริงจัดสรรตอนส่งใน WebhookSink.allocateAttempt
+   * (ล็อกคู่ endpoint/event เดียวกัน) จึงไม่ซ้ำและเพิ่มขึ้นแม้รอบอัตโนมัติส่งพร้อมกัน (INT-106)
+   */
+  private async insert(
+    tx: Tx,
+    tenantId: string,
+    c: Checked,
+    o: { source: 'retry' | 'redeliver'; deliveryId?: string },
+  ): Promise<Prepared> {
+    const { endpointId, eventId, ev } = c;
+    // คู่เดียวกันทีละคำขอ (กันกดพร้อมกันสร้างคำสั่งซ้ำ/ได้ครั้งที่ซ้ำกัน)
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(8, hashtext(${`${endpointId}:${eventId}`}))`;
     const open = await tx.integrationOutbox.findFirst({
       where: {
@@ -281,13 +315,24 @@ export class WebhookOpsService {
         operation: MANUAL_OP,
         status: { in: ['PENDING', 'IN_FLIGHT'] },
       },
-      select: { id: true, attempt: true },
+      select: { id: true, attempt: true, status: true },
     });
     if (open)
-      return { outboxId: open.id, endpointId, eventId, attempt: open.attempt + 1, existing: true };
+      return {
+        outboxId: open.id,
+        endpointId,
+        eventId,
+        attempt: open.status === 'IN_FLIGHT' ? open.attempt : open.attempt + 1,
+        existing: true,
+      };
     const [m] = await tx.$queryRaw<{ n: number }[]>`
-      SELECT coalesce(max(attempt), 0)::int AS n FROM webhook_delivery
-       WHERE endpoint_id = ${endpointId}::uuid AND event_id = ${eventId}::uuid`;
+      SELECT greatest(
+        (SELECT coalesce(max(attempt), 0) FROM webhook_delivery
+          WHERE endpoint_id = ${endpointId}::uuid AND event_id = ${eventId}::uuid),
+        (SELECT coalesce(max(attempt), 0) FROM integration_outbox
+          WHERE sink = ${WEBHOOK_SINK} AND target_id = ${endpointId} AND event_id = ${eventId}::uuid
+            AND status = 'IN_FLIGHT')
+      )::int AS n`;
     const base = m?.n ?? 0;
     const id = randomUUID();
     const ctx = requestContext.require();
@@ -327,8 +372,15 @@ export class WebhookOpsService {
     return { outboxId: id, endpointId, eventId, attempt: base + 1, existing: false };
   }
 
-  /** หยิบคำสั่งมาส่งทันที แล้วคืนผลจาก webhook_delivery ของคำสั่งนั้น */
-  private async run(tenantId: string, p: Prepared): Promise<WebhookResendResultDto> {
+  /**
+   * หยิบคำสั่งมาส่งทันที แล้วคืนผลจาก webhook_delivery ของคำสั่งนั้น
+   * worker หยิบไปก่อน/ปลายทางส่งพร้อมกันครบเพดาน → รอผลจาก worker ภายในงบเวลาเดียวกัน (≤ 10 วิ นับจากรับคำขอ) แล้วจึงตอบ `queued`
+   */
+  private async run(
+    tenantId: string,
+    p: Prepared,
+    started: number,
+  ): Promise<WebhookResendResultDto> {
     const ran = p.existing ? false : await this.dispatcher.runNow(p.outboxId);
     const base: WebhookResendResultDto = {
       endpointId: encodeId('webhookEndpoint', p.endpointId),
@@ -340,17 +392,29 @@ export class WebhookOpsService {
       durationMs: null,
       errorCode: null,
     };
-    if (!ran) return base;
-    const { d, cmd } = await this.withTx(tenantId, async (tx) => ({
-      d: await tx.webhookDelivery.findFirst({
-        where: { eventId: p.eventId, endpointId: p.endpointId, outboxId: p.outboxId },
-        orderBy: { sentAt: 'desc' },
-      }),
-      cmd: await tx.integrationOutbox.findFirst({
-        where: { id: p.outboxId },
-        select: { status: true },
-      }),
-    }));
+    const read = () =>
+      this.withTx(tenantId, async (tx) => ({
+        d: await tx.webhookDelivery.findFirst({
+          where: { eventId: p.eventId, endpointId: p.endpointId, outboxId: p.outboxId },
+          orderBy: { sentAt: 'desc' },
+        }),
+        cmd: await tx.integrationOutbox.findFirst({
+          where: { id: p.outboxId },
+          select: { status: true },
+        }),
+      }));
+    let r = await read();
+    if (!ran)
+      while (
+        !r.d &&
+        r.cmd &&
+        (r.cmd.status === 'PENDING' || r.cmd.status === 'IN_FLIGHT') &&
+        Date.now() - started < this.resultWaitMs
+      ) {
+        await new Promise((ok) => setTimeout(ok, POLL_MS));
+        r = await read();
+      }
+    const { d, cmd } = r;
     if (!d) return { ...base, state: cmd?.status === 'SKIPPED' ? 'skipped' : 'queued' };
     return {
       ...base,

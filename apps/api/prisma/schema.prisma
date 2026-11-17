@@ -2802,6 +2802,8 @@ model IntegrationOutbox {
   leaseUntil     DateTime?    @map("lease_until") @db.Timestamptz(6)
   claimedAt      DateTime?    @map("claimed_at") @db.Timestamptz(6)
   doneAt         DateTime?    @map("done_at") @db.Timestamptz(6)
+  /// ST7-T05 เวลาที่เริ่มพักคำสั่ง (tenant ถูกระงับ → AUTH → PENDING) — INT-109 ทิ้งเมื่อพักเกิน 30 วัน
+  parkedAt       DateTime?    @map("parked_at") @db.Timestamptz(6)
   errorClass     String?      @map("error_class") @db.VarChar(20)
   lastError      Json?        @map("last_error")
   result         Json?
@@ -2812,6 +2814,7 @@ model IntegrationOutbox {
   @@index([status, nextRunAt])
   @@index([tenantId, claimedAt])
   @@index([eventId])
+  @@index([parkedAt])
   @@map("integration_outbox")
 }
 
@@ -2912,5 +2915,6 @@ model WebhookDelivery {
   @@index([tenantId, endpointId, sentAt])
   @@index([tenantId, eventId])
   @@index([tenantId, sentAt])
+  @@index([sentAt])
   @@map("webhook_delivery")
 }

@@ -132,7 +132,8 @@ test('เกณฑ์ตรวจรับ: delivery ที่ล้มเหล
   await expect(pl).toContainText(`"id": "${evtId}"`);
   await expect(pl).toContainText('X-Client-Token: ***');
   await expect(pl).toContainText('— response —');
-  await expect(pl).toContainText('HTTP/1.1 500');
+  await expect(pl).toContainText('HTTP/1.1 500 Internal Server Error');
+  await expect(pl).toContainText(/whd_[0-9a-f]{32}/);
   await expect(pl).not.toContainText(`tok-${RUN}-secret`);
   await pl.getByRole('button', { name: 'ปิด', exact: true }).last().click();
   await expect(pl).toBeHidden();

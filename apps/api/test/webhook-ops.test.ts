@@ -21,6 +21,8 @@ interface Hit {
 class Receiver {
   hits: Hit[] = [];
   status = 200;
+  /** หน่วงคำตอบ (ms) — จำลองปลายทางช้าระหว่างรอบอัตโนมัติ */
+  delayMs = 0;
   private server!: Server;
   port = 0;
   async start() {
@@ -29,8 +31,14 @@ class Receiver {
       req.on('data', (c: Buffer) => chunks.push(c));
       req.on('end', () => {
         this.hits.push({ headers: req.headers, body: Buffer.concat(chunks).toString('utf8') });
-        res.writeHead(this.status, { 'content-type': 'application/json' });
-        res.end(this.status < 300 ? '{"received":true}' : '{"error":"down"}');
+        const st = this.status;
+        const send = () => {
+          if (res.destroyed) return;
+          res.writeHead(st, { 'content-type': 'application/json' });
+          res.end(st < 300 ? '{"received":true}' : '{"error":"down"}');
+        };
+        if (this.delayMs) setTimeout(send, this.delayMs);
+        else send();
       });
     });
     await new Promise<void>((ok) => this.server.listen(0, '127.0.0.1', ok));
@@ -127,7 +135,9 @@ describe('webhook ops (ST7-T05)', () => {
   beforeEach(async () => {
     rx.hits = [];
     rx.status = 200;
+    rx.delayMs = 0;
     resetLimits();
+    (app.get(WebhookOpsService) as unknown as { resultWaitMs: number }).resultWaitMs = 10_500;
     app.get(WebhookEngine).sendOptions = { allowPrivate: true };
     await plat.$executeRaw`UPDATE integration_outbox SET status = 'SKIPPED', lease_id = NULL, lease_until = NULL
                             WHERE status IN ('PENDING', 'IN_FLIGHT', 'FAILED_RETRYABLE')`;
@@ -330,6 +340,126 @@ describe('webhook ops (ST7-T05)', () => {
     const r = await api(app, token).post(`/v1/webhook-deliveries/${d.id}/retry`).send({});
     expect(r.status).toBe(409);
     expect(r.body.code).toBe('invalid_state_transition');
+    // คำขอที่ถูกปฏิเสธไม่กินโควตา — เปิดแล้วส่งซ้ำได้ทันที
+    await api(app, token)
+      .post(`/v1/webhooks/${h.id}/enable`)
+      .set('If-Match', `"${off.body.version}"`)
+      .send({})
+      .expect(200);
+    expect(
+      (await api(app, token).post(`/v1/webhook-deliveries/${d.id}/retry`).send({})).status,
+    ).toBe(200);
+    // ยกเลิกสมัคร event นี้แล้ว → retry ตรวจ subscription ปัจจุบันเหมือน redeliver
+    resetLimits();
+    const cur = (await api(app, token).get(`/v1/webhooks/${h.id}`)).body;
+    await api(app, token)
+      .patch(`/v1/webhooks/${h.id}`)
+      .set('If-Match', `"${cur.version}"`)
+      .send({ events: ['trip.dispatched'] })
+      .expect(200);
+    const ns = await api(app, token).post(`/v1/webhook-deliveries/${d.id}/retry`).send({});
+    expect(ns.status).toBe(422);
+    expect(ns.body.code).toBe('webhook_event_not_subscribed');
+  });
+
+  it('X-TMS-Attempt ไม่ซ้ำ: รอบอัตโนมัติกำลังส่งช้าอยู่ (IN_FLIGHT ครั้งที่ 2) → ส่งซ้ำได้ครั้งที่ 3', async () => {
+    const { ev } = await failedDelivery();
+    rx.status = 200;
+    rx.delayMs = 1500;
+    rx.hits = [];
+    const auto = drain();
+    for (let i = 0; i < 50; i++) {
+      const n = await plat.integrationOutbox.count({
+        where: { eventId: ev.id, status: 'IN_FLIGHT', operation: 'order.created' },
+      });
+      if (n) break;
+      await new Promise((ok) => setTimeout(ok, 50));
+    }
+    const d1 = (
+      await api(app, token)
+        .get(`/v1/webhook-deliveries?eventId=${encodeId('event', ev.id)}`)
+        .expect(200)
+    ).body.data[0];
+    const r = await api(app, token).post(`/v1/webhook-deliveries/${d1.id}/retry`).send({});
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    expect(r.body).toMatchObject({ state: 'delivered', attempt: 3 });
+    await auto;
+    expect(rx.hits.map((x) => x.headers['x-tms-attempt']).sort()).toEqual(['2', '3']);
+    const attempts = (
+      await plat.webhookDelivery.findMany({ where: { eventId: ev.id }, select: { attempt: true } })
+    ).map((x) => x.attempt);
+    expect(new Set(attempts).size).toBe(attempts.length);
+  });
+
+  it('ส่งซ้ำเมื่อปลายทางส่งพร้อมกันครบเพดาน (3) → ไม่ข้ามเพดาน รอผลแล้วตอบ queued', async () => {
+    const { h, d } = await failedDelivery();
+    (app.get(WebhookOpsService) as unknown as { resultWaitMs: number }).resultWaitMs = 300;
+    const busy = await plat.integrationOutbox.findFirstOrThrow({
+      where: { targetId: ep(h.id), operation: 'order.created' },
+    });
+    // คำสั่งอื่น 3 ตัวกำลังส่งอยู่ที่ endpoint นี้
+    for (let i = 0; i < 3; i++)
+      await plat.$executeRaw`
+        INSERT INTO integration_outbox (tenant_id, kind, sink, target_id, operation, entity_type, local_id, event_id,
+                                        serialize_key, idempotency_key, status, lease_id, lease_until, updated_at)
+        VALUES (${tenantId}::uuid, 'WEBHOOK', 'webhook', ${busy.targetId}, 'order.created', 'order', gen_random_uuid(),
+                ${busy.eventId}::uuid, ${`busy-${i}-${randomUUID()}`}, ${`busy-${i}-${randomUUID()}`},
+                'IN_FLIGHT', gen_random_uuid(), now() + interval '1 minute', now())`;
+    rx.status = 200;
+    rx.hits = [];
+    const r = await api(app, token).post(`/v1/webhook-deliveries/${d.id}/retry`).send({});
+    expect(r.status).toBe(200);
+    expect(r.body.state).toBe('queued');
+    expect(rx.hits).toHaveLength(0);
+  });
+
+  it('ดูข้อมูลตามสิทธิ์ราคา: API key ที่มี settings:read แต่ไม่มี prices.*:read ไม่เห็นฟิลด์ราคาใน payload', async () => {
+    const h = await createHook(['order.created']);
+    rx.status = 500;
+    const ev = await db.withTenant(tenantId, (tx: Tx) =>
+      tx.domainEvent.create({
+        data: {
+          tenantId,
+          type: 'order.created',
+          entityType: 'order',
+          localId: randomUUID(),
+          snapshot: { id: 'ord_p', lines: [{ sellPrice: '1500.00', buyPrice: '1200.00', qty: 2 }] },
+        },
+      }),
+    );
+    await drain();
+    const row = (
+      await api(app, token)
+        .get(`/v1/webhook-deliveries?eventId=${encodeId('event', ev.id)}`)
+        .expect(200)
+    ).body.data[0];
+    const full = await api(app, token).get(`/v1/webhook-deliveries/${row.id}`).expect(200);
+    expect(full.body.requestBody).toContain('"sellPrice":"1500.00"');
+    const key = await api(app, token)
+      .post('/v1/api-keys')
+      .send({
+        name: `viewer ${randomUUID().slice(0, 6)}`,
+        scopes: ['settings:read'],
+        expiresInDays: 30,
+      });
+    expect(key.status, JSON.stringify(key.body)).toBe(201);
+    const viaKey = await api(app, key.body.secret)
+      .get(`/v1/webhook-deliveries/${row.id}`)
+      .expect(200);
+    const body = JSON.parse(viaKey.body.requestBody);
+    expect(body.data.object.lines[0]).toEqual({ qty: 2 });
+    expect(viaKey.body.requestBody).not.toContain('1500.00');
+    expect(viaKey.body.requestBody).not.toContain('1200.00');
+    // body ที่ไม่ใช่ JSON (ตัดราคาไม่ได้) → ต้องมีสิทธิ์ราคาทั้งสองฝั่ง
+    await plat.$executeRaw`UPDATE webhook_delivery SET request_body = 'sellPrice=1500.00'
+                            WHERE id = ${tryDecodeId('webhookDelivery', row.id)!}::uuid`;
+    expect(
+      (await api(app, key.body.secret).get(`/v1/webhook-deliveries/${row.id}`).expect(200)).body
+        .requestBody,
+    ).toBeNull();
+    expect(
+      (await api(app, token).get(`/v1/webhook-deliveries/${row.id}`).expect(200)).body.requestBody,
+    ).toBe('sellPrice=1500.00');
   });
 
   it('redeliver: event ที่เกิดระหว่างปิด endpoint ส่งได้หลังเปิด (INT-105) · ไม่ระบุ endpoint = ทุกตัวที่สมัคร · ไม่สมัคร/เกิน 30 วัน → 422', async () => {
@@ -444,14 +574,17 @@ describe('webhook ops (ST7-T05)', () => {
       where: { eventId: ev.id, targetId: ep(h.id) },
     });
     await plat.$executeRaw`UPDATE integration_outbox SET status = 'PENDING', error_class = 'AUTH',
-                             created_at = now() - interval '31 days', next_run_at = now() + interval '1 hour'
+                             created_at = now() - interval '40 days', parked_at = now() - interval '31 days',
+                             next_run_at = now() + interval '1 hour'
                             WHERE id = ${parked.id}::uuid`;
     const ev2 = await emit('order.created');
     const fresh = await plat.integrationOutbox.findFirstOrThrow({
       where: { eventId: ev2.id, targetId: ep(h.id) },
     });
+    // สร้างนานแล้วแต่เพิ่งเริ่มพัก → นับจากเวลาที่พัก ไม่ทิ้ง
     await plat.$executeRaw`UPDATE integration_outbox SET status = 'PENDING', error_class = 'AUTH',
-                             created_at = now() - interval '1 day', next_run_at = now() + interval '1 hour'
+                             created_at = now() - interval '40 days', parked_at = now() - interval '1 day',
+                             next_run_at = now() + interval '1 hour'
                             WHERE id = ${fresh.id}::uuid`;
 
     const r = await app.get(WebhookRetentionService).purge();
@@ -473,5 +606,32 @@ describe('webhook ops (ST7-T05)', () => {
     await expect(
       db.withTenant(tenantId, (tx) => tx.webhookDelivery.deleteMany({})),
     ).rejects.toThrow();
+  });
+
+  it('INT-109: worker ตั้ง parked_at ครั้งแรกที่พัก (tenant ถูกระงับ) คงค่าเดิมระหว่างพัก และล้างเมื่อส่งได้', async () => {
+    await createHook(['order.created']);
+    const ev = await emit('order.created');
+    const was = (await plat.tenant.findUniqueOrThrow({ where: { id: tenantId } })).status;
+    await plat.tenant.update({ where: { id: tenantId }, data: { status: 'SUSPENDED' } });
+    try {
+      await drain();
+      const c1 = await plat.integrationOutbox.findFirstOrThrow({
+        where: { eventId: ev.id, operation: 'order.created' },
+      });
+      expect(c1).toMatchObject({ status: 'PENDING', errorClass: 'AUTH' });
+      expect(c1.parkedAt).not.toBeNull();
+      await drain();
+      const c2 = await plat.integrationOutbox.findUniqueOrThrow({ where: { id: c1.id } });
+      expect(c2.parkedAt?.getTime()).toBe(c1.parkedAt?.getTime());
+    } finally {
+      await plat.tenant.update({ where: { id: tenantId }, data: { status: was } });
+    }
+    rx.status = 200;
+    await drain();
+    const c3 = await plat.integrationOutbox.findFirstOrThrow({
+      where: { eventId: ev.id, operation: 'order.created' },
+    });
+    expect(c3.status).toBe('DONE');
+    expect(c3.parkedAt).toBeNull();
   });
 });

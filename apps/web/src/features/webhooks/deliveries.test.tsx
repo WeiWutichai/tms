@@ -75,10 +75,21 @@ describe('ประวัติการส่ง webhook (ST7-T05)', () => {
       'X-Client-Token: ***',
     ]);
     expect(s).toContain('"type": "order.created"');
-    expect(s).toContain('— response —\nHTTP/1.1 500\n{\n  "error": "down"\n}');
+    expect(s).toContain(
+      '— response —\nHTTP/1.1 500 Internal Server Error\n{\n  "error": "down"\n}',
+    );
     expect(
       payloadText(t, { ...d, responseStatus: null, responseBody: null, errorCode: 'timeout' }),
     ).toContain('ไม่ได้รับ response ภายใน 10 วินาที');
+    expect(
+      payloadText(t, {
+        ...d,
+        responseStatus: null,
+        responseBody: null,
+        errorCode: 'ssrf_blocked',
+        errorMessage: '10.0.0.5',
+      }),
+    ).not.toContain('10.0.0.5');
   });
 
   it('toast ส่งซ้ำ ตามต้นแบบ resendDeliv', () => {
