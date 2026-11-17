@@ -2687,3 +2687,87 @@ model ApiKey {
   @@index([tenantId, createdAt, id])
   @@map("api_key")
 }
+
+/// ST7-T03 ประเภทปลายทางของคำสั่งใน outbox (docs/01 §3.7 integration_outbox.kind)
+enum OutboxKind {
+  ADAPTER
+  WEBHOOK
+}
+
+/// ST7-T03 สถานะคำสั่ง outbox (docs/01 §3.7) — แยกจากสถานะเอกสาร · FAILED_FINAL = dead-letter
+enum OutboxStatus {
+  PENDING
+  IN_FLIGHT
+  DONE
+  FAILED_RETRYABLE
+  FAILED_FINAL
+  SKIPPED
+}
+
+/// ST7-T03 ผู้รับ event ต่อ tenant — trigger บน domain_event เขียน integration_outbox 1 แถวต่อ subscription ที่ตรง
+/// (transaction เดียวกับการเปลี่ยนสถานะ) · webhook endpoint (ST7-T04) / connector (ST7-T13/T16) สร้างแถวนี้
+model IntegrationSubscription {
+  id         String     @id @default(uuid()) @db.Uuid
+  tenantId   String     @map("tenant_id") @db.Uuid
+  kind       OutboxKind
+  /// ตัวส่งที่ลงทะเบียนใน OutboxSinkRegistry เช่น `demo`, `webhook`, `erp`
+  sink       String     @db.VarChar(40)
+  /// id ปลายทาง (connector / webhook endpoint) — FK เพิ่มใน ST7-T04/T13
+  targetId   String?    @map("target_id") @db.VarChar(100)
+  /// ชนิด event ที่รับ: ชื่อเต็ม (`invoice.finalized`), `invoice.*` หรือ `*`
+  eventTypes String[]   @map("event_types")
+  /// ชื่อคำสั่ง (เช่น PUSH_INVOICE) — null = ใช้ชื่อ event
+  operation  String?    @db.VarChar(60)
+  /// false = หยุดสร้างคำสั่งใหม่ (คำสั่งเดิมยังส่งต่อ)
+  active     Boolean    @default(true)
+  createdBy  String?    @map("created_by")
+  createdAt  DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([tenantId, active])
+  @@map("integration_subscription")
+}
+
+/// ST7-T03 คิวคำสั่งทุกอย่างที่ออกจาก core (docs/01 §3.7, §6.2) — worker หยิบด้วย FOR UPDATE SKIP LOCKED + lease
+/// เรียงต่อ serialize_key (ปลายทาง + ลูกค้า) · round-robin ต่อ tenant · ไม่มี hard delete
+/// role แอปสร้าง/อ่านได้อย่างเดียว (แก้สถานะโดย worker role platform — migration 0090) · index คิวที่ยังไม่จบเป็น partial index ใน SQL
+model IntegrationOutbox {
+  id             String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String       @map("tenant_id") @db.Uuid
+  /// ลำดับการสร้าง (ใช้เรียงภายใน serialize_key)
+  seq            BigInt       @default(autoincrement())
+  kind           OutboxKind
+  sink           String       @db.VarChar(40)
+  targetId       String?      @map("target_id") @db.VarChar(100)
+  subscriptionId String?      @map("subscription_id") @db.Uuid
+  operation      String       @db.VarChar(60)
+  entityType     String       @map("entity_type")
+  localId        String       @map("local_id") @db.Uuid
+  eventId        String?      @map("event_id") @db.Uuid
+  eventType      String?      @map("event_type")
+  /// คีย์ที่ต้องส่งตามลำดับ: `{sink}:{target}:cus:{customer}` หรือ `{sink}:{target}:{entity}:{id}`
+  serializeKey   String       @map("serialize_key")
+  /// ส่งให้ปลายทางกันซ้ำ — unique ต่อ tenant
+  idempotencyKey String       @map("idempotency_key")
+  /// canonical payload ณ เวลาสร้างคำสั่ง — null = ใช้ snapshot ของ domain_event
+  payload        Json?
+  status         OutboxStatus @default(PENDING)
+  attempt        Int          @default(0)
+  maxAttempt     Int          @default(7) @map("max_attempt")
+  nextRunAt      DateTime     @default(dbgenerated("now()")) @map("next_run_at") @db.Timestamptz(6)
+  leaseId        String?      @map("lease_id") @db.Uuid
+  leaseUntil     DateTime?    @map("lease_until") @db.Timestamptz(6)
+  claimedAt      DateTime?    @map("claimed_at") @db.Timestamptz(6)
+  doneAt         DateTime?    @map("done_at") @db.Timestamptz(6)
+  errorClass     String?      @map("error_class") @db.VarChar(20)
+  lastError      Json?        @map("last_error")
+  result         Json?
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([status, nextRunAt])
+  @@index([tenantId, claimedAt])
+  @@index([eventId])
+  @@map("integration_outbox")
+}

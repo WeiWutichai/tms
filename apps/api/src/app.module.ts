@@ -18,6 +18,9 @@ import {
 import { MessagingService } from './modules/messaging/messaging.service';
 import { MessagingProviders } from './modules/messaging/messaging.providers';
 import { MessageDispatcher } from './modules/messaging/message-dispatcher';
+import { OutboxDispatcher } from './modules/integration/outbox.dispatcher';
+import { OutboxService } from './modules/integration/outbox.service';
+import { OutboxSinkRegistry } from './modules/integration/outbox-sink.registry';
 import { NotificationsController } from './modules/notifications/notifications.controller';
 import { ImportRegistry } from './modules/imports/import-spec';
 import { ImportService } from './modules/imports/import.service';
@@ -278,6 +281,9 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     MessagingProviders,
     MessagingService,
     MessageDispatcher,
+    OutboxSinkRegistry,
+    OutboxService,
+    OutboxDispatcher,
     VehicleDocumentsService,
     Clock,
     ExpiryReminderService,
