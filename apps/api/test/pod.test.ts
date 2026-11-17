@@ -406,6 +406,21 @@ describe('ePOD web (ST4-T07)', () => {
     // GET คำนวณ missing จาก PIN ที่เก็บ (ถอดในหน่วยความจำ) — ยังครบ
     const g = await api(app, admin).get(`/v1/delivery-orders/${d.doId}/pod`).expect(200);
     expect(g.body.missing).toEqual([]);
+    // แก้ฉบับโดยไม่ส่ง pin = คง PIN เดิม (อ่านค่าจริงคืนไม่ได้) · ส่ง null = ล้าง
+    const keep = await putPod(d.doId, {
+      checks: { goods_ok: true },
+      rating: 5,
+      reason: 'แก้คะแนนตามที่ผู้รับแจ้ง',
+    }).expect(200);
+    expect(keep.body).toMatchObject({ podStatus: 'COMPLETE' });
+    expect(keep.body.current).toMatchObject({ version: 2, pinMasked: '••••', rating: 5 });
+    const clear = await putPod(d.doId, {
+      checks: { goods_ok: true },
+      pin: null,
+      reason: 'ผู้รับขอยกเลิกรหัสที่กรอกผิด',
+    }).expect(200);
+    expect(clear.body.current.pinMasked).toBeNull();
+    expect(clear.body.podStatus).toBe('PARTIAL');
   });
 
   it('DO ส่งไม่สำเร็จ ใช้ชุด "ไม่สำเร็จ" (รูป + หมายเหตุ) และคง FAILED', async () => {

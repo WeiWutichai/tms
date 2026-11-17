@@ -1,11 +1,5 @@
 import { Body, Controller, Get, Param, Put, Req, Res } from '@nestjs/common';
-import {
-  ApiBearerAuth,
-  ApiHeader,
-  ApiOkResponse,
-  ApiOperation,
-  ApiTags,
-} from '@nestjs/swagger';
+import { ApiBearerAuth, ApiHeader, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { PodSource } from '@tms/domain';
 import type { Request, Response } from 'express';
 import { RequireScope, TenantResource } from '../../common/decorators';
@@ -74,7 +68,11 @@ const W422 = {
   examples: {
     validation_failed: P('validation_failed', {
       errors: [
-        { field: 'photoDocumentIds.0', code: 'not_ready', message: 'document upload is not complete' },
+        {
+          field: 'photoDocumentIds.0',
+          code: 'not_ready',
+          message: 'document upload is not complete',
+        },
         { field: 'pin', code: 'invalid', message: 'PIN value is not valid' },
         {
           field: 'reason',

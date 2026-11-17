@@ -34,7 +34,7 @@ const DOC_ID = /^doc_[0-9a-f]{32}$/;
 
 /**
  * PUT /v1/delivery-orders/{id}/pod — บันทึกหลักฐานส่งฉบับใหม่ (ST4-T07; docs/01 §5.3 ชื่อช่องเดียวกับ `/driver/stops/{id}/pod`)
- * **ส่งทั้งฉบับ** (ช่องที่ไม่ส่ง = ว่างในฉบับใหม่) · ไฟล์ต้องอัปโหลดผ่าน `POST /v1/documents` ให้เสร็จ (ready) ก่อน
+ * **ส่งทั้งฉบับ** (ช่องที่ไม่ส่ง = ว่างในฉบับใหม่ ยกเว้น `pin` ที่ไม่ส่ง = คงค่าเดิม) · ไฟล์ต้องอัปโหลดผ่าน `POST /v1/documents` ให้เสร็จ (ready) ก่อน
  */
 export class SubmitPodDto {
   @ApiPropertyOptional({
@@ -56,7 +56,8 @@ export class SubmitPodDto {
     enum: POD_RELATIONS,
     type: String,
     nullable: true,
-    description: 'ความสัมพันธ์ของผู้รับ: SELF = ผู้รับเอง · SECURITY = รปภ. · STAFF = พนักงาน · OTHER = อื่น ๆ',
+    description:
+      'ความสัมพันธ์ของผู้รับ: SELF = ผู้รับเอง · SECURITY = รปภ. · STAFF = พนักงาน · OTHER = อื่น ๆ',
   })
   @IsOptional()
   @IsNullable()
@@ -183,7 +184,7 @@ export class SubmitPodDto {
     nullable: true,
     example: '4821',
     description:
-      'รหัส PIN ที่ผู้รับกรอก (ตัวเลขครบจำนวนหลักตาม checklist) — เก็บแบบเข้ารหัส response แสดงแบบปิดบังเท่านั้น',
+      'รหัส PIN ที่ผู้รับกรอก (ตัวเลขครบจำนวนหลักตาม checklist) — เก็บแบบเข้ารหัส response แสดงแบบปิดบังเท่านั้น · **ไม่ส่ง = คงค่าของฉบับก่อน** (อ่านค่าจริงคืนไม่ได้) · null = ล้าง',
   })
   @IsOptional()
   @IsNullable()
@@ -301,9 +302,12 @@ export class DeliveryOrderPodDto {
     description: 'เทียบหลักฐานปัจจุบันกับ checklist ตอนนี้ (ว่าง = ครบ)',
   })
   missing!: PodMissingDto[];
-  @ApiProperty({ type: PodRecordDto, nullable: true, description: 'ฉบับปัจจุบัน — null = ยังไม่มี' })
+  @ApiProperty({
+    type: PodRecordDto,
+    nullable: true,
+    description: 'ฉบับปัจจุบัน — null = ยังไม่มี',
+  })
   current!: PodRecordDto | null;
   @ApiProperty({ type: [PodVersionDto], description: 'ทุกฉบับ ใหม่ → เก่า' })
   versions!: PodVersionDto[];
 }
-

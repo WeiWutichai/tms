@@ -209,7 +209,9 @@ export class PodService {
       else if (v.trim()) choices[k] = v.trim();
     }
 
-    const pin = input.pin?.trim() || null;
+    // PIN: ไม่ส่ง (undefined) = คงค่าเดิมของฉบับก่อน (อ่านค่าจริงผ่าน API ไม่ได้ จึงส่งซ้ำไม่ได้) · null/ว่าง = ล้าง
+    const keepPin = input.pin === undefined && !!latest?.pinEnc;
+    const pin = keepPin ? (this.submissionOf(latest!).pin ?? null) : input.pin?.trim() || null;
     const submission: PodSubmission = {
       photoCount: photoIds.length,
       hasSignature: sigIds.length > 0,
@@ -250,8 +252,8 @@ export class PodService {
         checks,
         choices,
         barcodes: bc.value,
-        pinEnc: pin ? this.cipher.encrypt(pin) : null,
-        pinLength: pin ? pin.length : null,
+        pinEnc: keepPin ? latest!.pinEnc : pin ? this.cipher.encrypt(pin) : null,
+        pinLength: keepPin ? latest!.pinLength : pin ? pin.length : null,
         rating: input.rating ?? null,
         podStatus,
         missing: check.missing as unknown as Prisma.InputJsonValue,
