@@ -11,7 +11,7 @@ export function eventLabel(t: T, e: Pick<Ev, 'type' | 'outcome'>): string {
   return e.outcome ? `${base} (${t(`exc.out.${e.outcome}` as MessageKey)})` : base;
 }
 
-/** ประเภทของแถว = ธงสำคัญที่สุด (API เรียง LATE → SEQUENCE_CONFLICT → CLOCK_SKEW) */
+/** ประเภทของแถว = ธงสำคัญที่สุด (API เรียง LATE → SEQUENCE_CONFLICT → PICKUP_NOT_DONE → CLOCK_SKEW → OUTCOME_MISMATCH) */
 export function flagTypeLabel(t: T, f: Pick<StopEventFlag, 'flags'>): string {
   const k = f.flags[0];
   return k ? t(`exc.flag.${k}` as MessageKey) : '—';
@@ -32,6 +32,8 @@ export function flagDetail(
       parts.push(t(`exc.late.${f.event.lateReason}` as MessageKey));
     if (k === 'SEQUENCE_CONFLICT' && f.stateBefore)
       parts.push(t(`exc.state.${f.stateBefore}` as MessageKey));
+    if (k === 'PICKUP_NOT_DONE') parts.push(t('exc.pickupPending'));
+    if (k === 'OUTCOME_MISMATCH') parts.push(t('exc.mismatch'));
     if (k === 'CLOCK_SKEW')
       parts.push(t('exc.skew', { o: dt(f.event.occurredAt), r: dt(f.event.receivedAt) }));
   }

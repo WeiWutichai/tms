@@ -147,7 +147,16 @@ export function ApiKeysPage() {
       label: t('akey.col.by'),
       width: '1%',
       filter: { type: 'text', placeholder: t('table.search') },
-      render: (r) => <span style={cell}>{fm.by(r)}</span>,
+      // INT-076: ผู้สร้างถูกระงับ/ลบ → ป้ายใต้ชื่อ (key ยังทำงาน)
+      render: (r) =>
+        r.creatorInactive ? (
+          <div className="akey-two">
+            <span>{fm.by(r)}</span>
+            <span style={{ color: '#8F5500' }}>{t('akey.creatorOff')}</span>
+          </div>
+        ) : (
+          <span style={cell}>{fm.by(r)}</span>
+        ),
       csv: (r) => fm.by(r),
     },
     {
@@ -252,6 +261,8 @@ export function ApiKeysPage() {
             filters={{ ...filters }}
             onFilterChange={(k, v) => setF(k as keyof ApiKeyFilters, v)}
             onRowClick={open}
+            // ต้นแบบมีช่องเลือกแถวแต่ไม่มี bulk action ของ key (bulk: []) และ "มุมมอง" ที่บันทึกไว้ยังไม่มีในระบบ
+            // → ไม่แสดงทั้งคู่ [DECISION spec/12 §3]
             selectable={false}
             rowMenu={menuFor}
             empty={

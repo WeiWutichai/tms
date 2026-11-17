@@ -52,7 +52,12 @@ export function ApiKeyDrawer({
       onClose={onClose}
       kind={t('akey.kind', { mode: fm.mode(k) })}
       title={k.name}
-      badge={<Badge label={fm.status(k)} />}
+      badge={
+        <>
+          <Badge label={fm.status(k)} />
+          {k.creatorInactive && <Badge label={t('akey.creatorOff')} tone="warn" icon="user-x" />}
+        </>
+      }
       subtitle={t('akey.sub', { prefix: k.prefix, by: fm.by(k) })}
       labels={{ close: t('drawer.close'), more: t('drawer.more') }}
       tabs={[

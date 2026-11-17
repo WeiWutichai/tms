@@ -33,6 +33,7 @@ const ev = (over: Partial<StopEventFlag['event']> = {}): StopEventFlag['event'] 
   clientEventId: '6f1d3c1e-8a7b-4c2d-9e0f-1a2b3c4d5e6f',
   occurredAt: '2026-11-17T02:40:00.000Z',
   receivedAt: '2026-11-17T03:00:00.000Z',
+  appliedAt: null,
   lat: null,
   lng: null,
   accuracyM: null,
@@ -133,6 +134,12 @@ describe('FlagDrawer (ST4-T02)', () => {
     expect(mutate.mock.calls[0]![0]).toMatchObject({ decision: 'IGNORE' });
   });
 
+  it('ธงแจ้ง "ผลจุดไม่ตรงใบส่งของ" อย่างเดียว → ไม่มีเมนู "ไม่ใช้" (รับทราบได้อย่างเดียว — ST4-T03)', () => {
+    show(flag({ flags: ['OUTCOME_MISMATCH'] }));
+    expect(screen.queryByRole('button', { name: 'เพิ่มเติม' })).toBeNull();
+    expect(screen.getByText('ผลจุดไม่ตรงใบส่งของ')).toBeTruthy();
+  });
+
   it('ไม่มีสิทธิ์ / ปิดแล้ว → ไม่มีปุ่มตัดสิน · ปิดแล้วแสดงการตัดสิน', () => {
     const { unmount } = show(flag(), false);
     expect(screen.queryByRole('button', { name: /ปิดเหตุ/ })).toBeNull();
@@ -200,5 +207,13 @@ describe('flagDetail', () => {
       (x) => x.slice(11, 16),
     );
     expect(s).toBe('exc.ev.ARRIVE · exc.late.TRIP_CANCELLED · exc.skew{"o":"02:40","r":"03:00"}');
+  });
+  it('ธงจุดรับยังไม่ปิด / ผลไม่ตรง DO (ST4-T03)', () => {
+    const s = flagDetail(
+      t as never,
+      { flags: ['PICKUP_NOT_DONE', 'OUTCOME_MISMATCH'], stateBefore: null, event: ev() },
+      (x) => x,
+    );
+    expect(s).toBe('exc.ev.COMPLETE (exc.out.DELIVERED) · exc.pickupPending · exc.mismatch');
   });
 });

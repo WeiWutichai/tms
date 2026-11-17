@@ -22,7 +22,13 @@ import { FlagDrawer } from './FlagDrawer';
 import { flagDetail, flagTypeLabel, STATUS_BADGE } from './flagText';
 import { useFlagList, useFlagSummary, type FlagTab, type StopEventFlag } from './useStopEventFlags';
 
-const FLAG_KINDS = ['LATE', 'SEQUENCE_CONFLICT', 'CLOCK_SKEW'] as const;
+const FLAG_KINDS = [
+  'LATE',
+  'SEQUENCE_CONFLICT',
+  'PICKUP_NOT_DONE',
+  'CLOCK_SKEW',
+  'OUTCOME_MISMATCH',
+] as const;
 
 /** สองบรรทัดในเซลล์ (ต้นแบบ cTwo: บรรทัดแรก 14px ปกติ · บรรทัดสองสี #3B424C) */
 function Two({ a, b, max }: { a: string; b?: string | null; max: number }) {

@@ -2003,6 +2003,10 @@ model StopEvent {
   clockSkew          Boolean               @default(false) @map("clock_skew")
   /// ST4-T02: STOP_REMOVED / TRIP_CANCELLED / TRIP_COMPLETED — มาหลังปิด รับเก็บ + ธง (CHECK)
   lateReason         String?               @map("late_reason")
+  /// ST4-T03: ปิดงานส่งขณะจุดรับของ DO ยังไม่ปิดสำเร็จ (ธง PICKUP_NOT_DONE — projection)
+  pickupPending      Boolean               @default(false) @map("pickup_pending")
+  /// ST4-T03: ผลปิดจุดขัดกับสถานะ DO ที่ไล่แล้ว (ธงแจ้ง OUTCOME_MISMATCH — projection)
+  outcomeMismatch    Boolean               @default(false) @map("outcome_mismatch")
   resolutions        StopEventResolution[] @relation("StopEventResolutions")
   /// ST4-T02: การตัดสินที่มีผลตอนนี้ (ธงตรงกับธงปัจจุบัน) — projection คำนวณใหม่ทุกครั้ง
   resolutionId       String?               @map("resolution_id") @db.Uuid

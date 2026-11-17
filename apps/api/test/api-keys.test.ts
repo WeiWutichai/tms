@@ -451,7 +451,7 @@ describe('API keys + client credentials (ST7-T01)', () => {
     });
     const t2 = await tokenFor(tenantId, '*', u2.id);
     const k2 = await createKey({ name: 'ของคนที่ออก', scopes: ['orders:read'] }, t2);
-    await db.appUser.update({ where: { id: u2.id }, data: { status: 'SUSPENDED' } });
+    await db.appUser.update({ where: { id: u2.id }, data: { status: 'DISABLED' } });
     const g2 = (await api(app, admin).get(`/v1/api-keys/${k2.id}`).expect(200)).body;
     expect(g2.creatorInactive).toBe(true);
     await request(srv()).get('/v1/orders').set(bearer(k2.secret)).expect(200);
@@ -488,7 +488,10 @@ describe('API keys + client credentials (ST7-T01)', () => {
         .send({ grantType: 'client_credentials', clientId: k.clientId, clientSecret: k.secret })
         .expect(200)
     ).body.accessToken as string;
-    const [h, p] = real.split('.').map((x) => JSON.parse(Buffer.from(x, 'base64url').toString()));
+    const [h, p] = real
+      .split('.')
+      .slice(0, 2)
+      .map((x) => JSON.parse(Buffer.from(x, 'base64url').toString()));
     expect(h.typ).toBe('at+jwt');
     expect(p.aud).toBe('tms-api');
   });
@@ -510,7 +513,7 @@ describe('API keys + client credentials (ST7-T01)', () => {
     const byUser = (
       await api(app, admin).get('/v1/api-keys?createdBy=ผู้ดูแล&limit=200').expect(200)
     ).body.data as unknown[];
-    expect(byUser.length).toBe(s.all);
+    expect(byUser.length).toBe(s.all - 1); // 1 key สร้างโดยผู้ใช้อื่น (test INT-076)
     expect(
       (await api(app, admin).get('/v1/api-keys?createdBy=ไม่มีคนนี้').expect(200)).body.data,
     ).toEqual([]);
