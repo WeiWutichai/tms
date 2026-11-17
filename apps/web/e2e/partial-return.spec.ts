@@ -208,7 +208,6 @@ test.describe.serial('ตีกลับบางส่วน → ส่งซ�
     await expect(dlg.getByTestId('rt-hint')).toHaveText('เลือกรายการอย่างน้อย 1 รายการ · แนบรูป');
     await dlg.getByRole('checkbox').check();
     await expect(dlg.getByTestId('rt-hint')).toContainText('จะสร้างใบส่งของใหม่ 1 รายการ');
-    await page.screenshot({ path: '../../design/compare/st4-return-dialog-real-1440.png' });
     await dlg.getByRole('button', { name: 'บันทึกตีกลับ' }).click();
     await expect(page.getByRole('status')).toContainText(/สร้างใบส่งของ DO-.+ \(ส่งซ้ำของ DO-/);
     await expect(dlg).toHaveCount(0);
