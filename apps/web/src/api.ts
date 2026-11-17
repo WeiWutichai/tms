@@ -8,7 +8,11 @@ import { dropAccessToken, getAccessToken } from './auth/session';
  */
 export const api = createTmsClient({
   baseUrl: '',
-  getToken: getAccessToken,
+  // หน้าลิงก์สาธารณะ (/link/*) ไม่ใช้ session ของผู้ใช้ — ไม่ต่ออายุ token (QA ST4-T08 L5)
+  getToken: () =>
+    typeof location !== 'undefined' && location.pathname.startsWith('/link/')
+      ? null
+      : getAccessToken(),
   locale: () => (document.documentElement.lang === 'en' ? 'en' : 'th'),
 });
 
