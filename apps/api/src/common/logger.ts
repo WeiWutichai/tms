@@ -42,6 +42,11 @@ export const REDACT_PATHS = [
   '*.accountNo',
   'taxId',
   '*.taxId',
+  // ST7-T13 credential ของ connector (body ของ POST /connectors, PUT /connectors/:id/credentials) + ค่าตั้งเต็มของ ErpContext
+  'credentials',
+  '*.credentials',
+  'config',
+  '*.config',
 ];
 
 /** structured log มี requestId + tenantId ทุกบรรทัด (ST0-T03) */

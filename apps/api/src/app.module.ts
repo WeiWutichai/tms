@@ -83,6 +83,15 @@ import { WebhooksService } from './modules/webhooks/webhooks.service';
 import { WebhookEngine } from './modules/webhooks/webhook-engine';
 import { WebhookSink } from './modules/webhooks/webhook.sink';
 import {
+  ConnectorsController,
+  ConnectorsEffectiveController,
+} from './modules/erp/connectors.controller';
+import { ConnectorsService } from './modules/erp/connectors.service';
+import { ConnectorResolver } from './modules/erp/connector-resolver';
+import { ErpAdapterRegistry } from './modules/erp/erp-adapter.registry';
+import { ErpAdapterSink } from './modules/erp/erp-adapter.sink';
+import { ErpAdaptersBootstrap } from './erp-adapters';
+import {
   EventsController,
   WebhookDeliveriesController,
 } from './modules/webhooks/webhook-ops.controller';
@@ -217,6 +226,8 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     ReasonCodesController,
     ApiKeysController,
     WebhooksController,
+    ConnectorsEffectiveController,
+    ConnectorsController,
     WebhookDeliveriesController,
     EventsController,
     RateCardsController,
@@ -324,6 +335,11 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     OutboxDispatcher,
     WebhookEngine,
     WebhookSink,
+    ErpAdapterRegistry,
+    ConnectorResolver,
+    ConnectorsService,
+    ErpAdapterSink,
+    ErpAdaptersBootstrap,
     WebhooksService,
     WebhookOpsService,
     WebhookRetentionService,
