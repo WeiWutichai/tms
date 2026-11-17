@@ -26,6 +26,7 @@ export const TRIP_EVENTS = [
   'reject',
   'expire',
   'withdraw',
+  'cancel_hire',
   'assign',
   'reassign',
   'dispatch',
@@ -42,7 +43,9 @@ export type TripEvent = (typeof TRIP_EVENTS)[number];
  * - `offer` = เสนองานรถร่วม (ลิงก์ = ST3-T23) · `accept` = รถร่วมรับ + ทะเบียน/คนขับ (ผู้จัดรถบันทึกแทนได้ผ่าน /assign)
  * - `reject` / `expire` = ปฏิเสธ/ลิงก์หมดอายุ → กลับ PLANNING (ST3-T23/T24 — SO ON_HOLD CARRIER_REJECTED)
  * - `withdraw` = ผู้จัดรถถอนข้อเสนอที่ครบเวลาตอบเพื่อ "ส่งรายถัดไป" → PLANNING แล้วเสนอรายใหม่ทันที (ST3-T24 review L3 —
- *   [DECISION spec/12 §3] ขยายจาก docs/01 §4.2 ซึ่งไม่มีเส้นนี้; ไม่ตั้งใบค้าง)
+ *   [DECISION spec/12 §3] ขยายจาก docs/01 §4.2 ซึ่งไม่มีเส้นนี้; ไม่ตั้งใบค้าง) · ST3-T25 เปลี่ยนผู้รับเหมาระหว่างรอตอบใช้เส้นเดียวกัน
+ * - `cancel_hire` = เปลี่ยนผู้รับเหมาหลังรถร่วมรับงาน (ST3-T25; docs/04 D3 "ยกเลิกการจ้างเดิมแล้วจ้างใหม่") ASSIGNED → PLANNING
+ *   แล้วเสนอรายใหม่ในคำขอเดียว — [DECISION spec/12 §3] ขยายจาก docs/01 §4.2 · หลังปล่อยรถ (DISPATCHED) ไม่มีเส้นนี้ (§4.2 ท้าย)
  * - `assign` = รถบริษัท/รถร่วมกำหนดรถ+คนขับ (snapshot) · `reassign` = เปลี่ยนรถ/คนขับก่อนปล่อยรถ (snapshot ใหม่)
  * - `dispatch` = ปล่อยรถ → ทุก DO ในเที่ยว DISPATCHED · หลังจากนี้ห้ามแก้ snapshot (§4.2 ท้าย)
  * - `start` = stop แรก ARRIVED/DEPART (ST4) · `complete` = ทุก stop COMPLETED/FAILED/SKIPPED
@@ -59,7 +62,12 @@ export const TRIP_TRANSITIONS: TransitionTable<TripStatus, TripEvent> = {
     withdraw: 'PLANNING',
     cancel: 'CANCELLED',
   },
-  ASSIGNED: { reassign: 'ASSIGNED', dispatch: 'DISPATCHED', cancel: 'CANCELLED' },
+  ASSIGNED: {
+    reassign: 'ASSIGNED',
+    cancel_hire: 'PLANNING',
+    dispatch: 'DISPATCHED',
+    cancel: 'CANCELLED',
+  },
   DISPATCHED: { start: 'IN_PROGRESS', cancel: 'CANCELLED' },
   IN_PROGRESS: { complete: 'COMPLETED' },
   COMPLETED: { cost: 'COSTED' },

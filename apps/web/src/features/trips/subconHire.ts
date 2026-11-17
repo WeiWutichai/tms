@@ -42,6 +42,8 @@ export const plainNum = (v: string) =>
 export const defaultCarrier = (o: HireOptions) =>
   (
     o.options.find((x) => !x.blockedReason && !x.priorOutcome) ??
+    // รายที่ไม่รับงาน/ถูกเปลี่ยนออกจากเที่ยวนี้ไม่เป็นค่าเริ่มต้น แม้รายอื่นติดกฎทั้งหมด (ST3-T25 QA M1)
+    o.options.find((x) => !x.priorOutcome) ??
     o.options.find((x) => !x.blockedReason) ??
     o.options[0]
   )?.carrier.id ?? '';

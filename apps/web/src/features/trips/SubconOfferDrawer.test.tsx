@@ -261,3 +261,97 @@ describe('SubconOfferDrawer (ST3-T23)', () => {
     expect(items[3]!.badge.tone).toBe('err');
   });
 });
+
+describe('SubconOfferDrawer — เปลี่ยนผู้รับเหมา (ST3-T25)', () => {
+  beforeEach(() => {
+    offers = [offer()];
+  });
+  const open = (t: TripDetail, onChangeCarrier?: (r: string) => void) =>
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <I18nProvider>
+          <SubconOfferDrawer
+            trip={t}
+            onClose={() => undefined}
+            {...(onChangeCarrier ? { onChangeCarrier } : {})}
+          />
+        </I18nProvider>
+      </QueryClientProvider>,
+    );
+
+  it('รอตอบ: เมนู ⋯ "เปลี่ยนผู้รับเหมา" → ReasonDialog เหตุผล ≥ 10 ตัว → onChangeCarrier(เหตุผล)', () => {
+    const onChange = vi.fn();
+    open(trip(), onChange);
+    fireEvent.click(screen.getByRole('button', { name: 'เพิ่มเติม' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'เปลี่ยนผู้รับเหมา' }));
+    expect(screen.getByText(/ยกเลิกการจ้าง หจก\. เอ แล้วเลือกผู้รับเหมารายใหม่/)).toBeTruthy();
+    const ok = screen.getByRole('button', { name: 'เลือกผู้รับเหมารายใหม่' }) as HTMLButtonElement;
+    fireEvent.change(screen.getByPlaceholderText('เช่น รถของผู้รับเหมาเดิมเสียก่อนเข้ารับสินค้า'), {
+      target: { value: 'สั้นไป' },
+    });
+    expect(ok.disabled).toBe(true);
+    fireEvent.change(screen.getByPlaceholderText('เช่น รถของผู้รับเหมาเดิมเสียก่อนเข้ารับสินค้า'), {
+      target: { value: 'รถของผู้รับเหมาเดิมเสียก่อนเข้ารับสินค้า' },
+    });
+    expect(screen.getByText('บันทึกพร้อมชื่อผู้ทำรายการและเวลา')).toBeTruthy();
+    expect(screen.queryByText('บันทึกพร้อมชื่อผู้อนุมัติและเวลา')).toBeNull();
+    fireEvent.click(ok);
+    expect(onChange).toHaveBeenCalledWith('รถของผู้รับเหมาเดิมเสียก่อนเข้ารับสินค้า');
+  });
+
+  it('รับงานแล้ว (ASSIGNED): ข้อความบอกว่ารถ/คนขับรายเดิมถูกถอด · ปล่อยรถแล้ว/ไม่ส่ง callback → ไม่มีเมนู', () => {
+    const base = trip();
+    const acc = {
+      ...base,
+      status: 'ASSIGNED',
+      hire: { ...base.hire!, status: 'ACCEPTED' },
+      vehicle: { id: 'veh_1', plate: '74-5521', vehicleTypeId: 'vty', vehicleTypeName: '6 ล้อ' },
+    } as TripDetail;
+    const { unmount } = open(acc, () => undefined);
+    fireEvent.click(screen.getByRole('button', { name: 'เพิ่มเติม' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'เปลี่ยนผู้รับเหมา' }));
+    expect(screen.getByText(/ที่รับงานแล้ว \(รถ 74-5521\)/)).toBeTruthy();
+    unmount();
+    const { unmount: u2 } = open({ ...acc, status: 'DISPATCHED' } as TripDetail, () => undefined);
+    expect(screen.queryByRole('button', { name: 'เพิ่มเติม' })).toBeNull();
+    u2();
+    open(trip());
+    expect(screen.queryByRole('button', { name: 'เพิ่มเติม' })).toBeNull();
+  });
+
+  it('กิจกรรม: รายเดิมรับงานแล้วถูกยกเลิก → "รับงาน" + "ยกเลิกการจ้าง" (เหตุผล) · รายใหม่ "ส่งข้อเสนอ"', () => {
+    const t = (k: string, v?: Record<string, string | number>) =>
+      `${k}${v ? JSON.stringify(v) : ''}`;
+    const items = activity(
+      [
+        offer({ id: 'sco_2', offeredAt: '2026-11-17T06:00:00.000Z', carrierName: 'บี' }),
+        offer({
+          status: 'WITHDRAWN',
+          respondedAt: '2026-11-17T04:00:00.000Z',
+          respondedVia: 'LINK',
+          acceptedPlate: '74-5521',
+          closedAt: '2026-11-17T06:00:00.000Z',
+          closedReason: 'เปลี่ยนผู้รับเหมา (หจก. เอ): รถเสีย',
+        }),
+        offer({
+          id: 'sco_0',
+          offeredAt: '2026-11-17T01:00:00.000Z',
+          status: 'WITHDRAWN',
+          closedAt: '2026-11-17T02:00:00.000Z',
+          closedReason: 'เปลี่ยนผู้รับเหมา (ซี): ไม่ตอบ',
+        }),
+      ],
+      t as never,
+      (iso) => iso.slice(11, 16),
+    );
+    expect(items.map((i) => (i.title as string).split('{')[0])).toEqual([
+      'sub.log.offered',
+      'sub.log.wd',
+      'sub.log.offered',
+      'sub.log.acc',
+      'sub.log.cancelled',
+      'sub.log.offered',
+    ]);
+    expect(items[4]!.detail).toBe('เปลี่ยนผู้รับเหมา (หจก. เอ): รถเสีย');
+  });
+});

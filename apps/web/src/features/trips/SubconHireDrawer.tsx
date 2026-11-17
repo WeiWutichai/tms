@@ -58,6 +58,7 @@ export function SubconHireDrawer({
   onDone,
   onClose,
   replace = false,
+  change = null,
 }: {
   trip: TripDetail;
   onDone: (message: string) => void;
@@ -67,11 +68,16 @@ export function SubconHireDrawer({
    * แล้วจ้างรายนี้ในคำขอเดียว · รายเริ่มต้น = รายถัดไปที่ถูกสุด (รายที่ไม่ตอบรับไม่นับเป็นถูกสุด)
    */
   replace?: boolean;
+  /**
+   * ST3-T25 เปลี่ยนผู้รับเหมา: เหตุผลที่ผู้ใช้กรอกใน ReasonDialog (≥ 10 ตัว) — ส่ง `changeReason` แทน `replaceOffer`:
+   * API ยกเลิกการจ้างที่ใช้งานอยู่ (รอตอบ/รับงานแล้ว) แล้วจ้างรายนี้ในคำขอเดียว · ตัวเลือกไม่รวมรายเดิม (`?change=true`)
+   */
+  change?: string | null;
 }) {
   const { t } = useI18n();
   const dateText = useDateText();
   const me = useMe();
-  const q = useHireOptions(trip.id, true);
+  const q = useHireOptions(trip.id, true, !!change);
   const hire = useHireTrip();
   const [tab, setTab] = useState<'sum' | 'prev'>('sum');
   const [pick, setPick] = useState<string | null>(null);
@@ -85,11 +91,14 @@ export function SubconHireDrawer({
   const head = {
     kind: t('sub.kind'),
     title: trip.tripNo,
-    badge: replace ? (
-      <Badge label={t('ofl.st.OFFERED')} tone="warn" icon="clock" />
-    ) : (
-      <Badge label={t('trip.st.PLANNING')} tone="off" icon="calendar" />
-    ),
+    badge:
+      change && trip.hire?.status === 'ACCEPTED' ? (
+        <Badge label={t('ofl.st.ACCEPTED')} tone="ok" icon="circle-check" />
+      ) : replace || change ? (
+        <Badge label={t('ofl.st.OFFERED')} tone="warn" icon="clock" />
+      ) : (
+        <Badge label={t('trip.st.PLANNING')} tone="off" icon="calendar" />
+      ),
     labels,
   };
   if (!o)
@@ -165,12 +174,12 @@ export function SubconHireDrawer({
           cost,
           ...(why ? { selectionReason: why } : {}),
           ...(o.vehicleTypeId ? { vehicleTypeId: o.vehicleTypeId } : {}),
-          ...(replace ? { replaceOffer: true } : {}),
+          ...(change ? { changeReason: change } : replace ? { replaceOffer: true } : {}),
         },
       },
       {
         onSuccess: () => {
-          onDone(t('sub.toast.offered', { n: opt.carrier.name }));
+          onDone(t(change ? 'sub.toast.changed' : 'sub.toast.offered', { n: opt.carrier.name }));
           onClose();
         },
         onError: (e) => {
@@ -296,9 +305,11 @@ export function SubconHireDrawer({
                 </option>
               ))}
             </select>
-            {replace && (
+            {(replace || change) && (
               <span style={{ fontSize: 13, color: '#8F5500' }} data-testid="sub-replace">
-                {t('sub.replaceNote', { n: trip.carrier?.name ?? '—' })}
+                {t(change ? 'sub.change.note' : 'sub.replaceNote', {
+                  n: trip.carrier?.name ?? '—',
+                })}
               </span>
             )}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 2fr', gap: 8 }}>
@@ -421,7 +432,7 @@ export function SubconHireDrawer({
                   {opt.blockedReason
                     ? t('sub.reasonBlocked')
                     : opt.priorOutcome
-                      ? t('sub.reasonPrior')
+                      ? t(opt.priorOutcome === 'CHANGED' ? 'sub.reasonChanged' : 'sub.reasonPrior')
                       : o.buyCheapestAmount
                         ? t('sub.reasonNotCheapest', {
                             p: money(o.buyCheapestAmount),

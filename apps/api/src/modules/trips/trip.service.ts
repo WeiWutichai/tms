@@ -174,6 +174,7 @@ const EVENT_TYPE: Partial<Record<TripEvent, string>> = {
   reject: 'trip.offer_rejected',
   expire: 'trip.offer_expired',
   withdraw: 'trip.offer_withdrawn',
+  cancel_hire: 'trip.hire_cancelled',
   assign: 'trip.assigned',
   reassign: 'trip.assigned',
   dispatch: 'trip.dispatched',
@@ -1209,6 +1210,112 @@ export class TripService {
   }
 
   /**
+   * เปลี่ยนผู้รับเหมา (ST3-T25; docs/04 D3 "เปลี่ยน carrier — ยกเลิกการจ้างเดิมแล้วจ้างใหม่ (ประวัติคงอยู่)", plan/11 #13
+   * "ยกเลิกการจ้างบน trip เดิม"): ปิดการจ้างที่ใช้งานอยู่ — ผู้เรียก (`SubconHireService.hire` `changeReason`) จ้างรายใหม่ต่อ
+   * ในล็อก/transaction เดียวกัน (ไม่ผ่าน = rollback ทั้งคู่ — ไม่มีสถานะ "ยกเลิกแล้วแต่ยังไม่จ้าง")
+   * - รอตอบ (OFFERED): `withdraw` → PLANNING ได้ทุกเวลา (ไม่ต้องรอครบ N ชม. ต่างจาก ST3-T24) · การจ้าง → WITHDRAWN
+   * - รับงานแล้ว (ASSIGNED ที่มีการจ้าง ACCEPTED): `cancel_hire` → PLANNING · ล้างรถ/คนขับ/หางของรายเดิม (คงประเภทรถ) ·
+   *   DO PLANNED → DRAFT คงในเที่ยว · ลิงก์ใบคุมรถของคนขับเดิมหมดผล · การจ้าง → WITHDRAWN (คงทะเบียน/คนขับที่รับไว้เป็นประวัติ)
+   * - ปล่อยรถแล้ว/ไม่มีการจ้าง → 409 `carrier_change_not_allowed` (docs/01 §4.2 หลัง DISPATCHED ห้ามแก้ snapshot)
+   * - ทั้งสองกรณี: เหตุผล (≥ 10 ตัว — ผู้เรียกตรวจ) ลง `closed_reason` + audit `subcon_offer.cancelled` · ลิงก์ข้อเสนอเพิกถอน
+   *   (`CARRIER_CHANGED`) · ค่าจ้างที่ยังไม่จ่ายกลับรายการครั้งเดียว (`reverseCarrierFees` — unique `reversal_of_id`) ·
+   *   บรรทัดที่จ่ายแล้วไม่แตะ แต่นับไว้ใน audit (`paidCarrierFees`) · ไม่ตั้งใบค้าง (จ้างรายใหม่ทันที)
+   */
+  async releaseHireForChange(
+    id: string,
+    reason: string,
+    now: Date,
+    tx: Tx = this.db.tx,
+    expectedVersion?: number,
+  ): Promise<{ offerId: string; carrierId: string; carrierName: string; from: TripStatus }> {
+    const { trip, dos } = await this.lock(tx, id, expectedVersion);
+    const o = trip.subconOffers[0];
+    const accepted = trip.status === 'ASSIGNED' && o?.status === 'ACCEPTED';
+    const offered = trip.status === 'OFFERED' && o?.status === 'OFFERED';
+    if (!o || (!accepted && !offered))
+      throw new ProblemException('carrier_change_not_allowed', undefined, undefined, {
+        from: trip.status,
+      });
+    const event: TripEvent = accepted ? 'cancel_hire' : 'withdraw';
+    this.assertCan(trip, event);
+    const why = `เปลี่ยนผู้รับเหมา (${o.carrierNameSnapshot}): ${reason}`;
+    const before = view(trip);
+    await this.transition(
+      tx,
+      trip,
+      event,
+      {
+        ...CLEAR_OFFER,
+        buyRateSnapshot: Prisma.DbNull,
+        ...(accepted ? { ...CLEAR_CREW, assignedAt: null } : {}),
+      },
+      // ไม่เพิ่ม version ที่ขั้นนี้ — การจ้างรายใหม่ในคำขอเดียวกันเพิ่มให้ 1 ครั้ง (review L3: 1 คำขอ = 1 version)
+      { note: why, bump: false },
+    );
+    if (accepted) {
+      for (const d of await this.reload(tx, dos)) await this.dos.unplanForTrip(tx, d, why);
+      // ลิงก์ใบคุมรถของเที่ยวนี้หมดผลเสมอ (review L1 — ไม่ขึ้นกับว่ามีคนขับใน snapshot)
+      await this.sheetLinks.revokeForTrip(tx, trip.id, 'DRIVER_CHANGED');
+    }
+    await tx.subconOffer.update({
+      where: { id: o.id },
+      data: {
+        status: 'WITHDRAWN',
+        closedAt: now,
+        closedReason: why,
+        closedCause: 'CARRIER_CHANGED',
+      },
+    });
+    await this.offerLinks.revoke(tx, [o.id], 'CARRIER_CHANGED', trip.id);
+    const actor = requestContext.require().actorId ?? null;
+    const reversed = await reverseCarrierFees(
+      tx,
+      trip.id,
+      actor,
+      'กลับรายการค่าจ้างรถร่วม (เปลี่ยนผู้รับเหมา)',
+    );
+    // ค่าจ้างที่จ่ายแล้ว (อยู่ใน settlement — ST6) ไม่กลับรายการอัตโนมัติ: ธงไว้ให้ฝ่ายบัญชีตาม (ใบลดหนี้/หักคืน)
+    const paid = await tx.tripCost.count({
+      where: {
+        subconOfferId: o.id,
+        costType: 'CARRIER_FEE',
+        amount: { gt: 0 },
+        settlementLineId: { not: null },
+      },
+    });
+    await this.audit.record({
+      action: 'subcon_offer.cancelled',
+      entityType: ENTITY,
+      entityId: trip.id,
+      before,
+      after: {
+        offerId: encodeId('subconOffer', o.id),
+        cause: 'CARRIER_CHANGED',
+        offerStatus: o.status,
+        ...(accepted
+          ? { acceptedPlate: o.acceptedPlate, acceptedDriver: o.acceptedDriverName }
+          : {}),
+        ...(reversed ? { reversedCarrierFees: reversed } : {}),
+        ...(paid ? { paidCarrierFees: paid } : {}),
+      },
+      reason: why,
+    });
+    await this.emitOffer(tx, accepted ? 'subcon_offer.cancelled' : 'subcon_offer.withdrawn', {
+      id: o.id,
+      tripId: trip.id,
+      carrierId: o.carrierId,
+      status: 'WITHDRAWN',
+      cause: 'CARRIER_CHANGED',
+    });
+    return {
+      offerId: o.id,
+      carrierId: o.carrierId,
+      carrierName: o.carrierNameSnapshot,
+      from: trip.status as TripStatus,
+    };
+  }
+
+  /**
    * ปล่อยรถ (ASSIGNED → DISPATCHED): ต้องมี DO ≥ 1 · ทุก DO → DISPATCHED · SO → IN_TRANSIT
    * ST3-T14 (PLN-088 "ประเมินตอนส่งแผน"): ตรวจกฎใหม่ก่อนปล่อย — บล็อกที่ยังไม่ยกเว้น → 409 `assignment_blocked`,
    * คำเตือนที่ยังไม่ยืนยัน → 409 `assignment_warnings` (ยืนยัน/ยกเว้นในคำขอนี้ได้ด้วย `rules`)
@@ -1607,7 +1714,7 @@ export class TripService {
     trip: TripRecord,
     event: TripEvent,
     data: Prisma.TripUncheckedUpdateManyInput,
-    extra: { reasonCodeId?: string | null; note?: string | null } = {},
+    extra: { reasonCodeId?: string | null; note?: string | null; bump?: boolean } = {},
   ) {
     await this.state.transition<TripStatus, TripEvent>(tx, {
       docType: ENTITY,
@@ -1621,7 +1728,11 @@ export class TripService {
       apply: async (to) => {
         const r = await tx.trip.updateMany({
           where: { id: trip.id, status: trip.status, version: trip.version },
-          data: { ...data, status: to as DbTripStatus, version: { increment: 1 } },
+          data: {
+            ...data,
+            status: to as DbTripStatus,
+            ...(extra.bump === false ? {} : { version: { increment: 1 } }),
+          },
         });
         if (r.count === 0) throw new ProblemException('concurrent_update');
         return eventView(await this.get(trip.id, tx));
@@ -2389,6 +2500,20 @@ const CLEAR_OFFER = {
   assignmentExpiresAt: null,
   offeredAt: null,
   offeredBy: null,
+} as const;
+
+/** รถ/คนขับ/หางของรายเดิม (ST3-T25 ยกเลิกการจ้างที่รับแล้ว — คงประเภทรถไว้ใช้คิดราคาจ้างรายใหม่) */
+const CLEAR_CREW = {
+  driverId: null,
+  driverNameSnapshot: null,
+  driverPhoneSnapshot: null,
+  reliefDriverId: null,
+  reliefDriverNameSnapshot: null,
+  reliefDriverPhoneSnapshot: null,
+  vehicleId: null,
+  vehiclePlateSnapshot: null,
+  trailerId: null,
+  trailerPlateSnapshot: null,
 } as const;
 
 const CLEAR_VEHICLE = {

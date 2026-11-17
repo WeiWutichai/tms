@@ -4,6 +4,7 @@ import {
   Drawer,
   EmptyState,
   Icon,
+  ReasonDialog,
   Toast,
   type TimelineItem,
 } from '@tms/ui';
@@ -65,11 +66,17 @@ export function SubconOfferDrawer({
   trip,
   onClose,
   onNext,
+  onChangeCarrier,
 }: {
   trip: TripDetail;
   onClose: () => void;
   /** ST3-T24 "ส่งรายถัดไป" (ครบเวลาตอบ N ชม. แล้วยังไม่ตอบ) → เปิด drawer จ้างรถร่วมแบบแทนรายเดิม */
   onNext?: () => void;
+  /**
+   * ST3-T25 เมนู ⋯ "เปลี่ยนผู้รับเหมา" (รอตอบ หรือรับงานแล้วแต่ยังไม่ปล่อยรถ): ReasonDialog เหตุผล ≥ 10 ตัว →
+   * เปิด drawer จ้างรถร่วมแบบเปลี่ยนราย (ยกเลิกการจ้างเดิมตอนกดส่งข้อเสนอ — คำขอเดียว)
+   */
+  onChangeCarrier?: (reason: string) => void;
 }) {
   const { t } = useI18n();
   const dateText = useDateText();
@@ -80,6 +87,11 @@ export function SubconOfferDrawer({
   const [tab, setTab] = useState<'sum' | 'prev' | 'log'>('sum');
   const [err, setErr] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [asking, setAsking] = useState(false);
+  // เปลี่ยนผู้รับเหมาได้ระหว่างรอตอบ หรือรับงานแล้วแต่ยังไม่ปล่อยรถ (docs/01 §4.2 — หลังปล่อยรถห้ามแก้ snapshot)
+  const canChange =
+    !!onChangeCarrier &&
+    ((trip.status === 'OFFERED' && !acc) || (trip.status === 'ASSIGNED' && acc));
   const opts = useHireOptions(trip.id, !acc);
   const link = useOfferLink(trip.id, true);
   const offers = useTripOffers(trip.id, true);
@@ -189,6 +201,18 @@ export function SubconOfferDrawer({
         />
       }
       labels={labels}
+      menu={
+        canChange
+          ? [
+              {
+                label: t('sub.menu.change'),
+                icon: 'repeat',
+                danger: true,
+                onClick: () => setAsking(true),
+              },
+            ]
+          : undefined
+      }
       tabs={[
         { key: 'sum', label: t('sub.tab.sum') },
         { key: 'prev', label: t('sub.tab.prev') },
@@ -539,6 +563,30 @@ export function SubconOfferDrawer({
           <EmptyState icon="history" title={t('sub.log.empty')} description="" />
         ))}
       <Toast message={toast} onClose={() => setToast(null)} closeLabel={t('drawer.close')} />
+      <ReasonDialog
+        open={asking}
+        title={t('sub.change.title')}
+        description={
+          acc
+            ? t('sub.change.descAcc', {
+                n: carrierName,
+                p: trip.vehicle?.plate ?? cur?.acceptedPlate ?? '—',
+              })
+            : t('sub.change.desc', { n: carrierName })
+        }
+        label={t('sub.change.reason')}
+        placeholder={t('sub.change.ph')}
+        okLabel={t('sub.change.ok')}
+        cancelLabel={t('common.cancel')}
+        closeLabel={t('drawer.close')}
+        minLength={10}
+        hint={(n, ok) => (ok ? t('sub.change.hintOk') : t('ord.dlg.hintMin', { n }))}
+        onClose={() => setAsking(false)}
+        onOk={(reason) => {
+          setAsking(false);
+          onChangeCarrier?.(reason);
+        }}
+      />
     </Drawer>
   );
 }
@@ -589,14 +637,16 @@ export function activity(
         badge: ok,
       });
     const at = o.respondedAt ?? o.closedAt;
-    if (o.status === 'ACCEPTED' && at)
+    // รับงานแล้วถูกยกเลิกภายหลัง (ST3-T25 เปลี่ยนผู้รับเหมา / ยกเลิกเที่ยว) — การรับงานยังอยู่ในประวัติ
+    const wasAccepted = o.status === 'ACCEPTED' || (o.status === 'WITHDRAWN' && !!o.acceptedPlate);
+    if (wasAccepted && o.respondedAt)
       out.push({
         key: `${o.id}-acc`,
-        at,
+        at: o.respondedAt,
         title: t(o.respondedVia === 'USER' ? 'sub.log.accUser' : 'sub.log.acc', {
           p: o.acceptedPlate ?? '—',
         }),
-        sub: `${dt(at)} · ACCEPTED`,
+        sub: `${dt(o.respondedAt)} · ACCEPTED`,
         badge: ok,
         detail: json({ plate: o.acceptedPlate, driver: o.acceptedDriverName }),
       });
@@ -623,11 +673,15 @@ export function activity(
       out.push({
         key: `${o.id}-wd`,
         at: o.closedAt,
-        title: t('sub.log.wd'),
+        title: t(o.acceptedPlate ? 'sub.log.cancelled' : 'sub.log.wd'),
         sub: `${dt(o.closedAt)} · WITHDRAWN`,
         badge: { label: t('sub.log.ok'), tone: 'off', icon: 'ban' },
         ...(o.closedReason ? { detail: o.closedReason } : {}),
       });
   }
-  return out.sort((a, b) => Date.parse(a.at) - Date.parse(b.at)).map(({ at: _at, ...x }) => x);
+  // เวลาเท่ากัน (ST3-T25 ยกเลิกการจ้างเดิม + เสนอรายใหม่ในคำขอเดียว) → การปิดของรายเดิมมาก่อนการเสนอรายใหม่
+  const rank = (k: string) => (k.endsWith('-offered') ? 1 : 0);
+  return out
+    .sort((a, b) => Date.parse(a.at) - Date.parse(b.at) || rank(a.key) - rank(b.key))
+    .map(({ at: _at, ...x }) => x);
 }

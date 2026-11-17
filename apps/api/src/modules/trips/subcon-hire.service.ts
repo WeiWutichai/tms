@@ -81,7 +81,8 @@ export interface HireCarrierOption {
   prior: PriorOutcome | null;
 }
 
-export type PriorOutcome = 'REJECTED' | 'EXPIRED' | 'NO_RESPONSE';
+/** ST3-T25 CHANGED = ผู้จัดรถเปลี่ยนรายนี้ออกจากเที่ยวนี้ (ยกเลิกการจ้าง) — ไม่นับถูกสุด/ไม่เลือกเป็นค่าเริ่มต้น เลือกซ้ำต้องมีเหตุผล */
+export type PriorOutcome = 'REJECTED' | 'EXPIRED' | 'NO_RESPONSE' | 'CHANGED';
 /** ค่าตั้ง N ชม. (docs/04 D3 "ไม่ตอบใน N ชม.") — registry `dispatch.subconResponseHours` */
 export const RESPONSE_HOURS_KEY = 'dispatch.subconResponseHours' as const;
 
@@ -96,7 +97,15 @@ export interface HireInput {
   replaceOffer?: boolean;
   /** หมายเหตุการถอนรายเดิม (ไม่บังคับ — ต่อท้ายเหตุผลระบบ) */
   replaceNote?: string | null;
+  /**
+   * ST3-T25 เปลี่ยนผู้รับเหมา: เหตุผล (≥ 10 ตัว) — ยกเลิกการจ้างที่ใช้งานอยู่ (รอตอบได้ทุกเวลา / รับงานแล้วแต่ยังไม่ปล่อยรถ)
+   * แล้วจ้างรายนี้ในคำขอเดียว · ส่งค่านี้ = โหมดเปลี่ยนผู้รับเหมา (ไม่ใช้เงื่อนไขครบ N ชม. ของ `replaceOffer`)
+   */
+  changeReason?: string | null;
 }
+
+/** เหตุผลเปลี่ยนผู้รับเหมาขั้นต่ำ (CLAUDE.md "ทุกการยกเลิกต้องมีเหตุผล" — ชุดเดียวกับเหตุผลยกเลิกเที่ยว) */
+export const CHANGE_REASON_MIN_LENGTH = 10;
 
 const NO_QUOTE = (reason: string): BuyQuote => ({
   status: 'RATE_MISSING',
@@ -112,6 +121,17 @@ const NO_QUOTE = (reason: string): BuyQuote => ({
 });
 
 const MONEY_RE = /^\d{1,12}(\.\d{1,2})?$/;
+
+/** ต่อท้ายเหตุผลระบบ "ถูกสุด": รายที่ไม่นับ (ไม่รับงานเที่ยวนี้ — ST3-T24 · ถูกเปลี่ยนออก — ST3-T25) */
+function excludedNote(options: { prior: PriorOutcome | null }[]): string {
+  const changed = options.filter((o) => o.prior === 'CHANGED').length;
+  const declined = options.filter((o) => o.prior && o.prior !== 'CHANGED').length;
+  const parts = [
+    ...(declined ? [`${declined} รายที่ไม่รับงานเที่ยวนี้`] : []),
+    ...(changed ? [`${changed} รายที่ถูกเปลี่ยนออก`] : []),
+  ];
+  return parts.length ? ` (ไม่นับ ${parts.join(' และ ')})` : '';
+}
 
 /**
  * จ้างรถร่วม (ST3-T22; docs/04 D3 "เลือก carrier + ราคาซื้อ" + "บันทึกเหตุผลการเลือก", spec/03 §8)
@@ -144,6 +164,7 @@ export class SubconHireService {
         status: true,
         responseDueAt: true,
         closedAt: true,
+        closedCause: true,
         respondedAt: true,
       },
       orderBy: { offeredAt: 'asc' },
@@ -152,18 +173,20 @@ export class SubconHireService {
     for (const r of rows) {
       const due = r.responseDueAt;
       const outcome: PriorOutcome | null =
-        r.status === 'REJECTED'
-          ? 'REJECTED'
-          : r.status === 'EXPIRED'
-            ? 'EXPIRED'
-            : (r.status === 'WITHDRAWN' &&
-                  !r.respondedAt &&
-                  due &&
-                  r.closedAt &&
-                  due.getTime() <= r.closedAt.getTime()) ||
-                (r.status === 'OFFERED' && due && due.getTime() <= now.getTime())
-              ? 'NO_RESPONSE'
-              : null;
+        r.status === 'WITHDRAWN' && r.closedCause === 'CARRIER_CHANGED'
+          ? 'CHANGED'
+          : r.status === 'REJECTED'
+            ? 'REJECTED'
+            : r.status === 'EXPIRED'
+              ? 'EXPIRED'
+              : (r.status === 'WITHDRAWN' &&
+                    !r.respondedAt &&
+                    due &&
+                    r.closedAt &&
+                    due.getTime() <= r.closedAt.getTime()) ||
+                  (r.status === 'OFFERED' && due && due.getTime() <= now.getTime())
+                ? 'NO_RESPONSE'
+                : null;
       if (outcome) out.set(r.carrierId, outcome);
       else out.delete(r.carrierId);
     }
@@ -445,14 +468,18 @@ export class SubconHireService {
   }
 
   /** GET /trips/{id}/hire-options — ตัวเลือก + ราคา 5 ครั้งล่าสุด + รายที่ถูกสุด (อ่านอย่างเดียว) */
-  async optionsDto(trip: TripRecord, vehicleTypeId?: string | null): Promise<HireOptionsDto> {
+  async optionsDto(
+    trip: TripRecord,
+    vehicleTypeId?: string | null,
+    /** ST3-T25 ตัวเลือกสำหรับเปลี่ยนผู้รับเหมา: ไม่รวมรายของการจ้างที่ใช้งานอยู่ (เลือกซ้ำไม่ได้ · ไม่นับเป็นถูกสุด) */
+    change = false,
+  ): Promise<HireOptionsDto> {
     const tx = this.db.tx;
     const ctx = await this.context(tx, trip, vehicleTypeId);
-    const options = await this.candidates(
-      tx,
-      ctx,
-      await this.priorOutcomes(tx, trip.id, this.clock.now()),
-    );
+    const current = change ? (trip.subconOffers[0]?.carrierId ?? null) : null;
+    const options = (
+      await this.candidates(tx, ctx, await this.priorOutcomes(tx, trip.id, this.clock.now()))
+    ).filter((o) => o.carrier.id !== current);
     const decision = decideSelection('0.00', this.comparable(options));
     const cheapest = new Set(decision.cheapestCarrierIds);
     const recent = await this.recent(
@@ -515,7 +542,37 @@ export class SubconHireService {
     const actor = requestContext.require().actorId ?? null;
     const now = this.clock.now();
     let version = expectedVersion;
-    if (input.replaceOffer) {
+    const changeReason =
+      input.changeReason === undefined || input.changeReason === null
+        ? null
+        : cleanLine(String(input.changeReason)).trim();
+    /** ST3-T25 รายเดิมที่ถูกเปลี่ยน — เลือกซ้ำไม่ได้ และไม่นับในการเทียบถูกสุด (ยกเลิกไปในคำขอนี้) */
+    let replaced: { carrierId: string; carrierName: string; from: string } | null = null;
+    if (changeReason !== null) {
+      if ([...changeReason].length < CHANGE_REASON_MIN_LENGTH)
+        throw field422(
+          'changeReason',
+          changeReason ? 'too_short' : 'required',
+          `change reason must be at least ${CHANGE_REASON_MIN_LENGTH} characters`,
+          'ระบุเหตุผลที่เปลี่ยนผู้รับเหมา (อย่างน้อย 10 ตัวอักษร)',
+        );
+      // ทั้งคำขออยู่ใน transaction เดียว — ตรวจไม่ผ่านหลังปิดการจ้างเดิม = ย้อนกลับทั้งหมด
+      replaced = await this.trips.releaseHireForChange(
+        id,
+        changeReason,
+        now,
+        this.db.tx,
+        expectedVersion,
+      );
+      if (replaced.carrierId === input.carrierId)
+        throw field422(
+          'carrierId',
+          'same_carrier',
+          'choose a different carrier — this is the current carrier',
+          'เลือกผู้รับเหมารายอื่น — รายนี้คือผู้รับเหมาเดิม',
+        );
+      version = undefined;
+    } else if (input.replaceOffer) {
       // ST3-T24 "ส่งรายถัดไป" ระหว่างรอตอบ: ปิดการจ้างที่ครบเวลาตอบก่อน (ล็อก/ตรวจ If-Match ที่นี่) แล้วจ้างรายใหม่ในล็อกเดียวกัน
       await this.trips.withdrawTimedOutOffer(
         id,
@@ -533,7 +590,9 @@ export class SubconHireService {
       version,
       async (tx, trip, carrier, at) => {
         const ctx = await this.context(tx, trip, input.vehicleTypeId);
-        const options = await this.candidates(tx, ctx, await this.priorOutcomes(tx, trip.id, now));
+        const options = (
+          await this.candidates(tx, ctx, await this.priorOutcomes(tx, trip.id, now))
+        ).filter((o) => o.carrier.id !== replaced?.carrierId);
         const me = options.find((o) => o.carrier.id === carrier.id);
         const mine = me?.quote ?? (await this.quote(tx, ctx, carrier.id));
         const amount = cost ?? mine.total;
@@ -559,21 +618,20 @@ export class SubconHireService {
             `selection reason (≥ ${SELECTION_REASON_MIN_LENGTH} characters) is required when not hiring the cheapest carrier`,
             me?.blocked
               ? `${me.blocked} — ระบุเหตุผลที่เลือกรายนี้ (อย่างน้อย 10 ตัวอักษร)`
-              : me?.prior
-                ? 'รายนี้ไม่รับงานเที่ยวนี้มาแล้ว — ระบุเหตุผลที่เสนอให้อีกครั้ง (อย่างน้อย 10 ตัวอักษร)'
-                : decision.cheapestAmount === null
-                  ? 'ไม่มีราคาจาก rate card ขาซื้อให้เทียบ — ระบุเหตุผลที่เลือกรายนี้ (อย่างน้อย 10 ตัวอักษร)'
-                  : 'รายนี้ไม่ใช่ราคาถูกสุด — ระบุเหตุผลที่เลือก (อย่างน้อย 10 ตัวอักษร)',
+              : me?.prior === 'CHANGED'
+                ? 'รายนี้ถูกเปลี่ยนออกจากเที่ยวนี้แล้ว — ระบุเหตุผลที่จ้างอีกครั้ง (อย่างน้อย 10 ตัวอักษร)'
+                : me?.prior
+                  ? 'รายนี้ไม่รับงานเที่ยวนี้มาแล้ว — ระบุเหตุผลที่เสนอให้อีกครั้ง (อย่างน้อย 10 ตัวอักษร)'
+                  : decision.cheapestAmount === null
+                    ? 'ไม่มีราคาจาก rate card ขาซื้อให้เทียบ — ระบุเหตุผลที่เลือกรายนี้ (อย่างน้อย 10 ตัวอักษร)'
+                    : 'รายนี้ไม่ใช่ราคาถูกสุด — ระบุเหตุผลที่เลือก (อย่างน้อย 10 ตัวอักษร)',
           );
         const kind: SelectionKind = decision.kind;
         const reason =
           kind === 'CHEAPEST'
             ? typed.length >= SELECTION_REASON_MIN_LENGTH
               ? typed
-              : cheapestReasonTh(priced.length) +
-                (options.some((o) => o.prior)
-                  ? ` (ไม่นับ ${options.filter((o) => o.prior).length} รายที่ไม่รับงานเที่ยวนี้)`
-                  : '')
+              : cheapestReasonTh(priced.length) + excludedNote(options)
             : typed;
         // ตรงกับราคา rate card ของรายนี้ = RATE_CARD · แก้ราคา/ไม่มี rate card = MANUAL
         const priceSource =
@@ -712,6 +770,13 @@ export class SubconHireService {
             buySelectionKind: kind,
             selectionReason: reason,
             ...(reversed ? { reversedFees: reversed } : {}),
+            ...(replaced
+              ? {
+                  changedFrom: replaced.carrierName,
+                  changedFromStatus: replaced.from,
+                  changeReason,
+                }
+              : {}),
           },
           reason,
         };

@@ -668,6 +668,14 @@ export class DeliveryOrderService {
     if (d.status === 'DRAFT') await this.move(tx, d, 'plan', {}, null);
   }
 
+  /**
+   * เปลี่ยนผู้รับเหมาหลังรับงาน (ST3-T25 — เที่ยว ASSIGNED → PLANNING): DO PLANNED → `unplan` → DRAFT **คงอยู่ในเที่ยว**
+   * (จุด/ลำดับเดิม — จ้างรายใหม่ต่อทันที) · DRAFT คงเดิม
+   */
+  async unplanForTrip(tx: Tx, d: DeliveryOrderRecord, note: string): Promise<void> {
+    if (d.status === 'PLANNED') await this.move(tx, d, 'unplan', {}, note);
+  }
+
   /** ปล่อยรถ → DO PLANNED → DISPATCHED (docs/01 §4.2 "ทุก DO ใน trip เป็น DISPATCHED") */
   async dispatchForTrip(tx: Tx, d: DeliveryOrderRecord): Promise<void> {
     await this.move(tx, d, 'dispatch', {}, null);

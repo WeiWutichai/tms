@@ -718,18 +718,23 @@ export class TripsController {
   ): Promise<HireOptionsDto> {
     requireAlso('prices.buy:read');
     const trip = await this.trips.get(decodeIdOr404('trip', id));
-    return this.subcon.optionsDto(trip, optRef('vehicleType', q.vehicleTypeId, 'vehicleTypeId'));
+    return this.subcon.optionsDto(
+      trip,
+      optRef('vehicleType', q.vehicleTypeId, 'vehicleTypeId'),
+      q.change === 'true',
+    );
   }
 
   /**
    * จ้างรถร่วม = เสนองาน → OFFERED (ST3-T22; ลิงก์รับงาน = ST3-T23): ราคาซื้อ → `trip_cost` CARRIER_FEE + `selectionReason`
    * ไม่ใช่ราคาถูกสุด/ไม่มีราคาให้เทียบ → ต้องมีเหตุผล (422 `selection_reason_required`) · ต้องมี `prices.buy:read` ด้วย
+   * ST3-T24 `replaceOffer` = ส่งรายถัดไปเมื่อครบ N ชม. · ST3-T25 `changeReason` = เปลี่ยนผู้รับเหมา (ยกเลิกการจ้างเดิมแล้วจ้างใหม่)
    */
   @Post(':id/offer')
   @ApiProblems(
     T403('trips:assign'),
     T404,
-    T409('trip_empty', 'offer_closed', 'offer_not_timed_out'),
+    T409('trip_empty', 'offer_closed', 'offer_not_timed_out', 'carrier_change_not_allowed'),
     T412,
     T422,
   )
@@ -756,6 +761,7 @@ export class TripsController {
         vehicleTypeId: optRef('vehicleType', body.vehicleTypeId, 'vehicleTypeId') ?? null,
         replaceOffer: body.replaceOffer === true,
         replaceNote: body.replaceNote ?? null,
+        changeReason: body.changeReason ?? null,
       },
       expectedVersion(req),
     );
