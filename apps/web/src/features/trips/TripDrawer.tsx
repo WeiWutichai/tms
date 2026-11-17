@@ -33,7 +33,8 @@ import { sortVehicles } from './assignForm';
 import { SubconHireDrawer } from './SubconHireDrawer';
 import { SubconOfferDrawer } from './SubconOfferDrawer';
 import { tripProblemText } from './tripProblem';
-import { isOpen, RECORDABLE } from './tripStepper';
+import { RECORDABLE, restStops } from './tripStepper';
+import { useTripEvents } from './useTripTimeline';
 import { TripTimeline } from './TripTimeline';
 
 /** ป้ายสถานะเที่ยว — สี/ไอคอนตามกลุ่มสถานะของต้นแบบ (วางแผน / จัดรถแล้ว / ระหว่างส่ง / ส่งแล้ว) */
@@ -48,6 +49,9 @@ const TONE: Record<string, { tone: 'off' | 'ok' | 'info' | 'warn' | 'err'; icon:
   SETTLED: { tone: 'ok', icon: 'circle-check' },
   CANCELLED: { tone: 'off', icon: 'ban' },
 };
+
+/** เที่ยวที่ไม่ส่งลิงก์ใบคุมรถให้คนขับแล้ว */
+const DONE_FOR_SHARE = new Set(['COMPLETED', 'COSTED', 'SETTLED', 'CANCELLED']);
 
 /** แก้จุดได้เฉพาะก่อนปล่อยรถ (API: PLANNING/ASSIGNED — ต้นแบบ `ed = t.st === 'วางแผน'`) */
 const EDITABLE = new Set(['PLANNING', 'ASSIGNED']);
@@ -380,6 +384,8 @@ export function TripDrawer({
   /** ST4-T04 แท็บ รายละเอียด / ไทม์ไลน์ */
   const [tab, setTab] = useState<'sum' | 'tl'>('sum');
   const [failRest, setFailRest] = useState(false);
+  /** ไทม์ไลน์ (แชร์ cache กับแท็บ) — footer "ส่งไม่สำเร็จจุดที่เหลือ" ไม่นับจุดที่มีปิดงานรอตัดสิน */
+  const tl = useTripEvents(id, tab === 'tl');
   const labels = { close: t('drawer.close'), more: t('drawer.more') };
   const tr = q.data;
   const assignable =
@@ -561,7 +567,8 @@ export function TripDrawer({
   // ST3-T23 การจ้างที่ใช้งานอยู่ (รอตอบ/รับงาน) → เปิด drawer "จ่ายงานรถร่วม" ดูลิงก์/ส่ง LINE/กิจกรรม
   const showOffer = canHire && !!tr.hire && tr.status !== 'CANCELLED';
   // ไม่มีคนขับ (ยังไม่จัด/รถร่วมยังไม่ใส่คนขับ) = ไม่มีผู้รับลิงก์ (review ST3-T20 L6)
-  const showShare = showPrint && canDispatch && !!tr.driver;
+  // ST4-T04 (review L5): เที่ยวจบ/ยกเลิกแล้วไม่ส่งลิงก์ใบคุมรถให้คนขับ · ระหว่างวิ่งยังส่งซ้ำได้ (คนขับทำลิงก์หาย)
+  const showShare = showPrint && canDispatch && !!tr.driver && !DONE_FOR_SHARE.has(tr.status);
   const sheetBusy = print.isPending || shareLink.isPending;
   const printSheet = () => {
     setErr(null);
@@ -632,7 +639,7 @@ export function TripDrawer({
   const st = TONE[tr.status] ?? TONE.PLANNING!;
   // ST4-T04 บันทึกแทนคนขับ: เที่ยวปล่อยแล้ว/กำลังวิ่ง + `trips:dispatch` (API เดียวกับลิงก์/แอป)
   const canRecord = canDispatch && RECORDABLE.has(tr.status);
-  const showFailRest = tab === 'tl' && canRecord && tr.stops.some(isOpen);
+  const showFailRest = tab === 'tl' && canRecord && restStops(tr.stops, tl.data ?? []).length > 0;
   /** ธงของเที่ยวนี้ → ศูนย์ข้อยกเว้น กรองเลขเที่ยว แท็บ "ใหม่" */
   const openFlags = () => {
     writeSession('exc.tab', 'open');

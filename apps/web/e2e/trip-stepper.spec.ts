@@ -205,7 +205,7 @@ test.describe.serial('บันทึกสถานะแทนคนขับ�
       `ถึงจุด ${arr.time} · บันทึกโดย ${DISPATCHER_NAME} · บันทึกผ่านเว็บ`,
     );
     await expect(lines.nth(1)).toContainText(
-      `ปิดงาน (ส่งสำเร็จ) ${done.time} · บันทึกโดย ${DISPATCHER_NAME}`,
+      `ปิดงาน (รับสำเร็จ) ${done.time} · บันทึกโดย ${DISPATCHER_NAME}`,
     );
 
     const tl = await timeline(page);
@@ -227,6 +227,12 @@ test.describe.serial('บันทึกสถานะแทนคนขับ�
     await steps.nth(0).getByRole('button', { name: 'ออกจากจุด' }).click();
     const dep = page.getByRole('dialog', { name: 'บันทึกออกจากจุด' });
     await expect(dep).toContainText(`ออกจาก ${name.a} มุ่งหน้าไป ${name.b}`);
+    // ก่อนเวลาปิดงานของจุดรับ (บันทึกไว้ 120 นาทีก่อน) → ปฏิเสธในหน้าจอ ไม่สร้าง event ขัดลำดับ
+    const early = ago(130);
+    await dep.getByLabel(/วันที่/).fill(early.date);
+    await dep.getByLabel(/เวลาที่เกิดจริง/).fill(early.time);
+    await dep.getByRole('button', { name: 'บันทึก' }).click();
+    await expect(dep.getByRole('alert')).toContainText('เวลาต้องไม่ก่อนเวลาปิดงานของจุดที่ออก');
     await dep.getByLabel(/วันที่/).fill(left.date);
     await dep.getByLabel(/เวลาที่เกิดจริง/).fill(left.time);
     await dep.getByRole('button', { name: 'บันทึก' }).click();

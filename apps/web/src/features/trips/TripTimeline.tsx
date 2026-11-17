@@ -1,17 +1,25 @@
 import { ChoiceGroup, EmptyState, Icon, useEscapeLayer } from '@tms/ui';
-import { useId, useState, type ReactNode } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { useEffect, useId, useState, type ReactNode } from 'react';
 import { useI18n, type T } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
 import { problemText } from '../master/problems';
 import { fromBangkok, toBangkok } from '../orders/orderForm';
-import { useReasonCodes } from '../settings/useReasonCodes';
+import { useDateTimeText } from '../rate-cards/rateFormat';
+import { CATEGORIES, useReasonCodes } from '../settings/useReasonCodes';
 import {
-  isOpen,
+  beforeFloor,
+  realDeparture,
   reasonRule,
+  restStops as restOf,
   STEP_LOOK,
   stepActions,
+  stepKey,
   timeError,
+  timeFloor,
   TONE_COLORS,
+  type Floor,
+  type StepEvent,
   type TripStop,
 } from './tripStepper';
 import type { TripDetail } from './useTrips';
@@ -51,6 +59,36 @@ const PILL = {
 const stepTitle = (t: T, s: TripStop) =>
   t(`trip.tl.step.${s.type}` as MessageKey, { site: s.siteName });
 
+/** ผลของจุด — จุดรับใช้คำของการรับ ("รับสำเร็จ") · จุดส่งใช้คำของการส่ง (review/QA L4) */
+const outLabel = (t: T, type: string, o: string) =>
+  type === 'PICKUP' ? t(`trip.tl.out.PICKUP.${o}` as MessageKey) : t(`exc.out.${o}` as MessageKey);
+
+/** รอบโหลดซ้ำขณะเปิดแท็บ (เห็นสถานะจากลิงก์/แอปคนขับ — review/QA L5) */
+const REFRESH_MS = 30_000;
+
+/** ชิปเล็กของบรรทัด event */
+function Chip({ label, c, bg }: { label: string; c: string; bg: string }) {
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        height: 18,
+        padding: '0 6px',
+        marginLeft: 6,
+        borderRadius: 999,
+        background: bg,
+        color: c,
+        fontSize: 11,
+        fontWeight: 600,
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {label}
+    </span>
+  );
+}
+
 /**
  * แท็บ "ไทม์ไลน์" ของ drawer เที่ยวรถ (ST4-T04 — ต้นแบบ TMS v4 vPanel 'trp' แท็บ tl: "ความคืบหน้าเที่ยว" ขั้นต่อจุด
  * "รับสินค้า · …" / "ส่งสินค้า · …" + ป้ายสถานะ + เวลา + เลข DO) · เพิ่มจากต้นแบบ (spec/12 §3 DECISION ST4-T04):
@@ -74,16 +112,24 @@ export function TripTimeline({
   onOpenFlags: () => void;
 }) {
   const { t } = useI18n();
+  const dt = useDateTimeText();
+  const qc = useQueryClient();
   const q = useTripEvents(trip.id, true);
   const events = q.data ?? [];
   const [ask, setAsk] = useState<Ask | null>(null);
-  const hm = (iso: string) => {
-    const b = toBangkok(iso);
-    return b.date === trip.tripDate ? b.time : `${b.date.split('-').reverse().join('/')} ${b.time}`;
-  };
+  // เปิดแท็บ = โหลดเที่ยว + ไทม์ไลน์ใหม่ แล้วโหลดซ้ำทุก 30 วินาทีขณะเปิดอยู่
+  useEffect(() => {
+    const refresh = () => qc.invalidateQueries({ queryKey: ['trip', trip.id] });
+    void refresh();
+    const h = setInterval(() => void refresh(), REFRESH_MS);
+    return () => clearInterval(h);
+  }, [qc, trip.id]);
+  /** วันเดียวกับวันเที่ยว = เวลาอย่างเดียว · วันอื่น = วันที่แบบเดียวกับ drawer ("17 พ.ย. 2569 13:25") */
+  const hm = (iso: string) =>
+    toBangkok(iso).date === trip.tripDate ? toBangkok(iso).time : dt(iso);
   const doNo = (id: string) => trip.deliveryOrders.find((d) => d.id === id)?.doNo ?? '';
-  const restStops = trip.stops.filter(isOpen);
-  const current: Ask | null = failRest ? { kind: 'failRest', stops: restStops } : ask;
+  const rest = restOf(trip.stops, events);
+  const current: Ask | null = failRest && rest.length ? { kind: 'failRest', stops: rest } : ask;
 
   if (!trip.stops.length)
     return (
@@ -102,16 +148,24 @@ export function TripTimeline({
           description={problemText(q.error, t) ?? ''}
         />
       )}
+      {q.isLoading && (
+        <span style={{ fontSize: 12, color: '#59606B', marginBottom: 8 }} role="status">
+          {t('table.loading')}
+        </span>
+      )}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {trip.stops.map((s, i) => {
-          const look = STEP_LOOK[s.status] ?? STEP_LOOK.PENDING!;
+          const key = stepKey(s);
+          const look = STEP_LOOK[key] ?? STEP_LOOK.PENDING!;
           const tone = TONE_COLORS[look.tone];
           const evs = events.filter((e) => e.stopId === s.id);
           const acts = canRecord ? stepActions(trip.stops, events, i) : null;
           const planned = s.plannedArrival ?? s.windowStart;
+          // "ออก" เฉพาะเมื่อมี DEPART จริงของจุดถัดไป (departedAt ถอยไปเป็นเวลาปิดงานได้ — ไม่ใช่เวลาออกจริง)
+          const left = realDeparture(trip.stops, events, i);
           const at = [
             s.arrivedAt ? t('trip.tl.arrived', { t: hm(s.arrivedAt) }) : '',
-            s.departedAt ? t('trip.tl.departed', { t: hm(s.departedAt) }) : '',
+            left ? t('trip.tl.departed', { t: hm(left) }) : '',
           ].filter(Boolean);
           if (!at.length && planned) at.push(t('trip.tl.planned', { t: hm(planned) }));
           // ต้นแบบ: เลข DO แสดงที่จุดส่ง (จุดรับไม่แสดง — เหมือนแท็บรายละเอียด)
@@ -185,7 +239,9 @@ export function TripTimeline({
                         whiteSpace: 'nowrap',
                       }}
                     >
-                      {t(`trip.tl.st.${s.status}` as MessageKey)}
+                      {key === 'PARTIAL'
+                        ? outLabel(t, s.type, 'PARTIAL')
+                        : t(`trip.tl.st.${s.status}` as MessageKey)}
                     </span>
                   )}
                 </div>
@@ -193,12 +249,12 @@ export function TripTimeline({
                   <span className="tms-num" style={{ fontSize: 12, color: '#3B424C' }}>
                     {at.join(' · ')}
                     {s.outcome &&
-                      ` · ${t('trip.tl.outcome', { o: t(`exc.out.${s.outcome}` as MessageKey) })}`}
+                      ` · ${t('trip.tl.outcome', { o: outLabel(t, s.type, s.outcome) })}`}
                   </span>
                 )}
                 {dos && <span style={{ color: '#3B424C' }}>{dos}</span>}
                 {evs.map((e) => (
-                  <EventLine key={e.id} e={e} t={t} hm={hm} />
+                  <EventLine key={e.id} e={e} t={t} hm={hm} stopType={s.type} />
                 ))}
                 {flagged.length > 0 && (
                   <span
@@ -221,6 +277,34 @@ export function TripTimeline({
                       ].join(', '),
                     })}{' '}
                     ·
+                    <button
+                      type="button"
+                      onClick={onOpenFlags}
+                      style={{
+                        border: 0,
+                        background: 'transparent',
+                        padding: 0,
+                        color: '#2257C4',
+                        fontWeight: 600,
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {t('trip.tl.flagLink')}
+                    </button>
+                  </span>
+                )}
+                {acts?.pendingClose && (
+                  <span
+                    data-testid="trip-pending-close"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 6,
+                      flexWrap: 'wrap',
+                      color: '#3B424C',
+                    }}
+                  >
+                    {t('trip.tl.pendingClose')}
                     <button
                       type="button"
                       onClick={onOpenFlags}
@@ -292,6 +376,7 @@ export function TripTimeline({
         <RecordDialog
           key={current.kind === 'failRest' ? 'rest' : `${current.kind}:${current.stop.id}`}
           ask={current}
+          events={events}
           onClose={() => (current.kind === 'failRest' ? onFailRestClose() : setAsk(null))}
           onDone={(m) => {
             if (current.kind === 'failRest') onFailRestClose();
@@ -305,19 +390,27 @@ export function TripTimeline({
 }
 
 /** บรรทัด event: "ถึงจุด 09:10 · บันทึกโดย … · บันทึกผ่านเว็บ" (+ เหตุผล/หมายเหตุ) */
-function EventLine({ e, t, hm }: { e: TimelineEvent; t: T; hm: (iso: string) => string }) {
+function EventLine({
+  e,
+  t,
+  hm,
+  stopType,
+}: {
+  e: TimelineEvent;
+  t: T;
+  hm: (iso: string) => string;
+  stopType: string;
+}) {
   const ev =
     e.type === 'DEPART'
       ? t('trip.tl.ev.DEPART')
       : e.outcome
-        ? `${t(`exc.ev.${e.type}` as MessageKey)} (${t(`exc.out.${e.outcome}` as MessageKey)})`
+        ? `${t(`exc.ev.${e.type}` as MessageKey)} (${outLabel(t, stopType, e.outcome)})`
         : t(`exc.ev.${e.type}` as MessageKey);
   const by = e.recordedByName ? t('trip.tl.by', { n: e.recordedByName }) : t('trip.tl.byUnknown');
-  const extra = [
-    e.reason ? t('trip.tl.reason', { r: e.reason.label }) : '',
-    e.note ?? '',
-    e.counted ? '' : t('trip.tl.notCounted'),
-  ].filter(Boolean);
+  const extra = [e.reason ? t('trip.tl.reason', { r: e.reason.label }) : '', e.note ?? ''].filter(
+    Boolean,
+  );
   return (
     <span
       data-testid="trip-event"
@@ -331,11 +424,23 @@ function EventLine({ e, t, hm }: { e: TimelineEvent; t: T; hm: (iso: string) => 
         src: t(`exc.src.${e.source}` as MessageKey),
       })}
       {extra.length > 0 && ` · ${extra.join(' · ')}`}
+      {e.seqStatus === 'REDUNDANT' && (
+        <Chip label={t('trip.tl.redundant')} c="#3B424C" bg="#ECEDEA" />
+      )}
+      {!e.counted && <Chip label={t('trip.tl.notCounted')} c="#8F5500" bg="#FCF0DC" />}
     </span>
   );
 }
 
 const nowBkk = () => toBangkok(new Date().toISOString());
+
+/** ค่าที่ server คืน (event เดิมเมื่อส่งซ้ำ) ต่างจากที่ส่ง: เวลา / ผล / เหตุผล */
+export function replayDiffers(e: StopEvent, s: StopEventStep): boolean {
+  if (Date.parse(e.occurredAt) !== Date.parse(s.body.occurredAt)) return true;
+  if (s.body.outcome && s.action === 'complete' && e.outcome !== s.body.outcome) return true;
+  if ((s.body.reasonCodeId ?? null) !== (e.reason?.id ?? null)) return true;
+  return false;
+}
 
 function TimeInputs({
   label,
@@ -384,23 +489,35 @@ function TimeInputs({
  */
 function RecordDialog({
   ask,
+  events,
   onClose,
   onDone,
 }: {
   ask: Ask;
+  events: readonly StepEvent[];
   onClose: () => void;
   onDone: (message: string) => void;
 }) {
   const { t } = useI18n();
+  const dt = useDateTimeText();
   const rec = useRecordStopEvents();
   const reasons = useReasonCodes();
-  /** clientEventId ต่อ (จุด, การกระทำ) — คงที่ตลอดอายุ dialog (ลองใหม่หลังสำเร็จบางจุด = ไม่ซ้ำ) */
+  /**
+   * clientEventId ต่อ (จุด, การกระทำ, ค่าในฟอร์ม): ลองใหม่ด้วยค่าเดิม = id เดิม (server คืน event เดิม ไม่เกิดซ้ำ)
+   * · แก้ค่าหลังส่งไม่สำเร็จ/ไม่รู้ผล = id ใหม่ (review L1 — ไม่ถูกกลืนเป็นการส่งซ้ำของค่าเก่า)
+   */
   const [ids] = useState(() => new Map<string, string>());
-  const idFor = (stopId: string, action: string) => {
-    const k = `${stopId}:${action}`;
+  const idFor = (stopId: string, action: string, values: object) => {
+    const k = `${stopId}:${action}:${JSON.stringify(values)}`;
     if (!ids.has(k)) ids.set(k, crypto.randomUUID());
     return ids.get(k)!;
   };
+  const floorMsg = (f: Floor, stop?: TripStop) =>
+    t(stop ? 'trip.tl.err.beforeStop' : 'trip.tl.err.before', {
+      what: t(`trip.tl.what.${f.what}` as MessageKey),
+      t: dt(f.at),
+      ...(stop ? { stop: stepTitle(t, stop) } : {}),
+    });
   const [when, setWhen] = useState(nowBkk);
   const [arriveAt, setArriveAt] = useState(nowBkk);
   const [outcome, setOutcome] = useState<Outcome>('DELIVERED');
@@ -419,6 +536,15 @@ function RecordDialog({
   const options = (reasons.data ?? []).filter(
     (r) => r.status === 'active' && !!rule && rule.categories.includes(r.category),
   );
+  /** เหตุผลจัดกลุ่มตามหมวด (QA L2) */
+  const groups = CATEGORIES.map((c) => ({ c, rs: options.filter((r) => r.category === c) })).filter(
+    (g) => g.rs.length,
+  );
+  /** จุดรับไม่มี "ของยังอยู่บนรถ" (ของยังไม่ขึ้นรถ) */
+  const outcomes =
+    ask.kind === 'complete' && ask.stop.type === 'PICKUP'
+      ? OUTCOMES.filter((o) => o !== 'UNDELIVERED_RETAIN')
+      : OUTCOMES;
   const picked = options.find((r) => r.id === reasonId) ?? null;
   const needArrive = ask.kind === 'complete' && ask.needArrive;
 
@@ -444,6 +570,33 @@ function RecordDialog({
       setErr(t(`trip.tl.err.${te}` as MessageKey));
       return;
     }
+    // ไม่ก่อนเวลาที่บันทึกไว้แล้ว (กันสร้าง event ขัดลำดับเอง — review/QA M1)
+    let floorErr: string | null = null;
+    if (ask.kind === 'arrive') {
+      const f = timeFloor('arrive', ask.stop.id, events);
+      if (beforeFloor(at, f)) floorErr = floorMsg(f!);
+    } else if (ask.kind === 'depart') {
+      const f = timeFloor('depart', ask.from.id, events);
+      if (beforeFloor(at, f)) floorErr = floorMsg(f!);
+    } else if (ask.kind === 'complete' && needArrive) {
+      const f = timeFloor('arrive', ask.stop.id, events);
+      if (beforeFloor(arr, f)) floorErr = floorMsg(f!);
+    } else if (ask.kind === 'complete' || ask.kind === 'fail') {
+      const f = timeFloor('close', ask.stop.id, events);
+      if (beforeFloor(at, f)) floorErr = floorMsg(f!);
+    } else if (ask.kind === 'failRest') {
+      for (const s of ask.stops) {
+        const f = timeFloor('close', s.id, events);
+        if (beforeFloor(at, f)) {
+          floorErr = floorMsg(f!, s);
+          break;
+        }
+      }
+    }
+    if (floorErr) {
+      setErr(floorErr);
+      return;
+    }
     if (rule?.required && !picked) {
       setErr(t('trip.tl.err.reason'));
       return;
@@ -466,7 +619,7 @@ function RecordDialog({
           {
             stopId: ask.stop.id,
             action: ask.kind,
-            body: { clientEventId: idFor(ask.stop.id, ask.kind), occurredAt: at! },
+            body: { clientEventId: idFor(ask.stop.id, ask.kind, { at }), occurredAt: at! },
           },
         ];
         msg = t(`trip.tl.toast.${ask.kind}` as MessageKey, {
@@ -480,7 +633,7 @@ function RecordDialog({
                 {
                   stopId: ask.stop.id,
                   action: 'arrive' as const,
-                  body: { clientEventId: idFor(ask.stop.id, 'arrive'), occurredAt: arr! },
+                  body: { clientEventId: idFor(ask.stop.id, 'arrive', { arr }), occurredAt: arr! },
                 },
               ]
             : []),
@@ -488,7 +641,7 @@ function RecordDialog({
             stopId: ask.stop.id,
             action: 'complete',
             body: {
-              clientEventId: idFor(ask.stop.id, 'complete'),
+              clientEventId: idFor(ask.stop.id, 'complete', { at, outcome, extra }),
               occurredAt: at!,
               outcome,
               ...extra,
@@ -502,7 +655,11 @@ function RecordDialog({
           {
             stopId: ask.stop.id,
             action: 'fail',
-            body: { clientEventId: idFor(ask.stop.id, 'fail'), occurredAt: at!, ...extra },
+            body: {
+              clientEventId: idFor(ask.stop.id, 'fail', { at, extra }),
+              occurredAt: at!,
+              ...extra,
+            },
           },
         ];
         msg = t('trip.tl.toast.fail', { site: ask.stop.siteName });
@@ -511,14 +668,20 @@ function RecordDialog({
         steps = ask.stops.map((s) => ({
           stopId: s.id,
           action: 'fail' as const,
-          body: { clientEventId: idFor(s.id, 'fail'), occurredAt: at!, ...extra },
+          body: { clientEventId: idFor(s.id, 'fail', { at, extra }), occurredAt: at!, ...extra },
         }));
         msg = t('trip.tl.toast.failRest', { n: ask.stops.length });
         break;
     }
     rec.mutate(steps, {
-      onSuccess: (out: StopEvent[]) =>
-        onDone(out.some((e) => e.flags.length) ? t('trip.tl.toast.flagged', { m: msg }) : msg),
+      onSuccess: (out: StopEvent[]) => {
+        // server คืน event เดิม (ส่งซ้ำ) แต่ค่าไม่ตรงกับฟอร์ม → เตือน ไม่ขึ้นว่าสำเร็จ (review L1)
+        if (out.some((e, i) => replayDiffers(e, steps[i]!))) {
+          setErr(t('trip.tl.err.replayDiff'));
+          return;
+        }
+        onDone(out.some((e) => e.flags.length) ? t('trip.tl.toast.flagged', { m: msg }) : msg);
+      },
       onError: (e) => {
         const done = (e as { done?: number }).done ?? 0;
         const base = problemText(e, t) ?? '';
@@ -569,10 +732,10 @@ function RecordDialog({
             onChange={setWhen}
           />
           <span style={{ fontSize: 12.5, color: '#59606B' }}>{t('trip.tl.dlg.backdate')}</span>
-          {kind === 'complete' && (
+          {ask.kind === 'complete' && (
             <ChoiceGroup
               label={t('trip.tl.dlg.outcome')}
-              options={OUTCOMES.map((o) => ({ value: o, label: t(`exc.out.${o}` as MessageKey) }))}
+              options={outcomes.map((o) => ({ value: o, label: outLabel(t, ask.stop.type, o) }))}
               value={outcome}
               onChange={(o) => {
                 setOutcome(o);
@@ -592,10 +755,14 @@ function RecordDialog({
                 onChange={(e) => setReasonId(e.target.value)}
               >
                 <option value="">{t('trip.tl.dlg.pickReason')}</option>
-                {options.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.label}
-                  </option>
+                {groups.map((g) => (
+                  <optgroup key={g.c} label={t(`rsn.cat.${g.c}` as MessageKey)}>
+                    {g.rs.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.label}
+                      </option>
+                    ))}
+                  </optgroup>
                 ))}
               </select>
               {reasons.isError && (

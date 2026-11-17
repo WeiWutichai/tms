@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { I18nProvider } from '../../i18n';
 import type { TripDetail } from './useTrips';
@@ -12,7 +12,11 @@ vi.mock('./useTripTimeline', () => ({
   useTripEvents: () => ({ data: events.data, isError: false }),
   useRecordStopEvents: () => ({ mutate, isPending: false }),
 }));
+vi.mock('../../shell/AppShell', () => ({
+  useMe: () => ({ data: { tenant: { yearStyle: 'BE' } } }),
+}));
 vi.mock('../settings/useReasonCodes', () => ({
+  CATEGORIES: ['REJECTED_BY_RECEIVER', 'DELIVERY_FAILED', 'DELAY'],
   useReasonCodes: () => ({
     data: [
       {
@@ -143,9 +147,7 @@ describe('TripTimeline (ST4-T04)', () => {
     expect(screen.getByText('ความคืบหน้าเที่ยว')).toBeInTheDocument();
     const steps = screen.getAllByTestId('trip-step');
     expect(within(steps[0]!).getByText('รับสินค้า · คลังบางนา')).toBeInTheDocument();
-    expect(
-      within(steps[0]!).getByText(/ถึง 09:10 · ออก 09:40 · ผล: ส่งสำเร็จ/),
-    ).toBeInTheDocument();
+    expect(within(steps[0]!).getByText(/ถึง 09:10 · ผล: รับสำเร็จ/)).toBeInTheDocument();
     expect(within(steps[0]!).getAllByTestId('trip-event')[0]).toHaveTextContent(
       'ถึงจุด 09:10 · บันทึกโดย สมพร หน้าคลัง · บันทึกผ่านเว็บ',
     );
@@ -153,7 +155,12 @@ describe('TripTimeline (ST4-T04)', () => {
     expect(within(steps[1]!).getByText('รอดำเนินการ')).toBeInTheDocument();
     expect(within(steps[1]!).getByText('DO-6911-0001')).toBeInTheDocument();
     expect(within(steps[1]!).getByTestId('trip-event')).toHaveTextContent('ยังไม่นับ');
-    fireEvent.click(within(steps[1]!).getByRole('button', { name: 'ศูนย์ข้อยกเว้น' }));
+    // ปิดงานขัดลำดับรอตัดสิน → ไม่มีปุ่มปิดงาน/ไม่สำเร็จ แต่มีคำแนะนำ + ลิงก์ศูนย์ข้อยกเว้น (QA M2)
+    expect(within(steps[1]!).getByTestId('trip-pending-close')).toBeInTheDocument();
+    expect(within(steps[1]!).queryByRole('button', { name: 'ปิดงาน' })).toBeNull();
+    expect(within(steps[1]!).queryByRole('button', { name: 'ส่งไม่สำเร็จ' })).toBeNull();
+    expect(within(steps[1]!).getByRole('button', { name: 'ถึงจุด' })).toBeInTheDocument();
+    fireEvent.click(within(steps[1]!).getAllByRole('button', { name: 'ศูนย์ข้อยกเว้น' })[0]!);
     expect(onOpenFlags).toHaveBeenCalled();
     // จุดรับปิดแล้ว + จุดส่งยังรอ → "ออกจากจุด"
     expect(within(steps[0]!).getByRole('button', { name: 'ออกจากจุด' })).toBeInTheDocument();
@@ -188,7 +195,9 @@ describe('TripTimeline (ST4-T04)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'ปิดงาน' }));
     const d = screen.getByRole('dialog', { name: 'บันทึกปิดงาน' });
     expect(within(d).queryByLabelText(/เวลาถึงจุด/)).toBeNull();
-    fireEvent.click(within(d).getByRole('radio', { name: 'ส่งไม่สำเร็จ' }));
+    // จุดรับ: คำของการรับ + ไม่มี "ของยังอยู่บนรถ"
+    expect(within(d).queryByRole('radio', { name: 'ของยังอยู่บนรถ' })).toBeNull();
+    fireEvent.click(within(d).getByRole('radio', { name: 'รับไม่สำเร็จ' }));
     fireEvent.click(within(d).getByRole('button', { name: 'บันทึก' }));
     expect(within(d).getByRole('alert')).toHaveTextContent('เลือกเหตุผล');
     // เหตุผลเฉพาะหมวดส่งไม่สำเร็จ/ปฏิเสธรับ (ไม่มี "รถติด")
@@ -224,7 +233,11 @@ describe('TripTimeline (ST4-T04)', () => {
       { onSuccess: (x: unknown[]) => void },
     ];
     expect(steps.map((s) => [s.stopId, s.action])).toEqual([['q', 'depart']]);
-    opts.onSuccess([{ flags: [] }]);
+    // server คืน event เดิมที่เวลาไม่ตรงกับฟอร์ม (ส่งซ้ำ) → เตือน ไม่ขึ้นสำเร็จ (review L1)
+    act(() => opts.onSuccess([{ flags: [], occurredAt: '2026-11-01T00:00:00Z', reason: null }]));
+    expect(onToast).not.toHaveBeenCalled();
+    expect(within(d).getByRole('alert')).toHaveTextContent('บันทึกไว้ก่อนแล้วด้วยค่าเดิม');
+    act(() => opts.onSuccess([{ flags: [], occurredAt: steps[0]!.body.occurredAt, reason: null }]));
     expect(onToast).toHaveBeenCalledWith('บันทึกออกจากจุด คลังบางนา แล้ว');
   });
 
@@ -249,5 +262,88 @@ describe('TripTimeline (ST4-T04)', () => {
       ['q', 'fail', 'rsn_closed'],
       ['r', 'fail', 'rsn_closed'],
     ]);
+  });
+
+  it('เวลาก่อนเวลาที่บันทึกไว้แล้ว → ข้อความ ไม่ส่ง (ออกจากจุด ≥ ปิดงาน) · แก้ค่าแล้ว clientEventId ใหม่', () => {
+    events.data = [
+      ev({ id: 'e1', type: 'ARRIVE', occurredAt: '2026-11-17T02:10:00.000Z' }),
+      ev({
+        id: 'e2',
+        type: 'COMPLETE',
+        outcome: 'DELIVERED',
+        occurredAt: '2026-11-17T02:40:00.000Z',
+      }),
+    ];
+    show(
+      trip([
+        stop('p', 1, 'PICKUP', 'คลังบางนา', { status: 'COMPLETED', outcome: 'DELIVERED' }),
+        stop('q', 2, 'DELIVERY', 'ร้านชลบุรี'),
+      ]),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'ออกจากจุด' }));
+    const d = screen.getByRole('dialog', { name: 'บันทึกออกจากจุด' });
+    fireEvent.change(within(d).getByLabelText(/วันที่/), { target: { value: '2026-11-17' } });
+    fireEvent.change(within(d).getByLabelText(/เวลาที่เกิดจริง/), { target: { value: '09:30' } });
+    fireEvent.click(within(d).getByRole('button', { name: 'บันทึก' }));
+    expect(within(d).getByRole('alert')).toHaveTextContent(
+      /เวลาต้องไม่ก่อนเวลาปิดงานของจุดที่ออก \(17 พ.ย. 2569 \d\d:40\)/,
+    );
+    expect(mutate).not.toHaveBeenCalled();
+    fireEvent.change(within(d).getByLabelText(/เวลาที่เกิดจริง/), { target: { value: '09:45' } });
+    fireEvent.click(within(d).getByRole('button', { name: 'บันทึก' }));
+    const first = (mutate.mock.calls[0]![0] as StopEventStep[])[0]!.body.clientEventId;
+    // ลองใหม่ค่าเดิม = id เดิม · แก้เวลา = id ใหม่
+    fireEvent.click(within(d).getByRole('button', { name: 'บันทึก' }));
+    expect((mutate.mock.calls[1]![0] as StopEventStep[])[0]!.body.clientEventId).toBe(first);
+    fireEvent.change(within(d).getByLabelText(/เวลาที่เกิดจริง/), { target: { value: '09:50' } });
+    fireEvent.click(within(d).getByRole('button', { name: 'บันทึก' }));
+    expect((mutate.mock.calls[2]![0] as StopEventStep[])[0]!.body.clientEventId).not.toBe(first);
+  });
+
+  it('ส่งไม่สำเร็จจุดที่เหลือ: จุดที่ถึงแล้วเวลาต้องไม่ก่อนเวลาถึง — บอกว่าจุดไหน', () => {
+    events.data = [
+      ev({ id: 'e1', stopId: 'q', type: 'ARRIVE', occurredAt: '2026-11-17T03:00:00.000Z' }),
+    ];
+    show(
+      trip([
+        stop('p', 1, 'PICKUP', 'คลังบางนา', { status: 'COMPLETED' }),
+        stop('q', 2, 'DELIVERY', 'ร้านชลบุรี', { status: 'ARRIVED' }),
+      ]),
+      true,
+      true,
+    );
+    const d = screen.getByRole('dialog', { name: 'ส่งไม่สำเร็จจุดที่เหลือ 1 จุด' });
+    fireEvent.change(within(d).getByLabelText(/วันที่/), { target: { value: '2026-11-17' } });
+    fireEvent.change(within(d).getByLabelText(/เวลาที่เกิดจริง/), { target: { value: '09:00' } });
+    fireEvent.change(within(d).getByRole('combobox'), { target: { value: 'rsn_closed' } });
+    fireEvent.change(within(d).getByLabelText(/หมายเหตุ/), { target: { value: 'รถเสีย' } });
+    fireEvent.click(within(d).getByRole('button', { name: 'บันทึก' }));
+    expect(within(d).getByRole('alert')).toHaveTextContent(
+      'ส่งสินค้า · ร้านชลบุรี: เวลาต้องไม่ก่อนเวลาถึงจุด',
+    );
+    expect(mutate).not.toHaveBeenCalled();
+    // เหตุผลจัดกลุ่มตามหมวด
+    expect(within(d).getByRole('group', { name: 'ส่งไม่สำเร็จ' })).toBeInTheDocument();
+  });
+
+  it('วันที่ต่างจากวันเที่ยว แสดงแบบไทย พ.ศ. · event ซ้ำ/ไม่นับมีชิป · บางส่วนมีป้ายของตัวเอง', () => {
+    events.data = [
+      ev({ id: 'e1', stopId: 'q', occurredAt: '2026-11-16T02:10:00.000Z' }),
+      ev({ id: 'e2', stopId: 'q', occurredAt: '2026-11-16T02:20:00.000Z', seqStatus: 'REDUNDANT' }),
+    ];
+    show(
+      trip([
+        stop('p', 1, 'PICKUP', 'คลังบางนา', { status: 'COMPLETED' }),
+        stop('q', 2, 'DELIVERY', 'ร้านชลบุรี', {
+          status: 'COMPLETED',
+          outcome: 'PARTIAL',
+          arrivedAt: '2026-11-16T02:10:00.000Z',
+        }),
+      ]),
+    );
+    const q = screen.getAllByTestId('trip-step')[1]!;
+    expect(q).toHaveTextContent(/ถึง 16 พ.ย. 2569 \d\d:10/);
+    expect(within(q).getByText('ส่งบางส่วน')).toBeInTheDocument();
+    expect(within(q).getAllByTestId('trip-event')[1]).toHaveTextContent('ซ้ำ');
   });
 });
