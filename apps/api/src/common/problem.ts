@@ -340,6 +340,27 @@ export const PROBLEMS = {
     th: 'ส่งทางช่องทางนี้ไม่ได้ตอนนี้ คัดลอกลิงก์ไปส่งเองได้',
     en: 'This channel is not available — copy the link and send it yourself',
   },
+  /** ST7-T01 OAuth2 client credentials (RFC 6749 §5.2): client_id/secret ผิด — ไม่บอกว่าผิดส่วนไหน */
+  invalid_client: {
+    status: 401,
+    th: 'client_id หรือ client_secret ไม่ถูกต้อง',
+    en: 'Invalid client credentials',
+  },
+  /** ST7-T01 ขอ scope ที่ key ไม่มี (RFC 6749 §5.2) */
+  invalid_scope: {
+    status: 400,
+    th: 'ขอ scope ที่ API key นี้ไม่มี',
+    en: 'Requested scope exceeds the scopes of this API key',
+  },
+  /** ST7-T01 (spec/07 §6 ข้อ 8) key ถูกเพิกถอน หรือหมุนแล้วเลยเวลา `revokeAt` */
+  key_revoked: { status: 401, th: 'API key ถูกเพิกถอนแล้ว', en: 'API key has been revoked' },
+  key_expired: { status: 401, th: 'API key หมดอายุแล้ว', en: 'API key has expired' },
+  /** ST7-T01 (INT-075) IP ผู้เรียกไม่อยู่ใน allowlist ของ key */
+  ip_not_allowed: {
+    status: 403,
+    th: 'IP นี้ไม่ได้รับอนุญาตให้ใช้ API key นี้',
+    en: 'This IP address is not allowed for this API key',
+  },
   internal_error: { status: 500, th: 'ระบบขัดข้อง', en: 'Internal error' },
 } as const;
 

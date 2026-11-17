@@ -6,6 +6,7 @@ import { queryClient } from './api';
 import { I18nProvider } from './i18n';
 import { canAny, featureOf, isLocked, NAV, permOf } from './nav';
 import { SettingsPage } from './features/settings/Settings';
+import { ApiKeysPage } from './features/api-keys/ApiKeysPage';
 import { CustomersPage } from './features/customers/CustomersPage';
 import { ExceptionsPage } from './features/exceptions/ExceptionsPage';
 import { HoldPage } from './features/orders/HoldPage';
@@ -64,6 +65,7 @@ const READY: Record<string, () => ReactNode> = {
   '/fleet/drivers': () => <CarriersPage />,
   '/fleet/vehicles': () => <VehiclesPage />,
   '/fleet/documents': () => <FleetDocsPage />,
+  '/settings/api': () => <ApiKeysPage />,
 };
 
 function Inside() {

@@ -8,7 +8,7 @@ import { jwtVerify, SignJWT } from 'jose';
  * - `tv` tokenVersion ของผู้ใช้ตอนออก token (bump แล้ว token เก่าใช้ไม่ได้ทันที — A1)
  *
  * เซ็นแบบ HS256 ด้วย `AUTH_JWT_SECRET` (fallback `AUTH_DEV_SECRET` เฉพาะเครื่อง dev/test)
- * RS256 + JWKS สำหรับ client ภายนอกมาใน ST7-T01 (ตอนนั้นมีผู้ตรวจ token นอกระบบ) — plan/02 T-04
+ * token ของ client ภายนอก (client credentials) เซ็น RS256 + JWKS — `signing-keys.ts` (ST7-T01)
  */
 export const ACCESS_TTL_SECONDS = 15 * 60;
 
@@ -28,8 +28,11 @@ function secret(): Uint8Array {
   return new TextEncoder().encode(s);
 }
 
-/** `imp` = ทีม Innovera เข้าใช้งานแทนผู้ใช้ของลูกค้า (ST1-T24) — sub = ผู้ใช้ที่สวม, act = platform user */
-export type PrincipalType = 'user' | 'dev' | 'imp';
+/**
+ * `imp` = ทีม Innovera เข้าใช้งานแทนผู้ใช้ของลูกค้า (ST1-T24) — sub = ผู้ใช้ที่สวม, act = platform user
+ * `client` = API key / OAuth2 client credentials (ST7-T01) — ออกโดย guard จาก key เท่านั้น (ไม่เคยมาจาก token HS256)
+ */
+export type PrincipalType = 'user' | 'dev' | 'imp' | 'client';
 
 export interface AccessClaims {
   sub: string;
@@ -65,6 +68,8 @@ export async function verifyAccessToken(token: string): Promise<AccessClaims | n
     const { payload } = await jwtVerify(token, secret(), { algorithms: ['HS256'] });
     if (typeof payload.tid !== 'string' || !payload.sub) return null;
     if (payload.pur !== undefined) return null; // token เฉพาะทาง (เช่น step-up) ใช้แทน access token ไม่ได้
+    // token ของ client ภายนอกออกเป็น RS256 เท่านั้น — HS256 ที่อ้าง pt=client ถือว่าปลอม (ST7-T01 review)
+    if (payload.pt === 'client') return null;
     const pt: PrincipalType = payload.pt === 'user' ? 'user' : payload.pt === 'imp' ? 'imp' : 'dev';
     if (pt === 'dev' && !isLocalEnv()) return null;
     if (pt === 'user' && typeof payload.tv !== 'number') return null;
