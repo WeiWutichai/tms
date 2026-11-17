@@ -34,9 +34,9 @@ await P.getByRole('button', { name: /^นำเข้า \d+ แถว$/ }).clic
 await P.waitForTimeout(400);
 const a3 = await P.screenshot();
 
-const ctx = await b.newContext({ viewport: vp, locale: 'th-TH', baseURL: 'http://localhost:4420' });
+const ctx = await b.newContext({ viewport: vp, locale: 'th-TH', baseURL: (process.env.WEB ?? `http://localhost:${process.env.WEB_PORT ?? 4420}`) });
 await ctx.addCookies([
-  { name: 'tms_td', value: 'demo-trusted-device-e2e-only-0000000000000:00000000-0000-4000-8000-0000000e0a01', url: 'http://localhost:4420/v1/auth' },
+  { name: 'tms_td', value: 'demo-trusted-device-e2e-only-0000000000000:00000000-0000-4000-8000-0000000e0a01', url: `${process.env.WEB ?? `http://localhost:${process.env.WEB_PORT ?? 4420}`}/v1/auth` },
 ]);
 const W = await ctx.newPage();
 const v = randomBytes(32).toString('base64url');

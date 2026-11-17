@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { DEMO_PASSWORD, DEMO_TOTP_SECRET, totp } from './fixtures';
+import { DEMO_PASSWORD, DEMO_TOTP_SECRET, E2E_WEB, totp } from './fixtures';
 
 /**
  * Platform Console (ST1-T24) — login 2 ขั้น + ลูกค้า + เข้าใช้งานแทน
@@ -129,7 +129,7 @@ test.describe('Platform Console', () => {
     const popupP = context.waitForEvent('page');
     await dlg.getByRole('button', { name: 'เข้าใช้งานแทน' }).click();
     const app = await popupP;
-    await app.waitForURL('http://localhost:4520/');
+    await app.waitForURL(`${E2E_WEB}/`);
     // token ไม่ค้างใน URL
     expect(app.url()).not.toContain('token');
 

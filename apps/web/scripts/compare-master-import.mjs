@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const WEB = process.env.WEB ?? 'http://localhost:4420';
+const WEB = process.env.WEB ?? `http://localhost:${process.env.WEB_PORT ?? 4420}`;
 const out = fileURLToPath(new URL('../../../design/compare/', import.meta.url));
 const samples = fileURLToPath(new URL('../../api/test/fixtures/imports/', import.meta.url));
 const proto =
