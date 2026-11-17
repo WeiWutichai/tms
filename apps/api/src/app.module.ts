@@ -88,6 +88,8 @@ import {
   TripOffersController,
 } from './modules/trips/subcon-offer.controller';
 import { TripsController } from './modules/trips/trips.controller';
+import { StopsController } from './modules/stops/stops.controller';
+import { StopEventsService } from './modules/stops/stop-events.service';
 import { PlanningController } from './modules/planning/planning.controller';
 import { PlanningService } from './modules/planning/planning.service';
 import { ScheduleController } from './modules/schedule/schedule.controller';
@@ -177,6 +179,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     RateCardsController,
     DeliveryOrdersController,
     TripsController,
+    StopsController,
     TripOffersController,
     SubconOfferPublicController,
     TripSheetsController,
@@ -230,6 +233,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     DeliveryOrderService,
     OrderStateService,
     TripService,
+    StopEventsService,
     SubconHireService,
     SubconOfferService,
     SubconTimeoutService,

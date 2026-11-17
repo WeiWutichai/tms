@@ -265,6 +265,21 @@ export const PROBLEMS = {
     th: 'ยังมีจุดแวะที่ยังไม่จบ — ปิดเที่ยวได้เมื่อทุกจุดส่งสำเร็จ/ไม่สำเร็จ/ข้าม',
     en: 'Some stops are not finished yet',
   },
+  /** ST4-T01: บันทึก event หน้างาน (ถึง/ออก/ปิดงาน/ส่งไม่สำเร็จ) ได้เฉพาะเที่ยว DISPATCHED / IN_PROGRESS — extension `tripStatus` */
+  trip_not_in_progress: {
+    status: 409,
+    th: 'บันทึกสถานะหน้างานได้เฉพาะเที่ยวที่ปล่อยรถแล้วและยังไม่จบ',
+    en: 'Stop events can only be recorded on a dispatched trip that is not finished',
+  },
+  /**
+   * ST4-T01: `clientEventId` นี้ถูกบันทึกแล้ว (unique ต่อ tenant — docs/01 §3.9) — extension `eventId`
+   * ST4-T02 จะเปลี่ยนเป็น "คืนผลเดิม" สำหรับคำขอเดียวกัน
+   */
+  stop_event_duplicate: {
+    status: 409,
+    th: 'event นี้ถูกบันทึกไปแล้ว (clientEventId ซ้ำ)',
+    en: 'This event was already recorded (duplicate clientEventId)',
+  },
   delivery_order_on_trip: {
     status: 409,
     th: 'ใบส่งของนี้อยู่ในเที่ยวรถแล้ว — ถอดออกจากเที่ยวก่อน',

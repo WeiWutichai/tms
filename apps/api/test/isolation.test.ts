@@ -613,6 +613,19 @@ const FIXTURES: Record<string, (db: PrismaClient, tenantId: string, n: number) =
           })
         ).id,
       ),
+    // ST4-T01 จุดแวะ (action หน้างาน /stops/:id/arrive|depart|complete|fail)
+    tripStop: async (db, tenantId, n) => {
+      const site = await db.customerSite.create({
+        data: { tenantId, code: `ISO-S${n}`, name: `Stop site ${n}`, address: { line1: 'x' } },
+      });
+      const t = await db.trip.create({
+        data: { tenantId, tripNo: `TRP-ISO-S${n}`, tripDate: new Date('2026-11-17') },
+      });
+      const s = await db.tripStop.create({
+        data: { tenantId, tripId: t.id, sequence: 1, type: 'DELIVERY', siteId: site.id },
+      });
+      return encodeId('tripStop', s.id);
+    },
   };
 
 /** body ขั้นต่ำที่ผ่าน validation ของ action แต่ละแบบ (ให้ไปถึง handler แล้วได้ 404 จริง) */
@@ -637,6 +650,19 @@ const BODY_FOR_SUFFIX: Record<string, object> = {
   schedule: { plannedStartAt: '2026-11-13T08:00:00+07:00' }, // ST3-T12 /trips/:id/schedule
   'confirm-rules': { ruleKeys: ['x'], overrideReason: 'isolation test reason' }, // ST3-T14 /trips/:id/confirm-rules
   'reorder-stops': { stopIds: [`stp_${'0'.repeat(32)}`] }, // ST3-T16 /trips/:id/reorder-stops
+  // ST4-T01 /stops/:id/arrive|depart|fail (complete อยู่ใน BODY_FOR_PATH — ชื่อซ้ำกับ /trips/:id/complete)
+  arrive: {
+    clientEventId: '00000000-0000-4000-8000-00000000a001',
+    occurredAt: '2026-11-17T09:00:00+07:00',
+  },
+  depart: {
+    clientEventId: '00000000-0000-4000-8000-00000000a002',
+    occurredAt: '2026-11-17T09:00:00+07:00',
+  },
+  fail: {
+    clientEventId: '00000000-0000-4000-8000-00000000a003',
+    occurredAt: '2026-11-17T09:00:00+07:00',
+  },
   approve: { reason: 'isolation test reason' }, // ST2-T13 /rate-cards/:id/approve
   reject: { reason: 'isolation test reason' }, // ST2-T03 /customer-sites/:id/geocode/reject + ST3-T10 source-changes
   accept: { reason: 'isolation test reason' }, // ST3-T10 /orders/:id/source-changes/:changeId/accept
@@ -669,6 +695,11 @@ const BODY_FOR_PATH: Record<string, object> = {
   '/v1/orders/:id/map-customer': { customerId: `cus_${'0'.repeat(32)}` },
   '/v1/orders/:id/resolve-source-error': { reason: 'isolation test reason' }, // ST3-T07
   '/v1/orders/:id/manual-price': { sellAmount: '1000.00', reason: 'isolation test reason' }, // ST3-T07
+  '/v1/stops/:id/complete': {
+    clientEventId: '00000000-0000-4000-8000-00000000a004',
+    occurredAt: '2026-11-17T09:00:00+07:00',
+    outcome: 'DELIVERED',
+  }, // ST4-T01
 };
 
 interface RouteInfo {

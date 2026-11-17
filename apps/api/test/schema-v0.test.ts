@@ -110,9 +110,19 @@ describe('schema v0 constraints', () => {
   });
 
   it('stop_event idempotent ด้วย client_event_id ต่อ tenant', async () => {
+    const site = await db.customerSite.create({
+      data: { tenantId: t, code: 'SE-1', name: 'จุดส่ง', address: { line1: 'x' } },
+    });
+    const trip = await db.trip.create({
+      data: { tenantId: t, tripNo: 'TRP-SE-1', tripDate: new Date('2026-11-17') },
+    });
+    const stop = await db.tripStop.create({
+      data: { tenantId: t, tripId: trip.id, sequence: 1, type: 'DELIVERY', siteId: site.id },
+    });
     const ev = {
       tenantId: t,
-      tripStopId: '00000000-0000-4000-8000-000000000001',
+      tripStopId: stop.id,
+      tripId: trip.id,
       type: 'ARRIVE' as const,
       clientEventId: '00000000-0000-4000-8000-0000000000e1',
       source: 'WEB',
