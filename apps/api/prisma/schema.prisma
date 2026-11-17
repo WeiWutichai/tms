@@ -401,6 +401,8 @@ model Customer {
   whtExpectedRate         Decimal?        @map("wht_expected_rate") @db.Decimal(5, 2)
   creditLimit             Decimal?        @map("credit_limit") @db.Decimal(14, 2)
   podRequirements         Json            @default("{}") @map("pod_requirements")
+  /// ST4-T10 (docs/04 E2 "วางบิลตามยอดส่งจริงได้ (ตั้งต่อลูกค้า)") — true = ค่าขนส่งที่คิดตามน้ำหนัก/ปริมาตร/หน่วยนับ ใช้ปริมาณส่งจริง
+  billByActualQty         Boolean         @default(false) @map("bill_by_actual_qty")
   defaultBillingCompanyId String?         @map("default_billing_company_id") @db.Uuid
   status                  ActiveStatus    @default(ACTIVE)
   version                 Int             @default(1)
@@ -1848,6 +1850,9 @@ model DeliveryOrderPod {
   /// ผลตรวจตอนบันทึก: PARTIAL / COMPLETE + รายการที่ขาด (PodMissing[])
   podStatus           String        @map("pod_status")
   missing             Json          @default("[]")
+  /// ST4-T10 ยอดส่งจริงต่อบรรทัด DO ณ ฉบับนี้ (docs/01 §5.3 `lines`) — [{lineNo, qtyPlanned, qtyActual, rejectQty, reason: ReasonSnapshot|null, note}]
+  /// ฉบับล่าสุด = ค่าปัจจุบัน (ฉายลง delivery_order_line.qty_actual/reject_qty/reject_reason_code_id) · [] = ยังไม่บันทึก (ถือว่าตามแผน)
+  lines               Json          @default("[]")
   /// เหตุผลการแก้ (ฉบับที่ 2 ขึ้นไป)
   reason              String?
   createdBy           String?       @map("created_by")
@@ -1870,6 +1875,7 @@ model DeliveryOrderLine {
   soLineNo           Int             @map("so_line_no")
   description        String
   qtyPlanned         Decimal         @map("qty_planned") @db.Decimal(14, 3)
+  /// ST4-T10 ฉายจาก POD ฉบับล่าสุด (`delivery_order_pod.lines`) — null = ยังไม่บันทึก (ถือว่าตามแผน) · CHECK 0 ≤ actual ≤ planned, reject = planned − actual, reject > 0 ต้องมีเหตุผล
   qtyActual          Decimal?        @map("qty_actual") @db.Decimal(14, 3)
   rejectQty          Decimal?        @map("reject_qty") @db.Decimal(14, 3)
   rejectReasonCodeId String?         @map("reject_reason_code_id") @db.Uuid

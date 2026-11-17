@@ -424,6 +424,91 @@ export class OrderChargeDto {
   @ApiProperty({ nullable: true, type: Number }) rateCardRevision!: number | null;
 }
 
+/** ST4-T10 บรรทัดราคาขายสำหรับวางบิล (ตามแผน หรือ ตามยอดส่งจริง) — ทั้งก้อนอยู่ใต้ `sellBilling` */
+export class OrderBillingChargeDto {
+  @ApiProperty() lineNo!: number;
+  @ApiProperty({ enum: ['FREIGHT', 'EXTRA_STOP', 'ACCESSORIAL'] }) kind!: string;
+  @ApiProperty({ example: 'RATE_CARD' }) origin!: string;
+  @ApiProperty() description!: string;
+  @ApiProperty({ example: '15', description: 'จำนวนตามใบสั่ง (snapshot ของบรรทัด)' })
+  qtyPlanned!: string;
+  @ApiProperty({ example: '13.5', description: 'จำนวนที่ใช้คิดเงิน (ค่าแสดงผล ≤ 4 ตำแหน่ง)' })
+  qty!: string;
+  @ApiProperty({ example: '13.5', description: 'จำนวนเต็มความละเอียด (ทศนิยมครบ หรือ "n/d")' })
+  qtyExact!: string;
+  @ApiProperty({ example: '350.00' })
+  @PriceField('sell')
+  sellUnitPrice!: string;
+  @ApiProperty({ example: '5250.00', description: 'ยอดตามใบสั่ง' })
+  @PriceField('sell')
+  sellPlannedAmount!: string;
+  @ApiProperty({ example: '4725.00', description: 'ยอดที่วางบิล' })
+  @PriceField('sell')
+  sellAmount!: string;
+  @ApiProperty() minChargeApplied!: boolean;
+  @ApiProperty({ example: 'EXEMPT_TRANSPORT', description: 'snapshot — ไม่เปลี่ยนตามยอดส่งจริง' })
+  vatType!: string;
+  @ApiProperty({ example: '1.00' }) whtRate!: string;
+  @ApiProperty({ description: 'ยอดวางบิลต่างจากใบสั่ง' }) adjusted!: boolean;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: 'ตัน',
+    description:
+      'หน่วยของ `qty` เมื่อคิดใหม่ตามยอดส่งจริง (หน่วยของสูตรราคา) — บรรทัดที่ไม่คิดใหม่ = null',
+  })
+  qtyUnit!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    enum: ['MANUAL_PRICE', 'NOT_QTY_BASED'],
+    description:
+      'เหตุที่ไม่คิดใหม่: MANUAL_PRICE = ค่าขนส่งที่คนกำหนดเป็นยอดเหมา (ราคาที่กำหนดเองชนะ rate card) · NOT_QTY_BASED = สูตรเหมาเที่ยว/ตามระยะทาง ยอดไม่ขึ้นกับจำนวนสินค้า',
+  })
+  note!: string | null;
+}
+
+/**
+ * ST4-T10 **ยอดประมาณ** สำหรับวางบิลของใบสั่ง (docs/04 E2 "วางบิลตามยอดส่งจริงได้ (ตั้งต่อลูกค้า)") — คำนวณทุกครั้งที่อ่าน (ไม่เก็บ)
+ * ไม่ผูกพัน/ยังไม่ใช้ออกใบแจ้งหนี้: กติกาเงิน [OPEN spec/12 §3] รวมความต่างกับ docs/01 §3.3 (revenue ต่อ DO)
+ * ลูกค้าตั้ง "ตามยอดส่งจริง" → บรรทัดค่าขนส่งของสูตรตามน้ำหนัก/ปริมาตร/หน่วยนับ คิดใหม่ด้วย engine เดิมจาก rate card ฉบับที่ใช้
+ * + จำนวนส่งจริงรวมของ DO ที่ไม่ยกเลิก · ค่าจุดเพิ่ม/ค่าบริการเสริม/ราคาที่กำหนดเองไม่เปลี่ยน · VAT/WHT ตาม snapshot ของบรรทัด
+ */
+export class OrderBillingDto {
+  @ApiProperty({
+    enum: [true],
+    type: Boolean,
+    description:
+      '**ยอดประมาณ — ยังไม่ใช้ออกใบแจ้งหนี้** (กติกาเงินของ "วางบิลตามยอดส่งจริง" ยัง OPEN ใน spec/12 §3 — ต้องให้ PO/นักบัญชีตัดสินก่อน ST5-T01) · ห้ามใช้เป็นยอดผูกพัน',
+  })
+  preview!: true;
+  @ApiProperty({
+    enum: ['PLANNED', 'ACTUAL'],
+    description: 'ตั้งค่าของลูกค้า: ตามใบสั่ง / ตามยอดส่งจริง',
+  })
+  basis!: 'PLANNED' | 'ACTUAL';
+  @ApiProperty({
+    enum: ['PLANNED', 'NOT_RECORDED', 'ACTUAL', 'CALCULATION_FAILURE'],
+    description:
+      'PLANNED = ลูกค้าวางบิลตามใบสั่ง · NOT_RECORDED = ตามยอดจริงแต่ยังไม่มียอดส่งจริง (ใช้ยอดใบสั่ง) · ACTUAL = คิดตามยอดส่งจริงแล้ว · CALCULATION_FAILURE = คิดไม่ได้ (เช่น ส่งได้ 0) ต้องให้คนกำหนด',
+  })
+  status!: string;
+  @ApiProperty({ description: 'มี DO ของใบนี้ที่บันทึกยอดส่งจริงแล้ว' }) actualRecorded!: boolean;
+  @ApiProperty({ type: [OrderBillingChargeDto] }) charges!: OrderBillingChargeDto[];
+  @ApiProperty({ nullable: true, type: String, example: '5250.00' })
+  @PriceField('sell')
+  sellPlannedTotal!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: '4725.00',
+    description: 'null = คิดไม่ได้',
+  })
+  @PriceField('sell')
+  sellBillableTotal!: string | null;
+  @ApiProperty({ type: [OrderPricingReasonDto] }) reasons!: OrderPricingReasonDto[];
+}
+
 /** ช่องหนึ่งของ diff ต้นทาง (ค่าแสดงผล — ไม่มีราคา) */
 export class SourceChangeEntryDto {
   @ApiProperty({ enum: SO_FIELD_GROUPS, example: 'stops' }) group!: string;
@@ -551,6 +636,13 @@ export class OrderDto {
   })
   @PriceField('sell')
   sellCharges?: OrderChargeDto[];
+  @ApiPropertyOptional({
+    type: OrderBillingDto,
+    description:
+      'ST4-T10 **ยอดประมาณ (preview, ไม่ผูกพัน)** ของการวางบิล (ตามใบสั่ง / ตามยอดส่งจริงตามที่ตั้งในลูกค้า) — ยังไม่ใช้ออกใบแจ้งหนี้ (กติกา OPEN) · มีเฉพาะ GET ทีละใบและผลของการเขียน · เห็นเมื่อมี `prices.sell:read`',
+  })
+  @PriceField('sell')
+  sellBilling?: OrderBillingDto;
   @ApiProperty({ type: [OrderStopDto] }) stops!: OrderStopDto[];
   @ApiProperty({ type: [OrderLineDto] }) lines!: OrderLineDto[];
   @ApiPropertyOptional({

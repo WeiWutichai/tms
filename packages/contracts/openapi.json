@@ -35257,6 +35257,10 @@
           "etaxCapable": {
             "type": "boolean"
           },
+          "billByActualQty": {
+            "type": "boolean",
+            "description": "ST4-T10 วางบิลตามยอดส่งจริง"
+          },
           "freeTimeMin": {
             "type": "number",
             "nullable": true
@@ -35325,6 +35329,7 @@
           "creditLimit",
           "vatRegistered",
           "etaxCapable",
+          "billByActualQty",
           "freeTimeMin",
           "billingCompanyId",
           "podRequirements",
@@ -35477,6 +35482,10 @@
           "etaxCapable": {
             "type": "boolean",
             "description": "ลูกค้ารับใบกำกับภาษีอิเล็กทรอนิกส์ (e-Tax) ได้ (ค่าเริ่มต้น false)"
+          },
+          "billByActualQty": {
+            "type": "boolean",
+            "description": "ST4-T10 วางบิลตามยอดส่งจริง (docs/04 E2) — true = ค่าขนส่งที่คิดตามน้ำหนัก/ปริมาตร/หน่วยนับ ใช้ปริมาณที่ส่งได้จริงจากหลักฐานส่ง (ค่าเริ่มต้น false = ตามใบสั่ง)"
           },
           "freeTimeMin": {
             "type": "number",
@@ -35676,6 +35685,10 @@
             "type": "boolean",
             "description": "ลูกค้ารับใบกำกับภาษีอิเล็กทรอนิกส์ (e-Tax) ได้ (ค่าเริ่มต้น false)"
           },
+          "billByActualQty": {
+            "type": "boolean",
+            "description": "ST4-T10 วางบิลตามยอดส่งจริง (docs/04 E2) — true = ค่าขนส่งที่คิดตามน้ำหนัก/ปริมาตร/หน่วยนับ ใช้ปริมาณที่ส่งได้จริงจากหลักฐานส่ง (ค่าเริ่มต้น false = ตามใบสั่ง)"
+          },
           "freeTimeMin": {
             "type": "number",
             "minimum": 0,
@@ -35855,6 +35868,10 @@
           "etaxCapable": {
             "type": "boolean",
             "description": "ลูกค้ารับใบกำกับภาษีอิเล็กทรอนิกส์ (e-Tax) ได้ (ค่าเริ่มต้น false)"
+          },
+          "billByActualQty": {
+            "type": "boolean",
+            "description": "ST4-T10 วางบิลตามยอดส่งจริง (docs/04 E2) — true = ค่าขนส่งที่คิดตามน้ำหนัก/ปริมาตร/หน่วยนับ ใช้ปริมาณที่ส่งได้จริงจากหลักฐานส่ง (ค่าเริ่มต้น false = ตามใบสั่ง)"
           },
           "freeTimeMin": {
             "type": "number",
@@ -36244,6 +36261,174 @@
           "rateCardId",
           "rateCardCode",
           "rateCardRevision"
+        ]
+      },
+      "OrderBillingChargeDto": {
+        "type": "object",
+        "properties": {
+          "lineNo": {
+            "type": "number"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "FREIGHT",
+              "EXTRA_STOP",
+              "ACCESSORIAL"
+            ]
+          },
+          "origin": {
+            "type": "string",
+            "example": "RATE_CARD"
+          },
+          "description": {
+            "type": "string"
+          },
+          "qtyPlanned": {
+            "type": "string",
+            "example": "15",
+            "description": "จำนวนตามใบสั่ง (snapshot ของบรรทัด)"
+          },
+          "qty": {
+            "type": "string",
+            "example": "13.5",
+            "description": "จำนวนที่ใช้คิดเงิน (ค่าแสดงผล ≤ 4 ตำแหน่ง)"
+          },
+          "qtyExact": {
+            "type": "string",
+            "example": "13.5",
+            "description": "จำนวนเต็มความละเอียด (ทศนิยมครบ หรือ \"n/d\")"
+          },
+          "sellUnitPrice": {
+            "type": "string",
+            "example": "350.00"
+          },
+          "sellPlannedAmount": {
+            "type": "string",
+            "example": "5250.00",
+            "description": "ยอดตามใบสั่ง"
+          },
+          "sellAmount": {
+            "type": "string",
+            "example": "4725.00",
+            "description": "ยอดที่วางบิล"
+          },
+          "minChargeApplied": {
+            "type": "boolean"
+          },
+          "vatType": {
+            "type": "string",
+            "example": "EXEMPT_TRANSPORT",
+            "description": "snapshot — ไม่เปลี่ยนตามยอดส่งจริง"
+          },
+          "whtRate": {
+            "type": "string",
+            "example": "1.00"
+          },
+          "adjusted": {
+            "type": "boolean",
+            "description": "ยอดวางบิลต่างจากใบสั่ง"
+          },
+          "qtyUnit": {
+            "type": "string",
+            "nullable": true,
+            "example": "ตัน",
+            "description": "หน่วยของ `qty` เมื่อคิดใหม่ตามยอดส่งจริง (หน่วยของสูตรราคา) — บรรทัดที่ไม่คิดใหม่ = null"
+          },
+          "note": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "MANUAL_PRICE",
+              "NOT_QTY_BASED"
+            ],
+            "description": "เหตุที่ไม่คิดใหม่: MANUAL_PRICE = ค่าขนส่งที่คนกำหนดเป็นยอดเหมา (ราคาที่กำหนดเองชนะ rate card) · NOT_QTY_BASED = สูตรเหมาเที่ยว/ตามระยะทาง ยอดไม่ขึ้นกับจำนวนสินค้า"
+          }
+        },
+        "required": [
+          "lineNo",
+          "kind",
+          "origin",
+          "description",
+          "qtyPlanned",
+          "qty",
+          "qtyExact",
+          "sellUnitPrice",
+          "sellPlannedAmount",
+          "sellAmount",
+          "minChargeApplied",
+          "vatType",
+          "whtRate",
+          "adjusted",
+          "qtyUnit",
+          "note"
+        ]
+      },
+      "OrderBillingDto": {
+        "type": "object",
+        "properties": {
+          "preview": {
+            "type": "boolean",
+            "enum": [
+              true
+            ],
+            "description": "**ยอดประมาณ — ยังไม่ใช้ออกใบแจ้งหนี้** (กติกาเงินของ \"วางบิลตามยอดส่งจริง\" ยัง OPEN ใน spec/12 §3 — ต้องให้ PO/นักบัญชีตัดสินก่อน ST5-T01) · ห้ามใช้เป็นยอดผูกพัน"
+          },
+          "basis": {
+            "type": "string",
+            "enum": [
+              "PLANNED",
+              "ACTUAL"
+            ],
+            "description": "ตั้งค่าของลูกค้า: ตามใบสั่ง / ตามยอดส่งจริง"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PLANNED",
+              "NOT_RECORDED",
+              "ACTUAL",
+              "CALCULATION_FAILURE"
+            ],
+            "description": "PLANNED = ลูกค้าวางบิลตามใบสั่ง · NOT_RECORDED = ตามยอดจริงแต่ยังไม่มียอดส่งจริง (ใช้ยอดใบสั่ง) · ACTUAL = คิดตามยอดส่งจริงแล้ว · CALCULATION_FAILURE = คิดไม่ได้ (เช่น ส่งได้ 0) ต้องให้คนกำหนด"
+          },
+          "actualRecorded": {
+            "type": "boolean",
+            "description": "มี DO ของใบนี้ที่บันทึกยอดส่งจริงแล้ว"
+          },
+          "charges": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderBillingChargeDto"
+            }
+          },
+          "sellPlannedTotal": {
+            "type": "string",
+            "nullable": true,
+            "example": "5250.00"
+          },
+          "sellBillableTotal": {
+            "type": "string",
+            "nullable": true,
+            "example": "4725.00",
+            "description": "null = คิดไม่ได้"
+          },
+          "reasons": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderPricingReasonDto"
+            }
+          }
+        },
+        "required": [
+          "preview",
+          "basis",
+          "status",
+          "actualRecorded",
+          "charges",
+          "sellPlannedTotal",
+          "sellBillableTotal",
+          "reasons"
         ]
       },
       "OrderStopMatchDto": {
@@ -36664,6 +36849,14 @@
             "items": {
               "$ref": "#/components/schemas/OrderChargeDto"
             }
+          },
+          "sellBilling": {
+            "description": "ST4-T10 **ยอดประมาณ (preview, ไม่ผูกพัน)** ของการวางบิล (ตามใบสั่ง / ตามยอดส่งจริงตามที่ตั้งในลูกค้า) — ยังไม่ใช้ออกใบแจ้งหนี้ (กติกา OPEN) · มีเฉพาะ GET ทีละใบและผลของการเขียน · เห็นเมื่อมี `prices.sell:read`",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/OrderBillingDto"
+              }
+            ]
           },
           "stops": {
             "type": "array",
@@ -37248,6 +37441,14 @@
             "items": {
               "$ref": "#/components/schemas/OrderChargeDto"
             }
+          },
+          "sellBilling": {
+            "description": "ST4-T10 **ยอดประมาณ (preview, ไม่ผูกพัน)** ของการวางบิล (ตามใบสั่ง / ตามยอดส่งจริงตามที่ตั้งในลูกค้า) — ยังไม่ใช้ออกใบแจ้งหนี้ (กติกา OPEN) · มีเฉพาะ GET ทีละใบและผลของการเขียน · เห็นเมื่อมี `prices.sell:read`",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/OrderBillingDto"
+              }
+            ]
           },
           "stops": {
             "type": "array",
@@ -43282,7 +43483,19 @@
           },
           "qtyActual": {
             "type": "string",
-            "nullable": true
+            "nullable": true,
+            "description": "ST4-T10 ส่งได้จริง (จากหลักฐานส่งฉบับล่าสุด) — null = ยังไม่บันทึก (ถือว่าตามแผน)"
+          },
+          "rejectQty": {
+            "type": "string",
+            "nullable": true,
+            "description": "ST4-T10 ผู้รับปฏิเสธ = แผน − ส่งจริง"
+          },
+          "rejectReasonCodeId": {
+            "type": "string",
+            "nullable": true,
+            "example": "rsn_3f2a…",
+            "description": "ST4-T10 เหตุผลปฏิเสธรับ (หมวด REJECTED_BY_RECEIVER) — ข้อความ ณ เวลาบันทึกดูที่ GET …/pod"
           },
           "unit": {
             "type": "string",
@@ -43303,6 +43516,8 @@
           "description",
           "qtyPlanned",
           "qtyActual",
+          "rejectQty",
+          "rejectReasonCodeId",
           "unit",
           "weightKg",
           "cbm"
@@ -43888,6 +44103,84 @@
           "recordedAt"
         ]
       },
+      "PodLineReasonDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "rsn_3f2a…"
+          },
+          "code": {
+            "type": "string",
+            "example": "SHORT_QTY"
+          },
+          "label": {
+            "type": "string",
+            "example": "จำนวนไม่ครบ",
+            "description": "ข้อความ ณ เวลาที่บันทึก (snapshot)"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "label"
+        ]
+      },
+      "PodLineDto": {
+        "type": "object",
+        "properties": {
+          "lineNo": {
+            "type": "number",
+            "example": 1
+          },
+          "description": {
+            "type": "string"
+          },
+          "unit": {
+            "type": "string",
+            "example": "ตัน",
+            "description": "ชื่อหน่วยที่แสดง (ไม่มีหน่วยใน master = ข้อความหน่วยของบรรทัด)"
+          },
+          "qtyPlanned": {
+            "type": "string",
+            "example": "100"
+          },
+          "qtyActual": {
+            "type": "string",
+            "nullable": true,
+            "example": "90",
+            "description": "null = ยังไม่บันทึก (ถือว่าตามแผน)"
+          },
+          "rejectQty": {
+            "type": "string",
+            "nullable": true,
+            "example": "10"
+          },
+          "rejectReason": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PodLineReasonDto"
+              }
+            ]
+          },
+          "note": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "lineNo",
+          "description",
+          "unit",
+          "qtyPlanned",
+          "qtyActual",
+          "rejectQty",
+          "rejectReason",
+          "note"
+        ]
+      },
       "DeliveryOrderPodDto": {
         "type": "object",
         "properties": {
@@ -43953,6 +44246,13 @@
             "items": {
               "$ref": "#/components/schemas/PodVersionDto"
             }
+          },
+          "lines": {
+            "description": "ST4-T10 บรรทัดของ DO (แผน vs ส่งจริง vs ปฏิเสธ + เหตุผล) ตามฉบับล่าสุด",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PodLineDto"
+            }
           }
         },
         "required": [
@@ -43965,7 +44265,45 @@
           "checklist",
           "missing",
           "current",
-          "versions"
+          "versions",
+          "lines"
+        ]
+      },
+      "PodLineInputDto": {
+        "type": "object",
+        "properties": {
+          "lineNo": {
+            "type": "number",
+            "example": 1,
+            "description": "ลำดับบรรทัดของ DO (`lines[].lineNo` ของ GET /v1/delivery-orders/{id})"
+          },
+          "qtyActual": {
+            "type": "string",
+            "example": "90",
+            "description": "จำนวนที่ส่งได้จริง (หน่วยเดียวกับบรรทัด) 0 ≤ ค่า ≤ แผน ทศนิยมไม่เกิน 3 ตำแหน่ง — สตริง (ห้าม float) · เกินแผน → 422 `exceeds_planned`"
+          },
+          "rejectQty": {
+            "type": "string",
+            "nullable": true,
+            "example": "10",
+            "description": "จำนวนที่ผู้รับปฏิเสธ — ไม่ส่งได้ (ระบบคิด = แผน − ส่งจริง) · ส่งมาต้องเท่ากัน ไม่งั้น 422 `reject_qty_mismatch`"
+          },
+          "rejectReasonCodeId": {
+            "type": "string",
+            "nullable": true,
+            "example": "rsn_3f2a…",
+            "description": "เหตุผลมาตรฐานหมวด `REJECTED_BY_RECEIVER` (ปฏิเสธรับ/ตีกลับ) — **บังคับเมื่อส่งจริงน้อยกว่าแผน** (ไม่มี → 422 `reason_required`) · ส่งครบแต่ส่งเหตุผลมา → 422 `reason_not_applicable` · เหตุผลที่บังคับรูป = หลักฐานต้องมีรูป ≥ 1 · บังคับโน้ต = ต้องมี `note`"
+          },
+          "note": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 500,
+            "description": "โน้ตของรายการที่ปฏิเสธ"
+          }
+        },
+        "required": [
+          "lineNo",
+          "qtyActual"
         ]
       },
       "SubmitPodDto": {
@@ -44078,6 +44416,14 @@
             "minimum": 1,
             "maximum": 10,
             "description": "คะแนนความพึงพอใจของผู้รับ (RATING) 1–คะแนนเต็มของ checklist"
+          },
+          "lines": {
+            "maxItems": 500,
+            "description": "ST4-T10 ยอดส่งจริงต่อรายการ (เฉพาะ DO ที่ส่งแล้ว — ชุดสำเร็จ; DO ส่งไม่สำเร็จ/ตีกลับ → 422 `not_applicable`) · **ไม่ส่ง = คงค่าของฉบับก่อน** · บรรทัดที่ไม่อยู่ในรายการ = คงค่าเดิม (ยังไม่เคยบันทึก = ตามแผน)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PodLineInputDto"
+            }
           },
           "reason": {
             "type": "string",
@@ -47806,6 +48152,59 @@
           "n"
         ]
       },
+      "PodLinkLineDto": {
+        "type": "object",
+        "properties": {
+          "lineNo": {
+            "type": "number",
+            "example": 1
+          },
+          "description": {
+            "type": "string",
+            "example": "ปูนซีเมนต์ 50 กก."
+          },
+          "unit": {
+            "type": "string",
+            "example": "ถุง",
+            "description": "ชื่อหน่วยที่แสดง"
+          },
+          "qtyPlanned": {
+            "type": "string",
+            "example": "100"
+          }
+        },
+        "required": [
+          "lineNo",
+          "description",
+          "unit",
+          "qtyPlanned"
+        ]
+      },
+      "PodLinkReasonDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "rsn_3f2a…"
+          },
+          "label": {
+            "type": "string",
+            "example": "จำนวนไม่ครบ"
+          },
+          "requiresNote": {
+            "type": "boolean"
+          },
+          "requiresPhoto": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "requiresNote",
+          "requiresPhoto"
+        ]
+      },
       "PodLinkDoPodDto": {
         "type": "object",
         "properties": {
@@ -47840,6 +48239,20 @@
             "items": {
               "$ref": "#/components/schemas/PodFieldDto"
             }
+          },
+          "lines": {
+            "description": "ST4-T10 บรรทัดสินค้าของ DO — ค่าเริ่มต้น \"ส่งจริง\" = แผน · น้อยกว่าแผนต้องเลือกเหตุผล",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PodLinkLineDto"
+            }
+          },
+          "rejectReasons": {
+            "description": "ST4-T10 เหตุผลปฏิเสธรับที่เลือกได้",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PodLinkReasonDto"
+            }
           }
         },
         "required": [
@@ -47847,7 +48260,9 @@
           "sent",
           "podStatus",
           "photosMax",
-          "fields"
+          "fields",
+          "lines",
+          "rejectReasons"
         ]
       },
       "PodDoDto": {
@@ -48061,6 +48476,14 @@
             "type": "array",
             "items": {
               "type": "string"
+            }
+          },
+          "lines": {
+            "maxItems": 500,
+            "description": "ST4-T10 ยอดส่งจริงต่อรายการ (`lineNo` ของ DO) — ไม่ส่ง = ตามแผนทั้งหมด · ส่งน้อยกว่าแผนต้องมีเหตุผลหมวด REJECTED_BY_RECEIVER (ไม่มี → 422 `reason_required`)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PodLineInputDto"
             }
           }
         },

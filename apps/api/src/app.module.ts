@@ -120,6 +120,7 @@ import { ScheduleService } from './modules/schedule/schedule.service';
 import { BoardPreferencesService } from './modules/planning/board-preferences.service';
 import { EligibilityService } from './modules/planning/eligibility.service';
 import { OrdersController } from './modules/orders/orders.controller';
+import { OrderBillingService } from './modules/orders/order-billing.service';
 import { OrdersService } from './modules/orders/orders.service';
 import { OrderLockService } from './modules/orders/order-lock.service';
 import { OrderTemplatesController } from './modules/orders/order-templates.controller';
@@ -265,6 +266,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     RateCardsService,
     PricingService,
     OrderIntakeService,
+    OrderBillingService,
     OrderMatchingService,
     DeliveryOrderService,
     OrderStateService,

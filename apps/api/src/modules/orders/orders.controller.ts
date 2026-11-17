@@ -46,6 +46,9 @@ import {
   UpsertOrderDto,
 } from './order.dto';
 import { OrderLockService } from './order-lock.service';
+import { OrderBillingService } from './order-billing.service';
+import { scopeAllows } from '@tms/domain';
+import { requestContext } from '../../common/request-context';
 import { OrdersService, toOrderDto } from './orders.service';
 import type { UpsertOrderResult } from './order-intake.service';
 import { ApiExternalIdParam, ExternalIdPipe, extRef, resolveRef } from '../../common/external-id';
@@ -335,6 +338,7 @@ export class OrdersController {
   constructor(
     private readonly orders: OrdersService,
     private readonly locks: OrderLockService,
+    private readonly billing: OrderBillingService,
   ) {}
 
   private async resolve(id: string) {
@@ -353,6 +357,9 @@ export class OrdersController {
       editableFields: await this.orders.editableFields(row),
       editLock: await this.locks.view(row.id),
     };
+    // ST4-T10 ยอดวางบิล (ตามใบสั่ง / ตามยอดส่งจริง) — ราคาขายเท่านั้น (interceptor ตัดออกเมื่อไม่มีสิทธิ์)
+    if (scopeAllows(requestContext.require().scopes ?? [], 'prices.sell:read'))
+      dto.sellBilling = await this.billing.compute(row.id);
     // ชุดที่รอตัดสิน: ค่า "เดิม" เทียบข้อมูล TMS ตอนนี้ (list ใช้ diff ตอนรับ)
     if (dto.sourceChange && row.sourceChanges[0]) {
       const live = await this.orders.previewSourceChange(row.id, row.sourceChanges[0].id);

@@ -165,7 +165,27 @@ export class DeliveryOrderLineDto {
   @ApiProperty({ description: 'ลำดับบรรทัดของ SO' }) soLineNo!: number;
   @ApiProperty() description!: string;
   @ApiProperty({ example: '12.5' }) qtyPlanned!: string;
-  @ApiProperty({ nullable: true, type: String }) qtyActual!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description:
+      'ST4-T10 ส่งได้จริง (จากหลักฐานส่งฉบับล่าสุด) — null = ยังไม่บันทึก (ถือว่าตามแผน)',
+  })
+  qtyActual!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description: 'ST4-T10 ผู้รับปฏิเสธ = แผน − ส่งจริง',
+  })
+  rejectQty!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: 'rsn_3f2a…',
+    description:
+      'ST4-T10 เหตุผลปฏิเสธรับ (หมวด REJECTED_BY_RECEIVER) — ข้อความ ณ เวลาบันทึกดูที่ GET …/pod',
+  })
+  rejectReasonCodeId!: string | null;
   @ApiProperty({ example: 'TON' }) unit!: string;
   @ApiProperty({ nullable: true, type: String }) weightKg!: string | null;
   @ApiProperty({ nullable: true, type: String }) cbm!: string | null;

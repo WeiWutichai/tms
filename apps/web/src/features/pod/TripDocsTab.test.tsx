@@ -359,6 +359,67 @@ describe('TripDocsTab errors', () => {
   });
 });
 
+describe('ST4-T10 จำนวนที่ส่งจริง', () => {
+  const lines = [
+    {
+      lineNo: 1,
+      description: 'ปูนซีเมนต์',
+      unit: 'ตัน',
+      qtyPlanned: '20',
+      qtyActual: null,
+      rejectQty: null,
+      rejectReason: null,
+      note: null,
+    },
+  ];
+  it('แก้ส่งจริงน้อยกว่าแผน → แสดงปฏิเสธ + ช่องเหตุผล/โน้ต · บันทึกส่ง lines', () => {
+    pods.do_1 = pod({ lines } as Partial<DoPod>);
+    renderTab();
+    const sec = screen.getByTestId('actual-qty');
+    expect(within(sec).getByText('จำนวนที่ส่งจริง')).toBeTruthy();
+    expect(within(sec).getByText('แผน 20 ตัน')).toBeTruthy();
+    expect(within(sec).queryByText('เหตุผล')).toBeNull();
+    fireEvent.change(within(sec).getByLabelText('จำนวนที่ส่งจริง ปูนซีเมนต์'), {
+      target: { value: '18' },
+    });
+    expect(within(sec).getByText(/ปฏิเสธ 2 ตัน/)).toBeTruthy();
+    expect(
+      within(sec).getByText('ส่งน้อยกว่าแผน ระบุเหตุผลจาก reason master และแนบหลักฐาน'),
+    ).toBeTruthy();
+    fireEvent.change(within(sec).getByPlaceholderText(/กล่องบุบ/), {
+      target: { value: 'กล่องบุบ' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'บันทึกหลักฐานส่ง' }));
+    expect(mutate.mock.calls[0]![0].body.lines).toEqual([
+      { lineNo: 1, qtyActual: '18', rejectReasonCodeId: null, note: 'กล่องบุบ' },
+    ]);
+  });
+  it('ข้อผิดพลาดของ API แสดงเป็นข้อความไทย', () => {
+    const t = (k: string) => k;
+    expect(
+      podFieldError(
+        t as never,
+        { field: 'lines.0.rejectReasonCodeId', code: 'reason_required' },
+        {},
+      ),
+    ).toBe('pod.q.v.reasonRequired');
+    expect(
+      podFieldError(t as never, { field: 'lines.0.qtyActual', code: 'exceeds_planned' }, {}),
+    ).toBe('pod.q.v.exceeds');
+    expect(
+      podFieldError(t as never, { field: 'photoDocumentIds', code: 'photo_required' }, {}),
+    ).toBe('pod.q.v.photoRequired');
+  });
+  it('DO ส่งไม่สำเร็จ (ชุดไม่สำเร็จ) ไม่แสดงส่วนนี้', () => {
+    pods.do_1 = pod({
+      lines,
+      checklist: { outcome: 'FAILURE', source: 'TENANT', fields: fields(), tenantFields: [] },
+    } as Partial<DoPod>);
+    renderTab();
+    expect(screen.queryByTestId('actual-qty')).toBeNull();
+  });
+});
+
 describe('helpers', () => {
   it('weightDiff ใช้ทศนิยม 3 ตำแหน่งแบบจำนวนเต็ม', () => {
     expect(weightDiff('14940', '15000')).toBe('-60');
@@ -383,6 +444,7 @@ describe('helpers', () => {
       pin: '',
       pinClear: false,
       rating: '3',
+      lines: { qty: {}, reason: '', note: '' },
     });
     expect(b).toMatchObject({
       receiverName: null,
@@ -409,6 +471,7 @@ describe('helpers', () => {
         pin: '',
         pinClear: true,
         rating: '',
+        lines: { qty: {}, reason: '', note: '' },
       }).pin,
     ).toBeNull();
   });

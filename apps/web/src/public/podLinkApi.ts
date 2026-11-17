@@ -249,6 +249,64 @@ export function podLinkBody(
   return body;
 }
 
+// ---------------------------------------------------------------------------------------------
+// ST4-T10 ยอดส่งจริงผ่านลิงก์ — ค่าเริ่มต้น = แผน · น้อยกว่าแผน = ต้องเลือกเหตุผล (หนึ่งเหตุผลต่อ DO ใช้กับทุกบรรทัดที่ขาด)
+
+export type PodLinkLine = PodLinkPod['lines'][number];
+export type PodLinkReason = PodLinkPod['rejectReasons'][number];
+
+const QTY = /^\d{1,11}(\.\d{1,3})?$/;
+/** "12.5" → 12500n (หน่วย 1/1000) · ผิดรูป = null */
+export function linkMilli(v: string): bigint | null {
+  const s = v.trim();
+  if (!QTY.test(s)) return null;
+  const [w, f = ''] = s.split('.') as [string, string?];
+  return BigInt(w) * 1000n + BigInt((f + '000').slice(0, 3));
+}
+export function linkQtyStr(m: bigint): string {
+  const whole = m / 1000n;
+  const frac = (m % 1000n).toString().padStart(3, '0').replace(/0+$/, '');
+  return frac ? `${whole}.${frac}` : `${whole}`;
+}
+/** ปุ่ม − / + ทีละ 1 (ไม่ต่ำกว่า 0 ไม่เกินแผน) */
+export function stepQty(v: string, planned: string, dir: -1 | 1): string {
+  const p = linkMilli(planned) ?? 0n;
+  const cur = linkMilli(v) ?? p;
+  const next = cur + BigInt(dir) * 1000n;
+  return linkQtyStr(next < 0n ? 0n : next > p ? p : next);
+}
+/** สถานะของยอดส่งจริงในฟอร์ม: บรรทัดผิด (ผิดรูป/เกินแผน), มีที่ขาด */
+export function linkQtyState(lines: PodLinkLine[], qty: Record<number, string>) {
+  let bad = false;
+  let short = false;
+  for (const l of lines) {
+    const p = linkMilli(l.qtyPlanned);
+    const a = linkMilli(qty[l.lineNo] ?? l.qtyPlanned);
+    if (p === null || a === null || a > p) bad = true;
+    else if (a < p) short = true;
+  }
+  return { bad, short };
+}
+/** body.lines — ส่งครบทุกบรรทัดตามแผน = ไม่ส่ง (API ถือว่าตามแผน) */
+export function podLinkLines(
+  lines: PodLinkLine[],
+  qty: Record<number, string>,
+  reason: string | null,
+  note: string,
+): PodCaptureBody['lines'] {
+  const { short } = linkQtyState(lines, qty);
+  if (!short) return undefined;
+  return lines.map((l) => {
+    const v = (qty[l.lineNo] ?? l.qtyPlanned).trim();
+    const isShort = (linkMilli(v) ?? 0n) < (linkMilli(l.qtyPlanned) ?? 0n);
+    return {
+      lineNo: l.lineNo,
+      qtyActual: v,
+      ...(isShort ? { rejectReasonCodeId: reason, note: note.trim() || null } : {}),
+    };
+  });
+}
+
 /** จองไฟล์ผ่านลิงก์ (ผูกกับ DO นี้) → PUT เนื้อไฟล์ → id · ชนิด/ขนาดผิด → Error('bad_file') */
 export async function uploadPodLinkFile(
   token: string,
