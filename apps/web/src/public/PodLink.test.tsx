@@ -598,6 +598,8 @@ describe('ส่ง POD ผ่านลิงก์ (ST4-T09)', () => {
     expect(mutateAsync).not.toHaveBeenCalled();
     // เหตุผลบังคับโน้ต → ต้องกรอก
     fireEvent.click(screen.getByRole('button', { name: 'ลูกค้าปฏิเสธรับบางรายการ' }));
+    // QA L2: เลือกเหตุผลแล้วข้อความเตือนเดิมหาย
+    expect(screen.queryByTestId('pdl-pod-err')).toBeNull();
     fireEvent.click(screen.getByTestId('pdl-pod-submit'));
     expect((await screen.findByTestId('pdl-pod-err')).textContent).toBe(
       'เหตุผลนี้ต้องระบุรายละเอียด',

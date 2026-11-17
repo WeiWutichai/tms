@@ -46,6 +46,8 @@ export function priceFieldNames(): ReadonlyMap<string, PriceKind> {
 
 /** principal ภายใน (ผู้ใช้ / token dev / API client ของ tenant) — ที่เหลือ (ลิงก์รถร่วม, คนขับ) ห้ามเห็นราคาขายเด็ดขาด (A3) */
 const INTERNAL_PRINCIPALS = new Set(['user', 'dev', 'client']);
+/** หน้า public (ไม่มี principal) / ลิงก์รถร่วม / คนขับ — DTO ของช่องทางเหล่านี้ไม่มี field ราคา */
+const PUBLIC_PRINCIPALS = new Set<string | undefined>([undefined, 'link', 'driver']);
 
 const isPlain = (v: object) => {
   const p = Object.getPrototypeOf(v);
@@ -126,7 +128,9 @@ export class PriceFieldInterceptor implements NestInterceptor {
   intercept(ctx: ExecutionContext, next: CallHandler): Observable<unknown> {
     const rc = requestContext.get();
     const req = ctx.switchToHttp().getRequest<{ body?: unknown }>();
-    assertPriceWriteAllowed(req?.body, rc);
+    // ผู้ใช้ภายในเท่านั้นที่ส่ง field ราคาได้ตามสิทธิ์ (403) · หน้า public/ลิงก์รถร่วม/คนขับ: DTO ไม่มี field ราคาเลย
+    // → ปล่อยให้ ValidationPipe ตอบ 422 "field ไม่รู้จัก" (ST4-T10 QA L4) — ไม่บอกว่าชื่อนั้นเป็น field ราคา
+    if (!PUBLIC_PRINCIPALS.has(rc?.principalType)) assertPriceWriteAllowed(req?.body, rc);
     return next.handle().pipe(
       // ยังไม่ผ่าน auth (route public) = ไม่มี scope ราคาใด ๆ
       map((body) => redactPrices(body, rc?.scopes ?? [], rc?.principalType)),

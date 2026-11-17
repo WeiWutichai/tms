@@ -178,6 +178,7 @@ export function CustomerDrawer({
   customer: c,
   canWrite,
   canListUsers,
+  canBillBasis = false,
   onSaved,
   onToggleStatus,
   onDelete,
@@ -186,6 +187,8 @@ export function CustomerDrawer({
   customer: Customer;
   canWrite: boolean;
   canListUsers: boolean;
+  /** ST4-T10 `prices.sell:write` — เปลี่ยน "วางบิลตามปริมาณ" ได้ */
+  canBillBasis?: boolean;
   onSaved: (c: Customer) => void;
   onToggleStatus: () => void;
   onDelete: () => void;
@@ -536,7 +539,7 @@ export function CustomerDrawer({
           {/* ST4-T10 docs/04 E2 "วางบิลตามยอดส่งจริงได้ (ตั้งต่อลูกค้า)" — ต้นแบบไม่มี [DECISION spec/12 §3] */}
           <ChoiceGroup
             label={t('cust.c.billQty')}
-            disabled={ro}
+            disabled={ro || !canBillBasis}
             value={f.billByActualQty}
             onChange={(v) => set('billByActualQty', v)}
             options={[

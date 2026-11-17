@@ -369,7 +369,10 @@ export function OrderDrawer({
         <>
           {canSeePrice && (
             <div style={{ display: 'flex', flexDirection: 'column' }}>
-              <span style={{ fontSize: 12.5, color: '#59606B' }}>{t('ord.footTotal')}</span>
+              <span style={{ fontSize: 12.5, color: '#59606B' }}>
+                {/* ST4-T10: ลูกค้าวางบิลตามยอดส่งจริง → บอกว่ายอดนี้คือยอดตามใบสั่ง (ยอดประมาณตามส่งจริงอยู่ในส่วนราคา) */}
+                {t(o.sellBilling?.basis === 'ACTUAL' ? 'ord.footTotalPlan' : 'ord.footTotal')}
+              </span>
               <span className="tms-num" style={{ fontSize: 20, fontWeight: 600 }}>
                 {o.sellTotal ? t('ord.baht', { n: money(o.sellTotal) }) : '—'}
               </span>
@@ -783,7 +786,9 @@ export function OrderDrawer({
                     marginTop: 4,
                   }}
                 >
-                  <span style={{ fontWeight: 600 }}>{t('ord.subtotal')}</span>
+                  <span style={{ fontWeight: 600 }}>
+                    {t(o.sellBilling?.basis === 'ACTUAL' ? 'ord.subtotalPlan' : 'ord.subtotal')}
+                  </span>
                   <span className="tms-num" style={{ fontWeight: 600 }}>
                     {o.sellTotal ? money(o.sellTotal) : '—'}
                   </span>
@@ -967,7 +972,7 @@ function BillingByActual({ b }: { b: NonNullable<Order['sellBilling']> }) {
               <span style={{ fontSize: 12.5, color: '#59606B' }}>
                 {c.note === 'MANUAL_PRICE'
                   ? t('ord.ba.manual')
-                  : t('ord.ba.qty', { q: c.qty, p: c.qtyPlanned })}
+                  : t('ord.ba.qty', { q: c.qty, p: c.qtyPlanned, u: c.qtyUnit ?? '' })}
               </span>
             </div>
             <span className="tms-num">{money(c.sellAmount)}</span>
@@ -983,7 +988,9 @@ function BillingByActual({ b }: { b: NonNullable<Order['sellBilling']> }) {
       </div>
       {b.status === 'CALCULATION_FAILURE' && (
         <span className="tms-field-error" role="alert">
-          {t('ord.ba.failed', { list: b.reasons.map((r) => r.message).join(', ') })}
+          {b.reasons.some((r) => r.code === 'QUANTITY_INVALID')
+            ? t('ord.ba.allRejected')
+            : t('ord.ba.failed', { list: b.reasons.map((r) => r.message).join(', ') })}
         </span>
       )}
     </div>

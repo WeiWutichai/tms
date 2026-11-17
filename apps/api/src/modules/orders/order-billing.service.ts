@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import {
   billableQtyBySoLine,
   decimalFromSatang,
@@ -26,6 +26,7 @@ import type { OrderBillingChargeDto, OrderBillingDto } from './order.dto';
  */
 @Injectable()
 export class OrderBillingService {
+  private readonly log = new Logger(OrderBillingService.name);
   constructor(
     private readonly db: DbService,
     private readonly pricing: PricingService,
@@ -75,6 +76,7 @@ export class OrderBillingService {
       whtRate: c.whtRate.toFixed(2),
       adjusted: false,
       note: null,
+      qtyUnit: null,
     }));
     const plannedTotal = o.priceTotal ? o.priceTotal.toFixed(2) : null;
     const result = (
@@ -82,6 +84,7 @@ export class OrderBillingService {
       billable: string | null,
       reasons: OrderBillingDto['reasons'] = [],
     ): OrderBillingDto => ({
+      preview: true,
       basis,
       status,
       actualRecorded,
@@ -116,21 +119,32 @@ export class OrderBillingService {
       }
       const rc = await tx.rateCard.findUniqueOrThrow({
         where: { id: c.rateCardId },
-        select: { pricingModel: true },
+        select: { pricingModel: true, unit: { select: { nameTh: true } } },
       });
       if (!isQtyBasedPricing(rc.pricingModel)) {
         out.note = 'NOT_QTY_BASED';
         continue;
       }
-      const r = await this.pricing.repriceFreight(
-        {
-          rateCardId: c.rateCardId,
-          unitPrice: c.unitPrice.toFixed(2),
-          serviceItem: c.serviceItemSnapshot as unknown as ServiceItemSnapshot,
-          quantities,
-        },
-        tx,
-      );
+      // ปัญหาใด ๆ ของการคิดใหม่ (ข้อมูลหลักหาย/ผิด) = CALCULATION_FAILURE — ห้ามทำให้ GET ใบสั่งล้ม
+      let r: Awaited<ReturnType<PricingService['repriceFreight']>>;
+      try {
+        r = await this.pricing.repriceFreight(
+          {
+            rateCardId: c.rateCardId,
+            unitPrice: c.unitPrice.toFixed(2),
+            serviceItem: c.serviceItemSnapshot as unknown as ServiceItemSnapshot,
+            quantities,
+          },
+          tx,
+        );
+      } catch (e) {
+        this.log.warn(`order ${orderId}: billing preview failed — ${(e as Error).message}`);
+        reasons.push({
+          code: 'CALCULATION_ERROR',
+          message: 'คิดยอดตามส่งจริงไม่ได้ (ข้อมูลหลักที่ใช้คิดไม่ครบ)',
+        });
+        continue;
+      }
       const line = r.lines.find((x) => x.kind === 'FREIGHT');
       if (r.pricingStatus !== 'AVAILABLE' || !line) {
         reasons.push(
@@ -143,6 +157,16 @@ export class OrderBillingService {
         continue;
       }
       out.qty = line.qty;
+      // หน่วยของจำนวนที่คิดเงิน (หน่วยของสูตร) — ชื่อจาก master (อ่านแม้ถูกลบแบบ soft)
+      out.qtyUnit =
+        rc.pricingModel === 'PER_UNIT'
+          ? (rc.unit?.nameTh ?? null)
+          : ((
+              await tx.unit.findFirst({
+                where: { code: rc.pricingModel === 'PER_TON' ? 'TON' : 'CBM' },
+                select: { nameTh: true },
+              })
+            )?.nameTh ?? (rc.pricingModel === 'PER_TON' ? 'TON' : 'CBM'));
       out.qtyExact = line.qtyExact;
       out.sellAmount = line.amount;
       out.minChargeApplied = line.minChargeApplied;

@@ -181,6 +181,8 @@ export class PricingService {
     list: NonNullable<QuoteInput['quantities']>,
     rateUnitId: string | null,
     tx: Tx,
+    /** ST4-T10 คิดใหม่ของงานที่เกิดแล้ว: อ่านหน่วย/สินค้าที่ถูกลบแบบ soft ภายหลังได้ (ใช้ตามที่งานอ้าง) */
+    includeDeleted = false,
   ): Promise<{ quantities: PricingQuantity[]; unitMap: Map<string, PricingUnit> }> {
     // หน่วย + สินค้า (แปลงหน่วย)
     const qIn = list;
@@ -192,13 +194,15 @@ export class PricingService {
         ? tx.unit.findMany({
             where: {
               id: { in: unitIds },
-              OR: [{ deletedAt: null }, ...(rateUnitId ? [{ id: rateUnitId }] : [])],
+              ...(includeDeleted
+                ? {}
+                : { OR: [{ deletedAt: null }, ...(rateUnitId ? [{ id: rateUnitId }] : [])] }),
             },
           })
         : Promise.resolve([]),
       productIds.length
         ? tx.product.findMany({
-            where: { id: { in: productIds }, deletedAt: null },
+            where: { id: { in: productIds }, ...(includeDeleted ? {} : { deletedAt: null }) },
             include: { baseUnit: true, altUnits: true },
           })
         : Promise.resolve([]),
@@ -220,7 +224,7 @@ export class PricingService {
     );
     const quantities: PricingQuantity[] = qIn.map((x, i) => {
       const unit = unitMap.get(x.unitId);
-      const live = units.find((u) => u.id === x.unitId)?.deletedAt === null;
+      const live = includeDeleted || units.find((u) => u.id === x.unitId)?.deletedAt === null;
       if (!unit || !live)
         throw field422(`quantities[${i}].unitId`, 'reference_not_found', 'unit not found');
       const product = x.productId ? productMap.get(x.productId) : null;
@@ -258,7 +262,12 @@ export class PricingService {
         includedStops: true,
       },
     });
-    const { quantities, unitMap } = await this.loadQuantities(input.quantities, rc.unitId, tx);
+    const { quantities, unitMap } = await this.loadQuantities(
+      input.quantities,
+      rc.unitId,
+      tx,
+      true,
+    );
     return priceShipment(
       {
         rateCardId: rc.id,

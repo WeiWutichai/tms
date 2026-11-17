@@ -36329,6 +36329,12 @@
             "type": "boolean",
             "description": "ยอดวางบิลต่างจากใบสั่ง"
           },
+          "qtyUnit": {
+            "type": "string",
+            "nullable": true,
+            "example": "ตัน",
+            "description": "หน่วยของ `qty` เมื่อคิดใหม่ตามยอดส่งจริง (หน่วยของสูตรราคา) — บรรทัดที่ไม่คิดใหม่ = null"
+          },
           "note": {
             "type": "string",
             "nullable": true,
@@ -36354,12 +36360,20 @@
           "vatType",
           "whtRate",
           "adjusted",
+          "qtyUnit",
           "note"
         ]
       },
       "OrderBillingDto": {
         "type": "object",
         "properties": {
+          "preview": {
+            "type": "boolean",
+            "enum": [
+              true
+            ],
+            "description": "**ยอดประมาณ — ยังไม่ใช้ออกใบแจ้งหนี้** (กติกาเงินของ \"วางบิลตามยอดส่งจริง\" ยัง OPEN ใน spec/12 §3 — ต้องให้ PO/นักบัญชีตัดสินก่อน ST5-T01) · ห้ามใช้เป็นยอดผูกพัน"
+          },
           "basis": {
             "type": "string",
             "enum": [
@@ -36407,6 +36421,7 @@
           }
         },
         "required": [
+          "preview",
           "basis",
           "status",
           "actualRecorded",
@@ -36830,7 +36845,7 @@
             }
           },
           "sellBilling": {
-            "description": "ST4-T10 ยอดวางบิล (ตามใบสั่ง / ตามยอดส่งจริงตามที่ตั้งในลูกค้า) — มีเฉพาะ GET ทีละใบและผลของการเขียน · เห็นเมื่อมี `prices.sell:read`",
+            "description": "ST4-T10 **ยอดประมาณ (preview, ไม่ผูกพัน)** ของการวางบิล (ตามใบสั่ง / ตามยอดส่งจริงตามที่ตั้งในลูกค้า) — ยังไม่ใช้ออกใบแจ้งหนี้ (กติกา OPEN) · มีเฉพาะ GET ทีละใบและผลของการเขียน · เห็นเมื่อมี `prices.sell:read`",
             "allOf": [
               {
                 "$ref": "#/components/schemas/OrderBillingDto"
@@ -37415,7 +37430,7 @@
             }
           },
           "sellBilling": {
-            "description": "ST4-T10 ยอดวางบิล (ตามใบสั่ง / ตามยอดส่งจริงตามที่ตั้งในลูกค้า) — มีเฉพาะ GET ทีละใบและผลของการเขียน · เห็นเมื่อมี `prices.sell:read`",
+            "description": "ST4-T10 **ยอดประมาณ (preview, ไม่ผูกพัน)** ของการวางบิล (ตามใบสั่ง / ตามยอดส่งจริงตามที่ตั้งในลูกค้า) — ยังไม่ใช้ออกใบแจ้งหนี้ (กติกา OPEN) · มีเฉพาะ GET ทีละใบและผลของการเขียน · เห็นเมื่อมี `prices.sell:read`",
             "allOf": [
               {
                 "$ref": "#/components/schemas/OrderBillingDto"

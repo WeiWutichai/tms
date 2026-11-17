@@ -453,6 +453,14 @@ export class OrderBillingChargeDto {
   @ApiProperty({
     nullable: true,
     type: String,
+    example: 'ตัน',
+    description:
+      'หน่วยของ `qty` เมื่อคิดใหม่ตามยอดส่งจริง (หน่วยของสูตรราคา) — บรรทัดที่ไม่คิดใหม่ = null',
+  })
+  qtyUnit!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
     enum: ['MANUAL_PRICE', 'NOT_QTY_BASED'],
     description:
       'เหตุที่ไม่คิดใหม่: MANUAL_PRICE = ค่าขนส่งที่คนกำหนดเป็นยอดเหมา (ราคาที่กำหนดเองชนะ rate card) · NOT_QTY_BASED = สูตรเหมาเที่ยว/ตามระยะทาง ยอดไม่ขึ้นกับจำนวนสินค้า',
@@ -461,11 +469,19 @@ export class OrderBillingChargeDto {
 }
 
 /**
- * ST4-T10 ยอดวางบิลของใบสั่ง (docs/04 E2 "วางบิลตามยอดส่งจริงได้ (ตั้งต่อลูกค้า)") — คำนวณทุกครั้งที่อ่าน (ไม่เก็บ)
+ * ST4-T10 **ยอดประมาณ** สำหรับวางบิลของใบสั่ง (docs/04 E2 "วางบิลตามยอดส่งจริงได้ (ตั้งต่อลูกค้า)") — คำนวณทุกครั้งที่อ่าน (ไม่เก็บ)
+ * ไม่ผูกพัน/ยังไม่ใช้ออกใบแจ้งหนี้: กติกาเงิน [OPEN spec/12 §3] รวมความต่างกับ docs/01 §3.3 (revenue ต่อ DO)
  * ลูกค้าตั้ง "ตามยอดส่งจริง" → บรรทัดค่าขนส่งของสูตรตามน้ำหนัก/ปริมาตร/หน่วยนับ คิดใหม่ด้วย engine เดิมจาก rate card ฉบับที่ใช้
  * + จำนวนส่งจริงรวมของ DO ที่ไม่ยกเลิก · ค่าจุดเพิ่ม/ค่าบริการเสริม/ราคาที่กำหนดเองไม่เปลี่ยน · VAT/WHT ตาม snapshot ของบรรทัด
  */
 export class OrderBillingDto {
+  @ApiProperty({
+    enum: [true],
+    type: Boolean,
+    description:
+      '**ยอดประมาณ — ยังไม่ใช้ออกใบแจ้งหนี้** (กติกาเงินของ "วางบิลตามยอดส่งจริง" ยัง OPEN ใน spec/12 §3 — ต้องให้ PO/นักบัญชีตัดสินก่อน ST5-T01) · ห้ามใช้เป็นยอดผูกพัน',
+  })
+  preview!: true;
   @ApiProperty({
     enum: ['PLANNED', 'ACTUAL'],
     description: 'ตั้งค่าของลูกค้า: ตามใบสั่ง / ตามยอดส่งจริง',
@@ -615,7 +631,7 @@ export class OrderDto {
   @ApiPropertyOptional({
     type: OrderBillingDto,
     description:
-      'ST4-T10 ยอดวางบิล (ตามใบสั่ง / ตามยอดส่งจริงตามที่ตั้งในลูกค้า) — มีเฉพาะ GET ทีละใบและผลของการเขียน · เห็นเมื่อมี `prices.sell:read`',
+      'ST4-T10 **ยอดประมาณ (preview, ไม่ผูกพัน)** ของการวางบิล (ตามใบสั่ง / ตามยอดส่งจริงตามที่ตั้งในลูกค้า) — ยังไม่ใช้ออกใบแจ้งหนี้ (กติกา OPEN) · มีเฉพาะ GET ทีละใบและผลของการเขียน · เห็นเมื่อมี `prices.sell:read`',
   })
   @PriceField('sell')
   sellBilling?: OrderBillingDto;

@@ -372,6 +372,7 @@ describe('OrderDrawer (ST3-T10)', () => {
       rateCardRevision: 1,
     };
     const billing = (over: object) => ({
+      preview: true,
       basis: 'ACTUAL',
       status: 'ACTUAL',
       actualRecorded: true,
@@ -395,6 +396,7 @@ describe('OrderDrawer (ST3-T10)', () => {
           whtRate: '1.00',
           adjusted: true,
           note: null,
+          qtyUnit: 'ตัน',
         },
       ],
       ...over,
@@ -408,9 +410,12 @@ describe('OrderDrawer (ST3-T10)', () => {
     } as unknown as Order;
     view({ canSeePrice: true });
     const box = screen.getByTestId('bill-actual');
-    expect(within(box).getByText('ตามส่งจริง 22.5 (ใบสั่ง 25)')).toBeInTheDocument();
-    expect(within(box).getByText('ยอดวางบิลตามยอดส่งจริง')).toBeInTheDocument();
+    expect(within(box).getByText('ตามส่งจริง 22.5 ตัน (ใบสั่ง 25 ตัน)')).toBeInTheDocument();
+    expect(
+      within(box).getByText('ยอดประมาณตามยอดส่งจริง (ยังไม่ใช้ออกใบแจ้งหนี้)'),
+    ).toBeInTheDocument();
     expect(within(box).getAllByText('7,875.00')).toHaveLength(2);
+    expect(screen.getByText('ยอดรวมตามใบสั่ง (ก่อน VAT)')).toBeInTheDocument();
 
     live.data = {
       ...BASE,
@@ -422,5 +427,26 @@ describe('OrderDrawer (ST3-T10)', () => {
     expect(
       screen.getByText('ลูกค้าวางบิลตามยอดส่งจริง — ยังไม่มียอดส่งจริง ใช้ยอดตามใบสั่ง'),
     ).toBeInTheDocument();
+  });
+
+  it('ST4-T10 QA L1: ปฏิเสธรับทั้งหมด → ข้อความรอกติกา (ไม่ชี้ไปกำหนดราคาเอง)', () => {
+    live.data = {
+      ...BASE,
+      sourceChange: null,
+      sellCharges: [],
+      sellBilling: {
+        preview: true,
+        basis: 'ACTUAL',
+        status: 'CALCULATION_FAILURE',
+        actualRecorded: true,
+        sellPlannedTotal: '8750.00',
+        sellBillableTotal: null,
+        reasons: [{ code: 'QUANTITY_INVALID', message: 'จำนวนสินค้าไม่ถูกต้อง' }],
+        charges: [],
+      },
+    } as unknown as Order;
+    view({ canSeePrice: true });
+    expect(screen.getByText('ปฏิเสธรับทั้งหมด — รอกำหนดกติกา (OPEN)')).toBeInTheDocument();
+    expect(screen.queryByText(/กำหนดราคาเอง/)).toBeNull();
   });
 });

@@ -160,7 +160,7 @@ export function PodLinkCapture({
     if (codes.some((x) => x.code === 'reason_required')) return t('pdl.q.e.reason');
     if (codes.some((x) => x.code === 'note_required')) return t('pdl.q.e.note');
     if (codes.some((x) => x.code === 'photo_required')) return t('pdl.q.e.photo');
-    if (codes.some((x) => (x.field ?? '').startsWith('lines.'))) return t('pdl.q.e.qty');
+    if (codes.some((x) => /(^|\.)lines\./.test(x.field ?? ''))) return t('pdl.q.e.qty');
     if (p.code === 'stop_not_arrived') return t('pdl.pod.e.notArrived');
     if (p.code === 'stop_not_ready') return t('pdl.pod.e.notReady');
     if (p.code === 'stop_already_closed') return t('pdl.pod.e.alreadyClosed');
@@ -377,7 +377,11 @@ export function PodLinkCapture({
                 type="button"
                 className="pdl__opt"
                 aria-pressed={reason === r.id}
-                onClick={() => setReason(r.id)}
+                onClick={() => {
+                  setReason(r.id);
+                  // QA L2: ข้อความเตือนเรื่องเหตุผลของรอบก่อนไม่ค้าง
+                  setErr(null);
+                }}
               >
                 {r.label}
               </button>

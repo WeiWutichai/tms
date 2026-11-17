@@ -245,6 +245,12 @@
 
 ## บันทึกรายวัน
 
+### 18 พ.ย. 2569 (ST4-T10 แก้ตาม review/QA)
+
+- ทำ: (High) ยอดประมาณ `sellBilling` อ่านสินค้า/หน่วยที่ถูกลบแบบ soft ได้ + ปัญหาใด ๆ = CALCULATION_FAILURE (GET ใบสั่งไม่ล้ม) · กติกาเงินเปลี่ยนเป็น **[OPEN ก่อน ST5-T01]** ใน spec/12 §3 (MANUAL ยอดเหมา, ขั้นต่ำหลังลด, ส่งได้ 0, ห้ามเกินแผน, ขัด docs/01 §3.3 revenue ต่อ DO) — คงพฤติกรรมแต่เป็น preview (`preview: true`, ป้าย "ยอดประมาณตามยอดส่งจริง (ยังไม่ใช้ออกใบแจ้งหนี้)", ยอดรวมเดิม = "ตามใบสั่ง") · หน่วยใน "ตามส่งจริง q ตัน (ใบสั่ง p ตัน)" · ปฏิเสธทั้งหมด = "ปฏิเสธรับทั้งหมด — รอกำหนดกติกา (OPEN)" · ส่งบรรทัดเดิมซ้ำเมื่อเหตุผลถูกปิดใช้ไม่ล้ม (ตรวจเฉพาะเมื่อเปลี่ยนเหตุผล) · เปลี่ยน "วางบิลตามยอดส่งจริง" ต้อง `prices.sell:write` + audit · ลิงก์: ล้างข้อความเตือนเมื่อเลือกเหตุผล, ข้อผิดพลาดรายช่องของการปิดงานขึ้นต้น `pod.` (รวมไฟล์ของ T09), field ราคาบนหน้า public/ลิงก์/คนขับ = 422 field ไม่รู้จัก (ไม่ใช่ 403)
+- ไฟล์: `orders/{order-billing.service,order.dto}.ts`, `pricing/pricing.service.ts`, `pod/pod.service.ts`, `customers/customers.service.ts`, `trips/pod-link.service.ts`, `common/price-fields.ts` · test `actual-qty.test.ts` (+3), `subcon-link-pod.test.ts` · web `OrderDrawer{,.test}.tsx`, `CustomerDrawer.tsx`/`CustomersPage.tsx`, `PodLinkCapture.tsx`, `PodLink.test.tsx`, `i18n/th.ts`, `e2e/actual-qty.spec.ts` · spec/12 §3
+- **ส่งต่อ ST5-T01 (handoff):** ห้ามใช้ `sellBilling` ออกเอกสารจนกว่า OPEN จะตัดสิน · ตอนออกเอกสารต้อง snapshot `bill_by_actual_qty` ของลูกค้า, ตัวแปลงหน่วย (`product.weightPerUnitKg/volumePerUnitCbm`, `altUnits.factorToBase`, `unit.toKg/toCbm`) และ rate (ฉบับ + ราคา + ขั้นต่ำ) ณ เวลาส่ง/finalize — ปัจจุบันอ่านค่าปัจจุบันของ master (แก้ตัวแปลงหน่วยภายหลัง = ยอดประมาณเปลี่ยน) · revenue ต่อ DO ตาม docs/01 §3.3 (`revenue_amount`) รอผล OPEN
+
 ### 17 พ.ย. 2569 (ST4-T10 ยอดส่งจริง + เหตุผลปฏิเสธรับ — lane B)
 
 - ทำ: ยอดส่งจริงต่อรายการเป็นส่วนของหลักฐานส่งฉบับ (`delivery_order_pod.lines` append-only + ฉายลง `delivery_order_line`) · ส่งน้อยกว่าแผนต้องมีเหตุผลหมวด REJECTED_BY_RECEIVER (422 `reason_required`), เกินแผน 422, ธงเหตุผลบังคับโน้ต/รูป, snapshot เหตุผล, แก้หลัง UNBILLED = ฉบับใหม่ + เหตุผล + If-Match · ลิงก์รถร่วมกรอกยอดส่งจริง (−/+) + เลือกเหตุผลตอนปิดงาน/ส่ง POD · ตั้งต่อลูกค้า "วางบิลตามยอดส่งจริง" · ยอดวางบิลของใบสั่ง (`sellBilling`) คำนวณตอนอ่านด้วย pricing engine เดิม (rate card ฉบับเดิม + snapshot; MANUAL/เหมาเที่ยว/ค่าเสริมไม่เปลี่ยน; ขั้นต่ำยังใช้) · CHECK ฐานข้อมูล 3 ข้อ

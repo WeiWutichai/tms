@@ -226,11 +226,12 @@ test.describe.serial('ยอดส่งจริง + เหตุผลปฏ�
     await page.getByRole('row', { name: new RegExp(soNo) }).click();
     so = page.getByRole('dialog');
     const box = so.getByTestId('bill-actual');
-    await expect(box.getByText('ยอดวางบิลตามยอดส่งจริง')).toBeVisible();
-    await expect(box.getByText('ตามส่งจริง 18 (ใบสั่ง 20)')).toBeVisible();
+    await expect(box.getByText('ยอดประมาณตามยอดส่งจริง (ยังไม่ใช้ออกใบแจ้งหนี้)')).toBeVisible();
+    await expect(box.getByText('ตามส่งจริง 18 ตัน (ใบสั่ง 20 ตัน)')).toBeVisible();
     await expect(box.getByText('6,300.00').first()).toBeVisible();
     const api = await (await page.request.get(`/v1/orders/${soId}`, { headers: H })).json();
     expect(api.sellBilling).toMatchObject({
+      preview: true,
       basis: 'ACTUAL',
       status: 'ACTUAL',
       sellPlannedTotal: '7000.00',

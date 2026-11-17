@@ -164,6 +164,7 @@ describe('actual quantity + reject reason (ST4-T10)', () => {
       manualPrice?: string;
       podRequirements?: object;
       fail?: boolean;
+      productId?: string;
     } = {},
   ) => {
     const customer = await newCustomer(opts.byActual ?? false, opts.podRequirements);
@@ -180,7 +181,13 @@ describe('actual quantity + reject reason (ST4-T10)', () => {
         { type: 'DELIVERY', siteId: uuid('site', dest) },
       ],
       lines: [
-        { description: 'ปูนซีเมนต์', qty: '20', unitId: unitTon, weightKg: '20000' },
+        {
+          description: 'ปูนซีเมนต์',
+          qty: '20',
+          unitId: unitTon,
+          weightKg: '20000',
+          ...(opts.productId ? { productId: opts.productId } : {}),
+        },
         { description: 'เหล็กเส้น', qty: '5', unitId: unitTon, weightKg: '5000' },
       ],
     };
@@ -622,5 +629,118 @@ describe('actual quantity + reject reason (ST4-T10)', () => {
         data: { qtyActual: '15', rejectQty: '4' },
       }),
     ).rejects.toThrow(/reject_qty_consistent/);
+  });
+
+  it('review/QA: สินค้าถูกลบแบบ soft ภายหลัง → GET ใบสั่งยังได้ 200 และยอดประมาณคิดได้ (preview)', async () => {
+    const product = (
+      await api(app, admin)
+        .post('/v1/products')
+        .send({ name: `ปูนผง ${++seed}`, unitId: encodeId('unit', unitTon), weightPerUnitKg: 1000 })
+        .expect(201)
+    ).body.id as string;
+    const d = await delivered({
+      byActual: true,
+      productId: uuid('product', product),
+      podRequirements: { success: { fields: [] } },
+      rateBody: { pricingModel: 'PER_TON', sellRate: '350' },
+    });
+    const short = await reason('REJECTED_BY_RECEIVER', 'SHORT_QTY');
+    await putPod(d.doId, {
+      photoDocumentIds: [await doc('POD_PHOTO')],
+      lines: [{ lineNo: 1, qtyActual: '18', rejectReasonCodeId: short }],
+    }).expect(200);
+    await db.product.update({
+      where: { id: uuid('product', product) },
+      data: { deletedAt: new Date() },
+    });
+    const b = await billing(d.soId);
+    expect(b).toMatchObject({ preview: true, status: 'ACTUAL', sellBillableTotal: '8050.00' });
+    expect(b.charges[0]).toMatchObject({ qty: '23', qtyUnit: 'ตัน' });
+  });
+
+  it('review L: ส่งบรรทัดเดิมซ้ำ (เหตุผลเดิมถูกปิดใช้ภายหลัง) ไม่ล้ม · เปลี่ยนเป็นเหตุผลที่ปิดใช้ → 422 reason_inactive', async () => {
+    const d = await delivered({ podRequirements: { success: { fields: [] } } });
+    const wrong = await reason('REJECTED_BY_RECEIVER', 'WRONG_ITEM');
+    const dmg = await reason('REJECTED_BY_RECEIVER', 'DAMAGED');
+    const photo = await doc('POD_PHOTO');
+    await putPod(d.doId, {
+      photoDocumentIds: [photo],
+      lines: [{ lineNo: 1, qtyActual: '19', rejectReasonCodeId: wrong, note: 'ผิดรุ่น' }],
+    })
+      .set('If-Match', '"0"')
+      .expect(200);
+    for (const id of [wrong, dmg])
+      await db.reasonCode.update({
+        where: { id: uuid('reasonCode', id) },
+        data: { status: 'INACTIVE' },
+      });
+    try {
+      await putPod(d.doId, {
+        photoDocumentIds: [photo],
+        lines: [{ lineNo: 1, qtyActual: '18', rejectReasonCodeId: wrong, note: 'ผิดรุ่น' }],
+        reason: 'แก้จำนวนที่ผู้รับปฏิเสธเพิ่ม',
+      })
+        .set('If-Match', '"1"')
+        .expect(200);
+      const r = await putPod(d.doId, {
+        photoDocumentIds: [photo],
+        lines: [{ lineNo: 1, qtyActual: '18', rejectReasonCodeId: dmg }],
+        reason: 'เปลี่ยนเหตุผลเป็นสินค้าเสียหาย',
+      })
+        .set('If-Match', '"2"')
+        .expect(422);
+      expect(r.body.errors[0]).toMatchObject({
+        field: 'lines.0.rejectReasonCodeId',
+        code: 'reason_inactive',
+      });
+    } finally {
+      for (const id of [wrong, dmg])
+        await db.reasonCode.update({
+          where: { id: uuid('reasonCode', id) },
+          data: { status: 'ACTIVE' },
+        });
+    }
+  });
+
+  it('review L: เปลี่ยน "วางบิลตามยอดส่งจริง" ต้องมี prices.sell:write (ไม่ใช่แค่ customers:write) + audit', async () => {
+    const c = (
+      await api(app, admin)
+        .post('/v1/customers')
+        .send({ legalName: `ลูกค้า สิทธิ์ ${++seed}`, taxId: validTaxId(9600 + seed) })
+        .expect(201)
+    ).body;
+    const ms = await tokenFor(tenantId, 'customers:read customers:write master:read master:write');
+    const deny = await api(app, ms)
+      .patch(`/v1/customers/${c.id}`)
+      .set('If-Match', `"${c.version}"`)
+      .send({ billByActualQty: true })
+      .expect(403);
+    expect(deny.body).toMatchObject({ code: 'permission_denied', required: ['prices.sell:write'] });
+    await api(app, ms)
+      .post('/v1/customers')
+      .send({
+        legalName: `ลูกค้า สิทธิ์ ${++seed}`,
+        taxId: validTaxId(9600 + seed),
+        billByActualQty: true,
+      })
+      .expect(403);
+    // แก้ช่องอื่นได้ตามปกติ
+    await api(app, ms)
+      .patch(`/v1/customers/${c.id}`)
+      .set('If-Match', `"${c.version}"`)
+      .send({ creditTermDays: 45 })
+      .expect(200);
+    const ok = await api(app, admin)
+      .patch(`/v1/customers/${c.id}`)
+      .set('If-Match', `"${c.version + 1}"`)
+      .send({ billByActualQty: true })
+      .expect(200);
+    expect(ok.body.billByActualQty).toBe(true);
+    const a = await db.auditLog.findFirstOrThrow({
+      where: { entityId: uuid('customer', c.id), action: 'customer.updated' },
+      orderBy: { seq: 'desc' },
+    });
+    expect(a.before).toMatchObject({ billByActualQty: false });
+    expect(a.after).toMatchObject({ billByActualQty: true });
   });
 });

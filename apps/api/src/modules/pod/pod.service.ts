@@ -23,7 +23,7 @@ import { ProblemException, type FieldError } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
 import { DeliveryOrderService } from '../delivery-orders/delivery-order.service';
-import { ReasonCodesService } from '../reason-codes/reason-codes.service';
+import { ReasonCodesService, toReasonUuid } from '../reason-codes/reason-codes.service';
 import type { ReasonSnapshot } from '../reason-codes/snapshot';
 import { actorNames } from '../stops/actor-names';
 import { PodChecklistService } from './pod-checklist.service';
@@ -310,13 +310,17 @@ export class PodService {
             lines.push(prevBy.get(v.lineNo)!);
             continue;
           }
-          const reason = v.rejectReasonCodeId
-            ? await this.reasons.snapshotFor(
-                v.rejectReasonCodeId,
-                'REJECTED_BY_RECEIVER',
-                `lines.${i}.rejectReasonCodeId`,
-              )
-            : null;
+          // เหตุผลเดิมของบรรทัด (ส่งซ้ำ/ฉบับแก้) ใช้ snapshot เดิม — ปิดใช้ภายหลังไม่ทำให้ส่งซ้ำล้ม (ตรวจเฉพาะเมื่อเปลี่ยนเหตุผล)
+          const prevReason = prevBy.get(v.lineNo)?.reason ?? null;
+          const reason = !v.rejectReasonCodeId
+            ? null
+            : prevReason && toReasonUuid(v.rejectReasonCodeId) === prevReason.sourceId
+              ? prevReason
+              : await this.reasons.snapshotFor(
+                  v.rejectReasonCodeId,
+                  'REJECTED_BY_RECEIVER',
+                  `lines.${i}.rejectReasonCodeId`,
+                );
           lines.push({
             lineNo: v.lineNo,
             qtyPlanned: v.qtyPlanned,

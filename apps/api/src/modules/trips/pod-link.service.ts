@@ -338,7 +338,7 @@ export class PodLinkService {
         if (stop.status !== 'ARRIVED') throw new ProblemException('stop_already_closed');
         if (await tx.deliveryOrderPod.count({ where: { deliveryOrderId: dropDo.id } }))
           throw new ProblemException('pod_exists');
-        await this.assertLinkFiles(linkId, dropDo.id, body.pod!);
+        await this.assertLinkFiles(linkId, dropDo.id, body.pod!, 'pod.');
       }
     }
     let out: { event: StopEvent; replayed: boolean };
@@ -383,7 +383,20 @@ export class PodLinkService {
           );
           throw new ProblemException(closedByOther ? 'stop_already_closed' : 'stop_not_ready');
         }
-        pod = await this.submitPod(dropDo, body.pod!);
+        // ST4-T10 QA L3: ข้อผิดพลาดรายช่องของ POD ในคำขอปิดงานอ้างตามรูป body (`pod.…`) เหมือนที่ DTO ตรวจ
+        pod = await this.submitPod(dropDo, body.pod!).catch((e: unknown) => {
+          if (e instanceof ProblemException && e.errors?.length)
+            throw new ProblemException(
+              e.code,
+              e.detail,
+              e.errors.map((x) => ({
+                ...x,
+                field: x.field.startsWith('pod') ? x.field : `pod.${x.field}`,
+              })),
+              e.extra,
+            );
+          throw e;
+        });
       }
     }
     return {
@@ -521,7 +534,7 @@ export class PodLinkService {
    * ไฟล์ใน POD ต้องจองผ่านลิงก์นี้สำหรับ DO นี้ — ไฟล์อื่น (เว็บ/ลิงก์อื่น/DO อื่น/บริษัทอื่น) = `not_found`
    * (ไม่บอกว่ามีอยู่) · ชนิด/สถานะอัปโหลด/ซ้ำ ตรวจต่อที่ PodService
    */
-  private async assertLinkFiles(linkId: string, doId: string, pod: PodLinkCaptureDto) {
+  private async assertLinkFiles(linkId: string, doId: string, pod: PodLinkCaptureDto, prefix = '') {
     const groups: [string, string[]][] = [
       ['photoDocumentIds', pod.photoDocumentIds ?? []],
       ['fileDocumentIds', pod.fileDocumentIds ?? []],
@@ -550,7 +563,7 @@ export class PodLinkService {
         const id = tryDecodeId('document', x);
         if (!id || !own.has(id))
           errors.push({
-            field: field === 'signatureDocumentId' ? field : `${field}.${i}`,
+            field: prefix + (field === 'signatureDocumentId' ? field : `${field}.${i}`),
             code: 'not_found',
             message: 'document not found',
           });
