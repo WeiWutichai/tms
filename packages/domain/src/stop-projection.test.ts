@@ -135,7 +135,9 @@ describe('orderDeliveryEvent', () => {
     expect(orderDeliveryEvent('DELIVERED', { ...f(true, false, false), pending: true })).toBe(
       'reopen',
     );
-    expect(orderDeliveryEvent('DELIVERED', { ...f(true, false, false), pending: false })).toBeNull();
+    expect(
+      orderDeliveryEvent('DELIVERED', { ...f(true, false, false), pending: false }),
+    ).toBeNull();
     expect(orderDeliveryEvent('DELIVERED', { ...f(true, true, false), pending: true })).toBeNull();
   });
 });
