@@ -791,6 +791,7 @@ export function OrderDrawer({
                 <span style={{ fontSize: 12.5, color: '#59606B', paddingTop: 6 }}>
                   {t('ord.vatNote')}
                 </span>
+                {o.sellBilling && <BillingByActual b={o.sellBilling} />}
               </div>
             )}
           </Sec>
@@ -927,5 +928,64 @@ export function OrderDrawer({
         onOk={runDlg}
       />
     </Drawer>
+  );
+}
+
+/**
+ * ST4-T10 ยอดวางบิลตามยอดส่งจริง (ลูกค้าตั้ง "ตามยอดส่งจริง") — ใต้ราคาของใบสั่ง ในสไตล์แถวราคาเดิม
+ * ต้นแบบไม่มี [DECISION spec/12 §3] · ลูกค้าวางบิลตามใบสั่ง = ไม่แสดง
+ */
+function BillingByActual({ b }: { b: NonNullable<Order['sellBilling']> }) {
+  const { t } = useI18n();
+  if (b.basis !== 'ACTUAL') return null;
+  if (b.status === 'NOT_RECORDED')
+    return (
+      <span style={{ fontSize: 12.5, color: '#59606B', paddingTop: 4 }} data-testid="bill-actual">
+        {t('ord.ba.waiting')}
+      </span>
+    );
+  return (
+    <div
+      data-testid="bill-actual"
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        marginTop: 10,
+        paddingTop: 8,
+        borderTop: '1px solid #E4E6E0',
+      }}
+    >
+      {b.charges
+        .filter((c) => c.adjusted || c.note === 'MANUAL_PRICE')
+        .map((c) => (
+          <div
+            key={c.lineNo}
+            style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '6px 0' }}
+          >
+            <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+              <span>{c.description}</span>
+              <span style={{ fontSize: 12.5, color: '#59606B' }}>
+                {c.note === 'MANUAL_PRICE'
+                  ? t('ord.ba.manual')
+                  : t('ord.ba.qty', { q: c.qty, p: c.qtyPlanned })}
+              </span>
+            </div>
+            <span className="tms-num">{money(c.sellAmount)}</span>
+          </div>
+        ))}
+      <div
+        style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '6px 0 0' }}
+      >
+        <span style={{ fontWeight: 600 }}>{t('ord.ba.total')}</span>
+        <span className="tms-num" style={{ fontWeight: 600 }}>
+          {b.sellBillableTotal ? money(b.sellBillableTotal) : '—'}
+        </span>
+      </div>
+      {b.status === 'CALCULATION_FAILURE' && (
+        <span className="tms-field-error" role="alert">
+          {t('ord.ba.failed', { list: b.reasons.map((r) => r.message).join(', ') })}
+        </span>
+      )}
+    </div>
   );
 }

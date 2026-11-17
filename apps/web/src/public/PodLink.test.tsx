@@ -53,6 +53,8 @@ const podOf = (o: Partial<PodLinkPod> = {}): PodLinkPod => ({
     { key: 'signature', type: 'SIGNATURE', level: 'REQUIRED' },
     { key: 'note', type: 'NOTE', level: 'ENABLED' },
   ],
+  lines: [],
+  rejectReasons: [],
   ...o,
 });
 const doc = (p: Partial<PodStop> = {}, d: Partial<PodStop> = {}): PodDo => ({
@@ -557,5 +559,54 @@ describe('ส่ง POD ผ่านลิงก์ (ST4-T09)', () => {
     expect(screen.getByText('รอศรีไทยขนส่งตรวจสอบ')).toBeTruthy();
     expect(screen.queryByTestId('pdl-pod-submit')).toBeNull();
     expect(screen.queryByTestId('pdl-hint')).toBeNull();
+  });
+
+  it('ST4-T10: จำนวนที่ส่งจริง (ค่าเริ่ม = แผน, −/+) · น้อยกว่าแผนไม่เลือกเหตุผล → ไม่ส่ง · เลือกแล้วส่ง lines ใน pod', async () => {
+    search['DO-2611-00069'] = pv({
+      query: 'DO-2611-00069',
+      match: atDropDo({
+        lines: [{ lineNo: 1, description: 'ปูนซีเมนต์', unit: 'ตัน', qtyPlanned: '5' }],
+        rejectReasons: [
+          { id: 'rsn_s', label: 'จำนวนไม่ครบ', requiresNote: false, requiresPhoto: true },
+          {
+            id: 'rsn_p',
+            label: 'ลูกค้าปฏิเสธรับบางรายการ',
+            requiresNote: true,
+            requiresPhoto: true,
+          },
+        ],
+      }),
+    });
+    show();
+    await type('DO-2611-00069');
+    expect(screen.getByText('จำนวนที่ส่งจริง')).toBeTruthy();
+    expect(screen.getByText('แผน 5 ตัน')).toBeTruthy();
+    const q = screen.getByLabelText('จำนวนที่ส่งจริง ปูนซีเมนต์') as HTMLInputElement;
+    expect(q.value).toBe('5');
+    // + ไม่เกินแผน · − ลดทีละ 1
+    fireEvent.click(screen.getByRole('button', { name: 'เพิ่ม ปูนซีเมนต์' }));
+    expect(q.value).toBe('5');
+    fireEvent.click(screen.getByRole('button', { name: 'ลด ปูนซีเมนต์' }));
+    expect(q.value).toBe('4');
+    expect(screen.getByText('ส่งน้อยกว่าแผน เลือกเหตุผลที่ผู้รับไม่รับ')).toBeTruthy();
+    await pickPhotos([png(1)]);
+    sign();
+    fireEvent.click(screen.getByTestId('pdl-pod-submit'));
+    expect((await screen.findByTestId('pdl-pod-err')).textContent).toBe(
+      'ส่งน้อยกว่าแผน เลือกเหตุผลก่อนส่ง',
+    );
+    expect(mutateAsync).not.toHaveBeenCalled();
+    // เหตุผลบังคับโน้ต → ต้องกรอก
+    fireEvent.click(screen.getByRole('button', { name: 'ลูกค้าปฏิเสธรับบางรายการ' }));
+    fireEvent.click(screen.getByTestId('pdl-pod-submit'));
+    expect((await screen.findByTestId('pdl-pod-err')).textContent).toBe(
+      'เหตุผลนี้ต้องระบุรายละเอียด',
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'จำนวนไม่ครบ' }));
+    fireEvent.click(screen.getByTestId('pdl-pod-submit'));
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalledTimes(1));
+    expect(mutateAsync.mock.calls[0]![0].body.pod.lines).toEqual([
+      { lineNo: 1, qtyActual: '4', rejectReasonCodeId: 'rsn_s', note: null },
+    ]);
   });
 });

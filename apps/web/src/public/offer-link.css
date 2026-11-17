@@ -215,3 +215,74 @@
   font-family: inherit;
   font-size: 15px;
 }
+
+/* ST4-T10 จำนวนที่ส่งจริง — ค่าจาก TMS Driver App M4 (f.pd.items: แถว ≥ 72px, ปุ่ม −/+ 48px มุม 12, ตัวเลข 18/600, ขาด = #B3322A) */
+.pdl__qty {
+  border: 1px solid #e4e6e0;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #ffffff;
+}
+.pdl__qrow {
+  min-height: 72px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 16px;
+  border-bottom: 1px solid #e4e6e0;
+}
+.pdl__qrow:last-child {
+  border-bottom: 0;
+}
+.pdl__qname {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.4;
+  font-weight: 500;
+}
+.pdl__qplan {
+  font-size: 14px;
+  font-weight: 400;
+  color: #3b424c;
+}
+.pdl__step {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.pdl__stepbtn {
+  width: 48px;
+  height: 48px;
+  border: 1px solid #d9dcd4;
+  border-radius: 12px;
+  background: #ffffff;
+  color: #101418;
+  font-size: 20px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.pdl__qin {
+  width: 56px;
+  min-height: 48px;
+  border: 0;
+  background: transparent;
+  text-align: center;
+  font-size: 18px;
+  font-weight: 600;
+  color: #101418;
+  font-variant-numeric: tabular-nums;
+}
+.pdl__qin--short {
+  color: #b3322a;
+}
+.pdl__short {
+  color: #b3322a;
+  font-size: 14px;
+  font-weight: 500;
+}

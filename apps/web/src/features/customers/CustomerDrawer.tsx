@@ -44,6 +44,8 @@ interface Form {
   billingCompanyId: string;
   vatRegistered: 'yes' | 'no';
   etaxCapable: 'yes' | 'no';
+  /** ST4-T10 วางบิลตามยอดส่งจริง */
+  billByActualQty: 'yes' | 'no';
   freeTimeMin: string;
   /** ST4-T05/T06 POD checklist ต่อชุด (สำเร็จ/ไม่สำเร็จ): default = ใช้ค่าองค์กร · custom = กำหนดเองทั้งชุด */
   pod: PodForm;
@@ -71,6 +73,7 @@ function toForm(c: Customer): Form {
     billingCompanyId: c.billingCompanyId ?? '',
     vatRegistered: c.vatRegistered ? 'yes' : 'no',
     etaxCapable: c.etaxCapable ? 'yes' : 'no',
+    billByActualQty: c.billByActualQty ? 'yes' : 'no',
     freeTimeMin: c.freeTimeMin === null ? '' : String(c.freeTimeMin),
     pod: podFormOf(c.podRequirements),
   };
@@ -117,6 +120,7 @@ function diffBody(c: Customer, a: Form, b: Form): CustomerInput {
   if (a.billingCompanyId !== b.billingCompanyId) out.billingCompanyId = b.billingCompanyId || null;
   if (a.vatRegistered !== b.vatRegistered) out.vatRegistered = b.vatRegistered === 'yes';
   if (a.etaxCapable !== b.etaxCapable) out.etaxCapable = b.etaxCapable === 'yes';
+  if (a.billByActualQty !== b.billByActualQty) out.billByActualQty = b.billByActualQty === 'yes';
   if (a.freeTimeMin !== b.freeTimeMin)
     out.freeTimeMin = b.freeTimeMin.trim() === '' ? null : Number(b.freeTimeMin);
   // override ทั้งก้อน (ชุดที่ใช้ค่าองค์กรไม่ส่ง) — ส่งเมื่อชุดใดชุดหนึ่งเปลี่ยน
@@ -260,7 +264,11 @@ export function CustomerDrawer({
       ? [{ value: c.salesOwner.id, label: c.salesOwner.name ?? c.salesOwner.id }]
       : []),
   ];
-  const yesNo = (k: 'vatRegistered' | 'etaxCapable', yes: MessageKey, no: MessageKey) => [
+  const yesNo = (
+    k: 'vatRegistered' | 'etaxCapable' | 'billByActualQty',
+    yes: MessageKey,
+    no: MessageKey,
+  ) => [
     { value: 'yes' as const, label: t(yes) },
     { value: 'no' as const, label: t(no) },
   ];
@@ -525,6 +533,17 @@ export function CustomerDrawer({
             onChange={(v) => set('etaxCapable', v)}
             options={yesNo('etaxCapable', 'cust.c.etax.yes', 'cust.c.etax.no')}
           />
+          {/* ST4-T10 docs/04 E2 "วางบิลตามยอดส่งจริงได้ (ตั้งต่อลูกค้า)" — ต้นแบบไม่มี [DECISION spec/12 §3] */}
+          <ChoiceGroup
+            label={t('cust.c.billQty')}
+            disabled={ro}
+            value={f.billByActualQty}
+            onChange={(v) => set('billByActualQty', v)}
+            options={[
+              { value: 'no', label: t('cust.c.billQty.plan') },
+              { value: 'yes', label: t('cust.c.billQty.actual') },
+            ]}
+          />
           <div className="tms-fgrid">
             <Fld label={t('cust.c.billAs')} error={errs.billingCompanyId}>
               {(id) => (
@@ -597,6 +616,7 @@ const FIELD_KEYS: Record<string, MessageKey> = {
   billingCompanyId: 'cust.c.billAs',
   vatRegistered: 'cust.c.vatReg',
   etaxCapable: 'cust.c.etax',
+  billByActualQty: 'cust.c.billQty',
   freeTimeMin: 'cust.c.free',
   podRequirements: 'pod.cust.title',
   status: 'cust.col.status',

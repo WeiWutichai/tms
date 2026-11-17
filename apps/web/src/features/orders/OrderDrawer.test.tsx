@@ -360,4 +360,67 @@ describe('OrderDrawer (ST3-T10)', () => {
     view({ canSeePrice: true, canEditPrice: true });
     expect(screen.queryByRole('button', { name: /ยืนยันข้อมูลถูกต้อง/ })).toBeNull();
   });
+
+  it('ST4-T10 ลูกค้าวางบิลตามยอดส่งจริง: แถวค่าขนส่งตามส่งจริง + ยอดวางบิล · ยังไม่บันทึก = ข้อความรอ · ราคากำหนดเองไม่เปลี่ยน', () => {
+    const charge = {
+      lineNo: 1,
+      kind: 'FREIGHT',
+      origin: 'RATE_CARD',
+      description: 'ค่าขนส่ง',
+      sellAmount: '8750.00',
+      rateCardCode: 'RC-S-0001',
+      rateCardRevision: 1,
+    };
+    const billing = (over: object) => ({
+      basis: 'ACTUAL',
+      status: 'ACTUAL',
+      actualRecorded: true,
+      sellPlannedTotal: '8750.00',
+      sellBillableTotal: '7875.00',
+      reasons: [],
+      charges: [
+        {
+          lineNo: 1,
+          kind: 'FREIGHT',
+          origin: 'RATE_CARD',
+          description: 'ค่าขนส่ง',
+          qtyPlanned: '25',
+          qty: '22.5',
+          qtyExact: '22.5',
+          sellUnitPrice: '350.00',
+          sellPlannedAmount: '8750.00',
+          sellAmount: '7875.00',
+          minChargeApplied: false,
+          vatType: 'EXEMPT_TRANSPORT',
+          whtRate: '1.00',
+          adjusted: true,
+          note: null,
+        },
+      ],
+      ...over,
+    });
+    live.data = {
+      ...BASE,
+      sourceChange: null,
+      sellTotal: '8750.00',
+      sellCharges: [charge],
+      sellBilling: billing({}),
+    } as unknown as Order;
+    view({ canSeePrice: true });
+    const box = screen.getByTestId('bill-actual');
+    expect(within(box).getByText('ตามส่งจริง 22.5 (ใบสั่ง 25)')).toBeInTheDocument();
+    expect(within(box).getByText('ยอดวางบิลตามยอดส่งจริง')).toBeInTheDocument();
+    expect(within(box).getAllByText('7,875.00')).toHaveLength(2);
+
+    live.data = {
+      ...BASE,
+      sourceChange: null,
+      sellCharges: [charge],
+      sellBilling: billing({ status: 'NOT_RECORDED', actualRecorded: false }),
+    } as unknown as Order;
+    view({ canSeePrice: true });
+    expect(
+      screen.getByText('ลูกค้าวางบิลตามยอดส่งจริง — ยังไม่มียอดส่งจริง ใช้ยอดตามใบสั่ง'),
+    ).toBeInTheDocument();
+  });
 });
