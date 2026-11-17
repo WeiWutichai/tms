@@ -261,3 +261,71 @@ describe('SubconHireDrawer (ST3-T22)', () => {
     expect(screen.getByText('โหลดข้อมูลจ้างรถร่วมไม่สำเร็จ')).toBeTruthy();
   });
 });
+
+describe('SubconHireDrawer — ส่งรายถัดไป (ST3-T24)', () => {
+  beforeEach(() => {
+    hireMutate.mockReset();
+    opts.isError = false;
+    // บี (ถูกสุดเดิม) ไม่ตอบรับ → API เรียงไว้หลังรายที่ยังไม่เคยไม่รับ · ถูกสุด = เอ
+    const [b, a, c] = OPTS.options;
+    opts.data = {
+      ...OPTS,
+      buyCheapestAmount: '5200.00',
+      options: [
+        { ...a!, cheapest: true, priorOutcome: null },
+        { ...c!, priorOutcome: null },
+        { ...b!, cheapest: false, priorOutcome: 'NO_RESPONSE' },
+      ],
+    } as unknown as HireOptions;
+  });
+
+  it('replace: ค่าเริ่มต้น = รายถัดไปที่ถูกสุด · ป้าย "ไม่ตอบรับ" · คำเตือนยกเลิกข้อเสนอเดิม · ส่ง replaceOffer', () => {
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <I18nProvider lang="th">
+          <SubconHireDrawer
+            trip={
+              {
+                ...TRIP,
+                status: 'OFFERED',
+                carrier: { id: 'car_b', name: 'หจก. บี' },
+              } as unknown as TripDetail
+            }
+            onDone={onDone}
+            onClose={() => {}}
+            replace
+          />
+        </I18nProvider>
+      </QueryClientProvider>,
+    );
+    const sel = screen.getByRole('combobox', { name: 'ผู้รับเหมา' }) as HTMLSelectElement;
+    expect(sel.value).toBe('car_a');
+    expect(screen.getByRole('option', { name: 'หจก. บี · ฿4,800.50 · ไม่ตอบรับ' })).toBeTruthy();
+    expect(screen.getByTestId('sub-replace').textContent).toBe(
+      'เมื่อส่งข้อเสนอ ข้อเสนอที่ส่งให้ หจก. บี จะถูกยกเลิก (ลิงก์เดิมใช้ไม่ได้)',
+    );
+    expect(screen.getByText('รอตอบ')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'ส่งข้อเสนอ' }));
+    expect(hireMutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.objectContaining({ carrierId: 'car_a', replaceOffer: true }),
+      }),
+      expect.anything(),
+    );
+  });
+
+  it('เลือกรายที่ไม่ตอบรับมาแล้ว → ต้องมีเหตุผล (คำใบ้เฉพาะ)', () => {
+    show();
+    fireEvent.change(screen.getByRole('combobox', { name: 'ผู้รับเหมา' }), {
+      target: { value: 'car_b' },
+    });
+    expect(screen.getByTestId('sub-reason-hint').textContent).toBe(
+      'รายนี้ไม่รับงานเที่ยวนี้มาแล้ว — ระบุเหตุผลอย่างน้อย 10 ตัวอักษร',
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'ส่งข้อเสนอ' }));
+    expect(hireMutate).not.toHaveBeenCalled();
+    expect(
+      (hireMutate.mock.calls[0]?.[0] as { body?: { replaceOffer?: boolean } })?.body?.replaceOffer,
+    ).toBeUndefined();
+  });
+});

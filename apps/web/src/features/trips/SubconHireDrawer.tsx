@@ -57,10 +57,16 @@ export function SubconHireDrawer({
   trip,
   onDone,
   onClose,
+  replace = false,
 }: {
   trip: TripDetail;
   onDone: (message: string) => void;
   onClose: () => void;
+  /**
+   * ST3-T24 "ส่งรายถัดไป" ระหว่างรอตอบ (เที่ยว OFFERED ที่ครบเวลาตอบ N ชม.): ส่ง `replaceOffer` — API ยกเลิกข้อเสนอเดิม
+   * แล้วจ้างรายนี้ในคำขอเดียว · รายเริ่มต้น = รายถัดไปที่ถูกสุด (รายที่ไม่ตอบรับไม่นับเป็นถูกสุด)
+   */
+  replace?: boolean;
 }) {
   const { t } = useI18n();
   const dateText = useDateText();
@@ -79,7 +85,11 @@ export function SubconHireDrawer({
   const head = {
     kind: t('sub.kind'),
     title: trip.tripNo,
-    badge: <Badge label={t('trip.st.PLANNING')} tone="off" icon="calendar" />,
+    badge: replace ? (
+      <Badge label={t('ofl.st.OFFERED')} tone="warn" icon="clock" />
+    ) : (
+      <Badge label={t('trip.st.PLANNING')} tone="off" icon="calendar" />
+    ),
     labels,
   };
   if (!o)
@@ -110,7 +120,8 @@ export function SubconHireDrawer({
   const cost = parseCost(shown);
   /** ราคาที่ส่ง = ราคา rate card ของรายนี้ (ยังไม่แก้ หรือแก้แล้วเท่าเดิม) */
   const asRate = rate !== null && cost !== null && toSatang(cost) === toSatang(rate);
-  const needReason = !!opt.blockedReason || reasonRequired(cost, o.buyCheapestAmount);
+  const needReason =
+    !!opt.blockedReason || !!opt.priorOutcome || reasonRequired(cost, o.buyCheapestAmount);
   const cheapestName =
     o.options.find((x) => x.cheapest)?.carrier.name ?? o.options[0]!.carrier.name;
   const m = margin(o.sellAmount, cost);
@@ -123,12 +134,14 @@ export function SubconHireDrawer({
   const wht = asRate ? opt.whtRate : null;
   const recent = opt.buyRecentAmounts ?? [];
   const optLabel = (x: (typeof o.options)[number]) =>
-    x.buyRateAmount
+    (x.buyRateAmount
       ? t(x.cheapest ? 'sub.optCheapest' : 'sub.opt', {
           n: x.carrier.name,
           p: money(x.buyRateAmount),
-        }) + (x.blockedReason ? t('sub.optBlocked') : '')
-      : t('sub.optNoRate', { n: x.carrier.name }) + (x.blockedReason ? t('sub.optBlocked') : '');
+        })
+      : t('sub.optNoRate', { n: x.carrier.name })) +
+    (x.blockedReason ? t('sub.optBlocked') : '') +
+    (x.priorOutcome ? t(`sub.optPrior.${x.priorOutcome}` as MessageKey) : '');
 
   const submit = () => {
     if (hire.isPending) return;
@@ -152,6 +165,7 @@ export function SubconHireDrawer({
           cost,
           ...(why ? { selectionReason: why } : {}),
           ...(o.vehicleTypeId ? { vehicleTypeId: o.vehicleTypeId } : {}),
+          ...(replace ? { replaceOffer: true } : {}),
         },
       },
       {
@@ -282,6 +296,11 @@ export function SubconHireDrawer({
                 </option>
               ))}
             </select>
+            {replace && (
+              <span style={{ fontSize: 13, color: '#8F5500' }} data-testid="sub-replace">
+                {t('sub.replaceNote', { n: trip.carrier?.name ?? '—' })}
+              </span>
+            )}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 2fr', gap: 8 }}>
               <div style={BOX}>
                 <div style={{ fontWeight: 600 }}>—</div>
@@ -401,12 +420,14 @@ export function SubconHireDrawer({
                 <span style={{ fontSize: 13, color: '#8F5500' }} data-testid="sub-reason-hint">
                   {opt.blockedReason
                     ? t('sub.reasonBlocked')
-                    : o.buyCheapestAmount
-                      ? t('sub.reasonNotCheapest', {
-                          p: money(o.buyCheapestAmount),
-                          n: cheapestName,
-                        })
-                      : t('sub.reasonNoCompare')}
+                    : opt.priorOutcome
+                      ? t('sub.reasonPrior')
+                      : o.buyCheapestAmount
+                        ? t('sub.reasonNotCheapest', {
+                            p: money(o.buyCheapestAmount),
+                            n: cheapestName,
+                          })
+                        : t('sub.reasonNoCompare')}
                 </span>
                 {fe.selectionReason && (
                   <span className="tms-field-error">{fe.selectionReason}</span>

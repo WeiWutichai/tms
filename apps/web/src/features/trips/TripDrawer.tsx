@@ -370,6 +370,7 @@ export function TripDrawer({
   const [ruleErr, setRuleErr] = useState<string | null>(null);
   /** ST3-T22 เปิด drawer "จ่ายงานรถร่วม" ของเที่ยวนี้ */
   const [hiring, setHiring] = useState(false);
+  const [nextHire, setNextHire] = useState(false);
   const labels = { close: t('drawer.close'), more: t('drawer.more') };
   const tr = q.data;
   const assignable =
@@ -396,14 +397,28 @@ export function TripDrawer({
     );
 
   // ST3-T23 หลังส่งข้อเสนอ: drawer "จ่ายงานรถร่วม" สถานะรอตอบ/รับงาน (ลิงก์ · ส่ง LINE · กิจกรรม)
-  if (hiring && tr.hire) return <SubconOfferDrawer trip={tr} onClose={() => setHiring(false)} />;
-  if (hiring && tr.status === 'PLANNING')
+  // ST3-T24 "ส่งรายถัดไป" ระหว่างรอตอบ (ครบ N ชม.) → drawer จ้างรถร่วมแบบแทนรายเดิม (replaceOffer)
+  const replacing = hiring && nextHire && tr.status === 'OFFERED' && !!tr.hire;
+  if (hiring && tr.hire && !replacing)
+    return (
+      <SubconOfferDrawer
+        trip={tr}
+        onClose={() => setHiring(false)}
+        onNext={() => setNextHire(true)}
+      />
+    );
+  if (hiring && (tr.status === 'PLANNING' || replacing))
     return (
       <SubconHireDrawer
         trip={tr}
-        onClose={() => setHiring(false)}
+        replace={replacing}
+        onClose={() => {
+          setHiring(false);
+          setNextHire(false);
+        }}
         onDone={(m) => {
           setHiring(false);
+          setNextHire(false);
           if (onDone) {
             onDone(m);
             onClose();
@@ -684,7 +699,11 @@ export function TripDrawer({
                     setHiring(true);
                   }}
                 >
-                  {t('trip.foot.subcon')}
+                  {t(
+                    tr.assignmentStatus === 'REJECTED' || tr.assignmentStatus === 'EXPIRED'
+                      ? 'trip.foot.subconNext'
+                      : 'trip.foot.subcon',
+                  )}
                 </button>
               )}
               {showAssignBtn && (

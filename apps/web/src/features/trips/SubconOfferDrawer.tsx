@@ -61,7 +61,16 @@ function Kv({ k, v }: { k: ReactNode; v: ReactNode }) {
  * - ใบสั่งงาน: ตัวอย่างที่ผู้รับเหมาเห็น + "ลิงก์ใบสั่งงาน" · กิจกรรม: ส่งข้อเสนอ/ส่งลิงก์/เปิดลิงก์/รับ/ปฏิเสธ/หมดเวลา/ถอน
  * - footer: รอตอบ = กำไรต่อเที่ยว + "คัดลอกลิงก์" + "ส่งผ่าน LINE" · รับงาน = ราคาจ้าง + "คัดลอกลิงก์"
  */
-export function SubconOfferDrawer({ trip, onClose }: { trip: TripDetail; onClose: () => void }) {
+export function SubconOfferDrawer({
+  trip,
+  onClose,
+  onNext,
+}: {
+  trip: TripDetail;
+  onClose: () => void;
+  /** ST3-T24 "ส่งรายถัดไป" (ครบเวลาตอบ N ชม. แล้วยังไม่ตอบ) → เปิด drawer จ้างรถร่วมแบบแทนรายเดิม */
+  onNext?: () => void;
+}) {
   const { t } = useI18n();
   const dateText = useDateText();
   const dtText = useDateTimeText();
@@ -83,6 +92,10 @@ export function SubconOfferDrawer({ trip, onClose }: { trip: TripDetail; onClose
   const buy = hire.buyAmount ?? null;
   const m = margin(o?.sellAmount, buy);
   const left = trip.offerExpiresAt ? timeLeft(trip.offerExpiresAt) : null;
+  // ST3-T24 ครบเวลาตอบ N ชม. ยังไม่ตอบ (ลิงก์ยังไม่หมดอายุ) → ข้อความ + ปุ่ม "ส่งรายถัดไป"
+  const due = hire.responseDueAt ? Date.parse(hire.responseDueAt) : null;
+  const timedOut = !acc && due !== null && due <= Date.now() && !!left;
+  const dueHours = due !== null ? Math.round((due - Date.parse(hire.offeredAt)) / 3600_000) : 0;
   const km = trip.route.distanceKm;
   const route = `${o?.origin?.name ?? trip.stops[0]?.siteName ?? '—'} → ${
     o?.destination?.name ?? trip.stops[trip.stops.length - 1]?.siteName ?? '—'
@@ -209,6 +222,11 @@ export function SubconOfferDrawer({ trip, onClose }: { trip: TripDetail; onClose
             <button type="button" className="tms-drawer__sec" onClick={copy}>
               {t('sub.foot.copy')}
             </button>
+            {timedOut && onNext && (
+              <button type="button" className="tms-drawer__sec" onClick={onNext}>
+                {t('sub.foot.next')}
+              </button>
+            )}
             {!acc && canLine && (
               <button
                 type="button"
@@ -325,9 +343,15 @@ export function SubconOfferDrawer({ trip, onClose }: { trip: TripDetail; onClose
                     readOnly
                     style={{ ...CONTROL, ...NUM, textAlign: 'right' }}
                   />
-                  <span style={{ fontSize: 13, color: '#3B424C' }} data-testid="sub-wait">
-                    {t('sub.wait.title', { n: carrierName })}
-                  </span>
+                  {timedOut ? (
+                    <span style={{ fontSize: 13, color: '#8F5500' }} data-testid="sub-timeout">
+                      {t('sub.timeout', { n: carrierName, h: dueHours })}
+                    </span>
+                  ) : (
+                    <span style={{ fontSize: 13, color: '#3B424C' }} data-testid="sub-wait">
+                      {t('sub.wait.title', { n: carrierName })}
+                    </span>
+                  )}
                 </label>
                 <div style={{ border: '1px solid #D9DCD4', borderRadius: 8, overflow: 'hidden' }}>
                   <div
