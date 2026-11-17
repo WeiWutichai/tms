@@ -621,6 +621,54 @@ const FIXTURES: Record<string, (db: PrismaClient, tenantId: string, n: number) =
       });
       return encodeId('deliveryOrder', d.id);
     },
+    // ST4-T13 ค่าใช้จ่ายหน้างานฝั่งขาย (/do-surcharges/:id/confirm|reject|cancel)
+    doSurcharge: async (db, tenantId, n) => {
+      const doId = (await FIXTURES.deliveryOrder!(db, tenantId, 9000 + n)).replace(/^do_/, '');
+      const id = doId.replace(/^(.{8})(.{4})(.{4})(.{4})/, '$1-$2-$3-$4-');
+      const svc = await db.serviceItem.create({
+        data: {
+          tenantId,
+          code: `ISO-DSC${n}`,
+          nameTh: `ค่ารอ ${n}`,
+          vatType: 'VAT_7',
+          whtRate: '3.00',
+          calcUnit: 'PER_TRIP',
+          unitLabel: 'เที่ยว',
+          isSurcharge: true,
+        },
+      });
+      const s = await db.doSurcharge.create({
+        data: {
+          tenantId,
+          deliveryOrderId: id,
+          serviceItemId: svc.id,
+          vatType: 'VAT_7',
+          whtRate: '3.00',
+          qty: '1',
+          unitPrice: '100',
+          amount: '100',
+        },
+      });
+      return encodeId('doSurcharge', s.id);
+    },
+    // ST4-T13 ค่าใช้จ่ายหน้างานฝั่งซื้อ (/trip-costs/:id/confirm|reject|cancel)
+    tripCost: async (db, tenantId, n) => {
+      const t = await db.trip.create({
+        data: { tenantId, tripNo: `TRP-ISO-C${n}`, tripDate: new Date('2026-11-17') },
+      });
+      const c = await db.tripCost.create({
+        data: {
+          tenantId,
+          tripId: t.id,
+          costType: 'TOLL',
+          amount: '50',
+          source: 'MANUAL',
+          sourceType: 'FIELD',
+          status: 'PENDING_CONFIRM',
+        },
+      });
+      return encodeId('tripCost', c.id);
+    },
     // ST3-T11 เที่ยวรถ (PLANNING ว่าง)
     trip: async (db, tenantId, n) =>
       encodeId(
@@ -709,6 +757,8 @@ const BODY_FOR_SUFFIX: Record<string, object> = {
     occurredAt: '2026-11-17T09:00:00+07:00',
   },
   approve: { reason: 'isolation test reason' }, // ST2-T13 /rate-cards/:id/approve
+  confirm: { reason: 'isolation test reason' }, // ST4-T13 /do-surcharges|trip-costs/:id/confirm
+  'field-charges': { side: 'BUY', serviceItemId: `svc_${'0'.repeat(32)}`, buyAmount: '1.00' }, // ST4-T13
   reject: { reason: 'isolation test reason' }, // ST2-T03 /customer-sites/:id/geocode/reject + ST3-T10 source-changes
   accept: { reason: 'isolation test reason' }, // ST3-T10 /orders/:id/source-changes/:changeId/accept
   reveal: { field: 'bankAccountNo', reason: 'isolation test reason' }, // ST2-T05 /carriers/:id/reveal

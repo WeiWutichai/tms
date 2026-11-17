@@ -94,6 +94,12 @@ import {
   TripOffersController,
 } from './modules/trips/subcon-offer.controller';
 import { TripsController } from './modules/trips/trips.controller';
+import {
+  DoSurchargesController,
+  TripCostsController,
+  TripFieldChargesController,
+} from './modules/field-charges/field-charges.controller';
+import { FieldChargesService } from './modules/field-charges/field-charges.service';
 import { StopEventFlagsController } from './modules/stops/stop-event-flags.controller';
 import { StopsController, TripEventsController } from './modules/stops/stops.controller';
 import { StopEventsService } from './modules/stops/stop-events.service';
@@ -188,6 +194,9 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     RateCardsController,
     DeliveryOrdersController,
     TripsController,
+    TripFieldChargesController,
+    DoSurchargesController,
+    TripCostsController,
     StopsController,
     TripEventsController,
     StopEventFlagsController,
@@ -248,6 +257,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     DeliveryOrderService,
     OrderStateService,
     TripService,
+    FieldChargesService,
     StopEventsService,
     StopProjectionService,
     SubconHireService,
