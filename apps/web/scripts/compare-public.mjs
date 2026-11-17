@@ -31,7 +31,7 @@ for (const n of names) {
   const [hash, path, step] = PAGES[n];
   for (const vp of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
     const a = await shot(proto + hash, vp, step);
-    const c = await shot('http://localhost:4420' + path, vp, step);
+    const c = await shot((process.env.WEB ?? `http://localhost:${process.env.WEB_PORT ?? 4420}`) + path, vp, step);
     for (const [i, tag] of [[0, ''], [1, '-sent']]) {
       if (!a[i] || !c[i]) continue;
       const M = await (await b.newContext({ viewport: { width: vp.width * 2 + 60, height: 400 } })).newPage();

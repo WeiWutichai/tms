@@ -11,7 +11,7 @@ import { execSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { ensureSystemRoles } from '../src/auth/system-roles';
 import { platform, createTenant, truncateAll } from './helpers';
-import { testEnv } from './env';
+import { dbName, testEnv } from './env';
 
 /** ST1-T20: สร้าง tenant ใหม่แล้วมีชุดเลขและค่าภาษี default ครบโดยไม่ต้องตั้ง (+ ประเภทรถ ST2-T04) */
 describe('tenant bootstrap', () => {
@@ -88,7 +88,7 @@ describe('tenant bootstrap', () => {
       'trip-legs-backfill',
     ]);
   });
-  it('สคริปต์ tenants:bootstrap บนฐาน tms_test: tenant เดิม 2 รายได้ค่าเริ่มต้น + audit/event, รันซ้ำไม่เปลี่ยน', async () => {
+  it('สคริปต์ tenants:bootstrap บนฐาน test (tms_test): tenant เดิม 2 รายได้ค่าเริ่มต้น + audit/event, รันซ้ำไม่เปลี่ยน', async () => {
     const a = (await createTenant(db)).id; // tenant เก่า (ก่อนมีขั้นใหม่)
     const b = (await createTenant(db)).id;
     const run = () =>
@@ -97,7 +97,7 @@ describe('tenant bootstrap', () => {
         env: { ...process.env, ...testEnv() },
         encoding: 'utf8',
       });
-    expect(run()).toMatch(/tenant OK \([^:]+:\d+\/tms_test\)/);
+    expect(run()).toContain(`/${dbName(testEnv().DATABASE_URL!)})`);
     for (const t of [a, b]) {
       expect(await db.vehicleType.count({ where: { tenantId: t } })).toBe(6);
       expect(

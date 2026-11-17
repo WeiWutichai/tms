@@ -6,15 +6,16 @@ import { fileURLToPath } from 'node:url';
 
 const out = fileURLToPath(new URL('../../../design/compare/', import.meta.url));
 const proto = 'file://' + fileURLToPath(new URL('../../../design/prototype/TMS v4.dc.html', import.meta.url));
+const WEB = process.env.WEB ?? `http://localhost:${process.env.WEB_PORT ?? 4420}`;
 const vp = { width: 1440, height: 900 };
 const b = await chromium.launch();
 const P = await (await b.newContext({ viewport: vp, locale: 'th-TH' })).newPage();
 await P.goto(proto);
 await P.waitForTimeout(2500);
 const a = await P.screenshot();
-const ctx = await b.newContext({ viewport: vp, locale: 'th-TH', baseURL: 'http://localhost:4420' });
+const ctx = await b.newContext({ viewport: vp, locale: 'th-TH', baseURL: WEB });
 await ctx.addCookies([
-  { name: 'tms_td', value: 'demo-trusted-device-e2e-only-0000000000000:00000000-0000-4000-8000-0000000e0a01', url: 'http://localhost:4420/v1/auth' },
+  { name: 'tms_td', value: 'demo-trusted-device-e2e-only-0000000000000:00000000-0000-4000-8000-0000000e0a01', url: `${WEB}/v1/auth` },
 ]);
 const W = await ctx.newPage();
 const v = randomBytes(32).toString('base64url');

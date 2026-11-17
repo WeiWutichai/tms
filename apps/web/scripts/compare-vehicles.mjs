@@ -9,7 +9,7 @@ import { createServer } from 'node:http';
 import { extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const WEB = process.env.WEB ?? 'http://localhost:4420';
+const WEB = process.env.WEB ?? `http://localhost:${process.env.WEB_PORT ?? 4420}`;
 const out = fileURLToPath(new URL('../../../design/compare/', import.meta.url));
 const protoDir = fileURLToPath(new URL('../../../design/prototype/', import.meta.url));
 

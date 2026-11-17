@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { Page } from '@playwright/test';
-import { DEMO_IDS, DEMO_PASSWORD, DEMO_TRUSTED_DEVICE, expect, test } from './fixtures';
+import { DEMO_IDS, DEMO_PASSWORD, DEMO_TRUSTED_DEVICE, E2E_WEB, expect, test } from './fixtures';
 
 /**
  * E2E ST3-T13 มุมมองกระดาน (docs/04 D2 "View") — เกณฑ์ตรวจรับ: สลับมุมมองแล้วข้อมูลชุดเดียวกันจัดกลุ่มใหม่ ·
@@ -80,7 +80,7 @@ test.describe.serial('มุมมองกระดานวางแผน (ST
       {
         name: 'tms_td',
         value: `${DEMO_TRUSTED_DEVICE}:${DEMO_IDS['owner@demo-a.test']}`,
-        url: 'http://localhost:4520/v1/auth',
+        url: `${E2E_WEB}/v1/auth`,
         httpOnly: true,
         sameSite: 'Strict',
       },

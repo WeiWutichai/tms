@@ -1,6 +1,9 @@
 import { test as base, expect } from '@playwright/test';
 import { createHash, createHmac, randomBytes } from 'node:crypto';
 
+/** URL ของ web ที่ E2E รัน (พอร์ตจาก E2E_WEB_PORT ที่ playwright.config ตั้งให้ — ค่าเริ่มต้น 4520) */
+export const E2E_WEB = `http://localhost:${process.env.E2E_WEB_PORT ?? '4520'}`;
+
 /** ผู้ใช้เดโมจาก apps/api/prisma/seed.ts (ข้อมูลสมมติ ใช้เฉพาะ dev/e2e) */
 export const DEMO_EMAIL = 'owner@demo-a.test';
 export const DEMO_PASSWORD = 'demo-password-2569';

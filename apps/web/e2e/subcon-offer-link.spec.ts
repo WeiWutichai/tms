@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { Page } from '@playwright/test';
-import { expect, test } from './fixtures';
+import { E2E_WEB, expect, test } from './fixtures';
 
 /**
  * E2E ST3-T23 ลิงก์ข้อเสนองาน (docs/04 D3 "ส่งลิงก์ LINE/SMS ไม่ต้อง login") — เกณฑ์ตรวจรับ:
@@ -190,7 +190,7 @@ test.describe.serial('ลิงก์ข้อเสนองานรถร่�
     });
     const p = await ctx.newPage();
     const u = new URL(url);
-    await p.goto(`http://localhost:4520${u.pathname}`);
+    await p.goto(`${E2E_WEB}${u.pathname}`);
     return { ctx, p };
   };
 
