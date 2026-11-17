@@ -17684,6 +17684,92 @@
         ]
       }
     },
+    "/v1/stops/{id}/events": {
+      "get": {
+        "description": "ST4-T02 (docs/01 §3.9): ทุก event ของจุด (รวมที่ขัดลำดับ/มาหลังปิด/ผู้จัดรถไม่ใช้) เรียง `occurredAt` → ชนิด (ออก → ถึง → ปิด) → `receivedAt` พร้อมผลของแต่ละตัว (`seqStatus`) และสถานะที่มีผลของจุด — ยังไม่ลง `trip_stop` (ST4-T03)",
+        "operationId": "Stops_events",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StopEventSequenceDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`trips:read`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/stops/stp_3f2a…/arrive",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "trips",
+                      "action": "read",
+                      "required": [
+                        "trips:read"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ไม่พบจุดแวะ (รวมของบริษัทอื่น) — จุดที่ถอดออกแล้วยังรับ event ได้ (ธง LATE: STOP_REMOVED)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "instance": "/v1/stops/stp_3f2a…/arrive",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "ลำดับ event ของจุด (เรียงตาม occurredAt) + สถานะที่มีผล",
+        "tags": [
+          "stops"
+        ]
+      }
+    },
     "/v1/stops/{id}/arrive": {
       "post": {
         "operationId": "Stops_arrive",
@@ -17716,8 +17802,18 @@
           }
         },
         "responses": {
+          "200": {
+            "description": "ส่งซ้ำ (clientEventId + จุด + ชนิดเดิม) → event เดิม ไม่สร้างแถวใหม่ (ST4-T02 — เดิม T01 ตอบ 409)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StopEventDto"
+                }
+              }
+            }
+          },
           "201": {
-            "description": "",
+            "description": "สร้าง event ใหม่",
             "content": {
               "application/json": {
                 "schema": {
@@ -17754,7 +17850,7 @@
             }
           },
           "404": {
-            "description": "ไม่พบจุดแวะ (รวมของบริษัทอื่น และจุดที่ถอดออกจากเที่ยวแล้ว)",
+            "description": "ไม่พบจุดแวะ (รวมของบริษัทอื่น) — จุดที่ถอดออกแล้วยังรับ event ได้ (ธง LATE: STOP_REMOVED)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -17776,7 +17872,7 @@
             }
           },
           "409": {
-            "description": "เที่ยวไม่อยู่ระหว่างวิ่ง / clientEventId ซ้ำ / ชนกับการแก้ไขพร้อมกัน",
+            "description": "เที่ยวยังไม่ปล่อยรถ / clientEventId ถูกใช้กับ event อื่น (คนละจุดหรือคนละชนิด) / ชนกับการแก้ไขพร้อมกัน",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -17797,7 +17893,7 @@
                   "stop_event_duplicate": {
                     "value": {
                       "type": "https://docs.tms.example/problems/stop_event_duplicate",
-                      "title": "event นี้ถูกบันทึกไปแล้ว (clientEventId ซ้ำ)",
+                      "title": "clientEventId นี้ถูกใช้กับ event อื่นแล้ว",
                       "status": 409,
                       "code": "stop_event_duplicate",
                       "instance": "/v1/stops/stp_3f2a…/arrive",
@@ -17917,8 +18013,18 @@
           }
         },
         "responses": {
+          "200": {
+            "description": "ส่งซ้ำ (clientEventId + จุด + ชนิดเดิม) → event เดิม ไม่สร้างแถวใหม่ (ST4-T02 — เดิม T01 ตอบ 409)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StopEventDto"
+                }
+              }
+            }
+          },
           "201": {
-            "description": "",
+            "description": "สร้าง event ใหม่",
             "content": {
               "application/json": {
                 "schema": {
@@ -17955,7 +18061,7 @@
             }
           },
           "404": {
-            "description": "ไม่พบจุดแวะ (รวมของบริษัทอื่น และจุดที่ถอดออกจากเที่ยวแล้ว)",
+            "description": "ไม่พบจุดแวะ (รวมของบริษัทอื่น) — จุดที่ถอดออกแล้วยังรับ event ได้ (ธง LATE: STOP_REMOVED)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -17977,7 +18083,7 @@
             }
           },
           "409": {
-            "description": "เที่ยวไม่อยู่ระหว่างวิ่ง / clientEventId ซ้ำ / ชนกับการแก้ไขพร้อมกัน",
+            "description": "เที่ยวยังไม่ปล่อยรถ / clientEventId ถูกใช้กับ event อื่น (คนละจุดหรือคนละชนิด) / ชนกับการแก้ไขพร้อมกัน",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -17998,7 +18104,7 @@
                   "stop_event_duplicate": {
                     "value": {
                       "type": "https://docs.tms.example/problems/stop_event_duplicate",
-                      "title": "event นี้ถูกบันทึกไปแล้ว (clientEventId ซ้ำ)",
+                      "title": "clientEventId นี้ถูกใช้กับ event อื่นแล้ว",
                       "status": 409,
                       "code": "stop_event_duplicate",
                       "instance": "/v1/stops/stp_3f2a…/arrive",
@@ -18118,8 +18224,18 @@
           }
         },
         "responses": {
+          "200": {
+            "description": "ส่งซ้ำ (clientEventId + จุด + ชนิดเดิม) → event เดิม ไม่สร้างแถวใหม่ (ST4-T02 — เดิม T01 ตอบ 409)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StopEventDto"
+                }
+              }
+            }
+          },
           "201": {
-            "description": "",
+            "description": "สร้าง event ใหม่",
             "content": {
               "application/json": {
                 "schema": {
@@ -18156,7 +18272,7 @@
             }
           },
           "404": {
-            "description": "ไม่พบจุดแวะ (รวมของบริษัทอื่น และจุดที่ถอดออกจากเที่ยวแล้ว)",
+            "description": "ไม่พบจุดแวะ (รวมของบริษัทอื่น) — จุดที่ถอดออกแล้วยังรับ event ได้ (ธง LATE: STOP_REMOVED)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -18178,7 +18294,7 @@
             }
           },
           "409": {
-            "description": "เที่ยวไม่อยู่ระหว่างวิ่ง / clientEventId ซ้ำ / ชนกับการแก้ไขพร้อมกัน",
+            "description": "เที่ยวยังไม่ปล่อยรถ / clientEventId ถูกใช้กับ event อื่น (คนละจุดหรือคนละชนิด) / ชนกับการแก้ไขพร้อมกัน",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -18199,7 +18315,7 @@
                   "stop_event_duplicate": {
                     "value": {
                       "type": "https://docs.tms.example/problems/stop_event_duplicate",
-                      "title": "event นี้ถูกบันทึกไปแล้ว (clientEventId ซ้ำ)",
+                      "title": "clientEventId นี้ถูกใช้กับ event อื่นแล้ว",
                       "status": 409,
                       "code": "stop_event_duplicate",
                       "instance": "/v1/stops/stp_3f2a…/arrive",
@@ -18319,8 +18435,18 @@
           }
         },
         "responses": {
+          "200": {
+            "description": "ส่งซ้ำ (clientEventId + จุด + ชนิดเดิม) → event เดิม ไม่สร้างแถวใหม่ (ST4-T02 — เดิม T01 ตอบ 409)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StopEventDto"
+                }
+              }
+            }
+          },
           "201": {
-            "description": "",
+            "description": "สร้าง event ใหม่",
             "content": {
               "application/json": {
                 "schema": {
@@ -18357,7 +18483,7 @@
             }
           },
           "404": {
-            "description": "ไม่พบจุดแวะ (รวมของบริษัทอื่น และจุดที่ถอดออกจากเที่ยวแล้ว)",
+            "description": "ไม่พบจุดแวะ (รวมของบริษัทอื่น) — จุดที่ถอดออกแล้วยังรับ event ได้ (ธง LATE: STOP_REMOVED)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -18379,7 +18505,7 @@
             }
           },
           "409": {
-            "description": "เที่ยวไม่อยู่ระหว่างวิ่ง / clientEventId ซ้ำ / ชนกับการแก้ไขพร้อมกัน",
+            "description": "เที่ยวยังไม่ปล่อยรถ / clientEventId ถูกใช้กับ event อื่น (คนละจุดหรือคนละชนิด) / ชนกับการแก้ไขพร้อมกัน",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -18400,7 +18526,7 @@
                   "stop_event_duplicate": {
                     "value": {
                       "type": "https://docs.tms.example/problems/stop_event_duplicate",
-                      "title": "event นี้ถูกบันทึกไปแล้ว (clientEventId ซ้ำ)",
+                      "title": "clientEventId นี้ถูกใช้กับ event อื่นแล้ว",
                       "status": 409,
                       "code": "stop_event_duplicate",
                       "instance": "/v1/stops/stp_3f2a…/arrive",
@@ -18483,6 +18609,328 @@
           }
         ],
         "summary": "ส่งไม่สำเร็จ (เหตุผลบังคับ)",
+        "tags": [
+          "stops"
+        ]
+      }
+    },
+    "/v1/stop-event-flags": {
+      "get": {
+        "operationId": "StopEventFlags_list",
+        "parameters": [
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 200,
+              "default": 25,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "ค่า nextCursor จากหน้าก่อน",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "all",
+              "type": "string",
+              "enum": [
+                "open",
+                "resolved",
+                "all"
+              ]
+            }
+          },
+          {
+            "name": "flag",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "LATE",
+                "SEQUENCE_CONFLICT",
+                "CLOCK_SKEW"
+              ]
+            }
+          },
+          {
+            "name": "q",
+            "required": false,
+            "in": "query",
+            "description": "ค้นเลขเที่ยว / ทะเบียนรถ / ชื่อจุด",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StopEventFlagPageDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`trips:read`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/stop-event-flags/evt_3f2a…/resolve",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "trips",
+                      "action": "read",
+                      "required": [
+                        "trips:read"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "รายการธงของ stop event (ล่าสุดก่อน)",
+        "tags": [
+          "stops"
+        ]
+      }
+    },
+    "/v1/stop-event-flags/summary": {
+      "get": {
+        "operationId": "StopEventFlags_summary",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StopEventFlagSummaryDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`trips:read`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/stop-event-flags/evt_3f2a…/resolve",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "trips",
+                      "action": "read",
+                      "required": [
+                        "trips:read"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "ตัวเลขสรุปธง (ใหม่ / ตัดสินแล้ว / ตัดสินแล้ววันนี้)",
+        "tags": [
+          "stops"
+        ]
+      }
+    },
+    "/v1/stop-event-flags/{id}/resolve": {
+      "post": {
+        "description": "สร้างแถวใหม่ใน `stop_event_resolution` (ไม่แก้ event) + audit `stop_event.resolve` แล้วคำนวณลำดับของจุดใหม่ · ตัดสินได้ครั้งเดียวต่อ event",
+        "operationId": "StopEventFlags_resolve",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveStopEventFlagDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StopEventFlagDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`trips:dispatch`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/stop-event-flags/evt_3f2a…/resolve",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "trips",
+                      "action": "dispatch",
+                      "required": [
+                        "trips:dispatch"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "ไม่พบ event (รวมของบริษัทอื่น)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "instance": "/v1/stop-event-flags/evt_3f2a…/resolve",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "ไม่มีธงให้ตัดสิน / ตัดสินไปแล้ว",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "stop_event_not_flagged": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/stop_event_not_flagged",
+                      "title": "เหตุการณ์นี้ไม่มีข้อขัดแย้งให้ตัดสิน",
+                      "status": 409,
+                      "code": "stop_event_not_flagged",
+                      "instance": "/v1/stop-event-flags/evt_3f2a…/resolve",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  },
+                  "stop_event_already_resolved": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/stop_event_already_resolved",
+                      "title": "เหตุการณ์นี้ถูกตัดสินไปแล้ว",
+                      "status": 409,
+                      "code": "stop_event_already_resolved",
+                      "instance": "/v1/stop-event-flags/evt_3f2a…/resolve",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "instance": "/v1/stop-event-flags/evt_3f2a…/resolve",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "reason",
+                          "code": "minLength",
+                          "message": "reason must be ≥ 10 chars"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "ตัดสินธง: ใช้ (ACCEPT) / ไม่ใช้ (IGNORE) event นี้ — เหตุผลบังคับ",
         "tags": [
           "stops"
         ]
@@ -36240,6 +36688,323 @@
           "reason"
         ]
       },
+      "StopEventReasonDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "rsn_3f2a…"
+          },
+          "category": {
+            "type": "string",
+            "example": "DELIVERY_FAILED"
+          },
+          "code": {
+            "type": "string",
+            "example": "CUSTOMER_CLOSED"
+          },
+          "label": {
+            "type": "string",
+            "example": "ลูกค้าปิดทำการ",
+            "description": "ข้อความ ณ เวลาที่บันทึก (snapshot)"
+          }
+        },
+        "required": [
+          "id",
+          "category",
+          "code",
+          "label"
+        ]
+      },
+      "StopEventResolutionDto": {
+        "type": "object",
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "ACCEPT",
+              "IGNORE"
+            ],
+            "description": "ACCEPT = ใช้ event นี้ · IGNORE = ไม่ใช้ (เก็บเป็นประวัติ)"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "flags": {
+            "type": "array",
+            "description": "ธง ณ เวลาตัดสิน",
+            "items": {
+              "type": "string",
+              "enum": [
+                "LATE",
+                "SEQUENCE_CONFLICT",
+                "CLOCK_SKEW"
+              ]
+            }
+          },
+          "resolvedBy": {
+            "type": "string",
+            "nullable": true,
+            "description": "ผู้ตัดสิน (user id)"
+          },
+          "resolvedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "decision",
+          "reason",
+          "flags",
+          "resolvedBy",
+          "resolvedAt"
+        ]
+      },
+      "SequencedStopEventDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "evt_3f2a…"
+          },
+          "stopId": {
+            "type": "string",
+            "example": "stp_3f2a…"
+          },
+          "tripId": {
+            "type": "string",
+            "example": "trp_3f2a…"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "ARRIVE",
+              "DEPART",
+              "COMPLETE",
+              "FAIL"
+            ]
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "DELIVERED",
+              "PARTIAL",
+              "FAILED",
+              "UNDELIVERED_RETAIN"
+            ],
+            "nullable": true
+          },
+          "clientEventId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "occurredAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "เวลาเกิดจริงบนเครื่อง (UTC)"
+          },
+          "receivedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "เวลาที่ server รับ (UTC)"
+          },
+          "lat": {
+            "type": "number",
+            "nullable": true
+          },
+          "lng": {
+            "type": "number",
+            "nullable": true
+          },
+          "accuracyM": {
+            "type": "number",
+            "nullable": true
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "APP",
+              "LINK",
+              "WEB",
+              "API",
+              "GPS"
+            ],
+            "description": "WEB = ผู้ใช้บันทึกแทนผ่านเว็บ/ผู้ใช้ภายใน · LINK = ลิงก์รถร่วม · API = ระบบภายนอก"
+          },
+          "recordedBy": {
+            "type": "string",
+            "nullable": true,
+            "description": "ผู้บันทึก (user id)"
+          },
+          "reason": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/StopEventReasonDto"
+              }
+            ]
+          },
+          "note": {
+            "type": "string",
+            "nullable": true
+          },
+          "sequenceConflict": {
+            "type": "boolean",
+            "description": "ขัด state machine ของจุดเมื่อเรียงตาม occurredAt (เช่น ปิดงานก่อนถึงจุด) — คำนวณใหม่ทุกครั้งที่มี event/การตัดสินใหม่ของจุด"
+          },
+          "clockSkew": {
+            "type": "boolean",
+            "description": "occurredAt อนาคตเกิน 5 นาที หรือย้อนหลังเกิน 24 ชม. จาก receivedAt (ธง ไม่แก้เวลา)"
+          },
+          "lateReason": {
+            "type": "string",
+            "enum": [
+              "STOP_REMOVED",
+              "TRIP_CANCELLED",
+              "TRIP_COMPLETED"
+            ],
+            "nullable": true,
+            "description": "event มาหลังจุดถูกถอด / เที่ยวยกเลิก / เที่ยวจบ — รับเก็บเป็นประวัติ ไม่นับจนกว่าผู้จัดรถยอมรับ"
+          },
+          "flags": {
+            "type": "array",
+            "description": "ธงที่รอผู้จัดรถตัดสิน (หน้า ศูนย์ข้อยกเว้น) — ว่าง = ปกติ",
+            "items": {
+              "type": "string",
+              "enum": [
+                "LATE",
+                "SEQUENCE_CONFLICT",
+                "CLOCK_SKEW"
+              ]
+            }
+          },
+          "seqStatus": {
+            "type": "string",
+            "enum": [
+              "APPLIED",
+              "REDUNDANT",
+              "CONFLICT",
+              "ACCEPTED",
+              "IGNORED",
+              "LATE"
+            ],
+            "description": "APPLIED เปลี่ยนสถานะ · REDUNDANT ซ้ำความหมาย · CONFLICT ขัดลำดับ รอตัดสิน · ACCEPTED ผู้จัดรถยอมรับ · IGNORED ผู้จัดรถไม่ใช้ · LATE มาหลังปิด รอตัดสิน"
+          },
+          "counted": {
+            "type": "boolean",
+            "description": "นับในลำดับที่มีผล"
+          },
+          "resolution": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/StopEventResolutionDto"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "stopId",
+          "tripId",
+          "type",
+          "outcome",
+          "clientEventId",
+          "occurredAt",
+          "receivedAt",
+          "lat",
+          "lng",
+          "accuracyM",
+          "source",
+          "recordedBy",
+          "reason",
+          "note",
+          "sequenceConflict",
+          "clockSkew",
+          "lateReason",
+          "flags",
+          "seqStatus",
+          "counted",
+          "resolution"
+        ]
+      },
+      "StopEffectiveDto": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "EN_ROUTE",
+              "ARRIVED",
+              "COMPLETED",
+              "FAILED"
+            ],
+            "description": "สถานะจากลำดับ event ที่มีผล (ยังไม่ลง trip_stop — ST4-T03)"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "DELIVERED",
+              "PARTIAL",
+              "FAILED",
+              "UNDELIVERED_RETAIN"
+            ],
+            "nullable": true
+          },
+          "enRouteAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "ออกเดินทางมุ่งหน้าไปจุดนี้ (DEPART แรก)"
+          },
+          "arrivedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "ถึงจุด (ARRIVE แรก)"
+          },
+          "closedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "ปิดงาน (COMPLETE/FAIL ที่มีผล)"
+          },
+          "lastEventId": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "state",
+          "outcome",
+          "enRouteAt",
+          "arrivedAt",
+          "closedAt",
+          "lastEventId"
+        ]
+      },
+      "StopEventSequenceDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "description": "เรียง occurredAt → ชนิด → receivedAt",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SequencedStopEventDto"
+            }
+          },
+          "effective": {
+            "$ref": "#/components/schemas/StopEffectiveDto"
+          }
+        },
+        "required": [
+          "data",
+          "effective"
+        ]
+      },
       "ArriveStopDto": {
         "type": "object",
         "properties": {
@@ -36247,7 +37012,7 @@
             "type": "string",
             "format": "uuid",
             "example": "6f1d3c1e-8a7b-4c2d-9e0f-1a2b3c4d5e6f",
-            "description": "UUID ที่ client สร้างตอนกดปุ่ม (UUIDv4) — unique ต่อบริษัท: ส่งซ้ำ → 409 `stop_event_duplicate` (ไม่สร้างแถวใหม่)"
+            "description": "UUID ที่ client สร้างตอนกดปุ่ม (UUIDv4) — unique ต่อบริษัท: ส่งซ้ำ (จุด + ชนิดเดิม) → **200 + event เดิม** ไม่สร้างแถวใหม่ · ใช้กับจุด/ชนิดอื่น → 409 `stop_event_duplicate`"
           },
           "occurredAt": {
             "type": "string",
@@ -36294,34 +37059,6 @@
         "required": [
           "clientEventId",
           "occurredAt"
-        ]
-      },
-      "StopEventReasonDto": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string",
-            "example": "rsn_3f2a…"
-          },
-          "category": {
-            "type": "string",
-            "example": "DELIVERY_FAILED"
-          },
-          "code": {
-            "type": "string",
-            "example": "CUSTOMER_CLOSED"
-          },
-          "label": {
-            "type": "string",
-            "example": "ลูกค้าปิดทำการ",
-            "description": "ข้อความ ณ เวลาที่บันทึก (snapshot)"
-          }
-        },
-        "required": [
-          "id",
-          "category",
-          "code",
-          "label"
         ]
       },
       "StopEventDto": {
@@ -36412,6 +37149,36 @@
           "note": {
             "type": "string",
             "nullable": true
+          },
+          "sequenceConflict": {
+            "type": "boolean",
+            "description": "ขัด state machine ของจุดเมื่อเรียงตาม occurredAt (เช่น ปิดงานก่อนถึงจุด) — คำนวณใหม่ทุกครั้งที่มี event/การตัดสินใหม่ของจุด"
+          },
+          "clockSkew": {
+            "type": "boolean",
+            "description": "occurredAt อนาคตเกิน 5 นาที หรือย้อนหลังเกิน 24 ชม. จาก receivedAt (ธง ไม่แก้เวลา)"
+          },
+          "lateReason": {
+            "type": "string",
+            "enum": [
+              "STOP_REMOVED",
+              "TRIP_CANCELLED",
+              "TRIP_COMPLETED"
+            ],
+            "nullable": true,
+            "description": "event มาหลังจุดถูกถอด / เที่ยวยกเลิก / เที่ยวจบ — รับเก็บเป็นประวัติ ไม่นับจนกว่าผู้จัดรถยอมรับ"
+          },
+          "flags": {
+            "type": "array",
+            "description": "ธงที่รอผู้จัดรถตัดสิน (หน้า ศูนย์ข้อยกเว้น) — ว่าง = ปกติ",
+            "items": {
+              "type": "string",
+              "enum": [
+                "LATE",
+                "SEQUENCE_CONFLICT",
+                "CLOCK_SKEW"
+              ]
+            }
           }
         },
         "required": [
@@ -36429,7 +37196,11 @@
           "source",
           "recordedBy",
           "reason",
-          "note"
+          "note",
+          "sequenceConflict",
+          "clockSkew",
+          "lateReason",
+          "flags"
         ]
       },
       "DepartStopDto": {
@@ -36439,7 +37210,7 @@
             "type": "string",
             "format": "uuid",
             "example": "6f1d3c1e-8a7b-4c2d-9e0f-1a2b3c4d5e6f",
-            "description": "UUID ที่ client สร้างตอนกดปุ่ม (UUIDv4) — unique ต่อบริษัท: ส่งซ้ำ → 409 `stop_event_duplicate` (ไม่สร้างแถวใหม่)"
+            "description": "UUID ที่ client สร้างตอนกดปุ่ม (UUIDv4) — unique ต่อบริษัท: ส่งซ้ำ (จุด + ชนิดเดิม) → **200 + event เดิม** ไม่สร้างแถวใหม่ · ใช้กับจุด/ชนิดอื่น → 409 `stop_event_duplicate`"
           },
           "occurredAt": {
             "type": "string",
@@ -36495,7 +37266,7 @@
             "type": "string",
             "format": "uuid",
             "example": "6f1d3c1e-8a7b-4c2d-9e0f-1a2b3c4d5e6f",
-            "description": "UUID ที่ client สร้างตอนกดปุ่ม (UUIDv4) — unique ต่อบริษัท: ส่งซ้ำ → 409 `stop_event_duplicate` (ไม่สร้างแถวใหม่)"
+            "description": "UUID ที่ client สร้างตอนกดปุ่ม (UUIDv4) — unique ต่อบริษัท: ส่งซ้ำ (จุด + ชนิดเดิม) → **200 + event เดิม** ไม่สร้างแถวใหม่ · ใช้กับจุด/ชนิดอื่น → 409 `stop_event_duplicate`"
           },
           "occurredAt": {
             "type": "string",
@@ -36562,7 +37333,7 @@
             "type": "string",
             "format": "uuid",
             "example": "6f1d3c1e-8a7b-4c2d-9e0f-1a2b3c4d5e6f",
-            "description": "UUID ที่ client สร้างตอนกดปุ่ม (UUIDv4) — unique ต่อบริษัท: ส่งซ้ำ → 409 `stop_event_duplicate` (ไม่สร้างแถวใหม่)"
+            "description": "UUID ที่ client สร้างตอนกดปุ่ม (UUIDv4) — unique ต่อบริษัท: ส่งซ้ำ (จุด + ชนิดเดิม) → **200 + event เดิม** ไม่สร้างแถวใหม่ · ใช้กับจุด/ชนิดอื่น → 409 `stop_event_duplicate`"
           },
           "occurredAt": {
             "type": "string",
@@ -36618,6 +37389,195 @@
         "required": [
           "clientEventId",
           "occurredAt"
+        ]
+      },
+      "StopEventFlagDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "evt_3f2a…",
+            "description": "id ของ event ที่มีธง"
+          },
+          "event": {
+            "$ref": "#/components/schemas/StopEventDto"
+          },
+          "flags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "LATE",
+                "SEQUENCE_CONFLICT",
+                "CLOCK_SKEW"
+              ]
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "OPEN",
+              "RESOLVED"
+            ]
+          },
+          "tripId": {
+            "type": "string",
+            "example": "trp_3f2a…"
+          },
+          "tripNo": {
+            "type": "string",
+            "nullable": true,
+            "example": "TRP-2611-0042"
+          },
+          "tripStatus": {
+            "type": "string",
+            "example": "DISPATCHED"
+          },
+          "stopId": {
+            "type": "string",
+            "example": "stp_3f2a…"
+          },
+          "stopSequence": {
+            "type": "number",
+            "example": 2
+          },
+          "stopType": {
+            "type": "string",
+            "enum": [
+              "PICKUP",
+              "DELIVERY",
+              "RETURN"
+            ]
+          },
+          "siteName": {
+            "type": "string",
+            "example": "คลังสินค้าบางนา"
+          },
+          "vehiclePlate": {
+            "type": "string",
+            "nullable": true,
+            "example": "70-2281"
+          },
+          "customerName": {
+            "type": "string",
+            "nullable": true
+          },
+          "doNos": {
+            "example": [
+              "DO-2611-00022"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "stateBefore": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "EN_ROUTE",
+              "ARRIVED",
+              "COMPLETED",
+              "FAILED"
+            ],
+            "nullable": true,
+            "description": "สถานะของจุดตามลำดับที่มีผล ก่อน event นี้ (เฉพาะธงขัดลำดับ)"
+          },
+          "resolution": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/StopEventResolutionDto"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "event",
+          "flags",
+          "status",
+          "tripId",
+          "tripNo",
+          "tripStatus",
+          "stopId",
+          "stopSequence",
+          "stopType",
+          "siteName",
+          "vehiclePlate",
+          "customerName",
+          "doNos",
+          "stateBefore",
+          "resolution"
+        ]
+      },
+      "StopEventFlagPageDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StopEventFlagDto"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor",
+          "hasMore"
+        ]
+      },
+      "StopEventFlagSummaryDto": {
+        "type": "object",
+        "properties": {
+          "open": {
+            "type": "number",
+            "description": "ยังไม่ตัดสิน (ใหม่)"
+          },
+          "resolved": {
+            "type": "number",
+            "description": "ตัดสินแล้วทั้งหมด"
+          },
+          "resolvedToday": {
+            "type": "number",
+            "description": "ตัดสินแล้ววันนี้ (เวลาไทย)"
+          }
+        },
+        "required": [
+          "open",
+          "resolved",
+          "resolvedToday"
+        ]
+      },
+      "ResolveStopEventFlagDto": {
+        "type": "object",
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "ACCEPT",
+              "IGNORE"
+            ],
+            "description": "ACCEPT = ใช้ event นี้ (นับในลำดับแม้ขัด/มาหลังปิด) · IGNORE = ไม่ใช้ (เก็บเป็นประวัติ ไม่นับ)"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 10,
+            "maxLength": 500,
+            "description": "เหตุผล (บังคับ ≥ 10 ตัวอักษร — ลง audit)"
+          }
+        },
+        "required": [
+          "decision",
+          "reason"
         ]
       },
       "OfferChannelsDto": {

@@ -1,6 +1,8 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 import {
   IsIn,
+  IsInt,
   IsISO8601,
   IsNumber,
   IsOptional,
@@ -14,7 +16,11 @@ import {
 } from 'class-validator';
 import {
   FAIL_OUTCOMES,
+  STOP_EVENT_DECISIONS,
+  STOP_EVENT_FLAGS,
+  STOP_EVENT_LATE_REASONS,
   STOP_EVENT_SOURCES,
+  STOP_EXEC_STATES,
   STOP_EVENT_TYPES,
   STOP_OUTCOMES,
   type StopOutcome,
@@ -31,7 +37,7 @@ export class StopEventBaseDto {
     format: 'uuid',
     example: '6f1d3c1e-8a7b-4c2d-9e0f-1a2b3c4d5e6f',
     description:
-      'UUID ที่ client สร้างตอนกดปุ่ม (UUIDv4) — unique ต่อบริษัท: ส่งซ้ำ → 409 `stop_event_duplicate` (ไม่สร้างแถวใหม่)',
+      'UUID ที่ client สร้างตอนกดปุ่ม (UUIDv4) — unique ต่อบริษัท: ส่งซ้ำ (จุด + ชนิดเดิม) → **200 + event เดิม** ไม่สร้างแถวใหม่ · ใช้กับจุด/ชนิดอื่น → 409 `stop_event_duplicate`',
   })
   @IsUUID('all')
   clientEventId!: string;
@@ -181,4 +187,186 @@ export class StopEventDto {
   recordedBy!: string | null;
   @ApiProperty({ nullable: true, type: StopEventReasonDto }) reason!: StopEventReasonDto | null;
   @ApiProperty({ nullable: true, type: String }) note!: string | null;
+  @ApiProperty({
+    description:
+      'ขัด state machine ของจุดเมื่อเรียงตาม occurredAt (เช่น ปิดงานก่อนถึงจุด) — คำนวณใหม่ทุกครั้งที่มี event/การตัดสินใหม่ของจุด',
+  })
+  sequenceConflict!: boolean;
+  @ApiProperty({
+    description:
+      'occurredAt อนาคตเกิน 5 นาที หรือย้อนหลังเกิน 24 ชม. จาก receivedAt (ธง ไม่แก้เวลา)',
+  })
+  clockSkew!: boolean;
+  @ApiProperty({
+    enum: STOP_EVENT_LATE_REASONS,
+    nullable: true,
+    type: String,
+    description:
+      'event มาหลังจุดถูกถอด / เที่ยวยกเลิก / เที่ยวจบ — รับเก็บเป็นประวัติ ไม่นับจนกว่าผู้จัดรถยอมรับ',
+  })
+  lateReason!: string | null;
+  @ApiProperty({
+    enum: STOP_EVENT_FLAGS,
+    isArray: true,
+    description: 'ธงที่รอผู้จัดรถตัดสิน (หน้า ศูนย์ข้อยกเว้น) — ว่าง = ปกติ',
+  })
+  flags!: string[];
+}
+
+class StopEventResolutionDto {
+  @ApiProperty({
+    enum: STOP_EVENT_DECISIONS,
+    description: 'ACCEPT = ใช้ event นี้ · IGNORE = ไม่ใช้ (เก็บเป็นประวัติ)',
+  })
+  decision!: string;
+  @ApiProperty() reason!: string;
+  @ApiProperty({ enum: STOP_EVENT_FLAGS, isArray: true, description: 'ธง ณ เวลาตัดสิน' })
+  flags!: string[];
+  @ApiProperty({ nullable: true, type: String, description: 'ผู้ตัดสิน (user id)' })
+  resolvedBy!: string | null;
+  @ApiProperty({ format: 'date-time' }) resolvedAt!: string;
+}
+
+/** event ในลำดับที่มีผลของจุด (GET /stops/{id}/events) */
+export class SequencedStopEventDto extends StopEventDto {
+  @ApiProperty({
+    enum: ['APPLIED', 'REDUNDANT', 'CONFLICT', 'ACCEPTED', 'IGNORED', 'LATE'],
+    description:
+      'APPLIED เปลี่ยนสถานะ · REDUNDANT ซ้ำความหมาย · CONFLICT ขัดลำดับ รอตัดสิน · ACCEPTED ผู้จัดรถยอมรับ · IGNORED ผู้จัดรถไม่ใช้ · LATE มาหลังปิด รอตัดสิน',
+  })
+  seqStatus!: string;
+  @ApiProperty({ description: 'นับในลำดับที่มีผล' }) counted!: boolean;
+  @ApiProperty({ nullable: true, type: StopEventResolutionDto })
+  resolution!: StopEventResolutionDto | null;
+}
+
+class StopEffectiveDto {
+  @ApiProperty({
+    enum: STOP_EXEC_STATES,
+    description: 'สถานะจากลำดับ event ที่มีผล (ยังไม่ลง trip_stop — ST4-T03)',
+  })
+  state!: string;
+  @ApiProperty({ enum: STOP_OUTCOMES, nullable: true, type: String }) outcome!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    format: 'date-time',
+    description: 'ออกเดินทางมุ่งหน้าไปจุดนี้ (DEPART แรก)',
+  })
+  enRouteAt!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    format: 'date-time',
+    description: 'ถึงจุด (ARRIVE แรก)',
+  })
+  arrivedAt!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    format: 'date-time',
+    description: 'ปิดงาน (COMPLETE/FAIL ที่มีผล)',
+  })
+  closedAt!: string | null;
+  @ApiProperty({ nullable: true, type: String }) lastEventId!: string | null;
+}
+
+export class StopEventSequenceDto {
+  @ApiProperty({
+    type: [SequencedStopEventDto],
+    description: 'เรียง occurredAt → ชนิด → receivedAt',
+  })
+  data!: SequencedStopEventDto[];
+  @ApiProperty({ type: StopEffectiveDto }) effective!: StopEffectiveDto;
+}
+
+/** ธงต่อ event (หน้า ศูนย์ข้อยกเว้น) */
+export class StopEventFlagDto {
+  @ApiProperty({ example: 'evt_3f2a…', description: 'id ของ event ที่มีธง' }) id!: string;
+  @ApiProperty({ type: StopEventDto }) event!: StopEventDto;
+  @ApiProperty({ enum: STOP_EVENT_FLAGS, isArray: true }) flags!: string[];
+  @ApiProperty({ enum: ['OPEN', 'RESOLVED'] }) status!: string;
+  @ApiProperty({ example: 'trp_3f2a…' }) tripId!: string;
+  @ApiProperty({ nullable: true, type: String, example: 'TRP-2611-0042' }) tripNo!: string | null;
+  @ApiProperty({ example: 'DISPATCHED' }) tripStatus!: string;
+  @ApiProperty({ example: 'stp_3f2a…' }) stopId!: string;
+  @ApiProperty({ example: 2 }) stopSequence!: number;
+  @ApiProperty({ enum: ['PICKUP', 'DELIVERY', 'RETURN'] }) stopType!: string;
+  @ApiProperty({ example: 'คลังสินค้าบางนา' }) siteName!: string;
+  @ApiProperty({ nullable: true, type: String, example: '70-2281' }) vehiclePlate!: string | null;
+  @ApiProperty({ nullable: true, type: String }) customerName!: string | null;
+  @ApiProperty({ type: [String], example: ['DO-2611-00022'] }) doNos!: string[];
+  @ApiProperty({
+    enum: STOP_EXEC_STATES,
+    nullable: true,
+    type: String,
+    description: 'สถานะของจุดตามลำดับที่มีผล ก่อน event นี้ (เฉพาะธงขัดลำดับ)',
+  })
+  stateBefore!: string | null;
+  @ApiProperty({ nullable: true, type: StopEventResolutionDto })
+  resolution!: StopEventResolutionDto | null;
+}
+
+export class StopEventFlagPageDto {
+  @ApiProperty({ type: [StopEventFlagDto] }) data!: StopEventFlagDto[];
+  @ApiProperty({ nullable: true, type: String }) nextCursor!: string | null;
+  @ApiProperty() hasMore!: boolean;
+}
+
+export class StopEventFlagSummaryDto {
+  @ApiProperty({ description: 'ยังไม่ตัดสิน (ใหม่)' }) open!: number;
+  @ApiProperty({ description: 'ตัดสินแล้วทั้งหมด' }) resolved!: number;
+  @ApiProperty({ description: 'ตัดสินแล้ววันนี้ (เวลาไทย)' }) resolvedToday!: number;
+}
+
+export class StopEventFlagListQuery {
+  @ApiPropertyOptional({ minimum: 1, maximum: 200, default: 25 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(200)
+  limit?: number;
+
+  @ApiPropertyOptional({ description: 'ค่า nextCursor จากหน้าก่อน' })
+  @IsOptional()
+  @IsString()
+  cursor?: string;
+
+  @ApiPropertyOptional({ enum: ['open', 'resolved', 'all'], default: 'all' })
+  @IsOptional()
+  @IsIn(['open', 'resolved', 'all'])
+  status?: 'open' | 'resolved' | 'all';
+
+  @ApiPropertyOptional({ enum: STOP_EVENT_FLAGS })
+  @IsOptional()
+  @IsIn(STOP_EVENT_FLAGS)
+  flag?: (typeof STOP_EVENT_FLAGS)[number];
+
+  @ApiPropertyOptional({ description: 'ค้นเลขเที่ยว / ทะเบียนรถ / ชื่อจุด' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  q?: string;
+}
+
+export class ResolveStopEventFlagDto {
+  @ApiProperty({
+    enum: STOP_EVENT_DECISIONS,
+    description:
+      'ACCEPT = ใช้ event นี้ (นับในลำดับแม้ขัด/มาหลังปิด) · IGNORE = ไม่ใช้ (เก็บเป็นประวัติ ไม่นับ)',
+  })
+  @IsIn(STOP_EVENT_DECISIONS)
+  decision!: (typeof STOP_EVENT_DECISIONS)[number];
+
+  @ApiProperty({
+    minLength: 10,
+    maxLength: 500,
+    description: 'เหตุผล (บังคับ ≥ 10 ตัวอักษร — ลง audit)',
+  })
+  @CleanText()
+  @IsString()
+  @MinLength(10)
+  @MaxLength(500)
+  reason!: string;
 }
