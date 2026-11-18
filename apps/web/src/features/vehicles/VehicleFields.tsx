@@ -261,7 +261,11 @@ export function VehicleFields({
     k: keyof VehicleForm,
     extra: Partial<React.InputHTMLAttributes<HTMLInputElement>> = {},
   ) =>
-    function Inp(p: { id: string; 'aria-invalid': boolean }): ReactNode {
+    function Inp(p: {
+      id: string;
+      'aria-invalid': boolean;
+      'aria-describedby'?: string;
+    }): ReactNode {
       return (
         <TextInput
           {...p}
@@ -282,7 +286,11 @@ export function VehicleFields({
     opts: { value: string; label: string }[],
     onPick?: (v: string) => void,
   ) =>
-    function Sel(p: { id: string; 'aria-invalid': boolean }): ReactNode {
+    function Sel(p: {
+      id: string;
+      'aria-invalid': boolean;
+      'aria-describedby'?: string;
+    }): ReactNode {
       return (
         <select
           {...p}
@@ -360,6 +368,7 @@ export function VehicleFields({
                 placeholder={t('veh.f.carrierPh')}
                 noResult={t('veh.f.noResult')}
                 invalid={p['aria-invalid']}
+                describedBy={p['aria-describedby']}
                 disabled={readOnly}
               />
             )
@@ -455,6 +464,7 @@ export function VehicleFields({
             noResult={t('veh.f.noResult')}
             clearLabel={t('veh.f.gpsNone')}
             invalid={p['aria-invalid']}
+            describedBy={p['aria-describedby']}
             disabled={readOnly || f.role === 'SINGLE'}
           />
         )}

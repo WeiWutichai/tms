@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useEscapeLayer } from './escape';
+import { useModalFocus } from './focus';
 import { Icon } from './Icon';
 import { tone as toneColors, type Tone } from './tokens';
 
@@ -91,19 +92,42 @@ export function FormDrawer({
   onSubmit?: () => void;
 }) {
   useEscape(open, onClose);
+  const ref = useRef<HTMLFormElement>(null);
+  useModalFocus(open, ref);
+  const titleId = useId();
   const [submits, setSubmits] = useState(0);
+  /**
+   * ST9-T20 (WCAG 3.3.1): กดบันทึกแล้วมีช่องผิด → focus ช่องแรกที่ผิด (error จาก validation ทันที หรือ 422 จาก API ที่ตามมา)
+   * รอได้จนผู้ใช้พิมพ์/คลิกในฟอร์ม หรือ 15 วินาที · สรุปจำนวนช่องที่ผิด (role=alert) คงเดิม
+   */
+  const focusInvalidUntil = useRef(0);
+  useEffect(() => {
+    if (!open || Date.now() > focusInvalidUntil.current) return;
+    const bad = ref.current?.querySelector<HTMLElement>('[aria-invalid="true"]');
+    if (!bad) return;
+    focusInvalidUntil.current = 0;
+    bad.focus();
+  });
   if (!open) return null;
   return (
     <FormSubmits.Provider value={submits}>
       <div className="tms-fdrawer__scrim" onClick={onClose}>
         <form
+          ref={ref}
           className="tms-fdrawer"
           role="dialog"
           aria-modal="true"
-          aria-label={typeof title === 'string' ? title : undefined}
+          aria-labelledby={titleId}
+          tabIndex={-1}
+          data-modal-focus=""
           onClick={(e) => e.stopPropagation()}
+          onPointerDownCapture={() => (focusInvalidUntil.current = 0)}
+          onKeyDownCapture={(e) => {
+            if (e.key !== 'Enter') focusInvalidUntil.current = 0;
+          }}
           onSubmit={(e) => {
             e.preventDefault();
+            focusInvalidUntil.current = Date.now() + 15_000;
             setSubmits((n) => n + 1);
             onSubmit?.();
           }}
@@ -112,6 +136,7 @@ export function FormDrawer({
           <div className="tms-fdrawer__head">
             <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
               <h2
+                id={titleId}
                 className="tms-fdrawer__title"
                 title={typeof title === 'string' ? title : undefined}
               >
@@ -387,15 +412,20 @@ export function ReasonDialog({
     if (open) sentRef.current = false;
   }, [open]);
   useEscape(open, onClose);
+  const box = useRef<HTMLDivElement>(null);
+  useModalFocus(open, box);
   if (!open) return null;
   const ok = reason.trim().length >= minLength && !busy && !sent;
   return (
     <div className="tms-dialog__scrim" onClick={onClose}>
       <div
+        ref={box}
         className="tms-dialog"
         role="dialog"
         aria-modal="true"
         aria-labelledby={`${id}-t`}
+        tabIndex={-1}
+        data-modal-focus=""
         onClick={(e) => e.stopPropagation()}
       >
         <div className="tms-dialog__head">

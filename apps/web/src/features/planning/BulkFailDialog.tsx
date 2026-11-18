@@ -1,4 +1,5 @@
-import { Icon, useEscapeLayer } from '@tms/ui';
+import { Icon, useEscapeLayer, useModalFocus } from '@tms/ui';
+import { useRef } from 'react';
 import { useI18n } from '../../i18n';
 import { tripProblemText } from '../trips/tripProblem';
 import type { BulkResults } from '../trips/useTrips';
@@ -22,14 +23,19 @@ export function BulkFailDialog({
 }) {
   const { t } = useI18n();
   useEscapeLayer(true, onClose);
+  const box = useRef<HTMLDivElement>(null);
+  useModalFocus(true, box); // ST9-T20 focus เข้า/วน/คืน
   const failed = results.filter((r) => !r.trip);
   const ok = results.filter((r) => r.outcome === 'ASSIGNED' || r.outcome === 'DISPATCHED').length;
   return (
     <div className="tms-dialog__scrim" onClick={onClose}>
       <div
+        ref={box}
         className="tms-dialog"
         role="dialog"
         aria-modal="true"
+        tabIndex={-1}
+        data-modal-focus=""
         aria-label={t('plan.bulk.failTitle', { n: failed.length })}
         onClick={(e) => e.stopPropagation()}
       >
