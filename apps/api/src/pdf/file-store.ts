@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
 export interface StoredFile {
@@ -42,5 +42,15 @@ export class LocalFileStore implements FileStore {
   async get(key: string): Promise<Buffer> {
     if (key.includes('..')) throw new Error('invalid key');
     return readFile(join(this.root, key));
+  }
+
+  /**
+   * ลบไฟล์ — ใช้ได้เฉพาะ retention job (ST9-T14 `RetentionService`) หลังตรวจแล้วว่าไม่มี stored_document ใดอ้าง key นี้อีก
+   * (key ผูกกับเนื้อไฟล์ — เนื้อเดียวกัน 2 แถวใช้ไฟล์เดียวกัน) · ไม่อยู่ใน interface `FileStore` ที่ส่วนอื่นใช้
+   * ไม่มีไฟล์ = ไม่ error (ลบซ้ำได้)
+   */
+  async remove(key: string): Promise<void> {
+    if (!/^[0-9a-f-]{36}\/[0-9a-f]{64}\.[a-z0-9]{1,8}$/.test(key)) throw new Error('invalid key');
+    await rm(join(this.root, key), { force: true });
   }
 }

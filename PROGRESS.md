@@ -26,7 +26,7 @@
 | ST3 Order intake + Planning/Dispatch | **เสร็จ** (T01–T25 ครบ — T25 นับเมื่อ merge PR ของ `st3/t25-change-carrier`) | 12 พ.ย. | 17 พ.ย. 2569 | ตารางงาน ST3 ด้านล่าง · สรุป: รับ order ทุกทาง (มือ/Excel/API/connector) ผ่าน `upsertOrder()` เดียว + ใบค้าง + DO/trip state machine + กระดานวางแผน (constraint/multi-drop/assign-dispatch/send all/ตารางรถ) + ใบคุมรถ PDF + LINE/SMS + จ้างรถร่วมครบวงจร (ลิงก์รับ/ปฏิเสธ, หมดเวลา, เปลี่ยนผู้รับเหมา) |
 | ST4 Execution และ POD | **กำลังทำ** 2/15 (T01, T02) + T03, T04, T05, T06 dev | 17 พ.ย. 2569 | — | ตารางงาน ST4 ด้านล่าง |
 | ST5–ST6, ST8 | ยังไม่เริ่ม | | | |
-| ST9 Cross-cutting | **กำลังทำ** · T10 ส่งออกตามตัวกรอง dev เสร็จ รอ review/QA (`st9/t10-export`) | 18 พ.ย. 2569 | — | |
+| ST9 Cross-cutting | **กำลังทำ** · T10 ส่งออกตามตัวกรอง dev เสร็จ รอ review/QA (`st9/t10-export`) · T14 Retention dev เสร็จ รอ review/QA (`st9/t14-retention`) | 18 พ.ย. 2569 | — | |
 | ST5–ST6, ST8–ST9 | ยังไม่เริ่ม | | | |
 | ST9 (เฉพาะ T11 saved views) | **dev เสร็จ** รอ review/QA/merge (`st9/t11-saved-views`) | 18 พ.ย. 2569 | — | ดูบันทึก 18 พ.ย. (ST9-T11) |
 | ST7 Open API + Integration | **กำลังทำ** 1/23 (T01 merge แล้ว · T02 แก้ตาม review/QA แล้ว รอ merge · T03 แก้ตาม review/QA แล้ว รอ merge · T04 แก้ตาม review/QA แล้ว รอ merge · T05 แก้ตาม review/QA แล้ว รอ merge · T08 แก้ตาม review/QA แล้ว รอ merge · T13 แก้ตาม review/QA แล้ว รอ merge · T07 dev เสร็จ รอ review/QA · T22 แก้ตาม review/QA แล้ว รอ merge · T06 แก้ตาม review/QA อยู่ · T10 แก้ตาม review/QA แล้ว รอ merge) · ทำ T01 ก่อน ST5/ST6 ได้เพราะไม่ใช้ event ของ ST5/ST6 | 17 พ.ย. 2569 | — | ตารางงาน ST7 ด้านล่าง |
@@ -260,6 +260,12 @@
 - (11 พ.ย., พบระหว่าง T19 — **แก้แล้วใน T04**: `db:migrate` รัน bootstrap ทุก tenant ซึ่ง sync role ระบบ) **role ระบบของ tenant ที่มีอยู่ไม่ได้สิทธิ์ใหม่อัตโนมัติ** — `ensureSystemRoles` รันแค่ตอนสร้าง tenant/seed; เมื่อโค้ดเพิ่ม permission (เช่น `documents:write` ใน T08) tenant เดิมไม่ได้ จนกว่าจะรัน seed · ฐาน dev แก้ด้วย seed แล้ว · ต้องมี sync ตอน deploy/บูต ก่อนมี tenant จริง (เสนอทำใน T24 admin portal หรือ migration step) 
 
 ## บันทึกรายวัน
+
+### 19 พ.ย. 2569 (ST9-T14 Retention — lane l4, dev)
+
+- ทำ: ค่าตั้งระยะเก็บต่อ tenant 5 key (`retention.*` ใน registry — ต่ำกว่าขั้นต่ำ 422 `below_minimum`, ลดระยะต้อง step-up) · `RetentionService.run()` ใน worker รายวัน: audit log ผ่านฟังก์ชัน DB `tms_audit_retention_purge` (SECURITY DEFINER, ≥ 5 ปีเสมอ, ไม่แตะเหตุการณ์ภาษี/นิติบุคคล/ค่าตั้ง, ลงบันทึกการลบ) · ประวัติ login (ย้ายจาก `purgeAuthData`) · GPS (`received_at`) · ไฟล์ POD → `stored_document.status = PURGED` + ลบไฟล์ที่ไม่มีแถวอื่นอ้าง · ไฟล์ส่งออก 7 วัน (ค้างจาก ST9-T10) · ทุกการลบลง audit `retention.purged` ต่อ tenant · DECISION ใน spec/12 §3 แถว "Retention ต่อ tenant"
+- ไฟล์: `apps/api/src/modules/retention/*`, `prisma/migrations/0108_retention`, `schema.prisma` (stored_document.purged_at + index), `settings/registry.ts`, `settings.service.ts`, `pdf/file-store.ts` (`remove` สำหรับ job เท่านั้น), `auth/maintenance.ts`, `worker.ts`, `documents.controller.ts` (status `purged`) · test `retention.test.ts`, `user-lifecycle.test.ts` · e2e `retention.spec.ts`
+- ค้าง: integration log (outbox + ledger ขาเข้า) ยังไม่ลบ — รอ [OPEN — PO] วิธี archive หลัง 24 เดือน (แถว ST7-T22) · เอกสารภาษี ≥ 5/7 ปี + guard DB → ST9-T15 · purge หลัง tenant ยกเลิก → งานลบ tenant (P1) · ไม่มีหน้าจอ (ต้นแบบไม่มี)
 
 ### 18 พ.ย. 2569 (ST9-T10 ส่งออกตามตัวกรอง — lane l4)
 

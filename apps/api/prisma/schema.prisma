@@ -2184,32 +2184,37 @@ model StopEventResolution {
 
 /// ไฟล์ (POD, PDF, เอกสารรถ) — เนื้อไฟล์อยู่ใน FileStore แบบ immutable (T-09)
 model StoredDocument {
-  id               String   @id @default(uuid()) @db.Uuid
-  tenantId         String   @map("tenant_id") @db.Uuid
+  id               String    @id @default(uuid()) @db.Uuid
+  tenantId         String    @map("tenant_id") @db.Uuid
   /// ST1-T08: PENDING = จองแล้วรออัปโหลด, READY = ไฟล์ผ่านการตรวจแล้ว
-  status           String   @default("READY")
-  fileKey          String?  @map("file_key")
+  /// ST9-T14: PURGED = ไฟล์ถูกลบตามระยะเก็บ (POD 2 ปี / ไฟล์ส่งออก 7 วัน) — แถวคงอยู่ (sha256 + metadata) แต่ file_key = null
+  status           String    @default("READY")
+  fileKey          String?   @map("file_key")
   sha256           String?
-  mimeType         String   @map("mime_type")
-  sizeBytes        Int      @map("size_bytes")
+  mimeType         String    @map("mime_type")
+  sizeBytes        Int       @map("size_bytes")
   filename         String?
-  clientDocumentId String?  @map("client_document_id") /// กันอัปโหลดซ้ำจากอุปกรณ์ (docs/01 §5.5)
+  clientDocumentId String?   @map("client_document_id") /// กันอัปโหลดซ้ำจากอุปกรณ์ (docs/01 §5.5)
   metadata         Json?
   kind             String /// POD_PHOTO / POD_SIGNATURE / PDF / VEHICLE_DOC / OTHER
-  entityType       String?  @map("entity_type")
-  entityId         String?  @map("entity_id") @db.Uuid
-  createdBy        String?  @map("created_by")
-  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  entityType       String?   @map("entity_type")
+  entityId         String?   @map("entity_id") @db.Uuid
+  createdBy        String?   @map("created_by")
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  /// ST9-T14 เวลาที่ retention job ลบไฟล์ (status PURGED)
+  purgedAt         DateTime? @map("purged_at") @db.Timestamptz(6)
 
   doSurcharges DoSurcharge[]
   tripCosts    TripCost[]
 
   @@unique([tenantId, clientDocumentId])
   @@index([tenantId, entityType, entityId])
+  /// ST9-T14 retention job หาไฟล์ตามชนิด + อายุ
+  @@index([kind, createdAt])
   @@map("stored_document")
 }
 
-/// ตำแหน่งรถ — schema เตรียมไว้ (T-18) ยังไม่มีตัวป้อนในเฟส 0; เก็บ 90 วัน
+/// ตำแหน่งรถ — schema เตรียมไว้ (T-18) ยังไม่มีตัวป้อนในเฟส 0; เก็บ ≥ 90 วัน ตาม `retention.gpsLogDays` (ST9-T14)
 model VehiclePosition {
   id         BigInt   @id @default(autoincrement())
   tenantId   String   @map("tenant_id") @db.Uuid
@@ -2225,6 +2230,8 @@ model VehiclePosition {
   receivedAt DateTime @default(now()) @map("received_at") @db.Timestamptz(6)
 
   @@index([tenantId, vehicleId, occurredAt])
+  /// ST9-T14 retention (GPS log ≥ 90 วัน นับจากเวลาที่เรารับ — นาฬิกาอุปกรณ์ผิดไม่ทำให้ลบเร็ว)
+  @@index([receivedAt])
   @@map("vehicle_position")
 }
 
@@ -2255,6 +2262,8 @@ model LoginAttempt {
   @@index([email, createdAt])
   @@index([ip, createdAt])
   @@index([tenantId, createdAt])
+  /// ST9-T14 retention (แถวที่ไม่รู้ tenant ใช้ขั้นต่ำ 1 ปี)
+  @@index([createdAt])
   @@map("login_attempt")
 }
 

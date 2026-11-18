@@ -5200,7 +5200,7 @@
           {
             "name": "X-Step-Up",
             "in": "header",
-            "description": "ต้องมีเมื่อแก้ที่ลดความปลอดภัย (ปิด 2FA ทั้งองค์กร / ปิดออกจากระบบอัตโนมัติ / ยืด idle timeout) — ไม่มี → 403 step_up_required",
+            "description": "ต้องมีเมื่อแก้ที่ลดความปลอดภัย (ปิด 2FA ทั้งองค์กร / ปิดออกจากระบบอัตโนมัติ / ยืด idle timeout / ลดระยะเก็บ `retention.*`) — ไม่มี → 403 step_up_required",
             "required": false,
             "schema": {
               "type": "string"
@@ -46798,8 +46798,10 @@
             "type": "string",
             "enum": [
               "pending",
-              "ready"
-            ]
+              "ready",
+              "purged"
+            ],
+            "description": "purged = ไฟล์ถูกลบตามระยะเก็บ (ST9-T14: POD ≥ 2 ปี, ไฟล์ส่งออก 7 วัน) — ดาวน์โหลดไม่ได้ (404)"
           },
           "kind": {
             "type": "string"

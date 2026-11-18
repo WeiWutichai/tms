@@ -1,10 +1,10 @@
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { purgeAuthData } from '../src/auth/maintenance';
 import { hashPassword } from '../src/auth/password';
 import { ensureSystemRoles } from '../src/auth/system-roles';
 import { encodeId } from '../src/common/ids';
+import { RetentionService } from '../src/modules/retention/retention.service';
 import { api, bootApp, createTenant, loginFull, platform, tokenFor, truncateAll } from './helpers';
 
 /** ST1-T10 ระงับ/เปิดใช้/ลบผู้ใช้ · ST1-T11 ประวัติ login */
@@ -179,7 +179,7 @@ describe('user lifecycle + login history', () => {
     expect((await api(app, viewer).get('/v1/login-history')).status).toBe(403);
   });
 
-  it('job บำรุงรักษา: ลบประวัติ login ที่เก่ากว่า 1 ปี เก็บที่ใหม่กว่าไว้', async () => {
+  it('retention job (ST9-T14): ลบประวัติ login ที่เก่ากว่า 1 ปี เก็บที่ใหม่กว่าไว้', async () => {
     const old = await db.loginAttempt.create({
       data: {
         email: 'old@life.test',
@@ -200,8 +200,7 @@ describe('user lifecycle + login history', () => {
         createdAt: new Date(Date.now() - 300 * 864e5),
       },
     });
-    const r = await purgeAuthData(db);
-    expect(r.loginAttempts).toBeGreaterThanOrEqual(1);
+    expect(await app.get(RetentionService).purgeLoginLog()).toBeGreaterThanOrEqual(1);
     expect(await db.loginAttempt.findUnique({ where: { id: old.id } })).toBeNull();
     expect(await db.loginAttempt.findUnique({ where: { id: recent.id } })).not.toBeNull();
   });

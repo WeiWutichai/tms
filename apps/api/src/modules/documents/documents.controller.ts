@@ -85,7 +85,12 @@ export class CreateDocumentDto {
 
 export class DocumentDto {
   @ApiProperty({ example: 'doc_…' }) id!: string;
-  @ApiProperty({ enum: ['pending', 'ready'] }) status!: string;
+  @ApiProperty({
+    enum: ['pending', 'ready', 'purged'],
+    description:
+      'purged = ไฟล์ถูกลบตามระยะเก็บ (ST9-T14: POD ≥ 2 ปี, ไฟล์ส่งออก 7 วัน) — ดาวน์โหลดไม่ได้ (404)',
+  })
+  status!: string;
   @ApiProperty() kind!: string;
   @ApiProperty() mime!: string;
   @ApiProperty() bytes!: number;
