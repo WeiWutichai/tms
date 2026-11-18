@@ -39,8 +39,13 @@ import {
 } from './orderForm';
 import { SaveTemplateDialog, TemplatesDrawer } from './Templates';
 import { useOrderList, useOrderSummary, type OrderFilters } from './useOrders';
+import { SavedViewMenu } from '../views/SavedViewMenu';
+import { pick, useSavedViews } from '../views/useSavedViews';
 
 type Tab = 'all' | 'route' | 'match' | 'done';
+const TABS: Tab[] = ['all', 'route', 'match', 'done'];
+/** ค่าของมุมมอง "ทั้งหมด" (ST9-T11) — key = แท็บ + การ์ด + ตัวกรองคอลัมน์ */
+const EMPTY_VIEW = { tab: 'all', overdue: false, doneToday: false, q: '', st: '', source: '' };
 /** แท็บของต้นแบบ (specSo tabs) → ตัวกรอง API — "รอกำหนดเส้นทาง" = ค้างเพราะยังจับคู่สถานที่ไม่ได้ */
 const TAB_FILTER: Record<Tab, Partial<OrderFilters>> = {
   all: {},
@@ -88,6 +93,22 @@ export function OrdersPage() {
   // "จัดแล้ววันนี้" (ต้นแบบ kpisX so): แท็บจัดรถแล้ว + วันรับของ = วันนี้ — ตัวเลขเดียวกับ summary.plannedToday
   const [doneToday, setDoneToday] = useSessionState('so.today', false);
   const [col, setCol] = useSessionState('so.cols', { q: '', st: '', source: '' });
+  const [hidden, setHidden] = useSessionState<string[] | null>('so.hidden', null);
+  // มุมมองที่บันทึกไว้ (ST9-T11): แท็บ + การ์ด (เกินกำหนด/จัดแล้ววันนี้) + ตัวกรองคอลัมน์ + คอลัมน์ที่ซ่อน
+  const views = useSavedViews({
+    page: 'orders',
+    state: { tab, overdue, doneToday, ...col },
+    hidden,
+    empty: EMPTY_VIEW,
+    apply: (v) => {
+      const s = pick(v.state, EMPTY_VIEW);
+      setTab(TABS.includes(s.tab as Tab) ? (s.tab as Tab) : 'all');
+      setOverdue(s.overdue);
+      setDoneToday(s.doneToday);
+      setCol({ q: s.q, st: s.st, source: s.source });
+      setHidden(v.hidden);
+    },
+  });
   const today = bangkokToday();
   const base: OrderFilters = {
     status: '',
@@ -377,6 +398,7 @@ export function OrdersPage() {
           }))}
         />
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 32 }}>
+          <SavedViewMenu b={views} onToast={setToast} />
           <span style={{ marginLeft: 'auto', color: '#3B424C', fontSize: 13 }}>
             {shownTotal !== undefined && t('table.total', { n: shownTotal })}
           </span>
@@ -402,6 +424,8 @@ export function OrdersPage() {
             labels={tableLabels(t)}
             selectable={false}
             filters={{ q: col.q, st: col.st, source: col.source }}
+            hiddenColumns={hidden}
+            onHiddenColumnsChange={setHidden}
             onFilterChange={(k, v) => setCol((c) => ({ ...c, [k]: v }))}
             onRowClick={(r) => setOpenId(r.id)}
             rowMenu={(r) => [

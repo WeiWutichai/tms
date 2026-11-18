@@ -26,7 +26,8 @@
 | ST3 Order intake + Planning/Dispatch | **เสร็จ** (T01–T25 ครบ — T25 นับเมื่อ merge PR ของ `st3/t25-change-carrier`) | 12 พ.ย. | 17 พ.ย. 2569 | ตารางงาน ST3 ด้านล่าง · สรุป: รับ order ทุกทาง (มือ/Excel/API/connector) ผ่าน `upsertOrder()` เดียว + ใบค้าง + DO/trip state machine + กระดานวางแผน (constraint/multi-drop/assign-dispatch/send all/ตารางรถ) + ใบคุมรถ PDF + LINE/SMS + จ้างรถร่วมครบวงจร (ลิงก์รับ/ปฏิเสธ, หมดเวลา, เปลี่ยนผู้รับเหมา) |
 | ST4 Execution และ POD | **กำลังทำ** 2/15 (T01, T02) + T03, T04, T05, T06 dev | 17 พ.ย. 2569 | — | ตารางงาน ST4 ด้านล่าง |
 | ST5–ST6, ST8 | ยังไม่เริ่ม | | | |
-| ST9 Dashboard / รายงาน | **กำลังทำ** — T01 dev เสร็จ (lane C) รอ review/QA | 18 พ.ย. 2569 | — | ST9-T01 Dashboard ปฏิบัติการ |
+| ST9 Dashboard / รายงาน (T01) | **กำลังทำ** — T01 dev เสร็จ (lane C) รอ review/QA | 18 พ.ย. 2569 | — | ST9-T01 Dashboard ปฏิบัติการ |
+| ST9 (เฉพาะ T11 saved views) | **dev เสร็จ** รอ review/QA/merge (`st9/t11-saved-views`) | 18 พ.ย. 2569 | — | ดูบันทึก 18 พ.ย. (ST9-T11) |
 | ST7 Open API + Integration | **กำลังทำ** 1/23 (T01 merge แล้ว · T02 แก้ตาม review/QA แล้ว รอ merge · T03 แก้ตาม review/QA แล้ว รอ merge · T04 แก้ตาม review/QA แล้ว รอ merge · T05 แก้ตาม review/QA แล้ว รอ merge · T08 แก้ตาม review/QA แล้ว รอ merge · T13 แก้ตาม review/QA แล้ว รอ merge · T07 dev เสร็จ รอ review/QA · T22 แก้ตาม review/QA แล้ว รอ merge · T06 แก้ตาม review/QA อยู่) · ทำ T01 ก่อน ST5/ST6 ได้เพราะไม่ใช้ event ของ ST5/ST6 | 17 พ.ย. 2569 | — | ตารางงาน ST7 ด้านล่าง |
 
 ### งาน ST0 (เกณฑ์ตรวจรับใน `plan/01-phase0-backlog.md`)
@@ -255,6 +256,13 @@
 - (11 พ.ย., พบระหว่าง T19 — **แก้แล้วใน T04**: `db:migrate` รัน bootstrap ทุก tenant ซึ่ง sync role ระบบ) **role ระบบของ tenant ที่มีอยู่ไม่ได้สิทธิ์ใหม่อัตโนมัติ** — `ensureSystemRoles` รันแค่ตอนสร้าง tenant/seed; เมื่อโค้ดเพิ่ม permission (เช่น `documents:write` ใน T08) tenant เดิมไม่ได้ จนกว่าจะรัน seed · ฐาน dev แก้ด้วย seed แล้ว · ต้องมี sync ตอน deploy/บูต ก่อนมี tenant จริง (เสนอทำใน T24 admin portal หรือ migration step) 
 
 ## บันทึกรายวัน
+
+### 18 พ.ย. 2569 (ST9-T11 saved views — dev)
+
+- แก้ตาม review/QA (Low 3 ข้อ): เมนูเรียงตามต้นแบบ (มุมมองที่บันทึก ก่อน "ทั้งหมด") · ค่าเริ่มต้นเป็นไอคอนหมุด 14px แทนป้ายข้อความ (ชื่อยาวไม่ถูกตัดสั้น) · เกิน 50 มุมมอง → 409 `saved_view_limit` + ข้อความไทย "บันทึกได้สูงสุด 50 มุมมองต่อหน้า" · ภาพเทียบอัปเดต
+- ทำ: มุมมองที่บันทึกไว้ต่อผู้ใช้ — ตาราง `saved_view` (migration `0104`, RLS, ชื่อไม่ซ้ำต่อผู้ใช้ต่อหน้าแบบไม่สนตัวพิมพ์, ค่าเริ่มต้น 1 ต่อหน้า, ลบ soft) · API `GET/POST /v1/saved-views` (`?page=`), `GET/PATCH/DELETE /v1/saved-views/{id}` (If-Match, 404 สำหรับผู้ใช้อื่น/บริษัทอื่น/API key, 409 duplicate/เกิน 50, 422 รายช่อง `state.*`) · เว็บ: `features/views` (`useSavedViews` + `SavedViewMenu` ปุ่ม "มุมมอง: …" ตามต้นแบบ `toggleView`) ใช้ร่วมทุกหน้าตาราง; `DataTable` คุมคอลัมน์ที่ซ่อนจากหน้าได้ (`hiddenColumns`/`onHiddenColumnsChange`) · ต่อหน้า ใบสั่งขนส่ง (SO), ใบค้าง, ทะเบียนรถ · ตัดสินใจ 7 ข้อบันทึกใน spec/12 §3 แถว "Saved views"
+- ไฟล์: `apps/api/prisma/{schema.prisma,migrations/0104_saved_view}`, `apps/api/src/modules/saved-views/*`, `common/ids.ts` (`svw`), `app.module.ts`, `test/{saved-views,isolation}.test.ts` (isolation: token A เป็นผู้ใช้จริง `OWNER_A`), `packages/ui/src/DataTable.tsx`, `apps/web/src/features/views/*`, `features/orders/{OrdersPage,HoldPage}.tsx`, `features/vehicles/VehiclesPage.tsx`, `i18n/th.ts` (`sv.*`), `shell/shell.css`, `e2e/saved-views.spec.ts`, `scripts/compare-saved-views.mjs` → `design/compare/st9-saved-views-{row,menu,dialog}-1440.png`, OpenAPI
+- ค้าง: ต่อหน้าที่เหลือ (ข้อมูลหลัก, เอกสารรถ, ศูนย์ข้อยกเว้น, เที่ยวรถ/DO บนภาพรวมหลัง ST9-T01 merge, รายงาน ST8) · แชร์ในทีม = P1 · filter badge (chip ×) ในแถวมุมมองยังไม่มีในหน้ารายการ (เดิม)
 
 ### 18 พ.ย. 2569 (ST7-T06 แก้ตาม QA)
 - ทำ: `data.object` ของ webhook = รูป REST DTO (order/trip/stop/DO/pod/connector/job) ด้วยตัวแปลงตัวเดียวกับ REST + ตัดราคา (`redactPrices`) · ย้ายตัวแปลง DTO ออกจาก controller/service (`orders/order-dto.ts`, `trips/trip-dto.ts`, `delivery-orders/do-dto.ts`, `jobs/job-dto.ts`) กัน import วน · ทะเบียนเก็บชื่อ DTO + omit/extra แทน schema เขียนมือ — schema ที่เผยแพร่/ตัวอย่างสร้างจาก component ใน OpenAPI (`event-openapi.ts`) · previousAttributes = diff ของ DTO ก่อน/หลัง (แก้ PATCH ที่เคยได้ `{}`) · ปลดใบค้างด้วยราคาที่ตั้งเอง ยิง `order.released` ครั้งเดียว · `job.completed` request.id = null · contract test เทียบ event กับ GET ของ object เดียวกัน (order/trip/stop/DO/pod/connector/job) + ตรวจ schema แบบปิดหลังแปลง nullable · DECISION spec/12 §3

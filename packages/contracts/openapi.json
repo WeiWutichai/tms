@@ -2686,6 +2686,677 @@
         ]
       }
     },
+    "/v1/saved-views": {
+      "get": {
+        "operationId": "SavedViews_list",
+        "parameters": [
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "ค่า nextCursor จากหน้าก่อน",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "updatedAfter",
+            "required": false,
+            "in": "query",
+            "description": "คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sort",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "updatedAt",
+              "type": "string",
+              "enum": [
+                "updatedAt",
+                "-updatedAt"
+              ]
+            }
+          },
+          {
+            "name": "fields",
+            "required": false,
+            "in": "query",
+            "description": "รายชื่อ field คั่นด้วย , เช่น id,legalName",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "required": true,
+            "in": "query",
+            "description": "key ของหน้าจอ (ที่ใช้ในเว็บ: `orders` ใบสั่งขนส่ง · `orders.hold` ใบค้าง · `vehicles` ทะเบียนรถ)",
+            "schema": {
+              "example": "orders",
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedViewPageDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "404": {
+            "description": "ไม่พบมุมมอง (รวมของผู้ใช้อื่น/บริษัทอื่น) หรือ credential ไม่ใช่ผู้ใช้ (API key — ไม่มีมุมมองส่วนตัว)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "instance": "/v1/saved-views/svw_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (เช่น `state.q` ยาวเกิน, key ผิดรูป)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "instance": "/v1/saved-views/svw_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "state.q",
+                          "code": "too_long",
+                          "message": "max 200 chars"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "มุมมองของฉันในหน้านี้",
+        "tags": [
+          "saved-views"
+        ]
+      },
+      "post": {
+        "description": "state + คอลัมน์ที่ซ่อน ของหน้าตอนนี้ · `isDefault: true` = ยกเลิกค่าเริ่มต้นเดิมของหน้านั้นให้อัตโนมัติ",
+        "operationId": "SavedViews_create",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSavedViewDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedViewDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "404": {
+            "description": "ไม่พบมุมมอง (รวมของผู้ใช้อื่น/บริษัทอื่น) หรือ credential ไม่ใช่ผู้ใช้ (API key — ไม่มีมุมมองส่วนตัว)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "instance": "/v1/saved-views/svw_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "ชื่อซ้ำในหน้าเดียวกัน (ไม่สนตัวพิมพ์) / เกิน 50 มุมมองต่อหน้า",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "duplicate": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/duplicate",
+                      "title": "ข้อมูลซ้ำกับที่มีอยู่",
+                      "status": 409,
+                      "code": "duplicate",
+                      "instance": "/v1/saved-views/svw_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "name",
+                          "code": "duplicate",
+                          "message": "view name already exists"
+                        }
+                      ]
+                    }
+                  },
+                  "saved_view_limit": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/saved_view_limit",
+                      "title": "บันทึกได้สูงสุด 50 มุมมองต่อหน้า",
+                      "status": 409,
+                      "code": "saved_view_limit",
+                      "instance": "/v1/saved-views/svw_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "limit": 50
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (เช่น `state.q` ยาวเกิน, key ผิดรูป)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "instance": "/v1/saved-views/svw_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "state.q",
+                          "code": "too_long",
+                          "message": "max 200 chars"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "บันทึกมุมมอง",
+        "tags": [
+          "saved-views"
+        ]
+      }
+    },
+    "/v1/saved-views/{id}": {
+      "get": {
+        "operationId": "SavedViews_get",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedViewDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "404": {
+            "description": "ไม่พบมุมมอง (รวมของผู้ใช้อื่น/บริษัทอื่น) หรือ credential ไม่ใช่ผู้ใช้ (API key — ไม่มีมุมมองส่วนตัว)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "instance": "/v1/saved-views/svw_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "saved-views"
+        ]
+      },
+      "patch": {
+        "operationId": "SavedViews_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSavedViewDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedViewDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "404": {
+            "description": "ไม่พบมุมมอง (รวมของผู้ใช้อื่น/บริษัทอื่น) หรือ credential ไม่ใช่ผู้ใช้ (API key — ไม่มีมุมมองส่วนตัว)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "instance": "/v1/saved-views/svw_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "ชื่อซ้ำในหน้าเดียวกัน (ไม่สนตัวพิมพ์) / เกิน 50 มุมมองต่อหน้า",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "duplicate": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/duplicate",
+                      "title": "ข้อมูลซ้ำกับที่มีอยู่",
+                      "status": 409,
+                      "code": "duplicate",
+                      "instance": "/v1/saved-views/svw_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "name",
+                          "code": "duplicate",
+                          "message": "view name already exists"
+                        }
+                      ]
+                    }
+                  },
+                  "saved_view_limit": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/saved_view_limit",
+                      "title": "บันทึกได้สูงสุด 50 มุมมองต่อหน้า",
+                      "status": 409,
+                      "code": "saved_view_limit",
+                      "instance": "/v1/saved-views/svw_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "limit": 50
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "If-Match ไม่ตรง version (แก้จากอีกแท็บ/เครื่อง)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "precondition_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/precondition_failed",
+                      "title": "ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่",
+                      "status": 412,
+                      "code": "precondition_failed",
+                      "instance": "/v1/saved-views/svw_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (เช่น `state.q` ยาวเกิน, key ผิดรูป)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "instance": "/v1/saved-views/svw_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "state.q",
+                          "code": "too_long",
+                          "message": "max 200 chars"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "แก้ชื่อ / ตัวกรอง / คอลัมน์ / ค่าเริ่มต้น",
+        "tags": [
+          "saved-views"
+        ]
+      },
+      "delete": {
+        "operationId": "SavedViews_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "",
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "404": {
+            "description": "ไม่พบมุมมอง (รวมของผู้ใช้อื่น/บริษัทอื่น) หรือ credential ไม่ใช่ผู้ใช้ (API key — ไม่มีมุมมองส่วนตัว)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "not_found": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/not_found",
+                      "title": "ไม่พบข้อมูล",
+                      "status": 404,
+                      "code": "not_found",
+                      "instance": "/v1/saved-views/svw_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "description": "If-Match ไม่ตรง version (แก้จากอีกแท็บ/เครื่อง)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "precondition_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/precondition_failed",
+                      "title": "ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่",
+                      "status": 412,
+                      "code": "precondition_failed",
+                      "instance": "/v1/saved-views/svw_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "ลบมุมมอง (soft — ค่าส่วนตัว ไม่ต้องใส่เหตุผล)",
+        "tags": [
+          "saved-views"
+        ]
+      }
+    },
     "/v1/companies": {
       "post": {
         "operationId": "Companies_create",
@@ -44439,6 +45110,270 @@
           }
         }
       },
+      "ProblemFieldErrorDto": {
+        "type": "object",
+        "properties": {
+          "field": {
+            "type": "string",
+            "example": "stops[1].siteId"
+          },
+          "code": {
+            "type": "string",
+            "example": "locked"
+          },
+          "message": {
+            "type": "string",
+            "example": "cannot change stops when order is IN_TRANSIT"
+          }
+        },
+        "required": [
+          "field",
+          "code",
+          "message"
+        ]
+      },
+      "ProblemDto": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "example": "https://docs.tms.example/problems/order_locked_for_update"
+          },
+          "title": {
+            "type": "string",
+            "example": "แก้ข้อมูลนี้ของใบสั่งขนส่งไม่ได้ในสถานะปัจจุบัน"
+          },
+          "status": {
+            "type": "number",
+            "example": 409,
+            "description": "HTTP status"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "instance": {
+            "type": "string",
+            "example": "/v1/orders/ord_3f2a…"
+          },
+          "code": {
+            "type": "string",
+            "example": "order_locked_for_update",
+            "description": "รหัสคงที่ (catalog)"
+          },
+          "requestId": {
+            "type": "string",
+            "example": "b6a1…"
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProblemFieldErrorDto"
+            }
+          },
+          "retryAfter": {
+            "type": "number",
+            "example": 2,
+            "description": "429/503: วินาทีที่ควรรอก่อนส่งใหม่ (ตรงกับ header Retry-After)"
+          },
+          "scope": {
+            "type": "string",
+            "example": "tenant",
+            "description": "429 rate_limited: เพดานที่เต็ม — tenant · key · user · endpoint (คำขอหนัก) · ip · link · lookup"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "requestId"
+        ]
+      },
+      "SavedViewDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "svw_3f2a9c1e0b7d4e8f9a6b5c4d3e2f1a0b"
+          },
+          "page": {
+            "type": "string",
+            "example": "orders"
+          },
+          "name": {
+            "type": "string",
+            "example": "ของฉันวันนี้"
+          },
+          "state": {
+            "type": "object",
+            "additionalProperties": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                }
+              ]
+            }
+          },
+          "hiddenColumns": {
+            "nullable": true,
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "isDefault": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "number",
+            "example": 1
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "page",
+          "name",
+          "state",
+          "hiddenColumns",
+          "isDefault",
+          "version",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "SavedViewPageDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SavedViewDto"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor",
+          "hasMore"
+        ]
+      },
+      "CreateSavedViewDto": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "string",
+            "example": "orders",
+            "description": "key ของหน้าจอ (ที่ใช้ในเว็บ: `orders` ใบสั่งขนส่ง · `orders.hold` ใบค้าง · `vehicles` ทะเบียนรถ)"
+          },
+          "name": {
+            "type": "string",
+            "example": "ของฉันวันนี้",
+            "maxLength": 60
+          },
+          "state": {
+            "type": "object",
+            "additionalProperties": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                }
+              ]
+            },
+            "example": {
+              "tab": "all",
+              "q": "SO-2569",
+              "source": "API",
+              "overdue": false
+            },
+            "description": "ตัวกรอง/แท็บของหน้า — object แบน ≤ 40 key (key ตามรูป `FIELD_KEY`), ค่า string ≤ 200 / number / boolean / null, ขนาดรวม ≤ 4,000 ตัวอักษร · ความหมายของ key ขึ้นกับหน้า (เว็บอ่านเฉพาะ key ที่รู้จัก)"
+          },
+          "hiddenColumns": {
+            "nullable": true,
+            "example": [
+              "source"
+            ],
+            "description": "key คอลัมน์ที่ซ่อน · null/ไม่ส่ง = ตามค่าเริ่มต้นของตาราง",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "isDefault": {
+            "type": "boolean",
+            "default": false,
+            "description": "เปิดหน้านี้ครั้งแรก (ต่อแท็บเบราว์เซอร์) ใช้มุมมองนี้ — ได้ 1 มุมมองต่อหน้า (ตั้งใหม่ = ยกเลิกอันเดิม)"
+          }
+        },
+        "required": [
+          "page",
+          "name",
+          "state"
+        ]
+      },
+      "UpdateSavedViewDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 60
+          },
+          "state": {
+            "type": "object",
+            "additionalProperties": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                }
+              ]
+            },
+            "description": "แทนทั้งก้อน (กฎเดียวกับตอนสร้าง)"
+          },
+          "hiddenColumns": {
+            "nullable": true,
+            "description": "null = ตามค่าเริ่มต้น",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "isDefault": {
+            "type": "boolean"
+          }
+        }
+      },
       "CreateCompanyDto": {
         "type": "object",
         "properties": {
@@ -46011,85 +46946,6 @@
         },
         "required": [
           "legalName"
-        ]
-      },
-      "ProblemFieldErrorDto": {
-        "type": "object",
-        "properties": {
-          "field": {
-            "type": "string",
-            "example": "stops[1].siteId"
-          },
-          "code": {
-            "type": "string",
-            "example": "locked"
-          },
-          "message": {
-            "type": "string",
-            "example": "cannot change stops when order is IN_TRANSIT"
-          }
-        },
-        "required": [
-          "field",
-          "code",
-          "message"
-        ]
-      },
-      "ProblemDto": {
-        "type": "object",
-        "properties": {
-          "type": {
-            "type": "string",
-            "example": "https://docs.tms.example/problems/order_locked_for_update"
-          },
-          "title": {
-            "type": "string",
-            "example": "แก้ข้อมูลนี้ของใบสั่งขนส่งไม่ได้ในสถานะปัจจุบัน"
-          },
-          "status": {
-            "type": "number",
-            "example": 409,
-            "description": "HTTP status"
-          },
-          "detail": {
-            "type": "string"
-          },
-          "instance": {
-            "type": "string",
-            "example": "/v1/orders/ord_3f2a…"
-          },
-          "code": {
-            "type": "string",
-            "example": "order_locked_for_update",
-            "description": "รหัสคงที่ (catalog)"
-          },
-          "requestId": {
-            "type": "string",
-            "example": "b6a1…"
-          },
-          "errors": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ProblemFieldErrorDto"
-            }
-          },
-          "retryAfter": {
-            "type": "number",
-            "example": 2,
-            "description": "429/503: วินาทีที่ควรรอก่อนส่งใหม่ (ตรงกับ header Retry-After)"
-          },
-          "scope": {
-            "type": "string",
-            "example": "tenant",
-            "description": "429 rate_limited: เพดานที่เต็ม — tenant · key · user · endpoint (คำขอหนัก) · ip · link · lookup"
-          }
-        },
-        "required": [
-          "type",
-          "title",
-          "status",
-          "code",
-          "requestId"
         ]
       },
       "UpsertCustomerDto": {

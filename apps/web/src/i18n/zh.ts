@@ -1097,4 +1097,6 @@ export const zh: Partial<Record<MessageKey, string>> = {
   'trk.refs': '参考信息',
   'trk.ref.po': '客户采购单号',
   'trk.pod.sig': '收货人签名',
+  'sv.all': '全部',
+  'sv.default': '默认值',
 };

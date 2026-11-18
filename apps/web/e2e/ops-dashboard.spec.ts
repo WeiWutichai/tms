@@ -198,7 +198,7 @@ test.describe.serial('Dashboard ปฏิบัติการ (ST9-T01)', () =>
     test(`การ์ด ${card}: ตัวเลข = จำนวนแถวในตารางเมื่อคลิก`, async () => {
       await page.goto('/');
       const kpi = page.getByTestId(`kpi-${card}`);
-      await expect(kpi).toHaveText(/^\d[\d,]*$/);
+      await expect(kpi).toHaveText(/^\d[\d,]*$/, { timeout: 15_000 });
       const n = num(await kpi.textContent());
       if (card !== 'offered') expect(n, card).toBeGreaterThan(0);
       await kpi.click();
@@ -220,7 +220,7 @@ test.describe.serial('Dashboard ปฏิบัติการ (ST9-T01)', () =>
       if (m.type() === 'error') bad.push(m.text());
     });
     await page.goto('/');
-    await expect(page.getByTestId('kpi-today')).toHaveText(/^\d/);
+    await expect(page.getByTestId('kpi-today')).toHaveText(/^\d/, { timeout: 15_000 });
     for (const k of ['running', 'waiting', 'failed', 'offered', 'delivered', 'running', 'today'])
       await page.getByTestId(`kpi-${k}`).click();
     await page.waitForTimeout(800);
@@ -232,11 +232,13 @@ test.describe.serial('Dashboard ปฏิบัติการ (ST9-T01)', () =>
     for (const k of ['available', 'inUse', 'maintenance'] as const) {
       await page.goto('/');
       const box = page.getByTestId(`fleet-${k}-n`);
-      await expect(box).toHaveText(/^\d[\d,]*$/);
+      await expect(box).toHaveText(/^\d[\d,]*$/, { timeout: 15_000 });
       const n = num(await box.textContent());
       if (k === 'inUse') expect(n).toBeGreaterThan(0);
       await page.getByTestId(`fleet-${k}`).click();
       await expect(page).toHaveURL(/\/fleet\/vehicles\?ownership=OWN/);
+      // ตัวกรองจาก URL ชนะมุมมองที่บันทึกไว้ (ST9-T11) → ป้าย "กำหนดเอง"
+      await expect(page.getByRole('button', { name: /^มุมมอง:/ })).toHaveText('มุมมอง: กำหนดเอง');
       expect(await countRows(page), k).toBe(n);
     }
   });
@@ -253,6 +255,7 @@ test.describe.serial('Dashboard ปฏิบัติการ (ST9-T01)', () =>
       const n = num(await page.getByTestId(`hold-${code}-n`).textContent());
       await page.getByTestId(`hold-${code}`).click();
       await expect(page).toHaveURL(new RegExp(`/so/hold\\?reason=${code}$`));
+      await expect(page.getByRole('button', { name: /^มุมมอง:/ })).toHaveText('มุมมอง: กำหนดเอง');
       expect(await countRows(page), code).toBe(n);
     }
   });

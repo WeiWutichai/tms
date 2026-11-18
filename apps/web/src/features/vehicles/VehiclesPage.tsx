@@ -20,6 +20,8 @@ import { tableLabels } from '../companies/CompanySample';
 import { downloadFile } from '../master/download';
 import { problemText } from '../master/problems';
 import { listTotal, useSessionState, useUrlSeed } from '../master/useCursorList';
+import { SavedViewMenu } from '../views/SavedViewMenu';
+import { pick, useSavedViews } from '../views/useSavedViews';
 import { VehicleActionDialog, type VehicleDialog } from './VehicleActionDialog';
 import { VehBadge, VehicleDrawer } from './VehicleDrawer';
 import { VehicleFormDrawer } from './VehicleFormDrawer';
@@ -45,6 +47,9 @@ const EMPTY_FILTERS: VehicleFilters = {
   docAlert: '',
   busy: '',
 };
+const VEH_TABS = ['all', ...VEHICLE_STATUSES, 'sub'] as VehTabKey[];
+/** ค่าของมุมมอง "ทั้งหมด" (ST9-T11) */
+const EMPTY_VIEW = { tab: 'all', ...EMPTY_FILTERS };
 const num = (n: number) => n.toLocaleString('th-TH');
 const cell = { color: '#101418', whiteSpace: 'nowrap' } as const;
 const sub = { color: '#3B424C', whiteSpace: 'nowrap' } as const;
@@ -91,6 +96,9 @@ export function VehiclesPage() {
     const own = p.get('ownership') ?? '';
     const busy = p.get('busy') ?? '';
     return {
+      // ST9-T11: ตัวกรองจาก URL ชนะมุมมองที่บันทึกไว้ — ไม่มีมุมมองที่เลือก (ป้าย "กำหนดเอง") และไม่ใช้มุมมองค่าเริ่มต้นทับ
+      'tms.view.vehicles.active': null,
+      'tms.view.vehicles.init': 1,
       'tms.fveh.tab': ok ? st : 'all',
       'tms.fveh.filters': {
         ...EMPTY_FILTERS,
@@ -101,6 +109,20 @@ export function VehiclesPage() {
   });
   const [filters, setFilters] = useSessionState<VehicleFilters>('tms.fveh.filters', EMPTY_FILTERS);
   const [tab, setTab] = useSessionState<VehTabKey>('tms.fveh.tab', 'all');
+  const [hidden, setHidden] = useSessionState<string[] | null>('tms.fveh.hidden', null);
+  // มุมมองที่บันทึกไว้ (ST9-T11): แท็บ + ตัวกรองคอลัมน์ + คอลัมน์ที่ซ่อน
+  const views = useSavedViews({
+    page: 'vehicles',
+    state: { tab, ...filters },
+    hidden,
+    empty: EMPTY_VIEW,
+    apply: (v) => {
+      const { tab: k, ...f } = pick(v.state, EMPTY_VIEW);
+      setTab(VEH_TABS.includes(k as VehTabKey) ? (k as VehTabKey) : 'all');
+      setFilters(f);
+      setHidden(v.hidden);
+    },
+  });
   const query = vehicleQuery(tab, filters);
   const list = useVehicleList(query, 'tms.fveh.page');
   const summary = useVehicleSummary();
@@ -312,7 +334,7 @@ export function VehiclesPage() {
         <StatusTabs
           value={tab}
           onChange={(k) => setTab(k as VehTabKey)}
-          items={(['all', ...VEHICLE_STATUSES, 'sub'] as VehTabKey[]).map((k) => {
+          items={VEH_TABS.map((k) => {
             const n = tabCount(k);
             return {
               key: k,
@@ -327,6 +349,7 @@ export function VehiclesPage() {
           })}
         />
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 32 }}>
+          <SavedViewMenu b={views} onToast={setToast} />
           {/* ST9-T01 ตัวกรอง "กำลังใช้งาน/ไม่ได้ใช้งาน" มาจากการ์ดรถบน dashboard เท่านั้น — แสดงเป็นชิปลบได้ */}
           {filters.busy && (
             <FilterChip
@@ -362,6 +385,8 @@ export function VehiclesPage() {
             loading={list.loading}
             labels={tableLabels(t)}
             filters={{ ...filters }}
+            hiddenColumns={hidden}
+            onHiddenColumnsChange={setHidden}
             onFilterChange={(k, v) => setF(k as keyof VehicleFilters, v)}
             onRowClick={(r) => profile(r)}
             rowMenu={(r) => [

@@ -180,6 +180,8 @@ import { HealthController } from './modules/health/health.controller';
 import { JobsController } from './modules/jobs/jobs.controller';
 import { MeController } from './modules/me/me.controller';
 import { ProfileController } from './modules/me/profile.controller';
+import { SavedViewsController } from './modules/saved-views/saved-views.controller';
+import { SavedViewsService } from './modules/saved-views/saved-views.service';
 import { UsersController } from './modules/users/users.controller';
 import { UserLifecycleController } from './modules/users/user-lifecycle.controller';
 import { PdfRenderer } from './pdf/pdf-renderer';
@@ -209,6 +211,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     HealthController,
     MeController,
     ProfileController,
+    SavedViewsController,
     CompaniesController,
     UsersController,
     UserLifecycleController,
@@ -322,6 +325,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     PlanningService,
     ScheduleService,
     BoardPreferencesService,
+    SavedViewsService,
     EligibilityService,
     OrdersService,
     OrderLockService,
