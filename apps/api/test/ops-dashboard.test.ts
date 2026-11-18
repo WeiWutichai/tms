@@ -189,10 +189,10 @@ describe('ops dashboard (ST9-T01)', () => {
     let cursor: string | null = null;
     do {
       const sep = path.includes('?') ? '&' : '?';
-      const r = await api(app, token)
+      const r: { body: { data: unknown[]; nextCursor: string | null } } = await api(app, token)
         .get(`${path}${sep}limit=2${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`)
         .expect(200);
-      n += (r.body.data as unknown[]).length;
+      n += r.body.data.length;
       cursor = r.body.nextCursor;
     } while (cursor);
     return n;
