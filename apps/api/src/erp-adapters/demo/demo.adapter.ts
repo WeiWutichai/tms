@@ -1,11 +1,12 @@
 import { createHash } from 'node:crypto';
-import type { ErpCapability } from '@tms/domain';
+import type { ErpCapability, ErpMasterCodeKind } from '@tms/domain';
 import type { ExternalOrder, PullPage } from '../../modules/connectors/order-source.port';
 import type {
   CanonicalDocument,
   ConnectorConfigField,
   ErpAdapter,
   ErpContext,
+  ErpMasterCodeEntry,
   ExternalRef,
   HealthResult,
   InboundEvent,
@@ -62,6 +63,41 @@ export const DEMO_INVALID_KEY = 'invalid';
 /** จำนวน order ตัวอย่างที่ pullOrders คืน (ต่อ connector) */
 export const DEMO_SAMPLE_ORDERS = 5;
 
+/**
+ * ผังรหัสตัวอย่างของ Demo ERP (ST7-T18) — ทุกชนิดดึงได้ · ค่าเป็นตัวอย่างสาธิตเท่านั้น
+ * VAT_RATE เป็นข้อมูลอ้างอิงของ ERP (ไม่ใช่กฎภาษีของ TMS)
+ */
+export const DEMO_MASTER_CODES: Readonly<Record<ErpMasterCodeKind, readonly ErpMasterCodeEntry[]>> =
+  Object.freeze({
+    UNIT: [
+      { code: 'TRIP', name: 'เที่ยว' },
+      { code: 'TON', name: 'ตัน' },
+      { code: 'KM', name: 'กม.' },
+      { code: 'HR', name: 'ชั่วโมง' },
+    ],
+    SALESPERSON: [
+      { code: 'S001', name: 'พนักงานขาย ตัวอย่าง 1' },
+      { code: 'S002', name: 'พนักงานขาย ตัวอย่าง 2' },
+    ],
+    ACCOUNT: [
+      { code: '4100-01', name: 'รายได้ค่าขนส่ง' },
+      { code: '4100-02', name: 'รายได้ค่าบริการ' },
+    ],
+    ITEM: [
+      { code: 'SV-FRT-01', name: 'ค่าขนส่ง' },
+      { code: 'SV-WAIT', name: 'ค่ารอคิว' },
+      { code: 'SV-LABOR', name: 'ค่าแรงลงสินค้า' },
+      { code: 'SV-OVN', name: 'ค่าค้างคืน' },
+      { code: 'SV-TOLL', name: 'ค่าทางด่วน' },
+      { code: 'SV-FUEL', name: 'Fuel surcharge' },
+    ],
+    VAT_RATE: [
+      { code: 'V7', name: 'VAT 7%', rate: '7.00' },
+      { code: 'V0', name: 'VAT 0%', rate: '0.00' },
+      { code: 'VEX', name: 'ยกเว้น VAT', rate: null },
+    ],
+  });
+
 const CAPS: readonly ErpCapability[] = [
   'pullOrders',
   'pushInvoice',
@@ -95,6 +131,8 @@ interface Scope {
   byKey: Map<string, string>;
   /** `${kind}:${number}` → externalId (ERP กันเลขอ้างอิงซ้ำ) */
   byRef: Map<string, string>;
+  /** ST7-T18 ผังรหัสที่ test/สาธิตตั้งทับ (ไม่มี = DEMO_MASTER_CODES) */
+  masterCodes: Map<ErpMasterCodeKind, ErpMasterCodeEntry[]>;
   /** idempotencyKey/ref → จำนวนครั้งที่ล้มไปแล้ว (failTimes) */
   failures: Map<string, number>;
   /** วันที่ของ order ตัวอย่าง (กำหนดตอนดึงครั้งแรก — ดึงซ้ำได้ข้อมูลเดิม) */
@@ -166,6 +204,25 @@ export class DemoAdapter implements ErpAdapter {
     return new Set(CAPS);
   }
 
+  /** ST7-T18 ดึงผังรหัสได้ทุกชนิด */
+  readonly masterCodeKinds: readonly ErpMasterCodeKind[] = Object.freeze([
+    'UNIT',
+    'SALESPERSON',
+    'ACCOUNT',
+    'ITEM',
+    'VAT_RATE',
+  ] as ErpMasterCodeKind[]);
+
+  /** credential ผิด / failMode AUTH หรือ TRANSIENT = throw (core ไม่เปลี่ยนผังรหัสเดิม) */
+  async fetchMasterCodes(ctx: ErpContext, kind: ErpMasterCodeKind): Promise<ErpMasterCodeEntry[]> {
+    if (this.badKey(ctx) || this.failMode(ctx) === 'AUTH')
+      throw new Error('demo ERP rejected the API key (simulated)');
+    if (this.failMode(ctx) === 'TRANSIENT')
+      throw new Error('demo ERP is unavailable (simulated 503)');
+    const own = this.scope(ctx).masterCodes.get(kind);
+    return clone(own ?? [...DEMO_MASTER_CODES[kind]]);
+  }
+
   // ---------- สถานะภายใน (test/สาธิต) ----------
 
   private scope(ctx: ErpContext): Scope {
@@ -177,6 +234,7 @@ export class DemoAdapter implements ErpAdapter {
         byKey: new Map(),
         byRef: new Map(),
         failures: new Map(),
+        masterCodes: new Map(),
         orderDate: null,
         inbound: [],
       };
@@ -195,6 +253,16 @@ export class DemoAdapter implements ErpAdapter {
   inboundHandled(tenantId: string, connectorId: string | null): InboundEvent[] {
     const s = this.scopes.get(`${tenantId}:${connectorId ?? '-'}`);
     return s ? s.inbound.map(clone) : [];
+  }
+
+  /** test/สาธิต: ตั้งผังรหัสของชนิดหนึ่งให้ connector นี้ (จำลอง "ERP เพิ่ม/ลบรหัส") */
+  setMasterCodes(
+    tenantId: string,
+    connectorId: string,
+    kind: ErpMasterCodeKind,
+    entries: ErpMasterCodeEntry[],
+  ): void {
+    this.scope({ tenantId, connectorId } as ErpContext).masterCodes.set(kind, clone(entries));
   }
 
   /** ล้างข้อมูลจำลองทั้งหมด (หรือของ tenant เดียว) */

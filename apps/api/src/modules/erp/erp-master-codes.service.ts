@@ -1,0 +1,550 @@
+import { Injectable, type OnModuleInit } from '@nestjs/common';
+import { type Connector, type ErpMasterCode, Prisma } from '@prisma/client';
+import {
+  ERP_MASTER_CODE_KINDS,
+  type ErpItemMappingStatus,
+  type ErpMasterCodeKind,
+  erpItemMappingStatus,
+} from '@tms/domain';
+import { encodeId, tryDecodeId } from '../../common/ids';
+import { ProblemException } from '../../common/problem';
+import { requestContext } from '../../common/request-context';
+import { DbService, type Tx } from '../../db/db.service';
+import { ImportRegistry } from '../imports/import-spec';
+import { ConnectorsService, redactSecrets } from './connectors.service';
+import { erpMasterCodeImportSpec } from './erp-master-code.import';
+import type {
+  ErpItemMappingDto,
+  ErpItemMappingListDto,
+  ErpMasterCodeDto,
+  ErpMasterCodeListQuery,
+  ErpMasterSyncDto,
+  ErpMasterSyncKindResultDto,
+  ErpMasterSyncResultDto,
+  SetErpItemMappingDto,
+} from './erp-master-code.dto';
+import type { CanonicalDocument, ErpMasterCodeEntry } from './erp-adapter';
+import { ErpAdapterRegistry } from './erp-adapter.registry';
+
+/** เพดานเวลาดึงผังรหัส 1 ชนิด */
+const FETCH_TIMEOUT_MS = 30_000;
+/** เพดานจำนวนรหัสต่อชนิด (กัน adapter คืนข้อมูลล้น) */
+export const MAX_MASTER_CODES_PER_KIND = 20_000;
+/** รหัส ERP: 1–64 ตัว ไม่มีอักขระควบคุม ไม่ขึ้นต้น/ลงท้ายด้วยช่องว่าง */
+export const ERP_CODE_RE = /^[^\s\p{Cc}](?:[^\p{Cc}]{0,62}[^\s\p{Cc}])?$/u;
+const RATE_RE = /^\d{1,3}(\.\d{1,2})?$/;
+
+/** หน้า mapping ในเว็บ (ลิงก์ในผลของคำสั่งที่ถูกกัน — docs/01 §7.4 "พร้อมลิงก์ไปหน้า mapping") */
+export function mappingPageLink(connectorId: string): string {
+  return `/settings?sec=conn&connector=${encodeId('connector', connectorId)}`;
+}
+
+/** ค่าบริการที่ทำให้เอกสารส่งเข้า ERP ไม่ได้ */
+export interface MappingGap {
+  serviceItemId: string;
+  code: string | null;
+  nameTh: string | null;
+  itemCode: string | null;
+  status: Exclude<ErpItemMappingStatus, 'MAPPED'> | 'NOT_FOUND';
+}
+
+export interface MappingCheck {
+  /** service_item uuid → รหัสสินค้า ERP (ตามตัวพิมพ์ในผังรหัสถ้ามี) — เฉพาะที่ครบ */
+  codes: Map<string, string>;
+  gaps: MappingGap[];
+}
+
+/** ผลของประตูก่อนส่ง ERP เมื่อ mapping ไม่ครบ (เก็บใน last_error ของคำสั่ง — ST7-T19 แสดงในคิว) */
+export interface MappingIncompleteProblem {
+  code: 'erp_mapping_incomplete';
+  message: string;
+  link: string;
+  missing: {
+    serviceItemId: string;
+    code: string | null;
+    nameTh: string | null;
+    itemCode: string | null;
+    status: string;
+  }[];
+}
+
+/** service_item ที่บรรทัดของ canonical document อ้าง (`lines[].serviceItem.id` — docs/01 §7.2) · id ได้ทั้งแบบ `svc_…` และ uuid */
+export function documentServiceItemIds(doc: unknown): string[] {
+  const lines = (doc as { lines?: unknown } | null)?.lines;
+  if (!Array.isArray(lines)) return [];
+  const out = new Set<string>();
+  for (const l of lines) {
+    const raw = (l as { serviceItem?: { id?: unknown } } | null)?.serviceItem?.id;
+    if (typeof raw !== 'string' || !raw) continue;
+    out.add(tryDecodeId('serviceItem', raw) ?? raw);
+  }
+  return [...out];
+}
+
+/** ใส่รหัส ERP ที่จับคู่ลง `lines[].serviceItem.externalId` (docs/01 §7.2 "service_item + mapping") — คืนสำเนา */
+export function withMappedItemCodes<T extends CanonicalDocument>(
+  doc: T,
+  codes: Map<string, string>,
+): T {
+  if (!Array.isArray((doc as { lines?: unknown }).lines)) return doc;
+  const copy = structuredClone(doc) as T & {
+    lines: Array<{ serviceItem?: Record<string, unknown> }>;
+  };
+  for (const l of copy.lines) {
+    const raw = l?.serviceItem?.id;
+    if (typeof raw !== 'string') continue;
+    const code = codes.get(tryDecodeId('serviceItem', raw) ?? raw);
+    if (code) l.serviceItem!.externalId = code;
+  }
+  return copy;
+}
+
+const isUuid = (s: string) =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+
+/**
+ * ผังรหัส ERP + การจับคู่ค่าบริการ ↔ รหัสสินค้า ERP ต่อ connector (ST7-T18; docs/04 G3 "Sync master ลงมา" + B; docs/01 §7.4)
+ * - ผังรหัสมาจาก adapter (`fetchMasterCodes` — ผู้ดูแลกดซิงก์) หรือนำเข้าไฟล์ (import kind `erp_master_code`)
+ * - ไม่มี hard delete: ซิงก์แล้วรหัสไม่อยู่ในชุด = active false · ยกเลิกการจับคู่ = item_code null
+ * - **ประตูก่อนส่ง ERP** (`checkMapping`): ค่าบริการในเอกสารที่ยังไม่จับคู่/รหัสไม่รู้จัก → คำสั่ง push FAILED_FINAL(VALIDATION)
+ *   `erp_mapping_incomplete` + ลิงก์หน้า mapping — ไม่กันการออกเอกสาร (plan/11 #9 standalone-first)
+ * - อัตรา VAT ฝั่ง ERP เป็นข้อมูลให้ adapter เท่านั้น ไม่เปลี่ยนการคำนวณภาษีของ TMS
+ */
+@Injectable()
+export class ErpMasterCodesService implements OnModuleInit {
+  constructor(
+    private readonly db: DbService,
+    private readonly connectors: ConnectorsService,
+    private readonly adapters: ErpAdapterRegistry,
+    private readonly imports: ImportRegistry,
+  ) {}
+
+  onModuleInit() {
+    const spec = erpMasterCodeImportSpec();
+    if (!this.imports.get(spec.kind)) this.imports.register(spec);
+  }
+
+  toDto(r: ErpMasterCode): ErpMasterCodeDto {
+    return {
+      kind: r.kind,
+      code: r.code,
+      name: r.name,
+      rate: r.rate === null ? null : r.rate.toFixed(2),
+      source: r.source,
+      active: r.active,
+      syncedAt: r.syncedAt.toISOString(),
+    };
+  }
+
+  /** ชนิดรหัสที่ adapter ของ connector ดึงได้ */
+  fetchableKinds(c: Connector): ErpMasterCodeKind[] {
+    const a = this.adapters.get(c.adapterKey);
+    if (!a?.fetchMasterCodes) return [];
+    const k = new Set(a.masterCodeKinds ?? []);
+    return ERP_MASTER_CODE_KINDS.filter((x) => k.has(x));
+  }
+
+  async list(connectorId: string, q: ErpMasterCodeListQuery): Promise<ErpMasterCodeDto[]> {
+    await this.connectors.get(connectorId);
+    const rows = await this.db.tx.erpMasterCode.findMany({
+      where: {
+        connectorId,
+        ...(q.kind ? { kind: q.kind } : {}),
+        ...(q.includeInactive ? {} : { active: true }),
+      },
+      orderBy: [{ kind: 'asc' }, { code: 'asc' }, { id: 'asc' }],
+      take: MAX_MASTER_CODES_PER_KIND * ERP_MASTER_CODE_KINDS.length,
+    });
+    return rows.map((r) => this.toDto(r));
+  }
+
+  // ---------- ซิงก์จาก adapter ----------
+
+  /** ตรวจรายการที่ adapter คืน — ข้ามแถวผิดรูป/ซ้ำ (ไม่สนตัวพิมพ์) */
+  private clean(
+    kind: ErpMasterCodeKind,
+    list: unknown,
+  ): { rows: ErpMasterCodeEntry[]; skipped: number } {
+    if (!Array.isArray(list)) return { rows: [], skipped: 0 };
+    const seen = new Set<string>();
+    const rows: ErpMasterCodeEntry[] = [];
+    let skipped = 0;
+    for (const e of list.slice(0, MAX_MASTER_CODES_PER_KIND)) {
+      const code = typeof e?.code === 'string' ? e.code.trim() : '';
+      if (!ERP_CODE_RE.test(code) || seen.has(code.toLowerCase())) {
+        skipped++;
+        continue;
+      }
+      let rate: string | null = null;
+      if (kind === 'VAT_RATE' && e.rate !== null && e.rate !== undefined) {
+        if (typeof e.rate !== 'string' || !RATE_RE.test(e.rate) || Number(e.rate) > 100) {
+          skipped++;
+          continue;
+        }
+        rate = e.rate;
+      }
+      seen.add(code.toLowerCase());
+      const name = typeof e.name === 'string' && e.name.trim() ? e.name.trim().slice(0, 200) : null;
+      rows.push({ code, name, rate });
+    }
+    skipped += Math.max(0, list.length - MAX_MASTER_CODES_PER_KIND);
+    return { rows, skipped };
+  }
+
+  /**
+   * ซิงก์ผังรหัสจาก ERP (route @NoTransaction) — เรียก adapter นอก transaction ทุกชนิดก่อน แล้วบันทึกในรอบเดียว
+   * ล้มชนิดใดชนิดหนึ่ง = ไม่เปลี่ยนอะไรเลย (409 `master_sync_failed`)
+   */
+  async sync(connectorId: string, body: ErpMasterSyncDto): Promise<ErpMasterSyncResultDto> {
+    this.connectors.assertHuman();
+    const tenantId = requestContext.require().tenantId!;
+    const c = await this.db.withTenant(tenantId, (tx) => this.connectors.get(connectorId, tx));
+    if (c.status === 'DISCONNECTED') throw new ProblemException('invalid_state_transition');
+    const adapter = this.adapters.get(c.adapterKey);
+    const can = this.fetchableKinds(c);
+    if (!adapter?.fetchMasterCodes || !can.length)
+      throw new ProblemException('master_sync_not_supported');
+    const kinds = body.kinds?.length ? [...new Set(body.kinds)] : can;
+    const bad = kinds.filter((k) => !can.includes(k as ErpMasterCodeKind));
+    if (bad.length)
+      throw new ProblemException('validation_failed', undefined, [
+        {
+          field: 'kinds',
+          code: 'kind_not_supported',
+          message: `ระบบบัญชีนี้ดึงรหัสชนิด ${bad.join(', ')} ไม่ได้ — นำเข้าจากไฟล์แทน`,
+        },
+      ]);
+
+    const ctx = this.connectors.contextOf(c);
+    const secrets = c.credentialKeys.map((k) => ctx.config[k] ?? '');
+    const fetched = new Map<ErpMasterCodeKind, { rows: ErpMasterCodeEntry[]; skipped: number }>();
+    for (const kind of kinds as ErpMasterCodeKind[]) {
+      let timer: NodeJS.Timeout | undefined;
+      try {
+        const list = await Promise.race([
+          adapter.fetchMasterCodes(ctx, kind),
+          new Promise<never>((_, no) => {
+            timer = setTimeout(
+              () => no(new Error(`no answer within ${FETCH_TIMEOUT_MS} ms`)),
+              FETCH_TIMEOUT_MS,
+            );
+          }),
+        ]);
+        fetched.set(kind, this.clean(kind, list));
+      } catch (e) {
+        throw new ProblemException('master_sync_failed', undefined, undefined, {
+          kind,
+          message: redactSecrets(String((e as Error)?.message ?? e), secrets).slice(0, 300),
+        });
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    }
+
+    const at = new Date();
+    const results = await this.db.withTenant(tenantId, async (tx) => {
+      const out: ErpMasterSyncKindResultDto[] = [];
+      for (const [kind, { rows, skipped }] of fetched)
+        out.push({
+          ...(await this.apply(tx, tenantId, c.id, kind, rows, 'ADAPTER', at, true)),
+          skipped,
+        });
+      await tx.auditLog.create({
+        data: {
+          tenantId,
+          actorId: requestContext.require().actorId ?? null,
+          actAs: requestContext.require().actAs ?? null,
+          action: 'connector.master_codes_synced',
+          entityType: 'connector',
+          entityId: c.id,
+          after: { results: out } as unknown as Prisma.InputJsonValue,
+          requestId: requestContext.require().requestId,
+          ip: requestContext.require().ip ?? null,
+        },
+      });
+      return out;
+    });
+    return { results, syncedAt: at.toISOString() };
+  }
+
+  /**
+   * เขียนรหัสของชนิดหนึ่ง (ใช้ทั้งซิงก์และนำเข้าไฟล์) — รหัสเดิมจับด้วย lower(code)
+   * `replaceAll` (ซิงก์จาก adapter) = รหัสที่ไม่อยู่ในชุดถูกปิดใช้ · นำเข้าไฟล์ไม่ปิดของอื่น (ปิดเองด้วยคอลัมน์ "ใช้งาน")
+   */
+  async apply(
+    tx: Tx,
+    tenantId: string,
+    connectorId: string,
+    kind: ErpMasterCodeKind,
+    rows: (ErpMasterCodeEntry & { active?: boolean })[],
+    source: 'ADAPTER' | 'IMPORT',
+    at: Date,
+    replaceAll: boolean,
+  ): Promise<Omit<ErpMasterSyncKindResultDto, 'skipped'>> {
+    const existing = await tx.erpMasterCode.findMany({ where: { connectorId, kind } });
+    const byCode = new Map(existing.map((r) => [r.code.toLowerCase(), r]));
+    let created = 0;
+    let updated = 0;
+    const seen = new Set<string>();
+    const fresh: Prisma.ErpMasterCodeCreateManyInput[] = [];
+    for (const e of rows) {
+      const key = e.code.toLowerCase();
+      seen.add(key);
+      const active = e.active ?? true;
+      const rate = kind === 'VAT_RATE' && e.rate ? new Prisma.Decimal(e.rate) : null;
+      const cur = byCode.get(key);
+      if (!cur) {
+        fresh.push({
+          tenantId,
+          connectorId,
+          kind,
+          code: e.code,
+          name: e.name ?? null,
+          rate,
+          source,
+          active,
+          syncedAt: at,
+        });
+        created++;
+        continue;
+      }
+      const changed =
+        cur.code !== e.code ||
+        (cur.name ?? null) !== (e.name ?? null) ||
+        String(cur.rate ?? '') !== String(rate ?? '') ||
+        cur.active !== active ||
+        cur.source !== source;
+      await tx.erpMasterCode.update({
+        where: { id: cur.id },
+        data: { code: e.code, name: e.name ?? null, rate, active, source, syncedAt: at },
+      });
+      if (changed) updated++;
+    }
+    if (fresh.length) await tx.erpMasterCode.createMany({ data: fresh });
+    let deactivated = 0;
+    if (replaceAll) {
+      const gone = existing
+        .filter((r) => r.active && !seen.has(r.code.toLowerCase()))
+        .map((r) => r.id);
+      if (gone.length) {
+        await tx.erpMasterCode.updateMany({
+          where: { id: { in: gone } },
+          data: { active: false, syncedAt: at },
+        });
+        deactivated = gone.length;
+      }
+    }
+    return { kind, fetched: rows.length, created, updated, deactivated };
+  }
+
+  // ---------- mapping ค่าบริการ ↔ รหัสสินค้า ERP ----------
+
+  private async activeItemCodes(tx: Tx, connectorId: string): Promise<Map<string, ErpMasterCode>> {
+    const rows = await tx.erpMasterCode.findMany({
+      where: { connectorId, kind: 'ITEM', active: true },
+    });
+    return new Map(rows.map((r) => [r.code.toLowerCase(), r]));
+  }
+
+  /** ทุกค่าบริการฝั่งขาย (ขาย/ทั้งคู่ ที่ใช้งาน) + สถานะการจับคู่กับ connector นี้ */
+  async mappings(connectorId: string): Promise<ErpItemMappingListDto> {
+    const tx = this.db.tx;
+    await this.connectors.get(connectorId, tx);
+    const [items, maps, codes] = await Promise.all([
+      tx.serviceItem.findMany({
+        where: { deletedAt: null, status: 'ACTIVE', side: { in: ['SELL', 'BOTH'] } },
+        orderBy: [{ code: 'asc' }, { id: 'asc' }],
+        select: { id: true, code: true, nameTh: true, vatType: true },
+      }),
+      tx.erpCodeMapping.findMany({ where: { connectorId } }),
+      this.activeItemCodes(tx, connectorId),
+    ]);
+    const byItem = new Map(maps.map((m) => [m.serviceItemId, m]));
+    const keys = new Set(codes.keys());
+    const data: ErpItemMappingDto[] = items.map((s) => {
+      const m = byItem.get(s.id);
+      const itemCode = m?.itemCode ?? null;
+      return {
+        serviceItem: {
+          id: encodeId('serviceItem', s.id),
+          code: s.code,
+          nameTh: s.nameTh,
+          vatType: s.vatType,
+        },
+        itemCode,
+        itemName: itemCode ? (codes.get(itemCode.toLowerCase())?.name ?? null) : null,
+        status: erpItemMappingStatus(itemCode, keys),
+        updatedAt: m ? m.updatedAt.toISOString() : null,
+      };
+    });
+    const mapped = data.filter((d) => d.status === 'MAPPED').length;
+    return {
+      data,
+      summary: { total: data.length, mapped, missing: data.length - mapped, itemCodes: codes.size },
+    };
+  }
+
+  /** ตั้ง/ยกเลิกรหัสสินค้า ERP ของค่าบริการ 1 รายการ — audit `connector.mapping_changed` */
+  async setMapping(
+    connectorId: string,
+    serviceItemRef: string,
+    body: SetErpItemMappingDto,
+  ): Promise<ErpItemMappingDto> {
+    this.connectors.assertHuman();
+    const tx = this.db.tx;
+    const ctx = requestContext.require();
+    const c = await this.connectors.get(connectorId, tx);
+    if (c.status === 'DISCONNECTED') throw new ProblemException('invalid_state_transition');
+    const serviceItemId = tryDecodeId('serviceItem', serviceItemRef);
+    const item = serviceItemId
+      ? await tx.serviceItem.findFirst({
+          where: { id: serviceItemId, deletedAt: null },
+          select: { id: true, code: true, nameTh: true, vatType: true },
+        })
+      : null;
+    if (!item) throw new ProblemException('not_found');
+    if (body.itemCode === undefined)
+      throw new ProblemException('validation_failed', undefined, [
+        { field: 'itemCode', code: 'required', message: 'ระบุรหัสสินค้า หรือ null เพื่อยกเลิก' },
+      ]);
+    const raw = body.itemCode?.trim() ?? '';
+    const codes = await this.activeItemCodes(tx, connectorId);
+    let itemCode: string | null = null;
+    if (raw) {
+      if (!ERP_CODE_RE.test(raw))
+        throw new ProblemException('validation_failed', undefined, [
+          {
+            field: 'itemCode',
+            code: 'invalid_format',
+            message: 'รหัสยาว 1–64 ตัว ไม่มีอักขระควบคุม',
+          },
+        ]);
+      const known = codes.get(raw.toLowerCase());
+      if (codes.size && !known)
+        throw new ProblemException('validation_failed', undefined, [
+          {
+            field: 'itemCode',
+            code: 'erp_code_unknown',
+            message: 'ไม่พบรหัสนี้ในผังรหัสสินค้าของระบบบัญชี — ซิงก์หรือนำเข้าผังรหัสก่อน',
+          },
+        ]);
+      itemCode = known?.code ?? raw;
+    }
+    const before = await tx.erpCodeMapping.findUnique({
+      where: { connectorId_serviceItemId: { connectorId, serviceItemId: item.id } },
+    });
+    const row =
+      before?.itemCode === itemCode
+        ? before
+        : before
+          ? await tx.erpCodeMapping.update({
+              where: { id: before.id },
+              data: { itemCode, updatedBy: ctx.actorId ?? null, version: { increment: 1 } },
+            })
+          : await tx.erpCodeMapping.create({
+              data: {
+                tenantId: ctx.tenantId!,
+                connectorId,
+                serviceItemId: item.id,
+                itemCode,
+                updatedBy: ctx.actorId ?? null,
+              },
+            });
+    if (row !== before)
+      await tx.auditLog.create({
+        data: {
+          tenantId: ctx.tenantId!,
+          actorId: ctx.actorId ?? null,
+          actAs: ctx.actAs ?? null,
+          action: 'connector.mapping_changed',
+          entityType: 'connector',
+          entityId: connectorId,
+          before: { serviceItemId: item.id, itemCode: before?.itemCode ?? null },
+          after: { serviceItemId: item.id, itemCode },
+          requestId: ctx.requestId,
+          ip: ctx.ip ?? null,
+        },
+      });
+    return {
+      serviceItem: {
+        id: encodeId('serviceItem', item.id),
+        code: item.code,
+        nameTh: item.nameTh,
+        vatType: item.vatType,
+      },
+      itemCode,
+      itemName: itemCode ? (codes.get(itemCode.toLowerCase())?.name ?? null) : null,
+      status: erpItemMappingStatus(itemCode, new Set(codes.keys())),
+      updatedAt: row?.updatedAt.toISOString() ?? null,
+    };
+  }
+
+  // ---------- ประตูก่อนส่ง ERP (docs/01 §7.4; plan/11 #9) ----------
+
+  /**
+   * ตรวจว่าค่าบริการทุกตัวที่เอกสารใช้จับคู่รหัสสินค้า ERP ของ connector ครบไหม (ใช้ใน tx ของ tenant)
+   * งานที่สร้างคำสั่ง push (ST7-T15/T16) และ ErpAdapterSink เรียกตัวนี้ — ไม่ครบ = ห้ามส่ง (VALIDATION) แต่เอกสารยังออกได้
+   */
+  async checkMapping(tx: Tx, connectorId: string, serviceItemIds: string[]): Promise<MappingCheck> {
+    const ids = [...new Set(serviceItemIds)];
+    const codes = new Map<string, string>();
+    if (!ids.length) return { codes, gaps: [] };
+    const valid = ids.filter(isUuid);
+    const [items, maps, master] = await Promise.all([
+      tx.serviceItem.findMany({
+        where: { id: { in: valid } },
+        select: { id: true, code: true, nameTh: true },
+      }),
+      tx.erpCodeMapping.findMany({ where: { connectorId, serviceItemId: { in: valid } } }),
+      this.activeItemCodes(tx, connectorId),
+    ]);
+    const itemById = new Map(items.map((i) => [i.id, i]));
+    const mapById = new Map(maps.map((m) => [m.serviceItemId, m]));
+    const keys = new Set(master.keys());
+    const gaps: MappingGap[] = [];
+    for (const id of ids) {
+      const item = itemById.get(id);
+      if (!item) {
+        gaps.push({
+          serviceItemId: id,
+          code: null,
+          nameTh: null,
+          itemCode: null,
+          status: 'NOT_FOUND',
+        });
+        continue;
+      }
+      const itemCode = mapById.get(id)?.itemCode ?? null;
+      const st = erpItemMappingStatus(itemCode, keys);
+      if (st === 'MAPPED') codes.set(id, master.get(itemCode!.toLowerCase())?.code ?? itemCode!);
+      else
+        gaps.push({
+          serviceItemId: id,
+          code: item.code,
+          nameTh: item.nameTh,
+          itemCode,
+          status: st,
+        });
+    }
+    return { codes, gaps };
+  }
+
+  /** ปัญหา `erp_mapping_incomplete` (เก็บใน outbox last_error) — ข้อความไทยสำหรับคิวเชื่อมระบบบัญชี */
+  incompleteProblem(connectorId: string, gaps: MappingGap[]): MappingIncompleteProblem {
+    const names = gaps.map((g) => g.nameTh ?? g.code ?? 'ไม่พบรายการ').slice(0, 5);
+    return {
+      code: 'erp_mapping_incomplete',
+      message: `ยังไม่ได้จับคู่รหัสสินค้าในระบบบัญชีของ ${names.join(', ')}${gaps.length > 5 ? ` และอีก ${gaps.length - 5} รายการ` : ''}`,
+      link: mappingPageLink(connectorId),
+      missing: gaps.slice(0, 50).map((g) => ({
+        serviceItemId: isUuid(g.serviceItemId)
+          ? encodeId('serviceItem', g.serviceItemId)
+          : g.serviceItemId.slice(0, 64),
+        code: g.code,
+        nameTh: g.nameTh,
+        itemCode: g.itemCode,
+        status: g.status,
+      })),
+    };
+  }
+}

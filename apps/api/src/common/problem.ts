@@ -168,6 +168,18 @@ export const PROBLEMS = {
     th: 'ระบบบัญชีนี้ไม่รองรับการส่งข้อมูลเข้ามาทาง webhook',
     en: 'This connector does not support inbound webhooks',
   },
+  /** ST7-T18 adapter ของ connector นี้ดึงผังรหัสไม่ได้ — นำเข้าจากไฟล์แทน (import kind `erp_master_code`) */
+  master_sync_not_supported: {
+    status: 409,
+    th: 'ระบบบัญชีนี้ดึงผังรหัสอัตโนมัติไม่ได้ นำเข้าจากไฟล์แทน',
+    en: 'This connector cannot fetch master codes — import them from a file',
+  },
+  /** ST7-T18 ดึงผังรหัสจากระบบบัญชีไม่สำเร็จ (ไม่มีการเปลี่ยนแปลง) — มี `kind`, `message` */
+  master_sync_failed: {
+    status: 409,
+    th: 'ดึงผังรหัสจากระบบบัญชีไม่สำเร็จ ตรวจการเชื่อมต่อแล้วลองใหม่',
+    en: 'Fetching master codes from the connector failed — check the connection and retry',
+  },
   connector_health_failed: {
     status: 409,
     th: 'ทดสอบการเชื่อมต่อไม่ผ่าน ตรวจค่าตั้งและ credential แล้วลองใหม่',

@@ -1,5 +1,10 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { CONNECTOR_KEY_RE, CONNECTOR_STATUSES, ERP_CAPABILITIES } from '@tms/domain';
+import {
+  CONNECTOR_KEY_RE,
+  CONNECTOR_STATUSES,
+  ERP_CAPABILITIES,
+  ERP_MASTER_CODE_KINDS,
+} from '@tms/domain';
 import { Transform } from 'class-transformer';
 import {
   ArrayMaxSize,
@@ -54,6 +59,13 @@ export class ErpAdapterDto {
     description: 'capability ที่ adapter รองรับ (docs/01 §6.1) — UI แสดงเฉพาะที่อยู่ในรายการนี้',
   })
   capabilities!: string[];
+  @ApiProperty({
+    type: [String],
+    enum: ERP_MASTER_CODE_KINDS,
+    description:
+      'ST7-T18 ชนิดผังรหัสที่ดึงจาก ERP ได้ (`POST /connectors/{id}/master-codes/sync`) — ว่าง = นำเข้าไฟล์ (import `erp_master_code`)',
+  })
+  masterCodeKinds!: string[];
   @ApiProperty({ type: [ConnectorConfigFieldDto] }) configFields!: ConnectorConfigFieldDto[];
 }
 

@@ -148,3 +148,35 @@ export function documentSyncModes(
     ERP_SYNC_DOCUMENTS.map((d) => [d, documentSyncMode(capabilities, d)]),
   ) as Record<ErpSyncDocument, ErpSyncMode>;
 }
+
+/**
+ * ผังรหัส ERP (ST7-T18; docs/04 B "ผังรหัส ERP (master code)", docs/01 §7.4 `erp_master_code`) — ชนิดรหัสที่ connector ยอมรับ
+ * ไม่ผูก ERP ใด: adapter ประกาศชนิดที่ดึงได้ (`masterCodeKinds`) · ที่ดึงไม่ได้นำเข้าไฟล์แทน
+ * `VAT_RATE` = รหัส/อัตรา VAT ฝั่ง ERP สำหรับ adapter ใช้แปลงค่า — **ไม่เปลี่ยนการคำนวณภาษีของ TMS** (vat_type อยู่ที่บรรทัดเสมอ)
+ */
+export const ERP_MASTER_CODE_KINDS = ['UNIT', 'SALESPERSON', 'ACCOUNT', 'ITEM', 'VAT_RATE'] as const;
+export type ErpMasterCodeKind = (typeof ERP_MASTER_CODE_KINDS)[number];
+
+export function isErpMasterCodeKind(v: unknown): v is ErpMasterCodeKind {
+  return typeof v === 'string' && (ERP_MASTER_CODE_KINDS as readonly string[]).includes(v);
+}
+
+/** สถานะการจับคู่ค่าบริการ 1 รายการกับรหัสสินค้า ERP (ST7-T18) */
+export type ErpItemMappingStatus = 'MAPPED' | 'UNMAPPED' | 'CODE_UNKNOWN';
+
+/**
+ * ตัดสินสถานะการจับคู่ (กฎกลาง — ใช้ทั้งหน้า mapping และประตูก่อนส่ง ERP)
+ * - ไม่มีรหัส → UNMAPPED
+ * - connector มีรายการรหัสสินค้า (ITEM) แล้ว แต่รหัสที่จับคู่ไม่อยู่ในรายการที่ใช้งาน → CODE_UNKNOWN (ERP ปฏิเสธรหัสที่ไม่รู้จัก)
+ * - ยังไม่มีรายการรหัสสินค้าเลย → เชื่อรหัสที่กรอก (ERP ตรวจเองตอนรับ — ผลขึ้นคิวเป็น VALIDATION)
+ * `activeItemCodes` = รหัส ITEM ที่ active ของ connector (ตัวพิมพ์เล็ก)
+ */
+export function erpItemMappingStatus(
+  itemCode: string | null | undefined,
+  activeItemCodes: ReadonlySet<string>,
+): ErpItemMappingStatus {
+  const c = itemCode?.trim();
+  if (!c) return 'UNMAPPED';
+  if (activeItemCodes.size > 0 && !activeItemCodes.has(c.toLowerCase())) return 'CODE_UNKNOWN';
+  return 'MAPPED';
+}

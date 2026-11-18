@@ -178,6 +178,8 @@ export const zh: Partial<Record<MessageKey, string>> = {
   'set.menu.users': '用户与权限',
   'set.menu.tax': '税务',
   'set.menu.conn': '集成',
+  'conn.tab.map': '映射与编号',
+  'conn.map.col.vat': '税务',
   'set.menu.api': '开发者 / Open API',
   'set.menu.noti': '通知',
   'set.menu.reason': '原因',
