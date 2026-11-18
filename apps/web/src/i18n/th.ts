@@ -3903,6 +3903,9 @@ export const th = {
   'whk.f.policy': 'นโยบายลองใหม่',
   'whk.policy':
     'Exponential backoff 8 ครั้งในราว 3 วัน (1 นาที – 24 ชม.) · ปิดอัตโนมัติเมื่อ event ล้มเหลวติดต่อกัน 50 รายการ และแจ้งอีเมลผู้ดูแล',
+  // ST7-T09: sandbox ไม่มีผู้ใช้ของตัวเอง — ปิดอัตโนมัติลง audit อย่างเดียว ไม่แจ้งผู้ดูแล (DECISION spec/12 §3)
+  'whk.policySbx':
+    'Exponential backoff 8 ครั้งในราว 3 วัน (1 นาที – 24 ชม.) · ปิดอัตโนมัติเมื่อ event ล้มเหลวติดต่อกัน 50 รายการ (Sandbox: บันทึกในกิจกรรม ไม่แจ้งอีเมล)',
   'whk.f.evN': 'Event ที่สมัคร ({n})',
   'whk.code.title': 'ตรวจลายเซ็น (Node.js)',
   'whk.code.node':
