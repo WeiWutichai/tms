@@ -1,7 +1,15 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { ERP_MASTER_CODE_KINDS } from '@tms/domain';
 import { Transform } from 'class-transformer';
-import { ArrayMaxSize, IsArray, IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
+import {
+  ArrayMaxSize,
+  IsArray,
+  IsBoolean,
+  IsIn,
+  IsOptional,
+  IsString,
+  MaxLength,
+} from 'class-validator';
 import { IsNullable } from '../master/master-kit';
 
 /** รหัส 1 ตัวในผังรหัส ERP ของ connector (ST7-T18; docs/01 §7.4 `erp_master_code`) */
@@ -57,6 +65,14 @@ export class ErpMasterSyncDto {
   @ArrayMaxSize(ERP_MASTER_CODE_KINDS.length)
   @IsIn(ERP_MASTER_CODE_KINDS, { each: true })
   kinds?: string[];
+
+  @ApiPropertyOptional({
+    description:
+      'true = ยอมรับเมื่อ ERP ส่งชุดว่างมาสำหรับชนิดที่มีรหัสใช้งานอยู่ (ปิดใช้ทั้งชุด) · ไม่ส่ง = ถือว่าล้ม (409 `master_sync_failed` reason `empty_catalogue`)',
+  })
+  @IsOptional()
+  @IsBoolean()
+  confirmEmpty?: boolean;
 }
 
 export class ErpMasterSyncKindResultDto {
@@ -78,6 +94,16 @@ export class ErpMappingServiceItemDto {
   @ApiProperty({ example: 'FREIGHT' }) code!: string;
   @ApiProperty({ example: 'ค่าขนส่ง' }) nameTh!: string;
   @ApiProperty({ enum: ['VAT_7', 'EXEMPT_TRANSPORT', 'ZERO_RATED'] }) vatType!: string;
+  @ApiProperty({
+    enum: ['SELL', 'BUY', 'BOTH'],
+    description: 'ฝั่งซื้อใช้กับ settlement รถร่วม (PUSH_SETTLEMENT ก็ตรวจ mapping)',
+  })
+  side!: string;
+  @ApiProperty({
+    enum: ['ACTIVE', 'INACTIVE'],
+    description: 'ปิดใช้แล้วยังจับคู่ได้ (อยู่บนเอกสารเก่า)',
+  })
+  status!: string;
 }
 
 /** 1 แถวของหน้า mapping "ค่าบริการ TMS ↔ รหัสสินค้า ERP" */
@@ -93,6 +119,10 @@ export class ErpItemMappingDto {
   })
   status!: string;
   @ApiProperty({ nullable: true, type: String, format: 'date-time' }) updatedAt!: string | null;
+  @ApiProperty({
+    description: 'version ของการจับคู่ (ส่งเป็น If-Match ตอน PUT) — ยังไม่เคยตั้ง = 0',
+  })
+  version!: number;
 }
 
 export class ErpMappingSummaryDto {

@@ -105,6 +105,9 @@ describe('erpItemMappingStatus (ST7-T18)', () => {
   it('ยังไม่มีรายการรหัส = เชื่อรหัสที่กรอก', () => {
     expect(erpItemMappingStatus('ANY-1', new Set())).toBe('MAPPED');
   });
+  it('เคยมีผังแต่ถูกปิดหมด = ไม่กลับไปเชื่อรหัสที่กรอก', () => {
+    expect(erpItemMappingStatus('ANY-1', new Set(), true)).toBe('CODE_UNKNOWN');
+  });
   it('ชนิดรหัส', () => {
     expect(isErpMasterCodeKind('ITEM')).toBe(true);
     expect(isErpMasterCodeKind('item')).toBe(false);

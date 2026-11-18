@@ -167,16 +167,19 @@ export type ErpItemMappingStatus = 'MAPPED' | 'UNMAPPED' | 'CODE_UNKNOWN';
 /**
  * ตัดสินสถานะการจับคู่ (กฎกลาง — ใช้ทั้งหน้า mapping และประตูก่อนส่ง ERP)
  * - ไม่มีรหัส → UNMAPPED
- * - connector มีรายการรหัสสินค้า (ITEM) แล้ว แต่รหัสที่จับคู่ไม่อยู่ในรายการที่ใช้งาน → CODE_UNKNOWN (ERP ปฏิเสธรหัสที่ไม่รู้จัก)
- * - ยังไม่มีรายการรหัสสินค้าเลย → เชื่อรหัสที่กรอก (ERP ตรวจเองตอนรับ — ผลขึ้นคิวเป็น VALIDATION)
- * `activeItemCodes` = รหัส ITEM ที่ active ของ connector (ตัวพิมพ์เล็ก)
+ * - connector **เคยมี** ผังรหัสสินค้า (ITEM — แถวใดก็ได้ รวมที่ปิดใช้แล้ว) แต่รหัสที่จับคู่ไม่อยู่ในรายการที่ใช้งาน → CODE_UNKNOWN
+ *   (ERP ปฏิเสธรหัสที่ไม่รู้จัก — ผังที่ถูกปิดหมดไม่ทำให้กลับไป "เชื่อรหัสที่กรอก")
+ * - ไม่เคยมีผังรหัสสินค้าเลย → เชื่อรหัสที่กรอก (ERP ตรวจเองตอนรับ — ผลขึ้นคิวเป็น VALIDATION)
+ * `activeItemCodes` = รหัส ITEM ที่ active ของ connector (ตัวพิมพ์เล็ก) · `catalogueExists` = มีแถว ITEM ของ connector อย่างน้อย 1 แถว
  */
 export function erpItemMappingStatus(
   itemCode: string | null | undefined,
   activeItemCodes: ReadonlySet<string>,
+  catalogueExists: boolean = activeItemCodes.size > 0,
 ): ErpItemMappingStatus {
   const c = itemCode?.trim();
   if (!c) return 'UNMAPPED';
-  if (activeItemCodes.size > 0 && !activeItemCodes.has(c.toLowerCase())) return 'CODE_UNKNOWN';
+  if ((catalogueExists || activeItemCodes.size > 0) && !activeItemCodes.has(c.toLowerCase()))
+    return 'CODE_UNKNOWN';
   return 'MAPPED';
 }

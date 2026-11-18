@@ -13,29 +13,54 @@ const connector = (status = 'ACTIVE') => ({
 });
 const rows = () => [
   {
-    serviceItem: { id: 'svc_1', code: 'FREIGHT', nameTh: 'ค่าขนส่ง', vatType: 'EXEMPT_TRANSPORT' },
+    serviceItem: {
+      id: 'svc_1',
+      code: 'FREIGHT',
+      nameTh: 'ค่าขนส่ง',
+      vatType: 'EXEMPT_TRANSPORT',
+      side: 'SELL',
+      status: 'ACTIVE',
+    },
     itemCode: 'SV-FRT-01',
     itemName: 'ค่าขนส่ง',
     status: 'MAPPED',
     updatedAt: null,
+    version: 3,
   },
   {
-    serviceItem: { id: 'svc_2', code: 'WAIT', nameTh: 'ค่ารอคิว', vatType: 'VAT_7' },
+    serviceItem: {
+      id: 'svc_2',
+      code: 'WAIT',
+      nameTh: 'ค่ารอคิว',
+      vatType: 'VAT_7',
+      side: 'BOTH',
+      status: 'ACTIVE',
+    },
     itemCode: null,
     itemName: null,
     status: 'UNMAPPED',
     updatedAt: null,
+    version: 0,
   },
   {
-    serviceItem: { id: 'svc_3', code: 'OVN', nameTh: 'ค่าค้างคืน', vatType: 'VAT_7' },
+    serviceItem: {
+      id: 'svc_3',
+      code: 'OVN',
+      nameTh: 'ค่าค้างคืน',
+      vatType: 'VAT_7',
+      side: 'BUY',
+      status: 'INACTIVE',
+    },
     itemCode: 'OLD-1',
     itemName: null,
     status: 'CODE_UNKNOWN',
     updatedAt: null,
+    version: 1,
   },
 ];
 
 let connectors: unknown[] = [connector()];
+let fail: Record<string, { code: string; status: number }> = {};
 const GET = vi.fn();
 const PUT = vi.fn();
 class MockApiError extends Error {
@@ -71,7 +96,9 @@ const wrap = (canWrite = true, url = '/settings?sec=conn') =>
 describe('ตั้งค่า → การเชื่อมต่อ: จับคู่ค่าบริการ ↔ รหัสสินค้า ERP (ST7-T18)', () => {
   beforeEach(() => {
     connectors = [connector()];
+    fail = {};
     GET.mockReset().mockImplementation(async (path: string) => {
+      if (fail[path]) return { error: fail[path] };
       if (path === '/v1/connectors') return { data: { data: connectors } };
       if (path === '/v1/connectors/{id}/mappings')
         return {
@@ -97,7 +124,7 @@ describe('ตั้งค่า → การเชื่อมต่อ: จั
     expect(screen.getByText('ประเภทค่าใช้จ่ายใน TMS')).toBeInTheDocument();
     expect(screen.getByText('ยกเว้น VAT')).toBeInTheDocument();
     expect(screen.queryByText('ยังไม่ได้เชื่อมต่อ · ตั้งค่าล่วงหน้าได้')).toBeNull();
-    const ovn = screen.getByLabelText('รหัสสินค้าใน Demo ERP (simulated) ค่าค้างคืน');
+    const ovn = screen.getByLabelText('รหัสสินค้าใน Demo ERP (simulated) ค่าค้างคืน (ปิดใช้)');
     expect(ovn).toHaveValue('OLD-1');
     expect(ovn).toHaveAttribute('aria-invalid', 'true');
     expect(screen.getByLabelText('รหัสสินค้าใน Demo ERP (simulated) ค่ารอคิว')).toHaveValue('');
@@ -110,7 +137,7 @@ describe('ตั้งค่า → การเชื่อมต่อ: จั
     fireEvent.blur(wait);
     await waitFor(() => expect(PUT).toHaveBeenCalledTimes(1));
     expect(PUT.mock.calls[0]![1]).toMatchObject({
-      params: { path: { id: CON, serviceItemId: 'svc_2' } },
+      params: { path: { id: CON, serviceItemId: 'svc_2' }, header: { 'If-Match': '"0"' } },
       body: { itemCode: 'SV-WAIT' },
     });
 
@@ -143,5 +170,44 @@ describe('ตั้งค่า → การเชื่อมต่อ: จั
     connectors = [];
     wrap();
     expect(await screen.findByText('หน้านี้ยังไม่เปิดใช้')).toBeInTheDocument();
+  });
+
+  it('โหลด connector ล้ม (500) = แจ้ง + ลองอีกครั้ง ไม่ใช่ "ยังไม่เปิดใช้" · แพ็กเกจไม่มี (403) = ยังไม่เปิดใช้', async () => {
+    fail['/v1/connectors'] = { code: 'internal_error', status: 500 };
+    const v = wrap();
+    expect(await screen.findByText('โหลดการเชื่อมต่อไม่สำเร็จ')).toBeInTheDocument();
+    expect(screen.queryByText('หน้านี้ยังไม่เปิดใช้')).toBeNull();
+    delete fail['/v1/connectors'];
+    fireEvent.click(screen.getByRole('button', { name: 'ลองอีกครั้ง' }));
+    expect(
+      await screen.findByLabelText('รหัสสินค้าใน Demo ERP (simulated) ค่ารอคิว'),
+    ).toBeInTheDocument();
+    v.unmount();
+    fail['/v1/connectors'] = { code: 'feature_not_in_plan', status: 403 };
+    wrap();
+    expect(await screen.findByText('หน้านี้ยังไม่เปิดใช้')).toBeInTheDocument();
+  });
+
+  it('โหลดรายการจับคู่ล้ม = แจ้ง + ลองอีกครั้ง · ลิงก์ไป connector ที่ยกเลิกแล้ว = ข้อความเฉพาะ', async () => {
+    fail['/v1/connectors/{id}/mappings'] = { code: 'internal_error', status: 500 };
+    const v = wrap();
+    expect(await screen.findByText('โหลดรายการจับคู่ไม่สำเร็จ')).toBeInTheDocument();
+    v.unmount();
+    wrap(true, '/settings?sec=conn&connector=con_gone');
+    expect(await screen.findByText('ไม่พบระบบบัญชีที่เชื่อมไว้')).toBeInTheDocument();
+  });
+
+  it('มีผู้อื่นแก้ก่อน (412) → โหลดรายการใหม่ + แจ้ง', async () => {
+    wrap();
+    const wait = await screen.findByLabelText('รหัสสินค้าใน Demo ERP (simulated) ค่ารอคิว');
+    PUT.mockResolvedValueOnce({ error: { code: 'precondition_failed', status: 412 } });
+    const before = GET.mock.calls.filter((c) => c[0] === '/v1/connectors/{id}/mappings').length;
+    fireEvent.change(wait, { target: { value: 'SV-WAIT' } });
+    fireEvent.blur(wait);
+    await waitFor(() =>
+      expect(
+        GET.mock.calls.filter((c) => c[0] === '/v1/connectors/{id}/mappings').length,
+      ).toBeGreaterThan(before),
+    );
   });
 });

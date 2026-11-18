@@ -34,6 +34,7 @@ describe('ผังรหัส ERP + mapping (ST7-T18)', () => {
   let viewer: string;
   let freight: string;
   let wait: string;
+  let buy: string;
 
   const uuid = (id: string) => tryDecodeId('connector', id)!;
   const drain = async () => {
@@ -102,7 +103,7 @@ describe('ผังรหัส ERP + mapping (ST7-T18)', () => {
     viewer = await tokenFor(tenantId, 'settings:read');
     freight = await serviceItem('T18-FRT', 'ค่าขนส่งทดสอบ');
     wait = await serviceItem('T18-WAIT', 'ค่ารอคิวทดสอบ', 'SELL');
-    await serviceItem('T18-BUY', 'ค่าจ้างรถร่วมทดสอบ', 'BUY');
+    buy = await serviceItem('T18-BUY', 'ค่าจ้างรถร่วมทดสอบ', 'BUY');
   });
   beforeEach(async () => {
     demo.reset();
@@ -246,7 +247,7 @@ describe('ผังรหัส ERP + mapping (ST7-T18)', () => {
     const list = (await api(app, token).get(`/v1/connectors/${con}/mappings`).expect(200)).body;
     const codes = list.data.map((d: { serviceItem: { code: string } }) => d.serviceItem.code);
     expect(codes).toEqual(expect.arrayContaining(['T18-FRT', 'T18-WAIT']));
-    expect(codes).not.toContain('T18-BUY'); // ฝั่งซื้อไม่ออกใบแจ้งหนี้
+    expect(codes).toContain('T18-BUY'); // ฝั่งซื้อ (settlement รถร่วม) ก็ถูกตรวจ → ต้อง map ได้
     expect(
       list.data.find((d: { serviceItem: { id: string } }) => d.serviceItem.id === wait),
     ).toMatchObject({
@@ -435,5 +436,134 @@ describe('ผังรหัส ERP + mapping (ST7-T18)', () => {
     // ผู้ดูอย่างเดียวไม่เห็นชนิดนำเข้านี้
     const kinds = (await api(app, viewer).get('/v1/imports/kinds').expect(200)).body;
     expect(kinds.map((k: { kind: string }) => k.kind)).not.toContain('erp_master_code');
+  });
+
+  it('ซิงก์ 5,000 รหัส + ซิงก์ซ้ำที่เปลี่ยนครึ่งหนึ่ง ทันเวลา (เขียนแบบชุด) · ซิงก์พร้อมกัน 2 คำขอไม่ 500', async () => {
+    const con = await demoConnector();
+    const many = (tag: string, from = 0) =>
+      Array.from({ length: 5000 }, (_, i) => ({
+        code: `BULK-${String(i).padStart(5, '0')}`,
+        name: i >= from ? `รายการ ${i} ${tag}` : `รายการ ${i} a`,
+      }));
+    demo.setMasterCodes(tenantId, uuid(con), 'ITEM', many('a'));
+    const t0 = Date.now();
+    const r1 = await api(app, token)
+      .post(`/v1/connectors/${con}/master-codes/sync`)
+      .send({ kinds: ['ITEM'] });
+    expect(r1.status, JSON.stringify(r1.body)).toBe(200);
+    expect(r1.body.results[0]).toMatchObject({ fetched: 5000, created: 5000 });
+    demo.setMasterCodes(tenantId, uuid(con), 'ITEM', many('b', 2500));
+    const r2 = await api(app, token)
+      .post(`/v1/connectors/${con}/master-codes/sync`)
+      .send({ kinds: ['ITEM'] })
+      .expect(200);
+    expect(r2.body.results[0]).toMatchObject({ created: 0, updated: 2500, deactivated: 0 });
+    expect(Date.now() - t0).toBeLessThan(60_000);
+    expect(
+      await plat.erpMasterCode.count({
+        where: { connectorId: uuid(con), kind: 'ITEM', name: { endsWith: ' b' } },
+      }),
+    ).toBe(2500);
+
+    const both = await Promise.all(
+      [0, 1].map(() =>
+        api(app, token)
+          .post(`/v1/connectors/${con}/master-codes/sync`)
+          .send({ kinds: ['ITEM'] }),
+      ),
+    );
+    for (const r of both) expect([200, 409]).toContain(r.status);
+    expect(
+      await plat.erpMasterCode.count({ where: { connectorId: uuid(con), kind: 'ITEM' } }),
+    ).toBe(5000);
+  });
+
+  it('adapter คืนค่าผิด: ไม่ใช่ array → 409 · ชุดว่างทั้งที่เคยมีรหัส → 409 empty_catalogue (ยืนยันแล้วจึงปิดทั้งชุด) · ผังปิดหมดไม่กลับไปเชื่อรหัสที่กรอก', async () => {
+    const con = await demoConnector();
+    await api(app, token)
+      .post(`/v1/connectors/${con}/master-codes/sync`)
+      .send({ kinds: ['ITEM'] })
+      .expect(200);
+    await api(app, token)
+      .put(`/v1/connectors/${con}/mappings/${freight}`)
+      .send({ itemCode: 'SV-FRT-01' })
+      .expect(200);
+
+    const orig = demo.fetchMasterCodes.bind(demo);
+    demo.fetchMasterCodes = (async () => ({
+      nope: true,
+    })) as unknown as typeof demo.fetchMasterCodes;
+    try {
+      const bad = await api(app, token)
+        .post(`/v1/connectors/${con}/master-codes/sync`)
+        .send({ kinds: ['ITEM'] });
+      expect(bad.status).toBe(409);
+      expect(bad.body).toMatchObject({ code: 'master_sync_failed', reason: 'invalid_response' });
+    } finally {
+      demo.fetchMasterCodes = orig;
+    }
+    demo.setMasterCodes(tenantId, uuid(con), 'ITEM', []);
+    const empty = await api(app, token)
+      .post(`/v1/connectors/${con}/master-codes/sync`)
+      .send({ kinds: ['ITEM'] });
+    expect(empty.status).toBe(409);
+    expect(empty.body).toMatchObject({ reason: 'empty_catalogue', kind: 'ITEM' });
+    expect(
+      await plat.erpMasterCode.count({ where: { connectorId: uuid(con), active: true } }),
+    ).toBe(6);
+
+    const ok = await api(app, token)
+      .post(`/v1/connectors/${con}/master-codes/sync`)
+      .send({ kinds: ['ITEM'], confirmEmpty: true })
+      .expect(200);
+    expect(ok.body.results[0]).toMatchObject({ fetched: 0, deactivated: 6 });
+    const list = (await api(app, token).get(`/v1/connectors/${con}/mappings`).expect(200)).body;
+    expect(
+      list.data.find((d: { serviceItem: { id: string } }) => d.serviceItem.id === freight),
+    ).toMatchObject({ status: 'CODE_UNKNOWN' });
+    const typed = await api(app, token)
+      .put(`/v1/connectors/${con}/mappings/${wait}`)
+      .send({ itemCode: 'ANY-CODE' });
+    expect(typed.status).toBe(422);
+  });
+
+  it('PUT mapping: If-Match ไม่ตรง → 412 · คืน ETag · ไม่ส่ง = เขียนทับ · สร้างพร้อมกัน = upsert ไม่ 409 · ฝั่งซื้อ/ปิดใช้ map ได้', async () => {
+    const con = await demoConnector();
+    const put = (id: string, itemCode: string | null, ifMatch?: string) => {
+      const r = api(app, token).put(`/v1/connectors/${con}/mappings/${id}`);
+      return (ifMatch ? r.set('If-Match', ifMatch) : r).send({ itemCode });
+    };
+    const first = await put(freight, 'A-1', '"0"');
+    expect(first.status, JSON.stringify(first.body)).toBe(200);
+    expect(first.headers.etag).toBe('"1"');
+    expect(first.body.version).toBe(1);
+    expect((await put(freight, 'A-2', '"0"')).status).toBe(412);
+    const second = await put(freight, 'A-2', '"1"').expect(200);
+    expect(second.headers.etag).toBe('"2"');
+    await put(freight, 'A-3').expect(200); // ไม่ส่ง If-Match = เขียนทับ
+
+    const race = await Promise.all([put(wait, 'R-1'), put(wait, 'R-2')]);
+    expect(race.map((r) => r.status)).toEqual([200, 200]);
+    expect(await plat.erpCodeMapping.count({ where: { connectorId: uuid(con) } })).toBe(2);
+
+    await put(buy, 'BUY-1').expect(200);
+    await plat.serviceItem.update({
+      where: { id: tryDecodeId('serviceItem', buy)! },
+      data: { status: 'INACTIVE' },
+    });
+    const inactive = await put(buy, 'BUY-2').expect(200);
+    expect(inactive.body.serviceItem).toMatchObject({ side: 'BUY', status: 'INACTIVE' });
+    const list = (await api(app, token).get(`/v1/connectors/${con}/mappings`).expect(200)).body
+      .data;
+    expect(
+      list.find((d: { serviceItem: { id: string } }) => d.serviceItem.id === buy),
+    ).toMatchObject({
+      itemCode: 'BUY-2',
+      version: 2,
+    });
+    await plat.serviceItem.update({
+      where: { id: tryDecodeId('serviceItem', buy)! },
+      data: { status: 'ACTIVE' },
+    });
   });
 });

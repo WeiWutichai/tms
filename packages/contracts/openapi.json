@@ -23782,6 +23782,15 @@
             }
           },
           {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag/`version` จาก GET mappings (ยังไม่เคยตั้ง = \"0\") — ไม่ตรง → 412 · ไม่ส่ง = เขียนทับ",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "$ref": "#/components/parameters/ApiVersion"
           }
         ],
@@ -56531,6 +56540,10 @@
                 "VAT_RATE"
               ]
             }
+          },
+          "confirmEmpty": {
+            "type": "boolean",
+            "description": "true = ยอมรับเมื่อ ERP ส่งชุดว่างมาสำหรับชนิดที่มีรหัสใช้งานอยู่ (ปิดใช้ทั้งชุด) · ไม่ส่ง = ถือว่าล้ม (409 `master_sync_failed` reason `empty_catalogue`)"
           }
         }
       },
@@ -56617,13 +56630,32 @@
               "EXEMPT_TRANSPORT",
               "ZERO_RATED"
             ]
+          },
+          "side": {
+            "type": "string",
+            "enum": [
+              "SELL",
+              "BUY",
+              "BOTH"
+            ],
+            "description": "ฝั่งซื้อใช้กับ settlement รถร่วม (PUSH_SETTLEMENT ก็ตรวจ mapping)"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "INACTIVE"
+            ],
+            "description": "ปิดใช้แล้วยังจับคู่ได้ (อยู่บนเอกสารเก่า)"
           }
         },
         "required": [
           "id",
           "code",
           "nameTh",
-          "vatType"
+          "vatType",
+          "side",
+          "status"
         ]
       },
       "ErpItemMappingDto": {
@@ -56655,6 +56687,10 @@
             "type": "string",
             "nullable": true,
             "format": "date-time"
+          },
+          "version": {
+            "type": "number",
+            "description": "version ของการจับคู่ (ส่งเป็น If-Match ตอน PUT) — ยังไม่เคยตั้ง = 0"
           }
         },
         "required": [
@@ -56662,7 +56698,8 @@
           "itemCode",
           "itemName",
           "status",
-          "updatedAt"
+          "updatedAt",
+          "version"
         ]
       },
       "ErpMappingSummaryDto": {

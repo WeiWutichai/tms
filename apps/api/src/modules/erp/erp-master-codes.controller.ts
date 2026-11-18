@@ -1,5 +1,7 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Put, Query } from '@nestjs/common';
-import { ApiBearerAuth, ApiOkResponse, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Get, HttpCode, Param, Post, Put, Query, Req, Res } from '@nestjs/common';
+import type { Request, Response } from 'express';
+import { expectedVersion, setEtag } from '../../common/etag';
+import { ApiBearerAuth, ApiHeader, ApiOkResponse, ApiTags } from '@nestjs/swagger';
 import {
   LiveOnly,
   NoTransaction,
@@ -79,16 +81,31 @@ export class ErpMasterCodesController {
   @Put(':id/mappings/:serviceItemId')
   @TenantResource('connector')
   @RequireScope('settings:write')
+  @ApiHeader({
+    name: 'If-Match',
+    required: false,
+    description:
+      'ETag/`version` จาก GET mappings (ยังไม่เคยตั้ง = "0") — ไม่ตรง → 412 · ไม่ส่ง = เขียนทับ',
+  })
   @ApiOkResponse({
     type: ErpItemMappingDto,
     description:
       'ตั้ง/ยกเลิก (null) รหัสสินค้า ERP ของค่าบริการ 1 รายการ · มีผังรหัสสินค้าแล้วต้องเป็นรหัสที่ใช้งาน (422 `erp_code_unknown`) · audit `connector.mapping_changed`',
   })
-  setMapping(
+  async setMapping(
     @Param('id') id: string,
     @Param('serviceItemId') serviceItemId: string,
     @Body() body: SetErpItemMappingDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
   ): Promise<ErpItemMappingDto> {
-    return this.svc.setMapping(decodeIdOr404('connector', id), serviceItemId, body);
+    const r = await this.svc.setMapping(
+      decodeIdOr404('connector', id),
+      serviceItemId,
+      body,
+      expectedVersion(req),
+    );
+    setEtag(res, r.version);
+    return r;
   }
 }

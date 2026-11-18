@@ -1,6 +1,8 @@
 import type { ErpMasterCodeKind } from '@tms/domain';
 import { tryDecodeId } from '../../common/ids';
+import type { Tx } from '../../db/db.service';
 import type { ImportContext, ImportSpec, RowIssue, RowResult } from '../imports/import-spec';
+import { rethrowUniqueAsConflict } from './erp-master-code.util';
 
 /** ชนิดรหัส ↔ ป้ายในไฟล์ (ตัวแรก = ค่าใน template) */
 const KINDS: Record<ErpMasterCodeKind, string[]> = {
@@ -35,7 +37,18 @@ function kindOf(v: string): ErpMasterCodeKind | null {
  * ไม่ปิดรหัสที่ไม่อยู่ในไฟล์ (ปิดเองด้วยคอลัมน์ "ใช้งาน" = ไม่) · อัตรา VAT เป็นข้อมูลอ้างอิงของ ERP ไม่เปลี่ยนการคำนวณภาษีของ TMS
  * scope `settings:write` + แพ็กเกจมี `conn` (เท่ากับสิทธิ์จัดการ connector)
  */
-export function erpMasterCodeImportSpec(): ImportSpec<ErpMasterCodeImportRow> {
+export type ApplyMasterCodes = (
+  tx: Tx,
+  tenantId: string,
+  connectorId: string,
+  kind: ErpMasterCodeKind,
+  rows: { code: string; name: string | null; rate: string | null; active: boolean }[],
+  at: Date,
+) => Promise<unknown>;
+
+export function erpMasterCodeImportSpec(
+  apply: ApplyMasterCodes,
+): ImportSpec<ErpMasterCodeImportRow> {
   return {
     kind: 'erp_master_code',
     label: 'ผังรหัสระบบบัญชี',
@@ -196,27 +209,16 @@ export function erpMasterCodeImportSpec(): ImportSpec<ErpMasterCodeImportRow> {
       }
       const at = new Date();
       let n = 0;
-      for (const list of groups.values()) {
+      // เรียงกลุ่มให้ลำดับล็อกเหมือนกันทุกคำขอ (กัน deadlock ระหว่างนำเข้า 2 ไฟล์พร้อมกัน)
+      for (const k of [...groups.keys()].sort()) {
+        const list = groups.get(k)!;
         const { connectorId, kind } = list[0]!;
-        const existing = await ctx.tx.erpMasterCode.findMany({ where: { connectorId, kind } });
-        const byCode = new Map(existing.map((e) => [e.code.toLowerCase(), e]));
-        for (const v of list) {
-          const cur = byCode.get(v.code.toLowerCase());
-          const data = {
-            code: v.code,
-            name: v.name,
-            rate: v.rate,
-            active: v.active,
-            source: 'IMPORT',
-            syncedAt: at,
-          };
-          if (cur) await ctx.tx.erpMasterCode.update({ where: { id: cur.id }, data });
-          else
-            await ctx.tx.erpMasterCode.create({
-              data: { ...data, tenantId: ctx.tenantId, connectorId, kind },
-            });
-          n++;
+        try {
+          await apply(ctx.tx, ctx.tenantId, connectorId, kind, list, at);
+        } catch (e) {
+          rethrowUniqueAsConflict(e);
         }
+        n += list.length;
       }
       return n;
     },

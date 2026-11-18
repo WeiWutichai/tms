@@ -13,6 +13,7 @@ import { DbService, type Tx } from '../../db/db.service';
 import { ImportRegistry } from '../imports/import-spec';
 import { ConnectorsService, redactSecrets } from './connectors.service';
 import { erpMasterCodeImportSpec } from './erp-master-code.import';
+import { chunks, lockKind, rethrowUniqueAsConflict } from './erp-master-code.util';
 import type {
   ErpItemMappingDto,
   ErpItemMappingListDto,
@@ -33,6 +34,9 @@ export const MAX_MASTER_CODES_PER_KIND = 20_000;
 /** รหัส ERP: 1–64 ตัว ไม่มีอักขระควบคุม ไม่ขึ้นต้น/ลงท้ายด้วยช่องว่าง */
 export const ERP_CODE_RE = /^[^\s\p{Cc}](?:[^\p{Cc}]{0,62}[^\s\p{Cc}])?$/u;
 const RATE_RE = /^\d{1,3}(\.\d{1,2})?$/;
+/** transaction ของการซิงก์ (เขียนได้หลายหมื่นแถว) */
+const SYNC_TX_TIMEOUT_MS = 120_000;
+const WRITE_CHUNK = 2_000;
 
 /** หน้า mapping ในเว็บ (ลิงก์ในผลของคำสั่งที่ถูกกัน — docs/01 §7.4 "พร้อมลิงก์ไปหน้า mapping") */
 export function mappingPageLink(connectorId: string): string {
@@ -120,7 +124,9 @@ export class ErpMasterCodesService implements OnModuleInit {
   ) {}
 
   onModuleInit() {
-    const spec = erpMasterCodeImportSpec();
+    const spec = erpMasterCodeImportSpec((tx, tenantId, connectorId, kind, rows, at) =>
+      this.apply(tx, tenantId, connectorId, kind, rows, 'IMPORT', at, { replaceAll: false }),
+    );
     if (!this.imports.get(spec.kind)) this.imports.register(spec);
   }
 
@@ -165,7 +171,12 @@ export class ErpMasterCodesService implements OnModuleInit {
     kind: ErpMasterCodeKind,
     list: unknown,
   ): { rows: ErpMasterCodeEntry[]; skipped: number } {
-    if (!Array.isArray(list)) return { rows: [], skipped: 0 };
+    if (!Array.isArray(list))
+      throw new ProblemException('master_sync_failed', undefined, undefined, {
+        kind,
+        reason: 'invalid_response',
+        message: 'adapter returned a non-array master code list',
+      });
     const seen = new Set<string>();
     const rows: ErpMasterCodeEntry[] = [];
     let skipped = 0;
@@ -232,6 +243,7 @@ export class ErpMasterCodesService implements OnModuleInit {
         ]);
         fetched.set(kind, this.clean(kind, list));
       } catch (e) {
+        if (e instanceof ProblemException) throw e;
         throw new ProblemException('master_sync_failed', undefined, undefined, {
           kind,
           message: redactSecrets(String((e as Error)?.message ?? e), secrets).slice(0, 300),
@@ -242,34 +254,46 @@ export class ErpMasterCodesService implements OnModuleInit {
     }
 
     const at = new Date();
-    const results = await this.db.withTenant(tenantId, async (tx) => {
-      const out: ErpMasterSyncKindResultDto[] = [];
-      for (const [kind, { rows, skipped }] of fetched)
-        out.push({
-          ...(await this.apply(tx, tenantId, c.id, kind, rows, 'ADAPTER', at, true)),
-          skipped,
-        });
-      await tx.auditLog.create({
-        data: {
-          tenantId,
-          actorId: requestContext.require().actorId ?? null,
-          actAs: requestContext.require().actAs ?? null,
-          action: 'connector.master_codes_synced',
-          entityType: 'connector',
-          entityId: c.id,
-          after: { results: out } as unknown as Prisma.InputJsonValue,
-          requestId: requestContext.require().requestId,
-          ip: requestContext.require().ip ?? null,
+    const results = await this.db
+      .withTenant(
+        tenantId,
+        async (tx) => {
+          const out: ErpMasterSyncKindResultDto[] = [];
+          for (const [kind, { rows, skipped }] of fetched)
+            out.push({
+              ...(await this.apply(tx, tenantId, c.id, kind, rows, 'ADAPTER', at, {
+                replaceAll: true,
+                allowEmpty: body.confirmEmpty === true,
+              })),
+              skipped,
+            });
+          await tx.auditLog.create({
+            data: {
+              tenantId,
+              actorId: requestContext.require().actorId ?? null,
+              actAs: requestContext.require().actAs ?? null,
+              action: 'connector.master_codes_synced',
+              entityType: 'connector',
+              entityId: c.id,
+              after: { results: out } as unknown as Prisma.InputJsonValue,
+              requestId: requestContext.require().requestId,
+              ip: requestContext.require().ip ?? null,
+            },
+          });
+          return out;
         },
-      });
-      return out;
-    });
+        SYNC_TX_TIMEOUT_MS,
+      )
+      .catch(rethrowUniqueAsConflict);
     return { results, syncedAt: at.toISOString() };
   }
 
   /**
    * เขียนรหัสของชนิดหนึ่ง (ใช้ทั้งซิงก์และนำเข้าไฟล์) — รหัสเดิมจับด้วย lower(code)
-   * `replaceAll` (ซิงก์จาก adapter) = รหัสที่ไม่อยู่ในชุดถูกปิดใช้ · นำเข้าไฟล์ไม่ปิดของอื่น (ปิดเองด้วยคอลัมน์ "ใช้งาน")
+   * - ล็อก (connector, ชนิด) ด้วย advisory lock ของ transaction — ซิงก์/นำเข้าพร้อมกันไม่ชนกัน (รอคิว)
+   * - เขียนแบบชุด: createMany + UPDATE … FROM unnest เฉพาะแถวที่เปลี่ยน + synced_at ของแถวที่ไม่เปลี่ยนในคำสั่งเดียว
+   * - `replaceAll` (ซิงก์จาก adapter) = รหัสที่ไม่อยู่ในชุดถูกปิดใช้ · ชุดว่างทั้งที่เคยมีรหัสใช้งาน = ล้ม
+   *   (`master_sync_failed` reason `empty_catalogue`) เว้นแต่ยืนยัน `allowEmpty` · นำเข้าไฟล์ไม่ปิดของอื่น
    */
   async apply(
     tx: Tx,
@@ -279,19 +303,37 @@ export class ErpMasterCodesService implements OnModuleInit {
     rows: (ErpMasterCodeEntry & { active?: boolean })[],
     source: 'ADAPTER' | 'IMPORT',
     at: Date,
-    replaceAll: boolean,
+    opts: { replaceAll: boolean; allowEmpty?: boolean },
   ): Promise<Omit<ErpMasterSyncKindResultDto, 'skipped'>> {
-    const existing = await tx.erpMasterCode.findMany({ where: { connectorId, kind } });
+    await lockKind(tx, connectorId, kind);
+    const existing = await tx.erpMasterCode.findMany({
+      where: { connectorId, kind },
+      select: { id: true, code: true, name: true, rate: true, active: true, source: true },
+    });
+    if (opts.replaceAll && !rows.length && !opts.allowEmpty && existing.some((r) => r.active))
+      throw new ProblemException('master_sync_failed', undefined, undefined, {
+        kind,
+        reason: 'empty_catalogue',
+        message:
+          'ERP returned no codes for a kind that has active codes — resend with confirmEmpty',
+      });
     const byCode = new Map(existing.map((r) => [r.code.toLowerCase(), r]));
-    let created = 0;
-    let updated = 0;
     const seen = new Set<string>();
     const fresh: Prisma.ErpMasterCodeCreateManyInput[] = [];
+    const changed: {
+      id: string;
+      code: string;
+      name: string | null;
+      rate: string | null;
+      active: boolean;
+    }[] = [];
+    const same: string[] = [];
     for (const e of rows) {
       const key = e.code.toLowerCase();
       seen.add(key);
       const active = e.active ?? true;
-      const rate = kind === 'VAT_RATE' && e.rate ? new Prisma.Decimal(e.rate) : null;
+      const rate = kind === 'VAT_RATE' && e.rate ? new Prisma.Decimal(e.rate).toFixed(2) : null;
+      const name = e.name ?? null;
       const cur = byCode.get(key);
       if (!cur) {
         fresh.push({
@@ -299,96 +341,132 @@ export class ErpMasterCodesService implements OnModuleInit {
           connectorId,
           kind,
           code: e.code,
-          name: e.name ?? null,
+          name,
           rate,
           source,
           active,
           syncedAt: at,
         });
-        created++;
         continue;
       }
-      const changed =
+      const diff =
         cur.code !== e.code ||
-        (cur.name ?? null) !== (e.name ?? null) ||
-        String(cur.rate ?? '') !== String(rate ?? '') ||
+        (cur.name ?? null) !== name ||
+        (cur.rate === null ? null : cur.rate.toFixed(2)) !== rate ||
         cur.active !== active ||
         cur.source !== source;
-      await tx.erpMasterCode.update({
-        where: { id: cur.id },
-        data: { code: e.code, name: e.name ?? null, rate, active, source, syncedAt: at },
-      });
-      if (changed) updated++;
+      if (diff) changed.push({ id: cur.id, code: e.code, name, rate, active });
+      else same.push(cur.id);
     }
-    if (fresh.length) await tx.erpMasterCode.createMany({ data: fresh });
+    for (const part of chunks(fresh, WRITE_CHUNK))
+      await tx.erpMasterCode.createMany({ data: part });
+    for (const part of chunks(changed, WRITE_CHUNK))
+      await tx.$executeRaw`
+        UPDATE erp_master_code AS m
+           SET code = v.code, name = v.name, rate = v.rate, active = v.active,
+               source = ${source}, synced_at = ${at}, updated_at = now()
+          FROM unnest(${part.map((x) => x.id)}::uuid[], ${part.map((x) => x.code)}::text[],
+                      ${part.map((x) => x.name)}::text[], ${part.map((x) => x.rate)}::numeric[],
+                      ${part.map((x) => x.active)}::boolean[]) AS v(id, code, name, rate, active)
+         WHERE m.id = v.id`;
+    if (same.length)
+      await tx.$executeRaw`UPDATE erp_master_code SET synced_at = ${at} WHERE id = ANY(${same}::uuid[])`;
     let deactivated = 0;
-    if (replaceAll) {
+    if (opts.replaceAll) {
       const gone = existing
         .filter((r) => r.active && !seen.has(r.code.toLowerCase()))
         .map((r) => r.id);
-      if (gone.length) {
-        await tx.erpMasterCode.updateMany({
-          where: { id: { in: gone } },
-          data: { active: false, syncedAt: at },
-        });
-        deactivated = gone.length;
-      }
+      if (gone.length)
+        deactivated = await tx.$executeRaw`
+          UPDATE erp_master_code SET active = false, synced_at = ${at}, updated_at = now()
+           WHERE id = ANY(${gone}::uuid[])`;
     }
-    return { kind, fetched: rows.length, created, updated, deactivated };
+    return {
+      kind,
+      fetched: rows.length,
+      created: fresh.length,
+      updated: changed.length,
+      deactivated,
+    };
   }
 
   // ---------- mapping ค่าบริการ ↔ รหัสสินค้า ERP ----------
 
-  private async activeItemCodes(tx: Tx, connectorId: string): Promise<Map<string, ErpMasterCode>> {
-    const rows = await tx.erpMasterCode.findMany({
-      where: { connectorId, kind: 'ITEM', active: true },
-    });
-    return new Map(rows.map((r) => [r.code.toLowerCase(), r]));
+  /** รหัสสินค้า (ITEM) ที่ใช้งาน + เคยมีผังรหัสสินค้าไหม (แถวใดก็ได้ — ผังที่ถูกปิดหมดยังนับว่า "มีผัง") */
+  private async itemCatalogue(
+    tx: Tx,
+    connectorId: string,
+  ): Promise<{ active: Map<string, ErpMasterCode>; exists: boolean }> {
+    const [rows, any] = await Promise.all([
+      tx.erpMasterCode.findMany({ where: { connectorId, kind: 'ITEM', active: true } }),
+      tx.erpMasterCode.findFirst({ where: { connectorId, kind: 'ITEM' }, select: { id: true } }),
+    ]);
+    return { active: new Map(rows.map((r) => [r.code.toLowerCase(), r])), exists: !!any };
   }
 
-  /** ทุกค่าบริการฝั่งขาย (ขาย/ทั้งคู่ ที่ใช้งาน) + สถานะการจับคู่กับ connector นี้ */
-  async mappings(connectorId: string): Promise<ErpItemMappingListDto> {
-    const tx = this.db.tx;
-    await this.connectors.get(connectorId, tx);
-    const [items, maps, codes] = await Promise.all([
-      tx.serviceItem.findMany({
-        where: { deletedAt: null, status: 'ACTIVE', side: { in: ['SELL', 'BOTH'] } },
-        orderBy: [{ code: 'asc' }, { id: 'asc' }],
-        select: { id: true, code: true, nameTh: true, vatType: true },
-      }),
-      tx.erpCodeMapping.findMany({ where: { connectorId } }),
-      this.activeItemCodes(tx, connectorId),
-    ]);
-    const byItem = new Map(maps.map((m) => [m.serviceItemId, m]));
-    const keys = new Set(codes.keys());
-    const data: ErpItemMappingDto[] = items.map((s) => {
-      const m = byItem.get(s.id);
-      const itemCode = m?.itemCode ?? null;
-      return {
-        serviceItem: {
-          id: encodeId('serviceItem', s.id),
-          code: s.code,
-          nameTh: s.nameTh,
-          vatType: s.vatType,
-        },
-        itemCode,
-        itemName: itemCode ? (codes.get(itemCode.toLowerCase())?.name ?? null) : null,
-        status: erpItemMappingStatus(itemCode, keys),
-        updatedAt: m ? m.updatedAt.toISOString() : null,
-      };
-    });
-    const mapped = data.filter((d) => d.status === 'MAPPED').length;
+  private mappingDto(
+    s: { id: string; code: string; nameTh: string; vatType: string; side: string; status: string },
+    m: { itemCode: string | null; updatedAt: Date; version: number } | null | undefined,
+    cat: { active: Map<string, ErpMasterCode>; exists: boolean },
+  ): ErpItemMappingDto {
+    const itemCode = m?.itemCode ?? null;
     return {
-      data,
-      summary: { total: data.length, mapped, missing: data.length - mapped, itemCodes: codes.size },
+      serviceItem: {
+        id: encodeId('serviceItem', s.id),
+        code: s.code,
+        nameTh: s.nameTh,
+        vatType: s.vatType,
+        side: s.side,
+        status: s.status,
+      },
+      itemCode,
+      itemName: itemCode ? (cat.active.get(itemCode.toLowerCase())?.name ?? null) : null,
+      status: erpItemMappingStatus(itemCode, new Set(cat.active.keys()), cat.exists),
+      updatedAt: m ? m.updatedAt.toISOString() : null,
+      version: m?.version ?? 0,
     };
   }
 
-  /** ตั้ง/ยกเลิกรหัสสินค้า ERP ของค่าบริการ 1 รายการ — audit `connector.mapping_changed` */
+  /**
+   * ทุกค่าบริการที่ยังไม่ลบ (ทุกฝั่ง — ฝั่งซื้อใช้กับ settlement รถร่วม · ที่ปิดใช้ยังอยู่บนเอกสารเก่า) + สถานะการจับคู่
+   * เรียง: ใช้งานก่อน แล้วตามรหัส
+   */
+  async mappings(connectorId: string): Promise<ErpItemMappingListDto> {
+    const tx = this.db.tx;
+    await this.connectors.get(connectorId, tx);
+    const [items, maps, cat] = await Promise.all([
+      tx.serviceItem.findMany({
+        where: { deletedAt: null },
+        orderBy: [{ status: 'asc' }, { code: 'asc' }, { id: 'asc' }],
+        select: { id: true, code: true, nameTh: true, vatType: true, side: true, status: true },
+      }),
+      tx.erpCodeMapping.findMany({ where: { connectorId } }),
+      this.itemCatalogue(tx, connectorId),
+    ]);
+    const byItem = new Map(maps.map((m) => [m.serviceItemId, m]));
+    const data = items.map((s) => this.mappingDto(s, byItem.get(s.id), cat));
+    const mapped = data.filter((d) => d.status === 'MAPPED').length;
+    return {
+      data,
+      summary: {
+        total: data.length,
+        mapped,
+        missing: data.length - mapped,
+        itemCodes: cat.active.size,
+      },
+    };
+  }
+
+  /**
+   * ตั้ง/ยกเลิกรหัสสินค้า ERP ของค่าบริการ 1 รายการ — audit `connector.mapping_changed`
+   * If-Match (`version` ของแถว — ยังไม่มีแถว = 0) ไม่ตรง → 412 · ไม่ส่ง = เขียนทับได้ (last write wins)
+   * สร้างแถวแรกพร้อมกัน = upsert (ไม่ 409)
+   */
   async setMapping(
     connectorId: string,
     serviceItemRef: string,
     body: SetErpItemMappingDto,
+    expected?: number,
   ): Promise<ErpItemMappingDto> {
     this.connectors.assertHuman();
     const tx = this.db.tx;
@@ -399,7 +477,7 @@ export class ErpMasterCodesService implements OnModuleInit {
     const item = serviceItemId
       ? await tx.serviceItem.findFirst({
           where: { id: serviceItemId, deletedAt: null },
-          select: { id: true, code: true, nameTh: true, vatType: true },
+          select: { id: true, code: true, nameTh: true, vatType: true, side: true, status: true },
         })
       : null;
     if (!item) throw new ProblemException('not_found');
@@ -408,7 +486,7 @@ export class ErpMasterCodesService implements OnModuleInit {
         { field: 'itemCode', code: 'required', message: 'ระบุรหัสสินค้า หรือ null เพื่อยกเลิก' },
       ]);
     const raw = body.itemCode?.trim() ?? '';
-    const codes = await this.activeItemCodes(tx, connectorId);
+    const cat = await this.itemCatalogue(tx, connectorId);
     let itemCode: string | null = null;
     if (raw) {
       if (!ERP_CODE_RE.test(raw))
@@ -419,8 +497,8 @@ export class ErpMasterCodesService implements OnModuleInit {
             message: 'รหัสยาว 1–64 ตัว ไม่มีอักขระควบคุม',
           },
         ]);
-      const known = codes.get(raw.toLowerCase());
-      if (codes.size && !known)
+      const known = cat.active.get(raw.toLowerCase());
+      if (cat.exists && !known)
         throw new ProblemException('validation_failed', undefined, [
           {
             field: 'itemCode',
@@ -430,53 +508,42 @@ export class ErpMasterCodesService implements OnModuleInit {
         ]);
       itemCode = known?.code ?? raw;
     }
-    const before = await tx.erpCodeMapping.findUnique({
-      where: { connectorId_serviceItemId: { connectorId, serviceItemId: item.id } },
-    });
-    const row =
-      before?.itemCode === itemCode
-        ? before
-        : before
-          ? await tx.erpCodeMapping.update({
-              where: { id: before.id },
-              data: { itemCode, updatedBy: ctx.actorId ?? null, version: { increment: 1 } },
-            })
-          : await tx.erpCodeMapping.create({
-              data: {
-                tenantId: ctx.tenantId!,
-                connectorId,
-                serviceItemId: item.id,
-                itemCode,
-                updatedBy: ctx.actorId ?? null,
-              },
-            });
-    if (row !== before)
-      await tx.auditLog.create({
-        data: {
-          tenantId: ctx.tenantId!,
-          actorId: ctx.actorId ?? null,
-          actAs: ctx.actAs ?? null,
-          action: 'connector.mapping_changed',
-          entityType: 'connector',
-          entityId: connectorId,
-          before: { serviceItemId: item.id, itemCode: before?.itemCode ?? null },
-          after: { serviceItemId: item.id, itemCode },
-          requestId: ctx.requestId,
-          ip: ctx.ip ?? null,
-        },
+    const key = { connectorId_serviceItemId: { connectorId, serviceItemId: item.id } };
+    const before = await tx.erpCodeMapping.findUnique({ where: key });
+    if (expected !== undefined && (before?.version ?? 0) !== expected)
+      throw new ProblemException('precondition_failed');
+    if (before && before.itemCode === itemCode) return this.mappingDto(item, before, cat);
+    const data = { itemCode, updatedBy: ctx.actorId ?? null };
+    let row;
+    if (before) {
+      const n = await tx.erpCodeMapping.updateMany({
+        where: { id: before.id, ...(expected !== undefined ? { version: expected } : {}) },
+        data: { ...data, version: { increment: 1 } },
       });
-    return {
-      serviceItem: {
-        id: encodeId('serviceItem', item.id),
-        code: item.code,
-        nameTh: item.nameTh,
-        vatType: item.vatType,
+      if (!n.count) throw new ProblemException('precondition_failed');
+      row = await tx.erpCodeMapping.findUniqueOrThrow({ where: { id: before.id } });
+    } else {
+      row = await tx.erpCodeMapping.upsert({
+        where: key,
+        create: { ...data, tenantId: ctx.tenantId!, connectorId, serviceItemId: item.id },
+        update: { ...data, version: { increment: 1 } },
+      });
+    }
+    await tx.auditLog.create({
+      data: {
+        tenantId: ctx.tenantId!,
+        actorId: ctx.actorId ?? null,
+        actAs: ctx.actAs ?? null,
+        action: 'connector.mapping_changed',
+        entityType: 'connector',
+        entityId: connectorId,
+        before: { serviceItemId: item.id, itemCode: before?.itemCode ?? null },
+        after: { serviceItemId: item.id, itemCode },
+        requestId: ctx.requestId,
+        ip: ctx.ip ?? null,
       },
-      itemCode,
-      itemName: itemCode ? (codes.get(itemCode.toLowerCase())?.name ?? null) : null,
-      status: erpItemMappingStatus(itemCode, new Set(codes.keys())),
-      updatedAt: row?.updatedAt.toISOString() ?? null,
-    };
+    });
+    return this.mappingDto(item, row, cat);
   }
 
   // ---------- ประตูก่อนส่ง ERP (docs/01 §7.4; plan/11 #9) ----------
@@ -496,11 +563,11 @@ export class ErpMasterCodesService implements OnModuleInit {
         select: { id: true, code: true, nameTh: true },
       }),
       tx.erpCodeMapping.findMany({ where: { connectorId, serviceItemId: { in: valid } } }),
-      this.activeItemCodes(tx, connectorId),
+      this.itemCatalogue(tx, connectorId),
     ]);
     const itemById = new Map(items.map((i) => [i.id, i]));
     const mapById = new Map(maps.map((m) => [m.serviceItemId, m]));
-    const keys = new Set(master.keys());
+    const keys = new Set(master.active.keys());
     const gaps: MappingGap[] = [];
     for (const id of ids) {
       const item = itemById.get(id);
@@ -515,8 +582,9 @@ export class ErpMasterCodesService implements OnModuleInit {
         continue;
       }
       const itemCode = mapById.get(id)?.itemCode ?? null;
-      const st = erpItemMappingStatus(itemCode, keys);
-      if (st === 'MAPPED') codes.set(id, master.get(itemCode!.toLowerCase())?.code ?? itemCode!);
+      const st = erpItemMappingStatus(itemCode, keys, master.exists);
+      if (st === 'MAPPED')
+        codes.set(id, master.active.get(itemCode!.toLowerCase())?.code ?? itemCode!);
       else
         gaps.push({
           serviceItemId: id,

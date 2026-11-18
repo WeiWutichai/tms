@@ -406,3 +406,8 @@
   font-variant-numeric: tabular-nums;
   font-size: 13px;
 }
+
+.conn-msg {
+  padding: 20px;
+  color: #59606b;
+}
