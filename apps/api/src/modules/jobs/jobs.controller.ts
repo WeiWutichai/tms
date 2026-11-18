@@ -4,6 +4,7 @@ import { RequireScope, TenantResource } from '../../common/decorators';
 import { decodeIdOr404, encodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { DbService } from '../../db/db.service';
+import { toJobDto } from '../../jobs/job-dto';
 
 export class JobDto {
   @ApiProperty({ example: 'job_…' }) id!: string;
@@ -31,16 +32,6 @@ export class JobsController {
   async get(@Param('id') id: string): Promise<JobDto> {
     const j = await this.db.tx.job.findUnique({ where: { id: decodeIdOr404('job', id) } });
     if (!j) throw new ProblemException('not_found');
-    return {
-      id: encodeId('job', j.id),
-      type: j.type,
-      status: j.status.toLowerCase(),
-      progress: j.progress,
-      result: j.result,
-      error: j.error,
-      attempts: j.attempts,
-      createdAt: j.createdAt.toISOString(),
-      finishedAt: j.finishedAt?.toISOString() ?? null,
-    };
+    return toJobDto(j);
   }
 }

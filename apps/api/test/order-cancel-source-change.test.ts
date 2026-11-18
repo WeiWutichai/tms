@@ -202,8 +202,12 @@ describe('order cancel + source change after plan (ST3-T10)', () => {
       where: { localId: p.id, type: 'order.updated', occurredAt: { gte: changes[0]!.createdAt } },
     });
     expect(ev).toHaveLength(1);
-    expect(ev[0]!.previousAttributes).toEqual({ sourceChangedAfterPlan: false });
-    expect(ev[0]!.snapshot).toMatchObject({ status: 'PLANNED', sourceChangedAfterPlan: true });
+    // ST7-T06 (QA): data.object/previousAttributes รูป REST (OrderDto — status ตัวเล็ก, sourceChange object)
+    expect(ev[0]!.previousAttributes).toMatchObject({
+      sourceChangedAfterPlan: false,
+      sourceChange: null,
+    });
+    expect(ev[0]!.snapshot).toMatchObject({ status: 'planned', sourceChangedAfterPlan: true });
     // ต้นทางส่งชุดเดิมซ้ำ = ไม่มีอะไรเปลี่ยน
     const again = await upsert(erp(p.k, 'KRS-ACC-1', newDest));
     expect(again.changed).toBe(false);

@@ -1,8 +1,9 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { EntitlementService } from '../modules/entitlements/entitlement.service';
-import type { Job } from '@prisma/client';
+import { Prisma, type Job } from '@prisma/client';
 import { PrismaService } from '../db/prisma.service';
 import { encodeId } from '../common/ids';
+import { toJobDto } from './job-dto';
 import { DbService, type Tx } from '../db/db.service';
 import { NotificationService } from '../modules/notifications/notification.service';
 
@@ -18,6 +19,11 @@ export interface JobTypeOptions {
    * ใช้กับงานที่เรียกระบบภายนอก (เช่น geocode ST2-T03) เพื่อไม่ถือ connection/lock ระหว่างรอ
    */
   outsideTransaction?: boolean;
+  /**
+   * ST7-T06: งาน async ที่ client สั่งเองแล้วได้ `jobId` (เช่น นำเข้าไฟล์) — จบ (สำเร็จ/ล้มครั้งสุดท้าย) ยิง webhook `job.completed`
+   * (docs/01 §5.1 Bulk/async, §5.3) ใน transaction เดียวกับการปิดสถานะงาน · งานระบบ (เตือน/หมดเวลา/geocode) ไม่ยิง
+   */
+  publicEvent?: boolean;
   /** ช่วงรอก่อนลองใหม่ครั้งที่ n (ms) — ไม่ตั้ง/เกินรายการ = 2^n วินาที (ค่าเดิม) */
   retryDelaysMs?: readonly number[];
 }
@@ -168,15 +174,12 @@ export class JobQueue {
         ? await handler({ ...base, tx: NO_TX })
         : await this.db.withTenant(job.tenantId, (tx) => handler({ ...base, tx }), o?.timeoutMs);
       // เขียนผลเฉพาะถ้ายังเป็นรอบที่เราหยิบ (lease หมดแล้ว worker อื่นหยิบซ้ำได้) — กันแจ้งเตือนซ้ำ/ทับผลกัน
-      const done = await this.prisma.platform.job.updateMany({
-        where: { id: job.id, status: 'RUNNING', attempts: job.attempts },
-        data: {
-          status: 'SUCCEEDED',
-          progress: 100,
-          result: (result ?? null) as any,
-          finishedAt: new Date(),
-          lockedUntil: null,
-        },
+      const done = await this.finish(job, true, {
+        status: 'SUCCEEDED',
+        progress: 100,
+        result: (result ?? null) as any,
+        finishedAt: new Date(),
+        lockedUntil: null,
       });
       if (done.count === 1) await this.notifyDone(job, 'job.succeeded');
     } catch (err) {
@@ -184,9 +187,11 @@ export class JobQueue {
       this.logger.warn(
         `job ${job.id} (${job.type}) failed attempt ${job.attempts}: ${String(err)}`,
       );
-      const done = await this.prisma.platform.job.updateMany({
-        where: { id: job.id, status: 'RUNNING', attempts: job.attempts },
-        data: retry
+      // ล้มครั้งสุดท้าย: job.completed ยิงหลัง onFinalFailure (ข้างล่าง) — ไม่ใช่พร้อมปิดสถานะงาน
+      const done = await this.finish(
+        job,
+        false,
+        retry
           ? {
               status: 'PENDING',
               runAt: new Date(
@@ -203,19 +208,63 @@ export class JobQueue {
               lockedUntil: null,
               error: { message: String(err) },
             },
-      });
+      );
       if (!retry && done.count === 1) {
         const onFail = this.opts.get(job.type)?.onFinalFailure;
-        if (onFail)
+        const pub = !!this.opts.get(job.type)?.publicEvent;
+        // ST7-T06 (review): โมดูลเจ้าของปิดสถานะของตัวเอง (เช่น นำเข้า → FAILED) แล้วจึงยิง `job.completed` ใน transaction เดียวกัน
+        // → ผู้รับ webhook เรียก API แล้วเห็นสถานะสุดท้ายแล้ว · onFinalFailure ล้ม = rollback แล้วยิง event แยก (งานจบจริงแล้ว)
+        let emitted = false;
+        if (onFail || pub)
           await this.db
-            .withTenant(job.tenantId, (tx) =>
-              onFail({ tenantId: job.tenantId, job, tx, error: err }),
-            )
+            .withTenant(job.tenantId, async (tx) => {
+              if (onFail) await onFail({ tenantId: job.tenantId, job, tx, error: err });
+              if (pub) await this.emitCompleted(tx, job.id);
+            })
+            .then(() => {
+              emitted = pub; // commit แล้วเท่านั้น
+            })
             .catch((e) => this.logger.warn(`job ${job.id} onFinalFailure failed: ${String(e)}`));
+        if (pub && !emitted)
+          await this.db
+            .withTenant(job.tenantId, (tx) => this.emitCompleted(tx, job.id))
+            .catch((e) => this.logger.error(`job ${job.id} job.completed failed: ${String(e)}`));
         await this.notifyDone(job, 'job.failed');
       }
     }
     return true;
+  }
+
+  /**
+   * เขียนผลเฉพาะถ้ายังเป็นรอบที่เราหยิบ · `emit` (สำเร็จของงาน `publicEvent`) → domain_event `job.completed`
+   * ใน transaction เดียวกัน (role platform — trigger สร้างคำสั่ง webhook ให้)
+   */
+  private async finish(job: Job, emit: boolean, data: Prisma.JobUpdateManyMutationInput) {
+    const where = { id: job.id, status: 'RUNNING' as const, attempts: job.attempts };
+    if (!emit || !this.opts.get(job.type)?.publicEvent)
+      return this.prisma.platform.job.updateMany({ where, data });
+    return this.prisma.platform.$transaction(async (tx) => {
+      const r = await tx.job.updateMany({ where, data });
+      if (r.count === 1) await this.emitCompleted(tx as unknown as Tx, job.id);
+      return r;
+    });
+  }
+
+  /** webhook `job.completed` (docs/01 §5.3) — payload ไม่มี result/error (ผู้รับเรียก GET /v1/jobs/{id}) */
+  private async emitCompleted(tx: Tx, jobId: string): Promise<void> {
+    const j = await tx.job.findUniqueOrThrow({ where: { id: jobId } });
+    await tx.domainEvent.create({
+      data: {
+        tenantId: j.tenantId,
+        type: 'job.completed',
+        entityType: 'job',
+        localId: j.id,
+        // ST7-T06 (QA): data.object = JobDto เดียวกับ `GET /v1/jobs/{id}`
+        snapshot: JSON.parse(JSON.stringify(toJobDto(j))) as Prisma.InputJsonValue,
+        previousAttributes: { status: 'running' },
+        requestId: null, // ไม่ได้มาจากคำขอ HTTP (envelope.request.id = null — docs/04 G1)
+      },
+    });
   }
 
   /** แจ้งผลแยก transaction — แจ้งไม่สำเร็จไม่ทำให้สถานะงานเปลี่ยน */

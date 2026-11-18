@@ -28,6 +28,8 @@ import {
   OPS_DO_TODAY,
 } from '@tms/domain';
 import { AuditService } from '../../audit/audit.service';
+import { encodeId } from '../../common/ids';
+import { toDeliveryOrderDto } from './do-dto';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
@@ -1120,7 +1122,7 @@ export class DeliveryOrderService {
           data: { status: to as DbDoStatus, version: { increment: 1 } },
         });
         if (r.count === 0) throw new ProblemException('concurrent_update');
-        return eventView(await this.get(src.id, tx));
+        return this.eventObject(src.id, tx);
       },
     });
     await this.audit.record({
@@ -1181,7 +1183,7 @@ export class DeliveryOrderService {
           data: { ...data, status: to as DbDoStatus, version: { increment: 1 } },
         });
         if (r.count === 0) throw new ProblemException('concurrent_update');
-        return eventView(await this.get(d.id, tx));
+        return this.eventObject(d.id, tx);
       },
     });
   }
@@ -1400,7 +1402,7 @@ export class DeliveryOrderService {
           },
         });
         if (r.count === 0) throw new ProblemException('concurrent_update');
-        return eventView(await this.get(d.id, tx));
+        return this.eventObject(d.id, tx);
       },
     });
   }
@@ -1489,6 +1491,19 @@ export class DeliveryOrderService {
     });
   }
 
+  /**
+   * `data.object` ของ `delivery_order.status_changed` (ST7-T06 — QA) = รูปเดียวกับ `GET /v1/delivery-orders/{id}`
+   * (toDeliveryOrderDto + ยอดปฏิเสธรับ) — DO ไม่มีราคา
+   */
+  async eventObject(id: string, tx: Tx): Promise<Record<string, unknown>> {
+    const d = await this.get(id, tx);
+    const bal = await this.rejectionBalance(tx, [d]);
+    return JSON.parse(JSON.stringify(toDeliveryOrderDto(d, bal.get(d.id)))) as Record<
+      string,
+      unknown
+    >;
+  }
+
   private async emit(tx: Tx, d: DeliveryOrderRecord, previous: Record<string, unknown>) {
     const ctx = requestContext.require();
     await tx.domainEvent.create({
@@ -1497,7 +1512,7 @@ export class DeliveryOrderService {
         type: EVENT_TYPE,
         entityType: ENTITY,
         localId: d.id,
-        snapshot: JSON.parse(JSON.stringify(eventView(d))) as Prisma.InputJsonValue,
+        snapshot: (await this.eventObject(d.id, tx)) as Prisma.InputJsonValue,
         previousAttributes: previous as Prisma.InputJsonValue,
         requestId: ctx.requestId ?? null,
         actorId: ctx.actorId ?? null,
@@ -1638,28 +1653,5 @@ function view(d: DeliveryOrderRecord) {
     destStopSeq: d.destStopSeq,
     weightKg: dec(d.weightKg),
     lines: d.lines.map((l) => ({ soLineNo: l.soLineNo, qty: dec(l.qtyPlanned), unit: l.unit })),
-  };
-}
-
-/** payload ของ `delivery_order.status_changed` (ไม่มีราคา) */
-function eventView(d: DeliveryOrderRecord) {
-  return {
-    id: d.id,
-    doNo: d.doNo,
-    status: d.status,
-    salesOrderId: d.salesOrderId,
-    customerId: d.customerId,
-    tripId: d.tripId,
-    destStopSeq: d.destStopSeq,
-    splitFromId: d.splitFromId,
-    weightKg: dec(d.weightKg),
-    cbm: dec(d.cbm),
-    lines: d.lines.map((l) => ({
-      lineNo: l.lineNo,
-      soLineNo: l.soLineNo,
-      description: l.description,
-      qty: dec(l.qtyPlanned),
-      unit: l.unit,
-    })),
   };
 }

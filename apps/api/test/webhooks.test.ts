@@ -642,8 +642,12 @@ describe('webhooks (ST7-T04)', () => {
     expect(r.status, JSON.stringify(r.body)).toBe(200);
     expect(r.body).toMatchObject({ delivered: true, status: 200, errorCode: null });
     const env = JSON.parse(rx.hits[0]!.body);
-    expect(env).toMatchObject({ type: 'webhook.test', test: true });
-    expect(env.data.object.sampleEventType).toBe('invoice.finalized');
+    expect(env).toMatchObject({
+      type: 'webhook.test',
+      test: true,
+      sampleEventType: 'invoice.finalized',
+    });
+    expect(env.data.object).not.toHaveProperty('sampleEventType');
     expect(
       verifyWebhookSignature({
         secret: h.secret,

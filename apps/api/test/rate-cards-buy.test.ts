@@ -350,13 +350,14 @@ describe('rate card ขาซื้อ (side = BUY) + ราคา 5 ครั�
     expect(g.body.buyRate).toBeUndefined();
     expect(g.body.code).toBe(buy.code);
     const h = await api(app, sellOnly).get(`/v1/rate-cards/${buy.id}/history`).expect(200);
-    expect(JSON.stringify(h.body)).not.toContain('7777');
+    // ราคา 7777 ต้องไม่หลุด — ตรวจเป็นตัวเลขแยก ไม่ใช่ substring (id hex สุ่มอาจมี 7777 ปน)
+    expect(JSON.stringify(h.body)).not.toMatch(PRICE_7777);
     const csv = await api(app, sellOnly)
       .get(`/v1/rate-cards/export?format=csv&side=BUY&ids=${buy.id}`)
       .expect(200);
     expect(csv.text).toContain(buy.code);
     expect(csv.text).toContain('ผู้รับเหมา');
-    expect(csv.text).not.toContain('7777');
+    expect(csv.text).not.toMatch(PRICE_7777);
     const full = await api(app, buyOnly)
       .get(`/v1/rate-cards/export?format=csv&side=BUY&ids=${buy.id}`)
       .expect(200);
@@ -656,3 +657,6 @@ describe('rate card ขาซื้อ (side = BUY) + ราคา 5 ครั�
       .expect(404);
   });
 });
+
+/** ราคา 7777 (หรือ 7777.00) เป็นค่าแยก — ไม่นับที่อยู่กลาง id hex */
+const PRICE_7777 = /(^|[^0-9a-f])7777(\.0+)?([^0-9a-f]|$)/;

@@ -20,7 +20,11 @@ import {
   ON_ACTIVE_TRIP_WHERE,
 } from '../delivery-orders/delivery-order.service';
 import { OrderIntakeService, SUPERSEDE_NOTE, decisionNote } from './order-intake.service';
-import { orderEventView } from './order-view';
+import { loadOrderEventObject, previousOf } from './order-dto';
+
+/** previousAttributes = ค่าเดิมเทียบ data.object (รูป REST) ก่อนเปลี่ยน — ST7-T06 */
+const prevFrom = (before: Record<string, unknown>) => (snap: Record<string, unknown>) =>
+  previousOf(before, snap);
 
 export interface CancelOrderInput {
   /** เหตุผล ≥ 10 ตัวอักษร (ORD-034 / MD-222) */
@@ -101,6 +105,7 @@ export class OrderStateService {
       reasonCodeId,
       note,
       eventType: 'order.cancelled',
+      previousAttributes: prevFrom(await loadOrderEventObject(tx, id)),
       apply: async (next) => {
         const r = await tx.salesOrder.updateMany({
           where: { id, status: from as DbSoStatus },
@@ -114,7 +119,7 @@ export class OrderStateService {
           },
         });
         if (r.count === 0) throw new ProblemException('concurrent_update');
-        return orderEventView(await tx.salesOrder.findUniqueOrThrow({ where: { id } }));
+        return loadOrderEventObject(tx, id);
       },
     });
     await this.audit.record({
@@ -196,7 +201,9 @@ export class OrderStateService {
         event: 'hold',
         reasonCodeId: rc.id,
         note,
-        eventType: 'order.updated',
+        // ST7-T06: พักใบ = `order.held` (docs/01 §5.3) — เดิมยิง order.updated
+        eventType: 'order.held',
+        previousAttributes: prevFrom(await loadOrderEventObject(tx, id)),
         apply: async (next) => {
           const r = await tx.salesOrder.updateMany({
             where: { id, status: from as DbSoStatus },
@@ -208,7 +215,7 @@ export class OrderStateService {
             },
           });
           if (r.count === 0) throw new ProblemException('concurrent_update');
-          return orderEventView(await tx.salesOrder.findUniqueOrThrow({ where: { id } }));
+          return loadOrderEventObject(tx, id);
         },
       });
       held.push(id);
@@ -294,7 +301,9 @@ export class OrderStateService {
         from,
         event,
         note: event === 'recall' || event === 'unplan' ? note : null,
-        eventType: 'order.updated',
+        // ST7-T06: จัดรถใบที่ค้างอยู่ = เหตุค้างถูกล้าง → `order.released` (docs/01 §5.3) · อื่น ๆ = order.updated
+        eventType: from === 'ON_HOLD' ? 'order.released' : 'order.updated',
+        previousAttributes: prevFrom(await loadOrderEventObject(tx, id)),
         apply: async (next) => {
           const r = await tx.salesOrder.updateMany({
             where: { id, status: from as DbSoStatus },
@@ -305,11 +314,8 @@ export class OrderStateService {
             },
           });
           if (r.count === 0) throw new ProblemException('concurrent_update');
-          const after = await tx.salesOrder.findUniqueOrThrow({
-            where: { id },
-            select: { id: true, soNo: true, status: true, customerId: true },
-          });
-          return { ...after };
+          // ST7-T06: payload สาธารณะชุดเดียวกับ order.* อื่น (เดิม uuid ดิบ 4 ช่อง)
+          return loadOrderEventObject(tx, id);
         },
       });
       from = transition(ENTITY, SO_TRANSITIONS, from, event);

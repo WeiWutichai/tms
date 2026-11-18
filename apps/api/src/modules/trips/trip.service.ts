@@ -32,6 +32,8 @@ import {
 } from '@tms/domain';
 import { AuditService } from '../../audit/audit.service';
 import { encodeId } from '../../common/ids';
+import { redactPrices } from '../../common/price-fields';
+import { toTripDto } from './trip-dto';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { keysetArgs, type ListQuery } from '../../common/pagination';
@@ -343,6 +345,22 @@ export class TripService {
       pickupTripStop: null,
       redeliveries: r.rejectedRedeliveries,
     }));
+  }
+
+  /**
+   * `data.object` ของ webhook `trip.*` (ST7-T06 — QA): รูปเดียวกับ `GET /v1/trips/{id}` (toTripDto ตัวเดียวกัน)
+   * ตัดราคาซื้อทุก field (`redactPrices` ไม่มีสิทธิ์ราคา — webhook ระดับ tenant)
+   */
+  async eventObject(id: string, tx: Tx = this.db.tx): Promise<Record<string, unknown>> {
+    const t = await this.get(id, tx);
+    return JSON.parse(
+      JSON.stringify(
+        redactPrices(
+          toTripDto(t, await this.rescheduled(id, tx), await this.rejectedRedelivered(id, tx)),
+          [],
+        ),
+      ),
+    ) as Record<string, unknown>;
   }
 
   async get(id: string, tx: Tx = this.db.tx): Promise<TripRecord> {
@@ -1870,7 +1888,7 @@ export class TripService {
           },
         });
         if (r.count === 0) throw new ProblemException('concurrent_update');
-        return { ...eventView(await this.get(trip.id, tx)), ...(extra.snapshot ?? {}) };
+        return { ...(await this.eventObject(trip.id, tx)), ...(extra.snapshot ?? {}) };
       },
     });
   }
@@ -2707,25 +2725,30 @@ function schedView(t: TripRecord) {
   };
 }
 
-/** payload ของ domain event เที่ยว (ไม่มีราคา/เบอร์โทร) */
+/**
+ * payload ของ domain event เที่ยว = `data.object` ของ webhook `trip.*` (ไม่มีราคา/เบอร์โทร)
+ * ST7-T06: id แบบ prefix (docs/01 §5.1) ตาม schema ใน EVENT_REGISTRY — เดิมเป็น uuid ดิบ
+ */
 function eventView(t: TripRecord) {
+  const enc = (kind: Parameters<typeof encodeId>[0], v: string | null) =>
+    v ? encodeId(kind, v) : null;
   return {
-    id: t.id,
+    id: encodeId('trip', t.id),
     tripNo: t.tripNo,
     tripDate: t.tripDate.toISOString().slice(0, 10),
     status: t.status,
-    vehicleId: t.vehicleId,
+    vehicleId: enc('vehicle', t.vehicleId),
     vehiclePlate: t.vehiclePlateSnapshot,
-    vehicleTypeId: t.vehicleTypeId,
-    driverId: t.driverId,
-    carrierId: t.carrierId,
+    vehicleTypeId: enc('vehicleType', t.vehicleTypeId),
+    driverId: enc('driver', t.driverId),
+    carrierId: enc('carrier', t.carrierId),
     assignmentStatus: t.assignmentStatus,
     stops: t.stops.map((s: TripStop) => ({
-      id: s.id,
+      id: encodeId('tripStop', s.id),
       sequence: s.sequence,
       type: s.type,
-      siteId: s.siteId,
+      siteId: enc('site', s.siteId),
     })),
-    deliveryOrderIds: t.deliveryOrders.map((d) => d.id),
+    deliveryOrderIds: t.deliveryOrders.map((d) => encodeId('deliveryOrder', d.id)),
   };
 }

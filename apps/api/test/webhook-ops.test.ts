@@ -162,7 +162,7 @@ describe('webhook ops (ST7-T05)', () => {
     for (const x of r.body.data) {
       expect(x.description).toMatch(/[฀-๿]/);
       expect(x.resource).toBe(x.type.split('.')[0]);
-      expect(x.sample.sampleEventType).toBe(x.type);
+      expect(x.sample).not.toHaveProperty('sampleEventType'); // ตัวอย่างล้วน (ST7-T06 ตรวจกับ schema ใน event-contract)
     }
   });
 
