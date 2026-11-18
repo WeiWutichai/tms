@@ -30,6 +30,12 @@ export class ConnectorConfigFieldDto {
   @ApiProperty() required!: boolean;
   @ApiProperty({ enum: ['string', 'url'] }) kind!: 'string' | 'url';
   @ApiProperty({ nullable: true, type: Number }) maxLength!: number | null;
+  @ApiProperty({
+    nullable: true,
+    type: [String],
+    description: 'ค่าที่เลือกได้ (null = กรอกอิสระ) — ค่านอกรายการ → 422 `invalid_option`',
+  })
+  options!: string[] | null;
 }
 
 /** adapter ที่เปิดเป็น connector ได้ (catalog ในโค้ด — ไม่มีตัวใดเป็นค่าเริ่มต้น, spec/07 INT-010) */
@@ -37,6 +43,11 @@ export class ErpAdapterDto {
   @ApiProperty({ example: 'demo', description: '`adapterKey` ที่ใช้ตอนสร้าง connector' })
   key!: string;
   @ApiProperty({ example: 'Demo ERP' }) displayName!: string;
+  @ApiProperty({
+    description:
+      'true = ERP จำลอง (DemoProvider — สำหรับสาธิต/ทดสอบ ไม่ส่งข้อมูลไปที่ใด) · มีเฉพาะ dev/test/staging ที่เปิด `ERP_DEMO_ADAPTERS` — หน้าจอต้องติดป้าย "จำลอง"',
+  })
+  demo!: boolean;
   @ApiProperty({
     type: [String],
     enum: ERP_CAPABILITIES,
@@ -308,11 +319,26 @@ export class EffectiveConnectorQuery {
 }
 
 /** connector ที่เอกสารของนิติบุคคล/สาขาใช้ (routing ตามนิติบุคคล) — standalone = ไม่มี */
+const SYNC_MODES = ['NOT_APPLICABLE', 'PUSH', 'REPLACE', 'MANUAL'];
+
+/** docs/01 §6.1 — PUSH = ส่งด้วย method ของประเภทนั้น · REPLACE = ใบปรับส่งเป็นภาพรวมหลังปรับ · MANUAL = SKIPPED + แจ้งบัญชีทำมือ */
+export class DocumentSyncDto {
+  @ApiProperty({ enum: SYNC_MODES }) invoice!: string;
+  @ApiProperty({ enum: SYNC_MODES }) creditNote!: string;
+  @ApiProperty({ enum: SYNC_MODES }) debitNote!: string;
+  @ApiProperty({ enum: SYNC_MODES }) settlement!: string;
+}
+
 export class EffectiveConnectorDto {
   @ApiProperty({ description: 'true = ไม่เชื่อม ERP (ทุก flow ทำใน TMS)' }) standalone!: boolean;
   @ApiProperty({ nullable: true, type: String }) connectorId!: string | null;
   @ApiProperty({ example: 'standalone' }) adapterKey!: string;
   @ApiProperty({ nullable: true, type: String }) displayName!: string | null;
+  @ApiProperty({
+    description:
+      'false = adapter ของ connector ไม่ได้ติดตั้ง/ปิดใน environment นี้ (เช่น demo ใน production) — ไม่ส่ง/ไม่ดึง',
+  })
+  adapterAvailable!: boolean;
   @ApiProperty({ nullable: true, enum: CONNECTOR_STATUSES }) status!: string | null;
   @ApiProperty({
     type: [String],
@@ -320,6 +346,12 @@ export class EffectiveConnectorDto {
     description: 'ใช้ได้จริง (UI แสดงเฉพาะที่อยู่ในรายการนี้)',
   })
   capabilities!: string[];
+  @ApiProperty({
+    type: DocumentSyncDto,
+    description:
+      'มีขั้น sync ไหมต่อประเภทเอกสาร (ST7-T14) — `NOT_APPLICABLE` = ไม่แสดงสถานะ sync, เอกสารเดินสถานะใน TMS เอง (invoice ISSUED → PAID ไม่มี SENT)',
+  })
+  documentSync!: DocumentSyncDto;
   @ApiProperty({ description: 'ส่ง/ดึงได้ตอนนี้ (ACTIVE) — false = เอกสารเข้าคิวรอ' })
   sending!: boolean;
   @ApiProperty({ enum: ['company', 'tenant', 'none'] }) scope!: string;

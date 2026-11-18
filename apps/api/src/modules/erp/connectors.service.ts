@@ -3,6 +3,7 @@ import { type Connector, Prisma } from '@prisma/client';
 import {
   canConnectorTransition,
   type ConnectorStatus,
+  documentSyncModes,
   ERP_CAPABILITIES,
   unsupportedCapabilities,
 } from '@tms/domain';
@@ -15,6 +16,7 @@ import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
 import { PrismaService } from '../../db/prisma.service';
 import { EntitlementService } from '../entitlements/entitlement.service';
+import { checkUrlShape } from '../webhooks/ssrf';
 import type {
   ConnectorActionDto,
   ConnectorCredentialsDto,
@@ -125,6 +127,7 @@ export class ConnectorsService {
     return this.adapters.list().map((a) => ({
       key: a.key,
       displayName: a.displayName,
+      demo: !!a.localOnly,
       capabilities: ERP_CAPABILITIES.filter((c) => a.capabilities().has(c)),
       configFields: a.configFields.map((f) => ({
         key: f.key,
@@ -132,6 +135,7 @@ export class ConnectorsService {
         required: f.required,
         kind: f.kind,
         maxLength: f.maxLength ?? null,
+        options: f.options ? [...f.options] : null,
       })),
     }));
   }
@@ -205,8 +209,10 @@ export class ConnectorsService {
         connectorId: null,
         adapterKey: this.adapters.standalone.key,
         displayName: null,
+        adapterAvailable: true,
         status: null,
         capabilities: [],
+        documentSync: documentSyncModes([]),
         sending: false,
         scope: 'none',
         erpCompanyCode: null,
@@ -236,8 +242,10 @@ export class ConnectorsService {
       connectorId: r.connector ? encodeId('connector', r.connector.id) : null,
       adapterKey: r.connector?.adapterKey ?? this.adapters.standalone.key,
       displayName: r.standalone ? null : (r.adapter?.displayName ?? null),
+      adapterAvailable: !!r.adapter,
       status: r.status,
       capabilities: r.capabilities,
+      documentSync: documentSyncModes(r.capabilities),
       sending: r.sending,
       scope: r.scope,
       erpCompanyCode: r.erpCompanyCode,
@@ -279,7 +287,13 @@ export class ConnectorsService {
       }
       const okProto = u?.protocol === 'https:' || (u?.protocol === 'http:' && isLocalEnv());
       if (!u || !okProto) throw field422(path, 'invalid_url', 'must be an https:// URL');
+      // ST7-T14 กัน SSRF ตั้งแต่ตอนบันทึก (ตัวตรวจเดียวกับ webhook — ST7-T04): ห้าม user:pass ใน URL, host ภายใน/IP ส่วนตัว,
+      // พอร์ต < 1024 ที่ไม่ใช่ 80/443 · HTTP client ของ adapter ต้อง resolve + ตรวจ IP อีกชั้นตอนเรียก (ST8-T03)
+      const bad = checkUrlShape(s);
+      if (bad) throw field422(path, bad.code, bad.message);
     }
+    if (f.options && !f.options.includes(s))
+      throw field422(path, 'invalid_option', `must be one of: ${f.options.join(', ')}`);
     return s;
   }
 
@@ -664,6 +678,61 @@ export class ConnectorsService {
         reason: body.reason,
       });
     return row;
+  }
+
+  // ---------- หมุน key เข้ารหัส (ST7-T14 — ส่งต่อจาก ST7-T13) ----------
+
+  /**
+   * เข้ารหัส **credential ของ connector เท่านั้น** ใหม่ด้วย key ปัจจุบันของ FIELD_ENCRYPTION_KEYS (ตัวแรก) ทุก tenant — worker เรียกวันละครั้ง
+   * ⚠ ข้อมูลอื่นที่เข้ารหัสด้วย FieldCipher (TOTP secret, เลขบัตรคนขับ, เลขบัญชี/เลขภาษีรถร่วม, secret ของ webhook,
+   *   token LINE, PIN ของ POD ฯลฯ) **ยังไม่มีงานเข้ารหัสใหม่** — ห้ามเอา key เก่าออกจาก FIELD_ENCRYPTION_KEYS จนกว่าจะมีงาน
+   *   เข้ารหัสใหม่ทั้งระบบ ([OPEN] ส่งต่อ ST9 / runbook ops — PROGRESS) · `remaining = 0` ที่นี่ไม่ได้แปลว่าเอา key เก่าออกได้
+   * ขั้นตอน (เฉพาะส่วน connector): เพิ่ม key ใหม่ไว้หน้าสุด (`k2:…,k1:…`) → deploy → รอรอบนี้ (หรือรันเอง) จน `remaining = 0`
+   * - เขียนแบบมีเงื่อนไข (ciphertext ยังเป็นค่าเดิม) — ผู้ใช้หมุน credential พร้อมกันไม่ถูกทับ
+   * - ไม่เปลี่ยน `version`/ETag (ค่าที่ API แสดงไม่เปลี่ยน) และไม่ลง audit (ไม่ใช่การเปลี่ยน credential) — log จำนวนเท่านั้น
+   * - ถอดไม่ได้ (key เก่าถูกเอาออกก่อนเวลา) = นับ `failed` + log id (ไม่ลบค่า — ใส่ key กลับแล้วรันใหม่ได้)
+   */
+  async reencryptCredentials(): Promise<{
+    scanned: number;
+    reencrypted: number;
+    failed: number;
+    remaining: number;
+  }> {
+    const rows = await this.prisma.platform.connector.findMany({
+      where: { credentialsEnc: { not: null } },
+      select: { id: true, credentialsEnc: true },
+    });
+    let reencrypted = 0;
+    let failed = 0;
+    let remaining = 0;
+    for (const r of rows) {
+      const enc = r.credentialsEnc!;
+      if (!this.cipher.needsRotation(enc)) continue;
+      let next: string;
+      try {
+        next = this.cipher.encrypt(this.cipher.decrypt(enc));
+      } catch {
+        failed += 1;
+        remaining += 1;
+        this.logger.warn(`connector ${r.id}: cannot decrypt credentials for key rotation`);
+        continue;
+      }
+      const n = await this.prisma.platform.connector.updateMany({
+        where: { id: r.id, credentialsEnc: enc },
+        data: { credentialsEnc: next },
+      });
+      if (n.count === 1) reencrypted += 1;
+      else if (await this.stillOld(r.id)) remaining += 1;
+    }
+    return { scanned: rows.length, reencrypted, failed, remaining };
+  }
+
+  private async stillOld(id: string): Promise<boolean> {
+    const c = await this.prisma.platform.connector.findUnique({
+      where: { id },
+      select: { credentialsEnc: true },
+    });
+    return !!c?.credentialsEnc && this.cipher.needsRotation(c.credentialsEnc);
   }
 
   // ---------- health (นอก transaction ของ request — เรียกปลายทาง) ----------

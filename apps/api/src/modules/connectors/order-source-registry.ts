@@ -62,8 +62,9 @@ export class MockOrderSource implements OrderSourcePort {
 
 /**
  * ทะเบียน adapter ขาเข้า (ST3-T05) — core หา port จากรหัส connector เท่านั้น ไม่รู้จัก ERP ใดเป็นพิเศษ
- * ตอนนี้มีเฉพาะ `mock` (dev/test) · ST7-T13 วาง `ErpAdapter.pullOrders` (สัญญาเดียวกับ port นี้) + ตาราง `connector`
- * — การดึงผ่าน connector ต่อ tenant (cursor ต่อ connector id + scheduler 5 นาที) ย้ายมาใช้ ErpAdapterRegistry ใน ST7-T14/ST8-T04
+ * มีเฉพาะ `mock` (dev/test) = ต้นทางทดสอบตามรหัส (cursor ต่อรหัส) ของ ST3-T05
+ * ST7-T14: การดึงจริงไปผ่านแถว `connector` ของ tenant → ErpAdapterRegistry (`ConnectorIntakeService.pullConnector`,
+ * cursor ต่อ connector id, `ConnectorPullScheduler` ทุก 5 นาที) — adapter ใหม่ (KRS ST8-T04) ไม่ลงทะเบียนที่นี่
  */
 @Injectable()
 export class OrderSourceRegistry {
