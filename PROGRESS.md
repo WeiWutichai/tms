@@ -32,6 +32,7 @@
 | ST7 Open API + Integration | **กำลังทำ** 1/23 (T01 merge แล้ว · T02 แก้ตาม review/QA แล้ว รอ merge · T03 แก้ตาม review/QA แล้ว รอ merge · T04 แก้ตาม review/QA แล้ว รอ merge · T05 แก้ตาม review/QA แล้ว รอ merge · T08 แก้ตาม review/QA แล้ว รอ merge · T13 แก้ตาม review/QA แล้ว รอ merge · T07 dev เสร็จ รอ review/QA · T22 แก้ตาม review/QA แล้ว รอ merge · T06 แก้ตาม review/QA อยู่ · T10 แก้ตาม review/QA แล้ว รอ merge) · ทำ T01 ก่อน ST5/ST6 ได้เพราะไม่ใช้ event ของ ST5/ST6 | 17 พ.ย. 2569 | — | ตารางงาน ST7 ด้านล่าง |
 | ST9 (เฉพาะ T08 ศูนย์แจ้งเตือน) | **dev เสร็จ** รอ review/QA/merge (`st9/t08-notifications`) | 18 พ.ย. 2569 | — | ดูบันทึก 18 พ.ย. (ST9-T08) |
 | ST5–ST6, ST8–ST9 | ยังไม่เริ่ม | | | |
+| ST9 (เฉพาะ T12 ตรวจความครบ) | **dev เสร็จ** รอ review/QA/merge (`st9/t12-completeness`) | 19 พ.ย. 2569 | — | ดูบันทึก 19 พ.ย. (ST9-T12) |
 | ST9 Dashboard / รายงาน (T01) | **กำลังทำ** — T01 dev เสร็จ (lane C) รอ review/QA | 18 พ.ย. 2569 | — | ST9-T01 Dashboard ปฏิบัติการ |
 
 ### งาน ST0 (เกณฑ์ตรวจรับใน `plan/01-phase0-backlog.md`)
@@ -261,6 +262,13 @@
 - (11 พ.ย., พบระหว่าง T19 — **แก้แล้วใน T04**: `db:migrate` รัน bootstrap ทุก tenant ซึ่ง sync role ระบบ) **role ระบบของ tenant ที่มีอยู่ไม่ได้สิทธิ์ใหม่อัตโนมัติ** — `ensureSystemRoles` รันแค่ตอนสร้าง tenant/seed; เมื่อโค้ดเพิ่ม permission (เช่น `documents:write` ใน T08) tenant เดิมไม่ได้ จนกว่าจะรัน seed · ฐาน dev แก้ด้วย seed แล้ว · ต้องมี sync ตอน deploy/บูต ก่อนมี tenant จริง (เสนอทำใน T24 admin portal หรือ migration step) 
 
 ## บันทึกรายวัน
+
+### 19 พ.ย. 2569 (ST9-T12 ตรวจความครบ: ค่าตั้งองค์กร + ภาษา + PDF — dev, lane l2)
+- ทำ: checklist ค่าตั้งองค์กร `plan/12-settings-checklist.md` (docs/04 I + K5 + spec/01 §13 → หน้าจอ → key → สถานะ): registry 21 key = UI 11 / API-only 10 (ต้นแบบไม่มีช่องทั้งหมด — ไม่ออกแบบเอง, ลง spec/12 §3 แถว ST9-T12 [OPEN — ส่ง Claude Design]) · resource แยก (นิติบุคคล/สาขา, เลขเอกสาร, ผู้ใช้, เหตุผล, แจ้งเตือน) มี UI ครบ · โลโก้ไม่มี API → ผู้สมัครเพิ่ม #31 · test `apps/api/test/settings-checklist.test.ts` บังคับ checklist ตรง registry และสถานะ UI ตรงกับโค้ดเว็บ
+- ภาษา: backlog "TH/EN ครบ" ขัด D-11 → ยึด D-11 (ไทยครบ + EN ตกกลับเป็นไทย) · `lint-i18n.mjs` เพิ่มสแกน: `'k' as MessageKey`, template `` `pre.${x}` ``, `enumLabel`, error code ทุกตัวของ API ต้องมี `problem.<code>` → **พบขาด 27 ตัว เพิ่มใน th.ts แล้ว** (ข้อความจาก `PROBLEMS[code].th`) · `apps/web/src/i18n/completeness.test.tsx`: รัน lint, ป้าย enum จาก OpenAPI 20 ชุด, ชื่อเมนูตั้งค่า, EN fallback (export `SECTIONS` จาก Settings.tsx)
+- PDF: `apps/api/test/pdf-thai.test.ts` render ใบคุมรถ (ปกติ/ยาว/ค.ศ.) — ข้อความไทยทุกบรรทัดใช้ Sarabun, ใน PDF มีแต่ Sarabun + ToUnicode อักษรไทย; โมดูลใหม่ที่เรียก `PdfRenderer.pdf` ต้องลง `KINDS` · พบ: อักขระนอก Sarabun (`→`) ตกไปฟอนต์เครื่อง (เอกสารตัวอย่าง engine มี — ไม่ใช่เอกสารลูกค้า ไม่แก้ golden)
+- ไฟล์: `plan/12-settings-checklist.md`, `apps/api/test/{settings-checklist,pdf-thai}.test.ts`, `apps/web/scripts/lint-i18n.mjs`, `apps/web/src/i18n/{th.ts,completeness.test.tsx}`, `apps/web/src/features/settings/Settings.tsx`, spec/12 §3, plan/01 §5 #31
+- ค้าง: ช่อง UI ของ 10 key API-only รอ Claude Design (PROGRESS #15 + spec/12 §3) · โลโก้ (#31) · tooltip ปุ่มโลโก้ยังอ้าง ST1-T08 · EN/中文 ครบ = ผู้สมัครเพิ่ม #21 · เอกสารภาษี PDF (ST5–ST6) ต้องเพิ่มใน `KINDS`
 
 ### 19 พ.ย. 2569 (ST7-T09 แก้ตาม QA)
 - ทำ: (L1) ตัวอย่าง `data.object` ของ trigger/webhook.test ใกล้ของจริง — ทุก field, id รูปจริง (prefix + 32 hex ใหม่ทุกครั้ง), enum ค่าแรก, array ≥ 1 รายการ (ตาม minItems), วันเวลาปัจจุบัน, nullable ไม่มีตัวอย่าง = null (`webhooks/event-openapi.ts`) (L2) drawer endpoint ใน Sandbox แสดงนโยบายลองใหม่แบบ "บันทึกในกิจกรรม ไม่แจ้งอีเมล" (`whk.policySbx`) · ผู้สมัครเพิ่ม sandbox เลื่อนเป็น #30 · merge main (ST9-T10)
