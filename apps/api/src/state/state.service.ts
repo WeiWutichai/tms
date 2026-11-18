@@ -15,7 +15,9 @@ export interface TransitionInput<S extends string, E extends string> {
   eventType: string;
   /** apply การเปลี่ยนสถานะจริง (update ที่ตรวจ version) คืน snapshot หลังเปลี่ยน */
   apply: (to: S) => Promise<Record<string, unknown>>;
-  previousAttributes?: Record<string, unknown>;
+  /** ค่าเดิม (ค่าเริ่ม `{status: from}`) — ฟังก์ชัน = คำนวณจาก snapshot หลังเปลี่ยน (เช่น diff กับ DTO ก่อนเปลี่ยน — ST7-T06) */
+  previousAttributes?:
+    Record<string, unknown> | ((snapshot: Record<string, unknown>) => Record<string, unknown>);
 }
 
 /**
@@ -48,7 +50,9 @@ export class StateService {
         entityType: input.docType,
         localId: input.docId,
         snapshot: snapshot as any,
-        previousAttributes: (input.previousAttributes ?? { status: input.from }) as any,
+        previousAttributes: (typeof input.previousAttributes === 'function'
+          ? input.previousAttributes(snapshot)
+          : (input.previousAttributes ?? { status: input.from })) as any,
         requestId: ctx?.requestId ?? null,
         actorId: ctx?.actorId ?? null,
       },

@@ -411,18 +411,19 @@ describe('ePOD web (ST4-T07)', () => {
       checks: { goods_ok: true },
       choices: { box: 'ดี' },
     });
-    expect(JSON.stringify(ok.body)).not.toContain('4821');
+    // PIN ต้องไม่หลุดเป็นค่าใด ๆ (ตรวจค่าตรงตัว ไม่ใช่ substring — id สุ่มอาจมี "4821" ปน)
+    expect(pinLeaks(ok.body)).toEqual([]);
     const row = await db.deliveryOrderPod.findFirstOrThrow({ where: { deliveryOrderId: d.uuid } });
     expect(row.pinEnc).toBeTruthy();
-    expect(row.pinEnc).not.toContain('4821');
+    expect(row.pinEnc).not.toBe('4821'); // ciphertext สุ่ม — ไม่ตรวจ substring
     const audit = await db.auditLog.findFirstOrThrow({
       where: { entityId: d.uuid, action: 'pod.recorded' },
     });
-    expect(JSON.stringify([audit.before, audit.after, audit.reason])).not.toContain('4821');
+    expect(pinLeaks([audit.before, audit.after, audit.reason])).toEqual([]);
     const ev = await db.domainEvent.findFirstOrThrow({
       where: { localId: d.uuid, type: 'pod.captured' },
     });
-    expect(JSON.stringify(ev.snapshot)).not.toContain('4821');
+    expect(pinLeaks(ev.snapshot)).toEqual([]);
     // GET คำนวณ missing จาก PIN ที่เก็บ (ถอดในหน่วยความจำ) — ยังครบ
     const g = await api(app, admin).get(`/v1/delivery-orders/${d.doId}/pod`).expect(200);
     expect(g.body.missing).toEqual([]);
@@ -548,3 +549,21 @@ describe('ePOD web (ST4-T07)', () => {
     );
   });
 });
+
+/**
+ * ค่า PIN ทดสอบ ('4821') ที่หลุดใน payload: ค่า string ที่ตรงตัว/มี PIN เป็นคำแยก (เช่น "pin 4821") หรือ field ชื่อ pin ที่ไม่ใช่ค่าปิดบัง
+ * — ไม่นับ substring ใน id/ciphertext สุ่ม (เดิมตรวจ substring ทั้ง JSON → สุ่มชนแล้ว test ล้มเป็นครั้งคราว)
+ */
+function pinLeaks(v: unknown, path = '$'): string[] {
+  if (typeof v === 'string')
+    return v === '4821' || /(^|[^0-9a-zA-Z_+/-])4821([^0-9a-zA-Z_+/-]|$)/.test(v) ? [path] : [];
+  if (typeof v === 'number') return v === 4821 ? [path] : [];
+  if (Array.isArray(v)) return v.flatMap((x, i) => pinLeaks(x, `${path}[${i}]`));
+  if (v && typeof v === 'object')
+    return Object.entries(v).flatMap(([k, x]) =>
+      /^pin$/i.test(k) && x !== null && x !== '••••'
+        ? [`${path}.${k}`]
+        : pinLeaks(x, `${path}.${k}`),
+    );
+  return [];
+}
