@@ -5283,7 +5283,7 @@ const { data, error } = await tms.PUT('/v1/documents/{id}/content', {
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
 | `id` | ใช่ | `string` |   |   | `doc_…` |
-| `status` | ใช่ | `string` | ค่า: `pending`, `ready` |   |   |
+| `status` | ใช่ | `string` | ค่า: `pending`, `ready`, `purged` | purged = ไฟล์ถูกลบตามระยะเก็บ (ST9-T14: POD ≥ 2 ปี, ไฟล์ส่งออก 7 วัน) — ดาวน์โหลดไม่ได้ (404) |   |
 | `kind` | ใช่ | `string` |   |   |   |
 | `mime` | ใช่ | `string` |   |   |   |
 | `bytes` | ใช่ | `number` |   |   |   |
