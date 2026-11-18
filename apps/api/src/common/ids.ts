@@ -52,6 +52,8 @@ export const ID_PREFIX = {
   tripCost: 'tco', // ST4-T13 ต้นทุนเที่ยว (ค่าใช้จ่ายหน้างานฝั่งซื้อ)
   /** ST7-T13 การตั้งค่า ErpAdapter ต่อ tenant (docs/01 §3.7 `con_`) */
   connector: 'con',
+  /** ST7-T22 webhook ขาเข้า 1 event (processed_webhook_event) */
+  inboundEvent: 'ibe',
 } as const;
 export type IdKind = keyof typeof ID_PREFIX;
 

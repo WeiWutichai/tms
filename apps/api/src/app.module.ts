@@ -87,6 +87,8 @@ import {
   ConnectorsEffectiveController,
 } from './modules/erp/connectors.controller';
 import { ConnectorsService } from './modules/erp/connectors.service';
+import { InboundWebhookController } from './modules/erp/inbound-webhook.controller';
+import { InboundWebhookService } from './modules/erp/inbound-webhook.service';
 import { ConnectorResolver } from './modules/erp/connector-resolver';
 import { ErpAdapterRegistry } from './modules/erp/erp-adapter.registry';
 import { ErpAdapterSink } from './modules/erp/erp-adapter.sink';
@@ -230,6 +232,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     WebhooksController,
     ConnectorsEffectiveController,
     ConnectorsController,
+    InboundWebhookController,
     WebhookDeliveriesController,
     EventsController,
     RateCardsController,
@@ -342,6 +345,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     ErpAdapterRegistry,
     ConnectorResolver,
     ConnectorsService,
+    InboundWebhookService,
     ErpAdapterSink,
     ErpAdaptersBootstrap,
     WebhooksService,
