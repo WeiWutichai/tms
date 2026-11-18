@@ -49,6 +49,8 @@ export const PERMISSIONS = [
   'settlements:pay',
   'integrations:read',
   'integrations:retry',
+  /** ST7-T11: อ่าน event สาธารณะ `GET /v1/events` (docs/01 §5.4 `events:read`) — เห็นเฉพาะ event ของ resource ที่อ่านได้ */
+  'events:read',
   'jobs:read',
   'reports.finance:read',
   'reports.ops:read',

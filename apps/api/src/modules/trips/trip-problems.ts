@@ -11,14 +11,15 @@ const P = (code: ProblemCode, extra: Record<string, unknown> = {}) => ({
   ...extra,
 });
 
-export const T403 = (scope: string) => ({
+/** หลาย scope = มีตัวใดตัวหนึ่งก็พอ (`required` เป็น array ตามที่ guard ตอบ) */
+export const T403 = (...scopes: [string, ...string[]]) => ({
   status: 403,
-  description: `ไม่มีสิทธิ์ (\`${scope}\`)`,
+  description: `ไม่มีสิทธิ์ (${scopes.map((s) => `\`${s}\``).join(' / ')})`,
   examples: {
     permission_denied: P('permission_denied', {
-      module: 'trips',
-      action: scope.split(':')[1],
-      required: [scope],
+      module: scopes[0].split(':')[0],
+      action: scopes[0].split(':')[1],
+      required: scopes,
     }),
   },
 });

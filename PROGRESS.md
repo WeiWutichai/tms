@@ -263,6 +263,11 @@
 
 ## บันทึกรายวัน
 
+### 19 พ.ย. 2569 (ST7-T11 แก้ตาม review/QA + merge main)
+- ทำ: (HIGH) cursor ข้าม/ซ้ำเมื่อเวลาต่างระดับ µs → migration `0109_cursor_ms_precision` (TIMESTAMPTZ(3) ของ updated_at ทุกตาราง + domain_event.occurred_at, webhook_delivery.sent_at, message_delivery.created_at, login_attempt.created_at) + test เดินทุกหน้าทั้งสองทิศด้วยเวลา µs เดียวกัน 9 รายการ + guard ความละเอียดคอลัมน์ · แก้ `GET /v1/delivery-orders?sort=-updatedAt` cursor 422 · (M1) `GET /v1/events` scope `events:read` (สิทธิ์ใหม่, docs/01 §5.4) + กรองตาม scope อ่านของ resource ของ event · (M2) mode ของ envelope จาก `WebhookEngine` (sandbox = test) · (L) MATRIX เพิ่ม `GET /webhooks/{id}`, `/webhook-deliveries/{id}` · เพดาน + `truncated` ของ `/orders/{id}/events` `/documents` · `type` ไม่รู้จัก → 422 · ตัวอย่าง 403 instance/required ถูกต้อง
+- ไฟล์: `apps/api/prisma/{schema.prisma,migrations/0109_cursor_ms_precision}`, `webhooks/webhook-ops.{service,controller}.ts`, `delivery-orders/*`, `orders/order-resources.controller.ts`, `http/problem-openapi.ts`, `trips/trip-problems.ts`, `tracking/tracking.controller.ts`, `packages/domain/src/permissions.ts`, `apps/web/src/i18n/th.ts`, test `api-conformance.test.ts`, spec/07 §5.2, spec/12 §3
+- ค้าง: SSE `/v1/events/stream` · OAS nullable+allOf (ไม่แก้ — เหตุผลใน spec/12)
+
 ### 19 พ.ย. 2569 (ST7-T11 Conformance ของ resource เฟสแรก — lane l3)
 
 - ทำ: ตาราง conformance G2 (#1–#5, #7, #8, #10 + #2 อ่าน) → endpoint → scope → contract test ที่เรียกด้วย API key จริง · เติม endpoint ที่ขาด (อ่านอย่างเดียว): `GET /v1/orders/{id}/documents` (ไฟล์ใบสั่ง + POD ของ DO), `/tracking` (ขั้น/ETA แบบหน้าติดตาม + สถานะ DO + พิกัดล่าสุดจาก event หน้างาน), `/events` (สถานะใบสั่ง/DO + event หน้างาน), `GET /v1/stops/{id}`, `GET /v1/events` + `/events/{id}` (envelope เดียวกับ webhook) · OpenAPI: `@RequireScope` → `x-required-scopes`; `describeProblemDefaults` เติมตัวอย่าง 401/403(required ตาม scope)/404/412/422 ที่ขาด; แก้ตัวอย่างผิด (403 ของ orders อ่านเคยบอก `orders:write`, `PUT/PATCH external` เคยเป็นรหัส `forbidden`); เอกสาร problem ของ `/v1/documents` · `GET /jobs/{id}` ประกาศ `x-required-scopes`

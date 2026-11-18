@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma, type WebhookDelivery } from '@prisma/client';
+import { Prisma, type DomainEvent, type WebhookDelivery } from '@prisma/client';
 import { scopeAllows, WEBHOOK_DELIVERY_RETENTION_DAYS, WEBHOOK_EVENT_TYPES } from '@tms/domain';
 import { randomUUID } from 'node:crypto';
 import { encodeId, tryDecodeId } from '../../common/ids';
@@ -21,7 +21,33 @@ import type {
   WebhookResendResultDto,
 } from './webhook-ops.dto';
 import { MANUAL_OP, WEBHOOK_SINK } from './webhook.sink';
+import { WebhookEngine } from './webhook-engine';
 import { WebhooksService } from './webhooks.service';
+
+/**
+ * ST7-T11 (review M1): scope อ่านของ resource ของ event — `GET /v1/events` เห็นเฉพาะ event ที่ผู้เรียกอ่าน REST ได้
+ * (ตรงกับ scope ของ endpoint เจ้าของ object: DO/POD ใช้ orders/trips ตาม A3, connector = settings) · ไม่รู้จัก = ไม่มีใครอ่านได้
+ */
+const EVENT_READ_SCOPE: Record<string, string> = {
+  order: 'orders:read',
+  delivery_order: 'orders:read',
+  trip: 'trips:read',
+  stop: 'trips:read',
+  pod: 'trips:read',
+  invoice: 'invoices:read',
+  credit_note: 'invoices:read',
+  debit_note: 'invoices:read',
+  payment: 'invoices:read',
+  receipt: 'invoices:read',
+  wht_certificate: 'invoices:read',
+  settlement: 'settlements:read',
+  connector: 'settings:read',
+  reconcile: 'integrations:read',
+  job: 'jobs:read',
+};
+export function eventReadScope(type: string): string {
+  return EVENT_READ_SCOPE[type.split('.')[0]!] ?? 'events:none';
+}
 
 const DAY = 24 * 60 * 60 * 1000;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -108,6 +134,7 @@ export class WebhookOpsService {
     private readonly hooks: WebhooksService,
     private readonly dispatcher: OutboxDispatcher,
     private readonly limiter: RateLimitService,
+    private readonly engine: WebhookEngine,
   ) {}
 
   // ---------- read ----------
@@ -189,43 +216,35 @@ export class WebhookOpsService {
     };
   }
 
-  /** envelope ของ event สาธารณะ (ตัดราคาตามสิทธิ์ผู้เรียก — เหมือน payload ใน delivery) */
-  private eventDto(ev: {
-    id: string;
-    tenantId: string;
-    type: string;
-    version: number;
-    occurredAt: Date;
-    snapshot: Prisma.JsonValue;
-    previousAttributes: Prisma.JsonValue | null;
-    requestId: string | null;
-  }): EventDto {
-    const rc = requestContext.require();
-    return redactPrices(
-      {
-        id: encodeId('event', ev.id),
-        type: ev.type,
-        version: String(ev.version),
-        occurredAt: ev.occurredAt.toISOString(),
-        tenantId: encodeId('tenant', ev.tenantId),
-        mode: 'live',
-        data: { object: ev.snapshot ?? null, previousAttributes: ev.previousAttributes ?? null },
-        request: { id: ev.requestId, idempotencyKey: null },
-      },
-      rc.scopes ?? [],
-      rc.principalType,
-    ) as EventDto;
+  /**
+   * ST7-T11 `GET /v1/events`: event สาธารณะของ resource ที่ผู้เรียกอ่านได้เท่านั้น (`events:read` + scope อ่านของ resource —
+   * `eventReadScope`) · envelope + mode เดียวกับ webhook (WebhookEngine) · ตัดราคาตามสิทธิ์ (เหมือน payload ใน delivery)
+   */
+  private readableTypes(): string[] {
+    const scopes = requestContext.require().scopes ?? [];
+    return WEBHOOK_EVENT_TYPES.filter((t) => scopeAllows(scopes, eventReadScope(t)));
   }
 
-  /** ST7-T11 `GET /v1/events` — event สาธารณะ (ทะเบียน WEBHOOK_EVENT_TYPES) ของบริษัท ใหม่สุดก่อน */
+  private async eventDto(ev: DomainEvent): Promise<EventDto> {
+    const rc = requestContext.require();
+    const env = this.engine.envelopeOf(ev.tenantId, ev, await this.engine.modeOf(ev.tenantId));
+    return redactPrices(env, rc.scopes ?? [], rc.principalType) as EventDto;
+  }
+
   async listEvents(q: EventListQuery): Promise<EventPageDto> {
     const limit = q.limit ?? 50;
     const sort = q.sort ?? '-occurredAt';
     const desc = sort === '-occurredAt';
     const op = desc ? 'lt' : 'gt';
-    const types = q.type
-      ? q.type.split(',').filter((t) => (WEBHOOK_EVENT_TYPES as readonly string[]).includes(t))
-      : [...WEBHOOK_EVENT_TYPES];
+    const readable = this.readableTypes();
+    const asked = q.type ? q.type.split(',') : null;
+    const unknown = asked?.filter((t) => !(WEBHOOK_EVENT_TYPES as readonly string[]).includes(t));
+    if (unknown?.length)
+      throw new ProblemException('validation_failed', undefined, [
+        { field: 'type', code: 'unknown_event_type', message: `unknown event type ${unknown[0]}` },
+      ]);
+    // ชนิดที่ขอแต่ไม่มีสิทธิ์อ่าน = ไม่มีรายการ (ไม่ใช่ 403 — เหมือนรายการที่กรองตามสิทธิ์)
+    const types = asked ? asked.filter((t) => readable.includes(t)) : readable;
     const and: Prisma.DomainEventWhereInput[] = [{ type: { in: types } }];
     if (q.cursor) {
       const c = decodeCursor(q.cursor, sort);
@@ -243,17 +262,16 @@ export class WebhookOpsService {
     const slice = hasMore ? rows.slice(0, limit) : rows;
     const last = slice[slice.length - 1];
     return {
-      data: slice.map((r) => this.eventDto(r)),
+      data: await Promise.all(slice.map((r) => this.eventDto(r))),
       nextCursor: hasMore && last ? cursorOf({ sentAt: last.occurredAt, id: last.id }, sort) : null,
       hasMore,
     };
   }
 
-  /** ST7-T11 `GET /v1/events/{id}` — ไม่ใช่ event สาธารณะ/บริษัทอื่น = 404 */
+  /** ST7-T11 `GET /v1/events/{id}` — ไม่ใช่ event สาธารณะ / อ่าน resource ไม่ได้ / บริษัทอื่น = 404 */
   async getEvent(id: string): Promise<EventDto> {
     const ev = await this.db.tx.domainEvent.findFirst({ where: { id } });
-    if (!ev || !(WEBHOOK_EVENT_TYPES as readonly string[]).includes(ev.type))
-      throw new ProblemException('not_found');
+    if (!ev || !this.readableTypes().includes(ev.type)) throw new ProblemException('not_found');
     return this.eventDto(ev);
   }
 

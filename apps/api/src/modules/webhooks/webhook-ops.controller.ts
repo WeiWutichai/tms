@@ -84,12 +84,12 @@ export class EventsController {
   constructor(private readonly ops: WebhookOpsService) {}
 
   @Get()
-  @RequireScope('settings:read')
+  @RequireScope('events:read')
   @ApiOkResponse({
     type: EventPageDto,
     description:
       'ST7-T11: event สาธารณะของบริษัท (envelope เดียวกับ webhook — ดึงเองแทน/เสริม webhook) ใหม่สุดก่อน · กรอง `type`, ช่วงเวลา · ' +
-      'ไม่ขึ้นกับการสมัคร endpoint · field ราคาถูกตัดตามสิทธิ์ผู้เรียก',
+      'ไม่ขึ้นกับการสมัคร endpoint · scope `events:read` (docs/01 §5.4) **และ** scope อ่านของ resource ของ event (order.*/delivery_order.* → `orders:read`, trip.*/stop.*/pod.* → `trips:read`, connector.* → `settings:read`, job.* → `jobs:read`) — ชนิดที่อ่านไม่ได้ไม่อยู่ในรายการ · `type` ที่ไม่อยู่ในทะเบียน → 422 · field ราคาถูกตัดตามสิทธิ์ · `mode` = `test` ใน sandbox · ⚠ `evt_` ของ envelope เป็นคนละชุดกับ id ของ event หน้างาน (`GET /v1/stops/{id}/events`)',
   })
   listEvents(@Query() q: EventListQuery): Promise<EventPageDto> {
     return this.ops.listEvents(q);
@@ -97,10 +97,11 @@ export class EventsController {
 
   @Get(':id')
   @TenantResource('event')
-  @RequireScope('settings:read')
+  @RequireScope('events:read')
   @ApiOkResponse({
     type: EventDto,
-    description: 'ST7-T11: envelope ของ event (id เดียวกับ X-TMS-Event-Id)',
+    description:
+      'ST7-T11: envelope ของ event (id เดียวกับ X-TMS-Event-Id) · อ่าน resource ของ event ไม่ได้ / ไม่ใช่ event สาธารณะ = 404',
   })
   getEvent(@Param('id') id: string): Promise<EventDto> {
     return this.ops.getEvent(decodeIdOr404('event', id));

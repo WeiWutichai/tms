@@ -26995,7 +26995,7 @@
         ],
         "responses": {
           "200": {
-            "description": "ST7-T11: event สาธารณะของบริษัท (envelope เดียวกับ webhook — ดึงเองแทน/เสริม webhook) ใหม่สุดก่อน · กรอง `type`, ช่วงเวลา · ไม่ขึ้นกับการสมัคร endpoint · field ราคาถูกตัดตามสิทธิ์ผู้เรียก",
+            "description": "ST7-T11: event สาธารณะของบริษัท (envelope เดียวกับ webhook — ดึงเองแทน/เสริม webhook) ใหม่สุดก่อน · กรอง `type`, ช่วงเวลา · ไม่ขึ้นกับการสมัคร endpoint · scope `events:read` (docs/01 §5.4) **และ** scope อ่านของ resource ของ event (order.*/delivery_order.* → `orders:read`, trip.*/stop.*/pod.* → `trips:read`, connector.* → `settings:read`, job.* → `jobs:read`) — ชนิดที่อ่านไม่ได้ไม่อยู่ในรายการ · `type` ที่ไม่อยู่ในทะเบียน → 422 · field ราคาถูกตัดตามสิทธิ์ · `mode` = `test` ใน sandbox · ⚠ `evt_` ของ envelope เป็นคนละชุดกับ id ของ event หน้างาน (`GET /v1/stops/{id}/events`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -27022,7 +27022,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "$ref": "#/components/responses/Forbidden_settings.read"
+            "$ref": "#/components/responses/Forbidden_events.read"
           },
           "422": {
             "$ref": "#/components/responses/ValidationFailed"
@@ -27040,7 +27040,7 @@
           "webhooks"
         ],
         "x-required-scopes": [
-          "settings:read"
+          "events:read"
         ]
       }
     },
@@ -27075,7 +27075,7 @@
         ],
         "responses": {
           "200": {
-            "description": "ST7-T11: envelope ของ event (id เดียวกับ X-TMS-Event-Id)",
+            "description": "ST7-T11: envelope ของ event (id เดียวกับ X-TMS-Event-Id) · อ่าน resource ของ event ไม่ได้ / ไม่ใช่ event สาธารณะ = 404",
             "content": {
               "application/json": {
                 "schema": {
@@ -27102,7 +27102,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "$ref": "#/components/responses/Forbidden_settings.read"
+            "$ref": "#/components/responses/Forbidden_events.read"
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
@@ -27120,7 +27120,7 @@
           "webhooks"
         ],
         "x-required-scopes": [
-          "settings:read"
+          "events:read"
         ]
       }
     },
@@ -32453,7 +32453,7 @@
                       "code": "permission_denied",
                       "instance": "/v1/trips/trp_3f2a…",
                       "requestId": "b6a1c2d3-…",
-                      "module": "trips",
+                      "module": "prices.buy",
                       "action": "read",
                       "required": [
                         "prices.buy:read"
@@ -34007,7 +34007,7 @@
                       "code": "permission_denied",
                       "instance": "/v1/trips/trp_3f2a…",
                       "requestId": "b6a1c2d3-…",
-                      "module": "trips",
+                      "module": "prices.sell",
                       "action": "write",
                       "required": [
                         "prices.sell:write"
@@ -34223,7 +34223,7 @@
                       "code": "permission_denied",
                       "instance": "/v1/trips/trp_3f2a…",
                       "requestId": "b6a1c2d3-…",
-                      "module": "trips",
+                      "module": "invoices",
                       "action": "draft",
                       "required": [
                         "invoices:draft"
@@ -34461,7 +34461,7 @@
                       "code": "permission_denied",
                       "instance": "/v1/trips/trp_3f2a…",
                       "requestId": "b6a1c2d3-…",
-                      "module": "trips",
+                      "module": "invoices",
                       "action": "draft",
                       "required": [
                         "invoices:draft"
@@ -34699,7 +34699,7 @@
                       "code": "permission_denied",
                       "instance": "/v1/trips/trp_3f2a…",
                       "requestId": "b6a1c2d3-…",
-                      "module": "trips",
+                      "module": "prices.sell",
                       "action": "write",
                       "required": [
                         "prices.sell:write"
@@ -34937,7 +34937,7 @@
                       "code": "permission_denied",
                       "instance": "/v1/trips/trp_3f2a…",
                       "requestId": "b6a1c2d3-…",
-                      "module": "trips",
+                      "module": "settlements",
                       "action": "approve",
                       "required": [
                         "settlements:approve"
@@ -35175,7 +35175,7 @@
                       "code": "permission_denied",
                       "instance": "/v1/trips/trp_3f2a…",
                       "requestId": "b6a1c2d3-…",
-                      "module": "trips",
+                      "module": "settlements",
                       "action": "approve",
                       "required": [
                         "settlements:approve"
@@ -35413,7 +35413,7 @@
                       "code": "permission_denied",
                       "instance": "/v1/trips/trp_3f2a…",
                       "requestId": "b6a1c2d3-…",
-                      "module": "trips",
+                      "module": "prices.buy",
                       "action": "write",
                       "required": [
                         "prices.buy:write"
@@ -39166,7 +39166,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "description": "ไม่มีสิทธิ์ (`orders:write | trips:dispatch`)",
+            "description": "ไม่มีสิทธิ์ (`orders:write` / `trips:dispatch`)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -39181,10 +39181,11 @@
                       "code": "permission_denied",
                       "instance": "/v1/trips/trp_3f2a…",
                       "requestId": "b6a1c2d3-…",
-                      "module": "trips",
-                      "action": "write | trips",
+                      "module": "orders",
+                      "action": "write",
                       "required": [
-                        "orders:write | trips:dispatch"
+                        "orders:write",
+                        "trips:dispatch"
                       ]
                     }
                   }
@@ -39275,7 +39276,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "description": "ไม่มีสิทธิ์ (`orders:write | trips:dispatch`)",
+            "description": "ไม่มีสิทธิ์ (`orders:write` / `trips:dispatch`)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -39290,10 +39291,11 @@
                       "code": "permission_denied",
                       "instance": "/v1/trips/trp_3f2a…",
                       "requestId": "b6a1c2d3-…",
-                      "module": "trips",
-                      "action": "write | trips",
+                      "module": "orders",
+                      "action": "write",
                       "required": [
-                        "orders:write | trips:dispatch"
+                        "orders:write",
+                        "trips:dispatch"
                       ]
                     }
                   }
@@ -39438,7 +39440,7 @@
             "$ref": "#/components/responses/Unauthorized"
           },
           "403": {
-            "description": "ไม่มีสิทธิ์ (`orders:write | trips:dispatch`)",
+            "description": "ไม่มีสิทธิ์ (`orders:write` / `trips:dispatch`)",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -39453,10 +39455,11 @@
                       "code": "permission_denied",
                       "instance": "/v1/trips/trp_3f2a…",
                       "requestId": "b6a1c2d3-…",
-                      "module": "trips",
-                      "action": "write | trips",
+                      "module": "orders",
+                      "action": "write",
                       "required": [
-                        "orders:write | trips:dispatch"
+                        "orders:write",
+                        "trips:dispatch"
                       ]
                     }
                   }
@@ -39609,7 +39612,7 @@
                       "code": "permission_denied",
                       "instance": "/v1/trips/trp_3f2a…",
                       "requestId": "b6a1c2d3-…",
-                      "module": "trips",
+                      "module": "master",
                       "action": "write",
                       "required": [
                         "master:write"
@@ -39718,7 +39721,7 @@
                       "code": "permission_denied",
                       "instance": "/v1/trips/trp_3f2a…",
                       "requestId": "b6a1c2d3-…",
-                      "module": "trips",
+                      "module": "master",
                       "action": "write",
                       "required": [
                         "master:write"
@@ -39839,7 +39842,7 @@
                       "code": "permission_denied",
                       "instance": "/v1/trips/trp_3f2a…",
                       "requestId": "b6a1c2d3-…",
-                      "module": "trips",
+                      "module": "master",
                       "action": "write",
                       "required": [
                         "master:write"
@@ -55080,10 +55083,15 @@
             "items": {
               "$ref": "#/components/schemas/OrderDocumentDto"
             }
+          },
+          "truncated": {
+            "type": "boolean",
+            "description": "มีเกิน 500 ไฟล์ — คืนเฉพาะ 500 ไฟล์แรก (ไม่มี cursor: ไฟล์ของใบเดียวมีจำกัด)"
           }
         },
         "required": [
-          "data"
+          "data",
+          "truncated"
         ]
       },
       "TrackingStepDto": {
@@ -55727,10 +55735,15 @@
             "items": {
               "$ref": "#/components/schemas/OrderEventDto"
             }
+          },
+          "truncated": {
+            "type": "boolean",
+            "description": "มีเกิน 1000 รายการ — คืนเฉพาะ 1000 รายการแรกตามเวลา (ไม่มี cursor: ประวัติของใบเดียวมีจำกัด)"
           }
         },
         "required": [
-          "data"
+          "data",
+          "truncated"
         ]
       },
       "OrderTemplatePayloadDto": {
@@ -77598,7 +77611,7 @@
                   "title": "ไม่มีสิทธิ์ทำรายการนี้",
                   "status": 403,
                   "code": "permission_denied",
-                  "instance": "/v1/users",
+                  "instance": "/v1/users/invitations",
                   "requestId": "b6a1c2d3-…",
                   "module": "users",
                   "action": "write",
@@ -77625,7 +77638,7 @@
                   "title": "ไม่มีสิทธิ์ทำรายการนี้",
                   "status": 403,
                   "code": "permission_denied",
-                  "instance": "/v1/users",
+                  "instance": "/v1/users/invitations",
                   "requestId": "b6a1c2d3-…",
                   "module": "users",
                   "action": "read",
@@ -77652,7 +77665,7 @@
                   "title": "ไม่มีสิทธิ์ทำรายการนี้",
                   "status": 403,
                   "code": "permission_denied",
-                  "instance": "/v1/export",
+                  "instance": "/v1/exports",
                   "requestId": "b6a1c2d3-…",
                   "module": "export",
                   "action": "run",
@@ -77679,7 +77692,7 @@
                   "title": "ไม่มีสิทธิ์ทำรายการนี้",
                   "status": 403,
                   "code": "permission_denied",
-                  "instance": "/v1/settings",
+                  "instance": "/v1/setup-checklist",
                   "requestId": "b6a1c2d3-…",
                   "module": "settings",
                   "action": "write",
@@ -77733,7 +77746,7 @@
                   "title": "ไม่มีสิทธิ์ทำรายการนี้",
                   "status": 403,
                   "code": "permission_denied",
-                  "instance": "/v1/settings",
+                  "instance": "/v1/document-sequences",
                   "requestId": "b6a1c2d3-…",
                   "module": "settings",
                   "action": "read",
@@ -77760,7 +77773,7 @@
                   "title": "ไม่มีสิทธิ์ทำรายการนี้",
                   "status": 403,
                   "code": "permission_denied",
-                  "instance": "/v1/audit",
+                  "instance": "/v1/audit-logs",
                   "requestId": "b6a1c2d3-…",
                   "module": "audit",
                   "action": "read",
@@ -77815,7 +77828,7 @@
                   "title": "ไม่มีสิทธิ์ทำรายการนี้",
                   "status": 403,
                   "code": "permission_denied",
-                  "instance": "/v1/documents",
+                  "instance": "/v1/documents/3f2a…",
                   "requestId": "b6a1c2d3-…",
                   "module": "documents",
                   "action": "read",
@@ -77842,7 +77855,7 @@
                   "title": "ไม่มีสิทธิ์ทำรายการนี้",
                   "status": 403,
                   "code": "permission_denied",
-                  "instance": "/v1/jobs",
+                  "instance": "/v1/jobs/3f2a…",
                   "requestId": "b6a1c2d3-…",
                   "module": "jobs",
                   "action": "read",
@@ -77869,7 +77882,7 @@
                   "title": "ไม่มีสิทธิ์ทำรายการนี้",
                   "status": 403,
                   "code": "permission_denied",
-                  "instance": "/v1/master",
+                  "instance": "/v1/customers",
                   "requestId": "b6a1c2d3-…",
                   "module": "master",
                   "action": "read",
@@ -77896,7 +77909,7 @@
                   "title": "ไม่มีสิทธิ์ทำรายการนี้",
                   "status": 403,
                   "code": "permission_denied",
-                  "instance": "/v1/master",
+                  "instance": "/v1/customers",
                   "requestId": "b6a1c2d3-…",
                   "module": "master",
                   "action": "write",
@@ -77923,7 +77936,7 @@
                   "title": "ไม่มีสิทธิ์ทำรายการนี้",
                   "status": 403,
                   "code": "permission_denied",
-                  "instance": "/v1/orders",
+                  "instance": "/v1/order-templates",
                   "requestId": "b6a1c2d3-…",
                   "module": "orders",
                   "action": "read",
@@ -77950,12 +77963,39 @@
                   "title": "ไม่มีสิทธิ์ทำรายการนี้",
                   "status": 403,
                   "code": "permission_denied",
-                  "instance": "/v1/orders",
+                  "instance": "/v1/order-templates",
                   "requestId": "b6a1c2d3-…",
                   "module": "orders",
                   "action": "write",
                   "required": [
                     "orders:write"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "Forbidden_events.read": {
+        "description": "ไม่มีสิทธิ์ (`events:read`)",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/ProblemDto"
+            },
+            "examples": {
+              "permission_denied": {
+                "value": {
+                  "type": "https://docs.tms.example/problems/permission_denied",
+                  "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                  "status": 403,
+                  "code": "permission_denied",
+                  "instance": "/v1/events",
+                  "requestId": "b6a1c2d3-…",
+                  "module": "events",
+                  "action": "read",
+                  "required": [
+                    "events:read"
                   ]
                 }
               }
@@ -77977,7 +78017,7 @@
                   "title": "ไม่มีสิทธิ์ทำรายการนี้",
                   "status": 403,
                   "code": "permission_denied",
-                  "instance": "/v1/prices.sell",
+                  "instance": "/v1/rate-cards",
                   "requestId": "b6a1c2d3-…",
                   "module": "prices.sell",
                   "action": "write",
@@ -78005,7 +78045,7 @@
                   "title": "ไม่มีสิทธิ์ทำรายการนี้",
                   "status": 403,
                   "code": "permission_denied",
-                  "instance": "/v1/orders",
+                  "instance": "/v1/delivery-orders/3f2a…/cancel",
                   "requestId": "b6a1c2d3-…",
                   "module": "orders",
                   "action": "cancel",
@@ -78032,7 +78072,7 @@
                   "title": "ไม่มีสิทธิ์ทำรายการนี้",
                   "status": 403,
                   "code": "permission_denied",
-                  "instance": "/v1/prices.buy",
+                  "instance": "/v1/carriers/3f2a…/recent-prices",
                   "requestId": "b6a1c2d3-…",
                   "module": "prices.buy",
                   "action": "read",
@@ -78059,7 +78099,7 @@
                   "title": "ไม่มีสิทธิ์ทำรายการนี้",
                   "status": 403,
                   "code": "permission_denied",
-                  "instance": "/v1/settlements",
+                  "instance": "/v1/carriers/3f2a…/reveal",
                   "requestId": "b6a1c2d3-…",
                   "module": "settlements",
                   "action": "pay",
@@ -78086,7 +78126,7 @@
                   "title": "ไม่มีสิทธิ์ทำรายการนี้",
                   "status": 403,
                   "code": "permission_denied",
-                  "instance": "/v1/master",
+                  "instance": "/v1/messages/send-link",
                   "requestId": "b6a1c2d3-…",
                   "module": "master",
                   "action": "write",
@@ -78114,7 +78154,7 @@
                   "title": "ไม่มีสิทธิ์ทำรายการนี้",
                   "status": 403,
                   "code": "permission_denied",
-                  "instance": "/v1/master",
+                  "instance": "/v1/messages",
                   "requestId": "b6a1c2d3-…",
                   "module": "master",
                   "action": "read",

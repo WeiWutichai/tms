@@ -47,6 +47,10 @@ const R404 = (sub: string) => ({
   examples: { not_found: P('not_found', `/v1/orders/ord_3f2a…/${sub}`) },
 });
 
+/** เพดานรายการของ sub-resource (ไม่มี cursor — review ST7-T11 L) */
+export const DOC_CAP = 500;
+export const EVENT_CAP = 1000;
+
 export class OrderDocumentDto extends DocumentDto {
   @ApiProperty({
     nullable: true,
@@ -64,6 +68,10 @@ export class OrderDocumentListDto {
       'ไฟล์ของ order และ DO ทุกใบ (รวมที่ยกเลิก) เรียงตามเวลาที่จอง · `downloadUrl` (หมดอายุ 5 นาที) ให้เฉพาะผู้มี `documents:read` และไฟล์ที่อัปโหลดเสร็จ',
   })
   data!: OrderDocumentDto[];
+  @ApiProperty({
+    description: `มีเกิน ${DOC_CAP} ไฟล์ — คืนเฉพาะ ${DOC_CAP} ไฟล์แรก (ไม่มี cursor: ไฟล์ของใบเดียวมีจำกัด)`,
+  })
+  truncated!: boolean;
 }
 
 export class OrderEventDto {
@@ -110,6 +118,10 @@ export class OrderEventListDto {
       'ประวัติของ order เรียงตามเวลา: สถานะของใบสั่ง + DO ทุกใบ (doc_status_history) และ event หน้างานของจุดรับ/ส่งของ DO (รวมที่ขัดลำดับ — ผลที่มีผลดู `GET /v1/stops/{id}/events`)',
   })
   data!: OrderEventDto[];
+  @ApiProperty({
+    description: `มีเกิน ${EVENT_CAP} รายการ — คืนเฉพาะ ${EVENT_CAP} รายการแรกตามเวลา (ไม่มี cursor: ประวัติของใบเดียวมีจำกัด)`,
+  })
+  truncated!: boolean;
 }
 
 /**
@@ -174,10 +186,14 @@ export class OrderResourcesController {
         ],
       },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      take: DOC_CAP + 1,
     });
+    const truncated = rows.length > DOC_CAP;
+    rows.length = Math.min(rows.length, DOC_CAP);
     const canRead = scopeAllows(requestContext.require().scopes ?? [], 'documents:read');
     const origin = apiOrigin(req);
     return {
+      truncated,
       data: rows.map((d) => ({
         ...(canRead && d.status === 'READY' ? readyDocumentDto(d, origin) : toDocumentDto(d)),
         deliveryOrderId:
@@ -241,11 +257,13 @@ export class OrderResourcesController {
           ],
         },
         orderBy: [{ at: 'asc' }, { id: 'asc' }],
+        take: EVENT_CAP + 1,
       }),
       stopIds.length
         ? tx.stopEvent.findMany({
             where: { tripStopId: { in: stopIds } },
             orderBy: [{ occurredAt: 'asc' }, { receivedAt: 'asc' }],
+            take: EVENT_CAP + 1,
           })
         : Promise.resolve([]),
     ]);
@@ -278,6 +296,16 @@ export class OrderResourcesController {
     ];
     // เรียงตามเวลา (คงลำดับเดิมเมื่อเวลาเท่ากัน — สถานะก่อน event หน้างาน)
     items.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
-    return { data: items };
+    // แต่ละแหล่งดึงไม่เกิน EVENT_CAP + 1 ตามเวลา — แหล่งที่ถูกตัด: รายการหลังเวลาสุดท้ายของแหล่งนั้นอาจขาด → ตัดที่เวลานั้น
+    const cutoffs = [
+      history.length > EVENT_CAP ? history[EVENT_CAP]!.at.getTime() : Infinity,
+      stopEvents.length > EVENT_CAP ? stopEvents[EVENT_CAP]!.occurredAt.getTime() : Infinity,
+    ];
+    const cutoff = Math.min(...cutoffs);
+    const kept = items.filter((e) => Date.parse(e.at) < cutoff);
+    return {
+      data: kept.slice(0, EVENT_CAP),
+      truncated: cutoff !== Infinity || kept.length > EVENT_CAP,
+    };
   }
 }

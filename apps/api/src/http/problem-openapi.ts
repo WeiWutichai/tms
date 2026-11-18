@@ -39,6 +39,9 @@ const problem = (description: string, examples: Record<string, unknown>) => ({
   },
 });
 
+/** path ตัวอย่างใน `instance` — `{id}` → id ตัวอย่าง */
+const samplePath = (path: string) => path.replace(/\{[^}]+\}/g, '3f2a…');
+
 /** ชื่อ component ของ 403 ต่อชุด scope เช่น `Forbidden_orders.read` / `Forbidden_orders.write_trips.dispatch` */
 const forbiddenName = (scopes: string[]) => `Forbidden_${scopes.join('_').replace(/:/g, '.')}`;
 
@@ -60,7 +63,7 @@ export function describeProblemDefaults(doc: OpenAPIObject): OpenAPIObject {
       errors: [{ field: 'name', code: 'isNotEmpty', message: 'name should not be empty' }],
     }),
   });
-  for (const item of Object.values(doc.paths ?? {}))
+  for (const [path, item] of Object.entries(doc.paths ?? {}))
     for (const op of Object.values(item as Record<string, Op>)) {
       if (!op?.responses || !op.security?.length) continue;
       const r = op.responses;
@@ -73,7 +76,8 @@ export function describeProblemDefaults(doc: OpenAPIObject): OpenAPIObject {
           responses[name] = problem(
             `ไม่มีสิทธิ์ (${scopes.map((x) => `\`${x}\``).join(' / ')}${scopes.length > 1 ? ' — มีตัวใดตัวหนึ่งก็พอ' : ''})`,
             {
-              permission_denied: example('permission_denied', `/v1/${module}`, {
+              // instance = path แรกที่ใช้ชุด scope นี้ (ตัวอย่าง)
+              permission_denied: example('permission_denied', samplePath(path), {
                 module,
                 action,
                 required: scopes,
