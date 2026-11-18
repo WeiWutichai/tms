@@ -9,7 +9,12 @@ import { toJobDto } from '../../jobs/job-dto';
 export class JobDto {
   @ApiProperty({ example: 'job_…' }) id!: string;
   @ApiProperty() type!: string;
-  @ApiProperty({ enum: ['pending', 'running', 'succeeded', 'failed', 'skipped'] }) status!: string;
+  @ApiProperty({
+    enum: ['pending', 'running', 'succeeded', 'succeeded_with_errors', 'failed', 'skipped'],
+    description:
+      '`succeeded_with_errors` = ทำครบแต่บางรายการไม่ผ่าน (bulk — ดู `result.results[]`) · `failed` = งานล้มทั้งงาน · client ต้องรับค่าที่ไม่รู้จักได้',
+  })
+  status!: string;
   @ApiProperty({ minimum: 0, maximum: 100 }) progress!: number;
   @ApiProperty({ nullable: true, type: 'object', additionalProperties: true }) result!: unknown;
   @ApiProperty({ nullable: true, type: 'object', additionalProperties: true }) error!: unknown;
@@ -18,7 +23,10 @@ export class JobDto {
   @ApiProperty({ format: 'date-time', nullable: true, type: String }) finishedAt!: string | null;
 }
 
-/** สถานะงาน async (docs/01 §5.1 Bulk/async: 202 {jobId, statusUrl} → GET /v1/jobs/{id}) */
+/**
+ * สถานะงาน async (docs/01 §5.1 Bulk/async: 202 {jobId, statusUrl} → GET /v1/jobs/{id})
+ * งานที่ client สั่ง (นำเข้า, bulk) เก็บ 7 วันหลังจบ แล้วลบ → 404 (ST7-T10)
+ */
 @ApiTags('jobs')
 @ApiBearerAuth()
 @Controller('jobs')

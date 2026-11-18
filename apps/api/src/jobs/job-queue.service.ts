@@ -48,6 +48,20 @@ export interface JobContext {
 }
 export type JobHandler = (ctx: JobContext) => Promise<unknown>;
 
+/**
+ * ผลของ handler ที่ระบุสถานะจบเอง — ST7-T10 bulk: ทำครบทุกรายการแต่บางรายการไม่ผ่าน = `succeeded_with_errors`
+ * (docs/04 G1 Bulk/async) · handler ที่คืนค่าอื่น = SUCCEEDED ตามเดิม
+ */
+export class JobOutcome {
+  constructor(
+    readonly result: unknown,
+    readonly status: 'SUCCEEDED' | 'SUCCEEDED_WITH_ERRORS' = 'SUCCEEDED',
+  ) {}
+}
+
+/** งานที่ client เห็น (`publicEvent`) เก็บ 7 วันหลังจบ แล้วลบ — `GET /v1/jobs/{id}` ตอบ 404 (docs/04 G1 "job เก็บ 7 วัน") */
+export const PUBLIC_JOB_RETENTION_DAYS = 7;
+
 /** ctx.tx ของงาน `outsideTransaction` — ใช้แล้วล้มทันที (กันเผลอ query นอก transaction ที่ไม่มี RLS context) */
 const NO_TX = new Proxy({} as Tx, {
   get() {
@@ -173,11 +187,12 @@ export class JobQueue {
       const result = o?.outsideTransaction
         ? await handler({ ...base, tx: NO_TX })
         : await this.db.withTenant(job.tenantId, (tx) => handler({ ...base, tx }), o?.timeoutMs);
+      const out = result instanceof JobOutcome ? result : new JobOutcome(result);
       // เขียนผลเฉพาะถ้ายังเป็นรอบที่เราหยิบ (lease หมดแล้ว worker อื่นหยิบซ้ำได้) — กันแจ้งเตือนซ้ำ/ทับผลกัน
       const done = await this.finish(job, true, {
-        status: 'SUCCEEDED',
+        status: out.status,
         progress: 100,
-        result: (result ?? null) as any,
+        result: (out.result ?? null) as any,
         finishedAt: new Date(),
         lockedUntil: null,
       });
@@ -265,6 +280,24 @@ export class JobQueue {
         requestId: null, // ไม่ได้มาจากคำขอ HTTP (envelope.request.id = null — docs/04 G1)
       },
     });
+  }
+
+  /**
+   * ลบงานที่ client เห็น (ชนิดที่ลงทะเบียน `publicEvent`) ที่จบเกิน 7 วัน (ST7-T10) — worker เรียกวันละครั้ง (role platform)
+   * งานระบบ (เตือน/ค่าเสื่อม/ดึง connector) ไม่ลบ: scheduler ใช้ประวัติ job กันสร้างซ้ำ (เช่น ค่าเสื่อมมองย้อน 70 วัน)
+   */
+  async purgeExpired(now = new Date()): Promise<number> {
+    const types = [...this.opts].filter(([, o]) => o.publicEvent).map(([t]) => t);
+    if (!types.length) return 0;
+    const cutoff = new Date(now.getTime() - PUBLIC_JOB_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+    const r = await this.prisma.platform.job.deleteMany({
+      where: {
+        type: { in: types },
+        status: { in: ['SUCCEEDED', 'SUCCEEDED_WITH_ERRORS', 'FAILED', 'SKIPPED'] },
+        finishedAt: { lt: cutoff },
+      },
+    });
+    return r.count;
   }
 
   /** แจ้งผลแยก transaction — แจ้งไม่สำเร็จไม่ทำให้สถานะงานเปลี่ยน */
