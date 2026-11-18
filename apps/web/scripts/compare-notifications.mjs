@@ -1,6 +1,6 @@
 // ภาพเทียบ "ต้นแบบ | ของจริง" ของ ตั้งค่า → การแจ้งเตือน (ST9-T08; CLAUDE.md: ทุก PR ที่มี UI ต้องแนบ) — ใช้กับเครื่อง dev เท่านั้น
 // ต้องมี web dev + API dev + seed · ใช้: WEB=http://localhost:4420 node scripts/compare-notifications.mjs
-// owner ใช้ cookie อุปกรณ์ที่จำไว้จาก seed (ข้าม 2FA) — ข้อมูลเดโมเท่านั้น
+// ผู้วางแผน (ไม่มีสิทธิ์ settings — ค่าของผู้ใช้เอง) ไม่ต้อง 2FA — ข้อมูลเดโมเท่านั้น
 import { chromium } from '@playwright/test';
 import { createHash, randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
@@ -22,7 +22,7 @@ for (const el of await P.getByText('ตั้งค่า', { exact: true }).fil
     break;
 }
 await P.getByText('การแจ้งเตือน', { exact: true }).filter({ visible: true }).first().click();
-await P.waitForTimeout(500);
+await P.waitForTimeout(2000);
 
 const ctx = await b.newContext({ viewport: vp, locale: 'th-TH', baseURL: WEB });
 await ctx.addCookies([
@@ -36,7 +36,7 @@ const W = await ctx.newPage();
 const v = randomBytes(32).toString('base64url');
 const r1 = await W.request.post('/v1/auth/login', {
   data: {
-    email: 'owner@demo-a.test',
+    email: 'planner@demo-a.test',
     password: 'demo-password-2569',
     codeChallenge: createHash('sha256').update(v).digest('base64url'),
   },
@@ -46,7 +46,8 @@ await W.request.post('/v1/oauth/token', {
   data: { grantType: 'authorization_code', code, codeVerifier: v },
 });
 await W.goto('/settings?sec=noti');
-await W.waitForTimeout(1500);
+await W.getByLabel('อีเมล — ใบค้างใหม่').waitFor({ timeout: 60000 });
+await W.waitForTimeout(500);
 
 async function pair(name, a, c) {
   const M = await (await b.newContext({ viewport: { width: 2900, height: 1060 } })).newPage();
