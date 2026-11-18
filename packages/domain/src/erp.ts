@@ -154,7 +154,13 @@ export function documentSyncModes(
  * ไม่ผูก ERP ใด: adapter ประกาศชนิดที่ดึงได้ (`masterCodeKinds`) · ที่ดึงไม่ได้นำเข้าไฟล์แทน
  * `VAT_RATE` = รหัส/อัตรา VAT ฝั่ง ERP สำหรับ adapter ใช้แปลงค่า — **ไม่เปลี่ยนการคำนวณภาษีของ TMS** (vat_type อยู่ที่บรรทัดเสมอ)
  */
-export const ERP_MASTER_CODE_KINDS = ['UNIT', 'SALESPERSON', 'ACCOUNT', 'ITEM', 'VAT_RATE'] as const;
+export const ERP_MASTER_CODE_KINDS = [
+  'UNIT',
+  'SALESPERSON',
+  'ACCOUNT',
+  'ITEM',
+  'VAT_RATE',
+] as const;
 export type ErpMasterCodeKind = (typeof ERP_MASTER_CODE_KINDS)[number];
 
 export function isErpMasterCodeKind(v: unknown): v is ErpMasterCodeKind {
