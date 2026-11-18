@@ -61,7 +61,7 @@ describe('stop event idempotency / ordering / flags (ST4-T02)', () => {
       data: {
         tenantId: tid,
         tripNo: `TRP-SF-${n}`,
-        tripDate: new Date('2026-11-17'),
+        tripDate: new Date(new Date(BASE + 7 * 3600_000).toISOString().slice(0, 10)),
         status,
         // ปล่อยรถแล้ว (event ของเที่ยวที่จบ/ยกเลิกรับแบบ late เฉพาะเที่ยวที่เคยปล่อยรถ)
         ...(status !== 'ASSIGNED' && dispatched ? { dispatchedAt: new Date() } : {}),
@@ -93,9 +93,18 @@ describe('stop event idempotency / ordering / flags (ST4-T02)', () => {
   }
 
   const dec = (id: string) => tryDecodeId('event', id)!;
-  const ev = (at: string, extra: Record<string, unknown> = {}) => ({
+  /**
+   * เวลา "HH:MM" ในวันทดสอบ → ISO (UTC) — ยึดเวลาปัจจุบัน − 6 ชม. เป็น 09:00 (เดิมตายตัว 17 พ.ย. 2569 → หลัง 24 ชม.
+   * ทุก event ติดธงนาฬิกาเพี้ยน `CLOCK_SKEW_PAST_MS` แล้ว test ล้มตามวันที่รัน)
+   */
+  const BASE = Math.floor((Date.now() - 6 * 3600_000) / 60_000) * 60_000;
+  const at = (hhmm: string) => {
+    const [h, m] = hhmm.split(':').map(Number);
+    return new Date(BASE + ((h! - 9) * 60 + m!) * 60_000).toISOString();
+  };
+  const ev = (hhmm: string, extra: Record<string, unknown> = {}) => ({
     clientEventId: randomUUID(),
-    occurredAt: `2026-11-17T${at}:00+07:00`,
+    occurredAt: at(hhmm),
     ...extra,
   });
   const flags = async (q = '', token = admin) =>
@@ -108,7 +117,7 @@ describe('stop event idempotency / ordering / flags (ST4-T02)', () => {
     const body = ev('09:00', { lat: 13.7, lng: 100.5 });
     const first = await s.post('arrive', body).expect(201);
     const again = await s.post('arrive', body).expect(200);
-    const third = await s.post('arrive', { ...body, occurredAt: '2026-11-17T10:00:00+07:00' });
+    const third = await s.post('arrive', { ...body, occurredAt: at('10:00') });
     expect(third.status).toBe(200);
     expect(again.body).toEqual(first.body);
     expect(third.body).toEqual(first.body); // ค่าที่ส่งซ้ำต่างไปไม่ทับของเดิม
@@ -138,9 +147,9 @@ describe('stop event idempotency / ordering / flags (ST4-T02)', () => {
     expect(r.effective).toMatchObject({
       state: 'COMPLETED',
       outcome: 'DELIVERED',
-      enRouteAt: '2026-11-17T01:30:00.000Z',
-      arrivedAt: '2026-11-17T02:10:00.000Z',
-      closedAt: '2026-11-17T02:40:00.000Z',
+      enRouteAt: at('08:30'),
+      arrivedAt: at('09:10'),
+      closedAt: at('09:40'),
       lastEventId: c.body.id,
     });
     expect(r.data.every((e: { seqStatus: string }) => e.seqStatus === 'APPLIED')).toBe(true);
