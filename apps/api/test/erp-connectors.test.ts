@@ -178,10 +178,11 @@ describe('connectors (ST7-T13)', () => {
     expect(dup.body.code).toBe('connector_scope_taken');
 
     // ตรวจค่า
+    let badSeq = 0;
     const bad = async (body: Record<string, unknown>, field: string | RegExp) => {
       const x = await create({
         adapterKey: 'fake-erp',
-        companyId: (await company(1000 + Math.floor(Math.random() * 900))).cmp, // ไม่ชน company(1|2|3) ของ test อื่น
+        companyId: (await company(1000 + ++badSeq)).cmp, // เลขไม่ซ้ำ (เดิมสุ่ม 0–899 ชนกันเองเป็นครั้งคราว → unique tax_id)
         ...body,
       });
       expect(x.status, JSON.stringify(x.body)).toBe(422);

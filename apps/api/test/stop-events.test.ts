@@ -66,7 +66,7 @@ describe('stop events (ST4-T01)', () => {
       data: {
         tenantId: tid,
         tripNo: `TRP-SE-${n}`,
-        tripDate: new Date('2026-11-17'),
+        tripDate: new Date(new Date(BASE + 7 * 3600_000).toISOString().slice(0, 10)),
         status,
         // ปล่อยรถแล้ว (event ของเที่ยวที่จบ/ยกเลิกรับแบบ late เฉพาะเที่ยวที่เคยปล่อยรถ)
         ...(status !== 'ASSIGNED' && dispatched ? { dispatchedAt: new Date() } : {}),
@@ -96,9 +96,18 @@ describe('stop events (ST4-T01)', () => {
       'reasonCode',
       (await db.reasonCode.findFirstOrThrow({ where: { tenantId, category, code } })).id,
     );
+  /**
+   * เวลา "HH:MM" ของวันทดสอบ → ISO (UTC) โดยยึด "09:00" = เวลาปัจจุบัน − 6 ชม. — เดิมตายตัว 17 พ.ย. 2569 → พ้น 24 ชม.
+   * ทุก event ติดธง CLOCK_SKEW (`CLOCK_SKEW_PAST_MS`) แล้ว test ล้มตามวันที่รัน
+   */
+  const BASE = Math.floor((Date.now() - 6 * 3600_000) / 60_000) * 60_000;
+  const at = (hhmm: string) => {
+    const [h, m] = hhmm.split(':').map(Number);
+    return new Date(BASE + ((h! - 9) * 60 + m!) * 60_000).toISOString();
+  };
   const ev = (extra: Record<string, unknown> = {}) => ({
     clientEventId: randomUUID(),
-    occurredAt: '2026-11-17T09:00:00+07:00',
+    occurredAt: at('09:00'),
     ...extra,
   });
 
@@ -106,12 +115,9 @@ describe('stop events (ST4-T01)', () => {
     const { trip: t, drop, url } = await trip();
     const before = Date.now();
     const sent = [
-      ['arrive', ev({ occurredAt: '2026-11-17T09:10:00+07:00', lat: 13.6447123, lng: 100.6089 })],
-      ['depart', ev({ occurredAt: '2026-11-17T09:20:00+07:00' })],
-      [
-        'complete',
-        ev({ occurredAt: '2026-11-17T09:35:00+07:00', outcome: 'DELIVERED', accuracyM: 8.5 }),
-      ],
+      ['arrive', ev({ occurredAt: at('09:10'), lat: 13.6447123, lng: 100.6089 })],
+      ['depart', ev({ occurredAt: at('09:20') })],
+      ['complete', ev({ occurredAt: at('09:35'), outcome: 'DELIVERED', accuracyM: 8.5 })],
     ] as const;
     const out = [];
     for (const [action, body] of sent) {
@@ -124,7 +130,7 @@ describe('stop events (ST4-T01)', () => {
       tripId: encodeId('trip', t.id),
       outcome: null,
       clientEventId: sent[0][1].clientEventId,
-      occurredAt: '2026-11-17T02:10:00.000Z',
+      occurredAt: at('09:10'),
       lat: 13.644712,
       lng: 100.6089,
       accuracyM: null,
