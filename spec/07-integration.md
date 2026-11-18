@@ -224,6 +224,25 @@ Scope ทั้งหมด: `orders:read` `orders:write` `shipments:read` `ship
 
 ---
 
+### 5.2 ตาราง conformance เฟส 0 — docs/04 G2 → endpoint → scope → test (ST7-T11)
+
+FACT: ทุกแถวทดสอบใน `apps/api/test/api-conformance.test.ts` (ตาราง `MATRIX`/`DEFERRED` ในไฟล์นั้นต้องตรงกับตารางนี้) ด้วย **API key จริง** (`tk_live_…` — session ใช้แค่ออก key) และตรวจทุก response กับ OpenAPI ที่แอปเผยแพร่ (`GET /v1/openapi.json` = `packages/contracts/openapi.json`): status ต้องถูกบรรยาย · body 2xx ตรง schema (ajv) · error = `application/problem+json` ตรง `ProblemDto` · ต่อ endpoint: `x-required-scopes` ตรงตาราง, key ไม่มี scope → 403 `permission_denied` (`required` ตรง), ไม่มี credential → 401, key บริษัทอื่น → 404, OpenAPI มีตัวอย่าง 401/403/404 · list: cursor (`limit`/`nextCursor`/`hasMore`, `limit=0` → 422; เวลาเท่ากันระดับ µs เดินครบทั้งสองทิศ) · GET ใบเดียวมี ETag, If-Match เก่า → 412 · scope ใช้ชุดจริงของระบบ (`packages/domain/src/permissions.ts`) ไม่ใช่ชุดใน §5.1
+
+| G2 | Resource | Endpoint (ใต้ `/v1`) | Scope | สถานะ |
+|---|---|---|---|---|
+| #1 | `orders` | `GET /orders` · `POST /orders` · `GET /orders/{id}` · `PATCH /orders/{id}` · `PUT`/`PATCH /orders/external/{externalId}` · `POST /orders/{id}/cancel` · `GET /orders/{id}/documents` · `GET /orders/{id}/tracking` · `GET /orders/{id}/events` | `orders:read` / `orders:write` / `orders:cancel` | ✅ (`/documents` `/tracking` `/events` เพิ่มใน ST7-T11) |
+| #2 | `webhooks`, `event-types`, `webhook-deliveries`, `events` | `GET /webhooks` · `GET /webhooks/event-types` · `GET /webhook-deliveries` · `GET /webhooks/{id}` · `GET /webhook-deliveries/{id}` · `GET /events` · `GET /events/{id}` | `settings:read` / `events:read` (+ scope อ่านของ resource ของ event) | ✅ อ่านด้วย key (`GET /events` `/events/{id}` เพิ่มใน ST7-T11 — envelope + mode เดียวกับ webhook) · เขียน (CRUD/retry/redeliver) ต้องมี `settings:write` ซึ่งให้ key ไม่ได้ (ST7-T01) → ทดสอบด้วย session ใน `webhooks.test.ts` |
+| #3 | `stops` | `GET /stops/{id}` · `GET /stops/{id}/events` · `POST /stops/{id}/arrive` `/depart` `/complete` `/fail` (`clientEventId`) | `trips:read` / `trips:dispatch` | ✅ (`GET /stops/{id}` เพิ่มใน ST7-T11) |
+| #4 | `documents` | `POST /documents` (presigned) · `GET /documents/{id}` (metadata + URL หมดอายุ) · `PUT`/`GET /documents/{id}/content` (ลายเซ็นของ URL) | `documents:write` / `documents:read` / — | ✅ |
+| #5 | `customers` | `GET`/`POST /customers` · `GET`/`PATCH /customers/{id}` · `PUT`/`PATCH /customers/external/{externalId}` · `POST /customers/{id}/delete` (soft) | `master:read` / `master:write` | ✅ |
+| #5 | `locations` = `customer-sites` | เหมือน customers (`/customer-sites…`) | `master:read` / `master:write` | ✅ (ชื่อ path ตาม ST7-T02) |
+| #6 | `invoices`, `invoice-runs`, `payments` | `GET`, `/finalize`, `/void`, `POST /invoice-runs`, `POST /payments` | — | ⏸ DEFERRED → ST5-T09 / ST5-T12 / ST5-T13 (โมดูล billing ยังไม่มี — test ตรวจว่ายังไม่มี path; มีแล้วต้องย้ายเข้าตาราง) |
+| #7 | `trips` | `GET`/`POST /trips` · `GET /trips/{id}` · `POST /trips/{id}/assign` `/dispatch` `/complete` | `trips:read` / `trips:assign` / `trips:dispatch` / `trips:close` | ✅ |
+| #8 | `drivers`, `vehicles`, `carriers` | `GET`/`POST /{r}` · `GET`/`PATCH /{r}/{id}` · `PUT`/`PATCH /{r}/external/{externalId}` | `master:read` / `master:write` | ✅ |
+| #10 | `jobs`, `openapi.json` | `GET /jobs/{id}` · `GET /openapi.json` | `jobs:read` (หรือผู้สั่งงาน) / — | ✅ · `api-keys` จัดการได้เฉพาะคนที่ login (ST7-T01) → key ได้ 403 `permission_denied` (`module: api-keys`) ตามที่ test ตรวจ |
+
+OpenAPI (ST7-T11): `@RequireScope` ประกาศ `x-required-scopes` ทุก operation · `describeProblemDefaults` (`apps/api/src/http/problem-openapi.ts`) เติมตัวอย่าง problem+json ที่ route ไม่ได้บรรยายเอง — 401 (`components.responses.Unauthorized`), 403 `permission_denied` + `required` ตาม scope ของ route, 404 เมื่อมี `{id}`, 412 เมื่อรับ `If-Match`, 422 เมื่อรับ query/body
+
 ## 6. API keys
 
 1. **จุดประสงค์** — ออก credential ที่จำกัดสิทธิ์ได้และเพิกถอนได้

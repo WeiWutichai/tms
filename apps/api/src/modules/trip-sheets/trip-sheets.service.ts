@@ -8,7 +8,7 @@ import { bkkTime, docDayMonth } from '../../common/thai-date';
 import { bangkokToday } from '../vehicle-documents/expiry';
 import { DbService, type Tx } from '../../db/db.service';
 import { PdfRenderer } from '../../pdf/pdf-renderer';
-import { store } from '../documents/documents.controller';
+import { putFileLocked, store } from '../documents/documents.controller';
 import { addressText } from '../geo/geo.service';
 import { MagicLinkService } from '../links/magic-link.service';
 import { SHEET_LINK_PURPOSE, TripSheetLinks } from './sheet-links';
@@ -187,8 +187,8 @@ export class TripSheetsService {
     after?: (tx: Tx, doc: StoredDocument) => Promise<void>,
   ): Promise<StoredDocument> {
     const ctx = requestContext.require();
-    const f = await store().put(ctx.tenantId!, pdf, 'pdf');
     return this.inTx(async (tx) => {
+      const f = await putFileLocked(tx, ctx.tenantId!, pdf, 'pdf');
       const doc = await tx.storedDocument.create({
         data: {
           tenantId: ctx.tenantId!,

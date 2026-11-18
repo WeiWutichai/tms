@@ -107,7 +107,21 @@ export class SettingsService {
           message: e.message,
         }));
       const msg = validateSetting(key as SettingKey, v);
-      return msg ? [{ field: `values.${key}`, code: 'invalid_setting', message: msg }] : [];
+      if (!msg) return [];
+      // ST9-T14 ระยะเก็บต่ำกว่าขั้นต่ำ (docs/04 J) — แยก code ให้ client บอกผู้ใช้ได้ตรง
+      const t = SETTINGS[key as SettingKey].type;
+      const below =
+        key.startsWith('retention.') &&
+        t.kind === 'int' &&
+        Number.isInteger(v) &&
+        (v as number) < t.min;
+      return [
+        {
+          field: `values.${key}`,
+          code: below ? 'below_minimum' : 'invalid_setting',
+          message: below ? `must be at least ${t.min} (minimum retention)` : msg,
+        },
+      ];
     });
     // ref ต้องชี้ entity ที่มีอยู่และใช้งานใน tenant นี้ (RLS กรองให้)
     for (const [key, v] of Object.entries(values)) {
@@ -179,7 +193,7 @@ export class SettingsService {
 }
 
 /**
- * การแก้ที่ลดความปลอดภัย (ปิดบังคับ 2FA ทั้งองค์กร, ปิดออกจากระบบอัตโนมัติ, ยืด idle timeout) ต้อง step-up 2FA
+ * การแก้ที่ลดความปลอดภัย (ปิดบังคับ 2FA ทั้งองค์กร, ปิดออกจากระบบอัตโนมัติ, ยืด idle timeout, ลดระยะเก็บ — ST9-T14) ต้อง step-up 2FA
  * — สอดคล้องกับ A3 "เปลี่ยน role ต้อง step-up" (review T17; [OPEN] ยืนยันกับ PO)
  */
 export function weakensSecurity(before: Record<string, unknown>, after: Record<string, unknown>) {
@@ -201,5 +215,8 @@ export function weakensSecurity(before: Record<string, unknown>, after: Record<s
     Number(after['security.idleTimeoutMinutes']) > Number(before['security.idleTimeoutMinutes'])
   )
     return true;
+  // ST9-T14 ลดระยะเก็บ = ข้อมูลเก่าถูกลบเร็วขึ้น (ย้อนคืนไม่ได้) — ต้อง step-up เหมือนลดความปลอดภัย
+  for (const k of Object.keys(after))
+    if (k.startsWith('retention.') && Number(after[k]) < Number(before[k])) return true;
   return false;
 }

@@ -113,6 +113,7 @@ import {
 } from './modules/webhooks/webhook-ops.controller';
 import { WebhookOpsService } from './modules/webhooks/webhook-ops.service';
 import { WebhookRetentionService } from './modules/webhooks/webhook-retention';
+import { RetentionService } from './modules/retention/retention.service';
 import { ReasonCodesController } from './modules/reason-codes/reason-codes.controller';
 import { ReasonCodesService } from './modules/reason-codes/reason-codes.service';
 import {
@@ -161,6 +162,7 @@ import { ScheduleService } from './modules/schedule/schedule.service';
 import { BoardPreferencesService } from './modules/planning/board-preferences.service';
 import { EligibilityService } from './modules/planning/eligibility.service';
 import { OrdersController } from './modules/orders/orders.controller';
+import { OrderResourcesController } from './modules/orders/order-resources.controller';
 import { OrderBillingService } from './modules/orders/order-billing.service';
 import { OrdersService } from './modules/orders/orders.service';
 import { OrdersBulkController } from './modules/orders/orders-bulk.controller';
@@ -242,6 +244,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     CustomersController,
     OrdersBulkController,
     OrdersController,
+    OrderResourcesController,
     OrderTemplatesController,
     SitesController,
     RoutesController,
@@ -386,6 +389,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     WebhooksService,
     WebhookOpsService,
     WebhookRetentionService,
+    RetentionService,
     VehicleDocumentsService,
     Clock,
     ExpiryReminderService,
