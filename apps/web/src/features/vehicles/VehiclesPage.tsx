@@ -17,7 +17,7 @@ import { can } from '../../nav';
 import { PageHeader } from '../../shell/Header';
 import { useMe } from '../../shell/AppShell';
 import { tableLabels } from '../companies/CompanySample';
-import { downloadFile } from '../master/download';
+import { downloadFile, exportFailText } from '../master/download';
 import { problemText } from '../master/problems';
 import { listTotal, useSessionState, useUrlSeed } from '../master/useCursorList';
 import { SavedViewMenu } from '../views/SavedViewMenu';
@@ -405,7 +405,7 @@ export function VehiclesPage() {
                           ids: ids.join(','),
                         }).then(
                           () => setToast(t('veh.toast.exported', { n: ids.length })),
-                          () => setToast(t('veh.exportFailed')),
+                          (e) => setToast(exportFailText(t, e, t('veh.exportFailed'))),
                         ),
                     },
                   ],
@@ -417,7 +417,7 @@ export function VehiclesPage() {
                     void downloadFile('/v1/vehicles/export', {
                       format: 'csv',
                       ...Object.fromEntries(Object.entries(query).filter(([, v]) => v !== '')),
-                    }).catch(() => setToast(t('veh.exportFailed')))
+                    }).catch((e) => setToast(exportFailText(t, e, t('veh.exportFailed'))))
                 : false
             }
             empty={

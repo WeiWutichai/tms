@@ -29,6 +29,7 @@ import { expectedVersion, setEtag } from '../../common/etag';
 import { DbService } from '../../db/db.service';
 import { NextCodeDto } from '../customers/customer.dto';
 import { sendExport, type ExportColumn } from '../master/export';
+import type { ExportSpec } from '../exports/export-spec';
 import { entityHistory, HistoryQuery } from '../master/history';
 import { MasterOptionalReasonDto, MasterReasonDto } from '../master/master-kit';
 import {
@@ -288,3 +289,17 @@ export class ReasonCodesController {
     await this.reasons.remove(current.id, body.reason, expectedVersion(req));
   }
 }
+
+/** ส่งออกตามตัวกรองเป็นงานเบื้องหลัง (ST9-T10 — `POST /v1/exports`) — ตัวกรอง/การอ่าน/คอลัมน์ชุดเดียวกับ `GET /export` */
+export const reasonCodesExportSpec = (
+  svc: ReasonCodesService,
+): ExportSpec<ReasonCodeListQuery, ReasonCodeDto> => ({
+  resource: 'reason-codes',
+  label: 'รหัสเหตุผล',
+  fileBase: 'reason-codes',
+  scope: 'master:read',
+  idKind: 'reasonCode',
+  query: ReasonCodeListQuery,
+  fetch: (q, page) => svc.exportRows(q, page),
+  columns: () => EXPORT_COLUMNS,
+});

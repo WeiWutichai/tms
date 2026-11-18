@@ -17,7 +17,7 @@ import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService } from '../../db/db.service';
 import { StateService } from '../../state/state.service';
-import { EXPORT_MAX_ROWS } from '../master/export';
+import { EXPORT_MAX_ROWS, exportFetchArgs, overSyncCap, type ExportPage } from '../master/export';
 import {
   assertNotReferenced,
   emitMasterEvent,
@@ -293,16 +293,16 @@ export class DriversService {
   }
 
   /** แถวสำหรับส่งออก (ตามตัวกรองเดียวกับ list หรือ id ที่เลือก) — เกินเพดาน → 422 */
-  async exportRows(q: DriverListQuery & { ids?: string }) {
+  async exportRows(q: DriverListQuery & { ids?: string }, page?: ExportPage) {
     const ids = q.ids?.split(',').map((x) => tryDecodeId('driver', x)!);
     const base = await this.where(q);
     const rows = await this.db.tx.driver.findMany({
       where: ids ? { AND: [base, { id: { in: ids } }] } : base,
-      orderBy: [{ code: 'asc' }],
-      take: EXPORT_MAX_ROWS + 1,
+      orderBy: [{ code: 'asc' }, { id: 'asc' }],
+      ...exportFetchArgs(page),
       include: INCLUDE,
     });
-    if (rows.length > EXPORT_MAX_ROWS)
+    if (overSyncCap(rows.length, page))
       throw field422(
         'query',
         'too_many_rows',

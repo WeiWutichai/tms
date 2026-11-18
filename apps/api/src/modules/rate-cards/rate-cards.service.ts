@@ -15,7 +15,7 @@ import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
 import { StateService } from '../../state/state.service';
-import { EXPORT_MAX_ROWS } from '../master/export';
+import { EXPORT_MAX_ROWS, exportFetchArgs, overSyncCap, type ExportPage } from '../master/export';
 import {
   emitMasterEvent,
   iEquals,
@@ -544,16 +544,16 @@ export class RateCardsService {
     return k.page(rows, (r) => toRateCardDto(r, today));
   }
 
-  async exportRows(q: RateCardListQuery & { ids?: string }) {
+  async exportRows(q: RateCardListQuery & { ids?: string }, page?: ExportPage) {
     const ids = q.ids?.split(',').map((x) => tryDecodeId('rateCard', x)!);
     const where = ids ? { AND: [this.where(q), { id: { in: ids } }] } : this.where(q);
     const rows = await this.db.tx.rateCard.findMany({
       where,
-      orderBy: [{ code: 'asc' }, { revision: 'asc' }],
-      take: EXPORT_MAX_ROWS + 1,
+      orderBy: [{ code: 'asc' }, { revision: 'asc' }, { id: 'asc' }],
+      ...exportFetchArgs(page),
       include: INCLUDE,
     });
-    if (rows.length > EXPORT_MAX_ROWS)
+    if (overSyncCap(rows.length, page))
       throw field422(
         'query',
         'too_many_rows',

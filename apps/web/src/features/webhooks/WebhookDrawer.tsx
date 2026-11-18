@@ -94,10 +94,7 @@ export function WebhookDrawer({
               <Kv k={t('whk.f.ok')} v={rate.text} />
               <Kv k={t('whk.f.fails')} v={t('whk.nTimes', { n: h.consecutiveFailures })} />
               <Kv k={t('whk.col.last')} v={fm.last(h)} />
-              <Kv
-                k={t('whk.f.policy')}
-                v={t(mode === 'test' ? 'whk.policySbx' : 'whk.policy')}
-              />
+              <Kv k={t('whk.f.policy')} v={t(mode === 'test' ? 'whk.policySbx' : 'whk.policy')} />
             </div>
           </section>
           <section className="akey-chips">

@@ -369,8 +369,8 @@ describe('รถร่วม / ผู้รับเหมา (carriers)', () =>
     const r = await api(app, admin).get('/v1/carriers/export?format=csv').expect(200);
     expect(r.text).toContain('เลขผู้เสียภาษี');
     expect(r.text).toContain('•••• 1112');
-    // LINE ID ขึ้นต้น @ ไม่ถูกเติม ' (กันสูตรเฉพาะ @ฟังก์ชัน( )
-    expect(r.text).toMatch(/(^|,)@sapsomboon(,|\r?$)/m);
+    // LINE ID ขึ้นต้น @ ถูกเติม ' เหมือนค่าขึ้นต้นด้วย = + - (OWASP — ST9-T10 review)
+    expect(r.text).toMatch(/(^|,)'@sapsomboon(,|\r?$)/m);
     expect(r.text).not.toContain('5550001112');
     expect(r.text).not.toContain(validTaxId(3_100_500_777));
     const ro = await tokenFor(tenantId, 'master:read');

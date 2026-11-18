@@ -7,7 +7,7 @@ import { iEquals } from '../../common/ilike';
 import { ProblemException } from '../../common/problem';
 import { DbService } from '../../db/db.service';
 import { StateService } from '../../state/state.service';
-import { EXPORT_MAX_ROWS } from '../master/export';
+import { EXPORT_MAX_ROWS, exportFetchArgs, overSyncCap, type ExportPage } from '../master/export';
 import {
   assertNotReferenced,
   deletedFilter,
@@ -136,13 +136,13 @@ export class ReasonCodesService {
     return k.page(rows, toReasonCodeDto);
   }
 
-  async exportRows(q: ReasonCodeListQuery) {
+  async exportRows(q: ReasonCodeListQuery, page?: ExportPage) {
     const rows = await this.db.tx.reasonCode.findMany({
       where: this.where(q),
-      orderBy: [{ category: 'asc' }, { sortOrder: 'asc' }, { code: 'asc' }],
-      take: EXPORT_MAX_ROWS + 1,
+      orderBy: [{ category: 'asc' }, { sortOrder: 'asc' }, { code: 'asc' }, { id: 'asc' }],
+      ...exportFetchArgs(page),
     });
-    if (rows.length > EXPORT_MAX_ROWS)
+    if (overSyncCap(rows.length, page))
       throw field422(
         'query',
         'too_many_rows',

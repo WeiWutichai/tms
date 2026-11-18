@@ -30,6 +30,7 @@ import { expectedVersion, setEtag } from '../../common/etag';
 import { requestContext } from '../../common/request-context';
 import { DbService } from '../../db/db.service';
 import { sendExport, type ExportColumn } from '../master/export';
+import type { ExportSpec } from '../exports/export-spec';
 import { entityHistory, HistoryQuery } from '../master/history';
 import { MasterReasonDto } from '../master/master-kit';
 import {
@@ -382,3 +383,23 @@ export class CarrierRecentPricesController {
     return { data: await this.rates.recentCarrierPrices(carrierId, q) };
   }
 }
+
+/** ส่งออกตามตัวกรองเป็นงานเบื้องหลัง (ST9-T10 — `POST /v1/exports`) — ตัวกรอง/การอ่าน/คอลัมน์ชุดเดียวกับ `GET /export` */
+export const rateCardsExportSpec = (
+  svc: RateCardsService,
+): ExportSpec<RateCardListQuery, RateCardDto> => ({
+  resource: 'rate-cards',
+  label: 'rate card',
+  fileBase: 'rate-cards',
+  scope: 'master:read',
+  idKind: 'rateCard',
+  query: RateCardListQuery,
+  fetch: (q, page) => svc.exportRows(q, page),
+  columns: (scopes, q) => {
+    const side = listSide(q);
+    return exportColumns(
+      side,
+      scopeAllows(scopes, side === 'BUY' ? 'prices.buy:read' : 'prices.sell:read'),
+    );
+  },
+});
