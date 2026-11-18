@@ -42317,7 +42317,7 @@
       },
       {
         "version": "2026-11-18",
-        "summary": "API key: สถานะ `rotating` แยกจาก `active` (ST7-T07 — ตัวอย่างกลไก gate)",
+        "summary": "API key: สถานะ `rotating` แยกจาก `active` (ST7-T07 — ตัวอย่างกลไก gate) · changed: payload webhook ตั้งฐานก่อน GA (ST7-T06 — id แบบ prefix ใน trip/stop/DO, DO `salesOrderId` → `orderId`, พักใบโดยระบบ = `order.held`, จัดรถใบค้าง = `order.released`; ไม่มี gate เพราะยังไม่มี production)",
         "changes": [
           {
             "id": "api_key.status_rotating",
@@ -66065,6 +66065,10 @@
             "type": "boolean",
             "description": "มีเฉพาะ event ทดสอบ (`webhook.test`)"
           },
+          "sampleEventType": {
+            "type": "string",
+            "description": "เฉพาะ `webhook.test`: event ที่ใช้ตัวอย่าง `data.object`"
+          },
           "data": {
             "type": "object",
             "required": [
@@ -66225,9 +66229,9 @@
                 "siteText",
                 "windowStart",
                 "windowEnd"
-              ],
-              "additionalProperties": false
-            }
+              ]
+            },
+            "minItems": 1
           },
           "holdNote": {
             "type": "string",
@@ -66260,7 +66264,6 @@
           "sourceChangedAfterPlan",
           "version"
         ],
-        "additionalProperties": false,
         "description": "`data.object` ของ order.created — สร้างใบสั่งงานใหม่ (หน้าจอ, Open API, นำเข้าไฟล์)"
       },
       "WebhookEvent_order_updated": {
@@ -66385,9 +66388,9 @@
                 "siteText",
                 "windowStart",
                 "windowEnd"
-              ],
-              "additionalProperties": false
-            }
+              ]
+            },
+            "minItems": 1
           },
           "holdNote": {
             "type": "string",
@@ -66420,7 +66423,6 @@
           "sourceChangedAfterPlan",
           "version"
         ],
-        "additionalProperties": false,
         "description": "`data.object` ของ order.updated — แก้ไขข้อมูลใบสั่งงาน"
       },
       "WebhookEvent_order_held": {
@@ -66545,9 +66547,9 @@
                 "siteText",
                 "windowStart",
                 "windowEnd"
-              ],
-              "additionalProperties": false
-            }
+              ]
+            },
+            "minItems": 1
           },
           "holdNote": {
             "type": "string",
@@ -66580,7 +66582,6 @@
           "sourceChangedAfterPlan",
           "version"
         ],
-        "additionalProperties": false,
         "description": "`data.object` ของ order.held — พักใบสั่งงาน (เช่น ข้อมูลไม่ครบ เกินวงเงิน)"
       },
       "WebhookEvent_order_released": {
@@ -66705,9 +66706,9 @@
                 "siteText",
                 "windowStart",
                 "windowEnd"
-              ],
-              "additionalProperties": false
-            }
+              ]
+            },
+            "minItems": 1
           },
           "holdNote": {
             "type": "string",
@@ -66740,7 +66741,6 @@
           "sourceChangedAfterPlan",
           "version"
         ],
-        "additionalProperties": false,
         "description": "`data.object` ของ order.released — ปล่อยใบสั่งงานที่พักไว้ให้วางแผนต่อ"
       },
       "WebhookEvent_order_cancelled": {
@@ -66865,9 +66865,9 @@
                 "siteText",
                 "windowStart",
                 "windowEnd"
-              ],
-              "additionalProperties": false
-            }
+              ]
+            },
+            "minItems": 1
           },
           "holdNote": {
             "type": "string",
@@ -66900,7 +66900,6 @@
           "sourceChangedAfterPlan",
           "version"
         ],
-        "additionalProperties": false,
         "description": "`data.object` ของ order.cancelled — ยกเลิกใบสั่งงาน"
       },
       "WebhookEvent_trip_assigned": {
@@ -66999,8 +66998,7 @@
                 "sequence",
                 "type",
                 "siteId"
-              ],
-              "additionalProperties": false
+              ]
             }
           },
           "deliveryOrderIds": {
@@ -67035,7 +67033,6 @@
           "stops",
           "deliveryOrderIds"
         ],
-        "additionalProperties": false,
         "description": "`data.object` ของ trip.assigned — จัดรถ/คนขับ หรือรถร่วมให้เที่ยววิ่ง"
       },
       "WebhookEvent_trip_dispatched": {
@@ -67134,8 +67131,7 @@
                 "sequence",
                 "type",
                 "siteId"
-              ],
-              "additionalProperties": false
+              ]
             }
           },
           "deliveryOrderIds": {
@@ -67170,7 +67166,6 @@
           "stops",
           "deliveryOrderIds"
         ],
-        "additionalProperties": false,
         "description": "`data.object` ของ trip.dispatched — ปล่อยเที่ยววิ่งให้คนขับ"
       },
       "WebhookEvent_trip_started": {
@@ -67269,8 +67264,7 @@
                 "sequence",
                 "type",
                 "siteId"
-              ],
-              "additionalProperties": false
+              ]
             }
           },
           "deliveryOrderIds": {
@@ -67303,9 +67297,9 @@
           "carrierId",
           "assignmentStatus",
           "stops",
-          "deliveryOrderIds"
+          "deliveryOrderIds",
+          "startedAt"
         ],
-        "additionalProperties": false,
         "description": "`data.object` ของ trip.started — คนขับเริ่มเที่ยววิ่ง"
       },
       "WebhookEvent_trip_completed": {
@@ -67404,8 +67398,7 @@
                 "sequence",
                 "type",
                 "siteId"
-              ],
-              "additionalProperties": false
+              ]
             }
           },
           "deliveryOrderIds": {
@@ -67438,9 +67431,9 @@
           "carrierId",
           "assignmentStatus",
           "stops",
-          "deliveryOrderIds"
+          "deliveryOrderIds",
+          "completedAt"
         ],
-        "additionalProperties": false,
         "description": "`data.object` ของ trip.completed — เที่ยววิ่งจบครบทุกจุด"
       },
       "WebhookEvent_trip_cancelled": {
@@ -67539,8 +67532,7 @@
                 "sequence",
                 "type",
                 "siteId"
-              ],
-              "additionalProperties": false
+              ]
             }
           },
           "deliveryOrderIds": {
@@ -67575,7 +67567,6 @@
           "stops",
           "deliveryOrderIds"
         ],
-        "additionalProperties": false,
         "description": "`data.object` ของ trip.cancelled — ยกเลิกเที่ยววิ่ง"
       },
       "WebhookEvent_stop_arrived": {
@@ -67662,7 +67653,6 @@
           "lastEventId",
           "failReasonCodeId"
         ],
-        "additionalProperties": false,
         "description": "`data.object` ของ stop.arrived — รถถึงจุดรับ/ส่ง"
       },
       "WebhookEvent_stop_departed": {
@@ -67749,7 +67739,6 @@
           "lastEventId",
           "failReasonCodeId"
         ],
-        "additionalProperties": false,
         "description": "`data.object` ของ stop.departed — รถออกจากจุดรับ/ส่ง"
       },
       "WebhookEvent_stop_completed": {
@@ -67836,7 +67825,6 @@
           "lastEventId",
           "failReasonCodeId"
         ],
-        "additionalProperties": false,
         "description": "`data.object` ของ stop.completed — ปิดงานที่จุดรับ/ส่งสำเร็จ"
       },
       "WebhookEvent_stop_failed": {
@@ -67923,7 +67911,6 @@
           "lastEventId",
           "failReasonCodeId"
         ],
-        "additionalProperties": false,
         "description": "`data.object` ของ stop.failed — งานที่จุดรับ/ส่งไม่สำเร็จ (มีเหตุผล)"
       },
       "WebhookEvent_delivery_order_status_changed": {
@@ -68013,8 +68000,7 @@
                 "description",
                 "qty",
                 "unit"
-              ],
-              "additionalProperties": false
+              ]
             }
           }
         },
@@ -68031,7 +68017,6 @@
           "cbm",
           "lines"
         ],
-        "additionalProperties": false,
         "description": "`data.object` ของ delivery_order.status_changed — สถานะใบส่งของ (DO) เปลี่ยน"
       },
       "WebhookEvent_pod_captured": {
@@ -68124,8 +68109,7 @@
                 "qtyActual",
                 "rejectQty",
                 "rejectReasonCode"
-              ],
-              "additionalProperties": false
+              ]
             }
           },
           "missing": {
@@ -68147,8 +68131,7 @@
                 "key",
                 "type",
                 "code"
-              ],
-              "additionalProperties": false
+              ]
             }
           }
         },
@@ -68167,7 +68150,6 @@
           "lines",
           "missing"
         ],
-        "additionalProperties": false,
         "description": "`data.object` ของ pod.captured — บันทึกหลักฐานการส่ง (POD)"
       },
       "WebhookEvent_connector_health_changed": {
@@ -68232,7 +68214,6 @@
               "errorClass",
               "code"
             ],
-            "additionalProperties": false,
             "nullable": true
           }
         },
@@ -68248,7 +68229,6 @@
           "lastHealthOk",
           "lastHealthError"
         ],
-        "additionalProperties": false,
         "description": "`data.object` ของ connector.health_changed — สถานะการเชื่อมต่อระบบภายนอกเปลี่ยน"
       },
       "WebhookEvent_job_completed": {
@@ -68297,7 +68277,6 @@
           "createdAt",
           "finishedAt"
         ],
-        "additionalProperties": false,
         "description": "`data.object` ของ job.completed — งานเบื้องหลัง (นำเข้า/ส่งออก/รอบวางบิล) เสร็จ"
       }
     },

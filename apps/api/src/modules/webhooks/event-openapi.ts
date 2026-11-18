@@ -26,6 +26,10 @@ export function describeWebhookEvents(doc: OpenAPIObject): OpenAPIObject {
       tenantId: { type: 'string', example: 'ten_…' },
       mode: { type: 'string', enum: ['live', 'test'] },
       test: { type: 'boolean', description: 'มีเฉพาะ event ทดสอบ (`webhook.test`)' },
+      sampleEventType: {
+        type: 'string',
+        description: 'เฉพาะ `webhook.test`: event ที่ใช้ตัวอย่าง `data.object`',
+      },
       data: {
         type: 'object',
         required: ['object', 'previousAttributes'],

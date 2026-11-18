@@ -532,7 +532,10 @@ export class WebhooksService {
     if (e.status !== 'ACTIVE') throw new ProblemException('invalid_state_transition');
     await this.takeTestSlot(tenantId, id);
     const type = body.eventType ?? e.events[0] ?? 'order.created';
-    const envelope = this.engine.systemEnvelope(tenantId, 'webhook.test', sampleObject(type));
+    const envelope = {
+      ...this.engine.systemEnvelope(tenantId, 'webhook.test', sampleObject(type)),
+      sampleEventType: type,
+    };
     const r = await this.engine.attempt({
       tenantId,
       endpoint: e,
@@ -566,7 +569,7 @@ export class WebhooksService {
   }
 }
 
-/** payload ตัวอย่างของ event (INT-107) — ตัวอย่างจากทะเบียน (ST7-T06) + `sampleEventType` · ไม่ใช่ข้อมูลจริงของบริษัท */
+/** payload ตัวอย่างของ event (INT-107) = ตัวอย่างจากทะเบียน (ST7-T06 — ตรง schema) · ไม่ใช่ข้อมูลจริงของบริษัท */
 export function sampleObject(type: string): Record<string, unknown> {
-  return { sampleEventType: type, ...(eventDefinition(type)?.example ?? {}) };
+  return { ...(eventDefinition(type)?.example ?? {}) };
 }

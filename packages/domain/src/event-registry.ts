@@ -21,6 +21,7 @@ export interface EventSchema {
   required?: string[];
   additionalProperties?: boolean | EventSchema;
   items?: EventSchema;
+  minItems?: number;
   enum?: readonly (string | null)[];
   pattern?: string;
   format?: string;
@@ -92,8 +93,15 @@ const oneOf = (values: readonly string[], nullable = false): EventSchema => ({
   enum: nullable ? [...values, null] : values,
   ...(nullable ? { nullable } : {}),
 });
-const arr = (items: EventSchema): EventSchema => ({ type: 'array', items });
-/** object ปิด (ไม่มี field เกิน) — `optional` = field ที่ไม่บังคับมี */
+const arr = (items: EventSchema, minItems?: number): EventSchema => ({
+  type: 'array',
+  items,
+  ...(minItems ? { minItems } : {}),
+});
+/**
+ * object ที่เผยแพร่ = **เปิด** (ไม่ใส่ additionalProperties:false) — docs/04 G1 "เพิ่ม field = non-breaking" ผู้รับต้องข้าม field ที่ไม่รู้จัก
+ * contract test ตรวจแบบปิดด้วย `strictEventSchema()` (กัน field ที่ไม่ได้ลงทะเบียนหลุดออกไป) · `optional` = field ที่ไม่บังคับมี
+ */
 const obj = (
   properties: Record<string, EventSchema>,
   optional: readonly string[] = [],
@@ -102,8 +110,12 @@ const obj = (
   type: 'object',
   properties,
   required: Object.keys(properties).filter((k) => !optional.includes(k)),
-  additionalProperties: false,
   ...(nullable ? { nullable } : {}),
+});
+/** schema เดิมแต่บังคับ field เพิ่ม (เช่น trip.started ต้องมี startedAt) */
+const requiring = (s: EventSchema, ...fields: string[]): EventSchema => ({
+  ...s,
+  required: [...(s.required ?? []), ...fields.filter((f) => !s.required?.includes(f))],
 });
 
 // ---------- enum ของสถานะ (ตรงกับ Prisma enum / docs/01 §4) ----------
@@ -172,6 +184,7 @@ const ORDER = obj({
       windowStart: dateTime(true),
       windowEnd: dateTime(true),
     }),
+    1,
   ),
   holdNote: str(true),
   sourceChangedAfterPlan: bool(),
@@ -512,14 +525,14 @@ const DEFS: Record<
     'trip',
     'คนขับเริ่มเที่ยววิ่ง',
     'TripService.applyExecution (event หน้างานแรก)',
-    TRIP,
+    requiring(TRIP, 'startedAt'),
     { ...EX_TRIP, status: 'IN_PROGRESS', startedAt: T0 },
   ),
   'trip.completed': active(
     'trip',
     'เที่ยววิ่งจบครบทุกจุด',
     'TripService.applyExecution (ทุกจุดปิด)',
-    TRIP,
+    requiring(TRIP, 'completedAt'),
     { ...EX_TRIP, status: 'COMPLETED', completedAt: T0 },
   ),
   'trip.cancelled': active('trip', 'ยกเลิกเที่ยววิ่ง', 'TripService.cancel', TRIP, {
@@ -631,4 +644,20 @@ export const WEBHOOK_EVENT_DESCRIPTIONS = Object.fromEntries(
 /** ชื่อ component ใน OpenAPI ของ `data.object` */
 export function eventSchemaName(type: string): string {
   return `WebhookEvent_${type.replace(/\./g, '_')}`;
+}
+
+/**
+ * schema แบบปิด (ทุก object ที่มี properties → additionalProperties:false) — ใช้ใน contract test เท่านั้น
+ * เพื่อจับ field ที่ผู้ยิงส่งออกโดยไม่ได้ลงทะเบียน (schema ที่เผยแพร่เปิดไว้ให้เพิ่ม field ได้)
+ */
+export function strictEventSchema(s: EventSchema): EventSchema {
+  const out: EventSchema = { ...s };
+  if (s.properties) {
+    out.properties = Object.fromEntries(
+      Object.entries(s.properties).map(([k, v]) => [k, strictEventSchema(v)]),
+    );
+    out.additionalProperties = false;
+  }
+  if (s.items) out.items = strictEventSchema(s.items);
+  return out;
 }

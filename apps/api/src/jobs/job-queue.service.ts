@@ -184,9 +184,10 @@ export class JobQueue {
       this.logger.warn(
         `job ${job.id} (${job.type}) failed attempt ${job.attempts}: ${String(err)}`,
       );
+      // ล้มครั้งสุดท้าย: job.completed ยิงหลัง onFinalFailure (ข้างล่าง) — ไม่ใช่พร้อมปิดสถานะงาน
       const done = await this.finish(
         job,
-        !retry,
+        false,
         retry
           ? {
               status: 'PENDING',
@@ -203,12 +204,24 @@ export class JobQueue {
       );
       if (!retry && done.count === 1) {
         const onFail = this.opts.get(job.type)?.onFinalFailure;
-        if (onFail)
+        const pub = !!this.opts.get(job.type)?.publicEvent;
+        // ST7-T06 (review): โมดูลเจ้าของปิดสถานะของตัวเอง (เช่น นำเข้า → FAILED) แล้วจึงยิง `job.completed` ใน transaction เดียวกัน
+        // → ผู้รับ webhook เรียก API แล้วเห็นสถานะสุดท้ายแล้ว · onFinalFailure ล้ม = rollback แล้วยิง event แยก (งานจบจริงแล้ว)
+        let emitted = false;
+        if (onFail || pub)
           await this.db
-            .withTenant(job.tenantId, (tx) =>
-              onFail({ tenantId: job.tenantId, job, tx, error: err }),
-            )
+            .withTenant(job.tenantId, async (tx) => {
+              if (onFail) await onFail({ tenantId: job.tenantId, job, tx, error: err });
+              if (pub) await this.emitCompleted(tx, job.id);
+            })
+            .then(() => {
+              emitted = pub; // commit แล้วเท่านั้น
+            })
             .catch((e) => this.logger.warn(`job ${job.id} onFinalFailure failed: ${String(e)}`));
+        if (pub && !emitted)
+          await this.db
+            .withTenant(job.tenantId, (tx) => this.emitCompleted(tx, job.id))
+            .catch((e) => this.logger.error(`job ${job.id} job.completed failed: ${String(e)}`));
         await this.notifyDone(job, 'job.failed');
       }
     }
@@ -216,37 +229,41 @@ export class JobQueue {
   }
 
   /**
-   * เขียนผลเฉพาะถ้ายังเป็นรอบที่เราหยิบ · งาน `publicEvent` ที่จบแล้ว (final) → domain_event `job.completed`
-   * ใน transaction เดียวกัน (role platform — trigger สร้างคำสั่ง webhook ให้) — payload ไม่มี result/error (เรียก GET /v1/jobs/{id})
+   * เขียนผลเฉพาะถ้ายังเป็นรอบที่เราหยิบ · `emit` (สำเร็จของงาน `publicEvent`) → domain_event `job.completed`
+   * ใน transaction เดียวกัน (role platform — trigger สร้างคำสั่ง webhook ให้)
    */
-  private async finish(job: Job, final: boolean, data: Prisma.JobUpdateManyMutationInput) {
+  private async finish(job: Job, emit: boolean, data: Prisma.JobUpdateManyMutationInput) {
     const where = { id: job.id, status: 'RUNNING' as const, attempts: job.attempts };
-    if (!final || !this.opts.get(job.type)?.publicEvent)
+    if (!emit || !this.opts.get(job.type)?.publicEvent)
       return this.prisma.platform.job.updateMany({ where, data });
     return this.prisma.platform.$transaction(async (tx) => {
       const r = await tx.job.updateMany({ where, data });
-      if (r.count !== 1) return r;
-      const j = await tx.job.findUniqueOrThrow({ where: { id: job.id } });
-      await tx.domainEvent.create({
-        data: {
-          tenantId: j.tenantId,
-          type: 'job.completed',
-          entityType: 'job',
-          localId: j.id,
-          snapshot: {
-            id: encodeId('job', j.id),
-            type: j.type,
-            status: j.status.toLowerCase(),
-            progress: j.progress,
-            attempts: j.attempts,
-            createdAt: j.createdAt.toISOString(),
-            finishedAt: j.finishedAt?.toISOString() ?? null,
-          },
-          previousAttributes: { status: 'running' },
-          requestId: `job:${j.id}`,
-        },
-      });
+      if (r.count === 1) await this.emitCompleted(tx as unknown as Tx, job.id);
       return r;
+    });
+  }
+
+  /** webhook `job.completed` (docs/01 §5.3) — payload ไม่มี result/error (ผู้รับเรียก GET /v1/jobs/{id}) */
+  private async emitCompleted(tx: Tx, jobId: string): Promise<void> {
+    const j = await tx.job.findUniqueOrThrow({ where: { id: jobId } });
+    await tx.domainEvent.create({
+      data: {
+        tenantId: j.tenantId,
+        type: 'job.completed',
+        entityType: 'job',
+        localId: j.id,
+        snapshot: {
+          id: encodeId('job', j.id),
+          type: j.type,
+          status: j.status.toLowerCase(),
+          progress: j.progress,
+          attempts: j.attempts,
+          createdAt: j.createdAt.toISOString(),
+          finishedAt: j.finishedAt?.toISOString() ?? null,
+        },
+        previousAttributes: { status: 'running' },
+        requestId: `job:${j.id}`,
+      },
     });
   }
 

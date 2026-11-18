@@ -39,6 +39,8 @@ export interface WebhookEnvelope {
   mode: 'live' | 'test';
   /** event ทดสอบ (INT-107) */
   test?: true;
+  /** `webhook.test`: event ที่ใช้ตัวอย่าง `data.object` (ST7-T06 — อยู่ที่ envelope ไม่ปนใน object) */
+  sampleEventType?: string;
   data: { object: unknown; previousAttributes: unknown };
   request: { id: string | null; idempotencyKey: string | null };
 }

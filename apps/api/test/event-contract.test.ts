@@ -8,6 +8,7 @@ import {
   WEBHOOK_EVENT_TYPES,
   eventDefinition,
   eventSchemaName,
+  strictEventSchema,
   type EventSchema,
 } from '@tms/domain';
 import Ajv, { type ValidateFunction } from 'ajv';
@@ -17,12 +18,14 @@ import { requestContext } from '../src/common/request-context';
 import { DbService, type Tx } from '../src/db/db.service';
 import { JobQueue } from '../src/jobs/job-queue.service';
 import { DeliveryOrderService } from '../src/modules/delivery-orders/delivery-order.service';
+import { ConnectorsService } from '../src/modules/erp/connectors.service';
 import { ErpAdapterRegistry } from '../src/modules/erp/erp-adapter.registry';
 import { OutboxService } from '../src/modules/integration/outbox.service';
 import {
   OrderIntakeService,
   type UpsertOrderInput,
 } from '../src/modules/orders/order-intake.service';
+import { OrderStateService } from '../src/modules/orders/order-state.service';
 import { createTenantWithDefaults } from '../src/modules/tenants/bootstrap';
 import { bangkokToday } from '../src/modules/vehicle-documents/expiry';
 import { WebhookEngine } from '../src/modules/webhooks/webhook-engine';
@@ -55,7 +58,7 @@ describe('event registry contract (ST7-T06)', () => {
   const validatorOf = (type: string) => {
     const s = eventDefinition(type)?.schema;
     if (!s) return null;
-    if (!validators.has(type)) validators.set(type, ajv.compile(s));
+    if (!validators.has(type)) validators.set(type, ajv.compile(strictEventSchema(s)));
     return validators.get(type)!;
   };
 
@@ -275,7 +278,11 @@ describe('event registry contract (ST7-T06)', () => {
       const d = eventDefinition(x.type)!;
       expect(x.phase).toBe(d.phase);
       expect(x.schema).toEqual(d.schema);
-      expect(x.sample).toMatchObject(d.example);
+      // ตัวอย่าง = data.object ล้วน (ไม่มี sampleEventType) ตรง schema แบบปิด
+      if (d.schema) {
+        const v = validatorOf(d.type)!;
+        expect(v(x.sample), `${d.type} ${ajv.errorsText(v.errors)}`).toBe(true);
+      } else expect(x.sample).toEqual(d.example);
     }
     const doc = (await api(app).get('/v1/openapi.json').expect(200)).body;
     for (const d of EVENT_REGISTRY) {
@@ -405,6 +412,16 @@ describe('event registry contract (ST7-T06)', () => {
         .expect(201)
     ).body;
     await api(app, admin).post(`/v1/connectors/${con.id}/resume`).send({}).expect(200);
+    // ระบบหยุดเพราะ AUTH (ErpAdapterSink → markError) แล้วผู้ดูแลเปิดใหม่ (ERROR → ACTIVE ต้องทดสอบผ่าน)
+    const conRow = await db.connector.findUniqueOrThrow({
+      where: { id: uuid('connector', con.id) },
+    });
+    await run((tx) =>
+      app
+        .get(ConnectorsService)
+        .markError(tx, conRow, { code: 'auth_failed', message: 'credential ผิด' }),
+    );
+    await api(app, admin).post(`/v1/connectors/${con.id}/resume`).send({}).expect(200);
     await api(app, admin)
       .post(`/v1/connectors/${con.id}/pause`)
       .send({ reason: 'ปิดชั่วคราวระหว่างทดสอบ' })
@@ -414,9 +431,47 @@ describe('event registry contract (ST7-T06)', () => {
     const job = await db.job.create({
       data: { tenantId, type: 'import.validate', payload: { importJobId: randomUUID() } },
     });
+    // งาน publicEvent ที่ล้มครั้งสุดท้าย → onFinalFailure ปิดงานของโมดูล (นำเข้า → FAILED) แล้วจึงยิง job.completed (failed)
+    // ใน transaction เดียวกัน (handler ทดสอบที่ลงทะเบียนแบบเดียวกับ import.* — งานนำเข้าจริงล้มยากจากภายนอก)
+    const doc = await db.storedDocument.create({
+      data: { tenantId, status: 'PENDING', kind: 'OTHER', mimeType: 'text/csv', sizeBytes: 10 },
+    });
+    const imp = await db.importJob.create({
+      data: {
+        tenantId,
+        kind: 'customers',
+        documentId: doc.id,
+        status: 'IMPORTING',
+        expiresAt: new Date(Date.now() + 3600_000),
+      },
+    });
+    let importStatusAtEvent: string | null = null;
+    app.get(JobQueue).register('test.import_fail', () => Promise.reject(new Error('ไฟล์เสีย')), {
+      publicEvent: true,
+      onFinalFailure: async ({ tx }) => {
+        await tx.importJob.update({ where: { id: imp.id }, data: { status: 'FAILED' } });
+        importStatusAtEvent = 'FAILED';
+      },
+    });
+    const failed = await db.job.create({
+      data: { tenantId, type: 'test.import_fail', maxAttempts: 1, payload: {} },
+    });
     const queue = app.get(JobQueue);
     while (await queue.runOnce());
     expect((await db.job.findUniqueOrThrow({ where: { id: job.id } })).status).toBe('SUCCEEDED');
+    expect((await db.job.findUniqueOrThrow({ where: { id: failed.id } })).status).toBe('FAILED');
+    expect((await db.importJob.findUniqueOrThrow({ where: { id: imp.id } })).status).toBe('FAILED');
+    expect(importStatusAtEvent).toBe('FAILED');
+
+    // พักใบโดยระบบ (นัดส่งใหม่เกินจำนวนครั้ง — OrderStateService.holdSystem) → order.held
+    const h = await newOrder();
+    await api(app, admin)
+      .post(`/v1/orders/${h.pub}/manual-price`)
+      .send({ sellAmount: '900.00', reason: 'ตกลงราคากับลูกค้าแล้ว' })
+      .expect(200);
+    await run((tx) =>
+      app.get(OrderStateService).holdReschedulesExhausted(tx, [h.soId], 'นัดส่งใหม่ครบจำนวนครั้ง'),
+    );
 
     // ---------------- ตรวจ ----------------
     const events = await db.domainEvent.findMany({
@@ -492,12 +547,28 @@ describe('event registry contract (ST7-T06)', () => {
         ]),
     ).toEqual([
       ['PAUSED', 'ACTIVE'],
+      ['ACTIVE', 'ERROR'],
+      ['ERROR', 'ACTIVE'],
       ['ACTIVE', 'PAUSED'],
     ]);
+    expect(
+      registered
+        .filter((e) => e.type === 'connector.health_changed')
+        .find((e) => (e.snapshot as { status: string }).status === 'ERROR')!.snapshot,
+    ).toMatchObject({
+      statusReason: 'auth_failed',
+      lastHealthError: { errorClass: 'AUTH', code: 'auth_failed' },
+    });
     expect(registered.filter((e) => e.type === 'job.completed').map((e) => e.snapshot)).toEqual([
       expect.objectContaining({ id: encodeId('job', job.id), status: 'succeeded' }),
+      expect.objectContaining({ id: encodeId('job', failed.id), status: 'failed' }),
     ]);
-  });
+    expect(
+      registered
+        .filter((e) => e.type === 'order.held' && (e.snapshot as { id: string }).id === h.pub)
+        .map((e) => (e.snapshot as { holdReason: string }).holdReason),
+    ).toContain('RESCHEDULES_EXHAUSTED');
+  }, 180_000);
 });
 
 /** ชื่อ field ที่สื่อถึงราคา/ต้นทุน — ห้ามอยู่ใน payload ของ event (ดูรายละเอียดราคาผ่าน API ที่ตรวจสิทธิ์) */
