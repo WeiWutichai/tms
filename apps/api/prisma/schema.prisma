@@ -198,6 +198,7 @@ model AppUser {
   orderLockReleases  OrderEditLockRelease[] @relation("OrderLockReleaseHolder")
   orderLocksReleased OrderEditLockRelease[] @relation("OrderLockReleaseBy")
   preferences        UserPreference[]
+  savedViews         SavedView[]
 
   @@unique([tenantId, email])
   @@map("app_user")
@@ -218,6 +219,30 @@ model UserPreference {
   @@unique([userId, key])
   @@index([tenantId])
   @@map("user_preference")
+}
+
+/// มุมมองที่บันทึกไว้ (saved view) ของตาราง/รายงาน ต่อผู้ใช้ (ST9-T11; docs/04 I UI pattern มาตรฐาน, H บันทึก filter)
+/// แชร์ในทีม = P1 (docs/04 H) — เฟส 0 เห็นเฉพาะเจ้าของ · ลบ = soft (deleted_at)
+model SavedView {
+  id            String    @id @default(uuid()) @db.Uuid
+  tenantId      String    @map("tenant_id") @db.Uuid
+  userId        String    @map("user_id") @db.Uuid
+  user          AppUser   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// key ของหน้า เช่น `orders`, `orders.hold`, `vehicles`
+  page          String
+  name          String
+  /// ตัวกรอง/แท็บของหน้า (object แบน — ค่า string/number/boolean/null)
+  state         Json
+  /// คอลัมน์ที่ซ่อน (string[]) · null = ตามค่าเริ่มต้นของตาราง
+  hiddenColumns Json?     @map("hidden_columns")
+  isDefault     Boolean   @default(false) @map("is_default")
+  version       Int       @default(1)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt     DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  @@index([tenantId, userId, page])
+  @@map("saved_view")
 }
 
 /// role ของ tenant (ชุดระบบ 8 role — plan/11 ข้อ 11) — permission แบบ `resource:verb`

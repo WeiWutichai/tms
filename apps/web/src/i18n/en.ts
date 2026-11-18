@@ -1078,4 +1078,6 @@ export const en: Partial<Record<MessageKey, string>> = {
   'trk.refs': 'Reference info',
   'trk.ref.po': 'Customer PO',
   'trk.pod.sig': 'Recipient signature',
+  'sv.all': 'All',
+  'sv.default': 'Default value',
 };
