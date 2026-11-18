@@ -210,7 +210,8 @@ export class SubconOfferService {
       'offer_closed',
       this.expired(o) ? 'หมดเวลาตอบรับข้อเสนอนี้แล้ว' : undefined,
       undefined,
-      { status: this.expired(o) ? 'EXPIRED' : o.status },
+      // ST9-T12 QA Q2: ชื่อ `offerStatus` — เดิม `status` ทับ status (HTTP) ของ problem+json
+      { offerStatus: this.expired(o) ? 'EXPIRED' : o.status },
     );
   }
 

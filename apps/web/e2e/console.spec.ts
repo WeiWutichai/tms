@@ -149,7 +149,7 @@ test.describe('Platform Console', () => {
     await app.getByLabel('ชื่อองค์กร').fill('เปลี่ยนชื่อระหว่างใช้งานแทน');
     await app.getByRole('button', { name: 'บันทึก' }).click();
     await expect(app.getByRole('status').filter({ hasText: 'อ่านอย่างเดียว' })).toHaveText(
-      'โหมดใช้งานแทนเป็นแบบอ่านอย่างเดียว แก้ไขข้อมูลไม่ได้',
+      'กำลังเข้าใช้งานแทนแบบอ่านอย่างเดียว — แก้ไขข้อมูลไม่ได้',
     );
 
     // "ออก" → ปิด session ฝั่ง server แล้วปิดแท็บ (หรือกลับหน้าเข้าสู่ระบบ)
