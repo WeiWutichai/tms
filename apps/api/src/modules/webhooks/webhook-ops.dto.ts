@@ -187,3 +187,85 @@ export class WebhookResendResultDto {
 export class WebhookRedeliverResultDto {
   @ApiProperty({ type: [WebhookResendResultDto] }) data!: WebhookResendResultDto[];
 }
+
+/** ST7-T11 `GET /v1/events` (docs/04 G2 #2 `events`; docs/01 §5.2 #2 `GET /events/{id}`) */
+export class EventListQuery {
+  @ApiPropertyOptional({ minimum: 1, maximum: 200, default: 50 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(200)
+  limit?: number;
+
+  @ApiPropertyOptional({ description: 'ค่า nextCursor จากหน้าก่อน (ใช้กับ sort เดิม)' })
+  @IsOptional()
+  @IsString()
+  cursor?: string;
+
+  @ApiPropertyOptional({ enum: ['occurredAt', '-occurredAt'], default: '-occurredAt' })
+  @IsOptional()
+  @IsIn(['occurredAt', '-occurredAt'])
+  sort?: 'occurredAt' | '-occurredAt';
+
+  @ApiPropertyOptional({
+    example: 'order.created,order.cancelled',
+    description: 'ชนิด event คั่นด้วย , (ชื่อใน `GET /v1/webhooks/event-types`)',
+  })
+  @IsOptional()
+  @Matches(/^[a-z_]+\.[a-z_.]+(,[a-z_]+\.[a-z_.]+)*$/)
+  type?: string;
+
+  @ApiPropertyOptional({ description: 'เกิดตั้งแต่ (ISO 8601)' })
+  @IsOptional()
+  @IsISO8601({ strict: true })
+  occurredFrom?: string;
+
+  @ApiPropertyOptional({ description: 'เกิดก่อน (ISO 8601)' })
+  @IsOptional()
+  @IsISO8601({ strict: true })
+  occurredTo?: string;
+}
+
+export class EventDataDto {
+  @ApiProperty({
+    type: 'object',
+    additionalProperties: true,
+    description: 'ตาม schema `WebhookEvent_*` ของ `type`',
+  })
+  object!: unknown;
+  @ApiProperty({
+    type: 'object',
+    nullable: true,
+    additionalProperties: true,
+    description: 'ค่าเดิมของ field ที่เปลี่ยน (ชื่อเดียวกับ `object`)',
+  })
+  previousAttributes!: unknown;
+}
+
+export class EventRequestDto {
+  @ApiProperty({ nullable: true, type: String }) id!: string | null;
+  @ApiProperty({ nullable: true, type: String }) idempotencyKey!: string | null;
+}
+
+/** envelope เดียวกับที่ส่งทาง webhook (components.schemas.WebhookEnvelope — docs/04 G1) */
+export class EventDto {
+  @ApiProperty({
+    example: 'evt_8f3a…',
+    description: 'id เดียวกับ envelope / header X-TMS-Event-Id',
+  })
+  id!: string;
+  @ApiProperty({ example: 'order.created' }) type!: string;
+  @ApiProperty({ example: '1' }) version!: string;
+  @ApiProperty({ format: 'date-time' }) occurredAt!: string;
+  @ApiProperty({ example: 'ten_…' }) tenantId!: string;
+  @ApiProperty({ enum: ['live', 'test'] }) mode!: string;
+  @ApiProperty({ type: EventDataDto }) data!: EventDataDto;
+  @ApiProperty({ type: EventRequestDto }) request!: EventRequestDto;
+}
+
+export class EventPageDto {
+  @ApiProperty({ type: [EventDto] }) data!: EventDto[];
+  @ApiProperty({ nullable: true, type: String }) nextCursor!: string | null;
+  @ApiProperty() hasMore!: boolean;
+}

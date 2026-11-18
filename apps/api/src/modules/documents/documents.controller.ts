@@ -27,7 +27,8 @@ import { join } from 'node:path';
 import { scopeAllows } from '@tms/domain';
 import { Public, RequireScope, TenantResource } from '../../common/decorators';
 import { decodeIdOr404, encodeId, tryDecodeId } from '../../common/ids';
-import { ProblemException } from '../../common/problem';
+import { PROBLEMS, ProblemException, type ProblemCode } from '../../common/problem';
+import { ApiProblems } from '../../common/problem.dto';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
 import { LocalFileStore } from '../../pdf/file-store';
@@ -131,6 +132,63 @@ function toDto(d: StoredDocument): DocumentDto {
   };
 }
 
+/** ตัวอย่าง problem+json ของ `/v1/documents` (OpenAPI — ST7-T11) */
+const DP = (code: ProblemCode, instance: string, extra: Record<string, unknown> = {}) => ({
+  type: `https://docs.tms.example/problems/${code}`,
+  title: PROBLEMS[code].th,
+  status: PROBLEMS[code].status,
+  code,
+  instance,
+  requestId: 'b6a1c2d3-…',
+  ...extra,
+});
+const D_CREATE_409 = {
+  status: 409,
+  description: '`clientDocumentId` นี้ถูกใช้แล้ว (คนอื่น/ชนิดอื่น/ขนาดอื่น)',
+  examples: { duplicate: DP('duplicate', '/v1/documents') },
+};
+const D_CREATE_422 = {
+  status: 422,
+  description: 'ชนิด/ขนาดไม่ถูกต้อง — `errors[]` รายช่อง',
+  examples: {
+    validation_failed: DP('validation_failed', '/v1/documents', {
+      errors: [
+        { field: 'mime', code: 'mime_not_allowed', message: 'mime is not allowed for this kind' },
+      ],
+    }),
+  },
+};
+const D_SIG_404 = {
+  status: 404,
+  description: 'ลายเซ็นของ URL ผิด/หมดอายุ หรือไม่พบไฟล์ (ผิดเกิน 30 ครั้ง/นาที/IP → 429)',
+  examples: { not_found: DP('not_found', '/v1/documents/doc_3f2a…/content') },
+};
+const D_UPLOAD_409 = {
+  status: 409,
+  description: 'อัปโหลดแล้ว (ไฟล์เขียนครั้งเดียว)',
+  examples: {
+    invalid_state_transition: DP('invalid_state_transition', '/v1/documents/doc_3f2a…/content'),
+  },
+};
+const D_UPLOAD_422 = {
+  status: 422,
+  description: 'ไฟล์ว่าง / ใหญ่กว่าที่จองไว้ / เนื้อไฟล์ไม่ตรงชนิดที่ประกาศ',
+  examples: {
+    validation_failed: DP('validation_failed', '/v1/documents/doc_3f2a…/content', {
+      errors: [
+        {
+          field: 'content',
+          code: 'mime_mismatch',
+          message: 'file content is image/png, declared image/jpeg',
+        },
+      ],
+    }),
+  },
+};
+
+/** metadata ของไฟล์ (ไม่มี URL) — ใช้กับรายการไฟล์ของ resource อื่น (ST7-T11 `GET /v1/orders/{id}/documents`) */
+export const toDocumentDto = (d: StoredDocument): DocumentDto => toDto(d);
+
 /**
  * ไฟล์แนบ (ST1-T08; docs/01 §5.2 #5) — จอง → อัปโหลดเนื้อไฟล์ผ่าน URL ที่มีลายเซ็น → ตรวจขนาด + MIME จริง → ready
  * ไฟล์เก็บแบบเขียนครั้งเดียว (key = sha256) ไม่มี API ลบ/แก้
@@ -157,6 +215,7 @@ export class DocumentsController {
   @Post()
   @ApiBearerAuth()
   @RequireScope('documents:write')
+  @ApiProblems(D_CREATE_409, D_CREATE_422)
   @ApiCreatedResponse({ type: DocumentDto })
   async create(@Body() body: CreateDocumentDto, @Req() req: Request): Promise<DocumentDto> {
     const ctx = requestContext.require();
@@ -218,6 +277,7 @@ export class DocumentsController {
   @Public()
   @Put(':id/content')
   @HttpCode(200)
+  @ApiProblems(D_SIG_404, D_UPLOAD_409, D_UPLOAD_422)
   @ApiOkResponse({ type: DocumentDto })
   async upload(
     @Param('id') id: string,
@@ -277,6 +337,8 @@ export class DocumentsController {
 
   @Public()
   @Get(':id/content')
+  @ApiOkResponse({ description: 'เนื้อไฟล์ (Content-Type ตามไฟล์, attachment, no-store)' })
+  @ApiProblems(D_SIG_404)
   async download(
     @Param('id') id: string,
     @Query() q: { t?: string; exp?: string; sig?: string },

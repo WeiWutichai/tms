@@ -1,5 +1,12 @@
 import { Controller, Get, Param } from '@nestjs/common';
-import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiProperty, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiExtension,
+  ApiOkResponse,
+  ApiOperation,
+  ApiProperty,
+  ApiTags,
+} from '@nestjs/swagger';
 import { scopeAllows } from '@tms/domain';
 import { TenantResource } from '../../common/decorators';
 import { decodeIdOr404 } from '../../common/ids';
@@ -38,6 +45,8 @@ export class JobsController {
 
   @Get(':id')
   @TenantResource('job')
+  // ตรวจสิทธิ์ใน handler (ผู้สั่งงานเองไม่ต้องมี) — ประกาศ scope ใน OpenAPI ให้ตรงกับ route อื่น (ST7-T11)
+  @ApiExtension('x-required-scopes', ['jobs:read'])
   @ApiOperation({
     description:
       'ต้องมี `jobs:read` (ดูทุกงานของบริษัท) **หรือ** เป็นผู้สั่งงานนั้นเอง (เช่น `POST /v1/orders:bulk` + `Prefer: respond-async` ' +

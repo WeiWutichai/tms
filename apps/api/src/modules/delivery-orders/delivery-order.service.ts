@@ -267,7 +267,8 @@ export class DeliveryOrderService {
       orderBy: [...k.orderBy],
       take: k.take,
     });
-    return { rows, limit: k.limit };
+    // cursor ต้องพก sort (review ST7-T11: เดิมส่งแค่ limit → nextCursor ของ -updatedAt ใช้ต่อไม่ได้ 422)
+    return { rows, limit: k.limit, sort: k.sort };
   }
 
   async get(id: string, tx: Tx = this.db.tx): Promise<DeliveryOrderRecord> {

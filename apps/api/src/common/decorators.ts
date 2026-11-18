@@ -1,5 +1,5 @@
 import { applyDecorators, SetMetadata } from '@nestjs/common';
-import { ApiHeader } from '@nestjs/swagger';
+import { ApiExtension, ApiHeader } from '@nestjs/swagger';
 
 export const IS_PUBLIC = 'tms:isPublic';
 /** route ที่ไม่ต้องมี credential (health, openapi.json) */
@@ -21,9 +21,12 @@ export const TENANT_RESOURCE = 'tms:tenantResource';
 export const TenantResource = (kind: string) => SetMetadata(TENANT_RESOURCE, kind);
 
 export const REQUIRED_SCOPE = 'tms:requiredScope';
-/** scope แบบ `resource:verb` (docs/01 §5.1) — ส่งหลายตัว = มีตัวใดตัวหนึ่งก็พอ */
+/**
+ * scope แบบ `resource:verb` (docs/01 §5.1) — ส่งหลายตัว = มีตัวใดตัวหนึ่งก็พอ
+ * ST7-T11: ประกาศใน OpenAPI ด้วย (`x-required-scopes`) — ใช้สร้างตัวอย่าง 403 ที่ขาด (`describeProblemDefaults`)
+ */
 export const RequireScope = (...scopes: [string, ...string[]]) =>
-  SetMetadata(REQUIRED_SCOPE, scopes);
+  applyDecorators(SetMetadata(REQUIRED_SCOPE, scopes), ApiExtension('x-required-scopes', scopes));
 
 export const REQUIRE_STEP_UP = 'tms:requireStepUp';
 /** ต้องยืนยัน 2FA ซ้ำภายใน 5 นาที (header `X-Step-Up` จาก POST /v1/auth/step-up) — A3 "เปลี่ยน role ต้อง step-up" */
