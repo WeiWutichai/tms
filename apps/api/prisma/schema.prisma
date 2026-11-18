@@ -2708,7 +2708,7 @@ model MessageRecipientCounter {
 
 /// ST3-T05 ตำแหน่งที่ดึง order จากต้นทาง (connector `pullOrders`) ล่าสุด ต่อ tenant + connector · lease กันดึงซ้อนกัน
 /// ST7-T14: ดึงผ่านแถว `connector` (ErpAdapter) = 1 แถวต่อ **connector id** (2 นิติบุคคลใช้ adapter เดียวกันได้ cursor แยก)
-///   แถวที่ connector_id null = ต้นทางทดสอบตามรหัส (`mock` ของ OrderSourceRegistry — dev/test) — unique บางส่วนใน migration 0101
+///   แถวที่ connector_id null = ต้นทางทดสอบตามรหัส (`mock` ของ OrderSourceRegistry — dev/test) — unique บางส่วนใน migration 0102
 model ConnectorCursor {
   id            String    @id @default(uuid()) @db.Uuid
   tenantId      String    @map("tenant_id") @db.Uuid

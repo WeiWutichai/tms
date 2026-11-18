@@ -601,7 +601,7 @@ export class ConnectorIntakeService implements OnModuleInit {
 
   /** จองรอบดึง: สร้างแถวถ้ายังไม่มี แล้วตั้ง lease เมื่อว่าง/หมดอายุ (UPDATE ล็อกแถว → สองรอบพร้อมกันได้ lease รอบเดียว) */
   private async claim(tx: Tx, tenantId: string, source: PullSource, leaseId: string) {
-    // unique บางส่วน 2 ตัว (ต่อ connector / ต่อรหัสเมื่อไม่มี connector — migration 0101) → ON CONFLICT ไม่ระบุคอลัมน์
+    // unique บางส่วน 2 ตัว (ต่อ connector / ต่อรหัสเมื่อไม่มี connector — migration 0102) → ON CONFLICT ไม่ระบุคอลัมน์
     await tx.$executeRaw`
       INSERT INTO connector_cursor (id, tenant_id, connector_key, connector_id)
       VALUES (${randomUUID()}::uuid, ${tenantId}::uuid, ${source.key}, ${source.connectorId}::uuid)
