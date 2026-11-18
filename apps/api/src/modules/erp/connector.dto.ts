@@ -61,6 +61,24 @@ export class ErpAdapterListDto {
   @ApiProperty({ type: [ErpAdapterDto] }) data!: ErpAdapterDto[];
 }
 
+/** ST7-T22 webhook ขาเข้าของ connector (ไม่มีค่า token — แสดงครั้งเดียวตอนออก/หมุน) */
+export class ConnectorInboundDto {
+  @ApiProperty({
+    description:
+      'adapter รับ webhook ขาเข้าได้ไหม (false = ออก token ไม่ได้ — 409 `inbound_not_supported`)',
+  })
+  supported!: boolean;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: 'whin_Q2x9',
+    description: 'ส่วนต้นของ token ปัจจุบัน · null = ยังไม่เปิดรับ (ไม่มี URL)',
+  })
+  tokenPrefix!: string | null;
+  @ApiProperty({ nullable: true, type: String, format: 'date-time' }) tokenRotatedAt!:
+    string | null;
+}
+
 export class ConnectorDto {
   @ApiProperty({ example: 'con_8f3a…' }) id!: string;
   @ApiProperty({ example: 'demo' }) adapterKey!: string;
@@ -134,9 +152,27 @@ export class ConnectorDto {
   @ApiProperty({ nullable: true, type: String, format: 'date-time' }) activatedAt!: string | null;
   @ApiProperty({ nullable: true, type: String, format: 'date-time' }) disconnectedAt!:
     string | null;
+  @ApiProperty({ type: ConnectorInboundDto }) inbound!: ConnectorInboundDto;
   @ApiProperty() version!: number;
   @ApiProperty({ format: 'date-time' }) createdAt!: string;
   @ApiProperty({ format: 'date-time' }) updatedAt!: string;
+}
+
+/** ST7-T22 ผลการออก/หมุน token — `token`/`url` แสดงครั้งเดียว */
+export class InboundTokenDto {
+  @ApiProperty({
+    example: 'whin_Q2x9…',
+    description: 'token ใหม่ (แสดงครั้งเดียว ระบบเก็บเฉพาะ hash) — token เดิมใช้ไม่ได้ทันที',
+  })
+  token!: string;
+  @ApiProperty({
+    example: 'https://api.example.com/v1/inbound/demo/whin_Q2x9…',
+    description: 'URL ที่ตั้งในระบบต้นทาง (ERP) ให้ส่ง webhook มา',
+  })
+  url!: string;
+  @ApiProperty({ example: 'whin_Q2x9' }) tokenPrefix!: string;
+  @ApiProperty({ format: 'date-time' }) tokenRotatedAt!: string;
+  @ApiProperty({ type: ConnectorDto }) connector!: ConnectorDto;
 }
 
 export class ConnectorListDto {
@@ -364,4 +400,14 @@ export class EffectiveConnectorDto {
   })
   companyId!: string | null;
   @ApiProperty({ nullable: true, type: String, example: 'brn_…' }) branchId!: string | null;
+}
+
+/** ST7-T22 ผลการรับ webhook ขาเข้า */
+export class InboundReceiptDto {
+  @ApiProperty({ example: true }) received!: boolean;
+  @ApiProperty({
+    description: 'true = event นี้ (provider + eventKey เดิม) เคยรับแล้ว — ไม่ประมวลผลซ้ำ',
+  })
+  duplicate!: boolean;
+  @ApiProperty({ example: 'ibe_8f3a…', description: 'รายการใน ledger' }) id!: string;
 }

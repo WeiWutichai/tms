@@ -122,6 +122,57 @@ export interface ListDocumentsQuery {
   limit: number;
 }
 
+// ---------- webhook ขาเข้า (ST7-T22; docs/04 G3 "Inbound webhook ledger" I10) ----------
+
+/** คำขอ webhook ขาเข้า 1 ครั้ง (หลังตรวจ token ใน URL แล้ว) */
+export interface InboundRequest {
+  /** header ทั้งหมด (ชื่อตัวพิมพ์เล็ก) */
+  readonly headers: Readonly<Record<string, string>>;
+  /** body ดิบตามที่ได้รับ (ใช้คำนวณลายเซ็น — ห้ามแปลงก่อนตรวจ) */
+  readonly rawBody: Buffer;
+  readonly receivedAt: Date;
+}
+
+/** event ที่ adapter แยกจาก body (1 คำขอ = 1 event) */
+export interface InboundEvent {
+  /** รหัส event ของผู้ให้บริการ (ไม่ซ้ำต่อผู้ให้บริการ) — กันซ้ำด้วย (tenant, provider, eventKey) · 1–200 ตัว */
+  eventKey: string;
+  /** ชนิด event ของผู้ให้บริการ เช่น `invoice.paid` · 1–100 ตัว */
+  type: string;
+  /** เวลาที่เกิดฝั่งผู้ให้บริการ (ISO 8601) ถ้ามี */
+  occurredAt?: string | null;
+}
+
+/**
+ * สิ่งที่ core ทำต่อหลัง adapter ประมวลผลสำเร็จ (ไม่ผูก ERP ใด) — ทำเฉพาะเมื่อ connector เปิด capability นั้น
+ * `pullOrders` = ตั้งรอบดึง order ทันที (ไม่รอรอบ 5 นาที — ไม่สร้างซ้ำถ้ามีรอบค้าง)
+ */
+export type InboundTrigger = 'pullOrders';
+export const INBOUND_TRIGGERS: readonly InboundTrigger[] = ['pullOrders'];
+
+export type InboundHandleResult =
+  | { ok: true; triggers?: readonly InboundTrigger[]; summary?: Record<string, unknown> }
+  | { ok: false; retryable: boolean; problem: Problem };
+
+/**
+ * ความสามารถรับ webhook ขาเข้า (ไม่บังคับ — ไม่มี = URL รับ webhook ของ connector นี้ตอบ 401 เสมอ)
+ * ไม่ใช่ `Capability` ของ docs/01 §6.1 (ไม่มีสวิตช์ต่อ tenant — เปิด/ปิดด้วยการออก/เพิกถอน token ของ connector)
+ * - `verify` ตรวจลายเซ็นกับ credential ของ connector (ctx.config) **ก่อน** core เขียนอะไรลงฐาน — false/throw = 401 ·
+ *   ต้องเทียบแบบเวลาคงที่ และปฏิเสธ timestamp เก่า (กัน replay) ถ้าผู้ให้บริการส่งมา · ห้ามมีผลข้างเคียง
+ * - `parse` เรียกหลังลายเซ็นผ่านเท่านั้น — null = รูปแบบที่ไม่รู้จัก (400) · ห้ามเรียกภายนอก
+ * - `handle` เรียกใน worker (นอก transaction) ครั้งเดียวต่อ event ที่บันทึกใหม่ (ctx.idempotencyKey = `provider:eventKey`)
+ *   · throw = ล้มแบบลองใหม่ได้ · ห้ามเขียนฐาน TMS (คืน `triggers` ให้ core ทำต่อ)
+ */
+export interface InboundWebhookHandler {
+  verify(ctx: ErpContext, req: InboundRequest): boolean | Promise<boolean>;
+  parse(ctx: ErpContext, req: InboundRequest): InboundEvent | null;
+  handle(
+    ctx: ErpContext,
+    event: InboundEvent,
+    req: Pick<InboundRequest, 'rawBody'>,
+  ): Promise<InboundHandleResult>;
+}
+
 /**
  * docs/01 §6.1 — method ที่มี ⇔ ประกาศ capability ชื่อเดียวกัน (`adapterShapeProblems`)
  * ธง `postedStatus` / `ownsDocumentNumber` ไม่มี method
@@ -155,6 +206,8 @@ export interface ErpAdapter {
     ctx: ErpContext,
     q: ListDocumentsQuery,
   ): Promise<{ items: ExternalRef[]; next: string | null }>;
+  /** ST7-T22 webhook ขาเข้า (ไม่บังคับ) */
+  readonly inbound?: InboundWebhookHandler;
 }
 
 /** capability → ชื่อ method (ธงไม่มี method) */
@@ -196,6 +249,9 @@ export function adapterShapeProblems(a: ErpAdapter): string[] {
     if (!caps.has(c) && has) out.push(`method ${m}() present but capability '${c}' not declared`);
   }
   if (typeof a.healthCheck !== 'function') out.push('healthCheck() required');
+  if (a.inbound !== undefined)
+    for (const m of ['verify', 'parse', 'handle'] as const)
+      if (typeof a.inbound?.[m] !== 'function') out.push(`inbound.${m}() required`);
   const seen = new Set<string>();
   for (const f of a.configFields ?? []) {
     if (!CONFIG_KEY_RE.test(f.key)) out.push(`config field key '${f.key}' invalid`);

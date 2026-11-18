@@ -21851,6 +21851,154 @@
         ]
       }
     },
+    "/v1/connectors/{id}/inbound-token/rotate": {
+      "post": {
+        "operationId": "Connectors_rotateInboundToken",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectorActionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ST7-T22 ออก/หมุน token ของ URL รับ webhook ขาเข้า — token/URL แสดงครั้งเดียว · token เดิมใช้ไม่ได้ทันที (401) · adapter ไม่รองรับ → 409 `inbound_not_supported` · audit บันทึกเฉพาะ prefix",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InboundTokenDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "connectors"
+        ]
+      }
+    },
+    "/v1/connectors/{id}/inbound-token/revoke": {
+      "post": {
+        "operationId": "Connectors_revokeInboundToken",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectorReasonDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ST7-T22 เลิกรับ webhook ขาเข้า (เหตุผล ≥ 10 ตัว) — URL เดิมตอบ 401",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "connectors"
+        ]
+      }
+    },
     "/v1/connectors/{id}/disconnect": {
       "post": {
         "operationId": "Connectors_disconnect",
@@ -21922,6 +22070,77 @@
         ],
         "tags": [
           "connectors"
+        ]
+      }
+    },
+    "/v1/inbound/{provider}/{token}": {
+      "post": {
+        "description": "ตรวจ token ใน URL + ลายเซ็นของผู้ให้บริการ (ตามรูปแบบของ adapter) **ก่อน** บันทึก · event เดิม (provider + รหัส event) ส่งซ้ำ/พร้อมกันได้ — บันทึกและประมวลผลครั้งเดียว (`duplicate: true`) · ประมวลผลแบบ async ใน worker · body ≤ 256 KB · token ผิด/หมุนแล้ว/ลายเซ็นผิด = 401 รูปเดียวกัน · rate limit ต่อ IP และต่อ token (หน้าต่าง 1 นาที)",
+        "operationId": "InboundWebhook_receive",
+        "parameters": [
+          {
+            "name": "provider",
+            "required": true,
+            "in": "path",
+            "description": "`adapterKey` ของ connector เช่น `demo`",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "token",
+            "required": true,
+            "in": "path",
+            "description": "token ของ connector (`whin_…`)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "body ตามรูปแบบของผู้ให้บริการ (อ่านเป็น byte ดิบ)",
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InboundReceiptDto"
+                }
+              }
+            },
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "description": "token หรือลายเซ็นไม่ถูกต้อง"
+          },
+          "413": {
+            "description": "body เกิน 256 KB"
+          },
+          "429": {
+            "description": "เรียกถี่เกินไป (ต่อ IP / ต่อ token)"
+          }
+        },
+        "summary": "รับ webhook ขาเข้าจากระบบบัญชี/ERP ที่เชื่อมไว้",
+        "tags": [
+          "inbound"
         ]
       }
     },
@@ -52825,6 +53044,31 @@
           "branchId"
         ]
       },
+      "ConnectorInboundDto": {
+        "type": "object",
+        "properties": {
+          "supported": {
+            "type": "boolean",
+            "description": "adapter รับ webhook ขาเข้าได้ไหม (false = ออก token ไม่ได้ — 409 `inbound_not_supported`)"
+          },
+          "tokenPrefix": {
+            "type": "string",
+            "nullable": true,
+            "example": "whin_Q2x9",
+            "description": "ส่วนต้นของ token ปัจจุบัน · null = ยังไม่เปิดรับ (ไม่มี URL)"
+          },
+          "tokenRotatedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "supported",
+          "tokenPrefix",
+          "tokenRotatedAt"
+        ]
+      },
       "ConnectorDto": {
         "type": "object",
         "properties": {
@@ -52991,6 +53235,9 @@
             "nullable": true,
             "format": "date-time"
           },
+          "inbound": {
+            "$ref": "#/components/schemas/ConnectorInboundDto"
+          },
           "version": {
             "type": "number"
           },
@@ -53025,6 +53272,7 @@
           "lastHealthError",
           "activatedAt",
           "disconnectedAt",
+          "inbound",
           "version",
           "createdAt",
           "updatedAt"
@@ -53332,6 +53580,39 @@
           }
         }
       },
+      "InboundTokenDto": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "example": "whin_Q2x9…",
+            "description": "token ใหม่ (แสดงครั้งเดียว ระบบเก็บเฉพาะ hash) — token เดิมใช้ไม่ได้ทันที"
+          },
+          "url": {
+            "type": "string",
+            "example": "https://api.example.com/v1/inbound/demo/whin_Q2x9…",
+            "description": "URL ที่ตั้งในระบบต้นทาง (ERP) ให้ส่ง webhook มา"
+          },
+          "tokenPrefix": {
+            "type": "string",
+            "example": "whin_Q2x9"
+          },
+          "tokenRotatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "connector": {
+            "$ref": "#/components/schemas/ConnectorDto"
+          }
+        },
+        "required": [
+          "token",
+          "url",
+          "tokenPrefix",
+          "tokenRotatedAt",
+          "connector"
+        ]
+      },
       "ConnectorReasonDto": {
         "type": "object",
         "properties": {
@@ -53344,6 +53625,29 @@
         },
         "required": [
           "reason"
+        ]
+      },
+      "InboundReceiptDto": {
+        "type": "object",
+        "properties": {
+          "received": {
+            "type": "boolean",
+            "example": true
+          },
+          "duplicate": {
+            "type": "boolean",
+            "description": "true = event นี้ (provider + eventKey เดิม) เคยรับแล้ว — ไม่ประมวลผลซ้ำ"
+          },
+          "id": {
+            "type": "string",
+            "example": "ibe_8f3a…",
+            "description": "รายการใน ledger"
+          }
+        },
+        "required": [
+          "received",
+          "duplicate",
+          "id"
         ]
       },
       "WebhookDeliveryDto": {

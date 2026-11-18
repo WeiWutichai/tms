@@ -8,10 +8,15 @@ import type {
   ErpContext,
   ExternalRef,
   HealthResult,
+  InboundEvent,
+  InboundHandleResult,
+  InboundRequest,
+  InboundWebhookHandler,
   ListDocumentsQuery,
   PaymentStatus,
   PushResult,
 } from '../../modules/erp/erp-adapter';
+import { verifyWebhookSignature } from '../../modules/webhooks/signature';
 import type { ErrorClass } from '../../modules/integration/outbox.types';
 
 /**
@@ -30,6 +35,9 @@ import type { ErrorClass } from '../../modules/integration/outbox.types';
  * - credential `apiKey`: ค่าใดก็ได้ ยกเว้น `invalid` (= credential ผิด → AUTH) — ไว้สาธิตการทดสอบการเชื่อมต่อล้ม
  * - กันซ้ำ 2 ชั้นเหมือน ERP จริง (docs/01 §6.2): idempotencyKey เดิม = ผลเดิม · เลขอ้างอิงของเราซ้ำด้วย key อื่น = DUPLICATE
  * - ไม่ประกาศ `ownsDocumentNumber` (TMS ออกเลขเอง — โหมดออกเลขฝั่ง ERP = ST7-T17) และ `postedStatus`
+ * - webhook ขาเข้า (ST7-T22): header `X-Demo-Signature: t=<unix>,v1=<hex>` = HMAC-SHA256(credential `inboundSecret`,
+ *   `${t}.${rawBody}`) รูปเดียวกับ webhook ขาออกของเรา (±300 วิ) · body `{"id","type","occurredAt"?}` ·
+ *   type `orders.changed` → ขอให้ core ดึง order ทันที · `demo.fail` → ล้ม (ไม่ลองใหม่) · `demo.retry` → throw (ลองใหม่)
  */
 export const DEMO_ADAPTER_KEY = 'demo';
 
@@ -91,7 +99,12 @@ interface Scope {
   failures: Map<string, number>;
   /** วันที่ของ order ตัวอย่าง (กำหนดตอนดึงครั้งแรก — ดึงซ้ำได้ข้อมูลเดิม) */
   orderDate: string | null;
+  /** webhook ขาเข้าที่ handle แล้ว (ตามลำดับ) */
+  inbound: InboundEvent[];
 }
+
+/** header ลายเซ็นของ webhook ขาเข้าจาก Demo ERP */
+export const DEMO_INBOUND_SIGNATURE_HEADER = 'x-demo-signature';
 
 /** ส่วนท้ายของเลขภายนอก: 12 ตัวแรกของ sha256 (ตัวใหญ่) */
 export function demoExternalSuffix(scope: string, kind: string, key: string): string {
@@ -132,6 +145,8 @@ export class DemoAdapter implements ErpAdapter {
   readonly localOnly = true;
   readonly configFields: readonly ConnectorConfigField[] = Object.freeze([
     { key: 'apiKey', secret: true, required: true, kind: 'string', maxLength: 200 },
+    /** ST7-T22 secret ที่ Demo ERP ใช้เซ็น webhook ขาเข้า — ไม่ตั้ง = ลายเซ็นไม่มีวันผ่าน */
+    { key: 'inboundSecret', secret: true, required: false, kind: 'string', maxLength: 200 },
     { key: 'failMode', secret: false, required: false, kind: 'string', options: DEMO_FAIL_MODES },
     { key: 'failTimes', secret: false, required: false, kind: 'string', options: DEMO_FAIL_TIMES },
     {
@@ -163,6 +178,7 @@ export class DemoAdapter implements ErpAdapter {
         byRef: new Map(),
         failures: new Map(),
         orderDate: null,
+        inbound: [],
       };
       this.scopes.set(id, s);
     }
@@ -173,6 +189,12 @@ export class DemoAdapter implements ErpAdapter {
   documents(tenantId: string, connectorId: string | null): StoredDoc[] {
     const s = this.scopes.get(`${tenantId}:${connectorId ?? '-'}`);
     return s ? [...s.docs.values()].map(clone) : [];
+  }
+
+  /** webhook ขาเข้าที่ "ERP จำลอง" ส่งแล้ว TMS ประมวลผล (สำเนา) */
+  inboundHandled(tenantId: string, connectorId: string | null): InboundEvent[] {
+    const s = this.scopes.get(`${tenantId}:${connectorId ?? '-'}`);
+    return s ? s.inbound.map(clone) : [];
   }
 
   /** ล้างข้อมูลจำลองทั้งหมด (หรือของ tenant เดียว) */
@@ -419,6 +441,49 @@ export class DemoAdapter implements ErpAdapter {
       }));
     return { items, next: null };
   }
+
+  readonly inbound: InboundWebhookHandler = {
+    verify: (ctx: ErpContext, req: InboundRequest): boolean => {
+      const secret = ctx.config.inboundSecret;
+      if (!secret) return false;
+      return verifyWebhookSignature({
+        secret,
+        header: req.headers[DEMO_INBOUND_SIGNATURE_HEADER],
+        rawBody: req.rawBody.toString('utf8'),
+        nowSec: Math.floor(req.receivedAt.getTime() / 1000),
+      }).ok;
+    },
+    parse: (_ctx: ErpContext, req: InboundRequest): InboundEvent | null => {
+      let body: unknown;
+      try {
+        body = JSON.parse(req.rawBody.toString('utf8'));
+      } catch {
+        return null;
+      }
+      const b = body as { id?: unknown; type?: unknown; occurredAt?: unknown } | null;
+      if (!b || typeof b.id !== 'string' || typeof b.type !== 'string') return null;
+      return {
+        eventKey: b.id,
+        type: b.type,
+        occurredAt: typeof b.occurredAt === 'string' ? b.occurredAt : null,
+      };
+    },
+    handle: async (ctx: ErpContext, event: InboundEvent): Promise<InboundHandleResult> => {
+      if (event.type === 'demo.retry') throw new Error('demo ERP handler unavailable (simulated)');
+      if (event.type === 'demo.fail')
+        return {
+          ok: false,
+          retryable: false,
+          problem: { code: 'unsupported_event', message: 'demo ERP event rejected (simulated)' },
+        };
+      this.scope(ctx).inbound.push({ ...event });
+      return {
+        ok: true,
+        triggers: event.type === 'orders.changed' ? ['pullOrders'] : [],
+        summary: { demo: true, type: event.type },
+      };
+    },
+  };
 
   /**
    * order ตัวอย่าง 5 ใบต่อ connector (เลข `DEMO-SO-0001`…) — รหัสลูกค้า/สถานที่/ประเภทรถเป็นรหัสตัวอย่าง

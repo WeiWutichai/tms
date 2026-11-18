@@ -15,6 +15,7 @@ import {
   ConnectorPullScheduler,
 } from './modules/connectors/connector-pull.scheduler';
 import { ConnectorsService } from './modules/erp/connectors.service';
+import { InboundWebhookService } from './modules/erp/inbound-webhook.service';
 import { ExpiryReminderService } from './modules/reminders/expiry-reminder.service';
 import { DepreciationService } from './modules/depreciation/depreciation.service';
 import {
@@ -58,8 +59,14 @@ async function main() {
   // ST7-T05 ประวัติการส่ง webhook เก็บ 30 วัน + คำสั่งที่พักเพราะบริษัทถูกระงับเกิน 30 วันทิ้ง (INT-109)
   const webhookRetention = ctx.get(WebhookRetentionService);
   const connectors = ctx.get(ConnectorsService);
+  // ST7-T22 webhook ขาเข้า: ล้าง payload เกิน 30 วัน + ลบแถว ledger เกิน 24 เดือน
+  const inbound = ctx.get(InboundWebhookService);
   const daily = () =>
     Promise.all([
+      inbound
+        .purge()
+        .then((r) => log.info({ inbound: r }, 'inbound webhook retention'))
+        .catch((e) => log.error(e)),
       purgeAuthData(prisma.platform)
         .then((r) => log.info({ purged: r }, 'auth maintenance'))
         .catch((e) => log.error(e)),

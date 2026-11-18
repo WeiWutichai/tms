@@ -156,6 +156,12 @@ export const PROBLEMS = {
     en: 'This legal entity already has a connector — disconnect it first',
   },
   /** ST7-T13 เปิดใช้ไม่ได้เพราะทดสอบการเชื่อมต่อไม่ผ่าน (spec/07 INT-015) — มี `errorClass`, `code` */
+  /** ST7-T22 adapter ของ connector นี้ไม่รับ webhook ขาเข้า */
+  inbound_not_supported: {
+    status: 409,
+    th: 'ระบบบัญชีนี้ไม่รองรับการส่งข้อมูลเข้ามาทาง webhook',
+    en: 'This connector does not support inbound webhooks',
+  },
   connector_health_failed: {
     status: 409,
     th: 'ทดสอบการเชื่อมต่อไม่ผ่าน ตรวจค่าตั้งและ credential แล้วลองใหม่',

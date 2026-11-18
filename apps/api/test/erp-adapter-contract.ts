@@ -175,5 +175,20 @@ export function describeErpAdapterContract(name: string, opts: ErpAdapterContrac
       expect(typeof page.hasMore).toBe('boolean');
       await noLeak(() => a.pullOrders!(ctxOf(a, leakConfig()), null, 5));
     });
+
+    it('webhook ขาเข้า (ถ้ามี — ST7-T22): ไม่มีลายเซ็น/ลายเซ็นขยะ = ไม่ผ่าน (ไม่ throw) · body ขยะ parse = null', async () => {
+      const a = opts.make();
+      if (!a.inbound) return;
+      const req = (headers: Record<string, string>, body: string) => ({
+        headers,
+        rawBody: Buffer.from(body),
+        receivedAt: new Date(),
+      });
+      const ctx = ctxOf(a, leakConfig());
+      const junk = { 'x-signature': 'garbage', 'x-hub-signature-256': 'sha256=00' };
+      for (const h of [{}, junk])
+        expect(await a.inbound.verify(ctx, req(h, '{"id":"1","type":"x"}'))).toBe(false);
+      expect(a.inbound.parse(ctx, req({}, '\u0000not-json'))).toBeNull();
+    });
   });
 }

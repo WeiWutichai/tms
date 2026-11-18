@@ -40,6 +40,9 @@ const row = (over: Partial<Connector> = {}): Connector => ({
   lastHealthError: null,
   activatedAt: null,
   disconnectedAt: null,
+  inboundTokenHash: null,
+  inboundTokenPrefix: null,
+  inboundTokenRotatedAt: null,
   createdBy: null,
   version: 1,
   createdAt: new Date(),
@@ -85,6 +88,14 @@ describe('ErpAdapterRegistry (ST7-T13)', () => {
         capabilities: () => new Set(['voidInvoice' as never]),
       }),
     ).toContain("unknown capability 'voidInvoice'");
+    // ST7-T22 webhook ขาเข้า: ต้องมีครบ verify/parse/handle
+    expect(
+      adapterShapeProblems({
+        ...STANDALONE_ADAPTER,
+        key: 'x',
+        inbound: { verify: () => false } as never,
+      }),
+    ).toEqual(['inbound.parse() required', 'inbound.handle() required']);
   });
 
   it('adapter จำลอง (localOnly) ลงทะเบียนได้เฉพาะ dev/test หรือ ERP_DEMO_ADAPTERS=1 (ไม่ใช่ production — ST7-T14)', () => {

@@ -1749,61 +1749,61 @@ enum DoStatus {
 /// ใบส่งของ (ST3-T09; docs/01 §3.3, §4.3) — หน่วยวางบิล · 1 DO = 1 จุดส่ง (ORD-080) อยู่ได้ 1 เที่ยว · ไม่มีการลบจริง (ยกเลิก = CANCELLED)
 /// เขียนได้จาก DeliveryOrderService ที่เดียว (test `delivery-orders` ตรวจ call path) · บรรทัดอ้างบรรทัด SO (FK RESTRICT)
 model DeliveryOrder {
-  id                  String          @id @default(uuid()) @db.Uuid
-  tenantId            String          @map("tenant_id") @db.Uuid
-  doNo                String?         @map("do_no") /// ออกเลขตอนสร้าง (document_series DO; แยก = เลขแม่-n) — CHECK บังคับ
-  doDate              DateTime        @map("do_date") @db.Date
-  salesOrderId        String          @map("sales_order_id") @db.Uuid
-  salesOrder          SalesOrder      @relation(fields: [salesOrderId], references: [id], onDelete: Restrict)
-  customerId          String          @map("customer_id") @db.Uuid
-  customer            Customer        @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  tripId              String?         @map("trip_id") @db.Uuid
-  trip                Trip?           @relation(fields: [tripId], references: [id], onDelete: Restrict)
-  tripStopId          String?         @map("trip_stop_id") @db.Uuid /// จุดส่งของ DO นี้ในเที่ยว
-  tripStop            TripStop?       @relation("DoDropStop", fields: [tripStopId], references: [id], onDelete: Restrict)
-  pickupTripStopId    String?         @map("pickup_trip_stop_id") @db.Uuid /// จุดรับของ DO นี้ในเที่ยว (ST3-T11 — ตรวจรับก่อนส่ง ST3-T16)
-  pickupTripStop      TripStop?       @relation("DoPickupStop", fields: [pickupTripStopId], references: [id], onDelete: Restrict)
-  originSiteId        String          @map("origin_site_id") @db.Uuid
-  originSite          CustomerSite    @relation("DoOrigin", fields: [originSiteId], references: [id], onDelete: Restrict)
-  destSiteId          String          @map("dest_site_id") @db.Uuid
-  destSite            CustomerSite    @relation("DoDest", fields: [destSiteId], references: [id], onDelete: Restrict)
+  id                   String          @id @default(uuid()) @db.Uuid
+  tenantId             String          @map("tenant_id") @db.Uuid
+  doNo                 String?         @map("do_no") /// ออกเลขตอนสร้าง (document_series DO; แยก = เลขแม่-n) — CHECK บังคับ
+  doDate               DateTime        @map("do_date") @db.Date
+  salesOrderId         String          @map("sales_order_id") @db.Uuid
+  salesOrder           SalesOrder      @relation(fields: [salesOrderId], references: [id], onDelete: Restrict)
+  customerId           String          @map("customer_id") @db.Uuid
+  customer             Customer        @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  tripId               String?         @map("trip_id") @db.Uuid
+  trip                 Trip?           @relation(fields: [tripId], references: [id], onDelete: Restrict)
+  tripStopId           String?         @map("trip_stop_id") @db.Uuid /// จุดส่งของ DO นี้ในเที่ยว
+  tripStop             TripStop?       @relation("DoDropStop", fields: [tripStopId], references: [id], onDelete: Restrict)
+  pickupTripStopId     String?         @map("pickup_trip_stop_id") @db.Uuid /// จุดรับของ DO นี้ในเที่ยว (ST3-T11 — ตรวจรับก่อนส่ง ST3-T16)
+  pickupTripStop       TripStop?       @relation("DoPickupStop", fields: [pickupTripStopId], references: [id], onDelete: Restrict)
+  originSiteId         String          @map("origin_site_id") @db.Uuid
+  originSite           CustomerSite    @relation("DoOrigin", fields: [originSiteId], references: [id], onDelete: Restrict)
+  destSiteId           String          @map("dest_site_id") @db.Uuid
+  destSite             CustomerSite    @relation("DoDest", fields: [destSiteId], references: [id], onDelete: Restrict)
   /// ลำดับจุดของ SO (sales_order_stop.sequence) ที่ DO นี้รับ/ส่ง — ไม่ใช้ FK เพราะจุดของ SO upsert ตามลำดับ
-  originStopSeq       Int             @map("origin_stop_seq")
-  destStopSeq         Int             @map("dest_stop_seq")
-  weightKg            Decimal?        @map("weight_kg") @db.Decimal(14, 3)
-  cbm                 Decimal?        @db.Decimal(14, 3)
-  sellRateSnapshot    Json?           @map("sell_rate_snapshot")
-  revenueAmount       Decimal?        @map("revenue_amount") @db.Decimal(14, 2)
-  allocatedCostAmount Decimal?        @map("allocated_cost_amount") @db.Decimal(14, 2)
-  status              DoStatus        @default(DRAFT)
-  podStatus           String          @default("NONE") @map("pod_status")
-  billingHold         Boolean         @default(false) @map("billing_hold")
-  redeliveryOfId      String?         @map("redelivery_of_id") @db.Uuid /// D-23 ส่งใหม่ = DO ใบใหม่
-  redeliveryOf        DeliveryOrder?  @relation("DoRedelivery", fields: [redeliveryOfId], references: [id], onDelete: Restrict)
-  redeliveries        DeliveryOrder[] @relation("DoRedelivery")
+  originStopSeq        Int             @map("origin_stop_seq")
+  destStopSeq          Int             @map("dest_stop_seq")
+  weightKg             Decimal?        @map("weight_kg") @db.Decimal(14, 3)
+  cbm                  Decimal?        @db.Decimal(14, 3)
+  sellRateSnapshot     Json?           @map("sell_rate_snapshot")
+  revenueAmount        Decimal?        @map("revenue_amount") @db.Decimal(14, 2)
+  allocatedCostAmount  Decimal?        @map("allocated_cost_amount") @db.Decimal(14, 2)
+  status               DoStatus        @default(DRAFT)
+  podStatus            String          @default("NONE") @map("pod_status")
+  billingHold          Boolean         @default(false) @map("billing_hold")
+  redeliveryOfId       String?         @map("redelivery_of_id") @db.Uuid /// D-23 ส่งใหม่ = DO ใบใหม่
+  redeliveryOf         DeliveryOrder?  @relation("DoRedelivery", fields: [redeliveryOfId], references: [id], onDelete: Restrict)
+  redeliveries         DeliveryOrder[] @relation("DoRedelivery")
   /// ST4-T12 จำนวนครั้งที่สายงานนี้ถูกนัดส่งใหม่อัตโนมัติ (ใบเดิม + 1) — เกินค่าตั้ง `dispatch.maxAutoReschedules` → SO ค้าง RESCHEDULES_EXHAUSTED
-  rescheduleCount     Int             @default(0) @map("reschedule_count")
+  rescheduleCount      Int             @default(0) @map("reschedule_count")
   /// ST4-T12 ใบนี้เกิดจากนัดส่งใหม่ที่เกินค่าตั้ง (ใบสั่งค้าง/เหตุรอง RESCHEDULES_EXHAUSTED จนกว่าจะจัดรถ)
-  rescheduleExhausted Boolean         @default(false) @map("reschedule_exhausted")
+  rescheduleExhausted  Boolean         @default(false) @map("reschedule_exhausted")
   /// ST4-T11 ส่งซ้ำมือ (ผู้ใช้สั่ง) — ระบบไม่คืนใบเดิมเองเมื่อผลส่งไม่สำเร็จถูกพลิก (ต่างจากนัดส่งใหม่อัตโนมัติ ST4-T12)
-  redeliveryManual    Boolean         @default(false) @map("redelivery_manual")
+  redeliveryManual     Boolean         @default(false) @map("redelivery_manual")
   /// ST4-T11 ใบส่งซ้ำของที่ลูกค้าปฏิเสธรับจากใบนี้ (ใบเดิมคงส่งแล้ว) — ไม่นับปริมาณจัดสรรของ SO · ส่งต่อผ่านแยก/ส่งใหม่
-  rejectedFromId      String?         @map("rejected_from_id") @db.Uuid
-  rejectedFrom        DeliveryOrder?  @relation("DoRejectedRedelivery", fields: [rejectedFromId], references: [id], onDelete: Restrict)
+  rejectedFromId       String?         @map("rejected_from_id") @db.Uuid
+  rejectedFrom         DeliveryOrder?  @relation("DoRejectedRedelivery", fields: [rejectedFromId], references: [id], onDelete: Restrict)
   rejectedRedeliveries DeliveryOrder[] @relation("DoRejectedRedelivery")
   /// แยก DO (ORD-084): ใบแม่ CANCELLED (event split) → ใบลูกเลข `{split_root_no}-{split_index}`
-  splitFromId         String?         @map("split_from_id") @db.Uuid
-  splitFrom           DeliveryOrder?  @relation("DoSplit", fields: [splitFromId], references: [id], onDelete: Restrict)
-  splitChildren       DeliveryOrder[] @relation("DoSplit")
-  splitRootNo         String?         @map("split_root_no")
-  splitIndex          Int?            @map("split_index")
+  splitFromId          String?         @map("split_from_id") @db.Uuid
+  splitFrom            DeliveryOrder?  @relation("DoSplit", fields: [splitFromId], references: [id], onDelete: Restrict)
+  splitChildren        DeliveryOrder[] @relation("DoSplit")
+  splitRootNo          String?         @map("split_root_no")
+  splitIndex           Int?            @map("split_index")
   /// ลายนิ้วมือข้อมูล SO ที่ DO ชุดนี้สร้างจาก (ลูกค้า จุด สินค้า) — SO เปลี่ยนแล้วไม่ตรง = สร้าง DO ใหม่ทั้งชุด (ORD-085)
-  sourceHash          String?         @map("source_hash")
-  customerRef         String?         @map("customer_ref")
-  publicTokenHash     String?         @map("public_token_hash") /// tracking link (ST4-T14)
-  version             Int             @default(1)
-  createdAt           DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt           DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  sourceHash           String?         @map("source_hash")
+  customerRef          String?         @map("customer_ref")
+  publicTokenHash      String?         @map("public_token_hash") /// tracking link (ST4-T14)
+  version              Int             @default(1)
+  createdAt            DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   lines        DeliveryOrderLine[]
   pods         DeliveryOrderPod[]
@@ -2710,20 +2710,20 @@ model MessageRecipientCounter {
 /// ST7-T14: ดึงผ่านแถว `connector` (ErpAdapter) = 1 แถวต่อ **connector id** (2 นิติบุคคลใช้ adapter เดียวกันได้ cursor แยก)
 ///   แถวที่ connector_id null = ต้นทางทดสอบตามรหัส (`mock` ของ OrderSourceRegistry — dev/test) — unique บางส่วนใน migration 0102
 model ConnectorCursor {
-  id            String    @id @default(uuid()) @db.Uuid
-  tenantId      String    @map("tenant_id") @db.Uuid
-  connectorKey  String    @map("connector_key") /// รหัส adapter (CONNECTOR_KEY_RE) เช่น `krs`, `demo`, `mock` — ป้ายที่มา `ERP:{key}` ของใบ
+  id            String     @id @default(uuid()) @db.Uuid
+  tenantId      String     @map("tenant_id") @db.Uuid
+  connectorKey  String     @map("connector_key") /// รหัส adapter (CONNECTOR_KEY_RE) เช่น `krs`, `demo`, `mock` — ป้ายที่มา `ERP:{key}` ของใบ
   /// connector ที่ดึง (FK) — null = ต้นทางทดสอบตามรหัส (ไม่มีแถว connector)
-  connectorId   String?   @map("connector_id") @db.Uuid
+  connectorId   String?    @map("connector_id") @db.Uuid
   connector     Connector? @relation(fields: [connectorId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   cursor        String? /// watermark ทึบ (opaque) ที่ adapter คืนมา — null = ยังไม่เคยดึง
-  leaseId       String?   @map("lease_id") @db.Uuid /// รอบดึงที่ถืออยู่ (กันสอง worker ดึงพร้อมกัน)
-  leaseUntil    DateTime? @map("lease_until") @db.Timestamptz(6)
-  lastPullAt    DateTime? @map("last_pull_at") @db.Timestamptz(6)
-  lastSuccessAt DateTime? @map("last_success_at") @db.Timestamptz(6) /// รอบล่าสุดที่ดึงครบโดยไม่มีใบที่ error
-  lastResult    Json?     @map("last_result") /// สรุปรอบล่าสุด {counts, results[]} (ไม่เก็บ payload)
-  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt     DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  leaseId       String?    @map("lease_id") @db.Uuid /// รอบดึงที่ถืออยู่ (กันสอง worker ดึงพร้อมกัน)
+  leaseUntil    DateTime?  @map("lease_until") @db.Timestamptz(6)
+  lastPullAt    DateTime?  @map("last_pull_at") @db.Timestamptz(6)
+  lastSuccessAt DateTime?  @map("last_success_at") @db.Timestamptz(6) /// รอบล่าสุดที่ดึงครบโดยไม่มีใบที่ error
+  lastResult    Json?      @map("last_result") /// สรุปรอบล่าสุด {counts, results[]} (ไม่เก็บ payload)
+  createdAt     DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@index([tenantId, connectorKey])
   @@index([connectorId])
@@ -2779,11 +2779,65 @@ model Connector {
   createdAt            DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt            DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  cursors              ConnectorCursor[]
+  /// ST7-T22 token ใน URL รับ webhook ขาเข้า: HMAC-SHA256(pepper, token) — ไม่เก็บตัวจริง (แสดงครั้งเดียวตอนออก/หมุน) · null = ไม่รับ
+  inboundTokenHash      String?   @unique @map("inbound_token_hash") @db.VarChar(64)
+  /// ส่วนต้นของ token สำหรับแสดงผล (`whin_` + 4 ตัว)
+  inboundTokenPrefix    String?   @map("inbound_token_prefix") @db.VarChar(16)
+  inboundTokenRotatedAt DateTime? @map("inbound_token_rotated_at") @db.Timestamptz(6)
+
+  cursors       ConnectorCursor[]
+  inboundEvents ProcessedWebhookEvent[]
 
   @@index([tenantId, createdAt, id])
   @@index([tenantId, companyId])
   @@map("connector")
+}
+
+/// ST7-T22 สถานะการประมวลผล webhook ขาเข้า (ledger) — RECEIVED → PROCESSED | FAILED
+enum InboundEventStatus {
+  RECEIVED
+  PROCESSED
+  FAILED
+}
+
+/// ST7-T22 Inbound webhook ledger (docs/04 G3 "Inbound webhook ledger" I10) — 1 แถวต่อ event ของผู้ให้บริการ
+/// unique (tenant, provider, event_key) กัน replay: ส่งซ้ำ = ไม่ประมวลผลซ้ำ · แถวเกิดหลังตรวจลายเซ็นผ่านเท่านั้น
+/// แอปแก้ได้เฉพาะคอลัมน์สถานะ (ตัวตน/payload แก้/ลบไม่ได้) · payload เข้ารหัส FieldCipher ล้างหลัง 30 วัน · แถวเก็บ 24 เดือน
+model ProcessedWebhookEvent {
+  id              String             @id @default(uuid()) @db.Uuid
+  tenantId        String             @map("tenant_id") @db.Uuid
+  connectorId     String             @map("connector_id") @db.Uuid
+  connector       Connector          @relation(fields: [connectorId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  /// `connector.adapter_key` ตอนรับ
+  provider        String             @db.VarChar(32)
+  /// รหัส event ของผู้ให้บริการ (จาก adapter) — กันซ้ำ
+  eventKey        String             @map("event_key") @db.VarChar(200)
+  eventType       String             @map("event_type") @db.VarChar(100)
+  status          InboundEventStatus @default(RECEIVED)
+  /// raw body เข้ารหัส FieldCipher — null หลังพ้นระยะเก็บ payload
+  payloadEnc      String?            @map("payload_enc")
+  payloadSha256   String             @map("payload_sha256") @db.Char(64)
+  payloadBytes    Int                @map("payload_bytes")
+  /// เวลาที่ผู้ให้บริการบอกว่าเกิด (ถ้ามี) · receivedAt = เวลาที่เรารับ
+  occurredAt      DateTime?          @map("occurred_at") @db.Timestamptz(6)
+  receivedAt      DateTime           @default(now()) @map("received_at") @db.Timestamptz(6)
+  /// ครั้งที่ส่งซ้ำมา (ไม่ประมวลผลซ้ำ) — นับไว้ดูอาการ
+  duplicateCount  Int                @default(0) @map("duplicate_count")
+  lastDuplicateAt DateTime?          @map("last_duplicate_at") @db.Timestamptz(6)
+  attempts        Int                @default(0)
+  processedAt     DateTime?          @map("processed_at") @db.Timestamptz(6)
+  /// ผลล้มล่าสุด {code, message} (ตัด credential แล้ว)
+  lastError       Json?              @map("last_error")
+  /// สรุปผลประมวลผล (ไม่มี payload)
+  result          Json?
+  requestId       String?            @map("request_id")
+  ip              String?
+  updatedAt       DateTime           @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, provider, eventKey])
+  @@index([tenantId, connectorId, receivedAt])
+  @@index([receivedAt])
+  @@map("processed_webhook_event")
 }
 
 /// ST7-T01 API key ของ tenant (docs/04 G1 Auth; spec/07 §6) — principal `client` ตัวเดียวกับ OAuth2 client credentials

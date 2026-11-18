@@ -42,8 +42,10 @@ import {
   EffectiveConnectorDto,
   EffectiveConnectorQuery,
   ErpAdapterListDto,
+  InboundTokenDto,
   UpdateConnectorDto,
 } from './connector.dto';
+import { apiOrigin } from '../documents/documents.controller';
 import { ConnectorsService } from './connectors.service';
 
 const IF_MATCH = { name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' };
@@ -226,6 +228,63 @@ export class ConnectorsController {
     @Res({ passthrough: true }) res: Response,
   ): Promise<ConnectorDto> {
     const c = await this.connectors.pause(
+      decodeIdOr404('connector', id),
+      body,
+      expectedVersion(req),
+    );
+    setEtag(res, c.version);
+    return this.connectors.toDto(c);
+  }
+
+  @Post(':id/inbound-token/rotate')
+  @HttpCode(200)
+  @TenantResource('connector')
+  @RequireScope('settings:write')
+  @ApiHeader(IF_MATCH)
+  @ApiOkResponse({
+    type: InboundTokenDto,
+    description:
+      'ST7-T22 ออก/หมุน token ของ URL รับ webhook ขาเข้า — token/URL แสดงครั้งเดียว · token เดิมใช้ไม่ได้ทันที (401) · ' +
+      'adapter ไม่รองรับ → 409 `inbound_not_supported` · audit บันทึกเฉพาะ prefix',
+  })
+  async rotateInboundToken(
+    @Param('id') id: string,
+    @Body() body: ConnectorActionDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<InboundTokenDto> {
+    const { connector, token } = await this.connectors.rotateInboundToken(
+      decodeIdOr404('connector', id),
+      body,
+      expectedVersion(req),
+    );
+    setEtag(res, connector.version);
+    res.setHeader('Cache-Control', 'no-store');
+    return {
+      token,
+      url: `${apiOrigin(req)}/v1/inbound/${connector.adapterKey}/${token}`,
+      tokenPrefix: connector.inboundTokenPrefix!,
+      tokenRotatedAt: connector.inboundTokenRotatedAt!.toISOString(),
+      connector: this.connectors.toDto(connector),
+    };
+  }
+
+  @Post(':id/inbound-token/revoke')
+  @HttpCode(200)
+  @TenantResource('connector')
+  @RequireScope('settings:write')
+  @ApiHeader(IF_MATCH)
+  @ApiOkResponse({
+    type: ConnectorDto,
+    description: 'ST7-T22 เลิกรับ webhook ขาเข้า (เหตุผล ≥ 10 ตัว) — URL เดิมตอบ 401',
+  })
+  async revokeInboundToken(
+    @Param('id') id: string,
+    @Body() body: ConnectorReasonDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<ConnectorDto> {
+    const c = await this.connectors.revokeInboundToken(
       decodeIdOr404('connector', id),
       body,
       expectedVersion(req),
