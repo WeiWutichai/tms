@@ -1,4 +1,4 @@
-import { EmptyState, FormDrawer, Icon, ReasonDialog, useEscapeLayer } from '@tms/ui';
+import { EmptyState, FormDrawer, Icon, ReasonDialog, useEscapeLayer, useModalFocus } from '@tms/ui';
 import { useId, useRef, useState } from 'react';
 import { ApiError } from '../../api';
 import { useI18n } from '../../i18n';
@@ -196,6 +196,9 @@ export function SaveTemplateDialog({
   const [idemKey, setIdemKey] = useState(() => crypto.randomUUID());
   const sent = useRef(false);
   useEscapeLayer(true, onClose);
+  // ST9-T20: dialog นี้ render นอก drawer SO — focus เข้า/วน/คืนเหมือน dialog กลาง
+  const box = useRef<HTMLFormElement>(null);
+  useModalFocus(true, box);
   const dup =
     create.error instanceof ApiError && create.error.problem.code === 'duplicate'
       ? t('tpl.dup')
@@ -219,10 +222,13 @@ export function SaveTemplateDialog({
   return (
     <div className="tms-dialog__scrim" onClick={onClose}>
       <form
+        ref={box}
         className="tms-dialog"
         role="dialog"
         aria-modal="true"
         aria-labelledby={`${id}-t`}
+        tabIndex={-1}
+        data-modal-focus=""
         onClick={(e) => e.stopPropagation()}
         onSubmit={(e) => {
           e.preventDefault();

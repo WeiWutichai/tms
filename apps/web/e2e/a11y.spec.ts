@@ -42,8 +42,11 @@ async function token(page: Page): Promise<string> {
 
 /** รัน axe แล้วคืน violation serious/critical ที่ไม่อยู่ใน ALLOW (A11Y_DUMP = เขียนผลทั้งหมดลงไฟล์) */
 async function audit(page: Page, name: string, browserName: string): Promise<string[]> {
-  // รอ font/animation ของ drawer จบ ให้ contrast คำนวณจากสีจริง
-  await page.waitForTimeout(400);
+  // รอ font โหลดครบ + animation (drawer เลื่อนเข้า/scrim) จบ ให้ contrast คำนวณจากสีจริง — ไม่ใช้เวลาคงที่
+  await page.evaluate(async () => {
+    await document.fonts.ready;
+    await Promise.all(document.getAnimations().map((a) => a.finished.catch(() => undefined)));
+  });
   const r = await new AxeBuilder({ page })
     .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
     .analyze();

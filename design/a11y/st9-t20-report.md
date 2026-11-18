@@ -1,7 +1,7 @@
 # ST9-T20 รายงานตรวจ Accessibility + เบราว์เซอร์ (WCAG 2.1 AA)
 
 > วันที่ตรวจ 19 พ.ย. 2569 · branch `st9/t20-accessibility` · เกณฑ์ตรวจรับ (plan/01 ST9-T20): รายงานหน้าหลัก 10 หน้า; defect ระดับสูงปิดแล้ว
-> E2E ที่กันถอยหลัง: `apps/web/e2e/a11y.spec.ts` (CI ปกติ: chromium 1440) · เมทริกซ์เบราว์เซอร์: `pnpm --filter @tms/web e2e:a11y` (`playwright.a11y.config.ts`)
+> E2E ที่กันถอยหลัง: `apps/web/e2e/a11y.spec.ts` (`pnpm ci:local`/CI: chromium 1440 เท่านั้น) · เมทริกซ์เบราว์เซอร์ WebKit + 1280: `pnpm --filter @tms/web e2e:a11y` (`playwright.a11y.config.ts`) **รันด้วยมือเท่านั้น** (ไม่อยู่ใน ci:local) — รันก่อน release / เมื่อแก้ component กลาง
 
 ## 1. วิธีตรวจ
 
@@ -43,8 +43,8 @@
 | ID | เรื่อง | WCAG | หน้า | แก้ |
 |---|---|---|---|---|
 | H1 | แถวตารางคลิกเปิด drawer ได้แต่ Tab ไม่ถึงและไม่มี Enter — เปิด SO/ใบค้าง/รถ/คนขับ/ลูกค้าด้วยคีย์บอร์ดไม่ได้ | 2.1.1 | 2,3,4,7,8,9 | `DataTable`: แถวที่มี `onRowClick` ได้ `tabIndex=0` + Enter/Space (เฉพาะเมื่อ focus อยู่ที่แถว ไม่ชนปุ่มในแถว) · กรอบ focus `:focus-visible` 2px `#2257C4` (สีเดียวกับกรอบ focus ปุ่มของต้นแบบ แสดงเฉพาะตอนใช้คีย์บอร์ด) |
-| H2 | drawer/ฟอร์ม drawer/dialog เหตุผล: เปิดแล้ว focus ไม่ย้ายเข้า, Tab หลุดไปหลัง scrim, ปิดแล้ว focus หาย; drawer ไม่มีชื่อ (screen reader อ่านว่า "dialog") | 2.4.3, 4.1.2 | 3,4,5,7,9 | `useModalFocus` ใหม่ (`packages/ui/src/focus.ts`) ใช้ใน `Drawer`, `FormDrawer`, `ReasonDialog`: ย้าย focus เข้า (ไม่แย่งช่อง autoFocus), Tab วนในชั้นบนสุด, คืน focus ปุ่ม/แถวที่เปิด · `aria-labelledby` = เลข/หัวข้อใน drawer |
-| H3 | กระดานวางแผน: สร้างเที่ยว (ลาก SO ลงรถ) และเลื่อนเวลาเที่ยวทำได้ด้วยเมาส์เท่านั้น; การ์ด SO/เที่ยว Tab ไม่ถึง | 2.1.1 | 5 | การ์ด SO: Tab ถึง, Enter/Space = เลือก (เหมือนคลิก) → Enter บนแถว/ช่องรถ = วาง SO ลงรถ (ช่วงเวลาเดียวกับการปล่อยในมุมมอง 7 วัน — ต่อท้ายเที่ยวสุดท้ายของวัน) · การ์ดเที่ยว: Tab ถึง, Enter เปิด drawer SO (มุมมอง 7 วัน: เปิด popover), ←/→ เลื่อนเวลา 15 นาที (ใช้คำขอ `/schedule` เดียวกับการลาก — กฎ/คำเตือนเหมือนเดิม) |
+| H2 | drawer/ฟอร์ม drawer/dialog เหตุผล: เปิดแล้ว focus ไม่ย้ายเข้า, Tab หลุดไปหลัง scrim, ปิดแล้ว focus หาย; drawer ไม่มีชื่อ (screen reader อ่านว่า "dialog") | 2.4.3, 4.1.2 | 3,4,5,7,9 | `useModalFocus` ใหม่ (`packages/ui/src/focus.ts`) ใช้ใน `Drawer`, `FormDrawer`, `ReasonDialog`: ย้าย focus เข้า (ไม่แย่งช่อง autoFocus), Tab วนในชั้นบนสุด, คืน focus ปุ่ม/แถวที่เปิด (ปุ่มหายไปแล้ว → dialog ชั้นล่าง; เปิดด้วยเมาส์ = คืนแบบไม่มีกรอบ) · ถ้ามี `aria-modal` อื่นที่เปิดทีหลัง (dialog เฉพาะหน้า render นอก drawer) Tab ไม่ถูกดึงกลับ drawer · dialog ซ้อนที่ใช้บ่อยใช้ hook ด้วย: `SaveTemplateDialog`, `DetachDialog`/`ShareDialog` (drawer เที่ยว), `SendAllDialog`, `ScheduleDialog`, `BulkFailDialog` · `aria-labelledby` = เลข/หัวข้อใน drawer |
+| H3 | กระดานวางแผน: สร้างเที่ยว (ลาก SO ลงรถ) และเลื่อนเวลาเที่ยวทำได้ด้วยเมาส์เท่านั้น; การ์ด SO/เที่ยว Tab ไม่ถึง | 2.1.1 | 5 | การ์ด SO: Tab ถึง, Enter/Space = เลือก (เหมือนคลิก) → Enter บนแถว/ช่องรถ = วาง SO ลงรถ (ช่วงเวลาเดียวกับการปล่อยในมุมมอง 7 วัน — ต่อท้ายเที่ยวสุดท้ายของวัน) · การ์ดเที่ยว: Tab ถึง, Enter เปิด drawer SO (มุมมอง 7 วัน: เปิด popover), ←/→ เลื่อนเวลา 15 นาที (ใช้คำขอ `/schedule` เดียวกับการลาก — กฎ/คำเตือนเหมือนเดิม; กดค้าง/คำขอก่อนหน้ายังไม่จบ = ข้าม กัน 412) · กรอบ focus ของการ์ด/ช่องรถ/แถววัน = 2px `#2257C4` (แทนกรอบเบราว์เซอร์) |
 | H4 | `aria-pressed` บน div ไม่มี role (การ์ด SO รอจัด — axe critical `aria-allowed-attr`); ช่องรถ `role=button` ซ้อนปุ่ม "ทำไม" เมื่อรถติดกฎ (axe serious `nested-interactive`); `aria-label` บนแถวรถ/ช่องวันที่ไม่มี role (axe serious `aria-prohibited-attr`) | 4.1.2 | 5 | การ์ด SO และช่องรถ: `role=group` + `aria-current` แทน `aria-pressed` (ใช้ `role=button` ไม่ได้เพราะมีปุ่มซ้อน) — Enter/Space เลือกเหมือนเดิม · แถว/ช่องวันของรถ: `role=group` |
 
 ### Medium
@@ -55,7 +55,7 @@
 | M2 | ข้อความคำอธิบาย `#8A9099` บนพื้นขาว = **3.22:1** (ต้องการ 4.5:1) — คำอธิบายธงในฟอร์มเหตุผล (ตั้งค่า → เหตุผล, `ReasonFormDrawer`) ค่าจากต้นแบบ | 1.4.3 | **ไม่แก้เอง** → spec/12 §3 [OPEN — ส่ง Claude Design] (เสนอ `#59606B` = text3 6.34:1) |
 | M3 | ช่องเลือกแถวในตารางอ่านเป็น id ภายใน (`veh_1672…`) | 2.4.6, 1.3.1 | **ปิดแล้ว** — ชื่อ = ข้อความคอลัมน์แรกของแถว (`aria-labelledby`) |
 | M4 | กระดานวางแผน: ปรับความยาวเที่ยว (ลากขอบ `role=separator`) ยังใช้เมาส์เท่านั้น; ย้ายเที่ยวไปรถอื่นด้วยคีย์บอร์ดได้เฉพาะเที่ยวที่มีลิงก์ "ย้ายไปรถอื่น" | 2.1.1 | ค้าง → ผู้สมัครเพิ่ม #32 (plan/01 §5) — งานหลัก (จัด SO ลงรถ/เลื่อนเวลา/เปิด drawer) ทำด้วยคีย์บอร์ดได้แล้ว |
-| M5 | dialog ที่เขียนเฉพาะหน้า (ไม่ใช้ component กลาง) 15 ไฟล์ — เช่น `SendAllDialog`, `RuleDialogs`, `ScheduleDialog`, `BulkFailDialog`, dialog ย่อยใน `TripDrawer`, `Templates`, `SavedViewMenu`, `ImportWizard`, `ReturnDialog`, `SecretDialog` — Esc ปิดได้แต่ยังไม่ trap/คืน focus | 2.4.3 | ค้าง → ผู้สมัครเพิ่ม #32: ใช้ `useModalFocus` ตัวเดียวกัน (ทีละไฟล์ + unit test) |
+| M5 | dialog ที่เขียนเฉพาะหน้า (ไม่ใช้ component กลาง) ที่เหลือ ~10 ไฟล์ — เช่น `RuleDialogs`, `SavedViewMenu`, `ImportWizard`, `ReturnDialog`, `SecretDialog`, `TripDocsTab`, `VehicleDocsTab`, `WebhookDeliveries`, `TripTimeline` — Esc ปิดได้แต่ยังไม่ trap/คืน focus (6 ตัวที่ซ้อน drawer/ใช้บ่อยทำแล้ว — H2) | 2.4.3 | ค้าง → ผู้สมัครเพิ่ม #32: ใช้ `useModalFocus` ตัวเดียวกัน (ทีละไฟล์ + unit test) |
 | M6 | เมนู ⋯ (แถวตาราง, drawer) `role=menu`: เปิดแล้ว focus ไม่ย้ายเข้าเมนู, ไม่มีลูกศรขึ้น/ลง (รายการ Tab ถึงได้) — เมนูคลิกขวาของกระดานทำแล้ว | 2.1.1 (ใช้ได้) / ARIA APG | ค้าง → ผู้สมัครเพิ่ม #32 |
 
 ### Low

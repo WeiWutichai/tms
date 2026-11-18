@@ -1,4 +1,4 @@
-import { Icon, useEscapeLayer } from '@tms/ui';
+import { Icon, useEscapeLayer, useModalFocus } from '@tms/ui';
 import { useEffect, useId, useRef, useState, type CSSProperties } from 'react';
 import { useI18n } from '../../i18n';
 import { RefPicker, type RefOption } from '../master/RefPicker';
@@ -69,6 +69,8 @@ export function ScheduleDialog({
   const leaves = useLeaves(kind === 'LEAVE' ? d.driverId || null : null).data ?? [];
   const sent = useRef(false);
   useEscapeLayer(true, onClose);
+  const box = useRef<HTMLDivElement>(null);
+  useModalFocus(true, box); // ST9-T20 focus เข้า/วน/คืน
   // คำขอจบ (ผิดพลาด) → กดบันทึกใหม่ได้ · สำเร็จ = parent ปิด dialog
   useEffect(() => {
     if (!busy) sent.current = false;
@@ -93,9 +95,12 @@ export function ScheduleDialog({
   return (
     <div className="tms-dialog__scrim" onClick={onClose}>
       <div
+        ref={box}
         className="tms-dialog"
         role="dialog"
         aria-modal="true"
+        tabIndex={-1}
+        data-modal-focus=""
         aria-labelledby={`${id}-t`}
         data-testid="schedule-dialog"
         onClick={(e) => e.stopPropagation()}

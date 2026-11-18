@@ -1914,3 +1914,8 @@ body:has(.tms-drawer__foot) .tms-toast {
   outline: 2px solid #2257c4;
   outline-offset: -2px;
 }
+/* คืน focus หลังปิด drawer ที่เปิดด้วยเมาส์ — ไม่แสดงกรอบ (useModalFocus ตั้ง data-pointer-focus จน blur) */
+[data-pointer-focus]:focus-visible,
+.tms-table tbody tr[data-pointer-focus]:focus-visible {
+  outline: none;
+}

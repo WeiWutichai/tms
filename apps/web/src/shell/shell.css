@@ -42,3 +42,13 @@
 .tms-viewitem:hover:not(:disabled) {
   background: #eef0ec !important;
 }
+
+/* ST9-T20: กรอบ focus ของกระดานวางแผน (การ์ด SO/เที่ยว, ช่องรถ, แถว/ช่องวัน) — สี/ความหนาเดียวกับกรอบ focus ปุ่มของต้นแบบ
+   (#2257C4 2px) แทนกรอบของเบราว์เซอร์ · เห็นเฉพาะตอนใช้คีย์บอร์ด */
+.tms-plan-card:focus-visible,
+[data-testid^='plan-veh-']:focus-visible,
+[data-track]:focus-visible,
+[data-testid^='plan-cell-']:focus-visible {
+  outline: 2px solid #2257c4;
+  outline-offset: -2px;
+}

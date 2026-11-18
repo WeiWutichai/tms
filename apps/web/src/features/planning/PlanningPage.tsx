@@ -1557,6 +1557,8 @@ export function PlanningPage() {
                       (e.key === 'ArrowLeft' || e.key === 'ArrowRight')
                     ) {
                       e.preventDefault();
+                      // กดค้าง (repeat) / คำขอก่อนหน้ายังไม่จบ = ข้าม — กัน /schedule ด้วย version เก่า (412)
+                      if (e.repeat || move.isPending) return;
                       const step = e.key === 'ArrowLeft' ? -SNAP_H : SNAP_H;
                       onDropAt(v, dsel, span(x, dsel).s + step, {
                         kind: 'trip',

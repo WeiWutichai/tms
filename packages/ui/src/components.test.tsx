@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import {
   Badge,
@@ -13,6 +13,7 @@ import {
   TextInput,
 } from './components';
 import { DataTable, StatusDot, type Column } from './DataTable';
+import { useModalFocus } from './focus';
 
 const labels = {
   columns: 'คอลัมน์',
@@ -175,6 +176,71 @@ describe('Drawer — focus (ST9-T20)', () => {
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(document.activeElement).toBe(opener);
+  });
+});
+
+describe('useModalFocus — dialog ซ้อนนอก drawer (ST9-T20 review H)', () => {
+  function Stacked({ managed }: { managed: boolean }) {
+    const [dlg, setDlg] = useState(false);
+    function PageDialog() {
+      const ref = useRef<HTMLDivElement>(null);
+      useModalFocus(managed, ref);
+      return (
+        <div ref={ref} role="dialog" aria-modal="true" aria-label="แม่แบบ" tabIndex={-1}>
+          <input aria-label="ชื่อแม่แบบ" />
+          <button type="button">บันทึก</button>
+        </div>
+      );
+    }
+    return (
+      <>
+        <Drawer
+          open
+          onClose={() => undefined}
+          kind="ใบสั่งขนส่ง"
+          title="SO-0001"
+          labels={{ close: 'ปิด', more: 'เพิ่มเติม' }}
+        >
+          {/* ปุ่มเปิด dialog หายไปหลังกด (เหมือนรายการในเมนู ⋯) */}
+          {!dlg && (
+            <button type="button" onClick={() => setDlg(true)}>
+              บันทึกเป็นแม่แบบ
+            </button>
+          )}
+        </Drawer>
+        {dlg && <PageDialog />}
+        {dlg && (
+          <button type="button" onClick={() => setDlg(false)}>
+            ปิดแม่แบบ
+          </button>
+        )}
+      </>
+    );
+  }
+  const tab = (shift = false) =>
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Tab', shiftKey: shift });
+
+  it('dialog ที่ไม่ใช้ hook (เปิดทีหลัง นอก aside): Tab ไม่ถูกดึงกลับเข้า drawer', () => {
+    render(<Stacked managed={false} />);
+    fireEvent.click(screen.getByRole('button', { name: 'บันทึกเป็นแม่แบบ' }));
+    const save = screen.getByRole('button', { name: 'บันทึก' });
+    save.focus();
+    expect(tab()).toBe(true); // ไม่ preventDefault = เบราว์เซอร์ย้าย focus ตามปกติ
+    expect(document.activeElement).toBe(save);
+  });
+
+  it('dialog ที่ใช้ hook: Tab วนใน dialog ชั้นบน · ปิดแล้ว (ปุ่มเปิดหายไป) focus กลับ drawer', () => {
+    render(<Stacked managed />);
+    fireEvent.click(screen.getByRole('button', { name: 'บันทึกเป็นแม่แบบ' }));
+    const d = screen.getByRole('dialog', { name: 'แม่แบบ' });
+    expect(d.contains(document.activeElement)).toBe(true);
+    screen.getByRole('button', { name: 'บันทึก' }).focus();
+    expect(tab()).toBe(false);
+    expect(document.activeElement).toBe(screen.getByLabelText('ชื่อแม่แบบ'));
+    expect(tab(true)).toBe(false);
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'บันทึก' }));
+    fireEvent.click(screen.getByRole('button', { name: 'ปิดแม่แบบ' }));
+    expect(screen.getByRole('dialog', { name: 'SO-0001' })).toBe(document.activeElement);
   });
 });
 
