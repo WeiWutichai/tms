@@ -145,4 +145,51 @@ describe('ตั้งค่า → การเชื่อมต่อ (ST7-T2
     expect(within(card).queryByRole('button', { name: 'ทดสอบ' })).toBeNull();
     expect(within(card).queryByRole('button', { name: 'ตัดการเชื่อมต่อ' })).toBeNull();
   });
+
+  it('โหลด catalog ไม่สำเร็จ = แจ้ง + ลองอีกครั้ง (ไม่ตกไปเป็น "ไม่เชื่อม" ที่กดได้)', async () => {
+    GET.mockImplementation(async (path: string) => {
+      if (path === '/v1/connectors') return { data: { data: [] } };
+      if (path === '/v1/connectors/adapters') throw new Error('boom');
+      return { data: { data: [] } };
+    });
+    wrap();
+    expect(await screen.findByText('โหลดการเชื่อมต่อไม่สำเร็จ')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'ลองอีกครั้ง' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'ใช้โหมดนี้' })).toBeNull();
+  });
+
+  it('ERROR: หัวกล่องบอกว่าเชื่อมต่อไม่ได้ (ไม่ใช่ "ยังไม่ได้เชื่อมต่อ") · แท็บประวัติแสดงทีม Innovera', async () => {
+    conns = [{ ...conn('ERROR'), lastHealthError: { code: 'unauthorized' }, activatedAt: 'x' }];
+    GET.mockImplementation(async (path: string) => {
+      if (path === '/v1/connectors') return { data: { data: conns } };
+      if (path === '/v1/connectors/adapters') return { data: { data: [ADAPTER] } };
+      if (path === '/v1/connectors/{id}/history')
+        return {
+          data: {
+            data: [
+              {
+                id: 'aud_1',
+                at: '2026-11-19T03:00:00Z',
+                action: 'connector.credentials_changed',
+                actor: { id: 'platform:00000000-0000-4000-8000-000000000001', name: 'กิตติ' },
+                actAs: null,
+                before: null,
+                after: null,
+                reason: 'ลูกค้าแจ้งหมุน key',
+              },
+            ],
+            nextCursor: null,
+            hasMore: false,
+          },
+        };
+      return { data: { data: [] } };
+    });
+    wrap();
+    const detail = await screen.findByTestId('connector-detail');
+    expect(within(detail).getByText(/เชื่อมต่อไม่ได้ \(unauthorized\)/)).toBeInTheDocument();
+    expect(within(detail).queryByText('ยังไม่ได้เชื่อมต่อ · ตั้งค่าล่วงหน้าได้')).toBeNull();
+    fireEvent.click(within(detail).getByRole('tab', { name: 'ประวัติ' }));
+    expect(await within(detail).findByText('เปลี่ยน key')).toBeInTheDocument();
+    expect(within(detail).getByText(/ทีม Innovera · กิตติ/)).toBeInTheDocument();
+  });
 });

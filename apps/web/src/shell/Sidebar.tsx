@@ -354,8 +354,26 @@ export function Sidebar({
                   fontWeight: 500,
                 }}
               >
-                <span style={{ width: 8, height: 8, borderRadius: '50%', background: erp.dot }} />
-                <span style={{ flex: 1, textAlign: 'left', whiteSpace: 'nowrap' }}>
+                <span
+                  style={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: '50%',
+                    background: erp.dot,
+                    flexShrink: 0,
+                  }}
+                />
+                <span
+                  title={erp.label ?? undefined}
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    textAlign: 'left',
+                    whiteSpace: 'nowrap',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                  }}
+                >
                   {erp.label ?? t('shell.erpOff')}
                 </span>
                 {erp.label

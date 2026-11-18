@@ -9,8 +9,10 @@ import type { MessageKey } from '../i18n/th';
 import {
   adapterName,
   COMMAND_BADGE,
+  docLabel,
   MASK,
   operationLabel,
+  thDate,
 } from '../features/settings/ConnectorSettings';
 import { useTenantList } from './ConsoleShell';
 import { can, consoleApi, cunwrap, useStaff } from './session';
@@ -208,7 +210,7 @@ export function ConnectorsPage() {
                     <td>{adapterName(t, r.adapterKey, ad(r.adapterKey)?.displayName)}</td>
                     <td>{operationLabel(t, r.operation)}</td>
                     <td style={{ fontVariantNumeric: 'tabular-nums', fontSize: 13 }}>
-                      {r.localId}
+                      {docLabel(t, r)}
                     </td>
                     <td>
                       <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
@@ -370,7 +372,7 @@ function ConnectorDrawer({
                         'con.conn.kv.active',
                         c.activatedAt ? formatDateTime(c.activatedAt, lang) : '—',
                       ],
-                      ['con.conn.kv.from', c.syncFromDate ?? '—'],
+                      ['con.conn.kv.from', c.syncFromDate ? thDate(c.syncFromDate, lang) : '—'],
                       [
                         'con.conn.kv.cred',
                         c.credentialKeys.length
@@ -451,7 +453,7 @@ function ConnectorDrawer({
                             {r.errorCode ? ` · ${r.errorCode}` : ''}
                           </span>
                         </div>
-                        <span style={{ color: '#3B424C', fontSize: 13 }}>{r.localId}</span>
+                        <span style={{ color: '#3B424C', fontSize: 13 }}>{docLabel(t, r)}</span>
                         <Pill l={t(b.k)} tone={b.tone} i={b.i} />
                       </div>
                     );
@@ -476,7 +478,7 @@ function ConnectorDrawer({
           onOk={async (v, reason) => {
             await cunwrap(
               consoleApi.PUT('/v1/platform/connectors/{id}/credentials', {
-                params: { path: { id: c.id } },
+                params: { path: { id: c.id }, header: { 'If-Match': `"${c.version}"` } as never },
                 body: { credentials: pickSecrets(adapter, v), reason },
               }),
             );
@@ -497,7 +499,10 @@ function ConnectorDrawer({
           danger={dlg === 'pause'}
           onClose={() => setDlg(null)}
           onOk={async (_v, reason) => {
-            const opts = { params: { path: { id: c.id } }, body: { reason } };
+            const opts = {
+              params: { path: { id: c.id }, header: { 'If-Match': `"${c.version}"` } as never },
+              body: { reason },
+            };
             await cunwrap(
               dlg === 'pause'
                 ? consoleApi.POST('/v1/platform/connectors/{id}/pause', opts)
@@ -522,6 +527,25 @@ function secretFields(a?: Adapter): Field[] {
   return (a?.configFields ?? [])
     .filter((f) => f.secret)
     .map((f) => ({ k: `cred.${f.key}`, l: 'con.conn.f.cred', label: f.key, type: 'pw' as const }));
+}
+/** ค่าตั้งที่ไม่ลับแบบมีตัวเลือก (เช่น โหมดทดสอบของ Demo) — ช่องข้อความอิสระ (base URL ฯลฯ) เพิ่มพร้อม adapter จริง ST8 */
+function settingFields(a: Adapter | undefined, def: string): Field[] {
+  return (a?.configFields ?? [])
+    .filter((f) => !f.secret && f.options?.length)
+    .map((f) => ({
+      k: `set.${f.key}`,
+      l: 'con.conn.f.cred',
+      label: f.key,
+      type: 'sel' as const,
+      opts: [{ v: '', l: def }, ...f.options!.map((o) => ({ v: o, l: o }))],
+    }));
+}
+function pickSettings(a: Adapter | undefined, v: Record<string, string>) {
+  return Object.fromEntries(
+    (a?.configFields ?? [])
+      .filter((f) => !f.secret && v[`set.${f.key}`])
+      .map((f) => [f.key, v[`set.${f.key}`]!]),
+  );
 }
 function pickSecrets(a: Adapter | undefined, v: Record<string, string>) {
   return Object.fromEntries(
@@ -569,6 +593,10 @@ function CreateDialog({
           })),
         },
         ...secretFields(adapters.find((a) => a.key === (v.adapter || first))),
+        ...settingFields(
+          adapters.find((a) => a.key === (v.adapter || first)),
+          t('cnx.f.default'),
+        ),
       ]}
       init={{ tenant: '', adapter: first }}
       okL={t('con.conn.create')}
@@ -591,6 +619,7 @@ function CreateDialog({
             body: {
               adapterKey: v.adapter!,
               credentials: pickSecrets(a, v),
+              settings: pickSettings(a, v),
               reason,
               activate: true,
             },

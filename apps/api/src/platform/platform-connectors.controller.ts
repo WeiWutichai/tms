@@ -1,7 +1,9 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Post, Put, Query, Req } from '@nestjs/common';
+import type { Request } from 'express';
 import {
   ApiBearerAuth,
   ApiCreatedResponse,
+  ApiHeader,
   ApiOkResponse,
   ApiProperty,
   ApiPropertyOptional,
@@ -23,12 +25,14 @@ import {
   MinLength,
 } from 'class-validator';
 import { PlatformAuth } from '../common/decorators';
+import { expectedVersion } from '../common/etag';
 import { decodeIdOr404, encodeId } from '../common/ids';
 import { ProblemException } from '../common/problem';
 import { type RequestContext, requestContext } from '../common/request-context';
 import { DbService } from '../db/db.service';
 import { PrismaService } from '../db/prisma.service';
 import { EntitlementService } from '../modules/entitlements/entitlement.service';
+import { NotificationEvents } from '../modules/notifications/notification-events';
 import {
   ConnectorCommandDto,
   ConnectorCommandQuery,
@@ -151,6 +155,12 @@ export class PlatformCommandListDto {
 }
 
 const OPEN = ['PENDING', 'IN_FLIGHT', 'FAILED_RETRYABLE'] as const;
+const IF_MATCH = {
+  name: 'If-Match',
+  required: false,
+  description: 'ETag/version ของ connector — ไม่ตรง → 412',
+};
+type Change = 'created' | 'credentials' | 'resumed' | 'paused' | 'error' | 'recovered';
 
 /**
  * Connectors ใน Platform Console (ST7-T20; docs/02 §5 "Connectors", docs/04 G3/A6)
@@ -170,6 +180,7 @@ export class PlatformConnectorsController {
     private readonly db: DbService,
     private readonly connectors: ConnectorsService,
     private readonly entitlements: EntitlementService,
+    private readonly events: NotificationEvents,
   ) {}
 
   @Get('connectors/adapters')
@@ -283,21 +294,29 @@ export class PlatformConnectorsController {
         activation = { ok: false, code: err?.code ?? 'health_failed' };
       }
     }
+    await this.notify(t.id, row, activation?.ok ? 'resumed' : 'created', reason);
     return { ...this.toDto(row, t, { open: 0, failed: 0 }), activation };
   }
 
   /** ใส่/หมุน credential (แทนทั้งชุด) — ไม่ส่งกลับ · audit มีแค่ชื่อช่อง + เหตุผล */
   @Put('connectors/:id/credentials')
   @PlatformAuth('SUPER_ADMIN')
+  @ApiHeader(IF_MATCH)
   @ApiOkResponse({ type: PlatformConnectorDto })
   async credentials(
     @Param('id') id: string,
     @Body() body: PlatformCredentialsDto,
+    @Req() req: Request,
   ): Promise<PlatformConnectorDto> {
     const { c, t } = await this.target(id);
     const row = await this.asTenant(t.id, true, () =>
-      this.connectors.setCredentials(c.id, { credentials: body.credentials, reason: body.reason }),
+      this.connectors.setCredentials(
+        c.id,
+        { credentials: body.credentials, reason: body.reason },
+        expectedVersion(req),
+      ),
     );
+    await this.notify(t.id, row, 'credentials', body.reason);
     return this.withQueue(row, t);
   }
 
@@ -307,7 +326,18 @@ export class PlatformConnectorsController {
   @ApiOkResponse({ type: ConnectorHealthDto, description: 'ทดสอบการเชื่อมต่อ (เหมือนของ tenant)' })
   async health(@Param('id') id: string): Promise<ConnectorHealthDto> {
     const { c, t } = await this.target(id);
-    return this.asTenant(t.id, false, () => this.connectors.health(c.id));
+    const r = await this.asTenant(t.id, false, () => this.connectors.health(c.id));
+    // สถานะเปลี่ยนจากการทดสอบ (ACTIVE → ERROR / ERROR → ACTIVE) = แจ้ง owner ด้วย
+    if (r.connector.status !== c.status) {
+      const row = await this.connector(c.id);
+      await this.notify(
+        t.id,
+        row,
+        row.status === 'ERROR' ? 'error' : 'recovered',
+        'healthCheck (Platform Console)',
+      );
+    }
+    return r;
   }
 
   @Post('connectors/:id/resume')
@@ -317,14 +347,17 @@ export class PlatformConnectorsController {
     type: PlatformConnectorDto,
     description: 'เปิดใช้หลังทดสอบผ่าน · ไม่ผ่าน → 409 `connector_health_failed`',
   })
+  @ApiHeader(IF_MATCH)
   async resume(
     @Param('id') id: string,
     @Body() body: PlatformConnectorActionDto,
+    @Req() req: Request,
   ): Promise<PlatformConnectorDto> {
     const { c, t } = await this.target(id);
     const row = await this.asTenant(t.id, false, () =>
-      this.connectors.resume(c.id, { reason: body.reason }),
+      this.connectors.resume(c.id, { reason: body.reason }, expectedVersion(req)),
     );
+    await this.notify(t.id, row, 'resumed', body.reason);
     return this.withQueue(row, t);
   }
 
@@ -332,14 +365,17 @@ export class PlatformConnectorsController {
   @HttpCode(200)
   @PlatformAuth('SUPER_ADMIN')
   @ApiOkResponse({ type: PlatformConnectorDto })
+  @ApiHeader(IF_MATCH)
   async pause(
     @Param('id') id: string,
     @Body() body: PlatformConnectorActionDto,
+    @Req() req: Request,
   ): Promise<PlatformConnectorDto> {
     const { c, t } = await this.target(id);
     const row = await this.asTenant(t.id, true, () =>
-      this.connectors.pause(c.id, { reason: body.reason }),
+      this.connectors.pause(c.id, { reason: body.reason }, expectedVersion(req)),
     );
+    await this.notify(t.id, row, 'paused', body.reason);
     return this.withQueue(row, t);
   }
 
@@ -379,11 +415,26 @@ export class PlatformConnectorsController {
     return c;
   }
 
+  /** connector + บริษัทของมัน สำหรับการเปลี่ยน — บริษัทที่ปิดบัญชีแล้ว (CANCELLED) เปลี่ยนไม่ได้ (เหมือนตอนเปิด) */
   private async target(id: string): Promise<{ c: Connector; t: Tenant }> {
     const c = await this.connector(decodeIdOr404('connector', id));
     const t = await this.prisma.platform.tenant.findUnique({ where: { id: c.tenantId } });
     if (!t || t.mode !== 'live') throw new ProblemException('not_found');
+    if (t.status === 'CANCELLED') throw new ProblemException('invalid_state_transition');
     return { c, t };
+  }
+
+  /** แจ้ง owner ของบริษัท (ในระบบ + อีเมล) หลังทีมงานเปลี่ยน connector — ล้มแล้วไม่กระทบการเปลี่ยน */
+  private async notify(tenantId: string, c: Connector, action: Change, reason: string) {
+    await this.db.withTenant(tenantId, (tx) =>
+      this.events.connectorChangedByPlatform(tx, {
+        tenantId,
+        connectorId: c.id,
+        label: this.connectors.toDto(c).displayName ?? c.adapterKey,
+        action,
+        reason,
+      }),
+    );
   }
 
   private async queueOf(ids: string[]): Promise<Map<string, PlatformQueueCountDto>> {

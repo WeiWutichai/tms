@@ -2928,6 +2928,15 @@
             }
           },
           {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag/version ของ connector — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "$ref": "#/components/parameters/ApiVersion"
           }
         ],
@@ -3024,6 +3033,15 @@
             }
           },
           {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag/version ของ connector — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "$ref": "#/components/parameters/ApiVersion"
           }
         ],
@@ -3072,6 +3090,15 @@
             "name": "id",
             "required": true,
             "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag/version ของ connector — ไม่ตรง → 412",
+            "required": false,
             "schema": {
               "type": "string"
             }

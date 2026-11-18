@@ -136,7 +136,8 @@ export class ConnectorsController {
   @ApiOkResponse({ type: AuditPageDto, description: 'ประวัติจาก audit log ใหม่สุดก่อน' })
   async history(@Param('id') id: string, @Query() q: HistoryQuery): Promise<AuditPageDto> {
     const c = await this.connectors.get(decodeIdOr404('connector', id));
-    return entityHistory(this.db.tx, 'connector', c.id, q);
+    // ST7-T20 ลูกค้าเห็นการกระทำของทีม Innovera (actor `platform:<id>`) พร้อมชื่อทีมงาน
+    return this.connectors.withPlatformNames(await entityHistory(this.db.tx, 'connector', c.id, q));
   }
 
   @Get(':id/commands')

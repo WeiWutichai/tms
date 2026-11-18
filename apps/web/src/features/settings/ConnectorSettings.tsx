@@ -2,18 +2,21 @@ import type { Schemas } from '@tms/contracts';
 import { Badge, EmptyState, Icon, ReasonDialog, Toast, type Tone } from '@tms/ui';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useId, useState, type ReactNode } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api, ApiError, unwrap } from '../../api';
-import { formatDateTime, useI18n } from '../../i18n';
+import { formatDate, formatDateTime, useI18n } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
 import { SecretDialog } from '../api-keys/SecretDialog';
+import { HistoryTab } from '../master/HistoryTab';
 import { problemText } from '../master/problems';
+import { MappingTable } from './Connectors';
 import { Toggle } from './Settings';
 
 type Connector = Schemas['ConnectorDto'];
 type Adapter = Schemas['ErpAdapterDto'];
 type Command = Schemas['ConnectorCommandDto'];
 type T = ReturnType<typeof useI18n>['t'];
+type Tab = 'map' | 'log' | 'hist';
 
 /** ไอคอนการ์ดตามระบบ (ต้นแบบ this.CONN) — ระบบที่ไม่รู้จัก = database */
 const ICON: Record<string, string> = { demo: 'database', krs: 'database' };
@@ -35,6 +38,12 @@ export const COMMAND_BADGE: Record<string, { k: MessageKey; tone: Tone; i: strin
   IN_FLIGHT: { k: 'cnx.cmd.IN_FLIGHT', tone: 'info', i: 'loader' },
   SKIPPED: { k: 'cnx.cmd.SKIPPED', tone: 'off', i: 'skip-forward' },
 };
+
+/** เอกสารในบันทึกการซิงก์: ชนิดเอกสาร + ท้าย id 6 ตัว (ยังไม่มีเลขเอกสาร — invoice = ST5) แทน uuid ทั้งยาว */
+export function docLabel(t: T, r: { entityType: string; localId: string }): string {
+  const k = `cnx.ent.${r.entityType}` as MessageKey;
+  return `${t(k) === k ? r.entityType : t(k)} …${r.localId.slice(-6)}`;
+}
 
 export function operationLabel(t: T, op: string): string {
   const k = `cnx.op.${op}` as MessageKey;
@@ -64,7 +73,10 @@ export function ConnectorSettingsSection({ canWrite }: { canWrite: boolean }) {
   const qc = useQueryClient();
   const [toast, setToast] = useState<string | null>(null);
   const [sel, setSel] = useState<string | null>(null);
-  const [tab, setTab] = useState<'map' | 'log'>('map');
+  const [tab, setTab] = useState<Tab>('map');
+  const [params] = useSearchParams();
+  // ลิงก์จากคำสั่งที่ถูกกัน (ST7-T18) / แจ้งเตือน: `?connector=con_…` เปิดกล่องตั้งค่าของ connector นั้น
+  const want = params.get('connector');
   const [connectFor, setConnectFor] = useState<Adapter | null>(null);
   const [disc, setDisc] = useState<Connector[] | null>(null);
 
@@ -95,9 +107,10 @@ export function ConnectorSettingsSection({ canWrite }: { canWrite: boolean }) {
       .filter((c) => c.adapterKey === key)
       .sort((a, b) => Number(!!a.companyId) - Number(!!b.companyId))[0];
   const anyConn = conns.length > 0;
-  const selKey = sel ?? conns[0]?.adapterKey ?? null;
+  const wanted = want ? conns.find((c) => c.id === want) : undefined;
+  const selKey = sel ?? wanted?.adapterKey ?? conns[0]?.adapterKey ?? null;
   const selAdapter = adapters.find((a) => a.key === selKey) ?? null;
-  const selConn = selKey ? connOf(selKey) : undefined;
+  const selConn = !sel && wanted ? wanted : selKey ? connOf(selKey) : undefined;
 
   const resume = useMutation({
     mutationFn: (c: Connector) =>
@@ -180,6 +193,34 @@ export function ConnectorSettingsSection({ canWrite }: { canWrite: boolean }) {
       </Shell>
     );
 
+  // catalog โหลด/ล้ม = ห้ามตกไปเป็น "ไม่เชื่อม" ที่กดได้ (QA ST7-T20)
+  if (!notInPlan && catalog.isLoading)
+    return (
+      <Shell>
+        <div className="cnx-msg">{t('cnx.loading')}</div>
+      </Shell>
+    );
+  if (!notInPlan && catalog.isError)
+    return (
+      <Shell>
+        <EmptyState
+          icon="triangle-alert"
+          title={t('cnx.loadError')}
+          action={
+            <button type="button" className="set-btn2" onClick={() => void catalog.refetch()}>
+              {t('cnx.retry')}
+            </button>
+          }
+        />
+      </Shell>
+    );
+  if (want && !wanted && !notInPlan)
+    return (
+      <Shell>
+        <EmptyState icon="unplug" title={t('conn.gone.title')} description={t('conn.gone.desc')} />
+      </Shell>
+    );
+
   const noneOn = !anyConn;
   // ต้นแบบ/spec/07 §1: การ์ดเรียงตามตัวอักษร รวม "API ทั่วไป" (เห็นเฉพาะผู้ที่เข้าหน้า Open API ได้)
   const apiName = t('cnx.apiCard.n');
@@ -238,7 +279,7 @@ export function ConnectorSettingsSection({ canWrite }: { canWrite: boolean }) {
             return (
               <Card
                 key={a.key}
-                on={on}
+                on={!!c}
                 icon={ICON[a.key] ?? 'database'}
                 name={n}
                 desc={t(a.demo ? 'cnx.demo.d' : 'cnx.adapter.d')}
@@ -509,8 +550,8 @@ function Detail({
 }: {
   c: Connector;
   adapter: Adapter;
-  tab: 'map' | 'log';
-  setTab: (t: 'map' | 'log') => void;
+  tab: Tab;
+  setTab: (t: Tab) => void;
   canWrite: boolean;
   onToast: (m: string) => void;
   onConnect: () => void;
@@ -522,13 +563,26 @@ function Detail({
       <div className="set-tabs-hd">
         <div className="cnx-cd__t">
           <h3>{t('cnx.cd.title', { n })}</h3>
-          {c.status !== 'ACTIVE' && <span>{t('cnx.cd.off')}</span>}
+          {c.status !== 'ACTIVE' && (
+            <span>
+              {c.status === 'ERROR'
+                ? t('cnx.cd.error', {
+                    code: String(
+                      (c.lastHealthError as { code?: string } | null)?.code ?? c.statusReason ?? '',
+                    ),
+                  })
+                : c.activatedAt
+                  ? t('cnx.cd.paused')
+                  : t('cnx.cd.off')}
+            </span>
+          )}
         </div>
         <div className="set-tabs" role="tablist">
           {(
             [
               ['map', 'cnx.tab.map'],
               ['log', 'cnx.tab.log'],
+              ['hist', 'cnx.tab.hist'],
             ] as const
           ).map(([k, l]) => (
             <button
@@ -543,24 +597,51 @@ function Detail({
           ))}
         </div>
       </div>
-      {tab === 'map' ? (
-        <MapTab c={c} adapter={adapter} canWrite={canWrite} onToast={onToast} />
-      ) : (
-        <LogTab c={c} n={n} canWrite={canWrite} onConnect={onConnect} />
+      {tab === 'map' && (
+        <MapTab c={c} n={n} adapter={adapter} canWrite={canWrite} onToast={onToast} />
+      )}
+      {tab === 'log' && <LogTab c={c} n={n} canWrite={canWrite} onConnect={onConnect} />}
+      {tab === 'hist' && (
+        <div className="cnx-map">
+          <HistoryTab
+            path="/v1/connectors/{id}/history"
+            id={c.id}
+            fieldLabel={(k) => {
+              const key = `cnx.hf.${k}` as MessageKey;
+              return t(key) === key ? k : t(key);
+            }}
+            describe={(r) => {
+              const key = `cnx.ha.${r.action}` as MessageKey;
+              if (t(key) === key) return undefined;
+              const bad = /error|disconnected|revoked|abandoned|skipped/.test(r.action);
+              return {
+                title: t(key),
+                tone: bad ? 'warn' : 'ok',
+                icon: bad ? 'triangle-alert' : 'check',
+              };
+            }}
+          />
+        </div>
       )}
     </div>
   );
 }
 
+/** วันที่แบบต้นแบบ "1 พ.ย. 2569" จาก YYYY-MM-DD */
+export const thDate = (d: string, lang: Parameters<typeof formatDate>[1]) =>
+  formatDate(new Date(`${d}T00:00:00`), lang);
+
 const todayTh = () => new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10);
 
 function MapTab({
   c,
+  n,
   adapter,
   canWrite,
   onToast,
 }: {
   c: Connector;
+  n: string;
   adapter: Adapter;
   canWrite: boolean;
   onToast: (m: string) => void;
@@ -641,9 +722,15 @@ function MapTab({
           }}
         />
         <span className="cnx-f__h" style={badDate ? { color: '#B3322A' } : undefined}>
-          {badDate ? t('cnx.f.syncFromFuture') : t('cnx.f.syncFromHint')}
+          {badDate
+            ? t('cnx.f.syncFromFuture')
+            : from
+              ? t('cnx.f.syncFromOn', { d: thDate(from, lang) })
+              : t('cnx.f.syncFromHint')}
         </span>
       </label>
+
+      <MappingTable c={c} name={n} canWrite={canWrite} />
 
       <div className="cnx-f">
         <span className="cnx-f__l">{t('cnx.f.cred')}</span>
@@ -836,7 +923,7 @@ function LogTab({
             return (
               <tr key={r.id}>
                 <td style={{ whiteSpace: 'nowrap' }}>{formatDateTime(r.createdAt, lang)}</td>
-                <td className="cnx-tbl__doc">{r.localId}</td>
+                <td className="cnx-tbl__doc">{docLabel(t, r)}</td>
                 <td>{operationLabel(t, r.operation)}</td>
                 <td>
                   <span style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>

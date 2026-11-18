@@ -1,9 +1,7 @@
 import type { Schemas } from '@tms/contracts';
 import { EmptyState } from '@tms/ui';
-import type { ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
 import { api, ApiError, unwrap } from '../../api';
 import { useI18n } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
@@ -12,94 +10,20 @@ type Connector = Schemas['ConnectorDto'];
 type ItemMapping = Schemas['ErpItemMappingDto'];
 
 /**
- * ตั้งค่า → การเชื่อมต่อ → ระบบบัญชี (ERP) (ST7-T18) — ต้นแบบ TMS v4 `st.is.conn` (ส่วน `st.cd` "ตั้งค่า {ระบบ}" → แท็บ map)
- * ทำเฉพาะตาราง "จับคู่ประเภทค่าใช้จ่าย ↔ รหัสสินค้าใน {ระบบ}" ของ connector ที่ยังไม่ยกเลิก (ลิงก์ `?connector=` จากคำสั่งที่ถูกกัน)
- * การ์ดเลือก/เชื่อม/ทดสอบ + วันที่เริ่มซิงก์ = ST7-T20 · ใครออกเลขเอกสาร = ST7-T17 · แท็บบันทึกการซิงก์ = ST7-T19 [DECISION spec/12 §3]
- * ไม่มี connector / แพ็กเกจไม่มี = แสดง "ยังไม่เปิดใช้" ตามเดิม (Standalone) · โหลดล้ม = แจ้ง + ลองอีกครั้ง
+ * ตาราง "จับคู่ประเภทค่าใช้จ่าย ↔ รหัสสินค้าใน {ระบบ}" (ST7-T18) — ต้นแบบ TMS v4 `st.cd` แท็บ map
+ * ST7-T20 รวมเข้ากล่อง "ตั้งค่า {ระบบ}" ของ ConnectorSettings (แท็บ การจับคู่และเลขเอกสาร)
  * ค่าบริการทุกฝั่ง (ฝั่งซื้อใช้กับ settlement) + ที่ปิดใช้ (ต่อท้าย "(ปิดใช้)") · บันทึกส่ง If-Match — 412 = โหลดใหม่แล้วแจ้ง
  */
-export function ConnectorsSection({ canWrite }: { canWrite: boolean }) {
+export function MappingTable({
+  c,
+  name,
+  canWrite,
+}: {
+  c: Connector;
+  name: string;
+  canWrite: boolean;
+}) {
   const { t } = useI18n();
-  const [params] = useSearchParams();
-  const q = useQuery({
-    queryKey: ['connectors'],
-    queryFn: () => unwrap(api.GET('/v1/connectors')),
-    retry: false,
-  });
-  const want = params.get('connector');
-  const list = (q.data?.data ?? []).filter((c) => !want || c.id === want);
-  // แพ็กเกจไม่มีการเชื่อมต่อ (403) = Standalone · ล้มแบบอื่น = แจ้งผิดพลาด + ลองอีกครั้ง (ไม่ใช่ "ยังไม่เปิดใช้")
-  const notInPlan = q.error instanceof ApiError && q.error.problem.status === 403;
-  if (q.isLoading) return <Shell>{<div className="conn-msg">{t('conn.loading')}</div>}</Shell>;
-  if (q.isError && !notInPlan)
-    return (
-      <Shell>
-        <Failed title={t('conn.loadError')} retry={() => void q.refetch()} />
-      </Shell>
-    );
-  if (want && !list.length)
-    // ลิงก์จากคำสั่งที่ถูกกันชี้ไป connector ที่ยกเลิกแล้ว/ไม่มี
-    return (
-      <Shell>
-        <EmptyState icon="unplug" title={t('conn.gone.title')} description={t('conn.gone.desc')} />
-      </Shell>
-    );
-  if (!list.length)
-    return (
-      <section className="set-card">
-        <div className="set-card__hd">
-          <h2>{t('set.menu.conn')}</h2>
-        </div>
-        <EmptyState
-          icon="construction"
-          title={t('empty.notReady.title')}
-          description={t('set.notReady', { stage: 'ST7' })}
-        />
-      </section>
-    );
-  return (
-    <section className="conn-sec">
-      <div className="conn-sec__hd">
-        <h2>{t('conn.title')}</h2>
-        <span>{t('conn.sub')}</span>
-      </div>
-      {list.map((c) => (
-        <ConnectorDetail key={c.id} c={c} canWrite={canWrite} />
-      ))}
-    </section>
-  );
-}
-
-function Shell({ children }: { children: ReactNode }) {
-  const { t } = useI18n();
-  return (
-    <section className="set-card">
-      <div className="set-card__hd">
-        <h2>{t('set.menu.conn')}</h2>
-      </div>
-      {children}
-    </section>
-  );
-}
-
-function Failed({ title, retry }: { title: string; retry: () => void }) {
-  const { t } = useI18n();
-  return (
-    <EmptyState
-      icon="triangle-alert"
-      title={title}
-      action={
-        <button type="button" className="set-btn2" onClick={retry}>
-          {t('conn.retry')}
-        </button>
-      }
-    />
-  );
-}
-
-function ConnectorDetail({ c, canWrite }: { c: Connector; canWrite: boolean }) {
-  const { t } = useI18n();
-  const name = c.displayName ?? c.adapterKey;
   const maps = useQuery({
     queryKey: ['connector-mappings', c.id],
     queryFn: () =>
@@ -116,53 +40,46 @@ function ConnectorDetail({ c, canWrite }: { c: Connector; canWrite: boolean }) {
   });
   const listId = `conn-codes-${c.id}`;
   return (
-    <div className="conn-cd" data-testid="connector-detail">
-      <div className="conn-cd__hd">
-        <div className="conn-cd__title">
-          <h3>{t('conn.cd.title', { name })}</h3>
-          {c.status !== 'ACTIVE' && <span>{t('conn.cd.off')}</span>}
+    <div className="conn-map">
+      <span className="conn-map__lbl">{t('conn.map.label', { name })}</span>
+      {maps.isError ? (
+        <EmptyState
+          icon="triangle-alert"
+          title={t('conn.map.loadError')}
+          action={
+            <button type="button" className="set-btn2" onClick={() => void maps.refetch()}>
+              {t('cnx.retry')}
+            </button>
+          }
+        />
+      ) : maps.isLoading ? (
+        <div className="conn-msg">{t('cnx.loading')}</div>
+      ) : (
+        <div className="conn-map__tbl">
+          <div className="conn-map__row conn-map__row--hd">
+            <span>{t('conn.map.col.type')}</span>
+            <span>{t('conn.map.col.vat')}</span>
+            <span>{t('conn.map.col.code', { name })}</span>
+          </div>
+          {(maps.data?.data ?? []).map((m) => (
+            <MappingRow
+              key={m.serviceItem.id}
+              connectorId={c.id}
+              m={m}
+              name={name}
+              listId={listId}
+              canWrite={canWrite && c.status !== 'DISCONNECTED'}
+            />
+          ))}
         </div>
-        <div className="conn-cd__tabs" role="tablist">
-          <button type="button" role="tab" aria-selected="true">
-            {t('conn.tab.map')}
-          </button>
-        </div>
-      </div>
-      <div className="conn-cd__body">
-        <div className="conn-map">
-          <span className="conn-map__lbl">{t('conn.map.label', { name })}</span>
-          {maps.isError ? (
-            <Failed title={t('conn.map.loadError')} retry={() => void maps.refetch()} />
-          ) : maps.isLoading ? (
-            <div className="conn-msg">{t('conn.loading')}</div>
-          ) : (
-            <div className="conn-map__tbl">
-              <div className="conn-map__row conn-map__row--hd">
-                <span>{t('conn.map.col.type')}</span>
-                <span>{t('conn.map.col.vat')}</span>
-                <span>{t('conn.map.col.code', { name })}</span>
-              </div>
-              {(maps.data?.data ?? []).map((m) => (
-                <MappingRow
-                  key={m.serviceItem.id}
-                  connectorId={c.id}
-                  m={m}
-                  name={name}
-                  listId={listId}
-                  canWrite={canWrite && c.status !== 'DISCONNECTED'}
-                />
-              ))}
-            </div>
-          )}
-          <datalist id={listId}>
-            {(codes.data?.data ?? []).map((x) => (
-              <option key={x.code} value={x.code}>
-                {x.name ?? ''}
-              </option>
-            ))}
-          </datalist>
-        </div>
-      </div>
+      )}
+      <datalist id={listId}>
+        {(codes.data?.data ?? []).map((x) => (
+          <option key={x.code} value={x.code}>
+            {x.name ?? ''}
+          </option>
+        ))}
+      </datalist>
     </div>
   );
 }

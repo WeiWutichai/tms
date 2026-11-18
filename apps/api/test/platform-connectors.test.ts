@@ -2,6 +2,7 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import type { PrismaClient } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { ensureSystemRoles } from '../src/auth/system-roles';
 import { signPlatformToken } from '../src/auth/tokens';
 import { encodeId, tryDecodeId } from '../src/common/ids';
 import { api, bootApp, createTenant, platform, tokenFor, truncateAll } from './helpers';
@@ -46,6 +47,8 @@ describe('platform connectors (ST7-T20)', () => {
     const owner = await db.appUser.create({
       data: { tenantId, email: 'owner@pilot.test', name: 'เจ้าของ นำร่อง', status: 'ACTIVE' },
     });
+    const roles = await ensureSystemRoles(db as never, tenantId);
+    await db.userRole.create({ data: { tenantId, userId: owner.id, roleId: roles.owner! } });
     ownerToken = await tokenFor(tenantId, '*', owner.id);
   });
   afterAll(async () => {
@@ -166,6 +169,43 @@ describe('platform connectors (ST7-T20)', () => {
       true,
     );
     expect(JSON.stringify(rows.map((a) => [a.before, a.after]))).not.toContain(SECRET);
+    // If-Match เก่า = 412
+    await as('SUPER_ADMIN')
+      .post(`/v1/platform/connectors/${conId}/resume`)
+      .set('If-Match', '"1"')
+      .send({ reason: 'เปิดใช้ด้วย version เก่า' })
+      .expect(412);
+    // owner ได้แจ้งเตือน (ในระบบ + อีเมล) ทุกครั้งที่ทีมงานเปลี่ยน credential/สถานะ
+    const ntf = await db.notification.findMany({
+      where: { tenantId, templateCode: 'connector.platform_changed' },
+    });
+    expect(ntf.length).toBeGreaterThanOrEqual(4);
+    // ประวัติที่ลูกค้าเห็นมีชื่อทีมงาน
+    const hist = await api(app, ownerToken).get(`/v1/connectors/${conId}/history`).expect(200);
+    expect(
+      hist.body.data.find((r: { actor: { id: string } }) => r.actor?.id.startsWith('platform:'))
+        ?.actor.name,
+    ).toBe('ทีม SUPER_ADMIN');
+  });
+
+  it('บริษัทที่ปิดบัญชีแล้ว (CANCELLED) เปลี่ยน connector จาก Console ไม่ได้', async () => {
+    const conId = (await api(app, ownerToken).get('/v1/connectors').expect(200)).body.data[0]
+      .id as string;
+    await db.tenant.update({ where: { id: tenantId }, data: { status: 'CANCELLED' } });
+    try {
+      for (const [p, b] of [
+        ['health', {}],
+        ['resume', { reason: 'เปิดใช้หลังปิดบัญชี' }],
+        ['pause', { reason: 'หยุดหลังปิดบัญชีแล้ว' }],
+      ] as const)
+        await as('SUPER_ADMIN').post(`/v1/platform/connectors/${conId}/${p}`).send(b).expect(409);
+      await as('SUPER_ADMIN')
+        .put(`/v1/platform/connectors/${conId}/credentials`)
+        .send({ credentials: { apiKey: SECRET }, reason: 'หมุน key หลังปิดบัญชี' })
+        .expect(409);
+    } finally {
+      await db.tenant.update({ where: { id: tenantId }, data: { status: 'ACTIVE' } });
+    }
   });
 
   it('คิวคำสั่ง: tenant เห็นของตัวเอง · Console เห็นข้าม tenant พร้อมชื่อบริษัท', async () => {

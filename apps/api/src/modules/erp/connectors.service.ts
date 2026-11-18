@@ -229,6 +229,32 @@ export class ConnectorsService {
     return c;
   }
 
+  /**
+   * ST7-T20 ชื่อทีมงาน Innovera ในประวัติ (actor `platform:<uuid>`) — role แอปอ่าน platform_user ไม่ได้ จึงอ่านด้วย role platform
+   * เฉพาะชื่อที่แสดง (ไม่มีอีเมล/บทบาท) · หน้าเว็บแสดง "ทีม Innovera · {ชื่อ}"
+   */
+  async withPlatformNames<
+    P extends { data: { actor: { id: string; name: string | null } | null }[] },
+  >(page: P): Promise<P> {
+    const ids = [
+      ...new Set(
+        page.data.flatMap((r) => {
+          const m = r.actor ? /^platform:([0-9a-f-]{36})$/i.exec(r.actor.id) : null;
+          return m ? [m[1]!] : [];
+        }),
+      ),
+    ];
+    if (!ids.length) return page;
+    const staff = await this.prisma.platform.platformUser.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, name: true },
+    });
+    const name = new Map(staff.map((u) => [`platform:${u.id}`, u.name]));
+    for (const r of page.data)
+      if (r.actor && name.has(r.actor.id)) r.actor.name = name.get(r.actor.id)!;
+    return page;
+  }
+
   /** ST7-T20 คำสั่งล่าสุดของ connector (ใหม่สุดก่อน) — บันทึกการซิงก์ในหน้าตั้งค่า */
   async commands(id: string, q: ConnectorCommandQuery, tx: Tx = this.db.tx) {
     const c = await this.get(id, tx);

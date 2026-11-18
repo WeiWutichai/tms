@@ -49,14 +49,14 @@ test('mapping ค่าบริการ ↔ รหัสสินค้า ERP
 
     await page.goto(`/settings?sec=conn&connector=${conId}`);
     await expect(page.getByRole('heading', { name: 'ระบบบัญชี (ERP)' })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'ตั้งค่า Demo ERP (simulated)' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'ตั้งค่า ERP จำลอง (Demo)' })).toBeVisible();
     // สร้างแล้วยังไม่เปิดใช้ (PAUSED) = ตั้งค่าล่วงหน้าได้
     await expect(page.getByText('ยังไม่ได้เชื่อมต่อ · ตั้งค่าล่วงหน้าได้')).toBeVisible();
     await expect(
-      page.getByText('จับคู่ประเภทค่าใช้จ่าย ↔ รหัสสินค้าใน Demo ERP (simulated)'),
+      page.getByText('จับคู่ประเภทค่าใช้จ่าย ↔ รหัสสินค้าใน ERP จำลอง (Demo)'),
     ).toBeVisible();
 
-    const label = (n: string) => `รหัสสินค้าใน Demo ERP (simulated) ${n}`;
+    const label = (n: string) => `รหัสสินค้าใน ERP จำลอง (Demo) ${n}`;
     const a = page.getByLabel(label(first.nameTh), { exact: true });
     await expect(a).toHaveValue('');
     await a.fill('SV-FRT-01');
@@ -74,7 +74,7 @@ test('mapping ค่าบริการ ↔ รหัสสินค้า ERP
     const b = page.getByLabel(label(second.nameTh), { exact: true });
     await b.fill('NOT-IN-ERP');
     await b.press('Enter');
-    await expect(b).toHaveAttribute('title', 'ไม่พบรหัสนี้ในผังรหัสสินค้าของ Demo ERP (simulated)');
+    await expect(b).toHaveAttribute('title', 'ไม่พบรหัสนี้ในผังรหัสสินค้าของ ERP จำลอง (Demo)');
 
     await page.reload();
     await expect(page.getByLabel(label(first.nameTh), { exact: true })).toHaveValue('SV-FRT-01');

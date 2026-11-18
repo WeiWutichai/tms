@@ -22,7 +22,8 @@ export type HistoryPath =
   | '/v1/service-items/{id}/history'
   | '/v1/rate-cards/{id}/history'
   | '/v1/api-keys/{id}/history'
-  | '/v1/webhooks/{id}/history';
+  | '/v1/webhooks/{id}/history'
+  | '/v1/connectors/{id}/history';
 
 const VERB: Record<
   string,
@@ -144,7 +145,10 @@ export function HistoryTab({
       sub: `${formatDateTime(r.at, lang)} · ${
         r.actor?.id.startsWith('link:')
           ? [r.actor.name, t('exc.src.LINK')].filter(Boolean).join(' · ')
-          : (r.actor?.name ?? r.actor?.id ?? t('hist.system'))
+          : // ST7-T20 ทีม Innovera จาก Platform Console (`platform:{id}`)
+            r.actor?.id.startsWith('platform:')
+            ? [t('hist.platform'), r.actor.name].filter(Boolean).join(' · ')
+            : (r.actor?.name ?? r.actor?.id ?? t('hist.system'))
       }`,
       badge: {
         label: t('hist.ok'),
