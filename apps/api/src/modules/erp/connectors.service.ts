@@ -6,6 +6,7 @@ import {
   type ConnectorStatus,
   documentSyncModes,
   ERP_CAPABILITIES,
+  ERP_MASTER_CODE_KINDS,
   unsupportedCapabilities,
 } from '@tms/domain';
 import { randomUUID } from 'node:crypto';
@@ -159,6 +160,9 @@ export class ConnectorsService {
       displayName: a.displayName,
       demo: !!a.localOnly,
       capabilities: ERP_CAPABILITIES.filter((c) => a.capabilities().has(c)),
+      masterCodeKinds: a.fetchMasterCodes
+        ? ERP_MASTER_CODE_KINDS.filter((k) => (a.masterCodeKinds ?? []).includes(k))
+        : [],
       configFields: a.configFields.map((f) => ({
         key: f.key,
         secret: f.secret,

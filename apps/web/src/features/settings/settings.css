@@ -548,3 +548,144 @@
 .cnx-api .cnx-tog {
   padding: 0 14px;
 }
+
+/* ST7-T18 การเชื่อมต่อ → ระบบบัญชี (ERP) — ค่าจาก st.is.conn / st.cd ใน design/prototype/TMS v4.dc.html */
+.conn-sec {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.conn-sec__hd {
+  display: flex;
+  flex-direction: column;
+}
+.conn-sec__hd h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+.conn-sec__hd span {
+  color: #3b424c;
+}
+.conn-cd {
+  background: #ffffff;
+  border: 1px solid #cdd1c8;
+  border-radius: 12px;
+  box-shadow:
+    0 1px 2px rgba(16, 20, 24, 0.06),
+    0 2px 6px rgba(16, 20, 24, 0.04);
+  overflow: hidden;
+}
+.conn-cd__hd {
+  padding: 16px 20px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-bottom: 1px solid #e4e6e0;
+}
+.conn-cd__title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.conn-cd__title h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+.conn-cd__title span {
+  color: #3b424c;
+}
+.conn-cd__tabs {
+  display: flex;
+  gap: 24px;
+}
+.conn-cd__tabs button {
+  font: inherit;
+  height: 40px;
+  padding: 0;
+  margin-bottom: -1px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: #3b424c;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.conn-cd__tabs button[aria-selected='true'] {
+  border-bottom-color: #2257c4;
+  color: #2257c4;
+  font-weight: 600;
+}
+.conn-cd__body {
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.conn-map {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.conn-map__lbl {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: #3b424c;
+}
+.conn-map__tbl {
+  border: 1px solid #d9dcd4;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.conn-map__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) 140px minmax(0, 1fr);
+  align-items: center;
+  border-top: 1px solid #d9dcd4;
+}
+.conn-map__row > span {
+  padding: 8px 12px;
+}
+.conn-map__row--hd {
+  align-items: stretch;
+  border-top: 0;
+  background: #ebede8;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: #3b424c;
+}
+.conn-map__row > .conn-map__in {
+  padding: 6px 8px;
+}
+.conn-map__vat {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: #ebede8;
+  color: #3b424c;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.conn-map__in input {
+  font: inherit;
+  width: 100%;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid #c9cdc3;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #101418;
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+}
+
+.conn-msg {
+  padding: 20px;
+  color: #59606b;
+}

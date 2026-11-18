@@ -3,7 +3,9 @@ import {
   ERP_CAPABILITIES,
   ERP_FLAG_CAPABILITIES,
   type ErpCapability,
+  type ErpMasterCodeKind,
   isErpCapability,
+  isErpMasterCodeKind,
 } from '@tms/domain';
 import type { ErrorClass } from '../integration/outbox.types';
 import type { PullPage } from '../connectors/order-source.port';
@@ -122,6 +124,17 @@ export interface ListDocumentsQuery {
   limit: number;
 }
 
+// ---------- ผังรหัส ERP (ST7-T18; docs/04 G3 "Sync master ลงมา", docs/01 §7.4) ----------
+
+/** รหัส 1 ตัวที่ ERP ยอมรับ (adapter คืน — core บันทึกลง `erp_master_code`) */
+export interface ErpMasterCodeEntry {
+  /** 1–64 ตัว ตามที่ ERP ใช้ */
+  code: string;
+  name?: string | null;
+  /** เฉพาะ VAT_RATE: อัตรา % เป็นสตริงทศนิยม เช่น "7.00" (ห้าม float) — ข้อมูลอ้างอิง ไม่เปลี่ยนการคำนวณภาษีของ TMS */
+  rate?: string | null;
+}
+
 // ---------- webhook ขาเข้า (ST7-T22; docs/04 G3 "Inbound webhook ledger" I10) ----------
 
 /** คำขอ webhook ขาเข้า 1 ครั้ง (หลังตรวจ token ใน URL แล้ว) */
@@ -210,6 +223,17 @@ export interface ErpAdapter {
   ): Promise<{ items: ExternalRef[]; next: string | null }>;
   /** ST7-T22 webhook ขาเข้า (ไม่บังคับ) */
   readonly inbound?: InboundWebhookHandler;
+
+  /**
+   * ST7-T18 ชนิดรหัส master ที่ดึงจาก ERP ได้ (ไม่ใช่ `Capability` ของ docs/01 §6.1 — ไม่มีสวิตช์ต่อ tenant; ผู้ดูแลกดซิงก์เอง)
+   * ไม่มี/ว่าง = ดึงไม่ได้ → นำเข้าไฟล์ (`erp_master_code` import) · มี ⇔ ต้องมี `fetchMasterCodes`
+   */
+  readonly masterCodeKinds?: readonly ErpMasterCodeKind[];
+  /**
+   * รายการรหัส **ทั้งชุด** ของชนิดนั้น (core ปิดใช้รหัสที่ไม่อยู่ในชุด) · เรียกนอก transaction · throw/ปลายทางล่ม = core ไม่เปลี่ยนข้อมูล
+   * ห้ามมี credential ในข้อความ error
+   */
+  fetchMasterCodes?(ctx: ErpContext, kind: ErpMasterCodeKind): Promise<ErpMasterCodeEntry[]>;
 }
 
 /** capability → ชื่อ method (ธงไม่มี method) */
@@ -251,6 +275,13 @@ export function adapterShapeProblems(a: ErpAdapter): string[] {
     if (!caps.has(c) && has) out.push(`method ${m}() present but capability '${c}' not declared`);
   }
   if (typeof a.healthCheck !== 'function') out.push('healthCheck() required');
+  const kinds = a.masterCodeKinds ?? [];
+  for (const k of kinds)
+    if (!isErpMasterCodeKind(k)) out.push(`unknown master code kind '${String(k)}'`);
+  const hasFetch = typeof a.fetchMasterCodes === 'function';
+  if (kinds.length && !hasFetch)
+    out.push('masterCodeKinds declared but fetchMasterCodes() missing');
+  if (!kinds.length && hasFetch) out.push('fetchMasterCodes() present but masterCodeKinds empty');
   if (a.inbound !== undefined)
     for (const m of ['verify', 'parse', 'handle'] as const)
       if (typeof a.inbound?.[m] !== 'function') out.push(`inbound.${m}() required`);

@@ -4,6 +4,8 @@ import {
   documentSyncMode,
   documentSyncModes,
   effectiveCapabilities,
+  erpItemMappingStatus,
+  isErpMasterCodeKind,
   ERP_CAPABILITIES,
   ERP_OPERATION_CAPABILITY,
   isErpCapability,
@@ -87,5 +89,27 @@ describe('โหมด sync ต่อประเภทเอกสาร (ST7-T
     expect(documentSyncMode(['pullOrders'], 'invoice')).toBe('NOT_APPLICABLE');
     expect(documentSyncMode(['pushSettlement'], 'settlement')).toBe('PUSH');
     expect(documentSyncMode(['pushInvoice'], 'settlement')).toBe('NOT_APPLICABLE');
+  });
+});
+
+describe('erpItemMappingStatus (ST7-T18)', () => {
+  const codes = new Set(['sv-frt-01', 'sv-wait']);
+  it('ไม่มีรหัส = UNMAPPED', () => {
+    expect(erpItemMappingStatus(null, codes)).toBe('UNMAPPED');
+    expect(erpItemMappingStatus('  ', codes)).toBe('UNMAPPED');
+  });
+  it('มีรายการรหัสแล้ว: ต้องอยู่ในรายการ (ไม่สนตัวพิมพ์)', () => {
+    expect(erpItemMappingStatus('SV-FRT-01', codes)).toBe('MAPPED');
+    expect(erpItemMappingStatus('SV-NOPE', codes)).toBe('CODE_UNKNOWN');
+  });
+  it('ยังไม่มีรายการรหัส = เชื่อรหัสที่กรอก', () => {
+    expect(erpItemMappingStatus('ANY-1', new Set())).toBe('MAPPED');
+  });
+  it('เคยมีผังแต่ถูกปิดหมด = ไม่กลับไปเชื่อรหัสที่กรอก', () => {
+    expect(erpItemMappingStatus('ANY-1', new Set(), true)).toBe('CODE_UNKNOWN');
+  });
+  it('ชนิดรหัส', () => {
+    expect(isErpMasterCodeKind('ITEM')).toBe(true);
+    expect(isErpMasterCodeKind('item')).toBe(false);
   });
 });

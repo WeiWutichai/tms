@@ -178,6 +178,8 @@ export const en: Partial<Record<MessageKey, string>> = {
   'set.menu.users': 'Users & permissions',
   'set.menu.tax': 'Tax',
   'set.menu.conn': 'Integrations',
+  'conn.tab.map': 'Mapping & numbering',
+  'conn.map.col.vat': 'Tax',
   'set.menu.api': 'Developers / Open API',
   'set.menu.noti': 'Notifications',
   'set.menu.reason': 'Reasons',
