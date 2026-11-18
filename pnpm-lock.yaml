@@ -145,6 +145,9 @@ importers:
       '@tms/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@tms/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
       '@tms/ui':
         specifier: workspace:*
         version: link:../../packages/ui

@@ -231,6 +231,9 @@ test.describe.serial('บันทึกสถานะแทนคนขับ�
     const d = await openTimeline(page);
     const steps = d.getByTestId('trip-step');
     const left = ago(100);
+    // รอไทม์ไลน์ของจุดรับ (ถึงจุด + ปิดงาน) โหลดก่อน — ขั้นต่ำของเวลาออกจากจุดคำนวณจาก event ที่โหลดแล้ว
+    // (เครื่องช้า: กดบันทึกก่อนโหลดเสร็จ = ไม่มีขั้นต่ำ → ไม่ขึ้นข้อความเตือน — flaky ใน ci:local ของ ST9-T01)
+    await expect(steps.nth(0).getByTestId('trip-event')).toHaveCount(2);
     await steps.nth(0).getByRole('button', { name: 'ออกจากจุด' }).click();
     const dep = page.getByRole('dialog', { name: 'บันทึกออกจากจุด' });
     await expect(dep).toContainText(`ออกจาก ${name.a} มุ่งหน้าไป ${name.b}`);

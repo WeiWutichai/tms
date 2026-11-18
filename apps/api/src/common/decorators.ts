@@ -71,3 +71,9 @@ export const SandboxAware = () =>
         'เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)',
     }),
   );
+export const IDEMPOTENCY_LOCK_MS = 'tms:idempotencyLockMs';
+/**
+ * ST7-T10: เวลาจอง Idempotency-Key ระหว่างทำ (ค่าเริ่ม 60 วิ) — route ที่ทำนาน (เช่น bulk 200 ใบ) ตั้งให้ยาวกว่าเวลาสูงสุดที่ยอม
+ * คำขอซ้ำ key เดิมระหว่างนั้น = 409 `idempotency_in_progress` (ไม่ทำซ้อน)
+ */
+export const IdempotencyLockMs = (ms: number) => SetMetadata(IDEMPOTENCY_LOCK_MS, ms);

@@ -7,6 +7,7 @@ import { encodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import type { Tx } from '../../db/db.service';
 import { JobQueue } from '../../jobs/job-queue.service';
+import { requestActor, resolveJobActor, type JobActor } from '../../jobs/job-actor';
 import { store } from '../documents/documents.controller';
 import { EntitlementService } from '../entitlements/entitlement.service';
 import { NotificationService } from '../notifications/notification.service';
@@ -52,21 +53,13 @@ interface Checked {
  * ผู้สั่งงานนำเข้า (ST2-T23) — spec ข้อมูลหลักเรียก service เดียวกับ API จึงต้องได้ context เดียวกับคำขอ:
  * ผู้ทำ, scope (สิทธิ์ระดับฟิลด์ เช่น บัญชีธนาคาร/ราคา), ผู้เข้าใช้งานแทน, IP (ลง audit)
  */
-export interface ImportActor {
-  actorId: string | null;
-  scopes: string[];
-  principalType?: string;
-  actAs?: string;
-  ip?: string;
-}
+export type ImportActor = JobActor;
 
 interface JobPayload extends Partial<ImportActor> {
   importJobId: string;
   /** ผู้สั่งงานรอบนี้ (ผู้กดยืนยันอาจไม่ใช่ผู้อัปโหลด) — ลง audit + รับแจ้งเตือน */
   actorId: string | null;
 }
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** requestId ของงานนำเข้า — audit ทุกรายการที่การนำเข้าสร้าง (entity + import.completed) ค้นด้วยค่านี้ได้ (MD-287) */
 export const importRequestId = (importJobId: string) => `import:${encodeId('import', importJobId)}`;
@@ -154,41 +147,15 @@ export class ImportService implements OnModuleInit {
 
   /** ผู้สั่งจาก request ปัจจุบัน */
   requestActor(): ImportActor {
-    const c = requestContext.get();
-    return {
-      actorId: c?.actorId && UUID_RE.test(c.actorId) ? c.actorId : null,
-      scopes: c?.scopes ?? [],
-      ...(c?.principalType ? { principalType: c.principalType } : {}),
-      ...(c?.actAs ? { actAs: c.actAs } : {}),
-      ...(c?.ip ? { ip: c.ip } : {}),
-    };
+    return requestActor();
   }
 
   /**
    * ผู้สั่งใน job: scope = ที่ส่งมาตอนสั่ง ∩ สิทธิ์ปัจจุบันของผู้ใช้ (ถูกถอดสิทธิ์ระหว่างรอ = ไม่ได้สิทธิ์นั้นแล้ว)
-   * principal ที่ไม่ใช่ผู้ใช้ (token dev/API client) ใช้ scope ตอนสั่ง
+   * principal ที่ไม่ใช่ผู้ใช้ (token dev/API client) ใช้ scope ตอนสั่ง — ใช้ร่วมกับ bulk (ST7-T10) ที่ `jobs/job-actor`
    */
-  private async jobActor(tx: Tx, p: JobPayload): Promise<ImportActor> {
-    let scopes = p.scopes ?? [];
-    if (p.actorId && UUID_RE.test(p.actorId) && (p.principalType ?? 'user') === 'user') {
-      const links = await tx.userRole.findMany({ where: { userId: p.actorId } });
-      const roles = links.length
-        ? await tx.role.findMany({ where: { id: { in: links.map((l) => l.roleId) } } })
-        : [];
-      const user = await tx.appUser.findFirst({
-        where: { id: p.actorId, deletedAt: null, status: 'ACTIVE' },
-        select: { id: true },
-      });
-      const current = user ? roles.flatMap((r) => r.permissions) : [];
-      scopes = scopes.filter((x) => scopeAllows(current, x));
-    }
-    return {
-      actorId: p.actorId,
-      scopes,
-      ...(p.principalType ? { principalType: p.principalType } : {}),
-      ...(p.actAs ? { actAs: p.actAs } : {}),
-      ...(p.ip ? { ip: p.ip } : {}),
-    };
+  private jobActor(tx: Tx, p: JobPayload): Promise<ImportActor> {
+    return resolveJobActor(tx, p);
   }
 
   /** ส่งงานไป job (ไฟล์ใหญ่) — ผู้สั่งได้แจ้งเตือนเมื่อเสร็จ */

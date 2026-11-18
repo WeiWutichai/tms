@@ -26,7 +26,8 @@ test('การ์ด setup checklist: เห็นความคืบหน�
   });
   await page.goto('/');
   const card = page.getByRole('region', { name: 'เริ่มต้นใช้งาน TMS' });
-  await expect(card).toBeVisible();
+  // หน้าภาพรวมยิงหลายคำขอพร้อมกัน (dashboard ST9-T01) — เครื่อง CI ที่โหลดสูงอาจตอบช้ากว่า 5 วิ
+  await expect(card).toBeVisible({ timeout: 15_000 });
   await expect(card.getByText(/^ทำครบแล้ว \d\/7 ขั้น · รายการนี้หายไปเองเมื่อครบ$/)).toBeVisible();
   await expect(card.locator('[data-step]')).toHaveCount(7);
   await card.getByRole('button', { name: /เลขที่เอกสาร/ }).click();

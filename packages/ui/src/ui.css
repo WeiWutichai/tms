@@ -1872,3 +1872,34 @@ body:has(.tms-drawer__foot) .tms-toast {
 .tms-vdoc__pick[aria-invalid='true'] {
   border-color: #b3322a;
 }
+
+/* ST9-T01 ภาพรวม: แถวการ์ดล่าง (ต้นแบบ is.dash: grid minmax(0,2fr) minmax(0,1fr) gap 20) + แถวรายการในการ์ด (ต้นแบบ dash.ar.top) */
+.tms-dash-bottom {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 20px;
+}
+.tms-dash-row {
+  border: 0;
+  border-bottom: 1px solid #e4e6e0;
+  background: #ffffff;
+  padding: 8px 12px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0 10px;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: #101418;
+}
+.tms-dash-row:last-child {
+  border-bottom: 0;
+}
+.tms-dash-row:hover {
+  background: #eef0ec;
+}
+@media (max-width: 900px) {
+  .tms-dash-bottom {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
