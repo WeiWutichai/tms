@@ -26,6 +26,7 @@ export const API_KEY_TTL_DAYS = [30, 90, 365] as const;
 export const ROTATE_GRACE_MAX_HOURS = 7 * 24;
 
 const SCOPE_RE = /^[a-z][a-z.-]*:[a-z*]+$/;
+const API_VERSION_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export class ApiKeyDto {
   @ApiProperty({ example: 'key_8f3a…' }) id!: string;
@@ -73,6 +74,15 @@ export class ApiKeyDto {
   lastRejectedIp!: string | null;
   @ApiProperty({ nullable: true, type: String, format: 'date-time' })
   lastRejectedAt!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    format: 'date',
+    example: '2026-11-18',
+    description:
+      'ST7-T07 เวอร์ชันพฤติกรรม API ที่ pin ไว้บน key (ใช้เมื่อคำขอไม่ส่ง X-Api-Version) — null = ตามวันสร้างบริษัท',
+  })
+  apiVersion!: string | null;
   @ApiProperty() version!: number;
   @ApiProperty({ format: 'date-time' }) createdAt!: string;
   @ApiProperty({ format: 'date-time' }) updatedAt!: string;
@@ -162,6 +172,19 @@ export class UpdateApiKeyDto {
   @IsString({ each: true })
   @MaxLength(60, { each: true })
   ipAllowlist?: string[];
+
+  @ApiPropertyOptional({
+    nullable: true,
+    type: String,
+    format: 'date',
+    example: '2026-11-18',
+    description:
+      'ST7-T07 pin เวอร์ชันพฤติกรรม API ของ key (YYYY-MM-DD ตั้งแต่เวอร์ชันแรกถึงวันนี้) — null = ตามวันสร้างบริษัท · header X-Api-Version ในคำขอมาก่อน',
+  })
+  @IsNullable()
+  @IsString()
+  @Matches(API_VERSION_RE)
+  apiVersion?: string | null;
 }
 
 export class CreateApiKeyDto {
@@ -211,6 +234,19 @@ export class CreateApiKeyDto {
   @IsString({ each: true })
   @MaxLength(60, { each: true })
   ipAllowlist?: string[];
+
+  @ApiPropertyOptional({
+    nullable: true,
+    type: String,
+    format: 'date',
+    example: '2026-11-18',
+    description:
+      'ST7-T07 pin เวอร์ชันพฤติกรรม API ของ key (YYYY-MM-DD ตั้งแต่เวอร์ชันแรกถึงวันนี้) — null = ตามวันสร้างบริษัท · header X-Api-Version ในคำขอมาก่อน',
+  })
+  @IsNullable()
+  @IsString()
+  @Matches(API_VERSION_RE)
+  apiVersion?: string | null;
 }
 
 export class RotateApiKeyDto extends MasterReasonDto {

@@ -1,3 +1,4 @@
+import type { ReasonCategory } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import {
@@ -221,7 +222,7 @@ describe('event registry contract (ST7-T06)', () => {
       .post(`/v1/stops/${stop}/${action}`)
       .send({ clientEventId: randomUUID(), occurredAt: ago(min), ...extra })
       .expect(201);
-  const reason = async (category: string, code?: string) =>
+  const reason = async (category: ReasonCategory, code?: string) =>
     encodeId(
       'reasonCode',
       (

@@ -21,6 +21,7 @@ import {
   type UpdateApiKeyDto,
 } from './api-key.dto';
 import { generateApiKey, IP_ALLOWLIST_MAX, normalizeIpEntry } from './key-material';
+import { FIRST_API_VERSION, parseApiVersion } from '../../http/api-version/versions';
 
 const DAY = 24 * 60 * 60 * 1000;
 /** "ใกล้หมดอายุ" (ต้นแบบ specApi: exp ≤ 30 วัน) */
@@ -100,6 +101,7 @@ export function toApiKeyDto(k: ApiKey, names?: Map<string, Creator>, now = new D
     creatorInactive: by ? names?.get(by)?.active === false || !names?.has(by) : false,
     lastRejectedIp: k.lastRejectedIp,
     lastRejectedAt: k.lastRejectedAt?.toISOString() ?? null,
+    apiVersion: k.apiVersion?.toISOString().slice(0, 10) ?? null,
     version: k.version,
     createdAt: k.createdAt.toISOString(),
     updatedAt: k.updatedAt.toISOString(),
@@ -118,7 +120,25 @@ function auditView(k: ApiKey) {
     revokeAt: k.revokeAt?.toISOString() ?? null,
     rotatedToId: k.rotatedToId ? encodeId('apiKey', k.rotatedToId) : null,
     rotatedFromId: k.rotatedFromId ? encodeId('apiKey', k.rotatedFromId) : null,
+    apiVersion: k.apiVersion?.toISOString().slice(0, 10) ?? null,
   };
+}
+
+/** ST7-T07: ตรวจวันที่ pin ของ key แบบเดียวกับ header X-Api-Version → Date (00:00 UTC ของคอลัมน์ date) */
+function pinDate(v: string | null): Date | null {
+  if (v === null) return null;
+  const p = parseApiVersion(v);
+  if (!p.ok)
+    throw field422(
+      'apiVersion',
+      `api_version_${p.reason}`,
+      p.reason === 'before_first'
+        ? `must not be before ${FIRST_API_VERSION}`
+        : p.reason === 'future'
+          ? 'must not be in the future'
+          : 'must be a valid YYYY-MM-DD date',
+    );
+  return new Date(`${p.version}T00:00:00Z`);
 }
 
 /**
@@ -290,6 +310,7 @@ export class ApiKeysService {
       scopes,
       ipAllowlist,
       expiresAt: ttl === null ? null : new Date(now.getTime() + ttl * DAY),
+      apiVersion: body.apiVersion === undefined ? null : pinDate(body.apiVersion),
       createdBy: ctx.actorId ?? null,
     });
     await this.audit.record({
@@ -336,6 +357,10 @@ export class ApiKeysService {
     if (body.ipAllowlist !== undefined) {
       const next = this.checkIps(body.ipAllowlist);
       if (next.join(',') !== cur.ipAllowlist.join(',')) data.ipAllowlist = next;
+    }
+    if (body.apiVersion !== undefined) {
+      const next = pinDate(body.apiVersion);
+      if ((next?.getTime() ?? null) !== (cur.apiVersion?.getTime() ?? null)) data.apiVersion = next;
     }
     if (Object.keys(data).length === 0) return cur;
     const n = await this.db.tx.apiKey
@@ -400,6 +425,8 @@ export class ApiKeysService {
       secretHash: m.hash,
       scopes: cur.scopes,
       ipAllowlist: cur.ipAllowlist,
+      // ST7-T07: key ใหม่คงเวอร์ชันที่ pin ไว้ (client เดิมได้พฤติกรรมเดิมหลังเปลี่ยน key)
+      apiVersion: cur.apiVersion,
       expiresAt: lifetime === null ? null : new Date(now.getTime() + lifetime),
       rotatedFromId: cur.id,
       createdBy: ctx.actorId ?? null,
