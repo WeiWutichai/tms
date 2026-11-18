@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import type { Request, Response } from 'express';
 import { from, Observable, of } from 'rxjs';
 import { catchError, mergeMap } from 'rxjs/operators';
+import { IDEMPOTENCY_LOCK_MS } from '../common/decorators';
 import { ProblemException } from '../common/problem';
 import { requestContext } from '../common/request-context';
 import { DbService } from '../db/db.service';
@@ -55,8 +56,10 @@ export class IdempotencyInterceptor implements NestInterceptor {
       .update(`${req.method} ${path}\n${stableStringify(req.body ?? null)}`)
       .digest('hex');
     const status = this.reflector.get<number>(HTTP_CODE_METADATA, context.getHandler()) ?? 201;
+    // ST7-T10: route ที่ทำนาน (bulk sync) ตั้งเวลาจองยาวกว่าค่าเริ่ม — กันคำขอซ้ำทำงานซ้อนระหว่างที่ตัวแรกยังทำอยู่
+    const lockMs = this.reflector.get<number>(IDEMPOTENCY_LOCK_MS, context.getHandler()) ?? LOCK_MS;
 
-    return from(this.reserve(tenantId, key, path, requestHash)).pipe(
+    return from(this.reserve(tenantId, key, path, requestHash, lockMs)).pipe(
       mergeMap((replay) => {
         if (replay) {
           // สถานะ + header เดิม (เช่น 200 ของ upsert ใบเดิม, ETag) — ไม่ใช่ค่าเริ่มต้นของ route
@@ -69,11 +72,22 @@ export class IdempotencyInterceptor implements NestInterceptor {
           mergeMap((body) => {
             // handler อาจตั้งสถานะเอง (res.status ใน passthrough) — เก็บค่าจริงที่จะส่ง
             const sent = res.statusCode >= 200 && res.statusCode < 300 ? res.statusCode : status;
-            const etag = res.getHeader('etag');
-            const headers = typeof etag === 'string' ? { ETag: etag } : null;
-            return from(this.complete(tenantId, key, path, sent, body, headers)).pipe(
-              mergeMap(() => of(body)),
-            );
+            // header ที่ต้องได้เหมือนเดิมตอน replay: ETag · Preference-Applied (202 ของ `Prefer: respond-async` — ST7-T10)
+            const headers: Record<string, string> = {};
+            for (const h of ['ETag', 'Preference-Applied']) {
+              const v = res.getHeader(h);
+              if (typeof v === 'string') headers[h] = v;
+            }
+            return from(
+              this.complete(
+                tenantId,
+                key,
+                path,
+                sent,
+                body,
+                Object.keys(headers).length ? headers : null,
+              ),
+            ).pipe(mergeMap(() => of(body)));
           }),
           catchError((err) =>
             from(this.release(tenantId, key, path)).pipe(
@@ -87,7 +101,13 @@ export class IdempotencyInterceptor implements NestInterceptor {
     );
   }
 
-  private async reserve(tenantId: string, key: string, path: string, requestHash: string) {
+  private async reserve(
+    tenantId: string,
+    key: string,
+    path: string,
+    requestHash: string,
+    lockMs = LOCK_MS,
+  ) {
     return this.db.withTenant(tenantId, async (tx) => {
       // claim แบบ atomic: คำขอพร้อมกันที่ key เดียวกันรอกันที่ lock นี้ — คนแรกจองแถว (locked_until)
       // คนถัดไปเห็นแถวที่จองแล้ว → 409 idempotency_in_progress หรือ replay (SELECT … FOR UPDATE ของแถวที่ยังไม่มีล็อกอะไรไม่ได้)
@@ -123,7 +143,7 @@ export class IdempotencyInterceptor implements NestInterceptor {
           key,
           path,
           requestHash,
-          lockedUntil: new Date(now.getTime() + LOCK_MS),
+          lockedUntil: new Date(now.getTime() + lockMs),
           expiresAt: new Date(now.getTime() + TTL_MS),
         },
         update: {
@@ -131,7 +151,7 @@ export class IdempotencyInterceptor implements NestInterceptor {
           responseStatus: null,
           responseBody: undefined,
           responseHeaders: undefined,
-          lockedUntil: new Date(now.getTime() + LOCK_MS),
+          lockedUntil: new Date(now.getTime() + lockMs),
           createdAt: now,
           expiresAt: new Date(now.getTime() + TTL_MS),
         },

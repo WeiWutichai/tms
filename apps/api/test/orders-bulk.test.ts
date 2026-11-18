@@ -221,6 +221,15 @@ describe('orders:bulk (ST7-T10)', () => {
       .send({ items })
       .expect(202);
     expect(replay.body.jobId).toBe(res.body.jobId);
+    expect(replay.headers['preference-applied']).toBe('respond-async');
+    // `Prefer` ไม่ใช่ส่วนของคำขอ — key เดิมไม่ส่ง Prefer ก็ได้ 202 jobId เดิม (ไม่ทำ sync ซ้ำ)
+    const replayNoPrefer = await api(app, admin)
+      .post(URL)
+      .set('Idempotency-Key', key)
+      .send({ items })
+      .expect(202);
+    expect(replayNoPrefer.body.jobId).toBe(res.body.jobId);
+    expect(replayNoPrefer.headers['preference-applied']).toBe('respond-async');
     expect(await db.job.count({ where: { tenantId, type: 'orders.bulk' } })).toBe(1);
 
     while (await queue.runOnce());
@@ -247,6 +256,57 @@ describe('orders:bulk (ST7-T10)', () => {
       result: { total: 3, succeeded: 2, failed: 1 },
     });
   });
+
+  it('ผู้สั่ง async ที่มีแค่ orders:write (ไม่มี jobs:read) ดู statusUrl ของตัวเองได้ · งานของคนอื่น → 403 · jobs:read เห็นทุกงาน', async () => {
+    const planner = await tokenFor(tenantId, 'orders:read orders:write', 'planner-1');
+    const planner2 = await tokenFor(tenantId, 'orders:read orders:write', 'planner-2');
+    const r = await api(app, planner)
+      .post(URL)
+      .set('Prefer', 'respond-async')
+      .send({ items: [item()] })
+      .expect(202);
+    expect((await api(app, planner).get(r.body.statusUrl).expect(200)).body.status).toBe('pending');
+    const denied = await api(app, planner2).get(r.body.statusUrl).expect(403);
+    expect(denied.body).toMatchObject({ code: 'permission_denied', required: ['jobs:read'] });
+    // ไม่มี jobs:read + id ที่ไม่มีอยู่ = 403 เหมือนกัน (ไม่บอกว่ามีงานหรือไม่)
+    await api(app, planner2)
+      .get(`/v1/jobs/job_${'0'.repeat(32)}`)
+      .expect(403);
+    // งานระบบ (ไม่มีผู้สั่ง) ไม่เปิดให้คนที่ไม่มี jobs:read
+    const sys = await db.job.create({ data: { tenantId, type: 'reminders.expiry' } });
+    await api(app, planner)
+      .get(`/v1/jobs/job_${sys.id.replace(/-/g, '')}`)
+      .expect(403);
+    await api(app, admin).get(r.body.statusUrl).expect(200);
+    await api(app, other).get(r.body.statusUrl).expect(404);
+    while (await queue.runOnce());
+    expect((await api(app, planner).get(r.body.statusUrl).expect(200)).body.status).toBe(
+      'succeeded',
+    );
+  });
+
+  it('Idempotency-Key ของ bulk จองไว้ 10 นาทีระหว่างทำ — ส่งซ้ำขณะคำขอแรกยังทำอยู่ = 409 ไม่ทำซ้อน', async () => {
+    const batch = `L-${randomUUID().slice(0, 8)}`;
+    const items = Array.from({ length: 60 }, (_, i) => item({ customerRef: `${batch}-${i}` }));
+    const key = `bulk-lock-${randomUUID()}`;
+    const first = api(app, admin)
+      .post(URL)
+      .set('Idempotency-Key', key)
+      .send({ items })
+      .then((r) => r);
+    let row: { lockedUntil: Date | null } | null = null;
+    for (let i = 0; i < 100 && !row?.lockedUntil; i++) {
+      row = await db.idempotencyKey.findFirst({ where: { tenantId, key } });
+      if (!row?.lockedUntil) await new Promise((r) => setTimeout(r, 50));
+    }
+    expect(row?.lockedUntil?.getTime()).toBeGreaterThan(Date.now() + 9 * 60_000);
+    const dup = await api(app, admin).post(URL).set('Idempotency-Key', key).send({ items });
+    expect(dup.status).toBe(409);
+    expect(dup.body.code).toBe('idempotency_in_progress');
+    const res = await first;
+    expect(res.status).toBe(207);
+    expect(await count({ customerRef: { startsWith: batch } })).toBe(60);
+  }, 120_000);
 
   it('job ที่ทุกใบผ่าน = succeeded · job ที่ถูกหยิบซ้ำหลังล้มกลางทาง = failed (ไม่ทำซ้ำ)', async () => {
     const r = await api(app, admin)

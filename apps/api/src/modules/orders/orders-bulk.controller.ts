@@ -1,7 +1,12 @@
 import { Body, Controller, HttpCode, Post, Req, Res } from '@nestjs/common';
 import { ApiBearerAuth, ApiHeader, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
-import { NoTransaction, RateLimitClass, RequireScope } from '../../common/decorators';
+import {
+  IdempotencyLockMs,
+  NoTransaction,
+  RateLimitClass,
+  RequireScope,
+} from '../../common/decorators';
 import { ApiProblems } from '../../common/problem.dto';
 import {
   BulkJobAcceptedDto,
@@ -20,6 +25,9 @@ const P = (code: string, status: number, title: string, extra: Record<string, un
   requestId: 'b6a1c2d3-…',
   ...extra,
 });
+
+/** เวลาจอง Idempotency-Key ของ bulk (ST7-T10) */
+const BULK_IDEMPOTENCY_LOCK_MS = 10 * 60_000;
 
 /** `Prefer: respond-async` (RFC 7240) — ขอให้ทำเป็น job */
 function wantsAsync(req: Request): boolean {
@@ -41,6 +49,8 @@ export class OrdersBulkController {
   @Post('orders\\:bulk')
   @NoTransaction() // แต่ละรายการ commit ใน transaction ของตัวเอง (ไม่ใช่ทั้งชุด)
   @RateLimitClass('heavy')
+  // คำขอ sync 200 ใบใช้หลายวินาทีถึงหลายสิบวินาที — จอง key 10 นาที (ค่าเริ่ม 60 วิ สั้นไป: ส่งซ้ำระหว่างทำจะทำซ้อน)
+  @IdempotencyLockMs(BULK_IDEMPOTENCY_LOCK_MS)
   @RequireScope('orders:write')
   @HttpCode(207)
   @ApiOperation({
@@ -58,12 +68,16 @@ export class OrdersBulkController {
     name: 'Idempotency-Key',
     required: false,
     description:
-      'ส่งซ้ำ key เดิม + body เดิม = ผลเดิม (207 เดิม หรือ 202 jobId เดิม) + `Idempotent-Replayed: true` · เก็บ 24 ชม.',
+      'ส่งซ้ำ key เดิม + body เดิม = ผลเดิม (207 เดิม หรือ 202 jobId เดิม พร้อม `Preference-Applied` เดิม) + `Idempotent-Replayed: true` · ' +
+      '**header `Prefer` ไม่นับเป็นส่วนของคำขอ** — key เดิมได้ผลของคำขอแรกเสมอ แม้ครั้งหลังส่ง/ไม่ส่ง `Prefer` ต่างไป · ' +
+      'ระหว่างที่คำขอแรกยังทำอยู่ (จองไว้ 10 นาที) ส่งซ้ำ = 409 `idempotency_in_progress` · เก็บ 24 ชม.',
   })
   @ApiHeader({
     name: 'Prefer',
     required: false,
-    description: '`respond-async` = ทำเป็น job (202) · ไม่ส่ง = ทำทันที (207)',
+    description:
+      '`respond-async` (RFC 7240) = ทำเป็น job → 202 + `Preference-Applied: respond-async` · ไม่ส่ง/ค่าอื่น = ทำทันที (207) · ' +
+      'ผู้สั่งดู `statusUrl` ได้แม้ไม่มีสิทธิ์ `jobs:read`',
   })
   @ApiResponse({
     status: 207,
@@ -74,6 +88,12 @@ export class OrdersBulkController {
     status: 202,
     type: BulkJobAcceptedDto,
     description: '`Prefer: respond-async` — รับงานแล้ว ติดตามที่ `statusUrl`',
+    headers: {
+      'Preference-Applied': {
+        description: '`respond-async` (มีทั้งตอนตอบครั้งแรกและตอน replay ด้วย Idempotency-Key)',
+        schema: { type: 'string', example: 'respond-async' },
+      },
+    },
   })
   @ApiProblems(
     {

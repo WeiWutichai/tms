@@ -1,6 +1,8 @@
 import { Controller, Get, Param } from '@nestjs/common';
-import { ApiBearerAuth, ApiOkResponse, ApiProperty, ApiTags } from '@nestjs/swagger';
-import { RequireScope, TenantResource } from '../../common/decorators';
+import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiProperty, ApiTags } from '@nestjs/swagger';
+import { scopeAllows } from '@tms/domain';
+import { TenantResource } from '../../common/decorators';
+import { requestContext } from '../../common/request-context';
 import { decodeIdOr404, encodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { DbService } from '../../db/db.service';
@@ -35,11 +37,34 @@ export class JobsController {
 
   @Get(':id')
   @TenantResource('job')
-  @RequireScope('jobs:read')
+  @ApiOperation({
+    description:
+      'ต้องมี `jobs:read` (ดูทุกงานของบริษัท) **หรือ** เป็นผู้สั่งงานนั้นเอง (เช่น `POST /v1/orders:bulk` + `Prefer: respond-async` ' +
+      'ด้วยสิทธิ์ `orders:write`) — ไม่มี `jobs:read` และไม่ใช่งานของตน = 403 `permission_denied` (ไม่บอกว่ามีงานนั้นหรือไม่)',
+  })
   @ApiOkResponse({ type: JobDto })
   async get(@Param('id') id: string): Promise<JobDto> {
+    const ctx = requestContext.require();
     const j = await this.db.tx.job.findUnique({ where: { id: decodeIdOr404('job', id) } });
+    // ST7-T10 [DECISION spec/12]: ผู้สั่งงาน async ดูงานของตัวเองได้โดยไม่ต้องมี jobs:read (statusUrl ของ 202)
+    if (
+      !scopeAllows(ctx.scopes ?? [], 'jobs:read') &&
+      !(j && ctx.actorId && jobOwner(j.payload) === ctx.actorId)
+    )
+      throw new ProblemException('permission_denied', undefined, undefined, {
+        module: 'jobs',
+        action: 'read',
+        required: ['jobs:read'],
+      });
     if (!j) throw new ProblemException('not_found');
     return toJobDto(j);
   }
+}
+
+/** ผู้สั่งงานใน payload: bulk เก็บ `actor.actorId` · นำเข้าเก็บ `actorId` (ST1-T19) · งานระบบ = ไม่มี */
+function jobOwner(payload: unknown): string | null {
+  if (!payload || typeof payload !== 'object') return null;
+  const p = payload as { actor?: { actorId?: unknown }; actorId?: unknown };
+  const id = p.actor?.actorId ?? p.actorId;
+  return typeof id === 'string' && id ? id : null;
 }

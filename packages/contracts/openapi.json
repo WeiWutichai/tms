@@ -5141,6 +5141,7 @@
     },
     "/v1/jobs/{id}": {
       "get": {
+        "description": "ต้องมี `jobs:read` (ดูทุกงานของบริษัท) **หรือ** เป็นผู้สั่งงานนั้นเอง (เช่น `POST /v1/orders:bulk` + `Prefer: respond-async` ด้วยสิทธิ์ `orders:write`) — ไม่มี `jobs:read` และไม่ใช่งานของตน = 403 `permission_denied` (ไม่บอกว่ามีงานนั้นหรือไม่)",
         "operationId": "Jobs_get",
         "parameters": [
           {
@@ -5189,6 +5190,7 @@
             "bearer": []
           }
         ],
+        "summary": "",
         "tags": [
           "jobs"
         ]
@@ -6590,7 +6592,7 @@
           {
             "name": "Prefer",
             "in": "header",
-            "description": "`respond-async` = ทำเป็น job (202) · ไม่ส่ง = ทำทันที (207)",
+            "description": "`respond-async` (RFC 7240) = ทำเป็น job → 202 + `Preference-Applied: respond-async` · ไม่ส่ง/ค่าอื่น = ทำทันที (207) · ผู้สั่งดู `statusUrl` ได้แม้ไม่มีสิทธิ์ `jobs:read`",
             "required": false,
             "schema": {
               "type": "string"
@@ -6599,7 +6601,7 @@
           {
             "name": "Idempotency-Key",
             "in": "header",
-            "description": "ส่งซ้ำ key เดิม + body เดิม = ผลเดิม (207 เดิม หรือ 202 jobId เดิม) + `Idempotent-Replayed: true` · เก็บ 24 ชม.",
+            "description": "ส่งซ้ำ key เดิม + body เดิม = ผลเดิม (207 เดิม หรือ 202 jobId เดิม พร้อม `Preference-Applied` เดิม) + `Idempotent-Replayed: true` · **header `Prefer` ไม่นับเป็นส่วนของคำขอ** — key เดิมได้ผลของคำขอแรกเสมอ แม้ครั้งหลังส่ง/ไม่ส่ง `Prefer` ต่างไป · ระหว่างที่คำขอแรกยังทำอยู่ (จองไว้ 10 นาที) ส่งซ้ำ = 409 `idempotency_in_progress` · เก็บ 24 ชม.",
             "required": false,
             "schema": {
               "type": "string"
@@ -6622,13 +6624,6 @@
         "responses": {
           "202": {
             "description": "`Prefer: respond-async` — รับงานแล้ว ติดตามที่ `statusUrl`",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/BulkJobAcceptedDto"
-                }
-              }
-            },
             "headers": {
               "RateLimit-Limit": {
                 "$ref": "#/components/headers/RateLimit-Limit"
@@ -6639,8 +6634,22 @@
               "RateLimit-Reset": {
                 "$ref": "#/components/headers/RateLimit-Reset"
               },
+              "Preference-Applied": {
+                "description": "`respond-async` (มีทั้งตอนตอบครั้งแรกและตอน replay ด้วย Idempotency-Key)",
+                "schema": {
+                  "type": "string",
+                  "example": "respond-async"
+                }
+              },
               "X-Api-Version": {
                 "$ref": "#/components/headers/X-Api-Version"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkJobAcceptedDto"
+                }
               }
             }
           },

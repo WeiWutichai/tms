@@ -59,6 +59,9 @@ export class JobOutcome {
   ) {}
 }
 
+/** อายุ lease ของงานที่หยิบ — หมดแล้ว worker อื่นหยิบซ้ำได้ · `ctx.progress` ต่อให้ (heartbeat) */
+export const JOB_LEASE_MS = 5 * 60_000;
+
 /** งานที่ client เห็น (`publicEvent`) เก็บ 7 วันหลังจบ แล้วลบ — `GET /v1/jobs/{id}` ตอบ 404 (docs/04 G1 "job เก็บ 7 วัน") */
 export const PUBLIC_JOB_RETENTION_DAYS = 7;
 
@@ -132,7 +135,7 @@ export class JobQueue {
   }
 
   /** หยิบงาน 1 ชิ้น (คืน null ถ้าไม่มี) */
-  async claim(leaseMs = 5 * 60_000): Promise<Job | null> {
+  async claim(leaseMs = JOB_LEASE_MS): Promise<Job | null> {
     const rows = await this.prisma.platform.$queryRaw<Job[]>`
       WITH candidate AS (
         SELECT j.id
@@ -180,7 +183,7 @@ export class JobQueue {
       const base = {
         tenantId: job.tenantId,
         job,
-        progress: (p: number) => this.setProgress(job.id, p),
+        progress: (p: number) => this.setProgress(job, p),
         withTx: <T>(fn: (tx: Tx) => Promise<T>) =>
           this.db.withTenant(job.tenantId, fn, o?.timeoutMs),
       };
@@ -323,11 +326,17 @@ export class JobQueue {
       .catch((e) => this.logger.warn(`job ${job.id} notify failed: ${String(e)}`));
   }
 
-  private async setProgress(id: string, pct: number): Promise<void> {
-    await this.prisma.platform.job.update({
-      where: { id },
-      data: { progress: Math.max(0, Math.min(99, Math.round(pct))) },
-    });
+  /**
+   * ความคืบหน้า + ต่อ lease (heartbeat — ST7-T10): งานที่รายงานความคืบหน้ายังมีชีวิต → `locked_until` = now() + lease
+   * (เวลาของฐาน เหมือนตอน claim) · เฉพาะรอบที่เราหยิบ (RUNNING + attempts เดิม) — worker อื่นหยิบซ้ำแล้วไม่ไปต่อให้
+   */
+  private async setProgress(job: Job, pct: number): Promise<void> {
+    const p = Math.max(0, Math.min(99, Math.round(pct)));
+    await this.prisma.platform.$executeRaw`
+      UPDATE job SET progress = ${p},
+             locked_until = GREATEST(locked_until, now() + (${JOB_LEASE_MS}::int * interval '1 millisecond')),
+             updated_at = now()
+       WHERE id = ${job.id}::uuid AND status = 'RUNNING' AND attempts = ${job.attempts}`;
   }
 }
 
