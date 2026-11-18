@@ -8,7 +8,7 @@ import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { signStepUpToken } from '../src/auth/tokens';
 import { encodeId } from '../src/common/ids';
-import { store } from '../src/modules/documents/documents.controller';
+import { putFileLocked, store } from '../src/modules/documents/documents.controller';
 import { signDocumentUrl } from '../src/modules/documents/signed-url';
 import { AUDIT_PROTECTED_ENTITY_TYPES } from '../src/modules/retention/retention-policy';
 import { RetentionService } from '../src/modules/retention/retention.service';
@@ -137,20 +137,35 @@ describe('retention', () => {
         },
       });
 
-    it('เกินระยะเก็บถูกลบ (ต่อ tenant) · เหตุการณ์ภาษี/นิติบุคคล/ค่าตั้งไม่ถูกแตะ · ลงบันทึกการลบ', async () => {
-      const aOld = await row(a, 'trip', 6);
-      const aRecent = await row(a, 'trip', 4.9);
-      const aCompany = await row(a, 'company', 9);
-      const aSetting = await row(a, 'tenant_setting', 9);
-      const aInvoice = await row(a, 'tax_invoice', 9);
-      const bSix = await row(b, 'trip', 6); // B ตั้ง 7 ปี
-      const bEight = await row(b, 'delivery_order', 8);
+    it('เกินระยะเก็บถูกลบ (ต่อ tenant) · เหตุการณ์ภาษี/ฐานการเงิน/ค่าตั้งไม่ถูกแตะ (ไม่สนตัวพิมพ์) · ลงบันทึกการลบ', async () => {
+      const aOld = await row(a, 'user', 6);
+      const aRecent = await row(a, 'user', 4.9);
+      const aKept = [];
+      for (const t of [
+        'company',
+        'tenant_setting',
+        'tax_invoice',
+        'INVOICE',
+        'Trip',
+        'rate_card',
+        'RATE_CARD',
+        'sales_order',
+        'trip_cost',
+        'vehicle_cost',
+        'customer',
+        'carrier',
+        'tenant',
+        'delivery_order',
+      ])
+        aKept.push(await row(a, t, 9));
+      const bSix = await row(b, 'api_key', 6); // B ตั้ง 7 ปี
+      const bEight = await row(b, 'webhook_endpoint', 8);
 
       expect(await retention.purgeAuditLog()).toBe(2);
       const left = new Set((await db.auditLog.findMany({ select: { id: true } })).map((x) => x.id));
       expect(left.has(aOld.id)).toBe(false);
       expect(left.has(bEight.id)).toBe(false);
-      for (const kept of [aRecent, aCompany, aSetting, aInvoice, bSix])
+      for (const kept of [aRecent, ...aKept, bSix])
         expect(left.has(kept.id), kept.entityType).toBe(true);
 
       const ev = await db.auditLog.findMany({
@@ -174,16 +189,34 @@ describe('retention', () => {
     });
 
     it('role platform ลบ/แก้ audit ตรงไม่ได้ แม้ตั้งธงเอง · role แอปเรียกฟังก์ชันไม่ได้ · ส่งค่าผิด = error', async () => {
-      const r = await row(a, 'trip', 10);
+      const r = await row(a, 'user', 10);
       await expect(
         db.$transaction([
           db.$executeRaw`SELECT set_config('tms.audit_retention_purge', 'on', true)`,
           db.$executeRaw`DELETE FROM audit_log WHERE id = ${r.id}::uuid`,
         ]),
-      ).rejects.toThrow(/append-only/);
+      ).rejects.toThrow(/append-only|permission denied/);
       await expect(
         db.$executeRaw`UPDATE audit_log SET reason = 'x' WHERE id = ${r.id}::uuid`,
-      ).rejects.toThrow(/append-only/);
+      ).rejects.toThrow(/append-only|permission denied/);
+      // review: temp view ชื่อ pg_tables หลอกเจ้าของตาราง → ยังลบไม่ได้ (catalog ระบุ schema + REVOKE DELETE)
+      await expect(
+        db.$transaction([
+          db.$executeRaw`CREATE TEMP VIEW pg_tables AS SELECT 'public'::name AS schemaname, 'audit_log'::name AS tablename, current_user::name AS tableowner`,
+          db.$executeRaw`SELECT set_config('search_path', 'pg_temp, public', true)`,
+          db.$executeRaw`SELECT set_config('tms.audit_retention_purge', 'on', true)`,
+          db.$executeRaw`DELETE FROM public.audit_log WHERE id = ${r.id}::uuid`,
+        ]),
+      ).rejects.toThrow(/append-only|permission denied/);
+      // ฟังก์ชันไม่หลงตาม temp table ของผู้เรียก (search_path คงที่)
+      await db.$transaction([
+        db.$executeRaw`CREATE TEMP TABLE tenant_setting (tenant_id uuid, key text, value jsonb) ON COMMIT DROP`,
+        db.$executeRaw`INSERT INTO pg_temp.tenant_setting VALUES (${a}::uuid, 'retention.auditLogYears', '20'::jsonb)`,
+        db.$executeRaw`SELECT set_config('search_path', 'pg_temp, public', true)`,
+        db.$queryRaw`SELECT tms_audit_retention_purge(${a}::uuid, 1)`,
+      ]);
+      expect(await db.auditLog.findUnique({ where: { id: r.id } })).toBeNull();
+      const r2 = await row(a, 'user', 10);
       const appDb = new PrismaClient({
         datasources: { db: { url: process.env.APP_DATABASE_URL } },
       });
@@ -202,10 +235,10 @@ describe('retention', () => {
         where: { tenantId_key: { tenantId: a, key: 'retention.auditLogYears' } },
         data: { value: 1 },
       });
-      const three = await row(a, 'trip', 3);
+      const three = await row(a, 'user', 3);
       await retention.purgeAuditLog();
       expect(await db.auditLog.findUnique({ where: { id: three.id } })).not.toBeNull();
-      expect(await db.auditLog.findUnique({ where: { id: r.id } })).toBeNull();
+      expect(await db.auditLog.findUnique({ where: { id: r2.id } })).toBeNull();
       await db.tenantSetting.update({
         where: { tenantId_key: { tenantId: a, key: 'retention.auditLogYears' } },
         data: { value: 5 },
@@ -231,9 +264,11 @@ describe('retention', () => {
       };
       walk(join(__dirname, '../src'));
       const taxy =
-        /invoice|receipt|tax|wht|credit|debit|payment|settle|billing|sequence|series|company|branch|etax/;
+        /invoice|receipt|tax|wht|credit|debit|payment|settle|billing|sequence|series|company|branch|etax|legal|rate_card|sales_order|delivery_order|charge|cost|surcharge|customer|carrier|^tenant$|^trip|subcon|pric|stop_event|^vehicle$|depreciation|advance|^cod$|expense/i;
       const missing = [...used].filter(
-        (t) => taxy.test(t) && !(AUDIT_PROTECTED_ENTITY_TYPES as readonly string[]).includes(t),
+        (t) =>
+          taxy.test(t) &&
+          !(AUDIT_PROTECTED_ENTITY_TYPES as readonly string[]).includes(t.toLowerCase()),
       );
       expect(missing).toEqual([]);
     });
@@ -285,34 +320,45 @@ describe('retention', () => {
       expect(await retention.purgeGpsLog(later(181))).toBe(1);
     });
 
-    it('ไฟล์ POD ครบ 2 ปีถูกลบ (แถวคงอยู่เป็น purged ดาวน์โหลดไม่ได้) · ไฟล์ที่แถวอื่นใช้ร่วมไม่ถูกลบ · PDF/เอกสารรถไม่ถูกแตะ', async () => {
-      const files = store();
-      const doc = async (
-        tenantId: string,
-        kind: string,
-        data: Buffer,
-        ext = 'png',
-        mime = 'image/png',
-      ) => {
-        const f = await files.put(tenantId, data, ext);
-        return db.storedDocument.create({
-          data: {
-            tenantId,
-            kind,
-            status: 'READY',
-            mimeType: mime,
-            sizeBytes: f.size,
-            fileKey: f.key,
-            sha256: f.sha256,
-          },
-        });
-      };
-      const path = (key: string) => join(process.env.FILES_ROOT!, key);
+    const files = () => store();
+    const path = (key: string) => join(process.env.FILES_ROOT!, key);
+    const doc = async (
+      tenantId: string,
+      kind: string,
+      data: Buffer,
+      ext = 'png',
+      mime = 'image/png',
+    ) => {
+      const f = await files().put(tenantId, data, ext);
+      return db.storedDocument.create({
+        data: {
+          tenantId,
+          kind,
+          status: 'READY',
+          mimeType: mime,
+          sizeBytes: f.size,
+          fileKey: f.key,
+          sha256: f.sha256,
+        },
+      });
+    };
+    const get = (id: string) => db.storedDocument.findUniqueOrThrow({ where: { id } });
+
+    it('ไฟล์ POD: พักการลบไว้ (รอตรวจ ม.87/3) — เกิน 2 ปีก็ไม่ถูกแตะ', async () => {
       const photo = await doc(a, 'POD_PHOTO', Buffer.from(`photo-${randomUUID()}`));
       const sig = await doc(a, 'POD_SIGNATURE', Buffer.from(`sig-${randomUUID()}`));
+      expect(await retention.purgeFiles(later(10 * 366), 'pod')).toBe(0);
+      for (const d of [photo, sig]) {
+        expect(await get(d.id)).toMatchObject({ status: 'READY', fileKey: d.fileKey });
+        expect(existsSync(path(d.fileKey!))).toBe(true);
+      }
+    });
+
+    it('ไฟล์ส่งออก (ST9-T10) เกิน 7 วัน: แถว PURGED (ไม่มีลิงก์/ดาวน์โหลด 404) → ลบไฟล์ · ไฟล์ที่แถวอื่นใช้ร่วม/PDF ไม่ถูกลบ', async () => {
+      const exp = await doc(a, 'EXPORT', Buffer.from(`id\n${randomUUID()}\n`), 'csv', 'text/csv');
       const sharedBytes = Buffer.from(`shared-${randomUUID()}`);
-      const sharedPod = await doc(a, 'POD_FILE', sharedBytes);
-      const sharedOther = await doc(a, 'VEHICLE_DOC', sharedBytes);
+      const sharedExp = await doc(a, 'EXPORT', sharedBytes, 'csv', 'text/csv');
+      const sharedOther = await doc(a, 'IMPORT', sharedBytes, 'csv', 'text/csv');
       const pdf = await doc(
         a,
         'PDF',
@@ -320,76 +366,106 @@ describe('retention', () => {
         'pdf',
         'application/pdf',
       );
-      const podB = await doc(b, 'POD_PHOTO', Buffer.from(`photo-b-${randomUUID()}`));
-
-      expect(await retention.purgeFiles(later(700), 'pod')).toBe(0);
-      expect(await retention.purgeFiles(later(2 * 366), 'pod')).toBe(3);
-
-      const get = (id: string) => db.storedDocument.findUniqueOrThrow({ where: { id } });
-      for (const d of [photo, sig, sharedPod]) {
+      expect(await retention.purgeFiles(later(6), 'export')).toBe(0);
+      expect(await retention.purgeFiles(later(8), 'export')).toBe(2);
+      for (const d of [exp, sharedExp]) {
         const now = await get(d.id);
-        expect(now).toMatchObject({ status: 'PURGED', fileKey: null, sha256: d.sha256 });
+        expect(now).toMatchObject({ status: 'PURGED', sha256: d.sha256, fileKey: d.fileKey });
         expect(now.purgedAt).not.toBeNull();
+        expect(now.fileRemovedAt).not.toBeNull();
       }
-      expect(existsSync(path(photo.fileKey!))).toBe(false);
-      expect(existsSync(path(sig.fileKey!))).toBe(false);
-      expect(existsSync(path(sharedPod.fileKey!))).toBe(true); // VEHICLE_DOC ยังใช้
-      expect(await get(sharedOther.id)).toMatchObject({
-        status: 'READY',
-        fileKey: sharedOther.fileKey,
-      });
-      expect(await get(pdf.id)).toMatchObject({ status: 'READY', fileKey: pdf.fileKey });
+      expect(existsSync(path(exp.fileKey!))).toBe(false);
+      expect(existsSync(path(sharedExp.fileKey!))).toBe(true); // IMPORT ยังใช้
+      expect(await get(sharedOther.id)).toMatchObject({ status: 'READY' });
+      expect(await get(pdf.id)).toMatchObject({ status: 'READY' });
       expect(existsSync(path(pdf.fileKey!))).toBe(true);
-      expect(await get(podB.id)).toMatchObject({ status: 'READY' }); // B ตั้ง 3 ปี
 
-      // ดาวน์โหลดไฟล์ที่ถูกลบ = 404 · GET เห็นสถานะ purged
-      const token = await tokenFor(a, 'documents:read');
-      const s = signDocumentUrl('download', a, photo.id, 60);
-      const id = encodeId('document', photo.id);
+      const s = signDocumentUrl('download', a, exp.id, 60);
+      const id = encodeId('document', exp.id);
       expect(
         (await request(app.getHttpServer()).get(`/v1/documents/${id}/content?${s.query}`)).status,
       ).toBe(404);
-      expect((await api(app, token).get(`/v1/documents/${id}`)).body.status).toBe('purged');
       expect(
         await db.auditLog.findFirst({
-          where: { tenantId: a, action: 'retention.purged', entityId: 'pod_file' },
+          where: { tenantId: a, action: 'retention.purged', entityId: 'export_file' },
         }),
-      ).toMatchObject({ after: { count: 3 } });
-      // DB บังคับ: purged ต้องไม่มี file_key
+      ).toMatchObject({ after: { count: 2 } });
+      // DB บังคับ: PURGED ต้องมี purged_at
       await expect(
         db.$executeRaw`UPDATE stored_document SET status = 'PURGED' WHERE id = ${pdf.id}::uuid`,
       ).rejects.toThrow(/stored_document_purged_check/);
     });
 
-    it('ไฟล์ส่งออก (ST9-T10) เกิน 7 วันถูกลบ', async () => {
-      const f = await store().put(a, Buffer.from(`id,name\n${randomUUID()}\n`), 'csv');
-      const d = await db.storedDocument.create({
-        data: {
-          tenantId: a,
-          kind: 'EXPORT',
-          status: 'READY',
-          mimeType: 'text/csv',
-          sizeBytes: f.size,
-          fileKey: f.key,
-          sha256: f.sha256,
-        },
+    it('ลบไฟล์ไม่สำเร็จ → ค้างไว้ทำรอบหน้า · ระหว่างนั้นมีแถวใหม่ใช้เนื้อเดียวกัน (putFileLocked) → ไฟล์ไม่หาย', async () => {
+      const bytes = Buffer.from(`race-${randomUUID()}`);
+      const exp = await doc(a, 'EXPORT', bytes, 'csv', 'text/csv');
+      const proto = Object.getPrototypeOf(files()) as { remove: (k: string) => Promise<void> };
+      const orig = proto.remove;
+      proto.remove = () => Promise.reject(new Error('disk busy'));
+      try {
+        expect(await retention.purgeFiles(later(8), 'export')).toBe(1);
+      } finally {
+        proto.remove = orig;
+      }
+      expect(await get(exp.id)).toMatchObject({ status: 'PURGED', fileRemovedAt: null });
+      expect(existsSync(path(exp.fileKey!))).toBe(true);
+      // อัปโหลดใหม่เนื้อเดียวกัน (ผ่านล็อก key) ก่อนรอบหน้า → รอบหน้าไม่ลบไฟล์ แต่ปิดงานของแถวเดิม
+      const again = await db.$transaction(async (tx) => {
+        const f = await putFileLocked(tx, a, bytes, 'csv');
+        return tx.storedDocument.create({
+          data: {
+            tenantId: a,
+            kind: 'IMPORT',
+            status: 'READY',
+            mimeType: 'text/csv',
+            sizeBytes: f.size,
+            fileKey: f.key,
+            sha256: f.sha256,
+          },
+        });
       });
-      expect(await retention.purgeFiles(later(6), 'export')).toBe(0);
-      expect(await retention.purgeFiles(later(8), 'export')).toBe(1);
-      expect(await db.storedDocument.findUniqueOrThrow({ where: { id: d.id } })).toMatchObject({
-        status: 'PURGED',
-      });
-      expect(existsSync(join(process.env.FILES_ROOT!, f.key))).toBe(false);
+      expect(await retention.removePurgedFiles(['EXPORT'])).toBe(0);
+      expect(existsSync(path(again.fileKey!))).toBe(true);
+      expect((await get(exp.id)).fileRemovedAt).not.toBeNull();
     });
 
-    it('run() รวมทุกกลุ่ม', async () => {
+    it('run() รวมทุกกลุ่ม · worker 2 ตัวพร้อมกัน → ตัวหนึ่งข้าม (null)', async () => {
+      // worker อื่นถือล็อกอยู่ → ข้าม
+      let release!: () => void;
+      const held = new Promise<void>((r) => (release = r));
+      let locked!: () => void;
+      const isLocked = new Promise<void>((r) => (locked = r));
+      const holder = db.$transaction(
+        async (tx) => {
+          await tx.$queryRaw`SELECT pg_advisory_xact_lock(${0x7e7e}::int, 0)::text`;
+          locked();
+          await held;
+        },
+        { timeout: 30_000 },
+      );
+      await isLocked;
+      expect(await retention.run(later(1))).toBeNull();
+      release();
+      await holder;
       expect(await retention.run(later(1))).toEqual({
         auditLog: 0,
         loginLog: 0,
         gpsLog: 0,
         podFiles: 0,
         exportFiles: 0,
+        failed: [],
       });
+    });
+
+    it('run(): กลุ่มหนึ่ง error ไม่หยุดกลุ่มอื่น', async () => {
+      const orig = retention.purgeLoginLog.bind(retention);
+      retention.purgeLoginLog = () => Promise.reject(new Error('boom'));
+      try {
+        const r = await retention.run(later(1));
+        expect(r).toMatchObject({ failed: ['loginLog'], exportFiles: 0 });
+      } finally {
+        retention.purgeLoginLog = orig;
+      }
     });
   });
 

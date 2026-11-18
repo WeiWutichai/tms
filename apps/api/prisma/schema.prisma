@@ -2187,7 +2187,7 @@ model StoredDocument {
   id               String    @id @default(uuid()) @db.Uuid
   tenantId         String    @map("tenant_id") @db.Uuid
   /// ST1-T08: PENDING = จองแล้วรออัปโหลด, READY = ไฟล์ผ่านการตรวจแล้ว
-  /// ST9-T14: PURGED = ไฟล์ถูกลบตามระยะเก็บ (POD 2 ปี / ไฟล์ส่งออก 7 วัน) — แถวคงอยู่ (sha256 + metadata) แต่ file_key = null
+  /// ST9-T14: PURGED = หมดระยะเก็บ (ไฟล์ส่งออก 7 วัน) — แถวคงอยู่ (sha256 + metadata + file_key) ดาวน์โหลดไม่ได้; ลบไฟล์จริงแล้ว = file_removed_at
   status           String    @default("READY")
   fileKey          String?   @map("file_key")
   sha256           String?
@@ -2201,8 +2201,10 @@ model StoredDocument {
   entityId         String?   @map("entity_id") @db.Uuid
   createdBy        String?   @map("created_by")
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  /// ST9-T14 เวลาที่ retention job ลบไฟล์ (status PURGED)
+  /// ST9-T14 เวลาที่ retention job เปลี่ยนเป็น PURGED
   purgedAt         DateTime? @map("purged_at") @db.Timestamptz(6)
+  /// ST9-T14 เวลาที่ลบไฟล์จริง (หรือพบว่าแถวอื่นยังใช้ไฟล์เดียวกัน จึงไม่ลบ) — null = ยังต้องทำ
+  fileRemovedAt    DateTime? @map("file_removed_at") @db.Timestamptz(6)
 
   doSurcharges DoSurcharge[]
   tripCosts    TripCost[]
@@ -2211,6 +2213,8 @@ model StoredDocument {
   @@index([tenantId, entityType, entityId])
   /// ST9-T14 retention job หาไฟล์ตามชนิด + อายุ
   @@index([kind, createdAt])
+  /// ST9-T14 ตรวจว่ายังมีแถวอ้างไฟล์ก่อนลบ
+  @@index([fileKey])
   @@map("stored_document")
 }
 

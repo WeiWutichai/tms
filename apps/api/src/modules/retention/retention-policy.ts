@@ -24,26 +24,60 @@ export const RETENTION_MAX = {
   gpsLogDays: 3650,
 } as const;
 
-/** ไฟล์ส่งออก (ST9-T10) ดาวน์โหลดได้ 7 วัน แล้วลบไฟล์ — ไม่ใช่ค่าตั้งของ tenant */
-export const EXPORT_FILE_RETENTION_DAYS = 7;
+/** [DECISION ST9-T10] ไฟล์ส่งออกดาวน์โหลดได้ 7 วัน แล้วลบไฟล์ — ไม่ใช่ค่าตั้งของ tenant (exports.service ใช้ค่าเดียวกัน) */
+export const EXPORT_RETENTION_DAYS = 7;
 
 /** ชนิด stored_document ที่นับเป็น "ไฟล์ POD" (POD_PHOTO / POD_SIGNATURE / POD_FILE — ST4) */
 export const POD_FILE_KINDS = ['POD_PHOTO', 'POD_SIGNATURE', 'POD_FILE'] as const;
 
 /**
+ * [OPEN — PO/นักบัญชี] ไฟล์ POD เป็นเอกสารประกอบใบแจ้งหนี้/ใบกำกับ → ต้องเก็บ ≥ 5 ปีตาม ม.87/3 หรือไม่
+ * (research/thai-tax-docs-research.md "เอกสารประกอบ") — จนกว่าจะตัดสิน retention job **ไม่ลบไฟล์ POD** (ค่าตั้ง/ขั้นต่ำยังมี)
+ */
+export const POD_FILE_PURGE_HELD = true;
+
+/**
  * entity_type ของ audit log ที่ retention job ไม่ลบ (ฟังก์ชัน DB `tms_audit_retention_purge` มีรายการเดียวกัน — migration 0108)
- * เอกสารภาษี/การเงิน/นิติบุคคล/เลขเอกสาร/ค่าตั้ง (มีค่าตั้งภาษี) + บันทึกการลบเอง + ไฟล์ (PDF เอกสารภาษีเป็น stored_document)
- * ระยะเก็บของกลุ่มนี้ = ST9-T15 (NFR-404: เหตุการณ์ของเอกสารภาษีเก็บเท่าตัวเอกสาร)
- * entity ใหม่ที่เกี่ยวกับภาษี/การเงิน **ต้องเพิ่มที่นี่และใน migration ใหม่** — test/retention.test.ts ตรวจชื่อที่เข้าข่าย
+ * เทียบแบบไม่สนตัวพิมพ์ (`INVOICE` = `invoice`) · เอกสารภาษี/การเงิน + ทุกอย่างที่เป็นฐานของใบแจ้งหนี้/ใบกำกับ/การจ่ายรถร่วม/
+ * หัก ณ ที่จ่าย (ราคา, ใบสั่ง, DO, เที่ยว, ค่าใช้จ่าย, ลูกค้า/รถร่วม, นิติบุคคล/สาขา, ค่าตั้ง) + บันทึกการลบเอง + ไฟล์
+ * ระยะเก็บกลุ่มนี้ = [OPEN — นักบัญชี] (spec/12 §3) / ST9-T15 (NFR-404: เหตุการณ์ของเอกสารภาษีเก็บเท่าตัวเอกสาร)
+ * entity ใหม่ที่เกี่ยวกับเงิน/ภาษี **ต้องเพิ่มที่นี่และใน migration ใหม่** — test/retention.test.ts ตรวจชื่อที่เข้าข่าย
  */
 export const AUDIT_PROTECTED_ENTITY_TYPES = [
   'audit_log',
   'retention',
-  'company',
-  'branch',
+  'tenant',
   'tenant_setting',
+  'company',
+  'legal_entity',
+  'branch',
   'document_sequence',
   'document_series',
+  'customer',
+  'customer_site',
+  'carrier',
+  'service_item',
+  'rate_card',
+  'rate_card_accessorial',
+  'rate_card_line',
+  'sales_order',
+  'sales_order_line',
+  'sales_order_charge',
+  'sales_order_stop',
+  'order_charge',
+  'delivery_order',
+  'delivery_order_line',
+  'delivery_order_pod',
+  'do_surcharge',
+  'field_charge',
+  'trip',
+  'trip_stop',
+  'trip_cost',
+  'subcon_offer',
+  'stop_event',
+  'vehicle',
+  'vehicle_cost',
+  'depreciation',
   'sales_document',
   'invoice',
   'tax_invoice',
@@ -54,6 +88,10 @@ export const AUDIT_PROTECTED_ENTITY_TYPES = [
   'payment',
   'wht_certificate',
   'settlement',
+  'settlement_line',
+  'advance',
+  'cod',
+  'expense',
   'platform_invoice',
   'platform_payment',
   'etax_submission',

@@ -18,6 +18,11 @@ export interface FileStore {
   get(key: string): Promise<Buffer>;
 }
 
+/** key ของเนื้อไฟล์ (คำนวณก่อนเขียนได้ — ใช้ล็อก key ก่อน put: ST9-T14) */
+export function fileKeyFor(tenantId: string, data: Buffer, ext: string): string {
+  return `${tenantId}/${createHash('sha256').update(data).digest('hex')}.${ext}`;
+}
+
 export class LocalFileStore implements FileStore {
   constructor(private readonly root: string) {}
 
@@ -45,7 +50,7 @@ export class LocalFileStore implements FileStore {
   }
 
   /**
-   * ลบไฟล์ — ใช้ได้เฉพาะ retention job (ST9-T14 `RetentionService`) หลังตรวจแล้วว่าไม่มี stored_document ใดอ้าง key นี้อีก
+   * ลบไฟล์ — ใช้ได้เฉพาะ retention job (ST9-T14 `RetentionService`) ภายใต้ advisory lock ของ key หลังตรวจแล้วว่าไม่มี stored_document ใดอ้าง key นี้อีก
    * (key ผูกกับเนื้อไฟล์ — เนื้อเดียวกัน 2 แถวใช้ไฟล์เดียวกัน) · ไม่อยู่ใน interface `FileStore` ที่ส่วนอื่นใช้
    * ไม่มีไฟล์ = ไม่ error (ลบซ้ำได้)
    */
