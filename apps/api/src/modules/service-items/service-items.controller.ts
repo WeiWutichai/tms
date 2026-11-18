@@ -29,6 +29,7 @@ import { expectedVersion, setEtag } from '../../common/etag';
 import { DbService } from '../../db/db.service';
 import { NextCodeDto } from '../customers/customer.dto';
 import { sendExport, type ExportColumn } from '../master/export';
+import type { ExportSpec } from '../exports/export-spec';
 import { entityHistory, HistoryQuery } from '../master/history';
 import { MasterOptionalReasonDto, MasterReasonDto } from '../master/master-kit';
 import {
@@ -309,3 +310,17 @@ export class ServiceItemsController {
     await this.items.remove(current.id, body.reason, expectedVersion(req));
   }
 }
+
+/** ส่งออกตามตัวกรองเป็นงานเบื้องหลัง (ST9-T10 — `POST /v1/exports`) — ตัวกรอง/การอ่าน/คอลัมน์ชุดเดียวกับ `GET /export` */
+export const serviceItemsExportSpec = (
+  svc: ServiceItemsService,
+): ExportSpec<ServiceItemListQuery, ServiceItemDto> => ({
+  resource: 'service-items',
+  label: 'ค่าบริการเสริม',
+  fileBase: 'service-items',
+  scope: 'master:read',
+  idKind: 'serviceItem',
+  query: ServiceItemListQuery,
+  fetch: (q, page) => svc.exportRows(q, page),
+  columns: () => EXPORT_COLUMNS,
+});

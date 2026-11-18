@@ -9,7 +9,7 @@ import { DbService, type Tx } from '../../db/db.service';
 import { JobQueue, type JobContext } from '../../jobs/job-queue.service';
 import { addressText, GeoService } from '../geo/geo.service';
 import { StateService } from '../../state/state.service';
-import { EXPORT_MAX_ROWS } from '../master/export';
+import { EXPORT_MAX_ROWS, exportFetchArgs, overSyncCap, type ExportPage } from '../master/export';
 import {
   assertNotReferenced,
   cleanLine,
@@ -219,15 +219,15 @@ export class SitesService implements OnModuleInit {
   }
 
   /** แถวสำหรับส่งออก (ตัวกรองเดียวกับ list หรือ id ที่เลือก) — เกินเพดาน → 422 */
-  async exportRows(q: SiteListQuery & { ids?: string }): Promise<SiteDto[]> {
+  async exportRows(q: SiteListQuery & { ids?: string }, page?: ExportPage): Promise<SiteDto[]> {
     const ids = q.ids?.split(',').map((x) => tryDecodeId('site', x)!);
     const base = await this.where(q);
     const rows = await this.db.tx.customerSite.findMany({
       where: ids ? { AND: [base, { id: { in: ids } }] } : base,
-      orderBy: [{ code: 'asc' }],
-      take: EXPORT_MAX_ROWS + 1,
+      orderBy: [{ code: 'asc' }, { id: 'asc' }],
+      ...exportFetchArgs(page),
     });
-    if (rows.length > EXPORT_MAX_ROWS)
+    if (overSyncCap(rows.length, page))
       throw field422(
         'query',
         'too_many_rows',

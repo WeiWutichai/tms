@@ -635,6 +635,27 @@ const FIXTURES: Record<string, (db: PrismaClient, tenantId: string, n: number) =
     },
     job: async (db, tenantId) =>
       encodeId('job', (await db.job.create({ data: { tenantId, type: 'noop' } })).id),
+    // ST9-T10 งานส่งออก — ผู้สั่ง = sub ของ tokenFor() (เจ้าของเห็นได้ 200)
+    export: async (db, tenantId) =>
+      encodeId(
+        'job',
+        (
+          await db.job.create({
+            data: {
+              tenantId,
+              type: 'export.file',
+              payload: {
+                resource: 'customers',
+                format: 'xlsx',
+                filter: {},
+                actorId: 'user-test',
+                scopes: ['*'],
+                principalType: 'dev',
+              },
+            },
+          })
+        ).id,
+      ),
     // ST3-T09 ใบส่งของ — นิติบุคคล + ลูกค้า + สถานที่ 2 จุด + SO (1 บรรทัด) + DO ร่าง 1 ใบ
     deliveryOrder: async (db, tenantId, n) => {
       const co = await db.company.create({

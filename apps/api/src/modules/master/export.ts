@@ -13,6 +13,24 @@ export class ExportFormatQuery {
   format?: 'xlsx' | 'csv';
 }
 
+/**
+ * หน้าของการส่งออกแบบ job (ST9-T10) — `exportRows(q, page)` ของแต่ละ master อ่านทีละหน้าต่อจากแถว `after`
+ * (Prisma cursor บน id + orderBy เดิมที่ปิดท้ายด้วย id) · ไม่ส่ง page = ส่งออกแบบทันที (เพดาน EXPORT_MAX_ROWS)
+ */
+export interface ExportPage {
+  after: string | null;
+  take: number;
+}
+
+/** อาร์กิวเมนต์ take/cursor ของ findMany สำหรับ exportRows — ไม่มี page = เพดานส่งออกทันที + 1 (ใช้ตรวจเกิน) */
+export function exportFetchArgs(page?: ExportPage) {
+  if (!page) return { take: EXPORT_MAX_ROWS + 1 };
+  return { take: page.take, ...(page.after ? { cursor: { id: page.after }, skip: 1 } : {}) };
+}
+
+/** เกินเพดานเฉพาะการส่งออกทันที (job มีเพดานของตัวเอง — EXPORT_JOB_MAX_ROWS) */
+export const overSyncCap = (n: number, page?: ExportPage) => !page && n > EXPORT_MAX_ROWS;
+
 export interface ExportColumn<R> {
   header: string;
   value: (r: R) => string | number | null | undefined;
@@ -26,7 +44,7 @@ export function safe(v: string): string {
   return /^[=+\-\t\r]/.test(v) || /^@[^\s(]*\(/.test(v) ? `'${v}` : v;
 }
 
-function csvCell(v: string | number | null | undefined): string {
+export function csvCell(v: string | number | null | undefined): string {
   if (v === null || v === undefined) return '';
   const s = typeof v === 'number' ? String(v) : safe(v);
   return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;

@@ -16,7 +16,7 @@ import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
 import { EntitlementService } from '../entitlements/entitlement.service';
 import { StateService } from '../../state/state.service';
-import { EXPORT_MAX_ROWS } from '../master/export';
+import { EXPORT_MAX_ROWS, exportFetchArgs, overSyncCap, type ExportPage } from '../master/export';
 import {
   assertNotActivelyUsed,
   assertNotReferenced,
@@ -359,16 +359,16 @@ export class VehiclesService {
     return out;
   }
 
-  async exportRows(q: VehicleListQuery & { ids?: string }) {
+  async exportRows(q: VehicleListQuery & { ids?: string }, page?: ExportPage) {
     const ids = q.ids?.split(',').map((x) => tryDecodeId('vehicle', x)!);
     const where = ids ? { AND: [this.where(q), { id: { in: ids } }] } : this.where(q);
     const rows = await this.db.tx.vehicle.findMany({
       where,
       orderBy: [{ plateKey: 'asc' }, { id: 'asc' }],
-      take: EXPORT_MAX_ROWS + 1,
+      ...exportFetchArgs(page),
       include: INCLUDE,
     });
-    if (rows.length > EXPORT_MAX_ROWS)
+    if (overSyncCap(rows.length, page))
       throw field422(
         'query',
         'too_many_rows',

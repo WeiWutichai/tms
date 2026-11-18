@@ -1,3 +1,4 @@
+import { scopeAllows } from '@tms/domain';
 import {
   Body,
   Controller,
@@ -28,6 +29,7 @@ import { RequireScope, TenantResource, RateLimitClass } from '../../common/decor
 import { expectedVersion, setEtag } from '../../common/etag';
 import { DbService } from '../../db/db.service';
 import { sendExport, type ExportColumn } from '../master/export';
+import type { ExportSpec } from '../exports/export-spec';
 import { entityHistory, HistoryQuery } from '../master/history';
 import { MasterReasonDto } from '../master/master-kit';
 import { provinceAbbr } from './provinces';
@@ -52,6 +54,7 @@ import {
 import {
   canSeeFinance,
   FINANCE_AUDIT_KEYS,
+  FINANCE_SCOPE,
   toVehicleDto,
   VehiclesService,
   type VehicleFull,
@@ -396,3 +399,17 @@ export class VehiclesController {
     return { reading: r.reading, vehicle: this.send(res, r.vehicle) };
   }
 }
+
+/** ส่งออกตามตัวกรองเป็นงานเบื้องหลัง (ST9-T10 — `POST /v1/exports`) — ตัวกรอง/การอ่าน/คอลัมน์ชุดเดียวกับ `GET /export` */
+export const vehiclesExportSpec = (
+  svc: VehiclesService,
+): ExportSpec<VehicleListQuery, VehicleDto> => ({
+  resource: 'vehicles',
+  label: 'รถ',
+  fileBase: 'vehicles',
+  scope: 'master:read',
+  idKind: 'vehicle',
+  query: VehicleListQuery,
+  fetch: (q, page) => svc.exportRows(q, page),
+  columns: (scopes) => exportColumns(scopeAllows(scopes, FINANCE_SCOPE)),
+});

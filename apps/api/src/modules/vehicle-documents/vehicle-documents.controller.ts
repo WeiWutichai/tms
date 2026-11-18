@@ -21,6 +21,7 @@ import type { Response } from 'express';
 import { RequireScope, TenantResource, RateLimitClass } from '../../common/decorators';
 import { decodeIdOr404 } from '../../common/ids';
 import { sendExport, type ExportColumn } from '../master/export';
+import type { ExportSpec } from '../exports/export-spec';
 import { provinceAbbr } from '../vehicles/provinces';
 import { VehiclesService, type VehicleFull } from '../vehicles/vehicles.service';
 import {
@@ -206,3 +207,17 @@ export class VehicleDocumentsController {
     return (await this.docs.toDtos([row]))[0]!;
   }
 }
+
+/** ส่งออกตามตัวกรองเป็นงานเบื้องหลัง (ST9-T10 — `POST /v1/exports`) — ตัวกรอง/การอ่าน/คอลัมน์ชุดเดียวกับ `GET /export` */
+export const vehicleDocumentsExportSpec = (
+  svc: VehicleDocumentsService,
+): ExportSpec<VehicleDocumentListQuery, VehicleDocumentDto> => ({
+  resource: 'vehicle-documents',
+  label: 'เอกสารรถ',
+  fileBase: 'vehicle-documents',
+  scope: 'master:read',
+  idKind: 'vehicleDocument',
+  query: VehicleDocumentListQuery,
+  fetch: (q, page) => svc.exportRows(q, page),
+  columns: () => EXPORT_COLUMNS,
+});

@@ -1653,6 +1653,126 @@
         ]
       }
     },
+    "/v1/exports": {
+      "post": {
+        "operationId": "Exports_create",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateExportDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "รับงานแล้ว — ต้องมี `export:run` + สิทธิ์อ่านของรายการนั้น (เช่น `orders:read`, `master:read`) · ไฟล์ไม่เกิน 100000 แถว · คอลัมน์ราคา/การเงินเฉพาะผู้มีสิทธิ์เห็น",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExportAcceptedDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "exports"
+        ]
+      }
+    },
+    "/v1/exports/{id}": {
+      "get": {
+        "operationId": "Exports_get",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "งานส่งออกของผู้เรียกเท่านั้น (ของคนอื่น = 404)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExportDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "exports"
+        ]
+      }
+    },
     "/v1/setup-checklist": {
       "get": {
         "operationId": "SetupChecklist_get",
@@ -43569,6 +43689,214 @@
         },
         "required": [
           "reason"
+        ]
+      },
+      "CreateExportDto": {
+        "type": "object",
+        "properties": {
+          "resource": {
+            "type": "string",
+            "enum": [
+              "orders",
+              "customers",
+              "customer-sites",
+              "carriers",
+              "vehicles",
+              "vehicle-documents",
+              "drivers",
+              "vehicle-types",
+              "routes",
+              "products",
+              "service-items",
+              "rate-cards",
+              "reason-codes"
+            ],
+            "example": "orders"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "xlsx",
+              "csv"
+            ],
+            "default": "xlsx",
+            "description": ".xlsx (แนะนำ — เลข 0 นำหน้าไม่หาย) หรือ .csv UTF-8 + BOM"
+          },
+          "filter": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "example": {
+              "held": "true",
+              "holdReason": "RATE_MISSING"
+            },
+            "description": "ตัวกรองชุดเดียวกับ query ของ `GET /v1/{resource}` (ค่าเป็น string) — ตรวจกติกาเดียวกัน (field แปลก = 422) · `limit`/`cursor`/`sort`/`fields`/`updatedAfter` ไม่มีผล (ไฟล์มีทุกแถวที่ตรงตัวกรอง)"
+          }
+        },
+        "required": [
+          "resource"
+        ]
+      },
+      "ExportAcceptedDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "job_…"
+          },
+          "jobId": {
+            "type": "string",
+            "example": "job_…"
+          },
+          "statusUrl": {
+            "type": "string",
+            "example": "/v1/exports/job_…"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "jobId",
+          "statusUrl",
+          "status"
+        ]
+      },
+      "ExportErrorDto": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "too_many_rows",
+              "permission_denied",
+              "failed"
+            ],
+            "description": "too_many_rows = เกิน 100000 แถว (กรองให้แคบลง)"
+          }
+        },
+        "required": [
+          "code"
+        ]
+      },
+      "ExportDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "job_…"
+          },
+          "resource": {
+            "type": "string",
+            "enum": [
+              "orders",
+              "customers",
+              "customer-sites",
+              "carriers",
+              "vehicles",
+              "vehicle-documents",
+              "drivers",
+              "vehicle-types",
+              "routes",
+              "products",
+              "service-items",
+              "rate-cards",
+              "reason-codes"
+            ]
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "xlsx",
+              "csv"
+            ]
+          },
+          "filter": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "running",
+              "succeeded",
+              "failed",
+              "expired"
+            ],
+            "description": "expired = ไฟล์เกิน 7 วันแล้ว (ส่งออกใหม่)"
+          },
+          "progress": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "rows": {
+            "type": "number",
+            "nullable": true
+          },
+          "fileName": {
+            "type": "string",
+            "nullable": true
+          },
+          "bytes": {
+            "type": "number",
+            "nullable": true
+          },
+          "error": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ExportErrorDto"
+              }
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "finishedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "ไฟล์ดาวน์โหลดได้ถึงเวลานี้ (7 วันหลังเสร็จ)"
+          },
+          "downloadUrl": {
+            "type": "string",
+            "description": "สถานะ succeeded: ลิงก์ดาวน์โหลด (หมดอายุ 5 นาที — เรียกใหม่ได้)"
+          },
+          "urlExpiresAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "resource",
+          "format",
+          "filter",
+          "status",
+          "progress",
+          "rows",
+          "fileName",
+          "bytes",
+          "error",
+          "createdAt",
+          "finishedAt",
+          "expiresAt"
         ]
       },
       "SetupStepDto": {
