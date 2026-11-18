@@ -11,6 +11,8 @@ import {
   strictEventSchema,
   type EventSchema,
 } from '@tms/domain';
+import { priceFieldNames, redactPrices } from '../src/common/price-fields';
+import { eventSchemaComponents, publishedEventSchema } from '../src/modules/webhooks/event-openapi';
 import Ajv, { type ValidateFunction } from 'ajv';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { encodeId, tryDecodeId } from '../src/common/ids';
@@ -55,10 +57,25 @@ describe('event registry contract (ST7-T06)', () => {
 
   const ajv = new Ajv({ strict: false, allErrors: true, validateFormats: false });
   const validators = new Map<string, ValidateFunction>();
+  /** ตรวจแบบปิด: schema ที่เผยแพร่ + components ทุกตัว (ปิดทุกชั้น — field ที่ไม่ได้ประกาศใน DTO = ผิด) */
   const validatorOf = (type: string) => {
-    const s = eventDefinition(type)?.schema;
+    const s = publishedEventSchema(type);
     if (!s) return null;
-    if (!validators.has(type)) validators.set(type, ajv.compile(strictEventSchema(s)));
+    if (!validators.has(type)) {
+      const comps = Object.fromEntries(
+        Object.entries(eventSchemaComponents()).map(([k, v]) => [
+          k,
+          jsonSchema(strictEventSchema(v)),
+        ]),
+      );
+      validators.set(
+        type,
+        ajv.compile({
+          ...(jsonSchema(strictEventSchema(s)) as object),
+          components: { schemas: comps },
+        }),
+      );
+    }
     return validators.get(type)!;
   };
 
@@ -235,17 +252,67 @@ describe('event registry contract (ST7-T06)', () => {
       ).id,
     );
 
-  it('ทะเบียน: ครบทุกชื่อใน WEBHOOK_EVENT_TYPES · active มี schema · pending มี task · ตัวอย่างตรง schema', () => {
+  /** รูปของค่า (ชื่อ field + ชนิด ทุกชั้น; array ใช้สมาชิกตัวแรก) — เทียบรูป event กับ REST เมื่อค่าเปลี่ยนตามเวลาได้ */
+  const shapeOf = (v: unknown): unknown =>
+    v === null
+      ? 'null'
+      : Array.isArray(v)
+        ? [v.length ? shapeOf(v[0]) : 'empty']
+        : typeof v === 'object'
+          ? Object.fromEntries(Object.entries(v as object).map(([k, x]) => [k, shapeOf(x)]))
+          : typeof v;
+  /** field ของ OrderDto ที่ขึ้นกับผู้เรียก (ไม่อยู่ใน webhook) */
+  const ORDER_OMIT = ['editableFields', 'editLock', 'sellBilling'];
+  /** response REST ของ admin (เห็นทุกราคา) → ตัด field ราคา + field ที่ขึ้นกับผู้เรียก = สิ่งที่ webhook ต้องส่ง */
+  const rest = async (path: string, omit: string[] = []) => {
+    const body = (await api(app, admin).get(path).expect(200)).body as Record<string, unknown>;
+    const out = JSON.parse(JSON.stringify(redactPrices(body, []))) as Record<string, unknown>;
+    for (const k of omit) delete out[k];
+    return out;
+  };
+  /** event สาธารณะล่าสุดของ object (ชนิดเดียว) */
+  const latest = async (type: string, localId: string) =>
+    (
+      await db.domainEvent.findMany({
+        where: { tenantId, type, localId },
+        orderBy: { occurredAt: 'desc' },
+        take: 1,
+      })
+    )[0];
+  /** event สาธารณะที่เกิดจาก fn (ของ object เดียว) */
+  const newEvents = async (localId: string, fn: () => Promise<unknown>) => {
+    const before = new Set(
+      (await db.domainEvent.findMany({ where: { tenantId, localId }, select: { id: true } })).map(
+        (e) => e.id,
+      ),
+    );
+    await fn();
+    return (
+      await db.domainEvent.findMany({
+        where: { tenantId, localId },
+        orderBy: { occurredAt: 'asc' },
+      })
+    ).filter((e) => !before.has(e.id) && eventDefinition(e.type));
+  };
+
+  it('ทะเบียน: ครบทุกชื่อ · active มี schema จาก DTO ของ REST (ไม่มีราคา) · pending มี task', () => {
     expect(EVENT_REGISTRY.map((d) => d.type)).toEqual([...WEBHOOK_EVENT_TYPES]);
+    const price = priceFieldNames();
     for (const d of EVENT_REGISTRY) {
-      expect(d.type.split('.')[0]).toBe(d.type.startsWith('pod.') ? 'pod' : d.resource);
+      expect(d.type.split('.')[0]).toBe(d.resource);
       expect(d.description).toMatch(/[ก-๙]/);
+      const s = publishedEventSchema(d.type);
       if (d.phase === 'active') {
-        expect(d.schema, d.type).not.toBeNull();
+        expect(s, d.type).not.toBeNull();
         expect(d.pendingTask).toBeNull();
-        const v = validatorOf(d.type)!;
-        expect(v(d.example), `${d.type} ${ajv.errorsText(v.errors)}`).toBe(true);
+        const keys = Object.keys(s!.properties!);
+        expect(
+          keys.filter((k) => price.has(k) || PRICE_WORD.test(k)),
+          d.type,
+        ).toEqual([]);
+        expect(JSON.stringify(s)).not.toContain('"additionalProperties":false'); // เปิด (G1)
       } else {
+        expect(s).toBeNull();
         expect(d.pendingTask, d.type).toMatch(/^ST\d-T\d+$/);
       }
     }
@@ -266,9 +333,10 @@ describe('event registry contract (ST7-T06)', () => {
     ]);
   });
 
-  it('GET /v1/webhooks/event-types และ openapi.json เผยแพร่ schema จากทะเบียน', async () => {
+  it('GET /v1/webhooks/event-types และ openapi.json เผยแพร่ schema ชุดเดียวกัน · ตัวอย่างตรง schema แบบปิด', async () => {
     const r = await api(app, admin).get('/v1/webhooks/event-types').expect(200);
     expect(r.body.data.map((x: { type: string }) => x.type)).toEqual([...WEBHOOK_EVENT_TYPES]);
+    const doc = (await api(app).get('/v1/openapi.json').expect(200)).body;
     for (const x of r.body.data as {
       type: string;
       phase: string;
@@ -277,102 +345,76 @@ describe('event registry contract (ST7-T06)', () => {
     }[]) {
       const d = eventDefinition(x.type)!;
       expect(x.phase).toBe(d.phase);
-      expect(x.schema).toEqual(d.schema);
-      // ตัวอย่าง = data.object ล้วน (ไม่มี sampleEventType) ตรง schema แบบปิด
-      if (d.schema) {
+      expect(x.schema).toEqual(publishedEventSchema(x.type));
+      expect(x.sample).not.toHaveProperty('sampleEventType');
+      expect(doc['x-webhooks'][d.type]).toMatchObject({ phase: d.phase });
+      if (x.schema) {
         const v = validatorOf(d.type)!;
         expect(v(x.sample), `${d.type} ${ajv.errorsText(v.errors)}`).toBe(true);
-      } else expect(x.sample).toEqual(d.example);
-    }
-    const doc = (await api(app).get('/v1/openapi.json').expect(200)).body;
-    for (const d of EVENT_REGISTRY) {
-      expect(doc['x-webhooks'][d.type]).toMatchObject({ phase: d.phase });
-      if (d.schema)
-        expect(doc.components.schemas[eventSchemaName(d.type)]).toMatchObject({
-          properties: d.schema.properties,
-          required: d.schema.required,
-        });
+        expect(doc.components.schemas[eventSchemaName(d.type)]).toEqual(x.schema);
+        expect(doc['x-webhooks'][d.type].dto).toBe(d.object!.dto);
+      }
     }
     expect(doc.components.schemas.WebhookEnvelope.required).toContain('data');
-  });
-
-  it('schema ใช้ชื่อ field ของ DTO สาธารณะ (ยกเว้นที่ระบุ) และไม่มี field ราคา', async () => {
-    const doc = (await api(app).get('/v1/openapi.json').expect(200)).body;
-    const props = (n: string) => Object.keys(doc.components.schemas[n].properties);
-    // field ที่ event มีแต่ DTO ไม่มี (มุมมองแบน/ไม่ expand) — ต้องตั้งใจเพิ่มที่นี่เท่านั้น
-    const dto: Record<string, { name: string; extra: string[] }> = {
-      order: {
-        name: 'OrderDto',
-        extra: ['customerId', 'customerExternalId', 'customerText', 'holdNote'],
-      },
-      trip: {
-        name: 'TripDto',
-        extra: [
-          'vehicleId',
-          'vehiclePlate',
-          'vehicleTypeId',
-          'driverId',
-          'carrierId',
-          'deliveryOrderIds',
-          'startedAt',
-        ],
-      },
-      stop: { name: 'TripStopDto', extra: ['tripId', 'failReasonCodeId'] },
-      delivery_order: { name: 'DeliveryOrderDto', extra: [] },
-      pod: {
-        name: 'PodRecordDto',
-        extra: [
-          'deliveryOrderId',
-          'doNo',
-          'outcome',
-          'photoCount',
-          'fileCount',
-          'hasSignature',
-          'lines',
-          'missing',
-        ],
-      },
-      connector: { name: 'ConnectorDto', extra: [] },
-      job: { name: 'JobDto', extra: [] },
-    };
-    for (const d of EVENT_REGISTRY.filter((x) => x.schema)) {
-      const m = dto[d.resource]!;
-      const allowed = new Set([...props(m.name), ...m.extra]);
-      const keys = Object.keys(d.schema!.properties!);
-      expect(
-        keys.filter((k) => !allowed.has(k)),
-        d.type,
-      ).toEqual([]);
-      expect(
-        keys.filter((k) => PRICE_WORD.test(k)),
-        d.type,
-      ).toEqual([]);
-    }
   });
 
   it('เกณฑ์ตรวจรับ: flow จริงยิงทุก event ของเฟส 0 · payload ตรง schema · มีคำสั่ง outbox · envelope ตาม G1', async () => {
     // ---- order: created + held (RATE_MISSING) → updated (PATCH) → released (ตั้งราคาเอง) ----
     const a = await newOrder();
-    await api(app, admin)
-      .patch(`/v1/orders/${a.pub}`)
-      .send({ customerRef: 'PO-EVENT-1' })
-      .expect(200);
-    await api(app, admin)
-      .post(`/v1/orders/${a.pub}/manual-price`)
-      .send({ sellAmount: '1500.00', reason: 'ตกลงราคากับลูกค้าแล้ว' })
-      .expect(200);
+    const patched = await newEvents(a.soId, () =>
+      api(app, admin).patch(`/v1/orders/${a.pub}`).send({ customerRef: 'PO-EVENT-1' }).expect(200),
+    );
+    // QA: PATCH → order.updated 1 ตัว · previousAttributes มีค่าเดิม · object = GET /v1/orders/{id}
+    expect(patched.map((e) => e.type)).toEqual(['order.updated']);
+    expect(patched[0]!.previousAttributes).toMatchObject({ customerRef: null });
+    expect(patched[0]!.snapshot).toEqual(await rest(`/v1/orders/${a.pub}`, ORDER_OMIT));
+    const priced = await newEvents(a.soId, () =>
+      api(app, admin)
+        .post(`/v1/orders/${a.pub}/manual-price`)
+        .send({ sellAmount: '1500.00', reason: 'ตกลงราคากับลูกค้าแล้ว' })
+        .expect(200),
+    );
+    // QA: ปลดใบค้างด้วยราคาที่ตั้งเอง = order.released ครั้งเดียว (ไม่มี order.updated ซ้ำ) · ค่าเดิมรูป REST
+    expect(priced.map((e) => e.type)).toEqual(['order.released']);
+    expect(priced[0]!.previousAttributes).toMatchObject({ status: 'on_hold' });
+    expect(priced[0]!.snapshot).toEqual(await rest(`/v1/orders/${a.pub}`, ORDER_OMIT));
 
     // ---- trip: assigned + dispatched → stops arrived/completed/departed → trip started/completed + DO ----
     const t = await trip(a.doId, true);
+    const tripRest = () => rest(`/v1/trips/${t.id}`);
+    // ปล่อยรถ: event เกิดตอนเปลี่ยนสถานะเที่ยว (ก่อนขั้นถัดไปในคำขอเดียวกัน เช่น DO → DISPATCHED) — ค่าอาจต่างจาก GET ภายหลัง
+    // แต่รูป (ชื่อ field / ชนิด / enum) ต้องเหมือน REST ทุกชั้น
+    expect(shapeOf((await latest('trip.dispatched', uuid('trip', t.id)))!.snapshot)).toEqual(
+      shapeOf(await tripRest()),
+    );
     await post(t.pickup, 'arrive', 55);
     await post(t.pickup, 'complete', 50, { outcome: 'DELIVERED' });
     await post(t.drop, 'arrive', 40);
     await post(t.drop, 'complete', 30, { outcome: 'DELIVERED' });
+    // stop.* = จุดเดียวกับ GET /v1/trips/{id} stops[] + tripId · trip.completed = GET /v1/trips/{id}
+    const tr = await tripRest();
+    const dropRest = {
+      ...(tr.stops as { id: string }[]).find((x) => x.id === t.drop),
+      tripId: t.id,
+    };
+    expect((await latest('stop.completed', uuid('tripStop', t.drop)))!.snapshot).toEqual(dropRest);
+    expect((await latest('trip.completed', uuid('trip', t.id)))!.snapshot).toEqual({
+      ...tr,
+      completedAt: tr.completedAt,
+    });
     // ---- POD ----
+    const doPub = encodeId('deliveryOrder', a.doId);
+    // DO: สถานะล่าสุดหลังส่งถึง = GET (บันทึก POD เปลี่ยน podStatus ไม่ใช่สถานะ — ไม่ยิง status_changed)
+    expect((await latest('delivery_order.status_changed', a.doId))!.snapshot).toEqual(
+      await rest(`/v1/delivery-orders/${doPub}`),
+    );
     await api(app, admin)
-      .put(`/v1/delivery-orders/${encodeId('deliveryOrder', a.doId)}/pod`)
+      .put(`/v1/delivery-orders/${doPub}/pod`)
       .send({ receiverName: 'สมชาย ใจดี', receiverRelation: 'SELF' })
       .expect(200);
+    expect((await latest('pod.captured', a.doId))!.snapshot).toEqual(
+      await rest(`/v1/delivery-orders/${doPub}/pod`),
+    );
 
     // ---- stop.failed + นัดส่งใหม่อัตโนมัติ (ของยังอยู่บนรถ) ----
     const b = await newOrder();
@@ -426,6 +468,9 @@ describe('event registry contract (ST7-T06)', () => {
       .post(`/v1/connectors/${con.id}/pause`)
       .send({ reason: 'ปิดชั่วคราวระหว่างทดสอบ' })
       .expect(200);
+    expect((await latest('connector.health_changed', uuid('connector', con.id)))!.snapshot).toEqual(
+      await rest(`/v1/connectors/${con.id}`),
+    );
 
     // ---- job.completed: งานนำเข้า (publicEvent) — งานระบบอื่นไม่ยิง ----
     const job = await db.job.create({
@@ -462,6 +507,10 @@ describe('event registry contract (ST7-T06)', () => {
     expect((await db.job.findUniqueOrThrow({ where: { id: failed.id } })).status).toBe('FAILED');
     expect((await db.importJob.findUniqueOrThrow({ where: { id: imp.id } })).status).toBe('FAILED');
     expect(importStatusAtEvent).toBe('FAILED');
+    for (const j of [job, failed])
+      expect((await latest('job.completed', j.id))!.snapshot).toEqual(
+        await rest(`/v1/jobs/${encodeId('job', j.id)}`),
+      );
 
     // พักใบโดยระบบ (นัดส่งใหม่เกินจำนวนครั้ง — OrderStateService.holdSystem) → order.held
     const h = await newOrder();
@@ -499,13 +548,20 @@ describe('event registry contract (ST7-T06)', () => {
       if (!v(e.snapshot)) failures.push(`${e.type}: ${ajv.errorsText(v.errors)}`);
       // previousAttributes: ชื่อ field ชุดเดียวกับ object
       const prev = (e.previousAttributes ?? {}) as Record<string, unknown>;
-      const extra = Object.keys(prev).filter((k) => !(k in def.schema!.properties!));
+      const extra = Object.keys(prev).filter(
+        (k) => !(k in publishedEventSchema(def.type)!.properties!),
+      );
       if (extra.length)
         failures.push(`${e.type}: previousAttributes นอก schema ${extra.join(',')}`);
       // ไม่มีราคา / uuid ดิบ (id สาธารณะเป็น prefix เสมอ)
       const raw = JSON.stringify([e.snapshot, prev]);
       if (PRICE_KEY.test(raw)) failures.push(`${e.type}: มี field ราคา`);
-      if (/"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"/.test(raw))
+      // id ผู้ใช้ (recordedBy/actorId) เป็น uuid ดิบทั้ง API อยู่แล้ว (รูปเดียวกับ REST) — นอกนั้นต้องเป็น id แบบ prefix
+      if (
+        /"(?!recordedBy"|actorId")\w+":"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"/.test(
+          raw,
+        )
+      )
         failures.push(`${e.type}: มี uuid ดิบ`);
       // ทุก event ลง outbox ใน transaction เดียวกัน (trigger)
       if (queued.get(e.id) !== e.type) failures.push(`${e.type}: ไม่มีคำสั่ง outbox`);
@@ -525,8 +581,7 @@ describe('event registry contract (ST7-T06)', () => {
 
     // รายละเอียดที่ต้องถูกต้อง (ไม่ใช่แค่รูปร่าง)
     const one = (type: string) => registered.find((e) => e.type === type)!;
-    expect(one('order.held').snapshot).toMatchObject({ id: a.pub, status: 'ON_HOLD' });
-    expect(one('order.released').previousAttributes).toEqual({ status: 'ON_HOLD' });
+    expect(one('order.held').snapshot).toMatchObject({ id: a.pub, status: 'on_hold' });
     expect(one('trip.started').snapshot).toMatchObject({ id: t.id, status: 'IN_PROGRESS' });
     expect(one('stop.arrived').snapshot).toMatchObject({ id: t.pickup, tripId: t.id });
     expect(
@@ -536,7 +591,7 @@ describe('event registry contract (ST7-T06)', () => {
     ).toMatchObject({ status: 'FAILED', outcome: 'UNDELIVERED_RETAIN' });
     expect(one('pod.captured').snapshot).toMatchObject({
       deliveryOrderId: encodeId('deliveryOrder', a.doId),
-      receiverName: 'สมชาย ใจดี',
+      current: { receiverName: 'สมชาย ใจดี' },
     });
     expect(
       registered
@@ -566,7 +621,7 @@ describe('event registry contract (ST7-T06)', () => {
     expect(
       registered
         .filter((e) => e.type === 'order.held' && (e.snapshot as { id: string }).id === h.pub)
-        .map((e) => (e.snapshot as { holdReason: string }).holdReason),
+        .map((e) => (e.snapshot as { holdReason: { code: string } | null }).holdReason?.code),
     ).toContain('RESCHEDULES_EXHAUSTED');
   }, 180_000);
 });
@@ -574,3 +629,22 @@ describe('event registry contract (ST7-T06)', () => {
 /** ชื่อ field ที่สื่อถึงราคา/ต้นทุน — ห้ามอยู่ใน payload ของ event (ดูรายละเอียดราคาผ่าน API ที่ตรวจสิทธิ์) */
 const PRICE_WORD = /price|amount|total|cost|revenue|charge|rate/i;
 const PRICE_KEY = /"(\w*(price|amount|total|cost|revenue|charge|rate)\w*)"\s*:/i;
+
+/**
+ * OpenAPI 3.0 → JSON Schema สำหรับ ajv: `nullable: true` = ยอม null (รวมกับ `$ref`/`allOf`/`enum` ที่ ajv ไม่รวม null ให้เอง)
+ */
+function jsonSchema(s: unknown): unknown {
+  if (Array.isArray(s)) return s.map(jsonSchema);
+  if (!s || typeof s !== 'object') return s;
+  const o = Object.fromEntries(
+    Object.entries(s as Record<string, unknown>).map(([k, v]) => [
+      k,
+      k === 'properties'
+        ? Object.fromEntries(Object.entries(v as object).map(([pk, pv]) => [pk, jsonSchema(pv)]))
+        : jsonSchema(v),
+    ]),
+  ) as Record<string, unknown>;
+  if (o.nullable !== true) return o;
+  const { nullable: _n, ...rest } = o;
+  return { anyOf: [rest, { type: 'null' }] };
+}

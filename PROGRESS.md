@@ -255,6 +255,11 @@
 
 ## บันทึกรายวัน
 
+### 18 พ.ย. 2569 (ST7-T06 แก้ตาม QA)
+- ทำ: `data.object` ของ webhook = รูป REST DTO (order/trip/stop/DO/pod/connector/job) ด้วยตัวแปลงตัวเดียวกับ REST + ตัดราคา (`redactPrices`) · ย้ายตัวแปลง DTO ออกจาก controller/service (`orders/order-dto.ts`, `trips/trip-dto.ts`, `delivery-orders/do-dto.ts`, `jobs/job-dto.ts`) กัน import วน · ทะเบียนเก็บชื่อ DTO + omit/extra แทน schema เขียนมือ — schema ที่เผยแพร่/ตัวอย่างสร้างจาก component ใน OpenAPI (`event-openapi.ts`) · previousAttributes = diff ของ DTO ก่อน/หลัง (แก้ PATCH ที่เคยได้ `{}`) · ปลดใบค้างด้วยราคาที่ตั้งเอง ยิง `order.released` ครั้งเดียว · `job.completed` request.id = null · contract test เทียบ event กับ GET ของ object เดียวกัน (order/trip/stop/DO/pod/connector/job) + ตรวจ schema แบบปิดหลังแปลง nullable · DECISION spec/12 §3
+- ไฟล์: `packages/domain/src/event-registry{,.test}.ts`, `apps/api/src/modules/{orders,trips,delivery-orders,stops,pod,erp,webhooks,jobs}/…`, `src/jobs/{job-dto,job-queue.service}.ts`, `src/state/state.service.ts` (previousAttributes เป็นฟังก์ชันได้), `test/event-contract.test.ts`
+- ค้าง: snapshot ของ `trip.dispatched` เกิดก่อน DO ในเที่ยวเปลี่ยนเป็น DISPATCHED (ค่าตอนเกิด event — DECISION) · OpenAPI ของ DTO ยังไม่ใส่ null ใน enum/`$ref` ที่ nullable (ปรับ DTO ทีหลังได้ — ไม่ใช่ breaking)
+
 ### 18 พ.ย. 2569 (ST7-T06 แก้ตาม review)
 - ทำ: schema ที่เผยแพร่ (openapi/event-types) **เปิด** (ไม่มี additionalProperties:false — เพิ่ม field = non-breaking) · contract test ตรวจแบบปิดด้วย `strictEventSchema()` · order `stops` minItems 1 · trip.started/completed บังคับ startedAt/completedAt · `sample` ไม่มี `sampleEventType` (ย้ายไป envelope ของ webhook.test) และตรวจกับ schema ปิด · `job.completed` (failed) ยิงใน transaction เดียวกับ onFinalFailure (นำเข้าเป็น FAILED ก่อน) · contract test เพิ่ม holdSystem → order.held, markError → connector.health_changed (ACTIVE→ERROR→ACTIVE), งานนำเข้าล้ม → job.completed failed · API_RELEASES 2026-11-18 บันทึก changed (payload event ก่อน GA) · DECISION spec/12 §3 ×2
 - ไฟล์: `packages/domain/src/event-registry{,.test}.ts`, `apps/api/src/jobs/job-queue.service.ts`, `webhooks/{webhooks.service,webhook-engine,event-openapi}.ts`, `http/api-version/versions.ts`, `test/{event-contract,webhooks,webhook-ops}.test.ts`, spec/12

@@ -1,8 +1,9 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { EntitlementService } from '../modules/entitlements/entitlement.service';
-import type { Job, Prisma } from '@prisma/client';
+import { Prisma, type Job } from '@prisma/client';
 import { PrismaService } from '../db/prisma.service';
 import { encodeId } from '../common/ids';
+import { toJobDto } from './job-dto';
 import { DbService, type Tx } from '../db/db.service';
 import { NotificationService } from '../modules/notifications/notification.service';
 
@@ -258,17 +259,10 @@ export class JobQueue {
         type: 'job.completed',
         entityType: 'job',
         localId: j.id,
-        snapshot: {
-          id: encodeId('job', j.id),
-          type: j.type,
-          status: j.status.toLowerCase(),
-          progress: j.progress,
-          attempts: j.attempts,
-          createdAt: j.createdAt.toISOString(),
-          finishedAt: j.finishedAt?.toISOString() ?? null,
-        },
+        // ST7-T06 (QA): data.object = JobDto เดียวกับ `GET /v1/jobs/{id}`
+        snapshot: JSON.parse(JSON.stringify(toJobDto(j))) as Prisma.InputJsonValue,
         previousAttributes: { status: 'running' },
-        requestId: `job:${j.id}`,
+        requestId: null, // ไม่ได้มาจากคำขอ HTTP (envelope.request.id = null — docs/04 G1)
       },
     });
   }

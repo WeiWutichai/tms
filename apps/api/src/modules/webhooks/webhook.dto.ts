@@ -277,7 +277,7 @@ export class WebhookEventTypeDto {
     type: 'object',
     additionalProperties: true,
     description:
-      'JSON schema (OpenAPI 3.0 Schema Object) ของ `data.object` — null = ยังไม่กำหนด (pending) · เพิ่ม field ภายหลัง = non-breaking',
+      'JSON schema (OpenAPI 3.0 Schema Object) ของ `data.object` = DTO ของ REST ของ resource (ไม่มี field ราคา) — `$ref` ชี้ `#/components/schemas/*` ของ /v1/openapi.json · null = ยังไม่กำหนด (pending) · เปิด: เพิ่ม field = non-breaking',
   })
   schema!: Record<string, unknown> | null;
   @ApiProperty({

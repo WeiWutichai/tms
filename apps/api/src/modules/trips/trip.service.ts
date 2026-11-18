@@ -30,6 +30,8 @@ import {
 } from '@tms/domain';
 import { AuditService } from '../../audit/audit.service';
 import { encodeId } from '../../common/ids';
+import { redactPrices } from '../../common/price-fields';
+import { toTripDto } from './trip-dto';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { keysetArgs, type ListQuery } from '../../common/pagination';
@@ -323,6 +325,22 @@ export class TripService {
       pickupTripStop: null,
       redeliveries: r.rejectedRedeliveries,
     }));
+  }
+
+  /**
+   * `data.object` ของ webhook `trip.*` (ST7-T06 — QA): รูปเดียวกับ `GET /v1/trips/{id}` (toTripDto ตัวเดียวกัน)
+   * ตัดราคาซื้อทุก field (`redactPrices` ไม่มีสิทธิ์ราคา — webhook ระดับ tenant)
+   */
+  async eventObject(id: string, tx: Tx = this.db.tx): Promise<Record<string, unknown>> {
+    const t = await this.get(id, tx);
+    return JSON.parse(
+      JSON.stringify(
+        redactPrices(
+          toTripDto(t, await this.rescheduled(id, tx), await this.rejectedRedelivered(id, tx)),
+          [],
+        ),
+      ),
+    ) as Record<string, unknown>;
   }
 
   async get(id: string, tx: Tx = this.db.tx): Promise<TripRecord> {
@@ -1850,7 +1868,7 @@ export class TripService {
           },
         });
         if (r.count === 0) throw new ProblemException('concurrent_update');
-        return { ...eventView(await this.get(trip.id, tx)), ...(extra.snapshot ?? {}) };
+        return { ...(await this.eventObject(trip.id, tx)), ...(extra.snapshot ?? {}) };
       },
     });
   }

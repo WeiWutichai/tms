@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma, type WebhookEndpoint } from '@prisma/client';
-import { eventDefinition, WEBHOOK_ROTATION_GRACE_HOURS } from '@tms/domain';
+import { WEBHOOK_ROTATION_GRACE_HOURS } from '@tms/domain';
+import { eventSample } from './event-openapi';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { AuditService } from '../../audit/audit.service';
 import { encodeId } from '../../common/ids';
@@ -569,7 +570,7 @@ export class WebhooksService {
   }
 }
 
-/** payload ตัวอย่างของ event (INT-107) = ตัวอย่างจากทะเบียน (ST7-T06 — ตรง schema) · ไม่ใช่ข้อมูลจริงของบริษัท */
+/** payload ตัวอย่างของ event (INT-107) — สร้างจาก schema ที่เผยแพร่ (ST7-T06 — รูป DTO ของ REST) · ไม่ใช่ข้อมูลจริงของบริษัท */
 export function sampleObject(type: string): Record<string, unknown> {
-  return { ...(eventDefinition(type)?.example ?? {}) };
+  return eventSample(type);
 }

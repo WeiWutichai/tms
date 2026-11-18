@@ -19,26 +19,31 @@ describe('ทะเบียน event สาธารณะ (ST7-T06)', () => {
     expect(Object.keys(WEBHOOK_EVENT_DESCRIPTIONS)).toEqual([...WEBHOOK_EVENT_TYPES]);
   });
 
-  it('schema ที่เผยแพร่เปิด (เพิ่ม field = non-breaking) · strict ปิดทุกชั้น · required อยู่ใน properties · field ทุกตัวมีชนิด', () => {
-    for (const d of EVENT_REGISTRY.filter((x) => x.schema)) {
-      const s = d.schema!;
-      expect(s.type).toBe('object');
-      expect(JSON.stringify(s)).not.toContain('"additionalProperties":false');
-      const st = strictEventSchema(s);
-      expect(st.additionalProperties).toBe(false);
-      for (const p of Object.values(st.properties!))
-        if (p.items?.properties) expect(p.items.additionalProperties).toBe(false);
-      for (const r of s.required ?? []) expect(Object.keys(s.properties!)).toContain(r);
-      for (const [k, p] of Object.entries(s.properties!))
-        expect(p.type, `${d.type}.${k}`).toBeTruthy();
+  it('active ทุกตัวอ้าง DTO ของ REST · pending ไม่มีรูป + มี task', () => {
+    for (const d of EVENT_REGISTRY) {
+      if (d.phase === 'active') expect(d.object?.dto, d.type).toMatch(/Dto$/);
+      else {
+        expect(d.object).toBeNull();
+        expect(d.pendingTask).toMatch(/^ST\d-T\d+$/);
+      }
     }
+    expect(eventDefinition('order.created')!.object!.dto).toBe('OrderDto');
+    expect(eventDefinition('stop.arrived')!.object!.require).toContain('tripId');
+    expect(eventDefinition('trip.started')!.object!.require).toContain('startedAt');
+    expect(eventDefinition('trip.completed')!.object!.require).toContain('completedAt');
   });
 
-  it('trip.started/completed บังคับเวลา · order ต้องมีจุดอย่างน้อย 1', () => {
-    expect(eventDefinition('trip.started')!.schema!.required).toContain('startedAt');
-    expect(eventDefinition('trip.completed')!.schema!.required).toContain('completedAt');
-    expect(eventDefinition('trip.assigned')!.schema!.required).not.toContain('startedAt');
-    expect(eventDefinition('order.created')!.schema!.properties!.stops!.minItems).toBe(1);
+  it('strictEventSchema ปิดทุกชั้น (ไม่ทับ additionalProperties ที่ตั้งไว้)', () => {
+    const s = strictEventSchema({
+      type: 'object',
+      properties: {
+        a: { type: 'array', items: { type: 'object', properties: { b: { type: 'string' } } } },
+        m: { type: 'object', additionalProperties: true },
+      },
+    });
+    expect(s.additionalProperties).toBe(false);
+    expect(s.properties!.a!.items!.additionalProperties).toBe(false);
+    expect(s.properties!.m!.additionalProperties).toBe(true);
   });
 
   it('ชื่อ component OpenAPI', () => {

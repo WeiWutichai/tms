@@ -676,7 +676,7 @@ export class ConnectorsService {
 
   /**
    * webhook `connector.health_changed` (docs/01 §5.3; ST7-T06) ทุกครั้งที่สถานะการเชื่อมต่อเปลี่ยน — ใน transaction เดียวกับการเปลี่ยน
-   * payload ไม่มี settings/credential/ข้อความ error ของปลายทาง (เฉพาะ errorClass + code)
+   * payload = ConnectorDto (ไม่มีค่า credential — ข้อความ error ตัด credential แล้ว)
    */
   private async emitHealthChanged(
     tx: Tx,
@@ -685,27 +685,14 @@ export class ConnectorsService {
     requestId: string | null,
     actorId: string | null,
   ) {
-    const err = c.lastHealthError as { errorClass?: unknown; code?: unknown } | null;
     await tx.domainEvent.create({
       data: {
         tenantId: c.tenantId,
         type: 'connector.health_changed',
         entityType: 'connector',
         localId: c.id,
-        snapshot: {
-          id: encodeId('connector', c.id),
-          adapterKey: c.adapterKey,
-          displayName: this.adapters.get(c.adapterKey)?.displayName ?? null,
-          companyId: c.companyId ? encodeId('company', c.companyId) : null,
-          status: c.status,
-          statusReason: c.statusReason,
-          statusChangedAt: iso(c.statusChangedAt),
-          lastHealthAt: iso(c.lastHealthAt),
-          lastHealthOk: c.lastHealthOk,
-          lastHealthError: err
-            ? { errorClass: String(err.errorClass ?? ''), code: String(err.code ?? '') }
-            : null,
-        },
+        // ST7-T06 (QA): data.object = ConnectorDto เดียวกับ `GET /v1/connectors/{id}` (credential แสดงแค่ชื่อช่อง)
+        snapshot: JSON.parse(JSON.stringify(this.toDto(c))) as Prisma.InputJsonValue,
         previousAttributes: { status: from },
         requestId,
         actorId,

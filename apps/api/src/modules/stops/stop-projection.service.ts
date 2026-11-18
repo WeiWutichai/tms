@@ -540,6 +540,12 @@ export class StopProjectionService {
     if (row.status !== p.status && p.status === 'FAILED') types.push('stop.failed');
     if (!row.departedAt && p.departedAt) types.push('stop.departed');
     const ctx = requestContext.require();
+    if (!types.length) return true;
+    // ST7-T06 (QA): data.object = จุดเดียวกับ `GET /v1/trips/{id}` → `stops[]` (+ `tripId`) — ไม่มีราคา
+    const trip = await this.trips.eventObject(row.tripId, tx);
+    const stopId = encodeId('tripStop', row.id);
+    const stop = (trip.stops as { id: string }[]).find((x) => x.id === stopId);
+    const object = { ...stop, tripId: trip.id };
     for (const type of types)
       await tx.domainEvent.create({
         data: {
@@ -547,16 +553,7 @@ export class StopProjectionService {
           type,
           entityType: 'trip_stop',
           localId: row.id,
-          snapshot: JSON.parse(
-            JSON.stringify({
-              id: encodeId('tripStop', row.id),
-              tripId: encodeId('trip', row.tripId),
-              sequence: row.sequence,
-              type: row.type,
-              siteId: row.siteId ? encodeId('site', row.siteId) : null,
-              ...stopEventFields(p),
-            }),
-          ) as Prisma.InputJsonValue,
+          snapshot: JSON.parse(JSON.stringify(object)) as Prisma.InputJsonValue,
           previousAttributes: JSON.parse(JSON.stringify(previous)) as Prisma.InputJsonValue,
           requestId: ctx.requestId ?? null,
           actorId: ctx.actorId ?? null,
@@ -567,8 +564,8 @@ export class StopProjectionService {
 }
 
 /**
- * ช่อง projection ใน payload ของ `stop.*` (= `data.object` ของ webhook — ST7-T06): id แบบ prefix (docs/01 §5.1)
- * เฉพาะช่องที่มีใน input (previousAttributes ส่งเฉพาะช่องที่เปลี่ยน) · ไม่ส่ง id ภายในของ projection
+ * ค่าเดิมของ `stop.*` (previousAttributes) ในรูปเดียวกับ TripStopDto: id แบบ prefix, เวลาเป็น ISO
+ * ไม่ส่ง failReasonCodeId (ไม่มีใน TripStopDto — เหตุผลดูที่ `GET /v1/stops/{id}/events`)
  */
 function stopEventFields(
   p: Partial<Record<(typeof FIELDS)[number], unknown>>,
@@ -577,11 +574,12 @@ function stopEventFields(
   for (const f of FIELDS) {
     if (!(f in p)) continue;
     const v = p[f];
+    if (f === 'failReasonCodeId') continue;
     out[f] =
       f === 'lastEventId' && typeof v === 'string'
         ? encodeId('event', v)
-        : f === 'failReasonCodeId' && typeof v === 'string'
-          ? encodeId('reasonCode', v)
+        : v instanceof Date
+          ? v.toISOString()
           : v;
   }
   return out;

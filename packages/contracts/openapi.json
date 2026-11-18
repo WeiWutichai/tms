@@ -52490,7 +52490,7 @@
             "type": "object",
             "nullable": true,
             "additionalProperties": true,
-            "description": "JSON schema (OpenAPI 3.0 Schema Object) ของ `data.object` — null = ยังไม่กำหนด (pending) · เพิ่ม field ภายหลัง = non-breaking"
+            "description": "JSON schema (OpenAPI 3.0 Schema Object) ของ `data.object` = DTO ของ REST ของ resource (ไม่มี field ราคา) — `$ref` ชี้ `#/components/schemas/*` ของ /v1/openapi.json · null = ยังไม่กำหนด (pending) · เปิด: เพิ่ม field = non-breaking"
           },
           "sample": {
             "type": "object",
@@ -66413,56 +66413,64 @@
       },
       "WebhookEvent_order_created": {
         "type": "object",
+        "description": "`data.object` ของ order.created — สร้างใบสั่งงานใหม่ (หน้าจอ, Open API, นำเข้าไฟล์) · รูปเดียวกับ OrderDto (ไม่มี field ราคา, editableFields, editLock, sellBilling)",
         "properties": {
           "id": {
             "type": "string",
-            "pattern": "^ord_[0-9a-f]{32}$"
+            "example": "ord_3f2a…"
           },
           "soNo": {
             "type": "string",
-            "nullable": true
-          },
-          "source": {
-            "type": "string"
-          },
-          "externalId": {
-            "type": "string",
-            "nullable": true
+            "nullable": true,
+            "example": "SO-6911-0001",
+            "description": "ร่าง = null"
           },
           "status": {
             "type": "string",
             "enum": [
-              "DRAFT",
-              "RECEIVED",
-              "ON_HOLD",
-              "PLANNED",
-              "IN_TRANSIT",
-              "PARTIALLY_DELIVERED",
-              "DELIVERED",
-              "CLOSED",
-              "CANCELLED"
+              "draft",
+              "received",
+              "on_hold",
+              "planned",
+              "in_transit",
+              "partially_delivered",
+              "delivered",
+              "closed",
+              "cancelled"
             ]
           },
-          "holdReason": {
+          "source": {
             "type": "string",
-            "nullable": true
+            "example": "ERP:krs",
+            "description": "ที่มาตาม docs/04 C: MANUAL / EXCEL / API / PORTAL / ERP:{connector}"
           },
-          "customerId": {
+          "sourceType": {
             "type": "string",
-            "pattern": "^cus_[0-9a-f]{32}$",
-            "nullable": true
+            "enum": [
+              "MANUAL",
+              "IMPORT",
+              "API",
+              "PORTAL",
+              "CONNECTOR"
+            ],
+            "description": "ชนิดที่มา (ใช้กับป้ายที่มา): MANUAL / IMPORT / API / PORTAL / CONNECTOR"
           },
-          "customerExternalId": {
+          "connector": {
             "type": "string",
-            "nullable": true
+            "nullable": true,
+            "example": "krs",
+            "description": "รหัส connector"
           },
-          "customerText": {
+          "externalId": {
             "type": "string",
-            "nullable": true
+            "nullable": true,
+            "description": "externalRef ของระบบต้นทาง"
+          },
+          "customer": {
+            "$ref": "#/components/schemas/OrderCustomerDto"
           },
           "billingCompanyId": {
-            "type": "string",
-            "pattern": "^cmp_[0-9a-f]{32}$"
+            "type": "string"
           },
           "customerRef": {
             "type": "string",
@@ -66470,158 +66478,179 @@
           },
           "requestedDate": {
             "type": "string",
-            "format": "date",
-            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            "example": "2026-11-12"
           },
           "vehicleTypeId": {
             "type": "string",
-            "pattern": "^vty_[0-9a-f]{32}$",
             "nullable": true
+          },
+          "holdReason": {
+            "nullable": true,
+            "description": "เหตุค้าง (ON_HOLD)",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/OrderHoldReasonDto"
+              }
+            ]
+          },
+          "holdCodes": {
+            "type": "array",
+            "description": "เหตุค้างทั้งหมดของการรับงานครั้งล่าสุด (ตัวแรก = holdReason)",
+            "items": {
+              "type": "string",
+              "enum": [
+                "SOURCE_ERROR",
+                "CUSTOMER_UNMAPPED",
+                "LOCATION_UNMAPPED",
+                "GEOCODING_ERROR",
+                "RATE_MISSING"
+              ]
+            }
+          },
+          "rescheduledDate": {
+            "type": "string",
+            "nullable": true,
+            "example": "2026-11-18",
+            "description": "ST4-T12 วันที่นัดส่งใหม่ล่าสุดของ DO ส่งใหม่ที่ยังรอจัด (null = ไม่มี) — หน้าใบค้าง/รายการแสดงแทนกำหนดส่งเดิม"
           },
           "pricingStatus": {
             "type": "string",
             "enum": [
               "AVAILABLE",
               "RATE_MISSING",
-              "CALCULATION_FAILURE",
-              null
-            ],
-            "nullable": true
+              "CALCULATION_FAILURE"
+            ]
+          },
+          "pricingReasons": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderPricingReasonDto"
+            }
           },
           "stops": {
             "type": "array",
             "items": {
-              "type": "object",
-              "properties": {
-                "sequence": {
-                  "type": "integer"
-                },
-                "type": {
-                  "type": "string",
-                  "enum": [
-                    "PICKUP",
-                    "DELIVERY",
-                    "RETURN"
-                  ]
-                },
-                "siteId": {
-                  "type": "string",
-                  "pattern": "^loc_[0-9a-f]{32}$",
-                  "nullable": true
-                },
-                "siteText": {
-                  "type": "string",
-                  "nullable": true
-                },
-                "windowStart": {
-                  "type": "string",
-                  "format": "date-time",
-                  "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$",
-                  "nullable": true
-                },
-                "windowEnd": {
-                  "type": "string",
-                  "format": "date-time",
-                  "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$",
-                  "nullable": true
-                }
-              },
-              "required": [
-                "sequence",
-                "type",
-                "siteId",
-                "siteText",
-                "windowStart",
-                "windowEnd"
-              ]
-            },
-            "minItems": 1
+              "$ref": "#/components/schemas/OrderStopDto"
+            }
           },
-          "holdNote": {
-            "type": "string",
-            "nullable": true
+          "lines": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderLineDto"
+            }
           },
           "sourceChangedAfterPlan": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "ต้นทาง (connector) แก้ใบหลังวางแผน — ไม่ทับข้อมูล รอคนรับ/ไม่รับ (`sourceChange`) · สถานะใบไม่เปลี่ยน (docs/01 §4.1)"
+          },
+          "sourceChange": {
+            "nullable": true,
+            "description": "ชุดการเปลี่ยนแปลงจากต้นทางที่รอตัดสิน (รับ: POST …/source-changes/{changeId}/accept · ไม่รับ: …/reject)",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/OrderSourceChangeDto"
+              }
+            ]
           },
           "version": {
-            "type": "integer"
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
           }
         },
         "required": [
           "id",
           "soNo",
-          "source",
-          "externalId",
           "status",
-          "holdReason",
-          "customerId",
-          "customerExternalId",
-          "customerText",
+          "source",
+          "sourceType",
+          "connector",
+          "externalId",
+          "customer",
           "billingCompanyId",
           "customerRef",
           "requestedDate",
           "vehicleTypeId",
+          "holdReason",
+          "holdCodes",
+          "rescheduledDate",
           "pricingStatus",
+          "pricingReasons",
           "stops",
-          "holdNote",
+          "lines",
           "sourceChangedAfterPlan",
-          "version"
-        ],
-        "description": "`data.object` ของ order.created — สร้างใบสั่งงานใหม่ (หน้าจอ, Open API, นำเข้าไฟล์)"
+          "sourceChange",
+          "version",
+          "createdAt",
+          "updatedAt"
+        ]
       },
       "WebhookEvent_order_updated": {
         "type": "object",
+        "description": "`data.object` ของ order.updated — แก้ไขข้อมูลใบสั่งงาน · รูปเดียวกับ OrderDto (ไม่มี field ราคา, editableFields, editLock, sellBilling)",
         "properties": {
           "id": {
             "type": "string",
-            "pattern": "^ord_[0-9a-f]{32}$"
+            "example": "ord_3f2a…"
           },
           "soNo": {
             "type": "string",
-            "nullable": true
-          },
-          "source": {
-            "type": "string"
-          },
-          "externalId": {
-            "type": "string",
-            "nullable": true
+            "nullable": true,
+            "example": "SO-6911-0001",
+            "description": "ร่าง = null"
           },
           "status": {
             "type": "string",
             "enum": [
-              "DRAFT",
-              "RECEIVED",
-              "ON_HOLD",
-              "PLANNED",
-              "IN_TRANSIT",
-              "PARTIALLY_DELIVERED",
-              "DELIVERED",
-              "CLOSED",
-              "CANCELLED"
+              "draft",
+              "received",
+              "on_hold",
+              "planned",
+              "in_transit",
+              "partially_delivered",
+              "delivered",
+              "closed",
+              "cancelled"
             ]
           },
-          "holdReason": {
+          "source": {
             "type": "string",
-            "nullable": true
+            "example": "ERP:krs",
+            "description": "ที่มาตาม docs/04 C: MANUAL / EXCEL / API / PORTAL / ERP:{connector}"
           },
-          "customerId": {
+          "sourceType": {
             "type": "string",
-            "pattern": "^cus_[0-9a-f]{32}$",
-            "nullable": true
+            "enum": [
+              "MANUAL",
+              "IMPORT",
+              "API",
+              "PORTAL",
+              "CONNECTOR"
+            ],
+            "description": "ชนิดที่มา (ใช้กับป้ายที่มา): MANUAL / IMPORT / API / PORTAL / CONNECTOR"
           },
-          "customerExternalId": {
+          "connector": {
             "type": "string",
-            "nullable": true
+            "nullable": true,
+            "example": "krs",
+            "description": "รหัส connector"
           },
-          "customerText": {
+          "externalId": {
             "type": "string",
-            "nullable": true
+            "nullable": true,
+            "description": "externalRef ของระบบต้นทาง"
+          },
+          "customer": {
+            "$ref": "#/components/schemas/OrderCustomerDto"
           },
           "billingCompanyId": {
-            "type": "string",
-            "pattern": "^cmp_[0-9a-f]{32}$"
+            "type": "string"
           },
           "customerRef": {
             "type": "string",
@@ -66629,158 +66658,179 @@
           },
           "requestedDate": {
             "type": "string",
-            "format": "date",
-            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            "example": "2026-11-12"
           },
           "vehicleTypeId": {
             "type": "string",
-            "pattern": "^vty_[0-9a-f]{32}$",
             "nullable": true
+          },
+          "holdReason": {
+            "nullable": true,
+            "description": "เหตุค้าง (ON_HOLD)",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/OrderHoldReasonDto"
+              }
+            ]
+          },
+          "holdCodes": {
+            "type": "array",
+            "description": "เหตุค้างทั้งหมดของการรับงานครั้งล่าสุด (ตัวแรก = holdReason)",
+            "items": {
+              "type": "string",
+              "enum": [
+                "SOURCE_ERROR",
+                "CUSTOMER_UNMAPPED",
+                "LOCATION_UNMAPPED",
+                "GEOCODING_ERROR",
+                "RATE_MISSING"
+              ]
+            }
+          },
+          "rescheduledDate": {
+            "type": "string",
+            "nullable": true,
+            "example": "2026-11-18",
+            "description": "ST4-T12 วันที่นัดส่งใหม่ล่าสุดของ DO ส่งใหม่ที่ยังรอจัด (null = ไม่มี) — หน้าใบค้าง/รายการแสดงแทนกำหนดส่งเดิม"
           },
           "pricingStatus": {
             "type": "string",
             "enum": [
               "AVAILABLE",
               "RATE_MISSING",
-              "CALCULATION_FAILURE",
-              null
-            ],
-            "nullable": true
+              "CALCULATION_FAILURE"
+            ]
+          },
+          "pricingReasons": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderPricingReasonDto"
+            }
           },
           "stops": {
             "type": "array",
             "items": {
-              "type": "object",
-              "properties": {
-                "sequence": {
-                  "type": "integer"
-                },
-                "type": {
-                  "type": "string",
-                  "enum": [
-                    "PICKUP",
-                    "DELIVERY",
-                    "RETURN"
-                  ]
-                },
-                "siteId": {
-                  "type": "string",
-                  "pattern": "^loc_[0-9a-f]{32}$",
-                  "nullable": true
-                },
-                "siteText": {
-                  "type": "string",
-                  "nullable": true
-                },
-                "windowStart": {
-                  "type": "string",
-                  "format": "date-time",
-                  "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$",
-                  "nullable": true
-                },
-                "windowEnd": {
-                  "type": "string",
-                  "format": "date-time",
-                  "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$",
-                  "nullable": true
-                }
-              },
-              "required": [
-                "sequence",
-                "type",
-                "siteId",
-                "siteText",
-                "windowStart",
-                "windowEnd"
-              ]
-            },
-            "minItems": 1
+              "$ref": "#/components/schemas/OrderStopDto"
+            }
           },
-          "holdNote": {
-            "type": "string",
-            "nullable": true
+          "lines": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderLineDto"
+            }
           },
           "sourceChangedAfterPlan": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "ต้นทาง (connector) แก้ใบหลังวางแผน — ไม่ทับข้อมูล รอคนรับ/ไม่รับ (`sourceChange`) · สถานะใบไม่เปลี่ยน (docs/01 §4.1)"
+          },
+          "sourceChange": {
+            "nullable": true,
+            "description": "ชุดการเปลี่ยนแปลงจากต้นทางที่รอตัดสิน (รับ: POST …/source-changes/{changeId}/accept · ไม่รับ: …/reject)",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/OrderSourceChangeDto"
+              }
+            ]
           },
           "version": {
-            "type": "integer"
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
           }
         },
         "required": [
           "id",
           "soNo",
-          "source",
-          "externalId",
           "status",
-          "holdReason",
-          "customerId",
-          "customerExternalId",
-          "customerText",
+          "source",
+          "sourceType",
+          "connector",
+          "externalId",
+          "customer",
           "billingCompanyId",
           "customerRef",
           "requestedDate",
           "vehicleTypeId",
+          "holdReason",
+          "holdCodes",
+          "rescheduledDate",
           "pricingStatus",
+          "pricingReasons",
           "stops",
-          "holdNote",
+          "lines",
           "sourceChangedAfterPlan",
-          "version"
-        ],
-        "description": "`data.object` ของ order.updated — แก้ไขข้อมูลใบสั่งงาน"
+          "sourceChange",
+          "version",
+          "createdAt",
+          "updatedAt"
+        ]
       },
       "WebhookEvent_order_held": {
         "type": "object",
+        "description": "`data.object` ของ order.held — พักใบสั่งงาน (เช่น ข้อมูลไม่ครบ เกินวงเงิน) · รูปเดียวกับ OrderDto (ไม่มี field ราคา, editableFields, editLock, sellBilling)",
         "properties": {
           "id": {
             "type": "string",
-            "pattern": "^ord_[0-9a-f]{32}$"
+            "example": "ord_3f2a…"
           },
           "soNo": {
             "type": "string",
-            "nullable": true
-          },
-          "source": {
-            "type": "string"
-          },
-          "externalId": {
-            "type": "string",
-            "nullable": true
+            "nullable": true,
+            "example": "SO-6911-0001",
+            "description": "ร่าง = null"
           },
           "status": {
             "type": "string",
             "enum": [
-              "DRAFT",
-              "RECEIVED",
-              "ON_HOLD",
-              "PLANNED",
-              "IN_TRANSIT",
-              "PARTIALLY_DELIVERED",
-              "DELIVERED",
-              "CLOSED",
-              "CANCELLED"
+              "draft",
+              "received",
+              "on_hold",
+              "planned",
+              "in_transit",
+              "partially_delivered",
+              "delivered",
+              "closed",
+              "cancelled"
             ]
           },
-          "holdReason": {
+          "source": {
             "type": "string",
-            "nullable": true
+            "example": "ERP:krs",
+            "description": "ที่มาตาม docs/04 C: MANUAL / EXCEL / API / PORTAL / ERP:{connector}"
           },
-          "customerId": {
+          "sourceType": {
             "type": "string",
-            "pattern": "^cus_[0-9a-f]{32}$",
-            "nullable": true
+            "enum": [
+              "MANUAL",
+              "IMPORT",
+              "API",
+              "PORTAL",
+              "CONNECTOR"
+            ],
+            "description": "ชนิดที่มา (ใช้กับป้ายที่มา): MANUAL / IMPORT / API / PORTAL / CONNECTOR"
           },
-          "customerExternalId": {
+          "connector": {
             "type": "string",
-            "nullable": true
+            "nullable": true,
+            "example": "krs",
+            "description": "รหัส connector"
           },
-          "customerText": {
+          "externalId": {
             "type": "string",
-            "nullable": true
+            "nullable": true,
+            "description": "externalRef ของระบบต้นทาง"
+          },
+          "customer": {
+            "$ref": "#/components/schemas/OrderCustomerDto"
           },
           "billingCompanyId": {
-            "type": "string",
-            "pattern": "^cmp_[0-9a-f]{32}$"
+            "type": "string"
           },
           "customerRef": {
             "type": "string",
@@ -66788,158 +66838,179 @@
           },
           "requestedDate": {
             "type": "string",
-            "format": "date",
-            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            "example": "2026-11-12"
           },
           "vehicleTypeId": {
             "type": "string",
-            "pattern": "^vty_[0-9a-f]{32}$",
             "nullable": true
+          },
+          "holdReason": {
+            "nullable": true,
+            "description": "เหตุค้าง (ON_HOLD)",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/OrderHoldReasonDto"
+              }
+            ]
+          },
+          "holdCodes": {
+            "type": "array",
+            "description": "เหตุค้างทั้งหมดของการรับงานครั้งล่าสุด (ตัวแรก = holdReason)",
+            "items": {
+              "type": "string",
+              "enum": [
+                "SOURCE_ERROR",
+                "CUSTOMER_UNMAPPED",
+                "LOCATION_UNMAPPED",
+                "GEOCODING_ERROR",
+                "RATE_MISSING"
+              ]
+            }
+          },
+          "rescheduledDate": {
+            "type": "string",
+            "nullable": true,
+            "example": "2026-11-18",
+            "description": "ST4-T12 วันที่นัดส่งใหม่ล่าสุดของ DO ส่งใหม่ที่ยังรอจัด (null = ไม่มี) — หน้าใบค้าง/รายการแสดงแทนกำหนดส่งเดิม"
           },
           "pricingStatus": {
             "type": "string",
             "enum": [
               "AVAILABLE",
               "RATE_MISSING",
-              "CALCULATION_FAILURE",
-              null
-            ],
-            "nullable": true
+              "CALCULATION_FAILURE"
+            ]
+          },
+          "pricingReasons": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderPricingReasonDto"
+            }
           },
           "stops": {
             "type": "array",
             "items": {
-              "type": "object",
-              "properties": {
-                "sequence": {
-                  "type": "integer"
-                },
-                "type": {
-                  "type": "string",
-                  "enum": [
-                    "PICKUP",
-                    "DELIVERY",
-                    "RETURN"
-                  ]
-                },
-                "siteId": {
-                  "type": "string",
-                  "pattern": "^loc_[0-9a-f]{32}$",
-                  "nullable": true
-                },
-                "siteText": {
-                  "type": "string",
-                  "nullable": true
-                },
-                "windowStart": {
-                  "type": "string",
-                  "format": "date-time",
-                  "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$",
-                  "nullable": true
-                },
-                "windowEnd": {
-                  "type": "string",
-                  "format": "date-time",
-                  "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$",
-                  "nullable": true
-                }
-              },
-              "required": [
-                "sequence",
-                "type",
-                "siteId",
-                "siteText",
-                "windowStart",
-                "windowEnd"
-              ]
-            },
-            "minItems": 1
+              "$ref": "#/components/schemas/OrderStopDto"
+            }
           },
-          "holdNote": {
-            "type": "string",
-            "nullable": true
+          "lines": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderLineDto"
+            }
           },
           "sourceChangedAfterPlan": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "ต้นทาง (connector) แก้ใบหลังวางแผน — ไม่ทับข้อมูล รอคนรับ/ไม่รับ (`sourceChange`) · สถานะใบไม่เปลี่ยน (docs/01 §4.1)"
+          },
+          "sourceChange": {
+            "nullable": true,
+            "description": "ชุดการเปลี่ยนแปลงจากต้นทางที่รอตัดสิน (รับ: POST …/source-changes/{changeId}/accept · ไม่รับ: …/reject)",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/OrderSourceChangeDto"
+              }
+            ]
           },
           "version": {
-            "type": "integer"
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
           }
         },
         "required": [
           "id",
           "soNo",
-          "source",
-          "externalId",
           "status",
-          "holdReason",
-          "customerId",
-          "customerExternalId",
-          "customerText",
+          "source",
+          "sourceType",
+          "connector",
+          "externalId",
+          "customer",
           "billingCompanyId",
           "customerRef",
           "requestedDate",
           "vehicleTypeId",
+          "holdReason",
+          "holdCodes",
+          "rescheduledDate",
           "pricingStatus",
+          "pricingReasons",
           "stops",
-          "holdNote",
+          "lines",
           "sourceChangedAfterPlan",
-          "version"
-        ],
-        "description": "`data.object` ของ order.held — พักใบสั่งงาน (เช่น ข้อมูลไม่ครบ เกินวงเงิน)"
+          "sourceChange",
+          "version",
+          "createdAt",
+          "updatedAt"
+        ]
       },
       "WebhookEvent_order_released": {
         "type": "object",
+        "description": "`data.object` ของ order.released — ปล่อยใบสั่งงานที่พักไว้ให้วางแผนต่อ · รูปเดียวกับ OrderDto (ไม่มี field ราคา, editableFields, editLock, sellBilling)",
         "properties": {
           "id": {
             "type": "string",
-            "pattern": "^ord_[0-9a-f]{32}$"
+            "example": "ord_3f2a…"
           },
           "soNo": {
             "type": "string",
-            "nullable": true
-          },
-          "source": {
-            "type": "string"
-          },
-          "externalId": {
-            "type": "string",
-            "nullable": true
+            "nullable": true,
+            "example": "SO-6911-0001",
+            "description": "ร่าง = null"
           },
           "status": {
             "type": "string",
             "enum": [
-              "DRAFT",
-              "RECEIVED",
-              "ON_HOLD",
-              "PLANNED",
-              "IN_TRANSIT",
-              "PARTIALLY_DELIVERED",
-              "DELIVERED",
-              "CLOSED",
-              "CANCELLED"
+              "draft",
+              "received",
+              "on_hold",
+              "planned",
+              "in_transit",
+              "partially_delivered",
+              "delivered",
+              "closed",
+              "cancelled"
             ]
           },
-          "holdReason": {
+          "source": {
             "type": "string",
-            "nullable": true
+            "example": "ERP:krs",
+            "description": "ที่มาตาม docs/04 C: MANUAL / EXCEL / API / PORTAL / ERP:{connector}"
           },
-          "customerId": {
+          "sourceType": {
             "type": "string",
-            "pattern": "^cus_[0-9a-f]{32}$",
-            "nullable": true
+            "enum": [
+              "MANUAL",
+              "IMPORT",
+              "API",
+              "PORTAL",
+              "CONNECTOR"
+            ],
+            "description": "ชนิดที่มา (ใช้กับป้ายที่มา): MANUAL / IMPORT / API / PORTAL / CONNECTOR"
           },
-          "customerExternalId": {
+          "connector": {
             "type": "string",
-            "nullable": true
+            "nullable": true,
+            "example": "krs",
+            "description": "รหัส connector"
           },
-          "customerText": {
+          "externalId": {
             "type": "string",
-            "nullable": true
+            "nullable": true,
+            "description": "externalRef ของระบบต้นทาง"
+          },
+          "customer": {
+            "$ref": "#/components/schemas/OrderCustomerDto"
           },
           "billingCompanyId": {
-            "type": "string",
-            "pattern": "^cmp_[0-9a-f]{32}$"
+            "type": "string"
           },
           "customerRef": {
             "type": "string",
@@ -66947,158 +67018,179 @@
           },
           "requestedDate": {
             "type": "string",
-            "format": "date",
-            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            "example": "2026-11-12"
           },
           "vehicleTypeId": {
             "type": "string",
-            "pattern": "^vty_[0-9a-f]{32}$",
             "nullable": true
+          },
+          "holdReason": {
+            "nullable": true,
+            "description": "เหตุค้าง (ON_HOLD)",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/OrderHoldReasonDto"
+              }
+            ]
+          },
+          "holdCodes": {
+            "type": "array",
+            "description": "เหตุค้างทั้งหมดของการรับงานครั้งล่าสุด (ตัวแรก = holdReason)",
+            "items": {
+              "type": "string",
+              "enum": [
+                "SOURCE_ERROR",
+                "CUSTOMER_UNMAPPED",
+                "LOCATION_UNMAPPED",
+                "GEOCODING_ERROR",
+                "RATE_MISSING"
+              ]
+            }
+          },
+          "rescheduledDate": {
+            "type": "string",
+            "nullable": true,
+            "example": "2026-11-18",
+            "description": "ST4-T12 วันที่นัดส่งใหม่ล่าสุดของ DO ส่งใหม่ที่ยังรอจัด (null = ไม่มี) — หน้าใบค้าง/รายการแสดงแทนกำหนดส่งเดิม"
           },
           "pricingStatus": {
             "type": "string",
             "enum": [
               "AVAILABLE",
               "RATE_MISSING",
-              "CALCULATION_FAILURE",
-              null
-            ],
-            "nullable": true
+              "CALCULATION_FAILURE"
+            ]
+          },
+          "pricingReasons": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderPricingReasonDto"
+            }
           },
           "stops": {
             "type": "array",
             "items": {
-              "type": "object",
-              "properties": {
-                "sequence": {
-                  "type": "integer"
-                },
-                "type": {
-                  "type": "string",
-                  "enum": [
-                    "PICKUP",
-                    "DELIVERY",
-                    "RETURN"
-                  ]
-                },
-                "siteId": {
-                  "type": "string",
-                  "pattern": "^loc_[0-9a-f]{32}$",
-                  "nullable": true
-                },
-                "siteText": {
-                  "type": "string",
-                  "nullable": true
-                },
-                "windowStart": {
-                  "type": "string",
-                  "format": "date-time",
-                  "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$",
-                  "nullable": true
-                },
-                "windowEnd": {
-                  "type": "string",
-                  "format": "date-time",
-                  "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$",
-                  "nullable": true
-                }
-              },
-              "required": [
-                "sequence",
-                "type",
-                "siteId",
-                "siteText",
-                "windowStart",
-                "windowEnd"
-              ]
-            },
-            "minItems": 1
+              "$ref": "#/components/schemas/OrderStopDto"
+            }
           },
-          "holdNote": {
-            "type": "string",
-            "nullable": true
+          "lines": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderLineDto"
+            }
           },
           "sourceChangedAfterPlan": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "ต้นทาง (connector) แก้ใบหลังวางแผน — ไม่ทับข้อมูล รอคนรับ/ไม่รับ (`sourceChange`) · สถานะใบไม่เปลี่ยน (docs/01 §4.1)"
+          },
+          "sourceChange": {
+            "nullable": true,
+            "description": "ชุดการเปลี่ยนแปลงจากต้นทางที่รอตัดสิน (รับ: POST …/source-changes/{changeId}/accept · ไม่รับ: …/reject)",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/OrderSourceChangeDto"
+              }
+            ]
           },
           "version": {
-            "type": "integer"
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
           }
         },
         "required": [
           "id",
           "soNo",
-          "source",
-          "externalId",
           "status",
-          "holdReason",
-          "customerId",
-          "customerExternalId",
-          "customerText",
+          "source",
+          "sourceType",
+          "connector",
+          "externalId",
+          "customer",
           "billingCompanyId",
           "customerRef",
           "requestedDate",
           "vehicleTypeId",
+          "holdReason",
+          "holdCodes",
+          "rescheduledDate",
           "pricingStatus",
+          "pricingReasons",
           "stops",
-          "holdNote",
+          "lines",
           "sourceChangedAfterPlan",
-          "version"
-        ],
-        "description": "`data.object` ของ order.released — ปล่อยใบสั่งงานที่พักไว้ให้วางแผนต่อ"
+          "sourceChange",
+          "version",
+          "createdAt",
+          "updatedAt"
+        ]
       },
       "WebhookEvent_order_cancelled": {
         "type": "object",
+        "description": "`data.object` ของ order.cancelled — ยกเลิกใบสั่งงาน · รูปเดียวกับ OrderDto (ไม่มี field ราคา, editableFields, editLock, sellBilling)",
         "properties": {
           "id": {
             "type": "string",
-            "pattern": "^ord_[0-9a-f]{32}$"
+            "example": "ord_3f2a…"
           },
           "soNo": {
             "type": "string",
-            "nullable": true
-          },
-          "source": {
-            "type": "string"
-          },
-          "externalId": {
-            "type": "string",
-            "nullable": true
+            "nullable": true,
+            "example": "SO-6911-0001",
+            "description": "ร่าง = null"
           },
           "status": {
             "type": "string",
             "enum": [
-              "DRAFT",
-              "RECEIVED",
-              "ON_HOLD",
-              "PLANNED",
-              "IN_TRANSIT",
-              "PARTIALLY_DELIVERED",
-              "DELIVERED",
-              "CLOSED",
-              "CANCELLED"
+              "draft",
+              "received",
+              "on_hold",
+              "planned",
+              "in_transit",
+              "partially_delivered",
+              "delivered",
+              "closed",
+              "cancelled"
             ]
           },
-          "holdReason": {
+          "source": {
             "type": "string",
-            "nullable": true
+            "example": "ERP:krs",
+            "description": "ที่มาตาม docs/04 C: MANUAL / EXCEL / API / PORTAL / ERP:{connector}"
           },
-          "customerId": {
+          "sourceType": {
             "type": "string",
-            "pattern": "^cus_[0-9a-f]{32}$",
-            "nullable": true
+            "enum": [
+              "MANUAL",
+              "IMPORT",
+              "API",
+              "PORTAL",
+              "CONNECTOR"
+            ],
+            "description": "ชนิดที่มา (ใช้กับป้ายที่มา): MANUAL / IMPORT / API / PORTAL / CONNECTOR"
           },
-          "customerExternalId": {
+          "connector": {
             "type": "string",
-            "nullable": true
+            "nullable": true,
+            "example": "krs",
+            "description": "รหัส connector"
           },
-          "customerText": {
+          "externalId": {
             "type": "string",
-            "nullable": true
+            "nullable": true,
+            "description": "externalRef ของระบบต้นทาง"
+          },
+          "customer": {
+            "$ref": "#/components/schemas/OrderCustomerDto"
           },
           "billingCompanyId": {
-            "type": "string",
-            "pattern": "^cmp_[0-9a-f]{32}$"
+            "type": "string"
           },
           "customerRef": {
             "type": "string",
@@ -67106,121 +67198,134 @@
           },
           "requestedDate": {
             "type": "string",
-            "format": "date",
-            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            "example": "2026-11-12"
           },
           "vehicleTypeId": {
             "type": "string",
-            "pattern": "^vty_[0-9a-f]{32}$",
             "nullable": true
+          },
+          "holdReason": {
+            "nullable": true,
+            "description": "เหตุค้าง (ON_HOLD)",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/OrderHoldReasonDto"
+              }
+            ]
+          },
+          "holdCodes": {
+            "type": "array",
+            "description": "เหตุค้างทั้งหมดของการรับงานครั้งล่าสุด (ตัวแรก = holdReason)",
+            "items": {
+              "type": "string",
+              "enum": [
+                "SOURCE_ERROR",
+                "CUSTOMER_UNMAPPED",
+                "LOCATION_UNMAPPED",
+                "GEOCODING_ERROR",
+                "RATE_MISSING"
+              ]
+            }
+          },
+          "rescheduledDate": {
+            "type": "string",
+            "nullable": true,
+            "example": "2026-11-18",
+            "description": "ST4-T12 วันที่นัดส่งใหม่ล่าสุดของ DO ส่งใหม่ที่ยังรอจัด (null = ไม่มี) — หน้าใบค้าง/รายการแสดงแทนกำหนดส่งเดิม"
           },
           "pricingStatus": {
             "type": "string",
             "enum": [
               "AVAILABLE",
               "RATE_MISSING",
-              "CALCULATION_FAILURE",
-              null
-            ],
-            "nullable": true
+              "CALCULATION_FAILURE"
+            ]
+          },
+          "pricingReasons": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderPricingReasonDto"
+            }
           },
           "stops": {
             "type": "array",
             "items": {
-              "type": "object",
-              "properties": {
-                "sequence": {
-                  "type": "integer"
-                },
-                "type": {
-                  "type": "string",
-                  "enum": [
-                    "PICKUP",
-                    "DELIVERY",
-                    "RETURN"
-                  ]
-                },
-                "siteId": {
-                  "type": "string",
-                  "pattern": "^loc_[0-9a-f]{32}$",
-                  "nullable": true
-                },
-                "siteText": {
-                  "type": "string",
-                  "nullable": true
-                },
-                "windowStart": {
-                  "type": "string",
-                  "format": "date-time",
-                  "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$",
-                  "nullable": true
-                },
-                "windowEnd": {
-                  "type": "string",
-                  "format": "date-time",
-                  "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$",
-                  "nullable": true
-                }
-              },
-              "required": [
-                "sequence",
-                "type",
-                "siteId",
-                "siteText",
-                "windowStart",
-                "windowEnd"
-              ]
-            },
-            "minItems": 1
+              "$ref": "#/components/schemas/OrderStopDto"
+            }
           },
-          "holdNote": {
-            "type": "string",
-            "nullable": true
+          "lines": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderLineDto"
+            }
           },
           "sourceChangedAfterPlan": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "ต้นทาง (connector) แก้ใบหลังวางแผน — ไม่ทับข้อมูล รอคนรับ/ไม่รับ (`sourceChange`) · สถานะใบไม่เปลี่ยน (docs/01 §4.1)"
+          },
+          "sourceChange": {
+            "nullable": true,
+            "description": "ชุดการเปลี่ยนแปลงจากต้นทางที่รอตัดสิน (รับ: POST …/source-changes/{changeId}/accept · ไม่รับ: …/reject)",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/OrderSourceChangeDto"
+              }
+            ]
           },
           "version": {
-            "type": "integer"
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
           }
         },
         "required": [
           "id",
           "soNo",
-          "source",
-          "externalId",
           "status",
-          "holdReason",
-          "customerId",
-          "customerExternalId",
-          "customerText",
+          "source",
+          "sourceType",
+          "connector",
+          "externalId",
+          "customer",
           "billingCompanyId",
           "customerRef",
           "requestedDate",
           "vehicleTypeId",
+          "holdReason",
+          "holdCodes",
+          "rescheduledDate",
           "pricingStatus",
+          "pricingReasons",
           "stops",
-          "holdNote",
+          "lines",
           "sourceChangedAfterPlan",
-          "version"
-        ],
-        "description": "`data.object` ของ order.cancelled — ยกเลิกใบสั่งงาน"
+          "sourceChange",
+          "version",
+          "createdAt",
+          "updatedAt"
+        ]
       },
       "WebhookEvent_trip_assigned": {
         "type": "object",
+        "description": "`data.object` ของ trip.assigned — จัดรถ/คนขับ หรือรถร่วมให้เที่ยววิ่ง · รูปเดียวกับ TripDto (ไม่มี field ราคา)",
         "properties": {
           "id": {
             "type": "string",
-            "pattern": "^trp_[0-9a-f]{32}$"
+            "example": "trp_3f2a…"
           },
           "tripNo": {
             "type": "string",
-            "nullable": true
+            "example": "TRP-6911-0001"
           },
           "tripDate": {
             "type": "string",
-            "format": "date",
-            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            "example": "2026-11-13"
           },
           "status": {
             "type": "string",
@@ -67236,91 +67341,168 @@
               "CANCELLED"
             ]
           },
-          "vehicleId": {
-            "type": "string",
-            "pattern": "^veh_[0-9a-f]{32}$",
-            "nullable": true
-          },
-          "vehiclePlate": {
+          "plannedStartAt": {
             "type": "string",
             "nullable": true
           },
-          "vehicleTypeId": {
+          "plannedEndAt": {
             "type": "string",
-            "pattern": "^vty_[0-9a-f]{32}$",
             "nullable": true
           },
-          "driverId": {
-            "type": "string",
-            "pattern": "^drv_[0-9a-f]{32}$",
-            "nullable": true
+          "vehicle": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TripVehicleDto"
+              }
+            ]
           },
-          "carrierId": {
-            "type": "string",
-            "pattern": "^car_[0-9a-f]{32}$",
-            "nullable": true
+          "trailer": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TripTrailerDto"
+              }
+            ]
+          },
+          "driver": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TripDriverDto"
+              }
+            ]
+          },
+          "reliefDriver": {
+            "nullable": true,
+            "description": "คนขับสำรอง",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TripDriverDto"
+              }
+            ]
+          },
+          "carrier": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TripCarrierDto"
+              }
+            ]
           },
           "assignmentStatus": {
             "type": "string",
+            "nullable": true,
             "enum": [
               "OFFERED",
               "ACCEPTED",
               "REJECTED",
-              "EXPIRED",
-              null
-            ],
+              "EXPIRED"
+            ]
+          },
+          "offeredAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "offerExpiresAt": {
+            "type": "string",
+            "nullable": true,
+            "description": "ข้อเสนอหมดอายุ (48 ชม.)"
+          },
+          "hire": {
+            "nullable": true,
+            "description": "ST3-T22 การจ้างรถร่วมที่ใช้งานอยู่ (รอตอบ/รับแล้ว) — ราคาซื้อเห็นเมื่อมี `prices.buy:read`",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TripHireDto"
+              }
+            ]
+          },
+          "assignedAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "dispatchedAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "completedAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "cancelledAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "cancelReason": {
+            "type": "string",
             "nullable": true
           },
           "stops": {
             "type": "array",
             "items": {
-              "type": "object",
-              "properties": {
-                "id": {
-                  "type": "string",
-                  "pattern": "^stp_[0-9a-f]{32}$"
-                },
-                "sequence": {
-                  "type": "integer"
-                },
-                "type": {
-                  "type": "string",
-                  "enum": [
-                    "PICKUP",
-                    "DELIVERY",
-                    "RETURN"
-                  ]
-                },
-                "siteId": {
-                  "type": "string",
-                  "pattern": "^loc_[0-9a-f]{32}$",
-                  "nullable": true
-                }
-              },
-              "required": [
-                "id",
-                "sequence",
-                "type",
-                "siteId"
-              ]
+              "$ref": "#/components/schemas/TripStopDto"
             }
           },
-          "deliveryOrderIds": {
+          "deliveryOrders": {
             "type": "array",
             "items": {
-              "type": "string",
-              "pattern": "^do_[0-9a-f]{32}$"
+              "$ref": "#/components/schemas/TripDeliveryOrderDto"
             }
+          },
+          "rescheduledDeliveryOrders": {
+            "description": "ST4-T12 DO ที่ส่งไม่สำเร็จในเที่ยวนี้แล้วนัดส่งใหม่ (ใบเดิม CANCELLED) — \"ส่งไม่สำเร็จ · นัดส่งใหม่\" · มีค่าเฉพาะ GET /trips/{id} (อื่น = [])",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TripRescheduledDoDto"
+            }
+          },
+          "weightKg": {
+            "type": "string",
+            "example": "5400",
+            "description": "น้ำหนักรวมของ DO ในเที่ยว (กก.)"
+          },
+          "route": {
+            "description": "ST3-T16 ระยะ/เวลารวมตามลำดับจุดปัจจุบัน (คำนวณใหม่ทุกครั้งที่จุดเปลี่ยน)",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TripRouteSummaryDto"
+              }
+            ]
+          },
+          "warnings": {
+            "description": "ผลตรวจกฎตอนจัดล่าสุด (ST3-T14 — D-07: block = กฎเอกสาร, warning = ต้องยืนยันก่อนปล่อยรถ)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TripWarningDto"
+            }
+          },
+          "ruleOverrides": {
+            "description": "ประวัติการยกเว้น/ยืนยันกฎของเที่ยว (เรียงตามเวลา)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TripRuleOverrideDto"
+            }
+          },
+          "version": {
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
           },
           "startedAt": {
             "type": "string",
             "format": "date-time",
-            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$"
-          },
-          "completedAt": {
-            "type": "string",
-            "format": "date-time",
-            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$"
+            "description": "trip.started: เวลาเริ่มจริง (event หน้างานแรก)"
           }
         },
         "required": [
@@ -67328,32 +67510,49 @@
           "tripNo",
           "tripDate",
           "status",
-          "vehicleId",
-          "vehiclePlate",
-          "vehicleTypeId",
-          "driverId",
-          "carrierId",
+          "plannedStartAt",
+          "plannedEndAt",
+          "vehicle",
+          "trailer",
+          "driver",
+          "reliefDriver",
+          "carrier",
           "assignmentStatus",
+          "offeredAt",
+          "offerExpiresAt",
+          "hire",
+          "assignedAt",
+          "dispatchedAt",
+          "completedAt",
+          "cancelledAt",
+          "cancelReason",
           "stops",
-          "deliveryOrderIds"
-        ],
-        "description": "`data.object` ของ trip.assigned — จัดรถ/คนขับ หรือรถร่วมให้เที่ยววิ่ง"
+          "deliveryOrders",
+          "rescheduledDeliveryOrders",
+          "weightKg",
+          "route",
+          "warnings",
+          "ruleOverrides",
+          "version",
+          "createdAt",
+          "updatedAt"
+        ]
       },
       "WebhookEvent_trip_dispatched": {
         "type": "object",
+        "description": "`data.object` ของ trip.dispatched — ปล่อยเที่ยววิ่งให้คนขับ · รูปเดียวกับ TripDto (ไม่มี field ราคา)",
         "properties": {
           "id": {
             "type": "string",
-            "pattern": "^trp_[0-9a-f]{32}$"
+            "example": "trp_3f2a…"
           },
           "tripNo": {
             "type": "string",
-            "nullable": true
+            "example": "TRP-6911-0001"
           },
           "tripDate": {
             "type": "string",
-            "format": "date",
-            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            "example": "2026-11-13"
           },
           "status": {
             "type": "string",
@@ -67369,91 +67568,168 @@
               "CANCELLED"
             ]
           },
-          "vehicleId": {
-            "type": "string",
-            "pattern": "^veh_[0-9a-f]{32}$",
-            "nullable": true
-          },
-          "vehiclePlate": {
+          "plannedStartAt": {
             "type": "string",
             "nullable": true
           },
-          "vehicleTypeId": {
+          "plannedEndAt": {
             "type": "string",
-            "pattern": "^vty_[0-9a-f]{32}$",
             "nullable": true
           },
-          "driverId": {
-            "type": "string",
-            "pattern": "^drv_[0-9a-f]{32}$",
-            "nullable": true
+          "vehicle": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TripVehicleDto"
+              }
+            ]
           },
-          "carrierId": {
-            "type": "string",
-            "pattern": "^car_[0-9a-f]{32}$",
-            "nullable": true
+          "trailer": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TripTrailerDto"
+              }
+            ]
+          },
+          "driver": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TripDriverDto"
+              }
+            ]
+          },
+          "reliefDriver": {
+            "nullable": true,
+            "description": "คนขับสำรอง",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TripDriverDto"
+              }
+            ]
+          },
+          "carrier": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TripCarrierDto"
+              }
+            ]
           },
           "assignmentStatus": {
             "type": "string",
+            "nullable": true,
             "enum": [
               "OFFERED",
               "ACCEPTED",
               "REJECTED",
-              "EXPIRED",
-              null
-            ],
+              "EXPIRED"
+            ]
+          },
+          "offeredAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "offerExpiresAt": {
+            "type": "string",
+            "nullable": true,
+            "description": "ข้อเสนอหมดอายุ (48 ชม.)"
+          },
+          "hire": {
+            "nullable": true,
+            "description": "ST3-T22 การจ้างรถร่วมที่ใช้งานอยู่ (รอตอบ/รับแล้ว) — ราคาซื้อเห็นเมื่อมี `prices.buy:read`",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TripHireDto"
+              }
+            ]
+          },
+          "assignedAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "dispatchedAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "completedAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "cancelledAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "cancelReason": {
+            "type": "string",
             "nullable": true
           },
           "stops": {
             "type": "array",
             "items": {
-              "type": "object",
-              "properties": {
-                "id": {
-                  "type": "string",
-                  "pattern": "^stp_[0-9a-f]{32}$"
-                },
-                "sequence": {
-                  "type": "integer"
-                },
-                "type": {
-                  "type": "string",
-                  "enum": [
-                    "PICKUP",
-                    "DELIVERY",
-                    "RETURN"
-                  ]
-                },
-                "siteId": {
-                  "type": "string",
-                  "pattern": "^loc_[0-9a-f]{32}$",
-                  "nullable": true
-                }
-              },
-              "required": [
-                "id",
-                "sequence",
-                "type",
-                "siteId"
-              ]
+              "$ref": "#/components/schemas/TripStopDto"
             }
           },
-          "deliveryOrderIds": {
+          "deliveryOrders": {
             "type": "array",
             "items": {
-              "type": "string",
-              "pattern": "^do_[0-9a-f]{32}$"
+              "$ref": "#/components/schemas/TripDeliveryOrderDto"
             }
+          },
+          "rescheduledDeliveryOrders": {
+            "description": "ST4-T12 DO ที่ส่งไม่สำเร็จในเที่ยวนี้แล้วนัดส่งใหม่ (ใบเดิม CANCELLED) — \"ส่งไม่สำเร็จ · นัดส่งใหม่\" · มีค่าเฉพาะ GET /trips/{id} (อื่น = [])",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TripRescheduledDoDto"
+            }
+          },
+          "weightKg": {
+            "type": "string",
+            "example": "5400",
+            "description": "น้ำหนักรวมของ DO ในเที่ยว (กก.)"
+          },
+          "route": {
+            "description": "ST3-T16 ระยะ/เวลารวมตามลำดับจุดปัจจุบัน (คำนวณใหม่ทุกครั้งที่จุดเปลี่ยน)",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TripRouteSummaryDto"
+              }
+            ]
+          },
+          "warnings": {
+            "description": "ผลตรวจกฎตอนจัดล่าสุด (ST3-T14 — D-07: block = กฎเอกสาร, warning = ต้องยืนยันก่อนปล่อยรถ)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TripWarningDto"
+            }
+          },
+          "ruleOverrides": {
+            "description": "ประวัติการยกเว้น/ยืนยันกฎของเที่ยว (เรียงตามเวลา)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TripRuleOverrideDto"
+            }
+          },
+          "version": {
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
           },
           "startedAt": {
             "type": "string",
             "format": "date-time",
-            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$"
-          },
-          "completedAt": {
-            "type": "string",
-            "format": "date-time",
-            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$"
+            "description": "trip.started: เวลาเริ่มจริง (event หน้างานแรก)"
           }
         },
         "required": [
@@ -67461,32 +67737,49 @@
           "tripNo",
           "tripDate",
           "status",
-          "vehicleId",
-          "vehiclePlate",
-          "vehicleTypeId",
-          "driverId",
-          "carrierId",
+          "plannedStartAt",
+          "plannedEndAt",
+          "vehicle",
+          "trailer",
+          "driver",
+          "reliefDriver",
+          "carrier",
           "assignmentStatus",
+          "offeredAt",
+          "offerExpiresAt",
+          "hire",
+          "assignedAt",
+          "dispatchedAt",
+          "completedAt",
+          "cancelledAt",
+          "cancelReason",
           "stops",
-          "deliveryOrderIds"
-        ],
-        "description": "`data.object` ของ trip.dispatched — ปล่อยเที่ยววิ่งให้คนขับ"
+          "deliveryOrders",
+          "rescheduledDeliveryOrders",
+          "weightKg",
+          "route",
+          "warnings",
+          "ruleOverrides",
+          "version",
+          "createdAt",
+          "updatedAt"
+        ]
       },
       "WebhookEvent_trip_started": {
         "type": "object",
+        "description": "`data.object` ของ trip.started — คนขับเริ่มเที่ยววิ่ง · รูปเดียวกับ TripDto (ไม่มี field ราคา)",
         "properties": {
           "id": {
             "type": "string",
-            "pattern": "^trp_[0-9a-f]{32}$"
+            "example": "trp_3f2a…"
           },
           "tripNo": {
             "type": "string",
-            "nullable": true
+            "example": "TRP-6911-0001"
           },
           "tripDate": {
             "type": "string",
-            "format": "date",
-            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            "example": "2026-11-13"
           },
           "status": {
             "type": "string",
@@ -67502,91 +67795,168 @@
               "CANCELLED"
             ]
           },
-          "vehicleId": {
-            "type": "string",
-            "pattern": "^veh_[0-9a-f]{32}$",
-            "nullable": true
-          },
-          "vehiclePlate": {
+          "plannedStartAt": {
             "type": "string",
             "nullable": true
           },
-          "vehicleTypeId": {
+          "plannedEndAt": {
             "type": "string",
-            "pattern": "^vty_[0-9a-f]{32}$",
             "nullable": true
           },
-          "driverId": {
-            "type": "string",
-            "pattern": "^drv_[0-9a-f]{32}$",
-            "nullable": true
+          "vehicle": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TripVehicleDto"
+              }
+            ]
           },
-          "carrierId": {
-            "type": "string",
-            "pattern": "^car_[0-9a-f]{32}$",
-            "nullable": true
+          "trailer": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TripTrailerDto"
+              }
+            ]
+          },
+          "driver": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TripDriverDto"
+              }
+            ]
+          },
+          "reliefDriver": {
+            "nullable": true,
+            "description": "คนขับสำรอง",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TripDriverDto"
+              }
+            ]
+          },
+          "carrier": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TripCarrierDto"
+              }
+            ]
           },
           "assignmentStatus": {
             "type": "string",
+            "nullable": true,
             "enum": [
               "OFFERED",
               "ACCEPTED",
               "REJECTED",
-              "EXPIRED",
-              null
-            ],
+              "EXPIRED"
+            ]
+          },
+          "offeredAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "offerExpiresAt": {
+            "type": "string",
+            "nullable": true,
+            "description": "ข้อเสนอหมดอายุ (48 ชม.)"
+          },
+          "hire": {
+            "nullable": true,
+            "description": "ST3-T22 การจ้างรถร่วมที่ใช้งานอยู่ (รอตอบ/รับแล้ว) — ราคาซื้อเห็นเมื่อมี `prices.buy:read`",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TripHireDto"
+              }
+            ]
+          },
+          "assignedAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "dispatchedAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "completedAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "cancelledAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "cancelReason": {
+            "type": "string",
             "nullable": true
           },
           "stops": {
             "type": "array",
             "items": {
-              "type": "object",
-              "properties": {
-                "id": {
-                  "type": "string",
-                  "pattern": "^stp_[0-9a-f]{32}$"
-                },
-                "sequence": {
-                  "type": "integer"
-                },
-                "type": {
-                  "type": "string",
-                  "enum": [
-                    "PICKUP",
-                    "DELIVERY",
-                    "RETURN"
-                  ]
-                },
-                "siteId": {
-                  "type": "string",
-                  "pattern": "^loc_[0-9a-f]{32}$",
-                  "nullable": true
-                }
-              },
-              "required": [
-                "id",
-                "sequence",
-                "type",
-                "siteId"
-              ]
+              "$ref": "#/components/schemas/TripStopDto"
             }
           },
-          "deliveryOrderIds": {
+          "deliveryOrders": {
             "type": "array",
             "items": {
-              "type": "string",
-              "pattern": "^do_[0-9a-f]{32}$"
+              "$ref": "#/components/schemas/TripDeliveryOrderDto"
             }
+          },
+          "rescheduledDeliveryOrders": {
+            "description": "ST4-T12 DO ที่ส่งไม่สำเร็จในเที่ยวนี้แล้วนัดส่งใหม่ (ใบเดิม CANCELLED) — \"ส่งไม่สำเร็จ · นัดส่งใหม่\" · มีค่าเฉพาะ GET /trips/{id} (อื่น = [])",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TripRescheduledDoDto"
+            }
+          },
+          "weightKg": {
+            "type": "string",
+            "example": "5400",
+            "description": "น้ำหนักรวมของ DO ในเที่ยว (กก.)"
+          },
+          "route": {
+            "description": "ST3-T16 ระยะ/เวลารวมตามลำดับจุดปัจจุบัน (คำนวณใหม่ทุกครั้งที่จุดเปลี่ยน)",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TripRouteSummaryDto"
+              }
+            ]
+          },
+          "warnings": {
+            "description": "ผลตรวจกฎตอนจัดล่าสุด (ST3-T14 — D-07: block = กฎเอกสาร, warning = ต้องยืนยันก่อนปล่อยรถ)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TripWarningDto"
+            }
+          },
+          "ruleOverrides": {
+            "description": "ประวัติการยกเว้น/ยืนยันกฎของเที่ยว (เรียงตามเวลา)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TripRuleOverrideDto"
+            }
+          },
+          "version": {
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
           },
           "startedAt": {
             "type": "string",
             "format": "date-time",
-            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$"
-          },
-          "completedAt": {
-            "type": "string",
-            "format": "date-time",
-            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$"
+            "description": "trip.started: เวลาเริ่มจริง (event หน้างานแรก)"
           }
         },
         "required": [
@@ -67594,33 +67964,50 @@
           "tripNo",
           "tripDate",
           "status",
-          "vehicleId",
-          "vehiclePlate",
-          "vehicleTypeId",
-          "driverId",
-          "carrierId",
+          "plannedStartAt",
+          "plannedEndAt",
+          "vehicle",
+          "trailer",
+          "driver",
+          "reliefDriver",
+          "carrier",
           "assignmentStatus",
+          "offeredAt",
+          "offerExpiresAt",
+          "hire",
+          "assignedAt",
+          "dispatchedAt",
+          "completedAt",
+          "cancelledAt",
+          "cancelReason",
           "stops",
-          "deliveryOrderIds",
+          "deliveryOrders",
+          "rescheduledDeliveryOrders",
+          "weightKg",
+          "route",
+          "warnings",
+          "ruleOverrides",
+          "version",
+          "createdAt",
+          "updatedAt",
           "startedAt"
-        ],
-        "description": "`data.object` ของ trip.started — คนขับเริ่มเที่ยววิ่ง"
+        ]
       },
       "WebhookEvent_trip_completed": {
         "type": "object",
+        "description": "`data.object` ของ trip.completed — เที่ยววิ่งจบครบทุกจุด · รูปเดียวกับ TripDto (ไม่มี field ราคา)",
         "properties": {
           "id": {
             "type": "string",
-            "pattern": "^trp_[0-9a-f]{32}$"
+            "example": "trp_3f2a…"
           },
           "tripNo": {
             "type": "string",
-            "nullable": true
+            "example": "TRP-6911-0001"
           },
           "tripDate": {
             "type": "string",
-            "format": "date",
-            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            "example": "2026-11-13"
           },
           "status": {
             "type": "string",
@@ -67636,91 +68023,168 @@
               "CANCELLED"
             ]
           },
-          "vehicleId": {
-            "type": "string",
-            "pattern": "^veh_[0-9a-f]{32}$",
-            "nullable": true
-          },
-          "vehiclePlate": {
+          "plannedStartAt": {
             "type": "string",
             "nullable": true
           },
-          "vehicleTypeId": {
+          "plannedEndAt": {
             "type": "string",
-            "pattern": "^vty_[0-9a-f]{32}$",
             "nullable": true
           },
-          "driverId": {
-            "type": "string",
-            "pattern": "^drv_[0-9a-f]{32}$",
-            "nullable": true
+          "vehicle": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TripVehicleDto"
+              }
+            ]
           },
-          "carrierId": {
-            "type": "string",
-            "pattern": "^car_[0-9a-f]{32}$",
-            "nullable": true
+          "trailer": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TripTrailerDto"
+              }
+            ]
+          },
+          "driver": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TripDriverDto"
+              }
+            ]
+          },
+          "reliefDriver": {
+            "nullable": true,
+            "description": "คนขับสำรอง",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TripDriverDto"
+              }
+            ]
+          },
+          "carrier": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TripCarrierDto"
+              }
+            ]
           },
           "assignmentStatus": {
             "type": "string",
+            "nullable": true,
             "enum": [
               "OFFERED",
               "ACCEPTED",
               "REJECTED",
-              "EXPIRED",
-              null
-            ],
+              "EXPIRED"
+            ]
+          },
+          "offeredAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "offerExpiresAt": {
+            "type": "string",
+            "nullable": true,
+            "description": "ข้อเสนอหมดอายุ (48 ชม.)"
+          },
+          "hire": {
+            "nullable": true,
+            "description": "ST3-T22 การจ้างรถร่วมที่ใช้งานอยู่ (รอตอบ/รับแล้ว) — ราคาซื้อเห็นเมื่อมี `prices.buy:read`",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TripHireDto"
+              }
+            ]
+          },
+          "assignedAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "dispatchedAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "completedAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "cancelledAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "cancelReason": {
+            "type": "string",
             "nullable": true
           },
           "stops": {
             "type": "array",
             "items": {
-              "type": "object",
-              "properties": {
-                "id": {
-                  "type": "string",
-                  "pattern": "^stp_[0-9a-f]{32}$"
-                },
-                "sequence": {
-                  "type": "integer"
-                },
-                "type": {
-                  "type": "string",
-                  "enum": [
-                    "PICKUP",
-                    "DELIVERY",
-                    "RETURN"
-                  ]
-                },
-                "siteId": {
-                  "type": "string",
-                  "pattern": "^loc_[0-9a-f]{32}$",
-                  "nullable": true
-                }
-              },
-              "required": [
-                "id",
-                "sequence",
-                "type",
-                "siteId"
-              ]
+              "$ref": "#/components/schemas/TripStopDto"
             }
           },
-          "deliveryOrderIds": {
+          "deliveryOrders": {
             "type": "array",
             "items": {
-              "type": "string",
-              "pattern": "^do_[0-9a-f]{32}$"
+              "$ref": "#/components/schemas/TripDeliveryOrderDto"
             }
+          },
+          "rescheduledDeliveryOrders": {
+            "description": "ST4-T12 DO ที่ส่งไม่สำเร็จในเที่ยวนี้แล้วนัดส่งใหม่ (ใบเดิม CANCELLED) — \"ส่งไม่สำเร็จ · นัดส่งใหม่\" · มีค่าเฉพาะ GET /trips/{id} (อื่น = [])",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TripRescheduledDoDto"
+            }
+          },
+          "weightKg": {
+            "type": "string",
+            "example": "5400",
+            "description": "น้ำหนักรวมของ DO ในเที่ยว (กก.)"
+          },
+          "route": {
+            "description": "ST3-T16 ระยะ/เวลารวมตามลำดับจุดปัจจุบัน (คำนวณใหม่ทุกครั้งที่จุดเปลี่ยน)",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TripRouteSummaryDto"
+              }
+            ]
+          },
+          "warnings": {
+            "description": "ผลตรวจกฎตอนจัดล่าสุด (ST3-T14 — D-07: block = กฎเอกสาร, warning = ต้องยืนยันก่อนปล่อยรถ)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TripWarningDto"
+            }
+          },
+          "ruleOverrides": {
+            "description": "ประวัติการยกเว้น/ยืนยันกฎของเที่ยว (เรียงตามเวลา)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TripRuleOverrideDto"
+            }
+          },
+          "version": {
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
           },
           "startedAt": {
             "type": "string",
             "format": "date-time",
-            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$"
-          },
-          "completedAt": {
-            "type": "string",
-            "format": "date-time",
-            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$"
+            "description": "trip.started: เวลาเริ่มจริง (event หน้างานแรก)"
           }
         },
         "required": [
@@ -67728,33 +68192,49 @@
           "tripNo",
           "tripDate",
           "status",
-          "vehicleId",
-          "vehiclePlate",
-          "vehicleTypeId",
-          "driverId",
-          "carrierId",
+          "plannedStartAt",
+          "plannedEndAt",
+          "vehicle",
+          "trailer",
+          "driver",
+          "reliefDriver",
+          "carrier",
           "assignmentStatus",
+          "offeredAt",
+          "offerExpiresAt",
+          "hire",
+          "assignedAt",
+          "dispatchedAt",
+          "completedAt",
+          "cancelledAt",
+          "cancelReason",
           "stops",
-          "deliveryOrderIds",
-          "completedAt"
-        ],
-        "description": "`data.object` ของ trip.completed — เที่ยววิ่งจบครบทุกจุด"
+          "deliveryOrders",
+          "rescheduledDeliveryOrders",
+          "weightKg",
+          "route",
+          "warnings",
+          "ruleOverrides",
+          "version",
+          "createdAt",
+          "updatedAt"
+        ]
       },
       "WebhookEvent_trip_cancelled": {
         "type": "object",
+        "description": "`data.object` ของ trip.cancelled — ยกเลิกเที่ยววิ่ง · รูปเดียวกับ TripDto (ไม่มี field ราคา)",
         "properties": {
           "id": {
             "type": "string",
-            "pattern": "^trp_[0-9a-f]{32}$"
+            "example": "trp_3f2a…"
           },
           "tripNo": {
             "type": "string",
-            "nullable": true
+            "example": "TRP-6911-0001"
           },
           "tripDate": {
             "type": "string",
-            "format": "date",
-            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            "example": "2026-11-13"
           },
           "status": {
             "type": "string",
@@ -67770,91 +68250,168 @@
               "CANCELLED"
             ]
           },
-          "vehicleId": {
-            "type": "string",
-            "pattern": "^veh_[0-9a-f]{32}$",
-            "nullable": true
-          },
-          "vehiclePlate": {
+          "plannedStartAt": {
             "type": "string",
             "nullable": true
           },
-          "vehicleTypeId": {
+          "plannedEndAt": {
             "type": "string",
-            "pattern": "^vty_[0-9a-f]{32}$",
             "nullable": true
           },
-          "driverId": {
-            "type": "string",
-            "pattern": "^drv_[0-9a-f]{32}$",
-            "nullable": true
+          "vehicle": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TripVehicleDto"
+              }
+            ]
           },
-          "carrierId": {
-            "type": "string",
-            "pattern": "^car_[0-9a-f]{32}$",
-            "nullable": true
+          "trailer": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TripTrailerDto"
+              }
+            ]
+          },
+          "driver": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TripDriverDto"
+              }
+            ]
+          },
+          "reliefDriver": {
+            "nullable": true,
+            "description": "คนขับสำรอง",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TripDriverDto"
+              }
+            ]
+          },
+          "carrier": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TripCarrierDto"
+              }
+            ]
           },
           "assignmentStatus": {
             "type": "string",
+            "nullable": true,
             "enum": [
               "OFFERED",
               "ACCEPTED",
               "REJECTED",
-              "EXPIRED",
-              null
-            ],
+              "EXPIRED"
+            ]
+          },
+          "offeredAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "offerExpiresAt": {
+            "type": "string",
+            "nullable": true,
+            "description": "ข้อเสนอหมดอายุ (48 ชม.)"
+          },
+          "hire": {
+            "nullable": true,
+            "description": "ST3-T22 การจ้างรถร่วมที่ใช้งานอยู่ (รอตอบ/รับแล้ว) — ราคาซื้อเห็นเมื่อมี `prices.buy:read`",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TripHireDto"
+              }
+            ]
+          },
+          "assignedAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "dispatchedAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "completedAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "cancelledAt": {
+            "type": "string",
+            "nullable": true
+          },
+          "cancelReason": {
+            "type": "string",
             "nullable": true
           },
           "stops": {
             "type": "array",
             "items": {
-              "type": "object",
-              "properties": {
-                "id": {
-                  "type": "string",
-                  "pattern": "^stp_[0-9a-f]{32}$"
-                },
-                "sequence": {
-                  "type": "integer"
-                },
-                "type": {
-                  "type": "string",
-                  "enum": [
-                    "PICKUP",
-                    "DELIVERY",
-                    "RETURN"
-                  ]
-                },
-                "siteId": {
-                  "type": "string",
-                  "pattern": "^loc_[0-9a-f]{32}$",
-                  "nullable": true
-                }
-              },
-              "required": [
-                "id",
-                "sequence",
-                "type",
-                "siteId"
-              ]
+              "$ref": "#/components/schemas/TripStopDto"
             }
           },
-          "deliveryOrderIds": {
+          "deliveryOrders": {
             "type": "array",
             "items": {
-              "type": "string",
-              "pattern": "^do_[0-9a-f]{32}$"
+              "$ref": "#/components/schemas/TripDeliveryOrderDto"
             }
+          },
+          "rescheduledDeliveryOrders": {
+            "description": "ST4-T12 DO ที่ส่งไม่สำเร็จในเที่ยวนี้แล้วนัดส่งใหม่ (ใบเดิม CANCELLED) — \"ส่งไม่สำเร็จ · นัดส่งใหม่\" · มีค่าเฉพาะ GET /trips/{id} (อื่น = [])",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TripRescheduledDoDto"
+            }
+          },
+          "weightKg": {
+            "type": "string",
+            "example": "5400",
+            "description": "น้ำหนักรวมของ DO ในเที่ยว (กก.)"
+          },
+          "route": {
+            "description": "ST3-T16 ระยะ/เวลารวมตามลำดับจุดปัจจุบัน (คำนวณใหม่ทุกครั้งที่จุดเปลี่ยน)",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/TripRouteSummaryDto"
+              }
+            ]
+          },
+          "warnings": {
+            "description": "ผลตรวจกฎตอนจัดล่าสุด (ST3-T14 — D-07: block = กฎเอกสาร, warning = ต้องยืนยันก่อนปล่อยรถ)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TripWarningDto"
+            }
+          },
+          "ruleOverrides": {
+            "description": "ประวัติการยกเว้น/ยืนยันกฎของเที่ยว (เรียงตามเวลา)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TripRuleOverrideDto"
+            }
+          },
+          "version": {
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
           },
           "startedAt": {
             "type": "string",
             "format": "date-time",
-            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$"
-          },
-          "completedAt": {
-            "type": "string",
-            "format": "date-time",
-            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$"
+            "description": "trip.started: เวลาเริ่มจริง (event หน้างานแรก)"
           }
         },
         "required": [
@@ -67862,30 +68419,44 @@
           "tripNo",
           "tripDate",
           "status",
-          "vehicleId",
-          "vehiclePlate",
-          "vehicleTypeId",
-          "driverId",
-          "carrierId",
+          "plannedStartAt",
+          "plannedEndAt",
+          "vehicle",
+          "trailer",
+          "driver",
+          "reliefDriver",
+          "carrier",
           "assignmentStatus",
+          "offeredAt",
+          "offerExpiresAt",
+          "hire",
+          "assignedAt",
+          "dispatchedAt",
+          "completedAt",
+          "cancelledAt",
+          "cancelReason",
           "stops",
-          "deliveryOrderIds"
-        ],
-        "description": "`data.object` ของ trip.cancelled — ยกเลิกเที่ยววิ่ง"
+          "deliveryOrders",
+          "rescheduledDeliveryOrders",
+          "weightKg",
+          "route",
+          "warnings",
+          "ruleOverrides",
+          "version",
+          "createdAt",
+          "updatedAt"
+        ]
       },
       "WebhookEvent_stop_arrived": {
         "type": "object",
+        "description": "`data.object` ของ stop.arrived — รถถึงจุดรับ/ส่ง · รูปเดียวกับ TripStopDto (ไม่มี field ราคา)",
         "properties": {
           "id": {
             "type": "string",
-            "pattern": "^stp_[0-9a-f]{32}$"
-          },
-          "tripId": {
-            "type": "string",
-            "pattern": "^trp_[0-9a-f]{32}$"
+            "example": "stp_3f2a…"
           },
           "sequence": {
-            "type": "integer"
+            "type": "number"
           },
           "type": {
             "type": "string",
@@ -67897,8 +68468,7 @@
           },
           "siteId": {
             "type": "string",
-            "pattern": "^loc_[0-9a-f]{32}$",
-            "nullable": true
+            "example": "loc_3f2a…"
           },
           "status": {
             "type": "string",
@@ -67910,68 +68480,132 @@
               "SKIPPED"
             ]
           },
+          "windowStart": {
+            "type": "string",
+            "nullable": true,
+            "description": "ช่วงเวลาที่ลูกค้าขอ (ส่วนที่ทุก DO รับได้)"
+          },
+          "windowEnd": {
+            "type": "string",
+            "nullable": true
+          },
+          "plannedArrival": {
+            "type": "string",
+            "nullable": true
+          },
+          "plannedDeparture": {
+            "type": "string",
+            "nullable": true
+          },
+          "deliveryOrderIds": {
+            "description": "DO ที่รับ (PICKUP) / ส่ง (DELIVERY) ที่จุดนี้",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "siteName": {
+            "type": "string",
+            "example": "คลังสินค้าบางนา",
+            "description": "ชื่อสถานที่ (ปัจจุบัน)"
+          },
+          "legDistanceKm": {
+            "type": "string",
+            "nullable": true,
+            "example": "45.2",
+            "description": "ST3-T16 ระยะช่วงวิ่งจากจุดก่อนหน้า (กม.) — จุดแรก/ไม่ทราบ = null"
+          },
+          "legMinutes": {
+            "type": "number",
+            "nullable": true,
+            "example": 55,
+            "description": "เวลาเดินทางช่วงนี้ (นาที)"
+          },
+          "legSource": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "ROUTE",
+              "ESTIMATE",
+              "SAME_SITE"
+            ],
+            "description": "ที่มา: ROUTE = เส้นทางใน route master · ESTIMATE = ค่าประมาณจากพิกัด (เส้นตรง × 1.3, 50 กม./ชม.) · SAME_SITE = จุดเดียวกัน"
+          },
+          "arrivedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "ST4-T04 เวลาถึงจุด (ARRIVE แรกที่นับ — projection ST4-T03)"
+          },
+          "departedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "เวลาออกจากจุด = DEPART ของจุดถัดไป (docs/01 §3.9) ถ้าไม่มี = เวลาปิดงานของจุดนี้ · ไม่เคยถึง = null"
+          },
           "outcome": {
             "type": "string",
+            "nullable": true,
             "enum": [
               "DELIVERED",
               "PARTIAL",
               "FAILED",
-              "UNDELIVERED_RETAIN",
-              null
+              "UNDELIVERED_RETAIN"
             ],
-            "nullable": true
-          },
-          "arrivedAt": {
-            "type": "string",
-            "format": "date-time",
-            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$",
-            "nullable": true
-          },
-          "departedAt": {
-            "type": "string",
-            "format": "date-time",
-            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$",
-            "nullable": true
+            "description": "ผลของจุดที่ปิดแล้ว"
           },
           "lastEventId": {
             "type": "string",
-            "pattern": "^evt_[0-9a-f]{32}$",
-            "nullable": true
+            "nullable": true,
+            "example": "evt_3f2a…",
+            "description": "event ล่าสุดที่เปลี่ยนสถานะจุด — รายละเอียด/ชื่อผู้บันทึกจาก `GET /v1/trips/{id}/events`"
           },
-          "failReasonCodeId": {
+          "reschedules": {
+            "description": "ST4-T12 DO ที่ส่งไม่สำเร็จที่จุดนี้แล้วถูกส่งใหม่ (นัดส่งใหม่อัตโนมัติ/ส่งซ้ำ) — DO ใบเดิมเป็น CANCELLED จึงไม่อยู่ใน `deliveryOrders`",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TripStopRescheduleDto"
+            }
+          },
+          "tripId": {
             "type": "string",
-            "pattern": "^rsn_[0-9a-f]{32}$",
-            "nullable": true
+            "example": "trp_…",
+            "description": "เที่ยวของจุดนี้"
           }
         },
         "required": [
           "id",
-          "tripId",
           "sequence",
           "type",
           "siteId",
           "status",
-          "outcome",
+          "windowStart",
+          "windowEnd",
+          "plannedArrival",
+          "plannedDeparture",
+          "deliveryOrderIds",
+          "siteName",
+          "legDistanceKm",
+          "legMinutes",
+          "legSource",
           "arrivedAt",
           "departedAt",
+          "outcome",
           "lastEventId",
-          "failReasonCodeId"
-        ],
-        "description": "`data.object` ของ stop.arrived — รถถึงจุดรับ/ส่ง"
+          "reschedules",
+          "tripId"
+        ]
       },
       "WebhookEvent_stop_departed": {
         "type": "object",
+        "description": "`data.object` ของ stop.departed — รถออกจากจุดรับ/ส่ง · รูปเดียวกับ TripStopDto (ไม่มี field ราคา)",
         "properties": {
           "id": {
             "type": "string",
-            "pattern": "^stp_[0-9a-f]{32}$"
-          },
-          "tripId": {
-            "type": "string",
-            "pattern": "^trp_[0-9a-f]{32}$"
+            "example": "stp_3f2a…"
           },
           "sequence": {
-            "type": "integer"
+            "type": "number"
           },
           "type": {
             "type": "string",
@@ -67983,8 +68617,7 @@
           },
           "siteId": {
             "type": "string",
-            "pattern": "^loc_[0-9a-f]{32}$",
-            "nullable": true
+            "example": "loc_3f2a…"
           },
           "status": {
             "type": "string",
@@ -67996,68 +68629,132 @@
               "SKIPPED"
             ]
           },
+          "windowStart": {
+            "type": "string",
+            "nullable": true,
+            "description": "ช่วงเวลาที่ลูกค้าขอ (ส่วนที่ทุก DO รับได้)"
+          },
+          "windowEnd": {
+            "type": "string",
+            "nullable": true
+          },
+          "plannedArrival": {
+            "type": "string",
+            "nullable": true
+          },
+          "plannedDeparture": {
+            "type": "string",
+            "nullable": true
+          },
+          "deliveryOrderIds": {
+            "description": "DO ที่รับ (PICKUP) / ส่ง (DELIVERY) ที่จุดนี้",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "siteName": {
+            "type": "string",
+            "example": "คลังสินค้าบางนา",
+            "description": "ชื่อสถานที่ (ปัจจุบัน)"
+          },
+          "legDistanceKm": {
+            "type": "string",
+            "nullable": true,
+            "example": "45.2",
+            "description": "ST3-T16 ระยะช่วงวิ่งจากจุดก่อนหน้า (กม.) — จุดแรก/ไม่ทราบ = null"
+          },
+          "legMinutes": {
+            "type": "number",
+            "nullable": true,
+            "example": 55,
+            "description": "เวลาเดินทางช่วงนี้ (นาที)"
+          },
+          "legSource": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "ROUTE",
+              "ESTIMATE",
+              "SAME_SITE"
+            ],
+            "description": "ที่มา: ROUTE = เส้นทางใน route master · ESTIMATE = ค่าประมาณจากพิกัด (เส้นตรง × 1.3, 50 กม./ชม.) · SAME_SITE = จุดเดียวกัน"
+          },
+          "arrivedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "ST4-T04 เวลาถึงจุด (ARRIVE แรกที่นับ — projection ST4-T03)"
+          },
+          "departedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "เวลาออกจากจุด = DEPART ของจุดถัดไป (docs/01 §3.9) ถ้าไม่มี = เวลาปิดงานของจุดนี้ · ไม่เคยถึง = null"
+          },
           "outcome": {
             "type": "string",
+            "nullable": true,
             "enum": [
               "DELIVERED",
               "PARTIAL",
               "FAILED",
-              "UNDELIVERED_RETAIN",
-              null
+              "UNDELIVERED_RETAIN"
             ],
-            "nullable": true
-          },
-          "arrivedAt": {
-            "type": "string",
-            "format": "date-time",
-            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$",
-            "nullable": true
-          },
-          "departedAt": {
-            "type": "string",
-            "format": "date-time",
-            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$",
-            "nullable": true
+            "description": "ผลของจุดที่ปิดแล้ว"
           },
           "lastEventId": {
             "type": "string",
-            "pattern": "^evt_[0-9a-f]{32}$",
-            "nullable": true
+            "nullable": true,
+            "example": "evt_3f2a…",
+            "description": "event ล่าสุดที่เปลี่ยนสถานะจุด — รายละเอียด/ชื่อผู้บันทึกจาก `GET /v1/trips/{id}/events`"
           },
-          "failReasonCodeId": {
+          "reschedules": {
+            "description": "ST4-T12 DO ที่ส่งไม่สำเร็จที่จุดนี้แล้วถูกส่งใหม่ (นัดส่งใหม่อัตโนมัติ/ส่งซ้ำ) — DO ใบเดิมเป็น CANCELLED จึงไม่อยู่ใน `deliveryOrders`",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TripStopRescheduleDto"
+            }
+          },
+          "tripId": {
             "type": "string",
-            "pattern": "^rsn_[0-9a-f]{32}$",
-            "nullable": true
+            "example": "trp_…",
+            "description": "เที่ยวของจุดนี้"
           }
         },
         "required": [
           "id",
-          "tripId",
           "sequence",
           "type",
           "siteId",
           "status",
-          "outcome",
+          "windowStart",
+          "windowEnd",
+          "plannedArrival",
+          "plannedDeparture",
+          "deliveryOrderIds",
+          "siteName",
+          "legDistanceKm",
+          "legMinutes",
+          "legSource",
           "arrivedAt",
           "departedAt",
+          "outcome",
           "lastEventId",
-          "failReasonCodeId"
-        ],
-        "description": "`data.object` ของ stop.departed — รถออกจากจุดรับ/ส่ง"
+          "reschedules",
+          "tripId"
+        ]
       },
       "WebhookEvent_stop_completed": {
         "type": "object",
+        "description": "`data.object` ของ stop.completed — ปิดงานที่จุดรับ/ส่งสำเร็จ · รูปเดียวกับ TripStopDto (ไม่มี field ราคา)",
         "properties": {
           "id": {
             "type": "string",
-            "pattern": "^stp_[0-9a-f]{32}$"
-          },
-          "tripId": {
-            "type": "string",
-            "pattern": "^trp_[0-9a-f]{32}$"
+            "example": "stp_3f2a…"
           },
           "sequence": {
-            "type": "integer"
+            "type": "number"
           },
           "type": {
             "type": "string",
@@ -68069,8 +68766,7 @@
           },
           "siteId": {
             "type": "string",
-            "pattern": "^loc_[0-9a-f]{32}$",
-            "nullable": true
+            "example": "loc_3f2a…"
           },
           "status": {
             "type": "string",
@@ -68082,68 +68778,132 @@
               "SKIPPED"
             ]
           },
+          "windowStart": {
+            "type": "string",
+            "nullable": true,
+            "description": "ช่วงเวลาที่ลูกค้าขอ (ส่วนที่ทุก DO รับได้)"
+          },
+          "windowEnd": {
+            "type": "string",
+            "nullable": true
+          },
+          "plannedArrival": {
+            "type": "string",
+            "nullable": true
+          },
+          "plannedDeparture": {
+            "type": "string",
+            "nullable": true
+          },
+          "deliveryOrderIds": {
+            "description": "DO ที่รับ (PICKUP) / ส่ง (DELIVERY) ที่จุดนี้",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "siteName": {
+            "type": "string",
+            "example": "คลังสินค้าบางนา",
+            "description": "ชื่อสถานที่ (ปัจจุบัน)"
+          },
+          "legDistanceKm": {
+            "type": "string",
+            "nullable": true,
+            "example": "45.2",
+            "description": "ST3-T16 ระยะช่วงวิ่งจากจุดก่อนหน้า (กม.) — จุดแรก/ไม่ทราบ = null"
+          },
+          "legMinutes": {
+            "type": "number",
+            "nullable": true,
+            "example": 55,
+            "description": "เวลาเดินทางช่วงนี้ (นาที)"
+          },
+          "legSource": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "ROUTE",
+              "ESTIMATE",
+              "SAME_SITE"
+            ],
+            "description": "ที่มา: ROUTE = เส้นทางใน route master · ESTIMATE = ค่าประมาณจากพิกัด (เส้นตรง × 1.3, 50 กม./ชม.) · SAME_SITE = จุดเดียวกัน"
+          },
+          "arrivedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "ST4-T04 เวลาถึงจุด (ARRIVE แรกที่นับ — projection ST4-T03)"
+          },
+          "departedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "เวลาออกจากจุด = DEPART ของจุดถัดไป (docs/01 §3.9) ถ้าไม่มี = เวลาปิดงานของจุดนี้ · ไม่เคยถึง = null"
+          },
           "outcome": {
             "type": "string",
+            "nullable": true,
             "enum": [
               "DELIVERED",
               "PARTIAL",
               "FAILED",
-              "UNDELIVERED_RETAIN",
-              null
+              "UNDELIVERED_RETAIN"
             ],
-            "nullable": true
-          },
-          "arrivedAt": {
-            "type": "string",
-            "format": "date-time",
-            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$",
-            "nullable": true
-          },
-          "departedAt": {
-            "type": "string",
-            "format": "date-time",
-            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$",
-            "nullable": true
+            "description": "ผลของจุดที่ปิดแล้ว"
           },
           "lastEventId": {
             "type": "string",
-            "pattern": "^evt_[0-9a-f]{32}$",
-            "nullable": true
+            "nullable": true,
+            "example": "evt_3f2a…",
+            "description": "event ล่าสุดที่เปลี่ยนสถานะจุด — รายละเอียด/ชื่อผู้บันทึกจาก `GET /v1/trips/{id}/events`"
           },
-          "failReasonCodeId": {
+          "reschedules": {
+            "description": "ST4-T12 DO ที่ส่งไม่สำเร็จที่จุดนี้แล้วถูกส่งใหม่ (นัดส่งใหม่อัตโนมัติ/ส่งซ้ำ) — DO ใบเดิมเป็น CANCELLED จึงไม่อยู่ใน `deliveryOrders`",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TripStopRescheduleDto"
+            }
+          },
+          "tripId": {
             "type": "string",
-            "pattern": "^rsn_[0-9a-f]{32}$",
-            "nullable": true
+            "example": "trp_…",
+            "description": "เที่ยวของจุดนี้"
           }
         },
         "required": [
           "id",
-          "tripId",
           "sequence",
           "type",
           "siteId",
           "status",
-          "outcome",
+          "windowStart",
+          "windowEnd",
+          "plannedArrival",
+          "plannedDeparture",
+          "deliveryOrderIds",
+          "siteName",
+          "legDistanceKm",
+          "legMinutes",
+          "legSource",
           "arrivedAt",
           "departedAt",
+          "outcome",
           "lastEventId",
-          "failReasonCodeId"
-        ],
-        "description": "`data.object` ของ stop.completed — ปิดงานที่จุดรับ/ส่งสำเร็จ"
+          "reschedules",
+          "tripId"
+        ]
       },
       "WebhookEvent_stop_failed": {
         "type": "object",
+        "description": "`data.object` ของ stop.failed — งานที่จุดรับ/ส่งไม่สำเร็จ (มีเหตุผล) · รูปเดียวกับ TripStopDto (ไม่มี field ราคา)",
         "properties": {
           "id": {
             "type": "string",
-            "pattern": "^stp_[0-9a-f]{32}$"
-          },
-          "tripId": {
-            "type": "string",
-            "pattern": "^trp_[0-9a-f]{32}$"
+            "example": "stp_3f2a…"
           },
           "sequence": {
-            "type": "integer"
+            "type": "number"
           },
           "type": {
             "type": "string",
@@ -68155,8 +68915,7 @@
           },
           "siteId": {
             "type": "string",
-            "pattern": "^loc_[0-9a-f]{32}$",
-            "nullable": true
+            "example": "loc_3f2a…"
           },
           "status": {
             "type": "string",
@@ -68168,73 +68927,141 @@
               "SKIPPED"
             ]
           },
+          "windowStart": {
+            "type": "string",
+            "nullable": true,
+            "description": "ช่วงเวลาที่ลูกค้าขอ (ส่วนที่ทุก DO รับได้)"
+          },
+          "windowEnd": {
+            "type": "string",
+            "nullable": true
+          },
+          "plannedArrival": {
+            "type": "string",
+            "nullable": true
+          },
+          "plannedDeparture": {
+            "type": "string",
+            "nullable": true
+          },
+          "deliveryOrderIds": {
+            "description": "DO ที่รับ (PICKUP) / ส่ง (DELIVERY) ที่จุดนี้",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "siteName": {
+            "type": "string",
+            "example": "คลังสินค้าบางนา",
+            "description": "ชื่อสถานที่ (ปัจจุบัน)"
+          },
+          "legDistanceKm": {
+            "type": "string",
+            "nullable": true,
+            "example": "45.2",
+            "description": "ST3-T16 ระยะช่วงวิ่งจากจุดก่อนหน้า (กม.) — จุดแรก/ไม่ทราบ = null"
+          },
+          "legMinutes": {
+            "type": "number",
+            "nullable": true,
+            "example": 55,
+            "description": "เวลาเดินทางช่วงนี้ (นาที)"
+          },
+          "legSource": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "ROUTE",
+              "ESTIMATE",
+              "SAME_SITE"
+            ],
+            "description": "ที่มา: ROUTE = เส้นทางใน route master · ESTIMATE = ค่าประมาณจากพิกัด (เส้นตรง × 1.3, 50 กม./ชม.) · SAME_SITE = จุดเดียวกัน"
+          },
+          "arrivedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "ST4-T04 เวลาถึงจุด (ARRIVE แรกที่นับ — projection ST4-T03)"
+          },
+          "departedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time",
+            "description": "เวลาออกจากจุด = DEPART ของจุดถัดไป (docs/01 §3.9) ถ้าไม่มี = เวลาปิดงานของจุดนี้ · ไม่เคยถึง = null"
+          },
           "outcome": {
             "type": "string",
+            "nullable": true,
             "enum": [
               "DELIVERED",
               "PARTIAL",
               "FAILED",
-              "UNDELIVERED_RETAIN",
-              null
+              "UNDELIVERED_RETAIN"
             ],
-            "nullable": true
-          },
-          "arrivedAt": {
-            "type": "string",
-            "format": "date-time",
-            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$",
-            "nullable": true
-          },
-          "departedAt": {
-            "type": "string",
-            "format": "date-time",
-            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$",
-            "nullable": true
+            "description": "ผลของจุดที่ปิดแล้ว"
           },
           "lastEventId": {
             "type": "string",
-            "pattern": "^evt_[0-9a-f]{32}$",
-            "nullable": true
+            "nullable": true,
+            "example": "evt_3f2a…",
+            "description": "event ล่าสุดที่เปลี่ยนสถานะจุด — รายละเอียด/ชื่อผู้บันทึกจาก `GET /v1/trips/{id}/events`"
           },
-          "failReasonCodeId": {
+          "reschedules": {
+            "description": "ST4-T12 DO ที่ส่งไม่สำเร็จที่จุดนี้แล้วถูกส่งใหม่ (นัดส่งใหม่อัตโนมัติ/ส่งซ้ำ) — DO ใบเดิมเป็น CANCELLED จึงไม่อยู่ใน `deliveryOrders`",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TripStopRescheduleDto"
+            }
+          },
+          "tripId": {
             "type": "string",
-            "pattern": "^rsn_[0-9a-f]{32}$",
-            "nullable": true
+            "example": "trp_…",
+            "description": "เที่ยวของจุดนี้"
           }
         },
         "required": [
           "id",
-          "tripId",
           "sequence",
           "type",
           "siteId",
           "status",
-          "outcome",
+          "windowStart",
+          "windowEnd",
+          "plannedArrival",
+          "plannedDeparture",
+          "deliveryOrderIds",
+          "siteName",
+          "legDistanceKm",
+          "legMinutes",
+          "legSource",
           "arrivedAt",
           "departedAt",
+          "outcome",
           "lastEventId",
-          "failReasonCodeId"
-        ],
-        "description": "`data.object` ของ stop.failed — งานที่จุดรับ/ส่งไม่สำเร็จ (มีเหตุผล)"
+          "reschedules",
+          "tripId"
+        ]
       },
       "WebhookEvent_delivery_order_status_changed": {
         "type": "object",
+        "description": "`data.object` ของ delivery_order.status_changed — สถานะใบส่งของ (DO) เปลี่ยน · รูปเดียวกับ DeliveryOrderDto (ไม่มี field ราคา)",
         "properties": {
           "id": {
             "type": "string",
-            "pattern": "^do_[0-9a-f]{32}$"
+            "example": "do_3f2a…"
           },
           "doNo": {
             "type": "string",
-            "nullable": true
+            "example": "DO-6911-0001"
           },
           "status": {
             "type": "string",
             "enum": [
               "DRAFT",
               "PLANNED",
-              "PICKED_UP",
               "DISPATCHED",
+              "PICKED_UP",
               "DELIVERED",
               "FAILED",
               "RETURNED",
@@ -68246,66 +69073,95 @@
           },
           "orderId": {
             "type": "string",
-            "pattern": "^ord_[0-9a-f]{32}$"
+            "example": "ord_3f2a…"
           },
           "customerId": {
             "type": "string",
-            "pattern": "^cus_[0-9a-f]{32}$"
+            "example": "cus_3f2a…"
+          },
+          "doDate": {
+            "type": "string",
+            "example": "2026-11-12"
+          },
+          "originSiteId": {
+            "type": "string",
+            "example": "loc_3f2a…"
+          },
+          "destSiteId": {
+            "type": "string",
+            "example": "loc_3f2a…"
+          },
+          "originStopSeq": {
+            "type": "number",
+            "description": "ลำดับจุดรับของ SO"
+          },
+          "destStopSeq": {
+            "type": "number",
+            "description": "ลำดับจุดส่งของ SO"
           },
           "tripId": {
             "type": "string",
-            "pattern": "^trp_[0-9a-f]{32}$",
-            "nullable": true
-          },
-          "destStopSeq": {
-            "type": "integer"
-          },
-          "splitFromId": {
-            "type": "string",
-            "pattern": "^do_[0-9a-f]{32}$",
             "nullable": true
           },
           "weightKg": {
             "type": "string",
-            "pattern": "^-?\\d+(\\.\\d+)?$",
             "nullable": true
           },
           "cbm": {
             "type": "string",
-            "pattern": "^-?\\d+(\\.\\d+)?$",
             "nullable": true
+          },
+          "customerRef": {
+            "type": "string",
+            "nullable": true,
+            "description": "PO ลูกค้า"
+          },
+          "splitFromId": {
+            "type": "string",
+            "nullable": true,
+            "description": "ใบแม่ที่ถูกแยก"
+          },
+          "splitIndex": {
+            "type": "number",
+            "nullable": true
+          },
+          "redeliveryOfId": {
+            "type": "string",
+            "nullable": true,
+            "description": "ส่งใหม่ของ DO ใบนี้ (D-23)"
+          },
+          "rescheduleCount": {
+            "type": "number",
+            "example": 0,
+            "description": "ST4-T12 ครั้งที่นัดส่งใหม่อัตโนมัติของสายงานนี้ (0 = ใบแรก) — เกินค่าตั้ง `dispatch.maxAutoReschedules` → ใบสั่งค้าง RESCHEDULES_EXHAUSTED"
+          },
+          "redeliveryManual": {
+            "type": "boolean",
+            "description": "ST4-T11 ส่งซ้ำโดยผู้ใช้ (ไม่ใช่นัดส่งใหม่อัตโนมัติ) — ผลส่งไม่สำเร็จถูกพลิกภายหลังระบบไม่คืนใบเดิมเอง"
+          },
+          "rejectedFromId": {
+            "type": "string",
+            "nullable": true,
+            "description": "ST4-T11 ใบส่งซ้ำของที่ลูกค้าปฏิเสธรับจาก DO นี้ (ใบเดิมคงส่งแล้ว) — ไม่นับปริมาณจัดสรรของ SO"
+          },
+          "podStatus": {
+            "type": "string",
+            "example": "NONE"
           },
           "lines": {
             "type": "array",
             "items": {
-              "type": "object",
-              "properties": {
-                "lineNo": {
-                  "type": "integer"
-                },
-                "soLineNo": {
-                  "type": "integer"
-                },
-                "description": {
-                  "type": "string"
-                },
-                "qty": {
-                  "type": "string",
-                  "pattern": "^-?\\d+(\\.\\d+)?$",
-                  "nullable": true
-                },
-                "unit": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "lineNo",
-                "soLineNo",
-                "description",
-                "qty",
-                "unit"
-              ]
+              "$ref": "#/components/schemas/DeliveryOrderLineDto"
             }
+          },
+          "version": {
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
           }
         },
         "required": [
@@ -68314,28 +69170,44 @@
           "status",
           "orderId",
           "customerId",
-          "tripId",
+          "doDate",
+          "originSiteId",
+          "destSiteId",
+          "originStopSeq",
           "destStopSeq",
-          "splitFromId",
+          "tripId",
           "weightKg",
           "cbm",
-          "lines"
-        ],
-        "description": "`data.object` ของ delivery_order.status_changed — สถานะใบส่งของ (DO) เปลี่ยน"
+          "customerRef",
+          "splitFromId",
+          "splitIndex",
+          "redeliveryOfId",
+          "rescheduleCount",
+          "redeliveryManual",
+          "rejectedFromId",
+          "podStatus",
+          "lines",
+          "version",
+          "createdAt",
+          "updatedAt"
+        ]
       },
       "WebhookEvent_pod_captured": {
         "type": "object",
+        "description": "`data.object` ของ pod.captured — บันทึกหลักฐานการส่ง (POD) · รูปเดียวกับ DeliveryOrderPodDto (ไม่มี field ราคา)",
         "properties": {
           "deliveryOrderId": {
             "type": "string",
-            "pattern": "^do_[0-9a-f]{32}$"
+            "example": "do_…"
           },
           "doNo": {
             "type": "string",
-            "nullable": true
+            "example": "DO-2611-00052"
           },
-          "version": {
-            "type": "integer"
+          "doStatus": {
+            "type": "string",
+            "example": "UNBILLED",
+            "description": "สถานะ DO (ตัวใหญ่ — เหมือน GET /v1/delivery-orders/{id})"
           },
           "podStatus": {
             "type": "string",
@@ -68345,135 +69217,108 @@
               "COMPLETE"
             ]
           },
-          "source": {
+          "editable": {
+            "type": "boolean",
+            "description": "บันทึก/แก้หลักฐานได้ในสถานะ DO ปัจจุบัน (ส่งแล้ว/ส่งไม่สำเร็จ ยังไม่วางบิล)"
+          },
+          "plannedWeightKg": {
             "type": "string",
-            "enum": [
-              "WEB",
-              "LINK",
-              "APP",
-              "API"
+            "nullable": true,
+            "example": "15000",
+            "description": "น้ำหนักตามใบสั่ง"
+          },
+          "checklist": {
+            "description": "checklist ที่ใช้จริงตอนนี้ (ชุดตามสถานะ DO: ส่งไม่สำเร็จ = ชุดไม่สำเร็จ)",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/EffectivePodChecklistDto"
+              }
             ]
-          },
-          "outcome": {
-            "type": "string",
-            "enum": [
-              "SUCCESS",
-              "FAILURE"
-            ]
-          },
-          "photoCount": {
-            "type": "integer"
-          },
-          "fileCount": {
-            "type": "integer"
-          },
-          "hasSignature": {
-            "type": "boolean"
-          },
-          "receiverName": {
-            "type": "string",
-            "nullable": true
-          },
-          "weighedKg": {
-            "type": "string",
-            "pattern": "^-?\\d+(\\.\\d+)?$",
-            "nullable": true
-          },
-          "lines": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "lineNo": {
-                  "type": "integer"
-                },
-                "qtyPlanned": {
-                  "type": "string",
-                  "pattern": "^-?\\d+(\\.\\d+)?$",
-                  "nullable": true
-                },
-                "qtyActual": {
-                  "type": "string",
-                  "pattern": "^-?\\d+(\\.\\d+)?$",
-                  "nullable": true
-                },
-                "rejectQty": {
-                  "type": "string",
-                  "pattern": "^-?\\d+(\\.\\d+)?$",
-                  "nullable": true
-                },
-                "rejectReasonCode": {
-                  "type": "string",
-                  "nullable": true
-                }
-              },
-              "required": [
-                "lineNo",
-                "qtyPlanned",
-                "qtyActual",
-                "rejectQty",
-                "rejectReasonCode"
-              ]
-            }
           },
           "missing": {
+            "description": "เทียบหลักฐานปัจจุบันกับ checklist ตอนนี้ (ว่าง = ครบ)",
             "type": "array",
             "items": {
-              "type": "object",
-              "properties": {
-                "key": {
-                  "type": "string"
-                },
-                "type": {
-                  "type": "string"
-                },
-                "code": {
-                  "type": "string"
-                }
-              },
-              "required": [
-                "key",
-                "type",
-                "code"
-              ]
+              "$ref": "#/components/schemas/PodMissingDto"
+            }
+          },
+          "current": {
+            "nullable": true,
+            "description": "ฉบับปัจจุบัน — null = ยังไม่มี",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PodRecordDto"
+              }
+            ]
+          },
+          "versions": {
+            "description": "ทุกฉบับ ใหม่ → เก่า",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PodVersionDto"
+            }
+          },
+          "lines": {
+            "description": "ST4-T10 บรรทัดของ DO (แผน vs ส่งจริง vs ปฏิเสธ + เหตุผล) ตามฉบับล่าสุด",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PodLineDto"
             }
           }
         },
         "required": [
           "deliveryOrderId",
           "doNo",
-          "version",
+          "doStatus",
           "podStatus",
-          "source",
-          "outcome",
-          "photoCount",
-          "fileCount",
-          "hasSignature",
-          "receiverName",
-          "weighedKg",
-          "lines",
-          "missing"
-        ],
-        "description": "`data.object` ของ pod.captured — บันทึกหลักฐานการส่ง (POD)"
+          "editable",
+          "plannedWeightKg",
+          "checklist",
+          "missing",
+          "current",
+          "versions",
+          "lines"
+        ]
       },
       "WebhookEvent_connector_health_changed": {
         "type": "object",
+        "description": "`data.object` ของ connector.health_changed — สถานะการเชื่อมต่อระบบภายนอกเปลี่ยน · รูปเดียวกับ ConnectorDto (ไม่มี field ราคา)",
         "properties": {
           "id": {
             "type": "string",
-            "pattern": "^con_[0-9a-f]{32}$"
+            "example": "con_8f3a…"
           },
           "adapterKey": {
-            "type": "string"
+            "type": "string",
+            "example": "demo"
           },
           "displayName": {
             "type": "string",
-            "nullable": true
+            "example": "Demo ERP",
+            "nullable": true,
+            "description": "null = adapter ไม่ได้ติดตั้งในระบบนี้"
           },
           "companyId": {
             "type": "string",
-            "pattern": "^cmp_[0-9a-f]{32}$",
-            "nullable": true
+            "nullable": true,
+            "example": "cmp_…",
+            "description": "นิติบุคคลที่ใช้ connector นี้ (Invoice As / Tender As) · null = ทุกนิติบุคคลที่ไม่มีของตัวเอง"
+          },
+          "erpCompanyCode": {
+            "type": "string",
+            "nullable": true,
+            "example": "PP01"
+          },
+          "branchMap": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "example": {
+              "brn_8f3a": "PP01-BKK"
+            },
+            "description": "สาขา TMS → รหัสบริษัท/สาขาฝั่ง ERP (ไม่มี = ใช้ erpCompanyCode)"
           },
           "status": {
             "type": "string",
@@ -68490,15 +69335,98 @@
           },
           "statusChangedAt": {
             "type": "string",
-            "format": "date-time",
-            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$",
-            "nullable": true
+            "nullable": true,
+            "format": "date-time"
+          },
+          "capabilitiesSupported": {
+            "type": "array",
+            "description": "capability ที่ adapter รองรับทั้งหมด",
+            "items": {
+              "type": "string",
+              "enum": [
+                "pullOrders",
+                "pushInvoice",
+                "pushCreditNote",
+                "pushSettlement",
+                "fetchDocument",
+                "fetchPaymentStatus",
+                "listDocuments",
+                "replaceDocument",
+                "postedStatus",
+                "ownsDocumentNumber"
+              ]
+            }
+          },
+          "capabilitiesEnabled": {
+            "type": "array",
+            "description": "ที่ tenant เปิด",
+            "items": {
+              "type": "string",
+              "enum": [
+                "pullOrders",
+                "pushInvoice",
+                "pushCreditNote",
+                "pushSettlement",
+                "fetchDocument",
+                "fetchPaymentStatus",
+                "listDocuments",
+                "replaceDocument",
+                "postedStatus",
+                "ownsDocumentNumber"
+              ]
+            }
+          },
+          "capabilities": {
+            "type": "array",
+            "description": "ใช้ได้จริง = รองรับ ∩ เปิด (ว่างเมื่อยกเลิกการเชื่อม)",
+            "items": {
+              "type": "string",
+              "enum": [
+                "pullOrders",
+                "pushInvoice",
+                "pushCreditNote",
+                "pushSettlement",
+                "fetchDocument",
+                "fetchPaymentStatus",
+                "listDocuments",
+                "replaceDocument",
+                "postedStatus",
+                "ownsDocumentNumber"
+              ]
+            }
+          },
+          "settings": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "ค่าตั้งที่ไม่ลับ (base URL ฯลฯ)"
+          },
+          "credentialKeys": {
+            "example": [
+              "apiKey"
+            ],
+            "description": "ชื่อช่อง credential ที่ตั้งแล้ว — ค่าไม่ส่งกลับเด็ดขาด",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "credentialsUpdatedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "syncFromDate": {
+            "type": "string",
+            "nullable": true,
+            "format": "date",
+            "example": "2026-12-01"
           },
           "lastHealthAt": {
             "type": "string",
-            "format": "date-time",
-            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$",
-            "nullable": true
+            "nullable": true,
+            "format": "date-time"
           },
           "lastHealthOk": {
             "type": "boolean",
@@ -68506,19 +69434,33 @@
           },
           "lastHealthError": {
             "type": "object",
-            "properties": {
-              "errorClass": {
-                "type": "string"
-              },
-              "code": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "errorClass",
-              "code"
-            ],
-            "nullable": true
+            "nullable": true,
+            "additionalProperties": true,
+            "description": "{errorClass, code, message} ของ healthCheck ล่าสุดที่ล้ม"
+          },
+          "activatedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "disconnectedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "inbound": {
+            "$ref": "#/components/schemas/ConnectorInboundDto"
+          },
+          "version": {
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
           }
         },
         "required": [
@@ -68526,21 +69468,36 @@
           "adapterKey",
           "displayName",
           "companyId",
+          "erpCompanyCode",
+          "branchMap",
           "status",
           "statusReason",
           "statusChangedAt",
+          "capabilitiesSupported",
+          "capabilitiesEnabled",
+          "capabilities",
+          "settings",
+          "credentialKeys",
+          "credentialsUpdatedAt",
+          "syncFromDate",
           "lastHealthAt",
           "lastHealthOk",
-          "lastHealthError"
-        ],
-        "description": "`data.object` ของ connector.health_changed — สถานะการเชื่อมต่อระบบภายนอกเปลี่ยน"
+          "lastHealthError",
+          "activatedAt",
+          "disconnectedAt",
+          "inbound",
+          "version",
+          "createdAt",
+          "updatedAt"
+        ]
       },
       "WebhookEvent_job_completed": {
         "type": "object",
+        "description": "`data.object` ของ job.completed — งานเบื้องหลัง (นำเข้า/ส่งออก/รอบวางบิล) เสร็จ · รูปเดียวกับ JobDto (ไม่มี field ราคา)",
         "properties": {
           "id": {
             "type": "string",
-            "pattern": "^job_[0-9a-f]{32}$"
+            "example": "job_…"
           },
           "type": {
             "type": "string"
@@ -68548,27 +69505,38 @@
           "status": {
             "type": "string",
             "enum": [
+              "pending",
+              "running",
               "succeeded",
-              "failed"
+              "failed",
+              "skipped"
             ]
           },
           "progress": {
-            "type": "integer",
+            "type": "number",
             "minimum": 0,
             "maximum": 100
           },
+          "result": {
+            "type": "object",
+            "nullable": true,
+            "additionalProperties": true
+          },
+          "error": {
+            "type": "object",
+            "nullable": true,
+            "additionalProperties": true
+          },
           "attempts": {
-            "type": "integer"
+            "type": "number"
           },
           "createdAt": {
             "type": "string",
-            "format": "date-time",
-            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$"
+            "format": "date-time"
           },
           "finishedAt": {
             "type": "string",
             "format": "date-time",
-            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$",
             "nullable": true
           }
         },
@@ -68577,11 +69545,12 @@
           "type",
           "status",
           "progress",
+          "result",
+          "error",
           "attempts",
           "createdAt",
           "finishedAt"
-        ],
-        "description": "`data.object` ของ job.completed — งานเบื้องหลัง (นำเข้า/ส่งออก/รอบวางบิล) เสร็จ"
+        ]
       }
     },
     "headers": {
@@ -68683,6 +69652,7 @@
     "order.created": {
       "description": "สร้างใบสั่งงานใหม่ (หน้าจอ, Open API, นำเข้าไฟล์)",
       "phase": "active",
+      "dto": "OrderDto",
       "schema": {
         "$ref": "#/components/schemas/WebhookEvent_order_created"
       }
@@ -68690,6 +69660,7 @@
     "order.updated": {
       "description": "แก้ไขข้อมูลใบสั่งงาน",
       "phase": "active",
+      "dto": "OrderDto",
       "schema": {
         "$ref": "#/components/schemas/WebhookEvent_order_updated"
       }
@@ -68697,6 +69668,7 @@
     "order.held": {
       "description": "พักใบสั่งงาน (เช่น ข้อมูลไม่ครบ เกินวงเงิน)",
       "phase": "active",
+      "dto": "OrderDto",
       "schema": {
         "$ref": "#/components/schemas/WebhookEvent_order_held"
       }
@@ -68704,6 +69676,7 @@
     "order.released": {
       "description": "ปล่อยใบสั่งงานที่พักไว้ให้วางแผนต่อ",
       "phase": "active",
+      "dto": "OrderDto",
       "schema": {
         "$ref": "#/components/schemas/WebhookEvent_order_released"
       }
@@ -68711,6 +69684,7 @@
     "order.cancelled": {
       "description": "ยกเลิกใบสั่งงาน",
       "phase": "active",
+      "dto": "OrderDto",
       "schema": {
         "$ref": "#/components/schemas/WebhookEvent_order_cancelled"
       }
@@ -68718,6 +69692,7 @@
     "trip.assigned": {
       "description": "จัดรถ/คนขับ หรือรถร่วมให้เที่ยววิ่ง",
       "phase": "active",
+      "dto": "TripDto",
       "schema": {
         "$ref": "#/components/schemas/WebhookEvent_trip_assigned"
       }
@@ -68725,6 +69700,7 @@
     "trip.dispatched": {
       "description": "ปล่อยเที่ยววิ่งให้คนขับ",
       "phase": "active",
+      "dto": "TripDto",
       "schema": {
         "$ref": "#/components/schemas/WebhookEvent_trip_dispatched"
       }
@@ -68732,6 +69708,7 @@
     "trip.started": {
       "description": "คนขับเริ่มเที่ยววิ่ง",
       "phase": "active",
+      "dto": "TripDto",
       "schema": {
         "$ref": "#/components/schemas/WebhookEvent_trip_started"
       }
@@ -68739,6 +69716,7 @@
     "trip.completed": {
       "description": "เที่ยววิ่งจบครบทุกจุด",
       "phase": "active",
+      "dto": "TripDto",
       "schema": {
         "$ref": "#/components/schemas/WebhookEvent_trip_completed"
       }
@@ -68746,6 +69724,7 @@
     "trip.cancelled": {
       "description": "ยกเลิกเที่ยววิ่ง",
       "phase": "active",
+      "dto": "TripDto",
       "schema": {
         "$ref": "#/components/schemas/WebhookEvent_trip_cancelled"
       }
@@ -68753,6 +69732,7 @@
     "stop.arrived": {
       "description": "รถถึงจุดรับ/ส่ง",
       "phase": "active",
+      "dto": "TripStopDto",
       "schema": {
         "$ref": "#/components/schemas/WebhookEvent_stop_arrived"
       }
@@ -68760,6 +69740,7 @@
     "stop.departed": {
       "description": "รถออกจากจุดรับ/ส่ง",
       "phase": "active",
+      "dto": "TripStopDto",
       "schema": {
         "$ref": "#/components/schemas/WebhookEvent_stop_departed"
       }
@@ -68767,6 +69748,7 @@
     "stop.completed": {
       "description": "ปิดงานที่จุดรับ/ส่งสำเร็จ",
       "phase": "active",
+      "dto": "TripStopDto",
       "schema": {
         "$ref": "#/components/schemas/WebhookEvent_stop_completed"
       }
@@ -68774,6 +69756,7 @@
     "stop.failed": {
       "description": "งานที่จุดรับ/ส่งไม่สำเร็จ (มีเหตุผล)",
       "phase": "active",
+      "dto": "TripStopDto",
       "schema": {
         "$ref": "#/components/schemas/WebhookEvent_stop_failed"
       }
@@ -68781,6 +69764,7 @@
     "delivery_order.status_changed": {
       "description": "สถานะใบส่งของ (DO) เปลี่ยน",
       "phase": "active",
+      "dto": "DeliveryOrderDto",
       "schema": {
         "$ref": "#/components/schemas/WebhookEvent_delivery_order_status_changed"
       }
@@ -68788,6 +69772,7 @@
     "pod.captured": {
       "description": "บันทึกหลักฐานการส่ง (POD)",
       "phase": "active",
+      "dto": "DeliveryOrderPodDto",
       "schema": {
         "$ref": "#/components/schemas/WebhookEvent_pod_captured"
       }
@@ -68855,6 +69840,7 @@
     "connector.health_changed": {
       "description": "สถานะการเชื่อมต่อระบบภายนอกเปลี่ยน",
       "phase": "active",
+      "dto": "ConnectorDto",
       "schema": {
         "$ref": "#/components/schemas/WebhookEvent_connector_health_changed"
       }
@@ -68867,6 +69853,7 @@
     "job.completed": {
       "description": "งานเบื้องหลัง (นำเข้า/ส่งออก/รอบวางบิล) เสร็จ",
       "phase": "active",
+      "dto": "JobDto",
       "schema": {
         "$ref": "#/components/schemas/WebhookEvent_job_completed"
       }

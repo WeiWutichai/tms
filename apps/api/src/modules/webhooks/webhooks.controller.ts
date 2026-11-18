@@ -49,6 +49,7 @@ import {
   WebhookTestResultDto,
 } from './webhook.dto';
 import { sampleObject, WebhooksService } from './webhooks.service';
+import { publishedEventSchema } from './event-openapi';
 
 /** ผลมี secret ที่แสดงครั้งเดียว — ห้ามเก็บลงตาราง idempotency (เหมือน API key ST7-T01) */
 function noIdempotencyKey(req: Request) {
@@ -111,7 +112,7 @@ export class WebhooksController {
         description: d.description,
         phase: d.phase,
         pendingTask: d.pendingTask,
-        schema: (d.schema as Record<string, unknown> | null) ?? null,
+        schema: publishedEventSchema(d.type),
         sample: sampleObject(d.type),
       })),
     };
