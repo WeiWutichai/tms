@@ -2,7 +2,30 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import type { Page } from '@playwright/test';
-import { expect, test } from './fixtures';
+import {
+  DEMO_IDS,
+  DEMO_PASSWORD,
+  DEMO_TRUSTED_DEVICE,
+  E2E_WEB,
+  expect,
+  test as base,
+} from './fixtures';
+
+/**
+ * login ครั้งเดียวทั้งไฟล์ (ลดแรงกดที่ `/oauth/token` — เพดานต่อ IP) — ปิด fixture `loggedIn` ที่ login ทุก test
+ * แล้วใช้ page เดียวร่วมกันทุก test (refresh token หมุนทุกครั้ง แชร์ storageState ข้าม context ไม่ได้)
+ */
+const test = base.extend<{ loggedIn: void }>({
+  loggedIn: [
+    async ({}, use) => {
+      await use();
+    },
+    { auto: true },
+  ],
+});
+let page: Page;
+/** Bearer ของ owner จากการ login ครั้งเดียวกัน (เตรียมข้อมูลผ่าน /v1) */
+let H: Record<string, string> = {};
 
 /**
  * E2E ST9-T01 Dashboard ปฏิบัติการ — เกณฑ์ตรวจรับ: ตัวเลขแต่ละการ์ด = จำนวนแถวเมื่อคลิกเข้าไปดูรายการ
@@ -25,22 +48,6 @@ test.afterAll(async () => db.$disconnect());
 const RUN = String(Date.now()).slice(-6);
 const today = new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10);
 
-async function token(page: Page): Promise<string> {
-  const v = randomBytes(32).toString('base64url');
-  const r1 = await page.request.post('/v1/auth/login', {
-    data: {
-      email: 'owner@demo-a.test',
-      password: 'demo-password-2569',
-      codeChallenge: createHash('sha256').update(v).digest('base64url'),
-    },
-  });
-  const { code } = (await r1.json()) as { code: string };
-  const r2 = await page.request.post('/v1/oauth/token', {
-    data: { grantType: 'authorization_code', code, codeVerifier: v },
-  });
-  return ((await r2.json()) as { accessToken: string }).accessToken;
-}
-
 /** จำนวนแถวจริงของตาราง (50 แถว/หน้า แล้วเดินหน้าถัดไปจนหมด) */
 async function countRows(page: Page): Promise<number> {
   const busy = page.locator('[aria-busy="true"]');
@@ -61,11 +68,46 @@ async function countRows(page: Page): Promise<number> {
 const num = (s: string | null) => Number((s ?? '').replace(/[^\d]/g, ''));
 
 test.describe.serial('Dashboard ปฏิบัติการ (ST9-T01)', () => {
+  test.beforeAll(async ({ browser }) => {
+    const ctx = await browser.newContext({
+      baseURL: E2E_WEB,
+      locale: 'th-TH',
+      timezoneId: 'Asia/Bangkok',
+      viewport: { width: 1440, height: 900 },
+    });
+    const email = 'owner@demo-a.test';
+    await ctx.addCookies([
+      {
+        name: 'tms_td',
+        value: `${DEMO_TRUSTED_DEVICE}:${DEMO_IDS[email]}`,
+        url: `${E2E_WEB}/v1/auth`,
+        httpOnly: true,
+        sameSite: 'Strict',
+      },
+    ]);
+    page = await ctx.newPage();
+    const v = randomBytes(32).toString('base64url');
+    const r1 = await page.request.post('/v1/auth/login', {
+      data: {
+        email,
+        password: DEMO_PASSWORD,
+        codeChallenge: createHash('sha256').update(v).digest('base64url'),
+      },
+    });
+    expect(r1.status(), await r1.text()).toBe(200);
+    const { code } = (await r1.json()) as { code: string };
+    const r2 = await page.request.post('/v1/oauth/token', {
+      data: { grantType: 'authorization_code', code, codeVerifier: v },
+    });
+    expect(r2.status(), await r2.text()).toBe(200);
+    H = { Authorization: `Bearer ${((await r2.json()) as { accessToken: string }).accessToken}` };
+  });
+  test.afterAll(async () => page?.context().close());
+
   // เตรียมข้อมูลใน test แรก (ใช้ context ที่ login แล้วของ fixture — owner ใช้อุปกรณ์ที่จำไว้ข้าม 2FA)
   test('เตรียมข้อมูล: SO รอจัด + เที่ยวที่ปล่อยแล้ว (DO ระหว่างส่ง/ส่งแล้ว/ส่งไม่สำเร็จ)', async ({
     page,
   }) => {
-    const H = { Authorization: `Bearer ${await token(page)}` };
     const get = async <X>(path: string) =>
       (await (await page.request.get(path, { headers: H })).json()) as X;
     const post = async <X>(path: string, data: object) => {
@@ -153,7 +195,7 @@ test.describe.serial('Dashboard ปฏิบัติการ (ST9-T01)', () =>
   });
 
   for (const card of ['today', 'waiting', 'running', 'failed', 'delivered', 'offered'] as const)
-    test(`การ์ด ${card}: ตัวเลข = จำนวนแถวในตารางเมื่อคลิก`, async ({ page }) => {
+    test(`การ์ด ${card}: ตัวเลข = จำนวนแถวในตารางเมื่อคลิก`, async () => {
       await page.goto('/');
       const kpi = page.getByTestId(`kpi-${card}`);
       await expect(kpi).toHaveText(/^\d[\d,]*$/);
@@ -169,7 +211,7 @@ test.describe.serial('Dashboard ปฏิบัติการ (ST9-T01)', () =>
         });
     });
 
-  test('สลับการ์ดเร็ว ๆ ไม่มีคำขอ 4xx/5xx และไม่มี console error', async ({ page }) => {
+  test('สลับการ์ดเร็ว ๆ ไม่มีคำขอ 4xx/5xx และไม่มี console error', async () => {
     const bad: string[] = [];
     page.on('response', (r) => {
       if (r.url().includes('/v1/') && r.status() >= 400) bad.push(`${r.status()} ${r.url()}`);
@@ -186,7 +228,7 @@ test.describe.serial('Dashboard ปฏิบัติการ (ST9-T01)', () =>
     expect(bad).toEqual([]);
   });
 
-  test('กล่องรถบริษัท ว่าง/ใช้งาน/ซ่อม = จำนวนแถวในหน้าทะเบียนรถที่กรองแล้ว', async ({ page }) => {
+  test('กล่องรถบริษัท ว่าง/ใช้งาน/ซ่อม = จำนวนแถวในหน้าทะเบียนรถที่กรองแล้ว', async () => {
     for (const k of ['available', 'inUse', 'maintenance'] as const) {
       await page.goto('/');
       const box = page.getByTestId(`fleet-${k}-n`);
@@ -199,7 +241,7 @@ test.describe.serial('Dashboard ปฏิบัติการ (ST9-T01)', () =>
     }
   });
 
-  test('ใบค้างต่อเหตุ = จำนวนแถวในหน้าใบค้างที่กรองเหตุนั้น', async ({ page }) => {
+  test('ใบค้างต่อเหตุ = จำนวนแถวในหน้าใบค้างที่กรองเหตุนั้น', async () => {
     await page.goto('/');
     const rows = page.getByTestId('dash-holds').locator('.tms-dash-row');
     await expect(page.getByTestId('dash-holds')).toBeVisible();
