@@ -50110,6 +50110,10 @@
             "type": "string",
             "nullable": true
           },
+          "adapterAvailable": {
+            "type": "boolean",
+            "description": "false = adapter ของ connector ไม่ได้ติดตั้ง/ปิดใน environment นี้ (เช่น demo ใน production) — ไม่ส่ง/ไม่ดึง"
+          },
           "status": {
             "type": "string",
             "nullable": true,
@@ -50180,6 +50184,7 @@
           "connectorId",
           "adapterKey",
           "displayName",
+          "adapterAvailable",
           "status",
           "capabilities",
           "documentSync",

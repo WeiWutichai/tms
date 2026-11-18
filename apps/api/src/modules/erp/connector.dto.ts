@@ -334,6 +334,11 @@ export class EffectiveConnectorDto {
   @ApiProperty({ nullable: true, type: String }) connectorId!: string | null;
   @ApiProperty({ example: 'standalone' }) adapterKey!: string;
   @ApiProperty({ nullable: true, type: String }) displayName!: string | null;
+  @ApiProperty({
+    description:
+      'false = adapter ของ connector ไม่ได้ติดตั้ง/ปิดใน environment นี้ (เช่น demo ใน production) — ไม่ส่ง/ไม่ดึง',
+  })
+  adapterAvailable!: boolean;
   @ApiProperty({ nullable: true, enum: CONNECTOR_STATUSES }) status!: string | null;
   @ApiProperty({
     type: [String],

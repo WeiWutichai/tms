@@ -209,6 +209,7 @@ export class ConnectorsService {
         connectorId: null,
         adapterKey: this.adapters.standalone.key,
         displayName: null,
+        adapterAvailable: true,
         status: null,
         capabilities: [],
         documentSync: documentSyncModes([]),
@@ -241,6 +242,7 @@ export class ConnectorsService {
       connectorId: r.connector ? encodeId('connector', r.connector.id) : null,
       adapterKey: r.connector?.adapterKey ?? this.adapters.standalone.key,
       displayName: r.standalone ? null : (r.adapter?.displayName ?? null),
+      adapterAvailable: !!r.adapter,
       status: r.status,
       capabilities: r.capabilities,
       documentSync: documentSyncModes(r.capabilities),
@@ -639,8 +641,11 @@ export class ConnectorsService {
   // ---------- หมุน key เข้ารหัส (ST7-T14 — ส่งต่อจาก ST7-T13) ----------
 
   /**
-   * เข้ารหัส credential ใหม่ด้วย key ปัจจุบันของ FIELD_ENCRYPTION_KEYS (ตัวแรก) ทุก tenant — worker เรียกวันละครั้ง
-   * ขั้นตอนหมุน key: เพิ่ม key ใหม่ไว้หน้าสุด (`k2:…,k1:…`) → deploy → รอรอบนี้ (หรือรันเอง) จน `remaining = 0` → เอา key เก่าออก
+   * เข้ารหัส **credential ของ connector เท่านั้น** ใหม่ด้วย key ปัจจุบันของ FIELD_ENCRYPTION_KEYS (ตัวแรก) ทุก tenant — worker เรียกวันละครั้ง
+   * ⚠ ข้อมูลอื่นที่เข้ารหัสด้วย FieldCipher (TOTP secret, เลขบัตรคนขับ, เลขบัญชี/เลขภาษีรถร่วม, secret ของ webhook,
+   *   token LINE, PIN ของ POD ฯลฯ) **ยังไม่มีงานเข้ารหัสใหม่** — ห้ามเอา key เก่าออกจาก FIELD_ENCRYPTION_KEYS จนกว่าจะมีงาน
+   *   เข้ารหัสใหม่ทั้งระบบ ([OPEN] ส่งต่อ ST9 / runbook ops — PROGRESS) · `remaining = 0` ที่นี่ไม่ได้แปลว่าเอา key เก่าออกได้
+   * ขั้นตอน (เฉพาะส่วน connector): เพิ่ม key ใหม่ไว้หน้าสุด (`k2:…,k1:…`) → deploy → รอรอบนี้ (หรือรันเอง) จน `remaining = 0`
    * - เขียนแบบมีเงื่อนไข (ciphertext ยังเป็นค่าเดิม) — ผู้ใช้หมุน credential พร้อมกันไม่ถูกทับ
    * - ไม่เปลี่ยน `version`/ETag (ค่าที่ API แสดงไม่เปลี่ยน) และไม่ลง audit (ไม่ใช่การเปลี่ยน credential) — log จำนวนเท่านั้น
    * - ถอดไม่ได้ (key เก่าถูกเอาออกก่อนเวลา) = นับ `failed` + log id (ไม่ลบค่า — ใส่ key กลับแล้วรันใหม่ได้)

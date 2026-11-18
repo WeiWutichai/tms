@@ -52,6 +52,8 @@ ST0 เริ่มแล้ว 10 พ.ย. — งานที่เหลื�
 - **หน้าติดตามสาธารณะ (ST4-T14)** ล็อกค้นผิด 5 ครั้ง/ชม. ต่อ IP (EXE-062) — ไม่ตั้ง `TRUST_PROXY` = ผู้รับทุกคนเป็น IP ของ load balancer ล็อกพร้อมกันทั้งระบบ · ผู้รับหลัง CGNAT เดียวกันใช้เพดานร่วมกัน (ยอมรับตาม spec/12 §3) · ตัวนับอยู่ในหน่วยความจำต่อ instance — หลาย instance ให้ตั้งที่ WAF ซ้อน
 - **อย่าใช้ tile แผนที่สาธารณะของ OSM ใน production** (ต้นแบบใช้ชั่วคราว) — D-31/D-52
 - **อย่าใช้โค้ด/โมเดลจาก repo อ้างอิงที่ไม่มี license** (เช่น ตัวอย่าง 3D ของ BC WareHouse)
+- **อย่าเอา key เก่าออกจาก `FIELD_ENCRYPTION_KEYS`** — งานเข้ารหัสใหม่ตอนหมุน key มีเฉพาะ credential ของ connector (`ConnectorsService.reencryptCredentials`, ST7-T14); TOTP, เลขบัตรคนขับ, เลขบัญชี/เลขภาษีรถร่วม, secret webhook, token LINE, PIN POD ยังเข้ารหัสด้วย key เดิม — [OPEN] ต้องมีงานเข้ารหัสใหม่ทั้งระบบ (ST9 / runbook ops) ก่อน
+- **ตั้ง `NODE_ENV` ของ staging ให้ไม่ใช่ `production`** (เช่น `staging`) ถ้าต้องการ DemoProvider — `NODE_ENV=production` ปิด demo เสมอแม้ตั้ง `ERP_DEMO_ADAPTERS=1`
 - ดีไซน์ต้องไม่ดูเป็น AI: ไม่มี gradient ม่วง, glassmorphism, emoji, eyebrow label, icon grid ซ้ำ ๆ; ฟอนต์ IBM Plex Sans Thai Looped; น้ำหนักไม่เกิน 600
 
 ## 5.1 ทำงานขนานหลาย worktree (lane)

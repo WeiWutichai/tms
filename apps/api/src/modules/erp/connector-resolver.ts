@@ -97,7 +97,12 @@ export class ConnectorResolver {
       };
     const adapter = this.adapters.get(row.adapterKey);
     // adapter หาย (deploy ไม่ครบ): เชื่อชุดที่ตรวจตอนบันทึก — เอกสารยังเข้าคิวรอ ไม่ถูกปฏิบัติเหมือน Standalone
-    const declared = adapter ? adapter.capabilities() : new Set<string>(ERP_CAPABILITIES);
+    // ยกเว้น adapter ที่ปิดใน environment นี้ (demo ใน production — ST7-T14): ใช้ไม่ได้ = ไม่มี capability ไม่มีขั้น sync
+    const declared = adapter
+      ? adapter.capabilities()
+      : this.adapters.isRefused(row.adapterKey)
+        ? new Set<string>()
+        : new Set<string>(ERP_CAPABILITIES);
     const map = (row.branchMap ?? {}) as Record<string, unknown>;
     const branchCode =
       branchId && typeof map[branchId] === 'string' ? (map[branchId] as string) : null;

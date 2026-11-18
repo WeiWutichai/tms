@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { ErpCapability } from '@tms/domain';
 import type { ExternalOrder, PullPage } from '../../modules/connectors/order-source.port';
 import type {
@@ -20,6 +21,9 @@ import type { ErrorClass } from '../../modules/integration/outbox.types';
  * - `localOnly` → ลงทะเบียนได้เฉพาะ dev/test หรือ `ERP_DEMO_ADAPTERS=1` (production ไม่มี) · catalog ติดธง `demo: true`
  * - ไม่เป็นค่าเริ่มต้นของ tenant ใด (ไม่มีแถว connector = Standalone) — ต้องสร้าง connector `adapterKey: demo` เอง
  * - ข้อมูลอยู่ใน process (หายเมื่อ restart) แยกตาม (tenant, connector) — ไม่ข้าม tenant
+ *   **ข้อจำกัดของ demo:** การจับเลขอ้างอิงซ้ำ (DUPLICATE), fetch/สถานะรับชำระ/list และจำนวนเอกสารใน healthCheck
+ *   เห็นเฉพาะสิ่งที่ process นี้ได้รับตั้งแต่บูต (API กับ worker คนละ process — push/fetch ผ่าน outbox อยู่ใน worker เดียวกัน)
+ * - เลขภายนอก `DEMO-INV-{hash 12 ตัว}` มาจาก hash ของ (tenant, connector, ประเภท, idempotency key) — restart ไม่ให้เลขซ้ำกับเอกสารอื่น
  * - พฤติกรรมกำหนดได้ (deterministic) จากค่าตั้งที่ไม่ลับของ connector:
  *   `failMode` ฉีด ErrorClass ให้ทุก push/replace (และ healthCheck เมื่อ AUTH) · `failTimes` ล้มกี่ครั้งต่อเอกสารก่อนสำเร็จ ·
  *   `paymentStatus` ผลของ fetchPaymentStatus
@@ -77,7 +81,6 @@ interface StoredDoc {
 }
 
 interface Scope {
-  seq: number;
   /** externalId → เอกสาร */
   docs: Map<string, StoredDoc>;
   /** idempotencyKey → externalId */
@@ -88,6 +91,15 @@ interface Scope {
   failures: Map<string, number>;
   /** วันที่ของ order ตัวอย่าง (กำหนดตอนดึงครั้งแรก — ดึงซ้ำได้ข้อมูลเดิม) */
   orderDate: string | null;
+}
+
+/** ส่วนท้ายของเลขภายนอก: 12 ตัวแรกของ sha256 (ตัวใหญ่) */
+export function demoExternalSuffix(scope: string, kind: string, key: string): string {
+  return createHash('sha256')
+    .update(`${scope}|${kind}|${key}`)
+    .digest('hex')
+    .slice(0, 12)
+    .toUpperCase();
 }
 
 const isMoney = (v: unknown): v is string => typeof v === 'string' && /^-?\d+(\.\d{1,2})?$/.test(v);
@@ -146,7 +158,6 @@ export class DemoAdapter implements ErpAdapter {
     let s = this.scopes.get(id);
     if (!s) {
       s = {
-        seq: 0,
         docs: new Map(),
         byKey: new Map(),
         byRef: new Map(),
@@ -256,14 +267,21 @@ export class DemoAdapter implements ErpAdapter {
     };
   }
 
-  private store(s: Scope, kind: Kind, doc: CanonicalDocument, key: string): StoredDoc {
-    s.seq += 1;
-    const n = String(s.seq).padStart(6, '0');
+  private store(
+    s: Scope,
+    ctx: ErpContext,
+    kind: Kind,
+    doc: CanonicalDocument,
+    key: string,
+  ): StoredDoc {
+    // เลขภายนอกจาก hash ของ (tenant, connector, ประเภท, idempotency key) — ไม่ใช่ลำดับในหน่วยความจำ:
+    // restart / หลาย process ไม่มีวันให้เลขเดิมกับเอกสารอื่น และคำสั่งเดิมได้เลขเดิมเสมอ (review ST7-T14)
+    const n = demoExternalSuffix(this.scopeId(ctx), kind, key);
     const at = this.now().toISOString();
     const stored: StoredDoc = {
       kind,
       externalId: `DEMO-${KIND_PREFIX[kind]}-${n}`,
-      externalDocNo: `DM${KIND_PREFIX[kind]}${n}`,
+      externalDocNo: `DM${KIND_PREFIX[kind]}${n.slice(0, 10)}`,
       version: 1,
       number: String(doc.number),
       localId: String(doc.id),
@@ -298,7 +316,7 @@ export class DemoAdapter implements ErpAdapter {
     if (mode !== 'none' && this.shouldFail(s, ctx, key)) {
       // AMBIGUOUS/DUPLICATE: ERP "ได้รับแล้ว" แต่ผู้ส่งไม่รู้ผล → บันทึกไว้ก่อนแล้วตอบล้ม (ส่งใหม่ด้วย key เดิมได้ใบเดิม)
       if ((mode === 'AMBIGUOUS' || mode === 'DUPLICATE') && !prev && number)
-        this.store(s, kind, doc, key);
+        this.store(s, ctx, kind, doc, key);
       return this.failure(mode, number);
     }
     if (prev) return this.ok(s.docs.get(prev)!);
@@ -312,7 +330,7 @@ export class DemoAdapter implements ErpAdapter {
     // เลขอ้างอิงของเราซ้ำด้วยคำสั่งอื่น = ERP ปฏิเสธว่าซ้ำ (core ตาม fetchDocument ต่อ — docs/01 §6.3)
     const dup = s.byRef.get(`${kind}:${number}`);
     if (dup) return { ...this.failure('DUPLICATE', number), raw: { externalId: dup } };
-    return this.ok(this.store(s, kind, doc, key));
+    return this.ok(this.store(s, ctx, kind, doc, key));
   }
 
   pushInvoice(ctx: ErpContext, inv: CanonicalDocument): Promise<PushResult> {

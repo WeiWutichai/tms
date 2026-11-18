@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { DEMO_SAMPLE_ORDERS, DemoAdapter } from '../src/erp-adapters/demo/demo.adapter';
+import {
+  DEMO_SAMPLE_ORDERS,
+  DemoAdapter,
+  demoExternalSuffix,
+} from '../src/erp-adapters/demo/demo.adapter';
 import { ERP_ADAPTER_FACTORIES } from '../src/erp-adapters';
 import { connectorIdOf, docOf } from './erp-demo-fixtures';
 import {
@@ -21,6 +25,10 @@ const ctx = (config: Record<string, string> = {}, key?: string, connector = 'c1'
   config: Object.freeze({ apiKey: 'demo-key', ...config }),
   idempotencyKey: key,
 });
+
+/** เลขภายนอกที่คาดไว้ (hash ของ tenant, connector, ประเภท, idempotency key) */
+const ext = (key: string, connector = 'c1', kind = 'invoice') =>
+  `DEMO-INV-${demoExternalSuffix(`${TENANT}:${connectorIdOf(connector)}`, kind, key)}`;
 
 describeErpAdapterContract('demo (DemoProvider)', {
   make: () => new DemoAdapter(),
@@ -56,8 +64,15 @@ describe('DemoProvider (ST7-T14)', () => {
       process.env.NODE_ENV = 'production';
       delete process.env.ERP_DEMO_ADAPTERS;
       expect(() => new ErpAdapterRegistry().register(new DemoAdapter())).toThrow(/only allowed/);
-      process.env.ERP_DEMO_ADAPTERS = '1'; // staging/sandbox ที่เปิดเอง
+      // production ไม่ได้แม้ตั้งธง (review ST7-T14)
+      process.env.ERP_DEMO_ADAPTERS = '1';
+      expect(ErpAdapterRegistry.demoAllowed()).toBe(false);
+      expect(() => new ErpAdapterRegistry().register(new DemoAdapter())).toThrow(/only allowed/);
+      // staging/sandbox (NODE_ENV อื่น) + ธง = ได้ · ไม่ตั้งธง = ไม่ได้
+      process.env.NODE_ENV = 'staging';
       expect(() => new ErpAdapterRegistry().register(new DemoAdapter())).not.toThrow();
+      delete process.env.ERP_DEMO_ADAPTERS;
+      expect(ErpAdapterRegistry.demoAllowed()).toBe(false);
     } finally {
       process.env.NODE_ENV = env.node;
       if (env.demo === undefined) delete process.env.ERP_DEMO_ADAPTERS;
@@ -78,23 +93,30 @@ describe('DemoProvider (ST7-T14)', () => {
     const r1 = await a.pushInvoice(ctx({}, 'k1'), inv);
     expect(r1).toMatchObject({
       ok: true,
-      externalId: 'DEMO-INV-000001',
-      externalDocNo: 'DMINV000001',
+      externalId: ext('k1'),
+      externalDocNo: `DMINV${ext('k1').slice(9, 19)}`,
       externalVersion: '1',
     });
-    expect(await a.pushInvoice(ctx({}, 'k1'), inv)).toMatchObject({
-      externalId: 'DEMO-INV-000001',
+    expect(ext('k1')).toMatch(/^DEMO-INV-[0-9A-F]{12}$/);
+    expect(await a.pushInvoice(ctx({}, 'k1'), inv)).toMatchObject({ externalId: ext('k1') });
+    // restart (instance ใหม่) + เอกสารอื่น → เลขไม่ซ้ำของเดิม · คำสั่งเดิม → เลขเดิม
+    const b = new DemoAdapter();
+    expect(await b.pushInvoice(ctx({}, 'k-other'), docOf('inv-2', 'INV-2'))).toMatchObject({
+      externalId: ext('k-other'),
     });
+    expect(ext('k-other')).not.toBe(ext('k1'));
+    expect(await b.pushInvoice(ctx({}, 'k1'), inv)).toMatchObject({ externalId: ext('k1') });
     expect(await a.pushInvoice(ctx({}, 'k2'), inv)).toMatchObject({
       ok: false,
       errorClass: 'DUPLICATE',
-      raw: { externalId: 'DEMO-INV-000001' },
+      raw: { externalId: ext('k1') },
     });
     // connector อื่น = ERP คนละตัว (ไม่เห็นกัน)
     expect(await a.pushInvoice(ctx({}, 'k1', 'c2'), inv)).toMatchObject({
       ok: true,
-      externalId: 'DEMO-INV-000001',
+      externalId: ext('k1', 'c2'),
     });
+    expect(ext('k1', 'c2')).not.toBe(ext('k1'));
     expect(a.documents(TENANT, connectorIdOf('c1'))).toHaveLength(1);
     expect(a.documents(TENANT, connectorIdOf('c2'))).toHaveLength(1);
     // payload ผิด
@@ -149,7 +171,7 @@ describe('DemoProvider (ST7-T14)', () => {
       retryable: true,
     });
     expect(a.documents(TENANT, connectorIdOf('c1'))).toHaveLength(1);
-    expect(await a.pushInvoice(c, d)).toMatchObject({ ok: true, externalId: 'DEMO-INV-000001' });
+    expect(await a.pushInvoice(c, d)).toMatchObject({ ok: true, externalId: ext('amb') });
     expect(a.documents(TENANT, connectorIdOf('c1'))).toHaveLength(1);
   });
 
@@ -161,7 +183,7 @@ describe('DemoProvider (ST7-T14)', () => {
     expect(await a.fetchDocument(ctx(), ref)).toMatchObject({
       id: 'inv-9',
       number: 'INV-9',
-      externalId: 'DEMO-INV-000001',
+      externalId: ext('p1'),
     });
     expect(await a.fetchDocument(ctx(), { ...ref, number: 'nope' })).toBeNull();
     expect(await a.fetchPaymentStatus(ctx(), ref)).toEqual({
@@ -181,14 +203,12 @@ describe('DemoProvider (ST7-T14)', () => {
       },
     );
     expect(await a.listDocuments(ctx(), { ref: 'INV-9', limit: 10 })).toEqual({
-      items: [
-        { entityType: 'invoice', localId: 'inv-9', number: 'INV-9', externalId: 'DEMO-INV-000001' },
-      ],
+      items: [{ entityType: 'invoice', localId: 'inv-9', number: 'INV-9', externalId: ext('p1') }],
       next: null,
     });
     const rep = await a.replaceDocument(
       ctx({}, 'rep-1'),
-      { ...ref, externalId: 'DEMO-INV-000001' },
+      { ...ref, externalId: ext('p1') },
       docOf('inv-9', 'INV-9', '1000.00'),
     );
     expect(rep).toMatchObject({ ok: true, externalVersion: '2' });
@@ -196,7 +216,7 @@ describe('DemoProvider (ST7-T14)', () => {
     expect(
       await a.replaceDocument(
         ctx({}, 'rep-1'),
-        { ...ref, externalId: 'DEMO-INV-000001' },
+        { ...ref, externalId: ext('p1') },
         docOf('inv-9', 'INV-9'),
       ),
     ).toMatchObject({ externalVersion: '2' });

@@ -5,7 +5,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { FieldCipher } from '../src/common/crypto';
 import { encodeId, tryDecodeId } from '../src/common/ids';
 import { DbService } from '../src/db/db.service';
-import { DemoAdapter } from '../src/erp-adapters/demo/demo.adapter';
+import { DemoAdapter, demoExternalSuffix } from '../src/erp-adapters/demo/demo.adapter';
 import { JobQueue } from '../src/jobs/job-queue.service';
 import {
   CONNECTOR_PULL_JOB,
@@ -45,6 +45,9 @@ describe('Standalone + DemoProvider (ST7-T14)', () => {
     await dispatcher.drain();
   };
   const cmd = (id: string) => plat.integrationOutbox.findUniqueOrThrow({ where: { id } });
+  /** เลขภายนอกที่ DemoProvider ให้กับคำสั่งนี้ (hash ของ tenant, connector, ประเภท, idempotency key) */
+  const extOf = async (connectorId: string, id: string) =>
+    demoExternalSuffix(`${tenantId}:${connectorId}`, 'invoice', (await cmd(id)).idempotencyKey);
 
   async function company(n: number) {
     const c = await plat.company.create({
@@ -235,9 +238,14 @@ describe('Standalone + DemoProvider (ST7-T14)', () => {
     const inv = invoice(1);
     const id = await enqueue(con.uuid, 'PUSH_INVOICE', inv.payload, inv.id);
     await drain();
+    const h = await extOf(con.uuid, id);
     expect(await cmd(id)).toMatchObject({
       status: 'DONE',
-      result: { externalId: 'DEMO-INV-000001', externalDocNo: 'DMINV000001', externalVersion: '1' },
+      result: {
+        externalId: `DEMO-INV-${h}`,
+        externalDocNo: `DMINV${h.slice(0, 10)}`,
+        externalVersion: '1',
+      },
     });
     const docs = demo.documents(tenantId, con.uuid);
     expect(docs).toHaveLength(1);
@@ -255,7 +263,7 @@ describe('Standalone + DemoProvider (ST7-T14)', () => {
       entityType: 'invoice',
       localId: inv.id,
       number: 'INV-00000-2611-0001',
-      externalId: 'DEMO-INV-000001',
+      externalId: `DEMO-INV-${h}`,
     };
     const f = await enqueue(con.uuid, 'FETCH_DOCUMENT', { ref });
     const p = await enqueue(con.uuid, 'FETCH_PAYMENT_STATUS', { ref });
@@ -329,7 +337,7 @@ describe('Standalone + DemoProvider (ST7-T14)', () => {
     expect(await cmd(t)).toMatchObject({
       status: 'DONE',
       attempt: 3,
-      result: { externalId: 'DEMO-INV-000001' },
+      result: { externalId: `DEMO-INV-${await extOf(con.uuid, t)}` },
     });
 
     await setSettings(con.id, { failMode: 'AMBIGUOUS', failTimes: '1' });
@@ -343,7 +351,7 @@ describe('Standalone + DemoProvider (ST7-T14)', () => {
     await drain();
     expect(await cmd(amb)).toMatchObject({
       status: 'DONE',
-      result: { externalId: 'DEMO-INV-000002' },
+      result: { externalId: `DEMO-INV-${await extOf(con.uuid, amb)}` },
     });
     expect(demo.documents(tenantId, con.uuid)).toHaveLength(2);
   });
@@ -455,6 +463,8 @@ describe('Standalone + DemoProvider (ST7-T14)', () => {
       ['https://10.1.2.3/api', 'url_not_allowed'],
       ['https://169.254.169.254/latest', 'url_not_allowed'],
       ['https://erp.internal/api', 'url_not_allowed'],
+      ['https://localhost./api', 'url_not_allowed'],
+      ['https://erp.example.com./api', 'url_not_allowed'],
       ['https://user:pw@erp.example.com/api', 'credentials_in_url'],
       ['https://erp.example.com:22/api', 'port_not_allowed'],
     ] as const) {
@@ -463,5 +473,31 @@ describe('Standalone + DemoProvider (ST7-T14)', () => {
       expect(r.body.errors[0]).toMatchObject({ field: 'settings.baseUrl', code });
     }
     expect((await send('https://erp.example.com/api')).status).toBe(201);
+  });
+  it('adapter ที่ปิดใน environment นี้ (demo ใน production) ค้างเป็น connector: effective = ใช้ไม่ได้ ไม่มีขั้น sync (ไม่ใช่ PUSH)', async () => {
+    const con = await demoConnector();
+    const reg = app.get(ErpAdapterRegistry);
+    reg.unregister('demo');
+    reg.refuse('demo');
+    try {
+      const eff = await api(app, token).get('/v1/connectors/effective').expect(200);
+      expect(eff.body).toMatchObject({
+        standalone: false,
+        adapterKey: 'demo',
+        adapterAvailable: false,
+        capabilities: [],
+        sending: false,
+        documentSync: { invoice: 'NOT_APPLICABLE', settlement: 'NOT_APPLICABLE' },
+      });
+      // คำสั่งที่ค้างไม่ถูกส่ง (พักไว้)
+      const inv = invoice(90);
+      const id = await enqueue(con.uuid, 'PUSH_INVOICE', inv.payload, inv.id);
+      await drain();
+      expect(await cmd(id)).toMatchObject({ status: 'PENDING', errorClass: 'AUTH' });
+    } finally {
+      reg.replace(demo);
+    }
+    const eff = await api(app, token).get('/v1/connectors/effective').expect(200);
+    expect(eff.body).toMatchObject({ adapterAvailable: true, documentSync: { invoice: 'PUSH' } });
   });
 });
