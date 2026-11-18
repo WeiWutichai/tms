@@ -61,7 +61,7 @@ export class SavedViewsService {
     await this.lock(userId, body.page);
     const n = await tx.savedView.count({ where: { userId, page: body.page, deletedAt: null } });
     if (n >= VIEW_LIMIT)
-      throw new ProblemException('conflict', `at most ${VIEW_LIMIT} views per page`);
+      throw new ProblemException('saved_view_limit', undefined, undefined, { limit: VIEW_LIMIT });
     await this.assertNameFree(userId, body.page, body.name);
     if (body.isDefault) await this.clearDefault(userId, body.page);
     return tx.savedView.create({

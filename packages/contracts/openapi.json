@@ -2935,14 +2935,15 @@
                       ]
                     }
                   },
-                  "conflict": {
+                  "saved_view_limit": {
                     "value": {
-                      "type": "https://docs.tms.example/problems/conflict",
-                      "title": "ข้อมูลขัดแย้งกับที่มีอยู่",
+                      "type": "https://docs.tms.example/problems/saved_view_limit",
+                      "title": "บันทึกได้สูงสุด 50 มุมมองต่อหน้า",
                       "status": 409,
-                      "code": "conflict",
+                      "code": "saved_view_limit",
                       "instance": "/v1/saved-views/svw_3f2a…",
-                      "requestId": "b6a1c2d3-…"
+                      "requestId": "b6a1c2d3-…",
+                      "limit": 50
                     }
                   }
                 }
@@ -3175,14 +3176,15 @@
                       ]
                     }
                   },
-                  "conflict": {
+                  "saved_view_limit": {
                     "value": {
-                      "type": "https://docs.tms.example/problems/conflict",
-                      "title": "ข้อมูลขัดแย้งกับที่มีอยู่",
+                      "type": "https://docs.tms.example/problems/saved_view_limit",
+                      "title": "บันทึกได้สูงสุด 50 มุมมองต่อหน้า",
                       "status": 409,
-                      "code": "conflict",
+                      "code": "saved_view_limit",
                       "instance": "/v1/saved-views/svw_3f2a…",
-                      "requestId": "b6a1c2d3-…"
+                      "requestId": "b6a1c2d3-…",
+                      "limit": 50
                     }
                   }
                 }

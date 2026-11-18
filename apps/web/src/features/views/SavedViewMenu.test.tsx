@@ -13,7 +13,7 @@ const view = (o: Record<string, unknown>) => ({
   updatedAt: '2026-11-18T00:00:00.000Z',
   ...o,
 });
-let rows: ReturnType<typeof view>[] = [];
+let rows: (ReturnType<typeof view> & { id?: string })[] = [];
 const ok = (data: unknown, status = 200) =>
   Promise.resolve({ data, response: { ok: true, status } });
 const GET = vi.fn(() => ok({ data: rows, nextCursor: null, hasMore: false }));
@@ -188,6 +188,15 @@ describe('SavedViewMenu (ST9-T11)', () => {
     ];
     const r = mount();
     expect(await screen.findByRole('button', { name: 'มุมมอง: ข' })).toBeInTheDocument();
+    // ลำดับต้นแบบ: มุมมองที่บันทึก ก่อน "ทั้งหมด" · ค่าเริ่มต้น = ไอคอนหมุด (ชื่อไม่ถูกป้ายบัง)
+    openMenu();
+    expect(screen.getAllByRole('menuitemradio').map((x) => x.textContent)).toEqual([
+      'ก',
+      'ข',
+      'ทั้งหมด',
+    ]);
+    expect(screen.getByRole('img', { name: 'ค่าเริ่มต้น' })).toBeInTheDocument();
+    openMenu();
     expect(applied).toHaveLength(1);
     r.unmount();
     mount();

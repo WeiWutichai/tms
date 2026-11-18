@@ -59,8 +59,22 @@ const tok = await (
 const H = { Authorization: `Bearer ${tok.accessToken}` };
 // มุมมองตัวอย่าง (สมมติ) ของผู้ใช้นี้ — สร้างซ้ำได้ (ชื่อซ้ำ = 409 ข้าม)
 for (const [name, state, isDefault] of [
-  ['ของฉันวันนี้', { tab: 'all', overdue: false, doneToday: false, q: '', st: '', source: '' }, false],
-  ['รอกำหนดเส้นทาง', { tab: 'route', overdue: false, doneToday: false, q: '', st: '', source: '' }, false],
+  [
+    'ของฉันวันนี้',
+    { tab: 'all', overdue: false, doneToday: false, q: '', st: '', source: '' },
+    false,
+  ],
+  [
+    'รอกำหนดเส้นทาง',
+    { tab: 'route', overdue: false, doneToday: false, q: '', st: '', source: '' },
+    false,
+  ],
+  // ชื่อยาว + ค่าเริ่มต้น (ไอคอนหมุด) — ตรวจว่าชื่อไม่ถูกตัดสั้น (review ST9-T11)
+  [
+    'งานด่วนลูกค้าภาคตะวันออก',
+    { tab: 'match', overdue: false, doneToday: false, q: '', st: '', source: '' },
+    true,
+  ],
 ])
   await W.request.post('/v1/saved-views', {
     headers: H,
@@ -84,8 +98,14 @@ c.dialog = await W.screenshot();
 
 const LABEL = {
   row: ['ใบสั่งขนส่ง · แถว "มุมมอง: ของฉันวันนี้"', 'ใบสั่งขนส่ง · มุมมองที่บันทึกไว้ถูกเลือก'],
-  menu: ['ใบสั่งขนส่ง · เมนู "มุมมอง:"', 'ใบสั่งขนส่ง · เมนูมุมมอง + คำสั่งบันทึก/เปลี่ยนชื่อ/ค่าเริ่มต้น/ลบ'],
-  dialog: ['ใบสั่งขนส่ง (ต้นแบบไม่มีกล่องบันทึกมุมมอง)', 'กล่อง "บันทึกมุมมอง" (แบบกล่องบันทึกเทมเพลต)'],
+  menu: [
+    'ใบสั่งขนส่ง · เมนู "มุมมอง:"',
+    'ใบสั่งขนส่ง · เมนูมุมมอง + คำสั่งบันทึก/เปลี่ยนชื่อ/ค่าเริ่มต้น/ลบ',
+  ],
+  dialog: [
+    'ใบสั่งขนส่ง (ต้นแบบไม่มีกล่องบันทึกมุมมอง)',
+    'กล่อง "บันทึกมุมมอง" (แบบกล่องบันทึกเทมเพลต)',
+  ],
 };
 for (const tag of ['row', 'menu', 'dialog']) {
   const M = await (await b.newContext({ viewport: { width: 2900, height: 960 } })).newPage();

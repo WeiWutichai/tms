@@ -207,7 +207,7 @@ describe('saved views (ST9-T11)', () => {
     });
   });
 
-  it(`เกิน ${VIEW_LIMIT} มุมมองต่อหน้า → 409 conflict`, async () => {
+  it(`เกิน ${VIEW_LIMIT} มุมมองต่อหน้า → 409 saved_view_limit`, async () => {
     await db.savedView.createMany({
       data: Array.from({ length: VIEW_LIMIT }, (_, i) => ({
         tenantId,
@@ -223,6 +223,8 @@ describe('saved views (ST9-T11)', () => {
       .post(URL)
       .send({ page: 'p.limit', name: 'เกิน', state: {} })
       .expect(409);
-    expect(r.body.code).toBe('conflict');
+    expect(r.body.code).toBe('saved_view_limit');
+    expect(r.body.limit).toBe(VIEW_LIMIT);
+    expect(r.body.title).toBe('บันทึกได้สูงสุด 50 มุมมองต่อหน้า');
   });
 });

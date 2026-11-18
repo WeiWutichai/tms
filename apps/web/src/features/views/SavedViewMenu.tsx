@@ -33,7 +33,7 @@ type Dialog =
 
 /**
  * ปุ่ม "มุมมอง: …" + เมนูของหน้ารายการ (ST9-T11) — ต้นแบบ TMS v4 `toggleView` :1113 (pill 32px ไอคอน bookmark,
- * เมนู 220px มุม 14 เงา, แถว 36px pill, ✓ สีน้ำเงิน) · รายการในเมนู: "ทั้งหมด" (ล้างตัวกรอง — ต้นแบบ) + มุมมองที่ผู้ใช้บันทึก
+ * เมนู 220px มุม 14 เงา, แถว 36px pill, ✓ สีน้ำเงิน) · รายการในเมนู (ลำดับต้นแบบ): มุมมองที่ผู้ใช้บันทึก แล้ว "ทั้งหมด" (ล้างตัวกรอง) ท้าย
  * [DECISION — ตามคำแนะนำ, PO อนุมัติล่วงหน้า 17 พ.ย. 2569 — ย้อนได้] ต้นแบบไม่วาดการบันทึก/เปลี่ยนชื่อ/ตั้งค่าเริ่มต้น
  * (docs/03 §"Saved views + filter badge" ระบุไว้) → ต่อท้ายเมนูด้วยเส้นคั่นแบบแผง "คอลัมน์ที่แสดง" + แถวคำสั่งรูปเดียวกัน
  * "ทั้งทีม" (แชร์ในทีม) = P1 ยังไม่แสดง · "ของฉันวันนี้" = ข้อมูลตัวอย่างของต้นแบบ (ผู้ใช้ตั้งชื่อเอง)
@@ -150,6 +150,35 @@ export function SavedViewMenu({
             boxSizing: 'border-box',
           }}
         >
+          {b.views.map((v) => (
+            <button
+              key={v.id}
+              type="button"
+              role="menuitemradio"
+              aria-checked={a?.id === v.id}
+              className="tms-viewitem"
+              style={item}
+              title={v.isDefault ? `${v.name} · ${t('sv.default')}` : v.name}
+              onClick={run(() => b.select(v))}
+            >
+              <span style={ellipsis}>{v.name}</span>
+              {/* ค่าเริ่มต้น = ไอคอนหมุด 14px (ไม่กินที่ชื่อ — review ST9-T11) ชื่อเต็ม + "ค่าเริ่มต้น" อยู่ใน title/aria */}
+              {v.isDefault && (
+                <Icon
+                  n="pin"
+                  s={14}
+                  aria-hidden={false}
+                  aria-label={t('sv.default')}
+                  role="img"
+                  style={{ color: '#59606B', flexShrink: 0 }}
+                />
+              )}
+              {a?.id === v.id && (
+                <Icon n="check" s={16} style={{ color: '#2257C4', flexShrink: 0 }} />
+              )}
+            </button>
+          ))}
+          {/* ลำดับต้นแบบ (:5720): มุมมองที่บันทึก ก่อน แล้ว "ทั้งหมด" ท้าย */}
           <button
             type="button"
             role="menuitemradio"
@@ -161,28 +190,6 @@ export function SavedViewMenu({
             <span style={ellipsis}>{t('sv.all')}</span>
             {!a && b.isAll && <Icon n="check" s={16} style={{ color: '#2257C4' }} />}
           </button>
-          {b.views.map((v) => (
-            <button
-              key={v.id}
-              type="button"
-              role="menuitemradio"
-              aria-checked={a?.id === v.id}
-              className="tms-viewitem"
-              style={item}
-              title={v.name}
-              onClick={run(() => b.select(v))}
-            >
-              <span style={ellipsis}>{v.name}</span>
-              {v.isDefault && (
-                <span style={{ fontSize: 12.5, color: '#59606B', flexShrink: 0 }}>
-                  {t('sv.default')}
-                </span>
-              )}
-              {a?.id === v.id && (
-                <Icon n="check" s={16} style={{ color: '#2257C4', flexShrink: 0 }} />
-              )}
-            </button>
-          ))}
           {b.error && (
             <div style={{ padding: '6px 10px', fontSize: 12.5, color: '#B3322A' }}>
               {t('sv.loadError')}

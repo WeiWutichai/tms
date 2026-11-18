@@ -57,7 +57,7 @@ const V409 = {
     duplicate: P('duplicate', {
       errors: [{ field: 'name', code: 'duplicate', message: 'view name already exists' }],
     }),
-    conflict: P('conflict'),
+    saved_view_limit: P('saved_view_limit', { limit: 50 }),
   },
 };
 const V412 = {
