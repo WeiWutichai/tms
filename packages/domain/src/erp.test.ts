@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   canConnectorTransition,
+  documentSyncMode,
+  documentSyncModes,
   effectiveCapabilities,
   ERP_CAPABILITIES,
   ERP_OPERATION_CAPABILITY,
@@ -64,5 +66,26 @@ describe('ErpAdapter capabilities (ST7-T13; docs/01 §6.1)', () => {
     expect(canConnectorTransition('pause', 'DISCONNECTED')).toBe(false);
     expect(canConnectorTransition('disconnect', 'DISCONNECTED')).toBe(false);
     expect(canConnectorTransition('disconnect', 'ERROR')).toBe(true);
+  });
+});
+
+describe('โหมด sync ต่อประเภทเอกสาร (ST7-T14; docs/01 §6.1)', () => {
+  it('Standalone (ไม่มี capability) = NOT_APPLICABLE ทุกประเภท — invoice เดิน ISSUED → PAID โดยไม่มีสถานะ sync', () => {
+    expect(documentSyncModes([])).toEqual({
+      invoice: 'NOT_APPLICABLE',
+      creditNote: 'NOT_APPLICABLE',
+      debitNote: 'NOT_APPLICABLE',
+      settlement: 'NOT_APPLICABLE',
+    });
+  });
+
+  it('ตาม capability: push / replace (fallback) / ส่งใบปรับไม่ได้ = MANUAL', () => {
+    expect(documentSyncMode(['pushInvoice', 'pushCreditNote'], 'creditNote')).toBe('PUSH');
+    expect(documentSyncMode(['pushInvoice', 'replaceDocument'], 'debitNote')).toBe('REPLACE');
+    expect(documentSyncMode(['pushInvoice'], 'creditNote')).toBe('MANUAL');
+    expect(documentSyncMode(['pullOrders'], 'creditNote')).toBe('NOT_APPLICABLE');
+    expect(documentSyncMode(['pullOrders'], 'invoice')).toBe('NOT_APPLICABLE');
+    expect(documentSyncMode(['pushSettlement'], 'settlement')).toBe('PUSH');
+    expect(documentSyncMode(['pushInvoice'], 'settlement')).toBe('NOT_APPLICABLE');
   });
 });

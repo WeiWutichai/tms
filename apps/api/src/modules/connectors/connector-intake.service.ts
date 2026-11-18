@@ -10,6 +10,9 @@ import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
 import { PrismaService } from '../../db/prisma.service';
 import { JobQueue } from '../../jobs/job-queue.service';
+import { EntitlementService } from '../entitlements/entitlement.service';
+import { ConnectorResolver } from '../erp/connector-resolver';
+import { ConnectorsService, redactSecrets } from '../erp/connectors.service';
 import { OrderIntakeService } from '../orders/order-intake.service';
 import { bangkokToday } from '../vehicle-documents/expiry';
 import {
@@ -69,10 +72,24 @@ export interface PullItemResult {
 
 export type PullCounts = Record<PullOutcome, number> & { held: number; total: number };
 
+/**
+ * ข้ามรอบ: `in_progress` = มีรอบอื่นถือ lease · (ดึงผ่าน connector — ST7-T14) `connector_not_active` = ไม่ใช่ ACTIVE ·
+ * `pull_not_enabled` = adapter ไม่รองรับ/tenant ไม่เปิด `pullOrders` · `adapter_unavailable` = adapter ไม่ได้ติดตั้ง ·
+ * `feature_off` = แพ็กเกจไม่มี `conn`
+ */
+export type PullSkip =
+  | 'in_progress'
+  | 'connector_not_active'
+  | 'pull_not_enabled'
+  | 'adapter_unavailable'
+  | 'feature_off';
+
 export interface PullRunResult {
+  /** รหัส adapter (ป้ายที่มา `ERP:{key}`) */
   connector: string;
-  /** ข้ามเพราะมีรอบอื่นถือ lease อยู่ */
-  skipped?: 'in_progress';
+  /** connector id (uuid) — null = ต้นทางทดสอบตามรหัส (`mock`) */
+  connectorId?: string | null;
+  skipped?: PullSkip;
   pages: number;
   cursor: string | null;
   counts: PullCounts;
@@ -114,6 +131,19 @@ export function pageShapeError(page: unknown, cursor: string | null, limit: numb
   return null;
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** ต้นทางของรอบดึง — ต้นทางทดสอบตามรหัส (OrderSourceRegistry) หรือ connector ของ tenant (ErpAdapter — ST7-T14) */
+interface PullSource {
+  /** รหัส adapter — ป้ายที่มา `ERP:{key}` + ผู้กระทำ `connector:{key}` */
+  key: string;
+  /** null = ต้นทางทดสอบตามรหัส (cursor ต่อรหัส) */
+  connectorId: string | null;
+  pullOrders(since: string | null, limit: number): Promise<PullPage>;
+  /** ค่า credential สำหรับตัดออกจากข้อความ error */
+  secrets: string[];
+}
+
 const emptyCounts = (): PullCounts => ({
   created: 0,
   updated: 0,
@@ -137,9 +167,12 @@ const emptyCounts = (): PullCounts => ({
  * - ใบวางแผนแล้วที่ต้นทางแก้ช่องที่ล็อก → `upsertOrder` เก็บชุดรอตัดสิน (ไม่ทับ) = ผล source_changed (ST3-T10)
  *   ใบสำรองห้ามเก็บชุด (`forbidStaging`) — ข้อมูลลดรูปไม่ขึ้นเป็น diff ให้คนรับทับใบที่วางแผนแล้ว → locked
  * - idempotent: externalId เดิม + ข้อมูลเดิม = unchanged (hash ใน upsertOrder) — ดึงซ้ำไม่เกิดใบซ้ำ
- * - cursor ต่อ tenant + connector (`connector_cursor`) เลื่อนเมื่อทุกใบในหน้าได้ผลสุดท้าย (มี error = ไม่เลื่อน, job ลองใหม่)
+ * - cursor (`connector_cursor`) ต่อ connector id (ดึงผ่าน connector — ST7-T14) หรือต่อรหัส (ต้นทางทดสอบ `mock`)
+ *   เลื่อนเมื่อทุกใบในหน้าได้ผลสุดท้าย (มี error = ไม่เลื่อน, job ลองใหม่)
+ * - ต้นทาง: `pullConnector` = แถว connector ของ tenant → ErpAdapterRegistry (`ErpAdapter.pullOrders`, ST7-T14) ·
+ *   `pull` = ต้นทางทดสอบตามรหัสจาก OrderSourceRegistry (dev/test เท่านั้น)
  * - lease ในแถว cursor กันสองรอบดึงพร้อมกัน (รอบที่สองได้ `skipped: in_progress`)
- * - ไม่มี endpoint (docs §5.2 #14 connectors = ST7) — สั่งผ่าน job `connector.pull` + audit สรุปรอบ
+ * - ไม่มี endpoint — สั่งผ่าน job `connector.pull` (`ConnectorPullScheduler` ทุก 5 นาที) + audit สรุปรอบ
  */
 @Injectable()
 export class ConnectorIntakeService implements OnModuleInit {
@@ -153,27 +186,45 @@ export class ConnectorIntakeService implements OnModuleInit {
     private readonly registry: OrderSourceRegistry,
     private readonly audit: AuditService,
     private readonly clock: Clock,
+    private readonly connectors: ConnectorsService,
+    private readonly resolver: ConnectorResolver,
+    private readonly entitlements: EntitlementService,
   ) {}
 
   onModuleInit() {
     this.queue.register(
       CONNECTOR_PULL_JOB,
       async ({ tenantId, job }) => {
-        const key = (job.payload as { connector?: unknown } | null)?.connector;
-        if (typeof key !== 'string' || !CONNECTOR_KEY_RE.test(key))
-          throw new Error('connector.pull: invalid connector key');
+        const p = (job.payload ?? {}) as { connector?: unknown; connectorId?: unknown };
         if (!(await this.tenantActive(tenantId))) return { skipped: 'tenant_inactive' };
-        const r = await this.pull(tenantId, key);
+        let r: PullRunResult;
+        if (p.connectorId !== undefined) {
+          // ST7-T14: ดึงผ่านแถว connector (ErpAdapter) — cursor ต่อ connector id
+          if (typeof p.connectorId !== 'string' || !UUID_RE.test(p.connectorId))
+            throw new Error('connector.pull: invalid connector id');
+          r = await this.pullConnector(tenantId, p.connectorId);
+        } else {
+          if (typeof p.connector !== 'string' || !CONNECTOR_KEY_RE.test(p.connector))
+            throw new Error('connector.pull: invalid connector key');
+          r = await this.pull(tenantId, p.connector);
+        }
+        const key = r.connector;
         // ใบที่ error / ต้นทางล่ม → ให้ JobQueue ลองใหม่ (cursor ไม่เลื่อน — ดึงซ้ำได้ใบเดิม)
         if (r.sourceError) throw new Error(`connector ${key}: source failed — ${r.sourceError}`);
         if (r.counts.error) throw new Error(`connector ${key}: ${r.counts.error} order(s) failed`);
-        return { connector: key, pages: r.pages, counts: r.counts, skipped: r.skipped ?? null };
+        return {
+          connector: key,
+          ...(r.connectorId ? { connectorId: r.connectorId } : {}),
+          pages: r.pages,
+          counts: r.counts,
+          skipped: r.skipped ?? null,
+        };
       },
       { outsideTransaction: true },
     );
   }
 
-  /** สั่งดึง (ใน transaction ของผู้เรียก) — scheduler ต่อ connector ที่เปิด = ST7-T13/ST8-T04 */
+  /** สั่งดึงจากต้นทางทดสอบตามรหัส (`mock` — dev/test) ใน transaction ของผู้เรียก */
   enqueue(tx: Tx, tenantId: string, connector: string) {
     if (!CONNECTOR_KEY_RE.test(connector)) throw new Error('invalid connector key');
     return this.queue.enqueue(tx, {
@@ -183,7 +234,17 @@ export class ConnectorIntakeService implements OnModuleInit {
     });
   }
 
-  /** ดึงหนึ่งรอบ: หลายหน้าจนหมดหรือครบ PULL_MAX_PAGES */
+  /** สั่งดึงผ่าน connector (ST7-T14 — scheduler `ConnectorPullScheduler` เรียกทุก 5 นาที) */
+  enqueueConnector(tx: Tx, tenantId: string, connectorId: string) {
+    if (!UUID_RE.test(connectorId)) throw new Error('invalid connector id');
+    return this.queue.enqueue(tx, {
+      tenantId,
+      type: CONNECTOR_PULL_JOB,
+      payload: { connectorId },
+    });
+  }
+
+  /** ดึงหนึ่งรอบจากต้นทางทดสอบตามรหัส (OrderSourceRegistry — `mock` ใน dev/test) */
   async pull(
     tenantId: string,
     connector: string,
@@ -195,11 +256,76 @@ export class ConnectorIntakeService implements OnModuleInit {
     // ไม่มี tenant / ถูกระงับ → ไม่ดึง (ไม่สร้างแถว cursor ให้ tenant ที่ไม่มี)
     if (!(await this.tenantActive(tenantId)))
       throw new Error(`tenant ${tenantId} is not active — pull refused`);
+    return this.run(
+      tenantId,
+      {
+        key: connector,
+        connectorId: null,
+        pullOrders: (since, limit) => port.pullOrders({ tenantId }, since, limit),
+        secrets: [],
+      },
+      opts,
+    );
+  }
+
+  /**
+   * ดึงหนึ่งรอบผ่าน connector ของ tenant (ST7-T14; docs/01 §6.1 `pullOrders` "scheduler ทุก N นาทีต่อ connector ที่เปิด")
+   * ดึงเมื่อ: แพ็กเกจมี `conn` + connector ACTIVE + adapter ติดตั้ง + `pullOrders` ใช้ได้จริง (adapter ∩ tenant เปิด)
+   * ไม่เข้าเงื่อนไข = `skipped` (ไม่ใช่ error — job ไม่ลองซ้ำ) · cursor ต่อ connector id · ข้อความ error ตัด credential
+   */
+  async pullConnector(
+    tenantId: string,
+    connectorId: string,
+    opts: { pageSize?: number; maxPages?: number } = {},
+  ): Promise<PullRunResult> {
+    if (!(await this.tenantActive(tenantId)))
+      throw new Error(`tenant ${tenantId} is not active — pull refused`);
+    const row = await this.db.withTenant(tenantId, (tx) =>
+      tx.connector.findUnique({ where: { id: connectorId } }),
+    );
+    if (!row) throw new Error(`connector ${connectorId} not found`);
+    const skip = (skipped: PullSkip): PullRunResult => ({
+      connector: row.adapterKey,
+      connectorId,
+      skipped,
+      pages: 0,
+      cursor: null,
+      counts: emptyCounts(),
+      results: [],
+    });
+    if (!(await this.entitlements.enabled(tenantId, 'conn'))) return skip('feature_off');
+    if (row.status !== 'ACTIVE') return skip('connector_not_active');
+    const r = this.resolver.describe(row);
+    if (!r.adapter) return skip('adapter_unavailable');
+    if (!r.capabilities.includes('pullOrders') || !r.adapter.pullOrders)
+      return skip('pull_not_enabled');
+    const adapter = r.adapter;
+    const ctx = this.connectors.contextOf(row);
+    return this.run(
+      tenantId,
+      {
+        key: row.adapterKey,
+        connectorId,
+        pullOrders: (since, limit) => adapter.pullOrders!(ctx, since, limit),
+        secrets: row.credentialKeys.map((k) => ctx.config[k] ?? ''),
+      },
+      opts,
+    );
+  }
+
+  /** หนึ่งรอบ: หลายหน้าจนหมดหรือครบ maxPages */
+  private async run(
+    tenantId: string,
+    source: PullSource,
+    opts: { pageSize?: number; maxPages?: number },
+  ): Promise<PullRunResult> {
+    const connector = source.key;
     const pageSize = opts.pageSize ?? PULL_PAGE_SIZE;
     const maxPages = opts.maxPages ?? PULL_MAX_PAGES;
     const leaseId = randomUUID();
     const run: PullRunResult = {
       connector,
+      ...(source.connectorId ? { connectorId: source.connectorId } : {}),
       pages: 0,
       cursor: null,
       counts: emptyCounts(),
@@ -207,7 +333,7 @@ export class ConnectorIntakeService implements OnModuleInit {
     };
 
     const claimed = await this.db.withTenant(tenantId, (tx) =>
-      this.claim(tx, tenantId, connector, leaseId),
+      this.claim(tx, tenantId, source, leaseId),
     );
     if (!claimed) return { ...run, skipped: 'in_progress' };
     run.cursor = claimed.cursor;
@@ -217,9 +343,13 @@ export class ConnectorIntakeService implements OnModuleInit {
       for (let page = 0; page < maxPages; page++) {
         let got;
         try {
-          got = await port.pullOrders({ tenantId }, run.cursor, pageSize);
+          got = await source.pullOrders(run.cursor, pageSize);
         } catch (e) {
-          run.sourceError = (e instanceof Error ? e.message : show(e)).slice(0, 500);
+          // ข้อความจาก adapter อาจมี credential (URL/header ของ HTTP client) → ตัดก่อนเก็บ/log
+          run.sourceError = redactSecrets(
+            e instanceof Error ? e.message : show(e),
+            source.secrets,
+          ).slice(0, 500);
           this.logger.warn(
             `tenant ${tenantId} connector ${connector}: pull failed — ${run.sourceError}`,
           );
@@ -247,7 +377,7 @@ export class ConnectorIntakeService implements OnModuleInit {
         if (pageErrors) break;
         const next = got.nextCursor ?? run.cursor;
         ownLease = await this.db.withTenant(tenantId, (tx) =>
-          this.saveCursor(tx, tenantId, connector, leaseId, next),
+          this.saveCursor(tx, tenantId, source, leaseId, next),
         );
         if (!ownLease) {
           this.logger.warn(`tenant ${tenantId} connector ${connector}: lease lost — stop`);
@@ -257,7 +387,7 @@ export class ConnectorIntakeService implements OnModuleInit {
         if (!got.hasMore) break;
       }
     } finally {
-      if (ownLease) await this.finish(tenantId, connector, leaseId, run);
+      if (ownLease) await this.finish(tenantId, source, leaseId, run);
     }
     return run;
   }
@@ -462,18 +592,26 @@ export class ConnectorIntakeService implements OnModuleInit {
     };
   }
 
+  /** แถว cursor ของต้นทาง: ต่อ connector id (ST7-T14) หรือต่อรหัสสำหรับต้นทางทดสอบ */
+  private cursorWhere(source: PullSource) {
+    return source.connectorId
+      ? Prisma.sql`connector_id = ${source.connectorId}::uuid`
+      : Prisma.sql`connector_id IS NULL AND connector_key = ${source.key}`;
+  }
+
   /** จองรอบดึง: สร้างแถวถ้ายังไม่มี แล้วตั้ง lease เมื่อว่าง/หมดอายุ (UPDATE ล็อกแถว → สองรอบพร้อมกันได้ lease รอบเดียว) */
-  private async claim(tx: Tx, tenantId: string, connector: string, leaseId: string) {
+  private async claim(tx: Tx, tenantId: string, source: PullSource, leaseId: string) {
+    // unique บางส่วน 2 ตัว (ต่อ connector / ต่อรหัสเมื่อไม่มี connector — migration 0102) → ON CONFLICT ไม่ระบุคอลัมน์
     await tx.$executeRaw`
-      INSERT INTO connector_cursor (id, tenant_id, connector_key)
-      VALUES (${randomUUID()}::uuid, ${tenantId}::uuid, ${connector})
-      ON CONFLICT (tenant_id, connector_key) DO NOTHING`;
+      INSERT INTO connector_cursor (id, tenant_id, connector_key, connector_id)
+      VALUES (${randomUUID()}::uuid, ${tenantId}::uuid, ${source.key}, ${source.connectorId}::uuid)
+      ON CONFLICT DO NOTHING`;
     const rows = await tx.$queryRaw<{ cursor: string | null }[]>`
       UPDATE connector_cursor
          SET lease_id = ${leaseId}::uuid,
              lease_until = now() + (${PULL_LEASE_MS}::int * interval '1 millisecond'),
              last_pull_at = now(), updated_at = now()
-       WHERE tenant_id = ${tenantId}::uuid AND connector_key = ${connector}
+       WHERE tenant_id = ${tenantId}::uuid AND ${this.cursorWhere(source)}
          AND (lease_until IS NULL OR lease_until < now())
       RETURNING cursor`;
     return rows[0] ?? null;
@@ -483,7 +621,7 @@ export class ConnectorIntakeService implements OnModuleInit {
   private async saveCursor(
     tx: Tx,
     tenantId: string,
-    connector: string,
+    source: PullSource,
     leaseId: string,
     cursor: string | null,
   ): Promise<boolean> {
@@ -492,12 +630,13 @@ export class ConnectorIntakeService implements OnModuleInit {
          SET cursor = ${cursor},
              lease_until = now() + (${PULL_LEASE_MS}::int * interval '1 millisecond'),
              updated_at = now()
-       WHERE tenant_id = ${tenantId}::uuid AND connector_key = ${connector} AND lease_id = ${leaseId}::uuid`;
+       WHERE tenant_id = ${tenantId}::uuid AND ${this.cursorWhere(source)} AND lease_id = ${leaseId}::uuid`;
     return n === 1;
   }
 
   /** ปล่อย lease + เก็บสรุปรอบ + audit (เฉพาะรอบที่มีอะไรเกิดขึ้น — ไม่ลง audit ทุก 5 นาทีเมื่อไม่มีใบใหม่) */
-  private async finish(tenantId: string, connector: string, leaseId: string, run: PullRunResult) {
+  private async finish(tenantId: string, source: PullSource, leaseId: string, run: PullRunResult) {
+    const connector = source.key;
     const ok = !run.sourceError && run.counts.error === 0;
     const summary = {
       at: this.clock.now().toISOString(),
@@ -520,8 +659,10 @@ export class ConnectorIntakeService implements OnModuleInit {
             tx,
           },
           async () => {
-            const row = await tx.connectorCursor.findUnique({
-              where: { tenantId_connectorKey: { tenantId, connectorKey: connector } },
+            const row = await tx.connectorCursor.findFirst({
+              where: source.connectorId
+                ? { tenantId, connectorId: source.connectorId }
+                : { tenantId, connectorKey: connector, connectorId: null },
               select: { id: true, leaseId: true },
             });
             if (!row || row.leaseId !== leaseId) return;
@@ -542,6 +683,7 @@ export class ConnectorIntakeService implements OnModuleInit {
                 entityId: row.id,
                 after: {
                   connector,
+                  ...(source.connectorId ? { connectorId: source.connectorId } : {}),
                   pages: run.pages,
                   cursor: run.cursor,
                   counts: c,

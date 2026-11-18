@@ -10,6 +10,11 @@ import { OutboxWorkerPool } from './modules/integration/outbox-worker';
 import { purgeAuthData } from './auth/maintenance';
 import { PrismaService } from './db/prisma.service';
 import { WebhookRetentionService } from './modules/webhooks/webhook-retention';
+import {
+  CONNECTOR_PULL_EVERY_MS,
+  ConnectorPullScheduler,
+} from './modules/connectors/connector-pull.scheduler';
+import { ConnectorsService } from './modules/erp/connectors.service';
 import { ExpiryReminderService } from './modules/reminders/expiry-reminder.service';
 import { DepreciationService } from './modules/depreciation/depreciation.service';
 import {
@@ -52,6 +57,7 @@ async function main() {
   const prisma = ctx.get(PrismaService);
   // ST7-T05 ประวัติการส่ง webhook เก็บ 30 วัน + คำสั่งที่พักเพราะบริษัทถูกระงับเกิน 30 วันทิ้ง (INT-109)
   const webhookRetention = ctx.get(WebhookRetentionService);
+  const connectors = ctx.get(ConnectorsService);
   const daily = () =>
     Promise.all([
       purgeAuthData(prisma.platform)
@@ -60,6 +66,13 @@ async function main() {
       webhookRetention
         .purge()
         .then((r) => log.info({ webhook: r }, 'webhook retention'))
+        .catch((e) => log.error(e)),
+      // ST7-T14 หมุน key เข้ารหัส: credential ของ connector ที่เข้ารหัสด้วย key เก่า → เข้ารหัสใหม่ด้วย key ปัจจุบัน
+      connectors
+        .reencryptCredentials()
+        .then(
+          (r) => r.reencrypted && log.info({ connectors: r }, 'connector credentials re-encrypted'),
+        )
         .catch((e) => log.error(e)),
     ]);
   void daily();
@@ -91,6 +104,15 @@ async function main() {
       .catch((e) => log.error(e));
   void scheduleOfferTimeouts();
   const offerTimeoutTimer = setInterval(scheduleOfferTimeouts, OFFER_TIMEOUT_EVERY_MS);
+  // ST7-T14 ดึง order ผ่าน connector ที่เปิด pullOrders ทุก 5 นาที (docs/01 §6.1) — job ค้างของ connector เดิมไม่สร้างซ้ำ
+  const pulls = ctx.get(ConnectorPullScheduler);
+  const schedulePulls = () =>
+    pulls
+      .scheduleDue()
+      .then((n) => n && log.info({ connectors: n }, 'connector pulls scheduled'))
+      .catch((e) => log.error(e));
+  void schedulePulls();
+  const pullTimer = setInterval(schedulePulls, CONNECTOR_PULL_EVERY_MS);
   // ตัวเลขคิว outbox ทุก 5 นาที (monitoring ST9-T19 อ่านจาก log/metrics นี้)
   const outboxStats = () =>
     outbox
@@ -110,6 +132,7 @@ async function main() {
   clearInterval(reminderTimer);
   clearInterval(depreciationTimer);
   clearInterval(offerTimeoutTimer);
+  clearInterval(pullTimer);
   clearInterval(outboxStatsTimer);
   shutdown();
   const released = await outboxStopped!;

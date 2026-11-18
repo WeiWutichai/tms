@@ -2706,12 +2706,16 @@ model MessageRecipientCounter {
   @@map("message_recipient_counter")
 }
 
-/// ST3-T05 ตำแหน่งที่ดึง order จากต้นทาง (connector `pullOrders`) ล่าสุด ต่อ tenant + connector
-/// ตาราง `connector` (ตั้งค่า adapter ต่อ tenant — docs/01 §3.7) มาใน ST7-T13 แล้วค่อยผูก FK · lease กันดึงซ้อนกัน
+/// ST3-T05 ตำแหน่งที่ดึง order จากต้นทาง (connector `pullOrders`) ล่าสุด ต่อ tenant + connector · lease กันดึงซ้อนกัน
+/// ST7-T14: ดึงผ่านแถว `connector` (ErpAdapter) = 1 แถวต่อ **connector id** (2 นิติบุคคลใช้ adapter เดียวกันได้ cursor แยก)
+///   แถวที่ connector_id null = ต้นทางทดสอบตามรหัส (`mock` ของ OrderSourceRegistry — dev/test) — unique บางส่วนใน migration 0102
 model ConnectorCursor {
   id            String    @id @default(uuid()) @db.Uuid
   tenantId      String    @map("tenant_id") @db.Uuid
-  connectorKey  String    @map("connector_key") /// รหัส connector (CONNECTOR_KEY_RE) เช่น `krs`, `mock`
+  connectorKey  String    @map("connector_key") /// รหัส adapter (CONNECTOR_KEY_RE) เช่น `krs`, `demo`, `mock` — ป้ายที่มา `ERP:{key}` ของใบ
+  /// connector ที่ดึง (FK) — null = ต้นทางทดสอบตามรหัส (ไม่มีแถว connector)
+  connectorId   String?   @map("connector_id") @db.Uuid
+  connector     Connector? @relation(fields: [connectorId], references: [id], onDelete: Restrict, onUpdate: Restrict)
   cursor        String? /// watermark ทึบ (opaque) ที่ adapter คืนมา — null = ยังไม่เคยดึง
   leaseId       String?   @map("lease_id") @db.Uuid /// รอบดึงที่ถืออยู่ (กันสอง worker ดึงพร้อมกัน)
   leaseUntil    DateTime? @map("lease_until") @db.Timestamptz(6)
@@ -2721,7 +2725,8 @@ model ConnectorCursor {
   createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt     DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  @@unique([tenantId, connectorKey])
+  @@index([tenantId, connectorKey])
+  @@index([connectorId])
   @@map("connector_cursor")
 }
 
@@ -2773,6 +2778,8 @@ model Connector {
   version              Int             @default(1)
   createdAt            DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt            DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  cursors              ConnectorCursor[]
 
   @@index([tenantId, createdAt, id])
   @@index([tenantId, companyId])

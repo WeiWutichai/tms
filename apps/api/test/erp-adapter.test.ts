@@ -87,7 +87,7 @@ describe('ErpAdapterRegistry (ST7-T13)', () => {
     ).toContain("unknown capability 'voidInvoice'");
   });
 
-  it('adapter จำลอง (localOnly) ลงทะเบียนได้เฉพาะ dev/test หรือ ERP_DEMO_ADAPTERS=1', () => {
+  it('adapter จำลอง (localOnly) ลงทะเบียนได้เฉพาะ dev/test หรือ ERP_DEMO_ADAPTERS=1 (ไม่ใช่ production — ST7-T14)', () => {
     const prev = process.env.NODE_ENV;
     try {
       process.env.NODE_ENV = 'production';
@@ -95,6 +95,8 @@ describe('ErpAdapterRegistry (ST7-T13)', () => {
       const demo = Object.assign(new FakeErpAdapter('demo'), { localOnly: true });
       expect(() => new ErpAdapterRegistry().register(demo)).toThrow(/only allowed/);
       process.env.ERP_DEMO_ADAPTERS = '1';
+      expect(() => new ErpAdapterRegistry().register(demo)).toThrow(/only allowed/);
+      process.env.NODE_ENV = 'staging';
       expect(() => new ErpAdapterRegistry().register(demo)).not.toThrow();
     } finally {
       process.env.NODE_ENV = prev;

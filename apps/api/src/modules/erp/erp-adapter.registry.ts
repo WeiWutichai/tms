@@ -18,8 +18,28 @@ export class ErpAdapterRegistry {
   private readonly adapters = new Map<string, ErpAdapter>();
   readonly standalone = STANDALONE_ADAPTER;
 
+  /**
+   * adapter จำลองใช้ได้ไหม: dev/test เสมอ · staging/sandbox ต้องตั้ง `ERP_DEMO_ADAPTERS=1` ·
+   * `NODE_ENV=production` **ไม่ได้เลย** แม้ตั้งธง (ST7-T14 review — staging ต้องตั้ง NODE_ENV อื่น เช่น `staging`)
+   */
   static demoAllowed(): boolean {
-    return isLocalEnv() || process.env.ERP_DEMO_ADAPTERS === '1';
+    if (isLocalEnv()) return true;
+    return process.env.NODE_ENV !== 'production' && process.env.ERP_DEMO_ADAPTERS === '1';
+  }
+
+  /** adapter ที่รู้จักแต่ปิดใน environment นี้ (localOnly ใน production) — connector ที่ค้างอยู่ = ใช้ไม่ได้ ไม่ใช่ "รอ deploy" */
+  private readonly refused = new Set<string>();
+
+  refuse(key: string): void {
+    if (!this.adapters.has(key)) this.refused.add(key);
+  }
+
+  isRefused(key: string): boolean {
+    return this.refused.has(key) && !this.adapters.has(key);
+  }
+
+  refusedKeys(): string[] {
+    return [...this.refused].filter((k) => !this.adapters.has(k)).sort();
   }
 
   register(adapter: ErpAdapter): void {
