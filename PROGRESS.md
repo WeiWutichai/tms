@@ -30,6 +30,7 @@
 | ST5–ST6, ST8–ST9 | ยังไม่เริ่ม | | | |
 | ST9 (เฉพาะ T11 saved views) | **dev เสร็จ** รอ review/QA/merge (`st9/t11-saved-views`) | 18 พ.ย. 2569 | — | ดูบันทึก 18 พ.ย. (ST9-T11) |
 | ST7 Open API + Integration | **กำลังทำ** 1/23 (T01 merge แล้ว · T02 แก้ตาม review/QA แล้ว รอ merge · T03 แก้ตาม review/QA แล้ว รอ merge · T04 แก้ตาม review/QA แล้ว รอ merge · T05 แก้ตาม review/QA แล้ว รอ merge · T08 แก้ตาม review/QA แล้ว รอ merge · T13 แก้ตาม review/QA แล้ว รอ merge · T07 dev เสร็จ รอ review/QA · T22 แก้ตาม review/QA แล้ว รอ merge · T06 แก้ตาม review/QA อยู่ · T10 แก้ตาม review/QA แล้ว รอ merge · T11 แก้ตาม review/QA แล้ว รอ merge) · ทำ T01 ก่อน ST5/ST6 ได้เพราะไม่ใช้ event ของ ST5/ST6 | 17 พ.ย. 2569 | — | ตารางงาน ST7 ด้านล่าง |
+| ST9 (เฉพาะ T20 accessibility) | **dev เสร็จ** รอ review/QA/merge (`st9/t20-accessibility`) | 19 พ.ย. 2569 | — | ดูบันทึก 19 พ.ย. (ST9-T20) |
 | ST9 (เฉพาะ T08 ศูนย์แจ้งเตือน) | **dev เสร็จ** รอ review/QA/merge (`st9/t08-notifications`) | 18 พ.ย. 2569 | — | ดูบันทึก 18 พ.ย. (ST9-T08) |
 | ST5–ST6, ST8–ST9 | ยังไม่เริ่ม | | | |
 | ST9 (เฉพาะ T12 ตรวจความครบ) | **dev เสร็จ** รอ review/QA/merge (`st9/t12-completeness`) | 19 พ.ย. 2569 | — | ดูบันทึก 19 พ.ย. (ST9-T12) |
@@ -263,6 +264,20 @@
 - (11 พ.ย., พบระหว่าง T19 — **แก้แล้วใน T04**: `db:migrate` รัน bootstrap ทุก tenant ซึ่ง sync role ระบบ) **role ระบบของ tenant ที่มีอยู่ไม่ได้สิทธิ์ใหม่อัตโนมัติ** — `ensureSystemRoles` รันแค่ตอนสร้าง tenant/seed; เมื่อโค้ดเพิ่ม permission (เช่น `documents:write` ใน T08) tenant เดิมไม่ได้ จนกว่าจะรัน seed · ฐาน dev แก้ด้วย seed แล้ว · ต้องมี sync ตอน deploy/บูต ก่อนมี tenant จริง (เสนอทำใน T24 admin portal หรือ migration step) 
 
 ## บันทึกรายวัน
+
+### 19 พ.ย. 2569 (ST9-T20 แก้ตาม QA)
+- ทำ: (M-1) `RefPicker` + ช่องวันที่ของฟอร์ม SO รับ `describedBy` จาก `FormField` (ทุกฟอร์มที่ใช้) · `FormDrawer` กดบันทึกแล้วมีช่องผิด → focus ช่องแรกที่ `aria-invalid` (รวม 422 ที่ตามมา ≤ 15 วินาที; ผู้ใช้คลิก/พิมพ์ก่อน = ไม่แย่ง) (L-1) ติดตามเมาส์/คีย์บอร์ดตั้งแต่โหลดโมดูล (L-2) ไม่มีปุ่มที่เปิด/ชั้นล่าง → focus `main h1` (L-3) ←/→ บนเที่ยวที่ปล่อยรถแล้ว → toast `plan.bad.locked` (L-4) กรอบ focus ของแถวเป็นเงาด้านในของช่อง (ไม่ถูกคอลัมน์ ⋯ sticky บัง) · M2 เพิ่ม `#8A9099` อีก 2 จุด (`Reasons.tsx:200`, `SavedViewMenu.tsx:217`) ในรายงาน + spec/12 · **แก้ถอยหลังจาก M3:** ช่องเลือกแถวเดิมชื่อ = ข้อความคอลัมน์แรก ทำให้ cell ชื่อซ้ำ (E2E vehicle-types ล้ม) → ชื่อ "เลือก" (`table.selectRow`) + `aria-describedby` คอลัมน์แรก
+- ไฟล์: `packages/ui/src/{focus.ts,master.tsx,DataTable.tsx,ui.css,components.test.tsx}`, `apps/web/src/features/{master/RefPicker.tsx,orders/OrderFormDrawer.tsx,planning/PlanningPage.tsx,companies/CompanySample.tsx}` + ฟอร์มที่ส่ง `describedBy`, `apps/web/src/i18n/*`, `apps/web/e2e/a11y.spec.ts` (+ ฟอร์มสร้าง SO), รายงาน, spec/12
+
+### 19 พ.ย. 2569 (ST9-T20 แก้ตาม review)
+- ทำ: (H) `useModalFocus` ไม่ดึง Tab กลับ drawer เมื่อ focus อยู่ใน/มี `aria-modal` อื่นที่เปิดทีหลัง (dialog เฉพาะหน้า render นอก `aside`) + ใช้ hook ใน `SaveTemplateDialog`, `DetachDialog`/`ShareDialog`, `SendAllDialog`, `ScheduleDialog`, `BulkFailDialog` + unit test drawer + dialog ซ้อน (ใช้/ไม่ใช้ hook) (M) กระดาน ←/→ ข้าม key repeat และระหว่างคำขอย้ายค้าง (กัน 412) (L) ปุ่มที่เปิดหายไป → คืน focus ให้ dialog ชั้นล่าง · เปิดด้วยเมาส์ = คืน focus แบบไม่มีกรอบ (`data-pointer-focus` + `focusVisible:false`) · กรอบ focus 2px `#2257C4` ของการ์ด/ช่องรถ/แถววันบนกระดาน (`shell.css`) · `a11y.spec` รอ font/animation แทน `waitForTimeout` · รายงานระบุว่าเมทริกซ์ WebKit/1280 รันด้วยมือเท่านั้น
+- ไฟล์: `packages/ui/src/{focus.ts,ui.css,components.test.tsx}`, `apps/web/src/features/{orders/Templates.tsx,trips/TripDrawer.tsx,planning/{PlanningPage,SendAllDialog,ScheduleDialog,BulkFailDialog}.tsx}`, `apps/web/src/shell/shell.css`, `apps/web/e2e/a11y.spec.ts`, `design/a11y/st9-t20-report.md`
+- ค้าง: ยังไม่ได้รัน E2E บน lane l7 (รอรายงาน QA) · dialog เฉพาะหน้าที่เหลือ ~10 ไฟล์ → ผู้สมัครเพิ่ม #32
+
+### 19 พ.ย. 2569 (ST9-T20 Accessibility + browser — lane l7)
+- ทำ: ตรวจ WCAG 2.1 AA หน้าหลัก 10 หน้า (login, ภาพรวม, SO + drawer SO/เที่ยวรถ, ใบค้าง + drawer, กระดานวางแผน, ศูนย์ข้อยกเว้น, ทะเบียนรถ + ฟอร์ม, คนขับ, ลูกค้า + ฟอร์ม, ตั้งค่า) ด้วย axe-core + เดินคีย์บอร์ด + คำนวณ contrast ของ tokens · Chromium + WebKit × 1280/1440 · รายงาน `design/a11y/st9-t20-report.md` · **High 4 ข้อปิดหมด** (ไม่เปลี่ยนหน้าตาปกติ): H1 แถวตาราง Tab/Enter (`DataTable`), H2 focus ของ drawer/dialog (`useModalFocus` ใหม่ ใน `Drawer`/`FormDrawer`/`ReasonDialog` + `aria-labelledby`), H3 กระดานวางแผนทำงานด้วยคีย์บอร์ด (เลือก SO → Enter บนรถ = วาง; การ์ดเที่ยว Enter/←/→), H4 ARIA ผิดบนกระดาน (`aria-pressed` บน div → `role=group`+`aria-current`) · M3 ชื่อช่องเลือกแถว = ข้อความคอลัมน์แรก
+- ไฟล์: `packages/ui/src/{focus.ts,DataTable.tsx,components.tsx,master.tsx,ui.css,index.ts,components.test.tsx}`, `apps/web/src/features/planning/PlanningPage.tsx`, `apps/web/e2e/a11y.spec.ts` (axe serious/critical = ล้ม, มี `ALLOW` ว่าง), `apps/web/playwright.a11y.config.ts` + script `e2e:a11y` (เมทริกซ์เบราว์เซอร์, Edge `A11Y_EDGE=1`), `apps/web/e2e/planning-eligible.spec.ts` (aria-pressed → aria-current), devDependency `@axe-core/playwright` 4.10.2 · spec/12 §3 +3 แถว (contrast 2 แถว OPEN ส่ง Claude Design, DECISION คีย์บอร์ด)
+- ค้าง: contrast M1 ขอบช่องกรอก 1.61:1 / M2 `#8A9099` 3.22:1 → **[OPEN — ส่ง Claude Design]** · M4–M6 (ปรับความยาวเที่ยวด้วยคีย์บอร์ด, dialog เฉพาะหน้าที่เหลือ ~10 ไฟล์, เมนู ⋯ ลูกศร) → ผู้สมัครเพิ่ม **#32** · screen reader จริง + Edge จริง → **#33** · เครื่องนี้ไม่มี Edge (ตรวจด้วย Chromium แทน)
 
 ### 19 พ.ย. 2569 (ST9-T14 Retention — lane l4, dev)
 

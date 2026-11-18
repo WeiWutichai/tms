@@ -28,6 +28,7 @@ export function RefPicker({
   noResult,
   clearLabel,
   invalid,
+  describedBy,
   disabled,
   style,
 }: {
@@ -41,6 +42,8 @@ export function RefPicker({
   /** ตัวเลือกแรก "ล้างค่า" (เช่น "— เลือก —") — ไม่ส่ง = ล้างไม่ได้ */
   clearLabel?: string;
   invalid?: boolean;
+  /** id ของข้อความ error (FormField `aria-describedby`) — ST9-T20 */
+  describedBy?: string;
   disabled?: boolean;
   style?: CSSProperties;
 }) {
@@ -79,6 +82,7 @@ export function RefPicker({
         aria-controls={listId}
         aria-autocomplete="list"
         aria-invalid={invalid}
+        aria-describedby={describedBy}
         disabled={disabled}
         autoComplete="off"
         maxLength={open ? Q_MAX : undefined}

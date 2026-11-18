@@ -101,7 +101,7 @@ export function CustomerCreateDrawer({
 
   const input =
     (k: keyof Form, extra: Partial<React.InputHTMLAttributes<HTMLInputElement>> = {}) =>
-    (p: { id: string; 'aria-invalid': boolean }) => (
+    (p: { id: string; 'aria-invalid': boolean; 'aria-describedby'?: string }) => (
       <TextInput
         {...p}
         {...extra}

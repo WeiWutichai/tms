@@ -218,7 +218,7 @@ export function ServiceItemFormDrawer({
       k: 'name' | 'p' | 'fb' | 'cond',
       extra: Partial<React.InputHTMLAttributes<HTMLInputElement>> = {},
     ) =>
-    (p: { id: string; 'aria-invalid': boolean }) => (
+    (p: { id: string; 'aria-invalid': boolean; 'aria-describedby'?: string }) => (
       <TextInput
         {...p}
         {...extra}
@@ -234,7 +234,7 @@ export function ServiceItemFormDrawer({
     opts: readonly Form[K][],
     label: (v: Form[K]) => string,
   ) =>
-    function Sel(p: { id: string; 'aria-invalid': boolean }) {
+    function Sel(p: { id: string; 'aria-invalid': boolean; 'aria-describedby'?: string }) {
       return (
         <select
           {...p}

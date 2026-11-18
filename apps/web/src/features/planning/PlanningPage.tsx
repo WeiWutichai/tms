@@ -109,6 +109,7 @@ import {
   notesOn,
   tripLeaveNames,
   type ScheduleEntry,
+  SNAP_H,
 } from './board';
 import { ScheduleDialog } from './ScheduleDialog';
 import { BoardViewMenu } from './BoardViewMenu';
@@ -652,8 +653,8 @@ export function PlanningPage() {
   );
 
   /** ปล่อยบนแถวรถ `v` วัน `d` — `hour` = ชั่วโมงที่ปล่อย (มุมมองวันนี้) หรือ null (มุมมอง 7 วัน) */
-  const onDropAt = (v: BoardVehicle, d: string, hour: number | null) => {
-    const cur = drag;
+  const onDropAt = (v: BoardVehicle, d: string, hour: number | null, src?: Drag) => {
+    const cur = src ?? drag;
     endDrag();
     if (!cur || !canPlan) return;
     const why = badOf(cur, v, d);
@@ -838,6 +839,26 @@ export function PlanningPage() {
     setPop(null);
     setCtx({ v, d, x: r.left + 8, y: r.top + 8 });
   };
+  /**
+   * ST9-T20 ทางเลือกคีย์บอร์ดของการลากวาง (WCAG 2.1.1): เลือก SO ใน "SO รอจัด" (Enter/Space) แล้วกด Enter
+   * บนแถว/ช่องรถ = วาง SO ลงรถนั้น (ช่วงเวลาเดียวกับการปล่อยในมุมมอง 7 วัน — ต่อท้ายเที่ยวสุดท้ายของวัน)
+   * ปุ่มอื่นยังเป็นเมนูคลิกขวา (ContextMenu / Shift+F10)
+   */
+  const trackKey = (v: BoardVehicle, d: string) => (e: ReactKeyboardEvent<HTMLElement>) => {
+    if (e.target === e.currentTarget && e.key === 'Enter' && canPlan && sel?.kind === 'order') {
+      e.preventDefault();
+      onDropAt(v, d, null, { kind: 'order', id: sel.id });
+      setSel(null);
+      return;
+    }
+    ctxKey(v, d)(e);
+  };
+  /** Enter/Space บน div ที่คลิกได้ (การ์ด SO/เที่ยว) — ทำเหมือนคลิก */
+  const pressKey = (run: () => void) => (e: ReactKeyboardEvent<HTMLElement>) => {
+    if (e.target !== e.currentTarget || (e.key !== 'Enter' && e.key !== ' ')) return;
+    e.preventDefault();
+    run();
+  };
   /** โฟกัสเดิมก่อนเปิดเมนู — คืนโฟกัสเมื่อกด Esc */
   const ctxOpener = useRef<HTMLElement | null>(null);
   const ctxRef = useRef<HTMLDivElement | null>(null);
@@ -944,9 +965,10 @@ export function PlanningPage() {
     return (
       <div
         data-testid={`plan-veh-${v.plate}`}
-        role="button"
+        // ST9-T20: role=group + aria-current (เดิม role=button ซ้อนปุ่ม "ทำไม" = axe nested-interactive) — Enter/Space เหมือนเดิม
+        role="group"
         tabIndex={0}
-        aria-pressed={picked}
+        aria-current={picked ? 'true' : undefined}
         title={t('plan.elig.pickVehicle')}
         aria-label={t('plan.elig.pickVehicleAria', { plate: v.plate })}
         onClick={() => pickVehicle(v)}
@@ -1436,10 +1458,11 @@ export function PlanningPage() {
           data-testid={`plan-track-${v.plate}`}
           onContextMenu={openCtx(v, dsel)}
           tabIndex={canPlan ? 0 : undefined}
+          role={canPlan ? 'group' : undefined}
           aria-label={
             canPlan ? t('plan.ctx.aria', { p: plateText(v), d: dateText(dsel) }) : undefined
           }
-          onKeyDown={ctxKey(v, dsel)}
+          onKeyDown={trackKey(v, dsel)}
           onDragOver={dragOver(v.id, dsel)}
           onDragLeave={leave}
           onDrop={(e) => {
@@ -1522,6 +1545,36 @@ export function PlanningPage() {
                   onDragStart={tripDragStart(x, dsel)}
                   onDragEnd={dragEnd}
                   onClick={cardClick(x)}
+                  // ST9-T20: Tab ถึงการ์ดเที่ยว → Enter เปิด drawer SO · ←/→ เลื่อนเวลา 15 นาที (ทางเลือกของการลาก)
+                  // การ์ดอาจมีปุ่มป้ายกฎซ้อน จึงใช้ role=group
+                  role="group"
+                  tabIndex={0}
+                  aria-keyshortcuts={canMove ? 'ArrowLeft ArrowRight' : undefined}
+                  onKeyDown={(e) => {
+                    if (
+                      canPlan &&
+                      e.target === e.currentTarget &&
+                      (e.key === 'ArrowLeft' || e.key === 'ArrowRight')
+                    ) {
+                      e.preventDefault();
+                      // ปล่อยรถแล้ว = ย้ายไม่ได้ — บอกเหตุผลเดียวกับตอนลาก (toast = role=status)
+                      if (!canMove) {
+                        if (!e.repeat) setToast(t('plan.bad.locked', { no: x.tripNo }));
+                        return;
+                      }
+                      // กดค้าง (repeat) / คำขอก่อนหน้ายังไม่จบ = ข้าม — กัน /schedule ด้วย version เก่า (412)
+                      if (e.repeat || move.isPending) return;
+                      const step = e.key === 'ArrowLeft' ? -SNAP_H : SNAP_H;
+                      onDropAt(v, dsel, span(x, dsel).s + step, {
+                        kind: 'trip',
+                        id: x.id,
+                        day: dsel,
+                        grab: 0,
+                      });
+                      return;
+                    }
+                    pressKey(() => x.orders[0] && setOpenId(x.orders[0].id))(e);
+                  }}
                   title={tipOf(x, dsel)}
                   className="tms-plan-card"
                   data-picked={picked.includes(x.id) ? 'true' : undefined}
@@ -1650,10 +1703,11 @@ export function PlanningPage() {
               data-elig={vehLevel(v.id, d) ?? undefined}
               onContextMenu={openCtx(v, d)}
               tabIndex={canPlan ? 0 : undefined}
+              role={canPlan ? 'group' : undefined}
               aria-label={
                 canPlan ? t('plan.ctx.aria', { p: plateText(v), d: dateText(d) }) : undefined
               }
-              onKeyDown={ctxKey(v, d)}
+              onKeyDown={trackKey(v, d)}
               onDragOver={dragOver(v.id, d)}
               onDragLeave={leave}
               onDrop={(e) => {
@@ -1694,6 +1748,9 @@ export function PlanningPage() {
                         e.stopPropagation();
                         setPop((p) => (p === key ? null : key));
                       }}
+                      role="group"
+                      tabIndex={0}
+                      onKeyDown={pressKey(() => setPop((p) => (p === key ? null : key)))}
                       title={tipOf(x, d)}
                       className="tms-plan-card"
                       style={{
@@ -1864,7 +1921,7 @@ export function PlanningPage() {
         key={o.id}
         data-testid={`plan-pool-${o.orderNo}`}
         data-elig={lv ?? undefined}
-        aria-pressed={picked}
+        aria-current={picked ? 'true' : undefined}
         draggable={canPlan}
         onDragStart={(e) => {
           e.dataTransfer.setData('text/plain', o.id);
@@ -1877,6 +1934,15 @@ export function PlanningPage() {
         onClick={() =>
           setSel((x) => (x?.kind === 'order' && x.id === o.id ? null : { kind: 'order', id: o.id }))
         }
+        // ST9-T20: Tab ถึงการ์ดแล้ว Enter/Space = เลือก · role=group + aria-current (เดิม aria-pressed บน div ไม่มี role
+        // = axe critical; role=button ใช้ไม่ได้เพราะมีปุ่มเลข SO ซ้อนอยู่ — nested-interactive)
+        role="group"
+        tabIndex={0}
+        onKeyDown={pressKey(() =>
+          setSel((x) =>
+            x?.kind === 'order' && x.id === o.id ? null : { kind: 'order', id: o.id },
+          ),
+        )}
         title={[
           `${o.orderNo} · ${o.customerName ?? '—'}`,
           route,

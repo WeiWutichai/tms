@@ -312,7 +312,7 @@ export function ProductFormDrawer({
       k: 'code' | 'name' | 'w' | 'vol' | 'tmin' | 'tmax' | 'un' | 'cls' | 'barcode',
       extra: Partial<React.InputHTMLAttributes<HTMLInputElement>> = {},
     ) =>
-    (p: { id: string; 'aria-invalid': boolean }) => (
+    (p: { id: string; 'aria-invalid': boolean; 'aria-describedby'?: string }) => (
       <TextInput
         {...p}
         {...extra}
@@ -466,6 +466,7 @@ export function ProductFormDrawer({
               <RefPicker
                 id={p.id}
                 invalid={p['aria-invalid']}
+                describedBy={p['aria-describedby']}
                 queryKey="customers"
                 value={f.cust}
                 onChange={(v) => set('cust', v)}

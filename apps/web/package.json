@@ -11,7 +11,8 @@
     "test": "vitest run",
     "lint": "node scripts/lint-i18n.mjs && prettier --check src",
     "i18n:build": "node scripts/build-i18n.mjs",
-    "e2e": "node e2e/prepare.mjs && playwright test"
+    "e2e": "node e2e/prepare.mjs && playwright test",
+    "e2e:a11y": "node e2e/prepare.mjs && playwright test -c playwright.a11y.config.ts"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.62.0",
@@ -25,6 +26,7 @@
     "react-router-dom": "^6.28.0"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.10.2",
     "@playwright/test": "1.65.0",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.1.0",
