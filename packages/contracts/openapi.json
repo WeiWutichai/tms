@@ -55021,8 +55021,10 @@
             "type": "string",
             "enum": [
               "pending",
-              "ready"
-            ]
+              "ready",
+              "purged"
+            ],
+            "description": "purged = ไฟล์ถูกลบตามระยะเก็บ (ST9-T14: POD ≥ 2 ปี, ไฟล์ส่งออก 7 วัน) — ดาวน์โหลดไม่ได้ (404)"
           },
           "kind": {
             "type": "string"
