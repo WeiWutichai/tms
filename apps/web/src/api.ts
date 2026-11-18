@@ -52,7 +52,9 @@ export async function unwrap<T>(
       title: '',
       type: '',
     }) as Problem;
-    if (r.response.status === 401) dropAccessToken();
+    // 401 = session หมด/ถูกเพิกถอน → ทิ้ง token · ยกเว้นรหัส 2FA ผิด (`invalid_otp` เช่น step-up) — ผู้ใช้ยังเข้าระบบอยู่
+    // ให้กรอกใหม่ ไม่เด้งออกจากระบบ (ST9-T12 QA Q1)
+    if (r.response.status === 401 && problem.code !== 'invalid_otp') dropAccessToken();
     throw new ApiError(problem);
   }
   return r.data as T;
