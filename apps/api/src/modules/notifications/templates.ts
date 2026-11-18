@@ -31,7 +31,69 @@ export interface NotificationVars {
   'subcon_offer.expired': { tripNo: string; carrier: string };
   /** ST7-T04 webhook endpoint ถูกปิดอัตโนมัติ (event ล้มเหลวติดกัน 50 รายการ — docs/04 G1) · label = คำอธิบาย/รหัส endpoint (ไม่ใส่ URL — safeName) */
   'webhook.auto_disabled': { label: string; failures: number };
+  /** ST9-T08 ใบสั่งงานเข้าใบค้าง (docs/04 I "ใบค้างใหม่") · reason = ข้อความเหตุค้าง (reason code ภาษาไทย) */
+  'order.held': { orderNo: string; customer: string; reasonCode: string; reason: string };
+  /** ST9-T08 ค่าใช้จ่ายหน้างานรอยืนยัน (docs/04 I "ขออนุมัติ"; ST4-T13) — ไม่ใส่ยอดเงิน (สิทธิ์เห็นราคาแยกฝั่ง) */
+  'field_charge.pending': { tripNo: string; item: string; side: 'SELL' | 'BUY' | 'BOTH' };
+  /** ST9-T08 connector หยุดทำงาน (status ERROR — docs/04 I "connector ล่ม") · label = รหัส adapter · code = รหัสปัญหา */
+  'connector.error': { label: string; code: string };
+  /**
+   * ST9-T08 สรุปรายวัน 08:00 (docs/04 I) — อีเมลฉบับเดียวต่อผู้ใช้ต่อวัน: แจ้งเตือนในกระดิ่งช่วง 24 ชม. ก่อนหน้า แยกตาม event
+   * groups[].titles = หัวข้อล่าสุดไม่เกิน DIGEST_TITLES ต่อกลุ่ม · unread = ที่ยังไม่อ่านในช่วงนี้
+   */
+  'daily.digest': { day: string; total: number; unread: number; groups: DailyDigestGroup[] };
 }
+export interface DailyDigestGroup {
+  /** NotificationEvent หรือ 'other' */
+  event: string;
+  count: number;
+  titles: string[];
+}
+/** ชื่อ event ในสรุปรายวัน (ไทยตรงกับหน้าตั้งค่า — apps/web i18n `noti.ev.*`) */
+const EVENT_NAME: Record<string, Record<NotificationLocale, string>> = {
+  'order.on_hold': { th: 'ใบค้างใหม่', en: 'New on-hold orders' },
+  'subcon.no_response': { th: 'รถร่วมไม่ตอบรับหรือหมดเวลา', en: 'Carrier offers not answered' },
+  dispute: { th: 'รถร่วมโต้แย้งยอด (dispute)', en: 'Disputes' },
+  'approval.requested': { th: 'รายการรออนุมัติ', en: 'Approval requests' },
+  'document.expiring': {
+    th: 'เอกสารรถ / ใบขับขี่ / rate card ใกล้หมดอายุ',
+    en: 'Expiring documents / licences / rate cards',
+  },
+  'connector.down': { th: 'การเชื่อมต่อขัดข้อง', en: 'Connector / webhook down' },
+  'delivery_order.unbilled': { th: 'DO ยังไม่วางบิล', en: 'Unbilled delivery orders' },
+  'payment.due': { th: 'ครบกำหนดชำระ', en: 'Payments due' },
+  other: { th: 'อื่น ๆ', en: 'Other' },
+};
+function renderDaily(v: NotificationVars['daily.digest'], lang: NotificationLocale) {
+  const lines: string[] = [];
+  for (const g of v.groups) {
+    const name = (EVENT_NAME[g.event] ?? EVENT_NAME.other!)[lang];
+    lines.push(`${name} (${n(g.count)}):`);
+    for (const t of g.titles) lines.push(`• ${safeName(t, 200)}`);
+    if (g.count > g.titles.length)
+      lines.push(
+        lang === 'th'
+          ? `และอีก ${n(g.count - g.titles.length)} รายการ`
+          : `and ${n(g.count - g.titles.length)} more`,
+      );
+  }
+  const head = v.groups
+    .map((g) => `${(EVENT_NAME[g.event] ?? EVENT_NAME.other!)[lang]} ${n(g.count)}`)
+    .join(' · ');
+  return lang === 'th'
+    ? {
+        title: `สรุปแจ้งเตือนประจำวัน ${thDay(v.day)}`,
+        body: `แจ้งเตือน ${n(v.total)} รายการใน 24 ชม. ที่ผ่านมา${v.unread ? ` (ยังไม่อ่าน ${n(v.unread)})` : ''} — ${head}`,
+        detail: lines.join('\n'),
+      }
+    : {
+        title: `Daily notification summary ${v.day}`,
+        body: `${n(v.total)} notifications in the last 24 hours${v.unread ? ` (${n(v.unread)} unread)` : ''} — ${head}`,
+        detail: lines.join('\n'),
+      };
+}
+const SIDE_TH = { SELL: 'ฝั่งขาย', BUY: 'ฝั่งซื้อ', BOTH: 'ฝั่งขายและฝั่งซื้อ' } as const;
+const SIDE_EN = { SELL: 'sell side', BUY: 'buy side', BOTH: 'sell and buy side' } as const;
 export type ExpiryLevel = 'D60' | 'D30' | 'D7' | 'EXPIRED';
 export interface ExpiryDigestItem {
   kind: 'VEHICLE_DOCUMENT' | 'DRIVER_LICENCE' | 'RATE_CARD';
@@ -239,6 +301,40 @@ const TEMPLATES: {
       title: 'Webhook endpoint auto-disabled',
       body: `${v.label} failed ${n(v.failures)} events in a row — delivery has stopped. Fix the receiver, then re-enable it in Settings → Developer / Open API → Webhooks.`,
     }),
+  },
+  'order.held': {
+    th: (v) => ({
+      title: 'ใบค้างใหม่',
+      body: `${v.orderNo} · ${v.customer} — ${v.reason} · เคลียร์ได้ที่หน้าใบค้าง`,
+    }),
+    en: (v) => ({
+      title: 'New on-hold order',
+      body: `${v.orderNo} · ${v.customer} — on hold (${v.reasonCode}). Resolve it on the on-hold page.`,
+    }),
+  },
+  'field_charge.pending': {
+    th: (v) => ({
+      title: 'ค่าใช้จ่ายหน้างานรออนุมัติ',
+      body: `${v.tripNo} · ${v.item} (${SIDE_TH[v.side]}) — รอยืนยันที่เที่ยวรถ`,
+    }),
+    en: (v) => ({
+      title: 'Field charge awaiting approval',
+      body: `${v.tripNo} · ${v.item} (${SIDE_EN[v.side]}) — confirm or reject it on the trip.`,
+    }),
+  },
+  'connector.error': {
+    th: (v) => ({
+      title: 'การเชื่อมต่อขัดข้อง',
+      body: `Connector ${v.label} หยุดทำงาน (${v.code}) — งานที่ต้องส่งพักไว้ ตรวจการเชื่อมต่อแล้วเปิดใช้อีกครั้งที่ ตั้งค่า → การเชื่อมต่อ`,
+    }),
+    en: (v) => ({
+      title: 'Connector down',
+      body: `Connector ${v.label} stopped (${v.code}) — outgoing work is parked. Check the connection and resume it in Settings → Connections.`,
+    }),
+  },
+  'daily.digest': {
+    th: (v) => renderDaily(v, 'th'),
+    en: (v) => renderDaily(v, 'en'),
   },
   'subcon_offer.expired': {
     th: (v) => ({

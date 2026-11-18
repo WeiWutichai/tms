@@ -27,6 +27,7 @@
 | ST4 Execution และ POD | **กำลังทำ** 2/15 (T01, T02) + T03, T04, T05, T06 dev | 17 พ.ย. 2569 | — | ตารางงาน ST4 ด้านล่าง |
 | ST5–ST6, ST8–ST9 | ยังไม่เริ่ม | | | |
 | ST9 (เฉพาะ T11 saved views) | **dev เสร็จ** รอ review/QA/merge (`st9/t11-saved-views`) | 18 พ.ย. 2569 | — | ดูบันทึก 18 พ.ย. (ST9-T11) |
+| ST9 (เฉพาะ T08 ศูนย์แจ้งเตือน) | **dev เสร็จ** รอ review/QA/merge (`st9/t08-notifications`) | 18 พ.ย. 2569 | — | ดูบันทึก 18 พ.ย. (ST9-T08) |
 | ST7 Open API + Integration | **กำลังทำ** 1/23 (T01 merge แล้ว · T02 แก้ตาม review/QA แล้ว รอ merge · T03 แก้ตาม review/QA แล้ว รอ merge · T04 แก้ตาม review/QA แล้ว รอ merge · T05 แก้ตาม review/QA แล้ว รอ merge · T08 แก้ตาม review/QA แล้ว รอ merge · T13 แก้ตาม review/QA แล้ว รอ merge · T07 dev เสร็จ รอ review/QA · T22 แก้ตาม review/QA แล้ว รอ merge · T06 แก้ตาม review/QA อยู่) · ทำ T01 ก่อน ST5/ST6 ได้เพราะไม่ใช้ event ของ ST5/ST6 | 17 พ.ย. 2569 | — | ตารางงาน ST7 ด้านล่าง |
 
 ### งาน ST0 (เกณฑ์ตรวจรับใน `plan/01-phase0-backlog.md`)
@@ -255,6 +256,12 @@
 - (11 พ.ย., พบระหว่าง T19 — **แก้แล้วใน T04**: `db:migrate` รัน bootstrap ทุก tenant ซึ่ง sync role ระบบ) **role ระบบของ tenant ที่มีอยู่ไม่ได้สิทธิ์ใหม่อัตโนมัติ** — `ensureSystemRoles` รันแค่ตอนสร้าง tenant/seed; เมื่อโค้ดเพิ่ม permission (เช่น `documents:write` ใน T08) tenant เดิมไม่ได้ จนกว่าจะรัน seed · ฐาน dev แก้ด้วย seed แล้ว · ต้องมี sync ตอน deploy/บูต ก่อนมี tenant จริง (เสนอทำใน T24 admin portal หรือ migration step) 
 
 ## บันทึกรายวัน
+
+### 18 พ.ย. 2569 (ST9-T08 ศูนย์แจ้งเตือน — dev)
+
+- ทำ: catalogue event P0 ตาม docs/04 I (`apps/api/src/modules/notifications/catalogue.ts` — 8 event, template → event, ค่าเริ่มต้นต่อช่อง) · `notify()` กรองตามการตั้งค่ารับของผู้รับต่อช่อง (in_app/email; template นอก catalogue เช่น `job.*`/`import.*` ส่งเสมอ) + ผู้รับตามสิทธิ์ `to.permissions` (รวม role กำหนดเอง) + `to.exclude` · API `GET/PATCH /v1/me/notification-preferences` (If-Match/ETag, 412, 422, principal ที่ไม่ใช่ผู้ใช้ → 404; เก็บใน `user_preference` key `notifications` เฉพาะค่าที่ต่างจากค่าเริ่มต้น) · ยิง event ใหม่: **ใบค้างใหม่** (`order.held` — `StateService.on()` listener ทุกทางที่เข้า ON_HOLD → `orders:write`), **ขออนุมัติ** (ค่าใช้จ่ายหน้างานรอยืนยัน ST4-T13 → `invoices:draft`/`settlements:approve` ไม่รวมผู้บันทึก), **connector ล่ม** (ERROR ทั้งจาก health และ ErpAdapterSink → `settings:write` + `integrations:retry`) · ของเดิมเข้า catalogue: รถร่วมหมดเวลา (ST3-T24), เอกสาร/ใบขับขี่/rate card ใกล้หมด (ST2-T18), webhook ถูกปิด (ST7-T04) · **สรุปรายวัน 08:00** `DailyDigestService` (worker ทุก 10 นาที, Clock เวลาไทย, job 1/tenant/วัน + advisory lock, สมุด `notification_digest` unique ผู้ใช้×วัน → ส่งครั้งเดียวแม้รันซ้ำ/หลาย worker; อีเมลเดียวรวมกระดิ่งช่วง [เมื่อวาน 08:00, วันนี้ 08:00) แยกตาม event; ไม่มีอะไร = ไม่ส่ง; ปิดได้) · migration `0105_notification_digest` · UI ตั้งค่า → การแจ้งเตือน ตามต้นแบบ vSet `noti` (แท็บ ทีมภายใน/แจ้งลูกค้าปลายทาง, ตาราง เหตุการณ์ × ในระบบ/อีเมล/LINE + แถวสรุปรายวัน, ปุ่มบันทึกลอย) ทุก role เข้าได้
+- ไฟล์: `apps/api/src/modules/notifications/{catalogue,notification-preferences,notification-events,daily-digest.service}.ts`, `notification.service.ts`, `templates.ts`, `state/state.service.ts`, `field-charges.service.ts`, `erp/connectors.service.ts`, `worker.ts`, `app.module.ts`, `prisma/schema.prisma` + `0105` · `apps/web/src/features/settings/Notifications.tsx` (+test), `Settings.tsx`, `i18n/th.ts` · test `apps/api/test/notification-center.test.ts` (9 ข้อ) · E2E `apps/web/e2e/notification-preferences.spec.ts` · `scripts/compare-notifications.mjs` · spec/12 §3 +1 แถว DECISION (ศูนย์แจ้งเตือน)
+- ค้าง/เลื่อน: event ที่โมดูลต้นทางยังไม่มี — dispute (ST6-T06), DO ยังไม่วางบิล (ST9-T06), ครบกำหนดชำระ (ST5-T22), settlement/ใบลดหนี้รออนุมัติ (ST6/ST5) — ตั้งค่าได้แล้ว รอโมดูลเรียก notify · LINE ทีมภายใน (P1) · แท็บแจ้งลูกค้าปลายทาง (P1, ผู้สมัครเพิ่ม #12) · กฎผู้รับระดับบริษัท spec/01 §13.5 (`NotificationRule`, quiet hours) เสนอเป็นงานเพิ่ม · แผงรายการกระดิ่งยัง [OPEN]
 
 ### 18 พ.ย. 2569 (ST9-T11 saved views — dev)
 

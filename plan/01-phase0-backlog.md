@@ -810,6 +810,7 @@ VAT/WHT ต่อบรรทัด tax point ตอนรับชำระ เ
 | 25 | Rate limit ต่อ IP ที่ทางเข้า `/v1/auth/*` (login, 2FA, รับคำเชิญ, ลืมรหัสผ่าน) ก่อนถึงฐานข้อมูล — กัน DoS แบบยิงให้ connection pool เต็ม (การจองช่องด้วย advisory lock ต่ออีเมล/IP ยังถือ connection ระหว่างรอ); ตอนนี้ pool เต็มตอบ 503 `service_busy` (fix/e2e-flaky-settings-login) แต่ยังไม่มีเพดานต่อ IP ก่อนเข้า transaction | ไม่มีแถวแยกใน docs/04 (มีแค่ล็อกบัญชีหลังผิด 5 ครั้ง) | S |
 | 26 | ย่อรูปหลักฐาน (POD) เป็น preview ≤ 1280px สำหรับหน้าติดตามสาธารณะ (spec/04 EXE-064) — ต้องเพิ่มไลบรารีประมวลผลภาพ (เช่น sharp) · ST4-T14 ตัด EXIF/GPS แล้ว ส่งรูปขนาดเดิม | E Tracking link = P0 (ขนาด preview ไม่ระบุใน docs) | S |
 | 27 | Pin เวอร์ชัน payload ของ webhook ต่อ endpoint (`envelope.version` + ตัวแปลงย้อนกลับของ `data.object`) — ทำพร้อม breaking change แรกของ payload หลัง GA (ST7-T07 ฝาก, ST7-T06 DECISION spec/12 §3) | G1 Versioning (behavior pin — ไม่ระบุ webhook) | M |
+| 28 | กฎผู้รับแจ้งเตือนระดับบริษัท (spec/01 §13.5 `NotificationRule`: ผู้ดูแลเลือก role/ผู้ใช้ต่อ event, quiet hours, แท็บ "ช่องทาง") — ตอนนี้ผู้รับตามสิทธิ์ของ role คงที่ในโค้ด + ผู้ใช้ปิดช่องของตัวเองได้ (ST9-T08 DECISION spec/12 §3) | spec/01 §13.5 | M |
 
 สิ่งที่เฟส 0 เผื่อไว้ให้ #10/#22 โดยไม่เพิ่ม task: `trip.planned_route` + `planned_distance_m` (ST3-T11), schema `vehicle_position` + RLS (ST4-T01 สร้างตารางพร้อม `stop_event` แต่ไม่มีตัวป้อน), retention GPS 90 วัน (ST9-T14) — ดู T-18
 

@@ -1,3 +1,4 @@
+import { NotificationEvents } from '../notifications/notification-events';
 import { Injectable, Logger } from '@nestjs/common';
 import { type Connector, Prisma } from '@prisma/client';
 import {
@@ -106,6 +107,7 @@ export class ConnectorsService {
     private readonly resolver: ConnectorResolver,
     private readonly entitlements: EntitlementService,
     private readonly prisma: PrismaService,
+    private readonly events: NotificationEvents,
   ) {}
 
   get cipher(): FieldCipher {
@@ -924,8 +926,11 @@ export class ConnectorsService {
         entityId: id,
         after: r.ok ? { ok: true } : { ok: false, errorClass: r.errorClass, code: r.problem.code },
       });
-      if (now.status === 'ACTIVE' && !r.ok && r.errorClass === 'AUTH')
-        return this.transition(tx, now, 'ERROR', 'connector.error', r.problem.code);
+      if (now.status === 'ACTIVE' && !r.ok && r.errorClass === 'AUTH') {
+        const down = await this.transition(tx, now, 'ERROR', 'connector.error', r.problem.code);
+        await this.notifyDown(tx, down, r.problem.code);
+        return down;
+      }
       if (now.status === 'ERROR' && r.ok)
         return this.transition(tx, now, 'ACTIVE', 'connector.recovered', null);
       return this.get(id, tx);
@@ -1001,7 +1006,18 @@ export class ConnectorsService {
         reason: problem.code.slice(0, 60),
       },
     });
+    await this.notifyDown(tx, row, problem.code);
     this.logger.warn(`connector ${c.id} (${c.adapterKey}) → ERROR: ${problem.code}`);
+  }
+
+  /** ST9-T08 "connector ล่ม" (docs/04 I) — ใน transaction เดียวกับการเปลี่ยนเป็น ERROR */
+  private async notifyDown(tx: Tx, c: Connector, code: string) {
+    await this.events.connectorDown(tx, {
+      tenantId: c.tenantId,
+      connectorId: c.id,
+      label: c.adapterKey,
+      code: code.slice(0, 60),
+    });
   }
 
   /**

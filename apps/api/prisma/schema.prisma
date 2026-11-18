@@ -2533,6 +2533,22 @@ model Notification {
   @@map("notification")
 }
 
+/// สมุดสรุปรายวัน 08:00 (ST9-T08; docs/04 I) — 1 แถว = ผู้ใช้ 1 คนได้สรุปของวันหนึ่งแล้ว (หรือไม่มีอะไรให้สรุป: items = 0)
+/// unique = ส่งครั้งเดียวต่อคนต่อวัน แม้ job รันซ้ำ/หลาย worker/ลองใหม่ · digest_day = วันที่เวลาไทยของรอบ 08:00
+model NotificationDigest {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid /// app_user.id
+  digestDay DateTime @map("digest_day") @db.Date
+  /// จำนวนแจ้งเตือนในกระดิ่งช่วง 24 ชม. ที่สรุป (0 = ไม่ได้ส่งอีเมล)
+  items     Int
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@unique([tenantId, userId, digestDay])
+  @@index([tenantId, digestDay])
+  @@map("notification_digest")
+}
+
 /// สมุดการเตือนวันหมดอายุ (ST2-T18) — 1 แถว = ผู้รับ 1 คนได้รับเตือนระดับหนึ่งของสิ่งหนึ่ง ณ วันหมดหนึ่งแล้ว
 /// unique = ไม่เตือนซ้ำ แม้ job รันซ้ำ/พร้อมกัน · แยกต่อผู้รับ → ส่งสรุปของแต่ละคนใน transaction ของตัวเองได้ (คนหนึ่งล้มไม่กระทบคนอื่น)
 /// ต่ออายุ/เปลี่ยนวันหมด → expires_on ใหม่ = รอบเตือนใหม่ · entity_type: VEHICLE_DOCUMENT / DRIVER_LICENCE / RATE_CARD

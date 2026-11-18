@@ -17,6 +17,7 @@ import {
 import { ConnectorsService } from './modules/erp/connectors.service';
 import { InboundWebhookService } from './modules/erp/inbound-webhook.service';
 import { ExpiryReminderService } from './modules/reminders/expiry-reminder.service';
+import { DailyDigestService } from './modules/notifications/daily-digest.service';
 import { DepreciationService } from './modules/depreciation/depreciation.service';
 import {
   OFFER_TIMEOUT_EVERY_MS,
@@ -93,6 +94,15 @@ async function main() {
       .catch((e) => log.error(e));
   void schedule();
   const reminderTimer = setInterval(schedule, 10 * 60 * 1000);
+  // ST9-T08 สรุปรายวัน 08:00: ตรวจทุก 10 นาที — ตั้งแต่ 08:00 เวลาไทย สร้าง job ของวันนี้ (ซ้ำได้ ส่งครั้งเดียวต่อคนต่อวัน)
+  const digests = ctx.get(DailyDigestService);
+  const scheduleDigest = () =>
+    digests
+      .scheduleDue()
+      .then((n) => n && log.info({ tenants: n }, 'daily digest scheduled'))
+      .catch((e) => log.error(e));
+  void scheduleDigest();
+  const digestTimer = setInterval(scheduleDigest, 10 * 60 * 1000);
   // ST2-T22 ค่าเสื่อมรายเดือน: ตรวจทุก 10 นาที — ตั้งแต่วันที่ 1 เวลา 02:00 น. ไทย สร้าง job ของเดือนที่เพิ่งปิดให้ tenant ที่ยังไม่มี (ซ้ำได้ ไม่ลงซ้ำ)
   const depreciation = ctx.get(DepreciationService);
   const scheduleDepreciation = () =>
@@ -137,6 +147,7 @@ async function main() {
   }
   clearInterval(timer);
   clearInterval(reminderTimer);
+  clearInterval(digestTimer);
   clearInterval(depreciationTimer);
   clearInterval(offerTimeoutTimer);
   clearInterval(pullTimer);
