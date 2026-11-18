@@ -20,7 +20,7 @@ import {
   statusFilter,
   upsertByExternalId,
 } from '../master/master-kit';
-import { EXPORT_MAX_ROWS } from '../master/export';
+import { EXPORT_MAX_ROWS, exportFetchArgs, overSyncCap, type ExportPage } from '../master/export';
 import type {
   CreateCustomerDto,
   CustomerAddressDto,
@@ -152,15 +152,15 @@ export class CustomersService {
   }
 
   /** แถวสำหรับส่งออก (ตามตัวกรองเดียวกับ list หรือ id ที่เลือก) — เกินเพดาน → 422 */
-  async exportRows(q: CustomerListQuery & { ids?: string }) {
+  async exportRows(q: CustomerListQuery & { ids?: string }, page?: ExportPage) {
     const ids = q.ids?.split(',').map((x) => tryDecodeId('customer', x)!);
     const where = ids ? { AND: [this.where(q), { id: { in: ids } }] } : this.where(q);
     const rows = await this.db.tx.customer.findMany({
       where,
-      orderBy: [{ code: 'asc' }],
-      take: EXPORT_MAX_ROWS + 1,
+      orderBy: [{ code: 'asc' }, { id: 'asc' }],
+      ...exportFetchArgs(page),
     });
-    if (rows.length > EXPORT_MAX_ROWS)
+    if (overSyncCap(rows.length, page))
       throw field422(
         'query',
         'too_many_rows',

@@ -27,6 +27,7 @@ import { AuditPageDto } from '../../audit/audit.controller';
 import { RequireScope, TenantResource, RateLimitClass } from '../../common/decorators';
 import { expectedVersion, setEtag } from '../../common/etag';
 import { sendExport, type ExportColumn } from '../master/export';
+import type { ExportSpec } from '../exports/export-spec';
 import { entityHistory, HistoryQuery } from '../master/history';
 import { MasterOptionalReasonDto, MasterReasonDto } from '../master/master-kit';
 import {
@@ -311,3 +312,17 @@ export class CustomersController {
     await this.customers.remove(current.id, body.reason, expectedVersion(req));
   }
 }
+
+/** ส่งออกตามตัวกรองเป็นงานเบื้องหลัง (ST9-T10 — `POST /v1/exports`) — ตัวกรอง/การอ่าน/คอลัมน์ชุดเดียวกับ `GET /export` */
+export const customersExportSpec = (
+  svc: CustomersService,
+): ExportSpec<CustomerListQuery, CustomerDto> => ({
+  resource: 'customers',
+  label: 'ลูกค้า',
+  fileBase: 'customers',
+  scope: 'master:read',
+  idKind: 'customer',
+  query: CustomerListQuery,
+  fetch: (q, page) => svc.exportRows(q, page),
+  columns: () => EXPORT_COLUMNS,
+});

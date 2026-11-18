@@ -33,6 +33,7 @@ import { TenantRateLimiter } from '../geo/rate-limit';
 import { DbService } from '../../db/db.service';
 import { NextCodeDto } from '../customers/customer.dto';
 import { sendExport, type ExportColumn } from '../master/export';
+import type { ExportSpec } from '../exports/export-spec';
 import { entityHistory, HistoryQuery } from '../master/history';
 import { MasterOptionalReasonDto, MasterReasonDto } from '../master/master-kit';
 import {
@@ -342,3 +343,17 @@ export class CarriersController {
     await this.carriers.remove(current.id, body.reason, expectedVersion(req));
   }
 }
+
+/** ส่งออกตามตัวกรองเป็นงานเบื้องหลัง (ST9-T10 — `POST /v1/exports`) — ตัวกรอง/การอ่าน/คอลัมน์ชุดเดียวกับ `GET /export` */
+export const carriersExportSpec = (
+  svc: CarriersService,
+): ExportSpec<CarrierListQuery, CarrierDto> => ({
+  resource: 'carriers',
+  label: 'ผู้รับเหมา',
+  fileBase: 'carriers',
+  scope: 'master:read',
+  idKind: 'carrier',
+  query: CarrierListQuery,
+  fetch: (q, page) => svc.exportRows(q, page),
+  columns: () => EXPORT_COLUMNS,
+});

@@ -19,7 +19,7 @@ import { can } from '../../nav';
 import { PageHeader } from '../../shell/Header';
 import { useMe } from '../../shell/AppShell';
 import { tableLabels } from '../companies/CompanySample';
-import { downloadFile } from '../master/download';
+import { downloadFile, exportFailText } from '../master/download';
 import { problemText } from '../master/problems';
 import { SegSwitch } from '../master/SegSwitch';
 import { listTotal, useSessionState } from '../master/useCursorList';
@@ -520,7 +520,7 @@ export function RateCardsPage() {
                           ids: ids.join(','),
                         }).then(
                           () => setToast(t('rc.toast.exported', { n: ids.length })),
-                          () => setToast(t('rc.exportFailed')),
+                          (e) => setToast(exportFailText(t, e, t('rc.exportFailed'))),
                         ),
                     },
                   ]
@@ -539,7 +539,7 @@ export function RateCardsPage() {
                           ([, v]) => v !== '',
                         ),
                       ),
-                    }).catch(() => setToast(t('rc.exportFailed')));
+                    }).catch((e) => setToast(exportFailText(t, e, t('rc.exportFailed'))));
                   }
                 : false
             }

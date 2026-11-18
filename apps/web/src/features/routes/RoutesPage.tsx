@@ -19,7 +19,7 @@ import { can } from '../../nav';
 import { PageHeader } from '../../shell/Header';
 import { useMe } from '../../shell/AppShell';
 import { tableLabels } from '../companies/CompanySample';
-import { downloadFile } from '../master/download';
+import { downloadFile, exportFailText } from '../master/download';
 import { problemText } from '../master/problems';
 import { listTotal } from '../master/useCursorList';
 import { RouteDrawer } from './RouteDrawer';
@@ -267,7 +267,7 @@ export function RoutesPage() {
                           ids: ids.join(','),
                         }).then(
                           () => setToast(t('rt.toast.exported', { n: ids.length })),
-                          () => setToast(t('rt.exportFailed')),
+                          (e) => setToast(exportFailText(t, e, t('rt.exportFailed'))),
                         ),
                     },
                   ],
@@ -279,7 +279,7 @@ export function RoutesPage() {
                     void downloadFile('/v1/routes/export', {
                       format: 'csv',
                       ...Object.fromEntries(Object.entries(filters).filter(([, v]) => v !== '')),
-                    }).catch(() => setToast(t('rt.exportFailed')))
+                    }).catch((e) => setToast(exportFailText(t, e, t('rt.exportFailed'))))
                 : false
             }
             empty={

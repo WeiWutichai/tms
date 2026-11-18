@@ -20,6 +20,7 @@ import { keysetArgs, toPage } from '../../common/pagination';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService } from '../../db/db.service';
+import { exportFetchArgs, type ExportPage } from '../master/export';
 import { likeEscape } from '../master/master-kit';
 import type { UpsertOrderInput } from './order-input';
 import { OrderIntakeService, type UpsertOrderResult } from './order-intake.service';
@@ -358,6 +359,20 @@ export class OrdersService {
       include: READ_INCLUDE,
     });
     return toPage(rows, k, toOrderDto, q.fields);
+  }
+
+  /**
+   * ส่งออกตามตัวกรอง (ST9-T10) — where-builder เดียวกับ `list` อ่านทีละหน้า เรียงตามเวลาสร้าง (ไม่เปลี่ยนระหว่างส่งออก)
+   * DTO เดียวกับรายการ (field ราคาถูกตัดตามสิทธิ์ที่ชั้นส่งออก)
+   */
+  async exportRows(q: OrderListQuery, page: ExportPage): Promise<OrderDto[]> {
+    const rows = await this.db.tx.salesOrder.findMany({
+      where: await this.where(q),
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      ...exportFetchArgs(page),
+      include: READ_INCLUDE,
+    });
+    return rows.map(toOrderDto);
   }
 
   // ---------- write (ผ่าน upsertOrder เท่านั้น) ----------

@@ -208,6 +208,9 @@ export class DocumentsController {
       where: { id: decodeIdOr404('document', id) },
     });
     if (!doc) throw new ProblemException('not_found');
+    // ไฟล์ส่งออก (ST9-T10) มีข้อมูลตามสิทธิ์ของผู้สั่ง — เฉพาะผู้สั่งเท่านั้น (ดาวน์โหลดผ่าน GET /v1/exports/{id})
+    if (doc.kind === 'EXPORT' && doc.createdBy !== (requestContext.require().actorId ?? null))
+      throw new ProblemException('not_found');
     return this.withUrl(doc, req);
   }
 

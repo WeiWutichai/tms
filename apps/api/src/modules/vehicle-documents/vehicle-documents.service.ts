@@ -6,7 +6,7 @@ import { likeEscape } from '../../common/ilike';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService } from '../../db/db.service';
-import { EXPORT_MAX_ROWS } from '../master/export';
+import { EXPORT_MAX_ROWS, exportFetchArgs, overSyncCap, type ExportPage } from '../master/export';
 import { emitMasterEvent, lockKey } from '../master/master-kit';
 import { plateNorm } from '../vehicles/vehicles.service';
 import {
@@ -280,7 +280,10 @@ export class VehicleDocumentsService {
   }
 
   /** ส่งออก (ST2-T19) — ตัวกรองเดียวกับรายการ + เลือกเฉพาะ id · เรียงวันหมดใกล้สุดก่อน · สูงสุด 10,000 แถว */
-  async exportRows(q: VehicleDocumentListQuery & { ids?: string }): Promise<VehicleDocumentDto[]> {
+  async exportRows(
+    q: VehicleDocumentListQuery & { ids?: string },
+    page?: ExportPage,
+  ): Promise<VehicleDocumentDto[]> {
     const and = this.where(q, bangkokToday());
     if (q.ids)
       and.push({ id: { in: q.ids.split(',').map((x) => tryDecodeId('vehicleDocument', x)!) } });
@@ -288,9 +291,9 @@ export class VehicleDocumentsService {
       where: { AND: and },
       include: INCLUDE,
       orderBy: [{ expiresOn: 'asc' }, { id: 'asc' }],
-      take: EXPORT_MAX_ROWS + 1,
+      ...exportFetchArgs(page),
     });
-    if (rows.length > EXPORT_MAX_ROWS)
+    if (overSyncCap(rows.length, page))
       throw field422(
         'query',
         'too_many_rows',

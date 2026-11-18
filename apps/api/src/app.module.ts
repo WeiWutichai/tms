@@ -29,6 +29,10 @@ import { ImportRegistry } from './modules/imports/import-spec';
 import { ImportService } from './modules/imports/import.service';
 import { ImportsController } from './modules/imports/imports.controller';
 import { MasterImports } from './modules/imports/master-imports';
+import { ExportRegistry } from './modules/exports/export-spec';
+import { ExportsController } from './modules/exports/exports.controller';
+import { ExportsService } from './modules/exports/exports.service';
+import { ListExports } from './modules/exports/list-exports';
 import { SetupChecklistController } from './modules/setup/setup.controller';
 import { PlatformAuthController } from './platform/platform-auth.controller';
 import { PlatformTenantsController } from './platform/platform-tenants.controller';
@@ -206,6 +210,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     InvitationsController,
     NotificationsController,
     ImportsController,
+    ExportsController,
     SetupChecklistController,
     PlatformAuthController,
     PlatformTenantsController,
@@ -284,6 +289,9 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     ImportRegistry,
     ImportService,
     MasterImports,
+    ExportRegistry,
+    ExportsService,
+    ListExports,
     EntitlementService,
     MagicLinkService,
     DbService,
