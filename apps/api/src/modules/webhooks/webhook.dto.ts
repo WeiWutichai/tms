@@ -261,9 +261,29 @@ export class WebhookEventTypeDto {
   @ApiProperty({ example: 'สร้างใบสั่งงานใหม่', description: 'ความหมายของ event (ภาษาไทย)' })
   description!: string;
   @ApiProperty({
+    enum: ['active', 'pending'],
+    description: '`active` = ระบบยิงแล้ว · `pending` = โมดูลยังไม่เปิด (สมัครรอได้ ยังไม่มี event)',
+  })
+  phase!: 'active' | 'pending';
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: null,
+    description: 'งานที่จะเริ่มยิง event นี้ (เฉพาะ pending)',
+  })
+  pendingTask!: string | null;
+  @ApiProperty({
+    nullable: true,
     type: 'object',
     additionalProperties: true,
-    description: 'ตัวอย่าง `data.object` (ข้อมูลสมมติ — เดียวกับ `webhook.test`)',
+    description:
+      'JSON schema (OpenAPI 3.0 Schema Object) ของ `data.object` = DTO ของ REST ของ resource (ไม่มี field ราคา) — `$ref` ชี้ `#/components/schemas/*` ของ /v1/openapi.json · null = ยังไม่กำหนด (pending) · เปิด: เพิ่ม field = non-breaking',
+  })
+  schema!: Record<string, unknown> | null;
+  @ApiProperty({
+    type: 'object',
+    additionalProperties: true,
+    description: 'ตัวอย่าง `data.object` (ข้อมูลสมมติ ตรง schema — เดียวกับ `webhook.test`)',
   })
   sample!: Record<string, unknown>;
 }

@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma, type WebhookEndpoint } from '@prisma/client';
 import { WEBHOOK_ROTATION_GRACE_HOURS } from '@tms/domain';
+import { eventSample } from './event-openapi';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { AuditService } from '../../audit/audit.service';
 import { encodeId } from '../../common/ids';
@@ -532,7 +533,10 @@ export class WebhooksService {
     if (e.status !== 'ACTIVE') throw new ProblemException('invalid_state_transition');
     await this.takeTestSlot(tenantId, id);
     const type = body.eventType ?? e.events[0] ?? 'order.created';
-    const envelope = this.engine.systemEnvelope(tenantId, 'webhook.test', sampleObject(type));
+    const envelope = {
+      ...this.engine.systemEnvelope(tenantId, 'webhook.test', sampleObject(type)),
+      sampleEventType: type,
+    };
     const r = await this.engine.attempt({
       tenantId,
       endpoint: e,
@@ -566,24 +570,7 @@ export class WebhooksService {
   }
 }
 
-/** payload ตัวอย่างของ event (INT-107) — ไม่ใช่ข้อมูลจริงของบริษัท */
+/** payload ตัวอย่างของ event (INT-107) — สร้างจาก schema ที่เผยแพร่ (ST7-T06 — รูป DTO ของ REST) · ไม่ใช่ข้อมูลจริงของบริษัท */
 export function sampleObject(type: string): Record<string, unknown> {
-  const entity = type.split('.')[0]!;
-  const zero = '0'.repeat(32);
-  const prefix: Record<string, string> = {
-    order: 'ord',
-    trip: 'trp',
-    stop: 'stp',
-    delivery_order: 'do',
-    pod: 'doc',
-    invoice: 'inv',
-    job: 'job',
-  };
-  return {
-    sampleEventType: type,
-    id: `${prefix[entity] ?? 'obj'}_${zero}`,
-    object: entity,
-    status: type.split('.')[1] ?? 'updated',
-    updatedAt: new Date().toISOString(),
-  };
+  return eventSample(type);
 }

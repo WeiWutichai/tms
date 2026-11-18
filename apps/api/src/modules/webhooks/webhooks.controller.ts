@@ -32,7 +32,7 @@ import { expectedVersion, setEtag } from '../../common/etag';
 import { decodeIdOr404 } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { DbService } from '../../db/db.service';
-import { WEBHOOK_EVENT_DESCRIPTIONS, WEBHOOK_EVENT_TYPES } from '@tms/domain';
+import { EVENT_REGISTRY } from '@tms/domain';
 import { entityHistory, HistoryQuery } from '../master/history';
 import {
   CreateWebhookDto,
@@ -49,6 +49,7 @@ import {
   WebhookTestResultDto,
 } from './webhook.dto';
 import { sampleObject, WebhooksService } from './webhooks.service';
+import { publishedEventSchema } from './event-openapi';
 
 /** ผลมี secret ที่แสดงครั้งเดียว — ห้ามเก็บลงตาราง idempotency (เหมือน API key ST7-T01) */
 function noIdempotencyKey(req: Request) {
@@ -101,15 +102,18 @@ export class WebhooksController {
   @ApiOkResponse({
     type: WebhookEventTypeListDto,
     description:
-      'event สาธารณะที่สมัครได้ (docs/01 §5.3) พร้อมคำอธิบายและตัวอย่าง `data.object` (ข้อมูลสมมติ) — JSON schema เต็มต่อ event = ST7-T06',
+      'ทะเบียน event สาธารณะ (docs/01 §5.3 — ST7-T06): คำอธิบาย, ระยะ (`active` = ยิงแล้ว / `pending` = รอโมดูล — สมัครรอได้), JSON schema ของ `data.object` และตัวอย่าง (ข้อมูลสมมติ) — schema เดียวกับ `components.schemas.WebhookEvent_*` ใน openapi.json',
   })
   eventTypes(): WebhookEventTypeListDto {
     return {
-      data: WEBHOOK_EVENT_TYPES.map((type) => ({
-        type,
-        resource: type.split('.')[0]!,
-        description: WEBHOOK_EVENT_DESCRIPTIONS[type],
-        sample: sampleObject(type),
+      data: EVENT_REGISTRY.map((d) => ({
+        type: d.type,
+        resource: d.resource,
+        description: d.description,
+        phase: d.phase,
+        pendingTask: d.pendingTask,
+        schema: publishedEventSchema(d.type),
+        sample: sampleObject(d.type),
       })),
     };
   }
