@@ -3,6 +3,7 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { PrismaClient } from '@prisma/client';
 import { SYSTEM_ROLES } from '@tms/domain';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { Clock } from '../src/common/clock';
 import { encodeId, tryDecodeId } from '../src/common/ids';
 import { createTenantWithDefaults } from '../src/modules/tenants/bootstrap';
 import { api, bootApp, platform, tokenFor, truncateAll } from './helpers';
@@ -20,16 +21,22 @@ describe('stop event idempotency / ordering / flags (ST4-T02)', () => {
   let admin: string;
   let other: string;
   let seed = 0;
+  let clock: Clock;
 
   beforeAll(async () => {
     await truncateAll();
     app = await bootApp();
+    // event ในชุดนี้ใช้วันที่คงที่ 17 พ.ย. 2569 — ตรึงนาฬิกาของ server ไว้วันเดียวกัน ไม่ให้กลายเป็น "ย้อนหลัง > 24 ชม."
+    // (ธง CLOCK_SKEW) เมื่อรัน test หลังวันนั้น · test ที่ทดสอบเวลาเพี้ยนคำนวณจาก clock.now()
+    clock = app.get(Clock);
+    clock.set(new Date('2026-11-17T12:00:00+07:00'));
     tenantId = (await createTenantWithDefaults(db, { name: 'บริษัท ธงหน้างาน' })).id;
     otherId = (await createTenantWithDefaults(db, { name: 'บริษัท อื่น' })).id;
     admin = await tokenFor(tenantId);
     other = await tokenFor(otherId);
   });
   afterAll(async () => {
+    clock?.set(null);
     await app.close();
     await db.$disconnect();
   });
@@ -93,7 +100,12 @@ describe('stop event idempotency / ordering / flags (ST4-T02)', () => {
   }
 
   const dec = (id: string) => tryDecodeId('event', id)!;
-  const ev = (at: string, extra: Record<string, unknown> = {}) => ({
+  const ev = (at: string, extra: Record<string, unknown> = {}) => {
+    // นาฬิกาที่ตรึงไว้เดินทีละ 1 วิ ต่อ event — ลำดับ "รับก่อน/รับทีหลัง" (receivedAt) ยังแยกกันได้
+    clock.set(new Date(clock.now().getTime() + 1000));
+    return ev0(at, extra);
+  };
+  const ev0 = (at: string, extra: Record<string, unknown> = {}) => ({
     clientEventId: randomUUID(),
     occurredAt: `2026-11-17T${at}:00+07:00`,
     ...extra,
@@ -264,7 +276,7 @@ describe('stop event idempotency / ordering / flags (ST4-T02)', () => {
 
   it('นาฬิกาเครื่องเพี้ยน: อนาคต > 5 นาที / ย้อนหลัง > 24 ชม. → ธง CLOCK_SKEW (ไม่แก้เวลา)', async () => {
     const s = await trip();
-    const iso = (ms: number) => new Date(Date.now() + ms).toISOString();
+    const iso = (ms: number) => new Date(clock.now().getTime() + ms).toISOString();
     const fut = await s.post('depart', { clientEventId: randomUUID(), occurredAt: iso(3600_000) });
     expect(fut.status).toBe(201);
     expect(fut.body).toMatchObject({ clockSkew: true, flags: ['CLOCK_SKEW'] });
@@ -365,7 +377,7 @@ describe('stop event idempotency / ordering / flags (ST4-T02)', () => {
 
   it('ยอมรับ "เวลาเพี้ยน" แล้ว event อื่นทำให้ขัดลำดับ → การยอมรับหมดผล กลับเป็นใหม่ ตัดสินใหม่ได้ (แถวที่ 2)', async () => {
     const s = await trip();
-    const iso = (ms: number) => new Date(Date.now() + ms).toISOString();
+    const iso = (ms: number) => new Date(clock.now().getTime() + ms).toISOString();
     const d = await s
       .post('depart', { clientEventId: randomUUID(), occurredAt: iso(3600_000) })
       .expect(201);
