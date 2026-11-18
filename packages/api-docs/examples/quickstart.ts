@@ -20,7 +20,8 @@ export async function runQuickstart(opts: { baseUrl: string; apiKey: string }) {
   // 0) นิติบุคคลที่ออกบิล — บริษัทที่มีหลายนิติบุคคลต้องระบุ billingCompanyId (ไม่งั้น 422 routing_not_configured)
   const companies = unwrap(await tms.GET('/v1/companies', { params: { query: { limit: 50 } } }));
   const billingCompanyId = companies.data[0]?.id;
-  if (!billingCompanyId) throw new Error('บริษัทยังไม่มีนิติบุคคล — ตั้งที่ ตั้งค่า → นิติบุคคลและสาขา ก่อน');
+  if (!billingCompanyId)
+    throw new Error('บริษัทยังไม่มีนิติบุคคล — ตั้งที่ ตั้งค่า → นิติบุคคลและสาขา ก่อน');
 
   // 1) ลูกค้า
   const customer = unwrap(
