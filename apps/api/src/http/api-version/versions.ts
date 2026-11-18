@@ -9,6 +9,8 @@
  *   และ/หรือตัวแปลง request ของ client เวอร์ชันเก่า แล้วติด `@VersionGate(id)` ที่ route ที่ได้รับผล
  */
 
+import { ProblemException } from '../../common/problem';
+
 /** วันที่รูปแบบ YYYY-MM-DD */
 export type ApiVersion = string;
 
@@ -71,8 +73,16 @@ const apiKeyRotatingStatus: VersionChange = {
     const s = req.query.status;
     if (typeof s !== 'string' || !s) return;
     const list = s.split(',');
-    if (list.includes('active') && !list.includes('rotating'))
-      req.query.status = [...list, 'rotating'].join(',');
+    // client เก่าไม่รู้จัก `rotating` — ค่าที่ไม่มีในเวอร์ชันนั้น = 422 เหมือนค่าที่ไม่รู้จักอื่น (review ST7-T07)
+    if (list.includes('rotating'))
+      throw new ProblemException('validation_failed', undefined, [
+        {
+          field: 'status',
+          code: 'unknown_value',
+          message: '`rotating` is not available before X-Api-Version 2026-11-18',
+        },
+      ]);
+    if (list.includes('active')) req.query.status = [...list, 'rotating'].join(',');
   },
   downgradeResponse(body) {
     const fix = (k: unknown) => {

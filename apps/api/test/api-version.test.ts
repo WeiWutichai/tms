@@ -111,6 +111,18 @@ describe('API versioning (ST7-T07)', () => {
       .expect(200);
     expect(newActive.body.data.map((k: { id: string }) => k.id)).toEqual([newKeyId]);
 
+    // client เก่าไม่รู้จัก rotating → 422 (ค่าตัวกรองที่ไม่มีในเวอร์ชันนั้น) · ล่าสุดกรองได้
+    const oldRot = await api(app, admin)
+      .get('/v1/api-keys?status=rotating')
+      .set('X-Api-Version', OLD);
+    expect(oldRot.status).toBe(422);
+    expect(oldRot.body.errors?.[0]).toMatchObject({ field: 'status', code: 'unknown_value' });
+    const newRot = await api(app, admin)
+      .get('/v1/api-keys?status=rotating')
+      .set('X-Api-Version', LATEST_API_VERSION)
+      .expect(200);
+    expect(newRot.body.data.map((k: { id: string }) => k.id)).toEqual([rotatingId]);
+
     const sOld = await api(app, admin)
       .get('/v1/api-keys/summary')
       .set('X-Api-Version', OLD)
@@ -255,6 +267,10 @@ describe('API versioning (ST7-T07)', () => {
       .set('X-Api-Version', OLD)
       .expect(200);
     expect(old.body.status).toBe('active');
+    // route สาธารณะก็ปฏิเสธ header ผิด (400) · ไม่ส่ง header = ล่าสุด
+    const badPub = await request(srv()).get('/v1/health').set('X-Api-Version', 'x');
+    expect(badPub.status).toBe(400);
+    expect(badPub.body.code).toBe('invalid_api_version');
     // route ปกติไม่มี header เลิกใช้
     const h = await request(srv()).get('/v1/health');
     expect(h.headers.deprecation).toBeUndefined();

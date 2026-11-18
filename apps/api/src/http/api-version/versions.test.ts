@@ -113,6 +113,9 @@ describe('ST7-T07 versions: การแปลง/เลือกเวอร์
     const q: Record<string, unknown> = { status: 'active,revoked' };
     c.upgradeRequest!({ query: q });
     expect(q.status).toBe('active,revoked,rotating');
+    expect(() => c.upgradeRequest!({ query: { status: 'active,rotating' } })).toThrow(
+      'validation_failed',
+    );
     const q2: Record<string, unknown> = { status: 'revoked' };
     c.upgradeRequest!({ query: q2 });
     expect(q2.status).toBe('revoked');
