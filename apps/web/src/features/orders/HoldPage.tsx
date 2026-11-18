@@ -20,7 +20,8 @@ import { PageHeader } from '../../shell/Header';
 import { useMe } from '../../shell/AppShell';
 import { tableLabels } from '../companies/CompanySample';
 import { problemText } from '../master/problems';
-import { listTotal, useSessionState } from '../master/useCursorList';
+import { listTotal, useSessionState, useUrlSeed } from '../master/useCursorList';
+import { useSearchParams } from 'react-router-dom';
 import { SavedViewMenu } from '../views/SavedViewMenu';
 import { pick, useSavedViews } from '../views/useSavedViews';
 import { bangkokToday, useDateText } from '../rate-cards/rateFormat';
@@ -84,6 +85,15 @@ export function HoldPage() {
   const canSeePrice = can(scopes, 'prices.sell:read');
   const canEditPrice = can(scopes, 'prices.sell:write');
   const canUnlock = can(scopes, 'orders:unlock');
+  // ST9-T01 ลิงก์จาก dashboard `/so/hold?reason=CODE` → ตัวกรองเหตุนั้น (ล้างตัวกรองคอลัมน์)
+  const [params] = useSearchParams();
+  useUrlSeed(params, ['reason'], (p) => ({
+    'hold.reason': HOLD_CODES.includes(p.get('reason') as never) ? p.get('reason') : '',
+    'hold.cols': { q: '', source: '' },
+    // ST9-T11: ตัวกรองจาก URL ชนะมุมมองที่บันทึกไว้ — ไม่มีมุมมองที่เลือก (ป้าย "กำหนดเอง") และไม่ใช้มุมมองค่าเริ่มต้นทับ
+    'tms.view.orders.hold.active': null,
+    'tms.view.orders.hold.init': 1,
+  }));
   const [reason, setReason] = useSessionState('hold.reason', '');
   const [col, setCol] = useSessionState('hold.cols', { q: '', source: '' });
   const [hidden, setHidden] = useSessionState<string[] | null>('hold.hidden', null);

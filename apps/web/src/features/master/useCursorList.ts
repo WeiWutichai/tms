@@ -182,3 +182,20 @@ export function listTotal<F extends object>(
   );
   return onlyCounted && count !== undefined ? count : list.page.total;
 }
+
+/**
+ * ST9-T01 ตัวกรองจาก URL (ลิงก์จากการ์ด dashboard เช่น `/fleet/vehicles?ownership=OWN&busy=true`) — ตอนเปิดหน้า
+ * เขียนค่าที่ได้ลง sessionStorage ก่อน `useSessionState` ของหน้าอ่าน จึงยิง API ครั้งแรกด้วยตัวกรองจาก URL เลย
+ * (ไม่มีพารามิเตอร์ที่หน้าใช้ = คงค่าที่จำไว้) · เรียกก่อน `useSessionState` ตัวอื่นของหน้า
+ */
+export function useUrlSeed(
+  params: URLSearchParams,
+  keys: readonly string[],
+  seed: (p: URLSearchParams) => Record<string, unknown>,
+) {
+  useState(() => {
+    if (keys.some((k) => params.has(k)))
+      for (const [k, v] of Object.entries(seed(params))) writeSession(k, v);
+    return null;
+  });
+}
