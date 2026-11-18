@@ -53,7 +53,7 @@ model Tenant {
   liveTenant       Tenant?      @relation("TenantSandbox", fields: [liveTenantId], references: [id], onDelete: Restrict)
   sandbox          Tenant?      @relation("TenantSandbox")
   createdAt        DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt        DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt        DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@map("tenant")
 }
@@ -70,7 +70,7 @@ model Company {
   externalId    String?       @map("external_id")
   version       Int           @default(1)
   createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt     DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt     DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   salesOrders SalesOrder[]
 
@@ -123,7 +123,7 @@ model DomainEvent {
   tenantId           String   @map("tenant_id") @db.Uuid
   type               String
   version            Int      @default(1)
-  occurredAt         DateTime @default(now()) @map("occurred_at") @db.Timestamptz(6)
+  occurredAt         DateTime @default(now()) @map("occurred_at") @db.Timestamptz(3)
   entityType         String   @map("entity_type")
   localId            String   @map("local_id") @db.Uuid
   snapshot           Json
@@ -153,7 +153,7 @@ model Job {
   finishedAt  DateTime? @map("finished_at") @db.Timestamptz(6)
   lockedUntil DateTime? @map("locked_until") @db.Timestamptz(6)
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@index([status, runAt])
   @@index([tenantId, createdAt])
@@ -196,7 +196,7 @@ model AppUser {
   signatureDocumentId String?    @map("signature_document_id") @db.Uuid /// ลายเซ็นบนเอกสาร/50 ทวิ (stored_document kind SIGNATURE)
   version             Int        @default(1)
   createdAt           DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt           DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt           DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   invitations        UserInvitation[]
   orderLocks         OrderEditLock[]
@@ -219,7 +219,7 @@ model UserPreference {
   key       String
   value     Json
   version   Int      @default(1)
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@unique([userId, key])
   @@index([tenantId])
@@ -243,7 +243,7 @@ model SavedView {
   isDefault     Boolean   @default(false) @map("is_default")
   version       Int       @default(1)
   createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
   deletedAt     DateTime? @map("deleted_at") @db.Timestamptz(6)
 
   @@index([tenantId, userId, page])
@@ -260,7 +260,7 @@ model Role {
   permissions String[]
   isSystem    Boolean  @default(false) @map("is_system")
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@unique([tenantId, code])
   @@map("role")
@@ -290,7 +290,7 @@ model Branch {
   isDefaultIssuer Boolean  @default(false) @map("is_default_issuer")
   version         Int      @default(1)
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   /// + partial unique `branch_one_default_issuer_per_company` (company_id) WHERE is_default_issuer (migration 0008)
   @@unique([tenantId, companyId, branchCode])
@@ -335,7 +335,7 @@ model DocumentSequence {
   padding        Int         @default(4)
   nextValue      BigInt      @default(1) @map("next_value")
   createdAt      DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt      DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt      DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   /// ⚠ index จริงเป็น NULLS NOT DISTINCT (migration 0007) — Prisma แสดงไม่ได้; ห้ามให้ migrate diff สร้างใหม่ทับ (test/schema-constraints.test.ts)
   @@unique([tenantId, docType, branchId, periodKey])
@@ -355,7 +355,7 @@ model DocumentSeries {
   perBranch   Boolean     @default(false) @map("per_branch")
   version     Int         @default(1)
   createdAt   DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt   DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt   DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@unique([tenantId, docType])
   @@map("document_series")
@@ -439,7 +439,7 @@ model Customer {
   status                  ActiveStatus    @default(ACTIVE)
   version                 Int             @default(1)
   createdAt               DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt               DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt               DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
   sites                   CustomerSite[]
   products                Product[]
   aliases                 CustomerAlias[]
@@ -509,7 +509,7 @@ model CustomerSite {
   deletedAt          DateTime?     @map("deleted_at") @db.Timestamptz(6) /// MD-004 soft delete (เฉพาะที่ไม่เคยถูกอ้างอิง)
   version            Int           @default(1)
   createdAt          DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt          DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt          DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   routesFrom Route[] @relation("RouteOrigin")
   routesTo   Route[] @relation("RouteDestination")
@@ -544,7 +544,7 @@ model CustomerAlias {
   valueKey   String   @map("value_key")
   createdBy  String?  @map("created_by")
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@unique([tenantId, kind, source, valueKey])
   @@index([tenantId, customerId])
@@ -572,7 +572,7 @@ model Route {
   deletedAt         DateTime?    @map("deleted_at") @db.Timestamptz(6) /// MD-004 soft delete
   version           Int          @default(1)
   createdAt         DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt         DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt         DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@unique([tenantId, code])
   @@unique([tenantId, externalId])
@@ -626,7 +626,7 @@ model Carrier {
   deletedAt         DateTime?         @map("deleted_at") @db.Timestamptz(6) /// MD-004 soft delete
   version           Int               @default(1)
   createdAt         DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt         DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt         DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
   vehicles          Vehicle[]
   drivers           Driver[]
 
@@ -664,7 +664,7 @@ model VehicleType {
   deletedAt         DateTime?    @map("deleted_at") @db.Timestamptz(6) /// MD-004 soft delete (เฉพาะที่ไม่เคยถูกอ้างอิง)
   version           Int          @default(1)
   createdAt         DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt         DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt         DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   vehicles Vehicle[]
 
@@ -695,7 +695,7 @@ model Unit {
   deletedAt DateTime?    @map("deleted_at") @db.Timestamptz(6)
   version   Int          @default(1)
   createdAt DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   products Product[]
   altUnits ProductAltUnit[]
@@ -737,7 +737,7 @@ model Product {
   deletedAt         DateTime?    @map("deleted_at") @db.Timestamptz(6)
   version           Int          @default(1)
   createdAt         DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt         DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt         DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   altUnits   ProductAltUnit[]
   orderLines SalesOrderLine[]
@@ -846,7 +846,7 @@ model Vehicle {
   deletedAt          DateTime?                @map("deleted_at") @db.Timestamptz(6) /// soft delete เฉพาะที่ไม่เคยถูกอ้างอิง (FLT-008)
   version            Int                      @default(1)
   createdAt          DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt          DateTime                 @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt          DateTime                 @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
   odometerReadings   VehicleOdometerReading[]
   documents          VehicleDocument[]
   docSubmissions     CarrierDocSubmission[]
@@ -930,7 +930,7 @@ model Driver {
   deletedAt         DateTime?              @map("deleted_at") @db.Timestamptz(6) /// soft delete เฉพาะที่ไม่เคยถูกอ้างอิง (MD-004)
   version           Int                    @default(1)
   createdAt         DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt         DateTime               @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt         DateTime               @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
   docSubmissions    CarrierDocSubmission[]
   trips             Trip[]                 @relation("TripDriver")
   reliefTrips       Trip[]                 @relation("TripReliefDriver")
@@ -972,7 +972,7 @@ model ScheduleEntry {
   cancelReason String?           @map("cancel_reason")
   version      Int               @default(1)
   createdAt    DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt    DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt    DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@index([tenantId, startsOn, endsOn])
   @@index([tenantId, driverId])
@@ -1026,7 +1026,7 @@ model VehicleDocument {
   cancelledAt           DateTime?         @map("cancelled_at") @db.Timestamptz(6)
   createdBy             String?           @map("created_by")
   createdAt             DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt             DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt             DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@index([tenantId, vehicleId, docType, expiresOn])
   @@index([tenantId, expiresOn, id])
@@ -1068,7 +1068,7 @@ model CarrierDocSubmission {
   /// vehicle_document ที่เกิดจากการอนุมัติ
   resultDocumentId String?   @map("result_document_id") @db.Uuid
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@index([tenantId, carrierId, status, createdAt])
   @@index([tenantId, vehicleId, docType])
@@ -1141,7 +1141,7 @@ model ServiceItem {
   deletedAt          DateTime?       @map("deleted_at") @db.Timestamptz(6)
   version            Int             @default(1)
   createdAt          DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt          DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt          DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   rateCards            RateCard[]
   rateCardAccessorials RateCardAccessorial[]
@@ -1232,7 +1232,7 @@ model RateCard {
   deletedAt         DateTime?             @map("deleted_at") @db.Timestamptz(6) /// ลบได้เฉพาะร่าง (MD-004)
   version           Int                   @default(1)
   createdAt         DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt         DateTime              @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt         DateTime              @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
   accessorials      RateCardAccessorial[]
   orderCharges      SalesOrderCharge[]
 
@@ -1298,7 +1298,7 @@ model ReasonCode {
   deletedAt         DateTime?      @map("deleted_at") @db.Timestamptz(6)
   version           Int            @default(1)
   createdAt         DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt         DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt         DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   heldOrders    SalesOrder[]
   doLineRejects DeliveryOrderLine[]
@@ -1379,7 +1379,7 @@ model SalesOrder {
   rawPayload             Json?         @map("raw_payload")
   version                Int           @default(1)
   createdAt              DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt              DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt              DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   stops          SalesOrderStop[]
   lines          SalesOrderLine[]
@@ -1436,7 +1436,7 @@ model OrderSourceChange {
   supersededBy    OrderSourceChange?  @relation("SourceChangeSupersede", fields: [supersededById], references: [id], onDelete: Restrict)
   supersedes      OrderSourceChange[] @relation("SourceChangeSupersede")
   createdAt       DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt       DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt       DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@index([tenantId, salesOrderId, createdAt])
   @@map("order_source_change")
@@ -1606,7 +1606,7 @@ model OrderTemplate {
   updatedBy     String?   @map("updated_by") @db.Uuid
   version       Int       @default(1)
   createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
   deletedAt     DateTime? @map("deleted_at") @db.Timestamptz(6)
   deletedReason String?   @map("deleted_reason")
 
@@ -1690,7 +1690,7 @@ model Trip {
   cancelReasonCode          ReasonCode?       @relation("TripCancelReason", fields: [cancelReasonCodeId], references: [id], onDelete: Restrict)
   version                   Int               @default(1)
   createdAt                 DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt                 DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt                 DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   deliveryOrders       DeliveryOrder[]
   stops                TripStop[]
@@ -1834,7 +1834,7 @@ model DeliveryOrder {
   publicTokenHash      String?         @map("public_token_hash") /// tracking link (ST4-T14)
   version              Int             @default(1)
   createdAt            DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt            DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt            DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   lines        DeliveryOrderLine[]
   pods         DeliveryOrderPod[]
@@ -1965,7 +1965,7 @@ model DoSurcharge {
   createdBy           String?         @map("created_by")
   version             Int             @default(1)
   createdAt           DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt           DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt           DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   tripCosts TripCost[]
 
@@ -2016,7 +2016,7 @@ model TripCost {
   version            Int             @default(1)
   createdBy          String?         @map("created_by")
   createdAt          DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt          DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt          DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@index([tenantId, tripId])
   @@index([tenantId, doSurchargeId])
@@ -2086,7 +2086,7 @@ model SubconOffer {
   acceptedDriverId    String?           @map("accepted_driver_id") @db.Uuid
   acceptedDriver      Driver?           @relation("SubconOfferDriver", fields: [acceptedDriverId], references: [id], onDelete: Restrict)
   createdAt           DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt           DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt           DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   costs TripCost[]
 
@@ -2179,7 +2179,7 @@ model StopEventResolution {
   flags       String[]
   resolvedBy  String?     @map("resolved_by")
   createdAt   DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt   DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt   DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@index([tenantId, stopEventId, createdAt])
   @@index([tenantId, createdAt])
@@ -2255,7 +2255,7 @@ model LoginAttempt {
   userId    String?  @map("user_id") @db.Uuid
   success   Boolean
   reason    String? /// invalid_credentials | locked | tenant_selection_required | ok
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
   @@index([email, createdAt])
   @@index([ip, createdAt])
@@ -2353,7 +2353,7 @@ model TenantSetting {
   value     Json
   version   Int      @default(1)
   updatedBy String?  @map("updated_by")
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@id([tenantId, key])
   @@map("tenant_setting")
@@ -2462,7 +2462,7 @@ model EmailOutbox {
   providerMessageId String?     @map("provider_message_id")
   error             String?
   createdAt         DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt         DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt         DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@index([status, runAt])
   @@index([tenantId, createdAt])
@@ -2532,7 +2532,7 @@ model Notification {
   relatedEntityType String?            @map("related_entity_type")
   relatedEntityId   String?            @map("related_entity_id")
   createdAt         DateTime           @default(dbgenerated("now()")) @map("created_at") @db.Timestamptz(3) /// ms — ตรงกับ cursor (JS Date) ไม่ข้ามแถวที่ต่างกันระดับ µs
-  updatedAt         DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt         DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@index([tenantId, recipientId, channel, createdAt])
   @@index([emailOutboxId])
@@ -2617,7 +2617,7 @@ model ImportJob {
   expiresAt        DateTime     @map("expires_at") @db.Timestamptz(6) /// ผลตรวจหมดอายุ 24 ชม.
   createdBy        String?      @map("created_by")
   createdAt        DateTime     @default(dbgenerated("now()")) @map("created_at") @db.Timestamptz(3) /// ms — ตรงกับ cursor
-  updatedAt        DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt        DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@index([tenantId, createdAt])
   @@map("import_job")
@@ -2632,7 +2632,7 @@ model SetupChecklistState {
   hiddenFor          String[]  @default([]) @map("hidden_for") @db.Uuid
   /// ขั้นที่ผู้ใช้ยืนยันค่าเริ่มต้นแล้ว (org / tax / numbering) — กดบันทึกโดยไม่เปลี่ยนค่า หรือเปิดหน้าเลขเอกสาร
   reviewedSteps      String[]  @default([]) @map("reviewed_steps")
-  updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@map("setup_checklist_state")
 }
@@ -2659,7 +2659,7 @@ model PlatformUser {
   lockedUntil    DateTime?              @map("locked_until") @db.Timestamptz(6)
   lastLoginAt    DateTime?              @map("last_login_at") @db.Timestamptz(6)
   createdAt      DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt      DateTime               @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt      DateTime               @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
   impersonations ImpersonationSession[]
 
   @@map("platform_user")
@@ -2697,7 +2697,7 @@ model MessagingSetting {
   version        Int      @default(1)
   updatedBy      String?  @map("updated_by")
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@map("messaging_setting")
 }
@@ -2733,8 +2733,8 @@ model MessageDelivery {
   createdBy         String?   @map("created_by")
   sentAt            DateTime? @map("sent_at") @db.Timestamptz(6)
   failedAt          DateTime? @map("failed_at") @db.Timestamptz(6)
-  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@index([status, runAt])
   @@index([tenantId, createdAt, id])
@@ -2770,7 +2770,7 @@ model ConnectorCursor {
   lastSuccessAt DateTime?  @map("last_success_at") @db.Timestamptz(6) /// รอบล่าสุดที่ดึงครบโดยไม่มีใบที่ error
   lastResult    Json?      @map("last_result") /// สรุปรอบล่าสุด {counts, results[]} (ไม่เก็บ payload)
   createdAt     DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt     DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt     DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@index([tenantId, connectorKey])
   @@index([connectorId])
@@ -2824,7 +2824,7 @@ model Connector {
   createdBy            String?         @map("created_by")
   version              Int             @default(1)
   createdAt            DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt            DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt            DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   /// ST7-T22 token ใน URL รับ webhook ขาเข้า: HMAC-SHA256(pepper, token) — ไม่เก็บตัวจริง (แสดงครั้งเดียวตอนออก/หมุน) · null = ไม่รับ
   inboundTokenHash      String?   @unique @map("inbound_token_hash") @db.VarChar(64)
@@ -2879,7 +2879,7 @@ model ProcessedWebhookEvent {
   result          Json?
   requestId       String?            @map("request_id")
   ip              String?
-  updatedAt       DateTime           @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedAt       DateTime           @default(now()) @map("updated_at") @db.Timestamptz(3)
 
   @@unique([tenantId, connectorId, eventKey])
   @@index([tenantId, connectorId, receivedAt])
@@ -2921,7 +2921,7 @@ model ApiKey {
   apiVersion     DateTime? @map("api_version") @db.Date
   version        Int       @default(1)
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@index([tenantId, createdAt, id])
   @@map("api_key")
@@ -2961,7 +2961,7 @@ model IntegrationSubscription {
   active     Boolean    @default(true)
   createdBy  String?    @map("created_by")
   createdAt  DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt  DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt  DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@index([tenantId, active])
   @@map("integration_subscription")
@@ -3004,7 +3004,7 @@ model IntegrationOutbox {
   lastError      Json?        @map("last_error")
   result         Json?
   createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt      DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt      DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@unique([tenantId, idempotencyKey])
   @@index([status, nextRunAt])
@@ -3069,7 +3069,7 @@ model WebhookEndpoint {
   version             Int                   @default(1)
   deletedAt           DateTime?             @map("deleted_at") @db.Timestamptz(6)
   createdAt           DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt           DateTime              @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt           DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   deliveries WebhookDelivery[]
 
@@ -3102,7 +3102,7 @@ model WebhookDelivery {
   errorCode      String?               @map("error_code") @db.VarChar(40)
   errorClass     String?               @map("error_class") @db.VarChar(20)
   errorMessage   String?               @map("error_message")
-  sentAt         DateTime              @map("sent_at") @db.Timestamptz(6)
+  sentAt         DateTime              @map("sent_at") @db.Timestamptz(3)
   nextRetryAt    DateTime?             @map("next_retry_at") @db.Timestamptz(6)
   createdAt      DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
 

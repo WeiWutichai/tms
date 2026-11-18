@@ -416,3 +416,79 @@ export class ResolveStopEventFlagDto {
   @MaxLength(500)
   reason!: string;
 }
+
+/** ST7-T11 `GET /v1/stops/{id}` — จุดแวะเดียว (docs/04 G2 #3 "GET") */
+export class StopDto {
+  @ApiProperty({ example: 'stp_3f2a…' }) id!: string;
+  @ApiProperty({ example: 'trp_3f2a…' }) tripId!: string;
+  @ApiProperty({ example: 'TRP-6911-0001' }) tripNo!: string;
+  @ApiProperty({
+    example: 'IN_PROGRESS',
+    description:
+      'สถานะเที่ยว (PLANNING / ASSIGNED / DISPATCHED / IN_PROGRESS / COMPLETED / CANCELLED)',
+  })
+  tripStatus!: string;
+  @ApiProperty({ example: 2 }) sequence!: number;
+  @ApiProperty({ enum: ['PICKUP', 'DELIVERY', 'RETURN'] }) type!: string;
+  @ApiProperty({ example: 'loc_3f2a…' }) siteId!: string;
+  @ApiProperty({ example: 'คลังสินค้าบางนา' }) siteName!: string;
+  @ApiProperty({
+    enum: ['PENDING', 'ARRIVED', 'COMPLETED', 'FAILED', 'SKIPPED'],
+    example: 'ARRIVED',
+  })
+  status!: string;
+  @ApiProperty({
+    nullable: true,
+    enum: ['DELIVERED', 'PARTIAL', 'FAILED', 'UNDELIVERED_RETAIN'],
+    type: String,
+    description: 'ผลของจุดที่ปิดแล้ว',
+  })
+  outcome!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    format: 'date-time',
+    example: '2026-11-19T09:00:00+07:00',
+  })
+  windowStart!: string | null;
+  @ApiProperty({ nullable: true, type: String, format: 'date-time' }) windowEnd!: string | null;
+  @ApiProperty({ nullable: true, type: String, format: 'date-time' }) plannedArrival!:
+    string | null;
+  @ApiProperty({ nullable: true, type: String, format: 'date-time' }) plannedDeparture!:
+    string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    format: 'date-time',
+    description: 'เวลาถึงจุด (projection ST4-T03)',
+  })
+  arrivedAt!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    format: 'date-time',
+    description: 'เวลาออกจากจุด (projection ST4-T03)',
+  })
+  departedAt!: string | null;
+  @ApiProperty({
+    type: [String],
+    example: ['do_3f2a…'],
+    description: 'DO ที่รับ (PICKUP) / ส่ง (DELIVERY) ที่จุดนี้',
+  })
+  deliveryOrderIds!: string[];
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: 'evt_3f2a…',
+    description: 'event ล่าสุดที่เปลี่ยนสถานะจุด — ลำดับทั้งหมดจาก `GET /v1/stops/{id}/events`',
+  })
+  lastEventId!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    format: 'date-time',
+    description:
+      'จุดที่ถอดออกจากเที่ยวแล้ว (ไม่ลบจริง) — ยังเปิดดูและรับ event ได้ (ธง LATE: STOP_REMOVED)',
+  })
+  removedAt!: string | null;
+}

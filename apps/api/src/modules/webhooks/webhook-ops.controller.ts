@@ -10,6 +10,9 @@ import {
 } from '../../common/decorators';
 import { decodeIdOr404 } from '../../common/ids';
 import {
+  EventDto,
+  EventListQuery,
+  EventPageDto,
   RedeliverQuery,
   WebhookDeliveryDetailDto,
   WebhookDeliveryListQuery,
@@ -71,7 +74,7 @@ export class WebhookDeliveriesController {
   }
 }
 
-/** event สาธารณะ (G2 #2 `events`) — ส่ง event เดิมซ้ำ (ST7-T05) */
+/** event สาธารณะ (G2 #2 `events`) — อ่าน (ST7-T11) + ส่ง event เดิมซ้ำ (ST7-T05) */
 @ApiTags('webhooks')
 @ApiBearerAuth()
 @RequireFeature('webhook')
@@ -79,6 +82,30 @@ export class WebhookDeliveriesController {
 @Controller('events')
 export class EventsController {
   constructor(private readonly ops: WebhookOpsService) {}
+
+  @Get()
+  @RequireScope('events:read')
+  @ApiOkResponse({
+    type: EventPageDto,
+    description:
+      'ST7-T11: event สาธารณะของบริษัท (envelope เดียวกับ webhook — ดึงเองแทน/เสริม webhook) ใหม่สุดก่อน · กรอง `type`, ช่วงเวลา · ' +
+      'ไม่ขึ้นกับการสมัคร endpoint · scope `events:read` (docs/01 §5.4) **และ** scope อ่านของ resource ของ event (order.*/delivery_order.* → `orders:read`, trip.*/stop.*/pod.* → `trips:read`, connector.* → `settings:read`, job.* → `jobs:read`) — ชนิดที่อ่านไม่ได้ไม่อยู่ในรายการ · `type` ที่ไม่อยู่ในทะเบียน → 422 · field ราคาถูกตัดตามสิทธิ์ · `mode` = `test` ใน sandbox · ⚠ `evt_` ของ envelope เป็นคนละชุดกับ id ของ event หน้างาน (`GET /v1/stops/{id}/events`)',
+  })
+  listEvents(@Query() q: EventListQuery): Promise<EventPageDto> {
+    return this.ops.listEvents(q);
+  }
+
+  @Get(':id')
+  @TenantResource('event')
+  @RequireScope('events:read')
+  @ApiOkResponse({
+    type: EventDto,
+    description:
+      'ST7-T11: envelope ของ event (id เดียวกับ X-TMS-Event-Id) · อ่าน resource ของ event ไม่ได้ / ไม่ใช่ event สาธารณะ = 404',
+  })
+  getEvent(@Param('id') id: string): Promise<EventDto> {
+    return this.ops.getEvent(decodeIdOr404('event', id));
+  }
 
   @Post(':id/redeliver')
   @RateLimitClass('heavy')
