@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react';
+import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import {
   Badge,
@@ -144,6 +145,39 @@ describe('Drawer', () => {
   });
 });
 
+describe('Drawer — focus (ST9-T20)', () => {
+  it('มีชื่อ dialog = เลขในหัว · เปิดแล้ว focus เข้า drawer · ปิดแล้ว focus กลับปุ่มที่เปิด', () => {
+    function Host() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>
+            เปิด
+          </button>
+          <Drawer
+            open={open}
+            onClose={() => setOpen(false)}
+            kind="ใบสั่งขนส่ง"
+            title="SO-0001"
+            labels={{ close: 'ปิด', more: 'เพิ่มเติม' }}
+          >
+            <button type="button">ในดรอว์เออร์</button>
+          </Drawer>
+        </>
+      );
+    }
+    render(<Host />);
+    const opener = screen.getByRole('button', { name: 'เปิด' });
+    opener.focus();
+    fireEvent.click(opener);
+    const d = screen.getByRole('dialog', { name: 'SO-0001' });
+    expect(d.contains(document.activeElement)).toBe(true);
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(document.activeElement).toBe(opener);
+  });
+});
+
 describe('DataTable', () => {
   type R = { id: string; name: string; st: string };
   const cols: Column<R>[] = [
@@ -192,11 +226,29 @@ describe('DataTable', () => {
     expect(screen.queryByPlaceholderText('ค้นหา')).toBeNull();
   });
 
+  it('ST9-T20: แถวที่คลิกได้ Tab ถึงและกด Enter/Space เปิดได้ — แถวที่ไม่มี onRowClick ไม่อยู่ในลำดับ Tab', () => {
+    const onRow = vi.fn();
+    const { unmount } = render(<DataTable {...base} onRowClick={onRow} />);
+    const row = screen.getByRole('row', { name: /บริษัท ก/ });
+    expect(row).toHaveAttribute('tabindex', '0');
+    fireEvent.keyDown(row, { key: 'Enter' });
+    fireEvent.keyDown(row, { key: ' ' });
+    expect(onRow).toHaveBeenCalledTimes(2);
+    expect(onRow).toHaveBeenCalledWith(rows[0]);
+    // Enter บนปุ่ม/ช่องในแถว ไม่เปิดแถวซ้ำ
+    fireEvent.keyDown(screen.getByRole('checkbox', { name: 'บริษัท ก' }), { key: 'Enter' });
+    expect(onRow).toHaveBeenCalledTimes(2);
+    unmount();
+    render(<DataTable {...base} />);
+    expect(screen.getByRole('row', { name: /บริษัท ก/ })).not.toHaveAttribute('tabindex');
+  });
+
   it('เลือกหลายแถว → แถบ bulk แสดงจำนวน', () => {
     const run = vi.fn();
     render(<DataTable {...base} bulkActions={[{ label: 'ส่งออก', icon: 'download', run }]} />);
-    fireEvent.click(screen.getByLabelText('a'));
-    fireEvent.click(screen.getByLabelText('b'));
+    // ST9-T20: ชื่อช่องเลือก = ข้อความคอลัมน์แรกของแถว (ไม่ใช่ id ภายใน)
+    fireEvent.click(screen.getByRole('checkbox', { name: 'บริษัท ก' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'บริษัท ข' }));
     expect(screen.getByText('เลือก 2 รายการ')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /ส่งออก/ }));
     expect(run).toHaveBeenCalledWith(['a', 'b']);

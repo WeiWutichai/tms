@@ -1903,3 +1903,14 @@ body:has(.tms-drawer__foot) .tms-toast {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* ---------- ST9-T20 accessibility (ไม่เปลี่ยนหน้าตาปกติ — มีผลเฉพาะตอนใช้คีย์บอร์ด) ---------- */
+/* container ของ drawer/dialog รับ focus แทนผู้ใช้ตอนเปิด (useModalFocus) — ไม่แสดงกรอบ */
+[data-modal-focus]:focus {
+  outline: none;
+}
+/* แถวตารางที่คลิกเปิด drawer ได้ → Tab ถึงและกด Enter ได้ · กรอบ focus สี accent เดียวกับปุ่ม (ui.css focus-visible) */
+.tms-table tbody tr:focus-visible {
+  outline: 2px solid #2257c4;
+  outline-offset: -2px;
+}

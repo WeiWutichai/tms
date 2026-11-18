@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useEscapeLayer } from './escape';
+import { useModalFocus } from './focus';
 import { Icon } from './Icon';
 import { tone as toneColors, type Tone } from './tokens';
 
@@ -91,16 +92,22 @@ export function FormDrawer({
   onSubmit?: () => void;
 }) {
   useEscape(open, onClose);
+  const ref = useRef<HTMLFormElement>(null);
+  useModalFocus(open, ref);
+  const titleId = useId();
   const [submits, setSubmits] = useState(0);
   if (!open) return null;
   return (
     <FormSubmits.Provider value={submits}>
       <div className="tms-fdrawer__scrim" onClick={onClose}>
         <form
+          ref={ref}
           className="tms-fdrawer"
           role="dialog"
           aria-modal="true"
-          aria-label={typeof title === 'string' ? title : undefined}
+          aria-labelledby={titleId}
+          tabIndex={-1}
+          data-modal-focus=""
           onClick={(e) => e.stopPropagation()}
           onSubmit={(e) => {
             e.preventDefault();
@@ -112,6 +119,7 @@ export function FormDrawer({
           <div className="tms-fdrawer__head">
             <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
               <h2
+                id={titleId}
                 className="tms-fdrawer__title"
                 title={typeof title === 'string' ? title : undefined}
               >
@@ -387,15 +395,20 @@ export function ReasonDialog({
     if (open) sentRef.current = false;
   }, [open]);
   useEscape(open, onClose);
+  const box = useRef<HTMLDivElement>(null);
+  useModalFocus(open, box);
   if (!open) return null;
   const ok = reason.trim().length >= minLength && !busy && !sent;
   return (
     <div className="tms-dialog__scrim" onClick={onClose}>
       <div
+        ref={box}
         className="tms-dialog"
         role="dialog"
         aria-modal="true"
         aria-labelledby={`${id}-t`}
+        tabIndex={-1}
+        data-modal-focus=""
         onClick={(e) => e.stopPropagation()}
       >
         <div className="tms-dialog__head">
