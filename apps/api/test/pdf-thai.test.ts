@@ -4,6 +4,7 @@ import { inflateSync } from 'node:zlib';
 import { afterAll, describe, expect, it } from 'vitest';
 import { sampleLongTripSheet, sampleTripSheet } from '../src/modules/trip-sheets/trip-sheet.sample';
 import { tripSheetDocument } from '../src/modules/trip-sheets/trip-sheet.template';
+import { sarabunFontCss } from '../src/pdf/fonts';
 import { PdfRenderer, type RenderOptions } from '../src/pdf/pdf-renderer';
 
 /**
@@ -13,7 +14,8 @@ import { PdfRenderer, type RenderOptions } from '../src/pdf/pdf-renderer';
  * (3) ป้ายหลักของเอกสารเป็นภาษาไทย ทั้งปี พ.ศ. และ ค.ศ.
  * ภาพเทียบ golden ของแต่ละชนิดอยู่ใน test/trip-sheet-pdf.test.ts (เอกสารตัวอย่างของ engine: test/pdf.test.ts — ไม่ใช่เอกสารที่ออกให้ลูกค้า
  *   และมี "→" ที่ Sarabun ไม่มี จึงไม่อยู่ใน KINDS)
- * ชนิดใหม่ (ใบแจ้งหนี้/ใบกำกับภาษี/50 ทวิ ฯลฯ ใน ST5–ST6): ต้องเพิ่มใน KINDS — test สุดท้ายสแกนหาโค้ดที่เรียก `.pdf(` แล้วบังคับ
+ * ชนิดใหม่ (ใบแจ้งหนี้/ใบกำกับภาษี/50 ทวิ ฯลฯ ใน ST5–ST6): ต้องเพิ่มใน KINDS — test สุดท้ายสแกนไฟล์ที่ import `pdf/pdf-renderer` แล้วบังคับ
+ * (4) ทุกอักขระบนเอกสารอยู่ใน unicode-range ของ Sarabun ที่ฝัง (ตรวจแบบ static — ไม่ขึ้นกับฟอนต์ในเครื่อง/OS)
  */
 const KINDS: Array<{
   kind: string;
@@ -40,6 +42,17 @@ const KINDS: Array<{
 ];
 
 const THAI = /[ก-๛]/;
+
+/** ช่วง code point ที่ @font-face ของ Sarabun ครอบ (จาก unicode-range ใน sarabunFontCss) */
+const SARABUN_RANGES: Array<[number, number]> = [
+  ...sarabunFontCss().matchAll(/unicode-range:([^;}]+)/g),
+].flatMap((m) =>
+  m[1]!.split(',').map((r) => {
+    const [a, b] = r.trim().replace(/^U\+/i, '').split('-');
+    return [parseInt(a!, 16), parseInt(b ?? a!, 16)] as [number, number];
+  }),
+);
+const covered = (cp: number) => cp <= 0x20 || SARABUN_RANGES.some(([a, b]) => cp >= a && cp <= b);
 
 /** stream ทั้งหมดใน PDF ที่ถอด FlateDecode ได้ (อ่านความยาวจาก /Length ของ dictionary) */
 function streams(pdf: Buffer): string[] {
@@ -117,6 +130,8 @@ describe('ST9-T12 PDF ทุกชนิดเป็นภาษาไทย ฝ
         expect(info.wrongFont).toEqual([]);
         expect(info.fontLoaded).toBe(true);
         for (const l of k.labels) expect(info.text).toContain(l);
+        const outside = [...new Set([...info.text].filter((c) => !covered(c.codePointAt(0)!)))];
+        expect(outside, 'อักขระนอกชุด Sarabun (จะตกไปฟอนต์เครื่อง)').toEqual([]);
 
         const pdf = await r.pdf(doc);
         const raw = pdf.toString('latin1');
@@ -134,31 +149,35 @@ describe('ST9-T12 PDF ทุกชนิดเป็นภาษาไทย ฝ
     }, 120_000);
   }
 
-  it('ตัวตรวจจับได้จริง: อักขระที่ Sarabun ไม่มี (เช่น →) ตกไปฟอนต์เครื่อง → ฟอนต์อื่นโผล่ใน PDF (template ต้องเลี่ยง)', async () => {
+  it('ตัวตรวจจับได้จริง: → ไม่อยู่ในชุด Sarabun (static) · ใน PDF ฟอนต์อื่นโผล่ (ข้ามถ้าเครื่องไม่มีฟอนต์สำรอง)', async (ctx) => {
+    expect(covered('ก'.codePointAt(0)!)).toBe(true);
+    expect(covered('→'.codePointAt(0)!)).toBe(false);
     const pdf = await r.pdf({ body: '<p>กรุงเทพฯ → แหลมฉบัง</p>' });
     const fonts = [...pdf.toString('latin1').matchAll(/\/FontName\s*\/([A-Za-z0-9+_-]+)/g)].map(
       (m) => m[1]!,
     );
     expect(fonts.some((f) => /\+Sarabun/.test(f))).toBe(true);
-    expect(fonts.some((f) => !/\+Sarabun/.test(f))).toBe(true);
+    // ไม่มีฟอนต์สำรองที่มี → ในเครื่อง (เช่น container ที่ฟอนต์น้อย) → ตรวจระดับ PDF ไม่ได้ ส่วน static ด้านบนยังตรวจ
+    if (!fonts.some((f) => !/\+Sarabun/.test(f))) ctx.skip();
   }, 60_000);
 
-  it('ทุกโมดูลที่สร้าง PDF (เรียก .pdf(…) ของ PdfRenderer) มีชนิดอยู่ใน KINDS', () => {
+  it('ทุกโมดูลที่ใช้ PdfRenderer (import pdf/pdf-renderer) มีชนิดอยู่ใน KINDS', () => {
     const root = join(__dirname, '..');
-    const callers: string[] = [];
+    const users: string[] = [];
     (function walk(d: string) {
       for (const f of readdirSync(d)) {
         const p = join(d, f);
         if (statSync(p).isDirectory()) walk(p);
         else if (p.endsWith('.ts') && !p.endsWith('.test.ts')) {
-          const src = readFileSync(p, 'utf8');
-          if (/\.pdf\.pdf\(|renderer\.pdf\(|\bpdf\(\s*[a-zA-Z]+Document\(/.test(src))
-            callers.push(relative(root, p));
+          const rel = relative(root, p);
+          if (rel.startsWith('src/pdf/') || rel === 'src/app.module.ts') continue;
+          if (/from '[./]*(?:\.\.\/)*pdf\/pdf-renderer'/.test(readFileSync(p, 'utf8')))
+            users.push(rel);
         }
       }
     })(join(root, 'src'));
-    expect(callers.length).toBeGreaterThan(0);
-    const uncovered = callers.filter((c) => !KINDS.some((k) => c.startsWith(k.module + '/')));
+    expect(users.length).toBeGreaterThan(0);
+    const uncovered = users.filter((c) => !KINDS.some((k) => c.startsWith(k.module + '/')));
     expect(uncovered).toEqual([]);
   });
 });

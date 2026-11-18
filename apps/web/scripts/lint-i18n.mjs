@@ -2,6 +2,10 @@
 // ST9-T12 เพิ่ม (สแกน key ภาษาที่ขาด): (3) key แบบ template `pre.${x}.suf` ต้องมีอย่างน้อย 1 key ที่ขึ้นต้น/ลงท้ายตรงกัน
 //   (4) 'key' as MessageKey (cast ข้ามการตรวจของ TypeScript) ต้องมีจริง (5) enumLabel(t, 'pre.') ต้องมี key ขึ้นต้นนั้น
 //   (6) error code ทุกตัวของ API (apps/api/src/common/problem.ts) ต้องมี problem.<code> — UI แสดงด้วย t(`problem.${code}`)
+//   (7) ข้อความ problem.<code> ต้องตรงกับ PROBLEMS[code].th (UI กับลูกค้า API เห็นข้อความเดียวกัน)
+// จุดบอด (ตรวจไม่ได้ — ระวังเอง): key ที่ประกอบจากตัวแปรล้วน t(k) / t(map[x]) / ternary · template ที่มีตัวแปร > 1 ตัว
+//   หรือส่วนต้นไม่ใช่ 'xx.' · ตรวจแค่ว่ามี key รูปนั้นอย่างน้อย 1 ตัว ไม่ใช่ทุกค่าของตัวแปร (ค่า enum จาก OpenAPI
+//   ตรวจเพิ่มใน src/i18n/completeness.test.tsx) · ข้อความอังกฤษ hard-code ไม่ถูกจับ (D-11 ไทยเท่านั้น) · ไฟล์ .test.* ไม่ตรวจ
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
@@ -56,6 +60,21 @@ const body = problemSrc.slice(
 const codes = [...body.matchAll(/^ {2}([a-z][a-z0-9_]*): \{/gm)].map((m) => m[1]);
 if (codes.length < 50)
   errors.push(`อ่าน error code จาก problem.ts ได้แค่ ${codes.length} ตัว — รูปแบบไฟล์เปลี่ยน?`);
+// ข้อความไทยของแต่ละ code (บรรทัดเดียว `code: { status, th: '…'` หรือหลายบรรทัด `th: '…',`)
+const thOf = new Map();
+for (const part of body.split(/^(?= {2}[a-z][a-z0-9_]*: \{)/m)) {
+  const m = part.match(/^ {2}([a-z][a-z0-9_]*): \{[^]*?\bth:\s*'((?:[^'\\]|\\.)*)'/);
+  if (m) thOf.set(m[1], m[2]);
+}
+const thMsg = Object.fromEntries(
+  [...thSrc.matchAll(/^\s+'(problem\.[^']+)':\s+'((?:[^'\\]|\\.)*)',$/gm)].map((m) => [m[1], m[2]]),
+);
+for (const c of codes) {
+  const api = thOf.get(c);
+  const web = thMsg[`problem.${c}`];
+  if (api !== undefined && web !== undefined && api !== web)
+    errors.push(`problem.${c}: ข้อความไม่ตรงกับ API — th.ts '${web}' / problem.ts '${api}'`);
+}
 for (const c of codes)
   if (!keys.has(`problem.${c}`))
     errors.push(

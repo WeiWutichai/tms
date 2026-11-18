@@ -263,6 +263,11 @@
 
 ## บันทึกรายวัน
 
+### 19 พ.ย. 2569 (ST9-T12 แก้ตาม review/QA — lane l2)
+- ทำ: (M1) checklist §2 เพิ่ม setup checklist, จด VAT/วันที่จด VAT, ชื่อทางการค้า/ติดต่อ, 2FA ราย role, อายุ refresh token (คงที่ 7 วัน), รายการ session, NotificationRule (#29) + แถว spec/12 §3 [OPEN] ความปลอดภัย (ขัดกับต้นแบบ — ไม่ทำ) (M2) settings-checklist ตรวจ key เฉพาะไฟล์ที่บันทึกค่าตั้ง ไม่นับ t('…') (M3) pdf-thai จับโมดูลจาก import `pdf/pdf-renderer` · (Low) ตรวจอักขระบนเอกสารอยู่ใน unicode-range ของ Sarabun แบบ static, ตัวตรวจฟอนต์สำรองข้ามเมื่อเครื่องไม่มีฟอนต์สำรอง · lint-i18n: จุดบอดในหัวไฟล์ + ข้อความ `problem.*` ต้องเท่ากับ `PROBLEMS[code].th` (แก้ 6 ตัว: เว็บใช้ข้อความ API 4 ตัว, API `in_use_active` ตัด "ดูจำนวนใน references", `invalid_grant` = "การเข้าสู่ระบบหมดเวลา ลองใหม่อีกครั้ง") · plan/01 แถว ST9-T12 + เกณฑ์จบเฟส ใส่หมายเหตุ D-11
+- QA: (Q1) `unwrap` ไม่ทิ้ง token เมื่อ 401 `invalid_otp` (รหัส step-up ผิด ไม่เด้งออก) + `src/api.test.ts` (Q2) `offer_closed` ใช้ `offerStatus` แทน `status` + `problemBody` ให้ฟิลด์มาตรฐาน (type/status/code) ทับ extra เสมอ (Q3) หน้าลิงก์ข้อเสนอ: ตอบแล้วได้ 404 (ลิงก์ถูกเพิกถอน/เที่ยวยกเลิก) → "ลิงก์หมดอายุหรือถูกยกเลิกแล้ว ขอลิงก์ใหม่จากผู้ว่าจ้าง" (`cdl.badD`) + โหลดใหม่
+- ค้าง: ช่อง UI ของ 10 key + รายการความปลอดภัยรอ PO/Claude Design
+
 ### 19 พ.ย. 2569 (ST9-T12 ตรวจความครบ: ค่าตั้งองค์กร + ภาษา + PDF — dev, lane l2)
 - ทำ: checklist ค่าตั้งองค์กร `plan/12-settings-checklist.md` (docs/04 I + K5 + spec/01 §13 → หน้าจอ → key → สถานะ): registry 21 key = UI 11 / API-only 10 (ต้นแบบไม่มีช่องทั้งหมด — ไม่ออกแบบเอง, ลง spec/12 §3 แถว ST9-T12 [OPEN — ส่ง Claude Design]) · resource แยก (นิติบุคคล/สาขา, เลขเอกสาร, ผู้ใช้, เหตุผล, แจ้งเตือน) มี UI ครบ · โลโก้ไม่มี API → ผู้สมัครเพิ่ม #31 · test `apps/api/test/settings-checklist.test.ts` บังคับ checklist ตรง registry และสถานะ UI ตรงกับโค้ดเว็บ
 - ภาษา: backlog "TH/EN ครบ" ขัด D-11 → ยึด D-11 (ไทยครบ + EN ตกกลับเป็นไทย) · `lint-i18n.mjs` เพิ่มสแกน: `'k' as MessageKey`, template `` `pre.${x}` ``, `enumLabel`, error code ทุกตัวของ API ต้องมี `problem.<code>` → **พบขาด 27 ตัว เพิ่มใน th.ts แล้ว** (ข้อความจาก `PROBLEMS[code].th`) · `apps/web/src/i18n/completeness.test.tsx`: รัน lint, ป้าย enum จาก OpenAPI 20 ชุด, ชื่อเมนูตั้งค่า, EN fallback (export `SECTIONS` จาก Settings.tsx)

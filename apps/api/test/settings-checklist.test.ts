@@ -16,16 +16,26 @@ for (const m of doc.matchAll(
 ))
   rows.set(m[1]!, m[2]!);
 
-const webSrc: string[] = [];
+/**
+ * ไฟล์เว็บที่ "เขียน" ค่าตั้งองค์กร (ใช้ hook บันทึก / PATCH /v1/settings) — review M2: นับเฉพาะ key ที่อยู่ในไฟล์เหล่านี้
+ * และไม่ใช่ key ภาษา t('…') (เช่น 'org.name' เป็นทั้ง key ค่าตั้งและ key ข้อความ)
+ */
+const writers: string[] = [];
 (function walk(d: string) {
   for (const f of readdirSync(d)) {
     const p = join(d, f);
     if (statSync(p).isDirectory()) {
       if (!p.endsWith('/i18n')) walk(p);
-    } else if (/\.tsx?$/.test(p) && !/\.test\.tsx?$/.test(p)) webSrc.push(readFileSync(p, 'utf8'));
+    } else if (/\.tsx?$/.test(p) && !/\.test\.tsx?$/.test(p)) {
+      const src = readFileSync(p, 'utf8');
+      if (/useSaveTenantSettings\(|useDraft\(|PATCH\('\/v1\/settings'/.test(src)) writers.push(src);
+    }
   }
 })(join(repo, 'apps/web/src'));
-const usedInWeb = (k: string) => webSrc.some((s) => s.includes(`'${k}'`));
+const usedInWeb = (k: string) => {
+  const lit = new RegExp(`(?<!\\bt\\(\\s*)'${k.replace('.', '\\.')}'`);
+  return writers.some((s) => lit.test(s));
+};
 
 describe('ST9-T12 checklist ค่าตั้งองค์กร', () => {
   it('ทุก key ใน registry อยู่ใน checklist (และไม่มี key ที่ registry ไม่มี)', () => {

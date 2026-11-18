@@ -416,7 +416,7 @@ export const th = {
   'mfa.continue': 'บันทึกแล้ว ดำเนินการต่อ',
   'problem.mfa_expired': 'หมดเวลายืนยันตัวตน เข้าสู่ระบบใหม่อีกครั้ง',
   'problem.invalid_otp': 'รหัสยืนยันไม่ถูกต้องหรือหมดอายุ',
-  'problem.mfa_required': 'กรอกรหัสยืนยันตัวตน 2 ชั้น',
+  'problem.mfa_required': 'กรอกรหัสยืนยันตัวตน 2 ชั้นจากแอป Authenticator',
   'problem.mfa_enrollment_required': 'บัญชีนี้ต้องตั้งการยืนยันตัวตน 2 ชั้นก่อนเข้าใช้งาน',
   'problem.step_up_required': 'ยืนยันตัวตน 2 ชั้นอีกครั้งก่อนทำรายการนี้',
   'problem.two_factor_not_enabled': 'ยังไม่ได้ตั้งการยืนยันตัวตน 2 ชั้น',
@@ -761,7 +761,7 @@ export const th = {
   'imp.exit': 'ออก',
   'imp.invalidTitle': 'ลิงก์เข้าใช้งานแทนใช้ไม่ได้',
   'imp.invalidSub': 'ลิงก์หมดอายุหรือไม่ถูกต้อง เริ่มเข้าใช้งานแทนใหม่จาก Platform Console',
-  'problem.impersonation_read_only': 'โหมดใช้งานแทนเป็นแบบอ่านอย่างเดียว แก้ไขข้อมูลไม่ได้',
+  'problem.impersonation_read_only': 'กำลังเข้าใช้งานแทนแบบอ่านอย่างเดียว — แก้ไขข้อมูลไม่ได้',
   'field.unknown_plan': 'ไม่พบแพ็กเกจนี้',
   'field.invalid_user': 'ผู้ใช้นี้ไม่ได้เปิดใช้งานในบริษัทนี้',
   'field.no_active_user': 'บริษัทนี้ยังไม่มีผู้ใช้ที่เปิดใช้งาน',
@@ -2715,7 +2715,8 @@ export const th = {
   'ord.v.reference_inactive': 'ข้อมูลนี้ถูกปิดใช้แล้ว — เลือกใหม่',
   'ord.v.routing_not_configured':
     'ยังไม่ได้กำหนดนิติบุคคลที่ออกบิลของลูกค้านี้ — ตั้ง "ออกบิลในนาม" ที่ข้อมูลลูกค้า หรือตั้งนิติบุคคลหลักของบริษัท',
-  'problem.order_locked_for_update': 'แก้ข้อมูลนี้ของใบสั่งขนส่งไม่ได้ในสถานะปัจจุบัน',
+  'problem.order_locked_for_update':
+    'แก้ข้อมูลนี้ของใบสั่งขนส่งไม่ได้ในสถานะปัจจุบัน (วางแผน ออกรถ ปิดงาน หรือยกเลิกแล้ว)',
   'problem.order_source_change_pending':
     'ต้นทางแก้ใบสั่งขนส่งนี้หลังวางแผน — เลือกรับค่าต้นทางหรือใช้ค่า TMS ก่อนจัดลงเที่ยว',
   'problem.assignment_blocked':
@@ -3852,7 +3853,7 @@ export const th = {
   'problem.key_revoked': 'API key ถูกเพิกถอนแล้ว',
   'problem.invalid_api_version': 'X-Api-Version ไม่ถูกต้อง (ต้องเป็นวันที่ YYYY-MM-DD)',
   'problem.key_expired': 'API key หมดอายุแล้ว',
-  'problem.sandbox_only': 'ใช้ได้เฉพาะโหมด Sandbox',
+  'problem.sandbox_only': 'ใช้ได้เฉพาะโหมด Sandbox (key tk_test_ หรือสลับเป็น Sandbox)',
   'problem.sandbox_unsupported': 'ใช้ใน Sandbox ไม่ได้ (เชื่อมระบบภายนอกจริง)',
   'problem.ip_not_allowed': 'IP นี้ไม่ได้รับอนุญาตให้ใช้ API key นี้',
   'field.scope_not_grantable': 'บทบาทของคุณไม่มีสิทธิ์ scope นี้ จึงให้ key ไม่ได้',

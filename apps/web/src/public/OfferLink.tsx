@@ -73,6 +73,8 @@ export function OfferLinkPage() {
       errors?: { code: string }[];
     };
     if (p.status === 429) return t('cdl.v.tooMany');
+    // ST9-T12 QA Q3: ลิงก์ถูกเพิกถอนระหว่างเปิดหน้าค้าง (เที่ยวถูกยกเลิก ฯลฯ) → 404 = ข้อความเดียวกับหน้าลิงก์ใช้ไม่ได้
+    if (p.status === 404) return t('cdl.badD');
     if (p.code === 'assignment_blocked')
       return t('ofl.e.blocked', { r: (p.reasons ?? []).join(' · ') });
     if (p.code === 'offer_closed') return t('ofl.e.closed');
@@ -98,7 +100,7 @@ export function OfferLinkPage() {
   const onFail = (e: unknown) => {
     // เครื่องที่ค้างหน้าเก่า: 409 offer_closed → ข้อความยังแสดงแม้หน้าเปลี่ยนเป็นสถานะสุดท้าย (QA L2)
     setErr(serverErr(e));
-    if (e instanceof ApiError && e.problem.code === 'offer_closed') {
+    if (e instanceof ApiError && (e.problem.code === 'offer_closed' || e.problem.status === 404)) {
       setMode('');
       void q.refetch();
     }
