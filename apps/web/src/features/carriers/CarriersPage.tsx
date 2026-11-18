@@ -19,7 +19,7 @@ import { can } from '../../nav';
 import { PageHeader } from '../../shell/Header';
 import { useMe } from '../../shell/AppShell';
 import { tableLabels } from '../companies/CompanySample';
-import { downloadFile } from '../master/download';
+import { downloadFile, exportFailText } from '../master/download';
 import { problemText } from '../master/problems';
 import { DriversTab } from '../drivers/DriversTab';
 import { useDriverSummary } from '../drivers/useDrivers';
@@ -373,7 +373,7 @@ export function CarriersPage() {
                               ids: ids.join(','),
                             }).then(
                               () => setToast(t('car.toast.exported', { n: ids.length })),
-                              () => setToast(t('car.exportFailed')),
+                              (e) => setToast(exportFailText(t, e, t('car.exportFailed'))),
                             ),
                         },
                       ],
@@ -385,7 +385,7 @@ export function CarriersPage() {
                         void downloadFile('/v1/carriers/export', {
                           format: 'csv',
                           ...filters,
-                        }).catch(() => setToast(t('car.exportFailed')))
+                        }).catch((e) => setToast(exportFailText(t, e, t('car.exportFailed'))))
                     : false
                 }
                 empty={

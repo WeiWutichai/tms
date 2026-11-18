@@ -19,7 +19,7 @@ import { can } from '../../nav';
 import { PageHeader } from '../../shell/Header';
 import { useMe } from '../../shell/AppShell';
 import { tableLabels } from '../companies/CompanySample';
-import { downloadFile } from '../master/download';
+import { downloadFile, exportFailText } from '../master/download';
 import { problemText } from '../master/problems';
 import { listTotal } from '../master/useCursorList';
 import { CustomerCreateDrawer } from './CustomerCreateDrawer';
@@ -73,7 +73,7 @@ export function CustomersPage() {
   const exportFile = (query: Record<string, string>, n?: number) =>
     downloadFile('/v1/customers/export', query).then(
       () => n !== undefined && setToast(t('cust.toast.exported', { n })),
-      () => setToast(t('cust.exportFailed')),
+      (e) => setToast(exportFailText(t, e, t('cust.exportFailed'))),
     );
 
   const toggleStatus = (c: Customer) => {

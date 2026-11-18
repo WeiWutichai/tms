@@ -33,6 +33,7 @@ import { DbService } from '../../db/db.service';
 import { NextCodeDto } from '../customers/customer.dto';
 import { TenantRateLimiter } from '../geo/rate-limit';
 import { sendExport, type ExportColumn } from '../master/export';
+import type { ExportSpec } from '../exports/export-spec';
 import { entityHistory, HistoryQuery } from '../master/history';
 import { MasterReasonDto } from '../master/master-kit';
 import { PROVINCES } from '../vehicles/provinces';
@@ -320,3 +321,15 @@ export class DriversController {
     await this.drivers.remove(current.id, body.reason, expectedVersion(req));
   }
 }
+
+/** ส่งออกตามตัวกรองเป็นงานเบื้องหลัง (ST9-T10 — `POST /v1/exports`) — ตัวกรอง/การอ่าน/คอลัมน์ชุดเดียวกับ `GET /export` */
+export const driversExportSpec = (svc: DriversService): ExportSpec<DriverListQuery, DriverDto> => ({
+  resource: 'drivers',
+  label: 'คนขับ',
+  fileBase: 'drivers',
+  scope: 'master:read',
+  idKind: 'driver',
+  query: DriverListQuery,
+  fetch: (q, page) => svc.exportRows(q, page),
+  columns: () => EXPORT_COLUMNS,
+});

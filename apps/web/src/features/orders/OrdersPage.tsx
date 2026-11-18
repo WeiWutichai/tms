@@ -16,6 +16,8 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { unwrap, api } from '../../api';
 import { useI18n } from '../../i18n';
+import { exportList } from '../exports/exportJob';
+import { exportFailText } from '../master/download';
 import { can } from '../../nav';
 import { PageHeader } from '../../shell/Header';
 import { useMe } from '../../shell/AppShell';
@@ -423,6 +425,16 @@ export function OrdersPage() {
             loading={list.loading}
             labels={tableLabels(t)}
             selectable={false}
+            // ส่งออก CSV จากแผงตัวเลือก = ส่งออกจาก API ตามตัวกรองเดียวกับตาราง (ทุกแถว — งานเบื้องหลัง ST9-T10)
+            onExportCsv={
+              can(scopes, 'export:run')
+                ? () =>
+                    void exportList('orders', { ...filters }).then(
+                      (n) => setToast(t('export.done', { n: n.toLocaleString('en-US') })),
+                      (e) => setToast(exportFailText(t, e, t('export.failed'))),
+                    )
+                : false
+            }
             filters={{ q: col.q, st: col.st, source: col.source }}
             hiddenColumns={hidden}
             onHiddenColumnsChange={setHidden}

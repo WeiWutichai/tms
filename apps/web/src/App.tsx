@@ -15,6 +15,7 @@ import { PlanningPage } from './features/planning/PlanningPage';
 import { SitesPage } from './features/sites/SitesPage';
 import { ProductsPage } from './features/products/ProductsPage';
 import { RoutesPage } from './features/routes/RoutesPage';
+import { ExportPage } from './features/exports/ExportPage';
 import { RateCardsPage } from './features/rate-cards/RateCardsPage';
 import { ServiceItemsPage } from './features/service-items/ServiceItemsPage';
 import { VehicleTypesPage } from './features/vehicle-types/VehicleTypesPage';
@@ -102,6 +103,8 @@ function Inside() {
             }
           />
           {/* โปรไฟล์รถ (ST2-T07) — หน้าย่อยของทะเบียนรถ: สิทธิ์/แพ็กเกจเดียวกัน */}
+          {/* ST9-T10 ลิงก์ดาวน์โหลดไฟล์ส่งออกจากแจ้งเตือน — API ตรวจผู้สั่ง (export:run) เอง */}
+          <Route path="/exports/:id" element={<ExportPage />} />
           <Route
             path="/fleet/vehicles/:id"
             element={

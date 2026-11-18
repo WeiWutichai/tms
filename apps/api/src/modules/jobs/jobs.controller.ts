@@ -2,10 +2,11 @@ import { Controller, Get, Param } from '@nestjs/common';
 import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiProperty, ApiTags } from '@nestjs/swagger';
 import { scopeAllows } from '@tms/domain';
 import { TenantResource } from '../../common/decorators';
-import { requestContext } from '../../common/request-context';
-import { decodeIdOr404, encodeId } from '../../common/ids';
+import { decodeIdOr404 } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
+import { requestContext } from '../../common/request-context';
 import { DbService } from '../../db/db.service';
+import { EXPORT_JOB_TYPE } from '../exports/exports.service';
 import { toJobDto } from '../../jobs/job-dto';
 
 export class JobDto {
@@ -46,6 +47,10 @@ export class JobsController {
   async get(@Param('id') id: string): Promise<JobDto> {
     const ctx = requestContext.require();
     const j = await this.db.tx.job.findUnique({ where: { id: decodeIdOr404('job', id) } });
+    // งานส่งออก (ST9-T10) มีลิงก์ไฟล์ตามสิทธิ์ของผู้สั่ง — เห็นได้เฉพาะผู้สั่ง (สอดคล้องกับ GET /v1/exports/{id}):
+    // คนอื่น = 404 เสมอ แม้มี jobs:read (ตรวจก่อนสิทธิ์ เพื่อไม่บอกว่ามีงานนั้น)
+    if (j && j.type === EXPORT_JOB_TYPE && jobOwner(j.payload) !== (ctx.actorId ?? null))
+      throw new ProblemException('not_found');
     // ST7-T10 [DECISION spec/12]: ผู้สั่งงาน async ดูงานของตัวเองได้โดยไม่ต้องมี jobs:read (statusUrl ของ 202)
     if (
       !scopeAllows(ctx.scopes ?? [], 'jobs:read') &&

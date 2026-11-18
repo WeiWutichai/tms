@@ -16,7 +16,7 @@ import { can } from '../../nav';
 import { PageHeader } from '../../shell/Header';
 import { useMe } from '../../shell/AppShell';
 import { tableLabels } from '../companies/CompanySample';
-import { downloadFile } from '../master/download';
+import { downloadFile, exportFailText } from '../master/download';
 import { problemText } from '../master/problems';
 import { listTotal } from '../master/useCursorList';
 import { ServiceItemDrawer } from './ServiceItemDrawer';
@@ -288,7 +288,7 @@ export function ServiceItemsPage() {
                           ids: ids.join(','),
                         }).then(
                           () => setToast(t('svc.toast.exported', { n: ids.length })),
-                          () => setToast(t('svc.exportFailed')),
+                          (e) => setToast(exportFailText(t, e, t('svc.exportFailed'))),
                         ),
                     },
                   ],
@@ -300,7 +300,7 @@ export function ServiceItemsPage() {
                     void downloadFile('/v1/service-items/export', {
                       format: 'csv',
                       ...filters,
-                    }).catch(() => setToast(t('svc.exportFailed')))
+                    }).catch((e) => setToast(exportFailText(t, e, t('svc.exportFailed'))))
                 : false
             }
             empty={

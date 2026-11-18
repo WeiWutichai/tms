@@ -46,6 +46,10 @@ export interface NotificationVars {
    * groups[].titles = หัวข้อล่าสุดไม่เกิน DIGEST_TITLES ต่อกลุ่ม · unread = ที่ยังไม่อ่านในช่วงนี้
    */
   'daily.digest': { day: string; total: number; unread: number; groups: DailyDigestGroup[] };
+  /** ST9-T10 ไฟล์ส่งออกตามตัวกรองพร้อมดาวน์โหลด (job) — label = ชื่อรายการ, days = อายุลิงก์ไฟล์ */
+  'export.ready': { label: string; rows: number; days: number };
+  /** ST9-T10 ส่งออกไม่สำเร็จ — reason = too_many_rows / permission_denied / failed */
+  'export.failed': { label: string; reason: string; max: number };
 }
 export interface DailyDigestGroup {
   /** NotificationEvent หรือ 'other' */
@@ -294,6 +298,36 @@ const TEMPLATES: {
     en: (v) => ({
       title: 'Carrier has not responded',
       body: `${v.tripNo} · ${v.carrier} has not responded within ${n(v.hours)} h — send to the next carrier from the trip.`,
+    }),
+  },
+  'export.ready': {
+    th: (v) => ({
+      title: 'ไฟล์ส่งออกพร้อมแล้ว',
+      body: `ส่งออก${v.label} ${n(v.rows)} รายการเสร็จแล้ว — กดลิงก์เพื่อดาวน์โหลด (ใช้ได้ ${v.days} วัน)`,
+    }),
+    en: (v) => ({
+      title: 'Your export is ready',
+      body: `${v.label}: ${n(v.rows)} rows exported — open the link to download (valid for ${v.days} days).`,
+    }),
+  },
+  'export.failed': {
+    th: (v) => ({
+      title: 'ส่งออกไม่สำเร็จ',
+      body:
+        v.reason === 'too_many_rows'
+          ? `ส่งออก${v.label}ไม่สำเร็จ เพราะเกิน ${n(v.max)} รายการ — กรองให้แคบลงแล้วส่งออกใหม่`
+          : v.reason === 'permission_denied'
+            ? `ส่งออก${v.label}ไม่สำเร็จ เพราะไม่มีสิทธิ์แล้ว`
+            : `ส่งออก${v.label}ไม่สำเร็จ — ลองส่งออกใหม่อีกครั้ง`,
+    }),
+    en: (v) => ({
+      title: 'Export failed',
+      body:
+        v.reason === 'too_many_rows'
+          ? `${v.label} export failed: more than ${n(v.max)} rows — narrow the filter and try again.`
+          : v.reason === 'permission_denied'
+            ? `${v.label} export failed: you no longer have permission.`
+            : `${v.label} export failed — please try again.`,
     }),
   },
   'webhook.auto_disabled': {

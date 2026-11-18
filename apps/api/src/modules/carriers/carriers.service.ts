@@ -11,7 +11,7 @@ import { iEquals } from '../../common/ilike';
 import { ProblemException } from '../../common/problem';
 import { DbService } from '../../db/db.service';
 import { StateService } from '../../state/state.service';
-import { EXPORT_MAX_ROWS } from '../master/export';
+import { EXPORT_MAX_ROWS, exportFetchArgs, overSyncCap, type ExportPage } from '../master/export';
 import {
   assertNotReferenced,
   lockForRemoval,
@@ -245,15 +245,15 @@ export class CarriersService {
   }
 
   /** แถวสำหรับส่งออก (ตามตัวกรองเดียวกับ list หรือ id ที่เลือก) — เกินเพดาน → 422 */
-  async exportRows(q: CarrierListQuery & { ids?: string }) {
+  async exportRows(q: CarrierListQuery & { ids?: string }, page?: ExportPage) {
     const ids = q.ids?.split(',').map((x) => tryDecodeId('carrier', x)!);
     const where = ids ? { AND: [this.where(q), { id: { in: ids } }] } : this.where(q);
     const rows = await this.db.tx.carrier.findMany({
       where,
-      orderBy: [{ code: 'asc' }],
-      take: EXPORT_MAX_ROWS + 1,
+      orderBy: [{ code: 'asc' }, { id: 'asc' }],
+      ...exportFetchArgs(page),
     });
-    if (rows.length > EXPORT_MAX_ROWS)
+    if (overSyncCap(rows.length, page))
       throw field422(
         'query',
         'too_many_rows',
