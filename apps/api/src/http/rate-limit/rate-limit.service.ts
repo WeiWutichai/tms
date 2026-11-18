@@ -306,7 +306,10 @@ export class RateLimitService implements OnModuleDestroy {
       const [row] = await this.withTimeout(
         this.db.$queryRaw<Array<{ p: string | null }>>`
           SELECT coalesce(t.rate_limit_profile, p.rate_limit_profile) AS p
-            FROM tenant t JOIN plan p ON p.code = t.plan_code WHERE t.id = ${tenantId}::uuid`,
+            FROM tenant s
+            -- ST7-T09: sandbox ใช้แพ็กเกจ/โปรไฟล์ปัจจุบันของบริษัทจริง (ไม่ใช่ค่าที่คัดลอกไว้ตอนสร้าง)
+            JOIN tenant t ON t.id = coalesce(s.live_tenant_id, s.id)
+            JOIN plan p ON p.code = t.plan_code WHERE s.id = ${tenantId}::uuid`,
       );
       name = row?.p ?? DEFAULT_PROFILE;
     } catch {
@@ -319,8 +322,9 @@ export class RateLimitService implements OnModuleDestroy {
   }
 
   invalidateProfile(tenantId?: string) {
-    if (tenantId) this.profiles.delete(tenantId);
-    else this.profiles.clear();
+    // ST7-T09: sandbox อ่านโปรไฟล์ของบริษัทจริง — เปลี่ยนของบริษัทใดก็ล้างทั้งหมด (ไม่ต้องรู้ id ของ sandbox)
+    void tenantId;
+    this.profiles.clear();
   }
 
   /**

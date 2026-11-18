@@ -53,7 +53,14 @@ export function useCreateApiKey() {
   const qc = useQueryClient();
   return useMutation({
     // ไม่ส่ง Idempotency-Key: ผลมี secret ที่แสดงครั้งเดียว (API ไม่เก็บ response) — ส่งซ้ำ = ชื่อซ้ำ 409
-    mutationFn: (body: ApiKeyCreate) => unwrap(api.POST('/v1/api-keys', { body })),
+    // ST7-T09: key test สร้างใน sandbox — ส่งโหมดที่เลือกในฟอร์มเป็น header (ไม่ขึ้นกับโหมดของหน้า)
+    mutationFn: (body: ApiKeyCreate) =>
+      unwrap(
+        api.POST('/v1/api-keys', {
+          params: { header: { 'X-Tms-Mode': body.mode ?? 'live' } } as never,
+          body,
+        }),
+      ),
     onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
   });
 }

@@ -43,7 +43,7 @@ export class ConnectorPullScheduler {
       const active = new Set(
         (
           await db.tenant.findMany({
-            where: { id: { in: tenantIds }, status: { in: ['TRIAL', 'ACTIVE'] } },
+            where: { id: { in: tenantIds }, status: { in: ['TRIAL', 'ACTIVE'] }, mode: 'live' },
             select: { id: true },
           })
         ).map((t) => t.id),

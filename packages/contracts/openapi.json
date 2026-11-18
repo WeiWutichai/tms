@@ -1232,6 +1232,131 @@
         ]
       }
     },
+    "/v1/me/notification-preferences": {
+      "get": {
+        "operationId": "NotificationPreferences_get",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationPreferencesDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "การตั้งค่ารับแจ้งเตือนของฉัน (event × ช่องทาง + สรุปรายวัน 08:00)",
+        "tags": [
+          "platform"
+        ]
+      },
+      "patch": {
+        "operationId": "NotificationPreferences_patch",
+        "parameters": [
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateNotificationPreferencesDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationPreferencesDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "เปลี่ยนการตั้งค่ารับแจ้งเตือนของฉัน (เฉพาะที่ส่งมา)",
+        "tags": [
+          "platform"
+        ]
+      }
+    },
     "/v1/imports/kinds": {
       "get": {
         "operationId": "Imports_kinds",
@@ -23101,6 +23226,19 @@
         "operationId": "ApiKeys_list",
         "parameters": [
           {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
+          {
             "name": "limit",
             "required": false,
             "in": "query",
@@ -23249,6 +23387,19 @@
         "operationId": "ApiKeys_create",
         "parameters": [
           {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
+          {
             "$ref": "#/components/parameters/ApiVersion"
           }
         ],
@@ -23322,6 +23473,19 @@
         "operationId": "ApiKeys_summary",
         "parameters": [
           {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
+          {
             "$ref": "#/components/parameters/ApiVersion"
           }
         ],
@@ -23382,6 +23546,19 @@
         "operationId": "ApiKeys_scopes",
         "parameters": [
           {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
+          {
             "$ref": "#/components/parameters/ApiVersion"
           }
         ],
@@ -23437,6 +23614,19 @@
       "get": {
         "operationId": "ApiKeys_get",
         "parameters": [
+          {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
           {
             "name": "id",
             "required": true,
@@ -23506,6 +23696,19 @@
       "patch": {
         "operationId": "ApiKeys_update",
         "parameters": [
+          {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
           {
             "name": "id",
             "required": true,
@@ -23603,6 +23806,19 @@
         "operationId": "ApiKeys_history",
         "parameters": [
           {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
+          {
             "name": "id",
             "required": true,
             "in": "path",
@@ -23692,6 +23908,19 @@
       "post": {
         "operationId": "ApiKeys_rotate",
         "parameters": [
+          {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
           {
             "name": "id",
             "required": true,
@@ -23789,6 +24018,19 @@
         "operationId": "ApiKeys_revoke",
         "parameters": [
           {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
+          {
             "name": "id",
             "required": true,
             "in": "path",
@@ -23884,6 +24126,19 @@
       "get": {
         "operationId": "Webhooks_list",
         "parameters": [
+          {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
           {
             "name": "limit",
             "required": false,
@@ -24011,6 +24266,19 @@
         "operationId": "Webhooks_create",
         "parameters": [
           {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
+          {
             "$ref": "#/components/parameters/ApiVersion"
           }
         ],
@@ -24080,6 +24348,19 @@
         "operationId": "Webhooks_summary",
         "parameters": [
           {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
+          {
             "$ref": "#/components/parameters/ApiVersion"
           }
         ],
@@ -24136,6 +24417,19 @@
         "operationId": "Webhooks_eventTypes",
         "parameters": [
           {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
+          {
             "$ref": "#/components/parameters/ApiVersion"
           }
         ],
@@ -24191,6 +24485,19 @@
       "get": {
         "operationId": "Webhooks_get",
         "parameters": [
+          {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
           {
             "name": "id",
             "required": true,
@@ -24256,6 +24563,19 @@
       "patch": {
         "operationId": "Webhooks_update",
         "parameters": [
+          {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
           {
             "name": "id",
             "required": true,
@@ -24347,6 +24667,19 @@
         "operationId": "Webhooks_remove",
         "parameters": [
           {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
+          {
             "name": "id",
             "required": true,
             "in": "path",
@@ -24431,6 +24764,19 @@
       "get": {
         "operationId": "Webhooks_history",
         "parameters": [
+          {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
           {
             "name": "id",
             "required": true,
@@ -24521,6 +24867,19 @@
       "post": {
         "operationId": "Webhooks_rotate",
         "parameters": [
+          {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
           {
             "name": "id",
             "required": true,
@@ -24614,6 +24973,19 @@
         "operationId": "Webhooks_disable",
         "parameters": [
           {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
+          {
             "name": "id",
             "required": true,
             "in": "path",
@@ -24705,6 +25077,19 @@
       "post": {
         "operationId": "Webhooks_enable",
         "parameters": [
+          {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
           {
             "name": "id",
             "required": true,
@@ -24798,6 +25183,19 @@
         "operationId": "Webhooks_test",
         "parameters": [
           {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
+          {
             "name": "id",
             "required": true,
             "in": "path",
@@ -24870,6 +25268,88 @@
         ],
         "x-required-scopes": [
           "settings:write"
+        ]
+      }
+    },
+    "/v1/test/events/trigger": {
+      "post": {
+        "operationId": "TestEvents_trigger",
+        "parameters": [
+          {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TriggerTestEventDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "ยิงแล้วและส่งไป endpoint ของ sandbox ที่สมัคร event นี้ทันที (รอผลต่อ endpoint ≤ 10 วิ — ล้มตามรอบ retry ปกติ; ดูทุกครั้งที่ `GET /v1/webhook-deliveries?eventId=`) · นอก sandbox → 403 `sandbox_only` · event ที่ไม่อยู่ในทะเบียน/ยังไม่เปิด (pending) → 422",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TriggerTestEventResultDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden_settings.read"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "sandbox"
+        ],
+        "x-required-scopes": [
+          "settings:read"
         ]
       }
     },
@@ -26104,6 +26584,19 @@
         "operationId": "WebhookDeliveries_list",
         "parameters": [
           {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
+          {
             "name": "limit",
             "required": false,
             "in": "query",
@@ -26263,6 +26756,19 @@
         "operationId": "WebhookDeliveries_get",
         "parameters": [
           {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
+          {
             "name": "id",
             "required": true,
             "in": "path",
@@ -26330,6 +26836,19 @@
         "operationId": "WebhookDeliveries_retry",
         "parameters": [
           {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
+          {
             "name": "id",
             "required": true,
             "in": "path",
@@ -26396,6 +26915,19 @@
       "get": {
         "operationId": "Events_listEvents",
         "parameters": [
+          {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
           {
             "name": "limit",
             "required": false,
@@ -26517,6 +27049,19 @@
         "operationId": "Events_getEvent",
         "parameters": [
           {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
+          {
             "name": "id",
             "required": true,
             "in": "path",
@@ -26583,6 +27128,19 @@
       "post": {
         "operationId": "Events_redeliver",
         "parameters": [
+          {
+            "name": "X-Tms-Mode",
+            "in": "header",
+            "description": "เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "live",
+                "test"
+              ]
+            }
+          },
           {
             "name": "id",
             "required": true,
@@ -48972,6 +49530,115 @@
           "updated"
         ]
       },
+      "NotificationEventPrefDto": {
+        "type": "object",
+        "properties": {
+          "event": {
+            "type": "string",
+            "enum": [
+              "order.on_hold",
+              "subcon.no_response",
+              "dispute",
+              "approval.requested",
+              "document.expiring",
+              "connector.down",
+              "delivery_order.unbilled",
+              "payment.due"
+            ]
+          },
+          "inApp": {
+            "type": "boolean",
+            "description": "ในระบบ (กระดิ่ง)"
+          },
+          "email": {
+            "type": "boolean"
+          },
+          "line": {
+            "type": "boolean",
+            "description": "LINE ของทีมภายใน = P1 — ยังตั้งไม่ได้ (false เสมอ)"
+          },
+          "pendingTask": {
+            "type": "string",
+            "nullable": true,
+            "description": "งานที่จะเริ่มส่ง event นี้ (ยังไม่เปิด) — null = ส่งแล้ว",
+            "example": null
+          }
+        },
+        "required": [
+          "event",
+          "inApp",
+          "email",
+          "line",
+          "pendingTask"
+        ]
+      },
+      "NotificationPreferencesDto": {
+        "type": "object",
+        "properties": {
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NotificationEventPrefDto"
+            }
+          },
+          "dailyDigest": {
+            "type": "boolean",
+            "description": "สรุปรายวัน 08:00 ทางอีเมล"
+          },
+          "version": {
+            "type": "number",
+            "description": "0 = ยังไม่เคยบันทึก (ค่าเริ่มต้นทั้งหมด)"
+          }
+        },
+        "required": [
+          "events",
+          "dailyDigest",
+          "version"
+        ]
+      },
+      "NotificationEventPrefInput": {
+        "type": "object",
+        "properties": {
+          "event": {
+            "type": "string",
+            "enum": [
+              "order.on_hold",
+              "subcon.no_response",
+              "dispute",
+              "approval.requested",
+              "document.expiring",
+              "connector.down",
+              "delivery_order.unbilled",
+              "payment.due"
+            ]
+          },
+          "inApp": {
+            "type": "boolean"
+          },
+          "email": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "event"
+        ]
+      },
+      "UpdateNotificationPreferencesDto": {
+        "type": "object",
+        "properties": {
+          "events": {
+            "description": "เฉพาะ event/ช่องที่ต้องการเปลี่ยน (ที่ไม่ส่ง = คงเดิม)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NotificationEventPrefInput"
+            }
+          },
+          "dailyDigest": {
+            "type": "boolean",
+            "description": "สรุปรายวัน 08:00 ทางอีเมล"
+          }
+        }
+      },
       "ImportColumnDto": {
         "type": "object",
         "properties": {
@@ -60023,6 +60690,118 @@
           "durationMs",
           "errorCode",
           "eventId"
+        ]
+      },
+      "TriggerTestEventDto": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "order.created",
+              "order.updated",
+              "order.held",
+              "order.released",
+              "order.cancelled",
+              "trip.assigned",
+              "trip.dispatched",
+              "trip.started",
+              "trip.completed",
+              "trip.cancelled",
+              "stop.arrived",
+              "stop.departed",
+              "stop.completed",
+              "stop.failed",
+              "delivery_order.status_changed",
+              "pod.captured",
+              "connector.health_changed",
+              "job.completed"
+            ],
+            "example": "order.created",
+            "description": "event สาธารณะที่ยิงได้ในเฟสนี้ (`phase: active` ใน `GET /v1/webhooks/event-types`) — `data.object` = ตัวอย่างตาม schema ของ event (ข้อมูลสมมติ)"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "TriggerDeliveryDto": {
+        "type": "object",
+        "properties": {
+          "endpointId": {
+            "type": "string",
+            "example": "whe_…"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "delivered",
+              "failed",
+              "queued",
+              "skipped"
+            ],
+            "description": "delivered = ปลายทางตอบ 2xx · failed = ล้ม (retry ตามตาราง G1 ถ้าเป็นข้อผิดพลาดชั่วคราว) · queued = worker จะส่ง · skipped = endpoint ปิด/ไม่มีในแพ็กเกจ"
+          },
+          "deliveryId": {
+            "type": "string",
+            "nullable": true,
+            "example": "whd_…"
+          },
+          "status": {
+            "type": "number",
+            "nullable": true,
+            "description": "HTTP status ที่ปลายทางตอบ"
+          }
+        },
+        "required": [
+          "endpointId",
+          "state",
+          "deliveryId",
+          "status"
+        ]
+      },
+      "TriggerTestEventResultDto": {
+        "type": "object",
+        "properties": {
+          "eventId": {
+            "type": "string",
+            "example": "evt_…",
+            "description": "id ของ event (= `id` ใน envelope / `X-TMS-Event-Id`)"
+          },
+          "type": {
+            "type": "string",
+            "example": "order.created"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "test"
+            ]
+          },
+          "queued": {
+            "type": "number",
+            "description": "จำนวน webhook endpoint ของ sandbox ที่เปิดอยู่และสมัคร event นี้ (คำสั่งส่งใน outbox) · 0 = ไม่มีผู้รับ"
+          },
+          "deliveries": {
+            "description": "ผลการส่งครั้งแรกต่อ endpoint",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TriggerDeliveryDto"
+            }
+          },
+          "object": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "`data.object` ที่ส่ง"
+          }
+        },
+        "required": [
+          "eventId",
+          "type",
+          "mode",
+          "queued",
+          "deliveries",
+          "object"
         ]
       },
       "DocumentSyncDto": {

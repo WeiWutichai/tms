@@ -52,8 +52,19 @@ export class ApiKeyAuthService {
 
   /** ตรวจ key ที่หาเจอแล้ว: สถานะ tenant → เพิกถอน → หมดอายุ → IP → แพ็กเกจมี Open API */
   private async check(k: ApiKey, ip: string | undefined): Promise<void> {
+    // ST7-T09: key `tk_test_` อยู่ในแถว sandbox — สถานะที่ใช้ = ของบริษัทจริง (ระงับบริษัท = sandbox หยุดด้วย)
+    const own = await this.db.tenant.findUnique({
+      where: { id: k.tenantId },
+      select: { mode: true, liveTenantId: true },
+    });
+    if (!own || (own.mode === 'test') !== (k.mode === 'test'))
+      throw new ProblemException('unauthorized'); // key live ในแถว sandbox (หรือกลับกัน) ห้ามใช้
     const t = await this.db.tenant.findFirst({
-      where: { id: k.tenantId, status: { in: API_TENANT_STATUSES as never } },
+      where: {
+        id: own.mode === 'test' ? own.liveTenantId! : k.tenantId,
+        mode: 'live',
+        status: { in: API_TENANT_STATUSES as never },
+      },
       select: { id: true },
     });
     if (!t) throw new ProblemException('unauthorized');

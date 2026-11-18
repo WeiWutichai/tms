@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import type { DoSurcharge, StoredDocument, TripCost } from '@prisma/client';
 import { decimalFromSatang, mulRateHalfUp, satangFromDecimal, scopeAllows } from '@tms/domain';
+import { NotificationEvents } from '../notifications/notification-events';
 import { AuditService } from '../../audit/audit.service';
 import { encodeId, tryDecodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
@@ -68,6 +69,7 @@ export class FieldChargesService {
     private readonly db: DbService,
     private readonly serviceItems: ServiceItemsService,
     private readonly audit: AuditService,
+    private readonly events: NotificationEvents,
   ) {}
 
   // ---------- read ----------
@@ -360,6 +362,14 @@ export class FieldChargesService {
         },
       });
     }
+    // ST9-T08 ขออนุมัติ: แจ้งผู้ยืนยันของแต่ละฝั่ง (ไม่รวมผู้บันทึกเอง — maker-checker)
+    await this.events.fieldChargePending(tx, {
+      tenantId: ctx.tenantId!,
+      tripId,
+      item: snap.name,
+      sell,
+      buy,
+    });
     const all = await this.list(tripId, origin);
     const ids = new Set(
       [sellId && encodeId('doSurcharge', sellId), buyId && encodeId('tripCost', buyId)].filter(

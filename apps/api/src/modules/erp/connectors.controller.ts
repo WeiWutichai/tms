@@ -25,6 +25,7 @@ import {
   RequireFeature,
   RequireScope,
   TenantResource,
+  LiveOnly,
 } from '../../common/decorators';
 import { expectedVersion, setEtag } from '../../common/etag';
 import { decodeIdOr404 } from '../../common/ids';
@@ -72,6 +73,7 @@ const IF_MATCH = { name: 'If-Match', required: false, description: 'ETag จา�
 @ApiTags('connectors')
 @ApiBearerAuth()
 @RequireFeature('conn')
+@LiveOnly()
 @Controller('connectors')
 export class ConnectorsController {
   constructor(
@@ -340,6 +342,7 @@ export class ConnectorsController {
  */
 @ApiTags('connectors')
 @ApiBearerAuth()
+@LiveOnly()
 @Controller('connectors')
 export class ConnectorsEffectiveController {
   constructor(private readonly connectors: ConnectorsService) {}

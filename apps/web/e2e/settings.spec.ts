@@ -98,17 +98,20 @@ test.describe('ตั้งค่า: องค์กร / ภาษี / คว
 
 test.describe('ตั้งค่า (viewer)', () => {
   test.use({ loginEmail: 'viewer@demo-a.test' });
-  test('เห็นเฉพาะหัวข้อ "เหตุผล" แบบอ่านอย่างเดียว (ST2-T12: master:read)', async ({ page }) => {
-    await page.goto('/settings');
+  test('เห็นเฉพาะ "การแจ้งเตือน" (ของตัวเอง — ST9-T08) + "เหตุผล" แบบอ่านอย่างเดียว (ST2-T12: master:read)', async ({
+    page,
+  }) => {
+    await page.goto('/settings?sec=reason');
     const menu = page.getByRole('navigation', { name: 'ตั้งค่า' });
-    await expect(menu.getByRole('button')).toHaveText(['เหตุผล']);
+    await expect(menu.getByRole('button')).toHaveText(['การแจ้งเตือน', 'เหตุผล']);
     await expect(page.getByRole('heading', { name: 'เหตุผล (reason master)' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'เพิ่มเหตุผล' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'บันทึก' })).toHaveCount(0);
     await expect(page.getByLabel('บังคับรูป — ลูกค้าปิดทำการ')).toBeDisabled();
     // หัวข้อองค์กรเข้าทาง URL ไม่ได้ (กรองตามสิทธิ์ต่อหัวข้อ) และปุ่ม "ไม่ได้เชื่อมระบบบัญชี" ยังปิด
+    // (หัวข้อที่เข้าไม่ได้ → หัวข้อแรกที่เข้าได้ = "การแจ้งเตือน" ST9-T08)
     await page.goto('/settings?sec=org');
-    await expect(page.getByRole('heading', { name: 'เหตุผล (reason master)' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'การแจ้งเตือน', level: 2 })).toBeVisible();
     await expect(page.getByRole('button', { name: /ไม่ได้เชื่อมระบบบัญชี/ })).toBeDisabled();
   });
 });

@@ -14,6 +14,12 @@ import { PasswordController } from './auth/password.controller';
 import { PasswordResetController, PasswordResetService } from './auth/password-reset.controller';
 import { EmailDispatcher, EmailService } from './modules/email/email.service';
 import { NotificationService } from './modules/notifications/notification.service';
+import { NotificationEvents } from './modules/notifications/notification-events';
+import { DailyDigestService } from './modules/notifications/daily-digest.service';
+import {
+  NotificationPreferencesController,
+  NotificationPreferencesService,
+} from './modules/notifications/notification-preferences';
 import {
   MessagesController,
   MessagingSettingsController,
@@ -81,6 +87,8 @@ import { ServiceItemsController } from './modules/service-items/service-items.co
 import { ServiceItemsService } from './modules/service-items/service-items.service';
 import { ApiKeysController } from './modules/api-keys/api-keys.controller';
 import { ApiKeyAuthService } from './modules/api-keys/api-key-auth.service';
+import { SandboxService } from './modules/sandbox/sandbox.service';
+import { TestEventsController, TestEventsService } from './modules/sandbox/test-events.controller';
 import { ApiKeysService } from './modules/api-keys/api-keys.service';
 import { WebhooksController } from './modules/webhooks/webhooks.controller';
 import { WebhooksService } from './modules/webhooks/webhooks.service';
@@ -210,6 +218,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     InvitationAcceptController,
     InvitationsController,
     NotificationsController,
+    NotificationPreferencesController,
     ImportsController,
     ExportsController,
     SetupChecklistController,
@@ -243,6 +252,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     ReasonCodesController,
     ApiKeysController,
     WebhooksController,
+    TestEventsController,
     ConnectorsEffectiveController,
     ConnectorsController,
     InboundWebhookController,
@@ -288,6 +298,9 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     EmailService,
     EmailDispatcher,
     NotificationService,
+    NotificationEvents,
+    NotificationPreferencesService,
+    DailyDigestService,
     ImportRegistry,
     ImportService,
     MasterImports,
@@ -315,6 +328,8 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     ReasonCodesService,
     ApiKeysService,
     ApiKeyAuthService,
+    SandboxService,
+    TestEventsService,
     RateCardsService,
     PricingService,
     OrderIntakeService,

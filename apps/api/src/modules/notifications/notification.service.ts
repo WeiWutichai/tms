@@ -1,9 +1,18 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import type { Prisma } from '@prisma/client';
+import { scopeAllows } from '@tms/domain';
 import { webBaseUrl } from '../../auth/password-reset.controller';
 import type { Tx } from '../../db/db.service';
 import { EmailService } from '../email/email.service';
+import {
+  NOTIFICATION_PREF_KEY,
+  PREF_CHANNELS,
+  channelEnabled,
+  eventOfTemplate,
+  parsePrefs,
+  type PrefChannel,
+} from './catalogue';
 import { renderNotification, type NotificationTemplate, type NotificationVars } from './templates';
 
 /** ช่องทางที่ระบบรู้จัก — push (FCM/APNs แอปคนขับ เฟส 2), line/sms (ST3-T21) เสียบเพิ่มด้วย `register()` */
@@ -99,8 +108,11 @@ function base(n: PreparedNotification) {
 
 export interface NotifyInput<K extends NotificationTemplate> {
   tenantId: string;
-  /** ผู้ใช้ที่ระบุตรง + ผู้ใช้ทุกคนที่มี role code เหล่านี้ (รวมแล้วไม่ซ้ำ; เฉพาะ ACTIVE) */
-  to: { userIds?: string[]; roles?: string[] };
+  /**
+   * ผู้ใช้ที่ระบุตรง + ผู้ใช้ทุกคนที่มี role code เหล่านี้ + ผู้ใช้ที่มี role ใดก็ได้ที่ให้ scope ใดใน `permissions`
+   * (รวม role กำหนดเอง — ST9-T08) รวมแล้วไม่ซ้ำ เฉพาะ ACTIVE · `exclude` = ตัดออก (เช่น ผู้ขออนุมัติเอง)
+   */
+  to: { userIds?: string[]; roles?: string[]; permissions?: string[]; exclude?: string[] };
   template: K;
   vars: NotificationVars[K];
   /** ค่าเริ่มต้น in_app + email (docs/04 I: P0) */
@@ -116,7 +128,7 @@ const MAX_RECIPIENTS = 500;
 /**
  * แกนแจ้งเตือน (ST1-T23; docs/04 I, spec/10 Notification)
  * `notify()` เรียกใน transaction ของงานที่ทำให้เกิดเหตุการณ์ → resolve ผู้รับ → render ตามภาษาผู้รับ → ส่งทุกช่อง
- * ยังไม่มี: การตั้งค่ารับ/ไม่รับต่อผู้ใช้, สรุปรายวัน 08:00 แบบรวมทุกเหตุการณ์ (docs/04 I — ดู PROGRESS)
+ * ST9-T08: กรองตามการตั้งค่ารับต่อผู้ใช้ (catalogue.ts) · สรุปรายวัน 08:00 = DailyDigestService
  * — ST2-T18 เตือนวันหมดอายุมีสรุปรายวันของตัวเองแล้ว (`expiry.digest`, ExpiryReminderService)
  */
 @Injectable()
@@ -148,6 +160,7 @@ export class NotificationService {
     const recipients = await this.resolve(tx, input.tenantId, input.to);
     if (recipients.length > MAX_RECIPIENTS)
       throw new Error(`too many notification recipients (${recipients.length})`);
+    const allowed = await this.preferenceFilter(tx, input.template, recipients);
     const items: PreparedNotification[] = recipients.map((r) => {
       const text = renderNotification(input.template, r.locale, input.vars);
       return {
@@ -162,21 +175,58 @@ export class NotificationService {
         entity: input.entity ?? null,
       };
     });
-    if (items.length) for (const ch of channels) await ch.deliver(tx, items);
+    for (const ch of channels) {
+      const mine = items.filter((it) => allowed(it.recipient.id, ch.name));
+      if (mine.length) await ch.deliver(tx, mine);
+    }
     if (!recipients.length)
       this.logger.debug(`notify ${input.template}: no active recipients in tenant`);
     return recipients.length;
   }
 
-  private async resolve(tx: Tx, tenantId: string, to: NotifyInput<never>['to']) {
+  /**
+   * การตั้งค่ารับต่อผู้ใช้ (ST9-T08 — user_preference `notifications`): template ที่อยู่ใน event ของศูนย์แจ้งเตือน
+   * ส่งเฉพาะช่องที่ผู้รับเปิด (ไม่ตั้ง = ค่าเริ่มต้นของ event) · template นอก event (งานที่ผู้ใช้สั่งเอง) = ส่งเสมอ
+   * ช่องที่ผู้ใช้ตั้งไม่ได้ในเฟสนี้ (push/line/sms) = ตามที่ผู้เรียกขอ
+   */
+  private async preferenceFilter(
+    tx: Tx,
+    template: NotificationTemplate,
+    recipients: { id: string }[],
+  ): Promise<(userId: string, ch: ChannelName) => boolean> {
+    const ev = eventOfTemplate(template);
+    if (!ev || !recipients.length) return () => true;
+    const rows = await tx.userPreference.findMany({
+      where: { userId: { in: recipients.map((r) => r.id) }, key: NOTIFICATION_PREF_KEY },
+      select: { userId: true, value: true },
+    });
+    const prefs = new Map(rows.map((r) => [r.userId, parsePrefs(r.value)]));
+    return (userId, ch) => {
+      if (!(PREF_CHANNELS as readonly string[]).includes(ch)) return true;
+      return channelEnabled(prefs.get(userId) ?? { events: {} }, ev, ch as PrefChannel);
+    };
+  }
+
+  /** ผู้รับที่ resolve แล้ว (ACTIVE, ไม่ซ้ำ) — ST9-T08 ใช้แยกข้อความตามฝั่งสิทธิ์ */
+  async resolve(tx: Tx, tenantId: string, to: NotifyInput<never>['to']) {
     const ids = new Set(to.userIds ?? []);
-    if (to.roles?.length) {
+    const roleIds = to.roles?.length ? await this.roleIds(tx, tenantId, to.roles) : [];
+    if (to.permissions?.length) {
+      const roles = await tx.role.findMany({
+        where: { tenantId },
+        select: { id: true, permissions: true },
+      });
+      for (const r of roles)
+        if (to.permissions.some((p) => scopeAllows(r.permissions, p))) roleIds.push(r.id);
+    }
+    if (roleIds.length) {
       const rows = await tx.userRole.findMany({
-        where: { tenantId, roleId: { in: await this.roleIds(tx, tenantId, to.roles) } },
+        where: { tenantId, roleId: { in: [...new Set(roleIds)] } },
         select: { userId: true },
       });
       for (const r of rows) ids.add(r.userId);
     }
+    for (const x of to.exclude ?? []) ids.delete(x);
     if (!ids.size) return [];
     const users = await tx.appUser.findMany({
       where: { tenantId, id: { in: [...ids] }, status: 'ACTIVE', deletedAt: null },

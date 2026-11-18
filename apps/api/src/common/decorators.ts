@@ -1,5 +1,5 @@
 import { applyDecorators, SetMetadata } from '@nestjs/common';
-import { ApiExtension } from '@nestjs/swagger';
+import { ApiExtension, ApiHeader } from '@nestjs/swagger';
 
 export const IS_PUBLIC = 'tms:isPublic';
 /** route ที่ไม่ต้องมี credential (health, openapi.json) */
@@ -58,6 +58,28 @@ export const RATE_LIMIT_CLASS = 'tms:rateLimitClass';
  */
 export const RateLimitClass = (cls: 'heavy') => SetMetadata(RATE_LIMIT_CLASS, cls);
 
+export const SANDBOX_AWARE = 'tms:sandboxAware';
+/**
+ * ST7-T09: route ของหน้า นักพัฒนา / Open API ที่ผู้ใช้ (UI) สลับเป็นโหมด Sandbox ได้ด้วย header `X-Tms-Mode: test`
+ * → AuthGuard เปลี่ยน tenant ของคำขอเป็น sandbox ของบริษัท (สร้างเมื่อยังไม่มี) · API key ไม่ใช้ header นี้ (โหมดตาม key)
+ */
+export const SandboxAware = () =>
+  applyDecorators(
+    SetMetadata(SANDBOX_AWARE, true),
+    ApiHeader({
+      name: 'X-Tms-Mode',
+      required: false,
+      enum: ['live', 'test'],
+      description:
+        'เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)',
+    }),
+  );
+export const LIVE_ONLY = 'tms:liveOnly';
+/**
+ * ST7-T09: route ที่ห้ามใช้ใน sandbox (เชื่อมระบบภายนอกจริง เช่น connector/ERP) → 403 `sandbox_unsupported`
+ * ตรวจใน AuthGuard หลังรู้ tenant ของคำขอ (ทั้ง key `tk_test_` และผู้ใช้ที่สลับโหมด)
+ */
+export const LiveOnly = () => SetMetadata(LIVE_ONLY, true);
 export const IDEMPOTENCY_LOCK_MS = 'tms:idempotencyLockMs';
 /**
  * ST7-T10: เวลาจอง Idempotency-Key ระหว่างทำ (ค่าเริ่ม 60 วิ) — route ที่ทำนาน (เช่น bulk 200 ใบ) ตั้งให้ยาวกว่าเวลาสูงสุดที่ยอม

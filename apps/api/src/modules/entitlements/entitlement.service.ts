@@ -23,8 +23,11 @@ export async function resolveEntitlements(
 ): Promise<Entitlements> {
   const tenant = await db.tenant.findUnique({
     where: { id: tenantId },
-    select: { planCode: true, status: true },
+    select: { planCode: true, status: true, mode: true, liveTenantId: true },
   });
+  // ST7-T09: sandbox ใช้แพ็กเกจ/override/สถานะของบริษัทจริงเสมอ (บริษัทถูกระงับ → sandbox ไม่มีฟีเจอร์ใดทำงาน)
+  if (tenant?.mode === 'test' && tenant.liveTenantId)
+    return resolveEntitlements(db, tenant.liveTenantId);
   // PLT-062 ชั้นสุดท้าย: tenant ที่ถูกระงับ/ยกเลิกไม่มีฟีเจอร์ใดทำงาน (webhook, sync, job ข้ามหมด — ตาราง 1.6)
   if (!tenant || tenant.status === 'SUSPENDED' || tenant.status === 'CANCELLED') return {};
   const [rows, overrides, all] = await Promise.all([
@@ -61,7 +64,21 @@ export class EntitlementService {
   private readonly cache = new Map<string, { at: number; value: Entitlements }>();
   constructor(private readonly prisma: PrismaService) {}
 
+  /** ST7-T09 sandbox → บริษัทจริง (แก้ไม่ได้หลังสร้าง — cache ถาวร) · live = ตัวเอง */
+  private readonly liveOf = new Map<string, string>();
+
   async resolve(tenantId: string): Promise<Entitlements> {
+    let live = this.liveOf.get(tenantId);
+    if (!live) {
+      const t = await this.prisma.platform.tenant.findUnique({
+        where: { id: tenantId },
+        select: { liveTenantId: true },
+      });
+      live = t?.liveTenantId ?? tenantId;
+      if (t) this.liveOf.set(tenantId, live);
+    }
+    // sandbox ใช้ cache ของบริษัทจริงตัวเดียวกัน → invalidate(บริษัทจริง) มีผลกับ sandbox ทันที (ระงับ/เปลี่ยนแพ็กเกจ)
+    if (live !== tenantId) return this.resolve(live);
     const hit = this.cache.get(tenantId);
     if (hit && Date.now() - hit.at < TTL_MS) return hit.value;
     const value = await resolveEntitlements(this.prisma.platform, tenantId);

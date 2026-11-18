@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import type { OpenAPIObject } from '@nestjs/swagger';
 import {
   EVENT_REGISTRY,
@@ -44,41 +45,57 @@ function objectSchema(d: EventDefinition, all: Schemas): EventSchema | null {
   };
 }
 
-/** ตัวอย่าง `data.object` (ข้อมูลสมมติ) สร้างจาก schema — เฉพาะ field ที่บังคับ · pending = โครงทั่วไป */
+/**
+ * ตัวอย่าง `data.object` (ข้อมูลสมมติ) สร้างจาก schema — ทุก field ที่ประกาศ (ST7-T09 QA L1: ให้ใกล้ของจริง)
+ * id รูปจริง (prefix + 32 hex ใหม่ทุกครั้ง) · enum = ค่าแรก · array มี 1 รายการ · วันเวลา = ตอนนี้ · nullable ที่ไม่มีตัวอย่าง = null
+ * pending (ยังไม่มีรูป) = โครงทั่วไป
+ */
 export function eventSample(type: string): Record<string, unknown> {
   const s = published.get(type);
   if (!s) return pendingExample(type);
   return sampleOf(s, 0) as Record<string, unknown>;
 }
 
+const ID_EXAMPLE = /^([a-z]{2,4})_(…|\.\.\.|[0-9a-f]{0,32}…?)$/;
+const hex32 = () => randomBytes(16).toString('hex');
+
 function sampleOf(s: EventSchema, depth: number): unknown {
-  if (depth > 8) return null;
+  if (depth > 12) return null;
   if (s.$ref) return sampleOf(components[s.$ref.split('/').pop()!] ?? {}, depth + 1);
   if (s.allOf?.length) return sampleOf(s.allOf[0]!, depth + 1);
+  if (s.oneOf?.length) return sampleOf(s.oneOf[0]!, depth + 1);
   if (s.enum?.length) return s.enum.find((v) => v !== null) ?? null;
+  if (typeof s.example === 'string') {
+    const id = ID_EXAMPLE.exec(s.example);
+    if (id) return `${id[1]}_${hex32()}`;
+  }
   if (s.example !== undefined && s.type !== 'object' && s.type !== 'array') return s.example;
   switch (s.type) {
     case 'object': {
-      const req = new Set(s.required ?? []);
+      if (!s.properties) return {};
       return Object.fromEntries(
-        Object.entries(s.properties ?? {})
-          .filter(([k]) => req.has(k))
-          .map(([k, v]) => [k, sampleOf(v, depth + 1)]),
+        Object.entries(s.properties).map(([k, v]) => [k, sampleOf(v, depth + 1)]),
       );
     }
-    case 'array':
-      return [];
+    case 'array': {
+      // ลึกเกิน (array ซ้อนใน array) = ว่าง — ไม่ให้ถึงขีดจำกัดความลึกแล้วได้ null ใน field ที่ไม่ nullable
+      if (depth > 4 && !s.minItems) return [];
+      const n = Math.max(1, typeof s.minItems === 'number' ? s.minItems : 1);
+      const items = Array.from({ length: n }, () =>
+        s.items ? sampleOf(s.items, depth + 1) : null,
+      );
+      return items[0] === null && !s.minItems ? [] : items;
+    }
     case 'integer':
     case 'number':
-      return 0;
+      return s.nullable ? null : typeof s.minimum === 'number' ? Math.max(s.minimum, 1) : 1;
     case 'boolean':
-      return false;
+      return s.nullable ? null : false;
     case 'string':
-      return s.format === 'date-time'
-        ? '2026-11-18T02:30:00.000Z'
-        : s.format === 'date'
-          ? '2026-11-18'
-          : 'string';
+      if (s.format === 'date-time') return new Date().toISOString();
+      if (s.format === 'date') return new Date().toISOString().slice(0, 10);
+      if (s.nullable) return null;
+      return s.pattern ? null : 'ตัวอย่าง';
     default:
       return s.properties ? sampleOf({ ...s, type: 'object' }, depth) : null;
   }

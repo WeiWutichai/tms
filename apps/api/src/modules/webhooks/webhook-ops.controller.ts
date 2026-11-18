@@ -6,6 +6,7 @@ import {
   RequireScope,
   TenantResource,
   RateLimitClass,
+  SandboxAware,
 } from '../../common/decorators';
 import { decodeIdOr404 } from '../../common/ids';
 import {
@@ -28,6 +29,7 @@ import { WebhookOpsService } from './webhook-ops.service';
 @ApiTags('webhooks')
 @ApiBearerAuth()
 @RequireFeature('webhook')
+@SandboxAware()
 @Controller('webhook-deliveries')
 export class WebhookDeliveriesController {
   constructor(private readonly ops: WebhookOpsService) {}
@@ -76,6 +78,7 @@ export class WebhookDeliveriesController {
 @ApiTags('webhooks')
 @ApiBearerAuth()
 @RequireFeature('webhook')
+@SandboxAware()
 @Controller('events')
 export class EventsController {
   constructor(private readonly ops: WebhookOpsService) {}
