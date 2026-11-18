@@ -9,6 +9,9 @@ import {
 } from '../../common/decorators';
 import { decodeIdOr404 } from '../../common/ids';
 import {
+  EventDto,
+  EventListQuery,
+  EventPageDto,
   RedeliverQuery,
   WebhookDeliveryDetailDto,
   WebhookDeliveryListQuery,
@@ -69,13 +72,36 @@ export class WebhookDeliveriesController {
   }
 }
 
-/** event สาธารณะ (G2 #2 `events`) — ส่ง event เดิมซ้ำ (ST7-T05) */
+/** event สาธารณะ (G2 #2 `events`) — อ่าน (ST7-T11) + ส่ง event เดิมซ้ำ (ST7-T05) */
 @ApiTags('webhooks')
 @ApiBearerAuth()
 @RequireFeature('webhook')
 @Controller('events')
 export class EventsController {
   constructor(private readonly ops: WebhookOpsService) {}
+
+  @Get()
+  @RequireScope('settings:read')
+  @ApiOkResponse({
+    type: EventPageDto,
+    description:
+      'ST7-T11: event สาธารณะของบริษัท (envelope เดียวกับ webhook — ดึงเองแทน/เสริม webhook) ใหม่สุดก่อน · กรอง `type`, ช่วงเวลา · ' +
+      'ไม่ขึ้นกับการสมัคร endpoint · field ราคาถูกตัดตามสิทธิ์ผู้เรียก',
+  })
+  listEvents(@Query() q: EventListQuery): Promise<EventPageDto> {
+    return this.ops.listEvents(q);
+  }
+
+  @Get(':id')
+  @TenantResource('event')
+  @RequireScope('settings:read')
+  @ApiOkResponse({
+    type: EventDto,
+    description: 'ST7-T11: envelope ของ event (id เดียวกับ X-TMS-Event-Id)',
+  })
+  getEvent(@Param('id') id: string): Promise<EventDto> {
+    return this.ops.getEvent(decodeIdOr404('event', id));
+  }
 
   @Post(':id/redeliver')
   @RateLimitClass('heavy')

@@ -15,6 +15,7 @@ import { readSettings } from '../settings/settings.service';
 import { normalizeDoNo } from '../trips/pod-link.service';
 import {
   TRACKING_STEPS,
+  type OrderTrackingShipmentDto,
   type TrackingLinkDto,
   type TrackingLinkStateDto,
   type TrackingShipmentDto,
@@ -307,6 +308,54 @@ export class TrackingService {
     const shipment = await this.shipment(tx, await this.followRedelivery(tx, pick.id), s, origin);
     if (!shipment) throw new ProblemException('not_found');
     return shipment;
+  }
+
+  /**
+   * ST7-T11 `GET /v1/orders/{id}/tracking`: ทุก DO ของ order (รวมที่ยกเลิก) ด้วยกติกาขั้น/ETA เดียวกับหน้าติดตาม
+   * (ไม่หมดอายุตาม linkDays · ไม่มีรูป POD) + สถานะภายใน + พิกัดล่าสุดจาก event หน้างานของเที่ยว
+   * ผู้เรียกตรวจว่า order อยู่ใน tenant แล้ว (RLS)
+   */
+  async orderTracking(orderId: string, origin: string): Promise<OrderTrackingShipmentDto[]> {
+    const tx = this.db.tx;
+    const dos = await tx.deliveryOrder.findMany({
+      where: { salesOrderId: orderId },
+      orderBy: [{ createdAt: 'asc' }, { doNo: 'asc' }],
+      select: { id: true, status: true, tripId: true },
+    });
+    const out: OrderTrackingShipmentDto[] = [];
+    for (const d of dos) {
+      const sh = await this.shipment(
+        tx,
+        d.id,
+        { showPod: false, linkDays: Number.POSITIVE_INFINITY },
+        origin,
+      );
+      if (!sh) continue;
+      const ev = d.tripId
+        ? await tx.stopEvent.findFirst({
+            where: { tripId: d.tripId, lat: { not: null }, lng: { not: null } },
+            orderBy: [{ occurredAt: 'desc' }, { receivedAt: 'desc' }],
+            select: { id: true, lat: true, lng: true, accuracyM: true, occurredAt: true },
+          })
+        : null;
+      out.push({
+        ...sh,
+        deliveryOrderId: encodeId('deliveryOrder', d.id),
+        doStatus: d.status,
+        tripId: d.tripId ? encodeId('trip', d.tripId) : null,
+        lastPosition: ev
+          ? {
+              lat: ev.lat!.toNumber(),
+              lng: ev.lng!.toNumber(),
+              accuracyM: ev.accuracyM?.toNumber() ?? null,
+              occurredAt: ev.occurredAt.toISOString(),
+              basis: 'STOP_EVENT',
+              eventId: encodeId('event', ev.id),
+            }
+          : null,
+      });
+    }
+    return out;
   }
 
   /** ประกอบ DTO สาธารณะของ DO — null = ใช้ไม่ได้แล้ว (งานจบเกิน linkDays วัน) */

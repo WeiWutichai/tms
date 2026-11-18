@@ -12,6 +12,9 @@ import { OutboxDispatcher } from '../integration/outbox.dispatcher';
 import { eventMatches } from '../integration/outbox.service';
 import type {
   DeliveryStatus,
+  EventDto,
+  EventListQuery,
+  EventPageDto,
   WebhookDeliveryDetailDto,
   WebhookDeliveryDto,
   WebhookDeliveryListQuery,
@@ -184,6 +187,74 @@ export class WebhookOpsService {
       nextCursor: hasMore && last ? cursorOf(last, sort) : null,
       hasMore,
     };
+  }
+
+  /** envelope ของ event สาธารณะ (ตัดราคาตามสิทธิ์ผู้เรียก — เหมือน payload ใน delivery) */
+  private eventDto(ev: {
+    id: string;
+    tenantId: string;
+    type: string;
+    version: number;
+    occurredAt: Date;
+    snapshot: Prisma.JsonValue;
+    previousAttributes: Prisma.JsonValue | null;
+    requestId: string | null;
+  }): EventDto {
+    const rc = requestContext.require();
+    return redactPrices(
+      {
+        id: encodeId('event', ev.id),
+        type: ev.type,
+        version: String(ev.version),
+        occurredAt: ev.occurredAt.toISOString(),
+        tenantId: encodeId('tenant', ev.tenantId),
+        mode: 'live',
+        data: { object: ev.snapshot ?? null, previousAttributes: ev.previousAttributes ?? null },
+        request: { id: ev.requestId, idempotencyKey: null },
+      },
+      rc.scopes ?? [],
+      rc.principalType,
+    ) as EventDto;
+  }
+
+  /** ST7-T11 `GET /v1/events` — event สาธารณะ (ทะเบียน WEBHOOK_EVENT_TYPES) ของบริษัท ใหม่สุดก่อน */
+  async listEvents(q: EventListQuery): Promise<EventPageDto> {
+    const limit = q.limit ?? 50;
+    const sort = q.sort ?? '-occurredAt';
+    const desc = sort === '-occurredAt';
+    const op = desc ? 'lt' : 'gt';
+    const types = q.type
+      ? q.type.split(',').filter((t) => (WEBHOOK_EVENT_TYPES as readonly string[]).includes(t))
+      : [...WEBHOOK_EVENT_TYPES];
+    const and: Prisma.DomainEventWhereInput[] = [{ type: { in: types } }];
+    if (q.cursor) {
+      const c = decodeCursor(q.cursor, sort);
+      and.push({ OR: [{ occurredAt: { [op]: c.u } }, { occurredAt: c.u, id: { [op]: c.i } }] });
+    }
+    if (q.occurredFrom) and.push({ occurredAt: { gte: new Date(q.occurredFrom) } });
+    if (q.occurredTo) and.push({ occurredAt: { lt: new Date(q.occurredTo) } });
+    const dir = desc ? 'desc' : 'asc';
+    const rows = await this.db.tx.domainEvent.findMany({
+      where: { AND: and },
+      orderBy: [{ occurredAt: dir }, { id: dir }],
+      take: limit + 1,
+    });
+    const hasMore = rows.length > limit;
+    const slice = hasMore ? rows.slice(0, limit) : rows;
+    const last = slice[slice.length - 1];
+    return {
+      data: slice.map((r) => this.eventDto(r)),
+      nextCursor: hasMore && last ? cursorOf({ sentAt: last.occurredAt, id: last.id }, sort) : null,
+      hasMore,
+    };
+  }
+
+  /** ST7-T11 `GET /v1/events/{id}` — ไม่ใช่ event สาธารณะ/บริษัทอื่น = 404 */
+  async getEvent(id: string): Promise<EventDto> {
+    const ev = await this.db.tx.domainEvent.findFirst({ where: { id } });
+    if (!ev || !(WEBHOOK_EVENT_TYPES as readonly string[]).includes(ev.type))
+      throw new ProblemException('not_found');
+    return this.eventDto(ev);
   }
 
   async get(id: string, tx: Tx = this.db.tx): Promise<WebhookDelivery> {

@@ -21,6 +21,7 @@ import {
   DepartStopDto,
   FailStopDto,
   StopEventDto,
+  StopDto,
   StopEventSequenceDto,
   TripTimelineDto,
   type StopEventBaseDto,
@@ -167,6 +168,61 @@ export class StopsController {
     );
     res.status(replayed ? 200 : 201);
     return toStopEventDto(event);
+  }
+
+  @Get(':id')
+  @ApiOperation({
+    summary: 'จุดแวะเดียว — สถานะ เวลา และ DO ที่รับ/ส่งที่จุดนี้',
+    description:
+      'ST7-T11 (docs/04 G2 #3 `GET`): สถานะ/เวลาเป็นค่าที่ไล่จาก event แล้ว (projection ST4-T03) · จุดที่ถอดออกแล้วยังเปิดได้ (`removedAt`) · ' +
+      'ลำดับ event ทั้งหมด `GET /v1/stops/{id}/events` · จุดทั้งเที่ยว `GET /v1/trips/{id}` (`stops[]`)',
+  })
+  @ApiProblems(
+    {
+      ...T403R,
+      examples: {
+        permission_denied: P('permission_denied', {
+          module: 'trips',
+          action: 'read',
+          required: ['trips:read'],
+          instance: '/v1/stops/stp_3f2a…',
+        }),
+      },
+    },
+    {
+      ...S404,
+      description: 'ไม่พบจุดแวะ (รวมของบริษัทอื่น)',
+      examples: { not_found: P('not_found', { instance: '/v1/stops/stp_3f2a…' }) },
+    },
+  )
+  @TenantResource('tripStop')
+  @RequireScope('trips:read')
+  @ApiOkResponse({ type: StopDto })
+  async get(@Param('id') id: string): Promise<StopDto> {
+    const s = await this.events_.stopView(decodeIdOr404('tripStop', id));
+    if (!s) throw new ProblemException('not_found');
+    const dos = s.type === 'PICKUP' ? s.pickupOrders : s.deliveryOrders;
+    return {
+      id: encodeId('tripStop', s.id),
+      tripId: encodeId('trip', s.tripId),
+      tripNo: s.trip.tripNo ?? '',
+      tripStatus: s.trip.status,
+      sequence: s.sequence,
+      type: s.type,
+      siteId: encodeId('site', s.siteId),
+      siteName: s.site.name,
+      status: s.status,
+      outcome: s.outcome,
+      windowStart: iso(s.windowStart),
+      windowEnd: iso(s.windowEnd),
+      plannedArrival: iso(s.plannedArrival),
+      plannedDeparture: iso(s.plannedDeparture),
+      arrivedAt: iso(s.arrivedAt),
+      departedAt: iso(s.departedAt),
+      deliveryOrderIds: dos.map((d) => encodeId('deliveryOrder', d.id)),
+      lastEventId: s.lastEventId ? encodeId('event', s.lastEventId) : null,
+      removedAt: iso(s.removedAt),
+    };
   }
 
   @Get(':id/events')

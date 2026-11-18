@@ -151,6 +151,7 @@ import { ScheduleService } from './modules/schedule/schedule.service';
 import { BoardPreferencesService } from './modules/planning/board-preferences.service';
 import { EligibilityService } from './modules/planning/eligibility.service';
 import { OrdersController } from './modules/orders/orders.controller';
+import { OrderResourcesController } from './modules/orders/order-resources.controller';
 import { OrderBillingService } from './modules/orders/order-billing.service';
 import { OrdersService } from './modules/orders/orders.service';
 import { OrdersBulkController } from './modules/orders/orders-bulk.controller';
@@ -231,6 +232,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     CustomersController,
     OrdersBulkController,
     OrdersController,
+    OrderResourcesController,
     OrderTemplatesController,
     SitesController,
     RoutesController,
