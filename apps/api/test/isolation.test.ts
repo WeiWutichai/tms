@@ -19,6 +19,9 @@ import { api, bootApp, createTenant, platform, tokenFor, truncateAll, validTaxId
  *
  * เพิ่ม resource ใหม่ = เพิ่ม fixture ใน FIXTURES (สร้างข้อมูลใน tenant A แล้วคืน id ที่ API ใช้)
  */
+/** ผู้ใช้จริงของ token A — resource ส่วนตัว (saved view) ผูกกับผู้ใช้ที่ login */
+const OWNER_A = '0000a11c-0000-4000-8000-0000000000a1';
+
 const FIXTURES: Record<string, (db: PrismaClient, tenantId: string, n: number) => Promise<string>> =
   {
     company: async (db, tenantId, n) =>
@@ -223,6 +226,16 @@ const FIXTURES: Record<string, (db: PrismaClient, tenantId: string, n: number) =
               name: `ISO-TPL-${n}`,
               payload: { requestedDate: '2026-11-12', stops: [] },
             },
+          })
+        ).id,
+      ),
+    // ST9-T11 /saved-views/:id — มุมมองส่วนตัวของผู้ใช้เจ้าของ token A (ของผู้ใช้อื่นมองไม่เห็นอยู่แล้ว)
+    savedView: async (db, tenantId, n) =>
+      encodeId(
+        'savedView',
+        (
+          await db.savedView.create({
+            data: { tenantId, userId: OWNER_A, page: 'orders', name: `ISO-VIEW-${n}`, state: {} },
           })
         ).id,
       ),
@@ -956,7 +969,16 @@ describe('tenant isolation harness', () => {
     app = await bootApp();
     tenantA = (await createTenant(plat, 'A')).id;
     const tenantB = (await createTenant(plat, 'B')).id;
-    tokenA = await tokenFor(tenantA);
+    await plat.appUser.create({
+      data: {
+        id: OWNER_A,
+        tenantId: tenantA,
+        email: 'owner-a@iso.test',
+        name: 'A',
+        status: 'ACTIVE',
+      },
+    });
+    tokenA = await tokenFor(tenantA, '*', OWNER_A);
     tokenB = await tokenFor(tenantB);
     stepUpB = await signStepUpToken('user-test', tenantB);
   });
