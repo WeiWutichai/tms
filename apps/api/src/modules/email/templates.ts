@@ -44,6 +44,18 @@ export interface TemplateVars {
   };
   /** ST1-T23 ช่องอีเมลของแจ้งเตือน — title/body render ตามภาษาผู้รับแล้ว; link = URL เต็มของเว็บ */
   notification: { title: string; body: string; link?: string };
+  /** ST9-T19 alert ถึงทีม Innovera (เปิด/ปิด) — ค่าเป็นตัวเลข/รหัส sink/connector เท่านั้น ไม่มีข้อมูลลูกค้า */
+  monitor_alert: {
+    resolved: boolean;
+    severity: 'critical' | 'warning';
+    rule: string;
+    label: string;
+    subject: string | null;
+    value: string;
+    threshold: string;
+    openedAt: string;
+    resolvedAt?: string;
+  };
   password_reset: { link: string; minutes: number };
   user_invitation: {
     link: string;
@@ -107,6 +119,42 @@ const TEMPLATES: { [K in TemplateName]: Record<EmailLocale, Renderer<K>> } = {
         link ? { href: link, label: 'Open in TMS' } : undefined,
       ),
     }),
+  },
+  monitor_alert: {
+    th: (v) => {
+      const sev = v.severity === 'critical' ? 'วิกฤต' : 'เตือน';
+      const title = v.resolved
+        ? `[ปิดแล้ว] ${v.label}${v.subject ? ` (${v.subject})` : ''}`
+        : `[${sev}] ${v.label}${v.subject ? ` (${v.subject})` : ''}`;
+      const paras = [
+        `กฎ: ${v.rule}${v.subject ? ` · ${v.subject}` : ''}`,
+        v.resolved
+          ? `กลับเป็นปกติเมื่อ ${v.resolvedAt ?? '-'} (ค่าล่าสุด ${v.value} · เกณฑ์ ${v.threshold})`
+          : `ค่าปัจจุบัน ${v.value} เกินเกณฑ์ ${v.threshold}`,
+        `เริ่มเมื่อ ${v.openedAt}`,
+        'ดูรายละเอียดได้ที่ GET /v1/platform/monitoring/alerts และ /v1/metrics',
+      ];
+      return {
+        subject: `${title} — TMS monitoring`,
+        text: `${title}\n\n${paras.join('\n\n')}\n`,
+        html: layout('th', title, paras),
+      };
+    },
+    en: (v) => {
+      const title = `${v.resolved ? '[RESOLVED]' : `[${v.severity.toUpperCase()}]`} ${v.rule}${v.subject ? ` (${v.subject})` : ''}`;
+      const paras = [
+        v.resolved
+          ? `Recovered at ${v.resolvedAt ?? '-'} (last value ${v.value} · threshold ${v.threshold})`
+          : `Current value ${v.value} is above the threshold ${v.threshold}`,
+        `Started at ${v.openedAt}`,
+        'Details: GET /v1/platform/monitoring/alerts and /v1/metrics',
+      ];
+      return {
+        subject: `${title} — TMS monitoring`,
+        text: `${title}\n\n${paras.join('\n\n')}\n`,
+        html: layout('en', title, paras),
+      };
+    },
   },
   user_invitation: {
     th: ({ link, days, tenantName, inviterName, roles }) => {

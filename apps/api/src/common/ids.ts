@@ -56,6 +56,8 @@ export const ID_PREFIX = {
   inboundEvent: 'ibe',
   /** ST9-T11 มุมมองที่บันทึกไว้ของตาราง (saved_view) */
   savedView: 'svw',
+  /** ST9-T19 alert ถึงทีม Innovera (monitor_alert — Platform Console เท่านั้น) */
+  monitorAlert: 'alr',
 } as const;
 export type IdKind = keyof typeof ID_PREFIX;
 

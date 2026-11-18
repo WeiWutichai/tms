@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useId, useMemo, useState, type ReactNode } from 'react';
 import { useEscapeLayer } from './escape';
 import { Icon } from './Icon';
 import { tone as toneColors, type Tone } from './tokens';
@@ -36,6 +36,8 @@ export interface TableLabels {
   resetColumns: string;
   rowsPerPage: string;
   selected: (n: number) => string;
+  /** ชื่อช่องเลือกแถว (เช่น "เลือก") — ST9-T20; ไม่ส่ง = ใช้ id ของแถว (เดิม) */
+  selectRow?: string;
   clearSelection: string;
   rowActions: string;
   prev: string;
@@ -120,6 +122,7 @@ export function DataTable<R>(p: DataTableProps<R>) {
   const ids = useMemo(() => p.rows.map(p.rowId), [p.rows, p.rowId]);
   const allOn = ids.length > 0 && ids.every((i) => sel.includes(i));
   const selectable = p.selectable ?? true;
+  const tid = useId();
 
   useEffect(() => {
     if (!menuFor) return;
@@ -250,7 +253,23 @@ export function DataTable<R>(p: DataTableProps<R>) {
                 const id = p.rowId(r);
                 const menu = p.rowMenu?.(r) ?? [];
                 return (
-                  <tr key={id} aria-selected={p.activeId === id} onClick={() => p.onRowClick?.(r)}>
+                  <tr
+                    key={id}
+                    aria-selected={p.activeId === id}
+                    onClick={() => p.onRowClick?.(r)}
+                    // ST9-T20: แถวที่คลิกเปิด drawer ได้ ต้องใช้คีย์บอร์ดได้ (Tab ถึง + Enter/Space) — WCAG 2.1.1
+                    tabIndex={p.onRowClick ? 0 : undefined}
+                    onKeyDown={
+                      p.onRowClick
+                        ? (e) => {
+                            if (e.target !== e.currentTarget) return;
+                            if (e.key !== 'Enter' && e.key !== ' ') return;
+                            e.preventDefault();
+                            p.onRowClick!(r);
+                          }
+                        : undefined
+                    }
+                  >
                     {selectable && (
                       <td className="tms-check" onClick={(e) => e.stopPropagation()}>
                         <input
@@ -259,12 +278,21 @@ export function DataTable<R>(p: DataTableProps<R>) {
                           onChange={() =>
                             setSel((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]))
                           }
-                          aria-label={id}
+                          // ST9-T20: เดิมอ่านเป็น id ภายใน (veh_…) → ชื่อ "เลือก" + คำอธิบาย = ข้อความคอลัมน์แรกของแถว
+                          // (ไม่ใช้ข้อความแถวเป็นชื่อ — ช่องตารางของ checkbox จะชื่อซ้ำกับช่องคอลัมน์แรก)
+                          aria-label={p.labels.selectRow ?? id}
+                          {...(p.labels.selectRow && visible.length
+                            ? { 'aria-describedby': `${tid}-${id}-c0` }
+                            : {})}
                         />
                       </td>
                     )}
-                    {visible.map((c) => (
-                      <td key={c.key} style={{ textAlign: c.align ?? 'left' }}>
+                    {visible.map((c, ci) => (
+                      <td
+                        key={c.key}
+                        id={ci === 0 ? `${tid}-${id}-c0` : undefined}
+                        style={{ textAlign: c.align ?? 'left' }}
+                      >
                         {c.render(r)}
                       </td>
                     ))}

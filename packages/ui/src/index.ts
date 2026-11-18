@@ -6,3 +6,4 @@ export * from './components';
 export * from './DataTable';
 export * from './master';
 export * from './escape';
+export * from './focus';

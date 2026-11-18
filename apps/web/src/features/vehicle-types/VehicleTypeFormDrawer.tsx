@@ -206,7 +206,7 @@ export function VehicleTypeFormDrawer({
       k: 'name' | 'cap' | 'vol' | 'tmin' | 'tmax',
       extra: Partial<React.InputHTMLAttributes<HTMLInputElement>> = {},
     ) =>
-    (p: { id: string; 'aria-invalid': boolean }) => (
+    (p: { id: string; 'aria-invalid': boolean; 'aria-describedby'?: string }) => (
       <TextInput
         {...p}
         {...extra}
