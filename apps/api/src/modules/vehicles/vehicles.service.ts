@@ -7,7 +7,12 @@ import {
   type VehicleStatus,
   type VehicleType,
 } from '@prisma/client';
-import { scopeAllows, tripOdometerReading, type TransitionTable } from '@tms/domain';
+import {
+  OPS_TRIP_RUNNING,
+  scopeAllows,
+  tripOdometerReading,
+  type TransitionTable,
+} from '@tms/domain';
 import { AuditService } from '../../audit/audit.service';
 import { encodeId, tryDecodeId } from '../../common/ids';
 import { iEquals } from '../../common/ilike';
@@ -295,6 +300,13 @@ export class VehiclesService {
       and.push({ status: { not: 'RETIRED' }, documents: { some: docAlertWhere() } });
     if (q.docAlert === 'false')
       and.push({ OR: [{ status: 'RETIRED' }, { documents: { none: docAlertWhere() } }] });
+    if (q.busy) {
+      const running = { some: { status: { in: [...OPS_TRIP_RUNNING] } } };
+      const busy: Prisma.VehicleWhereInput = {
+        OR: [{ trips: running }, { trailerTrips: running }],
+      };
+      and.push(q.busy === 'true' ? busy : { NOT: busy });
+    }
     if (q.vehicleTypeId)
       and.push({ vehicleTypeId: tryDecodeId('vehicleType', q.vehicleTypeId) ?? undefined });
     if (q.carrierId) and.push({ carrierId: tryDecodeId('carrier', q.carrierId) ?? undefined });
@@ -401,7 +413,16 @@ export class VehiclesService {
     const docAlert = await tx.vehicle.count({
       where: { deletedAt: null, status: { not: 'RETIRED' }, documents: { some: docAlertWhere() } },
     });
+    // ST9-T01 dashboard: รถบริษัท ว่าง/ใช้งาน/ซ่อม — นับด้วย where() ชุดเดียวกับรายการ
+    const own = (q: Partial<VehicleListQuery>) =>
+      tx.vehicle.count({ where: this.where({ ownership: 'OWN', ...q } as VehicleListQuery) });
+    const [available, inUse, maintenance] = await Promise.all([
+      own({ status: 'ready', busy: 'false' }),
+      own({ busy: 'true' }),
+      own({ status: 'maintenance' }),
+    ]);
     return {
+      fleet: { available, inUse, maintenance },
       total: used + n('RETIRED'),
       ready: n('READY'),
       maintenance: n('MAINTENANCE'),

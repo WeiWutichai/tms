@@ -542,6 +542,15 @@ export class VehicleListQuery {
   @IsOptional()
   @IsIn(['true', 'false'])
   docAlert?: 'true' | 'false';
+
+  @ApiPropertyOptional({
+    enum: ['true', 'false'],
+    description:
+      'ST9-T01 true = กำลังใช้งาน (เป็นรถหรือหางของเที่ยวที่ปล่อยแล้วยังไม่ปิด — DISPATCHED/IN_PROGRESS) · false = ไม่ได้ใช้งานอยู่',
+  })
+  @IsOptional()
+  @IsIn(['true', 'false'])
+  busy?: 'true' | 'false';
 }
 
 export class VehicleExportQuery extends VehicleListQuery {
@@ -670,6 +679,13 @@ export class VehicleQuotaDto {
   used!: number;
 }
 
+/** ST9-T01 dashboard ปฏิบัติการ: รถบริษัท (OWN) ว่าง / ใช้งาน / ซ่อม — เงื่อนไขเดียวกับตัวกรองของรายการ */
+export class VehicleFleetTodayDto {
+  @ApiProperty({ description: 'ว่าง = `ownership=OWN&status=ready&busy=false`' }) available!: number;
+  @ApiProperty({ description: 'ใช้งาน = `ownership=OWN&busy=true`' }) inUse!: number;
+  @ApiProperty({ description: 'ซ่อม = `ownership=OWN&status=maintenance`' }) maintenance!: number;
+}
+
 export class VehicleSummaryDto {
   @ApiProperty({ description: 'รถทั้งหมด (ไม่รวมที่ลบ — รวมปลดระวาง)' }) total!: number;
   @ApiProperty() ready!: number;
@@ -682,6 +698,7 @@ export class VehicleSummaryDto {
   })
   docAlert!: number;
   @ApiProperty({ type: VehicleQuotaDto }) quota!: VehicleQuotaDto;
+  @ApiProperty({ type: VehicleFleetTodayDto }) fleet!: VehicleFleetTodayDto;
 }
 
 export class OdometerReadingDto {

@@ -27,6 +27,8 @@ import {
   type TripEvent,
   type TripStatus,
   shiftWindowToDay,
+  OPS_TRIP_AWAITING_CARRIER,
+  OPS_TRIP_RUNNING,
 } from '@tms/domain';
 import { AuditService } from '../../audit/audit.service';
 import { encodeId } from '../../common/ids';
@@ -132,6 +134,22 @@ export interface TripFilter extends ListQuery {
   vehicleId?: string;
   driverId?: string;
   carrierId?: string;
+}
+
+/**
+ * ตัวกรองของรายการเที่ยว — ใช้ร่วมกับตัวนับ (`summary`) เพื่อให้ตัวเลขบน dashboard = จำนวนแถวของรายการ (ST9-T01)
+ */
+export function tripWhere(q: Omit<TripFilter, keyof ListQuery>): Prisma.TripWhereInput {
+  return {
+    AND: [
+      q.statuses?.length ? { status: { in: q.statuses as DbTripStatus[] } } : {},
+      q.dateFrom ? { tripDate: { gte: new Date(`${q.dateFrom}T00:00:00Z`) } } : {},
+      q.dateTo ? { tripDate: { lte: new Date(`${q.dateTo}T00:00:00Z`) } } : {},
+      q.vehicleId ? { vehicleId: q.vehicleId } : {},
+      q.driverId ? { OR: [{ driverId: q.driverId }, { reliefDriverId: q.driverId }] } : {},
+      q.carrierId ? { carrierId: q.carrierId } : {},
+    ],
+  };
 }
 
 /**
@@ -251,19 +269,21 @@ export class TripService {
   // ---------------------------------------------------------------------------------------------
   // อ่าน
 
+  /**
+   * ST9-T01 ตัวนับของ dashboard ปฏิบัติการ — นับด้วยตัวกรองชุดเดียวกับ `GET /trips?status=` (`tripWhere`)
+   * ตัวเลขจึงเท่ากับจำนวนแถวของรายการเมื่อคลิกเข้าไปดูเสมอ (RPT-001/RPT-005) · RLS จำกัด tenant
+   */
+  async summary(tx: Tx = this.db.tx): Promise<{ running: number; offered: number }> {
+    const [running, offered] = await Promise.all([
+      tx.trip.count({ where: tripWhere({ statuses: [...OPS_TRIP_RUNNING] }) }),
+      tx.trip.count({ where: tripWhere({ statuses: [...OPS_TRIP_AWAITING_CARRIER] }) }),
+    ]);
+    return { running, offered };
+  }
+
   async list(q: TripFilter, tx: Tx = this.db.tx) {
     const k = keysetArgs(q);
-    const where: Prisma.TripWhereInput = {
-      AND: [
-        k.where as Prisma.TripWhereInput,
-        q.statuses?.length ? { status: { in: q.statuses as DbTripStatus[] } } : {},
-        q.dateFrom ? { tripDate: { gte: new Date(`${q.dateFrom}T00:00:00Z`) } } : {},
-        q.dateTo ? { tripDate: { lte: new Date(`${q.dateTo}T00:00:00Z`) } } : {},
-        q.vehicleId ? { vehicleId: q.vehicleId } : {},
-        q.driverId ? { OR: [{ driverId: q.driverId }, { reliefDriverId: q.driverId }] } : {},
-        q.carrierId ? { carrierId: q.carrierId } : {},
-      ],
-    };
+    const where: Prisma.TripWhereInput = { AND: [k.where as Prisma.TripWhereInput, tripWhere(q)] };
     const rows = await tx.trip.findMany({
       where,
       include: TRIP_INCLUDE,

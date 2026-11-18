@@ -23,6 +23,9 @@ import {
   type DoLineRequest,
   type DoStatus,
   type SoLineInfo,
+  OPS_DO_DELIVERED,
+  OPS_DO_FAILED,
+  OPS_DO_TODAY,
 } from '@tms/domain';
 import { AuditService } from '../../audit/audit.service';
 import { ProblemException } from '../../common/problem';
@@ -35,7 +38,16 @@ import { keysetArgs, type ListQuery } from '../../common/pagination';
 
 export type DeliveryOrderRecord = DeliveryOrder & {
   lines: DeliveryOrderLine[];
-  trip: { status: string } | null;
+  trip: {
+    status: string;
+    tripNo: string | null;
+    vehiclePlateSnapshot: string | null;
+    driverNameSnapshot: string | null;
+    carrierNameSnapshot: string | null;
+  } | null;
+  customer: { legalName: string };
+  originSite: { name: string };
+  destSite: { name: string };
 };
 
 type OrderForDo = SalesOrder & {
@@ -93,8 +105,37 @@ const EVENT_TYPE = 'delivery_order.status_changed';
 const CREATE_FROM = 'NONE';
 const INCLUDE = {
   lines: { orderBy: { lineNo: 'asc' } },
-  trip: { select: { status: true } },
+  // ST9-T01: ชื่อสำหรับแสดงในรายการ (ลูกค้า/จุดรับ-ส่ง/เที่ยว รถ คนขับ — snapshot ต่อเที่ยว) ไม่ต้องยิงซ้ำต่อแถว
+  trip: {
+    select: {
+      status: true,
+      tripNo: true,
+      vehiclePlateSnapshot: true,
+      driverNameSnapshot: true,
+      carrierNameSnapshot: true,
+    },
+  },
+  customer: { select: { legalName: true } },
+  originSite: { select: { name: true } },
+  destSite: { select: { name: true } },
 } as const satisfies Prisma.DeliveryOrderInclude;
+
+/**
+ * ตัวกรองของรายการ DO — ใช้ร่วมกับตัวนับ (`summary`) ให้ตัวเลขบน dashboard = จำนวนแถวของรายการ (ST9-T01)
+ */
+export function deliveryOrderWhere(
+  q: Omit<DeliveryOrderFilter, keyof ListQuery>,
+): Prisma.DeliveryOrderWhereInput {
+  return {
+    AND: [
+      q.salesOrderId ? { salesOrderId: q.salesOrderId } : {},
+      q.customerId ? { customerId: q.customerId } : {},
+      q.statuses?.length ? { status: { in: q.statuses as DbDoStatus[] } } : {},
+      q.dateFrom ? { doDate: { gte: new Date(`${q.dateFrom}T00:00:00Z`) } } : {},
+      q.dateTo ? { doDate: { lte: new Date(`${q.dateTo}T00:00:00Z`) } } : {},
+    ],
+  };
+}
 
 /**
  * **"DO อยู่ในเที่ยวที่ยังใช้งาน"** — นิยามเดียวที่ทุกจุดใช้ (ล็อกทางเข้า SO, แยก/รวม/ยกเลิก, sync):
@@ -195,18 +236,28 @@ export class DeliveryOrderService {
     });
   }
 
+  /**
+   * ST9-T01 ตัวนับ DO ของวัน `date` (เวลาไทย — ผู้เรียกคำนวณจาก Clock) ด้วยตัวกรองชุดเดียวกับ
+   * `GET /delivery-orders?status=…&dateFrom=date&dateTo=date` (`deliveryOrderWhere`)
+   */
+  async summary(date: string, tx: Tx = this.db.tx) {
+    const n = (statuses: readonly DoStatus[]) =>
+      tx.deliveryOrder.count({
+        where: deliveryOrderWhere({ statuses: [...statuses], dateFrom: date, dateTo: date }),
+      });
+    const [today, delivered, failed] = await Promise.all([
+      n(OPS_DO_TODAY),
+      n(OPS_DO_DELIVERED),
+      n(OPS_DO_FAILED),
+    ]);
+    return { date, today, delivered, failed };
+  }
+
   /** รายการ DO (keyset บน updatedAt,id — docs/01 §5.1) กรองตาม SO / ลูกค้า / สถานะ / ช่วงวันที่ DO */
   async list(q: DeliveryOrderFilter, tx: Tx = this.db.tx) {
     const k = keysetArgs(q);
     const where: Prisma.DeliveryOrderWhereInput = {
-      AND: [
-        k.where as Prisma.DeliveryOrderWhereInput,
-        q.salesOrderId ? { salesOrderId: q.salesOrderId } : {},
-        q.customerId ? { customerId: q.customerId } : {},
-        q.statuses?.length ? { status: { in: q.statuses as DbDoStatus[] } } : {},
-        q.dateFrom ? { doDate: { gte: new Date(`${q.dateFrom}T00:00:00Z`) } } : {},
-        q.dateTo ? { doDate: { lte: new Date(`${q.dateTo}T00:00:00Z`) } } : {},
-      ],
+      AND: [k.where as Prisma.DeliveryOrderWhereInput, deliveryOrderWhere(q)],
     };
     const rows = await tx.deliveryOrder.findMany({
       where,

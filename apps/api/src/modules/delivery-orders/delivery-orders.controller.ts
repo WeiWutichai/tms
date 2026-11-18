@@ -4,6 +4,7 @@ import {
   ApiCreatedResponse,
   ApiHeader,
   ApiOkResponse,
+  ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
 import type { DoLineRequest, DoStatus } from '@tms/domain';
@@ -13,14 +14,16 @@ import { expectedVersion, setEtag } from '../../common/etag';
 import { decodeIdOr404, encodeId, tryDecodeId } from '../../common/ids';
 import { toPage } from '../../common/pagination';
 import { ProblemException } from '../../common/problem';
+import { Clock } from '../../common/clock';
 import { DbService } from '../../db/db.service';
-import { isRealDate } from '../vehicle-documents/expiry';
+import { bangkokToday, isRealDate } from '../vehicle-documents/expiry';
 import {
   CancelDeliveryOrderDto,
   CreateDeliveryOrderDto,
   DeliveryOrderDto,
   DeliveryOrderListQuery,
   DeliveryOrderPageDto,
+  DeliveryOrderSummaryDto,
   DeliveryOrderSplitResultDto,
   MergeDeliveryOrdersDto,
   RedeliverDeliveryOrderDto,
@@ -61,6 +64,13 @@ export function toDeliveryOrderDto(
     originStopSeq: d.originStopSeq,
     destStopSeq: d.destStopSeq,
     tripId: d.tripId ? encodeId('trip', d.tripId) : null,
+    customerName: d.customer.legalName,
+    originSiteName: d.originSite.name,
+    destSiteName: d.destSite.name,
+    tripNo: d.trip?.tripNo ?? null,
+    vehiclePlate: d.trip?.vehiclePlateSnapshot ?? null,
+    driverName: d.trip?.driverNameSnapshot ?? null,
+    carrierName: d.trip?.carrierNameSnapshot ?? null,
     weightKg: dec(d.weightKg),
     cbm: dec(d.cbm),
     customerRef: d.customerRef,
@@ -110,12 +120,26 @@ export class DeliveryOrdersController {
     private readonly db: DbService,
     private readonly returns: DeliveryOrderReturnService,
     private readonly orderState: OrderStateService,
+    private readonly clock: Clock,
   ) {}
 
   /** DTO พร้อมยอดปฏิเสธรับ (ST4-T11) */
   private async dtos(rows: DeliveryOrderRecord[]): Promise<DeliveryOrderDto[]> {
     const bal = await this.dos.rejectionBalance(this.db.tx, rows);
     return rows.map((d) => toDeliveryOrderDto(d, bal.get(d.id)));
+  }
+
+  /** ST9-T01 ตัวนับของ dashboard ปฏิบัติการ (งานวันนี้ / ส่งแล้ว / ส่งไม่สำเร็จ) — ตัวกรองเดียวกับรายการ */
+  @Get('summary')
+  @RequireScope('orders:read')
+  @ApiOperation({
+    summary: 'ตัวนับ DO ของวันนี้ (เวลาไทย)',
+    description:
+      'นับด้วยตัวกรองชุดเดียวกับ `GET /delivery-orders` ของวัน `date` (dateFrom = dateTo = date) — ตัวเลขเท่ากับจำนวนแถวของรายการเมื่อใช้ตัวกรองตามคำอธิบายของแต่ละช่อง',
+  })
+  @ApiOkResponse({ type: DeliveryOrderSummaryDto })
+  summary(): Promise<DeliveryOrderSummaryDto> {
+    return this.dos.summary(bangkokToday(this.clock.now()));
   }
 
   @Get()

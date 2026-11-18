@@ -216,6 +216,16 @@ export class DeliveryOrderDto {
   @ApiProperty({ description: 'ลำดับจุดรับของ SO' }) originStopSeq!: number;
   @ApiProperty({ description: 'ลำดับจุดส่งของ SO' }) destStopSeq!: number;
   @ApiProperty({ nullable: true, type: String }) tripId!: string | null;
+  @ApiProperty({ description: 'ชื่อลูกค้า (ST9-T01 — แสดงในรายการ)' }) customerName!: string;
+  @ApiProperty({ description: 'ชื่อจุดรับ' }) originSiteName!: string;
+  @ApiProperty({ description: 'ชื่อจุดส่ง' }) destSiteName!: string;
+  @ApiProperty({ nullable: true, type: String, example: 'TRP-6911-0001' }) tripNo!: string | null;
+  @ApiProperty({ nullable: true, type: String, description: 'ทะเบียนรถของเที่ยว (snapshot)' })
+  vehiclePlate!: string | null;
+  @ApiProperty({ nullable: true, type: String, description: 'คนขับของเที่ยว (snapshot)' })
+  driverName!: string | null;
+  @ApiProperty({ nullable: true, type: String, description: 'รถร่วมของเที่ยว (snapshot)' })
+  carrierName!: string | null;
   @ApiProperty({ nullable: true, type: String }) weightKg!: string | null;
   @ApiProperty({ nullable: true, type: String }) cbm!: string | null;
   @ApiProperty({ nullable: true, type: String, description: 'PO ลูกค้า' })
@@ -248,6 +258,23 @@ export class DeliveryOrderDto {
   @ApiProperty() version!: number;
   @ApiProperty() createdAt!: string;
   @ApiProperty() updatedAt!: string;
+}
+
+/** ST9-T01 ตัวนับ DO ของวันนี้ (เวลาไทย) — dashboard ปฏิบัติการ */
+export class DeliveryOrderSummaryDto {
+  @ApiProperty({ example: '2026-11-18', description: 'วันนี้ตามเวลาไทย (Asia/Bangkok) ที่ใช้นับ' })
+  date!: string;
+  @ApiProperty({
+    description:
+      'งานวันนี้ = `?dateFrom=date&dateTo=date&status=` ทุกสถานะยกเว้น CANCELLED',
+  })
+  today!: number;
+  @ApiProperty({
+    description: 'ส่งแล้ว = `status=DELIVERED,POD_PENDING,UNBILLED,BILLED` ของวัน `date`',
+  })
+  delivered!: number;
+  @ApiProperty({ description: 'ส่งไม่สำเร็จ = `status=FAILED` ของวัน `date`' })
+  failed!: number;
 }
 
 export class DeliveryOrderPageDto {

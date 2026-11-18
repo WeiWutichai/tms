@@ -10,6 +10,7 @@ import {
   type SoStatus,
   type OrderSource,
   type OrderSourceRef,
+  OPS_ORDER_WAITING,
 } from '@tms/domain';
 import { encodeId, tryDecodeId, type IdKind } from '../../common/ids';
 import { keysetArgs, toPage } from '../../common/pagination';
@@ -346,10 +347,14 @@ export class OrdersService {
       this.countHeld('LOCATION_UNMAPPED'),
       this.countHeld('CUSTOMER_UNMAPPED'),
     ]);
-    const [holdReasons, heldTotal] = await Promise.all([
+    const [holdReasons, heldTotal, waiting] = await Promise.all([
       this.holdReasonCounts(),
       tx.salesOrder.count({
         where: { OR: [{ status: 'ON_HOLD' }, { sourceChangedAfterPlan: true }] },
+      }),
+      // ST9-T01 dashboard "รอจัดรถ" — ตัวกรองเดียวกับ `GET /orders?status=received,on_hold`
+      tx.salesOrder.count({
+        where: await this.where({ status: OPS_ORDER_WAITING.join(',') } as OrderListQuery),
       }),
     ]);
     return {
@@ -363,6 +368,7 @@ export class OrdersService {
       plannedToday,
       heldTotal,
       holdReasons,
+      waiting,
     };
   }
 

@@ -750,6 +750,11 @@ export class OrderSummaryDto {
       'SOURCE_CHANGED_AFTER_PLAN = ใบที่ต้นทางแก้หลังวางแผน (สถานะยัง PLANNED)',
   })
   holdReasons!: OrderHoldCountDto[];
+  @ApiProperty({
+    description:
+      'ST9-T01 รอจัดรถ = รับแล้วยังไม่เข้าเที่ยว + ค้าง (เงื่อนไขเดียวกับ `status=received,on_hold`)',
+  })
+  waiting!: number;
 }
 
 export class OrderHoldCountDto {
