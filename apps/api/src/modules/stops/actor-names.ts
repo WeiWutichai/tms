@@ -8,6 +8,8 @@ const LINK_ACTOR = /^link:([0-9a-f-]{36})$/i;
  * ชื่อผู้ทำรายการจาก actor id (ผู้บันทึก event / หลักฐานส่ง / audit)
  * - uuid = ผู้ใช้ภายใน (`app_user.name`)
  * - `link:{magic_link.id}` ของลิงก์งาน/ข้อเสนอรถร่วม (ST4-T08/T09) = ชื่อรถร่วมของการจ้างที่ลิงก์ชี้
+ * - `platform:{platform_user.id}` ทีม Innovera (ST7-T20) = role แอปอ่าน platform_user ไม่ได้ → ไม่มีชื่อที่นี่; ประวัติ connector เติมชื่อด้วย
+ *   `ConnectorsService.withPlatformNames` และหน้าเว็บแสดง "ทีม Innovera" จาก prefix
  * - อื่น ๆ (dev token / ระบบ) = ไม่มีชื่อ
  */
 export async function actorNames(

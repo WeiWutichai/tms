@@ -42,6 +42,15 @@ export interface NotificationVars {
   /** ST9-T08 connector หยุดทำงาน (status ERROR — docs/04 I "connector ล่ม") · label = รหัส adapter · code = รหัสปัญหา */
   'connector.error': { label: string; code: string };
   /**
+   * ST7-T20 ทีม Innovera เปลี่ยน connector จาก Platform Console (แบบเดียวกับแจ้ง owner ตอนเข้าใช้งานแทน — docs/04 A6)
+   * action = created / credentials / resumed / paused / error / recovered · reason = เหตุผลของทีมงาน (safeName)
+   */
+  'connector.platform_changed': {
+    label: string;
+    action: 'created' | 'credentials' | 'resumed' | 'paused' | 'error' | 'recovered';
+    reason: string;
+  };
+  /**
    * ST9-T08 สรุปรายวัน 08:00 (docs/04 I) — อีเมลฉบับเดียวต่อผู้ใช้ต่อวัน: แจ้งเตือนในกระดิ่งช่วง 24 ชม. ก่อนหน้า แยกตาม event
    * groups[].titles = หัวข้อล่าสุดไม่เกิน DIGEST_TITLES ต่อกลุ่ม · unread = ที่ยังไม่อ่านในช่วงนี้
    */
@@ -388,6 +397,34 @@ const TEMPLATES: {
     en: (v) => ({
       title: 'Connector down',
       body: `Connector ${v.label} stopped (${v.code}) — outgoing work is parked. Check the connection and resume it in Settings → Connections.`,
+    }),
+  },
+  'connector.platform_changed': {
+    th: (v) => ({
+      title: 'ทีม Innovera เปลี่ยนการเชื่อมต่อระบบบัญชี',
+      body: `${
+        {
+          created: 'เปิด connector',
+          credentials: 'เปลี่ยน key ของ',
+          resumed: 'เปิดใช้',
+          paused: 'หยุดชั่วคราว',
+          error: 'ทดสอบไม่ผ่าน — หยุด',
+          recovered: 'ทดสอบผ่าน — เปิดใช้ต่อ',
+        }[v.action]
+      } ${v.label} · เหตุผล: ${v.reason} — ดูประวัติที่ ตั้งค่า → การเชื่อมต่อ`,
+    }),
+    en: (v) => ({
+      title: 'Innovera changed your accounting connector',
+      body: `${
+        {
+          created: 'Enabled connector',
+          credentials: 'Rotated the key of',
+          resumed: 'Resumed',
+          paused: 'Paused',
+          error: 'Health check failed — stopped',
+          recovered: 'Health check passed — resumed',
+        }[v.action]
+      } ${v.label} · reason: ${v.reason} — see the history in Settings → Connections.`,
     }),
   },
   'daily.digest': {

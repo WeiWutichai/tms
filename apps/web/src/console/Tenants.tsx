@@ -48,7 +48,7 @@ function monthYear(iso: string, lang: Lang): string {
 }
 
 /** ข้อความ error จาก problem+json (field error ที่รู้จัก → ข้อความของ field) */
-function useProblemText() {
+export function useProblemText() {
   const { t } = useI18n();
   return (e: unknown) => {
     const p = e instanceof ApiError ? e.problem : undefined;
@@ -431,17 +431,20 @@ function Members({ x }: { x: TenantDetail }) {
   );
 }
 
-interface Field {
+export interface Field {
   k: string;
+  /** ป้ายจาก i18n — หรือ `label` ข้อความตรง (ชื่อช่องของ adapter) */
   l: MessageKey;
-  type: 'sel' | 'in';
+  label?: string;
+  /** `pw` = ช่องลับ (credential — ไม่แสดงค่า) ST7-T20 */
+  type: 'sel' | 'in' | 'pw';
   opts?: { v: string; l: string }[];
   hint?: string;
   im?: 'numeric' | 'email' | 'text';
 }
 
 /** dialog การกระทำ (vAct ในต้นแบบ): สรุปผลกระทบ + ช่องเหตุผล ≥ 10 ตัว (PLT-101) */
-function ActionDialog({
+export function ActionDialog({
   title,
   desc,
   warn,
@@ -456,7 +459,8 @@ function ActionDialog({
   title: string;
   desc: string;
   warn?: string;
-  fields?: Field[];
+  /** ช่องกรอก — ฟังก์ชัน = ช่องที่ขึ้นกับค่าที่เลือก (เช่น ช่อง credential ตามระบบ — ST7-T20) */
+  fields?: Field[] | ((v: Record<string, string>) => Field[]);
   init?: Record<string, string>;
   okL: string;
   danger?: boolean;
@@ -514,12 +518,12 @@ function ActionDialog({
               <span>{warn}</span>
             </div>
           )}
-          {fields.map((f) => (
+          {(typeof fields === 'function' ? fields(v) : fields).map((f) => (
             <label key={f.k} className="con-field">
-              <span className="con-field__l">{t(f.l)}</span>
+              <span className="con-field__l">{f.label ?? t(f.l)}</span>
               {f.type === 'sel' ? (
                 <select
-                  aria-label={t(f.l)}
+                  aria-label={f.label ?? t(f.l)}
                   value={v[f.k] ?? ''}
                   onChange={(e) => setV({ ...v, [f.k]: e.target.value })}
                 >
@@ -531,10 +535,11 @@ function ActionDialog({
                 </select>
               ) : (
                 <input
-                  aria-label={t(f.l)}
+                  aria-label={f.label ?? t(f.l)}
                   value={v[f.k] ?? ''}
                   inputMode={f.im === 'email' ? 'email' : f.im}
-                  type={f.im === 'email' ? 'email' : 'text'}
+                  type={f.type === 'pw' ? 'password' : f.im === 'email' ? 'email' : 'text'}
+                  autoComplete={f.type === 'pw' ? 'new-password' : undefined}
                   onChange={(e) => setV({ ...v, [f.k]: e.target.value })}
                 />
               )}

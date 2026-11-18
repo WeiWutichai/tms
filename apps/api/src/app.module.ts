@@ -41,6 +41,7 @@ import { ExportsService } from './modules/exports/exports.service';
 import { ListExports } from './modules/exports/list-exports';
 import { SetupChecklistController } from './modules/setup/setup.controller';
 import { PlatformAuthController } from './platform/platform-auth.controller';
+import { PlatformConnectorsController } from './platform/platform-connectors.controller';
 import { PlatformTenantsController } from './platform/platform-tenants.controller';
 import { ImpersonationController } from './platform/impersonation.controller';
 import {
@@ -99,6 +100,8 @@ import {
   ConnectorsEffectiveController,
 } from './modules/erp/connectors.controller';
 import { ConnectorsService } from './modules/erp/connectors.service';
+import { ErpMasterCodesController } from './modules/erp/erp-master-codes.controller';
+import { ErpMasterCodesService } from './modules/erp/erp-master-codes.service';
 import { InboundWebhookController } from './modules/erp/inbound-webhook.controller';
 import { InboundWebhookService } from './modules/erp/inbound-webhook.service';
 import { ConnectorResolver } from './modules/erp/connector-resolver';
@@ -234,6 +237,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     SetupChecklistController,
     PlatformAuthController,
     PlatformTenantsController,
+    PlatformConnectorsController,
     ImpersonationController,
     HealthController,
     MonitoringController,
@@ -267,6 +271,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     TestEventsController,
     ConnectorsEffectiveController,
     ConnectorsController,
+    ErpMasterCodesController,
     InboundWebhookController,
     WebhookDeliveriesController,
     EventsController,
@@ -390,6 +395,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     ErpAdapterRegistry,
     ConnectorResolver,
     ConnectorsService,
+    ErpMasterCodesService,
     InboundWebhookService,
     ErpAdapterSink,
     ErpAdaptersBootstrap,
