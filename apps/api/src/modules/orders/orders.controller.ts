@@ -67,17 +67,20 @@ const P = (code: string, status: number, title: string, extra: Record<string, un
   requestId: 'b6a1c2d3-…',
   ...extra,
 });
-const E403 = {
+/** ตัวอย่าง 403 ตาม scope จริงของ route (ST7-T11 — เดิมใช้ `orders:write` ทุก route) */
+const E403S = (scope: 'orders:read' | 'orders:write' | 'orders:cancel') => ({
   status: 403,
-  description: 'ไม่มีสิทธิ์ (`orders:read` / `orders:write`)',
+  description: `ไม่มีสิทธิ์ (\`${scope}\`)`,
   examples: {
     permission_denied: P('permission_denied', 403, 'ไม่มีสิทธิ์ทำรายการนี้', {
       module: 'orders',
-      action: 'write',
-      required: ['orders:write'],
+      action: scope.split(':')[1],
+      required: [scope],
     }),
   },
-};
+});
+const E403 = E403S('orders:write');
+const E403R = E403S('orders:read');
 const E404 = {
   status: 404,
   description: 'ไม่พบ (รวมใบของบริษัทอื่น)',
@@ -378,7 +381,7 @@ export class OrdersController {
   @Get('summary')
   @RequireScope('orders:read')
   @ApiOkResponse({ type: OrderSummaryDto })
-  @ApiProblems(E403)
+  @ApiProblems(E403R)
   summary(): Promise<OrderSummaryDto> {
     return this.orders.summary();
   }
@@ -386,7 +389,7 @@ export class OrdersController {
   @Get()
   @RequireScope('orders:read')
   @ApiOkResponse({ type: OrderPageDto })
-  @ApiProblems(E403, E422)
+  @ApiProblems(E403R, E422)
   list(@Query() q: OrderListQuery) {
     return this.orders.list(q);
   }
@@ -452,7 +455,7 @@ export class OrdersController {
       '`{id}` รับ `ext:{externalId}` ได้ · ETag = version ของใบ (ใช้กับ If-Match) — `editLock`/`editableFields` ' +
       'เปลี่ยนได้โดย version ไม่เปลี่ยน จึงไม่รองรับ conditional GET (`If-None-Match` ถูกละเลย ตอบ 200 เสมอ) + `Cache-Control: no-store`',
   })
-  @ApiProblems(E403, E404)
+  @ApiProblems(E403R, E404)
   async get(
     @Param('id') id: string,
     @Req() req: Request,
@@ -558,7 +561,7 @@ export class OrdersController {
   @RequireScope('orders:cancel')
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
   @ApiOkResponse({ type: OrderDto })
-  @ApiProblems(E400(false), E403, E404, withLock(E409C), E412, E422R)
+  @ApiProblems(E400(false), E403S('orders:cancel'), E404, withLock(E409C), E412, E422R)
   async cancel(
     @Param('id') id: string,
     @Body() body: CancelOrderDto,

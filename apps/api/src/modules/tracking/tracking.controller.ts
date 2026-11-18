@@ -131,7 +131,7 @@ export class DeliveryOrderTrackingController {
   @Get(':id/tracking-link')
   @TenantResource('deliveryOrder')
   @RequireScope('orders:write', 'trips:dispatch')
-  @ApiProblems(T403('orders:write | trips:dispatch'), T404)
+  @ApiProblems(T403('orders:write', 'trips:dispatch'), T404)
   @ApiOkResponse({ type: TrackingLinkStateDto, description: LINK_DESC })
   get(@Param('id') id: string): Promise<TrackingLinkStateDto> {
     return this.tracking.current('do', decodeIdOr404('deliveryOrder', id));
@@ -141,7 +141,7 @@ export class DeliveryOrderTrackingController {
   @HttpCode(201)
   @TenantResource('deliveryOrder')
   @RequireScope('orders:write', 'trips:dispatch')
-  @ApiProblems(T403('orders:write | trips:dispatch'), T404, T409('invalid_state_transition'))
+  @ApiProblems(T403('orders:write', 'trips:dispatch'), T404, T409('invalid_state_transition'))
   @ApiCreatedResponse({
     type: TrackingLinkDto,
     description: `ออกลิงก์ใหม่ — ลิงก์เดิมถูกเพิกถอน (1 ลิงก์ต่อ DO) · DO ยกเลิกแล้ว → 409 · ${LINK_DESC}`,
@@ -154,7 +154,7 @@ export class DeliveryOrderTrackingController {
   @HttpCode(200)
   @TenantResource('deliveryOrder')
   @RequireScope('orders:write', 'trips:dispatch')
-  @ApiProblems(T403('orders:write | trips:dispatch'), T404, T422)
+  @ApiProblems(T403('orders:write', 'trips:dispatch'), T404, T422)
   @ApiOkResponse({
     type: TrackingLinkStateDto,
     description: 'เพิกถอนลิงก์ที่ใช้ได้ (เหตุผล + audit)',

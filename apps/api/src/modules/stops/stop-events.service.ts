@@ -218,6 +218,19 @@ export class StopEventsService {
     return !!(await this.db.tx.tripStop.findFirst({ where: { id: stopId }, select: { id: true } }));
   }
 
+  /** ST7-T11 จุดแวะเดียวสำหรับ `GET /v1/stops/{id}` (รวมจุดที่ถอดแล้ว) — ไม่พบ/tenant อื่น (RLS) = null */
+  stopView(stopId: string, tx: Tx = this.db.tx) {
+    return tx.tripStop.findFirst({
+      where: { id: stopId },
+      include: {
+        trip: { select: { tripNo: true, status: true } },
+        site: { select: { name: true } },
+        deliveryOrders: { select: { id: true, createdAt: true }, orderBy: { createdAt: 'asc' } },
+        pickupOrders: { select: { id: true, createdAt: true }, orderBy: { createdAt: 'asc' } },
+      },
+    });
+  }
+
   /** เที่ยวของ tenant นี้ */
   async tripExists(tripId: string): Promise<boolean> {
     return !!(await this.db.tx.trip.findFirst({ where: { id: tripId }, select: { id: true } }));
