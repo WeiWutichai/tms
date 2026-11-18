@@ -44,8 +44,16 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
     const id = d.targetId;
     const { connector, tenant } = await d.withTx(async (tx) => ({
       connector: id ? await tx.connector.findUnique({ where: { id } }) : null,
-      tenant: await tx.tenant.findUnique({ where: { id: d.tenantId }, select: { status: true } }),
+      tenant: await tx.tenant.findUnique({
+        where: { id: d.tenantId },
+        select: { status: true, mode: true },
+      }),
     }));
+    // ST7-T09 กันชั้นที่ 2: sandbox ไม่ส่งอะไรเข้า ERP จริงเลย (connector สร้างใน sandbox ไม่ได้อยู่แล้ว — @LiveOnly)
+    if (tenant?.mode === 'test')
+      throw new OutboxSinkError('sandbox tenant — ERP push suppressed', 'CAPABILITY', {
+        code: 'sandbox_unsupported',
+      });
     if (!connector || connector.status === 'DISCONNECTED') {
       // INT-016 หยุดส่งทันที — ข้าม แต่ลง audit ให้หน้าคิว (ST7-T19) แสดง/แจ้งบัญชี
       if (connector) await this.skipped(d, connector, 'connector_disconnected');

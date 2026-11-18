@@ -21,6 +21,7 @@ import {
   type UpdateApiKeyDto,
 } from './api-key.dto';
 import { generateApiKey, IP_ALLOWLIST_MAX, normalizeIpEntry } from './key-material';
+import { findUsers } from '../sandbox/users';
 import { FIRST_API_VERSION, parseApiVersion } from '../../http/api-version/versions';
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -174,10 +175,8 @@ export class ApiKeysService {
   private async names(rows: ApiKey[]): Promise<Map<string, Creator>> {
     const ids = [...new Set(rows.map((r) => r.createdBy).filter((x) => x && UUID_RE.test(x)))];
     if (!ids.length) return new Map();
-    const users = await this.db.tx.appUser.findMany({
-      where: { id: { in: ids as string[] } },
-      select: { id: true, name: true, status: true },
-    });
+    // ST7-T09: key ของ sandbox สร้างโดยผู้ใช้ของบริษัทจริง (sandbox ไม่มีผู้ใช้ของตัวเอง)
+    const users = await findUsers(this.db.tx, { ids: ids as string[] });
     return new Map(users.map((u) => [u.id, { name: u.name, active: u.status === 'ACTIVE' }]));
   }
 
@@ -201,10 +200,7 @@ export class ApiKeysService {
       and.push({ scopes: { hasSome: hit.length ? hit : ['-'] } });
     }
     if (q.createdBy) {
-      const users = await this.db.tx.appUser.findMany({
-        where: { name: { contains: q.createdBy, mode: 'insensitive' } },
-        select: { id: true },
-      });
+      const users = await findUsers(this.db.tx, { name: q.createdBy });
       and.push({ createdBy: { in: users.map((u) => u.id) } });
     }
     const rows = await this.db.tx.apiKey.findMany({
@@ -289,10 +285,18 @@ export class ApiKeysService {
   async create(body: CreateApiKeyDto): Promise<ApiKeySecretDto> {
     this.assertHuman();
     const ctx = requestContext.require();
-    const mode = body.mode ?? 'live';
-    // sandbox (tenant mode test) ยังไม่มี — key test ที่เห็นข้อมูลจริงจะผิดหลัก G1 Sandbox → รอ ST7-T09
-    if (mode === 'test')
-      throw field422('mode', 'sandbox_not_available', 'test keys require sandbox (ST7-T09)');
+    // ST7-T09: โหมดของ key = โหมดของ tenant ที่ key อยู่ — key `tk_test_` อยู่ในแถวของ sandbox เท่านั้น
+    // (ผู้ใช้สลับเป็น Sandbox ด้วย `X-Tms-Mode: test`) · ไม่ตรงกัน → 422 (ไม่ย้าย tenant ให้เงียบ ๆ)
+    const ctxMode = ctx.sandbox ? 'test' : 'live';
+    const mode = body.mode ?? ctxMode;
+    if (mode !== ctxMode)
+      throw field422(
+        'mode',
+        'mode_mismatch',
+        mode === 'test'
+          ? 'test keys are created in sandbox — send header X-Tms-Mode: test'
+          : 'live keys cannot be created in sandbox — omit X-Tms-Mode',
+      );
     const scopes = this.checkScopes(body.scopes);
     const ipAllowlist = this.checkIps(body.ipAllowlist ?? []);
     const name = body.name.trim();

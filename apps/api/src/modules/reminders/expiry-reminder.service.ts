@@ -137,7 +137,7 @@ export class ExpiryReminderService implements OnModuleInit {
     return this.prisma.platform.$transaction(async (db) => {
       await db.$executeRaw`SELECT pg_advisory_xact_lock(8, hashtext('expiry.reminders'))`;
       const tenants = await db.tenant.findMany({
-        where: { status: { in: ['TRIAL', 'ACTIVE'] } },
+        where: { status: { in: ['TRIAL', 'ACTIVE'] }, mode: 'live' }, // ST7-T09 sandbox ไม่รันงานประจำ
         select: { id: true },
         orderBy: { createdAt: 'asc' },
       });

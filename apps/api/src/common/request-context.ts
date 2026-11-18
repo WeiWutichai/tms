@@ -21,6 +21,17 @@ export interface RequestContext {
   apiVersionPin?: string | null;
   /** ST7-T07: วันที่ pin ของคำขอนี้ (ตั้งโดย ApiVersionInterceptor) */
   apiVersion?: string;
+  /**
+   * ST7-T09: tenant ของคำขอนี้เป็น sandbox (`tenant.mode = 'test'`) — key `tk_test_` หรือผู้ใช้ที่สลับโหมด Sandbox
+   * (header `X-Tms-Mode: test` บน route ที่ติด @SandboxAware) · `users` = หาผู้ใช้ของบริษัทจริง (ชื่อผู้สร้าง/ผู้ทำรายการ)
+   */
+  sandbox?: {
+    liveTenantId: string;
+    users: (where: {
+      ids?: string[];
+      name?: string;
+    }) => Promise<{ id: string; name: string; status: string }[]>;
+  };
   locale: 'th' | 'en';
   /** IP ผู้เรียก (trust proxy 1 ชั้น) — ลง audit log */
   ip?: string;

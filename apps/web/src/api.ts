@@ -1,6 +1,7 @@
 import { createTmsClient, type Problem } from '@tms/contracts';
 import { QueryClient } from '@tanstack/react-query';
 import { dropAccessToken, getAccessToken } from './auth/session';
+import { getApiMode, isSandboxPath } from './features/api-keys/mode';
 
 /**
  * client เดียวที่ UI ใช้ — generate จาก OpenAPI ของ /v1 (API-first, ST0-T09)
@@ -15,6 +16,22 @@ export const api = createTmsClient({
       ? null
       : getAccessToken(),
   locale: () => (document.documentElement.lang === 'en' ? 'en' : 'th'),
+});
+
+// ST7-T09: หน้า นักพัฒนา / Open API ในโหมด Sandbox → ส่ง `X-Tms-Mode: test` เฉพาะ path ของหน้านั้น
+// (คำขอที่ระบุ header เองแล้ว เช่น สร้าง key ของอีกโหมด ไม่ถูกทับ)
+api.use({
+  onRequest({ request }) {
+    if (getApiMode() !== 'test' || request.headers.has('X-Tms-Mode')) return request;
+    let path = '';
+    try {
+      path = new URL(request.url, 'http://x').pathname;
+    } catch {
+      return request;
+    }
+    if (isSandboxPath(path)) request.headers.set('X-Tms-Mode', 'test');
+    return request;
+  },
 });
 
 export class ApiError extends Error {

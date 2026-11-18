@@ -19,7 +19,12 @@ import {
 } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { AuditPageDto } from '../../audit/audit.controller';
-import { RequireFeature, RequireScope, TenantResource } from '../../common/decorators';
+import {
+  RequireFeature,
+  RequireScope,
+  TenantResource,
+  SandboxAware,
+} from '../../common/decorators';
 import { expectedVersion, setEtag } from '../../common/etag';
 import { decodeIdOr404 } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
@@ -59,6 +64,7 @@ function noIdempotencyKey(req: Request) {
 @ApiTags('api-keys')
 @ApiBearerAuth()
 @RequireFeature('api')
+@SandboxAware()
 @Controller('api-keys')
 export class ApiKeysController {
   constructor(

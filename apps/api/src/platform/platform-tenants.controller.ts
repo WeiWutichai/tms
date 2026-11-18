@@ -176,7 +176,11 @@ export class PlatformTenantsController {
   @ApiOkResponse({ type: [PlatformTenantDto] })
   async list(@Query() q: PlatformTenantListQuery): Promise<PlatformTenantDto[]> {
     const rows = await this.prisma.platform.tenant.findMany({
-      where: q.q ? { name: { contains: q.q, mode: 'insensitive' } } : {},
+      // ST7-T09: sandbox ของบริษัทไม่ใช่ลูกค้า — ไม่แสดง/จัดการจาก Console (ตามบริษัทจริง)
+      where: {
+        mode: 'live',
+        ...(q.q ? { name: { contains: q.q, mode: 'insensitive' as const } } : {}),
+      },
       orderBy: { createdAt: 'desc' },
       take: q.limit ?? 50,
     });
@@ -472,7 +476,7 @@ export class PlatformTenantsController {
     const t = await this.prisma.platform.tenant.findUnique({
       where: { id: decodeIdOr404('tenant', id) },
     });
-    if (!t) throw new ProblemException('not_found');
+    if (!t || t.mode !== 'live') throw new ProblemException('not_found');
     return t;
   }
 

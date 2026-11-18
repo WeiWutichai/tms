@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { EmailOutbox, Prisma } from '@prisma/client';
 import { PrismaService } from '../../db/prisma.service';
+import { isSandboxTenant } from '../sandbox/users';
 import { renderEmail, type TemplateName, type TemplateVars } from './templates';
 import { transportFromEnv, type EmailTransport } from './transport';
 
@@ -101,7 +102,7 @@ export class EmailDispatcher {
       UPDATE email_outbox e SET status = 'SENDING', attempts = e.attempts + 1,
              locked_until = now() + (${LEASE_MS}::int * interval '1 millisecond'), updated_at = now()
         FROM c WHERE e.id = c.id
-      RETURNING e.id, e.to_address AS "toAddress", e.subject, e.text_body AS "textBody",
+      RETURNING e.id, e.tenant_id AS "tenantId", e.to_address AS "toAddress", e.subject, e.text_body AS "textBody",
                 e.html_body AS "htmlBody", e.attempts, e.max_attempts AS "maxAttempts", e.template`;
   }
 
@@ -113,6 +114,19 @@ export class EmailDispatcher {
     try {
       this.transport ??= transportFromEnv();
       if (!m.textBody || !m.htmlBody) throw new Error('email body missing');
+      // ST7-T09: sandbox ไม่ส่งอีเมลออกไปหาคนจริง (ลูกค้า/รถร่วม/ผู้รับ) — บันทึกเป็น FAILED `sandbox_suppressed` ไม่ลองใหม่
+      if (m.tenantId && (await isSandboxTenant(this.prisma.platform, m.tenantId))) {
+        await db.$executeRaw`
+          WITH e AS (
+            UPDATE email_outbox SET status = 'FAILED', locked_until = NULL, error = 'sandbox_suppressed',
+                   text_body = NULL, html_body = NULL, updated_at = now()
+             WHERE id = ${m.id}::uuid AND status = 'SENDING' AND attempts = ${m.attempts}
+            RETURNING id)
+          UPDATE notification n SET status = 'FAILED', failed_reason = 'sandbox_suppressed', updated_at = now()
+            FROM e WHERE n.email_outbox_id = e.id AND n.status = 'QUEUED'`;
+        this.logger.log(`email ${m.id} (${m.template}) suppressed — sandbox tenant`);
+        return true;
+      }
       const r = await this.transport.send({
         to: m.toAddress,
         subject: m.subject,

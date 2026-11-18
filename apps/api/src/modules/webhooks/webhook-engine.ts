@@ -12,6 +12,7 @@ import type { Tx } from '../../db/db.service';
 import { retryDelayMin } from '../integration/outbox.dispatcher';
 import type { OutboxEvent } from '../integration/outbox.types';
 import { NotificationService } from '../notifications/notification.service';
+import { SandboxService, type TenantMode } from '../sandbox/sandbox.service';
 import { signatureHeader } from './signature';
 import {
   postWebhook,
@@ -95,7 +96,15 @@ export class WebhookEngine {
   /** test: ฉีด resolver/timeout/allowPrivate */
   sendOptions: SendOptions = {};
 
-  constructor(private readonly notifications: NotificationService) {}
+  constructor(
+    private readonly notifications: NotificationService,
+    private readonly sandbox: SandboxService,
+  ) {}
+
+  /** ST7-T09: `envelope.mode` — `test` เมื่อ tenant เป็น sandbox */
+  modeOf(tenantId: string): Promise<TenantMode> {
+    return this.sandbox.modeOf(tenantId);
+  }
 
   get cipher(): FieldCipher {
     return (this.cipherInstance ??= new FieldCipher());
@@ -114,28 +123,34 @@ export class WebhookEngine {
     return JSON.parse(this.cipher.decrypt(e.extraHeadersEnc)) as ExtraHeader[];
   }
 
-  envelopeOf(tenantId: string, ev: OutboxEvent): WebhookEnvelope {
+  envelopeOf(tenantId: string, ev: OutboxEvent, mode: TenantMode = 'live'): WebhookEnvelope {
     return {
       id: encodeId('event', ev.id),
       type: ev.type,
       version: String(ev.version),
       occurredAt: ev.occurredAt.toISOString(),
       tenantId: encodeId('tenant', tenantId),
-      mode: 'live',
+      mode,
       data: { object: ev.snapshot ?? null, previousAttributes: ev.previousAttributes ?? null },
       request: { id: ev.requestId, idempotencyKey: null },
     };
   }
 
   /** envelope ระบบ (webhook.test / webhook.verification) — id ใหม่ทุกครั้ง */
-  systemEnvelope(tenantId: string, type: string, object: unknown, id?: string): WebhookEnvelope {
+  systemEnvelope(
+    tenantId: string,
+    type: string,
+    object: unknown,
+    id?: string,
+    mode: TenantMode = 'live',
+  ): WebhookEnvelope {
     return {
       id: id ?? `evt_${randomBytes(16).toString('hex')}`,
       type,
       version: '1',
       occurredAt: new Date().toISOString(),
       tenantId: encodeId('tenant', tenantId),
-      mode: 'live',
+      mode,
       test: true,
       data: { object, previousAttributes: null },
       request: { id: null, idempotencyKey: null },

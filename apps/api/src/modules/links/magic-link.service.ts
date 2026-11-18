@@ -171,10 +171,12 @@ export class MagicLinkService {
     // token ต้องตรงกับอายุในแถว (กันเอาลายเซ็นของอายุอื่นมาใช้)
     if (Math.floor(row.expiresAt.getTime() / 1000) !== t.exp) return null;
     // tenant ถูกระงับ/ยกเลิก → ลิงก์ใช้ไม่ได้ (เหมือนผู้ใช้ — spec/01 PLT-001)
-    const tenant = await this.prisma.platform.tenant.findUnique({
+    const t0 = await this.prisma.platform.tenant.findUnique({
       where: { id: row.tenantId },
-      select: { status: true },
+      select: { status: true, liveTenant: { select: { status: true } } },
     });
+    // ST7-T09: ลิงก์ของ sandbox ตามสถานะบริษัทจริง
+    const tenant = t0 ? { status: t0.liveTenant?.status ?? t0.status } : null;
     if (!tenant || (tenant.status !== 'TRIAL' && tenant.status !== 'ACTIVE')) return null;
     // บันทึกการใช้ล่าสุดไม่เกินนาทีละครั้ง (ไม่เขียนฐานทุก request)
     if (!row.lastUsedAt || Date.now() - row.lastUsedAt.getTime() > 60_000)

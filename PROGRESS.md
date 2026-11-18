@@ -29,8 +29,8 @@
 | ST9 Cross-cutting | **กำลังทำ** · T10 ส่งออกตามตัวกรอง dev เสร็จ รอ review/QA (`st9/t10-export`) | 18 พ.ย. 2569 | — | |
 | ST5–ST6, ST8–ST9 | ยังไม่เริ่ม | | | |
 | ST9 (เฉพาะ T11 saved views) | **dev เสร็จ** รอ review/QA/merge (`st9/t11-saved-views`) | 18 พ.ย. 2569 | — | ดูบันทึก 18 พ.ย. (ST9-T11) |
-| ST9 (เฉพาะ T08 ศูนย์แจ้งเตือน) | **dev เสร็จ** รอ review/QA/merge (`st9/t08-notifications`) | 18 พ.ย. 2569 | — | ดูบันทึก 18 พ.ย. (ST9-T08) |
 | ST7 Open API + Integration | **กำลังทำ** 1/23 (T01 merge แล้ว · T02 แก้ตาม review/QA แล้ว รอ merge · T03 แก้ตาม review/QA แล้ว รอ merge · T04 แก้ตาม review/QA แล้ว รอ merge · T05 แก้ตาม review/QA แล้ว รอ merge · T08 แก้ตาม review/QA แล้ว รอ merge · T13 แก้ตาม review/QA แล้ว รอ merge · T07 dev เสร็จ รอ review/QA · T22 แก้ตาม review/QA แล้ว รอ merge · T06 แก้ตาม review/QA อยู่ · T10 แก้ตาม review/QA แล้ว รอ merge) · ทำ T01 ก่อน ST5/ST6 ได้เพราะไม่ใช้ event ของ ST5/ST6 | 17 พ.ย. 2569 | — | ตารางงาน ST7 ด้านล่าง |
+| ST9 (เฉพาะ T08 ศูนย์แจ้งเตือน) | **dev เสร็จ** รอ review/QA/merge (`st9/t08-notifications`) | 18 พ.ย. 2569 | — | ดูบันทึก 18 พ.ย. (ST9-T08) |
 | ST5–ST6, ST8–ST9 | ยังไม่เริ่ม | | | |
 | ST9 Dashboard / รายงาน (T01) | **กำลังทำ** — T01 dev เสร็จ (lane C) รอ review/QA | 18 พ.ย. 2569 | — | ST9-T01 Dashboard ปฏิบัติการ |
 
@@ -261,6 +261,21 @@
 - (11 พ.ย., พบระหว่าง T19 — **แก้แล้วใน T04**: `db:migrate` รัน bootstrap ทุก tenant ซึ่ง sync role ระบบ) **role ระบบของ tenant ที่มีอยู่ไม่ได้สิทธิ์ใหม่อัตโนมัติ** — `ensureSystemRoles` รันแค่ตอนสร้าง tenant/seed; เมื่อโค้ดเพิ่ม permission (เช่น `documents:write` ใน T08) tenant เดิมไม่ได้ จนกว่าจะรัน seed · ฐาน dev แก้ด้วย seed แล้ว · ต้องมี sync ตอน deploy/บูต ก่อนมี tenant จริง (เสนอทำใน T24 admin portal หรือ migration step) 
 
 ## บันทึกรายวัน
+
+### 19 พ.ย. 2569 (ST7-T09 แก้ตาม QA)
+- ทำ: (L1) ตัวอย่าง `data.object` ของ trigger/webhook.test ใกล้ของจริง — ทุก field, id รูปจริง (prefix + 32 hex ใหม่ทุกครั้ง), enum ค่าแรก, array ≥ 1 รายการ (ตาม minItems), วันเวลาปัจจุบัน, nullable ไม่มีตัวอย่าง = null (`webhooks/event-openapi.ts`) (L2) drawer endpoint ใน Sandbox แสดงนโยบายลองใหม่แบบ "บันทึกในกิจกรรม ไม่แจ้งอีเมล" (`whk.policySbx`) · ผู้สมัครเพิ่ม sandbox เลื่อนเป็น #30 · merge main (ST9-T10)
+- ค้าง: —
+
+### 19 พ.ย. 2569 (ST7-T09 แก้ตาม review + lane l5)
+- ทำ: (M1) `/v1/connectors/*` ติด `@LiveOnly` → 403 `sandbox_unsupported` ใน sandbox + sink `erp` ข้าม sandbox + ดึง order จาก connector ไม่รันใน sandbox · อีเมล/LINE/SMS ของ sandbox ไม่ส่งจริง (FAILED `sandbox_suppressed`) (M2) rate limit ของ sandbox อ่านแพ็กเกจ/โปรไฟล์ปัจจุบันของบริษัทจริง (M3) spec/12 แถว trigger = 200 + รอผล ≤ 10 วิ (L4) cache สิทธิ์ของ sandbox ใช้ของบริษัทจริง (L5) audit `sandbox.created` ที่บริษัทจริง (L6) ค่าเสื่อม/เตือนหมดอายุ/ดึง order ข้าม sandbox · webhook sink/magic link ใช้สถานะบริษัทจริง · merge main + เลข migration → `0107_sandbox_tenant` · E2E ใช้นิติบุคคล seed แทนใบสั่ง + แก้ race ของการรอ request · ภาพเทียบ 1440 ถ่ายแล้ว (`design/compare/st7-sandbox-{keys,create,hooks}-1440.png`) · DECISION แถวใหม่ "connector/ERP + ช่องทางถึงคนภายนอก"
+- ไฟล์: `auth/auth.guard.ts`, `common/{decorators,problem}.ts`, `modules/erp/{connectors.controller,erp-adapter.sink}.ts`, `modules/{email/email.service,messaging/message-dispatcher,connectors/connector-intake.service,connectors/connector-pull.scheduler,depreciation/depreciation.service,reminders/expiry-reminder.service,links/magic-link.service,webhooks/webhook.sink,entitlements/entitlement.service,sandbox/*}.ts`, `http/rate-limit/rate-limit.service.ts`, `test/sandbox.test.ts`, `e2e/sandbox.spec.ts`, spec/12
+- ค้าง: เหมือนเดิม (ผู้สมัคร #30, เอกสารภาษีใน sandbox [OPEN → ST5])
+
+### 18 พ.ย. 2569 (ST7-T09 Sandbox — dev)
+
+- ทำ: sandbox = **แถว tenant แยก** `mode='test'` + `live_tenant_id` (unique 1:1, migration `0107_sandbox_tenant` — CHECK + trigger แก้ไม่ได้/ซ้อนไม่ได้) ข้อมูลแยกด้วย RLS · key `tk_test_` อยู่ในแถว sandbox (ไม่มีการแปลง tenant ตอนยืนยัน key) · ผู้ใช้สลับโหมดด้วย header `X-Tms-Mode: test` เฉพาะ route `@SandboxAware` (api-keys, webhooks, webhook-deliveries, events redeliver, test/events) — สร้าง sandbox อัตโนมัติครั้งแรก (bootstrapTenant) · แพ็กเกจ/สถานะ/วันสร้าง (X-Api-Version) ตามบริษัทจริง · Console ไม่เห็น sandbox · `POST /v1/test/events/trigger` (event active ในทะเบียน ST7-T06, ตัวอย่างตาม schema) → domain_event ของ sandbox → outbox → ส่งทันทีผ่าน dispatcher (ลายเซ็น/retry/ประวัติเดิม) · envelope `mode: "test"` · เว็บ: สวิตช์ Production/Sandbox + แถบ SANDBOX + toast ตามต้นแบบ, ช่อง "โหมด" ในฟอร์ม key/endpoint เปิดใช้ (สร้างของอีกโหมด → หน้าสลับตาม) · DECISION 3 แถว + OPEN 1 แถว (เอกสารภาษีใน sandbox → ST5) ใน spec/12 §3
+- ไฟล์: `apps/api/prisma/{schema.prisma,migrations/0107_sandbox_tenant}`, `src/modules/sandbox/{sandbox.service,users,test-events.controller,test-events.dto}.ts`, `src/auth/auth.guard.ts`, `src/common/{decorators,request-context,problem}.ts`, `modules/api-keys/{api-keys.service,api-key-auth.service,api-keys.controller}.ts`, `modules/webhooks/{webhook-engine,webhook.sink,webhooks.service,webhooks.controller,webhook-ops.controller}.ts`, `modules/entitlements/entitlement.service.ts`, `modules/stops/actor-names.ts`, `http/api-version/api-version.interceptor.ts`, `platform/platform-tenants.controller.ts`, `app.module.ts`, `test/{sandbox,api-keys}.test.ts`, `apps/web/src/{api.ts,features/api-keys/{mode,mode.test,ApiKeysPage,ApiKeyFormDrawer}.ts(x),features/webhooks/{WebhooksTab,WebhookDrawer,WebhookFormDrawer,useWebhooks}.ts(x),i18n/th.ts}`, `api-keys.css`, `e2e/sandbox.spec.ts`, `scripts/compare-sandbox.mjs` → `design/compare/st7-sandbox-{keys,create,hooks}-1440.png`, OpenAPI
+- ค้าง: seed ข้อมูลตัวอย่าง + "ล้าง sandbox" + ไม่นับ usage (INT-061) = ผู้สมัครเพิ่ม · เอกสารภาษีใน sandbox [OPEN → ST5-T09/T14/T19/T20] · base URL `sandbox.api.` ไม่ทำ (โหมดตาม key)
 
 ### 18 พ.ย. 2569 (ST9-T08 ศูนย์แจ้งเตือน — dev)
 

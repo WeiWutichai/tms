@@ -1,3 +1,4 @@
+import { findUsers } from '../sandbox/users';
 import type { Tx } from '../../db/db.service';
 
 const UUID = /^[0-9a-f-]{36}$/i;
@@ -14,9 +15,8 @@ export async function actorNames(
   ids: (string | null | undefined)[],
 ): Promise<Map<string, string>> {
   const uuids = [...new Set(ids.filter((x): x is string => !!x && UUID.test(x)))];
-  const users = !uuids.length
-    ? []
-    : await tx.appUser.findMany({ where: { id: { in: uuids } }, select: { id: true, name: true } });
+  // ST7-T09: ใน sandbox ผู้ทำรายการเป็นผู้ใช้ของบริษัทจริง
+  const users = await findUsers(tx, { ids: uuids });
   const out = new Map(users.map((u) => [u.id, u.name]));
   const linkIds = [
     ...new Set(

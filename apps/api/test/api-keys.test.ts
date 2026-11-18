@@ -374,12 +374,12 @@ describe('API keys + client credentials (ST7-T01)', () => {
       .expect(401);
   });
 
-  it('key test ยังออกไม่ได้ (sandbox ST7-T09) · Idempotency-Key ไม่รับ (secret ห้ามเก็บ)', async () => {
+  it('key test ต้องสร้างในโหมด Sandbox (ST7-T09) · Idempotency-Key ไม่รับ (secret ห้ามเก็บ)', async () => {
     const t = await api(app, admin)
       .post('/v1/api-keys')
       .send({ name: 'sandbox', mode: 'test', scopes: ['orders:read'] });
     expect(t.status).toBe(422);
-    expect(t.body.errors[0].code).toBe('sandbox_not_available');
+    expect(t.body.errors[0].code).toBe('mode_mismatch');
     await api(app, admin)
       .post('/v1/api-keys')
       .set('Idempotency-Key', 'k-1')
