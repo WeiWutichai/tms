@@ -881,6 +881,8 @@ const BODY_FOR_PATH: Record<string, object> = {
   '/v1/webhooks/:id/disable': { reason: 'isolation test reason' }, // ST7-T04
   '/v1/connectors/:id/credentials': { credentials: { apiKey: 'isolation' } }, // ST7-T13
   '/v1/connectors/:id/disconnect': { reason: 'isolation test reason' }, // ST7-T13
+  '/v1/connectors/:id/inbound-token/rotate': { reason: 'isolation test reason' }, // ST7-T22
+  '/v1/connectors/:id/inbound-token/revoke': { reason: 'isolation test reason' }, // ST7-T22
   // DELETE ที่มี body (เหตุผลบังคับ) — key `DELETE <path>`
   'DELETE /v1/webhooks/:id': { reason: 'isolation test reason' }, // ST7-T04
   '/v1/drivers/:id/status': { status: 'on_leave', reason: 'isolation test reason' }, // ST2-T08

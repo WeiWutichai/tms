@@ -18,6 +18,8 @@ export interface JobTypeOptions {
    * ใช้กับงานที่เรียกระบบภายนอก (เช่น geocode ST2-T03) เพื่อไม่ถือ connection/lock ระหว่างรอ
    */
   outsideTransaction?: boolean;
+  /** ช่วงรอก่อนลองใหม่ครั้งที่ n (ms) — ไม่ตั้ง/เกินรายการ = 2^n วินาที (ค่าเดิม) */
+  retryDelaysMs?: readonly number[];
 }
 
 /** แจ้งผู้สั่งงานเมื่อจบ (ST1-T23; docs/04 I "งานใหญ่ background + แจ้งเมื่อเสร็จ") — เก็บใน payload._notify */
@@ -187,7 +189,11 @@ export class JobQueue {
         data: retry
           ? {
               status: 'PENDING',
-              runAt: new Date(Date.now() + 2 ** job.attempts * 1000),
+              runAt: new Date(
+                Date.now() +
+                  (this.opts.get(job.type)?.retryDelaysMs?.[job.attempts - 1] ??
+                    2 ** job.attempts * 1000),
+              ),
               lockedUntil: null,
               error: { message: String(err) },
             }

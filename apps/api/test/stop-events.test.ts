@@ -3,6 +3,7 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { PrismaClient } from '@prisma/client';
 import { SYSTEM_ROLES } from '@tms/domain';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { Clock } from '../src/common/clock';
 import { encodeId } from '../src/common/ids';
 import { createTenantWithDefaults } from '../src/modules/tenants/bootstrap';
 import { api, bootApp, platform, tokenFor, truncateAll } from './helpers';
@@ -21,16 +22,22 @@ describe('stop events (ST4-T01)', () => {
   let admin: string;
   let other: string;
   let seed = 0;
+  let clock: Clock;
 
   beforeAll(async () => {
     await truncateAll();
     app = await bootApp();
+    // event ในชุดนี้ใช้วันที่คงที่ 17 พ.ย. 2569 — ตรึงนาฬิกาของ server ไว้วันเดียวกัน (เดินทีละ 1 วิ ต่อ event)
+    // ไม่ให้กลายเป็น "ย้อนหลัง > 24 ชม." (ธง CLOCK_SKEW) เมื่อรัน test หลังวันนั้น
+    clock = app.get(Clock);
+    clock.set(new Date('2026-11-17T12:00:00+07:00'));
     tenantId = (await createTenantWithDefaults(db, { name: 'บริษัท หน้างาน' })).id;
     otherId = (await createTenantWithDefaults(db, { name: 'บริษัท อื่น' })).id;
     admin = await tokenFor(tenantId);
     other = await tokenFor(otherId);
   });
   afterAll(async () => {
+    clock?.set(null);
     await app.close();
     await db.$disconnect();
     await appDb.$disconnect();
@@ -96,15 +103,18 @@ describe('stop events (ST4-T01)', () => {
       'reasonCode',
       (await db.reasonCode.findFirstOrThrow({ where: { tenantId, category, code } })).id,
     );
-  const ev = (extra: Record<string, unknown> = {}) => ({
-    clientEventId: randomUUID(),
-    occurredAt: '2026-11-17T09:00:00+07:00',
-    ...extra,
-  });
+  const ev = (extra: Record<string, unknown> = {}) => {
+    clock.set(new Date(clock.now().getTime() + 1000));
+    return {
+      clientEventId: randomUUID(),
+      occurredAt: '2026-11-17T09:00:00+07:00',
+      ...extra,
+    };
+  };
 
   it('เกณฑ์ตรวจรับ: arrive → depart → complete ผ่าน API = event 3 แถว พร้อมเวลาสองชุด', async () => {
     const { trip: t, drop, url } = await trip();
-    const before = Date.now();
+    const before = clock.now().getTime();
     const sent = [
       ['arrive', ev({ occurredAt: '2026-11-17T09:10:00+07:00', lat: 13.6447123, lng: 100.6089 })],
       ['depart', ev({ occurredAt: '2026-11-17T09:20:00+07:00' })],
@@ -145,7 +155,7 @@ describe('stop events (ST4-T01)', () => {
       expect(r.occurredAt.toISOString()).toBe(new Date(sent[i]![1].occurredAt).toISOString());
       // receivedAt = เวลา server (ไม่ใช่เวลาเครื่องที่ย้อนหลัง)
       expect(r.receivedAt.getTime()).toBeGreaterThanOrEqual(before - 1000);
-      expect(r.receivedAt.getTime()).toBeLessThanOrEqual(Date.now() + 1000);
+      expect(r.receivedAt.getTime()).toBeLessThanOrEqual(clock.now().getTime() + 1000);
       expect(r.tripId).toBe(t.id);
       // ST4-T02: DEPART = ออกเดินทางมุ่งหน้าไปจุดนี้ (docs/01 §3.9) → DEPART หลังถึงจุดแล้ว = ขัดลำดับ (เก็บไว้ + ธง)
       expect(r.sequenceConflict).toBe(r.type === 'DEPART');
