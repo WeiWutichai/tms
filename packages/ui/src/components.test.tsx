@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react';
+import { useRef, useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import {
   Badge,
@@ -12,6 +13,7 @@ import {
   TextInput,
 } from './components';
 import { DataTable, StatusDot, type Column } from './DataTable';
+import { useModalFocus } from './focus';
 
 const labels = {
   columns: 'คอลัมน์',
@@ -20,6 +22,7 @@ const labels = {
   tableOptions: 'ตัวเลือกตาราง',
   showFilters: 'แสดงแถวตัวกรอง',
   dense: 'แถวกะทัดรัด (44px)',
+  selectRow: 'เลือก',
   exportCsv: 'ส่งออก CSV',
   resetColumns: 'คืนค่าเริ่มต้น',
   rowsPerPage: 'แถวต่อหน้า',
@@ -144,6 +147,104 @@ describe('Drawer', () => {
   });
 });
 
+describe('Drawer — focus (ST9-T20)', () => {
+  it('มีชื่อ dialog = เลขในหัว · เปิดแล้ว focus เข้า drawer · ปิดแล้ว focus กลับปุ่มที่เปิด', () => {
+    function Host() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>
+            เปิด
+          </button>
+          <Drawer
+            open={open}
+            onClose={() => setOpen(false)}
+            kind="ใบสั่งขนส่ง"
+            title="SO-0001"
+            labels={{ close: 'ปิด', more: 'เพิ่มเติม' }}
+          >
+            <button type="button">ในดรอว์เออร์</button>
+          </Drawer>
+        </>
+      );
+    }
+    render(<Host />);
+    const opener = screen.getByRole('button', { name: 'เปิด' });
+    opener.focus();
+    fireEvent.click(opener);
+    const d = screen.getByRole('dialog', { name: 'SO-0001' });
+    expect(d.contains(document.activeElement)).toBe(true);
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(document.activeElement).toBe(opener);
+  });
+});
+
+describe('useModalFocus — dialog ซ้อนนอก drawer (ST9-T20 review H)', () => {
+  function Stacked({ managed }: { managed: boolean }) {
+    const [dlg, setDlg] = useState(false);
+    function PageDialog() {
+      const ref = useRef<HTMLDivElement>(null);
+      useModalFocus(managed, ref);
+      return (
+        <div ref={ref} role="dialog" aria-modal="true" aria-label="แม่แบบ" tabIndex={-1}>
+          <input aria-label="ชื่อแม่แบบ" />
+          <button type="button">บันทึก</button>
+        </div>
+      );
+    }
+    return (
+      <>
+        <Drawer
+          open
+          onClose={() => undefined}
+          kind="ใบสั่งขนส่ง"
+          title="SO-0001"
+          labels={{ close: 'ปิด', more: 'เพิ่มเติม' }}
+        >
+          {/* ปุ่มเปิด dialog หายไปหลังกด (เหมือนรายการในเมนู ⋯) */}
+          {!dlg && (
+            <button type="button" onClick={() => setDlg(true)}>
+              บันทึกเป็นแม่แบบ
+            </button>
+          )}
+        </Drawer>
+        {dlg && <PageDialog />}
+        {dlg && (
+          <button type="button" onClick={() => setDlg(false)}>
+            ปิดแม่แบบ
+          </button>
+        )}
+      </>
+    );
+  }
+  const tab = (shift = false) =>
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: 'Tab', shiftKey: shift });
+
+  it('dialog ที่ไม่ใช้ hook (เปิดทีหลัง นอก aside): Tab ไม่ถูกดึงกลับเข้า drawer', () => {
+    render(<Stacked managed={false} />);
+    fireEvent.click(screen.getByRole('button', { name: 'บันทึกเป็นแม่แบบ' }));
+    const save = screen.getByRole('button', { name: 'บันทึก' });
+    save.focus();
+    expect(tab()).toBe(true); // ไม่ preventDefault = เบราว์เซอร์ย้าย focus ตามปกติ
+    expect(document.activeElement).toBe(save);
+  });
+
+  it('dialog ที่ใช้ hook: Tab วนใน dialog ชั้นบน · ปิดแล้ว (ปุ่มเปิดหายไป) focus กลับ drawer', () => {
+    render(<Stacked managed />);
+    fireEvent.click(screen.getByRole('button', { name: 'บันทึกเป็นแม่แบบ' }));
+    const d = screen.getByRole('dialog', { name: 'แม่แบบ' });
+    expect(d.contains(document.activeElement)).toBe(true);
+    screen.getByRole('button', { name: 'บันทึก' }).focus();
+    expect(tab()).toBe(false);
+    expect(document.activeElement).toBe(screen.getByLabelText('ชื่อแม่แบบ'));
+    expect(tab(true)).toBe(false);
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'บันทึก' }));
+    fireEvent.click(screen.getByRole('button', { name: 'ปิดแม่แบบ' }));
+    expect(screen.getByRole('dialog', { name: 'SO-0001' })).toBe(document.activeElement);
+  });
+});
+
 describe('DataTable', () => {
   type R = { id: string; name: string; st: string };
   const cols: Column<R>[] = [
@@ -192,11 +293,34 @@ describe('DataTable', () => {
     expect(screen.queryByPlaceholderText('ค้นหา')).toBeNull();
   });
 
+  it('ST9-T20: แถวที่คลิกได้ Tab ถึงและกด Enter/Space เปิดได้ — แถวที่ไม่มี onRowClick ไม่อยู่ในลำดับ Tab', () => {
+    const onRow = vi.fn();
+    const { unmount } = render(<DataTable {...base} onRowClick={onRow} />);
+    const row = screen.getByRole('row', { name: /บริษัท ก/ });
+    expect(row).toHaveAttribute('tabindex', '0');
+    fireEvent.keyDown(row, { key: 'Enter' });
+    fireEvent.keyDown(row, { key: ' ' });
+    expect(onRow).toHaveBeenCalledTimes(2);
+    expect(onRow).toHaveBeenCalledWith(rows[0]);
+    // Enter บนปุ่ม/ช่องในแถว ไม่เปิดแถวซ้ำ
+    fireEvent.keyDown(screen.getAllByRole('checkbox', { name: 'เลือก' })[0]!, { key: 'Enter' });
+    expect(onRow).toHaveBeenCalledTimes(2);
+    unmount();
+    render(<DataTable {...base} />);
+    expect(screen.getByRole('row', { name: /บริษัท ก/ })).not.toHaveAttribute('tabindex');
+  });
+
   it('เลือกหลายแถว → แถบ bulk แสดงจำนวน', () => {
     const run = vi.fn();
     render(<DataTable {...base} bulkActions={[{ label: 'ส่งออก', icon: 'download', run }]} />);
-    fireEvent.click(screen.getByLabelText('a'));
-    fireEvent.click(screen.getByLabelText('b'));
+    // ST9-T20: ชื่อช่องเลือก "เลือก" + คำอธิบาย = ข้อความคอลัมน์แรก (ไม่ใช่ id ภายใน)
+    const boxes = screen.getAllByRole('checkbox', { name: 'เลือก' });
+    expect(boxes[0]).toHaveAccessibleDescription('บริษัท ก');
+    expect(boxes[1]).toHaveAccessibleDescription('บริษัท ข');
+    // ช่องตารางของ checkbox ไม่ชื่อซ้ำกับคอลัมน์แรก
+    expect(screen.getAllByRole('cell', { name: 'บริษัท ก' })).toHaveLength(1);
+    fireEvent.click(boxes[0]!);
+    fireEvent.click(boxes[1]!);
     expect(screen.getByText('เลือก 2 รายการ')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /ส่งออก/ }));
     expect(run).toHaveBeenCalledWith(['a', 'b']);
@@ -233,5 +357,37 @@ describe('FormField ใน FormDrawer (QA ST2-T11)', () => {
     expect(screen.getByLabelText('ชื่อ').getAttribute('aria-invalid')).toBe('false');
     fireEvent.click(screen.getByText('บันทึก'));
     expect(screen.getByText('มีรายการนี้แล้ว')).toBeTruthy();
+  });
+});
+
+describe('FormDrawer — focus ช่องแรกที่ผิดหลังกดบันทึก (ST9-T20 QA M-1)', () => {
+  it('validation ทันที และ error จาก API ที่ตามมา → focus ช่องแรกที่ aria-invalid; error ผูกด้วย aria-describedby', async () => {
+    const { FormDrawer, FormField } = await import('./master');
+    function Form() {
+      const [errs, setErrs] = useState<Record<string, string>>({});
+      return (
+        <FormDrawer
+          open
+          title="ฟอร์ม"
+          onClose={() => undefined}
+          closeLabel="ปิด"
+          footer={<button type="submit">บันทึก</button>}
+          onSubmit={() => setErrs({ b: 'กรุณากรอก ข', c: 'กรุณากรอก ค' })}
+        >
+          <FormField label="ก">{(p) => <input {...p} />}</FormField>
+          <FormField label="ข" error={errs.b}>
+            {(p) => <input {...p} />}
+          </FormField>
+          <FormField label="ค" error={errs.c}>
+            {(p) => <input {...p} />}
+          </FormField>
+        </FormDrawer>
+      );
+    }
+    render(<Form />);
+    fireEvent.click(screen.getByRole('button', { name: 'บันทึก' }));
+    const b = screen.getByLabelText('ข');
+    expect(document.activeElement).toBe(b);
+    expect(b).toHaveAccessibleDescription('กรุณากรอก ข');
   });
 });

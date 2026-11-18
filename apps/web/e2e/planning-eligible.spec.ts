@@ -143,7 +143,7 @@ test.describe.serial('Filter รถที่รับได้สองทาง
     );
     // การ์ดที่เลือก + คลิกซ้ำ/Esc = เลิกเน้น
     await expect(page.getByTestId(`plan-pool-${so.cold.soNo}`)).toHaveAttribute(
-      'aria-pressed',
+      'aria-current',
       'true',
     );
     // ขอบซ้าย 3px ของการ์ดยังอยู่ทั้งตอนเลือกและหลังเลิกเลือก (QA M2)
@@ -162,7 +162,7 @@ test.describe.serial('Filter รถที่รับได้สองทาง
   test('คลิกรถ → SO ที่รถรับได้ถูกเน้น · เลข SO เปิด drawer', async ({ page }) => {
     await open(page);
     await page.getByTestId(`plan-veh-${DRY}`).click();
-    await expect(page.getByTestId(`plan-veh-${DRY}`)).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByTestId(`plan-veh-${DRY}`)).toHaveAttribute('aria-current', 'true');
     const card = (n: string) => page.getByTestId(`plan-pool-${n}`);
     await expect(card(so.dry.soNo)).toHaveAttribute('data-elig', 'OK');
     await expect(card(so.cold.soNo)).toHaveAttribute('data-elig', 'WARNING');

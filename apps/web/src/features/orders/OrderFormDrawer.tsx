@@ -83,6 +83,7 @@ function DateBox({
   value,
   onChange,
   invalid,
+  describedBy,
   disabled,
   name,
   placeholder,
@@ -91,6 +92,8 @@ function DateBox({
   value: string;
   onChange: (v: string) => void;
   invalid?: boolean;
+  /** id ของข้อความ error (FormField `aria-describedby`) — ST9-T20 */
+  describedBy?: string;
   disabled?: boolean;
   name?: string;
   placeholder?: string;
@@ -137,6 +140,7 @@ function DateBox({
         value={value}
         disabled={disabled}
         aria-invalid={invalid}
+        aria-describedby={describedBy}
         onChange={(e) => onChange(e.target.value)}
         style={{
           position: 'absolute',
@@ -333,6 +337,7 @@ export function OrderFormDrawer({
                 placeholder={f.customerText || t('ord.f.pick')}
                 noResult={t('ord.f.noResult')}
                 invalid={p['aria-invalid']}
+                describedBy={p['aria-describedby']}
                 disabled={!ed.customer}
               />
             )}
@@ -366,6 +371,7 @@ export function OrderFormDrawer({
                 name="requestedDate"
                 value={f.requestedDate}
                 invalid={p['aria-invalid']}
+                describedBy={p['aria-describedby']}
                 disabled={!ed.requestedDate}
                 onChange={(v) => {
                   // จุดที่อยู่วันเดียวกับวันรับของเดิมเลื่อนตาม (กรอกครั้งเดียว)
@@ -431,6 +437,7 @@ export function OrderFormDrawer({
                       }
                       noResult={t('ord.f.noSite')}
                       invalid={p['aria-invalid']}
+                      describedBy={p['aria-describedby']}
                       disabled={!ed.stops}
                     />
                   )}
@@ -458,6 +465,7 @@ export function OrderFormDrawer({
                       id={p.id}
                       value={s.date}
                       invalid={p['aria-invalid']}
+                      describedBy={p['aria-describedby']}
                       disabled={!ed.window}
                       onChange={(v) => setStop(i, { date: v })}
                     />
@@ -609,6 +617,7 @@ export function OrderFormDrawer({
                       placeholder={l.unitText || t('ord.f.pick')}
                       noResult={t('ord.f.noResult')}
                       invalid={p['aria-invalid']}
+                      describedBy={p['aria-describedby']}
                       disabled={!ed.lines}
                     />
                   )}
