@@ -18,7 +18,7 @@ import {
 import { HttpMetrics, httpMetrics } from '../src/modules/monitoring/http-metrics';
 import { MonitorCollector } from '../src/modules/monitoring/monitor-collector';
 import { DEFAULT_RULES, loadRules } from '../src/modules/monitoring/monitor-config';
-import { MonitorScheduler } from '../src/modules/monitoring/monitor-scheduler';
+import { MonitorScheduler, msToNextMinute } from '../src/modules/monitoring/monitor-scheduler';
 import { bootApp, createTenant, platform, tokenFor, truncateAll } from './helpers';
 
 const SECRET = 'JBSWY3DPEHPK3PXP';
@@ -142,7 +142,12 @@ describe('monitoring + alert (ST9-T19)', () => {
   });
 
   it('metrics: ไม่ตั้ง METRICS_TOKEN = 404 · token ผิด/ไม่ส่ง = 401 · ถูก = Prometheus text ไม่มีชื่อบริษัท', async () => {
-    await http().get('/v1/metrics').expect(404);
+    const off = await http().get('/v1/metrics').expect(404);
+    expect(off.text).toBe('');
+    // token สั้นเกิน = ปิด — 404 เปล่า ไม่บอกกติกาให้ผู้เรียก
+    process.env.METRICS_TOKEN = 'short';
+    const short = await http().get('/v1/metrics').set('Authorization', 'Bearer short').expect(404);
+    expect(short.text).toBe('');
     process.env.METRICS_TOKEN = TOKEN;
     await http().get('/v1/metrics').expect(401);
     await http().get('/v1/metrics').set('Authorization', `Bearer ${TOKEN}x`).expect(401);
@@ -159,6 +164,10 @@ describe('monitoring + alert (ST9-T19)', () => {
     await db.$executeRaw`
       INSERT INTO job (id, tenant_id, type, status, run_at, updated_at)
       VALUES (gen_random_uuid(), ${tenantId}::uuid, 'mon.test', 'PENDING', ${new Date(now.getTime() - 2 * MIN)}::timestamptz, now())`;
+    // dead-letter: นับเฉพาะ 24 ชม. ล่าสุด
+    await seedOutbox({ createdAt: now, nextRunAt: now, status: 'FAILED_FINAL' });
+    const oldDead = await seedOutbox({ createdAt: now, nextRunAt: now, status: 'FAILED_FINAL' });
+    await owner.$executeRaw`UPDATE integration_outbox SET updated_at = now() - interval '2 days' WHERE id = ${oldDead}::uuid`;
     await http().get('/v1/healthz').expect(200);
     const res = await http().get('/v1/metrics').set('Authorization', `Bearer ${TOKEN}`).expect(200);
     expect(res.headers['content-type']).toContain('text/plain');
@@ -172,6 +181,7 @@ describe('monitoring + alert (ST9-T19)', () => {
     );
     expect(t).toContain('tms_outbox_commands{sink="demo",state="pending"} 1');
     expect(t).toContain('tms_outbox_commands{sink="demo",state="parked"} 1');
+    expect(t).toContain('tms_outbox_commands{sink="demo",state="failed_final_24h"} 1');
     // ไม่นับคำสั่งที่พัก: lag ~7 นาที · อายุ ~20 นาที (ไม่ใช่ 50)
     expect(
       Number(/tms_outbox_lag_seconds\{sink="demo"\} (\d+)/.exec(t)?.[1]),
@@ -254,9 +264,10 @@ describe('monitoring + alert (ST9-T19)', () => {
     expect(closed!.resolveNotifiedAt).toEqual(at(m - 1));
     mails = await mailsFor('[ปิดแล้ว] คิว outbox ค้าง');
     expect(mails).toHaveLength(2);
-    // ปกติต่อ → ไม่มีอะไรเพิ่ม
+    // ปกติต่อ → ไม่มีอะไรเพิ่ม · sink ที่ไม่มีคำสั่งค้างแล้ว: check ถูกลบ (ไม่สะสม)
     await evaluator.evaluate(at(m++));
     expect(await mailsFor('คิว outbox ค้าง')).toHaveLength(4);
+    expect(await db.monitorCheck.findUnique({ where: { key: 'outbox_lag:demo' } })).toBeNull();
 
     // ค้างใหม่อีกรอบ → alert แถวใหม่ (ประวัติเดิมคงอยู่)
     await seedOutbox({ createdAt: at(m - 10), nextRunAt: at(m - 10) });
@@ -296,11 +307,23 @@ describe('monitoring + alert (ST9-T19)', () => {
       'oncall@innovera.test, OnCall@innovera.test ,ops@innovera.test';
     const T0 = new Date('2026-11-19T06:00:00.000Z');
     // ตัวนับในหน่วยความจำ → flush ลงฐาน (2 instance)
+    // ไม่มีตัว flush (MONITOR=off / worker) = ไม่สะสมรายนาที
+    const idle = new HttpMetrics();
+    idle.record('GET', '/orders', 200, 0.01);
+    expect(idle.pendingMinutes).toBe(0);
+    expect(idle.requests.size).toBe(1);
+    // สะสมไม่เกิน 60 นาที (ฐานล่มนาน)
+    const capped = new HttpMetrics();
+    capped.persist = true;
+    for (let i = 0; i < 90; i++) capped.record('GET', '/orders', 200, 0.01, T0.getTime() + i * MIN);
+    expect(capped.pendingMinutes).toBe(60);
     const m1 = new HttpMetrics();
+    m1.persist = true;
     for (let i = 0; i < 90; i++) m1.record('GET', '/orders', 200, 0.02, T0.getTime() - 2 * MIN);
     for (let i = 0; i < 5; i++) m1.record('GET', '/orders/:id', 503, 0.4, T0.getTime() - 2 * MIN);
     expect(await m1.flush(db, 'api-a')).toBe(1);
     const m2 = new HttpMetrics();
+    m2.persist = true;
     for (let i = 0; i < 30; i++) m2.record('POST', '/orders', 201, 0.05, T0.getTime() - MIN);
     await m2.flush(db, 'api-b');
     const rows = await db.httpRequestMinute.findMany({ orderBy: { instanceId: 'asc' } });
@@ -321,31 +344,60 @@ describe('monitoring + alert (ST9-T19)', () => {
     expect(mails[0]!.subject).toContain('[วิกฤต]');
   });
 
-  it('worker หยุด: API ตรวจแทน (probe + ประเมิน) และส่งอีเมลตรง — worker ยังทำงาน = API ไม่ทำ', async () => {
+  it('API probe ทุกนาที (worker restart ไม่ทำให้นาทีหาย) · worker หยุด: API ประเมินแทน + ส่งอีเมลตรง · SMTP ล้ม = ลองใหม่รอบหน้า', async () => {
     const scheduler = app.get(MonitorScheduler);
-    const direct = new MemoryTransport();
-    evaluator.useTransport(direct);
     const T0 = new Date(Math.floor(Date.now() / MIN) * MIN + 10 * MIN);
     clock.set(T0);
     await availability.beat('worker', new Date(T0.getTime() - MIN), 'w-1');
-    expect(await scheduler.tickApi()).toBeNull();
-    // heartbeat ล่าสุด 10 นาทีก่อน
+    // worker ทำงาน: API ไม่ประเมิน แต่ยัง probe นาทีนี้
+    expect(await scheduler.tickApi()).toEqual({ evaluated: null });
+    expect(await db.availabilityProbe.findUniqueOrThrow({ where: { minute: T0 } })).toMatchObject({
+      ok: true,
+      source: 'api',
+    });
+    // heartbeat ล่าสุด 10 นาทีก่อน + SMTP ล้ม
     await owner.$executeRaw`UPDATE worker_heartbeat SET last_beat_at = ${new Date(T0.getTime() - 10 * MIN)}::timestamptz`;
+    const T1 = new Date(T0.getTime() + MIN);
+    clock.set(T1);
+    evaluator.useTransport({
+      name: 'broken',
+      send: async () => {
+        throw new Error('smtp down');
+      },
+    });
     const r = await scheduler.tickApi();
-    expect(r?.opened).toContain('worker_down');
+    expect(r.evaluated?.opened).toContain('worker_down');
+    expect((await alertsFor('worker_down'))[0]!.notifiedAt).toBeNull();
+    // รอบถัดไป SMTP กลับมา → ส่ง alert ที่ค้างแจ้ง (ไม่ใช่ alert ใหม่)
+    const direct = new MemoryTransport();
+    evaluator.useTransport(direct);
+    const T2 = new Date(T1.getTime() + MIN);
+    clock.set(T2);
+    const r2 = await scheduler.tickApi();
+    expect(r2.evaluated?.opened).not.toContain('worker_down');
     const [a] = await alertsFor('worker_down');
-    expect(a!.notifiedAt).toEqual(T0);
-    expect(
+    expect(a!.notifiedAt).toEqual(T2);
+    const sentTo = () =>
       direct.sent
         .filter((m) => m.subject.includes('worker หยุดทำงาน'))
         .map((m) => m.to)
-        .sort(),
-    ).toEqual([staff.SUPER_ADMIN!.email, staff.SUPPORT!.email].sort());
+        .sort();
+    expect(sentTo()).toEqual([staff.SUPER_ADMIN!.email, staff.SUPPORT!.email].sort());
+    // แจ้งแล้ว → รอบต่อไปไม่ส่งซ้ำ
+    clock.set(new Date(T2.getTime() + MIN));
+    await scheduler.tickApi();
+    expect(sentTo()).toHaveLength(2);
     // ไม่เข้าคิว outbox (worker ไม่มีใครส่ง — และกันส่งซ้ำเมื่อ worker กลับมา)
     expect(await mailsFor('worker หยุดทำงาน')).toHaveLength(0);
-    // probe ของนาทีนั้นบันทึกโดย API
-    const p = await db.availabilityProbe.findUniqueOrThrow({ where: { minute: T0 } });
-    expect(p).toMatchObject({ ok: true, status: 200, source: 'api' });
+    expect(await db.availabilityProbe.count({ where: { minute: { gte: T0 } } })).toBe(4);
+  });
+
+  it('จังหวะต้นนาที: msToNextMinute ไม่สะสมความคลาดเคลื่อน', () => {
+    const base = Date.UTC(2026, 10, 19, 3, 0, 0);
+    expect(msToNextMinute(base, 2_000)).toBe(2_000);
+    expect(msToNextMinute(base + 1_500, 2_000)).toBe(500);
+    expect(msToNextMinute(base + 2_000, 2_000)).toBe(60_000);
+    expect(msToNextMinute(base + 59_999, 5_000)).toBe(5_001);
   });
 
   it('availability: probe 1 แถว/นาที · รายเดือน (เวลาไทย) นาทีที่ไม่มีผลนับเป็นล่ม · เป้า 99.5%', async () => {

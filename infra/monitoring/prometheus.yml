@@ -7,6 +7,8 @@
 #   - เปิด /v1/metrics เฉพาะเครือข่ายภายใน (proxy/security group) — ห้ามเปิดสู่อินเทอร์เน็ต
 #   - ตัวนับ HTTP เป็นของแต่ละ instance → scrape ทุก instance ของ API (ไม่ใช่ผ่าน load balancer)
 #   - ตัวเลขคิว/connector/disk/heartbeat อ่านจากฐานข้อมูล → ทุก instance ให้ค่าเดียวกัน
+#   - /v1/readyz เป็น public และอ่านฐานทุกครั้ง → จำกัดอัตราต่อ IP ที่ proxy (หรือเปิดเฉพาะเครือข่ายภายใน)
+#   - worker อยู่คนละเครื่องกับ API: ตั้ง MONITOR_PROBE_URL ของ worker ให้ชี้ API ผ่านเครือข่ายภายใน
 global:
   scrape_interval: 30s
   evaluation_interval: 30s

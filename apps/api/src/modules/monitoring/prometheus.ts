@@ -76,7 +76,7 @@ export function renderPrometheus(
   const ob = o.family(
     'tms_outbox_commands',
     'gauge',
-    'คำสั่งใน integration outbox ต่อ sink ตามสถานะ (parked = พักเพราะบริษัทถูกระงับ)',
+    'คำสั่งใน integration outbox ต่อ sink ตามสถานะ (parked = พักเพราะบริษัทถูกระงับ · failed_final_24h = dead-letter ใน 24 ชม.)',
   );
   const lag = o.family(
     'tms_outbox_lag_seconds',
@@ -93,7 +93,7 @@ export function renderPrometheus(
     ob(x.retrying, { sink: x.sink, state: 'retrying' });
     ob(x.inFlight, { sink: x.sink, state: 'in_flight' });
     ob(x.parked, { sink: x.sink, state: 'parked' });
-    ob(x.failedFinal, { sink: x.sink, state: 'failed_final' });
+    ob(x.failedFinal, { sink: x.sink, state: 'failed_final_24h' });
   }
   for (const x of s.outbox) lag(x.lagSec, { sink: x.sink });
   for (const x of s.outbox) age(x.oldestAgeSec, { sink: x.sink });

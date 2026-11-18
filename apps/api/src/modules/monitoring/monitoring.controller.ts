@@ -1,4 +1,4 @@
-import { Controller, Get, Header, Query, Req, Res } from '@nestjs/common';
+import { Controller, Get, Header, Logger, Query, Req, Res } from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiOkResponse,
@@ -39,10 +39,19 @@ class ReadinessDto {
 }
 
 /** token ของตัวเก็บ metrics (Prometheus) — ไม่ตั้ง = ปิด endpoint (404) */
-function metricsAuthorized(req: Request): boolean {
+const metricsLog = new Logger('Monitoring');
+let warnedShortToken = false;
+
+/** null = endpoint ปิด (ไม่ตั้ง / token สั้นเกิน — 404 เปล่า ไม่บอกเหตุผลผู้เรียก, เหตุผลลง log) */
+function metricsAuthorized(req: Request): boolean | null {
   const want = process.env.METRICS_TOKEN ?? '';
-  if (!want) throw new ProblemException('not_found');
-  if (want.length < 24) throw new ProblemException('not_found', 'METRICS_TOKEN ต้องยาว ≥ 24 ตัว');
+  if (!want) return null;
+  if (want.length < 24) {
+    if (!warnedShortToken)
+      metricsLog.error('METRICS_TOKEN สั้นกว่า 24 ตัว — /v1/metrics ปิด (404)');
+    warnedShortToken = true;
+    return null;
+  }
   const h = req.header('authorization') ?? '';
   const got = Buffer.from(h.startsWith('Bearer ') ? h.slice(7) : '');
   const exp = Buffer.from(want);
@@ -103,19 +112,24 @@ export class MonitoringController {
   @ApiOkResponse({
     content: { 'text/plain': { schema: { type: 'string', example: 'tms_up 1\n' } } },
   })
-  async metrics(@Req() req: Request): Promise<string> {
-    if (!metricsAuthorized(req)) throw new ProblemException('unauthorized');
+  @ApiResponse({ status: 404, description: 'ปิดอยู่ (ไม่ได้ตั้ง METRICS_TOKEN) — body ว่าง' })
+  async metrics(@Req() req: Request, @Res({ passthrough: true }) res: Response): Promise<string> {
+    const ok = metricsAuthorized(req);
+    if (ok === null) {
+      res.status(404);
+      return '';
+    }
+    if (!ok) throw new ProblemException('unauthorized');
     const now = this.clock.now();
     const month = bangkokMonthOf(now);
-    const [snap, avail, alerts] = await Promise.all([
-      this.collector.collect(now),
-      this.availability.monthly(month, now),
-      this.prisma.platform.monitorAlert.findMany({
-        where: { status: 'OPEN' },
-        select: { rule: true, subject: true, severity: true },
-        orderBy: { key: 'asc' },
-      }),
-    ]);
+    // ทีละ query — ไม่แย่ง connection pool (QA L2)
+    const snap = await this.collector.collect(now);
+    const avail = await this.availability.monthly(month, now);
+    const alerts = await this.prisma.platform.monitorAlert.findMany({
+      where: { status: 'OPEN' },
+      select: { rule: true, subject: true, severity: true },
+      orderBy: { key: 'asc' },
+    });
     return renderPrometheus(snap, httpMetrics, {
       month,
       availabilityRatio: avail.availabilityPct === null ? null : avail.availabilityPct / 100,
@@ -288,12 +302,10 @@ export class PlatformMonitoringController {
   @ApiOkResponse({ type: MonitoringStatusDto })
   async status(): Promise<MonitoringStatusDto> {
     const now = this.clock.now();
-    const [readiness, availability, openAlerts, checks] = await Promise.all([
-      this.availability.readiness(now),
-      this.availability.monthly(bangkokMonthOf(now), now),
-      this.prisma.platform.monitorAlert.count({ where: { status: 'OPEN' } }),
-      this.prisma.platform.monitorCheck.findMany({ orderBy: { key: 'asc' } }),
-    ]);
+    const readiness = await this.availability.readiness(now);
+    const availability = await this.availability.monthly(bangkokMonthOf(now), now);
+    const openAlerts = await this.prisma.platform.monitorAlert.count({ where: { status: 'OPEN' } });
+    const checks = await this.prisma.platform.monitorCheck.findMany({ orderBy: { key: 'asc' } });
     return {
       at: now,
       readiness,

@@ -95,6 +95,8 @@ interface Notice {
 const LOCK_KEY = 0x7d5_0919;
 /** รอบก่อนหน้าใหม่กว่านี้ = มี instance อื่นเพิ่งประเมิน → ข้าม (นับรอบ hysteresis ไม่เร็วเกิน 1 ครั้ง/นาที) */
 const MIN_GAP_MS = 45_000;
+/** alert ที่ปิดแล้วแต่แจ้งปิดไม่สำเร็จ — ลองแจ้งต่อได้ภายในช่วงนี้ */
+const RESOLVE_NOTIFY_WINDOW_MS = 24 * 3600_000;
 
 /**
  * ST9-T19 ตัวประเมิน alert — รันทุก 1 นาทีใน worker (API ทำแทนเมื่อ worker หยุด)
@@ -125,6 +127,8 @@ export class AlertEvaluator {
     const snap = await this.collector.collect(now);
     const obs = observe(snap, rules);
     const notices: Notice[] = [];
+    /** alert ที่ต้องแจ้งรอบนี้ (ใหม่ + ค้างแจ้งจากรอบก่อน) */
+    const deliver: Notice[] = [];
     const result: EvaluateResult = { opened: [], resolved: [], firing: 0 };
     const recipients = await this.recipients();
     await this.prisma.platform.$transaction(
@@ -225,11 +229,37 @@ export class AlertEvaluator {
           };
           await tx.monitorCheck.upsert({ where: { key }, create: { key, ...data }, update: data });
         }
+        // check ที่ subject หายไปและกลับเป็นปกติแล้ว (sink/connector ที่ไม่มีแล้ว) — ลบทิ้ง ไม่สะสม
+        const stale = [...checks.values()]
+          .filter((c) => !seen.has(c.key) && c.state === 'OK')
+          .map((c) => c.key);
+        if (stale.length)
+          await tx.monitorCheck.deleteMany({ where: { key: { in: stale }, state: 'OK' } });
+        // แจ้งทุก alert ที่ยังไม่ได้แจ้ง — รวมรอบก่อนที่ส่งไม่สำเร็จ/ยังไม่มีผู้รับ (ลองใหม่ทุกรอบ)
+        // ปิดแล้วแต่ยังไม่แจ้งปิด: ลองได้ภายใน 24 ชม. หลังปิด
+        if (recipients.length) {
+          const opens = await tx.monitorAlert.findMany({
+            where: { status: 'OPEN', notifiedAt: null },
+            orderBy: { openedAt: 'asc' },
+          });
+          const closes = await tx.monitorAlert.findMany({
+            where: {
+              status: 'RESOLVED',
+              resolveNotifiedAt: null,
+              resolvedAt: { gt: new Date(now.getTime() - RESOLVE_NOTIFY_WINDOW_MS) },
+            },
+            orderBy: { resolvedAt: 'asc' },
+          });
+          deliver.push(
+            ...opens.map((alert) => ({ alert, resolved: false })),
+            ...closes.map((alert) => ({ alert, resolved: true })),
+          );
+        }
         // เข้าคิวอีเมลใน transaction เดียวกับการเปิด/ปิด (rollback = ไม่ส่ง) — โหมดส่งตรงส่งหลัง commit
-        if (!opts.direct && recipients.length && notices.length) {
+        if (!opts.direct && deliver.length) {
           await this.email.enqueueMany(
             tx,
-            notices.flatMap((n) =>
+            deliver.flatMap((n) =>
               recipients.map((to) => ({
                 tenantId: null,
                 to,
@@ -239,7 +269,7 @@ export class AlertEvaluator {
               })),
             ),
           );
-          await this.markNotified(tx, notices, now);
+          await this.markNotified(tx, deliver, now);
         }
       },
       { timeout: 30_000 },
@@ -253,8 +283,7 @@ export class AlertEvaluator {
       this.logger.warn(
         'ไม่มีผู้รับ alert (MONITOR_ALERT_EMAILS / ทีม Platform Console) — บันทึก alert อย่างเดียว',
       );
-    if (opts.direct && recipients.length && notices.length)
-      await this.sendDirect(notices, recipients, now);
+    if (opts.direct && deliver.length) await this.sendDirect(deliver, recipients, now);
     return result;
   }
 

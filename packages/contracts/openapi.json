@@ -3162,6 +3162,9 @@
           "401": {
             "$ref": "#/components/responses/Unauthorized"
           },
+          "404": {
+            "description": "ปิดอยู่ (ไม่ได้ตั้ง METRICS_TOKEN) — body ว่าง"
+          },
           "429": {
             "$ref": "#/components/responses/RateLimited"
           }

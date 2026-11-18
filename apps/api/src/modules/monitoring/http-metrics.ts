@@ -12,6 +12,8 @@ export const LATENCY_BUCKETS = [0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10] as const;
 
 export const INSTANCE_ID = `${hostname()}:${process.pid}`.slice(0, 120);
 
+const MAX_PENDING_MINUTES = 60;
+
 interface Hist {
   buckets: number[];
   sum: number;
@@ -23,6 +25,13 @@ export class HttpMetrics {
   readonly latency = new Map<string, Hist>();
   /** นาที (epoch ms) → [ทั้งหมด, 5xx] ที่ยังไม่ flush ลงฐาน */
   private pending = new Map<number, [number, number]>();
+  /** true = มีตัว flush ลงฐาน (API เริ่ม MonitorScheduler) — false (MONITOR=off / test / worker) = ไม่สะสมรายนาที */
+  persist = false;
+
+  /** จำนวนนาทีที่รอ flush (test) */
+  get pendingMinutes(): number {
+    return this.pending.size;
+  }
 
   record(method: string, route: string, status: number, seconds: number, at = Date.now()): void {
     const sc = `${Math.floor(status / 100)}xx`;
@@ -37,7 +46,11 @@ export class HttpMetrics {
     });
     h.sum += seconds;
     h.count++;
+    if (!this.persist) return;
     const minute = Math.floor(at / 60_000) * 60_000;
+    // ฐานล่มนาน: เก็บไว้ไม่เกิน 60 นาทีล่าสุด (ไม่โตไม่จำกัด)
+    if (!this.pending.has(minute) && this.pending.size >= MAX_PENDING_MINUTES)
+      this.pending.delete(Math.min(...this.pending.keys()));
     const p = this.pending.get(minute) ?? [0, 0];
     p[0]++;
     if (status >= 500) p[1]++;
@@ -59,7 +72,7 @@ export class HttpMetrics {
                 errors = http_request_minute.errors + excluded.errors`;
     } catch (e) {
       // ฐานล่ม: เก็บไว้ส่งรอบหน้า (ไม่ทิ้งตัวเลขช่วงที่ระบบมีปัญหาที่สุด)
-      for (const [minute, [t, er]] of rows) {
+      for (const [minute, [t, er]] of rows.slice(-MAX_PENDING_MINUTES)) {
         const p = this.pending.get(minute) ?? [0, 0];
         this.pending.set(minute, [p[0] + t, p[1] + er]);
       }
