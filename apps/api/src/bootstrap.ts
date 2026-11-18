@@ -16,6 +16,8 @@ import { Logger } from '@nestjs/common';
 import { isLocalEnv } from './auth/tokens';
 import { assertSigningKeys } from './auth/signing-keys';
 import { assertApiKeyPepper } from './modules/api-keys/key-material';
+import { isInboundWebhookRequest } from './modules/erp/inbound-webhook.controller';
+import { INBOUND_MAX_BYTES } from './modules/erp/inbound-webhook.service';
 
 export function buildOpenApi(app: NestExpressApplication): OpenAPIObject {
   const config = new DocumentBuilder()
@@ -90,6 +92,11 @@ export async function createApp(module: unknown = AppModule): Promise<NestExpres
     limit: '10mb',
     // อ่าน body เฉพาะเมื่อ URL มีลายเซ็นถูกต้อง — ลายเซ็นผิดไม่ต้องรับไฟล์ 10 MB ไว้ในหน่วยความจำ (review T08 S1)
     type: (req: { url?: string; method?: string }) => isSignedUploadRequest(req),
+  });
+  // ST7-T22 webhook ขาเข้า: body ดิบ (ตรวจลายเซ็นกับ byte เดิม) ทุก content-type · เกิน 256 KB → 413 ก่อนถึง handler
+  app.useBodyParser('raw', {
+    limit: INBOUND_MAX_BYTES,
+    type: (req: { url?: string; method?: string }) => isInboundWebhookRequest(req),
   });
   app.useBodyParser('json', { limit: '1mb' });
   app.setGlobalPrefix('v1');

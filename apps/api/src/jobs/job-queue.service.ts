@@ -23,6 +23,8 @@ export interface JobTypeOptions {
    * (docs/01 §5.1 Bulk/async, §5.3) ใน transaction เดียวกับการปิดสถานะงาน · งานระบบ (เตือน/หมดเวลา/geocode) ไม่ยิง
    */
   publicEvent?: boolean;
+  /** ช่วงรอก่อนลองใหม่ครั้งที่ n (ms) — ไม่ตั้ง/เกินรายการ = 2^n วินาที (ค่าเดิม) */
+  retryDelaysMs?: readonly number[];
 }
 
 /** แจ้งผู้สั่งงานเมื่อจบ (ST1-T23; docs/04 I "งานใหญ่ background + แจ้งเมื่อเสร็จ") — เก็บใน payload._notify */
@@ -191,7 +193,11 @@ export class JobQueue {
         retry
           ? {
               status: 'PENDING',
-              runAt: new Date(Date.now() + 2 ** job.attempts * 1000),
+              runAt: new Date(
+                Date.now() +
+                  (this.opts.get(job.type)?.retryDelaysMs?.[job.attempts - 1] ??
+                    2 ** job.attempts * 1000),
+              ),
               lockedUntil: null,
               error: { message: String(err) },
             }
