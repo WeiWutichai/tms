@@ -192,6 +192,15 @@ import { VehiclesService } from './modules/vehicles/vehicles.service';
 import { GeoService } from './modules/geo/geo.service';
 import { CompaniesService } from './modules/companies/companies.service';
 import { HealthController } from './modules/health/health.controller';
+import {
+  MonitoringController,
+  PlatformMonitoringController,
+} from './modules/monitoring/monitoring.controller';
+import { MonitorCollector } from './modules/monitoring/monitor-collector';
+import { AlertEvaluator } from './modules/monitoring/alert-evaluator';
+import { AvailabilityService } from './modules/monitoring/availability.service';
+import { MonitorScheduler } from './modules/monitoring/monitor-scheduler';
+import { httpMetricsMiddleware } from './modules/monitoring/http-metrics';
 import { JobsController } from './modules/jobs/jobs.controller';
 import { MeController } from './modules/me/me.controller';
 import { ProfileController } from './modules/me/profile.controller';
@@ -226,6 +235,8 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     PlatformTenantsController,
     ImpersonationController,
     HealthController,
+    MonitoringController,
+    PlatformMonitoringController,
     MeController,
     ProfileController,
     SavedViewsController,
@@ -386,6 +397,10 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     WebhookRetentionService,
     VehicleDocumentsService,
     Clock,
+    MonitorCollector,
+    AlertEvaluator,
+    AvailabilityService,
+    MonitorScheduler,
     ExpiryReminderService,
     DepreciationService,
     GeoService,
@@ -411,6 +426,8 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
     consumer.apply(RequestContextMiddleware).forRoutes('{*path}');
+    // ST9-T19 ตัวนับคำขอ HTTP (Prometheus) — นับตอนส่งคำตอบเสร็จ ตามแม่แบบ route
+    consumer.apply(httpMetricsMiddleware).forRoutes('{*path}');
     // ST1-T06: ลิงก์สาธารณะ (ไม่ login) จำกัดอัตราต่อ IP
     consumer.apply(PublicRateLimitMiddleware).forRoutes('public/{*path}');
     // ST4-T14 หน้าติดตาม: ห้าม index/ส่ง referrer ทุกคำตอบ (รวม 404/429 ที่ออกก่อนถึง handler)

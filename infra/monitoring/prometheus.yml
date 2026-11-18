@@ -1,0 +1,37 @@
+# ST9-T19 ตัวอย่าง (ไม่บังคับ) — ระบบ alert ภายในของ TMS ทำงานได้เองโดยไม่ต้องมี Prometheus
+# (worker ประเมินทุก 1 นาที → อีเมลทีม Innovera + GET /v1/platform/monitoring/*)
+# ใช้ไฟล์นี้เมื่อต้องการ dashboard/ประวัติ metrics หรือ alert ชั้นที่สองจากภายนอก (เช่น API ทั้งชุดล่ม)
+#
+# ข้อกำหนดฝั่ง TMS:
+#   - ตั้ง METRICS_TOKEN (≥ 24 ตัว) ใน env ของ API — ไม่ตั้ง = /v1/metrics ตอบ 404
+#   - เปิด /v1/metrics เฉพาะเครือข่ายภายใน (proxy/security group) — ห้ามเปิดสู่อินเทอร์เน็ต
+#   - ตัวนับ HTTP เป็นของแต่ละ instance → scrape ทุก instance ของ API (ไม่ใช่ผ่าน load balancer)
+#   - ตัวเลขคิว/connector/disk/heartbeat อ่านจากฐานข้อมูล → ทุก instance ให้ค่าเดียวกัน
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+
+rule_files:
+  - alert-rules.yml
+
+scrape_configs:
+  - job_name: tms-api
+    metrics_path: /v1/metrics
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/tms-metrics-token # ค่าเดียวกับ METRICS_TOKEN
+    static_configs:
+      - targets: ['api-1.internal:4410', 'api-2.internal:4410']
+
+  # liveness/readiness จากภายนอก (ต้องมี blackbox_exporter) — วัดเสริม availability ภายใน
+  - job_name: tms-readyz
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets: ['https://api.example.com/v1/readyz']
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
