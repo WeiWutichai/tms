@@ -283,6 +283,20 @@ describe('OfferLinkPage (ST3-T23)', () => {
     );
   });
 
+  it('ST9-T12 QA Q3: ปฏิเสธบนหน้าค้างแต่ลิงก์ถูกเพิกถอน (เที่ยวถูกยกเลิก) → 404 แสดง "ลิงก์หมดอายุหรือถูกยกเลิกแล้ว…"', () => {
+    mutate.mockReset();
+    q.data = view();
+    show();
+    fireEvent.click(screen.getByRole('button', { name: 'ปฏิเสธ' }));
+    fireEvent.click(screen.getByRole('button', { name: 'ราคาไม่คุ้มต้นทุน' }));
+    fireEvent.click(screen.getByRole('button', { name: 'ยืนยันปฏิเสธ' }));
+    const cb = mutate.mock.calls[0]![1] as { onError: (e: unknown) => void };
+    act(() => cb.onError(new ApiError({ type: '', title: '', status: 404, code: 'not_found' })));
+    expect(screen.getByRole('alert').textContent).toBe(
+      'ลิงก์หมดอายุหรือถูกยกเลิกแล้ว ขอลิงก์ใหม่จากผู้ว่าจ้าง',
+    );
+  });
+
   it('ST4-T08: รับงานแล้ว → แท็บ "ส่ง POD" ไปหน้าลิงก์งาน + ข้อความในการ์ดรับงาน', () => {
     q.data = view({
       status: 'ACCEPTED',

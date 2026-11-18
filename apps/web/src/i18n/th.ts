@@ -416,7 +416,7 @@ export const th = {
   'mfa.continue': 'บันทึกแล้ว ดำเนินการต่อ',
   'problem.mfa_expired': 'หมดเวลายืนยันตัวตน เข้าสู่ระบบใหม่อีกครั้ง',
   'problem.invalid_otp': 'รหัสยืนยันไม่ถูกต้องหรือหมดอายุ',
-  'problem.mfa_required': 'กรอกรหัสยืนยันตัวตน 2 ชั้น',
+  'problem.mfa_required': 'กรอกรหัสยืนยันตัวตน 2 ชั้นจากแอป Authenticator',
   'problem.mfa_enrollment_required': 'บัญชีนี้ต้องตั้งการยืนยันตัวตน 2 ชั้นก่อนเข้าใช้งาน',
   'problem.step_up_required': 'ยืนยันตัวตน 2 ชั้นอีกครั้งก่อนทำรายการนี้',
   'problem.two_factor_not_enabled': 'ยังไม่ได้ตั้งการยืนยันตัวตน 2 ชั้น',
@@ -761,7 +761,7 @@ export const th = {
   'imp.exit': 'ออก',
   'imp.invalidTitle': 'ลิงก์เข้าใช้งานแทนใช้ไม่ได้',
   'imp.invalidSub': 'ลิงก์หมดอายุหรือไม่ถูกต้อง เริ่มเข้าใช้งานแทนใหม่จาก Platform Console',
-  'problem.impersonation_read_only': 'โหมดใช้งานแทนเป็นแบบอ่านอย่างเดียว แก้ไขข้อมูลไม่ได้',
+  'problem.impersonation_read_only': 'กำลังเข้าใช้งานแทนแบบอ่านอย่างเดียว — แก้ไขข้อมูลไม่ได้',
   'field.unknown_plan': 'ไม่พบแพ็กเกจนี้',
   'field.invalid_user': 'ผู้ใช้นี้ไม่ได้เปิดใช้งานในบริษัทนี้',
   'field.no_active_user': 'บริษัทนี้ยังไม่มีผู้ใช้ที่เปิดใช้งาน',
@@ -2715,7 +2715,8 @@ export const th = {
   'ord.v.reference_inactive': 'ข้อมูลนี้ถูกปิดใช้แล้ว — เลือกใหม่',
   'ord.v.routing_not_configured':
     'ยังไม่ได้กำหนดนิติบุคคลที่ออกบิลของลูกค้านี้ — ตั้ง "ออกบิลในนาม" ที่ข้อมูลลูกค้า หรือตั้งนิติบุคคลหลักของบริษัท',
-  'problem.order_locked_for_update': 'แก้ข้อมูลนี้ของใบสั่งขนส่งไม่ได้ในสถานะปัจจุบัน',
+  'problem.order_locked_for_update':
+    'แก้ข้อมูลนี้ของใบสั่งขนส่งไม่ได้ในสถานะปัจจุบัน (วางแผน ออกรถ ปิดงาน หรือยกเลิกแล้ว)',
   'problem.order_source_change_pending':
     'ต้นทางแก้ใบสั่งขนส่งนี้หลังวางแผน — เลือกรับค่าต้นทางหรือใช้ค่า TMS ก่อนจัดลงเที่ยว',
   'problem.assignment_blocked':
@@ -3852,7 +3853,7 @@ export const th = {
   'problem.key_revoked': 'API key ถูกเพิกถอนแล้ว',
   'problem.invalid_api_version': 'X-Api-Version ไม่ถูกต้อง (ต้องเป็นวันที่ YYYY-MM-DD)',
   'problem.key_expired': 'API key หมดอายุแล้ว',
-  'problem.sandbox_only': 'ใช้ได้เฉพาะโหมด Sandbox',
+  'problem.sandbox_only': 'ใช้ได้เฉพาะโหมด Sandbox (key tk_test_ หรือสลับเป็น Sandbox)',
   'problem.sandbox_unsupported': 'ใช้ใน Sandbox ไม่ได้ (เชื่อมระบบภายนอกจริง)',
   'problem.ip_not_allowed': 'IP นี้ไม่ได้รับอนุญาตให้ใช้ API key นี้',
   'field.scope_not_grantable': 'บทบาทของคุณไม่มีสิทธิ์ scope นี้ จึงให้ key ไม่ได้',
@@ -4164,6 +4165,40 @@ export const th = {
   'sv.conflict': 'มุมมองถูกเปลี่ยนจากหน้าจออื่น — โหลดค่าล่าสุดแล้ว ลองอีกครั้ง',
   'problem.saved_view_limit': 'บันทึกได้สูงสุด 50 มุมมองต่อหน้า',
   'sv.error': 'บันทึกมุมมองไม่สำเร็จ',
+  // ST9-T12: error code ของ API ที่ UI ยังไม่มีข้อความ (สแกนจาก apps/api/src/common/problem.ts — ข้อความเดียวกับ PROBLEMS[code].th)
+  'problem.bad_request': 'คำขอไม่ถูกต้อง',
+  'problem.method_not_allowed': 'ไม่รองรับวิธีเรียกนี้',
+  'problem.idempotency_in_progress': 'คำขอเดียวกันกำลังประมวลผลอยู่',
+  'problem.idempotency_mismatch': 'Idempotency-Key นี้เคยใช้กับข้อมูลอื่น',
+  'problem.self_approval_forbidden':
+    'ยืนยันหรือปฏิเสธรายการที่ตัวเองบันทึกไม่ได้ ต้องให้ผู้อื่นตรวจ',
+  'problem.pdf_render_timeout': 'สร้าง PDF ไม่ทันเวลา กรุณาลองใหม่อีกครั้ง',
+  'problem.connector_limit_reached': 'จำนวนการเชื่อมระบบบัญชีครบตามแพ็กเกจแล้ว',
+  'problem.connector_scope_taken': 'นิติบุคคลนี้เชื่อมระบบบัญชีอยู่แล้ว ยกเลิกการเชื่อมเดิมก่อน',
+  'problem.inbound_not_supported': 'ระบบบัญชีนี้ไม่รองรับการส่งข้อมูลเข้ามาทาง webhook',
+  'problem.connector_health_failed':
+    'ทดสอบการเชื่อมต่อไม่ผ่าน ตรวจค่าตั้งและ credential แล้วลองใหม่',
+  'problem.webhook_limit_reached': 'จำนวน webhook endpoint ครบตามแพ็กเกจแล้ว',
+  'problem.external_id_conflict': 'เลขอ้างอิงต้นทางนี้ถูกใช้กับใบสั่งขนส่งจากช่องทางอื่นแล้ว',
+  'problem.order_not_ready_for_delivery':
+    'ยังสร้างใบส่งของจากใบสั่งขนส่งนี้ไม่ได้ (ร่าง ยกเลิก วางแผนแล้ว หรือยังจับคู่ลูกค้า/สถานที่ไม่ครบ)',
+  'problem.trip_has_loaded_orders':
+    'ยกเลิกเที่ยวไม่ได้ — มีใบส่งของที่รับของขึ้นรถหรือส่งแล้ว (ปิดเที่ยวบางส่วนแล้วเปิดเที่ยวใหม่แทน)',
+  'problem.offer_required': 'รถคันนี้เป็นรถร่วม — ต้องเสนองานให้รถร่วมก่อน แล้วจึงบันทึกการรับงาน',
+  'problem.offer_closed': 'ข้อเสนองานนี้ปิดแล้ว (ตอบไปแล้วหรือถูกยกเลิก)',
+  'problem.carrier_change_requires_cancel':
+    'เปลี่ยนรถร่วมหรือสลับรถร่วม/รถบริษัทไม่ได้ — ยกเลิกการจ้างเดิมก่อน',
+  'problem.trip_empty': 'เที่ยวนี้ยังไม่มีใบส่งของ',
+  'problem.trip_stops_open':
+    'ยังมีจุดแวะที่ยังไม่จบ — ปิดเที่ยวได้เมื่อทุกจุดส่งสำเร็จ/ไม่สำเร็จ/ข้าม',
+  'problem.trip_not_in_progress': 'บันทึกสถานะหน้างานได้เฉพาะเที่ยวที่ปล่อยรถแล้วและยังไม่จบ',
+  'problem.stop_event_duplicate': 'clientEventId นี้ถูกใช้กับ event อื่นแล้ว',
+  'problem.stop_event_not_flagged': 'เหตุการณ์นี้ไม่มีข้อขัดแย้งให้ตัดสิน',
+  'problem.stop_event_already_resolved': 'เหตุการณ์นี้ถูกตัดสินไปแล้ว',
+  'problem.delivery_order_on_trip': 'ใบส่งของนี้อยู่ในเที่ยวรถแล้ว — ถอดออกจากเที่ยวก่อน',
+  'problem.channel_unavailable': 'ส่งทางช่องทางนี้ไม่ได้ตอนนี้ คัดลอกลิงก์ไปส่งเองได้',
+  'problem.invalid_client': 'client_id หรือ client_secret ไม่ถูกต้อง',
+  'problem.invalid_scope': 'ขอ scope ที่ API key นี้ไม่มี',
 } as const;
 
 export type MessageKey = keyof typeof th;

@@ -47,12 +47,13 @@ export function problemBody(e: unknown): {
     unknown
   >;
   return {
+    ...rest,
+    // ฟิลด์มาตรฐานของ RFC 9457 มาทีหลัง — extra ทับ type/status/code ไม่ได้ (ST9-T12 QA Q2)
     type: `https://docs.tms.example/problems/${code}`,
     title: title?.[locale] ?? def[locale],
     status: def.status as number,
     code,
     ...(detail ? { detail } : {}),
     ...(errors?.length ? { errors } : {}),
-    ...rest,
   };
 }
