@@ -4,6 +4,7 @@ import { AuditService } from './audit/audit.service';
 import { MagicLinkService } from './modules/links/magic-link.service';
 import { PublicRateLimitMiddleware } from './http/public-rate-limit.middleware';
 import { RateLimitGuard } from './http/rate-limit/rate-limit.guard';
+import { ApiVersionInterceptor } from './http/api-version/api-version.interceptor';
 import { RateLimitService } from './http/rate-limit/rate-limit.service';
 import { EntitlementService } from './modules/entitlements/entitlement.service';
 import { PriceFieldInterceptor } from './common/price-fields';
@@ -360,7 +361,9 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     // ST7-T08: หลัง AuthGuard (ต้องรู้ tenant/principal ก่อน) — Nest เรียก guard ตามลำดับที่ลงทะเบียน
     { provide: APP_GUARD, useClass: RateLimitGuard },
     { provide: APP_FILTER, useClass: ProblemFilter },
-    // ลำดับสำคัญ: ราคา (นอกสุด) → idempotency → transaction (ใน)
+    // ลำดับสำคัญ: เวอร์ชัน (นอกสุด) → ราคา → idempotency → transaction (ใน)
+    // ST7-T07: แปลง request/response ตาม X-Api-Version — นอกสุดเพื่อให้ response ที่ replay ถูกแปลงตามผู้เรียกปัจจุบัน
+    { provide: APP_INTERCEPTOR, useClass: ApiVersionInterceptor },
     // ST1-T13: ตัด field ราคาตามสิทธิ์ของ "ผู้เรียกปัจจุบัน" — อยู่นอกสุด เพื่อให้ response ที่ replay จาก
     // Idempotency-Key (เก็บแบบเต็ม) ถูกตัดตามคนที่เรียกซ้ำ ไม่ใช่ตามคนแรก
     { provide: APP_INTERCEPTOR, useClass: PriceFieldInterceptor },

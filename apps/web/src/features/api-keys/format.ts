@@ -1,5 +1,4 @@
-import { formatDate, formatDateTime, useI18n } from '../../i18n';
-import type { MessageKey } from '../../i18n/th';
+import { enumLabel, formatDate, formatDateTime, useI18n } from '../../i18n';
 import { useMe } from '../../shell/AppShell';
 import type { ApiKey } from './useApiKeys';
 
@@ -13,7 +12,8 @@ export function useKeyFormat() {
   return {
     date,
     dateTime,
-    status: (k: ApiKey) => t(`akey.st.${k.status}` as MessageKey),
+    // ST7-T07: ค่าที่ยังไม่รู้จัก (API เพิ่ม enum ใหม่) → แสดงค่าดิบ ไม่พัง
+    status: (k: ApiKey) => enumLabel(t, 'akey.st.', k.status),
     mode: (k: ApiKey) => t(k.mode === 'test' ? 'akey.mode.test' : 'akey.mode.live'),
     ip: (k: ApiKey) => (k.ipAllowlist.length ? k.ipAllowlist.join(', ') : t('akey.anyIp')),
     by: (k: ApiKey) => k.createdByName ?? '—',

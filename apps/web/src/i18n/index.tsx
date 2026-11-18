@@ -19,6 +19,18 @@ function initialLang(): Lang {
 
 export type T = (key: MessageKey, params?: Record<string, string | number>) => string;
 
+/**
+ * ST7-T07 ป้ายของค่า enum จาก API — API เพิ่มค่า enum ใหม่ได้โดยไม่ถือว่า breaking (docs/04 G1)
+ * ค่าที่ UI ยังไม่รู้จัก (ไม่มี key `${prefix}${value}`) → แสดงค่าดิบ แทนชื่อ key หรือพัง
+ */
+export function enumLabel(t: T, prefix: string, value: unknown): string {
+  const v = value === null || value === undefined ? '' : String(value);
+  if (!v) return '—';
+  const key = `${prefix}${v}`;
+  const s = t(key as MessageKey);
+  return s === key ? v : s;
+}
+
 const Ctx = createContext<{ lang: Lang; setLang: (l: Lang) => void; t: T } | null>(null);
 
 /** i18n (ST0-T15): ทุกข้อความผ่าน key; ภาษาที่ไม่มีคำแปล → ไทย (D-11) */

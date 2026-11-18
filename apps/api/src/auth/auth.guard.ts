@@ -63,12 +63,16 @@ export class AuthGuard implements CanActivate {
 
   /** Bearer: API key `tk_…` → JWT RS256 ของ client credentials → JWT ของ UI (HS256) */
   private async claimsOf(token: string, req: Request): Promise<AccessClaims | null> {
-    if (looksLikeApiKey(token))
-      return keyClaims(await this.apiKeys.authenticateSecret(token, req.ip));
+    // ST7-T07: เวอร์ชันที่ pin บน key → ApiVersionInterceptor (header ในคำขอมาก่อน)
+    const pinned = (p: KeyPrincipal) => {
+      requestContext.require().apiVersionPin = p.apiVersion;
+      return keyClaims(p);
+    };
+    if (looksLikeApiKey(token)) return pinned(await this.apiKeys.authenticateSecret(token, req.ip));
     if (isRs256(token)) {
       const c = await verifyClientToken(token);
       if (!c) return null;
-      return keyClaims(await this.apiKeys.authenticateClient(c, req.ip));
+      return pinned(await this.apiKeys.authenticateClient(c, req.ip));
     }
     return verifyAccessToken(token);
   }

@@ -2816,6 +2816,8 @@ model ApiKey {
   rotatedToId    String?   @map("rotated_to_id") @db.Uuid
   rotatedFromId  String?   @map("rotated_from_id") @db.Uuid
   createdBy      String?   @map("created_by")
+  /// ST7-T07 pin พฤติกรรม API ของ key นี้ (`X-Api-Version` ค่าเริ่มของ key) — null = ตามวันสร้างบริษัท · header ในคำขอมาก่อนเสมอ
+  apiVersion     DateTime? @map("api_version") @db.Date
   version        Int       @default(1)
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
