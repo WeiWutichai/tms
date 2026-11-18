@@ -361,6 +361,8 @@ describe('subcon offer link (ST3-T23)', () => {
       .send({ reason: 'PRICE_TOO_LOW' })
       .expect(409);
     expect(r2.body.code).toBe('offer_closed');
+    expect(r2.body.status).toBe(409); // ST9-T12 QA Q2: สถานะข้อเสนออยู่ที่ offerStatus ไม่ทับ status
+    expect(r2.body.offerStatus).toBe('ACCEPTED');
     // เปิดดูได้ — สถานะรับงานแล้ว
     expect((await pub().get(`/v1/public/offers/${link.token}`).expect(200)).body.status).toBe(
       'ACCEPTED',

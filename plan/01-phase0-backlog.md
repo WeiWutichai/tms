@@ -464,7 +464,7 @@ VAT/WHT ต่อบรรทัด tax point ตอนรับชำระ เ
 | ST9-T09 | ค้นหา global (⌘K): เลข order/trip/invoice, ทะเบียน, ลูกค้า, เลข PO → กระโดดไปเอกสาร | I ค้นหา global | M | ST5-T09 | พิมพ์เลข DO บางส่วนแล้วเจอและเปิดเอกสารได้; ไม่เห็นผลของ tenant อื่น (test) | ใช่ — ค้นในแต่ละหน้าได้ |
 | ST9-T10 | Export ตาม filter ทุกหน้ารายการ/เอกสาร; งานใหญ่เป็น background job + แจ้งเมื่อเสร็จ | I Import/Export (ขา export) | M | ST0-T11 | export 50,000 แถวเป็น job แล้วได้ลิงก์ดาวน์โหลดทางแจ้งเตือน; ไฟล์ตรงกับ filter | ใช่ — master มี export แล้ว |
 | ST9-T11 | Saved views: บันทึกชุด filter/คอลัมน์ต่อผู้ใช้บนตารางและรายงาน | I UI pattern มาตรฐาน (saved views); H (บันทึก filter) | S | ST0-T14 | บันทึก view แล้วเปิดใหม่ได้ filter/คอลัมน์เดิม | ใช่ — ความสะดวก |
-| ST9-T12 | ตรวจความครบ: ทุก setting ในแถว "ตั้งค่าองค์กร" ตั้งได้จาก UI (K5) + ข้อความ TH/EN ครบทุกหน้า + PDF ทุกชนิดเป็นไทย | I ตั้งค่าองค์กร, ภาษา; K5, K10 | S | ST1-T17 | checklist setting ครบทุกข้อ; สแกนไม่พบ key ภาษาที่ขาด | ไม่ — กันต้องให้เราตั้งให้ |
+| ST9-T12 | ตรวจความครบ: ทุก setting ในแถว "ตั้งค่าองค์กร" ตั้งได้จาก UI (K5) + ข้อความ TH/EN ครบทุกหน้า + PDF ทุกชนิดเป็นไทย (D-11: เฟส 0 = ไทยครบ + EN ตกกลับเป็นไทย; EN ครบ = ผู้สมัครเพิ่ม #21 — checklist `plan/12-settings-checklist.md`) | I ตั้งค่าองค์กร, ภาษา; K5, K10 | S | ST1-T17 | checklist setting ครบทุกข้อ; สแกนไม่พบ key ภาษาที่ขาด | ไม่ — กันต้องให้เราตั้งให้ |
 | ST9-T13 | ตรวจความปลอดภัยรอบสุดท้าย: รายงาน coverage ของ test ข้าม tenant (ทุก endpoint), validation/upload/MIME, CSRF/XSS, security headers, secret ใน log, ทดสอบ magic link (หมดอายุ/จำกัด action/เพิกถอน/ไม่รั่วราคา), ทบทวนสิทธิ์ตามตาราง A3 | J Security ทุกแถว P0 (ตรวจซ้ำ); spec11§2–3 | M | ST8-T12 | checklist ผ่านทุกข้อ หรือ defect ระดับสูงทุกข้อปิดแล้ว; coverage ข้าม tenant = 100% ของ route | ไม่ — ข้อมูลจริงของ pilot |
 | ST9-T14 | Retention: ตั้งระยะเก็บต่อ tenant (ไม่ต่ำกว่าขั้นต่ำ) + job ลบ/archive — audit 5 ปี, integration log 24 เดือน, login log 1 ปี, ไฟล์ POD 2 ปี, GPS log 90 วัน (ยังไม่มีข้อมูลในเฟส 0) | J Retention (audit/integration/login/POD/GPS) | M | ST1-T22 | ตั้งค่าต่ำกว่าขั้นต่ำถูกปฏิเสธ; test เลื่อนเวลา: log เกินอายุถูกลบ เอกสารภาษีไม่ถูกแตะ | ใช่ — ยังไม่มีข้อมูลครบอายุ |
 | ST9-T15 | เอกสารภาษี ≥ 5 ปี: ยืนยันไม่มี hard-delete (guard ระดับ DB), retention default 7 ปี, PDF ที่เก็บ ณ วันออกไม่ถูก render ใหม่ (เทียบ hash) | J เอกสารภาษี ≥ 5 ปี | S | ST5-T09, ST6-T10 | คำสั่ง DELETE บนตารางเอกสารภาษีถูก DB ปฏิเสธ; hash ของ PDF ไม่เปลี่ยนหลังแก้ template | ไม่ — ข้อกฎหมาย |
@@ -481,7 +481,7 @@ VAT/WHT ต่อบรรทัด tax point ตอนรับชำระ เ
 - test เขียวทั้ง repo; test เทียบ "ยอดรายงาน = ยอดเอกสาร" ผ่านทุกรายงาน (K3)
 - harness แยก tenant ครอบ 100% ของตารางและ route (รายงานแนบใน ST9-T13)
 - OpenAPI ฉบับสุดท้ายของเฟส 0 ถูก tag; ไม่มี breaking change ค้าง
-- ข้อความ TH/EN ครบทุกหน้า (ST9-T12)
+- ข้อความไทยครบทุกหน้า + EN ตกกลับเป็นไทย (ST9-T12; D-11 — EN ครบ = ผู้สมัครเพิ่ม #21)
 - ผลทดสอบประสิทธิภาพและซ้อมกู้คืนถูกบันทึก ผ่านเป้าหรือมีแผนแก้
 - UAT (ก) และ (ข) มีลายเซ็นรับ; checklist ขึ้นใช้งานจริงครบ
 - ไม่มี defect ระดับสูงเปิดค้าง
@@ -813,6 +813,7 @@ VAT/WHT ต่อบรรทัด tax point ตอนรับชำระ เ
 | 28 | ส่งออกตามตัวกรอง (ST9-T10 `ExportSpec` ใน `apps/api/src/modules/exports/list-exports.ts`) ให้หน้ารายการที่ยังส่งออกฝั่งเว็บหรือยังไม่มีปุ่ม: เที่ยวรถ (`/v1/trips`), API keys, webhooks + หน้ารายการเอกสารบัญชีของ ST5/ST6 (ใบแจ้งหนี้ ใบเสร็จ รับชำระ settlement) เมื่อหน้านั้นสร้าง — ต่อ spec + ปุ่ม "ส่งออก CSV" ในแผงตัวเลือก · (หน้า DO = รวมใน #24, ศูนย์ข้อยกเว้น = #11, รายงาน = ST9-T05/T06/T07 ซึ่งมี export ของตัวเอง, ลบไฟล์ส่งออกหลัง 7 วัน = ST9-T14) | I Import/Export "export ตาม filter" = P0 (ST9-T10 ทำ 13 resource หลัก) | S ต่อหน้า |
 | 29 | กฎผู้รับแจ้งเตือนระดับบริษัท (spec/01 §13.5 `NotificationRule`: ผู้ดูแลเลือก role/ผู้ใช้ต่อ event, quiet hours, แท็บ "ช่องทาง") — ตอนนี้ผู้รับตามสิทธิ์ของ role คงที่ในโค้ด + ผู้ใช้ปิดช่องของตัวเองได้ (ST9-T08 DECISION spec/12 §3) | spec/01 §13.5 | M |
 | 30 | Sandbox ส่วนที่เหลือของ spec/07 INT-061: seed ข้อมูลตัวอย่าง (ลูกค้า/สถานที่/ใบสั่ง) + ปุ่ม "ล้าง sandbox" (ลบข้อมูลทดสอบ ยกเว้น key/webhook) + ไม่นับ usage/โควตาของ sandbox (เมื่อมีการนับ usage) (ST7-T09 DECISION spec/12 §3) | G1 Sandbox ระบุแค่ tenant mode test, key, webhook, trigger | M |
+| 31 | โลโก้องค์กร (docs/04 I "โลโก้", spec/01 §13.1 PNG/SVG ≤ 2 MB บน A4/หน้าติดตาม): ค่าตั้ง `org.logoDocumentId` + ไฟล์ kind ใหม่ (ST1-T08 มีแล้ว, SVG ต้อง sanitize) + ปุ่ม "เปลี่ยนโลโก้" ในตั้งค่า → องค์กร (ต้นแบบมีช่อง ตอนนี้กดไม่ได้) + วางบน PDF/หน้าติดตาม (ต้นแบบ TMS Print/Tracking ยังใช้ไอคอน) — พบใน ST9-T12 checklist | I ตั้งค่าองค์กร (P0) — backlog ST1-T17 ไม่ได้ระบุ | S–M |
 
 สิ่งที่เฟส 0 เผื่อไว้ให้ #10/#22 โดยไม่เพิ่ม task: `trip.planned_route` + `planned_distance_m` (ST3-T11), schema `vehicle_position` + RLS (ST4-T01 สร้างตารางพร้อม `stop_event` แต่ไม่มีตัวป้อน), retention GPS 90 วัน (ST9-T14) — ดู T-18
 
