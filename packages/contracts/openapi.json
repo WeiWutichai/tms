@@ -3049,6 +3049,299 @@
         ]
       }
     },
+    "/v1/healthz": {
+      "get": {
+        "operationId": "Monitoring_healthz",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "example": {
+                    "status": "ok"
+                  }
+                }
+              }
+            },
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          }
+        },
+        "summary": "Liveness — process ทำงาน (ไม่ตรวจฐานข้อมูล)",
+        "tags": [
+          "platform"
+        ]
+      }
+    },
+    "/v1/readyz": {
+      "get": {
+        "description": "200 = รับคำขอได้ (`degraded` = worker ไม่ส่ง heartbeat เกิน 3 นาที — งานเบื้องหลังหยุด แต่ API ใช้ได้) · 503 = ฐานข้อมูลล่ม/migration ไม่ครบ",
+        "operationId": "Monitoring_readyz",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadinessDto"
+                }
+              }
+            },
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "503": {
+            "description": "ไม่พร้อม (ฐานข้อมูล/migration)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadinessDto"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Readiness — ฐานข้อมูล + migration + heartbeat ของ worker",
+        "tags": [
+          "platform"
+        ]
+      }
+    },
+    "/v1/metrics": {
+      "get": {
+        "description": "ต้องส่ง `Authorization: Bearer <METRICS_TOKEN>` (env ≥ 24 ตัว) — ไม่ตั้ง env = 404 · ควรเปิดเฉพาะเครือข่ายภายในที่ proxy · label ไม่มีชื่อบริษัท/ผู้ใช้ (connector ใช้รหัส `con_…`) · ตัวนับ HTTP เป็นของ instance ที่ตอบ (ตัวเก็บต้อง scrape ทุก instance)",
+        "operationId": "Monitoring_metrics",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "example": "tms_up 1\n"
+                }
+              }
+            },
+            "description": "",
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "ปิดอยู่ (ไม่ได้ตั้ง METRICS_TOKEN) — body ว่าง"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Metrics (Prometheus text format) สำหรับระบบเฝ้าดูของ Innovera",
+        "tags": [
+          "platform"
+        ]
+      }
+    },
+    "/v1/platform/monitoring/status": {
+      "get": {
+        "operationId": "PlatformMonitoring_status",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MonitoringStatusDto"
+                }
+              }
+            },
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "สถานะระบบ: readiness, availability เดือนนี้, เงื่อนไขเฝ้าดูทั้งหมด (รอบประเมินล่าสุด)",
+        "tags": [
+          "platform"
+        ]
+      }
+    },
+    "/v1/platform/monitoring/alerts": {
+      "get": {
+        "operationId": "PlatformMonitoring_alerts",
+        "parameters": [
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "default": "all",
+              "type": "string",
+              "enum": [
+                "open",
+                "resolved",
+                "all"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MonitorAlertDto"
+                  }
+                }
+              }
+            },
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "alert ล่าสุด (เปิดก่อน แล้วตามเวลาเกิดใหม่สุด)",
+        "tags": [
+          "platform"
+        ]
+      }
+    },
+    "/v1/platform/monitoring/availability": {
+      "get": {
+        "description": "จาก self-probe `/v1/readyz` ทุก 1 นาที · นาทีที่ไม่มีผล probe นับเป็นล่ม · ยังไม่หัก maintenance ตามแผน (NFR-902)",
+        "operationId": "PlatformMonitoring_monthly",
+        "parameters": [
+          {
+            "name": "month",
+            "required": false,
+            "in": "query",
+            "description": "เดือนตามเวลาไทย (ไม่ส่ง = เดือนปัจจุบัน)",
+            "schema": {
+              "example": "2026-11",
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MonthlyAvailabilityDto"
+                }
+              }
+            },
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "availability รายเดือน (เป้า 99.5%)",
+        "tags": [
+          "platform"
+        ]
+      }
+    },
     "/v1/me": {
       "get": {
         "operationId": "Me_me",
@@ -50660,6 +50953,308 @@
           "accessToken",
           "expiresAt",
           "url"
+        ]
+      },
+      "ReadinessDto": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "degraded",
+              "down"
+            ],
+            "example": "ok"
+          },
+          "db": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "down"
+            ]
+          },
+          "migrations": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "pending",
+              "failed",
+              "unknown"
+            ]
+          },
+          "worker": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "stale",
+              "missing",
+              "unknown"
+            ]
+          },
+          "workerHeartbeatAgeSec": {
+            "type": "number",
+            "nullable": true,
+            "example": 12
+          }
+        },
+        "required": [
+          "status",
+          "db",
+          "migrations",
+          "worker",
+          "workerHeartbeatAgeSec"
+        ]
+      },
+      "MonthlyAvailabilityDto": {
+        "type": "object",
+        "properties": {
+          "month": {
+            "type": "string",
+            "example": "2026-11"
+          },
+          "targetPct": {
+            "type": "number",
+            "example": 99.5
+          },
+          "measuredFrom": {
+            "format": "date-time",
+            "type": "string",
+            "nullable": true
+          },
+          "measuredTo": {
+            "format": "date-time",
+            "type": "string",
+            "nullable": true
+          },
+          "minutes": {
+            "type": "number",
+            "description": "นาทีในช่วงที่วัด"
+          },
+          "upMinutes": {
+            "type": "number"
+          },
+          "downMinutes": {
+            "type": "number"
+          },
+          "missingMinutes": {
+            "type": "number",
+            "description": "นาทีที่ไม่มีผล probe — นับเป็นล่ม"
+          },
+          "availabilityPct": {
+            "type": "number",
+            "nullable": true,
+            "example": 99.93
+          },
+          "coveragePct": {
+            "type": "number",
+            "nullable": true,
+            "example": 100
+          },
+          "met": {
+            "type": "boolean",
+            "nullable": true
+          }
+        },
+        "required": [
+          "month",
+          "targetPct",
+          "measuredFrom",
+          "measuredTo",
+          "minutes",
+          "upMinutes",
+          "downMinutes",
+          "missingMinutes",
+          "availabilityPct",
+          "coveragePct",
+          "met"
+        ]
+      },
+      "MonitorCheckDto": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "example": "job_lag"
+          },
+          "rule": {
+            "type": "string",
+            "example": "job_lag"
+          },
+          "subject": {
+            "type": "string",
+            "nullable": true
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "pending",
+              "firing"
+            ]
+          },
+          "unit": {
+            "type": "string",
+            "enum": [
+              "seconds",
+              "ratio",
+              "count",
+              "flag"
+            ]
+          },
+          "value": {
+            "type": "number",
+            "nullable": true
+          },
+          "threshold": {
+            "type": "number",
+            "nullable": true
+          },
+          "evaluatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "rule",
+          "subject",
+          "state",
+          "unit",
+          "value",
+          "threshold",
+          "evaluatedAt"
+        ]
+      },
+      "MonitoringStatusDto": {
+        "type": "object",
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "readiness": {
+            "$ref": "#/components/schemas/ReadinessDto"
+          },
+          "availability": {
+            "$ref": "#/components/schemas/MonthlyAvailabilityDto"
+          },
+          "openAlerts": {
+            "type": "number",
+            "description": "alert ที่เปิดอยู่"
+          },
+          "checks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MonitorCheckDto"
+            }
+          }
+        },
+        "required": [
+          "at",
+          "readiness",
+          "availability",
+          "openAlerts",
+          "checks"
+        ]
+      },
+      "MonitorAlertDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "alr_0f8fad5bd9cb469fa165a7f2c4b1e0a1"
+          },
+          "key": {
+            "type": "string",
+            "example": "outbox_lag:webhook"
+          },
+          "rule": {
+            "type": "string",
+            "example": "outbox_lag"
+          },
+          "subject": {
+            "type": "string",
+            "nullable": true,
+            "example": "webhook",
+            "description": "sink / รหัส connector"
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "critical",
+              "warning"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "resolved"
+            ]
+          },
+          "unit": {
+            "type": "string",
+            "enum": [
+              "seconds",
+              "ratio",
+              "count",
+              "flag"
+            ]
+          },
+          "threshold": {
+            "type": "number",
+            "example": 300
+          },
+          "openValue": {
+            "type": "number",
+            "example": 420
+          },
+          "lastValue": {
+            "type": "number",
+            "example": 480
+          },
+          "openedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "lastSeenAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "resolvedAt": {
+            "format": "date-time",
+            "type": "string",
+            "nullable": true
+          },
+          "notifiedAt": {
+            "format": "date-time",
+            "type": "string",
+            "nullable": true,
+            "description": "เวลาที่อีเมลแจ้งทีมเข้าคิว/ส่ง (null = ไม่มีผู้รับ)"
+          },
+          "resolveNotifiedAt": {
+            "format": "date-time",
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "key",
+          "rule",
+          "subject",
+          "severity",
+          "status",
+          "unit",
+          "threshold",
+          "openValue",
+          "lastValue",
+          "openedAt",
+          "lastSeenAt",
+          "resolvedAt",
+          "notifiedAt",
+          "resolveNotifiedAt"
         ]
       },
       "MeImpersonationDto": {

@@ -1,0 +1,87 @@
+# ST9-T19 ตัวอย่างกฎ Prometheus (ไม่บังคับ) — ค่าเดียวกับค่าเริ่มต้นของ evaluator ภายใน (apps/api/src/modules/monitoring/monitor-config.ts)
+# alert ชั้นที่สอง: ครอบกรณีที่ระบบภายในตรวจตัวเองไม่ได้ (API ทุก instance ล่ม, ฐานข้อมูลล่ม)
+groups:
+  - name: tms
+    rules:
+      - alert: TmsApiDown
+        expr: up{job="tms-api"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations: { summary: 'TMS API instance {{ $labels.instance }} ไม่ตอบ /v1/metrics' }
+
+      - alert: TmsReadyzFailing
+        expr: probe_success{job="tms-readyz"} == 0
+        for: 3m
+        labels: { severity: critical }
+        annotations: { summary: '/v1/readyz ไม่พร้อม (ฐานข้อมูล/migration)' }
+
+      - alert: TmsHigh5xxRate
+        expr: |
+          sum(rate(tms_http_requests_total{status_class="5xx"}[5m]))
+            / clamp_min(sum(rate(tms_http_requests_total[5m])), 1e-9) > 0.01
+          and sum(increase(tms_http_requests_total[5m])) > 100
+        for: 5m
+        labels: { severity: critical }
+        annotations: { summary: 'อัตรา 5xx เกิน 1% นาน 5 นาที (NFR-1004)' }
+
+      - alert: TmsWorkerDown
+        expr: max(tms_worker_heartbeat_age_seconds) > 180 or max(tms_worker_heartbeat_age_seconds) < 0
+        for: 1m
+        labels: { severity: critical }
+        annotations: { summary: 'worker ไม่ส่ง heartbeat เกิน 3 นาที' }
+
+      - alert: TmsOutboxLag
+        expr: max by (sink) (tms_outbox_lag_seconds) > 300
+        for: 2m
+        labels: { severity: warning }
+        annotations: { summary: 'คิว outbox sink {{ $labels.sink }} ค้างเกิน 5 นาที' }
+
+      - alert: TmsOutboxBacklogAge
+        expr: max by (sink) (tms_outbox_oldest_age_seconds) > 1800
+        for: 2m
+        labels: { severity: warning }
+        annotations: { summary: 'คำสั่ง outbox sink {{ $labels.sink }} ค้างเกิน 30 นาที' }
+
+      - alert: TmsJobLag
+        expr: max(tms_job_lag_seconds) > 300
+        for: 2m
+        labels: { severity: warning }
+        annotations: { summary: 'คิว job ค้างเกิน 5 นาที' }
+
+      - alert: TmsEmailLag
+        expr: max(tms_email_lag_seconds) > 600
+        for: 2m
+        labels: { severity: warning }
+        annotations: { summary: 'คิวอีเมลค้างเกิน 10 นาที' }
+
+      - alert: TmsWebhookFailureRate
+        expr: |
+          (sum(tms_webhook_deliveries_window{result=~"failed|exhausted"}) / clamp_min(sum(tms_webhook_deliveries_window), 1) > 0.5)
+          and sum(tms_webhook_deliveries_window) >= 20
+        for: 2m
+        labels: { severity: warning }
+        annotations: { summary: 'webhook ส่งไม่สำเร็จเกิน 50% ใน 15 นาที' }
+
+      - alert: TmsConnectorUnhealthy
+        expr: max by (connector) (tms_connector_healthy{status=~"active|error"}) == 0
+        for: 2m
+        labels: { severity: warning }
+        annotations: { summary: 'connector {{ $labels.connector }} ผิดปกติ' }
+
+      - alert: TmsConnectorLag
+        expr: max by (connector) (tms_connector_pull_lag_seconds) > 1800
+        for: 2m
+        labels: { severity: warning }
+        annotations: { summary: 'connector {{ $labels.connector }} ไม่ได้ดึงข้อมูลเกิน 30 นาที' }
+
+      - alert: TmsDiskUsage
+        expr: max(tms_disk_used_ratio{volume="files"}) > 0.8
+        for: 5m
+        labels: { severity: warning }
+        annotations: { summary: 'ที่เก็บไฟล์ใช้เกิน 80%' }
+
+      - alert: TmsAvailabilityBelowTarget
+        expr: max(tms_availability_ratio) < 0.995
+        for: 30m
+        labels: { severity: warning }
+        annotations: { summary: 'availability เดือนนี้ต่ำกว่า 99.5%' }

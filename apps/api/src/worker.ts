@@ -9,6 +9,8 @@ import { OutboxDispatcher } from './modules/integration/outbox.dispatcher';
 import { OutboxWorkerPool } from './modules/integration/outbox-worker';
 import { purgeAuthData } from './auth/maintenance';
 import { PrismaService } from './db/prisma.service';
+import { MonitorScheduler } from './modules/monitoring/monitor-scheduler';
+import { AvailabilityService } from './modules/monitoring/availability.service';
 import { WebhookRetentionService } from './modules/webhooks/webhook-retention';
 import { RetentionService } from './modules/retention/retention.service';
 import {
@@ -63,10 +65,19 @@ async function main() {
   const connectors = ctx.get(ConnectorsService);
   // ST7-T22 webhook ขาเข้า: ล้าง payload เกิน 30 วัน (แถว ledger ไม่ลบ — archive หลัง 24 เดือน = [OPEN — PO])
   const inbound = ctx.get(InboundWebhookService);
+  // ST9-T19 heartbeat ทุก 30 วิ + self-probe / ประเมิน alert ทุก 1 นาที (MONITOR=off ปิด)
+  const monitor = ctx.get(MonitorScheduler);
+  monitor.startWorker();
+  const availability = ctx.get(AvailabilityService);
   // ST9-T14 ระยะเก็บต่อ tenant (docs/04 J): audit log / ประวัติ login / GPS / ไฟล์ POD / ไฟล์ส่งออก 7 วัน
   const retention = ctx.get(RetentionService);
   const daily = () =>
     Promise.all([
+      // ST9-T19 heartbeat เก่า 1 วัน · probe 400 วัน · ตัวนับคำขอ 35 วัน
+      availability
+        .purge()
+        .then((r) => log.info({ monitoring: r }, 'monitoring retention'))
+        .catch((e) => log.error(e)),
       inbound
         .purge()
         .then((r) => log.info({ inbound: r }, 'inbound webhook retention'))
@@ -142,7 +153,7 @@ async function main() {
       .catch((e) => log.error(e));
   void schedulePulls();
   const pullTimer = setInterval(schedulePulls, CONNECTOR_PULL_EVERY_MS);
-  // ตัวเลขคิว outbox ทุก 5 นาที (monitoring ST9-T19 อ่านจาก log/metrics นี้)
+  // ตัวเลขคิว outbox ทุก 5 นาที ลง log (ST9-T19: metrics/alert อ่านจากฐานโดยตรง — /v1/metrics, AlertEvaluator)
   const outboxStats = () =>
     outbox
       .stats()
@@ -164,6 +175,7 @@ async function main() {
   clearInterval(offerTimeoutTimer);
   clearInterval(pullTimer);
   clearInterval(outboxStatsTimer);
+  monitor.stop();
   shutdown();
   const released = await outboxStopped!;
   if (released) log.warn({ released }, 'outbox commands released on shutdown');

@@ -3127,3 +3127,81 @@ model WebhookDelivery {
   @@index([sentAt])
   @@map("webhook_delivery")
 }
+
+// ---------- ST9-T19 Monitoring + alert (ตารางระดับแพลตฟอร์ม — ไม่มี tenant_id; role แอปเข้าไม่ได้ ใช้ผ่าน role platform เท่านั้น) ----------
+
+/// ST9-T19 heartbeat ของ process (worker / api) — เขียนทุก 30 วิ · /readyz + alert `worker_down` อ่านแถวล่าสุด · แถวเก่ากว่า 1 วันล้างรายวัน
+model WorkerHeartbeat {
+  instanceId String   @id @map("instance_id") @db.VarChar(120) /// `{hostname}:{pid}` — ไม่มีข้อมูลลูกค้า
+  kind       String   @db.VarChar(20) /// worker · api
+  startedAt  DateTime @map("started_at") @db.Timestamptz(6)
+  lastBeatAt DateTime @map("last_beat_at") @db.Timestamptz(6)
+
+  @@index([kind, lastBeatAt])
+  @@map("worker_heartbeat")
+}
+
+/// ST9-T19 สถานะล่าสุดของแต่ละเงื่อนไขเฝ้าดู (rule + subject) — ใช้ทำ hysteresis (ต้องเกินติดกัน `for` รอบจึงเตือน, ปกติติดกัน `clearAfter` รอบจึงปิด)
+model MonitorCheck {
+  key          String    @id @db.VarChar(200) /// `{rule}` หรือ `{rule}:{subject}`
+  rule         String    @db.VarChar(60)
+  subject      String?   @db.VarChar(120) /// sink / connector id (ไม่ใช่ชื่อบริษัท)
+  state        String    @default("OK") @db.VarChar(10) /// OK · PENDING · FIRING
+  breachCount  Int       @default(0) @map("breach_count")
+  okCount      Int       @default(0) @map("ok_count")
+  lastValue    Float?    @map("last_value")
+  threshold    Float?
+  lastEvalAt   DateTime  @map("last_eval_at") @db.Timestamptz(6)
+  pendingSince DateTime? @map("pending_since") @db.Timestamptz(6)
+  alertId      String?   @map("alert_id") @db.Uuid
+
+  @@index([rule])
+  @@map("monitor_check")
+}
+
+/// ST9-T19 alert ถึงทีม Innovera — 1 แถวต่อรอบเกิด (OPEN → RESOLVED) · OPEN ได้แถวเดียวต่อ key (partial unique index ใน SQL — กันซ้ำ) · ไม่ลบ
+model MonitorAlert {
+  id                String    @id @default(uuid()) @db.Uuid
+  key               String    @db.VarChar(200)
+  rule              String    @db.VarChar(60)
+  subject           String?   @db.VarChar(120)
+  severity          String    @db.VarChar(10) /// critical · warning
+  status            String    @default("OPEN") @db.VarChar(10) /// OPEN · RESOLVED
+  threshold         Float
+  openValue         Float     @map("open_value")
+  lastValue         Float     @map("last_value")
+  openedAt          DateTime  @map("opened_at") @db.Timestamptz(6)
+  lastSeenAt        DateTime  @map("last_seen_at") @db.Timestamptz(6)
+  resolvedAt        DateTime? @map("resolved_at") @db.Timestamptz(6)
+  /// เวลาที่ส่ง/เข้าคิวอีเมลแจ้งเกิด · แจ้งปิด (null = ไม่มีผู้รับ/ส่งไม่ได้)
+  notifiedAt        DateTime? @map("notified_at") @db.Timestamptz(6)
+  resolveNotifiedAt DateTime? @map("resolve_notified_at") @db.Timestamptz(6)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([status, openedAt])
+  @@index([openedAt])
+  @@map("monitor_alert")
+}
+
+/// ST9-T19 ผล self-probe ทุก 1 นาที (1 แถว/นาที) — ใช้คำนวณ availability รายเดือน (เป้า 99.5%) · เก็บ 400 วัน
+model AvailabilityProbe {
+  minute    DateTime @id @db.Timestamptz(6) /// ต้นนาที (UTC)
+  ok        Boolean
+  status    Int? /// HTTP status ของ /v1/readyz (null = ต่อไม่ได้)
+  latencyMs Int?     @map("latency_ms")
+  error     String?  @db.VarChar(200)
+  source    String   @db.VarChar(20) /// worker · api (ตัวสำรองตอน worker หยุด)
+
+  @@map("availability_probe")
+}
+
+/// ST9-T19 จำนวนคำขอ HTTP ต่อนาทีต่อ instance ของ API (รวมทุก route) — alert อัตรา 5xx ข้าม instance · เก็บ 35 วัน
+model HttpRequestMinute {
+  minute     DateTime @db.Timestamptz(6)
+  instanceId String   @map("instance_id") @db.VarChar(120)
+  total      Int      @default(0)
+  errors     Int      @default(0) /// 5xx
+
+  @@id([minute, instanceId])
+  @@map("http_request_minute")
+}
