@@ -3151,7 +3151,7 @@ model ErpMasterCode {
   active      Boolean   @default(true)
   syncedAt    DateTime  @default(now()) @map("synced_at") @db.Timestamptz(6)
   createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@index([tenantId, connectorId, kind, active])
   @@map("erp_master_code")
@@ -3171,7 +3171,7 @@ model ErpCodeMapping {
   updatedBy     String?     @map("updated_by")
   version       Int         @default(1)
   createdAt     DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt     DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedAt     DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   @@unique([connectorId, serviceItemId])
   @@index([tenantId, connectorId])
