@@ -26,7 +26,11 @@ export interface KeyPrincipal {
   keyId: string;
   tenantId: string;
   scopes: string[];
+  /** ST7-T07 เวอร์ชันที่ pin ไว้บน key (YYYY-MM-DD) — null = ตามวันสร้างบริษัท */
+  apiVersion: string | null;
 }
+
+const pinOf = (k: ApiKey) => k.apiVersion?.toISOString().slice(0, 10) ?? null;
 
 /**
  * ยืนยันตัวตนด้วย API key (ST7-T01; docs/04 G1) — 2 ทาง ได้ principal `client` แบบเดียวกัน:
@@ -99,7 +103,7 @@ export class ApiKeyAuthService {
     if (!k) throw new ProblemException('unauthorized');
     await this.check(k, ip);
     await this.touch(k, ip);
-    return { keyId: k.id, tenantId: k.tenantId, scopes: allowed(k.scopes) };
+    return { keyId: k.id, tenantId: k.tenantId, scopes: allowed(k.scopes), apiVersion: pinOf(k) };
   }
 
   /** Bearer JWT จาก client credentials — scope = ที่ token ได้ ∩ scope ปัจจุบันของ key */
@@ -114,6 +118,7 @@ export class ApiKeyAuthService {
       keyId: k.id,
       tenantId: k.tenantId,
       scopes: allowed(granted.filter((s) => k.scopes.includes(s))),
+      apiVersion: pinOf(k),
     };
   }
 
