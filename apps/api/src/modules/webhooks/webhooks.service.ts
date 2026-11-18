@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma, type WebhookEndpoint } from '@prisma/client';
 import { WEBHOOK_ROTATION_GRACE_HOURS } from '@tms/domain';
 import { eventSample } from './event-openapi';
+import { findUsers } from '../sandbox/users';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { AuditService } from '../../audit/audit.service';
 import { encodeId } from '../../common/ids';
@@ -124,11 +125,7 @@ export class WebhooksService {
     for (const [id, t] of tot) rate.set(id, Math.round((t.ok / t.all) * 1000) / 10);
     const users = [...new Set(rows.map((r) => r.createdBy).filter((x) => x && UUID_RE.test(x)))];
     if (users.length)
-      for (const u of await tx.appUser.findMany({
-        where: { id: { in: users as string[] } },
-        select: { id: true, name: true },
-      }))
-        names.set(u.id, u.name);
+      for (const u of await findUsers(tx, { ids: users as string[] })) names.set(u.id, u.name);
     return { rate, names };
   }
 
@@ -534,7 +531,13 @@ export class WebhooksService {
     await this.takeTestSlot(tenantId, id);
     const type = body.eventType ?? e.events[0] ?? 'order.created';
     const envelope = {
-      ...this.engine.systemEnvelope(tenantId, 'webhook.test', sampleObject(type)),
+      ...this.engine.systemEnvelope(
+        tenantId,
+        'webhook.test',
+        sampleObject(type),
+        undefined,
+        await this.engine.modeOf(tenantId),
+      ),
       sampleEventType: type,
     };
     const r = await this.engine.attempt({

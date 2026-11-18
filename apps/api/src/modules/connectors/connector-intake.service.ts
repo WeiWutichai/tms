@@ -724,8 +724,9 @@ export class ConnectorIntakeService implements OnModuleInit {
   private async tenantActive(tenantId: string): Promise<boolean> {
     const t = await this.prisma.platform.tenant.findUnique({
       where: { id: tenantId },
-      select: { status: true },
+      select: { status: true, mode: true },
     });
-    return t?.status === 'TRIAL' || t?.status === 'ACTIVE';
+    // ST7-T09: sandbox ไม่ดึงข้อมูลจาก connector (ไม่มี connector ใน sandbox — @LiveOnly)
+    return t?.mode === 'live' && (t.status === 'TRIAL' || t.status === 'ACTIVE');
   }
 }

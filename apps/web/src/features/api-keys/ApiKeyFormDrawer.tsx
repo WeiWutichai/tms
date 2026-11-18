@@ -12,6 +12,7 @@ import {
   type ApiKey,
   type ApiKeyWithSecret,
 } from './useApiKeys';
+import { modeOrder, type ApiMode } from './mode';
 
 const SEL: CSSProperties = { height: 40, padding: '0 12px', borderColor: '#CDD1C8', width: '100%' };
 const IPV4 = /^\d{1,3}(\.\d{1,3}){3}(\/\d{1,2})?$/;
@@ -30,6 +31,7 @@ interface Form {
   ttl: string;
   scopes: string[];
   ip: string;
+  mode: ApiMode;
 }
 
 /**
@@ -38,7 +40,7 @@ interface Form {
  * แก้ scope: Scope + IP (การเปลี่ยนมีผลทันที)
  * - รายการ scope = PERMISSIONS ของระบบ (`resource:verb` ตัวเดียวกับบทบาท) แทนรายการตัวอย่างของต้นแบบ
  *   scope ที่ผู้ใช้ไม่มีเองเลือกไม่ได้ (INT-073) [DECISION spec/12 §3]
- * - โหมด Sandbox ยังเลือกไม่ได้จนกว่าจะมี sandbox (ST7-T09) [DECISION spec/12 §3]
+ * - โหมด (ST7-T09): ค่าเริ่ม = โหมดของหน้า และตัวเลือกเรียงโหมดของหน้าก่อน (ต้นแบบ cfKey) — key Sandbox สร้างใน sandbox
  */
 export function ApiKeyFormDrawer({
   open,
@@ -46,7 +48,10 @@ export function ApiKeyFormDrawer({
   onClose,
   onCreated,
   onSaved,
+  mode = 'live',
 }: {
+  /** โหมดของหน้า (ค่าเริ่มของช่อง "โหมด") */
+  mode?: ApiMode;
   open: boolean;
   /** มีค่า = แก้ scope ของ key นี้ */
   edit?: ApiKey | null;
@@ -59,7 +64,7 @@ export function ApiKeyFormDrawer({
   const update = useUpdateApiKey();
   const opts = useScopeOptions();
   const m = edit ? update : create;
-  const [f, setF] = useState<Form>({ name: '', ttl: '90', scopes: [], ip: '' });
+  const [f, setF] = useState<Form>({ name: '', ttl: '90', scopes: [], ip: '', mode });
   const [tried, setTried] = useState(false);
   const submitting = useRef(false);
   // ล้างฟอร์มตั้งแต่ render แรกที่เปิด (ไม่รอ effect — กันค่าเก่าค้าง)
@@ -75,8 +80,9 @@ export function ApiKeyFormDrawer({
               ttl: '90',
               scopes: [...edit.scopes],
               ip: edit.ipAllowlist.join('\n'),
+              mode: edit.mode,
             }
-          : { name: '', ttl: '90', scopes: [], ip: '' },
+          : { name: '', ttl: '90', scopes: [], ip: '', mode },
       );
       setTried(false);
       submitting.current = false;
@@ -131,7 +137,7 @@ export function ApiKeyFormDrawer({
       create.mutate(
         {
           name: f.name.trim(),
-          mode: 'live',
+          mode: f.mode,
           scopes: f.scopes,
           ipAllowlist: ips,
           expiresInDays: f.ttl === 'never' ? null : (Number(f.ttl) as 30 | 90 | 365),
@@ -202,13 +208,17 @@ export function ApiKeyFormDrawer({
                     {...p}
                     className="tms-select"
                     style={SEL}
-                    value="live"
-                    onChange={() => {}}
+                    value={f.mode}
+                    onChange={(e) => {
+                      const v = e.target.value as ApiMode;
+                      setF((x) => ({ ...x, mode: v }));
+                    }}
                   >
-                    <option value="live">{t('akey.mode.live')}</option>
-                    <option value="test" disabled>
-                      {t('akey.mode.testOff')}
-                    </option>
+                    {modeOrder(mode).map((m) => (
+                      <option key={m} value={m}>
+                        {t(m === 'test' ? 'akey.mode.test' : 'akey.mode.live')}
+                      </option>
+                    ))}
                   </select>
                 )}
               </FormField>

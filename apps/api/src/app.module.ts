@@ -87,6 +87,8 @@ import { ServiceItemsController } from './modules/service-items/service-items.co
 import { ServiceItemsService } from './modules/service-items/service-items.service';
 import { ApiKeysController } from './modules/api-keys/api-keys.controller';
 import { ApiKeyAuthService } from './modules/api-keys/api-key-auth.service';
+import { SandboxService } from './modules/sandbox/sandbox.service';
+import { TestEventsController, TestEventsService } from './modules/sandbox/test-events.controller';
 import { ApiKeysService } from './modules/api-keys/api-keys.service';
 import { WebhooksController } from './modules/webhooks/webhooks.controller';
 import { WebhooksService } from './modules/webhooks/webhooks.service';
@@ -249,6 +251,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     ReasonCodesController,
     ApiKeysController,
     WebhooksController,
+    TestEventsController,
     ConnectorsEffectiveController,
     ConnectorsController,
     InboundWebhookController,
@@ -324,6 +327,8 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     ReasonCodesService,
     ApiKeysService,
     ApiKeyAuthService,
+    SandboxService,
+    TestEventsService,
     RateCardsService,
     PricingService,
     OrderIntakeService,

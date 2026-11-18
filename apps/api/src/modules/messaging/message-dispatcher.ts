@@ -5,6 +5,7 @@ import { isLinkKind, linkUrl } from './link-kinds';
 import { MessagingProviders } from './messaging.providers';
 import { MessagingError, safeError, type MessageChannel } from './providers';
 import { MESSAGE_TEMPLATES, renderMessage, type MessageTemplate } from './templates';
+import { isSandboxTenant } from '../sandbox/users';
 
 /** ต้องยาวกว่า timeout ของ provider (15 วิ) มาก — ไม่งั้น worker อื่นหยิบซ้ำระหว่างส่ง */
 const LEASE_MS = 2 * 60_000;
@@ -108,6 +109,13 @@ export class MessageDispatcher {
     if (!m) return false;
     let delivered: { provider: string; messageId: string | null } | null = null;
     try {
+      // ST7-T09: sandbox ไม่ส่ง LINE/SMS ไปหาคนจริง — FAILED `sandbox_suppressed` (ไม่ลองใหม่)
+      if (await isSandboxTenant(this.prisma.platform, m.tenantId))
+        throw new MessagingError(
+          'sandbox tenant — message suppressed',
+          'sandbox_suppressed',
+          false,
+        );
       const provider = this.providers.get(m.channel);
       if (!provider) throw new MessagingError('channel is disabled', 'channel_disabled', false);
       if (!m.recipientEnc) throw new MessagingError('recipient missing', 'body_missing', false);

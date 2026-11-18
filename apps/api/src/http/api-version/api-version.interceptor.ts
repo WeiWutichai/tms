@@ -47,12 +47,14 @@ export class ApiVersionInterceptor implements NestInterceptor {
     if (hit) return hit;
     const t = await this.prisma.platform.tenant.findUnique({
       where: { id: tenantId },
-      select: { createdAt: true },
+      select: { createdAt: true, liveTenant: { select: { createdAt: true } } },
     });
     if (!t) return null;
+    // ST7-T09: sandbox ได้พฤติกรรมตามวันสร้างบริษัทจริง (key test ทดสอบแบบเดียวกับ live)
+    const at = t.liveTenant?.createdAt ?? t.createdAt;
     if (this.created.size >= CACHE_MAX) this.created.clear();
-    this.created.set(tenantId, t.createdAt);
-    return t.createdAt;
+    this.created.set(tenantId, at);
+    return at;
   }
 
   async intercept(context: ExecutionContext, next: CallHandler): Promise<Observable<unknown>> {
