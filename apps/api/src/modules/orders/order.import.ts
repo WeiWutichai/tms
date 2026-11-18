@@ -15,6 +15,7 @@ import {
 import { Lookup, RowReader, type RefKind } from '../imports/master-import';
 import { issuesFromError } from '../imports/reasons';
 import { cleanLine } from '../master/master-kit';
+import { NotificationEvents } from '../notifications/notification-events';
 import type { UpsertOrderInput, UpsertOrderLine, UpsertOrderStop } from './order-input';
 import { OrderIntakeService } from './order-intake.service';
 
@@ -279,7 +280,10 @@ interface GroupState {
 }
 
 /** spec นำเข้า `order` — ลงทะเบียนตอนเริ่มระบบ */
-export function orderImportSpec(intake: OrderIntakeService): ImportSpec<OrderImportValue> {
+export function orderImportSpec(
+  intake: OrderIntakeService,
+  events?: NotificationEvents,
+): ImportSpec<OrderImportValue> {
   async function product(tx: Tx, id: string) {
     return tx.product.findUnique({
       where: { id },
@@ -599,7 +603,26 @@ export function orderImportSpec(intake: OrderIntakeService): ImportSpec<OrderImp
     syncMaxRows: ORDER_SYNC_MAX_ROWS,
     sampleRows: SAMPLE_ROWS,
     helpNotes: HELP_NOTES,
+    // ST9-T08: ใบค้างจากไฟล์แจ้งรวมฉบับเดียวตอนจบ (ใบในขั้นตรวจที่ย้อนทิ้งไม่ถูกแจ้ง — flush กรองใบที่ยัง ON_HOLD)
     async validate(ctx, rows) {
+      if (!events) return validateRows(ctx, rows);
+      const { value, held } = await events.batchOrderHolds(() => validateRows(ctx, rows));
+      await events.flushOrderHolds(ctx.tx, ctx.tenantId, held);
+      return value;
+    },
+    async commit(ctx, rows) {
+      if (!events) return commitRows(ctx, rows);
+      const { value, held } = await events.batchOrderHolds(() => commitRows(ctx, rows));
+      await events.flushOrderHolds(ctx.tx, ctx.tenantId, held);
+      return value;
+    },
+  };
+
+  async function validateRows(
+    ctx: Parameters<ImportSpec<OrderImportValue>['validate']>[0],
+    rows: Parameters<ImportSpec<OrderImportValue>['validate']>[1],
+  ): Promise<RowResult<OrderImportValue>[]> {
+    {
       const st: GroupState = { lookup: new Lookup(ctx.tx) };
       const apply = !!ctx.apply;
       const out = new Map<number, RowResult<OrderImportValue>>();
@@ -633,9 +656,14 @@ export function orderImportSpec(intake: OrderIntakeService): ImportSpec<OrderImp
         ctx.apply!.written = true;
       } else await discard();
       return results;
-    },
-    /** เขียนจริงเมื่อ framework ไม่ได้ตรวจแบบ apply — ประมวลผลใบที่ผ่านใหม่ (ล้ม = ข้อมูลเปลี่ยนระหว่างนำเข้า → ยกเลิกทั้งหมด) */
-    async commit(ctx, rows) {
+    }
+  }
+  /** เขียนจริงเมื่อ framework ไม่ได้ตรวจแบบ apply — ประมวลผลใบที่ผ่านใหม่ (ล้ม = ข้อมูลเปลี่ยนระหว่างนำเข้า → ยกเลิกทั้งหมด) */
+  async function commitRows(
+    ctx: Parameters<ImportSpec<OrderImportValue>['commit']>[0],
+    rows: Parameters<ImportSpec<OrderImportValue>['commit']>[1],
+  ): Promise<number> {
+    {
       const st: GroupState = { lookup: new Lookup(ctx.tx) };
       const byGroup = new Map<string, RowInput[]>();
       for (const { value } of rows)
@@ -649,8 +677,8 @@ export function orderImportSpec(intake: OrderIntakeService): ImportSpec<OrderImp
           );
       }
       return rows.length;
-    },
-  };
+    }
+  }
 }
 
 /**
@@ -673,9 +701,11 @@ export class OrderImports implements OnModuleInit {
   constructor(
     private readonly registry: ImportRegistry,
     private readonly intake: OrderIntakeService,
+    private readonly events: NotificationEvents,
   ) {}
 
   onModuleInit() {
-    if (!this.registry.get('order')) this.registry.register(orderImportSpec(this.intake));
+    if (!this.registry.get('order'))
+      this.registry.register(orderImportSpec(this.intake, this.events));
   }
 }
