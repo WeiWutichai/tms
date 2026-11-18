@@ -265,8 +265,7 @@ export class DeliveryOrderSummaryDto {
   @ApiProperty({ example: '2026-11-18', description: 'วันนี้ตามเวลาไทย (Asia/Bangkok) ที่ใช้นับ' })
   date!: string;
   @ApiProperty({
-    description:
-      'งานวันนี้ = `?dateFrom=date&dateTo=date&status=` ทุกสถานะยกเว้น CANCELLED',
+    description: 'งานวันนี้ = `?dateFrom=date&dateTo=date&status=` ทุกสถานะยกเว้น CANCELLED',
   })
   today!: number;
   @ApiProperty({

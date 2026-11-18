@@ -45,7 +45,11 @@ describe('ops dashboard (ST9-T01)', () => {
 
   async function company(tid: string) {
     const c = await db.company.create({
-      data: { tenantId: tid, legalName: `บริษัท ผู้ออกบิล ${++seed}`, taxId: validTaxId(800 + seed) },
+      data: {
+        tenantId: tid,
+        legalName: `บริษัท ผู้ออกบิล ${++seed}`,
+        taxId: validTaxId(800 + seed),
+      },
     });
     await db.branch.create({
       data: {
@@ -89,7 +93,12 @@ describe('ops dashboard (ST9-T01)', () => {
           .expect(201)
       ).body.id,
     );
-  const order = (k: { customer?: string; text?: string; o: string; d: string }): UpsertOrderInput => ({
+  const order = (k: {
+    customer?: string;
+    text?: string;
+    o: string;
+    d: string;
+  }): UpsertOrderInput => ({
     source: 'MANUAL',
     customer: k.customer ? { id: k.customer } : { text: k.text! },
     requestedDate: D1,
@@ -143,11 +152,19 @@ describe('ops dashboard (ST9-T01)', () => {
         tripDate: new Date(`${D1}T00:00:00Z`),
         status,
         ...(opts.vehicleId
-          ? { vehicleId: opts.vehicleId, vehiclePlateSnapshot: 'ทดสอบ', vehicleTypeId: opts.vtId ?? vehicleTypeId }
+          ? {
+              vehicleId: opts.vehicleId,
+              vehiclePlateSnapshot: 'ทดสอบ',
+              vehicleTypeId: opts.vtId ?? vehicleTypeId,
+            }
           : {}),
         ...(opts.trailerId ? { trailerId: opts.trailerId, trailerPlateSnapshot: 'หาง' } : {}),
         ...(opts.carrierId
-          ? { carrierId: opts.carrierId, carrierNameSnapshot: 'รถร่วม', assignmentStatus: 'OFFERED' }
+          ? {
+              carrierId: opts.carrierId,
+              carrierNameSnapshot: 'รถร่วม',
+              assignmentStatus: 'OFFERED',
+            }
           : {}),
         ...(status === 'CANCELLED'
           ? { cancelledAt: new Date(), cancelReason: 'ยกเลิกเที่ยวทดสอบ dashboard' }
@@ -258,7 +275,8 @@ describe('ops dashboard (ST9-T01)', () => {
       ['DELIVERED', D2, true],
       ['DRAFT', D2, false],
     ];
-    for (const [st, day, onTrip] of plan) await setDo(await newDo(), st, day, onTrip ? tRun.id : null);
+    for (const [st, day, onTrip] of plan)
+      await setDo(await newDo(), st, day, onTrip ? tRun.id : null);
     // DO ของคำสั่งรอจัดชุดแรก (DRAFT วันที่ D1 ตาม requestedDate) ยังนับใน "งานวันนี้" ของ D1
 
     // ---------- tenant อื่น: ข้อมูลที่ต้องไม่ถูกนับ ----------
@@ -322,7 +340,9 @@ describe('ops dashboard (ST9-T01)', () => {
       const q = (st: string) => `/v1/delivery-orders?dateFrom=${day}&dateTo=${day}&status=${st}`;
       expect(s.today).toBe(
         await rows(
-          q('DRAFT,PLANNED,DISPATCHED,PICKED_UP,DELIVERED,FAILED,RETURNED,POD_PENDING,UNBILLED,BILLED'),
+          q(
+            'DRAFT,PLANNED,DISPATCHED,PICKED_UP,DELIVERED,FAILED,RETURNED,POD_PENDING,UNBILLED,BILLED',
+          ),
         ),
       );
       expect(s.delivered).toBe(await rows(q('DELIVERED,POD_PENDING,UNBILLED,BILLED')));

@@ -12,7 +12,8 @@ import {
   type Column,
 } from '@tms/ui';
 import { useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { unwrap, api } from '../../api';
 import { useI18n } from '../../i18n';
 import { can } from '../../nav';
@@ -125,6 +126,14 @@ export function OrdersPage() {
     qc.setQueryData(['orders', 'one', id], o);
     openForm({ mode: 'edit', initial: fromOrder(o), order: o, subtitle: t('ord.kind') });
   };
+
+  // ST9-T01 ทางลัด "สร้าง SO" บนหน้าภาพรวม → `/so?new=1` เปิดฟอร์มสร้างทันที (แล้วล้างพารามิเตอร์)
+  const [params, setParams] = useSearchParams();
+  useEffect(() => {
+    if (params.get('new') !== '1' || !canWrite) return;
+    setForm({ key: Date.now(), mode: 'create', initial: emptyForm(today) });
+    setParams(new URLSearchParams(), { replace: true });
+  }, [params, canWrite, setParams, today]);
 
   const goTab = (k: Tab) => {
     setOverdue(false);

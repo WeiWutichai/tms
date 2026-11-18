@@ -681,7 +681,8 @@ export class VehicleQuotaDto {
 
 /** ST9-T01 dashboard ปฏิบัติการ: รถบริษัท (OWN) ว่าง / ใช้งาน / ซ่อม — เงื่อนไขเดียวกับตัวกรองของรายการ */
 export class VehicleFleetTodayDto {
-  @ApiProperty({ description: 'ว่าง = `ownership=OWN&status=ready&busy=false`' }) available!: number;
+  @ApiProperty({ description: 'ว่าง = `ownership=OWN&status=ready&busy=false`' })
+  available!: number;
   @ApiProperty({ description: 'ใช้งาน = `ownership=OWN&busy=true`' }) inUse!: number;
   @ApiProperty({ description: 'ซ่อม = `ownership=OWN&status=maintenance`' }) maintenance!: number;
 }

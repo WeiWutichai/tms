@@ -9,7 +9,10 @@ import type { TripStatus } from './trip';
  * "วันนี้" = วันที่ตามเวลาไทย (Asia/Bangkok — RPT-002) ของวันที่ DO (`do_date` = วันที่ส่งตามแผน)
  */
 /** เที่ยวกำลังวิ่ง — ปล่อยรถแล้ว ยังไม่ปิดเที่ยว */
-export const OPS_TRIP_RUNNING = ['DISPATCHED', 'IN_PROGRESS'] as const satisfies readonly TripStatus[];
+export const OPS_TRIP_RUNNING = [
+  'DISPATCHED',
+  'IN_PROGRESS',
+] as const satisfies readonly TripStatus[];
 /** งานรถร่วมรอตอบ — เสนองานแล้ว รอรถร่วมรับ/ปฏิเสธ (ลิงก์ข้อเสนอ ST3-T23) */
 export const OPS_TRIP_AWAITING_CARRIER = ['OFFERED'] as const satisfies readonly TripStatus[];
 /** งานวันนี้ — DO วันนี้ทุกสถานะยกเว้นยกเลิก (spec/09 §1 "งานวันนี้") */

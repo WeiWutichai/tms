@@ -2,6 +2,7 @@ import {
   Button,
   DataTable,
   EmptyState,
+  FilterChip,
   Icon,
   KpiCard,
   StatusTabs,
@@ -10,7 +11,7 @@ import {
   type Column,
 } from '@tms/ui';
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { formatDate, useI18n, type T } from '../../i18n';
 import { can } from '../../nav';
 import { PageHeader } from '../../shell/Header';
@@ -18,7 +19,7 @@ import { useMe } from '../../shell/AppShell';
 import { tableLabels } from '../companies/CompanySample';
 import { downloadFile } from '../master/download';
 import { problemText } from '../master/problems';
-import { listTotal, useSessionState } from '../master/useCursorList';
+import { listTotal, useSessionState, useUrlSeed } from '../master/useCursorList';
 import { VehicleActionDialog, type VehicleDialog } from './VehicleActionDialog';
 import { VehBadge, VehicleDrawer } from './VehicleDrawer';
 import { VehicleFormDrawer } from './VehicleFormDrawer';
@@ -42,6 +43,7 @@ const EMPTY_FILTERS: VehicleFilters = {
   ownership: '',
   status: '',
   docAlert: '',
+  busy: '',
 };
 const num = (n: number) => n.toLocaleString('th-TH');
 const cell = { color: '#101418', whiteSpace: 'nowrap' } as const;
@@ -81,6 +83,22 @@ export function VehiclesPage() {
   const tenantName = me.data?.tenant.name ?? '';
   const navigate = useNavigate();
   // แท็บ/ตัวกรอง/หน้า จำใน sessionStorage — ไปโปรไฟล์รถแล้วกลับมาอยู่ที่เดิม (review ST2-T07)
+  // ST9-T01 ลิงก์จากการ์ดรถบน dashboard (`?ownership=OWN&status=ready&busy=false`) — status → แท็บ, ที่เหลือ → ตัวกรอง
+  const [params, setParams] = useSearchParams();
+  useUrlSeed(params, ['status', 'ownership', 'busy'], (p) => {
+    const st = p.get('status') ?? '';
+    const ok = (VEHICLE_STATUSES as readonly string[]).includes(st);
+    const own = p.get('ownership') ?? '';
+    const busy = p.get('busy') ?? '';
+    return {
+      'tms.fveh.tab': ok ? st : 'all',
+      'tms.fveh.filters': {
+        ...EMPTY_FILTERS,
+        ownership: own === 'OWN' || own === 'SUBCONTRACT' ? own : '',
+        busy: busy === 'true' || busy === 'false' ? busy : '',
+      },
+    };
+  });
   const [filters, setFilters] = useSessionState<VehicleFilters>('tms.fveh.filters', EMPTY_FILTERS);
   const [tab, setTab] = useSessionState<VehTabKey>('tms.fveh.tab', 'all');
   const query = vehicleQuery(tab, filters);
@@ -309,6 +327,17 @@ export function VehiclesPage() {
           })}
         />
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 32 }}>
+          {/* ST9-T01 ตัวกรอง "กำลังใช้งาน/ไม่ได้ใช้งาน" มาจากการ์ดรถบน dashboard เท่านั้น — แสดงเป็นชิปลบได้ */}
+          {filters.busy && (
+            <FilterChip
+              label={t(filters.busy === 'true' ? 'veh.busy.true' : 'veh.busy.false')}
+              removeLabel={t('veh.busy.clear')}
+              onRemove={() => {
+                setF('busy', '');
+                if (params.size) setParams(new URLSearchParams(), { replace: true });
+              }}
+            />
+          )}
           <span style={{ marginLeft: 'auto', color: '#3B424C', fontSize: 13 }}>
             {shownTotal !== undefined && t('table.total', { n: shownTotal })}
           </span>
