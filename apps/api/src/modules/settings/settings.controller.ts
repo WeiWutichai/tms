@@ -71,7 +71,7 @@ export class SettingsController {
     name: 'X-Step-Up',
     required: false,
     description:
-      'ต้องมีเมื่อแก้ที่ลดความปลอดภัย (ปิด 2FA ทั้งองค์กร / ปิดออกจากระบบอัตโนมัติ / ยืด idle timeout) — ไม่มี → 403 step_up_required',
+      'ต้องมีเมื่อแก้ที่ลดความปลอดภัย (ปิด 2FA ทั้งองค์กร / ปิดออกจากระบบอัตโนมัติ / ยืด idle timeout / ลดระยะเก็บ `retention.*`) — ไม่มี → 403 step_up_required',
   })
   @ApiOkResponse({ type: SettingListDto })
   async update(

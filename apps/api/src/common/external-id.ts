@@ -84,11 +84,7 @@ const EXT_422 = {
     },
   },
 };
-const EXT_403 = {
-  status: 403,
-  description: 'ไม่มี scope ที่ต้องใช้',
-  examples: { forbidden: problem('forbidden') },
-};
+// 403: ตัวอย่าง `permission_denied` + `required` สร้างจาก scope ของ route (describeProblemDefaults — ST7-T11)
 const EXT_404 = {
   status: 404,
   description: 'ยังไม่มีแถวที่ externalId นี้ (สร้างใหม่ใช้ PUT) หรืออยู่ tenant อื่น',
@@ -115,11 +111,11 @@ export const ApiExternalIdParam = () =>
 
 /** เอกสารของ `PUT /{resource}/external/{externalId}` (master) */
 export const ApiExternalPut = () =>
-  applyDecorators(ApiExternalIdParam(), ApiProblems(EXT_403, EXT_409, EXT_412, EXT_422));
+  applyDecorators(ApiExternalIdParam(), ApiProblems(EXT_409, EXT_412, EXT_422));
 
 /** เอกสารของ `PATCH /{resource}/external/{externalId}` (master) */
 export const ApiExternalPatch = () =>
-  applyDecorators(ApiExternalIdParam(), ApiProblems(EXT_403, EXT_404, EXT_409, EXT_412, EXT_422));
+  applyDecorators(ApiExternalIdParam(), ApiProblems(EXT_404, EXT_409, EXT_412, EXT_422));
 
 /** ตรวจ `externalId` จาก path — ผิดรูปแบบ → 422 `validation_failed` (field `externalId`) */
 export function parseExternalId(raw: string): string {

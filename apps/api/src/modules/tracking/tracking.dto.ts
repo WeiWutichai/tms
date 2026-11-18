@@ -172,3 +172,45 @@ export class TrackingLinkStateDto {
   @ApiProperty({ type: TrackingLinkDto, nullable: true, description: 'null = ไม่มีลิงก์ที่ใช้ได้' })
   link!: TrackingLinkDto | null;
 }
+
+/** ST7-T11 ตำแหน่งล่าสุดที่รู้ของเที่ยว — จากพิกัดของ event หน้างาน (เฟส 0 ไม่มี GPS สด/telemetry — P2) */
+export class OrderTrackingPositionDto {
+  @ApiProperty({ example: 13.6658 }) lat!: number;
+  @ApiProperty({ example: 100.6371 }) lng!: number;
+  @ApiProperty({ nullable: true, type: Number, example: 12 }) accuracyM!: number | null;
+  @ApiProperty({ example: '2026-11-19T09:42:00.000Z', description: 'occurredAt ของ event' })
+  occurredAt!: string;
+  @ApiProperty({ enum: ['STOP_EVENT'], description: 'ที่มาของพิกัด' }) basis!: string;
+  @ApiProperty({ example: 'evt_3f2a…' }) eventId!: string;
+}
+
+/** ST7-T11 สถานะติดตามของ DO หนึ่งใบของ order (ภายใน — API key/ผู้ใช้ที่มี `orders:read`) */
+export class OrderTrackingShipmentDto extends TrackingShipmentDto {
+  @ApiProperty({ example: 'do_3f2a…' }) deliveryOrderId!: string;
+  @ApiProperty({
+    example: 'DISPATCHED',
+    description: 'สถานะ DO ภายใน (`status` = ขั้นของหน้าติดตาม)',
+  })
+  doStatus!: string;
+  @ApiProperty({ nullable: true, type: String, example: 'trp_3f2a…' }) tripId!: string | null;
+  @ApiProperty({
+    type: OrderTrackingPositionDto,
+    nullable: true,
+    description:
+      'พิกัดล่าสุดที่บันทึกกับ event หน้างานของเที่ยว · ไม่มีพิกัด/ยังไม่มีเที่ยว = null',
+  })
+  lastPosition!: OrderTrackingPositionDto | null;
+}
+
+/** ST7-T11 `GET /v1/orders/{id}/tracking` (docs/04 G2 #1) */
+export class OrderTrackingDto {
+  @ApiProperty({ example: 'ord_3f2a…' }) orderId!: string;
+  @ApiProperty({ nullable: true, type: String, example: 'SO-6911-0001' }) soNo!: string | null;
+  @ApiProperty({ example: 'IN_TRANSIT', description: 'สถานะใบสั่งขนส่ง' }) orderStatus!: string;
+  @ApiProperty({
+    type: [OrderTrackingShipmentDto],
+    description:
+      'ทุก DO ของ order (รวมที่ยกเลิก) ตามลำดับที่สร้าง — ขั้น/ETA/รายการใช้กติกาเดียวกับหน้าติดตามสาธารณะ (ST4-T14) แต่ไม่หมดอายุตาม `tracking.linkDays` และไม่มีรูป POD (ดู `GET /v1/orders/{id}/documents`)',
+  })
+  deliveryOrders!: OrderTrackingShipmentDto[];
+}

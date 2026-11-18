@@ -95,14 +95,14 @@ export class DeliveryOrdersController {
       v === undefined
         ? undefined
         : (tryDecodeId(kind, v) ?? '00000000-0000-0000-0000-000000000000');
-    const { rows, limit } = await this.dos.list({
+    const { rows, limit, sort } = await this.dos.list({
       ...q,
       salesOrderId: decode('salesOrder', q.orderId),
       customerId: decode('customer', q.customerId),
       statuses: q.status ? (q.status.split(',') as DoStatus[]) : undefined,
     });
     const bal = await this.dos.rejectionBalance(this.db.tx, rows);
-    return toPage(rows, limit, (d) => toDeliveryOrderDto(d, bal.get(d.id)), q.fields);
+    return toPage(rows, { limit, sort }, (d) => toDeliveryOrderDto(d, bal.get(d.id)), q.fields);
   }
 
   @Get(':id')
