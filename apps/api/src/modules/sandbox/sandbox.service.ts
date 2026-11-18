@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma, type PrismaClient } from '@prisma/client';
+import { encodeId, tryDecodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { PrismaService } from '../../db/prisma.service';
@@ -41,6 +42,8 @@ export class SandboxService {
   private readonly logger = new Logger('SandboxService');
   /** tenant → link (แก้ไม่ได้หลังสร้าง — trigger ในฐาน) */
   private readonly cache = new Map<string, TenantLink>();
+  /** sandbox ที่ตรวจแล้วว่ามีนิติบุคคล (ไม่ต้องถามฐานซ้ำทุกคำขอ) */
+  private readonly withEntities = new Set<string>();
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -75,7 +78,16 @@ export class SandboxService {
   /** sandbox ของบริษัท — ยังไม่มี = สร้าง (รันพร้อมกันได้: unique live_tenant_id → อ่านแถวที่อีกฝั่งสร้าง) */
   async ensure(liveTenantId: string): Promise<string> {
     const found = await this.find(liveTenantId);
-    if (found) return found;
+    if (found) {
+      if (!this.withEntities.has(found)) {
+        // sandbox ที่สร้างก่อน ST7-T12 ยังไม่มีนิติบุคคล → คัดลอกครั้งเดียว
+        await this.db.$transaction((tx) => copyLegalEntities(tx, liveTenantId, found), {
+          timeout: 30_000,
+        });
+        this.withEntities.add(found);
+      }
+      return found;
+    }
     const live = await this.db.tenant.findUnique({
       where: { id: liveTenantId },
       select: { id: true, name: true, mode: true, planCode: true, yearStyle: true },
@@ -95,6 +107,7 @@ export class SandboxService {
             },
           });
           await bootstrapTenant(tx, row.id);
+          await copyLegalEntities(tx, live.id, row.id);
           // ใครเปิด sandbox เมื่อไร — audit ของบริษัทจริง
           const ctx = requestContext.get();
           await tx.auditLog.create({
@@ -115,6 +128,7 @@ export class SandboxService {
         { timeout: 30_000 },
       );
       this.logger.log(`sandbox ${t.id} created for tenant ${live.id}`);
+      this.withEntities.add(t.id);
       return t.id;
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
@@ -140,4 +154,68 @@ export class SandboxService {
       select: { id: true, name: true, status: true },
     });
   }
+}
+
+const ROUTING_KEYS = ['routing.invoiceAsCompanyId', 'routing.tenderAsCompanyId'] as const;
+
+/**
+ * ST7-T12: นิติบุคคล (ACTIVE) + สาขาของบริษัทจริง → sandbox ที่ยังไม่มีนิติบุคคล — ไม่มี = สร้าง order ไม่ได้
+ * (`422 company_unavailable`) ทำตาม quickstart ไม่ได้ · ค่าตั้ง "ออกบิล/จ้างในนาม" ชี้ไปตัวที่คัดลอก
+ * คัดลอกครั้งเดียว (sandbox มีนิติบุคคลแล้ว = ไม่แตะ) · ไม่ออกเอกสารภาษีใน sandbox — ยัง OPEN (spec/12 §3 แถว Sandbox: เอกสารภาษี)
+ * [DECISION — ตามคำแนะนำ, PO อนุมัติล่วงหน้า 17 พ.ย. 2569 — ย้อนได้]
+ */
+export async function copyLegalEntities(
+  tx: Prisma.TransactionClient,
+  liveTenantId: string,
+  sandboxId: string,
+): Promise<number> {
+  if (await tx.company.count({ where: { tenantId: sandboxId } })) return 0;
+  const companies = await tx.company.findMany({
+    where: { tenantId: liveTenantId, status: 'ACTIVE' },
+    orderBy: { createdAt: 'asc' },
+  });
+  const map = new Map<string, string>();
+  for (const c of companies) {
+    const copy = await tx.company.create({
+      data: {
+        tenantId: sandboxId,
+        legalName: c.legalName,
+        legalNameEn: c.legalNameEn,
+        taxId: c.taxId,
+        vatRegistered: c.vatRegistered,
+        externalId: c.externalId,
+      },
+    });
+    map.set(c.id, copy.id);
+    const branches = await tx.branch.findMany({
+      where: { tenantId: liveTenantId, companyId: c.id },
+      orderBy: { createdAt: 'asc' },
+    });
+    for (const b of branches)
+      await tx.branch.create({
+        data: {
+          tenantId: sandboxId,
+          companyId: copy.id,
+          branchCode: b.branchCode,
+          branchLabel: b.branchLabel,
+          address: b.address as Prisma.InputJsonValue,
+          hqPrintsForAll: b.hqPrintsForAll,
+          isDefaultIssuer: b.isDefaultIssuer,
+        },
+      });
+  }
+  const settings = await tx.tenantSetting.findMany({
+    where: { tenantId: liveTenantId, key: { in: [...ROUTING_KEYS] } },
+  });
+  for (const st of settings) {
+    const liveCompany = typeof st.value === 'string' ? tryDecodeId('company', st.value) : null;
+    const target = liveCompany ? map.get(liveCompany) : undefined;
+    if (!target) continue;
+    await tx.tenantSetting.upsert({
+      where: { tenantId_key: { tenantId: sandboxId, key: st.key } },
+      create: { tenantId: sandboxId, key: st.key, value: encodeId('company', target) },
+      update: { value: encodeId('company', target) },
+    });
+  }
+  return companies.length;
 }

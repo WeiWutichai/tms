@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>เส้นทาง (routes) · TMS API</title>
+<link rel="alternate" type="text/markdown" href="ref-routes.md">
+<style>:root{--ink:#101418;--muted:#59606B;--line:#E4E6E0;--bg:#FFFFFF;--side:#F4F5F2;--accent:#2257C4;--code:#EEF0EC}
+*{box-sizing:border-box}
+body{margin:0;font-family:'IBM Plex Sans Thai Looped','IBM Plex Sans',system-ui,sans-serif;color:var(--ink);background:var(--bg);font-size:14px;line-height:1.6}
+a{color:var(--accent)}
+.layout{display:flex;min-height:100vh}
+nav{width:272px;flex:none;background:var(--side);border-right:1px solid var(--line);padding:20px 16px;position:sticky;top:0;height:100vh;overflow:auto}
+nav .brand{font-weight:600;font-size:15px;margin-bottom:12px;display:block;color:var(--ink);text-decoration:none}
+nav h4{font-size:12px;color:var(--muted);margin:16px 0 4px;font-weight:600}
+nav a{display:block;padding:3px 8px;border-radius:6px;text-decoration:none;color:var(--ink);font-size:13px}
+nav a.on{background:#FFFFFF;color:var(--accent);font-weight:600}
+main{flex:1;min-width:0;padding:28px 40px;max-width:1100px}
+main h1{font-size:24px;margin:0 0 8px}main h2{font-size:18px;margin:32px 0 8px;padding-top:12px;border-top:1px solid var(--line)}main h3{font-size:15px;margin:20px 0 6px}
+code{font-family:'IBM Plex Mono',monospace;font-size:12.5px;background:var(--code);padding:1px 4px;border-radius:4px}
+pre{background:var(--code);border:1px solid var(--line);border-radius:8px;padding:12px;overflow:auto}pre code{background:none;padding:0}
+.table{overflow-x:auto}table{border-collapse:collapse;width:100%;margin:8px 0;font-size:13px}th,td{border:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}th{background:var(--side);font-weight:600}
+blockquote{margin:8px 0;padding:6px 12px;border-left:3px solid var(--accent);background:var(--side)}
+.md-link{float:right;font-size:12px}
+@media (max-width:800px){.layout{display:block}nav{position:static;width:auto;height:auto}main{padding:16px}}</style>
+</head>
+<body>
+<div class="layout">
+<nav><a class="brand" href="index.html">TMS API v1</a><h4>เริ่มต้นใช้งาน</h4><a href="quickstart.html">เริ่มต้นใช้งาน (Quickstart)</a><a href="authentication.html">ยืนยันตัวตน</a><h4>แนวทาง</h4><a href="conventions.html">แนวทางการใช้ API</a><a href="rate-limits.html">Rate limit</a><a href="versioning.html">เวอร์ชันของ API</a><a href="sandbox.html">Sandbox</a><a href="webhooks.html">Webhook และการตรวจลายเซ็น</a><a href="bulk-async.html">ทำทีละหลายรายการและงานเบื้องหลัง</a><a href="sdk.html">TypeScript SDK</a><a href="postman.html">Postman</a><h4>Resource</h4><a href="ref-orders.html">ใบสั่งขนส่ง (orders)</a><a href="ref-delivery-orders.html">ใบส่งของ (delivery-orders)</a><a href="ref-trips.html">เที่ยววิ่ง (trips)</a><a href="ref-stops.html">จุดส่ง (stops)</a><a href="ref-documents.html">ไฟล์และเอกสาร (documents)</a><a href="ref-webhooks.html">Webhooks และ events</a><a href="ref-sandbox.html">Sandbox</a><a href="ref-jobs.html">งานเบื้องหลัง (jobs)</a><a href="ref-customers.html">ลูกค้า (customers)</a><a href="ref-customer-sites.html">สถานที่ (customer-sites)</a><a href="ref-products.html">สินค้า (products)</a><a href="ref-units.html">หน่วย (units)</a><a href="ref-vehicle-types.html">ประเภทรถ (vehicle-types)</a><a href="ref-service-items.html">รายการค่าบริการ (service-items)</a><a href="ref-reason-codes.html">รหัสเหตุผล (reason-codes)</a><a href="ref-routes.html" class="on">เส้นทาง (routes)</a><a href="ref-rate-cards.html">ตารางราคา (rate-cards)</a><a href="ref-carriers.html">รถร่วม (carriers)</a><a href="ref-vehicles.html">รถ (vehicles)</a><a href="ref-drivers.html">คนขับ (drivers)</a><a href="ref-vehicle-documents.html">เอกสารรถ (vehicle-documents)</a><a href="ref-carrier-docs.html">เอกสารรถร่วม (carrier-docs)</a><a href="ref-order-templates.html">แม่แบบใบสั่ง (order-templates)</a><a href="ref-planning.html">วางแผน (planning)</a><a href="ref-schedule.html">ตารางงาน (schedule)</a><a href="ref-exports.html">ส่งออกไฟล์ (exports)</a><a href="ref-connectors.html">Connector ERP (connectors)</a><a href="ref-messaging.html">ส่งข้อความ (messaging)</a><a href="ref-companies.html">นิติบุคคล (companies)</a><a href="ref-branches.html">สาขา (branches)</a><a href="ref-document-sequences.html">เลขที่เอกสาร (document-sequences)</a><a href="ref-settings.html">ตั้งค่า (settings)</a><a href="ref-audit.html">ประวัติการทำรายการ (audit)</a><a href="ref-auth.html">OAuth และระบบ (auth)</a><h4>อ้างอิง</h4><a href="webhook-events.html">Webhook events</a><a href="errors.html">รหัส error</a><a href="changelog.html">Changelog</a></nav>
+<main>
+<a class="md-link" href="ref-routes.md">Markdown</a>
+<h1 id="เส้นทาง-routes">เส้นทาง (routes)</h1>
+<p>14 endpoint · ทุกคำขอส่ง <code>Authorization: Bearer &lt;API key&gt;</code> — ดู <a href="authentication.html">ยืนยันตัวตน</a> และ <a href="conventions.html">แนวทางการใช้ API</a></p>
+<div class="table"><table><thead><tr><th>Endpoint</th><th>scope</th></tr></thead><tbody><tr><td>[<code>GET /v1/routes</code>](#get-routes)</td><td><code>master:read</code></td></tr><tr><td>[<code>POST /v1/routes</code>](#post-routes)</td><td><code>master:write</code></td></tr><tr><td>[<code>GET /v1/routes/summary</code>](#get-routes-summary)</td><td><code>master:read</code></td></tr><tr><td>[<code>GET /v1/routes/next-code</code>](#get-routes-next-code)</td><td><code>master:write</code></td></tr><tr><td>[<code>GET /v1/routes/export</code>](#get-routes-export)</td><td><code>export:run</code></td></tr><tr><td>[<code>POST /v1/routes/estimate</code>](#post-routes-estimate)</td><td><code>master:write</code></td></tr><tr><td>[<code>PUT /v1/routes/external/{externalId}</code>](#put-routes-external-externalId)</td><td><code>master:write</code></td></tr><tr><td>[<code>PATCH /v1/routes/external/{externalId}</code>](#patch-routes-external-externalId)</td><td><code>master:write</code></td></tr><tr><td>[<code>GET /v1/routes/{id}</code>](#get-routes-id)</td><td><code>master:read</code></td></tr><tr><td>[<code>PATCH /v1/routes/{id}</code>](#patch-routes-id)</td><td><code>master:write</code></td></tr><tr><td>[<code>GET /v1/routes/{id}/history</code>](#get-routes-id-history)</td><td><code>master:read</code></td></tr><tr><td>[<code>POST /v1/routes/{id}/deactivate</code>](#post-routes-id-deactivate)</td><td><code>master:write</code></td></tr><tr><td>[<code>POST /v1/routes/{id}/activate</code>](#post-routes-id-activate)</td><td><code>master:write</code></td></tr><tr><td>[<code>POST /v1/routes/{id}/delete</code>](#post-routes-id-delete)</td><td><code>master:write</code></td></tr></tbody></table></div>
+<h2 id="get-routes">GET /v1/routes</h2>
+<p><code>GET /v1/routes</code></p>
+<p>scope: <code>master:read</code> · operationId: <code>Routes_list</code></p>
+<p><strong>Parameters</strong></p>
+<div class="table"><table><thead><tr><th>ชื่อ</th><th>อยู่ที่</th><th>บังคับ</th><th>ชนิด</th><th>คำอธิบาย</th></tr></thead><tbody><tr><td><code>limit</code></td><td>query</td><td></td><td><code>number</code></td><td></td></tr><tr><td><code>cursor</code></td><td>query</td><td></td><td><code>string</code></td><td>ค่า nextCursor จากหน้าก่อน (ใช้กับ sort เดิมเท่านั้น)</td></tr><tr><td><code>updatedAfter</code></td><td>query</td><td></td><td><code>string</code></td><td>คืนเฉพาะแถวที่ updatedAt &gt; ค่านี้ (incremental pull — ใช้คู่ includeDeleted=true เพื่อรับรายการที่ถูกลบ)</td></tr><tr><td><code>sort</code></td><td>query</td><td></td><td><code>string</code> ค่า: <code>code</code>, <code>updatedAt</code>, <code>-updatedAt</code></td><td>code = เรียงตามรหัส (ค่าเริ่มต้นของหน้าจอ) · updatedAt/-updatedAt สำหรับ sync</td></tr><tr><td><code>fields</code></td><td>query</td><td></td><td><code>string</code></td><td>รายชื่อ field คั่นด้วย , เช่น id,legalName</td></tr><tr><td><code>q</code></td><td>query</td><td></td><td><code>string</code></td><td>ค้นหา — รหัส ชื่อ เลขผู้เสียภาษี หรือ externalId (ไม่สนตัวพิมพ์)</td></tr><tr><td><code>status</code></td><td>query</td><td></td><td><code>string</code></td><td>คั่นด้วย , เช่น active,inactive</td></tr><tr><td><code>externalId</code></td><td>query</td><td></td><td><code>string</code></td><td>externalId ตรงตัว (ใช้ตรวจว่ามีในระบบแล้วหรือยัง)</td></tr><tr><td><code>includeDeleted</code></td><td>query</td><td></td><td><code>string</code></td><td>true = รวมรายการที่ถูกลบ (tombstone มี <code>deletedAt</code>) — ให้ระบบที่ดึงแบบ incremental รู้ว่ารายการถูกลบ</td></tr><tr><td><code>originId</code></td><td>query</td><td></td><td><code>string</code></td><td>ต้นทางตรงตัว (id สถานที่)</td></tr><tr><td><code>destinationId</code></td><td>query</td><td></td><td><code>string</code></td><td>ปลายทางตรงตัว (id สถานที่)</td></tr><tr><td><code>siteId</code></td><td>query</td><td></td><td><code>string</code></td><td>สถานที่นี้เป็นต้นทางหรือปลายทาง (id สถานที่)</td></tr><tr><td><code>route</code></td><td>query</td><td></td><td><code>string</code></td><td>ชื่อ/รหัสต้นทางหรือปลายทางมีคำนี้ (ตัวกรองคอลัมน์ &quot;เส้นทาง&quot;)</td></tr></tbody></table></div>
+<p><strong>Responses</strong></p>
+<div class="table"><table><thead><tr><th>สถานะ</th><th>ความหมาย</th><th>body</th></tr></thead><tbody><tr><td><code>200</code></td><td></td><td><code>RoutePageDto</code></td></tr><tr><td><code>401</code></td><td>ไม่มี/ผิด credential (Bearer JWT, <code>tk_live_…</code> / <code>tk_test_…</code>) — key ถูกเพิกถอน = <code>key_revoked</code>, หมดอายุ = <code>key_expired</code> — <a href="errors.html#unauthorized">unauthorized</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>403</code></td><td>ไม่มีสิทธิ์ (<code>master:read</code>) — <a href="errors.html#permission_denied">permission_denied</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>422</code></td><td>ข้อมูลไม่ถูกต้อง — <code>errors[]</code> รายช่อง (query/body) — <a href="errors.html#validation_failed">validation_failed</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>429</code></td><td>rate_limited — เรียกถี่เกินเพดาน (problem+json มี <code>scope</code>: tenant | key | user | endpoint | ip | link และ <code>retryAfter</code>) รอตาม Retry-After</td><td><code>ProblemDto</code></td></tr></tbody></table></div>
+<p><strong>ตัวอย่าง</strong></p>
+<pre><code class="language-bash">curl -sS -X GET &quot;$TMS_BASE_URL/v1/routes&quot; \
+  -H &quot;Authorization: Bearer $TMS_API_KEY&quot;</code></pre>
+<pre><code class="language-ts">const { data, error } = await tms.GET('/v1/routes');</code></pre>
+<h2 id="post-routes">POST /v1/routes</h2>
+<p><code>POST /v1/routes</code></p>
+<p>scope: <code>master:write</code> · operationId: <code>Routes_create</code></p>
+<p><strong>Parameters</strong></p>
+<div class="table"><table><thead><tr><th>ชื่อ</th><th>อยู่ที่</th><th>บังคับ</th><th>ชนิด</th><th>คำอธิบาย</th></tr></thead><tbody><tr><td><code>Idempotency-Key</code></td><td>header</td><td></td><td><code>string</code></td><td></td></tr></tbody></table></div>
+<p><strong>Request body</strong> <code>CreateRouteDto</code></p>
+<div class="table"><table><thead><tr><th>ฟิลด์</th><th>บังคับ</th><th>ชนิด</th><th>กฎ</th><th>คำอธิบาย</th><th>ตัวอย่าง</th></tr></thead><tbody><tr><td><code>standardMinutes</code></td><td></td><td><code>number</code></td><td>null ได้</td><td>เวลาเดินทางมาตรฐาน (นาที) 1–10,080 · null = ไม่ระบุ</td><td><code>150</code></td></tr><tr><td><code>tollAmount</code></td><td></td><td><code>string</code></td><td>null ได้</td><td>ค่าผ่านทางต่อเที่ยว (บาท) เป็นข้อความ ทศนิยม ≤ 2 ตำแหน่ง ≥ 0 (เงินห้ามใช้ float) · null = ไม่มี/ไม่ระบุ</td><td><code>120.00</code></td></tr><tr><td><code>notes</code></td><td></td><td><code>string</code></td><td>ยาว ≤ 1000 · null ได้</td><td>หมายเหตุ</td><td></td></tr><tr><td><code>originId</code></td><td>ใช่</td><td><code>string</code></td><td></td><td>ต้นทาง (สถานที่ — <code>customer-sites</code>)</td><td><code>loc_3f2a…</code></td></tr><tr><td><code>destinationId</code></td><td>ใช่</td><td><code>string</code></td><td></td><td>ปลายทาง (สถานที่) — ต้องต่างจากต้นทาง · คู่ต้นทาง→ปลายทางห้ามซ้ำ (ทิศทางมีผล)</td><td><code>loc_8c1d…</code></td></tr><tr><td><code>distanceKm</code></td><td>ใช่</td><td><code>number</code></td><td></td><td>ระยะทางอ้างอิง (กม.) &gt; 0 ทศนิยม ≤ 1 ตำแหน่ง — ราคาแบบต่อ กม. ใช้ค่านี้</td><td><code>95</code></td></tr><tr><td><code>code</code></td><td></td><td><code>string</code></td><td></td><td>รหัส — ไม่ส่ง = ระบบออกเลขถัดไป <code>RT-0001</code> (MD-002)</td><td><code>BKK-CBI</code></td></tr><tr><td><code>externalId</code></td><td></td><td><code>string</code></td><td></td><td>รหัสในระบบต้นทาง — เรียกด้วย ext:{externalId} ได้</td><td></td></tr></tbody></table></div>
+<p><strong>Responses</strong></p>
+<div class="table"><table><thead><tr><th>สถานะ</th><th>ความหมาย</th><th>body</th></tr></thead><tbody><tr><td><code>201</code></td><td></td><td><code>RouteDto</code></td></tr><tr><td><code>401</code></td><td>ไม่มี/ผิด credential (Bearer JWT, <code>tk_live_…</code> / <code>tk_test_…</code>) — key ถูกเพิกถอน = <code>key_revoked</code>, หมดอายุ = <code>key_expired</code> — <a href="errors.html#unauthorized">unauthorized</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>403</code></td><td>ไม่มีสิทธิ์ (<code>master:write</code>) — <a href="errors.html#permission_denied">permission_denied</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>422</code></td><td>ข้อมูลไม่ถูกต้อง — <code>errors[]</code> รายช่อง (query/body) — <a href="errors.html#validation_failed">validation_failed</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>429</code></td><td>rate_limited — เรียกถี่เกินเพดาน (problem+json มี <code>scope</code>: tenant | key | user | endpoint | ip | link และ <code>retryAfter</code>) รอตาม Retry-After</td><td><code>ProblemDto</code></td></tr></tbody></table></div>
+<p><strong>ตัวอย่าง</strong></p>
+<pre><code class="language-bash">curl -sS -X POST &quot;$TMS_BASE_URL/v1/routes&quot; \
+  -H &quot;Authorization: Bearer $TMS_API_KEY&quot; \
+  -H &quot;Idempotency-Key: $(uuidgen)&quot; \
+  -H &quot;Content-Type: application/json&quot; \
+  -d '{&quot;originId&quot;:&quot;loc_3f2a…&quot;,&quot;destinationId&quot;:&quot;loc_8c1d…&quot;,&quot;distanceKm&quot;:95,&quot;code&quot;:&quot;BKK-CBI&quot;}'</code></pre>
+<pre><code class="language-ts">const { data, error } = await tms.POST('/v1/routes', {
+  body: {
+    &quot;originId&quot;: &quot;loc_3f2a…&quot;,
+    &quot;destinationId&quot;: &quot;loc_8c1d…&quot;,
+    &quot;distanceKm&quot;: 95,
+    &quot;code&quot;: &quot;BKK-CBI&quot;
+  },
+});</code></pre>
+<h2 id="get-routes-summary">GET /v1/routes/summary</h2>
+<p><code>GET /v1/routes/summary</code></p>
+<p>scope: <code>master:read</code> · operationId: <code>Routes_summary</code></p>
+<p><strong>Responses</strong></p>
+<div class="table"><table><thead><tr><th>สถานะ</th><th>ความหมาย</th><th>body</th></tr></thead><tbody><tr><td><code>200</code></td><td></td><td><code>RouteSummaryDto</code></td></tr><tr><td><code>401</code></td><td>ไม่มี/ผิด credential (Bearer JWT, <code>tk_live_…</code> / <code>tk_test_…</code>) — key ถูกเพิกถอน = <code>key_revoked</code>, หมดอายุ = <code>key_expired</code> — <a href="errors.html#unauthorized">unauthorized</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>403</code></td><td>ไม่มีสิทธิ์ (<code>master:read</code>) — <a href="errors.html#permission_denied">permission_denied</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>429</code></td><td>rate_limited — เรียกถี่เกินเพดาน (problem+json มี <code>scope</code>: tenant | key | user | endpoint | ip | link และ <code>retryAfter</code>) รอตาม Retry-After</td><td><code>ProblemDto</code></td></tr></tbody></table></div>
+<p><strong>ตัวอย่าง</strong></p>
+<pre><code class="language-bash">curl -sS -X GET &quot;$TMS_BASE_URL/v1/routes/summary&quot; \
+  -H &quot;Authorization: Bearer $TMS_API_KEY&quot;</code></pre>
+<pre><code class="language-ts">const { data, error } = await tms.GET('/v1/routes/summary');</code></pre>
+<h2 id="get-routes-next-code">GET /v1/routes/next-code</h2>
+<p><code>GET /v1/routes/next-code</code></p>
+<p>scope: <code>master:write</code> · operationId: <code>Routes_nextCode</code></p>
+<p><strong>Responses</strong></p>
+<div class="table"><table><thead><tr><th>สถานะ</th><th>ความหมาย</th><th>body</th></tr></thead><tbody><tr><td><code>200</code></td><td>รหัสที่ระบบจะออกให้เส้นทางใหม่ (<code>RT-0001</code>)</td><td><code>NextCodeDto</code></td></tr><tr><td><code>401</code></td><td>ไม่มี/ผิด credential (Bearer JWT, <code>tk_live_…</code> / <code>tk_test_…</code>) — key ถูกเพิกถอน = <code>key_revoked</code>, หมดอายุ = <code>key_expired</code> — <a href="errors.html#unauthorized">unauthorized</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>403</code></td><td>ไม่มีสิทธิ์ (<code>master:write</code>) — <a href="errors.html#permission_denied">permission_denied</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>429</code></td><td>rate_limited — เรียกถี่เกินเพดาน (problem+json มี <code>scope</code>: tenant | key | user | endpoint | ip | link และ <code>retryAfter</code>) รอตาม Retry-After</td><td><code>ProblemDto</code></td></tr></tbody></table></div>
+<p><strong>ตัวอย่าง</strong></p>
+<pre><code class="language-bash">curl -sS -X GET &quot;$TMS_BASE_URL/v1/routes/next-code&quot; \
+  -H &quot;Authorization: Bearer $TMS_API_KEY&quot;</code></pre>
+<pre><code class="language-ts">const { data, error } = await tms.GET('/v1/routes/next-code');</code></pre>
+<h2 id="get-routes-export">GET /v1/routes/export</h2>
+<p><code>GET /v1/routes/export</code></p>
+<p>scope: <code>export:run</code> · operationId: <code>Routes_export</code></p>
+<p><strong>Parameters</strong></p>
+<div class="table"><table><thead><tr><th>ชื่อ</th><th>อยู่ที่</th><th>บังคับ</th><th>ชนิด</th><th>คำอธิบาย</th></tr></thead><tbody><tr><td><code>limit</code></td><td>query</td><td></td><td><code>number</code></td><td></td></tr><tr><td><code>cursor</code></td><td>query</td><td></td><td><code>string</code></td><td>ค่า nextCursor จากหน้าก่อน (ใช้กับ sort เดิมเท่านั้น)</td></tr><tr><td><code>updatedAfter</code></td><td>query</td><td></td><td><code>string</code></td><td>คืนเฉพาะแถวที่ updatedAt &gt; ค่านี้ (incremental pull — ใช้คู่ includeDeleted=true เพื่อรับรายการที่ถูกลบ)</td></tr><tr><td><code>sort</code></td><td>query</td><td></td><td><code>string</code> ค่า: <code>code</code>, <code>updatedAt</code>, <code>-updatedAt</code></td><td>code = เรียงตามรหัส (ค่าเริ่มต้นของหน้าจอ) · updatedAt/-updatedAt สำหรับ sync</td></tr><tr><td><code>fields</code></td><td>query</td><td></td><td><code>string</code></td><td>รายชื่อ field คั่นด้วย , เช่น id,legalName</td></tr><tr><td><code>q</code></td><td>query</td><td></td><td><code>string</code></td><td>ค้นหา — รหัส ชื่อ เลขผู้เสียภาษี หรือ externalId (ไม่สนตัวพิมพ์)</td></tr><tr><td><code>status</code></td><td>query</td><td></td><td><code>string</code></td><td>คั่นด้วย , เช่น active,inactive</td></tr><tr><td><code>externalId</code></td><td>query</td><td></td><td><code>string</code></td><td>externalId ตรงตัว (ใช้ตรวจว่ามีในระบบแล้วหรือยัง)</td></tr><tr><td><code>includeDeleted</code></td><td>query</td><td></td><td><code>string</code></td><td>true = รวมรายการที่ถูกลบ (tombstone มี <code>deletedAt</code>) — ให้ระบบที่ดึงแบบ incremental รู้ว่ารายการถูกลบ</td></tr><tr><td><code>originId</code></td><td>query</td><td></td><td><code>string</code></td><td>ต้นทางตรงตัว (id สถานที่)</td></tr><tr><td><code>destinationId</code></td><td>query</td><td></td><td><code>string</code></td><td>ปลายทางตรงตัว (id สถานที่)</td></tr><tr><td><code>siteId</code></td><td>query</td><td></td><td><code>string</code></td><td>สถานที่นี้เป็นต้นทางหรือปลายทาง (id สถานที่)</td></tr><tr><td><code>route</code></td><td>query</td><td></td><td><code>string</code></td><td>ชื่อ/รหัสต้นทางหรือปลายทางมีคำนี้ (ตัวกรองคอลัมน์ &quot;เส้นทาง&quot;)</td></tr><tr><td><code>format</code></td><td>query</td><td></td><td><code>string</code> ค่า: <code>xlsx</code>, <code>csv</code></td><td></td></tr><tr><td><code>ids</code></td><td>query</td><td></td><td><code>string</code></td><td>ส่งออกเฉพาะ id เหล่านี้ (คั่นด้วย ,) — แถวที่เลือกในตาราง</td></tr></tbody></table></div>
+<p><strong>Responses</strong></p>
+<div class="table"><table><thead><tr><th>สถานะ</th><th>ความหมาย</th><th>body</th></tr></thead><tbody><tr><td><code>200</code></td><td>ไฟล์ .xlsx หรือ .csv ตามตัวกรองเดียวกับรายการ (สูงสุด 10,000 แถว)</td><td></td></tr><tr><td><code>401</code></td><td>ไม่มี/ผิด credential (Bearer JWT, <code>tk_live_…</code> / <code>tk_test_…</code>) — key ถูกเพิกถอน = <code>key_revoked</code>, หมดอายุ = <code>key_expired</code> — <a href="errors.html#unauthorized">unauthorized</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>403</code></td><td>ไม่มีสิทธิ์ (<code>export:run</code>) — <a href="errors.html#permission_denied">permission_denied</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>422</code></td><td>ข้อมูลไม่ถูกต้อง — <code>errors[]</code> รายช่อง (query/body) — <a href="errors.html#validation_failed">validation_failed</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>429</code></td><td>rate_limited — เรียกถี่เกินเพดาน (problem+json มี <code>scope</code>: tenant | key | user | endpoint | ip | link และ <code>retryAfter</code>) รอตาม Retry-After</td><td><code>ProblemDto</code></td></tr></tbody></table></div>
+<p><strong>ตัวอย่าง</strong></p>
+<pre><code class="language-bash">curl -sS -X GET &quot;$TMS_BASE_URL/v1/routes/export&quot; \
+  -H &quot;Authorization: Bearer $TMS_API_KEY&quot;</code></pre>
+<pre><code class="language-ts">const { data, error } = await tms.GET('/v1/routes/export');</code></pre>
+<h2 id="post-routes-estimate">POST /v1/routes/estimate</h2>
+<p><code>POST /v1/routes/estimate</code></p>
+<p>scope: <code>master:write</code> · operationId: <code>Routes_estimate</code></p>
+<p><strong>Request body</strong> <code>RouteEstimateRequestDto</code></p>
+<div class="table"><table><thead><tr><th>ฟิลด์</th><th>บังคับ</th><th>ชนิด</th><th>กฎ</th><th>คำอธิบาย</th><th>ตัวอย่าง</th></tr></thead><tbody><tr><td><code>originId</code></td><td>ใช่</td><td><code>string</code></td><td></td><td></td><td><code>loc_3f2a…</code></td></tr><tr><td><code>destinationId</code></td><td>ใช่</td><td><code>string</code></td><td></td><td></td><td><code>loc_8c1d…</code></td></tr></tbody></table></div>
+<p><strong>Responses</strong></p>
+<div class="table"><table><thead><tr><th>สถานะ</th><th>ความหมาย</th><th>body</th></tr></thead><tbody><tr><td><code>200</code></td><td></td><td><code>RouteEstimateDto</code></td></tr><tr><td><code>401</code></td><td>ไม่มี/ผิด credential (Bearer JWT, <code>tk_live_…</code> / <code>tk_test_…</code>) — key ถูกเพิกถอน = <code>key_revoked</code>, หมดอายุ = <code>key_expired</code> — <a href="errors.html#unauthorized">unauthorized</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>403</code></td><td>ไม่มีสิทธิ์ (<code>master:write</code>) — <a href="errors.html#permission_denied">permission_denied</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>422</code></td><td>ข้อมูลไม่ถูกต้อง — <code>errors[]</code> รายช่อง (query/body) — <a href="errors.html#validation_failed">validation_failed</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>429</code></td><td>rate_limited — เกินเพดานต่อบริษัท มี header Retry-After</td><td><code>ProblemDto</code></td></tr></tbody></table></div>
+<p><strong>ตัวอย่าง</strong></p>
+<pre><code class="language-bash">curl -sS -X POST &quot;$TMS_BASE_URL/v1/routes/estimate&quot; \
+  -H &quot;Authorization: Bearer $TMS_API_KEY&quot; \
+  -H &quot;Idempotency-Key: $(uuidgen)&quot; \
+  -H &quot;Content-Type: application/json&quot; \
+  -d '{&quot;originId&quot;:&quot;loc_3f2a…&quot;,&quot;destinationId&quot;:&quot;loc_8c1d…&quot;}'</code></pre>
+<pre><code class="language-ts">const { data, error } = await tms.POST('/v1/routes/estimate', {
+  body: {
+    &quot;originId&quot;: &quot;loc_3f2a…&quot;,
+    &quot;destinationId&quot;: &quot;loc_8c1d…&quot;
+  },
+});</code></pre>
+<h2 id="put-routes-external-externalId">PUT /v1/routes/external/{externalId}</h2>
+<p><code>PUT /v1/routes/external/{externalId}</code></p>
+<p>scope: <code>master:write</code> · operationId: <code>Routes_upsertExternal</code></p>
+<p><strong>Parameters</strong></p>
+<div class="table"><table><thead><tr><th>ชื่อ</th><th>อยู่ที่</th><th>บังคับ</th><th>ชนิด</th><th>คำอธิบาย</th></tr></thead><tbody><tr><td><code>externalId</code></td><td>path</td><td>ใช่</td><td><code>string</code></td><td>เลขของระบบต้นทาง (ASCII ที่พิมพ์ได้ 1–100 ตัว ไม่มีช่องว่าง) — unique ต่อ tenant ต่อ resource</td></tr><tr><td><code>If-Match</code></td><td>header</td><td></td><td><code>string</code></td><td>ETag — ใช้เมื่อแถวมีอยู่แล้ว</td></tr></tbody></table></div>
+<p><strong>Request body</strong> <code>UpsertRouteDto</code></p>
+<div class="table"><table><thead><tr><th>ฟิลด์</th><th>บังคับ</th><th>ชนิด</th><th>กฎ</th><th>คำอธิบาย</th><th>ตัวอย่าง</th></tr></thead><tbody><tr><td><code>standardMinutes</code></td><td></td><td><code>number</code></td><td>null ได้</td><td>เวลาเดินทางมาตรฐาน (นาที) 1–10,080 · null = ไม่ระบุ</td><td><code>150</code></td></tr><tr><td><code>tollAmount</code></td><td></td><td><code>string</code></td><td>null ได้</td><td>ค่าผ่านทางต่อเที่ยว (บาท) เป็นข้อความ ทศนิยม ≤ 2 ตำแหน่ง ≥ 0 (เงินห้ามใช้ float) · null = ไม่มี/ไม่ระบุ</td><td><code>120.00</code></td></tr><tr><td><code>notes</code></td><td></td><td><code>string</code></td><td>ยาว ≤ 1000 · null ได้</td><td>หมายเหตุ</td><td></td></tr><tr><td><code>originId</code></td><td>ใช่</td><td><code>string</code></td><td></td><td>ต้นทาง (สถานที่ — <code>customer-sites</code>)</td><td><code>loc_3f2a…</code></td></tr><tr><td><code>destinationId</code></td><td>ใช่</td><td><code>string</code></td><td></td><td>ปลายทาง (สถานที่) — ต้องต่างจากต้นทาง · คู่ต้นทาง→ปลายทางห้ามซ้ำ (ทิศทางมีผล)</td><td><code>loc_8c1d…</code></td></tr><tr><td><code>distanceKm</code></td><td>ใช่</td><td><code>number</code></td><td></td><td>ระยะทางอ้างอิง (กม.) &gt; 0 ทศนิยม ≤ 1 ตำแหน่ง — ราคาแบบต่อ กม. ใช้ค่านี้</td><td><code>95</code></td></tr><tr><td><code>code</code></td><td></td><td><code>string</code></td><td></td><td>ใช้ตอนสร้างเท่านั้น</td><td><code>BKK-CBI</code></td></tr></tbody></table></div>
+<p><strong>Responses</strong></p>
+<div class="table"><table><thead><tr><th>สถานะ</th><th>ความหมาย</th><th>body</th></tr></thead><tbody><tr><td><code>200</code></td><td>มีอยู่แล้ว → อัปเดต (ส่งซ้ำได้ ไม่เกิดแถวใหม่)</td><td><code>RouteDto</code></td></tr><tr><td><code>201</code></td><td>ยังไม่มี → สร้าง</td><td><code>RouteDto</code></td></tr><tr><td><code>401</code></td><td>ไม่มี/ผิด credential (Bearer JWT, <code>tk_live_…</code> / <code>tk_test_…</code>) — key ถูกเพิกถอน = <code>key_revoked</code>, หมดอายุ = <code>key_expired</code> — <a href="errors.html#unauthorized">unauthorized</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>403</code></td><td>ไม่มีสิทธิ์ (<code>master:write</code>) — <a href="errors.html#permission_denied">permission_denied</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>409</code></td><td>ขัดกับข้อมูลที่มีอยู่ (เช่น รหัส/ชื่อซ้ำ, สถานะไม่อนุญาตให้แก้) — <a href="errors.html#conflict">conflict</a>, <a href="errors.html#duplicate">duplicate</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>412</code></td><td>If-Match ไม่ตรงกับ version ปัจจุบัน — <a href="errors.html#precondition_failed">precondition_failed</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>422</code></td><td>ข้อมูลไม่ถูกต้อง (รวมทุกช่องใน errors[]) — externalId ใน path ผิดรูปแบบ = field <code>externalId</code> — <a href="errors.html#validation_failed">validation_failed</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>429</code></td><td>rate_limited — เรียกถี่เกินเพดาน (problem+json มี <code>scope</code>: tenant | key | user | endpoint | ip | link และ <code>retryAfter</code>) รอตาม Retry-After</td><td><code>ProblemDto</code></td></tr></tbody></table></div>
+<p><strong>ตัวอย่าง</strong></p>
+<pre><code class="language-bash">curl -sS -X PUT &quot;$TMS_BASE_URL/v1/routes/external/&lt;externalId&gt;&quot; \
+  -H &quot;Authorization: Bearer $TMS_API_KEY&quot; \
+  -H &quot;Content-Type: application/json&quot; \
+  -d '{&quot;originId&quot;:&quot;loc_3f2a…&quot;,&quot;destinationId&quot;:&quot;loc_8c1d…&quot;,&quot;distanceKm&quot;:95,&quot;code&quot;:&quot;BKK-CBI&quot;}'</code></pre>
+<pre><code class="language-ts">const { data, error } = await tms.PUT('/v1/routes/external/{externalId}', {
+  params: { path: { externalId: &quot;…&quot; } },
+  body: {
+    &quot;originId&quot;: &quot;loc_3f2a…&quot;,
+    &quot;destinationId&quot;: &quot;loc_8c1d…&quot;,
+    &quot;distanceKm&quot;: 95,
+    &quot;code&quot;: &quot;BKK-CBI&quot;
+  },
+});</code></pre>
+<h2 id="patch-routes-external-externalId">แก้บางช่องด้วย externalId</h2>
+<p><code>PATCH /v1/routes/external/{externalId}</code></p>
+<p>scope: <code>master:write</code> · operationId: <code>Routes_patchExternal</code></p>
+<p>เหมือน <code>PATCH /routes/ext:{externalId}</code> (กติกาเดียวกับ PATCH ด้วย id) · ยังไม่มีแถวนี้ → 404 — สร้างใหม่ใช้ PUT</p>
+<p><strong>Parameters</strong></p>
+<div class="table"><table><thead><tr><th>ชื่อ</th><th>อยู่ที่</th><th>บังคับ</th><th>ชนิด</th><th>คำอธิบาย</th></tr></thead><tbody><tr><td><code>externalId</code></td><td>path</td><td>ใช่</td><td><code>string</code></td><td>เลขของระบบต้นทาง (ASCII ที่พิมพ์ได้ 1–100 ตัว ไม่มีช่องว่าง) — unique ต่อ tenant ต่อ resource</td></tr><tr><td><code>If-Match</code></td><td>header</td><td></td><td><code>string</code></td><td>ETag จาก GET — ไม่ตรง → 412</td></tr></tbody></table></div>
+<p><strong>Request body</strong> <code>UpdateRouteDto</code></p>
+<div class="table"><table><thead><tr><th>ฟิลด์</th><th>บังคับ</th><th>ชนิด</th><th>กฎ</th><th>คำอธิบาย</th><th>ตัวอย่าง</th></tr></thead><tbody><tr><td><code>standardMinutes</code></td><td></td><td><code>number</code></td><td>null ได้</td><td>เวลาเดินทางมาตรฐาน (นาที) 1–10,080 · null = ไม่ระบุ</td><td><code>150</code></td></tr><tr><td><code>tollAmount</code></td><td></td><td><code>string</code></td><td>null ได้</td><td>ค่าผ่านทางต่อเที่ยว (บาท) เป็นข้อความ ทศนิยม ≤ 2 ตำแหน่ง ≥ 0 (เงินห้ามใช้ float) · null = ไม่มี/ไม่ระบุ</td><td><code>120.00</code></td></tr><tr><td><code>notes</code></td><td></td><td><code>string</code></td><td>ยาว ≤ 1000 · null ได้</td><td>หมายเหตุ</td><td></td></tr><tr><td><code>originId</code></td><td></td><td><code>string</code></td><td></td><td></td><td><code>loc_3f2a…</code></td></tr><tr><td><code>destinationId</code></td><td></td><td><code>string</code></td><td></td><td></td><td><code>loc_8c1d…</code></td></tr><tr><td><code>distanceKm</code></td><td></td><td><code>number</code></td><td></td><td></td><td><code>95</code></td></tr><tr><td><code>externalId</code></td><td></td><td><code>string</code></td><td>null ได้</td><td>null = ลบการผูก</td><td></td></tr></tbody></table></div>
+<p><strong>Responses</strong></p>
+<div class="table"><table><thead><tr><th>สถานะ</th><th>ความหมาย</th><th>body</th></tr></thead><tbody><tr><td><code>200</code></td><td></td><td><code>RouteDto</code></td></tr><tr><td><code>401</code></td><td>ไม่มี/ผิด credential (Bearer JWT, <code>tk_live_…</code> / <code>tk_test_…</code>) — key ถูกเพิกถอน = <code>key_revoked</code>, หมดอายุ = <code>key_expired</code> — <a href="errors.html#unauthorized">unauthorized</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>403</code></td><td>ไม่มีสิทธิ์ (<code>master:write</code>) — <a href="errors.html#permission_denied">permission_denied</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>404</code></td><td>ยังไม่มีแถวที่ externalId นี้ (สร้างใหม่ใช้ PUT) หรืออยู่ tenant อื่น — <a href="errors.html#not_found">not_found</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>409</code></td><td>ขัดกับข้อมูลที่มีอยู่ (เช่น รหัส/ชื่อซ้ำ, สถานะไม่อนุญาตให้แก้) — <a href="errors.html#conflict">conflict</a>, <a href="errors.html#duplicate">duplicate</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>412</code></td><td>If-Match ไม่ตรงกับ version ปัจจุบัน — <a href="errors.html#precondition_failed">precondition_failed</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>422</code></td><td>ข้อมูลไม่ถูกต้อง (รวมทุกช่องใน errors[]) — externalId ใน path ผิดรูปแบบ = field <code>externalId</code> — <a href="errors.html#validation_failed">validation_failed</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>429</code></td><td>rate_limited — เรียกถี่เกินเพดาน (problem+json มี <code>scope</code>: tenant | key | user | endpoint | ip | link และ <code>retryAfter</code>) รอตาม Retry-After</td><td><code>ProblemDto</code></td></tr></tbody></table></div>
+<p><strong>ตัวอย่าง</strong></p>
+<pre><code class="language-bash">curl -sS -X PATCH &quot;$TMS_BASE_URL/v1/routes/external/&lt;externalId&gt;&quot; \
+  -H &quot;Authorization: Bearer $TMS_API_KEY&quot; \
+  -H &quot;Content-Type: application/json&quot; \
+  -d '{&quot;originId&quot;:&quot;loc_3f2a…&quot;,&quot;destinationId&quot;:&quot;loc_8c1d…&quot;,&quot;distanceKm&quot;:95}'</code></pre>
+<pre><code class="language-ts">const { data, error } = await tms.PATCH('/v1/routes/external/{externalId}', {
+  params: { path: { externalId: &quot;…&quot; } },
+  body: {
+    &quot;originId&quot;: &quot;loc_3f2a…&quot;,
+    &quot;destinationId&quot;: &quot;loc_8c1d…&quot;,
+    &quot;distanceKm&quot;: 95
+  },
+});</code></pre>
+<h2 id="get-routes-id">GET /v1/routes/{id}</h2>
+<p><code>GET /v1/routes/{id}</code></p>
+<p>scope: <code>master:read</code> · operationId: <code>Routes_get</code></p>
+<p><strong>Parameters</strong></p>
+<div class="table"><table><thead><tr><th>ชื่อ</th><th>อยู่ที่</th><th>บังคับ</th><th>ชนิด</th><th>คำอธิบาย</th></tr></thead><tbody><tr><td><code>id</code></td><td>path</td><td>ใช่</td><td><code>string</code></td><td>id ของ resource หรือ <code>ext:{externalId}</code> (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)</td></tr></tbody></table></div>
+<p><strong>Responses</strong></p>
+<div class="table"><table><thead><tr><th>สถานะ</th><th>ความหมาย</th><th>body</th></tr></thead><tbody><tr><td><code>200</code></td><td></td><td><code>RouteDto</code></td></tr><tr><td><code>401</code></td><td>ไม่มี/ผิด credential (Bearer JWT, <code>tk_live_…</code> / <code>tk_test_…</code>) — key ถูกเพิกถอน = <code>key_revoked</code>, หมดอายุ = <code>key_expired</code> — <a href="errors.html#unauthorized">unauthorized</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>403</code></td><td>ไม่มีสิทธิ์ (<code>master:read</code>) — <a href="errors.html#permission_denied">permission_denied</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>404</code></td><td>ไม่พบ (รวมข้อมูลของบริษัทอื่น — ไม่บอกว่ามีอยู่) — <a href="errors.html#not_found">not_found</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>429</code></td><td>rate_limited — เรียกถี่เกินเพดาน (problem+json มี <code>scope</code>: tenant | key | user | endpoint | ip | link และ <code>retryAfter</code>) รอตาม Retry-After</td><td><code>ProblemDto</code></td></tr></tbody></table></div>
+<p><strong>ตัวอย่าง</strong></p>
+<pre><code class="language-bash">curl -sS -X GET &quot;$TMS_BASE_URL/v1/routes/&lt;id&gt;&quot; \
+  -H &quot;Authorization: Bearer $TMS_API_KEY&quot;</code></pre>
+<pre><code class="language-ts">const { data, error } = await tms.GET('/v1/routes/{id}', {
+  params: { path: { id: &quot;…&quot; } },
+});</code></pre>
+<h2 id="patch-routes-id">PATCH /v1/routes/{id}</h2>
+<p><code>PATCH /v1/routes/{id}</code></p>
+<p>scope: <code>master:write</code> · operationId: <code>Routes_update</code></p>
+<p><strong>Parameters</strong></p>
+<div class="table"><table><thead><tr><th>ชื่อ</th><th>อยู่ที่</th><th>บังคับ</th><th>ชนิด</th><th>คำอธิบาย</th></tr></thead><tbody><tr><td><code>id</code></td><td>path</td><td>ใช่</td><td><code>string</code></td><td>id ของ resource หรือ <code>ext:{externalId}</code> (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)</td></tr><tr><td><code>If-Match</code></td><td>header</td><td></td><td><code>string</code></td><td>ETag จาก GET — ไม่ตรง → 412</td></tr></tbody></table></div>
+<p><strong>Request body</strong> <code>UpdateRouteDto</code></p>
+<div class="table"><table><thead><tr><th>ฟิลด์</th><th>บังคับ</th><th>ชนิด</th><th>กฎ</th><th>คำอธิบาย</th><th>ตัวอย่าง</th></tr></thead><tbody><tr><td><code>standardMinutes</code></td><td></td><td><code>number</code></td><td>null ได้</td><td>เวลาเดินทางมาตรฐาน (นาที) 1–10,080 · null = ไม่ระบุ</td><td><code>150</code></td></tr><tr><td><code>tollAmount</code></td><td></td><td><code>string</code></td><td>null ได้</td><td>ค่าผ่านทางต่อเที่ยว (บาท) เป็นข้อความ ทศนิยม ≤ 2 ตำแหน่ง ≥ 0 (เงินห้ามใช้ float) · null = ไม่มี/ไม่ระบุ</td><td><code>120.00</code></td></tr><tr><td><code>notes</code></td><td></td><td><code>string</code></td><td>ยาว ≤ 1000 · null ได้</td><td>หมายเหตุ</td><td></td></tr><tr><td><code>originId</code></td><td></td><td><code>string</code></td><td></td><td></td><td><code>loc_3f2a…</code></td></tr><tr><td><code>destinationId</code></td><td></td><td><code>string</code></td><td></td><td></td><td><code>loc_8c1d…</code></td></tr><tr><td><code>distanceKm</code></td><td></td><td><code>number</code></td><td></td><td></td><td><code>95</code></td></tr><tr><td><code>externalId</code></td><td></td><td><code>string</code></td><td>null ได้</td><td>null = ลบการผูก</td><td></td></tr></tbody></table></div>
+<p><strong>Responses</strong></p>
+<div class="table"><table><thead><tr><th>สถานะ</th><th>ความหมาย</th><th>body</th></tr></thead><tbody><tr><td><code>200</code></td><td></td><td><code>RouteDto</code></td></tr><tr><td><code>401</code></td><td>ไม่มี/ผิด credential (Bearer JWT, <code>tk_live_…</code> / <code>tk_test_…</code>) — key ถูกเพิกถอน = <code>key_revoked</code>, หมดอายุ = <code>key_expired</code> — <a href="errors.html#unauthorized">unauthorized</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>403</code></td><td>ไม่มีสิทธิ์ (<code>master:write</code>) — <a href="errors.html#permission_denied">permission_denied</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>404</code></td><td>ไม่พบ (รวมข้อมูลของบริษัทอื่น — ไม่บอกว่ามีอยู่) — <a href="errors.html#not_found">not_found</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>412</code></td><td>If-Match ไม่ตรงกับ version ปัจจุบัน (ETag จาก GET) — <a href="errors.html#precondition_failed">precondition_failed</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>422</code></td><td>ข้อมูลไม่ถูกต้อง — <code>errors[]</code> รายช่อง (query/body) — <a href="errors.html#validation_failed">validation_failed</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>429</code></td><td>rate_limited — เรียกถี่เกินเพดาน (problem+json มี <code>scope</code>: tenant | key | user | endpoint | ip | link และ <code>retryAfter</code>) รอตาม Retry-After</td><td><code>ProblemDto</code></td></tr></tbody></table></div>
+<p><strong>ตัวอย่าง</strong></p>
+<pre><code class="language-bash">curl -sS -X PATCH &quot;$TMS_BASE_URL/v1/routes/&lt;id&gt;&quot; \
+  -H &quot;Authorization: Bearer $TMS_API_KEY&quot; \
+  -H &quot;Content-Type: application/json&quot; \
+  -d '{&quot;originId&quot;:&quot;loc_3f2a…&quot;,&quot;destinationId&quot;:&quot;loc_8c1d…&quot;,&quot;distanceKm&quot;:95}'</code></pre>
+<pre><code class="language-ts">const { data, error } = await tms.PATCH('/v1/routes/{id}', {
+  params: { path: { id: &quot;…&quot; } },
+  body: {
+    &quot;originId&quot;: &quot;loc_3f2a…&quot;,
+    &quot;destinationId&quot;: &quot;loc_8c1d…&quot;,
+    &quot;distanceKm&quot;: 95
+  },
+});</code></pre>
+<h2 id="get-routes-id-history">GET /v1/routes/{id}/history</h2>
+<p><code>GET /v1/routes/{id}/history</code></p>
+<p>scope: <code>master:read</code> · operationId: <code>Routes_history</code></p>
+<p><strong>Parameters</strong></p>
+<div class="table"><table><thead><tr><th>ชื่อ</th><th>อยู่ที่</th><th>บังคับ</th><th>ชนิด</th><th>คำอธิบาย</th></tr></thead><tbody><tr><td><code>id</code></td><td>path</td><td>ใช่</td><td><code>string</code></td><td>id ของ resource หรือ <code>ext:{externalId}</code> (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)</td></tr><tr><td><code>limit</code></td><td>query</td><td></td><td><code>number</code></td><td></td></tr><tr><td><code>cursor</code></td><td>query</td><td></td><td><code>string</code></td><td>ค่า nextCursor จากหน้าก่อน</td></tr></tbody></table></div>
+<p><strong>Responses</strong></p>
+<div class="table"><table><thead><tr><th>สถานะ</th><th>ความหมาย</th><th>body</th></tr></thead><tbody><tr><td><code>200</code></td><td>ประวัติการแก้จาก audit log ใหม่สุดก่อน</td><td><code>AuditPageDto</code></td></tr><tr><td><code>401</code></td><td>ไม่มี/ผิด credential (Bearer JWT, <code>tk_live_…</code> / <code>tk_test_…</code>) — key ถูกเพิกถอน = <code>key_revoked</code>, หมดอายุ = <code>key_expired</code> — <a href="errors.html#unauthorized">unauthorized</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>403</code></td><td>ไม่มีสิทธิ์ (<code>master:read</code>) — <a href="errors.html#permission_denied">permission_denied</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>404</code></td><td>ไม่พบ (รวมข้อมูลของบริษัทอื่น — ไม่บอกว่ามีอยู่) — <a href="errors.html#not_found">not_found</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>422</code></td><td>ข้อมูลไม่ถูกต้อง — <code>errors[]</code> รายช่อง (query/body) — <a href="errors.html#validation_failed">validation_failed</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>429</code></td><td>rate_limited — เรียกถี่เกินเพดาน (problem+json มี <code>scope</code>: tenant | key | user | endpoint | ip | link และ <code>retryAfter</code>) รอตาม Retry-After</td><td><code>ProblemDto</code></td></tr></tbody></table></div>
+<p><strong>ตัวอย่าง</strong></p>
+<pre><code class="language-bash">curl -sS -X GET &quot;$TMS_BASE_URL/v1/routes/&lt;id&gt;/history&quot; \
+  -H &quot;Authorization: Bearer $TMS_API_KEY&quot;</code></pre>
+<pre><code class="language-ts">const { data, error } = await tms.GET('/v1/routes/{id}/history', {
+  params: { path: { id: &quot;…&quot; } },
+});</code></pre>
+<h2 id="post-routes-id-deactivate">POST /v1/routes/{id}/deactivate</h2>
+<p><code>POST /v1/routes/{id}/deactivate</code></p>
+<p>scope: <code>master:write</code> · operationId: <code>Routes_deactivate</code></p>
+<p><strong>Parameters</strong></p>
+<div class="table"><table><thead><tr><th>ชื่อ</th><th>อยู่ที่</th><th>บังคับ</th><th>ชนิด</th><th>คำอธิบาย</th></tr></thead><tbody><tr><td><code>id</code></td><td>path</td><td>ใช่</td><td><code>string</code></td><td>id ของ resource หรือ <code>ext:{externalId}</code> (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)</td></tr><tr><td><code>If-Match</code></td><td>header</td><td></td><td><code>string</code></td><td>ETag จาก GET — ไม่ตรง → 412</td></tr></tbody></table></div>
+<p><strong>Request body</strong> <code>MasterReasonDto</code></p>
+<div class="table"><table><thead><tr><th>ฟิลด์</th><th>บังคับ</th><th>ชนิด</th><th>กฎ</th><th>คำอธิบาย</th><th>ตัวอย่าง</th></tr></thead><tbody><tr><td><code>reason</code></td><td>ใช่</td><td><code>string</code></td><td>ยาว ≤ 500 · ยาว ≥ 10</td><td></td><td><code>เลิกใช้บริการตั้งแต่ ธ.ค. 2569</code></td></tr></tbody></table></div>
+<p><strong>Responses</strong></p>
+<div class="table"><table><thead><tr><th>สถานะ</th><th>ความหมาย</th><th>body</th></tr></thead><tbody><tr><td><code>200</code></td><td></td><td><code>RouteDto</code></td></tr><tr><td><code>401</code></td><td>ไม่มี/ผิด credential (Bearer JWT, <code>tk_live_…</code> / <code>tk_test_…</code>) — key ถูกเพิกถอน = <code>key_revoked</code>, หมดอายุ = <code>key_expired</code> — <a href="errors.html#unauthorized">unauthorized</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>403</code></td><td>ไม่มีสิทธิ์ (<code>master:write</code>) — <a href="errors.html#permission_denied">permission_denied</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>404</code></td><td>ไม่พบ (รวมข้อมูลของบริษัทอื่น — ไม่บอกว่ามีอยู่) — <a href="errors.html#not_found">not_found</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>412</code></td><td>If-Match ไม่ตรงกับ version ปัจจุบัน (ETag จาก GET) — <a href="errors.html#precondition_failed">precondition_failed</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>422</code></td><td>ข้อมูลไม่ถูกต้อง — <code>errors[]</code> รายช่อง (query/body) — <a href="errors.html#validation_failed">validation_failed</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>429</code></td><td>rate_limited — เรียกถี่เกินเพดาน (problem+json มี <code>scope</code>: tenant | key | user | endpoint | ip | link และ <code>retryAfter</code>) รอตาม Retry-After</td><td><code>ProblemDto</code></td></tr></tbody></table></div>
+<p><strong>ตัวอย่าง</strong></p>
+<pre><code class="language-bash">curl -sS -X POST &quot;$TMS_BASE_URL/v1/routes/&lt;id&gt;/deactivate&quot; \
+  -H &quot;Authorization: Bearer $TMS_API_KEY&quot; \
+  -H &quot;Idempotency-Key: $(uuidgen)&quot; \
+  -H &quot;Content-Type: application/json&quot; \
+  -d '{&quot;reason&quot;:&quot;เลิกใช้บริการตั้งแต่ ธ.ค. 2569&quot;}'</code></pre>
+<pre><code class="language-ts">const { data, error } = await tms.POST('/v1/routes/{id}/deactivate', {
+  params: { path: { id: &quot;…&quot; } },
+  body: {
+    &quot;reason&quot;: &quot;เลิกใช้บริการตั้งแต่ ธ.ค. 2569&quot;
+  },
+});</code></pre>
+<h2 id="post-routes-id-activate">POST /v1/routes/{id}/activate</h2>
+<p><code>POST /v1/routes/{id}/activate</code></p>
+<p>scope: <code>master:write</code> · operationId: <code>Routes_activate</code></p>
+<p><strong>Parameters</strong></p>
+<div class="table"><table><thead><tr><th>ชื่อ</th><th>อยู่ที่</th><th>บังคับ</th><th>ชนิด</th><th>คำอธิบาย</th></tr></thead><tbody><tr><td><code>id</code></td><td>path</td><td>ใช่</td><td><code>string</code></td><td>id ของ resource หรือ <code>ext:{externalId}</code> (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)</td></tr><tr><td><code>If-Match</code></td><td>header</td><td></td><td><code>string</code></td><td>ETag จาก GET — ไม่ตรง → 412</td></tr></tbody></table></div>
+<p><strong>Request body</strong> <code>MasterOptionalReasonDto</code></p>
+<div class="table"><table><thead><tr><th>ฟิลด์</th><th>บังคับ</th><th>ชนิด</th><th>กฎ</th><th>คำอธิบาย</th><th>ตัวอย่าง</th></tr></thead><tbody><tr><td><code>reason</code></td><td></td><td><code>string</code></td><td>ยาว ≤ 500</td><td></td><td></td></tr></tbody></table></div>
+<p><strong>Responses</strong></p>
+<div class="table"><table><thead><tr><th>สถานะ</th><th>ความหมาย</th><th>body</th></tr></thead><tbody><tr><td><code>200</code></td><td></td><td><code>RouteDto</code></td></tr><tr><td><code>401</code></td><td>ไม่มี/ผิด credential (Bearer JWT, <code>tk_live_…</code> / <code>tk_test_…</code>) — key ถูกเพิกถอน = <code>key_revoked</code>, หมดอายุ = <code>key_expired</code> — <a href="errors.html#unauthorized">unauthorized</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>403</code></td><td>ไม่มีสิทธิ์ (<code>master:write</code>) — <a href="errors.html#permission_denied">permission_denied</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>404</code></td><td>ไม่พบ (รวมข้อมูลของบริษัทอื่น — ไม่บอกว่ามีอยู่) — <a href="errors.html#not_found">not_found</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>412</code></td><td>If-Match ไม่ตรงกับ version ปัจจุบัน (ETag จาก GET) — <a href="errors.html#precondition_failed">precondition_failed</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>422</code></td><td>ข้อมูลไม่ถูกต้อง — <code>errors[]</code> รายช่อง (query/body) — <a href="errors.html#validation_failed">validation_failed</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>429</code></td><td>rate_limited — เรียกถี่เกินเพดาน (problem+json มี <code>scope</code>: tenant | key | user | endpoint | ip | link และ <code>retryAfter</code>) รอตาม Retry-After</td><td><code>ProblemDto</code></td></tr></tbody></table></div>
+<p><strong>ตัวอย่าง</strong></p>
+<pre><code class="language-bash">curl -sS -X POST &quot;$TMS_BASE_URL/v1/routes/&lt;id&gt;/activate&quot; \
+  -H &quot;Authorization: Bearer $TMS_API_KEY&quot; \
+  -H &quot;Idempotency-Key: $(uuidgen)&quot; \
+  -H &quot;Content-Type: application/json&quot; \
+  -d '{}'</code></pre>
+<pre><code class="language-ts">const { data, error } = await tms.POST('/v1/routes/{id}/activate', {
+  params: { path: { id: &quot;…&quot; } },
+  body: {},
+});</code></pre>
+<h2 id="post-routes-id-delete">POST /v1/routes/{id}/delete</h2>
+<p><code>POST /v1/routes/{id}/delete</code></p>
+<p>scope: <code>master:write</code> · operationId: <code>Routes_remove</code></p>
+<p><strong>Parameters</strong></p>
+<div class="table"><table><thead><tr><th>ชื่อ</th><th>อยู่ที่</th><th>บังคับ</th><th>ชนิด</th><th>คำอธิบาย</th></tr></thead><tbody><tr><td><code>id</code></td><td>path</td><td>ใช่</td><td><code>string</code></td><td>id ของ resource หรือ <code>ext:{externalId}</code> (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)</td></tr><tr><td><code>If-Match</code></td><td>header</td><td></td><td><code>string</code></td><td>ETag จาก GET — ไม่ตรง → 412</td></tr></tbody></table></div>
+<p><strong>Request body</strong> <code>MasterReasonDto</code></p>
+<div class="table"><table><thead><tr><th>ฟิลด์</th><th>บังคับ</th><th>ชนิด</th><th>กฎ</th><th>คำอธิบาย</th><th>ตัวอย่าง</th></tr></thead><tbody><tr><td><code>reason</code></td><td>ใช่</td><td><code>string</code></td><td>ยาว ≤ 500 · ยาว ≥ 10</td><td></td><td><code>เลิกใช้บริการตั้งแต่ ธ.ค. 2569</code></td></tr></tbody></table></div>
+<p><strong>Responses</strong></p>
+<div class="table"><table><thead><tr><th>สถานะ</th><th>ความหมาย</th><th>body</th></tr></thead><tbody><tr><td><code>204</code></td><td></td><td></td></tr><tr><td><code>401</code></td><td>ไม่มี/ผิด credential (Bearer JWT, <code>tk_live_…</code> / <code>tk_test_…</code>) — key ถูกเพิกถอน = <code>key_revoked</code>, หมดอายุ = <code>key_expired</code> — <a href="errors.html#unauthorized">unauthorized</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>403</code></td><td>ไม่มีสิทธิ์ (<code>master:write</code>) — <a href="errors.html#permission_denied">permission_denied</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>404</code></td><td>ไม่พบ (รวมข้อมูลของบริษัทอื่น — ไม่บอกว่ามีอยู่) — <a href="errors.html#not_found">not_found</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>412</code></td><td>If-Match ไม่ตรงกับ version ปัจจุบัน (ETag จาก GET) — <a href="errors.html#precondition_failed">precondition_failed</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>422</code></td><td>ข้อมูลไม่ถูกต้อง — <code>errors[]</code> รายช่อง (query/body) — <a href="errors.html#validation_failed">validation_failed</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>429</code></td><td>rate_limited — เรียกถี่เกินเพดาน (problem+json มี <code>scope</code>: tenant | key | user | endpoint | ip | link และ <code>retryAfter</code>) รอตาม Retry-After</td><td><code>ProblemDto</code></td></tr></tbody></table></div>
+<p><strong>ตัวอย่าง</strong></p>
+<pre><code class="language-bash">curl -sS -X POST &quot;$TMS_BASE_URL/v1/routes/&lt;id&gt;/delete&quot; \
+  -H &quot;Authorization: Bearer $TMS_API_KEY&quot; \
+  -H &quot;Idempotency-Key: $(uuidgen)&quot; \
+  -H &quot;Content-Type: application/json&quot; \
+  -d '{&quot;reason&quot;:&quot;เลิกใช้บริการตั้งแต่ ธ.ค. 2569&quot;}'</code></pre>
+<pre><code class="language-ts">const { data, error } = await tms.POST('/v1/routes/{id}/delete', {
+  params: { path: { id: &quot;…&quot; } },
+  body: {
+    &quot;reason&quot;: &quot;เลิกใช้บริการตั้งแต่ ธ.ค. 2569&quot;
+  },
+});</code></pre>
+<h2 id="schemas">Schema ของ response</h2>
+<h3 id="schema-AuditPageDto">AuditPageDto</h3>
+<div class="table"><table><thead><tr><th>ฟิลด์</th><th>บังคับ</th><th>ชนิด</th><th>กฎ</th><th>คำอธิบาย</th><th>ตัวอย่าง</th></tr></thead><tbody><tr><td><code>data</code></td><td>ใช่</td><td><code>array&lt;AuditEntryDto&gt;</code></td><td></td><td></td><td></td></tr><tr><td><code>nextCursor</code></td><td>ใช่</td><td><code>string</code></td><td>null ได้</td><td></td><td></td></tr><tr><td><code>hasMore</code></td><td>ใช่</td><td><code>boolean</code></td><td></td><td></td><td></td></tr></tbody></table></div>
+<h3 id="schema-NextCodeDto">NextCodeDto</h3>
+<div class="table"><table><thead><tr><th>ฟิลด์</th><th>บังคับ</th><th>ชนิด</th><th>กฎ</th><th>คำอธิบาย</th><th>ตัวอย่าง</th></tr></thead><tbody><tr><td><code>code</code></td><td>ใช่</td><td><code>string</code></td><td></td><td></td><td><code>CUS-0010</code></td></tr></tbody></table></div>
+<h3 id="schema-RouteDto">RouteDto</h3>
+<div class="table"><table><thead><tr><th>ฟิลด์</th><th>บังคับ</th><th>ชนิด</th><th>กฎ</th><th>คำอธิบาย</th><th>ตัวอย่าง</th></tr></thead><tbody><tr><td><code>id</code></td><td>ใช่</td><td><code>string</code></td><td></td><td></td><td><code>rte_3f2a…</code></td></tr><tr><td><code>code</code></td><td>ใช่</td><td><code>string</code></td><td></td><td></td><td><code>RT-0001</code></td></tr><tr><td><code>externalId</code></td><td>ใช่</td><td><code>string</code></td><td>null ได้</td><td></td><td></td></tr><tr><td><code>origin</code></td><td>ใช่</td><td><code>RouteSiteRefDto</code></td><td></td><td></td><td></td></tr><tr><td><code>destination</code></td><td>ใช่</td><td><code>RouteSiteRefDto</code></td><td></td><td></td><td></td></tr><tr><td><code>distanceKm</code></td><td>ใช่</td><td><code>number</code></td><td></td><td>ระยะทาง (กม.)</td><td><code>95</code></td></tr><tr><td><code>standardMinutes</code></td><td>ใช่</td><td><code>number</code></td><td>null ได้</td><td></td><td><code>150</code></td></tr><tr><td><code>tollAmount</code></td><td>ใช่</td><td><code>string</code></td><td>null ได้</td><td>ค่าผ่านทาง (บาท) เป็นข้อความทศนิยม 2 ตำแหน่ง (เงิน ห้ามใช้ float)</td><td><code>120.00</code></td></tr><tr><td><code>notes</code></td><td>ใช่</td><td><code>string</code></td><td>null ได้</td><td></td><td></td></tr><tr><td><code>status</code></td><td>ใช่</td><td><code>string</code></td><td>ค่า: <code>active</code>, <code>inactive</code></td><td></td><td></td></tr><tr><td><code>deletedAt</code></td><td></td><td><code>string (date-time)</code></td><td>null ได้</td><td>มีค่าเฉพาะเมื่อขอ includeDeleted=true และรายการถูกลบแล้ว (tombstone)</td><td></td></tr><tr><td><code>version</code></td><td>ใช่</td><td><code>number</code></td><td></td><td></td><td></td></tr><tr><td><code>createdAt</code></td><td>ใช่</td><td><code>string (date-time)</code></td><td></td><td></td><td></td></tr><tr><td><code>updatedAt</code></td><td>ใช่</td><td><code>string (date-time)</code></td><td></td><td></td><td></td></tr></tbody></table></div>
+<h3 id="schema-RouteEstimateDto">RouteEstimateDto</h3>
+<div class="table"><table><thead><tr><th>ฟิลด์</th><th>บังคับ</th><th>ชนิด</th><th>กฎ</th><th>คำอธิบาย</th><th>ตัวอย่าง</th></tr></thead><tbody><tr><td><code>result</code></td><td>ใช่</td><td><code>string</code></td><td>ค่า: <code>ok</code>, <code>no_coords</code>, <code>unavailable</code></td><td>ok = ได้ระยะทาง (ให้ผู้ใช้ตรวจแล้วบันทึก) · no_coords = สถานที่ยังไม่ปักหมุด · unavailable = ผู้ให้บริการแผนที่ไม่รองรับ/ขัดข้อง → กรอกเอง</td><td></td></tr><tr><td><code>distanceKm</code></td><td>ใช่</td><td><code>number</code></td><td>null ได้</td><td></td><td><code>95.4</code></td></tr><tr><td><code>standardMinutes</code></td><td>ใช่</td><td><code>number</code></td><td>null ได้</td><td></td><td><code>120</code></td></tr><tr><td><code>provider</code></td><td>ใช่</td><td><code>string</code></td><td></td><td>ผู้ให้บริการที่ใช้คำนวณ</td><td><code>mock</code></td></tr></tbody></table></div>
+<h3 id="schema-RoutePageDto">RoutePageDto</h3>
+<div class="table"><table><thead><tr><th>ฟิลด์</th><th>บังคับ</th><th>ชนิด</th><th>กฎ</th><th>คำอธิบาย</th><th>ตัวอย่าง</th></tr></thead><tbody><tr><td><code>data</code></td><td>ใช่</td><td><code>array&lt;RouteDto&gt;</code></td><td></td><td></td><td></td></tr><tr><td><code>nextCursor</code></td><td>ใช่</td><td><code>string</code></td><td>null ได้</td><td></td><td></td></tr><tr><td><code>hasMore</code></td><td>ใช่</td><td><code>boolean</code></td><td></td><td></td><td></td></tr></tbody></table></div>
+<h3 id="schema-RouteSummaryDto">RouteSummaryDto</h3>
+<div class="table"><table><thead><tr><th>ฟิลด์</th><th>บังคับ</th><th>ชนิด</th><th>กฎ</th><th>คำอธิบาย</th><th>ตัวอย่าง</th></tr></thead><tbody><tr><td><code>total</code></td><td>ใช่</td><td><code>number</code></td><td></td><td>เส้นทางทั้งหมด (ไม่รวมที่ลบ)</td><td></td></tr><tr><td><code>active</code></td><td>ใช่</td><td><code>number</code></td><td></td><td></td><td></td></tr><tr><td><code>inactive</code></td><td>ใช่</td><td><code>number</code></td><td></td><td></td><td></td></tr><tr><td><code>withToll</code></td><td>ใช่</td><td><code>number</code></td><td></td><td>เส้นทางที่มีค่าผ่านทาง &gt; 0</td><td></td></tr><tr><td><code>noStandardTime</code></td><td>ใช่</td><td><code>number</code></td><td></td><td>เส้นทางที่ยังไม่ระบุเวลามาตรฐาน</td><td></td></tr></tbody></table></div>
+</main>
+</div>
+</body>
+</html>

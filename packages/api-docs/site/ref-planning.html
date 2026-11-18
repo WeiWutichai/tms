@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>วางแผน (planning) · TMS API</title>
+<link rel="alternate" type="text/markdown" href="ref-planning.md">
+<style>:root{--ink:#101418;--muted:#59606B;--line:#E4E6E0;--bg:#FFFFFF;--side:#F4F5F2;--accent:#2257C4;--code:#EEF0EC}
+*{box-sizing:border-box}
+body{margin:0;font-family:'IBM Plex Sans Thai Looped','IBM Plex Sans',system-ui,sans-serif;color:var(--ink);background:var(--bg);font-size:14px;line-height:1.6}
+a{color:var(--accent)}
+.layout{display:flex;min-height:100vh}
+nav{width:272px;flex:none;background:var(--side);border-right:1px solid var(--line);padding:20px 16px;position:sticky;top:0;height:100vh;overflow:auto}
+nav .brand{font-weight:600;font-size:15px;margin-bottom:12px;display:block;color:var(--ink);text-decoration:none}
+nav h4{font-size:12px;color:var(--muted);margin:16px 0 4px;font-weight:600}
+nav a{display:block;padding:3px 8px;border-radius:6px;text-decoration:none;color:var(--ink);font-size:13px}
+nav a.on{background:#FFFFFF;color:var(--accent);font-weight:600}
+main{flex:1;min-width:0;padding:28px 40px;max-width:1100px}
+main h1{font-size:24px;margin:0 0 8px}main h2{font-size:18px;margin:32px 0 8px;padding-top:12px;border-top:1px solid var(--line)}main h3{font-size:15px;margin:20px 0 6px}
+code{font-family:'IBM Plex Mono',monospace;font-size:12.5px;background:var(--code);padding:1px 4px;border-radius:4px}
+pre{background:var(--code);border:1px solid var(--line);border-radius:8px;padding:12px;overflow:auto}pre code{background:none;padding:0}
+.table{overflow-x:auto}table{border-collapse:collapse;width:100%;margin:8px 0;font-size:13px}th,td{border:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}th{background:var(--side);font-weight:600}
+blockquote{margin:8px 0;padding:6px 12px;border-left:3px solid var(--accent);background:var(--side)}
+.md-link{float:right;font-size:12px}
+@media (max-width:800px){.layout{display:block}nav{position:static;width:auto;height:auto}main{padding:16px}}</style>
+</head>
+<body>
+<div class="layout">
+<nav><a class="brand" href="index.html">TMS API v1</a><h4>เริ่มต้นใช้งาน</h4><a href="quickstart.html">เริ่มต้นใช้งาน (Quickstart)</a><a href="authentication.html">ยืนยันตัวตน</a><h4>แนวทาง</h4><a href="conventions.html">แนวทางการใช้ API</a><a href="rate-limits.html">Rate limit</a><a href="versioning.html">เวอร์ชันของ API</a><a href="sandbox.html">Sandbox</a><a href="webhooks.html">Webhook และการตรวจลายเซ็น</a><a href="bulk-async.html">ทำทีละหลายรายการและงานเบื้องหลัง</a><a href="sdk.html">TypeScript SDK</a><a href="postman.html">Postman</a><h4>Resource</h4><a href="ref-orders.html">ใบสั่งขนส่ง (orders)</a><a href="ref-delivery-orders.html">ใบส่งของ (delivery-orders)</a><a href="ref-trips.html">เที่ยววิ่ง (trips)</a><a href="ref-stops.html">จุดส่ง (stops)</a><a href="ref-documents.html">ไฟล์และเอกสาร (documents)</a><a href="ref-webhooks.html">Webhooks และ events</a><a href="ref-sandbox.html">Sandbox</a><a href="ref-jobs.html">งานเบื้องหลัง (jobs)</a><a href="ref-customers.html">ลูกค้า (customers)</a><a href="ref-customer-sites.html">สถานที่ (customer-sites)</a><a href="ref-products.html">สินค้า (products)</a><a href="ref-units.html">หน่วย (units)</a><a href="ref-vehicle-types.html">ประเภทรถ (vehicle-types)</a><a href="ref-service-items.html">รายการค่าบริการ (service-items)</a><a href="ref-reason-codes.html">รหัสเหตุผล (reason-codes)</a><a href="ref-routes.html">เส้นทาง (routes)</a><a href="ref-rate-cards.html">ตารางราคา (rate-cards)</a><a href="ref-carriers.html">รถร่วม (carriers)</a><a href="ref-vehicles.html">รถ (vehicles)</a><a href="ref-drivers.html">คนขับ (drivers)</a><a href="ref-vehicle-documents.html">เอกสารรถ (vehicle-documents)</a><a href="ref-carrier-docs.html">เอกสารรถร่วม (carrier-docs)</a><a href="ref-order-templates.html">แม่แบบใบสั่ง (order-templates)</a><a href="ref-planning.html" class="on">วางแผน (planning)</a><a href="ref-schedule.html">ตารางงาน (schedule)</a><a href="ref-exports.html">ส่งออกไฟล์ (exports)</a><a href="ref-connectors.html">Connector ERP (connectors)</a><a href="ref-messaging.html">ส่งข้อความ (messaging)</a><a href="ref-companies.html">นิติบุคคล (companies)</a><a href="ref-branches.html">สาขา (branches)</a><a href="ref-document-sequences.html">เลขที่เอกสาร (document-sequences)</a><a href="ref-settings.html">ตั้งค่า (settings)</a><a href="ref-audit.html">ประวัติการทำรายการ (audit)</a><a href="ref-auth.html">OAuth และระบบ (auth)</a><h4>อ้างอิง</h4><a href="webhook-events.html">Webhook events</a><a href="errors.html">รหัส error</a><a href="changelog.html">Changelog</a></nav>
+<main>
+<a class="md-link" href="ref-planning.md">Markdown</a>
+<h1 id="วางแผน-planning">วางแผน (planning)</h1>
+<p>4 endpoint · ทุกคำขอส่ง <code>Authorization: Bearer &lt;API key&gt;</code> — ดู <a href="authentication.html">ยืนยันตัวตน</a> และ <a href="conventions.html">แนวทางการใช้ API</a></p>
+<div class="table"><table><thead><tr><th>Endpoint</th><th>scope</th></tr></thead><tbody><tr><td>[<code>GET /v1/planning/board</code>](#get-planning-board)</td><td><code>trips:read</code></td></tr><tr><td>[<code>GET /v1/planning/eligibility</code>](#get-planning-eligibility)</td><td><code>trips:read</code></td></tr><tr><td>[<code>GET /v1/planning/board/preferences</code>](#get-planning-board-preferences)</td><td><code>trips:read</code></td></tr><tr><td>[<code>PUT /v1/planning/board/preferences</code>](#put-planning-board-preferences)</td><td><code>trips:read</code></td></tr></tbody></table></div>
+<h2 id="get-planning-board">GET /v1/planning/board</h2>
+<p><code>GET /v1/planning/board</code></p>
+<p>scope: <code>trips:read</code> · operationId: <code>Planning_board</code></p>
+<p><strong>Parameters</strong></p>
+<div class="table"><table><thead><tr><th>ชื่อ</th><th>อยู่ที่</th><th>บังคับ</th><th>ชนิด</th><th>คำอธิบาย</th></tr></thead><tbody><tr><td><code>date</code></td><td>query</td><td></td><td><code>string</code></td><td>วันแรกของกระดาน (YYYY-MM-DD) — ไม่ส่ง = วันนี้ (เวลาไทย)</td></tr><tr><td><code>days</code></td><td>query</td><td></td><td><code>number</code> ค่า: <code>1</code>, <code>7</code></td><td>จำนวนวัน: 1 = วันเดียว · 7 = 7 วัน</td></tr></tbody></table></div>
+<p><strong>Responses</strong></p>
+<div class="table"><table><thead><tr><th>สถานะ</th><th>ความหมาย</th><th>body</th></tr></thead><tbody><tr><td><code>200</code></td><td></td><td><code>PlanningBoardDto</code></td></tr><tr><td><code>401</code></td><td>ไม่มี/ผิด credential (Bearer JWT, <code>tk_live_…</code> / <code>tk_test_…</code>) — key ถูกเพิกถอน = <code>key_revoked</code>, หมดอายุ = <code>key_expired</code> — <a href="errors.html#unauthorized">unauthorized</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>403</code></td><td>ไม่มีสิทธิ์ (<code>trips:read</code>) — <a href="errors.html#permission_denied">permission_denied</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>422</code></td><td>ข้อมูลไม่ถูกต้อง — <code>errors[]</code> รายช่อง — <a href="errors.html#validation_failed">validation_failed</a>, <a href="errors.html#idempotency_mismatch">idempotency_mismatch</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>429</code></td><td>rate_limited — เรียกถี่เกินเพดาน (problem+json มี <code>scope</code>: tenant | key | user | endpoint | ip | link และ <code>retryAfter</code>) รอตาม Retry-After</td><td><code>ProblemDto</code></td></tr></tbody></table></div>
+<p><strong>ตัวอย่าง</strong></p>
+<pre><code class="language-bash">curl -sS -X GET &quot;$TMS_BASE_URL/v1/planning/board&quot; \
+  -H &quot;Authorization: Bearer $TMS_API_KEY&quot;</code></pre>
+<pre><code class="language-ts">const { data, error } = await tms.GET('/v1/planning/board');</code></pre>
+<h2 id="get-planning-eligibility">GET /v1/planning/eligibility</h2>
+<p><code>GET /v1/planning/eligibility</code></p>
+<p>scope: <code>trips:read</code> · operationId: <code>Planning_eligibility</code></p>
+<p><strong>Parameters</strong></p>
+<div class="table"><table><thead><tr><th>ชื่อ</th><th>อยู่ที่</th><th>บังคับ</th><th>ชนิด</th><th>คำอธิบาย</th></tr></thead><tbody><tr><td><code>orderId</code></td><td>query</td><td></td><td><code>string</code></td><td>SO (การ์ดใน &quot;SO รอจัด&quot;) → ประเมินรถทุกคันบนกระดาน</td></tr><tr><td><code>vehicleId</code></td><td>query</td><td></td><td><code>string</code></td><td>รถ (แถวรถ) → ประเมิน SO รอจัดทุกใบ</td></tr><tr><td><code>tripId</code></td><td>query</td><td></td><td><code>string</code></td><td>เที่ยว (&quot;ย้ายไปรถอื่น&quot;) → ประเมินรถทุกคันกับ DO ทั้งหมดของเที่ยว ในช่วงวิ่งของเที่ยว (รวมซ้อนเวลา)</td></tr><tr><td><code>date</code></td><td>query</td><td></td><td><code>string</code></td><td>วันแรก (YYYY-MM-DD) ที่ตรวจเอกสารรถ/ใบขับขี่ — ไม่ส่ง = วันนี้ (เวลาไทย) · ไม่ใช้กับ <code>tripId</code></td></tr><tr><td><code>days</code></td><td>query</td><td></td><td><code>number</code> ค่า: <code>1</code>, <code>7</code></td><td>จำนวนวัน: 1 / 7</td></tr></tbody></table></div>
+<p><strong>Responses</strong></p>
+<div class="table"><table><thead><tr><th>สถานะ</th><th>ความหมาย</th><th>body</th></tr></thead><tbody><tr><td><code>200</code></td><td></td><td><code>PlanningEligibilityDto</code></td></tr><tr><td><code>401</code></td><td>ไม่มี/ผิด credential (Bearer JWT, <code>tk_live_…</code> / <code>tk_test_…</code>) — key ถูกเพิกถอน = <code>key_revoked</code>, หมดอายุ = <code>key_expired</code> — <a href="errors.html#unauthorized">unauthorized</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>403</code></td><td>ไม่มีสิทธิ์ (<code>trips:read</code>) — <a href="errors.html#permission_denied">permission_denied</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>404</code></td><td>ไม่พบเที่ยว (รวมของบริษัทอื่น) — <a href="errors.html#not_found">not_found</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>422</code></td><td>ข้อมูลไม่ถูกต้อง — <code>errors[]</code> รายช่อง — <a href="errors.html#validation_failed">validation_failed</a>, <a href="errors.html#idempotency_mismatch">idempotency_mismatch</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>429</code></td><td>rate_limited — เรียกถี่เกินเพดาน (problem+json มี <code>scope</code>: tenant | key | user | endpoint | ip | link และ <code>retryAfter</code>) รอตาม Retry-After</td><td><code>ProblemDto</code></td></tr></tbody></table></div>
+<p><strong>ตัวอย่าง</strong></p>
+<pre><code class="language-bash">curl -sS -X GET &quot;$TMS_BASE_URL/v1/planning/eligibility&quot; \
+  -H &quot;Authorization: Bearer $TMS_API_KEY&quot;</code></pre>
+<pre><code class="language-ts">const { data, error } = await tms.GET('/v1/planning/eligibility');</code></pre>
+<h2 id="get-planning-board-preferences">GET /v1/planning/board/preferences</h2>
+<p><code>GET /v1/planning/board/preferences</code></p>
+<p>scope: <code>trips:read</code> · operationId: <code>Planning_getPreferences</code></p>
+<p><strong>Responses</strong></p>
+<div class="table"><table><thead><tr><th>สถานะ</th><th>ความหมาย</th><th>body</th></tr></thead><tbody><tr><td><code>200</code></td><td></td><td><code>BoardPreferencesDto</code></td></tr><tr><td><code>401</code></td><td>ไม่มี/ผิด credential (Bearer JWT, <code>tk_live_…</code> / <code>tk_test_…</code>) — key ถูกเพิกถอน = <code>key_revoked</code>, หมดอายุ = <code>key_expired</code> — <a href="errors.html#unauthorized">unauthorized</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>403</code></td><td>ไม่มีสิทธิ์ (<code>trips:read</code>) — <a href="errors.html#permission_denied">permission_denied</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>404</code></td><td>credential ไม่ใช่ผู้ใช้ (API key) — ไม่มีค่าส่วนตัว — <a href="errors.html#not_found">not_found</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>429</code></td><td>rate_limited — เรียกถี่เกินเพดาน (problem+json มี <code>scope</code>: tenant | key | user | endpoint | ip | link และ <code>retryAfter</code>) รอตาม Retry-After</td><td><code>ProblemDto</code></td></tr></tbody></table></div>
+<p><strong>ตัวอย่าง</strong></p>
+<pre><code class="language-bash">curl -sS -X GET &quot;$TMS_BASE_URL/v1/planning/board/preferences&quot; \
+  -H &quot;Authorization: Bearer $TMS_API_KEY&quot;</code></pre>
+<pre><code class="language-ts">const { data, error } = await tms.GET('/v1/planning/board/preferences');</code></pre>
+<h2 id="put-planning-board-preferences">PUT /v1/planning/board/preferences</h2>
+<p><code>PUT /v1/planning/board/preferences</code></p>
+<p>scope: <code>trips:read</code> · operationId: <code>Planning_putPreferences</code></p>
+<p><strong>Parameters</strong></p>
+<div class="table"><table><thead><tr><th>ชื่อ</th><th>อยู่ที่</th><th>บังคับ</th><th>ชนิด</th><th>คำอธิบาย</th></tr></thead><tbody><tr><td><code>If-Match</code></td><td>header</td><td></td><td><code>string</code></td><td>ETag จาก GET — ไม่ตรง → 412</td></tr></tbody></table></div>
+<p><strong>Request body</strong> <code>UpdateBoardPreferencesDto</code></p>
+<div class="table"><table><thead><tr><th>ฟิลด์</th><th>บังคับ</th><th>ชนิด</th><th>กฎ</th><th>คำอธิบาย</th><th>ตัวอย่าง</th></tr></thead><tbody><tr><td><code>view</code></td><td>ใช่</td><td><code>string</code></td><td>ค่า: <code>FLEET</code>, <code>VEHICLE</code>, <code>DRIVER</code>, <code>CARRIER</code></td><td></td><td></td></tr><tr><td><code>cardFields</code></td><td>ใช่</td><td><code>array&lt;string&gt;</code></td><td></td><td>อย่างน้อย 1 field ไม่ซ้ำ — ระบบเรียงตามลำดับมาตรฐานเอง</td><td></td></tr></tbody></table></div>
+<p><strong>Responses</strong></p>
+<div class="table"><table><thead><tr><th>สถานะ</th><th>ความหมาย</th><th>body</th></tr></thead><tbody><tr><td><code>200</code></td><td></td><td><code>BoardPreferencesDto</code></td></tr><tr><td><code>401</code></td><td>ไม่มี/ผิด credential (Bearer JWT, <code>tk_live_…</code> / <code>tk_test_…</code>) — key ถูกเพิกถอน = <code>key_revoked</code>, หมดอายุ = <code>key_expired</code> — <a href="errors.html#unauthorized">unauthorized</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>403</code></td><td>ไม่มีสิทธิ์ (<code>trips:read</code>) — <a href="errors.html#permission_denied">permission_denied</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>404</code></td><td>credential ไม่ใช่ผู้ใช้ (API key) — ไม่มีค่าส่วนตัว — <a href="errors.html#not_found">not_found</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>412</code></td><td>If-Match ไม่ตรง version (บันทึกจากอีกแท็บ/เครื่อง) — <a href="errors.html#precondition_failed">precondition_failed</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>422</code></td><td>ข้อมูลไม่ถูกต้อง — <code>errors[]</code> รายช่อง — <a href="errors.html#validation_failed">validation_failed</a>, <a href="errors.html#idempotency_mismatch">idempotency_mismatch</a></td><td><code>ProblemDto</code></td></tr><tr><td><code>429</code></td><td>rate_limited — เรียกถี่เกินเพดาน (problem+json มี <code>scope</code>: tenant | key | user | endpoint | ip | link และ <code>retryAfter</code>) รอตาม Retry-After</td><td><code>ProblemDto</code></td></tr></tbody></table></div>
+<p><strong>ตัวอย่าง</strong></p>
+<pre><code class="language-bash">curl -sS -X PUT &quot;$TMS_BASE_URL/v1/planning/board/preferences&quot; \
+  -H &quot;Authorization: Bearer $TMS_API_KEY&quot; \
+  -H &quot;Content-Type: application/json&quot; \
+  -d '{&quot;view&quot;:&quot;FLEET&quot;,&quot;cardFields&quot;:[&quot;ORDER_NO&quot;]}'</code></pre>
+<pre><code class="language-ts">const { data, error } = await tms.PUT('/v1/planning/board/preferences', {
+  body: {
+    &quot;view&quot;: &quot;FLEET&quot;,
+    &quot;cardFields&quot;: [
+      &quot;ORDER_NO&quot;
+    ]
+  },
+});</code></pre>
+<h2 id="schemas">Schema ของ response</h2>
+<h3 id="schema-BoardPreferencesDto">BoardPreferencesDto</h3>
+<div class="table"><table><thead><tr><th>ฟิลด์</th><th>บังคับ</th><th>ชนิด</th><th>กฎ</th><th>คำอธิบาย</th><th>ตัวอย่าง</th></tr></thead><tbody><tr><td><code>view</code></td><td>ใช่</td><td><code>string</code></td><td>ค่า: <code>FLEET</code>, <code>VEHICLE</code>, <code>DRIVER</code>, <code>CARRIER</code></td><td>มุมมองกระดาน: FLEET = รถบริษัท + รถร่วม (ค่าเริ่มต้น) · VEHICLE = ตามรถ · DRIVER = ตามคนขับ · CARRIER = ตาม carrier</td><td></td></tr><tr><td><code>cardFields</code></td><td>ใช่</td><td><code>array&lt;string&gt;</code></td><td></td><td>field ที่แสดงบนการ์ดเที่ยว (เรียงตามลำดับมาตรฐาน) — ค่าเริ่มต้น = ทุก field</td><td></td></tr><tr><td><code>version</code></td><td>ใช่</td><td><code>number</code></td><td></td><td>version ของค่าที่บันทึก (0 = ยังไม่เคยบันทึก ใช้ค่าเริ่มต้น)</td><td></td></tr></tbody></table></div>
+<h3 id="schema-PlanningBoardDto">PlanningBoardDto</h3>
+<div class="table"><table><thead><tr><th>ฟิลด์</th><th>บังคับ</th><th>ชนิด</th><th>กฎ</th><th>คำอธิบาย</th><th>ตัวอย่าง</th></tr></thead><tbody><tr><td><code>from</code></td><td>ใช่</td><td><code>string</code></td><td></td><td></td><td><code>2026-11-13</code></td></tr><tr><td><code>to</code></td><td>ใช่</td><td><code>string</code></td><td></td><td></td><td><code>2026-11-13</code></td></tr><tr><td><code>today</code></td><td>ใช่</td><td><code>string</code></td><td></td><td>วันนี้ (เวลาไทย)</td><td><code>2026-11-13</code></td></tr><tr><td><code>vehicles</code></td><td>ใช่</td><td><code>array&lt;BoardVehicleDto&gt;</code></td><td></td><td>แถวรถ: รถบริษัท → รถร่วม (PLN-049)</td><td></td></tr><tr><td><code>trips</code></td><td>ใช่</td><td><code>array&lt;BoardTripDto&gt;</code></td><td></td><td>เที่ยวในช่วง (± 1 วัน — เที่ยวข้ามคืน) ยกเว้นที่ยกเลิก</td><td></td></tr><tr><td><code>pool</code></td><td>ใช่</td><td><code>array&lt;BoardPoolOrderDto&gt;</code></td><td></td><td>SO รอจัด (จัดกลุ่ม DO ตาม SO) เรียงกำหนดส่ง</td><td></td></tr><tr><td><code>days</code></td><td>ใช่</td><td><code>array&lt;DaySendStateDto&gt;</code></td><td></td><td>สถานะการส่งต่อวันในช่วง from–to (ST3-T18 ปฏิทินขึ้นเขียวเมื่อส่งครบ) — นับตามวันเที่ยว <code>tripDate</code></td><td></td></tr><tr><td><code>schedule</code></td><td>ใช่</td><td><code>array&lt;ScheduleEntryDto&gt;</code></td><td></td><td>วันลาคนขับ/โน้ตรายวันที่ทับช่วง from–to (ST3-T19 ตารางรถ/คนขับรายวัน) — ไม่รวมที่ยกเลิก · ชุดเดียวกับ GET /v1/schedule-entries</td><td></td></tr></tbody></table></div>
+<h3 id="schema-PlanningEligibilityDto">PlanningEligibilityDto</h3>
+<div class="table"><table><thead><tr><th>ฟิลด์</th><th>บังคับ</th><th>ชนิด</th><th>กฎ</th><th>คำอธิบาย</th><th>ตัวอย่าง</th></tr></thead><tbody><tr><td><code>from</code></td><td>ใช่</td><td><code>string</code></td><td></td><td></td><td><code>2026-11-13</code></td></tr><tr><td><code>to</code></td><td>ใช่</td><td><code>string</code></td><td></td><td></td><td><code>2026-11-19</code></td></tr><tr><td><code>subject</code></td><td>ใช่</td><td><code>string</code></td><td>ค่า: <code>ORDER</code>, <code>VEHICLE</code>, <code>TRIP</code></td><td></td><td></td></tr><tr><td><code>items</code></td><td>ใช่</td><td><code>array&lt;EligibilityItemDto&gt;</code></td><td></td><td>ORDER/TRIP = หนึ่งรายการต่อรถ · VEHICLE = หนึ่งรายการต่อ SO รอจัด</td><td></td></tr></tbody></table></div>
+</main>
+</div>
+</body>
+</html>

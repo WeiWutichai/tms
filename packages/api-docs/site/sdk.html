@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TypeScript SDK · TMS API</title>
+<link rel="alternate" type="text/markdown" href="sdk.md">
+<style>:root{--ink:#101418;--muted:#59606B;--line:#E4E6E0;--bg:#FFFFFF;--side:#F4F5F2;--accent:#2257C4;--code:#EEF0EC}
+*{box-sizing:border-box}
+body{margin:0;font-family:'IBM Plex Sans Thai Looped','IBM Plex Sans',system-ui,sans-serif;color:var(--ink);background:var(--bg);font-size:14px;line-height:1.6}
+a{color:var(--accent)}
+.layout{display:flex;min-height:100vh}
+nav{width:272px;flex:none;background:var(--side);border-right:1px solid var(--line);padding:20px 16px;position:sticky;top:0;height:100vh;overflow:auto}
+nav .brand{font-weight:600;font-size:15px;margin-bottom:12px;display:block;color:var(--ink);text-decoration:none}
+nav h4{font-size:12px;color:var(--muted);margin:16px 0 4px;font-weight:600}
+nav a{display:block;padding:3px 8px;border-radius:6px;text-decoration:none;color:var(--ink);font-size:13px}
+nav a.on{background:#FFFFFF;color:var(--accent);font-weight:600}
+main{flex:1;min-width:0;padding:28px 40px;max-width:1100px}
+main h1{font-size:24px;margin:0 0 8px}main h2{font-size:18px;margin:32px 0 8px;padding-top:12px;border-top:1px solid var(--line)}main h3{font-size:15px;margin:20px 0 6px}
+code{font-family:'IBM Plex Mono',monospace;font-size:12.5px;background:var(--code);padding:1px 4px;border-radius:4px}
+pre{background:var(--code);border:1px solid var(--line);border-radius:8px;padding:12px;overflow:auto}pre code{background:none;padding:0}
+.table{overflow-x:auto}table{border-collapse:collapse;width:100%;margin:8px 0;font-size:13px}th,td{border:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}th{background:var(--side);font-weight:600}
+blockquote{margin:8px 0;padding:6px 12px;border-left:3px solid var(--accent);background:var(--side)}
+.md-link{float:right;font-size:12px}
+@media (max-width:800px){.layout{display:block}nav{position:static;width:auto;height:auto}main{padding:16px}}</style>
+</head>
+<body>
+<div class="layout">
+<nav><a class="brand" href="index.html">TMS API v1</a><h4>เริ่มต้นใช้งาน</h4><a href="quickstart.html">เริ่มต้นใช้งาน (Quickstart)</a><a href="authentication.html">ยืนยันตัวตน</a><h4>แนวทาง</h4><a href="conventions.html">แนวทางการใช้ API</a><a href="rate-limits.html">Rate limit</a><a href="versioning.html">เวอร์ชันของ API</a><a href="sandbox.html">Sandbox</a><a href="webhooks.html">Webhook และการตรวจลายเซ็น</a><a href="bulk-async.html">ทำทีละหลายรายการและงานเบื้องหลัง</a><a href="sdk.html" class="on">TypeScript SDK</a><a href="postman.html">Postman</a><h4>Resource</h4><a href="ref-orders.html">ใบสั่งขนส่ง (orders)</a><a href="ref-delivery-orders.html">ใบส่งของ (delivery-orders)</a><a href="ref-trips.html">เที่ยววิ่ง (trips)</a><a href="ref-stops.html">จุดส่ง (stops)</a><a href="ref-documents.html">ไฟล์และเอกสาร (documents)</a><a href="ref-webhooks.html">Webhooks และ events</a><a href="ref-sandbox.html">Sandbox</a><a href="ref-jobs.html">งานเบื้องหลัง (jobs)</a><a href="ref-customers.html">ลูกค้า (customers)</a><a href="ref-customer-sites.html">สถานที่ (customer-sites)</a><a href="ref-products.html">สินค้า (products)</a><a href="ref-units.html">หน่วย (units)</a><a href="ref-vehicle-types.html">ประเภทรถ (vehicle-types)</a><a href="ref-service-items.html">รายการค่าบริการ (service-items)</a><a href="ref-reason-codes.html">รหัสเหตุผล (reason-codes)</a><a href="ref-routes.html">เส้นทาง (routes)</a><a href="ref-rate-cards.html">ตารางราคา (rate-cards)</a><a href="ref-carriers.html">รถร่วม (carriers)</a><a href="ref-vehicles.html">รถ (vehicles)</a><a href="ref-drivers.html">คนขับ (drivers)</a><a href="ref-vehicle-documents.html">เอกสารรถ (vehicle-documents)</a><a href="ref-carrier-docs.html">เอกสารรถร่วม (carrier-docs)</a><a href="ref-order-templates.html">แม่แบบใบสั่ง (order-templates)</a><a href="ref-planning.html">วางแผน (planning)</a><a href="ref-schedule.html">ตารางงาน (schedule)</a><a href="ref-exports.html">ส่งออกไฟล์ (exports)</a><a href="ref-connectors.html">Connector ERP (connectors)</a><a href="ref-messaging.html">ส่งข้อความ (messaging)</a><a href="ref-companies.html">นิติบุคคล (companies)</a><a href="ref-branches.html">สาขา (branches)</a><a href="ref-document-sequences.html">เลขที่เอกสาร (document-sequences)</a><a href="ref-settings.html">ตั้งค่า (settings)</a><a href="ref-audit.html">ประวัติการทำรายการ (audit)</a><a href="ref-auth.html">OAuth และระบบ (auth)</a><h4>อ้างอิง</h4><a href="webhook-events.html">Webhook events</a><a href="errors.html">รหัส error</a><a href="changelog.html">Changelog</a></nav>
+<main>
+<a class="md-link" href="sdk.md">Markdown</a>
+<h1 id="typescript-sdk">TypeScript SDK</h1>
+<p><code>@tms/sdk</code> — client ที่มี type ครบทุก path ของ <code>/v1</code> (generate จาก OpenAPI ชุดเดียวกับเอกสารนี้) ใช้ได้กับ Node.js ≥ 20, Deno, Bun และ browser/edge</p>
+<blockquote><p>ยังไม่เผยแพร่บน npm — ระหว่างนี้ขอไฟล์ package (<code>.tgz</code>) จากทีม TMS แล้ว <code>npm install ./tms-sdk-&lt;version&gt;.tgz</code></p></blockquote>
+<pre><code class="language-ts">import { createTmsClient, unwrap, paginate, ifMatch, etagOf } from '@tms/sdk';
+
+const tms = createTmsClient({
+  baseUrl: process.env.TMS_BASE_URL, // ไม่ต้องใส่ /v1
+  apiKey: process.env.TMS_API_KEY, // tk_live_… / tk_test_…
+});
+
+// ทุกเมธอดคืน { data, error, response } — unwrap() คืน data หรือ throw TmsApiError (status, code, requestId, problem)
+const order = unwrap(await tms.GET('/v1/orders/{id}', { params: { path: { id: 'ord_…' } } }));
+
+// เดินทุกหน้า (cursor)
+for await (const o of paginate((cursor) =&gt;
+  tms.GET('/v1/orders', { params: { query: { limit: 200, cursor } } }),
+)) {
+  console.log(o.id, o.status);
+}
+
+// แก้แบบกันทับ (ETag → If-Match; ไม่ตรง = 412)
+const got = await tms.GET('/v1/orders/{id}', { params: { path: { id: order.id } } });
+await tms.PATCH('/v1/orders/{id}', {
+  params: { path: { id: order.id }, header: ifMatch(etagOf(got.response)!) },
+  body: { customerRef: 'PO-0099' },
+});</code></pre>
+<h2 id="สิ่งที่-sdk-ทำให้">สิ่งที่ SDK ทำให้</h2>
+<div class="table"><table><thead><tr><th>เรื่อง</th><th>พฤติกรรม</th><th>ตั้งค่า</th></tr></thead><tbody><tr><td>ยืนยันตัวตน</td><td><code>Authorization: Bearer &lt;apiKey&gt;</code> หรือ token จาก <code>getToken()</code> (เช่น OAuth ที่ต่ออายุเอง)</td><td><code>apiKey</code>, <code>getToken</code></td></tr><tr><td>เวอร์ชัน</td><td>ส่ง <code>X-Api-Version</code> = เวอร์ชันที่ SDK สร้างจาก (<code>API_VERSION</code>)</td><td><code>apiVersion</code> (<code>null</code> = ใช้ค่าที่ pin บน key)</td></tr><tr><td>Idempotency</td><td>ใส่ <code>Idempotency-Key</code> (UUID) ให้ทุก POST ที่ยังไม่มี · ส่งเองได้ใน <code>params.header</code></td><td><code>autoIdempotencyKey: false</code> ปิด</td></tr><tr><td>Retry</td><td><code>429</code> รอตาม <code>Retry-After</code> · <code>502/503/504</code>/network error ลองใหม่เฉพาะคำขอที่ส่งซ้ำได้ปลอดภัย (GET/PUT/DELETE หรือมี Idempotency-Key) · ค่าเริ่ม 3 ครั้ง รอไม่เกิน 30 วินาที</td><td><code>retry: { maxRetries, maxDelayMs, baseDelayMs }</code> หรือ <code>false</code></td></tr><tr><td>Webhook</td><td><code>verifyWebhookSignature()</code> / <code>constructWebhookEvent()</code> — ดู <a href="webhooks.html">Webhook</a></td><td><code>toleranceSec</code></td></tr></tbody></table></div>
+</main>
+</div>
+</body>
+</html>

@@ -16,3 +16,4 @@ apps/web/test-results/
 apps/web/playwright-report/
 .data/
 .claude/worktrees/
+packages/sdk/src/schema.d.ts

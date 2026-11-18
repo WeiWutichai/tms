@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>แนวทางการใช้ API · TMS API</title>
+<link rel="alternate" type="text/markdown" href="conventions.md">
+<style>:root{--ink:#101418;--muted:#59606B;--line:#E4E6E0;--bg:#FFFFFF;--side:#F4F5F2;--accent:#2257C4;--code:#EEF0EC}
+*{box-sizing:border-box}
+body{margin:0;font-family:'IBM Plex Sans Thai Looped','IBM Plex Sans',system-ui,sans-serif;color:var(--ink);background:var(--bg);font-size:14px;line-height:1.6}
+a{color:var(--accent)}
+.layout{display:flex;min-height:100vh}
+nav{width:272px;flex:none;background:var(--side);border-right:1px solid var(--line);padding:20px 16px;position:sticky;top:0;height:100vh;overflow:auto}
+nav .brand{font-weight:600;font-size:15px;margin-bottom:12px;display:block;color:var(--ink);text-decoration:none}
+nav h4{font-size:12px;color:var(--muted);margin:16px 0 4px;font-weight:600}
+nav a{display:block;padding:3px 8px;border-radius:6px;text-decoration:none;color:var(--ink);font-size:13px}
+nav a.on{background:#FFFFFF;color:var(--accent);font-weight:600}
+main{flex:1;min-width:0;padding:28px 40px;max-width:1100px}
+main h1{font-size:24px;margin:0 0 8px}main h2{font-size:18px;margin:32px 0 8px;padding-top:12px;border-top:1px solid var(--line)}main h3{font-size:15px;margin:20px 0 6px}
+code{font-family:'IBM Plex Mono',monospace;font-size:12.5px;background:var(--code);padding:1px 4px;border-radius:4px}
+pre{background:var(--code);border:1px solid var(--line);border-radius:8px;padding:12px;overflow:auto}pre code{background:none;padding:0}
+.table{overflow-x:auto}table{border-collapse:collapse;width:100%;margin:8px 0;font-size:13px}th,td{border:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}th{background:var(--side);font-weight:600}
+blockquote{margin:8px 0;padding:6px 12px;border-left:3px solid var(--accent);background:var(--side)}
+.md-link{float:right;font-size:12px}
+@media (max-width:800px){.layout{display:block}nav{position:static;width:auto;height:auto}main{padding:16px}}</style>
+</head>
+<body>
+<div class="layout">
+<nav><a class="brand" href="index.html">TMS API v1</a><h4>เริ่มต้นใช้งาน</h4><a href="quickstart.html">เริ่มต้นใช้งาน (Quickstart)</a><a href="authentication.html">ยืนยันตัวตน</a><h4>แนวทาง</h4><a href="conventions.html" class="on">แนวทางการใช้ API</a><a href="rate-limits.html">Rate limit</a><a href="versioning.html">เวอร์ชันของ API</a><a href="sandbox.html">Sandbox</a><a href="webhooks.html">Webhook และการตรวจลายเซ็น</a><a href="bulk-async.html">ทำทีละหลายรายการและงานเบื้องหลัง</a><a href="sdk.html">TypeScript SDK</a><a href="postman.html">Postman</a><h4>Resource</h4><a href="ref-orders.html">ใบสั่งขนส่ง (orders)</a><a href="ref-delivery-orders.html">ใบส่งของ (delivery-orders)</a><a href="ref-trips.html">เที่ยววิ่ง (trips)</a><a href="ref-stops.html">จุดส่ง (stops)</a><a href="ref-documents.html">ไฟล์และเอกสาร (documents)</a><a href="ref-webhooks.html">Webhooks และ events</a><a href="ref-sandbox.html">Sandbox</a><a href="ref-jobs.html">งานเบื้องหลัง (jobs)</a><a href="ref-customers.html">ลูกค้า (customers)</a><a href="ref-customer-sites.html">สถานที่ (customer-sites)</a><a href="ref-products.html">สินค้า (products)</a><a href="ref-units.html">หน่วย (units)</a><a href="ref-vehicle-types.html">ประเภทรถ (vehicle-types)</a><a href="ref-service-items.html">รายการค่าบริการ (service-items)</a><a href="ref-reason-codes.html">รหัสเหตุผล (reason-codes)</a><a href="ref-routes.html">เส้นทาง (routes)</a><a href="ref-rate-cards.html">ตารางราคา (rate-cards)</a><a href="ref-carriers.html">รถร่วม (carriers)</a><a href="ref-vehicles.html">รถ (vehicles)</a><a href="ref-drivers.html">คนขับ (drivers)</a><a href="ref-vehicle-documents.html">เอกสารรถ (vehicle-documents)</a><a href="ref-carrier-docs.html">เอกสารรถร่วม (carrier-docs)</a><a href="ref-order-templates.html">แม่แบบใบสั่ง (order-templates)</a><a href="ref-planning.html">วางแผน (planning)</a><a href="ref-schedule.html">ตารางงาน (schedule)</a><a href="ref-exports.html">ส่งออกไฟล์ (exports)</a><a href="ref-connectors.html">Connector ERP (connectors)</a><a href="ref-messaging.html">ส่งข้อความ (messaging)</a><a href="ref-companies.html">นิติบุคคล (companies)</a><a href="ref-branches.html">สาขา (branches)</a><a href="ref-document-sequences.html">เลขที่เอกสาร (document-sequences)</a><a href="ref-settings.html">ตั้งค่า (settings)</a><a href="ref-audit.html">ประวัติการทำรายการ (audit)</a><a href="ref-auth.html">OAuth และระบบ (auth)</a><h4>อ้างอิง</h4><a href="webhook-events.html">Webhook events</a><a href="errors.html">รหัส error</a><a href="changelog.html">Changelog</a></nav>
+<main>
+<a class="md-link" href="conventions.md">Markdown</a>
+<h1 id="แนวทางการใช้-api">แนวทางการใช้ API</h1>
+<p>มาตรฐานที่ทุก endpoint ใช้ร่วมกัน (docs/04 G1)</p>
+<h2 id="รูปแบบข้อมูล">รูปแบบข้อมูล</h2>
+<ul><li>base <code>https://api.&lt;domain&gt;/v1/</code> · JSON camelCase · resource พหูพจน์ · action = <code>POST /{resource}/{id}/{verb}</code> เช่น <code>POST /v1/orders/{id}/cancel</code></li><li>id มี prefix ตามชนิด เช่น <code>ord_</code> <code>trp_</code> <code>stp_</code> <code>cus_</code> <code>loc_</code> <code>veh_</code> <code>drv_</code> <code>car_</code> <code>evt_</code> <code>job_</code></li><li><strong>เงิน</strong> เป็น string ทศนิยม 2 ตำแหน่ง เช่น <code>&quot;1250.00&quot;</code> (สกุล THB) — ห้ามแปลงเป็น float</li><li><strong>จำนวน/น้ำหนัก</strong> เป็น string ทศนิยม เช่น <code>&quot;12.5&quot;</code></li><li><strong>เวลา</strong> ISO 8601 พร้อม offset (response ใช้ <code>+07:00</code> Asia/Bangkok) · <strong>วันที่</strong> <code>YYYY-MM-DD</code></li><li>client ต้องรับค่า enum ที่ไม่รู้จักได้ (เพิ่ม enum = ไม่ breaking)</li></ul>
+<h2 id="externalid">externalId</h2>
+<p>resource หลักมี <code>externalId</code> (รหัสในระบบของคุณ) unique ต่อบริษัท</p>
+<ul><li><code>PUT /v1/{resource}/external/{externalId}</code> = สร้างหรือแทนทั้งรายการ (<code>201</code>/<code>200</code>) · <code>PATCH …/external/{externalId}</code> = แก้บางช่อง</li><li>path <code>{id}</code> รับ <code>ext:{externalId}</code> ได้ เช่น <code>GET /v1/orders/ext:PO-2026-0001</code></li></ul>
+<h2 id="idempotency-key">Idempotency-Key</h2>
+<p>ทุก <code>POST</code> รับ header <code>Idempotency-Key</code> (ASCII 1–255 ตัว เช่น UUID) เก็บ 24 ชม. ต่อ (บริษัท, key, path)</p>
+<ul><li>ส่งซ้ำด้วย key + body เดิม → ได้ผลเดิม (สถานะ + ETag เดิม) พร้อม header <code>Idempotent-Replayed: true</code> ไม่สร้างซ้ำ</li><li>key เดิมแต่ body ต่าง → <code>422 idempotency_mismatch</code> · คำขอแรกยังทำไม่เสร็จ → <code>409</code></li><li>SDK ใส่ให้อัตโนมัติทุก POST และใช้ key เดิมตอน retry</li></ul>
+<h2 id="pagination-แบบ-cursor">Pagination แบบ cursor</h2>
+<pre><code class="language-http">GET /v1/orders?limit=100&amp;cursor=&lt;nextCursor ของหน้าก่อน&gt;</code></pre>
+<p>ได้ <code>{ &quot;data&quot;: [...], &quot;nextCursor&quot;: &quot;...&quot;, &quot;hasMore&quot;: true }</code> · <code>limit</code> ค่าเริ่ม 25 สูงสุด 200 · ไม่มี offset · ห้ามสร้าง cursor เอง · ดึงเฉพาะที่เปลี่ยนด้วย <code>updatedAfter=&lt;ISO 8601&gt;</code> · เรียงด้วย <code>sort=-updatedAt</code> · list ว่าง = <code>200</code> และ <code>data: []</code></p>
+<h2 id="etag-if-match">ETag / If-Match</h2>
+<p>GET ใบเดียว / PUT / PATCH ตอบ header <code>ETag</code> (เช่น <code>&quot;3&quot;</code>) — ส่ง <code>If-Match: &quot;3&quot;</code> ตอนแก้เพื่อกันทับงานคนอื่น · ไม่ตรง = <code>412</code> (อ่านใหม่แล้วแก้อีกครั้ง) · ไม่ส่ง If-Match = แก้ได้เลย</p>
+<h2 id="รูปแบบ-error-rfc-9457">รูปแบบ error (RFC 9457)</h2>
+<p>ทุก 4xx/5xx เป็น <code>application/problem+json</code>:</p>
+<pre><code class="language-json">{
+  &quot;type&quot;: &quot;https://docs.tms.example/problems/validation_failed&quot;,
+  &quot;title&quot;: &quot;ข้อมูลไม่ถูกต้อง&quot;,
+  &quot;status&quot;: 422,
+  &quot;code&quot;: &quot;validation_failed&quot;,
+  &quot;detail&quot;: &quot;...&quot;,
+  &quot;instance&quot;: &quot;/v1/orders&quot;,
+  &quot;requestId&quot;: &quot;b6a1c2d3-…&quot;,
+  &quot;errors&quot;: [{ &quot;field&quot;: &quot;stops[0].type&quot;, &quot;code&quot;: &quot;invalid&quot;, &quot;message&quot;: &quot;...&quot; }]
+}</code></pre>
+<p>ตัดสินใจจาก <code>code</code> (คงที่ — รายการเต็มที่ <a href="errors.html">รหัส error</a>) ไม่ใช่จาก <code>title</code> (ข้อความเปลี่ยนตามภาษา <code>Accept-Language</code>) · แจ้งปัญหาให้ส่ง <code>requestId</code> · ข้อมูลของบริษัทอื่น = <code>404</code> เสมอ</p>
+</main>
+</div>
+</body>
+</html>
