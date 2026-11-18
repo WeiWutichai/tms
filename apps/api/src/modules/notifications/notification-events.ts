@@ -1,0 +1,215 @@
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { encodeId } from '../../common/ids';
+import { requestContext } from '../../common/request-context';
+import type { Tx } from '../../db/db.service';
+import { StateService } from '../../state/state.service';
+import { NotificationService } from './notification.service';
+
+/** ผู้ขอเอง (ผู้ใช้ที่ login) ไม่ต้องได้แจ้งเตือนของสิ่งที่ตัวเองเพิ่งทำ */
+function selfExclude(): string[] {
+  const ctx = requestContext.get();
+  return ctx?.principalType === 'user' && ctx.actorId ? [ctx.actorId] : [];
+}
+
+/** ใบค้างที่เกิดระหว่างงานทีละมาก (นำเข้า / ดึงจาก connector) — เก็บไว้แจ้งรวมครั้งเดียวตอนจบ */
+const holdBatch = new AsyncLocalStorage<{ ids: Set<string> }>();
+/** ตัวอย่างเลขใบในข้อความรวม */
+const BATCH_SAMPLE = 5;
+let savepointSeq = 0;
+
+/**
+ * ต่อ event P0 ของศูนย์แจ้งเตือน (ST9-T08; docs/04 I) — โมดูลต้นทางเรียกใน transaction ของงาน (rollback = ไม่แจ้ง)
+ * ผู้รับตามสิทธิ์ของ role (รวม role กำหนดเอง) · การตั้งค่ารับต่อผู้ใช้กรองใน `NotificationService.notify`
+ * **แจ้งไม่สำเร็จไม่ย้อนงานหลัก**: ทุกการแจ้งอยู่ใน SAVEPOINT ของตัวเอง — ล้ม (เช่น ผู้รับเกินเพดาน) = ย้อนเฉพาะการแจ้ง + log
+ *
+ * - ใบค้างใหม่: ฟัง `order.held` จาก StateService (ทางเข้า/นัดส่งใหม่เกิน/คืนคลัง) → ผู้มี `orders:write`
+ *   ระหว่าง `batchOrderHolds()` (นำเข้าไฟล์ / ดึงจาก connector) เก็บไว้ แล้ว `flushOrderHolds()` แจ้งรวม "ใบค้างใหม่ N ใบ" ครั้งเดียว
+ * - รถร่วมปฏิเสธ (ใบค้าง CARRIER_REJECTED): อยู่ใต้ event รถร่วมปฏิเสธหรือหมดเวลา → ผู้มี `trips:assign`
+ *   (ข้อเสนอหมดเวลา 48 ชม. แจ้ง `subcon_offer.expired` จาก ST3-T24 อยู่แล้ว — ไม่แจ้งซ้ำ)
+ * - ขออนุมัติ: ค่าใช้จ่ายหน้างานรอยืนยัน → ฝั่งขาย `invoices:draft` · ฝั่งซื้อ `settlements:approve` (ข้อความตามฝั่งที่ผู้รับยืนยันได้)
+ * - connector ล่ม: connector → ERROR → ผู้ดูแลการเชื่อมต่อ `settings:write` + ผู้ส่งซ้ำ `integrations:retry`
+ * - รถร่วมหมดเวลา / เอกสารใกล้หมด / webhook ถูกปิด: โมดูลเดิมเรียก notify เอง (ST3-T24, ST2-T18, ST7-T04)
+ */
+@Injectable()
+export class NotificationEvents implements OnModuleInit {
+  private readonly logger = new Logger('NotificationEvents');
+
+  constructor(
+    private readonly notifications: NotificationService,
+    private readonly state: StateService,
+  ) {}
+
+  onModuleInit() {
+    this.state.on('order.held', async (tx, e) => {
+      if (e.to !== 'ON_HOLD') return;
+      const batch = holdBatch.getStore();
+      if (batch) return void batch.ids.add(e.docId);
+      await this.orderHeld(tx, e.tenantId, e.docId);
+    });
+  }
+
+  /** รันงานทีละมาก — ใบค้างที่เกิดข้างในไม่แจ้งทีละใบ คืน id ไว้ให้ `flushOrderHolds` */
+  async batchOrderHolds<T>(fn: () => Promise<T>): Promise<{ value: T; held: string[] }> {
+    const store = { ids: new Set<string>() };
+    const value = await holdBatch.run(store, fn);
+    return { value, held: [...store.ids] };
+  }
+
+  /**
+   * แจ้งใบค้างจากงานทีละมาก: เฉพาะใบที่ยัง ON_HOLD (ใบในขั้นตรวจ/savepoint ที่ย้อนทิ้งหลุดไปเอง)
+   * 1 ใบ = ข้อความปกติ · หลายใบ = "ใบค้างใหม่ N ใบ" ฉบับเดียว · ใบ CARRIER_REJECTED แจ้งแยกตาม event รถร่วม
+   */
+  async flushOrderHolds(tx: Tx, tenantId: string, ids: string[]): Promise<void> {
+    if (!ids.length) return;
+    const rows = await tx.salesOrder.findMany({
+      where: { id: { in: ids }, status: 'ON_HOLD' },
+      select: { id: true, soNo: true, holdReasonCode: { select: { code: true } } },
+      orderBy: { soNo: 'asc' },
+    });
+    const normal = rows.filter((r) => r.holdReasonCode?.code !== 'CARRIER_REJECTED');
+    for (const r of rows.filter((x) => x.holdReasonCode?.code === 'CARRIER_REJECTED'))
+      await this.orderHeld(tx, tenantId, r.id);
+    if (normal.length === 1) return this.orderHeld(tx, tenantId, normal[0]!.id);
+    if (!normal.length) return;
+    const counts = new Map<string, number>();
+    for (const r of normal) {
+      const c = r.holdReasonCode?.code ?? '-';
+      counts.set(c, (counts.get(c) ?? 0) + 1);
+    }
+    await this.safely(tx, 'order.held_batch', () =>
+      this.notifications.notify(tx, {
+        tenantId,
+        to: { permissions: ['orders:write'], exclude: selfExclude() },
+        template: 'order.held_batch',
+        vars: {
+          count: normal.length,
+          orderNos: normal
+            .slice(0, BATCH_SAMPLE)
+            .map((r) => r.soNo ?? encodeId('salesOrder', r.id)),
+          reasons: [...counts.entries()].map(([code, n]) => `${code} ${n}`).join(', '),
+        },
+        link: '/so/hold',
+      }),
+    );
+  }
+
+  async orderHeld(tx: Tx, tenantId: string, orderId: string): Promise<void> {
+    const so = await tx.salesOrder.findUnique({
+      where: { id: orderId },
+      select: {
+        soNo: true,
+        customerText: true,
+        holdNote: true,
+        customer: { select: { legalName: true } },
+        holdReasonCode: { select: { code: true, labelTh: true } },
+      },
+    });
+    if (!so) return;
+    const orderNo = so.soNo ?? encodeId('salesOrder', orderId);
+    const customer = so.customer?.legalName ?? so.customerText ?? '-';
+    if (so.holdReasonCode?.code === 'CARRIER_REJECTED') {
+      // หมดเวลา 48 ชม. → ST3-T24 แจ้ง subcon_offer.expired แล้ว (ข้อเสนอล่าสุดของเที่ยวเป็น EXPIRED)
+      const last = await tx.subconOffer.findFirst({
+        where: { trip: { deliveryOrders: { some: { salesOrderId: orderId } } } },
+        orderBy: { createdAt: 'desc' },
+        select: { status: true },
+      });
+      if (last?.status === 'EXPIRED') return;
+      return this.safely(tx, 'subcon_offer.rejected', () =>
+        this.notifications.notify(tx, {
+          tenantId,
+          to: { permissions: ['trips:assign'], exclude: selfExclude() },
+          template: 'subcon_offer.rejected',
+          vars: { orderNo, customer, note: so.holdNote ?? '-' },
+          link: '/so/hold',
+          entity: { type: 'order', id: encodeId('salesOrder', orderId) },
+        }),
+      );
+    }
+    await this.safely(tx, 'order.held', () =>
+      this.notifications.notify(tx, {
+        tenantId,
+        to: { permissions: ['orders:write'], exclude: selfExclude() },
+        template: 'order.held',
+        vars: {
+          orderNo,
+          customer,
+          reasonCode: so.holdReasonCode?.code ?? '-',
+          reason: so.holdReasonCode?.labelTh ?? '-',
+        },
+        link: '/so/hold',
+        entity: { type: 'order', id: encodeId('salesOrder', orderId) },
+      }),
+    );
+  }
+
+  /** ข้อความตามฝั่งที่ผู้รับยืนยันได้: มีสิทธิ์ทั้งสองฝั่ง = "ฝั่งขายและฝั่งซื้อ" · ฝั่งเดียว = ฝั่งนั้น */
+  async fieldChargePending(
+    tx: Tx,
+    input: { tenantId: string; tripId: string; item: string; sell: boolean; buy: boolean },
+  ): Promise<void> {
+    const trip = await tx.trip.findUnique({
+      where: { id: input.tripId },
+      select: { tripNo: true },
+    });
+    const tripId = encodeId('trip', input.tripId);
+    const exclude = selfExclude();
+    const ids = async (perm: string, on: boolean) =>
+      on
+        ? new Set(
+            (
+              await this.notifications.resolve(tx, input.tenantId, { permissions: [perm], exclude })
+            ).map((u) => u.id),
+          )
+        : new Set<string>();
+    const sellers = await ids('invoices:draft', input.sell);
+    const buyers = await ids('settlements:approve', input.buy);
+    const groups: Record<'SELL' | 'BUY' | 'BOTH', string[]> = { SELL: [], BUY: [], BOTH: [] };
+    for (const u of new Set([...sellers, ...buyers]))
+      groups[sellers.has(u) && buyers.has(u) ? 'BOTH' : sellers.has(u) ? 'SELL' : 'BUY'].push(u);
+    for (const side of ['SELL', 'BUY', 'BOTH'] as const) {
+      if (!groups[side].length) continue;
+      await this.safely(tx, 'field_charge.pending', () =>
+        this.notifications.notify(tx, {
+          tenantId: input.tenantId,
+          to: { userIds: groups[side] },
+          template: 'field_charge.pending',
+          vars: { tripNo: trip?.tripNo ?? tripId, item: input.item, side },
+          link: `/plan?trip=${tripId}`,
+          entity: { type: 'trip', id: tripId },
+        }),
+      );
+    }
+  }
+
+  async connectorDown(
+    tx: Tx,
+    input: { tenantId: string; connectorId: string; label: string; code: string },
+  ): Promise<void> {
+    await this.safely(tx, 'connector.error', () =>
+      this.notifications.notify(tx, {
+        tenantId: input.tenantId,
+        to: { permissions: ['settings:write', 'integrations:retry'] },
+        template: 'connector.error',
+        vars: { label: input.label, code: input.code },
+        link: '/settings?sec=conn',
+        entity: { type: 'connector', id: encodeId('connector', input.connectorId) },
+      }),
+    );
+  }
+
+  /** แจ้งใน SAVEPOINT — ล้มแล้วย้อนเฉพาะการแจ้ง (transaction ของงานหลักใช้ต่อได้) + log */
+  private async safely(tx: Tx, what: string, fn: () => Promise<unknown>): Promise<void> {
+    const sp = `tms_notify_${++savepointSeq}`;
+    await tx.$executeRawUnsafe(`SAVEPOINT ${sp}`);
+    try {
+      await fn();
+      await tx.$executeRawUnsafe(`RELEASE SAVEPOINT ${sp}`);
+    } catch (e) {
+      await tx.$executeRawUnsafe(`ROLLBACK TO SAVEPOINT ${sp}`);
+      await tx.$executeRawUnsafe(`RELEASE SAVEPOINT ${sp}`);
+      this.logger.warn(`notify ${what} skipped (business change kept): ${String(e)}`);
+    }
+  }
+}

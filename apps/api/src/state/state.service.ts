@@ -20,12 +20,25 @@ export interface TransitionInput<S extends string, E extends string> {
     Record<string, unknown> | ((snapshot: Record<string, unknown>) => Record<string, unknown>);
 }
 
+/** ผู้ฟัง event หลังเปลี่ยนสถานะ — รันใน transaction เดียวกัน (rollback = ไม่มีผล) */
+export type TransitionListener = (
+  tx: Tx,
+  e: { tenantId: string; eventType: string; docType: string; docId: string; to: string },
+) => Promise<void>;
+
 /**
  * ตัวช่วย state machine (ST0-T10): ตรวจตาราง transition → เปลี่ยนสถานะ → เขียน doc_status_history
  * และ domain_event ใน transaction เดียวกัน (tx ของ request) — transition ผิด → InvalidTransitionError → 409
  */
 @Injectable()
 export class StateService {
+  private readonly listeners = new Map<string, TransitionListener[]>();
+
+  /** ST9-T08: ศูนย์แจ้งเตือนฟัง event (เช่น `order.held`) จากทุกทางที่เปลี่ยนสถานะ — ไม่ต้องแก้ทุกจุดที่เรียก */
+  on(eventType: string, listener: TransitionListener): void {
+    this.listeners.set(eventType, [...(this.listeners.get(eventType) ?? []), listener]);
+  }
+
   async transition<S extends string, E extends string>(tx: Tx, input: TransitionInput<S, E>) {
     const to = transition(input.docType, input.table, input.from, input.event);
     const ctx = requestContext.get();
@@ -57,6 +70,14 @@ export class StateService {
         actorId: ctx?.actorId ?? null,
       },
     });
+    for (const l of this.listeners.get(input.eventType) ?? [])
+      await l(tx, {
+        tenantId: ctx?.tenantId as string,
+        eventType: input.eventType,
+        docType: input.docType,
+        docId: input.docId,
+        to,
+      });
     return { to, snapshot };
   }
 }

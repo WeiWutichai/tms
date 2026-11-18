@@ -6,6 +6,7 @@ import { can, canAny } from '../../nav';
 import { useMe } from '../../shell/AppShell';
 import { PageHeader } from '../../shell/Header';
 import { EntitiesSection } from './Entities';
+import { NotificationsSection } from './Notifications';
 import { NumbersSection } from './Numbers';
 import { OrgSection, SecuritySection, TaxSection } from './OrgSections';
 import { ReasonsSection } from './Reasons';
@@ -18,7 +19,7 @@ import './settings.css';
  * เฉพาะหัวข้อในเฟส 0 (ฟิลด์เพิ่มเติม, AI, วงเงินอนุมัติซ่อม, แพ็กเกจ อยู่นอกเฟส — PLAN.md §3)
  * `stage` = งานที่ทำหัวข้อนั้น (หัวข้อที่ยังไม่ทำแสดง "ยังไม่เปิดใช้")
  */
-const SECTIONS: Array<{ k: string; icon: string; perm: string[]; stage?: string; go?: string }> = [
+const SECTIONS: Array<{ k: string; icon: string; perm?: string[]; stage?: string; go?: string }> = [
   { k: 'org', icon: 'building-2', perm: ['settings:read'] },
   { k: 'ent', icon: 'landmark', perm: ['settings:read'] },
   { k: 'num', icon: 'hash', perm: ['settings:read'] },
@@ -27,7 +28,8 @@ const SECTIONS: Array<{ k: string; icon: string; perm: string[]; stage?: string;
   { k: 'conn', icon: 'plug', perm: ['settings:read'], stage: 'ST7' },
   // ST7-T01: ต้นแบบ vSet — กดแล้วไปหน้า "นักพัฒนา / Open API" (this.go('api')) · เห็นเฉพาะผู้ดูแล (canDev)
   { k: 'api', icon: 'code-xml', perm: ['settings:write'], go: '/settings/api' },
-  { k: 'noti', icon: 'bell', perm: ['settings:read'], stage: 'ST1-T23' },
+  // ST9-T08: ค่ารับแจ้งเตือนของผู้ใช้เอง (docs/04 I) — ทุก role ที่เข้าหน้าตั้งค่าได้ (ไม่ต้องมี settings:read) [DECISION spec/12 §3]
+  { k: 'noti', icon: 'bell' },
   // ST2-T12: เหตุผลเป็นข้อมูลหลัก (docs/04 A3 แถว Master data) — อ่าน master:read แก้ master:write
   { k: 'reason', icon: 'list-checks', perm: ['master:read'] },
   // ST4-T05: POD checklist ค่าเริ่มต้น (docs/04 I) — ต้นแบบไม่มีหัวข้อนี้ [DECISION spec/12 §3] วางต่อจาก เหตุผล (งานหน้างาน)
@@ -72,6 +74,7 @@ export function SettingsPage() {
           {sec?.k === 'users' && <UsersSection canWrite={can(scopes, 'users:write')} />}
           {sec?.k === 'reason' && <ReasonsSection canWrite={can(scopes, 'master:write')} />}
           {sec?.k === 'pod' && <PodSection canWrite={canWrite} />}
+          {sec?.k === 'noti' && <NotificationsSection />}
           {sec?.stage && (
             <section className="set-card">
               <div className="set-card__hd">
