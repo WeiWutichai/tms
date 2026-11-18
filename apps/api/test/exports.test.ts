@@ -164,6 +164,10 @@ describe('exports (ST9-T10)', () => {
     await other.get(`/v1/documents/${docId}`).expect(404);
     await a.get(`/v1/documents/${docId}`).expect(200);
     await (await as(tB, adminB)).get(`/v1/exports/${st.id}`).expect(404);
+    // GET /v1/jobs/{id} ก็เห็นงานส่งออกได้เฉพาะผู้สั่ง (ผลมี id ไฟล์)
+    await other.get(`/v1/jobs/${st.id}`).expect(404);
+    const mine = await a.get(`/v1/jobs/${st.id}`).expect(200);
+    expect(mine.body).toMatchObject({ type: 'export.file', status: 'succeeded' });
 
     // audit การสั่งส่งออก
     const audit = await db.auditLog.findFirst({

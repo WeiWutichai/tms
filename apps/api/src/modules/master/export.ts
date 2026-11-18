@@ -37,11 +37,12 @@ export interface ExportColumn<R> {
 }
 
 /**
- * กัน CSV/formula injection: ขึ้นต้นด้วย = + - tab CR → ใส่ ' นำหน้า (OWASP)
- * `@` นำหน้าเฉพาะค่าที่ดูเป็นสูตร (`@ชื่อฟังก์ชัน(` เช่น `@SUM(`) — LINE ID `@sapsomboon` ไม่ถูกแก้ (ST2-T05 QA)
+ * กัน CSV/formula injection ตาม OWASP: ค่าที่ขึ้นต้นด้วย = + - @ tab CR → ใส่ ' นำหน้า (ใช้ตัวเดียวทุกการส่งออก CSV)
+ * ST9-T10 (review): `@` ทุกค่า รวม LINE ID `@sapsomboon` → `'@sapsomboon` (เดิม ST2-T05 ยกเว้น @ ที่ไม่มีวงเล็บ — Excel
+ * บางรุ่นตีความ `@ชื่อ` เป็นการอ้างชื่อ/ฟังก์ชันได้) · .xlsx เก็บเป็นเซลล์ข้อความ ไม่ต้องเติม
  */
 export function safe(v: string): string {
-  return /^[=+\-\t\r]/.test(v) || /^@[^\s(]*\(/.test(v) ? `'${v}` : v;
+  return /^[=+\-@\t\r]/.test(v) ? `'${v}` : v;
 }
 
 export function csvCell(v: string | number | null | undefined): string {
