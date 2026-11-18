@@ -111,6 +111,7 @@ import {
 } from './modules/webhooks/webhook-ops.controller';
 import { WebhookOpsService } from './modules/webhooks/webhook-ops.service';
 import { WebhookRetentionService } from './modules/webhooks/webhook-retention';
+import { RetentionService } from './modules/retention/retention.service';
 import { ReasonCodesController } from './modules/reason-codes/reason-codes.controller';
 import { ReasonCodesService } from './modules/reason-codes/reason-codes.service';
 import {
@@ -395,6 +396,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     WebhooksService,
     WebhookOpsService,
     WebhookRetentionService,
+    RetentionService,
     VehicleDocumentsService,
     Clock,
     MonitorCollector,

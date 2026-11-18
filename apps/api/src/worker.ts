@@ -12,6 +12,7 @@ import { PrismaService } from './db/prisma.service';
 import { MonitorScheduler } from './modules/monitoring/monitor-scheduler';
 import { AvailabilityService } from './modules/monitoring/availability.service';
 import { WebhookRetentionService } from './modules/webhooks/webhook-retention';
+import { RetentionService } from './modules/retention/retention.service';
 import {
   CONNECTOR_PULL_EVERY_MS,
   ConnectorPullScheduler,
@@ -57,17 +58,19 @@ async function main() {
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);
   log.info('worker started');
-  // งานบำรุงรักษารายวัน (ST1-T11 เก็บประวัติ login 1 ปี) — รันตอนเริ่มและทุก 24 ชม.
+  // งานบำรุงรักษารายวัน — รันตอนเริ่มและทุก 24 ชม.
   const prisma = ctx.get(PrismaService);
   // ST7-T05 ประวัติการส่ง webhook เก็บ 30 วัน + คำสั่งที่พักเพราะบริษัทถูกระงับเกิน 30 วันทิ้ง (INT-109)
   const webhookRetention = ctx.get(WebhookRetentionService);
   const connectors = ctx.get(ConnectorsService);
-  // ST7-T22 webhook ขาเข้า: ล้าง payload เกิน 30 วัน + ลบแถว ledger เกิน 24 เดือน
+  // ST7-T22 webhook ขาเข้า: ล้าง payload เกิน 30 วัน (แถว ledger ไม่ลบ — archive หลัง 24 เดือน = [OPEN — PO])
   const inbound = ctx.get(InboundWebhookService);
   // ST9-T19 heartbeat ทุก 30 วิ + self-probe / ประเมิน alert ทุก 1 นาที (MONITOR=off ปิด)
   const monitor = ctx.get(MonitorScheduler);
   monitor.startWorker();
   const availability = ctx.get(AvailabilityService);
+  // ST9-T14 ระยะเก็บต่อ tenant (docs/04 J): audit log / ประวัติ login / GPS / ไฟล์ POD / ไฟล์ส่งออก 7 วัน
+  const retention = ctx.get(RetentionService);
   const daily = () =>
     Promise.all([
       // ST9-T19 heartbeat เก่า 1 วัน · probe 400 วัน · ตัวนับคำขอ 35 วัน
@@ -78,6 +81,10 @@ async function main() {
       inbound
         .purge()
         .then((r) => log.info({ inbound: r }, 'inbound webhook retention'))
+        .catch((e) => log.error(e)),
+      retention
+        .run()
+        .then((r) => log.info({ retention: r }, 'retention'))
         .catch((e) => log.error(e)),
       purgeAuthData(prisma.platform)
         .then((r) => log.info({ purged: r }, 'auth maintenance'))

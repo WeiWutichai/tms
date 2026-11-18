@@ -9,6 +9,7 @@ import {
   MAX_AUTO_RESCHEDULES_LIMIT,
   parsePodRequirements,
 } from '@tms/domain';
+import { RETENTION_MAX, RETENTION_MIN } from '../retention/retention-policy';
 
 export type SettingType =
   | { kind: 'string'; max: number }
@@ -26,7 +27,8 @@ export interface SettingDef {
   type: SettingType;
   default: unknown;
   /** กลุ่มในหน้า ตั้งค่า (org / tax / sec / billing) */
-  group: 'org' | 'tax' | 'sec' | 'billing' | 'routing' | 'dispatch' | 'pod' | 'tracking';
+  group:
+    'org' | 'tax' | 'sec' | 'billing' | 'routing' | 'dispatch' | 'pod' | 'tracking' | 'retention';
   store?: { table: 'tenant'; column: 'name' | 'yearStyle' };
   description: string;
 }
@@ -168,6 +170,45 @@ export const SETTINGS = {
     type: { kind: 'enum', values: [30, 60, 480] },
     default: 480,
     description: 'เวลาไม่ใช้งานก่อนออกจากระบบ (นาที) — docs/04 A1 ค่าเริ่ม 8 ชม.',
+  },
+  // ST9-T14 ระยะเก็บ (docs/04 J — ตั้งต่อ tenant ไม่ต่ำกว่าขั้นต่ำ) · ค่าเริ่ม = ขั้นต่ำ · ต่ำกว่าขั้นต่ำ = 422 · ลดระยะต้อง step-up
+  // ไม่มีหน้าจอ (ต้นแบบไม่มี — spec/12 §3) ตั้งผ่าน PATCH /v1/settings · เอกสารภาษีไม่อยู่ในกลุ่มนี้ (ST9-T15)
+  'retention.auditLogYears': {
+    group: 'retention',
+    type: { kind: 'int', min: RETENTION_MIN.auditLogYears, max: RETENTION_MAX.auditLogYears },
+    default: RETENTION_MIN.auditLogYears,
+    description:
+      'ระยะเก็บ audit log (ปี) — ขั้นต่ำ 5 ปี; เหตุการณ์ของเอกสารภาษี/นิติบุคคล/เลขเอกสาร/ค่าตั้ง ไม่ถูกลบตามค่านี้ (ST9-T15)',
+  },
+  'retention.integrationLogMonths': {
+    group: 'retention',
+    type: {
+      kind: 'int',
+      min: RETENTION_MIN.integrationLogMonths,
+      max: RETENTION_MAX.integrationLogMonths,
+    },
+    default: RETENTION_MIN.integrationLogMonths,
+    description:
+      'ระยะเก็บ integration log (เดือน) — ขั้นต่ำ 24 เดือน; ครบแล้ว archive (วิธี archive ยังไม่ตัดสิน [OPEN — PO] — ตอนนี้ไม่ลบ)',
+  },
+  'retention.loginLogMonths': {
+    group: 'retention',
+    type: { kind: 'int', min: RETENTION_MIN.loginLogMonths, max: RETENTION_MAX.loginLogMonths },
+    default: RETENTION_MIN.loginLogMonths,
+    description: 'ระยะเก็บประวัติ login (เดือน) — ขั้นต่ำ 12 เดือน',
+  },
+  'retention.podFileYears': {
+    group: 'retention',
+    type: { kind: 'int', min: RETENTION_MIN.podFileYears, max: RETENTION_MAX.podFileYears },
+    default: RETENTION_MIN.podFileYears,
+    description:
+      'ระยะเก็บไฟล์หลักฐานส่ง (รูป/ลายเซ็น/ไฟล์ POD) นับจากวันอัปโหลด (ปี) — ขั้นต่ำ 2 ปี; ครบแล้วลบไฟล์ (ข้อมูล POD ยังอยู่)',
+  },
+  'retention.gpsLogDays': {
+    group: 'retention',
+    type: { kind: 'int', min: RETENTION_MIN.gpsLogDays, max: RETENTION_MAX.gpsLogDays },
+    default: RETENTION_MIN.gpsLogDays,
+    description: 'ระยะเก็บจุด GPS ดิบ (วัน) นับจากเวลาที่ระบบรับ — ขั้นต่ำ 90 วัน',
   },
 } as const satisfies Record<string, SettingDef>;
 

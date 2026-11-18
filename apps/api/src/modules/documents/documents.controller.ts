@@ -31,7 +31,7 @@ import { PROBLEMS, ProblemException, type ProblemCode } from '../../common/probl
 import { ApiProblems } from '../../common/problem.dto';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
-import { LocalFileStore } from '../../pdf/file-store';
+import { LocalFileStore, fileKeyFor, type StoredFile } from '../../pdf/file-store';
 import { POD_LINK_PURPOSE, podLinkUsable } from '../trips/offer-links';
 import { ALLOWED_MIME, EXT, IMPORT_MIME, sniffMime, type AllowedMime } from './mime';
 import { DOWNLOAD_TTL_S, signDocumentUrl, UPLOAD_TTL_S, verifyDocumentUrl } from './signed-url';
@@ -86,7 +86,12 @@ export class CreateDocumentDto {
 
 export class DocumentDto {
   @ApiProperty({ example: 'doc_…' }) id!: string;
-  @ApiProperty({ enum: ['pending', 'ready'] }) status!: string;
+  @ApiProperty({
+    enum: ['pending', 'ready', 'purged'],
+    description:
+      'purged = ไฟล์ถูกลบตามระยะเก็บ (ST9-T14: POD ≥ 2 ปี, ไฟล์ส่งออก 7 วัน) — ดาวน์โหลดไม่ได้ (404)',
+  })
+  status!: string;
   @ApiProperty() kind!: string;
   @ApiProperty() mime!: string;
   @ApiProperty() bytes!: number;
@@ -103,12 +108,31 @@ export class DocumentDto {
 export const store = () =>
   new LocalFileStore(process.env.FILES_ROOT ?? join(process.cwd(), '.data', 'files'));
 const enc = (id: string) => encodeId('document', id);
+
+/** namespace ของ advisory lock ต่อ key ไฟล์ (ST9-T14 — retention job ใช้ค่าเดียวกัน) */
+export const FILE_KEY_LOCK_NS = 0x7f11e;
+
+/**
+ * เขียนไฟล์ + ล็อก key ใน transaction ที่จะสร้าง/อัปเดตแถว stored_document (ST9-T14 review)
+ * retention job ลบไฟล์ภายใต้ล็อกเดียวกันหลังตรวจว่าไม่มีแถวอ้าง — ล็อกก่อนเขียน (เขียนซ้ำเนื้อเดิมได้) ทำให้ไฟล์ที่เนื้อซ้ำกับไฟล์ที่กำลังถูกลบไม่หาย
+ */
+export async function putFileLocked(
+  tx: { $queryRaw: Tx['$queryRaw'] },
+  tenantId: string,
+  data: Buffer,
+  ext: string,
+): Promise<StoredFile> {
+  const key = fileKeyFor(tenantId, data, ext);
+  await tx.$queryRaw`SELECT pg_advisory_xact_lock(${FILE_KEY_LOCK_NS}::int, hashtext(${key}))::text`;
+  return store().put(tenantId, data, ext);
+}
 /** ST7-T08: URL ลายเซ็นผิดต่อ IP ต่อนาที ก่อนตอบ 429 */
 export const BAD_SIGNATURE_PER_MIN = 30;
 
 /** DTO + ลิงก์ดาวน์โหลดอายุสั้น (READY) — ใช้ร่วมกับเอกสารที่ระบบสร้างเอง เช่น ใบคุมรถ ST3-T20 */
 export function readyDocumentDto(doc: StoredDocument, origin: string): DocumentDto {
   const dto = toDto(doc);
+  if (doc.status !== 'READY') return dto; // PURGED (ST9-T14) ไม่มีลิงก์
   const s = signDocumentUrl('download', doc.tenantId, doc.id, DOWNLOAD_TTL_S);
   dto.downloadUrl = `${origin.replace(/\/+$/, '')}/v1/documents/${enc(doc.id)}/content?${s.query}`;
   dto.urlExpiresAt = s.expiresAt.toISOString();
@@ -326,7 +350,7 @@ export class DocumentsController {
           'mime_mismatch',
           `file content is ${real ?? 'unknown'}, declared ${doc.mimeType}`,
         );
-      const f = await store().put(tenantId, data, EXT[real]);
+      const f = await putFileLocked(tx, tenantId, data, EXT[real]);
       const ready = await tx.storedDocument.update({
         where: { id: docId },
         data: { status: 'READY', fileKey: f.key, sha256: f.sha256, sizeBytes: f.size },
@@ -387,7 +411,8 @@ export class DocumentsController {
       const s = signDocumentUrl('upload', doc.tenantId, doc.id, UPLOAD_TTL_S);
       dto.uploadUrl = `${base}?${s.query}`;
       dto.urlExpiresAt = s.expiresAt.toISOString();
-    } else {
+    } else if (doc.status === 'READY') {
+      // PURGED (ST9-T14) = ไฟล์ถูกลบตามระยะเก็บ — ไม่มีลิงก์ดาวน์โหลด
       const s = signDocumentUrl('download', doc.tenantId, doc.id, DOWNLOAD_TTL_S);
       dto.downloadUrl = `${base}?${s.query}`;
       dto.urlExpiresAt = s.expiresAt.toISOString();
