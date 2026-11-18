@@ -181,7 +181,7 @@ describe('connectors (ST7-T13)', () => {
     const bad = async (body: Record<string, unknown>, field: string | RegExp) => {
       const x = await create({
         adapterKey: 'fake-erp',
-        companyId: (await company(Math.floor(Math.random() * 900))).cmp,
+        companyId: (await company(1000 + Math.floor(Math.random() * 900))).cmp, // ไม่ชน company(1|2|3) ของ test อื่น
         ...body,
       });
       expect(x.status, JSON.stringify(x.body)).toBe(422);
