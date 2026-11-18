@@ -32,6 +32,7 @@ enum JobStatus {
   SUCCEEDED
   FAILED
   SKIPPED /// ST1-T18: tenant ปิดฟีเจอร์ของงานนี้แล้ว — ไม่ได้รัน
+  SUCCEEDED_WITH_ERRORS /// ST7-T10: ทำครบแต่บางรายการไม่ผ่าน (bulk — ผลรายรายการใน result)
 
   @@map("job_status")
 }

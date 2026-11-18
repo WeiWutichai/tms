@@ -20,6 +20,16 @@ describe('job framework (ST0-T11)', () => {
       // handler รันใต้ RLS ของ tenant นั้น — เห็นเฉพาะ job ของตัวเอง
       return { visibleJobs: await tx.job.count() };
     });
+    // ST7-T10 heartbeat: lease ใกล้หมด → ctx.progress ต่อ lease (เวลาของฐาน + 5 นาที)
+    queue.register('test.lease', async ({ job, progress }) => {
+      await plat.job.update({
+        where: { id: job.id },
+        data: { lockedUntil: new Date(Date.now() - 1000) },
+      });
+      await progress(30);
+      const j = await plat.job.findUniqueOrThrow({ where: { id: job.id } });
+      return { lockedUntilMs: j.lockedUntil!.getTime(), progress: j.progress };
+    });
     queue.register('test.fail', async () => {
       throw new Error('boom');
     });
@@ -81,5 +91,17 @@ describe('job framework (ST0-T11)', () => {
     expect(j.status).toBe('FAILED');
     expect(j.attempts).toBe(2);
     expect(j.error).toMatchObject({ message: expect.stringContaining('boom') });
+  });
+
+  it('ctx.progress ต่อ lease ของงานที่กำลังทำ (heartbeat — ST7-T10)', async () => {
+    const t = (await createTenant(plat)).id;
+    const job = await plat.job.create({ data: { tenantId: t, type: 'test.lease' } });
+    const before = Date.now();
+    while (await queue.runOnce());
+    const j = await plat.job.findUniqueOrThrow({ where: { id: job.id } });
+    expect(j.status).toBe('SUCCEEDED');
+    const r = j.result as { lockedUntilMs: number; progress: number };
+    expect(r.progress).toBe(30);
+    expect(r.lockedUntilMs).toBeGreaterThan(before + 4 * 60_000);
   });
 });

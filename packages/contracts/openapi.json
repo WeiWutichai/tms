@@ -5254,6 +5254,7 @@
     },
     "/v1/jobs/{id}": {
       "get": {
+        "description": "ต้องมี `jobs:read` (ดูทุกงานของบริษัท) **หรือ** เป็นผู้สั่งงานนั้นเอง (เช่น `POST /v1/orders:bulk` + `Prefer: respond-async` ด้วยสิทธิ์ `orders:write`) — ไม่มี `jobs:read` และไม่ใช่งานของตน = 403 `permission_denied` (ไม่บอกว่ามีงานนั้นหรือไม่)",
         "operationId": "Jobs_get",
         "parameters": [
           {
@@ -5302,6 +5303,7 @@
             "bearer": []
           }
         ],
+        "summary": "",
         "tags": [
           "jobs"
         ]
@@ -6692,6 +6694,246 @@
         ],
         "tags": [
           "customers"
+        ]
+      }
+    },
+    "/v1/orders:bulk": {
+      "post": {
+        "description": "แต่ละรายการ = `POST /v1/orders` หนึ่งครั้ง (ตรวจรูปแบบ, สิทธิ์ราคา, จับคู่, ราคา, ใบค้าง, event `order.created`) ใน transaction ของตัวเอง — รายการที่ไม่ผ่านไม่ย้อนรายการอื่น · ใบที่มี `externalId` ของใบเดิม = อัปเดตใบเดิม (ส่งซ้ำไม่เกิดใบซ้ำ) · ทั้งคำขอ 422 เฉพาะ `items` ไม่ใช่ array / ว่าง / เกิน 200 รายการ · body ไม่เกิน 1 MB · นับเป็นคำขอหนัก (rate limit ชั้น heavy) · ส่ง header `Prefer: respond-async` = ทำเป็น job → 202 `{jobId, statusUrl}` → `GET /v1/jobs/{id}` (`result` = รูปเดียวกับ 207; ทุกรายการผ่าน = `succeeded`, มีรายการไม่ผ่าน = `succeeded_with_errors`) + webhook `job.completed` · job เก็บ 7 วันหลังจบ",
+        "operationId": "OrdersBulk_create",
+        "parameters": [
+          {
+            "name": "Prefer",
+            "in": "header",
+            "description": "`respond-async` (RFC 7240) = ทำเป็น job → 202 + `Preference-Applied: respond-async` · ไม่ส่ง/ค่าอื่น = ทำทันที (207) · ผู้สั่งดู `statusUrl` ได้แม้ไม่มีสิทธิ์ `jobs:read`",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "ส่งซ้ำ key เดิม + body เดิม = ผลเดิม (207 เดิม หรือ 202 jobId เดิม พร้อม `Preference-Applied` เดิม) + `Idempotent-Replayed: true` · **header `Prefer` ไม่นับเป็นส่วนของคำขอ** — key เดิมได้ผลของคำขอแรกเสมอ แม้ครั้งหลังส่ง/ไม่ส่ง `Prefer` ต่างไป · ระหว่างที่คำขอแรกยังทำอยู่ (จองไว้ 10 นาที) ส่งซ้ำ = 409 `idempotency_in_progress` · เก็บ 24 ชม.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkOrdersDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "`Prefer: respond-async` — รับงานแล้ว ติดตามที่ `statusUrl`",
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "Preference-Applied": {
+                "description": "`respond-async` (มีทั้งตอนตอบครั้งแรกและตอน replay ด้วย Idempotency-Key)",
+                "schema": {
+                  "type": "string",
+                  "example": "respond-async"
+                }
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkJobAcceptedDto"
+                }
+              }
+            }
+          },
+          "207": {
+            "description": "ผลต่อรายการ เรียงตาม items[]",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkOrderResultsDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "400": {
+            "description": "JSON เสีย / Idempotency-Key ผิดรูป",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "bad_request": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/bad_request",
+                      "title": "คำขอไม่ถูกต้อง",
+                      "status": 400,
+                      "code": "bad_request",
+                      "instance": "/v1/orders:bulk",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ `orders:write` / ส่งราคาโดยไม่มีสิทธิ์แก้ราคา",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/orders:bulk",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "orders",
+                      "action": "write",
+                      "required": [
+                        "orders:write"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`idempotency_in_progress` — คำขอเดียวกันกำลังทำอยู่",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "idempotency_in_progress": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_in_progress",
+                      "title": "คำขอเดียวกันกำลังประมวลผลอยู่",
+                      "status": 409,
+                      "code": "idempotency_in_progress",
+                      "instance": "/v1/orders:bulk",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "body ใหญ่เกิน 1 MB",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "payload_too_large": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/payload_too_large",
+                      "title": "ไฟล์หรือข้อมูลมีขนาดใหญ่เกินกำหนด",
+                      "status": 413,
+                      "code": "payload_too_large",
+                      "instance": "/v1/orders:bulk",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "`items` ไม่ใช่ array / ว่าง / เกิน 200 · `idempotency_mismatch`",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "instance": "/v1/orders:bulk",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "items",
+                          "code": "arrayMaxSize",
+                          "message": "items must contain no more than 200 elements"
+                        }
+                      ]
+                    }
+                  },
+                  "idempotency_mismatch": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_mismatch",
+                      "title": "Idempotency-Key นี้เคยใช้กับข้อมูลอื่น",
+                      "status": 422,
+                      "code": "idempotency_mismatch",
+                      "instance": "/v1/orders:bulk",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "สร้าง/อัปเดตใบสั่งขนส่งหลายใบ (≤ 200) — 207 ผลต่อรายการ หรือ 202 job",
+        "tags": [
+          "orders"
         ]
       }
     },
@@ -46594,9 +46836,11 @@
               "pending",
               "running",
               "succeeded",
+              "succeeded_with_errors",
               "failed",
               "skipped"
-            ]
+            ],
+            "description": "`succeeded_with_errors` = ทำครบแต่บางรายการไม่ผ่าน (bulk — ดู `result.results[]`) · `failed` = งานล้มทั้งงาน · client ต้องรับค่าที่ไม่รู้จักได้"
           },
           "progress": {
             "type": "number",
@@ -47503,6 +47747,372 @@
             "maxLength": 500
           }
         }
+      },
+      "OrderCustomerInputDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "cus_3f2a…",
+            "nullable": true,
+            "description": "ลูกค้าใน master"
+          },
+          "externalId": {
+            "type": "string",
+            "example": "C-001",
+            "nullable": true,
+            "description": "รหัสลูกค้าตามระบบต้นทาง — จับคู่กับ customer.externalId (ไม่พบ = ใบค้าง CUSTOMER_UNMAPPED)"
+          },
+          "name": {
+            "type": "string",
+            "nullable": true,
+            "description": "ชื่อ/ข้อความลูกค้าตามต้นทาง"
+          }
+        }
+      },
+      "OrderStopInputDto": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "PICKUP",
+              "DELIVERY",
+              "RETURN"
+            ]
+          },
+          "siteId": {
+            "type": "string",
+            "example": "loc_3f2a…",
+            "nullable": true,
+            "description": "สถานที่ใน master — ไม่ส่ง = ใช้ `siteText` (ใบค้าง LOCATION_UNMAPPED)"
+          },
+          "siteText": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 500,
+            "description": "ข้อความสถานที่ตามต้นทาง (บังคับเมื่อไม่มี siteId)"
+          },
+          "windowStart": {
+            "type": "string",
+            "example": "2026-11-12T07:00:00+07:00",
+            "nullable": true,
+            "description": "ISO 8601 พร้อม timezone"
+          },
+          "windowEnd": {
+            "type": "string",
+            "nullable": true,
+            "description": "ISO 8601 พร้อม timezone (≥ windowStart)"
+          }
+        },
+        "required": [
+          "type"
+        ]
+      },
+      "OrderLineInputDto": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "qty": {
+            "type": "string",
+            "example": "12.5",
+            "description": "> 0 ทศนิยม ≤ 3 (สตริง)"
+          },
+          "unitId": {
+            "type": "string",
+            "example": "unt_3f2a…",
+            "nullable": true,
+            "description": "หน่วยใน master"
+          },
+          "unit": {
+            "type": "string",
+            "nullable": true,
+            "description": "ข้อความหน่วย (บังคับเมื่อไม่มี unitId)"
+          },
+          "productId": {
+            "type": "string",
+            "example": "prd_3f2a…",
+            "nullable": true
+          },
+          "itemCode": {
+            "type": "string",
+            "nullable": true,
+            "description": "รหัสสินค้าตามต้นทาง"
+          },
+          "weightKg": {
+            "type": "string",
+            "nullable": true,
+            "example": "12500"
+          },
+          "cbm": {
+            "type": "string",
+            "nullable": true
+          },
+          "isDangerous": {
+            "type": "boolean"
+          },
+          "tempMin": {
+            "type": "string",
+            "nullable": true,
+            "example": "2.0"
+          },
+          "tempMax": {
+            "type": "string",
+            "nullable": true,
+            "example": "8.0"
+          }
+        },
+        "required": [
+          "description",
+          "qty"
+        ]
+      },
+      "CreateOrderDto": {
+        "type": "object",
+        "properties": {
+          "draft": {
+            "type": "boolean",
+            "description": "บันทึกเป็นร่าง (ไม่ออกเลข SO — D-21) · ใบที่พ้นร่างแล้วกลับเป็นร่างไม่ได้"
+          },
+          "customer": {
+            "$ref": "#/components/schemas/OrderCustomerInputDto"
+          },
+          "billingCompanyId": {
+            "type": "string",
+            "example": "cmp_3f2a…",
+            "nullable": true,
+            "description": "นิติบุคคลที่ออกบิล — ไม่ส่ง = ตามลูกค้า/ค่าตั้งต้นของบริษัท"
+          },
+          "customerRef": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 50,
+            "description": "เลข PO / อ้างอิงของลูกค้า"
+          },
+          "requestedDate": {
+            "type": "string",
+            "example": "2026-11-12",
+            "description": "วันรับของ YYYY-MM-DD (ใช้หา rate)"
+          },
+          "vehicleTypeId": {
+            "type": "string",
+            "example": "vty_3f2a…",
+            "nullable": true
+          },
+          "stops": {
+            "description": "1–50 จุด เรียงตามลำดับวิ่ง",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderStopInputDto"
+            }
+          },
+          "lines": {
+            "description": "≤ 200 บรรทัด",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderLineInputDto"
+            }
+          },
+          "externalId": {
+            "type": "string",
+            "example": "PO-2026-0001",
+            "nullable": true,
+            "maxLength": 100,
+            "description": "externalRef ของระบบต้นทาง (ASCII ที่พิมพ์ได้ 1–100 ตัว ไม่มีช่องว่าง — ผิด = 422) — unique ต่อบริษัท; มีใบเดิมจากช่องทางเดียวกัน = อัปเดตใบเดิม (เหมือน PUT external)"
+          }
+        },
+        "required": [
+          "requestedDate",
+          "stops"
+        ]
+      },
+      "BulkOrdersDto": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "minItems": 1,
+            "maxItems": 200,
+            "description": "ใบสั่งขนส่ง 1–200 ใบ (รูปเดียวกับ body ของ `POST /v1/orders`) — ตรวจ/สร้างแยกทีละใบ; ใบที่มี `externalId` ของใบเดิม = อัปเดตใบเดิม (idempotent ต่อใบ)",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CreateOrderDto"
+            }
+          }
+        },
+        "required": [
+          "items"
+        ]
+      },
+      "BulkJobAcceptedDto": {
+        "type": "object",
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "example": "job_3f2a…"
+          },
+          "statusUrl": {
+            "type": "string",
+            "example": "/v1/jobs/job_3f2a…"
+          }
+        },
+        "required": [
+          "jobId",
+          "statusUrl"
+        ]
+      },
+      "BulkOrderProblemDto": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "example": "https://docs.tms.example/problems/validation_failed"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "number",
+            "example": 422
+          },
+          "code": {
+            "type": "string",
+            "example": "validation_failed"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "errors": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "description": "รายช่อง (422) — path ภายในรายการ เช่น `stops.0.siteId`"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code"
+        ]
+      },
+      "BulkOrderResultDto": {
+        "type": "object",
+        "properties": {
+          "index": {
+            "type": "number",
+            "example": 0,
+            "description": "ลำดับของรายการใน `items[]` (เริ่ม 0)"
+          },
+          "status": {
+            "type": "number",
+            "example": 201,
+            "description": "สถานะ HTTP ของรายการ (เท่ากับที่ `POST /v1/orders` จะตอบ): 201 สร้าง · 200 อัปเดตใบเดิมด้วย externalId · 4xx/5xx ไม่ผ่าน"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "CREATED",
+              "UPDATED",
+              "FAILED"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "nullable": true,
+            "example": "ord_3f2a…"
+          },
+          "soNo": {
+            "type": "string",
+            "nullable": true,
+            "example": "SO-6911-0001",
+            "description": "ร่าง = null"
+          },
+          "orderStatus": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "draft",
+              "received",
+              "on_hold",
+              "planned",
+              "in_transit",
+              "partially_delivered",
+              "delivered",
+              "closed",
+              "cancelled"
+            ],
+            "description": "สถานะใบหลังทำ"
+          },
+          "externalId": {
+            "type": "string",
+            "nullable": true,
+            "description": "externalId ของรายการ (ถ้าส่ง)"
+          },
+          "holdCodes": {
+            "description": "เหตุค้างของการรับงาน (รับเข้าเป็น ON_HOLD ยังนับว่าสำเร็จ — เหมือน `POST /v1/orders`)",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "problem": {
+            "nullable": true,
+            "description": "เหตุที่ไม่ผ่าน",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/BulkOrderProblemDto"
+              }
+            ]
+          }
+        },
+        "required": [
+          "index",
+          "status",
+          "outcome",
+          "id",
+          "soNo",
+          "orderStatus",
+          "externalId",
+          "holdCodes",
+          "problem"
+        ]
+      },
+      "BulkOrderResultsDto": {
+        "type": "object",
+        "properties": {
+          "results": {
+            "description": "ผลต่อรายการ เรียงตาม `items[]`",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BulkOrderResultDto"
+            }
+          },
+          "total": {
+            "type": "number",
+            "example": 200
+          },
+          "succeeded": {
+            "type": "number",
+            "example": 198,
+            "description": "สร้าง/อัปเดตสำเร็จ"
+          },
+          "failed": {
+            "type": "number",
+            "example": 2
+          }
+        },
+        "required": [
+          "results",
+          "total",
+          "succeeded",
+          "failed"
+        ]
       },
       "OrderHoldCountDto": {
         "type": "object",
@@ -48556,187 +49166,6 @@
           "data",
           "nextCursor",
           "hasMore"
-        ]
-      },
-      "OrderCustomerInputDto": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string",
-            "example": "cus_3f2a…",
-            "nullable": true,
-            "description": "ลูกค้าใน master"
-          },
-          "externalId": {
-            "type": "string",
-            "example": "C-001",
-            "nullable": true,
-            "description": "รหัสลูกค้าตามระบบต้นทาง — จับคู่กับ customer.externalId (ไม่พบ = ใบค้าง CUSTOMER_UNMAPPED)"
-          },
-          "name": {
-            "type": "string",
-            "nullable": true,
-            "description": "ชื่อ/ข้อความลูกค้าตามต้นทาง"
-          }
-        }
-      },
-      "OrderStopInputDto": {
-        "type": "object",
-        "properties": {
-          "type": {
-            "type": "string",
-            "enum": [
-              "PICKUP",
-              "DELIVERY",
-              "RETURN"
-            ]
-          },
-          "siteId": {
-            "type": "string",
-            "example": "loc_3f2a…",
-            "nullable": true,
-            "description": "สถานที่ใน master — ไม่ส่ง = ใช้ `siteText` (ใบค้าง LOCATION_UNMAPPED)"
-          },
-          "siteText": {
-            "type": "string",
-            "nullable": true,
-            "maxLength": 500,
-            "description": "ข้อความสถานที่ตามต้นทาง (บังคับเมื่อไม่มี siteId)"
-          },
-          "windowStart": {
-            "type": "string",
-            "example": "2026-11-12T07:00:00+07:00",
-            "nullable": true,
-            "description": "ISO 8601 พร้อม timezone"
-          },
-          "windowEnd": {
-            "type": "string",
-            "nullable": true,
-            "description": "ISO 8601 พร้อม timezone (≥ windowStart)"
-          }
-        },
-        "required": [
-          "type"
-        ]
-      },
-      "OrderLineInputDto": {
-        "type": "object",
-        "properties": {
-          "description": {
-            "type": "string",
-            "maxLength": 500
-          },
-          "qty": {
-            "type": "string",
-            "example": "12.5",
-            "description": "> 0 ทศนิยม ≤ 3 (สตริง)"
-          },
-          "unitId": {
-            "type": "string",
-            "example": "unt_3f2a…",
-            "nullable": true,
-            "description": "หน่วยใน master"
-          },
-          "unit": {
-            "type": "string",
-            "nullable": true,
-            "description": "ข้อความหน่วย (บังคับเมื่อไม่มี unitId)"
-          },
-          "productId": {
-            "type": "string",
-            "example": "prd_3f2a…",
-            "nullable": true
-          },
-          "itemCode": {
-            "type": "string",
-            "nullable": true,
-            "description": "รหัสสินค้าตามต้นทาง"
-          },
-          "weightKg": {
-            "type": "string",
-            "nullable": true,
-            "example": "12500"
-          },
-          "cbm": {
-            "type": "string",
-            "nullable": true
-          },
-          "isDangerous": {
-            "type": "boolean"
-          },
-          "tempMin": {
-            "type": "string",
-            "nullable": true,
-            "example": "2.0"
-          },
-          "tempMax": {
-            "type": "string",
-            "nullable": true,
-            "example": "8.0"
-          }
-        },
-        "required": [
-          "description",
-          "qty"
-        ]
-      },
-      "CreateOrderDto": {
-        "type": "object",
-        "properties": {
-          "draft": {
-            "type": "boolean",
-            "description": "บันทึกเป็นร่าง (ไม่ออกเลข SO — D-21) · ใบที่พ้นร่างแล้วกลับเป็นร่างไม่ได้"
-          },
-          "customer": {
-            "$ref": "#/components/schemas/OrderCustomerInputDto"
-          },
-          "billingCompanyId": {
-            "type": "string",
-            "example": "cmp_3f2a…",
-            "nullable": true,
-            "description": "นิติบุคคลที่ออกบิล — ไม่ส่ง = ตามลูกค้า/ค่าตั้งต้นของบริษัท"
-          },
-          "customerRef": {
-            "type": "string",
-            "nullable": true,
-            "maxLength": 50,
-            "description": "เลข PO / อ้างอิงของลูกค้า"
-          },
-          "requestedDate": {
-            "type": "string",
-            "example": "2026-11-12",
-            "description": "วันรับของ YYYY-MM-DD (ใช้หา rate)"
-          },
-          "vehicleTypeId": {
-            "type": "string",
-            "example": "vty_3f2a…",
-            "nullable": true
-          },
-          "stops": {
-            "description": "1–50 จุด เรียงตามลำดับวิ่ง",
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/OrderStopInputDto"
-            }
-          },
-          "lines": {
-            "description": "≤ 200 บรรทัด",
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/OrderLineInputDto"
-            }
-          },
-          "externalId": {
-            "type": "string",
-            "example": "PO-2026-0001",
-            "nullable": true,
-            "maxLength": 100,
-            "description": "externalRef ของระบบต้นทาง (ASCII ที่พิมพ์ได้ 1–100 ตัว ไม่มีช่องว่าง — ผิด = 422) — unique ต่อบริษัท; มีใบเดิมจากช่องทางเดียวกัน = อัปเดตใบเดิม (เหมือน PUT external)"
-          }
-        },
-        "required": [
-          "requestedDate",
-          "stops"
         ]
       },
       "UpsertOrderDto": {
@@ -70887,7 +71316,7 @@
       },
       "WebhookEvent_job_completed": {
         "type": "object",
-        "description": "`data.object` ของ job.completed — งานเบื้องหลัง (นำเข้า/ส่งออก/รอบวางบิล) เสร็จ · รูปเดียวกับ JobDto (ไม่มี field ราคา)",
+        "description": "`data.object` ของ job.completed — งานเบื้องหลัง (นำเข้า/bulk/ส่งออก/รอบวางบิล) เสร็จ · รูปเดียวกับ JobDto (ไม่มี field ราคา)",
         "properties": {
           "id": {
             "type": "string",
@@ -70902,9 +71331,11 @@
               "pending",
               "running",
               "succeeded",
+              "succeeded_with_errors",
               "failed",
               "skipped"
-            ]
+            ],
+            "description": "`succeeded_with_errors` = ทำครบแต่บางรายการไม่ผ่าน (bulk — ดู `result.results[]`) · `failed` = งานล้มทั้งงาน · client ต้องรับค่าที่ไม่รู้จักได้"
           },
           "progress": {
             "type": "number",
@@ -71245,7 +71676,7 @@
       "pendingTask": "ST8-T11"
     },
     "job.completed": {
-      "description": "งานเบื้องหลัง (นำเข้า/ส่งออก/รอบวางบิล) เสร็จ",
+      "description": "งานเบื้องหลัง (นำเข้า/bulk/ส่งออก/รอบวางบิล) เสร็จ",
       "phase": "active",
       "dto": "JobDto",
       "schema": {

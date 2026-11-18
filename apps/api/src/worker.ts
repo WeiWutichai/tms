@@ -71,6 +71,11 @@ async function main() {
       purgeAuthData(prisma.platform)
         .then((r) => log.info({ purged: r }, 'auth maintenance'))
         .catch((e) => log.error(e)),
+      // ST7-T10 งานที่ client สั่ง (bulk/นำเข้า) เก็บ 7 วันหลังจบ (docs/04 G1)
+      queue
+        .purgeExpired()
+        .then((n) => n && log.info({ jobs: n }, 'public jobs purged'))
+        .catch((e) => log.error(e)),
       webhookRetention
         .purge()
         .then((r) => log.info({ webhook: r }, 'webhook retention'))
