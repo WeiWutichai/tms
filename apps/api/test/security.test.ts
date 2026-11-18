@@ -74,6 +74,12 @@ describe('security baseline (ST0-T12)', () => {
     const re = rotated.encrypt(plain);
     expect(re.startsWith('v1.k2.')).toBe(true);
     expect(() => new FieldCipher(`k2:${k2}`).decrypt(stored)).toThrow();
-    expect(() => old.decrypt(stored.slice(0, -2) + 'AA')).toThrow(); // แก้ ciphertext → ถอดไม่ได้
+    // แก้ ciphertext → ถอดไม่ได้ · เปลี่ยนอักษรตัวแรกของส่วนท้ายเป็นค่าอื่นเสมอ (เดิมแทนท้ายด้วย 'AA' = ไม่เปลี่ยนเมื่อท้ายเป็น 'AA' อยู่แล้ว
+    // และอักษรตัวสุดท้ายของ base64 อาจมีแต่บิตเติม) — แก้แน่นอนทุกครั้ง
+    const cut = stored.lastIndexOf('.') + 1;
+    const flip = stored[cut] === 'A' ? 'B' : 'A';
+    const tampered = stored.slice(0, cut) + flip + stored.slice(cut + 1);
+    expect(tampered).not.toBe(stored);
+    expect(() => old.decrypt(tampered)).toThrow();
   });
 });

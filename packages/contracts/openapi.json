@@ -24785,6 +24785,55 @@
         ]
       }
     },
+    "/v1/delivery-orders/summary": {
+      "get": {
+        "description": "นับด้วยตัวกรองชุดเดียวกับ `GET /delivery-orders` ของวัน `date` (dateFrom = dateTo = date) — ตัวเลขเท่ากับจำนวนแถวของรายการเมื่อใช้ตัวกรองตามคำอธิบายของแต่ละช่อง",
+        "operationId": "DeliveryOrders_summary",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeliveryOrderSummaryDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "ตัวนับ DO ของวันนี้ (เวลาไทย)",
+        "tags": [
+          "delivery-orders"
+        ]
+      }
+    },
     "/v1/delivery-orders": {
       "get": {
         "operationId": "DeliveryOrders_list",
@@ -25771,6 +25820,82 @@
         "summary": "บันทึก/แก้หลักฐานส่ง (ฉบับใหม่ทุกครั้ง)",
         "tags": [
           "delivery-orders"
+        ]
+      }
+    },
+    "/v1/trips/summary": {
+      "get": {
+        "description": "นับด้วยตัวกรองชุดเดียวกับ `GET /trips` — `running` = `?status=IN_PROGRESS`, `offered` = `?status=OFFERED`",
+        "operationId": "Trips_summary",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TripSummaryDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`trips:read`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "trips",
+                      "action": "read",
+                      "required": [
+                        "trips:read"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "ตัวนับเที่ยวของ dashboard ปฏิบัติการ",
+        "tags": [
+          "trips"
         ]
       }
     },
@@ -38788,6 +38913,19 @@
             }
           },
           {
+            "name": "busy",
+            "required": false,
+            "in": "query",
+            "description": "ST9-T01 true = กำลังใช้งาน (เป็นรถหรือหางของเที่ยวที่ปล่อยแล้วยังไม่ปิด — DISPATCHED/IN_PROGRESS — และไม่ได้ซ่อม/ปลดระวาง) · false = ส่วนกลับ",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          },
+          {
             "$ref": "#/components/parameters/ApiVersion"
           }
         ],
@@ -39100,6 +39238,19 @@
             "required": false,
             "in": "query",
             "description": "true = มีเอกสารฉบับปัจจุบันหมดภายใน 30 วันหรือหมดแล้ว (ไม่นับรถปลดระวาง) · false = ไม่มี — คำนวณตามวันนี้ (ไม่สัมพันธ์กับ updatedAt)",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          },
+          {
+            "name": "busy",
+            "required": false,
+            "in": "query",
+            "description": "ST9-T01 true = กำลังใช้งาน (เป็นรถหรือหางของเที่ยวที่ปล่อยแล้วยังไม่ปิด — DISPATCHED/IN_PROGRESS — และไม่ได้ซ่อม/ปลดระวาง) · false = ส่วนกลับ",
             "schema": {
               "type": "string",
               "enum": [
@@ -47429,6 +47580,19 @@
             "items": {
               "$ref": "#/components/schemas/OrderHoldCountDto"
             }
+          },
+          "today": {
+            "type": "string",
+            "example": "2026-11-18",
+            "description": "ST9-T01 วันนี้ตามเวลาไทยที่ใช้นับ `waiting*`"
+          },
+          "waiting": {
+            "type": "number",
+            "description": "ST9-T01 รอจัดรถ (spec/09 §1) = ยังไม่อยู่ในเที่ยว (รับแล้ว + ค้าง) และวันรับของ ≤ วันนี้ + 1 — เงื่อนไขเดียวกับ `status=received,on_hold&requestedTo={today+1}`"
+          },
+          "waitingOverdue": {
+            "type": "number",
+            "description": "ST9-T01 รอจัดรถที่เลยกำหนดรับ = `status=received,on_hold&requestedTo={today−1}`"
           }
         },
         "required": [
@@ -47441,7 +47605,10 @@
           "planned",
           "plannedToday",
           "heldTotal",
-          "holdReasons"
+          "holdReasons",
+          "today",
+          "waiting",
+          "waitingOverdue"
         ]
       },
       "OrderMatchCandidateDto": {
@@ -56013,6 +56180,34 @@
           }
         }
       },
+      "DeliveryOrderSummaryDto": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "example": "2026-11-18",
+            "description": "วันนี้ตามเวลาไทย (Asia/Bangkok) ที่ใช้นับ"
+          },
+          "today": {
+            "type": "number",
+            "description": "งานวันนี้ = `?dateFrom=date&dateTo=date&status=` ทุกสถานะยกเว้น CANCELLED"
+          },
+          "delivered": {
+            "type": "number",
+            "description": "ส่งแล้ว = `status=DELIVERED,POD_PENDING,UNBILLED,BILLED` ของวัน `date`"
+          },
+          "failed": {
+            "type": "number",
+            "description": "ส่งไม่สำเร็จ = `status=FAILED` ของวัน `date`"
+          }
+        },
+        "required": [
+          "date",
+          "today",
+          "delivered",
+          "failed"
+        ]
+      },
       "DeliveryOrderLineDto": {
         "type": "object",
         "properties": {
@@ -56149,6 +56344,38 @@
             "type": "string",
             "nullable": true
           },
+          "customerName": {
+            "type": "string",
+            "description": "ชื่อลูกค้า (ST9-T01 — แสดงในรายการ)"
+          },
+          "originSiteName": {
+            "type": "string",
+            "description": "ชื่อจุดรับ"
+          },
+          "destSiteName": {
+            "type": "string",
+            "description": "ชื่อจุดส่ง"
+          },
+          "tripNo": {
+            "type": "string",
+            "nullable": true,
+            "example": "TRP-6911-0001"
+          },
+          "vehiclePlate": {
+            "type": "string",
+            "nullable": true,
+            "description": "ทะเบียนรถของเที่ยว (snapshot)"
+          },
+          "driverName": {
+            "type": "string",
+            "nullable": true,
+            "description": "คนขับของเที่ยว (snapshot)"
+          },
+          "carrierName": {
+            "type": "string",
+            "nullable": true,
+            "description": "รถร่วมของเที่ยว (snapshot)"
+          },
           "weightKg": {
             "type": "string",
             "nullable": true
@@ -56222,6 +56449,13 @@
           "originStopSeq",
           "destStopSeq",
           "tripId",
+          "customerName",
+          "originSiteName",
+          "destSiteName",
+          "tripNo",
+          "vehiclePlate",
+          "driverName",
+          "carrierName",
           "weightKg",
           "cbm",
           "customerRef",
@@ -57112,6 +57346,23 @@
             "description": "เหตุผลการแก้ — **บังคับเมื่อมีหลักฐานอยู่แล้ว** (ฉบับที่ 2 ขึ้นไป, ≥ 10 ตัวอักษร) ลง audit"
           }
         }
+      },
+      "TripSummaryDto": {
+        "type": "object",
+        "properties": {
+          "running": {
+            "type": "number",
+            "description": "เที่ยวกำลังวิ่ง = `status=IN_PROGRESS` (ทุกวันที่ — spec/09 §1)"
+          },
+          "offered": {
+            "type": "number",
+            "description": "งานรถร่วมรอตอบ = `status=OFFERED` (ทุกวันที่)"
+          }
+        },
+        "required": [
+          "running",
+          "offered"
+        ]
       },
       "TripVehicleDto": {
         "type": "object",
@@ -64407,6 +64658,28 @@
           "used"
         ]
       },
+      "VehicleFleetTodayDto": {
+        "type": "object",
+        "properties": {
+          "available": {
+            "type": "number",
+            "description": "ว่าง = `ownership=OWN&status=ready&busy=false`"
+          },
+          "inUse": {
+            "type": "number",
+            "description": "ใช้งาน = `ownership=OWN&busy=true`"
+          },
+          "maintenance": {
+            "type": "number",
+            "description": "ซ่อม = `ownership=OWN&status=maintenance`"
+          }
+        },
+        "required": [
+          "available",
+          "inUse",
+          "maintenance"
+        ]
+      },
       "VehicleSummaryDto": {
         "type": "object",
         "properties": {
@@ -64436,6 +64709,9 @@
           },
           "quota": {
             "$ref": "#/components/schemas/VehicleQuotaDto"
+          },
+          "fleet": {
+            "$ref": "#/components/schemas/VehicleFleetTodayDto"
           }
         },
         "required": [
@@ -64446,7 +64722,8 @@
           "retired",
           "subcontract",
           "docAlert",
-          "quota"
+          "quota",
+          "fleet"
         ]
       },
       "CreateVehicleDto": {
@@ -70181,6 +70458,38 @@
             "type": "string",
             "nullable": true
           },
+          "customerName": {
+            "type": "string",
+            "description": "ชื่อลูกค้า (ST9-T01 — แสดงในรายการ)"
+          },
+          "originSiteName": {
+            "type": "string",
+            "description": "ชื่อจุดรับ"
+          },
+          "destSiteName": {
+            "type": "string",
+            "description": "ชื่อจุดส่ง"
+          },
+          "tripNo": {
+            "type": "string",
+            "nullable": true,
+            "example": "TRP-6911-0001"
+          },
+          "vehiclePlate": {
+            "type": "string",
+            "nullable": true,
+            "description": "ทะเบียนรถของเที่ยว (snapshot)"
+          },
+          "driverName": {
+            "type": "string",
+            "nullable": true,
+            "description": "คนขับของเที่ยว (snapshot)"
+          },
+          "carrierName": {
+            "type": "string",
+            "nullable": true,
+            "description": "รถร่วมของเที่ยว (snapshot)"
+          },
           "weightKg": {
             "type": "string",
             "nullable": true
@@ -70254,6 +70563,13 @@
           "originStopSeq",
           "destStopSeq",
           "tripId",
+          "customerName",
+          "originSiteName",
+          "destSiteName",
+          "tripNo",
+          "vehiclePlate",
+          "driverName",
+          "carrierName",
           "weightKg",
           "cbm",
           "customerRef",

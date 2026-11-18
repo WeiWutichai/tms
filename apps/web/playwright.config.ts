@@ -60,6 +60,9 @@ export default defineConfig({
         WEBHOOK_ALLOW_PRIVATE_TARGETS: '1',
         // ST7-T08: เปิด rate limit ของ /v1 (NODE_ENV=test ปิดเป็นค่าเริ่ม) — ทุก spec ต้องไม่ชนเพดาน (UI ใช้เพดานเดียวกับลูกค้า)
         RATE_LIMIT: 'on',
+        // เพดานขอ token ต่อ IP (ค่าเริ่ม 120/นาที — production คงเดิม) — E2E ทุกเครื่อง login จาก 127.0.0.1 ทุก test
+        // ทำให้ชน 429 เมื่อจำนวน spec เพิ่ม (ST9-T01) · ยังเปิดอยู่ (test 429 ของตัวจำกัดอยู่ใน apps/api/test/rate-limit.test.ts)
+        TOKEN_RATE_LIMIT_PER_IP_PER_MIN: '600',
       },
       reuseExistingServer: false,
       timeout: 60_000,

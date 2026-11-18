@@ -10,7 +10,11 @@ import {
   type SoStatus,
   type OrderSource,
   type OrderSourceRef,
+  OPS_ORDER_WAITING,
+  OPS_ORDER_WAITING_DAYS_AHEAD,
 } from '@tms/domain';
+import { Clock } from '../../common/clock';
+import { addDays, bangkokToday } from '../vehicle-documents/expiry';
 import { encodeId, tryDecodeId, type IdKind } from '../../common/ids';
 import { keysetArgs, toPage } from '../../common/pagination';
 import { ProblemException } from '../../common/problem';
@@ -100,6 +104,7 @@ export class OrdersService {
     private readonly db: DbService,
     private readonly intake: OrderIntakeService,
     private readonly state: OrderStateService,
+    private readonly clock: Clock,
   ) {}
 
   // ---------- ST3-T10 ยกเลิก + ชุดการเปลี่ยนแปลงจากต้นทาง ----------
@@ -197,10 +202,24 @@ export class OrdersService {
       this.countHeld('LOCATION_UNMAPPED'),
       this.countHeld('CUSTOMER_UNMAPPED'),
     ]);
-    const [holdReasons, heldTotal] = await Promise.all([
+    const day = bangkokToday(this.clock.now());
+    const [holdReasons, heldTotal, waiting, waitingOverdue] = await Promise.all([
       this.holdReasonCounts(),
       tx.salesOrder.count({
         where: { OR: [{ status: 'ON_HOLD' }, { sourceChangedAfterPlan: true }] },
+      }),
+      // ST9-T01 dashboard "รอจัดรถ" (spec/09 §1) — ตัวกรองเดียวกับ `GET /orders?status=received,on_hold&requestedTo=`
+      tx.salesOrder.count({
+        where: await this.where({
+          status: OPS_ORDER_WAITING.join(','),
+          requestedTo: addDays(day, OPS_ORDER_WAITING_DAYS_AHEAD),
+        } as OrderListQuery),
+      }),
+      tx.salesOrder.count({
+        where: await this.where({
+          status: OPS_ORDER_WAITING.join(','),
+          requestedTo: addDays(day, -1),
+        } as OrderListQuery),
       }),
     ]);
     return {
@@ -214,6 +233,9 @@ export class OrdersService {
       plannedToday,
       heldTotal,
       holdReasons,
+      today: day,
+      waiting,
+      waitingOverdue,
     };
   }
 
