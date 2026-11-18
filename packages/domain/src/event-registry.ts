@@ -224,8 +224,8 @@ const DEFS: Record<WebhookEventType, Omit<EventDefinition, 'type'>> = {
   ),
   'job.completed': active(
     'job',
-    'งานเบื้องหลัง (นำเข้า/ส่งออก/รอบวางบิล) เสร็จ',
-    'JobQueue.runOnce (งานที่ลงทะเบียน publicEvent — นำเข้าไฟล์)',
+    'งานเบื้องหลัง (นำเข้า/bulk/ส่งออก/รอบวางบิล) เสร็จ',
+    'JobQueue.runOnce (งานที่ลงทะเบียน publicEvent — นำเข้าไฟล์, orders:bulk แบบ async)',
     JOB,
   ),
 };

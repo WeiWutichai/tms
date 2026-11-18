@@ -116,6 +116,8 @@ export interface VehicleFilters {
   status: string;
   /** '' | 'true' (มีเอกสารใกล้หมด) | 'false' (ปกติ) */
   docAlert: string;
+  /** ST9-T01 '' | 'true' (กำลังใช้งาน — อยู่ในเที่ยวที่ปล่อยแล้ว) | 'false' (ไม่ได้ใช้งาน) — มาจากลิงก์ dashboard เท่านั้น */
+  busy?: string;
 }
 
 /** แท็บของทะเบียนรถ (ต้นแบบ specFVeh tabs): ทั้งหมด · สถานะ 4 แบบ · รถร่วม */

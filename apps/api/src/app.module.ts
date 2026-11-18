@@ -153,6 +153,8 @@ import { EligibilityService } from './modules/planning/eligibility.service';
 import { OrdersController } from './modules/orders/orders.controller';
 import { OrderBillingService } from './modules/orders/order-billing.service';
 import { OrdersService } from './modules/orders/orders.service';
+import { OrdersBulkController } from './modules/orders/orders-bulk.controller';
+import { OrderBulkService } from './modules/orders/order-bulk.service';
 import { OrderLockService } from './modules/orders/order-lock.service';
 import { OrderTemplatesController } from './modules/orders/order-templates.controller';
 import { OrderTemplatesService } from './modules/orders/order-templates.service';
@@ -227,6 +229,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     SettingsController,
     JobsController,
     CustomersController,
+    OrdersBulkController,
     OrdersController,
     OrderTemplatesController,
     SitesController,
@@ -336,6 +339,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     SavedViewsService,
     EligibilityService,
     OrdersService,
+    OrderBulkService,
     OrderLockService,
     OrderTemplatesService,
     OrderImports,

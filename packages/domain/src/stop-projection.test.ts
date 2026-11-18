@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { OPS_DO_DELIVERED } from './ops-dashboard';
+import { DO_DELIVERED_STATUSES } from './stop-projection';
 import {
   deliveryOrderStopEvent,
   orderDeliveryEvent,
@@ -156,5 +158,11 @@ describe('isOutcomeMismatch / isDeliveringClose', () => {
     expect(isDeliveringClose('COMPLETE', 'PARTIAL')).toBe(true);
     expect(isDeliveringClose('COMPLETE', 'FAILED')).toBe(false);
     expect(isDeliveringClose('FAIL', null)).toBe(false);
+  });
+});
+
+describe('ST9-T01 OPS_DO_DELIVERED', () => {
+  it('ตรงกับ DO_DELIVERED_STATUSES', () => {
+    expect([...OPS_DO_DELIVERED]).toEqual([...DO_DELIVERED_STATUSES]);
   });
 });

@@ -53,3 +53,10 @@ export const RATE_LIMIT_CLASS = 'tms:rateLimitClass';
  * (5 req/s ใน profile standard) ซ้อนกับ tenant/key/user · route อื่นแบ่งเป็น read (GET/HEAD) / write โดยอัตโนมัติ
  */
 export const RateLimitClass = (cls: 'heavy') => SetMetadata(RATE_LIMIT_CLASS, cls);
+
+export const IDEMPOTENCY_LOCK_MS = 'tms:idempotencyLockMs';
+/**
+ * ST7-T10: เวลาจอง Idempotency-Key ระหว่างทำ (ค่าเริ่ม 60 วิ) — route ที่ทำนาน (เช่น bulk 200 ใบ) ตั้งให้ยาวกว่าเวลาสูงสุดที่ยอม
+ * คำขอซ้ำ key เดิมระหว่างนั้น = 409 `idempotency_in_progress` (ไม่ทำซ้อน)
+ */
+export const IdempotencyLockMs = (ms: number) => SetMetadata(IDEMPOTENCY_LOCK_MS, ms);
