@@ -32,6 +32,10 @@ blockquote{margin:8px 0;padding:6px 12px;border-left:3px solid var(--accent);bac
 <h1 id="webhook-และการตรวจลายเซ็น">Webhook และการตรวจลายเซ็น</h1>
 <p>TMS ส่ง event เป็น <code>POST</code> JSON ไปยัง endpoint ของคุณ — รายการ event และ schema ของแต่ละตัวอยู่ที่ <a href="webhook-events.html">Webhook events</a></p>
 <p>สมัคร endpoint ในหน้าเว็บ <strong>นักพัฒนา / Open API → Webhooks</strong> (ผู้ใช้ที่ login) — URL ต้องเป็น <code>https://</code> ที่เข้าถึงได้จากอินเทอร์เน็ต ไม่รับที่อยู่ภายใน/localhost · API key <strong>อ่าน</strong>ข้อมูล webhook/event/การส่งได้ (<code>settings:read</code>, <code>events:read</code>) แต่สร้าง/แก้/ส่งซ้ำไม่ได้ · ทดสอบจากเครื่องตัวเองใช้ tunnel (ngrok / Cloudflare Tunnel) แล้วยิง event จำลองตาม <a href="sandbox.html">Sandbox</a></p>
+<h2 id="ยืนยัน-endpoint-webhookverification">ยืนยัน endpoint (<code>webhook.verification</code>)</h2>
+<p>ทันทีที่สมัคร endpoint ระบบส่ง event ระบบ <code>webhook.verification</code> หนึ่งครั้ง — มักมาถึง<strong>ก่อนที่คุณจะได้นำ signing secret ไปตั้งในระบบ</strong> จึงอาจตรวจลายเซ็นของคำขอนี้ไม่ได้ (คำขอมี <code>X-TMS-Signature</code> ตามปกติ)</p>
+<pre><code class="language-json">{ &quot;id&quot;: &quot;evt_…&quot;, &quot;type&quot;: &quot;webhook.verification&quot;, &quot;version&quot;: &quot;1&quot;, &quot;mode&quot;: &quot;live&quot;, &quot;test&quot;: true, &quot;data&quot;: { &quot;object&quot;: { &quot;challenge&quot;: &quot;…&quot; }, &quot;previousAttributes&quot;: null } }</code></pre>
+<ul><li>ตอบ <code>2xx</code> พร้อม body เป็นค่า <code>challenge</code> (ข้อความล้วน หรือ JSON <code>{&quot;challenge&quot;:&quot;…&quot;}</code>) → endpoint ถูกทำเครื่องหมายว่ายืนยันแล้ว</li><li>ไม่ตอบ challenge ก็ได้ (ไม่บล็อกการส่ง event จริง) — แนะนำ: ถ้า <code>type</code> เป็น <code>webhook.verification</code> ให้ echo <code>challenge</code> กลับโดยไม่ประมวลผลอะไรต่อ และ<strong>ห้าม</strong>ทำงานทางธุรกิจจากคำขอที่ตรวจลายเซ็นไม่ผ่าน</li><li>event จริงทุกตัว (และ <code>webhook.test</code> จากปุ่มทดสอบ) ตรวจลายเซ็นได้ตามหัวข้อด้านล่าง</li></ul>
 <h2 id="envelope">Envelope</h2>
 <pre><code class="language-json">{
   &quot;id&quot;: &quot;evt_…&quot;,
@@ -79,7 +83,7 @@ def verify(raw_body: bytes, header: str, secret: str) -&gt; bool:
     want = hmac.new(secret.encode(), t.encode() + b'.' + raw_body, hashlib.sha256).hexdigest()
     return any(k == 'v1' and hmac.compare_digest(v, want) for k, v in parts)</code></pre>
 <h2 id="การส่งและลองใหม่">การส่งและลองใหม่</h2>
-<ul><li>ตอบ <code>2xx</code> ภายใน 10 วินาที = สำเร็จ · ไม่สำเร็จลองใหม่ 8 ครั้ง (1 นาที, 5 นาที, 30 นาที, 2 ชม., 6 ชม., 12 ชม., 24 ชม., 24 ชม.)</li><li>event ส่งไม่สำเร็จขั้นสุดท้ายติดกัน 50 event → endpoint ถูกปิดอัตโนมัติและแจ้งอีเมลผู้ดูแล</li><li>ดูประวัติ: <code>GET /v1/webhook-deliveries?eventId=…</code> · ดู event ย้อนหลัง: <code>GET /v1/events</code> (เก็บ 30 วัน)</li></ul>
+<ul><li>ตอบ <code>2xx</code> ภายใน 10 วินาที = สำเร็จ · ไม่สำเร็จลองใหม่ 8 ครั้ง (1 นาที, 5 นาที, 30 นาที, 2 ชม., 6 ชม., 12 ชม., 24 ชม., 24 ชม.)</li><li>event ส่งไม่สำเร็จขั้นสุดท้ายติดกัน 50 event → endpoint ถูกปิดอัตโนมัติและแจ้งอีเมลผู้ดูแล</li><li>ดูประวัติ: <code>GET /v1/webhook-deliveries?eventId=…</code> (scope <code>settings:read</code>) · ดู event ย้อนหลัง: <code>GET /v1/events</code> (scope <code>events:read</code>, เก็บ 30 วัน)</li></ul>
 </main>
 </div>
 </body>

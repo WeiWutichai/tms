@@ -4,6 +4,18 @@ TMS ส่ง event เป็น `POST` JSON ไปยัง endpoint ของ�
 
 สมัคร endpoint ในหน้าเว็บ **นักพัฒนา / Open API → Webhooks** (ผู้ใช้ที่ login) — URL ต้องเป็น `https://` ที่เข้าถึงได้จากอินเทอร์เน็ต ไม่รับที่อยู่ภายใน/localhost · API key **อ่าน**ข้อมูล webhook/event/การส่งได้ (`settings:read`, `events:read`) แต่สร้าง/แก้/ส่งซ้ำไม่ได้ · ทดสอบจากเครื่องตัวเองใช้ tunnel (ngrok / Cloudflare Tunnel) แล้วยิง event จำลองตาม [Sandbox](sandbox.md)
 
+## ยืนยัน endpoint (`webhook.verification`)
+
+ทันทีที่สมัคร endpoint ระบบส่ง event ระบบ `webhook.verification` หนึ่งครั้ง — มักมาถึง**ก่อนที่คุณจะได้นำ signing secret ไปตั้งในระบบ** จึงอาจตรวจลายเซ็นของคำขอนี้ไม่ได้ (คำขอมี `X-TMS-Signature` ตามปกติ)
+
+```json
+{ "id": "evt_…", "type": "webhook.verification", "version": "1", "mode": "live", "test": true, "data": { "object": { "challenge": "…" }, "previousAttributes": null } }
+```
+
+- ตอบ `2xx` พร้อม body เป็นค่า `challenge` (ข้อความล้วน หรือ JSON `{"challenge":"…"}`) → endpoint ถูกทำเครื่องหมายว่ายืนยันแล้ว
+- ไม่ตอบ challenge ก็ได้ (ไม่บล็อกการส่ง event จริง) — แนะนำ: ถ้า `type` เป็น `webhook.verification` ให้ echo `challenge` กลับโดยไม่ประมวลผลอะไรต่อ และ**ห้าม**ทำงานทางธุรกิจจากคำขอที่ตรวจลายเซ็นไม่ผ่าน
+- event จริงทุกตัว (และ `webhook.test` จากปุ่มทดสอบ) ตรวจลายเซ็นได้ตามหัวข้อด้านล่าง
+
 ## Envelope
 
 ```json
@@ -83,4 +95,4 @@ def verify(raw_body: bytes, header: str, secret: str) -> bool:
 
 - ตอบ `2xx` ภายใน 10 วินาที = สำเร็จ · ไม่สำเร็จลองใหม่ 8 ครั้ง (1 นาที, 5 นาที, 30 นาที, 2 ชม., 6 ชม., 12 ชม., 24 ชม., 24 ชม.)
 - event ส่งไม่สำเร็จขั้นสุดท้ายติดกัน 50 event → endpoint ถูกปิดอัตโนมัติและแจ้งอีเมลผู้ดูแล
-- ดูประวัติ: `GET /v1/webhook-deliveries?eventId=…` · ดู event ย้อนหลัง: `GET /v1/events` (เก็บ 30 วัน)
+- ดูประวัติ: `GET /v1/webhook-deliveries?eventId=…` (scope `settings:read`) · ดู event ย้อนหลัง: `GET /v1/events` (scope `events:read`, เก็บ 30 วัน)

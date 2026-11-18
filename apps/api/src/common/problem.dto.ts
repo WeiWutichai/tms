@@ -45,6 +45,22 @@ export class ProblemDto {
       '429 rate_limited: เพดานที่เต็ม — tenant · key · user · endpoint (คำขอหนัก) · ip · link · lookup',
   })
   scope?: string;
+  @ApiPropertyOptional({
+    example: 'orders',
+    description: '403 permission_denied: โมดูลของสิทธิ์ที่ขาด',
+  })
+  module?: string;
+  @ApiPropertyOptional({
+    example: 'write',
+    description: '403 permission_denied: การกระทำของสิทธิ์ที่ขาด',
+  })
+  action?: string;
+  @ApiPropertyOptional({
+    type: [String],
+    example: ['orders:write'],
+    description: '403 permission_denied: scope ที่ต้องมี (ตัวใดตัวหนึ่ง)',
+  })
+  required?: string[];
 }
 
 /** เอกสาร problem response ของ route พร้อมตัวอย่างต่อ code (`examples` ชื่อ = code) */

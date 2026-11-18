@@ -294,6 +294,7 @@ export function webhookEventsPage(doc: Json): Page {
   const md = [
     '# Webhook events',
     'รายการ event สาธารณะทั้งหมด (= `GET /v1/webhooks/event-types`) — envelope, header และวิธีตรวจลายเซ็นดูที่ [Webhook และการตรวจลายเซ็น](webhooks.md)',
+    '> นอกจาก event ในตาราง ระบบส่ง event ระบบอีก 2 ชนิด: `webhook.verification` (ครั้งเดียวตอนสมัคร endpoint — `data.object.challenge` ให้ echo กลับ; ส่งก่อนคุณได้ secret จึงตรวจลายเซ็นไม่ได้ ดู [ยืนยัน endpoint](webhooks.md#ยืนยัน-endpoint-webhookverification)) และ `webhook.test` (ปุ่มทดสอบในหน้าเว็บ — envelope มี `test: true`)',
     table(['event', 'สถานะ', 'data.object', 'เกิดเมื่อ'], rows),
     ...sections,
   ].join('\n\n');

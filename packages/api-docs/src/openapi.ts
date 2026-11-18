@@ -323,7 +323,8 @@ export function publicSpec(doc: Json): Json {
     servers: [{ url: 'https://api.tms.example' }],
     paths,
     components: { ...doc.components, schemas },
-    'x-webhooks': doc['x-webhooks'],
+    // `x-webhooks` ของ OAS 3.0 เครื่องมือ (Redocly) ตีความเป็น PathItem — ฉบับสาธารณะใช้ชื่อ vendor extension อื่น
+    'x-tms-webhook-events': doc['x-webhooks'],
     'x-problem-codes': doc['x-problem-codes'],
   });
 }

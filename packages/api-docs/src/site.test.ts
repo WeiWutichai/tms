@@ -179,6 +179,16 @@ describe('เนื้อหาสาธารณะ (ST7-T12 review/QA)', () =>
     for (const r of new Set(refs)) expect(pub.components.schemas[r], r).toBeDefined();
   });
 
+  it('openapi.json สาธารณะ: ไม่มี x-webhooks (PathItem ของ OAS 3.0) · ProblemDto รับ extension + module/action/required', () => {
+    const pub = JSON.parse(files.get('openapi.json')!);
+    expect(pub['x-webhooks']).toBeUndefined();
+    expect(Object.keys(pub['x-tms-webhook-events'])).toContain('order.created');
+    const pd = pub.components.schemas.ProblemDto;
+    expect(pd.additionalProperties).toBe(true);
+    for (const k of ['module', 'action', 'required']) expect(pd.properties[k], k).toBeDefined();
+    expect(files.get('openapi.json')!).not.toContain('Innovera');
+  });
+
   it('webhook events แสดงฟิลด์ของ data.object', () => {
     expect(files.get('webhook-events.md')!).toMatch(/## order\.created[\s\S]*?\| `id` \|/);
   });

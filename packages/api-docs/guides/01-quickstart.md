@@ -11,7 +11,7 @@
 ## 1. สร้าง API key ของ Sandbox
 
 1. เข้า **ตั้งค่า → นักพัฒนา / Open API** แล้วกดสวิตช์มุมขวาเป็น **Sandbox** (ครั้งแรกระบบสร้าง Sandbox ของบริษัทให้อัตโนมัติ · ระหว่างอยู่โหมดนี้หน้าจะมีแถบสีส้ม "SANDBOX")
-2. แท็บ **API keys** → **สร้าง API key** → ตั้งชื่อ เช่น `quickstart` และเลือก scope: `companies:read` `master:read` `master:write` `orders:read` `orders:write` (ถ้าจะลองยิง webhook จำลองต่อ เพิ่ม `settings:read`)
+2. แท็บ **API keys** → **สร้าง API key** → ตั้งชื่อ เช่น `quickstart` และเลือก scope: `companies:read` `master:read` `master:write` `orders:read` `orders:write` (ถ้าจะลองยิง webhook จำลองต่อ เพิ่ม `settings:read` และ `events:read`)
 3. คัดลอก secret ที่ขึ้นต้นด้วย `tk_test_` — **แสดงครั้งเดียว** เก็บไว้ใน secret manager ห้ามใส่ในโค้ดฝั่ง browser
 
 โหมดของคำขอขึ้นกับ key ไม่ใช่ URL: key `tk_test_` เข้าถึงได้เฉพาะข้อมูล Sandbox, key `tk_live_` เฉพาะข้อมูลจริง
@@ -35,7 +35,7 @@ curl -sS --fail-with-body "$TMS_BASE_URL/v1/orders?limit=1" \
 
 ## 3. เลือกนิติบุคคลที่ออกบิล
 
-บริษัทที่มีนิติบุคคลมากกว่า 1 ราย ต้องระบุ `billingCompanyId` ทุกใบ (หรือตั้ง "ออกบิลในนาม" ที่ลูกค้า/ค่าตั้งต้นของบริษัท) — ไม่งั้นได้ `422` `routing_not_configured`
+บริษัทที่มีนิติบุคคลมากกว่า 1 ราย ต้องระบุ `billingCompanyId` ทุกใบ (หรือตั้ง "ออกบิลในนาม" ที่ลูกค้า/ค่าตั้งต้นของบริษัท) — ไม่งั้นได้ `422 validation_failed` ที่มี `errors[].code = routing_not_configured` (`errors[].field = billingCompanyId`)
 
 ```bash
 COMPANY_ID=$(curl -sS --fail-with-body "$TMS_BASE_URL/v1/companies?limit=50" \
@@ -84,7 +84,7 @@ ORDER_ID=$(curl -sS --fail-with-body -X PUT "$TMS_BASE_URL/v1/orders/external/QS
 echo "$ORDER_ID"
 ```
 
-ได้ `201` (สร้างใหม่) หรือ `200` (รันซ้ำ = อัปเดตใบเดิม) และ `id` ขึ้นต้นด้วย `ord_` — สถานะ `received` หรือ `on_hold` (ข้อมูลยังไม่ครบ เช่น หน่วยเป็นข้อความที่ไม่อยู่ใน master — ดู `holdReason`)
+ได้ `201` (สร้างใหม่) หรือ `200` (รันซ้ำ = อัปเดตใบเดิม) และ `id` ขึ้นต้นด้วย `ord_` — สถานะ `received` หรือ `on_hold` — ใน Sandbox ใหม่ใบนี้จะเป็น `on_hold` เหตุ `RATE_MISSING` (ยังไม่มีตารางราคาของลูกค้า/เส้นทางนี้; ดู `holdReason` / `holdCodes`) ซึ่งถือว่ารับใบสำเร็จแล้ว — ใบจะไปต่อเมื่อมีราคาที่อนุมัติ หรือตั้งราคาเอง
 
 ## 7. อ่านใบสั่งกลับ
 
@@ -105,5 +105,5 @@ curl -sS --fail-with-body "$TMS_BASE_URL/v1/orders/$ORDER_ID" \
 
 - [ยืนยันตัวตน](authentication.md) — OAuth2 client credentials, scope, IP allowlist
 - [แนวทางการใช้ API](conventions.md) — Idempotency-Key, pagination, ETag/If-Match, รูปแบบ error
-- Webhook: สมัคร endpoint (ต้องเป็น `https://`) ในหน้าเว็บ **นักพัฒนา / Open API → Webhooks** โหมด Sandbox — API key อ่านข้อมูล webhook ได้อย่างเดียว สร้าง/แก้ endpoint ไม่ได้ · ยิง event จำลองด้วย `POST /v1/test/events/trigger` (key ต้องมี `settings:read`) — ดู [Sandbox](sandbox.md) และ [Webhook และการตรวจลายเซ็น](webhooks.md)
+- Webhook: สมัคร endpoint (ต้องเป็น `https://`) ในหน้าเว็บ **นักพัฒนา / Open API → Webhooks** โหมด Sandbox — API key อ่านข้อมูล webhook ได้อย่างเดียว สร้าง/แก้ endpoint ไม่ได้ · ยิง event จำลองด้วย `POST /v1/test/events/trigger` (key ต้องมี `settings:read`; ดูผลส่งที่ `GET /v1/webhook-deliveries` ใช้ `settings:read`, ดู event ที่ `GET /v1/events/{id}` ใช้ `events:read`) — ดู [Sandbox](sandbox.md) และ [Webhook และการตรวจลายเซ็น](webhooks.md)
 - [ใบสั่งขนส่ง (orders)](ref-orders.md) — ทุก endpoint ของ orders

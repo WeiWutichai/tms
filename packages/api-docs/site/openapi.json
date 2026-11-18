@@ -39507,7 +39507,7 @@
           "actAs": {
             "type": "string",
             "nullable": true,
-            "description": "ผู้ใช้ Innovera ที่ impersonate (claim act)"
+            "description": "ทีมผู้ให้บริการที่เข้าใช้งานแทน (impersonate — claim act) · null = ผู้ใช้ทำเอง"
           },
           "action": {
             "type": "string",
@@ -49493,6 +49493,26 @@
             "type": "string",
             "example": "tenant",
             "description": "429 rate_limited: เพดานที่เต็ม — tenant · key · user · endpoint (คำขอหนัก) · ip · link · lookup"
+          },
+          "module": {
+            "type": "string",
+            "example": "orders",
+            "description": "403 permission_denied: โมดูลของสิทธิ์ที่ขาด"
+          },
+          "action": {
+            "type": "string",
+            "example": "write",
+            "description": "403 permission_denied: การกระทำของสิทธิ์ที่ขาด"
+          },
+          "required": {
+            "example": [
+              "orders:write"
+            ],
+            "description": "403 permission_denied: scope ที่ต้องมี (ตัวใดตัวหนึ่ง)",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
         "required": [
@@ -49501,7 +49521,9 @@
           "status",
           "code",
           "requestId"
-        ]
+        ],
+        "additionalProperties": true,
+        "description": "RFC 9457 application/problem+json — ช่องเสริม (extension member) ขึ้นกับ `code` เช่น `orderStatus`/`editableFields` ของ `order_locked_for_update`"
       },
       "ProblemFieldErrorDto": {
         "type": "object",
@@ -63410,7 +63432,7 @@
       }
     }
   },
-  "x-webhooks": {
+  "x-tms-webhook-events": {
     "order.created": {
       "description": "สร้างใบสั่งงานใหม่ (หน้าจอ, Open API, นำเข้าไฟล์)",
       "phase": "active",

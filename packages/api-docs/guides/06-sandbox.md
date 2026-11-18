@@ -12,7 +12,7 @@ Sandbox = บริษัทคู่แฝดของคุณในโหม�
 ## ยิง event จำลอง
 
 1. สมัคร endpoint ของคุณในหน้าเว็บ **นักพัฒนา / Open API → Webhooks** ขณะอยู่โหมด Sandbox — URL ต้องเป็น `https://` ที่เข้าถึงได้จากอินเทอร์เน็ต (ทดสอบจากเครื่องตัวเองให้ใช้ tunnel เช่น ngrok / Cloudflare Tunnel) · API key สร้าง/แก้ endpoint ไม่ได้ (อ่านได้อย่างเดียว)
-2. ยิง event (key ต้องมี scope `settings:read`):
+2. ยิง event (key ต้องมี scope `settings:read` — ถ้าจะดู event ด้วย `GET /v1/events/{id}` เพิ่ม `events:read`):
 
 ```bash
 curl -sS -X POST "$TMS_BASE_URL/v1/test/events/trigger" \
@@ -21,4 +21,4 @@ curl -sS -X POST "$TMS_BASE_URL/v1/test/events/trigger" \
   -d '{"type":"order.created"}'
 ```
 
-ได้ `200` `{eventId, type, mode, queued, deliveries[], object}` — `deliveries[].state` บอกผลส่งของแต่ละ endpoint (`delivered`/`failed`/`queued`/`skipped`) ดูย้อนหลังได้ที่ `GET /v1/webhook-deliveries?eventId=<eventId>` (ยังไม่มี endpoint = ได้ `deliveries: []` แต่ event ถูกบันทึก ดูได้ที่ `GET /v1/events/{id}`) — `type` ต้องเป็น event ที่ใช้งานอยู่ใน [รายการ webhook event](webhook-events.md) · เรียกด้วย key live = `403 sandbox_only`
+ได้ `200` `{eventId, type, mode, queued, deliveries[], object}` — ในคำตอบนี้ `deliveries[].state` บอกผลส่งของแต่ละ endpoint (`delivered`/`failed`/`queued`/`skipped`) และ `deliveries[].status` = HTTP status ที่ปลายทางตอบ · ดูย้อนหลังได้ที่ `GET /v1/webhook-deliveries?eventId=<eventId>` (scope `settings:read` — รายการนี้ใช้ช่อง `status` = `delivered`/`failed`/`exhausted` และ `responseStatus` = HTTP status) (ยังไม่มี endpoint = ได้ `deliveries: []` แต่ event ถูกบันทึก ดูได้ที่ `GET /v1/events/{id}` — scope `events:read`) — `type` ต้องเป็น event ที่ใช้งานอยู่ใน [รายการ webhook event](webhook-events.md) · เรียกด้วย key live = `403 sandbox_only`
