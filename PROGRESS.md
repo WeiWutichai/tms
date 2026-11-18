@@ -261,6 +261,10 @@
 
 ## บันทึกรายวัน
 
+### 19 พ.ย. 2569 (ST7-T09 แก้ตาม QA)
+- ทำ: (L1) ตัวอย่าง `data.object` ของ trigger/webhook.test ใกล้ของจริง — ทุก field, id รูปจริง (prefix + 32 hex ใหม่ทุกครั้ง), enum ค่าแรก, array ≥ 1 รายการ (ตาม minItems), วันเวลาปัจจุบัน, nullable ไม่มีตัวอย่าง = null (`webhooks/event-openapi.ts`) (L2) drawer endpoint ใน Sandbox แสดงนโยบายลองใหม่แบบ "บันทึกในกิจกรรม ไม่แจ้งอีเมล" (`whk.policySbx`) · ผู้สมัครเพิ่ม sandbox เลื่อนเป็น #30 · merge main (ST9-T10)
+- ค้าง: —
+
 ### 19 พ.ย. 2569 (ST7-T09 แก้ตาม review + lane l5)
 - ทำ: (M1) `/v1/connectors/*` ติด `@LiveOnly` → 403 `sandbox_unsupported` ใน sandbox + sink `erp` ข้าม sandbox + ดึง order จาก connector ไม่รันใน sandbox · อีเมล/LINE/SMS ของ sandbox ไม่ส่งจริง (FAILED `sandbox_suppressed`) (M2) rate limit ของ sandbox อ่านแพ็กเกจ/โปรไฟล์ปัจจุบันของบริษัทจริง (M3) spec/12 แถว trigger = 200 + รอผล ≤ 10 วิ (L4) cache สิทธิ์ของ sandbox ใช้ของบริษัทจริง (L5) audit `sandbox.created` ที่บริษัทจริง (L6) ค่าเสื่อม/เตือนหมดอายุ/ดึง order ข้าม sandbox · webhook sink/magic link ใช้สถานะบริษัทจริง · merge main + เลข migration → `0107_sandbox_tenant` · E2E ใช้นิติบุคคล seed แทนใบสั่ง + แก้ race ของการรอ request · ภาพเทียบ 1440 ถ่ายแล้ว (`design/compare/st7-sandbox-{keys,create,hooks}-1440.png`) · DECISION แถวใหม่ "connector/ERP + ช่องทางถึงคนภายนอก"
 - ไฟล์: `auth/auth.guard.ts`, `common/{decorators,problem}.ts`, `modules/erp/{connectors.controller,erp-adapter.sink}.ts`, `modules/{email/email.service,messaging/message-dispatcher,connectors/connector-intake.service,connectors/connector-pull.scheduler,depreciation/depreciation.service,reminders/expiry-reminder.service,links/magic-link.service,webhooks/webhook.sink,entitlements/entitlement.service,sandbox/*}.ts`, `http/rate-limit/rate-limit.service.ts`, `test/sandbox.test.ts`, `e2e/sandbox.spec.ts`, spec/12

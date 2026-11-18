@@ -60,7 +60,7 @@ const ID_EXAMPLE = /^([a-z]{2,4})_(…|\.\.\.|[0-9a-f]{0,32}…?)$/;
 const hex32 = () => randomBytes(16).toString('hex');
 
 function sampleOf(s: EventSchema, depth: number): unknown {
-  if (depth > 8) return null;
+  if (depth > 12) return null;
   if (s.$ref) return sampleOf(components[s.$ref.split('/').pop()!] ?? {}, depth + 1);
   if (s.allOf?.length) return sampleOf(s.allOf[0]!, depth + 1);
   if (s.oneOf?.length) return sampleOf(s.oneOf[0]!, depth + 1);
@@ -78,8 +78,13 @@ function sampleOf(s: EventSchema, depth: number): unknown {
       );
     }
     case 'array': {
-      const item = s.items ? sampleOf(s.items, depth + 1) : null;
-      return item === null && !s.minItems ? [] : [item];
+      // ลึกเกิน (array ซ้อนใน array) = ว่าง — ไม่ให้ถึงขีดจำกัดความลึกแล้วได้ null ใน field ที่ไม่ nullable
+      if (depth > 4 && !s.minItems) return [];
+      const n = Math.max(1, typeof s.minItems === 'number' ? s.minItems : 1);
+      const items = Array.from({ length: n }, () =>
+        s.items ? sampleOf(s.items, depth + 1) : null,
+      );
+      return items[0] === null && !s.minItems ? [] : items;
     }
     case 'integer':
     case 'number':

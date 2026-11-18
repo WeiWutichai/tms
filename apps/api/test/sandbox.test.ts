@@ -267,6 +267,9 @@ describe('sandbox (ST7-T09)', () => {
     const env = JSON.parse(hit.body);
     expect(env).toMatchObject({ type: 'order.created', mode: 'test', id: r.body.eventId });
     expect(env.data.object).toEqual(r.body.object);
+    // ตัวอย่างใกล้ของจริง (QA L1): id รูปจริง ใหม่ทุกครั้ง · array มีรายการ
+    expect(r.body.object.id).toMatch(/^ord_[0-9a-f]{32}$/);
+    expect(r.body.object.stops.length).toBeGreaterThan(0);
     expect(
       verifyWebhookSignature({
         secret: sbHook!.secret,
