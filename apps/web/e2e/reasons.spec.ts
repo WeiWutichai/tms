@@ -57,14 +57,16 @@ test.describe.serial('ตั้งค่า → เหตุผล', () => {
 
 test.describe('ตั้งค่า → เหตุผล (planner แก้ได้)', () => {
   test.use({ loginEmail: 'planner@demo-a.test' });
-  test('planner เข้าเมนูตั้งค่าได้ เห็นเฉพาะ "เหตุผล" และบันทึกธงได้', async ({ page }) => {
+  test('planner เข้าเมนูตั้งค่าได้ เห็นเฉพาะ "การแจ้งเตือน" (ของตัวเอง — ST9-T08) + "เหตุผล" และบันทึกธงได้', async ({
+    page,
+  }) => {
     await page.goto('/');
     // เมนู "ตั้งค่า" ใน sidebar แสดงแล้ว (กลุ่มยุบอยู่ — กดขยายก่อน)
     await page.getByRole('button', { name: 'ตั้งค่า', exact: true }).click();
     await page.getByRole('button', { name: 'ตั้งค่าระบบ' }).click();
-    await expect(page.getByRole('navigation', { name: 'ตั้งค่า' }).getByRole('button')).toHaveText([
-      'เหตุผล',
-    ]);
+    const menu = page.getByRole('navigation', { name: 'ตั้งค่า' });
+    await expect(menu.getByRole('button')).toHaveText(['การแจ้งเตือน', 'เหตุผล']);
+    await menu.getByRole('button', { name: 'เหตุผล' }).click();
     const box = page.getByLabel('บังคับโน้ต — สร้างซ้ำ');
     const before = await box.isChecked();
     await box.click();

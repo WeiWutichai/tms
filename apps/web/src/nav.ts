@@ -281,8 +281,8 @@ export const NAV: NavGroup[] = [
     kids: [
       {
         key: 'settings',
-        // ST2-T12: master:read เห็น "ตั้งค่า" เพื่อเข้าหัวข้อ "เหตุผล" (ข้อมูลหลัก) — หัวข้ออื่นกรองสิทธิ์ต่อหัวข้อใน Settings.tsx
-        perm: ['settings:read', 'settings:write', 'users:read', 'master:read'],
+        // ST2-T12: master:read เห็น "ตั้งค่า" เพื่อเข้าหัวข้อ "เหตุผล" — ST9-T08: ทุกผู้ใช้เข้าได้ (หัวข้อ "การแจ้งเตือน" = ค่าของตัวเอง)
+        // หัวข้ออื่นกรองสิทธิ์ต่อหัวข้อใน Settings.tsx (ไม่มี perm = ทุกคน)
         page: 'settings',
         label: 'nav.setg.settings',
         path: '/settings',

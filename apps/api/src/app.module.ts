@@ -14,6 +14,12 @@ import { PasswordController } from './auth/password.controller';
 import { PasswordResetController, PasswordResetService } from './auth/password-reset.controller';
 import { EmailDispatcher, EmailService } from './modules/email/email.service';
 import { NotificationService } from './modules/notifications/notification.service';
+import { NotificationEvents } from './modules/notifications/notification-events';
+import { DailyDigestService } from './modules/notifications/daily-digest.service';
+import {
+  NotificationPreferencesController,
+  NotificationPreferencesService,
+} from './modules/notifications/notification-preferences';
 import {
   MessagesController,
   MessagingSettingsController,
@@ -209,6 +215,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     InvitationAcceptController,
     InvitationsController,
     NotificationsController,
+    NotificationPreferencesController,
     ImportsController,
     ExportsController,
     SetupChecklistController,
@@ -286,6 +293,9 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     EmailService,
     EmailDispatcher,
     NotificationService,
+    NotificationEvents,
+    NotificationPreferencesService,
+    DailyDigestService,
     ImportRegistry,
     ImportService,
     MasterImports,
