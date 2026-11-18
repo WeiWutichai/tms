@@ -782,7 +782,7 @@ export class TripDto {
 
 /** ST9-T01 ตัวนับเที่ยวของ dashboard ปฏิบัติการ — เท่ากับจำนวนแถวของ `GET /trips?status=` ตามคำอธิบายของแต่ละช่อง */
 export class TripSummaryDto {
-  @ApiProperty({ description: 'เที่ยวกำลังวิ่ง = `status=DISPATCHED,IN_PROGRESS` (ทุกวันที่)' })
+  @ApiProperty({ description: 'เที่ยวกำลังวิ่ง = `status=IN_PROGRESS` (ทุกวันที่ — spec/09 §1)' })
   running!: number;
   @ApiProperty({ description: 'งานรถร่วมรอตอบ = `status=OFFERED` (ทุกวันที่)' })
   offered!: number;

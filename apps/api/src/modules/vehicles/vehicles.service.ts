@@ -8,7 +8,7 @@ import {
   type VehicleType,
 } from '@prisma/client';
 import {
-  OPS_TRIP_RUNNING,
+  OPS_TRIP_ON_ROAD,
   scopeAllows,
   tripOdometerReading,
   type TransitionTable,
@@ -300,10 +300,15 @@ export class VehiclesService {
       and.push({ status: { not: 'RETIRED' }, documents: { some: docAlertWhere() } });
     if (q.docAlert === 'false')
       and.push({ OR: [{ status: 'RETIRED' }, { documents: { none: docAlertWhere() } }] });
+    // ST9-T01 ใช้งาน = รถ/หางของเที่ยวที่ปล่อยแล้วยังไม่ปิด และไม่ได้อยู่ระหว่างซ่อม/ปลดระวาง
+    // (รถซ่อมที่ยังค้างในเที่ยวนับเป็น "ซ่อม" อย่างเดียว — ว่าง + ใช้งาน + ซ่อม ไม่ซ้อนกัน) · false = ส่วนกลับของ true
     if (q.busy) {
-      const running = { some: { status: { in: [...OPS_TRIP_RUNNING] } } };
+      const onRoad = { some: { status: { in: [...OPS_TRIP_ON_ROAD] } } };
       const busy: Prisma.VehicleWhereInput = {
-        OR: [{ trips: running }, { trailerTrips: running }],
+        AND: [
+          { OR: [{ trips: onRoad }, { trailerTrips: onRoad }] },
+          { status: { notIn: ['MAINTENANCE', 'RETIRED'] } },
+        ],
       };
       and.push(q.busy === 'true' ? busy : { NOT: busy });
     }

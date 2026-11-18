@@ -133,7 +133,7 @@ test.describe.serial('Dashboard ปฏิบัติการ (ST9-T01)', () =>
     await db.trip.update({
       where: { id: t.id },
       data: {
-        status: 'DISPATCHED',
+        status: 'IN_PROGRESS',
         vehicleId: v.id,
         vehiclePlateSnapshot: veh.plate,
         vehicleTypeId: v.vehicleTypeId,
@@ -168,6 +168,23 @@ test.describe.serial('Dashboard ปฏิบัติการ (ST9-T01)', () =>
           fullPage: true,
         });
     });
+
+  test('สลับการ์ดเร็ว ๆ ไม่มีคำขอ 4xx/5xx และไม่มี console error', async ({ page }) => {
+    const bad: string[] = [];
+    page.on('response', (r) => {
+      if (r.url().includes('/v1/') && r.status() >= 400) bad.push(`${r.status()} ${r.url()}`);
+    });
+    page.on('console', (m) => {
+      if (m.type() === 'error') bad.push(m.text());
+    });
+    await page.goto('/');
+    await expect(page.getByTestId('kpi-today')).toHaveText(/^\d/);
+    for (const k of ['running', 'waiting', 'failed', 'offered', 'delivered', 'running', 'today'])
+      await page.getByTestId(`kpi-${k}`).click();
+    await page.waitForTimeout(800);
+    await page.waitForLoadState('networkidle');
+    expect(bad).toEqual([]);
+  });
 
   test('กล่องรถบริษัท ว่าง/ใช้งาน/ซ่อม = จำนวนแถวในหน้าทะเบียนรถที่กรองแล้ว', async ({ page }) => {
     for (const k of ['available', 'inUse', 'maintenance'] as const) {

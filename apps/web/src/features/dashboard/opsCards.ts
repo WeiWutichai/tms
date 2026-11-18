@@ -1,21 +1,32 @@
+import {
+  OPS_DO_DELIVERED,
+  OPS_DO_FAILED,
+  OPS_DO_TODAY,
+  OPS_ORDER_WAITING,
+  OPS_ORDER_WAITING_DAYS_AHEAD,
+  OPS_TRIP_AWAITING_CARRIER,
+  OPS_TRIP_RUNNING,
+} from '@tms/domain/src/ops-dashboard';
 import type { KpiTone } from '@tms/ui';
+import { addDays } from '../rate-cards/rateFormat';
 import type { MessageKey } from '../../i18n/th';
 
 /**
  * ST9-T01 Dashboard ปฏิบัติการ — การ์ดแต่ละใบ = ตัวกรองของรายการต้นทาง (`/v1` ชุดเดียวกับลูกค้า)
- * ค่าสถานะตรงกับ `packages/domain/src/ops-dashboard.ts` ที่ API ใช้นับ (test API + E2E เทียบตัวเลขกับจำนวนแถว)
- * "วันนี้" = `date` ที่ server คืนใน `GET /delivery-orders/summary` (เวลาไทย) — ไม่ใช้นาฬิกาเครื่องผู้ใช้
+ * ค่าสถานะมาจาก `packages/domain/src/ops-dashboard.ts` ชุดเดียวกับที่ API ใช้นับ (test API + E2E เทียบตัวเลขกับจำนวนแถว)
+ * "วันนี้" = วันที่ server คืนใน summary (เวลาไทย: `delivery-orders/summary.date`, `orders/summary.today`) — ไม่ใช้นาฬิกาเครื่องผู้ใช้
  */
 export type CardKey = 'today' | 'waiting' | 'running' | 'failed' | 'delivered' | 'offered';
 export type ListKind = 'do' | 'so' | 'trip';
 
-export const DO_TODAY =
-  'DRAFT,PLANNED,DISPATCHED,PICKED_UP,DELIVERED,FAILED,RETURNED,POD_PENDING,UNBILLED,BILLED';
-export const DO_DELIVERED = 'DELIVERED,POD_PENDING,UNBILLED,BILLED';
-export const DO_FAILED = 'FAILED';
-export const SO_WAITING = 'received,on_hold';
-export const TRIP_RUNNING = 'DISPATCHED,IN_PROGRESS';
-export const TRIP_OFFERED = 'OFFERED';
+// ค่าเดียวกับที่ API ใช้นับ — import ซอร์สของ domain ตรง (ไฟล์ไม่มี import ตอนรัน)
+const csv = (xs: readonly string[]) => xs.join(',');
+export const DO_TODAY = csv(OPS_DO_TODAY);
+export const DO_DELIVERED = csv(OPS_DO_DELIVERED);
+export const DO_FAILED = csv(OPS_DO_FAILED);
+export const SO_WAITING = csv(OPS_ORDER_WAITING);
+export const TRIP_RUNNING = csv(OPS_TRIP_RUNNING);
+export const TRIP_OFFERED = csv(OPS_TRIP_AWAITING_CARRIER);
 
 export interface CardDef {
   key: CardKey;
@@ -39,9 +50,14 @@ export const CARDS: CardDef[] = [
   { key: 'offered', label: 'dash.kpi.offered', tone: 'warn', perm: 'trips:read', kind: 'trip' },
 ];
 
+export const kindOf = (k: string): ListKind | undefined => CARDS.find((c) => c.key === k)?.kind;
+
 export const isCardKey = (v: string | null): v is CardKey => CARDS.some((c) => c.key === v);
 
-/** ตัวกรองของรายการเมื่อคลิกการ์ด (query ของ `/v1/delivery-orders` · `/v1/orders` · `/v1/trips`) */
+/**
+ * ตัวกรองของรายการเมื่อคลิกการ์ด (query ของ `/v1/delivery-orders` · `/v1/orders` · `/v1/trips`)
+ * `date` = วันนี้ของ server (DO: `delivery-orders/summary.date` · รอจัดรถ: `orders/summary.today`)
+ */
 export function cardQuery(key: CardKey, date: string): Record<string, string> {
   switch (key) {
     case 'today':
@@ -51,7 +67,8 @@ export function cardQuery(key: CardKey, date: string): Record<string, string> {
     case 'failed':
       return { dateFrom: date, dateTo: date, status: DO_FAILED };
     case 'waiting':
-      return { status: SO_WAITING };
+      // spec/09 §1: ยังไม่อยู่ในเที่ยว และวันรับของ ≤ วันนี้ + 1
+      return { status: SO_WAITING, requestedTo: addDays(date, OPS_ORDER_WAITING_DAYS_AHEAD) };
     case 'running':
       return { status: TRIP_RUNNING };
     case 'offered':

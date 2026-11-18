@@ -348,7 +348,7 @@ export class TripsController {
   @ApiOperation({
     summary: 'ตัวนับเที่ยวของ dashboard ปฏิบัติการ',
     description:
-      'นับด้วยตัวกรองชุดเดียวกับ `GET /trips` — `running` = `?status=DISPATCHED,IN_PROGRESS`, `offered` = `?status=OFFERED`',
+      'นับด้วยตัวกรองชุดเดียวกับ `GET /trips` — `running` = `?status=IN_PROGRESS`, `offered` = `?status=OFFERED`',
   })
   @ApiProblems(T403('trips:read'))
   @RequireScope('trips:read')

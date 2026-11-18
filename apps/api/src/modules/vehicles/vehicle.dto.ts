@@ -546,7 +546,7 @@ export class VehicleListQuery {
   @ApiPropertyOptional({
     enum: ['true', 'false'],
     description:
-      'ST9-T01 true = กำลังใช้งาน (เป็นรถหรือหางของเที่ยวที่ปล่อยแล้วยังไม่ปิด — DISPATCHED/IN_PROGRESS) · false = ไม่ได้ใช้งานอยู่',
+      'ST9-T01 true = กำลังใช้งาน (เป็นรถหรือหางของเที่ยวที่ปล่อยแล้วยังไม่ปิด — DISPATCHED/IN_PROGRESS — และไม่ได้ซ่อม/ปลดระวาง) · false = ส่วนกลับ',
   })
   @IsOptional()
   @IsIn(['true', 'false'])

@@ -46,6 +46,7 @@ export const th = {
   'dash.kpi.today': 'งานวันนี้',
   'dash.kpi.todaySub': 'ส่งแล้ว {x} / {y}',
   'dash.kpi.waiting': 'รอจัดรถ',
+  'dash.kpi.waitingOver': 'เลยกำหนดรับ {n}',
   'dash.kpi.running': 'กำลังวิ่ง',
   'dash.kpi.delivered': 'ส่งแล้ววันนี้',
   'dash.kpi.failed': 'ส่งไม่สำเร็จวันนี้',

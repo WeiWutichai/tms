@@ -24822,7 +24822,7 @@
     },
     "/v1/trips/summary": {
       "get": {
-        "description": "นับด้วยตัวกรองชุดเดียวกับ `GET /trips` — `running` = `?status=DISPATCHED,IN_PROGRESS`, `offered` = `?status=OFFERED`",
+        "description": "นับด้วยตัวกรองชุดเดียวกับ `GET /trips` — `running` = `?status=IN_PROGRESS`, `offered` = `?status=OFFERED`",
         "operationId": "Trips_summary",
         "parameters": [
           {
@@ -37913,7 +37913,7 @@
             "name": "busy",
             "required": false,
             "in": "query",
-            "description": "ST9-T01 true = กำลังใช้งาน (เป็นรถหรือหางของเที่ยวที่ปล่อยแล้วยังไม่ปิด — DISPATCHED/IN_PROGRESS) · false = ไม่ได้ใช้งานอยู่",
+            "description": "ST9-T01 true = กำลังใช้งาน (เป็นรถหรือหางของเที่ยวที่ปล่อยแล้วยังไม่ปิด — DISPATCHED/IN_PROGRESS — และไม่ได้ซ่อม/ปลดระวาง) · false = ส่วนกลับ",
             "schema": {
               "type": "string",
               "enum": [
@@ -38247,7 +38247,7 @@
             "name": "busy",
             "required": false,
             "in": "query",
-            "description": "ST9-T01 true = กำลังใช้งาน (เป็นรถหรือหางของเที่ยวที่ปล่อยแล้วยังไม่ปิด — DISPATCHED/IN_PROGRESS) · false = ไม่ได้ใช้งานอยู่",
+            "description": "ST9-T01 true = กำลังใช้งาน (เป็นรถหรือหางของเที่ยวที่ปล่อยแล้วยังไม่ปิด — DISPATCHED/IN_PROGRESS — และไม่ได้ซ่อม/ปลดระวาง) · false = ส่วนกลับ",
             "schema": {
               "type": "string",
               "enum": [
@@ -46284,9 +46284,18 @@
               "$ref": "#/components/schemas/OrderHoldCountDto"
             }
           },
+          "today": {
+            "type": "string",
+            "example": "2026-11-18",
+            "description": "ST9-T01 วันนี้ตามเวลาไทยที่ใช้นับ `waiting*`"
+          },
           "waiting": {
             "type": "number",
-            "description": "ST9-T01 รอจัดรถ = รับแล้วยังไม่เข้าเที่ยว + ค้าง (เงื่อนไขเดียวกับ `status=received,on_hold`)"
+            "description": "ST9-T01 รอจัดรถ (spec/09 §1) = ยังไม่อยู่ในเที่ยว (รับแล้ว + ค้าง) และวันรับของ ≤ วันนี้ + 1 — เงื่อนไขเดียวกับ `status=received,on_hold&requestedTo={today+1}`"
+          },
+          "waitingOverdue": {
+            "type": "number",
+            "description": "ST9-T01 รอจัดรถที่เลยกำหนดรับ = `status=received,on_hold&requestedTo={today−1}`"
           }
         },
         "required": [
@@ -46300,7 +46309,9 @@
           "plannedToday",
           "heldTotal",
           "holdReasons",
-          "waiting"
+          "today",
+          "waiting",
+          "waitingOverdue"
         ]
       },
       "OrderMatchCandidateDto": {
@@ -55936,7 +55947,7 @@
         "properties": {
           "running": {
             "type": "number",
-            "description": "เที่ยวกำลังวิ่ง = `status=DISPATCHED,IN_PROGRESS` (ทุกวันที่)"
+            "description": "เที่ยวกำลังวิ่ง = `status=IN_PROGRESS` (ทุกวันที่ — spec/09 §1)"
           },
           "offered": {
             "type": "number",

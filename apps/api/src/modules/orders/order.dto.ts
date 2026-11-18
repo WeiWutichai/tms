@@ -751,10 +751,19 @@ export class OrderSummaryDto {
   })
   holdReasons!: OrderHoldCountDto[];
   @ApiProperty({
+    example: '2026-11-18',
+    description: 'ST9-T01 วันนี้ตามเวลาไทยที่ใช้นับ `waiting*`',
+  })
+  today!: string;
+  @ApiProperty({
     description:
-      'ST9-T01 รอจัดรถ = รับแล้วยังไม่เข้าเที่ยว + ค้าง (เงื่อนไขเดียวกับ `status=received,on_hold`)',
+      'ST9-T01 รอจัดรถ (spec/09 §1) = ยังไม่อยู่ในเที่ยว (รับแล้ว + ค้าง) และวันรับของ ≤ วันนี้ + 1 — เงื่อนไขเดียวกับ `status=received,on_hold&requestedTo={today+1}`',
   })
   waiting!: number;
+  @ApiProperty({
+    description: 'ST9-T01 รอจัดรถที่เลยกำหนดรับ = `status=received,on_hold&requestedTo={today−1}`',
+  })
+  waitingOverdue!: number;
 }
 
 export class OrderHoldCountDto {

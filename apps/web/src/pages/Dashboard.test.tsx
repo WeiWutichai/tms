@@ -17,7 +17,9 @@ const ok = (data: unknown) =>
 const page = (data: unknown[]) => ({ data, nextCursor: null, hasMore: false });
 const SUMMARY: Record<string, unknown> = {
   '/v1/orders/summary': {
+    today: '2026-11-18',
     waiting: 7,
+    waitingOverdue: 2,
     onHold: 3,
     heldTotal: 3,
     holdReasons: [
@@ -134,6 +136,9 @@ describe('Dashboard ปฏิบัติการ (ST9-T01)', () => {
       'รถร่วมรอตอบ',
     ]);
     expect(screen.getByText('ส่งแล้ว 5 / 12')).toBeInTheDocument();
+    expect(screen.getByTestId('kpi-waiting-over')).toHaveTextContent('เลยกำหนดรับ 2');
+    // หัวหน้าใช้วันที่ของ server
+    expect(screen.getByText(/งานปฏิบัติการประจำวันที่ 18 พ\.ย\. 2569/)).toBeInTheDocument();
     // ใบค้างต่อเหตุ: แสดงเฉพาะเหตุที่มีใบ
     expect(screen.getByTestId('hold-CUSTOMER_UNMAPPED-n')).toHaveTextContent('2');
     expect(screen.queryByTestId('hold-RATE_MISSING')).toBeNull();
@@ -150,11 +155,50 @@ describe('Dashboard ปฏิบัติการ (ST9-T01)', () => {
     await waitFor(() => expect(screen.getByTestId('loc')).toHaveTextContent('/?card=running'));
     await screen.findByText('TRP-6911-0001');
     expect(calls.find((c) => c.path === '/v1/trips')!.query).toMatchObject({
-      status: 'DISPATCHED,IN_PROGRESS',
+      status: 'IN_PROGRESS',
     });
     expect(screen.getByText('กรองอยู่')).toBeInTheDocument();
     fireEvent.click(screen.getByTestId('kpi-running').closest('button')!);
     await waitFor(() => expect(screen.getByTestId('loc')).toHaveTextContent(/^\/$/));
+  });
+
+  it('สลับการ์ดเร็ว ๆ: ทุกคำขอรายการใช้ตัวกรองของ endpoint นั้นเท่านั้น (ไม่ยิงตัวกรองการ์ดเก่าไป endpoint ใหม่ → 422)', async () => {
+    mount();
+    await screen.findByText('DO-6911-0001');
+    for (const k of ['running', 'waiting', 'failed', 'offered', 'running', 'delivered'])
+      fireEvent.click(screen.getByTestId(`kpi-${k}`).closest('button')!);
+    await waitFor(() => expect(screen.getByTestId('loc')).toHaveTextContent('/?card=delivered'));
+    await waitFor(() =>
+      expect(
+        calls.some(
+          (c) =>
+            c.path === '/v1/delivery-orders' &&
+            c.query?.status === 'DELIVERED,POD_PENDING,UNBILLED,BILLED',
+        ),
+      ).toBe(true),
+    );
+    const lists = calls.filter((c) =>
+      ['/v1/orders', '/v1/trips', '/v1/delivery-orders'].includes(c.path),
+    );
+    for (const c of lists) {
+      const q = c.query ?? {};
+      if (c.path === '/v1/trips') {
+        expect(q.dateFrom).toBeUndefined();
+        expect(['IN_PROGRESS', 'OFFERED']).toContain(q.status);
+      }
+      if (c.path === '/v1/orders')
+        expect(q).toMatchObject({ status: 'received,on_hold', requestedTo: '2026-11-19' });
+      if (c.path === '/v1/delivery-orders') expect(q.dateFrom).toBe('2026-11-18');
+      expect(q.card).toBeUndefined();
+    }
+  });
+
+  it('ตัวกรองการ์ดตาม spec/09 §1: รอจัดรถ = วันรับของ ≤ พรุ่งนี้ · กำลังวิ่ง = IN_PROGRESS', () => {
+    expect(cardQuery('waiting', '2026-11-18')).toEqual({
+      status: 'received,on_hold',
+      requestedTo: '2026-11-19',
+    });
+    expect(cardQuery('running', '')).toEqual({ status: 'IN_PROGRESS' });
   });
 
   it('การ์ดรถ/ใบค้าง ลิงก์ไปหน้ารายการพร้อมตัวกรอง', async () => {

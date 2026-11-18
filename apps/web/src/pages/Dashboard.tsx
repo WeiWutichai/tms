@@ -28,6 +28,7 @@ import {
   cardQuery,
   holdLink,
   isCardKey,
+  kindOf,
   type CardDef,
   type CardKey,
   type ListKind,
@@ -109,7 +110,7 @@ function soRow(t: T, o: Order, today: string): Row {
     open: { order: o.id },
   };
 }
-function doRow(t: T, d: Do): Row {
+function doRow(t: T, d: Do, canTrips: boolean): Row {
   return {
     id: d.id,
     kind: 'do',
@@ -123,7 +124,7 @@ function doRow(t: T, d: Do): Row {
     tone: DO_TONE[d.status],
     due: d.doDate,
     late: false,
-    open: d.tripId ? { trip: d.tripId } : { order: d.orderId },
+    open: d.tripId && canTrips ? { trip: d.tripId } : { order: d.orderId },
   };
 }
 function tripRow(t: T, x: Trip): Row {
@@ -251,26 +252,31 @@ export function Dashboard() {
 
   // ---------- ตาราง "ต้องทำวันนี้" ----------
   const date = dos.data?.date;
+  const soToday = so.data?.today;
   const kind = sel?.kind;
-  // รายการ DO ของวันรอวันที่จาก server (เวลาไทย) ก่อน
-  const ready = !!sel && (kind !== 'do' || !!date);
-  const query = sel && ready ? cardQuery(sel.key, date ?? '') : {};
+  // วันนี้จาก server (เวลาไทย): DO ใช้ `delivery-orders/summary.date` · รอจัดรถใช้ `orders/summary.today`
+  const dayOf = kind === 'do' ? date : kind === 'so' ? soToday : '';
+  const ready = !!sel && dayOf !== undefined;
+  const query = sel && ready ? cardQuery(sel.key, dayOf ?? '') : {};
+  // ชนิดรายการอ่านจาก `card` ในตัวกรองที่หน่วงแล้ว (ไม่ใช่ค่าปัจจุบัน) — การ์ด + ตัวกรองเปลี่ยนพร้อมกันเสมอ
+  // (เดิมชนิดเปลี่ยนทันทีแต่ตัวกรองหน่วง 300 ms → ยิงตัวกรองของการ์ดเก่าไป endpoint ใหม่ = 422 — review ST9-T01)
   const list = useCursorList<Row>(
-    `dash-${kind ?? 'none'}`,
+    'dash',
     { card: sel?.key ?? '', ...query },
     async (q) => {
-      const { card: _c, ...rest } = q;
-      const today = date ?? '';
-      if (kind === 'so') {
+      const { card, ...rest } = q;
+      const k = kindOf(String(card));
+      const today = soToday ?? '';
+      if (k === 'so') {
         const p = await unwrap(api.GET('/v1/orders', { params: { query: rest as never } }));
         return { ...p, data: (p.data as Order[]).map((o) => soRow(t, o, today)) };
       }
-      if (kind === 'trip') {
+      if (k === 'trip') {
         const p = await unwrap(api.GET('/v1/trips', { params: { query: rest as never } }));
         return { ...p, data: (p.data as Trip[]).map((x) => tripRow(t, x)) };
       }
       const p = await unwrap(api.GET('/v1/delivery-orders', { params: { query: rest as never } }));
-      return { ...p, data: (p.data as Do[]).map((d) => doRow(t, d)) };
+      return { ...p, data: (p.data as Do[]).map((d) => doRow(t, d, canTrips)) };
     },
     { sort: '-updatedAt', size: 10, enabled: ready },
   );
@@ -371,7 +377,10 @@ export function Dashboard() {
     <>
       <PageHeader
         title={t('page.dash.title')}
-        sub={t('page.dash.sub', { date: formatDate(new Date(), lang) })}
+        sub={t('page.dash.sub', {
+          // วันที่ของ server (เวลาไทย) — ยังไม่โหลด = วันที่เครื่อง
+          date: formatDate(date ? new Date(`${date}T00:00:00`) : new Date(), lang),
+        })}
       />
       {anyOps && (
         <div className="tms-kpis" data-testid="dash-kpis">
@@ -396,11 +405,18 @@ export function Dashboard() {
                 tone={c.tone}
                 value={<span data-testid={`kpi-${c.key}`}>{v === undefined ? '—' : num(v)}</span>}
                 sub={
-                  c.key === 'today' && dos.data
-                    ? t('dash.kpi.todaySub', { x: num(dos.data.delivered), y: num(dos.data.today) })
-                    : active
-                      ? t('dash.kpi.clear')
-                      : t('dash.kpi.click')
+                  c.key === 'today' && dos.data ? (
+                    t('dash.kpi.todaySub', { x: num(dos.data.delivered), y: num(dos.data.today) })
+                  ) : c.key === 'waiting' && so.data && so.data.waitingOverdue > 0 ? (
+                    // spec/09 §1: บรรทัดรอง "เลยกำหนดรับ n" สีแดง
+                    <span style={{ color: '#B3322A' }} data-testid="kpi-waiting-over">
+                      {t('dash.kpi.waitingOver', { n: num(so.data.waitingOverdue) })}
+                    </span>
+                  ) : active ? (
+                    t('dash.kpi.clear')
+                  ) : (
+                    t('dash.kpi.click')
+                  )
                 }
                 active={active}
                 activeLabel={t('dash.kpi.on')}

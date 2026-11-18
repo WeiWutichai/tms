@@ -98,10 +98,11 @@ describe('ops dashboard (ST9-T01)', () => {
     text?: string;
     o: string;
     d: string;
+    day?: string;
   }): UpsertOrderInput => ({
     source: 'MANUAL',
     customer: k.customer ? { id: k.customer } : { text: k.text! },
-    requestedDate: D1,
+    requestedDate: k.day ?? D1,
     stops: [
       { type: 'PICKUP', siteId: k.o },
       { type: 'DELIVERY', siteId: k.d },
@@ -236,6 +237,17 @@ describe('ops dashboard (ST9-T01)', () => {
     await run((tx) =>
       app.get(OrderIntakeService).upsertOrder(order({ text: 'ลูกค้าไม่มีในระบบ', o, d }), tx),
     );
+    // วันรับของไกลกว่าพรุ่งนี้ → ไม่นับรอจัดรถ · เลยกำหนดรับ (2 วันก่อน) → นับ + บรรทัดรอง "เลยกำหนดรับ"
+    await run((tx) =>
+      app
+        .get(OrderIntakeService)
+        .upsertOrder(order({ customer: cust, o, d, day: '2026-11-23' }), tx),
+    );
+    await run((tx) =>
+      app
+        .get(OrderIntakeService)
+        .upsertOrder(order({ customer: cust, o, d, day: '2026-11-16' }), tx),
+    );
 
     // ---------- เที่ยว + รถ ----------
     const vIdle = await newVehicle();
@@ -260,6 +272,8 @@ describe('ops dashboard (ST9-T01)', () => {
     });
     await trip('IN_PROGRESS', { vehicleId: uuid('vehicle', vProg.id) });
     await trip('COMPLETED', { vehicleId: uuid('vehicle', vDone.id) });
+    // รถซ่อมที่ยังค้างในเที่ยวที่ปล่อยแล้ว → นับ "ซ่อม" อย่างเดียว (ไม่นับ "ใช้งาน")
+    await trip('DISPATCHED', { vehicleId: uuid('vehicle', vFix.id) });
     await trip('OFFERED', { carrierId: uuid('carrier', carrier.id) });
     await trip('OFFERED', { carrierId: uuid('carrier', carrier.id) });
     await trip('PLANNING');
@@ -307,9 +321,19 @@ describe('ops dashboard (ST9-T01)', () => {
     await trip('OFFERED', { tid: otherId, carrierId: uuid('carrier', oCar.id) });
 
     // ---------- SO ----------
+    clock.set(new Date(`${D1}T05:00:00Z`));
     const so = (await api(app, admin).get('/v1/orders/summary').expect(200)).body;
-    expect(so.waiting).toBe(await rows('/v1/orders?status=received,on_hold'));
-    expect(so.waiting).toBeGreaterThanOrEqual(3);
+    expect(so.today).toBe(D1);
+    expect(so.waiting).toBe(
+      await rows('/v1/orders?status=received,on_hold&requestedTo=2026-11-19'),
+    );
+    expect(so.waiting).toBeGreaterThanOrEqual(4);
+    expect(so.waiting).toBeLessThan(await rows('/v1/orders?status=received,on_hold'));
+    expect(so.waitingOverdue).toBe(
+      await rows('/v1/orders?status=received,on_hold&requestedTo=2026-11-17'),
+    );
+    expect(so.waitingOverdue).toBe(1);
+    clock.set(null);
     for (const h of so.holdReasons as { code: string; count: number }[])
       expect(h.count, h.code).toBe(await rows(`/v1/orders?held=true&holdReason=${h.code}`));
     expect(
@@ -320,8 +344,8 @@ describe('ops dashboard (ST9-T01)', () => {
 
     // ---------- เที่ยว ----------
     const tr = (await api(app, admin).get('/v1/trips/summary').expect(200)).body;
-    expect(tr).toEqual({ running: 2, offered: 2 });
-    expect(tr.running).toBe(await rows('/v1/trips?status=DISPATCHED,IN_PROGRESS'));
+    expect(tr).toEqual({ running: 1, offered: 2 });
+    expect(tr.running).toBe(await rows('/v1/trips?status=IN_PROGRESS'));
     expect(tr.offered).toBe(await rows('/v1/trips?status=OFFERED'));
 
     // ---------- รถ (บริษัท) ----------
@@ -331,6 +355,8 @@ describe('ops dashboard (ST9-T01)', () => {
     expect(fl.available).toBe(await rows('/v1/vehicles?ownership=OWN&status=ready&busy=false'));
     expect(fl.inUse).toBe(await rows('/v1/vehicles?ownership=OWN&busy=true'));
     expect(fl.maintenance).toBe(await rows('/v1/vehicles?ownership=OWN&status=maintenance'));
+    // ว่าง + ใช้งาน + ซ่อม = รถบริษัททั้งหมด (ไม่ซ้อนกัน)
+    expect(fl.available + fl.inUse + fl.maintenance).toBe(await rows('/v1/vehicles?ownership=OWN'));
     expect(vIdle.id).toBeTruthy();
 
     // ---------- DO: ขอบวันเวลาไทย ----------
@@ -373,7 +399,7 @@ describe('ops dashboard (ST9-T01)', () => {
 
   it('แยก tenant: ตัวนับของบริษัทอื่นไม่รวมข้อมูลของเรา', async () => {
     const tr = (await api(app, other).get('/v1/trips/summary').expect(200)).body;
-    expect(tr).toEqual({ running: 1, offered: 1 });
+    expect(tr).toEqual({ running: 0, offered: 1 });
     const so = (await api(app, other).get('/v1/orders/summary').expect(200)).body;
     expect(so.waiting).toBe(0);
     const fl = (await api(app, other).get('/v1/vehicles/summary').expect(200)).body.fleet;
