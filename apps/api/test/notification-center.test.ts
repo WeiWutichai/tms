@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { NestExpressApplication } from '@nestjs/platform-express';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Clock } from '../src/common/clock';
 import { requestContext } from '../src/common/request-context';
 import { DbService } from '../src/db/db.service';
@@ -114,7 +114,9 @@ describe('notification center (ST9-T08)', () => {
     expect(r.headers.etag).toBe('"0"');
     expect(r.body.version).toBe(0);
     expect(r.body.dailyDigest).toBe(true);
-    const by = Object.fromEntries((r.body.events as { event: string }[]).map((e) => [e.event, e]));
+    const by: Record<string, { event: string; pendingTask: string | null }> = Object.fromEntries(
+      (r.body.events as { event: string; pendingTask: string | null }[]).map((e) => [e.event, e]),
+    );
     expect(Object.keys(by)).toEqual([
       'order.on_hold',
       'subcon.no_response',
@@ -133,9 +135,9 @@ describe('notification center (ST9-T08)', () => {
       pendingTask: null,
     });
     expect(by['subcon.no_response']).toMatchObject({ inApp: true, email: true, line: false });
-    expect(by.dispute.pendingTask).toBe('ST6-T06');
-    expect(by['delivery_order.unbilled'].pendingTask).toBe('ST9-T06');
-    expect(by['payment.due'].pendingTask).toBe('ST5-T22');
+    expect(by.dispute!.pendingTask).toBe('ST6-T06');
+    expect(by['delivery_order.unbilled']!.pendingTask).toBe('ST9-T06');
+    expect(by['payment.due']!.pendingTask).toBe('ST5-T22');
   });
 
   it('PATCH เปลี่ยนเฉพาะที่ส่ง · If-Match ผิด → 412 · event ไม่รู้จัก → 422 · เห็นเฉพาะของตัวเอง', async () => {
@@ -311,6 +313,88 @@ describe('notification center (ST9-T08)', () => {
     expect(held.find((x) => x.recipientId === planner2)!.title).toBe('New on-hold order');
   });
 
+  const heldOrder = (tx: Parameters<Parameters<DbService['withTenant']>[1]>[0]) =>
+    requestContext.run(
+      { requestId: randomUUID(), tenantId: tA, actorId: 'user-test', locale: 'th', tx },
+      () =>
+        app.get(OrderIntakeService).upsertOrder(
+          {
+            source: 'ERP:krs',
+            externalId: `NB-${randomUUID().slice(0, 8)}`,
+            customer: { externalId: 'NB-404', text: 'ลูกค้านำเข้า' },
+            requestedDate: bangkokToday(),
+            stops: [
+              { type: 'PICKUP', siteText: 'คลัง' },
+              { type: 'DELIVERY', siteText: 'ร้าน' },
+            ],
+          },
+          tx,
+        ),
+    );
+
+  it('review M: งานทีละมาก (นำเข้า/connector) → "ใบค้างใหม่ N ใบ" ฉบับเดียวต่อคน · ใบในขั้นตรวจที่ย้อนทิ้งไม่ถูกแจ้ง', async () => {
+    const ev = app.get(NotificationEvents);
+    await dbs.withTenant(tA, async (tx) => {
+      const { held } = await ev.batchOrderHolds(async () => {
+        for (let i = 0; i < 7; i++) await heldOrder(tx);
+        // ใบที่ย้อนทิ้ง (เหมือนขั้นตรวจของการนำเข้า)
+        await tx.$executeRawUnsafe('SAVEPOINT t_dry');
+        await heldOrder(tx);
+        await tx.$executeRawUnsafe('ROLLBACK TO SAVEPOINT t_dry');
+      });
+      expect(held).toHaveLength(8);
+      await ev.flushOrderHolds(tx, tA, held);
+    });
+    expect(await rows({ templateCode: 'order.held' })).toHaveLength(0);
+    const b = await rows({ templateCode: 'order.held_batch', channel: 'in_app' });
+    expect(b.map((x) => x.recipientId).sort()).toEqual([planner, planner2].sort());
+    const th = b.find((x) => x.recipientId === planner)!;
+    expect(th.title).toBe('ใบค้างใหม่ 7 ใบ');
+    expect(th.body).toContain('และอีก 2 ใบ');
+    expect(th.body).toContain('CUSTOMER_UNMAPPED 7');
+    // ใบเดียวในงานทีละมาก = ข้อความปกติ
+    await db.notification.deleteMany({});
+    await dbs.withTenant(tA, async (tx) => {
+      const { held } = await ev.batchOrderHolds(() => heldOrder(tx));
+      await ev.flushOrderHolds(tx, tA, held);
+    });
+    expect((await rows({ channel: 'in_app' })).map((x) => x.templateCode)).toEqual([
+      'order.held',
+      'order.held',
+    ]);
+  });
+
+  it('review M: แจ้งไม่สำเร็จ (เช่น ผู้รับเกินเพดาน) ไม่ย้อนการพักใบ', async () => {
+    const spy = vi
+      .spyOn(svc, 'notify')
+      .mockRejectedValueOnce(new Error('too many notification recipients (501)'));
+    try {
+      const r = await dbs.withTenant(tA, (tx) => heldOrder(tx));
+      expect(r.order.status).toBe('ON_HOLD');
+      expect((await db.salesOrder.findUniqueOrThrow({ where: { id: r.order.id } })).status).toBe(
+        'ON_HOLD',
+      );
+      expect(await rows({ templateCode: 'order.held' })).toHaveLength(0);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('QA: PATCH พร้อมกันโดยไม่ส่ง If-Match → ทุกคำขอสำเร็จและรวมค่ากัน (ไม่ 412)', async () => {
+    const s = await as(tA, planner2);
+    const evs = ['subcon.no_response', 'approval.requested', 'document.expiring', 'connector.down'];
+    const rs = await Promise.all(
+      evs.map((event) =>
+        s.patch('/v1/me/notification-preferences').send({ events: [{ event, email: false }] }),
+      ),
+    );
+    expect(rs.map((r) => r.status)).toEqual([200, 200, 200, 200]);
+    const g = (await s.get('/v1/me/notification-preferences').expect(200)).body;
+    for (const e of evs)
+      expect(g.events.find((x: { event: string }) => x.event === e).email).toBe(false);
+    expect(g.version).toBe(4);
+  });
+
   it('ขออนุมัติ + connector ล่ม: ผู้รับตามสิทธิ์ยืนยันของฝั่ง · ผู้บันทึกเองไม่ได้', async () => {
     const ev = app.get(NotificationEvents);
     const trip = randomUUID();
@@ -340,6 +424,20 @@ describe('notification center (ST9-T08)', () => {
     expect(who.has(planner)).toBe(false); // ไม่มี invoices:draft
     expect(who.has(accounting)).toBe(true);
     expect(fc[0]?.body).toContain('ค่ายกของ (ฝั่งขาย)');
+    // review L3: บันทึกทั้งสองฝั่ง → ข้อความตามฝั่งที่ผู้รับยืนยันได้
+    await db.notification.deleteMany({});
+    await dbs.withTenant(tA, (tx) =>
+      ev.fieldChargePending(tx, {
+        tenantId: tA,
+        tripId: trip,
+        item: 'ค่ารอ',
+        sell: true,
+        buy: true,
+      }),
+    );
+    const both = await rows({ templateCode: 'field_charge.pending', channel: 'in_app' });
+    expect(both.find((x) => x.recipientId === invoicer)!.body).toContain('(ฝั่งขาย)');
+    expect(both.find((x) => x.recipientId === accounting)!.body).toContain('(ฝั่งขายและฝั่งซื้อ)');
 
     await db.notification.deleteMany({});
     await dbs.withTenant(tA, (tx) =>

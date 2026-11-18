@@ -34,15 +34,15 @@ export interface EventDefinition {
 }
 
 export const EVENT_CATALOGUE: Record<NotificationEvent, EventDefinition> = {
-  // ใบสั่งงานเข้าใบค้าง (ทุกเหตุ — ทางเข้า/รถร่วมปฏิเสธ/นัดส่งใหม่เกิน/คืนคลัง) · อีเมลปิดไว้ก่อน (นำเข้าทีละมาก ๆ = อีเมลท่วม; ดูในสรุปรายวันแทน)
+  // ใบสั่งงานเข้าใบค้าง (ทางเข้า/นัดส่งใหม่เกิน/คืนคลัง — รถร่วมปฏิเสธอยู่ใต้ subcon) · งานทีละมากรวมเป็นฉบับเดียว · อีเมลปิดไว้ก่อน (นำเข้าทีละมาก ๆ = อีเมลท่วม; ดูในสรุปรายวันแทน)
   'order.on_hold': {
-    templates: ['order.held'],
+    templates: ['order.held', 'order.held_batch'],
     defaults: { in_app: true, email: false },
     pending: null,
   },
-  // ST3-T24 ไม่ตอบใน N ชม. / ลิงก์หมดอายุ 48 ชม. (รถร่วมปฏิเสธ = ใบค้าง CARRIER_REJECTED → order.on_hold)
+  // ST3-T24 ไม่ตอบใน N ชม. / ลิงก์หมดอายุ 48 ชม. + รถร่วมปฏิเสธ (ใบค้าง CARRIER_REJECTED — ST9-T08)
   'subcon.no_response': {
-    templates: ['subcon_offer.no_response', 'subcon_offer.expired'],
+    templates: ['subcon_offer.no_response', 'subcon_offer.expired', 'subcon_offer.rejected'],
     defaults: { in_app: true, email: true },
     pending: null,
   },

@@ -207,7 +207,8 @@ export class NotificationService {
     };
   }
 
-  private async resolve(tx: Tx, tenantId: string, to: NotifyInput<never>['to']) {
+  /** ผู้รับที่ resolve แล้ว (ACTIVE, ไม่ซ้ำ) — ST9-T08 ใช้แยกข้อความตามฝั่งสิทธิ์ */
+  async resolve(tx: Tx, tenantId: string, to: NotifyInput<never>['to']) {
     const ids = new Set(to.userIds ?? []);
     const roleIds = to.roles?.length ? await this.roleIds(tx, tenantId, to.roles) : [];
     if (to.permissions?.length) {

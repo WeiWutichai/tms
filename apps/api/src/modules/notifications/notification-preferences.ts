@@ -8,7 +8,7 @@ import {
   ApiPropertyOptional,
   ApiTags,
 } from '@nestjs/swagger';
-import { Prisma } from '@prisma/client';
+import type { Prisma } from '@prisma/client';
 import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
@@ -90,6 +90,28 @@ export class UpdateNotificationPreferencesDto {
   dailyDigest?: boolean;
 }
 
+/** รวมการเปลี่ยนเข้ากับค่าเดิม แล้วเก็บเฉพาะค่าที่ต่างจากค่าเริ่มต้น (ค่าเริ่มต้นเปลี่ยนภายหลัง → ผู้ที่ไม่เคยแตะได้ค่าใหม่) */
+function merge(cur: StoredPrefs, body: UpdateNotificationPreferencesDto): StoredPrefs {
+  const next = cur;
+  for (const x of body.events ?? []) {
+    const ch = { ...(next.events[x.event] ?? {}) };
+    if (x.inApp !== undefined) ch.in_app = x.inApp;
+    if (x.email !== undefined) ch.email = x.email;
+    next.events[x.event] = ch;
+  }
+  if (body.dailyDigest !== undefined) next.dailyDigest = body.dailyDigest;
+  const value: StoredPrefs = { events: {} };
+  for (const e of NOTIFICATION_EVENTS)
+    for (const c of PREF_CHANNELS) {
+      const v = next.events[e]?.[c];
+      if (v !== undefined && v !== EVENT_CATALOGUE[e].defaults[c])
+        value.events[e] = { ...(value.events[e] ?? {}), [c]: v };
+    }
+  if (next.dailyDigest !== undefined && next.dailyDigest !== digestEnabled({ events: {} }))
+    value.dailyDigest = next.dailyDigest;
+  return value;
+}
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function toDto(p: StoredPrefs, version: number): NotificationPreferencesDto {
@@ -123,6 +145,11 @@ export class NotificationPreferencesService {
   }
 
   /** เปลี่ยนเฉพาะที่ส่งมา · `expected` (If-Match) ไม่ตรง → 412 */
+  /**
+   * เปลี่ยนเฉพาะที่ส่งมา · `expected` (If-Match) ไม่ตรง → 412
+   * ไม่ส่ง If-Match = รวมกับค่าล่าสุด (last-write-wins ต่อช่อง) — ชนกับคำขออื่นพร้อมกันแล้วอ่านใหม่ลองซ้ำ ไม่ตอบ 412 (QA ST9-T08)
+   * เขียนแบบไม่โยน error (ON CONFLICT DO NOTHING / UPDATE ตาม version) — transaction ของคำขอใช้ต่อได้หลังชน
+   */
   async patch(
     body: UpdateNotificationPreferencesDto,
     expected?: number,
@@ -130,48 +157,31 @@ export class NotificationPreferencesService {
     const ctx = requestContext.require();
     const userId = await this.userId();
     const tx = this.db.tx;
-    const cur = await tx.userPreference.findUnique({
-      where: { userId_key: { userId, key: NOTIFICATION_PREF_KEY } },
-    });
-    if (expected !== undefined && expected !== (cur?.version ?? 0))
-      throw new ProblemException('precondition_failed');
-    const next = parsePrefs(cur?.value);
-    for (const x of body.events ?? []) {
-      const ch = { ...(next.events[x.event] ?? {}) };
-      if (x.inApp !== undefined) ch.in_app = x.inApp;
-      if (x.email !== undefined) ch.email = x.email;
-      next.events[x.event] = ch;
-    }
-    if (body.dailyDigest !== undefined) next.dailyDigest = body.dailyDigest;
-    // เก็บเฉพาะค่าที่ต่างจากค่าเริ่มต้น — ค่าเริ่มต้นเปลี่ยนภายหลังแล้วผู้ที่ไม่เคยแตะได้ค่าใหม่
-    const value: StoredPrefs = { events: {} };
-    for (const e of NOTIFICATION_EVENTS)
-      for (const c of PREF_CHANNELS) {
-        const v = next.events[e]?.[c];
-        if (v !== undefined && v !== EVENT_CATALOGUE[e].defaults[c])
-          value.events[e] = { ...(value.events[e] ?? {}), [c]: v };
-      }
-    if (next.dailyDigest !== undefined && next.dailyDigest !== digestEnabled({ events: {} }))
-      value.dailyDigest = next.dailyDigest;
-    const json = value as unknown as Prisma.InputJsonObject;
-    if (!cur) {
-      try {
-        const row = await tx.userPreference.create({
-          data: { tenantId: ctx.tenantId!, userId, key: NOTIFICATION_PREF_KEY, value: json },
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const cur = await tx.userPreference.findUnique({
+        where: { userId_key: { userId, key: NOTIFICATION_PREF_KEY } },
+      });
+      if (expected !== undefined && expected !== (cur?.version ?? 0))
+        throw new ProblemException('precondition_failed');
+      const value = merge(parsePrefs(cur?.value), body);
+      const json = value as unknown as Prisma.InputJsonObject;
+      if (!cur) {
+        const r = await tx.userPreference.createMany({
+          data: [{ tenantId: ctx.tenantId!, userId, key: NOTIFICATION_PREF_KEY, value: json }],
+          skipDuplicates: true,
         });
-        return toDto(value, row.version);
-      } catch (e) {
-        if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002')
-          throw new ProblemException('precondition_failed');
-        throw e;
+        if (r.count === 1) return toDto(value, 1);
+      } else {
+        const r = await tx.userPreference.updateMany({
+          where: { id: cur.id, version: cur.version },
+          data: { value: json, version: { increment: 1 } },
+        });
+        if (r.count === 1) return toDto(value, cur.version + 1);
       }
+      // ชนกับคำขออื่น: มี If-Match = 412 · ไม่มี = อ่านค่าล่าสุดแล้วรวมใหม่
+      if (expected !== undefined) throw new ProblemException('precondition_failed');
     }
-    const r = await tx.userPreference.updateMany({
-      where: { id: cur.id, version: cur.version },
-      data: { value: json, version: { increment: 1 } },
-    });
-    if (r.count !== 1) throw new ProblemException('precondition_failed');
-    return toDto(value, cur.version + 1);
+    throw new ProblemException('precondition_failed');
   }
 
   /** ผู้ใช้จริงที่ ACTIVE เท่านั้น (API key/client credentials/link ไม่มีค่าส่วนตัว → 404) */

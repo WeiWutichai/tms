@@ -24,6 +24,7 @@ import {
   type MappedOrder,
   type MappedRefs,
 } from './connector-mapping';
+import { NotificationEvents } from '../notifications/notification-events';
 import { OrderSourceRegistry } from './order-source-registry';
 import type { ExternalOrder, PullPage } from './order-source.port';
 
@@ -189,6 +190,7 @@ export class ConnectorIntakeService implements OnModuleInit {
     private readonly connectors: ConnectorsService,
     private readonly resolver: ConnectorResolver,
     private readonly entitlements: EntitlementService,
+    private readonly events: NotificationEvents,
   ) {}
 
   onModuleInit() {
@@ -365,14 +367,25 @@ export class ConnectorIntakeService implements OnModuleInit {
         run.pages += 1;
         const today = bangkokToday(this.clock.now());
         let pageErrors = 0;
-        for (const ext of got.orders) {
-          const r = await this.intakeOne(tenantId, connector, leaseId, ext, today);
-          run.counts[r.outcome] += 1;
-          run.counts.total += 1;
-          if (r.status === 'ON_HOLD') run.counts.held += 1;
-          if (r.outcome === 'error') pageErrors += 1;
-          run.results.push(r);
-        }
+        // ST9-T08: ใบค้างของหน้านี้แจ้งรวมฉบับเดียว (ไม่ใช่ทีละใบ) — แจ้งไม่สำเร็จไม่กระทบใบที่รับแล้ว
+        const { held } = await this.events.batchOrderHolds(async () => {
+          for (const ext of got.orders) {
+            const r = await this.intakeOne(tenantId, connector, leaseId, ext, today);
+            run.counts[r.outcome] += 1;
+            run.counts.total += 1;
+            if (r.status === 'ON_HOLD') run.counts.held += 1;
+            if (r.outcome === 'error') pageErrors += 1;
+            run.results.push(r);
+          }
+        });
+        if (held.length)
+          await this.db
+            .withTenant(tenantId, (tx) => this.events.flushOrderHolds(tx, tenantId, held))
+            .catch((e) =>
+              this.logger.warn(
+                `tenant ${tenantId} connector ${connector}: hold notify failed — ${show(e)}`,
+              ),
+            );
         // หน้านี้มีใบที่ไม่ได้ผลสุดท้าย → ไม่เลื่อน cursor (รอบหน้าดึงหน้าเดิมซ้ำ — idempotent)
         if (pageErrors) break;
         const next = got.nextCursor ?? run.cursor;

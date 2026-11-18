@@ -100,7 +100,7 @@ export class DailyDigestService implements OnModuleInit {
         where: {
           tenantId: { in: tenants.map((t) => t.id) },
           type: DAILY_DIGEST_JOB,
-          createdAt: { gte: new Date(Date.now() - 3 * 86_400_000) },
+          createdAt: { gte: new Date(now.getTime() - 3 * 86_400_000) },
           payload: { path: ['day'], equals: day },
         },
         select: { tenantId: true },

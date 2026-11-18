@@ -33,6 +33,10 @@ export interface NotificationVars {
   'webhook.auto_disabled': { label: string; failures: number };
   /** ST9-T08 ใบสั่งงานเข้าใบค้าง (docs/04 I "ใบค้างใหม่") · reason = ข้อความเหตุค้าง (reason code ภาษาไทย) */
   'order.held': { orderNo: string; customer: string; reasonCode: string; reason: string };
+  /** ST9-T08 ใบค้างจากงานทีละมาก (นำเข้าไฟล์ / ดึงจาก connector) รวมฉบับเดียว · orderNos = ตัวอย่างไม่เกิน 5 · reasons = "รหัส จำนวน, …" */
+  'order.held_batch': { count: number; orderNos: string[]; reasons: string };
+  /** ST9-T08 รถร่วมปฏิเสธงาน → ใบค้าง CARRIER_REJECTED (event รถร่วมปฏิเสธหรือหมดเวลา) · note = เหตุผลที่รถร่วมให้ */
+  'subcon_offer.rejected': { orderNo: string; customer: string; note: string };
   /** ST9-T08 ค่าใช้จ่ายหน้างานรอยืนยัน (docs/04 I "ขออนุมัติ"; ST4-T13) — ไม่ใส่ยอดเงิน (สิทธิ์เห็นราคาแยกฝั่ง) */
   'field_charge.pending': { tripNo: string; item: string; side: 'SELL' | 'BUY' | 'BOTH' };
   /** ST9-T08 connector หยุดทำงาน (status ERROR — docs/04 I "connector ล่ม") · label = รหัส adapter · code = รหัสปัญหา */
@@ -310,6 +314,26 @@ const TEMPLATES: {
     en: (v) => ({
       title: 'New on-hold order',
       body: `${v.orderNo} · ${v.customer} — on hold (${v.reasonCode}). Resolve it on the on-hold page.`,
+    }),
+  },
+  'order.held_batch': {
+    th: (v) => ({
+      title: `ใบค้างใหม่ ${n(v.count)} ใบ`,
+      body: `${v.orderNos.map((x) => safeName(x, 40)).join(', ')}${v.count > v.orderNos.length ? ` และอีก ${n(v.count - v.orderNos.length)} ใบ` : ''} (${v.reasons}) — เคลียร์ได้ที่หน้าใบค้าง`,
+    }),
+    en: (v) => ({
+      title: `${n(v.count)} new on-hold orders`,
+      body: `${v.orderNos.map((x) => safeName(x, 40)).join(', ')}${v.count > v.orderNos.length ? ` and ${n(v.count - v.orderNos.length)} more` : ''} (${v.reasons}). Resolve them on the on-hold page.`,
+    }),
+  },
+  'subcon_offer.rejected': {
+    th: (v) => ({
+      title: 'รถร่วมปฏิเสธงาน',
+      body: `${v.orderNo} · ${v.customer} — ${v.note} · ใบสั่งกลับเข้าใบค้าง จัดรถหรือเสนอรายใหม่ได้`,
+    }),
+    en: (v) => ({
+      title: 'Carrier rejected the job',
+      body: `${v.orderNo} · ${v.customer} — ${v.note}. The order is back on hold; assign or offer it again.`,
     }),
   },
   'field_charge.pending': {

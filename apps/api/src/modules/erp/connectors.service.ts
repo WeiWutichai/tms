@@ -1015,7 +1015,7 @@ export class ConnectorsService {
     await this.events.connectorDown(tx, {
       tenantId: c.tenantId,
       connectorId: c.id,
-      label: c.adapterKey,
+      label: this.adapters.get(c.adapterKey)?.displayName ?? c.adapterKey,
       code: code.slice(0, 60),
     });
   }
