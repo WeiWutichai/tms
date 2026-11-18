@@ -19,6 +19,8 @@ import { tableLabels } from '../companies/CompanySample';
 import { downloadFile, exportFailText } from '../master/download';
 import { problemText } from '../master/problems';
 import { listTotal, useSessionState } from '../master/useCursorList';
+import { SavedViewMenu } from '../views/SavedViewMenu';
+import { pick, useSavedViews } from '../views/useSavedViews';
 import { VehicleActionDialog, type VehicleDialog } from './VehicleActionDialog';
 import { VehBadge, VehicleDrawer } from './VehicleDrawer';
 import { VehicleFormDrawer } from './VehicleFormDrawer';
@@ -43,6 +45,9 @@ const EMPTY_FILTERS: VehicleFilters = {
   status: '',
   docAlert: '',
 };
+const VEH_TABS = ['all', ...VEHICLE_STATUSES, 'sub'] as VehTabKey[];
+/** ค่าของมุมมอง "ทั้งหมด" (ST9-T11) */
+const EMPTY_VIEW = { tab: 'all', ...EMPTY_FILTERS };
 const num = (n: number) => n.toLocaleString('th-TH');
 const cell = { color: '#101418', whiteSpace: 'nowrap' } as const;
 const sub = { color: '#3B424C', whiteSpace: 'nowrap' } as const;
@@ -83,6 +88,20 @@ export function VehiclesPage() {
   // แท็บ/ตัวกรอง/หน้า จำใน sessionStorage — ไปโปรไฟล์รถแล้วกลับมาอยู่ที่เดิม (review ST2-T07)
   const [filters, setFilters] = useSessionState<VehicleFilters>('tms.fveh.filters', EMPTY_FILTERS);
   const [tab, setTab] = useSessionState<VehTabKey>('tms.fveh.tab', 'all');
+  const [hidden, setHidden] = useSessionState<string[] | null>('tms.fveh.hidden', null);
+  // มุมมองที่บันทึกไว้ (ST9-T11): แท็บ + ตัวกรองคอลัมน์ + คอลัมน์ที่ซ่อน
+  const views = useSavedViews({
+    page: 'vehicles',
+    state: { tab, ...filters },
+    hidden,
+    empty: EMPTY_VIEW,
+    apply: (v) => {
+      const { tab: k, ...f } = pick(v.state, EMPTY_VIEW);
+      setTab(VEH_TABS.includes(k as VehTabKey) ? (k as VehTabKey) : 'all');
+      setFilters(f);
+      setHidden(v.hidden);
+    },
+  });
   const query = vehicleQuery(tab, filters);
   const list = useVehicleList(query, 'tms.fveh.page');
   const summary = useVehicleSummary();
@@ -294,7 +313,7 @@ export function VehiclesPage() {
         <StatusTabs
           value={tab}
           onChange={(k) => setTab(k as VehTabKey)}
-          items={(['all', ...VEHICLE_STATUSES, 'sub'] as VehTabKey[]).map((k) => {
+          items={VEH_TABS.map((k) => {
             const n = tabCount(k);
             return {
               key: k,
@@ -309,6 +328,7 @@ export function VehiclesPage() {
           })}
         />
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 32 }}>
+          <SavedViewMenu b={views} onToast={setToast} />
           <span style={{ marginLeft: 'auto', color: '#3B424C', fontSize: 13 }}>
             {shownTotal !== undefined && t('table.total', { n: shownTotal })}
           </span>
@@ -333,6 +353,8 @@ export function VehiclesPage() {
             loading={list.loading}
             labels={tableLabels(t)}
             filters={{ ...filters }}
+            hiddenColumns={hidden}
+            onHiddenColumnsChange={setHidden}
             onFilterChange={(k, v) => setF(k as keyof VehicleFilters, v)}
             onRowClick={(r) => profile(r)}
             rowMenu={(r) => [

@@ -54,6 +54,8 @@ export const ID_PREFIX = {
   connector: 'con',
   /** ST7-T22 webhook ขาเข้า 1 event (processed_webhook_event) */
   inboundEvent: 'ibe',
+  /** ST9-T11 มุมมองที่บันทึกไว้ของตาราง (saved_view) */
+  savedView: 'svw',
 } as const;
 export type IdKind = keyof typeof ID_PREFIX;
 

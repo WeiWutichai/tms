@@ -143,6 +143,12 @@ export const PROBLEMS = {
     th: 'อีเมลนี้เป็นสมาชิกของบริษัทแล้ว',
     en: 'This email is already a member',
   },
+  /** ST9-T11 มุมมองที่บันทึกไว้ครบ 50 ต่อหน้าต่อผู้ใช้ — มี `limit` */
+  saved_view_limit: {
+    status: 409,
+    th: 'บันทึกได้สูงสุด 50 มุมมองต่อหน้า',
+    en: 'At most 50 saved views per page',
+  },
   /** ST7-T13 จำนวน connector ครบตามแพ็กเกจ (entitlement `conn`) — มี `limit` */
   connector_limit_reached: {
     status: 409,
