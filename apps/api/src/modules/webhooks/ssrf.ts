@@ -130,6 +130,9 @@ export function checkUrlShape(
       message: 'ports below 1024 other than 80/443 are not allowed',
     };
   if (opts.allowPrivate) return null;
+  // ชื่อโฮสต์ลงท้ายด้วยจุด (FQDN เช่น `localhost.`) เลี่ยงรายการชื่อภายในได้ — ไม่รับ (ST7-T14 review)
+  if (host.endsWith('.'))
+    return { code: 'url_not_allowed', message: 'host names ending with a dot are not allowed' };
   if (isIP(host)) {
     if (isBlockedAddress(host))
       return { code: 'url_not_allowed', message: 'internal/private addresses are not allowed' };

@@ -132,7 +132,9 @@ describe('connectors (ST7-T13)', () => {
       required: true,
       kind: 'string',
       maxLength: null,
+      options: null,
     });
+    expect(f.demo).toBe(false);
     const list = await api(app, readToken).get('/v1/connectors').expect(200);
     expect(list.body.data).toEqual([]);
   });

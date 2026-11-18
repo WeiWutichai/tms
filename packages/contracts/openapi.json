@@ -52674,6 +52674,53 @@
           "eventId"
         ]
       },
+      "DocumentSyncDto": {
+        "type": "object",
+        "properties": {
+          "invoice": {
+            "type": "string",
+            "enum": [
+              "NOT_APPLICABLE",
+              "PUSH",
+              "REPLACE",
+              "MANUAL"
+            ]
+          },
+          "creditNote": {
+            "type": "string",
+            "enum": [
+              "NOT_APPLICABLE",
+              "PUSH",
+              "REPLACE",
+              "MANUAL"
+            ]
+          },
+          "debitNote": {
+            "type": "string",
+            "enum": [
+              "NOT_APPLICABLE",
+              "PUSH",
+              "REPLACE",
+              "MANUAL"
+            ]
+          },
+          "settlement": {
+            "type": "string",
+            "enum": [
+              "NOT_APPLICABLE",
+              "PUSH",
+              "REPLACE",
+              "MANUAL"
+            ]
+          }
+        },
+        "required": [
+          "invoice",
+          "creditNote",
+          "debitNote",
+          "settlement"
+        ]
+      },
       "EffectiveConnectorDto": {
         "type": "object",
         "properties": {
@@ -52692,6 +52739,10 @@
           "displayName": {
             "type": "string",
             "nullable": true
+          },
+          "adapterAvailable": {
+            "type": "boolean",
+            "description": "false = adapter ของ connector ไม่ได้ติดตั้ง/ปิดใน environment นี้ (เช่น demo ใน production) — ไม่ส่ง/ไม่ดึง"
           },
           "status": {
             "type": "string",
@@ -52721,6 +52772,14 @@
                 "ownsDocumentNumber"
               ]
             }
+          },
+          "documentSync": {
+            "description": "มีขั้น sync ไหมต่อประเภทเอกสาร (ST7-T14) — `NOT_APPLICABLE` = ไม่แสดงสถานะ sync, เอกสารเดินสถานะใน TMS เอง (invoice ISSUED → PAID ไม่มี SENT)",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/DocumentSyncDto"
+              }
+            ]
           },
           "sending": {
             "type": "boolean",
@@ -52755,8 +52814,10 @@
           "connectorId",
           "adapterKey",
           "displayName",
+          "adapterAvailable",
           "status",
           "capabilities",
+          "documentSync",
           "sending",
           "scope",
           "erpCompanyCode",
@@ -53007,6 +53068,14 @@
           "maxLength": {
             "type": "number",
             "nullable": true
+          },
+          "options": {
+            "nullable": true,
+            "description": "ค่าที่เลือกได้ (null = กรอกอิสระ) — ค่านอกรายการ → 422 `invalid_option`",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
         "required": [
@@ -53014,7 +53083,8 @@
           "secret",
           "required",
           "kind",
-          "maxLength"
+          "maxLength",
+          "options"
         ]
       },
       "ErpAdapterDto": {
@@ -53028,6 +53098,10 @@
           "displayName": {
             "type": "string",
             "example": "Demo ERP"
+          },
+          "demo": {
+            "type": "boolean",
+            "description": "true = ERP จำลอง (DemoProvider — สำหรับสาธิต/ทดสอบ ไม่ส่งข้อมูลไปที่ใด) · มีเฉพาะ dev/test/staging ที่เปิด `ERP_DEMO_ADAPTERS` — หน้าจอต้องติดป้าย \"จำลอง\""
           },
           "capabilities": {
             "type": "array",
@@ -53058,6 +53132,7 @@
         "required": [
           "key",
           "displayName",
+          "demo",
           "capabilities",
           "configFields"
         ]

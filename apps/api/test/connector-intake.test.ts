@@ -145,8 +145,8 @@ describe('connector intake (pullOrders)', () => {
       orderBy: { externalId: 'asc' },
     });
   const cursorRow = (tid = tenantId, key = 'mock') =>
-    db.connectorCursor.findUnique({
-      where: { tenantId_connectorKey: { tenantId: tid, connectorKey: key } },
+    db.connectorCursor.findFirst({
+      where: { tenantId: tid, connectorKey: key, connectorId: null },
     });
 
   it('เกณฑ์ตรวจรับ: puller จำลองส่ง 10 ใบ (ลูกค้าไม่รู้จัก 3 ใบ) → มี 10 order โดย 3 ใบ ON_HOLD', async () => {
@@ -206,8 +206,8 @@ describe('connector intake (pullOrders)', () => {
     );
     // ต้นทางส่งชุดเดิมอีกรอบ (ตั้ง cursor กลับไปต้นคิว)
     expect(batch).toHaveLength(10);
-    await db.connectorCursor.update({
-      where: { tenantId_connectorKey: { tenantId, connectorKey: 'mock' } },
+    await db.connectorCursor.updateMany({
+      where: { tenantId, connectorKey: 'mock', connectorId: null },
       data: { cursor: null },
     });
     const r = await svc.pull(tenantId, 'mock');
@@ -589,8 +589,8 @@ describe('connector intake (pullOrders)', () => {
     expect(a.counts.created + b.counts.created).toBe(5);
     expect(await db.salesOrder.count({ where: { tenantId: t } })).toBe(5);
     // lease หมดอายุ (worker ตาย) → รอบใหม่หยิบได้
-    await db.connectorCursor.update({
-      where: { tenantId_connectorKey: { tenantId: t, connectorKey: 'mock' } },
+    await db.connectorCursor.updateMany({
+      where: { tenantId: t, connectorKey: 'mock', connectorId: null },
       data: { leaseId: randomUUID(), leaseUntil: new Date(Date.now() - 1000) },
     });
     mock.delayMs = 0;
