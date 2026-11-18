@@ -2996,6 +2996,9 @@
                 "$ref": "#/components/headers/X-Api-Version"
               }
             }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
           }
         },
         "security": [
@@ -3055,6 +3058,12 @@
                 "$ref": "#/components/headers/X-Api-Version"
               }
             }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
           }
         },
         "security": [
@@ -3135,6 +3144,12 @@
                 "$ref": "#/components/headers/X-Api-Version"
               }
             }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
           }
         },
         "security": [
@@ -3188,6 +3203,15 @@
                 "$ref": "#/components/headers/X-Api-Version"
               }
             }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
           }
         },
         "security": [
@@ -3250,6 +3274,18 @@
                 "$ref": "#/components/headers/X-Api-Version"
               }
             }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
           }
         },
         "security": [
@@ -3293,6 +3329,12 @@
                 "$ref": "#/components/headers/X-Api-Version"
               }
             }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
           }
         },
         "security": [
@@ -3355,6 +3397,18 @@
                 "$ref": "#/components/headers/X-Api-Version"
               }
             }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
           }
         },
         "security": [
@@ -3417,6 +3471,18 @@
                 "$ref": "#/components/headers/X-Api-Version"
               }
             }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
           }
         },
         "security": [
@@ -26413,6 +26479,18 @@
               }
             }
           },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden_settings.read"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          },
           "429": {
             "$ref": "#/components/responses/RateLimited"
           }
@@ -26424,6 +26502,9 @@
         ],
         "tags": [
           "connectors"
+        ],
+        "x-required-scopes": [
+          "settings:read"
         ]
       }
     },
@@ -27111,6 +27192,18 @@
               }
             }
           },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden_settings.read"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          },
           "429": {
             "$ref": "#/components/responses/RateLimited"
           }
@@ -27122,6 +27215,9 @@
         ],
         "tags": [
           "connectors"
+        ],
+        "x-required-scopes": [
+          "settings:read"
         ]
       }
     },
@@ -27176,6 +27272,18 @@
               }
             }
           },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden_settings.write"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          },
           "429": {
             "$ref": "#/components/responses/RateLimited"
           }
@@ -27187,6 +27295,9 @@
         ],
         "tags": [
           "connectors"
+        ],
+        "x-required-scopes": [
+          "settings:write"
         ]
       }
     },
@@ -27231,6 +27342,15 @@
               }
             }
           },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden_settings.read"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
           "429": {
             "$ref": "#/components/responses/RateLimited"
           }
@@ -27242,6 +27362,9 @@
         ],
         "tags": [
           "connectors"
+        ],
+        "x-required-scopes": [
+          "settings:read"
         ]
       }
     },
@@ -27313,6 +27436,21 @@
               }
             }
           },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden_settings.write"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          },
           "429": {
             "$ref": "#/components/responses/RateLimited"
           }
@@ -27324,6 +27462,9 @@
         ],
         "tags": [
           "connectors"
+        ],
+        "x-required-scopes": [
+          "settings:write"
         ]
       }
     },
