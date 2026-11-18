@@ -48,6 +48,7 @@ import {
   TripDto,
   TripListQuery,
   TripPageDto,
+  TripSummaryDto,
   type RuleConfirmDto,
 } from './trip.dto';
 import {
@@ -162,6 +163,20 @@ export class TripsController {
     private readonly trips: TripService,
     private readonly subcon: SubconHireService,
   ) {}
+
+  /** ST9-T01 ตัวนับของ dashboard ปฏิบัติการ (กำลังวิ่ง / รถร่วมรอตอบ) — ตัวกรองเดียวกับรายการ */
+  @Get('summary')
+  @ApiOperation({
+    summary: 'ตัวนับเที่ยวของ dashboard ปฏิบัติการ',
+    description:
+      'นับด้วยตัวกรองชุดเดียวกับ `GET /trips` — `running` = `?status=IN_PROGRESS`, `offered` = `?status=OFFERED`',
+  })
+  @ApiProblems(T403('trips:read'))
+  @RequireScope('trips:read')
+  @ApiOkResponse({ type: TripSummaryDto })
+  summary(): Promise<TripSummaryDto> {
+    return this.trips.summary();
+  }
 
   @Get()
   @ApiProblems(T403('trips:read'), T422)
