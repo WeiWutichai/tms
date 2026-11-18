@@ -66,6 +66,26 @@ export class SandboxService {
     return (await this.link(tenantId))?.mode ?? 'live';
   }
 
+  /**
+   * ST7-T12: sandbox ยังไม่มีนิติบุคคล (สร้างก่อน ST7-T12 / บริษัทจริงเพิ่งตั้งนิติบุคคล) → คัดลอกจากบริษัทจริง
+   * เรียกตอนผู้ใช้สลับโหมด (ensure) และตอนยืนยัน key `tk_test_` (sandbox ที่ใช้ผ่าน key อย่างเดียว)
+   * จำในหน่วยความจำเฉพาะเมื่อ sandbox มีนิติบุคคลแล้ว (ยังไม่มีทั้งสองฝั่ง = ตรวจใหม่คำขอถัดไป)
+   */
+  async ensureEntities(sandboxId: string, liveTenantId: string): Promise<void> {
+    if (this.withEntities.has(sandboxId)) return;
+    const n = await this.db.$transaction(
+      async (tx) => {
+        await copyLegalEntities(tx, liveTenantId, sandboxId, 'backfill');
+        return tx.company.count({ where: { tenantId: sandboxId } });
+      },
+      { timeout: 30_000 },
+    );
+    if (n > 0) {
+      if (this.withEntities.size > 5000) this.withEntities.clear();
+      this.withEntities.add(sandboxId);
+    }
+  }
+
   /** sandbox ของบริษัท (ไม่สร้าง) */
   async find(liveTenantId: string): Promise<string | null> {
     const t = await this.db.tenant.findUnique({
@@ -79,13 +99,7 @@ export class SandboxService {
   async ensure(liveTenantId: string): Promise<string> {
     const found = await this.find(liveTenantId);
     if (found) {
-      if (!this.withEntities.has(found)) {
-        // sandbox ที่สร้างก่อน ST7-T12 ยังไม่มีนิติบุคคล → คัดลอกครั้งเดียว
-        await this.db.$transaction((tx) => copyLegalEntities(tx, liveTenantId, found), {
-          timeout: 30_000,
-        });
-        this.withEntities.add(found);
-      }
+      await this.ensureEntities(found, liveTenantId);
       return found;
     }
     const live = await this.db.tenant.findUnique({
@@ -107,7 +121,7 @@ export class SandboxService {
             },
           });
           await bootstrapTenant(tx, row.id);
-          await copyLegalEntities(tx, live.id, row.id);
+          await copyLegalEntities(tx, live.id, row.id, 'create');
           // ใครเปิด sandbox เมื่อไร — audit ของบริษัทจริง
           const ctx = requestContext.get();
           await tx.auditLog.create({
@@ -128,7 +142,7 @@ export class SandboxService {
         { timeout: 30_000 },
       );
       this.logger.log(`sandbox ${t.id} created for tenant ${live.id}`);
-      this.withEntities.add(t.id);
+      await this.ensureEntities(t.id, live.id);
       return t.id;
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
@@ -168,7 +182,10 @@ export async function copyLegalEntities(
   tx: Prisma.TransactionClient,
   liveTenantId: string,
   sandboxId: string,
+  reason: 'create' | 'backfill' = 'backfill',
 ): Promise<number> {
+  // คำขอแรกพร้อมกันหลายตัว → คัดลอกครั้งเดียว (ล็อกต่อ sandbox จนจบ transaction แล้วนับใหม่)
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`sandbox-entities:${sandboxId}`}))`;
   if (await tx.company.count({ where: { tenantId: sandboxId } })) return 0;
   const companies = await tx.company.findMany({
     where: { tenantId: liveTenantId, status: 'ACTIVE' },
@@ -183,7 +200,8 @@ export async function copyLegalEntities(
         legalNameEn: c.legalNameEn,
         taxId: c.taxId,
         vatRegistered: c.vatRegistered,
-        externalId: c.externalId,
+        // externalId เป็นรหัสของระบบต้นทางฝั่งบริษัทจริง — ไม่คัดลอก (กันชี้ผิดที่ / ชนกับที่ผู้ใช้ตั้งใน sandbox)
+        externalId: null,
       },
     });
     map.set(c.id, copy.id);
@@ -215,6 +233,23 @@ export async function copyLegalEntities(
       where: { tenantId_key: { tenantId: sandboxId, key: st.key } },
       create: { tenantId: sandboxId, key: st.key, value: encodeId('company', target) },
       update: { value: encodeId('company', target) },
+    });
+  }
+  if (companies.length) {
+    // ใครเปิด/ทำให้ sandbox ได้นิติบุคคล เมื่อไร — audit ของบริษัทจริง (เหมือน sandbox.created)
+    const ctx = requestContext.get();
+    await tx.auditLog.create({
+      data: {
+        tenantId: liveTenantId,
+        actorId: ctx?.actorId ?? null,
+        actAs: ctx?.actAs ?? null,
+        action: 'sandbox.entities_copied',
+        entityType: 'tenant',
+        entityId: sandboxId,
+        after: { reason, companies: companies.length },
+        requestId: ctx?.requestId ?? null,
+        ip: ctx?.ip ?? null,
+      },
     });
   }
   return companies.length;

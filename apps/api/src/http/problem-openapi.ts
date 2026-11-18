@@ -102,3 +102,18 @@ export function describeProblemDefaults(doc: OpenAPIObject): OpenAPIObject {
     }
   return doc;
 }
+
+/**
+ * ST7-T12: catalog ของ `code` ทั้งหมด (PROBLEMS) → `x-problem-codes` ของ openapi.json
+ * หน้า "รหัส error" ของ docs site generate จากตรงนี้ → ทุก `type` (`…/problems/<code>`) มีหัวข้อจริง
+ */
+export function describeProblemCatalog(doc: OpenAPIObject): OpenAPIObject {
+  const codes = Object.keys(PROBLEMS).sort() as ProblemCode[];
+  (doc as OpenAPIObject & Record<string, unknown>)['x-problem-codes'] = Object.fromEntries(
+    codes.map((c) => {
+      const p = PROBLEMS[c] as { status: number; th: string; en?: string };
+      return [c, { status: p.status, title: p.th, ...(p.en ? { titleEn: p.en } : {}) }];
+    }),
+  );
+  return doc;
+}

@@ -32,9 +32,13 @@ const NO_SCOPE_ALLOW = new Set([
   'GET /v1/documents/{id}/content',
 ]);
 
+/** ค่าตั้งส่วนตัวของผู้ใช้ที่ login (ไม่ใช่ข้อมูลบริษัท) — ไม่อยู่ในเอกสารสาธารณะ */
+const USER_PREFERENCE = /\/preferences(\/|$)/;
+
 export function isPublicOperation(method: string, path: string, op: Json): boolean {
   const key = `${method.toUpperCase()} ${path}`;
   if (NO_SCOPE_ALLOW.has(key)) return true;
+  if (USER_PREFERENCE.test(path)) return false;
   const scopes: string[] | undefined = op['x-required-scopes'];
   if (!scopes?.length) return false;
   if (EXCLUDED_TAGS.has(op.tags?.[0])) return false;
@@ -141,11 +145,34 @@ function rules(n: Json): string {
   return r.join(' · ');
 }
 
+/**
+ * ตัดการอ้างอิงเอกสารภายใน (docs/04 G1, spec/07 §9, ST7-T01, D-21, INT-090, [DECISION …]) ออกจากข้อความที่เผยแพร่
+ * — คำอธิบายใน OpenAPI เขียนให้ทีมด้วย จึงกรองตอนสร้างหน้าสาธารณะ (ข้อความต้นทางในโค้ดคงเดิม)
+ */
+const REF =
+  '(?:ST\\d+-T\\d+(?:/T?\\d+)*|D-\\d+|(?:INT|MD|NFR|PLT|EXE|ORD|INV)-\\d+|(?:docs|spec|plan|research)/[\\w.-]+(?:\\s*§\\s*[\\d.]+)?(?:\\s+[A-Z]\\d+)?|benchmark(?:\\s+[\\d.]+)?|\\bPO\\b)';
+const PAREN_REF = new RegExp(`\\s*\\((?:[^()]*?)${REF}(?:[^()]*)\\)`, 'g');
+const BARE_REF = new RegExp(`(?:\\s*[;,·—]\\s*)?${REF}(?:\\s*(?:,|และ|\\+|/)\\s*${REF})*`, 'g');
+
+export function scrubInternal(text: string): string {
+  let t = text.replace(/\s*\[(?:DECISION|PROPOSED|OPEN)[^\]]*\]/g, '');
+  for (let i = 0; i < 3; i++) t = t.replace(PAREN_REF, '');
+  t = t
+    .replace(BARE_REF, '')
+    .replace(/\(\s*[—·,;:-]?\s*\)/g, '')
+    .replace(/\s+([,.;:)])/g, '$1')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/·\s*·/g, '·')
+    .replace(/—\s*—/g, '—')
+    .replace(/(?:\s*[·—-]\s*)+$/g, '')
+    .replace(/^\s*[·—:-]\s*/g, '');
+  return t.trim();
+}
+
 const oneLine = (s: unknown) =>
   s == null
     ? ''
-    : String(s)
-        .replace(/\s*\n\s*/g, ' ')
+    : scrubInternal(String(s).replace(/\s*\n\s*/g, ' '))
         .replace(/\|/g, '\\|')
         .trim();
 
@@ -247,3 +274,56 @@ export function title(op: Operation): string {
 }
 
 export { oneLine };
+
+/** spec สาธารณะ: เฉพาะ endpoint ในเอกสาร + schema ที่ถูกอ้างถึง · description/summary ผ่าน scrubInternal */
+export function publicSpec(doc: Json): Json {
+  const paths: Json = {};
+  for (const o of operations(doc)) (paths[o.path] ??= {})[o.method] = o.op;
+  const keep = new Set<string>();
+  const walk = (n: Json): void => {
+    if (Array.isArray(n)) return n.forEach(walk);
+    if (!n || typeof n !== 'object') return;
+    if (typeof n.$ref === 'string' && n.$ref.startsWith('#/components/schemas/')) {
+      const name = n.$ref.slice('#/components/schemas/'.length);
+      if (!keep.has(name)) {
+        keep.add(name);
+        walk(doc.components.schemas[name]);
+      }
+    }
+    for (const v of Object.values(n)) walk(v);
+  };
+  walk(paths);
+  walk(doc.components.responses);
+  walk(doc.components.parameters);
+  walk(doc.components.headers);
+  walk(doc['x-webhooks']);
+  walk({ $ref: '#/components/schemas/WebhookEnvelope' });
+  const schemas: Json = {};
+  for (const n of [...keep].sort())
+    if (doc.components.schemas[n]) schemas[n] = doc.components.schemas[n];
+  const scrub = (n: Json): Json => {
+    if (Array.isArray(n)) return n.map(scrub);
+    if (!n || typeof n !== 'object') return n;
+    const r: Json = {};
+    for (const [k, v] of Object.entries<Json>(n)) {
+      if (k === 'pendingTask') continue; // งานภายในที่จะเปิด event — ไม่เผยแพร่
+      r[k] =
+        (k === 'description' || k === 'summary') && typeof v === 'string'
+          ? scrubInternal(v)
+          : scrub(v);
+    }
+    return r;
+  };
+  return scrub({
+    openapi: doc.openapi,
+    info: {
+      ...doc.info,
+      description: 'TMS Open API v1 — เฉพาะ endpoint ที่เรียกด้วย API key / OAuth client ได้',
+    },
+    servers: [{ url: 'https://api.tms.example' }],
+    paths,
+    components: { ...doc.components, schemas },
+    'x-webhooks': doc['x-webhooks'],
+    'x-problem-codes': doc['x-problem-codes'],
+  });
+}

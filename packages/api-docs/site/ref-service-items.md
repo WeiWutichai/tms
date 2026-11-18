@@ -32,9 +32,9 @@ scope: `master:read` · operationId: `ServiceItems_list`
 | `cursor` | query |   | `string` | ค่า nextCursor จากหน้าก่อน (ใช้กับ sort เดิมเท่านั้น) |
 | `updatedAfter` | query |   | `string` | คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull — ใช้คู่ includeDeleted=true เพื่อรับรายการที่ถูกลบ) |
 | `sort` | query |   | `string` ค่า: `code`, `updatedAt`, `-updatedAt` | code = เรียงตามรหัส (ค่าเริ่มต้นของหน้าจอ) · updatedAt/-updatedAt สำหรับ sync |
-| `fields` | query |   | `string` | รายชื่อ field คั่นด้วย , เช่น id,legalName |
+| `fields` | query |   | `string` | รายชื่อ field คั่นด้วย, เช่น id,legalName |
 | `q` | query |   | `string` | ค้นหา — รหัส ชื่อ เลขผู้เสียภาษี หรือ externalId (ไม่สนตัวพิมพ์) |
-| `status` | query |   | `string` | คั่นด้วย , เช่น active,inactive |
+| `status` | query |   | `string` | คั่นด้วย, เช่น active,inactive |
 | `externalId` | query |   | `string` | externalId ตรงตัว (ใช้ตรวจว่ามีในระบบแล้วหรือยัง) |
 | `includeDeleted` | query |   | `string` | true = รวมรายการที่ถูกลบ (tombstone มี `deletedAt`) — ให้ระบบที่ดึงแบบ incremental รู้ว่ารายการถูกลบ |
 | `name` | query |   | `string` | ชื่อ/เงื่อนไขมีคำนี้ |
@@ -90,7 +90,7 @@ scope: `master:write` · operationId: `ServiceItems_create`
 | `calcUnit` | ใช่ | `string` | ค่า: `PER_TRIP`, `PER_HOUR`, `PER_NIGHT`, `PER_STOP`, `PERCENT_OF_FREIGHT`, `ACTUAL` | หน่วยคิด: PER_TRIP ต่อเที่ยว, PER_HOUR ต่อชั่วโมง, PER_NIGHT ต่อคืน, PER_STOP ต่อจุด, PERCENT_OF_FREIGHT % ของค่าขนส่ง, ACTUAL ตามจริง (ตามใบเสร็จ) |   |
 | `vatType` | ใช่ | `string` | ค่า: `EXEMPT_TRANSPORT`, `VAT_7`, `ZERO_RATED` | VAT ตั้งต้นของบรรทัด: EXEMPT_TRANSPORT = ยกเว้น (ค่าขนส่ง ม.81(1)(ณ)), VAT_7 = 7%, ZERO_RATED = 0% — snapshot ลงบรรทัดเอกสาร |   |
 | `whtRate` | ใช่ | `string` | ค่า: `0.00`, `1.00`, `3.00` | หัก ณ ที่จ่าย (%) ตั้งต้นของบรรทัด: 1.00 ค่าขนส่ง, 3.00 ค่าบริการ, 0.00 ไม่หัก — คู่ EXEMPT_TRANSPORT+3.00 และ VAT_7+1.00 บันทึกได้แต่ได้คำเตือน `vat_wht_unusual` ใน `warnings` |   |
-| `code` |   | `string` |   | รหัส — ไม่ส่ง = ระบบออกเลขถัดไป `AX-0001` (MD-002) | `WAIT` |
+| `code` |   | `string` |   | รหัส — ไม่ส่ง = ระบบออกเลขถัดไป `AX-0001` | `WAIT` |
 | `externalId` |   | `string` |   | รหัสในระบบต้นทาง — เรียกด้วย ext:{externalId} ได้ |   |
 
 **Responses**
@@ -191,9 +191,9 @@ scope: `export:run` · operationId: `ServiceItems_export`
 | `cursor` | query |   | `string` | ค่า nextCursor จากหน้าก่อน (ใช้กับ sort เดิมเท่านั้น) |
 | `updatedAfter` | query |   | `string` | คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull — ใช้คู่ includeDeleted=true เพื่อรับรายการที่ถูกลบ) |
 | `sort` | query |   | `string` ค่า: `code`, `updatedAt`, `-updatedAt` | code = เรียงตามรหัส (ค่าเริ่มต้นของหน้าจอ) · updatedAt/-updatedAt สำหรับ sync |
-| `fields` | query |   | `string` | รายชื่อ field คั่นด้วย , เช่น id,legalName |
+| `fields` | query |   | `string` | รายชื่อ field คั่นด้วย, เช่น id,legalName |
 | `q` | query |   | `string` | ค้นหา — รหัส ชื่อ เลขผู้เสียภาษี หรือ externalId (ไม่สนตัวพิมพ์) |
-| `status` | query |   | `string` | คั่นด้วย , เช่น active,inactive |
+| `status` | query |   | `string` | คั่นด้วย, เช่น active,inactive |
 | `externalId` | query |   | `string` | externalId ตรงตัว (ใช้ตรวจว่ามีในระบบแล้วหรือยัง) |
 | `includeDeleted` | query |   | `string` | true = รวมรายการที่ถูกลบ (tombstone มี `deletedAt`) — ให้ระบบที่ดึงแบบ incremental รู้ว่ารายการถูกลบ |
 | `name` | query |   | `string` | ชื่อ/เงื่อนไขมีคำนี้ |
@@ -201,13 +201,13 @@ scope: `export:run` · operationId: `ServiceItems_export`
 | `vatType` | query |   | `string` ค่า: `EXEMPT_TRANSPORT`, `VAT_7`, `ZERO_RATED` |   |
 | `side` | query |   | `string` ค่า: `SELL`, `BUY`, `BOTH` | ใช้ได้กับฝั่งนี้ (SELL = SELL+BOTH, BUY = BUY+BOTH, BOTH = เฉพาะทั้งสองฝั่ง) |
 | `format` | query |   | `string` ค่า: `xlsx`, `csv` |   |
-| `ids` | query |   | `string` | ส่งออกเฉพาะ id เหล่านี้ (คั่นด้วย ,) — แถวที่เลือกในตาราง |
+| `ids` | query |   | `string` | ส่งออกเฉพาะ id เหล่านี้ (คั่นด้วย,) — แถวที่เลือกในตาราง |
 
 **Responses**
 
 | สถานะ | ความหมาย | body |
 |---|---|---|
-| `200` | ไฟล์ .xlsx หรือ .csv ตามตัวกรองเดียวกับรายการ (สูงสุด 10,000 แถว) |   |
+| `200` | ไฟล์.xlsx หรือ.csv ตามตัวกรองเดียวกับรายการ (สูงสุด 10,000 แถว) |   |
 | `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
 | `403` | ไม่มีสิทธิ์ (`export:run`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
 | `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (query/body) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
@@ -679,7 +679,7 @@ const { data, error } = await tms.POST('/v1/service-items/{id}/delete', {
 | `isSurcharge` | ใช่ | `boolean` |   |   |   |
 | `defaultAccountCode` | ใช่ | `string` | null ได้ |   |   |
 | `system` | ใช่ | `boolean` |   | แถวค่าเริ่มต้นที่ระบบสร้างให้ |   |
-| `reserved` | ใช่ | `boolean` |   | รหัสสงวนของระบบ (FREIGHT/EXTRA_STOP/FSC — MD-158): ปิดใช้/ลบ/เปลี่ยนรหัสไม่ได้ |   |
+| `reserved` | ใช่ | `boolean` |   | รหัสสงวนของระบบ: ปิดใช้/ลบ/เปลี่ยนรหัสไม่ได้ |   |
 | `usage` | ใช่ | `ServiceItemUsageDto` |   |   |   |
 | `status` | ใช่ | `string` | ค่า: `active`, `inactive` |   |   |
 | `deletedAt` |   | `string (date-time)` | null ได้ | มีค่าเฉพาะเมื่อขอ includeDeleted=true และรายการถูกลบแล้ว (tombstone) |   |
@@ -732,7 +732,7 @@ const { data, error } = await tms.POST('/v1/service-items/{id}/delete', {
 | `isSurcharge` | ใช่ | `boolean` |   |   |   |
 | `defaultAccountCode` | ใช่ | `string` | null ได้ |   |   |
 | `system` | ใช่ | `boolean` |   | แถวค่าเริ่มต้นที่ระบบสร้างให้ |   |
-| `reserved` | ใช่ | `boolean` |   | รหัสสงวนของระบบ (FREIGHT/EXTRA_STOP/FSC — MD-158): ปิดใช้/ลบ/เปลี่ยนรหัสไม่ได้ |   |
+| `reserved` | ใช่ | `boolean` |   | รหัสสงวนของระบบ: ปิดใช้/ลบ/เปลี่ยนรหัสไม่ได้ |   |
 | `usage` | ใช่ | `ServiceItemUsageDto` |   |   |   |
 | `status` | ใช่ | `string` | ค่า: `active`, `inactive` |   |   |
 | `deletedAt` |   | `string (date-time)` | null ได้ | มีค่าเฉพาะเมื่อขอ includeDeleted=true และรายการถูกลบแล้ว (tombstone) |   |

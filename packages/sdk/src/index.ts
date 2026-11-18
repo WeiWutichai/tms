@@ -4,10 +4,12 @@
  */
 import createClient, { type Client, type Middleware } from 'openapi-fetch';
 import type { components, paths } from './schema';
+import { IDEMPOTENT_POSTS } from './idempotency.gen';
 import { withRetry, type RetryOptions } from './retry';
 
 export type { components, paths };
 export type Schemas = components['schemas'];
+export { IDEMPOTENT_POSTS } from './idempotency.gen';
 export { isReplaySafe, parseRetryAfter, withRetry, type RetryOptions } from './retry';
 export {
   constructWebhookEvent,
@@ -37,7 +39,10 @@ export interface TmsClientOptions {
   locale?: 'th' | 'en';
   /** false = ปิด retry */
   retry?: RetryOptions | false;
-  /** ใส่ `Idempotency-Key` (UUID) ให้ POST ที่ยังไม่มีเอง → retry ได้ปลอดภัย — ค่าเริ่ม true */
+  /**
+   * ใส่ `Idempotency-Key` (UUID) ให้ POST ที่ประกาศรับ header นี้ใน OpenAPI (`IDEMPOTENT_POSTS`) และยังไม่มีเอง
+   * → retry ได้ปลอดภัย — ค่าเริ่ม true · endpoint ที่ไม่รับ header ไม่ใส่ (บางตัวตอบ 400)
+   */
   autoIdempotencyKey?: boolean;
   /** ทับ fetch (test / proxy) */
   fetch?: (req: Request) => Promise<Response>;
@@ -130,7 +135,7 @@ export function createTmsClient(opts: TmsClientOptions = {}): TmsClient {
     fetch: opts.retry === false ? base : withRetry(base, opts.retry ?? {}),
   });
   const auth: Middleware = {
-    async onRequest({ request }) {
+    async onRequest({ request, schemaPath }) {
       const token = opts.getToken ? await opts.getToken() : opts.apiKey;
       if (token) request.headers.set('Authorization', `Bearer ${token}`);
       const v = opts.apiVersion === undefined ? API_VERSION : opts.apiVersion;
@@ -139,6 +144,7 @@ export function createTmsClient(opts: TmsClientOptions = {}): TmsClient {
       if (
         opts.autoIdempotencyKey !== false &&
         request.method === 'POST' &&
+        IDEMPOTENT_POSTS.has(schemaPath) &&
         !request.headers.has('Idempotency-Key')
       )
         request.headers.set('Idempotency-Key', idempotencyKey());

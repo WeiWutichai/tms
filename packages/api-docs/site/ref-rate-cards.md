@@ -32,10 +32,10 @@ scope: `master:read` · operationId: `RateCards_list`
 | `cursor` | query |   | `string` | ค่า nextCursor จากหน้าก่อน (ใช้กับ sort เดิมเท่านั้น) |
 | `updatedAfter` | query |   | `string` | คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull) |
 | `sort` | query |   | `string` ค่า: `code`, `updatedAt`, `-updatedAt` | code = เรียงตามรหัส (ค่าเริ่มต้นของหน้าจอ) · updatedAt/-updatedAt สำหรับ sync |
-| `fields` | query |   | `string` | รายชื่อ field คั่นด้วย , เช่น id,code |
+| `fields` | query |   | `string` | รายชื่อ field คั่นด้วย, เช่น id,code |
 | `q` | query |   | `string` | ค้นหา — รหัส ชื่อลูกค้า/ผู้รับเหมา ชื่อ/รหัสต้นทางหรือปลายทาง externalId (ไม่สนตัวพิมพ์) |
 | `side` | query |   | `string` ค่า: `SELL`, `BUY` | ฝั่ง — ไม่ส่ง: มี carrierId = BUY ไม่งั้น SELL · ขัดกับ customerId/carrierId → 422 `wrong_side` |
-| `status` | query |   | `string` | สถานะ คั่นด้วย , (draft / pending_approval / active / expired / retired) — active/expired คิดจากวันที่ (เวลาไทย) |
+| `status` | query |   | `string` | สถานะ คั่นด้วย, (draft / pending_approval / active / expired / retired) — active/expired คิดจากวันที่ (เวลาไทย) |
 | `nearExpiry` | query |   | `string` ค่า: `true`, `false` | true = ใช้งานอยู่และหมดอายุภายใน 30 วัน (ต้นแบบ "หมดอายุใน 30 วัน") |
 | `customerId` | query |   | `string` | เฉพาะลูกค้านี้ (cus_…) |
 | `carrierId` | query |   | `string` | เฉพาะรถร่วมนี้ (car_…) — ขาซื้อ |
@@ -85,11 +85,11 @@ scope: `prices.sell:write` หรือ `prices.buy:write` · operationId: `Rate
 
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
-| `pricingModel` |   | `string` | ค่า: `PER_TRIP`, `PER_KM`, `PER_TON`, `PER_CBM`, `PER_UNIT` | สูตรราคา (docs/04 B1) |   |
+| `pricingModel` |   | `string` | ค่า: `PER_TRIP`, `PER_KM`, `PER_TON`, `PER_CBM`, `PER_UNIT` | สูตรราคา |   |
 | `unitId` |   | `string` | null ได้ | หน่วยนับ (ชนิด COUNT เช่น ชิ้น พาเลท) — บังคับเมื่อ PER_UNIT, สูตรอื่นต้องเป็น null | `unt_3f2a…` |
 | `sellRate` |   | `string` |   | ราคาขายต่อหน่วยของสูตร (บาท) — ต่อเที่ยว/กม./ตัน/ลบ.ม./หน่วย · rate ขาขาย · ต้องมีสิทธิ์ `prices.sell:write` (เห็นเมื่อมี `prices.sell:read`) | `6500.00` |
 | `sellMinCharge` |   | `string` | null ได้ | ขั้นต่ำต่อเที่ยว (บาท) — ผล = max(ราคาคำนวณ, ขั้นต่ำ) · null = ไม่มี | `1500.00` |
-| `sellExtraStopRate` |   | `string` | null ได้ | ค่าจุดเพิ่มต่อจุด เมื่อจำนวนจุดเกิน `includedStops` (MD-115) · null = ไม่คิด | `300.00` |
+| `sellExtraStopRate` |   | `string` | null ได้ | ค่าจุดเพิ่มต่อจุด เมื่อจำนวนจุดเกิน `includedStops` · null = ไม่คิด | `300.00` |
 | `buyRate` |   | `string` |   | ราคาซื้อต่อหน่วยของสูตร (บาท) — rate ขาซื้อ · ต้องมีสิทธิ์ `prices.buy:write` (เห็นเมื่อมี `prices.buy:read`) | `5200.00` |
 | `buyMinCharge` |   | `string` | null ได้ | ขั้นต่ำต่อเที่ยว (บาท) ขาซื้อ · null = ไม่มี | `1200.00` |
 | `buyExtraStopRate` |   | `string` | null ได้ | ค่าจุดเพิ่มต่อจุด ขาซื้อ (เกิน `includedStops`) · null = ไม่คิด | `250.00` |
@@ -102,10 +102,10 @@ scope: `prices.sell:write` หรือ `prices.buy:write` · operationId: `Rate
 | `accessorials[].buyPrice` |   | `string` |   | ราคาซื้อ (บาท ก่อน VAT) ทศนิยม ≤ 2 — rate ขาซื้อเท่านั้น · ต้องมีสิทธิ์ `prices.buy:write` | `250.00` |
 | `notes` |   | `string` | ยาว ≤ 1000 · null ได้ | หมายเหตุ |   |
 | `customerId` |   | `string` |   | ลูกค้า (ขาขายเท่านั้น) | `cus_3f2a…` |
-| `carrierId` |   | `string` |   | รถร่วม/ผู้รับเหมา (ขาซื้อเท่านั้น — ST2-T05 `carriers`) | `car_3f2a…` |
+| `carrierId` |   | `string` |   | รถร่วม/ผู้รับเหมา | `car_3f2a…` |
 | `originId` |   | `string` |   | ต้นทาง (สถานที่) | `loc_3f2a…` |
 | `destinationId` |   | `string` |   | ปลายทาง (สถานที่) — ต่างจากต้นทาง | `loc_8c1d…` |
-| `vehicleTypeId` |   | `string` |   | ประเภทรถ (ตรงตัวเท่านั้น — MD-111) | `vty_3f2a…` |
+| `vehicleTypeId` |   | `string` |   | ประเภทรถ | `vty_3f2a…` |
 | `serviceItemId` |   | `string` |   | รายการบนเอกสารที่กำหนด vat_type/wht_rate ของค่าขนส่งจาก rate นี้ — ไม่ส่งตอนสร้าง = ค่าขนส่ง (FREIGHT) | `svc_3f2a…` |
 | `side` |   | `string` | ค่า: `SELL`, `BUY` | ฝั่ง — SELL (ลูกค้า, ต้องมี `prices.sell:write`) · BUY (รถร่วม, ต้องมี `prices.buy:write`) |   |
 | `code` |   | `string` |   | รหัส — ไม่ส่ง = ระบบออกเลขถัดไป (ขาขาย RC-S-0001 · ขาซื้อ RC-B-0001) | `RC-S-0001` |
@@ -198,10 +198,10 @@ scope: `export:run` · operationId: `RateCards_export`
 | `cursor` | query |   | `string` | ค่า nextCursor จากหน้าก่อน (ใช้กับ sort เดิมเท่านั้น) |
 | `updatedAfter` | query |   | `string` | คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull) |
 | `sort` | query |   | `string` ค่า: `code`, `updatedAt`, `-updatedAt` | code = เรียงตามรหัส (ค่าเริ่มต้นของหน้าจอ) · updatedAt/-updatedAt สำหรับ sync |
-| `fields` | query |   | `string` | รายชื่อ field คั่นด้วย , เช่น id,code |
+| `fields` | query |   | `string` | รายชื่อ field คั่นด้วย, เช่น id,code |
 | `q` | query |   | `string` | ค้นหา — รหัส ชื่อลูกค้า/ผู้รับเหมา ชื่อ/รหัสต้นทางหรือปลายทาง externalId (ไม่สนตัวพิมพ์) |
 | `side` | query |   | `string` ค่า: `SELL`, `BUY` | ฝั่ง — ไม่ส่ง: มี carrierId = BUY ไม่งั้น SELL · ขัดกับ customerId/carrierId → 422 `wrong_side` |
-| `status` | query |   | `string` | สถานะ คั่นด้วย , (draft / pending_approval / active / expired / retired) — active/expired คิดจากวันที่ (เวลาไทย) |
+| `status` | query |   | `string` | สถานะ คั่นด้วย, (draft / pending_approval / active / expired / retired) — active/expired คิดจากวันที่ (เวลาไทย) |
 | `nearExpiry` | query |   | `string` ค่า: `true`, `false` | true = ใช้งานอยู่และหมดอายุภายใน 30 วัน (ต้นแบบ "หมดอายุใน 30 วัน") |
 | `customerId` | query |   | `string` | เฉพาะลูกค้านี้ (cus_…) |
 | `carrierId` | query |   | `string` | เฉพาะรถร่วมนี้ (car_…) — ขาซื้อ |
@@ -214,13 +214,13 @@ scope: `export:run` · operationId: `RateCards_export`
 | `externalId` | query |   | `string` | externalId ตรงตัว |
 | `includeDeleted` | query |   | `string` | true = รวมร่างที่ถูกลบ (tombstone มี `deletedAt`) |
 | `format` | query |   | `string` ค่า: `xlsx`, `csv` |   |
-| `ids` | query |   | `string` | ส่งออกเฉพาะ id เหล่านี้ (คั่นด้วย ,) — แถวที่เลือกในตาราง |
+| `ids` | query |   | `string` | ส่งออกเฉพาะ id เหล่านี้ (คั่นด้วย,) — แถวที่เลือกในตาราง |
 
 **Responses**
 
 | สถานะ | ความหมาย | body |
 |---|---|---|
-| `200` | ไฟล์ .xlsx หรือ .csv ตามตัวกรองเดียวกับรายการ (สูงสุด 10,000 แถว) — คอลัมน์ราคาเฉพาะผู้มี `prices.sell:read` (ขาขาย) / `prices.buy:read` (ขาซื้อ) |   |
+| `200` | ไฟล์.xlsx หรือ.csv ตามตัวกรองเดียวกับรายการ (สูงสุด 10,000 แถว) — คอลัมน์ราคาเฉพาะผู้มี `prices.sell:read` (ขาขาย) / `prices.buy:read` (ขาซื้อ) |   |
 | `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
 | `403` | ไม่มีสิทธิ์ (`export:run`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
 | `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (query/body) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
@@ -254,11 +254,11 @@ scope: `prices.sell:write` หรือ `prices.buy:write` · operationId: `Rate
 
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
-| `pricingModel` |   | `string` | ค่า: `PER_TRIP`, `PER_KM`, `PER_TON`, `PER_CBM`, `PER_UNIT` | สูตรราคา (docs/04 B1) |   |
+| `pricingModel` |   | `string` | ค่า: `PER_TRIP`, `PER_KM`, `PER_TON`, `PER_CBM`, `PER_UNIT` | สูตรราคา |   |
 | `unitId` |   | `string` | null ได้ | หน่วยนับ (ชนิด COUNT เช่น ชิ้น พาเลท) — บังคับเมื่อ PER_UNIT, สูตรอื่นต้องเป็น null | `unt_3f2a…` |
 | `sellRate` |   | `string` |   | ราคาขายต่อหน่วยของสูตร (บาท) — ต่อเที่ยว/กม./ตัน/ลบ.ม./หน่วย · rate ขาขาย · ต้องมีสิทธิ์ `prices.sell:write` (เห็นเมื่อมี `prices.sell:read`) | `6500.00` |
 | `sellMinCharge` |   | `string` | null ได้ | ขั้นต่ำต่อเที่ยว (บาท) — ผล = max(ราคาคำนวณ, ขั้นต่ำ) · null = ไม่มี | `1500.00` |
-| `sellExtraStopRate` |   | `string` | null ได้ | ค่าจุดเพิ่มต่อจุด เมื่อจำนวนจุดเกิน `includedStops` (MD-115) · null = ไม่คิด | `300.00` |
+| `sellExtraStopRate` |   | `string` | null ได้ | ค่าจุดเพิ่มต่อจุด เมื่อจำนวนจุดเกิน `includedStops` · null = ไม่คิด | `300.00` |
 | `buyRate` |   | `string` |   | ราคาซื้อต่อหน่วยของสูตร (บาท) — rate ขาซื้อ · ต้องมีสิทธิ์ `prices.buy:write` (เห็นเมื่อมี `prices.buy:read`) | `5200.00` |
 | `buyMinCharge` |   | `string` | null ได้ | ขั้นต่ำต่อเที่ยว (บาท) ขาซื้อ · null = ไม่มี | `1200.00` |
 | `buyExtraStopRate` |   | `string` | null ได้ | ค่าจุดเพิ่มต่อจุด ขาซื้อ (เกิน `includedStops`) · null = ไม่คิด | `250.00` |
@@ -271,10 +271,10 @@ scope: `prices.sell:write` หรือ `prices.buy:write` · operationId: `Rate
 | `accessorials[].buyPrice` |   | `string` |   | ราคาซื้อ (บาท ก่อน VAT) ทศนิยม ≤ 2 — rate ขาซื้อเท่านั้น · ต้องมีสิทธิ์ `prices.buy:write` | `250.00` |
 | `notes` |   | `string` | ยาว ≤ 1000 · null ได้ | หมายเหตุ |   |
 | `customerId` |   | `string` |   | ลูกค้า (ขาขายเท่านั้น) | `cus_3f2a…` |
-| `carrierId` |   | `string` |   | รถร่วม/ผู้รับเหมา (ขาซื้อเท่านั้น — ST2-T05 `carriers`) | `car_3f2a…` |
+| `carrierId` |   | `string` |   | รถร่วม/ผู้รับเหมา | `car_3f2a…` |
 | `originId` |   | `string` |   | ต้นทาง (สถานที่) | `loc_3f2a…` |
 | `destinationId` |   | `string` |   | ปลายทาง (สถานที่) — ต่างจากต้นทาง | `loc_8c1d…` |
-| `vehicleTypeId` |   | `string` |   | ประเภทรถ (ตรงตัวเท่านั้น — MD-111) | `vty_3f2a…` |
+| `vehicleTypeId` |   | `string` |   | ประเภทรถ | `vty_3f2a…` |
 | `serviceItemId` |   | `string` |   | รายการบนเอกสารที่กำหนด vat_type/wht_rate ของค่าขนส่งจาก rate นี้ — ไม่ส่งตอนสร้าง = ค่าขนส่ง (FREIGHT) | `svc_3f2a…` |
 | `side` |   | `string` | ค่า: `SELL`, `BUY` | ฝั่ง — ใช้ตอนสร้าง; แถวที่มีอยู่แล้วต้องเป็นฝั่งเดิม (ต่าง → 422 `side_locked`) |   |
 | `code` |   | `string` |   | ใช้ตอนสร้างเท่านั้น | `RC-S-0001` |
@@ -339,11 +339,11 @@ scope: `prices.sell:write` หรือ `prices.buy:write` · operationId: `Rate
 
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
-| `pricingModel` |   | `string` | ค่า: `PER_TRIP`, `PER_KM`, `PER_TON`, `PER_CBM`, `PER_UNIT` | สูตรราคา (docs/04 B1) |   |
+| `pricingModel` |   | `string` | ค่า: `PER_TRIP`, `PER_KM`, `PER_TON`, `PER_CBM`, `PER_UNIT` | สูตรราคา |   |
 | `unitId` |   | `string` | null ได้ | หน่วยนับ (ชนิด COUNT เช่น ชิ้น พาเลท) — บังคับเมื่อ PER_UNIT, สูตรอื่นต้องเป็น null | `unt_3f2a…` |
 | `sellRate` |   | `string` |   | ราคาขายต่อหน่วยของสูตร (บาท) — ต่อเที่ยว/กม./ตัน/ลบ.ม./หน่วย · rate ขาขาย · ต้องมีสิทธิ์ `prices.sell:write` (เห็นเมื่อมี `prices.sell:read`) | `6500.00` |
 | `sellMinCharge` |   | `string` | null ได้ | ขั้นต่ำต่อเที่ยว (บาท) — ผล = max(ราคาคำนวณ, ขั้นต่ำ) · null = ไม่มี | `1500.00` |
-| `sellExtraStopRate` |   | `string` | null ได้ | ค่าจุดเพิ่มต่อจุด เมื่อจำนวนจุดเกิน `includedStops` (MD-115) · null = ไม่คิด | `300.00` |
+| `sellExtraStopRate` |   | `string` | null ได้ | ค่าจุดเพิ่มต่อจุด เมื่อจำนวนจุดเกิน `includedStops` · null = ไม่คิด | `300.00` |
 | `buyRate` |   | `string` |   | ราคาซื้อต่อหน่วยของสูตร (บาท) — rate ขาซื้อ · ต้องมีสิทธิ์ `prices.buy:write` (เห็นเมื่อมี `prices.buy:read`) | `5200.00` |
 | `buyMinCharge` |   | `string` | null ได้ | ขั้นต่ำต่อเที่ยว (บาท) ขาซื้อ · null = ไม่มี | `1200.00` |
 | `buyExtraStopRate` |   | `string` | null ได้ | ค่าจุดเพิ่มต่อจุด ขาซื้อ (เกิน `includedStops`) · null = ไม่คิด | `250.00` |
@@ -356,10 +356,10 @@ scope: `prices.sell:write` หรือ `prices.buy:write` · operationId: `Rate
 | `accessorials[].buyPrice` |   | `string` |   | ราคาซื้อ (บาท ก่อน VAT) ทศนิยม ≤ 2 — rate ขาซื้อเท่านั้น · ต้องมีสิทธิ์ `prices.buy:write` | `250.00` |
 | `notes` |   | `string` | ยาว ≤ 1000 · null ได้ | หมายเหตุ |   |
 | `customerId` |   | `string` |   | ลูกค้า (ขาขายเท่านั้น) | `cus_3f2a…` |
-| `carrierId` |   | `string` |   | รถร่วม/ผู้รับเหมา (ขาซื้อเท่านั้น — ST2-T05 `carriers`) | `car_3f2a…` |
+| `carrierId` |   | `string` |   | รถร่วม/ผู้รับเหมา | `car_3f2a…` |
 | `originId` |   | `string` |   | ต้นทาง (สถานที่) | `loc_3f2a…` |
 | `destinationId` |   | `string` |   | ปลายทาง (สถานที่) — ต่างจากต้นทาง | `loc_8c1d…` |
-| `vehicleTypeId` |   | `string` |   | ประเภทรถ (ตรงตัวเท่านั้น — MD-111) | `vty_3f2a…` |
+| `vehicleTypeId` |   | `string` |   | ประเภทรถ | `vty_3f2a…` |
 | `serviceItemId` |   | `string` |   | รายการบนเอกสารที่กำหนด vat_type/wht_rate ของค่าขนส่งจาก rate นี้ — ไม่ส่งตอนสร้าง = ค่าขนส่ง (FREIGHT) | `svc_3f2a…` |
 | `externalId` |   | `string` | null ได้ | null = ลบการผูก |   |
 
@@ -455,11 +455,11 @@ scope: `prices.sell:write` หรือ `prices.buy:write` · operationId: `Rate
 
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
-| `pricingModel` |   | `string` | ค่า: `PER_TRIP`, `PER_KM`, `PER_TON`, `PER_CBM`, `PER_UNIT` | สูตรราคา (docs/04 B1) |   |
+| `pricingModel` |   | `string` | ค่า: `PER_TRIP`, `PER_KM`, `PER_TON`, `PER_CBM`, `PER_UNIT` | สูตรราคา |   |
 | `unitId` |   | `string` | null ได้ | หน่วยนับ (ชนิด COUNT เช่น ชิ้น พาเลท) — บังคับเมื่อ PER_UNIT, สูตรอื่นต้องเป็น null | `unt_3f2a…` |
 | `sellRate` |   | `string` |   | ราคาขายต่อหน่วยของสูตร (บาท) — ต่อเที่ยว/กม./ตัน/ลบ.ม./หน่วย · rate ขาขาย · ต้องมีสิทธิ์ `prices.sell:write` (เห็นเมื่อมี `prices.sell:read`) | `6500.00` |
 | `sellMinCharge` |   | `string` | null ได้ | ขั้นต่ำต่อเที่ยว (บาท) — ผล = max(ราคาคำนวณ, ขั้นต่ำ) · null = ไม่มี | `1500.00` |
-| `sellExtraStopRate` |   | `string` | null ได้ | ค่าจุดเพิ่มต่อจุด เมื่อจำนวนจุดเกิน `includedStops` (MD-115) · null = ไม่คิด | `300.00` |
+| `sellExtraStopRate` |   | `string` | null ได้ | ค่าจุดเพิ่มต่อจุด เมื่อจำนวนจุดเกิน `includedStops` · null = ไม่คิด | `300.00` |
 | `buyRate` |   | `string` |   | ราคาซื้อต่อหน่วยของสูตร (บาท) — rate ขาซื้อ · ต้องมีสิทธิ์ `prices.buy:write` (เห็นเมื่อมี `prices.buy:read`) | `5200.00` |
 | `buyMinCharge` |   | `string` | null ได้ | ขั้นต่ำต่อเที่ยว (บาท) ขาซื้อ · null = ไม่มี | `1200.00` |
 | `buyExtraStopRate` |   | `string` | null ได้ | ค่าจุดเพิ่มต่อจุด ขาซื้อ (เกิน `includedStops`) · null = ไม่คิด | `250.00` |
@@ -472,10 +472,10 @@ scope: `prices.sell:write` หรือ `prices.buy:write` · operationId: `Rate
 | `accessorials[].buyPrice` |   | `string` |   | ราคาซื้อ (บาท ก่อน VAT) ทศนิยม ≤ 2 — rate ขาซื้อเท่านั้น · ต้องมีสิทธิ์ `prices.buy:write` | `250.00` |
 | `notes` |   | `string` | ยาว ≤ 1000 · null ได้ | หมายเหตุ |   |
 | `customerId` |   | `string` |   | ลูกค้า (ขาขายเท่านั้น) | `cus_3f2a…` |
-| `carrierId` |   | `string` |   | รถร่วม/ผู้รับเหมา (ขาซื้อเท่านั้น — ST2-T05 `carriers`) | `car_3f2a…` |
+| `carrierId` |   | `string` |   | รถร่วม/ผู้รับเหมา | `car_3f2a…` |
 | `originId` |   | `string` |   | ต้นทาง (สถานที่) | `loc_3f2a…` |
 | `destinationId` |   | `string` |   | ปลายทาง (สถานที่) — ต่างจากต้นทาง | `loc_8c1d…` |
-| `vehicleTypeId` |   | `string` |   | ประเภทรถ (ตรงตัวเท่านั้น — MD-111) | `vty_3f2a…` |
+| `vehicleTypeId` |   | `string` |   | ประเภทรถ | `vty_3f2a…` |
 | `serviceItemId` |   | `string` |   | รายการบนเอกสารที่กำหนด vat_type/wht_rate ของค่าขนส่งจาก rate นี้ — ไม่ส่งตอนสร้าง = ค่าขนส่ง (FREIGHT) | `svc_3f2a…` |
 | `externalId` |   | `string` | null ได้ | null = ลบการผูก |   |
 
@@ -573,11 +573,11 @@ scope: `prices.sell:write` หรือ `prices.buy:write` · operationId: `Rate
 
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
-| `pricingModel` |   | `string` | ค่า: `PER_TRIP`, `PER_KM`, `PER_TON`, `PER_CBM`, `PER_UNIT` | สูตรราคา (docs/04 B1) |   |
+| `pricingModel` |   | `string` | ค่า: `PER_TRIP`, `PER_KM`, `PER_TON`, `PER_CBM`, `PER_UNIT` | สูตรราคา |   |
 | `unitId` |   | `string` | null ได้ | หน่วยนับ (ชนิด COUNT เช่น ชิ้น พาเลท) — บังคับเมื่อ PER_UNIT, สูตรอื่นต้องเป็น null | `unt_3f2a…` |
 | `sellRate` |   | `string` |   | ราคาขายต่อหน่วยของสูตร (บาท) — ต่อเที่ยว/กม./ตัน/ลบ.ม./หน่วย · rate ขาขาย · ต้องมีสิทธิ์ `prices.sell:write` (เห็นเมื่อมี `prices.sell:read`) | `6500.00` |
 | `sellMinCharge` |   | `string` | null ได้ | ขั้นต่ำต่อเที่ยว (บาท) — ผล = max(ราคาคำนวณ, ขั้นต่ำ) · null = ไม่มี | `1500.00` |
-| `sellExtraStopRate` |   | `string` | null ได้ | ค่าจุดเพิ่มต่อจุด เมื่อจำนวนจุดเกิน `includedStops` (MD-115) · null = ไม่คิด | `300.00` |
+| `sellExtraStopRate` |   | `string` | null ได้ | ค่าจุดเพิ่มต่อจุด เมื่อจำนวนจุดเกิน `includedStops` · null = ไม่คิด | `300.00` |
 | `buyRate` |   | `string` |   | ราคาซื้อต่อหน่วยของสูตร (บาท) — rate ขาซื้อ · ต้องมีสิทธิ์ `prices.buy:write` (เห็นเมื่อมี `prices.buy:read`) | `5200.00` |
 | `buyMinCharge` |   | `string` | null ได้ | ขั้นต่ำต่อเที่ยว (บาท) ขาซื้อ · null = ไม่มี | `1200.00` |
 | `buyExtraStopRate` |   | `string` | null ได้ | ค่าจุดเพิ่มต่อจุด ขาซื้อ (เกิน `includedStops`) · null = ไม่คิด | `250.00` |
@@ -794,7 +794,7 @@ const { data, error } = await tms.POST('/v1/rate-cards/{id}/delete', {
 |---|---|---|---|---|---|
 | `id` | ใช่ | `string` |   |   | `rcd_3f2a…` |
 | `code` | ใช่ | `string` |   |   | `RC-S-0001` |
-| `revision` | ใช่ | `number` |   | ฉบับที่ (ฉบับแก้ไขใช้รหัสเดิม — MD-118) | `1` |
+| `revision` | ใช่ | `number` |   | ฉบับที่ | `1` |
 | `parentId` | ใช่ | `string` | null ได้ | ฉบับก่อนหน้า (rcd_…) |   |
 | `side` | ใช่ | `string` | ค่า: `SELL`, `BUY` |   |   |
 | `customer` | ใช่ | `RatePartyRefDto` | null ได้ | ลูกค้า (ขาขาย) |   |

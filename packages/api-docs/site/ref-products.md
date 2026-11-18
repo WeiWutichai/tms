@@ -32,9 +32,9 @@ scope: `master:read` · operationId: `Products_list`
 | `cursor` | query |   | `string` | ค่า nextCursor จากหน้าก่อน (ใช้กับ sort เดิมเท่านั้น) |
 | `updatedAfter` | query |   | `string` | คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull — ใช้คู่ includeDeleted=true เพื่อรับรายการที่ถูกลบ) |
 | `sort` | query |   | `string` ค่า: `code`, `updatedAt`, `-updatedAt` | code = เรียงตามรหัส (ค่าเริ่มต้นของหน้าจอ) · updatedAt/-updatedAt สำหรับ sync |
-| `fields` | query |   | `string` | รายชื่อ field คั่นด้วย , เช่น id,legalName |
+| `fields` | query |   | `string` | รายชื่อ field คั่นด้วย, เช่น id,legalName |
 | `q` | query |   | `string` | ค้นหา — รหัส ชื่อ เลขผู้เสียภาษี หรือ externalId (ไม่สนตัวพิมพ์) |
-| `status` | query |   | `string` | คั่นด้วย , เช่น active,inactive |
+| `status` | query |   | `string` | คั่นด้วย, เช่น active,inactive |
 | `externalId` | query |   | `string` | externalId ตรงตัว (ใช้ตรวจว่ามีในระบบแล้วหรือยัง) |
 | `includeDeleted` | query |   | `string` | true = รวมรายการที่ถูกลบ (tombstone มี `deletedAt`) — ให้ระบบที่ดึงแบบ incremental รู้ว่ารายการถูกลบ |
 | `name` | query |   | `string` | ชื่อหรือรหัสมีคำนี้ (ช่องกรองคอลัมน์ "สินค้า / รหัส") |
@@ -96,7 +96,7 @@ scope: `master:write` · operationId: `Products_create`
 | `barcode` |   | `string` | null ได้ |   | `8851234567890` |
 | `name` | ใช่ | `string` |   |   | `ปูนซีเมนต์ถุง 50 กก.` |
 | `unitId` | ใช่ | `string` |   | หน่วยหลัก: `unt_…` หรือ `code:{รหัสหน่วย}` (หน่วยต้องใช้งานอยู่) | `code:BAG` |
-| `code` |   | `string` |   | รหัส — ไม่ส่ง = ระบบออกเลขถัดไป `P-0001` (MD-002) | `P-0001` |
+| `code` |   | `string` |   | รหัส — ไม่ส่ง = ระบบออกเลขถัดไป `P-0001` | `P-0001` |
 | `externalId` |   | `string` |   | รหัสในระบบต้นทาง — เรียกด้วย ext:{externalId} ได้ |   |
 
 **Responses**
@@ -195,9 +195,9 @@ scope: `export:run` · operationId: `Products_export`
 | `cursor` | query |   | `string` | ค่า nextCursor จากหน้าก่อน (ใช้กับ sort เดิมเท่านั้น) |
 | `updatedAfter` | query |   | `string` | คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull — ใช้คู่ includeDeleted=true เพื่อรับรายการที่ถูกลบ) |
 | `sort` | query |   | `string` ค่า: `code`, `updatedAt`, `-updatedAt` | code = เรียงตามรหัส (ค่าเริ่มต้นของหน้าจอ) · updatedAt/-updatedAt สำหรับ sync |
-| `fields` | query |   | `string` | รายชื่อ field คั่นด้วย , เช่น id,legalName |
+| `fields` | query |   | `string` | รายชื่อ field คั่นด้วย, เช่น id,legalName |
 | `q` | query |   | `string` | ค้นหา — รหัส ชื่อ เลขผู้เสียภาษี หรือ externalId (ไม่สนตัวพิมพ์) |
-| `status` | query |   | `string` | คั่นด้วย , เช่น active,inactive |
+| `status` | query |   | `string` | คั่นด้วย, เช่น active,inactive |
 | `externalId` | query |   | `string` | externalId ตรงตัว (ใช้ตรวจว่ามีในระบบแล้วหรือยัง) |
 | `includeDeleted` | query |   | `string` | true = รวมรายการที่ถูกลบ (tombstone มี `deletedAt`) — ให้ระบบที่ดึงแบบ incremental รู้ว่ารายการถูกลบ |
 | `name` | query |   | `string` | ชื่อหรือรหัสมีคำนี้ (ช่องกรองคอลัมน์ "สินค้า / รหัส") |
@@ -205,13 +205,13 @@ scope: `export:run` · operationId: `Products_export`
 | `special` | query |   | `string` ค่า: `none`, `any`, `fragile`, `hazardous`, `temp` | none = ทั่วไป, any = มีประเภทพิเศษ, fragile/hazardous/temp = เปราะบาง/อันตราย/ควบคุมอุณหภูมิ |
 | `customerId` | query |   | `string` | `cus_…` = สินค้าของลูกค้ารายนี้ · `none` = สินค้าที่ใช้ได้ทุกลูกค้า |
 | `format` | query |   | `string` ค่า: `xlsx`, `csv` |   |
-| `ids` | query |   | `string` | ส่งออกเฉพาะ id เหล่านี้ (คั่นด้วย ,) — แถวที่เลือกในตาราง |
+| `ids` | query |   | `string` | ส่งออกเฉพาะ id เหล่านี้ (คั่นด้วย,) — แถวที่เลือกในตาราง |
 
 **Responses**
 
 | สถานะ | ความหมาย | body |
 |---|---|---|
-| `200` | ไฟล์ .xlsx หรือ .csv ตามตัวกรองเดียวกับรายการ (สูงสุด 10,000 แถว) |   |
+| `200` | ไฟล์.xlsx หรือ.csv ตามตัวกรองเดียวกับรายการ (สูงสุด 10,000 แถว) |   |
 | `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
 | `403` | ไม่มีสิทธิ์ (`export:run`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
 | `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (query/body) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
@@ -332,7 +332,7 @@ scope: `master:write` · operationId: `Products_patchExternal`
 | `stackable` |   | `boolean` |   | วางซ้อนได้ (ค่าเริ่มต้น true) |   |
 | `barcode` |   | `string` | null ได้ |   | `8851234567890` |
 | `name` |   | `string` |   |   | `ปูนซีเมนต์ถุง 50 กก.` |
-| `code` |   | `string` |   | แก้รหัส (MD-002) | `P-0001` |
+| `code` |   | `string` |   | แก้รหัส | `P-0001` |
 | `unitId` |   | `string` |   |   | `code:BAG` |
 | `externalId` |   | `string` | null ได้ | null = ลบการผูก |   |
 
@@ -437,7 +437,7 @@ scope: `master:write` · operationId: `Products_update`
 | `stackable` |   | `boolean` |   | วางซ้อนได้ (ค่าเริ่มต้น true) |   |
 | `barcode` |   | `string` | null ได้ |   | `8851234567890` |
 | `name` |   | `string` |   |   | `ปูนซีเมนต์ถุง 50 กก.` |
-| `code` |   | `string` |   | แก้รหัส (MD-002) | `P-0001` |
+| `code` |   | `string` |   | แก้รหัส | `P-0001` |
 | `unitId` |   | `string` |   |   | `code:BAG` |
 | `externalId` |   | `string` | null ได้ | null = ลบการผูก |   |
 

@@ -33,9 +33,9 @@ scope: `master:read` · operationId: `Vehicles_list`
 | `cursor` | query |   | `string` | ค่า nextCursor จากหน้าก่อน (ใช้กับ sort เดิมเท่านั้น) |
 | `updatedAfter` | query |   | `string` | คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull) |
 | `sort` | query |   | `string` ค่า: `plate`, `updatedAt`, `-updatedAt` | plate = เรียงตามทะเบียน (ค่าเริ่มต้นของหน้าจอ) · updatedAt/-updatedAt สำหรับ sync |
-| `fields` | query |   | `string` | รายชื่อ field คั่นด้วย , เช่น id,plate |
+| `fields` | query |   | `string` | รายชื่อ field คั่นด้วย, เช่น id,plate |
 | `q` | query |   | `string` | ค้นหา — ทะเบียน ยี่ห้อ รุ่น เลขตัวถัง หรือ externalId (ไม่สนตัวพิมพ์) |
-| `status` | query |   | `string` | คั่นด้วย , เช่น ready,maintenance |
+| `status` | query |   | `string` | คั่นด้วย, เช่น ready,maintenance |
 | `externalId` | query |   | `string` | externalId ตรงตัว |
 | `includeDeleted` | query |   | `string` | true = รวมรายการที่ถูกลบ (tombstone มี `deletedAt`) |
 | `plate` | query |   | `string` | ทะเบียนมีคำนี้ (ไม่สนช่องว่าง/ขีด) |
@@ -45,7 +45,7 @@ scope: `master:read` · operationId: `Vehicles_list`
 | `unitRole` | query |   | `string` ค่า: `SINGLE`, `TRACTOR`, `TRAILER` |   |
 | `unpaired` | query |   | `string` | true = เฉพาะที่ยังไม่จับคู่หัวลาก-หาง |
 | `docAlert` | query |   | `string` ค่า: `true`, `false` | true = มีเอกสารฉบับปัจจุบันหมดภายใน 30 วันหรือหมดแล้ว (ไม่นับรถปลดระวาง) · false = ไม่มี — คำนวณตามวันนี้ (ไม่สัมพันธ์กับ updatedAt) |
-| `busy` | query |   | `string` ค่า: `true`, `false` | ST9-T01 true = กำลังใช้งาน (เป็นรถหรือหางของเที่ยวที่ปล่อยแล้วยังไม่ปิด — DISPATCHED/IN_PROGRESS — และไม่ได้ซ่อม/ปลดระวาง) · false = ส่วนกลับ |
+| `busy` | query |   | `string` ค่า: `true`, `false` | true = กำลังใช้งาน (เป็นรถหรือหางของเที่ยวที่ปล่อยแล้วยังไม่ปิด — DISPATCHED/IN_PROGRESS — และไม่ได้ซ่อม/ปลดระวาง) · false = ส่วนกลับ |
 
 **Responses**
 
@@ -96,7 +96,7 @@ scope: `master:write` · operationId: `Vehicles_create`
 | `engineNo` |   | `string` | null ได้ | เลขเครื่องยนต์ |   |
 | `brand` |   | `string` | null ได้ |   | `Isuzu` |
 | `model` |   | `string` | null ได้ |   | `FRR 210` |
-| `year` |   | `number` | null ได้ | ปีผลิต (ค.ศ.) 1980 – ปีหน้า (spec/06 FLT-A) | `2021` |
+| `year` |   | `number` | null ได้ | ปีผลิต (ค.ศ.) 1980 – ปีหน้า | `2021` |
 | `color` |   | `string` | null ได้ |   | `ขาว` |
 | `fuelType` |   | `string` | ค่า: `DIESEL`, `GASOLINE`, `NGV`, `LPG`, `EV`, `HYBRID` · null ได้ |   |   |
 | `tankCapacityL` |   | `number` | null ได้ | ความจุถัง (ลิตร) 20–2,000 | `200` |
@@ -107,7 +107,7 @@ scope: `master:write` · operationId: `Vehicles_create`
 | `depreciationMethod` |   | `string` | ค่า: `STRAIGHT_LINE` · null ได้ | วิธีคิดค่าเสื่อม (เส้นตรง N ปี — ต้องมีราคาซื้อและจำนวนปี) |   |
 | `depreciationYears` |   | `number` | null ได้ | อายุใช้งาน (ปี) 1–30 | `10` |
 | `salvageValue` |   | `string` | null ได้ | มูลค่าซาก ≤ ราคาซื้อ | `400000.00` |
-| `photoDocumentIds` |   | `array<string>` |   | รูปรถ — id ไฟล์จาก /v1/documents (ST1-T08) สูงสุด 10 รูป | `["doc_…"]` |
+| `photoDocumentIds` |   | `array<string>` |   | รูปรถ — id ไฟล์จาก /v1/documents สูงสุด 10 รูป | `["doc_…"]` |
 | `plate` | ใช่ | `string` |   | ทะเบียน (ไม่รวมจังหวัด) — ห้ามซ้ำกับคันที่ยังไม่ปลดระวาง | `70-1234` |
 | `plateProvince` | ใช่ | `string` | ค่า: `TH-10`, `TH-11`, `TH-12`, `TH-13`, `TH-14`, `TH-15`, `TH-16`, `TH-17`, `TH-18`, `TH-19`, `TH-20`, `TH-21`, `TH-22`, `TH-23`, `TH-24`, `TH-25`, `TH-26`, `TH-27`, `TH-30`, `TH-31`, `TH-32`, `TH-33`, `TH-34`, `TH-35`, `TH-36`, `TH-37`, `TH-38`, `TH-39`, `TH-40`, `TH-41`, `TH-42`, `TH-43`, `TH-44`, `TH-45`, `TH-46`, `TH-47`, `TH-48`, `TH-49`, `TH-50`, `TH-51`, `TH-52`, `TH-53`, `TH-54`, `TH-55`, `TH-56`, `TH-57`, `TH-58`, `TH-60`, `TH-61`, `TH-62`, `TH-63`, `TH-64`, `TH-65`, `TH-66`, `TH-67`, `TH-70`, `TH-71`, `TH-72`, `TH-73`, `TH-74`, `TH-75`, `TH-76`, `TH-77`, `TH-80`, `TH-81`, `TH-82`, `TH-83`, `TH-84`, `TH-85`, `TH-86`, `TH-90`, `TH-91`, `TH-92`, `TH-93`, `TH-94`, `TH-95`, `TH-96` | จังหวัดบนป้าย (ISO 3166-2:TH) | `TH-10` |
 | `vehicleTypeId` | ใช่ | `string` |   | ประเภทรถ (ใช้งานอยู่) | `vty_…` |
@@ -190,9 +190,9 @@ scope: `export:run` · operationId: `Vehicles_export`
 | `cursor` | query |   | `string` | ค่า nextCursor จากหน้าก่อน (ใช้กับ sort เดิมเท่านั้น) |
 | `updatedAfter` | query |   | `string` | คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull) |
 | `sort` | query |   | `string` ค่า: `plate`, `updatedAt`, `-updatedAt` | plate = เรียงตามทะเบียน (ค่าเริ่มต้นของหน้าจอ) · updatedAt/-updatedAt สำหรับ sync |
-| `fields` | query |   | `string` | รายชื่อ field คั่นด้วย , เช่น id,plate |
+| `fields` | query |   | `string` | รายชื่อ field คั่นด้วย, เช่น id,plate |
 | `q` | query |   | `string` | ค้นหา — ทะเบียน ยี่ห้อ รุ่น เลขตัวถัง หรือ externalId (ไม่สนตัวพิมพ์) |
-| `status` | query |   | `string` | คั่นด้วย , เช่น ready,maintenance |
+| `status` | query |   | `string` | คั่นด้วย, เช่น ready,maintenance |
 | `externalId` | query |   | `string` | externalId ตรงตัว |
 | `includeDeleted` | query |   | `string` | true = รวมรายการที่ถูกลบ (tombstone มี `deletedAt`) |
 | `plate` | query |   | `string` | ทะเบียนมีคำนี้ (ไม่สนช่องว่าง/ขีด) |
@@ -202,15 +202,15 @@ scope: `export:run` · operationId: `Vehicles_export`
 | `unitRole` | query |   | `string` ค่า: `SINGLE`, `TRACTOR`, `TRAILER` |   |
 | `unpaired` | query |   | `string` | true = เฉพาะที่ยังไม่จับคู่หัวลาก-หาง |
 | `docAlert` | query |   | `string` ค่า: `true`, `false` | true = มีเอกสารฉบับปัจจุบันหมดภายใน 30 วันหรือหมดแล้ว (ไม่นับรถปลดระวาง) · false = ไม่มี — คำนวณตามวันนี้ (ไม่สัมพันธ์กับ updatedAt) |
-| `busy` | query |   | `string` ค่า: `true`, `false` | ST9-T01 true = กำลังใช้งาน (เป็นรถหรือหางของเที่ยวที่ปล่อยแล้วยังไม่ปิด — DISPATCHED/IN_PROGRESS — และไม่ได้ซ่อม/ปลดระวาง) · false = ส่วนกลับ |
+| `busy` | query |   | `string` ค่า: `true`, `false` | true = กำลังใช้งาน (เป็นรถหรือหางของเที่ยวที่ปล่อยแล้วยังไม่ปิด — DISPATCHED/IN_PROGRESS — และไม่ได้ซ่อม/ปลดระวาง) · false = ส่วนกลับ |
 | `format` | query |   | `string` ค่า: `xlsx`, `csv` |   |
-| `ids` | query |   | `string` | ส่งออกเฉพาะ id เหล่านี้ (คั่นด้วย ,) — แถวที่เลือกในตาราง |
+| `ids` | query |   | `string` | ส่งออกเฉพาะ id เหล่านี้ (คั่นด้วย,) — แถวที่เลือกในตาราง |
 
 **Responses**
 
 | สถานะ | ความหมาย | body |
 |---|---|---|
-| `200` | ไฟล์ .xlsx หรือ .csv ตามตัวกรองเดียวกับรายการ (สูงสุด 10,000 แถว) |   |
+| `200` | ไฟล์.xlsx หรือ.csv ตามตัวกรองเดียวกับรายการ (สูงสุด 10,000 แถว) |   |
 | `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
 | `403` | ไม่มีสิทธิ์ (`export:run`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
 | `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (query/body) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
@@ -256,7 +256,7 @@ scope: `master:write` · operationId: `Vehicles_upsertExternal`
 | `engineNo` |   | `string` | null ได้ | เลขเครื่องยนต์ |   |
 | `brand` |   | `string` | null ได้ |   | `Isuzu` |
 | `model` |   | `string` | null ได้ |   | `FRR 210` |
-| `year` |   | `number` | null ได้ | ปีผลิต (ค.ศ.) 1980 – ปีหน้า (spec/06 FLT-A) | `2021` |
+| `year` |   | `number` | null ได้ | ปีผลิต (ค.ศ.) 1980 – ปีหน้า | `2021` |
 | `color` |   | `string` | null ได้ |   | `ขาว` |
 | `fuelType` |   | `string` | ค่า: `DIESEL`, `GASOLINE`, `NGV`, `LPG`, `EV`, `HYBRID` · null ได้ |   |   |
 | `tankCapacityL` |   | `number` | null ได้ | ความจุถัง (ลิตร) 20–2,000 | `200` |
@@ -267,7 +267,7 @@ scope: `master:write` · operationId: `Vehicles_upsertExternal`
 | `depreciationMethod` |   | `string` | ค่า: `STRAIGHT_LINE` · null ได้ | วิธีคิดค่าเสื่อม (เส้นตรง N ปี — ต้องมีราคาซื้อและจำนวนปี) |   |
 | `depreciationYears` |   | `number` | null ได้ | อายุใช้งาน (ปี) 1–30 | `10` |
 | `salvageValue` |   | `string` | null ได้ | มูลค่าซาก ≤ ราคาซื้อ | `400000.00` |
-| `photoDocumentIds` |   | `array<string>` |   | รูปรถ — id ไฟล์จาก /v1/documents (ST1-T08) สูงสุด 10 รูป | `["doc_…"]` |
+| `photoDocumentIds` |   | `array<string>` |   | รูปรถ — id ไฟล์จาก /v1/documents สูงสุด 10 รูป | `["doc_…"]` |
 | `plate` | ใช่ | `string` |   | ทะเบียน (ไม่รวมจังหวัด) — ห้ามซ้ำกับคันที่ยังไม่ปลดระวาง | `70-1234` |
 | `plateProvince` | ใช่ | `string` | ค่า: `TH-10`, `TH-11`, `TH-12`, `TH-13`, `TH-14`, `TH-15`, `TH-16`, `TH-17`, `TH-18`, `TH-19`, `TH-20`, `TH-21`, `TH-22`, `TH-23`, `TH-24`, `TH-25`, `TH-26`, `TH-27`, `TH-30`, `TH-31`, `TH-32`, `TH-33`, `TH-34`, `TH-35`, `TH-36`, `TH-37`, `TH-38`, `TH-39`, `TH-40`, `TH-41`, `TH-42`, `TH-43`, `TH-44`, `TH-45`, `TH-46`, `TH-47`, `TH-48`, `TH-49`, `TH-50`, `TH-51`, `TH-52`, `TH-53`, `TH-54`, `TH-55`, `TH-56`, `TH-57`, `TH-58`, `TH-60`, `TH-61`, `TH-62`, `TH-63`, `TH-64`, `TH-65`, `TH-66`, `TH-67`, `TH-70`, `TH-71`, `TH-72`, `TH-73`, `TH-74`, `TH-75`, `TH-76`, `TH-77`, `TH-80`, `TH-81`, `TH-82`, `TH-83`, `TH-84`, `TH-85`, `TH-86`, `TH-90`, `TH-91`, `TH-92`, `TH-93`, `TH-94`, `TH-95`, `TH-96` | จังหวัดบนป้าย (ISO 3166-2:TH) | `TH-10` |
 | `vehicleTypeId` | ใช่ | `string` |   | ประเภทรถ (ใช้งานอยู่) | `vty_…` |
@@ -343,7 +343,7 @@ scope: `master:write` · operationId: `Vehicles_patchExternal`
 | `engineNo` |   | `string` | null ได้ | เลขเครื่องยนต์ |   |
 | `brand` |   | `string` | null ได้ |   | `Isuzu` |
 | `model` |   | `string` | null ได้ |   | `FRR 210` |
-| `year` |   | `number` | null ได้ | ปีผลิต (ค.ศ.) 1980 – ปีหน้า (spec/06 FLT-A) | `2021` |
+| `year` |   | `number` | null ได้ | ปีผลิต (ค.ศ.) 1980 – ปีหน้า | `2021` |
 | `color` |   | `string` | null ได้ |   | `ขาว` |
 | `fuelType` |   | `string` | ค่า: `DIESEL`, `GASOLINE`, `NGV`, `LPG`, `EV`, `HYBRID` · null ได้ |   |   |
 | `tankCapacityL` |   | `number` | null ได้ | ความจุถัง (ลิตร) 20–2,000 | `200` |
@@ -354,7 +354,7 @@ scope: `master:write` · operationId: `Vehicles_patchExternal`
 | `depreciationMethod` |   | `string` | ค่า: `STRAIGHT_LINE` · null ได้ | วิธีคิดค่าเสื่อม (เส้นตรง N ปี — ต้องมีราคาซื้อและจำนวนปี) |   |
 | `depreciationYears` |   | `number` | null ได้ | อายุใช้งาน (ปี) 1–30 | `10` |
 | `salvageValue` |   | `string` | null ได้ | มูลค่าซาก ≤ ราคาซื้อ | `400000.00` |
-| `photoDocumentIds` |   | `array<string>` |   | รูปรถ — id ไฟล์จาก /v1/documents (ST1-T08) สูงสุด 10 รูป | `["doc_…"]` |
+| `photoDocumentIds` |   | `array<string>` |   | รูปรถ — id ไฟล์จาก /v1/documents สูงสุด 10 รูป | `["doc_…"]` |
 | `plate` |   | `string` |   |   | `70-1234` |
 | `plateProvince` |   | `string` | ค่า: `TH-10`, `TH-11`, `TH-12`, `TH-13`, `TH-14`, `TH-15`, `TH-16`, `TH-17`, `TH-18`, `TH-19`, `TH-20`, `TH-21`, `TH-22`, `TH-23`, `TH-24`, `TH-25`, `TH-26`, `TH-27`, `TH-30`, `TH-31`, `TH-32`, `TH-33`, `TH-34`, `TH-35`, `TH-36`, `TH-37`, `TH-38`, `TH-39`, `TH-40`, `TH-41`, `TH-42`, `TH-43`, `TH-44`, `TH-45`, `TH-46`, `TH-47`, `TH-48`, `TH-49`, `TH-50`, `TH-51`, `TH-52`, `TH-53`, `TH-54`, `TH-55`, `TH-56`, `TH-57`, `TH-58`, `TH-60`, `TH-61`, `TH-62`, `TH-63`, `TH-64`, `TH-65`, `TH-66`, `TH-67`, `TH-70`, `TH-71`, `TH-72`, `TH-73`, `TH-74`, `TH-75`, `TH-76`, `TH-77`, `TH-80`, `TH-81`, `TH-82`, `TH-83`, `TH-84`, `TH-85`, `TH-86`, `TH-90`, `TH-91`, `TH-92`, `TH-93`, `TH-94`, `TH-95`, `TH-96` |   |   |
 | `vehicleTypeId` |   | `string` |   |   | `vty_…` |
@@ -462,7 +462,7 @@ scope: `master:write` · operationId: `Vehicles_update`
 | `engineNo` |   | `string` | null ได้ | เลขเครื่องยนต์ |   |
 | `brand` |   | `string` | null ได้ |   | `Isuzu` |
 | `model` |   | `string` | null ได้ |   | `FRR 210` |
-| `year` |   | `number` | null ได้ | ปีผลิต (ค.ศ.) 1980 – ปีหน้า (spec/06 FLT-A) | `2021` |
+| `year` |   | `number` | null ได้ | ปีผลิต (ค.ศ.) 1980 – ปีหน้า | `2021` |
 | `color` |   | `string` | null ได้ |   | `ขาว` |
 | `fuelType` |   | `string` | ค่า: `DIESEL`, `GASOLINE`, `NGV`, `LPG`, `EV`, `HYBRID` · null ได้ |   |   |
 | `tankCapacityL` |   | `number` | null ได้ | ความจุถัง (ลิตร) 20–2,000 | `200` |
@@ -473,7 +473,7 @@ scope: `master:write` · operationId: `Vehicles_update`
 | `depreciationMethod` |   | `string` | ค่า: `STRAIGHT_LINE` · null ได้ | วิธีคิดค่าเสื่อม (เส้นตรง N ปี — ต้องมีราคาซื้อและจำนวนปี) |   |
 | `depreciationYears` |   | `number` | null ได้ | อายุใช้งาน (ปี) 1–30 | `10` |
 | `salvageValue` |   | `string` | null ได้ | มูลค่าซาก ≤ ราคาซื้อ | `400000.00` |
-| `photoDocumentIds` |   | `array<string>` |   | รูปรถ — id ไฟล์จาก /v1/documents (ST1-T08) สูงสุด 10 รูป | `["doc_…"]` |
+| `photoDocumentIds` |   | `array<string>` |   | รูปรถ — id ไฟล์จาก /v1/documents สูงสุด 10 รูป | `["doc_…"]` |
 | `plate` |   | `string` |   |   | `70-1234` |
 | `plateProvince` |   | `string` | ค่า: `TH-10`, `TH-11`, `TH-12`, `TH-13`, `TH-14`, `TH-15`, `TH-16`, `TH-17`, `TH-18`, `TH-19`, `TH-20`, `TH-21`, `TH-22`, `TH-23`, `TH-24`, `TH-25`, `TH-26`, `TH-27`, `TH-30`, `TH-31`, `TH-32`, `TH-33`, `TH-34`, `TH-35`, `TH-36`, `TH-37`, `TH-38`, `TH-39`, `TH-40`, `TH-41`, `TH-42`, `TH-43`, `TH-44`, `TH-45`, `TH-46`, `TH-47`, `TH-48`, `TH-49`, `TH-50`, `TH-51`, `TH-52`, `TH-53`, `TH-54`, `TH-55`, `TH-56`, `TH-57`, `TH-58`, `TH-60`, `TH-61`, `TH-62`, `TH-63`, `TH-64`, `TH-65`, `TH-66`, `TH-67`, `TH-70`, `TH-71`, `TH-72`, `TH-73`, `TH-74`, `TH-75`, `TH-76`, `TH-77`, `TH-80`, `TH-81`, `TH-82`, `TH-83`, `TH-84`, `TH-85`, `TH-86`, `TH-90`, `TH-91`, `TH-92`, `TH-93`, `TH-94`, `TH-95`, `TH-96` |   |   |
 | `vehicleTypeId` |   | `string` |   |   | `vty_…` |
@@ -673,7 +673,7 @@ scope: `master:read` · operationId: `Vehicles_readings`
 
 | สถานะ | ความหมาย | body |
 |---|---|---|
-| `200` | ประวัติเลขไมล์ ใหม่สุดก่อน (spec/06 FLT-O) | `OdometerPageDto` |
+| `200` | ประวัติเลขไมล์ ใหม่สุดก่อน | `OdometerPageDto` |
 | `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
 | `403` | ไม่มีสิทธิ์ (`master:read`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
 | `404` | ไม่พบ (รวมข้อมูลของบริษัทอื่น — ไม่บอกว่ามีอยู่) — [not_found](errors.md#not_found) | `ProblemDto` |
@@ -862,7 +862,7 @@ const { data, error } = await tms.POST('/v1/vehicles/{id}/odometer/correct', {
 | `odometerSource` | ใช่ | `string` | null ได้ |   | `MANUAL` |
 | `odometerUpdatedAt` | ใช่ | `string (date-time)` | null ได้ |   |   |
 | `paired` | ใช่ | `PairedVehicleDto` | null ได้ | หัวลาก/หางที่จับคู่ |   |
-| `purchaseCost` |   | `string` | null ได้ | ราคาซื้อ — มีเฉพาะผู้มีสิทธิ์ reports.finance:read (ข้อมูลการเงินรถ spec/06 FLT-A) |   |
+| `purchaseCost` |   | `string` | null ได้ | ราคาซื้อ — มีเฉพาะผู้มีสิทธิ์ reports.finance:read |   |
 | `purchasedOn` |   | `string (date)` | null ได้ |   |   |
 | `depreciationMethod` |   | `string` | ค่า: `STRAIGHT_LINE` · null ได้ |   |   |
 | `depreciationYears` |   | `number` | null ได้ |   |   |
@@ -876,7 +876,7 @@ const { data, error } = await tms.POST('/v1/vehicles/{id}/odometer/correct', {
 | `createdAt` | ใช่ | `string (date-time)` |   |   |   |
 | `updatedAt` | ใช่ | `string (date-time)` |   |   |   |
 | `quotaExceeded` |   | `boolean` |   | มีเฉพาะในผลการสร้าง: true = รถที่นับโควตา (ยังไม่ปลดระวาง) เกินโควตาของ tenant แล้ว — soft limit ยังสร้างได้ (header `Warning: 299` ด้วย) |   |
-| `docAlert` |   | `VehicleDocAlertDto` |   | มีเฉพาะในรายการ (GET /vehicles): เอกสารใกล้หมด 30 วัน/หมดแล้วของคันนี้ (รถปลดระวาง = 0) — ST2-T07 · คำนวณจากเอกสารและวันนี้ทุกครั้ง **ไม่ทำให้ `updatedAt` ของรถเปลี่ยน** — ผู้ที่ sync แบบ `updatedAfter` ให้ดึงเอกสารจาก `GET /vehicle-documents` แทน |   |
+| `docAlert` |   | `VehicleDocAlertDto` |   | มีเฉพาะในรายการ (GET /vehicles): เอกสารใกล้หมด 30 วัน/หมดแล้วของคันนี้ (รถปลดระวาง = 0) · คำนวณจากเอกสารและวันนี้ทุกครั้ง **ไม่ทำให้ `updatedAt` ของรถเปลี่ยน** — ผู้ที่ sync แบบ `updatedAfter` ให้ดึงเอกสารจาก `GET /vehicle-documents` แทน |   |
 
 ### VehiclePageDto {#schema-VehiclePageDto}
 

@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "TMS API v1",
-    "description": "สร้างจาก OpenAPI ของ TMS (packages/contracts/openapi.json) — ตั้งตัวแปร baseUrl (ไม่ต้องใส่ /v1) และ apiKey (tk_test_… สำหรับ Sandbox)",
+    "description": "สร้างจาก OpenAPI ของ TMS — ตั้งตัวแปร baseUrl (ไม่ต้องใส่ /v1) และ apiKey (tk_test_… สำหรับ Sandbox)",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "auth": {
@@ -149,25 +149,25 @@
                 {
                   "key": "fields",
                   "value": "",
-                  "description": "รายชื่อ field ของ Order คั่นด้วย , เช่น id,soNo,status (ไม่รู้จัก → 422) — id คืนเสมอ",
+                  "description": "รายชื่อ field ของ Order คั่นด้วย, เช่น id,soNo,status (ไม่รู้จัก → 422) — id คืนเสมอ",
                   "disabled": true
                 },
                 {
                   "key": "status",
                   "value": "",
-                  "description": "สถานะ คั่นด้วย , (draft, received, on_hold, planned, in_transit, partially_delivered, delivered, closed, cancelled)",
+                  "description": "สถานะ คั่นด้วย, (draft, received, on_hold, planned, in_transit, partially_delivered, delivered, closed, cancelled)",
                   "disabled": true
                 },
                 {
                   "key": "holdReason",
                   "value": "",
-                  "description": "รหัสเหตุค้าง คั่นด้วย , เช่น RATE_MISSING,CUSTOMER_UNMAPPED — ตรงกับเหตุใดก็ได้ (OR) ของ `holdCodes` (เหตุทั้งหมดของการรับงานครั้งล่าสุด รวมเหตุรอง) หรือ `holdReason.code` (เหตุหลักบนใบ)",
+                  "description": "รหัสเหตุค้าง คั่นด้วย, เช่น RATE_MISSING,CUSTOMER_UNMAPPED — ตรงกับเหตุใดก็ได้ (OR) ของ `holdCodes` (เหตุทั้งหมดของการรับงานครั้งล่าสุด รวมเหตุรอง) หรือ `holdReason.code` (เหตุหลักบนใบ)",
                   "disabled": true
                 },
                 {
                   "key": "held",
                   "value": "",
-                  "description": "หน้าใบค้าง (ST3-T07): true = เฉพาะใบค้าง (ON_HOLD + ใบที่ต้นทางแก้หลังวางแผนรอตัดสิน ซึ่งสถานะยัง PLANNED) · false = ไม่รวมใบค้างทั้งสองแบบ — ใช้คู่กับ `holdReason` ได้",
+                  "description": "หน้าใบค้าง: true = เฉพาะใบค้าง (ON_HOLD + ใบที่ต้นทางแก้หลังวางแผนรอตัดสิน ซึ่งสถานะยัง PLANNED) · false = ไม่รวมใบค้างทั้งสองแบบ — ใช้คู่กับ `holdReason` ได้",
                   "disabled": true
                 },
                 {
@@ -179,7 +179,7 @@
                 {
                   "key": "source",
                   "value": "",
-                  "description": "ที่มา คั่นด้วย , : MANUAL / EXCEL / API / PORTAL / ERP (ทุก connector) / ERP:{connector}",
+                  "description": "ที่มา คั่นด้วย,: MANUAL / EXCEL / API / PORTAL / ERP (ทุก connector) / ERP:{connector}",
                   "disabled": true
                 },
                 {
@@ -203,7 +203,7 @@
                 {
                   "key": "q",
                   "value": "",
-                  "description": "ค้นหา — เลข SO, externalId, เลข PO, ชื่อ/รหัสลูกค้า (ไม่สนตัวพิมพ์)",
+                  "description": "ค้นหา — เลข SO, externalId, เลข, ชื่อ/รหัสลูกค้า (ไม่สนตัวพิมพ์)",
                   "disabled": true
                 }
               ]
@@ -290,7 +290,7 @@
                 }
               ]
             },
-            "description": "scope: orders:write\n\n**แทนทั้งใบ (full replace):** ช่องที่ไม่ส่ง = ว่าง/ค่าตั้งต้น (เช่น ไม่ส่ง customerRef = ล้างเลข PO, ไม่ส่ง lines = ไม่มีสินค้า) — ใบที่วางแผน/ออกรถแล้ว การล้างช่องที่ล็อกนับเป็นการแก้ → 409 `order_locked_for_update` · ยกเว้น `billingCompanyId` ไม่ส่ง = คงของเดิม · แก้บางช่องใช้ PATCH · ส่งซ้ำค่าเดิม = ไม่เปลี่ยน version",
+            "description": "scope: orders:write\n\n**แทนทั้งใบ (full replace):** ช่องที่ไม่ส่ง = ว่าง/ค่าตั้งต้น — ใบที่วางแผน/ออกรถแล้ว การล้างช่องที่ล็อกนับเป็นการแก้ → 409 `order_locked_for_update` · ยกเว้น `billingCompanyId` ไม่ส่ง = คงของเดิม · แก้บางช่องใช้ PATCH · ส่งซ้ำค่าเดิม = ไม่เปลี่ยน version",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"requestedDate\": \"2026-11-12\",\n  \"stops\": [\n    {\n      \"type\": \"PICKUP\"\n    }\n  ]\n}",
@@ -341,7 +341,7 @@
                 }
               ]
             },
-            "description": "scope: orders:write\n\nแก้บางช่องของใบที่มีอยู่ (กติกาเดียวกับ `PATCH /orders/{id}`) · ยังไม่มีใบนี้ → 404 — สร้างใหม่ใช้ PUT · ช่องทางเดียวกับ PUT: ใบที่ไม่ได้มาจาก API (กรอกมือ/Excel/connector) → 409 `external_id_conflict` · **ต่างจาก PUT: ติดล็อกการแก้ (ST3-T08)** — ผู้ใช้อื่นเปิดแก้อยู่ → 409 `order_locked_by_user`",
+            "description": "scope: orders:write\n\nแก้บางช่องของใบที่มีอยู่ (กติกาเดียวกับ `PATCH /orders/{id}`) · ยังไม่มีใบนี้ → 404 — สร้างใหม่ใช้ PUT · ช่องทางเดียวกับ PUT: ใบที่ไม่ได้มาจาก API (กรอกมือ/Excel/connector) → 409 `external_id_conflict` · **ต่างจาก PUT: ติดล็อกการแก้** — ผู้ใช้อื่นเปิดแก้อยู่ → 409 `order_locked_by_user`",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"requestedDate\": \"2026-11-12\"\n}",
@@ -422,7 +422,7 @@
                 }
               ]
             },
-            "description": "scope: orders:write\n\nผู้ใช้อื่นเปิดแก้อยู่ (ล็อกการแก้ยังไม่หมดอายุ — ST3-T08) → 409 `order_locked_by_user` · ผู้ถือล็อกแก้ได้และนับเป็นกิจกรรม (ต่ออายุ) · ล็อกของผู้เรียกถูกผู้อื่นปลด → 409 `order_lock_released` จนกว่าจะเปิดแก้ใหม่ (POST /lock) · ไม่มีล็อก = แก้ได้ตามปกติ · ทางเข้า POST/PUT external (API/connector/นำเข้า) ไม่ติดล็อก",
+            "description": "scope: orders:write\n\nผู้ใช้อื่นเปิดแก้อยู่ → 409 `order_locked_by_user` · ผู้ถือล็อกแก้ได้และนับเป็นกิจกรรม (ต่ออายุ) · ล็อกของผู้เรียกถูกผู้อื่นปลด → 409 `order_lock_released` จนกว่าจะเปิดแก้ใหม่ (POST /lock) · ไม่มีล็อก = แก้ได้ตามปกติ · ทางเข้า POST/PUT external (API/connector/นำเข้า) ไม่ติดล็อก",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"requestedDate\": \"2026-11-12\"\n}",
@@ -712,7 +712,7 @@
           }
         },
         {
-          "name": "เลือกสถานที่ให้จุดที่ยังจับคู่ไม่ได้ + จำข้อความเป็น alias (ST3-T06)",
+          "name": "เลือกสถานที่ให้จุดที่ยังจับคู่ไม่ได้ + จำข้อความเป็น alias",
           "request": {
             "method": "POST",
             "header": [
@@ -774,7 +774,7 @@
           }
         },
         {
-          "name": "ตรวจใบค้างอีกครั้ง — คิดราคา + ประเมินเหตุค้างใหม่จากข้อมูลหลักปัจจุบัน (ST3-T07)",
+          "name": "ตรวจใบค้างอีกครั้ง — คิดราคา + ประเมินเหตุค้างใหม่จากข้อมูลหลักปัจจุบัน",
           "request": {
             "method": "POST",
             "header": [
@@ -816,7 +816,7 @@
           }
         },
         {
-          "name": "กำหนดราคาเอง — ค่าขนส่งเมื่อไม่พบ rate card (spec/03 ORD-043 · ใบค้าง RATE_MISSING — ST3-T07)",
+          "name": "กำหนดราคาเอง — ค่าขนส่งเมื่อไม่พบ rate card",
           "request": {
             "method": "POST",
             "header": [
@@ -871,7 +871,7 @@
           }
         },
         {
-          "name": "ยืนยันข้อมูลใบที่ต้นทางแจ้งว่าไม่ครบ (ใบค้าง SOURCE_ERROR — ST3-T07)",
+          "name": "ยืนยันข้อมูลใบที่ต้นทางแจ้งว่าไม่ครบ",
           "request": {
             "method": "POST",
             "header": [
@@ -913,7 +913,7 @@
                 }
               ]
             },
-            "description": "scope: orders:write\n\ndocs/01 §4.1 SOURCE_ERROR \"ดู raw_payload, แก้มือ หรือรอ connector แก้\": คนแก้ข้อมูลใบ (PATCH) แล้วยืนยัน → ล้างรายการปัญหาจากต้นทาง แล้วประเมินใบค้างใหม่ (เหตุอื่นยังค้างได้) · บังคับเหตุผล ≥ 10 ตัวอักษร (ลง audit `sales_order.source_error_resolved`) · ต้นทางส่งใบนี้มาใหม่ด้วยข้อมูลที่เปลี่ยน = ใช้ผลตรวจของต้นทางชุดใหม่ · ไม่มีปัญหาค้าง → 409 `invalid_state_transition` · หลังวางแผน → 409 `order_locked_for_update`",
+            "description": "scope: orders:write\n\nSOURCE_ERROR \"ดู raw_payload, แก้มือ หรือรอ connector แก้\": คนแก้ข้อมูลใบ (PATCH) แล้วยืนยัน → ล้างรายการปัญหาจากต้นทาง แล้วประเมินใบค้างใหม่ (เหตุอื่นยังค้างได้) · บังคับเหตุผล ≥ 10 ตัวอักษร (ลง audit `sales_order.source_error_resolved`) · ต้นทางส่งใบนี้มาใหม่ด้วยข้อมูลที่เปลี่ยน = ใช้ผลตรวจของต้นทางชุดใหม่ · ไม่มีปัญหาค้าง → 409 `invalid_state_transition` · หลังวางแผน → 409 `order_locked_for_update`",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"reason\": \"ตรวจกับเอกสารต้นฉบับแล้ว แก้วันรับของและจำนวนในใบให้ถูกต้อง\"\n}",
@@ -926,7 +926,7 @@
           }
         },
         {
-          "name": "เลือกลูกค้าให้ใบที่ยังจับคู่ไม่ได้ + จำรหัส/ชื่อตามต้นทาง (ST3-T06)",
+          "name": "เลือกลูกค้าให้ใบที่ยังจับคู่ไม่ได้ + จำรหัส/ชื่อตามต้นทาง",
           "request": {
             "method": "POST",
             "header": [
@@ -1041,7 +1041,7 @@
                 }
               ]
             },
-            "description": "scope: orders:read\n\nขั้น (stepper) และ ETA ตามกติกาของหน้าติดตามผู้รับ (ST4-T14) · ETA = ช่วงเวลาตามแผน (ยังไม่มี ETA สด — P1) · ตำแหน่ง = พิกัดของ event หน้างานล่าสุดของเที่ยว (ไม่มี GPS สด) · ทะเบียนปิด 2 หลัก · ห้าม cache"
+            "description": "scope: orders:read\n\nขั้น (stepper) และ ETA ตามกติกาของหน้าติดตามผู้รับ · ETA = ช่วงเวลาตามแผน (ยังไม่มี ETA สด — P1) · ตำแหน่ง = พิกัดของ event หน้างานล่าสุดของเที่ยว (ไม่มี GPS สด) · ทะเบียนปิด 2 หลัก · ห้าม cache"
           }
         },
         {
@@ -1152,7 +1152,7 @@
                 {
                   "key": "fields",
                   "value": "",
-                  "description": "รายชื่อ field คั่นด้วย , เช่น id,legalName",
+                  "description": "รายชื่อ field คั่นด้วย, เช่น id,legalName",
                   "disabled": true
                 },
                 {
@@ -1170,7 +1170,7 @@
                 {
                   "key": "status",
                   "value": "DRAFT,PLANNED",
-                  "description": "สถานะ คั่นด้วย , (DRAFT / PLANNED / DISPATCHED / PICKED_UP / DELIVERED / FAILED / RETURNED / POD_PENDING / UNBILLED / BILLED / CANCELLED)",
+                  "description": "สถานะ คั่นด้วย, (DRAFT / PLANNED / DISPATCHED / PICKED_UP / DELIVERED / FAILED / RETURNED / POD_PENDING / UNBILLED / BILLED / CANCELLED)",
                   "disabled": true
                 },
                 {
@@ -1607,7 +1607,7 @@
                 }
               ]
             },
-            "description": "scope: trips:dispatch\n\nส่งทั้งฉบับ (ชื่อช่องตาม docs/01 §5.3) → ฉบับใหม่ (version + 1) · แก้ฉบับเดิมต้องมี `reason` ≥ 10 ตัวอักษร (audit `pod.amended`) · คำนวณ `pod_status` กับ checklist ของลูกค้า (DO ส่งไม่สำเร็จใช้ชุดไม่สำเร็จ): ครบ = COMPLETE, ไม่ครบ = PARTIAL (ไม่ปฏิเสธ) · DO DELIVERED → UNBILLED (ครบ) / POD_PENDING (ไม่ครบ), POD_PENDING → UNBILLED เมื่อครบ — DO ที่ UNBILLED แล้วแก้จนไม่ครบ → 422 `pod_incomplete` (ด่านวางบิล) · ไฟล์ที่ใช้ถูกผูกกับ DO นี้ (`stored_document.entity_type/entity_id`) ใช้กับ DO อื่นไม่ได้ · domain_event `pod.captured` · บันทึกได้เมื่อ DO ส่งแล้ว/ส่งไม่สำเร็จ ยังไม่วางบิล",
+            "description": "scope: trips:dispatch\n\nส่งทั้งฉบับ → ฉบับใหม่ (version + 1) · แก้ฉบับเดิมต้องมี `reason` ≥ 10 ตัวอักษร (audit `pod.amended`) · คำนวณ `pod_status` กับ checklist ของลูกค้า (DO ส่งไม่สำเร็จใช้ชุดไม่สำเร็จ): ครบ = COMPLETE, ไม่ครบ = PARTIAL (ไม่ปฏิเสธ) · DO DELIVERED → UNBILLED (ครบ) / POD_PENDING (ไม่ครบ), POD_PENDING → UNBILLED เมื่อครบ — DO ที่ UNBILLED แล้วแก้จนไม่ครบ → 422 `pod_incomplete` (ด่านวางบิล) · ไฟล์ที่ใช้ถูกผูกกับ DO นี้ (`stored_document.entity_type/entity_id`) ใช้กับ DO อื่นไม่ได้ · domain_event `pod.captured` · บันทึกได้เมื่อ DO ส่งแล้ว/ส่งไม่สำเร็จ ยังไม่วางบิล",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"checks\": {\n    \"goods_ok\": true\n  },\n  \"choices\": {\n    \"box_state\": \"ดี\"\n  }\n}",
@@ -1813,13 +1813,13 @@
                 {
                   "key": "fields",
                   "value": "",
-                  "description": "รายชื่อ field คั่นด้วย , เช่น id,legalName",
+                  "description": "รายชื่อ field คั่นด้วย, เช่น id,legalName",
                   "disabled": true
                 },
                 {
                   "key": "status",
                   "value": "PLANNING,ASSIGNED",
-                  "description": "สถานะ คั่นด้วย , (PLANNING / OFFERED / ASSIGNED / DISPATCHED / IN_PROGRESS / COMPLETED / COSTED / SETTLED / CANCELLED)",
+                  "description": "สถานะ คั่นด้วย, (PLANNING / OFFERED / ASSIGNED / DISPATCHED / IN_PROGRESS / COMPLETED / COSTED / SETTLED / CANCELLED)",
                   "disabled": true
                 },
                 {
@@ -2108,7 +2108,7 @@
                 }
               ]
             },
-            "description": "scope: trips:assign\n\nกฎตอนจัด (ST3-T14) **ไม่บังคับตอนเพิ่ม/ถอด DO** — ตรวจใหม่และเก็บใน `warnings` (กระดานแสดงเป็นค้างยกเว้น/ยืนยัน) แล้วบังคับอีกครั้งตอน `/dispatch` (บล็อกค้าง → 409 `assignment_blocked`, คำเตือนค้าง → 409 `assignment_warnings`) · น้ำหนักที่เพิ่มขึ้นทำให้การยืนยัน \"น้ำหนักเกิน\" เดิมหมดผล",
+            "description": "scope: trips:assign\n\nกฎตอนจัด **ไม่บังคับตอนเพิ่ม/ถอด DO** — ตรวจใหม่และเก็บใน `warnings` (กระดานแสดงเป็นค้างยกเว้น/ยืนยัน) แล้วบังคับอีกครั้งตอน `/dispatch` (บล็อกค้าง → 409 `assignment_blocked`, คำเตือนค้าง → 409 `assignment_warnings`) · น้ำหนักที่เพิ่มขึ้นทำให้การยืนยัน \"น้ำหนักเกิน\" เดิมหมดผล",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"deliveryOrderIds\": [\n    \"do_3f2a…\"\n  ]\n}",
@@ -2273,7 +2273,7 @@
                 }
               ]
             },
-            "description": "scope: trips:assign\n\nPLANNING → ASSIGNED (รถบริษัท) · ASSIGNED → ASSIGNED (เปลี่ยนรถ/คนขับก่อนปล่อยรถ — docs/01 §4.2) · OFFERED → ASSIGNED (รถร่วมรับงาน) · `dispatch: true` → ปล่อยรถต่อทันที (atomic; ต้องมี `trips:dispatch`; คำเตือนที่ยังไม่ยืนยัน → 409 `assignment_warnings`)",
+            "description": "scope: trips:assign\n\nPLANNING → ASSIGNED (รถบริษัท) · ASSIGNED → ASSIGNED · OFFERED → ASSIGNED (รถร่วมรับงาน) · `dispatch: true` → ปล่อยรถต่อทันที (atomic; ต้องมี `trips:dispatch`; คำเตือนที่ยังไม่ยืนยัน → 409 `assignment_warnings`)",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"ruleKeys\": [\n    \"OVERWEIGHT|v=…\"\n  ],\n  \"vehicleId\": \"veh_3f2a…\"\n}",
@@ -2316,7 +2316,7 @@
                 {
                   "key": "change",
                   "value": "",
-                  "description": "ST3-T25 ตัวเลือกสำหรับเปลี่ยนผู้รับเหมา: `true` = ไม่รวมผู้รับเหมาของการจ้างที่ใช้งานอยู่ (เลือกซ้ำไม่ได้ · ไม่นับเป็นถูกสุด)",
+                  "description": "ตัวเลือกสำหรับเปลี่ยนผู้รับเหมา: `true` = ไม่รวมผู้รับเหมาของการจ้างที่ใช้งานอยู่ (เลือกซ้ำไม่ได้ · ไม่นับเป็นถูกสุด)",
                   "disabled": true
                 }
               ],
@@ -3301,7 +3301,7 @@
                 }
               ]
             },
-            "description": "scope: trips:read\n\nST7-T11 (docs/04 G2 #3 `GET`): สถานะ/เวลาเป็นค่าที่ไล่จาก event แล้ว (projection ST4-T03) · จุดที่ถอดออกแล้วยังเปิดได้ (`removedAt`) · ลำดับ event ทั้งหมด `GET /v1/stops/{id}/events` · จุดทั้งเที่ยว `GET /v1/trips/{id}` (`stops[]`)"
+            "description": "scope: trips:read\n\nสถานะ/เวลาเป็นค่าที่ไล่จาก event แล้ว · จุดที่ถอดออกแล้วยังเปิดได้ (`removedAt`) · ลำดับ event ทั้งหมด `GET /v1/stops/{id}/events` · จุดทั้งเที่ยว `GET /v1/trips/{id}` (`stops[]`)"
           }
         },
         {
@@ -3333,7 +3333,7 @@
                 }
               ]
             },
-            "description": "scope: trips:read\n\nST4-T02 (docs/01 §3.9): ทุก event ของจุด (รวมที่ขัดลำดับ/มาหลังปิด/ผู้จัดรถไม่ใช้) เรียง `occurredAt` → ชนิด (ออก → ถึง → ปิด) → `receivedAt` พร้อมผลของแต่ละตัว (`seqStatus`) และสถานะที่มีผลของจุด — ST4-T03 ลง `trip_stop` แล้ว (เที่ยวที่จบ/ยกเลิกไม่ไล่ต่อ)"
+            "description": "scope: trips:read\n\nทุก event ของจุด (รวมที่ขัดลำดับ/มาหลังปิด/ผู้จัดรถไม่ใช้) เรียง `occurredAt` → ชนิด (ออก → ถึง → ปิด) → `receivedAt` พร้อมผลของแต่ละตัว (`seqStatus`) และสถานะที่มีผลของจุด ลง `trip_stop` แล้ว (เที่ยวที่จบ/ยกเลิกไม่ไล่ต่อ)"
           }
         },
         {
@@ -3386,7 +3386,7 @@
           }
         },
         {
-          "name": "ออกเดินทางมุ่งหน้าไปจุดนี้ (docs/01 §3.9 DEPART)",
+          "name": "ออกเดินทางมุ่งหน้าไปจุดนี้",
           "request": {
             "method": "POST",
             "header": [
@@ -3561,7 +3561,7 @@
                 }
               ]
             },
-            "description": "scope: trips:read\n\nST4-T04: เรียงตามลำดับจุด (จุดที่ถอดแล้วอยู่ท้าย) แล้วตามลำดับที่มีผลของจุด · `recordedByName` = ชื่อผู้ใช้ภายในที่บันทึก (บันทึกแทนคนขับผ่านเว็บ) · `flags` ไม่ว่าง = รอผู้จัดรถตัดสินในศูนย์ข้อยกเว้น"
+            "description": "scope: trips:read\n\nเรียงตามลำดับจุด (จุดที่ถอดแล้วอยู่ท้าย) แล้วตามลำดับที่มีผลของจุด · `recordedByName` = ชื่อผู้ใช้ภายในที่บันทึก (บันทึกแทนคนขับผ่านเว็บ) · `flags` ไม่ว่าง = รอผู้จัดรถตัดสินในศูนย์ข้อยกเว้น"
           }
         },
         {
@@ -3896,13 +3896,13 @@
                 {
                   "key": "fields",
                   "value": "",
-                  "description": "รายชื่อ field คั่นด้วย , เช่น id,legalName",
+                  "description": "รายชื่อ field คั่นด้วย, เช่น id,legalName",
                   "disabled": true
                 },
                 {
                   "key": "status",
                   "value": "",
-                  "description": "สถานะคั่นด้วย , (active / failing / disabled / auto_disabled)",
+                  "description": "สถานะคั่นด้วย, (active / failing / disabled / auto_disabled)",
                   "disabled": true
                 },
                 {
@@ -4124,7 +4124,7 @@
                 {
                   "key": "status",
                   "value": "failed,exhausted",
-                  "description": "คั่นด้วย , เช่น `failed,exhausted`",
+                  "description": "คั่นด้วย, เช่น `failed,exhausted`",
                   "disabled": true
                 },
                 {
@@ -4240,7 +4240,7 @@
                 {
                   "key": "type",
                   "value": "order.created,order.cancelled",
-                  "description": "ชนิด event คั่นด้วย , (ชื่อใน `GET /v1/webhooks/event-types`)",
+                  "description": "ชนิด event คั่นด้วย, (ชื่อใน `GET /v1/webhooks/event-types`)",
                   "disabled": true
                 },
                 {
@@ -4438,7 +4438,7 @@
                 {
                   "key": "fields",
                   "value": "",
-                  "description": "รายชื่อ field คั่นด้วย , เช่น id,legalName",
+                  "description": "รายชื่อ field คั่นด้วย, เช่น id,legalName",
                   "disabled": true
                 },
                 {
@@ -4450,7 +4450,7 @@
                 {
                   "key": "status",
                   "value": "",
-                  "description": "คั่นด้วย , เช่น active,inactive",
+                  "description": "คั่นด้วย, เช่น active,inactive",
                   "disabled": true
                 },
                 {
@@ -4624,7 +4624,7 @@
                 {
                   "key": "fields",
                   "value": "",
-                  "description": "รายชื่อ field คั่นด้วย , เช่น id,legalName",
+                  "description": "รายชื่อ field คั่นด้วย, เช่น id,legalName",
                   "disabled": true
                 },
                 {
@@ -4636,7 +4636,7 @@
                 {
                   "key": "status",
                   "value": "",
-                  "description": "คั่นด้วย , เช่น active,inactive",
+                  "description": "คั่นด้วย, เช่น active,inactive",
                   "disabled": true
                 },
                 {
@@ -4678,7 +4678,7 @@
                 {
                   "key": "ids",
                   "value": "",
-                  "description": "ส่งออกเฉพาะ id เหล่านี้ (คั่นด้วย ,) — แถวที่เลือกในตาราง",
+                  "description": "ส่งออกเฉพาะ id เหล่านี้ (คั่นด้วย,) — แถวที่เลือกในตาราง",
                   "disabled": true
                 }
               ]
@@ -5282,7 +5282,7 @@
                 {
                   "key": "fields",
                   "value": "",
-                  "description": "รายชื่อ field คั่นด้วย , เช่น id,legalName",
+                  "description": "รายชื่อ field คั่นด้วย, เช่น id,legalName",
                   "disabled": true
                 },
                 {
@@ -5294,7 +5294,7 @@
                 {
                   "key": "status",
                   "value": "",
-                  "description": "คั่นด้วย , เช่น active,inactive",
+                  "description": "คั่นด้วย, เช่น active,inactive",
                   "disabled": true
                 },
                 {
@@ -5492,7 +5492,7 @@
                 {
                   "key": "fields",
                   "value": "",
-                  "description": "รายชื่อ field คั่นด้วย , เช่น id,legalName",
+                  "description": "รายชื่อ field คั่นด้วย, เช่น id,legalName",
                   "disabled": true
                 },
                 {
@@ -5504,7 +5504,7 @@
                 {
                   "key": "status",
                   "value": "",
-                  "description": "คั่นด้วย , เช่น active,inactive",
+                  "description": "คั่นด้วย, เช่น active,inactive",
                   "disabled": true
                 },
                 {
@@ -5570,7 +5570,7 @@
                 {
                   "key": "ids",
                   "value": "",
-                  "description": "ส่งออกเฉพาะ id เหล่านี้ (คั่นด้วย ,) — แถวที่เลือกในตาราง",
+                  "description": "ส่งออกเฉพาะ id เหล่านี้ (คั่นด้วย,) — แถวที่เลือกในตาราง",
                   "disabled": true
                 }
               ]
@@ -6220,7 +6220,7 @@
                 {
                   "key": "fields",
                   "value": "",
-                  "description": "รายชื่อ field คั่นด้วย , เช่น id,legalName",
+                  "description": "รายชื่อ field คั่นด้วย, เช่น id,legalName",
                   "disabled": true
                 },
                 {
@@ -6232,7 +6232,7 @@
                 {
                   "key": "status",
                   "value": "",
-                  "description": "คั่นด้วย , เช่น active,inactive",
+                  "description": "คั่นด้วย, เช่น active,inactive",
                   "disabled": true
                 },
                 {
@@ -6412,7 +6412,7 @@
                 {
                   "key": "fields",
                   "value": "",
-                  "description": "รายชื่อ field คั่นด้วย , เช่น id,legalName",
+                  "description": "รายชื่อ field คั่นด้วย, เช่น id,legalName",
                   "disabled": true
                 },
                 {
@@ -6424,7 +6424,7 @@
                 {
                   "key": "status",
                   "value": "",
-                  "description": "คั่นด้วย , เช่น active,inactive",
+                  "description": "คั่นด้วย, เช่น active,inactive",
                   "disabled": true
                 },
                 {
@@ -6472,7 +6472,7 @@
                 {
                   "key": "ids",
                   "value": "",
-                  "description": "ส่งออกเฉพาะ id เหล่านี้ (คั่นด้วย ,) — แถวที่เลือกในตาราง",
+                  "description": "ส่งออกเฉพาะ id เหล่านี้ (คั่นด้วย,) — แถวที่เลือกในตาราง",
                   "disabled": true
                 }
               ]
@@ -6926,7 +6926,7 @@
                 {
                   "key": "fields",
                   "value": "",
-                  "description": "รายชื่อ field คั่นด้วย , เช่น id,legalName",
+                  "description": "รายชื่อ field คั่นด้วย, เช่น id,legalName",
                   "disabled": true
                 },
                 {
@@ -6938,7 +6938,7 @@
                 {
                   "key": "status",
                   "value": "",
-                  "description": "คั่นด้วย , เช่น active,inactive",
+                  "description": "คั่นด้วย, เช่น active,inactive",
                   "disabled": true
                 },
                 {
@@ -7348,7 +7348,7 @@
                 {
                   "key": "fields",
                   "value": "",
-                  "description": "รายชื่อ field คั่นด้วย , เช่น id,legalName",
+                  "description": "รายชื่อ field คั่นด้วย, เช่น id,legalName",
                   "disabled": true
                 },
                 {
@@ -7360,7 +7360,7 @@
                 {
                   "key": "status",
                   "value": "",
-                  "description": "คั่นด้วย , เช่น active,inactive",
+                  "description": "คั่นด้วย, เช่น active,inactive",
                   "disabled": true
                 },
                 {
@@ -7540,7 +7540,7 @@
                 {
                   "key": "fields",
                   "value": "",
-                  "description": "รายชื่อ field คั่นด้วย , เช่น id,legalName",
+                  "description": "รายชื่อ field คั่นด้วย, เช่น id,legalName",
                   "disabled": true
                 },
                 {
@@ -7552,7 +7552,7 @@
                 {
                   "key": "status",
                   "value": "",
-                  "description": "คั่นด้วย , เช่น active,inactive",
+                  "description": "คั่นด้วย, เช่น active,inactive",
                   "disabled": true
                 },
                 {
@@ -7600,7 +7600,7 @@
                 {
                   "key": "ids",
                   "value": "",
-                  "description": "ส่งออกเฉพาะ id เหล่านี้ (คั่นด้วย ,) — แถวที่เลือกในตาราง",
+                  "description": "ส่งออกเฉพาะ id เหล่านี้ (คั่นด้วย,) — แถวที่เลือกในตาราง",
                   "disabled": true
                 }
               ]
@@ -8054,7 +8054,7 @@
                 {
                   "key": "fields",
                   "value": "",
-                  "description": "รายชื่อ field คั่นด้วย , เช่น id,legalName",
+                  "description": "รายชื่อ field คั่นด้วย, เช่น id,legalName",
                   "disabled": true
                 },
                 {
@@ -8066,7 +8066,7 @@
                 {
                   "key": "status",
                   "value": "",
-                  "description": "คั่นด้วย , เช่น active,inactive",
+                  "description": "คั่นด้วย, เช่น active,inactive",
                   "disabled": true
                 },
                 {
@@ -8246,7 +8246,7 @@
                 {
                   "key": "fields",
                   "value": "",
-                  "description": "รายชื่อ field คั่นด้วย , เช่น id,legalName",
+                  "description": "รายชื่อ field คั่นด้วย, เช่น id,legalName",
                   "disabled": true
                 },
                 {
@@ -8258,7 +8258,7 @@
                 {
                   "key": "status",
                   "value": "",
-                  "description": "คั่นด้วย , เช่น active,inactive",
+                  "description": "คั่นด้วย, เช่น active,inactive",
                   "disabled": true
                 },
                 {
@@ -8306,7 +8306,7 @@
                 {
                   "key": "ids",
                   "value": "",
-                  "description": "ส่งออกเฉพาะ id เหล่านี้ (คั่นด้วย ,) — แถวที่เลือกในตาราง",
+                  "description": "ส่งออกเฉพาะ id เหล่านี้ (คั่นด้วย,) — แถวที่เลือกในตาราง",
                   "disabled": true
                 }
               ]
@@ -8760,7 +8760,7 @@
                 {
                   "key": "fields",
                   "value": "",
-                  "description": "รายชื่อ field คั่นด้วย , เช่น id,legalName",
+                  "description": "รายชื่อ field คั่นด้วย, เช่น id,legalName",
                   "disabled": true
                 },
                 {
@@ -8772,7 +8772,7 @@
                 {
                   "key": "status",
                   "value": "",
-                  "description": "คั่นด้วย , เช่น active,inactive",
+                  "description": "คั่นด้วย, เช่น active,inactive",
                   "disabled": true
                 },
                 {
@@ -8790,7 +8790,7 @@
                 {
                   "key": "category",
                   "value": "DELIVERY_FAILED",
-                  "description": "หมวด คั่นด้วย , เช่น DELIVERY_FAILED,DELAY",
+                  "description": "หมวด คั่นด้วย, เช่น DELIVERY_FAILED,DELAY",
                   "disabled": true
                 },
                 {
@@ -8922,7 +8922,7 @@
                 {
                   "key": "fields",
                   "value": "",
-                  "description": "รายชื่อ field คั่นด้วย , เช่น id,legalName",
+                  "description": "รายชื่อ field คั่นด้วย, เช่น id,legalName",
                   "disabled": true
                 },
                 {
@@ -8934,7 +8934,7 @@
                 {
                   "key": "status",
                   "value": "",
-                  "description": "คั่นด้วย , เช่น active,inactive",
+                  "description": "คั่นด้วย, เช่น active,inactive",
                   "disabled": true
                 },
                 {
@@ -8952,7 +8952,7 @@
                 {
                   "key": "category",
                   "value": "DELIVERY_FAILED",
-                  "description": "หมวด คั่นด้วย , เช่น DELIVERY_FAILED,DELAY",
+                  "description": "หมวด คั่นด้วย, เช่น DELIVERY_FAILED,DELAY",
                   "disabled": true
                 },
                 {
@@ -9424,7 +9424,7 @@
                 {
                   "key": "fields",
                   "value": "",
-                  "description": "รายชื่อ field คั่นด้วย , เช่น id,legalName",
+                  "description": "รายชื่อ field คั่นด้วย, เช่น id,legalName",
                   "disabled": true
                 },
                 {
@@ -9436,7 +9436,7 @@
                 {
                   "key": "status",
                   "value": "",
-                  "description": "คั่นด้วย , เช่น active,inactive",
+                  "description": "คั่นด้วย, เช่น active,inactive",
                   "disabled": true
                 },
                 {
@@ -9616,7 +9616,7 @@
                 {
                   "key": "fields",
                   "value": "",
-                  "description": "รายชื่อ field คั่นด้วย , เช่น id,legalName",
+                  "description": "รายชื่อ field คั่นด้วย, เช่น id,legalName",
                   "disabled": true
                 },
                 {
@@ -9628,7 +9628,7 @@
                 {
                   "key": "status",
                   "value": "",
-                  "description": "คั่นด้วย , เช่น active,inactive",
+                  "description": "คั่นด้วย, เช่น active,inactive",
                   "disabled": true
                 },
                 {
@@ -9676,7 +9676,7 @@
                 {
                   "key": "ids",
                   "value": "",
-                  "description": "ส่งออกเฉพาะ id เหล่านี้ (คั่นด้วย ,) — แถวที่เลือกในตาราง",
+                  "description": "ส่งออกเฉพาะ id เหล่านี้ (คั่นด้วย,) — แถวที่เลือกในตาราง",
                   "disabled": true
                 }
               ]
@@ -10171,7 +10171,7 @@
                 {
                   "key": "fields",
                   "value": "",
-                  "description": "รายชื่อ field คั่นด้วย , เช่น id,code",
+                  "description": "รายชื่อ field คั่นด้วย, เช่น id,code",
                   "disabled": true
                 },
                 {
@@ -10189,7 +10189,7 @@
                 {
                   "key": "status",
                   "value": "",
-                  "description": "สถานะ คั่นด้วย , (draft / pending_approval / active / expired / retired) — active/expired คิดจากวันที่ (เวลาไทย)",
+                  "description": "สถานะ คั่นด้วย, (draft / pending_approval / active / expired / retired) — active/expired คิดจากวันที่ (เวลาไทย)",
                   "disabled": true
                 },
                 {
@@ -10395,7 +10395,7 @@
                 {
                   "key": "fields",
                   "value": "",
-                  "description": "รายชื่อ field คั่นด้วย , เช่น id,code",
+                  "description": "รายชื่อ field คั่นด้วย, เช่น id,code",
                   "disabled": true
                 },
                 {
@@ -10413,7 +10413,7 @@
                 {
                   "key": "status",
                   "value": "",
-                  "description": "สถานะ คั่นด้วย , (draft / pending_approval / active / expired / retired) — active/expired คิดจากวันที่ (เวลาไทย)",
+                  "description": "สถานะ คั่นด้วย, (draft / pending_approval / active / expired / retired) — active/expired คิดจากวันที่ (เวลาไทย)",
                   "disabled": true
                 },
                 {
@@ -10491,7 +10491,7 @@
                 {
                   "key": "ids",
                   "value": "",
-                  "description": "ส่งออกเฉพาะ id เหล่านี้ (คั่นด้วย ,) — แถวที่เลือกในตาราง",
+                  "description": "ส่งออกเฉพาะ id เหล่านี้ (คั่นด้วย,) — แถวที่เลือกในตาราง",
                   "disabled": true
                 }
               ]
@@ -11052,7 +11052,7 @@
                 {
                   "key": "fields",
                   "value": "",
-                  "description": "รายชื่อ field คั่นด้วย , เช่น id,legalName",
+                  "description": "รายชื่อ field คั่นด้วย, เช่น id,legalName",
                   "disabled": true
                 },
                 {
@@ -11064,7 +11064,7 @@
                 {
                   "key": "status",
                   "value": "",
-                  "description": "คั่นด้วย , เช่น active,inactive",
+                  "description": "คั่นด้วย, เช่น active,inactive",
                   "disabled": true
                 },
                 {
@@ -11238,7 +11238,7 @@
                 {
                   "key": "fields",
                   "value": "",
-                  "description": "รายชื่อ field คั่นด้วย , เช่น id,legalName",
+                  "description": "รายชื่อ field คั่นด้วย, เช่น id,legalName",
                   "disabled": true
                 },
                 {
@@ -11250,7 +11250,7 @@
                 {
                   "key": "status",
                   "value": "",
-                  "description": "คั่นด้วย , เช่น active,inactive",
+                  "description": "คั่นด้วย, เช่น active,inactive",
                   "disabled": true
                 },
                 {
@@ -11292,7 +11292,7 @@
                 {
                   "key": "ids",
                   "value": "",
-                  "description": "ส่งออกเฉพาะ id เหล่านี้ (คั่นด้วย ,) — แถวที่เลือกในตาราง",
+                  "description": "ส่งออกเฉพาะ id เหล่านี้ (คั่นด้วย,) — แถวที่เลือกในตาราง",
                   "disabled": true
                 }
               ]
@@ -11795,7 +11795,7 @@
                 {
                   "key": "fields",
                   "value": "",
-                  "description": "รายชื่อ field คั่นด้วย , เช่น id,plate",
+                  "description": "รายชื่อ field คั่นด้วย, เช่น id,plate",
                   "disabled": true
                 },
                 {
@@ -11807,7 +11807,7 @@
                 {
                   "key": "status",
                   "value": "",
-                  "description": "คั่นด้วย , เช่น ready,maintenance",
+                  "description": "คั่นด้วย, เช่น ready,maintenance",
                   "disabled": true
                 },
                 {
@@ -11867,7 +11867,7 @@
                 {
                   "key": "busy",
                   "value": "",
-                  "description": "ST9-T01 true = กำลังใช้งาน (เป็นรถหรือหางของเที่ยวที่ปล่อยแล้วยังไม่ปิด — DISPATCHED/IN_PROGRESS — และไม่ได้ซ่อม/ปลดระวาง) · false = ส่วนกลับ",
+                  "description": "true = กำลังใช้งาน (เป็นรถหรือหางของเที่ยวที่ปล่อยแล้วยังไม่ปิด — DISPATCHED/IN_PROGRESS — และไม่ได้ซ่อม/ปลดระวาง) · false = ส่วนกลับ",
                   "disabled": true
                 }
               ]
@@ -11987,7 +11987,7 @@
                 {
                   "key": "fields",
                   "value": "",
-                  "description": "รายชื่อ field คั่นด้วย , เช่น id,plate",
+                  "description": "รายชื่อ field คั่นด้วย, เช่น id,plate",
                   "disabled": true
                 },
                 {
@@ -11999,7 +11999,7 @@
                 {
                   "key": "status",
                   "value": "",
-                  "description": "คั่นด้วย , เช่น ready,maintenance",
+                  "description": "คั่นด้วย, เช่น ready,maintenance",
                   "disabled": true
                 },
                 {
@@ -12059,7 +12059,7 @@
                 {
                   "key": "busy",
                   "value": "",
-                  "description": "ST9-T01 true = กำลังใช้งาน (เป็นรถหรือหางของเที่ยวที่ปล่อยแล้วยังไม่ปิด — DISPATCHED/IN_PROGRESS — และไม่ได้ซ่อม/ปลดระวาง) · false = ส่วนกลับ",
+                  "description": "true = กำลังใช้งาน (เป็นรถหรือหางของเที่ยวที่ปล่อยแล้วยังไม่ปิด — DISPATCHED/IN_PROGRESS — และไม่ได้ซ่อม/ปลดระวาง) · false = ส่วนกลับ",
                   "disabled": true
                 },
                 {
@@ -12071,7 +12071,7 @@
                 {
                   "key": "ids",
                   "value": "",
-                  "description": "ส่งออกเฉพาะ id เหล่านี้ (คั่นด้วย ,) — แถวที่เลือกในตาราง",
+                  "description": "ส่งออกเฉพาะ id เหล่านี้ (คั่นด้วย,) — แถวที่เลือกในตาราง",
                   "disabled": true
                 }
               ]
@@ -12621,7 +12621,7 @@
                 {
                   "key": "fields",
                   "value": "",
-                  "description": "รายชื่อ field คั่นด้วย , เช่น id,name",
+                  "description": "รายชื่อ field คั่นด้วย, เช่น id,name",
                   "disabled": true
                 },
                 {
@@ -12633,7 +12633,7 @@
                 {
                   "key": "status",
                   "value": "",
-                  "description": "คั่นด้วย , เช่น active,on_leave",
+                  "description": "คั่นด้วย, เช่น active,on_leave",
                   "disabled": true
                 },
                 {
@@ -12831,7 +12831,7 @@
                 {
                   "key": "fields",
                   "value": "",
-                  "description": "รายชื่อ field คั่นด้วย , เช่น id,name",
+                  "description": "รายชื่อ field คั่นด้วย, เช่น id,name",
                   "disabled": true
                 },
                 {
@@ -12843,7 +12843,7 @@
                 {
                   "key": "status",
                   "value": "",
-                  "description": "คั่นด้วย , เช่น active,on_leave",
+                  "description": "คั่นด้วย, เช่น active,on_leave",
                   "disabled": true
                 },
                 {
@@ -12909,7 +12909,7 @@
                 {
                   "key": "ids",
                   "value": "",
-                  "description": "ส่งออกเฉพาะ id เหล่านี้ (คั่นด้วย ,) — แถวที่เลือกในตาราง",
+                  "description": "ส่งออกเฉพาะ id เหล่านี้ (คั่นด้วย,) — แถวที่เลือกในตาราง",
                   "disabled": true
                 }
               ]
@@ -13402,13 +13402,13 @@
                 {
                   "key": "docType",
                   "value": "",
-                  "description": "คั่นด้วย , เช่น INSURANCE,COMPULSORY_ACT",
+                  "description": "คั่นด้วย, เช่น INSURANCE,COMPULSORY_ACT",
                   "disabled": true
                 },
                 {
                   "key": "status",
                   "value": "",
-                  "description": "คั่นด้วย , (active, expiring, expired, superseded, cancelled) — ไม่ส่ง = ฉบับปัจจุบัน (active,expiring,expired)",
+                  "description": "คั่นด้วย, (active, expiring, expired, superseded, cancelled) — ไม่ส่ง = ฉบับปัจจุบัน (active,expiring,expired)",
                   "disabled": true
                 },
                 {
@@ -13468,7 +13468,7 @@
                 {
                   "key": "ids",
                   "value": "",
-                  "description": "ส่งออกเฉพาะ id เหล่านี้ (คั่นด้วย ,) — แถวที่เลือกในตาราง",
+                  "description": "ส่งออกเฉพาะ id เหล่านี้ (คั่นด้วย,) — แถวที่เลือกในตาราง",
                   "disabled": true
                 }
               ]
@@ -13511,13 +13511,13 @@
                 {
                   "key": "docType",
                   "value": "",
-                  "description": "คั่นด้วย , เช่น INSURANCE,COMPULSORY_ACT",
+                  "description": "คั่นด้วย, เช่น INSURANCE,COMPULSORY_ACT",
                   "disabled": true
                 },
                 {
                   "key": "status",
                   "value": "",
-                  "description": "คั่นด้วย , (active, expiring, expired, superseded, cancelled) — ไม่ส่ง = ฉบับปัจจุบัน (active,expiring,expired)",
+                  "description": "คั่นด้วย, (active, expiring, expired, superseded, cancelled) — ไม่ส่ง = ฉบับปัจจุบัน (active,expiring,expired)",
                   "disabled": true
                 },
                 {
@@ -14030,7 +14030,7 @@
                 {
                   "key": "fields",
                   "value": "",
-                  "description": "รายชื่อ field คั่นด้วย , เช่น id,legalName",
+                  "description": "รายชื่อ field คั่นด้วย, เช่น id,legalName",
                   "disabled": true
                 },
                 {
@@ -14317,75 +14317,6 @@
               ]
             },
             "description": "scope: trips:read"
-          }
-        },
-        {
-          "name": "GET /v1/planning/board/preferences",
-          "request": {
-            "method": "GET",
-            "header": [
-              {
-                "key": "X-Api-Version",
-                "value": "{{apiVersion}}"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/v1/planning/board/preferences",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "v1",
-                "planning",
-                "board",
-                "preferences"
-              ]
-            },
-            "description": "scope: trips:read"
-          }
-        },
-        {
-          "name": "PUT /v1/planning/board/preferences",
-          "request": {
-            "method": "PUT",
-            "header": [
-              {
-                "key": "X-Api-Version",
-                "value": "{{apiVersion}}"
-              },
-              {
-                "key": "If-Match",
-                "value": "",
-                "description": "ETag จาก GET — ไม่ตรง → 412",
-                "disabled": true
-              },
-              {
-                "key": "Content-Type",
-                "value": "application/json"
-              }
-            ],
-            "url": {
-              "raw": "{{baseUrl}}/v1/planning/board/preferences",
-              "host": [
-                "{{baseUrl}}"
-              ],
-              "path": [
-                "v1",
-                "planning",
-                "board",
-                "preferences"
-              ]
-            },
-            "description": "scope: trips:read",
-            "body": {
-              "mode": "raw",
-              "raw": "{\n  \"view\": \"FLEET\",\n  \"cardFields\": [\n    \"ORDER_NO\"\n  ]\n}",
-              "options": {
-                "raw": {
-                  "language": "json"
-                }
-              }
-            }
           }
         }
       ]
@@ -15063,13 +14994,13 @@
                 {
                   "key": "fields",
                   "value": "",
-                  "description": "รายชื่อ field คั่นด้วย , เช่น id,legalName",
+                  "description": "รายชื่อ field คั่นด้วย, เช่น id,legalName",
                   "disabled": true
                 },
                 {
                   "key": "status",
                   "value": "",
-                  "description": "คั่นด้วย , เช่น active,inactive",
+                  "description": "คั่นด้วย, เช่น active,inactive",
                   "disabled": true
                 }
               ]
@@ -15160,7 +15091,7 @@
                 {
                   "key": "fields",
                   "value": "",
-                  "description": "รายชื่อ field คั่นด้วย , เช่น id,legalName",
+                  "description": "รายชื่อ field คั่นด้วย, เช่น id,legalName",
                   "disabled": true
                 },
                 {

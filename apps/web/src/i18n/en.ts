@@ -196,6 +196,7 @@ export const en: Partial<Record<MessageKey, string>> = {
   'lock.report.t': 'Reports',
   'lock.report.p2': 'Export Excel',
   'lock.report.p3': 'OTIF by customer',
+  'lock.api.t': 'Developers / Open API',
   'noAccess.title': "You don't have access to this page",
   'noAccess.back': 'Back to overview',
   'users.invite': 'Invite user',

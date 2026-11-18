@@ -24,7 +24,7 @@ scope: `export:run` · operationId: `Exports_create`
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
 | `resource` | ใช่ | `string` | ค่า: `orders`, `customers`, `customer-sites`, `carriers`, `vehicles`, `vehicle-documents`, `drivers`, `vehicle-types`, `routes`, `products`, `service-items`, `rate-cards`, `reason-codes` |   | `orders` |
-| `format` |   | `string` | ค่า: `xlsx`, `csv` | .xlsx (แนะนำ — เลข 0 นำหน้าไม่หาย) หรือ .csv UTF-8 + BOM |   |
+| `format` |   | `string` | ค่า: `xlsx`, `csv` | .xlsx (แนะนำ — เลข 0 นำหน้าไม่หาย) หรือ.csv UTF-8 + BOM |   |
 | `filter` |   | `object` |   | ตัวกรองชุดเดียวกับ query ของ `GET /v1/{resource}` (ค่าเป็น string) — ตรวจกติกาเดียวกัน (field แปลก = 422) · `limit`/`cursor`/`sort`/`fields`/`updatedAfter` ไม่มีผล (ไฟล์มีทุกแถวที่ตรงตัวกรอง) | `{"held":"true","holdReason":"RATE_MISSING"}` |
 
 **Responses**

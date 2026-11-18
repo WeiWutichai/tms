@@ -73,9 +73,9 @@ scope: `master:read` · operationId: `Carriers_list`
 | `cursor` | query |   | `string` | ค่า nextCursor จากหน้าก่อน (ใช้กับ sort เดิมเท่านั้น) |
 | `updatedAfter` | query |   | `string` | คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull — ใช้คู่ includeDeleted=true เพื่อรับรายการที่ถูกลบ) |
 | `sort` | query |   | `string` ค่า: `code`, `updatedAt`, `-updatedAt` | code = เรียงตามรหัส (ค่าเริ่มต้นของหน้าจอ) · updatedAt/-updatedAt สำหรับ sync |
-| `fields` | query |   | `string` | รายชื่อ field คั่นด้วย , เช่น id,legalName |
+| `fields` | query |   | `string` | รายชื่อ field คั่นด้วย, เช่น id,legalName |
 | `q` | query |   | `string` | ค้นหา — รหัส ชื่อ เลขผู้เสียภาษี หรือ externalId (ไม่สนตัวพิมพ์) |
-| `status` | query |   | `string` | คั่นด้วย , เช่น active,inactive |
+| `status` | query |   | `string` | คั่นด้วย, เช่น active,inactive |
 | `externalId` | query |   | `string` | externalId ตรงตัว (ใช้ตรวจว่ามีในระบบแล้วหรือยัง) |
 | `includeDeleted` | query |   | `string` | true = รวมรายการที่ถูกลบ (tombstone มี `deletedAt`) — ให้ระบบที่ดึงแบบ incremental รู้ว่ารายการถูกลบ |
 | `name` | query |   | `string` | ชื่อมีคำนี้ |
@@ -137,13 +137,13 @@ scope: `master:write` · operationId: `Carriers_create`
 | `phone` |   | `string` | null ได้ |   | `081-234-5678` |
 | `lineContact` |   | `string` | null ได้ | LINE ID สำหรับส่งใบสั่งงาน | `@sapsomboon` |
 | `parentCarrierId` |   | `string` | null ได้ | สังกัด (parent carrier) — ต้องอยู่ใน tenant เดียวกัน ห้ามวน | `car_…` |
-| `billingCompanyId` |   | `string` | null ได้ | จ้างในนาม (Tender As — docs/04 A4) — null = ใช้ค่าเริ่มต้นขององค์กร | `cmp_…` |
+| `billingCompanyId` |   | `string` | null ได้ | จ้างในนาม — null = ใช้ค่าเริ่มต้นขององค์กร | `cmp_…` |
 | `maxTripsPerDay` |   | `number` | ≥ 1 · ≤ 999 · null ได้ | เพดานเที่ยว/วัน — null = ไม่จำกัด |   |
 | `priority` |   | `number` | ≥ 1 · ≤ 999 · null ได้ | ลำดับใน cascade (1 = เสนองานก่อน) — null = ไม่จัดลำดับ |   |
 | `legalName` | ใช่ | `string` |   | ชื่อผู้รับเหมา (ตามบัตร/จดทะเบียน) | `หจก. ทรัพย์สมบูรณ์ขนส่ง` |
 | `entityType` | ใช่ | `string` | ค่า: `INDIVIDUAL`, `JURISTIC` | INDIVIDUAL = บุคคลธรรมดา (ภ.ง.ด.3), JURISTIC = นิติบุคคล (ภ.ง.ด.53) |   |
 | `taxId` | ใช่ | `string` |   | เลขผู้เสียภาษี 13 หลัก (ตรวจ check digit — ผิด → 422) · บุคคลธรรมดา = เลขบัตรประชาชน (เก็บแบบเข้ารหัส ไม่คืนใน response) | `0103556012345` |
-| `code` |   | `string` |   | รหัส — ไม่ส่ง = ระบบออกเลขถัดไป (MD-002) | `SUB-0001` |
+| `code` |   | `string` |   | รหัส — ไม่ส่ง = ระบบออกเลขถัดไป | `SUB-0001` |
 | `externalId` |   | `string` |   | รหัสในระบบต้นทาง — เรียกด้วย ext:{externalId} ได้ |   |
 
 **Responses**
@@ -243,22 +243,22 @@ scope: `export:run` · operationId: `Carriers_export`
 | `cursor` | query |   | `string` | ค่า nextCursor จากหน้าก่อน (ใช้กับ sort เดิมเท่านั้น) |
 | `updatedAfter` | query |   | `string` | คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull — ใช้คู่ includeDeleted=true เพื่อรับรายการที่ถูกลบ) |
 | `sort` | query |   | `string` ค่า: `code`, `updatedAt`, `-updatedAt` | code = เรียงตามรหัส (ค่าเริ่มต้นของหน้าจอ) · updatedAt/-updatedAt สำหรับ sync |
-| `fields` | query |   | `string` | รายชื่อ field คั่นด้วย , เช่น id,legalName |
+| `fields` | query |   | `string` | รายชื่อ field คั่นด้วย, เช่น id,legalName |
 | `q` | query |   | `string` | ค้นหา — รหัส ชื่อ เลขผู้เสียภาษี หรือ externalId (ไม่สนตัวพิมพ์) |
-| `status` | query |   | `string` | คั่นด้วย , เช่น active,inactive |
+| `status` | query |   | `string` | คั่นด้วย, เช่น active,inactive |
 | `externalId` | query |   | `string` | externalId ตรงตัว (ใช้ตรวจว่ามีในระบบแล้วหรือยัง) |
 | `includeDeleted` | query |   | `string` | true = รวมรายการที่ถูกลบ (tombstone มี `deletedAt`) — ให้ระบบที่ดึงแบบ incremental รู้ว่ารายการถูกลบ |
 | `name` | query |   | `string` | ชื่อมีคำนี้ |
 | `entityType` | query |   | `string` ค่า: `INDIVIDUAL`, `JURISTIC` |   |
 | `parentCarrierId` | query |   | `string` | เฉพาะที่สังกัด carrier นี้ (car_…) |
 | `format` | query |   | `string` ค่า: `xlsx`, `csv` |   |
-| `ids` | query |   | `string` | ส่งออกเฉพาะ id เหล่านี้ (คั่นด้วย ,) — แถวที่เลือกในตาราง |
+| `ids` | query |   | `string` | ส่งออกเฉพาะ id เหล่านี้ (คั่นด้วย,) — แถวที่เลือกในตาราง |
 
 **Responses**
 
 | สถานะ | ความหมาย | body |
 |---|---|---|
-| `200` | ไฟล์ .xlsx หรือ .csv ตามตัวกรองเดียวกับรายการ (สูงสุด 10,000 แถว) — เลขบัตร/เลขบัญชีปิดบังเสมอ |   |
+| `200` | ไฟล์.xlsx หรือ.csv ตามตัวกรองเดียวกับรายการ (สูงสุด 10,000 แถว) — เลขบัตร/เลขบัญชีปิดบังเสมอ |   |
 | `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
 | `403` | ไม่มีสิทธิ์ (`export:run`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
 | `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (query/body) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
@@ -310,7 +310,7 @@ scope: `master:write` · operationId: `Carriers_upsertExternal`
 | `phone` |   | `string` | null ได้ |   | `081-234-5678` |
 | `lineContact` |   | `string` | null ได้ | LINE ID สำหรับส่งใบสั่งงาน | `@sapsomboon` |
 | `parentCarrierId` |   | `string` | null ได้ | สังกัด (parent carrier) — ต้องอยู่ใน tenant เดียวกัน ห้ามวน | `car_…` |
-| `billingCompanyId` |   | `string` | null ได้ | จ้างในนาม (Tender As — docs/04 A4) — null = ใช้ค่าเริ่มต้นขององค์กร | `cmp_…` |
+| `billingCompanyId` |   | `string` | null ได้ | จ้างในนาม — null = ใช้ค่าเริ่มต้นขององค์กร | `cmp_…` |
 | `maxTripsPerDay` |   | `number` | ≥ 1 · ≤ 999 · null ได้ | เพดานเที่ยว/วัน — null = ไม่จำกัด |   |
 | `priority` |   | `number` | ≥ 1 · ≤ 999 · null ได้ | ลำดับใน cascade (1 = เสนองานก่อน) — null = ไม่จัดลำดับ |   |
 | `legalName` | ใช่ | `string` |   | ชื่อผู้รับเหมา (ตามบัตร/จดทะเบียน) | `หจก. ทรัพย์สมบูรณ์ขนส่ง` |
@@ -389,7 +389,7 @@ scope: `master:write` · operationId: `Carriers_patchExternal`
 | `phone` |   | `string` | null ได้ |   | `081-234-5678` |
 | `lineContact` |   | `string` | null ได้ | LINE ID สำหรับส่งใบสั่งงาน | `@sapsomboon` |
 | `parentCarrierId` |   | `string` | null ได้ | สังกัด (parent carrier) — ต้องอยู่ใน tenant เดียวกัน ห้ามวน | `car_…` |
-| `billingCompanyId` |   | `string` | null ได้ | จ้างในนาม (Tender As — docs/04 A4) — null = ใช้ค่าเริ่มต้นขององค์กร | `cmp_…` |
+| `billingCompanyId` |   | `string` | null ได้ | จ้างในนาม — null = ใช้ค่าเริ่มต้นขององค์กร | `cmp_…` |
 | `maxTripsPerDay` |   | `number` | ≥ 1 · ≤ 999 · null ได้ | เพดานเที่ยว/วัน — null = ไม่จำกัด |   |
 | `priority` |   | `number` | ≥ 1 · ≤ 999 · null ได้ | ลำดับใน cascade (1 = เสนองานก่อน) — null = ไม่จัดลำดับ |   |
 | `legalName` |   | `string` |   |   | `หจก. ทรัพย์สมบูรณ์ขนส่ง` |
@@ -499,7 +499,7 @@ scope: `master:write` · operationId: `Carriers_update`
 | `phone` |   | `string` | null ได้ |   | `081-234-5678` |
 | `lineContact` |   | `string` | null ได้ | LINE ID สำหรับส่งใบสั่งงาน | `@sapsomboon` |
 | `parentCarrierId` |   | `string` | null ได้ | สังกัด (parent carrier) — ต้องอยู่ใน tenant เดียวกัน ห้ามวน | `car_…` |
-| `billingCompanyId` |   | `string` | null ได้ | จ้างในนาม (Tender As — docs/04 A4) — null = ใช้ค่าเริ่มต้นขององค์กร | `cmp_…` |
+| `billingCompanyId` |   | `string` | null ได้ | จ้างในนาม — null = ใช้ค่าเริ่มต้นขององค์กร | `cmp_…` |
 | `maxTripsPerDay` |   | `number` | ≥ 1 · ≤ 999 · null ได้ | เพดานเที่ยว/วัน — null = ไม่จำกัด |   |
 | `priority` |   | `number` | ≥ 1 · ≤ 999 · null ได้ | ลำดับใน cascade (1 = เสนองานก่อน) — null = ไม่จัดลำดับ |   |
 | `legalName` |   | `string` |   |   | `หจก. ทรัพย์สมบูรณ์ขนส่ง` |

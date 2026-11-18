@@ -21,8 +21,8 @@ scope: `companies:read` · operationId: `Companies_list`
 | `cursor` | query |   | `string` | ค่า nextCursor จากหน้าก่อน |
 | `updatedAfter` | query |   | `string` | คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull) |
 | `sort` | query |   | `string` ค่า: `updatedAt`, `-updatedAt` |   |
-| `fields` | query |   | `string` | รายชื่อ field คั่นด้วย , เช่น id,legalName |
-| `status` | query |   | `string` | คั่นด้วย , เช่น active,inactive |
+| `fields` | query |   | `string` | รายชื่อ field คั่นด้วย, เช่น id,legalName |
+| `status` | query |   | `string` | คั่นด้วย, เช่น active,inactive |
 
 **Responses**
 

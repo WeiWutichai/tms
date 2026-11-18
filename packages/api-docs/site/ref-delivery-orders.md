@@ -61,10 +61,10 @@ scope: `orders:read` · operationId: `DeliveryOrders_list`
 | `cursor` | query |   | `string` | ค่า nextCursor จากหน้าก่อน |
 | `updatedAfter` | query |   | `string` | คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull) |
 | `sort` | query |   | `string` ค่า: `updatedAt`, `-updatedAt` |   |
-| `fields` | query |   | `string` | รายชื่อ field คั่นด้วย , เช่น id,legalName |
+| `fields` | query |   | `string` | รายชื่อ field คั่นด้วย, เช่น id,legalName |
 | `orderId` | query |   | `string` | ใบสั่งขนส่ง (SO) |
 | `customerId` | query |   | `string` |   |
-| `status` | query |   | `string` | สถานะ คั่นด้วย , (DRAFT / PLANNED / DISPATCHED / PICKED_UP / DELIVERED / FAILED / RETURNED / POD_PENDING / UNBILLED / BILLED / CANCELLED) |
+| `status` | query |   | `string` | สถานะ คั่นด้วย, (DRAFT / PLANNED / DISPATCHED / PICKED_UP / DELIVERED / FAILED / RETURNED / POD_PENDING / UNBILLED / BILLED / CANCELLED) |
 | `dateFrom` | query |   | `string` | วันที่ DO ตั้งแต่ (YYYY-MM-DD) |
 | `dateTo` | query |   | `string` | วันที่ DO ถึง (YYYY-MM-DD) |
 
@@ -359,7 +359,7 @@ scope: `orders:write` · operationId: `DeliveryOrders_redeliver`
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
 | `reasonCodeId` | ใช่ | `string` |   | เหตุผล: DO ส่งแล้ว (ปฏิเสธรับบางส่วน/ทั้งหมด) = หมวด REJECTED_BY_RECEIVER · DO ส่งไม่สำเร็จ = หมวด DELIVERY_FAILED | `rsn_3f2a…` |
-| `note` |   | `string` | ยาว ≤ 500 · null ได้ | โน้ต — บังคับเมื่อเหตุผลติ๊ก "บังคับโน้ต"; ชื่อเหตุผล + โน้ต รวม ≥ 10 ตัวอักษร (MD-222) |   |
+| `note` |   | `string` | ยาว ≤ 500 · null ได้ | โน้ต — บังคับเมื่อเหตุผลติ๊ก "บังคับโน้ต"; ชื่อเหตุผล + โน้ต รวม ≥ 10 ตัวอักษร |   |
 | `lines` |   | `array<ReturnLineInputDto>` |   | เฉพาะ DO ส่งแล้ว: บรรทัด + ปริมาณ (ไม่ส่ง = ทุกบรรทัดที่ยังปฏิเสธคงเหลือ ทั้งจำนวน) · DO ส่งไม่สำเร็จ = ทั้งใบเสมอ (ส่งมา → 422) |   |
 | `lines[].lineNo` | ใช่ | `number` |   | ลำดับบรรทัดของ DO (`lines[].lineNo`) | `1` |
 | `lines[].qty` | ใช่ | `string` |   | > 0 และไม่เกินที่ปฏิเสธรับคงเหลือ (`openRejectQty`) — ทศนิยม ≤ 3 ตำแหน่ง | `10` |
@@ -415,7 +415,7 @@ scope: `orders:write` · operationId: `DeliveryOrders_return`
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
 | `reasonCodeId` | ใช่ | `string` |   | เหตุผล: DO ส่งแล้ว (ปฏิเสธรับบางส่วน/ทั้งหมด) = หมวด REJECTED_BY_RECEIVER · DO ส่งไม่สำเร็จ = หมวด DELIVERY_FAILED | `rsn_3f2a…` |
-| `note` |   | `string` | ยาว ≤ 500 · null ได้ | โน้ต — บังคับเมื่อเหตุผลติ๊ก "บังคับโน้ต"; ชื่อเหตุผล + โน้ต รวม ≥ 10 ตัวอักษร (MD-222) |   |
+| `note` |   | `string` | ยาว ≤ 500 · null ได้ | โน้ต — บังคับเมื่อเหตุผลติ๊ก "บังคับโน้ต"; ชื่อเหตุผล + โน้ต รวม ≥ 10 ตัวอักษร |   |
 | `lines` |   | `array<ReturnLineInputDto>` |   | เฉพาะ DO ส่งแล้ว: บรรทัด + ปริมาณ (ไม่ส่ง = ทุกบรรทัดที่ยังปฏิเสธคงเหลือ ทั้งจำนวน) · DO ส่งไม่สำเร็จ = ทั้งใบเสมอ (ส่งมา → 422) |   |
 | `lines[].lineNo` | ใช่ | `number` |   | ลำดับบรรทัดของ DO (`lines[].lineNo`) | `1` |
 | `lines[].qty` | ใช่ | `string` |   | > 0 และไม่เกินที่ปฏิเสธรับคงเหลือ (`openRejectQty`) — ทศนิยม ≤ 3 ตำแหน่ง | `10` |
@@ -494,7 +494,7 @@ const { data, error } = await tms.GET('/v1/delivery-orders/{id}/pod', {
 
 scope: `trips:dispatch` · operationId: `Pod_put`
 
-ส่งทั้งฉบับ (ชื่อช่องตาม docs/01 §5.3) → ฉบับใหม่ (version + 1) · แก้ฉบับเดิมต้องมี `reason` ≥ 10 ตัวอักษร (audit `pod.amended`) · คำนวณ `pod_status` กับ checklist ของลูกค้า (DO ส่งไม่สำเร็จใช้ชุดไม่สำเร็จ): ครบ = COMPLETE, ไม่ครบ = PARTIAL (ไม่ปฏิเสธ) · DO DELIVERED → UNBILLED (ครบ) / POD_PENDING (ไม่ครบ), POD_PENDING → UNBILLED เมื่อครบ — DO ที่ UNBILLED แล้วแก้จนไม่ครบ → 422 `pod_incomplete` (ด่านวางบิล) · ไฟล์ที่ใช้ถูกผูกกับ DO นี้ (`stored_document.entity_type/entity_id`) ใช้กับ DO อื่นไม่ได้ · domain_event `pod.captured` · บันทึกได้เมื่อ DO ส่งแล้ว/ส่งไม่สำเร็จ ยังไม่วางบิล
+ส่งทั้งฉบับ → ฉบับใหม่ (version + 1) · แก้ฉบับเดิมต้องมี `reason` ≥ 10 ตัวอักษร (audit `pod.amended`) · คำนวณ `pod_status` กับ checklist ของลูกค้า (DO ส่งไม่สำเร็จใช้ชุดไม่สำเร็จ): ครบ = COMPLETE, ไม่ครบ = PARTIAL (ไม่ปฏิเสธ) · DO DELIVERED → UNBILLED (ครบ) / POD_PENDING (ไม่ครบ), POD_PENDING → UNBILLED เมื่อครบ — DO ที่ UNBILLED แล้วแก้จนไม่ครบ → 422 `pod_incomplete` (ด่านวางบิล) · ไฟล์ที่ใช้ถูกผูกกับ DO นี้ (`stored_document.entity_type/entity_id`) ใช้กับ DO อื่นไม่ได้ · domain_event `pod.captured` · บันทึกได้เมื่อ DO ส่งแล้ว/ส่งไม่สำเร็จ ยังไม่วางบิล
 
 **Parameters**
 
@@ -513,15 +513,15 @@ scope: `trips:dispatch` · operationId: `Pod_put`
 | `photoDocumentIds` |   | `array<string>` | ≤ 20 รายการ | รูปหลักฐานส่ง — เอกสาร kind `POD_PHOTO` (รูป) ไม่เกิน 20 ใบ ไม่ซ้ำ · นับกับ "รูปขั้นต่ำ" ของ checklist |   |
 | `fileDocumentIds` |   | `array<string>` | ≤ 10 รายการ | ไฟล์อื่น (เช่น ใบส่งของที่เซ็นแล้ว ใบชั่ง) — เอกสาร kind `POD_FILE` (PDF/รูป) ไม่เกิน 10 ไฟล์ · ไม่นับเป็นรูปของ checklist |   |
 | `weighedKg` |   | `string` | null ได้ | น้ำหนักชั่งปลายทาง (กก.) ทศนิยมไม่เกิน 3 ตำแหน่ง — สตริง (ห้าม float) | `14940` |
-| `customerRef` |   | `string` | ยาว ≤ 50 · null ได้ | เลขอ้างอิงของลูกค้าตอนรับของ (เช่น เลขใบรับสินค้า) — เก็บในหลักฐานส่ง **ไม่แก้** `customerRef` (เลข PO) ของ DO | `GR-2611-0042` |
+| `customerRef` |   | `string` | ยาว ≤ 50 · null ได้ | เลขอ้างอิงของลูกค้าตอนรับของ (เช่น เลขใบรับสินค้า) — เก็บในหลักฐานส่ง **ไม่แก้** `customerRef` ของ DO | `GR-2611-0042` |
 | `note` |   | `string` | ยาว ≤ 500 · null ได้ |   |   |
 | `checks` |   | `object` |   | ข้อยืนยัน (BOOLEAN) ตาม key ใน checklist — key ที่ไม่มีใน checklist → 422 | `{"goods_ok":true}` |
 | `choices` |   | `object` |   | คำตอบคำถามเลือกตอบ (SINGLE_CHOICE) ตาม key — ต้องเป็นตัวเลือกในรายการ | `{"box_state":"ดี"}` |
-| `barcodes` |   | `array<string>` | ≤ 50 รายการ | รหัสบาร์โค้ด/QR ที่สแกนได้ (BARCODE) ยาวไม่เกิน 200 — ชื่อตาม docs/01 §5.3 |   |
-| `scanCodes` |   | `array<string>` | ≤ 50 รายการ | ชื่อเดิมของ `barcodes` (spec/04 §13 `Pod.scanCodes[]`) — รับได้เพื่อความเข้ากันได้ · ส่งทั้งสองชื่อต้องเหมือนกัน |   |
+| `barcodes` |   | `array<string>` | ≤ 50 รายการ | รหัสบาร์โค้ด/QR ที่สแกนได้ (BARCODE) ยาวไม่เกิน 200 — ชื่อตาม |   |
+| `scanCodes` |   | `array<string>` | ≤ 50 รายการ | ชื่อเดิมของ `barcodes` — รับได้เพื่อความเข้ากันได้ · ส่งทั้งสองชื่อต้องเหมือนกัน |   |
 | `pin` |   | `string` | null ได้ | รหัส PIN ที่ผู้รับกรอก (ตัวเลขครบจำนวนหลักตาม checklist) — เก็บแบบเข้ารหัส response แสดงแบบปิดบังเท่านั้น · **ไม่ส่ง = คงค่าของฉบับก่อน** (อ่านค่าจริงคืนไม่ได้) · null = ล้าง | `4821` |
 | `rating` |   | `number` | ≥ 1 · ≤ 10 · null ได้ | คะแนนความพึงพอใจของผู้รับ (RATING) 1–คะแนนเต็มของ checklist |   |
-| `lines` |   | `array<PodLineInputDto>` | ≤ 500 รายการ | ST4-T10 ยอดส่งจริงต่อรายการ (เฉพาะ DO ที่ส่งแล้ว — ชุดสำเร็จ; DO ส่งไม่สำเร็จ/ตีกลับ → 422 `not_applicable`) · **ไม่ส่ง = คงค่าของฉบับก่อน** · บรรทัดที่ไม่อยู่ในรายการ = คงค่าเดิม (ยังไม่เคยบันทึก = ตามแผน) |   |
+| `lines` |   | `array<PodLineInputDto>` | ≤ 500 รายการ | ยอดส่งจริงต่อรายการ (เฉพาะ DO ที่ส่งแล้ว — ชุดสำเร็จ; DO ส่งไม่สำเร็จ/ตีกลับ → 422 `not_applicable`) · **ไม่ส่ง = คงค่าของฉบับก่อน** · บรรทัดที่ไม่อยู่ในรายการ = คงค่าเดิม (ยังไม่เคยบันทึก = ตามแผน) |   |
 | `lines[].lineNo` | ใช่ | `number` |   | ลำดับบรรทัดของ DO (`lines[].lineNo` ของ GET /v1/delivery-orders/{id}) | `1` |
 | `lines[].qtyActual` | ใช่ | `string` |   | จำนวนที่ส่งได้จริง (หน่วยเดียวกับบรรทัด) 0 ≤ ค่า ≤ แผน ทศนิยมไม่เกิน 3 ตำแหน่ง — สตริง (ห้าม float) · เกินแผน → 422 `exceeds_planned` | `90` |
 | `lines[].rejectQty` |   | `string` | null ได้ | จำนวนที่ผู้รับปฏิเสธ — ไม่ส่งได้ (ระบบคิด = แผน − ส่งจริง) · ส่งมาต้องเท่ากัน ไม่งั้น 422 `reject_qty_mismatch` | `10` |
@@ -704,7 +704,7 @@ const { data, error } = await tms.POST('/v1/delivery-orders/{id}/tracking-link/r
 | `originStopSeq` | ใช่ | `number` |   | ลำดับจุดรับของ SO |   |
 | `destStopSeq` | ใช่ | `number` |   | ลำดับจุดส่งของ SO |   |
 | `tripId` | ใช่ | `string` | null ได้ |   |   |
-| `customerName` | ใช่ | `string` |   | ชื่อลูกค้า (ST9-T01 — แสดงในรายการ) |   |
+| `customerName` | ใช่ | `string` |   | ชื่อลูกค้า |   |
 | `originSiteName` | ใช่ | `string` |   | ชื่อจุดรับ |   |
 | `destSiteName` | ใช่ | `string` |   | ชื่อจุดส่ง |   |
 | `tripNo` | ใช่ | `string` | null ได้ |   | `TRP-6911-0001` |
@@ -713,13 +713,13 @@ const { data, error } = await tms.POST('/v1/delivery-orders/{id}/tracking-link/r
 | `carrierName` | ใช่ | `string` | null ได้ | รถร่วมของเที่ยว (snapshot) |   |
 | `weightKg` | ใช่ | `string` | null ได้ |   |   |
 | `cbm` | ใช่ | `string` | null ได้ |   |   |
-| `customerRef` | ใช่ | `string` | null ได้ | PO ลูกค้า |   |
+| `customerRef` | ใช่ | `string` | null ได้ | ลูกค้า |   |
 | `splitFromId` | ใช่ | `string` | null ได้ | ใบแม่ที่ถูกแยก |   |
 | `splitIndex` | ใช่ | `number` | null ได้ |   |   |
-| `redeliveryOfId` | ใช่ | `string` | null ได้ | ส่งใหม่ของ DO ใบนี้ (D-23) |   |
-| `rescheduleCount` | ใช่ | `number` |   | ST4-T12 ครั้งที่นัดส่งใหม่อัตโนมัติของสายงานนี้ (0 = ใบแรก) — เกินค่าตั้ง `dispatch.maxAutoReschedules` → ใบสั่งค้าง RESCHEDULES_EXHAUSTED | `0` |
-| `redeliveryManual` | ใช่ | `boolean` |   | ST4-T11 ส่งซ้ำโดยผู้ใช้ (ไม่ใช่นัดส่งใหม่อัตโนมัติ) — ผลส่งไม่สำเร็จถูกพลิกภายหลังระบบไม่คืนใบเดิมเอง |   |
-| `rejectedFromId` | ใช่ | `string` | null ได้ | ST4-T11 ใบส่งซ้ำของที่ลูกค้าปฏิเสธรับจาก DO นี้ (ใบเดิมคงส่งแล้ว) — ไม่นับปริมาณจัดสรรของ SO |   |
+| `redeliveryOfId` | ใช่ | `string` | null ได้ | ส่งใหม่ของ DO ใบนี้ |   |
+| `rescheduleCount` | ใช่ | `number` |   | ครั้งที่นัดส่งใหม่อัตโนมัติของสายงานนี้ (0 = ใบแรก) — เกินค่าตั้ง `dispatch.maxAutoReschedules` → ใบสั่งค้าง RESCHEDULES_EXHAUSTED | `0` |
+| `redeliveryManual` | ใช่ | `boolean` |   | ส่งซ้ำโดยผู้ใช้ (ไม่ใช่นัดส่งใหม่อัตโนมัติ) — ผลส่งไม่สำเร็จถูกพลิกภายหลังระบบไม่คืนใบเดิมเอง |   |
+| `rejectedFromId` | ใช่ | `string` | null ได้ | ใบส่งซ้ำของที่ลูกค้าปฏิเสธรับจาก DO นี้ (ใบเดิมคงส่งแล้ว) — ไม่นับปริมาณจัดสรรของ SO |   |
 | `podStatus` | ใช่ | `string` |   |   | `NONE` |
 | `lines` | ใช่ | `array<DeliveryOrderLineDto>` |   |   |   |
 | `version` | ใช่ | `number` |   |   |   |
@@ -752,7 +752,7 @@ const { data, error } = await tms.POST('/v1/delivery-orders/{id}/tracking-link/r
 | `missing` | ใช่ | `array<PodMissingDto>` |   | เทียบหลักฐานปัจจุบันกับ checklist ตอนนี้ (ว่าง = ครบ) |   |
 | `current` | ใช่ | `PodRecordDto` | null ได้ | ฉบับปัจจุบัน — null = ยังไม่มี |   |
 | `versions` | ใช่ | `array<PodVersionDto>` |   | ทุกฉบับ ใหม่ → เก่า |   |
-| `lines` | ใช่ | `array<PodLineDto>` |   | ST4-T10 บรรทัดของ DO (แผน vs ส่งจริง vs ปฏิเสธ + เหตุผล) ตามฉบับล่าสุด |   |
+| `lines` | ใช่ | `array<PodLineDto>` |   | บรรทัดของ DO (แผน vs ส่งจริง vs ปฏิเสธ + เหตุผล) ตามฉบับล่าสุด |   |
 
 ### DeliveryOrderSplitResultDto {#schema-DeliveryOrderSplitResultDto}
 

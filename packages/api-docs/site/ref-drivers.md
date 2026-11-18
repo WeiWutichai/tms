@@ -31,9 +31,9 @@ scope: `master:read` · operationId: `Drivers_list`
 | `cursor` | query |   | `string` | ค่า nextCursor จากหน้าก่อน (ใช้กับ sort เดิมเท่านั้น) |
 | `updatedAfter` | query |   | `string` | คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull) |
 | `sort` | query |   | `string` ค่า: `code`, `updatedAt`, `-updatedAt` | code = เรียงตามรหัส (ค่าเริ่มต้นของหน้าจอ) · updatedAt/-updatedAt สำหรับ sync |
-| `fields` | query |   | `string` | รายชื่อ field คั่นด้วย , เช่น id,name |
+| `fields` | query |   | `string` | รายชื่อ field คั่นด้วย, เช่น id,name |
 | `q` | query |   | `string` | ค้นหา — รหัส ชื่อ เบอร์ เลขที่ใบขับขี่ externalId หรือ 4 หลักท้ายเลขบัตรประชาชน (ไม่สนตัวพิมพ์) |
-| `status` | query |   | `string` | คั่นด้วย , เช่น active,on_leave |
+| `status` | query |   | `string` | คั่นด้วย, เช่น active,on_leave |
 | `externalId` | query |   | `string` | externalId ตรงตัว |
 | `includeDeleted` | query |   | `string` | true = รวมรายการที่ถูกลบ (tombstone มี `deletedAt`) |
 | `name` | query |   | `string` | ชื่อมีคำนี้ |
@@ -192,9 +192,9 @@ scope: `export:run` · operationId: `Drivers_export`
 | `cursor` | query |   | `string` | ค่า nextCursor จากหน้าก่อน (ใช้กับ sort เดิมเท่านั้น) |
 | `updatedAfter` | query |   | `string` | คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull) |
 | `sort` | query |   | `string` ค่า: `code`, `updatedAt`, `-updatedAt` | code = เรียงตามรหัส (ค่าเริ่มต้นของหน้าจอ) · updatedAt/-updatedAt สำหรับ sync |
-| `fields` | query |   | `string` | รายชื่อ field คั่นด้วย , เช่น id,name |
+| `fields` | query |   | `string` | รายชื่อ field คั่นด้วย, เช่น id,name |
 | `q` | query |   | `string` | ค้นหา — รหัส ชื่อ เบอร์ เลขที่ใบขับขี่ externalId หรือ 4 หลักท้ายเลขบัตรประชาชน (ไม่สนตัวพิมพ์) |
-| `status` | query |   | `string` | คั่นด้วย , เช่น active,on_leave |
+| `status` | query |   | `string` | คั่นด้วย, เช่น active,on_leave |
 | `externalId` | query |   | `string` | externalId ตรงตัว |
 | `includeDeleted` | query |   | `string` | true = รวมรายการที่ถูกลบ (tombstone มี `deletedAt`) |
 | `name` | query |   | `string` | ชื่อมีคำนี้ |
@@ -205,13 +205,13 @@ scope: `export:run` · operationId: `Drivers_export`
 | `defaultVehicleId` | query |   | `string` | เฉพาะคนขับที่มีรถประจำคันนี้ (veh_…) |
 | `licenceAlert` | query |   | `string` ค่า: `true`, `false` | true = ใบขับขี่หมดภายใน 30 วันหรือหมดแล้ว (ไม่นับคนขับปิดใช้งาน — ต้นแบบ "ใบขับขี่ใกล้หมดอายุ 30 วัน") · false = ไม่ใช่ |
 | `format` | query |   | `string` ค่า: `xlsx`, `csv` |   |
-| `ids` | query |   | `string` | ส่งออกเฉพาะ id เหล่านี้ (คั่นด้วย ,) — แถวที่เลือกในตาราง |
+| `ids` | query |   | `string` | ส่งออกเฉพาะ id เหล่านี้ (คั่นด้วย,) — แถวที่เลือกในตาราง |
 
 **Responses**
 
 | สถานะ | ความหมาย | body |
 |---|---|---|
-| `200` | ไฟล์ .xlsx หรือ .csv ตามตัวกรองเดียวกับรายการ (สูงสุด 10,000 แถว) — เลขบัตรประชาชนปิดบังเสมอ |   |
+| `200` | ไฟล์.xlsx หรือ.csv ตามตัวกรองเดียวกับรายการ (สูงสุด 10,000 แถว) — เลขบัตรประชาชนปิดบังเสมอ |   |
 | `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
 | `403` | ไม่มีสิทธิ์ (`export:run`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
 | `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (query/body) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |

@@ -53263,7 +53263,7 @@
             "type": "string",
             "example": "cmp_3f2a…",
             "nullable": true,
-            "description": "นิติบุคคลที่ออกบิล — ไม่ส่ง = ตามลูกค้า/ค่าตั้งต้นของบริษัท"
+            "description": "นิติบุคคลที่ออกบิล (`cmp_…` จาก `GET /v1/companies`) — ไม่ส่ง = \"ออกบิลในนาม\" ของลูกค้า → ค่าตั้งต้นของบริษัท → นิติบุคคลเดียวที่ใช้งานอยู่; บริษัทมีหลายนิติบุคคลและไม่ได้ตั้งค่าใดเลย = 422 `routing_not_configured` (errors[].field = `billingCompanyId`) · ใบเดิมไม่ส่ง = คงของเดิม"
           },
           "customerRef": {
             "type": "string",
@@ -54561,7 +54561,7 @@
             "type": "string",
             "example": "cmp_3f2a…",
             "nullable": true,
-            "description": "นิติบุคคลที่ออกบิล — ไม่ส่ง = ตามลูกค้า/ค่าตั้งต้นของบริษัท"
+            "description": "นิติบุคคลที่ออกบิล (`cmp_…` จาก `GET /v1/companies`) — ไม่ส่ง = \"ออกบิลในนาม\" ของลูกค้า → ค่าตั้งต้นของบริษัท → นิติบุคคลเดียวที่ใช้งานอยู่; บริษัทมีหลายนิติบุคคลและไม่ได้ตั้งค่าใดเลย = 422 `routing_not_configured` (errors[].field = `billingCompanyId`) · ใบเดิมไม่ส่ง = คงของเดิม"
           },
           "customerRef": {
             "type": "string",
@@ -55760,7 +55760,7 @@
             "type": "string",
             "example": "cmp_3f2a…",
             "nullable": true,
-            "description": "นิติบุคคลที่ออกบิล — ไม่ส่ง = ตามลูกค้า/ค่าตั้งต้นของบริษัท"
+            "description": "นิติบุคคลที่ออกบิล (`cmp_…` จาก `GET /v1/companies`) — ไม่ส่ง = \"ออกบิลในนาม\" ของลูกค้า → ค่าตั้งต้นของบริษัท → นิติบุคคลเดียวที่ใช้งานอยู่; บริษัทมีหลายนิติบุคคลและไม่ได้ตั้งค่าใดเลย = 422 `routing_not_configured` (errors[].field = `billingCompanyId`) · ใบเดิมไม่ส่ง = คงของเดิม"
           },
           "customerRef": {
             "type": "string",
@@ -78475,6 +78475,483 @@
       "schema": {
         "$ref": "#/components/schemas/WebhookEvent_job_completed"
       }
+    }
+  },
+  "x-problem-codes": {
+    "account_locked": {
+      "status": 429,
+      "title": "ใส่รหัสผ่านผิดหลายครั้ง ลองใหม่อีกครั้งใน 15 นาที",
+      "titleEn": "Too many failed attempts, try again in 15 minutes"
+    },
+    "alias_conflict": {
+      "status": 409,
+      "title": "รหัสหรือชื่อลูกค้าตามต้นทางนี้เคยจับคู่กับลูกค้ารายอื่นไว้แล้ว — ยืนยันการย้ายพร้อมเหตุผล",
+      "titleEn": "This source customer code/name is already mapped to another customer — confirm the reassignment with a reason"
+    },
+    "already_member": {
+      "status": 409,
+      "title": "อีเมลนี้เป็นสมาชิกของบริษัทแล้ว",
+      "titleEn": "This email is already a member"
+    },
+    "assignment_blocked": {
+      "status": 409,
+      "title": "รถหรือคนขับติดกฎห้ามจ่ายงาน — แก้เอกสารให้ครบ หรือให้ผู้จัดการยกเว้นพร้อมเหตุผล",
+      "titleEn": "Vehicle or driver is blocked by dispatch rules — fix the documents or have a manager override with a reason"
+    },
+    "assignment_warnings": {
+      "status": 409,
+      "title": "เที่ยวนี้มีคำเตือนที่ยังไม่ได้ยืนยัน — ยืนยันพร้อมเหตุผลก่อน",
+      "titleEn": "This trip has unconfirmed warnings — confirm them with a reason first"
+    },
+    "bad_request": {
+      "status": 400,
+      "title": "คำขอไม่ถูกต้อง",
+      "titleEn": "Bad request"
+    },
+    "branch_unavailable": {
+      "status": 422,
+      "title": "นิติบุคคลออกบิลยังไม่มีสาขาที่ออกเอกสาร",
+      "titleEn": "No issuing branch for this legal entity"
+    },
+    "carrier_change_not_allowed": {
+      "status": 409,
+      "title": "เปลี่ยนผู้รับเหมาได้เฉพาะเที่ยวที่รอรถร่วมตอบ หรือรถร่วมรับงานแล้วแต่ยังไม่ปล่อยรถ",
+      "titleEn": "The carrier can only be changed while the offer is open or accepted but not yet dispatched"
+    },
+    "carrier_change_requires_cancel": {
+      "status": 409,
+      "title": "เปลี่ยนรถร่วมหรือสลับรถร่วม/รถบริษัทไม่ได้ — ยกเลิกการจ้างเดิมก่อน",
+      "titleEn": "Changing the carrier requires cancelling the current hire first"
+    },
+    "channel_unavailable": {
+      "status": 409,
+      "title": "ส่งทางช่องทางนี้ไม่ได้ตอนนี้ คัดลอกลิงก์ไปส่งเองได้",
+      "titleEn": "This channel is not available — copy the link and send it yourself"
+    },
+    "company_unavailable": {
+      "status": 422,
+      "title": "นิติบุคคลออกบิลไม่พบหรือปิดใช้อยู่",
+      "titleEn": "Billing legal entity not found or inactive"
+    },
+    "concurrent_update": {
+      "status": 409,
+      "title": "มีการแก้ไขข้อมูลเดียวกันพร้อมกัน กรุณาลองใหม่อีกครั้ง",
+      "titleEn": "Concurrent update — please retry"
+    },
+    "conflict": {
+      "status": 409,
+      "title": "ข้อมูลขัดแย้งกับที่มีอยู่",
+      "titleEn": "Conflict"
+    },
+    "connector_health_failed": {
+      "status": 409,
+      "title": "ทดสอบการเชื่อมต่อไม่ผ่าน ตรวจค่าตั้งและ credential แล้วลองใหม่",
+      "titleEn": "Connection test failed — check settings and credentials"
+    },
+    "connector_limit_reached": {
+      "status": 409,
+      "title": "จำนวนการเชื่อมระบบบัญชีครบตามแพ็กเกจแล้ว",
+      "titleEn": "Connector limit of your plan reached"
+    },
+    "connector_scope_taken": {
+      "status": 409,
+      "title": "นิติบุคคลนี้เชื่อมระบบบัญชีอยู่แล้ว ยกเลิกการเชื่อมเดิมก่อน",
+      "titleEn": "This legal entity already has a connector — disconnect it first"
+    },
+    "delivery_order_on_trip": {
+      "status": 409,
+      "title": "ใบส่งของนี้อยู่ในเที่ยวรถแล้ว — ถอดออกจากเที่ยวก่อน",
+      "titleEn": "Delivery order is on a trip — remove it from the trip first"
+    },
+    "duplicate": {
+      "status": 409,
+      "title": "ข้อมูลซ้ำกับที่มีอยู่",
+      "titleEn": "Duplicate"
+    },
+    "edit_lock_user_required": {
+      "status": 403,
+      "title": "การล็อกเพื่อแก้ไขใช้ได้เฉพาะผู้ใช้ในระบบ",
+      "titleEn": "Edit locks are only available to signed-in users"
+    },
+    "external_id_conflict": {
+      "status": 409,
+      "title": "เลขอ้างอิงต้นทางนี้ถูกใช้กับใบสั่งขนส่งจากช่องทางอื่นแล้ว",
+      "titleEn": "This external id is already used by an order from another source"
+    },
+    "feature_not_in_plan": {
+      "status": 403,
+      "title": "แพ็กเกจปัจจุบันยังไม่มีฟีเจอร์นี้",
+      "titleEn": "This feature is not included in your plan"
+    },
+    "forbidden": {
+      "status": 403,
+      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+      "titleEn": "Forbidden"
+    },
+    "idempotency_in_progress": {
+      "status": 409,
+      "title": "คำขอเดียวกันกำลังประมวลผลอยู่",
+      "titleEn": "Request with this Idempotency-Key is in progress"
+    },
+    "idempotency_mismatch": {
+      "status": 422,
+      "title": "Idempotency-Key นี้เคยใช้กับข้อมูลอื่น",
+      "titleEn": "Idempotency-Key reused with a different request body"
+    },
+    "impersonation_read_only": {
+      "status": 403,
+      "title": "กำลังเข้าใช้งานแทนแบบอ่านอย่างเดียว — แก้ไขข้อมูลไม่ได้",
+      "titleEn": "Impersonation is read-only"
+    },
+    "import_expired": {
+      "status": 409,
+      "title": "ผลตรวจไฟล์หมดอายุแล้ว (24 ชั่วโมง) อัปโหลดไฟล์ใหม่",
+      "titleEn": "The validation result expired after 24 hours — upload the file again"
+    },
+    "import_has_errors": {
+      "status": 409,
+      "title": "ไฟล์มีแถวที่ตรวจไม่ผ่าน — แก้ไฟล์หรือเลือกนำเข้าเฉพาะแถวที่ผ่าน",
+      "titleEn": "The file has invalid rows — fix them or import valid rows only"
+    },
+    "in_use": {
+      "status": 409,
+      "title": "ลบไม่ได้ เพราะมีเอกสารหรือข้อมูลอื่นอ้างถึงแล้ว — ใช้ \"ปิดใช้\" แทน",
+      "titleEn": "Referenced by other records — deactivate it instead"
+    },
+    "in_use_active": {
+      "status": 409,
+      "title": "ปิดใช้ไม่ได้ เพราะยังมีข้อมูลที่ใช้งานอยู่อ้างถึง",
+      "titleEn": "Cannot deactivate — still used by active records (see references)"
+    },
+    "inbound_not_supported": {
+      "status": 409,
+      "title": "ระบบบัญชีนี้ไม่รองรับการส่งข้อมูลเข้ามาทาง webhook",
+      "titleEn": "This connector does not support inbound webhooks"
+    },
+    "internal_error": {
+      "status": 500,
+      "title": "ระบบขัดข้อง",
+      "titleEn": "Internal error"
+    },
+    "invalid_api_version": {
+      "status": 400,
+      "title": "X-Api-Version ไม่ถูกต้อง (ต้องเป็นวันที่ YYYY-MM-DD)",
+      "titleEn": "Invalid X-Api-Version (expected a YYYY-MM-DD date)"
+    },
+    "invalid_client": {
+      "status": 401,
+      "title": "client_id หรือ client_secret ไม่ถูกต้อง",
+      "titleEn": "Invalid client credentials"
+    },
+    "invalid_credentials": {
+      "status": 401,
+      "title": "อีเมลหรือรหัสผ่านไม่ถูกต้อง",
+      "titleEn": "Invalid email or password"
+    },
+    "invalid_grant": {
+      "status": 400,
+      "title": "การเข้าสู่ระบบหมดเวลา ลองใหม่อีกครั้ง",
+      "titleEn": "Sign-in expired or invalid grant — please try again"
+    },
+    "invalid_otp": {
+      "status": 401,
+      "title": "รหัสยืนยันไม่ถูกต้องหรือหมดอายุ",
+      "titleEn": "Invalid or expired code"
+    },
+    "invalid_scope": {
+      "status": 400,
+      "title": "ขอ scope ที่ API key นี้ไม่มี",
+      "titleEn": "Requested scope exceeds the scopes of this API key"
+    },
+    "invalid_state_transition": {
+      "status": 409,
+      "title": "ทำรายการนี้ไม่ได้ในสถานะปัจจุบัน",
+      "titleEn": "Invalid state transition"
+    },
+    "invitation_invalid": {
+      "status": 400,
+      "title": "ลิงก์คำเชิญไม่ถูกต้อง หมดอายุ หรือใช้ไปแล้ว ขอให้ผู้ดูแลส่งคำเชิญใหม่",
+      "titleEn": "This invitation is invalid, expired or already used"
+    },
+    "ip_not_allowed": {
+      "status": 403,
+      "title": "IP นี้ไม่ได้รับอนุญาตให้ใช้ API key นี้",
+      "titleEn": "This IP address is not allowed for this API key"
+    },
+    "key_expired": {
+      "status": 401,
+      "title": "API key หมดอายุแล้ว",
+      "titleEn": "API key has expired"
+    },
+    "key_revoked": {
+      "status": 401,
+      "title": "API key ถูกเพิกถอนแล้ว",
+      "titleEn": "API key has been revoked"
+    },
+    "method_not_allowed": {
+      "status": 405,
+      "title": "ไม่รองรับวิธีเรียกนี้",
+      "titleEn": "Method not allowed"
+    },
+    "mfa_enrollment_required": {
+      "status": 401,
+      "title": "บัญชีนี้ต้องตั้งการยืนยันตัวตน 2 ชั้นก่อนเข้าใช้งาน",
+      "titleEn": "Set up two-factor authentication to continue"
+    },
+    "mfa_expired": {
+      "status": 401,
+      "title": "หมดเวลายืนยันตัวตน เข้าสู่ระบบใหม่อีกครั้ง",
+      "titleEn": "Verification expired, sign in again"
+    },
+    "mfa_required": {
+      "status": 401,
+      "title": "กรอกรหัสยืนยันตัวตน 2 ชั้นจากแอป Authenticator",
+      "titleEn": "Enter the code from your authenticator app"
+    },
+    "not_found": {
+      "status": 404,
+      "title": "ไม่พบข้อมูล",
+      "titleEn": "Not found"
+    },
+    "offer_closed": {
+      "status": 409,
+      "title": "ข้อเสนองานนี้ปิดแล้ว (ตอบไปแล้วหรือถูกยกเลิก)",
+      "titleEn": "This job offer is closed (already answered or withdrawn)"
+    },
+    "offer_not_timed_out": {
+      "status": 409,
+      "title": "รถร่วมรายนี้ยังอยู่ในเวลาตอบรับ — ส่งรายถัดไปได้เมื่อครบเวลา",
+      "titleEn": "The carrier still has time to respond — send to the next carrier after the response time"
+    },
+    "offer_required": {
+      "status": 409,
+      "title": "รถคันนี้เป็นรถร่วม — ต้องเสนองานให้รถร่วมก่อน แล้วจึงบันทึกการรับงาน",
+      "titleEn": "Subcontract vehicle — offer the trip to the carrier first"
+    },
+    "order_lock_released": {
+      "status": 409,
+      "title": "การแก้ไขของคุณถูกปลดล็อกโดยผู้อื่นแล้ว — โหลดใหม่ก่อนแก้ต่อ",
+      "titleEn": "Your edit lock was released by another user — reload before editing again"
+    },
+    "order_locked_by_user": {
+      "status": 409,
+      "title": "ใบสั่งขนส่งนี้กำลังถูกแก้ไขโดยผู้ใช้อื่น",
+      "titleEn": "This order is being edited by another user"
+    },
+    "order_locked_for_update": {
+      "status": 409,
+      "title": "แก้ข้อมูลนี้ของใบสั่งขนส่งไม่ได้ในสถานะปัจจุบัน (วางแผน ออกรถ ปิดงาน หรือยกเลิกแล้ว)",
+      "titleEn": "These order fields can no longer be changed in its current status"
+    },
+    "order_not_ready_for_delivery": {
+      "status": 409,
+      "title": "ยังสร้างใบส่งของจากใบสั่งขนส่งนี้ไม่ได้ (ร่าง ยกเลิก วางแผนแล้ว หรือยังจับคู่ลูกค้า/สถานที่ไม่ครบ)",
+      "titleEn": "Delivery orders cannot be created for this order yet (draft, cancelled, planned or unmapped customer/locations)"
+    },
+    "order_on_trip": {
+      "status": 409,
+      "title": "ใบสั่งขนส่งนี้มีใบส่งของอยู่ในเที่ยวรถ — ถอดออกจากเที่ยวก่อน",
+      "titleEn": "This order has delivery orders on a trip — remove them from the trip first"
+    },
+    "order_source_change_pending": {
+      "status": 409,
+      "title": "ต้นทางแก้ใบสั่งขนส่งนี้หลังวางแผน — เลือกรับค่าต้นทางหรือใช้ค่า TMS ก่อนจัดลงเที่ยว",
+      "titleEn": "The source changed this order after planning — accept or reject the change before planning it"
+    },
+    "payload_too_large": {
+      "status": 413,
+      "title": "ไฟล์หรือข้อมูลมีขนาดใหญ่เกินกำหนด",
+      "titleEn": "Payload too large"
+    },
+    "pdf_render_timeout": {
+      "status": 503,
+      "title": "สร้าง PDF ไม่ทันเวลา กรุณาลองใหม่อีกครั้ง",
+      "titleEn": "PDF rendering timed out — please retry"
+    },
+    "permission_denied": {
+      "status": 403,
+      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+      "titleEn": "You do not have permission for this action"
+    },
+    "pod_exists": {
+      "status": 409,
+      "title": "ส่ง POD ของใบส่งของนี้แล้ว",
+      "titleEn": "Proof of delivery has already been sent for this delivery order"
+    },
+    "pod_incomplete": {
+      "status": 422,
+      "title": "หลักฐานการส่ง (POD) ยังไม่ครบตามที่ลูกค้ากำหนด",
+      "titleEn": "Proof of delivery is incomplete for this customer checklist"
+    },
+    "pod_not_allowed": {
+      "status": 409,
+      "title": "บันทึกหลักฐานส่งของใบส่งของนี้ไม่ได้ในสถานะปัจจุบัน",
+      "titleEn": "Proof of delivery cannot be recorded for this delivery order in its current status"
+    },
+    "precondition_failed": {
+      "status": 412,
+      "title": "ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่",
+      "titleEn": "Precondition failed (version mismatch)"
+    },
+    "rate_limited": {
+      "status": 429,
+      "title": "เรียกถี่เกินไป",
+      "titleEn": "Too many requests"
+    },
+    "reset_link_invalid": {
+      "status": 400,
+      "title": "ลิงก์ตั้งรหัสผ่านไม่ถูกต้อง หมดอายุ หรือใช้ไปแล้ว ขอลิงก์ใหม่อีกครั้ง",
+      "titleEn": "This reset link is invalid, expired or already used"
+    },
+    "routing_not_configured": {
+      "status": 422,
+      "title": "บริษัทมีหลายนิติบุคคลแต่ยังไม่ได้กำหนดนิติบุคคลออกบิล — ส่ง billingCompanyId (จาก GET /v1/companies) หรือตั้ง \"ออกบิลในนาม\" ที่ลูกค้า/ค่าตั้งต้นของบริษัท",
+      "titleEn": "Several legal entities and no billing entity set — send billingCompanyId (from GET /v1/companies) or set the customer/company default"
+    },
+    "sandbox_only": {
+      "status": 403,
+      "title": "ใช้ได้เฉพาะโหมด Sandbox (key tk_test_ หรือสลับเป็น Sandbox)",
+      "titleEn": "Available in sandbox (test) mode only"
+    },
+    "sandbox_unsupported": {
+      "status": 403,
+      "title": "ใช้ใน Sandbox ไม่ได้ (เชื่อมระบบภายนอกจริง)",
+      "titleEn": "Not available in sandbox (connects to real external systems)"
+    },
+    "saved_view_limit": {
+      "status": 409,
+      "title": "บันทึกได้สูงสุด 50 มุมมองต่อหน้า",
+      "titleEn": "At most 50 saved views per page"
+    },
+    "seat_limit_reached": {
+      "status": 409,
+      "title": "จำนวนผู้ใช้ครบตามแพ็กเกจแล้ว",
+      "titleEn": "User limit of your plan reached"
+    },
+    "secret_unreadable": {
+      "status": 409,
+      "title": "อ่านข้อมูลลับเดิมไม่ได้ (กุญแจเข้ารหัสเดิมถูกถอดออกแล้ว) — กรอกเลขใหม่แทน",
+      "titleEn": "Stored secret cannot be decrypted (retired key) — provide a new value"
+    },
+    "self_approval_forbidden": {
+      "status": 403,
+      "title": "ยืนยันหรือปฏิเสธรายการที่ตัวเองบันทึกไม่ได้ ต้องให้ผู้อื่นตรวจ",
+      "titleEn": "You cannot approve or reject a line you recorded"
+    },
+    "service_busy": {
+      "status": 503,
+      "title": "ระบบกำลังมีผู้ใช้งานมาก กรุณาลองใหม่อีกครั้ง",
+      "titleEn": "Service busy — please retry"
+    },
+    "source_change_not_pending": {
+      "status": 409,
+      "title": "การเปลี่ยนแปลงจากต้นทางชุดนี้ถูกตัดสินไปแล้ว หรือมีชุดใหม่มาแทน — โหลดใหม่",
+      "titleEn": "This source change was already decided or superseded — reload"
+    },
+    "step_up_required": {
+      "status": 403,
+      "title": "ยืนยันตัวตน 2 ชั้นอีกครั้งก่อนทำรายการนี้",
+      "titleEn": "Confirm with two-factor authentication first"
+    },
+    "stop_already_closed": {
+      "status": 409,
+      "title": "จุดนี้ถูกปิดแล้ว — ส่ง POD ของ DO นี้ได้",
+      "titleEn": "This stop is already closed — send the proof of delivery only"
+    },
+    "stop_event_already_resolved": {
+      "status": 409,
+      "title": "เหตุการณ์นี้ถูกตัดสินไปแล้ว",
+      "titleEn": "This stop event flag was already resolved"
+    },
+    "stop_event_duplicate": {
+      "status": 409,
+      "title": "clientEventId นี้ถูกใช้กับ event อื่นแล้ว",
+      "titleEn": "This clientEventId was already used for a different event"
+    },
+    "stop_event_not_flagged": {
+      "status": 409,
+      "title": "เหตุการณ์นี้ไม่มีข้อขัดแย้งให้ตัดสิน",
+      "titleEn": "This stop event has no flag to resolve"
+    },
+    "stop_not_arrived": {
+      "status": 409,
+      "title": "ยังไม่ได้บันทึกถึงจุดนี้",
+      "titleEn": "The stop has not been arrived at yet"
+    },
+    "stop_not_ready": {
+      "status": 409,
+      "title": "ปิดงานจุดก่อนหน้าก่อน",
+      "titleEn": "Close the previous stop first"
+    },
+    "stop_order_invalid": {
+      "status": 422,
+      "title": "ลำดับจุดไม่ถูกต้อง — จุดส่งของใบส่งของต้องอยู่หลังจุดรับของใบเดียวกัน",
+      "titleEn": "Invalid stop order — a delivery stop must come after the pickup stop of the same delivery order"
+    },
+    "stop_skipped": {
+      "status": 409,
+      "title": "จุดนี้ไม่มีใบส่งของแล้ว (นัดส่งใหม่ไปเที่ยวอื่น) — ไม่ต้องบันทึกที่จุดนี้",
+      "titleEn": "This stop has no delivery orders left (rescheduled) — nothing to record here"
+    },
+    "tenant_selection_required": {
+      "status": 409,
+      "title": "อีเมลนี้เป็นสมาชิกหลายบริษัท เลือกบริษัทที่ต้องการเข้า",
+      "titleEn": "This account belongs to several organisations; choose one"
+    },
+    "trip_empty": {
+      "status": 409,
+      "title": "เที่ยวนี้ยังไม่มีใบส่งของ",
+      "titleEn": "Trip has no delivery orders"
+    },
+    "trip_has_loaded_orders": {
+      "status": 409,
+      "title": "ยกเลิกเที่ยวไม่ได้ — มีใบส่งของที่รับของขึ้นรถหรือส่งแล้ว (ปิดเที่ยวบางส่วนแล้วเปิดเที่ยวใหม่แทน)",
+      "titleEn": "Trip has orders already picked up or delivered — close it partially and open a new trip instead"
+    },
+    "trip_not_in_progress": {
+      "status": 409,
+      "title": "บันทึกสถานะหน้างานได้เฉพาะเที่ยวที่ปล่อยรถแล้วและยังไม่จบ",
+      "titleEn": "Stop events can only be recorded on a dispatched trip that is not finished"
+    },
+    "trip_stops_open": {
+      "status": 409,
+      "title": "ยังมีจุดแวะที่ยังไม่จบ — ปิดเที่ยวได้เมื่อทุกจุดส่งสำเร็จ/ไม่สำเร็จ/ข้าม",
+      "titleEn": "Some stops are not finished yet"
+    },
+    "two_factor_not_enabled": {
+      "status": 409,
+      "title": "ยังไม่ได้ตั้งการยืนยันตัวตน 2 ชั้น",
+      "titleEn": "Two-factor authentication is not set up"
+    },
+    "unauthorized": {
+      "status": 401,
+      "title": "ต้องเข้าสู่ระบบ",
+      "titleEn": "Authentication required"
+    },
+    "validation_failed": {
+      "status": 422,
+      "title": "ข้อมูลไม่ถูกต้อง",
+      "titleEn": "Validation failed"
+    },
+    "webhook_event_expired": {
+      "status": 422,
+      "title": "event เกิน 30 วันแล้ว ส่งซ้ำไม่ได้",
+      "titleEn": "The event is older than 30 days and can no longer be redelivered"
+    },
+    "webhook_event_not_subscribed": {
+      "status": 422,
+      "title": "endpoint นี้ไม่ได้สมัคร event ชนิดนี้",
+      "titleEn": "The endpoint is not subscribed to this event type"
+    },
+    "webhook_limit_reached": {
+      "status": 409,
+      "title": "จำนวน webhook endpoint ครบตามแพ็กเกจแล้ว",
+      "titleEn": "Webhook endpoint limit of your plan reached"
+    },
+    "webhook_not_retryable": {
+      "status": 422,
+      "title": "ส่งซ้ำรายการนี้ไม่ได้ (event ทดสอบ) ใช้ \"ส่ง event ทดสอบ\" แทน",
+      "titleEn": "This delivery cannot be retried (test event) — send a test event instead"
     }
   }
 }

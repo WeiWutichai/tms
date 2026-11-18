@@ -68,7 +68,7 @@ scope: `master:write` · operationId: `CarrierDocs_issue`
 
 | สถานะ | ความหมาย | body |
 |---|---|---|
-| `201` | ออกลิงก์อัปโหลดเอกสารให้ผู้รับเหมา — ส่งทาง LINE/SMS ด้วย POST /v1/messages/send-link (ST3-T21) หรือคัดลอก url ไปส่งเอง | `IssuedUploadLinkDto` |
+| `201` | ออกลิงก์อัปโหลดเอกสารให้ผู้รับเหมา — ส่งทาง LINE/SMS ด้วย POST /v1/messages/send-link หรือคัดลอก url ไปส่งเอง | `IssuedUploadLinkDto` |
 | `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
 | `403` | ไม่มีสิทธิ์ (`master:write`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
 | `404` | ไม่พบ (รวมข้อมูลของบริษัทอื่น — ไม่บอกว่ามีอยู่) — [not_found](errors.md#not_found) | `ProblemDto` |

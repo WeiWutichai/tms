@@ -31,12 +31,12 @@ scope: `master:read` · operationId: `ReasonCodes_list`
 | `cursor` | query |   | `string` | ค่า nextCursor จากหน้าก่อน (ใช้กับ sort เดิมเท่านั้น) |
 | `updatedAfter` | query |   | `string` | คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull — ใช้คู่ includeDeleted=true เพื่อรับรายการที่ถูกลบ) |
 | `sort` | query |   | `string` ค่า: `code`, `updatedAt`, `-updatedAt` | code = เรียงตามรหัส (ค่าเริ่มต้นของหน้าจอ) · updatedAt/-updatedAt สำหรับ sync |
-| `fields` | query |   | `string` | รายชื่อ field คั่นด้วย , เช่น id,legalName |
+| `fields` | query |   | `string` | รายชื่อ field คั่นด้วย, เช่น id,legalName |
 | `q` | query |   | `string` | ค้นหา — รหัส ชื่อ เลขผู้เสียภาษี หรือ externalId (ไม่สนตัวพิมพ์) |
-| `status` | query |   | `string` | คั่นด้วย , เช่น active,inactive |
+| `status` | query |   | `string` | คั่นด้วย, เช่น active,inactive |
 | `externalId` | query |   | `string` | externalId ตรงตัว (ใช้ตรวจว่ามีในระบบแล้วหรือยัง) |
 | `includeDeleted` | query |   | `string` | true = รวมรายการที่ถูกลบ (tombstone มี `deletedAt`) — ให้ระบบที่ดึงแบบ incremental รู้ว่ารายการถูกลบ |
-| `category` | query |   | `string` | หมวด คั่นด้วย , เช่น DELIVERY_FAILED,DELAY |
+| `category` | query |   | `string` | หมวด คั่นด้วย, เช่น DELIVERY_FAILED,DELAY |
 | `label` | query |   | `string` | ข้อความเหตุผลมีคำนี้ |
 | `system` | query |   | `string` ค่า: `true`, `false` | true = เฉพาะรหัสของระบบ |
 
@@ -79,8 +79,8 @@ scope: `master:write` · operationId: `ReasonCodes_create`
 |---|---|---|---|---|---|
 | `labelEn` |   | `string` | null ได้ |   | `Shop closed` |
 | `requiresPhoto` |   | `boolean` |   | บังคับแนบรูป (ค่าเริ่มต้น false) |   |
-| `requiresNote` |   | `boolean` |   | บังคับกรอกโน้ต (ค่าเริ่มต้น false) — รายการ "อื่น ๆ" ของระบบต้องเป็น true เสมอ (MD-221) |   |
-| `autoReschedule` |   | `boolean` |   | นัดส่งใหม่อัตโนมัติ (สร้างจุดส่งใหม่วันถัดไป — ST4-T12) ใช้ได้เฉพาะหมวด DELIVERY_FAILED (อื่น → 422 `not_applicable`) |   |
+| `requiresNote` |   | `boolean` |   | บังคับกรอกโน้ต (ค่าเริ่มต้น false) — รายการ "อื่น ๆ" ของระบบต้องเป็น true เสมอ |   |
+| `autoReschedule` |   | `boolean` |   | นัดส่งใหม่อัตโนมัติ ใช้ได้เฉพาะหมวด DELIVERY_FAILED (อื่น → 422 `not_applicable`) |   |
 | `showOnTracking` |   | `boolean` |   | แสดงเหตุผลบนหน้า tracking ของผู้รับ — เฉพาะหมวด DELIVERY_FAILED / REJECTED_BY_RECEIVER / POD_MISSING / DELAY (อื่น → 422 `not_applicable`) |   |
 | `sortOrder` |   | `number` | ≥ 0 · ≤ 9998 | ลำดับในหมวด (น้อยขึ้นก่อน) — ไม่ส่งตอนสร้าง = ต่อท้ายหมวด (มากสุด + 10); "อื่น ๆ" ของระบบอยู่ท้ายเสมอ (9999) |   |
 | `category` | ใช่ | `string` | ค่า: `ORDER_HOLD`, `DELIVERY_FAILED`, `REJECTED_BY_RECEIVER`, `POD_MISSING`, `DELAY`, `SETTLEMENT_DISPUTE`, `CANCEL`, `OVERRIDE` | หมวด — เปลี่ยนไม่ได้หลังสร้าง |   |
@@ -158,12 +158,12 @@ scope: `export:run` · operationId: `ReasonCodes_export`
 | `cursor` | query |   | `string` | ค่า nextCursor จากหน้าก่อน (ใช้กับ sort เดิมเท่านั้น) |
 | `updatedAfter` | query |   | `string` | คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull — ใช้คู่ includeDeleted=true เพื่อรับรายการที่ถูกลบ) |
 | `sort` | query |   | `string` ค่า: `code`, `updatedAt`, `-updatedAt` | code = เรียงตามรหัส (ค่าเริ่มต้นของหน้าจอ) · updatedAt/-updatedAt สำหรับ sync |
-| `fields` | query |   | `string` | รายชื่อ field คั่นด้วย , เช่น id,legalName |
+| `fields` | query |   | `string` | รายชื่อ field คั่นด้วย, เช่น id,legalName |
 | `q` | query |   | `string` | ค้นหา — รหัส ชื่อ เลขผู้เสียภาษี หรือ externalId (ไม่สนตัวพิมพ์) |
-| `status` | query |   | `string` | คั่นด้วย , เช่น active,inactive |
+| `status` | query |   | `string` | คั่นด้วย, เช่น active,inactive |
 | `externalId` | query |   | `string` | externalId ตรงตัว (ใช้ตรวจว่ามีในระบบแล้วหรือยัง) |
 | `includeDeleted` | query |   | `string` | true = รวมรายการที่ถูกลบ (tombstone มี `deletedAt`) — ให้ระบบที่ดึงแบบ incremental รู้ว่ารายการถูกลบ |
-| `category` | query |   | `string` | หมวด คั่นด้วย , เช่น DELIVERY_FAILED,DELAY |
+| `category` | query |   | `string` | หมวด คั่นด้วย, เช่น DELIVERY_FAILED,DELAY |
 | `label` | query |   | `string` | ข้อความเหตุผลมีคำนี้ |
 | `system` | query |   | `string` ค่า: `true`, `false` | true = เฉพาะรหัสของระบบ |
 | `format` | query |   | `string` ค่า: `xlsx`, `csv` |   |
@@ -172,7 +172,7 @@ scope: `export:run` · operationId: `ReasonCodes_export`
 
 | สถานะ | ความหมาย | body |
 |---|---|---|
-| `200` | ไฟล์ .xlsx หรือ .csv ตามตัวกรองเดียวกับรายการ (สูงสุด 10,000 แถว) |   |
+| `200` | ไฟล์.xlsx หรือ.csv ตามตัวกรองเดียวกับรายการ (สูงสุด 10,000 แถว) |   |
 | `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
 | `403` | ไม่มีสิทธิ์ (`export:run`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
 | `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (query/body) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
@@ -208,8 +208,8 @@ scope: `master:write` · operationId: `ReasonCodes_upsertExternal`
 |---|---|---|---|---|---|
 | `labelEn` |   | `string` | null ได้ |   | `Shop closed` |
 | `requiresPhoto` |   | `boolean` |   | บังคับแนบรูป (ค่าเริ่มต้น false) |   |
-| `requiresNote` |   | `boolean` |   | บังคับกรอกโน้ต (ค่าเริ่มต้น false) — รายการ "อื่น ๆ" ของระบบต้องเป็น true เสมอ (MD-221) |   |
-| `autoReschedule` |   | `boolean` |   | นัดส่งใหม่อัตโนมัติ (สร้างจุดส่งใหม่วันถัดไป — ST4-T12) ใช้ได้เฉพาะหมวด DELIVERY_FAILED (อื่น → 422 `not_applicable`) |   |
+| `requiresNote` |   | `boolean` |   | บังคับกรอกโน้ต (ค่าเริ่มต้น false) — รายการ "อื่น ๆ" ของระบบต้องเป็น true เสมอ |   |
+| `autoReschedule` |   | `boolean` |   | นัดส่งใหม่อัตโนมัติ ใช้ได้เฉพาะหมวด DELIVERY_FAILED (อื่น → 422 `not_applicable`) |   |
 | `showOnTracking` |   | `boolean` |   | แสดงเหตุผลบนหน้า tracking ของผู้รับ — เฉพาะหมวด DELIVERY_FAILED / REJECTED_BY_RECEIVER / POD_MISSING / DELAY (อื่น → 422 `not_applicable`) |   |
 | `sortOrder` |   | `number` | ≥ 0 · ≤ 9998 | ลำดับในหมวด (น้อยขึ้นก่อน) — ไม่ส่งตอนสร้าง = ต่อท้ายหมวด (มากสุด + 10); "อื่น ๆ" ของระบบอยู่ท้ายเสมอ (9999) |   |
 | `category` | ใช่ | `string` | ค่า: `ORDER_HOLD`, `DELIVERY_FAILED`, `REJECTED_BY_RECEIVER`, `POD_MISSING`, `DELAY`, `SETTLEMENT_DISPUTE`, `CANCEL`, `OVERRIDE` | หมวด — เปลี่ยนไม่ได้หลังสร้าง |   |
@@ -270,8 +270,8 @@ scope: `master:write` · operationId: `ReasonCodes_patchExternal`
 |---|---|---|---|---|---|
 | `labelEn` |   | `string` | null ได้ |   | `Shop closed` |
 | `requiresPhoto` |   | `boolean` |   | บังคับแนบรูป (ค่าเริ่มต้น false) |   |
-| `requiresNote` |   | `boolean` |   | บังคับกรอกโน้ต (ค่าเริ่มต้น false) — รายการ "อื่น ๆ" ของระบบต้องเป็น true เสมอ (MD-221) |   |
-| `autoReschedule` |   | `boolean` |   | นัดส่งใหม่อัตโนมัติ (สร้างจุดส่งใหม่วันถัดไป — ST4-T12) ใช้ได้เฉพาะหมวด DELIVERY_FAILED (อื่น → 422 `not_applicable`) |   |
+| `requiresNote` |   | `boolean` |   | บังคับกรอกโน้ต (ค่าเริ่มต้น false) — รายการ "อื่น ๆ" ของระบบต้องเป็น true เสมอ |   |
+| `autoReschedule` |   | `boolean` |   | นัดส่งใหม่อัตโนมัติ ใช้ได้เฉพาะหมวด DELIVERY_FAILED (อื่น → 422 `not_applicable`) |   |
 | `showOnTracking` |   | `boolean` |   | แสดงเหตุผลบนหน้า tracking ของผู้รับ — เฉพาะหมวด DELIVERY_FAILED / REJECTED_BY_RECEIVER / POD_MISSING / DELAY (อื่น → 422 `not_applicable`) |   |
 | `sortOrder` |   | `number` | ≥ 0 · ≤ 9998 | ลำดับในหมวด (น้อยขึ้นก่อน) — ไม่ส่งตอนสร้าง = ต่อท้ายหมวด (มากสุด + 10); "อื่น ๆ" ของระบบอยู่ท้ายเสมอ (9999) |   |
 | `code` |   | `string` |   | รหัสของระบบ (system) เปลี่ยนไม่ได้ | `SHOP_CLOSED` |
@@ -364,8 +364,8 @@ scope: `master:write` · operationId: `ReasonCodes_update`
 |---|---|---|---|---|---|
 | `labelEn` |   | `string` | null ได้ |   | `Shop closed` |
 | `requiresPhoto` |   | `boolean` |   | บังคับแนบรูป (ค่าเริ่มต้น false) |   |
-| `requiresNote` |   | `boolean` |   | บังคับกรอกโน้ต (ค่าเริ่มต้น false) — รายการ "อื่น ๆ" ของระบบต้องเป็น true เสมอ (MD-221) |   |
-| `autoReschedule` |   | `boolean` |   | นัดส่งใหม่อัตโนมัติ (สร้างจุดส่งใหม่วันถัดไป — ST4-T12) ใช้ได้เฉพาะหมวด DELIVERY_FAILED (อื่น → 422 `not_applicable`) |   |
+| `requiresNote` |   | `boolean` |   | บังคับกรอกโน้ต (ค่าเริ่มต้น false) — รายการ "อื่น ๆ" ของระบบต้องเป็น true เสมอ |   |
+| `autoReschedule` |   | `boolean` |   | นัดส่งใหม่อัตโนมัติ ใช้ได้เฉพาะหมวด DELIVERY_FAILED (อื่น → 422 `not_applicable`) |   |
 | `showOnTracking` |   | `boolean` |   | แสดงเหตุผลบนหน้า tracking ของผู้รับ — เฉพาะหมวด DELIVERY_FAILED / REJECTED_BY_RECEIVER / POD_MISSING / DELAY (อื่น → 422 `not_applicable`) |   |
 | `sortOrder` |   | `number` | ≥ 0 · ≤ 9998 | ลำดับในหมวด (น้อยขึ้นก่อน) — ไม่ส่งตอนสร้าง = ต่อท้ายหมวด (มากสุด + 10); "อื่น ๆ" ของระบบอยู่ท้ายเสมอ (9999) |   |
 | `code` |   | `string` |   | รหัสของระบบ (system) เปลี่ยนไม่ได้ | `SHOP_CLOSED` |

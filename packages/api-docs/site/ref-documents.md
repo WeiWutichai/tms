@@ -23,7 +23,7 @@ scope: `documents:write` · operationId: `Documents_create`
 | `mime` | ใช่ | `string` | ค่า: `application/pdf`, `image/png`, `image/jpeg`, `image/webp`, `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`, `text/csv` | ชนิดที่จะอัปโหลด — server ตรวจกับเนื้อไฟล์จริง |   |
 | `bytes` | ใช่ | `number` |   | ขนาดไฟล์ (byte) ไม่เกิน 10485760 | `182044` |
 | `filename` |   | `string` |   |   | `pod-SO-2611-0001.jpg` |
-| `clientDocumentId` |   | `string` |   | id ฝั่ง client (อุปกรณ์) — ส่งซ้ำได้ ไม่สร้างแถวใหม่ (docs/01 §5.5) |   |
+| `clientDocumentId` |   | `string` |   | id ฝั่ง client (อุปกรณ์) — ส่งซ้ำได้ ไม่สร้างแถวใหม่ |   |
 | `entityType` |   | `string` |   |   | `trip_stop` |
 
 **Responses**
@@ -171,7 +171,7 @@ const { data, error } = await tms.PUT('/v1/documents/{id}/content', {
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
 | `id` | ใช่ | `string` |   |   | `doc_…` |
-| `status` | ใช่ | `string` | ค่า: `pending`, `ready`, `purged` | purged = ไฟล์ถูกลบตามระยะเก็บ (ST9-T14: POD ≥ 2 ปี, ไฟล์ส่งออก 7 วัน) — ดาวน์โหลดไม่ได้ (404) |   |
+| `status` | ใช่ | `string` | ค่า: `pending`, `ready`, `purged` | purged = ไฟล์ถูกลบตามระยะเก็บ — ดาวน์โหลดไม่ได้ (404) |   |
 | `kind` | ใช่ | `string` |   |   |   |
 | `mime` | ใช่ | `string` |   |   |   |
 | `bytes` | ใช่ | `number` |   |   |   |

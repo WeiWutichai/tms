@@ -1,5 +1,13 @@
 /** Postman Collection v2.1 จาก openapi.json (ST7-T12; spec/07 INT-092 — ฉบับกลาง ไม่มี custom fields ของ tenant) */
-import { jsonBodySchema, operations, parameters, sample, title, type Json } from './openapi';
+import {
+  jsonBodySchema,
+  operations,
+  parameters,
+  sample,
+  scrubInternal,
+  title,
+  type Json,
+} from './openapi';
 import { TAGS } from './pages';
 
 export function postmanCollection(doc: Json): Json {
@@ -15,7 +23,7 @@ export function postmanCollection(doc: Json): Json {
       .map((p: Json) => ({
         key: p.name,
         value: p.schema?.example != null ? String(p.schema.example) : '',
-        description: p.description ?? '',
+        description: scrubInternal(p.description ?? ''),
         disabled: !p.required,
       }));
     const header: Json[] = [{ key: 'X-Api-Version', value: '{{apiVersion}}' }];
@@ -24,7 +32,7 @@ export function postmanCollection(doc: Json): Json {
         header.push({
           key: p.name,
           value: '',
-          description: p.description ?? '',
+          description: scrubInternal(p.description ?? ''),
           disabled: !p.required,
         });
     if (o.method === 'post') header.push({ key: 'Idempotency-Key', value: '{{$guid}}' });
@@ -51,12 +59,15 @@ export function postmanCollection(doc: Json): Json {
               variable: pathParams.map((p: Json) => ({
                 key: p.name,
                 value: String(p.example ?? p.schema?.example ?? ''),
-                description: p.description ?? '',
+                description: scrubInternal(p.description ?? ''),
               })),
             }
           : {}),
       },
-      description: [o.scopes.length ? `scope: ${o.scopes.join(' | ')}` : '', o.op.description ?? '']
+      description: [
+        o.scopes.length ? `scope: ${o.scopes.join(' | ')}` : '',
+        scrubInternal(o.op.description ?? ''),
+      ]
         .filter(Boolean)
         .join('\n\n'),
     };
@@ -78,7 +89,7 @@ export function postmanCollection(doc: Json): Json {
     info: {
       name: 'TMS API v1',
       description:
-        'สร้างจาก OpenAPI ของ TMS (packages/contracts/openapi.json) — ตั้งตัวแปร baseUrl (ไม่ต้องใส่ /v1) และ apiKey (tk_test_… สำหรับ Sandbox)',
+        'สร้างจาก OpenAPI ของ TMS — ตั้งตัวแปร baseUrl (ไม่ต้องใส่ /v1) และ apiKey (tk_test_… สำหรับ Sandbox)',
       schema: 'https://schema.getpostman.com/json/collection/v2.1.0/collection.json',
     },
     auth: { type: 'bearer', bearer: [{ key: 'token', value: '{{apiKey}}', type: 'string' }] },

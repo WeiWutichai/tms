@@ -30,7 +30,7 @@ blockquote{margin:8px 0;padding:6px 12px;border-left:3px solid var(--accent);bac
 <main>
 <a class="md-link" href="conventions.md">Markdown</a>
 <h1 id="แนวทางการใช้-api">แนวทางการใช้ API</h1>
-<p>มาตรฐานที่ทุก endpoint ใช้ร่วมกัน (docs/04 G1)</p>
+<p>มาตรฐานที่ทุก endpoint ใช้ร่วมกัน</p>
 <h2 id="รูปแบบข้อมูล">รูปแบบข้อมูล</h2>
 <ul><li>base <code>https://api.&lt;domain&gt;/v1/</code> · JSON camelCase · resource พหูพจน์ · action = <code>POST /{resource}/{id}/{verb}</code> เช่น <code>POST /v1/orders/{id}/cancel</code></li><li>id มี prefix ตามชนิด เช่น <code>ord_</code> <code>trp_</code> <code>stp_</code> <code>cus_</code> <code>loc_</code> <code>veh_</code> <code>drv_</code> <code>car_</code> <code>evt_</code> <code>job_</code></li><li><strong>เงิน</strong> เป็น string ทศนิยม 2 ตำแหน่ง เช่น <code>&quot;1250.00&quot;</code> (สกุล THB) — ห้ามแปลงเป็น float</li><li><strong>จำนวน/น้ำหนัก</strong> เป็น string ทศนิยม เช่น <code>&quot;12.5&quot;</code></li><li><strong>เวลา</strong> ISO 8601 พร้อม offset (response ใช้ <code>+07:00</code> Asia/Bangkok) · <strong>วันที่</strong> <code>YYYY-MM-DD</code></li><li>client ต้องรับค่า enum ที่ไม่รู้จักได้ (เพิ่ม enum = ไม่ breaking)</li></ul>
 <h2 id="externalid">externalId</h2>
@@ -38,7 +38,7 @@ blockquote{margin:8px 0;padding:6px 12px;border-left:3px solid var(--accent);bac
 <ul><li><code>PUT /v1/{resource}/external/{externalId}</code> = สร้างหรือแทนทั้งรายการ (<code>201</code>/<code>200</code>) · <code>PATCH …/external/{externalId}</code> = แก้บางช่อง</li><li>path <code>{id}</code> รับ <code>ext:{externalId}</code> ได้ เช่น <code>GET /v1/orders/ext:PO-2026-0001</code></li></ul>
 <h2 id="idempotency-key">Idempotency-Key</h2>
 <p>ทุก <code>POST</code> รับ header <code>Idempotency-Key</code> (ASCII 1–255 ตัว เช่น UUID) เก็บ 24 ชม. ต่อ (บริษัท, key, path)</p>
-<ul><li>ส่งซ้ำด้วย key + body เดิม → ได้ผลเดิม (สถานะ + ETag เดิม) พร้อม header <code>Idempotent-Replayed: true</code> ไม่สร้างซ้ำ</li><li>key เดิมแต่ body ต่าง → <code>422 idempotency_mismatch</code> · คำขอแรกยังทำไม่เสร็จ → <code>409</code></li><li>SDK ใส่ให้อัตโนมัติทุก POST และใช้ key เดิมตอน retry</li></ul>
+<ul><li>ส่งซ้ำด้วย key + body เดิม → ได้ผลเดิม (สถานะ + ETag เดิม) พร้อม header <code>Idempotent-Replayed: true</code> ไม่สร้างซ้ำ</li><li>key เดิมแต่ body ต่าง → <code>422 idempotency_mismatch</code> · คำขอแรกยังทำไม่เสร็จ → <code>409</code></li><li>SDK ใส่ให้อัตโนมัติทุก POST ที่รับ header นี้ (ตามที่ประกาศใน OpenAPI) และใช้ key เดิมตอน retry</li></ul>
 <h2 id="pagination-แบบ-cursor">Pagination แบบ cursor</h2>
 <pre><code class="language-http">GET /v1/orders?limit=100&amp;cursor=&lt;nextCursor ของหน้าก่อน&gt;</code></pre>
 <p>ได้ <code>{ &quot;data&quot;: [...], &quot;nextCursor&quot;: &quot;...&quot;, &quot;hasMore&quot;: true }</code> · <code>limit</code> ค่าเริ่ม 25 สูงสุด 200 · ไม่มี offset · ห้ามสร้าง cursor เอง · ดึงเฉพาะที่เปลี่ยนด้วย <code>updatedAfter=&lt;ISO 8601&gt;</code> · เรียงด้วย <code>sort=-updatedAt</code> · list ว่าง = <code>200</code> และ <code>data: []</code></p>

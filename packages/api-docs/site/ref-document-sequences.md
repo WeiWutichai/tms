@@ -78,12 +78,12 @@ const { data, error } = await tms.GET('/v1/document-sequences/{id}', {
 |---|---|---|---|---|---|
 | `id` | ใช่ | `string` |   |   | `seq_…` |
 | `docType` | ใช่ | `string` | ค่า: `SO`, `TRIP`, `DO`, `BN`, `INV`, `TXINV`, `RCP`, `CN`, `DN`, `STL`, `WHT`, `WO`, `INC` |   |   |
-| `prefix` | ใช่ | `string` |   |   | `INV-{BR}-` |
+| `prefix` | ใช่ | `string` |   |   | `INV-{BR}` |
 | `resetPolicy` | ใช่ | `string` | ค่า: `monthly`, `yearly`, `never` |   |   |
 | `padding` | ใช่ | `number` |   |   |   |
 | `perBranch` | ใช่ | `boolean` |   | นับแยกต่อสาขาผู้ออก (เอกสารภาษี) |   |
 | `pattern` | ใช่ | `string` |   |   | `{YYMM}-{NNNN}` |
-| `nextNumber` | ใช่ | `string` | null ได้ | เลขถัดไปของงวดนี้ (ไม่จอง) — null เมื่อยังไม่มีสาขาออกเอกสาร | `INV-00000-2611-0042` |
+| `nextNumber` | ใช่ | `string` | null ได้ | เลขถัดไปของงวดนี้ (ไม่จอง) — null เมื่อยังไม่มีสาขาออกเอกสาร | `2611-0042` |
 | `version` | ใช่ | `number` |   |   |   |
 | `updatedAt` | ใช่ | `string (date-time)` |   |   |   |
 

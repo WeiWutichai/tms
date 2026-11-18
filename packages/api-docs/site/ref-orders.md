@@ -46,13 +46,13 @@ scope: `orders:write` · operationId: `OrdersBulk_create`
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
 | `items` | ใช่ | `array<CreateOrderDto>` | ≤ 200 รายการ | ใบสั่งขนส่ง 1–200 ใบ (รูปเดียวกับ body ของ `POST /v1/orders`) — ตรวจ/สร้างแยกทีละใบ; ใบที่มี `externalId` ของใบเดิม = อัปเดตใบเดิม (idempotent ต่อใบ) |   |
-| `items[].draft` |   | `boolean` |   | บันทึกเป็นร่าง (ไม่ออกเลข SO — D-21) · ใบที่พ้นร่างแล้วกลับเป็นร่างไม่ได้ |   |
+| `items[].draft` |   | `boolean` |   | บันทึกเป็นร่าง · ใบที่พ้นร่างแล้วกลับเป็นร่างไม่ได้ |   |
 | `items[].customer` |   | `OrderCustomerInputDto` |   |   |   |
 | `items[].customer.id` |   | `string` | null ได้ | ลูกค้าใน master | `cus_3f2a…` |
 | `items[].customer.externalId` |   | `string` | null ได้ | รหัสลูกค้าตามระบบต้นทาง — จับคู่กับ customer.externalId (ไม่พบ = ใบค้าง CUSTOMER_UNMAPPED) | `C-001` |
 | `items[].customer.name` |   | `string` | null ได้ | ชื่อ/ข้อความลูกค้าตามต้นทาง |   |
-| `items[].billingCompanyId` |   | `string` | null ได้ | นิติบุคคลที่ออกบิล — ไม่ส่ง = ตามลูกค้า/ค่าตั้งต้นของบริษัท | `cmp_3f2a…` |
-| `items[].customerRef` |   | `string` | ยาว ≤ 50 · null ได้ | เลข PO / อ้างอิงของลูกค้า |   |
+| `items[].billingCompanyId` |   | `string` | null ได้ | นิติบุคคลที่ออกบิล (`cmp_…` จาก `GET /v1/companies`) — ไม่ส่ง = "ออกบิลในนาม" ของลูกค้า → ค่าตั้งต้นของบริษัท → นิติบุคคลเดียวที่ใช้งานอยู่; บริษัทมีหลายนิติบุคคลและไม่ได้ตั้งค่าใดเลย = 422 `routing_not_configured` (errors[].field = `billingCompanyId`) · ใบเดิมไม่ส่ง = คงของเดิม | `cmp_3f2a…` |
+| `items[].customerRef` |   | `string` | ยาว ≤ 50 · null ได้ | เลข / อ้างอิงของลูกค้า |   |
 | `items[].requestedDate` | ใช่ | `string` |   | วันรับของ YYYY-MM-DD (ใช้หา rate) | `2026-11-12` |
 | `items[].vehicleTypeId` |   | `string` | null ได้ |   | `vty_3f2a…` |
 | `items[].stops` | ใช่ | `array<OrderStopInputDto>` |   | 1–50 จุด เรียงตามลำดับวิ่ง |   |
@@ -73,7 +73,7 @@ scope: `orders:write` · operationId: `OrdersBulk_create`
 | `items[].lines[].isDangerous` |   | `boolean` |   |   |   |
 | `items[].lines[].tempMin` |   | `string` | null ได้ |   | `2.0` |
 | `items[].lines[].tempMax` |   | `string` | null ได้ |   | `8.0` |
-| `items[].externalId` |   | `string` | ยาว ≤ 100 · null ได้ | externalRef ของระบบต้นทาง (ASCII ที่พิมพ์ได้ 1–100 ตัว ไม่มีช่องว่าง — ผิด = 422) — unique ต่อบริษัท; มีใบเดิมจากช่องทางเดียวกัน = อัปเดตใบเดิม (เหมือน PUT external) | `PO-2026-0001` |
+| `items[].externalId` |   | `string` | ยาว ≤ 100 · null ได้ | externalRef ของระบบต้นทาง (ASCII ที่พิมพ์ได้ 1–100 ตัว ไม่มีช่องว่าง — ผิด = 422) — unique ต่อบริษัท; มีใบเดิมจากช่องทางเดียวกัน = อัปเดตใบเดิม (เหมือน PUT external) | `2026-0001` |
 
 **Responses**
 
@@ -154,16 +154,16 @@ scope: `orders:read` · operationId: `Orders_list`
 | `cursor` | query |   | `string` | ค่า nextCursor จากหน้าก่อน (ใช้กับ sort เดิม) |
 | `updatedAfter` | query |   | `string` | คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull) |
 | `sort` | query |   | `string` ค่า: `updatedAt`, `-updatedAt` |   |
-| `fields` | query |   | `string` | รายชื่อ field ของ Order คั่นด้วย , เช่น id,soNo,status (ไม่รู้จัก → 422) — id คืนเสมอ |
-| `status` | query |   | `string` | สถานะ คั่นด้วย , (draft, received, on_hold, planned, in_transit, partially_delivered, delivered, closed, cancelled) |
-| `holdReason` | query |   | `string` | รหัสเหตุค้าง คั่นด้วย , เช่น RATE_MISSING,CUSTOMER_UNMAPPED — ตรงกับเหตุใดก็ได้ (OR) ของ `holdCodes` (เหตุทั้งหมดของการรับงานครั้งล่าสุด รวมเหตุรอง) หรือ `holdReason.code` (เหตุหลักบนใบ) |
-| `held` | query |   | `string` ค่า: `true`, `false` | หน้าใบค้าง (ST3-T07): true = เฉพาะใบค้าง (ON_HOLD + ใบที่ต้นทางแก้หลังวางแผนรอตัดสิน ซึ่งสถานะยัง PLANNED) · false = ไม่รวมใบค้างทั้งสองแบบ — ใช้คู่กับ `holdReason` ได้ |
+| `fields` | query |   | `string` | รายชื่อ field ของ Order คั่นด้วย, เช่น id,soNo,status (ไม่รู้จัก → 422) — id คืนเสมอ |
+| `status` | query |   | `string` | สถานะ คั่นด้วย, (draft, received, on_hold, planned, in_transit, partially_delivered, delivered, closed, cancelled) |
+| `holdReason` | query |   | `string` | รหัสเหตุค้าง คั่นด้วย, เช่น RATE_MISSING,CUSTOMER_UNMAPPED — ตรงกับเหตุใดก็ได้ (OR) ของ `holdCodes` (เหตุทั้งหมดของการรับงานครั้งล่าสุด รวมเหตุรอง) หรือ `holdReason.code` (เหตุหลักบนใบ) |
+| `held` | query |   | `string` ค่า: `true`, `false` | หน้าใบค้าง: true = เฉพาะใบค้าง (ON_HOLD + ใบที่ต้นทางแก้หลังวางแผนรอตัดสิน ซึ่งสถานะยัง PLANNED) · false = ไม่รวมใบค้างทั้งสองแบบ — ใช้คู่กับ `holdReason` ได้ |
 | `customerId` | query |   | `string` | ลูกค้า |
-| `source` | query |   | `string` | ที่มา คั่นด้วย , : MANUAL / EXCEL / API / PORTAL / ERP (ทุก connector) / ERP:{connector} |
+| `source` | query |   | `string` | ที่มา คั่นด้วย,: MANUAL / EXCEL / API / PORTAL / ERP (ทุก connector) / ERP:{connector} |
 | `requestedFrom` | query |   | `string` | วันรับของตั้งแต่ (YYYY-MM-DD) |
 | `requestedTo` | query |   | `string` | วันรับของถึง (รวมวันนั้น) |
 | `externalId` | query |   | `string` | externalId ตรงตัว |
-| `q` | query |   | `string` | ค้นหา — เลข SO, externalId, เลข PO, ชื่อ/รหัสลูกค้า (ไม่สนตัวพิมพ์) |
+| `q` | query |   | `string` | ค้นหา — เลข SO, externalId, เลข, ชื่อ/รหัสลูกค้า (ไม่สนตัวพิมพ์) |
 
 **Responses**
 
@@ -202,13 +202,13 @@ scope: `orders:write` · operationId: `Orders_create`
 
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
-| `draft` |   | `boolean` |   | บันทึกเป็นร่าง (ไม่ออกเลข SO — D-21) · ใบที่พ้นร่างแล้วกลับเป็นร่างไม่ได้ |   |
+| `draft` |   | `boolean` |   | บันทึกเป็นร่าง · ใบที่พ้นร่างแล้วกลับเป็นร่างไม่ได้ |   |
 | `customer` |   | `OrderCustomerInputDto` |   |   |   |
 | `customer.id` |   | `string` | null ได้ | ลูกค้าใน master | `cus_3f2a…` |
 | `customer.externalId` |   | `string` | null ได้ | รหัสลูกค้าตามระบบต้นทาง — จับคู่กับ customer.externalId (ไม่พบ = ใบค้าง CUSTOMER_UNMAPPED) | `C-001` |
 | `customer.name` |   | `string` | null ได้ | ชื่อ/ข้อความลูกค้าตามต้นทาง |   |
-| `billingCompanyId` |   | `string` | null ได้ | นิติบุคคลที่ออกบิล — ไม่ส่ง = ตามลูกค้า/ค่าตั้งต้นของบริษัท | `cmp_3f2a…` |
-| `customerRef` |   | `string` | ยาว ≤ 50 · null ได้ | เลข PO / อ้างอิงของลูกค้า |   |
+| `billingCompanyId` |   | `string` | null ได้ | นิติบุคคลที่ออกบิล (`cmp_…` จาก `GET /v1/companies`) — ไม่ส่ง = "ออกบิลในนาม" ของลูกค้า → ค่าตั้งต้นของบริษัท → นิติบุคคลเดียวที่ใช้งานอยู่; บริษัทมีหลายนิติบุคคลและไม่ได้ตั้งค่าใดเลย = 422 `routing_not_configured` (errors[].field = `billingCompanyId`) · ใบเดิมไม่ส่ง = คงของเดิม | `cmp_3f2a…` |
+| `customerRef` |   | `string` | ยาว ≤ 50 · null ได้ | เลข / อ้างอิงของลูกค้า |   |
 | `requestedDate` | ใช่ | `string` |   | วันรับของ YYYY-MM-DD (ใช้หา rate) | `2026-11-12` |
 | `vehicleTypeId` |   | `string` | null ได้ |   | `vty_3f2a…` |
 | `stops` | ใช่ | `array<OrderStopInputDto>` |   | 1–50 จุด เรียงตามลำดับวิ่ง |   |
@@ -229,7 +229,7 @@ scope: `orders:write` · operationId: `Orders_create`
 | `lines[].isDangerous` |   | `boolean` |   |   |   |
 | `lines[].tempMin` |   | `string` | null ได้ |   | `2.0` |
 | `lines[].tempMax` |   | `string` | null ได้ |   | `8.0` |
-| `externalId` |   | `string` | ยาว ≤ 100 · null ได้ | externalRef ของระบบต้นทาง (ASCII ที่พิมพ์ได้ 1–100 ตัว ไม่มีช่องว่าง — ผิด = 422) — unique ต่อบริษัท; มีใบเดิมจากช่องทางเดียวกัน = อัปเดตใบเดิม (เหมือน PUT external) | `PO-2026-0001` |
+| `externalId` |   | `string` | ยาว ≤ 100 · null ได้ | externalRef ของระบบต้นทาง (ASCII ที่พิมพ์ได้ 1–100 ตัว ไม่มีช่องว่าง — ผิด = 422) — unique ต่อบริษัท; มีใบเดิมจากช่องทางเดียวกัน = อัปเดตใบเดิม (เหมือน PUT external) | `2026-0001` |
 
 **Responses**
 
@@ -274,7 +274,7 @@ const { data, error } = await tms.POST('/v1/orders', {
 
 scope: `orders:write` · operationId: `Orders_upsertExternal`
 
-**แทนทั้งใบ (full replace):** ช่องที่ไม่ส่ง = ว่าง/ค่าตั้งต้น (เช่น ไม่ส่ง customerRef = ล้างเลข PO, ไม่ส่ง lines = ไม่มีสินค้า) — ใบที่วางแผน/ออกรถแล้ว การล้างช่องที่ล็อกนับเป็นการแก้ → 409 `order_locked_for_update` · ยกเว้น `billingCompanyId` ไม่ส่ง = คงของเดิม · แก้บางช่องใช้ PATCH · ส่งซ้ำค่าเดิม = ไม่เปลี่ยน version
+**แทนทั้งใบ (full replace):** ช่องที่ไม่ส่ง = ว่าง/ค่าตั้งต้น — ใบที่วางแผน/ออกรถแล้ว การล้างช่องที่ล็อกนับเป็นการแก้ → 409 `order_locked_for_update` · ยกเว้น `billingCompanyId` ไม่ส่ง = คงของเดิม · แก้บางช่องใช้ PATCH · ส่งซ้ำค่าเดิม = ไม่เปลี่ยน version
 
 **Parameters**
 
@@ -287,13 +287,13 @@ scope: `orders:write` · operationId: `Orders_upsertExternal`
 
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
-| `draft` |   | `boolean` |   | บันทึกเป็นร่าง (ไม่ออกเลข SO — D-21) · ใบที่พ้นร่างแล้วกลับเป็นร่างไม่ได้ |   |
+| `draft` |   | `boolean` |   | บันทึกเป็นร่าง · ใบที่พ้นร่างแล้วกลับเป็นร่างไม่ได้ |   |
 | `customer` |   | `OrderCustomerInputDto` |   |   |   |
 | `customer.id` |   | `string` | null ได้ | ลูกค้าใน master | `cus_3f2a…` |
 | `customer.externalId` |   | `string` | null ได้ | รหัสลูกค้าตามระบบต้นทาง — จับคู่กับ customer.externalId (ไม่พบ = ใบค้าง CUSTOMER_UNMAPPED) | `C-001` |
 | `customer.name` |   | `string` | null ได้ | ชื่อ/ข้อความลูกค้าตามต้นทาง |   |
-| `billingCompanyId` |   | `string` | null ได้ | นิติบุคคลที่ออกบิล — ไม่ส่ง = ตามลูกค้า/ค่าตั้งต้นของบริษัท | `cmp_3f2a…` |
-| `customerRef` |   | `string` | ยาว ≤ 50 · null ได้ | เลข PO / อ้างอิงของลูกค้า |   |
+| `billingCompanyId` |   | `string` | null ได้ | นิติบุคคลที่ออกบิล (`cmp_…` จาก `GET /v1/companies`) — ไม่ส่ง = "ออกบิลในนาม" ของลูกค้า → ค่าตั้งต้นของบริษัท → นิติบุคคลเดียวที่ใช้งานอยู่; บริษัทมีหลายนิติบุคคลและไม่ได้ตั้งค่าใดเลย = 422 `routing_not_configured` (errors[].field = `billingCompanyId`) · ใบเดิมไม่ส่ง = คงของเดิม | `cmp_3f2a…` |
+| `customerRef` |   | `string` | ยาว ≤ 50 · null ได้ | เลข / อ้างอิงของลูกค้า |   |
 | `requestedDate` | ใช่ | `string` |   | วันรับของ YYYY-MM-DD (ใช้หา rate) | `2026-11-12` |
 | `vehicleTypeId` |   | `string` | null ได้ |   | `vty_3f2a…` |
 | `stops` | ใช่ | `array<OrderStopInputDto>` |   | 1–50 จุด เรียงตามลำดับวิ่ง |   |
@@ -359,7 +359,7 @@ const { data, error } = await tms.PUT('/v1/orders/external/{externalId}', {
 
 scope: `orders:write` · operationId: `Orders_patchExternal`
 
-แก้บางช่องของใบที่มีอยู่ (กติกาเดียวกับ `PATCH /orders/{id}`) · ยังไม่มีใบนี้ → 404 — สร้างใหม่ใช้ PUT · ช่องทางเดียวกับ PUT: ใบที่ไม่ได้มาจาก API (กรอกมือ/Excel/connector) → 409 `external_id_conflict` · **ต่างจาก PUT: ติดล็อกการแก้ (ST3-T08)** — ผู้ใช้อื่นเปิดแก้อยู่ → 409 `order_locked_by_user`
+แก้บางช่องของใบที่มีอยู่ (กติกาเดียวกับ `PATCH /orders/{id}`) · ยังไม่มีใบนี้ → 404 — สร้างใหม่ใช้ PUT · ช่องทางเดียวกับ PUT: ใบที่ไม่ได้มาจาก API (กรอกมือ/Excel/connector) → 409 `external_id_conflict` · **ต่างจาก PUT: ติดล็อกการแก้** — ผู้ใช้อื่นเปิดแก้อยู่ → 409 `order_locked_by_user`
 
 **Parameters**
 
@@ -474,7 +474,7 @@ const { data, error } = await tms.GET('/v1/orders/{id}', {
 
 scope: `orders:write` · operationId: `Orders_update`
 
-ผู้ใช้อื่นเปิดแก้อยู่ (ล็อกการแก้ยังไม่หมดอายุ — ST3-T08) → 409 `order_locked_by_user` · ผู้ถือล็อกแก้ได้และนับเป็นกิจกรรม (ต่ออายุ) · ล็อกของผู้เรียกถูกผู้อื่นปลด → 409 `order_lock_released` จนกว่าจะเปิดแก้ใหม่ (POST /lock) · ไม่มีล็อก = แก้ได้ตามปกติ · ทางเข้า POST/PUT external (API/connector/นำเข้า) ไม่ติดล็อก
+ผู้ใช้อื่นเปิดแก้อยู่ → 409 `order_locked_by_user` · ผู้ถือล็อกแก้ได้และนับเป็นกิจกรรม (ต่ออายุ) · ล็อกของผู้เรียกถูกผู้อื่นปลด → 409 `order_lock_released` จนกว่าจะเปิดแก้ใหม่ (POST /lock) · ไม่มีล็อก = แก้ได้ตามปกติ · ทางเข้า POST/PUT external (API/connector/นำเข้า) ไม่ติดล็อก
 
 **Parameters**
 
@@ -806,7 +806,7 @@ const { data, error } = await tms.POST('/v1/orders/{id}/unlock', {
 });
 ```
 
-## เลือกสถานที่ให้จุดที่ยังจับคู่ไม่ได้ + จำข้อความเป็น alias (ST3-T06) {#post-orders-id-stops-sequence-map-site}
+## เลือกสถานที่ให้จุดที่ยังจับคู่ไม่ได้ + จำข้อความเป็น alias {#post-orders-id-stops-sequence-map-site}
 
 `POST /v1/orders/{id}/stops/{sequence}/map-site`
 
@@ -861,7 +861,7 @@ const { data, error } = await tms.POST('/v1/orders/{id}/stops/{sequence}/map-sit
 });
 ```
 
-## ตรวจใบค้างอีกครั้ง — คิดราคา + ประเมินเหตุค้างใหม่จากข้อมูลหลักปัจจุบัน (ST3-T07) {#post-orders-id-reevaluate}
+## ตรวจใบค้างอีกครั้ง — คิดราคา + ประเมินเหตุค้างใหม่จากข้อมูลหลักปัจจุบัน {#post-orders-id-reevaluate}
 
 `POST /v1/orders/{id}/reevaluate`
 
@@ -902,7 +902,7 @@ const { data, error } = await tms.POST('/v1/orders/{id}/reevaluate', {
 });
 ```
 
-## กำหนดราคาเอง — ค่าขนส่งเมื่อไม่พบ rate card (spec/03 ORD-043 · ใบค้าง RATE_MISSING — ST3-T07) {#post-orders-id-manual-price}
+## กำหนดราคาเอง — ค่าขนส่งเมื่อไม่พบ rate card {#post-orders-id-manual-price}
 
 `POST /v1/orders/{id}/manual-price`
 
@@ -958,13 +958,13 @@ const { data, error } = await tms.POST('/v1/orders/{id}/manual-price', {
 });
 ```
 
-## ยืนยันข้อมูลใบที่ต้นทางแจ้งว่าไม่ครบ (ใบค้าง SOURCE_ERROR — ST3-T07) {#post-orders-id-resolve-source-error}
+## ยืนยันข้อมูลใบที่ต้นทางแจ้งว่าไม่ครบ {#post-orders-id-resolve-source-error}
 
 `POST /v1/orders/{id}/resolve-source-error`
 
 scope: `orders:write` · operationId: `Orders_resolveSourceError`
 
-docs/01 §4.1 SOURCE_ERROR "ดู raw_payload, แก้มือ หรือรอ connector แก้": คนแก้ข้อมูลใบ (PATCH) แล้วยืนยัน → ล้างรายการปัญหาจากต้นทาง แล้วประเมินใบค้างใหม่ (เหตุอื่นยังค้างได้) · บังคับเหตุผล ≥ 10 ตัวอักษร (ลง audit `sales_order.source_error_resolved`) · ต้นทางส่งใบนี้มาใหม่ด้วยข้อมูลที่เปลี่ยน = ใช้ผลตรวจของต้นทางชุดใหม่ · ไม่มีปัญหาค้าง → 409 `invalid_state_transition` · หลังวางแผน → 409 `order_locked_for_update`
+SOURCE_ERROR "ดู raw_payload, แก้มือ หรือรอ connector แก้": คนแก้ข้อมูลใบ (PATCH) แล้วยืนยัน → ล้างรายการปัญหาจากต้นทาง แล้วประเมินใบค้างใหม่ (เหตุอื่นยังค้างได้) · บังคับเหตุผล ≥ 10 ตัวอักษร (ลง audit `sales_order.source_error_resolved`) · ต้นทางส่งใบนี้มาใหม่ด้วยข้อมูลที่เปลี่ยน = ใช้ผลตรวจของต้นทางชุดใหม่ · ไม่มีปัญหาค้าง → 409 `invalid_state_transition` · หลังวางแผน → 409 `order_locked_for_update`
 
 **Parameters**
 
@@ -1012,7 +1012,7 @@ const { data, error } = await tms.POST('/v1/orders/{id}/resolve-source-error', {
 });
 ```
 
-## เลือกลูกค้าให้ใบที่ยังจับคู่ไม่ได้ + จำรหัส/ชื่อตามต้นทาง (ST3-T06) {#post-orders-id-map-customer}
+## เลือกลูกค้าให้ใบที่ยังจับคู่ไม่ได้ + จำรหัส/ชื่อตามต้นทาง {#post-orders-id-map-customer}
 
 `POST /v1/orders/{id}/map-customer`
 
@@ -1111,7 +1111,7 @@ const { data, error } = await tms.GET('/v1/orders/{id}/documents', {
 
 scope: `orders:read` · operationId: `OrderResources_trackingView`
 
-ขั้น (stepper) และ ETA ตามกติกาของหน้าติดตามผู้รับ (ST4-T14) · ETA = ช่วงเวลาตามแผน (ยังไม่มี ETA สด — P1) · ตำแหน่ง = พิกัดของ event หน้างานล่าสุดของเที่ยว (ไม่มี GPS สด) · ทะเบียนปิด 2 หลัก · ห้าม cache
+ขั้น (stepper) และ ETA ตามกติกาของหน้าติดตามผู้รับ · ETA = ช่วงเวลาตามแผน (ยังไม่มี ETA สด — P1) · ตำแหน่ง = พิกัดของ event หน้างานล่าสุดของเที่ยว (ไม่มี GPS สด) · ทะเบียนปิด 2 หลัก · ห้าม cache
 
 **Parameters**
 
@@ -1219,7 +1219,7 @@ const { data, error } = await tms.GET('/v1/orders/{id}/events', {
 | `id` | ใช่ | `string` |   |   | `ord_3f2a…` |
 | `soNo` | ใช่ | `string` | null ได้ | ร่าง = null | `SO-6911-0001` |
 | `status` | ใช่ | `string` | ค่า: `draft`, `received`, `on_hold`, `planned`, `in_transit`, `partially_delivered`, `delivered`, `closed`, `cancelled` |   |   |
-| `source` | ใช่ | `string` |   | ที่มาตาม docs/04 C: MANUAL / EXCEL / API / PORTAL / ERP:{connector} | `ERP:krs` |
+| `source` | ใช่ | `string` |   | ที่มาตาม C: MANUAL / EXCEL / API / PORTAL / ERP:{connector} | `ERP:krs` |
 | `sourceType` | ใช่ | `string` | ค่า: `MANUAL`, `IMPORT`, `API`, `PORTAL`, `CONNECTOR` | ชนิดที่มา (ใช้กับป้ายที่มา): MANUAL / IMPORT / API / PORTAL / CONNECTOR |   |
 | `connector` | ใช่ | `string` | null ได้ | รหัส connector | `krs` |
 | `externalId` | ใช่ | `string` | null ได้ | externalRef ของระบบต้นทาง |   |
@@ -1230,18 +1230,18 @@ const { data, error } = await tms.GET('/v1/orders/{id}/events', {
 | `vehicleTypeId` | ใช่ | `string` | null ได้ |   |   |
 | `holdReason` | ใช่ | `OrderHoldReasonDto` | null ได้ | เหตุค้าง (ON_HOLD) |   |
 | `holdCodes` | ใช่ | `array<string>` |   | เหตุค้างทั้งหมดของการรับงานครั้งล่าสุด (ตัวแรก = holdReason) |   |
-| `rescheduledDate` | ใช่ | `string` | null ได้ | ST4-T12 วันที่นัดส่งใหม่ล่าสุดของ DO ส่งใหม่ที่ยังรอจัด (null = ไม่มี) — หน้าใบค้าง/รายการแสดงแทนกำหนดส่งเดิม | `2026-11-18` |
+| `rescheduledDate` | ใช่ | `string` | null ได้ | วันที่นัดส่งใหม่ล่าสุดของ DO ส่งใหม่ที่ยังรอจัด (null = ไม่มี) — หน้าใบค้าง/รายการแสดงแทนกำหนดส่งเดิม | `2026-11-18` |
 | `pricingStatus` | ใช่ | `string` | ค่า: `AVAILABLE`, `RATE_MISSING`, `CALCULATION_FAILURE` |   |   |
 | `pricingReasons` | ใช่ | `array<OrderPricingReasonDto>` |   |   |   |
 | `sellTotal` |   | `string` | null ได้ | ราคาขายรวมก่อน VAT (คาดการณ์) — เห็นเมื่อมี `prices.sell:read` | `4500.00` |
 | `sellCharges` |   | `array<OrderChargeDto>` |   | บรรทัดราคาขาย — เห็นเมื่อมี `prices.sell:read` |   |
-| `sellBilling` |   | `OrderBillingDto` |   | ST4-T10 **ยอดประมาณ (preview, ไม่ผูกพัน)** ของการวางบิล (ตามใบสั่ง / ตามยอดส่งจริงตามที่ตั้งในลูกค้า) — ยังไม่ใช้ออกใบแจ้งหนี้ (กติกา OPEN) · มีเฉพาะ GET ทีละใบและผลของการเขียน · เห็นเมื่อมี `prices.sell:read` |   |
+| `sellBilling` |   | `OrderBillingDto` |   | **ยอดประมาณ (preview, ไม่ผูกพัน)** ของการวางบิล (ตามใบสั่ง / ตามยอดส่งจริงตามที่ตั้งในลูกค้า) — ยังไม่ใช้ออกใบแจ้งหนี้ (กติกา OPEN) · มีเฉพาะ GET ทีละใบและผลของการเขียน · เห็นเมื่อมี `prices.sell:read` |   |
 | `stops` | ใช่ | `array<OrderStopDto>` |   |   |   |
 | `lines` | ใช่ | `array<OrderLineDto>` |   |   |   |
-| `editableFields` |   | `array<string>` |   | ช่องที่แก้ได้ในสถานะปัจจุบัน (spec/03 ORD-032) — มีเฉพาะ GET ทีละใบและผลของ POST/PUT/PATCH (ไม่อยู่ในรายการ) · ว่าง = แก้ไม่ได้ (ปิดงาน/ยกเลิก) · ฟอร์มใช้ปิดช่องที่แก้ไม่ได้ก่อนส่ง (server ตรวจซ้ำ → 409 `order_locked_for_update`) |   |
-| `sourceChangedAfterPlan` | ใช่ | `boolean` |   | ต้นทาง (connector) แก้ใบหลังวางแผน — ไม่ทับข้อมูล รอคนรับ/ไม่รับ (`sourceChange`) · สถานะใบไม่เปลี่ยน (docs/01 §4.1) |   |
+| `editableFields` |   | `array<string>` |   | ช่องที่แก้ได้ในสถานะปัจจุบัน — มีเฉพาะ GET ทีละใบและผลของ POST/PUT/PATCH (ไม่อยู่ในรายการ) · ว่าง = แก้ไม่ได้ (ปิดงาน/ยกเลิก) · ฟอร์มใช้ปิดช่องที่แก้ไม่ได้ก่อนส่ง (server ตรวจซ้ำ → 409 `order_locked_for_update`) |   |
+| `sourceChangedAfterPlan` | ใช่ | `boolean` |   | ต้นทาง (connector) แก้ใบหลังวางแผน — ไม่ทับข้อมูล รอคนรับ/ไม่รับ (`sourceChange`) · สถานะใบไม่เปลี่ยน |   |
 | `sourceChange` | ใช่ | `OrderSourceChangeDto` | null ได้ | ชุดการเปลี่ยนแปลงจากต้นทางที่รอตัดสิน (รับ: POST …/source-changes/{changeId}/accept · ไม่รับ: …/reject) |   |
-| `editLock` |   | `OrderEditLockDto` | null ได้ | ผู้ที่เปิดแก้ใบนี้อยู่ (ST3-T08 — ล็อกที่ยังไม่หมดอายุ) · null = ไม่มีใครแก้ · มีเฉพาะ GET ทีละใบและผลของ POST/PUT/PATCH (ไม่อยู่ในรายการ) |   |
+| `editLock` |   | `OrderEditLockDto` | null ได้ | ผู้ที่เปิดแก้ใบนี้อยู่ · null = ไม่มีใครแก้ · มีเฉพาะ GET ทีละใบและผลของ POST/PUT/PATCH (ไม่อยู่ในรายการ) |   |
 | `version` | ใช่ | `number` |   |   |   |
 | `createdAt` | ใช่ | `string` |   |   |   |
 | `updatedAt` | ใช่ | `string` |   |   |   |
@@ -1277,7 +1277,7 @@ const { data, error } = await tms.GET('/v1/orders/{id}/events', {
 | `id` | ใช่ | `string` |   |   | `ord_3f2a…` |
 | `soNo` | ใช่ | `string` | null ได้ | ร่าง = null | `SO-6911-0001` |
 | `status` | ใช่ | `string` | ค่า: `draft`, `received`, `on_hold`, `planned`, `in_transit`, `partially_delivered`, `delivered`, `closed`, `cancelled` |   |   |
-| `source` | ใช่ | `string` |   | ที่มาตาม docs/04 C: MANUAL / EXCEL / API / PORTAL / ERP:{connector} | `ERP:krs` |
+| `source` | ใช่ | `string` |   | ที่มาตาม C: MANUAL / EXCEL / API / PORTAL / ERP:{connector} | `ERP:krs` |
 | `sourceType` | ใช่ | `string` | ค่า: `MANUAL`, `IMPORT`, `API`, `PORTAL`, `CONNECTOR` | ชนิดที่มา (ใช้กับป้ายที่มา): MANUAL / IMPORT / API / PORTAL / CONNECTOR |   |
 | `connector` | ใช่ | `string` | null ได้ | รหัส connector | `krs` |
 | `externalId` | ใช่ | `string` | null ได้ | externalRef ของระบบต้นทาง |   |
@@ -1288,18 +1288,18 @@ const { data, error } = await tms.GET('/v1/orders/{id}/events', {
 | `vehicleTypeId` | ใช่ | `string` | null ได้ |   |   |
 | `holdReason` | ใช่ | `OrderHoldReasonDto` | null ได้ | เหตุค้าง (ON_HOLD) |   |
 | `holdCodes` | ใช่ | `array<string>` |   | เหตุค้างทั้งหมดของการรับงานครั้งล่าสุด (ตัวแรก = holdReason) |   |
-| `rescheduledDate` | ใช่ | `string` | null ได้ | ST4-T12 วันที่นัดส่งใหม่ล่าสุดของ DO ส่งใหม่ที่ยังรอจัด (null = ไม่มี) — หน้าใบค้าง/รายการแสดงแทนกำหนดส่งเดิม | `2026-11-18` |
+| `rescheduledDate` | ใช่ | `string` | null ได้ | วันที่นัดส่งใหม่ล่าสุดของ DO ส่งใหม่ที่ยังรอจัด (null = ไม่มี) — หน้าใบค้าง/รายการแสดงแทนกำหนดส่งเดิม | `2026-11-18` |
 | `pricingStatus` | ใช่ | `string` | ค่า: `AVAILABLE`, `RATE_MISSING`, `CALCULATION_FAILURE` |   |   |
 | `pricingReasons` | ใช่ | `array<OrderPricingReasonDto>` |   |   |   |
 | `sellTotal` |   | `string` | null ได้ | ราคาขายรวมก่อน VAT (คาดการณ์) — เห็นเมื่อมี `prices.sell:read` | `4500.00` |
 | `sellCharges` |   | `array<OrderChargeDto>` |   | บรรทัดราคาขาย — เห็นเมื่อมี `prices.sell:read` |   |
-| `sellBilling` |   | `OrderBillingDto` |   | ST4-T10 **ยอดประมาณ (preview, ไม่ผูกพัน)** ของการวางบิล (ตามใบสั่ง / ตามยอดส่งจริงตามที่ตั้งในลูกค้า) — ยังไม่ใช้ออกใบแจ้งหนี้ (กติกา OPEN) · มีเฉพาะ GET ทีละใบและผลของการเขียน · เห็นเมื่อมี `prices.sell:read` |   |
+| `sellBilling` |   | `OrderBillingDto` |   | **ยอดประมาณ (preview, ไม่ผูกพัน)** ของการวางบิล (ตามใบสั่ง / ตามยอดส่งจริงตามที่ตั้งในลูกค้า) — ยังไม่ใช้ออกใบแจ้งหนี้ (กติกา OPEN) · มีเฉพาะ GET ทีละใบและผลของการเขียน · เห็นเมื่อมี `prices.sell:read` |   |
 | `stops` | ใช่ | `array<OrderStopDto>` |   |   |   |
 | `lines` | ใช่ | `array<OrderLineDto>` |   |   |   |
-| `editableFields` |   | `array<string>` |   | ช่องที่แก้ได้ในสถานะปัจจุบัน (spec/03 ORD-032) — มีเฉพาะ GET ทีละใบและผลของ POST/PUT/PATCH (ไม่อยู่ในรายการ) · ว่าง = แก้ไม่ได้ (ปิดงาน/ยกเลิก) · ฟอร์มใช้ปิดช่องที่แก้ไม่ได้ก่อนส่ง (server ตรวจซ้ำ → 409 `order_locked_for_update`) |   |
-| `sourceChangedAfterPlan` | ใช่ | `boolean` |   | ต้นทาง (connector) แก้ใบหลังวางแผน — ไม่ทับข้อมูล รอคนรับ/ไม่รับ (`sourceChange`) · สถานะใบไม่เปลี่ยน (docs/01 §4.1) |   |
+| `editableFields` |   | `array<string>` |   | ช่องที่แก้ได้ในสถานะปัจจุบัน — มีเฉพาะ GET ทีละใบและผลของ POST/PUT/PATCH (ไม่อยู่ในรายการ) · ว่าง = แก้ไม่ได้ (ปิดงาน/ยกเลิก) · ฟอร์มใช้ปิดช่องที่แก้ไม่ได้ก่อนส่ง (server ตรวจซ้ำ → 409 `order_locked_for_update`) |   |
+| `sourceChangedAfterPlan` | ใช่ | `boolean` |   | ต้นทาง (connector) แก้ใบหลังวางแผน — ไม่ทับข้อมูล รอคนรับ/ไม่รับ (`sourceChange`) · สถานะใบไม่เปลี่ยน |   |
 | `sourceChange` | ใช่ | `OrderSourceChangeDto` | null ได้ | ชุดการเปลี่ยนแปลงจากต้นทางที่รอตัดสิน (รับ: POST …/source-changes/{changeId}/accept · ไม่รับ: …/reject) |   |
-| `editLock` |   | `OrderEditLockDto` | null ได้ | ผู้ที่เปิดแก้ใบนี้อยู่ (ST3-T08 — ล็อกที่ยังไม่หมดอายุ) · null = ไม่มีใครแก้ · มีเฉพาะ GET ทีละใบและผลของ POST/PUT/PATCH (ไม่อยู่ในรายการ) |   |
+| `editLock` |   | `OrderEditLockDto` | null ได้ | ผู้ที่เปิดแก้ใบนี้อยู่ · null = ไม่มีใครแก้ · มีเฉพาะ GET ทีละใบและผลของ POST/PUT/PATCH (ไม่อยู่ในรายการ) |   |
 | `version` | ใช่ | `number` |   |   |   |
 | `createdAt` | ใช่ | `string` |   |   |   |
 | `updatedAt` | ใช่ | `string` |   |   |   |
@@ -1329,11 +1329,11 @@ const { data, error } = await tms.GET('/v1/orders/{id}/events', {
 | `overdue` | ใช่ | `number` |   | เกินกำหนด: ยังไม่ออกรถ (RECEIVED/ON_HOLD/PLANNED) และวันรับของก่อนวันนี้ (เวลาไทย) |   |
 | `planned` | ใช่ | `number` |   | วางแผนแล้ว (PLANNED) ทั้งหมด |   |
 | `plannedToday` | ใช่ | `number` |   | วางแผนแล้ว (PLANNED) ที่วันรับของ = วันนี้ (เวลาไทย) |   |
-| `heldTotal` | ใช่ | `number` |   | หน้าใบค้าง (ST3-T07): ใบค้างทั้งหมด = ON_HOLD + ใบที่ต้นทางแก้หลังวางแผนรอตัดสิน (สถานะ PLANNED — เงื่อนไขเดียวกับ `held=true`) |   |
-| `holdReasons` | ใช่ | `array<OrderHoldCountDto>` |   | หน้าใบค้าง (ST3-T07): จำนวนใบค้างต่อเหตุ ครบ 12 รหัสของ docs/04 C (ไม่มี = 0) — นับเหตุหลักหรือเหตุรอง (เงื่อนไขเดียวกับตัวกรอง `held=true&holdReason=`) ใบหนึ่งจึงอาจนับในหลายเหตุ · SOURCE_CHANGED_AFTER_PLAN = ใบที่ต้นทางแก้หลังวางแผน (สถานะยัง PLANNED) |   |
-| `today` | ใช่ | `string` |   | ST9-T01 วันนี้ตามเวลาไทยที่ใช้นับ `waiting*` | `2026-11-18` |
-| `waiting` | ใช่ | `number` |   | ST9-T01 รอจัดรถ (spec/09 §1) = ยังไม่อยู่ในเที่ยว (รับแล้ว + ค้าง) และวันรับของ ≤ วันนี้ + 1 — เงื่อนไขเดียวกับ `status=received,on_hold&requestedTo={today+1}` |   |
-| `waitingOverdue` | ใช่ | `number` |   | ST9-T01 รอจัดรถที่เลยกำหนดรับ = `status=received,on_hold&requestedTo={today−1}` |   |
+| `heldTotal` | ใช่ | `number` |   | หน้าใบค้าง: ใบค้างทั้งหมด = ON_HOLD + ใบที่ต้นทางแก้หลังวางแผนรอตัดสิน (สถานะ PLANNED — เงื่อนไขเดียวกับ `held=true`) |   |
+| `holdReasons` | ใช่ | `array<OrderHoldCountDto>` |   | หน้าใบค้าง: จำนวนใบค้างต่อเหตุ ครบ 12 รหัสของ C (ไม่มี = 0) — นับเหตุหลักหรือเหตุรอง (เงื่อนไขเดียวกับตัวกรอง `held=true&holdReason=`) ใบหนึ่งจึงอาจนับในหลายเหตุ · SOURCE_CHANGED_AFTER_PLAN = ใบที่ต้นทางแก้หลังวางแผน (สถานะยัง PLANNED) |   |
+| `today` | ใช่ | `string` |   | วันนี้ตามเวลาไทยที่ใช้นับ `waiting*` | `2026-11-18` |
+| `waiting` | ใช่ | `number` |   | รอจัดรถ = ยังไม่อยู่ในเที่ยว (รับแล้ว + ค้าง) และวันรับของ ≤ วันนี้ + 1 — เงื่อนไขเดียวกับ `status=received,on_hold&requestedTo={today+1}` |   |
+| `waitingOverdue` | ใช่ | `number` |   | รอจัดรถที่เลยกำหนดรับ = `status=received,on_hold&requestedTo={today−1}` |   |
 
 ### OrderTrackingDto {#schema-OrderTrackingDto}
 
@@ -1344,4 +1344,4 @@ const { data, error } = await tms.GET('/v1/orders/{id}/events', {
 | `orderId` | ใช่ | `string` |   |   | `ord_3f2a…` |
 | `soNo` | ใช่ | `string` | null ได้ |   | `SO-6911-0001` |
 | `orderStatus` | ใช่ | `string` |   | สถานะใบสั่งขนส่ง | `IN_TRANSIT` |
-| `deliveryOrders` | ใช่ | `array<OrderTrackingShipmentDto>` |   | ทุก DO ของ order (รวมที่ยกเลิก) ตามลำดับที่สร้าง — ขั้น/ETA/รายการใช้กติกาเดียวกับหน้าติดตามสาธารณะ (ST4-T14) แต่ไม่หมดอายุตาม `tracking.linkDays` และไม่มีรูป POD (ดู `GET /v1/orders/{id}/documents`) |   |
+| `deliveryOrders` | ใช่ | `array<OrderTrackingShipmentDto>` |   | ทุก DO ของ order (รวมที่ยกเลิก) ตามลำดับที่สร้าง — ขั้น/ETA/รายการใช้กติกาเดียวกับหน้าติดตามสาธารณะ แต่ไม่หมดอายุตาม `tracking.linkDays` และไม่มีรูป POD (ดู `GET /v1/orders/{id}/documents`) |   |

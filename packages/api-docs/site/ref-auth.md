@@ -19,7 +19,7 @@ scope: — · operationId: `Auth_token`
 
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
-| `grantType` | ใช่ | `string` | ค่า: `authorization_code`, `refresh_token`, `client_credentials` | client_credentials (ST7-T01) = client ภายนอกด้วย API key: clientId `key_…` + clientSecret `tk_live_…` (หรือ HTTP Basic) → JWT RS256 1 ชม. |   |
+| `grantType` | ใช่ | `string` | ค่า: `authorization_code`, `refresh_token`, `client_credentials` | client_credentials = client ภายนอกด้วย API key: clientId `key_…` + clientSecret `tk_live_…` (หรือ HTTP Basic) → JWT RS256 1 ชม. |   |
 | `code` |   | `string` |   | grantType=authorization_code |   |
 | `codeVerifier` |   | `string` |   | grantType=authorization_code (PKCE) |   |
 | `clientId` |   | `string` |   | grantType=client_credentials — id ของ key (`key_…`) หรือ prefix ที่แสดงในหน้าจอ · หรือส่งใน Authorization: Basic | `tk_live_8f3a` |

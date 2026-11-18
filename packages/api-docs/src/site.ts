@@ -5,9 +5,10 @@
 import { GROUPS, buildPages, type Guide, type Page } from './pages';
 import { postmanCollection } from './postman';
 import { escapeHtml, renderMarkdown } from './markdown';
-import type { Json } from './openapi';
+import { publicSpec, type Json } from './openapi';
 
 export const POSTMAN_FILE = 'tms-api.postman_collection.json';
+export const OPENAPI_FILE = 'openapi.json';
 
 /** สีและตัวอักษรตามต้นแบบ TMS v4 (หน้า นักพัฒนา / Open API แท็บ เอกสาร) — ไม่มีต้นแบบของ docs site สาธารณะ (spec/12 §3) */
 const CSS = `
@@ -80,9 +81,9 @@ export function llmsTxt(pages: Page[]): string {
     [
       '# TMS API v1',
       '> Open API ของ TMS (ระบบจัดการขนส่งทางบก) — REST JSON ใต้ /v1, auth ด้วย Bearer API key (tk_live_/tk_test_) หรือ OAuth2 client credentials, error แบบ RFC 9457 problem+json, cursor pagination, Idempotency-Key, ETag/If-Match, webhook ลงลายเซ็น HMAC-SHA256',
-      'ทุกหน้ามีฉบับ Markdown ที่ URL เดียวกันแต่ลงท้าย .md · เนื้อหาทั้งหมดในไฟล์เดียว: llms-full.txt · spec เต็ม: GET /v1/openapi.json',
+      'ทุกหน้ามีฉบับ Markdown ที่ URL เดียวกันแต่ลงท้าย .md · เนื้อหาทั้งหมดในไฟล์เดียว: llms-full.txt · OpenAPI: openapi.json',
       ...groups,
-      `## Optional\n\n- [llms-full.txt](llms-full.txt): ทุกหน้าในไฟล์เดียว\n- [Postman collection](${POSTMAN_FILE}): Postman v2.1`,
+      `## Optional\n\n- [llms-full.txt](llms-full.txt): ทุกหน้าในไฟล์เดียว\n- [Postman collection](${POSTMAN_FILE}): Postman v2.1\n- [OpenAPI](${OPENAPI_FILE}): OpenAPI 3 ของ endpoint ในเอกสารนี้`,
     ].join('\n\n') + '\n'
   );
 }
@@ -106,5 +107,6 @@ export function buildSite(
   files.set('llms.txt', llmsTxt(pages));
   files.set('llms-full.txt', llmsFullTxt(pages));
   files.set(POSTMAN_FILE, JSON.stringify(postmanCollection(doc), null, 2) + '\n');
+  files.set(OPENAPI_FILE, JSON.stringify(publicSpec(doc), null, 2) + '\n');
   return files;
 }

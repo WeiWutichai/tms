@@ -14,11 +14,11 @@
     "node": ">=20"
   },
   "scripts": {
-    "generate": "openapi-typescript ../contracts/openapi.json -o src/schema.d.ts",
+    "generate": "openapi-typescript ../contracts/openapi.json -o src/schema.d.ts && node scripts/gen-idempotency.mjs",
     "build": "pnpm generate && tsc -p tsconfig.json && cp src/schema.d.ts dist/schema.d.ts",
     "typecheck": "pnpm generate && tsc -p tsconfig.json --noEmit",
     "test": "pnpm generate && vitest run",
-    "lint": "prettier --check \"src/**/*.ts\" \"!src/schema.d.ts\""
+    "lint": "prettier --check \"src/**/*.ts\" \"!src/schema.d.ts\" \"!src/idempotency.gen.ts\""
   },
   "dependencies": {
     "openapi-fetch": "^0.13.4"

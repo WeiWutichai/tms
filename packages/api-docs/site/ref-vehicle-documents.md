@@ -73,11 +73,11 @@ scope: `master:write` · operationId: `VehicleDocuments_create`
 | `sumInsured` |   | `string` | null ได้ | ทุนประกัน — เฉพาะ INSURANCE | `800000.00` |
 | `premiumAmount` |   | `string` | null ได้ | เบี้ยประกัน — เฉพาะ INSURANCE | `28500.00` |
 | `costAmount` |   | `string` | null ได้ | ค่าใช้จ่ายของฉบับนี้ (เบี้ย / ค่าธรรมเนียม) — รถบริษัท: เขียน vehicle_cost หมวด DOCUMENT 1 แถว | `28500.00` |
-| `fileDocumentIds` | ใช่ | `array<string>` |   | ไฟล์แนบ (PDF/รูป) จาก POST /v1/documents kind=VEHICLE_DOC ที่อัปโหลดเสร็จแล้ว — อย่างน้อย 1 ไฟล์ (spec/06 FLT-C) | `["doc_…"]` |
+| `fileDocumentIds` | ใช่ | `array<string>` |   | ไฟล์แนบ (PDF/รูป) จาก POST /v1/documents kind=VEHICLE_DOC ที่อัปโหลดเสร็จแล้ว — อย่างน้อย 1 ไฟล์ | `["doc_…"]` |
 | `note` |   | `string` | ยาว ≤ 500 · null ได้ |   |   |
 | `docType` | ใช่ | `string` | ค่า: `INSURANCE`, `COMPULSORY_ACT`, `ANNUAL_TAX`, `INSPECTION`, `TRANSPORT_LICENSE`, `GPS_DLT_CERT`, `OTHER` |   |   |
 | `title` |   | `string` |   | ชื่อเอกสาร — บังคับเมื่อ docType = OTHER | `สัญญาเช่าที่จอด` |
-| `isRequiredForDispatch` |   | `boolean` |   | หมดอายุแล้วห้ามจ่ายงาน (ใช้ใน ST3) — ไม่ส่ง = true สำหรับ INSURANCE / COMPULSORY_ACT (docs/01 §3.8) |   |
+| `isRequiredForDispatch` |   | `boolean` |   | หมดอายุแล้วห้ามจ่ายงาน (ใช้ใน ST3) — ไม่ส่ง = true สำหรับ INSURANCE / COMPULSORY_ACT |   |
 
 **Responses**
 
@@ -154,8 +154,8 @@ scope: `export:run` · operationId: `VehicleDocuments_export`
 |---|---|---|---|---|
 | `limit` | query |   | `number` |   |
 | `cursor` | query |   | `string` | ค่า nextCursor จากหน้าก่อน |
-| `docType` | query |   | `string` | คั่นด้วย , เช่น INSURANCE,COMPULSORY_ACT |
-| `status` | query |   | `string` | คั่นด้วย , (active, expiring, expired, superseded, cancelled) — ไม่ส่ง = ฉบับปัจจุบัน (active,expiring,expired) |
+| `docType` | query |   | `string` | คั่นด้วย, เช่น INSURANCE,COMPULSORY_ACT |
+| `status` | query |   | `string` | คั่นด้วย, (active, expiring, expired, superseded, cancelled) — ไม่ส่ง = ฉบับปัจจุบัน (active,expiring,expired) |
 | `expiresWithinDays` | query |   | `number` | หมดภายใน N วันนับจากวันนี้ (ไม่รวมที่หมดแล้ว) เช่น 30 = หมดวันนี้ถึงอีก 30 วัน |
 | `expiresBeyondDays` | query |   | `number` | หมดหลังจากอีก N วัน เช่น 30 = เหลือมากกว่า 30 วัน (สถานะ "ปกติ" ของหน้าเอกสารรถรวม) — ใช้ร่วมกับ expiresWithinDays ได้ |
 | `dueWithinDays` | query |   | `number` | ถึงกำหนดต่อภายใน N วัน = หมดแล้ว หรือหมดภายใน N วัน (เช่น 30 = ไฟล์ "ส่งออกให้ฝ่ายธุรการ" ของต้นแบบ) |
@@ -165,13 +165,13 @@ scope: `export:run` · operationId: `VehicleDocuments_export`
 | `vehicleId` | query |   | `string` | เฉพาะรถคันนี้ |
 | `plate` | query |   | `string` | ค้นหาทะเบียน (ไม่สนช่องว่าง/ขีด) |
 | `format` | query |   | `string` ค่า: `xlsx`, `csv` |   |
-| `ids` | query |   | `string` | ส่งออกเฉพาะ id เหล่านี้ (คั่นด้วย ,) — แถวที่เลือกในตาราง |
+| `ids` | query |   | `string` | ส่งออกเฉพาะ id เหล่านี้ (คั่นด้วย,) — แถวที่เลือกในตาราง |
 
 **Responses**
 
 | สถานะ | ความหมาย | body |
 |---|---|---|
-| `200` | ไฟล์ .xlsx หรือ .csv ตามตัวกรองเดียวกับรายการ หรือเฉพาะ `ids` (≤ 200; สูงสุด 10,000 แถว) — CSV กันสูตร · header `X-Export-Rows` = จำนวนแถวในไฟล์ |   |
+| `200` | ไฟล์.xlsx หรือ.csv ตามตัวกรองเดียวกับรายการ หรือเฉพาะ `ids` (≤ 200; สูงสุด 10,000 แถว) — CSV กันสูตร · header `X-Export-Rows` = จำนวนแถวในไฟล์ |   |
 | `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
 | `403` | ไม่มีสิทธิ์ (`export:run`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
 | `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (query/body) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
@@ -200,8 +200,8 @@ scope: `master:read` · operationId: `VehicleDocuments_list`
 |---|---|---|---|---|
 | `limit` | query |   | `number` |   |
 | `cursor` | query |   | `string` | ค่า nextCursor จากหน้าก่อน |
-| `docType` | query |   | `string` | คั่นด้วย , เช่น INSURANCE,COMPULSORY_ACT |
-| `status` | query |   | `string` | คั่นด้วย , (active, expiring, expired, superseded, cancelled) — ไม่ส่ง = ฉบับปัจจุบัน (active,expiring,expired) |
+| `docType` | query |   | `string` | คั่นด้วย, เช่น INSURANCE,COMPULSORY_ACT |
+| `status` | query |   | `string` | คั่นด้วย, (active, expiring, expired, superseded, cancelled) — ไม่ส่ง = ฉบับปัจจุบัน (active,expiring,expired) |
 | `expiresWithinDays` | query |   | `number` | หมดภายใน N วันนับจากวันนี้ (ไม่รวมที่หมดแล้ว) เช่น 30 = หมดวันนี้ถึงอีก 30 วัน |
 | `expiresBeyondDays` | query |   | `number` | หมดหลังจากอีก N วัน เช่น 30 = เหลือมากกว่า 30 วัน (สถานะ "ปกติ" ของหน้าเอกสารรถรวม) — ใช้ร่วมกับ expiresWithinDays ได้ |
 | `dueWithinDays` | query |   | `number` | ถึงกำหนดต่อภายใน N วัน = หมดแล้ว หรือหมดภายใน N วัน (เช่น 30 = ไฟล์ "ส่งออกให้ฝ่ายธุรการ" ของต้นแบบ) |
@@ -215,7 +215,7 @@ scope: `master:read` · operationId: `VehicleDocuments_list`
 
 | สถานะ | ความหมาย | body |
 |---|---|---|
-| `200` | เอกสารรถทั้งหมด (หน้าเอกสารรถรวม ST2-T19) เรียงวันหมดใกล้สุดก่อน — กรองประเภท/สถานะ/หมดภายใน N วัน/หลัง N วัน/ทะเบียน/รถ · ไม่รวมรถปลดระวาง (เว้นแต่ includeRetired=true) | `VehicleDocumentPageDto` |
+| `200` | เอกสารรถทั้งหมด เรียงวันหมดใกล้สุดก่อน — กรองประเภท/สถานะ/หมดภายใน N วัน/หลัง N วัน/ทะเบียน/รถ · ไม่รวมรถปลดระวาง (เว้นแต่ includeRetired=true) | `VehicleDocumentPageDto` |
 | `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
 | `403` | ไม่มีสิทธิ์ (`master:read`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
 | `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (query/body) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
@@ -292,7 +292,7 @@ scope: `master:write` · operationId: `VehicleDocuments_renew`
 | `sumInsured` |   | `string` | null ได้ | ทุนประกัน — เฉพาะ INSURANCE | `800000.00` |
 | `premiumAmount` |   | `string` | null ได้ | เบี้ยประกัน — เฉพาะ INSURANCE | `28500.00` |
 | `costAmount` |   | `string` | null ได้ | ค่าใช้จ่ายของฉบับนี้ (เบี้ย / ค่าธรรมเนียม) — รถบริษัท: เขียน vehicle_cost หมวด DOCUMENT 1 แถว | `28500.00` |
-| `fileDocumentIds` | ใช่ | `array<string>` |   | ไฟล์แนบ (PDF/รูป) จาก POST /v1/documents kind=VEHICLE_DOC ที่อัปโหลดเสร็จแล้ว — อย่างน้อย 1 ไฟล์ (spec/06 FLT-C) | `["doc_…"]` |
+| `fileDocumentIds` | ใช่ | `array<string>` |   | ไฟล์แนบ (PDF/รูป) จาก POST /v1/documents kind=VEHICLE_DOC ที่อัปโหลดเสร็จแล้ว — อย่างน้อย 1 ไฟล์ | `["doc_…"]` |
 | `note` |   | `string` | ยาว ≤ 500 · null ได้ |   |   |
 | `title` |   | `string` |   | ชื่อเอกสารใหม่ — เฉพาะ OTHER (ไม่ส่ง = ชื่อเดิม) |   |
 

@@ -42,7 +42,7 @@ blockquote{margin:8px 0;padding:6px 12px;border-left:3px solid var(--accent);bac
   -d '{&quot;grantType&quot;:&quot;client_credentials&quot;,&quot;clientId&quot;:&quot;key_...&quot;,&quot;clientSecret&quot;:&quot;tk_live_...&quot;,&quot;scope&quot;:&quot;orders:read orders:write&quot;}'</code></pre>
 <p>ได้ <code>accessToken</code> แล้วส่งเป็น <code>Authorization: Bearer &lt;accessToken&gt;</code> · กุญแจตรวจลายเซ็นประกาศที่ <code>GET /v1/.well-known/jwks.json</code> · ยกเลิก token ด้วย <code>POST /v1/oauth/revoke</code></p>
 <h2 id="scope">Scope</h2>
-<p>scope รูปแบบ <code>resource:verb</code> (เช่น <code>orders:read</code>, <code>orders:write</code>, <code>orders:cancel</code>, <code>master:read</code>, <code>trips:dispatch</code>) — แต่ละ endpoint ในหน้า reference ระบุ scope ที่ต้องใช้ (มีหลายตัว = ตัวใดตัวหนึ่ง) · scope ด้านผู้ใช้/บทบาท/การตั้งค่า (<code>users:*</code>, <code>settings:write</code>) ให้ key ไม่ได้</p>
+<p>scope รูปแบบ <code>resource:verb</code> (เช่น <code>companies:read</code>, <code>orders:read</code>, <code>orders:write</code>, <code>orders:cancel</code>, <code>master:read</code>, <code>trips:dispatch</code>) — แต่ละ endpoint ในหน้า reference ระบุ scope ที่ต้องใช้ (มีหลายตัว = ตัวใดตัวหนึ่ง) · scope ด้านผู้ใช้/บทบาท/การตั้งค่า (<code>users:*</code>, <code>settings:write</code>) ให้ key ไม่ได้</p>
 </main>
 </div>
 </body>

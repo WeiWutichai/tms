@@ -79,8 +79,8 @@ scope: `trips:read` · operationId: `Trips_list`
 | `cursor` | query |   | `string` | ค่า nextCursor จากหน้าก่อน |
 | `updatedAfter` | query |   | `string` | คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull) |
 | `sort` | query |   | `string` ค่า: `updatedAt`, `-updatedAt` |   |
-| `fields` | query |   | `string` | รายชื่อ field คั่นด้วย , เช่น id,legalName |
-| `status` | query |   | `string` | สถานะ คั่นด้วย , (PLANNING / OFFERED / ASSIGNED / DISPATCHED / IN_PROGRESS / COMPLETED / COSTED / SETTLED / CANCELLED) |
+| `fields` | query |   | `string` | รายชื่อ field คั่นด้วย, เช่น id,legalName |
+| `status` | query |   | `string` | สถานะ คั่นด้วย, (PLANNING / OFFERED / ASSIGNED / DISPATCHED / IN_PROGRESS / COMPLETED / COSTED / SETTLED / CANCELLED) |
 | `dateFrom` | query |   | `string` | วันที่เที่ยวตั้งแต่ (YYYY-MM-DD) |
 | `dateTo` | query |   | `string` | วันที่เที่ยวถึง (YYYY-MM-DD) |
 | `vehicleId` | query |   | `string` |   |
@@ -380,7 +380,7 @@ const { data, error } = await tms.POST('/v1/trips/{id}/schedule', {
 
 scope: `trips:assign` · operationId: `Trips_attach`
 
-กฎตอนจัด (ST3-T14) **ไม่บังคับตอนเพิ่ม/ถอด DO** — ตรวจใหม่และเก็บใน `warnings` (กระดานแสดงเป็นค้างยกเว้น/ยืนยัน) แล้วบังคับอีกครั้งตอน `/dispatch` (บล็อกค้าง → 409 `assignment_blocked`, คำเตือนค้าง → 409 `assignment_warnings`) · น้ำหนักที่เพิ่มขึ้นทำให้การยืนยัน "น้ำหนักเกิน" เดิมหมดผล
+กฎตอนจัด **ไม่บังคับตอนเพิ่ม/ถอด DO** — ตรวจใหม่และเก็บใน `warnings` (กระดานแสดงเป็นค้างยกเว้น/ยืนยัน) แล้วบังคับอีกครั้งตอน `/dispatch` (บล็อกค้าง → 409 `assignment_blocked`, คำเตือนค้าง → 409 `assignment_warnings`) · น้ำหนักที่เพิ่มขึ้นทำให้การยืนยัน "น้ำหนักเกิน" เดิมหมดผล
 
 **Parameters**
 
@@ -549,7 +549,7 @@ const { data, error } = await tms.POST('/v1/trips/{id}/reorder-stops', {
 
 scope: `trips:assign` · operationId: `Trips_assign`
 
-PLANNING → ASSIGNED (รถบริษัท) · ASSIGNED → ASSIGNED (เปลี่ยนรถ/คนขับก่อนปล่อยรถ — docs/01 §4.2) · OFFERED → ASSIGNED (รถร่วมรับงาน) · `dispatch: true` → ปล่อยรถต่อทันที (atomic; ต้องมี `trips:dispatch`; คำเตือนที่ยังไม่ยืนยัน → 409 `assignment_warnings`)
+PLANNING → ASSIGNED (รถบริษัท) · ASSIGNED → ASSIGNED · OFFERED → ASSIGNED (รถร่วมรับงาน) · `dispatch: true` → ปล่อยรถต่อทันที (atomic; ต้องมี `trips:dispatch`; คำเตือนที่ยังไม่ยืนยัน → 409 `assignment_warnings`)
 
 **Parameters**
 
@@ -569,7 +569,7 @@ PLANNING → ASSIGNED (รถบริษัท) · ASSIGNED → ASSIGNED (เ�
 | `driverId` |   | `string` | null ได้ | คนขับ — ไม่ส่ง = คนขับประจำของรถ (มีคนเดียว) · รถบริษัทต้องมีคนขับ | `drv_3f2a…` |
 | `reliefDriverId` |   | `string` | null ได้ | คนขับสำรอง (งานทางไกล) | `drv_3f2a…` |
 | `trailerId` |   | `string` | null ได้ | หาง (รถที่ unitRole = TRAILER) | `veh_3f2a…` |
-| `dispatch` |   | `boolean` |   | ST3-T17 "จัดรถและปล่อยเที่ยว" (docs/04 D2 Assign & dispatch) — จัดรถแล้วปล่อยรถในคำขอเดียว (atomic: ปล่อยไม่ได้ = ไม่จัดรถด้วย) · ต้องมี scope `trips:dispatch` เพิ่ม · ตรวจกฎแบบตอนปล่อยรถ: คำเตือนที่ยังไม่ยืนยัน → 409 `assignment_warnings` |   |
+| `dispatch` |   | `boolean` |   | "จัดรถและปล่อยเที่ยว" — จัดรถแล้วปล่อยรถในคำขอเดียว (atomic: ปล่อยไม่ได้ = ไม่จัดรถด้วย) · ต้องมี scope `trips:dispatch` เพิ่ม · ตรวจกฎแบบตอนปล่อยรถ: คำเตือนที่ยังไม่ยืนยัน → 409 `assignment_warnings` |   |
 
 **Responses**
 
@@ -618,7 +618,7 @@ scope: `trips:assign` · operationId: `Trips_hireOptions`
 |---|---|---|---|---|
 | `id` | path | ใช่ | `string` |   |
 | `vehicleTypeId` | query |   | `string` | ประเภทรถที่จะจ้าง (ใช้หา rate card ขาซื้อ) — ไม่ส่ง = ตามเที่ยว/ใบสั่งขาย |
-| `change` | query |   | `string` ค่า: `true`, `false` | ST3-T25 ตัวเลือกสำหรับเปลี่ยนผู้รับเหมา: `true` = ไม่รวมผู้รับเหมาของการจ้างที่ใช้งานอยู่ (เลือกซ้ำไม่ได้ · ไม่นับเป็นถูกสุด) |
+| `change` | query |   | `string` ค่า: `true`, `false` | ตัวเลือกสำหรับเปลี่ยนผู้รับเหมา: `true` = ไม่รวมผู้รับเหมาของการจ้างที่ใช้งานอยู่ (เลือกซ้ำไม่ได้ · ไม่นับเป็นถูกสุด) |
 
 **Responses**
 
@@ -662,13 +662,13 @@ scope: `trips:assign` · operationId: `Trips_offer`
 
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
-| `carrierId` | ใช่ | `string` |   | รถร่วมที่จ้าง (ลิงก์รับงาน = ST3-T23) | `car_3f2a…` |
+| `carrierId` | ใช่ | `string` |   | รถร่วมที่จ้าง | `car_3f2a…` |
 | `cost` |   | `string` | null ได้ | ราคาซื้อที่ตกลงต่อเที่ยว (บาท ก่อน VAT ก่อนหัก ณ ที่จ่าย, > 0, ทศนิยม ≤ 2) — ไม่ส่ง = ราคาตาม rate card ขาซื้อของรายนี้ (ไม่มี rate card → 422 `cost_required`) | `6800.00` |
 | `selectionReason` |   | `string` | ยาว ≤ 500 · ยาว ≥ 10 · null ได้ | เหตุผลที่เลือกรายนี้ — **บังคับ (≥ 10 ตัวอักษร)** เมื่อราคาที่จ้างสูงกว่ารายที่ถูกสุด หรือไม่มีราคาจาก rate card ให้เทียบ (422 `selection_reason_required`) · เลือกรายที่ถูกสุด = ระบบเขียนเหตุผลให้ | `รายที่ถูกกว่ารถไม่ว่างช่วงเช้า ลูกค้าต้องการรถเข้าก่อน 8 โมง` |
 | `vehicleTypeId` |   | `string` | null ได้ | ประเภทรถที่จ้าง (ใช้หา rate card ขาซื้อ) — ไม่ส่ง = ตามเที่ยว/ใบสั่งขาย | `vty_3f2a…` |
-| `replaceOffer` |   | `boolean` |   | ST3-T24 "ส่งรายถัดไป" ระหว่างรอตอบ: true = ปิดการจ้างที่รอตอบซึ่งครบเวลาตอบ N ชม. แล้ว (WITHDRAWN — ลิงก์เดิมใช้ไม่ได้, ค่าจ้างเดิมกลับรายการ) แล้วจ้างรายนี้ในคำขอเดียว · ยังไม่ครบเวลา → 409 `offer_not_timed_out` · ไม่ส่ง = เที่ยวต้องเป็น PLANNING |   |
-| `replaceNote` |   | `string` | ยาว ≤ 500 · null ได้ | ST3-T24 หมายเหตุการถอนรายเดิมเมื่อ `replaceOffer` (ไม่บังคับ) — ต่อท้ายเหตุผลระบบ "… ไม่ตอบรับใน N ชม. — ส่งรายถัดไป" | `โทรตามแล้วไม่รับสาย` |
-| `changeReason` |   | `string` | ยาว ≤ 500 · ยาว ≥ 10 · null ได้ | ST3-T25 เปลี่ยนผู้รับเหมา (docs/04 D3): ส่งค่านี้ = ยกเลิกการจ้างที่ใช้งานอยู่แล้วจ้างรายนี้ในคำขอเดียว — รอตอบ (OFFERED) ได้ทุกเวลา, รับงานแล้ว (ASSIGNED) ได้ก่อนปล่อยรถ · การจ้างเดิม → WITHDRAWN (ประวัติคงอยู่ — `GET /trips/{id}/offers`), ลิงก์เดิมใช้ไม่ได้, ค่าจ้างที่ยังไม่จ่ายกลับรายการ, รถ/คนขับของรายเดิมถูกล้าง · เหตุผล ≥ 10 ตัวอักษร (422 `changeReason`) · รายเดิม → 422 `same_carrier` · ปล่อยรถแล้ว/ไม่มีการจ้าง → 409 `carrier_change_not_allowed` | `รถของผู้รับเหมาเดิมเสียกลางทางก่อนเข้ารับสินค้า` |
+| `replaceOffer` |   | `boolean` |   | "ส่งรายถัดไป" ระหว่างรอตอบ: true = ปิดการจ้างที่รอตอบซึ่งครบเวลาตอบ N ชม. แล้ว (WITHDRAWN — ลิงก์เดิมใช้ไม่ได้, ค่าจ้างเดิมกลับรายการ) แล้วจ้างรายนี้ในคำขอเดียว · ยังไม่ครบเวลา → 409 `offer_not_timed_out` · ไม่ส่ง = เที่ยวต้องเป็น PLANNING |   |
+| `replaceNote` |   | `string` | ยาว ≤ 500 · null ได้ | หมายเหตุการถอนรายเดิมเมื่อ `replaceOffer` (ไม่บังคับ) — ต่อท้ายเหตุผลระบบ "… ไม่ตอบรับใน N ชม. — ส่งรายถัดไป" | `โทรตามแล้วไม่รับสาย` |
+| `changeReason` |   | `string` | ยาว ≤ 500 · ยาว ≥ 10 · null ได้ | เปลี่ยนผู้รับเหมา: ส่งค่านี้ = ยกเลิกการจ้างที่ใช้งานอยู่แล้วจ้างรายนี้ในคำขอเดียว — รอตอบ (OFFERED) ได้ทุกเวลา, รับงานแล้ว (ASSIGNED) ได้ก่อนปล่อยรถ · การจ้างเดิม → WITHDRAWN (ประวัติคงอยู่ — `GET /trips/{id}/offers`), ลิงก์เดิมใช้ไม่ได้, ค่าจ้างที่ยังไม่จ่ายกลับรายการ, รถ/คนขับของรายเดิมถูกล้าง · เหตุผล ≥ 10 ตัวอักษร (422 `changeReason`) · รายเดิม → 422 `same_carrier` · ปล่อยรถแล้ว/ไม่มีการจ้าง → 409 `carrier_change_not_allowed` | `รถของผู้รับเหมาเดิมเสียกลางทางก่อนเข้ารับสินค้า` |
 
 **Responses**
 
@@ -1363,7 +1363,7 @@ scope: `trips:assign` · operationId: `TripOffers_reissue`
 
 | สถานะ | ความหมาย | body |
 |---|---|---|
-| `201` | ออกลิงก์ใหม่ให้ข้อเสนอที่รอตอบ (ลิงก์เดิมถูกเพิกถอน + audit) — อายุเท่าเดิม ไม่ต่อเวลาตอบ · ST4-T08: รับงานแล้ว (เที่ยวยังไม่จบ) = ออกลิงก์งาน (`/link/pod/…`) ใหม่ · อื่น → 409 `offer_closed` | `OfferLinkDto` |
+| `201` | ออกลิงก์ใหม่ให้ข้อเสนอที่รอตอบ (ลิงก์เดิมถูกเพิกถอน + audit) — อายุเท่าเดิม ไม่ต่อเวลาตอบ: รับงานแล้ว (เที่ยวยังไม่จบ) = ออกลิงก์งาน (`/link/pod/…`) ใหม่ · อื่น → 409 `offer_closed` | `OfferLinkDto` |
 | `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
 | `403` | ไม่มีสิทธิ์ (`trips:assign`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
 | `404` | ไม่พบเที่ยว (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
@@ -1678,7 +1678,7 @@ const { data, error } = await tms.POST('/v1/trip-sheets', {
 |---|---|---|---|---|---|
 | `channels` | ใช่ | `OfferChannelsDto` |   |   |   |
 | `link` | ใช่ | `OfferLinkDto` | null ได้ | null = ไม่มีลิงก์ที่ใช้ได้ (ยังไม่จ้าง / ปฏิเสธ-หมดเวลา-ยกเลิกแล้ว / ลิงก์หมดอายุ) |   |
-| `podLink` | ใช่ | `OfferLinkDto` | null ได้ | ST4-T08 ลิงก์งานหลังรับงาน (`/link/pod/…` — ค้น DO + กดถึง/ออก, POD ST4-T09) · null = ยังไม่รับงาน/เพิกถอนแล้ว · ออกใหม่ด้วย POST offer-link |   |
+| `podLink` | ใช่ | `OfferLinkDto` | null ได้ | ลิงก์งานหลังรับงาน · null = ยังไม่รับงาน/เพิกถอนแล้ว · ออกใหม่ด้วย POST offer-link |   |
 
 ### RevokeTripSheetLinksResultDto {#schema-RevokeTripSheetLinksResultDto}
 
@@ -1728,7 +1728,7 @@ const { data, error } = await tms.POST('/v1/trip-sheets', {
 | `assignmentStatus` | ใช่ | `string` | ค่า: `OFFERED`, `ACCEPTED`, `REJECTED`, `EXPIRED` · null ได้ |   |   |
 | `offeredAt` | ใช่ | `string` | null ได้ |   |   |
 | `offerExpiresAt` | ใช่ | `string` | null ได้ | ข้อเสนอหมดอายุ (48 ชม.) |   |
-| `hire` | ใช่ | `TripHireDto` | null ได้ | ST3-T22 การจ้างรถร่วมที่ใช้งานอยู่ (รอตอบ/รับแล้ว) — ราคาซื้อเห็นเมื่อมี `prices.buy:read` |   |
+| `hire` | ใช่ | `TripHireDto` | null ได้ | การจ้างรถร่วมที่ใช้งานอยู่ (รอตอบ/รับแล้ว) — ราคาซื้อเห็นเมื่อมี `prices.buy:read` |   |
 | `assignedAt` | ใช่ | `string` | null ได้ |   |   |
 | `dispatchedAt` | ใช่ | `string` | null ได้ |   |   |
 | `completedAt` | ใช่ | `string` | null ได้ |   |   |
@@ -1736,10 +1736,10 @@ const { data, error } = await tms.POST('/v1/trip-sheets', {
 | `cancelReason` | ใช่ | `string` | null ได้ |   |   |
 | `stops` | ใช่ | `array<TripStopDto>` |   |   |   |
 | `deliveryOrders` | ใช่ | `array<TripDeliveryOrderDto>` |   |   |   |
-| `rescheduledDeliveryOrders` | ใช่ | `array<TripRescheduledDoDto>` |   | ST4-T12 DO ที่ส่งไม่สำเร็จในเที่ยวนี้แล้วนัดส่งใหม่ (ใบเดิม CANCELLED) — "ส่งไม่สำเร็จ · นัดส่งใหม่" · มีค่าเฉพาะ GET /trips/{id} (อื่น = []) |   |
+| `rescheduledDeliveryOrders` | ใช่ | `array<TripRescheduledDoDto>` |   | DO ที่ส่งไม่สำเร็จในเที่ยวนี้แล้วนัดส่งใหม่ (ใบเดิม CANCELLED) — "ส่งไม่สำเร็จ · นัดส่งใหม่" · มีค่าเฉพาะ GET /trips/{id} (อื่น = []) |   |
 | `weightKg` | ใช่ | `string` |   | น้ำหนักรวมของ DO ในเที่ยว (กก.) | `5400` |
-| `route` | ใช่ | `TripRouteSummaryDto` |   | ST3-T16 ระยะ/เวลารวมตามลำดับจุดปัจจุบัน (คำนวณใหม่ทุกครั้งที่จุดเปลี่ยน) |   |
-| `warnings` | ใช่ | `array<TripWarningDto>` |   | ผลตรวจกฎตอนจัดล่าสุด (ST3-T14 — D-07: block = กฎเอกสาร, warning = ต้องยืนยันก่อนปล่อยรถ) |   |
+| `route` | ใช่ | `TripRouteSummaryDto` |   | ระยะ/เวลารวมตามลำดับจุดปัจจุบัน (คำนวณใหม่ทุกครั้งที่จุดเปลี่ยน) |   |
+| `warnings` | ใช่ | `array<TripWarningDto>` |   | ผลตรวจกฎตอนจัดล่าสุด |   |
 | `ruleOverrides` | ใช่ | `array<TripRuleOverrideDto>` |   | ประวัติการยกเว้น/ยืนยันกฎของเที่ยว (เรียงตามเวลา) |   |
 | `version` | ใช่ | `number` |   |   |   |
 | `createdAt` | ใช่ | `string` |   |   |   |
@@ -1783,5 +1783,5 @@ const { data, error } = await tms.POST('/v1/trip-sheets', {
 
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
-| `running` | ใช่ | `number` |   | เที่ยวกำลังวิ่ง = `status=IN_PROGRESS` (ทุกวันที่ — spec/09 §1) |   |
+| `running` | ใช่ | `number` |   | เที่ยวกำลังวิ่ง = `status=IN_PROGRESS` |   |
 | `offered` | ใช่ | `number` |   | งานรถร่วมรอตอบ = `status=OFFERED` (ทุกวันที่) |   |

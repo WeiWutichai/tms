@@ -115,17 +115,72 @@ describe('docs site (ST7-T12)', () => {
   it('quickstart ฝังตัวอย่าง TypeScript ไฟล์จริง และ curl แปลงเป็นขั้นตอนได้ครบ', () => {
     const q = files.get('quickstart.md')!;
     expect(q).toContain('export async function runQuickstart');
-    const steps = parseQuickstartCurl(q);
+    const steps = parseQuickstartCurl(q, { now: new Date('2026-11-19T20:00:00Z') });
     expect(steps.map((s) => `${s.method} ${s.url.replace(/^\$\{TMS_BASE_URL\}/, '')}`)).toEqual([
       'GET /v1/orders?limit=1',
+      'GET /v1/companies?limit=50',
       'PUT /v1/customers/external/QS-CUS-001',
       'PUT /v1/customer-sites/external/QS-SITE-PICKUP',
       'PUT /v1/customer-sites/external/QS-SITE-DROPOFF',
       'PUT /v1/orders/external/QS-ORDER-001',
       'GET /v1/orders/${ORDER_ID}',
     ]);
-    expect(steps[1]!.capture).toEqual({ variable: 'CUSTOMER_ID', path: '.id' });
-    expect(JSON.parse(steps[4]!.body!).stops[0].windowStart).toBe('2026-12-01T08:00:00+07:00');
+    expect(steps[1]!.capture).toEqual({ variable: 'COMPANY_ID', path: '.data[0].id' });
+    expect(steps[2]!.capture).toEqual({ variable: 'CUSTOMER_ID', path: '.id' });
+    const order = JSON.parse(steps[5]!.body!);
+    // วันพรุ่งนี้ตามเวลาไทย (20:00Z = 03:00 วันที่ 20 ที่ไทย → พรุ่งนี้ = 21)
+    expect(order.stops[0].windowStart).toBe('2026-11-21T08:00:00+07:00');
+    expect(order.billingCompanyId).toBe('${COMPANY_ID}');
+    // ทุก curl ล้มดัง ๆ (--fail-with-body) และ jq -e
+    expect(q).toContain('set -euo pipefail');
+    for (const m of q.matchAll(/curl -sS ([^\n]*)/g)) expect(m[1]).toContain('--fail-with-body');
+    expect(q).not.toMatch(/jq -r /);
+  });
+});
+
+describe('เนื้อหาสาธารณะ (ST7-T12 review/QA)', () => {
+  it('ทุก code ใน catalog ของ API (x-problem-codes = PROBLEMS) มีหัวข้อในหน้า รหัส error', () => {
+    const html = files.get('errors.html')!;
+    const codes = Object.keys(doc['x-problem-codes'] ?? {});
+    expect(codes.length).toBeGreaterThan(80);
+    for (const c of [
+      'sandbox_only',
+      'invalid_api_version',
+      'rate_limited',
+      'key_revoked',
+      'routing_not_configured',
+      ...codes,
+    ])
+      expect(html, c).toContain(` id="${c}"`);
+  });
+
+  it('ไม่มีการอ้างอิงเอกสารภายใน (docs/spec/plan, ST?-T??, [DECISION]) ในหน้า/ไฟล์ที่เผยแพร่', () => {
+    const bad = /\bST\d+-T\d+|\b(?:docs|spec|plan)\/\d|\[(?:DECISION|PROPOSED|OPEN)/;
+    for (const [name, body] of files) {
+      const hit = bad.exec(body);
+      expect(
+        hit ? `${name}: …${body.slice(Math.max(0, hit.index - 40), hit.index + 30)}…` : null,
+      ).toBeNull();
+    }
+  });
+
+  it('ไม่มี endpoint ค่าตั้งส่วนตัวของผู้ใช้ · openapi.json สาธารณะมีเฉพาะ endpoint ในเอกสาร และ $ref ครบ', () => {
+    const ops = operations(doc).map((o) => o.path);
+    expect(ops.some((p) => p.includes('/preferences'))).toBe(false);
+    const pub = JSON.parse(files.get('openapi.json')!);
+    const n = Object.values<Record<string, unknown>>(pub.paths).reduce(
+      (a, p) => a + Object.keys(p).length,
+      0,
+    );
+    expect(n).toBe(operations(doc).length);
+    const refs = [
+      ...files.get('openapi.json')!.matchAll(/"\$ref": "#\/components\/schemas\/([^"]+)"/g),
+    ].map((m) => m[1]!);
+    for (const r of new Set(refs)) expect(pub.components.schemas[r], r).toBeDefined();
+  });
+
+  it('webhook events แสดงฟิลด์ของ data.object', () => {
+    expect(files.get('webhook-events.md')!).toMatch(/## order\.created[\s\S]*?\| `id` \|/);
   });
 });
 

@@ -32,7 +32,7 @@ blockquote{margin:8px 0;padding:6px 12px;border-left:3px solid var(--accent);bac
 <h1 id="postman">Postman</h1>
 <p>ไฟล์ <a href="tms-api.postman_collection.json">tms-api.postman_collection.json</a> (Postman Collection v2.1) — ทุก endpoint ในเอกสารนี้ แยกโฟลเดอร์ตาม resource พร้อม body ตัวอย่างจาก schema</p>
 <ol><li>Postman → <strong>Import</strong> → เลือกไฟล์</li><li>แท็บ <strong>Variables</strong> ของ collection: ใส่ <code>baseUrl</code> (ไม่ต้องใส่ <code>/v1</code>) และ <code>apiKey</code> (<code>tk_test_…</code> แนะนำให้เริ่มที่ Sandbox)</li><li>ทุกคำขอใช้ Bearer <code>{{apiKey}}</code> และ <code>X-Api-Version: {{apiVersion}}</code> · POST ได้ <code>Idempotency-Key: {{$guid}}</code> ใหม่ทุกครั้ง</li></ol>
-<p>spec ฉบับเต็ม (OpenAPI 3) ดาวน์โหลดได้ที่ <code>GET /v1/openapi.json</code> — import เข้า Postman/Insomnia หรือเครื่องมือ generate client ภาษาอื่นได้</p>
+<p>spec OpenAPI 3 ของ endpoint ในเอกสารนี้: <a href="openapi.json">openapi.json</a> — import เข้า Postman/Insomnia หรือใช้ generate client ภาษาอื่นได้</p>
 </main>
 </div>
 </body>

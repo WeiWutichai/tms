@@ -21,7 +21,7 @@
 
 scope: `trips:read` · operationId: `Stops_get`
 
-ST7-T11 (docs/04 G2 #3 `GET`): สถานะ/เวลาเป็นค่าที่ไล่จาก event แล้ว (projection ST4-T03) · จุดที่ถอดออกแล้วยังเปิดได้ (`removedAt`) · ลำดับ event ทั้งหมด `GET /v1/stops/{id}/events` · จุดทั้งเที่ยว `GET /v1/trips/{id}` (`stops[]`)
+สถานะ/เวลาเป็นค่าที่ไล่จาก event แล้ว · จุดที่ถอดออกแล้วยังเปิดได้ (`removedAt`) · ลำดับ event ทั้งหมด `GET /v1/stops/{id}/events` · จุดทั้งเที่ยว `GET /v1/trips/{id}` (`stops[]`)
 
 **Parameters**
 
@@ -58,7 +58,7 @@ const { data, error } = await tms.GET('/v1/stops/{id}', {
 
 scope: `trips:read` · operationId: `Stops_events`
 
-ST4-T02 (docs/01 §3.9): ทุก event ของจุด (รวมที่ขัดลำดับ/มาหลังปิด/ผู้จัดรถไม่ใช้) เรียง `occurredAt` → ชนิด (ออก → ถึง → ปิด) → `receivedAt` พร้อมผลของแต่ละตัว (`seqStatus`) และสถานะที่มีผลของจุด — ST4-T03 ลง `trip_stop` แล้ว (เที่ยวที่จบ/ยกเลิกไม่ไล่ต่อ)
+ทุก event ของจุด (รวมที่ขัดลำดับ/มาหลังปิด/ผู้จัดรถไม่ใช้) เรียง `occurredAt` → ชนิด (ออก → ถึง → ปิด) → `receivedAt` พร้อมผลของแต่ละตัว (`seqStatus`) และสถานะที่มีผลของจุด ลง `trip_stop` แล้ว (เที่ยวที่จบ/ยกเลิกไม่ไล่ต่อ)
 
 **Parameters**
 
@@ -118,7 +118,7 @@ scope: `trips:dispatch` · operationId: `Stops_arrive`
 
 | สถานะ | ความหมาย | body |
 |---|---|---|
-| `200` | ส่งซ้ำ (clientEventId + จุด + ชนิดเดิม) → event เดิม ไม่สร้างแถวใหม่ (ST4-T02 — เดิม T01 ตอบ 409) | `StopEventDto` |
+| `200` | ส่งซ้ำ (clientEventId + จุด + ชนิดเดิม) → event เดิม ไม่สร้างแถวใหม่ | `StopEventDto` |
 | `201` | สร้าง event ใหม่ | `StopEventDto` |
 | `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
 | `403` | ไม่มีสิทธิ์ (`trips:dispatch`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
@@ -147,7 +147,7 @@ const { data, error } = await tms.POST('/v1/stops/{id}/arrive', {
 });
 ```
 
-## ออกเดินทางมุ่งหน้าไปจุดนี้ (docs/01 §3.9 DEPART) {#post-stops-id-depart}
+## ออกเดินทางมุ่งหน้าไปจุดนี้ {#post-stops-id-depart}
 
 `POST /v1/stops/{id}/depart`
 
@@ -176,7 +176,7 @@ scope: `trips:dispatch` · operationId: `Stops_depart`
 
 | สถานะ | ความหมาย | body |
 |---|---|---|
-| `200` | ส่งซ้ำ (clientEventId + จุด + ชนิดเดิม) → event เดิม ไม่สร้างแถวใหม่ (ST4-T02 — เดิม T01 ตอบ 409) | `StopEventDto` |
+| `200` | ส่งซ้ำ (clientEventId + จุด + ชนิดเดิม) → event เดิม ไม่สร้างแถวใหม่ | `StopEventDto` |
 | `201` | สร้าง event ใหม่ | `StopEventDto` |
 | `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
 | `403` | ไม่มีสิทธิ์ (`trips:dispatch`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
@@ -235,7 +235,7 @@ scope: `trips:dispatch` · operationId: `Stops_complete`
 
 | สถานะ | ความหมาย | body |
 |---|---|---|
-| `200` | ส่งซ้ำ (clientEventId + จุด + ชนิดเดิม) → event เดิม ไม่สร้างแถวใหม่ (ST4-T02 — เดิม T01 ตอบ 409) | `StopEventDto` |
+| `200` | ส่งซ้ำ (clientEventId + จุด + ชนิดเดิม) → event เดิม ไม่สร้างแถวใหม่ | `StopEventDto` |
 | `201` | สร้าง event ใหม่ | `StopEventDto` |
 | `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
 | `403` | ไม่มีสิทธิ์ (`trips:dispatch`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
@@ -295,7 +295,7 @@ scope: `trips:dispatch` · operationId: `Stops_fail`
 
 | สถานะ | ความหมาย | body |
 |---|---|---|
-| `200` | ส่งซ้ำ (clientEventId + จุด + ชนิดเดิม) → event เดิม ไม่สร้างแถวใหม่ (ST4-T02 — เดิม T01 ตอบ 409) | `StopEventDto` |
+| `200` | ส่งซ้ำ (clientEventId + จุด + ชนิดเดิม) → event เดิม ไม่สร้างแถวใหม่ | `StopEventDto` |
 | `201` | สร้าง event ใหม่ | `StopEventDto` |
 | `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
 | `403` | ไม่มีสิทธิ์ (`trips:dispatch`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
@@ -330,7 +330,7 @@ const { data, error } = await tms.POST('/v1/stops/{id}/fail', {
 
 scope: `trips:read` · operationId: `TripEvents_timeline`
 
-ST4-T04: เรียงตามลำดับจุด (จุดที่ถอดแล้วอยู่ท้าย) แล้วตามลำดับที่มีผลของจุด · `recordedByName` = ชื่อผู้ใช้ภายในที่บันทึก (บันทึกแทนคนขับผ่านเว็บ) · `flags` ไม่ว่าง = รอผู้จัดรถตัดสินในศูนย์ข้อยกเว้น
+เรียงตามลำดับจุด (จุดที่ถอดแล้วอยู่ท้าย) แล้วตามลำดับที่มีผลของจุด · `recordedByName` = ชื่อผู้ใช้ภายในที่บันทึก (บันทึกแทนคนขับผ่านเว็บ) · `flags` ไม่ว่าง = รอผู้จัดรถตัดสินในศูนย์ข้อยกเว้น
 
 **Parameters**
 
@@ -500,8 +500,8 @@ const { data, error } = await tms.POST('/v1/stop-event-flags/{id}/resolve', {
 | `windowEnd` | ใช่ | `string (date-time)` | null ได้ |   |   |
 | `plannedArrival` | ใช่ | `string (date-time)` | null ได้ |   |   |
 | `plannedDeparture` | ใช่ | `string (date-time)` | null ได้ |   |   |
-| `arrivedAt` | ใช่ | `string (date-time)` | null ได้ | เวลาถึงจุด (projection ST4-T03) |   |
-| `departedAt` | ใช่ | `string (date-time)` | null ได้ | เวลาออกจากจุด (projection ST4-T03) |   |
+| `arrivedAt` | ใช่ | `string (date-time)` | null ได้ | เวลาถึงจุด |   |
+| `departedAt` | ใช่ | `string (date-time)` | null ได้ | เวลาออกจากจุด |   |
 | `deliveryOrderIds` | ใช่ | `array<string>` |   | DO ที่รับ (PICKUP) / ส่ง (DELIVERY) ที่จุดนี้ | `["do_3f2a…"]` |
 | `lastEventId` | ใช่ | `string` | null ได้ | event ล่าสุดที่เปลี่ยนสถานะจุด — ลำดับทั้งหมดจาก `GET /v1/stops/{id}/events` | `evt_3f2a…` |
 | `removedAt` | ใช่ | `string (date-time)` | null ได้ | จุดที่ถอดออกจากเที่ยวแล้ว (ไม่ลบจริง) — ยังเปิดดูและรับ event ได้ (ธง LATE: STOP_REMOVED) |   |
@@ -520,7 +520,7 @@ const { data, error } = await tms.POST('/v1/stop-event-flags/{id}/resolve', {
 | `clientEventId` | ใช่ | `string (uuid)` |   |   |   |
 | `occurredAt` | ใช่ | `string (date-time)` |   | เวลาเกิดจริงบนเครื่อง (UTC) |   |
 | `receivedAt` | ใช่ | `string (date-time)` |   | เวลาที่ server รับ (UTC) |   |
-| `appliedAt` | ใช่ | `string (date-time)` | null ได้ | ST4-T03: เวลาที่ event ถูกนับในสถานะจุด/เที่ยว/DO (projection) — null = ไม่นับ (ขัดลำดับ/มาหลังปิด/เวลาเพี้ยนที่ยังไม่ตัดสิน, ผู้จัดรถไม่ใช้, หรือเที่ยวจบ/ยกเลิกแล้ว = ประวัติเท่านั้น) |   |
+| `appliedAt` | ใช่ | `string (date-time)` | null ได้ | เวลาที่ event ถูกนับในสถานะจุด/เที่ยว/DO (projection) — null = ไม่นับ (ขัดลำดับ/มาหลังปิด/เวลาเพี้ยนที่ยังไม่ตัดสิน, ผู้จัดรถไม่ใช้, หรือเที่ยวจบ/ยกเลิกแล้ว = ประวัติเท่านั้น) |   |
 | `lat` | ใช่ | `number` | null ได้ |   |   |
 | `lng` | ใช่ | `number` | null ได้ |   |   |
 | `accuracyM` | ใช่ | `number` | null ได้ |   |   |

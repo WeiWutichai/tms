@@ -32,43 +32,52 @@ blockquote{margin:8px 0;padding:6px 12px;border-left:3px solid var(--accent);bac
 <h1 id="เริ่มต้นใช้งาน-quickstart">เริ่มต้นใช้งาน (Quickstart)</h1>
 <p>สร้างใบสั่งขนส่ง (order) แรกใน <strong>Sandbox</strong> ภายใน 15 นาที — ข้อมูล Sandbox แยกจากข้อมูลจริงทั้งหมด ลองได้ไม่ต้องกลัวพัง</p>
 <h2 id="สิ่งที่ต้องมี">สิ่งที่ต้องมี</h2>
-<ul><li>บัญชีผู้ใช้ TMS ที่เข้าเมนู <strong>ตั้งค่า → นักพัฒนา / Open API</strong> ได้ (เจ้าของ/ผู้ดูแล หรือบทบาทที่มีสิทธิ์ตั้งค่า) และแพ็กเกจที่เปิด Open API</li><li>เครื่องที่มี <code>curl</code> และ <code>jq</code> หรือ Node.js 20 ขึ้นไป (ถ้าจะใช้ TypeScript SDK)</li></ul>
+<ul><li>บัญชีผู้ใช้ TMS ที่เข้าเมนู <strong>ตั้งค่า → นักพัฒนา / Open API</strong> ได้ (เจ้าของ/ผู้ดูแล หรือบทบาทที่มีสิทธิ์ตั้งค่า) และแพ็กเกจที่เปิด Open API</li><li>บริษัทตั้งนิติบุคคล (ตั้งค่า → นิติบุคคลและสาขา) แล้วอย่างน้อย 1 ราย — Sandbox ได้สำเนานิติบุคคลของบริษัทไปใช้ออกบิล</li><li>เครื่องที่มี <code>bash</code>, <code>curl</code> และ <code>jq</code> หรือ Node.js 20 ขึ้นไป (ถ้าจะใช้ TypeScript SDK)</li></ul>
 <h2 id="1-สร้าง-api-key-ของ-sandbox">1. สร้าง API key ของ Sandbox</h2>
-<ol><li>เข้า <strong>ตั้งค่า → นักพัฒนา / Open API</strong> แล้วกดสวิตช์มุมขวาเป็น <strong>Sandbox</strong> (ครั้งแรกระบบสร้าง Sandbox ของบริษัทให้อัตโนมัติ — มีแถบสีส้ม &quot;SANDBOX&quot; ตลอดเวลา)</li><li>แท็บ <strong>API keys</strong> → <strong>สร้าง API key</strong> → ตั้งชื่อ เช่น <code>quickstart</code> และเลือก scope: <code>master:read</code> <code>master:write</code> <code>orders:read</code> <code>orders:write</code></li><li>คัดลอก secret ที่ขึ้นต้นด้วย <code>tk_test_</code> — <strong>แสดงครั้งเดียว</strong> เก็บไว้ใน secret manager ห้ามใส่ในโค้ดฝั่ง browser</li></ol>
+<ol><li>เข้า <strong>ตั้งค่า → นักพัฒนา / Open API</strong> แล้วกดสวิตช์มุมขวาเป็น <strong>Sandbox</strong> (ครั้งแรกระบบสร้าง Sandbox ของบริษัทให้อัตโนมัติ · ระหว่างอยู่โหมดนี้หน้าจะมีแถบสีส้ม &quot;SANDBOX&quot;)</li><li>แท็บ <strong>API keys</strong> → <strong>สร้าง API key</strong> → ตั้งชื่อ เช่น <code>quickstart</code> และเลือก scope: <code>companies:read</code> <code>master:read</code> <code>master:write</code> <code>orders:read</code> <code>orders:write</code> (ถ้าจะลองยิง webhook จำลองต่อ เพิ่ม <code>settings:read</code>)</li><li>คัดลอก secret ที่ขึ้นต้นด้วย <code>tk_test_</code> — <strong>แสดงครั้งเดียว</strong> เก็บไว้ใน secret manager ห้ามใส่ในโค้ดฝั่ง browser</li></ol>
 <p>โหมดของคำขอขึ้นกับ key ไม่ใช่ URL: key <code>tk_test_</code> เข้าถึงได้เฉพาะข้อมูล Sandbox, key <code>tk_live_</code> เฉพาะข้อมูลจริง</p>
 <h2 id="2-ตั้งค่าตัวแปร">2. ตั้งค่าตัวแปร</h2>
-<pre><code class="language-bash">export TMS_BASE_URL=&quot;https://api.tms.example&quot;   # base URL ที่ได้รับจากผู้ให้บริการ (ไม่ต้องใส่ /v1)
+<p>ทุกคำสั่งใช้ <code>curl --fail-with-body</code> และ <code>jq -e</code> ร่วมกับ <code>set -euo pipefail</code> — คำขอไหนไม่สำเร็จ สคริปต์หยุดทันทีและ curl แสดง <code>curl: (22) … error: &lt;HTTP status&gt;</code> (รันคำสั่งนั้นซ้ำโดยตัด <code>| jq …</code> ออกเพื่อดู error แบบ problem+json — ดู <a href="errors.html">รหัส error</a>)</p>
+<pre><code class="language-bash">set -euo pipefail
+export TMS_BASE_URL=&quot;https://api.tms.example&quot;   # base URL ที่ได้รับจากผู้ให้บริการ (ไม่ต้องใส่ /v1)
 export TMS_API_KEY=&quot;tk_test_...&quot;                # secret จากขั้นที่ 1</code></pre>
-<p>ทดสอบว่า key ใช้ได้ (ได้ <code>200</code> และรายการว่าง <code>{&quot;data&quot;:[],...}</code>):</p>
-<pre><code class="language-bash">curl -sS &quot;$TMS_BASE_URL/v1/orders?limit=1&quot; \
+<p>ทดสอบว่า key ใช้ได้ (ได้ <code>200</code> และรายการ <code>{&quot;data&quot;:[...],&quot;nextCursor&quot;:...,&quot;hasMore&quot;:...}</code>):</p>
+<pre><code class="language-bash">curl -sS --fail-with-body &quot;$TMS_BASE_URL/v1/orders?limit=1&quot; \
   -H &quot;Authorization: Bearer $TMS_API_KEY&quot;</code></pre>
-<h2 id="3-สร้างลูกค้า">3. สร้างลูกค้า</h2>
+<h2 id="3-เลือกนิติบุคคลที่ออกบิล">3. เลือกนิติบุคคลที่ออกบิล</h2>
+<p>บริษัทที่มีนิติบุคคลมากกว่า 1 ราย ต้องระบุ <code>billingCompanyId</code> ทุกใบ (หรือตั้ง &quot;ออกบิลในนาม&quot; ที่ลูกค้า/ค่าตั้งต้นของบริษัท) — ไม่งั้นได้ <code>422</code> <code>routing_not_configured</code></p>
+<pre><code class="language-bash">COMPANY_ID=$(curl -sS --fail-with-body &quot;$TMS_BASE_URL/v1/companies?limit=50&quot; \
+  -H &quot;Authorization: Bearer $TMS_API_KEY&quot; | jq -er '.data[0].id')
+echo &quot;$COMPANY_ID&quot;</code></pre>
+<h2 id="4-สร้างลูกค้า">4. สร้างลูกค้า</h2>
 <p>ทุกขั้นใช้ <code>PUT …/external/{externalId}</code> (upsert ด้วยรหัสของระบบคุณ) — รันซ้ำได้ ได้รายการเดิม ไม่สร้างซ้ำ</p>
-<pre><code class="language-bash">CUSTOMER_ID=$(curl -sS -X PUT &quot;$TMS_BASE_URL/v1/customers/external/QS-CUS-001&quot; \
+<pre><code class="language-bash">CUSTOMER_ID=$(curl -sS --fail-with-body -X PUT &quot;$TMS_BASE_URL/v1/customers/external/QS-CUS-001&quot; \
   -H &quot;Authorization: Bearer $TMS_API_KEY&quot; \
   -H &quot;Content-Type: application/json&quot; \
-  -d '{&quot;legalName&quot;:&quot;บริษัท ลูกค้าทดลอง จำกัด&quot;}' | jq -r .id)
+  -d '{&quot;legalName&quot;:&quot;บริษัท ลูกค้าทดลอง จำกัด&quot;}' | jq -er .id)
 echo &quot;$CUSTOMER_ID&quot;</code></pre>
-<h2 id="4-สร้างจุดรับและจุดส่ง">4. สร้างจุดรับและจุดส่ง</h2>
-<pre><code class="language-bash">PICKUP_ID=$(curl -sS -X PUT &quot;$TMS_BASE_URL/v1/customer-sites/external/QS-SITE-PICKUP&quot; \
+<h2 id="5-สร้างจุดรับและจุดส่ง">5. สร้างจุดรับและจุดส่ง</h2>
+<pre><code class="language-bash">PICKUP_ID=$(curl -sS --fail-with-body -X PUT &quot;$TMS_BASE_URL/v1/customer-sites/external/QS-SITE-PICKUP&quot; \
   -H &quot;Authorization: Bearer $TMS_API_KEY&quot; \
   -H &quot;Content-Type: application/json&quot; \
-  -d '{&quot;name&quot;:&quot;คลังสินค้าบางนา&quot;,&quot;kind&quot;:&quot;PICKUP&quot;,&quot;customerId&quot;:&quot;'&quot;$CUSTOMER_ID&quot;'&quot;,&quot;address&quot;:{&quot;line1&quot;:&quot;99 ถ.บางนา-ตราด ต.บางแก้ว อ.บางพลี จ.สมุทรปราการ 10540&quot;}}' | jq -r .id)</code></pre>
-<pre><code class="language-bash">DROPOFF_ID=$(curl -sS -X PUT &quot;$TMS_BASE_URL/v1/customer-sites/external/QS-SITE-DROPOFF&quot; \
+  -d '{&quot;name&quot;:&quot;คลังสินค้าบางนา&quot;,&quot;kind&quot;:&quot;PICKUP&quot;,&quot;customerId&quot;:&quot;'&quot;$CUSTOMER_ID&quot;'&quot;,&quot;address&quot;:{&quot;line1&quot;:&quot;99 ถ.บางนา-ตราด ต.บางแก้ว อ.บางพลี จ.สมุทรปราการ 10540&quot;}}' | jq -er .id)</code></pre>
+<pre><code class="language-bash">DROPOFF_ID=$(curl -sS --fail-with-body -X PUT &quot;$TMS_BASE_URL/v1/customer-sites/external/QS-SITE-DROPOFF&quot; \
   -H &quot;Authorization: Bearer $TMS_API_KEY&quot; \
   -H &quot;Content-Type: application/json&quot; \
-  -d '{&quot;name&quot;:&quot;ร้านค้าปลายทาง ชลบุรี&quot;,&quot;kind&quot;:&quot;DROPOFF&quot;,&quot;customerId&quot;:&quot;'&quot;$CUSTOMER_ID&quot;'&quot;,&quot;address&quot;:{&quot;line1&quot;:&quot;1 ถ.สุขุมวิท ต.บ้านสวน อ.เมืองชลบุรี จ.ชลบุรี 20000&quot;}}' | jq -r .id)</code></pre>
-<h2 id="5-สร้างใบสั่งขนส่ง">5. สร้างใบสั่งขนส่ง</h2>
-<pre><code class="language-bash">PICKUP_DATE=2026-12-01   # วันรับของ YYYY-MM-DD
-ORDER_ID=$(curl -sS -X PUT &quot;$TMS_BASE_URL/v1/orders/external/QS-ORDER-001&quot; \
+  -d '{&quot;name&quot;:&quot;ร้านค้าปลายทาง ชลบุรี&quot;,&quot;kind&quot;:&quot;DROPOFF&quot;,&quot;customerId&quot;:&quot;'&quot;$CUSTOMER_ID&quot;'&quot;,&quot;address&quot;:{&quot;line1&quot;:&quot;1 ถ.สุขุมวิท ต.บ้านสวน อ.เมืองชลบุรี จ.ชลบุรี 20000&quot;}}' | jq -er .id)</code></pre>
+<h2 id="6-สร้างใบสั่งขนส่ง">6. สร้างใบสั่งขนส่ง</h2>
+<p>วันรับของ = พรุ่งนี้ตามเวลาไทย (คำสั่ง <code>date</code> รองรับทั้ง macOS และ Linux)</p>
+<pre><code class="language-bash">PICKUP_DATE=$(TZ=Asia/Bangkok date -v+1d +%F 2&gt;/dev/null || TZ=Asia/Bangkok date -d tomorrow +%F)
+ORDER_ID=$(curl -sS --fail-with-body -X PUT &quot;$TMS_BASE_URL/v1/orders/external/QS-ORDER-001&quot; \
   -H &quot;Authorization: Bearer $TMS_API_KEY&quot; \
   -H &quot;Content-Type: application/json&quot; \
-  -d '{&quot;customer&quot;:{&quot;id&quot;:&quot;'&quot;$CUSTOMER_ID&quot;'&quot;},&quot;requestedDate&quot;:&quot;'&quot;$PICKUP_DATE&quot;'&quot;,&quot;stops&quot;:[{&quot;type&quot;:&quot;PICKUP&quot;,&quot;siteId&quot;:&quot;'&quot;$PICKUP_ID&quot;'&quot;,&quot;windowStart&quot;:&quot;'&quot;$PICKUP_DATE&quot;'T08:00:00+07:00&quot;},{&quot;type&quot;:&quot;DELIVERY&quot;,&quot;siteId&quot;:&quot;'&quot;$DROPOFF_ID&quot;'&quot;,&quot;windowEnd&quot;:&quot;'&quot;$PICKUP_DATE&quot;'T17:00:00+07:00&quot;}],&quot;lines&quot;:[{&quot;description&quot;:&quot;น้ำดื่มบรรจุขวด&quot;,&quot;qty&quot;:&quot;120&quot;,&quot;unit&quot;:&quot;ลัง&quot;,&quot;weightKg&quot;:&quot;1800&quot;}]}' | jq -r .id)</code></pre>
+  -d '{&quot;customer&quot;:{&quot;id&quot;:&quot;'&quot;$CUSTOMER_ID&quot;'&quot;},&quot;billingCompanyId&quot;:&quot;'&quot;$COMPANY_ID&quot;'&quot;,&quot;requestedDate&quot;:&quot;'&quot;$PICKUP_DATE&quot;'&quot;,&quot;stops&quot;:[{&quot;type&quot;:&quot;PICKUP&quot;,&quot;siteId&quot;:&quot;'&quot;$PICKUP_ID&quot;'&quot;,&quot;windowStart&quot;:&quot;'&quot;$PICKUP_DATE&quot;'T08:00:00+07:00&quot;},{&quot;type&quot;:&quot;DELIVERY&quot;,&quot;siteId&quot;:&quot;'&quot;$DROPOFF_ID&quot;'&quot;,&quot;windowEnd&quot;:&quot;'&quot;$PICKUP_DATE&quot;'T17:00:00+07:00&quot;}],&quot;lines&quot;:[{&quot;description&quot;:&quot;น้ำดื่มบรรจุขวด&quot;,&quot;qty&quot;:&quot;120&quot;,&quot;unit&quot;:&quot;ลัง&quot;,&quot;weightKg&quot;:&quot;1800&quot;}]}' | jq -er .id)
+echo &quot;$ORDER_ID&quot;</code></pre>
 <p>ได้ <code>201</code> (สร้างใหม่) หรือ <code>200</code> (รันซ้ำ = อัปเดตใบเดิม) และ <code>id</code> ขึ้นต้นด้วย <code>ord_</code> — สถานะ <code>received</code> หรือ <code>on_hold</code> (ข้อมูลยังไม่ครบ เช่น หน่วยเป็นข้อความที่ไม่อยู่ใน master — ดู <code>holdReason</code>)</p>
-<h2 id="6-อ่านใบสั่งกลับ">6. อ่านใบสั่งกลับ</h2>
-<pre><code class="language-bash">curl -sS &quot;$TMS_BASE_URL/v1/orders/$ORDER_ID&quot; \
+<h2 id="7-อ่านใบสั่งกลับ">7. อ่านใบสั่งกลับ</h2>
+<pre><code class="language-bash">curl -sS --fail-with-body &quot;$TMS_BASE_URL/v1/orders/$ORDER_ID&quot; \
   -H &quot;Authorization: Bearer $TMS_API_KEY&quot;</code></pre>
-<p>เปิดหน้า <strong>ใบสั่งขนส่ง</strong> ในเว็บ (โหมด Sandbox) จะเห็นใบนี้ — เสร็จแล้ว</p>
+<p>เสร็จแล้ว — ใบนี้อยู่ใน Sandbox ตรวจได้ผ่าน API (<code>GET /v1/orders</code>) เท่านั้น: หน้าจอ <strong>ใบสั่งขนส่ง</strong> ในเว็บแสดงข้อมูลจริงเสมอ ไม่แสดงข้อมูล Sandbox</p>
 <h2 id="ทำแบบเดียวกันด้วย-typescript-sdk">ทำแบบเดียวกันด้วย TypeScript SDK</h2>
 <p>ติดตั้ง <code>@tms/sdk</code> (ดู <a href="sdk.html">TypeScript SDK</a>) แล้วรันไฟล์นี้ด้วย <code>TMS_BASE_URL=… TMS_API_KEY=… npx tsx quickstart.ts</code></p>
 <pre><code class="language-ts">/**
@@ -79,10 +88,21 @@ ORDER_ID=$(curl -sS -X PUT &quot;$TMS_BASE_URL/v1/orders/external/QS-ORDER-001&q
 import { createTmsClient, unwrap } from '@tms/sdk';
 
 /** scope ที่ key ของ quickstart ต้องมี */
-export const QUICKSTART_SCOPES = ['master:read', 'master:write', 'orders:read', 'orders:write'];
+export const QUICKSTART_SCOPES = [
+  'companies:read',
+  'master:read',
+  'master:write',
+  'orders:read',
+  'orders:write',
+];
 
 export async function runQuickstart(opts: { baseUrl: string; apiKey: string }) {
   const tms = createTmsClient({ baseUrl: opts.baseUrl, apiKey: opts.apiKey });
+
+  // 0) นิติบุคคลที่ออกบิล — บริษัทที่มีหลายนิติบุคคลต้องระบุ billingCompanyId (ไม่งั้น 422 routing_not_configured)
+  const companies = unwrap(await tms.GET('/v1/companies', { params: { query: { limit: 50 } } }));
+  const billingCompanyId = companies.data[0]?.id;
+  if (!billingCompanyId) throw new Error('บริษัทยังไม่มีนิติบุคคล — ตั้งที่ ตั้งค่า → นิติบุคคลและสาขา ก่อน');
 
   // 1) ลูกค้า
   const customer = unwrap(
@@ -116,13 +136,14 @@ export async function runQuickstart(opts: { baseUrl: string; apiKey: string }) {
     }),
   );
 
-  // 3) ใบสั่งขนส่ง (order) — วันรับของ = พรุ่งนี้ (เวลาไทย)
+  // 3) ใบสั่งขนส่ง (order) — วันรับของ = พรุ่งนี้ (เวลาไทย UTC+7)
   const tomorrow = new Date(Date.now() + 31 * 3600_000).toISOString().slice(0, 10);
   const order = unwrap(
     await tms.PUT('/v1/orders/external/{externalId}', {
       params: { path: { externalId: 'QS-ORDER-001' } },
       body: {
         customer: { id: customer.id },
+        billingCompanyId,
         requestedDate: tomorrow,
         stops: [
           { type: 'PICKUP', siteId: pickup.id, windowStart: `${tomorrow}T08:00:00+07:00` },
@@ -151,7 +172,7 @@ if (typeof process !== 'undefined' &amp;&amp; process.argv[1]?.endsWith('quickst
   );
 }</code></pre>
 <h2 id="ขั้นต่อไป">ขั้นต่อไป</h2>
-<ul><li><a href="authentication.html">ยืนยันตัวตน</a> — OAuth2 client credentials, scope, IP allowlist</li><li><a href="conventions.html">แนวทางการใช้ API</a> — Idempotency-Key, pagination, ETag/If-Match, รูปแบบ error</li><li><a href="webhooks.html">Webhook และการตรวจลายเซ็น</a> และ <a href="sandbox.html">Sandbox</a> — ยิง event จำลองด้วย <code>POST /v1/test/events/trigger</code></li><li><a href="ref-orders.html">ใบสั่งขนส่ง (orders)</a> — ทุก endpoint ของ orders</li></ul>
+<ul><li><a href="authentication.html">ยืนยันตัวตน</a> — OAuth2 client credentials, scope, IP allowlist</li><li><a href="conventions.html">แนวทางการใช้ API</a> — Idempotency-Key, pagination, ETag/If-Match, รูปแบบ error</li><li>Webhook: สมัคร endpoint (ต้องเป็น <code>https://</code>) ในหน้าเว็บ <strong>นักพัฒนา / Open API → Webhooks</strong> โหมด Sandbox — API key อ่านข้อมูล webhook ได้อย่างเดียว สร้าง/แก้ endpoint ไม่ได้ · ยิง event จำลองด้วย <code>POST /v1/test/events/trigger</code> (key ต้องมี <code>settings:read</code>) — ดู <a href="sandbox.html">Sandbox</a> และ <a href="webhooks.html">Webhook และการตรวจลายเซ็น</a></li><li><a href="ref-orders.html">ใบสั่งขนส่ง (orders)</a> — ทุก endpoint ของ orders</li></ul>
 </main>
 </div>
 </body>

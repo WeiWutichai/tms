@@ -2,9 +2,19 @@
  * แปลงบล็อก ```bash ของหน้า quickstart เป็นขั้นตอน HTTP — ใช้ใน test ที่รัน quickstart จริง (เกณฑ์ตรวจรับ ST7-T12)
  * รูปแบบที่รองรับ (ตามที่ guides/01-quickstart.md เขียน):
  *   [VAR=$(]curl -sS [-X METHOD] "URL" -H "K: V" … [-d '<json>'] [| jq -r .path)]
- *   VAR=value   (กำหนดตัวแปรธรรมดา)
- * บล็อกที่มีแต่ `export`/`echo` ข้ามได้ (ตัวแปร TMS_BASE_URL / TMS_API_KEY ผู้เรียกใส่เอง)
+ *   VAR=value   (กำหนดตัวแปรธรรมดา) · VAR=$(… date …) = วันพรุ่งนี้ตามเวลาไทย (YYYY-MM-DD)
+ * บรรทัด `set`/`export`/`echo` ข้าม (ตัวแปร TMS_BASE_URL / TMS_API_KEY ผู้เรียกใส่เอง)
+ * jq: `jq -r PATH` / `jq -er PATH` (PATH อาจอยู่ใน '…' เช่น '.data[0].id')
  */
+export interface QuickstartOptions {
+  /** เวลาปัจจุบัน (ใช้คำนวณ `date` พรุ่งนี้) */
+  now?: Date;
+}
+
+/** วันพรุ่งนี้ตามเวลาไทย (UTC+7 ไม่มี DST) */
+export function bangkokTomorrow(now = new Date()): string {
+  return new Date(now.getTime() + 31 * 3600_000).toISOString().slice(0, 10);
+}
 export interface CurlStep {
   method: string;
   url: string;
@@ -48,7 +58,7 @@ function shellWords(cmd: string): string[] {
   return out;
 }
 
-export function parseQuickstartCurl(md: string): (CurlStep & { assign?: never })[] {
+export function parseQuickstartCurl(md: string, opts: QuickstartOptions = {}): CurlStep[] {
   const steps: CurlStep[] = [];
   const blocks = [...md.matchAll(/```bash\n([\s\S]*?)```/g)].map((m) => m[1]!);
   const assigns: Record<string, string> = {};
@@ -56,8 +66,13 @@ export function parseQuickstartCurl(md: string): (CurlStep & { assign?: never })
     const joined = block.replace(/\\\n\s*/g, ' ');
     for (const rawLine of joined.split('\n')) {
       const line = rawLine.replace(/\s+#.*$/, '').trim();
-      if (!line || line.startsWith('export ') || line.startsWith('echo ')) continue;
-      const m = /^([A-Z_][A-Z0-9_]*)=\$\((curl .*)\|\s*jq -r (\.[\w.]*)\)$/.exec(line);
+      if (!line || /^(export|echo|set) /.test(line)) continue;
+      const date = /^([A-Z_][A-Z0-9_]*)=\$\((TZ=\S+ )?date .*\)$/.exec(line);
+      if (date) {
+        assigns[date[1]!] = bangkokTomorrow(opts.now);
+        continue;
+      }
+      const m = /^([A-Z_][A-Z0-9_]*)=\$\((curl .*)\|\s*jq -e?r '?(\.[\w.[\]]*)'?\)$/.exec(line);
       const plain = /^([A-Z_][A-Z0-9_]*)=(\S+)$/.exec(line);
       if (plain && !m) {
         assigns[plain[1]!] = plain[2]!;

@@ -1,13 +1,11 @@
 # วางแผน (planning)
 
-4 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
+2 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
 
 | Endpoint | scope |
 |---|---|
 | [`GET /v1/planning/board`](#get-planning-board) | `trips:read` |
 | [`GET /v1/planning/eligibility`](#get-planning-eligibility) | `trips:read` |
-| [`GET /v1/planning/board/preferences`](#get-planning-board-preferences) | `trips:read` |
-| [`PUT /v1/planning/board/preferences`](#put-planning-board-preferences) | `trips:read` |
 
 ## GET /v1/planning/board {#get-planning-board}
 
@@ -81,95 +79,7 @@ curl -sS -X GET "$TMS_BASE_URL/v1/planning/eligibility" \
 const { data, error } = await tms.GET('/v1/planning/eligibility');
 ```
 
-## GET /v1/planning/board/preferences {#get-planning-board-preferences}
-
-`GET /v1/planning/board/preferences`
-
-scope: `trips:read` · operationId: `Planning_getPreferences`
-
-**Responses**
-
-| สถานะ | ความหมาย | body |
-|---|---|---|
-| `200` |   | `BoardPreferencesDto` |
-| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
-| `403` | ไม่มีสิทธิ์ (`trips:read`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
-| `404` | credential ไม่ใช่ผู้ใช้ (API key) — ไม่มีค่าส่วนตัว — [not_found](errors.md#not_found) | `ProblemDto` |
-| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
-
-**ตัวอย่าง**
-
-```bash
-curl -sS -X GET "$TMS_BASE_URL/v1/planning/board/preferences" \
-  -H "Authorization: Bearer $TMS_API_KEY"
-```
-
-```ts
-const { data, error } = await tms.GET('/v1/planning/board/preferences');
-```
-
-## PUT /v1/planning/board/preferences {#put-planning-board-preferences}
-
-`PUT /v1/planning/board/preferences`
-
-scope: `trips:read` · operationId: `Planning_putPreferences`
-
-**Parameters**
-
-| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
-|---|---|---|---|---|
-| `If-Match` | header |   | `string` | ETag จาก GET — ไม่ตรง → 412 |
-
-**Request body** `UpdateBoardPreferencesDto`
-
-| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
-|---|---|---|---|---|---|
-| `view` | ใช่ | `string` | ค่า: `FLEET`, `VEHICLE`, `DRIVER`, `CARRIER` |   |   |
-| `cardFields` | ใช่ | `array<string>` |   | อย่างน้อย 1 field ไม่ซ้ำ — ระบบเรียงตามลำดับมาตรฐานเอง |   |
-
-**Responses**
-
-| สถานะ | ความหมาย | body |
-|---|---|---|
-| `200` |   | `BoardPreferencesDto` |
-| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
-| `403` | ไม่มีสิทธิ์ (`trips:read`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
-| `404` | credential ไม่ใช่ผู้ใช้ (API key) — ไม่มีค่าส่วนตัว — [not_found](errors.md#not_found) | `ProblemDto` |
-| `412` | If-Match ไม่ตรง version (บันทึกจากอีกแท็บ/เครื่อง) — [precondition_failed](errors.md#precondition_failed) | `ProblemDto` |
-| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
-| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
-
-**ตัวอย่าง**
-
-```bash
-curl -sS -X PUT "$TMS_BASE_URL/v1/planning/board/preferences" \
-  -H "Authorization: Bearer $TMS_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"view":"FLEET","cardFields":["ORDER_NO"]}'
-```
-
-```ts
-const { data, error } = await tms.PUT('/v1/planning/board/preferences', {
-  body: {
-    "view": "FLEET",
-    "cardFields": [
-      "ORDER_NO"
-    ]
-  },
-});
-```
-
 ## Schema ของ response {#schemas}
-
-### BoardPreferencesDto {#schema-BoardPreferencesDto}
-
-
-
-| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
-|---|---|---|---|---|---|
-| `view` | ใช่ | `string` | ค่า: `FLEET`, `VEHICLE`, `DRIVER`, `CARRIER` | มุมมองกระดาน: FLEET = รถบริษัท + รถร่วม (ค่าเริ่มต้น) · VEHICLE = ตามรถ · DRIVER = ตามคนขับ · CARRIER = ตาม carrier |   |
-| `cardFields` | ใช่ | `array<string>` |   | field ที่แสดงบนการ์ดเที่ยว (เรียงตามลำดับมาตรฐาน) — ค่าเริ่มต้น = ทุก field |   |
-| `version` | ใช่ | `number` |   | version ของค่าที่บันทึก (0 = ยังไม่เคยบันทึก ใช้ค่าเริ่มต้น) |   |
 
 ### PlanningBoardDto {#schema-PlanningBoardDto}
 
@@ -183,8 +93,8 @@ const { data, error } = await tms.PUT('/v1/planning/board/preferences', {
 | `vehicles` | ใช่ | `array<BoardVehicleDto>` |   | แถวรถ: รถบริษัท → รถร่วม (PLN-049) |   |
 | `trips` | ใช่ | `array<BoardTripDto>` |   | เที่ยวในช่วง (± 1 วัน — เที่ยวข้ามคืน) ยกเว้นที่ยกเลิก |   |
 | `pool` | ใช่ | `array<BoardPoolOrderDto>` |   | SO รอจัด (จัดกลุ่ม DO ตาม SO) เรียงกำหนดส่ง |   |
-| `days` | ใช่ | `array<DaySendStateDto>` |   | สถานะการส่งต่อวันในช่วง from–to (ST3-T18 ปฏิทินขึ้นเขียวเมื่อส่งครบ) — นับตามวันเที่ยว `tripDate` |   |
-| `schedule` | ใช่ | `array<ScheduleEntryDto>` |   | วันลาคนขับ/โน้ตรายวันที่ทับช่วง from–to (ST3-T19 ตารางรถ/คนขับรายวัน) — ไม่รวมที่ยกเลิก · ชุดเดียวกับ GET /v1/schedule-entries |   |
+| `days` | ใช่ | `array<DaySendStateDto>` |   | สถานะการส่งต่อวันในช่วง from–to — นับตามวันเที่ยว `tripDate` |   |
+| `schedule` | ใช่ | `array<ScheduleEntryDto>` |   | วันลาคนขับ/โน้ตรายวันที่ทับช่วง from–to — ไม่รวมที่ยกเลิก · ชุดเดียวกับ GET /v1/schedule-entries |   |
 
 ### PlanningEligibilityDto {#schema-PlanningEligibilityDto}
 

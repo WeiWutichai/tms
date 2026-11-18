@@ -32,9 +32,9 @@ scope: `master:read` · operationId: `VehicleTypes_list`
 | `cursor` | query |   | `string` | ค่า nextCursor จากหน้าก่อน (ใช้กับ sort เดิมเท่านั้น) |
 | `updatedAfter` | query |   | `string` | คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull — ใช้คู่ includeDeleted=true เพื่อรับรายการที่ถูกลบ) |
 | `sort` | query |   | `string` ค่า: `code`, `updatedAt`, `-updatedAt` | code = เรียงตามรหัส (ค่าเริ่มต้นของหน้าจอ) · updatedAt/-updatedAt สำหรับ sync |
-| `fields` | query |   | `string` | รายชื่อ field คั่นด้วย , เช่น id,legalName |
+| `fields` | query |   | `string` | รายชื่อ field คั่นด้วย, เช่น id,legalName |
 | `q` | query |   | `string` | ค้นหา — รหัส ชื่อ เลขผู้เสียภาษี หรือ externalId (ไม่สนตัวพิมพ์) |
-| `status` | query |   | `string` | คั่นด้วย , เช่น active,inactive |
+| `status` | query |   | `string` | คั่นด้วย, เช่น active,inactive |
 | `externalId` | query |   | `string` | externalId ตรงตัว (ใช้ตรวจว่ามีในระบบแล้วหรือยัง) |
 | `includeDeleted` | query |   | `string` | true = รวมรายการที่ถูกลบ (tombstone มี `deletedAt`) — ให้ระบบที่ดึงแบบ incremental รู้ว่ารายการถูกลบ |
 | `name` | query |   | `string` | ชื่อมีคำนี้ |
@@ -87,7 +87,7 @@ scope: `master:write` · operationId: `VehicleTypes_create`
 | `vehicleClass` | ใช่ | `string` | ค่า: `4W`, `6W`, `10W`, `TRAILER`, `SEMI_TRAILER` | ชั้นรถ: 4W = 4 ล้อ, 6W = 6 ล้อ, 10W = 10 ล้อ, TRAILER = พ่วง, SEMI_TRAILER = หัวลาก + หางเทรลเลอร์ — เทียบกับ "รถเข้าได้สูงสุด" ของสถานที่ |   |
 | `payloadKg` | ใช่ | `number` |   | น้ำหนักบรรทุกมาตรฐาน (กก.) > 0 | `15000` |
 | `minLicenceClass` | ใช่ | `string` | ค่า: `PERSONAL`, `T1`, `T2`, `T3`, `T4` | ใบขับขี่ขั้นต่ำ: PERSONAL = ส่วนบุคคล, T1–T4 = ท.1–ท.4 |   |
-| `code` |   | `string` |   | รหัส — ไม่ส่ง = ระบบออกเลขถัดไป `VT-0001` (MD-002) | `10W-DRY` |
+| `code` |   | `string` |   | รหัส — ไม่ส่ง = ระบบออกเลขถัดไป `VT-0001` | `10W-DRY` |
 | `externalId` |   | `string` |   | รหัสในระบบต้นทาง — เรียกด้วย ext:{externalId} ได้ |   |
 
 **Responses**
@@ -188,9 +188,9 @@ scope: `export:run` · operationId: `VehicleTypes_export`
 | `cursor` | query |   | `string` | ค่า nextCursor จากหน้าก่อน (ใช้กับ sort เดิมเท่านั้น) |
 | `updatedAfter` | query |   | `string` | คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull — ใช้คู่ includeDeleted=true เพื่อรับรายการที่ถูกลบ) |
 | `sort` | query |   | `string` ค่า: `code`, `updatedAt`, `-updatedAt` | code = เรียงตามรหัส (ค่าเริ่มต้นของหน้าจอ) · updatedAt/-updatedAt สำหรับ sync |
-| `fields` | query |   | `string` | รายชื่อ field คั่นด้วย , เช่น id,legalName |
+| `fields` | query |   | `string` | รายชื่อ field คั่นด้วย, เช่น id,legalName |
 | `q` | query |   | `string` | ค้นหา — รหัส ชื่อ เลขผู้เสียภาษี หรือ externalId (ไม่สนตัวพิมพ์) |
-| `status` | query |   | `string` | คั่นด้วย , เช่น active,inactive |
+| `status` | query |   | `string` | คั่นด้วย, เช่น active,inactive |
 | `externalId` | query |   | `string` | externalId ตรงตัว (ใช้ตรวจว่ามีในระบบแล้วหรือยัง) |
 | `includeDeleted` | query |   | `string` | true = รวมรายการที่ถูกลบ (tombstone มี `deletedAt`) — ให้ระบบที่ดึงแบบ incremental รู้ว่ารายการถูกลบ |
 | `name` | query |   | `string` | ชื่อมีคำนี้ |
@@ -198,13 +198,13 @@ scope: `export:run` · operationId: `VehicleTypes_export`
 | `minLicenceClass` | query |   | `string` ค่า: `PERSONAL`, `T1`, `T2`, `T3`, `T4` |   |
 | `capability` | query |   | `string` ค่า: `REFRIGERATED`, `CRANE`, `CONTAINER`, `HAZMAT` | มีป้ายนี้ |
 | `format` | query |   | `string` ค่า: `xlsx`, `csv` |   |
-| `ids` | query |   | `string` | ส่งออกเฉพาะ id เหล่านี้ (คั่นด้วย ,) — แถวที่เลือกในตาราง |
+| `ids` | query |   | `string` | ส่งออกเฉพาะ id เหล่านี้ (คั่นด้วย,) — แถวที่เลือกในตาราง |
 
 **Responses**
 
 | สถานะ | ความหมาย | body |
 |---|---|---|
-| `200` | ไฟล์ .xlsx หรือ .csv ตามตัวกรองเดียวกับรายการ (สูงสุด 10,000 แถว) |   |
+| `200` | ไฟล์.xlsx หรือ.csv ตามตัวกรองเดียวกับรายการ (สูงสุด 10,000 แถว) |   |
 | `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
 | `403` | ไม่มีสิทธิ์ (`export:run`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
 | `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (query/body) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
@@ -654,7 +654,7 @@ const { data, error } = await tms.POST('/v1/vehicle-types/{id}/delete', {
 | `externalId` | ใช่ | `string` | null ได้ |   |   |
 | `name` | ใช่ | `string` |   |   | `10 ล้อ` |
 | `vehicleClass` | ใช่ | `string` | ค่า: `4W`, `6W`, `10W`, `TRAILER`, `SEMI_TRAILER` |   |   |
-| `sizeRank` | ใช่ | `number` |   | ขนาดเทียบข้อจำกัดสถานที่ (spec/02 §4 sizeRank) — คำนวณจากชั้นรถ |   |
+| `sizeRank` | ใช่ | `number` |   | ขนาดเทียบข้อจำกัดสถานที่ — คำนวณจากชั้นรถ |   |
 | `payloadKg` | ใช่ | `number` | null ได้ |   | `15000` |
 | `volumeCbm` | ใช่ | `number` | null ได้ |   | `40` |
 | `minLicenceClass` | ใช่ | `string` | ค่า: `PERSONAL`, `T1`, `T2`, `T3`, `T4` · null ได้ |   |   |

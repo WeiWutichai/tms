@@ -36,9 +36,9 @@ scope: `master:read` · operationId: `Customers_list`
 | `cursor` | query |   | `string` | ค่า nextCursor จากหน้าก่อน (ใช้กับ sort เดิมเท่านั้น) |
 | `updatedAfter` | query |   | `string` | คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull — ใช้คู่ includeDeleted=true เพื่อรับรายการที่ถูกลบ) |
 | `sort` | query |   | `string` ค่า: `code`, `updatedAt`, `-updatedAt` | code = เรียงตามรหัส (ค่าเริ่มต้นของหน้าจอ) · updatedAt/-updatedAt สำหรับ sync |
-| `fields` | query |   | `string` | รายชื่อ field คั่นด้วย , เช่น id,legalName |
+| `fields` | query |   | `string` | รายชื่อ field คั่นด้วย, เช่น id,legalName |
 | `q` | query |   | `string` | ค้นหา — รหัส ชื่อ เลขผู้เสียภาษี หรือ externalId (ไม่สนตัวพิมพ์) |
-| `status` | query |   | `string` | คั่นด้วย , เช่น active,inactive |
+| `status` | query |   | `string` | คั่นด้วย, เช่น active,inactive |
 | `externalId` | query |   | `string` | externalId ตรงตัว (ใช้ตรวจว่ามีในระบบแล้วหรือยัง) |
 | `includeDeleted` | query |   | `string` | true = รวมรายการที่ถูกลบ (tombstone มี `deletedAt`) — ให้ระบบที่ดึงแบบ incremental รู้ว่ารายการถูกลบ |
 | `billingCycle` | query |   | `string` ค่า: `PER_DO`, `WEEKLY`, `MONTHLY`, `MANUAL` |   |
@@ -99,22 +99,22 @@ scope: `master:write` · operationId: `Customers_create`
 | `creditTermDays` |   | `number` | ≥ 0 · ≤ 365 | เครดิต (วัน) — ค่าเริ่มต้น 30 |   |
 | `billingCycle` |   | `string` | ค่า: `PER_DO`, `WEEKLY`, `MONTHLY`, `MANUAL` | ค่าเริ่มต้น MONTHLY |   |
 | `taxInvoiceMode` |   | `string` | ค่า: `ON_PAYMENT`, `ON_ISSUE` | ออกใบกำกับภาษีเมื่อรับชำระ (tax point = รับเงิน — ค่าเริ่มต้น) / พร้อมใบแจ้งหนี้ |   |
-| `defaultVatType` |   | `string` | ค่า: `EXEMPT_TRANSPORT`, `VAT_7` · null ได้ | VAT ค่าเริ่มต้นของบรรทัดใหม่ — ค่าจริงอยู่ที่บรรทัด (D-28) |   |
+| `defaultVatType` |   | `string` | ค่า: `EXEMPT_TRANSPORT`, `VAT_7` · null ได้ | VAT ค่าเริ่มต้นของบรรทัดใหม่ — ค่าจริงอยู่ที่บรรทัด |   |
 | `whtExpectedRate` |   | `string` | ค่า: `1.00`, `0.00` · null ได้ | อัตราหัก ณ ที่จ่ายที่ลูกค้าคาดว่าจะหักเรา: 1.00 = หัก 1% (ค่าขนส่ง), 0.00 = ไม่หัก, null = ยังไม่ระบุ |   |
 | `creditLimit` |   | `string` | null ได้ |   | `500000.00` |
 | `vatRegistered` |   | `boolean` |   | ลูกค้าจดทะเบียน VAT (ค่าเริ่มต้น true) |   |
 | `etaxCapable` |   | `boolean` |   | ลูกค้ารับใบกำกับภาษีอิเล็กทรอนิกส์ (e-Tax) ได้ (ค่าเริ่มต้น false) |   |
-| `billByActualQty` |   | `boolean` |   | ST4-T10 วางบิลตามยอดส่งจริง (docs/04 E2) — true = ค่าขนส่งที่คิดตามน้ำหนัก/ปริมาตร/หน่วยนับ ใช้ปริมาณที่ส่งได้จริงจากหลักฐานส่ง (ค่าเริ่มต้น false = ตามใบสั่ง) |   |
+| `billByActualQty` |   | `boolean` |   | วางบิลตามยอดส่งจริง — true = ค่าขนส่งที่คิดตามน้ำหนัก/ปริมาตร/หน่วยนับ ใช้ปริมาณที่ส่งได้จริงจากหลักฐานส่ง (ค่าเริ่มต้น false = ตามใบสั่ง) |   |
 | `freeTimeMin` |   | `number` | ≥ 0 · ≤ 1440 · null ได้ | free time ค่ารอ (นาที) — null = ใช้ค่าตั้งองค์กร `billing.freeTimeMinutes` |   |
-| `podRequirements` |   | `PodRequirementsDto` |   | POD checklist ของลูกค้านี้ (ST4-T05; docs/04 E2) — `{}` = ใช้ค่าเริ่มต้นขององค์กร (`pod.checklist`); ส่งชุด `success` = กำหนดเองทั้งชุด |   |
+| `podRequirements` |   | `PodRequirementsDto` |   | POD checklist ของลูกค้านี้ — `{}` = ใช้ค่าเริ่มต้นขององค์กร (`pod.checklist`); ส่งชุด `success` = กำหนดเองทั้งชุด |   |
 | `podRequirements.success` |   | `PodChecklistDto` |   | ชุดเมื่อส่งสำเร็จ — ของลูกค้า: ไม่ส่ง = ใช้ค่าเริ่มต้นขององค์กร |   |
 | `podRequirements.success.fields` | ใช่ | `array<PodFieldDto>` |   | PHOTO/SIGNATURE/NOTE/BARCODE/PIN/RATING มีได้อย่างละ 1 (ไม่ส่ง = DISABLED) · BOOLEAN และ SINGLE_CHOICE ได้อย่างละสูงสุด 10 ข้อ — response: ชนิดเดี่ยวครบ 6 ตัวตามลำดับ PHOTO, SIGNATURE, NOTE, BARCODE, PIN, RATING ก่อนเสมอ แล้วตามด้วย BOOLEAN/SINGLE_CHOICE ตามลำดับที่ส่งมา (ไม่จัดกลุ่มตามชนิด) |   |
 | `podRequirements.failure` |   | `PodChecklistDto` |   | ชุดเมื่อส่งไม่สำเร็จ (outcome FAILED / UNDELIVERED_RETAIN) — ของลูกค้า: ไม่ส่ง = ใช้ค่าเริ่มต้นขององค์กร · ค่าองค์กร: ไม่ส่ง = ค่าระบบ (รูป ≥ 1 + หมายเหตุ บังคับ) |   |
 | `podRequirements.failure.fields` | ใช่ | `array<PodFieldDto>` |   | PHOTO/SIGNATURE/NOTE/BARCODE/PIN/RATING มีได้อย่างละ 1 (ไม่ส่ง = DISABLED) · BOOLEAN และ SINGLE_CHOICE ได้อย่างละสูงสุด 10 ข้อ — response: ชนิดเดี่ยวครบ 6 ตัวตามลำดับ PHOTO, SIGNATURE, NOTE, BARCODE, PIN, RATING ก่อนเสมอ แล้วตามด้วย BOOLEAN/SINGLE_CHOICE ตามลำดับที่ส่งมา (ไม่จัดกลุ่มตามชนิด) |   |
-| `billingCompanyId` |   | `string` | null ได้ | ออกบิลในนาม (Invoice As) — null = ใช้ค่าเริ่มต้นขององค์กร (docs/04 A4) | `cmp_…` |
+| `billingCompanyId` |   | `string` | null ได้ | ออกบิลในนาม (Invoice As) — null = ใช้ค่าเริ่มต้นขององค์กร | `cmp_…` |
 | `salesOwnerUserId` |   | `string` | null ได้ | พนักงานขาย | `usr_…` |
 | `legalName` | ใช่ | `string` |   |   | `บจก. สยามพลาสติก` |
-| `code` |   | `string` |   | รหัสลูกค้า — ไม่ส่ง = ระบบออกเลขถัดไป (MD-002) | `CUS-0001` |
+| `code` |   | `string` |   | รหัสลูกค้า — ไม่ส่ง = ระบบออกเลขถัดไป | `CUS-0001` |
 | `externalId` |   | `string` |   | รหัสในระบบต้นทาง (ERP/ระบบของลูกค้า) — เรียกด้วย ext:{externalId} ได้ |   |
 
 **Responses**
@@ -183,7 +183,7 @@ scope: `master:write` · operationId: `Customers_nextCode`
 
 | สถานะ | ความหมาย | body |
 |---|---|---|
-| `200` | รหัสที่ระบบจะออกให้ลูกค้าใหม่ (ค่าเสนอ — MD-002) | `NextCodeDto` |
+| `200` | รหัสที่ระบบจะออกให้ลูกค้าใหม่ | `NextCodeDto` |
 | `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
 | `403` | ไม่มีสิทธิ์ (`master:write`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
 | `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
@@ -213,22 +213,22 @@ scope: `export:run` · operationId: `Customers_export`
 | `cursor` | query |   | `string` | ค่า nextCursor จากหน้าก่อน (ใช้กับ sort เดิมเท่านั้น) |
 | `updatedAfter` | query |   | `string` | คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull — ใช้คู่ includeDeleted=true เพื่อรับรายการที่ถูกลบ) |
 | `sort` | query |   | `string` ค่า: `code`, `updatedAt`, `-updatedAt` | code = เรียงตามรหัส (ค่าเริ่มต้นของหน้าจอ) · updatedAt/-updatedAt สำหรับ sync |
-| `fields` | query |   | `string` | รายชื่อ field คั่นด้วย , เช่น id,legalName |
+| `fields` | query |   | `string` | รายชื่อ field คั่นด้วย, เช่น id,legalName |
 | `q` | query |   | `string` | ค้นหา — รหัส ชื่อ เลขผู้เสียภาษี หรือ externalId (ไม่สนตัวพิมพ์) |
-| `status` | query |   | `string` | คั่นด้วย , เช่น active,inactive |
+| `status` | query |   | `string` | คั่นด้วย, เช่น active,inactive |
 | `externalId` | query |   | `string` | externalId ตรงตัว (ใช้ตรวจว่ามีในระบบแล้วหรือยัง) |
 | `includeDeleted` | query |   | `string` | true = รวมรายการที่ถูกลบ (tombstone มี `deletedAt`) — ให้ระบบที่ดึงแบบ incremental รู้ว่ารายการถูกลบ |
 | `billingCycle` | query |   | `string` ค่า: `PER_DO`, `WEEKLY`, `MONTHLY`, `MANUAL` |   |
 | `code` | query |   | `string` | รหัสขึ้นต้นด้วย/มีคำนี้ |
 | `name` | query |   | `string` | ชื่อมีคำนี้ |
 | `format` | query |   | `string` ค่า: `xlsx`, `csv` |   |
-| `ids` | query |   | `string` | ส่งออกเฉพาะ id เหล่านี้ (คั่นด้วย ,) — แถวที่เลือกในตาราง |
+| `ids` | query |   | `string` | ส่งออกเฉพาะ id เหล่านี้ (คั่นด้วย,) — แถวที่เลือกในตาราง |
 
 **Responses**
 
 | สถานะ | ความหมาย | body |
 |---|---|---|
-| `200` | ไฟล์ .xlsx หรือ .csv ตามตัวกรองเดียวกับรายการ (สูงสุด 10,000 แถว) |   |
+| `200` | ไฟล์.xlsx หรือ.csv ตามตัวกรองเดียวกับรายการ (สูงสุด 10,000 แถว) |   |
 | `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
 | `403` | ไม่มีสิทธิ์ (`export:run`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
 | `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (query/body) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
@@ -279,19 +279,19 @@ scope: `master:write` · operationId: `Customers_upsertExternal`
 | `creditTermDays` |   | `number` | ≥ 0 · ≤ 365 | เครดิต (วัน) — ค่าเริ่มต้น 30 |   |
 | `billingCycle` |   | `string` | ค่า: `PER_DO`, `WEEKLY`, `MONTHLY`, `MANUAL` | ค่าเริ่มต้น MONTHLY |   |
 | `taxInvoiceMode` |   | `string` | ค่า: `ON_PAYMENT`, `ON_ISSUE` | ออกใบกำกับภาษีเมื่อรับชำระ (tax point = รับเงิน — ค่าเริ่มต้น) / พร้อมใบแจ้งหนี้ |   |
-| `defaultVatType` |   | `string` | ค่า: `EXEMPT_TRANSPORT`, `VAT_7` · null ได้ | VAT ค่าเริ่มต้นของบรรทัดใหม่ — ค่าจริงอยู่ที่บรรทัด (D-28) |   |
+| `defaultVatType` |   | `string` | ค่า: `EXEMPT_TRANSPORT`, `VAT_7` · null ได้ | VAT ค่าเริ่มต้นของบรรทัดใหม่ — ค่าจริงอยู่ที่บรรทัด |   |
 | `whtExpectedRate` |   | `string` | ค่า: `1.00`, `0.00` · null ได้ | อัตราหัก ณ ที่จ่ายที่ลูกค้าคาดว่าจะหักเรา: 1.00 = หัก 1% (ค่าขนส่ง), 0.00 = ไม่หัก, null = ยังไม่ระบุ |   |
 | `creditLimit` |   | `string` | null ได้ |   | `500000.00` |
 | `vatRegistered` |   | `boolean` |   | ลูกค้าจดทะเบียน VAT (ค่าเริ่มต้น true) |   |
 | `etaxCapable` |   | `boolean` |   | ลูกค้ารับใบกำกับภาษีอิเล็กทรอนิกส์ (e-Tax) ได้ (ค่าเริ่มต้น false) |   |
-| `billByActualQty` |   | `boolean` |   | ST4-T10 วางบิลตามยอดส่งจริง (docs/04 E2) — true = ค่าขนส่งที่คิดตามน้ำหนัก/ปริมาตร/หน่วยนับ ใช้ปริมาณที่ส่งได้จริงจากหลักฐานส่ง (ค่าเริ่มต้น false = ตามใบสั่ง) |   |
+| `billByActualQty` |   | `boolean` |   | วางบิลตามยอดส่งจริง — true = ค่าขนส่งที่คิดตามน้ำหนัก/ปริมาตร/หน่วยนับ ใช้ปริมาณที่ส่งได้จริงจากหลักฐานส่ง (ค่าเริ่มต้น false = ตามใบสั่ง) |   |
 | `freeTimeMin` |   | `number` | ≥ 0 · ≤ 1440 · null ได้ | free time ค่ารอ (นาที) — null = ใช้ค่าตั้งองค์กร `billing.freeTimeMinutes` |   |
-| `podRequirements` |   | `PodRequirementsDto` |   | POD checklist ของลูกค้านี้ (ST4-T05; docs/04 E2) — `{}` = ใช้ค่าเริ่มต้นขององค์กร (`pod.checklist`); ส่งชุด `success` = กำหนดเองทั้งชุด |   |
+| `podRequirements` |   | `PodRequirementsDto` |   | POD checklist ของลูกค้านี้ — `{}` = ใช้ค่าเริ่มต้นขององค์กร (`pod.checklist`); ส่งชุด `success` = กำหนดเองทั้งชุด |   |
 | `podRequirements.success` |   | `PodChecklistDto` |   | ชุดเมื่อส่งสำเร็จ — ของลูกค้า: ไม่ส่ง = ใช้ค่าเริ่มต้นขององค์กร |   |
 | `podRequirements.success.fields` | ใช่ | `array<PodFieldDto>` |   | PHOTO/SIGNATURE/NOTE/BARCODE/PIN/RATING มีได้อย่างละ 1 (ไม่ส่ง = DISABLED) · BOOLEAN และ SINGLE_CHOICE ได้อย่างละสูงสุด 10 ข้อ — response: ชนิดเดี่ยวครบ 6 ตัวตามลำดับ PHOTO, SIGNATURE, NOTE, BARCODE, PIN, RATING ก่อนเสมอ แล้วตามด้วย BOOLEAN/SINGLE_CHOICE ตามลำดับที่ส่งมา (ไม่จัดกลุ่มตามชนิด) |   |
 | `podRequirements.failure` |   | `PodChecklistDto` |   | ชุดเมื่อส่งไม่สำเร็จ (outcome FAILED / UNDELIVERED_RETAIN) — ของลูกค้า: ไม่ส่ง = ใช้ค่าเริ่มต้นขององค์กร · ค่าองค์กร: ไม่ส่ง = ค่าระบบ (รูป ≥ 1 + หมายเหตุ บังคับ) |   |
 | `podRequirements.failure.fields` | ใช่ | `array<PodFieldDto>` |   | PHOTO/SIGNATURE/NOTE/BARCODE/PIN/RATING มีได้อย่างละ 1 (ไม่ส่ง = DISABLED) · BOOLEAN และ SINGLE_CHOICE ได้อย่างละสูงสุด 10 ข้อ — response: ชนิดเดี่ยวครบ 6 ตัวตามลำดับ PHOTO, SIGNATURE, NOTE, BARCODE, PIN, RATING ก่อนเสมอ แล้วตามด้วย BOOLEAN/SINGLE_CHOICE ตามลำดับที่ส่งมา (ไม่จัดกลุ่มตามชนิด) |   |
-| `billingCompanyId` |   | `string` | null ได้ | ออกบิลในนาม (Invoice As) — null = ใช้ค่าเริ่มต้นขององค์กร (docs/04 A4) | `cmp_…` |
+| `billingCompanyId` |   | `string` | null ได้ | ออกบิลในนาม (Invoice As) — null = ใช้ค่าเริ่มต้นขององค์กร | `cmp_…` |
 | `salesOwnerUserId` |   | `string` | null ได้ | พนักงานขาย | `usr_…` |
 | `legalName` | ใช่ | `string` |   |   | `บจก. สยามพลาสติก` |
 | `code` |   | `string` |   | ใช้ตอนสร้างเท่านั้น | `CUS-0001` |
@@ -365,19 +365,19 @@ scope: `master:write` · operationId: `Customers_patchExternal`
 | `creditTermDays` |   | `number` | ≥ 0 · ≤ 365 | เครดิต (วัน) — ค่าเริ่มต้น 30 |   |
 | `billingCycle` |   | `string` | ค่า: `PER_DO`, `WEEKLY`, `MONTHLY`, `MANUAL` | ค่าเริ่มต้น MONTHLY |   |
 | `taxInvoiceMode` |   | `string` | ค่า: `ON_PAYMENT`, `ON_ISSUE` | ออกใบกำกับภาษีเมื่อรับชำระ (tax point = รับเงิน — ค่าเริ่มต้น) / พร้อมใบแจ้งหนี้ |   |
-| `defaultVatType` |   | `string` | ค่า: `EXEMPT_TRANSPORT`, `VAT_7` · null ได้ | VAT ค่าเริ่มต้นของบรรทัดใหม่ — ค่าจริงอยู่ที่บรรทัด (D-28) |   |
+| `defaultVatType` |   | `string` | ค่า: `EXEMPT_TRANSPORT`, `VAT_7` · null ได้ | VAT ค่าเริ่มต้นของบรรทัดใหม่ — ค่าจริงอยู่ที่บรรทัด |   |
 | `whtExpectedRate` |   | `string` | ค่า: `1.00`, `0.00` · null ได้ | อัตราหัก ณ ที่จ่ายที่ลูกค้าคาดว่าจะหักเรา: 1.00 = หัก 1% (ค่าขนส่ง), 0.00 = ไม่หัก, null = ยังไม่ระบุ |   |
 | `creditLimit` |   | `string` | null ได้ |   | `500000.00` |
 | `vatRegistered` |   | `boolean` |   | ลูกค้าจดทะเบียน VAT (ค่าเริ่มต้น true) |   |
 | `etaxCapable` |   | `boolean` |   | ลูกค้ารับใบกำกับภาษีอิเล็กทรอนิกส์ (e-Tax) ได้ (ค่าเริ่มต้น false) |   |
-| `billByActualQty` |   | `boolean` |   | ST4-T10 วางบิลตามยอดส่งจริง (docs/04 E2) — true = ค่าขนส่งที่คิดตามน้ำหนัก/ปริมาตร/หน่วยนับ ใช้ปริมาณที่ส่งได้จริงจากหลักฐานส่ง (ค่าเริ่มต้น false = ตามใบสั่ง) |   |
+| `billByActualQty` |   | `boolean` |   | วางบิลตามยอดส่งจริง — true = ค่าขนส่งที่คิดตามน้ำหนัก/ปริมาตร/หน่วยนับ ใช้ปริมาณที่ส่งได้จริงจากหลักฐานส่ง (ค่าเริ่มต้น false = ตามใบสั่ง) |   |
 | `freeTimeMin` |   | `number` | ≥ 0 · ≤ 1440 · null ได้ | free time ค่ารอ (นาที) — null = ใช้ค่าตั้งองค์กร `billing.freeTimeMinutes` |   |
-| `podRequirements` |   | `PodRequirementsDto` |   | POD checklist ของลูกค้านี้ (ST4-T05; docs/04 E2) — `{}` = ใช้ค่าเริ่มต้นขององค์กร (`pod.checklist`); ส่งชุด `success` = กำหนดเองทั้งชุด |   |
+| `podRequirements` |   | `PodRequirementsDto` |   | POD checklist ของลูกค้านี้ — `{}` = ใช้ค่าเริ่มต้นขององค์กร (`pod.checklist`); ส่งชุด `success` = กำหนดเองทั้งชุด |   |
 | `podRequirements.success` |   | `PodChecklistDto` |   | ชุดเมื่อส่งสำเร็จ — ของลูกค้า: ไม่ส่ง = ใช้ค่าเริ่มต้นขององค์กร |   |
 | `podRequirements.success.fields` | ใช่ | `array<PodFieldDto>` |   | PHOTO/SIGNATURE/NOTE/BARCODE/PIN/RATING มีได้อย่างละ 1 (ไม่ส่ง = DISABLED) · BOOLEAN และ SINGLE_CHOICE ได้อย่างละสูงสุด 10 ข้อ — response: ชนิดเดี่ยวครบ 6 ตัวตามลำดับ PHOTO, SIGNATURE, NOTE, BARCODE, PIN, RATING ก่อนเสมอ แล้วตามด้วย BOOLEAN/SINGLE_CHOICE ตามลำดับที่ส่งมา (ไม่จัดกลุ่มตามชนิด) |   |
 | `podRequirements.failure` |   | `PodChecklistDto` |   | ชุดเมื่อส่งไม่สำเร็จ (outcome FAILED / UNDELIVERED_RETAIN) — ของลูกค้า: ไม่ส่ง = ใช้ค่าเริ่มต้นขององค์กร · ค่าองค์กร: ไม่ส่ง = ค่าระบบ (รูป ≥ 1 + หมายเหตุ บังคับ) |   |
 | `podRequirements.failure.fields` | ใช่ | `array<PodFieldDto>` |   | PHOTO/SIGNATURE/NOTE/BARCODE/PIN/RATING มีได้อย่างละ 1 (ไม่ส่ง = DISABLED) · BOOLEAN และ SINGLE_CHOICE ได้อย่างละสูงสุด 10 ข้อ — response: ชนิดเดี่ยวครบ 6 ตัวตามลำดับ PHOTO, SIGNATURE, NOTE, BARCODE, PIN, RATING ก่อนเสมอ แล้วตามด้วย BOOLEAN/SINGLE_CHOICE ตามลำดับที่ส่งมา (ไม่จัดกลุ่มตามชนิด) |   |
-| `billingCompanyId` |   | `string` | null ได้ | ออกบิลในนาม (Invoice As) — null = ใช้ค่าเริ่มต้นขององค์กร (docs/04 A4) | `cmp_…` |
+| `billingCompanyId` |   | `string` | null ได้ | ออกบิลในนาม (Invoice As) — null = ใช้ค่าเริ่มต้นขององค์กร | `cmp_…` |
 | `salesOwnerUserId` |   | `string` | null ได้ | พนักงานขาย | `usr_…` |
 | `legalName` |   | `string` |   | ชื่อตามจดทะเบียน (พิมพ์บนเอกสารภาษี) | `บจก. สยามพลาสติก` |
 | `externalId` |   | `string` | null ได้ | null = ลบการผูก |   |
@@ -483,19 +483,19 @@ scope: `master:write` · operationId: `Customers_update`
 | `creditTermDays` |   | `number` | ≥ 0 · ≤ 365 | เครดิต (วัน) — ค่าเริ่มต้น 30 |   |
 | `billingCycle` |   | `string` | ค่า: `PER_DO`, `WEEKLY`, `MONTHLY`, `MANUAL` | ค่าเริ่มต้น MONTHLY |   |
 | `taxInvoiceMode` |   | `string` | ค่า: `ON_PAYMENT`, `ON_ISSUE` | ออกใบกำกับภาษีเมื่อรับชำระ (tax point = รับเงิน — ค่าเริ่มต้น) / พร้อมใบแจ้งหนี้ |   |
-| `defaultVatType` |   | `string` | ค่า: `EXEMPT_TRANSPORT`, `VAT_7` · null ได้ | VAT ค่าเริ่มต้นของบรรทัดใหม่ — ค่าจริงอยู่ที่บรรทัด (D-28) |   |
+| `defaultVatType` |   | `string` | ค่า: `EXEMPT_TRANSPORT`, `VAT_7` · null ได้ | VAT ค่าเริ่มต้นของบรรทัดใหม่ — ค่าจริงอยู่ที่บรรทัด |   |
 | `whtExpectedRate` |   | `string` | ค่า: `1.00`, `0.00` · null ได้ | อัตราหัก ณ ที่จ่ายที่ลูกค้าคาดว่าจะหักเรา: 1.00 = หัก 1% (ค่าขนส่ง), 0.00 = ไม่หัก, null = ยังไม่ระบุ |   |
 | `creditLimit` |   | `string` | null ได้ |   | `500000.00` |
 | `vatRegistered` |   | `boolean` |   | ลูกค้าจดทะเบียน VAT (ค่าเริ่มต้น true) |   |
 | `etaxCapable` |   | `boolean` |   | ลูกค้ารับใบกำกับภาษีอิเล็กทรอนิกส์ (e-Tax) ได้ (ค่าเริ่มต้น false) |   |
-| `billByActualQty` |   | `boolean` |   | ST4-T10 วางบิลตามยอดส่งจริง (docs/04 E2) — true = ค่าขนส่งที่คิดตามน้ำหนัก/ปริมาตร/หน่วยนับ ใช้ปริมาณที่ส่งได้จริงจากหลักฐานส่ง (ค่าเริ่มต้น false = ตามใบสั่ง) |   |
+| `billByActualQty` |   | `boolean` |   | วางบิลตามยอดส่งจริง — true = ค่าขนส่งที่คิดตามน้ำหนัก/ปริมาตร/หน่วยนับ ใช้ปริมาณที่ส่งได้จริงจากหลักฐานส่ง (ค่าเริ่มต้น false = ตามใบสั่ง) |   |
 | `freeTimeMin` |   | `number` | ≥ 0 · ≤ 1440 · null ได้ | free time ค่ารอ (นาที) — null = ใช้ค่าตั้งองค์กร `billing.freeTimeMinutes` |   |
-| `podRequirements` |   | `PodRequirementsDto` |   | POD checklist ของลูกค้านี้ (ST4-T05; docs/04 E2) — `{}` = ใช้ค่าเริ่มต้นขององค์กร (`pod.checklist`); ส่งชุด `success` = กำหนดเองทั้งชุด |   |
+| `podRequirements` |   | `PodRequirementsDto` |   | POD checklist ของลูกค้านี้ — `{}` = ใช้ค่าเริ่มต้นขององค์กร (`pod.checklist`); ส่งชุด `success` = กำหนดเองทั้งชุด |   |
 | `podRequirements.success` |   | `PodChecklistDto` |   | ชุดเมื่อส่งสำเร็จ — ของลูกค้า: ไม่ส่ง = ใช้ค่าเริ่มต้นขององค์กร |   |
 | `podRequirements.success.fields` | ใช่ | `array<PodFieldDto>` |   | PHOTO/SIGNATURE/NOTE/BARCODE/PIN/RATING มีได้อย่างละ 1 (ไม่ส่ง = DISABLED) · BOOLEAN และ SINGLE_CHOICE ได้อย่างละสูงสุด 10 ข้อ — response: ชนิดเดี่ยวครบ 6 ตัวตามลำดับ PHOTO, SIGNATURE, NOTE, BARCODE, PIN, RATING ก่อนเสมอ แล้วตามด้วย BOOLEAN/SINGLE_CHOICE ตามลำดับที่ส่งมา (ไม่จัดกลุ่มตามชนิด) |   |
 | `podRequirements.failure` |   | `PodChecklistDto` |   | ชุดเมื่อส่งไม่สำเร็จ (outcome FAILED / UNDELIVERED_RETAIN) — ของลูกค้า: ไม่ส่ง = ใช้ค่าเริ่มต้นขององค์กร · ค่าองค์กร: ไม่ส่ง = ค่าระบบ (รูป ≥ 1 + หมายเหตุ บังคับ) |   |
 | `podRequirements.failure.fields` | ใช่ | `array<PodFieldDto>` |   | PHOTO/SIGNATURE/NOTE/BARCODE/PIN/RATING มีได้อย่างละ 1 (ไม่ส่ง = DISABLED) · BOOLEAN และ SINGLE_CHOICE ได้อย่างละสูงสุด 10 ข้อ — response: ชนิดเดี่ยวครบ 6 ตัวตามลำดับ PHOTO, SIGNATURE, NOTE, BARCODE, PIN, RATING ก่อนเสมอ แล้วตามด้วย BOOLEAN/SINGLE_CHOICE ตามลำดับที่ส่งมา (ไม่จัดกลุ่มตามชนิด) |   |
-| `billingCompanyId` |   | `string` | null ได้ | ออกบิลในนาม (Invoice As) — null = ใช้ค่าเริ่มต้นขององค์กร (docs/04 A4) | `cmp_…` |
+| `billingCompanyId` |   | `string` | null ได้ | ออกบิลในนาม (Invoice As) — null = ใช้ค่าเริ่มต้นขององค์กร | `cmp_…` |
 | `salesOwnerUserId` |   | `string` | null ได้ | พนักงานขาย | `usr_…` |
 | `legalName` |   | `string` |   | ชื่อตามจดทะเบียน (พิมพ์บนเอกสารภาษี) | `บจก. สยามพลาสติก` |
 | `externalId` |   | `string` | null ได้ | null = ลบการผูก |   |
@@ -905,7 +905,7 @@ const { data, error } = await tms.POST('/v1/customers/{id}/tracking-link/revoke'
 | `creditLimit` | ใช่ | `string` | null ได้ |   |   |
 | `vatRegistered` | ใช่ | `boolean` |   |   |   |
 | `etaxCapable` | ใช่ | `boolean` |   |   |   |
-| `billByActualQty` | ใช่ | `boolean` |   | ST4-T10 วางบิลตามยอดส่งจริง |   |
+| `billByActualQty` | ใช่ | `boolean` |   | วางบิลตามยอดส่งจริง |   |
 | `freeTimeMin` | ใช่ | `number` | null ได้ |   |   |
 | `billingCompanyId` | ใช่ | `string` | null ได้ | ออกบิลในนาม (cmp_…) |   |
 | `podRequirements` | ใช่ | `PodRequirementsDto` |   | POD checklist ที่ลูกค้ากำหนดเอง — `{}` = ใช้ค่าเริ่มต้นขององค์กร (ดูที่ใช้จริงที่ `GET /customers/{id}/pod-checklist`) |   |
@@ -943,7 +943,7 @@ const { data, error } = await tms.POST('/v1/customers/{id}/tracking-link/revoke'
 | `total` | ใช่ | `number` |   |   |   |
 | `active` | ใช่ | `number` |   |   |   |
 | `inactive` | ใช่ | `number` |   |   |   |
-| `noTaxId` | ใช่ | `number` |   | ไม่มีเลขผู้เสียภาษี (ออกใบกำกับภาษีเต็มรูปไม่ได้ — MD-021) |   |
+| `noTaxId` | ใช่ | `number` |   | ไม่มีเลขผู้เสียภาษี |   |
 
 ### NextCodeDto {#schema-NextCodeDto}
 

@@ -32,8 +32,8 @@ blockquote{margin:8px 0;padding:6px 12px;border-left:3px solid var(--accent);bac
 <h1 id="changelog">Changelog</h1>
 <p>เวอร์ชันพฤติกรรม (<code>X-Api-Version</code>) ล่าสุด: <code>2026-11-18</code> — วิธีเลือกเวอร์ชันดู <a href="versioning.html">เวอร์ชันของ API</a></p>
 <h2 id="2026-11-18">2026-11-18</h2>
-<p>API key: สถานะ <code>rotating</code> แยกจาก <code>active</code> (ST7-T07 — ตัวอย่างกลไก gate) · changed: payload webhook ตั้งฐานก่อน GA (ST7-T06 — id แบบ prefix ใน trip/stop/DO, DO <code>salesOrderId</code> → <code>orderId</code>, พักใบโดยระบบ = <code>order.held</code>, จัดรถใบค้าง = <code>order.released</code>; ไม่มี gate เพราะยังไม่มี production)</p>
-<div class="table"><table><thead><tr><th>ประเภท</th><th>รายละเอียด</th></tr></thead><tbody><tr><td></td><td>API key ที่หมุนแล้ว (ใช้ได้ถึง revokeAt) มีสถานะ <code>rotating</code> — ก่อนหน้านี้แสดงเป็น <code>active</code> และตัวกรอง <code>status=active</code> รวม key เหล่านี้</td></tr></tbody></table></div>
+<p>API key: สถานะ <code>rotating</code> แยกจาก <code>active</code> · changed: payload webhook ตั้งฐานก่อน GA</p>
+<div class="table"><table><thead><tr><th>รหัสการเปลี่ยน</th><th>รายละเอียด</th></tr></thead><tbody><tr><td><code>api_key.status_rotating</code></td><td>API key ที่หมุนแล้ว (ใช้ได้ถึง revokeAt) มีสถานะ <code>rotating</code> — ก่อนหน้านี้แสดงเป็น <code>active</code> และตัวกรอง <code>status=active</code> รวม key เหล่านี้</td></tr></tbody></table></div>
 <h2 id="2026-11-01">2026-11-01</h2>
 <p>เวอร์ชันแรกของ /v1</p>
 </main>

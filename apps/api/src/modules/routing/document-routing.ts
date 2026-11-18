@@ -1,6 +1,7 @@
 import type { Branch, Company } from '@prisma/client';
 import { tryDecodeId } from '../../common/ids';
-import { ProblemException } from '../../common/problem';
+import { PROBLEMS, ProblemException } from '../../common/problem';
+import { requestContext } from '../../common/request-context';
 import type { Tx } from '../../db/db.service';
 import { readSettings } from '../settings/settings.service';
 import { HQ_CODE } from '../branches/branches.service';
@@ -21,6 +22,8 @@ export interface RoutingInput {
   branchId?: string | null;
   /** ค่าของลูกค้า (invoice) หรือรถร่วม (tender) — uuid */
   partyCompanyId?: string | null;
+  /** ชื่อช่องใน request ที่ใช้รายงาน error ของนิติบุคคล (ค่าเริ่ม `companyId`; order = `billingCompanyId`) */
+  companyField?: string;
 }
 
 export interface RoutingResult {
@@ -34,6 +37,11 @@ export interface RoutingResult {
 
 const fail = (code: string, message: string, field = 'companyId') =>
   new ProblemException('validation_failed', undefined, [{ field, code, message }]);
+/** error ของ routing — ข้อความตาม Accept-Language จาก PROBLEMS (ST7-T12) */
+const routingFail = (
+  code: 'routing_not_configured' | 'company_unavailable' | 'branch_unavailable',
+  field: string,
+) => fail(code, PROBLEMS[code][requestContext.get()?.locale === 'en' ? 'en' : 'th'], field);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
@@ -45,8 +53,9 @@ export async function resolveDocumentEntity(
   tenantId: string,
   input: RoutingInput,
 ): Promise<RoutingResult> {
+  const companyField = input.companyField ?? 'companyId';
   for (const [field, v] of Object.entries({
-    companyId: input.companyId,
+    [companyField]: input.companyId,
     partyCompanyId: input.partyCompanyId,
     branchId: input.branchId,
   }))
@@ -74,25 +83,20 @@ export async function resolveDocumentEntity(
     company = await tx.company.findUnique({ where: { id: companyId } });
   } else {
     const active = await tx.company.findMany({ where: { status: 'ACTIVE' }, take: 2 });
-    if (active.length > 1)
-      throw fail(
-        'routing_not_configured',
-        'several legal entities: set routing default or choose one',
-      );
+    if (active.length > 1) throw routingFail('routing_not_configured', companyField);
     company = active[0] ?? null;
   }
   if (!company || company.status !== 'ACTIVE')
-    throw fail('company_unavailable', 'legal entity not found or inactive');
+    throw routingFail('company_unavailable', companyField);
 
   const branch = input.branchId
     ? await tx.branch.findFirst({ where: { id: input.branchId, companyId: company.id } })
     : await tx.branch.findFirst({ where: { companyId: company.id, isDefaultIssuer: true } });
-  if (!branch)
-    throw fail('branch_unavailable', 'branch not found for this legal entity', 'branchId');
+  if (!branch) throw routingFail('branch_unavailable', 'branchId');
   const taxBranch =
     branch.branchCode === HQ_CODE || !branch.hqPrintsForAll
       ? branch
       : await tx.branch.findFirst({ where: { companyId: company.id, branchCode: HQ_CODE } });
-  if (!taxBranch) throw fail('branch_unavailable', 'head office branch missing', 'branchId');
+  if (!taxBranch) throw routingFail('branch_unavailable', 'branchId');
   return { company, branch, taxBranch, source };
 }

@@ -24,7 +24,7 @@ scope: `orders:read` · operationId: `OrderTemplates_list`
 | `cursor` | query |   | `string` | ค่า nextCursor จากหน้าก่อน |
 | `updatedAfter` | query |   | `string` | คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull) |
 | `sort` | query |   | `string` ค่า: `updatedAt`, `-updatedAt` |   |
-| `fields` | query |   | `string` | รายชื่อ field คั่นด้วย , เช่น id,legalName |
+| `fields` | query |   | `string` | รายชื่อ field คั่นด้วย, เช่น id,legalName |
 | `q` | query |   | `string` | ค้นชื่อเทมเพลต (ไม่สนตัวพิมพ์) |
 
 **Responses**
@@ -72,8 +72,8 @@ payload ตรวจด้วยกฎเดียวกับ POST /v1/orders (
 | `payload.customer.id` |   | `string` | null ได้ | ลูกค้าใน master | `cus_3f2a…` |
 | `payload.customer.externalId` |   | `string` | null ได้ | รหัสลูกค้าตามระบบต้นทาง — จับคู่กับ customer.externalId (ไม่พบ = ใบค้าง CUSTOMER_UNMAPPED) | `C-001` |
 | `payload.customer.name` |   | `string` | null ได้ | ชื่อ/ข้อความลูกค้าตามต้นทาง |   |
-| `payload.billingCompanyId` |   | `string` | null ได้ | นิติบุคคลที่ออกบิล — ไม่ส่ง = ตามลูกค้า/ค่าตั้งต้นของบริษัท | `cmp_3f2a…` |
-| `payload.customerRef` |   | `string` | ยาว ≤ 50 · null ได้ | เลข PO / อ้างอิงของลูกค้า |   |
+| `payload.billingCompanyId` |   | `string` | null ได้ | นิติบุคคลที่ออกบิล (`cmp_…` จาก `GET /v1/companies`) — ไม่ส่ง = "ออกบิลในนาม" ของลูกค้า → ค่าตั้งต้นของบริษัท → นิติบุคคลเดียวที่ใช้งานอยู่; บริษัทมีหลายนิติบุคคลและไม่ได้ตั้งค่าใดเลย = 422 `routing_not_configured` (errors[].field = `billingCompanyId`) · ใบเดิมไม่ส่ง = คงของเดิม | `cmp_3f2a…` |
+| `payload.customerRef` |   | `string` | ยาว ≤ 50 · null ได้ | เลข / อ้างอิงของลูกค้า |   |
 | `payload.requestedDate` | ใช่ | `string` |   | วันรับของ YYYY-MM-DD (ใช้หา rate) | `2026-11-12` |
 | `payload.vehicleTypeId` |   | `string` | null ได้ |   | `vty_3f2a…` |
 | `payload.stops` | ใช่ | `array<OrderStopInputDto>` |   | 1–50 จุด เรียงตามลำดับวิ่ง |   |
@@ -189,8 +189,8 @@ scope: `orders:write` · operationId: `OrderTemplates_update`
 | `payload.customer.id` |   | `string` | null ได้ | ลูกค้าใน master | `cus_3f2a…` |
 | `payload.customer.externalId` |   | `string` | null ได้ | รหัสลูกค้าตามระบบต้นทาง — จับคู่กับ customer.externalId (ไม่พบ = ใบค้าง CUSTOMER_UNMAPPED) | `C-001` |
 | `payload.customer.name` |   | `string` | null ได้ | ชื่อ/ข้อความลูกค้าตามต้นทาง |   |
-| `payload.billingCompanyId` |   | `string` | null ได้ | นิติบุคคลที่ออกบิล — ไม่ส่ง = ตามลูกค้า/ค่าตั้งต้นของบริษัท | `cmp_3f2a…` |
-| `payload.customerRef` |   | `string` | ยาว ≤ 50 · null ได้ | เลข PO / อ้างอิงของลูกค้า |   |
+| `payload.billingCompanyId` |   | `string` | null ได้ | นิติบุคคลที่ออกบิล (`cmp_…` จาก `GET /v1/companies`) — ไม่ส่ง = "ออกบิลในนาม" ของลูกค้า → ค่าตั้งต้นของบริษัท → นิติบุคคลเดียวที่ใช้งานอยู่; บริษัทมีหลายนิติบุคคลและไม่ได้ตั้งค่าใดเลย = 422 `routing_not_configured` (errors[].field = `billingCompanyId`) · ใบเดิมไม่ส่ง = คงของเดิม | `cmp_3f2a…` |
+| `payload.customerRef` |   | `string` | ยาว ≤ 50 · null ได้ | เลข / อ้างอิงของลูกค้า |   |
 | `payload.requestedDate` | ใช่ | `string` |   | วันรับของ YYYY-MM-DD (ใช้หา rate) | `2026-11-12` |
 | `payload.vehicleTypeId` |   | `string` | null ได้ |   | `vty_3f2a…` |
 | `payload.stops` | ใช่ | `array<OrderStopInputDto>` |   | 1–50 จุด เรียงตามลำดับวิ่ง |   |

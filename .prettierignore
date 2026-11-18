@@ -10,3 +10,4 @@ packages/contracts/src/schema.d.ts
 **/dist/
 packages/sdk/src/schema.d.ts
 packages/api-docs/site/
+packages/sdk/src/idempotency.gen.ts

@@ -279,11 +279,8 @@ export function webhookEventsPage(doc: Json): Page {
   ]);
   const sections = types.map((t) => {
     const h = hooks[t];
-    const env = deref(doc, h.schema);
-    const obj =
-      env?.properties?.data?.properties?.object ??
-      deref(doc, env?.properties?.data)?.properties?.object;
-    const rowsObj = obj ? fieldRows(doc, obj, 1) : [];
+    // `x-webhooks[type].schema` = schema ของ data.object (envelope อยู่ที่ WebhookEnvelope)
+    const rowsObj = h.schema ? fieldRows(doc, h.schema, 1) : [];
     return [
       `## ${t} {#${t.replace(/\./g, '-')}}`,
       oneLine(h.description),
@@ -309,15 +306,26 @@ export function webhookEventsPage(doc: Json): Page {
   };
 }
 
+/** รหัสที่ใช้เป็น errors[].code (ตัว problem = validation_failed) */
+const FIELD_CODES = new Set([
+  'routing_not_configured',
+  'company_unavailable',
+  'branch_unavailable',
+]);
+
 export function errorsPage(doc: Json): Page {
   const catalog = new Map<string, { status: number; title: string; ops: Set<string> }>();
   const add = (ex: Json, where: string | undefined) => {
     const v = ex?.value;
     if (!v?.code) return;
     const c = catalog.get(v.code) ?? { status: v.status, title: v.title, ops: new Set<string>() };
+    if (!c.title) c.title = v.title;
     if (where) c.ops.add(where);
     catalog.set(v.code, c);
   };
+  // catalog ของ API ทั้งหมด (PROBLEMS → x-problem-codes) — ทุก `type` ที่ API ตอบมีหัวข้อในหน้านี้
+  for (const [c, p] of Object.entries<Json>(doc['x-problem-codes'] ?? {}))
+    catalog.set(c, { status: p.status, title: p.title, ops: new Set<string>() });
   for (const r of Object.values<Json>(doc.components.responses ?? {}))
     for (const ex of Object.values<Json>(r?.content?.['application/problem+json']?.examples ?? {}))
       add(ex, undefined);
@@ -340,7 +348,9 @@ export function errorsPage(doc: Json): Page {
       `HTTP \`${e.status}\` · ${oneLine(e.title)}`,
       ops.length
         ? `พบใน: ${ops.slice(0, 12).join(', ')}${ops.length > 12 ? ` และอีก ${ops.length - 12} endpoint` : ''}`
-        : 'ใช้ได้กับทุก endpoint',
+        : FIELD_CODES.has(c)
+          ? 'อยู่ใน `errors[].code` ของ `422 validation_failed` (`errors[].field` = ช่องที่ต้องแก้)'
+          : 'อาจตอบได้จากหลาย endpoint',
     ].join('\n\n');
   });
   const md = [
@@ -374,9 +384,9 @@ export function changelogPage(doc: Json): Page {
       oneLine(v.summary),
       ch.length
         ? table(
-            ['ประเภท', 'รายละเอียด'],
+            ['รหัสการเปลี่ยน', 'รายละเอียด'],
             ch.map((c: Json) => [
-              code(c.kind ?? c.type ?? ''),
+              code(c.id ?? c.kind ?? c.type ?? ''),
               oneLine(c.summary ?? c.description ?? JSON.stringify(c)),
             ]),
           )
@@ -425,7 +435,7 @@ export function indexPage(doc: Json, pages: Page[]): Page {
   const md = [
     '# TMS API v1',
     `เอกสาร Open API ของ TMS — endpoint ชุดเดียวกับที่เว็บของ TMS ใช้ (API-first) · เวอร์ชันพฤติกรรมล่าสุด \`${doc.info?.['x-api-version-latest'] ?? ''}\` · ${operations(doc).length} endpoint`,
-    'เริ่มที่ [Quickstart](quickstart.md) (สร้าง order แรกใน Sandbox ภายใน 15 นาที) · ดาวน์โหลด [Postman collection](tms-api.postman_collection.json) · สำหรับ AI/LLM: [llms.txt](llms.txt), [llms-full.txt](llms-full.txt) · ทุกหน้ามีฉบับ Markdown (`<หน้า>.md`)',
+    'เริ่มที่ [Quickstart](quickstart.md) (สร้าง order แรกใน Sandbox ภายใน 15 นาที) · ดาวน์โหลด [Postman collection](tms-api.postman_collection.json) · [OpenAPI](openapi.json) · สำหรับ AI/LLM: [llms.txt](llms.txt), [llms-full.txt](llms-full.txt) · ทุกหน้ามีฉบับ Markdown (`<หน้า>.md`)',
     ...groups,
   ].join('\n\n');
   return { slug: 'index', title: 'TMS API v1', group: '', summary: 'หน้าแรก', md: md + '\n' };

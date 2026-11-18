@@ -31,14 +31,14 @@ blockquote{margin:8px 0;padding:6px 12px;border-left:3px solid var(--accent);bac
 <a class="md-link" href="sandbox.md">Markdown</a>
 <h1 id="sandbox">Sandbox</h1>
 <p>Sandbox = บริษัทคู่แฝดของคุณในโหมดทดสอบ ข้อมูลแยกขาดจากข้อมูลจริง (คนละ tenant ในระบบ)</p>
-<ul><li>เปิดครั้งแรกเมื่อผู้ใช้สลับเป็น <strong>Sandbox</strong> ในหน้า นักพัฒนา / Open API · key ที่สร้างในโหมดนี้ขึ้นต้น <code>tk_test_</code></li><li>base URL เดียวกับ Production — โหมดตาม key (<code>tk_test_</code> เห็นเฉพาะ Sandbox, <code>tk_live_</code> เฉพาะข้อมูลจริง)</li><li>webhook ของ Sandbox <strong>ส่งจริง</strong> ไปยัง endpoint ที่สมัครในโหมด Sandbox (envelope มี <code>&quot;mode&quot;: &quot;test&quot;</code>) · อีเมล/LINE/SMS และ connector ERP ไม่ทำงานใน Sandbox</li><li>rate limit เหมือนบริษัทจริง (bucket แยก) · แพ็กเกจ/สถานะ = ของบริษัทจริง (บริษัทถูกระงับ = key test ใช้ไม่ได้ด้วย)</li></ul>
+<ul><li>เปิดครั้งแรกเมื่อผู้ใช้สลับเป็น <strong>Sandbox</strong> ในหน้า นักพัฒนา / Open API · key ที่สร้างในโหมดนี้ขึ้นต้น <code>tk_test_</code></li><li>Sandbox ได้สำเนา <strong>นิติบุคคลและสาขา</strong> ของบริษัท (ใช้เป็นนิติบุคคลออกบิลของใบสั่ง) ตอนสร้างครั้งแรก · ข้อมูลอื่น (ลูกค้า สถานที่ ใบสั่ง) เริ่มว่าง</li><li>ข้อมูล Sandbox ดู/แก้ผ่าน API เท่านั้น — หน้าจอใบสั่งขนส่ง/เที่ยววิ่งในเว็บแสดงข้อมูลจริงเสมอ (หน้า นักพัฒนา / Open API สลับดู key/webhook ของ Sandbox ได้)</li><li>base URL เดียวกับ Production — โหมดตาม key (<code>tk_test_</code> เห็นเฉพาะ Sandbox, <code>tk_live_</code> เฉพาะข้อมูลจริง)</li><li>webhook ของ Sandbox <strong>ส่งจริง</strong> ไปยัง endpoint ที่สมัครในโหมด Sandbox (envelope มี <code>&quot;mode&quot;: &quot;test&quot;</code>) · อีเมล/LINE/SMS และ connector ERP ไม่ทำงานใน Sandbox</li><li>rate limit เหมือนบริษัทจริง (bucket แยก) · แพ็กเกจ/สถานะ = ของบริษัทจริง (บริษัทถูกระงับ = key test ใช้ไม่ได้ด้วย)</li></ul>
 <h2 id="ยิง-event-จำลอง">ยิง event จำลอง</h2>
-<p>ทดสอบ webhook ของคุณโดยไม่ต้องสร้างข้อมูลจริง (scope <code>settings:read</code>):</p>
+<ol><li>สมัคร endpoint ของคุณในหน้าเว็บ <strong>นักพัฒนา / Open API → Webhooks</strong> ขณะอยู่โหมด Sandbox — URL ต้องเป็น <code>https://</code> ที่เข้าถึงได้จากอินเทอร์เน็ต (ทดสอบจากเครื่องตัวเองให้ใช้ tunnel เช่น ngrok / Cloudflare Tunnel) · API key สร้าง/แก้ endpoint ไม่ได้ (อ่านได้อย่างเดียว)</li><li>ยิง event (key ต้องมี scope <code>settings:read</code>):</li></ol>
 <pre><code class="language-bash">curl -sS -X POST &quot;$TMS_BASE_URL/v1/test/events/trigger&quot; \
   -H &quot;Authorization: Bearer $TMS_API_KEY&quot; \
   -H &quot;Content-Type: application/json&quot; \
   -d '{&quot;type&quot;:&quot;order.created&quot;}'</code></pre>
-<p>ได้ <code>200</code> <code>{eventId, type, mode, queued, deliveries[], object}</code> — <code>type</code> ต้องเป็น event ที่ใช้งานอยู่ใน <a href="webhook-events.html">รายการ webhook event</a> · เรียกด้วย key live = <code>403 sandbox_only</code></p>
+<p>ได้ <code>200</code> <code>{eventId, type, mode, queued, deliveries[], object}</code> — <code>deliveries[].state</code> บอกผลส่งของแต่ละ endpoint (<code>delivered</code>/<code>failed</code>/<code>queued</code>/<code>skipped</code>) ดูย้อนหลังได้ที่ <code>GET /v1/webhook-deliveries?eventId=&lt;eventId&gt;</code> (ยังไม่มี endpoint = ได้ <code>deliveries: []</code> แต่ event ถูกบันทึก ดูได้ที่ <code>GET /v1/events/{id}</code>) — <code>type</code> ต้องเป็น event ที่ใช้งานอยู่ใน <a href="webhook-events.html">รายการ webhook event</a> · เรียกด้วย key live = <code>403 sandbox_only</code></p>
 </main>
 </div>
 </body>

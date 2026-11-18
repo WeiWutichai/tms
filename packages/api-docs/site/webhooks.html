@@ -30,17 +30,20 @@ blockquote{margin:8px 0;padding:6px 12px;border-left:3px solid var(--accent);bac
 <main>
 <a class="md-link" href="webhooks.md">Markdown</a>
 <h1 id="webhook-และการตรวจลายเซ็น">Webhook และการตรวจลายเซ็น</h1>
-<p>TMS ส่ง event เป็น <code>POST</code> JSON ไปยัง endpoint ของคุณ (สมัครที่ <strong>นักพัฒนา / Open API → Webhooks</strong>) — รายการ event และ schema ของแต่ละตัวอยู่ที่ <a href="webhook-events.html">Webhook events</a></p>
+<p>TMS ส่ง event เป็น <code>POST</code> JSON ไปยัง endpoint ของคุณ — รายการ event และ schema ของแต่ละตัวอยู่ที่ <a href="webhook-events.html">Webhook events</a></p>
+<p>สมัคร endpoint ในหน้าเว็บ <strong>นักพัฒนา / Open API → Webhooks</strong> (ผู้ใช้ที่ login) — URL ต้องเป็น <code>https://</code> ที่เข้าถึงได้จากอินเทอร์เน็ต ไม่รับที่อยู่ภายใน/localhost · API key <strong>อ่าน</strong>ข้อมูล webhook/event/การส่งได้ (<code>settings:read</code>, <code>events:read</code>) แต่สร้าง/แก้/ส่งซ้ำไม่ได้ · ทดสอบจากเครื่องตัวเองใช้ tunnel (ngrok / Cloudflare Tunnel) แล้วยิง event จำลองตาม <a href="sandbox.html">Sandbox</a></p>
 <h2 id="envelope">Envelope</h2>
 <pre><code class="language-json">{
   &quot;id&quot;: &quot;evt_…&quot;,
   &quot;type&quot;: &quot;order.created&quot;,
-  &quot;version&quot;: &quot;2026-11-18&quot;,
+  &quot;version&quot;: &quot;1&quot;,
   &quot;occurredAt&quot;: &quot;2026-11-20T08:00:00+07:00&quot;,
-  &quot;tenantId&quot;: &quot;…&quot;,
+  &quot;tenantId&quot;: &quot;ten_…&quot;,
   &quot;mode&quot;: &quot;live&quot;,
-  &quot;data&quot;: { &quot;object&quot;: { &quot;id&quot;: &quot;ord_…&quot; }, &quot;previousAttributes&quot;: null }
+  &quot;data&quot;: { &quot;object&quot;: { &quot;id&quot;: &quot;ord_…&quot; }, &quot;previousAttributes&quot;: null },
+  &quot;request&quot;: { &quot;id&quot;: &quot;…&quot;, &quot;idempotencyKey&quot;: null }
 }</code></pre>
+<p><code>version</code> = เวอร์ชันของ envelope (ปัจจุบัน <code>&quot;1&quot;</code>) · <code>mode</code> = <code>test</code> เมื่อมาจาก Sandbox · <code>data.previousAttributes</code> = ค่าเดิมของฟิลด์ที่เปลี่ยน · <code>request</code> = คำขอ API ที่ทำให้เกิด event (ถ้ามี)</p>
 <h2 id="header">Header</h2>
 <div class="table"><table><thead><tr><th>Header</th><th>ความหมาย</th></tr></thead><tbody><tr><td><code>X-TMS-Event</code></td><td>ชนิด event</td></tr><tr><td><code>X-TMS-Event-Id</code></td><td>id ของ event (<code>evt_…</code>) — ใช้กันประมวลผลซ้ำ (ส่งแบบ at-least-once)</td></tr><tr><td><code>X-TMS-Timestamp</code></td><td>เวลาส่ง (วินาที unix)</td></tr><tr><td><code>X-TMS-Signature</code></td><td><code>t=&lt;unix&gt;,v1=&lt;hex&gt;</code> — ช่วงหมุน secret มี <code>v1</code> สองตัว (ใหม่ + เดิม) 24 ชม.</td></tr><tr><td><code>X-TMS-Attempt</code></td><td>ครั้งที่ส่ง (เริ่ม 1)</td></tr></tbody></table></div>
 <h2 id="วิธีตรวจลายเซ็น">วิธีตรวจลายเซ็น</h2>

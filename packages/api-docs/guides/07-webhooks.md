@@ -1,6 +1,8 @@
 # Webhook และการตรวจลายเซ็น
 
-TMS ส่ง event เป็น `POST` JSON ไปยัง endpoint ของคุณ (สมัครที่ **นักพัฒนา / Open API → Webhooks**) — รายการ event และ schema ของแต่ละตัวอยู่ที่ [Webhook events](webhook-events.md)
+TMS ส่ง event เป็น `POST` JSON ไปยัง endpoint ของคุณ — รายการ event และ schema ของแต่ละตัวอยู่ที่ [Webhook events](webhook-events.md)
+
+สมัคร endpoint ในหน้าเว็บ **นักพัฒนา / Open API → Webhooks** (ผู้ใช้ที่ login) — URL ต้องเป็น `https://` ที่เข้าถึงได้จากอินเทอร์เน็ต ไม่รับที่อยู่ภายใน/localhost · API key **อ่าน**ข้อมูล webhook/event/การส่งได้ (`settings:read`, `events:read`) แต่สร้าง/แก้/ส่งซ้ำไม่ได้ · ทดสอบจากเครื่องตัวเองใช้ tunnel (ngrok / Cloudflare Tunnel) แล้วยิง event จำลองตาม [Sandbox](sandbox.md)
 
 ## Envelope
 
@@ -8,13 +10,16 @@ TMS ส่ง event เป็น `POST` JSON ไปยัง endpoint ของ�
 {
   "id": "evt_…",
   "type": "order.created",
-  "version": "2026-11-18",
+  "version": "1",
   "occurredAt": "2026-11-20T08:00:00+07:00",
-  "tenantId": "…",
+  "tenantId": "ten_…",
   "mode": "live",
-  "data": { "object": { "id": "ord_…" }, "previousAttributes": null }
+  "data": { "object": { "id": "ord_…" }, "previousAttributes": null },
+  "request": { "id": "…", "idempotencyKey": null }
 }
 ```
+
+`version` = เวอร์ชันของ envelope (ปัจจุบัน `"1"`) · `mode` = `test` เมื่อมาจาก Sandbox · `data.previousAttributes` = ค่าเดิมของฟิลด์ที่เปลี่ยน · `request` = คำขอ API ที่ทำให้เกิด event (ถ้ามี)
 
 ## Header
 

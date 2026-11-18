@@ -1,8 +1,8 @@
 # TMS API v1
 
-เอกสาร Open API ของ TMS — endpoint ชุดเดียวกับที่เว็บของ TMS ใช้ (API-first) · เวอร์ชันพฤติกรรมล่าสุด `2026-11-18` · 304 endpoint
+เอกสาร Open API ของ TMS — endpoint ชุดเดียวกับที่เว็บของ TMS ใช้ (API-first) · เวอร์ชันพฤติกรรมล่าสุด `2026-11-18` · 302 endpoint
 
-เริ่มที่ [Quickstart](quickstart.md) (สร้าง order แรกใน Sandbox ภายใน 15 นาที) · ดาวน์โหลด [Postman collection](tms-api.postman_collection.json) · สำหรับ AI/LLM: [llms.txt](llms.txt), [llms-full.txt](llms-full.txt) · ทุกหน้ามีฉบับ Markdown (`<หน้า>.md`)
+เริ่มที่ [Quickstart](quickstart.md) (สร้าง order แรกใน Sandbox ภายใน 15 นาที) · ดาวน์โหลด [Postman collection](tms-api.postman_collection.json) · [OpenAPI](openapi.json) · สำหรับ AI/LLM: [llms.txt](llms.txt), [llms-full.txt](llms-full.txt) · ทุกหน้ามีฉบับ Markdown (`<หน้า>.md`)
 
 ## เริ่มต้นใช้งาน
 
@@ -11,11 +11,11 @@
 
 ## แนวทาง
 
-- [แนวทางการใช้ API](conventions.md) — มาตรฐานที่ทุก endpoint ใช้ร่วมกัน (docs/04 G1)
+- [แนวทางการใช้ API](conventions.md) — มาตรฐานที่ทุก endpoint ใช้ร่วมกัน
 - [Rate limit](rate-limits.md) — จำกัดแบบ token bucket หลายชั้นพร้อมกัน (ค่าของแพ็กเกจมาตรฐาน — แพ็กเกจ `high` = 2 เท่าทุกชั้น)
 - [เวอร์ชันของ API](versioning.md) — เวอร์ชันมี 2 ชั้น: major ใน path และวันที่ของพฤติกรรมใน header `X-Api-Version`
 - [Sandbox](sandbox.md) — Sandbox = บริษัทคู่แฝดของคุณในโหมดทดสอบ ข้อมูลแยกขาดจากข้อมูลจริง (คนละ tenant ในระบบ)
-- [Webhook และการตรวจลายเซ็น](webhooks.md) — TMS ส่ง event เป็น `POST` JSON ไปยัง endpoint ของคุณ (สมัครที่ นักพัฒนา / Open API → Webhooks) — รายการ event และ schema ของแต่ละตัวอยู่ที่ [Webhook events](webhook-events.md)
+- [Webhook และการตรวจลายเซ็น](webhooks.md) — TMS ส่ง event เป็น `POST` JSON ไปยัง endpoint ของคุณ — รายการ event และ schema ของแต่ละตัวอยู่ที่ [Webhook events](webhook-events.md)
 - [ทำทีละหลายรายการและงานเบื้องหลัง](bulk-async.md) — `POST /v1/orders:bulk` body `{ "items": [...] }` 1–200 ใบ (รูปเดียวกับ body ของ `POST /v1/orders`, body ≤ 1 MB) → `207 Multi-Status` ผลแยกต่อรายการเรียงตาม `items[]` (รายการที่ไม่ผ่านไม่ย้อนรายการอื่น · ใบที่มี `externalId` เดิม = อัปเดตใบเดิม) · รับ `Idempotency-Key` · นับเป็นคำขอหนักใน [rate limit](rate-limits.md)
 - [TypeScript SDK](sdk.md) — `@tms/sdk` — client ที่มี type ครบทุก path ของ `/v1` (generate จาก OpenAPI ชุดเดียวกับเอกสารนี้) ใช้ได้กับ Node.js ≥ 20, Deno, Bun และ browser/edge
 - [Postman](postman.md) — ไฟล์ [tms-api.postman_collection.json](tms-api.postman_collection.json) (Postman Collection v2.1) — ทุก endpoint ในเอกสารนี้ แยกโฟลเดอร์ตาม resource พร้อม body ตัวอย่างจาก schema
@@ -45,7 +45,7 @@
 - [เอกสารรถ (vehicle-documents)](ref-vehicle-documents.md) — 8 endpoint: GET /v1/vehicles/{id}/documents, POST /v1/vehicles/{id}/documents, GET /v1/vehicle-documents/summary, GET /v1/vehicle-documents/export, GET /v1/vehicle-documents, GET /v1/vehicle-documents/{id}, …
 - [เอกสารรถร่วม (carrier-docs)](ref-carrier-docs.md) — 6 endpoint: GET /v1/carriers/{id}/upload-links, POST /v1/carriers/{id}/upload-links, POST /v1/carrier-upload-links/{id}/revoke, GET /v1/carrier-doc-submissions, POST /v1/carrier-doc-submissions/{id}/approve, POST /v1/carrier-doc-submissions/{id}/reject
 - [แม่แบบใบสั่ง (order-templates)](ref-order-templates.md) — 5 endpoint: GET /v1/order-templates, POST /v1/order-templates, GET /v1/order-templates/{id}, PATCH /v1/order-templates/{id}, POST /v1/order-templates/{id}/delete
-- [วางแผน (planning)](ref-planning.md) — 4 endpoint: GET /v1/planning/board, GET /v1/planning/eligibility, GET /v1/planning/board/preferences, PUT /v1/planning/board/preferences
+- [วางแผน (planning)](ref-planning.md) — 2 endpoint: GET /v1/planning/board, GET /v1/planning/eligibility
 - [ตารางงาน (schedule)](ref-schedule.md) — 4 endpoint: GET /v1/schedule-entries, POST /v1/schedule-entries, GET /v1/schedule-entries/{id}, POST /v1/schedule-entries/{id}/cancel
 - [ส่งออกไฟล์ (exports)](ref-exports.md) — 2 endpoint: POST /v1/exports, GET /v1/exports/{id}
 - [Connector ERP (connectors)](ref-connectors.md) — 5 endpoint: GET /v1/connectors/effective, GET /v1/connectors, GET /v1/connectors/adapters, GET /v1/connectors/{id}, GET /v1/connectors/{id}/history
@@ -60,5 +60,5 @@
 ## อ้างอิง
 
 - [Webhook events](webhook-events.md) — 31 event: connector.health_changed, credit_note.finalized, debit_note.finalized, delivery_order.status_changed, invoice.adjusted, invoice.finalized, invoice.paid, invoice.voided, …
-- [รหัส error](errors.md) — 40 code ของ problem+json
+- [รหัส error](errors.md) — 95 code ของ problem+json
 - [Changelog](changelog.md) — ประวัติเวอร์ชันของ API (added/changed/deprecated)

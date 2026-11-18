@@ -36,6 +36,6 @@ await tms.PATCH('/v1/orders/{id}', {
 |---|---|---|
 | ยืนยันตัวตน | `Authorization: Bearer <apiKey>` หรือ token จาก `getToken()` (เช่น OAuth ที่ต่ออายุเอง) | `apiKey`, `getToken` |
 | เวอร์ชัน | ส่ง `X-Api-Version` = เวอร์ชันที่ SDK สร้างจาก (`API_VERSION`) | `apiVersion` (`null` = ใช้ค่าที่ pin บน key) |
-| Idempotency | ใส่ `Idempotency-Key` (UUID) ให้ทุก POST ที่ยังไม่มี · ส่งเองได้ใน `params.header` | `autoIdempotencyKey: false` ปิด |
-| Retry | `429` รอตาม `Retry-After` · `502/503/504`/network error ลองใหม่เฉพาะคำขอที่ส่งซ้ำได้ปลอดภัย (GET/PUT/DELETE หรือมี Idempotency-Key) · ค่าเริ่ม 3 ครั้ง รอไม่เกิน 30 วินาที | `retry: { maxRetries, maxDelayMs, baseDelayMs }` หรือ `false` |
+| Idempotency | ใส่ `Idempotency-Key` (UUID) ให้ POST ที่ **ประกาศรับ header นี้ใน OpenAPI** และยังไม่มี (รายการสร้างจาก openapi.json ตอน build — `IDEMPOTENT_POSTS`) · endpoint ที่ไม่รับ (เช่น `POST /v1/carriers/{id}/reveal`) ไม่ใส่ · ส่งเองได้ใน `params.header` | `autoIdempotencyKey: false` ปิด |
+| Retry | `429` รอตาม `Retry-After` · `502/503/504`/network error ลองใหม่เฉพาะคำขอที่ส่งซ้ำได้ปลอดภัย (GET/PUT/DELETE หรือมี Idempotency-Key) · ค่าเริ่ม 3 ครั้ง รอไม่เกิน 30 วินาที · backoff เมื่อไม่มี `Retry-After` = 0.5, 1, 2 วินาที (ไม่มี jitter) · `409 idempotency_in_progress` (คำขอแรกของ key เดิมยังทำอยู่) ไม่ลองใหม่ให้ — รอสักครู่แล้วส่งซ้ำด้วย key เดิม จะได้ผลของคำขอแรก | `retry: { maxRetries, maxDelayMs, baseDelayMs }` หรือ `false` |
 | Webhook | `verifyWebhookSignature()` / `constructWebhookEvent()` — ดู [Webhook](webhooks.md) | `toleranceSec` |

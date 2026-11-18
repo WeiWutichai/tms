@@ -242,7 +242,7 @@ const { data, error } = await tms.GET('/v1/connectors/{id}/history', {
 | `adapterAvailable` | ใช่ | `boolean` |   | false = adapter ของ connector ไม่ได้ติดตั้ง/ปิดใน environment นี้ (เช่น demo ใน production) — ไม่ส่ง/ไม่ดึง |   |
 | `status` | ใช่ | `string` | ค่า: `ACTIVE`, `PAUSED`, `ERROR`, `DISCONNECTED` · null ได้ |   |   |
 | `capabilities` | ใช่ | `array<string>` |   | ใช้ได้จริง (UI แสดงเฉพาะที่อยู่ในรายการนี้) |   |
-| `documentSync` | ใช่ | `DocumentSyncDto` |   | มีขั้น sync ไหมต่อประเภทเอกสาร (ST7-T14) — `NOT_APPLICABLE` = ไม่แสดงสถานะ sync, เอกสารเดินสถานะใน TMS เอง (invoice ISSUED → PAID ไม่มี SENT) |   |
+| `documentSync` | ใช่ | `DocumentSyncDto` |   | มีขั้น sync ไหมต่อประเภทเอกสาร — `NOT_APPLICABLE` = ไม่แสดงสถานะ sync, เอกสารเดินสถานะใน TMS เอง (invoice ISSUED → PAID ไม่มี SENT) |   |
 | `sending` | ใช่ | `boolean` |   | ส่ง/ดึงได้ตอนนี้ (ACTIVE) — false = เอกสารเข้าคิวรอ |   |
 | `scope` | ใช่ | `string` | ค่า: `company`, `tenant`, `none` |   |   |
 | `erpCompanyCode` | ใช่ | `string` | null ได้ |   |   |

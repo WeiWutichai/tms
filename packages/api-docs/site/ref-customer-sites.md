@@ -36,9 +36,9 @@ scope: `master:read` · operationId: `Sites_list`
 | `cursor` | query |   | `string` | ค่า nextCursor จากหน้าก่อน (ใช้กับ sort เดิมเท่านั้น) |
 | `updatedAfter` | query |   | `string` | คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull — ใช้คู่ includeDeleted=true เพื่อรับรายการที่ถูกลบ) |
 | `sort` | query |   | `string` ค่า: `code`, `updatedAt`, `-updatedAt` | code = เรียงตามรหัส (ค่าเริ่มต้นของหน้าจอ) · updatedAt/-updatedAt สำหรับ sync |
-| `fields` | query |   | `string` | รายชื่อ field คั่นด้วย , เช่น id,legalName |
+| `fields` | query |   | `string` | รายชื่อ field คั่นด้วย, เช่น id,legalName |
 | `q` | query |   | `string` | ค้นหา — รหัส ชื่อ เลขผู้เสียภาษี หรือ externalId (ไม่สนตัวพิมพ์) |
-| `status` | query |   | `string` | คั่นด้วย , เช่น active,inactive |
+| `status` | query |   | `string` | คั่นด้วย, เช่น active,inactive |
 | `externalId` | query |   | `string` | externalId ตรงตัว (ใช้ตรวจว่ามีในระบบแล้วหรือยัง) |
 | `includeDeleted` | query |   | `string` | true = รวมรายการที่ถูกลบ (tombstone มี `deletedAt`) — ให้ระบบที่ดึงแบบ incremental รู้ว่ารายการถูกลบ |
 | `kind` | query |   | `string` ค่า: `PICKUP`, `DROPOFF`, `WAREHOUSE` |   |
@@ -90,14 +90,14 @@ scope: `master:write` · operationId: `Sites_create`
 | `customerId` |   | `string` | null ได้ | ลูกค้าเจ้าของจุด — null = จุดของบริษัทเอง (คลัง/ลานจอด) ใช้ได้กับทุกลูกค้า | `cus_…` |
 | `lat` |   | `number` | null ได้ | ละติจูด (ส่งคู่กับ lng) — มีพิกัด → geocodeStatus OK, null ทั้งคู่ → PENDING | `13.417` |
 | `lng` |   | `number` | null ได้ |   | `101.001` |
-| `geofenceRadiusM` |   | `number` | ≥ 50 · ≤ 2000 | รัศมี geofence (เมตร) — ค่าเริ่มต้น 200 (spec/02 §2) |   |
-| `aliases` |   | `array<string>` | ≤ 50 รายการ | ชื่อเรียกอื่น — ค้นหา `q` เจอด้วย alias และใช้จับคู่ข้อความปลายทางอัตโนมัติ (ST3-T06) | `["โรงงานสยามพลาสติก","SPC ชลบุรี"]` |
+| `geofenceRadiusM` |   | `number` | ≥ 50 · ≤ 2000 | รัศมี geofence (เมตร) — ค่าเริ่มต้น 200 |   |
+| `aliases` |   | `array<string>` | ≤ 50 รายการ | ชื่อเรียกอื่น — ค้นหา `q` เจอด้วย alias และใช้จับคู่ข้อความปลายทางอัตโนมัติ | `["โรงงานสยามพลาสติก","SPC ชลบุรี"]` |
 | `openTime` |   | `string` | null ได้ | HH:MM | `08:00` |
 | `closeTime` |   | `string` | null ได้ | HH:MM — น้อยกว่า openTime = ปิดวันถัดไป (ข้ามเที่ยงคืน); ว่างทั้งคู่ = 24 ชม. | `17:00` |
 | `maxVehicleClass` |   | `string` | ค่า: `6W`, `10W`, `TRAILER`, `SEMI_TRAILER` · null ได้ | รถเข้าได้สูงสุด: 6W = 6 ล้อ, 10W = 10 ล้อ, TRAILER = พ่วง, SEMI_TRAILER = เทรลเลอร์ · null = ไม่จำกัด |   |
 | `serviceTimeMin` |   | `number` | ≥ 0 · ≤ 720 · null ได้ | service time — เวลาขึ้น/ลงของโดยประมาณ (นาที) |   |
 | `freeTimeMin` |   | `number` | ≥ 0 · ≤ 1440 · null ได้ | free time ค่ารอที่จุดนี้ (นาที) — null = ใช้ค่าของลูกค้า/องค์กร |   |
-| `dockCount` |   | `number` | ≥ 0 · ≤ 999 · null ได้ | ช่องโหลด (loading bays) — ใช้กับคลัง/ต้นทาง (docs/04 B คลัง, spec/02 §2 dockCount) · null = ไม่ระบุ |   |
+| `dockCount` |   | `number` | ≥ 0 · ≤ 999 · null ได้ | ช่องโหลด (loading bays) — ใช้กับคลัง/ต้นทาง · null = ไม่ระบุ |   |
 | `contact` |   | `SiteContactDto` | null ได้ |   |   |
 | `contact.name` | ใช่ | `string` |   |   | `คุณวิไล` |
 | `contact.phone` |   | `string` |   |   | `02-300-4100` |
@@ -111,7 +111,7 @@ scope: `master:write` · operationId: `Sites_create`
 | `address.district` |   | `string` |   |   |   |
 | `address.province` |   | `string` |   |   |   |
 | `address.postcode` |   | `string` |   |   | `10540` |
-| `code` |   | `string` |   | รหัสสถานที่ — ไม่ส่ง = ระบบออกเลขถัดไป (MD-002) | `LOC-00001` |
+| `code` |   | `string` |   | รหัสสถานที่ — ไม่ส่ง = ระบบออกเลขถัดไป | `LOC-00001` |
 | `externalId` |   | `string` |   | รหัสในระบบต้นทาง — เรียกด้วย ext:{externalId} ได้ |   |
 
 **Responses**
@@ -187,7 +187,7 @@ scope: `master:write` · operationId: `Sites_nextCode`
 
 | สถานะ | ความหมาย | body |
 |---|---|---|
-| `200` | รหัสที่ระบบจะออกให้สถานที่ใหม่ (MD-002) | `NextCodeDto` |
+| `200` | รหัสที่ระบบจะออกให้สถานที่ใหม่ | `NextCodeDto` |
 | `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
 | `403` | ไม่มีสิทธิ์ (`master:write`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
 | `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
@@ -217,9 +217,9 @@ scope: `export:run` · operationId: `Sites_export`
 | `cursor` | query |   | `string` | ค่า nextCursor จากหน้าก่อน (ใช้กับ sort เดิมเท่านั้น) |
 | `updatedAfter` | query |   | `string` | คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull — ใช้คู่ includeDeleted=true เพื่อรับรายการที่ถูกลบ) |
 | `sort` | query |   | `string` ค่า: `code`, `updatedAt`, `-updatedAt` | code = เรียงตามรหัส (ค่าเริ่มต้นของหน้าจอ) · updatedAt/-updatedAt สำหรับ sync |
-| `fields` | query |   | `string` | รายชื่อ field คั่นด้วย , เช่น id,legalName |
+| `fields` | query |   | `string` | รายชื่อ field คั่นด้วย, เช่น id,legalName |
 | `q` | query |   | `string` | ค้นหา — รหัส ชื่อ เลขผู้เสียภาษี หรือ externalId (ไม่สนตัวพิมพ์) |
-| `status` | query |   | `string` | คั่นด้วย , เช่น active,inactive |
+| `status` | query |   | `string` | คั่นด้วย, เช่น active,inactive |
 | `externalId` | query |   | `string` | externalId ตรงตัว (ใช้ตรวจว่ามีในระบบแล้วหรือยัง) |
 | `includeDeleted` | query |   | `string` | true = รวมรายการที่ถูกลบ (tombstone มี `deletedAt`) — ให้ระบบที่ดึงแบบ incremental รู้ว่ารายการถูกลบ |
 | `kind` | query |   | `string` ค่า: `PICKUP`, `DROPOFF`, `WAREHOUSE` |   |
@@ -230,13 +230,13 @@ scope: `export:run` · operationId: `Sites_export`
 | `geocode` | query |   | `string` ค่า: `OK`, `REVIEW`, `PENDING`, `FAILED` | สถานะพิกัด: OK = มีพิกัด · REVIEW = รอยืนยันพิกัดที่ geocode เสนอ · PENDING = ยังไม่มีพิกัดและไม่มีข้อเสนอ · FAILED = หาพิกัดไม่พบ |
 | `maxVehicleClass` | query |   | `string` ค่า: `6W`, `10W`, `TRAILER`, `SEMI_TRAILER` |   |
 | `format` | query |   | `string` ค่า: `xlsx`, `csv` |   |
-| `ids` | query |   | `string` | ส่งออกเฉพาะ id เหล่านี้ (คั่นด้วย ,) — แถวที่เลือกในตาราง |
+| `ids` | query |   | `string` | ส่งออกเฉพาะ id เหล่านี้ (คั่นด้วย,) — แถวที่เลือกในตาราง |
 
 **Responses**
 
 | สถานะ | ความหมาย | body |
 |---|---|---|
-| `200` | ไฟล์ .xlsx หรือ .csv ตามตัวกรองเดียวกับรายการ (สูงสุด 10,000 แถว) |   |
+| `200` | ไฟล์.xlsx หรือ.csv ตามตัวกรองเดียวกับรายการ (สูงสุด 10,000 แถว) |   |
 | `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
 | `403` | ไม่มีสิทธิ์ (`export:run`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
 | `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (query/body) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
@@ -314,14 +314,14 @@ scope: `master:write` · operationId: `Sites_upsertExternal`
 | `customerId` |   | `string` | null ได้ | ลูกค้าเจ้าของจุด — null = จุดของบริษัทเอง (คลัง/ลานจอด) ใช้ได้กับทุกลูกค้า | `cus_…` |
 | `lat` |   | `number` | null ได้ | ละติจูด (ส่งคู่กับ lng) — มีพิกัด → geocodeStatus OK, null ทั้งคู่ → PENDING | `13.417` |
 | `lng` |   | `number` | null ได้ |   | `101.001` |
-| `geofenceRadiusM` |   | `number` | ≥ 50 · ≤ 2000 | รัศมี geofence (เมตร) — ค่าเริ่มต้น 200 (spec/02 §2) |   |
-| `aliases` |   | `array<string>` | ≤ 50 รายการ | ชื่อเรียกอื่น — ค้นหา `q` เจอด้วย alias และใช้จับคู่ข้อความปลายทางอัตโนมัติ (ST3-T06) | `["โรงงานสยามพลาสติก","SPC ชลบุรี"]` |
+| `geofenceRadiusM` |   | `number` | ≥ 50 · ≤ 2000 | รัศมี geofence (เมตร) — ค่าเริ่มต้น 200 |   |
+| `aliases` |   | `array<string>` | ≤ 50 รายการ | ชื่อเรียกอื่น — ค้นหา `q` เจอด้วย alias และใช้จับคู่ข้อความปลายทางอัตโนมัติ | `["โรงงานสยามพลาสติก","SPC ชลบุรี"]` |
 | `openTime` |   | `string` | null ได้ | HH:MM | `08:00` |
 | `closeTime` |   | `string` | null ได้ | HH:MM — น้อยกว่า openTime = ปิดวันถัดไป (ข้ามเที่ยงคืน); ว่างทั้งคู่ = 24 ชม. | `17:00` |
 | `maxVehicleClass` |   | `string` | ค่า: `6W`, `10W`, `TRAILER`, `SEMI_TRAILER` · null ได้ | รถเข้าได้สูงสุด: 6W = 6 ล้อ, 10W = 10 ล้อ, TRAILER = พ่วง, SEMI_TRAILER = เทรลเลอร์ · null = ไม่จำกัด |   |
 | `serviceTimeMin` |   | `number` | ≥ 0 · ≤ 720 · null ได้ | service time — เวลาขึ้น/ลงของโดยประมาณ (นาที) |   |
 | `freeTimeMin` |   | `number` | ≥ 0 · ≤ 1440 · null ได้ | free time ค่ารอที่จุดนี้ (นาที) — null = ใช้ค่าของลูกค้า/องค์กร |   |
-| `dockCount` |   | `number` | ≥ 0 · ≤ 999 · null ได้ | ช่องโหลด (loading bays) — ใช้กับคลัง/ต้นทาง (docs/04 B คลัง, spec/02 §2 dockCount) · null = ไม่ระบุ |   |
+| `dockCount` |   | `number` | ≥ 0 · ≤ 999 · null ได้ | ช่องโหลด (loading bays) — ใช้กับคลัง/ต้นทาง · null = ไม่ระบุ |   |
 | `contact` |   | `SiteContactDto` | null ได้ |   |   |
 | `contact.name` | ใช่ | `string` |   |   | `คุณวิไล` |
 | `contact.phone` |   | `string` |   |   | `02-300-4100` |
@@ -400,14 +400,14 @@ scope: `master:write` · operationId: `Sites_patchExternal`
 | `customerId` |   | `string` | null ได้ | ลูกค้าเจ้าของจุด — null = จุดของบริษัทเอง (คลัง/ลานจอด) ใช้ได้กับทุกลูกค้า | `cus_…` |
 | `lat` |   | `number` | null ได้ | ละติจูด (ส่งคู่กับ lng) — มีพิกัด → geocodeStatus OK, null ทั้งคู่ → PENDING | `13.417` |
 | `lng` |   | `number` | null ได้ |   | `101.001` |
-| `geofenceRadiusM` |   | `number` | ≥ 50 · ≤ 2000 | รัศมี geofence (เมตร) — ค่าเริ่มต้น 200 (spec/02 §2) |   |
-| `aliases` |   | `array<string>` | ≤ 50 รายการ | ชื่อเรียกอื่น — ค้นหา `q` เจอด้วย alias และใช้จับคู่ข้อความปลายทางอัตโนมัติ (ST3-T06) | `["โรงงานสยามพลาสติก","SPC ชลบุรี"]` |
+| `geofenceRadiusM` |   | `number` | ≥ 50 · ≤ 2000 | รัศมี geofence (เมตร) — ค่าเริ่มต้น 200 |   |
+| `aliases` |   | `array<string>` | ≤ 50 รายการ | ชื่อเรียกอื่น — ค้นหา `q` เจอด้วย alias และใช้จับคู่ข้อความปลายทางอัตโนมัติ | `["โรงงานสยามพลาสติก","SPC ชลบุรี"]` |
 | `openTime` |   | `string` | null ได้ | HH:MM | `08:00` |
 | `closeTime` |   | `string` | null ได้ | HH:MM — น้อยกว่า openTime = ปิดวันถัดไป (ข้ามเที่ยงคืน); ว่างทั้งคู่ = 24 ชม. | `17:00` |
 | `maxVehicleClass` |   | `string` | ค่า: `6W`, `10W`, `TRAILER`, `SEMI_TRAILER` · null ได้ | รถเข้าได้สูงสุด: 6W = 6 ล้อ, 10W = 10 ล้อ, TRAILER = พ่วง, SEMI_TRAILER = เทรลเลอร์ · null = ไม่จำกัด |   |
 | `serviceTimeMin` |   | `number` | ≥ 0 · ≤ 720 · null ได้ | service time — เวลาขึ้น/ลงของโดยประมาณ (นาที) |   |
 | `freeTimeMin` |   | `number` | ≥ 0 · ≤ 1440 · null ได้ | free time ค่ารอที่จุดนี้ (นาที) — null = ใช้ค่าของลูกค้า/องค์กร |   |
-| `dockCount` |   | `number` | ≥ 0 · ≤ 999 · null ได้ | ช่องโหลด (loading bays) — ใช้กับคลัง/ต้นทาง (docs/04 B คลัง, spec/02 §2 dockCount) · null = ไม่ระบุ |   |
+| `dockCount` |   | `number` | ≥ 0 · ≤ 999 · null ได้ | ช่องโหลด (loading bays) — ใช้กับคลัง/ต้นทาง · null = ไม่ระบุ |   |
 | `contact` |   | `SiteContactDto` | null ได้ |   |   |
 | `contact.name` | ใช่ | `string` |   |   | `คุณวิไล` |
 | `contact.phone` |   | `string` |   |   | `02-300-4100` |
@@ -513,14 +513,14 @@ scope: `master:write` · operationId: `Sites_update`
 | `customerId` |   | `string` | null ได้ | ลูกค้าเจ้าของจุด — null = จุดของบริษัทเอง (คลัง/ลานจอด) ใช้ได้กับทุกลูกค้า | `cus_…` |
 | `lat` |   | `number` | null ได้ | ละติจูด (ส่งคู่กับ lng) — มีพิกัด → geocodeStatus OK, null ทั้งคู่ → PENDING | `13.417` |
 | `lng` |   | `number` | null ได้ |   | `101.001` |
-| `geofenceRadiusM` |   | `number` | ≥ 50 · ≤ 2000 | รัศมี geofence (เมตร) — ค่าเริ่มต้น 200 (spec/02 §2) |   |
-| `aliases` |   | `array<string>` | ≤ 50 รายการ | ชื่อเรียกอื่น — ค้นหา `q` เจอด้วย alias และใช้จับคู่ข้อความปลายทางอัตโนมัติ (ST3-T06) | `["โรงงานสยามพลาสติก","SPC ชลบุรี"]` |
+| `geofenceRadiusM` |   | `number` | ≥ 50 · ≤ 2000 | รัศมี geofence (เมตร) — ค่าเริ่มต้น 200 |   |
+| `aliases` |   | `array<string>` | ≤ 50 รายการ | ชื่อเรียกอื่น — ค้นหา `q` เจอด้วย alias และใช้จับคู่ข้อความปลายทางอัตโนมัติ | `["โรงงานสยามพลาสติก","SPC ชลบุรี"]` |
 | `openTime` |   | `string` | null ได้ | HH:MM | `08:00` |
 | `closeTime` |   | `string` | null ได้ | HH:MM — น้อยกว่า openTime = ปิดวันถัดไป (ข้ามเที่ยงคืน); ว่างทั้งคู่ = 24 ชม. | `17:00` |
 | `maxVehicleClass` |   | `string` | ค่า: `6W`, `10W`, `TRAILER`, `SEMI_TRAILER` · null ได้ | รถเข้าได้สูงสุด: 6W = 6 ล้อ, 10W = 10 ล้อ, TRAILER = พ่วง, SEMI_TRAILER = เทรลเลอร์ · null = ไม่จำกัด |   |
 | `serviceTimeMin` |   | `number` | ≥ 0 · ≤ 720 · null ได้ | service time — เวลาขึ้น/ลงของโดยประมาณ (นาที) |   |
 | `freeTimeMin` |   | `number` | ≥ 0 · ≤ 1440 · null ได้ | free time ค่ารอที่จุดนี้ (นาที) — null = ใช้ค่าของลูกค้า/องค์กร |   |
-| `dockCount` |   | `number` | ≥ 0 · ≤ 999 · null ได้ | ช่องโหลด (loading bays) — ใช้กับคลัง/ต้นทาง (docs/04 B คลัง, spec/02 §2 dockCount) · null = ไม่ระบุ |   |
+| `dockCount` |   | `number` | ≥ 0 · ≤ 999 · null ได้ | ช่องโหลด (loading bays) — ใช้กับคลัง/ต้นทาง · null = ไม่ระบุ |   |
 | `contact` |   | `SiteContactDto` | null ได้ |   |   |
 | `contact.name` | ใช่ | `string` |   |   | `คุณวิไล` |
 | `contact.phone` |   | `string` |   |   | `02-300-4100` |
@@ -1009,8 +1009,8 @@ const { data, error } = await tms.POST('/v1/customer-sites/{id}/delete', {
 | `pinned` | ใช่ | `number` |   | มีพิกัดแล้ว |   |
 | `unpinned` | ใช่ | `number` |   | ยังไม่ปักหมุด |   |
 | `restricted` | ใช่ | `number` |   | จำกัดประเภทรถ (เข้าได้สูงสุด 6 ล้อ/10 ล้อ) |   |
-| `geocodeReview` | ใช่ | `number` |   | รอยืนยันพิกัดที่ geocode เสนอ (ST2-T03) |   |
-| `geocodeFailed` | ใช่ | `number` |   | หาพิกัดจากที่อยู่ไม่พบ — ต้องปักหมุดเอง (ST2-T03) |   |
+| `geocodeReview` | ใช่ | `number` |   | รอยืนยันพิกัดที่ geocode เสนอ |   |
+| `geocodeFailed` | ใช่ | `number` |   | หาพิกัดจากที่อยู่ไม่พบ — ต้องปักหมุดเอง |   |
 | `byKind` | ใช่ | `SiteKindCountDto` |   |   |   |
 | `active` | ใช่ | `number` |   |   |   |
 | `inactive` | ใช่ | `number` |   |   |   |

@@ -31,4 +31,4 @@ curl -sS -X POST "$TMS_BASE_URL/v1/oauth/token" \
 
 ## Scope
 
-scope รูปแบบ `resource:verb` (เช่น `orders:read`, `orders:write`, `orders:cancel`, `master:read`, `trips:dispatch`) — แต่ละ endpoint ในหน้า reference ระบุ scope ที่ต้องใช้ (มีหลายตัว = ตัวใดตัวหนึ่ง) · scope ด้านผู้ใช้/บทบาท/การตั้งค่า (`users:*`, `settings:write`) ให้ key ไม่ได้
+scope รูปแบบ `resource:verb` (เช่น `companies:read`, `orders:read`, `orders:write`, `orders:cancel`, `master:read`, `trips:dispatch`) — แต่ละ endpoint ในหน้า reference ระบุ scope ที่ต้องใช้ (มีหลายตัว = ตัวใดตัวหนึ่ง) · scope ด้านผู้ใช้/บทบาท/การตั้งค่า (`users:*`, `settings:write`) ให้ key ไม่ได้

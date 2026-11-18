@@ -7,6 +7,7 @@ import {
   constructWebhookEvent,
   createTmsClient,
   etagOf,
+  IDEMPOTENT_POSTS,
   ifMatch,
   paginate,
   parseRetryAfter,
@@ -50,8 +51,8 @@ describe('@tms/sdk', () => {
     expect(API_VERSION).toBe(doc.info['x-api-version-latest']);
   });
 
-  it('ส่ง Bearer key + X-Api-Version · POST ได้ Idempotency-Key อัตโนมัติ (ไม่ทับของผู้เรียก)', async () => {
-    const r = recorder([json(201, { id: 'cus_1' }), json(201, { id: 'cus_2' })]);
+  it('ส่ง Bearer key + X-Api-Version · POST ที่ประกาศรับได้ Idempotency-Key อัตโนมัติ (ไม่ทับของผู้เรียก) · POST ที่ไม่รับ ไม่ใส่', async () => {
+    const r = recorder([json(201, { id: 'cus_1' }), json(201, { id: 'cus_2' }), json(200, {})]);
     const tms = createTmsClient({ apiKey: 'tk_test_abc', baseUrl: 'http://x/', fetch: r.fetch });
     await tms.POST('/v1/customers', { body: { legalName: 'ก' } });
     await tms.POST('/v1/customers', {
@@ -64,6 +65,13 @@ describe('@tms/sdk', () => {
     expect(r.calls[0]!.headers.get('idempotency-key')).toMatch(/^[0-9a-f-]{36}$/);
     expect(r.calls[1]!.headers.get('idempotency-key')).toBe('mine-1');
     expect(JSON.parse(r.calls[1]!.body)).toEqual({ legalName: 'ข' });
+    expect(IDEMPOTENT_POSTS.has('/v1/customers')).toBe(true);
+    expect(IDEMPOTENT_POSTS.has('/v1/carriers/{id}/reveal')).toBe(false);
+    await tms.POST('/v1/carriers/{id}/reveal', {
+      params: { path: { id: 'car_1' } },
+      body: {} as never,
+    });
+    expect(r.calls[2]!.headers.has('idempotency-key')).toBe(false);
   });
 
   it('429 → รอตาม Retry-After แล้วส่งใหม่ (body + Idempotency-Key เดิม)', async () => {

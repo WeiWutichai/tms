@@ -1,6 +1,6 @@
 # แนวทางการใช้ API
 
-มาตรฐานที่ทุก endpoint ใช้ร่วมกัน (docs/04 G1)
+มาตรฐานที่ทุก endpoint ใช้ร่วมกัน
 
 ## รูปแบบข้อมูล
 
@@ -22,7 +22,7 @@ resource หลักมี `externalId` (รหัสในระบบขอ�
 ทุก `POST` รับ header `Idempotency-Key` (ASCII 1–255 ตัว เช่น UUID) เก็บ 24 ชม. ต่อ (บริษัท, key, path)
 - ส่งซ้ำด้วย key + body เดิม → ได้ผลเดิม (สถานะ + ETag เดิม) พร้อม header `Idempotent-Replayed: true` ไม่สร้างซ้ำ
 - key เดิมแต่ body ต่าง → `422 idempotency_mismatch` · คำขอแรกยังทำไม่เสร็จ → `409`
-- SDK ใส่ให้อัตโนมัติทุก POST และใช้ key เดิมตอน retry
+- SDK ใส่ให้อัตโนมัติทุก POST ที่รับ header นี้ (ตามที่ประกาศใน OpenAPI) และใช้ key เดิมตอน retry
 
 ## Pagination แบบ cursor
 

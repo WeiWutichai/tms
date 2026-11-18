@@ -29,8 +29,8 @@ scope: `settings:read` · operationId: `Webhooks_list`
 | `cursor` | query |   | `string` | ค่า nextCursor จากหน้าก่อน |
 | `updatedAfter` | query |   | `string` | คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull) |
 | `sort` | query |   | `string` ค่า: `updatedAt`, `-updatedAt` |   |
-| `fields` | query |   | `string` | รายชื่อ field คั่นด้วย , เช่น id,legalName |
-| `status` | query |   | `string` | สถานะคั่นด้วย , (active / failing / disabled / auto_disabled) |
+| `fields` | query |   | `string` | รายชื่อ field คั่นด้วย, เช่น id,legalName |
+| `status` | query |   | `string` | สถานะคั่นด้วย, (active / failing / disabled / auto_disabled) |
 | `url` | query |   | `string` | ค้น URL บางส่วน |
 
 **Responses**
@@ -102,7 +102,7 @@ scope: `settings:read` · operationId: `Webhooks_eventTypes`
 
 | สถานะ | ความหมาย | body |
 |---|---|---|
-| `200` | ทะเบียน event สาธารณะ (docs/01 §5.3 — ST7-T06): คำอธิบาย, ระยะ (`active` = ยิงแล้ว / `pending` = รอโมดูล — สมัครรอได้), JSON schema ของ `data.object` และตัวอย่าง (ข้อมูลสมมติ) — schema เดียวกับ `components.schemas.WebhookEvent_*` ใน openapi.json | `WebhookEventTypeListDto` |
+| `200` | ทะเบียน event สาธารณะ: คำอธิบาย, ระยะ (`active` = ยิงแล้ว / `pending` = รอโมดูล — สมัครรอได้), JSON schema ของ `data.object` และตัวอย่าง (ข้อมูลสมมติ) — schema เดียวกับ `components.schemas.WebhookEvent_*` ใน openapi.json | `WebhookEventTypeListDto` |
 | `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
 | `403` | ไม่มีสิทธิ์ (`settings:read`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
 | `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
@@ -209,7 +209,7 @@ scope: `settings:read` · operationId: `WebhookDeliveries_list`
 | `sort` | query |   | `string` ค่า: `sentAt`, `-sentAt` |   |
 | `eventId` | query |   | `string` | id ของ event (`id` ใน envelope / header X-TMS-Event-Id) |
 | `endpointId` | query |   | `string` |   |
-| `status` | query |   | `string` | คั่นด้วย , เช่น `failed,exhausted` |
+| `status` | query |   | `string` | คั่นด้วย, เช่น `failed,exhausted` |
 | `eventType` | query |   | `string` |   |
 | `test` | query |   | `boolean` | true = เฉพาะ event ทดสอบ/ยืนยันปลายทาง · false = เฉพาะ event จริง |
 | `sentFrom` | query |   | `string (date-time)` | ส่งตั้งแต่เวลานี้ |
@@ -286,7 +286,7 @@ scope: `events:read` · operationId: `Events_listEvents`
 | `limit` | query |   | `number` |   |
 | `cursor` | query |   | `string` | ค่า nextCursor จากหน้าก่อน (ใช้กับ sort เดิม) |
 | `sort` | query |   | `string` ค่า: `occurredAt`, `-occurredAt` |   |
-| `type` | query |   | `string` | ชนิด event คั่นด้วย , (ชื่อใน `GET /v1/webhooks/event-types`) |
+| `type` | query |   | `string` | ชนิด event คั่นด้วย, (ชื่อใน `GET /v1/webhooks/event-types`) |
 | `occurredFrom` | query |   | `string` | เกิดตั้งแต่ (ISO 8601) |
 | `occurredTo` | query |   | `string` | เกิดก่อน (ISO 8601) |
 
@@ -294,7 +294,7 @@ scope: `events:read` · operationId: `Events_listEvents`
 
 | สถานะ | ความหมาย | body |
 |---|---|---|
-| `200` | ST7-T11: event สาธารณะของบริษัท (envelope เดียวกับ webhook — ดึงเองแทน/เสริม webhook) ใหม่สุดก่อน · กรอง `type`, ช่วงเวลา · ไม่ขึ้นกับการสมัคร endpoint · scope `events:read` (docs/01 §5.4) **และ** scope อ่านของ resource ของ event (order.*/delivery_order.* → `orders:read`, trip.*/stop.*/pod.* → `trips:read`, connector.* → `settings:read`, job.* → `jobs:read`) — ชนิดที่อ่านไม่ได้ไม่อยู่ในรายการ · `type` ที่ไม่อยู่ในทะเบียน → 422 · field ราคาถูกตัดตามสิทธิ์ · `mode` = `test` ใน sandbox · ⚠ `evt_` ของ envelope เป็นคนละชุดกับ id ของ event หน้างาน (`GET /v1/stops/{id}/events`) | `EventPageDto` |
+| `200` | event สาธารณะของบริษัท (envelope เดียวกับ webhook — ดึงเองแทน/เสริม webhook) ใหม่สุดก่อน · กรอง `type`, ช่วงเวลา · ไม่ขึ้นกับการสมัคร endpoint · scope `events:read` **และ** scope อ่านของ resource ของ event (order.*/delivery_order.* → `orders:read`, trip.*/stop.*/pod.* → `trips:read`, connector.* → `settings:read`, job.* → `jobs:read`) — ชนิดที่อ่านไม่ได้ไม่อยู่ในรายการ · `type` ที่ไม่อยู่ในทะเบียน → 422 · field ราคาถูกตัดตามสิทธิ์ · `mode` = `test` ใน sandbox · ⚠ `evt_` ของ envelope เป็นคนละชุดกับ id ของ event หน้างาน (`GET /v1/stops/{id}/events`) | `EventPageDto` |
 | `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
 | `403` | ไม่มีสิทธิ์ (`events:read`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
 | `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (query/body) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
@@ -328,7 +328,7 @@ scope: `events:read` · operationId: `Events_getEvent`
 
 | สถานะ | ความหมาย | body |
 |---|---|---|
-| `200` | ST7-T11: envelope ของ event (id เดียวกับ X-TMS-Event-Id) · อ่าน resource ของ event ไม่ได้ / ไม่ใช่ event สาธารณะ = 404 | `EventDto` |
+| `200` | envelope ของ event (id เดียวกับ X-TMS-Event-Id) · อ่าน resource ของ event ไม่ได้ / ไม่ใช่ event สาธารณะ = 404 | `EventDto` |
 | `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
 | `403` | ไม่มีสิทธิ์ (`events:read`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
 | `404` | ไม่พบ (รวมข้อมูลของบริษัทอื่น — ไม่บอกว่ามีอยู่) — [not_found](errors.md#not_found) | `ProblemDto` |

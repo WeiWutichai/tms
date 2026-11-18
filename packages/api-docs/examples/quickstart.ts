@@ -6,10 +6,21 @@
 import { createTmsClient, unwrap } from '@tms/sdk';
 
 /** scope ที่ key ของ quickstart ต้องมี */
-export const QUICKSTART_SCOPES = ['master:read', 'master:write', 'orders:read', 'orders:write'];
+export const QUICKSTART_SCOPES = [
+  'companies:read',
+  'master:read',
+  'master:write',
+  'orders:read',
+  'orders:write',
+];
 
 export async function runQuickstart(opts: { baseUrl: string; apiKey: string }) {
   const tms = createTmsClient({ baseUrl: opts.baseUrl, apiKey: opts.apiKey });
+
+  // 0) นิติบุคคลที่ออกบิล — บริษัทที่มีหลายนิติบุคคลต้องระบุ billingCompanyId (ไม่งั้น 422 routing_not_configured)
+  const companies = unwrap(await tms.GET('/v1/companies', { params: { query: { limit: 50 } } }));
+  const billingCompanyId = companies.data[0]?.id;
+  if (!billingCompanyId) throw new Error('บริษัทยังไม่มีนิติบุคคล — ตั้งที่ ตั้งค่า → นิติบุคคลและสาขา ก่อน');
 
   // 1) ลูกค้า
   const customer = unwrap(
@@ -43,13 +54,14 @@ export async function runQuickstart(opts: { baseUrl: string; apiKey: string }) {
     }),
   );
 
-  // 3) ใบสั่งขนส่ง (order) — วันรับของ = พรุ่งนี้ (เวลาไทย)
+  // 3) ใบสั่งขนส่ง (order) — วันรับของ = พรุ่งนี้ (เวลาไทย UTC+7)
   const tomorrow = new Date(Date.now() + 31 * 3600_000).toISOString().slice(0, 10);
   const order = unwrap(
     await tms.PUT('/v1/orders/external/{externalId}', {
       params: { path: { externalId: 'QS-ORDER-001' } },
       body: {
         customer: { id: customer.id },
+        billingCompanyId,
         requestedDate: tomorrow,
         stops: [
           { type: 'PICKUP', siteId: pickup.id, windowStart: `${tomorrow}T08:00:00+07:00` },

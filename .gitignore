@@ -17,3 +17,4 @@ apps/web/playwright-report/
 .data/
 .claude/worktrees/
 packages/sdk/src/schema.d.ts
+packages/sdk/src/idempotency.gen.ts
