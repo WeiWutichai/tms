@@ -2688,6 +2688,435 @@
         ]
       }
     },
+    "/v1/platform/connectors/adapters": {
+      "get": {
+        "operationId": "PlatformConnectors_adapters",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErpAdapterListDto"
+                }
+              }
+            },
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform-console"
+        ]
+      }
+    },
+    "/v1/platform/connectors": {
+      "get": {
+        "operationId": "PlatformConnectors_list",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "example": "ten_…",
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "description": "ไม่ระบุ = ทุกสถานะยกเว้น DISCONNECTED",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "ACTIVE",
+                "PAUSED",
+                "ERROR",
+                "DISCONNECTED"
+              ]
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlatformConnectorListDto"
+                }
+              }
+            },
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform-console"
+        ]
+      }
+    },
+    "/v1/platform/connectors/commands": {
+      "get": {
+        "operationId": "PlatformConnectors_commands",
+        "parameters": [
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "PENDING",
+                "IN_FLIGHT",
+                "DONE",
+                "FAILED_RETRYABLE",
+                "FAILED_FINAL",
+                "SKIPPED"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "name": "tenantId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "example": "ten_…",
+              "type": "string"
+            }
+          },
+          {
+            "name": "connectorId",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "example": "con_…",
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlatformCommandListDto"
+                }
+              }
+            },
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform-console"
+        ]
+      }
+    },
+    "/v1/platform/tenants/{id}/connectors": {
+      "post": {
+        "operationId": "PlatformConnectors_create",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlatformCreateConnectorDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "แพ็กเกจไม่มีการเชื่อมต่อ → 403 `feature_not_in_plan` · นิติบุคคลเดียวกันมีแล้ว → 409 `connector_scope_taken` · เกิน limit → 409 `connector_limit_reached`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlatformConnectorCreatedDto"
+                }
+              }
+            },
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform-console"
+        ]
+      }
+    },
+    "/v1/platform/connectors/{id}/credentials": {
+      "put": {
+        "operationId": "PlatformConnectors_credentials",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlatformCredentialsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlatformConnectorDto"
+                }
+              }
+            },
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform-console"
+        ]
+      }
+    },
+    "/v1/platform/connectors/{id}/health": {
+      "post": {
+        "operationId": "PlatformConnectors_health",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ทดสอบการเชื่อมต่อ (เหมือนของ tenant)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorHealthDto"
+                }
+              }
+            },
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform-console"
+        ]
+      }
+    },
+    "/v1/platform/connectors/{id}/resume": {
+      "post": {
+        "operationId": "PlatformConnectors_resume",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlatformConnectorActionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "เปิดใช้หลังทดสอบผ่าน · ไม่ผ่าน → 409 `connector_health_failed`",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlatformConnectorDto"
+                }
+              }
+            },
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform-console"
+        ]
+      }
+    },
+    "/v1/platform/connectors/{id}/pause": {
+      "post": {
+        "operationId": "PlatformConnectors_pause",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlatformConnectorActionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlatformConnectorDto"
+                }
+              }
+            },
+            "headers": {
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform-console"
+        ]
+      }
+    },
     "/v1/me/impersonation/end": {
       "post": {
         "operationId": "Impersonation_end",
@@ -23031,6 +23460,88 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AuditPageDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "connectors"
+        ]
+      }
+    },
+    "/v1/connectors/{id}/commands": {
+      "get": {
+        "operationId": "Connectors_commands",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "PENDING",
+                "IN_FLIGHT",
+                "DONE",
+                "FAILED_RETRYABLE",
+                "FAILED_FINAL",
+                "SKIPPED"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ST7-T20 บันทึกการซิงก์ย่อ: คำสั่งล่าสุดในคิวของ connector นี้ (ใหม่สุดก่อน) — ไม่มี payload/response (ST7-T19)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorCommandListDto"
                 }
               }
             },
@@ -46008,6 +46519,1108 @@
           "url"
         ]
       },
+      "ConnectorConfigFieldDto": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "example": "baseUrl"
+          },
+          "secret": {
+            "type": "boolean",
+            "description": "credential — ไม่ส่งค่ากลับ, แสดงได้แค่ \"ตั้งแล้ว\""
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "string",
+              "url"
+            ]
+          },
+          "maxLength": {
+            "type": "number",
+            "nullable": true
+          },
+          "options": {
+            "nullable": true,
+            "description": "ค่าที่เลือกได้ (null = กรอกอิสระ) — ค่านอกรายการ → 422 `invalid_option`",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "key",
+          "secret",
+          "required",
+          "kind",
+          "maxLength",
+          "options"
+        ]
+      },
+      "ErpAdapterDto": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "example": "demo",
+            "description": "`adapterKey` ที่ใช้ตอนสร้าง connector"
+          },
+          "displayName": {
+            "type": "string",
+            "example": "Demo ERP"
+          },
+          "demo": {
+            "type": "boolean",
+            "description": "true = ERP จำลอง (DemoProvider — สำหรับสาธิต/ทดสอบ ไม่ส่งข้อมูลไปที่ใด) · มีเฉพาะ dev/test/staging ที่เปิด `ERP_DEMO_ADAPTERS` — หน้าจอต้องติดป้าย \"จำลอง\""
+          },
+          "capabilities": {
+            "type": "array",
+            "description": "capability ที่ adapter รองรับ (docs/01 §6.1) — UI แสดงเฉพาะที่อยู่ในรายการนี้",
+            "items": {
+              "type": "string",
+              "enum": [
+                "pullOrders",
+                "pushInvoice",
+                "pushCreditNote",
+                "pushSettlement",
+                "fetchDocument",
+                "fetchPaymentStatus",
+                "listDocuments",
+                "replaceDocument",
+                "postedStatus",
+                "ownsDocumentNumber"
+              ]
+            }
+          },
+          "configFields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConnectorConfigFieldDto"
+            }
+          }
+        },
+        "required": [
+          "key",
+          "displayName",
+          "demo",
+          "capabilities",
+          "configFields"
+        ]
+      },
+      "ErpAdapterListDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ErpAdapterDto"
+            }
+          }
+        },
+        "required": [
+          "data"
+        ]
+      },
+      "ConnectorInboundDto": {
+        "type": "object",
+        "properties": {
+          "supported": {
+            "type": "boolean",
+            "description": "adapter รับ webhook ขาเข้าได้ไหม (false = ออก token ไม่ได้ — 409 `inbound_not_supported`)"
+          },
+          "tokenPrefix": {
+            "type": "string",
+            "nullable": true,
+            "example": "whin_Q2x9",
+            "description": "ส่วนต้นของ token ปัจจุบัน · null = ยังไม่เปิดรับ (ไม่มี URL)"
+          },
+          "tokenRotatedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "supported",
+          "tokenPrefix",
+          "tokenRotatedAt"
+        ]
+      },
+      "PlatformQueueCountDto": {
+        "type": "object",
+        "properties": {
+          "open": {
+            "type": "number",
+            "description": "รอส่ง/กำลังส่ง/รอส่งซ้ำ"
+          },
+          "failed": {
+            "type": "number",
+            "description": "ล้มเหลวขั้นสุดท้าย"
+          }
+        },
+        "required": [
+          "open",
+          "failed"
+        ]
+      },
+      "PlatformConnectorDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "con_8f3a…"
+          },
+          "adapterKey": {
+            "type": "string",
+            "example": "demo"
+          },
+          "displayName": {
+            "type": "string",
+            "example": "Demo ERP",
+            "nullable": true,
+            "description": "null = adapter ไม่ได้ติดตั้งในระบบนี้"
+          },
+          "companyId": {
+            "type": "string",
+            "nullable": true,
+            "example": "cmp_…",
+            "description": "นิติบุคคลที่ใช้ connector นี้ (Invoice As / Tender As) · null = ทุกนิติบุคคลที่ไม่มีของตัวเอง"
+          },
+          "erpCompanyCode": {
+            "type": "string",
+            "nullable": true,
+            "example": "PP01"
+          },
+          "branchMap": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "example": {
+              "brn_8f3a": "PP01-BKK"
+            },
+            "description": "สาขา TMS → รหัสบริษัท/สาขาฝั่ง ERP (ไม่มี = ใช้ erpCompanyCode)"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "PAUSED",
+              "ERROR",
+              "DISCONNECTED"
+            ]
+          },
+          "statusReason": {
+            "type": "string",
+            "nullable": true
+          },
+          "statusChangedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "capabilitiesSupported": {
+            "type": "array",
+            "description": "capability ที่ adapter รองรับทั้งหมด",
+            "items": {
+              "type": "string",
+              "enum": [
+                "pullOrders",
+                "pushInvoice",
+                "pushCreditNote",
+                "pushSettlement",
+                "fetchDocument",
+                "fetchPaymentStatus",
+                "listDocuments",
+                "replaceDocument",
+                "postedStatus",
+                "ownsDocumentNumber"
+              ]
+            }
+          },
+          "capabilitiesEnabled": {
+            "type": "array",
+            "description": "ที่ tenant เปิด",
+            "items": {
+              "type": "string",
+              "enum": [
+                "pullOrders",
+                "pushInvoice",
+                "pushCreditNote",
+                "pushSettlement",
+                "fetchDocument",
+                "fetchPaymentStatus",
+                "listDocuments",
+                "replaceDocument",
+                "postedStatus",
+                "ownsDocumentNumber"
+              ]
+            }
+          },
+          "capabilities": {
+            "type": "array",
+            "description": "ใช้ได้จริง = รองรับ ∩ เปิด (ว่างเมื่อยกเลิกการเชื่อม)",
+            "items": {
+              "type": "string",
+              "enum": [
+                "pullOrders",
+                "pushInvoice",
+                "pushCreditNote",
+                "pushSettlement",
+                "fetchDocument",
+                "fetchPaymentStatus",
+                "listDocuments",
+                "replaceDocument",
+                "postedStatus",
+                "ownsDocumentNumber"
+              ]
+            }
+          },
+          "settings": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "ค่าตั้งที่ไม่ลับ (base URL ฯลฯ)"
+          },
+          "credentialKeys": {
+            "example": [
+              "apiKey"
+            ],
+            "description": "ชื่อช่อง credential ที่ตั้งแล้ว — ค่าไม่ส่งกลับเด็ดขาด",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "credentialsUpdatedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "syncFromDate": {
+            "type": "string",
+            "nullable": true,
+            "format": "date",
+            "example": "2026-12-01"
+          },
+          "lastHealthAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "lastHealthOk": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "lastHealthError": {
+            "type": "object",
+            "nullable": true,
+            "additionalProperties": true,
+            "description": "{errorClass, code, message} ของ healthCheck ล่าสุดที่ล้ม"
+          },
+          "activatedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "disconnectedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "inbound": {
+            "$ref": "#/components/schemas/ConnectorInboundDto"
+          },
+          "version": {
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "tenantId": {
+            "type": "string",
+            "example": "ten_…"
+          },
+          "tenantName": {
+            "type": "string"
+          },
+          "queue": {
+            "$ref": "#/components/schemas/PlatformQueueCountDto"
+          }
+        },
+        "required": [
+          "id",
+          "adapterKey",
+          "displayName",
+          "companyId",
+          "erpCompanyCode",
+          "branchMap",
+          "status",
+          "statusReason",
+          "statusChangedAt",
+          "capabilitiesSupported",
+          "capabilitiesEnabled",
+          "capabilities",
+          "settings",
+          "credentialKeys",
+          "credentialsUpdatedAt",
+          "syncFromDate",
+          "lastHealthAt",
+          "lastHealthOk",
+          "lastHealthError",
+          "activatedAt",
+          "disconnectedAt",
+          "inbound",
+          "version",
+          "createdAt",
+          "updatedAt",
+          "tenantId",
+          "tenantName",
+          "queue"
+        ]
+      },
+      "PlatformConnectorListDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PlatformConnectorDto"
+            }
+          }
+        },
+        "required": [
+          "data"
+        ]
+      },
+      "PlatformCommandDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "obx_…"
+          },
+          "operation": {
+            "type": "string",
+            "example": "PUSH_INVOICE"
+          },
+          "entityType": {
+            "type": "string",
+            "example": "invoice"
+          },
+          "localId": {
+            "type": "string",
+            "description": "id ของเอกสารใน TMS (uuid)"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "IN_FLIGHT",
+              "DONE",
+              "FAILED_RETRYABLE",
+              "FAILED_FINAL",
+              "SKIPPED"
+            ]
+          },
+          "attempt": {
+            "type": "number"
+          },
+          "errorClass": {
+            "type": "string",
+            "nullable": true,
+            "example": "TRANSIENT"
+          },
+          "errorCode": {
+            "type": "string",
+            "nullable": true,
+            "description": "รหัสผิดพลาดล่าสุด (ไม่มีข้อความดิบ)"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "doneAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "tenantId": {
+            "type": "string",
+            "example": "ten_…"
+          },
+          "tenantName": {
+            "type": "string"
+          },
+          "connectorId": {
+            "type": "string",
+            "example": "con_…"
+          },
+          "adapterKey": {
+            "type": "string",
+            "example": "demo"
+          }
+        },
+        "required": [
+          "id",
+          "operation",
+          "entityType",
+          "localId",
+          "status",
+          "attempt",
+          "errorClass",
+          "errorCode",
+          "createdAt",
+          "doneAt",
+          "updatedAt",
+          "tenantId",
+          "tenantName",
+          "connectorId",
+          "adapterKey"
+        ]
+      },
+      "PlatformCommandListDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PlatformCommandDto"
+            }
+          }
+        },
+        "required": [
+          "data"
+        ]
+      },
+      "PlatformCreateConnectorDto": {
+        "type": "object",
+        "properties": {
+          "adapterKey": {
+            "type": "string",
+            "example": "demo",
+            "pattern": "^[a-z0-9][a-z0-9_-]{0,31}$",
+            "description": "จาก GET /connectors/adapters"
+          },
+          "companyId": {
+            "type": "string",
+            "nullable": true,
+            "example": "cmp_…",
+            "description": "ไม่ส่ง/null = ทุกนิติบุคคล"
+          },
+          "erpCompanyCode": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 64,
+            "example": "PP01"
+          },
+          "branchMap": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "capabilitiesEnabled": {
+            "type": "array",
+            "description": "ไม่ส่ง = เปิดทุกตัวที่ adapter รองรับ",
+            "items": {
+              "type": "string",
+              "enum": [
+                "pullOrders",
+                "pushInvoice",
+                "pushCreditNote",
+                "pushSettlement",
+                "fetchDocument",
+                "fetchPaymentStatus",
+                "listDocuments",
+                "replaceDocument",
+                "postedStatus",
+                "ownsDocumentNumber"
+              ]
+            }
+          },
+          "settings": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "ค่าที่ไม่ลับตาม configFields"
+          },
+          "credentials": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "ช่อง secret ตาม configFields — เก็บเข้ารหัส ไม่ส่งกลับ"
+          },
+          "syncFromDate": {
+            "type": "string",
+            "nullable": true,
+            "format": "date",
+            "description": "≤ วันนี้ (เวลาไทย)"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 10,
+            "maxLength": 500,
+            "example": "เปิด connector ให้ลูกค้านำร่องตามสัญญา"
+          },
+          "activate": {
+            "type": "boolean",
+            "default": false,
+            "description": "true = ทดสอบการเชื่อมต่อแล้วเปิดใช้ทันที (ไม่ผ่าน → คงเป็น PAUSED และตอบ `activation` = ผลที่ล้ม)"
+          }
+        },
+        "required": [
+          "adapterKey",
+          "reason"
+        ]
+      },
+      "PlatformActivationDto": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "code": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "ok",
+          "code"
+        ]
+      },
+      "PlatformConnectorCreatedDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "con_8f3a…"
+          },
+          "adapterKey": {
+            "type": "string",
+            "example": "demo"
+          },
+          "displayName": {
+            "type": "string",
+            "example": "Demo ERP",
+            "nullable": true,
+            "description": "null = adapter ไม่ได้ติดตั้งในระบบนี้"
+          },
+          "companyId": {
+            "type": "string",
+            "nullable": true,
+            "example": "cmp_…",
+            "description": "นิติบุคคลที่ใช้ connector นี้ (Invoice As / Tender As) · null = ทุกนิติบุคคลที่ไม่มีของตัวเอง"
+          },
+          "erpCompanyCode": {
+            "type": "string",
+            "nullable": true,
+            "example": "PP01"
+          },
+          "branchMap": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "example": {
+              "brn_8f3a": "PP01-BKK"
+            },
+            "description": "สาขา TMS → รหัสบริษัท/สาขาฝั่ง ERP (ไม่มี = ใช้ erpCompanyCode)"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "PAUSED",
+              "ERROR",
+              "DISCONNECTED"
+            ]
+          },
+          "statusReason": {
+            "type": "string",
+            "nullable": true
+          },
+          "statusChangedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "capabilitiesSupported": {
+            "type": "array",
+            "description": "capability ที่ adapter รองรับทั้งหมด",
+            "items": {
+              "type": "string",
+              "enum": [
+                "pullOrders",
+                "pushInvoice",
+                "pushCreditNote",
+                "pushSettlement",
+                "fetchDocument",
+                "fetchPaymentStatus",
+                "listDocuments",
+                "replaceDocument",
+                "postedStatus",
+                "ownsDocumentNumber"
+              ]
+            }
+          },
+          "capabilitiesEnabled": {
+            "type": "array",
+            "description": "ที่ tenant เปิด",
+            "items": {
+              "type": "string",
+              "enum": [
+                "pullOrders",
+                "pushInvoice",
+                "pushCreditNote",
+                "pushSettlement",
+                "fetchDocument",
+                "fetchPaymentStatus",
+                "listDocuments",
+                "replaceDocument",
+                "postedStatus",
+                "ownsDocumentNumber"
+              ]
+            }
+          },
+          "capabilities": {
+            "type": "array",
+            "description": "ใช้ได้จริง = รองรับ ∩ เปิด (ว่างเมื่อยกเลิกการเชื่อม)",
+            "items": {
+              "type": "string",
+              "enum": [
+                "pullOrders",
+                "pushInvoice",
+                "pushCreditNote",
+                "pushSettlement",
+                "fetchDocument",
+                "fetchPaymentStatus",
+                "listDocuments",
+                "replaceDocument",
+                "postedStatus",
+                "ownsDocumentNumber"
+              ]
+            }
+          },
+          "settings": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "ค่าตั้งที่ไม่ลับ (base URL ฯลฯ)"
+          },
+          "credentialKeys": {
+            "example": [
+              "apiKey"
+            ],
+            "description": "ชื่อช่อง credential ที่ตั้งแล้ว — ค่าไม่ส่งกลับเด็ดขาด",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "credentialsUpdatedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "syncFromDate": {
+            "type": "string",
+            "nullable": true,
+            "format": "date",
+            "example": "2026-12-01"
+          },
+          "lastHealthAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "lastHealthOk": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "lastHealthError": {
+            "type": "object",
+            "nullable": true,
+            "additionalProperties": true,
+            "description": "{errorClass, code, message} ของ healthCheck ล่าสุดที่ล้ม"
+          },
+          "activatedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "disconnectedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "inbound": {
+            "$ref": "#/components/schemas/ConnectorInboundDto"
+          },
+          "version": {
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "tenantId": {
+            "type": "string",
+            "example": "ten_…"
+          },
+          "tenantName": {
+            "type": "string"
+          },
+          "queue": {
+            "$ref": "#/components/schemas/PlatformQueueCountDto"
+          },
+          "activation": {
+            "nullable": true,
+            "description": "ผลการเปิดใช้เมื่อส่ง `activate: true` (null = ไม่ได้ขอ)",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PlatformActivationDto"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "adapterKey",
+          "displayName",
+          "companyId",
+          "erpCompanyCode",
+          "branchMap",
+          "status",
+          "statusReason",
+          "statusChangedAt",
+          "capabilitiesSupported",
+          "capabilitiesEnabled",
+          "capabilities",
+          "settings",
+          "credentialKeys",
+          "credentialsUpdatedAt",
+          "syncFromDate",
+          "lastHealthAt",
+          "lastHealthOk",
+          "lastHealthError",
+          "activatedAt",
+          "disconnectedAt",
+          "inbound",
+          "version",
+          "createdAt",
+          "updatedAt",
+          "tenantId",
+          "tenantName",
+          "queue",
+          "activation"
+        ]
+      },
+      "PlatformCredentialsDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 10,
+            "maxLength": 500,
+            "example": "ลูกค้าส่ง API key ใหม่ทาง ticket #4412"
+          },
+          "credentials": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "credential ชุดใหม่ (แทนทั้งชุด) — เก็บเข้ารหัส ไม่ส่งกลับ"
+          }
+        },
+        "required": [
+          "reason",
+          "credentials"
+        ]
+      },
+      "ConnectorDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "con_8f3a…"
+          },
+          "adapterKey": {
+            "type": "string",
+            "example": "demo"
+          },
+          "displayName": {
+            "type": "string",
+            "example": "Demo ERP",
+            "nullable": true,
+            "description": "null = adapter ไม่ได้ติดตั้งในระบบนี้"
+          },
+          "companyId": {
+            "type": "string",
+            "nullable": true,
+            "example": "cmp_…",
+            "description": "นิติบุคคลที่ใช้ connector นี้ (Invoice As / Tender As) · null = ทุกนิติบุคคลที่ไม่มีของตัวเอง"
+          },
+          "erpCompanyCode": {
+            "type": "string",
+            "nullable": true,
+            "example": "PP01"
+          },
+          "branchMap": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "example": {
+              "brn_8f3a": "PP01-BKK"
+            },
+            "description": "สาขา TMS → รหัสบริษัท/สาขาฝั่ง ERP (ไม่มี = ใช้ erpCompanyCode)"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "PAUSED",
+              "ERROR",
+              "DISCONNECTED"
+            ]
+          },
+          "statusReason": {
+            "type": "string",
+            "nullable": true
+          },
+          "statusChangedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "capabilitiesSupported": {
+            "type": "array",
+            "description": "capability ที่ adapter รองรับทั้งหมด",
+            "items": {
+              "type": "string",
+              "enum": [
+                "pullOrders",
+                "pushInvoice",
+                "pushCreditNote",
+                "pushSettlement",
+                "fetchDocument",
+                "fetchPaymentStatus",
+                "listDocuments",
+                "replaceDocument",
+                "postedStatus",
+                "ownsDocumentNumber"
+              ]
+            }
+          },
+          "capabilitiesEnabled": {
+            "type": "array",
+            "description": "ที่ tenant เปิด",
+            "items": {
+              "type": "string",
+              "enum": [
+                "pullOrders",
+                "pushInvoice",
+                "pushCreditNote",
+                "pushSettlement",
+                "fetchDocument",
+                "fetchPaymentStatus",
+                "listDocuments",
+                "replaceDocument",
+                "postedStatus",
+                "ownsDocumentNumber"
+              ]
+            }
+          },
+          "capabilities": {
+            "type": "array",
+            "description": "ใช้ได้จริง = รองรับ ∩ เปิด (ว่างเมื่อยกเลิกการเชื่อม)",
+            "items": {
+              "type": "string",
+              "enum": [
+                "pullOrders",
+                "pushInvoice",
+                "pushCreditNote",
+                "pushSettlement",
+                "fetchDocument",
+                "fetchPaymentStatus",
+                "listDocuments",
+                "replaceDocument",
+                "postedStatus",
+                "ownsDocumentNumber"
+              ]
+            }
+          },
+          "settings": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "ค่าตั้งที่ไม่ลับ (base URL ฯลฯ)"
+          },
+          "credentialKeys": {
+            "example": [
+              "apiKey"
+            ],
+            "description": "ชื่อช่อง credential ที่ตั้งแล้ว — ค่าไม่ส่งกลับเด็ดขาด",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "credentialsUpdatedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "syncFromDate": {
+            "type": "string",
+            "nullable": true,
+            "format": "date",
+            "example": "2026-12-01"
+          },
+          "lastHealthAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "lastHealthOk": {
+            "type": "boolean",
+            "nullable": true
+          },
+          "lastHealthError": {
+            "type": "object",
+            "nullable": true,
+            "additionalProperties": true,
+            "description": "{errorClass, code, message} ของ healthCheck ล่าสุดที่ล้ม"
+          },
+          "activatedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "disconnectedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "inbound": {
+            "$ref": "#/components/schemas/ConnectorInboundDto"
+          },
+          "version": {
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "adapterKey",
+          "displayName",
+          "companyId",
+          "erpCompanyCode",
+          "branchMap",
+          "status",
+          "statusReason",
+          "statusChangedAt",
+          "capabilitiesSupported",
+          "capabilitiesEnabled",
+          "capabilities",
+          "settings",
+          "credentialKeys",
+          "credentialsUpdatedAt",
+          "syncFromDate",
+          "lastHealthAt",
+          "lastHealthOk",
+          "lastHealthError",
+          "activatedAt",
+          "disconnectedAt",
+          "inbound",
+          "version",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "ConnectorHealthDto": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean"
+          },
+          "errorClass": {
+            "type": "string",
+            "nullable": true,
+            "example": "AUTH"
+          },
+          "code": {
+            "type": "string",
+            "nullable": true
+          },
+          "message": {
+            "type": "string",
+            "nullable": true
+          },
+          "checkedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "connector": {
+            "$ref": "#/components/schemas/ConnectorDto"
+          }
+        },
+        "required": [
+          "ok",
+          "errorClass",
+          "code",
+          "message",
+          "checkedAt",
+          "connector"
+        ]
+      },
+      "PlatformConnectorActionDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 10,
+            "maxLength": 500,
+            "example": "ลูกค้าส่ง API key ใหม่ทาง ticket #4412"
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      },
       "MeImpersonationDto": {
         "type": "object",
         "properties": {
@@ -55576,240 +57189,6 @@
           "branchId"
         ]
       },
-      "ConnectorInboundDto": {
-        "type": "object",
-        "properties": {
-          "supported": {
-            "type": "boolean",
-            "description": "adapter รับ webhook ขาเข้าได้ไหม (false = ออก token ไม่ได้ — 409 `inbound_not_supported`)"
-          },
-          "tokenPrefix": {
-            "type": "string",
-            "nullable": true,
-            "example": "whin_Q2x9",
-            "description": "ส่วนต้นของ token ปัจจุบัน · null = ยังไม่เปิดรับ (ไม่มี URL)"
-          },
-          "tokenRotatedAt": {
-            "type": "string",
-            "nullable": true,
-            "format": "date-time"
-          }
-        },
-        "required": [
-          "supported",
-          "tokenPrefix",
-          "tokenRotatedAt"
-        ]
-      },
-      "ConnectorDto": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string",
-            "example": "con_8f3a…"
-          },
-          "adapterKey": {
-            "type": "string",
-            "example": "demo"
-          },
-          "displayName": {
-            "type": "string",
-            "example": "Demo ERP",
-            "nullable": true,
-            "description": "null = adapter ไม่ได้ติดตั้งในระบบนี้"
-          },
-          "companyId": {
-            "type": "string",
-            "nullable": true,
-            "example": "cmp_…",
-            "description": "นิติบุคคลที่ใช้ connector นี้ (Invoice As / Tender As) · null = ทุกนิติบุคคลที่ไม่มีของตัวเอง"
-          },
-          "erpCompanyCode": {
-            "type": "string",
-            "nullable": true,
-            "example": "PP01"
-          },
-          "branchMap": {
-            "type": "object",
-            "additionalProperties": {
-              "type": "string"
-            },
-            "example": {
-              "brn_8f3a": "PP01-BKK"
-            },
-            "description": "สาขา TMS → รหัสบริษัท/สาขาฝั่ง ERP (ไม่มี = ใช้ erpCompanyCode)"
-          },
-          "status": {
-            "type": "string",
-            "enum": [
-              "ACTIVE",
-              "PAUSED",
-              "ERROR",
-              "DISCONNECTED"
-            ]
-          },
-          "statusReason": {
-            "type": "string",
-            "nullable": true
-          },
-          "statusChangedAt": {
-            "type": "string",
-            "nullable": true,
-            "format": "date-time"
-          },
-          "capabilitiesSupported": {
-            "type": "array",
-            "description": "capability ที่ adapter รองรับทั้งหมด",
-            "items": {
-              "type": "string",
-              "enum": [
-                "pullOrders",
-                "pushInvoice",
-                "pushCreditNote",
-                "pushSettlement",
-                "fetchDocument",
-                "fetchPaymentStatus",
-                "listDocuments",
-                "replaceDocument",
-                "postedStatus",
-                "ownsDocumentNumber"
-              ]
-            }
-          },
-          "capabilitiesEnabled": {
-            "type": "array",
-            "description": "ที่ tenant เปิด",
-            "items": {
-              "type": "string",
-              "enum": [
-                "pullOrders",
-                "pushInvoice",
-                "pushCreditNote",
-                "pushSettlement",
-                "fetchDocument",
-                "fetchPaymentStatus",
-                "listDocuments",
-                "replaceDocument",
-                "postedStatus",
-                "ownsDocumentNumber"
-              ]
-            }
-          },
-          "capabilities": {
-            "type": "array",
-            "description": "ใช้ได้จริง = รองรับ ∩ เปิด (ว่างเมื่อยกเลิกการเชื่อม)",
-            "items": {
-              "type": "string",
-              "enum": [
-                "pullOrders",
-                "pushInvoice",
-                "pushCreditNote",
-                "pushSettlement",
-                "fetchDocument",
-                "fetchPaymentStatus",
-                "listDocuments",
-                "replaceDocument",
-                "postedStatus",
-                "ownsDocumentNumber"
-              ]
-            }
-          },
-          "settings": {
-            "type": "object",
-            "additionalProperties": {
-              "type": "string"
-            },
-            "description": "ค่าตั้งที่ไม่ลับ (base URL ฯลฯ)"
-          },
-          "credentialKeys": {
-            "example": [
-              "apiKey"
-            ],
-            "description": "ชื่อช่อง credential ที่ตั้งแล้ว — ค่าไม่ส่งกลับเด็ดขาด",
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "credentialsUpdatedAt": {
-            "type": "string",
-            "nullable": true,
-            "format": "date-time"
-          },
-          "syncFromDate": {
-            "type": "string",
-            "nullable": true,
-            "format": "date",
-            "example": "2026-12-01"
-          },
-          "lastHealthAt": {
-            "type": "string",
-            "nullable": true,
-            "format": "date-time"
-          },
-          "lastHealthOk": {
-            "type": "boolean",
-            "nullable": true
-          },
-          "lastHealthError": {
-            "type": "object",
-            "nullable": true,
-            "additionalProperties": true,
-            "description": "{errorClass, code, message} ของ healthCheck ล่าสุดที่ล้ม"
-          },
-          "activatedAt": {
-            "type": "string",
-            "nullable": true,
-            "format": "date-time"
-          },
-          "disconnectedAt": {
-            "type": "string",
-            "nullable": true,
-            "format": "date-time"
-          },
-          "inbound": {
-            "$ref": "#/components/schemas/ConnectorInboundDto"
-          },
-          "version": {
-            "type": "number"
-          },
-          "createdAt": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "updatedAt": {
-            "type": "string",
-            "format": "date-time"
-          }
-        },
-        "required": [
-          "id",
-          "adapterKey",
-          "displayName",
-          "companyId",
-          "erpCompanyCode",
-          "branchMap",
-          "status",
-          "statusReason",
-          "statusChangedAt",
-          "capabilitiesSupported",
-          "capabilitiesEnabled",
-          "capabilities",
-          "settings",
-          "credentialKeys",
-          "credentialsUpdatedAt",
-          "syncFromDate",
-          "lastHealthAt",
-          "lastHealthOk",
-          "lastHealthError",
-          "activatedAt",
-          "disconnectedAt",
-          "inbound",
-          "version",
-          "createdAt",
-          "updatedAt"
-        ]
-      },
       "ConnectorListDto": {
         "type": "object",
         "properties": {
@@ -55817,113 +57196,6 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ConnectorDto"
-            }
-          }
-        },
-        "required": [
-          "data"
-        ]
-      },
-      "ConnectorConfigFieldDto": {
-        "type": "object",
-        "properties": {
-          "key": {
-            "type": "string",
-            "example": "baseUrl"
-          },
-          "secret": {
-            "type": "boolean",
-            "description": "credential — ไม่ส่งค่ากลับ, แสดงได้แค่ \"ตั้งแล้ว\""
-          },
-          "required": {
-            "type": "boolean"
-          },
-          "kind": {
-            "type": "string",
-            "enum": [
-              "string",
-              "url"
-            ]
-          },
-          "maxLength": {
-            "type": "number",
-            "nullable": true
-          },
-          "options": {
-            "nullable": true,
-            "description": "ค่าที่เลือกได้ (null = กรอกอิสระ) — ค่านอกรายการ → 422 `invalid_option`",
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          }
-        },
-        "required": [
-          "key",
-          "secret",
-          "required",
-          "kind",
-          "maxLength",
-          "options"
-        ]
-      },
-      "ErpAdapterDto": {
-        "type": "object",
-        "properties": {
-          "key": {
-            "type": "string",
-            "example": "demo",
-            "description": "`adapterKey` ที่ใช้ตอนสร้าง connector"
-          },
-          "displayName": {
-            "type": "string",
-            "example": "Demo ERP"
-          },
-          "demo": {
-            "type": "boolean",
-            "description": "true = ERP จำลอง (DemoProvider — สำหรับสาธิต/ทดสอบ ไม่ส่งข้อมูลไปที่ใด) · มีเฉพาะ dev/test/staging ที่เปิด `ERP_DEMO_ADAPTERS` — หน้าจอต้องติดป้าย \"จำลอง\""
-          },
-          "capabilities": {
-            "type": "array",
-            "description": "capability ที่ adapter รองรับ (docs/01 §6.1) — UI แสดงเฉพาะที่อยู่ในรายการนี้",
-            "items": {
-              "type": "string",
-              "enum": [
-                "pullOrders",
-                "pushInvoice",
-                "pushCreditNote",
-                "pushSettlement",
-                "fetchDocument",
-                "fetchPaymentStatus",
-                "listDocuments",
-                "replaceDocument",
-                "postedStatus",
-                "ownsDocumentNumber"
-              ]
-            }
-          },
-          "configFields": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ConnectorConfigFieldDto"
-            }
-          }
-        },
-        "required": [
-          "key",
-          "displayName",
-          "demo",
-          "capabilities",
-          "configFields"
-        ]
-      },
-      "ErpAdapterListDto": {
-        "type": "object",
-        "properties": {
-          "data": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ErpAdapterDto"
             }
           }
         },
@@ -56002,6 +57274,91 @@
           "adapterKey"
         ]
       },
+      "ConnectorCommandDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "obx_…"
+          },
+          "operation": {
+            "type": "string",
+            "example": "PUSH_INVOICE"
+          },
+          "entityType": {
+            "type": "string",
+            "example": "invoice"
+          },
+          "localId": {
+            "type": "string",
+            "description": "id ของเอกสารใน TMS (uuid)"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "IN_FLIGHT",
+              "DONE",
+              "FAILED_RETRYABLE",
+              "FAILED_FINAL",
+              "SKIPPED"
+            ]
+          },
+          "attempt": {
+            "type": "number"
+          },
+          "errorClass": {
+            "type": "string",
+            "nullable": true,
+            "example": "TRANSIENT"
+          },
+          "errorCode": {
+            "type": "string",
+            "nullable": true,
+            "description": "รหัสผิดพลาดล่าสุด (ไม่มีข้อความดิบ)"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "doneAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "operation",
+          "entityType",
+          "localId",
+          "status",
+          "attempt",
+          "errorClass",
+          "errorCode",
+          "createdAt",
+          "doneAt",
+          "updatedAt"
+        ]
+      },
+      "ConnectorCommandListDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConnectorCommandDto"
+            }
+          }
+        },
+        "required": [
+          "data"
+        ]
+      },
       "UpdateConnectorDto": {
         "type": "object",
         "properties": {
@@ -56065,42 +57422,6 @@
         },
         "required": [
           "credentials"
-        ]
-      },
-      "ConnectorHealthDto": {
-        "type": "object",
-        "properties": {
-          "ok": {
-            "type": "boolean"
-          },
-          "errorClass": {
-            "type": "string",
-            "nullable": true,
-            "example": "AUTH"
-          },
-          "code": {
-            "type": "string",
-            "nullable": true
-          },
-          "message": {
-            "type": "string",
-            "nullable": true
-          },
-          "checkedAt": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "connector": {
-            "$ref": "#/components/schemas/ConnectorDto"
-          }
-        },
-        "required": [
-          "ok",
-          "errorClass",
-          "code",
-          "message",
-          "checkedAt",
-          "connector"
         ]
       },
       "ConnectorActionDto": {

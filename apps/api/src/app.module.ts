@@ -41,6 +41,7 @@ import { ExportsService } from './modules/exports/exports.service';
 import { ListExports } from './modules/exports/list-exports';
 import { SetupChecklistController } from './modules/setup/setup.controller';
 import { PlatformAuthController } from './platform/platform-auth.controller';
+import { PlatformConnectorsController } from './platform/platform-connectors.controller';
 import { PlatformTenantsController } from './platform/platform-tenants.controller';
 import { ImpersonationController } from './platform/impersonation.controller';
 import {
@@ -223,6 +224,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     SetupChecklistController,
     PlatformAuthController,
     PlatformTenantsController,
+    PlatformConnectorsController,
     ImpersonationController,
     HealthController,
     MeController,

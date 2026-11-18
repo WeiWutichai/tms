@@ -5,6 +5,7 @@ import type { MessageKey } from '../../i18n/th';
 import { can, canAny } from '../../nav';
 import { useMe } from '../../shell/AppShell';
 import { PageHeader } from '../../shell/Header';
+import { ConnectorSettingsSection } from './ConnectorSettings';
 import { EntitiesSection } from './Entities';
 import { NotificationsSection } from './Notifications';
 import { NumbersSection } from './Numbers';
@@ -25,7 +26,8 @@ const SECTIONS: Array<{ k: string; icon: string; perm?: string[]; stage?: string
   { k: 'num', icon: 'hash', perm: ['settings:read'] },
   { k: 'users', icon: 'users', perm: ['users:read'] },
   { k: 'tax', icon: 'percent', perm: ['settings:read'] },
-  { k: 'conn', icon: 'plug', perm: ['settings:read'], stage: 'ST7' },
+  // ST7-T20: การ์ดระบบบัญชี + ตั้งค่า connector (ต้นแบบ st.is.conn)
+  { k: 'conn', icon: 'plug', perm: ['settings:read'] },
   // ST7-T01: ต้นแบบ vSet — กดแล้วไปหน้า "นักพัฒนา / Open API" (this.go('api')) · เห็นเฉพาะผู้ดูแล (canDev)
   { k: 'api', icon: 'code-xml', perm: ['settings:write'], go: '/settings/api' },
   // ST9-T08: ค่ารับแจ้งเตือนของผู้ใช้เอง (docs/04 I) — ทุก role ที่เข้าหน้าตั้งค่าได้ (ไม่ต้องมี settings:read) [DECISION spec/12 §3]
@@ -75,6 +77,7 @@ export function SettingsPage() {
           {sec?.k === 'reason' && <ReasonsSection canWrite={can(scopes, 'master:write')} />}
           {sec?.k === 'pod' && <PodSection canWrite={canWrite} />}
           {sec?.k === 'noti' && <NotificationsSection />}
+          {sec?.k === 'conn' && <ConnectorSettingsSection canWrite={canWrite} />}
           {sec?.stage && (
             <section className="set-card">
               <div className="set-card__hd">

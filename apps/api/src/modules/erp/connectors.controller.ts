@@ -34,6 +34,8 @@ import { DbService } from '../../db/db.service';
 import { entityHistory, HistoryQuery } from '../master/history';
 import {
   ConnectorActionDto,
+  ConnectorCommandListDto,
+  ConnectorCommandQuery,
   ConnectorCredentialsDto,
   ConnectorDto,
   ConnectorHealthDto,
@@ -135,6 +137,21 @@ export class ConnectorsController {
   async history(@Param('id') id: string, @Query() q: HistoryQuery): Promise<AuditPageDto> {
     const c = await this.connectors.get(decodeIdOr404('connector', id));
     return entityHistory(this.db.tx, 'connector', c.id, q);
+  }
+
+  @Get(':id/commands')
+  @TenantResource('connector')
+  @RequireScope('settings:read')
+  @ApiOkResponse({
+    type: ConnectorCommandListDto,
+    description:
+      'ST7-T20 บันทึกการซิงก์ย่อ: คำสั่งล่าสุดในคิวของ connector นี้ (ใหม่สุดก่อน) — ไม่มี payload/response (ST7-T19)',
+  })
+  async commands(
+    @Param('id') id: string,
+    @Query() q: ConnectorCommandQuery,
+  ): Promise<ConnectorCommandListDto> {
+    return { data: await this.connectors.commands(decodeIdOr404('connector', id), q) };
   }
 
   @Patch(':id')

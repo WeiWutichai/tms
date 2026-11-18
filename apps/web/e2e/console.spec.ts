@@ -12,8 +12,18 @@ async function consoleLogin(page: Page, email: string) {
   await page.getByLabel('อีเมล').fill(email);
   await page.getByLabel('รหัสผ่าน').fill(DEMO_PASSWORD);
   await page.getByRole('button', { name: 'เข้าสู่ระบบ' }).click();
-  await page.getByLabel('รหัส 6 หลัก').fill(totp(DEMO_TOTP_SECRET));
-  await page.getByRole('button', { name: 'ยืนยัน' }).click();
+  // รหัสใช้ซ้ำไม่ได้ (กัน replay) — spec อื่น (connectors.spec) อาจใช้ช่วงเวลาเดียวกันไปแล้ว → ลองช่วงถัดไป
+  for (const off of [0, 1]) {
+    await page.getByLabel('รหัส 6 หลัก').fill(totp(DEMO_TOTP_SECRET, off));
+    await page.getByRole('button', { name: 'ยืนยัน' }).click();
+    if (
+      await page.waitForURL(/\/console\/tenants$/, { timeout: 3000 }).then(
+        () => true,
+        () => false,
+      )
+    )
+      break;
+  }
   await expect(page).toHaveURL(/\/console\/tenants$/);
   await expect(page.getByRole('heading', { name: 'ลูกค้า', level: 1 })).toBeVisible();
 }

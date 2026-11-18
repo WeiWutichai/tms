@@ -8,7 +8,10 @@ import type { MessageKey } from '../i18n/th';
 import { consoleApi, consoleLogout, cunwrap, useStaff, type StaffRole } from './session';
 import './console.css';
 
-/** เมนูตามต้นแบบ (NAV ใน TMS Platform Console) — เฟสนี้ใช้ได้เฉพาะ "ลูกค้า" (ST1-T24) */
+/**
+ * เมนูตามต้นแบบ (NAV ใน TMS Platform Console) — เฟสนี้ใช้ได้ "ลูกค้า" (ST1-T24) และ "Connector ระบบบัญชี" (ST7-T20)
+ * ต้นแบบไม่มีเมนู Connectors (docs/02 §5 มี) [DECISION spec/12 §3]: วางต่อจาก "การใช้งาน API และ AI" ไอคอน plug
+ */
 const NAV: ({ k: string; i: string; path?: string } | 'sep')[] = [
   { k: 'ov', i: 'layout-dashboard' },
   { k: 'ten', i: 'building-2', path: '/console/tenants' },
@@ -18,6 +21,7 @@ const NAV: ({ k: string; i: string; path?: string } | 'sep')[] = [
   { k: 'add', i: 'ticket-percent' },
   { k: 'fin', i: 'wallet' },
   { k: 'use', i: 'activity' },
+  { k: 'conn', i: 'plug', path: '/console/connectors' },
   'sep',
   { k: 'team', i: 'users' },
   { k: 'aud', i: 'scroll-text' },
@@ -82,6 +86,7 @@ export function ConsoleShell({ children }: { children: ReactNode }) {
   ];
   const name = staff.data?.name ?? '…';
   const onTenants = loc.pathname.startsWith('/console/tenants');
+  const onConn = loc.pathname.startsWith('/console/connectors');
 
   return (
     <div className="con">
@@ -91,7 +96,9 @@ export function ConsoleShell({ children }: { children: ReactNode }) {
         </span>
         <span className="con-hd__brand">TMS</span>
         <span className="con-hd__pill">PLATFORM CONSOLE</span>
-        <span className="con-hd__crumb">{onTenants ? t('con.nav.ten') : ''}</span>
+        <span className="con-hd__crumb">
+          {onTenants ? t('con.nav.ten') : onConn ? t('con.nav.conn') : ''}
+        </span>
         <div style={{ flex: 1 }} />
         <label className="con-hd__search">
           <Icon n="search" s={16} strokeWidth={1.8} style={{ flexShrink: 0 }} />
