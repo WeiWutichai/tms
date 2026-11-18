@@ -11,16 +11,17 @@ import { ProblemException, type FieldError } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
 import { JobQueue, type JobContext } from '../../jobs/job-queue.service';
-import { store } from '../documents/documents.controller';
+import { putFileLocked } from '../documents/documents.controller';
 import { csvCell, type ExportColumn } from '../master/export';
 import { NotificationService } from '../notifications/notification.service';
+import { EXPORT_RETENTION_DAYS } from '../retention/retention-policy';
 import { ExportRegistry, type ExportSpec } from './export-spec';
 
 export const EXPORT_JOB_TYPE = 'export.file';
 /** [DECISION ST9-T10] เพดานต่อไฟล์ส่งออกแบบ job (เกิน = ไม่สร้างไฟล์ แจ้งให้กรองให้แคบลง) */
 export const EXPORT_JOB_MAX_ROWS = 100_000;
-/** [DECISION ST9-T10] ไฟล์ส่งออกดาวน์โหลดได้ 7 วันหลังสร้างเสร็จ */
-export const EXPORT_RETENTION_DAYS = 7;
+/** [DECISION ST9-T10] ไฟล์ส่งออกดาวน์โหลดได้ 7 วันหลังสร้างเสร็จ (retention job ST9-T14 ลบไฟล์ตามค่านี้) */
+export { EXPORT_RETENTION_DAYS };
 /** อ่านทีละหน้า (keyset ต่อจาก id ของแถวสุดท้าย) */
 export const EXPORT_BATCH = 1000;
 /** transaction ของ job ส่งออก (100,000 แถว) — น้อยกว่า lease 5 นาทีของคิว */
@@ -289,7 +290,7 @@ export class ExportsService implements OnModuleInit {
           await ctx.progress(Math.min(95, (rows / this.maxRows) * 100));
         }
         const data = await w.finish();
-        const f = await store().put(ctx.tenantId, data, format);
+        const f = await putFileLocked(ctx.tx, ctx.tenantId, data, format);
         const fileName = `${spec.fileBase}-${stamp()}.${format}`;
         const doc = await ctx.tx.storedDocument.create({
           data: {
