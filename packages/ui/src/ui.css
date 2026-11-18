@@ -1903,3 +1903,41 @@ body:has(.tms-drawer__foot) .tms-toast {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* ---------- ST9-T20 accessibility (ไม่เปลี่ยนหน้าตาปกติ — มีผลเฉพาะตอนใช้คีย์บอร์ด) ---------- */
+/* container ของ drawer/dialog รับ focus แทนผู้ใช้ตอนเปิด (useModalFocus) — ไม่แสดงกรอบ */
+[data-modal-focus]:focus {
+  outline: none;
+}
+/* แถวตารางที่คลิกเปิด drawer ได้ → Tab ถึงและกด Enter ได้ · กรอบ focus สี accent เดียวกับปุ่ม (ui.css focus-visible)
+   วาดเป็นเงาด้านในของทุกช่อง (outline ของแถวถูกคอลัมน์ ⋯ แบบ sticky บัง — QA L-4) */
+.tms-table tbody tr:focus-visible {
+  outline: none;
+}
+.tms-table tbody tr:focus-visible > td {
+  box-shadow:
+    inset 0 2px 0 #2257c4,
+    inset 0 -2px 0 #2257c4;
+}
+.tms-table tbody tr:focus-visible > td:first-child {
+  box-shadow:
+    inset 2px 0 0 #2257c4,
+    inset 0 2px 0 #2257c4,
+    inset 0 -2px 0 #2257c4;
+}
+.tms-table tbody tr:focus-visible > td:last-child {
+  box-shadow:
+    inset -2px 0 0 #2257c4,
+    inset 0 2px 0 #2257c4,
+    inset 0 -2px 0 #2257c4;
+}
+/* คืน focus หลังปิด drawer ที่เปิดด้วยเมาส์ — ไม่แสดงกรอบ (useModalFocus ตั้ง data-pointer-focus จน blur) */
+/* หัวข้อหน้าที่รับ focus แทนปุ่มที่หายไป (useModalFocus) — จุดลงของ screen reader ไม่ต้องมีกรอบ */
+h1[tabindex='-1']:focus,
+[data-pointer-focus]:focus-visible,
+.tms-table tbody tr[data-pointer-focus]:focus-visible {
+  outline: none;
+}
+.tms-table tbody tr[data-pointer-focus]:focus-visible > td {
+  box-shadow: none;
+}

@@ -259,6 +259,7 @@ export const th = {
   'table.resetColumns': 'คืนค่าเริ่มต้น',
   'table.rowsPerPage': 'แถวต่อหน้า',
   'table.selected': 'เลือก {n} รายการ',
+  'table.selectRow': 'เลือก',
   'table.clearSelection': 'ยกเลิกการเลือก',
   'table.rowActions': 'การกระทำ',
   'table.prev': 'ก่อนหน้า',

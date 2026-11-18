@@ -123,6 +123,7 @@ export const zh: Partial<Record<MessageKey, string>> = {
   'table.columns': '列',
   'table.options': '选项',
   'table.exportCsv': '导出 CSV',
+  'table.selectRow': '选择',
   'table.rowActions': '操作',
   'table.next': '下一步',
   'table.search': '搜索',

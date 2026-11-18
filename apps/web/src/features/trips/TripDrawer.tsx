@@ -1,5 +1,14 @@
-import { Badge, Drawer, EmptyState, Icon, ReasonDialog, Toast, useEscapeLayer } from '@tms/ui';
-import { useMemo, useState, type ReactNode } from 'react';
+import {
+  Badge,
+  Drawer,
+  EmptyState,
+  Icon,
+  ReasonDialog,
+  Toast,
+  useEscapeLayer,
+  useModalFocus,
+} from '@tms/ui';
+import { useMemo, useRef, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ApiError } from '../../api';
 import { useI18n } from '../../i18n';
@@ -96,13 +105,18 @@ function DetachDialog({
   const { t } = useI18n();
   const [picked, setPicked] = useState<string[]>(dos.map((d) => d.id));
   useEscapeLayer(true, onClose);
+  const box = useRef<HTMLDivElement>(null);
+  useModalFocus(true, box); // ST9-T20
   return (
     <div className="tms-dialog__scrim" onClick={onClose}>
       <div
+        ref={box}
         className="tms-dialog"
         role="dialog"
         aria-modal="true"
         aria-label={t('trip.detach.title')}
+        tabIndex={-1}
+        data-modal-focus=""
         onClick={(e) => e.stopPropagation()}
       >
         <div className="tms-dialog__head">
@@ -215,6 +229,8 @@ function ShareDialog({
   const [asking, setAsking] = useState(false);
   const [revokeErr, setRevokeErr] = useState<string | null>(null);
   useEscapeLayer(!asking, onClose);
+  const box = useRef<HTMLDivElement>(null);
+  useModalFocus(true, box); // ST9-T20
   const copy = () => {
     void navigator.clipboard?.writeText(link.url).catch(() => undefined);
     onCopied();
@@ -223,10 +239,13 @@ function ShareDialog({
     <>
       <div className="tms-dialog__scrim" onClick={onClose}>
         <div
+          ref={box}
           className="tms-dialog"
           role="dialog"
           aria-modal="true"
           aria-label={t('trip.share.title')}
+          tabIndex={-1}
+          data-modal-focus=""
           onClick={(e) => e.stopPropagation()}
         >
           <div className="tms-dialog__head">

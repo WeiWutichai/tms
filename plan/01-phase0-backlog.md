@@ -814,6 +814,8 @@ VAT/WHT ต่อบรรทัด tax point ตอนรับชำระ เ
 | 29 | กฎผู้รับแจ้งเตือนระดับบริษัท (spec/01 §13.5 `NotificationRule`: ผู้ดูแลเลือก role/ผู้ใช้ต่อ event, quiet hours, แท็บ "ช่องทาง") — ตอนนี้ผู้รับตามสิทธิ์ของ role คงที่ในโค้ด + ผู้ใช้ปิดช่องของตัวเองได้ (ST9-T08 DECISION spec/12 §3) | spec/01 §13.5 | M |
 | 30 | Sandbox ส่วนที่เหลือของ spec/07 INT-061: seed ข้อมูลตัวอย่าง (ลูกค้า/สถานที่/ใบสั่ง) + ปุ่ม "ล้าง sandbox" (ลบข้อมูลทดสอบ ยกเว้น key/webhook) + ไม่นับ usage/โควตาของ sandbox (เมื่อมีการนับ usage) (ST7-T09 DECISION spec/12 §3) | G1 Sandbox ระบุแค่ tenant mode test, key, webhook, trigger | M |
 | 31 | โลโก้องค์กร (docs/04 I "โลโก้", spec/01 §13.1 PNG/SVG ≤ 2 MB บน A4/หน้าติดตาม): ค่าตั้ง `org.logoDocumentId` + ไฟล์ kind ใหม่ (ST1-T08 มีแล้ว, SVG ต้อง sanitize) + ปุ่ม "เปลี่ยนโลโก้" ในตั้งค่า → องค์กร (ต้นแบบมีช่อง ตอนนี้กดไม่ได้) + วางบน PDF/หน้าติดตาม (ต้นแบบ TMS Print/Tracking ยังใช้ไอคอน) — พบใน ST9-T12 checklist | I ตั้งค่าองค์กร (P0) — backlog ST1-T17 ไม่ได้ระบุ | S–M |
+| 32 | Accessibility ต่อจาก ST9-T20 (รายงาน `design/a11y/st9-t20-report.md` M4–M6): dialog เฉพาะหน้าที่เหลือ ~10 ไฟล์ใช้ `useModalFocus` (trap/คืน focus), เมนู ⋯ `role=menu` เปิดแล้ว focus เข้า + ลูกศรขึ้น/ลง, ปรับความยาวเที่ยวบนกระดานด้วยคีย์บอร์ด (Shift+←/→ บนการ์ด) | NFR Accessibility (WCAG 2.1 AA 2.1.1/2.4.3) | S |
+| 33 | ทดสอบ screen reader จริง (VoiceOver + NVDA) 10 หน้าหลัก + ทดสอบบน Microsoft Edge จริง (`A11Y_EDGE=1 pnpm --filter @tms/web e2e:a11y`) ก่อน pilot (ST9-T20 §5) | NFR Accessibility, Browser | S |
 
 สิ่งที่เฟส 0 เผื่อไว้ให้ #10/#22 โดยไม่เพิ่ม task: `trip.planned_route` + `planned_distance_m` (ST3-T11), schema `vehicle_position` + RLS (ST4-T01 สร้างตารางพร้อม `stop_event` แต่ไม่มีตัวป้อน), retention GPS 90 วัน (ST9-T14) — ดู T-18
 

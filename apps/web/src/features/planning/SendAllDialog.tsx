@@ -1,4 +1,4 @@
-import { Icon, useEscapeLayer } from '@tms/ui';
+import { Icon, useEscapeLayer, useModalFocus } from '@tms/ui';
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { formatDayHead, useI18n } from '../../i18n';
 import { tripProblemText } from '../trips/tripProblem';
@@ -55,6 +55,8 @@ export function SendAllDialog({
 }) {
   const { t, lang } = useI18n();
   useEscapeLayer(true, onClose);
+  const box = useRef<HTMLDivElement>(null);
+  useModalFocus(true, box); // ST9-T20 focus เข้า/วน/คืน
   const [day, setDay] = useState(initialDay);
   const list = useMemo(() => unsentOn(board.trips, day), [board.trips, day]);
   /** ส่งได้ตามสถานะ — รอรถร่วมตอบ (OFFERED) ไม่ติ๊กไว้ก่อน (review M1 — ติ๊กเองได้ แต่จะไม่ผ่าน) */
@@ -127,9 +129,12 @@ export function SendAllDialog({
   return (
     <div className="tms-dialog__scrim" onClick={onClose}>
       <div
+        ref={box}
         className="tms-dialog"
         role="dialog"
         aria-modal="true"
+        tabIndex={-1}
+        data-modal-focus=""
         aria-label={t('plan.send.title')}
         onClick={(e) => e.stopPropagation()}
       >

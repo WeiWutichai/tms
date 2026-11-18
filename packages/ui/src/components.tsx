@@ -2,12 +2,14 @@ import {
   forwardRef,
   useEffect,
   useId,
+  useRef,
   useState,
   type ButtonHTMLAttributes,
   type InputHTMLAttributes,
   type ReactNode,
 } from 'react';
 import { useEscapeLayer } from './escape';
+import { useModalFocus } from './focus';
 import { Icon } from './Icon';
 import { statusOf } from './status-map';
 import { tone as toneColors, type Tone } from './tokens';
@@ -342,17 +344,29 @@ export function Drawer({
   children: ReactNode;
 }) {
   useEscapeLayer(open, onClose);
+  const ref = useRef<HTMLElement>(null);
+  useModalFocus(open, ref);
+  const titleId = useId();
   if (!open) return null;
   return (
     <>
       <div className="tms-scrim" onClick={onClose} />
-      <aside className="tms-drawer" role="dialog" aria-modal="true">
+      <aside
+        ref={ref}
+        className="tms-drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        data-modal-focus=""
+      >
         <div className="tms-drawer__head">
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
             <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0, gap: 2 }}>
               <span className="tms-drawer__kind">{kind}</span>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                 <span
+                  id={titleId}
                   className="tms-drawer__no"
                   title={typeof title === 'string' ? title : undefined}
                 >

@@ -123,6 +123,7 @@ export const en: Partial<Record<MessageKey, string>> = {
   'table.columns': 'Columns',
   'table.options': 'Options',
   'table.exportCsv': 'Export CSV',
+  'table.selectRow': 'Select',
   'table.rowActions': 'Actions',
   'table.next': 'Next',
   'table.search': 'Search',
