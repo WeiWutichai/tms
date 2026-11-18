@@ -96,6 +96,18 @@ export function FormDrawer({
   useModalFocus(open, ref);
   const titleId = useId();
   const [submits, setSubmits] = useState(0);
+  /**
+   * ST9-T20 (WCAG 3.3.1): กดบันทึกแล้วมีช่องผิด → focus ช่องแรกที่ผิด (error จาก validation ทันที หรือ 422 จาก API ที่ตามมา)
+   * รอได้จนผู้ใช้พิมพ์/คลิกในฟอร์ม หรือ 15 วินาที · สรุปจำนวนช่องที่ผิด (role=alert) คงเดิม
+   */
+  const focusInvalidUntil = useRef(0);
+  useEffect(() => {
+    if (!open || Date.now() > focusInvalidUntil.current) return;
+    const bad = ref.current?.querySelector<HTMLElement>('[aria-invalid="true"]');
+    if (!bad) return;
+    focusInvalidUntil.current = 0;
+    bad.focus();
+  });
   if (!open) return null;
   return (
     <FormSubmits.Provider value={submits}>
@@ -109,8 +121,13 @@ export function FormDrawer({
           tabIndex={-1}
           data-modal-focus=""
           onClick={(e) => e.stopPropagation()}
+          onPointerDownCapture={() => (focusInvalidUntil.current = 0)}
+          onKeyDownCapture={(e) => {
+            if (e.key !== 'Enter') focusInvalidUntil.current = 0;
+          }}
           onSubmit={(e) => {
             e.preventDefault();
+            focusInvalidUntil.current = Date.now() + 15_000;
             setSubmits((n) => n + 1);
             onSubmit?.();
           }}

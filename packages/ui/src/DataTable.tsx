@@ -36,6 +36,8 @@ export interface TableLabels {
   resetColumns: string;
   rowsPerPage: string;
   selected: (n: number) => string;
+  /** ชื่อช่องเลือกแถว (เช่น "เลือก") — ST9-T20; ไม่ส่ง = ใช้ id ของแถว (เดิม) */
+  selectRow?: string;
   clearSelection: string;
   rowActions: string;
   prev: string;
@@ -276,10 +278,12 @@ export function DataTable<R>(p: DataTableProps<R>) {
                           onChange={() =>
                             setSel((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]))
                           }
-                          // ชื่อช่องเลือก = ข้อความคอลัมน์แรกของแถว (เดิมอ่านเป็น id ภายใน เช่น veh_…) — ST9-T20
-                          {...(visible.length
-                            ? { 'aria-labelledby': `${tid}-${id}-c0` }
-                            : { 'aria-label': id })}
+                          // ST9-T20: เดิมอ่านเป็น id ภายใน (veh_…) → ชื่อ "เลือก" + คำอธิบาย = ข้อความคอลัมน์แรกของแถว
+                          // (ไม่ใช้ข้อความแถวเป็นชื่อ — ช่องตารางของ checkbox จะชื่อซ้ำกับช่องคอลัมน์แรก)
+                          aria-label={p.labels.selectRow ?? id}
+                          {...(p.labels.selectRow && visible.length
+                            ? { 'aria-describedby': `${tid}-${id}-c0` }
+                            : {})}
                         />
                       </td>
                     )}

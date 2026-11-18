@@ -63,12 +63,25 @@ function onTab(e: KeyboardEvent) {
   }
 }
 
+// ติดตามวิธีใช้งานตั้งแต่โหลดโมดูล (ไม่รอ dialog แรก — ไม่งั้นการเปิดด้วยเมาส์ครั้งแรกถูกนับเป็นคีย์บอร์ด: QA L-1)
+if (typeof document !== 'undefined') {
+  document.addEventListener('keydown', () => (modality = 'key'), true);
+  document.addEventListener('pointerdown', () => (modality = 'pointer'), true);
+}
+
 function bind() {
   if (bound) return;
   bound = true;
   document.addEventListener('keydown', onTab);
-  document.addEventListener('keydown', () => (modality = 'key'), true);
-  document.addEventListener('pointerdown', () => (modality = 'pointer'), true);
+}
+
+/** ไม่มีปุ่มที่เปิด/ชั้นล่างให้คืน focus → หัวข้อหน้า (h1 ใน main) แทนการปล่อยหลุดไป body (QA L-2) */
+function pageFallback(): HTMLElement | null {
+  const h =
+    document.querySelector<HTMLElement>('main h1') ?? document.querySelector<HTMLElement>('h1');
+  if (!h) return null;
+  if (!h.hasAttribute('tabindex')) h.setAttribute('tabindex', '-1');
+  return h;
 }
 
 /** คืน focus — เปิดด้วยเมาส์: ไม่แสดงกรอบ focus-visible ที่ element เดิม (ui.css `[data-pointer-focus]`) */
@@ -112,7 +125,9 @@ export function useModalFocus(open: boolean, ref: RefObject<HTMLElement | null>)
       if (opener?.isConnected && opener !== document.body) return restore(opener, pointer);
       // ปุ่มที่เปิดหายไปแล้ว (เช่น เมนู ⋯ ปิดไปก่อน) → dialog ชั้นล่างที่ยังเปิดอยู่
       const below = stack[stack.length - 1]?.current;
-      if (below?.isConnected) below.focus({ preventScroll: true });
+      if (below?.isConnected) return below.focus({ preventScroll: true });
+      const page = pageFallback();
+      if (page) restore(page, pointer);
     };
   }, [open, ref]);
 }

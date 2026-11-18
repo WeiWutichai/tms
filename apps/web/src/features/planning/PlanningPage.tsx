@@ -1552,11 +1552,16 @@ export function PlanningPage() {
                   aria-keyshortcuts={canMove ? 'ArrowLeft ArrowRight' : undefined}
                   onKeyDown={(e) => {
                     if (
-                      canMove &&
+                      canPlan &&
                       e.target === e.currentTarget &&
                       (e.key === 'ArrowLeft' || e.key === 'ArrowRight')
                     ) {
                       e.preventDefault();
+                      // ปล่อยรถแล้ว = ย้ายไม่ได้ — บอกเหตุผลเดียวกับตอนลาก (toast = role=status)
+                      if (!canMove) {
+                        if (!e.repeat) setToast(t('plan.bad.locked', { no: x.tripNo }));
+                        return;
+                      }
                       // กดค้าง (repeat) / คำขอก่อนหน้ายังไม่จบ = ข้าม — กัน /schedule ด้วย version เก่า (412)
                       if (e.repeat || move.isPending) return;
                       const step = e.key === 'ArrowLeft' ? -SNAP_H : SNAP_H;

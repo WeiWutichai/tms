@@ -222,7 +222,7 @@ export function RouteFormDrawer({
       k: 'km' | 'min' | 'toll' | 'ext',
       extra: Partial<React.InputHTMLAttributes<HTMLInputElement>> = {},
     ) =>
-    (p: { id: string; 'aria-invalid': boolean }) => (
+    (p: { id: string; 'aria-invalid': boolean; 'aria-describedby'?: string }) => (
       <TextInput
         {...p}
         {...extra}
@@ -234,25 +234,28 @@ export function RouteFormDrawer({
         }}
       />
     );
-  const sitePicker = (k: 'origin' | 'dest') => (p: { id: string; 'aria-invalid': boolean }) => (
-    <RefPicker
-      id={p.id}
-      invalid={p['aria-invalid']}
-      queryKey="route-sites"
-      value={f[k]}
-      onChange={(v) => {
-        set(k, v);
-        setEstMsg(null);
-        // เปลี่ยนต้นทาง/ปลายทาง = ข้อความ "มีเส้นทางนี้แล้ว" ของคู่เดิมไม่ใช้แล้ว (review ST2-T09)
-        create.reset();
-        update.reset();
-      }}
-      search={searchSites}
-      placeholder={t('rt.f.pick')}
-      noResult={t('table.emptyTitle')}
-      style={SEL}
-    />
-  );
+  const sitePicker =
+    (k: 'origin' | 'dest') =>
+    (p: { id: string; 'aria-invalid': boolean; 'aria-describedby'?: string }) => (
+      <RefPicker
+        id={p.id}
+        invalid={p['aria-invalid']}
+        describedBy={p['aria-describedby']}
+        queryKey="route-sites"
+        value={f[k]}
+        onChange={(v) => {
+          set(k, v);
+          setEstMsg(null);
+          // เปลี่ยนต้นทาง/ปลายทาง = ข้อความ "มีเส้นทางนี้แล้ว" ของคู่เดิมไม่ใช้แล้ว (review ST2-T09)
+          create.reset();
+          update.reset();
+        }}
+        search={searchSites}
+        placeholder={t('rt.f.pick')}
+        noResult={t('table.emptyTitle')}
+        style={SEL}
+      />
+    );
 
   return (
     <FormDrawer

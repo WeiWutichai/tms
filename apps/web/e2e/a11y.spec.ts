@@ -209,6 +209,19 @@ test.describe('ST9-T20 a11y — หน้าหลัก', () => {
     await expectClean(page, 'trip-drawer', browserName);
   });
 
+  test('ฟอร์มสร้าง SO: ช่องเลือก (combobox) ผูก error + focus ช่องแรกที่ผิดหลังกดบันทึก', async ({
+    page,
+  }) => {
+    await page.goto('/so');
+    await page.getByRole('button', { name: 'สร้าง SO', exact: true }).click();
+    const d = page.getByRole('dialog');
+    await d.locator('button[type="submit"]').click();
+    const cust = d.getByRole('combobox', { name: /^ลูกค้า/ });
+    await expect(cust).toHaveAttribute('aria-invalid', 'true');
+    await expect(cust).toHaveAttribute('aria-describedby', /.+/);
+    await expect(cust).toBeFocused();
+  });
+
   test('ใบค้าง + drawer จับคู่ลูกค้า', async ({ page, browserName }) => {
     await page.goto('/so/hold');
     const row = page.getByRole('row', { name: new RegExp(holdNo) });
@@ -269,10 +282,10 @@ test.describe('ST9-T20 a11y — หน้าหลัก', () => {
     await page.getByRole('textbox', { name: 'ทะเบียน', exact: true }).fill(PLATE);
     await expect(page.getByRole('row', { name: new RegExp(PLATE) })).toBeVisible();
     await expectClean(page, 'vehicles', browserName);
-    // ช่องเลือกแถวอ่านเป็นทะเบียนรถ (ไม่ใช่ id ภายใน veh_…)
+    // ช่องเลือกแถว: ชื่อ "เลือก" + คำอธิบายเป็นทะเบียนรถ (ไม่ใช่ id ภายใน veh_…)
     await expect(
       page.getByRole('row', { name: new RegExp(PLATE) }).getByRole('checkbox'),
-    ).toHaveAccessibleName(new RegExp(PLATE));
+    ).toHaveAccessibleDescription(new RegExp(PLATE));
     // เปิดด้วยคีย์บอร์ด (Safari ไม่ focus ปุ่มเมื่อคลิกเมาส์ — คืน focus ได้เฉพาะเมื่อเปิดจากปุ่มที่ focus อยู่)
     const add = page.getByRole('button', { name: 'เพิ่มรถ' });
     await add.focus();
@@ -283,6 +296,7 @@ test.describe('ST9-T20 a11y — หน้าหลัก', () => {
     const plate = d.getByLabel('ทะเบียน');
     await expect(plate).toHaveAttribute('aria-invalid', 'true');
     await expect(plate).toHaveAccessibleDescription('กรุณากรอก ทะเบียน');
+    await expect(plate).toBeFocused(); // กดบันทึกแล้วมีช่องผิด → focus ช่องแรกที่ผิด
     await expectClean(page, 'vehicle-form', browserName);
     await page.keyboard.press('Escape');
     await expect(d).toHaveCount(0);

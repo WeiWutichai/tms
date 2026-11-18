@@ -22,6 +22,7 @@ const labels = {
   tableOptions: 'ตัวเลือกตาราง',
   showFilters: 'แสดงแถวตัวกรอง',
   dense: 'แถวกะทัดรัด (44px)',
+  selectRow: 'เลือก',
   exportCsv: 'ส่งออก CSV',
   resetColumns: 'คืนค่าเริ่มต้น',
   rowsPerPage: 'แถวต่อหน้า',
@@ -302,7 +303,7 @@ describe('DataTable', () => {
     expect(onRow).toHaveBeenCalledTimes(2);
     expect(onRow).toHaveBeenCalledWith(rows[0]);
     // Enter บนปุ่ม/ช่องในแถว ไม่เปิดแถวซ้ำ
-    fireEvent.keyDown(screen.getByRole('checkbox', { name: 'บริษัท ก' }), { key: 'Enter' });
+    fireEvent.keyDown(screen.getAllByRole('checkbox', { name: 'เลือก' })[0]!, { key: 'Enter' });
     expect(onRow).toHaveBeenCalledTimes(2);
     unmount();
     render(<DataTable {...base} />);
@@ -312,9 +313,14 @@ describe('DataTable', () => {
   it('เลือกหลายแถว → แถบ bulk แสดงจำนวน', () => {
     const run = vi.fn();
     render(<DataTable {...base} bulkActions={[{ label: 'ส่งออก', icon: 'download', run }]} />);
-    // ST9-T20: ชื่อช่องเลือก = ข้อความคอลัมน์แรกของแถว (ไม่ใช่ id ภายใน)
-    fireEvent.click(screen.getByRole('checkbox', { name: 'บริษัท ก' }));
-    fireEvent.click(screen.getByRole('checkbox', { name: 'บริษัท ข' }));
+    // ST9-T20: ชื่อช่องเลือก "เลือก" + คำอธิบาย = ข้อความคอลัมน์แรก (ไม่ใช่ id ภายใน)
+    const boxes = screen.getAllByRole('checkbox', { name: 'เลือก' });
+    expect(boxes[0]).toHaveAccessibleDescription('บริษัท ก');
+    expect(boxes[1]).toHaveAccessibleDescription('บริษัท ข');
+    // ช่องตารางของ checkbox ไม่ชื่อซ้ำกับคอลัมน์แรก
+    expect(screen.getAllByRole('cell', { name: 'บริษัท ก' })).toHaveLength(1);
+    fireEvent.click(boxes[0]!);
+    fireEvent.click(boxes[1]!);
     expect(screen.getByText('เลือก 2 รายการ')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /ส่งออก/ }));
     expect(run).toHaveBeenCalledWith(['a', 'b']);
@@ -351,5 +357,37 @@ describe('FormField ใน FormDrawer (QA ST2-T11)', () => {
     expect(screen.getByLabelText('ชื่อ').getAttribute('aria-invalid')).toBe('false');
     fireEvent.click(screen.getByText('บันทึก'));
     expect(screen.getByText('มีรายการนี้แล้ว')).toBeTruthy();
+  });
+});
+
+describe('FormDrawer — focus ช่องแรกที่ผิดหลังกดบันทึก (ST9-T20 QA M-1)', () => {
+  it('validation ทันที และ error จาก API ที่ตามมา → focus ช่องแรกที่ aria-invalid; error ผูกด้วย aria-describedby', async () => {
+    const { FormDrawer, FormField } = await import('./master');
+    function Form() {
+      const [errs, setErrs] = useState<Record<string, string>>({});
+      return (
+        <FormDrawer
+          open
+          title="ฟอร์ม"
+          onClose={() => undefined}
+          closeLabel="ปิด"
+          footer={<button type="submit">บันทึก</button>}
+          onSubmit={() => setErrs({ b: 'กรุณากรอก ข', c: 'กรุณากรอก ค' })}
+        >
+          <FormField label="ก">{(p) => <input {...p} />}</FormField>
+          <FormField label="ข" error={errs.b}>
+            {(p) => <input {...p} />}
+          </FormField>
+          <FormField label="ค" error={errs.c}>
+            {(p) => <input {...p} />}
+          </FormField>
+        </FormDrawer>
+      );
+    }
+    render(<Form />);
+    fireEvent.click(screen.getByRole('button', { name: 'บันทึก' }));
+    const b = screen.getByLabelText('ข');
+    expect(document.activeElement).toBe(b);
+    expect(b).toHaveAccessibleDescription('กรุณากรอก ข');
   });
 });

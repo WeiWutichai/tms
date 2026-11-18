@@ -158,6 +158,7 @@ export function tableLabels(t: T) {
     resetColumns: t('table.resetColumns'),
     rowsPerPage: t('table.rowsPerPage'),
     selected: (n: number) => t('table.selected', { n }),
+    selectRow: t('table.selectRow'),
     clearSelection: t('table.clearSelection'),
     rowActions: t('table.rowActions'),
     prev: t('table.prev'),
