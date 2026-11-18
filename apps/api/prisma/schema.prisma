@@ -2801,8 +2801,8 @@ enum InboundEventStatus {
 }
 
 /// ST7-T22 Inbound webhook ledger (docs/04 G3 "Inbound webhook ledger" I10) — 1 แถวต่อ event ของผู้ให้บริการ
-/// unique (tenant, provider, event_key) กัน replay: ส่งซ้ำ = ไม่ประมวลผลซ้ำ · แถวเกิดหลังตรวจลายเซ็นผ่านเท่านั้น
-/// แอปแก้ได้เฉพาะคอลัมน์สถานะ (ตัวตน/payload แก้/ลบไม่ได้) · payload เข้ารหัส FieldCipher ล้างหลัง 30 วัน · แถวเก็บ 24 เดือน
+/// unique (tenant, connector, event_key) กัน replay: ส่งซ้ำ = ไม่ประมวลผลซ้ำ · แถวเกิดหลังตรวจลายเซ็นผ่านเท่านั้น
+/// แอปแก้ได้เฉพาะคอลัมน์สถานะ (ตัวตน/payload แก้/ลบไม่ได้) · payload เข้ารหัส FieldCipher ล้างหลัง 30 วัน · แถวไม่ลบอัตโนมัติ (archive = OPEN)
 model ProcessedWebhookEvent {
   id              String             @id @default(uuid()) @db.Uuid
   tenantId        String             @map("tenant_id") @db.Uuid
@@ -2834,7 +2834,7 @@ model ProcessedWebhookEvent {
   ip              String?
   updatedAt       DateTime           @default(now()) @map("updated_at") @db.Timestamptz(6)
 
-  @@unique([tenantId, provider, eventKey])
+  @@unique([tenantId, connectorId, eventKey])
   @@index([tenantId, connectorId, receivedAt])
   @@index([receivedAt])
   @@map("processed_webhook_event")

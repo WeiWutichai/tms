@@ -21881,14 +21881,14 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ConnectorActionDto"
+                "$ref": "#/components/schemas/ConnectorReasonDto"
               }
             }
           }
         },
         "responses": {
           "200": {
-            "description": "ST7-T22 ออก/หมุน token ของ URL รับ webhook ขาเข้า — token/URL แสดงครั้งเดียว · token เดิมใช้ไม่ได้ทันที (401) · adapter ไม่รองรับ → 409 `inbound_not_supported` · audit บันทึกเฉพาะ prefix",
+            "description": "ST7-T22 ออก/หมุน token ของ URL รับ webhook ขาเข้า (เหตุผล ≥ 10 ตัว) — token/URL แสดงครั้งเดียว · token เดิมใช้ไม่ได้ทันที (401) · ไม่รับ Idempotency-Key (400 — คำตอบมี token) · adapter ไม่รองรับ → 409 `inbound_not_supported` · audit บันทึกเฉพาะ prefix",
             "content": {
               "application/json": {
                 "schema": {
@@ -53580,6 +53580,20 @@
           }
         }
       },
+      "ConnectorReasonDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 10,
+            "maxLength": 500,
+            "example": "เลิกใช้บริการตั้งแต่ ธ.ค. 2569"
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      },
       "InboundTokenDto": {
         "type": "object",
         "properties": {
@@ -53611,20 +53625,6 @@
           "tokenPrefix",
           "tokenRotatedAt",
           "connector"
-        ]
-      },
-      "ConnectorReasonDto": {
-        "type": "object",
-        "properties": {
-          "reason": {
-            "type": "string",
-            "minLength": 10,
-            "maxLength": 500,
-            "example": "เลิกใช้บริการตั้งแต่ ธ.ค. 2569"
-          }
-        },
-        "required": [
-          "reason"
         ]
       },
       "InboundReceiptDto": {

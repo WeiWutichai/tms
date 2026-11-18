@@ -19,10 +19,16 @@ import {
   INBOUND_TRIGGERS,
 } from './erp-adapter';
 import { ErpAdapterRegistry } from './erp-adapter.registry';
-import { hashInboundToken, INBOUND_TOKEN_RE, inboundTokenRateKey } from './inbound-token';
+import {
+  hashInboundToken,
+  INBOUND_MAX_ATTEMPTS,
+  INBOUND_PROCESS_JOB,
+  INBOUND_RETRY_DELAYS_MS,
+  INBOUND_TOKEN_RE,
+  inboundTokenRateKey,
+} from './inbound-token';
 
-/** job ประมวลผล event ที่บันทึกใหม่ `{eventId}` */
-export const INBOUND_PROCESS_JOB = 'inbound.process';
+export { INBOUND_MAX_ATTEMPTS, INBOUND_PROCESS_JOB };
 const MIN = 60_000;
 /** body สูงสุดของ webhook ขาเข้า (ตัดที่ body parser → 413 ก่อนถึง handler) */
 export const INBOUND_MAX_BYTES = 256 * 1024;
@@ -34,13 +40,11 @@ export const INBOUND_PER_TOKEN_PER_MIN = Number(
 /** เพดานเวลาของ adapter.verify (ไม่ควรเรียกภายนอก) และ handle */
 const VERIFY_TIMEOUT_MS = 5_000;
 const HANDLE_TIMEOUT_MS = 60_000;
-/** ลองประมวลผลกี่ครั้ง (ล้มแบบลองใหม่ได้ / connector ยังไม่ ACTIVE) ก่อนเป็น FAILED */
-export const INBOUND_MAX_ATTEMPTS = 5;
-/** connector PAUSED/ERROR → ตรวจใหม่ทุก 10 นาที */
-export const INBOUND_DEFER_MS = 10 * MIN;
-/** retention: payload (body ที่เข้ารหัส) 30 วัน · แถว ledger 24 เดือน (เท่า sync log — docs/01 §3.7) */
+/**
+ * retention: payload (body ที่เข้ารหัส) 30 วัน (INT-085) — แถวที่ยังไม่ประมวลผลแล้ว payload ถูกล้าง = FAILED `payload_expired`
+ * แถว ledger **ไม่ลบอัตโนมัติ** (docs/01 §3.7 "24 เดือน แล้ว archive" — วิธี archive [OPEN — PO], spec/12 §3)
+ */
 export const INBOUND_PAYLOAD_RETENTION_DAYS = 30;
-export const INBOUND_ROW_RETENTION_DAYS = 730;
 const DAY = 24 * 3600_000;
 const BATCH = 5000;
 const UUID_RE = /^[0-9a-f-]{36}$/i;
@@ -77,13 +81,15 @@ async function withTimeout<T>(p: Promise<T>, ms: number, what: string): Promise<
   }
 }
 
+/** ISO 8601 วันที่ + เวลา + timezone (Z หรือ ±hh:mm) เท่านั้น — ไม่มี timezone = ตีความผิดได้ */
+const ISO_TZ_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})$/;
 const isIsoDate = (v: unknown): v is string =>
-  typeof v === 'string' && v.length <= 40 && !Number.isNaN(Date.parse(v));
+  typeof v === 'string' && ISO_TZ_RE.test(v) && !Number.isNaN(Date.parse(v));
 
 /**
  * Inbound webhook ledger (ST7-T22; docs/04 G3 "Inbound webhook ledger" I10)
  * `POST /v1/inbound/{provider}/{token}` — ไม่ login: token ใน URL ชี้ tenant + connector แล้ว **ตรวจลายเซ็นผ่าน adapter ก่อน**
- * เขียนอะไรลงฐาน (นอกจากตัวนับ rate limit) → ledger `processed_webhook_event` unique (tenant, provider, eventKey)
+ * เขียนอะไรลงฐาน (นอกจากตัวนับ rate limit) → ledger `processed_webhook_event` unique (tenant, connector, eventKey)
  * → event ใหม่: บันทึก RECEIVED + job ประมวลผลใน transaction เดียวกัน (ส่งซ้ำ/พร้อมกัน = แถวเดียว job เดียว)
  * → worker เรียก `adapter.inbound.handle` ครั้งเดียว → PROCESSED / FAILED (+ trigger ที่ core ทำต่อ เช่น ดึง order)
  */
@@ -114,6 +120,7 @@ export class InboundWebhookService implements OnModuleInit {
       {
         outsideTransaction: true,
         timeoutMs: HANDLE_TIMEOUT_MS + 15_000,
+        retryDelaysMs: INBOUND_RETRY_DELAYS_MS,
         onFinalFailure: async ({ job, tx, error }) => {
           const id = (job.payload as { eventId?: unknown } | null)?.eventId;
           if (typeof id === 'string' && UUID_RE.test(id))
@@ -199,7 +206,8 @@ export class InboundWebhookService implements OnModuleInit {
       (event.occurredAt != null && !isIsoDate(event.occurredAt))
     )
       throw new ProblemException('bad_request', 'unrecognized inbound event');
-    // 5) ledger + job ใน transaction เดียว — unique (tenant, provider, event_key) ตัดสินว่าใครได้ประมวลผล
+    // 5) ledger + job ใน transaction เดียว — unique (tenant, connector, event_key) ตัดสินว่าใครได้ประมวลผล
+    //    (ต่อ connector: 2 connector ของ adapter เดียวกัน = 2 ระบบต้นทาง รหัส event ชนกันได้)
     const ev = event;
     return this.db.withTenant(c.tenantId, async (tx) => {
       const id = randomUUID();
@@ -212,7 +220,7 @@ export class InboundWebhookService implements OnModuleInit {
                 ${createHash('sha256').update(input.rawBody).digest('hex')}, ${input.rawBody.length},
                 ${ev.occurredAt ? new Date(ev.occurredAt) : null}::timestamptz, ${req.receivedAt},
                 ${input.requestId ?? null}, ${input.ip ?? null}, now())
-        ON CONFLICT (tenant_id, provider, event_key) DO NOTHING
+        ON CONFLICT (tenant_id, connector_id, event_key) DO NOTHING
         RETURNING id::text`;
       if (inserted.length) {
         await this.queue.enqueue(tx, {
@@ -226,7 +234,7 @@ export class InboundWebhookService implements OnModuleInit {
       const dup = await tx.$queryRaw<{ id: string }[]>`
         UPDATE processed_webhook_event
            SET duplicate_count = duplicate_count + 1, last_duplicate_at = now()
-         WHERE tenant_id = ${c.tenantId}::uuid AND provider = ${c.adapterKey} AND event_key = ${ev.eventKey}
+         WHERE tenant_id = ${c.tenantId}::uuid AND connector_id = ${c.id}::uuid AND event_key = ${ev.eventKey}
         RETURNING id::text`;
       if (!dup[0]) throw new Error('inbound ledger row vanished');
       return { received: true as const, duplicate: true, id: encodeId('inboundEvent', dup[0].id) };
@@ -249,6 +257,20 @@ export class InboundWebhookService implements OnModuleInit {
     );
     if (!row) return { skipped: 'not_found' };
     if (row.status !== 'RECEIVED') return { skipped: 'done', status: row.status };
+    // payload ถูกล้างตาม retention → จบเลย (ไม่ต้องรอ connector เปิดใหม่)
+    if (!row.payloadEnc) {
+      await this.db.withTenant(tenantId, (tx) =>
+        this.fail(tx, eventId, 'payload_expired', 'payload purged by retention'),
+      );
+      return { status: 'FAILED' };
+    }
+    // บริษัทถูกระงับ/ปิด: ไม่ประมวลผล — คง RECEIVED (เปิดใหม่แล้วยังไม่มีการปลุกอัตโนมัติ — ค้างใน PROGRESS)
+    const tenant = await this.prisma.platform.tenant.findUnique({
+      where: { id: tenantId },
+      select: { status: true },
+    });
+    if (!tenant || !['TRIAL', 'ACTIVE'].includes(tenant.status))
+      return { skipped: 'tenant_inactive' };
     const c = await this.db.withTenant(tenantId, (tx) =>
       tx.connector.findUnique({ where: { id: row.connectorId } }),
     );
@@ -264,27 +286,11 @@ export class InboundWebhookService implements OnModuleInit {
       );
       return { status: 'FAILED' };
     }
-    // PAUSED / ERROR: ยังไม่ประมวลผล — คงเป็น RECEIVED แล้วตรวจใหม่ทุก 10 นาที (เหมือนคำสั่งขาออกที่รอคิว — spec/07 §1.6)
-    // พักนานเกิน 30 วัน payload ถูกล้าง → FAILED `payload_expired`
-    if (c.status !== 'ACTIVE') {
-      await this.db.withTenant(tenantId, (tx) =>
-        this.queue.enqueue(tx, {
-          tenantId,
-          type: INBOUND_PROCESS_JOB,
-          payload: { eventId },
-          maxAttempts: INBOUND_MAX_ATTEMPTS,
-          runAt: new Date(Date.now() + INBOUND_DEFER_MS),
-        }),
-      );
-      return { deferred: c.status };
-    }
-    if (!row.payloadEnc) {
-      await this.db.withTenant(tenantId, (tx) =>
-        this.fail(tx, eventId, 'payload_expired', 'payload purged by retention'),
-      );
-      return { status: 'FAILED' };
-    }
-    const rawBody = Buffer.from(this.connectors.cipher.decrypt(row.payloadEnc), 'base64');
+    // PAUSED / ERROR: ยังไม่ประมวลผล — คงเป็น RECEIVED ไม่มี job ค้าง · เปิดใช้ (resume / ERROR → ACTIVE) แล้ว
+    // `ConnectorsService.wakeParked` สร้าง job ให้ (เหมือนคำสั่งขาออกที่พัก — spec/07 §1.6) · พักเกิน 30 วัน = payload_expired
+    if (c.status !== 'ACTIVE') return { deferred: c.status };
+    const payloadEnc = row.payloadEnc;
+    const rawBody = Buffer.from(this.connectors.cipher.decrypt(payloadEnc), 'base64');
     const ctx = this.connectors.contextOf(c, {
       idempotencyKey: `${row.provider}:${row.eventKey}`,
     });
@@ -371,28 +377,32 @@ export class InboundWebhookService implements OnModuleInit {
 
   // ---------- retention (worker รายวัน — role platform) ----------
 
-  /** ล้าง payload ที่เกิน 30 วัน + ลบแถวที่เกิน 24 เดือน (ทีละ 5,000 แถว) */
-  async purge(now = new Date()): Promise<{ payloadsCleared: number; rowsDeleted: number }> {
+  /**
+   * ล้าง payload ที่เกิน 30 วัน (ทีละ 5,000 แถว) — แถวที่ยังเป็น RECEIVED ปิดเป็น FAILED `payload_expired` ทันที
+   * ไม่ลบแถว ledger (archive หลัง 24 เดือน = [OPEN — PO])
+   */
+  async purge(now = new Date()): Promise<{ payloadsCleared: number; expired: number }> {
     const db = this.prisma.platform;
     const payloadCutoff = new Date(now.getTime() - INBOUND_PAYLOAD_RETENTION_DAYS * DAY);
-    const rowCutoff = new Date(now.getTime() - INBOUND_ROW_RETENTION_DAYS * DAY);
     let payloadsCleared = 0;
+    let expired = 0;
     for (;;) {
-      const n = await db.$executeRaw`
-        UPDATE processed_webhook_event SET payload_enc = NULL, updated_at = now()
-         WHERE id IN (SELECT id FROM processed_webhook_event
-                       WHERE received_at < ${payloadCutoff} AND payload_enc IS NOT NULL LIMIT ${BATCH})`;
-      payloadsCleared += n;
-      if (n < BATCH) break;
+      const rows = await db.$queryRaw<{ expired: boolean }[]>`
+        UPDATE processed_webhook_event e
+           SET payload_enc = NULL, updated_at = now(),
+               status = CASE WHEN e.status = 'RECEIVED' THEN 'FAILED'::"InboundEventStatus" ELSE e.status END,
+               processed_at = CASE WHEN e.status = 'RECEIVED' THEN now() ELSE e.processed_at END,
+               last_error = CASE WHEN e.status = 'RECEIVED'
+                                 THEN jsonb_build_object('code', 'payload_expired', 'message', 'payload purged by retention')
+                                 ELSE e.last_error END
+          FROM (SELECT id, status = 'RECEIVED' AS was_received FROM processed_webhook_event
+                 WHERE received_at < ${payloadCutoff} AND payload_enc IS NOT NULL LIMIT ${BATCH}) x
+         WHERE e.id = x.id
+        RETURNING x.was_received AS expired`;
+      payloadsCleared += rows.length;
+      expired += rows.filter((r) => r.expired).length;
+      if (rows.length < BATCH) break;
     }
-    let rowsDeleted = 0;
-    for (;;) {
-      const n = await db.$executeRaw`
-        DELETE FROM processed_webhook_event
-         WHERE id IN (SELECT id FROM processed_webhook_event WHERE received_at < ${rowCutoff} LIMIT ${BATCH})`;
-      rowsDeleted += n;
-      if (n < BATCH) break;
-    }
-    return { payloadsCleared, rowsDeleted };
+    return { payloadsCleared, expired };
   }
 }

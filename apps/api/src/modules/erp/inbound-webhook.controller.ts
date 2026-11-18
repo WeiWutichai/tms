@@ -16,7 +16,8 @@ import { InboundReceiptDto } from './connector.dto';
 import { INBOUND_MAX_BYTES, InboundWebhookService } from './inbound-webhook.service';
 
 /** path ของ webhook ขาเข้า — body parser อ่านเป็น raw (ไม่แปลง JSON) เพื่อให้ตรวจลายเซ็นกับ byte เดิมได้ */
-export const INBOUND_PATH_RE = /^\/v1\/inbound\/[^/?#]+\/[^/?#]+\/?(?:[?#].*)?$/;
+// ไม่แยกตัวพิมพ์ (router ของ Express ไม่แยก — `/V1/Inbound/…` ต้องได้ raw + เพดาน 256 KB เหมือนกัน)
+export const INBOUND_PATH_RE = /^\/v1\/inbound\/[^/?#]+\/[^/?#]+\/?(?:[?#].*)?$/i;
 
 /** ใช้กับ body parser แบบ raw ใน bootstrap */
 export function isInboundWebhookRequest(req: { url?: string; method?: string }): boolean {

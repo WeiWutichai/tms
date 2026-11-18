@@ -28,6 +28,7 @@ import {
 } from '../../common/decorators';
 import { expectedVersion, setEtag } from '../../common/etag';
 import { decodeIdOr404 } from '../../common/ids';
+import { ProblemException } from '../../common/problem';
 import { DbService } from '../../db/db.service';
 import { entityHistory, HistoryQuery } from '../master/history';
 import {
@@ -47,6 +48,18 @@ import {
 } from './connector.dto';
 import { apiOrigin } from '../documents/documents.controller';
 import { ConnectorsService } from './connectors.service';
+
+/**
+ * ผลออก/หมุน token มีค่าที่แสดงครั้งเดียว — ห้ามเก็บลงตาราง idempotency (เก็บ response 24 ชม. เป็นข้อความธรรมดา)
+ * (แบบเดียวกับ api-keys.controller / webhooks.controller)
+ */
+function noIdempotencyKey(req: Request) {
+  if (req.header('idempotency-key'))
+    throw new ProblemException(
+      'bad_request',
+      'Idempotency-Key is not supported here — the response contains a one-time token',
+    );
+}
 
 const IF_MATCH = { name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' };
 
@@ -244,15 +257,17 @@ export class ConnectorsController {
   @ApiOkResponse({
     type: InboundTokenDto,
     description:
-      'ST7-T22 ออก/หมุน token ของ URL รับ webhook ขาเข้า — token/URL แสดงครั้งเดียว · token เดิมใช้ไม่ได้ทันที (401) · ' +
+      'ST7-T22 ออก/หมุน token ของ URL รับ webhook ขาเข้า (เหตุผล ≥ 10 ตัว) — token/URL แสดงครั้งเดียว · token เดิมใช้ไม่ได้ทันที (401) · ' +
+      'ไม่รับ Idempotency-Key (400 — คำตอบมี token) · ' +
       'adapter ไม่รองรับ → 409 `inbound_not_supported` · audit บันทึกเฉพาะ prefix',
   })
   async rotateInboundToken(
     @Param('id') id: string,
-    @Body() body: ConnectorActionDto,
+    @Body() body: ConnectorReasonDto,
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<InboundTokenDto> {
+    noIdempotencyKey(req);
     const { connector, token } = await this.connectors.rotateInboundToken(
       decodeIdOr404('connector', id),
       body,

@@ -3,12 +3,13 @@ import { Prisma, PrismaClient } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { tryDecodeId } from '../src/common/ids';
+import { encodeId, tryDecodeId } from '../src/common/ids';
 import { DbService } from '../src/db/db.service';
 import { DemoAdapter } from '../src/erp-adapters/demo/demo.adapter';
 import { rateLimitInstance } from '../src/http/rate-limit/rate-limit.service';
 import { JobQueue } from '../src/jobs/job-queue.service';
 import { CONNECTOR_PULL_JOB } from '../src/modules/connectors/connector-intake.service';
+import { ConnectorsService } from '../src/modules/erp/connectors.service';
 import { ErpAdapterRegistry } from '../src/modules/erp/erp-adapter.registry';
 import {
   INBOUND_MAX_BYTES,
@@ -18,7 +19,7 @@ import {
 import { signatureHeader } from '../src/modules/webhooks/signature';
 import { createTenantWithDefaults } from '../src/modules/tenants/bootstrap';
 import { FakeErpAdapter, GOOD_KEY } from './fake-erp-adapter';
-import { api, bootApp, platform, tokenFor, truncateAll } from './helpers';
+import { api, bootApp, platform, tokenFor, truncateAll, validTaxId } from './helpers';
 
 // เพดานต่อ token ต่ำ (ค่าจริง 600/นาที) เพื่อทดสอบ 429 — อ่านตอน import โมดูล
 vi.hoisted(() => {
@@ -76,7 +77,9 @@ describe('Inbound webhook ledger (ST7-T22)', () => {
   }
 
   async function rotate(id = conId) {
-    const r = await api(app, token).post(`/v1/connectors/${id}/inbound-token/rotate`).send({});
+    const r = await api(app, token)
+      .post(`/v1/connectors/${id}/inbound-token/rotate`)
+      .send({ reason: 'ออก token รับ webhook ขาเข้า' });
     expect(r.status, JSON.stringify(r.body)).toBe(200);
     return r.body as { token: string; url: string; tokenPrefix: string };
   }
@@ -280,7 +283,7 @@ describe('Inbound webhook ledger (ST7-T22)', () => {
     expect(await ledger()).toHaveLength(0);
   });
 
-  it('event key เดียวกันคนละ tenant ไม่ชนกัน (unique ต่อ tenant + provider + eventKey)', async () => {
+  it('event key เดียวกันคนละ tenant ไม่ชนกัน (unique ต่อ tenant + connector + eventKey)', async () => {
     const raw = body({ id: 'evt-shared', type: 'invoice.paid' });
     await send(raw).expect(200);
     const ownerB = (
@@ -304,7 +307,7 @@ describe('Inbound webhook ledger (ST7-T22)', () => {
     await api(app, tb).post(`/v1/connectors/${c.body.id}/resume`).send({}).expect(200);
     const rb = await api(app, tb)
       .post(`/v1/connectors/${c.body.id}/inbound-token/rotate`)
-      .send({})
+      .send({ reason: 'ออก token รับ webhook ขาเข้า' })
       .expect(200);
     const pathB = new URL(rb.body.url).pathname;
     // ลายเซ็นด้วย secret ของ A ใช้กับ URL ของ B ไม่ได้
@@ -374,22 +377,136 @@ describe('Inbound webhook ledger (ST7-T22)', () => {
     expect(row!.processedAt).toBeInstanceOf(Date);
   });
 
-  it('connector หยุดชั่วคราว: รับเข้า ledger ได้ แต่ยังไม่ประมวลผล (RECEIVED + ตรวจใหม่ภายหลัง)', async () => {
+  it('connector หยุดชั่วคราว: รับเข้า ledger แต่ไม่ประมวลผล ไม่มี job ค้าง → เปิดใช้แล้วปลุกประมวลผล', async () => {
     await api(app, token).post(`/v1/connectors/${conId}/pause`).send({}).expect(200);
     await send(body({ id: 'evt-p', type: 'invoice.paid' })).expect(200);
     await drain();
     const [row] = await ledger();
     expect(row!.status).toBe('RECEIVED');
     expect(demo.inboundHandled(tenantId, conUuid)).toHaveLength(0);
-    const next = await plat.job.findMany({
-      where: { tenantId, type: INBOUND_PROCESS_JOB, status: 'PENDING' },
-    });
-    expect(next).toHaveLength(1);
-    expect(next[0]!.runAt.getTime()).toBeGreaterThan(Date.now() + 5 * 60_000);
-    // เปิดใหม่ → ประมวลผลได้
+    const open = () =>
+      plat.job.count({
+        where: { tenantId, type: INBOUND_PROCESS_JOB, status: { in: ['PENDING', 'RUNNING'] } },
+      });
+    expect(await open()).toBe(0);
+    // เปิดใหม่ → wakeParked สร้าง job 1 ตัว (เรียกซ้ำไม่สร้างเพิ่ม) → ประมวลผล
     await api(app, token).post(`/v1/connectors/${conId}/resume`).send({}).expect(200);
-    await app.get(InboundWebhookService).process(tenantId, row!.id);
+    await app.get(ConnectorsService).wakeParked(tenantId, conUuid);
+    expect(await open()).toBe(1);
+    await drain();
     expect((await ledger())[0]!.status).toBe('PROCESSED');
+    expect(demo.inboundHandled(tenantId, conUuid)).toHaveLength(1);
+  });
+
+  it('payload ถูกล้างแล้ว → FAILED payload_expired ทันที (ไม่ต้องรอ connector เปิดใหม่)', async () => {
+    await api(app, token).post(`/v1/connectors/${conId}/pause`).send({}).expect(200);
+    await send(body({ id: 'evt-px', type: 'invoice.paid' })).expect(200);
+    const [row] = await ledger();
+    await plat.$executeRaw`UPDATE processed_webhook_event SET payload_enc = NULL WHERE id = ${row!.id}::uuid`;
+    await app.get(InboundWebhookService).process(tenantId, row!.id);
+    expect((await ledger())[0]).toMatchObject({
+      status: 'FAILED',
+      lastError: { code: 'payload_expired' },
+    });
+  });
+
+  it('บริษัทถูกระงับ → ไม่ประมวลผล คง RECEIVED', async () => {
+    await send(body({ id: 'evt-susp', type: 'invoice.paid' })).expect(200);
+    const [row] = await ledger();
+    await plat.tenant.update({ where: { id: tenantId }, data: { status: 'SUSPENDED' } });
+    try {
+      expect(await app.get(InboundWebhookService).process(tenantId, row!.id)).toEqual({
+        skipped: 'tenant_inactive',
+      });
+    } finally {
+      await plat.tenant.update({ where: { id: tenantId }, data: { status: 'ACTIVE' } });
+    }
+    expect((await ledger())[0]!.status).toBe('RECEIVED');
+    expect(demo.inboundHandled(tenantId, conUuid)).toHaveLength(0);
+  });
+
+  it('handle ล้มแบบลองใหม่ได้ → รอ 1 นาทีก่อนลองครั้งที่ 2 (backoff ของ inbound.process)', async () => {
+    await send(body({ id: 'evt-retry', type: 'demo.retry' })).expect(200);
+    const before = Date.now();
+    await queue.runOnce();
+    const [job] = await inboundJobs();
+    expect(job).toMatchObject({ status: 'PENDING', attempts: 1, maxAttempts: 6 });
+    expect(job!.runAt.getTime()).toBeGreaterThanOrEqual(before + 55_000);
+    expect(job!.runAt.getTime()).toBeLessThan(before + 120_000);
+    expect((await ledger())[0]!.status).toBe('RECEIVED');
+  });
+
+  it('2 connector ของ adapter เดียวกันใน tenant เดียว: รหัส event เดียวกันไม่ชนกัน (unique ต่อ connector)', async () => {
+    const co = await plat.company.create({
+      data: {
+        tenantId,
+        legalName: `บริษัท สาขาสอง ${randomUUID().slice(0, 6)} จำกัด`,
+        taxId: validTaxId(8800 + Math.floor(Math.random() * 99)),
+      },
+    });
+    const r2 = await api(app, token)
+      .post('/v1/connectors')
+      .send({
+        adapterKey: 'demo',
+        companyId: encodeId('company', co.id),
+        credentials: { apiKey: GOOD_KEY, inboundSecret: SECRET },
+      })
+      .expect(201);
+    await api(app, token).post(`/v1/connectors/${r2.body.id}/resume`).send({}).expect(200);
+    const path2 = new URL((await rotate(r2.body.id)).url).pathname;
+    const raw = body({ id: 'evt-same', type: 'invoice.paid' });
+    const a = await send(raw).expect(200);
+    const b = await send(raw, sign(raw), path2).expect(200);
+    expect(a.body.duplicate).toBe(false);
+    expect(b.body.duplicate).toBe(false);
+    expect(b.body.id).not.toBe(a.body.id);
+    await drain();
+    expect(demo.inboundHandled(tenantId, conUuid)).toHaveLength(1);
+    expect(demo.inboundHandled(tenantId, tryDecodeId('connector', r2.body.id)!)).toHaveLength(1);
+    // ซ้ำภายใน connector ที่ 2 ยังกันได้
+    expect((await send(raw, sign(raw), path2).expect(200)).body).toMatchObject({
+      duplicate: true,
+      id: b.body.id,
+    });
+  });
+
+  it('ออก/หมุน token: ต้องมีเหตุผล (422) · ไม่รับ Idempotency-Key (400) และไม่มี token ในตาราง idempotency', async () => {
+    const r = await api(app, token).post(`/v1/connectors/${conId}/inbound-token/rotate`).send({});
+    expect(r.status).toBe(422);
+    const k = randomUUID();
+    const r2 = await api(app, token)
+      .post(`/v1/connectors/${conId}/inbound-token/rotate`)
+      .set('Idempotency-Key', k)
+      .send({ reason: 'หมุนตามรอบความปลอดภัย' });
+    expect(r2.status).toBe(400);
+    const stored = await plat.$queryRaw<{ n: number }[]>`
+      SELECT count(*)::int AS n FROM idempotency_key WHERE key = ${k}`;
+    expect(stored[0]!.n).toBe(0);
+    // token เดิมยังใช้ได้ (ไม่ได้หมุน)
+    await send(body({ id: 'evt-idem', type: 'invoice.paid' })).expect(200);
+  });
+
+  it('occurredAt ต้องเป็น ISO 8601 ที่มี timezone → ไม่งั้น 400', async () => {
+    for (const occurredAt of [
+      '2026-11-18T09:00:00',
+      '2026-11-18',
+      'Nov 18 2026',
+      '2026-11-18 09:00:00Z',
+    ])
+      await send(body({ id: `evt-tz-${occurredAt}`, type: 'x', occurredAt })).expect(400);
+    await send(
+      body({ id: 'evt-tz-ok', type: 'x', occurredAt: '2026-11-18T09:00:00.123+07:00' }),
+    ).expect(200);
+    expect((await ledger()).map((r) => r.eventKey)).toEqual(['evt-tz-ok']);
+  });
+
+  it('path ตัวพิมพ์ใหญ่: ยังอ่าน body ดิบ (ลายเซ็นผ่าน) และเพดาน 256 KB ใช้เหมือนกัน', async () => {
+    const upper = inboundPath.replace('/v1/inbound/', '/V1/Inbound/');
+    const raw = body({ id: 'evt-upper', type: 'invoice.paid' });
+    await send(raw, sign(raw), upper).expect(200);
+    const big = body({ id: 'evt-upper-big', type: 'x', pad: 'x'.repeat(INBOUND_MAX_BYTES) });
+    const r = await send(big, sign(big), upper);
+    expect(r.status).toBe(413);
   });
 
   it('เพิกถอน token / ยกเลิกการเชื่อม → URL เดิม 401', async () => {
@@ -425,7 +542,7 @@ describe('Inbound webhook ledger (ST7-T22)', () => {
     expect(c.body.inbound).toEqual({ supported: false, tokenPrefix: null, tokenRotatedAt: null });
     const r = await api(app, token)
       .post(`/v1/connectors/${c.body.id}/inbound-token/rotate`)
-      .send({});
+      .send({ reason: 'ออก token รับ webhook ขาเข้า' });
     expect(r.status).toBe(409);
     expect(r.body.code).toBe('inbound_not_supported');
   });
@@ -438,15 +555,21 @@ describe('Inbound webhook ledger (ST7-T22)', () => {
     expect(last).toBe(429);
   });
 
-  it('retention: payload เกิน 30 วันถูกล้าง · แถวเกิน 24 เดือนถูกลบ', async () => {
+  it('retention: payload เกิน 30 วันถูกล้าง (RECEIVED → FAILED payload_expired) · ไม่ลบแถว ledger', async () => {
     await send(body({ id: 'evt-old', type: 'invoice.paid' })).expect(200);
     await send(body({ id: 'evt-older', type: 'invoice.paid' })).expect(200);
+    await send(body({ id: 'evt-new', type: 'invoice.paid' })).expect(200);
+    await plat.$executeRaw`UPDATE processed_webhook_event SET status = 'PROCESSED', processed_at = now() WHERE event_key = 'evt-old'`;
     await plat.$executeRaw`UPDATE processed_webhook_event SET received_at = now() - interval '31 days' WHERE event_key = 'evt-old'`;
-    await plat.$executeRaw`UPDATE processed_webhook_event SET received_at = now() - interval '731 days' WHERE event_key = 'evt-older'`;
+    await plat.$executeRaw`UPDATE processed_webhook_event SET received_at = now() - interval '800 days' WHERE event_key = 'evt-older'`;
     const r = await app.get(InboundWebhookService).purge();
-    expect(r.rowsDeleted).toBe(1);
-    expect(r.payloadsCleared).toBeGreaterThanOrEqual(1);
+    expect(r).toEqual({ payloadsCleared: 2, expired: 1 });
     const rows = await ledger();
-    expect(rows.map((x) => [x.eventKey, x.payloadEnc])).toEqual([['evt-old', null]]);
+    expect(rows.map((x) => [x.eventKey, x.status, x.payloadEnc === null])).toEqual([
+      ['evt-older', 'FAILED', true],
+      ['evt-old', 'PROCESSED', true],
+      ['evt-new', 'RECEIVED', false],
+    ]);
+    expect(rows[0]!.lastError).toMatchObject({ code: 'payload_expired' });
   });
 });

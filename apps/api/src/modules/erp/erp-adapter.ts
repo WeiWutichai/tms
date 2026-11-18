@@ -160,8 +160,10 @@ export type InboundHandleResult =
  * - `verify` ตรวจลายเซ็นกับ credential ของ connector (ctx.config) **ก่อน** core เขียนอะไรลงฐาน — false/throw = 401 ·
  *   ต้องเทียบแบบเวลาคงที่ และปฏิเสธ timestamp เก่า (กัน replay) ถ้าผู้ให้บริการส่งมา · ห้ามมีผลข้างเคียง
  * - `parse` เรียกหลังลายเซ็นผ่านเท่านั้น — null = รูปแบบที่ไม่รู้จัก (400) · ห้ามเรียกภายนอก
- * - `handle` เรียกใน worker (นอก transaction) ครั้งเดียวต่อ event ที่บันทึกใหม่ (ctx.idempotencyKey = `provider:eventKey`)
- *   · throw = ล้มแบบลองใหม่ได้ · ห้ามเขียนฐาน TMS (คืน `triggers` ให้ core ทำต่อ)
+ * - `handle` เรียกใน worker (นอก transaction) สำหรับ event ที่บันทึกใหม่ (ctx.idempotencyKey = `provider:eventKey`)
+ *   · **ต้อง idempotent** — core เรียกครั้งเดียวต่อ event ตามปกติ แต่อาจถูกเรียกซ้ำ/ซ้อนได้ (timeout ของ handle,
+ *   lease ของ job หมดระหว่างทำ, ลองใหม่หลัง throw) · throw = ล้มแบบลองใหม่ได้ · ห้ามเขียนฐาน TMS (คืน `triggers` ให้ core ทำต่อ)
+ *   · ไม่ถูกเรียกเมื่อบริษัทถูกระงับ หรือ connector ไม่ ACTIVE (event คง RECEIVED)
  */
 export interface InboundWebhookHandler {
   verify(ctx: ErpContext, req: InboundRequest): boolean | Promise<boolean>;

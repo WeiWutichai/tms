@@ -33,7 +33,7 @@ import type {
 import { ConnectorResolver } from './connector-resolver';
 import type { ErpAdapter, ErpContext, HealthResult } from './erp-adapter';
 import { ErpAdapterRegistry } from './erp-adapter.registry';
-import { generateInboundToken } from './inbound-token';
+import { generateInboundToken, INBOUND_MAX_ATTEMPTS, INBOUND_PROCESS_JOB } from './inbound-token';
 
 const HEALTH_TIMEOUT_MS = 15_000;
 const VALUE_MAX = 2048;
@@ -581,7 +581,7 @@ export class ConnectorsService {
    */
   async rotateInboundToken(
     id: string,
-    body: ConnectorActionDto,
+    body: ConnectorReasonDto,
     expected?: number,
   ): Promise<{ connector: Connector; token: string }> {
     this.assertHuman();
@@ -609,7 +609,7 @@ export class ConnectorsService {
       entityId: id,
       before: { inboundTokenPrefix: cur.inboundTokenPrefix },
       after: { inboundTokenPrefix: t.prefix },
-      reason: body.reason ?? null,
+      reason: body.reason,
     });
     return { connector: await this.get(id), token: t.token };
   }
@@ -978,10 +978,23 @@ export class ConnectorsService {
    * เรียกหลัง commit ของ resume / ERROR → ACTIVE / เปิด capability — แก้ integration_outbox ได้เฉพาะ role platform
    */
   async wakeParked(tenantId: string, connectorId: string): Promise<number> {
-    return this.prisma.platform.$executeRaw`
+    const n = await this.prisma.platform.$executeRaw`
       UPDATE integration_outbox SET next_run_at = now(), updated_at = now()
        WHERE tenant_id = ${tenantId}::uuid AND sink = 'erp' AND target_id = ${connectorId}
          AND status = 'PENDING' AND next_run_at > now()`;
+    // ST7-T22 webhook ขาเข้าที่รับไว้ระหว่าง PAUSED/ERROR (คง RECEIVED ไม่มี job ค้าง) → สร้าง job ประมวลผล
+    const inbound = await this.prisma.platform.$executeRaw`
+      INSERT INTO job (id, tenant_id, type, payload, max_attempts)
+      SELECT gen_random_uuid(), e.tenant_id, ${INBOUND_PROCESS_JOB},
+             jsonb_build_object('eventId', e.id::text), ${INBOUND_MAX_ATTEMPTS}::int
+        FROM processed_webhook_event e
+       WHERE e.tenant_id = ${tenantId}::uuid AND e.connector_id = ${connectorId}::uuid
+         AND e.status = 'RECEIVED'
+         AND NOT EXISTS (SELECT 1 FROM job j
+                          WHERE j.tenant_id = e.tenant_id AND j.type = ${INBOUND_PROCESS_JOB}
+                            AND j.status IN ('PENDING', 'RUNNING')
+                            AND j.payload->>'eventId' = e.id::text)`;
+    return n + inbound;
   }
 
   /** คำสั่งที่ยังไม่จบของ connector (ใช้นับตอนยกเลิกการเชื่อม — จะถูกข้าม) */

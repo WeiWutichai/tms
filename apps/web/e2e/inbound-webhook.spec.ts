@@ -45,7 +45,7 @@ test('webhook ขาเข้า: ส่ง event เดิม 2 ครั้ง
   try {
     const rot = await page.request.post(`/v1/connectors/${conId}/inbound-token/rotate`, {
       headers: auth,
-      data: {},
+      data: { reason: 'ออก token รับ webhook ขาเข้า' },
     });
     expect(rot.status(), await rot.text()).toBe(200);
     const { url, token: inboundToken } = (await rot.json()) as { url: string; token: string };

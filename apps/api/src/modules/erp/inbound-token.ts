@@ -24,3 +24,12 @@ export const hashInboundToken = (token: string) => hashApiKey(token);
 /** key ของ rate limit ต่อ token (ไม่เก็บ token ตัวจริงในที่เก็บของตัวจำกัด — ใช้ได้แม้ token ผิดรูป) */
 export const inboundTokenRateKey = (token: string) =>
   createHash('sha256').update(token).digest('base64url').slice(0, 32);
+
+/** job ประมวลผล event ที่บันทึกใหม่ `{eventId}` (ST7-T22) — อยู่ที่นี่ให้ ConnectorsService ปลุกได้โดยไม่วนพึ่งกัน */
+export const INBOUND_PROCESS_JOB = 'inbound.process';
+/**
+ * รอก่อนลองใหม่ครั้งที่ n (ล้มแบบลองใหม่ได้ — ครอบ ERP ล่มสั้น ๆ): 1 นาที, 5 นาที, 15 นาที, 1 ชม., 6 ชม. แล้ว FAILED
+ * จำนวนครั้ง = ช่วงรอ + 1
+ */
+export const INBOUND_RETRY_DELAYS_MS = [60_000, 300_000, 900_000, 3_600_000, 21_600_000];
+export const INBOUND_MAX_ATTEMPTS = INBOUND_RETRY_DELAYS_MS.length + 1;

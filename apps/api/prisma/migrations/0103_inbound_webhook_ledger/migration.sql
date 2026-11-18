@@ -1,6 +1,7 @@
 -- ST7-T22 Inbound webhook ledger (docs/04 G3 "Inbound webhook ledger" I10)
 -- URL รับ webhook ขาเข้ามี tenant token (ต่อ connector — เก็บเฉพาะ HMAC-SHA256(pepper) หมุนได้) → ตรวจลายเซ็นผ่าน adapter ก่อน
--- → ledger `processed_webhook_event` unique (tenant, provider, event_key) กัน replay (ส่งซ้ำ = ไม่ประมวลผลซ้ำ)
+-- → ledger `processed_webhook_event` unique (tenant, connector, event_key) กัน replay
+--   (ต่อ connector ไม่ใช่ต่อ provider: 2 connector ของ adapter เดียวกัน = 2 ระบบต้นทาง รหัส event ชนกันได้) (ส่งซ้ำ = ไม่ประมวลผลซ้ำ)
 
 -- CreateEnum
 CREATE TYPE "InboundEventStatus" AS ENUM ('RECEIVED', 'PROCESSED', 'FAILED');
@@ -45,13 +46,13 @@ CREATE TABLE "processed_webhook_event" (
 );
 
 -- CreateIndex
-CREATE UNIQUE INDEX "processed_webhook_event_tenant_id_provider_event_key_key" ON "processed_webhook_event"("tenant_id", "provider", "event_key");
+CREATE UNIQUE INDEX "processed_webhook_event_tenant_id_connector_id_event_key_key" ON "processed_webhook_event"("tenant_id", "connector_id", "event_key");
 CREATE INDEX "processed_webhook_event_tenant_id_connector_id_received_at_idx" ON "processed_webhook_event"("tenant_id", "connector_id", "received_at");
--- retention (role platform ล้างตามเวลารับ — ST7-T22)
+-- retention payload 30 วัน (role platform ล้างตามเวลารับ — ST7-T22)
 CREATE INDEX "processed_webhook_event_received_at_idx" ON "processed_webhook_event"("received_at");
 
 -- แอปลบไม่ได้ · แก้ได้เฉพาะคอลัมน์สถานะ/ตัวนับ (ตัวตนของ event + payload แก้ไม่ได้)
--- ล้าง payload หลัง 30 วัน + ลบแถวหลัง 24 เดือน ทำโดย role platform (InboundWebhookRetention)
+-- ล้าง payload หลัง 30 วันโดย role platform (InboundWebhookService.purge) · แถวไม่ลบอัตโนมัติ (archive หลัง 24 เดือน = OPEN)
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'tms_app') THEN
