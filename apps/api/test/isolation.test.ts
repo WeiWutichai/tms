@@ -648,7 +648,7 @@ const FIXTURES: Record<string, (db: PrismaClient, tenantId: string, n: number) =
     },
     job: async (db, tenantId) =>
       encodeId('job', (await db.job.create({ data: { tenantId, type: 'noop' } })).id),
-    // ST9-T10 งานส่งออก — ผู้สั่ง = sub ของ tokenFor() (เจ้าของเห็นได้ 200)
+    // ST9-T10 งานส่งออก — ผู้สั่ง = OWNER_A (sub ของ tokenA — เจ้าของเห็นได้ 200, tenant B 404)
     export: async (db, tenantId) =>
       encodeId(
         'job',
@@ -661,7 +661,7 @@ const FIXTURES: Record<string, (db: PrismaClient, tenantId: string, n: number) =
                 resource: 'customers',
                 format: 'xlsx',
                 filter: {},
-                actorId: 'user-test',
+                actorId: OWNER_A,
                 scopes: ['*'],
                 principalType: 'dev',
               },
