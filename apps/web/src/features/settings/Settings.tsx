@@ -20,7 +20,13 @@ import './settings.css';
  * เฉพาะหัวข้อในเฟส 0 (ฟิลด์เพิ่มเติม, AI, วงเงินอนุมัติซ่อม, แพ็กเกจ อยู่นอกเฟส — PLAN.md §3)
  * `stage` = งานที่ทำหัวข้อนั้น (หัวข้อที่ยังไม่ทำแสดง "ยังไม่เปิดใช้")
  */
-const SECTIONS: Array<{ k: string; icon: string; perm?: string[]; stage?: string; go?: string }> = [
+export const SECTIONS: Array<{
+  k: string;
+  icon: string;
+  perm?: string[];
+  stage?: string;
+  go?: string;
+}> = [
   { k: 'org', icon: 'building-2', perm: ['settings:read'] },
   { k: 'ent', icon: 'landmark', perm: ['settings:read'] },
   { k: 'num', icon: 'hash', perm: ['settings:read'] },

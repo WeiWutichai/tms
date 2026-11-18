@@ -236,7 +236,7 @@ export const PROBLEMS = {
   },
   in_use_active: {
     status: 409,
-    th: 'ปิดใช้ไม่ได้ เพราะยังมีข้อมูลที่ใช้งานอยู่อ้างถึง — ดูจำนวนใน references',
+    th: 'ปิดใช้ไม่ได้ เพราะยังมีข้อมูลที่ใช้งานอยู่อ้างถึง',
     en: 'Cannot deactivate — still used by active records (see references)',
   },
   /** ORD-023 / docs/04 C: ทางเข้า (upsert) เขียนทับ SO ที่วางแผนแล้ว/ปิด/ยกเลิกไม่ได้ (หลังวางแผน = ST3-T10 เก็บ diff) */
@@ -411,7 +411,12 @@ export const PROBLEMS = {
     th: 'เที่ยวนี้มีคำเตือนที่ยังไม่ได้ยืนยัน — ยืนยันพร้อมเหตุผลก่อน',
     en: 'This trip has unconfirmed warnings — confirm them with a reason first',
   },
-  invalid_grant: { status: 400, th: 'รหัสยืนยันหมดอายุหรือไม่ถูกต้อง', en: 'Invalid grant' },
+  /** code/refresh token ของการเข้าสู่ระบบหมดอายุหรือใช้ไปแล้ว (ไม่ใช่รหัส 2FA — นั่นคือ invalid_otp) */
+  invalid_grant: {
+    status: 400,
+    th: 'การเข้าสู่ระบบหมดเวลา ลองใหม่อีกครั้ง',
+    en: 'Sign-in expired or invalid grant — please try again',
+  },
   /** ST3-T21 ช่องส่ง LINE/SMS ปิดหรือยังไม่ตั้งค่า — ผู้ใช้คัดลอกลิงก์ไปส่งเองได้ */
   channel_unavailable: {
     status: 409,
