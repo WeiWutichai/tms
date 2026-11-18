@@ -32,6 +32,11 @@
 | 19 | บังคับ 2FA ทุกคน | `security.require2faAll` | ความปลอดภัย → บังคับ 2FA สำหรับผู้ใช้ทุกคน | UI | ลดความปลอดภัย = step-up |
 | 20 | ออกจากระบบอัตโนมัติ | `security.autoLogout` | ความปลอดภัย → ออกจากระบบอัตโนมัติ… | UI | |
 | 21 | Session timeout | `security.idleTimeoutMinutes` | ความปลอดภัย → Session timeout | UI | 30 นาที / 1 ชม. / 8 ชม. |
+| 22 | ระยะเก็บ audit log (ปี) | `retention.auditLogYears` | — | API-only | ST9-T14 — ต้นแบบไม่มีช่อง; ลดค่า = step-up · ขั้นต่ำ 5 ปี |
+| 23 | ระยะเก็บ integration log (เดือน) | `retention.integrationLogMonths` | — | API-only | ST9-T14 — ต้นแบบไม่มีช่อง; ลดค่า = step-up · ขั้นต่ำ 24 เดือน · job ยังไม่ลบ (archive = [OPEN — PO] ST7-T22) |
+| 24 | ระยะเก็บประวัติ login (เดือน) | `retention.loginLogMonths` | — | API-only | ST9-T14 — ต้นแบบไม่มีช่อง; ลดค่า = step-up · ขั้นต่ำ 12 เดือน |
+| 25 | ระยะเก็บไฟล์ POD (ปี) | `retention.podFileYears` | — | API-only | ST9-T14 — ต้นแบบไม่มีช่อง; ลดค่า = step-up · ขั้นต่ำ 2 ปี · job ยังไม่ลบ ([OPEN — PO/นักบัญชี] ม.87/3) |
+| 26 | ระยะเก็บ GPS log (วัน) | `retention.gpsLogDays` | — | API-only | ST9-T14 — ต้นแบบไม่มีช่อง; ลดค่า = step-up · ขั้นต่ำ 90 วัน |
 
 ## 2. ค่าตั้งองค์กรที่เป็น resource แยก (ไม่อยู่ใน registry)
 
@@ -54,7 +59,7 @@
 | รายการ session ที่ใช้งาน + ออกจากระบบทุกอุปกรณ์ (spec/01 §13.6, P0) | ไม่มี API รายการ session | — | ไม่มี — ต้นแบบไม่มีหน้า (spec/12 §3 แถว ST9-T12) |
 | กฎผู้รับแจ้งเตือนระดับบริษัท `NotificationRule` (spec/01 §13.5) | — (ผู้รับตามสิทธิ์ role; ผู้ใช้ตั้งของตัวเองได้) | — | ผู้สมัครเพิ่ม #29 |
 
-**สรุป:** 21 key ใน registry → UI 11 / API-only 10 (ทุกตัวไม่มีช่องในต้นแบบ) · resource แยก 5/5 มี UI + setup checklist + จด VAT · ขาด: โลโก้ (#31), วันที่จด VAT, ชื่อทางการค้า/ติดต่อ, 2FA ราย role, อายุ refresh token, รายการ session, NotificationRule (#29) · ค่าเริ่มต้นไทยพร้อมใช้ (K5): ทุก key มี default (Asia/Bangkok, พ.ศ., VAT 7%, WHT เปิด, รอบรายเดือน ฯลฯ) จึงใช้งานได้โดยไม่ต้องให้ Innovera ตั้ง — ค่าที่เป็น API-only ปรับได้ผ่าน Open API ระหว่างรอดีไซน์
+**สรุป:** 26 key ใน registry → UI 11 / API-only 15 (ทุกตัวไม่มีช่องในต้นแบบ — รวม retention.* 5 key ของ ST9-T14) · resource แยก 5/5 มี UI + setup checklist + จด VAT · ขาด: โลโก้ (#31), วันที่จด VAT, ชื่อทางการค้า/ติดต่อ, 2FA ราย role, อายุ refresh token, รายการ session, NotificationRule (#29) · ค่าเริ่มต้นไทยพร้อมใช้ (K5): ทุก key มี default (Asia/Bangkok, พ.ศ., VAT 7%, WHT เปิด, รอบรายเดือน ฯลฯ) จึงใช้งานได้โดยไม่ต้องให้ Innovera ตั้ง — ค่าที่เป็น API-only ปรับได้ผ่าน Open API ระหว่างรอดีไซน์
 
 ## 3. ภาษา (D-11 ทับ "TH/EN ครบ" ของ backlog)
 
