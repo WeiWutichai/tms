@@ -668,7 +668,36 @@ export class ConnectorsService {
       after: { status: to },
       reason,
     });
-    return this.get(cur.id, tx);
+    const row = await this.get(cur.id, tx);
+    const ctx = requestContext.require();
+    await this.emitHealthChanged(tx, row, cur.status, ctx.requestId ?? null, ctx.actorId ?? null);
+    return row;
+  }
+
+  /**
+   * webhook `connector.health_changed` (docs/01 §5.3; ST7-T06) ทุกครั้งที่สถานะการเชื่อมต่อเปลี่ยน — ใน transaction เดียวกับการเปลี่ยน
+   * payload = ConnectorDto (ไม่มีค่า credential — ข้อความ error ตัด credential แล้ว)
+   */
+  private async emitHealthChanged(
+    tx: Tx,
+    c: Connector,
+    from: ConnectorStatus,
+    requestId: string | null,
+    actorId: string | null,
+  ) {
+    await tx.domainEvent.create({
+      data: {
+        tenantId: c.tenantId,
+        type: 'connector.health_changed',
+        entityType: 'connector',
+        localId: c.id,
+        // ST7-T06 (QA): data.object = ConnectorDto เดียวกับ `GET /v1/connectors/{id}` (credential แสดงแค่ชื่อช่อง)
+        snapshot: JSON.parse(JSON.stringify(this.toDto(c))) as Prisma.InputJsonValue,
+        previousAttributes: { status: from },
+        requestId,
+        actorId,
+      },
+    });
   }
 
   async pause(id: string, body: ConnectorActionDto, expected?: number): Promise<Connector> {
@@ -959,6 +988,8 @@ export class ConnectorsService {
       },
     });
     if (n.count !== 1) return;
+    const row = await tx.connector.findUniqueOrThrow({ where: { id: c.id } });
+    await this.emitHealthChanged(tx, row, 'ACTIVE', null, null);
     await tx.auditLog.create({
       data: {
         tenantId: c.tenantId,

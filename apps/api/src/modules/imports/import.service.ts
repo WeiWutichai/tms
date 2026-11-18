@@ -96,6 +96,8 @@ export class ImportService implements OnModuleInit {
     // งานใหญ่ให้เวลา transaction 5 นาที · ล้มครั้งสุดท้าย = ปิดงานนำเข้าเป็น FAILED + แจ้งผู้สั่ง
     const opts = {
       timeoutMs: JOB_TX_TIMEOUT_MS,
+      // ST7-T06: ผู้ใช้/ระบบลูกค้าสั่งงานแล้วได้ jobId → webhook `job.completed` เมื่อจบ
+      publicEvent: true,
       onFinalFailure: async ({ tx, job }: { tx: Tx; job: { payload: unknown } }) => {
         const p = job.payload as unknown as JobPayload;
         const imp = await tx.importJob.findUnique({ where: { id: p.importJobId } });

@@ -1,11 +1,12 @@
 import { Controller, Get, Param } from '@nestjs/common';
 import { ApiBearerAuth, ApiOkResponse, ApiProperty, ApiTags } from '@nestjs/swagger';
 import { RequireScope, TenantResource } from '../../common/decorators';
-import { decodeIdOr404, encodeId } from '../../common/ids';
+import { decodeIdOr404 } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService } from '../../db/db.service';
 import { EXPORT_JOB_TYPE } from '../exports/exports.service';
+import { toJobDto } from '../../jobs/job-dto';
 
 export class JobDto {
   @ApiProperty({ example: 'job_…' }) id!: string;
@@ -40,16 +41,6 @@ export class JobsController {
         (requestContext.require().actorId ?? null)
     )
       throw new ProblemException('not_found');
-    return {
-      id: encodeId('job', j.id),
-      type: j.type,
-      status: j.status.toLowerCase(),
-      progress: j.progress,
-      result: j.result,
-      error: j.error,
-      attempts: j.attempts,
-      createdAt: j.createdAt.toISOString(),
-      finishedAt: j.finishedAt?.toISOString() ?? null,
-    };
+    return toJobDto(j);
   }
 }

@@ -21,7 +21,9 @@ import { likeEscape } from '../master/master-kit';
 import type { UpsertOrderInput } from './order-input';
 import { OrderIntakeService, type UpsertOrderResult } from './order-intake.service';
 import { OrderStateService } from './order-state.service';
-import type { MatchSuggestion } from './order-matching.service';
+import { dec, READ_INCLUDE, toOrderDto, type OrderRow } from './order-dto';
+
+export { toOrderDto };
 import type {
   CreateOrderDto,
   OrderDto,
@@ -33,27 +35,10 @@ import type {
   UpdateOrderDto,
 } from './order.dto';
 
-const READ_INCLUDE = {
-  stops: { orderBy: { sequence: 'asc' } },
-  lines: { orderBy: { lineNo: 'asc' } },
-  charges: { orderBy: { lineNo: 'asc' } },
-  holdReasonCode: { select: { code: true, labelTh: true } },
-  customer: { select: { code: true, legalName: true } },
-  // ชุดการเปลี่ยนแปลงจากต้นทางที่รอตัดสิน (ST3-T10 — ได้ครั้งละ 1 ชุด)
-  sourceChanges: { where: { status: 'PENDING' }, take: 1 },
-  // ST4-T12 DO ส่งใหม่ที่ยังรอจัด → วันที่นัด + เหตุรอง RESCHEDULES_EXHAUSTED (review M1/L)
-  deliveryOrders: {
-    where: { status: 'DRAFT', redeliveryOfId: { not: null } },
-    select: { doDate: true, rescheduleExhausted: true },
-  },
-} as const satisfies Prisma.SalesOrderInclude;
-
 /** ใบสั่งที่มี DO ส่งใหม่เกินจำนวนครั้งรอจัด (เหตุรอง — ไม่ทับเหตุหลักของทางเข้า) */
 const EXHAUSTED_WHERE = {
   deliveryOrders: { some: { status: 'DRAFT', rescheduleExhausted: true } },
 } as const satisfies Prisma.SalesOrderWhereInput;
-
-type OrderRow = Prisma.SalesOrderGetPayload<{ include: typeof READ_INCLUDE }>;
 
 /** ชื่อ field ของ OrderDto ที่ `?fields=` เลือกได้ */
 const ORDER_FIELDS = new Set([
@@ -84,140 +69,6 @@ const ORDER_FIELDS = new Set([
   'createdAt',
   'updatedAt',
 ]);
-
-const dec = (v: Prisma.Decimal | null) => (v === null ? null : v.toFixed());
-
-export function toOrderDto(o: OrderRow): OrderDto {
-  const detail = (o.pricingDetail ?? {}) as {
-    reasons?: { code: string; message: string; field?: string }[];
-    holds?: IntakeHold[];
-  };
-  const primaryHold = o.holdReasonCode
-    ? (detail.holds ?? []).find((h) => h.code === o.holdReasonCode!.code)
-    : undefined;
-  return {
-    id: encodeId('salesOrder', o.id),
-    soNo: o.soNo,
-    status: o.status.toLowerCase() as SoStatusValue,
-    source: formatOrderSource({ source: o.source as OrderSource, connector: o.sourceConnector }),
-    sourceType: o.source as OrderSource,
-    connector: o.sourceConnector || null,
-    externalId: o.externalId,
-    customer: {
-      id: o.customerId ? encodeId('customer', o.customerId) : null,
-      code: o.customer?.code ?? null,
-      legalName: o.customer?.legalName ?? null,
-      externalId: o.customerExternalId,
-      name: o.customerText,
-      match: {
-        method: o.customerMatchMethod,
-        candidates: candidatesDto('customer', o.customerCandidates),
-      },
-    },
-    billingCompanyId: encodeId('company', o.billingCompanyId),
-    customerRef: o.customerRef,
-    requestedDate: o.requestedDate.toISOString().slice(0, 10),
-    vehicleTypeId: o.vehicleTypeId ? encodeId('vehicleType', o.vehicleTypeId) : null,
-    holdReason: o.holdReasonCode
-      ? {
-          code: o.holdReasonCode.code,
-          label: o.holdReasonCode.labelTh,
-          note: o.holdNote,
-          // ช่องต้นเหตุ (เหตุของทางเข้า — เช่น stops[1].site) ให้หน้าใบค้างพาไปจุดที่ต้องแก้ (ST3-T07)
-          field: primaryHold?.field ?? null,
-          fields: primaryHold?.fields ?? (primaryHold?.field ? [primaryHold.field] : []),
-        }
-      : null,
-    holdCodes: [
-      ...new Set([
-        ...(detail.holds ?? []).map((h) => h.code),
-        ...(o.deliveryOrders.some((d) => d.rescheduleExhausted) ? ['RESCHEDULES_EXHAUSTED'] : []),
-      ]),
-    ],
-    rescheduledDate:
-      o.deliveryOrders
-        .map((d) => d.doDate.toISOString().slice(0, 10))
-        .sort()
-        .at(-1) ?? null,
-    pricingStatus: o.pricingStatus,
-    pricingReasons: (detail.reasons ?? []).map((r) => ({
-      code: r.code,
-      message: r.message,
-      ...(r.field ? { field: r.field } : {}),
-    })),
-    sellTotal: o.priceTotal ? o.priceTotal.toFixed(2) : null,
-    sellCharges: o.charges.map((c) => ({
-      lineNo: c.lineNo,
-      kind: c.kind,
-      origin: c.origin,
-      serviceItemId: encodeId('serviceItem', c.serviceItemId),
-      serviceItemVersion: c.serviceItemVersion,
-      description: c.description,
-      qty: c.qty.toFixed(),
-      sellUnitPrice: c.unitPrice.toFixed(2),
-      sellAmount: c.amount.toFixed(2),
-      vatType: c.vatType,
-      whtRate: c.whtRate.toFixed(2),
-      rateCardId: c.rateCardId ? encodeId('rateCard', c.rateCardId) : null,
-      rateCardCode: c.rateCardCode,
-      rateCardRevision: c.rateCardRevision,
-    })),
-    stops: o.stops.map((s) => ({
-      sequence: s.sequence,
-      type: s.type,
-      siteId: s.siteId ? encodeId('site', s.siteId) : null,
-      siteText: s.siteText,
-      windowStart: s.windowStart?.toISOString() ?? null,
-      windowEnd: s.windowEnd?.toISOString() ?? null,
-      match: {
-        method: s.matchMethod,
-        score: s.matchScore === null ? null : Number(s.matchScore.toFixed(3)),
-        candidates: candidatesDto('site', s.matchCandidates),
-      },
-    })),
-    lines: o.lines.map((l) => ({
-      lineNo: l.lineNo,
-      description: l.description,
-      qty: l.qtyOrdered.toFixed(),
-      unitId: l.unitId ? encodeId('unit', l.unitId) : null,
-      unit: l.unit,
-      productId: l.productId ? encodeId('product', l.productId) : null,
-      itemCode: l.itemCode,
-      weightKg: dec(l.weightKg),
-      cbm: dec(l.cbm),
-      isDangerous: l.isDangerous,
-      tempMin: dec(l.tempMin),
-      tempMax: dec(l.tempMax),
-    })),
-    sourceChangedAfterPlan: o.sourceChangedAfterPlan,
-    sourceChange: o.sourceChanges[0]
-      ? {
-          id: encodeId('orderSourceChange', o.sourceChanges[0].id),
-          status: o.sourceChanges[0].status,
-          source: formatOrderSource({
-            source: o.sourceChanges[0].source as OrderSource,
-            connector: o.sourceChanges[0].sourceConnector,
-          }),
-          orderStatus: o.sourceChanges[0].orderStatus.toLowerCase(),
-          receivedAt: o.sourceChanges[0].createdAt.toISOString(),
-          changes: o.sourceChanges[0].changes as unknown as SourceChangeEntryDto[],
-        }
-      : null,
-    version: o.version,
-    createdAt: o.createdAt.toISOString(),
-    updatedAt: o.updatedAt.toISOString(),
-  };
-}
-
-/** รายการแนะนำที่เก็บไว้ (uuid) → public id */
-function candidatesDto(kind: 'site' | 'customer', v: Prisma.JsonValue) {
-  return ((v ?? []) as unknown as MatchSuggestion[]).map((c) => ({
-    id: encodeId(kind, c.id),
-    code: c.code,
-    name: c.name,
-    score: c.score,
-  }));
-}
 
 /**
  * public id → uuid สำหรับ `upsertOrder` · id ผิดรูป/ผิดชนิด → ค่าที่ไม่ใช่ uuid ให้กฎชุดเดียว (`normalizeOrderInput`)

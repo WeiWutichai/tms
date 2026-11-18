@@ -54,6 +54,7 @@ import {
   type UpsertOrderInput,
 } from './order-input';
 import { orderEventView } from './order-view';
+import { orderEventObject, previousOf, meaningful, READ_INCLUDE } from './order-dto';
 import {
   OrderMatchingService,
   suggestionsJson,
@@ -70,12 +71,7 @@ interface ActiveRefs {
   vehicleType: boolean;
 }
 
-export type OrderRecord = SalesOrder & {
-  stops: SalesOrderStop[];
-  lines: SalesOrderLine[];
-  charges: SalesOrderCharge[];
-  holdReasonCode: { id: string; code: string } | null;
-};
+export type OrderRecord = Prisma.SalesOrderGetPayload<{ include: typeof INCLUDE }>;
 
 interface OrderChildren {
   stops: {
@@ -141,11 +137,10 @@ export const SUPERSEDE_NOTE = {
 const ENTITY = 'sales_order';
 /** บรรทัดของ rate card ที่เป็น "ค่าขนส่ง" — มีค่าขนส่ง MANUAL แล้วไม่เพิ่ม (ราคาที่กำหนดเองชนะ — PO 16 พ.ย. 2569) */
 const RATE_CARD_FREIGHT_KINDS: ReadonlySet<string> = new Set(['FREIGHT', 'EXTRA_STOP']);
+// ⊇ READ_INCLUDE ของ REST (ST7-T06) — ใบที่โหลดในหน่วยความจำ (ก่อนแก้) แปลงเป็น `data.object` ของ webhook ได้ตรง ๆ
 const INCLUDE = {
-  stops: { orderBy: { sequence: 'asc' } },
-  lines: { orderBy: { lineNo: 'asc' } },
-  charges: { orderBy: { lineNo: 'asc' } },
-  holdReasonCode: { select: { id: true, code: true } },
+  ...READ_INCLUDE,
+  holdReasonCode: { select: { id: true, code: true, labelTh: true } },
 } as const satisfies Prisma.SalesOrderInclude;
 
 const field422 = (field: string, code: string, message: string) =>
@@ -363,6 +358,7 @@ export class OrderIntakeService {
     // 3) เขียนข้อมูล
     let id: string;
     const before = current ? orderEventView(current, { lines: true }) : null;
+    const beforeObj = current ? orderEventObject(current) : null;
     if (!current) {
       const initial: SoStatus = n.draft ? 'DRAFT' : 'RECEIVED';
       const row = await tx.salesOrder.create({
@@ -398,6 +394,7 @@ export class OrderIntakeService {
       dataChanged: true,
       releasedDos,
       before,
+      beforeObj,
     });
   }
 
@@ -469,6 +466,7 @@ export class OrderIntakeService {
       created: false,
       dataChanged: changed,
       before: orderEventView(current, { lines: true }),
+      beforeObj: orderEventObject(current),
     });
     return { ...r, aliasLearning };
   }
@@ -568,6 +566,7 @@ export class OrderIntakeService {
       created: false,
       dataChanged: changed,
       before: orderEventView(current, { lines: true }),
+      beforeObj: orderEventObject(current),
     });
     return { ...r, aliasLearning };
   }
@@ -642,6 +641,7 @@ export class OrderIntakeService {
       created: false,
       dataChanged: true,
       before: orderEventView(current, { lines: true }),
+      beforeObj: orderEventObject(current),
     });
   }
 
@@ -734,6 +734,7 @@ export class OrderIntakeService {
       created: false,
       dataChanged: true,
       before: orderEventView(current, { lines: true }),
+      beforeObj: orderEventObject(current),
     });
   }
 
@@ -838,9 +839,14 @@ export class OrderIntakeService {
       after: { sourceChangedAfterPlan: false },
       reason: note,
     });
-    await this.emit(tx, 'order.updated', current.id, orderEventView(final), {
-      sourceChangedAfterPlan: true,
-    });
+    const obj = orderEventObject(final);
+    await this.emit(
+      tx,
+      'order.updated',
+      current.id,
+      obj,
+      previousOf(orderEventObject(current), obj),
+    );
     return final;
   }
 
@@ -960,9 +966,14 @@ export class OrderIntakeService {
         ...(pending ? { superseded: pending.id } : {}),
       },
     });
-    await this.emit(tx, 'order.updated', current.id, orderEventView(final), {
-      sourceChangedAfterPlan: current.sourceChangedAfterPlan,
-    });
+    const obj = orderEventObject(final);
+    await this.emit(
+      tx,
+      'order.updated',
+      current.id,
+      obj,
+      previousOf(orderEventObject(current), obj),
+    );
     return {
       order: final,
       created: false,
@@ -1406,6 +1417,8 @@ export class OrderIntakeService {
       created: boolean;
       dataChanged: boolean;
       before?: Record<string, unknown> | null;
+      /** `data.object` ก่อนแก้ (ST7-T06) — ผู้เรียกที่เขียนข้อมูลก่อน evaluate ต้องส่ง (ไม่งั้น previousAttributes ว่าง) */
+      beforeObj?: Record<string, unknown> | null;
       /** DO ที่ถูกยกเลิกก่อนลบบรรทัด SO ในคำขอนี้ (ส่งต่อให้ sync แจ้ง rebuild_required) */
       releasedDos?: string[];
     },
@@ -1566,8 +1579,15 @@ export class OrderIntakeService {
           sourceIssues,
         })
       : null;
-    if (opts.created && order.status === 'RECEIVED')
-      await this.emit(tx, 'order.created', id, orderEventView(order), {});
+    // ST7-T06 (QA): data.object = DTO ของ REST · previousAttributes = ค่าเดิมเทียบ `last` (รูปเดียวกัน) — ไล่ต่อทุก event
+    // (กันยิง order.updated ซ้ำการเปลี่ยนที่ transition ยิงไปแล้ว)
+    let last = opts.beforeObj ?? orderEventObject(loadedOrder);
+    const load = async () =>
+      orderEventObject(await tx.salesOrder.findUniqueOrThrow({ where: { id }, include: INCLUDE }));
+    if (opts.created && order.status === 'RECEIVED') {
+      last = await load();
+      await this.emit(tx, 'order.created', id, last, {});
+    }
     let status = order.status as SoStatus;
     for (const event of plan.events) {
       const from = status;
@@ -1595,9 +1615,12 @@ export class OrderIntakeService {
             },
           });
           if (r.count === 0) throw new ProblemException('concurrent_update');
-          return orderEventView(
-            await tx.salesOrder.findUniqueOrThrow({ where: { id }, include: INCLUDE }),
-          );
+          return load();
+        },
+        previousAttributes: (snap) => {
+          const prev = EVENT_TYPE[event] === 'order.created' ? {} : previousOf(last, snap);
+          last = snap;
+          return prev;
         },
       });
       status = to;
@@ -1635,11 +1658,11 @@ export class OrderIntakeService {
       const before = opts.before ?? orderEventView(loadedOrder, { lines: true });
       const after = orderEventView(final, { lines: true });
       await this.audit.changed(`${ENTITY}.updated`, ENTITY, id, before, after);
-      // ร่างไม่ส่ง event (order.created เกิดตอนพ้นร่าง — transition submit)
-      if ((dataChanged || pricingChanged) && order.status !== 'DRAFT' && final.status !== 'DRAFT') {
-        const evBefore = orderEventView(loadedOrder);
-        const evAfter = orderEventView(final);
-        await this.emit(tx, 'order.updated', id, evAfter, diff(evBefore, evAfter).before);
+      // ร่างไม่ส่ง event (order.created เกิดตอนพ้นร่าง — transition submit) · เปลี่ยนที่ยังไม่ได้ยิงกับ transition เท่านั้น
+      if (order.status !== 'DRAFT' && final.status !== 'DRAFT') {
+        const evAfter = orderEventObject(final);
+        const prev = previousOf(last, evAfter);
+        if (meaningful(prev)) await this.emit(tx, 'order.updated', id, evAfter, prev);
       }
     }
     return { order: final, created: opts.created, changed, holds };
@@ -1999,9 +2022,9 @@ export class OrderIntakeService {
       orderEventView(current, { lines: true }),
       orderEventView(final, { lines: true }),
     );
-    const evBefore = orderEventView(current);
-    const evAfter = orderEventView(final);
-    await this.emit(tx, 'order.updated', id, evAfter, diff(evBefore, evAfter).before);
+    const evBefore = orderEventObject(current);
+    const evAfter = orderEventObject(final);
+    await this.emit(tx, 'order.updated', id, evAfter, previousOf(evBefore, evAfter));
     const holds = (current.pricingDetail as { holds?: IntakeHold[] } | null)?.holds ?? [];
     return { order: final, created: false, changed: true, holds };
   }

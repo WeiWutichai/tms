@@ -357,12 +357,10 @@ describe('order intake (upsertOrder)', () => {
       where: { localId: a.order.id },
       orderBy: { occurredAt: 'asc' },
     });
-    expect(ev.map((e) => e.type)).toEqual([
-      'order.created',
-      'order.held',
-      'order.released',
-      'order.updated',
-    ]);
+    // ST7-T06 (QA): ส่งใหม่ที่ทั้งแก้ข้อมูลและปลดใบค้าง = order.released ครั้งเดียว (ค่าเดิมครบ) ไม่มี order.updated ซ้ำ
+    expect(ev.map((e) => e.type)).toEqual(['order.created', 'order.held', 'order.released']);
+    expect(ev[2]!.previousAttributes).toMatchObject({ status: 'on_hold' });
+    expect(ev[2]!.previousAttributes).toHaveProperty('customerRef');
   });
 
   it('connector ส่งรหัสลูกค้าที่ไม่รู้จัก + จุดส่งเป็นข้อความ → เข้าระบบเสมอเป็น ON_HOLD CUSTOMER_UNMAPPED (เหตุรองเก็บไว้); จับคู่ด้วย externalId ของลูกค้าได้', async () => {
