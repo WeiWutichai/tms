@@ -474,6 +474,11 @@ export const PROBLEMS = {
     th: 'ใช้ได้เฉพาะโหมด Sandbox (key tk_test_ หรือสลับเป็น Sandbox)',
     en: 'Available in sandbox (test) mode only',
   },
+  sandbox_unsupported: {
+    status: 403,
+    th: 'ใช้ใน Sandbox ไม่ได้ (เชื่อมระบบภายนอกจริง)',
+    en: 'Not available in sandbox (connects to real external systems)',
+  },
   internal_error: { status: 500, th: 'ระบบขัดข้อง', en: 'Internal error' },
 } as const;
 

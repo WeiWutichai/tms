@@ -3832,6 +3832,7 @@ export const th = {
   'problem.invalid_api_version': 'X-Api-Version ไม่ถูกต้อง (ต้องเป็นวันที่ YYYY-MM-DD)',
   'problem.key_expired': 'API key หมดอายุแล้ว',
   'problem.sandbox_only': 'ใช้ได้เฉพาะโหมด Sandbox',
+  'problem.sandbox_unsupported': 'ใช้ใน Sandbox ไม่ได้ (เชื่อมระบบภายนอกจริง)',
   'problem.ip_not_allowed': 'IP นี้ไม่ได้รับอนุญาตให้ใช้ API key นี้',
   'field.scope_not_grantable': 'บทบาทของคุณไม่มีสิทธิ์ scope นี้ จึงให้ key ไม่ได้',
   'field.unknown_scope': 'ไม่รู้จัก scope นี้',

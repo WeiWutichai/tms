@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma, type PrismaClient } from '@prisma/client';
 import { ProblemException } from '../../common/problem';
+import { requestContext } from '../../common/request-context';
 import { PrismaService } from '../../db/prisma.service';
 import { bootstrapTenant } from '../tenants/bootstrap';
 
@@ -94,6 +95,21 @@ export class SandboxService {
             },
           });
           await bootstrapTenant(tx, row.id);
+          // ใครเปิด sandbox เมื่อไร — audit ของบริษัทจริง
+          const ctx = requestContext.get();
+          await tx.auditLog.create({
+            data: {
+              tenantId: live.id,
+              actorId: ctx?.actorId ?? null,
+              actAs: ctx?.actAs ?? null,
+              action: 'sandbox.created',
+              entityType: 'tenant',
+              entityId: row.id,
+              after: { mode: 'test', name: row.name },
+              requestId: ctx?.requestId ?? null,
+              ip: ctx?.ip ?? null,
+            },
+          });
           return row;
         },
         { timeout: 30_000 },

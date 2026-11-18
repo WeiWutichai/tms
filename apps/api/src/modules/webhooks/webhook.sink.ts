@@ -44,7 +44,13 @@ export class WebhookSink implements OutboxSink, OnModuleInit {
     const id = d.targetId;
     const ctx = await d.withTx(async (tx) => ({
       endpoint: id ? await tx.webhookEndpoint.findFirst({ where: { id, deletedAt: null } }) : null,
-      tenant: await tx.tenant.findUnique({ where: { id: d.tenantId }, select: { status: true } }),
+      // ST7-T09: sandbox ใช้สถานะของบริษัทจริง (บริษัทถูกระงับ = sandbox หยุดส่งด้วย)
+      tenant: await tx.tenant
+        .findUnique({
+          where: { id: d.tenantId },
+          select: { status: true, liveTenant: { select: { status: true } } },
+        })
+        .then((t) => (t ? { status: t.liveTenant?.status ?? t.status } : null)),
     }));
     if (ctx.tenant && (ctx.tenant.status === 'SUSPENDED' || ctx.tenant.status === 'CANCELLED'))
       throw new OutboxSinkError('tenant is not active — paused', 'AUTH', { code: 'tenant_paused' });

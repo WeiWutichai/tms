@@ -10,6 +10,7 @@ import {
   REQUIRED_FEATURE,
   REQUIRED_SCOPE,
   SANDBOX_AWARE,
+  LIVE_ONLY,
 } from '../common/decorators';
 import { MagicLinkService } from '../modules/links/magic-link.service';
 import { EntitlementService } from '../modules/entitlements/entitlement.service';
@@ -221,6 +222,7 @@ export class AuthGuard implements CanActivate {
         throw new ProblemException('step_up_required');
     }
     const ctx = requestContext.require();
+    ctx.actorId = claims.sub; // ก่อนสร้าง sandbox — audit `sandbox.created` ต้องรู้ผู้เปิด
     const tenantId = await this.requestTenant(claims, req, targets);
     ctx.tenantId = tenantId;
     const link = await this.sandbox.link(tenantId);
@@ -229,6 +231,8 @@ export class AuthGuard implements CanActivate {
         liveTenantId: link.liveTenantId,
         users: (w) => this.sandbox.liveUsers(link.liveTenantId, w),
       };
+    if (link?.mode === 'test' && this.reflector.getAllAndOverride<boolean>(LIVE_ONLY, targets))
+      throw new ProblemException('sandbox_unsupported');
     ctx.actorId = claims.sub;
     ctx.scopes = scopes;
     ctx.principalType = claims.pt;

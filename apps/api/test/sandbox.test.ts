@@ -330,6 +330,55 @@ describe('sandbox (ST7-T09)', () => {
       .expect(403);
   });
 
+  it('review M1/M2/L5: connector ใช้ใน sandbox ไม่ได้ · อีเมล/ข้อความไม่ส่งจริง · rate limit ตามแพ็กเกจบริษัทจริง · audit การสร้าง', async () => {
+    const k = await testKey(['settings:read'], 'sandbox connector');
+    const c = await request(srv()).get('/v1/connectors').set(bearer(k.secret));
+    expect(c.status).toBe(403);
+    expect(c.body.code).toBe('sandbox_unsupported');
+    // route connector ไม่ใช่ @SandboxAware — header ของผู้ใช้ไม่มีผล (ยังเป็นบริษัทจริง)
+    expect((await sbx(api(app, admin).get('/v1/connectors'))).status).toBe(200);
+    expect((await api(app, admin).get('/v1/connectors')).status).not.toBe(403);
+    const sb = await db.tenant.findUniqueOrThrow({ where: { liveTenantId: liveId } });
+    // อีเมลของ sandbox ไม่ส่งจริง
+    const { EmailDispatcher } = await import('../src/modules/email/email.service');
+    const sent: string[] = [];
+    const ed = app.get(EmailDispatcher);
+    ed.use({ send: async (m: { to: string }) => (sent.push(m.to), { messageId: 'x' }) } as never);
+    await db.emailOutbox.create({
+      data: {
+        tenantId: sb.id,
+        toAddress: 'customer@example.com',
+        template: 'notification',
+        locale: 'th',
+        subject: 's',
+        textBody: 't',
+        htmlBody: 'h',
+      },
+    });
+    await ed.drain();
+    expect(sent).toEqual([]);
+    const row = await db.emailOutbox.findFirstOrThrow({ where: { tenantId: sb.id } });
+    expect(row).toMatchObject({ status: 'FAILED', error: 'sandbox_suppressed' });
+    // rate limit: โปรไฟล์ของ sandbox ตามบริษัทจริงปัจจุบัน
+    const { RateLimitService } = await import('../src/http/rate-limit/rate-limit.service');
+    const rl = app.get(RateLimitService);
+    await db.tenant.update({ where: { id: liveId }, data: { rateLimitProfile: 'high' } });
+    try {
+      rl.invalidateProfile(liveId);
+      const { profileOf } = await import('../src/http/rate-limit/profiles');
+      expect(await rl.profile(sb.id)).toEqual(profileOf('high'));
+      expect(sb.rateLimitProfile).toBeNull();
+    } finally {
+      await db.tenant.update({ where: { id: liveId }, data: { rateLimitProfile: null } });
+      rl.invalidateProfile();
+    }
+    // audit การสร้าง sandbox อยู่ที่บริษัทจริง
+    const a = await db.auditLog.findFirst({
+      where: { tenantId: liveId, action: 'sandbox.created' },
+    });
+    expect(a).toMatchObject({ entityId: sb.id, actorId: userId });
+  });
+
   it('payload จำลองของทุก event ที่ active ตรง schema ที่เผยแพร่ (แบบปิด)', async () => {
     const ajv = new Ajv({ strict: false, allErrors: true, validateFormats: false });
     const comps = Object.fromEntries(

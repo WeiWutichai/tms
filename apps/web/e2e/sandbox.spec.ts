@@ -71,11 +71,15 @@ test.describe.serial('นักพัฒนา / Open API → Sandbox', () => {
       'aria-pressed',
       'true',
     );
+    // หลังสลับ รายการ key ถูกดึงใหม่พร้อม X-Tms-Mode: test และได้ 200
     const listRes = page.waitForResponse(
-      (r) => new URL(r.url()).pathname === '/v1/api-keys' && r.request().method() === 'GET',
+      (r) =>
+        new URL(r.url()).pathname === '/v1/api-keys' &&
+        r.request().method() === 'GET' &&
+        r.request().headers()['x-tms-mode'] === 'test',
     );
     await modes.getByRole('button', { name: 'Sandbox' }).click();
-    expect((await listRes).request().headers()['x-tms-mode']).toBe('test');
+    expect((await listRes).status()).toBe(200);
     await expect(page.getByRole('status').filter({ hasText: 'สลับเป็น Sandbox' })).toBeVisible();
     await expect(
       page.getByText('โหมดทดสอบ · key, webhook และ log แยกจาก Production และไม่กระทบงานจริง'),
@@ -85,7 +89,7 @@ test.describe.serial('นักพัฒนา / Open API → Sandbox', () => {
     const d = page.getByRole('dialog');
     await expect(d.getByLabel('โหมด')).toHaveValue('test');
     await d.getByLabel('ชื่อ key').fill(NAME);
-    await d.getByText('orders:read', { exact: true }).click();
+    await d.getByText('companies:read', { exact: true }).click();
     await d.getByText('settings:read', { exact: true }).click();
     await d.getByRole('button', { name: 'สร้าง key' }).click();
     const sec = page.getByRole('dialog', { name: 'สร้าง API key แล้ว' });
@@ -103,17 +107,17 @@ test.describe.serial('นักพัฒนา / Open API → Sandbox', () => {
 
   test('เกณฑ์ตรวจรับ: key test มองไม่เห็นข้อมูล live', async ({ page }) => {
     const tok = await token(page);
-    const live = await page.request.get('/v1/orders?limit=5', {
+    const live = await page.request.get('/v1/companies?limit=5', {
       headers: { Authorization: `Bearer ${tok}` },
     });
     expect(live.status()).toBe(200);
-    const liveOrders = ((await live.json()) as { data: { id: string }[] }).data;
-    expect(liveOrders.length).toBeGreaterThan(0); // ฐาน e2e มีใบสั่งเดโม
+    const liveRows = ((await live.json()) as { data: { id: string }[] }).data;
+    expect(liveRows.length).toBeGreaterThan(0); // ฐาน e2e มีนิติบุคคลเดโม (seed)
     const auth = { Authorization: `Bearer ${secret}` };
-    const sb = await page.request.get('/v1/orders?limit=5', { headers: auth });
+    const sb = await page.request.get('/v1/companies?limit=5', { headers: auth });
     expect(sb.status()).toBe(200);
     expect(((await sb.json()) as { data: unknown[] }).data).toEqual([]);
-    const one = await page.request.get(`/v1/orders/${liveOrders[0]!.id}`, { headers: auth });
+    const one = await page.request.get(`/v1/companies/${liveRows[0]!.id}`, { headers: auth });
     expect(one.status()).toBe(404);
   });
 

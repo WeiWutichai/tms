@@ -71,6 +71,12 @@ export const SandboxAware = () =>
         'เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)',
     }),
   );
+export const LIVE_ONLY = 'tms:liveOnly';
+/**
+ * ST7-T09: route ที่ห้ามใช้ใน sandbox (เชื่อมระบบภายนอกจริง เช่น connector/ERP) → 403 `sandbox_unsupported`
+ * ตรวจใน AuthGuard หลังรู้ tenant ของคำขอ (ทั้ง key `tk_test_` และผู้ใช้ที่สลับโหมด)
+ */
+export const LiveOnly = () => SetMetadata(LIVE_ONLY, true);
 export const IDEMPOTENCY_LOCK_MS = 'tms:idempotencyLockMs';
 /**
  * ST7-T10: เวลาจอง Idempotency-Key ระหว่างทำ (ค่าเริ่ม 60 วิ) — route ที่ทำนาน (เช่น bulk 200 ใบ) ตั้งให้ยาวกว่าเวลาสูงสุดที่ยอม

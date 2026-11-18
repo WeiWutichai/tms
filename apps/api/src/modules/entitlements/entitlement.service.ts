@@ -64,7 +64,21 @@ export class EntitlementService {
   private readonly cache = new Map<string, { at: number; value: Entitlements }>();
   constructor(private readonly prisma: PrismaService) {}
 
+  /** ST7-T09 sandbox → บริษัทจริง (แก้ไม่ได้หลังสร้าง — cache ถาวร) · live = ตัวเอง */
+  private readonly liveOf = new Map<string, string>();
+
   async resolve(tenantId: string): Promise<Entitlements> {
+    let live = this.liveOf.get(tenantId);
+    if (!live) {
+      const t = await this.prisma.platform.tenant.findUnique({
+        where: { id: tenantId },
+        select: { liveTenantId: true },
+      });
+      live = t?.liveTenantId ?? tenantId;
+      if (t) this.liveOf.set(tenantId, live);
+    }
+    // sandbox ใช้ cache ของบริษัทจริงตัวเดียวกัน → invalidate(บริษัทจริง) มีผลกับ sandbox ทันที (ระงับ/เปลี่ยนแพ็กเกจ)
+    if (live !== tenantId) return this.resolve(live);
     const hit = this.cache.get(tenantId);
     if (hit && Date.now() - hit.at < TTL_MS) return hit.value;
     const value = await resolveEntitlements(this.prisma.platform, tenantId);
