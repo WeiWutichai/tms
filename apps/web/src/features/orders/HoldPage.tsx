@@ -16,6 +16,8 @@ import { api, unwrap } from '../../api';
 import { useI18n, type T } from '../../i18n';
 import type { MessageKey } from '../../i18n/th';
 import { can } from '../../nav';
+import { exportList } from '../exports/exportJob';
+import { exportFailText } from '../master/download';
 import { PageHeader } from '../../shell/Header';
 import { useMe } from '../../shell/AppShell';
 import { tableLabels } from '../companies/CompanySample';
@@ -318,6 +320,21 @@ export function HoldPage() {
             loading={list.loading}
             labels={tableLabels(t)}
             selectable={false}
+            // ส่งออก CSV จากแผงตัวเลือก = ส่งออกจาก API ตามตัวกรองเดียวกับตาราง (ทุกแถว — งานเบื้องหลัง ST9-T10)
+            onExportCsv={
+              can(scopes, 'export:run')
+                ? () =>
+                    void exportList('orders', {
+                      held: 'true',
+                      holdReason: reason,
+                      q: col.q,
+                      source: col.source,
+                    }).then(
+                      (n) => setToast(t('export.done', { n: n.toLocaleString('en-US') })),
+                      (e) => setToast(exportFailText(t, e, t('export.failed'))),
+                    )
+                : false
+            }
             filters={{ q: col.q, source: col.source, reason }}
             onFilterChange={(k, v) =>
               k === 'reason' ? setReason(v) : setCol((c) => ({ ...c, [k]: v }))

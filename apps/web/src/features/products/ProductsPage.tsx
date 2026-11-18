@@ -16,7 +16,7 @@ import { can } from '../../nav';
 import { PageHeader } from '../../shell/Header';
 import { useMe } from '../../shell/AppShell';
 import { tableLabels } from '../companies/CompanySample';
-import { downloadFile } from '../master/download';
+import { downloadFile, exportFailText } from '../master/download';
 import { problemText } from '../master/problems';
 import { listTotal } from '../master/useCursorList';
 import { ProductDrawer } from './ProductDrawer';
@@ -319,7 +319,7 @@ export function ProductsPage() {
                           ids: ids.join(','),
                         }).then(
                           () => setToast(t('prd.toast.exported', { n: ids.length })),
-                          () => setToast(t('prd.exportFailed')),
+                          (e) => setToast(exportFailText(t, e, t('prd.exportFailed'))),
                         ),
                     },
                   ],
@@ -331,7 +331,7 @@ export function ProductsPage() {
                     void downloadFile('/v1/products/export', {
                       format: 'csv',
                       ...filters,
-                    }).catch(() => setToast(t('prd.exportFailed')))
+                    }).catch((e) => setToast(exportFailText(t, e, t('prd.exportFailed'))))
                 : false
             }
             empty={

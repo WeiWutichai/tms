@@ -16,7 +16,7 @@ import { can } from '../../nav';
 import { PageHeader } from '../../shell/Header';
 import { useMe } from '../../shell/AppShell';
 import { tableLabels } from '../companies/CompanySample';
-import { downloadFile } from '../master/download';
+import { downloadFile, exportFailText } from '../master/download';
 import { problemText } from '../master/problems';
 import { listTotal, useSessionState } from '../master/useCursorList';
 import { docName, RenewDialog, StatusPill, typeLabel, useDocDate } from './VehicleDocsTab';
@@ -208,7 +208,7 @@ export function FleetDocsPage() {
   const exportFile = (q: Record<string, string>, done: (n: number | undefined) => string) =>
     downloadFile('/v1/vehicle-documents/export', q).then(
       (n) => setToast(done(n)),
-      () => setToast(t('fdoc.exportFailed')),
+      (e) => setToast(exportFailText(t, e, t('fdoc.exportFailed'))),
     );
 
   return (
@@ -316,7 +316,7 @@ export function FleetDocsPage() {
                     void downloadFile('/v1/vehicle-documents/export', {
                       format: 'csv',
                       ...query,
-                    }).catch(() => setToast(t('fdoc.exportFailed')))
+                    }).catch((e) => setToast(exportFailText(t, e, t('fdoc.exportFailed'))))
                 : false
             }
             empty={

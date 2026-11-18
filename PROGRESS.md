@@ -25,7 +25,8 @@
 | ST2 Master data + Fleet | **เสร็จ** (12 พ.ย. — PR #23–#45) | 11 พ.ย. | 12 พ.ย. | ตารางงาน ST2 ด้านล่าง |
 | ST3 Order intake + Planning/Dispatch | **เสร็จ** (T01–T25 ครบ — T25 นับเมื่อ merge PR ของ `st3/t25-change-carrier`) | 12 พ.ย. | 17 พ.ย. 2569 | ตารางงาน ST3 ด้านล่าง · สรุป: รับ order ทุกทาง (มือ/Excel/API/connector) ผ่าน `upsertOrder()` เดียว + ใบค้าง + DO/trip state machine + กระดานวางแผน (constraint/multi-drop/assign-dispatch/send all/ตารางรถ) + ใบคุมรถ PDF + LINE/SMS + จ้างรถร่วมครบวงจร (ลิงก์รับ/ปฏิเสธ, หมดเวลา, เปลี่ยนผู้รับเหมา) |
 | ST4 Execution และ POD | **กำลังทำ** 2/15 (T01, T02) + T03, T04, T05, T06 dev | 17 พ.ย. 2569 | — | ตารางงาน ST4 ด้านล่าง |
-| ST5–ST6, ST8–ST9 | ยังไม่เริ่ม | | | |
+| ST5–ST6, ST8 | ยังไม่เริ่ม | | | |
+| ST9 Cross-cutting | **กำลังทำ** · T10 ส่งออกตามตัวกรอง dev เสร็จ รอ review/QA (`st9/t10-export`) | 18 พ.ย. 2569 | — | |
 | ST7 Open API + Integration | **กำลังทำ** 1/23 (T01 merge แล้ว · T02 แก้ตาม review/QA แล้ว รอ merge · T03 แก้ตาม review/QA แล้ว รอ merge · T04 แก้ตาม review/QA แล้ว รอ merge · T05 แก้ตาม review/QA แล้ว รอ merge · T08 แก้ตาม review/QA แล้ว รอ merge · T13 แก้ตาม review/QA แล้ว รอ merge · T07 dev เสร็จ รอ review/QA · T22 แก้ตาม review/QA แล้ว รอ merge) · ทำ T01 ก่อน ST5/ST6 ได้เพราะไม่ใช้ event ของ ST5/ST6 | 17 พ.ย. 2569 | — | ตารางงาน ST7 ด้านล่าง |
 
 ### งาน ST0 (เกณฑ์ตรวจรับใน `plan/01-phase0-backlog.md`)
@@ -253,6 +254,12 @@
 - (11 พ.ย., พบระหว่าง T19 — **แก้แล้วใน T04**: `db:migrate` รัน bootstrap ทุก tenant ซึ่ง sync role ระบบ) **role ระบบของ tenant ที่มีอยู่ไม่ได้สิทธิ์ใหม่อัตโนมัติ** — `ensureSystemRoles` รันแค่ตอนสร้าง tenant/seed; เมื่อโค้ดเพิ่ม permission (เช่น `documents:write` ใน T08) tenant เดิมไม่ได้ จนกว่าจะรัน seed · ฐาน dev แก้ด้วย seed แล้ว · ต้องมี sync ตอน deploy/บูต ก่อนมี tenant จริง (เสนอทำใน T24 admin portal หรือ migration step) 
 
 ## บันทึกรายวัน
+
+### 18 พ.ย. 2569 (ST9-T10 ส่งออกตามตัวกรอง — lane l4)
+
+- ทำ: `POST /v1/exports` (202 + job `export.file`) / `GET /v1/exports/{id}` (เฉพาะผู้สั่ง, URL ลายเซ็น 5 นาที, ไฟล์ 7 วัน) · registry `ExportSpec` ต่อหน้ารายการ ใช้ class ตัวกรอง + `exportRows(q, page)` + คอลัมน์ชุดเดียวกับรายการ (keyset ทีละ 1,000 แถว, เพดาน 100,000) · 13 resource: orders (รวมใบค้าง `held=true`), customers, customer-sites, carriers, vehicles, vehicle-documents, drivers, vehicle-types, routes, products, service-items, rate-cards, reason-codes · คอลัมน์ราคา/การเงินตามสิทธิ์ + redactPrices · แจ้งเตือน `export.ready`/`export.failed` (in-app + อีเมล, ลิงก์ `/exports/{jobId}`) · audit `export.requested` · เว็บ: หน้า `/exports/:id`, SO/ใบค้าง "ส่งออก CSV" ส่งออกจาก API, หน้าข้อมูลหลักเกิน 10,000 แถว → งานเบื้องหลังอัตโนมัติ · ไม่มี migration (ใช้ `job` + `stored_document`)
+- ไฟล์: `apps/api/src/modules/exports/*`, `orders/order.export.ts`, `exportRows` ของ master 12 service + spec ใน controller, `master/export.ts`, `notifications/templates.ts`, `documents.controller.ts` · web `features/exports/*`, `master/download.ts`, Orders/Hold/master pages, `App.tsx`, `th.ts` · test `test/exports.test.ts` (5 — รวม 50,000 แถว), isolation fixture `export`, web `exports.test.tsx` (5), E2E `exports.spec.ts` · `design/compare/st9-t10-export-*-1440.png` · spec/12 §3
+- ค้าง: ลบไฟล์ส่งออกจริงหลัง 7 วัน (job retention — ST9 ops) · หน้าเที่ยวรถ/DO/ข้อยกเว้น/API keys/webhooks และเอกสารบัญชี/รายงาน ยังไม่ต่อ (เพิ่ม spec เมื่อมีหน้า) · แผงรายการแจ้งเตือน (ST1-T23 [OPEN])
 
 ### 18 พ.ย. 2569 (ST7-T22 แก้ตาม review/QA)
 

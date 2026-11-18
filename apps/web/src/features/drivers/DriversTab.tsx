@@ -17,7 +17,7 @@ import type { MessageKey } from '../../i18n/th';
 import { can } from '../../nav';
 import { useMe } from '../../shell/AppShell';
 import { tableLabels } from '../companies/CompanySample';
-import { downloadFile } from '../master/download';
+import { downloadFile, exportFailText } from '../master/download';
 import { problemText } from '../master/problems';
 import { listTotal, useSessionState } from '../master/useCursorList';
 import { vehPlate } from '../vehicles/useVehicles';
@@ -347,7 +347,7 @@ export function DriversTab({
                           ids: ids.join(','),
                         }).then(
                           () => setToast(t('car.toast.exported', { n: ids.length })),
-                          () => setToast(t('car.exportFailed')),
+                          (e) => setToast(exportFailText(t, e, t('car.exportFailed'))),
                         ),
                     },
                   ],
@@ -359,7 +359,7 @@ export function DriversTab({
                     void downloadFile('/v1/drivers/export', {
                       format: 'csv',
                       ...Object.fromEntries(Object.entries(query).filter(([, v]) => v !== '')),
-                    }).catch(() => setToast(t('car.exportFailed')))
+                    }).catch((e) => setToast(exportFailText(t, e, t('car.exportFailed'))))
                 : false
             }
             empty={
