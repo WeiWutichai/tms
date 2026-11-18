@@ -23,8 +23,11 @@ export async function resolveEntitlements(
 ): Promise<Entitlements> {
   const tenant = await db.tenant.findUnique({
     where: { id: tenantId },
-    select: { planCode: true, status: true },
+    select: { planCode: true, status: true, mode: true, liveTenantId: true },
   });
+  // ST7-T09: sandbox ใช้แพ็กเกจ/override/สถานะของบริษัทจริงเสมอ (บริษัทถูกระงับ → sandbox ไม่มีฟีเจอร์ใดทำงาน)
+  if (tenant?.mode === 'test' && tenant.liveTenantId)
+    return resolveEntitlements(db, tenant.liveTenantId);
   // PLT-062 ชั้นสุดท้าย: tenant ที่ถูกระงับ/ยกเลิกไม่มีฟีเจอร์ใดทำงาน (webhook, sync, job ข้ามหมด — ตาราง 1.6)
   if (!tenant || tenant.status === 'SUSPENDED' || tenant.status === 'CANCELLED') return {};
   const [rows, overrides, all] = await Promise.all([

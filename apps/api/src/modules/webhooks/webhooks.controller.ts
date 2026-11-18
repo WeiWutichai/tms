@@ -27,6 +27,7 @@ import {
   RequireScope,
   TenantResource,
   RateLimitClass,
+  SandboxAware,
 } from '../../common/decorators';
 import { expectedVersion, setEtag } from '../../common/etag';
 import { decodeIdOr404 } from '../../common/ids';
@@ -73,6 +74,7 @@ const IF_MATCH = { name: 'If-Match', required: false, description: 'ETag จา�
 @ApiTags('webhooks')
 @ApiBearerAuth()
 @RequireFeature('webhook')
+@SandboxAware()
 @Controller('webhooks')
 export class WebhooksController {
   constructor(

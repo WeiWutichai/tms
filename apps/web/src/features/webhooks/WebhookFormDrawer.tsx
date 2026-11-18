@@ -11,6 +11,7 @@ import {
   type WebhookCreate,
   type WebhookWithSecret,
 } from './useWebhooks';
+import { modeOrder, type ApiMode } from '../api-keys/mode';
 
 const SEL: CSSProperties = { height: 40, padding: '0 12px', borderColor: '#CDD1C8', width: '100%' };
 
@@ -18,23 +19,27 @@ interface Form {
   url: string;
   events: string[];
   hdr: string;
+  mode: ApiMode;
 }
-const EMPTY: Form = { url: 'https://', events: [], hdr: '' };
+const EMPTY: Form = { url: 'https://', events: [], hdr: '', mode: 'live' };
 
 /**
  * ฟอร์ม "เพิ่ม webhook endpoint" — ต้นแบบ TMS v4 cfHook (drawer ขวา):
  * Endpoint URL (https://) · โหมด (ครึ่งแถว) · Event ที่สมัคร (checkbox) · Header เพิ่มเติม (บรรทัดละ `Name: value`)
  * - รายการ event = event สาธารณะของระบบ (`GET /v1/webhooks/event-types`, docs/01 §5.3) แทน 14 ตัวอย่างของต้นแบบ
- * - โหมด Sandbox เลือกไม่ได้จนกว่าจะมี sandbox (ST7-T09) — เหมือน API key [DECISION spec/12 §3]
+ * - โหมด (ST7-T09): ค่าเริ่ม = โหมดของหน้า เรียงโหมดของหน้าก่อน — endpoint Sandbox อยู่ใน sandbox (ได้เฉพาะ event ของ sandbox)
  */
 export function WebhookFormDrawer({
   open,
   onClose,
   onCreated,
+  mode = 'live',
 }: {
   open: boolean;
   onClose: () => void;
-  onCreated: (h: WebhookWithSecret) => void;
+  onCreated: (h: WebhookWithSecret & { mode: ApiMode }) => void;
+  /** โหมดของหน้า (ค่าเริ่มของช่อง "โหมด") */
+  mode?: ApiMode;
 }) {
   const { t } = useI18n();
   const create = useCreateWebhook();
@@ -46,7 +51,7 @@ export function WebhookFormDrawer({
   if (open !== shown) {
     setShown(open);
     if (open) {
-      setF(EMPTY);
+      setF({ ...EMPTY, mode });
       setTried(false);
       submitting.current = false;
       create.reset();
@@ -79,6 +84,7 @@ export function WebhookFormDrawer({
         url: f.url.trim(),
         events: f.events as WebhookCreate['events'],
         extraHeaders: headers ?? [],
+        mode: f.mode,
       },
       {
         onSettled: () => {
@@ -144,11 +150,21 @@ export function WebhookFormDrawer({
           </FormField>
           <FormField label={t('akey.f.mode')} required>
             {(p) => (
-              <select {...p} className="tms-select" style={SEL} value="live" onChange={() => {}}>
-                <option value="live">{t('akey.mode.live')}</option>
-                <option value="test" disabled>
-                  {t('akey.mode.testOff')}
-                </option>
+              <select
+                {...p}
+                className="tms-select"
+                style={SEL}
+                value={f.mode}
+                onChange={(e) => {
+                  const v = e.target.value as ApiMode;
+                  setF((x) => ({ ...x, mode: v }));
+                }}
+              >
+                {modeOrder(mode).map((m) => (
+                  <option key={m} value={m}>
+                    {t(m === 'test' ? 'akey.mode.test' : 'akey.mode.live')}
+                  </option>
+                ))}
               </select>
             )}
           </FormField>

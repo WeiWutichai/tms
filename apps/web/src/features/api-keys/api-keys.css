@@ -261,3 +261,66 @@
   cursor: pointer;
   white-space: nowrap;
 }
+
+/* ST7-T09 สวิตช์ Production / Sandbox (ต้นแบบ TMS v4 vApi api.modes) */
+.akey-modes {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  background: #eef0ec;
+  border: 1px solid #d9dcd4;
+  border-radius: 999px;
+  margin-bottom: 6px;
+}
+.akey-modes__btn {
+  height: 30px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #3b424c;
+  font: inherit;
+  font-weight: 500;
+  box-shadow: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.akey-modes__btn[aria-pressed='true'] {
+  background: #ffffff;
+  color: #2257c4;
+  font-weight: 600;
+  box-shadow:
+    0 1px 2px rgba(16, 20, 24, 0.08),
+    0 0 0 1px #cdd1c8;
+}
+.akey-modes__btn--test[aria-pressed='true'] {
+  color: #8f5500;
+}
+/* แถบ SANDBOX (ต้นแบบ api.test) */
+.akey-sbx {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  background: #fcf0dc;
+  border: 1px solid #efd3a6;
+  border-radius: 12px;
+  margin-bottom: 16px;
+}
+.akey-sbx__tag {
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: #8f5500;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.akey-sbx__txt {
+  color: #5c3a00;
+  font-weight: 500;
+}

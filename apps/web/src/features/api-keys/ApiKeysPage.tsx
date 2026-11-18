@@ -9,7 +9,8 @@ import {
   Toast,
   type Column,
 } from '@tms/ui';
-import { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
 import { WebhooksTab } from '../webhooks/WebhooksTab';
 import { useWebhookSummary } from '../webhooks/useWebhooks';
 import { useI18n } from '../../i18n';
@@ -24,6 +25,7 @@ import { ApiKeyDrawer } from './ApiKeyDrawer';
 import { ApiKeyFormDrawer } from './ApiKeyFormDrawer';
 import { SecretDialog } from './SecretDialog';
 import { useKeyFormat } from './format';
+import { getApiMode, MODE_QUERY_KEYS, setApiMode, type ApiMode } from './mode';
 import {
   STATUS_TABS,
   useApiKeyAction,
@@ -52,7 +54,9 @@ const cell = { color: '#101418', whiteSpace: 'nowrap' } as const;
  * ตั้งค่า → นักพัฒนา / Open API (ST7-T01) — ต้นแบบ TMS v4 vApi + specApi('keys') + cfKey/cfKeyScope + rotateKey/revokeKey + vSec
  * เฟส 0 มีแท็บ "API keys" + "Webhooks" (ST7-T04) [DECISION spec/12 §3]: ภาพรวม/KPI การเรียก, Log, จับคู่ฟิลด์, MCP, ขีดจำกัด
  * ยังไม่มีข้อมูล (log การเรียก/โควตา/MCP อยู่นอก backlog เฟส 0) · เอกสาร (ST7-T12) เพิ่มแท็บเมื่อทำ ·
- * สวิตช์ Production/Sandbox ซ่อนจนกว่าจะมี sandbox (ST7-T09) · ปุ่มหัวหน้าเปลี่ยนตามแท็บ (สร้าง API key / เพิ่ม endpoint)
+ * ปุ่มหัวหน้าเปลี่ยนตามแท็บ (สร้าง API key / เพิ่ม endpoint)
+ * ST7-T09: สวิตช์ Production / Sandbox ขวาของแถบแท็บ + แถบ "SANDBOX" (ต้นแบบ vApi modes / api.test) — โหมด Sandbox
+ * ทุกตาราง/key/webhook/ประวัติเป็นของ sandbox (API ได้ `X-Tms-Mode: test` — mode.ts) · ออกจากหน้า = กลับเป็น Production
  */
 export function ApiKeysPage() {
   const { t } = useI18n();
@@ -60,6 +64,17 @@ export function ApiKeysPage() {
   const fm = useKeyFormat();
   const canWrite = can(me.data?.scopes ?? [], 'settings:write');
   const [pageTab, setPageTab] = useState<PageTab>(initialTab);
+  const qc = useQueryClient();
+  const [mode, setMode] = useState<ApiMode>(getApiMode);
+  // ออกจากหน้า → คำขอที่อื่นกลับเป็น live (ข้อมูล sandbox ที่ cache ไว้ทิ้ง)
+  useEffect(
+    () => () => {
+      if (getApiMode() === 'live') return;
+      setApiMode('live');
+      for (const k of MODE_QUERY_KEYS) qc.removeQueries({ queryKey: k });
+    },
+    [qc],
+  );
   const [hookForm, setHookForm] = useState(false);
   const hookSum = useWebhookSummary();
   const switchTab = (k: PageTab) => {
@@ -84,6 +99,18 @@ export function ApiKeysPage() {
   const [secret, setSecret] = useState<{ k: ApiKeyWithSecret; rotated: boolean } | null>(null);
   const [copied, setCopied] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  /** สลับโหมด (ต้นแบบ: ปิด panel + toast) — ตั้งโหมดก่อน render ถัดไปเพื่อให้คำขอใหม่ได้ header ถูก + ล้าง cache ของโหมดเดิม */
+  const switchMode = (m: ApiMode, announce = true) => {
+    if (m === getApiMode()) return;
+    for (const k of MODE_QUERY_KEYS) void qc.cancelQueries({ queryKey: k });
+    setApiMode(m);
+    for (const k of MODE_QUERY_KEYS) qc.removeQueries({ queryKey: k });
+    setMode(m);
+    setOpenId(null);
+    setSelected(null);
+    setFilters(EMPTY);
+    if (announce) setToast(t(m === 'test' ? 'akey.toast.toTest' : 'akey.toast.toLive'));
+  };
   const current = openId ? (list.rows.find((r) => r.id === openId) ?? selected) : null;
   const sum = summary.data;
 
@@ -244,6 +271,12 @@ export function ApiKeysPage() {
           ))
         }
       />
+      {mode === 'test' && (
+        <div className="akey-sbx">
+          <span className="akey-sbx__tag">{t('akey.sandbox.tag')}</span>
+          <span className="akey-sbx__txt">{t('akey.sandbox.banner')}</span>
+        </div>
+      )}
       <div className="akey-tabs">
         <div className="akey-tabs__list" role="tablist">
           <button
@@ -267,6 +300,19 @@ export function ApiKeysPage() {
             {hookSum.data && <span className="akey-tabs__n">{hookSum.data.all}</span>}
           </button>
         </div>
+        <div className="akey-modes" role="group" aria-label={t('akey.f.mode')}>
+          {(['live', 'test'] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              aria-pressed={mode === m}
+              className={`akey-modes__btn akey-modes__btn--${m}`}
+              onClick={() => switchMode(m)}
+            >
+              {t(m === 'test' ? 'akey.mode.test' : 'akey.mode.live')}
+            </button>
+          ))}
+        </div>
       </div>
       {pageTab === 'hooks' ? (
         <WebhooksTab
@@ -274,6 +320,8 @@ export function ApiKeysPage() {
           formOpen={hookForm}
           onFormClose={() => setHookForm(false)}
           toast={setToast}
+          mode={mode}
+          onModeChange={(m) => switchMode(m, false)}
         />
       ) : (
         <>
@@ -361,9 +409,12 @@ export function ApiKeysPage() {
           <ApiKeyFormDrawer
             open={!!form}
             edit={form?.edit ?? null}
+            mode={mode}
             onClose={() => setForm(null)}
             onCreated={(k) => {
               setForm(null);
+              // สร้าง key ของอีกโหมด → หน้าสลับไปโหมดนั้น (ต้นแบบ cfKey `apiMode: mode`)
+              if (k.mode !== mode) switchMode(k.mode, false);
               showSecret(k, false);
             }}
             onSaved={(k) => {

@@ -1,4 +1,5 @@
-import { SetMetadata } from '@nestjs/common';
+import { applyDecorators, SetMetadata } from '@nestjs/common';
+import { ApiHeader } from '@nestjs/swagger';
 
 export const IS_PUBLIC = 'tms:isPublic';
 /** route ที่ไม่ต้องมี credential (health, openapi.json) */
@@ -53,3 +54,20 @@ export const RATE_LIMIT_CLASS = 'tms:rateLimitClass';
  * (5 req/s ใน profile standard) ซ้อนกับ tenant/key/user · route อื่นแบ่งเป็น read (GET/HEAD) / write โดยอัตโนมัติ
  */
 export const RateLimitClass = (cls: 'heavy') => SetMetadata(RATE_LIMIT_CLASS, cls);
+
+export const SANDBOX_AWARE = 'tms:sandboxAware';
+/**
+ * ST7-T09: route ของหน้า นักพัฒนา / Open API ที่ผู้ใช้ (UI) สลับเป็นโหมด Sandbox ได้ด้วย header `X-Tms-Mode: test`
+ * → AuthGuard เปลี่ยน tenant ของคำขอเป็น sandbox ของบริษัท (สร้างเมื่อยังไม่มี) · API key ไม่ใช้ header นี้ (โหมดตาม key)
+ */
+export const SandboxAware = () =>
+  applyDecorators(
+    SetMetadata(SANDBOX_AWARE, true),
+    ApiHeader({
+      name: 'X-Tms-Mode',
+      required: false,
+      enum: ['live', 'test'],
+      description:
+        'เฉพาะผู้ใช้ที่ login (UI): `test` = จัดการข้อมูลของ Sandbox ของบริษัท (key `tk_test_`, webhook ของ sandbox) · ไม่ส่ง = live · API key ไม่ใช้ header นี้ (โหมดตาม key)',
+    }),
+  );

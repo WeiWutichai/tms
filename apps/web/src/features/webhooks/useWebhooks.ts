@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, unwrap } from '../../api';
 import { refetchOnStale } from '../master/problems';
 import { useCursorList } from '../master/useCursorList';
+import type { ApiMode } from '../api-keys/mode';
 
 export type Webhook = Schemas['WebhookEndpointDto'];
 export type WebhookWithSecret = Schemas['WebhookEndpointSecretDto'];
@@ -58,7 +59,14 @@ export function useCreateWebhook() {
   const qc = useQueryClient();
   return useMutation({
     // ไม่ส่ง Idempotency-Key: ผลมี secret ที่แสดงครั้งเดียว — ส่งซ้ำ = URL ซ้ำ 409
-    mutationFn: (body: WebhookCreate) => unwrap(api.POST('/v1/webhooks', { body })),
+    // ST7-T09: โหมดที่เลือกในฟอร์ม (Production / Sandbox) → endpoint อยู่ใน tenant ของโหมดนั้น
+    mutationFn: ({ mode, ...body }: WebhookCreate & { mode: ApiMode }) =>
+      unwrap(
+        api.POST('/v1/webhooks', {
+          params: { header: { 'X-Tms-Mode': mode } } as never,
+          body,
+        }),
+      ).then((h) => ({ ...h, mode })),
     onSuccess: () => qc.invalidateQueries({ queryKey: [KEY] }),
   });
 }

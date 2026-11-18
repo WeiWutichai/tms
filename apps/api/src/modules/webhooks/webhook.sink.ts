@@ -65,7 +65,7 @@ export class WebhookSink implements OutboxSink, OnModuleInit {
     const r = await this.engine.attempt({
       tenantId: d.tenantId,
       endpoint: e,
-      envelope: this.engine.envelopeOf(d.tenantId, d.event),
+      envelope: this.engine.envelopeOf(d.tenantId, d.event, await this.engine.modeOf(d.tenantId)),
       attempt,
       test: false,
       manual,
@@ -151,7 +151,13 @@ export class WebhookSink implements OutboxSink, OnModuleInit {
     const r = await this.engine.attempt({
       tenantId: d.tenantId,
       endpoint: e,
-      envelope: this.engine.systemEnvelope(d.tenantId, VERIFICATION_OP, { challenge }),
+      envelope: this.engine.systemEnvelope(
+        d.tenantId,
+        VERIFICATION_OP,
+        { challenge },
+        undefined,
+        await this.engine.modeOf(d.tenantId),
+      ),
       attempt: 1,
       test: true,
       outboxId: d.id,

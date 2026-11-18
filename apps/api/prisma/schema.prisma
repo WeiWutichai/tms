@@ -46,6 +46,11 @@ model Tenant {
   planCode         String       @default("std") @map("plan_code") /// ST1-T18 แพ็กเกจ (FK → plan.code, migration 0017) — ตั้งจาก Platform Console (T24)
   rateLimitProfile String?      @map("rate_limit_profile") @db.VarChar(20) /// ST7-T08 ทับโปรไฟล์ rate limit ของแพ็กเกจ (null = ตามแพ็กเกจ) — standard | high (CHECK)
   plan             Plan         @relation(fields: [planCode], references: [code], onUpdate: Cascade, onDelete: Restrict)
+  /// ST7-T09 live = บริษัทจริง · test = sandbox ของบริษัท `liveTenantId` (แถวแยก ข้อมูลแยกด้วย RLS — migration 0105; แก้ไม่ได้)
+  mode             String       @default("live") @db.VarChar(8)
+  liveTenantId     String?      @unique @map("live_tenant_id") @db.Uuid
+  liveTenant       Tenant?      @relation("TenantSandbox", fields: [liveTenantId], references: [id], onDelete: Restrict)
+  sandbox          Tenant?      @relation("TenantSandbox")
   createdAt        DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 

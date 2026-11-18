@@ -7,6 +7,7 @@ import { HistoryTab } from '../master/HistoryTab';
 import { useHookFormat } from './format';
 import type { Webhook } from './useWebhooks';
 import { DeliveryHistory } from './WebhookDeliveries';
+import type { ApiMode } from '../api-keys/mode';
 
 type Tab = 'info' | 'act';
 
@@ -37,8 +38,11 @@ export function WebhookDrawer({
   onCopied,
   onClose,
   toast,
+  mode = 'live',
 }: {
   h: Webhook;
+  /** ST7-T09 โหมดของหน้า (ป้ายหัว drawer) */
+  mode?: ApiMode;
   canWrite: boolean;
   onToggle: () => void;
   onRotate: () => void;
@@ -56,7 +60,7 @@ export function WebhookDrawer({
     <Drawer
       open
       onClose={onClose}
-      kind={t('whk.kind', { mode: t('akey.mode.live') })}
+      kind={t('whk.kind', { mode: t(mode === 'test' ? 'akey.mode.test' : 'akey.mode.live') })}
       title={fm.no(h)}
       badge={<Badge label={fm.status(h)} />}
       subtitle={h.url}

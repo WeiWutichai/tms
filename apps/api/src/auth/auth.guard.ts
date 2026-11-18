@@ -9,6 +9,7 @@ import {
   REQUIRE_STEP_UP,
   REQUIRED_FEATURE,
   REQUIRED_SCOPE,
+  SANDBOX_AWARE,
 } from '../common/decorators';
 import { MagicLinkService } from '../modules/links/magic-link.service';
 import { EntitlementService } from '../modules/entitlements/entitlement.service';
@@ -19,6 +20,7 @@ import { PrismaService } from '../db/prisma.service';
 import { END_IMPERSONATION_PATH } from '../platform/impersonation.controller';
 import { ApiKeyAuthService, type KeyPrincipal } from '../modules/api-keys/api-key-auth.service';
 import { looksLikeApiKey } from '../modules/api-keys/key-material';
+import { MODE_HEADER, SandboxService } from '../modules/sandbox/sandbox.service';
 import { isRs256, verifyClientToken } from './signing-keys';
 import {
   signAccessToken,
@@ -59,7 +61,35 @@ export class AuthGuard implements CanActivate {
     private readonly links: MagicLinkService,
     private readonly prisma: PrismaService,
     private readonly apiKeys: ApiKeyAuthService,
+    private readonly sandbox: SandboxService,
   ) {}
+
+  /**
+   * ST7-T09: tenant ของคำขอ — ปกติ = tenant ของ token/key (key `tk_test_` อยู่ในแถวของ sandbox อยู่แล้ว)
+   * ผู้ใช้ (UI) บน route @SandboxAware + `X-Tms-Mode: test` → sandbox ของบริษัท (สร้างเมื่อยังไม่มี · เข้าใช้งานแทน = ไม่สร้าง)
+   */
+  private async requestTenant(
+    claims: AccessClaims,
+    req: Request,
+    targets: Parameters<Reflector['getAllAndOverride']>[1],
+  ): Promise<string> {
+    if (!this.reflector.getAllAndOverride<boolean>(SANDBOX_AWARE, targets)) return claims.tid;
+    const want = req.header(MODE_HEADER);
+    if (want === undefined || want === '' || want === 'live') return claims.tid;
+    if (want !== 'test')
+      throw new ProblemException('bad_request', 'X-Tms-Mode must be "live" or "test"');
+    // API key / client credentials: โหมดตาม key เสมอ (header ไม่มีผล)
+    if (claims.pt !== 'user' && claims.pt !== 'dev' && claims.pt !== 'imp') return claims.tid;
+    const own = await this.sandbox.link(claims.tid);
+    if (!own) throw new ProblemException('unauthorized');
+    if (own.mode === 'test') return claims.tid;
+    if (claims.pt === 'imp') {
+      const sb = await this.sandbox.find(claims.tid);
+      if (!sb) throw new ProblemException('not_found');
+      return sb;
+    }
+    return this.sandbox.ensure(claims.tid);
+  }
 
   /** Bearer: API key `tk_…` → JWT RS256 ของ client credentials → JWT ของ UI (HS256) */
   private async claimsOf(token: string, req: Request): Promise<AccessClaims | null> {
@@ -191,7 +221,14 @@ export class AuthGuard implements CanActivate {
         throw new ProblemException('step_up_required');
     }
     const ctx = requestContext.require();
-    ctx.tenantId = claims.tid;
+    const tenantId = await this.requestTenant(claims, req, targets);
+    ctx.tenantId = tenantId;
+    const link = await this.sandbox.link(tenantId);
+    if (link?.mode === 'test')
+      ctx.sandbox = {
+        liveTenantId: link.liveTenantId,
+        users: (w) => this.sandbox.liveUsers(link.liveTenantId, w),
+      };
     ctx.actorId = claims.sub;
     ctx.scopes = scopes;
     ctx.principalType = claims.pt;

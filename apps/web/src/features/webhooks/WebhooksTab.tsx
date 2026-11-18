@@ -27,6 +27,7 @@ import {
 } from './useWebhooks';
 import { WebhookDrawer } from './WebhookDrawer';
 import { WebhookFormDrawer } from './WebhookFormDrawer';
+import type { ApiMode } from '../api-keys/mode';
 import './webhooks.css';
 
 const EMPTY: WebhookFilters = { status: '', url: '' };
@@ -42,11 +43,17 @@ export function WebhooksTab({
   formOpen,
   onFormClose,
   toast,
+  mode = 'live',
+  onModeChange,
 }: {
   canWrite: boolean;
   formOpen: boolean;
   onFormClose: () => void;
   toast: (s: string) => void;
+  /** ST7-T09 โหมดของหน้า (Production / Sandbox) */
+  mode?: ApiMode;
+  /** สร้าง endpoint ของอีกโหมด → หน้าสลับไปโหมดนั้น (ต้นแบบ cfHook `apiMode: mode`) */
+  onModeChange?: (m: ApiMode) => void;
 }) {
   const { t } = useI18n();
   const fm = useHookFormat();
@@ -282,6 +289,7 @@ export function WebhooksTab({
         <WebhookDrawer
           key={current.id}
           h={current}
+          mode={mode}
           canWrite={canWrite}
           onToggle={() => toggle(current)}
           onRotate={() => rotate(current)}
@@ -296,9 +304,11 @@ export function WebhooksTab({
       )}
       <WebhookFormDrawer
         open={formOpen}
+        mode={mode}
         onClose={onFormClose}
         onCreated={(h) => {
           onFormClose();
+          if (h.mode !== mode) onModeChange?.(h.mode);
           showSecret({
             title: t('whk.secret.created'),
             sub: t('whk.secret.sub', { url: h.url, n: h.events.length }),

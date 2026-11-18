@@ -469,6 +469,11 @@ export const PROBLEMS = {
     th: 'IP นี้ไม่ได้รับอนุญาตให้ใช้ API key นี้',
     en: 'This IP address is not allowed for this API key',
   },
+  sandbox_only: {
+    status: 403,
+    th: 'ใช้ได้เฉพาะโหมด Sandbox (key tk_test_ หรือสลับเป็น Sandbox)',
+    en: 'Available in sandbox (test) mode only',
+  },
   internal_error: { status: 500, th: 'ระบบขัดข้อง', en: 'Internal error' },
 } as const;
 
