@@ -104,7 +104,8 @@ export function ApiKeysPage() {
     if (m === getApiMode()) return;
     for (const k of MODE_QUERY_KEYS) void qc.cancelQueries({ queryKey: k });
     setApiMode(m);
-    for (const k of MODE_QUERY_KEYS) qc.removeQueries({ queryKey: k });
+    // reset = ล้างข้อมูลของโหมดเดิมทันที + ดึงใหม่ (ด้วย header ของโหมดใหม่) เฉพาะที่หน้าจอใช้อยู่
+    for (const k of MODE_QUERY_KEYS) void qc.resetQueries({ queryKey: k });
     setMode(m);
     setOpenId(null);
     setSelected(null);
