@@ -82,6 +82,12 @@ export interface DataTableProps<R> {
   onPrev?: () => void;
   onNext?: () => void;
   onGoto?: (index: number) => void;
+  /**
+   * คอลัมน์ที่ซ่อนแบบควบคุมจากหน้า (ST9-T11 saved views) — ส่ง `onHiddenColumnsChange` = หน้าเก็บค่าเอง
+   * `null`/ไม่ส่ง = ค่าเริ่มต้น (`hiddenByDefault`) · "คืนค่าเริ่มต้น" ส่ง `null`
+   */
+  hiddenColumns?: string[] | null;
+  onHiddenColumnsChange?: (hidden: string[] | null) => void;
 }
 
 export function StatusDot({ label, tone }: { label: string; tone?: Tone }) {
@@ -99,9 +105,12 @@ export function DocNo({ children }: { children: ReactNode }) {
 }
 
 export function DataTable<R>(p: DataTableProps<R>) {
-  const [hidden, setHidden] = useState<string[]>(() =>
-    p.columns.filter((c) => c.hiddenByDefault).map((c) => c.key),
-  );
+  const defaultHidden = p.columns.filter((c) => c.hiddenByDefault).map((c) => c.key);
+  const [ownHidden, setOwnHidden] = useState<string[] | null>(null);
+  const controlled = p.onHiddenColumnsChange !== undefined;
+  const hidden = (controlled ? p.hiddenColumns : ownHidden) ?? defaultHidden;
+  const setHidden = (next: string[] | null) =>
+    controlled ? p.onHiddenColumnsChange!(next) : setOwnHidden(next);
   const [panel, setPanel] = useState<null | 'cols' | 'opts'>(null);
   const [showFilters, setShowFilters] = useState(true);
   const [dense, setDense] = useState(false);
@@ -395,19 +404,15 @@ export function DataTable<R>(p: DataTableProps<R>) {
                 type="checkbox"
                 checked={!hidden.includes(c.key)}
                 onChange={() =>
-                  setHidden((h) =>
-                    h.includes(c.key) ? h.filter((x) => x !== c.key) : [...h, c.key],
+                  setHidden(
+                    hidden.includes(c.key) ? hidden.filter((x) => x !== c.key) : [...hidden, c.key],
                   )
                 }
               />
               {c.label}
             </label>
           ))}
-          <button
-            type="button"
-            className="tms-sidepanel__link"
-            onClick={() => setHidden(p.columns.filter((c) => c.hiddenByDefault).map((c) => c.key))}
-          >
+          <button type="button" className="tms-sidepanel__link" onClick={() => setHidden(null)}>
             {p.labels.resetColumns}
           </button>
         </div>

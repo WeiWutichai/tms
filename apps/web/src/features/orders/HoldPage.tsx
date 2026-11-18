@@ -21,6 +21,8 @@ import { useMe } from '../../shell/AppShell';
 import { tableLabels } from '../companies/CompanySample';
 import { problemText } from '../master/problems';
 import { listTotal, useSessionState } from '../master/useCursorList';
+import { SavedViewMenu } from '../views/SavedViewMenu';
+import { pick, useSavedViews } from '../views/useSavedViews';
 import { bangkokToday, useDateText } from '../rate-cards/rateFormat';
 import { HOLD_CODES, RECHECKABLE, actionLabel, holdMeta } from './hold';
 import { clearErrorText, useClearedText } from './HoldClear';
@@ -54,6 +56,9 @@ export function holdCodesOf(
   return out;
 }
 
+/** ค่าของมุมมอง "ทั้งหมด" (ST9-T11) */
+const EMPTY_VIEW = { reason: '', q: '', source: '' };
+
 /** แถบสรุป: เหตุของทางเข้าที่พบบ่อย (ต้นแบบ kpisX('so') สีเตือน #8F5500 / ผิดพลาด #B3322A) */
 const KPI: { code: string; color: string }[] = [
   { code: 'CUSTOMER_UNMAPPED', color: '#8F5500' },
@@ -81,6 +86,20 @@ export function HoldPage() {
   const canUnlock = can(scopes, 'orders:unlock');
   const [reason, setReason] = useSessionState('hold.reason', '');
   const [col, setCol] = useSessionState('hold.cols', { q: '', source: '' });
+  const [hidden, setHidden] = useSessionState<string[] | null>('hold.hidden', null);
+  // มุมมองที่บันทึกไว้ (ST9-T11): แท็บเหตุผล + ตัวกรองคอลัมน์ + คอลัมน์ที่ซ่อน
+  const views = useSavedViews({
+    page: 'orders.hold',
+    state: { reason, ...col },
+    hidden,
+    empty: EMPTY_VIEW,
+    apply: (v) => {
+      const s = pick(v.state, EMPTY_VIEW);
+      setReason(s.reason);
+      setCol({ q: s.q, source: s.source });
+      setHidden(v.hidden);
+    },
+  });
   const today = bangkokToday();
   const list = useHoldList({ holdReason: reason, q: col.q, source: col.source });
   const summary = useOrderSummary();
@@ -289,6 +308,7 @@ export function HoldPage() {
           ]}
         />
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 32 }}>
+          <SavedViewMenu b={views} onToast={setToast} />
           {err && (
             <span className="tms-field-error" role="alert">
               {err}
@@ -319,6 +339,8 @@ export function HoldPage() {
             labels={tableLabels(t)}
             selectable={false}
             filters={{ q: col.q, source: col.source, reason }}
+            hiddenColumns={hidden}
+            onHiddenColumnsChange={setHidden}
             onFilterChange={(k, v) =>
               k === 'reason' ? setReason(v) : setCol((c) => ({ ...c, [k]: v }))
             }
