@@ -26,6 +26,7 @@
 | ST3 Order intake + Planning/Dispatch | **เสร็จ** (T01–T25 ครบ — T25 นับเมื่อ merge PR ของ `st3/t25-change-carrier`) | 12 พ.ย. | 17 พ.ย. 2569 | ตารางงาน ST3 ด้านล่าง · สรุป: รับ order ทุกทาง (มือ/Excel/API/connector) ผ่าน `upsertOrder()` เดียว + ใบค้าง + DO/trip state machine + กระดานวางแผน (constraint/multi-drop/assign-dispatch/send all/ตารางรถ) + ใบคุมรถ PDF + LINE/SMS + จ้างรถร่วมครบวงจร (ลิงก์รับ/ปฏิเสธ, หมดเวลา, เปลี่ยนผู้รับเหมา) |
 | ST4 Execution และ POD | **กำลังทำ** 2/15 (T01, T02) + T03, T04, T05, T06 dev | 17 พ.ย. 2569 | — | ตารางงาน ST4 ด้านล่าง |
 | ST5 Billing AR (เฉพาะ T01 บรรทัดรายได้) | T01 merge แล้ว (PR #115) · **T01b รายได้ต่อ DO dev เสร็จ** รอ review/QA/merge (`st5/t01b-revenue-per-do`) | 19 พ.ย. 2569 | — | ดูบันทึก 19 พ.ย. (ST5-T01b) · PO ตัดสิน: รายได้ต่อ DO × ปริมาณส่งจริง · [OPEN] ขั้นต่ำ/ยอดเหมาเมื่อหลาย DO (spec/12 §3) |
+| ST6 (T01c ปันต้นทุนลง DO) | **dev เสร็จ** รอ review/QA/merge (`st6/t01c-cost-allocation` — ต่อจาก `st5/t01b-revenue-per-do`) | 19 พ.ย. 2569 | — | ดูบันทึก 19 พ.ย. (ST6-T01c) · PO ตัดสิน: ปันตามสัดส่วนรายได้ DO · ปิดต้นทุนเปิดโดยค่าเริ่มต้น · [OPEN] หลาย DO รายได้รวม 0 |
 | ST5–ST6, ST8 | ยังไม่เริ่ม | | | |
 | ST9 Cross-cutting | **กำลังทำ** · T10 ส่งออกตามตัวกรอง dev เสร็จ รอ review/QA (`st9/t10-export`) · T14 Retention dev เสร็จ รอ review/QA (`st9/t14-retention`) | 18 พ.ย. 2569 | — | |
 | ST5–ST6, ST8–ST9 | ยังไม่เริ่ม | | | |
@@ -283,6 +284,22 @@
 - (11 พ.ย., พบระหว่าง T19 — **แก้แล้วใน T04**: `db:migrate` รัน bootstrap ทุก tenant ซึ่ง sync role ระบบ) **role ระบบของ tenant ที่มีอยู่ไม่ได้สิทธิ์ใหม่อัตโนมัติ** — `ensureSystemRoles` รันแค่ตอนสร้าง tenant/seed; เมื่อโค้ดเพิ่ม permission (เช่น `documents:write` ใน T08) tenant เดิมไม่ได้ จนกว่าจะรัน seed · ฐาน dev แก้ด้วย seed แล้ว · ต้องมี sync ตอน deploy/บูต ก่อนมี tenant จริง (เสนอทำใน T24 admin portal หรือ migration step) 
 
 ## บันทึกรายวัน
+
+### 19 พ.ย. 2569 (ST6-T01c แก้ตาม QA — lane l7)
+
+- **ทำ:** (M1) blocker `PENDING_SELL_CHARGES` — ค่าใช้จ่ายหน้างานฝั่งขายของเที่ยว/DO รอยืนยัน → ปิดต้นทุนไม่ได้ (409) [DECISION ตามคำแนะนำ ย้อนได้ — แจ้ง PO] · (L1) kill switch ปิด → `GET /costs` มี blocker `COSTING_DISABLED` · merge `st5/t01b-revenue-per-do` (d84a780) · test เพิ่ม/ปรับ (พร้อมกัน: ทั้งสองลำดับได้การปันรวมค่าหน้างาน)
+- **ไฟล์:** `trips/{trip-costs.ts,trip-costs.dto.ts}`, `common/problem.ts`, `test/trip-costs.test.ts`, spec/12, openapi/api-docs
+
+### 19 พ.ย. 2569 (ST6-T01c แก้ตาม review — lane l7)
+
+- **ทำ:** (M) ปันต้นทุนสุทธิของเที่ยวครั้งเดียว เศษทั้งหมด → DO รายได้สูงสุด แล้วกระจายลงบรรทัดให้ลงตัวทั้งต่อ DO/ต่อบรรทัด (domain `allocateTripCostLines` ใหม่ + test) · (L) ไม่ลงตัว → 500 `trip_cost_allocation_failed` + ตรวจ Σ ต่อ DO = buyTotal · ยืนยันค่าหน้างานฝั่งขายล็อก SO → trip (FOR SHARE) ลำดับเดียวกับปิดต้นทุน + test พร้อมกัน · เขียน `cost_allocation_method = 'BY_REVENUE'` · plan/00a RA-15 · spec/12: ผลข้างเคียงการเห็นสัดส่วนรายได้, บรรทัดระดับใบสั่งไม่นับ · merge `st5/t01b-revenue-per-do` (แก้ review)
+- **ไฟล์:** `packages/domain/src/cost-allocation.ts` (+test), `trips/{trip-costs.ts,trip-costs.dto.ts,trip.service.ts}`, `field-charges/field-charges.service.ts`, `common/problem.ts`, `i18n/th.ts`, `test/trip-costs.test.ts`, plan/00a, spec/12
+
+### 19 พ.ย. 2569 (ST6-T01c ปันต้นทุนเที่ยวลง DO ตามสัดส่วนรายได้ — PO ตัดสิน · lane l7)
+
+- **ทำ:** PO ตัดสิน 19 พ.ย. 2569 — ต้นทุนเที่ยว (ค่าจ้างรถร่วม + ค่าหน้างานฝั่งซื้อที่ยืนยัน สุทธิหลังกลับรายการ) ปันลง DO ตามสัดส่วนรายได้ขาย เศษสตางค์ → DO รายได้สูงสุด (เท่ากัน → เลข DO น้อยสุด) · ปันใน transaction ของ `POST /v1/trips/{id}/cost` ลง `trip_cost.allocated` ต่อบรรทัด (กลับรายการหักล้างพอดี; ผลรวมต่อบรรทัด/ทั้งเที่ยวเท่ายอดพอดี) · blocker ใหม่ `REVENUE_PROVISIONAL` (หลาย DO + รายได้ยังไม่ยืนยัน) / `REVENUE_MISSING` (หลาย DO รายได้รวม 0 — [OPEN PO]) · `GET /trips/{id}/costs` `allocations[]` + `GET /delivery-orders/{id}/revenue-lines` `buyAllocatedCost` (ตัดตาม `prices.buy:read` แยกจากขาย; ไม่มี field margin) · ปิดต้นทุนเปิดโดยค่าเริ่มต้น (`TRIP_COSTING_ENABLED=0` = kill switch) · domain `allocateSatangRemainderTo`
+- **ไฟล์:** `packages/domain/src/money.ts` (+test), `apps/api/src/modules/trips/{trip-costs.ts,trip-costs.dto.ts,trip.service.ts,trips.controller.ts}`, `apps/api/src/modules/revenue-lines/{revenue-lines.service.ts,revenue-line.dto.ts}`, `apps/api/src/common/problem.ts`, `apps/web/src/i18n/th.ts`, `apps/api/test/trip-costs.test.ts`, `.env.example`, `packages/contracts/openapi.json`, `packages/api-docs/site/*`, spec/12 §3 (แถวใหม่ + แก้แถว ST6-T01/คิวจ่าย) · ไม่มี migration
+- **ค้าง:** [OPEN — PO] หลาย DO รายได้รวม 0 + ต้นทุน ≠ 0 (ตอนนี้ 409) · ปันใหม่เมื่อรายได้เปลี่ยนหลังปิดต้นทุน (ตอนนี้ snapshot) · `cost_allocation_method` ของ docs/01 ไม่ใช้ · UI ต้นทุน/กำไรต่อ DO (ต้นแบบไม่มี — P1 รายงาน)
 
 ### 19 พ.ย. 2569 (ST8-T03 แก้ตาม review/QA — lane l8)
 - ทำ: (M1) capability ที่ยังไม่ได้ทำ = `pendingCapabilities` ของ adapter → ไม่เปิดเป็นค่าเริ่มต้น / ขอเปิด 422 / API `capabilitiesPending` / หน้าจอ "ยังไม่รองรับ" · คำสั่งที่ค้าง = PENDING `capability_not_implemented` (ไม่ SKIPPED ไม่เสียครั้ง) · (M2) ตาม spec/07 §1: AUTH หยุดทันที, TRANSIENT จด `health_failing_since` (migration **0121**) หยุดเมื่อล้มต่อเนื่อง ≥ 30 นาที · worker `recheckUnhealthy` ทุก 5 นาที คืน ERROR(TRANSIENT) → ACTIVE เอง (audit + แจ้ง `connector.recovered` + ปลุกคิว) · (Low) `POST /health` `message` ไทย + `detail` ดิบ, การ์ด ERROR จากปลายทางล่มไม่บอก "แก้ key", toast ล้มเหลวแบบ error (`Toast tone="err"`), ป้ายไทยของช่องค่าตั้ง, PUT credentials รวมกับค่าเดิม

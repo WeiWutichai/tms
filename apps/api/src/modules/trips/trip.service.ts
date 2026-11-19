@@ -51,7 +51,13 @@ import { bangkokToday } from '../vehicle-documents/expiry';
 import { OrderStateService } from '../orders/order-state.service';
 import { issueNumber } from '../sequences/sequences.service';
 import { reverseCarrierFees } from './carrier-fees';
-import { costLines, costReadiness, tripCostingEnabled } from './trip-costs';
+import {
+  allocateTripCost,
+  costAllocations,
+  costLines,
+  costReadiness,
+  tripCostingEnabled,
+} from './trip-costs';
 import { Clock } from '../../common/clock';
 import { OfferLinks, OFFER_TTL_MS } from './offer-links';
 import { refreshTripLegs } from './trip-legs';
@@ -1518,20 +1524,24 @@ export class TripService {
     const trip = await this.get(id, tx);
     const data = await costLines(tx, trip.id);
     const ready = await costReadiness(tx, trip);
-    return { trip, data, ready };
+    const allocations = await costAllocations(tx, trip);
+    return { trip, data, ready, allocations };
   }
 
   /**
-   * ปิดต้นทุนเที่ยว (ST6-T01; docs/01 §4.2 COMPLETED → COSTED "ต้นทุนเที่ยวครบ") — `trips:close` + If-Match
-   * ต้นทุนครบ = `costReadiness` (ไม่มีค่าใช้จ่ายหน้างานรอยืนยัน · เที่ยวรถร่วมมีค่าจ้างของการจ้างที่รับแล้ว) ไม่ครบ → 409
-   * `trip_costs_incomplete` + `blockers` · หลังปิด: บันทึก/ยืนยันค่าใช้จ่ายหน้างานไม่ได้ (ST4-T13) · audit `trip.costed`
-   * (ไม่ใส่ยอดเงินใน audit — สิทธิ์ราคาซื้อ)
+   * ปิดต้นทุนเที่ยว (ST6-T01; docs/01 §4.2 COMPLETED → COSTED "ต้นทุนเที่ยวครบ + ปันลง DO") — `trips:close` + If-Match
+   * ต้นทุนครบ = `costReadiness` (ไม่มีค่าใช้จ่ายหน้างานรอยืนยัน · เที่ยวรถร่วมมีค่าจ้างของการจ้างที่รับแล้ว · หลาย DO = รายได้ยืนยันแล้ว
+   * และรวม > 0) ไม่ครบ → 409 `trip_costs_incomplete` + `blockers` · ปันต้นทุนลง DO ตามสัดส่วนรายได้ (ST6-T01c — `allocateTripCost`)
+   * ใน transaction เดียวกัน (ล็อก DO → เที่ยว → บรรทัดต้นทุน) · หลังปิด: บันทึก/ยืนยันค่าใช้จ่ายหน้างานไม่ได้ (ST4-T13) ·
+   * audit `trip.costed` (ไม่ใส่ยอดเงินใน audit — สิทธิ์ราคาซื้อ)
    */
   async cost(id: string, tx: Tx = this.db.tx, expectedVersion?: number): Promise<TripRecord> {
-    // docs/01 §4.2 COMPLETED → COSTED = "ต้นทุนครบ + ปันลง DO" — วิธีปันยังไม่ตัดสิน → ปิดไว้ (ค่าเริ่มต้น) จนกว่าจะตัดสิน
+    // kill switch ระดับระบบ (ค่าเริ่มต้นเปิด — ST6-T01c)
     if (!tripCostingEnabled()) throw new ProblemException('trip_costing_unavailable');
     const { trip } = await this.lock(tx, id, expectedVersion);
     this.assertCan(trip, 'cost');
+    // ล็อก SO ของ DO ในเที่ยวแล้ว (lockForTrip: SO → DO → trip) — rebuild รายได้ (ยืนยันค่าใช้จ่ายหน้างานฝั่งขาย ฯลฯ) ล็อก SO
+    // ก่อนเช่นกัน → รายได้ที่ใช้ปันไม่เปลี่ยนกลางคัน
     // ล็อกบรรทัดต้นทุนของเที่ยว — กันยืนยัน/บันทึกค่าใช้จ่ายหน้างานพร้อมกัน (field-charges ล็อกเที่ยวแบบ FOR SHARE ก่อนเขียน)
     await tx.$queryRaw`SELECT id FROM trip_cost WHERE trip_id = ${trip.id}::uuid FOR UPDATE`;
     const ready = await costReadiness(tx, trip);
@@ -1540,8 +1550,14 @@ export class TripService {
         blockers: ready.blockers,
         pendingCount: ready.pendingCount,
       });
+    const perDo = await allocateTripCost(tx, trip.id, ready.targets);
     const actor = requestContext.require().actorId ?? null;
-    await this.transition(tx, trip, 'cost', { costedAt: new Date(), costedBy: actor });
+    await this.transition(tx, trip, 'cost', {
+      costedAt: new Date(),
+      costedBy: actor,
+      // วิธีปัน (PO ตัดสิน 19 พ.ย. 2569) — แทน BY_WEIGHT/… ของ docs/01 (plan/00a)
+      costAllocationMethod: 'BY_REVENUE',
+    });
     const final = await this.get(trip.id, tx);
     const lines = await tx.tripCost.count({ where: { tripId: trip.id, status: 'CONFIRMED' } });
     await this.audit.record({
@@ -1549,7 +1565,12 @@ export class TripService {
       entityType: ENTITY,
       entityId: trip.id,
       before: { status: trip.status },
-      after: { status: final.status, costLines: lines },
+      after: {
+        status: final.status,
+        costLines: lines,
+        // DO ที่รับส่วนแบ่ง (ไม่มียอดเงิน — สิทธิ์ราคาซื้อ)
+        allocatedTo: [...perDo.keys()].map((d) => encodeId('deliveryOrder', d)),
+      },
     });
     return final;
   }
