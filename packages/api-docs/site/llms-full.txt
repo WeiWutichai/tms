@@ -1,7 +1,7 @@
 <!-- index.md -->
 # TMS API v1
 
-เอกสาร Open API ของ TMS — endpoint ชุดเดียวกับที่เว็บของ TMS ใช้ (API-first) · เวอร์ชันพฤติกรรมล่าสุด `2026-11-18` · 310 endpoint
+เอกสาร Open API ของ TMS — endpoint ชุดเดียวกับที่เว็บของ TMS ใช้ (API-first) · เวอร์ชันพฤติกรรมล่าสุด `2026-11-18` · 311 endpoint
 
 เริ่มที่ [Quickstart](quickstart.md) (สร้าง order แรกใน Sandbox ภายใน 15 นาที) · ดาวน์โหลด [Postman collection](tms-api.postman_collection.json) · [OpenAPI](openapi.json) · สำหรับ AI/LLM: [llms.txt](llms.txt), [llms-full.txt](llms-full.txt) · ทุกหน้ามีฉบับ Markdown (`<หน้า>.md`)
 
@@ -27,6 +27,7 @@
 - [ใบส่งของ (delivery-orders)](ref-delivery-orders.md) — 14 endpoint: GET /v1/delivery-orders/summary, GET /v1/delivery-orders, POST /v1/delivery-orders, GET /v1/delivery-orders/{id}, POST /v1/delivery-orders/{id}/split, POST /v1/delivery-orders/{id}/merge, …
 - [เที่ยววิ่ง (trips)](ref-trips.md) — 34 endpoint: GET /v1/trips/summary, GET /v1/trips, POST /v1/trips, POST /v1/trips/bulk-assign, POST /v1/trips/send-all, GET /v1/trips/{id}, …
 - [จุดส่ง (stops)](ref-stops.md) — 10 endpoint: GET /v1/stops/{id}, GET /v1/stops/{id}/events, POST /v1/stops/{id}/arrive, POST /v1/stops/{id}/depart, POST /v1/stops/{id}/complete, POST /v1/stops/{id}/fail, …
+- [จ่ายรถร่วม (settlements)](ref-settlements.md) — 1 endpoint: GET /v1/settlements/queue
 - [ไฟล์และเอกสาร (documents)](ref-documents.md) — 4 endpoint: POST /v1/documents, GET /v1/documents/{id}, GET /v1/documents/{id}/content, PUT /v1/documents/{id}/content
 - [Webhooks และ events](ref-webhooks.md) — 9 endpoint: GET /v1/webhooks, GET /v1/webhooks/summary, GET /v1/webhooks/event-types, GET /v1/webhooks/{id}, GET /v1/webhooks/{id}/history, GET /v1/webhook-deliveries, …
 - [Sandbox](ref-sandbox.md) — 1 endpoint: POST /v1/test/events/trigger
@@ -5438,6 +5439,73 @@ const { data, error } = await tms.POST('/v1/stop-event-flags/{id}/resolve', {
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
 | `data` | ใช่ | `array<TripTimelineEventDto>` |   | ทุก event ของเที่ยว (รวมจุดที่ถอดแล้ว) เรียงตามลำดับจุด แล้วตามลำดับที่มีผลของจุด (occurredAt → ชนิด → receivedAt) |   |
+
+---
+
+<!-- ref-settlements.md -->
+# จ่ายรถร่วม (settlements)
+
+1 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
+
+| Endpoint | scope |
+|---|---|
+| [`GET /v1/settlements/queue`](#get-settlements-queue) | `settlements:read` |
+
+## คิวจ่ายรถร่วม (เที่ยวที่ปิดต้นทุนแล้วและยังไม่อยู่ในใบสำคัญจ่าย) {#get-settlements-queue}
+
+`GET /v1/settlements/queue`
+
+scope: `settlements:read` · operationId: `Settlements_list`
+
+เที่ยว **COSTED** ของรถร่วมที่ยังมีบรรทัดต้นทุนรอจ่าย (ค่าจ้าง CARRIER_FEE + ค่าใช้จ่ายหน้างานฝั่งซื้อที่ยืนยันแล้ว ของรถร่วมรายปัจจุบัน ที่ยังไม่อยู่ในใบสำคัญจ่าย) · รถร่วมที่ตั้ง "ไม่มี POD ไม่จ่าย" (`requirePodToPay`) → เที่ยวที่หลักฐานส่งยังไม่ครบไม่ขึ้นคิว · กรองรถร่วม (`carrierId` รับ `ext:`) / ช่วงวันที่เที่ยวจบ (เวลาไทย) / หลักฐานครบ · `carriers` = ยอดรวมต่อรถร่วมของทุกแถวที่ตรงตัวกรอง · ยอดเงิน (`buy*`) เห็นเมื่อมี `prices.buy:read` · ปิดต้นทุนเที่ยว (COMPLETED → COSTED) ยังปิดใช้จนกว่าจะกำหนดวิธีปันต้นทุนลง DO (`POST /trips/{id}/cost` → 409 `trip_costing_unavailable`) — ระหว่างนั้นคิวว่าง
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `limit` | query |   | `number` |   |
+| `cursor` | query |   | `string` | ค่า nextCursor จากหน้าก่อน |
+| `updatedAfter` | query |   | `string` | คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull) |
+| `sort` | query |   | `string` ค่า: `updatedAt`, `-updatedAt` |   |
+| `fields` | query |   | `string` | รายชื่อ field คั่นด้วย, เช่น id,legalName |
+| `carrierId` | query |   | `string` | รถร่วม — id หรือ `ext:{externalId}` (ไม่พบ = รายการว่าง) |
+| `dateFrom` | query |   | `string` | วันที่เที่ยวจบตั้งแต่ (YYYY-MM-DD ตามเวลาไทย — `completedAt`) |
+| `dateTo` | query |   | `string` | วันที่เที่ยวจบถึง (YYYY-MM-DD ตามเวลาไทย — รวมทั้งวัน) |
+| `podComplete` | query |   | `string` ค่า: `true`, `false` | กรองตามหลักฐานส่ง (POD) ของเที่ยว: true = ครบ · false = ยังไม่ครบ (มีได้เฉพาะรถร่วมที่ปิด "ไม่มี POD ไม่จ่าย") |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `SettlementQueuePageDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`settlements:read`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X GET "$TMS_BASE_URL/v1/settlements/queue" \
+  -H "Authorization: Bearer $TMS_API_KEY"
+```
+
+```ts
+const { data, error } = await tms.GET('/v1/settlements/queue');
+```
+
+## Schema ของ response {#schemas}
+
+### SettlementQueuePageDto {#schema-SettlementQueuePageDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `data` | ใช่ | `array<SettlementQueueTripDto>` |   |   |   |
+| `nextCursor` | ใช่ | `string` | null ได้ |   |   |
+| `hasMore` | ใช่ | `boolean` |   |   |   |
+| `carriers` | ใช่ | `array<SettlementQueueCarrierDto>` |   | สรุปต่อรถร่วมของทุกเที่ยวที่ตรงตัวกรอง (ไม่ขึ้นกับ cursor/limit) — เรียงตามรหัสรถร่วม |   |
 
 ---
 
@@ -19292,7 +19360,7 @@ HTTP `401` · กรอกรหัสยืนยันตัวตน 2 ชั
 
 HTTP `401` · ต้องเข้าสู่ระบบ
 
-พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences`](ref-document-sequences.md#get-document-sequences), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id), [`GET /v1/settings`](ref-settings.md#get-settings) และอีก 292 endpoint
+พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences`](ref-document-sequences.md#get-document-sequences), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id), [`GET /v1/settings`](ref-settings.md#get-settings) และอีก 293 endpoint
 
 ## edit_lock_user_required {#edit_lock_user_required}
 
@@ -19328,7 +19396,7 @@ HTTP `403` · IP นี้ไม่ได้รับอนุญาตให้
 
 HTTP `403` · ไม่มีสิทธิ์ทำรายการนี้
 
-พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences`](ref-document-sequences.md#get-document-sequences), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id), [`GET /v1/settings`](ref-settings.md#get-settings) และอีก 292 endpoint
+พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences`](ref-document-sequences.md#get-document-sequences), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id), [`GET /v1/settings`](ref-settings.md#get-settings) และอีก 293 endpoint
 
 ## sandbox_only {#sandbox_only}
 
@@ -19724,7 +19792,7 @@ HTTP `422` · นิติบุคคลออกบิลไม่พบหร
 
 HTTP `422` · Idempotency-Key นี้เคยใช้กับข้อมูลอื่น
 
-พบใน: [`POST /v1/orders:bulk`](ref-orders.md#post-orders-bulk), [`GET /v1/orders`](ref-orders.md#get-orders), [`POST /v1/orders`](ref-orders.md#post-orders), [`PUT /v1/orders/external/{externalId}`](ref-orders.md#put-orders-external-externalId), [`PATCH /v1/orders/external/{externalId}`](ref-orders.md#patch-orders-external-externalId), [`PATCH /v1/orders/{id}`](ref-orders.md#patch-orders-id), [`POST /v1/orders/{id}/stops/{sequence}/map-site`](ref-orders.md#post-orders-id-stops-sequence-map-site), [`POST /v1/orders/{id}/manual-price`](ref-orders.md#post-orders-id-manual-price), [`POST /v1/orders/{id}/resolve-source-error`](ref-orders.md#post-orders-id-resolve-source-error), [`POST /v1/orders/{id}/map-customer`](ref-orders.md#post-orders-id-map-customer), [`GET /v1/trips`](ref-trips.md#get-trips), [`POST /v1/trips`](ref-trips.md#post-trips) และอีก 34 endpoint
+พบใน: [`POST /v1/orders:bulk`](ref-orders.md#post-orders-bulk), [`GET /v1/orders`](ref-orders.md#get-orders), [`POST /v1/orders`](ref-orders.md#post-orders), [`PUT /v1/orders/external/{externalId}`](ref-orders.md#put-orders-external-externalId), [`PATCH /v1/orders/external/{externalId}`](ref-orders.md#patch-orders-external-externalId), [`PATCH /v1/orders/{id}`](ref-orders.md#patch-orders-id), [`POST /v1/orders/{id}/stops/{sequence}/map-site`](ref-orders.md#post-orders-id-stops-sequence-map-site), [`POST /v1/orders/{id}/manual-price`](ref-orders.md#post-orders-id-manual-price), [`POST /v1/orders/{id}/resolve-source-error`](ref-orders.md#post-orders-id-resolve-source-error), [`POST /v1/orders/{id}/map-customer`](ref-orders.md#post-orders-id-map-customer), [`GET /v1/trips`](ref-trips.md#get-trips), [`POST /v1/trips`](ref-trips.md#post-trips) และอีก 35 endpoint
 
 ## pod_incomplete {#pod_incomplete}
 
@@ -19748,7 +19816,7 @@ HTTP `422` · ลำดับจุดไม่ถูกต้อง — จุ�
 
 HTTP `422` · ข้อมูลไม่ถูกต้อง
 
-พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`PUT /v1/documents/{id}/content`](ref-documents.md#put-documents-id-content), [`GET /v1/customers`](ref-customers.md#get-customers), [`POST /v1/customers`](ref-customers.md#post-customers), [`GET /v1/customers/export`](ref-customers.md#get-customers-export), [`PUT /v1/customers/external/{externalId}`](ref-customers.md#put-customers-external-externalId), [`PATCH /v1/customers/external/{externalId}`](ref-customers.md#patch-customers-external-externalId), [`PATCH /v1/customers/{id}`](ref-customers.md#patch-customers-id) และอีก 207 endpoint
+พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`PUT /v1/documents/{id}/content`](ref-documents.md#put-documents-id-content), [`GET /v1/customers`](ref-customers.md#get-customers), [`POST /v1/customers`](ref-customers.md#post-customers), [`GET /v1/customers/export`](ref-customers.md#get-customers-export), [`PUT /v1/customers/external/{externalId}`](ref-customers.md#put-customers-external-externalId), [`PATCH /v1/customers/external/{externalId}`](ref-customers.md#patch-customers-external-externalId), [`PATCH /v1/customers/{id}`](ref-customers.md#patch-customers-id) และอีก 208 endpoint
 
 ## webhook_event_expired {#webhook_event_expired}
 

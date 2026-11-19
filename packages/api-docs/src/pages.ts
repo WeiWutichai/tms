@@ -39,6 +39,7 @@ export const TAGS: [string, string][] = [
   ['delivery-orders', 'ใบส่งของ (delivery-orders)'],
   ['trips', 'เที่ยววิ่ง (trips)'],
   ['stops', 'จุดส่ง (stops)'],
+  ['settlements', 'จ่ายรถร่วม (settlements)'],
   ['documents', 'ไฟล์และเอกสาร (documents)'],
   ['webhooks', 'Webhooks และ events'],
   ['sandbox', 'Sandbox'],
