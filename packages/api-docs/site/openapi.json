@@ -48546,7 +48546,13 @@
             "description": "เวลาส่งบัญชี · null = ยังไม่ส่ง"
           },
           "billingStatus": {
-            "type": "object",
+            "type": "string",
+            "enum": [
+              "UNBILLED",
+              "IN_DRAFT",
+              "INVOICED",
+              "CREDITED"
+            ],
             "example": "UNBILLED",
             "description": "สถานะวางบิล: UNBILLED ยังไม่อยู่ในใบแจ้งหนี้ · IN_DRAFT อยู่ในร่าง · INVOICED ใบออกเลขแล้ว · CREDITED ใบถูกลดหนี้เต็มใบ (วางบิลใหม่ได้) — DO หนึ่งใบอยู่ในใบแจ้งหนี้ที่ active ได้ใบเดียว"
           },
@@ -65700,7 +65706,13 @@
             "description": "เวลาส่งบัญชี · null = ยังไม่ส่ง"
           },
           "billingStatus": {
-            "type": "object",
+            "type": "string",
+            "enum": [
+              "UNBILLED",
+              "IN_DRAFT",
+              "INVOICED",
+              "CREDITED"
+            ],
             "example": "UNBILLED",
             "description": "สถานะวางบิล: UNBILLED ยังไม่อยู่ในใบแจ้งหนี้ · IN_DRAFT อยู่ในร่าง · INVOICED ใบออกเลขแล้ว · CREDITED ใบถูกลดหนี้เต็มใบ (วางบิลใหม่ได้) — DO หนึ่งใบอยู่ในใบแจ้งหนี้ที่ active ได้ใบเดียว"
           },

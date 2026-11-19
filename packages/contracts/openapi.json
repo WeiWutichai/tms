@@ -69597,7 +69597,13 @@
             "description": "ST5-T04 เวลาส่งบัญชี (RELEASED — docs/04 F4) · null = ยังไม่ส่ง"
           },
           "billingStatus": {
-            "type": "object",
+            "type": "string",
+            "enum": [
+              "UNBILLED",
+              "IN_DRAFT",
+              "INVOICED",
+              "CREDITED"
+            ],
             "example": "UNBILLED",
             "description": "ST5-T05 สถานะวางบิล (docs/04 F3 — แยกจาก `status`): UNBILLED ยังไม่อยู่ในใบแจ้งหนี้ · IN_DRAFT อยู่ในร่าง · INVOICED ใบออกเลขแล้ว · CREDITED ใบถูกลดหนี้เต็มใบ (วางบิลใหม่ได้) — DO หนึ่งใบอยู่ในใบแจ้งหนี้ที่ active ได้ใบเดียว"
           },
@@ -85178,7 +85184,13 @@
             "description": "ST5-T04 เวลาส่งบัญชี (RELEASED — docs/04 F4) · null = ยังไม่ส่ง"
           },
           "billingStatus": {
-            "type": "object",
+            "type": "string",
+            "enum": [
+              "UNBILLED",
+              "IN_DRAFT",
+              "INVOICED",
+              "CREDITED"
+            ],
             "example": "UNBILLED",
             "description": "ST5-T05 สถานะวางบิล (docs/04 F3 — แยกจาก `status`): UNBILLED ยังไม่อยู่ในใบแจ้งหนี้ · IN_DRAFT อยู่ในร่าง · INVOICED ใบออกเลขแล้ว · CREDITED ใบถูกลดหนี้เต็มใบ (วางบิลใหม่ได้) — DO หนึ่งใบอยู่ในใบแจ้งหนี้ที่ active ได้ใบเดียว"
           },
