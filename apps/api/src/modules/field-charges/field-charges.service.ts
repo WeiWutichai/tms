@@ -1,3 +1,4 @@
+import { assertNotInInvoice } from '../invoices/billing-lock';
 import { randomUUID } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import type { DoSurcharge, StoredDocument, TripCost } from '@prisma/client';
@@ -195,7 +196,7 @@ export class FieldChargesService {
       const d = id
         ? await tx.deliveryOrder.findFirst({
             where: { id, tripId },
-            select: { id: true, status: true },
+            select: { id: true, status: true, billingStatus: true },
           })
         : null;
       if (!d)
@@ -217,6 +218,7 @@ export class FieldChargesService {
           ],
           { doStatus: d.status },
         );
+      assertNotInInvoice(d); // ST5-T05
       doId = d.id;
     }
 
@@ -433,12 +435,13 @@ export class FieldChargesService {
       if (kind === 'doSurcharge') {
         const d = await tx.deliveryOrder.findUniqueOrThrow({
           where: { id: row.deliveryOrderId! },
-          select: { status: true },
+          select: { status: true, billingStatus: true },
         });
         if (CLOSED_DO.has(d.status))
           throw new ProblemException('invalid_state_transition', undefined, undefined, {
             doStatus: d.status,
           });
+        assertNotInInvoice(d); // ST5-T05
       }
     }
     const status: FieldChargeStatus =

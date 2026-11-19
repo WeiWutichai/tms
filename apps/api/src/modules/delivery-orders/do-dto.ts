@@ -1,4 +1,4 @@
-import type { DoStatus } from '@tms/domain';
+import type { BillingStatus, DoStatus } from '@tms/domain';
 import { encodeId } from '../../common/ids';
 import type { DeliveryOrderDto } from './delivery-order.dto';
 import type { DeliveryOrderRecord, RejectionLine } from './delivery-order.service';
@@ -47,6 +47,7 @@ export function toDeliveryOrderDto(
     rejectedFromId: d.rejectedFromId ? encodeId('deliveryOrder', d.rejectedFromId) : null,
     podStatus: d.podStatus,
     releasedAt: d.releasedAt?.toISOString() ?? null,
+    billingStatus: d.billingStatus as BillingStatus,
     lines: d.lines.map((l) => ({
       lineNo: l.lineNo,
       soLineNo: l.soLineNo,

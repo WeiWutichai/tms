@@ -10,8 +10,12 @@ import type {
   SalesOrderStop,
 } from '@prisma/client';
 import {
+  BILLING_TRANSITIONS,
   DO_TRANSITIONS,
   DoRuleError,
+  transition,
+  type BillingEvent,
+  type BillingStatus,
   checkMergeable,
   doTotals,
   isDoEditable,
@@ -104,6 +108,18 @@ export interface LineAllocation {
 }
 
 const ENTITY = 'delivery_order';
+/** doc_status_history ของแกนสถานะวางบิล (ST5-T05) */
+const BILLING_DOC_TYPE = 'delivery_order.billing';
+
+/** แถว DO ที่ล็อกเพื่อวางบิล (ST5-T05) */
+export interface BillingDoRow {
+  id: string;
+  doNo: string | null;
+  customerId: string;
+  status: DoStatus;
+  billingStatus: BillingStatus;
+  version: number;
+}
 const EVENT_TYPE = 'delivery_order.status_changed';
 const CREATE_FROM = 'NONE';
 const INCLUDE = {
@@ -924,6 +940,56 @@ export class DeliveryOrderService {
       ...(note ? { reason: note } : {}),
     });
     return this.get(d.id, tx);
+  }
+
+  /**
+   * ST5-T05 กันวางบิลซ้ำ: ล็อกแถว DO หลายใบ (เรียงตาม id กัน deadlock) แล้วอ่านใหม่ — คืนเฉพาะที่เห็น (RLS) ·
+   * ล็อกแถวเดียวกันพร้อมกัน → รายที่สองรอจนรายแรก commit แล้วเห็นค่าล่าสุด (READ COMMITTED + FOR UPDATE)
+   */
+  async lockForBilling(tx: Tx, ids: string[]): Promise<BillingDoRow[]> {
+    if (!ids.length) return [];
+    return tx.$queryRaw<BillingDoRow[]>`
+      SELECT id, do_no AS "doNo", customer_id AS "customerId", status::text AS status,
+             billing_status::text AS "billingStatus", version
+        FROM delivery_order WHERE id = ANY(${ids}::uuid[]) ORDER BY id FOR UPDATE`;
+  }
+
+  /**
+   * ST5-T05 เปลี่ยน `billing_status` ตาม `BILLING_TRANSITIONS` (ผู้เรียกถือล็อก — `lockForBilling`) + version + 1 +
+   * doc_status_history (`delivery_order.billing`) — ไม่ส่ง webhook (ไม่มี event สาธารณะของแกนนี้ใน docs/01 §5.3)
+   */
+  async moveBilling(
+    tx: Tx,
+    rows: BillingDoRow[],
+    event: BillingEvent,
+    note: string | null = null,
+  ): Promise<void> {
+    const ctx = requestContext.require();
+    for (const d of rows) {
+      const to = transition(
+        BILLING_DOC_TYPE,
+        BILLING_TRANSITIONS,
+        d.billingStatus as BillingStatus,
+        event,
+      );
+      const r = await tx.deliveryOrder.updateMany({
+        where: { id: d.id, billingStatus: d.billingStatus as BillingStatus },
+        data: { billingStatus: to, version: { increment: 1 } },
+      });
+      if (r.count === 0) throw new ProblemException('concurrent_update');
+      await tx.docStatusHistory.create({
+        data: {
+          tenantId: this.tenantId(),
+          docType: BILLING_DOC_TYPE,
+          docId: d.id,
+          fromStatus: d.billingStatus,
+          toStatus: to,
+          event,
+          actorId: ctx.actorId ?? null,
+          note,
+        },
+      });
+    }
   }
 
   /**
