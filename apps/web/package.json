@@ -8,7 +8,7 @@
     "build": "tsc -p tsconfig.json --noEmit && vite build",
     "preview": "vite preview --port 4421",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run",
+    "test": "TZ=Asia/Bangkok vitest run",
     "lint": "node scripts/lint-i18n.mjs && prettier --check src",
     "i18n:build": "node scripts/build-i18n.mjs",
     "e2e": "node e2e/prepare.mjs && playwright test",

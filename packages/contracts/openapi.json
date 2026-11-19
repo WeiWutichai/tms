@@ -26911,7 +26911,7 @@
         ],
         "responses": {
           "200": {
-            "description": "ทดสอบการเชื่อมต่อ (healthCheck ≤ 15 วิ) — ACTIVE + AUTH ล้ม → ERROR · ERROR + ผ่าน → ACTIVE",
+            "description": "ทดสอบการเชื่อมต่อ (healthCheck ≤ 15 วิ) — ACTIVE + ล้มแบบ AUTH หรือ TRANSIENT (ปลายทางล่ม/503/timeout) → ERROR หยุดคิว · ERROR + ผ่าน → ACTIVE",
             "content": {
               "application/json": {
                 "schema": {
@@ -53235,6 +53235,25 @@
               ]
             }
           },
+          "capabilitiesPending": {
+            "type": "array",
+            "description": "ST8-T03 capability ที่ adapter ประกาศแต่ยังไม่ได้ทำ (อยู่ใน `capabilities` ด้วย) — แสดงเป็น \"ยังไม่รองรับ\" เปิดไม่ได้",
+            "items": {
+              "type": "string",
+              "enum": [
+                "pullOrders",
+                "pushInvoice",
+                "pushCreditNote",
+                "pushSettlement",
+                "fetchDocument",
+                "fetchPaymentStatus",
+                "listDocuments",
+                "replaceDocument",
+                "postedStatus",
+                "ownsDocumentNumber"
+              ]
+            }
+          },
           "masterCodeKinds": {
             "type": "array",
             "description": "ST7-T18 ชนิดผังรหัสที่ดึงจาก ERP ได้ (`POST /connectors/{id}/master-codes/sync`) — ว่าง = นำเข้าไฟล์ (import `erp_master_code`)",
@@ -53261,6 +53280,7 @@
           "displayName",
           "demo",
           "capabilities",
+          "capabilitiesPending",
           "masterCodeKinds",
           "configFields"
         ]
@@ -53379,7 +53399,26 @@
           },
           "capabilitiesSupported": {
             "type": "array",
-            "description": "capability ที่ adapter รองรับทั้งหมด",
+            "description": "capability ที่ adapter รองรับ (ใช้งานได้จริง — ไม่รวมที่ยังไม่ได้ทำ)",
+            "items": {
+              "type": "string",
+              "enum": [
+                "pullOrders",
+                "pushInvoice",
+                "pushCreditNote",
+                "pushSettlement",
+                "fetchDocument",
+                "fetchPaymentStatus",
+                "listDocuments",
+                "replaceDocument",
+                "postedStatus",
+                "ownsDocumentNumber"
+              ]
+            }
+          },
+          "capabilitiesPending": {
+            "type": "array",
+            "description": "ST8-T03 capability ที่ adapter ประกาศแต่ยังไม่ได้ทำ — เปิดไม่ได้ แสดงเป็น \"ยังไม่รองรับ\"",
             "items": {
               "type": "string",
               "enum": [
@@ -53523,6 +53562,7 @@
           "statusReason",
           "statusChangedAt",
           "capabilitiesSupported",
+          "capabilitiesPending",
           "capabilitiesEnabled",
           "capabilities",
           "settings",
@@ -53818,7 +53858,26 @@
           },
           "capabilitiesSupported": {
             "type": "array",
-            "description": "capability ที่ adapter รองรับทั้งหมด",
+            "description": "capability ที่ adapter รองรับ (ใช้งานได้จริง — ไม่รวมที่ยังไม่ได้ทำ)",
+            "items": {
+              "type": "string",
+              "enum": [
+                "pullOrders",
+                "pushInvoice",
+                "pushCreditNote",
+                "pushSettlement",
+                "fetchDocument",
+                "fetchPaymentStatus",
+                "listDocuments",
+                "replaceDocument",
+                "postedStatus",
+                "ownsDocumentNumber"
+              ]
+            }
+          },
+          "capabilitiesPending": {
+            "type": "array",
+            "description": "ST8-T03 capability ที่ adapter ประกาศแต่ยังไม่ได้ทำ — เปิดไม่ได้ แสดงเป็น \"ยังไม่รองรับ\"",
             "items": {
               "type": "string",
               "enum": [
@@ -53972,6 +54031,7 @@
           "statusReason",
           "statusChangedAt",
           "capabilitiesSupported",
+          "capabilitiesPending",
           "capabilitiesEnabled",
           "capabilities",
           "settings",
@@ -54073,7 +54133,26 @@
           },
           "capabilitiesSupported": {
             "type": "array",
-            "description": "capability ที่ adapter รองรับทั้งหมด",
+            "description": "capability ที่ adapter รองรับ (ใช้งานได้จริง — ไม่รวมที่ยังไม่ได้ทำ)",
+            "items": {
+              "type": "string",
+              "enum": [
+                "pullOrders",
+                "pushInvoice",
+                "pushCreditNote",
+                "pushSettlement",
+                "fetchDocument",
+                "fetchPaymentStatus",
+                "listDocuments",
+                "replaceDocument",
+                "postedStatus",
+                "ownsDocumentNumber"
+              ]
+            }
+          },
+          "capabilitiesPending": {
+            "type": "array",
+            "description": "ST8-T03 capability ที่ adapter ประกาศแต่ยังไม่ได้ทำ — เปิดไม่ได้ แสดงเป็น \"ยังไม่รองรับ\"",
             "items": {
               "type": "string",
               "enum": [
@@ -54207,6 +54286,7 @@
           "statusReason",
           "statusChangedAt",
           "capabilitiesSupported",
+          "capabilitiesPending",
           "capabilitiesEnabled",
           "capabilities",
           "settings",
@@ -54241,7 +54321,13 @@
           },
           "message": {
             "type": "string",
-            "nullable": true
+            "nullable": true,
+            "description": "ข้อความภาษาไทยตามรหัสผล (ST8-T03) — แสดงผู้ใช้ได้"
+          },
+          "detail": {
+            "type": "string",
+            "nullable": true,
+            "description": "ข้อความดิบจากปลายทาง (ตัด credential แล้ว) สำหรับผู้ดูแล/support"
           },
           "checkedAt": {
             "type": "string",
@@ -54256,6 +54342,7 @@
           "errorClass",
           "code",
           "message",
+          "detail",
           "checkedAt",
           "connector"
         ]
@@ -65132,7 +65219,7 @@
             "additionalProperties": {
               "type": "string"
             },
-            "description": "credential ชุดใหม่ (แทนทั้งชุด) — ช่อง secret ที่บังคับต้องครบ"
+            "description": "credential ที่เปลี่ยน (อย่างน้อย 1 ช่อง) — รวมกับค่าเดิม: ช่องที่ไม่ส่งคงค่าเดิม · ช่อง secret ที่บังคับต้องมีค่าหลังรวม"
           },
           "reason": {
             "type": "string",
@@ -81902,7 +81989,26 @@
           },
           "capabilitiesSupported": {
             "type": "array",
-            "description": "capability ที่ adapter รองรับทั้งหมด",
+            "description": "capability ที่ adapter รองรับ (ใช้งานได้จริง — ไม่รวมที่ยังไม่ได้ทำ)",
+            "items": {
+              "type": "string",
+              "enum": [
+                "pullOrders",
+                "pushInvoice",
+                "pushCreditNote",
+                "pushSettlement",
+                "fetchDocument",
+                "fetchPaymentStatus",
+                "listDocuments",
+                "replaceDocument",
+                "postedStatus",
+                "ownsDocumentNumber"
+              ]
+            }
+          },
+          "capabilitiesPending": {
+            "type": "array",
+            "description": "ST8-T03 capability ที่ adapter ประกาศแต่ยังไม่ได้ทำ — เปิดไม่ได้ แสดงเป็น \"ยังไม่รองรับ\"",
             "items": {
               "type": "string",
               "enum": [
@@ -82036,6 +82142,7 @@
           "statusReason",
           "statusChangedAt",
           "capabilitiesSupported",
+          "capabilitiesPending",
           "capabilitiesEnabled",
           "capabilities",
           "settings",

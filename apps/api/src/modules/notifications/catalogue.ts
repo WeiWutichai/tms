@@ -60,7 +60,7 @@ export const EVENT_CATALOGUE: Record<NotificationEvent, EventDefinition> = {
   },
   // connector → ERROR (ST7-T13) · webhook ถูกปิดอัตโนมัติ (ST7-T04)
   'connector.down': {
-    templates: ['connector.error', 'webhook.auto_disabled'],
+    templates: ['connector.error', 'connector.recovered', 'webhook.auto_disabled'],
     defaults: { in_app: true, email: true },
     pending: null,
   },

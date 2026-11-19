@@ -17,6 +17,7 @@ import {
   type InboundHandleResult,
   type InboundRequest,
   INBOUND_TRIGGERS,
+  readyCapabilities,
 } from './erp-adapter';
 import { ErpAdapterRegistry } from './erp-adapter.registry';
 import {
@@ -349,7 +350,7 @@ export class InboundWebhookService implements OnModuleInit {
   private async triggerPull(tx: Tx, c: Connector): Promise<boolean> {
     const adapter = this.adapters.get(c.adapterKey);
     const caps = effectiveCapabilities(
-      adapter ? adapter.capabilities() : [],
+      adapter ? readyCapabilities(adapter) : [],
       c.capabilitiesEnabled,
       c.status,
     );

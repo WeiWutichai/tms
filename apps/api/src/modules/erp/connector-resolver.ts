@@ -12,7 +12,7 @@ import {
   type RoutingInput,
   type RoutingResult,
 } from '../routing/document-routing';
-import type { ErpAdapter } from './erp-adapter';
+import { type ErpAdapter, readyCapabilities } from './erp-adapter';
 import { ErpAdapterRegistry } from './erp-adapter.registry';
 
 /** ผลการหา connector ของเอกสาร/นิติบุคคล — core ตัดสิน flow จากที่นี่เท่านั้น (ไม่ดู adapter_key) */
@@ -99,7 +99,7 @@ export class ConnectorResolver {
     // adapter หาย (deploy ไม่ครบ): เชื่อชุดที่ตรวจตอนบันทึก — เอกสารยังเข้าคิวรอ ไม่ถูกปฏิบัติเหมือน Standalone
     // ยกเว้น adapter ที่ปิดใน environment นี้ (demo ใน production — ST7-T14): ใช้ไม่ได้ = ไม่มี capability ไม่มีขั้น sync
     const declared = adapter
-      ? adapter.capabilities()
+      ? readyCapabilities(adapter)
       : this.adapters.isRefused(row.adapterKey)
         ? new Set<string>()
         : new Set<string>(ERP_CAPABILITIES);

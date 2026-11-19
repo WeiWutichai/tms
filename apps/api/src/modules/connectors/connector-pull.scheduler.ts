@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import type { Tx } from '../../db/db.service';
 import { PrismaService } from '../../db/prisma.service';
 import { EntitlementService } from '../entitlements/entitlement.service';
+import { readyCapabilities } from '../erp/erp-adapter';
 import { ErpAdapterRegistry } from '../erp/erp-adapter.registry';
 import { CONNECTOR_PULL_JOB, ConnectorIntakeService } from './connector-intake.service';
 
@@ -36,7 +37,7 @@ export class ConnectorPullScheduler {
       });
       const pullable = rows.filter((r) => {
         const a = this.adapters.get(r.adapterKey);
-        return !!a && a.capabilities().has('pullOrders') && typeof a.pullOrders === 'function';
+        return !!a && readyCapabilities(a).has('pullOrders') && typeof a.pullOrders === 'function';
       });
       if (!pullable.length) return 0;
       const tenantIds = [...new Set(pullable.map((r) => r.tenantId))];

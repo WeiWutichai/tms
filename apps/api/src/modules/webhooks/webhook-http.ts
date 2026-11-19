@@ -63,7 +63,21 @@ class Timeout extends Error {}
  * - ไม่ follow redirect (3xx คืนเป็น status ให้ผู้เรียกตัดสิน) · ไม่ใช้ keep-alive agent (socket ไม่ถูกใช้ข้ามปลายทาง)
  * - timeout รวม 10 วิ · อ่าน response ≤ 64 KB · TLS ตรวจใบรับรองตามชื่อโฮสต์ปกติ
  */
-export async function postWebhook(
+export function postWebhook(
+  url: string,
+  headers: Record<string, string>,
+  body: string,
+  opts: SendOptions = {},
+): Promise<SendResult> {
+  return safeHttpRequest('POST', url, headers, body, opts);
+}
+
+/**
+ * คำขอ HTTP ขาออกแบบกัน SSRF ตัวเดียวกับ webhook (ST8-T03: ErpAdapter ที่เรียก API ภายนอก เช่น healthCheck ใช้ GET)
+ * กติกาเดียวกับ `postWebhook` ทุกข้อ · GET ไม่ส่ง body
+ */
+export async function safeHttpRequest(
+  method: 'GET' | 'POST' | 'PUT',
   url: string,
   headers: Record<string, string>,
   body: string,
@@ -114,8 +128,11 @@ export async function postWebhook(
       const req = (u.protocol === 'https:' ? httpsRequest : httpRequest)(
         u,
         {
-          method: 'POST',
-          headers: { ...headers, 'Content-Length': String(Buffer.byteLength(body)) },
+          method,
+          headers:
+            method !== 'GET'
+              ? { ...headers, 'Content-Length': String(Buffer.byteLength(body)) }
+              : headers,
           agent: false,
           signal: ctl.signal,
           // ต่อด้วย address ที่ตรวจแล้วเท่านั้น (ไม่ resolve ใหม่ — กัน DNS rebinding ระหว่างตรวจกับต่อ)
@@ -151,7 +168,7 @@ export async function postWebhook(
         },
       );
       req.on('error', reject);
-      req.end(body);
+      req.end(method === 'GET' ? undefined : body);
     });
     return done({ status: res.status, body: res.body });
   } catch (e) {

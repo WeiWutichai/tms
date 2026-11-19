@@ -64,6 +64,13 @@ export class ErpAdapterDto {
   capabilities!: string[];
   @ApiProperty({
     type: [String],
+    enum: ERP_CAPABILITIES,
+    description:
+      'ST8-T03 capability ที่ adapter ประกาศแต่ยังไม่ได้ทำ (อยู่ใน `capabilities` ด้วย) — แสดงเป็น "ยังไม่รองรับ" เปิดไม่ได้',
+  })
+  capabilitiesPending!: string[];
+  @ApiProperty({
+    type: [String],
     enum: ERP_MASTER_CODE_KINDS,
     description:
       'ST7-T18 ชนิดผังรหัสที่ดึงจาก ERP ได้ (`POST /connectors/{id}/master-codes/sync`) — ว่าง = นำเข้าไฟล์ (import `erp_master_code`)',
@@ -128,9 +135,16 @@ export class ConnectorDto {
   @ApiProperty({
     type: [String],
     enum: ERP_CAPABILITIES,
-    description: 'capability ที่ adapter รองรับทั้งหมด',
+    description: 'capability ที่ adapter รองรับ (ใช้งานได้จริง — ไม่รวมที่ยังไม่ได้ทำ)',
   })
   capabilitiesSupported!: string[];
+  @ApiProperty({
+    type: [String],
+    enum: ERP_CAPABILITIES,
+    description:
+      'ST8-T03 capability ที่ adapter ประกาศแต่ยังไม่ได้ทำ — เปิดไม่ได้ แสดงเป็น "ยังไม่รองรับ"',
+  })
+  capabilitiesPending!: string[];
   @ApiProperty({ type: [String], enum: ERP_CAPABILITIES, description: 'ที่ tenant เปิด' })
   capabilitiesEnabled!: string[];
   @ApiProperty({
@@ -318,7 +332,8 @@ export class ConnectorCredentialsDto {
   @ApiProperty({
     type: 'object',
     additionalProperties: { type: 'string' },
-    description: 'credential ชุดใหม่ (แทนทั้งชุด) — ช่อง secret ที่บังคับต้องครบ',
+    description:
+      'credential ที่เปลี่ยน (อย่างน้อย 1 ช่อง) — รวมกับค่าเดิม: ช่องที่ไม่ส่งคงค่าเดิม · ช่อง secret ที่บังคับต้องมีค่าหลังรวม',
   })
   @IsObject()
   credentials!: Record<string, string>;
@@ -339,7 +354,18 @@ export class ConnectorHealthDto {
   @ApiProperty() ok!: boolean;
   @ApiProperty({ nullable: true, type: String, example: 'AUTH' }) errorClass!: string | null;
   @ApiProperty({ nullable: true, type: String }) code!: string | null;
-  @ApiProperty({ nullable: true, type: String }) message!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description: 'ข้อความภาษาไทยตามรหัสผล (ST8-T03) — แสดงผู้ใช้ได้',
+  })
+  message!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description: 'ข้อความดิบจากปลายทาง (ตัด credential แล้ว) สำหรับผู้ดูแล/support',
+  })
+  detail!: string | null;
   @ApiProperty({ format: 'date-time' }) checkedAt!: string;
   @ApiProperty({ type: ConnectorDto }) connector!: ConnectorDto;
 }
