@@ -34,7 +34,7 @@ export class ListQuery {
   fields?: string;
 }
 
-interface CursorKey {
+export interface CursorKey {
   u: string; // updatedAt ISO
   i: string; // id uuid
   s?: string; // sort ที่ใช้ตอนออก cursor (ไม่มี = updatedAt — cursor รุ่นเก่า)
@@ -47,7 +47,7 @@ export function encodeCursor(row: { updatedAt: Date; id: string }, sort = 'updat
 }
 
 /** cursor ใช้ได้กับ sort เดิมเท่านั้น — ต่าง sort → 422 (เดิมเงียบ ๆ ข้าม/ซ้ำแถว) */
-function decodeCursor(cursor: string, sort: string): CursorKey {
+export function decodeCursor(cursor: string, sort: string): CursorKey {
   try {
     const v = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as CursorKey;
     if (
