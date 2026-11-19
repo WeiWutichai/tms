@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { NestExpressApplication } from '@nestjs/platform-express';
+import { PrismaClient } from '@prisma/client';
 import { SYSTEM_ROLES } from '@tms/domain';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { encodeId, tryDecodeId } from '../src/common/ids';
@@ -433,9 +434,10 @@ describe('settlement queue (ST6-T02)', () => {
     const seen: string[] = [];
     let cursor: string | null = null;
     for (let i = 0; i < 5; i++) {
-      const p = await queue({ carrierId: G.id, limit: 1, ...(cursor ? { cursor } : {}) }).expect(
-        200,
-      );
+      const qp: Record<string, string | number> = { carrierId: G.id, limit: 1 };
+      if (cursor) qp.cursor = cursor;
+      const p: { body: { data: Row[]; nextCursor: string | null; carriers: object[] } } =
+        await queue(qp).expect(200);
       seen.push(...ids(p.body));
       expect(p.body.carriers[0]).toMatchObject({ tripCount: 3, buyTotal: '12965.97' });
       cursor = p.body.nextCursor;
@@ -446,4 +448,49 @@ describe('settlement queue (ST6-T02)', () => {
     const f = await queue({ carrierId: G.id, fields: 'tripNo' }).expect(200);
     expect(Object.keys(f.body.data[0]).sort()).toEqual(['id', 'tripNo']);
   });
+
+  it('ปริมาณมาก: 2,000 เที่ยวในคิว (updatedAt เท่ากันเป็นกลุ่ม) — เดินทุกหน้าทั้งสองทิศครบไม่ซ้ำ · ยอดรวมต่อรถร่วมจาก aggregate', async () => {
+    const H = await newCarrier({ requirePodToPay: false });
+    const hId = uuid('carrier', H.id);
+    const veh = await vehicle(H.id);
+    // seed ด้วย SQL: 2,000 เที่ยว COSTED + บรรทัดค่าจ้าง 1 บรรทัด (เที่ยวละ 100.01) · updated_at ซ้ำกันทีละ 50 เที่ยว
+    await db.$executeRaw`
+      WITH t AS (
+        INSERT INTO trip (id, tenant_id, trip_no, trip_date, status, carrier_id, carrier_name_snapshot,
+                          vehicle_id, vehicle_plate_snapshot, vehicle_type_id, completed_at, costed_at, updated_at)
+        SELECT gen_random_uuid(), ${tenantId}::uuid, 'BULK-' || g, ${today}::date, 'COSTED', ${hId}::uuid,
+               'หจก. รถร่วมจำนวนมาก', ${veh}::uuid, 'ทดสอบ', ${uuid('vehicleType', vt6)}::uuid,
+               now(), now(), timestamp '2026-11-10 00:00:00' + (g / 50) * interval '1 millisecond'
+          FROM generate_series(1, 2000) g
+        RETURNING id
+      )
+      INSERT INTO trip_cost (id, tenant_id, trip_id, cost_type, amount, source, carrier_id, status)
+      SELECT gen_random_uuid(), ${tenantId}::uuid, t.id, 'CARRIER_FEE', 100.01, 'MANUAL', ${hId}::uuid, 'CONFIRMED'
+        FROM t`;
+    // สถิติตารางหลัง seed (ฐานจริงมี autovacuum) — ANALYZE ต้องใช้เจ้าของตาราง
+    const owner = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
+    await owner.$executeRawUnsafe('ANALYZE trip, trip_cost, delivery_order');
+    await owner.$disconnect();
+    const t0 = Date.now();
+    for (const sort of ['updatedAt', '-updatedAt']) {
+      const seen: string[] = [];
+      let cursor: string | null = null;
+      for (let i = 0; i < 20; i++) {
+        const qp: Record<string, string | number> = { carrierId: H.id, limit: 200, sort };
+        if (cursor) qp.cursor = cursor;
+        const p: { body: { data: Row[]; nextCursor: string | null; carriers: object[] } } =
+          await queue(qp).expect(200);
+        seen.push(...(p.body.data as Row[]).map((r) => r.id));
+        expect(p.body.carriers).toEqual([
+          expect.objectContaining({ carrierId: H.id, tripCount: 2000, buyTotal: '200020.00' }),
+        ]);
+        cursor = p.body.nextCursor;
+        if (!cursor) break;
+      }
+      expect(seen, sort).toHaveLength(2000);
+      expect(new Set(seen).size, sort).toBe(2000);
+    }
+    // 22 หน้า (2 ทิศ) — แต่ละคำขอใช้ keyset + LIMIT ใน SQL
+    expect(Date.now() - t0).toBeLessThan(30_000);
+  }, 120_000);
 });
