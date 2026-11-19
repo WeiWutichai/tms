@@ -433,7 +433,11 @@ export class TrackingService {
     const pickupDone =
       d.pickupTripStop?.status === 'COMPLETED' || history.some((h) => h.toStatus === 'PICKED_UP');
     const started =
-      trip?.status === 'IN_PROGRESS' || trip?.status === 'COMPLETED' || events.length > 0;
+      trip?.status === 'IN_PROGRESS' ||
+      trip?.status === 'COMPLETED' ||
+      trip?.status === 'COSTED' ||
+      trip?.status === 'SETTLED' ||
+      events.length > 0;
     const stage = trackingStage(d.status, { started, pickupDone });
 
     // เวลาจบงาน (ส่งแล้ว/ไม่สำเร็จ/ยกเลิก) จากประวัติสถานะ + linkDays วัน → ลิงก์ใช้ไม่ได้ (spec/04 §4 expiresAt)

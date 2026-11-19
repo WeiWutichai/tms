@@ -16,6 +16,14 @@ import type { TripCostBlocker, TripCostLineDto } from './trip-costs.dto';
  * - ค่าเที่ยวคนขับ/ประมาณน้ำมันของรถบริษัท (spec PLN-009) = P1 (docs/04 "ต้นทุนต่อเที่ยว") — ยังไม่สร้าง
  */
 
+/**
+ * เปิดใช้การปิดต้นทุน (COMPLETED → COSTED) หรือยัง — env `TRIP_COSTING_ENABLED=1` (ค่าเริ่มต้นปิด)
+ * docs/01 §4.2 กำหนด COSTED = "ต้นทุนเที่ยวครบ + ปันลง DO" แต่วิธีปันลง DO ยัง [OPEN — นักบัญชี/PO] (spec/12 §3 ST6-T01 (ก))
+ * → ไม่ข้าม guard ของ state machine: ปิดไว้จนกว่าจะตัดสิน (ตั้งที่ระดับระบบ ไม่ใช่ค่าตั้ง tenant — tenant เปิดเองไม่ได้)
+ * อ่านทุกครั้งที่เรียก (test เปิดได้ระหว่างรัน)
+ */
+export const tripCostingEnabled = () => process.env.TRIP_COSTING_ENABLED === '1';
+
 /** ปิดต้นทุนแล้ว — ไม่คิดสิ่งที่ขวาง */
 const COSTED_STATUSES = new Set(['COSTED', 'SETTLED']);
 

@@ -111,7 +111,8 @@ export class TripCostSummaryDto {
   buyTotal?: string;
   @ApiPropertyOptional({
     example: '4800.50',
-    description: 'ค่าจ้างรถร่วมของการจ้างที่ใช้งานอยู่ (สุทธิ) — เห็นเมื่อมี `prices.buy:read`',
+    description:
+      'ค่าจ้างรถร่วมสุทธิของการจ้างที่**รถร่วมรับงานแล้ว (ACCEPTED)** ของรายปัจจุบันเท่านั้น — ข้อเสนอที่รอตอบ (OFFERED) = 0.00 · เห็นเมื่อมี `prices.buy:read`',
   })
   @PriceField('buy')
   buyCarrierFee?: string;

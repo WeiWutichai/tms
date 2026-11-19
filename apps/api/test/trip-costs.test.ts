@@ -42,6 +42,8 @@ describe('trip costs (ST6-T01)', () => {
   };
 
   beforeAll(async () => {
+    // ปิดต้นทุนปิดไว้โดยค่าเริ่มต้น (รอวิธีปันลง DO) — ชุดนี้ทดสอบ logic เมื่อเปิดใช้
+    process.env.TRIP_COSTING_ENABLED = '1';
     await truncateAll();
     app = await bootApp();
     tenantId = (await createTenantWithDefaults(db, { name: 'บริษัท ต้นทุนเที่ยว' })).id;
@@ -79,6 +81,7 @@ describe('trip costs (ST6-T01)', () => {
     vt6 = types.find((t) => t.code === '6W')!.id;
   });
   afterAll(async () => {
+    delete process.env.TRIP_COSTING_ENABLED;
     await app.close();
     await db.$disconnect();
   });
@@ -398,5 +401,23 @@ describe('trip costs (ST6-T01)', () => {
     await complete(own.id);
     expect((await costs(own.id).expect(200)).body.summary.blockers).toEqual([]);
     await api(app, admin).post(`/v1/trips/${own.id}/cost`).expect(200);
+  });
+
+  it('ค่าเริ่มต้น (ยังไม่ตัดสินวิธีปันลง DO — docs/01 §4.2): ปิดต้นทุนไม่ได้ → 409 trip_costing_unavailable · เที่ยวไม่เปลี่ยน', async () => {
+    const L = await lane();
+    const own = await newTrip(L.a, L.b);
+    await complete(own.id);
+    delete process.env.TRIP_COSTING_ENABLED;
+    try {
+      const r = await api(app, admin).post(`/v1/trips/${own.id}/cost`).expect(409);
+      expect(r.body.code).toBe('trip_costing_unavailable');
+      // อ่านต้นทุนยังได้ตามปกติ
+      await costs(own.id).expect(200);
+    } finally {
+      process.env.TRIP_COSTING_ENABLED = '1';
+    }
+    expect((await api(app, admin).get(`/v1/trips/${own.id}`).expect(200)).body.status).toBe(
+      'COMPLETED',
+    );
   });
 });

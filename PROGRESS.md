@@ -172,7 +172,7 @@
 
 | งาน | สถานะ | หลักฐาน / ที่ยังขาด |
 |---|---|---|
-| T01 Cost line (`trip_cost`) + ปิดต้นทุน COMPLETED → COSTED | dev เสร็จ — รอ review/QA | บรรทัด CARRIER_FEE มีตั้งแต่จ้าง (ST3-T22) · `GET /v1/trips/{id}/costs` (ยอดตัดตาม `prices.buy:read`) · `POST /v1/trips/{id}/cost` (`trips:close`, If-Match, 409 `trip_costs_incomplete` + blockers) · migration `0115_trip_costed` · test `trip-costs.test.ts` · ไม่มี UI (ต้นแบบไม่มี) · [OPEN] ปันลง DO / คิดค่าจ้างใหม่เมื่อ DO เปลี่ยน / ค่าหน้างานของเที่ยวที่ยกเลิก — spec/12 §3 |
+| T01 Cost line (`trip_cost`) + ปิดต้นทุน COMPLETED → COSTED | dev + แก้ตาม review/QA เสร็จ (ไม่มี High) — รอ merge · ปิดต้นทุนปิดใช้จนกว่าจะตัดสินวิธีปันลง DO | บรรทัด CARRIER_FEE มีตั้งแต่จ้าง (ST3-T22) · `GET /v1/trips/{id}/costs` (ยอดตัดตาม `prices.buy:read`) · `POST /v1/trips/{id}/cost` (`trips:close`, If-Match, 409 `trip_costs_incomplete` + blockers) · migration `0115_trip_costed` · test `trip-costs.test.ts` · ไม่มี UI (ต้นแบบไม่มี) · [OPEN] ปันลง DO / คิดค่าจ้างใหม่เมื่อ DO เปลี่ยน / ค่าหน้างานของเที่ยวที่ยกเลิก — spec/12 §3 |
 
 ### งาน ST7 (เกณฑ์ตรวจรับใน `plan/01-phase0-backlog.md`)
 
@@ -273,6 +273,10 @@
 - (11 พ.ย., พบระหว่าง T19 — **แก้แล้วใน T04**: `db:migrate` รัน bootstrap ทุก tenant ซึ่ง sync role ระบบ) **role ระบบของ tenant ที่มีอยู่ไม่ได้สิทธิ์ใหม่อัตโนมัติ** — `ensureSystemRoles` รันแค่ตอนสร้าง tenant/seed; เมื่อโค้ดเพิ่ม permission (เช่น `documents:write` ใน T08) tenant เดิมไม่ได้ จนกว่าจะรัน seed · ฐาน dev แก้ด้วย seed แล้ว · ต้องมี sync ตอน deploy/บูต ก่อนมี tenant จริง (เสนอทำใน T24 admin portal หรือ migration step) 
 
 ## บันทึกรายวัน
+
+### 19 พ.ย. 2569 (ST6-T01 แก้ตาม review/QA — lane l6)
+- ทำ: ปิดต้นทุน (COSTED) **ปิดใช้โดยค่าเริ่มต้น** — docs/01 §4.2 ต้อง "ปันลง DO" ซึ่งยัง OPEN → 409 `trip_costing_unavailable` จนกว่าจะตั้ง env `TRIP_COSTING_ENABLED=1` (ระดับระบบ; logic/test คงไว้ ชุด test เปิด gate + test ค่าเริ่มต้น) · หน้าติดตาม: เที่ยว COSTED/SETTLED นับว่าเริ่มแล้ว (ชุดเดียวกับ `stopEventAdmission`) · คำอธิบาย `buyCarrierFee` = เฉพาะการจ้างที่รับแล้ว · spec/12 §3: [OPEN — PO] คิวจ่าย COSTED (docs/01 §4.5) vs COMPLETED (ST6-T02) ต้องตัดสินก่อน ST6-T02, [OPEN — PO] accounting กับ `trips:close`, `trip.costed` เป็น event ภายใน
+- ไฟล์: `apps/api/src/modules/trips/{trip-costs.ts,trip-costs.dto.ts,trip.service.ts,trips.controller.ts}`, `apps/api/src/common/problem.ts`, `apps/api/src/modules/tracking/tracking.service.ts`, `apps/api/test/trip-costs.test.ts`, `apps/web/src/i18n/th.ts`, `.env.example`, spec/12 §3
 
 ### 19 พ.ย. 2569 (ST6-T01 Cost line `trip_cost` — lane l6)
 - ทำ: `GET /v1/trips/{id}/costs` (บรรทัดต้นทุนทุกบรรทัด รวมกลับรายการ + `reversalOfId/reversedById/settled` + summary `buyTotal/buyCarrierFee/pendingCount/blockers/costedAt`) · `POST /v1/trips/{id}/cost` COMPLETED → COSTED (ต้นทุนครบ = ไม่มีค่าหน้างานฝั่งซื้อรอยืนยัน + เที่ยวรถร่วมมีค่าจ้างของการจ้างที่รับแล้ว; ล็อกเที่ยว + บรรทัดต้นทุน; audit/event `trip.costed`) · problem `trip_costs_incomplete` · ยืนยันเกณฑ์ตรวจรับด้วย test: จ้าง → CARRIER_FEE ทันที, แก้ rate card แล้ว snapshot ไม่เปลี่ยน, เปลี่ยนรถร่วม/ยกเลิก = กลับรายการไม่ลบ, viewer ไม่เห็นยอด, ข้ามบริษัท 404

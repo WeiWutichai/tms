@@ -51,7 +51,7 @@ import { bangkokToday } from '../vehicle-documents/expiry';
 import { OrderStateService } from '../orders/order-state.service';
 import { issueNumber } from '../sequences/sequences.service';
 import { reverseCarrierFees } from './carrier-fees';
-import { costLines, costReadiness } from './trip-costs';
+import { costLines, costReadiness, tripCostingEnabled } from './trip-costs';
 import { Clock } from '../../common/clock';
 import { OfferLinks, OFFER_TTL_MS } from './offer-links';
 import { refreshTripLegs } from './trip-legs';
@@ -1528,6 +1528,8 @@ export class TripService {
    * (ไม่ใส่ยอดเงินใน audit — สิทธิ์ราคาซื้อ)
    */
   async cost(id: string, tx: Tx = this.db.tx, expectedVersion?: number): Promise<TripRecord> {
+    // docs/01 §4.2 COMPLETED → COSTED = "ต้นทุนครบ + ปันลง DO" — วิธีปันยังไม่ตัดสิน → ปิดไว้ (ค่าเริ่มต้น) จนกว่าจะตัดสิน
+    if (!tripCostingEnabled()) throw new ProblemException('trip_costing_unavailable');
     const { trip } = await this.lock(tx, id, expectedVersion);
     this.assertCan(trip, 'cost');
     // ล็อกบรรทัดต้นทุนของเที่ยว — กันยืนยัน/บันทึกค่าใช้จ่ายหน้างานพร้อมกัน (field-charges ล็อกเที่ยวแบบ FOR SHARE ก่อนเขียน)

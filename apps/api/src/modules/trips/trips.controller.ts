@@ -770,9 +770,15 @@ export class TripsController {
     summary: 'ปิดต้นทุนเที่ยว (COMPLETED → COSTED)',
     description:
       'ต้นทุนครบ = ไม่มีค่าใช้จ่ายหน้างานฝั่งซื้อรอยืนยัน และเที่ยวรถร่วมมีค่าจ้างของการจ้างที่รถร่วมรับแล้ว · ' +
-      'ไม่ครบ → 409 `trip_costs_incomplete` + `blockers` · หลังปิดบันทึก/ยืนยันค่าใช้จ่ายหน้างานไม่ได้',
+      'ไม่ครบ → 409 `trip_costs_incomplete` + `blockers` · หลังปิดบันทึก/ยืนยันค่าใช้จ่ายหน้างานไม่ได้ · ' +
+      '**ยังไม่เปิดใช้** (ค่าเริ่มต้น): docs/01 §4.2 ต้องปันต้นทุนลง DO ซึ่งยังไม่ตัดสินวิธี → 409 `trip_costing_unavailable`',
   })
-  @ApiProblems(T403('trips:close'), T404, T409('trip_costs_incomplete'), T412)
+  @ApiProblems(
+    T403('trips:close'),
+    T404,
+    T409('trip_costs_incomplete', 'trip_costing_unavailable'),
+    T412,
+  )
   @HttpCode(200)
   @TenantResource('trip')
   @RequireScope('trips:close')
