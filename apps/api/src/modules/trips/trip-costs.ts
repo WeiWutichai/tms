@@ -1,6 +1,7 @@
 import { Prisma, type TripCost } from '@prisma/client';
-import { allocateSatangRemainderTo, decimalFromSatang, satangFromDecimal } from '@tms/domain';
+import { allocateTripCostLines, decimalFromSatang, satangFromDecimal } from '@tms/domain';
 import { encodeId } from '../../common/ids';
+import { ProblemException } from '../../common/problem';
 import type { Tx } from '../../db/db.service';
 import { revenueTotalsByDeliveryOrder } from '../revenue-lines/revenue-rebuild';
 import type { TripCostBlocker, TripCostLineDto } from './trip-costs.dto';
@@ -140,14 +141,16 @@ export async function costReadiness(
 
 /**
  * ปันต้นทุนเที่ยวลง DO (ST6-T01c — PO ตัดสิน 19 พ.ย. 2569; docs/01 §3.3 `trip_cost.allocated` = `{do_id: amount}`, §4.2
- * COMPLETED → COSTED "ต้นทุนเที่ยวครบ + ปันลง DO") — เรียกใน transaction ของการปิดต้นทุน หลังล็อก DO + เที่ยว + บรรทัดต้นทุน
- * - ต่อบรรทัด CONFIRMED (รวมบรรทัดกลับรายการ ยอดติดลบ): ส่วนแบ่ง = floor(|ยอด| × รายได้ DO ÷ รายได้รวม) เศษสตางค์ทั้งหมด → DO
- *   รายได้สูงสุด (เท่ากัน → เลข DO น้อยสุด) · ผลรวมต่อบรรทัดเท่ายอดบรรทัดพอดี · บรรทัดเดิม/กลับรายการหักล้างกันพอดีต่อ DO
- * - DO เดียว = ทั้งยอด · ไม่มี DO = ไม่ปัน (`{}` — DECISION ย้อนได้) · รายได้รวม 0 + ต้นทุนสุทธิ 0 = ทั้งบรรทัดไปตัวรับเศษ
- *   (ยอดต่อ DO สุทธิ 0 ทุกใบ) · บรรทัดที่ไม่ CONFIRMED = `{}`
+ * COMPLETED → COSTED "ต้นทุนเที่ยวครบ + ปันลง DO") — เรียกใน transaction ของการปิดต้นทุน หลังล็อก SO → DO → เที่ยว → บรรทัดต้นทุน
+ * - ปัน **ต้นทุนสุทธิของเที่ยว** (บรรทัด CONFIRMED รวมกลับรายการ) ครั้งเดียวตามสัดส่วนรายได้ DO เศษสตางค์ทั้งหมด → DO รายได้สูงสุด
+ *   (เท่ากัน → เลข DO น้อยสุด) แล้วกระจายลงบรรทัดให้ลงตัวทั้งต่อ DO และต่อบรรทัด (domain `allocateTripCostLines`) ·
+ *   บรรทัดเดิม/กลับรายการหักล้างกันพอดีต่อ DO
+ * - DO เดียว = ทั้งยอด · ไม่มี DO = ไม่ปัน (`{}` — DECISION ย้อนได้) · รายได้รวม 0 (ต้นทุนสุทธิ 0) = ไปตัวรับเศษ (สุทธิ 0)
+ *   · บรรทัดที่ไม่ CONFIRMED = `{}`
  * - snapshot ณ เวลาปิดต้นทุน: รายได้ที่เปลี่ยนภายหลังไม่ปันใหม่ (ไม่เขียน `delivery_order.allocated_cost_amount` — อ่านจาก
  *   `trip_cost.allocated` แหล่งเดียว เหมือน `revenue_amount` ของ ST5-T01b)
- * คืนยอดรวมต่อ DO (สตางค์) — ใช้ตรวจว่าเท่าต้นทุนสุทธิ
+ * - ผลไม่ลงตัว (Σ ต่อ DO ≠ ต้นทุนสุทธิ / ติดลบ — ไม่ควรเกิด) → 500 `trip_cost_allocation_failed` (transaction ถูกยกเลิกทั้งหมด)
+ * คืนยอดรวมต่อ DO (สตางค์)
  */
 export async function allocateTripCost(
   tx: Tx,
@@ -156,25 +159,42 @@ export async function allocateTripCost(
 ): Promise<Map<string, bigint>> {
   const rows = await tx.tripCost.findMany({
     where: { tripId },
-    select: { id: true, amount: true, status: true },
+    select: { id: true, amount: true, status: true, reversalOfId: true },
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
   });
-  const perDo = new Map<string, bigint>(targets.map((t) => [t.id, 0n]));
-  const weights = targets.map((t) => t.revenue);
-  for (const r of rows) {
-    let allocated: Record<string, string> = {};
-    if (r.status === 'CONFIRMED' && targets.length) {
-      const parts = allocateSatangRemainderTo(satangFromDecimal(r.amount.toFixed(2)), weights, 0);
-      allocated = Object.fromEntries(
-        targets.map((t, i) => {
-          perDo.set(t.id, perDo.get(t.id)! + parts[i]!);
-          return [t.id, decimalFromSatang(parts[i]!)];
-        }),
+  const confirmed = rows.filter((r) => r.status === 'CONFIRMED');
+  const lines = confirmed.map((r) => ({
+    id: r.id,
+    amount: satangFromDecimal(r.amount.toFixed(2)),
+    reversalOfId: r.reversalOfId,
+  }));
+  const net = lines.reduce((a, l) => a + l.amount, 0n);
+  const perDo = new Map<string, bigint>();
+  let perLine = new Map<string, bigint[]>();
+  if (targets.length) {
+    try {
+      const r = allocateTripCostLines(
+        lines,
+        targets.map((t) => t.revenue),
+        0,
       );
+      perLine = r.perLine;
+      targets.forEach((t, i) => perDo.set(t.id, r.targets[i]!));
+    } catch (e) {
+      if (e instanceof RangeError) throw new ProblemException('trip_cost_allocation_failed');
+      throw e;
     }
+    const total = [...perDo.values()].reduce((a, v) => a + v, 0n);
+    if (total !== net || [...perDo.values()].some((v) => v < 0n))
+      throw new ProblemException('trip_cost_allocation_failed');
+  }
+  for (const r of rows) {
+    const parts = perLine.get(r.id);
+    const allocated = parts
+      ? Object.fromEntries(targets.map((t, i) => [t.id, decimalFromSatang(parts[i]!)]))
+      : {};
     await tx.tripCost.update({ where: { id: r.id }, data: { allocated } });
   }
-  for (const [id, v] of perDo)
-    if (v < 0n) throw new Error(`trip cost allocation negative for delivery order ${id}`);
   return perDo;
 }
 

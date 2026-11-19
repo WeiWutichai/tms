@@ -1,4 +1,5 @@
 export * from './money';
+export * from './cost-allocation';
 export * from './tax';
 export * from './state-machine';
 export * from './permissions';

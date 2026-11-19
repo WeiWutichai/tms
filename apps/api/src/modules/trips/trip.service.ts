@@ -1540,6 +1540,8 @@ export class TripService {
     if (!tripCostingEnabled()) throw new ProblemException('trip_costing_unavailable');
     const { trip } = await this.lock(tx, id, expectedVersion);
     this.assertCan(trip, 'cost');
+    // ล็อก SO ของ DO ในเที่ยวแล้ว (lockForTrip: SO → DO → trip) — rebuild รายได้ (ยืนยันค่าใช้จ่ายหน้างานฝั่งขาย ฯลฯ) ล็อก SO
+    // ก่อนเช่นกัน → รายได้ที่ใช้ปันไม่เปลี่ยนกลางคัน
     // ล็อกบรรทัดต้นทุนของเที่ยว — กันยืนยัน/บันทึกค่าใช้จ่ายหน้างานพร้อมกัน (field-charges ล็อกเที่ยวแบบ FOR SHARE ก่อนเขียน)
     await tx.$queryRaw`SELECT id FROM trip_cost WHERE trip_id = ${trip.id}::uuid FOR UPDATE`;
     const ready = await costReadiness(tx, trip);
@@ -1550,7 +1552,12 @@ export class TripService {
       });
     const perDo = await allocateTripCost(tx, trip.id, ready.targets);
     const actor = requestContext.require().actorId ?? null;
-    await this.transition(tx, trip, 'cost', { costedAt: new Date(), costedBy: actor });
+    await this.transition(tx, trip, 'cost', {
+      costedAt: new Date(),
+      costedBy: actor,
+      // วิธีปัน (PO ตัดสิน 19 พ.ย. 2569) — แทน BY_WEIGHT/… ของ docs/01 (plan/00a)
+      costAllocationMethod: 'BY_REVENUE',
+    });
     const final = await this.get(trip.id, tx);
     const lines = await tx.tripCost.count({ where: { tripId: trip.id, status: 'CONFIRMED' } });
     await this.audit.record({
