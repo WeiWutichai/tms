@@ -3911,6 +3911,91 @@
       ]
     },
     {
+      "name": "จ่ายรถร่วม (settlements)",
+      "item": [
+        {
+          "name": "คิวจ่ายรถร่วม (เที่ยวที่ปิดต้นทุนแล้วและยังไม่อยู่ในใบสำคัญจ่าย)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/settlements/queue",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "settlements",
+                "queue"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "cursor",
+                  "value": "",
+                  "description": "ค่า nextCursor จากหน้าก่อน",
+                  "disabled": true
+                },
+                {
+                  "key": "updatedAfter",
+                  "value": "",
+                  "description": "คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull)",
+                  "disabled": true
+                },
+                {
+                  "key": "sort",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "fields",
+                  "value": "",
+                  "description": "รายชื่อ field คั่นด้วย, เช่น id,legalName",
+                  "disabled": true
+                },
+                {
+                  "key": "carrierId",
+                  "value": "car_3f2a…",
+                  "description": "รถร่วม — id หรือ `ext:{externalId}` (ไม่พบ = รายการว่าง)",
+                  "disabled": true
+                },
+                {
+                  "key": "dateFrom",
+                  "value": "2026-11-01",
+                  "description": "วันที่เที่ยวจบตั้งแต่ (YYYY-MM-DD ตามเวลาไทย — `completedAt`)",
+                  "disabled": true
+                },
+                {
+                  "key": "dateTo",
+                  "value": "2026-11-15",
+                  "description": "วันที่เที่ยวจบถึง (YYYY-MM-DD ตามเวลาไทย — รวมทั้งวัน)",
+                  "disabled": true
+                },
+                {
+                  "key": "podComplete",
+                  "value": "",
+                  "description": "กรองตามหลักฐานส่ง (POD) ของเที่ยว: true = ครบ · false = ยังไม่ครบ (มีได้เฉพาะรถร่วมที่ปิด \"ไม่มี POD ไม่จ่าย\")",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "scope: settlements:read\n\nเที่ยว **COSTED** ของรถร่วมที่ยังมีบรรทัดต้นทุนรอจ่าย (ค่าจ้าง CARRIER_FEE + ค่าใช้จ่ายหน้างานฝั่งซื้อที่ยืนยันแล้ว ของรถร่วมรายปัจจุบัน ที่ยังไม่อยู่ในใบสำคัญจ่าย) · รถร่วมที่ตั้ง \"ไม่มี POD ไม่จ่าย\" (`requirePodToPay`) → เที่ยวที่หลักฐานส่งยังไม่ครบไม่ขึ้นคิว · กรองรถร่วม (`carrierId` รับ `ext:`) / ช่วงวันที่เที่ยวจบ (เวลาไทย) / หลักฐานครบ · `carriers` = ยอดรวมต่อรถร่วมของทุกแถวที่ตรงตัวกรอง · ยอดเงิน (`buy*`) เห็นเมื่อมี `prices.buy:read` · ปิดต้นทุนเที่ยว (COMPLETED → COSTED) ยังปิดใช้จนกว่าจะกำหนดวิธีปันต้นทุนลง DO (`POST /trips/{id}/cost` → 409 `trip_costing_unavailable`) — ระหว่างนั้นคิวว่าง"
+          }
+        }
+      ]
+    },
+    {
       "name": "ไฟล์และเอกสาร (documents)",
       "item": [
         {
