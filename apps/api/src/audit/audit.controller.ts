@@ -66,7 +66,7 @@ export class AuditEntryDto {
   @ApiProperty({
     nullable: true,
     type: String,
-    description: 'ผู้ใช้ Innovera ที่ impersonate (claim act)',
+    description: 'ทีมผู้ให้บริการที่เข้าใช้งานแทน (impersonate — claim act) · null = ผู้ใช้ทำเอง',
   })
   actAs!: string | null;
   @ApiProperty({ example: 'company.updated' }) action!: string;

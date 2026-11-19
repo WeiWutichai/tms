@@ -10,6 +10,7 @@ import { encodeId, tryDecodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { PrismaService } from '../../db/prisma.service';
 import { EntitlementService } from '../entitlements/entitlement.service';
+import { SandboxService } from '../sandbox/sandbox.service';
 import { apiKeyStatus } from './api-keys.service';
 import { API_KEY_RE, hashApiKey, ipAllowed, sameHash } from './key-material';
 
@@ -44,6 +45,7 @@ export class ApiKeyAuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly entitlements: EntitlementService,
+    private readonly sandbox: SandboxService,
   ) {}
 
   private get db() {
@@ -82,6 +84,8 @@ export class ApiKeyAuthService {
       throw new ProblemException('feature_not_in_plan', undefined, undefined, {
         featureKey: 'api',
       });
+    // ST7-T12: sandbox ที่ใช้ผ่าน key อย่างเดียว (ไม่มีใครสลับโหมดอีก) ก็ได้นิติบุคคล → สร้าง order ได้
+    if (own.mode === 'test') await this.sandbox.ensureEntities(k.tenantId, own.liveTenantId!);
   }
 
   /** หา key จาก secret (HMAC lookup + เทียบแบบเวลาคงที่) — ไม่พบ = null */

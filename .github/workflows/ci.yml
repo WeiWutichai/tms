@@ -57,6 +57,8 @@ jobs:
       - run: pnpm test # unit + integration + tenant-isolation harness + seed + PDF golden + KRS contract
       - name: OpenAPI ต้องตรงกับโค้ด (ลืม export = แดง)
         run: pnpm --filter @tms/api openapi:check
+      - name: เอกสาร API / Postman / llms.txt ต้องสร้างใหม่จาก openapi.json แล้ว (ST7-T12)
+        run: pnpm --filter @tms/api-docs docs:check
       - name: OpenAPI breaking-change gate (เทียบกับ base branch)
         if: github.event_name == 'pull_request'
         run: |

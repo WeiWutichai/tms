@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>เริ่มต้นใช้งาน (Quickstart) · TMS API</title>
+<link rel="alternate" type="text/markdown" href="quickstart.md">
+<style>:root{--ink:#101418;--muted:#59606B;--line:#E4E6E0;--bg:#FFFFFF;--side:#F4F5F2;--accent:#2257C4;--code:#EEF0EC}
+*{box-sizing:border-box}
+body{margin:0;font-family:'IBM Plex Sans Thai Looped','IBM Plex Sans',system-ui,sans-serif;color:var(--ink);background:var(--bg);font-size:14px;line-height:1.6}
+a{color:var(--accent)}
+.layout{display:flex;min-height:100vh}
+nav{width:272px;flex:none;background:var(--side);border-right:1px solid var(--line);padding:20px 16px;position:sticky;top:0;height:100vh;overflow:auto}
+nav .brand{font-weight:600;font-size:15px;margin-bottom:12px;display:block;color:var(--ink);text-decoration:none}
+nav h4{font-size:12px;color:var(--muted);margin:16px 0 4px;font-weight:600}
+nav a{display:block;padding:3px 8px;border-radius:6px;text-decoration:none;color:var(--ink);font-size:13px}
+nav a.on{background:#FFFFFF;color:var(--accent);font-weight:600}
+main{flex:1;min-width:0;padding:28px 40px;max-width:1100px}
+main h1{font-size:24px;margin:0 0 8px}main h2{font-size:18px;margin:32px 0 8px;padding-top:12px;border-top:1px solid var(--line)}main h3{font-size:15px;margin:20px 0 6px}
+code{font-family:'IBM Plex Mono',monospace;font-size:12.5px;background:var(--code);padding:1px 4px;border-radius:4px}
+pre{background:var(--code);border:1px solid var(--line);border-radius:8px;padding:12px;overflow:auto}pre code{background:none;padding:0}
+.table{overflow-x:auto}table{border-collapse:collapse;width:100%;margin:8px 0;font-size:13px}th,td{border:1px solid var(--line);padding:6px 8px;text-align:left;vertical-align:top}th{background:var(--side);font-weight:600}
+blockquote{margin:8px 0;padding:6px 12px;border-left:3px solid var(--accent);background:var(--side)}
+.md-link{float:right;font-size:12px}
+@media (max-width:800px){.layout{display:block}nav{position:static;width:auto;height:auto}main{padding:16px}}</style>
+</head>
+<body>
+<div class="layout">
+<nav><a class="brand" href="index.html">TMS API v1</a><h4>เริ่มต้นใช้งาน</h4><a href="quickstart.html" class="on">เริ่มต้นใช้งาน (Quickstart)</a><a href="authentication.html">ยืนยันตัวตน</a><h4>แนวทาง</h4><a href="conventions.html">แนวทางการใช้ API</a><a href="rate-limits.html">Rate limit</a><a href="versioning.html">เวอร์ชันของ API</a><a href="sandbox.html">Sandbox</a><a href="webhooks.html">Webhook และการตรวจลายเซ็น</a><a href="bulk-async.html">ทำทีละหลายรายการและงานเบื้องหลัง</a><a href="sdk.html">TypeScript SDK</a><a href="postman.html">Postman</a><h4>Resource</h4><a href="ref-orders.html">ใบสั่งขนส่ง (orders)</a><a href="ref-delivery-orders.html">ใบส่งของ (delivery-orders)</a><a href="ref-trips.html">เที่ยววิ่ง (trips)</a><a href="ref-stops.html">จุดส่ง (stops)</a><a href="ref-documents.html">ไฟล์และเอกสาร (documents)</a><a href="ref-webhooks.html">Webhooks และ events</a><a href="ref-sandbox.html">Sandbox</a><a href="ref-jobs.html">งานเบื้องหลัง (jobs)</a><a href="ref-customers.html">ลูกค้า (customers)</a><a href="ref-customer-sites.html">สถานที่ (customer-sites)</a><a href="ref-products.html">สินค้า (products)</a><a href="ref-units.html">หน่วย (units)</a><a href="ref-vehicle-types.html">ประเภทรถ (vehicle-types)</a><a href="ref-service-items.html">รายการค่าบริการ (service-items)</a><a href="ref-reason-codes.html">รหัสเหตุผล (reason-codes)</a><a href="ref-routes.html">เส้นทาง (routes)</a><a href="ref-rate-cards.html">ตารางราคา (rate-cards)</a><a href="ref-carriers.html">รถร่วม (carriers)</a><a href="ref-vehicles.html">รถ (vehicles)</a><a href="ref-drivers.html">คนขับ (drivers)</a><a href="ref-vehicle-documents.html">เอกสารรถ (vehicle-documents)</a><a href="ref-carrier-docs.html">เอกสารรถร่วม (carrier-docs)</a><a href="ref-order-templates.html">แม่แบบใบสั่ง (order-templates)</a><a href="ref-planning.html">วางแผน (planning)</a><a href="ref-schedule.html">ตารางงาน (schedule)</a><a href="ref-exports.html">ส่งออกไฟล์ (exports)</a><a href="ref-connectors.html">Connector ERP (connectors)</a><a href="ref-messaging.html">ส่งข้อความ (messaging)</a><a href="ref-companies.html">นิติบุคคล (companies)</a><a href="ref-branches.html">สาขา (branches)</a><a href="ref-document-sequences.html">เลขที่เอกสาร (document-sequences)</a><a href="ref-settings.html">ตั้งค่า (settings)</a><a href="ref-audit.html">ประวัติการทำรายการ (audit)</a><a href="ref-auth.html">OAuth และระบบ (auth)</a><h4>อ้างอิง</h4><a href="webhook-events.html">Webhook events</a><a href="errors.html">รหัส error</a><a href="changelog.html">Changelog</a></nav>
+<main>
+<a class="md-link" href="quickstart.md">Markdown</a>
+<h1 id="เริ่มต้นใช้งาน-quickstart">เริ่มต้นใช้งาน (Quickstart)</h1>
+<p>สร้างใบสั่งขนส่ง (order) แรกใน <strong>Sandbox</strong> ภายใน 15 นาที — ข้อมูล Sandbox แยกจากข้อมูลจริงทั้งหมด ลองได้ไม่ต้องกลัวพัง</p>
+<h2 id="สิ่งที่ต้องมี">สิ่งที่ต้องมี</h2>
+<ul><li>บัญชีผู้ใช้ TMS ที่เข้าเมนู <strong>ตั้งค่า → นักพัฒนา / Open API</strong> ได้ (เจ้าของ/ผู้ดูแล หรือบทบาทที่มีสิทธิ์ตั้งค่า) และแพ็กเกจที่เปิด Open API</li><li>บริษัทตั้งนิติบุคคล (ตั้งค่า → นิติบุคคลและสาขา) แล้วอย่างน้อย 1 ราย — Sandbox ได้สำเนานิติบุคคลของบริษัทไปใช้ออกบิล</li><li>เครื่องที่มี <code>bash</code>, <code>curl</code> และ <code>jq</code> หรือ Node.js 20 ขึ้นไป (ถ้าจะใช้ TypeScript SDK)</li></ul>
+<h2 id="1-สร้าง-api-key-ของ-sandbox">1. สร้าง API key ของ Sandbox</h2>
+<ol><li>เข้า <strong>ตั้งค่า → นักพัฒนา / Open API</strong> แล้วกดสวิตช์มุมขวาเป็น <strong>Sandbox</strong> (ครั้งแรกระบบสร้าง Sandbox ของบริษัทให้อัตโนมัติ · ระหว่างอยู่โหมดนี้หน้าจะมีแถบสีส้ม &quot;SANDBOX&quot;)</li><li>แท็บ <strong>API keys</strong> → <strong>สร้าง API key</strong> → ตั้งชื่อ เช่น <code>quickstart</code> และเลือก scope: <code>companies:read</code> <code>master:read</code> <code>master:write</code> <code>orders:read</code> <code>orders:write</code> (ถ้าจะลองยิง webhook จำลองต่อ เพิ่ม <code>settings:read</code> และ <code>events:read</code>)</li><li>คัดลอก secret ที่ขึ้นต้นด้วย <code>tk_test_</code> — <strong>แสดงครั้งเดียว</strong> เก็บไว้ใน secret manager ห้ามใส่ในโค้ดฝั่ง browser</li></ol>
+<p>โหมดของคำขอขึ้นกับ key ไม่ใช่ URL: key <code>tk_test_</code> เข้าถึงได้เฉพาะข้อมูล Sandbox, key <code>tk_live_</code> เฉพาะข้อมูลจริง</p>
+<h2 id="2-ตั้งค่าตัวแปร">2. ตั้งค่าตัวแปร</h2>
+<p>ทุกคำสั่งใช้ <code>curl --fail-with-body</code> และ <code>jq -e</code> ร่วมกับ <code>set -euo pipefail</code> — คำขอไหนไม่สำเร็จ สคริปต์หยุดทันทีและ curl แสดง <code>curl: (22) … error: &lt;HTTP status&gt;</code> (รันคำสั่งนั้นซ้ำโดยตัด <code>| jq …</code> ออกเพื่อดู error แบบ problem+json — ดู <a href="errors.html">รหัส error</a>)</p>
+<pre><code class="language-bash">set -euo pipefail
+export TMS_BASE_URL=&quot;https://api.tms.example&quot;   # base URL ที่ได้รับจากผู้ให้บริการ (ไม่ต้องใส่ /v1)
+export TMS_API_KEY=&quot;tk_test_...&quot;                # secret จากขั้นที่ 1</code></pre>
+<p>ทดสอบว่า key ใช้ได้ (ได้ <code>200</code> และรายการ <code>{&quot;data&quot;:[...],&quot;nextCursor&quot;:...,&quot;hasMore&quot;:...}</code>):</p>
+<pre><code class="language-bash">curl -sS --fail-with-body &quot;$TMS_BASE_URL/v1/orders?limit=1&quot; \
+  -H &quot;Authorization: Bearer $TMS_API_KEY&quot;</code></pre>
+<h2 id="3-เลือกนิติบุคคลที่ออกบิล">3. เลือกนิติบุคคลที่ออกบิล</h2>
+<p>บริษัทที่มีนิติบุคคลมากกว่า 1 ราย ต้องระบุ <code>billingCompanyId</code> ทุกใบ (หรือตั้ง &quot;ออกบิลในนาม&quot; ที่ลูกค้า/ค่าตั้งต้นของบริษัท) — ไม่งั้นได้ <code>422 validation_failed</code> ที่มี <code>errors[].code = routing_not_configured</code> (<code>errors[].field = billingCompanyId</code>)</p>
+<pre><code class="language-bash">COMPANY_ID=$(curl -sS --fail-with-body &quot;$TMS_BASE_URL/v1/companies?limit=50&quot; \
+  -H &quot;Authorization: Bearer $TMS_API_KEY&quot; | jq -er '.data[0].id')
+echo &quot;$COMPANY_ID&quot;</code></pre>
+<h2 id="4-สร้างลูกค้า">4. สร้างลูกค้า</h2>
+<p>ทุกขั้นใช้ <code>PUT …/external/{externalId}</code> (upsert ด้วยรหัสของระบบคุณ) — รันซ้ำได้ ได้รายการเดิม ไม่สร้างซ้ำ</p>
+<pre><code class="language-bash">CUSTOMER_ID=$(curl -sS --fail-with-body -X PUT &quot;$TMS_BASE_URL/v1/customers/external/QS-CUS-001&quot; \
+  -H &quot;Authorization: Bearer $TMS_API_KEY&quot; \
+  -H &quot;Content-Type: application/json&quot; \
+  -d '{&quot;legalName&quot;:&quot;บริษัท ลูกค้าทดลอง จำกัด&quot;}' | jq -er .id)
+echo &quot;$CUSTOMER_ID&quot;</code></pre>
+<h2 id="5-สร้างจุดรับและจุดส่ง">5. สร้างจุดรับและจุดส่ง</h2>
+<pre><code class="language-bash">PICKUP_ID=$(curl -sS --fail-with-body -X PUT &quot;$TMS_BASE_URL/v1/customer-sites/external/QS-SITE-PICKUP&quot; \
+  -H &quot;Authorization: Bearer $TMS_API_KEY&quot; \
+  -H &quot;Content-Type: application/json&quot; \
+  -d '{&quot;name&quot;:&quot;คลังสินค้าบางนา&quot;,&quot;kind&quot;:&quot;PICKUP&quot;,&quot;customerId&quot;:&quot;'&quot;$CUSTOMER_ID&quot;'&quot;,&quot;address&quot;:{&quot;line1&quot;:&quot;99 ถ.บางนา-ตราด ต.บางแก้ว อ.บางพลี จ.สมุทรปราการ 10540&quot;}}' | jq -er .id)</code></pre>
+<pre><code class="language-bash">DROPOFF_ID=$(curl -sS --fail-with-body -X PUT &quot;$TMS_BASE_URL/v1/customer-sites/external/QS-SITE-DROPOFF&quot; \
+  -H &quot;Authorization: Bearer $TMS_API_KEY&quot; \
+  -H &quot;Content-Type: application/json&quot; \
+  -d '{&quot;name&quot;:&quot;ร้านค้าปลายทาง ชลบุรี&quot;,&quot;kind&quot;:&quot;DROPOFF&quot;,&quot;customerId&quot;:&quot;'&quot;$CUSTOMER_ID&quot;'&quot;,&quot;address&quot;:{&quot;line1&quot;:&quot;1 ถ.สุขุมวิท ต.บ้านสวน อ.เมืองชลบุรี จ.ชลบุรี 20000&quot;}}' | jq -er .id)</code></pre>
+<h2 id="6-สร้างใบสั่งขนส่ง">6. สร้างใบสั่งขนส่ง</h2>
+<p>วันรับของ = พรุ่งนี้ตามเวลาไทย (คำสั่ง <code>date</code> รองรับทั้ง macOS และ Linux)</p>
+<pre><code class="language-bash">PICKUP_DATE=$(TZ=Asia/Bangkok date -v+1d +%F 2&gt;/dev/null || TZ=Asia/Bangkok date -d tomorrow +%F)
+ORDER_ID=$(curl -sS --fail-with-body -X PUT &quot;$TMS_BASE_URL/v1/orders/external/QS-ORDER-001&quot; \
+  -H &quot;Authorization: Bearer $TMS_API_KEY&quot; \
+  -H &quot;Content-Type: application/json&quot; \
+  -d '{&quot;customer&quot;:{&quot;id&quot;:&quot;'&quot;$CUSTOMER_ID&quot;'&quot;},&quot;billingCompanyId&quot;:&quot;'&quot;$COMPANY_ID&quot;'&quot;,&quot;requestedDate&quot;:&quot;'&quot;$PICKUP_DATE&quot;'&quot;,&quot;stops&quot;:[{&quot;type&quot;:&quot;PICKUP&quot;,&quot;siteId&quot;:&quot;'&quot;$PICKUP_ID&quot;'&quot;,&quot;windowStart&quot;:&quot;'&quot;$PICKUP_DATE&quot;'T08:00:00+07:00&quot;},{&quot;type&quot;:&quot;DELIVERY&quot;,&quot;siteId&quot;:&quot;'&quot;$DROPOFF_ID&quot;'&quot;,&quot;windowEnd&quot;:&quot;'&quot;$PICKUP_DATE&quot;'T17:00:00+07:00&quot;}],&quot;lines&quot;:[{&quot;description&quot;:&quot;น้ำดื่มบรรจุขวด&quot;,&quot;qty&quot;:&quot;120&quot;,&quot;unit&quot;:&quot;ลัง&quot;,&quot;weightKg&quot;:&quot;1800&quot;}]}' | jq -er .id)
+echo &quot;$ORDER_ID&quot;</code></pre>
+<p>ได้ <code>201</code> (สร้างใหม่) หรือ <code>200</code> (รันซ้ำ = อัปเดตใบเดิม) และ <code>id</code> ขึ้นต้นด้วย <code>ord_</code> — สถานะ <code>received</code> หรือ <code>on_hold</code> — ใน Sandbox ใหม่ใบนี้จะเป็น <code>on_hold</code> เหตุ <code>RATE_MISSING</code> (ยังไม่มีตารางราคาของลูกค้า/เส้นทางนี้; ดู <code>holdReason</code> / <code>holdCodes</code>) ซึ่งถือว่ารับใบสำเร็จแล้ว — ใบจะไปต่อเมื่อมีราคาที่อนุมัติ หรือตั้งราคาเอง</p>
+<h2 id="7-อ่านใบสั่งกลับ">7. อ่านใบสั่งกลับ</h2>
+<pre><code class="language-bash">curl -sS --fail-with-body &quot;$TMS_BASE_URL/v1/orders/$ORDER_ID&quot; \
+  -H &quot;Authorization: Bearer $TMS_API_KEY&quot;</code></pre>
+<p>เสร็จแล้ว — ใบนี้อยู่ใน Sandbox ตรวจได้ผ่าน API (<code>GET /v1/orders</code>) เท่านั้น: หน้าจอ <strong>ใบสั่งขนส่ง</strong> ในเว็บแสดงข้อมูลจริงเสมอ ไม่แสดงข้อมูล Sandbox</p>
+<h2 id="ทำแบบเดียวกันด้วย-typescript-sdk">ทำแบบเดียวกันด้วย TypeScript SDK</h2>
+<p>ติดตั้ง <code>@tms/sdk</code> (ดู <a href="sdk.html">TypeScript SDK</a>) แล้วรันไฟล์นี้ด้วย <code>TMS_BASE_URL=… TMS_API_KEY=… npx tsx quickstart.ts</code></p>
+<pre><code class="language-ts">/**
+ * Quickstart: สร้าง order แรกใน Sandbox ด้วย @tms/sdk
+ * รัน: TMS_BASE_URL=https://api.tms.example TMS_API_KEY=tk_test_… npx tsx quickstart.ts
+ * ใช้ PUT …/external/{externalId} ทุกขั้น → รันซ้ำได้ ไม่สร้างข้อมูลซ้ำ
+ */
+import { createTmsClient, unwrap } from '@tms/sdk';
+
+/** scope ที่ key ของ quickstart ต้องมี */
+export const QUICKSTART_SCOPES = [
+  'companies:read',
+  'master:read',
+  'master:write',
+  'orders:read',
+  'orders:write',
+];
+
+export async function runQuickstart(opts: { baseUrl: string; apiKey: string }) {
+  const tms = createTmsClient({ baseUrl: opts.baseUrl, apiKey: opts.apiKey });
+
+  // 0) นิติบุคคลที่ออกบิล — บริษัทที่มีหลายนิติบุคคลต้องระบุ billingCompanyId (ไม่งั้น 422 routing_not_configured)
+  const companies = unwrap(await tms.GET('/v1/companies', { params: { query: { limit: 50 } } }));
+  const billingCompanyId = companies.data[0]?.id;
+  if (!billingCompanyId)
+    throw new Error('บริษัทยังไม่มีนิติบุคคล — ตั้งที่ ตั้งค่า → นิติบุคคลและสาขา ก่อน');
+
+  // 1) ลูกค้า
+  const customer = unwrap(
+    await tms.PUT('/v1/customers/external/{externalId}', {
+      params: { path: { externalId: 'QS-CUS-001' } },
+      body: { legalName: 'บริษัท ลูกค้าทดลอง จำกัด' },
+    }),
+  );
+
+  // 2) จุดรับและจุดส่งของลูกค้า
+  const pickup = unwrap(
+    await tms.PUT('/v1/customer-sites/external/{externalId}', {
+      params: { path: { externalId: 'QS-SITE-PICKUP' } },
+      body: {
+        name: 'คลังสินค้าบางนา',
+        kind: 'PICKUP',
+        customerId: customer.id,
+        address: { line1: '99 ถ.บางนา-ตราด ต.บางแก้ว อ.บางพลี จ.สมุทรปราการ 10540' },
+      },
+    }),
+  );
+  const dropoff = unwrap(
+    await tms.PUT('/v1/customer-sites/external/{externalId}', {
+      params: { path: { externalId: 'QS-SITE-DROPOFF' } },
+      body: {
+        name: 'ร้านค้าปลายทาง ชลบุรี',
+        kind: 'DROPOFF',
+        customerId: customer.id,
+        address: { line1: '1 ถ.สุขุมวิท ต.บ้านสวน อ.เมืองชลบุรี จ.ชลบุรี 20000' },
+      },
+    }),
+  );
+
+  // 3) ใบสั่งขนส่ง (order) — วันรับของ = พรุ่งนี้ (เวลาไทย UTC+7)
+  const tomorrow = new Date(Date.now() + 31 * 3600_000).toISOString().slice(0, 10);
+  const order = unwrap(
+    await tms.PUT('/v1/orders/external/{externalId}', {
+      params: { path: { externalId: 'QS-ORDER-001' } },
+      body: {
+        customer: { id: customer.id },
+        billingCompanyId,
+        requestedDate: tomorrow,
+        stops: [
+          { type: 'PICKUP', siteId: pickup.id, windowStart: `${tomorrow}T08:00:00+07:00` },
+          { type: 'DELIVERY', siteId: dropoff.id, windowEnd: `${tomorrow}T17:00:00+07:00` },
+        ],
+        lines: [{ description: 'น้ำดื่มบรรจุขวด', qty: '120', unit: 'ลัง', weightKg: '1800' }],
+      },
+    }),
+  );
+
+  // 4) อ่านกลับ
+  const again = unwrap(await tms.GET('/v1/orders/{id}', { params: { path: { id: order.id } } }));
+  return { customer, pickup, dropoff, order: again };
+}
+
+// รันตรง ๆ จาก command line
+if (typeof process !== 'undefined' &amp;&amp; process.argv[1]?.endsWith('quickstart.ts')) {
+  const baseUrl = process.env.TMS_BASE_URL ?? 'https://api.tms.example';
+  const apiKey = process.env.TMS_API_KEY ?? '';
+  runQuickstart({ baseUrl, apiKey }).then(
+    (r) =&gt; console.log(`สร้าง order ${r.order.id} สถานะ ${r.order.status}`),
+    (e: unknown) =&gt; {
+      console.error(e);
+      process.exit(1);
+    },
+  );
+}</code></pre>
+<h2 id="ขั้นต่อไป">ขั้นต่อไป</h2>
+<ul><li><a href="authentication.html">ยืนยันตัวตน</a> — OAuth2 client credentials, scope, IP allowlist</li><li><a href="conventions.html">แนวทางการใช้ API</a> — Idempotency-Key, pagination, ETag/If-Match, รูปแบบ error</li><li>Webhook: สมัคร endpoint (ต้องเป็น <code>https://</code>) ในหน้าเว็บ <strong>นักพัฒนา / Open API → Webhooks</strong> โหมด Sandbox — API key อ่านข้อมูล webhook ได้อย่างเดียว สร้าง/แก้ endpoint ไม่ได้ · ยิง event จำลองด้วย <code>POST /v1/test/events/trigger</code> (key ต้องมี <code>settings:read</code>; ดูผลส่งที่ <code>GET /v1/webhook-deliveries</code> ใช้ <code>settings:read</code>, ดู event ที่ <code>GET /v1/events/{id}</code> ใช้ <code>events:read</code>) — ดู <a href="sandbox.html">Sandbox</a> และ <a href="webhooks.html">Webhook และการตรวจลายเซ็น</a></li><li><a href="ref-orders.html">ใบสั่งขนส่ง (orders)</a> — ทุก endpoint ของ orders</li></ul>
+</main>
+</div>
+</body>
+</html>
