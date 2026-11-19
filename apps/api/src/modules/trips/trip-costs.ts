@@ -122,11 +122,22 @@ export async function costReadiness(
   let targets: AllocationTarget[] = [];
   if (trip.status === 'CANCELLED') blockers.push('TRIP_NOT_COMPLETED');
   else if (!COSTED_STATUSES.has(trip.status)) {
+    // kill switch ปิดอยู่ → ไม่ให้ผู้เรียกเห็นว่า "พร้อม" (POST ตอบ 409 trip_costing_unavailable)
+    if (!tripCostingEnabled()) blockers.push('COSTING_DISABLED');
     if (trip.status !== 'COMPLETED') blockers.push('TRIP_NOT_COMPLETED');
     if (pendingCount) blockers.push('PENDING_FIELD_CHARGES');
     if (trip.carrierId && !carrierFee.gt(0)) blockers.push('CARRIER_FEE_MISSING');
     // ปันลง DO ตามสัดส่วนรายได้ (ST6-T01c) — น้ำหนักมีผลเฉพาะเมื่อมี DO > 1 ใบ และมีบรรทัดที่มียอด
     targets = await allocationTargets(tx, trip.id);
+    // ค่าใช้จ่ายหน้างานฝั่งขาย (SELL/BOTH) รอยืนยัน — หลัง COSTED ยืนยันไม่ได้ (ST4-T13) → รายได้ค้างและไม่อยู่ในสัดส่วน
+    // [DECISION — ตามคำแนะนำ ย้อนได้ ST6-T01c QA M1] ไม่ให้ปิดจนกว่าจะยืนยัน/ปฏิเสธ
+    const pendingSell = await tx.doSurcharge.count({
+      where: {
+        status: 'PENDING_CONFIRM',
+        OR: [{ tripId: trip.id }, { deliveryOrderId: { in: targets.map((t) => t.id) } }],
+      },
+    });
+    if (pendingSell) blockers.push('PENDING_SELL_CHARGES');
     const needsWeights = targets.length > 1 && confirmed.some((r) => !r.amount.isZero());
     if (needsWeights) {
       const net = sum(confirmed);

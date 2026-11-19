@@ -442,8 +442,10 @@ describe('trip costs (ST6-T01)', () => {
       try {
         const r = await api(app, admin).post(`/v1/trips/${own.id}/cost`).expect(409);
         expect(r.body.code).toBe('trip_costing_unavailable');
-        // อ่านต้นทุนยังได้ตามปกติ
-        await costs(own.id).expect(200);
+        // อ่านต้นทุนยังได้ตามปกติ — แต่ไม่ "พร้อม" (blocker COSTING_DISABLED)
+        expect((await costs(own.id).expect(200)).body.summary.blockers).toEqual([
+          'COSTING_DISABLED',
+        ]);
       } finally {
         delete process.env.TRIP_COSTING_ENABLED;
       }
@@ -732,15 +734,54 @@ describe('trip costs (ST6-T01)', () => {
         .send({ reason: 'ตรวจใบเสร็จแล้วถูกต้อง' }),
       api(app, dispatcher).post(`/v1/trips/${t.id}/cost`),
     ]);
-    expect(cost.status).toBe(200);
-    expect([200, 409]).toContain(conf.status);
-    const a = byDo(await allocOf(t.id));
-    if (conf.status === 200) {
-      // ยืนยันก่อน: รายได้ 100:200
-      expect(a).toEqual({ [dos[0]!.doPub]: '1600.16', [dos[1]!.doPub]: '3200.34' });
-    } else {
-      expect(conf.body.code).toBe('invalid_state_transition');
-      expect(a).toEqual({ [dos[0]!.doPub]: '2400.25', [dos[1]!.doPub]: '2400.25' });
-    }
+    expect(conf.status).toBe(200);
+    if (cost.status === 409) {
+      // ปิดต้นทุนอ่านก่อน: ยังมีค่าหน้างานฝั่งขายรอยืนยัน → ไม่ให้ปิด (QA M1) · ยืนยันแล้วปิดได้
+      expect(cost.body).toMatchObject({
+        code: 'trip_costs_incomplete',
+        blockers: ['PENDING_SELL_CHARGES'],
+      });
+      await api(app, dispatcher).post(`/v1/trips/${t.id}/cost`).expect(200);
+    } else expect(cost.status).toBe(200);
+    // ทั้งสองลำดับ: รายได้รวมค่าหน้างานที่ยืนยัน = 100:200
+    expect(byDo(await allocOf(t.id))).toEqual({
+      [dos[0]!.doPub]: '1600.16',
+      [dos[1]!.doPub]: '3200.34',
+    });
+  });
+
+  it('ค่าใช้จ่ายหน้างานฝั่งขายรอยืนยัน → GET แสดง PENDING_SELL_CHARGES · POST 409 · ปฏิเสธแล้วปิดได้', async () => {
+    const L = await lane();
+    const { t, dos } = await multiTrip(L, ['100']);
+    await hire(t.id, { carrierId: L.B.id }).expect(200);
+    await complete(t.id, { carrierId: L.B.id, accept: true });
+    const wait = await db.serviceItem.findFirstOrThrow({ where: { tenantId, code: 'WAIT' } });
+    const sur = await db.doSurcharge.create({
+      data: {
+        tenantId,
+        deliveryOrderId: dos[0]!.doId,
+        tripId: uuid('trip', t.id),
+        serviceItemId: wait.id,
+        serviceItemVersion: wait.version,
+        description: 'ค่ารอ',
+        vatType: 'VAT_7',
+        whtRate: '3.00',
+        qty: '1',
+        unitPrice: '100',
+        amount: '100',
+        createdBy: 'user-recorder',
+      },
+    });
+    expect((await costs(t.id).expect(200)).body.summary.blockers).toEqual(['PENDING_SELL_CHARGES']);
+    const r = await api(app, admin).post(`/v1/trips/${t.id}/cost`).expect(409);
+    expect(r.body).toMatchObject({
+      code: 'trip_costs_incomplete',
+      blockers: ['PENDING_SELL_CHARGES'],
+    });
+    await api(app, admin)
+      .post(`/v1/do-surcharges/${encodeId('doSurcharge', sur.id)}/reject`)
+      .send({ reason: 'ไม่มีหลักฐานการรอคิว' })
+      .expect(200);
+    await api(app, admin).post(`/v1/trips/${t.id}/cost`).expect(200);
   });
 });

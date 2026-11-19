@@ -283,6 +283,11 @@
 
 ## บันทึกรายวัน
 
+### 19 พ.ย. 2569 (ST6-T01c แก้ตาม QA — lane l7)
+
+- **ทำ:** (M1) blocker `PENDING_SELL_CHARGES` — ค่าใช้จ่ายหน้างานฝั่งขายของเที่ยว/DO รอยืนยัน → ปิดต้นทุนไม่ได้ (409) [DECISION ตามคำแนะนำ ย้อนได้ — แจ้ง PO] · (L1) kill switch ปิด → `GET /costs` มี blocker `COSTING_DISABLED` · merge `st5/t01b-revenue-per-do` (d84a780) · test เพิ่ม/ปรับ (พร้อมกัน: ทั้งสองลำดับได้การปันรวมค่าหน้างาน)
+- **ไฟล์:** `trips/{trip-costs.ts,trip-costs.dto.ts}`, `common/problem.ts`, `test/trip-costs.test.ts`, spec/12, openapi/api-docs
+
 ### 19 พ.ย. 2569 (ST6-T01c แก้ตาม review — lane l7)
 
 - **ทำ:** (M) ปันต้นทุนสุทธิของเที่ยวครั้งเดียว เศษทั้งหมด → DO รายได้สูงสุด แล้วกระจายลงบรรทัดให้ลงตัวทั้งต่อ DO/ต่อบรรทัด (domain `allocateTripCostLines` ใหม่ + test) · (L) ไม่ลงตัว → 500 `trip_cost_allocation_failed` + ตรวจ Σ ต่อ DO = buyTotal · ยืนยันค่าหน้างานฝั่งขายล็อก SO → trip (FOR SHARE) ลำดับเดียวกับปิดต้นทุน + test พร้อมกัน · เขียน `cost_allocation_method = 'BY_REVENUE'` · plan/00a RA-15 · spec/12: ผลข้างเคียงการเห็นสัดส่วนรายได้, บรรทัดระดับใบสั่งไม่นับ · merge `st5/t01b-revenue-per-do` (แก้ review)

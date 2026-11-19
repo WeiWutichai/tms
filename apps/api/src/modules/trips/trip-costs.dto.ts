@@ -18,6 +18,8 @@ export const TRIP_COST_BLOCKERS = [
   'CARRIER_FEE_MISSING',
   'REVENUE_PROVISIONAL',
   'REVENUE_MISSING',
+  'PENDING_SELL_CHARGES',
+  'COSTING_DISABLED',
 ] as const;
 export type TripCostBlocker = (typeof TRIP_COST_BLOCKERS)[number];
 
@@ -126,7 +128,9 @@ export class TripCostSummaryDto {
       'สิ่งที่ยังขวางการปิดต้นทุน: TRIP_NOT_COMPLETED = เที่ยวยังไม่จบ · PENDING_FIELD_CHARGES = มีค่าใช้จ่ายหน้างานรอยืนยัน · ' +
       'CARRIER_FEE_MISSING = เที่ยวรถร่วมไม่มีค่าจ้างของการจ้างที่ใช้งานอยู่ · ' +
       'REVENUE_PROVISIONAL = เที่ยวมีหลาย DO และรายได้ของ DO ใดยังไม่ยืนยัน (ยังไม่บันทึกยอดส่งจริง) — ปันตามสัดส่วนรายได้ไม่ได้ · ' +
-      'REVENUE_MISSING = เที่ยวมีหลาย DO แต่รายได้รวมเป็น 0 — ไม่มีสัดส่วนให้ปัน (รอ PO กำหนด)',
+      'REVENUE_MISSING = เที่ยวมีหลาย DO แต่รายได้รวมเป็น 0 — ไม่มีสัดส่วนให้ปัน (รอ PO กำหนด) · ' +
+      'PENDING_SELL_CHARGES = มีค่าใช้จ่ายหน้างานฝั่งขายของเที่ยว/DO รอยืนยัน (หลังปิดต้นทุนยืนยันไม่ได้) · ' +
+      'COSTING_DISABLED = ผู้ดูแลระบบปิดฟังก์ชันปิดต้นทุนชั่วคราว',
   })
   blockers!: TripCostBlocker[];
   @ApiProperty({ nullable: true, type: String, description: 'เวลาปิดต้นทุน (COSTED)' })

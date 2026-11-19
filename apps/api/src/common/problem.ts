@@ -350,7 +350,7 @@ export const PROBLEMS = {
     th: 'ปันต้นทุนเที่ยวลงใบส่งของไม่ลงตัว — ยังไม่ปิดต้นทุน กรุณาแจ้งผู้ดูแลระบบ',
     en: 'Trip cost allocation to delivery orders did not balance — trip was not costed',
   },
-  /** ST6-T01: ปิดต้นทุน (COMPLETED → COSTED) ไม่ได้ — extension `blockers` (PENDING_FIELD_CHARGES / CARRIER_FEE_MISSING / REVENUE_PROVISIONAL / REVENUE_MISSING) */
+  /** ST6-T01: ปิดต้นทุน (COMPLETED → COSTED) ไม่ได้ — extension `blockers` (PENDING_FIELD_CHARGES / CARRIER_FEE_MISSING / REVENUE_PROVISIONAL / REVENUE_MISSING / PENDING_SELL_CHARGES) */
   trip_costs_incomplete: {
     status: 409,
     th: 'ต้นทุนเที่ยวยังไม่ครบ — ยืนยัน/ปฏิเสธค่าใช้จ่ายหน้างานที่รอ ตรวจค่าจ้างรถร่วม และรายได้ของใบส่งของ (ใช้ปันต้นทุน) ก่อนปิดต้นทุน',
