@@ -50,3 +50,31 @@ export function sumSatang(values: Iterable<Satang>): Satang {
   for (const v of values) total += v;
   return total;
 }
+
+/**
+ * แบ่งยอด (สตางค์) ตามน้ำหนักแบบเศษมากสุด (largest remainder) — ผลรวมเท่ายอดเดิมพอดีเสมอ ไม่ใช้ float
+ * ส่วนแบ่ง = floor(ยอด × น้ำหนัก ÷ รวมน้ำหนัก) แล้วแจกสตางค์ที่เหลือให้ตัวที่เศษมากสุด (เศษเท่ากัน = ลำดับก่อน)
+ * น้ำหนักรวม 0 (หรือไม่ส่ง) = แบ่งเท่ากัน · น้ำหนักติดลบ/ยอดติดลบ → RangeError
+ * ใช้แบ่งรายได้ของใบสั่งลงใบส่งของ (ST5-T01b)
+ */
+export function allocateSatang(total: Satang, weights: readonly bigint[]): Satang[] {
+  if (total < 0n) throw new RangeError('allocateSatang: total must be >= 0');
+  if (weights.some((w) => w < 0n)) throw new RangeError('allocateSatang: weights must be >= 0');
+  if (weights.length === 0) return [];
+  let ws = [...weights];
+  let sum = sumSatang(ws);
+  if (sum === 0n) {
+    ws = ws.map(() => 1n);
+    sum = BigInt(ws.length);
+  }
+  const base = ws.map((w) => (total * w) / sum);
+  const rem = ws.map((w, i) => ({ i, r: (total * w) % sum }));
+  let left = total - sumSatang(base);
+  rem.sort((a, b) => (a.r === b.r ? a.i - b.i : a.r > b.r ? -1 : 1));
+  for (const { i } of rem) {
+    if (left <= 0n) break;
+    base[i]! += 1n;
+    left -= 1n;
+  }
+  return base;
+}

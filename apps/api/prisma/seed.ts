@@ -171,7 +171,14 @@ async function main() {
   const cipher = new FieldCipher();
   const roleIds: Record<string, Record<string, string>> = {};
   for (const t of [DEMO_A, DEMO_B]) {
-    await bootstrapTenant(db, t);
+    // transaction เดียวต่อ tenant (เหมือน tenants:bootstrap — ขั้นที่ใช้ advisory lock / ล้มกลางทางไม่ค้างครึ่ง ๆ)
+    await db.$transaction(
+      async (tx) => {
+        await tx.$executeRaw`SELECT set_config('app.tenant_id', ${t}, true)`;
+        await bootstrapTenant(tx, t);
+      },
+      { timeout: 60_000 },
+    );
     // ensureSystemRoles คืน id ของ role (รันซ้ำได้ — bootstrap เรียกไปแล้ว)
     roleIds[t] = await ensureSystemRoles(db, t);
   }
