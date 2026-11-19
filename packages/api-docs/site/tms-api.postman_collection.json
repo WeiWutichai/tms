@@ -1673,6 +1673,61 @@
           }
         },
         {
+          "name": "ย้อนผลส่งถึง (DELIVERED → ส่งไม่สำเร็จ)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "If-Match",
+                "value": "",
+                "description": "ETag จาก GET — ไม่ตรง → 412",
+                "disabled": true
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/delivery-orders/:id/revert-delivery",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "delivery-orders",
+                ":id",
+                "revert-delivery"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: trips:close\n\nผู้จัดรถ (`trips:close`) ย้อนได้ภายใน 24 ชม. นับจากเวลาที่ใบส่งของเป็นส่งถึง — เกินต้องมี `trips:override` (ไม่งั้น 403 `permission_denied` + `reason: revert_window_expired`, `deliveredAt`, `revertDeadline`) · ใบส่งของต้องส่งถึง (DELIVERED/POD_PENDING/UNBILLED) ยังไม่ส่งบัญชี ไม่อยู่ในใบแจ้งหนี้ และยังไม่มีส่งซ้ำ/คืนคลังของที่ปฏิเสธรับ → สถานะเป็น FAILED + เหตุผล + audit `delivery_order.delivery_reverted` แล้วจัดการต่อด้วย `/redeliver` หรือ `/return`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"คนขับกดปิดงานผิดจุด ของยังไม่ถึงลูกค้า\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
           "name": "หลักฐานส่งของ DO (ฉบับปัจจุบัน + ประวัติ + checklist + สิ่งที่ขาด)",
           "request": {
             "method": "GET",
@@ -1802,6 +1857,61 @@
             "body": {
               "mode": "raw",
               "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "ย้อนการส่งบัญชี (RELEASED → DELIVERED)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "If-Match",
+                "value": "",
+                "description": "ETag จาก GET — ไม่ตรง → 412",
+                "disabled": true
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/delivery-orders/:id/unrelease",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "delivery-orders",
+                ":id",
+                "unrelease"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: invoices:draft\n\n\"RELEASED ย้อนได้โดย Invoicer\": ล้างเวลา/ผู้ส่งบัญชี + audit `delivery_order.unreleased` (เหตุผลบังคับ) · หลังย้อนแก้จุดแวะ/ยอดส่งจริงได้อีก (ล็อกหลังส่งบัญชี — 409 `do_released`) · ใบส่งของในร่างใบแจ้งหนี้ → 409 `do_in_invoice` (ถอดออกจากร่างก่อน) · ออกใบแล้ว (INVOICED) ย้อนไม่ได้ — ใช้ใบลดหนี้ · ยังไม่ส่งบัญชี = ตอบใบเดิม (ไม่ทำซ้ำ)",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"ยอดส่งจริงต้องแก้ตามใบรับของลูกค้า\"\n}",
               "options": {
                 "raw": {
                   "language": "json"
