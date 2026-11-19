@@ -749,4 +749,62 @@ describe('partial/full return (ST4-T11)', () => {
       'RETURNED',
     );
   });
+  it('ST5-T01b รายได้ต่อ DO ตามยอดส่งจริง: ส่งบางส่วน + คืนคลังทั้งใบ + ใบส่งซ้ำ (provisional) · ลูกค้าตามใบสั่ง ใบส่งซ้ำของที่ปฏิเสธไม่คิดซ้ำ', async () => {
+    const pf = await plainFail();
+    const short = await reason('REJECTED_BY_RECEIVER', 'SHORT_QTY');
+    const d = await delivered({
+      byActual: true,
+      podRequirements: { success: { fields: [] } },
+      rateBody: { pricingModel: 'PER_TON', sellRate: '350' },
+      parts: [
+        [
+          { soLineNo: 1, qty: '10' },
+          { soLineNo: 2, qty: '5' },
+        ],
+        [{ soLineNo: 1, qty: '10' }],
+      ],
+    });
+    const [k1, k2] = d.kids as [string, string];
+    const rev = async (id: string) =>
+      (await api(app, admin).get(`/v1/delivery-orders/${id}/revenue-lines`).expect(200)).body;
+    expect(await rev(k1)).toMatchObject({ sellRevenueTotal: '5250.00', provisional: true });
+    expect(await rev(k2)).toMatchObject({ sellRevenueTotal: '3500.00', provisional: true });
+    // ใบ 1 ส่งได้ 6 + 5 ตัน (ปฏิเสธ 4) → 11 × 350
+    await runTrip(k1);
+    await putPod(k1, {
+      photoDocumentIds: [await doc('POD_PHOTO')],
+      lines: [{ lineNo: 1, qtyActual: '6', rejectReasonCodeId: short }],
+    }).expect(200);
+    expect(await rev(k1)).toMatchObject({ sellRevenueTotal: '3850.00', provisional: false });
+    // ใบ 2 ส่งไม่สำเร็จ → คืนคลังทั้งใบ → 0
+    await runTrip(k2, { fail: true, failCode: pf.code });
+    await ret(k2, { reasonCodeId: pf.id }).expect(200);
+    expect(await rev(k2)).toMatchObject({ sellRevenueTotal: '0.00', provisional: false });
+    // ส่งซ้ำของที่ปฏิเสธ 4 ตัน → ใบใหม่คิดตามแผน (ยังไม่ส่ง) provisional
+    const r = await redeliver(k1, { reasonCodeId: short }).expect(200);
+    const k3 = r.body.redelivery.id as string;
+    expect(await rev(k3)).toMatchObject({ sellRevenueTotal: '1400.00', provisional: true });
+    const so = (await api(app, admin).get(`/v1/orders/${d.soId}/revenue-lines`).expect(200)).body
+      .data as {
+      status: string;
+      sourceType: string;
+      deliveryOrderId: string;
+      sellAmount: string;
+    }[];
+    expect(
+      so
+        .filter((l) => l.status === 'ACTIVE' && l.sourceType === 'SO_CHARGE')
+        .map((l) => [l.deliveryOrderId, l.sellAmount]),
+    ).toEqual([
+      [k1, '3850.00'],
+      [k2, '0.00'],
+      [k3, '1400.00'],
+    ]);
+
+    // ลูกค้าวางบิลตามใบสั่ง: ใบเดิมคิดตามแผน · ใบส่งซ้ำของที่ปฏิเสธไม่มีบรรทัดราคา (ไม่คิดซ้ำ)
+    const p = await rejected('10', { rateBody: { pricingModel: 'PER_TON', sellRate: '350' } });
+    const rp = await redeliver(p.doId, { reasonCodeId: p.short }).expect(200);
+    expect(await rev(p.doId)).toMatchObject({ sellRevenueTotal: '8750.00', provisional: false });
+    expect(await rev(rp.body.redelivery.id)).toMatchObject({ sellRevenueTotal: '0.00', data: [] });
+  });
 });

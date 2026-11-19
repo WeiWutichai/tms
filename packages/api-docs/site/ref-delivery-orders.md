@@ -1,6 +1,6 @@
 # ใบส่งของ (delivery-orders)
 
-14 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
+15 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
 
 | Endpoint | scope |
 |---|---|
@@ -15,6 +15,7 @@
 | [`POST /v1/delivery-orders/{id}/return`](#post-delivery-orders-id-return) | `orders:write` |
 | [`GET /v1/delivery-orders/{id}/pod`](#get-delivery-orders-id-pod) | `trips:read` |
 | [`PUT /v1/delivery-orders/{id}/pod`](#put-delivery-orders-id-pod) | `trips:dispatch` |
+| [`GET /v1/delivery-orders/{id}/revenue-lines`](#get-delivery-orders-id-revenue-lines) | `orders:read` |
 | [`GET /v1/delivery-orders/{id}/tracking-link`](#get-delivery-orders-id-tracking-link) | `orders:write` / `trips:dispatch` |
 | [`POST /v1/delivery-orders/{id}/tracking-link`](#post-delivery-orders-id-tracking-link) | `orders:write` / `trips:dispatch` |
 | [`POST /v1/delivery-orders/{id}/tracking-link/revoke`](#post-delivery-orders-id-tracking-link-revoke) | `orders:write` / `trips:dispatch` |
@@ -565,6 +566,43 @@ const { data, error } = await tms.PUT('/v1/delivery-orders/{id}/pod', {
 });
 ```
 
+## บรรทัดรายได้ของใบส่งของ + รายได้รวมของใบ {#get-delivery-orders-id-revenue-lines}
+
+`GET /v1/delivery-orders/{id}/revenue-lines`
+
+scope: `orders:read` · operationId: `DeliveryOrderRevenueLines_list`
+
+รายได้ต่อใบส่งของ: ราคาของใบสั่งที่แบ่งลงใบนี้ตามปริมาณ (snapshot × ยอดส่งจริง เมื่อลูกค้าวางบิลตามยอดส่งจริง — ยังไม่บันทึก = แผน `provisional`) + ค่าใช้จ่ายหน้างานที่ยืนยันแล้ว + บรรทัดที่คนเพิ่มผูกใบนี้ · `sellRevenueTotal` = ผลรวมบรรทัดที่ยังใช้ (ยอดเห็นเมื่อมี `prices.sell:read`) · ใบที่ยกเลิก = บรรทัด VOIDED ยอด 0.00 · ไม่คำนวณภาษี
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` |   |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `DeliveryOrderRevenueDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`orders:read`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบ (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X GET "$TMS_BASE_URL/v1/delivery-orders/<id>/revenue-lines" \
+  -H "Authorization: Bearer $TMS_API_KEY"
+```
+
+```ts
+const { data, error } = await tms.GET('/v1/delivery-orders/{id}/revenue-lines', {
+  params: { path: { id: "…" } },
+});
+```
+
 ## GET /v1/delivery-orders/{id}/tracking-link {#get-delivery-orders-id-tracking-link}
 
 `GET /v1/delivery-orders/{id}/tracking-link`
@@ -753,6 +791,18 @@ const { data, error } = await tms.POST('/v1/delivery-orders/{id}/tracking-link/r
 | `current` | ใช่ | `PodRecordDto` | null ได้ | ฉบับปัจจุบัน — null = ยังไม่มี |   |
 | `versions` | ใช่ | `array<PodVersionDto>` |   | ทุกฉบับ ใหม่ → เก่า |   |
 | `lines` | ใช่ | `array<PodLineDto>` |   | บรรทัดของ DO (แผน vs ส่งจริง vs ปฏิเสธ + เหตุผล) ตามฉบับล่าสุด |   |
+
+### DeliveryOrderRevenueDto {#schema-DeliveryOrderRevenueDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `deliveryOrderId` | ใช่ | `string` |   |   | `do_…` |
+| `doNo` | ใช่ | `string` | null ได้ |   | `DO-2611-00001` |
+| `sellRevenueTotal` |   | `string` |   | รายได้ของใบส่งของก่อน VAT = ผลรวมบรรทัดที่ยังใช้ (ACTIVE) — เห็นเมื่อมี `prices.sell:read` | `8750.00` |
+| `provisional` | ใช่ | `boolean` |   | true = มีบรรทัดที่ยอดยังไม่ยืนยัน (ยังไม่บันทึกยอดส่งจริง) |   |
+| `data` | ใช่ | `array<RevenueLineDto>` |   | รวมบรรทัดที่ยกเลิก (`status` VOIDED) |   |
 
 ### DeliveryOrderSplitResultDto {#schema-DeliveryOrderSplitResultDto}
 

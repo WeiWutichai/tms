@@ -18,6 +18,7 @@ import { T403, T404, T409, T412, T422 } from '../trips/trip-problems';
 import { OrderLockService } from '../orders/order-lock.service';
 import {
   AddRevenueLineDto,
+  DeliveryOrderRevenueDto,
   RevenueLineDto,
   RevenueLineListDto,
   RevenueLineReasonDto,
@@ -56,7 +57,8 @@ export class OrderRevenueLinesController {
   @ApiOperation({
     summary: 'บรรทัดรายได้ของใบสั่ง (ฐานของบรรทัดใบแจ้งหนี้)',
     description:
-      'ระบบสร้างจากราคาของใบสั่ง (`SO_CHARGE` — rate card snapshot / ราคาที่กำหนดเอง ตามปริมาณในใบสั่ง) และค่าใช้จ่ายหน้างานที่ยืนยันแล้ว ' +
+      'ระบบสร้างจากราคาของใบสั่ง (`SO_CHARGE` — rate card snapshot / ราคาที่กำหนดเอง **แบ่งลงใบส่งของ** ตามปริมาณของใบ: ลูกค้าวางบิลตามยอดส่งจริง = ยอดส่งจริง ' +
+      '(ยังไม่บันทึก = แผน `provisional`), ยังไม่มีใบส่งของ = ระดับใบสั่ง) และค่าใช้จ่ายหน้างานที่ยืนยันแล้ว ' +
       '(`DO_SURCHARGE`) · แก้ใบสั่ง → บรรทัดระบบคิดใหม่ บรรทัดที่คนเพิ่ม (`MANUAL`) คงไว้ · บรรทัดที่อยู่ในเอกสารที่ออกเลขแล้ว `locked` = ไม่เปลี่ยน · ' +
       'ไม่คำนวณภาษี (มีเฉพาะ vatType/whtRate ต่อบรรทัด) · รวมบรรทัดที่ยกเลิก (`status` VOIDED)',
   })
@@ -123,5 +125,28 @@ export class RevenueLinesController {
     const out = await this.svc.void(lineId, body.reason, expectedVersion(req));
     setEtag(res, out.version);
     return out;
+  }
+}
+
+@ApiTags('delivery-orders')
+@ApiBearerAuth()
+@Controller('delivery-orders')
+export class DeliveryOrderRevenueLinesController {
+  constructor(private readonly svc: RevenueLinesService) {}
+
+  @Get(':id/revenue-lines')
+  @TenantResource('deliveryOrder')
+  @RequireScope('orders:read')
+  @ApiOperation({
+    summary: 'บรรทัดรายได้ของใบส่งของ + รายได้รวมของใบ',
+    description:
+      'รายได้ต่อใบส่งของ (docs/01 §3.3 `revenue_amount` — PO ตัดสิน 19 พ.ย. 2569): ราคาของใบสั่งที่แบ่งลงใบนี้ตามปริมาณ (snapshot × ยอดส่งจริง ' +
+      'เมื่อลูกค้าวางบิลตามยอดส่งจริง — ยังไม่บันทึก = แผน `provisional`) + ค่าใช้จ่ายหน้างานที่ยืนยันแล้ว + บรรทัดที่คนเพิ่มผูกใบนี้ · ' +
+      '`sellRevenueTotal` = ผลรวมบรรทัดที่ยังใช้ (ยอดเห็นเมื่อมี `prices.sell:read`) · ใบที่ยกเลิก = บรรทัด VOIDED ยอด 0.00 · ไม่คำนวณภาษี',
+  })
+  @ApiProblems(T403('orders:read'), NF)
+  @ApiOkResponse({ type: DeliveryOrderRevenueDto })
+  async list(@Param('id') id: string): Promise<DeliveryOrderRevenueDto> {
+    return this.svc.listForDeliveryOrder(decodeIdOr404('deliveryOrder', id));
   }
 }

@@ -31,6 +31,9 @@ interface Line {
   whtRate: string;
   status: string;
   locked: boolean;
+  provisional: boolean;
+  voidReason: string | null;
+  doNo: string | null;
   version: number;
 }
 
@@ -116,16 +119,26 @@ describe('revenue lines (ST5-T01)', () => {
         .expect(201)
     ).body.id as string;
 
-  /** ใบสั่ง 20 + 5 ตัน (rate card ต่อตัน 350 → ค่าขนส่ง 8,750) สถานะ RECEIVED */
-  const order = async () => {
+  /**
+   * ใบสั่ง 20 + 5 ตัน (rate card ต่อตัน 350 → ค่าขนส่ง 8,750) สถานะ RECEIVED
+   * `rate` แทนค่า rate card · `byActual` = ลูกค้าวางบิลตามยอดส่งจริง · `drops` 2 = สองจุดส่ง (ไม่มี DO อัตโนมัติ)
+   */
+  const order = async (
+    opts: { rate?: Record<string, unknown>; byActual?: boolean; drops?: number } = {},
+  ) => {
     const customer = (
       await api(app, admin)
         .post('/v1/customers')
-        .send({ legalName: `ลูกค้า ${++seed}`, taxId: validTaxId(9800 + seed) })
+        .send({
+          legalName: `ลูกค้า ${++seed}`,
+          taxId: validTaxId(9800 + seed),
+          ...(opts.byActual ? { billByActualQty: true } : {}),
+        })
         .expect(201)
     ).body.id as string;
     const origin = await newSite();
     const dest = await newSite();
+    const dest2 = opts.drops === 2 ? await newSite() : null;
     const r = (
       await api(app, admin)
         .post('/v1/rate-cards')
@@ -135,9 +148,10 @@ describe('revenue lines (ST5-T01)', () => {
           destinationId: dest,
           vehicleTypeId: vt6,
           validFrom: addDays(today, -30),
-          includedStops: 2,
+          includedStops: 3,
           pricingModel: 'PER_TON',
           sellRate: '350',
+          ...opts.rate,
         })
         .expect(201)
     ).body;
@@ -153,6 +167,7 @@ describe('revenue lines (ST5-T01)', () => {
       stops: [
         { type: 'PICKUP', siteId: uuid('site', origin) },
         { type: 'DELIVERY', siteId: uuid('site', dest) },
+        ...(dest2 ? [{ type: 'DELIVERY' as const, siteId: uuid('site', dest2) }] : []),
       ],
       lines: [
         { description: 'ปูนซีเมนต์', qty: '20', unitId: unitTon, weightKg: '20000' },
@@ -226,6 +241,9 @@ describe('revenue lines (ST5-T01)', () => {
       locked: false,
     });
     expect(before[0]!.sourceId).toMatch(/^och_/);
+    // ST5-T01b: ราคาแบ่งลง DO (ใบสั่งจุดส่งเดียว = DO อัตโนมัติ 1 ใบ) · ลูกค้าวางบิลตามใบสั่ง = ยอดยืนยันแล้ว
+    expect(before[0]!.deliveryOrderId).toMatch(/^do_/);
+    expect(before[0]).toMatchObject({ provisional: false });
     // ธงภาษีคัดลอกจากบรรทัดราคาของใบสั่ง (snapshot — ไม่ join catalog)
     const charge = await db.salesOrderCharge.findFirstOrThrow({ where: { salesOrderId: o.id } });
     expect(before[0]).toMatchObject({
@@ -256,33 +274,56 @@ describe('revenue lines (ST5-T01)', () => {
 
     // แก้ปริมาณ 20 → 30 ตัน → ค่าขนส่ง 35 × 350 = 12,250 · บรรทัดที่คนเพิ่มยังอยู่ (id เดิม)
     await patchQty(o.pub, '30').expect(200);
-    const after = await lines(o.pub);
+    const all = await lines(o.pub);
+    const after = all.filter((l) => l.status === 'ACTIVE');
     expect(after).toHaveLength(2);
     const sys = after.find((l) => l.sourceType === 'SO_CHARGE')!;
     expect(sys).toMatchObject({ qty: '35', sellAmount: '12250.00' });
     expect(sys.id).not.toBe(before[0]!.id);
     const man = after.find((l) => l.isUserAdded)!;
     expect(man).toMatchObject({ id: added.body.id, sellAmount: '500.00', status: 'ACTIVE' });
-    // ไม่มีบรรทัดค้างของราคาเดิม
-    expect(await db.revenueLine.count({ where: { salesOrderId: o.id } })).toBe(2);
+    // ไม่มีบรรทัดค้างของราคาเดิม — สินค้าเปลี่ยน = DO ชุดใหม่ (ORD-085) → บรรทัดของ DO เดิม VOIDED (ไม่ลบ) + เหตุผล
+    expect(await db.revenueLine.count({ where: { salesOrderId: o.id, status: 'ACTIVE' } })).toBe(2);
+    expect(all.find((l) => l.id === before[0]!.id)).toMatchObject({
+      status: 'VOIDED',
+      voidReason: 'ใบส่งของถูกยกเลิก — บรรทัดรายได้ของใบนี้ยกเลิกตาม',
+    });
+    expect(sys.deliveryOrderId).not.toBe(before[0]!.deliveryOrderId);
 
     // แก้ช่องที่ไม่กระทบราคา → ไม่เขียนบรรทัดใหม่ (idempotent)
     await api(app, admin)
       .patch(`/v1/orders/${o.pub}`)
       .send({ customerRef: 'PO-RVL-1' })
       .expect(200);
-    expect((await lines(o.pub)).map((l) => l.id)).toEqual(after.map((l) => l.id));
+    expect((await lines(o.pub)).map((l) => [l.id, l.version])).toEqual(
+      all.map((l) => [l.id, l.version]),
+    );
   });
 
   it('เกณฑ์ตรวจรับ: หลัง finalize (บรรทัดล็อก) แก้ปริมาณแล้วบรรทัดไม่เปลี่ยน · ฐานข้อมูลกันแก้/ลบ', async () => {
     const o = await order();
     const man = (await addManual(o.pub).expect(201)).body as Line;
     const [sys] = await lines(o.pub);
-    // จำลอง ST5-T09 finalize: ตั้งล็อกให้ทุกบรรทัดของใบสั่ง (เอกสารแม่ออกเลขแล้ว)
+    // จำลอง ST5-T09 finalize: ตั้งล็อกให้ทุกบรรทัดของใบสั่ง (เอกสารแม่ออกเลขแล้ว) + DO วางบิลแล้ว (ไม่สร้าง DO ชุดใหม่)
     const docId = randomUUID();
     await db.revenueLine.updateMany({
       where: { salesOrderId: o.id },
       data: { lockedAt: new Date(), lockedDocumentId: docId },
+    });
+    // (เที่ยวจำลองสถานะ CANCELLED — ไม่นับว่า "อยู่ในเที่ยว" จึงยังแก้ใบสั่งได้ · DO พ้น DRAFT = ไม่สร้าง DO ชุดใหม่)
+    const billedTrip = await db.trip.create({
+      data: {
+        tenantId,
+        tripNo: `TRP-RVL-${++seed}`,
+        tripDate: new Date(today),
+        status: 'CANCELLED',
+        cancelledAt: new Date(),
+        cancelReason: 'เที่ยวจำลองสำหรับทดสอบ',
+      },
+    });
+    await db.deliveryOrder.updateMany({
+      where: { salesOrderId: o.id, status: 'DRAFT' },
+      data: { status: 'BILLED', tripId: billedTrip.id },
     });
     await patchQty(o.pub, '40').expect(200);
     const after = await lines(o.pub);
@@ -362,18 +403,29 @@ describe('revenue lines (ST5-T01)', () => {
     });
     expect(ua).toMatchObject({ actorId: 'user-test', reason: 'ยกเลิกใบแจ้งหนี้ทดสอบระบบ' });
     expect(ua.after).toMatchObject({ count: 2 });
-    // ปลดแล้ว: แก้ใบสั่งครั้งต่อไป → บรรทัดระบบตามราคาปัจจุบัน
+    // ปลดแล้ว: แก้ใบสั่งครั้งต่อไป → บรรทัดระบบคิดใหม่จากบรรทัดราคาปัจจุบัน × ปริมาณของ DO (ST5-T01b —
+    // DO พ้น DRAFT ไม่ถูกสร้างใหม่ ปริมาณของ DO คง 25 ตัน)
     await patchQty(o.pub, '41').expect(200);
-    expect((await lines(o.pub)).find((l) => l.sourceType === 'SO_CHARGE')).toMatchObject({
-      qty: '46',
-      sellAmount: '16100.00',
+    const now = await db.salesOrderCharge.findFirstOrThrow({ where: { salesOrderId: o.id } });
+    expect(now.amount.toFixed(2)).toBe('16100.00');
+    const relocked = (await lines(o.pub)).filter(
+      (l) => l.sourceType === 'SO_CHARGE' && l.status === 'ACTIVE',
+    );
+    expect(relocked).toHaveLength(1);
+    expect(relocked[0]).toMatchObject({
+      sourceId: encodeId('orderCharge', now.id),
+      qty: '25',
+      sellAmount: '8750.00',
       locked: false,
     });
   });
 
   it('ค่าใช้จ่ายหน้างานที่ยืนยัน → บรรทัด DO_SURCHARGE (รอยืนยัน/ปฏิเสธ = ไม่มี) · แก้ใบสั่งแล้วยังอยู่', async () => {
     const o = await order();
-    const d = await deliveryOrder(o.id);
+    const auto = await db.deliveryOrder.findFirstOrThrow({
+      where: { salesOrderId: o.id, status: 'DRAFT' },
+    });
+    const d = { id: auto.id, pub: encodeId('deliveryOrder', auto.id) };
     const wait = await db.serviceItem.findFirstOrThrow({ where: { tenantId, code: 'WAIT' } });
     const trip = await db.trip.create({
       data: { tenantId, tripNo: `TRP-RVL-${++seed}`, tripDate: new Date(today) },
@@ -420,11 +472,6 @@ describe('revenue lines (ST5-T01)', () => {
       vatType: 'VAT_7',
       whtRate: '3.00',
     });
-    // แก้ใบสั่ง (ราคาคิดใหม่) → บรรทัดค่าใช้จ่ายหน้างานยังเป็นบรรทัดเดิม
-    await patchQty(o.pub, '22').expect(200);
-    const after = await lines(o.pub);
-    expect(after.find((l) => l.sourceType === 'DO_SURCHARGE')!.id).toBe(sur[0]!.id);
-    expect(after.map((l) => l.sourceType)).toEqual(['SO_CHARGE', 'DO_SURCHARGE']);
     // แหล่งเดียว = บรรทัดเดียว (unique ที่ฐานข้อมูล)
     const row = await db.revenueLine.findFirstOrThrow({ where: { sourceId: s1.id } });
     await expect(
@@ -447,6 +494,25 @@ describe('revenue lines (ST5-T01)', () => {
         },
       }),
     ).rejects.toThrow();
+    // แก้ใบสั่งช่องที่ไม่กระทบ DO → บรรทัดค่าใช้จ่ายหน้างานเดิม
+    await api(app, admin)
+      .patch(`/v1/orders/${o.pub}`)
+      .send({ customerRef: 'PO-RVL-SUR' })
+      .expect(200);
+    expect((await lines(o.pub)).find((l) => l.sourceType === 'DO_SURCHARGE')).toMatchObject({
+      id: sur[0]!.id,
+      status: 'ACTIVE',
+    });
+    // ST5-T01b (PO ตัดสิน 19 พ.ย. 2569): แก้สินค้า → DO เดิมถูกยกเลิก (ORD-085) → บรรทัดของ DO นั้น (รวมค่าใช้จ่ายหน้างาน) VOIDED
+    await patchQty(o.pub, '22').expect(200);
+    const after = await lines(o.pub);
+    expect(after.find((l) => l.id === sur[0]!.id)).toMatchObject({
+      status: 'VOIDED',
+      voidReason: 'ใบส่งของถูกยกเลิก — บรรทัดรายได้ของใบนี้ยกเลิกตาม',
+    });
+    expect(after.filter((l) => l.status === 'ACTIVE').map((l) => l.sourceType)).toEqual([
+      'SO_CHARGE',
+    ]);
   });
 
   it('ยกเลิกบรรทัดที่คนเพิ่ม: เหตุผล + audit + If-Match · บรรทัดระบบยกเลิกไม่ได้ · ฐานข้อมูลห้ามลบบรรทัดที่คนเพิ่ม', async () => {
@@ -623,5 +689,216 @@ describe('revenue lines (ST5-T01)', () => {
     expect(masked.after.sellAmount).toBeUndefined();
     expect(masked.after.sellUnitPrice).toBeUndefined();
     expect(masked.after.description).toBe('ค่ายกของขึ้นชั้น 2');
+  });
+  // ---------- ST5-T01b บรรทัดรายได้ต่อ DO (PO ตัดสิน 19 พ.ย. 2569) ----------
+  const activeOf = (ls: Line[], src = 'SO_CHARGE') =>
+    ls.filter((l) => l.status === 'ACTIVE' && l.sourceType === src);
+  const autoDo = async (soId: string) =>
+    encodeId(
+      'deliveryOrder',
+      (await db.deliveryOrder.findFirstOrThrow({ where: { salesOrderId: soId, status: 'DRAFT' } }))
+        .id,
+    );
+  const split = async (doPub: string, parts: [number, string][][]) =>
+    (
+      (
+        await api(app, admin)
+          .post(`/v1/delivery-orders/${doPub}/split`)
+          .send({
+            parts: parts.map((p) => ({ lines: p.map(([soLineNo, qty]) => ({ soLineNo, qty })) })),
+          })
+          .expect(200)
+      ).body.data as { id: string }[]
+    ).map((k) => k.id);
+  const doRevenue = (doPub: string, token = admin) =>
+    api(app, token).get(`/v1/delivery-orders/${doPub}/revenue-lines`);
+
+  it('ต่อ DO: แยก DO → ราคา snapshot × ปริมาณของแต่ละใบ ปัดต่อใบ · ผลรวม · รวมกลับ · ยอดต่อ DO + ซ่อนราคา + แยก tenant', async () => {
+    const o = await order({ rate: { sellRate: '333.33' } });
+    const d0 = await autoDo(o.id);
+    const [first] = activeOf(await lines(o.pub));
+    expect(first).toMatchObject({ deliveryOrderId: d0, qty: '25', sellAmount: '8333.25' });
+    const [a, b] = await split(d0, [
+      [
+        [1, '10.005'],
+        [2, '2'],
+      ],
+      [
+        [1, '9.995'],
+        [2, '3'],
+      ],
+    ]);
+    const ls = await lines(o.pub);
+    const act = activeOf(ls);
+    // 12.005 × 333.33 = 4001.62665 → 4001.63 · 12.995 × 333.33 = 4331.62335 → 4331.62 (half-up ต่อใบ — MD-114)
+    expect(act.map((l) => [l.deliveryOrderId, l.qty, l.sellUnitPrice, l.sellAmount])).toEqual([
+      [a, '12.005', '333.33', '4001.63'],
+      [b, '12.995', '333.33', '4331.62'],
+    ]);
+    expect(new Set(act.map((l) => l.sourceId))).toEqual(new Set([first!.sourceId]));
+    // ใบแม่ (ยกเลิกเพราะแยก) → บรรทัดเดิม VOIDED ไม่ลบ
+    expect(ls.find((l) => l.id === first!.id)).toMatchObject({
+      status: 'VOIDED',
+      voidReason: 'ใบส่งของถูกยกเลิก — บรรทัดรายได้ของใบนี้ยกเลิกตาม',
+    });
+
+    // ยอดต่อ DO (docs/01 §3.3 revenue_amount) — งานปันต้นทุนอ่านค่านี้
+    const ra = await doRevenue(a!).expect(200);
+    expect(ra.body).toMatchObject({
+      deliveryOrderId: a,
+      sellRevenueTotal: '4001.63',
+      provisional: false,
+    });
+    expect(ra.body.data).toHaveLength(1);
+    const parent = await doRevenue(d0).expect(200);
+    expect(parent.body).toMatchObject({ sellRevenueTotal: '0.00' });
+    expect(parent.body.data.map((l: Line) => l.status)).toEqual(['VOIDED']);
+    // ไม่มี prices.sell:read → ไม่เห็นยอด · ไม่มี orders:read → 403 · บริษัทอื่น / id ผิด → 404
+    const masked = await doRevenue(a!, await tokenFor(tenantId, 'orders:read')).expect(200);
+    expect(masked.body.sellRevenueTotal).toBeUndefined();
+    expect(masked.body.data[0].sellAmount).toBeUndefined();
+    await doRevenue(a!, await tokenFor(tenantId, 'trips:read')).expect(403);
+    await doRevenue(a!, other).expect(404);
+    await doRevenue(`do_${'0'.repeat(32)}`).expect(404);
+    await doRevenue('ext:NOPE').expect(404);
+
+    // รวมกลับ → ใบปลายทางได้ปริมาณเต็ม (บรรทัดเดิมปรับ) · ใบที่ถูกรวม VOIDED
+    await api(app, admin)
+      .post(`/v1/delivery-orders/${a}/merge`)
+      .send({ deliveryOrderIds: [b] })
+      .expect(200);
+    const merged = activeOf(await lines(o.pub));
+    expect(merged.map((l) => [l.deliveryOrderId, l.qty, l.sellAmount])).toEqual([
+      [a, '25', '8333.25'],
+    ]);
+    expect(merged[0]!.id).toBe(act[0]!.id);
+  });
+
+  it('ขั้นต่ำ [OPEN — PO] ระดับใบสั่ง แบ่งส่วนที่ขาดตามสัดส่วน · ยกเลิก DO → บรรทัดของใบนั้น VOIDED (รวมค่าใช้จ่ายหน้างาน)', async () => {
+    const o = await order({ rate: { sellMinCharge: '10000' } });
+    expect(activeOf(await lines(o.pub))[0]).toMatchObject({ sellAmount: '10000.00' });
+    const [a, b] = await split(await autoDo(o.id), [[[1, '20']], [[2, '5']]]);
+    // 20 × 350 = 7000 · 5 × 350 = 1750 → รวม 8750 < 10000 → ขาด 1250 แบ่ง 7000:1750 = 1000:250
+    expect(
+      activeOf(await lines(o.pub)).map((l) => [l.deliveryOrderId, l.qty, l.sellAmount]),
+    ).toEqual([
+      [a, '20', '8000.00'],
+      [b, '5', '2000.00'],
+    ]);
+    // ค่าใช้จ่ายหน้างานที่ยืนยันแล้วของใบ b
+    const wait = await db.serviceItem.findFirstOrThrow({ where: { tenantId, code: 'WAIT' } });
+    const trip = await db.trip.create({
+      data: { tenantId, tripNo: `TRP-RVL-${++seed}`, tripDate: new Date(today) },
+    });
+    const s1 = await db.doSurcharge.create({
+      data: {
+        tenantId,
+        deliveryOrderId: uuid('deliveryOrder', b!),
+        tripId: trip.id,
+        serviceItemId: wait.id,
+        serviceItemVersion: wait.version,
+        description: 'ค่ารอ',
+        vatType: 'VAT_7',
+        whtRate: '3.00',
+        qty: '1',
+        unitPrice: '300',
+        amount: '300',
+        createdBy: 'user-recorder',
+      },
+    });
+    await api(app, admin)
+      .post(`/v1/do-surcharges/${encodeId('doSurcharge', s1.id)}/confirm`)
+      .send({ reason: 'ตรวจใบเสร็จแล้วถูกต้อง' })
+      .expect(200);
+    expect((await doRevenue(b!).expect(200)).body.sellRevenueTotal).toBe('2300.00');
+    await api(app, admin)
+      .post(`/v1/delivery-orders/${b}/cancel`)
+      .send({ reason: 'ลูกค้าขอยกเลิกส่วนนี้' })
+      .expect(200);
+    const ls = await lines(o.pub);
+    const bLines = ls.filter((l) => l.deliveryOrderId === b);
+    expect(bLines.map((l) => [l.sourceType, l.status])).toEqual([
+      ['SO_CHARGE', 'VOIDED'],
+      ['DO_SURCHARGE', 'VOIDED'],
+    ]);
+    for (const l of bLines)
+      expect(l.voidReason).toBe('ใบส่งของถูกยกเลิก — บรรทัดรายได้ของใบนี้ยกเลิกตาม');
+    // เหลือใบ a ใบเดียว: 7000 < ขั้นต่ำ → 10000
+    expect(activeOf(await lines(o.pub)).map((l) => [l.deliveryOrderId, l.sellAmount])).toEqual([
+      [a, '10000.00'],
+    ]);
+    expect((await doRevenue(b!).expect(200)).body.sellRevenueTotal).toBe('0.00');
+  });
+
+  it('ยอดเหมา [OPEN — PO] แบ่งเท่ากันทุก DO (ผลรวมเท่าเดิม) · ใบสั่งยังไม่มี DO = ระดับใบสั่ง provisional → สร้าง DO แล้วย้ายลง DO', async () => {
+    const o = await order({ rate: { pricingModel: 'PER_TRIP', sellRate: '5000' } });
+    await split(await autoDo(o.id), [[[1, '10']], [[1, '10']], [[2, '5']]]);
+    const act = activeOf(await lines(o.pub));
+    expect(act.map((l) => [l.qty, l.sellUnitPrice, l.sellAmount])).toEqual([
+      ['1', '1666.67', '1666.67'],
+      ['1', '1666.67', '1666.67'],
+      ['1', '1666.66', '1666.66'],
+    ]);
+
+    // สองจุดส่ง: ไม่มี DO อัตโนมัติ → บรรทัดระดับใบสั่ง (ราคาที่กำหนดเอง) provisional
+    const m = await order({ drops: 2 });
+    await api(app, admin)
+      .post(`/v1/orders/${m.pub}/manual-price`)
+      .send({ sellAmount: '9000', reason: 'ลูกค้าตกลงราคาเหมาทางโทรศัพท์' })
+      .expect(200);
+    const pre = activeOf(await lines(m.pub));
+    expect(pre).toHaveLength(1);
+    expect(pre[0]).toMatchObject({
+      deliveryOrderId: null,
+      sellAmount: '9000.00',
+      provisional: true,
+    });
+    const mk = async (destStopSeq: number, soLineNo: number, qty: string) =>
+      (
+        await api(app, admin)
+          .post('/v1/delivery-orders')
+          .send({ orderId: m.pub, destStopSeq, lines: [{ soLineNo, qty }] })
+          .expect(201)
+      ).body.id as string;
+    const d1 = await mk(2, 1, '20');
+    const l1 = await lines(m.pub);
+    expect(l1.find((l) => l.id === pre[0]!.id)).toMatchObject({
+      status: 'VOIDED',
+      voidReason: 'แบ่งรายได้ลงใบส่งของตามปริมาณ (PO ตัดสิน 19 พ.ย. 2569)',
+    });
+    expect(activeOf(l1).map((l) => [l.deliveryOrderId, l.sellAmount, l.provisional])).toEqual([
+      [d1, '9000.00', false],
+    ]);
+    const d2 = await mk(3, 2, '5');
+    expect(activeOf(await lines(m.pub)).map((l) => [l.deliveryOrderId, l.sellAmount])).toEqual([
+      [d1, '4500.00'],
+      [d2, '4500.00'],
+    ]);
+  });
+
+  it('ข้อมูลก่อน migration 0117: บรรทัดระดับใบสั่งของใบที่มี DO แล้ว → ขั้น bootstrap คิดใหม่ต่อ DO (รันซ้ำไม่แตะซ้ำ)', async () => {
+    const o = await order();
+    const d0 = await autoDo(o.id);
+    const [cur] = activeOf(await lines(o.pub));
+    // จำลองข้อมูลเดิม: บรรทัดระบบระดับใบสั่ง (delivery_order_id ว่าง)
+    await db.revenueLine.update({
+      where: { id: uuid('revenueLine', cur!.id) },
+      data: { deliveryOrderId: null, provisional: true },
+    });
+    const { backfillRevenueLinesPerDo } =
+      await import('../src/modules/revenue-lines/revenue-rebuild');
+    expect(await backfillRevenueLinesPerDo(db as never, tenantId)).toBeGreaterThanOrEqual(1);
+    const ls = await lines(o.pub);
+    expect(ls.find((l) => l.id === cur!.id)).toMatchObject({
+      status: 'VOIDED',
+      deliveryOrderId: null,
+      voidReason: 'แบ่งรายได้ลงใบส่งของตามปริมาณ (PO ตัดสิน 19 พ.ย. 2569)',
+    });
+    expect(activeOf(ls).map((l) => [l.deliveryOrderId, l.sellAmount])).toEqual([[d0, '8750.00']]);
+    const row = await db.revenueLine.findUniqueOrThrow({
+      where: { id: uuid('revenueLine', cur!.id) },
+    });
+    expect(row.voidedBy).toBe('system:backfill');
+    expect(await backfillRevenueLinesPerDo(db as never, tenantId)).toBe(0);
   });
 });

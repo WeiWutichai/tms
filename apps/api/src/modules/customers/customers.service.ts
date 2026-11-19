@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma, type ActiveStatus, type Customer } from '@prisma/client';
 import { parsePodRequirements, scopeAllows, type TransitionTable } from '@tms/domain';
 import { requestContext } from '../../common/request-context';
+import { RevenueLinesService } from '../revenue-lines/revenue-lines.service';
 import { AuditService } from '../../audit/audit.service';
 import { encodeId, tryDecodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
@@ -113,6 +114,7 @@ export class CustomersService {
     private readonly db: DbService,
     private readonly state: StateService,
     private readonly audit: AuditService,
+    private readonly revenueLines: RevenueLinesService,
   ) {}
 
   // ---------- read ----------
@@ -380,6 +382,15 @@ export class CustomersService {
     }
     if (isNoopUpdate(current, data as Record<string, unknown>, DECIMAL_FIELDS)) return current; // ส่งซ้ำค่าเดิม (เช่น PUT external) ไม่เพิ่ม version
     const c = await this.bumpVersion(current, data);
+    // ST5-T01b: เปลี่ยนเกณฑ์วางบิล (ตามใบสั่ง ↔ ตามยอดส่งจริง) → บรรทัดรายได้ต่อ DO ของใบสั่งที่ยังเปิดอยู่คิดใหม่ (บรรทัดที่ล็อกไม่เปลี่ยน)
+    if (c.billByActualQty !== current.billByActualQty) {
+      const open = await this.db.tx.salesOrder.findMany({
+        where: { customerId: c.id, status: { notIn: ['CLOSED', 'CANCELLED'] } },
+        select: { id: true },
+        orderBy: { id: 'asc' },
+      });
+      for (const o of open) await this.revenueLines.rebuild(o.id);
+    }
     const before = auditView(current);
     const after = auditView(c);
     await this.audit.changed('customer.updated', 'customer', c.id, before, after);

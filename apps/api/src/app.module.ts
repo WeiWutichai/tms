@@ -153,6 +153,7 @@ import {
 } from './modules/field-charges/field-charges.controller';
 import { FieldChargesService } from './modules/field-charges/field-charges.service';
 import {
+  DeliveryOrderRevenueLinesController,
   OrderRevenueLinesController,
   RevenueLinesController,
 } from './modules/revenue-lines/revenue-lines.controller';
@@ -287,6 +288,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     TripFieldChargesController,
     OrderRevenueLinesController,
     RevenueLinesController,
+    DeliveryOrderRevenueLinesController,
     DoSurchargesController,
     TripCostsController,
     StopsController,

@@ -1188,7 +1188,7 @@ const { data, error } = await tms.GET('/v1/orders/{id}/events', {
 
 scope: `orders:read` · operationId: `OrderRevenueLines_list`
 
-ระบบสร้างจากราคาของใบสั่ง (`SO_CHARGE` — rate card snapshot / ราคาที่กำหนดเอง ตามปริมาณในใบสั่ง) และค่าใช้จ่ายหน้างานที่ยืนยันแล้ว (`DO_SURCHARGE`) · แก้ใบสั่ง → บรรทัดระบบคิดใหม่ บรรทัดที่คนเพิ่ม (`MANUAL`) คงไว้ · บรรทัดที่อยู่ในเอกสารที่ออกเลขแล้ว `locked` = ไม่เปลี่ยน · ไม่คำนวณภาษี (มีเฉพาะ vatType/whtRate ต่อบรรทัด) · รวมบรรทัดที่ยกเลิก (`status` VOIDED)
+ระบบสร้างจากราคาของใบสั่ง (`SO_CHARGE` — rate card snapshot / ราคาที่กำหนดเอง **แบ่งลงใบส่งของ** ตามปริมาณของใบ: ลูกค้าวางบิลตามยอดส่งจริง = ยอดส่งจริง (ยังไม่บันทึก = แผน `provisional`), ยังไม่มีใบส่งของ = ระดับใบสั่ง) และค่าใช้จ่ายหน้างานที่ยืนยันแล้ว (`DO_SURCHARGE`) · แก้ใบสั่ง → บรรทัดระบบคิดใหม่ บรรทัดที่คนเพิ่ม (`MANUAL`) คงไว้ · บรรทัดที่อยู่ในเอกสารที่ออกเลขแล้ว `locked` = ไม่เปลี่ยน · ไม่คำนวณภาษี (มีเฉพาะ vatType/whtRate ต่อบรรทัด) · รวมบรรทัดที่ยกเลิก (`status` VOIDED)
 
 **Parameters**
 
@@ -1507,7 +1507,7 @@ const { data, error } = await tms.POST('/v1/revenue-lines/{id}/void', {
 |---|---|---|---|---|---|
 | `id` | ใช่ | `string` |   |   | `rvl_…` |
 | `lineNo` | ใช่ | `number` |   | ลำดับบรรทัดในใบสั่ง (ไม่ใช้ซ้ำ) |   |
-| `sourceType` | ใช่ | `string` | ค่า: `SO_CHARGE`, `DO_SURCHARGE`, `MANUAL` | SO_CHARGE = ราคาของใบสั่ง (rate card / ราคาที่กำหนดเอง) · DO_SURCHARGE = ค่าใช้จ่ายหน้างานที่ยืนยันแล้ว · MANUAL = คนเพิ่มเอง |   |
+| `sourceType` | ใช่ | `string` | ค่า: `SO_CHARGE`, `DO_SURCHARGE`, `MANUAL` | SO_CHARGE = ราคาของใบสั่ง (rate card / ราคาที่กำหนดเอง) แบ่งลงใบส่งของตามปริมาณ (`deliveryOrderId` — ว่าง = ใบสั่งยังไม่มีใบส่งของ) · DO_SURCHARGE = ค่าใช้จ่ายหน้างานที่ยืนยันแล้ว · MANUAL = คนเพิ่มเอง |   |
 | `sourceId` | ใช่ | `string` | null ได้ | แหล่งของบรรทัด: `och_…` (บรรทัดราคาของใบสั่ง) · `dsc_…` (ค่าใช้จ่ายหน้างาน) · MANUAL = null | `dsc_…` |
 | `isUserAdded` | ใช่ | `boolean` |   | true = คนเพิ่มเอง (คงไว้เมื่อระบบคิดบรรทัดใหม่) |   |
 | `kind` | ใช่ | `string` | ค่า: `FREIGHT`, `EXTRA_STOP`, `ACCESSORIAL` |   |   |
@@ -1524,6 +1524,7 @@ const { data, error } = await tms.POST('/v1/revenue-lines/{id}/void', {
 | `status` | ใช่ | `string` | ค่า: `ACTIVE`, `VOIDED` |   |   |
 | `locked` | ใช่ | `boolean` |   | true = อยู่ในเอกสารที่ออกเลขแล้ว — แก้/ยกเลิก/คิดใหม่ไม่ได้ |   |
 | `lockedAt` | ใช่ | `string (date-time)` | null ได้ |   |   |
+| `provisional` | ใช่ | `boolean` |   | true = ยอดยังไม่ยืนยัน: ใบสั่งยังไม่มีใบส่งของ (บรรทัดระดับใบสั่ง) หรือใบส่งของยังไม่บันทึกยอดส่งจริง (ลูกค้าวางบิลตามยอดส่งจริง — ตอนนี้คิดตามแผน) — ระบบคิดใหม่เมื่อบันทึก |   |
 | `voidedAt` | ใช่ | `string (date-time)` | null ได้ |   |   |
 | `voidReason` | ใช่ | `string` | null ได้ |   |   |
 | `createdBy` | ใช่ | `string` | null ได้ |   |   |

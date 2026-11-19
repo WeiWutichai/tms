@@ -36,6 +36,7 @@ import { DbService, type Tx } from '../../db/db.service';
 import { StateService } from '../../state/state.service';
 import { cleanLine, stableStringify } from '../master/master-kit';
 import { issueNumber } from '../sequences/sequences.service';
+import { RevenueLinesService } from '../revenue-lines/revenue-lines.service';
 import { keysetArgs, type ListQuery } from '../../common/pagination';
 
 export type DeliveryOrderRecord = DeliveryOrder & {
@@ -204,7 +205,17 @@ export class DeliveryOrderService {
     private readonly db: DbService,
     private readonly state: StateService,
     private readonly audit: AuditService,
+    private readonly revenue: RevenueLinesService,
   ) {}
+
+  /**
+   * ST5-T01b บรรทัดรายได้ต่อ DO (PO ตัดสิน 19 พ.ย. 2569): ทุกงานที่เปลี่ยนชุด DO ที่คิดเงิน/ปริมาณของ DO
+   * (สร้าง แยก รวม ยกเลิก ส่งใหม่ ส่งซ้ำของที่ปฏิเสธ คืนคลัง คืนใบเดิม บันทึกยอดส่งจริง ส่งถึง) คิดบรรทัดรายได้ของใบสั่งใหม่
+   * ใน transaction เดียวกัน (idempotent — ไม่เปลี่ยน = ไม่เขียน) · `syncWithOrder` ผู้เรียก (OrderIntakeService.evaluate) คิดเองหลัง sync
+   */
+  private revenueOf(tx: Tx, salesOrderId: string): Promise<boolean> {
+    return this.revenue.rebuild(salesOrderId, tx);
+  }
 
   // ---------------------------------------------------------------------------------------------
   // อ่าน
@@ -412,7 +423,9 @@ export class DeliveryOrderService {
       // SO ไม่มีสินค้า: ไม่มีอะไรให้แบ่ง — 1 DO ต่อจุดส่ง
       throw field422('destStopSeq', 'fully_allocated', 'this drop already has a delivery order');
     }
-    return this.createOne(tx, so, lines, stops, allocationHash(so), 'manual');
+    const created = await this.createOne(tx, so, lines, stops, allocationHash(so), 'manual');
+    await this.revenueOf(tx, salesOrderId);
+    return created;
   }
 
   /**
@@ -467,6 +480,7 @@ export class DeliveryOrderService {
       before: view(src),
       after: { children: children.map(view) },
     });
+    await this.revenueOf(tx, src.salesOrderId);
     return children;
   }
 
@@ -573,6 +587,7 @@ export class DeliveryOrderService {
       before: { target: before, merged: others.map(view) },
       after: view(final),
     });
+    await this.revenueOf(tx, target.salesOrderId);
     return final;
   }
 
@@ -604,6 +619,7 @@ export class DeliveryOrderService {
       after: { status: final.status },
       reason: note,
     });
+    await this.revenueOf(tx, d.salesOrderId);
     return final;
   }
 
@@ -789,6 +805,16 @@ export class DeliveryOrderService {
     note: string | null,
   ): Promise<void> {
     await this.move(tx, d, event, {}, note, reasonCodeId);
+    // ส่งถึง: DO ที่ไม่มีบรรทัดสินค้ารู้ยอดแล้ว (provisional → false)
+    if (event === 'deliver') await this.revenueOfDo(tx, d.id);
+  }
+
+  private async revenueOfDo(tx: Tx, deliveryOrderId: string): Promise<void> {
+    const r = await tx.deliveryOrder.findUnique({
+      where: { id: deliveryOrderId },
+      select: { salesOrderId: true },
+    });
+    if (r) await this.revenueOf(tx, r.salesOrderId);
   }
 
   /**
@@ -817,6 +843,8 @@ export class DeliveryOrderService {
           rejectReasonCodeId: l.rejectReasonCodeId,
         },
       });
+    // ยอดส่งจริง → รายได้ของ DO = snapshot × ยอดส่งจริง (ลูกค้าวางบิลตามยอดส่งจริง)
+    await this.revenueOfDo(tx, deliveryOrderId);
   }
 
   async applyPodResult(
@@ -910,6 +938,7 @@ export class DeliveryOrderService {
       },
       reason: o.note,
     });
+    await this.revenueOf(tx, src.salesOrderId);
     return d;
   }
 
@@ -1006,6 +1035,7 @@ export class DeliveryOrderService {
       after: { ...view(d), id: d.id, doDate: o.doDate, reasonCodeId: o.reasonCodeId },
       reason: o.reason,
     });
+    await this.revenueOf(tx, src.salesOrderId);
     return d;
   }
 
@@ -1053,6 +1083,7 @@ export class DeliveryOrderService {
       after: { status: 'RETURNED', reasonCodeId: o.reasonCodeId },
       reason: o.reason,
     });
+    await this.revenueOf(tx, src.salesOrderId);
   }
 
   /**
@@ -1134,6 +1165,7 @@ export class DeliveryOrderService {
       after: { status: 'DISPATCHED' },
       reason: note,
     });
+    await this.revenueOf(tx, src.salesOrderId);
     return true;
   }
 
