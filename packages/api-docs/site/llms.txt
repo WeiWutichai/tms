@@ -48,7 +48,7 @@
 - [วางแผน (planning)](ref-planning.md): 2 endpoint: GET /v1/planning/board, GET /v1/planning/eligibility
 - [ตารางงาน (schedule)](ref-schedule.md): 4 endpoint: GET /v1/schedule-entries, POST /v1/schedule-entries, GET /v1/schedule-entries/{id}, POST /v1/schedule-entries/{id}/cancel
 - [ส่งออกไฟล์ (exports)](ref-exports.md): 2 endpoint: POST /v1/exports, GET /v1/exports/{id}
-- [Connector ERP (connectors)](ref-connectors.md): 5 endpoint: GET /v1/connectors/effective, GET /v1/connectors, GET /v1/connectors/adapters, GET /v1/connectors/{id}, GET /v1/connectors/{id}/history
+- [Connector ERP (connectors)](ref-connectors.md): 8 endpoint: GET /v1/connectors/effective, GET /v1/connectors, GET /v1/connectors/adapters, GET /v1/connectors/{id}, GET /v1/connectors/{id}/history, GET /v1/connectors/{id}/commands, …
 - [ส่งข้อความ (messaging)](ref-messaging.md): 5 endpoint: POST /v1/messages/send-link, GET /v1/messages, GET /v1/messages/channels, GET /v1/messages/{id}, GET /v1/settings/messaging
 - [นิติบุคคล (companies)](ref-companies.md): 2 endpoint: GET /v1/companies, GET /v1/companies/{id}
 - [สาขา (branches)](ref-branches.md): 2 endpoint: GET /v1/branches, GET /v1/branches/{id}
@@ -60,7 +60,7 @@
 ## อ้างอิง
 
 - [Webhook events](webhook-events.md): 31 event: connector.health_changed, credit_note.finalized, debit_note.finalized, delivery_order.status_changed, invoice.adjusted, invoice.finalized, invoice.paid, invoice.voided, …
-- [รหัส error](errors.md): 95 code ของ problem+json
+- [รหัส error](errors.md): 97 code ของ problem+json
 - [Changelog](changelog.md): ประวัติเวอร์ชันของ API (added/changed/deprecated)
 
 ## Optional

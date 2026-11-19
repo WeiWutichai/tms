@@ -53,6 +53,8 @@
 | [`in_use_active`](#in_use_active) | 409 | ปิดใช้ไม่ได้ เพราะยังมีข้อมูลที่ใช้งานอยู่อ้างถึง |
 | [`inbound_not_supported`](#inbound_not_supported) | 409 | ระบบบัญชีนี้ไม่รองรับการส่งข้อมูลเข้ามาทาง webhook |
 | [`invalid_state_transition`](#invalid_state_transition) | 409 | ทำรายการนี้ไม่ได้ในสถานะปัจจุบัน |
+| [`master_sync_failed`](#master_sync_failed) | 409 | ดึงผังรหัสจากระบบบัญชีไม่สำเร็จ ตรวจการเชื่อมต่อแล้วลองใหม่ |
+| [`master_sync_not_supported`](#master_sync_not_supported) | 409 | ระบบบัญชีนี้ดึงผังรหัสอัตโนมัติไม่ได้ นำเข้าจากไฟล์แทน |
 | [`offer_closed`](#offer_closed) | 409 | ข้อเสนองานนี้ปิดแล้ว (ตอบไปแล้วหรือถูกยกเลิก) |
 | [`offer_not_timed_out`](#offer_not_timed_out) | 409 | รถร่วมรายนี้ยังอยู่ในเวลาตอบรับ — ส่งรายถัดไปได้เมื่อครบเวลา |
 | [`offer_required`](#offer_required) | 409 | รถคันนี้เป็นรถร่วม — ต้องเสนองานให้รถร่วมก่อน แล้วจึงบันทึกการรับงาน |
@@ -188,7 +190,7 @@ HTTP `401` · กรอกรหัสยืนยันตัวตน 2 ชั
 
 HTTP `401` · ต้องเข้าสู่ระบบ
 
-พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences`](ref-document-sequences.md#get-document-sequences), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id), [`GET /v1/settings`](ref-settings.md#get-settings) และอีก 284 endpoint
+พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences`](ref-document-sequences.md#get-document-sequences), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id), [`GET /v1/settings`](ref-settings.md#get-settings) และอีก 287 endpoint
 
 ## edit_lock_user_required {#edit_lock_user_required}
 
@@ -224,7 +226,7 @@ HTTP `403` · IP นี้ไม่ได้รับอนุญาตให้
 
 HTTP `403` · ไม่มีสิทธิ์ทำรายการนี้
 
-พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences`](ref-document-sequences.md#get-document-sequences), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id), [`GET /v1/settings`](ref-settings.md#get-settings) และอีก 284 endpoint
+พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences`](ref-document-sequences.md#get-document-sequences), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id), [`GET /v1/settings`](ref-settings.md#get-settings) และอีก 287 endpoint
 
 ## sandbox_only {#sandbox_only}
 
@@ -254,7 +256,7 @@ HTTP `403` · ยืนยันตัวตน 2 ชั้นอีกครั
 
 HTTP `404` · ไม่พบข้อมูล
 
-พบใน: [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id), [`GET /v1/documents/{id}/content`](ref-documents.md#get-documents-id-content), [`PUT /v1/documents/{id}/content`](ref-documents.md#put-documents-id-content), [`GET /v1/jobs/{id}`](ref-jobs.md#get-jobs-id), [`PATCH /v1/customers/external/{externalId}`](ref-customers.md#patch-customers-external-externalId), [`GET /v1/customers/{id}`](ref-customers.md#get-customers-id), [`PATCH /v1/customers/{id}`](ref-customers.md#patch-customers-id), [`GET /v1/customers/{id}/history`](ref-customers.md#get-customers-id-history) และอีก 174 endpoint
+พบใน: [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id), [`GET /v1/documents/{id}/content`](ref-documents.md#get-documents-id-content), [`PUT /v1/documents/{id}/content`](ref-documents.md#put-documents-id-content), [`GET /v1/jobs/{id}`](ref-jobs.md#get-jobs-id), [`PATCH /v1/customers/external/{externalId}`](ref-customers.md#patch-customers-external-externalId), [`GET /v1/customers/{id}`](ref-customers.md#get-customers-id), [`PATCH /v1/customers/{id}`](ref-customers.md#patch-customers-id), [`GET /v1/customers/{id}/history`](ref-customers.md#get-customers-id-history) และอีก 177 endpoint
 
 ## method_not_allowed {#method_not_allowed}
 
@@ -393,6 +395,18 @@ HTTP `409` · ระบบบัญชีนี้ไม่รองรับก
 HTTP `409` · ทำรายการนี้ไม่ได้ในสถานะปัจจุบัน
 
 พบใน: [`PUT /v1/documents/{id}/content`](ref-documents.md#put-documents-id-content), [`POST /v1/orders`](ref-orders.md#post-orders), [`PUT /v1/orders/external/{externalId}`](ref-orders.md#put-orders-external-externalId), [`PATCH /v1/orders/external/{externalId}`](ref-orders.md#patch-orders-external-externalId), [`PATCH /v1/orders/{id}`](ref-orders.md#patch-orders-id), [`POST /v1/orders/{id}/cancel`](ref-orders.md#post-orders-id-cancel), [`POST /v1/orders/{id}/stops/{sequence}/map-site`](ref-orders.md#post-orders-id-stops-sequence-map-site), [`POST /v1/orders/{id}/reevaluate`](ref-orders.md#post-orders-id-reevaluate), [`POST /v1/orders/{id}/manual-price`](ref-orders.md#post-orders-id-manual-price), [`POST /v1/orders/{id}/resolve-source-error`](ref-orders.md#post-orders-id-resolve-source-error), [`POST /v1/orders/{id}/map-customer`](ref-orders.md#post-orders-id-map-customer), [`POST /v1/trips`](ref-trips.md#post-trips) และอีก 23 endpoint
+
+## master_sync_failed {#master_sync_failed}
+
+HTTP `409` · ดึงผังรหัสจากระบบบัญชีไม่สำเร็จ ตรวจการเชื่อมต่อแล้วลองใหม่
+
+อาจตอบได้จากหลาย endpoint
+
+## master_sync_not_supported {#master_sync_not_supported}
+
+HTTP `409` · ระบบบัญชีนี้ดึงผังรหัสอัตโนมัติไม่ได้ นำเข้าจากไฟล์แทน
+
+อาจตอบได้จากหลาย endpoint
 
 ## offer_closed {#offer_closed}
 
@@ -620,7 +634,7 @@ HTTP `422` · ลำดับจุดไม่ถูกต้อง — จุ�
 
 HTTP `422` · ข้อมูลไม่ถูกต้อง
 
-พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`PUT /v1/documents/{id}/content`](ref-documents.md#put-documents-id-content), [`GET /v1/customers`](ref-customers.md#get-customers), [`POST /v1/customers`](ref-customers.md#post-customers), [`GET /v1/customers/export`](ref-customers.md#get-customers-export), [`PUT /v1/customers/external/{externalId}`](ref-customers.md#put-customers-external-externalId), [`PATCH /v1/customers/external/{externalId}`](ref-customers.md#patch-customers-external-externalId), [`PATCH /v1/customers/{id}`](ref-customers.md#patch-customers-id) และอีก 203 endpoint
+พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`PUT /v1/documents/{id}/content`](ref-documents.md#put-documents-id-content), [`GET /v1/customers`](ref-customers.md#get-customers), [`POST /v1/customers`](ref-customers.md#post-customers), [`GET /v1/customers/export`](ref-customers.md#get-customers-export), [`PUT /v1/customers/external/{externalId}`](ref-customers.md#put-customers-external-externalId), [`PATCH /v1/customers/external/{externalId}`](ref-customers.md#patch-customers-external-externalId), [`PATCH /v1/customers/{id}`](ref-customers.md#patch-customers-id) และอีก 205 endpoint
 
 ## webhook_event_expired {#webhook_event_expired}
 

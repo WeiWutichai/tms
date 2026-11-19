@@ -19319,6 +19319,264 @@
         ]
       }
     },
+    "/v1/connectors/{id}/commands": {
+      "get": {
+        "operationId": "Connectors_commands",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "PENDING",
+                "IN_FLIGHT",
+                "DONE",
+                "FAILED_RETRYABLE",
+                "FAILED_FINAL",
+                "SKIPPED"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "บันทึกการซิงก์ย่อ: คำสั่งล่าสุดในคิวของ connector นี้ (ใหม่สุดก่อน) — ไม่มี payload/response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectorCommandListDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden_settings.read"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "connectors"
+        ],
+        "x-required-scopes": [
+          "settings:read"
+        ]
+      }
+    },
+    "/v1/connectors/{id}/master-codes": {
+      "get": {
+        "operationId": "ErpMasterCodes_list",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "kind",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "UNIT",
+                "SALESPERSON",
+                "ACCOUNT",
+                "ITEM",
+                "VAT_RATE"
+              ]
+            }
+          },
+          {
+            "name": "includeInactive",
+            "required": false,
+            "in": "query",
+            "description": "true = รวมรหัสที่ปิดใช้แล้ว",
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ผังรหัสที่ระบบบัญชียอมรับ (หน่วย พนักงานขาย ผังบัญชี รหัสสินค้า/บริการ อัตรา VAT)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErpMasterCodeListDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden_settings.read"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "422": {
+            "$ref": "#/components/responses/ValidationFailed"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "connectors"
+        ],
+        "x-required-scopes": [
+          "settings:read"
+        ]
+      }
+    },
+    "/v1/connectors/{id}/mappings": {
+      "get": {
+        "operationId": "ErpMasterCodes_mappings",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "ค่าบริการฝั่งขายทุกตัว + รหัสสินค้า ERP ที่จับคู่ · รายการที่ไม่ครบ (UNMAPPED/CODE_UNKNOWN) ทำให้เอกสารที่ใช้ส่งเข้า ERP ไม่ได้ (คำสั่ง push = FAILED_FINAL `VALIDATION` `erp_mapping_incomplete` — เอกสารยังออกได้)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErpItemMappingListDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden_settings.read"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "connectors"
+        ],
+        "x-required-scopes": [
+          "settings:read"
+        ]
+      }
+    },
     "/v1/webhook-deliveries": {
       "get": {
         "operationId": "WebhookDeliveries_list",
@@ -41501,6 +41759,91 @@
           "overrideReason"
         ]
       },
+      "ConnectorCommandDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "obx_…"
+          },
+          "operation": {
+            "type": "string",
+            "example": "PUSH_INVOICE"
+          },
+          "entityType": {
+            "type": "string",
+            "example": "invoice"
+          },
+          "localId": {
+            "type": "string",
+            "description": "id ของเอกสารใน TMS (uuid)"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "IN_FLIGHT",
+              "DONE",
+              "FAILED_RETRYABLE",
+              "FAILED_FINAL",
+              "SKIPPED"
+            ]
+          },
+          "attempt": {
+            "type": "number"
+          },
+          "errorClass": {
+            "type": "string",
+            "nullable": true,
+            "example": "TRANSIENT"
+          },
+          "errorCode": {
+            "type": "string",
+            "nullable": true,
+            "description": "รหัสผิดพลาดล่าสุด (ไม่มีข้อความดิบ)"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "doneAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "operation",
+          "entityType",
+          "localId",
+          "status",
+          "attempt",
+          "errorClass",
+          "errorCode",
+          "createdAt",
+          "doneAt",
+          "updatedAt"
+        ]
+      },
+      "ConnectorCommandListDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConnectorCommandDto"
+            }
+          }
+        },
+        "required": [
+          "data"
+        ]
+      },
       "ConnectorConfigFieldDto": {
         "type": "object",
         "properties": {
@@ -45176,6 +45519,20 @@
               ]
             }
           },
+          "masterCodeKinds": {
+            "type": "array",
+            "description": "ชนิดผังรหัสที่ดึงจาก ERP ได้ (`POST /connectors/{id}/master-codes/sync`) — ว่าง = นำเข้าไฟล์ (import `erp_master_code`)",
+            "items": {
+              "type": "string",
+              "enum": [
+                "UNIT",
+                "SALESPERSON",
+                "ACCOUNT",
+                "ITEM",
+                "VAT_RATE"
+              ]
+            }
+          },
           "configFields": {
             "type": "array",
             "items": {
@@ -45188,6 +45545,7 @@
           "displayName",
           "demo",
           "capabilities",
+          "masterCodeKinds",
           "configFields"
         ]
       },
@@ -45198,6 +45556,212 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ErpAdapterDto"
+            }
+          }
+        },
+        "required": [
+          "data"
+        ]
+      },
+      "ErpItemMappingDto": {
+        "type": "object",
+        "properties": {
+          "serviceItem": {
+            "$ref": "#/components/schemas/ErpMappingServiceItemDto"
+          },
+          "itemCode": {
+            "type": "string",
+            "nullable": true,
+            "example": "SV-FRT-01"
+          },
+          "itemName": {
+            "type": "string",
+            "nullable": true,
+            "description": "ชื่อรหัสจากผังรหัส ERP (ถ้ามี)"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "MAPPED",
+              "UNMAPPED",
+              "CODE_UNKNOWN"
+            ],
+            "description": "UNMAPPED = ยังไม่จับคู่ · CODE_UNKNOWN = รหัสไม่อยู่ในผังรหัสสินค้าที่ใช้งานของ connector — ทั้งสองแบบทำให้เอกสารที่ใช้รายการนี้ส่งเข้า ERP ไม่ได้"
+          },
+          "updatedAt": {
+            "type": "string",
+            "nullable": true,
+            "format": "date-time"
+          },
+          "version": {
+            "type": "number",
+            "description": "version ของการจับคู่ (ส่งเป็น If-Match ตอน PUT) — ยังไม่เคยตั้ง = 0"
+          }
+        },
+        "required": [
+          "serviceItem",
+          "itemCode",
+          "itemName",
+          "status",
+          "updatedAt",
+          "version"
+        ]
+      },
+      "ErpItemMappingListDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ErpItemMappingDto"
+            }
+          },
+          "summary": {
+            "$ref": "#/components/schemas/ErpMappingSummaryDto"
+          }
+        },
+        "required": [
+          "data",
+          "summary"
+        ]
+      },
+      "ErpMappingServiceItemDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "svc_0f9c…"
+          },
+          "code": {
+            "type": "string",
+            "example": "FREIGHT"
+          },
+          "nameTh": {
+            "type": "string",
+            "example": "ค่าขนส่ง"
+          },
+          "vatType": {
+            "type": "string",
+            "enum": [
+              "VAT_7",
+              "EXEMPT_TRANSPORT",
+              "ZERO_RATED"
+            ]
+          },
+          "side": {
+            "type": "string",
+            "enum": [
+              "SELL",
+              "BUY",
+              "BOTH"
+            ],
+            "description": "ฝั่งซื้อใช้กับ settlement รถร่วม (PUSH_SETTLEMENT ก็ตรวจ mapping)"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "INACTIVE"
+            ],
+            "description": "ปิดใช้แล้วยังจับคู่ได้ (อยู่บนเอกสารเก่า)"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "nameTh",
+          "vatType",
+          "side",
+          "status"
+        ]
+      },
+      "ErpMappingSummaryDto": {
+        "type": "object",
+        "properties": {
+          "total": {
+            "type": "number"
+          },
+          "mapped": {
+            "type": "number"
+          },
+          "missing": {
+            "type": "number",
+            "description": "UNMAPPED + CODE_UNKNOWN"
+          },
+          "itemCodes": {
+            "type": "number",
+            "description": "จำนวนรหัสสินค้า (ITEM) ที่ใช้งานในผังรหัสของ connector — 0 = ยังไม่มีผังรหัส (รับรหัสที่กรอก ERP ตรวจตอนรับ)"
+          }
+        },
+        "required": [
+          "total",
+          "mapped",
+          "missing",
+          "itemCodes"
+        ]
+      },
+      "ErpMasterCodeDto": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "UNIT",
+              "SALESPERSON",
+              "ACCOUNT",
+              "ITEM",
+              "VAT_RATE"
+            ]
+          },
+          "code": {
+            "type": "string",
+            "example": "SV-FRT-01"
+          },
+          "name": {
+            "type": "string",
+            "nullable": true,
+            "example": "ค่าขนส่ง"
+          },
+          "rate": {
+            "type": "string",
+            "nullable": true,
+            "example": "7.00",
+            "description": "เฉพาะ VAT_RATE: อัตรา % ของรหัสนี้ฝั่ง ERP (ข้อมูลอ้างอิงให้ adapter — ไม่เปลี่ยนการคำนวณภาษีของ TMS)"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "ADAPTER",
+              "IMPORT"
+            ],
+            "description": "ADAPTER = ซิงก์จาก ERP · IMPORT = นำเข้าไฟล์"
+          },
+          "active": {
+            "type": "boolean",
+            "description": "false = ไม่มีใน ERP แล้ว (ซิงก์ล่าสุด) หรือปิดจากไฟล์ — ใช้จับคู่ไม่ได้"
+          },
+          "syncedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "kind",
+          "code",
+          "name",
+          "rate",
+          "source",
+          "active",
+          "syncedAt"
+        ]
+      },
+      "ErpMasterCodeListDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ErpMasterCodeDto"
             }
           }
         },
@@ -63840,6 +64404,16 @@
       "status": 401,
       "title": "API key ถูกเพิกถอนแล้ว",
       "titleEn": "API key has been revoked"
+    },
+    "master_sync_failed": {
+      "status": 409,
+      "title": "ดึงผังรหัสจากระบบบัญชีไม่สำเร็จ ตรวจการเชื่อมต่อแล้วลองใหม่",
+      "titleEn": "Fetching master codes from the connector failed — check the connection and retry"
+    },
+    "master_sync_not_supported": {
+      "status": 409,
+      "title": "ระบบบัญชีนี้ดึงผังรหัสอัตโนมัติไม่ได้ นำเข้าจากไฟล์แทน",
+      "titleEn": "This connector cannot fetch master codes — import them from a file"
     },
     "method_not_allowed": {
       "status": 405,

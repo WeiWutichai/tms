@@ -14755,6 +14755,130 @@
             },
             "description": "scope: settings:read"
           }
+        },
+        {
+          "name": "GET /v1/connectors/{id}/commands",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/connectors/:id/commands",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "connectors",
+                ":id",
+                "commands"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: settings:read"
+          }
+        },
+        {
+          "name": "GET /v1/connectors/{id}/master-codes",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/connectors/:id/master-codes",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "connectors",
+                ":id",
+                "master-codes"
+              ],
+              "query": [
+                {
+                  "key": "kind",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "includeInactive",
+                  "value": "",
+                  "description": "true = รวมรหัสที่ปิดใช้แล้ว",
+                  "disabled": true
+                }
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: settings:read"
+          }
+        },
+        {
+          "name": "GET /v1/connectors/{id}/mappings",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/connectors/:id/mappings",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "connectors",
+                ":id",
+                "mappings"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: settings:read"
+          }
         }
       ]
     },

@@ -1,6 +1,6 @@
 # Connector ERP (connectors)
 
-5 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
+8 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
 
 | Endpoint | scope |
 |---|---|
@@ -9,6 +9,9 @@
 | [`GET /v1/connectors/adapters`](#get-connectors-adapters) | `settings:read` |
 | [`GET /v1/connectors/{id}`](#get-connectors-id) | `settings:read` |
 | [`GET /v1/connectors/{id}/history`](#get-connectors-id-history) | `settings:read` |
+| [`GET /v1/connectors/{id}/commands`](#get-connectors-id-commands) | `settings:read` |
+| [`GET /v1/connectors/{id}/master-codes`](#get-connectors-id-master-codes) | `settings:read` |
+| [`GET /v1/connectors/{id}/mappings`](#get-connectors-id-mappings) | `settings:read` |
 
 ## GET /v1/connectors/effective {#get-connectors-effective}
 
@@ -177,6 +180,117 @@ const { data, error } = await tms.GET('/v1/connectors/{id}/history', {
 });
 ```
 
+## GET /v1/connectors/{id}/commands {#get-connectors-id-commands}
+
+`GET /v1/connectors/{id}/commands`
+
+scope: `settings:read` · operationId: `Connectors_commands`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` |   |
+| `status` | query |   | `string` ค่า: `PENDING`, `IN_FLIGHT`, `DONE`, `FAILED_RETRYABLE`, `FAILED_FINAL`, `SKIPPED` |   |
+| `limit` | query |   | `number` |   |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` | บันทึกการซิงก์ย่อ: คำสั่งล่าสุดในคิวของ connector นี้ (ใหม่สุดก่อน) — ไม่มี payload/response | `ConnectorCommandListDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`settings:read`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบ (รวมข้อมูลของบริษัทอื่น — ไม่บอกว่ามีอยู่) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (query/body) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X GET "$TMS_BASE_URL/v1/connectors/<id>/commands" \
+  -H "Authorization: Bearer $TMS_API_KEY"
+```
+
+```ts
+const { data, error } = await tms.GET('/v1/connectors/{id}/commands', {
+  params: { path: { id: "…" } },
+});
+```
+
+## GET /v1/connectors/{id}/master-codes {#get-connectors-id-master-codes}
+
+`GET /v1/connectors/{id}/master-codes`
+
+scope: `settings:read` · operationId: `ErpMasterCodes_list`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` |   |
+| `kind` | query |   | `string` ค่า: `UNIT`, `SALESPERSON`, `ACCOUNT`, `ITEM`, `VAT_RATE` |   |
+| `includeInactive` | query |   | `boolean` | true = รวมรหัสที่ปิดใช้แล้ว |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` | ผังรหัสที่ระบบบัญชียอมรับ (หน่วย พนักงานขาย ผังบัญชี รหัสสินค้า/บริการ อัตรา VAT) | `ErpMasterCodeListDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`settings:read`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบ (รวมข้อมูลของบริษัทอื่น — ไม่บอกว่ามีอยู่) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง (query/body) — [validation_failed](errors.md#validation_failed) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X GET "$TMS_BASE_URL/v1/connectors/<id>/master-codes" \
+  -H "Authorization: Bearer $TMS_API_KEY"
+```
+
+```ts
+const { data, error } = await tms.GET('/v1/connectors/{id}/master-codes', {
+  params: { path: { id: "…" } },
+});
+```
+
+## GET /v1/connectors/{id}/mappings {#get-connectors-id-mappings}
+
+`GET /v1/connectors/{id}/mappings`
+
+scope: `settings:read` · operationId: `ErpMasterCodes_mappings`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` |   |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` | ค่าบริการฝั่งขายทุกตัว + รหัสสินค้า ERP ที่จับคู่ · รายการที่ไม่ครบ (UNMAPPED/CODE_UNKNOWN) ทำให้เอกสารที่ใช้ส่งเข้า ERP ไม่ได้ (คำสั่ง push = FAILED_FINAL `VALIDATION` `erp_mapping_incomplete` — เอกสารยังออกได้) | `ErpItemMappingListDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`settings:read`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบ (รวมข้อมูลของบริษัทอื่น — ไม่บอกว่ามีอยู่) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X GET "$TMS_BASE_URL/v1/connectors/<id>/mappings" \
+  -H "Authorization: Bearer $TMS_API_KEY"
+```
+
+```ts
+const { data, error } = await tms.GET('/v1/connectors/{id}/mappings', {
+  params: { path: { id: "…" } },
+});
+```
+
 ## Schema ของ response {#schemas}
 
 ### AuditPageDto {#schema-AuditPageDto}
@@ -188,6 +302,14 @@ const { data, error } = await tms.GET('/v1/connectors/{id}/history', {
 | `data` | ใช่ | `array<AuditEntryDto>` |   |   |   |
 | `nextCursor` | ใช่ | `string` | null ได้ |   |   |
 | `hasMore` | ใช่ | `boolean` |   |   |   |
+
+### ConnectorCommandListDto {#schema-ConnectorCommandListDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `data` | ใช่ | `array<ConnectorCommandDto>` |   |   |   |
 
 ### ConnectorDto {#schema-ConnectorDto}
 
@@ -256,3 +378,20 @@ const { data, error } = await tms.GET('/v1/connectors/{id}/history', {
 | ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
 |---|---|---|---|---|---|
 | `data` | ใช่ | `array<ErpAdapterDto>` |   |   |   |
+
+### ErpItemMappingListDto {#schema-ErpItemMappingListDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `data` | ใช่ | `array<ErpItemMappingDto>` |   |   |   |
+| `summary` | ใช่ | `ErpMappingSummaryDto` |   |   |   |
+
+### ErpMasterCodeListDto {#schema-ErpMasterCodeListDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `data` | ใช่ | `array<ErpMasterCodeDto>` |   |   |   |

@@ -81394,6 +81394,16 @@
       "title": "API key ถูกเพิกถอนแล้ว",
       "titleEn": "API key has been revoked"
     },
+    "master_sync_failed": {
+      "status": 409,
+      "title": "ดึงผังรหัสจากระบบบัญชีไม่สำเร็จ ตรวจการเชื่อมต่อแล้วลองใหม่",
+      "titleEn": "Fetching master codes from the connector failed — check the connection and retry"
+    },
+    "master_sync_not_supported": {
+      "status": 409,
+      "title": "ระบบบัญชีนี้ดึงผังรหัสอัตโนมัติไม่ได้ นำเข้าจากไฟล์แทน",
+      "titleEn": "This connector cannot fetch master codes — import them from a file"
+    },
     "method_not_allowed": {
       "status": 405,
       "title": "ไม่รองรับวิธีเรียกนี้",
