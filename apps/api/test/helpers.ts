@@ -1,5 +1,5 @@
 import type { NestExpressApplication } from '@nestjs/platform-express';
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { signDevToken } from '../src/auth/auth.guard';
@@ -131,4 +131,56 @@ export async function loginFull(
     .send({ grantType: 'authorization_code', code, codeVerifier: v });
   const cookie = ((r2.headers['set-cookie'] as unknown as string[]) ?? [])[0]?.split(';')[0] ?? '';
   return { access: r2.body.accessToken as string, cookie, secret };
+}
+
+/**
+ * ทดสอบ: ทำให้บรรทัดต้นทุนที่ตรงเงื่อนไข "อยู่ในใบสำคัญจ่ายแล้ว" ด้วยข้อมูลจริง (ST6-T03 — trigger ระดับ DB บังคับให้
+ * `trip_cost.settlement_line_id` ชี้บรรทัดที่ยังใช้ของ cost เดียวกัน และยอดหัวใบ = ยอดบรรทัด) · 1 ใบต่อรถร่วม · คืนจำนวนบรรทัด
+ */
+export async function settleTripCostsForTest(
+  db: PrismaClient,
+  where: Prisma.TripCostWhereInput,
+): Promise<number> {
+  return db.$transaction(async (tx) => {
+    const costs = await tx.tripCost.findMany({
+      where: { ...where, settlementLineId: null },
+      orderBy: { id: 'asc' },
+    });
+    const byCarrier = new Map<string, typeof costs>();
+    for (const c of costs) {
+      if (!c.carrierId) throw new Error(`trip_cost ${c.id} has no carrier`);
+      byCarrier.set(c.carrierId, [...(byCarrier.get(c.carrierId) ?? []), c]);
+    }
+    for (const [carrierId, cs] of byCarrier) {
+      const gross = cs.reduce((a, c) => a.add(c.amount), new Prisma.Decimal(0));
+      const s = await tx.carrierSettlement.create({
+        data: {
+          tenantId: cs[0]!.tenantId,
+          carrierId,
+          carrierSnapshot: {},
+          periodFrom: new Date('2026-11-01T00:00:00Z'),
+          periodTo: new Date('2026-11-30T00:00:00Z'),
+          grossAmount: gross,
+          netPayable: gross,
+        },
+      });
+      let no = 0;
+      for (const c of cs) {
+        const l = await tx.settlementLine.create({
+          data: {
+            tenantId: c.tenantId,
+            settlementId: s.id,
+            lineNo: ++no,
+            lineType: c.costType === 'CARRIER_FEE' ? 'FREIGHT' : 'SURCHARGE',
+            tripCostId: c.id,
+            tripId: c.tripId,
+            description: c.description ?? c.costType,
+            amount: c.amount,
+          },
+        });
+        await tx.tripCost.update({ where: { id: c.id }, data: { settlementLineId: l.id } });
+      }
+    }
+    return costs.length;
+  });
 }

@@ -287,6 +287,11 @@
 
 ## บันทึกรายวัน
 
+### 20 พ.ย. 2569 (ST6-T03 แก้ตาม review/QA — lane l5)
+
+- **ทำ:** (M) กติการะดับ DB ใน migration `0122` (แก้ในที่ — ยังไม่ merge): trigger บรรทัดแก้/ย้ายไม่ได้ เพิ่มได้เฉพาะร่าง `voided_at` ทางเดียว · ใบ CANCELLED สิ้นสุด · constraint trigger (DEFERRED) ยอดหัวใบ = บรรทัดที่ยังใช้ (ยกเว้น CANCELLED) · ผูก `trip_cost.settlement_line_id` ↔ บรรทัดที่ยังใช้สองทาง · test ระดับ SQL ด้วย role แอป · (L) ยอดหัก -0 → 422, ยอดรวมเกิน numeric(14,2) → 422 `amount_out_of_range` · `voidLines` ล็อก trip_cost FOR UPDATE ORDER BY id · test ข้ามบริษัทด้วย id บรรทัดจริง → 404 · test เดิมที่เขียน `settlement_line_id` สุ่มเปลี่ยนไปใช้ `settleTripCostsForTest` (สร้างใบจริง) · spec/12 §3 +3 แถว (กติกา DB + แผน `buyNetPayable` สำหรับ T08 / T04 หลัง T08 / ข้อเสนอเตือนเลขใบแจ้งหนี้ซ้ำ) · plan/01 ST6-T04 ต้องเสร็จก่อน + T08
+- **ไฟล์:** `prisma/migrations/0122_carrier_settlement/migration.sql`, `settlements/{settlement.dto.ts,settlements.service.ts}`, `test/{settlements.test.ts,helpers.ts,settlement-queue.test.ts,subcon-change-carrier.test.ts}`, spec/12, plan/01
+
 ### 20 พ.ย. 2569 (ST6-T03 ติ๊กเที่ยว → ใบสำคัญจ่าย (ร่าง) — lane l5)
 
 - **ทำ:** ใบสำคัญจ่ายรถร่วมสถานะ DRAFT: ติ๊กเที่ยว (`tripIds`) / บรรทัดต้นทุน (`tripCostIds`) ที่อยู่ในคิวจ่าย (กฎเดียวกับ ST6-T02 — refactor `SettlementQueueService.payableCostLines`) + บรรทัดหักกรอกมือ (CASH_ADVANCE/FUEL_PROVIDED/FINE/DAMAGE ยอดติดลบ + เอกสารอ้างอิง) + เลขใบแจ้งหนี้/วันที่/เลขใบเสร็จของรถร่วม · ยอด gross/deduction/net (net = รวม − หัก; ไม่คำนวณ VAT/WHT) · กันจ่ายซ้ำ: ล็อกบรรทัดต้นทุนของเที่ยว FOR UPDATE + partial unique index บรรทัดที่ยังใช้ → 409 `trip_cost_already_settled` · นำบรรทัดออก / ยกเลิกใบ = void + เหตุผล + audit → กลับคิว · If-Match ทุกการแก้ · ร่างไม่มีเลข · spec/12 §3 +1 แถว DECISION (API อย่างเดียว, สิทธิ์, ชื่อสถานะตาม docs/01, partial unique แทน unique ทั้งตาราง, ไม่มี WHT) + [OPEN — ส่ง Claude Design] หน้าติ๊กเที่ยว/กรอกหัก

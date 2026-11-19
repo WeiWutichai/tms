@@ -17,7 +17,8 @@ import { CleanText } from '../master/master-kit';
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 /** ยอดหักติดลบ (บาท ทศนิยม ≤ 2) — numeric(14,2) */
-const NEG_MONEY = /^-\d{1,12}(\.\d{1,2})?$/;
+/** ยอดหักติดลบ ≠ 0 ("-0", "-0.00", "-00.00" ไม่ผ่าน) */
+const NEG_MONEY = /^-(?!0+(\.0{1,2})?$)\d{1,12}(\.\d{1,2})?$/;
 
 export const SETTLEMENT_STATUSES = ['DRAFT', 'CANCELLED'] as const;
 export type SettlementStatus = (typeof SETTLEMENT_STATUSES)[number];

@@ -401,15 +401,6 @@ describe('settlements (ST6-T03)', () => {
       amount: '2500',
     };
     await expect(db.settlementLine.create({ data: dup })).rejects.toThrow(/Unique constraint/i);
-    // บรรทัดที่ void แล้วไม่นับ (ประวัติคงอยู่ได้หลายแถว)
-    await db.settlementLine.create({
-      data: {
-        ...dup,
-        voidedAt: new Date(),
-        voidedBy: 'u-test',
-        voidReason: 'ทดสอบบรรทัดที่นำออกแล้ว',
-      },
-    });
     // บรรทัดหักติดลบเท่านั้น + ต้องมีเอกสารอ้างอิง (CHECK)
     await expect(
       db.settlementLine.create({
@@ -630,5 +621,191 @@ describe('settlements (ST6-T03)', () => {
       .post('/v1/settlements')
       .send({ carrierId: C.id, tripIds: [trips[1]!.id] })
       .expect(422);
+  });
+  it('กติการะดับ DB (role แอป): บรรทัดแก้/ย้าย/ลบไม่ได้ · เพิ่มได้เฉพาะร่าง · นำออกทางเดียว · ใบยกเลิกแก้ไม่ได้ · ยอดหัวใบ = บรรทัด · ผูก trip_cost สองทาง', async () => {
+    const { C, trips } = await setup(2, '1500');
+    const s = (
+      await create({ carrierId: C.id, tripIds: [trips[0]!.id], deductions: [FINE] }).expect(201)
+    ).body;
+    const sid = uuid('settlement', s.id);
+    const [fl, dl] = (s.lines as Line[]).map((l) => uuid('settlementLine', l.id));
+    const fee0 = uuid('tripCost', await feeOf(trips[0]!.id));
+    const fee1 = uuid('tripCost', await feeOf(trips[1]!.id));
+    const tripId = uuid('trip', trips[0]!.id);
+    const fails = (fn: (tx: Tx) => Promise<unknown>, re: RegExp) =>
+      expect(run(fn)).rejects.toThrow(re);
+
+    // (1) คอลัมน์อ้างอิง/ยอดของบรรทัดแก้ไม่ได้
+    for (const data of [
+      { amount: '1.00' },
+      { tripCostId: fee1 },
+      { lineType: 'SURCHARGE' },
+      { lineNo: 99 },
+    ])
+      await fails(
+        (tx) => tx.settlementLine.update({ where: { id: fl! }, data }),
+        /settlement_line_immutable/,
+      );
+    const otherS = await run((tx) =>
+      tx.carrierSettlement.create({
+        data: {
+          tenantId,
+          carrierId: uuid('carrier', C.id),
+          carrierSnapshot: {},
+          periodFrom: new Date(`${today}T00:00:00Z`),
+          periodTo: new Date(`${today}T00:00:00Z`),
+        },
+      }),
+    );
+    await fails(
+      (tx) => tx.settlementLine.update({ where: { id: fl! }, data: { settlementId: otherS.id } }),
+      /settlement_line_immutable/,
+    );
+    // (2) ไม่มีการลบ
+    await fails((tx) => tx.settlementLine.delete({ where: { id: dl! } }), /permission denied/i);
+    await fails((tx) => tx.carrierSettlement.delete({ where: { id: sid } }), /permission denied/i);
+    // (3) เพิ่มบรรทัดที่นำออกแล้วไม่ได้ · ยอดหัวใบต้องตรงบรรทัด (ตรวจตอน commit)
+    const ded = {
+      tenantId,
+      settlementId: sid,
+      lineNo: 50,
+      lineType: 'DEDUCTION',
+      deductionType: 'DAMAGE',
+      description: 'ค่าเสียหายสินค้า',
+      amount: '-100',
+      reference: 'DMG-1',
+    };
+    await fails(
+      (tx) =>
+        tx.settlementLine.create({
+          data: { ...ded, voidedAt: new Date(), voidedBy: 'u', voidReason: 'นำออกตั้งแต่เพิ่ม' },
+        }),
+      /settlement_line_draft_only/,
+    );
+    await fails((tx) => tx.settlementLine.create({ data: ded }), /carrier_settlement_totals/);
+    await fails(
+      (tx) =>
+        tx.carrierSettlement.update({
+          where: { id: sid },
+          data: { grossAmount: '1.00', netPayable: '-499.00' },
+        }),
+      /carrier_settlement_totals/,
+    );
+    // (4) ผูก trip_cost ↔ บรรทัดที่ยังใช้
+    await fails(
+      (tx) => tx.tripCost.update({ where: { id: fee0 }, data: { settlementLineId: null } }),
+      /settlement_line_trip_cost_link/,
+    );
+    await fails(
+      (tx) => tx.tripCost.update({ where: { id: fee1 }, data: { settlementLineId: dl! } }),
+      /settlement_line_trip_cost_link/,
+    );
+    await fails(
+      (tx) => tx.tripCost.update({ where: { id: fee1 }, data: { settlementLineId: randomUUID() } }),
+      /settlement_line_trip_cost_link/,
+    );
+    await fails(async (tx) => {
+      await tx.settlementLine.update({
+        where: { id: fl! },
+        data: { voidedAt: new Date(), voidedBy: 'u', voidReason: 'นำออกแต่ไม่ปลด trip_cost' },
+      });
+      await tx.$executeRaw`UPDATE carrier_settlement SET gross_amount = 0, net_payable = -500 WHERE id = ${sid}::uuid`;
+    }, /settlement_line_trip_cost_link/);
+    // (5) ยกเลิกผ่าน API แล้ว: ใบเป็นสถานะสิ้นสุด · บรรทัดที่นำออกกลับมาใช้ไม่ได้ · เพิ่มบรรทัดไม่ได้
+    await api(app, admin)
+      .post(`/v1/settlements/${s.id}/cancel`)
+      .send({ reason: 'ทดสอบกติการะดับฐานข้อมูล' })
+      .expect(200);
+    await fails(
+      (tx) => tx.carrierSettlement.update({ where: { id: sid }, data: { note: 'แก้หลังยกเลิก' } }),
+      /carrier_settlement_terminal/,
+    );
+    await fails(
+      (tx) => tx.carrierSettlement.update({ where: { id: sid }, data: { status: 'DRAFT' } }),
+      /carrier_settlement_terminal/,
+    );
+    await fails(
+      (tx) =>
+        tx.settlementLine.update({
+          where: { id: dl! },
+          data: { voidedAt: null, voidedBy: null, voidReason: null },
+        }),
+      /settlement_line_void_one_way|settlement_line_void_check/,
+    );
+    await fails(
+      (tx) =>
+        tx.settlementLine.update({
+          where: { id: dl! },
+          data: { voidReason: 'เปลี่ยนเหตุผลภายหลัง' },
+        }),
+      /settlement_line_void_one_way/,
+    );
+    await fails(
+      (tx) => tx.settlementLine.create({ data: { ...ded, lineNo: 51 } }),
+      /settlement_line_draft_only/,
+    );
+    // ทางปกติของ service ผ่านทุก trigger
+    await create({ carrierId: C.id, tripIds: trips.map((t) => t.id) }).expect(201);
+  });
+
+  it('ยอดหัก "-0" / "-0.00" / "-00.00" → 422 · ยอดรวมเกิน numeric(14,2) → 422 (ไม่ใช่ 500)', async () => {
+    const { C, trips } = await setup(1, '100');
+    for (const amount of ['-0', '-0.00', '-00.00', '-0.0'])
+      await create({
+        carrierId: C.id,
+        tripIds: [trips[0]!.id],
+        deductions: [{ ...ADV, amount }],
+      }).expect(422);
+    const huge = { ...ADV, amount: '-999999999999.99' };
+    const r = await create({
+      carrierId: C.id,
+      tripIds: [trips[0]!.id],
+      deductions: [huge, huge],
+    }).expect(422);
+    expect(r.body.errors[0].code).toBe('amount_out_of_range');
+    // ไม่มีอะไรค้าง — เที่ยวยังอยู่ในคิว
+    expect(await queued(C.id)).toEqual([trips[0]!.id]);
+    const ok = await create({
+      carrierId: C.id,
+      tripIds: [trips[0]!.id],
+      deductions: [{ ...ADV, amount: '-0.01' }],
+    }).expect(201);
+    expect(ok.body.buyNetPayable).toBe('99.99');
+  });
+
+  it('แยก tenant: นำบรรทัดออกด้วย id จริงของบริษัทอื่น → 404 (ทั้งใบ+บรรทัดของ A และใบของ B + บรรทัดของ A)', async () => {
+    const { C, trips } = await setup(1, '600');
+    const s = (await create({ carrierId: C.id, tripIds: [trips[0]!.id] }).expect(201)).body;
+    const lineId = (s.lines as Line[])[0]!.id;
+    const body = { reason: 'ทดสอบข้ามบริษัทด้วย id จริง' };
+    const r = await api(app, other)
+      .post(`/v1/settlements/${s.id}/lines/${lineId}/remove`)
+      .send(body)
+      .expect(404);
+    expect(r.body.code).toBe('not_found');
+    const bCarrier = await db.carrier.create({
+      data: {
+        tenantId: otherId,
+        code: 'B-STL-1',
+        legalName: 'รถร่วมของบริษัทอื่น',
+        entityType: 'JURISTIC',
+      },
+    });
+    const bS = await db.carrierSettlement.create({
+      data: {
+        tenantId: otherId,
+        carrierId: bCarrier.id,
+        carrierSnapshot: {},
+        periodFrom: new Date(`${today}T00:00:00Z`),
+        periodTo: new Date(`${today}T00:00:00Z`),
+      },
+    });
+    await api(app, other)
+      .post(`/v1/settlements/${encodeId('settlement', bS.id)}/lines/${lineId}/remove`)
+      .send(body)
+      .expect(404);
+    // บรรทัดของ A ไม่ถูกแตะ
+    const a = (await api(app, admin).get(`/v1/settlements/${s.id}`).expect(200)).body;
+    expect((a.lines as Line[])[0]!.active).toBe(true);
   });
 });

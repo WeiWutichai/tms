@@ -22,6 +22,8 @@ import type {
 import { SettlementQueueService } from './settlement-queue.service';
 
 const ENTITY = 'carrier_settlement';
+/** เพดาน numeric(14,2) */
+const MAX_AMOUNT = '999999999999.99';
 
 type SettlementRow = Prisma.CarrierSettlementGetPayload<{
   include: {
@@ -681,6 +683,9 @@ export class SettlementsService {
 
   private async voidLines(tx: Tx, ids: string[], actor: string, reason: string) {
     if (!ids.length) return;
+    // ล็อกบรรทัดต้นทุนก่อน (ลำดับ id เดียวกับตอนสร้าง/เพิ่ม — ไม่ deadlock กับคำขอที่หยิบเที่ยวเดียวกันพร้อมกัน)
+    await tx.$queryRaw`
+      SELECT id FROM trip_cost WHERE settlement_line_id = ANY(${ids}::uuid[]) ORDER BY id FOR UPDATE`;
     await tx.settlementLine.updateMany({
       where: { id: { in: ids }, voidedAt: null },
       data: { voidedAt: new Date(), voidedBy: actor, voidReason: reason },
@@ -693,6 +698,20 @@ export class SettlementsService {
 
   /** ยอดหัวใบจากบรรทัดที่ยังใช้ (SQL numeric — ไม่ใช้ float) */
   private async recompute(tx: Tx, id: string, bump: boolean) {
+    // ยอดต้องอยู่ในช่วง numeric(14,2) — เกิน = 422 (ไม่ปล่อยให้ DB ตอบ 22003 เป็น 500)
+    const [t] = await tx.$queryRaw<{ out: boolean }[]>`
+      SELECT greatest(abs(gross), abs(ded), abs(gross - ded)) > ${MAX_AMOUNT}::numeric AS out
+        FROM (SELECT coalesce(sum(amount) FILTER (WHERE line_type <> 'DEDUCTION'), 0) AS gross,
+                     coalesce(-sum(amount) FILTER (WHERE line_type = 'DEDUCTION'), 0) AS ded
+                FROM settlement_line WHERE settlement_id = ${id}::uuid AND voided_at IS NULL) x`;
+    if (t?.out)
+      throw invalid([
+        {
+          field: 'deductions',
+          code: 'amount_out_of_range',
+          message: 'settlement totals exceed 999,999,999,999.99',
+        },
+      ]);
     await tx.$executeRaw`
       UPDATE carrier_settlement s
          SET gross_amount = t.gross, deduction_amount = t.ded, net_payable = t.gross - t.ded,
