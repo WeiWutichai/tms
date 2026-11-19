@@ -886,6 +886,47 @@ export class DeliveryOrderService {
   }
 
   /**
+   * ST5-T04 ส่งบัญชี: ล็อกใบสั่ง → DO (ลำดับเดียวกับงานอื่นของ DO) แล้วอ่านใหม่ · ไม่พบ/บริษัทอื่น → 404 · If-Match ไม่ตรง → 412
+   * เงื่อนไขทางธุรกิจตรวจที่ผู้เรียก (`BillingReleaseService`)
+   */
+  async lockForRelease(tx: Tx, id: string, expectedVersion?: number): Promise<DeliveryOrderRecord> {
+    const head = await tx.deliveryOrder.findUnique({
+      where: { id },
+      select: { salesOrderId: true },
+    });
+    if (!head) throw new ProblemException('not_found');
+    await this.lockOrder(tx, head.salesOrderId);
+    await tx.$queryRaw`SELECT id FROM delivery_order WHERE id = ${id}::uuid FOR UPDATE`;
+    const d = await this.get(id, tx);
+    if (expectedVersion !== undefined && d.version !== expectedVersion)
+      throw new ProblemException('precondition_failed');
+    return d;
+  }
+
+  /**
+   * ST5-T04 ส่งบัญชี (RELEASED — docs/04 F4) [DECISION spec/12 §3]: เขียนเวลา + ผู้ทำ บน DO (สถานะ DO ไม่เปลี่ยน — docs/01 §4.3)
+   * + audit `delivery_order.released` (เหตุผล/หมายเหตุไม่บังคับ) · ผู้เรียกถือล็อก (`lockForRelease`) และตรวจเงื่อนไขแล้ว
+   */
+  async markReleased(
+    tx: Tx,
+    d: DeliveryOrderRecord,
+    at: Date,
+    note: string | null,
+  ): Promise<DeliveryOrderRecord> {
+    const actor = requestContext.require().actorId ?? 'system';
+    await this.write(tx, d, { releasedAt: at, releasedBy: actor });
+    await this.audit.record({
+      action: `${ENTITY}.released`,
+      entityType: ENTITY,
+      entityId: d.id,
+      before: { releasedAt: null },
+      after: { releasedAt: at.toISOString(), status: d.status, podStatus: d.podStatus },
+      ...(note ? { reason: note } : {}),
+    });
+    return this.get(d.id, tx);
+  }
+
+  /**
    * ปลด DO ออกจากเที่ยว (ถอด DO / ยกเลิกเที่ยว): ล้าง trip_id + จุด (สัญญากับ T09) แล้ว
    * DRAFT คงเดิม · PLANNED → `unplan` → DRAFT · DISPATCHED → `recall` → DRAFT (ยกเลิกเที่ยวที่ปล่อยแล้วก่อนรับของ)
    * PICKED_UP ขึ้นไป (ของอยู่บนรถ/ส่งแล้ว) → 409 `trip_has_loaded_orders` (ปิดเที่ยวบางส่วน + เที่ยวใหม่ — ST4)

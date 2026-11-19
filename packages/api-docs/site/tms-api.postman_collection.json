@@ -1756,6 +1756,102 @@
           }
         },
         {
+          "name": "ส่งบัญชี (RELEASED) — ใบส่งของพร้อมวางบิล",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "If-Match",
+                "value": "",
+                "description": "ETag จาก GET — ไม่ตรง → 412",
+                "disabled": true
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/delivery-orders/:id/release",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "delivery-orders",
+                ":id",
+                "release"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: invoices:draft\n\nตรวจเงื่อนไขชุดเดียวกับคิวพร้อมวางบิล + จุดส่งมีเวลาถึง/ออกครบ + (ลูกค้าเปิด \"ไม่มี POD ไม่วางบิล\") หลักฐานล่าสุดผ่าน checklist **ปัจจุบัน** ของลูกค้า → บันทึกเวลา/ผู้ส่งบัญชี + audit `delivery_order.released` · สถานะ DO ไม่เปลี่ยน · ส่งแล้ว = ตอบ DO เดิม (ไม่ทำซ้ำ)",
+            "body": {
+              "mode": "raw",
+              "raw": "{}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "ส่งบัญชีหลายใบส่งของ",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/delivery-orders/bulk-release",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "delivery-orders",
+                "bulk-release"
+              ]
+            },
+            "description": "scope: invoices:draft\n\n≤ 100 รายการ ทำทีละรายการแยกกัน (สำเร็จบางรายการได้) · เงื่อนไขเหมือน `POST /delivery-orders/{id}/release` · ตอบ 207 เสมอเมื่อคำขอถูกต้อง — ดู `results[].outcome` / `problem`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"items\": [\n    {\n      \"deliveryOrderId\": \"do_3f2a…\",\n      \"version\": 3\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
           "name": "บรรทัดรายได้ของใบส่งของ + รายได้รวมของใบ",
           "request": {
             "method": "GET",
@@ -16207,6 +16303,97 @@
               ]
             },
             "description": ""
+          }
+        }
+      ]
+    },
+    {
+      "name": "invoices",
+      "item": [
+        {
+          "name": "คิวพร้อมวางบิล (DO ที่ส่งแล้ว หลักฐานครบ และราคาพร้อม)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/invoices/queue",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "invoices",
+                "queue"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "cursor",
+                  "value": "",
+                  "description": "ค่า nextCursor จากหน้าก่อน",
+                  "disabled": true
+                },
+                {
+                  "key": "updatedAfter",
+                  "value": "",
+                  "description": "คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull)",
+                  "disabled": true
+                },
+                {
+                  "key": "sort",
+                  "value": "",
+                  "description": "",
+                  "disabled": true
+                },
+                {
+                  "key": "fields",
+                  "value": "",
+                  "description": "รายชื่อ field คั่นด้วย, เช่น id,legalName",
+                  "disabled": true
+                },
+                {
+                  "key": "customerId",
+                  "value": "cus_3f2a…",
+                  "description": "ลูกค้า — id หรือ `ext:{externalId}` (ไม่พบ = รายการว่าง)",
+                  "disabled": true
+                },
+                {
+                  "key": "dateFrom",
+                  "value": "2026-11-01",
+                  "description": "วันที่ส่งตั้งแต่ (YYYY-MM-DD — วันที่ของใบส่งของ `doDate`)",
+                  "disabled": true
+                },
+                {
+                  "key": "dateTo",
+                  "value": "2026-11-15",
+                  "description": "วันที่ส่งถึง (YYYY-MM-DD — รวมทั้งวัน)",
+                  "disabled": true
+                },
+                {
+                  "key": "podComplete",
+                  "value": "",
+                  "description": "กรองตามหลักฐานส่ง (POD): true = ครบ · false = ยังไม่ครบ (มีได้เฉพาะลูกค้าที่ปิด \"ไม่มี POD ไม่วางบิล\")",
+                  "disabled": true
+                },
+                {
+                  "key": "released",
+                  "value": "",
+                  "description": "กรองตามขั้นส่งบัญชี: true = ส่งบัญชีแล้ว (RELEASED) · false = ยังไม่ส่ง",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "scope: invoices:read\n\nDO ที่ส่งถึงแล้ว (DELIVERED/POD_PENDING/UNBILLED) ที่ใบสั่ง `pricingStatus = AVAILABLE` และมีบรรทัดรายได้ที่ยืนยันแล้ว (ไม่มีบรรทัดยอดชั่วคราว/ล็อก ไม่มีค่าใช้จ่ายหน้างานฝั่งขายรอยืนยัน) และไม่ถูกระงับวางบิล · ลูกค้าที่เปิด \"ไม่มี POD ไม่วางบิล\" (`requirePodToBill`, ค่าเริ่มต้นเปิด) → DO ที่หลักฐานส่งยังไม่ครบตาม checklist ไม่ขึ้นคิว · กรองลูกค้า (`customerId` รับ `ext:`) / ช่วงวันที่ส่ง (`doDate`) / หลักฐานครบ / ส่งบัญชีแล้ว · `customers` = ยอดรวมต่อลูกค้าของทุกแถวที่ตรงตัวกรอง · ยอดเงิน (`sell*`) เห็นเมื่อมี `prices.sell:read`"
           }
         }
       ]

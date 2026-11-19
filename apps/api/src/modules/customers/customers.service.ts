@@ -64,6 +64,7 @@ export function toCustomerDto(c: Customer, salesOwnerName?: string | null): Cust
     vatRegistered: c.vatRegistered,
     etaxCapable: c.etaxCapable,
     billByActualQty: c.billByActualQty,
+    requirePodToBill: c.requirePodToBill,
     freeTimeMin: c.freeTimeMin,
     // ST4-T06: แสดงรูปมาตรฐานปัจจุบัน (ข้อมูล T05 ได้แถวชนิดใหม่เป็น DISABLED) — ผิดรูป (ไม่ควรเกิด) = คืนค่าเดิม
     podRequirements: (parsePodRequirements(c.podRequirements ?? {}, false).value ??
@@ -96,6 +97,21 @@ function assertBillingBasisWrite() {
       action: 'write',
       required: ['prices.sell:write'],
       fields: ['billByActualQty'],
+    });
+}
+
+/**
+ * ST5-T04 [DECISION spec/12 §3]: "ไม่มี POD ไม่วางบิล" เปิด/ปิดประตูวางบิล → ต้องมีสิทธิ์วางบิล (`invoices:draft`)
+ * นอกจาก `master:write` · การเปลี่ยนลง audit `customer.updated`
+ */
+function assertPodBillingWrite() {
+  const rc = requestContext.get();
+  if (!scopeAllows(rc?.scopes ?? [], 'invoices:draft'))
+    throw new ProblemException('permission_denied', undefined, undefined, {
+      module: 'invoices',
+      action: 'draft',
+      required: ['invoices:draft'],
+      fields: ['requirePodToBill'],
     });
 }
 
@@ -245,6 +261,7 @@ export class CustomersService {
     if (input.vatRegistered !== undefined) data.vatRegistered = input.vatRegistered;
     if (input.etaxCapable !== undefined) data.etaxCapable = input.etaxCapable;
     if (input.billByActualQty !== undefined) data.billByActualQty = input.billByActualQty;
+    if (input.requirePodToBill !== undefined) data.requirePodToBill = input.requirePodToBill;
     if (input.freeTimeMin !== undefined) data.freeTimeMin = input.freeTimeMin;
     if (input.podRequirements !== undefined) {
       // ST4-T05: ตรวจ + ทำให้เป็นรูปมาตรฐานด้วยตัวตรวจเดียวกับค่าองค์กร (ชุดที่ไม่ส่ง = ใช้ค่าองค์กร)
@@ -328,6 +345,7 @@ export class CustomersService {
   ): Promise<Customer> {
     const tx = this.db.tx;
     if (input.billByActualQty) assertBillingBasisWrite();
+    if (input.requirePodToBill === false) assertPodBillingWrite();
     const data = await this.toData(input);
     const branchCode = input.branchCode ?? (input.taxId ? '00000' : null);
     await this.assertUniqueTax(input.taxId ?? null, branchCode);
@@ -369,6 +387,8 @@ export class CustomersService {
       throw new ProblemException('precondition_failed');
     if (input.billByActualQty !== undefined && input.billByActualQty !== current.billByActualQty)
       assertBillingBasisWrite();
+    if (input.requirePodToBill !== undefined && input.requirePodToBill !== current.requirePodToBill)
+      assertPodBillingWrite();
     const data = await this.toData(input);
     const taxId = input.taxId !== undefined ? input.taxId : current.taxId;
     const branchCode = input.branchCode ?? current.branchCode ?? (taxId ? '00000' : null);

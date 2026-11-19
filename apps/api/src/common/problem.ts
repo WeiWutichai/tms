@@ -459,6 +459,15 @@ export const PROBLEMS = {
     th: 'หลักฐานการส่ง (POD) ยังไม่ครบตามที่ลูกค้ากำหนด',
     en: 'Proof of delivery is incomplete for this customer checklist',
   },
+  /**
+   * ST5-T04 ส่งบัญชี (RELEASED): DO ยังไม่พร้อมวางบิล — `reasons[]` (NOT_DELIVERED · BILLING_HOLD · PRICING_UNAVAILABLE ·
+   * NO_REVENUE · REVENUE_PROVISIONAL · REVENUE_LOCKED · SURCHARGE_PENDING · STOP_TIMES_MISSING · POD_INCOMPLETE) + `missing[]` เมื่อ POD ไม่ครบ
+   */
+  not_ready_to_bill: {
+    status: 409,
+    th: 'ใบส่งของนี้ยังไม่พร้อมวางบิล',
+    en: 'This delivery order is not ready to bill',
+  },
   /** ST4-T07 บันทึก/แก้หลักฐานส่งได้เฉพาะ DO ที่ส่งแล้ว/ส่งไม่สำเร็จและยังไม่วางบิล — `doStatus` บอกสถานะปัจจุบัน */
   pod_not_allowed: {
     status: 409,

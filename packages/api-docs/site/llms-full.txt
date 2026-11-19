@@ -1,7 +1,7 @@
 <!-- index.md -->
 # TMS API v1
 
-เอกสาร Open API ของ TMS — endpoint ชุดเดียวกับที่เว็บของ TMS ใช้ (API-first) · เวอร์ชันพฤติกรรมล่าสุด `2026-11-18` · 319 endpoint
+เอกสาร Open API ของ TMS — endpoint ชุดเดียวกับที่เว็บของ TMS ใช้ (API-first) · เวอร์ชันพฤติกรรมล่าสุด `2026-11-18` · 322 endpoint
 
 เริ่มที่ [Quickstart](quickstart.md) (สร้าง order แรกใน Sandbox ภายใน 15 นาที) · ดาวน์โหลด [Postman collection](tms-api.postman_collection.json) · [OpenAPI](openapi.json) · สำหรับ AI/LLM: [llms.txt](llms.txt), [llms-full.txt](llms-full.txt) · ทุกหน้ามีฉบับ Markdown (`<หน้า>.md`)
 
@@ -24,7 +24,7 @@
 ## Resource
 
 - [ใบสั่งขนส่ง (orders)](ref-orders.md) — 24 endpoint: POST /v1/orders:bulk, GET /v1/orders/summary, GET /v1/orders, POST /v1/orders, PUT /v1/orders/external/{externalId}, PATCH /v1/orders/external/{externalId}, …
-- [ใบส่งของ (delivery-orders)](ref-delivery-orders.md) — 15 endpoint: GET /v1/delivery-orders/summary, GET /v1/delivery-orders, POST /v1/delivery-orders, GET /v1/delivery-orders/{id}, POST /v1/delivery-orders/{id}/split, POST /v1/delivery-orders/{id}/merge, …
+- [ใบส่งของ (delivery-orders)](ref-delivery-orders.md) — 17 endpoint: GET /v1/delivery-orders/summary, GET /v1/delivery-orders, POST /v1/delivery-orders, GET /v1/delivery-orders/{id}, POST /v1/delivery-orders/{id}/split, POST /v1/delivery-orders/{id}/merge, …
 - [เที่ยววิ่ง (trips)](ref-trips.md) — 34 endpoint: GET /v1/trips/summary, GET /v1/trips, POST /v1/trips, POST /v1/trips/bulk-assign, POST /v1/trips/send-all, GET /v1/trips/{id}, …
 - [จุดส่ง (stops)](ref-stops.md) — 10 endpoint: GET /v1/stops/{id}, GET /v1/stops/{id}/events, POST /v1/stops/{id}/arrive, POST /v1/stops/{id}/depart, POST /v1/stops/{id}/complete, POST /v1/stops/{id}/fail, …
 - [จ่ายรถร่วม (settlements)](ref-settlements.md) — 8 endpoint: GET /v1/settlements/queue, GET /v1/settlements, POST /v1/settlements, GET /v1/settlements/{id}, PATCH /v1/settlements/{id}, POST /v1/settlements/{id}/lines, …
@@ -58,11 +58,12 @@
 - [ตั้งค่า (settings)](ref-settings.md) — 1 endpoint: GET /v1/settings
 - [ประวัติการทำรายการ (audit)](ref-audit.md) — 1 endpoint: GET /v1/audit-logs
 - [OAuth และระบบ (auth)](ref-auth.md) — 4 endpoint: POST /v1/oauth/token, GET /v1/.well-known/jwks.json, POST /v1/oauth/revoke, GET /v1/health
+- [invoices](ref-invoices.md) — 1 endpoint: GET /v1/invoices/queue
 
 ## อ้างอิง
 
 - [Webhook events](webhook-events.md) — 31 event: connector.health_changed, credit_note.finalized, debit_note.finalized, delivery_order.status_changed, invoice.adjusted, invoice.finalized, invoice.paid, invoice.voided, …
-- [รหัส error](errors.md) — 102 code ของ problem+json
+- [รหัส error](errors.md) — 103 code ของ problem+json
 - [Changelog](changelog.md) — ประวัติเวอร์ชันของ API (added/changed/deprecated)
 
 ---
@@ -2158,7 +2159,7 @@ const { data, error } = await tms.POST('/v1/revenue-lines/{id}/void', {
 <!-- ref-delivery-orders.md -->
 # ใบส่งของ (delivery-orders)
 
-15 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
+17 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
 
 | Endpoint | scope |
 |---|---|
@@ -2173,6 +2174,8 @@ const { data, error } = await tms.POST('/v1/revenue-lines/{id}/void', {
 | [`POST /v1/delivery-orders/{id}/return`](#post-delivery-orders-id-return) | `orders:write` |
 | [`GET /v1/delivery-orders/{id}/pod`](#get-delivery-orders-id-pod) | `trips:read` |
 | [`PUT /v1/delivery-orders/{id}/pod`](#put-delivery-orders-id-pod) | `trips:dispatch` |
+| [`POST /v1/delivery-orders/{id}/release`](#post-delivery-orders-id-release) | `invoices:draft` |
+| [`POST /v1/delivery-orders/bulk-release`](#post-delivery-orders-bulk-release) | `invoices:draft` |
 | [`GET /v1/delivery-orders/{id}/revenue-lines`](#get-delivery-orders-id-revenue-lines) | `orders:read` |
 | [`GET /v1/delivery-orders/{id}/tracking-link`](#get-delivery-orders-id-tracking-link) | `orders:write` / `trips:dispatch` |
 | [`POST /v1/delivery-orders/{id}/tracking-link`](#post-delivery-orders-id-tracking-link) | `orders:write` / `trips:dispatch` |
@@ -2724,6 +2727,113 @@ const { data, error } = await tms.PUT('/v1/delivery-orders/{id}/pod', {
 });
 ```
 
+## ส่งบัญชี (RELEASED) — ใบส่งของพร้อมวางบิล {#post-delivery-orders-id-release}
+
+`POST /v1/delivery-orders/{id}/release`
+
+scope: `invoices:draft` · operationId: `DeliveryOrderRelease_releaseOne`
+
+ตรวจเงื่อนไขชุดเดียวกับคิวพร้อมวางบิล + จุดส่งมีเวลาถึง/ออกครบ + (ลูกค้าเปิด "ไม่มี POD ไม่วางบิล") หลักฐานล่าสุดผ่าน checklist **ปัจจุบัน** ของลูกค้า → บันทึกเวลา/ผู้ส่งบัญชี + audit `delivery_order.released` · สถานะ DO ไม่เปลี่ยน · ส่งแล้ว = ตอบ DO เดิม (ไม่ทำซ้ำ)
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` |   |
+| `If-Match` | header |   | `string` | ETag จาก GET — ไม่ตรง → 412 |
+
+**Request body** `ReleaseDeliveryOrderDto`
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `note` |   | `string` | ยาว ≤ 500 | หมายเหตุ (ไม่บังคับ — ลง audit) |   |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `DeliveryOrderDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`invoices:draft`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบ (รวมข้อมูลของบริษัทอื่น — ไม่บอกว่ามีอยู่) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `409` | `not_ready_to_bill` — DO ยังไม่พร้อมวางบิล: `reasons[]` (NOT_DELIVERED · BILLING_HOLD · PRICING_UNAVAILABLE · NO_REVENUE · REVENUE_PROVISIONAL · REVENUE_LOCKED · SURCHARGE_PENDING · STOP_TIMES_MISSING · POD_INCOMPLETE) + `missing[]` เมื่อหลักฐานไม่ครบ — [not_ready_to_bill](errors.md#not_ready_to_bill) | `ProblemDto` |
+| `412` | If-Match ไม่ตรงกับ version ปัจจุบัน (ETag จาก GET) — [precondition_failed](errors.md#precondition_failed) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X POST "$TMS_BASE_URL/v1/delivery-orders/<id>/release" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+```ts
+const { data, error } = await tms.POST('/v1/delivery-orders/{id}/release', {
+  params: { path: { id: "…" } },
+  body: {},
+});
+```
+
+## ส่งบัญชีหลายใบส่งของ {#post-delivery-orders-bulk-release}
+
+`POST /v1/delivery-orders/bulk-release`
+
+scope: `invoices:draft` · operationId: `DeliveryOrderRelease_bulkRelease`
+
+≤ 100 รายการ ทำทีละรายการแยกกัน (สำเร็จบางรายการได้) · เงื่อนไขเหมือน `POST /delivery-orders/{id}/release` · ตอบ 207 เสมอเมื่อคำขอถูกต้อง — ดู `results[].outcome` / `problem`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `Idempotency-Key` | header |   | `string` |   |
+
+**Request body** `BulkReleaseDeliveryOrdersDto`
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `items` | ใช่ | `array<BulkReleaseItemDto>` | ≤ 100 รายการ |   |   |
+| `items[].deliveryOrderId` | ใช่ | `string` |   |   | `do_3f2a…` |
+| `items[].version` |   | `number` |   | `version` ที่ผู้ใช้เห็น (แทน If-Match ต่อรายการ) — ไม่ตรง → รายการนั้น 412 | `3` |
+| `note` |   | `string` | ยาว ≤ 500 | หมายเหตุ (ไม่บังคับ — ลง audit ทุกรายการ) |   |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `207` | ผลต่อรายการ | `BulkReleaseResultsDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`invoices:draft`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X POST "$TMS_BASE_URL/v1/delivery-orders/bulk-release" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{"items":[{"deliveryOrderId":"do_3f2a…","version":3}]}'
+```
+
+```ts
+const { data, error } = await tms.POST('/v1/delivery-orders/bulk-release', {
+  body: {
+    "items": [
+      {
+        "deliveryOrderId": "do_3f2a…",
+        "version": 3
+      }
+    ]
+  },
+});
+```
+
 ## บรรทัดรายได้ของใบส่งของ + รายได้รวมของใบ {#get-delivery-orders-id-revenue-lines}
 
 `GET /v1/delivery-orders/{id}/revenue-lines`
@@ -2883,6 +2993,17 @@ const { data, error } = await tms.POST('/v1/delivery-orders/{id}/tracking-link/r
 
 ## Schema ของ response {#schemas}
 
+### BulkReleaseResultsDto {#schema-BulkReleaseResultsDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `results` | ใช่ | `array<BulkReleaseResultDto>` |   | ผลต่อรายการ เรียงตามคำขอ |   |
+| `succeeded` | ใช่ | `number` |   |   | `3` |
+| `unchanged` | ใช่ | `number` |   |   | `0` |
+| `failed` | ใช่ | `number` |   |   | `1` |
+
 ### DeliveryOrderDto {#schema-DeliveryOrderDto}
 
 
@@ -2917,6 +3038,7 @@ const { data, error } = await tms.POST('/v1/delivery-orders/{id}/tracking-link/r
 | `redeliveryManual` | ใช่ | `boolean` |   | ส่งซ้ำโดยผู้ใช้ (ไม่ใช่นัดส่งใหม่อัตโนมัติ) — ผลส่งไม่สำเร็จถูกพลิกภายหลังระบบไม่คืนใบเดิมเอง |   |
 | `rejectedFromId` | ใช่ | `string` | null ได้ | ใบส่งซ้ำของที่ลูกค้าปฏิเสธรับจาก DO นี้ (ใบเดิมคงส่งแล้ว) — ไม่นับปริมาณจัดสรรของ SO |   |
 | `podStatus` | ใช่ | `string` |   |   | `NONE` |
+| `releasedAt` | ใช่ | `string` | null ได้ | เวลาส่งบัญชี · null = ยังไม่ส่ง |   |
 | `lines` | ใช่ | `array<DeliveryOrderLineDto>` |   |   |   |
 | `version` | ใช่ | `number` |   |   |   |
 | `createdAt` | ใช่ | `string` |   |   |   |
@@ -6893,6 +7015,7 @@ scope: `master:write` · operationId: `Customers_create`
 | `vatRegistered` |   | `boolean` |   | ลูกค้าจดทะเบียน VAT (ค่าเริ่มต้น true) |   |
 | `etaxCapable` |   | `boolean` |   | ลูกค้ารับใบกำกับภาษีอิเล็กทรอนิกส์ (e-Tax) ได้ (ค่าเริ่มต้น false) |   |
 | `billByActualQty` |   | `boolean` |   | วางบิลตามยอดส่งจริง — true = ค่าขนส่งที่คิดตามน้ำหนัก/ปริมาตร/หน่วยนับ ใช้ปริมาณที่ส่งได้จริงจากหลักฐานส่ง (ค่าเริ่มต้น false = ตามใบสั่ง) |   |
+| `requirePodToBill` |   | `boolean` |   | "ไม่มี POD ไม่วางบิล" — true (ค่าเริ่มต้น) = DO ต้องมีหลักฐานส่งครบตาม checklist ก่อนขึ้นคิวพร้อมวางบิล/ส่งบัญชี · false = ขึ้นคิวได้แม้หลักฐานยังไม่ครบ · เปลี่ยนค่าต้องมีสิทธิ์ `invoices:draft` เพิ่ม |   |
 | `freeTimeMin` |   | `number` | ≥ 0 · ≤ 1440 · null ได้ | free time ค่ารอ (นาที) — null = ใช้ค่าตั้งองค์กร `billing.freeTimeMinutes` |   |
 | `podRequirements` |   | `PodRequirementsDto` |   | POD checklist ของลูกค้านี้ — `{}` = ใช้ค่าเริ่มต้นขององค์กร (`pod.checklist`); ส่งชุด `success` = กำหนดเองทั้งชุด |   |
 | `podRequirements.success` |   | `PodChecklistDto` |   | ชุดเมื่อส่งสำเร็จ — ของลูกค้า: ไม่ส่ง = ใช้ค่าเริ่มต้นขององค์กร |   |
@@ -7073,6 +7196,7 @@ scope: `master:write` · operationId: `Customers_upsertExternal`
 | `vatRegistered` |   | `boolean` |   | ลูกค้าจดทะเบียน VAT (ค่าเริ่มต้น true) |   |
 | `etaxCapable` |   | `boolean` |   | ลูกค้ารับใบกำกับภาษีอิเล็กทรอนิกส์ (e-Tax) ได้ (ค่าเริ่มต้น false) |   |
 | `billByActualQty` |   | `boolean` |   | วางบิลตามยอดส่งจริง — true = ค่าขนส่งที่คิดตามน้ำหนัก/ปริมาตร/หน่วยนับ ใช้ปริมาณที่ส่งได้จริงจากหลักฐานส่ง (ค่าเริ่มต้น false = ตามใบสั่ง) |   |
+| `requirePodToBill` |   | `boolean` |   | "ไม่มี POD ไม่วางบิล" — true (ค่าเริ่มต้น) = DO ต้องมีหลักฐานส่งครบตาม checklist ก่อนขึ้นคิวพร้อมวางบิล/ส่งบัญชี · false = ขึ้นคิวได้แม้หลักฐานยังไม่ครบ · เปลี่ยนค่าต้องมีสิทธิ์ `invoices:draft` เพิ่ม |   |
 | `freeTimeMin` |   | `number` | ≥ 0 · ≤ 1440 · null ได้ | free time ค่ารอ (นาที) — null = ใช้ค่าตั้งองค์กร `billing.freeTimeMinutes` |   |
 | `podRequirements` |   | `PodRequirementsDto` |   | POD checklist ของลูกค้านี้ — `{}` = ใช้ค่าเริ่มต้นขององค์กร (`pod.checklist`); ส่งชุด `success` = กำหนดเองทั้งชุด |   |
 | `podRequirements.success` |   | `PodChecklistDto` |   | ชุดเมื่อส่งสำเร็จ — ของลูกค้า: ไม่ส่ง = ใช้ค่าเริ่มต้นขององค์กร |   |
@@ -7159,6 +7283,7 @@ scope: `master:write` · operationId: `Customers_patchExternal`
 | `vatRegistered` |   | `boolean` |   | ลูกค้าจดทะเบียน VAT (ค่าเริ่มต้น true) |   |
 | `etaxCapable` |   | `boolean` |   | ลูกค้ารับใบกำกับภาษีอิเล็กทรอนิกส์ (e-Tax) ได้ (ค่าเริ่มต้น false) |   |
 | `billByActualQty` |   | `boolean` |   | วางบิลตามยอดส่งจริง — true = ค่าขนส่งที่คิดตามน้ำหนัก/ปริมาตร/หน่วยนับ ใช้ปริมาณที่ส่งได้จริงจากหลักฐานส่ง (ค่าเริ่มต้น false = ตามใบสั่ง) |   |
+| `requirePodToBill` |   | `boolean` |   | "ไม่มี POD ไม่วางบิล" — true (ค่าเริ่มต้น) = DO ต้องมีหลักฐานส่งครบตาม checklist ก่อนขึ้นคิวพร้อมวางบิล/ส่งบัญชี · false = ขึ้นคิวได้แม้หลักฐานยังไม่ครบ · เปลี่ยนค่าต้องมีสิทธิ์ `invoices:draft` เพิ่ม |   |
 | `freeTimeMin` |   | `number` | ≥ 0 · ≤ 1440 · null ได้ | free time ค่ารอ (นาที) — null = ใช้ค่าตั้งองค์กร `billing.freeTimeMinutes` |   |
 | `podRequirements` |   | `PodRequirementsDto` |   | POD checklist ของลูกค้านี้ — `{}` = ใช้ค่าเริ่มต้นขององค์กร (`pod.checklist`); ส่งชุด `success` = กำหนดเองทั้งชุด |   |
 | `podRequirements.success` |   | `PodChecklistDto` |   | ชุดเมื่อส่งสำเร็จ — ของลูกค้า: ไม่ส่ง = ใช้ค่าเริ่มต้นขององค์กร |   |
@@ -7277,6 +7402,7 @@ scope: `master:write` · operationId: `Customers_update`
 | `vatRegistered` |   | `boolean` |   | ลูกค้าจดทะเบียน VAT (ค่าเริ่มต้น true) |   |
 | `etaxCapable` |   | `boolean` |   | ลูกค้ารับใบกำกับภาษีอิเล็กทรอนิกส์ (e-Tax) ได้ (ค่าเริ่มต้น false) |   |
 | `billByActualQty` |   | `boolean` |   | วางบิลตามยอดส่งจริง — true = ค่าขนส่งที่คิดตามน้ำหนัก/ปริมาตร/หน่วยนับ ใช้ปริมาณที่ส่งได้จริงจากหลักฐานส่ง (ค่าเริ่มต้น false = ตามใบสั่ง) |   |
+| `requirePodToBill` |   | `boolean` |   | "ไม่มี POD ไม่วางบิล" — true (ค่าเริ่มต้น) = DO ต้องมีหลักฐานส่งครบตาม checklist ก่อนขึ้นคิวพร้อมวางบิล/ส่งบัญชี · false = ขึ้นคิวได้แม้หลักฐานยังไม่ครบ · เปลี่ยนค่าต้องมีสิทธิ์ `invoices:draft` เพิ่ม |   |
 | `freeTimeMin` |   | `number` | ≥ 0 · ≤ 1440 · null ได้ | free time ค่ารอ (นาที) — null = ใช้ค่าตั้งองค์กร `billing.freeTimeMinutes` |   |
 | `podRequirements` |   | `PodRequirementsDto` |   | POD checklist ของลูกค้านี้ — `{}` = ใช้ค่าเริ่มต้นขององค์กร (`pod.checklist`); ส่งชุด `success` = กำหนดเองทั้งชุด |   |
 | `podRequirements.success` |   | `PodChecklistDto` |   | ชุดเมื่อส่งสำเร็จ — ของลูกค้า: ไม่ส่ง = ใช้ค่าเริ่มต้นขององค์กร |   |
@@ -7694,6 +7820,7 @@ const { data, error } = await tms.POST('/v1/customers/{id}/tracking-link/revoke'
 | `vatRegistered` | ใช่ | `boolean` |   |   |   |
 | `etaxCapable` | ใช่ | `boolean` |   |   |   |
 | `billByActualQty` | ใช่ | `boolean` |   | วางบิลตามยอดส่งจริง |   |
+| `requirePodToBill` | ใช่ | `boolean` |   | "ไม่มี POD ไม่วางบิล" |   |
 | `freeTimeMin` | ใช่ | `number` | null ได้ |   |   |
 | `billingCompanyId` | ใช่ | `string` | null ได้ | ออกบิลในนาม (cmp_…) |   |
 | `podRequirements` | ใช่ | `PodRequirementsDto` |   | POD checklist ที่ลูกค้ากำหนดเอง — `{}` = ใช้ค่าเริ่มต้นขององค์กร (ดูที่ใช้จริงที่ `GET /customers/{id}/pod-checklist`) |   |
@@ -18896,6 +19023,74 @@ const { data, error } = await tms.GET('/v1/health');
 
 ---
 
+<!-- ref-invoices.md -->
+# invoices
+
+1 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
+
+| Endpoint | scope |
+|---|---|
+| [`GET /v1/invoices/queue`](#get-invoices-queue) | `invoices:read` |
+
+## คิวพร้อมวางบิล (DO ที่ส่งแล้ว หลักฐานครบ และราคาพร้อม) {#get-invoices-queue}
+
+`GET /v1/invoices/queue`
+
+scope: `invoices:read` · operationId: `Invoices_list`
+
+DO ที่ส่งถึงแล้ว (DELIVERED/POD_PENDING/UNBILLED) ที่ใบสั่ง `pricingStatus = AVAILABLE` และมีบรรทัดรายได้ที่ยืนยันแล้ว (ไม่มีบรรทัดยอดชั่วคราว/ล็อก ไม่มีค่าใช้จ่ายหน้างานฝั่งขายรอยืนยัน) และไม่ถูกระงับวางบิล · ลูกค้าที่เปิด "ไม่มี POD ไม่วางบิล" (`requirePodToBill`, ค่าเริ่มต้นเปิด) → DO ที่หลักฐานส่งยังไม่ครบตาม checklist ไม่ขึ้นคิว · กรองลูกค้า (`customerId` รับ `ext:`) / ช่วงวันที่ส่ง (`doDate`) / หลักฐานครบ / ส่งบัญชีแล้ว · `customers` = ยอดรวมต่อลูกค้าของทุกแถวที่ตรงตัวกรอง · ยอดเงิน (`sell*`) เห็นเมื่อมี `prices.sell:read`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `limit` | query |   | `number` |   |
+| `cursor` | query |   | `string` | ค่า nextCursor จากหน้าก่อน |
+| `updatedAfter` | query |   | `string` | คืนเฉพาะแถวที่ updatedAt > ค่านี้ (incremental pull) |
+| `sort` | query |   | `string` ค่า: `updatedAt`, `-updatedAt` |   |
+| `fields` | query |   | `string` | รายชื่อ field คั่นด้วย, เช่น id,legalName |
+| `customerId` | query |   | `string` | ลูกค้า — id หรือ `ext:{externalId}` (ไม่พบ = รายการว่าง) |
+| `dateFrom` | query |   | `string` | วันที่ส่งตั้งแต่ (YYYY-MM-DD — วันที่ของใบส่งของ `doDate`) |
+| `dateTo` | query |   | `string` | วันที่ส่งถึง (YYYY-MM-DD — รวมทั้งวัน) |
+| `podComplete` | query |   | `string` ค่า: `true`, `false` | กรองตามหลักฐานส่ง (POD): true = ครบ · false = ยังไม่ครบ (มีได้เฉพาะลูกค้าที่ปิด "ไม่มี POD ไม่วางบิล") |
+| `released` | query |   | `string` ค่า: `true`, `false` | กรองตามขั้นส่งบัญชี: true = ส่งบัญชีแล้ว (RELEASED) · false = ยังไม่ส่ง |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `BillingQueuePageDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`invoices:read`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X GET "$TMS_BASE_URL/v1/invoices/queue" \
+  -H "Authorization: Bearer $TMS_API_KEY"
+```
+
+```ts
+const { data, error } = await tms.GET('/v1/invoices/queue');
+```
+
+## Schema ของ response {#schemas}
+
+### BillingQueuePageDto {#schema-BillingQueuePageDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `data` | ใช่ | `array<BillingQueueRowDto>` |   |   |   |
+| `nextCursor` | ใช่ | `string` | null ได้ |   |   |
+| `hasMore` | ใช่ | `boolean` |   |   |   |
+| `customers` | ใช่ | `array<BillingQueueCustomerDto>` |   | สรุปต่อลูกค้าของทุกแถวที่ตรงตัวกรอง (ไม่ขึ้นกับ cursor/limit) — เรียงตามรหัสลูกค้า |   |
+
+---
+
 <!-- webhook-events.md -->
 # Webhook events
 
@@ -19024,6 +19219,7 @@ const { data, error } = await tms.GET('/v1/health');
 | `redeliveryManual` | ใช่ | `boolean` |   | ส่งซ้ำโดยผู้ใช้ (ไม่ใช่นัดส่งใหม่อัตโนมัติ) — ผลส่งไม่สำเร็จถูกพลิกภายหลังระบบไม่คืนใบเดิมเอง |   |
 | `rejectedFromId` | ใช่ | `string` | null ได้ | ใบส่งซ้ำของที่ลูกค้าปฏิเสธรับจาก DO นี้ (ใบเดิมคงส่งแล้ว) — ไม่นับปริมาณจัดสรรของ SO |   |
 | `podStatus` | ใช่ | `string` |   |   | `NONE` |
+| `releasedAt` | ใช่ | `string` | null ได้ | เวลาส่งบัญชี · null = ยังไม่ส่ง |   |
 | `lines` | ใช่ | `array<DeliveryOrderLineDto>` |   |   |   |
 | `version` | ใช่ | `number` |   |   |   |
 | `createdAt` | ใช่ | `string` |   |   |   |
@@ -19696,6 +19892,7 @@ const { data, error } = await tms.GET('/v1/health');
 | [`invalid_state_transition`](#invalid_state_transition) | 409 | ทำรายการนี้ไม่ได้ในสถานะปัจจุบัน |
 | [`master_sync_failed`](#master_sync_failed) | 409 | ดึงผังรหัสจากระบบบัญชีไม่สำเร็จ ตรวจการเชื่อมต่อแล้วลองใหม่ |
 | [`master_sync_not_supported`](#master_sync_not_supported) | 409 | ระบบบัญชีนี้ดึงผังรหัสอัตโนมัติไม่ได้ นำเข้าจากไฟล์แทน |
+| [`not_ready_to_bill`](#not_ready_to_bill) | 409 | ใบส่งของนี้ยังไม่พร้อมวางบิล |
 | [`offer_closed`](#offer_closed) | 409 | ข้อเสนองานนี้ปิดแล้ว (ตอบไปแล้วหรือถูกยกเลิก) |
 | [`offer_not_timed_out`](#offer_not_timed_out) | 409 | รถร่วมรายนี้ยังอยู่ในเวลาตอบรับ — ส่งรายถัดไปได้เมื่อครบเวลา |
 | [`offer_required`](#offer_required) | 409 | รถคันนี้เป็นรถร่วม — ต้องเสนองานให้รถร่วมก่อน แล้วจึงบันทึกการรับงาน |
@@ -19836,7 +20033,7 @@ HTTP `401` · กรอกรหัสยืนยันตัวตน 2 ชั
 
 HTTP `401` · ต้องเข้าสู่ระบบ
 
-พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences`](ref-document-sequences.md#get-document-sequences), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id), [`GET /v1/settings`](ref-settings.md#get-settings) และอีก 301 endpoint
+พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences`](ref-document-sequences.md#get-document-sequences), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id), [`GET /v1/settings`](ref-settings.md#get-settings) และอีก 304 endpoint
 
 ## edit_lock_user_required {#edit_lock_user_required}
 
@@ -19872,7 +20069,7 @@ HTTP `403` · IP นี้ไม่ได้รับอนุญาตให้
 
 HTTP `403` · ไม่มีสิทธิ์ทำรายการนี้
 
-พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences`](ref-document-sequences.md#get-document-sequences), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id), [`GET /v1/settings`](ref-settings.md#get-settings) และอีก 301 endpoint
+พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences`](ref-document-sequences.md#get-document-sequences), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id), [`GET /v1/settings`](ref-settings.md#get-settings) และอีก 304 endpoint
 
 ## sandbox_only {#sandbox_only}
 
@@ -19902,7 +20099,7 @@ HTTP `403` · ยืนยันตัวตน 2 ชั้นอีกครั
 
 HTTP `404` · ไม่พบข้อมูล
 
-พบใน: [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id), [`GET /v1/documents/{id}/content`](ref-documents.md#get-documents-id-content), [`PUT /v1/documents/{id}/content`](ref-documents.md#put-documents-id-content), [`GET /v1/jobs/{id}`](ref-jobs.md#get-jobs-id), [`PATCH /v1/customers/external/{externalId}`](ref-customers.md#patch-customers-external-externalId), [`GET /v1/customers/{id}`](ref-customers.md#get-customers-id), [`PATCH /v1/customers/{id}`](ref-customers.md#patch-customers-id), [`GET /v1/customers/{id}/history`](ref-customers.md#get-customers-id-history) และอีก 188 endpoint
+พบใน: [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id), [`GET /v1/documents/{id}/content`](ref-documents.md#get-documents-id-content), [`PUT /v1/documents/{id}/content`](ref-documents.md#put-documents-id-content), [`GET /v1/jobs/{id}`](ref-jobs.md#get-jobs-id), [`PATCH /v1/customers/external/{externalId}`](ref-customers.md#patch-customers-external-externalId), [`GET /v1/customers/{id}`](ref-customers.md#get-customers-id), [`PATCH /v1/customers/{id}`](ref-customers.md#patch-customers-id), [`GET /v1/customers/{id}/history`](ref-customers.md#get-customers-id-history) และอีก 189 endpoint
 
 ## method_not_allowed {#method_not_allowed}
 
@@ -20053,6 +20250,12 @@ HTTP `409` · ดึงผังรหัสจากระบบบัญชี
 HTTP `409` · ระบบบัญชีนี้ดึงผังรหัสอัตโนมัติไม่ได้ นำเข้าจากไฟล์แทน
 
 อาจตอบได้จากหลาย endpoint
+
+## not_ready_to_bill {#not_ready_to_bill}
+
+HTTP `409` · ใบส่งของนี้ยังไม่พร้อมวางบิล
+
+พบใน: [`POST /v1/delivery-orders/{id}/release`](ref-delivery-orders.md#post-delivery-orders-id-release)
 
 ## offer_closed {#offer_closed}
 
@@ -20256,7 +20459,7 @@ HTTP `409` · จำนวน webhook endpoint ครบตามแพ็กเ
 
 HTTP `412` · ข้อมูลถูกแก้ไขโดยผู้อื่นแล้ว กรุณาโหลดใหม่
 
-พบใน: [`PUT /v1/customers/external/{externalId}`](ref-customers.md#put-customers-external-externalId), [`PATCH /v1/customers/external/{externalId}`](ref-customers.md#patch-customers-external-externalId), [`PATCH /v1/customers/{id}`](ref-customers.md#patch-customers-id), [`POST /v1/customers/{id}/deactivate`](ref-customers.md#post-customers-id-deactivate), [`POST /v1/customers/{id}/activate`](ref-customers.md#post-customers-id-activate), [`POST /v1/customers/{id}/delete`](ref-customers.md#post-customers-id-delete), [`PUT /v1/orders/external/{externalId}`](ref-orders.md#put-orders-external-externalId), [`PATCH /v1/orders/external/{externalId}`](ref-orders.md#patch-orders-external-externalId), [`PATCH /v1/orders/{id}`](ref-orders.md#patch-orders-id), [`POST /v1/orders/{id}/cancel`](ref-orders.md#post-orders-id-cancel), [`POST /v1/orders/{id}/source-changes/{changeId}/accept`](ref-orders.md#post-orders-id-source-changes-changeId-accept), [`POST /v1/orders/{id}/source-changes/{changeId}/reject`](ref-orders.md#post-orders-id-source-changes-changeId-reject) และอีก 104 endpoint
+พบใน: [`PUT /v1/customers/external/{externalId}`](ref-customers.md#put-customers-external-externalId), [`PATCH /v1/customers/external/{externalId}`](ref-customers.md#patch-customers-external-externalId), [`PATCH /v1/customers/{id}`](ref-customers.md#patch-customers-id), [`POST /v1/customers/{id}/deactivate`](ref-customers.md#post-customers-id-deactivate), [`POST /v1/customers/{id}/activate`](ref-customers.md#post-customers-id-activate), [`POST /v1/customers/{id}/delete`](ref-customers.md#post-customers-id-delete), [`PUT /v1/orders/external/{externalId}`](ref-orders.md#put-orders-external-externalId), [`PATCH /v1/orders/external/{externalId}`](ref-orders.md#patch-orders-external-externalId), [`PATCH /v1/orders/{id}`](ref-orders.md#patch-orders-id), [`POST /v1/orders/{id}/cancel`](ref-orders.md#post-orders-id-cancel), [`POST /v1/orders/{id}/source-changes/{changeId}/accept`](ref-orders.md#post-orders-id-source-changes-changeId-accept), [`POST /v1/orders/{id}/source-changes/{changeId}/reject`](ref-orders.md#post-orders-id-source-changes-changeId-reject) และอีก 105 endpoint
 
 ## payload_too_large {#payload_too_large}
 
@@ -20280,7 +20483,7 @@ HTTP `422` · นิติบุคคลออกบิลไม่พบหร
 
 HTTP `422` · Idempotency-Key นี้เคยใช้กับข้อมูลอื่น
 
-พบใน: [`POST /v1/orders:bulk`](ref-orders.md#post-orders-bulk), [`GET /v1/orders`](ref-orders.md#get-orders), [`POST /v1/orders`](ref-orders.md#post-orders), [`PUT /v1/orders/external/{externalId}`](ref-orders.md#put-orders-external-externalId), [`PATCH /v1/orders/external/{externalId}`](ref-orders.md#patch-orders-external-externalId), [`PATCH /v1/orders/{id}`](ref-orders.md#patch-orders-id), [`POST /v1/orders/{id}/stops/{sequence}/map-site`](ref-orders.md#post-orders-id-stops-sequence-map-site), [`POST /v1/orders/{id}/manual-price`](ref-orders.md#post-orders-id-manual-price), [`POST /v1/orders/{id}/resolve-source-error`](ref-orders.md#post-orders-id-resolve-source-error), [`POST /v1/orders/{id}/map-customer`](ref-orders.md#post-orders-id-map-customer), [`GET /v1/trips`](ref-trips.md#get-trips), [`POST /v1/trips`](ref-trips.md#post-trips) และอีก 41 endpoint
+พบใน: [`POST /v1/orders:bulk`](ref-orders.md#post-orders-bulk), [`GET /v1/orders`](ref-orders.md#get-orders), [`POST /v1/orders`](ref-orders.md#post-orders), [`PUT /v1/orders/external/{externalId}`](ref-orders.md#put-orders-external-externalId), [`PATCH /v1/orders/external/{externalId}`](ref-orders.md#patch-orders-external-externalId), [`PATCH /v1/orders/{id}`](ref-orders.md#patch-orders-id), [`POST /v1/orders/{id}/stops/{sequence}/map-site`](ref-orders.md#post-orders-id-stops-sequence-map-site), [`POST /v1/orders/{id}/manual-price`](ref-orders.md#post-orders-id-manual-price), [`POST /v1/orders/{id}/resolve-source-error`](ref-orders.md#post-orders-id-resolve-source-error), [`POST /v1/orders/{id}/map-customer`](ref-orders.md#post-orders-id-map-customer), [`GET /v1/trips`](ref-trips.md#get-trips), [`POST /v1/trips`](ref-trips.md#post-trips) และอีก 44 endpoint
 
 ## pod_incomplete {#pod_incomplete}
 
@@ -20304,7 +20507,7 @@ HTTP `422` · ลำดับจุดไม่ถูกต้อง — จุ�
 
 HTTP `422` · ข้อมูลไม่ถูกต้อง
 
-พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`PUT /v1/documents/{id}/content`](ref-documents.md#put-documents-id-content), [`GET /v1/customers`](ref-customers.md#get-customers), [`POST /v1/customers`](ref-customers.md#post-customers), [`GET /v1/customers/export`](ref-customers.md#get-customers-export), [`PUT /v1/customers/external/{externalId}`](ref-customers.md#put-customers-external-externalId), [`PATCH /v1/customers/external/{externalId}`](ref-customers.md#patch-customers-external-externalId), [`PATCH /v1/customers/{id}`](ref-customers.md#patch-customers-id) และอีก 214 endpoint
+พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`PUT /v1/documents/{id}/content`](ref-documents.md#put-documents-id-content), [`GET /v1/customers`](ref-customers.md#get-customers), [`POST /v1/customers`](ref-customers.md#post-customers), [`GET /v1/customers/export`](ref-customers.md#get-customers-export), [`PUT /v1/customers/external/{externalId}`](ref-customers.md#put-customers-external-externalId), [`PATCH /v1/customers/external/{externalId}`](ref-customers.md#patch-customers-external-externalId), [`PATCH /v1/customers/{id}`](ref-customers.md#patch-customers-id) และอีก 217 endpoint
 
 ## webhook_event_expired {#webhook_event_expired}
 
