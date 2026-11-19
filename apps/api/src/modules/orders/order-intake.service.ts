@@ -32,6 +32,7 @@ import { AuditService, diff } from '../../audit/audit.service';
 import { encodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
+import { RevenueLinesService } from '../revenue-lines/revenue-lines.service';
 import { DbService, type Tx } from '../../db/db.service';
 import { DeliveryOrderService } from '../delivery-orders/delivery-order.service';
 import { StateService } from '../../state/state.service';
@@ -187,6 +188,7 @@ export class OrderIntakeService {
     private readonly deliveryOrders: DeliveryOrderService,
     private readonly matching: OrderMatchingService,
     sites: SitesService,
+    private readonly revenueLines: RevenueLinesService,
   ) {
     // สถานที่หาพิกัดไม่ได้/แก้แล้ว → ใบก่อนวางแผนที่ใช้สถานที่นี้ขึ้น/พ้นใบค้าง GEOCODING_ERROR เอง (ST3-T07)
     sites.onGeocodeFailedChange((siteId) => this.reevaluateForSite(siteId));
@@ -1521,6 +1523,8 @@ export class OrderIntakeService {
           })),
         });
     }
+    // บรรทัดรายได้ (ST5-T01): บรรทัดระบบตามราคาของใบสั่ง — บรรทัดที่คนเพิ่มคงไว้, บรรทัดที่ล็อก (ออกเลขแล้ว) ไม่เปลี่ยน
+    await this.revenueLines.rebuild(id, tx);
     // ยอดรวมก่อน VAT = บรรทัดระบบ + บรรทัดที่คนกำหนด (null = ไม่มีบรรทัดราคาเลย)
     const amounts = [...want.map((l) => l.amount), ...manual.map((c) => c.amount.toFixed(2))];
     const priceTotal = amounts.length

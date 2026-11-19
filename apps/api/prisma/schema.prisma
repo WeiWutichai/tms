@@ -1146,6 +1146,7 @@ model ServiceItem {
   rateCards            RateCard[]
   rateCardAccessorials RateCardAccessorial[]
   orderCharges         SalesOrderCharge[]
+  revenueLines         RevenueLine[]
   erpCodeMappings      ErpCodeMapping[]
 
   @@unique([tenantId, code])
@@ -1386,6 +1387,7 @@ model SalesOrder {
   lines          SalesOrderLine[]
   charges        SalesOrderCharge[]
   deliveryOrders DeliveryOrder[]
+  revenueLines   RevenueLine[]
   sourceChanges  OrderSourceChange[]
   editLock       OrderEditLock?
   lockReleases   OrderEditLockRelease[]
@@ -1551,6 +1553,56 @@ model SalesOrderCharge {
   @@index([tenantId, serviceItemId])
   @@index([tenantId, rateCardId])
   @@map("sales_order_charge")
+}
+
+/// บรรทัดรายได้ (ST5-T01; docs/04 F3 "Revenue line ตั้งแต่สร้าง order", plan/05 D-25/RA-7 ฝั่งรายได้แยกจากต้นทุน)
+/// = ฐานของบรรทัดใบแจ้งหนี้ — ทุกบรรทัดมี `source_type`/`source_id`:
+///   SO_CHARGE (source_id = sales_order_charge.id — ราคาจาก rate card / ราคาที่กำหนดเอง ณ เวลาคิด) ·
+///   DO_SURCHARGE (source_id = do_surcharge.id ที่ CONFIRMED) · MANUAL (คนเพิ่มเอง — `is_user_added`, ไม่มี source_id)
+/// rebuild (RevenueLinesService.rebuild) แทนเฉพาะบรรทัดระบบที่ยังไม่ล็อก · บรรทัดที่คนเพิ่มคงไว้ (ยกเลิกได้ด้วยเหตุผล = VOIDED)
+/// ล็อกเมื่อเอกสารแม่ออกเลข (`locked_at` — ST5-T09 ตั้ง): trigger ฐานข้อมูลห้ามแก้เนื้อหา/ลบแถวที่ล็อก
+/// ไม่คำนวณภาษีที่นี่ — vat_type/wht_rate(%) snapshot ต่อบรรทัด (ST5-T02 คำนวณ)
+model RevenueLine {
+  id                  String          @id @default(uuid()) @db.Uuid
+  tenantId            String          @map("tenant_id") @db.Uuid
+  salesOrderId        String          @map("sales_order_id") @db.Uuid
+  salesOrder          SalesOrder      @relation(fields: [salesOrderId], references: [id], onDelete: Restrict)
+  /// DO ที่บรรทัดผูก — DO_SURCHARGE = DO ของค่าใช้จ่ายหน้างาน · SO_CHARGE = null (ราคาคิดต่อใบสั่ง — การแบ่งลง DO รอตัดสิน [OPEN])
+  deliveryOrderId     String?         @map("delivery_order_id") @db.Uuid
+  deliveryOrder       DeliveryOrder?  @relation(fields: [deliveryOrderId], references: [id], onDelete: Restrict)
+  lineNo              Int             @map("line_no")
+  /// SO_CHARGE / DO_SURCHARGE / MANUAL (CHECK)
+  sourceType          String          @map("source_type")
+  sourceId            String?         @map("source_id") @db.Uuid
+  isUserAdded         Boolean         @default(false) @map("is_user_added")
+  kind                OrderChargeKind
+  serviceItemId       String          @map("service_item_id") @db.Uuid
+  serviceItem         ServiceItem     @relation(fields: [serviceItemId], references: [id], onDelete: Restrict)
+  serviceItemVersion  Int?            @map("service_item_version")
+  serviceItemSnapshot Json?           @map("service_item_snapshot")
+  description         String
+  qty                 Decimal         @db.Decimal(18, 4)
+  unitPrice           Decimal         @map("unit_price") @db.Decimal(14, 2)
+  amount              Decimal         @db.Decimal(14, 2)
+  vatType             VatType         @map("vat_type")
+  whtRate             Decimal         @map("wht_rate") @db.Decimal(5, 2) /// เปอร์เซ็นต์ (1.00 = 1%)
+  /// ACTIVE / VOIDED (CHECK) — VOIDED เฉพาะบรรทัดที่คนเพิ่ม (เหตุผล + audit)
+  status              String          @default("ACTIVE")
+  voidedAt            DateTime?       @map("voided_at") @db.Timestamptz(6)
+  voidedBy            String?         @map("voided_by")
+  voidReason          String?         @map("void_reason")
+  /// ล็อกเมื่อเอกสารแม่ (ใบแจ้งหนี้) ออกเลข — ST5-T09 · null = ยังแก้/rebuild ได้
+  lockedAt            DateTime?       @map("locked_at") @db.Timestamptz(6)
+  lockedDocumentId    String?         @map("locked_document_id") @db.Uuid
+  createdBy           String?         @map("created_by")
+  version             Int             @default(1)
+  createdAt           DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([tenantId, salesOrderId, lineNo])
+  @@index([tenantId, deliveryOrderId])
+  @@index([tenantId, serviceItemId])
+  @@map("revenue_line")
 }
 
 /// เทมเพลตงานประจำ (ST3-T02; docs/04 C "กรอกมือ … template งานประจำ") — เก็บข้อมูลฟอร์มใบสั่งขนส่ง
@@ -1841,6 +1893,7 @@ model DeliveryOrder {
   updatedAt            DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   lines        DeliveryOrderLine[]
+  revenueLines RevenueLine[]
   pods         DeliveryOrderPod[]
   doSurcharges DoSurcharge[]
 

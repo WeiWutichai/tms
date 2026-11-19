@@ -9,6 +9,7 @@ import { ProblemException } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService } from '../../db/db.service';
 import { readyDocumentDto } from '../documents/documents.controller';
+import { RevenueLinesService } from '../revenue-lines/revenue-lines.service';
 import { ServiceItemsService } from '../service-items/service-items.service';
 import { sideAllows, type ServiceItemSnapshot } from '../service-items/snapshot';
 import type { ServiceItemSide } from '../service-items/service-item.dto';
@@ -70,6 +71,7 @@ export class FieldChargesService {
     private readonly serviceItems: ServiceItemsService,
     private readonly audit: AuditService,
     private readonly events: NotificationEvents,
+    private readonly revenueLines: RevenueLinesService,
   ) {}
 
   // ---------- read ----------
@@ -432,6 +434,9 @@ export class FieldChargesService {
     const status: FieldChargeStatus =
       action === 'confirm' ? 'CONFIRMED' : action === 'reject' ? 'REJECTED' : 'CANCELLED';
     await this.apply(kind, id, row.status, status, reason);
+    // ฝั่งขายที่ยืนยันแล้ว = บรรทัดรายได้ DO_SURCHARGE ของใบสั่ง (ST5-T01)
+    if (kind === 'doSurcharge' && status === 'CONFIRMED' && row.deliveryOrderId)
+      await this.revenueLines.rebuildForDeliveryOrder(row.deliveryOrderId);
     // ยกเลิกบรรทัดคู่ (BOTH) ด้วย — ยืนยัน/ปฏิเสธยังแยกฝั่ง
     if (action === 'cancel' && row.pairKind && row.pairId) {
       if (!canCancel(row.pairKind, scopes))
@@ -556,7 +561,8 @@ export class FieldChargesService {
   private common(r: DoSurcharge | TripCost, names: Map<string, string>) {
     return {
       status: r.status as FieldChargeStatus,
-      tripId: encodeId('trip', r.tripId!),
+      // แถวก่อน ST4-T13 ไม่มี trip_id — ตอบ null แทน 500
+      tripId: r.tripId ? encodeId('trip', r.tripId) : null,
       note: r.note,
       createdBy: r.createdBy,
       createdByName: (r.createdBy && names.get(r.createdBy)) ?? null,

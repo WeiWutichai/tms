@@ -1075,6 +1075,142 @@
             },
             "description": "scope: orders:read\n\naudit trail สำหรับระบบภายนอก (ไม่รวมบันทึก/ข้อความภายใน) · event หน้างานมีทั้ง `occurredAt` (อุปกรณ์) และ `receivedAt` (server)"
           }
+        },
+        {
+          "name": "บรรทัดรายได้ของใบสั่ง (ฐานของบรรทัดใบแจ้งหนี้)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/orders/:id/revenue-lines",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "orders",
+                ":id",
+                "revenue-lines"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
+                }
+              ]
+            },
+            "description": "scope: orders:read\n\nระบบสร้างจากราคาของใบสั่ง (`SO_CHARGE` — rate card snapshot / ราคาที่กำหนดเอง ตามปริมาณในใบสั่ง) และค่าใช้จ่ายหน้างานที่ยืนยันแล้ว (`DO_SURCHARGE`) · แก้ใบสั่ง → บรรทัดระบบคิดใหม่ บรรทัดที่คนเพิ่ม (`MANUAL`) คงไว้ · บรรทัดที่อยู่ในเอกสารที่ออกเลขแล้ว `locked` = ไม่เปลี่ยน · ไม่คำนวณภาษี (มีเฉพาะ vatType/whtRate ต่อบรรทัด) · รวมบรรทัดที่ยกเลิก (`status` VOIDED)"
+          }
+        },
+        {
+          "name": "เพิ่มบรรทัดรายได้เอง — คงไว้เมื่อระบบคิดราคาใหม่",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/orders/:id/revenue-lines",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "orders",
+                ":id",
+                "revenue-lines"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": "id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404)"
+                }
+              ]
+            },
+            "description": "scope: orders:write\n\nธงภาษีคัดลอกจากรายการบริการฝั่งขาย ณ เวลาเพิ่ม · ยอด = จำนวน × ราคา (ปัดครึ่งขึ้นเป็นสตางค์) · ต้องมี `prices.sell:write` · เหตุผล ≥ 10 ตัวอักษร (audit `sales_order.revenue_line_added`) · ใบสั่งปิด/ยกเลิก หรือมีบรรทัดที่ออกใบแจ้งหนี้แล้ว → 409",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"serviceItemId\": \"svc_…\",\n  \"qty\": \"1\",\n  \"sellUnitPrice\": \"500.00\",\n  \"deliveryOrderId\": \"do_…\",\n  \"reason\": \"ลูกค้าขอให้ช่วยยกของขึ้นชั้น 2\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "ยกเลิกบรรทัดรายได้ที่คนเพิ่มเอง — เหตุผล ≥ 10 ตัวอักษร",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "If-Match",
+                "value": "",
+                "description": "ETag (version) — ไม่ตรง → 412",
+                "disabled": true
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/revenue-lines/:id/void",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "revenue-lines",
+                ":id",
+                "void"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: orders:write\n\nบรรทัดระบบ (SO_CHARGE / DO_SURCHARGE) ยกเลิกไม่ได้ — แก้ที่ใบสั่ง/ค่าใช้จ่ายหน้างาน (409) · บรรทัดที่ล็อก (ออกเลขแล้ว) / ใบสั่งปิดหรือยกเลิก / ใบสั่งถูกล็อกการแก้โดยผู้อื่น → 409 · ต้องมี `prices.sell:write` · audit `sales_order.revenue_line_voided`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"เพิ่มผิดรายการ ลูกค้าไม่ได้ขอบริการนี้\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
         }
       ]
     },

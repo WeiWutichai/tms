@@ -1,6 +1,6 @@
 # ใบสั่งขนส่ง (orders)
 
-21 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
+24 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
 
 | Endpoint | scope |
 |---|---|
@@ -25,6 +25,9 @@
 | [`GET /v1/orders/{id}/documents`](#get-orders-id-documents) | `orders:read` |
 | [`GET /v1/orders/{id}/tracking`](#get-orders-id-tracking) | `orders:read` |
 | [`GET /v1/orders/{id}/events`](#get-orders-id-events) | `orders:read` |
+| [`GET /v1/orders/{id}/revenue-lines`](#get-orders-id-revenue-lines) | `orders:read` |
+| [`POST /v1/orders/{id}/revenue-lines`](#post-orders-id-revenue-lines) | `orders:write` |
+| [`POST /v1/revenue-lines/{id}/void`](#post-revenue-lines-id-void) | `orders:write` |
 
 ## สร้าง/อัปเดตใบสั่งขนส่งหลายใบ (≤ 200) — 207 ผลต่อรายการ หรือ 202 job {#post-orders-bulk}
 
@@ -1179,6 +1182,156 @@ const { data, error } = await tms.GET('/v1/orders/{id}/events', {
 });
 ```
 
+## บรรทัดรายได้ของใบสั่ง (ฐานของบรรทัดใบแจ้งหนี้) {#get-orders-id-revenue-lines}
+
+`GET /v1/orders/{id}/revenue-lines`
+
+scope: `orders:read` · operationId: `OrderRevenueLines_list`
+
+ระบบสร้างจากราคาของใบสั่ง (`SO_CHARGE` — rate card snapshot / ราคาที่กำหนดเอง ตามปริมาณในใบสั่ง) และค่าใช้จ่ายหน้างานที่ยืนยันแล้ว (`DO_SURCHARGE`) · แก้ใบสั่ง → บรรทัดระบบคิดใหม่ บรรทัดที่คนเพิ่ม (`MANUAL`) คงไว้ · บรรทัดที่อยู่ในเอกสารที่ออกเลขแล้ว `locked` = ไม่เปลี่ยน · ไม่คำนวณภาษี (มีเฉพาะ vatType/whtRate ต่อบรรทัด) · รวมบรรทัดที่ยกเลิก (`status` VOIDED)
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `RevenueLineListDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`orders:read`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบ (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X GET "$TMS_BASE_URL/v1/orders/<id>/revenue-lines" \
+  -H "Authorization: Bearer $TMS_API_KEY"
+```
+
+```ts
+const { data, error } = await tms.GET('/v1/orders/{id}/revenue-lines', {
+  params: { path: { id: "…" } },
+});
+```
+
+## เพิ่มบรรทัดรายได้เอง — คงไว้เมื่อระบบคิดราคาใหม่ {#post-orders-id-revenue-lines}
+
+`POST /v1/orders/{id}/revenue-lines`
+
+scope: `orders:write` · operationId: `OrderRevenueLines_add`
+
+ธงภาษีคัดลอกจากรายการบริการฝั่งขาย ณ เวลาเพิ่ม · ยอด = จำนวน × ราคา (ปัดครึ่งขึ้นเป็นสตางค์) · ต้องมี `prices.sell:write` · เหตุผล ≥ 10 ตัวอักษร (audit `sales_order.revenue_line_added`) · ใบสั่งปิด/ยกเลิก หรือมีบรรทัดที่ออกใบแจ้งหนี้แล้ว → 409
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` | id ของ resource หรือ `ext:{externalId}` (เลขของระบบต้นทาง — ASCII ที่พิมพ์ได้ 1–100 ตัว; ไม่พบ/ผิดรูปแบบ = 404) |
+
+**Request body** `AddRevenueLineDto`
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `serviceItemId` | ใช่ | `string` |   | รายการบริการฝั่งขาย (SELL/BOTH) ที่ใช้งานอยู่ | `svc_…` |
+| `qty` |   | `string` |   | จำนวน (ทศนิยม ≤ 3 ตำแหน่ง, > 0) — ไม่ส่ง = 1 | `1` |
+| `sellUnitPrice` | ใช่ | `string` |   | ราคาต่อหน่วยก่อน VAT (บาท) — ยอด = จำนวน × ราคา ปัดครึ่งขึ้นเป็นสตางค์ · ต้องมีสิทธิ์ `prices.sell:write` | `500.00` |
+| `description` |   | `string` | ยาว ≤ 500 | ข้อความบนบรรทัด — ไม่ส่ง = ชื่อรายการบริการ |   |
+| `deliveryOrderId` |   | `string` |   | ผูกกับใบส่งของของใบสั่งนี้ (ไม่ยกเลิก/ยังไม่วางบิล) — ไม่ส่ง = ระดับใบสั่ง | `do_…` |
+| `reason` | ใช่ | `string` | ยาว ≤ 500 · ยาว ≥ 10 |   | `ลูกค้าขอให้ช่วยยกของขึ้นชั้น 2` |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `201` |   | `RevenueLineDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`prices.sell:write`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบ (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `409` | สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน — [invalid_state_transition](errors.md#invalid_state_transition), [concurrent_update](errors.md#concurrent_update), [idempotency_in_progress](errors.md#idempotency_in_progress), [order_locked_for_update](errors.md#order_locked_for_update) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X POST "$TMS_BASE_URL/v1/orders/<id>/revenue-lines" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{"serviceItemId":"svc_…","qty":"1","sellUnitPrice":"500.00","deliveryOrderId":"do_…","reason":"ลูกค้าขอให้ช่วยยกของขึ้นชั้น 2"}'
+```
+
+```ts
+const { data, error } = await tms.POST('/v1/orders/{id}/revenue-lines', {
+  params: { path: { id: "…" } },
+  body: {
+    "serviceItemId": "svc_…",
+    "qty": "1",
+    "sellUnitPrice": "500.00",
+    "deliveryOrderId": "do_…",
+    "reason": "ลูกค้าขอให้ช่วยยกของขึ้นชั้น 2"
+  },
+});
+```
+
+## ยกเลิกบรรทัดรายได้ที่คนเพิ่มเอง — เหตุผล ≥ 10 ตัวอักษร {#post-revenue-lines-id-void}
+
+`POST /v1/revenue-lines/{id}/void`
+
+scope: `orders:write` · operationId: `RevenueLines_void`
+
+บรรทัดระบบ (SO_CHARGE / DO_SURCHARGE) ยกเลิกไม่ได้ — แก้ที่ใบสั่ง/ค่าใช้จ่ายหน้างาน (409) · บรรทัดที่ล็อก (ออกเลขแล้ว) / ใบสั่งปิดหรือยกเลิก / ใบสั่งถูกล็อกการแก้โดยผู้อื่น → 409 · ต้องมี `prices.sell:write` · audit `sales_order.revenue_line_voided`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` |   |
+| `If-Match` | header |   | `string` | ETag (version) — ไม่ตรง → 412 |
+
+**Request body** `RevenueLineReasonDto`
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `reason` | ใช่ | `string` | ยาว ≤ 500 · ยาว ≥ 10 |   | `เพิ่มผิดรายการ ลูกค้าไม่ได้ขอบริการนี้` |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `RevenueLineDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`prices.sell:write`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบ (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `409` | สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน — [invalid_state_transition](errors.md#invalid_state_transition), [concurrent_update](errors.md#concurrent_update), [idempotency_in_progress](errors.md#idempotency_in_progress), [order_locked_for_update](errors.md#order_locked_for_update) | `ProblemDto` |
+| `412` | If-Match ไม่ตรง version — [precondition_failed](errors.md#precondition_failed) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X POST "$TMS_BASE_URL/v1/revenue-lines/<id>/void" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{"reason":"เพิ่มผิดรายการ ลูกค้าไม่ได้ขอบริการนี้"}'
+```
+
+```ts
+const { data, error } = await tms.POST('/v1/revenue-lines/{id}/void', {
+  params: { path: { id: "…" } },
+  body: {
+    "reason": "เพิ่มผิดรายการ ลูกค้าไม่ได้ขอบริการนี้"
+  },
+});
+```
+
 ## Schema ของ response {#schemas}
 
 ### BulkJobAcceptedDto {#schema-BulkJobAcceptedDto}
@@ -1345,3 +1498,42 @@ const { data, error } = await tms.GET('/v1/orders/{id}/events', {
 | `soNo` | ใช่ | `string` | null ได้ |   | `SO-6911-0001` |
 | `orderStatus` | ใช่ | `string` |   | สถานะใบสั่งขนส่ง | `IN_TRANSIT` |
 | `deliveryOrders` | ใช่ | `array<OrderTrackingShipmentDto>` |   | ทุก DO ของ order (รวมที่ยกเลิก) ตามลำดับที่สร้าง — ขั้น/ETA/รายการใช้กติกาเดียวกับหน้าติดตามสาธารณะ แต่ไม่หมดอายุตาม `tracking.linkDays` และไม่มีรูป POD (ดู `GET /v1/orders/{id}/documents`) |   |
+
+### RevenueLineDto {#schema-RevenueLineDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `id` | ใช่ | `string` |   |   | `rvl_…` |
+| `lineNo` | ใช่ | `number` |   | ลำดับบรรทัดในใบสั่ง (ไม่ใช้ซ้ำ) |   |
+| `sourceType` | ใช่ | `string` | ค่า: `SO_CHARGE`, `DO_SURCHARGE`, `MANUAL` | SO_CHARGE = ราคาของใบสั่ง (rate card / ราคาที่กำหนดเอง) · DO_SURCHARGE = ค่าใช้จ่ายหน้างานที่ยืนยันแล้ว · MANUAL = คนเพิ่มเอง |   |
+| `sourceId` | ใช่ | `string` | null ได้ | แหล่งของบรรทัด: `och_…` (บรรทัดราคาของใบสั่ง) · `dsc_…` (ค่าใช้จ่ายหน้างาน) · MANUAL = null | `dsc_…` |
+| `isUserAdded` | ใช่ | `boolean` |   | true = คนเพิ่มเอง (คงไว้เมื่อระบบคิดบรรทัดใหม่) |   |
+| `kind` | ใช่ | `string` | ค่า: `FREIGHT`, `EXTRA_STOP`, `ACCESSORIAL` |   |   |
+| `deliveryOrderId` | ใช่ | `string` | null ได้ |   | `do_…` |
+| `doNo` | ใช่ | `string` | null ได้ |   | `DO-2611-00001` |
+| `serviceItemId` | ใช่ | `string` |   |   | `svc_…` |
+| `serviceItemCode` | ใช่ | `string` |   | รหัสรายการ ณ เวลาคิด (snapshot) | `FREIGHT` |
+| `description` | ใช่ | `string` |   |   | `ค่าขนส่ง` |
+| `qty` | ใช่ | `string` |   | จำนวน (snapshot) | `25` |
+| `sellUnitPrice` |   | `string` |   | ราคาขายต่อหน่วยก่อน VAT — เห็นเมื่อมี `prices.sell:read` | `350.00` |
+| `sellAmount` |   | `string` |   | ยอดขายของบรรทัดก่อน VAT — เห็นเมื่อมี `prices.sell:read` | `8750.00` |
+| `vatType` | ใช่ | `string` | ค่า: `VAT_7`, `EXEMPT_TRANSPORT`, `ZERO_RATED` | ชนิด VAT ของบรรทัด (snapshot — ไม่คำนวณภาษีที่นี่) |   |
+| `whtRate` | ใช่ | `string` |   | หัก ณ ที่จ่าย % (snapshot) | `1.00` |
+| `status` | ใช่ | `string` | ค่า: `ACTIVE`, `VOIDED` |   |   |
+| `locked` | ใช่ | `boolean` |   | true = อยู่ในเอกสารที่ออกเลขแล้ว — แก้/ยกเลิก/คิดใหม่ไม่ได้ |   |
+| `lockedAt` | ใช่ | `string (date-time)` | null ได้ |   |   |
+| `voidedAt` | ใช่ | `string (date-time)` | null ได้ |   |   |
+| `voidReason` | ใช่ | `string` | null ได้ |   |   |
+| `createdBy` | ใช่ | `string` | null ได้ |   |   |
+| `createdAt` | ใช่ | `string (date-time)` |   |   |   |
+| `version` | ใช่ | `number` |   |   |   |
+
+### RevenueLineListDto {#schema-RevenueLineListDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `data` | ใช่ | `array<RevenueLineDto>` |   |   |   |

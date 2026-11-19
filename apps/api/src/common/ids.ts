@@ -60,6 +60,10 @@ export const ID_PREFIX = {
   monitorAlert: 'alr',
   /** ST7-T20 คำสั่ง 1 รายการใน integration_outbox (แสดงในบันทึกการซิงก์ของ connector) */
   outboxCommand: 'obx',
+  /** ST5-T01 บรรทัดรายได้ (revenue_line) */
+  revenueLine: 'rvl',
+  /** ST5-T01 บรรทัดราคาของใบสั่ง (sales_order_charge) — ใช้เป็น `sourceId` ของบรรทัดรายได้ SO_CHARGE */
+  orderCharge: 'och',
 } as const;
 export type IdKind = keyof typeof ID_PREFIX;
 

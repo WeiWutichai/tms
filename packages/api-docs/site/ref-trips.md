@@ -1689,7 +1689,7 @@ const { data, error } = await tms.POST('/v1/trip-sheets', {
 | `id` | ใช่ | `string` |   | ฝั่งขาย `dsc_…` (do_surcharge) · ฝั่งซื้อ `tco_…` | `dsc_…` |
 | `side` | ใช่ | `string` | ค่า: `SELL`, `BUY` |   |   |
 | `status` | ใช่ | `string` | ค่า: `PENDING_CONFIRM`, `CONFIRMED`, `REJECTED`, `CANCELLED` |   |   |
-| `tripId` | ใช่ | `string` |   |   | `trp_…` |
+| `tripId` | ใช่ | `string` | null ได้ | เที่ยวที่บันทึก — null = แถวก่อน | `trp_…` |
 | `deliveryOrderId` | ใช่ | `string` | null ได้ |   | `do_…` |
 | `doNo` | ใช่ | `string` | null ได้ |   | `DO-2611-00001` |
 | `serviceItemId` | ใช่ | `string` |   |   | `svc_…` |
