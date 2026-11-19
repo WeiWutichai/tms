@@ -116,7 +116,9 @@ test.describe.serial('นักพัฒนา / Open API → Sandbox', () => {
     const auth = { Authorization: `Bearer ${secret}` };
     const sb = await page.request.get('/v1/companies?limit=5', { headers: auth });
     expect(sb.status()).toBe(200);
-    expect(((await sb.json()) as { data: unknown[] }).data).toEqual([]);
+    // ST7-T12 [DECISION spec/12]: sandbox คัดลอกนิติบุคคลจากบริษัทจริง (id ใหม่) — ต้องไม่มี id ของ live ปนมา
+    const sbIds = ((await sb.json()) as { data: { id: string }[] }).data.map((x) => x.id);
+    for (const r of liveRows) expect(sbIds).not.toContain(r.id);
     const one = await page.request.get(`/v1/companies/${liveRows[0]!.id}`, { headers: auth });
     expect(one.status()).toBe(404);
   });

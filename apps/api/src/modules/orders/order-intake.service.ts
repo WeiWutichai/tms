@@ -284,6 +284,7 @@ export class OrderIntakeService {
             kind: 'invoice',
             companyId: n.billingCompanyId,
             partyCompanyId: customer?.defaultBillingCompanyId ?? null,
+            companyField: 'billingCompanyId',
           })
         ).company.id;
     const header = {
@@ -1295,6 +1296,7 @@ export class OrderIntakeService {
         kind: 'invoice',
         companyId: null,
         partyCompanyId: c.defaultBillingCompanyId,
+        companyField: 'billingCompanyId',
       })
     ).company.id;
   }
