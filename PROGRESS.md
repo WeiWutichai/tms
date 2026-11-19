@@ -35,6 +35,7 @@
 | ST5–ST6, ST8–ST9 | ยังไม่เริ่ม | | | |
 | ST9 (เฉพาะ T12 ตรวจความครบ) | **dev เสร็จ** รอ review/QA/merge (`st9/t12-completeness`) | 19 พ.ย. 2569 | — | ดูบันทึก 19 พ.ย. (ST9-T12) |
 | ST9 (เฉพาะ T19 Monitoring + alert) | **dev เสร็จ** รอ review/QA/merge (`st9/t19-monitoring`) | 19 พ.ย. 2569 | — | ดูบันทึก 19 พ.ย. (ST9-T19) · UI Console รอต้นแบบ (spec/12 §3) |
+| ST8 (เฉพาะ T01 mock KRS) | **dev เสร็จ** รอ review/QA/merge (`st8/t01-mock-krs`) | 19 พ.ย. 2569 | — | ดูบันทึก 19 พ.ย. (ST8-T01) |
 | ST9 Dashboard / รายงาน (T01) | **กำลังทำ** — T01 dev เสร็จ (lane C) รอ review/QA | 18 พ.ย. 2569 | — | ST9-T01 Dashboard ปฏิบัติการ |
 
 ### งาน ST0 (เกณฑ์ตรวจรับใน `plan/01-phase0-backlog.md`)
@@ -267,6 +268,12 @@
 - (11 พ.ย., พบระหว่าง T19 — **แก้แล้วใน T04**: `db:migrate` รัน bootstrap ทุก tenant ซึ่ง sync role ระบบ) **role ระบบของ tenant ที่มีอยู่ไม่ได้สิทธิ์ใหม่อัตโนมัติ** — `ensureSystemRoles` รันแค่ตอนสร้าง tenant/seed; เมื่อโค้ดเพิ่ม permission (เช่น `documents:write` ใน T08) tenant เดิมไม่ได้ จนกว่าจะรัน seed · ฐาน dev แก้ด้วย seed แล้ว · ต้องมี sync ตอน deploy/บูต ก่อนมี tenant จริง (เสนอทำใน T24 admin portal หรือ migration step) 
 
 ## บันทึกรายวัน
+
+### 19 พ.ย. 2569 (ST8-T01 Mock KRS API จาก contract — lane l7)
+- ทำ: package ใหม่ `packages/mock-krs` (`@tms/mock-krs`) — `MockKrs` / `startMockKrs()` (in-process, พอร์ตสุ่ม) + CLI `pnpm --filter @tms/mock-krs dev` (พอร์ต 4784 ของ lane l7, env `MOCK_KRS_PORT`/`MOCK_KRS_API_KEY`) · `POST/PUT/GET /api/invoice` ตรวจ body ด้วย JSON schema ของ `packages/contracts/krs` (ฟิลด์เกิน/ส่ง voucherNo เอง/วันที่ผิด/lineId ไม่ใช่ int/เกิน 50 MB = 400 + errors), `X-API-Key` (401), 404, 409 `tmsVoucherNo` ซ้ำ, `transactionNo` เรียง + `voucherNo` `SA-S{YYMM}-{NNNN}` ต่อเดือน, ยอด `amount`/`totalAmount` แบบทศนิยม (bigint สตางค์) · control `/__mock/*`: reset, state, faults (503/ทุก code, timeout, reset, หลังบันทึกแล้ว response หาย; ต่อ method/จำนวนครั้ง; header `X-Mock-Fault`), สวิตช์เขียนทับ `PUT /__mock/overwrite` + ต่อใบ (keepLines 30 / dropFlowNos / blankFields / renumber) · test `src/mock-krs.test.ts` 48 ข้อ (ทุกแถว A.1 + 79 → 30 รายการ 2,054,000 → 780,000) — `pnpm test` (turbo) รันด้วย
+- ไฟล์: `packages/mock-krs/*`, `packages/contracts/krs/README.md`, `.env.example`, `spec/12` §3 แถว "Mock KRS", `pnpm-lock.yaml` · ไม่มี migration / OpenAPI ไม่เปลี่ยน
+- แก้ตาม review: 405 / `Retry-After` / วิธีปัดยอด เป็น option + [OPEN — KRS], วันที่ `2026-13-45` ผ่าน schema → OPEN, `blankFields` เฉพาะฟิลด์ข้อความ, control/header ผิดรูป → 400 ไม่ล้ม (catch ทุกชั้น, decode URI ปลอดภัย), `X-Mock-Fault` เฉพาะ 400–599 + ชนิดที่กำหนด, README เตือน `/__mock/*` ไม่มี auth · แก้ตาม QA: แปลงตัวเลขเป็นทศนิยมตรงตัว (รวมรูป exponent) + ค่าเกิน ±1e13 = 400 ก่อนบันทึก, option ทุกตัวตั้งผ่าน env ของ CLI ได้ (`src/env.ts`) · test 67 ข้อ
+- ค้าง: [OPEN — KRS] พฤติกรรมที่ contract ไม่ระบุ (ตั้งค่าได้ — `packages/mock-krs/README.md`) · ใช้ใน KrsAdapter (ST8-T03+) และ reconcile (ST8-T11) · deploy บน staging (ST0-T16)
 
 ### 19 พ.ย. 2569 (ST7-T12 แก้ตาม re-QA — lane l8)
 - ทำ: scope ที่แสดงในหน้า sandbox/quickstart เพิ่ม `events:read` (`GET /v1/events/{id}`) + `settings:read` (`/webhook-deliveries`) · เอกสาร `webhook.verification` (ส่งตอนสมัคร endpoint, echo `challenge`, ไม่บล็อก) ในหน้า webhook + webhook events · sandbox: แยก `deliveries[].state` (คำตอบ trigger) กับ `status` ของ `/webhook-deliveries` · quickstart: `422 validation_failed` + `errors[].code = routing_not_configured`, ตัวอย่าง on_hold = `RATE_MISSING` · `site/openapi.json`: `x-webhooks` → `x-tms-webhook-events` · ProblemDto มี `module`/`action`/`required` + `additionalProperties: true` (extension member RFC 9457) · คำอธิบาย `actAs` ไม่ใช้คำ "ผู้ใช้ Innovera"
