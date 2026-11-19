@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { NestExpressApplication } from '@nestjs/platform-express';
+import { Prisma, PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { encodeId, tryDecodeId } from '../src/common/ids';
 import { requestContext } from '../src/common/request-context';
@@ -41,6 +42,8 @@ interface Line {
 describe('revenue lines (ST5-T01)', () => {
   let app: NestExpressApplication;
   const db = platform();
+  const owner = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
+  const appDb = new PrismaClient({ datasources: { db: { url: process.env.APP_DATABASE_URL } } });
   let tenantId: string;
   let otherTenant: string;
   let admin: string;
@@ -92,6 +95,8 @@ describe('revenue lines (ST5-T01)', () => {
   afterAll(async () => {
     await app.close();
     await db.$disconnect();
+    await owner.$disconnect();
+    await appDb.$disconnect();
   });
 
   const run = <T>(fn: (tx: Tx) => Promise<T>) =>
@@ -313,16 +318,51 @@ describe('revenue lines (ST5-T01)', () => {
       db.revenueLine.update({ where: { id: sysId }, data: { status: 'VOIDED' } }),
     ).rejects.toThrow();
     await expect(db.revenueLine.delete({ where: { id: sysId } })).rejects.toThrow(/locked/);
-    // คอลัมน์ล็อกเปลี่ยนได้ (ทางปลดของการยกเลิกใบ — ST5-T10)
-    await db.revenueLine.update({
-      where: { id: sysId },
-      data: { lockedAt: null, lockedDocumentId: null },
+    // ปลด/ย้ายล็อกตรงด้วย UPDATE ไม่ได้: role platform, เจ้าของตาราง (ไม่มีธง), role แอป (แม้ตั้งธงเอง)
+    const unlock = { lockedAt: null, lockedDocumentId: null };
+    await expect(db.revenueLine.update({ where: { id: sysId }, data: unlock })).rejects.toThrow(
+      /tms_revenue_line_unlock/,
+    );
+    await expect(owner.revenueLine.update({ where: { id: sysId }, data: unlock })).rejects.toThrow(
+      /tms_revenue_line_unlock/,
+    );
+    await expect(
+      owner.revenueLine.update({ where: { id: sysId }, data: { lockedDocumentId: randomUUID() } }),
+    ).rejects.toThrow(/tms_revenue_line_unlock/);
+    const asApp = <T>(fn: (tx: Prisma.TransactionClient) => Promise<T>) =>
+      appDb.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
+        return fn(tx);
+      });
+    await expect(
+      asApp(async (tx) => {
+        await tx.$executeRaw`SELECT set_config('tms.revenue_line_unlock', 'on', true)`;
+        return tx.revenueLine.update({ where: { id: sysId }, data: unlock });
+      }),
+    ).rejects.toThrow(/tms_revenue_line_unlock/);
+    // role platform ไม่มีสิทธิ์เรียกฟังก์ชันปลด · เหตุผลสั้น → ปฏิเสธ
+    await expect(
+      db.$queryRaw`SELECT tms_revenue_line_unlock(${docId}::uuid, 'x', 'ยกเลิกใบแจ้งหนี้ทดสอบ')`,
+    ).rejects.toThrow(/permission denied/);
+    await expect(
+      asApp((tx) => tx.$queryRaw`SELECT tms_revenue_line_unlock(${docId}::uuid, 'u', 'สั้น')`),
+    ).rejects.toThrow(/reason/);
+    // ทางเดียว: ฟังก์ชันปลด (ST5-T10) ในนาม role แอป → ปลดทุกบรรทัดของเอกสาร + audit
+    const [res] = await asApp(
+      (tx) =>
+        tx.$queryRaw<{ n: number }[]>`
+          SELECT tms_revenue_line_unlock(${docId}::uuid, 'user-test', 'ยกเลิกใบแจ้งหนี้ทดสอบระบบ') AS n`,
+    );
+    expect(Number(res!.n)).toBe(2);
+    expect(
+      await db.revenueLine.count({ where: { salesOrderId: o.id, lockedAt: { not: null } } }),
+    ).toBe(0);
+    const ua = await db.auditLog.findFirstOrThrow({
+      where: { entityId: o.id, action: 'sales_order.revenue_lines_unlocked' },
     });
+    expect(ua).toMatchObject({ actorId: 'user-test', reason: 'ยกเลิกใบแจ้งหนี้ทดสอบระบบ' });
+    expect(ua.after).toMatchObject({ count: 2 });
     // ปลดแล้ว: แก้ใบสั่งครั้งต่อไป → บรรทัดระบบตามราคาปัจจุบัน
-    await db.revenueLine.updateMany({
-      where: { salesOrderId: o.id },
-      data: { lockedAt: null, lockedDocumentId: null },
-    });
     await patchQty(o.pub, '41').expect(200);
     expect((await lines(o.pub)).find((l) => l.sourceType === 'SO_CHARGE')).toMatchObject({
       qty: '46',
@@ -338,12 +378,12 @@ describe('revenue lines (ST5-T01)', () => {
     const trip = await db.trip.create({
       data: { tenantId, tripNo: `TRP-RVL-${++seed}`, tripDate: new Date(today) },
     });
-    const mk = () =>
+    const mk = (withTrip = true) =>
       db.doSurcharge.create({
         data: {
           tenantId,
           deliveryOrderId: d.id,
-          tripId: trip.id,
+          tripId: withTrip ? trip.id : null,
           serviceItemId: wait.id,
           serviceItemVersion: wait.version,
           description: 'ค่ารอ',
@@ -355,7 +395,8 @@ describe('revenue lines (ST5-T01)', () => {
           createdBy: 'user-recorder',
         },
       });
-    const [s1, s2] = [await mk(), await mk()];
+    // s2 = แถวก่อน ST4-T13 (ไม่มี trip_id) — ตัดสินแล้วต้องไม่ 500
+    const [s1, s2] = [await mk(), await mk(false)];
     expect((await lines(o.pub)).filter((l) => l.sourceType === 'DO_SURCHARGE')).toHaveLength(0);
     await api(app, admin)
       .post(`/v1/do-surcharges/${encodeId('doSurcharge', s1.id)}/confirm`)
@@ -479,6 +520,8 @@ describe('revenue lines (ST5-T01)', () => {
     await addManual(o.pub, { qty: '0' }).expect(422);
     await addManual(o.pub, { sellUnitPrice: '0' }).expect(422);
     await addManual(o.pub, { sellUnitPrice: '1.234' }).expect(422);
+    const zero = await addManual(o.pub, { qty: '0.001', sellUnitPrice: '0.01' }).expect(422);
+    expect(zero.body.errors[0]).toMatchObject({ code: 'amount_zero' });
     await addManual(o.pub, { reason: 'สั้น' }).expect(422);
     // DO ของใบสั่งอื่น → 422 · DO ที่ยกเลิก → 409
     const o2 = await order();
@@ -532,13 +575,46 @@ describe('revenue lines (ST5-T01)', () => {
       .send({ reason: 'บริษัทอื่นพยายามยกเลิก' })
       .expect(404);
 
-    // ใบสั่งที่ยกเลิก → เพิ่มไม่ได้ (409)
+    // ใบสั่งที่ยกเลิก → บรรทัดทั้งหมด VOIDED (ไม่ลบ) · เพิ่ม/ยกเลิกบรรทัดไม่ได้ (409)
     const o3 = await order();
+    const m3 = (await addManual(o3.pub).expect(201)).body as Line;
     await api(app, admin)
       .post(`/v1/orders/${o3.pub}/cancel`)
       .send({ reason: 'ลูกค้ายกเลิกคำสั่งทางอีเมล' })
       .expect(200);
     const c = await addManual(o3.pub).expect(409);
     expect(c.body.orderStatus).toBe('CANCELLED');
+    const l3 = await lines(o3.pub);
+    expect(l3).toHaveLength(2);
+    for (const l of l3)
+      expect(l).toMatchObject({
+        status: 'VOIDED',
+        voidReason: 'ยกเลิกใบสั่ง: ลูกค้ายกเลิกคำสั่งทางอีเมล',
+      });
+    const ca = await db.auditLog.findFirstOrThrow({
+      where: { entityId: o3.id, action: 'sales_order.cancelled' },
+    });
+    expect(ca.after).toMatchObject({ revenueLinesVoided: 2 });
+    const v3 = await api(app, admin)
+      .post(`/v1/revenue-lines/${m3.id}/void`)
+      .send({ reason: 'ยกเลิกหลังใบสั่งถูกยกเลิก' })
+      .expect(409);
+    expect(v3.body.orderStatus).toBe('CANCELLED');
+
+    // audit ของบรรทัดที่เพิ่ม: ยอดเป็น field ราคา — ผู้ไม่มี prices.sell:read ไม่เห็น
+    const auditOf = async (token: string) =>
+      (
+        (
+          await api(app, token)
+            .get(`/v1/audit-logs?entityType=sales_order&entityId=${o.id}&limit=100`)
+            .expect(200)
+        ).body.data as { action: string; after: Record<string, unknown> }[]
+      ).find((x) => x.action === 'sales_order.revenue_line_added')!;
+    const full = await auditOf(await tokenFor(tenantId, 'audit:read prices.sell:read'));
+    expect(full.after).toMatchObject({ sellAmount: '50.00', sellUnitPrice: '33.33' });
+    const masked = await auditOf(await tokenFor(tenantId, 'audit:read'));
+    expect(masked.after.sellAmount).toBeUndefined();
+    expect(masked.after.sellUnitPrice).toBeUndefined();
+    expect(masked.after.description).toBe('ค่ายกของขึ้นชั้น 2');
   });
 });

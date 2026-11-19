@@ -13,6 +13,7 @@ import {
 } from '@tms/domain';
 import { AuditService } from '../../audit/audit.service';
 import { ProblemException } from '../../common/problem';
+import { RevenueLinesService } from '../revenue-lines/revenue-lines.service';
 import { DbService, type Tx } from '../../db/db.service';
 import { StateService } from '../../state/state.service';
 import {
@@ -57,6 +58,7 @@ export class OrderStateService {
     private readonly intake: OrderIntakeService,
     private readonly deliveryOrders: DeliveryOrderService,
     private readonly audit: AuditService,
+    private readonly revenueLines: RevenueLinesService,
   ) {}
 
   /**
@@ -122,6 +124,8 @@ export class OrderStateService {
         return loadOrderEventObject(tx, id);
       },
     });
+    // บรรทัดรายได้ที่ยังไม่ออกใบ → VOIDED (ST5-T01 — ไม่ลบ)
+    const revenueLinesVoided = await this.revenueLines.voidForCancelledOrder(id, note, tx);
     await this.audit.record({
       action: `${ENTITY}.cancelled`,
       entityType: ENTITY,
@@ -131,6 +135,7 @@ export class OrderStateService {
         status: 'CANCELLED',
         reasonCodeId,
         deliveryOrdersCancelled: cancelledDos,
+        ...(revenueLinesVoided ? { revenueLinesVoided } : {}),
         ...(hadSourceChange ? { sourceChangeClosed: true } : {}),
       },
       reason: note,

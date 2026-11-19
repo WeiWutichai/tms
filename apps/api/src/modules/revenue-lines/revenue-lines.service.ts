@@ -115,10 +115,11 @@ export class RevenueLinesService {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(${LOCK_NS}::int, hashtext(${salesOrderId}))`;
     const so = await tx.salesOrder.findUnique({
       where: { id: salesOrderId },
-      select: { id: true, tenantId: true },
+      select: { id: true, tenantId: true, status: true },
     });
-    if (!so) return false;
-    const [existing, charges, surcharges] = await Promise.all([
+    // ใบสั่งที่ยกเลิก: บรรทัดถูก VOIDED ตอนยกเลิก (voidForCancelledOrder) — ไม่สร้าง/ปรับบรรทัดอีก
+    if (!so || so.status === 'CANCELLED') return false;
+    const [all, charges, surcharges] = await Promise.all([
       tx.revenueLine.findMany({ where: { salesOrderId }, orderBy: { lineNo: 'asc' } }),
       tx.salesOrderCharge.findMany({ where: { salesOrderId }, orderBy: { lineNo: 'asc' } }),
       tx.doSurcharge.findMany({
@@ -126,6 +127,8 @@ export class RevenueLinesService {
         orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       }),
     ]);
+    // บรรทัดที่ยกเลิก (VOIDED) เป็นประวัติ — ไม่นับในการเทียบแหล่ง แต่นับเลขบรรทัด
+    const existing = all.filter((l) => l.status === 'ACTIVE');
     // หลัง finalize ไม่ rebuild ราคาของใบสั่ง (docs/04 F3)
     const chargesFrozen = existing.some((l) => l.sourceType === 'SO_CHARGE' && l.lockedAt);
     const desired: Desired[] = [];
@@ -183,7 +186,7 @@ export class RevenueLinesService {
     const have = new Map(
       kept.filter((l) => !l.isUserAdded).map((l) => [key(l.sourceType, l.sourceId), l]),
     );
-    let next = kept.reduce((m, l) => Math.max(m, l.lineNo), 0);
+    let next = all.reduce((m, l) => Math.max(m, l.lineNo), 0);
     for (const d of desired) {
       const cur = have.get(key(d.sourceType, d.sourceId));
       const data = {
@@ -296,6 +299,9 @@ export class RevenueLinesService {
         message: 'sellUnitPrice must be > 0',
       });
     const amount = mulRateHalfUp(unit, qty);
+    // ยอดปัดแล้วเป็น 0 (เช่น 0.001 × 0.01) → ไม่รับ (บรรทัดที่คนเพิ่มต้องมียอด)
+    if (unit > 0n && qtyMilli(qty) > 0n && amount <= 0n)
+      errors.push({ field: 'qty', code: 'amount_zero', message: 'line amount rounds to 0.00' });
     if (amount > MAX_SATANG)
       errors.push({ field: 'sellUnitPrice', code: 'too_large', message: 'amount is too large' });
     if (errors.length) throw new ProblemException('validation_failed', undefined, errors);
@@ -380,7 +386,9 @@ export class RevenueLinesService {
         description: created.description,
         deliveryOrderId: doId ? encodeId('deliveryOrder', doId) : null,
         qty: created.qty.toFixed(4),
-        amount: created.amount.toFixed(2),
+        // ชื่อ field ราคาที่ลงทะเบียน (@PriceField) — คนที่ไม่มี prices.sell:read อ่าน audit แล้วถูกตัดออก
+        sellUnitPrice: created.unitPrice.toFixed(2),
+        sellAmount: created.amount.toFixed(2),
       },
       reason: input.reason,
     });
@@ -401,6 +409,14 @@ export class RevenueLinesService {
     const line = await tx.revenueLine.findUniqueOrThrow({ where: { id } });
     if (expected !== undefined && expected !== line.version)
       throw new ProblemException('precondition_failed');
+    const so = await tx.salesOrder.findUniqueOrThrow({
+      where: { id: line.salesOrderId },
+      select: { status: true },
+    });
+    if (CLOSED_SO.has(so.status))
+      throw new ProblemException('invalid_state_transition', undefined, undefined, {
+        orderStatus: so.status,
+      });
     if (line.lockedAt) throw locked();
     if (!line.isUserAdded)
       throw new ProblemException('invalid_state_transition', undefined, undefined, {
@@ -430,6 +446,46 @@ export class RevenueLinesService {
       reason,
     });
     return this.one(id);
+  }
+
+  /** ใบสั่งของบรรทัด (controller ใช้ตรวจล็อกการแก้ใบสั่ง) — ไม่พบ/บริษัทอื่น → 404 */
+  async salesOrderOf(id: string): Promise<string> {
+    const l = await this.db.tx.revenueLine.findUnique({
+      where: { id },
+      select: { salesOrderId: true },
+    });
+    if (!l) throw new ProblemException('not_found');
+    return l.salesOrderId;
+  }
+
+  /**
+   * ใบสั่งถูกยกเลิก (OrderStateService.cancel) → บรรทัดที่ยังใช้และยังไม่ล็อกทั้งหมดเป็น VOIDED (ไม่ลบ) พร้อมเหตุผลของการยกเลิก
+   * บรรทัดที่ล็อก (ออกใบแล้ว) ไม่แตะ — ต้องจัดการด้วยใบลดหนี้ (ST5-T12) · คืนจำนวนบรรทัด
+   */
+  async voidForCancelledOrder(salesOrderId: string, reason: string, tx: Tx = this.db.tx) {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(${LOCK_NS}::int, hashtext(${salesOrderId}))`;
+    const r = await tx.revenueLine.updateMany({
+      where: { salesOrderId, status: 'ACTIVE', lockedAt: null },
+      data: {
+        status: 'VOIDED',
+        voidedAt: new Date(),
+        voidedBy: requestContext.get()?.actorId ?? 'system',
+        voidReason: `ยกเลิกใบสั่ง: ${reason}`,
+        version: { increment: 1 },
+      },
+    });
+    return r.count;
+  }
+
+  /**
+   * ปลดล็อกบรรทัดของเอกสารที่ถูกยกเลิก (ทางเดียว — ST5-T10 เรียก) ผ่านฟังก์ชันฐานข้อมูล `tms_revenue_line_unlock`
+   * (SECURITY DEFINER + ธงใน transaction — role แอปปลดตรงด้วย UPDATE ไม่ได้) · ลง audit ในฟังก์ชัน · คืนจำนวนบรรทัด
+   */
+  async unlockForDocument(documentId: string, reason: string, tx: Tx = this.db.tx) {
+    const actor = requestContext.get()?.actorId ?? 'system';
+    const [r] = await tx.$queryRaw<{ n: number }[]>`
+      SELECT tms_revenue_line_unlock(${documentId}::uuid, ${actor}, ${reason}) AS n`;
+    return Number(r?.n ?? 0);
   }
 
   private async one(id: string): Promise<RevenueLineDto> {

@@ -81,7 +81,10 @@ export class OrderRevenueLinesController {
 @ApiBearerAuth()
 @Controller('revenue-lines')
 export class RevenueLinesController {
-  constructor(private readonly svc: RevenueLinesService) {}
+  constructor(
+    private readonly svc: RevenueLinesService,
+    private readonly locks: OrderLockService,
+  ) {}
 
   @Post(':id/void')
   @HttpCode(200)
@@ -90,11 +93,11 @@ export class RevenueLinesController {
   @ApiOperation({
     summary: 'ยกเลิกบรรทัดรายได้ที่คนเพิ่มเอง — เหตุผล ≥ 10 ตัวอักษร',
     description:
-      'บรรทัดระบบ (SO_CHARGE / DO_SURCHARGE) ยกเลิกไม่ได้ — แก้ที่ใบสั่ง/ค่าใช้จ่ายหน้างาน (409) · บรรทัดที่ล็อก (ออกเลขแล้ว) → 409 · ' +
+      'บรรทัดระบบ (SO_CHARGE / DO_SURCHARGE) ยกเลิกไม่ได้ — แก้ที่ใบสั่ง/ค่าใช้จ่ายหน้างาน (409) · บรรทัดที่ล็อก (ออกเลขแล้ว) / ใบสั่งปิดหรือยกเลิก / ใบสั่งถูกล็อกการแก้โดยผู้อื่น → 409 · ' +
       'ต้องมี `prices.sell:write` · audit `sales_order.revenue_line_voided`',
   })
   @ApiHeader({ name: 'If-Match', required: false, description: 'ETag (version) — ไม่ตรง → 412' })
-  @ApiProblems(T403('prices.sell:write'), NF, T409(), T412, T422)
+  @ApiProblems(T403('prices.sell:write'), NF, T409('order_locked_for_update'), T412, T422)
   @ApiOkResponse({ type: RevenueLineDto })
   async void(
     @Param('id') id: string,
@@ -102,11 +105,9 @@ export class RevenueLinesController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ): Promise<RevenueLineDto> {
-    const out = await this.svc.void(
-      decodeIdOr404('revenueLine', id),
-      body.reason,
-      expectedVersion(req),
-    );
+    const lineId = decodeIdOr404('revenueLine', id);
+    await this.locks.assertWritable(await this.svc.salesOrderOf(lineId));
+    const out = await this.svc.void(lineId, body.reason, expectedVersion(req));
     setEtag(res, out.version);
     return out;
   }

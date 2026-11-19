@@ -35731,7 +35731,7 @@
     },
     "/v1/revenue-lines/{id}/void": {
       "post": {
-        "description": "บรรทัดระบบ (SO_CHARGE / DO_SURCHARGE) ยกเลิกไม่ได้ — แก้ที่ใบสั่ง/ค่าใช้จ่ายหน้างาน (409) · บรรทัดที่ล็อก (ออกเลขแล้ว) → 409 · ต้องมี `prices.sell:write` · audit `sales_order.revenue_line_voided`",
+        "description": "บรรทัดระบบ (SO_CHARGE / DO_SURCHARGE) ยกเลิกไม่ได้ — แก้ที่ใบสั่ง/ค่าใช้จ่ายหน้างาน (409) · บรรทัดที่ล็อก (ออกเลขแล้ว) / ใบสั่งปิดหรือยกเลิก / ใบสั่งถูกล็อกการแก้โดยผู้อื่น → 409 · ต้องมี `prices.sell:write` · audit `sales_order.revenue_line_voided`",
         "operationId": "RevenueLines_void",
         "parameters": [
           {
@@ -35878,6 +35878,16 @@
                       "title": "คำขอเดียวกันกำลังประมวลผลอยู่",
                       "status": 409,
                       "code": "idempotency_in_progress",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  },
+                  "order_locked_for_update": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/order_locked_for_update",
+                      "title": "แก้ข้อมูลนี้ของใบสั่งขนส่งไม่ได้ในสถานะปัจจุบัน (วางแผน ออกรถ ปิดงาน หรือยกเลิกแล้ว)",
+                      "status": 409,
+                      "code": "order_locked_for_update",
                       "instance": "/v1/trips/trp_3f2a…",
                       "requestId": "b6a1c2d3-…"
                     }
@@ -69140,7 +69150,9 @@
           },
           "tripId": {
             "type": "string",
-            "example": "trp_…"
+            "nullable": true,
+            "example": "trp_…",
+            "description": "เที่ยวที่บันทึก — null = แถวก่อน ST4-T13"
           },
           "deliveryOrderId": {
             "type": "string",

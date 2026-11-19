@@ -275,6 +275,11 @@
 
 ## บันทึกรายวัน
 
+### 19 พ.ย. 2569 (ST5-T01 แก้ตาม review/QA — lane l5)
+- ทำ: (M1/High) ปลดล็อกตรงด้วย UPDATE ไม่ได้ทุก role (`tms_app`/เจ้าของ/`tms_platform`) — ทางเดียวคือ `tms_revenue_line_unlock()` (SECURITY DEFINER + ธง + audit, EXECUTE เฉพาะ `tms_app`) + `RevenueLinesService.unlockForDocument` สำหรับ ST5-T10 · (M2) ยกเลิกใบสั่ง → บรรทัดที่ยังไม่ล็อก VOIDED พร้อมเหตุผล (CHECK ยอมบรรทัดระบบ) + ข้อมูลเดิมของใบที่ยกเลิก VOIDED · unique แหล่งเฉพาะ ACTIVE · (L1) qty 0 ได้ตามแหล่ง · (L2) ยกเลิกบรรทัด: ตรวจใบสั่งปิด/ยกเลิก + ล็อกการแก้ · (L3) ยอดใน audit เป็น `sellAmount`/`sellUnitPrice` (ตัดตามสิทธิ์) · (QA) ยอดปัดเป็น 0 → 422 `amount_zero` · ยืนยัน/ปฏิเสธ `do_surcharge` ที่ไม่มี trip_id ไม่ 500 (`tripId` null)
+- ไฟล์: `prisma/migrations/0116_revenue_line_lock`, `revenue-lines/*`, `orders/order-state.service.ts`, `field-charges/{field-charges.service,field-charge.dto}.ts`, `test/revenue-lines.test.ts`, spec/12 §3
+- ค้าง: [OPEN] DO_SURCHARGE ของ DO ที่ยกเลิก · ส่งต่อ ST5-T09/T10: ใบสั่งที่มีบรรทัดล็อกควรห้ามคิดราคาใหม่/ยกเลิก
+
 ### 19 พ.ย. 2569 (ST5-T01 บรรทัดรายได้ — lane l5)
 - ทำ: ตาราง `revenue_line` = ฐานของบรรทัดใบแจ้งหนี้ (docs/04 F3) · ที่มาต่อบรรทัด `source_type/source_id`: SO_CHARGE (ราคาของใบสั่ง `sales_order_charge` — rate card snapshot / ราคาที่กำหนดเอง) · DO_SURCHARGE (ค่าใช้จ่ายหน้างานที่ CONFIRMED) · MANUAL (คนเพิ่ม — คงไว้เมื่อ rebuild, ยกเลิก = VOIDED + เหตุผล + audit) · rebuild หลังประเมินราคาใบสั่งทุกครั้ง + หลังยืนยันค่าใช้จ่ายหน้างาน (advisory lock ต่อใบสั่ง) · ล็อกหลังออกเลข = `locked_at`/`locked_document_id` (ST5-T09 ตั้ง) + trigger ฐานข้อมูลห้ามแก้เนื้อหา/ลบ · มีบรรทัดราคาที่ล็อก = ไม่ rebuild ราคาใบสั่งนั้น · ไม่คำนวณภาษี (vat_type/wht_rate snapshot เท่านั้น)
 - ไฟล์: `apps/api/prisma/{schema.prisma,migrations/0114_revenue_line}`, `src/modules/revenue-lines/*`, `src/modules/orders/order-intake.service.ts`, `src/modules/field-charges/field-charges.service.ts`, `src/common/ids.ts` (`rvl_`, `och_`), `src/app.module.ts`, `test/revenue-lines.test.ts`, `test/isolation.test.ts`, `packages/contracts/openapi.json`, spec/12 §3 (+1 DECISION, +1 OPEN)

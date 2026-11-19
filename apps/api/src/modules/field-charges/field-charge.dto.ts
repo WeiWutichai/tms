@@ -126,7 +126,13 @@ export class FieldChargeDto {
   id!: string;
   @ApiProperty({ enum: ['SELL', 'BUY'] }) side!: 'SELL' | 'BUY';
   @ApiProperty({ enum: FIELD_CHARGE_STATUSES }) status!: FieldChargeStatus;
-  @ApiProperty({ example: 'trp_…' }) tripId!: string;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: 'trp_…',
+    description: 'เที่ยวที่บันทึก — null = แถวก่อน ST4-T13',
+  })
+  tripId!: string | null;
   @ApiProperty({ nullable: true, type: String, example: 'do_…' }) deliveryOrderId!: string | null;
   @ApiProperty({ nullable: true, type: String, example: 'DO-2611-00001' }) doNo!: string | null;
   @ApiProperty({ example: 'svc_…' }) serviceItemId!: string;

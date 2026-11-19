@@ -561,7 +561,8 @@ export class FieldChargesService {
   private common(r: DoSurcharge | TripCost, names: Map<string, string>) {
     return {
       status: r.status as FieldChargeStatus,
-      tripId: encodeId('trip', r.tripId!),
+      // แถวก่อน ST4-T13 ไม่มี trip_id — ตอบ null แทน 500
+      tripId: r.tripId ? encodeId('trip', r.tripId) : null,
       note: r.note,
       createdBy: r.createdBy,
       createdByName: (r.createdBy && names.get(r.createdBy)) ?? null,
