@@ -7,13 +7,15 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
+import { ApiProblems } from '../../common/problem.dto';
+import { T403, T422 } from '../trips/trip-problems';
 import type { DoLineRequest, DoStatus } from '@tms/domain';
 import type { Request, Response } from 'express';
 import { RequireScope, TenantResource } from '../../common/decorators';
 import { expectedVersion, setEtag } from '../../common/etag';
 import { decodeIdOr404, encodeId, tryDecodeId } from '../../common/ids';
 import { toPage } from '../../common/pagination';
-import { ProblemException } from '../../common/problem';
+import { PROBLEMS, ProblemException } from '../../common/problem';
 import { Clock } from '../../common/clock';
 import { DbService } from '../../db/db.service';
 import { bangkokToday, isRealDate } from '../vehicle-documents/expiry';
@@ -29,11 +31,13 @@ import {
   RedeliverDeliveryOrderDto,
   RedeliverResultDto,
   ReturnDeliveryOrderDto,
+  RevertDeliveryDto,
   SplitDeliveryOrderDto,
   type DeliveryOrderLineQtyDto,
 } from './delivery-order.dto';
 import { OrderStateService } from '../orders/order-state.service';
 import { DeliveryOrderReturnService } from './delivery-order-return.service';
+import { DeliveryOrderRevertService } from './delivery-order-revert.service';
 import {
   DeliveryOrderService,
   type DeliveryOrderRecord,
@@ -275,6 +279,73 @@ export class DeliveryOrdersController {
     );
     setEtag(res, d.version);
     return (await this.dtos([d]))[0]!;
+  }
+}
+
+/** 409 ของ lifecycle วางบิล (ST5-T06) */
+const REVERT_409 = {
+  status: 409,
+  description:
+    '`invalid_state_transition` — `errors[].code`: not_delivered · do_released (ส่งบัญชีแล้ว — ย้อนการส่งบัญชีก่อน) · ' +
+    'do_in_invoice (อยู่ในร่าง/ใบที่ออกแล้ว) · do_credited · has_followups (ส่งซ้ำ/คืนคลังของที่ปฏิเสธรับแล้ว) · order_closed',
+  examples: {
+    do_released: {
+      type: 'https://docs.tms.example/problems/invalid_state_transition',
+      title: PROBLEMS.invalid_state_transition.th,
+      status: 409,
+      code: 'invalid_state_transition',
+      instance: '/v1/delivery-orders/do_3f2a…/revert-delivery',
+      requestId: 'b6a1c2d3-…',
+      errors: [
+        {
+          field: 'deliveryOrderId',
+          code: 'do_released',
+          message: 'delivery order was released to billing',
+        },
+      ],
+      billingStatus: 'UNBILLED',
+      releasedAt: '2026-11-20T03:15:00.000Z',
+    },
+  },
+};
+
+/**
+ * ST5-T06 ย้อนผลส่งถึง (docs/04 F4) — แยก controller เพื่อเอกสาร problem ของ lifecycle วางบิล
+ */
+@ApiTags('delivery-orders')
+@ApiBearerAuth()
+@Controller('delivery-orders')
+export class DeliveryOrderRevertController {
+  constructor(private readonly reverts: DeliveryOrderRevertService) {}
+
+  @Post(':id/revert-delivery')
+  @HttpCode(200)
+  @TenantResource('deliveryOrder')
+  @RequireScope('trips:close')
+  @ApiOperation({
+    summary: 'ย้อนผลส่งถึง (DELIVERED → ส่งไม่สำเร็จ)',
+    description:
+      'docs/04 F4: ผู้จัดรถ (`trips:close`) ย้อนได้ภายใน 24 ชม. นับจากเวลาที่ใบส่งของเป็นส่งถึง — เกินต้องมี `trips:override` ' +
+      '(ไม่งั้น 403 `permission_denied` + `reason: revert_window_expired`, `deliveredAt`, `revertDeadline`) · ' +
+      'ใบส่งของต้องส่งถึง (DELIVERED/POD_PENDING/UNBILLED) ยังไม่ส่งบัญชี ไม่อยู่ในใบแจ้งหนี้ และยังไม่มีส่งซ้ำ/คืนคลังของที่ปฏิเสธรับ ' +
+      '→ สถานะเป็น FAILED + เหตุผล + audit `delivery_order.delivery_reverted` แล้วจัดการต่อด้วย `/redeliver` หรือ `/return`',
+  })
+  @ApiHeader({ name: 'If-Match', required: false, description: 'ETag จาก GET — ไม่ตรง → 412' })
+  @ApiProblems(T403('trips:close'), T422, REVERT_409)
+  @ApiOkResponse({ type: DeliveryOrderDto })
+  async revertDelivery(
+    @Param('id') id: string,
+    @Body() body: RevertDeliveryDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<DeliveryOrderDto> {
+    const d = await this.reverts.revertDelivery(
+      decodeIdOr404('deliveryOrder', id),
+      body,
+      expectedVersion(req),
+    );
+    setEtag(res, d.version);
+    return toDeliveryOrderDto(d);
   }
 }
 

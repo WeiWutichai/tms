@@ -943,6 +943,75 @@ export class DeliveryOrderService {
   }
 
   /**
+   * ST5-T06 ย้อนการส่งบัญชี (RELEASED → DELIVERED — docs/04 F4 "ย้อนได้โดย Invoicer"): ล้างเวลา/ผู้ส่งบัญชี + audit
+   * `delivery_order.unreleased` (เหตุผลบังคับ) · ผู้เรียกถือล็อก (`lockForRelease`) และตรวจว่าไม่อยู่ในใบแจ้งหนี้แล้ว
+   */
+  async markUnreleased(
+    tx: Tx,
+    d: DeliveryOrderRecord,
+    reason: string,
+  ): Promise<DeliveryOrderRecord> {
+    await this.write(tx, d, { releasedAt: null, releasedBy: null });
+    await this.audit.record({
+      action: `${ENTITY}.unreleased`,
+      entityType: ENTITY,
+      entityId: d.id,
+      before: { releasedAt: d.releasedAt?.toISOString() ?? null, releasedBy: d.releasedBy },
+      after: { releasedAt: null, status: d.status, billingStatus: d.billingStatus },
+      reason,
+    });
+    return this.get(d.id, tx);
+  }
+
+  /** ST5-T06 เวลาที่ DO เป็นส่งถึงครั้งล่าสุด (ประวัติสถานะ event `deliver`) — null = ไม่พบ */
+  async deliveredAt(tx: Tx, id: string): Promise<Date | null> {
+    const h = await tx.docStatusHistory.findFirst({
+      where: { docType: ENTITY, docId: id, event: 'deliver' },
+      orderBy: { at: 'desc' },
+      select: { at: true },
+    });
+    return h?.at ?? null;
+  }
+
+  /**
+   * ST5-T06 ย้อนผลส่งถึง (docs/04 F4 DELIVERED "ย้อนได้โดย Dispatcher (ภายใน 24 ชม.) / Admin") [DECISION spec/12 §3]:
+   * DELIVERED/POD_PENDING/UNBILLED → `revert_delivery` → FAILED (+ เหตุผล/reason code หมวดส่งไม่สำเร็จ) + audit
+   * `delivery_order.delivery_reverted` + บรรทัดรายได้ของใบสั่งคิดใหม่ — ผู้เรียก (`DeliveryOrderRevertService`) ถือล็อกและตรวจเงื่อนไขแล้ว
+   */
+  async revertDelivery(
+    tx: Tx,
+    d: DeliveryOrderRecord,
+    o: {
+      reason: string;
+      reasonCodeId: string | null;
+      deliveredAt: Date | null;
+      deadline: Date | null;
+      override: boolean;
+    },
+  ): Promise<void> {
+    await this.move(tx, d, 'revert_delivery', {}, o.reason, o.reasonCodeId);
+    await this.audit.record({
+      action: `${ENTITY}.delivery_reverted`,
+      entityType: ENTITY,
+      entityId: d.id,
+      before: {
+        doNo: d.doNo,
+        status: d.status,
+        podStatus: d.podStatus,
+        deliveredAt: o.deliveredAt?.toISOString() ?? null,
+      },
+      after: {
+        status: 'FAILED',
+        reasonCodeId: o.reasonCodeId,
+        revertDeadline: o.deadline?.toISOString() ?? null,
+        override: o.override,
+      },
+      reason: o.reason,
+    });
+    await this.revenueOf(tx, d.salesOrderId);
+  }
+
+  /**
    * ST5-T05 กันวางบิลซ้ำ: ล็อกแถว DO หลายใบ (เรียงตาม id กัน deadlock) แล้วอ่านใหม่ — คืนเฉพาะที่เห็น (RLS) ·
    * ล็อกแถวเดียวกันพร้อมกัน → รายที่สองรอจนรายแรก commit แล้วเห็นค่าล่าสุด (READ COMMITTED + FOR UPDATE)
    */
@@ -963,8 +1032,16 @@ export class DeliveryOrderService {
     rows: BillingDoRow[],
     event: BillingEvent,
     note: string | null = null,
+    at: Date = new Date(),
   ): Promise<void> {
     const ctx = requestContext.require();
+    // ST5-T06 timestamp ต่อขั้น (docs/04 F4): ออกเลข → invoiced_at · ดึงเข้าร่างใหม่ (หลังลดหนี้เต็มใบ) → ล้าง invoiced_at/paid_at
+    const stamp: Prisma.DeliveryOrderUncheckedUpdateManyInput =
+      event === 'invoice'
+        ? { invoicedAt: at }
+        : event === 'draft'
+          ? { invoicedAt: null, paidAt: null }
+          : {};
     for (const d of rows) {
       const to = transition(
         BILLING_DOC_TYPE,
@@ -974,7 +1051,7 @@ export class DeliveryOrderService {
       );
       const r = await tx.deliveryOrder.updateMany({
         where: { id: d.id, billingStatus: d.billingStatus as BillingStatus },
-        data: { billingStatus: to, version: { increment: 1 } },
+        data: { billingStatus: to, ...stamp, version: { increment: 1 } },
       });
       if (r.count === 0) throw new ProblemException('concurrent_update');
       await tx.docStatusHistory.create({
@@ -1325,6 +1402,7 @@ export class DeliveryOrderService {
       | 'pod_wait'
       | 'pod_accept'
       | 'return'
+      | 'revert_delivery'
     >,
     data: Prisma.DeliveryOrderUncheckedUpdateManyInput,
     note: string | null,

@@ -892,6 +892,8 @@ const BODY_FOR_SUFFIX: Record<string, object> = {
   // ST4-T11 /delivery-orders/:id/redeliver และ /return
   redeliver: { reasonCodeId: `rsn_${'0'.repeat(32)}` },
   return: { reasonCodeId: `rsn_${'0'.repeat(32)}` },
+  'revert-delivery': { reason: 'isolation test reason' }, // ST5-T06 /delivery-orders/:id/revert-delivery
+  unrelease: { reason: 'isolation test reason' }, // ST5-T06 /delivery-orders/:id/unrelease
   // ST3-T11 /trips/:id/attach|detach|assign|offer (dispatch/complete ไม่มี body)
   attach: { deliveryOrderIds: [`do_${'0'.repeat(32)}`] },
   detach: { deliveryOrderIds: [`do_${'0'.repeat(32)}`] },

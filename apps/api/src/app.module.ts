@@ -126,8 +126,12 @@ import { PricingService } from './modules/pricing/pricing.service';
 import { OrderMatchingService } from './modules/orders/order-matching.service';
 import { OrderIntakeService } from './modules/orders/order-intake.service';
 import { DeliveryOrderService } from './modules/delivery-orders/delivery-order.service';
-import { DeliveryOrdersController } from './modules/delivery-orders/delivery-orders.controller';
+import {
+  DeliveryOrderRevertController,
+  DeliveryOrdersController,
+} from './modules/delivery-orders/delivery-orders.controller';
 import { DeliveryOrderReturnService } from './modules/delivery-orders/delivery-order-return.service';
+import { DeliveryOrderRevertService } from './modules/delivery-orders/delivery-order-revert.service';
 import { OrderStateService } from './modules/orders/order-state.service';
 import { TripService } from './modules/trips/trip.service';
 import { SubconHireService } from './modules/trips/subcon-hire.service';
@@ -292,6 +296,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     EventsController,
     RateCardsController,
     DeliveryOrdersController,
+    DeliveryOrderRevertController,
     PodController,
     TripsController,
     TripFieldChargesController,
@@ -375,6 +380,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     OrderMatchingService,
     DeliveryOrderService,
     DeliveryOrderReturnService,
+    DeliveryOrderRevertService,
     OrderStateService,
     TripService,
     FieldChargesService,

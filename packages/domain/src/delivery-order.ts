@@ -42,6 +42,7 @@ export const DO_EVENTS = [
   'merge',
   'recall',
   'restore',
+  'revert_delivery',
 ] as const;
 export type DoEvent = (typeof DO_EVENTS)[number];
 
@@ -55,6 +56,9 @@ export type DoEvent = (typeof DO_EVENTS)[number];
  * - `recall` = เที่ยวที่ปล่อยแล้วถูกยกเลิกก่อนรับของ (plan/00a DISPATCHED → CANCELLED — ST3-T11) → DO กลับ DRAFT นอกเที่ยว
  *   (รับของแล้ว PICKED_UP ขึ้นไปยกเลิกเที่ยวไม่ได้ — ปิดเที่ยวบางส่วนแล้วเปิดเที่ยวใหม่ตาม §4.2 ท้าย)
  * - ยกเลิกได้จาก DRAFT เท่านั้น: `cancel` (คน/ระบบ + เหตุผล), `split` (ใบแม่ที่ถูกแยก), `merge` (ใบที่ถูกรวมเข้าใบอื่น)
+ * - `revert_delivery` (ST5-T06; docs/04 F4 "DELIVERED ย้อนได้โดย Dispatcher (ภายใน 24 ชม.) / Admin") [DECISION spec/12 §3]:
+ *   ผู้จัดรถย้อนผลส่งถึง (DELIVERED/POD_PENDING/UNBILLED ที่ยังไม่ส่งบัญชี/ไม่อยู่ในใบแจ้งหนี้) → FAILED + เหตุผล
+ *   แล้วจัดการต่อด้วยงานเดิมของ ST4-T11 (ส่งซ้ำ = DO ใหม่ / คืนคลัง) — ไม่ถอยไป DISPATCHED (จุดแวะยังปิดอยู่ → projection จะไล่กลับเป็นส่งถึง)
  */
 export const DO_TRANSITIONS: TransitionTable<DoStatus, DoEvent> = {
   DRAFT: { plan: 'PLANNED', cancel: 'CANCELLED', split: 'CANCELLED', merge: 'CANCELLED' },
@@ -62,9 +66,9 @@ export const DO_TRANSITIONS: TransitionTable<DoStatus, DoEvent> = {
   DISPATCHED: { pick_up: 'PICKED_UP', deliver: 'DELIVERED', fail: 'FAILED', recall: 'DRAFT' },
   PICKED_UP: { deliver: 'DELIVERED', fail: 'FAILED' },
   FAILED: { redeliver: 'CANCELLED', return: 'RETURNED' },
-  DELIVERED: { pod_wait: 'POD_PENDING', pod_accept: 'UNBILLED' },
-  POD_PENDING: { pod_accept: 'UNBILLED' },
-  UNBILLED: { bill: 'BILLED' },
+  DELIVERED: { pod_wait: 'POD_PENDING', pod_accept: 'UNBILLED', revert_delivery: 'FAILED' },
+  POD_PENDING: { pod_accept: 'UNBILLED', revert_delivery: 'FAILED' },
+  UNBILLED: { bill: 'BILLED', revert_delivery: 'FAILED' },
   BILLED: { unbill: 'UNBILLED' },
   // ST4-T12 [DECISION spec/12 §3]: `restore` = ระบบคืนใบที่ถูกยกเลิกด้วย `redeliver` เมื่อผลส่งไม่สำเร็จถูกพลิก
   // (ผู้จัดรถไม่ใช้ event / event ที่มาทีหลังชนะ) และ DO ส่งใหม่ยังไม่ถูกจัดรถ → กลับไปไล่สถานะจากจุดแวะอีกครั้ง

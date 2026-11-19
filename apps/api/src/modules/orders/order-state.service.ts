@@ -284,6 +284,8 @@ export class OrderStateService {
     if (status === 'PLANNED' && (moving || (onTrip && finished))) step('dispatch');
     // ทุกใบคืนคลัง: ค้างจาก PLANNED เลย (ไม่ถอยไปรับงานใหม่ — ประเมินราคา/ใบค้างทางเข้าเมื่อจัดรถใหม่)
     else if (status === 'PLANNED' && !onTrip && !allReturned) step('unplan');
+    // ST5-T06 [DECISION spec/12 §3]: ผู้จัดรถย้อนผลส่งถึงของ DO (FAILED) ในใบสั่งที่ส่งครบแล้ว → ส่งบางส่วน (ส่งซ้ำ/จัดรถใหม่ได้)
+    if (status === 'DELIVERED' && has(['FAILED'])) step('reopen');
     if (status === 'IN_TRANSIT' || status === 'PARTIALLY_DELIVERED') {
       // ST4-T11 (review High): ใบคืนคลัง (RETURNED) นับว่าจบ — มีใบส่งถึงอย่างน้อย 1 ใบ → SO ส่งครบ (คืนคลังนับจัดสรรแล้ว)
       const allDelivered =

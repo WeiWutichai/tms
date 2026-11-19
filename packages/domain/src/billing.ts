@@ -57,16 +57,60 @@ export type BillingStage =
   'DELIVERED' | 'RELEASED' | 'IN_DRAFT' | 'INVOICED' | 'PARTIALLY_PAID' | 'PAID' | 'CREDITED';
 
 export function billingStage(
-  d: { status: DoStatus; billingStatus: BillingStatus; releasedAt: Date | string | null },
+  d: {
+    status: DoStatus;
+    billingStatus: BillingStatus;
+    releasedAt: Date | string | null;
+    /** ST5-T06 เวลารับชำระครบ (ST5-T22 เขียน) — มีค่า = PAID เมื่อไม่ส่งสถานะใบ */
+    paidAt?: Date | string | null;
+  },
   invoiceStatus?: InvoiceStatus | null,
 ): BillingStage | null {
   if (d.billingStatus === 'CREDITED') return 'CREDITED';
   if (d.billingStatus === 'INVOICED') {
-    if (invoiceStatus === 'PAID') return 'PAID';
+    if (invoiceStatus === 'PAID' || (!invoiceStatus && d.paidAt)) return 'PAID';
     if (invoiceStatus === 'PARTIALLY_PAID') return 'PARTIALLY_PAID';
     return 'INVOICED';
   }
   if (d.billingStatus === 'IN_DRAFT') return 'IN_DRAFT';
   if (!BILLABLE_DO_STATUSES.includes(d.status) && d.status !== 'BILLED') return null;
   return d.releasedAt ? 'RELEASED' : 'DELIVERED';
+}
+
+/**
+ * กฎย้อนขั้นของ lifecycle (ST5-T06; docs/04 F4 คอลัมน์ "ย้อนได้โดย" + "permission ต่อ transition กำหนดใน role")
+ * [DECISION spec/12 §3] — scope ตาม docs/04 A3:
+ * - DELIVERED → ส่งไม่สำเร็จ (`POST /delivery-orders/{id}/revert-delivery`): `trips:close` (Dispatcher) ภายใน 24 ชม. นับจากเวลาที่ DO
+ *   เป็นส่งถึง · เกิน 24 ชม. ต้องมี `trips:override` (owner/admin/manager — ยกเว้นกฎพร้อมเหตุผล เหมือน D-07)
+ * - RELEASED → DELIVERED (`POST /delivery-orders/{id}/unrelease`): `invoices:draft` (Invoicer — ผู้ส่งบัญชี)
+ * - IN_DRAFT → ถอดออกจากร่าง (ST5-T07): `invoices:draft`
+ * - INVOICED / PARTIALLY_PAID / PAID: ย้อนไม่ได้ → ใบลดหนี้ (ST5-T12) · CREDITED: ไม่มีขั้นให้ย้อน
+ * ทุกการย้อนต้องมีเหตุผล (≥ 10 ตัวอักษร) + audit · RELEASED ขึ้นไปแก้จุดแวะ/ยอดส่งจริงไม่ได้ (409)
+ */
+export interface BillingRevertRule {
+  scope: string;
+  /** ช่วงเวลาที่ `scope` ย้อนได้ (ชม.) — เกินต้องมี `overrideScope` */
+  windowHours?: number;
+  overrideScope?: string;
+}
+export const BILLING_REVERT_RULES: Record<BillingStage, BillingRevertRule | null> = {
+  DELIVERED: { scope: 'trips:close', windowHours: 24, overrideScope: 'trips:override' },
+  RELEASED: { scope: 'invoices:draft' },
+  IN_DRAFT: { scope: 'invoices:draft' },
+  INVOICED: null,
+  PARTIALLY_PAID: null,
+  PAID: null,
+  CREDITED: null,
+};
+
+/** ช่วงที่ผู้จัดรถย้อนผลส่งถึงเองได้ (docs/04 F4 "ภายใน 24 ชม.") */
+export const REVERT_DELIVERY_WINDOW_MS = 24 * 3600_000;
+
+/** เส้นตายย้อนผลส่งถึงของผู้จัดรถ — `now` ≤ เส้นตาย = ภายในช่วง (เวลาเป็นช่วงต่อเนื่อง ไม่ขึ้นกับวันปฏิทิน) */
+export function revertDeliveryWindow(
+  deliveredAt: Date,
+  now: Date,
+): { deadline: Date; within: boolean } {
+  const deadline = new Date(deliveredAt.getTime() + REVERT_DELIVERY_WINDOW_MS);
+  return { deadline, within: now.getTime() <= deadline.getTime() };
 }

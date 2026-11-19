@@ -43,6 +43,7 @@ const EXPECTED: Record<string, SoStatus> = {
   'PARTIALLY_DELIVERED.resume': 'IN_TRANSIT',
   'PARTIALLY_DELIVERED.deliver': 'DELIVERED',
   'DELIVERED.close': 'CLOSED',
+  'DELIVERED.reopen': 'PARTIALLY_DELIVERED', // ST5-T06 ย้อนผลส่งถึงของ DO
 };
 
 describe('SO state machine (docs/01 §4.1)', () => {

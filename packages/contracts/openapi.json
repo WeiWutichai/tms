@@ -30973,6 +30973,196 @@
         ]
       }
     },
+    "/v1/delivery-orders/{id}/revert-delivery": {
+      "post": {
+        "description": "docs/04 F4: ผู้จัดรถ (`trips:close`) ย้อนได้ภายใน 24 ชม. นับจากเวลาที่ใบส่งของเป็นส่งถึง — เกินต้องมี `trips:override` (ไม่งั้น 403 `permission_denied` + `reason: revert_window_expired`, `deliveredAt`, `revertDeadline`) · ใบส่งของต้องส่งถึง (DELIVERED/POD_PENDING/UNBILLED) ยังไม่ส่งบัญชี ไม่อยู่ในใบแจ้งหนี้ และยังไม่มีส่งซ้ำ/คืนคลังของที่ปฏิเสธรับ → สถานะเป็น FAILED + เหตุผล + audit `delivery_order.delivery_reverted` แล้วจัดการต่อด้วย `/redeliver` หรือ `/return`",
+        "operationId": "DeliveryOrderRevert_revertDelivery",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RevertDeliveryDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeliveryOrderDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`trips:close`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "trips",
+                      "action": "close",
+                      "required": [
+                        "trips:close"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "`invalid_state_transition` — `errors[].code`: not_delivered · do_released (ส่งบัญชีแล้ว — ย้อนการส่งบัญชีก่อน) · do_in_invoice (อยู่ในร่าง/ใบที่ออกแล้ว) · do_credited · has_followups (ส่งซ้ำ/คืนคลังของที่ปฏิเสธรับแล้ว) · order_closed",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "do_released": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/invalid_state_transition",
+                      "title": "ทำรายการนี้ไม่ได้ในสถานะปัจจุบัน",
+                      "status": 409,
+                      "code": "invalid_state_transition",
+                      "instance": "/v1/delivery-orders/do_3f2a…/revert-delivery",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "deliveryOrderId",
+                          "code": "do_released",
+                          "message": "delivery order was released to billing"
+                        }
+                      ],
+                      "billingStatus": "UNBILLED",
+                      "releasedAt": "2026-11-20T03:15:00.000Z"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "deliveryOrderIds[0]",
+                          "code": "invalid_reference",
+                          "message": "not found"
+                        },
+                        {
+                          "field": "plannedEndAt",
+                          "code": "outside_trip_date",
+                          "message": "must be on tripDate"
+                        }
+                      ]
+                    }
+                  },
+                  "idempotency_mismatch": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_mismatch",
+                      "title": "Idempotency-Key นี้เคยใช้กับข้อมูลอื่น",
+                      "status": 422,
+                      "code": "idempotency_mismatch",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "ย้อนผลส่งถึง (DELIVERED → ส่งไม่สำเร็จ)",
+        "tags": [
+          "delivery-orders"
+        ],
+        "x-required-scopes": [
+          "trips:close"
+        ]
+      }
+    },
     "/v1/delivery-orders/{id}/pod": {
       "get": {
         "description": "ETag = เลขฉบับปัจจุบัน (ยังไม่มี = \"0\") ใช้เป็น If-Match ตอน PUT · `missing[]` เทียบกับ checklist ของลูกค้า **ตอนนี้** (`podStatus` ของ DO คำนวณตอนบันทึก/ตอนส่งถึง)",
@@ -36945,6 +37135,196 @@
           }
         ],
         "summary": "ส่งบัญชี (RELEASED) — ใบส่งของพร้อมวางบิล",
+        "tags": [
+          "delivery-orders"
+        ],
+        "x-required-scopes": [
+          "invoices:draft"
+        ]
+      }
+    },
+    "/v1/delivery-orders/{id}/unrelease": {
+      "post": {
+        "description": "docs/04 F4 \"RELEASED ย้อนได้โดย Invoicer\": ล้างเวลา/ผู้ส่งบัญชี + audit `delivery_order.unreleased` (เหตุผลบังคับ) · หลังย้อนแก้จุดแวะ/ยอดส่งจริงได้อีก (ล็อกหลังส่งบัญชี — 409 `do_released`) · ใบส่งของในร่างใบแจ้งหนี้ → 409 `do_in_invoice` (ถอดออกจากร่างก่อน) · ออกใบแล้ว (INVOICED) ย้อนไม่ได้ — ใช้ใบลดหนี้ · ยังไม่ส่งบัญชี = ตอบใบเดิม (ไม่ทำซ้ำ)",
+        "operationId": "DeliveryOrderRelease_unrelease",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "If-Match",
+            "in": "header",
+            "description": "ETag จาก GET — ไม่ตรง → 412",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/ApiVersion"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnreleaseDeliveryOrderDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeliveryOrderDto"
+                }
+              }
+            },
+            "headers": {
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "X-Api-Version": {
+                "$ref": "#/components/headers/X-Api-Version"
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "ไม่มีสิทธิ์ (`invoices:draft`)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "permission_denied": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/permission_denied",
+                      "title": "ไม่มีสิทธิ์ทำรายการนี้",
+                      "status": 403,
+                      "code": "permission_denied",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "module": "invoices",
+                      "action": "draft",
+                      "required": [
+                        "invoices:draft"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "description": "`invalid_state_transition` + `errors[].code = do_in_invoice` + `billingStatus` (IN_DRAFT ถอดออกจากร่างก่อน · INVOICED ย้อนไม่ได้)",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "do_in_invoice": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/invalid_state_transition",
+                      "title": "ทำรายการนี้ไม่ได้ในสถานะปัจจุบัน",
+                      "status": 409,
+                      "code": "invalid_state_transition",
+                      "instance": "/v1/delivery-orders/do_3f2a…/unrelease",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "deliveryOrderId",
+                          "code": "do_in_invoice",
+                          "message": "delivery order is INVOICED"
+                        }
+                      ],
+                      "billingStatus": "INVOICED",
+                      "doStatus": "BILLED"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "412": {
+            "$ref": "#/components/responses/PreconditionFailed"
+          },
+          "422": {
+            "description": "ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDto"
+                },
+                "examples": {
+                  "validation_failed": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/validation_failed",
+                      "title": "ข้อมูลไม่ถูกต้อง",
+                      "status": 422,
+                      "code": "validation_failed",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…",
+                      "errors": [
+                        {
+                          "field": "deliveryOrderIds[0]",
+                          "code": "invalid_reference",
+                          "message": "not found"
+                        },
+                        {
+                          "field": "plannedEndAt",
+                          "code": "outside_trip_date",
+                          "message": "must be on tripDate"
+                        }
+                      ]
+                    }
+                  },
+                  "idempotency_mismatch": {
+                    "value": {
+                      "type": "https://docs.tms.example/problems/idempotency_mismatch",
+                      "title": "Idempotency-Key นี้เคยใช้กับข้อมูลอื่น",
+                      "status": 422,
+                      "code": "idempotency_mismatch",
+                      "instance": "/v1/trips/trp_3f2a…",
+                      "requestId": "b6a1c2d3-…"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "$ref": "#/components/responses/RateLimited"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "ย้อนการส่งบัญชี (RELEASED → DELIVERED)",
         "tags": [
           "delivery-orders"
         ],
@@ -67828,6 +68208,31 @@
             "example": "UNBILLED",
             "description": "ST5-T05 สถานะวางบิล (docs/04 F3 — แยกจาก `status`): UNBILLED ยังไม่อยู่ในใบแจ้งหนี้ · IN_DRAFT อยู่ในร่าง · INVOICED ใบออกเลขแล้ว · CREDITED ใบถูกลดหนี้เต็มใบ (วางบิลใหม่ได้) — DO หนึ่งใบอยู่ในใบแจ้งหนี้ที่ active ได้ใบเดียว"
           },
+          "invoicedAt": {
+            "type": "string",
+            "nullable": true,
+            "description": "ST5-T06 เวลาใบแจ้งหนี้ของ DO ออกเลข (INVOICED — docs/04 F4) · null = ยังไม่ออก/ดึงเข้าร่างใหม่หลังลดหนี้"
+          },
+          "paidAt": {
+            "type": "string",
+            "nullable": true,
+            "description": "ST5-T06 เวลารับชำระครบ (PAID — docs/04 F4; บันทึกรับชำระ ST5-T22) · null = ยังไม่ชำระครบ"
+          },
+          "billingStage": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "DELIVERED",
+              "RELEASED",
+              "IN_DRAFT",
+              "INVOICED",
+              "PARTIALLY_PAID",
+              "PAID",
+              "CREDITED"
+            ],
+            "example": "RELEASED",
+            "description": "ST5-T06 ขั้น lifecycle วางบิล (docs/04 F4 — คำนวณ ไม่เก็บ): DELIVERED ส่งถึง · RELEASED ส่งบัญชีแล้ว · IN_DRAFT อยู่ในร่าง · INVOICED ออกใบแล้ว · PAID ชำระครบ · CREDITED ลดหนี้เต็มใบ · null = ยังไม่ส่งถึง/ส่งไม่สำเร็จ/ยกเลิก"
+          },
           "lines": {
             "type": "array",
             "items": {
@@ -67875,6 +68280,9 @@
           "podStatus",
           "releasedAt",
           "billingStatus",
+          "invoicedAt",
+          "paidAt",
+          "billingStage",
           "lines",
           "version",
           "createdAt",
@@ -68138,6 +68546,27 @@
         },
         "required": [
           "reasonCodeId"
+        ]
+      },
+      "RevertDeliveryDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 10,
+            "maxLength": 500,
+            "example": "คนขับกดปิดงานผิดจุด ของยังไม่ถึงลูกค้า",
+            "description": "เหตุผล (บังคับ ≥ 10 ตัวอักษร — ลง audit + ประวัติสถานะ)"
+          },
+          "reasonCodeId": {
+            "type": "string",
+            "nullable": true,
+            "example": "rsn_3f2a…",
+            "description": "เหตุผลมาตรฐานหมวด DELIVERY_FAILED (ส่งไม่สำเร็จ) — ใช้ต่อกับส่งซ้ำ/คืนคลัง"
+          }
+        },
+        "required": [
+          "reason"
         ]
       },
       "PodMissingDto": {
@@ -71602,6 +72031,21 @@
             "description": "หมายเหตุ (ไม่บังคับ — ลง audit)"
           }
         }
+      },
+      "UnreleaseDeliveryOrderDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 10,
+            "maxLength": 500,
+            "example": "ยอดส่งจริงต้องแก้ตามใบรับของลูกค้า",
+            "description": "เหตุผล (บังคับ ≥ 10 ตัวอักษร — ลง audit)"
+          }
+        },
+        "required": [
+          "reason"
+        ]
       },
       "BulkReleaseItemDto": {
         "type": "object",
@@ -82816,6 +83260,31 @@
             "example": "UNBILLED",
             "description": "ST5-T05 สถานะวางบิล (docs/04 F3 — แยกจาก `status`): UNBILLED ยังไม่อยู่ในใบแจ้งหนี้ · IN_DRAFT อยู่ในร่าง · INVOICED ใบออกเลขแล้ว · CREDITED ใบถูกลดหนี้เต็มใบ (วางบิลใหม่ได้) — DO หนึ่งใบอยู่ในใบแจ้งหนี้ที่ active ได้ใบเดียว"
           },
+          "invoicedAt": {
+            "type": "string",
+            "nullable": true,
+            "description": "ST5-T06 เวลาใบแจ้งหนี้ของ DO ออกเลข (INVOICED — docs/04 F4) · null = ยังไม่ออก/ดึงเข้าร่างใหม่หลังลดหนี้"
+          },
+          "paidAt": {
+            "type": "string",
+            "nullable": true,
+            "description": "ST5-T06 เวลารับชำระครบ (PAID — docs/04 F4; บันทึกรับชำระ ST5-T22) · null = ยังไม่ชำระครบ"
+          },
+          "billingStage": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "DELIVERED",
+              "RELEASED",
+              "IN_DRAFT",
+              "INVOICED",
+              "PARTIALLY_PAID",
+              "PAID",
+              "CREDITED"
+            ],
+            "example": "RELEASED",
+            "description": "ST5-T06 ขั้น lifecycle วางบิล (docs/04 F4 — คำนวณ ไม่เก็บ): DELIVERED ส่งถึง · RELEASED ส่งบัญชีแล้ว · IN_DRAFT อยู่ในร่าง · INVOICED ออกใบแล้ว · PAID ชำระครบ · CREDITED ลดหนี้เต็มใบ · null = ยังไม่ส่งถึง/ส่งไม่สำเร็จ/ยกเลิก"
+          },
           "lines": {
             "type": "array",
             "items": {
@@ -82863,6 +83332,9 @@
           "podStatus",
           "releasedAt",
           "billingStatus",
+          "invoicedAt",
+          "paidAt",
+          "billingStage",
           "lines",
           "version",
           "createdAt",

@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { Clock } from '../../common/clock';
 import { ProblemException } from '../../common/problem';
+import { assertDeliveryUnlocked } from '../invoices/billing-lock';
 import { DbService, type Tx } from '../../db/db.service';
 import { cleanLine } from '../master/master-kit';
 import { OrderStateService } from '../orders/order-state.service';
@@ -99,6 +100,8 @@ export class DeliveryOrderReturnService {
     if (input.doDate !== undefined)
       throw field422('doDate', 'not_applicable', 'doDate is for redelivery only');
     const p = await this.prepare(tx, id, input, expectedVersion);
+    // ST5-T06 (docs/04 F4; spec/12 §3 ส่งต่อจาก T05): คืนคลังของที่ปฏิเสธรับ = แก้ยอดของ DO → ล็อกหลังส่งบัญชี/อยู่ในใบแจ้งหนี้
+    if (p.mode === 'rejected') assertDeliveryUnlocked(p.src);
     if (p.mode === 'failed') {
       await this.dos.returnFailed(tx, p.src, { reasonCodeId: p.reasonCodeId, reason: p.reason });
       if (p.src.tripId) await this.projection.project(tx, p.src.tripId);
