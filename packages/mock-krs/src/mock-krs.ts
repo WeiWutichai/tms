@@ -17,7 +17,7 @@ import { readFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
-import { lineAmountSatang, satangToNumber } from './decimal';
+import { lineAmountExact, roundToSatang, satangToNumber, type Scaled } from './decimal';
 
 /** ที่อยู่ JSON schema ของ contract (ใช้ได้ทั้งจาก src/ และ dist/) */
 export const DEFAULT_SCHEMA_DIR = join(__dirname, '../../contracts/krs');
@@ -55,8 +55,21 @@ export interface KrsInvoiceRequest {
   lines: KrsInvoiceLine[];
 }
 
-/** ฟิลด์รถ/เส้นทางที่ A.1 บอกว่าอาจว่างหลังบัญชีกดบันทึก (ใช้ได้ทุกฟิลด์ของรายการ) */
-export type KrsLineField = Exclude<keyof KrsInvoiceLine, 'lineId'>;
+/**
+ * ฟิลด์ข้อความของรายการที่ล้างได้ตอนเขียนทับ (A.1: ฟิลด์รถ/เส้นทางอาจว่าง) — ฟิลด์ตัวเลข (`mainQuantity`, `unitPrice`, `lineId`)
+ * ไม่อยู่ในชุดนี้ เพราะ mock ต้องคำนวณยอดจากมัน
+ */
+export type KrsLineField =
+  | 'mainUnits'
+  | 'flowNo'
+  | 'flowDate'
+  | 'carId'
+  | 'carPerson'
+  | 'frWay'
+  | 'toWay'
+  | 'itemCode'
+  | 'description'
+  | 'accountCode';
 
 // ---------- สวิตช์ ----------
 
@@ -129,6 +142,16 @@ export interface MockKrsOptions {
   putTmsVoucherNoChange?: 'accept' | 'reject400';
   /** ลำดับการตรวจของ PUT: `validate-first` (400 ก่อน 404 — ค่าเริ่ม) / `lookup-first` — [OPEN — KRS] */
   putCheckOrder?: 'validate-first' | 'lookup-first';
+  /** status ของ method อื่นบน `/invoice` (เช่น DELETE) — [OPEN — KRS] A.1 บอกแค่ว่า "ไม่มี" ค่าเริ่ม 405 (+ `Allow`) */
+  unsupportedMethodStatus?: 404 | 405;
+  /** `Retry-After` (วินาที) ที่ใส่ใน 503 — [OPEN — KRS] ไม่รู้ว่า KRS ส่งหรือไม่ · ค่าเริ่ม 60 · null = ไม่ใส่ header */
+  retryAfterSeconds?: number | null;
+  /**
+   * วิธีปัดยอดที่ "KRS คำนวณ" — [OPEN — KRS] A.3 บอกแค่ว่าให้ KRS คำนวณ:
+   * `line-half-up` (ค่าเริ่ม: ปัดครึ่งขึ้นต่อรายการเป็นสตางค์แล้วรวม) · `total-half-up` (รวมค่าเต็มแล้วปัดยอดรวมครั้งเดียว;
+   * `amount` ต่อรายการยังปัดครึ่งขึ้น) · `line-half-even` (ปัดแบบ banker ต่อรายการแล้วรวม)
+   */
+  amountRounding?: 'line-half-up' | 'total-half-up' | 'line-half-even';
   /** ที่อยู่ไฟล์ JSON schema (ค่าเริ่ม packages/contracts/krs) */
   schemaDir?: string;
 }
@@ -180,9 +203,7 @@ const FAULT_KINDS: readonly FaultKind[] = [
 ];
 
 const LINE_FIELDS: readonly KrsLineField[] = [
-  'mainQuantity',
   'mainUnits',
-  'unitPrice',
   'flowNo',
   'flowDate',
   'carId',
@@ -211,6 +232,14 @@ function errorBody(status: number, message: string, errors?: MockKrsError['error
     message,
     ...(errors ? { errors } : {}),
   };
+}
+
+function safeDecode(s: string): string {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    throw new HttpError(404, 'route not found');
+  }
 }
 
 function clone<T>(v: T): T {
@@ -260,6 +289,9 @@ export class MockKrs {
       voucherPeriodFrom: options.voucherPeriodFrom ?? 'voucherDate',
       now: options.now ?? (() => new Date()),
       includeAmounts: options.includeAmounts ?? true,
+      unsupportedMethodStatus: options.unsupportedMethodStatus ?? 405,
+      retryAfterSeconds: options.retryAfterSeconds === undefined ? 60 : options.retryAfterSeconds,
+      amountRounding: options.amountRounding ?? 'line-half-up',
       putTmsVoucherNoChange: options.putTmsVoucherNoChange ?? 'accept',
       putCheckOrder: options.putCheckOrder ?? 'validate-first',
       schemaDir: options.schemaDir ?? DEFAULT_SCHEMA_DIR,
@@ -336,9 +368,11 @@ export class MockKrs {
     const status = spec.status ?? 503;
     if (kind === 'status' && (!Number.isInteger(status) || status < 400 || status > 599))
       throw new HttpError(400, 'fault status must be 400-599');
+    if (spec.method !== undefined && !['POST', 'PUT', 'GET'].includes(spec.method))
+      throw new HttpError(400, 'method must be POST, PUT or GET');
     const times = spec.times ?? 1;
     if (!Number.isInteger(times) || times < 0) throw new HttpError(400, 'times must be int >= 0');
-    this.faults.push({ ...spec, kind, status, times, remaining: times });
+    this.faults = [...this.faults, { ...spec, kind, status, times, remaining: times }];
   }
 
   clearFaults(): void {
@@ -391,6 +425,17 @@ export class MockKrs {
   // ---------- HTTP ----------
 
   private async handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    try {
+      await this.handleUnsafe(req, res);
+    } catch {
+      // mock ห้ามล้มทั้งโปรเซส — ตอบ 500 ถ้ายังตอบได้
+      if (!res.headersSent && !res.destroyed)
+        this.send(res, { status: 500, body: errorBody(500, 'mock internal error') });
+      else res.destroy();
+    }
+  }
+
+  private async handleUnsafe(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const method = req.method ?? 'GET';
     const path = (req.url ?? '/').split('?')[0] ?? '/';
     let raw: Buffer | 'too-large';
@@ -405,7 +450,15 @@ export class MockKrs {
       return;
     }
 
-    const fault = this.takeFault(req, method);
+    let fault: FaultSpec | null;
+    try {
+      fault = this.takeFault(req, method);
+    } catch (e) {
+      if (!(e instanceof HttpError)) throw e;
+      this.record(method, path, e.status);
+      this.send(res, { status: e.status, body: errorBody(e.status, e.message) });
+      return;
+    }
     if (fault && fault.kind !== 'timeout-after-commit' && fault.kind !== 'reset-after-commit') {
       this.applyFault(req, res, method, path, fault);
       return;
@@ -441,7 +494,7 @@ export class MockKrs {
       }
       const segs = rest.slice(1).split('/');
       if (segs.length !== 1 || !segs[0]) throw new HttpError(404, 'route not found');
-      const txNo = decodeURIComponent(segs[0]);
+      const txNo = safeDecode(segs[0]);
       if (method === 'GET') return this.read(txNo);
       if (method === 'PUT') return this.replace(txNo, raw);
       return this.methodNotAllowed('GET, PUT');
@@ -453,6 +506,8 @@ export class MockKrs {
   }
 
   private methodNotAllowed(allow: string): Outcome {
+    if (this.opts.unsupportedMethodStatus === 404)
+      return { status: 404, body: errorBody(404, 'route not found') };
     return {
       status: 405,
       body: errorBody(405, 'method not allowed'),
@@ -530,13 +585,22 @@ export class MockKrs {
   /** รูป response: เลขที่ KRS ออก + ข้อมูลใบ (+ ยอดที่ KRS คำนวณ ถ้าเปิด) */
   private view(inv: StoredInvoice): Record<string, unknown> {
     const { lines, ...header } = inv.data;
+    const mode = this.opts.amountRounding;
     let total = 0n;
+    const exacts: Scaled[] = [];
     const outLines = lines.map((l) => {
       if (!this.opts.includeAmounts) return { ...l };
-      const sat = lineAmountSatang(l.mainQuantity, l.unitPrice);
+      const exact = lineAmountExact(l.mainQuantity, l.unitPrice);
+      exacts.push(exact);
+      const sat = roundToSatang(exact, mode === 'line-half-even' ? 'half-even' : 'half-up');
       total += sat;
       return { ...l, amount: satangToNumber(sat) };
     });
+    if (this.opts.includeAmounts && mode === 'total-half-up') {
+      const scale = Math.max(2, ...exacts.map((e) => e.scale));
+      const sum = exacts.reduce((acc, e) => acc + e.int * 10n ** BigInt(scale - e.scale), 0n);
+      total = roundToSatang({ int: sum, scale }, 'half-up');
+    }
     return {
       transactionNo: inv.transactionNo,
       voucherNo: inv.voucherNo,
@@ -567,6 +631,8 @@ export class MockKrs {
       throw new HttpError(400, 'keepLines must be int >= 0 or null');
     if (rule.dropFlowNos !== undefined && !Array.isArray(rule.dropFlowNos))
       throw new HttpError(400, 'dropFlowNos must be an array');
+    if (rule.blankFields !== undefined && !Array.isArray(rule.blankFields))
+      throw new HttpError(400, 'blankFields must be an array');
     for (const f of rule.blankFields ?? [])
       if (!LINE_FIELDS.includes(f)) throw new HttpError(400, `unknown line field: ${String(f)}`);
     if (rule.blankValue !== undefined && rule.blankValue !== '' && rule.blankValue !== null)
@@ -595,8 +661,14 @@ export class MockKrs {
     if (this.opts.allowHeaderFaults) {
       const h = req.headers['x-mock-fault'];
       if (typeof h === 'string' && h) {
-        if (/^\d{3}$/.test(h)) return { kind: 'status', status: Number(h) };
+        if (/^\d{3}$/.test(h)) {
+          const status = Number(h);
+          if (status < 400 || status > 599)
+            throw new HttpError(400, 'X-Mock-Fault status must be 400-599');
+          return { kind: 'status', status };
+        }
         if ((FAULT_KINDS as readonly string[]).includes(h)) return { kind: h as FaultKind };
+        throw new HttpError(400, `invalid X-Mock-Fault: ${h.slice(0, 40)}`);
       }
     }
     const i = this.faults.findIndex((f) => !f.method || f.method === method);
@@ -636,7 +708,9 @@ export class MockKrs {
     this.send(res, {
       status,
       body: fault.body ?? errorBody(status, `mock fault ${status}`),
-      ...(status === 503 ? { headers: { 'Retry-After': '60' } } : {}),
+      ...(status === 503 && this.opts.retryAfterSeconds !== null
+        ? { headers: { 'Retry-After': String(this.opts.retryAfterSeconds) } }
+        : {}),
     });
   }
 
@@ -674,8 +748,20 @@ export class MockKrs {
         }
         if (method === 'POST') {
           const body = json();
-          const list = Array.isArray(body) ? body : [body];
-          for (const f of list) this.injectFault(f as FaultSpec);
+          const list: unknown[] = Array.isArray(body) ? body : [body];
+          const specs = list.map((f) => {
+            if (f === null || typeof f !== 'object' || Array.isArray(f))
+              throw new HttpError(400, 'each fault must be an object');
+            return f as FaultSpec;
+          });
+          // ตรวจทั้งชุดก่อน แล้วค่อยใส่คิว (ผิดตัวเดียว = ไม่ใส่สักตัว)
+          const before = this.faults;
+          try {
+            for (const f of specs) this.injectFault(f);
+          } catch (e) {
+            this.faults = before;
+            throw e;
+          }
           return ok({ ok: true, queued: this.faults.length });
         }
       }
@@ -687,7 +773,7 @@ export class MockKrs {
       }
       const m = /^\/invoices\/([^/]+)\/overwrite$/.exec(path);
       if (method === 'POST' && m) {
-        const inv = this.overwriteInvoice(decodeURIComponent(m[1]!), json() as OverwriteRule);
+        const inv = this.overwriteInvoice(safeDecode(m[1]!), json() as OverwriteRule);
         if (!inv) throw new HttpError(404, 'invoice not found');
         return ok(inv);
       }
@@ -695,7 +781,7 @@ export class MockKrs {
     } catch (e) {
       if (e instanceof HttpError)
         return { status: e.status, body: errorBody(e.status, e.message, e.errors) };
-      throw e;
+      return { status: 500, body: errorBody(500, 'mock control error') };
     }
   }
 

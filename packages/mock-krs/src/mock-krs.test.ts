@@ -446,6 +446,115 @@ describe('สวิตช์ "บัญชีกดบันทึกแล้�
   });
 });
 
+describe('[OPEN — KRS] พฤติกรรมที่ contract ไม่ระบุ — ตั้งค่าได้', () => {
+  async function withMock<T>(
+    opts: Parameters<typeof startMockKrs>[0],
+    fn: (m: MockKrs) => Promise<T>,
+  ) {
+    const m = await startMockKrs({ apiKey: KEY, ...opts });
+    try {
+      return await fn(m);
+    } finally {
+      await m.stop();
+    }
+  }
+  const req = (
+    m: MockKrs,
+    method: string,
+    path: string,
+    body?: unknown,
+    h: Record<string, string> = {},
+  ) =>
+    fetch(m.apiBaseUrl + path, {
+      method,
+      headers: { 'X-API-Key': KEY, ...h },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+
+  it('method อื่นบน /invoice: ค่าเริ่ม 405 + Allow · unsupportedMethodStatus 404', async () => {
+    const r = await call('DELETE', '/invoice/1');
+    expect(r.status).toBe(405);
+    expect(r.headers.get('allow')).toBe('GET, PUT');
+    await withMock({ unsupportedMethodStatus: 404 }, async (m) => {
+      expect((await req(m, 'DELETE', '/invoice/1')).status).toBe(404);
+      expect((await req(m, 'GET', '/invoice')).status).toBe(404);
+    });
+  });
+
+  it('Retry-After ของ 503: ค่าเริ่ม 60 · ตั้งเป็นตัวเลขอื่น · null = ไม่มี header', async () => {
+    await withMock({ retryAfterSeconds: 5 }, async (m) => {
+      const r = await req(m, 'GET', '/invoice/1', undefined, { 'X-Mock-Fault': '503' });
+      expect(r.headers.get('retry-after')).toBe('5');
+    });
+    await withMock({ retryAfterSeconds: null }, async (m) => {
+      const r = await req(m, 'GET', '/invoice/1', undefined, { 'X-Mock-Fault': '503' });
+      expect(r.status).toBe(503);
+      expect(r.headers.get('retry-after')).toBeNull();
+    });
+  });
+
+  it('วิธีปัดยอด: line-half-up (ค่าเริ่ม) / total-half-up / line-half-even', async () => {
+    const lines = [line(1, { unitPrice: 0.125 }), line(2, { unitPrice: 0.125 })];
+    const total = async (amountRounding?: 'line-half-up' | 'total-half-up' | 'line-half-even') =>
+      withMock(amountRounding ? { amountRounding } : {}, async (m) => {
+        const r = (await (await req(m, 'POST', '/invoice', invoice('R', lines))).json()) as any;
+        return [r.lines.map((l: any) => l.amount), r.totalAmount];
+      });
+    expect(await total()).toEqual([[0.13, 0.13], 0.26]);
+    expect(await total('total-half-up')).toEqual([[0.13, 0.13], 0.25]);
+    expect(await total('line-half-even')).toEqual([[0.12, 0.12], 0.24]);
+  });
+
+  it('contract ตรวจแค่รูปแบบวันที่: 2026-13-45 ผ่าน schema (KRS จะรับหรือไม่ยังไม่รู้)', async () => {
+    expect((await post({ ...invoice(), voucherDate: '2026-13-45' })).status).toBe(201);
+  });
+});
+
+describe('control และ header ต้องไม่ทำให้ mock ล้ม', () => {
+  it('blankFields เป็นฟิลด์ตัวเลข/ไม่ใช่ array → 400 · GET หลังเขียนทับไม่ 500', async () => {
+    const { body: c } = await post(invoice('INV-1'));
+    for (const rule of [
+      { blankFields: ['unitPrice'] },
+      { blankFields: ['mainQuantity'] },
+      { blankFields: 5 },
+    ])
+      expect((await control('POST', `/invoices/${c.transactionNo}/overwrite`, rule)).status).toBe(
+        400,
+      );
+    expect(
+      (await control('PUT', '/overwrite', { enabled: true, rule: { blankFields: 'carId' } }))
+        .status,
+    ).toBe(400);
+    expect((await call('GET', `/invoice/${c.transactionNo}`)).status).toBe(200);
+  });
+
+  it('body ของ /__mock/faults ผิดรูป → 400 และไม่ใส่คิวบางส่วน', async () => {
+    for (const body of [[1], [null], { method: 'DELETE' }, { status: '503' }, { times: 'x' }])
+      expect((await control('POST', '/faults', body)).status).toBe(400);
+    expect((await control('POST', '/faults', [{ status: 503 }, { kind: 'boom' }])).status).toBe(
+      400,
+    );
+    expect((await control('GET', '/state')).body.faults).toHaveLength(0);
+    const bad = await fetch(`${mock.url}/__mock/faults`, { method: 'POST', body: '{oops' });
+    expect(bad.status).toBe(400);
+  });
+
+  it('URI encode ผิด → 404 ทั้ง API และ control', async () => {
+    expect((await call('GET', '/invoice/%E0%A4%A')).status).toBe(404);
+    expect((await control('POST', '/invoices/%E0%A4%A/overwrite', {})).status).toBe(404);
+    expect((await control('GET', '/state')).status).toBe(200);
+  });
+
+  it('X-Mock-Fault รับเฉพาะ 400–599 และชนิดที่กำหนด — อื่น ๆ = 400', async () => {
+    for (const h of ['200', '302', '600', 'bogus']) {
+      const r = await post(invoice('INV-H'), { 'X-Mock-Fault': h });
+      expect(r.status).toBe(400);
+      expect(r.body.message).toMatch(/X-Mock-Fault/);
+    }
+    expect(mock.listInvoices()).toHaveLength(0);
+  });
+});
+
 describe('วงจรชีวิตและยอดเงิน', () => {
   it('start/stop ได้หลายตัวพร้อมกันบนพอร์ตสุ่ม · stop ตัดคำขอที่ค้าง', async () => {
     const m = new MockKrs({ timeoutMs: 60_000 });

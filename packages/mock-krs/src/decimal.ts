@@ -3,7 +3,7 @@
  * เพื่อให้ reconcile ระดับ TOTAL (ST8-T11) มีตัวเลขให้เทียบ · ปัดครึ่งขึ้น (ห่างจากศูนย์) ที่ 2 ตำแหน่ง
  */
 
-interface Scaled {
+export interface Scaled {
   int: bigint;
   scale: number;
 }
@@ -19,19 +19,28 @@ function toScaled(n: number): Scaled {
   return { int, scale: frac.length };
 }
 
-/** qty × price ปัดเป็นสตางค์ (bigint) */
-export function lineAmountSatang(qty: number, unitPrice: number): bigint {
+/** qty × price แบบเต็ม (ไม่ปัด) */
+export function lineAmountExact(qty: number, unitPrice: number): Scaled {
   const a = toScaled(qty);
   const b = toScaled(unitPrice);
-  const prod = a.int * b.int;
-  const scale = a.scale + b.scale;
-  if (scale <= 2) return prod * 10n ** BigInt(2 - scale);
-  const div = 10n ** BigInt(scale - 2);
-  const neg = prod < 0n;
-  const abs = neg ? -prod : prod;
+  return { int: a.int * b.int, scale: a.scale + b.scale };
+}
+
+/** ปัดเป็นสตางค์: half-up = ครึ่งขึ้นห่างจากศูนย์ · half-even = banker's rounding */
+export function roundToSatang(v: Scaled, mode: 'half-up' | 'half-even' = 'half-up'): bigint {
+  if (v.scale <= 2) return v.int * 10n ** BigInt(2 - v.scale);
+  const div = 10n ** BigInt(v.scale - 2);
+  const neg = v.int < 0n;
+  const abs = neg ? -v.int : v.int;
   let q = abs / div;
-  if ((abs % div) * 2n >= div) q += 1n;
+  const twice = (abs % div) * 2n;
+  if (twice > div || (twice === div && (mode === 'half-up' || q % 2n === 1n))) q += 1n;
   return neg ? -q : q;
+}
+
+/** qty × price ปัดครึ่งขึ้นเป็นสตางค์ (bigint) */
+export function lineAmountSatang(qty: number, unitPrice: number): bigint {
+  return roundToSatang(lineAmountExact(qty, unitPrice));
 }
 
 /** สตางค์ → number ของ JSON (ค่าที่ได้คือทศนิยม 2 ตำแหน่งตรงตัว เช่น 1234.5) */
