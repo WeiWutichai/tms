@@ -564,6 +564,13 @@ describe('revenue lines (ST5-T01)', () => {
       .get(`/v1/orders/${o.pub}/revenue-lines`)
       .expect(403);
 
+    // อ้างใบสั่งด้วย ext:{externalId} ได้ (ST7-T02) · ext: ที่ไม่มี → 404
+    await db.salesOrder.update({ where: { id: o.id }, data: { externalId: 'RVL-EXT-1' } });
+    expect((await lines('ext:RVL-EXT-1')).map((l) => l.id)).toEqual(
+      (await lines(o.pub)).map((l) => l.id),
+    );
+    await api(app, admin).get('/v1/orders/ext:RVL-NONE/revenue-lines').expect(404);
+    await api(app, other).get('/v1/orders/ext:RVL-EXT-1/revenue-lines').expect(404);
     // บริษัทอื่น → 404 (อ่าน/เพิ่ม/ยกเลิก)
     await api(app, other).get(`/v1/orders/${o.pub}/revenue-lines`).expect(404);
     await api(app, other)

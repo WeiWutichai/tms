@@ -10,7 +10,9 @@ import {
 import type { Request, Response } from 'express';
 import { RequireScope, TenantResource } from '../../common/decorators';
 import { expectedVersion, setEtag } from '../../common/etag';
+import { resolveRef } from '../../common/external-id';
 import { decodeIdOr404 } from '../../common/ids';
+import { OrdersService } from '../orders/orders.service';
 import { ApiProblems } from '../../common/problem.dto';
 import { T403, T404, T409, T412, T422 } from '../trips/trip-problems';
 import { OrderLockService } from '../orders/order-lock.service';
@@ -35,7 +37,18 @@ export class OrderRevenueLinesController {
   constructor(
     private readonly svc: RevenueLinesService,
     private readonly locks: OrderLockService,
+    private readonly orders: OrdersService,
   ) {}
+
+  /** `{id}` หรือ `ext:{externalId}` → uuid ของใบสั่ง (ST7-T02) — ไม่พบ/บริษัทอื่น → 404 */
+  private async orderId(id: string): Promise<string> {
+    return resolveRef(
+      'salesOrder',
+      id,
+      async (u) => u,
+      async (e) => (await this.orders.getByExternalId(e)).id,
+    );
+  }
 
   @Get(':id/revenue-lines')
   @TenantResource('salesOrder')
@@ -50,7 +63,7 @@ export class OrderRevenueLinesController {
   @ApiProblems(T403('orders:read'), NF)
   @ApiOkResponse({ type: RevenueLineListDto })
   async list(@Param('id') id: string): Promise<RevenueLineListDto> {
-    return { data: await this.svc.list(decodeIdOr404('salesOrder', id)) };
+    return { data: await this.svc.list(await this.orderId(id)) };
   }
 
   @Post(':id/revenue-lines')
@@ -69,7 +82,7 @@ export class OrderRevenueLinesController {
     @Body() body: AddRevenueLineDto,
     @Res({ passthrough: true }) res: Response,
   ): Promise<RevenueLineDto> {
-    const soId = decodeIdOr404('salesOrder', id);
+    const soId = await this.orderId(id);
     await this.locks.assertWritable(soId);
     const out = await this.svc.add(soId, body);
     setEtag(res, out.version);
