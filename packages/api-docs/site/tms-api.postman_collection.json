@@ -4480,6 +4480,67 @@
               }
             }
           }
+        },
+        {
+          "name": "อนุมัติใบสำคัญจ่าย (separation of duties) → ออกเลข STL — เหตุผล ≥ 10 ตัวอักษร",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-Api-Version",
+                "value": "{{apiVersion}}"
+              },
+              {
+                "key": "X-Step-Up",
+                "value": "",
+                "description": "token step-up 2FA ของผู้อนุมัติ (อายุ 5 นาที) — บังคับเมื่อยอดสุทธิเกินวงเงินที่ตั้ง",
+                "disabled": true
+              },
+              {
+                "key": "If-Match",
+                "value": "",
+                "description": "ETag (version) — ไม่ตรง → 412",
+                "disabled": true
+              },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{$guid}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/v1/settlements/:id/approve",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "settlements",
+                ":id",
+                "approve"
+              ],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": "",
+                  "description": ""
+                }
+              ]
+            },
+            "description": "scope: settlements:approve\n\nDRAFT → APPROVED · **ผู้สร้างใบอนุมัติเองไม่ได้ → 403 `settlement_self_approval`** · ยอดสุทธิเกินวงเงินที่ตั้ง (`settlement.approvalStepUpAmount` — ค่าเริ่ม 100,000 บาท) ต้องส่ง `X-Step-Up` ของผู้อนุมัติ (จาก `POST /v1/auth/step-up` ยืนยัน TOTP) ไม่งั้น 403 `step_up_required` · ไม่มีบรรทัดเที่ยว → 409 `settlement_empty` · ยอดสุทธิติดลบ → 409 `settlement_net_negative` · ออกเลขชุด STL ตอนนี้เท่านั้น (ร่างไม่กินเลข; ออกแล้วแก้ไม่ได้) · ใบที่อนุมัติแล้วแก้/เพิ่ม/นำบรรทัดออก/ยกเลิกไม่ได้ (409) · ยังไม่หัก ณ ที่จ่าย · audit `settlement.approved` + webhook `settlement.approved`",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"รถร่วมขอแยกวางบิลเที่ยวนี้งวดหน้า\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
         }
       ]
     },

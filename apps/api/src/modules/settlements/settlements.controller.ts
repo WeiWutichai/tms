@@ -19,12 +19,15 @@ import {
   ApiTags,
 } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
+import { verifyStepUpToken } from '../../auth/tokens';
+import { requestContext } from '../../common/request-context';
 import { RequireScope, TenantResource } from '../../common/decorators';
 import { expectedVersion, setEtag } from '../../common/etag';
 import { decodeIdOr404 } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
 import { ApiProblems } from '../../common/problem.dto';
 import { T403, T404, T409, T412, T422 } from '../trips/trip-problems';
+import { PROBLEMS } from '../../common/problem';
 import { isRealDate } from '../vehicle-documents/expiry';
 import { SettlementQueuePageDto, SettlementQueueQuery } from './settlement-queue.dto';
 import { SettlementQueueService } from './settlement-queue.service';
@@ -48,8 +51,8 @@ const IF_MATCH = {
 
 /**
  * Settlement รถร่วม (AP — docs/04 F6, docs/01 §4.5, §5.2 #12 `settlements`)
- * ST6-T02 คิวจ่ายรถร่วม · ST6-T03 ใบสำคัญจ่าย (ร่าง) — ส่งรถร่วมตรวจ/อนุมัติ/จ่าย = ST6-T05…T09
- * อ่าน `settlements:read` (ยอดเห็นเมื่อมี `prices.buy:read`) · สร้าง/แก้ร่าง/ยกเลิกร่าง `settlements:create`
+ * ST6-T02 คิวจ่ายรถร่วม · ST6-T03 ใบสำคัญจ่าย (ร่าง) · ST6-T07 อนุมัติ — ส่งรถร่วมตรวจ/dispute/จ่าย = ST6-T05/T06/T09
+ * อ่าน `settlements:read` (ยอดเห็นเมื่อมี `prices.buy:read`) · สร้าง/แก้ร่าง/ยกเลิกร่าง `settlements:create` · อนุมัติ `settlements:approve`
  */
 @ApiTags('settlements')
 @ApiBearerAuth()
@@ -247,6 +250,70 @@ export class SettlementsController {
       decodeIdOr404('settlement', id),
       body.reason,
       expectedVersion(req),
+    );
+    setEtag(res, out.version);
+    return out;
+  }
+  @Post(':id/approve')
+  @HttpCode(200)
+  @TenantResource('settlement')
+  @RequireScope('settlements:approve')
+  @ApiOperation({
+    summary: 'อนุมัติใบสำคัญจ่าย (separation of duties) → ออกเลข STL — เหตุผล ≥ 10 ตัวอักษร',
+    description:
+      'DRAFT → APPROVED (docs/01 §4.5 — ยังไม่มีขั้นให้รถร่วมตรวจ ST6-T05) · **ผู้สร้างใบอนุมัติเองไม่ได้ → 403 `settlement_self_approval`** · ' +
+      'ยอดสุทธิเกินวงเงินที่ตั้ง (`settlement.approvalStepUpAmount` — ค่าเริ่ม 100,000 บาท) ต้องส่ง `X-Step-Up` ของผู้อนุมัติ ' +
+      '(จาก `POST /v1/auth/step-up` ยืนยัน TOTP) ไม่งั้น 403 `step_up_required` · ไม่มีบรรทัดเที่ยว → 409 `settlement_empty` · ' +
+      'ยอดสุทธิติดลบ → 409 `settlement_net_negative` · ออกเลขชุด STL ตอนนี้เท่านั้น (ร่างไม่กินเลข; ออกแล้วแก้ไม่ได้) · ใบที่อนุมัติแล้วแก้/เพิ่ม/นำบรรทัดออก/ยกเลิกไม่ได้ (409) · ' +
+      'ยังไม่หัก ณ ที่จ่าย (ST6-T08) · audit `settlement.approved` + webhook `settlement.approved`',
+  })
+  @ApiHeader(IF_MATCH)
+  @ApiHeader({
+    name: 'X-Step-Up',
+    required: false,
+    description:
+      'token step-up 2FA ของผู้อนุมัติ (อายุ 5 นาที) — บังคับเมื่อยอดสุทธิเกินวงเงินที่ตั้ง',
+  })
+  @ApiProblems(
+    {
+      status: 403,
+      description:
+        'ไม่มีสิทธิ์ `settlements:approve` / ผู้สร้างอนุมัติเอง (`settlement_self_approval`) / ต้องยืนยัน 2FA ซ้ำ (`step_up_required`)',
+      examples: Object.fromEntries(
+        (['permission_denied', 'settlement_self_approval', 'step_up_required'] as const).map(
+          (code) => [
+            code,
+            {
+              type: `https://docs.tms.example/problems/${code}`,
+              title: PROBLEMS[code].th,
+              status: 403,
+              code,
+            },
+          ],
+        ),
+      ),
+    },
+    NF,
+    T409('settlement_empty', 'settlement_net_negative'),
+    T412,
+    T422,
+  )
+  @ApiOkResponse({ type: SettlementDto })
+  async approve(
+    @Param('id') id: string,
+    @Body() body: SettlementReasonDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<SettlementDto> {
+    const ctx = requestContext.require();
+    const token = req.header('x-step-up');
+    const su = token ? await verifyStepUpToken(token) : null;
+    const steppedUp = !!su && su.sub === ctx.actorId && su.tid === ctx.tenantId;
+    const out = await this.svc.approve(
+      decodeIdOr404('settlement', id),
+      body.reason,
+      expectedVersion(req),
+      steppedUp,
     );
     setEtag(res, out.version);
     return out;

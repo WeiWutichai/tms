@@ -1,12 +1,16 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { eventDefinition } from '@tms/domain';
 import { AuditService } from '../../audit/audit.service';
 import { EXT_PREFIX, EXTERNAL_ID_RE } from '../../common/external-id';
 import { encodeId, tryDecodeId } from '../../common/ids';
+import { redactPrices } from '../../common/price-fields';
 import { keysetArgs, toPage } from '../../common/pagination';
 import { ProblemException, type FieldError } from '../../common/problem';
 import { requestContext } from '../../common/request-context';
 import { DbService, type Tx } from '../../db/db.service';
+import { issueNumber } from '../sequences/sequences.service';
+import { readSettings } from '../settings/settings.service';
 import type {
   CreateSettlementDto,
   SettlementCarrierDto,
@@ -116,6 +120,8 @@ export class SettlementsService {
         buyGrossAmount: r.grossAmount.toFixed(2),
         buyDeductionAmount: r.deductionAmount.toFixed(2),
         buyNetPayable: r.netPayable.toFixed(2),
+        approvedAt: r.approvedAt?.toISOString() ?? null,
+        createdBy: r.createdBy,
         version: r.version,
         createdAt: r.createdAt.toISOString(),
         updatedAt: r.updatedAt.toISOString(),
@@ -342,6 +348,89 @@ export class SettlementsService {
       },
     });
     return this.get(id);
+  }
+
+  /**
+   * อนุมัติ (ST6-T07; docs/04 F6 "Approve (separation of duties)", docs/01 §4.5 DRAFT → APPROVED, spec/05 §11.5–11.6)
+   * - ผู้สร้างใบอนุมัติเองไม่ได้ → 403 `settlement_self_approval` (CHECK `carrier_settlement_sod_check` ใน DB ด้วย)
+   * - ยอดสุทธิ > วงเงิน `settlement.approvalStepUpAmount` → ต้องยืนยัน 2FA ซ้ำ (`X-Step-Up` ของผู้อนุมัติเอง) ไม่งั้น 403 `step_up_required`
+   * - ไม่มีบรรทัดเที่ยว → 409 `settlement_empty` · ยอดสุทธิติดลบ → 409 `settlement_net_negative` (BIL-133 — ยกยอดหักส่วนเกินไปงวดถัดไป)
+   * - ออกเลข STL (`issueNumber` — แถวตัวนับล็อกจน commit, rollback = ไม่กินเลข) ใน transaction เดียวกับการเปลี่ยนสถานะ · ใบ APPROVED แก้ไม่ได้ (trigger 0124)
+   * - เหตุผล ≥ 10 ตัวอักษร + audit `settlement.approved` + webhook `settlement.approved`
+   * - ไม่คำนวณ VAT/WHT (ST6-T08) — ยอดสุทธิ = ยอดรวม − รายการหัก
+   */
+  async approve(
+    id: string,
+    reason: string,
+    expected: number | undefined,
+    steppedUp: boolean,
+  ): Promise<SettlementDto> {
+    const tx = this.db.tx;
+    const ctx = requestContext.require();
+    // ST6-T05 จะเพิ่ม SENT_TO_CARRIER เป็นสถานะที่อนุมัติได้ (docs/01 §4.5) — ตอนนี้ DRAFT → APPROVED (tenant ข้ามขั้นรถร่วมตรวจ)
+    const s = await this.lockDraft(tx, id, expected);
+    const actor = ctx.actorId;
+    if (!actor) throw new ProblemException('permission_denied');
+    if (s.createdBy !== null && s.createdBy === actor)
+      throw new ProblemException('settlement_self_approval');
+    await this.assertNoOpenDisputes(tx, id);
+    const trips = await tx.settlementLine.count({
+      where: { settlementId: id, voidedAt: null, lineType: { not: 'DEDUCTION' } },
+    });
+    if (trips === 0) throw new ProblemException('settlement_empty');
+    if (s.netPayable.isNegative()) throw new ProblemException('settlement_net_negative');
+    const limit = (await readSettings(tx, ctx.tenantId!, ['settlement.approvalStepUpAmount']))[
+      'settlement.approvalStepUpAmount'
+    ] as number | null;
+    const needStepUp = limit !== null && s.netPayable.greaterThan(limit);
+    if (needStepUp && !steppedUp) throw new ProblemException('step_up_required');
+
+    const settlementNo = await issueNumber(tx, ctx.tenantId!, { docType: 'STL' });
+    await tx.carrierSettlement.update({
+      where: { id },
+      data: {
+        status: 'APPROVED',
+        settlementNo,
+        approvedAt: new Date(),
+        approvedBy: actor,
+        version: { increment: 1 },
+      },
+    });
+    const out = await this.get(id);
+    await this.audit.record({
+      action: 'settlement.approved',
+      entityType: ENTITY,
+      entityId: id,
+      reason,
+      before: { status: 'DRAFT', settlementNo: null },
+      after: {
+        status: 'APPROVED',
+        settlementNo,
+        stepUp: needStepUp,
+        buyNetPayable: out.buyNetPayable,
+      },
+    });
+    await tx.domainEvent.create({
+      data: {
+        tenantId: ctx.tenantId!,
+        type: 'settlement.approved',
+        entityType: ENTITY,
+        localId: id,
+        snapshot: settlementEventObject(out) as Prisma.InputJsonValue,
+        previousAttributes: { status: 'DRAFT', settlementNo: null },
+        requestId: ctx.requestId ?? null,
+        actorId: actor,
+      },
+    });
+    return out;
+  }
+
+  /**
+   * จุดต่อ ST6-T06 (Dispute — docs/01 §4.5 "dispute ใด ๆ บล็อก approve", spec/05 BIL-136):
+   * เมื่อมีบรรทัด DISPUTED ให้ throw 409 ที่นี่ ("มีรายการโต้แย้ง n รายการ") — ตอนนี้ยังไม่มีข้อมูล dispute จึงผ่านเสมอ
+   */
+  private async assertNoOpenDisputes(_tx: Tx, _id: string): Promise<void> {
+    return;
   }
 
   // ---------- ภายใน ----------
@@ -723,6 +812,16 @@ export class SettlementsService {
   }
 }
 
+/**
+ * `data.object` ของ webhook `settlement.approved` (ทะเบียน event ST7-T06) = SettlementDto เดียวกับ `GET /v1/settlements/{id}`
+ * − ยอดเงิน (`buy*` — webhook ระดับ tenant ไม่ผ่านสิทธิ์ราคา) − `omit` ของทะเบียน (บรรทัด, id ผู้ใช้ — ดูรายละเอียดผ่าน REST)
+ */
+function settlementEventObject(dto: SettlementDto): Record<string, unknown> {
+  const o = JSON.parse(JSON.stringify(redactPrices(dto, []))) as Record<string, unknown>;
+  for (const k of eventDefinition('settlement.approved')!.object!.omit) delete o[k];
+  return o;
+}
+
 function invalid(errors: FieldError[]) {
   return new ProblemException('validation_failed', undefined, errors);
 }
@@ -806,6 +905,8 @@ function toDto(r: SettlementRow): SettlementDto {
     buyDeductionAmount: r.deductionAmount.toFixed(2),
     buyNetPayable: r.netPayable.toFixed(2),
     lines: r.lines.map(lineDto),
+    approvedAt: r.approvedAt?.toISOString() ?? null,
+    approvedBy: r.approvedBy,
     cancelledAt: r.cancelledAt?.toISOString() ?? null,
     cancelledBy: r.cancelledBy,
     cancelReason: r.cancelReason,

@@ -25,7 +25,7 @@
 | [`pod.captured`](#pod-captured) | ใช้งาน | `DeliveryOrderPodDto` | บันทึกหลักฐานการส่ง (POD) |
 | [`receipt.issued`](#receipt-issued) | ยังไม่ส่ง (จองชื่อไว้) |   | ออกใบเสร็จรับเงินแล้ว |
 | [`reconcile.mismatch_found`](#reconcile-mismatch_found) | ยังไม่ส่ง (จองชื่อไว้) |   | พบข้อมูลไม่ตรงกันจากการกระทบยอดกับระบบภายนอก |
-| [`settlement.approved`](#settlement-approved) | ยังไม่ส่ง (จองชื่อไว้) |   | อนุมัติใบสรุปค่าขนส่งรถร่วม |
+| [`settlement.approved`](#settlement-approved) | ใช้งาน | `SettlementDto` | อนุมัติใบสำคัญจ่ายรถร่วม (ออกเลข STL แล้ว — ผู้อนุมัติไม่ใช่ผู้สร้าง) |
 | [`settlement.paid`](#settlement-paid) | ยังไม่ส่ง (จองชื่อไว้) |   | จ่ายเงินตามใบสรุปค่าขนส่งรถร่วมแล้ว |
 | [`stop.arrived`](#stop-arrived) | ใช้งาน | `TripStopDto` | รถถึงจุดรับ/ส่ง |
 | [`stop.completed`](#stop-completed) | ใช้งาน | `TripStopDto` | ปิดงานที่จุดรับ/ส่งสำเร็จ |
@@ -400,11 +400,29 @@
 
 ## settlement.approved {#settlement-approved}
 
-อนุมัติใบสรุปค่าขนส่งรถร่วม
+อนุมัติใบสำคัญจ่ายรถร่วม (ออกเลข STL แล้ว — ผู้อนุมัติไม่ใช่ผู้สร้าง)
 
-> ยังไม่ส่ง — ชื่อและ schema จองไว้ (สมัครรับล่วงหน้าได้)
+`data.object` = `SettlementDto`
 
-`data.object` = 
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `id` | ใช่ | `string` |   |   | `stl_…` |
+| `settlementNo` | ใช่ | `string` | null ได้ | เลขเอกสาร (ชุด STL) — ร่างยังไม่มีเลข · ออกตอนอนุมัติ |   |
+| `status` | ใช่ | `string` | ค่า: `DRAFT`, `APPROVED`, `CANCELLED` |   |   |
+| `carrier` | ใช่ | `SettlementCarrierDto` |   |   |   |
+| `payingCompanyId` | ใช่ | `string` | null ได้ | นิติบุคคลที่จ่าย ("จ้างในนาม" ของรถร่วม — null = ค่าเริ่มต้นองค์กร) |   |
+| `periodFrom` | ใช่ | `string` |   |   | `2026-11-01` |
+| `periodTo` | ใช่ | `string` |   |   | `2026-11-15` |
+| `carrierInvoiceNo` | ใช่ | `string` | null ได้ |   |   |
+| `carrierInvoiceDate` | ใช่ | `string` | null ได้ |   |   |
+| `carrierReceiptNo` | ใช่ | `string` | null ได้ |   |   |
+| `note` | ใช่ | `string` | null ได้ |   |   |
+| `tripCount` | ใช่ | `number` |   | จำนวนเที่ยวในใบ (บรรทัดที่ยังใช้) |   |
+| `approvedAt` | ใช่ | `string` | null ได้ | เวลาอนุมัติ — ออกเลข `settlementNo` พร้อมกัน |   |
+| `cancelledAt` | ใช่ | `string` | null ได้ |   |   |
+| `version` | ใช่ | `number` |   |   |   |
+| `createdAt` | ใช่ | `string` |   |   |   |
+| `updatedAt` | ใช่ | `string` |   |   |   |
 
 ## settlement.paid {#settlement-paid}
 

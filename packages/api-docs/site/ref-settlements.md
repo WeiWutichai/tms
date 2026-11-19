@@ -1,6 +1,6 @@
 # จ่ายรถร่วม (settlements)
 
-8 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
+9 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
 
 | Endpoint | scope |
 |---|---|
@@ -12,6 +12,7 @@
 | [`POST /v1/settlements/{id}/lines`](#post-settlements-id-lines) | `settlements:create` |
 | [`POST /v1/settlements/{id}/lines/{lineId}/remove`](#post-settlements-id-lines-lineId-remove) | `settlements:create` |
 | [`POST /v1/settlements/{id}/cancel`](#post-settlements-id-cancel) | `settlements:create` |
+| [`POST /v1/settlements/{id}/approve`](#post-settlements-id-approve) | `settlements:approve` |
 
 ## คิวจ่ายรถร่วม (เที่ยวที่ปิดต้นทุนแล้วและยังไม่อยู่ในใบสำคัญจ่าย) {#get-settlements-queue}
 
@@ -74,7 +75,7 @@ scope: `settlements:read` · operationId: `Settlements_listSettlements`
 | `sort` | query |   | `string` ค่า: `updatedAt`, `-updatedAt` |   |
 | `fields` | query |   | `string` | รายชื่อ field คั่นด้วย, เช่น id,legalName |
 | `carrierId` | query |   | `string` | รถร่วม — id หรือ `ext:{externalId}` |
-| `status` | query |   | `string` ค่า: `DRAFT`, `CANCELLED` |   |
+| `status` | query |   | `string` ค่า: `DRAFT`, `APPROVED`, `CANCELLED` |   |
 
 **Responses**
 
@@ -427,6 +428,60 @@ const { data, error } = await tms.POST('/v1/settlements/{id}/cancel', {
 });
 ```
 
+## อนุมัติใบสำคัญจ่าย (separation of duties) → ออกเลข STL — เหตุผล ≥ 10 ตัวอักษร {#post-settlements-id-approve}
+
+`POST /v1/settlements/{id}/approve`
+
+scope: `settlements:approve` · operationId: `Settlements_approve`
+
+DRAFT → APPROVED · **ผู้สร้างใบอนุมัติเองไม่ได้ → 403 `settlement_self_approval`** · ยอดสุทธิเกินวงเงินที่ตั้ง (`settlement.approvalStepUpAmount` — ค่าเริ่ม 100,000 บาท) ต้องส่ง `X-Step-Up` ของผู้อนุมัติ (จาก `POST /v1/auth/step-up` ยืนยัน TOTP) ไม่งั้น 403 `step_up_required` · ไม่มีบรรทัดเที่ยว → 409 `settlement_empty` · ยอดสุทธิติดลบ → 409 `settlement_net_negative` · ออกเลขชุด STL ตอนนี้เท่านั้น (ร่างไม่กินเลข; ออกแล้วแก้ไม่ได้) · ใบที่อนุมัติแล้วแก้/เพิ่ม/นำบรรทัดออก/ยกเลิกไม่ได้ (409) · ยังไม่หัก ณ ที่จ่าย · audit `settlement.approved` + webhook `settlement.approved`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` |   |
+| `X-Step-Up` | header |   | `string` | token step-up 2FA ของผู้อนุมัติ (อายุ 5 นาที) — บังคับเมื่อยอดสุทธิเกินวงเงินที่ตั้ง |
+| `If-Match` | header |   | `string` | ETag (version) — ไม่ตรง → 412 |
+
+**Request body** `SettlementReasonDto`
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `reason` | ใช่ | `string` | ยาว ≤ 500 · ยาว ≥ 10 |   | `รถร่วมขอแยกวางบิลเที่ยวนี้งวดหน้า` |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `SettlementDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ `settlements:approve` / ผู้สร้างอนุมัติเอง (`settlement_self_approval`) / ต้องยืนยัน 2FA ซ้ำ (`step_up_required`) — [permission_denied](errors.md#permission_denied), [settlement_self_approval](errors.md#settlement_self_approval), [step_up_required](errors.md#step_up_required) | `ProblemDto` |
+| `404` | ไม่พบใบสำคัญจ่าย (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `409` | สถานะไม่ให้ทำรายการนี้ / ชนกับการแก้ไขพร้อมกัน — [invalid_state_transition](errors.md#invalid_state_transition), [concurrent_update](errors.md#concurrent_update), [idempotency_in_progress](errors.md#idempotency_in_progress), [settlement_empty](errors.md#settlement_empty), [settlement_net_negative](errors.md#settlement_net_negative) | `ProblemDto` |
+| `412` | If-Match ไม่ตรง version — [precondition_failed](errors.md#precondition_failed) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X POST "$TMS_BASE_URL/v1/settlements/<id>/approve" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{"reason":"รถร่วมขอแยกวางบิลเที่ยวนี้งวดหน้า"}'
+```
+
+```ts
+const { data, error } = await tms.POST('/v1/settlements/{id}/approve', {
+  params: { path: { id: "…" } },
+  body: {
+    "reason": "รถร่วมขอแยกวางบิลเที่ยวนี้งวดหน้า"
+  },
+});
+```
+
 ## Schema ของ response {#schemas}
 
 ### SettlementDto {#schema-SettlementDto}
@@ -437,7 +492,7 @@ const { data, error } = await tms.POST('/v1/settlements/{id}/cancel', {
 |---|---|---|---|---|---|
 | `id` | ใช่ | `string` |   |   | `stl_…` |
 | `settlementNo` | ใช่ | `string` | null ได้ | เลขเอกสาร (ชุด STL) — ร่างยังไม่มีเลข · ออกตอนอนุมัติ |   |
-| `status` | ใช่ | `string` | ค่า: `DRAFT`, `CANCELLED` |   |   |
+| `status` | ใช่ | `string` | ค่า: `DRAFT`, `APPROVED`, `CANCELLED` |   |   |
 | `carrier` | ใช่ | `SettlementCarrierDto` |   |   |   |
 | `payingCompanyId` | ใช่ | `string` | null ได้ | นิติบุคคลที่จ่าย ("จ้างในนาม" ของรถร่วม — null = ค่าเริ่มต้นองค์กร) |   |
 | `periodFrom` | ใช่ | `string` |   |   | `2026-11-01` |
@@ -451,6 +506,8 @@ const { data, error } = await tms.POST('/v1/settlements/{id}/cancel', {
 | `buyDeductionAmount` |   | `string` |   | รวมรายการหัก (ค่าบวก = Σ \|บรรทัดหัก\|) — เห็นเมื่อมี `prices.buy:read` | `2500.00` |
 | `buyNetPayable` |   | `string` |   | ยอดสุทธิ = ยอดรวม − รายการหัก — เห็นเมื่อมี `prices.buy:read` | `11000.00` |
 | `lines` | ใช่ | `array<SettlementLineDto>` |   | ทุกบรรทัด รวมบรรทัดที่นำออกแล้ว (`active` false) |   |
+| `approvedAt` | ใช่ | `string` | null ได้ | เวลาอนุมัติ — ออกเลข `settlementNo` พร้อมกัน |   |
+| `approvedBy` | ใช่ | `string` | null ได้ | ผู้อนุมัติ (ไม่ใช่ผู้สร้าง — separation of duties) |   |
 | `cancelledAt` | ใช่ | `string` | null ได้ |   |   |
 | `cancelledBy` | ใช่ | `string` | null ได้ |   |   |
 | `cancelReason` | ใช่ | `string` | null ได้ |   |   |
