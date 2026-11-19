@@ -15,7 +15,7 @@ import {
   MinLength,
   ValidateNested,
 } from 'class-validator';
-import { DO_STATUSES, type DoStatus } from '@tms/domain';
+import { BILLING_STATUSES, DO_STATUSES, type BillingStatus, type DoStatus } from '@tms/domain';
 import { ListQuery } from '../../common/pagination';
 import { CleanText, IsNullable } from '../master/master-kit';
 
@@ -260,6 +260,14 @@ export class DeliveryOrderDto {
     description: 'ST5-T04 เวลาส่งบัญชี (RELEASED — docs/04 F4) · null = ยังไม่ส่ง',
   })
   releasedAt!: string | null;
+  @ApiProperty({
+    enum: BILLING_STATUSES,
+    example: 'UNBILLED',
+    description:
+      'ST5-T05 สถานะวางบิล (docs/04 F3 — แยกจาก `status`): UNBILLED ยังไม่อยู่ในใบแจ้งหนี้ · IN_DRAFT อยู่ในร่าง · ' +
+      'INVOICED ใบออกเลขแล้ว · CREDITED ใบถูกลดหนี้เต็มใบ (วางบิลใหม่ได้) — DO หนึ่งใบอยู่ในใบแจ้งหนี้ที่ active ได้ใบเดียว',
+  })
+  billingStatus!: BillingStatus;
   @ApiProperty({ type: [DeliveryOrderLineDto] }) lines!: DeliveryOrderLineDto[];
   @ApiProperty() version!: number;
   @ApiProperty() createdAt!: string;

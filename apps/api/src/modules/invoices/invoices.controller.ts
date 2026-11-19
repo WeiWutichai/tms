@@ -32,7 +32,7 @@ const NOT_READY = {
   status: 409,
   description:
     '`not_ready_to_bill` — DO ยังไม่พร้อมวางบิล: `reasons[]` (NOT_DELIVERED · BILLING_HOLD · PRICING_UNAVAILABLE · NO_REVENUE · ' +
-    'REVENUE_PROVISIONAL · REVENUE_LOCKED · SURCHARGE_PENDING · STOP_TIMES_MISSING · POD_INCOMPLETE) + `missing[]` เมื่อหลักฐานไม่ครบ',
+    'REVENUE_PROVISIONAL · REVENUE_LOCKED · SURCHARGE_PENDING · STOP_TIMES_MISSING · POD_INCOMPLETE · IN_INVOICE) + `missing[]` เมื่อหลักฐานไม่ครบ',
   examples: {
     not_ready_to_bill: {
       type: 'https://docs.tms.example/problems/not_ready_to_bill',
