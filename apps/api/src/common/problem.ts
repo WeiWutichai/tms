@@ -461,12 +461,21 @@ export const PROBLEMS = {
   },
   /**
    * ST5-T04 ส่งบัญชี (RELEASED): DO ยังไม่พร้อมวางบิล — `reasons[]` (NOT_DELIVERED · BILLING_HOLD · PRICING_UNAVAILABLE ·
-   * NO_REVENUE · REVENUE_PROVISIONAL · REVENUE_LOCKED · SURCHARGE_PENDING · STOP_TIMES_MISSING · POD_INCOMPLETE) + `missing[]` เมื่อ POD ไม่ครบ
+   * NO_REVENUE · REVENUE_PROVISIONAL · REVENUE_LOCKED · SURCHARGE_PENDING · STOP_TIMES_MISSING · POD_INCOMPLETE · IN_INVOICE) + `missing[]` เมื่อ POD ไม่ครบ
    */
   not_ready_to_bill: {
     status: 409,
     th: 'ใบส่งของนี้ยังไม่พร้อมวางบิล',
     en: 'This delivery order is not ready to bill',
+  },
+  /**
+   * ST5-T05 กันวางบิลซ้ำ (docs/04 F3; spec/05 §2 ข้อ 8 `DO_ALREADY_DRAFTED`): DO อยู่ในบรรทัดใบแจ้งหนี้ที่ยัง active แล้ว
+   * (ร่างอื่น/ใบที่ออกแล้ว) — `deliveryOrderId`, `doNo`, `billingStatus` (IN_DRAFT · INVOICED) · สองคำขอพร้อมกัน = รายที่สองได้ 409 นี้
+   */
+  do_already_drafted: {
+    status: 409,
+    th: 'ใบส่งของนี้อยู่ในใบแจ้งหนี้อื่นแล้ว',
+    en: 'This delivery order is already on another invoice',
   },
   /** ST4-T07 บันทึก/แก้หลักฐานส่งได้เฉพาะ DO ที่ส่งแล้ว/ส่งไม่สำเร็จและยังไม่วางบิล — `doStatus` บอกสถานะปัจจุบัน */
   pod_not_allowed: {

@@ -18,6 +18,9 @@ import { normalizeDoNo } from '../src/modules/trips/pod-link.service';
 import { bangkokToday } from '../src/modules/vehicle-documents/expiry';
 import { api, bootApp, createTenant, platform, tokenFor, truncateAll, validTaxId } from './helpers';
 
+/** ตัด token/id สุ่ม (ยาว ≥16) ออกก่อนตรวจว่าไม่มี PIN/ราคา — กันพังสุ่มเมื่อ token บังเอิญมีตัวเลขนั้น */
+const scrubIds = (s: string) => s.replace(/[A-Za-z0-9_-]{16,}/g, '');
+
 /**
  * ST4-T09 ลิงก์รถร่วม ส่วน POD (docs/04 E2 "ePOD ผ่านลิงก์", E2.1 M10; docs/01 §5.5 `/public/pod/{token}`)
  * เกณฑ์ตรวจรับ — ปิดงานจากมือถือพร้อมรูป 2 ใบ + ลายเซ็น แล้ว DO เป็น UNBILLED; รูปที่ 6 ถูกปฏิเสธ
@@ -442,7 +445,7 @@ describe('subcon link POD (ST4-T09)', () => {
     const v1 = (await view(a.podToken, a.doNo).expect(200)).body;
     expect(v1.match.pod).toMatchObject({ mode: null, sent: true, podStatus: 'COMPLETE' });
     expect(v1.sent).toEqual([{ doNo: a.doNo, photoCount: 2 }]);
-    const raw = JSON.stringify([v1, r.body]);
+    const raw = scrubIds(JSON.stringify([v1, r.body]));
     for (const bad of ['7800', 'ลับเฉพาะ', '20000', 'downloadUrl', '/content?'])
       expect(raw).not.toContain(bad);
   });
@@ -702,7 +705,7 @@ describe('subcon link POD (ST4-T09)', () => {
       photoCount: 1,
       replayed: false,
     });
-    expect(JSON.stringify(r.body)).not.toContain('4821');
+    expect(scrubIds(JSON.stringify(r.body))).not.toContain('4821');
     expect((await db.deliveryOrder.findUniqueOrThrow({ where: { id: a.doId } })).status).toBe(
       'UNBILLED',
     );
@@ -720,12 +723,12 @@ describe('subcon link POD (ST4-T09)', () => {
       bytes: 10,
     }).expect(409);
     // PIN ไม่ออกในหน้าลิงก์ / audit / domain_event
-    const v = JSON.stringify((await view(a.podToken, a.doNo).expect(200)).body);
+    const v = scrubIds(JSON.stringify((await view(a.podToken, a.doNo).expect(200)).body));
     expect(v).not.toContain('4821');
     const aud = await db.auditLog.findMany({ where: { entityId: a.doId } });
-    expect(JSON.stringify(aud, (_k, v) => (typeof v === 'bigint' ? String(v) : v))).not.toContain(
-      '4821',
-    );
+    expect(
+      scrubIds(JSON.stringify(aud, (_k, v) => (typeof v === 'bigint' ? String(v) : v))),
+    ).not.toContain('4821');
   });
 
   it('เพิกถอน/หมดผล → 404 ทุก endpoint · rate limit 30 คำขอเขียน/นาที ต่อลิงก์ → 429', async () => {
