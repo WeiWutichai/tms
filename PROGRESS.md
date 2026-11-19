@@ -35,6 +35,7 @@
 | ST5–ST6, ST8–ST9 | ยังไม่เริ่ม | | | |
 | ST9 (เฉพาะ T12 ตรวจความครบ) | **dev เสร็จ** รอ review/QA/merge (`st9/t12-completeness`) | 19 พ.ย. 2569 | — | ดูบันทึก 19 พ.ย. (ST9-T12) |
 | ST9 (เฉพาะ T19 Monitoring + alert) | **dev เสร็จ** รอ review/QA/merge (`st9/t19-monitoring`) | 19 พ.ย. 2569 | — | ดูบันทึก 19 พ.ย. (ST9-T19) · UI Console รอต้นแบบ (spec/12 §3) |
+| ST8 (เฉพาะ T01 mock KRS) | **dev เสร็จ** รอ review/QA/merge (`st8/t01-mock-krs`) | 19 พ.ย. 2569 | — | ดูบันทึก 19 พ.ย. (ST8-T01) |
 | ST9 Dashboard / รายงาน (T01) | **กำลังทำ** — T01 dev เสร็จ (lane C) รอ review/QA | 18 พ.ย. 2569 | — | ST9-T01 Dashboard ปฏิบัติการ |
 
 ### งาน ST0 (เกณฑ์ตรวจรับใน `plan/01-phase0-backlog.md`)
@@ -267,6 +268,11 @@
 - (11 พ.ย., พบระหว่าง T19 — **แก้แล้วใน T04**: `db:migrate` รัน bootstrap ทุก tenant ซึ่ง sync role ระบบ) **role ระบบของ tenant ที่มีอยู่ไม่ได้สิทธิ์ใหม่อัตโนมัติ** — `ensureSystemRoles` รันแค่ตอนสร้าง tenant/seed; เมื่อโค้ดเพิ่ม permission (เช่น `documents:write` ใน T08) tenant เดิมไม่ได้ จนกว่าจะรัน seed · ฐาน dev แก้ด้วย seed แล้ว · ต้องมี sync ตอน deploy/บูต ก่อนมี tenant จริง (เสนอทำใน T24 admin portal หรือ migration step) 
 
 ## บันทึกรายวัน
+
+### 19 พ.ย. 2569 (ST8-T01 Mock KRS API จาก contract — lane l7)
+- ทำ: package ใหม่ `packages/mock-krs` (`@tms/mock-krs`) — `MockKrs` / `startMockKrs()` (in-process, พอร์ตสุ่ม) + CLI `pnpm --filter @tms/mock-krs dev` (พอร์ต 4784 ของ lane l7, env `MOCK_KRS_PORT`/`MOCK_KRS_API_KEY`) · `POST/PUT/GET /api/invoice` ตรวจ body ด้วย JSON schema ของ `packages/contracts/krs` (ฟิลด์เกิน/ส่ง voucherNo เอง/วันที่ผิด/lineId ไม่ใช่ int/เกิน 50 MB = 400 + errors), `X-API-Key` (401), 404, 409 `tmsVoucherNo` ซ้ำ, `transactionNo` เรียง + `voucherNo` `SA-S{YYMM}-{NNNN}` ต่อเดือน, ยอด `amount`/`totalAmount` แบบทศนิยม (bigint สตางค์) · control `/__mock/*`: reset, state, faults (503/ทุก code, timeout, reset, หลังบันทึกแล้ว response หาย; ต่อ method/จำนวนครั้ง; header `X-Mock-Fault`), สวิตช์เขียนทับ `PUT /__mock/overwrite` + ต่อใบ (keepLines 30 / dropFlowNos / blankFields / renumber) · test `src/mock-krs.test.ts` 48 ข้อ (ทุกแถว A.1 + 79 → 30 รายการ 2,054,000 → 780,000) — `pnpm test` (turbo) รันด้วย
+- ไฟล์: `packages/mock-krs/*`, `packages/contracts/krs/README.md`, `.env.example`, `spec/12` §3 แถว "Mock KRS", `pnpm-lock.yaml` · ไม่มี migration / OpenAPI ไม่เปลี่ยน
+- ค้าง: [OPEN — KRS] พฤติกรรมที่ contract ไม่ระบุ (ตั้งค่าได้ — `packages/mock-krs/README.md`) · ใช้ใน KrsAdapter (ST8-T03+) และ reconcile (ST8-T11) · deploy บน staging (ST0-T16)
 
 ### 19 พ.ย. 2569 (ST7-T20 แก้ตาม review/QA — lane l6)
 - ทำ: (M1) merge `st7/t18-master-sync` แล้วย้ายตาราง mapping + ผังรหัส ERP (`Connectors.tsx` เหลือ `MappingTable`) เข้ากล่อง "ตั้งค่า {ระบบ}" แท็บแรก, ลบ shell/CSS ซ้ำของ T18, `?connector=` + "ไม่พบระบบบัญชีที่เชื่อมไว้", ปรับ test/E2E ของ T18 เป็นชื่อ "ERP จำลอง (Demo)" (M2) route เปลี่ยนของ Console ปฏิเสธบริษัท CANCELLED (409) + รับ If-Match (QA M1) catalog โหลด/ล้ม = แจ้ง + ลองอีกครั้ง (QA M2/L1) แท็บ "ประวัติ" (HistoryTab + `/v1/connectors/{id}/history`) ชื่อทีมงานจาก `ConnectorsService.withPlatformNames` → "ทีม Innovera · {ชื่อ}" (L2) แจ้ง owner ในระบบ + อีเมล (`connector.platform_changed`) ทุกครั้งที่ทีมงานเปลี่ยน credential/สถานะ (Low) หัวกล่องตามสถานะ, เส้นการ์ด ERROR/PAUSED, วันที่ไทย, ป้ายเอกสารในบันทึกการซิงก์, ท้าย sidebar ตัดข้อความยาว, Console ส่งค่าตั้งแบบมีตัวเลือก, ข้อความ problem ของ T18 ใน th.ts
