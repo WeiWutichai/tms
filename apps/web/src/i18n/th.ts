@@ -3907,7 +3907,7 @@ export const th = {
   'akey.sc.trips:read': 'อ่านใบส่งของและเที่ยวรถ',
   'akey.sc.trips:assign': 'จัดรถ (assign)',
   'akey.sc.trips:override': 'ยกเว้นกฎจ่ายงาน',
-  'akey.sc.deliveries:revert_late': 'ย้อนผลส่งถึงเกิน 24 ชม.',
+  'akey.sc.deliveries:revert': 'ย้อนผลส่งถึงเกิน 24 ชม.',
   'akey.sc.trips:dispatch': 'จ่ายงาน (dispatch)',
   'akey.sc.trips:close': 'ปิดเที่ยว',
   'akey.sc.invoices:read': 'ใบแจ้งหนี้และการชำระ',

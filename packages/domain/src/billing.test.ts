@@ -75,7 +75,7 @@ describe('lifecycle + revert rules (ST5-T06)', () => {
     expect(BILLING_REVERT_RULES.DELIVERED).toEqual({
       scope: 'trips:close',
       windowHours: 24,
-      overrideScope: 'deliveries:revert_late',
+      overrideScope: 'deliveries:revert',
     });
     expect(BILLING_REVERT_RULES.RELEASED?.scope).toBe('invoices:draft');
     expect(BILLING_REVERT_RULES.IN_DRAFT?.scope).toBe('invoices:draft');

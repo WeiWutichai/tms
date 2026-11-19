@@ -34,7 +34,7 @@ const COSTED_TRIPS = ['COSTED', 'SETTLED'];
  * ST5-T06 ย้อนผลส่งถึง (docs/04 F4 แถว DELIVERED "ย้อนได้โดย Dispatcher (ภายใน 24 ชม.) / Admin") [DECISION spec/12 §3]
  *
  * - สิทธิ์: `trips:close` (A3 Trip "ปิด" — Dispatcher) ภายใน 24 ชม. นับจากเวลาที่ DO เป็นส่งถึง (ประวัติสถานะ event `deliver`,
- *   เวลาเซิร์ฟเวอร์ — Clock) · เกิน 24 ชม. ต้องมี `deliveries:revert_late` (owner/admin — F4 "Admin") ไม่งั้น 403 `permission_denied`
+ *   เวลาเซิร์ฟเวอร์ — Clock) · เกิน 24 ชม. ต้องมี `deliveries:revert` (owner/admin — F4 "Admin") ไม่งั้น 403 `permission_denied`
  *   (`reason: revert_window_expired` + `deliveredAt` / `revertDeadline`)
  * - เงื่อนไข: DO ส่งถึง (DELIVERED/POD_PENDING/UNBILLED) · ไม่อยู่ในใบแจ้งหนี้ (`do_in_invoice`) · ไม่เคยถูกลดหนี้ (`do_credited`) ·
  *   ยังไม่ส่งบัญชี (`do_released` — Invoicer ย้อนการส่งบัญชีก่อน) · ยังไม่มีงานต่อจากยอดปฏิเสธรับ (ส่งซ้ำ/คืนคลัง — `has_followups`) ·

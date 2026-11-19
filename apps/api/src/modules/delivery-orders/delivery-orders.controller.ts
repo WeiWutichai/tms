@@ -326,7 +326,7 @@ export class DeliveryOrderRevertController {
   @ApiOperation({
     summary: 'ย้อนผลส่งถึง (DELIVERED → ส่งไม่สำเร็จ)',
     description:
-      'docs/04 F4: ผู้จัดรถ (`trips:close`) ย้อนได้ภายใน 24 ชม. นับจากเวลาที่ใบส่งของเป็นส่งถึง — เกินต้องมี `deliveries:revert_late` (owner/admin) ' +
+      'docs/04 F4: ผู้จัดรถ (`trips:close`) ย้อนได้ภายใน 24 ชม. นับจากเวลาที่ใบส่งของเป็นส่งถึง — เกินต้องมี `deliveries:revert` (owner/admin) ' +
       '(ไม่งั้น 403 `permission_denied` + `reason: revert_window_expired`, `deliveredAt`, `revertDeadline`) · ' +
       'ใบส่งของต้องส่งถึง (DELIVERED/POD_PENDING/UNBILLED) ยังไม่ส่งบัญชี ไม่อยู่ในใบแจ้งหนี้ และยังไม่มีส่งซ้ำ/คืนคลังของที่ปฏิเสธรับ ' +
       '→ สถานะเป็น FAILED + เหตุผล + audit `delivery_order.delivery_reverted` แล้วจัดการต่อด้วย `/redeliver` หรือ `/return`',

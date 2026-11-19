@@ -412,21 +412,21 @@ describe('billing lifecycle + revert rules (ST5-T06)', { timeout: 300_000 }, () 
     expect(await soStatus()).toBe('DELIVERED');
   });
 
-  it('เกณฑ์ตรวจรับ: Dispatcher ย้อนหลัง 24 ชม. → 403 · ผู้ดูแล (deliveries:revert_late) ย้อนได้ (audit override)', async () => {
+  it('เกณฑ์ตรวจรับ: Dispatcher ย้อนหลัง 24 ชม. → 403 · ผู้ดูแล (deliveries:revert) ย้อนได้ (audit override)', async () => {
     const d = await delivered({ podRequirements: NONE_REQ });
     app.get(Clock).set(new Date(Date.now() + 25 * 3600_000));
     const r = await revert(d.doId, dispatcher).expect(403);
     expect(r.body).toMatchObject({
       code: 'permission_denied',
       reason: 'revert_window_expired',
-      required: ['deliveries:revert_late'],
+      required: ['deliveries:revert'],
       detail: 'ย้อนผลส่งถึงได้ภายใน 24 ชม. — เกินแล้วต้องให้ผู้ดูแลระบบทำ',
     });
     const deliveredAt = new Date(r.body.deliveredAt).getTime();
     expect(new Date(r.body.revertDeadline).getTime() - deliveredAt).toBe(24 * 3600_000);
     expect((await getDo(d.doId)).status).toBe('UNBILLED');
 
-    // manager (ไม่มี deliveries:revert_late — F4 "Admin") → 403 · admin ย้อนได้หลัง 24 ชม.
+    // manager (ไม่มี deliveries:revert — F4 "Admin") → 403 · admin ย้อนได้หลัง 24 ชม.
     const manager = await tokenFor(tenantId, SYSTEM_ROLES.manager.permissions.join(' '), 'u-mgr');
     await revert(d.doId, manager).expect(403);
     const adm = await tokenFor(tenantId, SYSTEM_ROLES.admin.permissions.join(' '), 'u-adm');
