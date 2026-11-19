@@ -199,6 +199,15 @@ export class CustomerFieldsDto {
   billByActualQty?: boolean;
 
   @ApiPropertyOptional({
+    description:
+      'ST5-T04 "ไม่มี POD ไม่วางบิล" (docs/04 F3) — true (ค่าเริ่มต้น) = DO ต้องมีหลักฐานส่งครบตาม checklist ก่อนขึ้นคิวพร้อมวางบิล/ส่งบัญชี · ' +
+      'false = ขึ้นคิวได้แม้หลักฐานยังไม่ครบ · เปลี่ยนค่าต้องมีสิทธิ์ `invoices:draft` เพิ่ม',
+  })
+  @IsOptionalNotNull()
+  @IsBoolean()
+  requirePodToBill?: boolean;
+
+  @ApiPropertyOptional({
     minimum: 0,
     maximum: 1440,
     nullable: true,
@@ -358,6 +367,7 @@ export class CustomerDto {
   @ApiProperty() vatRegistered!: boolean;
   @ApiProperty() etaxCapable!: boolean;
   @ApiProperty({ description: 'ST4-T10 วางบิลตามยอดส่งจริง' }) billByActualQty!: boolean;
+  @ApiProperty({ description: 'ST5-T04 "ไม่มี POD ไม่วางบิล"' }) requirePodToBill!: boolean;
   @ApiProperty({ nullable: true, type: Number }) freeTimeMin!: number | null;
   @ApiProperty({ nullable: true, type: String, description: 'ออกบิลในนาม (cmp_…)' })
   billingCompanyId!: string | null;

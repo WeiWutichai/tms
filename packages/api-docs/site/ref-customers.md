@@ -105,6 +105,7 @@ scope: `master:write` · operationId: `Customers_create`
 | `vatRegistered` |   | `boolean` |   | ลูกค้าจดทะเบียน VAT (ค่าเริ่มต้น true) |   |
 | `etaxCapable` |   | `boolean` |   | ลูกค้ารับใบกำกับภาษีอิเล็กทรอนิกส์ (e-Tax) ได้ (ค่าเริ่มต้น false) |   |
 | `billByActualQty` |   | `boolean` |   | วางบิลตามยอดส่งจริง — true = ค่าขนส่งที่คิดตามน้ำหนัก/ปริมาตร/หน่วยนับ ใช้ปริมาณที่ส่งได้จริงจากหลักฐานส่ง (ค่าเริ่มต้น false = ตามใบสั่ง) |   |
+| `requirePodToBill` |   | `boolean` |   | "ไม่มี POD ไม่วางบิล" — true (ค่าเริ่มต้น) = DO ต้องมีหลักฐานส่งครบตาม checklist ก่อนขึ้นคิวพร้อมวางบิล/ส่งบัญชี · false = ขึ้นคิวได้แม้หลักฐานยังไม่ครบ · เปลี่ยนค่าต้องมีสิทธิ์ `invoices:draft` เพิ่ม |   |
 | `freeTimeMin` |   | `number` | ≥ 0 · ≤ 1440 · null ได้ | free time ค่ารอ (นาที) — null = ใช้ค่าตั้งองค์กร `billing.freeTimeMinutes` |   |
 | `podRequirements` |   | `PodRequirementsDto` |   | POD checklist ของลูกค้านี้ — `{}` = ใช้ค่าเริ่มต้นขององค์กร (`pod.checklist`); ส่งชุด `success` = กำหนดเองทั้งชุด |   |
 | `podRequirements.success` |   | `PodChecklistDto` |   | ชุดเมื่อส่งสำเร็จ — ของลูกค้า: ไม่ส่ง = ใช้ค่าเริ่มต้นขององค์กร |   |
@@ -285,6 +286,7 @@ scope: `master:write` · operationId: `Customers_upsertExternal`
 | `vatRegistered` |   | `boolean` |   | ลูกค้าจดทะเบียน VAT (ค่าเริ่มต้น true) |   |
 | `etaxCapable` |   | `boolean` |   | ลูกค้ารับใบกำกับภาษีอิเล็กทรอนิกส์ (e-Tax) ได้ (ค่าเริ่มต้น false) |   |
 | `billByActualQty` |   | `boolean` |   | วางบิลตามยอดส่งจริง — true = ค่าขนส่งที่คิดตามน้ำหนัก/ปริมาตร/หน่วยนับ ใช้ปริมาณที่ส่งได้จริงจากหลักฐานส่ง (ค่าเริ่มต้น false = ตามใบสั่ง) |   |
+| `requirePodToBill` |   | `boolean` |   | "ไม่มี POD ไม่วางบิล" — true (ค่าเริ่มต้น) = DO ต้องมีหลักฐานส่งครบตาม checklist ก่อนขึ้นคิวพร้อมวางบิล/ส่งบัญชี · false = ขึ้นคิวได้แม้หลักฐานยังไม่ครบ · เปลี่ยนค่าต้องมีสิทธิ์ `invoices:draft` เพิ่ม |   |
 | `freeTimeMin` |   | `number` | ≥ 0 · ≤ 1440 · null ได้ | free time ค่ารอ (นาที) — null = ใช้ค่าตั้งองค์กร `billing.freeTimeMinutes` |   |
 | `podRequirements` |   | `PodRequirementsDto` |   | POD checklist ของลูกค้านี้ — `{}` = ใช้ค่าเริ่มต้นขององค์กร (`pod.checklist`); ส่งชุด `success` = กำหนดเองทั้งชุด |   |
 | `podRequirements.success` |   | `PodChecklistDto` |   | ชุดเมื่อส่งสำเร็จ — ของลูกค้า: ไม่ส่ง = ใช้ค่าเริ่มต้นขององค์กร |   |
@@ -371,6 +373,7 @@ scope: `master:write` · operationId: `Customers_patchExternal`
 | `vatRegistered` |   | `boolean` |   | ลูกค้าจดทะเบียน VAT (ค่าเริ่มต้น true) |   |
 | `etaxCapable` |   | `boolean` |   | ลูกค้ารับใบกำกับภาษีอิเล็กทรอนิกส์ (e-Tax) ได้ (ค่าเริ่มต้น false) |   |
 | `billByActualQty` |   | `boolean` |   | วางบิลตามยอดส่งจริง — true = ค่าขนส่งที่คิดตามน้ำหนัก/ปริมาตร/หน่วยนับ ใช้ปริมาณที่ส่งได้จริงจากหลักฐานส่ง (ค่าเริ่มต้น false = ตามใบสั่ง) |   |
+| `requirePodToBill` |   | `boolean` |   | "ไม่มี POD ไม่วางบิล" — true (ค่าเริ่มต้น) = DO ต้องมีหลักฐานส่งครบตาม checklist ก่อนขึ้นคิวพร้อมวางบิล/ส่งบัญชี · false = ขึ้นคิวได้แม้หลักฐานยังไม่ครบ · เปลี่ยนค่าต้องมีสิทธิ์ `invoices:draft` เพิ่ม |   |
 | `freeTimeMin` |   | `number` | ≥ 0 · ≤ 1440 · null ได้ | free time ค่ารอ (นาที) — null = ใช้ค่าตั้งองค์กร `billing.freeTimeMinutes` |   |
 | `podRequirements` |   | `PodRequirementsDto` |   | POD checklist ของลูกค้านี้ — `{}` = ใช้ค่าเริ่มต้นขององค์กร (`pod.checklist`); ส่งชุด `success` = กำหนดเองทั้งชุด |   |
 | `podRequirements.success` |   | `PodChecklistDto` |   | ชุดเมื่อส่งสำเร็จ — ของลูกค้า: ไม่ส่ง = ใช้ค่าเริ่มต้นขององค์กร |   |
@@ -489,6 +492,7 @@ scope: `master:write` · operationId: `Customers_update`
 | `vatRegistered` |   | `boolean` |   | ลูกค้าจดทะเบียน VAT (ค่าเริ่มต้น true) |   |
 | `etaxCapable` |   | `boolean` |   | ลูกค้ารับใบกำกับภาษีอิเล็กทรอนิกส์ (e-Tax) ได้ (ค่าเริ่มต้น false) |   |
 | `billByActualQty` |   | `boolean` |   | วางบิลตามยอดส่งจริง — true = ค่าขนส่งที่คิดตามน้ำหนัก/ปริมาตร/หน่วยนับ ใช้ปริมาณที่ส่งได้จริงจากหลักฐานส่ง (ค่าเริ่มต้น false = ตามใบสั่ง) |   |
+| `requirePodToBill` |   | `boolean` |   | "ไม่มี POD ไม่วางบิล" — true (ค่าเริ่มต้น) = DO ต้องมีหลักฐานส่งครบตาม checklist ก่อนขึ้นคิวพร้อมวางบิล/ส่งบัญชี · false = ขึ้นคิวได้แม้หลักฐานยังไม่ครบ · เปลี่ยนค่าต้องมีสิทธิ์ `invoices:draft` เพิ่ม |   |
 | `freeTimeMin` |   | `number` | ≥ 0 · ≤ 1440 · null ได้ | free time ค่ารอ (นาที) — null = ใช้ค่าตั้งองค์กร `billing.freeTimeMinutes` |   |
 | `podRequirements` |   | `PodRequirementsDto` |   | POD checklist ของลูกค้านี้ — `{}` = ใช้ค่าเริ่มต้นขององค์กร (`pod.checklist`); ส่งชุด `success` = กำหนดเองทั้งชุด |   |
 | `podRequirements.success` |   | `PodChecklistDto` |   | ชุดเมื่อส่งสำเร็จ — ของลูกค้า: ไม่ส่ง = ใช้ค่าเริ่มต้นขององค์กร |   |
@@ -906,6 +910,7 @@ const { data, error } = await tms.POST('/v1/customers/{id}/tracking-link/revoke'
 | `vatRegistered` | ใช่ | `boolean` |   |   |   |
 | `etaxCapable` | ใช่ | `boolean` |   |   |   |
 | `billByActualQty` | ใช่ | `boolean` |   | วางบิลตามยอดส่งจริง |   |
+| `requirePodToBill` | ใช่ | `boolean` |   | "ไม่มี POD ไม่วางบิล" |   |
 | `freeTimeMin` | ใช่ | `number` | null ได้ |   |   |
 | `billingCompanyId` | ใช่ | `string` | null ได้ | ออกบิลในนาม (cmp_…) |   |
 | `podRequirements` | ใช่ | `PodRequirementsDto` |   | POD checklist ที่ลูกค้ากำหนดเอง — `{}` = ใช้ค่าเริ่มต้นขององค์กร (ดูที่ใช้จริงที่ `GET /customers/{id}/pod-checklist`) |   |

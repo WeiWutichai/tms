@@ -46,6 +46,7 @@ export function toDeliveryOrderDto(
     redeliveryManual: d.redeliveryManual,
     rejectedFromId: d.rejectedFromId ? encodeId('deliveryOrder', d.rejectedFromId) : null,
     podStatus: d.podStatus,
+    releasedAt: d.releasedAt?.toISOString() ?? null,
     lines: d.lines.map((l) => ({
       lineNo: l.lineNo,
       soLineNo: l.soLineNo,

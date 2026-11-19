@@ -254,6 +254,12 @@ export class DeliveryOrderDto {
   })
   rejectedFromId!: string | null;
   @ApiProperty({ example: 'NONE' }) podStatus!: string;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description: 'ST5-T04 เวลาส่งบัญชี (RELEASED — docs/04 F4) · null = ยังไม่ส่ง',
+  })
+  releasedAt!: string | null;
   @ApiProperty({ type: [DeliveryOrderLineDto] }) lines!: DeliveryOrderLineDto[];
   @ApiProperty() version!: number;
   @ApiProperty() createdAt!: string;

@@ -175,6 +175,7 @@
 | งาน | สถานะ | หลักฐาน / ที่ยังขาด |
 |---|---|---|
 | T01 บรรทัดรายได้ (revenue line) | dev เสร็จ — รอ review/QA | migration `0114_revenue_line` (ตาราง `revenue_line` source_type SO_CHARGE/DO_SURCHARGE/MANUAL + unique แหล่ง + trigger ล็อก `tms_revenue_line_guard` + backfill) · `RevenueLinesService.rebuild` เรียกจาก `OrderIntakeService.evaluate` และยืนยันค่าใช้จ่ายหน้างาน · API `GET/POST /v1/orders/{id}/revenue-lines`, `POST /v1/revenue-lines/{id}/void` · test `revenue-lines.test.ts` (5) + isolation · **ไม่มี UI** (ต้นแบบไม่มีหน้าจอ) · **[OPEN]** ปริมาณตามส่งจริง/แบ่งลง DO ยังไม่ตัดสิน — ใช้ราคาตามใบสั่งระดับใบสั่ง |
+| T04 คิว "พร้อมวางบิล" + ขั้นส่งบัญชี (RELEASED) | dev เสร็จ — รอ review/QA | **API อย่างเดียว** (ต้นแบบ `bill` = stepper สร้างใบ → ทำหน้าใน ST5-T07) · `GET /v1/invoices/queue` (invoices:read; ตัวกรองลูกค้า `ext:`/ช่วง `doDate`/podComplete/released; `customers[]` aggregate; keyset SQL; `sellTotal` ตาม prices.sell:read) · `POST /v1/delivery-orders/{id}/release` (If-Match) + `/bulk-release` (207) สิทธิ์ invoices:draft, 409 `not_ready_to_bill` + `reasons[]`/`missing[]`, ตรวจ POD กับ checklist ปัจจุบัน, audit `delivery_order.released` · ลูกค้า `requirePodToBill` (ค่าเริ่มต้นเปิด; เปลี่ยนต้องมี invoices:draft) · migration `0120_ready_to_bill` · `test/billing-queue.test.ts` (7) · spec/12 §3 +4 แถว |
 
 ### งาน ST6 (เกณฑ์ตรวจรับใน `plan/01-phase0-backlog.md`)
 
@@ -282,6 +283,12 @@
 - (11 พ.ย., พบระหว่าง T19 — **แก้แล้วใน T04**: `db:migrate` รัน bootstrap ทุก tenant ซึ่ง sync role ระบบ) **role ระบบของ tenant ที่มีอยู่ไม่ได้สิทธิ์ใหม่อัตโนมัติ** — `ensureSystemRoles` รันแค่ตอนสร้าง tenant/seed; เมื่อโค้ดเพิ่ม permission (เช่น `documents:write` ใน T08) tenant เดิมไม่ได้ จนกว่าจะรัน seed · ฐาน dev แก้ด้วย seed แล้ว · ต้องมี sync ตอน deploy/บูต ก่อนมี tenant จริง (เสนอทำใน T24 admin portal หรือ migration step) 
 
 ## บันทึกรายวัน
+
+### 19 พ.ย. 2569 (ST5-T04 คิว "พร้อมวางบิล" + ส่งบัญชี — lane l6)
+
+- **ทำ:** คิว DO พร้อมวางบิล (ส่งถึงแล้ว + POD ผ่านเกณฑ์เมื่อลูกค้าเปิด "ไม่มี POD ไม่วางบิล" + ใบสั่ง AVAILABLE + บรรทัดรายได้ยืนยันแล้ว ไม่ provisional/ล็อก + ไม่มีค่าใช้จ่ายหน้างานรอยืนยัน + ไม่ระงับวางบิล) · ขั้นส่งบัญชีเก็บ `released_at/by` (สถานะ DO คง UNBILLED ตาม docs/01) เงื่อนไขเพิ่ม: เวลาถึง/ออกจุดส่ง + ตรวจหลักฐานกับ checklist ปัจจุบัน · ค่าตั้งลูกค้า `requirePodToBill`
+- **ไฟล์:** `apps/api/src/modules/invoices/` (billing-queue.dto/service, billing-release.service, invoices.controller), `delivery-order.service.ts` (`lockForRelease`/`markReleased`), `pod.service.ts` (`checkCurrent`), `customers/*`, `common/problem.ts` (`not_ready_to_bill`), migration `0120_ready_to_bill`, `test/billing-queue.test.ts`, spec/12 §3 +4 แถว
+- **ค้าง:** หน้า `bill` ตามต้นแบบ + ปุ่มส่งบัญชี/แท็บ POD ยังไม่ผ่าน (ST5-T07, [OPEN — Claude Design]) · ย้อน RELEASED / ล็อกแก้ stop-qty หลังส่งบัญชี (ST5-T06) · [OPEN — PO] DO FAILED ที่มีค่าเที่ยวเปล่า, บรรทัดที่คนเพิ่มระดับใบสั่ง, DO ที่ออกใบไปบางส่วน
 
 ### 19 พ.ย. 2569 (ST5-T01b แก้ตาม review/QA — lane l5)
 

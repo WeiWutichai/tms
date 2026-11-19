@@ -1,6 +1,6 @@
 # ใบส่งของ (delivery-orders)
 
-15 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
+17 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
 
 | Endpoint | scope |
 |---|---|
@@ -15,6 +15,8 @@
 | [`POST /v1/delivery-orders/{id}/return`](#post-delivery-orders-id-return) | `orders:write` |
 | [`GET /v1/delivery-orders/{id}/pod`](#get-delivery-orders-id-pod) | `trips:read` |
 | [`PUT /v1/delivery-orders/{id}/pod`](#put-delivery-orders-id-pod) | `trips:dispatch` |
+| [`POST /v1/delivery-orders/{id}/release`](#post-delivery-orders-id-release) | `invoices:draft` |
+| [`POST /v1/delivery-orders/bulk-release`](#post-delivery-orders-bulk-release) | `invoices:draft` |
 | [`GET /v1/delivery-orders/{id}/revenue-lines`](#get-delivery-orders-id-revenue-lines) | `orders:read` |
 | [`GET /v1/delivery-orders/{id}/tracking-link`](#get-delivery-orders-id-tracking-link) | `orders:write` / `trips:dispatch` |
 | [`POST /v1/delivery-orders/{id}/tracking-link`](#post-delivery-orders-id-tracking-link) | `orders:write` / `trips:dispatch` |
@@ -566,6 +568,113 @@ const { data, error } = await tms.PUT('/v1/delivery-orders/{id}/pod', {
 });
 ```
 
+## ส่งบัญชี (RELEASED) — ใบส่งของพร้อมวางบิล {#post-delivery-orders-id-release}
+
+`POST /v1/delivery-orders/{id}/release`
+
+scope: `invoices:draft` · operationId: `DeliveryOrderRelease_releaseOne`
+
+ตรวจเงื่อนไขชุดเดียวกับคิวพร้อมวางบิล + จุดส่งมีเวลาถึง/ออกครบ + (ลูกค้าเปิด "ไม่มี POD ไม่วางบิล") หลักฐานล่าสุดผ่าน checklist **ปัจจุบัน** ของลูกค้า → บันทึกเวลา/ผู้ส่งบัญชี + audit `delivery_order.released` · สถานะ DO ไม่เปลี่ยน · ส่งแล้ว = ตอบ DO เดิม (ไม่ทำซ้ำ)
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` |   |
+| `If-Match` | header |   | `string` | ETag จาก GET — ไม่ตรง → 412 |
+
+**Request body** `ReleaseDeliveryOrderDto`
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `note` |   | `string` | ยาว ≤ 500 | หมายเหตุ (ไม่บังคับ — ลง audit) |   |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `DeliveryOrderDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`invoices:draft`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบ (รวมข้อมูลของบริษัทอื่น — ไม่บอกว่ามีอยู่) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `409` | `not_ready_to_bill` — DO ยังไม่พร้อมวางบิล: `reasons[]` (NOT_DELIVERED · BILLING_HOLD · PRICING_UNAVAILABLE · NO_REVENUE · REVENUE_PROVISIONAL · REVENUE_LOCKED · SURCHARGE_PENDING · STOP_TIMES_MISSING · POD_INCOMPLETE) + `missing[]` เมื่อหลักฐานไม่ครบ — [not_ready_to_bill](errors.md#not_ready_to_bill) | `ProblemDto` |
+| `412` | If-Match ไม่ตรงกับ version ปัจจุบัน (ETag จาก GET) — [precondition_failed](errors.md#precondition_failed) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X POST "$TMS_BASE_URL/v1/delivery-orders/<id>/release" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+```ts
+const { data, error } = await tms.POST('/v1/delivery-orders/{id}/release', {
+  params: { path: { id: "…" } },
+  body: {},
+});
+```
+
+## ส่งบัญชีหลายใบส่งของ {#post-delivery-orders-bulk-release}
+
+`POST /v1/delivery-orders/bulk-release`
+
+scope: `invoices:draft` · operationId: `DeliveryOrderRelease_bulkRelease`
+
+≤ 100 รายการ ทำทีละรายการแยกกัน (สำเร็จบางรายการได้) · เงื่อนไขเหมือน `POST /delivery-orders/{id}/release` · ตอบ 207 เสมอเมื่อคำขอถูกต้อง — ดู `results[].outcome` / `problem`
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `Idempotency-Key` | header |   | `string` |   |
+
+**Request body** `BulkReleaseDeliveryOrdersDto`
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `items` | ใช่ | `array<BulkReleaseItemDto>` | ≤ 100 รายการ |   |   |
+| `items[].deliveryOrderId` | ใช่ | `string` |   |   | `do_3f2a…` |
+| `items[].version` |   | `number` |   | `version` ที่ผู้ใช้เห็น (แทน If-Match ต่อรายการ) — ไม่ตรง → รายการนั้น 412 | `3` |
+| `note` |   | `string` | ยาว ≤ 500 | หมายเหตุ (ไม่บังคับ — ลง audit ทุกรายการ) |   |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `207` | ผลต่อรายการ | `BulkReleaseResultsDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`invoices:draft`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `422` | ข้อมูลไม่ถูกต้อง — `errors[]` รายช่อง — [validation_failed](errors.md#validation_failed), [idempotency_mismatch](errors.md#idempotency_mismatch) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X POST "$TMS_BASE_URL/v1/delivery-orders/bulk-release" \
+  -H "Authorization: Bearer $TMS_API_KEY" \
+  -H "Idempotency-Key: $(uuidgen)" \
+  -H "Content-Type: application/json" \
+  -d '{"items":[{"deliveryOrderId":"do_3f2a…","version":3}]}'
+```
+
+```ts
+const { data, error } = await tms.POST('/v1/delivery-orders/bulk-release', {
+  body: {
+    "items": [
+      {
+        "deliveryOrderId": "do_3f2a…",
+        "version": 3
+      }
+    ]
+  },
+});
+```
+
 ## บรรทัดรายได้ของใบส่งของ + รายได้รวมของใบ {#get-delivery-orders-id-revenue-lines}
 
 `GET /v1/delivery-orders/{id}/revenue-lines`
@@ -725,6 +834,17 @@ const { data, error } = await tms.POST('/v1/delivery-orders/{id}/tracking-link/r
 
 ## Schema ของ response {#schemas}
 
+### BulkReleaseResultsDto {#schema-BulkReleaseResultsDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `results` | ใช่ | `array<BulkReleaseResultDto>` |   | ผลต่อรายการ เรียงตามคำขอ |   |
+| `succeeded` | ใช่ | `number` |   |   | `3` |
+| `unchanged` | ใช่ | `number` |   |   | `0` |
+| `failed` | ใช่ | `number` |   |   | `1` |
+
 ### DeliveryOrderDto {#schema-DeliveryOrderDto}
 
 
@@ -759,6 +879,7 @@ const { data, error } = await tms.POST('/v1/delivery-orders/{id}/tracking-link/r
 | `redeliveryManual` | ใช่ | `boolean` |   | ส่งซ้ำโดยผู้ใช้ (ไม่ใช่นัดส่งใหม่อัตโนมัติ) — ผลส่งไม่สำเร็จถูกพลิกภายหลังระบบไม่คืนใบเดิมเอง |   |
 | `rejectedFromId` | ใช่ | `string` | null ได้ | ใบส่งซ้ำของที่ลูกค้าปฏิเสธรับจาก DO นี้ (ใบเดิมคงส่งแล้ว) — ไม่นับปริมาณจัดสรรของ SO |   |
 | `podStatus` | ใช่ | `string` |   |   | `NONE` |
+| `releasedAt` | ใช่ | `string` | null ได้ | เวลาส่งบัญชี · null = ยังไม่ส่ง |   |
 | `lines` | ใช่ | `array<DeliveryOrderLineDto>` |   |   |   |
 | `version` | ใช่ | `number` |   |   |   |
 | `createdAt` | ใช่ | `string` |   |   |   |

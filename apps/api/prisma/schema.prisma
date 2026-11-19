@@ -435,6 +435,8 @@ model Customer {
   podRequirements         Json            @default("{}") @map("pod_requirements")
   /// ST4-T10 (docs/04 E2 "วางบิลตามยอดส่งจริงได้ (ตั้งต่อลูกค้า)") — true = ค่าขนส่งที่คิดตามน้ำหนัก/ปริมาตร/หน่วยนับ ใช้ปริมาณส่งจริง
   billByActualQty         Boolean         @default(false) @map("bill_by_actual_qty")
+  /// ST5-T04 "ไม่มี POD ไม่วางบิล" (docs/04 F3; spec/05 §1 requirePodForBilling) — true = DO ต้องมีหลักฐานส่งครบตาม checklist ก่อนขึ้นคิวพร้อมวางบิล
+  requirePodToBill        Boolean         @default(true) @map("require_pod_to_bill")
   defaultBillingCompanyId String?         @map("default_billing_company_id") @db.Uuid
   status                  ActiveStatus    @default(ACTIVE)
   version                 Int             @default(1)
@@ -1868,6 +1870,9 @@ model DeliveryOrder {
   status               DoStatus        @default(DRAFT)
   podStatus            String          @default("NONE") @map("pod_status")
   billingHold          Boolean         @default(false) @map("billing_hold")
+  /// ST5-T04 ส่งบัญชี (RELEASED — docs/04 F4): เวลา + ผู้ทำ (id ผู้ใช้/API client) · null = ยังไม่ส่ง · CHECK คู่กัน
+  releasedAt           DateTime?       @map("released_at") @db.Timestamptz(6)
+  releasedBy           String?         @map("released_by")
   redeliveryOfId       String?         @map("redelivery_of_id") @db.Uuid /// D-23 ส่งใหม่ = DO ใบใหม่
   redeliveryOf         DeliveryOrder?  @relation("DoRedelivery", fields: [redeliveryOfId], references: [id], onDelete: Restrict)
   redeliveries         DeliveryOrder[] @relation("DoRedelivery")
