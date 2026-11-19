@@ -1,7 +1,7 @@
 <!-- index.md -->
 # TMS API v1
 
-เอกสาร Open API ของ TMS — endpoint ชุดเดียวกับที่เว็บของ TMS ใช้ (API-first) · เวอร์ชันพฤติกรรมล่าสุด `2026-11-18` · 311 endpoint
+เอกสาร Open API ของ TMS — endpoint ชุดเดียวกับที่เว็บของ TMS ใช้ (API-first) · เวอร์ชันพฤติกรรมล่าสุด `2026-11-18` · 312 endpoint
 
 เริ่มที่ [Quickstart](quickstart.md) (สร้าง order แรกใน Sandbox ภายใน 15 นาที) · ดาวน์โหลด [Postman collection](tms-api.postman_collection.json) · [OpenAPI](openapi.json) · สำหรับ AI/LLM: [llms.txt](llms.txt), [llms-full.txt](llms-full.txt) · ทุกหน้ามีฉบับ Markdown (`<หน้า>.md`)
 
@@ -24,7 +24,7 @@
 ## Resource
 
 - [ใบสั่งขนส่ง (orders)](ref-orders.md) — 24 endpoint: POST /v1/orders:bulk, GET /v1/orders/summary, GET /v1/orders, POST /v1/orders, PUT /v1/orders/external/{externalId}, PATCH /v1/orders/external/{externalId}, …
-- [ใบส่งของ (delivery-orders)](ref-delivery-orders.md) — 14 endpoint: GET /v1/delivery-orders/summary, GET /v1/delivery-orders, POST /v1/delivery-orders, GET /v1/delivery-orders/{id}, POST /v1/delivery-orders/{id}/split, POST /v1/delivery-orders/{id}/merge, …
+- [ใบส่งของ (delivery-orders)](ref-delivery-orders.md) — 15 endpoint: GET /v1/delivery-orders/summary, GET /v1/delivery-orders, POST /v1/delivery-orders, GET /v1/delivery-orders/{id}, POST /v1/delivery-orders/{id}/split, POST /v1/delivery-orders/{id}/merge, …
 - [เที่ยววิ่ง (trips)](ref-trips.md) — 34 endpoint: GET /v1/trips/summary, GET /v1/trips, POST /v1/trips, POST /v1/trips/bulk-assign, POST /v1/trips/send-all, GET /v1/trips/{id}, …
 - [จุดส่ง (stops)](ref-stops.md) — 10 endpoint: GET /v1/stops/{id}, GET /v1/stops/{id}/events, POST /v1/stops/{id}/arrive, POST /v1/stops/{id}/depart, POST /v1/stops/{id}/complete, POST /v1/stops/{id}/fail, …
 - [จ่ายรถร่วม (settlements)](ref-settlements.md) — 1 endpoint: GET /v1/settlements/queue
@@ -1802,7 +1802,7 @@ const { data, error } = await tms.GET('/v1/orders/{id}/events', {
 
 scope: `orders:read` · operationId: `OrderRevenueLines_list`
 
-ระบบสร้างจากราคาของใบสั่ง (`SO_CHARGE` — rate card snapshot / ราคาที่กำหนดเอง ตามปริมาณในใบสั่ง) และค่าใช้จ่ายหน้างานที่ยืนยันแล้ว (`DO_SURCHARGE`) · แก้ใบสั่ง → บรรทัดระบบคิดใหม่ บรรทัดที่คนเพิ่ม (`MANUAL`) คงไว้ · บรรทัดที่อยู่ในเอกสารที่ออกเลขแล้ว `locked` = ไม่เปลี่ยน · ไม่คำนวณภาษี (มีเฉพาะ vatType/whtRate ต่อบรรทัด) · รวมบรรทัดที่ยกเลิก (`status` VOIDED)
+ระบบสร้างจากราคาของใบสั่ง (`SO_CHARGE` — rate card snapshot / ราคาที่กำหนดเอง **แบ่งลงใบส่งของ** ตามปริมาณของใบ: ลูกค้าวางบิลตามยอดส่งจริง = ยอดส่งจริง (ยังไม่บันทึก = แผน `provisional`), ยังไม่มีใบส่งของ = ระดับใบสั่ง) และค่าใช้จ่ายหน้างานที่ยืนยันแล้ว (`DO_SURCHARGE`) · แก้ใบสั่ง → บรรทัดระบบคิดใหม่ บรรทัดที่คนเพิ่ม (`MANUAL`) คงไว้ · บรรทัดที่อยู่ในเอกสารที่ออกเลขแล้ว `locked` = ไม่เปลี่ยน · ไม่คำนวณภาษี (มีเฉพาะ vatType/whtRate ต่อบรรทัด) · รวมบรรทัดที่ยกเลิก (`status` VOIDED)
 
 **Parameters**
 
@@ -1839,7 +1839,7 @@ const { data, error } = await tms.GET('/v1/orders/{id}/revenue-lines', {
 
 scope: `orders:write` · operationId: `OrderRevenueLines_add`
 
-ธงภาษีคัดลอกจากรายการบริการฝั่งขาย ณ เวลาเพิ่ม · ยอด = จำนวน × ราคา (ปัดครึ่งขึ้นเป็นสตางค์) · ต้องมี `prices.sell:write` · เหตุผล ≥ 10 ตัวอักษร (audit `sales_order.revenue_line_added`) · ใบสั่งปิด/ยกเลิก หรือมีบรรทัดที่ออกใบแจ้งหนี้แล้ว → 409
+ธงภาษีคัดลอกจากรายการบริการฝั่งขาย ณ เวลาเพิ่ม · ยอด = จำนวน × ราคา (ปัดครึ่งขึ้นเป็นสตางค์) · ต้องมี `prices.sell:write` · เหตุผล ≥ 10 ตัวอักษร (audit `sales_order.revenue_line_added`) · ใบสั่งปิด/ยกเลิก หรือใบส่งของที่ระบุ (ไม่ระบุ = ระดับใบสั่ง) มีบรรทัดที่ออกใบแจ้งหนี้แล้ว → 409
 
 **Parameters**
 
@@ -2121,7 +2121,7 @@ const { data, error } = await tms.POST('/v1/revenue-lines/{id}/void', {
 |---|---|---|---|---|---|
 | `id` | ใช่ | `string` |   |   | `rvl_…` |
 | `lineNo` | ใช่ | `number` |   | ลำดับบรรทัดในใบสั่ง (ไม่ใช้ซ้ำ) |   |
-| `sourceType` | ใช่ | `string` | ค่า: `SO_CHARGE`, `DO_SURCHARGE`, `MANUAL` | SO_CHARGE = ราคาของใบสั่ง (rate card / ราคาที่กำหนดเอง) · DO_SURCHARGE = ค่าใช้จ่ายหน้างานที่ยืนยันแล้ว · MANUAL = คนเพิ่มเอง |   |
+| `sourceType` | ใช่ | `string` | ค่า: `SO_CHARGE`, `DO_SURCHARGE`, `MANUAL` | SO_CHARGE = ราคาของใบสั่ง (rate card / ราคาที่กำหนดเอง) แบ่งลงใบส่งของตามปริมาณ (`deliveryOrderId` — ว่าง = ใบสั่งยังไม่มีใบส่งของ) · DO_SURCHARGE = ค่าใช้จ่ายหน้างานที่ยืนยันแล้ว · MANUAL = คนเพิ่มเอง |   |
 | `sourceId` | ใช่ | `string` | null ได้ | แหล่งของบรรทัด: `och_…` (บรรทัดราคาของใบสั่ง) · `dsc_…` (ค่าใช้จ่ายหน้างาน) · MANUAL = null | `dsc_…` |
 | `isUserAdded` | ใช่ | `boolean` |   | true = คนเพิ่มเอง (คงไว้เมื่อระบบคิดบรรทัดใหม่) |   |
 | `kind` | ใช่ | `string` | ค่า: `FREIGHT`, `EXTRA_STOP`, `ACCESSORIAL` |   |   |
@@ -2138,6 +2138,7 @@ const { data, error } = await tms.POST('/v1/revenue-lines/{id}/void', {
 | `status` | ใช่ | `string` | ค่า: `ACTIVE`, `VOIDED` |   |   |
 | `locked` | ใช่ | `boolean` |   | true = อยู่ในเอกสารที่ออกเลขแล้ว — แก้/ยกเลิก/คิดใหม่ไม่ได้ |   |
 | `lockedAt` | ใช่ | `string (date-time)` | null ได้ |   |   |
+| `provisional` | ใช่ | `boolean` |   | true = ยอดยังไม่ยืนยัน: ใบสั่งยังไม่มีใบส่งของ (บรรทัดระดับใบสั่ง) หรือใบส่งของยังไม่บันทึกยอดส่งจริง (ลูกค้าวางบิลตามยอดส่งจริง — ตอนนี้คิดตามแผน) — ระบบคิดใหม่เมื่อบันทึก |   |
 | `voidedAt` | ใช่ | `string (date-time)` | null ได้ |   |   |
 | `voidReason` | ใช่ | `string` | null ได้ |   |   |
 | `createdBy` | ใช่ | `string` | null ได้ |   |   |
@@ -2157,7 +2158,7 @@ const { data, error } = await tms.POST('/v1/revenue-lines/{id}/void', {
 <!-- ref-delivery-orders.md -->
 # ใบส่งของ (delivery-orders)
 
-14 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
+15 endpoint · ทุกคำขอส่ง `Authorization: Bearer <API key>` — ดู [ยืนยันตัวตน](authentication.md) และ [แนวทางการใช้ API](conventions.md)
 
 | Endpoint | scope |
 |---|---|
@@ -2172,6 +2173,7 @@ const { data, error } = await tms.POST('/v1/revenue-lines/{id}/void', {
 | [`POST /v1/delivery-orders/{id}/return`](#post-delivery-orders-id-return) | `orders:write` |
 | [`GET /v1/delivery-orders/{id}/pod`](#get-delivery-orders-id-pod) | `trips:read` |
 | [`PUT /v1/delivery-orders/{id}/pod`](#put-delivery-orders-id-pod) | `trips:dispatch` |
+| [`GET /v1/delivery-orders/{id}/revenue-lines`](#get-delivery-orders-id-revenue-lines) | `orders:read` |
 | [`GET /v1/delivery-orders/{id}/tracking-link`](#get-delivery-orders-id-tracking-link) | `orders:write` / `trips:dispatch` |
 | [`POST /v1/delivery-orders/{id}/tracking-link`](#post-delivery-orders-id-tracking-link) | `orders:write` / `trips:dispatch` |
 | [`POST /v1/delivery-orders/{id}/tracking-link/revoke`](#post-delivery-orders-id-tracking-link-revoke) | `orders:write` / `trips:dispatch` |
@@ -2722,6 +2724,43 @@ const { data, error } = await tms.PUT('/v1/delivery-orders/{id}/pod', {
 });
 ```
 
+## บรรทัดรายได้ของใบส่งของ + รายได้รวมของใบ {#get-delivery-orders-id-revenue-lines}
+
+`GET /v1/delivery-orders/{id}/revenue-lines`
+
+scope: `orders:read` · operationId: `DeliveryOrderRevenueLines_list`
+
+รายได้ต่อใบส่งของ: ราคาของใบสั่งที่แบ่งลงใบนี้ตามปริมาณ (snapshot × ยอดส่งจริง เมื่อลูกค้าวางบิลตามยอดส่งจริง — ยังไม่บันทึก = แผน `provisional`) + ค่าใช้จ่ายหน้างานที่ยืนยันแล้ว + บรรทัดที่คนเพิ่มผูกใบนี้ · `sellRevenueTotal` = ผลรวมบรรทัดที่ยังใช้ (ยอดเห็นเมื่อมี `prices.sell:read`) · ใบที่ยกเลิก = บรรทัด VOIDED ยอด 0.00 · ไม่คำนวณภาษี
+
+**Parameters**
+
+| ชื่อ | อยู่ที่ | บังคับ | ชนิด | คำอธิบาย |
+|---|---|---|---|---|
+| `id` | path | ใช่ | `string` |   |
+
+**Responses**
+
+| สถานะ | ความหมาย | body |
+|---|---|---|
+| `200` |   | `DeliveryOrderRevenueDto` |
+| `401` | ไม่มี/ผิด credential (Bearer JWT, `tk_live_…` / `tk_test_…`) — key ถูกเพิกถอน = `key_revoked`, หมดอายุ = `key_expired` — [unauthorized](errors.md#unauthorized) | `ProblemDto` |
+| `403` | ไม่มีสิทธิ์ (`orders:read`) — [permission_denied](errors.md#permission_denied) | `ProblemDto` |
+| `404` | ไม่พบ (รวมของบริษัทอื่น) — [not_found](errors.md#not_found) | `ProblemDto` |
+| `429` | rate_limited — เรียกถี่เกินเพดาน (problem+json มี `scope`: tenant \| key \| user \| endpoint \| ip \| link และ `retryAfter`) รอตาม Retry-After | `ProblemDto` |
+
+**ตัวอย่าง**
+
+```bash
+curl -sS -X GET "$TMS_BASE_URL/v1/delivery-orders/<id>/revenue-lines" \
+  -H "Authorization: Bearer $TMS_API_KEY"
+```
+
+```ts
+const { data, error } = await tms.GET('/v1/delivery-orders/{id}/revenue-lines', {
+  params: { path: { id: "…" } },
+});
+```
+
 ## GET /v1/delivery-orders/{id}/tracking-link {#get-delivery-orders-id-tracking-link}
 
 `GET /v1/delivery-orders/{id}/tracking-link`
@@ -2910,6 +2949,18 @@ const { data, error } = await tms.POST('/v1/delivery-orders/{id}/tracking-link/r
 | `current` | ใช่ | `PodRecordDto` | null ได้ | ฉบับปัจจุบัน — null = ยังไม่มี |   |
 | `versions` | ใช่ | `array<PodVersionDto>` |   | ทุกฉบับ ใหม่ → เก่า |   |
 | `lines` | ใช่ | `array<PodLineDto>` |   | บรรทัดของ DO (แผน vs ส่งจริง vs ปฏิเสธ + เหตุผล) ตามฉบับล่าสุด |   |
+
+### DeliveryOrderRevenueDto {#schema-DeliveryOrderRevenueDto}
+
+
+
+| ฟิลด์ | บังคับ | ชนิด | กฎ | คำอธิบาย | ตัวอย่าง |
+|---|---|---|---|---|---|
+| `deliveryOrderId` | ใช่ | `string` |   |   | `do_…` |
+| `doNo` | ใช่ | `string` | null ได้ |   | `DO-2611-00001` |
+| `sellRevenueTotal` |   | `string` |   | รายได้ของใบส่งของก่อน VAT = ผลรวมบรรทัดที่ยังใช้ (ACTIVE) — เห็นเมื่อมี `prices.sell:read` | `8750.00` |
+| `provisional` | ใช่ | `boolean` |   | true = มีบรรทัดที่ยอดยังไม่ยืนยัน (ยังไม่บันทึกยอดส่งจริง) |   |
+| `data` | ใช่ | `array<RevenueLineDto>` |   | รวมบรรทัดที่ยกเลิก (`status` VOIDED) |   |
 
 ### DeliveryOrderSplitResultDto {#schema-DeliveryOrderSplitResultDto}
 
@@ -19360,7 +19411,7 @@ HTTP `401` · กรอกรหัสยืนยันตัวตน 2 ชั
 
 HTTP `401` · ต้องเข้าสู่ระบบ
 
-พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences`](ref-document-sequences.md#get-document-sequences), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id), [`GET /v1/settings`](ref-settings.md#get-settings) และอีก 293 endpoint
+พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences`](ref-document-sequences.md#get-document-sequences), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id), [`GET /v1/settings`](ref-settings.md#get-settings) และอีก 294 endpoint
 
 ## edit_lock_user_required {#edit_lock_user_required}
 
@@ -19396,7 +19447,7 @@ HTTP `403` · IP นี้ไม่ได้รับอนุญาตให้
 
 HTTP `403` · ไม่มีสิทธิ์ทำรายการนี้
 
-พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences`](ref-document-sequences.md#get-document-sequences), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id), [`GET /v1/settings`](ref-settings.md#get-settings) และอีก 293 endpoint
+พบใน: [`POST /v1/exports`](ref-exports.md#post-exports), [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/companies`](ref-companies.md#get-companies), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches`](ref-branches.md#get-branches), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences`](ref-document-sequences.md#get-document-sequences), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/audit-logs`](ref-audit.md#get-audit-logs), [`POST /v1/documents`](ref-documents.md#post-documents), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id), [`GET /v1/settings`](ref-settings.md#get-settings) และอีก 294 endpoint
 
 ## sandbox_only {#sandbox_only}
 
@@ -19426,7 +19477,7 @@ HTTP `403` · ยืนยันตัวตน 2 ชั้นอีกครั
 
 HTTP `404` · ไม่พบข้อมูล
 
-พบใน: [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id), [`GET /v1/documents/{id}/content`](ref-documents.md#get-documents-id-content), [`PUT /v1/documents/{id}/content`](ref-documents.md#put-documents-id-content), [`GET /v1/jobs/{id}`](ref-jobs.md#get-jobs-id), [`PATCH /v1/customers/external/{externalId}`](ref-customers.md#patch-customers-external-externalId), [`GET /v1/customers/{id}`](ref-customers.md#get-customers-id), [`PATCH /v1/customers/{id}`](ref-customers.md#patch-customers-id), [`GET /v1/customers/{id}/history`](ref-customers.md#get-customers-id-history) และอีก 182 endpoint
+พบใน: [`GET /v1/exports/{id}`](ref-exports.md#get-exports-id), [`GET /v1/companies/{id}`](ref-companies.md#get-companies-id), [`GET /v1/branches/{id}`](ref-branches.md#get-branches-id), [`GET /v1/document-sequences/{id}`](ref-document-sequences.md#get-document-sequences-id), [`GET /v1/documents/{id}`](ref-documents.md#get-documents-id), [`GET /v1/documents/{id}/content`](ref-documents.md#get-documents-id-content), [`PUT /v1/documents/{id}/content`](ref-documents.md#put-documents-id-content), [`GET /v1/jobs/{id}`](ref-jobs.md#get-jobs-id), [`PATCH /v1/customers/external/{externalId}`](ref-customers.md#patch-customers-external-externalId), [`GET /v1/customers/{id}`](ref-customers.md#get-customers-id), [`PATCH /v1/customers/{id}`](ref-customers.md#patch-customers-id), [`GET /v1/customers/{id}/history`](ref-customers.md#get-customers-id-history) และอีก 183 endpoint
 
 ## method_not_allowed {#method_not_allowed}
 

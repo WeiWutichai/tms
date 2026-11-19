@@ -1523,8 +1523,6 @@ export class OrderIntakeService {
           })),
         });
     }
-    // บรรทัดรายได้ (ST5-T01): บรรทัดระบบตามราคาของใบสั่ง — บรรทัดที่คนเพิ่มคงไว้, บรรทัดที่ล็อก (ออกเลขแล้ว) ไม่เปลี่ยน
-    await this.revenueLines.rebuild(id, tx);
     // ยอดรวมก่อน VAT = บรรทัดระบบ + บรรทัดที่คนกำหนด (null = ไม่มีบรรทัดราคาเลย)
     const amounts = [...want.map((l) => l.amount), ...manual.map((c) => c.amount.toFixed(2))];
     const priceTotal = amounts.length
@@ -1649,6 +1647,8 @@ export class OrderIntakeService {
 
     // ใบส่งของตาม SO (ST3-T09): 1 DO = ทั้ง SO เมื่อพร้อม · SO แก้ข้อมูลที่ DO ใช้ → สร้างชุดใหม่ (ORD-085)
     await this.deliveryOrders.syncWithOrder(tx, id, opts.releasedDos ?? []);
+    // บรรทัดรายได้ (ST5-T01; ต่อ DO — ST5-T01b): หลังราคาและชุด DO ล่าสุด — บรรทัดที่คนเพิ่มคงไว้, บรรทัดที่ล็อก (ออกเลขแล้ว) ไม่เปลี่ยน
+    await this.revenueLines.rebuild(id, tx);
 
     const changed =
       opts.created || dataChanged || pricingChanged || plan.events.length > 0 || noteChanged;

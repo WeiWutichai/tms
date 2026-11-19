@@ -5,6 +5,7 @@ import { encodeId, tryDecodeId } from '../src/common/ids';
 import { requestContext } from '../src/common/request-context';
 import { DbService, type Tx } from '../src/db/db.service';
 import { DeliveryOrderService } from '../src/modules/delivery-orders/delivery-order.service';
+import { JobQueue } from '../src/jobs/job-queue.service';
 import {
   OrderIntakeService,
   type UpsertOrderInput,
@@ -742,5 +743,75 @@ describe('actual quantity + reject reason (ST4-T10)', () => {
     });
     expect(a.before).toMatchObject({ billByActualQty: false });
     expect(a.after).toMatchObject({ billByActualQty: true });
+  });
+  it('ST5-T01b บรรทัดรายได้ต่อ DO: ตามยอดส่งจริง ก่อนบันทึก = แผน (provisional) → บันทึก = snapshot × ยอดจริง · เปลี่ยนเกณฑ์ลูกค้า → คิดใหม่ · ส่งได้ 0 = 0.00', async () => {
+    const cfg = { success: { fields: [] } };
+    const short = await reason('REJECTED_BY_RECEIVER', 'SHORT_QTY');
+    const d = await delivered({
+      byActual: true,
+      podRequirements: cfg,
+      rateBody: { pricingModel: 'PER_TON', sellRate: '350' },
+    });
+    const rev = async (doId: string) =>
+      (await api(app, admin).get(`/v1/delivery-orders/${doId}/revenue-lines`).expect(200)).body;
+    const before = await rev(d.doId);
+    expect(before).toMatchObject({ sellRevenueTotal: '8750.00', provisional: true });
+    expect(before.data[0]).toMatchObject({ sourceType: 'SO_CHARGE', qty: '25', provisional: true });
+    await putPod(d.doId, {
+      photoDocumentIds: [await doc('POD_PHOTO')],
+      lines: [{ lineNo: 1, qtyActual: '10', rejectReasonCodeId: short }],
+    }).expect(200);
+    const after = await rev(d.doId);
+    expect(after).toMatchObject({ sellRevenueTotal: '5250.00', provisional: false });
+    expect(after.data).toHaveLength(1);
+    expect(after.data[0]).toMatchObject({
+      id: before.data[0].id,
+      qty: '15',
+      sellUnitPrice: '350.00',
+      sellAmount: '5250.00',
+      provisional: false,
+    });
+    // ยอดประมาณ (sellBilling) ตรงกับบรรทัดรายได้เมื่อมี DO เดียว
+    expect((await billing(d.soId)).sellBillableTotal).toBe('5250.00');
+    // เปลี่ยนลูกค้าเป็นวางบิลตามใบสั่ง → คิดใหม่ตามแผน 25 ตัน
+    const so = await db.salesOrder.findUniqueOrThrow({ where: { id: uuid('salesOrder', d.soId) } });
+    const cust = encodeId('customer', so.customerId!);
+    const c = await api(app, admin).get(`/v1/customers/${cust}`).expect(200);
+    await api(app, admin)
+      .patch(`/v1/customers/${cust}`)
+      .set('If-Match', `"${c.body.version}"`)
+      .send({ billByActualQty: false })
+      .expect(200);
+    // คิดใหม่ในงานเบื้องหลัง (review M2) — ก่อนงานรัน ยอดยังเดิม
+    expect(await rev(d.doId)).toMatchObject({ sellRevenueTotal: '5250.00' });
+    const job = await db.job.findFirstOrThrow({
+      where: {
+        tenantId,
+        type: 'revenue_lines.rebuild_customer',
+        status: 'PENDING',
+        payload: { path: ['customerId'], equals: so.customerId! },
+      },
+    });
+    expect(job.maxAttempts).toBe(5);
+    const queue = app.get(JobQueue);
+    while (await queue.runOnce());
+    expect(await rev(d.doId)).toMatchObject({ sellRevenueTotal: '8750.00', provisional: false });
+
+    // ส่งได้ 0 ทุกรายการ → 0.00 (ไม่คิดขั้นต่ำ — เหมือนคืนคลังทั้งหมด ST4-T11)
+    const zero = await delivered({
+      byActual: true,
+      podRequirements: cfg,
+      rateBody: { pricingModel: 'PER_TON', sellRate: '350', sellMinCharge: '1000' },
+    });
+    await putPod(zero.doId, {
+      photoDocumentIds: [await doc('POD_PHOTO')],
+      lines: [
+        { lineNo: 1, qtyActual: '0', rejectReasonCodeId: short },
+        { lineNo: 2, qtyActual: '0', rejectReasonCodeId: short },
+      ],
+    }).expect(200);
+    const z = await rev(zero.doId);
+    expect(z).toMatchObject({ sellRevenueTotal: '0.00', provisional: false });
+    expect(z.data[0]).toMatchObject({ qty: '0', sellAmount: '0.00' });
   });
 });

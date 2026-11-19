@@ -25,7 +25,7 @@
 | ST2 Master data + Fleet | **เสร็จ** (12 พ.ย. — PR #23–#45) | 11 พ.ย. | 12 พ.ย. | ตารางงาน ST2 ด้านล่าง |
 | ST3 Order intake + Planning/Dispatch | **เสร็จ** (T01–T25 ครบ — T25 นับเมื่อ merge PR ของ `st3/t25-change-carrier`) | 12 พ.ย. | 17 พ.ย. 2569 | ตารางงาน ST3 ด้านล่าง · สรุป: รับ order ทุกทาง (มือ/Excel/API/connector) ผ่าน `upsertOrder()` เดียว + ใบค้าง + DO/trip state machine + กระดานวางแผน (constraint/multi-drop/assign-dispatch/send all/ตารางรถ) + ใบคุมรถ PDF + LINE/SMS + จ้างรถร่วมครบวงจร (ลิงก์รับ/ปฏิเสธ, หมดเวลา, เปลี่ยนผู้รับเหมา) |
 | ST4 Execution และ POD | **กำลังทำ** 2/15 (T01, T02) + T03, T04, T05, T06 dev | 17 พ.ย. 2569 | — | ตารางงาน ST4 ด้านล่าง |
-| ST5 Billing AR (เฉพาะ T01 บรรทัดรายได้) | **dev เสร็จ** รอ review/QA/merge (`st5/t01-revenue-line`) | 19 พ.ย. 2569 | — | ดูบันทึก 19 พ.ย. (ST5-T01) · [OPEN] ปริมาณ/ระดับ DO ของบรรทัดรายได้ (spec/12 §3) |
+| ST5 Billing AR (เฉพาะ T01 บรรทัดรายได้) | T01 merge แล้ว (PR #115) · **T01b รายได้ต่อ DO dev เสร็จ** รอ review/QA/merge (`st5/t01b-revenue-per-do`) | 19 พ.ย. 2569 | — | ดูบันทึก 19 พ.ย. (ST5-T01b) · PO ตัดสิน: รายได้ต่อ DO × ปริมาณส่งจริง · [OPEN] ขั้นต่ำ/ยอดเหมาเมื่อหลาย DO (spec/12 §3) |
 | ST5–ST6, ST8 | ยังไม่เริ่ม | | | |
 | ST9 Cross-cutting | **กำลังทำ** · T10 ส่งออกตามตัวกรอง dev เสร็จ รอ review/QA (`st9/t10-export`) · T14 Retention dev เสร็จ รอ review/QA (`st9/t14-retention`) | 18 พ.ย. 2569 | — | |
 | ST5–ST6, ST8–ST9 | ยังไม่เริ่ม | | | |
@@ -282,6 +282,23 @@
 - (11 พ.ย., พบระหว่าง T19 — **แก้แล้วใน T04**: `db:migrate` รัน bootstrap ทุก tenant ซึ่ง sync role ระบบ) **role ระบบของ tenant ที่มีอยู่ไม่ได้สิทธิ์ใหม่อัตโนมัติ** — `ensureSystemRoles` รันแค่ตอนสร้าง tenant/seed; เมื่อโค้ดเพิ่ม permission (เช่น `documents:write` ใน T08) tenant เดิมไม่ได้ จนกว่าจะรัน seed · ฐาน dev แก้ด้วย seed แล้ว · ต้องมี sync ตอน deploy/บูต ก่อนมี tenant จริง (เสนอทำใน T24 admin portal หรือ migration step) 
 
 ## บันทึกรายวัน
+
+### 19 พ.ย. 2569 (แก้ E2E routes.spec — RefPicker เปิดรายการตอน focus · lane l5)
+
+- **ทำ:** E2E `routes.spec.ts:38` timeout ทุกครั้ง **ทั้งบน origin/main (5be2a82) และ branch นี้** — สาเหตุ ST9-T20 (9a3f9d6): FormDrawer ย้าย focus ไปช่องที่ผิดหลังบันทึก → 409 เส้นทางซ้ำทำให้ focus ช่อง "ปลายทาง" → `RefPicker` เปิดรายการตอน focus → รายการลอยทับลิงก์ "เปิดใช้เส้นทางเดิม" (คลิกโดนบัง) · แก้: `RefPicker` เปิดรายการเมื่อผู้ใช้สั่งเท่านั้น (คลิก / พิมพ์ / ↓ — แบบ WAI-ARIA combobox) ไม่เปิดตอน focus · spec ไม่แก้
+- **ไฟล์:** `apps/web/src/features/master/RefPicker.tsx`, `RefPicker.test.tsx` (ใหม่ 2 ข้อ)
+
+### 19 พ.ย. 2569 (ST5-T01b แก้ตาม review/QA — lane l5)
+
+- **ทำ:** (H1) ยอดเหมาและส่วนที่ขาดถึงขั้นต่ำ หักยอดที่ออกใบแล้ว (บรรทัดล็อกของบรรทัดราคาเดียวกัน/แหล่งเดิมที่ถูกคิดใหม่) ก่อนแบ่งให้ DO ที่ยังคิดได้ — ไม่ติดลบ (M1) คิดต่อ DO ไม่ได้ → ยอดเหมาชั่วคราว + `provisional` (M2) เปลี่ยนเกณฑ์วางบิลลูกค้า → งาน `revenue_lines.rebuild_customer` ทีละใบสั่ง · backfill ย้ายออกจาก STEPS ไปท้าย `tenants:bootstrap` ทีละใบสั่ง (resumable, ล้มไม่ทำให้ migrate ล้ม) (M3) เพิ่มบรรทัดเองกันเฉพาะ DO ที่ล็อก + backlog ST5-T09 "ห้าม finalize บรรทัด provisional" (QA L1) แยก/รวม DO ที่มีบรรทัดล็อก → 409 (L1) seed bootstrap ใน transaction (L2) [OPEN — PO] เปลี่ยนเกณฑ์วางบิลกลางทาง · spec/12 ระบุชัดเรื่องปัดต่อ DO ทำให้ผลรวมต่างยอดใบสั่งได้ไม่กี่สตางค์
+- **ไฟล์:** `revenue-rebuild.ts`, `revenue-lines.service.ts`/`.controller.ts`, `delivery-order.service.ts`, `customers.service.ts`, `cli/bootstrap-tenants.ts`, `tenants/bootstrap.ts`, `prisma/seed.ts`, test `revenue-lines` (+2), `actual-qty`, `partial-return` (+1), `bootstrap`, spec/12, plan/01
+- **ค้าง:** ส่วนที่ขาดถึงขั้นต่ำเมื่อไม่มี DO ที่คิดได้แล้ว = ใบเพิ่มหนี้ (ST5-T13)
+
+### 19 พ.ย. 2569 (ST5-T01b บรรทัดรายได้ต่อ DO ตามปริมาณส่งจริง — PO ตัดสิน · lane l5)
+
+- **ทำ:** PO ตัดสิน 19 พ.ย. 2569 — รายได้ = snapshot ราคา × ปริมาณส่งจริงต่อ DO (docs/01 §3.3) วางบิลต่อ DO · บรรทัด `SO_CHARGE` แบ่งลง DO (แหล่ง = บรรทัดราคา + DO; ยังไม่มี DO = ระดับใบสั่ง `provisional`) · ค่าขนส่งสูตรตามจำนวนคิดด้วย engine เดิมต่อ DO ปัดต่อใบ (MD-114) · ลูกค้าตามยอดส่งจริง: ก่อนบันทึก = แผน + `provisional` → คิดใหม่เมื่อบันทึก POD / คืนคลัง = 0 · ลูกค้าตามใบสั่ง = แผนของ DO (ใบส่งซ้ำของที่ปฏิเสธไม่คิดซ้ำ) · DO ยกเลิก → บรรทัดระบบของใบนั้น VOIDED (รวม DO_SURCHARGE — ปิด OPEN เดิม) · คิดใหม่ทุกงานของ `DeliveryOrderService` ที่เปลี่ยนชุด DO/ปริมาณ + หลัง `syncWithOrder` + เปลี่ยนเกณฑ์วางบิลของลูกค้า · ล็อกต่อ DO · `GET /v1/delivery-orders/{id}/revenue-lines` (`sellRevenueTotal`, `provisional`) + `RevenueLinesService.totalsByDeliveryOrder()` ให้งานปันต้นทุน · ข้อมูลเดิม: ขั้น bootstrap `revenue-lines-per-do` · domain `allocateSatang` (largest remainder)
+- **ไฟล์:** `apps/api/src/modules/revenue-lines/revenue-rebuild.ts` (ใหม่ — `rebuildRevenueLines`, `revenueTotalsByDeliveryOrder`, `backfillRevenueLinesPerDo`), `revenue-lines.service.ts`/`.controller.ts`/`revenue-line.dto.ts`, `delivery-orders/delivery-order.service.ts` (hook), `orders/order-intake.service.ts` (rebuild หลัง sync DO), `customers/customers.service.ts`, `pricing/pricing.service.ts` (`repriceFreightTx`/`loadPricingQuantities` นอก DI), `tenants/bootstrap.ts`, migration `0117_revenue_line_per_do` (`provisional`, unique ต่อ DO), `packages/domain/src/money.ts` · test: `revenue-lines` (+4), `actual-qty` (+1), `partial-return` (+1), `bootstrap`, domain `money` (+3) · OpenAPI + api-docs · spec/12 §3 แถว DECISION + OPEN
+- **ค้าง:** [OPEN — PO] ขั้นต่ำของ rate เมื่อหลาย DO (ชั่วคราว: ระดับใบสั่ง แบ่งส่วนที่ขาดตามสัดส่วน) · ยอดเหมา (เหมาเที่ยว/ระยะทาง/ราคากำหนดเอง/ค่าจุดเพิ่ม/ค่าบริการเสริม) แบ่งลง DO (ชั่วคราว: เท่ากัน) · ปริมาณที่ยังไม่ลง DO ไม่มีบรรทัด · เพิ่มบรรทัดเองยังกันทั้งใบเมื่อมีบรรทัดล็อก (ST5-T07/T13) · `delivery_order.revenue_amount` ไม่เก็บ (คำนวณจากบรรทัด) · ไม่มี UI (ต้นแบบไม่มีหน้าจอ)
 
 ### 19 พ.ย. 2569 (ST6-T02 แก้ตาม review/QA — lane l6)
 - ทำ: (M) คิวไม่ดึงเที่ยวทั้งชุดแล้ว `id IN (...)` — หน้า = keyset (updated_at, id) + LIMIT ใน SQL ตรง ๆ, `carriers[]` = aggregate SQL แยก (GROUP BY รถร่วม), CTE `NOT MATERIALIZED` ให้ใช้ index · test 2,000 เที่ยว (seed SQL, updatedAt ซ้ำเป็นกลุ่ม) เดินครบทั้งสองทิศ · (L) กฎ "บรรทัดรอจ่าย" ที่เดียว (`payableLines`) ใช้ทั้งยอดต่อเที่ยว/ต่อรถร่วมและบรรทัดที่แสดง · spec/12 §3: เพิ่ม manager ในรายการสิทธิ์, ส่งต่อ ST6-T03/T04 เรื่องบรรทัดกลับรายการของรายเดิม/ยอดติดลบ, [OPEN — PO] เที่ยวไม่มี DO ของรถร่วมที่ตั้ง require_pod_to_pay (ตอนนี้ไม่ขึ้นคิว)

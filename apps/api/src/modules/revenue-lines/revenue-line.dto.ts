@@ -85,7 +85,7 @@ export class RevenueLineDto {
   @ApiProperty({
     enum: REVENUE_LINE_SOURCE_TYPES,
     description:
-      'SO_CHARGE = ราคาของใบสั่ง (rate card / ราคาที่กำหนดเอง) · DO_SURCHARGE = ค่าใช้จ่ายหน้างานที่ยืนยันแล้ว · MANUAL = คนเพิ่มเอง',
+      'SO_CHARGE = ราคาของใบสั่ง (rate card / ราคาที่กำหนดเอง) แบ่งลงใบส่งของตามปริมาณ (`deliveryOrderId` — ว่าง = ใบสั่งยังไม่มีใบส่งของ) · DO_SURCHARGE = ค่าใช้จ่ายหน้างานที่ยืนยันแล้ว · MANUAL = คนเพิ่มเอง',
   })
   sourceType!: RevenueLineSourceType;
   @ApiProperty({
@@ -130,6 +130,11 @@ export class RevenueLineDto {
   @ApiProperty({ description: 'true = อยู่ในเอกสารที่ออกเลขแล้ว — แก้/ยกเลิก/คิดใหม่ไม่ได้' })
   locked!: boolean;
   @ApiProperty({ nullable: true, type: String, format: 'date-time' }) lockedAt!: string | null;
+  @ApiProperty({
+    description:
+      'true = ยอดยังไม่ยืนยัน: ใบสั่งยังไม่มีใบส่งของ (บรรทัดระดับใบสั่ง) หรือใบส่งของยังไม่บันทึกยอดส่งจริง (ลูกค้าวางบิลตามยอดส่งจริง — ตอนนี้คิดตามแผน) — ระบบคิดใหม่เมื่อบันทึก',
+  })
+  provisional!: boolean;
   @ApiProperty({ nullable: true, type: String, format: 'date-time' }) voidedAt!: string | null;
   @ApiProperty({ nullable: true, type: String }) voidReason!: string | null;
   @ApiProperty({ nullable: true, type: String }) createdBy!: string | null;
@@ -139,4 +144,22 @@ export class RevenueLineDto {
 
 export class RevenueLineListDto {
   @ApiProperty({ type: [RevenueLineDto] }) data!: RevenueLineDto[];
+}
+
+/** บรรทัดรายได้ของใบส่งของ + ยอดรวม (ST5-T01b — docs/01 §3.3 `revenue_amount` ต่อ DO) */
+export class DeliveryOrderRevenueDto {
+  @ApiProperty({ example: 'do_…' }) deliveryOrderId!: string;
+  @ApiProperty({ nullable: true, type: String, example: 'DO-2611-00001' }) doNo!: string | null;
+  @ApiPropertyOptional({
+    type: String,
+    example: '8750.00',
+    description:
+      'รายได้ของใบส่งของก่อน VAT = ผลรวมบรรทัดที่ยังใช้ (ACTIVE) — เห็นเมื่อมี `prices.sell:read`',
+  })
+  @PriceField('sell')
+  sellRevenueTotal?: string;
+  @ApiProperty({ description: 'true = มีบรรทัดที่ยอดยังไม่ยืนยัน (ยังไม่บันทึกยอดส่งจริง)' })
+  provisional!: boolean;
+  @ApiProperty({ type: [RevenueLineDto], description: 'รวมบรรทัดที่ยกเลิก (`status` VOIDED)' })
+  data!: RevenueLineDto[];
 }

@@ -1557,7 +1557,8 @@ model SalesOrderCharge {
 
 /// บรรทัดรายได้ (ST5-T01; docs/04 F3 "Revenue line ตั้งแต่สร้าง order", plan/05 D-25/RA-7 ฝั่งรายได้แยกจากต้นทุน)
 /// = ฐานของบรรทัดใบแจ้งหนี้ — ทุกบรรทัดมี `source_type`/`source_id`:
-///   SO_CHARGE (source_id = sales_order_charge.id — ราคาจาก rate card / ราคาที่กำหนดเอง ณ เวลาคิด) ·
+///   SO_CHARGE (source_id = sales_order_charge.id — ราคาจาก rate card / ราคาที่กำหนดเอง ณ เวลาคิด) **ต่อ DO** (ST5-T01b,
+///   PO ตัดสิน 19 พ.ย. 2569 — docs/01 §3.3 revenue = snapshot × ปริมาณจริงของ DO): แหล่ง = (บรรทัดราคา, DO) · ยังไม่มี DO = ระดับใบสั่ง ·
 ///   DO_SURCHARGE (source_id = do_surcharge.id ที่ CONFIRMED) · MANUAL (คนเพิ่มเอง — `is_user_added`, ไม่มี source_id)
 /// rebuild (RevenueLinesService.rebuild) แทนเฉพาะบรรทัดระบบที่ยังไม่ล็อก · บรรทัดที่คนเพิ่มคงไว้ (ยกเลิกได้ด้วยเหตุผล = VOIDED)
 /// ล็อกเมื่อเอกสารแม่ออกเลข (`locked_at` — ST5-T09 ตั้ง): trigger ฐานข้อมูลห้ามแก้เนื้อหา/ลบแถวที่ล็อก
@@ -1567,7 +1568,7 @@ model RevenueLine {
   tenantId            String          @map("tenant_id") @db.Uuid
   salesOrderId        String          @map("sales_order_id") @db.Uuid
   salesOrder          SalesOrder      @relation(fields: [salesOrderId], references: [id], onDelete: Restrict)
-  /// DO ที่บรรทัดผูก — DO_SURCHARGE = DO ของค่าใช้จ่ายหน้างาน · SO_CHARGE = null (ราคาคิดต่อใบสั่ง — การแบ่งลง DO รอตัดสิน [OPEN])
+  /// DO ที่บรรทัดผูก — DO_SURCHARGE = DO ของค่าใช้จ่ายหน้างาน · SO_CHARGE = DO ที่ราคาแบ่งลง (null = ใบสั่งยังไม่มี DO)
   deliveryOrderId     String?         @map("delivery_order_id") @db.Uuid
   deliveryOrder       DeliveryOrder?  @relation(fields: [deliveryOrderId], references: [id], onDelete: Restrict)
   lineNo              Int             @map("line_no")
@@ -1586,7 +1587,9 @@ model RevenueLine {
   amount              Decimal         @db.Decimal(14, 2)
   vatType             VatType         @map("vat_type")
   whtRate             Decimal         @map("wht_rate") @db.Decimal(5, 2) /// เปอร์เซ็นต์ (1.00 = 1%)
-  /// ACTIVE / VOIDED (CHECK) — VOIDED เฉพาะบรรทัดที่คนเพิ่ม (เหตุผล + audit)
+  /// ยอดยังไม่ยืนยัน (ST5-T01b): ใบสั่งยังไม่มี DO หรือ DO ยังไม่บันทึกยอดส่งจริง (ลูกค้าวางบิลตามยอดส่งจริง) — คิดใหม่เมื่อบันทึก
+  provisional         Boolean         @default(false)
+  /// ACTIVE / VOIDED (CHECK) — บรรทัดที่คนเพิ่ม (เหตุผล + audit) · บรรทัดระบบเมื่อใบสั่ง/DO ถูกยกเลิก หรือย้ายลง DO
   status              String          @default("ACTIVE")
   voidedAt            DateTime?       @map("voided_at") @db.Timestamptz(6)
   voidedBy            String?         @map("voided_by")

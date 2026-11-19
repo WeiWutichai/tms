@@ -66,6 +66,17 @@ export function RefPicker({
     ...(clearLabel !== undefined ? [null] : []),
     ...(res.isError ? [] : (res.data ?? [])),
   ];
+  /**
+   * เปิดรายการเมื่อผู้ใช้สั่งเท่านั้น (คลิก / พิมพ์ / ↓ / Alt+↓ — WAI-ARIA combobox) **ไม่เปิดตอน focus**:
+   * FormDrawer ย้าย focus มาช่องที่ผิดหลังบันทึก (ST9-T20) → ถ้าเปิดตอน focus รายการลอยทับข้อความ/ปุ่มใต้ช่อง
+   * (เช่น "เปิดใช้เส้นทางเดิม" ของ 409 เส้นทางซ้ำ — E2E routes.spec)
+   */
+  const openList = () => {
+    if (open) return;
+    setOpen(true);
+    setText('');
+    setHi(0);
+  };
   const pick = (o: RefOption | null) => {
     onChange(o);
     setOpen(false);
@@ -88,22 +99,30 @@ export function RefPicker({
         maxLength={open ? Q_MAX : undefined}
         placeholder={value ? value.label : (clearLabel ?? placeholder)}
         value={open ? text : (value?.label ?? '')}
-        onFocus={() => {
-          setOpen(true);
-          setText('');
-          setHi(0);
-        }}
         onBlur={() => {
           blurT.current = setTimeout(() => setOpen(false), 150);
         }}
-        onClick={() => setOpen(true)}
+        onClick={openList}
         onChange={(e) => {
           setOpen(true);
           setText(e.target.value);
           setHi(0);
         }}
         onKeyDown={(e) => {
-          if (!open) return;
+          if (!open) {
+            if (e.key === 'ArrowDown') {
+              e.preventDefault();
+              openList();
+            } else if (
+              (e.key.length === 1 || e.key === 'Backspace') &&
+              !e.ctrlKey &&
+              !e.metaKey &&
+              !e.altKey
+            )
+              // เริ่มพิมพ์ในช่องที่ปิดอยู่ → ล้างข้อความ (ชื่อที่เลือกไว้) ก่อนตัวอักษรแรกลงช่อง
+              openList();
+            return;
+          }
           if (e.key === 'ArrowDown') {
             e.preventDefault();
             setHi((h) => Math.min(h + 1, opts.length - 1));
