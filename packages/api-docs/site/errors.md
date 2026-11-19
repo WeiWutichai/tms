@@ -101,6 +101,7 @@
 | [`account_locked`](#account_locked) | 429 | ใส่รหัสผ่านผิดหลายครั้ง ลองใหม่อีกครั้งใน 15 นาที |
 | [`rate_limited`](#rate_limited) | 429 | เรียกถี่เกินไป |
 | [`internal_error`](#internal_error) | 500 | ระบบขัดข้อง |
+| [`trip_cost_allocation_failed`](#trip_cost_allocation_failed) | 500 | ปันต้นทุนเที่ยวลงใบส่งของไม่ลงตัว — ยังไม่ปิดต้นทุน กรุณาแจ้งผู้ดูแลระบบ |
 | [`pdf_render_timeout`](#pdf_render_timeout) | 503 | สร้าง PDF ไม่ทันเวลา กรุณาลองใหม่อีกครั้ง |
 | [`service_busy`](#service_busy) | 503 | ระบบกำลังมีผู้ใช้งานมาก กรุณาลองใหม่อีกครั้ง |
 
@@ -683,6 +684,12 @@ HTTP `429` · เรียกถี่เกินไป
 ## internal_error {#internal_error}
 
 HTTP `500` · ระบบขัดข้อง
+
+อาจตอบได้จากหลาย endpoint
+
+## trip_cost_allocation_failed {#trip_cost_allocation_failed}
+
+HTTP `500` · ปันต้นทุนเที่ยวลงใบส่งของไม่ลงตัว — ยังไม่ปิดต้นทุน กรุณาแจ้งผู้ดูแลระบบ
 
 อาจตอบได้จากหลาย endpoint
 

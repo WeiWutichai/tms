@@ -1797,7 +1797,7 @@ const { data, error } = await tms.POST('/v1/trip-sheets', {
 |---|---|---|---|---|---|
 | `data` | ใช่ | `array<TripCostLineDto>` |   |   |   |
 | `summary` | ใช่ | `TripCostSummaryDto` |   |   |   |
-| `allocations` | ใช่ | `array<TripCostAllocationDto>` |   | ต้นทุนที่ปันลง DO (เขียนตอนปิดต้นทุน COSTED ตัดสิน 19 พ.ย. 2569: ตามสัดส่วนรายได้ของ DO, เศษสตางค์ของแต่ละบรรทัด → DO รายได้สูงสุด (เท่ากัน → เลข DO น้อยสุด)) · ผลรวม = `buyTotal` · ยังไม่ปิดต้นทุน / เที่ยวไม่มี DO = [] |   |
+| `allocations` | ใช่ | `array<TripCostAllocationDto>` |   | ต้นทุนที่ปันลง DO (เขียนตอนปิดต้นทุน COSTED ตัดสิน 19 พ.ย. 2569: ต้นทุนสุทธิของเที่ยวปันครั้งเดียวตามสัดส่วนรายได้ของ DO, เศษสตางค์ → DO รายได้สูงสุด (เท่ากัน → เลข DO น้อยสุด)) · ผลรวม = `buyTotal` · ยังไม่ปิดต้นทุน / เที่ยวไม่มี DO = [] |   |
 
 ### TripDto {#schema-TripDto}
 

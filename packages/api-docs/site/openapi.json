@@ -56108,7 +56108,7 @@
             "$ref": "#/components/schemas/TripCostSummaryDto"
           },
           "allocations": {
-            "description": "ต้นทุนที่ปันลง DO (เขียนตอนปิดต้นทุน COSTED ตัดสิน 19 พ.ย. 2569: ตามสัดส่วนรายได้ของ DO, เศษสตางค์ของแต่ละบรรทัด → DO รายได้สูงสุด (เท่ากัน → เลข DO น้อยสุด)) · ผลรวม = `buyTotal` · ยังไม่ปิดต้นทุน / เที่ยวไม่มี DO = []",
+            "description": "ต้นทุนที่ปันลง DO (เขียนตอนปิดต้นทุน COSTED ตัดสิน 19 พ.ย. 2569: ต้นทุนสุทธิของเที่ยวปันครั้งเดียวตามสัดส่วนรายได้ของ DO, เศษสตางค์ → DO รายได้สูงสุด (เท่ากัน → เลข DO น้อยสุด)) · ผลรวม = `buyTotal` · ยังไม่ปิดต้นทุน / เที่ยวไม่มี DO = []",
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/TripCostAllocationDto"
@@ -66147,6 +66147,11 @@
       "status": 409,
       "title": "อีเมลนี้เป็นสมาชิกหลายบริษัท เลือกบริษัทที่ต้องการเข้า",
       "titleEn": "This account belongs to several organisations; choose one"
+    },
+    "trip_cost_allocation_failed": {
+      "status": 500,
+      "title": "ปันต้นทุนเที่ยวลงใบส่งของไม่ลงตัว — ยังไม่ปิดต้นทุน กรุณาแจ้งผู้ดูแลระบบ",
+      "titleEn": "Trip cost allocation to delivery orders did not balance — trip was not costed"
     },
     "trip_costing_unavailable": {
       "status": 409,

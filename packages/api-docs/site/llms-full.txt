@@ -61,7 +61,7 @@
 ## อ้างอิง
 
 - [Webhook events](webhook-events.md) — 31 event: connector.health_changed, credit_note.finalized, debit_note.finalized, delivery_order.status_changed, invoice.adjusted, invoice.finalized, invoice.paid, invoice.voided, …
-- [รหัส error](errors.md) — 99 code ของ problem+json
+- [รหัส error](errors.md) — 100 code ของ problem+json
 - [Changelog](changelog.md) — ประวัติเวอร์ชันของ API (added/changed/deprecated)
 
 ---
@@ -4812,7 +4812,7 @@ const { data, error } = await tms.POST('/v1/trip-sheets', {
 |---|---|---|---|---|---|
 | `data` | ใช่ | `array<TripCostLineDto>` |   |   |   |
 | `summary` | ใช่ | `TripCostSummaryDto` |   |   |   |
-| `allocations` | ใช่ | `array<TripCostAllocationDto>` |   | ต้นทุนที่ปันลง DO (เขียนตอนปิดต้นทุน COSTED ตัดสิน 19 พ.ย. 2569: ตามสัดส่วนรายได้ของ DO, เศษสตางค์ของแต่ละบรรทัด → DO รายได้สูงสุด (เท่ากัน → เลข DO น้อยสุด)) · ผลรวม = `buyTotal` · ยังไม่ปิดต้นทุน / เที่ยวไม่มี DO = [] |   |
+| `allocations` | ใช่ | `array<TripCostAllocationDto>` |   | ต้นทุนที่ปันลง DO (เขียนตอนปิดต้นทุน COSTED ตัดสิน 19 พ.ย. 2569: ต้นทุนสุทธิของเที่ยวปันครั้งเดียวตามสัดส่วนรายได้ของ DO, เศษสตางค์ → DO รายได้สูงสุด (เท่ากัน → เลข DO น้อยสุด)) · ผลรวม = `buyTotal` · ยังไม่ปิดต้นทุน / เที่ยวไม่มี DO = [] |   |
 
 ### TripDto {#schema-TripDto}
 
@@ -19254,6 +19254,7 @@ const { data, error } = await tms.GET('/v1/health');
 | [`account_locked`](#account_locked) | 429 | ใส่รหัสผ่านผิดหลายครั้ง ลองใหม่อีกครั้งใน 15 นาที |
 | [`rate_limited`](#rate_limited) | 429 | เรียกถี่เกินไป |
 | [`internal_error`](#internal_error) | 500 | ระบบขัดข้อง |
+| [`trip_cost_allocation_failed`](#trip_cost_allocation_failed) | 500 | ปันต้นทุนเที่ยวลงใบส่งของไม่ลงตัว — ยังไม่ปิดต้นทุน กรุณาแจ้งผู้ดูแลระบบ |
 | [`pdf_render_timeout`](#pdf_render_timeout) | 503 | สร้าง PDF ไม่ทันเวลา กรุณาลองใหม่อีกครั้ง |
 | [`service_busy`](#service_busy) | 503 | ระบบกำลังมีผู้ใช้งานมาก กรุณาลองใหม่อีกครั้ง |
 
@@ -19836,6 +19837,12 @@ HTTP `429` · เรียกถี่เกินไป
 ## internal_error {#internal_error}
 
 HTTP `500` · ระบบขัดข้อง
+
+อาจตอบได้จากหลาย endpoint
+
+## trip_cost_allocation_failed {#trip_cost_allocation_failed}
+
+HTTP `500` · ปันต้นทุนเที่ยวลงใบส่งของไม่ลงตัว — ยังไม่ปิดต้นทุน กรุณาแจ้งผู้ดูแลระบบ
 
 อาจตอบได้จากหลาย endpoint
 

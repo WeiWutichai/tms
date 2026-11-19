@@ -597,9 +597,9 @@ describe('trip costs (ST6-T01)', () => {
       select: { id: true, doNo: true },
     });
     const first = nos.sort((x, y) => x.doNo!.localeCompare(y.doNo!, 'en', { numeric: true }))[0]!;
-    // 5200.00 / 3 = 1733.33 ×3 + เศษ 0.01 → ใบแรก · 0.02 / 3 = 0 ×3 + เศษ 0.02 → ใบแรก
+    // สุทธิ 5200.01 (กลับรายการหักล้าง) ÷ 3 = 1733.33 ×3 + เศษ 0.02 → ใบเลขน้อยสุด (รายได้เท่ากัน)
     const a = byDo(await allocOf(t.id));
-    for (const d of dos) expect(a[d.doPub]).toBe(d.doId === first.id ? '1733.36' : '1733.33');
+    for (const d of dos) expect(a[d.doPub]).toBe(d.doId === first.id ? '1733.35' : '1733.33');
     const rows = await assertLinesExact(t.id);
     const orig = rows.find((r) => r.amount.toFixed(2) === '4800.50')!;
     const rev = rows.find((r) => r.reversalOfId === orig.id)!;

@@ -153,7 +153,7 @@ export class TripCostListDto {
   @ApiProperty({
     type: [TripCostAllocationDto],
     description:
-      'ต้นทุนที่ปันลง DO (เขียนตอนปิดต้นทุน COSTED — PO ตัดสิน 19 พ.ย. 2569: ตามสัดส่วนรายได้ของ DO, เศษสตางค์ของแต่ละบรรทัด → DO รายได้สูงสุด ' +
+      'ต้นทุนที่ปันลง DO (เขียนตอนปิดต้นทุน COSTED — PO ตัดสิน 19 พ.ย. 2569: ต้นทุนสุทธิของเที่ยวปันครั้งเดียวตามสัดส่วนรายได้ของ DO, เศษสตางค์ → DO รายได้สูงสุด ' +
       '(เท่ากัน → เลข DO น้อยสุด)) · ผลรวม = `buyTotal` · ยังไม่ปิดต้นทุน / เที่ยวไม่มี DO = []',
   })
   allocations!: TripCostAllocationDto[];

@@ -283,6 +283,11 @@
 
 ## บันทึกรายวัน
 
+### 19 พ.ย. 2569 (ST6-T01c แก้ตาม review — lane l7)
+
+- **ทำ:** (M) ปันต้นทุนสุทธิของเที่ยวครั้งเดียว เศษทั้งหมด → DO รายได้สูงสุด แล้วกระจายลงบรรทัดให้ลงตัวทั้งต่อ DO/ต่อบรรทัด (domain `allocateTripCostLines` ใหม่ + test) · (L) ไม่ลงตัว → 500 `trip_cost_allocation_failed` + ตรวจ Σ ต่อ DO = buyTotal · ยืนยันค่าหน้างานฝั่งขายล็อก SO → trip (FOR SHARE) ลำดับเดียวกับปิดต้นทุน + test พร้อมกัน · เขียน `cost_allocation_method = 'BY_REVENUE'` · plan/00a RA-15 · spec/12: ผลข้างเคียงการเห็นสัดส่วนรายได้, บรรทัดระดับใบสั่งไม่นับ · merge `st5/t01b-revenue-per-do` (แก้ review)
+- **ไฟล์:** `packages/domain/src/cost-allocation.ts` (+test), `trips/{trip-costs.ts,trip-costs.dto.ts,trip.service.ts}`, `field-charges/field-charges.service.ts`, `common/problem.ts`, `i18n/th.ts`, `test/trip-costs.test.ts`, plan/00a, spec/12
+
 ### 19 พ.ย. 2569 (ST6-T01c ปันต้นทุนเที่ยวลง DO ตามสัดส่วนรายได้ — PO ตัดสิน · lane l7)
 
 - **ทำ:** PO ตัดสิน 19 พ.ย. 2569 — ต้นทุนเที่ยว (ค่าจ้างรถร่วม + ค่าหน้างานฝั่งซื้อที่ยืนยัน สุทธิหลังกลับรายการ) ปันลง DO ตามสัดส่วนรายได้ขาย เศษสตางค์ → DO รายได้สูงสุด (เท่ากัน → เลข DO น้อยสุด) · ปันใน transaction ของ `POST /v1/trips/{id}/cost` ลง `trip_cost.allocated` ต่อบรรทัด (กลับรายการหักล้างพอดี; ผลรวมต่อบรรทัด/ทั้งเที่ยวเท่ายอดพอดี) · blocker ใหม่ `REVENUE_PROVISIONAL` (หลาย DO + รายได้ยังไม่ยืนยัน) / `REVENUE_MISSING` (หลาย DO รายได้รวม 0 — [OPEN PO]) · `GET /trips/{id}/costs` `allocations[]` + `GET /delivery-orders/{id}/revenue-lines` `buyAllocatedCost` (ตัดตาม `prices.buy:read` แยกจากขาย; ไม่มี field margin) · ปิดต้นทุนเปิดโดยค่าเริ่มต้น (`TRIP_COSTING_ENABLED=0` = kill switch) · domain `allocateSatangRemainderTo`
