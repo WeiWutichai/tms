@@ -45,6 +45,7 @@
 | [`connector_limit_reached`](#connector_limit_reached) | 409 | จำนวนการเชื่อมระบบบัญชีครบตามแพ็กเกจแล้ว |
 | [`connector_scope_taken`](#connector_scope_taken) | 409 | นิติบุคคลนี้เชื่อมระบบบัญชีอยู่แล้ว ยกเลิกการเชื่อมเดิมก่อน |
 | [`delivery_order_on_trip`](#delivery_order_on_trip) | 409 | ใบส่งของนี้อยู่ในเที่ยวรถแล้ว — ถอดออกจากเที่ยวก่อน |
+| [`do_already_drafted`](#do_already_drafted) | 409 | ใบส่งของนี้อยู่ในใบแจ้งหนี้อื่นแล้ว |
 | [`duplicate`](#duplicate) | 409 | ข้อมูลซ้ำกับที่มีอยู่ |
 | [`external_id_conflict`](#external_id_conflict) | 409 | เลขอ้างอิงต้นทางนี้ถูกใช้กับใบสั่งขนส่งจากช่องทางอื่นแล้ว |
 | [`idempotency_in_progress`](#idempotency_in_progress) | 409 | คำขอเดียวกันกำลังประมวลผลอยู่ |
@@ -356,6 +357,12 @@ HTTP `409` · นิติบุคคลนี้เชื่อมระบบ
 HTTP `409` · ใบส่งของนี้อยู่ในเที่ยวรถแล้ว — ถอดออกจากเที่ยวก่อน
 
 พบใน: [`POST /v1/trips`](ref-trips.md#post-trips), [`POST /v1/trips/{id}/attach`](ref-trips.md#post-trips-id-attach)
+
+## do_already_drafted {#do_already_drafted}
+
+HTTP `409` · ใบส่งของนี้อยู่ในใบแจ้งหนี้อื่นแล้ว
+
+อาจตอบได้จากหลาย endpoint
 
 ## duplicate {#duplicate}
 

@@ -24,7 +24,9 @@ export type NotReadyReason =
   | 'REVENUE_LOCKED'
   | 'SURCHARGE_PENDING'
   | 'STOP_TIMES_MISSING'
-  | 'POD_INCOMPLETE';
+  | 'POD_INCOMPLETE'
+  /** ST5-T05: อยู่ในใบแจ้งหนี้ที่ยัง active แล้ว (billingStatus IN_DRAFT / INVOICED) */
+  | 'IN_INVOICE';
 
 /** ผลประเมินความพร้อมต่อ DO (แถวของ CTE `r`) */
 export interface Readiness {
@@ -42,6 +44,8 @@ export interface Readiness {
   locked: boolean;
   sur_pending: boolean;
   stop_ok: boolean;
+  /** ST5-T05 billingStatus IN_DRAFT / INVOICED (BIL-020 (จ) "ไม่อยู่ในบรรทัด INV ที่ active") */
+  billed: boolean;
   released: boolean;
 }
 
@@ -92,7 +96,7 @@ const DELIVERED_STATUSES = ['DELIVERED', 'POD_PENDING', 'UNBILLED'];
 /** เงื่อนไขพร้อมวางบิลของคิว (ไม่รวมเวลาจุดส่ง — แสดงเป็นธง; ส่งบัญชีต้องครบ) */
 const QUEUE_READY = Prisma.sql`
   (r.pod_ok OR NOT r.req_pod) AND NOT r.held AND r.priced AND r.lines > 0
-  AND NOT r.prov AND NOT r.locked AND NOT r.sur_pending`;
+  AND NOT r.prov AND NOT r.locked AND NOT r.sur_pending AND NOT r.billed`;
 
 /**
  * คิว "พร้อมวางบิล" (ST5-T04; docs/04 F3 "คิวพร้อมวางบิล", spec/05 §2 BIL-020) — อ่านอย่างเดียว
@@ -105,6 +109,7 @@ const QUEUE_READY = Prisma.sql`
  * - ราคา: ใบสั่ง `pricing_status = AVAILABLE` (RATE_MISSING/CALCULATION_FAILURE ไม่ขึ้น) และ DO มีบรรทัดรายได้ที่ยังใช้ ≥ 1 ·
  *   ไม่มีบรรทัด `provisional` (ยอดยังไม่ยืนยัน — ST5-T01b) · ไม่มีบรรทัดที่ล็อก (ออกใบแล้ว) · ไม่มีค่าใช้จ่ายหน้างานฝั่งขายที่รอยืนยัน
  * - ไม่มีป้ายระงับวางบิล (`billing_hold`)
+ * - ยังไม่อยู่ในใบแจ้งหนี้ที่ active (`billing_status` UNBILLED / CREDITED — ST5-T05, spec/05 BIL-020 (จ))
  * หน้า = keyset (updated_at, id) + LIMIT ใน SQL · `customers[]` = aggregate SQL แยก
  */
 @Injectable()
@@ -141,7 +146,7 @@ export class BillingQueueService {
     return Prisma.sql`
       d0 AS NOT MATERIALIZED (
         SELECT d.id, d.customer_id, d.sales_order_id, d.trip_stop_id, d.updated_at, d.status::text AS status,
-               d.pod_status, d.billing_hold, d.released_at
+               d.pod_status, d.billing_hold, d.released_at, d.billing_status
           FROM delivery_order d WHERE ${Prisma.join(conds, ' AND ')}
       ),
       rl AS (
@@ -162,7 +167,8 @@ export class BillingQueueService {
                EXISTS (SELECT 1 FROM do_surcharge x
                         WHERE x.delivery_order_id = d0.id AND x.status = 'PENDING_CONFIRM') AS sur_pending,
                (st.arrived_at IS NOT NULL AND st.departed_at IS NOT NULL) AS stop_ok,
-               (d0.released_at IS NOT NULL) AS released
+               (d0.released_at IS NOT NULL) AS released,
+               (d0.billing_status NOT IN ('UNBILLED', 'CREDITED')) AS billed
           FROM d0
           JOIN customer c ON c.id = d0.customer_id
           JOIN sales_order s ON s.id = d0.sales_order_id
@@ -196,6 +202,7 @@ export class BillingQueueService {
     if (r.locked) out.push('REVENUE_LOCKED');
     if (r.sur_pending) out.push('SURCHARGE_PENDING');
     if (!r.stop_ok) out.push('STOP_TIMES_MISSING');
+    if (r.billed) out.push('IN_INVOICE');
     return out;
   }
 
