@@ -159,6 +159,12 @@ import {
 } from './modules/revenue-lines/revenue-lines.controller';
 import { RevenueLinesService } from './modules/revenue-lines/revenue-lines.service';
 import { SettlementsController } from './modules/settlements/settlements.controller';
+import {
+  DeliveryOrderReleaseController,
+  InvoicesController,
+} from './modules/invoices/invoices.controller';
+import { BillingQueueService } from './modules/invoices/billing-queue.service';
+import { BillingReleaseService } from './modules/invoices/billing-release.service';
 import { SettlementQueueService } from './modules/settlements/settlement-queue.service';
 import { StopEventFlagsController } from './modules/stops/stop-event-flags.controller';
 import { StopsController, TripEventsController } from './modules/stops/stops.controller';
@@ -291,6 +297,8 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     OrderRevenueLinesController,
     RevenueLinesController,
     SettlementsController,
+    InvoicesController,
+    DeliveryOrderReleaseController,
     DeliveryOrderRevenueLinesController,
     DoSurchargesController,
     TripCostsController,
@@ -371,6 +379,8 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     FieldChargesService,
     RevenueLinesService,
     SettlementQueueService,
+    BillingQueueService,
+    BillingReleaseService,
     StopEventsService,
     StopProjectionService,
     SubconHireService,

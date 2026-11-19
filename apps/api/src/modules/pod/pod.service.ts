@@ -540,6 +540,26 @@ export class PodService {
     );
   }
 
+  /**
+   * ST5-T04 (ส่งต่อจาก ST4-T07): หลักฐานฉบับล่าสุดผ่าน checklist ชุดสำเร็จของลูกค้า **ปัจจุบัน** ไหม
+   * (ไม่มีหลักฐาน = ตรวจกับชุดว่าง — ลูกค้าที่ไม่บังคับอะไรผ่าน) — ใช้ตอนส่งบัญชี ไม่เขียนอะไร
+   */
+  async checkCurrent(
+    tx: Tx,
+    d: { id: string; customerId: string },
+  ): Promise<{ ok: boolean; missing: PodMissing[] }> {
+    const latest = await tx.deliveryOrderPod.findFirst({
+      where: { deliveryOrderId: d.id },
+      orderBy: { version: 'desc' },
+    });
+    const r = await this.checklist.check(
+      d.customerId,
+      'SUCCESS',
+      latest ? this.submissionOf(latest) : EMPTY,
+    );
+    return { ok: r.ok, missing: r.missing };
+  }
+
   // ---------------------------------------------------------------------------------------------
 
   /** หลักฐานที่เก็บ → รูปที่ตัวตรวจใช้ (PIN ถอดในหน่วยความจำเพื่อตรวจรูปแบบเท่านั้น) */
