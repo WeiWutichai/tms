@@ -102,3 +102,25 @@ export function describeProblemDefaults(doc: OpenAPIObject): OpenAPIObject {
     }
   return doc;
 }
+
+/**
+ * ST7-T12: catalog ของ `code` ทั้งหมด (PROBLEMS) → `x-problem-codes` ของ openapi.json
+ * หน้า "รหัส error" ของ docs site generate จากตรงนี้ → ทุก `type` (`…/problems/<code>`) มีหัวข้อจริง
+ */
+export function describeProblemCatalog(doc: OpenAPIObject): OpenAPIObject {
+  // RFC 9457 §3.2: extension member ตาม `code` (orderStatus, editableFields, …) — ประกาศว่า schema รับช่องเพิ่มได้
+  const pd = doc.components?.schemas?.['ProblemDto'] as Record<string, unknown> | undefined;
+  if (pd) {
+    pd.additionalProperties = true;
+    pd.description =
+      'RFC 9457 application/problem+json — ช่องเสริม (extension member) ขึ้นกับ `code` เช่น `orderStatus`/`editableFields` ของ `order_locked_for_update`';
+  }
+  const codes = Object.keys(PROBLEMS).sort() as ProblemCode[];
+  (doc as OpenAPIObject & Record<string, unknown>)['x-problem-codes'] = Object.fromEntries(
+    codes.map((c) => {
+      const p = PROBLEMS[c] as { status: number; th: string; en?: string };
+      return [c, { status: p.status, title: p.th, ...(p.en ? { titleEn: p.en } : {}) }];
+    }),
+  );
+  return doc;
+}

@@ -1,0 +1,31 @@
+{
+  "name": "@tms/sdk",
+  "version": "0.1.0",
+  "private": true,
+  "description": "TypeScript SDK ของ TMS Open API /v1 — client แบบมี type จาก openapi.json + retry ตาม Retry-After, Idempotency-Key, If-Match, pagination แบบ cursor, ตรวจลายเซ็น webhook (ST7-T12) · ยังไม่ publish (รอ PO อนุมัติ release — spec/12 §3)",
+  "license": "UNLICENSED",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "generate": "openapi-typescript ../contracts/openapi.json -o src/schema.d.ts && node scripts/gen-idempotency.mjs",
+    "build": "pnpm generate && tsc -p tsconfig.json && cp src/schema.d.ts dist/schema.d.ts",
+    "typecheck": "pnpm generate && tsc -p tsconfig.json --noEmit",
+    "test": "pnpm generate && vitest run",
+    "lint": "prettier --check \"src/**/*.ts\" \"!src/schema.d.ts\" \"!src/idempotency.gen.ts\""
+  },
+  "dependencies": {
+    "openapi-fetch": "^0.13.4"
+  },
+  "devDependencies": {
+    "openapi-typescript": "^7.4.4",
+    "typescript": "^5.6.3",
+    "vitest": "^4.1.12"
+  }
+}

@@ -198,6 +198,7 @@ export const zh: Partial<Record<MessageKey, string>> = {
   'lock.report.t': '报表',
   'lock.report.p2': '导出 Excel',
   'lock.report.p3': '按客户 OTIF',
+  'lock.api.t': '开发者 / Open API',
   'noAccess.title': '您无权访问此页面',
   'noAccess.back': '返回概览',
   'users.invite': '邀请用户',

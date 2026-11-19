@@ -62,6 +62,7 @@
 | test ไฟล์เดียว | `cd apps/api && npx vitest run test/isolation.test.ts` |
 | migration ใหม่ | แก้ `apps/api/prisma/schema.prisma` → สร้างโฟลเดอร์ `prisma/migrations/NNNN_name/migration.sql` จาก `prisma migrate diff` → **ต่อท้ายด้วย `SELECT tms_enable_tenant_rls('<table>');` ทุกตารางที่มี tenant_id** → `pnpm --filter @tms/api db:migrate` |
 | OpenAPI | `pnpm --filter @tms/api openapi:export` (ต้องรันทุกครั้งที่ API เปลี่ยน แล้ว commit `packages/contracts/openapi.json`) |
+| เอกสาร API / SDK | `pnpm --filter @tms/api-docs docs:build` (รันต่อจาก openapi:export ทุกครั้ง แล้ว commit `packages/api-docs/site/` — CI ตรวจด้วย `docs:check`, ST7-T12) |
 | ทำงานขนานหลาย worktree | `bash scripts/lane-init.sh <lane> <portBase>` — ฐาน `tms_<lane>` (+`_test`/`_e2e`) และพอร์ตของตัวเอง ดู `HANDOFF.md` §5.1 |
 | ข้อความภาษา | แก้ `apps/web/src/i18n/th.ts` → `pnpm --filter @tms/web i18n:build` |
 

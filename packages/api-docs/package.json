@@ -1,0 +1,25 @@
+{
+  "name": "@tms/api-docs",
+  "version": "0.0.1",
+  "private": true,
+  "description": "เอกสาร Open API (ST7-T12): สร้าง docs site (HTML + .md ทุกหน้า), llms.txt, llms-full.txt, Postman collection จาก packages/contracts/openapi.json + guides/ — ผลลัพธ์อยู่ใน site/ (commit ไว้; CI ตรวจว่าสร้างใหม่แล้วตรง)",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "docs:build": "tsc -p tsconfig.json && node dist/cli.js",
+    "docs:check": "tsc -p tsconfig.json && node dist/cli.js --check",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.examples.json --noEmit",
+    "test": "vitest run",
+    "lint": "prettier --check src examples"
+  },
+  "dependencies": {
+    "@tms/domain": "workspace:*"
+  },
+  "devDependencies": {
+    "@tms/sdk": "workspace:*",
+    "@types/node": "^20.17.0",
+    "typescript": "^5.6.3",
+    "vitest": "^4.1.12"
+  }
+}
