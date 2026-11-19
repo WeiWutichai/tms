@@ -382,15 +382,10 @@ export class CustomersService {
     }
     if (isNoopUpdate(current, data as Record<string, unknown>, DECIMAL_FIELDS)) return current; // ส่งซ้ำค่าเดิม (เช่น PUT external) ไม่เพิ่ม version
     const c = await this.bumpVersion(current, data);
-    // ST5-T01b: เปลี่ยนเกณฑ์วางบิล (ตามใบสั่ง ↔ ตามยอดส่งจริง) → บรรทัดรายได้ต่อ DO ของใบสั่งที่ยังเปิดอยู่คิดใหม่ (บรรทัดที่ล็อกไม่เปลี่ยน)
-    if (c.billByActualQty !== current.billByActualQty) {
-      const open = await this.db.tx.salesOrder.findMany({
-        where: { customerId: c.id, status: { notIn: ['CLOSED', 'CANCELLED'] } },
-        select: { id: true },
-        orderBy: { id: 'asc' },
-      });
-      for (const o of open) await this.revenueLines.rebuild(o.id);
-    }
+    // ST5-T01b: เปลี่ยนเกณฑ์วางบิล (ตามใบสั่ง ↔ ตามยอดส่งจริง) → บรรทัดรายได้ต่อ DO ของใบสั่งที่ยังเปิดคิดใหม่
+    // ในงานเบื้องหลัง ทีละใบสั่ง (review M2 — ไม่ทำทั้งหมดใน request) · บรรทัดที่ล็อกไม่เปลี่ยน
+    if (c.billByActualQty !== current.billByActualQty)
+      await this.revenueLines.scheduleRebuildForCustomer(c.id);
     const before = auditView(current);
     const after = auditView(c);
     await this.audit.changed('customer.updated', 'customer', c.id, before, after);

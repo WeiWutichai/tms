@@ -5,6 +5,7 @@ import { encodeId, tryDecodeId } from '../src/common/ids';
 import { requestContext } from '../src/common/request-context';
 import { DbService, type Tx } from '../src/db/db.service';
 import { DeliveryOrderService } from '../src/modules/delivery-orders/delivery-order.service';
+import { JobQueue } from '../src/jobs/job-queue.service';
 import {
   OrderIntakeService,
   type UpsertOrderInput,
@@ -781,6 +782,19 @@ describe('actual quantity + reject reason (ST4-T10)', () => {
       .set('If-Match', `"${c.body.version}"`)
       .send({ billByActualQty: false })
       .expect(200);
+    // คิดใหม่ในงานเบื้องหลัง (review M2) — ก่อนงานรัน ยอดยังเดิม
+    expect(await rev(d.doId)).toMatchObject({ sellRevenueTotal: '5250.00' });
+    const job = await db.job.findFirstOrThrow({
+      where: {
+        tenantId,
+        type: 'revenue_lines.rebuild_customer',
+        status: 'PENDING',
+        payload: { path: ['customerId'], equals: so.customerId! },
+      },
+    });
+    expect(job.maxAttempts).toBe(5);
+    const queue = app.get(JobQueue);
+    while (await queue.runOnce());
     expect(await rev(d.doId)).toMatchObject({ sellRevenueTotal: '8750.00', provisional: false });
 
     // ส่งได้ 0 ทุกรายการ → 0.00 (ไม่คิดขั้นต่ำ — เหมือนคืนคลังทั้งหมด ST4-T11)

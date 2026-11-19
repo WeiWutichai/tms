@@ -807,4 +807,19 @@ describe('partial/full return (ST4-T11)', () => {
     expect(await rev(p.doId)).toMatchObject({ sellRevenueTotal: '8750.00', provisional: false });
     expect(await rev(rp.body.redelivery.id)).toMatchObject({ sellRevenueTotal: '0.00', data: [] });
   });
+  it('review H1: เหมาเที่ยว 6000 ออกใบแล้ว (ล็อก) → ใบส่งซ้ำของที่ปฏิเสธ (ตามยอดส่งจริง) = 0.00 ไม่คิดซ้ำ', async () => {
+    const d = await rejected('15', {
+      byActual: true,
+      rateBody: { pricingModel: 'PER_TRIP', sellRate: '6000' },
+    });
+    await db.revenueLine.updateMany({
+      where: { deliveryOrderId: d.uuid, status: 'ACTIVE' },
+      data: { lockedAt: new Date(), lockedDocumentId: randomUUID() },
+    });
+    const r = await redeliver(d.doId, { reasonCodeId: d.short }).expect(200);
+    const rev = async (id: string) =>
+      (await api(app, admin).get(`/v1/delivery-orders/${id}/revenue-lines`).expect(200)).body;
+    expect(await rev(d.doId)).toMatchObject({ sellRevenueTotal: '6000.00' });
+    expect(await rev(r.body.redelivery.id)).toMatchObject({ sellRevenueTotal: '0.00' });
+  });
 });

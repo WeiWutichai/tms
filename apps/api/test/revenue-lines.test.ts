@@ -9,6 +9,7 @@ import {
   OrderIntakeService,
   type UpsertOrderInput,
 } from '../src/modules/orders/order-intake.service';
+import { RevenueLinesService } from '../src/modules/revenue-lines/revenue-lines.service';
 import { createTenantWithDefaults } from '../src/modules/tenants/bootstrap';
 import { bangkokToday } from '../src/modules/vehicle-documents/expiry';
 import { api, bootApp, platform, tokenFor, truncateAll, validTaxId } from './helpers';
@@ -887,7 +888,9 @@ describe('revenue lines (ST5-T01)', () => {
     });
     const { backfillRevenueLinesPerDo } =
       await import('../src/modules/revenue-lines/revenue-rebuild');
-    expect(await backfillRevenueLinesPerDo(db as never, tenantId)).toBeGreaterThanOrEqual(1);
+    const r1 = await backfillRevenueLinesPerDo(db, tenantId);
+    expect(r1.failed).toEqual([]);
+    expect(r1.done).toBeGreaterThanOrEqual(1);
     const ls = await lines(o.pub);
     expect(ls.find((l) => l.id === cur!.id)).toMatchObject({
       status: 'VOIDED',
@@ -899,6 +902,100 @@ describe('revenue lines (ST5-T01)', () => {
       where: { id: uuid('revenueLine', cur!.id) },
     });
     expect(row.voidedBy).toBe('system:backfill');
-    expect(await backfillRevenueLinesPerDo(db as never, tenantId)).toBe(0);
+    expect(await backfillRevenueLinesPerDo(db, tenantId)).toEqual({ done: 0, failed: [] });
+  });
+  // ---------- ST5-T01b แก้ตาม review/QA ----------
+  const lockDo = (doPub: string) =>
+    db.revenueLine.updateMany({
+      where: { deliveryOrderId: uuid('deliveryOrder', doPub), status: 'ACTIVE' },
+      data: { lockedAt: new Date(), lockedDocumentId: randomUUID() },
+    });
+
+  it('review H1: DO ที่ออกใบแล้ว (ล็อก) — ยอดเหมา/ส่วนที่ขาดถึงขั้นต่ำหักยอดที่ออกใบแล้วก่อนแบ่ง (ไม่คิดซ้ำ ไม่ขาด ไม่ติดลบ)', async () => {
+    // ขั้นต่ำ 10000: a 20 ตัน (8000 ล็อก) · ยกเลิก b → สร้าง c 5 ตัน = 1750 + ส่วนที่ขาด (10000 − 8000 − 1750 = 250) = 2000
+    const m = await order({ rate: { sellMinCharge: '10000' } });
+    const [a, b] = await split(await autoDo(m.id), [[[1, '20']], [[2, '5']]]);
+    await lockDo(a!);
+    await api(app, admin)
+      .post(`/v1/delivery-orders/${b}/cancel`)
+      .send({ reason: 'ลูกค้าขอยกเลิกส่วนนี้' })
+      .expect(200);
+    expect(activeOf(await lines(m.pub)).map((l) => [l.deliveryOrderId, l.sellAmount])).toEqual([
+      [a, '8000.00'],
+    ]);
+    const c = (
+      await api(app, admin)
+        .post('/v1/delivery-orders')
+        .send({ orderId: m.pub, lines: [{ soLineNo: 2, qty: '5' }] })
+        .expect(201)
+    ).body.id as string;
+    const act = activeOf(await lines(m.pub));
+    expect(act.map((l) => [l.deliveryOrderId, l.sellAmount, l.locked])).toEqual([
+      [a, '8000.00', true],
+      [c, '2000.00', false],
+    ]);
+
+    // เหมาเที่ยว 6000 แบ่ง 2 ใบ (3000/3000) · ล็อก x → แยก/รวมใบที่ล็อก 409 · ยกเลิก y แล้วสร้าง z = 6000 − 3000 = 3000
+    const t = await order({ rate: { pricingModel: 'PER_TRIP', sellRate: '6000' } });
+    const [x, y] = await split(await autoDo(t.id), [[[1, '20']], [[2, '5']]]);
+    await lockDo(x!);
+    const sp = await api(app, admin)
+      .post(`/v1/delivery-orders/${x}/split`)
+      .send({
+        parts: [{ lines: [{ soLineNo: 1, qty: '10' }] }, { lines: [{ soLineNo: 1, qty: '10' }] }],
+      })
+      .expect(409);
+    expect(sp.body.reason).toBe('revenue_line_locked');
+    await api(app, admin)
+      .post(`/v1/delivery-orders/${y}/merge`)
+      .send({ deliveryOrderIds: [x] })
+      .expect(409);
+    // review M3: เพิ่มบรรทัดเองกันเฉพาะ DO ที่ออกใบแล้ว
+    await addManual(t.pub, { deliveryOrderId: x }).expect(409);
+    await addManual(t.pub, { deliveryOrderId: y }).expect(201);
+    await api(app, admin)
+      .post(`/v1/delivery-orders/${y}/cancel`)
+      .send({ reason: 'ลูกค้าขอยกเลิกส่วนนี้' })
+      .expect(200);
+    const z = (
+      await api(app, admin)
+        .post('/v1/delivery-orders')
+        .send({ orderId: t.pub, lines: [{ soLineNo: 2, qty: '5' }] })
+        .expect(201)
+    ).body.id as string;
+    expect(activeOf(await lines(t.pub)).map((l) => [l.deliveryOrderId, l.sellAmount])).toEqual([
+      [x, '3000.00'],
+      [z, '3000.00'],
+    ]);
+    // ยอดที่ออกใบแล้วเกินยอดของใบสั่ง (ราคาลดภายหลัง) → ใบที่เหลือ 0.00 ไม่ติดลบ
+    await db.revenueLine.updateMany({
+      where: {
+        deliveryOrderId: uuid('deliveryOrder', z),
+        status: 'ACTIVE',
+        sourceType: 'SO_CHARGE',
+      },
+      data: { lockedAt: null },
+    });
+    await db.salesOrderCharge.updateMany({
+      where: { salesOrderId: t.id },
+      data: { amount: '2000', unitPrice: '2000' },
+    });
+    await run((tx) => app.get(RevenueLinesService).rebuild(t.id, tx));
+    expect(activeOf(await lines(t.pub)).map((l) => [l.deliveryOrderId, l.sellAmount])).toEqual([
+      [x, '3000.00'],
+      [z, '0.00'],
+    ]);
+  });
+
+  it('review M1: คิดต่อ DO ไม่ได้ (แปลงหน่วยไม่ได้) → ยอดเหมาชั่วคราว + provisional (ห้ามถือเป็นยอดสุดท้าย)', async () => {
+    const o = await order();
+    const pcs = await db.unit.findFirstOrThrow({ where: { tenantId, kind: 'COUNT' } });
+    await db.salesOrderLine.updateMany({
+      where: { salesOrderId: o.id, lineNo: 1 },
+      data: { unitId: pcs.id },
+    });
+    await run((tx) => app.get(RevenueLinesService).rebuild(o.id, tx));
+    const [l] = activeOf(await lines(o.pub));
+    expect(l).toMatchObject({ sellAmount: '8750.00', provisional: true });
   });
 });

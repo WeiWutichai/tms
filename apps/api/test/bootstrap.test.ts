@@ -86,7 +86,6 @@ describe('tenant bootstrap', () => {
       'service-items',
       'reason-codes',
       'trip-legs-backfill',
-      'revenue-lines-per-do',
     ]);
   });
   it('สคริปต์ tenants:bootstrap บนฐาน test (tms_test): tenant เดิม 2 รายได้ค่าเริ่มต้น + audit/event, รันซ้ำไม่เปลี่ยน', async () => {

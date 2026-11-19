@@ -1,4 +1,10 @@
-import { Prisma, type OrderChargeKind, type RevenueLine, type VatType } from '@prisma/client';
+import {
+  Prisma,
+  type OrderChargeKind,
+  type PrismaClient,
+  type RevenueLine,
+  type VatType,
+} from '@prisma/client';
 import {
   allocateSatang,
   decimalFromSatang,
@@ -103,7 +109,8 @@ type ChargeRow = Awaited<ReturnType<Tx['salesOrderCharge']['findMany']>>[number]
  *   · บรรทัดอื่น (เหมาเที่ยว/ตามระยะทาง/ราคาที่กำหนดเอง/ค่าจุดเพิ่ม/ค่าบริการเสริมของใบสั่ง) = ยอดเหมาไม่ขึ้นกับยอดส่งจริง
  *     **[OPEN — PO]** ชั่วคราว: แบ่งเท่ากันทุก DO ที่คิดเงิน (largest remainder ตามลำดับสร้าง) — DO เดียว = คัดลอกบรรทัด
  * - DO_SURCHARGE = ค่าใช้จ่ายหน้างาน CONFIRMED ของ DO ที่ไม่ยกเลิก · DO ถูกยกเลิก → บรรทัดระบบของ DO นั้น VOIDED (+ เหตุผล)
- * - บรรทัดที่ล็อก (ออกเลขแล้ว) ไม่ถูกแตะ · DO ที่มีบรรทัด SO_CHARGE ล็อก = ไม่คิดราคาของ DO นั้นใหม่ ·
+ * - บรรทัดที่ล็อก (ออกเลขแล้ว) ไม่ถูกแตะ · DO ที่มีบรรทัด SO_CHARGE ล็อก = ไม่คิดราคาของ DO นั้นใหม่ และยอดที่ออกใบแล้ว
+ *   หักออกก่อนแบ่งยอดเหมา/ส่วนที่ขาดถึงขั้นต่ำให้ DO ที่เหลือ (ไม่คิดซ้ำ ไม่ติดลบ) ·
  *   บรรทัด SO_CHARGE ระดับใบสั่งที่ล็อก (ข้อมูลก่อน T01b) = ไม่คิดราคาของใบสั่งใหม่เลย
  * - แหล่งหาย (ราคาใบสั่งคิดใหม่ได้บรรทัดใหม่) → ลบแถวระบบที่ยังไม่ล็อก · ระดับใบสั่ง → DO / DO ไม่คิดเงินแล้ว → VOIDED
  * - ไม่คำนวณภาษี — vat_type/wht_rate คัดลอกจากแหล่ง
@@ -196,18 +203,36 @@ export async function rebuildRevenueLines(
           provisional: true,
         });
     } else {
+      // DO ที่ยังคิดใหม่ได้ (ไม่มีบรรทัด SO_CHARGE ล็อก) — ยอดของ DO ที่ล็อกแล้วหักออกก่อนแบ่ง (review H1: ไม่คิดซ้ำ/ไม่ขาด)
+      const open = counted.filter((d) => !frozenDos.has(d.id));
+      const chargeIds = new Set(charges.map((c) => c.id));
+      /** ยอดที่ออกใบไปแล้วของบรรทัดราคานี้ (แหล่งเดียวกัน หรือแหล่งเดิมที่ถูกคิดราคาใหม่ — รายการบริการ/ชนิดเดียวกัน) */
+      const lockedOf = (c: ChargeRow) =>
+        sumSatang(
+          lockedCharges
+            .filter(
+              (l) =>
+                l.sourceId === c.id ||
+                (!chargeIds.has(l.sourceId ?? '') &&
+                  l.kind === c.kind &&
+                  l.serviceItemId === c.serviceItemId),
+            )
+            .map((l) => satangFromDecimal(l.amount.toFixed(2))),
+        );
       for (const c of charges) {
-        const perDo =
-          (await qtyBasedPerDo(tx, c, counted, so.lines, basis, log)) ?? lumpPerDo(c, counted);
-        for (const [i, d] of counted.entries()) {
-          if (frozenDos.has(d.id)) continue;
+        if (!open.length) break;
+        const locked = lockedOf(c);
+        const q = await qtyBasedPerDo(tx, c, open, so.lines, basis, locked, log);
+        // คิดต่อ DO ไม่ได้ (ข้อมูลหลักผิด) → ยอดเหมาชั่วคราว + provisional (ห้ามถือเป็นยอดสุดท้าย — review M1)
+        const failed = q === 'FAILED';
+        const perDo = q && q !== 'FAILED' ? q : lumpPerDo(c, open, locked);
+        for (const [i, d] of open.entries())
           desired.push({
             ...base(c),
             deliveryOrderId: d.id,
             ...perDo[i]!,
-            provisional: provisionalOf(d),
+            provisional: failed || provisionalOf(d),
           });
-        }
       }
     }
   }
@@ -323,23 +348,24 @@ export async function rebuildRevenueLines(
 type PerDo = { qty: string; unitPrice: string; amount: string };
 
 /**
- * ยอดเหมา (ไม่ขึ้นกับปริมาณสินค้า) แบ่งเท่ากันทุก DO ที่คิดเงิน **[OPEN — PO]** — DO เดียว = คัดลอกจำนวน/ราคาเดิม ·
- * หลาย DO = จำนวน 1 × ส่วนแบ่ง (ผลรวมเท่ายอดของใบสั่งพอดี)
+ * ยอดเหมา (ไม่ขึ้นกับปริมาณสินค้า) แบ่งเท่ากันทุก DO ที่ยังคิดใหม่ได้ **[OPEN — PO]** — ยอดที่แบ่ง = ยอดของใบสั่ง − ยอดที่ออกใบแล้ว
+ * (`locked`; ไม่ต่ำกว่า 0) · DO เดียวและยังไม่มีส่วนที่ออกใบ = คัดลอกจำนวน/ราคาเดิม · อื่น ๆ = จำนวน 1 × ส่วนแบ่ง
  */
-function lumpPerDo(c: ChargeRow, counted: readonly DoRow[]): PerDo[] {
-  if (counted.length === 1)
+function lumpPerDo(c: ChargeRow, open: readonly DoRow[], locked: bigint): PerDo[] {
+  if (open.length === 1 && locked === 0n)
     return [
       { qty: c.qty.toFixed(4), unitPrice: c.unitPrice.toFixed(2), amount: c.amount.toFixed(2) },
     ];
+  const rest = satangFromDecimal(c.amount.toFixed(2)) - locked;
   return allocateSatang(
-    satangFromDecimal(c.amount.toFixed(2)),
-    counted.map(() => 1n),
+    rest > 0n ? rest : 0n,
+    open.map(() => 1n),
   ).map((s) => ({ qty: '1', unitPrice: decimalFromSatang(s), amount: decimalFromSatang(s) }));
 }
 
 /**
- * ค่าขนส่งสูตรตามจำนวน ต่อ DO: ราคา snapshot × ปริมาณของ DO ผ่าน engine เดิม (ปัดต่อ DO) + ส่วนที่ขาดถึงขั้นต่ำของใบสั่ง
- * คืน null = ไม่ใช่สูตรตามจำนวน (หรือคิดไม่ได้ — ผู้เรียกใช้ยอดเหมาแทน)
+ * ค่าขนส่งสูตรตามจำนวน ต่อ DO (ที่ยังคิดใหม่ได้): ราคา snapshot × ปริมาณของ DO ผ่าน engine เดิม (ปัดต่อ DO) +
+ * ส่วนที่ขาดถึงขั้นต่ำของใบสั่ง (หักยอดที่ออกใบแล้ว `locked`) · null = ไม่ใช่สูตรตามจำนวน · 'FAILED' = คิดไม่ได้
  */
 async function qtyBasedPerDo(
   tx: Tx,
@@ -347,8 +373,9 @@ async function qtyBasedPerDo(
   counted: readonly DoRow[],
   soLines: readonly { id: string; unitId: string | null; productId: string | null }[],
   basis: 'ACTUAL' | 'PLANNED',
+  locked: bigint,
   log: (msg: string) => void,
-): Promise<PerDo[] | null> {
+): Promise<PerDo[] | 'FAILED' | null> {
   if (c.kind !== 'FREIGHT' || c.origin !== 'RATE_CARD' || !c.rateCardId) return null;
   const rc = await tx.rateCard.findUnique({
     where: { id: c.rateCardId },
@@ -383,21 +410,21 @@ async function qtyBasedPerDo(
       });
     } catch (e) {
       log(`charge ${c.id}: per-DO reprice failed — ${(e as Error).message}`);
-      return null;
+      return 'FAILED';
     }
     const line = r.lines.find((x) => x.kind === 'FREIGHT');
     if (r.pricingStatus !== 'AVAILABLE' || !line) {
       log(
         `charge ${c.id}: per-DO reprice ${r.pricingStatus} ${r.reasons.map((x) => x.code).join(',')}`,
       );
-      return null;
+      return 'FAILED';
     }
     rows.push({ qty: line.qty, calc: satangFromDecimal(line.calculatedAmount), hasQty: true });
   }
-  // ขั้นต่ำ (ระดับใบสั่ง — [OPEN — PO]): รวมทุก DO ต่ำกว่าขั้นต่ำ → ส่วนที่ขาดแบ่งลง DO ที่มีปริมาณตามสัดส่วนยอด
-  // ส่งได้ 0 ทุกใบ (คืนคลังทั้งหมด) = ไม่คิดขั้นต่ำ (ค่าขนส่งตามจำนวน 0 — กติกาเดิมของ ST4-T11)
+  // ขั้นต่ำ (ระดับใบสั่ง — [OPEN — PO]): ยอดที่ออกใบแล้ว + รวม DO ที่คิดใหม่ได้ ต่ำกว่าขั้นต่ำ → ส่วนที่ขาดแบ่งลง DO
+  // ที่คิดใหม่ได้และมีปริมาณ ตามสัดส่วนยอด · ส่งได้ 0 ทุกใบ (คืนคลังทั้งหมด) = ไม่คิดขั้นต่ำ (กติกาเดิมของ ST4-T11)
   const min = rc.minCharge ? satangFromDecimal(rc.minCharge.toFixed(2)) : null;
-  const total = sumSatang(rows.map((x) => x.calc));
+  const total = locked + sumSatang(rows.map((x) => x.calc));
   const topUp = new Array<bigint>(rows.length).fill(0n);
   if (min !== null && rows.some((x) => x.hasQty) && total < min) {
     const idx = rows.flatMap((x, i) => (x.hasQty ? [i] : []));
@@ -446,11 +473,17 @@ export async function revenueTotalsByDeliveryOrder(
 }
 
 /**
- * ขั้น bootstrap (ST5-T01b — ข้อมูลก่อน migration 0117): ใบสั่งที่มีบรรทัด SO_CHARGE ระดับใบสั่ง (ยังใช้ ไม่ล็อก) แต่มี DO ที่ไม่ยกเลิกแล้ว
- * หรือมีบรรทัดระบบผูก DO ที่ยกเลิกแล้ว → คิดบรรทัดใหม่ต่อ DO (ระดับใบสั่ง VOIDED + เหตุผล) · บรรทัดที่คนเพิ่ม/ที่ล็อกไม่แตะ
- * รันซ้ำได้ (ไม่มีอะไรค้าง = ไม่ทำอะไร) · `db` ต้องมองเห็น tenant (platform/ตั้ง app.tenant_id แล้ว)
+ * Backfill หลัง migrate (ST5-T01b — ข้อมูลก่อน migration 0117; เรียกจาก `bootstrapAllTenants` หลังขั้น bootstrap ของ tenant):
+ * ใบสั่งที่มีบรรทัด SO_CHARGE ระดับใบสั่ง (ยังใช้ ไม่ล็อก) แต่มี DO ที่ไม่ยกเลิกแล้ว หรือมีบรรทัดระบบผูก DO ที่ยกเลิกแล้ว
+ * → คิดบรรทัดใหม่ต่อ DO (ระดับใบสั่ง VOIDED + เหตุผล) · บรรทัดที่คนเพิ่ม/ที่ล็อกไม่แตะ
+ * **ทีละใบสั่ง transaction สั้น** (review M2) — ใบที่ทำแล้ว commit ทันที, รันซ้ำทำต่อเฉพาะที่ค้าง (resumable),
+ * ใบที่ล้มบันทึกไว้ใน `failed` ไม่ทำให้ใบอื่น/การ migrate หยุด · `db` = client platform (BYPASSRLS)
  */
-export async function backfillRevenueLinesPerDo(db: Tx, tenantId: string): Promise<number> {
+export async function backfillRevenueLinesPerDo(
+  db: PrismaClient,
+  tenantId: string,
+  timeoutMs = 30_000,
+): Promise<{ done: number; failed: { salesOrderId: string; error: string }[] }> {
   const rows = await db.$queryRaw<{ id: string }[]>`
     SELECT DISTINCT l.sales_order_id::text AS id
       FROM revenue_line l
@@ -461,6 +494,21 @@ export async function backfillRevenueLinesPerDo(db: Tx, tenantId: string): Promi
             SELECT 1 FROM delivery_order d WHERE d.sales_order_id = l.sales_order_id AND d.status <> 'CANCELLED'))
          OR EXISTS (SELECT 1 FROM delivery_order d WHERE d.id = l.delivery_order_id AND d.status = 'CANCELLED'))
      ORDER BY 1`;
-  for (const r of rows) await rebuildRevenueLines(db, r.id, 'system:backfill');
-  return rows.length;
+  const failed: { salesOrderId: string; error: string }[] = [];
+  let done = 0;
+  for (const r of rows) {
+    try {
+      await db.$transaction(
+        async (tx) => {
+          await tx.$executeRaw`SELECT set_config('app.tenant_id', ${tenantId}, true)`;
+          await rebuildRevenueLines(tx as unknown as Tx, r.id, 'system:backfill');
+        },
+        { timeout: timeoutMs },
+      );
+      done += 1;
+    } catch (e) {
+      failed.push({ salesOrderId: r.id, error: e instanceof Error ? e.message : String(e) });
+    }
+  }
+  return { done, failed };
 }

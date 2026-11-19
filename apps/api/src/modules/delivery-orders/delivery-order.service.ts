@@ -217,6 +217,22 @@ export class DeliveryOrderService {
     return this.revenue.rebuild(salesOrderId, tx);
   }
 
+  /**
+   * ST5-T01b (QA L1): แยก/รวม DO ที่มีบรรทัดรายได้ออกใบแล้ว (ล็อก) → 409 — ปริมาณที่ย้ายเข้า/ออกจะคิดเงินซ้ำหรือหาย
+   * (บรรทัดที่ล็อกไม่เปลี่ยน) · แก้ด้วยใบลด/เพิ่มหนี้ (ST5-T12/T13)
+   */
+  private async assertNoBilledRevenue(tx: Tx, ids: string[]): Promise<void> {
+    const l = await tx.revenueLine.findFirst({
+      where: { deliveryOrderId: { in: ids }, status: 'ACTIVE', lockedAt: { not: null } },
+      select: { deliveryOrderId: true },
+    });
+    if (l)
+      throw new ProblemException('invalid_state_transition', undefined, undefined, {
+        reason: 'revenue_line_locked',
+        deliveryOrderId: encodeId('deliveryOrder', l.deliveryOrderId!),
+      });
+  }
+
   // ---------------------------------------------------------------------------------------------
   // อ่าน
 
@@ -440,6 +456,7 @@ export class DeliveryOrderService {
   ): Promise<DeliveryOrderRecord[]> {
     const src = await this.lockEditable(tx, deliveryOrderId, expectedVersion);
     const so = (await this.lockOrder(tx, src.salesOrderId))!;
+    await this.assertNoBilledRevenue(tx, [src.id]);
     const plans = this.plan(() => planSplit(src.lines.filter(linked).map(linePlan), parts));
     const root = src.splitRootNo ?? src.doNo!;
     const last = await tx.deliveryOrder.aggregate({
@@ -547,6 +564,10 @@ export class DeliveryOrderService {
         'redelivery_mismatch',
         'a redelivery of rejected goods merges only with redeliveries of the same delivery order',
       );
+    await this.assertNoBilledRevenue(
+      tx,
+      ordered.map((d) => d.id),
+    );
     const [target, ...others] = ordered as [DeliveryOrderRecord, ...DeliveryOrderRecord[]];
     const merged = this.plan(() =>
       planMerge(ordered.map((d) => d.lines.filter(linked).map(linePlan))),
