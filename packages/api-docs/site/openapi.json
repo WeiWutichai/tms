@@ -28427,7 +28427,7 @@
             "$ref": "#/components/responses/NotFound"
           },
           "409": {
-            "description": "`not_ready_to_bill` — DO ยังไม่พร้อมวางบิล: `reasons[]` (NOT_DELIVERED · BILLING_HOLD · PRICING_UNAVAILABLE · NO_REVENUE · REVENUE_PROVISIONAL · REVENUE_LOCKED · SURCHARGE_PENDING · STOP_TIMES_MISSING · POD_INCOMPLETE) + `missing[]` เมื่อหลักฐานไม่ครบ",
+            "description": "`not_ready_to_bill` — DO ยังไม่พร้อมวางบิล: `reasons[]` (NOT_DELIVERED · BILLING_HOLD · PRICING_UNAVAILABLE · NO_REVENUE · REVENUE_PROVISIONAL · REVENUE_LOCKED · SURCHARGE_PENDING · STOP_TIMES_MISSING · POD_INCOMPLETE · IN_INVOICE) + `missing[]` เมื่อหลักฐานไม่ครบ",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -46696,6 +46696,17 @@
             "nullable": true,
             "description": "เวลาส่งบัญชี · null = ยังไม่ส่ง"
           },
+          "billingStatus": {
+            "type": "string",
+            "enum": [
+              "UNBILLED",
+              "IN_DRAFT",
+              "INVOICED",
+              "CREDITED"
+            ],
+            "example": "UNBILLED",
+            "description": "สถานะวางบิล: UNBILLED ยังไม่อยู่ในใบแจ้งหนี้ · IN_DRAFT อยู่ในร่าง · INVOICED ใบออกเลขแล้ว · CREDITED ใบถูกลดหนี้เต็มใบ (วางบิลใหม่ได้) — DO หนึ่งใบอยู่ในใบแจ้งหนี้ที่ active ได้ใบเดียว"
+          },
           "lines": {
             "type": "array",
             "items": {
@@ -46742,6 +46753,7 @@
           "rejectedFromId",
           "podStatus",
           "releasedAt",
+          "billingStatus",
           "lines",
           "version",
           "createdAt",
@@ -63315,6 +63327,17 @@
             "nullable": true,
             "description": "เวลาส่งบัญชี · null = ยังไม่ส่ง"
           },
+          "billingStatus": {
+            "type": "string",
+            "enum": [
+              "UNBILLED",
+              "IN_DRAFT",
+              "INVOICED",
+              "CREDITED"
+            ],
+            "example": "UNBILLED",
+            "description": "สถานะวางบิล: UNBILLED ยังไม่อยู่ในใบแจ้งหนี้ · IN_DRAFT อยู่ในร่าง · INVOICED ใบออกเลขแล้ว · CREDITED ใบถูกลดหนี้เต็มใบ (วางบิลใหม่ได้) — DO หนึ่งใบอยู่ในใบแจ้งหนี้ที่ active ได้ใบเดียว"
+          },
           "lines": {
             "type": "array",
             "items": {
@@ -63361,6 +63384,7 @@
           "rejectedFromId",
           "podStatus",
           "releasedAt",
+          "billingStatus",
           "lines",
           "version",
           "createdAt",
@@ -67249,6 +67273,11 @@
       "status": 409,
       "title": "ใบส่งของนี้อยู่ในเที่ยวรถแล้ว — ถอดออกจากเที่ยวก่อน",
       "titleEn": "Delivery order is on a trip — remove it from the trip first"
+    },
+    "do_already_drafted": {
+      "status": 409,
+      "title": "ใบส่งของนี้อยู่ในใบแจ้งหนี้อื่นแล้ว",
+      "titleEn": "This delivery order is already on another invoice"
     },
     "duplicate": {
       "status": 409,
