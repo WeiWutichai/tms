@@ -4,6 +4,7 @@ import { EXT_PREFIX, EXTERNAL_ID_RE } from '../../common/external-id';
 import { encodeId, tryDecodeId } from '../../common/ids';
 import { decodeCursor, toPage } from '../../common/pagination';
 import { DbService, type Tx } from '../../db/db.service';
+import { PodService } from '../pod/pod.service';
 import type {
   BillingQueueCustomerDto,
   BillingQueuePageDto,
@@ -51,6 +52,8 @@ interface Filter {
   to?: string;
   pod?: boolean;
   released?: boolean;
+  /** incremental pull — ใช้ทั้งแถวและยอดรวมต่อลูกค้า (QA L) */
+  updatedAfter?: Date;
 }
 
 interface PageRow {
@@ -106,7 +109,10 @@ const QUEUE_READY = Prisma.sql`
  */
 @Injectable()
 export class BillingQueueService {
-  constructor(private readonly db: DbService) {}
+  constructor(
+    private readonly db: DbService,
+    private readonly pod: PodService,
+  ) {}
 
   private async customerFilter(tx: Tx, ref: string | undefined): Promise<string | undefined> {
     if (ref === undefined) return undefined;
@@ -131,6 +137,7 @@ export class BillingQueueService {
     if (f.to) conds.push(Prisma.sql`d.do_date <= ${f.to}::date`);
     if (f.released === true) conds.push(Prisma.sql`d.released_at IS NOT NULL`);
     if (f.released === false) conds.push(Prisma.sql`d.released_at IS NULL`);
+    if (f.updatedAfter) conds.push(Prisma.sql`d.updated_at > ${f.updatedAfter}::timestamptz`);
     return Prisma.sql`
       d0 AS NOT MATERIALIZED (
         SELECT d.id, d.customer_id, d.sales_order_id, d.trip_stop_id, d.updated_at, d.status::text AS status,
@@ -199,13 +206,12 @@ export class BillingQueueService {
       to: q.dateTo,
       pod: q.podComplete === undefined ? undefined : q.podComplete === 'true',
       released: q.released === undefined ? undefined : q.released === 'true',
+      updatedAfter: q.updatedAfter ? new Date(q.updatedAfter) : undefined,
     };
     const limit = q.limit ?? 50;
     const desc = q.sort === '-updatedAt';
     const sort = desc ? '-updatedAt' : 'updatedAt';
     const keyset: Prisma.Sql[] = [Prisma.sql`true`];
-    if (q.updatedAfter)
-      keyset.push(Prisma.sql`q.updated_at > ${new Date(q.updatedAfter)}::timestamptz`);
     if (q.cursor) {
       const c = decodeCursor(q.cursor, sort);
       keyset.push(
@@ -237,6 +243,15 @@ export class BillingQueueService {
        ORDER BY ${order}
        LIMIT ${limit + 1}`;
 
+    // ST5-T04 QA L1: หลักฐานของแถวในหน้า (≤ limit) ตรวจกับ checklist **ปัจจุบัน** ของลูกค้าแบบเดียวกับตอนส่งบัญชี —
+    // checklist เข้มขึ้นหลัง DO ผ่าน = `pod.complete` false + `pod.checklistOk` false (ตัวกรอง podComplete / customers[] ใช้สถานะที่เก็บ)
+    const current = new Map<string, boolean>();
+    for (const r of rows.slice(0, limit))
+      if (r.pod_ok)
+        current.set(
+          r.id,
+          (await this.pod.checkCurrent(tx, { id: r.id, customerId: r.customer_id })).ok,
+        );
     const page = toPage(
       rows.map((r) => ({ ...r, updatedAt: r.updated_at })),
       { limit, sort },
@@ -256,7 +271,11 @@ export class BillingQueueService {
         vehiclePlate: r.vehicle_plate,
         carrierName: r.carrier_name,
         requirePodToBill: r.req_pod,
-        pod: { status: r.pod_status, complete: r.pod_ok },
+        pod: {
+          status: r.pod_status,
+          complete: r.pod_ok && (current.get(r.id) ?? true),
+          checklistOk: r.pod_ok ? (current.get(r.id) ?? true) : false,
+        },
         stopTimesComplete: r.stop_ok,
         revenueLineCount: r.lines,
         sellTotal: new Prisma.Decimal(r.total).toFixed(2),

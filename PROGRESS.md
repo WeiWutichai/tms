@@ -288,6 +288,7 @@
 
 - **ทำ:** คิว DO พร้อมวางบิล (ส่งถึงแล้ว + POD ผ่านเกณฑ์เมื่อลูกค้าเปิด "ไม่มี POD ไม่วางบิล" + ใบสั่ง AVAILABLE + บรรทัดรายได้ยืนยันแล้ว ไม่ provisional/ล็อก + ไม่มีค่าใช้จ่ายหน้างานรอยืนยัน + ไม่ระงับวางบิล) · ขั้นส่งบัญชีเก็บ `released_at/by` (สถานะ DO คง UNBILLED ตาม docs/01) เงื่อนไขเพิ่ม: เวลาถึง/ออกจุดส่ง + ตรวจหลักฐานกับ checklist ปัจจุบัน · ค่าตั้งลูกค้า `requirePodToBill`
 - **ไฟล์:** `apps/api/src/modules/invoices/` (billing-queue.dto/service, billing-release.service, invoices.controller), `delivery-order.service.ts` (`lockForRelease`/`markReleased`), `pod.service.ts` (`checkCurrent`), `customers/*`, `common/problem.ts` (`not_ready_to_bill`), migration `0120_ready_to_bill`, `test/billing-queue.test.ts`, spec/12 §3 +4 แถว
+- **แก้ตาม review/QA:** คิวแสดง `pod.checklistOk` (ตรวจกับ checklist ปัจจุบันเฉพาะแถวในหน้า) · `updatedAfter` ใช้กับ `customers[]` ด้วย · spec/12 + backlog ST5-T07: ร่างใบต้องตรวจความพร้อมซ้ำ ห้ามเชื่อ `released_at` · คำถาม PO วันที่งวด (doDate vs วันส่งจริง)
 - **ค้าง:** หน้า `bill` ตามต้นแบบ + ปุ่มส่งบัญชี/แท็บ POD ยังไม่ผ่าน (ST5-T07, [OPEN — Claude Design]) · ย้อน RELEASED / ล็อกแก้ stop-qty หลังส่งบัญชี (ST5-T06) · [OPEN — PO] DO FAILED ที่มีค่าเที่ยวเปล่า, บรรทัดที่คนเพิ่มระดับใบสั่ง, DO ที่ออกใบไปบางส่วน
 
 ### 19 พ.ย. 2569 (ST5-T01b แก้ตาม review/QA — lane l5)

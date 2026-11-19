@@ -236,7 +236,7 @@ describe('ready-to-bill queue (ST5-T04)', { timeout: 300_000 }, () => {
       hasMore: boolean;
       customers: Record<string, any>[];
     };
-  const ids = (b: { data: { id: string }[] }) => b.data.map((x) => x.id);
+  const ids = (b: { data: Record<string, any>[] }) => b.data.map((x) => x.id as string);
   const release = (doId: string, token = admin) =>
     api(app, token).post(`/v1/delivery-orders/${doId}/release`).send({});
 
@@ -269,7 +269,7 @@ describe('ready-to-bill queue (ST5-T04)', { timeout: 300_000 }, () => {
     expect(r).toMatchObject({
       status: 'UNBILLED',
       requirePodToBill: true,
-      pod: { status: 'NONE', complete: true },
+      pod: { status: 'NONE', complete: true, checklistOk: true },
       stopTimesComplete: true,
       revenueLineCount: 1,
       sellTotal: '1750.00',
@@ -317,6 +317,11 @@ describe('ready-to-bill queue (ST5-T04)', { timeout: 300_000 }, () => {
     expect(new Set([...ids(p1), ...ids(p2)]).size).toBe(3);
     // customers[] ไม่ขึ้นกับหน้า
     expect(p1.customers).toHaveLength(3);
+    // updatedAfter ใช้ทั้งแถวและยอดรวมต่อลูกค้า (review L)
+    const future = new Date(Date.now() + 3_600_000).toISOString();
+    const none = await queue(`?updatedAfter=${encodeURIComponent(future)}`);
+    expect(none.data).toEqual([]);
+    expect(none.customers).toEqual([]);
   });
 
   it('สิทธิ์: planner 403 · viewer อ่านได้แต่ไม่เห็นยอด (prices.sell:read) · tenant อื่นไม่เห็น', async () => {
@@ -337,7 +342,7 @@ describe('ready-to-bill queue (ST5-T04)', { timeout: 300_000 }, () => {
       .expect(412);
     const r = await api(app, admin)
       .post(`/v1/delivery-orders/${ready.doId}/release`)
-      .set('If-Match', before.headers.etag)
+      .set('If-Match', before.headers.etag as string)
       .send({ note: 'ส่งบัญชีงวดครึ่งแรก' })
       .expect(200);
     expect(r.body.releasedAt).toBeTruthy();
@@ -390,7 +395,8 @@ describe('ready-to-bill queue (ST5-T04)', { timeout: 300_000 }, () => {
       where: { id: uuid('customer', stale.customer) },
       data: { podRequirements: {} },
     });
-    expect(ids(await queue())).toContain(stale.doId);
+    const sq = (await queue()).data.find((x) => x.id === stale.doId)!;
+    expect(sq.pod).toMatchObject({ complete: false, checklistOk: false }); // QA L1: ตรงกับผลส่งบัญชี
     const s = await release(stale.doId).expect(409);
     expect(s.body.reasons).toEqual(['POD_INCOMPLETE']);
     expect(s.body.missing.map((m: { key: string }) => m.key)).toEqual(['photo', 'signature']);

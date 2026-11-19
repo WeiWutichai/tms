@@ -70,10 +70,16 @@ export class BillingQueuePodDto {
   status!: string;
   @ApiProperty({
     description:
-      'หลักฐานผ่านเกณฑ์ลูกค้าแล้ว (DO รอวางบิล — UNBILLED) และฉบับล่าสุดไม่ใช่ PARTIAL · ' +
-      'ตอนส่งบัญชีตรวจซ้ำกับ checklist ปัจจุบันของลูกค้า',
+      'หลักฐานผ่านเกณฑ์ลูกค้าแล้ว (DO รอวางบิล — UNBILLED) ฉบับล่าสุดไม่ใช่ PARTIAL **และ** ผ่าน checklist ปัจจุบัน (`checklistOk`)',
   })
   complete!: boolean;
+  @ApiProperty({
+    description:
+      'หลักฐานฉบับล่าสุดผ่าน checklist **ปัจจุบัน** ของลูกค้า (ตรวจเฉพาะแถวในหน้า — แบบเดียวกับตอนส่งบัญชี) · ' +
+      'false ขณะ DO ผ่านเกณฑ์แล้ว = checklist เข้มขึ้นภายหลัง → ส่งบัญชีได้ 409 POD_INCOMPLETE จนกว่าจะแก้หลักฐาน · ' +
+      'ตัวกรอง `podComplete` และ `customers[]` ใช้สถานะที่เก็บ (ไม่ตรวจซ้ำ)',
+  })
+  checklistOk!: boolean;
 }
 
 /** ใบส่งของในคิวพร้อมวางบิล */
