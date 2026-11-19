@@ -8,15 +8,22 @@ export interface Scaled {
   scale: number;
 }
 
-function toScaled(n: number): Scaled {
+/**
+ * number → ทศนิยมตรงตัว จากข้อความสั้นสุดของ JS (`String(n)`) รวมรูป exponent เช่น `1e+21`, `1.5e-25`
+ * (ไม่ใช้ toFixed — ค่าเล็กกว่า 1e-20 จะไม่กลายเป็นศูนย์เงียบ ๆ และค่าใหญ่ไม่ทำ BigInt ล้ม)
+ */
+export function toScaled(n: number): Scaled {
   if (!Number.isFinite(n)) throw new RangeError('not a finite number');
-  let s = String(n);
-  if (/e/i.test(s)) s = n.toFixed(20).replace(/0+$/, '').replace(/\.$/, '');
-  const neg = s.startsWith('-');
-  if (neg) s = s.slice(1);
-  const [whole = '0', frac = ''] = s.split('.');
-  const int = BigInt(whole + frac) * (neg ? -1n : 1n);
-  return { int, scale: frac.length };
+  const m = /^(-?)(\d+)(?:\.(\d+))?(?:e([+-]?\d+))?$/i.exec(String(n));
+  if (!m) throw new RangeError(`cannot convert ${n}`);
+  const [, sign = '', whole = '0', frac = '', exp = '0'] = m;
+  let int = BigInt(whole + frac);
+  let scale = frac.length - Number(exp);
+  if (scale < 0) {
+    int *= 10n ** BigInt(-scale);
+    scale = 0;
+  }
+  return { int: sign ? -int : int, scale };
 }
 
 /** qty × price แบบเต็ม (ไม่ปัด) */
@@ -49,4 +56,23 @@ export function satangToNumber(v: bigint): number {
   const abs = neg ? -v : v;
   const s = `${abs / 100n}.${String(abs % 100n).padStart(2, '0')}`;
   return Number(neg ? `-${s}` : s);
+}
+
+/** ขนาดสูงสุดที่ mock รับสำหรับ mainQuantity / unitPrice / ยอดต่อรายการ (ให้ยอดเป็น number ของ JSON ได้ตรงตัว) */
+export const MAX_ABS_AMOUNT = 1e13;
+
+/** ตรวจว่าคำนวณยอดได้ตรงตัว — คืนข้อความผิดหรือ null */
+export function amountProblem(qty: number, unitPrice: number): string | null {
+  for (const [name, v] of [
+    ['mainQuantity', qty],
+    ['unitPrice', unitPrice],
+  ] as const) {
+    if (!Number.isFinite(v)) return `${name} must be a finite number`;
+    if (Math.abs(v) > MAX_ABS_AMOUNT) return `${name} out of range (|x| <= ${MAX_ABS_AMOUNT})`;
+  }
+  const sat = roundToSatang(lineAmountExact(qty, unitPrice));
+  const abs = sat < 0n ? -sat : sat;
+  if (abs > BigInt(MAX_ABS_AMOUNT) * 100n)
+    return `line amount out of range (|x| <= ${MAX_ABS_AMOUNT})`;
+  return null;
 }

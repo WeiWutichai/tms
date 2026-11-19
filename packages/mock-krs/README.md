@@ -9,6 +9,30 @@ mock server จาก contract `packages/contracts/krs/*.schema.json` (docs/01 A
 | server แยก | `pnpm --filter @tms/mock-krs dev` → `http://127.0.0.1:4784/api` (พอร์ตเริ่มต้นทั่วไปของ mock — เปลี่ยนด้วย env `MOCK_KRS_PORT` ให้อยู่ในช่วงพอร์ตของ worktree/lane ตัวเอง; `MOCK_KRS_HOST`, `MOCK_KRS_API_KEY` — ค่าเริ่ม key `mock-krs-key`) |
 | ใน test (in-process) | `const mock = await startMockKrs({ apiKey: 'k' })` → `mock.apiBaseUrl` (พอร์ตสุ่ม) … `await mock.stop()` |
 
+### ค่าตั้ง (option ↔ env)
+
+ทุก option ใช้ได้ทั้งใน test (`startMockKrs({...})` / `new MockKrs({...})`) และ CLI (env — ค่าผิดรูป = CLI ไม่ยอมเริ่ม; ไม่ตั้ง = ค่าเริ่ม)
+
+| option | env | ค่าเริ่ม |
+|---|---|---|
+| — (พอร์ต / host) | `MOCK_KRS_PORT` / `MOCK_KRS_HOST` | 4784 / 127.0.0.1 |
+| `apiKey` | `MOCK_KRS_API_KEY` | `mock-krs-key` |
+| `basePath` | `MOCK_KRS_BASE_PATH` | `/api` |
+| `schemaDir` | `MOCK_KRS_SCHEMA_DIR` | `packages/contracts/krs` |
+| `transactionNoStart` | `MOCK_KRS_TRANSACTION_NO_START` | 100001 |
+| `maxBodyBytes` | `MOCK_KRS_MAX_BODY_BYTES` | 52428800 (50 MB) |
+| `oversizeStatus` | `MOCK_KRS_OVERSIZE_STATUS` | 400 |
+| `timeoutMs` (fault timeout) | `MOCK_KRS_TIMEOUT_MS` | 30000 |
+| `allowHeaderFaults` | `MOCK_KRS_HEADER_FAULTS` (`true`/`false`/`1`/`0`) | true |
+| `voucherPeriodFrom` | `MOCK_KRS_VOUCHER_PERIOD_FROM` (`voucherDate`/`clock`) | `voucherDate` |
+| `includeAmounts` | `MOCK_KRS_INCLUDE_AMOUNTS` | true |
+| `amountRounding` | `MOCK_KRS_AMOUNT_ROUNDING` (`line-half-up`/`total-half-up`/`line-half-even`) | `line-half-up` |
+| `putTmsVoucherNoChange` | `MOCK_KRS_PUT_TMS_VOUCHER_NO_CHANGE` (`accept`/`reject400`) | `accept` |
+| `putCheckOrder` | `MOCK_KRS_PUT_CHECK_ORDER` (`validate-first`/`lookup-first`) | `validate-first` |
+| `unsupportedMethodStatus` | `MOCK_KRS_UNSUPPORTED_METHOD_STATUS` (`404`/`405`) | 405 |
+| `retryAfterSeconds` | `MOCK_KRS_RETRY_AFTER` (วินาที หรือ `none`) | 60 |
+| `now` (นาฬิกา) | — (in-process เท่านั้น) | เวลาจริง |
+
 ## Endpoint (ตาม contract)
 
 | คำขอ | ผล |
@@ -18,6 +42,7 @@ mock server จาก contract `packages/contracts/krs/*.schema.json` (docs/01 A
 | `GET /api/invoice/{transactionNo}` | 200 ข้อมูลใบ + `amount` ต่อรายการ + `totalAmount` (KRS คำนวณ) |
 | key ผิด/ไม่มี | 401 (ตรวจก่อน validate) |
 | body ผิด schema / ฟิลด์นอก whitelist / ส่ง `voucherNo`/`transactionNo` เอง / JSON เสีย / เกิน 50 MB | 400 + `errors[]` (path, keyword, params — บอกชื่อฟิลด์) |
+| `mainQuantity`/`unitPrice` หรือยอดต่อรายการเกิน ±1e13 (mock คำนวณยอดตรงตัวไม่ได้) | 400 `keyword: range` — ตรวจก่อนบันทึก ไม่เก็บใบ ([OPEN — KRS] ขีดจำกัดจริงไม่รู้) |
 | `transactionNo` ไม่มี | 404 |
 | `tmsVoucherNo` ซ้ำ (POST หรือ PUT ด้วยเลขของใบอื่น) | 409 (ไม่บอก `transactionNo` — ตาม A.5) |
 | method อื่นบน `/invoice` (เช่น DELETE) | 405 + `Allow` (ค่าเริ่ม — [OPEN — KRS] ตั้ง `unsupportedMethodStatus: 404` ได้) · path อื่น (เช่น `/deliveryorder`, `/creditnote`) = 404 |

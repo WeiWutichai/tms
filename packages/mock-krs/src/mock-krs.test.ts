@@ -1,5 +1,12 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { lineAmountSatang, satangToNumber } from './decimal';
+import {
+  lineAmountExact,
+  lineAmountSatang,
+  roundToSatang,
+  satangToNumber,
+  toScaled,
+} from './decimal';
+import { optionsFromEnv } from './env';
 import { MockKrs, startMockKrs, type KrsInvoiceLine, type KrsInvoiceRequest } from './mock-krs';
 
 /**
@@ -552,6 +559,89 @@ describe('control และ header ต้องไม่ทำให้ mock ล
       expect(r.body.message).toMatch(/X-Mock-Fault/);
     }
     expect(mock.listInvoices()).toHaveLength(0);
+  });
+});
+
+describe('ค่าตัวเลขที่คำนวณยอดตรงตัวไม่ได้ (QA)', () => {
+  it.each([
+    ['unitPrice 1e21', { unitPrice: 1e21 }],
+    ['mainQuantity 1e14', { mainQuantity: 1e14 }],
+    ['ยอดต่อรายการเกิน 1e13', { mainQuantity: 1e7, unitPrice: 1e7 }],
+  ])('%s → 400 และไม่บันทึกใบ (POST/PUT)', async (_n, over) => {
+    const r = await post(invoice('INV-BIG', [line(1, over)]));
+    expect(r.status).toBe(400);
+    expect(r.body.errors[0]).toMatchObject({ path: '/lines/0', keyword: 'range' });
+    expect(mock.listInvoices()).toHaveLength(0);
+    const { body: c } = await post(invoice('INV-1'));
+    expect(
+      (await call('PUT', `/invoice/${c.transactionNo}`, invoice('INV-1', [line(1, over)]))).status,
+    ).toBe(400);
+    expect(mock.getInvoice(c.transactionNo)?.revision).toBe(1);
+  });
+
+  it('ค่าเล็กมากแปลงตรงตัว ไม่กลายเป็นศูนย์เงียบ ๆ', async () => {
+    expect(toScaled(1.5e-25)).toEqual({ int: 15n, scale: 26 });
+    expect(toScaled(1e21)).toEqual({ int: 10n ** 21n, scale: 0 });
+    expect(toScaled(-2.5e-7)).toEqual({ int: -25n, scale: 8 });
+    expect(satangToNumber(roundToSatang(lineAmountExact(1e-25, 4e24)))).toBe(0.4);
+    expect(lineAmountSatang(5e-3, 1)).toBe(1n); // 0.005 → 0.01 (ไม่ใช่ 0)
+    const r = await post(invoice('INV-T', [line(1, { mainQuantity: 5e-15, unitPrice: 1e13 })]));
+    expect(r.status).toBe(201);
+    expect(r.body.lines[0].amount).toBe(0.05);
+  });
+});
+
+describe('CLI: option ทุกตัวตั้งผ่าน env ได้', () => {
+  it('อ่านค่าครบ + ค่าเริ่ม', () => {
+    expect(optionsFromEnv({})).toEqual({ port: 4784, host: '127.0.0.1', options: {} });
+    const c = optionsFromEnv({
+      MOCK_KRS_PORT: '4999',
+      MOCK_KRS_API_KEY: 'k',
+      MOCK_KRS_BASE_PATH: '/x',
+      MOCK_KRS_SCHEMA_DIR: '/tmp/s',
+      MOCK_KRS_TRANSACTION_NO_START: '5',
+      MOCK_KRS_MAX_BODY_BYTES: '1000',
+      MOCK_KRS_OVERSIZE_STATUS: '413',
+      MOCK_KRS_TIMEOUT_MS: '30000',
+      MOCK_KRS_HEADER_FAULTS: 'false',
+      MOCK_KRS_VOUCHER_PERIOD_FROM: 'clock',
+      MOCK_KRS_INCLUDE_AMOUNTS: '0',
+      MOCK_KRS_AMOUNT_ROUNDING: 'total-half-up',
+      MOCK_KRS_PUT_TMS_VOUCHER_NO_CHANGE: 'reject400',
+      MOCK_KRS_PUT_CHECK_ORDER: 'lookup-first',
+      MOCK_KRS_UNSUPPORTED_METHOD_STATUS: '404',
+      MOCK_KRS_RETRY_AFTER: 'none',
+    });
+    expect(c.port).toBe(4999);
+    expect(c.options).toEqual({
+      apiKey: 'k',
+      basePath: '/x',
+      schemaDir: '/tmp/s',
+      transactionNoStart: 5,
+      maxBodyBytes: 1000,
+      oversizeStatus: 413,
+      timeoutMs: 30000,
+      allowHeaderFaults: false,
+      voucherPeriodFrom: 'clock',
+      includeAmounts: false,
+      amountRounding: 'total-half-up',
+      putTmsVoucherNoChange: 'reject400',
+      putCheckOrder: 'lookup-first',
+      unsupportedMethodStatus: 404,
+      retryAfterSeconds: null,
+    });
+    expect(optionsFromEnv({ MOCK_KRS_RETRY_AFTER: '7' }).options.retryAfterSeconds).toBe(7);
+  });
+
+  it.each([
+    ['MOCK_KRS_PORT', 'abc'],
+    ['MOCK_KRS_OVERSIZE_STATUS', '200'],
+    ['MOCK_KRS_AMOUNT_ROUNDING', 'floor'],
+    ['MOCK_KRS_RETRY_AFTER', '-1'],
+    ['MOCK_KRS_BASE_PATH', 'api'],
+    ['MOCK_KRS_HEADER_FAULTS', 'yes'],
+  ])('%s=%s ผิดรูป → ไม่ยอมเริ่ม', (k, v) => {
+    expect(() => optionsFromEnv({ [k]: v })).toThrow(k);
   });
 });
 

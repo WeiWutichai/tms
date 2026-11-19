@@ -17,7 +17,13 @@ import { readFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
-import { lineAmountExact, roundToSatang, satangToNumber, type Scaled } from './decimal';
+import {
+  amountProblem,
+  lineAmountExact,
+  roundToSatang,
+  satangToNumber,
+  type Scaled,
+} from './decimal';
 
 /** ที่อยู่ JSON schema ของ contract (ใช้ได้ทั้งจาก src/ และ dist/) */
 export const DEFAULT_SCHEMA_DIR = join(__dirname, '../../contracts/krs');
@@ -529,7 +535,17 @@ export class MockKrs {
     }
     const errors = this.validate(body);
     if (errors) throw new HttpError(400, 'payload does not match contract', errors);
-    return body as KrsInvoiceRequest;
+    // ตรวจก่อนบันทึก: ค่าที่คำนวณยอดตรงตัวไม่ได้ = 400 (ไม่เก็บใบ)
+    const inv = body as KrsInvoiceRequest;
+    const amountErrors = inv.lines.flatMap((l, i) => {
+      const problem = amountProblem(l.mainQuantity, l.unitPrice);
+      return problem
+        ? [{ path: `/lines/${i}`, message: problem, keyword: 'range', params: {} }]
+        : [];
+    });
+    if (amountErrors.length)
+      throw new HttpError(400, 'amount cannot be computed exactly', amountErrors);
+    return inv;
   }
 
   private create(body: KrsInvoiceRequest): Outcome {
