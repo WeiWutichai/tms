@@ -261,13 +261,18 @@ export class SettlementsController {
   @ApiOperation({
     summary: 'อนุมัติใบสำคัญจ่าย (separation of duties) → ออกเลข STL — เหตุผล ≥ 10 ตัวอักษร',
     description:
-      'DRAFT → APPROVED (docs/01 §4.5 — ยังไม่มีขั้นให้รถร่วมตรวจ ST6-T05) · **ผู้สร้างใบอนุมัติเองไม่ได้ → 403 `settlement_self_approval`** · ' +
-      'ยอดสุทธิเกินวงเงินที่ตั้ง (`settlement.approvalStepUpAmount` — ค่าเริ่ม 100,000 บาท) ต้องส่ง `X-Step-Up` ของผู้อนุมัติ ' +
-      '(จาก `POST /v1/auth/step-up` ยืนยัน TOTP) ไม่งั้น 403 `step_up_required` · ไม่มีบรรทัดเที่ยว → 409 `settlement_empty` · ' +
+      'DRAFT → APPROVED (docs/01 §4.5 — ยังไม่มีขั้นให้รถร่วมตรวจ ST6-T05) · **ผู้ใช้ที่ login เท่านั้น** (API key / OAuth client ไม่มี scope นี้) · ' +
+      '**ผู้เตรียมใบ (ผู้สร้าง / ผู้เพิ่มหรือนำบรรทัดออก — key = ผู้ออก key) อนุมัติไม่ได้ → 403 `settlement_self_approval`** (ระบุผู้เตรียมไม่ได้ = ปฏิเสธ) · ' +
+      'ยอดสุทธิเกินวงเงินที่ตั้ง (`settlement.approvalStepUpAmount` — ค่าเริ่ม 100,000 บาท; 0 = ทุกใบ) ต้องส่ง `X-Step-Up` ของผู้อนุมัติ ' +
+      '(จาก `POST /v1/auth/step-up` ยืนยัน TOTP) ไม่งั้น 403 `step_up_required` · ไม่มีบรรทัดค่าขนส่ง (FREIGHT) → 409 `settlement_empty` · ' +
       'ยอดสุทธิติดลบ → 409 `settlement_net_negative` · ออกเลขชุด STL ตอนนี้เท่านั้น (ร่างไม่กินเลข; ออกแล้วแก้ไม่ได้) · ใบที่อนุมัติแล้วแก้/เพิ่ม/นำบรรทัดออก/ยกเลิกไม่ได้ (409) · ' +
       'ยังไม่หัก ณ ที่จ่าย (ST6-T08) · audit `settlement.approved` + webhook `settlement.approved`',
   })
-  @ApiHeader(IF_MATCH)
+  @ApiHeader({
+    ...IF_MATCH,
+    required: true,
+    description: 'ETag (version) — **บังคับ** · ไม่ส่ง → 422 `if_match_required` · ไม่ตรง → 412',
+  })
   @ApiHeader({
     name: 'X-Step-Up',
     required: false,
@@ -309,10 +314,20 @@ export class SettlementsController {
     const token = req.header('x-step-up');
     const su = token ? await verifyStepUpToken(token) : null;
     const steppedUp = !!su && su.sub === ctx.actorId && su.tid === ctx.tenantId;
+    // อนุมัติต้องอ้าง version ที่ผู้อนุมัติเห็น (review L5) — ไม่ส่ง If-Match = 422 `if_match_required` (แบบ ST4-T11)
+    const expected = expectedVersion(req);
+    if (expected === undefined)
+      throw new ProblemException('validation_failed', undefined, [
+        {
+          field: 'If-Match',
+          code: 'if_match_required',
+          message: 'send If-Match (ETag of the settlement)',
+        },
+      ]);
     const out = await this.svc.approve(
       decodeIdOr404('settlement', id),
       body.reason,
-      expectedVersion(req),
+      expected,
       steppedUp,
     );
     setEtag(res, out.version);

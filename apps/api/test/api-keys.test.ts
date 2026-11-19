@@ -333,7 +333,7 @@ describe('API keys + client credentials (ST7-T01)', () => {
       .send({ name: 'ไม่รู้จัก', scopes: ['nope:read'] })
       .expect(422);
     // งานบริหารผู้ใช้/ตั้งค่าให้ key ไม่ได้ (review M1) — แม้ผู้สร้างมี `*`
-    for (const sc of ['users:read', 'users:write', 'settings:write']) {
+    for (const sc of ['users:read', 'users:write', 'settings:write', 'settlements:approve']) {
       const r2 = await api(app, admin)
         .post('/v1/api-keys')
         .send({ name: `ห้าม ${sc}`, scopes: [sc] });

@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { eventDefinition } from '@tms/domain';
 import { AuditService } from '../../audit/audit.service';
 import { EXT_PREFIX, EXTERNAL_ID_RE } from '../../common/external-id';
+import { resolveActors } from '../../common/actors';
 import { encodeId, tryDecodeId } from '../../common/ids';
 import { redactPrices } from '../../common/price-fields';
 import { keysetArgs, toPage } from '../../common/pagination';
@@ -26,6 +27,8 @@ import type {
 import { SettlementQueueService } from './settlement-queue.service';
 
 const ENTITY = 'carrier_settlement';
+/** ผู้อนุมัติได้ = ผู้ใช้ที่ login (`dev` = token ทดสอบ — production ปฏิเสธ) — ไม่ใช่ API key / ลิงก์ (review H1) */
+const HUMAN_PRINCIPALS = new Set(['user', 'dev']);
 /** เพดาน numeric(14,2) */
 const MAX_AMOUNT = '999999999999.99';
 
@@ -352,9 +355,9 @@ export class SettlementsService {
 
   /**
    * อนุมัติ (ST6-T07; docs/04 F6 "Approve (separation of duties)", docs/01 §4.5 DRAFT → APPROVED, spec/05 §11.5–11.6)
-   * - ผู้สร้างใบอนุมัติเองไม่ได้ → 403 `settlement_self_approval` (CHECK `carrier_settlement_sod_check` ใน DB ด้วย)
-   * - ยอดสุทธิ > วงเงิน `settlement.approvalStepUpAmount` → ต้องยืนยัน 2FA ซ้ำ (`X-Step-Up` ของผู้อนุมัติเอง) ไม่งั้น 403 `step_up_required`
-   * - ไม่มีบรรทัดเที่ยว → 409 `settlement_empty` · ยอดสุทธิติดลบ → 409 `settlement_net_negative` (BIL-133 — ยกยอดหักส่วนเกินไปงวดถัดไป)
+   * - ผู้ใช้ที่ login เท่านั้น · ผู้เตรียมใบ (ผู้สร้าง/ผู้เพิ่ม/ผู้นำบรรทัดออก; key = ผู้ออก key; ระบุไม่ได้ = ปฏิเสธ) อนุมัติไม่ได้ → 403 `settlement_self_approval` (trigger 0125 ใน DB ด้วย)
+   * - ยอดสุทธิ > วงเงิน (0 = ทุกใบ) `settlement.approvalStepUpAmount` → ต้องยืนยัน 2FA ซ้ำ (`X-Step-Up` ของผู้อนุมัติเอง) ไม่งั้น 403 `step_up_required`
+   * - ไม่มีบรรทัดค่าขนส่ง (FREIGHT) → 409 `settlement_empty` · ยอดสุทธิติดลบ → 409 `settlement_net_negative` (BIL-133 — ยกยอดหักส่วนเกินไปงวดถัดไป)
    * - ออกเลข STL (`issueNumber` — แถวตัวนับล็อกจน commit, rollback = ไม่กินเลข) ใน transaction เดียวกับการเปลี่ยนสถานะ · ใบ APPROVED แก้ไม่ได้ (trigger 0124)
    * - เหตุผล ≥ 10 ตัวอักษร + audit `settlement.approved` + webhook `settlement.approved`
    * - ไม่คำนวณ VAT/WHT (ST6-T08) — ยอดสุทธิ = ยอดรวม − รายการหัก
@@ -370,19 +373,26 @@ export class SettlementsService {
     // ST6-T05 จะเพิ่ม SENT_TO_CARRIER เป็นสถานะที่อนุมัติได้ (docs/01 §4.5) — ตอนนี้ DRAFT → APPROVED (tenant ข้ามขั้นรถร่วมตรวจ)
     const s = await this.lockDraft(tx, id, expected);
     const actor = ctx.actorId;
-    if (!actor) throw new ProblemException('permission_denied');
-    if (s.createdBy !== null && s.createdBy === actor)
-      throw new ProblemException('settlement_self_approval');
+    // อนุมัติ = คนที่ login เท่านั้น (review H1) — API key / OAuth client ไม่มี scope นี้อยู่แล้ว (API_KEY_DENIED_SCOPES) กันอีกชั้นที่นี่
+    if (!actor || !HUMAN_PRINCIPALS.has(ctx.principalType ?? ''))
+      throw new ProblemException('permission_denied', undefined, undefined, {
+        module: 'settlements',
+        action: 'approve',
+        required: ['settlements:approve'],
+      });
+    await this.assertNotPreparer(tx, id, s.createdBy, actor);
     await this.assertNoOpenDisputes(tx, id);
+    // ต้องมีบรรทัดค่าขนส่ง (FREIGHT) อย่างน้อย 1 — ค่าใช้จ่ายเพิ่ม (SURCHARGE) อย่างเดียวไม่นับเป็นใบ (review L4)
     const trips = await tx.settlementLine.count({
-      where: { settlementId: id, voidedAt: null, lineType: { not: 'DEDUCTION' } },
+      where: { settlementId: id, voidedAt: null, lineType: 'FREIGHT' },
     });
     if (trips === 0) throw new ProblemException('settlement_empty');
     if (s.netPayable.isNegative()) throw new ProblemException('settlement_net_negative');
     const limit = (await readSettings(tx, ctx.tenantId!, ['settlement.approvalStepUpAmount']))[
       'settlement.approvalStepUpAmount'
     ] as number | null;
-    const needStepUp = limit !== null && s.netPayable.greaterThan(limit);
+    // 0 = ทุกใบ (รวมยอด 0.00) · > 0 = ยอดสุทธิเกินวงเงิน (review L3)
+    const needStepUp = limit !== null && (limit === 0 || s.netPayable.greaterThan(limit));
     if (needStepUp && !steppedUp) throw new ProblemException('step_up_required');
 
     const settlementNo = await issueNumber(tx, ctx.tenantId!, { docType: 'STL' });
@@ -423,6 +433,30 @@ export class SettlementsService {
       },
     });
     return out;
+  }
+
+  /**
+   * separation of duties (A3; review H1/M2): ผู้อนุมัติต้องไม่ใช่ผู้เตรียมใบ — ผู้สร้างหัวใบ + ผู้เพิ่มบรรทัด + ผู้นำบรรทัดออก
+   * actor ที่เป็น API key (`apikey:<id>`) = ผู้ออก key · ผู้เตรียมที่ระบุตัวไม่ได้ (ว่าง/key หาไม่พบ/ไม่มีผู้ออก) = ปฏิเสธ (fail closed)
+   */
+  private async assertNotPreparer(
+    tx: Tx,
+    id: string,
+    createdBy: string | null,
+    actor: string,
+  ): Promise<void> {
+    const lines = await tx.settlementLine.findMany({
+      where: { settlementId: id },
+      select: { createdBy: true, voidedAt: true, voidedBy: true },
+    });
+    const raw = [
+      createdBy,
+      ...lines.map((l) => l.createdBy),
+      ...lines.filter((l) => l.voidedAt).map((l) => l.voidedBy),
+    ];
+    const [me, ...preparers] = await resolveActors(tx, [actor, ...raw]);
+    if (me === null || preparers.some((p) => p === null || p === me))
+      throw new ProblemException('settlement_self_approval');
   }
 
   /**

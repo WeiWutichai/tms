@@ -417,7 +417,6 @@
 | `carrierInvoiceNo` | ใช่ | `string` | null ได้ |   |   |
 | `carrierInvoiceDate` | ใช่ | `string` | null ได้ |   |   |
 | `carrierReceiptNo` | ใช่ | `string` | null ได้ |   |   |
-| `note` | ใช่ | `string` | null ได้ |   |   |
 | `tripCount` | ใช่ | `number` |   | จำนวนเที่ยวในใบ (บรรทัดที่ยังใช้) |   |
 | `approvedAt` | ใช่ | `string` | null ได้ | เวลาอนุมัติ — ออกเลข `settlementNo` พร้อมกัน |   |
 | `cancelledAt` | ใช่ | `string` | null ได้ |   |   |

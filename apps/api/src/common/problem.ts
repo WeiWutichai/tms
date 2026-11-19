@@ -365,8 +365,8 @@ export const PROBLEMS = {
   /** ST6-T07 separation of duties (docs/04 F6 Approve, A3): ผู้สร้างใบสำคัญจ่ายอนุมัติใบตัวเองไม่ได้ */
   settlement_self_approval: {
     status: 403,
-    th: 'ผู้สร้างใบสำคัญจ่ายอนุมัติใบของตัวเองไม่ได้ ต้องให้ผู้อนุมัติคนอื่น',
-    en: 'The creator of a settlement cannot approve it',
+    th: 'ผู้เตรียมใบสำคัญจ่าย (สร้างใบ เพิ่มหรือนำรายการออก) อนุมัติใบนั้นไม่ได้ ต้องให้ผู้อนุมัติคนอื่น',
+    en: 'Whoever prepared a settlement cannot approve it',
   },
   /** ST6-T07: ใบไม่มีบรรทัดเที่ยวที่ยังใช้ — อนุมัติไม่ได้ */
   settlement_empty: {

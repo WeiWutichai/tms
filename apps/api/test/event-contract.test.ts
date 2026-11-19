@@ -550,7 +550,7 @@ describe('event registry contract (ST7-T06)', () => {
         carrierId: uuid('carrier', car.id),
       },
     });
-    await settleTripCostsForTest(db, { id: fee.id });
+    await settleTripCostsForTest(db, { id: fee.id }, 'u-preparer');
     const stl = await db.carrierSettlement.findFirstOrThrow({
       where: { tenantId, carrierId: uuid('carrier', car.id) },
     });
@@ -571,6 +571,10 @@ describe('event registry contract (ST7-T06)', () => {
     const stlPub = encodeId('settlement', stl.id);
     await api(app, admin)
       .post(`/v1/settlements/${stlPub}/approve`)
+      .set(
+        'If-Match',
+        `"${(await db.carrierSettlement.findUniqueOrThrow({ where: { id: stl.id } })).version}"`,
+      )
       .send({ reason: 'ตรวจยอดตรงใบแจ้งหนี้รถร่วมแล้ว' })
       .expect(200);
     expect((await latest('settlement.approved', stl.id))!.snapshot).toEqual(

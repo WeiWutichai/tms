@@ -14,7 +14,15 @@ import {
 import { createTenantWithDefaults } from '../src/modules/tenants/bootstrap';
 import { bangkokToday } from '../src/modules/vehicle-documents/expiry';
 import { signStepUpToken } from '../src/auth/tokens';
-import { api, bootApp, platform, tokenFor, truncateAll, validTaxId } from './helpers';
+import {
+  api,
+  bootApp,
+  platform,
+  settleTripCostsForTest,
+  tokenFor,
+  truncateAll,
+  validTaxId,
+} from './helpers';
 
 /**
  * ST6-T03 ติ๊กเที่ยว → ใบสำคัญจ่าย (ร่าง) — เกณฑ์ตรวจรับ: ใส่ `trip_cost` เดียวกันใน 2 ใบ → ใบที่สองได้ 409;
@@ -818,8 +826,27 @@ describe('settlements (ST6-T03)', () => {
       approver = await tokenFor(tenantId, SYSTEM_ROLES.approver.permissions.join(' '), 'u-appr');
       accounting = await tokenFor(tenantId, SYSTEM_ROLES.accounting.permissions.join(' '), 'u-acc');
     });
-    const approve = (id: string, token = approver, headers: Record<string, string> = {}) =>
-      api(app, token).post(`/v1/settlements/${id}/approve`).set(headers).send(APPROVE);
+    /** If-Match บังคับ (review L5) — ไม่ระบุ = ใช้ version ปัจจุบันของใบ · `null` = ไม่ส่ง · `.expect(status)` แบบ supertest */
+    const approve = (id: string, token = approver, headers: Record<string, string | null> = {}) => {
+      const send = async () => {
+        const h: Record<string, string> = {};
+        for (const [k, v] of Object.entries(headers)) if (v !== null) h[k] = v;
+        if (!('If-Match' in headers)) {
+          const sid = tryDecodeId('settlement', id);
+          const row = sid ? await db.carrierSettlement.findUnique({ where: { id: sid } }) : null;
+          h['If-Match'] = `"${row?.version ?? 1}"`;
+        }
+        return api(app, token).post(`/v1/settlements/${id}/approve`).set(h).send(APPROVE);
+      };
+      return {
+        expect: async (status: number) => {
+          const r = await send();
+          expect(r.status, JSON.stringify(r.body)).toBe(status);
+          return r;
+        },
+        run: send,
+      };
+    };
     const setLimit = (value: number | null) =>
       db.tenantSetting.upsert({
         where: { tenantId_key: { tenantId, key: 'settlement.approvalStepUpAmount' } },
@@ -973,8 +1000,9 @@ describe('settlements (ST6-T03)', () => {
         .expect(422);
       await approve(s.id, approver, { 'If-Match': '"9"' }).expect(412);
       await approve(s.id, other).expect(404);
-      const [x, y] = await Promise.all([approve(s.id, approver), approve(s.id, admin)]);
-      expect([x.status, y.status].sort()).toEqual([200, 409]);
+      const [x, y] = await Promise.all([approve(s.id, approver).run(), approve(s.id, admin).run()]);
+      // ทั้งคู่อ้าง version เดียวกัน → รายที่สองได้ 412 (version เปลี่ยนแล้ว)
+      expect([x.status, y.status].sort()).toEqual([200, 412]);
       const row = await db.carrierSettlement.findUniqueOrThrow({
         where: { id: uuid('settlement', s.id) },
       });
@@ -1017,6 +1045,182 @@ describe('settlements (ST6-T03)', () => {
       }
     });
 
+    it('review H1: API key — ให้ settlements:approve ไม่ได้ · key ที่ผู้อนุมัติออกสร้างร่าง → ผู้นั้นอนุมัติไม่ได้ · key อนุมัติไม่ได้แม้มี scope ค้างในแถว · ผู้สร้างระบุไม่ได้ → 403', async () => {
+      const u = await db.appUser.create({
+        data: { tenantId, email: `stl-key-${++seed}@a.test`, name: 'ผู้ออก key', status: 'ACTIVE' },
+      });
+      const owner = await tokenFor(tenantId, '*', u.id);
+      const denied = await api(app, owner)
+        .post('/v1/api-keys')
+        .send({ name: 'อนุมัติแทน', scopes: ['settlements:approve'] });
+      expect(denied.status).toBe(422);
+      const keyName = `ERP สร้างใบ ${seed}`;
+      const key = (
+        await api(app, owner)
+          .post('/v1/api-keys')
+          .send({
+            name: keyName,
+            scopes: ['settlements:read', 'settlements:create', 'prices.buy:read'],
+          })
+          .expect(201)
+      ).body as { id: string; secret: string };
+      const { C, trips } = await setup(2, '700');
+      const s = (await create({ carrierId: C.id, tripIds: [trips[0]!.id] }, key.secret).expect(201))
+        .body;
+      expect(s.createdBy).toMatch(/^apikey:/);
+      // ผู้ออก key = ผู้สร้างใบ → อนุมัติไม่ได้ (แม้ token เป็นของผู้ใช้ไม่ใช่ key)
+      expect((await approve(s.id, owner).expect(403)).body.code).toBe('settlement_self_approval');
+      // key ที่มี settlements:approve ค้างในแถว (ก่อนห้าม) → scope ถูกกรองทิ้ง → 403
+      const row = await db.apiKey.findFirstOrThrow({
+        where: { tenantId, name: keyName },
+      });
+      await db.apiKey.update({
+        where: { id: row.id },
+        data: { scopes: [...row.scopes, 'settlements:approve'] },
+      });
+      expect((await approve(s.id, key.secret).expect(403)).body.code).toBe('permission_denied');
+      // ผู้อื่นอนุมัติได้ · DB: approved_by ผ่านได้เพราะผู้ออก key ≠ ผู้อนุมัติ
+      await approve(s.id, approver).expect(200);
+      // ใบที่ไม่รู้ผู้สร้าง (created_by ว่าง) → ปฏิเสธ (fail closed) ทั้ง service และ DB
+      await settleTripCostsForTest(db, { id: uuid('tripCost', await feeOf(trips[1]!.id)) });
+      const anon = await db.carrierSettlement.findFirstOrThrow({
+        where: { tenantId, carrierId: uuid('carrier', C.id), status: 'DRAFT' },
+      });
+      expect(anon.createdBy).toBeNull();
+      expect((await approve(encodeId('settlement', anon.id)).expect(403)).body.code).toBe(
+        'settlement_self_approval',
+      );
+      await expect(
+        run((tx) =>
+          tx.carrierSettlement.update({
+            where: { id: anon.id },
+            data: {
+              status: 'APPROVED',
+              settlementNo: 'SA-9999-0009',
+              approvedAt: new Date(),
+              approvedBy: 'u-appr',
+            },
+          }),
+        ),
+      ).rejects.toThrow(/carrier_settlement_sod/);
+    });
+
+    it('review M2: ผู้เพิ่มบรรทัด / ผู้นำบรรทัดออก อนุมัติใบนั้นไม่ได้ (service + DB) · ผู้ที่ไม่ได้แตะใบอนุมัติได้', async () => {
+      const mix = await tokenFor(tenantId, '*', 'u-mix');
+      const { C, trips } = await setup(3, '900');
+      const a = (await create({ carrierId: C.id, tripIds: [trips[0]!.id] }, accounting).expect(201))
+        .body;
+      await api(app, mix)
+        .post(`/v1/settlements/${a.id}/lines`)
+        .send({ deductions: [FINE] })
+        .expect(200);
+      expect((await approve(a.id, mix).expect(403)).body.code).toBe('settlement_self_approval');
+      const b = (
+        await create({ carrierId: C.id, tripIds: [trips[1]!.id, trips[2]!.id] }, accounting).expect(
+          201,
+        )
+      ).body;
+      await api(app, mix)
+        .post(`/v1/settlements/${b.id}/lines/${(b.lines as Line[])[1]!.id}/remove`)
+        .send({ reason: 'แยกเที่ยวนี้ไปงวดหน้า' })
+        .expect(200);
+      expect((await approve(b.id, mix).expect(403)).body.code).toBe('settlement_self_approval');
+      // DB ชั้นเดียวกัน: ผู้เพิ่มบรรทัดเป็นผู้อนุมัติไม่ได้
+      await expect(
+        run((tx) =>
+          tx.carrierSettlement.update({
+            where: { id: uuid('settlement', a.id) },
+            data: {
+              status: 'APPROVED',
+              settlementNo: 'SA-9999-0010',
+              approvedAt: new Date(),
+              approvedBy: 'u-mix',
+            },
+          }),
+        ),
+      ).rejects.toThrow(/carrier_settlement_sod/);
+      await approve(a.id, approver).expect(200);
+      await approve(b.id, approver).expect(200);
+    });
+
+    it('review L3/L4/L5: วงเงิน 0 → ยอด 0.00 ก็ต้อง step-up · ค่าใช้จ่ายเพิ่ม (SURCHARGE) อย่างเดียว = settlement_empty · ไม่ส่ง If-Match → 422', async () => {
+      const { C, trips } = await setup(2, '1000');
+      const zero = (
+        await create(
+          {
+            carrierId: C.id,
+            tripIds: [trips[0]!.id],
+            deductions: [{ ...ADV, amount: '-1000' }],
+          },
+          accounting,
+        ).expect(201)
+      ).body;
+      expect(zero.buyNetPayable).toBe('0.00');
+      const miss = await approve(zero.id, approver, { 'If-Match': null }).expect(422);
+      expect(miss.body.errors[0]).toMatchObject({ field: 'If-Match', code: 'if_match_required' });
+      try {
+        await setLimit(0);
+        expect((await approve(zero.id).expect(403)).body.code).toBe('step_up_required');
+        await approve(zero.id, approver, {
+          'X-Step-Up': await signStepUpToken('u-appr', tenantId),
+        }).expect(200);
+      } finally {
+        await db.tenantSetting.deleteMany({
+          where: { tenantId, key: 'settlement.approvalStepUpAmount' },
+        });
+      }
+      // เที่ยวที่มีค่าทางด่วน (SURCHARGE) — นำค่าขนส่ง (FREIGHT) ออก เหลือ SURCHARGE อย่างเดียว
+      await db.tripCost.create({
+        data: {
+          tenantId,
+          tripId: uuid('trip', trips[1]!.id),
+          costType: 'TOLL',
+          amount: '120.00',
+          source: 'MANUAL',
+          sourceType: 'FIELD',
+          status: 'CONFIRMED',
+          carrierId: uuid('carrier', C.id),
+          description: 'ค่าทางด่วน',
+          createdBy: 'u-disp',
+          decidedBy: 'u-acc',
+          decidedAt: new Date(),
+          decisionReason: 'ตรวจใบเสร็จค่าทางด่วนแล้ว',
+        },
+      });
+      const sur = (
+        await create({ carrierId: C.id, tripIds: [trips[1]!.id] }, accounting).expect(201)
+      ).body;
+      const lines = sur.lines as Line[];
+      expect(lines.map((l) => l.lineType).sort()).toEqual(['FREIGHT', 'SURCHARGE']);
+      await api(app, accounting)
+        .post(
+          `/v1/settlements/${sur.id}/lines/${lines.find((l) => l.lineType === 'FREIGHT')!.id}/remove`,
+        )
+        .send({ reason: 'ค่าขนส่งไปวางบิลงวดหน้า' })
+        .expect(200);
+      expect((await approve(sur.id).expect(409)).body.code).toBe('settlement_empty');
+    });
+
+    it('review L7: สร้างใบในสถานะอื่นที่ไม่ใช่ DRAFT ไม่ได้ (DB)', async () => {
+      const { C } = await setup(0);
+      for (const status of ['APPROVED', 'CANCELLED'])
+        await expect(
+          run((tx) =>
+            tx.carrierSettlement.create({
+              data: {
+                tenantId,
+                carrierId: uuid('carrier', C.id),
+                carrierSnapshot: {},
+                periodFrom: new Date(`${today}T00:00:00Z`),
+                periodTo: new Date(`${today}T00:00:00Z`),
+                status,
+                createdBy: 'u-acc',
+              },
+            }),
+          ),
+        ).rejects.toThrow(/carrier_settlement_insert_draft/);
+    });
+
     it('กติการะดับ DB (role แอป): ใบ APPROVED แก้ไม่ได้ · บรรทัดแข็ง · เลขแก้ไม่ได้ · ผู้อนุมัติ ≠ ผู้สร้าง · ร่างมีเลขไม่ได้ · ข้ามสถานะไม่ได้', async () => {
       const { C, trips } = await setup(2, '900');
       const s = (await create({ carrierId: C.id, tripIds: [trips[0]!.id] }, accounting).expect(201))
@@ -1056,7 +1260,7 @@ describe('settlements (ST6-T03)', () => {
             where: { id: did },
             data: { ...approvedData, approvedBy: 'u-acc' },
           }),
-        /carrier_settlement_sod_check/,
+        /carrier_settlement_sod/,
       );
       await fails(
         (tx) => tx.carrierSettlement.update({ where: { id: did }, data: { settlementNo: 'SA-1' } }),

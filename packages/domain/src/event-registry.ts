@@ -89,9 +89,9 @@ const DELIVERY_ORDER = shape('DeliveryOrderDto');
 /** pod: รูปเดียวกับ `GET /v1/delivery-orders/{id}/pod` */
 const POD = shape('DeliveryOrderPodDto');
 const CONNECTOR = shape('ConnectorDto');
-/** settlement: `GET /v1/settlements/{id}` − บรรทัด − id ผู้ใช้ (ยอด `buy*` ตัดอัตโนมัติ — ดูยอดผ่าน REST ด้วยสิทธิ์ `prices.buy:read`) */
+/** settlement: `GET /v1/settlements/{id}` − บรรทัด − id ผู้ใช้ − ข้อความอิสระ (`note`, `cancelReason`) (ยอด `buy*` ตัดอัตโนมัติ — ดูยอดผ่าน REST ด้วยสิทธิ์ `prices.buy:read`) */
 const SETTLEMENT = shape('SettlementDto', {
-  omit: ['lines', 'createdBy', 'approvedBy', 'cancelledBy', 'cancelReason'],
+  omit: ['lines', 'createdBy', 'approvedBy', 'cancelledBy', 'cancelReason', 'note'],
 });
 const JOB = shape('JobDto');
 

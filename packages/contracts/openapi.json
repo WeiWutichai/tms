@@ -38028,7 +38028,7 @@
     },
     "/v1/settlements/{id}/approve": {
       "post": {
-        "description": "DRAFT → APPROVED (docs/01 §4.5 — ยังไม่มีขั้นให้รถร่วมตรวจ ST6-T05) · **ผู้สร้างใบอนุมัติเองไม่ได้ → 403 `settlement_self_approval`** · ยอดสุทธิเกินวงเงินที่ตั้ง (`settlement.approvalStepUpAmount` — ค่าเริ่ม 100,000 บาท) ต้องส่ง `X-Step-Up` ของผู้อนุมัติ (จาก `POST /v1/auth/step-up` ยืนยัน TOTP) ไม่งั้น 403 `step_up_required` · ไม่มีบรรทัดเที่ยว → 409 `settlement_empty` · ยอดสุทธิติดลบ → 409 `settlement_net_negative` · ออกเลขชุด STL ตอนนี้เท่านั้น (ร่างไม่กินเลข; ออกแล้วแก้ไม่ได้) · ใบที่อนุมัติแล้วแก้/เพิ่ม/นำบรรทัดออก/ยกเลิกไม่ได้ (409) · ยังไม่หัก ณ ที่จ่าย (ST6-T08) · audit `settlement.approved` + webhook `settlement.approved`",
+        "description": "DRAFT → APPROVED (docs/01 §4.5 — ยังไม่มีขั้นให้รถร่วมตรวจ ST6-T05) · **ผู้ใช้ที่ login เท่านั้น** (API key / OAuth client ไม่มี scope นี้) · **ผู้เตรียมใบ (ผู้สร้าง / ผู้เพิ่มหรือนำบรรทัดออก — key = ผู้ออก key) อนุมัติไม่ได้ → 403 `settlement_self_approval`** (ระบุผู้เตรียมไม่ได้ = ปฏิเสธ) · ยอดสุทธิเกินวงเงินที่ตั้ง (`settlement.approvalStepUpAmount` — ค่าเริ่ม 100,000 บาท; 0 = ทุกใบ) ต้องส่ง `X-Step-Up` ของผู้อนุมัติ (จาก `POST /v1/auth/step-up` ยืนยัน TOTP) ไม่งั้น 403 `step_up_required` · ไม่มีบรรทัดค่าขนส่ง (FREIGHT) → 409 `settlement_empty` · ยอดสุทธิติดลบ → 409 `settlement_net_negative` · ออกเลขชุด STL ตอนนี้เท่านั้น (ร่างไม่กินเลข; ออกแล้วแก้ไม่ได้) · ใบที่อนุมัติแล้วแก้/เพิ่ม/นำบรรทัดออก/ยกเลิกไม่ได้ (409) · ยังไม่หัก ณ ที่จ่าย (ST6-T08) · audit `settlement.approved` + webhook `settlement.approved`",
         "operationId": "Settlements_approve",
         "parameters": [
           {
@@ -38051,8 +38051,8 @@
           {
             "name": "If-Match",
             "in": "header",
-            "description": "ETag (version) — ไม่ตรง → 412",
-            "required": false,
+            "description": "ETag (version) — **บังคับ** · ไม่ส่ง → 422 `if_match_required` · ไม่ตรง → 412",
+            "required": true,
             "schema": {
               "type": "string"
             }
@@ -38118,7 +38118,7 @@
                   "settlement_self_approval": {
                     "value": {
                       "type": "https://docs.tms.example/problems/settlement_self_approval",
-                      "title": "ผู้สร้างใบสำคัญจ่ายอนุมัติใบของตัวเองไม่ได้ ต้องให้ผู้อนุมัติคนอื่น",
+                      "title": "ผู้เตรียมใบสำคัญจ่าย (สร้างใบ เพิ่มหรือนำรายการออก) อนุมัติใบนั้นไม่ได้ ต้องให้ผู้อนุมัติคนอื่น",
                       "status": 403,
                       "code": "settlement_self_approval"
                     }
@@ -85338,7 +85338,7 @@
       },
       "WebhookEvent_settlement_approved": {
         "type": "object",
-        "description": "`data.object` ของ settlement.approved — อนุมัติใบสำคัญจ่ายรถร่วม (ออกเลข STL แล้ว — ผู้อนุมัติไม่ใช่ผู้สร้าง) · รูปเดียวกับ SettlementDto (ไม่มี field ราคา, lines, createdBy, approvedBy, cancelledBy, cancelReason)",
+        "description": "`data.object` ของ settlement.approved — อนุมัติใบสำคัญจ่ายรถร่วม (ออกเลข STL แล้ว — ผู้อนุมัติไม่ใช่ผู้สร้าง) · รูปเดียวกับ SettlementDto (ไม่มี field ราคา, lines, createdBy, approvedBy, cancelledBy, cancelReason, note)",
         "properties": {
           "id": {
             "type": "string",
@@ -85385,10 +85385,6 @@
             "type": "string",
             "nullable": true
           },
-          "note": {
-            "type": "string",
-            "nullable": true
-          },
           "tripCount": {
             "type": "number",
             "description": "จำนวนเที่ยวในใบ (บรรทัดที่ยังใช้)"
@@ -85423,7 +85419,6 @@
           "carrierInvoiceNo",
           "carrierInvoiceDate",
           "carrierReceiptNo",
-          "note",
           "tripCount",
           "approvedAt",
           "cancelledAt",
@@ -87099,8 +87094,8 @@
     },
     "settlement_self_approval": {
       "status": 403,
-      "title": "ผู้สร้างใบสำคัญจ่ายอนุมัติใบของตัวเองไม่ได้ ต้องให้ผู้อนุมัติคนอื่น",
-      "titleEn": "The creator of a settlement cannot approve it"
+      "title": "ผู้เตรียมใบสำคัญจ่าย (สร้างใบ เพิ่มหรือนำรายการออก) อนุมัติใบนั้นไม่ได้ ต้องให้ผู้อนุมัติคนอื่น",
+      "titleEn": "Whoever prepared a settlement cannot approve it"
     },
     "source_change_not_pending": {
       "status": 409,
