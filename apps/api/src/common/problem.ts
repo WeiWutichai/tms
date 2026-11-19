@@ -551,6 +551,20 @@ export const PROBLEMS = {
     th: 'นิติบุคคลออกบิลยังไม่มีสาขาที่ออกเอกสาร',
     en: 'No issuing branch for this legal entity',
   },
+  /**
+   * ST5-T06 รหัสใน `errors[].code` ของ `invalid_state_transition` (lifecycle วางบิล — docs/04 F4) — อยู่ใน catalog
+   * เพื่อมีหัวข้อในหน้า รหัส error ของเอกสาร: DO อยู่ในใบแจ้งหนี้ (ร่าง/ออกเลข) · DO ส่งบัญชีแล้ว (แก้จุดแวะ/ยอด/ย้อนผลส่งไม่ได้)
+   */
+  do_in_invoice: {
+    status: 409,
+    th: 'ใบส่งของนี้อยู่ในใบแจ้งหนี้แล้ว — แก้ที่ใบแจ้งหนี้ หรือถอดออกจากร่างก่อน',
+    en: 'This delivery order is on an invoice — change it on the invoice or remove it from the draft first',
+  },
+  do_released: {
+    status: 409,
+    th: 'ใบส่งของนี้ส่งบัญชีแล้ว — แก้จุดแวะ/ยอดส่งจริงไม่ได้ ให้ฝ่ายวางบิลย้อนการส่งบัญชีก่อน',
+    en: 'This delivery order was released to billing — ask billing to undo the release first',
+  },
   internal_error: { status: 500, th: 'ระบบขัดข้อง', en: 'Internal error' },
 } as const;
 

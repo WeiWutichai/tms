@@ -45,6 +45,8 @@
 | [`connector_scope_taken`](#connector_scope_taken) | 409 | นิติบุคคลนี้เชื่อมระบบบัญชีอยู่แล้ว ยกเลิกการเชื่อมเดิมก่อน |
 | [`delivery_order_on_trip`](#delivery_order_on_trip) | 409 | ใบส่งของนี้อยู่ในเที่ยวรถแล้ว — ถอดออกจากเที่ยวก่อน |
 | [`do_already_drafted`](#do_already_drafted) | 409 | ใบส่งของนี้อยู่ในใบแจ้งหนี้อื่นแล้ว |
+| [`do_in_invoice`](#do_in_invoice) | 409 | ใบส่งของนี้อยู่ในใบแจ้งหนี้แล้ว — แก้ที่ใบแจ้งหนี้ หรือถอดออกจากร่างก่อน |
+| [`do_released`](#do_released) | 409 | ใบส่งของนี้ส่งบัญชีแล้ว — แก้จุดแวะ/ยอดส่งจริงไม่ได้ ให้ฝ่ายวางบิลย้อนการส่งบัญชีก่อน |
 | [`duplicate`](#duplicate) | 409 | ข้อมูลซ้ำกับที่มีอยู่ |
 | [`external_id_conflict`](#external_id_conflict) | 409 | เลขอ้างอิงต้นทางนี้ถูกใช้กับใบสั่งขนส่งจากช่องทางอื่นแล้ว |
 | [`idempotency_in_progress`](#idempotency_in_progress) | 409 | คำขอเดียวกันกำลังประมวลผลอยู่ |
@@ -352,6 +354,18 @@ HTTP `409` · ใบส่งของนี้อยู่ในเที่ย
 HTTP `409` · ใบส่งของนี้อยู่ในใบแจ้งหนี้อื่นแล้ว
 
 อาจตอบได้จากหลาย endpoint
+
+## do_in_invoice {#do_in_invoice}
+
+HTTP `409` · ใบส่งของนี้อยู่ในใบแจ้งหนี้แล้ว — แก้ที่ใบแจ้งหนี้ หรือถอดออกจากร่างก่อน
+
+อยู่ใน `errors[].code` ของ `409 invalid_state_transition`
+
+## do_released {#do_released}
+
+HTTP `409` · ใบส่งของนี้ส่งบัญชีแล้ว — แก้จุดแวะ/ยอดส่งจริงไม่ได้ ให้ฝ่ายวางบิลย้อนการส่งบัญชีก่อน
+
+อยู่ใน `errors[].code` ของ `409 invalid_state_transition`
 
 ## duplicate {#duplicate}
 

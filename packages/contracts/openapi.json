@@ -84787,6 +84787,16 @@
       "title": "ใบส่งของนี้อยู่ในใบแจ้งหนี้อื่นแล้ว",
       "titleEn": "This delivery order is already on another invoice"
     },
+    "do_in_invoice": {
+      "status": 409,
+      "title": "ใบส่งของนี้อยู่ในใบแจ้งหนี้แล้ว — แก้ที่ใบแจ้งหนี้ หรือถอดออกจากร่างก่อน",
+      "titleEn": "This delivery order is on an invoice — change it on the invoice or remove it from the draft first"
+    },
+    "do_released": {
+      "status": 409,
+      "title": "ใบส่งของนี้ส่งบัญชีแล้ว — แก้จุดแวะ/ยอดส่งจริงไม่ได้ ให้ฝ่ายวางบิลย้อนการส่งบัญชีก่อน",
+      "titleEn": "This delivery order was released to billing — ask billing to undo the release first"
+    },
     "duplicate": {
       "status": 409,
       "title": "ข้อมูลซ้ำกับที่มีอยู่",

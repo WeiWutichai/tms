@@ -314,6 +314,8 @@ const FIELD_CODES = new Set([
   'company_unavailable',
   'branch_unavailable',
 ]);
+/** ST5-T06 รหัสใน errors[].code ของ 409 invalid_state_transition (lifecycle วางบิล) */
+const STATE_CODES = new Set(['do_in_invoice', 'do_released']);
 
 export function errorsPage(doc: Json): Page {
   const catalog = new Map<string, { status: number; title: string; ops: Set<string> }>();
@@ -352,7 +354,9 @@ export function errorsPage(doc: Json): Page {
         ? `พบใน: ${ops.slice(0, 12).join(', ')}${ops.length > 12 ? ` และอีก ${ops.length - 12} endpoint` : ''}`
         : FIELD_CODES.has(c)
           ? 'อยู่ใน `errors[].code` ของ `422 validation_failed` (`errors[].field` = ช่องที่ต้องแก้)'
-          : 'อาจตอบได้จากหลาย endpoint',
+          : STATE_CODES.has(c)
+            ? 'อยู่ใน `errors[].code` ของ `409 invalid_state_transition`'
+            : 'อาจตอบได้จากหลาย endpoint',
     ].join('\n\n');
   });
   const md = [
