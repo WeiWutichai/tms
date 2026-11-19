@@ -17,7 +17,7 @@ import {
   CONNECTOR_PULL_EVERY_MS,
   ConnectorPullScheduler,
 } from './modules/connectors/connector-pull.scheduler';
-import { ConnectorsService } from './modules/erp/connectors.service';
+import { ConnectorsService, HEALTH_RECHECK_EVERY_MS } from './modules/erp/connectors.service';
 import { InboundWebhookService } from './modules/erp/inbound-webhook.service';
 import { ExpiryReminderService } from './modules/reminders/expiry-reminder.service';
 import { DailyDigestService } from './modules/notifications/daily-digest.service';
@@ -153,6 +153,13 @@ async function main() {
       .catch((e) => log.error(e));
   void schedulePulls();
   const pullTimer = setInterval(schedulePulls, CONNECTOR_PULL_EVERY_MS);
+  // ST8-T03 ตรวจซ้ำ connector ที่ปลายทางไม่ตอบ (ACTIVE ล้มต่อเนื่อง ≥ 30 นาที → ERROR) และคืน ERROR(TRANSIENT) → ACTIVE เมื่อกลับมา
+  const recheckHealth = () =>
+    connectors
+      .recheckUnhealthy()
+      .then((n) => n && log.info({ connectors: n }, 'connector health rechecked'))
+      .catch((e) => log.error(e));
+  const healthTimer = setInterval(recheckHealth, HEALTH_RECHECK_EVERY_MS);
   // ตัวเลขคิว outbox ทุก 5 นาที ลง log (ST9-T19: metrics/alert อ่านจากฐานโดยตรง — /v1/metrics, AlertEvaluator)
   const outboxStats = () =>
     outbox
@@ -174,6 +181,7 @@ async function main() {
   clearInterval(depreciationTimer);
   clearInterval(offerTimeoutTimer);
   clearInterval(pullTimer);
+  clearInterval(healthTimer);
   clearInterval(outboxStatsTimer);
   monitor.stop();
   shutdown();

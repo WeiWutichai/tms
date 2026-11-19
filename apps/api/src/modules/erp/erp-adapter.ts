@@ -19,7 +19,7 @@ import type { PullPage } from '../connectors/order-source.port';
  * - adapter **ห้ามเขียนฐานข้อมูล TMS** และห้ามถือ transaction — core เรียกนอก transaction แล้วบันทึกผลเอง
  * - error ของปลายทาง → คืน `PushResult.ok=false` พร้อม `ErrorClass` กลาง (docs/01 §6.3) ไม่ใช่ HTTP code ของ ERP;
  *   throw = TRANSIENT (outbox ลองใหม่) · ห้ามมี credential ใน `problem`/`raw`/`message` (contract test ตรวจ)
- * - implementation จริง: StandaloneProvider/DemoProvider (ST7-T14), FileExportAdapter (ST7-T23), KrsAdapter (ST8-T03)
+ * - implementation จริง: StandaloneProvider/DemoProvider (ST7-T14), FileExportAdapter (ST7-T23), adapter `krs` (ST8-T03)
  * - canonical payload ละเอียด (docs/01 §7) มาใน ST7-T15 — ที่นี่ประกาศเฉพาะช่องที่ทุก adapter อาศัย
  */
 
@@ -71,6 +71,42 @@ export interface Problem {
   code: string;
   message: string;
   fields?: { field: string; code: string; message: string }[];
+}
+
+/**
+ * error ที่ adapter โยนพร้อม ErrorClass กลาง (ST8-T03) — ใช้กับ method ที่คืนผลแบบ `PushResult` ไม่ได้
+ * (`fetchDocument`, `pullOrders` ฯลฯ) · core (ErpAdapterSink) แปลงเป็นผลของคำสั่งตาม class (`not_implemented` = พักไว้ ฯลฯ)
+ * throw แบบอื่น = TRANSIENT เหมือนเดิม · `problem` ห้ามมี credential (core ตัดซ้ำอีกชั้น)
+ */
+export class ErpAdapterError extends Error {
+  constructor(
+    readonly errorClass: ErrorClass,
+    readonly problem: Problem,
+  ) {
+    super(problem.message || problem.code);
+    this.name = 'ErpAdapterError';
+  }
+}
+
+/** รหัสของ capability ที่ adapter ประกาศแล้วแต่ยังไม่ได้ทำ (โครง adapter — เช่น adapter `krs` ก่อน ST8-T04/T08/T10) */
+export const NOT_IMPLEMENTED = 'not_implemented';
+
+/** ผล push ของ capability ที่ยังไม่ได้ทำ — CAPABILITY `not_implemented` (core พักคำสั่งไว้ ไม่ทิ้ง — ErpAdapterSink) */
+export function notImplementedResult(capability: ErpCapability): PushResult {
+  return {
+    ok: false,
+    errorClass: 'CAPABILITY',
+    retryable: false,
+    problem: { code: NOT_IMPLEMENTED, message: `${capability} is not implemented yet` },
+  };
+}
+
+/** error ของ capability ที่ยังไม่ได้ทำ (method ที่คืน PushResult ไม่ได้) */
+export function notImplementedError(capability: ErpCapability): ErpAdapterError {
+  return new ErpAdapterError('CAPABILITY', {
+    code: NOT_IMPLEMENTED,
+    message: `${capability} is not implemented yet`,
+  });
 }
 
 /** docs/01 §6.1 `PushResult` */
@@ -204,6 +240,12 @@ export interface ErpAdapter {
    */
   readonly localOnly?: boolean;
   capabilities(): ReadonlySet<ErpCapability>;
+  /**
+   * ST8-T03 capability ที่ประกาศแล้วแต่ยังไม่ได้ทำ (โครง adapter) — ต้องอยู่ใน `capabilities()` ด้วย (มี method ที่ตอบ `not_implemented`)
+   * core: ไม่นับเป็น "รองรับ" (`readyCapabilities`) → ไม่เปิดเป็นค่าเริ่มต้น เปิดไม่ได้ (422) ไม่มีผลกับ flow เอกสาร ·
+   * catalog/หน้าจอแสดงเป็น "ยังไม่รองรับ" · คำสั่งในคิวที่ค้างอยู่ = พักไว้ (ไม่ SKIPPED ไม่เสียจำนวนครั้ง)
+   */
+  readonly pendingCapabilities?: readonly ErpCapability[];
   /** ไม่ throw — ปลายทางล่ม/credential ผิด = `{ok:false}` */
   healthCheck(ctx: ErpContext): Promise<HealthResult>;
 
@@ -248,6 +290,17 @@ export const CAPABILITY_METHOD = {
   listDocuments: 'listDocuments',
 } as const satisfies Partial<Record<ErpCapability, keyof ErpAdapter>>;
 
+/** capability ที่ใช้งานได้จริง = ที่ประกาศ − ที่ยังไม่ได้ทำ (`pendingCapabilities`) — core ใช้ชุดนี้ตัดสินทุกอย่าง */
+export function readyCapabilities(a: ErpAdapter): ReadonlySet<ErpCapability> {
+  const pending = new Set(a.pendingCapabilities ?? []);
+  return new Set([...a.capabilities()].filter((c) => !pending.has(c)));
+}
+
+/** capability นี้ adapter ประกาศแต่ยังไม่ได้ทำ */
+export function isPendingCapability(a: ErpAdapter, c: ErpCapability): boolean {
+  return (a.pendingCapabilities ?? []).includes(c) && a.capabilities().has(c);
+}
+
 export const STANDALONE_KEY = 'standalone';
 const CONFIG_KEY_RE = /^[a-z][a-zA-Z0-9]{0,39}$/;
 
@@ -275,6 +328,8 @@ export function adapterShapeProblems(a: ErpAdapter): string[] {
     if (!caps.has(c) && has) out.push(`method ${m}() present but capability '${c}' not declared`);
   }
   if (typeof a.healthCheck !== 'function') out.push('healthCheck() required');
+  for (const c of a.pendingCapabilities ?? [])
+    if (!caps.has(c)) out.push(`pending capability '${String(c)}' not declared in capabilities()`);
   const kinds = a.masterCodeKinds ?? [];
   for (const k of kinds)
     if (!isErpMasterCodeKind(k)) out.push(`unknown master code kind '${String(k)}'`);

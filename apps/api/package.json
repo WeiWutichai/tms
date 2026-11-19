@@ -61,6 +61,7 @@
     "unplugin-swc": "^1.6.0",
     "vitest": "^4.1.12",
     "@tms/sdk": "workspace:*",
-    "@tms/api-docs": "workspace:*"
+    "@tms/api-docs": "workspace:*",
+    "@tms/mock-krs": "workspace:*"
   }
 }

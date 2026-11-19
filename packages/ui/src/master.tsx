@@ -530,10 +530,13 @@ export function Toast({
   message,
   onClose,
   closeLabel,
+  tone = 'ok',
 }: {
   message: ReactNode | null;
   onClose: () => void;
   closeLabel: string;
+  /** `err` = ผลล้มเหลว (ไอคอนวงกลมกากบาท สีแดงเดียวกับป้าย "ผิดพลาด") */
+  tone?: 'ok' | 'err';
 }) {
   const cb = useLatest(onClose);
   useEffect(() => {
@@ -543,9 +546,9 @@ export function Toast({
   }, [message, cb]);
   if (!message) return null;
   return (
-    <div role="status" className="tms-toast">
+    <div role="status" className={tone === 'err' ? 'tms-toast tms-toast--err' : 'tms-toast'}>
       <span className="tms-toast__ic">
-        <Icon n="check" s={14} />
+        <Icon n={tone === 'err' ? 'x' : 'check'} s={14} />
       </span>
       <span style={{ flex: 1, overflowWrap: 'anywhere' }}>{message}</span>
       <button type="button" className="tms-toast__x" aria-label={closeLabel} onClick={onClose}>

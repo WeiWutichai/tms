@@ -1,25 +1,37 @@
 import { Injectable, type OnModuleInit } from '@nestjs/common';
 import type { Connector } from '@prisma/client';
 import { ERP_OPERATION_CAPABILITY, isErpOperation } from '@tms/domain';
+import { Clock } from '../../common/clock';
 import { EntitlementService } from '../entitlements/entitlement.service';
 import { OutboxSinkRegistry } from '../integration/outbox-sink.registry';
 import { OutboxSinkError, type OutboxDelivery, type OutboxSink } from '../integration/outbox.types';
 import { ConnectorResolver } from './connector-resolver';
-import { ConnectorsService, redactSecrets } from './connectors.service';
+import { ConnectorsService, HEALTH_STOP_CLASSES, redactSecrets } from './connectors.service';
 import {
   documentServiceItemIds,
   ErpMasterCodesService,
   withMappedItemCodes,
 } from './erp-master-codes.service';
-import type {
-  CanonicalDocument,
-  ErpAdapter,
-  ErpContext,
-  ExternalRef,
-  PushResult,
+import {
+  type CanonicalDocument,
+  type ErpAdapter,
+  ErpAdapterError,
+  type ErpContext,
+  isPendingCapability,
+  NOT_IMPLEMENTED,
+  type ExternalRef,
+  type PushResult,
 } from './erp-adapter';
 
 export const ERP_SINK = 'erp';
+
+/** ST8-T03 คำสั่งของ capability ที่ adapter ยังไม่ได้ทำ = พัก (class AUTH = PENDING ไม่นับครั้ง — เหมือน `capability_off`) ไม่ใช่ SKIPPED */
+function parkedNotImplemented(cap: string): OutboxSinkError {
+  return new OutboxSinkError(`capability ${cap} not implemented yet — parked`, 'AUTH', {
+    code: 'capability_not_implemented',
+    capability: cap,
+  });
+}
 
 /**
  * ErpAdapter เสียบเป็น sink `erp` ของ integration outbox (ST7-T13; docs/01 §3.7 kind ADAPTER, §6.2–6.3) — **คิวเดียว** กับ webhook
@@ -28,6 +40,10 @@ export const ERP_SINK = 'erp';
  * - PAUSED / ERROR / tenant ถูกระงับ / แพ็กเกจไม่มี `conn` / adapter ไม่ได้ติดตั้ง → คงคำสั่งไว้ (AUTH = PENDING ไม่นับครั้ง)
  * - capability ไม่ได้เปิด/ไม่รองรับ → SKIPPED (CAPABILITY — docs/01 §6.3)
  * - adapter ตอบ AUTH → connector = ERROR (หยุดทั้งตัว) แล้วคำสั่งรอ · class อื่นตาม retry policy ของ dispatcher
+ * - ST8-T03 adapter ตอบ/throw TRANSIENT → เรียก healthCheck 1 ครั้ง: AUTH = ERROR ทันที · TRANSIENT = นับเวลาล้มต่อเนื่อง
+ *   ครบ 30 นาที → ERROR หยุดทั้งคิว (spec/07 §1; docs/01 A.5) · ผ่าน = ล้มเฉพาะใบนี้ ลองใหม่ตาม policy
+ * - adapter throw `ErpAdapterError` = ผลตาม class ที่ระบุ · capability ที่ยังไม่ได้ทำ (`pendingCapabilities` หรือตอบ `not_implemented`)
+ *   = พักไว้ `capability_not_implemented` (PENDING ไม่นับครั้ง — ไม่ SKIPPED)
  * - ST7-T18 ประตู mapping: ค่าบริการในเอกสาร (`lines[].serviceItem.id`) ที่ยังไม่จับคู่รหัสสินค้า ERP → FAILED_FINAL
  *   (VALIDATION `erp_mapping_incomplete` + ลิงก์หน้า mapping — plan/11 #9: ไม่กันการออกเอกสาร) · ครบ = ใส่รหัสลง
  *   `serviceItem.externalId` ก่อนส่ง adapter (docs/01 §7.2)
@@ -43,6 +59,7 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
     private readonly resolver: ConnectorResolver,
     private readonly entitlements: EntitlementService,
     private readonly masterCodes: ErpMasterCodesService,
+    private readonly clock: Clock,
   ) {}
 
   onModuleInit() {
@@ -91,6 +108,8 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
         code: 'unknown_operation',
       });
     const cap = ERP_OPERATION_CAPABILITY[d.operation];
+    // ST8-T03 adapter ประกาศแต่ยังไม่ได้ทำ → พักไว้ (ไม่ทิ้ง ไม่เสียจำนวนครั้ง) จนกว่า deploy ตัวที่ทำแล้ว
+    if (isPendingCapability(adapter, cap)) throw parkedNotImplemented(cap);
     if (!adapter.capabilities().has(cap)) {
       // adapter ทำไม่ได้จริง → SKIPPED + แจ้งบัญชี (docs/01 §6.3 CAPABILITY)
       await this.skipped(d, connector, 'capability_not_supported');
@@ -135,13 +154,46 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
     try {
       return await this.call(d, adapter, ctx, payload, secrets, connector);
     } catch (e) {
-      if (e instanceof OutboxSinkError) throw e;
+      if (e instanceof OutboxSinkError) {
+        if (e.errorClass === 'TRANSIENT') await this.stopIfDown(d, connector);
+        throw e;
+      }
+      if (e instanceof ErpAdapterError) {
+        if (e.problem?.code === NOT_IMPLEMENTED) throw parkedNotImplemented(cap);
+        const problem = {
+          code: redactSecrets(String(e.problem?.code ?? 'error'), secrets).slice(0, 60),
+          message: redactSecrets(String(e.problem?.message ?? ''), secrets).slice(0, 500),
+        };
+        if (e.errorClass === 'AUTH')
+          await d.withTx((tx) => this.connectors.markError(tx, connector, problem));
+        if (e.errorClass === 'TRANSIENT') await this.stopIfDown(d, connector);
+        throw new OutboxSinkError(problem.message || problem.code, e.errorClass, problem);
+      }
       // adapter throw = TRANSIENT (docs/01 §6.3) — ข้อความอาจมี credential (URL/header ของ HTTP client) → ตัดก่อนเก็บ
       const msg = redactSecrets(String((e as Error)?.message ?? e), secrets).slice(0, 500);
+      await this.stopIfDown(d, connector);
       throw new OutboxSinkError(msg || 'adapter error', 'TRANSIENT', {
         code: 'adapter_threw',
         message: msg,
       });
+    }
+  }
+
+  /**
+   * ST8-T03 ส่งล้มแบบ TRANSIENT → ถาม healthCheck ว่าปลายทางล่มทั้งตัวไหม (docs/01 A.5) แล้วบันทึกแบบ "ระบบ"
+   * (`applySystemHealth`: AUTH = ERROR ทันที · TRANSIENT = จดเวลาเริ่มล้ม ครบ 30 นาทีต่อเนื่อง = ERROR หยุดทั้งคิว — spec/07 §1)
+   * ไม่ throw (ผลของคำสั่งนี้ยังเป็น TRANSIENT ตามเดิม) · ไม่ทำตอนถูกยกเลิก (lease หลุด/ปิด worker)
+   */
+  private async stopIfDown(d: OutboxDelivery, connector: Connector): Promise<void> {
+    if (d.signal.aborted) return;
+    try {
+      const h = await this.connectors.runHealth(connector);
+      if (!h.ok && !HEALTH_STOP_CLASSES.has(h.errorClass)) return;
+      await d.withTx((tx) =>
+        this.connectors.applySystemHealth(tx, connector.id, h, this.clock.now()),
+      );
+    } catch {
+      /* ตรวจไม่ได้ = คงสถานะเดิม (คำสั่งนี้ลองใหม่ตาม policy) */
     }
   }
 
@@ -207,6 +259,10 @@ export class ErpAdapterSink implements OutboxSink, OnModuleInit {
           externalVersion: r.externalVersion ?? null,
         },
       };
+    if (r.problem?.code === NOT_IMPLEMENTED)
+      throw parkedNotImplemented(
+        ERP_OPERATION_CAPABILITY[d.operation as keyof typeof ERP_OPERATION_CAPABILITY],
+      );
     const problem = {
       code: redactSecrets(String(r.problem?.code ?? 'error'), secrets).slice(0, 60),
       message: redactSecrets(String(r.problem?.message ?? ''), secrets).slice(0, 500),

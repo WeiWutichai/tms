@@ -37,6 +37,7 @@
 | ST9 (เฉพาะ T12 ตรวจความครบ) | **dev เสร็จ** รอ review/QA/merge (`st9/t12-completeness`) | 19 พ.ย. 2569 | — | ดูบันทึก 19 พ.ย. (ST9-T12) |
 | ST9 (เฉพาะ T19 Monitoring + alert) | **dev เสร็จ** รอ review/QA/merge (`st9/t19-monitoring`) | 19 พ.ย. 2569 | — | ดูบันทึก 19 พ.ย. (ST9-T19) · UI Console รอต้นแบบ (spec/12 §3) |
 | ST8 (เฉพาะ T01 mock KRS) | **dev เสร็จ** รอ review/QA/merge (`st8/t01-mock-krs`) | 19 พ.ย. 2569 | — | ดูบันทึก 19 พ.ย. (ST8-T01) |
+| ST8 (เฉพาะ T03 โครง KrsAdapter) | **dev เสร็จ** รอ review/QA/merge (`st8/t03-krs-adapter`) | 19 พ.ย. 2569 | — | ดูบันทึก 19 พ.ย. (ST8-T03) |
 | ST9 Dashboard / รายงาน (T01) | **กำลังทำ** — T01 dev เสร็จ (lane C) รอ review/QA | 18 พ.ย. 2569 | — | ST9-T01 Dashboard ปฏิบัติการ |
 
 ### งาน ST0 (เกณฑ์ตรวจรับใน `plan/01-phase0-backlog.md`)
@@ -282,6 +283,15 @@
 - (11 พ.ย., พบระหว่าง T19 — **แก้แล้วใน T04**: `db:migrate` รัน bootstrap ทุก tenant ซึ่ง sync role ระบบ) **role ระบบของ tenant ที่มีอยู่ไม่ได้สิทธิ์ใหม่อัตโนมัติ** — `ensureSystemRoles` รันแค่ตอนสร้าง tenant/seed; เมื่อโค้ดเพิ่ม permission (เช่น `documents:write` ใน T08) tenant เดิมไม่ได้ จนกว่าจะรัน seed · ฐาน dev แก้ด้วย seed แล้ว · ต้องมี sync ตอน deploy/บูต ก่อนมี tenant จริง (เสนอทำใน T24 admin portal หรือ migration step) 
 
 ## บันทึกรายวัน
+
+### 19 พ.ย. 2569 (ST8-T03 แก้ตาม review/QA — lane l8)
+- ทำ: (M1) capability ที่ยังไม่ได้ทำ = `pendingCapabilities` ของ adapter → ไม่เปิดเป็นค่าเริ่มต้น / ขอเปิด 422 / API `capabilitiesPending` / หน้าจอ "ยังไม่รองรับ" · คำสั่งที่ค้าง = PENDING `capability_not_implemented` (ไม่ SKIPPED ไม่เสียครั้ง) · (M2) ตาม spec/07 §1: AUTH หยุดทันที, TRANSIENT จด `health_failing_since` (migration **0121**) หยุดเมื่อล้มต่อเนื่อง ≥ 30 นาที · worker `recheckUnhealthy` ทุก 5 นาที คืน ERROR(TRANSIENT) → ACTIVE เอง (audit + แจ้ง `connector.recovered` + ปลุกคิว) · (Low) `POST /health` `message` ไทย + `detail` ดิบ, การ์ด ERROR จากปลายทางล่มไม่บอก "แก้ key", toast ล้มเหลวแบบ error (`Toast tone="err"`), ป้ายไทยของช่องค่าตั้ง, PUT credentials รวมกับค่าเดิม
+- ไฟล์: `prisma/{schema.prisma,migrations/0121_connector_health_failing_since}`, `modules/erp/{erp-adapter.ts,erp-adapter.sink.ts,connectors.service.ts,connector.dto.ts,connector-resolver.ts,inbound-webhook.service.ts}`, `modules/connectors/connector-pull.scheduler.ts`, `modules/notifications/{templates,catalogue,notification-events}.ts`, `worker.ts`, `erp-adapters/krs/krs.adapter.ts`, test `erp-krs`/`erp-connectors`/`erp-adapter`, web `ConnectorSettings.tsx(+test)`, `console/Connectors.tsx`, `e2e/connectors.spec.ts` (ป้าย "API key"), `packages/ui` Toast, `th.ts`, openapi, spec/12 §3
+
+### 19 พ.ย. 2569 (ST8-T03 โครง KrsAdapter — lane l8)
+- ทำ: adapter `krs` (`apps/api/src/erp-adapters/krs/krs.adapter.ts`) ลงทะเบียนใน composition root · capabilities ตาม docs/01 A.2 `{pullOrders, pushInvoice, fetchDocument, replaceDocument, ownsDocumentNumber}` — method ยังไม่ทำตอบ CAPABILITY `not_implemented` (คลาสกลางใหม่ `ErpAdapterError` + `notImplementedResult/Error` ใน core; sink แปลงตาม class, รอบดึง order ข้าม `not_implemented`) · ค่าตั้ง baseUrl / `apiKey` (X-API-Key, เข้ารหัส write-only) / `healthTransactionNo` / SQL read-only (`sqlServer`/`sqlDatabase`/`sqlUser` + `sqlPassword` ลับ — เก็บไว้ใช้ ST8-T04) · healthCheck `GET /invoice/{เลขทดสอบ}` ผ่าน `safeHttpRequest` (แยกจาก `postWebhook` — กัน SSRF + pin IP) · core: ทดสอบล้ม AUTH **หรือ TRANSIENT** → ERROR หยุดคิว; ส่งล้ม TRANSIENT → healthCheck ยืนยันล่ม → ERROR (`HEALTH_STOP_CLASSES`, `markError(…, errorClass)`) · UI: dialog เชื่อมต่อ (ตั้งค่า + Console) แสดงค่าตั้งข้อความ (baseUrl ฯลฯ) และบังคับช่อง required ทุกชนิด
+- ไฟล์: `apps/api/src/erp-adapters/{index.ts,krs/krs.adapter.ts}`, `modules/erp/{erp-adapter.ts,erp-adapter.sink.ts,connectors.service.ts,connectors.controller.ts}`, `modules/connectors/connector-intake.service.ts`, `modules/webhooks/webhook-http.ts`, `test/{erp-krs.test.ts (ใหม่ — contract + mock KRS พอร์ตสุ่ม: เขียว/AUTH/503/ตัดสาย/mock หยุด → ERROR + คิวพัก → กลับมา ACTIVE ส่งต่อ, credential ไม่รั่วใน API/audit/log, SSRF nip.io/rebinding, sandbox), erp-adapter-contract.ts (+`notImplemented`), erp-connectors.test.ts (+ทาง sink)}`, `apps/web/src/{features/settings/ConnectorSettings.tsx(+test),console/Connectors.tsx}`, `apps/api/package.json` (devDep `@tms/mock-krs`), `packages/contracts/openapi.json` (คำอธิบาย /health), spec/12 §3 แถว "โครง KrsAdapter" · ไม่มี migration
+- ค้าง: pullOrders = ST8-T04 · pushInvoice = ST8-T08 · replaceDocument = ST8-T09/T11 · fetchDocument = ST8-T10 · [OPEN — KRS] ไม่มี endpoint health เฉพาะ · ภาพเทียบต้นแบบ dialog ยังไม่ได้ถ่าย (เครื่องโหลดสูง — การ์ดใช้แบบ ST7-T20 เดิม)
 
 ### 19 พ.ย. 2569 (แก้ E2E routes.spec — RefPicker เปิดรายการตอน focus · lane l5)
 

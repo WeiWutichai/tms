@@ -38,6 +38,7 @@ const row = (over: Partial<Connector> = {}): Connector => ({
   lastHealthAt: null,
   lastHealthOk: null,
   lastHealthError: null,
+  healthFailingSince: null,
   activatedAt: null,
   disconnectedAt: null,
   inboundTokenHash: null,

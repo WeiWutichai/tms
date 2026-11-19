@@ -41,6 +41,8 @@ export interface NotificationVars {
   'field_charge.pending': { tripNo: string; item: string; side: 'SELL' | 'BUY' | 'BOTH' };
   /** ST9-T08 connector หยุดทำงาน (status ERROR — docs/04 I "connector ล่ม") · label = รหัส adapter · code = รหัสปัญหา */
   'connector.error': { label: string; code: string };
+  /** ST8-T03 connector กลับมาทำงานเอง (ปลายทางตอบอีกครั้ง — ERROR → ACTIVE โดยระบบ) */
+  'connector.recovered': { label: string };
   /**
    * ST7-T20 ทีม Innovera เปลี่ยน connector จาก Platform Console (แบบเดียวกับแจ้ง owner ตอนเข้าใช้งานแทน — docs/04 A6)
    * action = created / credentials / resumed / paused / error / recovered · reason = เหตุผลของทีมงาน (safeName)
@@ -397,6 +399,16 @@ const TEMPLATES: {
     en: (v) => ({
       title: 'Connector down',
       body: `Connector ${v.label} stopped (${v.code}) — outgoing work is parked. Check the connection and resume it in Settings → Connections.`,
+    }),
+  },
+  'connector.recovered': {
+    th: (v) => ({
+      title: 'การเชื่อมต่อกลับมาทำงานแล้ว',
+      body: `Connector ${v.label} ติดต่อปลายทางได้อีกครั้ง — ระบบเปิดใช้และส่งงานที่พักไว้ต่อแล้ว`,
+    }),
+    en: (v) => ({
+      title: 'Connector back online',
+      body: `Connector ${v.label} can reach the destination again — it was resumed and parked work is being sent.`,
     }),
   },
   'connector.platform_changed': {

@@ -11,6 +11,7 @@ import {
 } from '@tms/domain';
 import { randomUUID } from 'node:crypto';
 import { isLocalEnv } from '../../auth/tokens';
+import { Clock } from '../../common/clock';
 import { FieldCipher } from '../../common/crypto';
 import { encodeId, ID_PREFIX, type IdKind, tryDecodeId } from '../../common/ids';
 import { ProblemException } from '../../common/problem';
@@ -35,11 +36,66 @@ import type {
   UpdateConnectorDto,
 } from './connector.dto';
 import { ConnectorResolver } from './connector-resolver';
-import type { ErpAdapter, ErpContext, HealthResult } from './erp-adapter';
+import {
+  type ErpAdapter,
+  type ErpContext,
+  type HealthResult,
+  isPendingCapability,
+  readyCapabilities,
+} from './erp-adapter';
 import { ErpAdapterRegistry } from './erp-adapter.registry';
+import type { ErrorClass } from '../integration/outbox.types';
 import { generateInboundToken, INBOUND_MAX_ATTEMPTS, INBOUND_PROCESS_JOB } from './inbound-token';
 
 const HEALTH_TIMEOUT_MS = 15_000;
+
+/**
+ * ST8-T03 (spec/07 §1 ตารางสถานะ `active → error`: "auth ล้มเหลว / ปลายทางล่มต่อเนื่อง ≥ 30 นาที"):
+ * - AUTH = credential ใช้ไม่ได้ → ERROR ทันที (docs/01 §6.3)
+ * - TRANSIENT (ปลายทางไม่ตอบ/503/timeout) → จดเวลาเริ่มล้ม `health_failing_since` — ล้มต่อเนื่องครบ `HEALTH_ERROR_AFTER_MS` → ERROR
+ *   (หยุดทั้งคิว — docs/01 A.5) · ผ่านเมื่อไร = ล้างค่า · worker ตรวจซ้ำทุก `HEALTH_RECHECK_EVERY_MS` (`recheckUnhealthy`)
+ *   และคืน ERROR ที่เกิดจาก TRANSIENT เป็น ACTIVE เองเมื่อปลายทางกลับมา ("ระบบ" — spec/07 `error → active`)
+ * - class อื่น (VALIDATION ค่าตั้งผิด, CAPABILITY adapter ไม่ได้ติดตั้ง) บันทึกผลอย่างเดียว ไม่เปลี่ยนสถานะ
+ */
+export const HEALTH_STOP_CLASSES: ReadonlySet<ErrorClass> = new Set<ErrorClass>([
+  'AUTH',
+  'TRANSIENT',
+]);
+export const HEALTH_ERROR_AFTER_MS = 30 * 60_000;
+export const HEALTH_RECHECK_EVERY_MS = 5 * 60_000;
+
+/**
+ * ST8-T03 ข้อความไทยของผลทดสอบการเชื่อมต่อ (`POST /connectors/{id}/health` ช่อง `message`) ตามรหัส — ข้อความดิบของปลายทางอยู่ใน `detail`
+ * รหัสที่ไม่รู้จัก = ข้อความตาม ErrorClass
+ */
+const HEALTH_CODE_TH: Readonly<Record<string, string>> = {
+  unreachable: 'ติดต่อระบบปลายทางไม่ได้ — ระบบจะลองใหม่และกลับมาเชื่อมต่อเองเมื่อปลายทางพร้อม',
+  timeout: 'ระบบปลายทางไม่ตอบภายในเวลาที่กำหนด — ระบบจะลองใหม่',
+  service_unavailable: 'ระบบปลายทางขัดข้องชั่วคราว (503) — ระบบจะลองใหม่',
+  unauthorized: 'ระบบปลายทางไม่ยอมรับ key — ตรวจหรือเปลี่ยน key แล้วทดสอบอีกครั้ง',
+  credentials_missing: 'ยังไม่ได้กรอก key ของระบบปลายทาง',
+  credentials_unreadable: 'อ่าน key ที่บันทึกไว้ไม่ได้ — กรอก key ใหม่',
+  config_missing: 'ค่าตั้งไม่ครบ — ตรวจ URL ของระบบปลายทาง',
+  url_not_allowed: 'ไม่อนุญาตให้เชื่อมต่อปลายทางนี้ (ที่อยู่ภายใน/พอร์ตไม่อนุญาต)',
+  adapter_unavailable: 'ระบบนี้ยังไม่พร้อมใช้งานในสภาพแวดล้อมนี้',
+  health_error: 'ทดสอบการเชื่อมต่อไม่สำเร็จ — ระบบจะลองใหม่',
+};
+const HEALTH_CLASS_TH: Readonly<Partial<Record<ErrorClass, string>>> = {
+  AUTH: 'ระบบปลายทางไม่ยอมรับข้อมูลยืนยันตัวตน — ตรวจ key แล้วทดสอบอีกครั้ง',
+  TRANSIENT: 'ระบบปลายทางขัดข้องชั่วคราว — ระบบจะลองใหม่',
+  VALIDATION: 'ค่าตั้งการเชื่อมต่อไม่ถูกต้อง — ตรวจ URL และค่าตั้ง',
+};
+export function healthMessageTh(code: string, errorClass: ErrorClass): string {
+  return HEALTH_CODE_TH[code] ?? HEALTH_CLASS_TH[errorClass] ?? 'ทดสอบการเชื่อมต่อไม่สำเร็จ';
+}
+
+/** ผลตรวจที่ควรเปลี่ยน connector ACTIVE เป็น ERROR ไหม (since = เวลาเริ่มล้ม TRANSIENT ต่อเนื่อง) */
+export function healthShouldStop(r: HealthResult, since: Date | null, at: Date): boolean {
+  if (r.ok) return false;
+  if (r.errorClass === 'AUTH') return true;
+  if (r.errorClass !== 'TRANSIENT' || !since) return false;
+  return at.getTime() - since.getTime() >= HEALTH_ERROR_AFTER_MS;
+}
 const VALUE_MAX = 2048;
 
 const field422 = (field: string, code: string, message: string) =>
@@ -135,6 +191,7 @@ export class ConnectorsService {
     private readonly entitlements: EntitlementService,
     private readonly prisma: PrismaService,
     private readonly events: NotificationEvents,
+    private readonly clock: Clock,
   ) {}
 
   get cipher(): FieldCipher {
@@ -160,6 +217,7 @@ export class ConnectorsService {
       displayName: a.displayName,
       demo: !!a.localOnly,
       capabilities: ERP_CAPABILITIES.filter((c) => a.capabilities().has(c)),
+      capabilitiesPending: ERP_CAPABILITIES.filter((c) => isPendingCapability(a, c)),
       masterCodeKinds: a.fetchMasterCodes
         ? ERP_MASTER_CODE_KINDS.filter((k) => (a.masterCodeKinds ?? []).includes(k))
         : [],
@@ -176,7 +234,8 @@ export class ConnectorsService {
 
   toDto(c: Connector): ConnectorDto {
     const adapter = this.adapters.get(c.adapterKey);
-    const supported = adapter ? ERP_CAPABILITIES.filter((x) => adapter.capabilities().has(x)) : [];
+    const ready = adapter ? readyCapabilities(adapter) : new Set<string>();
+    const supported = ERP_CAPABILITIES.filter((x) => ready.has(x));
     const map = (c.branchMap ?? {}) as Record<string, string>;
     return {
       id: encodeId('connector', c.id),
@@ -191,6 +250,9 @@ export class ConnectorsService {
       statusReason: c.statusReason,
       statusChangedAt: iso(c.statusChangedAt),
       capabilitiesSupported: supported,
+      capabilitiesPending: adapter
+        ? ERP_CAPABILITIES.filter((x) => isPendingCapability(adapter, x))
+        : [],
       capabilitiesEnabled: ERP_CAPABILITIES.filter((x) => c.capabilitiesEnabled.includes(x)),
       capabilities: this.resolver.describe(c).capabilities,
       settings: (c.settings ?? {}) as Record<string, string>,
@@ -392,7 +454,8 @@ export class ConnectorsService {
   }
 
   private checkCapabilities(adapter: ErpAdapter, list: string[] | undefined): string[] {
-    const caps = adapter.capabilities();
+    // ST8-T03 ที่ยังไม่ได้ทำ (`pendingCapabilities`) ไม่นับว่ารองรับ — ไม่เปิดเป็นค่าเริ่มต้น และขอเปิด = 422
+    const caps = readyCapabilities(adapter);
     if (list === undefined) return ERP_CAPABILITIES.filter((c) => caps.has(c));
     const bad = unsupportedCapabilities(caps, list);
     if (bad.length)
@@ -619,7 +682,11 @@ export class ConnectorsService {
     await this.audit(tx, { action, entityId: id, before: b, after: a, reason });
   }
 
-  /** แทน credential ทั้งชุด (หมุน key) — audit บันทึกเฉพาะชื่อช่อง; ผล healthCheck เดิมใช้ไม่ได้แล้ว */
+  /**
+   * เปลี่ยน credential (หมุน key) — audit บันทึกเฉพาะชื่อช่อง; ผล healthCheck เดิมใช้ไม่ได้แล้ว
+   * ST8-T03: **รวมกับค่าเดิม** — ช่องที่ไม่ส่งมาคงค่าเดิม (เช่น หมุน `apiKey` ไม่ลบ `sqlPassword`) · ต้องส่งอย่างน้อย 1 ช่อง ·
+   * ช่องบังคับต้องมีค่าหลังรวม · ถอดค่าเดิมไม่ได้ (เปลี่ยน key ring) = ใช้เฉพาะที่ส่งมา
+   */
   async setCredentials(
     id: string,
     body: ConnectorCredentialsDto,
@@ -631,7 +698,27 @@ export class ConnectorsService {
     this.version(cur, expected);
     if (cur.status === 'DISCONNECTED') throw new ProblemException('invalid_state_transition');
     const adapter = this.adapterOr422(cur.adapterKey);
-    const credentials = this.checkGroup(adapter, 'credentials', body.credentials);
+    const given: Record<string, string> = {};
+    for (const [k, v] of Object.entries(body.credentials ?? {}))
+      given[k] = this.checkValue(adapter, 'credentials', k, v);
+    if (!Object.keys(given).length)
+      throw field422('credentials', 'required', 'at least one credential field');
+    const secretKeys = new Set(adapter.configFields.filter((f) => f.secret).map((f) => f.key));
+    let prev: Record<string, string> = {};
+    try {
+      prev = cur.credentialsEnc
+        ? (JSON.parse(this.cipher.decrypt(cur.credentialsEnc)) as Record<string, string>)
+        : {};
+    } catch {
+      prev = {};
+    }
+    const credentials: Record<string, string> = {
+      ...Object.fromEntries(Object.entries(prev).filter(([k]) => secretKeys.has(k))),
+      ...given,
+    };
+    for (const f of adapter.configFields)
+      if (f.required && f.secret && !credentials[f.key])
+        throw field422(`credentials.${f.key}`, 'required', 'required by this adapter');
     const keys = Object.keys(credentials).sort();
     const n = await tx.connector.updateMany({
       where: { id, version: cur.version },
@@ -971,8 +1058,10 @@ export class ConnectorsService {
     }
   }
 
-  private healthData(r: HealthResult, at: Date) {
+  /** `prevSince` = ค่าเดิมของ `health_failing_since` — TRANSIENT ต่อเนื่องคงเวลาเริ่มเดิม */
+  private healthData(r: HealthResult, at: Date, prevSince: Date | null = null) {
     return {
+      healthFailingSince: !r.ok && r.errorClass === 'TRANSIENT' ? (prevSince ?? at) : null,
       lastHealthAt: at,
       lastHealthOk: r.ok,
       lastHealthError: r.ok
@@ -987,7 +1076,8 @@ export class ConnectorsService {
 
   /**
    * ทดสอบการเชื่อมต่อ (docs/01 §5.2 #14 `POST /connectors/{id}/health`)
-   * ACTIVE + ล้มแบบ AUTH → ERROR (spec/07 §1.6) · ERROR + ผ่าน → ACTIVE (ส่งคิวค้างต่อ)
+   * ACTIVE + AUTH → ERROR ทันที · TRANSIENT → ERROR เมื่อล้มต่อเนื่อง ≥ 30 นาที (`healthShouldStop` — spec/07 §1; ST8-T03) ·
+   * ERROR + ผ่าน → ACTIVE (ส่งคิวค้างต่อ)
    */
   async health(id: string): Promise<ConnectorHealthDto> {
     this.assertHuman();
@@ -995,16 +1085,17 @@ export class ConnectorsService {
     const cur = await this.db.withTenant(tenantId, (tx) => this.get(id, tx));
     if (cur.status === 'DISCONNECTED') throw new ProblemException('invalid_state_transition');
     const r = await this.runHealth(cur);
-    const at = new Date();
+    const at = this.clock.now();
     const row = await this.db.withTenant(tenantId, async (tx) => {
       const now = await this.get(id, tx);
-      await tx.connector.update({ where: { id }, data: this.healthData(r, at) });
+      const data = this.healthData(r, at, now.healthFailingSince);
+      await tx.connector.update({ where: { id }, data });
       await this.audit(tx, {
         action: 'connector.health_checked',
         entityId: id,
         after: r.ok ? { ok: true } : { ok: false, errorClass: r.errorClass, code: r.problem.code },
       });
-      if (now.status === 'ACTIVE' && !r.ok && r.errorClass === 'AUTH') {
+      if (now.status === 'ACTIVE' && !r.ok && healthShouldStop(r, data.healthFailingSince, at)) {
         const down = await this.transition(tx, now, 'ERROR', 'connector.error', r.problem.code);
         await this.notifyDown(tx, down, r.problem.code);
         return down;
@@ -1019,7 +1110,8 @@ export class ConnectorsService {
       ok: r.ok,
       errorClass: r.ok ? null : r.errorClass,
       code: r.ok ? null : r.problem.code,
-      message: r.ok ? null : r.problem.message,
+      message: r.ok ? null : healthMessageTh(r.problem.code, r.errorClass),
+      detail: r.ok ? null : r.problem.message || null,
       checkedAt: at.toISOString(),
       connector: this.toDto(row),
     };
@@ -1034,10 +1126,13 @@ export class ConnectorsService {
     if (!canConnectorTransition('resume', cur.status))
       throw new ProblemException('invalid_state_transition');
     const r = await this.runHealth(cur);
-    const at = new Date();
+    const at = this.clock.now();
     if (!r.ok) {
       await this.db.withTenant(tenantId, (tx) =>
-        tx.connector.update({ where: { id }, data: this.healthData(r, at) }),
+        tx.connector.update({
+          where: { id },
+          data: this.healthData(r, at, cur.healthFailingSince),
+        }),
       );
       throw new ProblemException('connector_health_failed', undefined, undefined, {
         errorClass: r.errorClass,
@@ -1055,18 +1150,24 @@ export class ConnectorsService {
   }
 
   /**
-   * ระบบหยุด connector (docs/01 §6.3 AUTH: "หยุด connector ทั้งตัว status = ERROR") — เรียกจาก ErpAdapterSink
+   * ระบบหยุด connector (docs/01 §6.3 AUTH: "หยุด connector ทั้งตัว status = ERROR"; ST8-T03 TRANSIENT ที่ healthCheck ยืนยันว่าปลายทางล่ม) — เรียกจาก ErpAdapterSink
    * ใน transaction ของ tenant · ไม่มีผู้ใช้ (actor null) · ไม่ทับสถานะที่ผู้ดูแลตั้ง (PAUSED/DISCONNECTED)
    */
-  async markError(tx: Tx, c: Connector, problem: { code: string; message: string }) {
+  async markError(
+    tx: Tx,
+    c: Connector,
+    problem: { code: string; message: string },
+    errorClass: ErrorClass = 'AUTH',
+  ) {
     const n = await tx.connector.updateMany({
       where: { id: c.id, status: 'ACTIVE' },
       data: {
         status: 'ERROR',
         statusReason: problem.code.slice(0, 60),
-        statusChangedAt: new Date(),
+        statusChangedAt: this.clock.now(),
         lastHealthOk: false,
-        lastHealthError: { errorClass: 'AUTH', ...problem } as Prisma.InputJsonValue,
+        lastHealthAt: this.clock.now(),
+        lastHealthError: { errorClass, ...problem } as Prisma.InputJsonValue,
         version: { increment: 1 },
       },
     });
@@ -1080,12 +1181,102 @@ export class ConnectorsService {
         entityType: 'connector',
         entityId: c.id,
         before: { status: 'ACTIVE' },
-        after: { status: 'ERROR', errorClass: 'AUTH', code: problem.code },
+        after: { status: 'ERROR', errorClass, code: problem.code },
         reason: problem.code.slice(0, 60),
       },
     });
     await this.notifyDown(tx, row, problem.code);
     this.logger.warn(`connector ${c.id} (${c.adapterKey}) → ERROR: ${problem.code}`);
+  }
+
+  /**
+   * ST8-T03 บันทึกผล healthCheck ที่ระบบตรวจเอง (sink หลังส่งล้ม TRANSIENT / worker ตรวจซ้ำ) — ไม่มีผู้ใช้ (actor null)
+   * AUTH → ERROR ทันที · TRANSIENT → จดเวลาเริ่มล้ม, ครบ 30 นาที → ERROR · ผ่าน → ล้างเวลา และ ERROR ที่เกิดจาก TRANSIENT → ACTIVE
+   * คืน true เมื่อกลับเป็น ACTIVE (ผู้เรียกปลุกคิวหลัง commit ด้วย `wakeParked`) · ไม่ทับ PAUSED/DISCONNECTED
+   */
+  async applySystemHealth(
+    tx: Tx,
+    connectorId: string,
+    r: HealthResult,
+    at: Date,
+  ): Promise<boolean> {
+    const c = await tx.connector.findUnique({ where: { id: connectorId } });
+    if (!c || (c.status !== 'ACTIVE' && c.status !== 'ERROR')) return false;
+    const data = this.healthData(r, at, c.healthFailingSince);
+    if (c.status === 'ACTIVE') {
+      await tx.connector.update({ where: { id: c.id }, data });
+      if (!r.ok && healthShouldStop(r, data.healthFailingSince, at))
+        await this.markError(tx, c, r.problem, r.errorClass);
+      return false;
+    }
+    // ERROR: กู้คืนเองเฉพาะที่หยุดเพราะปลายทางล่ม (TRANSIENT) — AUTH ต้องให้คนแก้ credential (เหตุผลเดิมคงไว้)
+    const why = ((c.lastHealthError ?? {}) as { errorClass?: string }).errorClass;
+    if (why !== 'TRANSIENT') return false;
+    await tx.connector.update({ where: { id: c.id }, data });
+    if (!r.ok) return false;
+    const n = await tx.connector.updateMany({
+      where: { id: c.id, status: 'ERROR' },
+      data: {
+        status: 'ACTIVE',
+        statusReason: null,
+        statusChangedAt: at,
+        version: { increment: 1 },
+      },
+    });
+    if (n.count !== 1) return false;
+    const row = await tx.connector.findUniqueOrThrow({ where: { id: c.id } });
+    await this.emitHealthChanged(tx, row, 'ERROR', null, null);
+    await tx.auditLog.create({
+      data: {
+        tenantId: c.tenantId,
+        action: 'connector.recovered',
+        entityType: 'connector',
+        entityId: c.id,
+        before: { status: 'ERROR' },
+        after: { status: 'ACTIVE', by: 'system' },
+        reason: 'health_recovered',
+      },
+    });
+    await this.events.connectorRecovered(tx, {
+      tenantId: c.tenantId,
+      connectorId: c.id,
+      label: this.adapters.get(c.adapterKey)?.displayName ?? c.adapterKey,
+    });
+    this.logger.log(`connector ${c.id} (${c.adapterKey}) → ACTIVE (destination is back)`);
+    return true;
+  }
+
+  /**
+   * ST8-T03 worker (ทุก `HEALTH_RECHECK_EVERY_MS`): ตรวจซ้ำ connector ที่ ACTIVE แต่ล้ม TRANSIENT อยู่ (นับ 30 นาทีต่อ)
+   * และ ERROR ที่เกิดจาก TRANSIENT (กู้คืนเองเมื่อปลายทางกลับมา) · อ่านข้าม tenant ด้วย role platform, เขียนใต้ RLS ของ tenant
+   * คืนจำนวน connector ที่ตรวจ
+   */
+  async recheckUnhealthy(): Promise<number> {
+    const rows = await this.prisma.platform.connector.findMany({
+      where: {
+        OR: [
+          { status: 'ACTIVE', healthFailingSince: { not: null } },
+          { status: 'ERROR', lastHealthError: { path: ['errorClass'], equals: 'TRANSIENT' } },
+        ],
+      },
+      orderBy: { lastHealthAt: 'asc' },
+      take: 200,
+    });
+    for (const c of rows) {
+      try {
+        const r = await this.runHealth(c);
+        const at = this.clock.now();
+        const back = await this.db.withTenant(c.tenantId, (tx) =>
+          this.applySystemHealth(tx, c.id, r, at),
+        );
+        if (back) await this.wakeParked(c.tenantId, c.id);
+      } catch (e) {
+        this.logger.warn(
+          `connector ${c.id} health recheck failed: ${String((e as Error)?.message ?? e)}`,
+        );
+      }
+    }
+    return rows.length;
   }
 
   /** ST9-T08 "connector ล่ม" (docs/04 I) — ใน transaction เดียวกับการเปลี่ยนเป็น ERROR */

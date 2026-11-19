@@ -200,6 +200,23 @@ export class NotificationEvents implements OnModuleInit {
     );
   }
 
+  /** ST8-T03 connector กลับมาทำงานเอง (ERROR จากปลายทางล่ม → ACTIVE เมื่อปลายทางตอบอีกครั้ง) — ผู้รับเดียวกับ connector ล่ม */
+  async connectorRecovered(
+    tx: Tx,
+    input: { tenantId: string; connectorId: string; label: string },
+  ): Promise<void> {
+    await this.safely(tx, 'connector.recovered', () =>
+      this.notifications.notify(tx, {
+        tenantId: input.tenantId,
+        to: { permissions: ['settings:write', 'integrations:retry'] },
+        template: 'connector.recovered',
+        vars: { label: input.label },
+        link: '/settings?sec=conn',
+        entity: { type: 'connector', id: encodeId('connector', input.connectorId) },
+      }),
+    );
+  }
+
   /**
    * ST7-T20 ทีม Innovera เปลี่ยน connector (credential/สถานะ) จาก Platform Console → แจ้ง owner ทุกคน ในระบบ + อีเมล
    * (สอดคล้องกับเข้าใช้งานแทน — docs/04 A6 "อีเมลแจ้ง tenant owner ทุกครั้ง") [DECISION spec/12 §3]
