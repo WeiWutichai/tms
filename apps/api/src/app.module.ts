@@ -160,6 +160,7 @@ import {
 import { RevenueLinesService } from './modules/revenue-lines/revenue-lines.service';
 import { SettlementsController } from './modules/settlements/settlements.controller';
 import { SettlementQueueService } from './modules/settlements/settlement-queue.service';
+import { SettlementsService } from './modules/settlements/settlements.service';
 import { StopEventFlagsController } from './modules/stops/stop-event-flags.controller';
 import { StopsController, TripEventsController } from './modules/stops/stops.controller';
 import { StopEventsService } from './modules/stops/stop-events.service';
@@ -371,6 +372,7 @@ import { ExpiryReminderService } from './modules/reminders/expiry-reminder.servi
     FieldChargesService,
     RevenueLinesService,
     SettlementQueueService,
+    SettlementsService,
     StopEventsService,
     StopProjectionService,
     SubconHireService,

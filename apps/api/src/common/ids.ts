@@ -64,6 +64,10 @@ export const ID_PREFIX = {
   revenueLine: 'rvl',
   /** ST5-T01 บรรทัดราคาของใบสั่ง (sales_order_charge) — ใช้เป็น `sourceId` ของบรรทัดรายได้ SO_CHARGE */
   orderCharge: 'och',
+  /** ST6-T03 ใบสำคัญจ่ายรถร่วม (carrier_settlement — docs/01 §3.6 `stl_`) */
+  settlement: 'stl',
+  /** ST6-T03 บรรทัดใบสำคัญจ่าย (settlement_line) */
+  settlementLine: 'stln',
 } as const;
 export type IdKind = keyof typeof ID_PREFIX;
 

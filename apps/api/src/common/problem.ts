@@ -356,6 +356,18 @@ export const PROBLEMS = {
     th: 'ต้นทุนเที่ยวยังไม่ครบ — ยืนยัน/ปฏิเสธค่าใช้จ่ายหน้างานที่รอ ตรวจค่าจ้างรถร่วม และรายได้ของใบส่งของ (ใช้ปันต้นทุน) ก่อนปิดต้นทุน',
     en: 'Trip costs are not complete — decide pending field charges, check the carrier fee and the delivery order revenue used for allocation first',
   },
+  /** ST6-T03: บรรทัดต้นทุนอยู่ในใบสำคัญจ่ายที่ยังใช้อยู่แล้ว (กันจ่ายซ้ำ K11) — extension `tripCostIds`, `settlementIds` */
+  trip_cost_already_settled: {
+    status: 409,
+    th: 'บรรทัดต้นทุนนี้อยู่ในใบสำคัญจ่ายอื่นแล้ว — จ่ายซ้ำไม่ได้',
+    en: 'Trip cost line is already in another active settlement',
+  },
+  /** ST6-T03: เที่ยว/บรรทัดต้นทุนไม่อยู่ในคิวจ่ายของรถร่วมรายนี้ (ยังไม่ปิดต้นทุน / POD ไม่ครบ / ต่างรถร่วม / ยังไม่ยืนยัน) — extension `tripIds`, `tripCostIds` */
+  trip_cost_not_payable: {
+    status: 409,
+    th: 'เที่ยวหรือบรรทัดต้นทุนนี้ยังไม่อยู่ในคิวจ่ายของรถร่วมรายนี้ (ต้องปิดต้นทุนแล้ว หลักฐานส่งครบตามเงื่อนไข และเป็นของรถร่วมรายนี้)',
+    en: 'Trip or trip cost line is not in the pay queue of this carrier',
+  },
   trip_stops_open: {
     status: 409,
     th: 'ยังมีจุดแวะที่ยังไม่จบ — ปิดเที่ยวได้เมื่อทุกจุดส่งสำเร็จ/ไม่สำเร็จ/ข้าม',
