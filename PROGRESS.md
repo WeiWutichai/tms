@@ -283,6 +283,11 @@
 
 ## บันทึกรายวัน
 
+### 19 พ.ย. 2569 (แก้ E2E routes.spec — RefPicker เปิดรายการตอน focus · lane l5)
+
+- **ทำ:** E2E `routes.spec.ts:38` timeout ทุกครั้ง **ทั้งบน origin/main (5be2a82) และ branch นี้** — สาเหตุ ST9-T20 (9a3f9d6): FormDrawer ย้าย focus ไปช่องที่ผิดหลังบันทึก → 409 เส้นทางซ้ำทำให้ focus ช่อง "ปลายทาง" → `RefPicker` เปิดรายการตอน focus → รายการลอยทับลิงก์ "เปิดใช้เส้นทางเดิม" (คลิกโดนบัง) · แก้: `RefPicker` เปิดรายการเมื่อผู้ใช้สั่งเท่านั้น (คลิก / พิมพ์ / ↓ — แบบ WAI-ARIA combobox) ไม่เปิดตอน focus · spec ไม่แก้
+- **ไฟล์:** `apps/web/src/features/master/RefPicker.tsx`, `RefPicker.test.tsx` (ใหม่ 2 ข้อ)
+
 ### 19 พ.ย. 2569 (ST5-T01b แก้ตาม review/QA — lane l5)
 
 - **ทำ:** (H1) ยอดเหมาและส่วนที่ขาดถึงขั้นต่ำ หักยอดที่ออกใบแล้ว (บรรทัดล็อกของบรรทัดราคาเดียวกัน/แหล่งเดิมที่ถูกคิดใหม่) ก่อนแบ่งให้ DO ที่ยังคิดได้ — ไม่ติดลบ (M1) คิดต่อ DO ไม่ได้ → ยอดเหมาชั่วคราว + `provisional` (M2) เปลี่ยนเกณฑ์วางบิลลูกค้า → งาน `revenue_lines.rebuild_customer` ทีละใบสั่ง · backfill ย้ายออกจาก STEPS ไปท้าย `tenants:bootstrap` ทีละใบสั่ง (resumable, ล้มไม่ทำให้ migrate ล้ม) (M3) เพิ่มบรรทัดเองกันเฉพาะ DO ที่ล็อก + backlog ST5-T09 "ห้าม finalize บรรทัด provisional" (QA L1) แยก/รวม DO ที่มีบรรทัดล็อก → 409 (L1) seed bootstrap ใน transaction (L2) [OPEN — PO] เปลี่ยนเกณฑ์วางบิลกลางทาง · spec/12 ระบุชัดเรื่องปัดต่อ DO ทำให้ผลรวมต่างยอดใบสั่งได้ไม่กี่สตางค์
