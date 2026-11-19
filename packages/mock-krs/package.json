@@ -1,0 +1,30 @@
+{
+  "name": "@tms/mock-krs",
+  "version": "0.0.1",
+  "private": true,
+  "description": "ST8-T01 mock ของ KRS api-pueanphet จาก contract (packages/contracts/krs) — ใช้ใน dev/test/staging เท่านั้น ไม่เรียกระบบจริง",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "bin": {
+    "mock-krs": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
+    "test": "vitest run",
+    "lint": "prettier --check src",
+    "start": "node dist/cli.js",
+    "dev": "tsc -p tsconfig.json && node dist/cli.js"
+  },
+  "dependencies": {
+    "ajv": "^8.20.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.0",
+    "typescript": "^5.6.3",
+    "vitest": "^4.1.12"
+  }
+}

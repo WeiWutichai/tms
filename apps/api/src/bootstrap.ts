@@ -9,7 +9,7 @@ import { AppModule } from './app.module';
 import { Public } from './common/decorators';
 import { describeExternalIdParams } from './common/external-id';
 import { describeRateLimits } from './http/rate-limit/openapi';
-import { describeProblemDefaults } from './http/problem-openapi';
+import { describeProblemCatalog, describeProblemDefaults } from './http/problem-openapi';
 import { describeApiVersioning } from './http/api-version/openapi';
 import { describeWebhookEvents } from './modules/webhooks/event-openapi';
 import { createValidationPipe } from './common/validation';
@@ -29,15 +29,17 @@ export function buildOpenApi(app: NestExpressApplication): OpenAPIObject {
     .setVersion('v1')
     .addBearerAuth()
     .build();
-  return describeWebhookEvents(
-    describeApiVersioning(
-      describeRateLimits(
-        describeProblemDefaults(
-          describeExternalIdParams(
-            SwaggerModule.createDocument(app, config, {
-              operationIdFactory: (controllerKey, methodKey) =>
-                `${controllerKey.replace(/Controller$/, '')}_${methodKey}`,
-            }),
+  return describeProblemCatalog(
+    describeWebhookEvents(
+      describeApiVersioning(
+        describeRateLimits(
+          describeProblemDefaults(
+            describeExternalIdParams(
+              SwaggerModule.createDocument(app, config, {
+                operationIdFactory: (controllerKey, methodKey) =>
+                  `${controllerKey.replace(/Controller$/, '')}_${methodKey}`,
+              }),
+            ),
           ),
         ),
       ),

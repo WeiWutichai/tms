@@ -544,7 +544,18 @@ export const th = {
   'lock.fleet.p1': 'แจ้งเตือนเอกสารใกล้หมดอายุ',
   'lock.fleet.p2': 'ใบสั่งซ่อมพร้อมวงเงินอนุมัติ',
   'lock.fleet.p3': 'ห้ามจ่ายงานรถที่ไม่พร้อม',
+  // ต้นแบบ MODS.api (หน้า นักพัฒนา / Open API เมื่อแพ็กเกจไม่มี — ST7-T12 QA)
+  'lock.api.t': 'นักพัฒนา / Open API',
+  'lock.api.d': 'ให้ระบบอื่นสร้าง SO ดึงสถานะ และรับ webhook',
+  'lock.api.p1': 'API key แยก sandbox',
+  'lock.api.p2': 'Webhook พร้อมลายเซ็น',
+  'lock.api.p3': 'MCP สำหรับ AI agent',
   'problem.feature_not_in_plan': 'แพ็กเกจปัจจุบันยังไม่มีฟีเจอร์นี้',
+  // ST7-T12: รหัสใน errors[].code ของ routing นิติบุคคล (ตรงกับ PROBLEMS.*.th)
+  'problem.routing_not_configured':
+    'บริษัทมีหลายนิติบุคคลแต่ยังไม่ได้กำหนดนิติบุคคลออกบิล — ส่ง billingCompanyId (จาก GET /v1/companies) หรือตั้ง "ออกบิลในนาม" ที่ลูกค้า/ค่าตั้งต้นของบริษัท',
+  'problem.company_unavailable': 'นิติบุคคลออกบิลไม่พบหรือปิดใช้อยู่',
+  'problem.branch_unavailable': 'นิติบุคคลออกบิลยังไม่มีสาขาที่ออกเอกสาร',
   'noAccess.title': 'ไม่มีสิทธิ์เข้าถึงหน้านี้',
   'noAccess.desc': 'บทบาท "{role}" เข้าหน้านี้ไม่ได้ ติดต่อผู้ดูแลระบบหากต้องการสิทธิ์',
   'noAccess.back': 'กลับหน้าภาพรวม',
@@ -4412,6 +4423,9 @@ export const th = {
   'problem.trip_empty': 'เที่ยวนี้ยังไม่มีใบส่งของ',
   'problem.trip_stops_open':
     'ยังมีจุดแวะที่ยังไม่จบ — ปิดเที่ยวได้เมื่อทุกจุดส่งสำเร็จ/ไม่สำเร็จ/ข้าม',
+  'problem.trip_costing_unavailable': 'ปิดต้นทุนเที่ยวได้หลังกำหนดวิธีปันต้นทุนลง DO',
+  'problem.trip_costs_incomplete':
+    'ต้นทุนเที่ยวยังไม่ครบ — ยืนยัน/ปฏิเสธค่าใช้จ่ายหน้างานที่รอ และตรวจค่าจ้างรถร่วมก่อนปิดต้นทุน',
   'problem.trip_not_in_progress': 'บันทึกสถานะหน้างานได้เฉพาะเที่ยวที่ปล่อยรถแล้วและยังไม่จบ',
   'problem.stop_event_duplicate': 'clientEventId นี้ถูกใช้กับ event อื่นแล้ว',
   'problem.stop_event_not_flagged': 'เหตุการณ์นี้ไม่มีข้อขัดแย้งให้ตัดสิน',

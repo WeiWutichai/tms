@@ -51,6 +51,7 @@ import { bangkokToday } from '../vehicle-documents/expiry';
 import { OrderStateService } from '../orders/order-state.service';
 import { issueNumber } from '../sequences/sequences.service';
 import { reverseCarrierFees } from './carrier-fees';
+import { costLines, costReadiness, tripCostingEnabled } from './trip-costs';
 import { Clock } from '../../common/clock';
 import { OfferLinks, OFFER_TTL_MS } from './offer-links';
 import { refreshTripLegs } from './trip-legs';
@@ -229,6 +230,7 @@ const EVENT_TYPE: Partial<Record<TripEvent, string>> = {
   dispatch: 'trip.dispatched',
   start: 'trip.started',
   complete: 'trip.completed',
+  cost: 'trip.costed',
   cancel: 'trip.cancelled',
 };
 
@@ -1507,6 +1509,47 @@ export class TripService {
       entityType: ENTITY,
       entityId: trip.id,
       after: view(final),
+    });
+    return final;
+  }
+
+  /** บรรทัดต้นทุน + ความพร้อมปิดต้นทุนของเที่ยว (ST6-T01 `GET /trips/{id}/costs`) */
+  async costs(id: string, tx: Tx = this.db.tx) {
+    const trip = await this.get(id, tx);
+    const data = await costLines(tx, trip.id);
+    const ready = await costReadiness(tx, trip);
+    return { trip, data, ready };
+  }
+
+  /**
+   * ปิดต้นทุนเที่ยว (ST6-T01; docs/01 §4.2 COMPLETED → COSTED "ต้นทุนเที่ยวครบ") — `trips:close` + If-Match
+   * ต้นทุนครบ = `costReadiness` (ไม่มีค่าใช้จ่ายหน้างานรอยืนยัน · เที่ยวรถร่วมมีค่าจ้างของการจ้างที่รับแล้ว) ไม่ครบ → 409
+   * `trip_costs_incomplete` + `blockers` · หลังปิด: บันทึก/ยืนยันค่าใช้จ่ายหน้างานไม่ได้ (ST4-T13) · audit `trip.costed`
+   * (ไม่ใส่ยอดเงินใน audit — สิทธิ์ราคาซื้อ)
+   */
+  async cost(id: string, tx: Tx = this.db.tx, expectedVersion?: number): Promise<TripRecord> {
+    // docs/01 §4.2 COMPLETED → COSTED = "ต้นทุนครบ + ปันลง DO" — วิธีปันยังไม่ตัดสิน → ปิดไว้ (ค่าเริ่มต้น) จนกว่าจะตัดสิน
+    if (!tripCostingEnabled()) throw new ProblemException('trip_costing_unavailable');
+    const { trip } = await this.lock(tx, id, expectedVersion);
+    this.assertCan(trip, 'cost');
+    // ล็อกบรรทัดต้นทุนของเที่ยว — กันยืนยัน/บันทึกค่าใช้จ่ายหน้างานพร้อมกัน (field-charges ล็อกเที่ยวแบบ FOR SHARE ก่อนเขียน)
+    await tx.$queryRaw`SELECT id FROM trip_cost WHERE trip_id = ${trip.id}::uuid FOR UPDATE`;
+    const ready = await costReadiness(tx, trip);
+    if (ready.blockers.length)
+      throw new ProblemException('trip_costs_incomplete', undefined, undefined, {
+        blockers: ready.blockers,
+        pendingCount: ready.pendingCount,
+      });
+    const actor = requestContext.require().actorId ?? null;
+    await this.transition(tx, trip, 'cost', { costedAt: new Date(), costedBy: actor });
+    const final = await this.get(trip.id, tx);
+    const lines = await tx.tripCost.count({ where: { tripId: trip.id, status: 'CONFIRMED' } });
+    await this.audit.record({
+      action: `${ENTITY}.costed`,
+      entityType: ENTITY,
+      entityId: trip.id,
+      before: { status: trip.status },
+      after: { status: final.status, costLines: lines },
     });
     return final;
   }
